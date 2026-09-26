@@ -259,33 +259,43 @@ def informe_md(modelo: dict, r: dict) -> str:
 
 
 def grafico(modelo: dict, r: dict, ruta_png: Path) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg")
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import estilo_graficos as eg
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(11, 4.2))
+    eg.aplicar()
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.6), gridspec_kw={"width_ratios": [1, 1.15]})
     y = r["muestras"]
-    ax1.hist(y, bins=60, color="#2f6f8f", alpha=0.85)
-    for p, estilo in ((10, ":"), (50, "-"), (90, ":")):
-        ax1.axvline(r["percentiles"][p], color="#1a1a1a", linestyle=estilo, linewidth=1)
-    ax1.set_title(f"Distribución de {modelo['salida']}", fontsize=10)
+    ax1.hist(y, bins=50, color=eg.SERIES[0], alpha=0.9, edgecolor=eg.SUPERFICIE, linewidth=0.6)
+    ax1.grid(axis="x", visible=False)
+    ymax = ax1.get_ylim()[1]
+    for p in (10, 50, 90):
+        v = r["percentiles"][p]
+        ax1.axvline(v, color=eg.TINTA_2, linewidth=0.9)
+        ax1.text(v, ymax * 0.97, f" P{p}", color=eg.TINTA_2, fontsize=7.5, va="top")
+    ax1.set_title("Distribución si funciona (condicional)" if modelo.get("exito") is not None else "Distribución del resultado")
     ax1.set_xlabel(modelo.get("unidad_salida", ""))
-    ax1.spines[["top", "right"]].set_visible(False)
+    ax1.set_yticks([])
+    ax1.xaxis.set_major_formatter(FuncFormatter(eg.usd))
 
-    top = r["tornado"][:8][::-1]
+    top = r["tornado"][:7][::-1]
     base = r["base"]
     for i, t in enumerate(top):
         lo, hi = sorted((t["salida_con_min"], t["salida_con_max"]))
-        ax2.barh(i, hi - lo, left=lo, color="#c9793b", alpha=0.9)
-    ax2.axvline(base, color="#1a1a1a", linewidth=1)
+        ax2.barh(i, hi - lo, left=lo, height=0.55, color=eg.SERIES[0], alpha=0.9)
+    ax2.axvline(base, color=eg.TINTA, linewidth=1)
+    ax2.set_ylim(-1.1, len(top) - 0.4)
+    ax2.text(base, -0.95, " caso base", color=eg.TINTA_2, fontsize=7.5, va="bottom")
     ax2.set_yticks(range(len(top)))
     ax2.set_yticklabels([t["supuesto"] for t in top], fontsize=8)
-    ax2.set_title("Sensibilidad (supuesto en mín. vs máx.)", fontsize=10)
-    ax2.spines[["top", "right"]].set_visible(False)
-    fig.suptitle(f"{modelo['id']} — {modelo['nombre']}", fontsize=11)
+    ax2.grid(axis="y", visible=False)
+    ax2.set_title("Sensibilidad: cada supuesto de mín. a máx.")
+    ax2.xaxis.set_major_formatter(FuncFormatter(eg.usd))
     fig.tight_layout()
-    fig.savefig(ruta_png, dpi=160)
+    fig.savefig(ruta_png, dpi=170)
+    if str(ruta_png).endswith(".png"):
+        fig.savefig(str(ruta_png)[:-4] + ".svg")
     plt.close(fig)
 
 

@@ -226,26 +226,32 @@ def informe_proyeccion(cfg: dict, r: dict) -> str:
 
 
 def grafico_proyeccion(cfg: dict, r: dict, ruta: Path) -> None:
-    import matplotlib
-
-    matplotlib.use("Agg")
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import estilo_graficos as eg
     import matplotlib.pyplot as plt
+    from matplotlib.ticker import FuncFormatter
 
+    eg.aplicar()
     t = np.arange(r["T"] + 1)
-    fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4.2))
+    fig, (a1, a2) = plt.subplots(1, 2, figsize=(10, 3.8))
     for arr, ax, titulo in ((r["flujo"], a1, "Flujo mensual de las unidades (USD/mes)"),
                             (r["patrimonio"], a2, "Patrimonio de la cartera (USD)")):
         p10, p50, p90 = (np.percentile(arr, q, axis=0) for q in (10, 50, 90))
-        ax.fill_between(t, p10, p90, color="#2f6f8f", alpha=0.18, label="P10–P90")
-        ax.plot(t, p50, color="#2f6f8f", linewidth=2, label="Mediana")
-        ax.set_title(titulo, fontsize=10)
+        ax.fill_between(t, p10, p90, color=eg.SERIES[0], alpha=0.12, linewidth=0, label="Rango P10–P90")
+        ax.plot(t, p50, color=eg.SERIES[0], linewidth=2, label="Mediana (P50)")
+        ax.text(t[-1], p50[-1], f"  {eg.usd(p50[-1])}", color=eg.TINTA_2, fontsize=8, va="center")
+        ax.set_title(titulo)
         ax.set_xlabel("Mes")
-        ax.spines[["top", "right"]].set_visible(False)
-    a2.plot(t, r["solo_tesoreria"], color="#c9793b", linestyle="--", linewidth=1.5, label="Solo tesorería")
-    a2.legend(fontsize=8, frameon=False)
-    a1.legend(fontsize=8, frameon=False)
+        ax.set_xlim(0, r["T"] + 8)
+        ax.yaxis.set_major_formatter(FuncFormatter(eg.usd))
+    a2.plot(t, r["solo_tesoreria"], color=eg.SERIES[1], linewidth=2, label="Solo tesorería (mismo aporte)")
+    a2.text(t[-1], r["solo_tesoreria"][-1], f"  {eg.usd(r['solo_tesoreria'][-1])}", color=eg.TINTA_2, fontsize=8, va="center")
+    a1.legend(loc="upper left")
+    a2.legend(loc="upper left")
     fig.tight_layout()
-    fig.savefig(ruta, dpi=160)
+    fig.savefig(ruta, dpi=170)
+    if str(ruta).endswith(".png"):
+        fig.savefig(str(ruta)[:-4] + ".svg")
     plt.close(fig)
 
 
