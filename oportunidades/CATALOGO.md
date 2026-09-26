@@ -28,30 +28,31 @@
 | 19 | A3 | Trivia de cultura general 'útil' para el viaje en colectivo | Apps y juegos | No | 67 | 3.6 | 150 | mes 3 | 7% | 112 / 599 / 1.992 | 152 | 14.0 |
 | 20 | B1 | Asistente IA de trámites y ARCA (monotributo, facturas, impuestos) | Asistentes de IA de nicho | Solo si… | 67 | 3.6 | 150 | mes 3 | 10% | 171 / 756 / 2.297 | 278 | 22.3 |
 | 21 | D3 | Afiliados de Mercado Libre con contenido anónimo (hogar, mate, tecnología) | Canales, comunidad y afiliados | Segunda ola | 67 | 3.3 | 50 | mes 2 | 15% | 109 / 495 / 1.451 | 229 | 21.6 |
-| 22 | H1 | Entrenar IA desde casa: evaluar y escribir respuestas para modelos (Outlier y similares) | Tus horas en dólares | Hacer ya | 67 | 3.0 | 0 | mes 1 | 55% | 275 / 275 / 197 | 108 | 16.4 |
-| 23 | G2 | Motos para repartidores a través de un operador | Tu plata trabajando | Solo si… | 66 | 1.3 | 2.500 | mes 1 | 70% | 113 / 113 / 17 | 14 | -0.8 |
-| 24 | D5 | Cuenta anónima de videos cortos (curiosidades o fe) que empuja las apps | Canales, comunidad y afiliados | Solo si… | 65 | 2.3 | 0 | mes 6 | 10% | 21 / 160 / 716 | 80 | 10.1 |
-| 25 | H2 | Freelance remoto de análisis y automatización (Excel, Power BI, Python) para empresas del exterior | Tus horas en dólares | Solo si… | 65 | 6.0 | 0 | mes 2 | 35% | 526 / 817 / 1.308 | 468 | 29.7 |
-| 26 | A12 | Prode y fantasy de fútbol entre amigos, con publicidad | Apps y juegos | Solo si… | 64 | 2.6 | 100 | mes 3 | 8% | 127 / 506 / 1.371 | 134 | 17.6 |
-| 27 | D6 | Newsletter anónima de logística y comercio exterior con sponsors | Canales, comunidad y afiliados | Solo si… | 64 | 2.3 | 20 | mes 9 | 10% | -23 / 245 / 1.227 | 127 | 11.9 |
-| 28 | A4 | App de diseño de interiores con IA | Apps y juegos | No | 62 | 3.6 | 300 | mes 3 | 6% | 165 / 1.094 / 2.216 | 134 | 13.5 |
-| 29 | D4 | Canal anónimo de YouTube con música hecha con IA (dormir, estudiar, oración) | Canales, comunidad y afiliados | No | 62 | 2.6 | 50 | mes 9 | 6% | -32 / 226 / 1.015 | 66 | 3.9 |
-| 30 | I1 | Dar un curso de logística en la universidad o en un programa de extensión | Enseñar | Solo si… | 62 | 4.0 | 0 | mes 6 | 40% | 54 / 269 / 332 | 136 | 11.0 |
-| 31 | A5 | Lector de PDFs y apuntes en voz alta con publicidad | Apps y juegos | No | 61 | 2.6 | 100 | mes 3 | 5% | 67 / 314 / 808 | 40 | 5.1 |
-| 32 | C6 | Construir el simulador logístico completo (3D, todo) antes de tener usuarios | Software con tu conocimiento | No | 60 | 6.5 | 600 | mes 6 | 5% | -77 / 690 / 3.296 | 192 | 2.9 |
-| 33 | D2 | Comparador universal tipo 'buscador de vuelos' para todo lo que se compra | Canales, comunidad y afiliados | Solo si… | 60 | 5.2 | 300 | mes 4 | 5% | 61 / 689 / 3.063 | 152 | 5.3 |
-| 34 | I2 | Curso online anónimo de logística (voz IA) en marketplaces de cursos | Enseñar | No | 60 | 2.2 | 50 | mes 3 | 8% | 50 / 148 / 238 | 22 | 3.5 |
-| 35 | B3 | Atención automática por WhatsApp para comercios (app en la tienda de Tiendanube) | Asistentes de IA de nicho | No | 59 | 4.6 | 300 | mes 4 | 7% | 183 / 1.111 / 3.027 | 219 | 14.1 |
-| 36 | B4 | Chatbot genérico para consultar cualquier cosa | Asistentes de IA de nicho | No | 59 | 2.6 | 100 | mes 3 | 2% | -5 / 155 / 567 | 12 | -4.1 |
-| 37 | E2 | Tienda de nicho con un proveedor que despacha (sin stock propio) | Productos físicos | No | 59 | 5.3 | 800 | mes 2 | 10% | 10 / 410 / 1.509 | 162 | -0.3 |
-| 38 | G3 | Cocheras en CABA para alquilar | Tu plata trabajando | No | 59 | 0.9 | 25.000 | mes 2 | 80% | 59 / 59 / 64 | 56 | 13.2 |
-| 39 | A8 | Buscador unificado de alquileres + aviso anticipado del inquilino que se va | Apps y juegos | Solo si… | 58 | 4.6 | 300 | mes 6 | 6% | 9 / 544 / 2.311 | 156 | 7.1 |
+| 22 | G2 | Motos para repartidores a través de un operador | Tu plata trabajando | Solo si… | 66 | 1.3 | 2.500 | mes 1 | 70% | 113 / 113 / 17 | 14 | -0.8 |
+| 23 | D5 | Cuenta anónima de videos cortos (curiosidades o fe) que empuja las apps | Canales, comunidad y afiliados | Solo si… | 65 | 2.3 | 0 | mes 6 | 10% | 21 / 160 / 716 | 80 | 10.1 |
+| 24 | H2 | Freelance remoto de análisis y automatización (Excel, Power BI, Python) para empresas del exterior | Tus horas en dólares | Solo si… | 65 | 6.0 | 0 | mes 2 | 35% | 526 / 817 / 1.308 | 468 | 29.7 |
+| 25 | A12 | Prode y fantasy de fútbol entre amigos, con publicidad | Apps y juegos | Solo si… | 64 | 2.6 | 100 | mes 3 | 8% | 127 / 506 / 1.371 | 134 | 17.6 |
+| 26 | D6 | Newsletter anónima de logística y comercio exterior con sponsors | Canales, comunidad y afiliados | Solo si… | 64 | 2.3 | 20 | mes 9 | 10% | -23 / 245 / 1.227 | 127 | 11.9 |
+| 27 | A4 | App de diseño de interiores con IA | Apps y juegos | No | 62 | 3.6 | 300 | mes 3 | 6% | 165 / 1.094 / 2.216 | 134 | 13.5 |
+| 28 | D4 | Canal anónimo de YouTube con música hecha con IA (dormir, estudiar, oración) | Canales, comunidad y afiliados | No | 62 | 2.6 | 50 | mes 9 | 6% | -32 / 226 / 1.015 | 66 | 3.9 |
+| 29 | I1 | Dar un curso de logística en la universidad o en un programa de extensión | Enseñar | Solo si… | 62 | 4.0 | 0 | mes 6 | 40% | 54 / 269 / 332 | 136 | 11.0 |
+| 30 | A5 | Lector de PDFs y apuntes en voz alta con publicidad | Apps y juegos | No | 61 | 2.6 | 100 | mes 3 | 5% | 67 / 314 / 808 | 40 | 5.1 |
+| 31 | C6 | Construir el simulador logístico completo (3D, todo) antes de tener usuarios | Software con tu conocimiento | No | 60 | 6.5 | 600 | mes 6 | 5% | -77 / 690 / 3.296 | 192 | 2.9 |
+| 32 | D2 | Comparador universal tipo 'buscador de vuelos' para todo lo que se compra | Canales, comunidad y afiliados | Solo si… | 60 | 5.2 | 300 | mes 4 | 5% | 61 / 689 / 3.063 | 152 | 5.3 |
+| 33 | I2 | Curso online anónimo de logística (voz IA) en marketplaces de cursos | Enseñar | No | 60 | 2.2 | 50 | mes 3 | 8% | 50 / 148 / 238 | 22 | 3.5 |
+| 34 | B3 | Atención automática por WhatsApp para comercios (app en la tienda de Tiendanube) | Asistentes de IA de nicho | No | 59 | 4.6 | 300 | mes 4 | 7% | 183 / 1.111 / 3.027 | 219 | 14.1 |
+| 35 | B4 | Chatbot genérico para consultar cualquier cosa | Asistentes de IA de nicho | No | 59 | 2.6 | 100 | mes 3 | 2% | -5 / 155 / 567 | 12 | -4.1 |
+| 36 | E2 | Tienda de nicho con un proveedor que despacha (sin stock propio) | Productos físicos | No | 59 | 5.3 | 800 | mes 2 | 10% | 10 / 410 / 1.509 | 162 | -0.3 |
+| 37 | G3 | Cocheras en CABA para alquilar | Tu plata trabajando | No | 59 | 0.9 | 25.000 | mes 2 | 80% | 59 / 59 / 64 | 56 | 13.2 |
+| 38 | A8 | Buscador unificado de alquileres + aviso anticipado del inquilino que se va | Apps y juegos | Solo si… | 58 | 4.6 | 300 | mes 6 | 6% | 9 / 544 / 2.311 | 156 | 7.1 |
+| 39 | A14 | Generador de imágenes con IA genérico (tipo los que se venden en Flippa), creciendo con publicidad paga | Apps y juegos | No | 58 | 4.6 | 1.000 | mes 2 | 5% | 227 / 1.076 / 2.136 | 103 | 4.2 |
 | 40 | E4 | Productos impresos a pedido (tazas, remeras) con diseños IA | Productos físicos | No | 58 | 3.3 | 150 | mes 2 | 6% | 30 / 212 / 560 | 38 | 1.7 |
-| 41 | A9 | App para transportistas: esperas, costos del viaje y trámites | Apps y juegos | Solo si… | 57 | 3.6 | 200 | mes 6 | 6% | 33 / 393 / 1.202 | 75 | 4.7 |
-| 42 | E1 | Marca propia de hogar, mate y marroquinería con lanzamiento agresivo (precio de entrada, sorteos, publicidad) | Productos físicos | No | 57 | 8.6 | 5.000 | mes 1 | 12% | -670 / 277 / 3.132 | 380 | -24.6 |
-| 43 | A7 | App de organización diaria con publicidad | Apps y juegos | No | 55 | 3.6 | 100 | mes 4 | 3% | 27 / 231 / 849 | 27 | 1.3 |
-| 44 | A6 | App de gestión de proyectos (PC y celular conectados) con publicidad | Apps y juegos | No | 51 | 4.6 | 150 | mes 4 | 3% | 25 / 303 / 1.155 | 40 | 1.6 |
-| 45 | E3 | Importar y revender genéricos en Mercado Libre | Productos físicos | No | 50 | 6.6 | 2.000 | mes 2 | 8% | -202 / 149 / 486 | 43 | -18.2 |
+| 41 | H1 | Entrenar IA desde casa: evaluar y escribir respuestas para modelos (Outlier, Mercor, Mindrift, TELUS) | Tus horas en dólares | Solo si… | 58 | 3.3 | 0 | mes 2 | 25% | 164 / 164 / 102 | 27 | 7.6 |
+| 42 | A9 | App para transportistas: esperas, costos del viaje y trámites | Apps y juegos | Solo si… | 57 | 3.6 | 200 | mes 6 | 6% | 33 / 393 / 1.202 | 75 | 4.7 |
+| 43 | E1 | Marca propia de hogar, mate y marroquinería con lanzamiento agresivo (precio de entrada, sorteos, publicidad) | Productos físicos | No | 57 | 8.6 | 5.000 | mes 1 | 12% | -670 / 277 / 3.132 | 380 | -24.6 |
+| 44 | A7 | App de organización diaria con publicidad | Apps y juegos | No | 55 | 3.6 | 100 | mes 4 | 3% | 27 / 231 / 849 | 27 | 1.3 |
+| 45 | A6 | App de gestión de proyectos (PC y celular conectados) con publicidad | Apps y juegos | No | 51 | 4.6 | 150 | mes 4 | 3% | 25 / 303 / 1.155 | 40 | 1.6 |
+| 46 | E3 | Importar y revender genéricos en Mercado Libre | Productos físicos | No | 50 | 6.6 | 2.000 | mes 2 | 8% | -202 / 149 / 486 | 43 | -18.2 |
 
 ## Trampas y alternativas en pausa
 

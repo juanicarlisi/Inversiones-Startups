@@ -63,3 +63,10 @@ Mes 6: si no hay 1.000 usuarios activos por semana o menos de 10% vuelve a la se
 
 ## Veredicto
 **Validar ya (motor 1 del plan, DEC-2026-09-26-6).**
+
+## Idea a validar: imágenes para compartir (26-09-2026)
+HIPÓTESIS: un módulo de "imagen del día" (versículo sobre un fondo lindo, con el nombre de quien la manda) que se comparte por
+WhatsApp y estados puede ser el motor de crecimiento de la suite. En Play Store hay muchas apps de "imágenes cristianas" y "buenos
+días con bendiciones" (demanda probada, casi todas hechas con plantillas). Costo casi cero: los fondos se generan una vez (~USD 0,003–0,04
+cada uno) y el texto se arma en el teléfono. Cada imagen compartida lleva el nombre de la app. Surge de evaluar el generador de
+imágenes genérico (A14, descartado). Validar con el radar de nichos (A10) cuando haya acceso a play.google.com.
