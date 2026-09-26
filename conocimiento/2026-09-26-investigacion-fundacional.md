@@ -1,4 +1,4 @@
-# Notas crudas de investigación — sesión fundacional (septiembre 2026)
+# Bitácora de investigación fundacional (2026-09-26)
 
 > Archivo de trabajo. Cada hecho lleva fuente y fecha de consulta (2026-09-26).
 > Los hechos consolidados se mueven a `conocimiento/*.md`. Este archivo queda como bitácora.

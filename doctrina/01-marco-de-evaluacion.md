@@ -66,17 +66,19 @@ Puntaje = Σ (peso × puntaje / 5). Referencia: < 55 no se valida; 55–70 valid
 
 ## 5. Índice de Valor por Recurso (IVR)
 
-Hace comparables cosas heterogéneas (un servicio, una adquisición, un bono). Se calcula con el frontmatter:
+Hace comparables cosas heterogéneas (un servicio, una adquisición, un bono, un inmueble). Se calcula con el frontmatter:
 
 - Escenarios al mes 36: `fracaso`, `base`, `expansivo`, cada uno con probabilidad y flujo de caja neto mensual.
-- **Valor esperado (VE)** = Σ p × flujo × (múltiplo_terminal + 18) − p_fracaso × capital_perdido
-  (18 = aproximación del flujo acumulado con rampa lineal en 36 meses; múltiplo_terminal en meses de flujo = lo que valdría vender o
-  lo que vale seguir cobrando).
-- **Recurso** = capital_óptimo + horas_semana × 156 × tarifa_sombra (USD/h del tiempo del fundador, en `herramientas/config.yaml`).
-- **IVR = VE / Recurso.**
+- **Valor esperado bruto (VE)** = Σ p × flujo × (múltiplo_terminal + meses_acumulados) − p_fracaso × capital_perdido.
+  `meses_acumulados` = 18 si la unidad arranca de cero (rampa lineal en 36 meses) o 36 si rinde desde el mes 1 (`rampa: false`:
+  bonos, adquisiciones). `múltiplo_terminal` = meses de flujo que vale la unidad al mes 36 (venta, continuidad o valor del activo).
+- **Valor neto** = VE − capital óptimo.
+- **Recurso** = capital óptimo + horas_semana × 156 × tarifa_sombra (USD/h del tiempo del fundador, en `herramientas/config.yaml`).
+- **IVR = Valor neto / Recurso.**
 
-Vara mínima: la tesorería en USD al ~7% anual rinde un IVR ≈ 0,22 a 3 años con recurso = capital. Una unidad con IVR menor que la
-tesorería, a igual riesgo, **no merece el dólar**. Como las unidades operativas tienen más riesgo, exigimos IVR ≥ 1,0 en el base.
+Lectura: la tesorería en USD (OP-09) rinde un IVR de ~0,1 y marca el piso. En **unidades operativas** exigimos IVR ≥ 1,0 en el
+caso esperado; en **activos intensivos en capital** (inmuebles, adquisiciones, energía) exigimos al menos el doble que la tesorería
+y lo comparamos dentro de su rol.
 
 > El IVR no es "la verdad": es una disciplina para explicitar supuestos y compararlos. Se recalcula con datos de cada experimento.
 
