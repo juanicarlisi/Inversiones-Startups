@@ -270,10 +270,11 @@ def grafico(modelo: dict, r: dict, ruta_png: Path) -> None:
     ax1.hist(y, bins=50, color=eg.SERIES[0], alpha=0.9, edgecolor=eg.SUPERFICIE, linewidth=0.6)
     ax1.grid(axis="x", visible=False)
     ymax = ax1.get_ylim()[1]
-    for p in (10, 50, 90):
+    for p, alto, ha in ((10, 0.97, "right"), (50, 0.86, "left"), (90, 0.97, "left")):
         v = r["percentiles"][p]
         ax1.axvline(v, color=eg.TINTA_2, linewidth=0.9)
-        ax1.text(v, ymax * 0.97, f" P{p}", color=eg.TINTA_2, fontsize=7.5, va="top")
+        ax1.text(v, ymax * alto, f" P{p} ", color=eg.TINTA_2, fontsize=7.5, va="top", ha=ha,
+                 bbox=dict(facecolor=eg.SUPERFICIE, edgecolor="none", pad=0.6, alpha=0.9))
     ax1.set_title("Distribución si funciona (condicional)" if modelo.get("exito") is not None else "Distribución del resultado")
     ax1.set_xlabel(modelo.get("unidad_salida", ""))
     ax1.set_yticks([])

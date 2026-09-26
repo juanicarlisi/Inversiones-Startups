@@ -1,7 +1,7 @@
 ---
 id: OP-02
 titulo: "Oficina virtual con IA para transportistas pyme"
-estado: validar
+estado: pausa
 rol: motor-de-caja
 tipo: servicio-recurrente
 resumen: "El 87% del transporte de cargas argentino opera sin sistemas y el 37% de los camiones viaja vacío. Un servicio por WhatsApp, hecho por IA con supervisión humana, le lleva la administración a transportistas de 1–20 camiones (viajes, documentos, facturación, cobranzas, vencimientos, rentabilidad por viaje) por menos que un administrativo part-time; y abre la puerta a financiar facturas y llenar retornos."
@@ -40,7 +40,7 @@ escenarios_36m:
   expansivo: {prob: 0.12, flujo_mensual: 4500}
 multiplo_terminal_meses: 24
 sinergias: [OP-04, OP-07, OP-03]
-proximo_paso: "20 entrevistas a transportistas de 1–20 camiones + servicio concierge a 5 durante 30 días (EXP-02)"
+proximo_paso: "PAUSA (DEC-2026-09-26-5: el fundador prefiere ingresos sin salir a vender; requiere vender y operar un servicio a transportistas). Revive si el fundador decide vender o aparece un socio que venda. Paso previsto: 20 entrevistas a transportistas de 1–20 camiones + servicio concierge a 5 durante 30 días (EXP-02)"
 ---
 
 # OP-02 — Oficina virtual con IA para transportistas pyme

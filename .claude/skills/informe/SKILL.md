@@ -9,3 +9,6 @@ description: Regenera el informe estratégico en PDF con el estado actual del si
 2. Actualizá el contenido fuente en `informes/fuente/` (markdown por capítulo) con lo que cambió desde el último informe.
 3. `python3 informes/construir_informe.py` genera HTML y PDF (Chromium vía Playwright) en `informes/`.
 4. Revisá el PDF (páginas, gráficos, tablas) y commit con el nombre `informes/AAAA-MM-<titulo>.pdf`.
+5. Informes temáticos: cada uno tiene su carpeta fuente y su generador. Hoy existe `informes/fuente-ingresos/` →
+   `python3 informes/construir_ingresos_sin_vender.py`, que además escribe un HTML autocontenido (gráficos incrustados) junto al
+   PDF. Para un informe temático nuevo, copiar ese generador (reutiliza el CSS del principal) y su carpeta de capítulos.

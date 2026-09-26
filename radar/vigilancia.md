@@ -21,3 +21,6 @@
 | V-14 | Tesorería / energía | Reapertura de Ormuz con Brent < USD 75 | Revisar tesis satélite energética (OP-09) | Vigilar |
 | V-15 | R14 Stargate Argentina | Contratos vinculantes o presentación al RIGI | Mapear servicios y proveedores en Patagonia | Esperando |
 | V-16 | Palanca IA | Caída de precios o nuevo plan que cambie la regla de rentabilidad | Revisar `doctrina/05-palanca-ia.md` | Continuo |
+| V-17 | OP-12 / OP-14 Canales de agentes | OpenAI habilita bienes digitales o suscripciones dentro de las apps de ChatGPT, o un directorio de MCP empieza a pagar a desarrolladores | Publicar las herramientas de OP-12 en ese canal en ≤ 30 días (ser de los primeros) | Vigilar (sep-2026: solo bienes físicos) |
+| V-18 | OP-13 Motos | Una fintech de motos para repartidores emite ON o fideicomiso financiero con oferta pública | Evaluarlo como alternativa regulada a comprar motos | Vigilar |
+| V-19 | OP-13 / K26 Movilidad en CABA | La Legislatura porteña sanciona la ley de plataformas de transporte | Revisar K26 y los costos de operadores de flota | Vigilar (fallo de may-2026 vigente) |

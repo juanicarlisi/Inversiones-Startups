@@ -1,7 +1,7 @@
 ---
 id: OP-03
 titulo: "Puente de maquinaria usada Europa → pymes argentinas"
-estado: validar
+estado: pausa
 rol: motor-de-caja
 tipo: intermediacion
 resumen: "Europa se desindustrializa (récord de insolvencias en Alemania) y Argentina acaba de bajar al 25% el arancel de líneas de producción usadas (Decreto 483/2026). Un intermediario que busca, valúa, inspecciona, importa y tramita el régimen cobra comisión de éxito con capital casi nulo."
@@ -40,7 +40,7 @@ escenarios_36m:
   expansivo: {prob: 0.13, flujo_mensual: 4000}
 multiplo_terminal_meses: 12
 sinergias: [OP-07, OP-04]
-proximo_paso: "Conseguir 1 pedido real de una pyme del Conurbano y entregar 3 opciones con costo puesto en planta (EXP-03)"
+proximo_paso: "PAUSA (DEC-2026-09-26-5: intermediación que requiere salir a buscar pedidos). Se reactiva solo si llega un pedido real sin salir a buscarlo. Paso previsto: Conseguir 1 pedido real de una pyme del Conurbano y entregar 3 opciones con costo puesto en planta (EXP-03)"
 ---
 
 # OP-03 — Puente de maquinaria usada Europa → pymes argentinas

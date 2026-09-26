@@ -11,7 +11,8 @@
 | Conocimiento de dominio | **Logística** | Ventaja en transporte, depósitos, comercio exterior, planificación, simulación. Sube el puntaje de OP-02, OP-03, OP-04 |
 | Capital recurrente | ~USD 400/mes, ampliable | Con este monto, el cuello de botella son las horas y la velocidad de aprendizaje, no el dinero |
 | Relación con la IA | Quiere usarla al máximo, incluso con planes caros | Preferir unidades con `palanca_ia` alta; presupuesto de herramientas explícito |
-| Estilo | Propone ideas-ejemplo (marca matera con precio de penetración; app de simulación logística) | Se evalúan con rigor: ver OP-04 y OP-05 |
+| Estilo | Da ejemplos para orientar (marca matera, app de simulación, IA de trading, minería) | **Son orientativos, no candidatos**: sirven para entender la dirección; no se analizan uno por uno salvo que lo pida (aclarado el 26-09-2026) |
+| Preferencia de ingresos (26-09-2026) | **Pasivos o casi pasivos, sin salir a vender**; acepta esperar ~1 año para ver resultados | Prioridad a motores donde otro vende o no hace falta vender: renta (OP-09), compra de negocios que ya venden (OP-08), herramientas en marketplaces (OP-12). Las unidades de servicio B2B quedan en pausa (DEC-2026-09-26-5) |
 
 ## Lo que falta (y por qué importa)
 
@@ -23,11 +24,11 @@
 | 4 | ¿Cuántos ahorros podrías destinar, además de los USD 400/mes, si aparece una oportunidad validada? ¿Cuánto podrías perder sin afectar tu vida? | Define el tramo de capital posible para adquisiciones y capital de trabajo | Habilita compras de carteras (OP-01) o micro-adquisiciones (OP-08) antes |
 | 5 | ¿Qué nivel de inglés tenés? | Negociar con subastas europeas, clientes de EE.UU., vendedores en Acquire | Bajo → la IA traduce, pero las llamadas cuestan más |
 | 6 | ¿Programás, aunque sea un poco? | Acelera la colaboración con Claude Code | No es requisito: Claude construye; vos probás y decidís |
-| 7 | ¿Te sentís cómodo vendiendo (llamadas, reuniones, asambleas, cámaras empresarias)? | La venta es el cuello de botella de casi todas las unidades | Baja comodidad → canales inbound y marketplaces |
+| 7 | ~~¿Te sentís cómodo vendiendo?~~ **Respondida (26-09-2026): prefiere no salir a vender** | La venta es el cuello de botella de casi todas las unidades | Aplicado: marketplaces, compras de negocios que ya venden y renta |
 | 8 | ¿Tenés contactos en pymes industriales, transportistas, inmobiliarias, desarrolladoras o administradores? | Los primeros clientes suelen venir de la red | Cambia el orden de los experimentos |
 | 9 | ¿Tenés estructura legal y bancaria (monotributo o responsable inscripto, SAS, cuenta en USD, cuenta en el exterior)? | Facturar, cobrar en USD, comprar activos afuera | Condiciona OP-08 (activos en USD) y la tesorería |
 | 10 | ¿Qué NO harías nunca (tareas, industrias, horarios)? ¿Qué te encantaría hacer? | La energía sostenida es un recurso | Descarta o prioriza unidades |
-| 11 | ¿Necesitás ingresos pronto o priorizás construir patrimonio? | Define la mezcla motor-de-caja vs opciones | Ingresos pronto → servicios con cobro mensual |
+| 11 | ¿Necesitás ingresos pronto o priorizás construir patrimonio? *(Parcial, 26-09-2026: acepta ~1 año para ver ingresos)* | Define la mezcla motor-de-caja vs opciones | Ingresos pronto → servicios con cobro mensual |
 | 12 | ¿Podés viajar (San Juan, Neuquén, Río Negro) 1–2 veces por trimestre? | Algunas tesis requieren presencia ocasional | Habilita OP-06 con socio local |
 
 ## Supuestos de trabajo mientras no haya respuesta

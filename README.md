@@ -4,8 +4,9 @@ Sistema vivo para **detectar, investigar, evaluar, desarrollar y capturar oportu
 cartera de negocios e inversiones que genere caja, se reinvierta y componga. Punto de partida: Argentina (CABA), sep-2026.
 Principio: *con poco hacer muchísimo*. Filosofía: *ir un paso adelante*.
 
-> **Empezá por acá**: el informe `informes/2026-09-cartografia-inicial.pdf` (la primera fotografía del terreno) y `TABLERO.md`
-> (ranking vivo de oportunidades).
+> **Empezá por acá**: el informe `informes/2026-09-ingresos-sin-vender.pdf` (qué hacer ya para tener ingresos sin salir a vender),
+> el primero, `informes/2026-09-cartografia-inicial.pdf` (la fotografía del terreno), y `TABLERO.md` (ranking vivo). Cada PDF tiene
+> una versión `.html` que se abre sola en cualquier navegador.
 
 ## Qué hay en el repositorio
 
@@ -48,14 +49,16 @@ python3 herramientas/oportunidades.py                     # valida fichas y rege
 python3 herramientas/escenarios.py --todos                # corre todos los modelos Monte Carlo
 python3 herramientas/cartera.py proyectar                 # proyección compuesta a 5 años
 python3 herramientas/cartera.py resumen                   # libro de capital
-python3 informes/construir_informe.py                     # regenera el PDF
+python3 herramientas/plan_sin_venta.py                    # simula el plan "ingresos sin salir a vender" a 60 meses
+python3 informes/construir_informe.py                     # regenera el informe 1 (cartografía inicial)
+python3 informes/construir_ingresos_sin_vender.py         # regenera el informe 2 (ingresos sin salir a vender)
 ```
 
 ## Estado al 2026-09-26
 
-- **Fase 0 — Aprender barato** (oct–dic 2026): tres validaciones en paralelo (OP-01 consorcios con IA, OP-02 oficina IA para
-  transportistas, OP-04 laboratorio de decisiones logísticas), OP-07 medio vertical como canal, OP-03 maquinaria usada ante un
-  pedido real, tesorería en USD activa.
+- **Fase 0 — Ingresos sin salir a vender** (DEC-2026-09-26-5, reemplaza al plan inicial): motor de renta en USD (OP-09), fábrica de
+  herramientas para agentes y desarrolladores (OP-12, EXP-07) y compra de micro-negocios digitales que ya venden (OP-08, EXP-08).
+  Motos con operador (OP-13) a explorar. Las unidades que requieren vender (OP-01, 02, 03, 04, 07) quedan en pausa.
 - Detalle: `cartera/cartera.yaml`, `cartera/decisiones.md`, `cartera/experimentos/`.
 
 ## Reglas de oro

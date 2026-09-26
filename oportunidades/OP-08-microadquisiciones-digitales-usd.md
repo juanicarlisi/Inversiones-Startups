@@ -1,24 +1,24 @@
 ---
 id: OP-08
 titulo: "Micro-adquisiciones de negocios digitales en USD operados con IA"
-estado: explorar
+estado: validar
 rol: cobertura
 tipo: adquisicion
-resumen: "Comprar pequeños negocios digitales rentables (micro-SaaS, plugins, extensiones, nichos de contenido o e-commerce) a 2–4 veces el beneficio anual en marketplaces como Acquire.com, y operarlos con IA. Ingresos en USD de clientes globales: cobertura contra el riesgo Argentina y uso de caja de las otras unidades."
+resumen: "Comprar ingresos que ya se venden solos: pequeños negocios digitales rentables (micro-SaaS, plugins, extensiones, nichos de contenido o e-commerce) a 2–4 veces el beneficio anual en marketplaces como Acquire.com, y operarlos con IA. Ingresos en USD de clientes globales: cobertura contra el riesgo Argentina y uso de caja de las otras unidades."
 fecha_alta: 2026-09-26
 fecha_revision: 2026-09-26
-ventana: "2027+ (cuando la cartera acumule USD 10–20k o aparezca financiación del vendedor)"
-modelo: herramientas/modelos/op08-microadquisicion.yaml
+ventana: "Primera compra chica (USD 3–8 k) entre el mes 6 y el 12; compras mayores desde 2028 con la caja acumulada"
+modelo: herramientas/modelos/op08b-microadquisicion-chica.yaml
 capital:
-  minimo_usd: 5000
-  optimo_usd: 20000
+  minimo_usd: 3000
+  optimo_usd: 6000
   acelerado_usd: 45000
   maximo_razonable_usd: 100000
-  mensual_usd: 120
-horas_semana: 6
+  mensual_usd: 40
+horas_semana: 4
 ia_ejecutable_pct: 70
 semanas_a_primer_aprendizaje: 8
-meses_a_primer_ingreso: 12
+meses_a_primer_ingreso: 10
 riesgo_politico_2027: bajo
 rampa: false
 puntajes:
@@ -35,12 +35,12 @@ puntajes:
   robustez: 5
 gates: {problema_pagado: si, distribucion: si, economia: si, experimento_barato: si, downside_acotado: pendiente, legal: pendiente}
 escenarios_36m:
-  fracaso: {prob: 0.25, flujo_mensual: 0, capital_perdido_usd: 10000}
-  base: {prob: 0.55, flujo_mensual: 500}
-  expansivo: {prob: 0.20, flujo_mensual: 1000}
+  fracaso: {prob: 0.25, flujo_mensual: 0, capital_perdido_usd: 6000}
+  base: {prob: 0.55, flujo_mensual: 170}
+  expansivo: {prob: 0.20, flujo_mensual: 330}
 multiplo_terminal_meses: 30   # reventa ≈ 2,5x flujo anual
-sinergias: [OP-07]
-proximo_paso: "Ejercicio sin capital: due diligence simulada de 5 listados reales en Acquire/Flippa para calibrar criterios (mes 3–6); resolver estructura legal/impositiva para tener activos y cobros en USD"
+sinergias: [OP-12, OP-14, OP-09]
+proximo_paso: "Claude: embudo semanal de listados < USD 10 k en Flippa, Microns y Acquire con verificación de ingresos; due diligence simulada de 5 listados reales en 60 días (EXP-08); fundador: resolver cómo cobrar y declarar ingresos en USD (contador) antes de la primera compra"
 ---
 
 # OP-08 — Micro-adquisiciones digitales en USD
@@ -85,7 +85,21 @@ declaración). Mitigación: due diligence con checklist, empezar chico, custodia
 **Cobertura** contra riesgo Argentina (ingresos en USD de clientes globales) y destino de la caja de las unidades motor a partir del
 año 2. No compite por las horas del fundador en el año 1.
 
-## 7. Veredicto
+## 7. Actualización 2026-09-26: tramo chico y preferencia "sin vender"
 
-**Explorar (sin capital) ahora; activar en 2027.** IVR menor que las unidades de servicio por ser intensivo en capital, pero muy
+El fundador prefiere ingresos que no dependan de salir a vender. Comprar un negocio que **ya** vende por un canal con demanda propia
+(tienda de apps, marketplace, buscador) es la forma más directa. Se agrega un tramo chico para empezar antes:
+
+- Evidencia nueva: Flippa, mediana 1,68x el beneficio anual en operaciones de USD 10–100 k; SaaS en Acquire 3,9x (2025); Microns
+  y Flippa listan negocios desde ~USD 500–1.000 (HECHO, ver `conocimiento/2026-09-26-investigacion-ingresos-sin-vender.md`).
+- Modelo `op08b-microadquisicion-chica.yaml` (USD 3–12 k, 3 años, incluye valor final): **media 13% anual**, P10 / P50 / P90 =
+  −24% / 14% / 43%; 61% de probabilidad de superar a la tesorería. Comprando "al promedio" el rendimiento se parece al de la
+  tesorería con mucho más riesgo; lo que lo vuelve atractivo es **comprar mejor que el promedio** (menos colapsos) y **operar
+  mejor** (tendencia y mejora con IA). Las variables que más mueven el resultado: colapso, caída del primer año, múltiplo y tendencia.
+- Cobro en USD: el BCRA permite a personas humanas no liquidar divisas por exportación de servicios (Com. "A" 8417 y 8481/2026).
+
+## 8. Veredicto
+
+**Validar (sin capital) ya; primera compra chica entre el mes 6 y el 12.** Antes, en orden: criterios escritos, 5 due diligence
+simuladas, estructura de cobro y declaración resuelta. Veredicto anterior: **Explorar (sin capital) ahora; activar en 2027.** IVR menor que las unidades de servicio por ser intensivo en capital, pero muy
 superior a la tesorería y con alta robustez. Primer paso sin costo: practicar *due diligence* con Claude sobre listados reales.

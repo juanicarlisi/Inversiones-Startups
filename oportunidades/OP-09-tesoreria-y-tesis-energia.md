@@ -83,7 +83,21 @@ superar lo que el mercado descuenta con prima de riesgo país (~600 pb). Formas 
 **Reglas**: tamaño máximo dentro del balde *Opciones* (≤ 10% del patrimonio de la cartera); precio/condición de salida escritos antes
 de entrar; revisión mensual en `/comite`.
 
-## 3. Veredicto
+## 3. Actualización 2026-09-26: el "motor de renta" (lo único 100% pasivo)
+
+- HECHO: la Fed subió a 3,75–4,00% el 16-09-2026 (letras cortas de EE.UU. ~4%); el riesgo país cerró en 609 pb el 25-09-2026 y los
+  bonos en USD cayeron hasta 4% en cinco ruedas. INFERENCIA: las tasas en USD están altas; armar la escalera de a poco (un tramo por
+  mes) evita adivinar el momento.
+- HECHO: sin convenio de doble imposición con EE.UU., los dividendos de fuente estadounidense sufren 30% de retención → para renta
+  preferir intereses (letras, ON) y, para crecimiento, índices amplios (SPIVA: 92,6% de los fondos activos pierde contra el S&P 500
+  en 20 años).
+- HECHO: rendimientos de *stablecoins* de 5–10% (hasta 17% en plataformas poco conocidas). INFERENCIA: por encima de ~4% se cobra
+  riesgo de contraparte; usar solo como tránsito, en plataformas registradas como PSAV ante la CNV y con tope bajo.
+- La cuenta honesta: USD 400/mes a ~6,5% genera ~USD 24/mes de renta al mes 12 y ~USD 150/mes al mes 60. Pasivo de verdad, pero
+  lento: por eso el plan combina la tesorería con compras de flujos (OP-08) y opciones baratas (OP-12). Ver
+  `cartera/plan-sin-venta-resultados.md`.
+
+## 4. Veredicto
 
 **Operativa desde el mes 1** como balde de tesorería. La tesis satélite es opcional, chica y con reglas de salida; su función es
 capturar un cambio estructural que el sistema detectó, no reemplazar a las unidades operativas.

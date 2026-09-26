@@ -1,7 +1,7 @@
 ---
 id: OP-04
 titulo: "Laboratorio de decisiones logísticas (simulación como servicio)"
-estado: validar
+estado: pausa
 rol: plataforma
 tipo: servicio-profesional-productizado
 resumen: "Reformulación de la idea del fundador (app de simulación logística hecha con Claude). No vender software de simulación —mercado de AnyLogic/FlexSim, caro y lento— sino decisiones logísticas caras (flota, depósito, dársenas, multimodal) resueltas con modelos que la IA construye en días; reutilizar los modelos y convertir el más pedido en un producto vertical."
@@ -40,7 +40,7 @@ escenarios_36m:
   expansivo: {prob: 0.12, flujo_mensual: 4000}
 multiplo_terminal_meses: 12
 sinergias: [OP-02, OP-03, OP-07]
-proximo_paso: "Vender 1 estudio piloto (USD 500–1.500) a un contacto logístico antes de programar nada grande (EXP-04)"
+proximo_paso: "PAUSA (DEC-2026-09-26-5: el fundador prefiere ingresos sin salir a vender; requiere vender estudios a empresas). Revive si el fundador decide vender o aparece un socio que venda. Paso previsto: Vender 1 estudio piloto (USD 500–1.500) a un contacto logístico antes de programar nada grande (EXP-04)"
 ---
 
 # OP-04 — Laboratorio de decisiones logísticas

@@ -1,7 +1,7 @@
 ---
 id: OP-01
 titulo: "Administración de consorcios aumentada por IA (CABA)"
-estado: validar
+estado: pausa
 rol: motor-de-caja
 tipo: servicio-recurrente
 resumen: "Administrar edificios de CABA con un back-office operado por IA: mismo precio que un administrador tradicional, más transparencia y respuesta, y la mitad del costo de servir. Cuña para una plataforma de servicios recurrentes (compras, seguros, energía, contabilidad)."
@@ -40,7 +40,7 @@ escenarios_36m:
   expansivo: {prob: 0.15, flujo_mensual: 3800}
 multiplo_terminal_meses: 20
 sinergias: [OP-07, OP-11, R11]
-proximo_paso: "Inscribirse al curso RPA (≥40 h) y lanzar el imán 'auditoría gratuita de expensas' con USD 100 de pauta (EXP-01)"
+proximo_paso: "PAUSA (DEC-2026-09-26-5: el fundador prefiere ingresos sin salir a vender; requiere vender servicios a administradores y consorcios). Revive si el fundador decide vender o aparece un socio que venda. Paso previsto: Inscribirse al curso RPA (≥40 h) y lanzar el imán 'auditoría gratuita de expensas' con USD 100 de pauta (EXP-01)"
 ---
 
 # OP-01 — Administración de consorcios aumentada por IA (CABA)

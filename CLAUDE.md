@@ -17,8 +17,10 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   capital→valor lo justifica.
 - Quiere usar la IA **al máximo** como fuerza de trabajo (desarrollo, trámites, marketing, ventas, finanzas) y está dispuesto a pagar
   planes caros si el retorno lo justifica (ver `doctrina/05-palanca-ia.md`).
-- Le gusta proponer ideas-ejemplo; **son ilustrativas, no directivas**. Evaluarlas con el mismo rigor que cualquier otra y, si
-  corresponde, reformularlas o matarlas explicando por qué.
+- Da ejemplos para orientar; **son ilustrativos de la dirección, no candidatos a analizar**. Usarlos para entender qué busca y
+  proponer las mejores opciones propias; analizarlos uno por uno solo si lo pide (aclarado el 26-09-2026).
+- **Prefiere ingresos pasivos o casi pasivos, sin salir a vender** (26-09-2026). Toda propuesta debe decir quién vende por él
+  (el mercado, una plataforma con demanda propia, un operador o un negocio que ya vende) y cuántas horas pide. Ver DEC-2026-09-26-5.
 
 ## 2. Reglas no negociables
 

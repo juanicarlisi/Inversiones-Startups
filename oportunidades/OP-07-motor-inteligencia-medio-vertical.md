@@ -1,7 +1,7 @@
 ---
 id: OP-07
 titulo: "Motor de inteligencia + medio vertical (comex, logística, pymes)"
-estado: validar
+estado: pausa
 rol: canal
 tipo: medio-y-datos
 resumen: "El radar interno que igual hay que mantener, convertido en un medio vertical en español para quienes deciden en comercio exterior, logística y pymes: qué cambió, a quién afecta y qué hacer. La IA hace el 80–90%; el valor es la audiencia propia, el flujo de oportunidades y los leads para las unidades operativas."
@@ -40,7 +40,7 @@ escenarios_36m:
   expansivo: {prob: 0.12, flujo_mensual: 2000}
 multiplo_terminal_meses: 12
 sinergias: [OP-01, OP-02, OP-03, OP-04, OP-06]
-proximo_paso: "Publicar 8 ediciones semanales gratuitas 'Comex y Logística: qué cambió y qué hacer' en LinkedIn + email + canal de WhatsApp (EXP-06)"
+proximo_paso: "PAUSA (DEC-2026-09-26-5: el fundador prefiere ingresos sin salir a vender; requiere construir audiencia y vender publicidad o suscripciones; además, las respuestas de IA de los buscadores reducen clics). Revive si el fundador decide vender o aparece un socio que venda. Paso previsto: Publicar 8 ediciones semanales gratuitas 'Comex y Logística: qué cambió y qué hacer' en LinkedIn + email + canal de WhatsApp (EXP-06)"
 ---
 
 # OP-07 — Motor de inteligencia + medio vertical
