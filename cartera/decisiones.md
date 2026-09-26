@@ -76,3 +76,19 @@
 - **Descartado**: marca de hogar con lanzamiento agresivo (capital y horas), apps de productividad con publicidad, comparador
   universal, música IA con vistas compradas, trading, minería y encuestas (ver informe 3, capítulos 7 y 9).
 - **Revisar**: hitos de los meses 3, 6, 9 y 12 (informe 3, capítulo 2) o si el fundador cambia horas, capital o preferencia.
+
+## DEC-2026-09-26-7 — Entrenar IA pasa de "turbo" a "boleto"
+
+- **Contexto**: el fundador aplicó a Outlier; le pidieron una evaluación de SQL para habilitar proyectos y casi todo lo que le
+  aparece es de programación. Señaló, con razón, que el informe 3 presentaba la alternativa como "aplicar, rendir y trabajar
+  2–3 h/semana" sin advertir lo difícil que es entrar.
+- **Error reconocido**: el modelo suponía 55% de chances de tareas estables y ~USD 280/mes desde el mes 1. No incorporaba hechos
+  conocidos: onboarding sin pago, "cola vacía" habitual aun después de aprobar, salida de OpenAI y Google de Scale AI (dueña de
+  Outlier) tras la compra del 49% por Meta en jun-2025, y demanda sesgada a código y expertos senior.
+- **Decisión**: H1 pasa a "Solo si…" como boleto opcional: p_exito 0,25, primer ingreso mes 2, ~USD 150/mes si sale
+  (`oportunidades/catalogo.yaml#H1`). El peor caso del plan con H1 pasa de +USD 258 a −USD 2.856 (sin H1: −USD 3.494). No se cuenta
+  esa plata en el plan hasta tener 4 semanas seguidas de tareas pagas.
+- **Propuesta pendiente del fundador**: regla de costo fijo: si al mes 12 no funciona ningún motor, bajar Claude Max (USD 100) al plan
+  de USD 20. Ahorra ~USD 1.900 en el peor caso, con certeza (24 meses × USD 80).
+- **Fuentes**: `conocimiento/2026-09-26-entrenar-ia-realidad.md`.
+- **Revisar**: a las 6 semanas de aplicar (corte de H1).

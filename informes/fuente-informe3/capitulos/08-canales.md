@@ -21,7 +21,7 @@
 | Ofertas truchas: 77% de los descuentos del Hot Sale 2026 estaban inflados | Comparador y ofertas reales (D1) | Segunda ola |
 | Estudiar y aprobar en la facultad | Tutor IA para estudiantes (A11) | Segunda ola |
 | ARCA fue lo 2º más buscado de 2025 | Asistente de trámites (B1) | Solo si hay un contador que revise |
-| Sueldo en pesos, ganas de cobrar en dólares | Turbo (H1) y empleo remoto (H3) | Opcional / palanca aparte |
+| Sueldo en pesos, ganas de cobrar en dólares | Entrenar IA (H1, boleto) y empleo remoto (H3) | Opcional / palanca aparte |
 | Fútbol, lo más buscado del año | Prode entre amigos (A12) | Solo si |
 | Alquilar en CABA (más oferta desde 2024, pero sin reglas fijas) | Buscador de alquileres (A8) | Solo si |
 | Camiones esperando en puertos (hasta 14.000 por día en cosecha) | Módulo de costos y estadías en C1 (A9) | Solo si |

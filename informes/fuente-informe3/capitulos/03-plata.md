@@ -9,13 +9,13 @@ un solo número, sino en tres escenarios con sus chances.
 
 ## Cómo leerlo
 
-- **Corto plazo (0–6 meses):** es inversión de tiempo; la plata que entra es chica. Si querés ingresos ya, está el turbo.
+- **Corto plazo (0–6 meses):** es inversión de tiempo; la plata que entra es chica. No hay una fuente segura de plata desde el mes 1 sin vender: entrenar IA es un boleto (capítulo 1).
 - **Mediano plazo (12–24 meses):** si funciona un motor, el ingreso pasa de cientos a miles de dólares por mes. Con {{v:p_alguno}} de
   chances de que funcione al menos uno, es una apuesta razonable para 7–10 horas por semana.
 - **Largo plazo (36–60 meses):** lo que funciona se reinvierte en más apps, módulos y compras. La renta va de fondo: sola daría
   {{v:renta_m36}}/mes al año 3 y {{v:renta_m60}}/mes al año 5.
-- **Si no funciona nada:** el costo máximo razonable es {{v:ninguno_acum}} en 3 años (herramientas + la app comprada). Con el
-  turbo, {{v:turbo_ninguno_acum}}.
+- **Si no funciona nada:** el costo máximo razonable es {{v:ninguno_acum}} en 3 años (herramientas + la app comprada). Si además
+  sale entrenar IA, {{v:turbo_ninguno_acum}}; bajando Claude a USD 20 cuando al mes 12 no funciona nada, unos USD 1.900 menos.
 
 > **Cuidado con los números.** Las chances de cada motor son estimaciones propias con datos de mercado de 2026, no promesas. El modelo
 > ya supone que a veces fallan todos juntos (por ejemplo, porque faltan tiempo o energía). Los hitos de los meses 3, 6 y 9 existen
@@ -25,7 +25,7 @@ un solo número, sino en tres escenarios con sus chances.
 
 | Palanca | Qué cambia | Costo |
 |---|---|---|
-| Turbo (entrenar IA) | Ingreso desde el mes 1; cubre las herramientas | +3 h/semana |
+| Entrenar IA (boleto) | Plata por hora si hay tareas; entrar es difícil y no es seguro | +3 h/semana y pruebas sin pago |
 | Claude Max 20x durante los sprints de construcción | Dobla la capacidad de Claude en los meses 1–3 | +USD 100/mes solo en esos meses |
 | Más horas (12–15 h/semana) | Adelanta el motor 2 y la segunda ola | Tu tiempo |
 | Empleo remoto en dólares | El salto más grande de ingreso, sin horas extra | Entrevistas |

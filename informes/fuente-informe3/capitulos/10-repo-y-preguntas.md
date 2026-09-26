@@ -19,7 +19,7 @@
 2. **Logistic Lab:** ¿qué 5 cálculos te hubieran servido más en tu trabajo? ¿Tenés planillas o apuntes para partir?
 3. **Alquileres:** mencionaste un agente que habíamos armado antes; en este repositorio no está. Si lo tenés en otra conversación o
    archivo, pasámelo y lo sumo.
-4. **Turbo:** ¿podés estirarte a ~12 horas durante 3–6 meses, o preferís demorar el motor 2?
+4. **Entrenar IA y costos:** ¿qué te ofrecen las plataformas después de aplicar? ¿Te parece bien la regla de bajar Claude a USD 20 si al mes 12 no funciona ningún motor?
 5. **Empleo remoto en dólares:** ¿te interesa explorarlo en paralelo?
 
 > Fuentes y supuestos: bitácoras `conocimiento/2026-09-26-investigacion-catalogo-alternativas.md` (este informe) y

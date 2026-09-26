@@ -61,7 +61,7 @@ python3 informes/construir_ingresos_sin_vender.py         # regenera el informe 
 
 - **El plan** (DEC-2026-09-26-6): motor 1 **OP-15 suite cristiana** (EXP-09, desde oct-2026), motor 2 **OP-16 Logistic Lab**
   (EXP-10, desde dic-2026), **renta en USD** (OP-09) y **compra chica de una app con AdMob verificado** (OP-08, EXP-08, meses 6–9).
-  Segunda ola: radar de nichos del Play Store. Opcional: turbo entrenando IA. En pausa lo que requiere vender.
+  Segunda ola: radar de nichos del Play Store. Opcional: entrenar IA como boleto (entrar es difícil; no se cuenta esa plata). En pausa lo que requiere vender.
 - Detalle: `cartera/cartera.yaml`, `cartera/decisiones.md`, `cartera/experimentos/`, `oportunidades/catalogo.yaml`.
 
 ## Reglas de oro

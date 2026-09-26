@@ -29,10 +29,12 @@ Si no funciona ninguno, en 3 años perdés {{v:ninguno_acum}} (herramientas y la
 Todo con 7–10 horas por semana.
 
 <div class="duo">
-<div class="caja si"><h4>⚡ Turbo opcional: plata desde el mes 1</h4>
-2–3 h/semana entrenando modelos de IA desde casa (USD 15–32 por hora, sin mostrar la cara y sin buscar clientes). Con el turbo,
-aunque no funcione ningún motor, el plan termina en {{v:turbo_ninguno_acum}} a 3 años en vez de {{v:ninguno_acum}}. Suma unas 3 horas:
-conviene si podés estirarte a ~12 h durante unos meses o si preferís demorar el motor 2.</div>
+<div class="caja si"><h4>🎟️ Opcional: entrenar IA desde casa (un boleto, no un sueldo)</h4>
+Paga USD 15–32 por hora sin mostrar la cara, pero entrar es difícil: pruebas sin pago, semanas de espera, tareas que llegan por olas y
+mucha más demanda de programación que de perfiles generales. Aplicá a 3–4 plataformas en una tarde y no cuentes con esa plata hasta
+tener 4 semanas seguidas de tareas. Por eso suma poco en el modelo: si no funciona ningún motor, el plan termina en
+{{v:turbo_ninguno_acum}} a 3 años en vez de {{v:ninguno_acum}}. <b>El seguro de verdad es otro:</b> si al mes 12 no funciona ningún
+motor, bajar Claude al plan de USD 20 ahorra unos USD 1.900 en ese caso.</div>
 <div class="caja"><h4>🚀 La palanca más grande (no es un negocio)</h4>
 Un empleo o contrato remoto en dólares puede sumarte más que cualquier alternativa sin agregar horas a tu semana (en tecnología,
 USD 25–65 mil por año según seniority). Requiere entrevistas, así que no entra en el plan base; si te interesa, Claude arma el CV,
@@ -51,7 +53,7 @@ el portfolio y la preparación.</div>
 
 - **Marca de hogar y mate con lanzamiento agresivo** → pide más capital y horas de las que hay hoy, y Shein, Temu y Amazon duplicaron
   sus ventas por courier en 2026. En su lugar: afiliados sin stock (D3), y revisarla con USD 10.000+.
-- **Trading automático, minería, encuestas y "apps que pagan"** → pierden plata o pagan USD 1–4 por hora. En su lugar: el turbo (USD 15–32 por hora).
+- **Trading automático, minería, encuestas y "apps que pagan"** → pierden plata o pagan USD 1–4 por hora. En su lugar, si querés cobrar por hora: entrenar IA (USD 15–32 por hora, aunque entrar cuesta).
 - **Apps de productividad u organización con publicidad** → saturadas y gratuitas. En su lugar: el mismo hábito en la suite cristiana.
 - **Comparador universal de precios** → caro de mantener y ya existe. En su lugar: un comparador vertical con detector de ofertas falsas (D1), en segunda ola.
 - **Canal de música IA con vistas compradas** → las vistas compradas no cuentan y arriesgan el canal.

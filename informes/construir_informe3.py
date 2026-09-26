@@ -135,7 +135,7 @@ def graf_mapa(datos: dict):
             "D1": (-8, -9), "H3": (9, 2), "A13": (9, -6), "B2": (-8, 6), "C3": (-8, 4), "C5": (9, 2), "A11": (9, 5),
             "D3": (9, -8), "C2": (9, 6), "F2": (-8, 6)}
     for a in alts:
-        cortos = {"A1": "Suite cristiana", "C1": "Logistic Lab", "F1": "Comprar app", "G1": "Renta", "H1": "Turbo"}
+        cortos = {"A1": "Suite cristiana", "C1": "Logistic Lab", "F1": "Comprar app", "G1": "Renta", "H1": "Entrenar IA"}
         if a["veredicto"] == "hacer_ya":
             txt = f"{a['id']} · {cortos.get(a['id'], a['corto'])}"
         elif a["veredicto"] in ("segunda_ola", "palanca"):
