@@ -60,3 +60,8 @@ Mes 9: si no hay 500 usuarios mensuales ni una cátedra usándola, queda solo lo
 
 ## Veredicto
 **Validar ya (motor 2 del plan, desde el mes 2; DEC-2026-09-26-6).**
+
+## Canales extra, sin horas tuyas (DEC-2026-09-26-8)
+Cada calculadora sale también como plantilla en marketplaces (C3), app dentro de ChatGPT (R8) y herramienta para agentes (C4). El
+directorio de proveedores logísticos (R4) y la extensión con el margen real para vendedores de Mercado Libre (R10) son extensiones
+posibles si el núcleo tiene uso. No se cuentan en la simulación del plan.

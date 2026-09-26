@@ -17,4 +17,6 @@ horas. La franja gris marca tu presupuesto total de horas: por eso no se pueden 
 
 <p class="nota">"Si funciona" es el escenario normal cuando la alternativa funciona. "Promedio ponderado por chances" mezcla lo que
 pasa si funciona y si no, según sus probabilidades. El puntaje no es todo: el veredicto también mira cómo combinan entre sí y tus
-horas. Por ejemplo, el juego de logística tiene buen puntaje pero va en segunda ola porque no entra en las horas de este año.</p>
+horas. Por ejemplo, los juegos web en portales tienen tan buen puntaje como Logistic Lab, pero van como primer tiro de la fábrica
+(mes 9) porque este año las horas ya están ocupadas por los dos motores. "Así no" quiere decir que la idea como estaba planteada no
+conviene, pero su mejor versión tiene roadmap (capítulo 10).</p>

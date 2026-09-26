@@ -70,3 +70,8 @@ WhatsApp y estados puede ser el motor de crecimiento de la suite. En Play Store 
 días con bendiciones" (demanda probada, casi todas hechas con plantillas). Costo casi cero: los fondos se generan una vez (~USD 0,003–0,04
 cada uno) y el texto se arma en el teléfono. Cada imagen compartida lleva el nombre de la app. Surge de evaluar el generador de
 imágenes genérico (A14, descartado). Validar con el radar de nichos (A10) cuando haya acceso a play.google.com.
+
+## Difusión sin publicidad paga (DEC-2026-09-26-8)
+Además de las imágenes para compartir: un juego diario bíblico en la web con resultado para compartir por WhatsApp (R2), una cuenta
+sin cara de presentaciones de imágenes en TikTok e Instagram (D5) y un canal de WhatsApp con el versículo del día. Claude produce,
+el fundador aprueba y publica (1–2 h/semana). La agenda de eventos alimenta plantillas para iglesias (R5).

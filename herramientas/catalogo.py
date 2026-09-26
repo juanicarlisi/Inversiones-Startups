@@ -40,7 +40,7 @@ VEREDICTOS = {
     "hacer_ya": "Hacer ya",
     "segunda_ola": "Segunda ola",
     "solo_si": "Solo si…",
-    "no": "No",
+    "no": "Así no",
     "palanca": "Palanca aparte",
     "pausa": "En pausa",
 }
@@ -264,10 +264,48 @@ def tabla_md(datos: dict) -> str:
             f"{_u(ns[6])} / {_u(ns[12])} / {_u(ns[36])} | {_u(s['esperado'][36])} | {s['usd_por_hora']:.1f} |"
         )
     sin_num = [a for a in datos["alternativas"] if a["_sim"] is None]
-    filas += ["", "## Trampas y alternativas en pausa", "", "| ID | Alternativa | Veredicto | Por qué |", "|---|---|---|---|"]
+    filas += ["", "## Trampas y alternativas en pausa", "",
+              "| ID | Alternativa | Veredicto | Por qué | En su lugar / se reactiva si |", "|---|---|---|---|---|"]
     for a in sin_num:
-        filas.append(f"| {a['id']} | {a['nombre']} | {VEREDICTOS[a['veredicto']]} | {a.get('por_que', '')} |")
+        ver = "Trampa" if a["familia"] == "trampa" else VEREDICTOS[a["veredicto"]]
+        alt = f"ver {a['en_su_lugar']}" if a.get("en_su_lugar") else a.get("revive", a.get("mejor_version", ""))
+        filas.append(f"| {a['id']} | {a['nombre']} | {ver} | {a.get('por_que', '')} | {alt} |")
     return "\n".join(filas)
+
+
+def ideas_md(datos: dict) -> str:
+    """Cada ejemplo del fundador: qué entendimos, el espectro que abrimos y la mejor versión."""
+    filas = ["| Tu idea (reformulada) | Qué entendimos | Espectro que abrimos | La mejor versión | Veredicto |",
+             "|---|---|---|---|---|"]
+    for i in datos.get("ideas", []):
+        filas.append(f"| {i['tema']} | {i['entendimos']} | {', '.join(i['espectro'])} | {i['mejor']} | {i['veredicto']} |")
+    return "\n".join(filas)
+
+
+def rutas_md(datos: dict) -> str:
+    """Roadmap de 26 semanas de cada alternativa (o de su mejor versión)."""
+    quien = {"claude": "Claude", "vos": "Vos", "ambos": "Juntos"}
+    out = []
+    for a in datos["alternativas"]:
+        pasos = a.get("ruta") or [[t, d, h, q, ""] for t, q, d, h in a.get("gantt", [])]
+        if not pasos and not a.get("revive") and not a.get("en_su_lugar"):
+            continue
+        titulo = f"### {a['id']} · {a.get('corto', a['nombre'])} — {VEREDICTOS[a['veredicto']] if a['familia'] != 'trampa' else 'Trampa'}"
+        out += [titulo, ""]
+        if a["veredicto"] == "no" and a.get("ruta"):
+            out.append(f"Roadmap de la mejor versión: {a.get('mejor_version', '')}")
+            out.append("")
+        for t, d, h, q, txt in pasos:
+            sem = f"S{d}" if d == h else f"S{d}–{h}"
+            out.append(f"- **{sem} · {t}** ({quien[q]}){': ' + txt if txt else ''}")
+        if a.get("corte"):
+            out.append(f"- ✂️ Corte: {a['corte']}")
+        if a.get("en_su_lugar"):
+            out.append(f"- En su lugar: ver {a['en_su_lugar']}.")
+        if a.get("revive"):
+            out.append(f"- Se reactiva si: {a['revive']}")
+        out.append("")
+    return "\n".join(out)
 
 
 def escribir_md(datos: dict) -> None:
@@ -281,6 +319,14 @@ def escribir_md(datos: dict) -> None:
         "> (neta de inversión y costos) dividida por las horas esperadas.",
         "",
         tabla_md(datos),
+        "",
+        "## Tus ideas → qué entendimos y qué espectro abrimos",
+        "",
+        ideas_md(datos),
+        "",
+        "## Roadmaps (primeras 26 semanas)",
+        "",
+        rutas_md(datos),
         "",
     ])
     SALIDA_MD.write_text(texto, encoding="utf-8")

@@ -61,7 +61,10 @@ python3 informes/construir_ingresos_sin_vender.py         # regenera el informe 
 
 - **El plan** (DEC-2026-09-26-6): motor 1 **OP-15 suite cristiana** (EXP-09, desde oct-2026), motor 2 **OP-16 Logistic Lab**
   (EXP-10, desde dic-2026), **renta en USD** (OP-09) y **compra chica de una app con AdMob verificado** (OP-08, EXP-08, meses 6–9).
-  Segunda ola: radar de nichos del Play Store. Opcional: entrenar IA como boleto (entrar es difícil; no se cuenta esa plata). En pausa lo que requiere vender.
+  Desde el mes 9: **fábrica de réplicas** (A10), con radar en segundo plano desde el mes 3, que replica tipos de producto que ya
+  facturan en Flippa y similares (familia R del catálogo). Opcional: entrenar IA como boleto. En pausa lo que requiere vender.
+- **Catálogo**: 72 alternativas con números, roadmap de 26 semanas y regla de corte; mapa de las ideas del fundador
+  (`oportunidades/catalogo.yaml` → `CATALOGO.md`). Informe: `informes/2026-09-el-plan.pdf` (39 páginas, 13 capítulos).
 - Detalle: `cartera/cartera.yaml`, `cartera/decisiones.md`, `cartera/experimentos/`, `oportunidades/catalogo.yaml`.
 
 ## Reglas de oro

@@ -11,7 +11,7 @@
 | Conocimiento de dominio | **Logística** | Ventaja en transporte, depósitos, comercio exterior, planificación, simulación. Sube el puntaje de OP-02, OP-03, OP-04 |
 | Capital recurrente | ~USD 400/mes, ampliable | Con este monto, el cuello de botella son las horas y la velocidad de aprendizaje, no el dinero |
 | Relación con la IA | Quiere usarla al máximo, incluso con planes caros | Preferir unidades con `palanca_ia` alta; presupuesto de herramientas explícito |
-| Estilo | Da ejemplos para orientar (marca matera, app de simulación, IA de trading, minería) | **Son orientativos, no candidatos**: sirven para entender la dirección; no se analizan uno por uno salvo que lo pida (aclarado el 26-09-2026) |
+| Estilo | Da ejemplos para orientar (marca matera, app de simulación, IA de trading, minería) | **Son orientativos, no candidatos**: sirven para entender la dirección y barrer el espectro por iniciativa propia; se cubren todas sus ideas con su mejor versión y roadmap, sin descartar por descartar (aclarado dos veces el 26-09-2026) |
 | Edad y formación (26-09-2026) | **27 años, Ingeniero Industrial** | Base cuantitativa (modelos, procesos, simulación): puede auditar lo que construye la IA |
 | Trabajo actual (26-09-2026) | **Relación de dependencia** | Todo lo que se proponga tiene que convivir con un empleo: tareas asincrónicas, sin horarios fijos ni llamadas en horario laboral |
 | Horas disponibles (26-09-2026) | **6–10 h/semana** sostenidas | Alcanza para 1 motor principal + 1 apuesta chica + renta automática. No más de 2 proyectos activos a la vez |

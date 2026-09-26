@@ -18,7 +18,10 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
 - Quiere usar la IA **al máximo** como fuerza de trabajo (desarrollo, trámites, marketing, ventas, finanzas) y está dispuesto a pagar
   planes caros si el retorno lo justifica (ver `doctrina/05-palanca-ia.md`).
 - Da ejemplos para orientar; **son ilustrativos de la dirección, no candidatos a analizar**. Usarlos para entender qué busca y
-  proponer las mejores opciones propias; analizarlos uno por uno solo si lo pide (aclarado el 26-09-2026).
+  **barrer el espectro por iniciativa propia** (no esperar a que traiga cada idea): cada ejemplo abre una familia de alternativas,
+  incluido "replicar lo que ya funciona" (activos de Flippa y similares con difusión propia). Toda alternativa lleva roadmap y regla
+  de corte; no se descarta por descartar: si no conviene como está, se muestra la mejor versión ("así no → mejor así"). Tener en
+  cuenta lo que Claude puede construir hoy (aclarado el 26-09-2026; ver DEC-2026-09-26-8).
 - **Prefiere ingresos pasivos o casi pasivos, sin salir a vender** (26-09-2026). Toda propuesta debe decir quién vende por él
   (el mercado, una plataforma con demanda propia, un operador o un negocio que ya vende) y cuántas horas pide. Ver DEC-2026-09-26-5.
 

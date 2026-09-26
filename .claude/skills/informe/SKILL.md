@@ -14,4 +14,6 @@ description: Regenera el informe estratégico en PDF con el estado actual del si
    PDF. Para un informe temático nuevo, copiar ese generador (reutiliza el CSS del principal) y su carpeta de capítulos.
 6. Informe 3 (`informes/fuente-informe3/`, `python3 informes/construir_informe3.py`) es la referencia de estilo que pidió el
    fundador: recomendación en la primera página, cronograma, plata en escenarios con chances, fichas con tarjetas, sin jerga. Los
-   bloques visuales salen de `oportunidades/catalogo.yaml`; los números del texto usan marcadores `{{v:...}}`.
+   bloques visuales salen de `oportunidades/catalogo.yaml`; los números del texto usan marcadores `{{v:...}}`. Cada alternativa
+   tiene `ruta` (roadmap de 26 semanas) o `gantt` (fichas con detalle) y `corte`; el capítulo de ideas sale de `ideas:`. El índice
+   se pagina solo (dos pasadas de impresión). Revisar página por página: títulos huérfanos, fichas que desbordan, etiquetas del mapa.

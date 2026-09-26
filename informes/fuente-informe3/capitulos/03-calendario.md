@@ -1,7 +1,8 @@
 # Tu calendario de 12 meses
 
-Dos motores al mismo tiempo como máximo, con una decisión escrita en cada hito. Si algo no funciona, se corta a tiempo y esas horas
-pasan a lo siguiente.
+Dos motores al mismo tiempo como máximo, con una decisión escrita en cada hito. Mientras tanto, Claude prepara en segundo plano la
+fábrica de réplicas (sin horas tuyas) para que en el mes 9 arranque con candidatas ya investigadas. Si algo no funciona, se corta a
+tiempo y esas horas pasan a lo siguiente.
 
 {{GANTT_PLAN}}
 
@@ -12,8 +13,8 @@ pasan a lo siguiente.
 | Hito | Qué miramos | Qué decidimos |
 |---|---|---|
 | **Mes 3** | ¿La suite está publicada? ¿Cuántos la usan a la semana? | Seguir, o ajustar la difusión |
-| **Mes 6** | Suite: ≥ 1.000 usuarios por semana y ≥ 10% que vuelve. Logistic Lab: 5 calculadoras online | Suite: seguir, o congelar y pasar a la próxima app del radar. Compra: ¿hay una app que pase los criterios? |
-| **Mes 9** | Logistic Lab: ≥ 500 usuarios por mes o una cátedra usándola | Seguir, o dejar solo lo gratis |
+| **Mes 6** | Suite: ≥ 1.000 usuarios por semana y ≥ 10% que vuelve. Logistic Lab: 5 calculadoras online | Suite: seguir, o congelar y adelantar la fábrica. Compra: ¿hay una app que pase los criterios? |
+| **Mes 9** | Logistic Lab: ≥ 500 usuarios por mes o una cátedra usándola. Radar: 3 candidatas con datos | Logistic Lab: seguir o dejar solo lo gratis. Fábrica: elegir y lanzar el producto 1 |
 | **Mes 12** | Todo contra todo, y contra la renta | Qué se acelera en el año 2 (más apps, cátedras, compra más grande) |
 
 ## Cómo trabajamos cada semana

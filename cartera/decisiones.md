@@ -92,3 +92,28 @@
   de USD 20. Ahorra ~USD 1.900 en el peor caso, con certeza (24 meses × USD 80).
 - **Fuentes**: `conocimiento/2026-09-26-entrenar-ia-realidad.md`.
 - **Revisar**: a las 6 semanas de aplicar (corte de H1).
+
+## DEC-2026-09-26-8 — Fábrica de réplicas, roadmap para cada alternativa y "así no → mejor así"
+
+- **Contexto**: el fundador pidió (26-09-2026) que sus ejemplos se usen como orientación para barrer el espectro por iniciativa
+  propia (no esperar a que traiga cada idea), que se consideren como alternativas los activos de Flippa y similares que se puedan
+  replicar y crecer con difusión propia, que se cubran todas sus ideas, que cada opción tenga roadmap y que no se descarte por
+  descartar, teniendo en cuenta lo que Claude puede construir hoy.
+- **Decisión**:
+  1. **Nueva familia "Replicar lo que ya funciona"** (R1–R11) en `oportunidades/catalogo.yaml`: juegos web en portales, juego
+     diario compartible, Roblox, directorio de nicho, plantillas para iglesias, libros de nicho, microaprendizaje en español, apps
+     en ChatGPT y Claude, apps para Tiendanube, extensión para vendedores de MeLi y simuladores de exámenes. Total: 72 alternativas.
+  2. **A10 pasa a "Fábrica de réplicas"**: radar en segundo plano (solo Claude) desde el mes 3 y un producto por trimestre desde el
+     mes 9, en el canal donde la demanda ya existe (Play Store, Chrome, portales de juegos, Apify). Primer candidato natural: un juego
+     web en portales (R1), que además prueba barato el tycoon de logística (A2 ahora arranca en portales web).
+  3. **Multiplicadores sin horas extra**: C1 sale también como plantillas (C3), app en ChatGPT (R8) y herramienta para agentes (C4);
+     A1 suma imágenes para compartir (A14), juego diario (R2) y videos sin cara (D5). No se cuentan en la simulación del plan.
+  4. **Roadmap de 26 semanas y regla de corte para cada alternativa viable** (58); las trampas indican qué hacer en su lugar y las
+     pausadas qué las reactivaría. El veredicto "No" pasa a mostrarse como **"Así no"** con la mejor versión y su roadmap.
+  5. **Mapa de las 22 ideas del fundador** (`ideas:` en el catálogo): qué entendimos, espectro abierto y mejor versión.
+- **Sin cambios**: motores A1 y C1, renta G1, compra F1; plan de horas 5,5–10,3 h/semana; simulación del plan igual (A10 ya estaba).
+- **Por qué**: construir dejó de ser el cuello de botella; lo escaso es elegir nicho, la difusión y las horas del fundador. Los
+  activos de Flippa que crecen sin publicidad comparten patrón (tarea concreta, demanda por búsqueda o marketplace, costo por usuario
+  casi cero, llegada temprana). Se replica el tipo de producto y el canal, no una app puntual (sesgo de supervivencia).
+- **Fuentes**: `conocimiento/2026-09-26-replicables-y-espectro.md`.
+- **Revisar**: mes 9 (lanzamiento de la fábrica) o antes si se habilita el acceso de red a play.google.com, chromewebstore y flippa.
