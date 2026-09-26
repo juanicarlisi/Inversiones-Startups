@@ -12,3 +12,6 @@ description: Regenera el informe estratégico en PDF con el estado actual del si
 5. Informes temáticos: cada uno tiene su carpeta fuente y su generador. Hoy existe `informes/fuente-ingresos/` →
    `python3 informes/construir_ingresos_sin_vender.py`, que además escribe un HTML autocontenido (gráficos incrustados) junto al
    PDF. Para un informe temático nuevo, copiar ese generador (reutiliza el CSS del principal) y su carpeta de capítulos.
+6. Informe 3 (`informes/fuente-informe3/`, `python3 informes/construir_informe3.py`) es la referencia de estilo que pidió el
+   fundador: recomendación en la primera página, cronograma, plata en escenarios con chances, fichas con tarjetas, sin jerga. Los
+   bloques visuales salen de `oportunidades/catalogo.yaml`; los números del texto usan marcadores `{{v:...}}`.

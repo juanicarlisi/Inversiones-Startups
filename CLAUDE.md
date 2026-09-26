@@ -47,12 +47,12 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
 | `doctrina/` | Principios, marco de evaluación, estándares de evidencia, asignación de capital, lentes de descubrimiento, palanca IA, riesgo | Rara vez; cambios = decisión registrada |
 | `perfil/` | Perfil del fundador: capacidades, restricciones, preguntas abiertas | Cuando el fundador aporta datos |
 | `radar/` | Contexto macro fechado, señales, mapa regulatorio, disparadores de vigilancia, fuentes | Semanal (`/radar`) |
-| `oportunidades/` | Una ficha por oportunidad (`OP-XX-*.md`) con frontmatter YAML; `descartadas.md` = cementerio con razones | Continuo |
+| `oportunidades/` | Una ficha por oportunidad (`OP-XX-*.md`) con frontmatter YAML; `catalogo.yaml` = todas las alternativas con números (genera `CATALOGO.md` con `herramientas/catalogo.py`); `descartadas.md` = cementerio con razones | Continuo |
 | `casos/` | Casos de empresas y patrones transferibles | Continuo |
 | `cartera/` | Estrategia a 5 años, estado de la cartera (`cartera.yaml`), libro de capital (`libro-capital.csv`), decisiones, experimentos | Mensual (`/comite`, `/revision`) |
 | `conocimiento/` | Bitácoras de investigación con hechos fechados y fuentes | Cada investigación |
 | `herramientas/` | Scripts: tablero de oportunidades, motor de escenarios Monte Carlo, cartera, generador de informes | Cuando haga falta |
-| `informes/` | Informes PDF (el primero: cartografía inicial sep-2026) y su fuente | Trimestral o a pedido |
+| `informes/` | Informes PDF + HTML y su fuente (1: cartografía inicial; 2: ingresos sin vender; 3: el plan). Estilo del 3: práctico, visual, sin jerga | Trimestral o a pedido |
 | `TABLERO.md` | **Generado** por `python3 herramientas/oportunidades.py`. No editar a mano | Tras cambiar fichas |
 
 ## 4. El equipo (subagentes en `.claude/agents/`)

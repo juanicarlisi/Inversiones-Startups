@@ -40,7 +40,7 @@ escenarios_36m:
   expansivo: {prob: 0.20, flujo_mensual: 330}
 multiplo_terminal_meses: 30   # reventa ≈ 2,5x flujo anual
 sinergias: [OP-12, OP-14, OP-09]
-proximo_paso: "Claude: embudo semanal de listados < USD 10 k en Flippa, Microns y Acquire con verificación de ingresos; due diligence simulada de 5 listados reales en 60 días (EXP-08); fundador: resolver cómo cobrar y declarar ingresos en USD (contador) antes de la primera compra"
+proximo_paso: "Primer paso (DEC-2026-09-26-6): comprar una app o juego Android chico con AdMob verificado en Flippa (USD 1.000–2.500 del ahorro) entre el mes 6 y el 9, tras 3 análisis de práctica (EXP-08, alternativa F1 del catálogo). Compras mayores (F2) en el año 2."
 ---
 
 # OP-08 — Micro-adquisiciones digitales en USD

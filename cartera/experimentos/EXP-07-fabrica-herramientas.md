@@ -10,6 +10,8 @@ horas_fundador_total: 50
 
 # EXP-07 — Fábrica de herramientas: 15 publicadas en 90 días, corte al mes 9
 
+> **Postergado (DEC-2026-09-26-6):** el plan prioriza OP-15 y OP-16. Se retoma solo si sobra tiempo; en ese caso, con las calculadoras de OP-16.
+
 ## Hipótesis más riesgosa que prueba
 Que herramientas con lógica de negocio argentina y logística (cálculos, validaciones, datos oficiales normalizados) consiguen
 usuarios que pagan por uso en Apify Store y por agentes (MCP/x402) sin que nadie salga a venderlas.

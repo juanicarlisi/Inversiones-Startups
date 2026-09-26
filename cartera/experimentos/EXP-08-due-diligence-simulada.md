@@ -10,6 +10,8 @@ horas_fundador_total: 10
 
 # EXP-08 — Cinco due diligence simuladas sobre listados reales (sin comprar nada)
 
+> **Reorientado (DEC-2026-09-26-6):** foco en apps y juegos Android con AdMob verificado de USD 1.000–2.500 (alternativa F1); 3 análisis de práctica antes de la primera compra, entre el mes 6 y el 9.
+
 ## Hipótesis más riesgosa que prueba
 Que con criterios escritos y análisis de Claude se pueden separar los micro-negocios que se sostienen de los que colapsan, antes de
 poner capital. Es la variable que más mueve el resultado del modelo `op08b`.

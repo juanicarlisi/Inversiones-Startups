@@ -1,7 +1,7 @@
 ---
 id: OP-12
 titulo: "Fábrica de herramientas para desarrolladores y agentes de IA (Apify, MCP, x402)"
-estado: validar
+estado: pausa
 rol: opcion
 tipo: producto-en-marketplace
 resumen: "Claude construye y mantiene muchas herramientas chicas (datos, cálculos y validaciones con lógica argentina y logística) que se publican en marketplaces donde desarrolladores y agentes de IA las encuentran y pagan por uso. No hay que salir a vender: la plataforma trae la demanda y cobra. Es una lotería barata con regla de corte que además entrena para operar negocios comprados (OP-08)."
@@ -40,7 +40,7 @@ escenarios_36m:
   expansivo: {prob: 0.15, flujo_mensual: 800}
 multiplo_terminal_meses: 18
 sinergias: [OP-08, OP-14, OP-07]
-proximo_paso: "Fundador: crear cuenta en Apify y habilitar el acceso de red del entorno a apify.com; Claude: lista de 20 herramientas candidatas con demanda observable y competencia débil, y las primeras 5 publicadas en 30 días (EXP-07)"
+proximo_paso: "PAUSA (DEC-2026-09-26-6: el fundador prefiere proyectos divertidos y con sus redes; baja la prioridad). Si se retoma, publicar como herramientas para agentes las calculadoras de OP-16. Paso previsto: Fundador: crear cuenta en Apify y habilitar el acceso de red del entorno a apify.com; Claude: lista de 20 herramientas candidatas con demanda observable y competencia débil, y las primeras 5 publicadas en 30 días (EXP-07)"
 ---
 
 # OP-12 — Fábrica de herramientas para desarrolladores y agentes de IA

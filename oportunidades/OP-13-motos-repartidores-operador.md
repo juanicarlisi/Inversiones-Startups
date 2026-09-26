@@ -1,7 +1,7 @@
 ---
 id: OP-13
 titulo: "Financiar la herramienta de trabajo de repartidores: motos a través de un operador"
-estado: explorar
+estado: pausa
 rol: activo-de-renta
 tipo: activo-real-con-operador
 resumen: "Comprar motos que un operador de flota alquila (o vende en cuotas) a repartidores de aplicaciones en AMBA. La demanda existe sin salir a vender (listas de espera); el operador cobra, asegura y mantiene. Rendimiento alto porque el repartidor no tiene crédito, a cambio de riesgos concretos: robo, mora, accidentes y el propio operador."
@@ -40,7 +40,7 @@ escenarios_36m:
   expansivo: {prob: 0.20, flujo_mensual: 240}
 multiplo_terminal_meses: 12
 sinergias: [OP-02]
-proximo_paso: "Claude: mapa de operadores de motos para repartidores en AMBA (quién acepta inversores, contratos, seguros, mora) y lista de preguntas de due diligence; fundador: 2–3 entrevistas presenciales (no es venta: es evaluar a un proveedor)"
+proximo_paso: "PAUSA (DEC-2026-09-26-6): solo si aparece un operador verificable. Paso previsto: Claude: mapa de operadores de motos para repartidores en AMBA (quién acepta inversores, contratos, seguros, mora) y lista de preguntas de due diligence; fundador: 2–3 entrevistas presenciales (no es venta: es evaluar a un proveedor)"
 ---
 
 # OP-13 — Motos para repartidores a través de un operador

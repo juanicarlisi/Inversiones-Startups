@@ -4,9 +4,10 @@ Sistema vivo para **detectar, investigar, evaluar, desarrollar y capturar oportu
 cartera de negocios e inversiones que genere caja, se reinvierta y componga. Punto de partida: Argentina (CABA), sep-2026.
 Principio: *con poco hacer muchísimo*. Filosofía: *ir un paso adelante*.
 
-> **Empezá por acá**: el informe `informes/2026-09-ingresos-sin-vender.pdf` (qué hacer ya para tener ingresos sin salir a vender),
-> el primero, `informes/2026-09-cartografia-inicial.pdf` (la fotografía del terreno), y `TABLERO.md` (ranking vivo). Cada PDF tiene
-> una versión `.html` que se abre sola en cualquier navegador.
+> **Empezá por acá**: `informes/2026-09-el-plan.pdf` (**informe 3: el plan**, con las 60 alternativas evaluadas, las que conviene
+> hacer ya y el paso a paso). Antecedentes: `informes/2026-09-ingresos-sin-vender.pdf` (informe 2) y
+> `informes/2026-09-cartografia-inicial.pdf` (informe 1). Vivo: `oportunidades/CATALOGO.md` y `TABLERO.md`. Cada PDF tiene una
+> versión `.html` que se abre sola en cualquier navegador.
 
 ## Qué hay en el repositorio
 
@@ -49,17 +50,19 @@ python3 herramientas/oportunidades.py                     # valida fichas y rege
 python3 herramientas/escenarios.py --todos                # corre todos los modelos Monte Carlo
 python3 herramientas/cartera.py proyectar                 # proyección compuesta a 5 años
 python3 herramientas/cartera.py resumen                   # libro de capital
-python3 herramientas/plan_sin_venta.py                    # simula el plan "ingresos sin salir a vender" a 60 meses
+python3 herramientas/catalogo.py --md                     # puntúa y simula las 60 alternativas → oportunidades/CATALOGO.md
+python3 informes/construir_informe3.py                    # regenera el informe 3 (el plan)
+python3 herramientas/plan_sin_venta.py                    # simula el plan del informe 2 a 60 meses
 python3 informes/construir_informe.py                     # regenera el informe 1 (cartografía inicial)
 python3 informes/construir_ingresos_sin_vender.py         # regenera el informe 2 (ingresos sin salir a vender)
 ```
 
 ## Estado al 2026-09-26
 
-- **Fase 0 — Ingresos sin salir a vender** (DEC-2026-09-26-5, reemplaza al plan inicial): motor de renta en USD (OP-09), fábrica de
-  herramientas para agentes y desarrolladores (OP-12, EXP-07) y compra de micro-negocios digitales que ya venden (OP-08, EXP-08).
-  Motos con operador (OP-13) a explorar. Las unidades que requieren vender (OP-01, 02, 03, 04, 07) quedan en pausa.
-- Detalle: `cartera/cartera.yaml`, `cartera/decisiones.md`, `cartera/experimentos/`.
+- **El plan** (DEC-2026-09-26-6): motor 1 **OP-15 suite cristiana** (EXP-09, desde oct-2026), motor 2 **OP-16 Logistic Lab**
+  (EXP-10, desde dic-2026), **renta en USD** (OP-09) y **compra chica de una app con AdMob verificado** (OP-08, EXP-08, meses 6–9).
+  Segunda ola: radar de nichos del Play Store. Opcional: turbo entrenando IA. En pausa lo que requiere vender.
+- Detalle: `cartera/cartera.yaml`, `cartera/decisiones.md`, `cartera/experimentos/`, `oportunidades/catalogo.yaml`.
 
 ## Reglas de oro
 
