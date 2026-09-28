@@ -49,9 +49,11 @@ Indicadores:
 - capital_dic30_p50: 55.501
 - capital_dic30_p10: 13.793
 - capital_fin_p50: 84.334
-- acum_36_p10: -7.100
-- horas_max: 10
-- horas_prom_2027: 9
+- acum_36_p10: -8.745
+- horas_max: 9,8
+- horas_prom_2027: 9,1
 - inversion_total: 3.605
 
-Total con secundarios (media): 2026: -71 · 2027: -64 · 2028: 864 · 2029: 2.687 · 2030: 5.362 · 2031: 7.712
+Secundarios del backlog (esperado, USD/mes): 2026: 0 · 2027: 0 · 2028: -0 · 2029: 14 · 2030: 151 · 2031: 412
+Total principales + secundarios (esperado, USD/mes): 2026: -71 · 2027: -64 · 2028: 870 · 2029: 2.699 · 2030: 5.399 · 2031: 7.762
+Horas por semana de los secundarios (esperadas, con cortes): 2026: 0,0 · 2027: 0,0 · 2028: 1,5 · 2029: 6,7 · 2030: 7,0 · 2031: 1,6

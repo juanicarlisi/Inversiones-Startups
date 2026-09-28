@@ -32,6 +32,7 @@
 | Claude | **Pro hasta fin de 2026**; después evaluar en serio Max | Capacidad de construcción limitada en oct–dic 2026; costo fijo sube desde ene-2027 si se justifica |
 | Entrenar IA y horas en dólares | Outlier le resultó muy difícil; solo quiere algo fácil y seguro. Ya tiene trabajo fijo: si no es serio o simple, se descarta | H1 y H2 salen del plan; H3 queda como palanca personal fuera del holding |
 | Compra de una app o juego | Mitad de 2027 | F1 en el gantt para jun–jul 2027 |
+| Horas (28-09-2026) | Si algún mes pasa de 10 h/semana, no es problema por ahora | El plan base se mantiene en ≤ 10 h; lo que se puede adelantar con 1–2 h más se marca aparte |
 | Horizonte | Consolidar el holding en lo que queda de 2026 y 2027, llegar a fin de 2027 con buenos ingresos; plan proyectado a 2030 | Gantt mensual a 2030 y caso de negocio a 5 años |
 | Formas de pensar | Ver `doctrina/08-formas-de-pensar.md` (ejemplos = disparadores; mirar lo que funciona; explorar antes de descartar; audiencia a costo cero y sin cara; diferencial extraordinario; ficha completa con nombres) | Estándar de todo análisis futuro |
 | Ideas que trajo como disparador | Niveles tipo Duolingo, torneos de iglesias tipo Gran DT, chats y comunidades, módulo para reuniones de jóvenes con juegos dentro de la app, suscripción muy barata | Todas exploradas como ecosistema en `conocimiento/2026-09-28-apps-cristianas-y-mecanicas.md` |

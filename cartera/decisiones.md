@@ -117,3 +117,43 @@
   casi cero, llegada temprana). Se replica el tipo de producto y el canal, no una app puntual (sesgo de supervivencia).
 - **Fuentes**: `conocimiento/2026-09-26-replicables-y-espectro.md`.
 - **Revisar**: mes 9 (lanzamiento de la fábrica) o antes si se habilita el acceso de red a play.google.com, chromewebstore y flippa.
+
+## DEC-2026-09-28-1 — El holding: nueve proyectos definidos, plan a 2030 y backlog viable
+
+- **Contexto**: el fundador pidió (28-09-2026) una versión nueva del informe donde cada iniciativa que sobrevivió al filtro quede
+  definida como proyecto de verdad (qué, cómo, cuándo, para qué, alcance, misión, visión, objetivos, metodología, roadmap, gantt,
+  desarrollo, difusión y contenido), con nombres que peguen, difusión a costo cero y sin cara en todas sus formas, el método de
+  mirar lo que ya funciona (MercadoLibre → eBay), un diferencial extraordinario por proyecto, un campo nuevo (Municipio y Estado),
+  patentes, un gantt a 2030 en hoja grande, casos de negocio a 5 años por proyecto y un backlog con las ideas secundarias en su
+  versión viable. Todo como aprendizaje permanente (`doctrina/08-formas-de-pensar.md`).
+- **Decisión**: reemplaza a DEC-2026-09-26-6 y DEC-2026-09-26-8 en lo que respecta a qué se construye y cuándo.
+  1. **Nueve proyectos** (`oportunidades/proyectos/P1–P9`): **Senda** (suite cristiana, OP-15/A1, oct-2026, publicada antes del
+     1 de enero), **Andén** (Logistic Lab, OP-16/C1, dic-2026), **Cimiento** (renta, OP-09/G1), **Adopción** (compra de una app o
+     juego, OP-08/F1, julio de 2027, hasta USD 2.000–2.500 del ahorro), **Palanca Apps** (fábrica, A10: Todo Bien jul-2027, Rutea
+     oct-2027, Me Toca mar-2028, De Turno jun-2028 y un producto por trimestre desde oct-2028), **Carpincho Games** (juegos web, R1:
+     Hub Rush sep-2027, Última Milla Tycoon feb-2028, Palabras Vivas may-2028), **Posta** (alquileres con aviso anticipado, A8,
+     construcción oct-2027 y temporada ene-2028), **Sobremesa** (música funcional, D9, oct-2027) y **Remanso** (música instrumental,
+     D4, abr-2027).
+  2. **Holding**: nombre recomendado Palanca (alternativas Brote, Nido, Ceibo); empresa (LLC o SAS) en febrero de 2027 antes de
+     activar cobros; marcas en el INPI por tandas (mar-2027 y nov-2027); patentes solo si aparece una invención técnica que factura.
+  3. **Claude**: Pro hasta diciembre de 2026; Max 5x desde enero de 2027 si en diciembre Senda está lista y Andén arranca; regla de
+     ahorro: si a mediados de 2028 los proyectos no cubren los costos fijos, se vuelve a Pro.
+  4. **Municipio y Estado** (familia nueva del catálogo, M1–M6): Todo Bien, Me Toca y De Turno van a la fábrica; Andén Ciudad (M2)
+     se presenta a convocatorias de innovación desde mediados de 2027; la red vecinal (M5) solo con un municipio piloto; vender
+     software a municipios (M6), no.
+  5. **Fuera del plan**: entrenar IA (H1, queda un boleto opcional de 1 hora en Userlytics o UserTesting) y las horas en dólares
+     (H2 en pausa; H3 palanca personal fuera del holding).
+  6. **Backlog** (`oportunidades/backlog.yaml`): 38 ideas con versión viable, destino y disparador; 7 secundarias (plantillas para
+     iglesias, libros de nicho, ofertas reales, simuladores de exámenes, extensión para vendedores de MeLi, academia para
+     estudiantes, prode del Mundial 2030) entran de a una desde septiembre de 2028 con las horas que liberen los cortes.
+- **Por qué** (`herramientas/holding.py`, 4.000 futuros, oct-2026 → sep-2031, con falla común de 18% y factor común de ejecución):
+  79% de chances de que funcione al menos un proyecto principal; ingreso neto esperado del holding a fin de 2027 USD 103/mes
+  (mediana −75; 2027 es de construcción), a fin de 2028 USD 1.533/mes (mediana 1.007; 50% de chances de pasar USD 1.000) y a fin de
+  2030 USD 6.541/mes (mediana 4.683; rango probable −17 a 16.188). Peor caso razonable a 3 años: poner USD 8.745 de más (costos
+  fijos, empresa, marcas y la app comprada). Renta: USD 55.501 de capital a fin de 2030 (mediana). Horas del plan base: 9,1 por
+  semana en 2027, nunca más de 9,8. Todo es ESTIMACIÓN con supuestos escritos en cada ficha.
+- **Descartado o postergado**: comprar publicidad para traer usuarios (una instalación cuesta más de lo que deja; se revisa cuando
+  un producto demuestre lo contrario), vender software al Estado, entrenar IA como ingreso del plan.
+- **Fuentes**: siete bitácoras `conocimiento/2026-09-28-*.md`; informe `informes/2026-09-el-holding-v3.pdf`.
+- **Revisar**: diciembre de 2026 (Claude Max y empresa), abril de 2027 (corte de Senda), julio de 2027 (compra y fábrica),
+  septiembre de 2027 (corte de Andén) y el comité anual de cada diciembre.

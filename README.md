@@ -4,10 +4,11 @@ Sistema vivo para **detectar, investigar, evaluar, desarrollar y capturar oportu
 cartera de negocios e inversiones que genere caja, se reinvierta y componga. Punto de partida: Argentina (CABA), sep-2026.
 Principio: *con poco hacer muchísimo*. Filosofía: *ir un paso adelante*.
 
-> **Empezá por acá**: `informes/2026-09-el-plan.pdf` (**informe 3: el plan**, con las 60 alternativas evaluadas, las que conviene
-> hacer ya y el paso a paso). Antecedentes: `informes/2026-09-ingresos-sin-vender.pdf` (informe 2) y
-> `informes/2026-09-cartografia-inicial.pdf` (informe 1). Vivo: `oportunidades/CATALOGO.md` y `TABLERO.md`. Cada PDF tiene una
-> versión `.html` que se abre sola en cualquier navegador.
+> **Empezá por acá**: `informes/2026-09-el-holding-v3.pdf` (**informe 3, versión 3: el holding**, con los 9 proyectos definidos,
+> el plan mes a mes hasta 2030 en una hoja A3, el caso de negocio de cada uno a 2031 y el backlog de 38 ideas en su versión viable).
+> Antecedentes: `informes/2026-09-el-plan.pdf` (informe 3 v2, las alternativas una por una), `informes/2026-09-ingresos-sin-vender.pdf`
+> (informe 2) y `informes/2026-09-cartografia-inicial.pdf` (informe 1). Vivo: `oportunidades/proyectos/`, `oportunidades/CATALOGO.md`
+> y `TABLERO.md`. Cada PDF tiene una versión `.html` que se abre sola en cualquier navegador.
 
 ## Qué hay en el repositorio
 
@@ -18,7 +19,7 @@ TABLERO.md                 Ranking generado de oportunidades (no editar a mano)
 doctrina/                  Cómo pensamos: principios, marco de evaluación, evidencia, capital, lentes, palanca IA, distribución, riesgo
 perfil/fundador.md         Lo que sabemos del fundador y lo que falta (cuestionario)
 radar/                     Contexto macro fechado, señales, mapa regulatorio, disparadores de vigilancia, fuentes
-oportunidades/             Fichas OP-XX con tesis, evidencia, economía, riesgos y validación; cementerio de ideas descartadas
+oportunidades/             Fichas OP-XX, catálogo de alternativas, proyectos del holding (proyectos/P1–P9), backlog y cementerio
 casos/patrones.md          Empresas estudiadas y patrones transferibles
 cartera/                   Estrategia a 5 años, estado de la cartera, libro de capital, decisiones, experimentos, proyección
 conocimiento/              Bitácoras de investigación con hechos fechados y fuentes
@@ -50,22 +51,26 @@ python3 herramientas/oportunidades.py                     # valida fichas y rege
 python3 herramientas/escenarios.py --todos                # corre todos los modelos Monte Carlo
 python3 herramientas/cartera.py proyectar                 # proyección compuesta a 5 años
 python3 herramientas/cartera.py resumen                   # libro de capital
-python3 herramientas/catalogo.py --md                     # puntúa y simula las 60 alternativas → oportunidades/CATALOGO.md
-python3 informes/construir_informe3.py                    # regenera el informe 3 (el plan)
+python3 herramientas/catalogo.py --md                     # puntúa y simula las 81 alternativas → oportunidades/CATALOGO.md
+python3 herramientas/holding.py                           # casos de negocio de los 9 proyectos a 2031 → cartera/holding-resultados.md
+python3 informes/construir_plan_v3.py                     # regenera el informe 3 v3 (el holding, con hoja A3)
+python3 informes/construir_informe3.py                    # regenera el informe 3 v2 (el plan, alternativa por alternativa)
 python3 herramientas/plan_sin_venta.py                    # simula el plan del informe 2 a 60 meses
 python3 informes/construir_informe.py                     # regenera el informe 1 (cartografía inicial)
 python3 informes/construir_ingresos_sin_vender.py         # regenera el informe 2 (ingresos sin salir a vender)
 ```
 
-## Estado al 2026-09-26
+## Estado al 2026-09-28
 
-- **El plan** (DEC-2026-09-26-6): motor 1 **OP-15 suite cristiana** (EXP-09, desde oct-2026), motor 2 **OP-16 Logistic Lab**
-  (EXP-10, desde dic-2026), **renta en USD** (OP-09) y **compra chica de una app con AdMob verificado** (OP-08, EXP-08, meses 6–9).
-  Desde el mes 9: **fábrica de réplicas** (A10), con radar en segundo plano desde el mes 3, que replica tipos de producto que ya
-  facturan en Flippa y similares (familia R del catálogo). Opcional: entrenar IA como boleto. En pausa lo que requiere vender.
-- **Catálogo**: 72 alternativas con números, roadmap de 26 semanas y regla de corte; mapa de las ideas del fundador
-  (`oportunidades/catalogo.yaml` → `CATALOGO.md`). Informe: `informes/2026-09-el-plan.pdf` (39 páginas, 13 capítulos).
-- Detalle: `cartera/cartera.yaml`, `cartera/decisiones.md`, `cartera/experimentos/`, `oportunidades/catalogo.yaml`.
+- **El holding** (DEC-2026-09-28-1): nueve proyectos definidos en `oportunidades/proyectos/` (misión, alcance, versiones, difusión
+  sin costo y sin cara, roadmap, nombres, caso de negocio): **Senda** (suite cristiana, desde oct-2026), **Andén** (Logistic Lab,
+  desde dic-2026), **Cimiento** (renta en USD), **Adopción** (compra de una app en jul-2027), **Palanca Apps** (fábrica: Todo Bien,
+  Rutea, Me Toca, De Turno y radar), **Carpincho Games** (juegos web), **Posta** (alquileres con aviso anticipado), **Sobremesa** y
+  **Remanso** (música con IA). Entrenar IA y las horas en dólares quedan fuera del plan.
+- **Backlog**: 38 ideas en su versión viable (`oportunidades/backlog.yaml`); 7 secundarias entran desde fines de 2028.
+- **Catálogo**: 81 alternativas, con la familia nueva Municipio y Estado (`oportunidades/catalogo.yaml` → `CATALOGO.md`).
+- **Informe**: `informes/2026-09-el-holding-v3.pdf` (70 páginas, 21 capítulos + anexo; hoja A3 del plan en la página 56).
+- Detalle: `cartera/cartera.yaml`, `cartera/decisiones.md`, `cartera/holding-resultados.md`, `doctrina/08-formas-de-pensar.md`.
 
 ## Reglas de oro
 

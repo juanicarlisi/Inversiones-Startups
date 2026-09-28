@@ -130,3 +130,17 @@ Verse of the Year 2025); ekklesia.com.ar; khesed-tek-systems.org.
 6. **Contenido sin cara para redes:** clips de rondas del Impostor bíblico y del rosco (grabación de pantalla y voz sintética), un
    formato que hoy ya es tendencia.
 7. **Cuidado:** moderación y privacidad de menores (sin chat abierto entre desconocidos; datos mínimos; fotos solo con permiso del líder).
+
+## 8. Bancos de preguntas bíblicas existentes (pedido del fundador, 28-09-2026)
+
+| Fuente | Qué es | Licencia / uso | Fuente del dato |
+|---|---|---|---|
+| Bible Trivia (Hugging Face, formato Alpaca) | 1.290 pares pregunta–respuesta en inglés | Revisar la licencia de la ficha antes de importar | huggingface.co/datasets/liaaron1/bibile_trivia_alpaca |
+| OpenTriviaQA | Preguntas de trivia por categorías (incluye religión) | CC BY-SA 4.0 (atribución y compartir igual) | github.com/uberspot/OpenTriviaQA |
+| Open Trivia Database (el-cms) | JSON con categoría, idioma, respuestas y fuente | Pide citar y enlazar el repositorio | github.com/el-cms/Open-trivia-database |
+| Listas en español en PDF | «1800 preguntas bíblicas» (biblioteca del ministerio juvenil), 100 de BibliaRed, 38 de recursos-biblicos.com, 50 y 100 en Scribd | Sin licencia abierta explícita: **solo como referencia** de temas y categorías; se reescribe | eunice.fustero.es, bibliared.org, recursos-biblicos.com, scribd.com |
+
+**Filtro pregunta por pregunta (diseño):** deduplicar → verificar contra el texto (el pasaje existe y la respuesta es correcta,
+automático contra RVR1909) → descartar lo disputado o ajeno al foco protestante → asignar categoría, dificultad y cita → revisión
+humana de lo sensible y muestreo del resto → registrar fuente y licencia de cada pregunta. Solo se importa tal cual lo que tiene
+licencia abierta, con atribución.

@@ -210,9 +210,11 @@ def componentes_backlog(datos: dict) -> list[dict]:
         fail = np.zeros(N_MESES)
         corte = min(b + a["mes_corte"], N_MESES)
         fail[b:corte] = a["si_no"][1] - a["costo_mensual"][1]
+        # horas esperadas: arranque 3 meses, régimen hasta la regla de corte y, después, solo si funcionó
         horas = np.zeros(N_MESES)
         horas[b:min(b + 3, N_MESES)] = a["horas_arranque"]
-        horas[min(b + 3, N_MESES):] = a["horas_regimen"]
+        horas[min(b + 3, N_MESES):corte] = a["horas_regimen"]
+        horas[corte:] = a["horas_regimen"] * a["p_exito"]
         comps.append({"id": a["id"], "nombre": it.get("nombre", a["corto"]), "lanzamiento": it["desde"], "p_exito": a["p_exito"],
                       "ingreso": ing, "costo": costo, "neto": ing - costo, "fallo": fail, "malo": 0.4, "bueno": 2.5,
                       "horas": horas, "inversion": a["inversion"][1]})
@@ -295,7 +297,7 @@ def simular(datos: dict, con_secundarios: bool = False, n: int = N_SIM) -> dict:
     ingreso_total = total_proy + renta - fijos_path     # lo que genera el holding por mes (sin contar tu aporte)
     return {"neto_proy": neto_proy, "exito_proy": exito_proy, "renta": renta, "fijos": fijos, "fijos_path": fijos_path, "unicos": unicos,
             "total_proy": total_proy, "ingreso_total": ingreso_total, "capital": capital_hist, "disponible": disponible,
-            "comps": comps_por_proy, "comun": comun}
+            "comps": comps_por_proy, "comun": comun, "compras": compras}
 
 
 # ─────────────────────────────────────────────── resúmenes ───────────────────────────────────────────────
@@ -387,7 +389,9 @@ def resumen(datos: dict) -> dict:
         "capital_dic30_p50": float(np.median(sim["capital"][:, m_dic30])),
         "capital_dic30_p10": float(np.percentile(sim["capital"][:, m_dic30], 10)),
         "capital_fin_p50": float(np.median(sim["capital"][:, -1])),
-        "acum_36_p10": float(np.percentile(sim["total_proy"][:, :36].sum(axis=1) - sim["fijos"][:36].sum(), 10)),
+        # lo que el holding pone de más en 3 años (costos fijos, gastos únicos y la compra de la app, menos lo que dejan los proyectos)
+        "acum_36_p10": float(np.percentile(sim["total_proy"][:, :36].sum(axis=1) - sim["fijos_path"][:, :36].sum(axis=1)
+                                           - sim["unicos"][:36].sum() - sim["compras"][:, :36].sum(axis=1), 10)),
         "horas_max": float(horas_total.max()), "horas_prom_2027": float(horas_total[meses_del_anio(2027)].mean()),
         "inversion_total": float(sum(p.get("caso", {}).get("inversion", 0) for p in datos["proyectos"])
                                  + sum(g["usd"] for g in datos["holding"]["gastos_unicos"])
@@ -415,9 +419,15 @@ def main() -> int:
             "| Proyecto | " + " | ".join(str(a) for a in ANIOS) + " |", "|---|" + "---|" * len(ANIOS)]
     for pr in r["proyectos"]:
         lin.append(f"| {pr['id']} {pr['nombre']} | " + " | ".join(_u(pr["norm_anual"][a]) for a in ANIOS) + " |")
-    lin += ["", "Indicadores:", ""] + [f"- {k}: {v*100:.0f}%" if k.startswith("p_") else f"- {k}: {_u(v)}"
+    lin += ["", "Indicadores:", ""] + [f"- {k}: {v*100:.0f}%" if k.startswith("p_") else
+                                        (f"- {k}: {v:.1f}".replace(".", ",") if k.startswith("horas") else f"- {k}: {_u(v)}")
                                         for k, v in r["kpi"].items()]
-    lin += ["", "Total con secundarios (media): " + " · ".join(f"{a}: {_u(r['total2_anual']['media'][a])}" for a in ANIOS)]
+    sec = r.get("sec_esp_anual", {a: 0.0 for a in ANIOS})
+    lin += ["", "Secundarios del backlog (esperado, USD/mes): " + " · ".join(f"{a}: {_u(sec[a])}" for a in ANIOS),
+            "Total principales + secundarios (esperado, USD/mes): " + " · ".join(f"{a}: {_u(r['total_anual']['media'][a] + sec[a])}"
+                                                                                for a in ANIOS),
+            "Horas por semana de los secundarios (esperadas, con cortes): " + " · ".join(
+                f"{a}: {np.mean(r['horas_sec'][meses_del_anio(a)]):.1f}".replace(".", ",") for a in ANIOS)]
     (RAIZ / "cartera" / "holding-resultados.md").write_text("\n".join(lin) + "\n", encoding="utf-8")
     print("\n".join(lin))
     return 0
