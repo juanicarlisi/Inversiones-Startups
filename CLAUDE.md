@@ -24,6 +24,15 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   cuenta lo que Claude puede construir hoy (aclarado el 26-09-2026; ver DEC-2026-09-26-8).
 - **Prefiere ingresos pasivos o casi pasivos, sin salir a vender** (26-09-2026). Toda propuesta debe decir quién vende por él
   (el mercado, una plataforma con demanda propia, un operador o un negocio que ya vende) y cuántas horas pide. Ver DEC-2026-09-26-5.
+- **Formas de pensar obligatorias** (28-09-2026, `doctrina/08-formas-de-pensar.md`): barrer todo el ecosistema a partir de sus
+  ejemplos; **mirar lo que ya funciona** (MercadoLibre → eBay) y copiar, mejorar o fusionar; explorar antes de descartar (lo chico
+  puede volverse viral); **nunca descartar por "es caro conseguir audiencia"**: se construye con difusión a costo cero y sin cara;
+  buscar siempre un **diferencial extraordinario**; cada proyecto sobreviviente lleva definición completa, opciones de nombre y caso
+  de negocio a 5 años (`oportunidades/proyectos.yaml`).
+- **Datos del 28-09-2026:** suite cristiana con foco **protestante**; Claude **Pro hasta fin de 2026**, después evaluar Max; entrenar
+  IA y "horas en dólares" quedan fuera salvo algo fácil y seguro; recordatorios pendientes del fundador: cargar su agente de
+  inversiones (renta), su agente de alquileres y una descripción general (sin código ni datos de la empresa) de su simulador de
+  última milla.
 
 ## 2. Reglas no negociables
 
@@ -47,10 +56,10 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
 
 | Carpeta | Qué contiene | Cuándo se actualiza |
 |---|---|---|
-| `doctrina/` | Principios, marco de evaluación, estándares de evidencia, asignación de capital, lentes de descubrimiento, palanca IA, riesgo | Rara vez; cambios = decisión registrada |
+| `doctrina/` | Principios, marco de evaluación, estándares de evidencia, asignación de capital, lentes de descubrimiento, palanca IA, riesgo, formas de pensar del holding (08) | Rara vez; cambios = decisión registrada |
 | `perfil/` | Perfil del fundador: capacidades, restricciones, preguntas abiertas | Cuando el fundador aporta datos |
 | `radar/` | Contexto macro fechado, señales, mapa regulatorio, disparadores de vigilancia, fuentes | Semanal (`/radar`) |
-| `oportunidades/` | Una ficha por oportunidad (`OP-XX-*.md`) con frontmatter YAML; `catalogo.yaml` = todas las alternativas con números (genera `CATALOGO.md` con `herramientas/catalogo.py`); `descartadas.md` = cementerio con razones | Continuo |
+| `oportunidades/` | Una ficha por oportunidad (`OP-XX-*.md`) con frontmatter YAML; `catalogo.yaml` = todas las alternativas con números (genera `CATALOGO.md` con `herramientas/catalogo.py`); `proyectos.yaml` = definición completa de los proyectos sobrevivientes (nombres, alcance, gantt a 2030, caso de negocio); `descartadas.md` = cementerio con razones | Continuo |
 | `casos/` | Casos de empresas y patrones transferibles | Continuo |
 | `cartera/` | Estrategia a 5 años, estado de la cartera (`cartera.yaml`), libro de capital (`libro-capital.csv`), decisiones, experimentos | Mensual (`/comite`, `/revision`) |
 | `conocimiento/` | Bitácoras de investigación con hechos fechados y fuentes | Cada investigación |

@@ -7,71 +7,80 @@
 
 | # | ID | Alternativa | Familia | Veredicto | Puntaje | h/sem | Inversión | 1er ingreso | Chances | Normal si sale m6 / m12 / m36 (USD/mes) | Esperado m36 | USD por hora (3 años) |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 1 | A1 | Suite cristiana en español: trivia bíblica, versículo del día, compañero IA y agenda de eventos | Apps y juegos | Hacer ya | 81 | 3.6 | 150 | mes 3 | 30% | 183 / 665 / 2.236 | 717 | 48.7 |
-| 2 | F1 | Comprar una app o juego chico que ya factura con publicidad (AdMob verificado) | Comprar algo que ya funciona | Hacer ya | 78 | 1.6 | 2.000 | mes 1 | 65% | 75 / 97 / 136 | 93 | 9.4 |
-| 3 | F2 | Comprar un micro-negocio digital más grande (SaaS, extensión, plugin) de USD 5–20 k | Comprar algo que ya funciona | Segunda ola | 77 | 3.3 | 8.000 | mes 1 | 61% | 213 / 250 / 296 | 187 | 2.9 |
-| 4 | A10 | Fábrica de réplicas: un producto chico por trimestre donde la demanda ya existe (Play Store, Chrome, portales de juegos, Apify) | Apps y juegos | Segunda ola | 76 | 2.3 | 150 | mes 4 | 20% | 164 / 767 / 2.379 | 512 | 53.5 |
-| 5 | R1 | Juegos web cortos para portales con millones de jugadores (Poki, CrazyGames) | Replicar lo que ya funciona | Segunda ola | 75 | 2.6 | 50 | mes 3 | 15% | 205 / 567 / 940 | 144 | 22.7 |
-| 6 | C1 | Logistic Lab: calculadoras y simuladores logísticos (depósito + distribución) en español | Software con tu conocimiento | Hacer ya | 75 | 3.3 | 300 | mes 6 | 25% | 58 / 738 / 3.624 | 954 | 56.6 |
-| 7 | A2 | Juego de gestión (tycoon) de logística: construí tu imperio de depósitos y camiones | Apps y juegos | Segunda ola | 74 | 3.9 | 300 | mes 4 | 12% | 302 / 1.224 / 4.051 | 573 | 47.5 |
-| 8 | R2 | Juego diario que se comparte por WhatsApp (tipo Wordle): Biblia, fútbol o Argentina | Replicar lo que ya funciona | Segunda ola | 74 | 1.3 | 20 | mes 3 | 12% | 79 / 234 / 453 | 61 | 22.7 |
-| 9 | G1 | Motor de renta en dólares (obligaciones negociables + letras de EE.UU. + índice) | Tu plata trabajando | Hacer ya | 74 | 0.4 | 0 | mes 1 | 85% | 8 / 18 / 61 | 53 | 19.3 |
-| 10 | R5 | Plantillas digitales para iglesias y ministerios (flyers, presentaciones, planificadores) en Canva, Etsy y Hotmart | Replicar lo que ya funciona | Segunda ola | 73 | 1.9 | 20 | mes 3 | 15% | 76 / 206 / 478 | 77 | 14.0 |
-| 11 | R8 | Llevar tus herramientas a ChatGPT y Claude (apps y conectores) mientras el canal es nuevo | Replicar lo que ya funciona | Segunda ola | 73 | 1.6 | 50 | mes 6 | 12% | 53 / 553 / 1.806 | 248 | 43.5 |
-| 12 | C3 | Plantillas y calculadoras logísticas en Excel/Sheets en marketplaces | Software con tu conocimiento | Segunda ola | 73 | 1.6 | 50 | mes 2 | 15% | 101 / 262 / 532 | 81 | 22.4 |
-| 13 | D1 | Comparador de electrodomésticos por costo total + detector de ofertas falsas, con afiliados | Canales, comunidad y afiliados | Segunda ola | 73 | 2.3 | 100 | mes 2 | 15% | 132 / 592 / 1.602 | 240 | 32.4 |
-| 14 | A13 | Traer al español (y portugués) apps exitosas que solo existen en inglés | Apps y juegos | Segunda ola | 72 | 3.3 | 150 | mes 3 | 15% | 129 / 751 / 1.953 | 296 | 28.0 |
-| 15 | B2 | Asistente IA de comercio exterior y logística (aranceles, courier, costo puesto) | Asistentes de IA de nicho | Segunda ola | 72 | 2.3 | 100 | mes 4 | 12% | 139 / 595 / 1.682 | 215 | 27.1 |
-| 16 | C4 | Fábrica de herramientas para agentes de IA y desarrolladores (Apify, MCP) | Software con tu conocimiento | Solo si… | 72 | 2.0 | 50 | mes 3 | 25% | 57 / 422 / 1.119 | 291 | 36.6 |
-| 17 | H3 | Pasar tu empleo a uno remoto en dólares (o sumar un contrato remoto part-time) | Tus horas en dólares | Palanca aparte | 72 | 0.9 | 0 | mes 4 | 30% | 878 / 1.332 / 1.948 | 610 | 392.2 |
-| 18 | A11 | Tutor IA para estudiantes: apuntes → audio → preguntas de examen | Apps y juegos | Segunda ola | 71 | 3.6 | 150 | mes 4 | 12% | 88 / 551 / 1.958 | 261 | 20.0 |
-| 19 | R7 | Microaprendizaje en español para el viaje: 10 minutos por día de ideas útiles (negocios, finanzas, ciencia, historia) | Replicar lo que ya funciona | Segunda ola | 71 | 3.6 | 300 | mes 4 | 8% | 252 / 1.524 / 5.693 | 481 | 41.4 |
-| 20 | C5 | Extensión de Chrome o complemento de Google Sheets de nicho, por suscripción | Software con tu conocimiento | Segunda ola | 71 | 2.6 | 100 | mes 4 | 10% | 142 / 836 / 2.556 | 290 | 37.6 |
-| 21 | D7 | Sitio de calculadoras argentinas (sueldo, aguinaldo, indemnización, alquiler) con publicidad | Canales, comunidad y afiliados | Solo si… | 70 | 1.6 | 50 | mes 4 | 10% | 57 / 358 / 910 | 106 | 23.4 |
-| 22 | R6 | Libros de nicho en Amazon: cuadernos de ejercicios de logística y actividades bíblicas para chicos | Replicar lo que ya funciona | Segunda ola | 69 | 1.9 | 50 | mes 3 | 15% | 65 / 205 / 413 | 65 | 12.3 |
-| 23 | D8 | Bot de alertas por suscripción (dólar, turnos, ofertas, alquileres) | Canales, comunidad y afiliados | Solo si… | 69 | 1.6 | 50 | mes 3 | 8% | 74 / 286 / 738 | 58 | 14.4 |
-| 24 | C2 | Juego de cadena de suministro para cátedras (en español y a precio latinoamericano) | Software con tu conocimiento | Segunda ola | 68 | 2.9 | 500 | mes 9 | 15% | -50 / 490 / 2.669 | 394 | 22.9 |
-| 25 | A3 | Trivia de cultura general 'útil' para el viaje en colectivo | Apps y juegos | Así no | 67 | 3.6 | 150 | mes 3 | 7% | 112 / 599 / 1.992 | 152 | 14.0 |
-| 26 | R11 | Simuladores de exámenes que la gente busca (ingreso a la universidad, idóneo del mercado de capitales, oposiciones) | Replicar lo que ya funciona | Segunda ola | 67 | 2.6 | 100 | mes 3 | 12% | 130 / 451 / 959 | 123 | 16.6 |
-| 27 | B1 | Asistente IA de trámites y ARCA (monotributo, facturas, impuestos) | Asistentes de IA de nicho | Solo si… | 67 | 3.6 | 150 | mes 3 | 10% | 171 / 756 / 2.297 | 278 | 22.3 |
-| 28 | D3 | Afiliados de Mercado Libre con contenido anónimo (hogar, mate, tecnología) | Canales, comunidad y afiliados | Segunda ola | 67 | 3.3 | 50 | mes 2 | 15% | 109 / 495 / 1.451 | 229 | 21.6 |
-| 29 | R9 | Apps para la tienda de Tiendanube, aprovechando que las viejas se desinstalan desde el 30-10-2026 | Replicar lo que ya funciona | Solo si… | 66 | 3.9 | 200 | mes 4 | 10% | 226 / 1.002 / 2.355 | 248 | 22.4 |
-| 30 | R10 | Extensión de Chrome para vendedores de Mercado Libre (como las de Amazon): margen real por publicación | Replicar lo que ya funciona | Solo si… | 66 | 2.9 | 100 | mes 4 | 8% | 174 / 767 / 2.377 | 210 | 24.3 |
-| 31 | G2 | Motos para repartidores a través de un operador | Tu plata trabajando | Solo si… | 66 | 1.3 | 2.500 | mes 1 | 70% | 113 / 113 / 17 | 14 | -0.8 |
-| 32 | R3 | Juego en Roblox (la plataforma trae los jugadores y paga en Robux) | Replicar lo que ya funciona | Solo si… | 65 | 3.6 | 50 | mes 4 | 6% | 196 / 1.053 / 2.729 | 172 | 18.7 |
-| 33 | D5 | Cuenta anónima de videos cortos (curiosidades o fe) que empuja las apps | Canales, comunidad y afiliados | Solo si… | 65 | 2.3 | 0 | mes 6 | 10% | 21 / 160 / 716 | 80 | 10.1 |
-| 34 | H2 | Freelance remoto de análisis y automatización (Excel, Power BI, Python) para empresas del exterior | Tus horas en dólares | Solo si… | 65 | 6.0 | 0 | mes 2 | 35% | 526 / 817 / 1.308 | 468 | 29.7 |
-| 35 | A12 | Prode y fantasy de fútbol entre amigos, con publicidad | Apps y juegos | Solo si… | 64 | 2.6 | 100 | mes 3 | 8% | 127 / 506 / 1.371 | 134 | 17.6 |
-| 36 | R4 | Directorio de nicho con fichas destacadas pagas (proveedores logísticos, o iglesias y eventos) | Replicar lo que ya funciona | Segunda ola | 64 | 2.6 | 100 | mes 5 | 12% | 55 / 416 / 1.217 | 157 | 18.9 |
-| 37 | D6 | Newsletter anónima de logística y comercio exterior con sponsors | Canales, comunidad y afiliados | Solo si… | 64 | 2.3 | 20 | mes 9 | 10% | -23 / 245 / 1.227 | 127 | 11.9 |
-| 38 | A4 | App de diseño de interiores con IA | Apps y juegos | Así no | 62 | 3.6 | 300 | mes 3 | 6% | 165 / 1.094 / 2.216 | 134 | 13.5 |
-| 39 | D4 | Canal anónimo de YouTube con música hecha con IA (dormir, estudiar, oración) | Canales, comunidad y afiliados | Así no | 62 | 2.6 | 50 | mes 9 | 6% | -32 / 226 / 1.015 | 66 | 3.9 |
-| 40 | I1 | Dar un curso de logística en la universidad o en un programa de extensión | Enseñar | Solo si… | 62 | 4.0 | 0 | mes 6 | 40% | 54 / 269 / 332 | 136 | 11.0 |
-| 41 | A5 | Lector de PDFs y apuntes en voz alta con publicidad | Apps y juegos | Así no | 61 | 2.6 | 100 | mes 3 | 5% | 67 / 314 / 808 | 40 | 5.1 |
-| 42 | C6 | Construir el simulador logístico completo (3D, todo) antes de tener usuarios | Software con tu conocimiento | Así no | 60 | 6.5 | 600 | mes 6 | 5% | -77 / 690 / 3.296 | 192 | 2.9 |
-| 43 | D2 | Comparador universal tipo 'buscador de vuelos' para todo lo que se compra | Canales, comunidad y afiliados | Solo si… | 60 | 5.2 | 300 | mes 4 | 5% | 61 / 689 / 3.063 | 152 | 5.3 |
-| 44 | I2 | Curso online anónimo de logística (voz IA) en marketplaces de cursos | Enseñar | Así no | 60 | 2.2 | 50 | mes 3 | 8% | 50 / 148 / 238 | 22 | 3.5 |
-| 45 | B3 | Atención automática por WhatsApp para comercios (app en la tienda de Tiendanube) | Asistentes de IA de nicho | Así no | 59 | 4.6 | 300 | mes 4 | 7% | 183 / 1.111 / 3.027 | 219 | 14.1 |
-| 46 | B4 | Chatbot genérico para consultar cualquier cosa | Asistentes de IA de nicho | Así no | 59 | 2.6 | 100 | mes 3 | 2% | -5 / 155 / 567 | 12 | -4.1 |
-| 47 | E2 | Tienda de nicho con un proveedor que despacha (sin stock propio) | Productos físicos | Así no | 59 | 5.3 | 800 | mes 2 | 10% | 10 / 410 / 1.509 | 162 | -0.3 |
-| 48 | G3 | Cocheras en CABA para alquilar | Tu plata trabajando | Así no | 59 | 0.9 | 25.000 | mes 2 | 80% | 59 / 59 / 64 | 56 | 13.2 |
-| 49 | A8 | Buscador unificado de alquileres + aviso anticipado del inquilino que se va | Apps y juegos | Solo si… | 58 | 4.6 | 300 | mes 6 | 6% | 9 / 544 / 2.311 | 156 | 7.1 |
-| 50 | A14 | Generador de imágenes con IA genérico (tipo los que se venden en Flippa), creciendo con publicidad paga | Apps y juegos | Así no | 58 | 4.6 | 1.000 | mes 2 | 5% | 227 / 1.076 / 2.136 | 103 | 4.2 |
-| 51 | E4 | Productos impresos a pedido (tazas, remeras) con diseños IA | Productos físicos | Así no | 58 | 3.3 | 150 | mes 2 | 6% | 30 / 212 / 560 | 38 | 1.7 |
-| 52 | H1 | Entrenar IA desde casa: evaluar y escribir respuestas para modelos (Outlier, Mercor, Mindrift, TELUS) | Tus horas en dólares | Solo si… | 58 | 3.3 | 0 | mes 2 | 25% | 164 / 164 / 102 | 27 | 7.6 |
-| 53 | A9 | App para transportistas: esperas, costos del viaje y trámites | Apps y juegos | Solo si… | 57 | 3.6 | 200 | mes 6 | 6% | 33 / 393 / 1.202 | 75 | 4.7 |
-| 54 | E1 | Marca propia de hogar, mate y marroquinería con lanzamiento agresivo (precio de entrada, sorteos, publicidad) | Productos físicos | Así no | 57 | 8.6 | 5.000 | mes 1 | 12% | -670 / 277 / 3.132 | 380 | -24.6 |
-| 55 | A7 | App de organización diaria con publicidad | Apps y juegos | Así no | 55 | 3.6 | 100 | mes 4 | 3% | 27 / 231 / 849 | 27 | 1.3 |
-| 56 | A6 | App de gestión de proyectos (PC y celular conectados) con publicidad | Apps y juegos | Así no | 51 | 4.6 | 150 | mes 4 | 3% | 25 / 303 / 1.155 | 40 | 1.6 |
-| 57 | E3 | Importar y revender genéricos en Mercado Libre | Productos físicos | Así no | 50 | 6.6 | 2.000 | mes 2 | 8% | -202 / 149 / 486 | 43 | -18.2 |
+| 1 | A1 | Suite cristiana en español: trivia bíblica, versículo del día, compañero IA y agenda de eventos | Apps y juegos | Hacer ya | 85 | 3.6 | 150 | mes 3 | 30% | 119 / 426 / 3.866 | 1.218 | 68.9 |
+| 2 | C7 | Ruteador para repartidores de Envíos Flex y cadetes: recorrido óptimo y cuánto te queda por paquete (Rutea) | Software con tu conocimiento | En el plan | 84 | 1.3 | 50 | mes 1 | 15% | 154 / 432 / 2.043 | 315 | 102.0 |
+| 3 | M1 | Aviso diario para quien vive solo: un toque por día y, si no llega, avisa a la familia (Todo Bien) | Municipio y Estado | En el plan | 81 | 1.3 | 50 | mes 1 | 15% | 29 / 288 / 1.902 | 318 | 95.7 |
+| 4 | D9 | YouTube de música funcional con IA para ambientes (bossa nova, flamenco, lounge de hotel) + listas con licencia para locales | Canales, comunidad y afiliados | En el plan | 78 | 0.6 | 50 | mes 6 | 12% | -45 / 216 / 2.863 | 374 | 137.8 |
+| 5 | F1 | Comprar una app o juego chico que ya factura con publicidad (AdMob verificado) | Comprar algo que ya funciona | En el plan | 78 | 1.6 | 2.000 | mes 1 | 65% | 75 / 97 / 136 | 93 | 9.4 |
+| 6 | F2 | Comprar un micro-negocio digital más grande (SaaS, extensión, plugin) de USD 5–20 k | Comprar algo que ya funciona | Segunda ola | 77 | 3.3 | 8.000 | mes 1 | 61% | 213 / 250 / 296 | 187 | 2.9 |
+| 7 | A10 | Fábrica de réplicas como suite de apps chicas (Palanca Apps): Todo Bien, Rutea, Me Toca, De Turno y un producto del radar por trimestre | Apps y juegos | En el plan | 76 | 2.3 | 150 | mes 4 | 20% | 164 / 767 / 2.379 | 512 | 53.5 |
+| 8 | R1 | Juegos web cortos para portales (Carpincho Games): Hub Rush, Última Milla Tycoon, Palabras Vivas | Replicar lo que ya funciona | En el plan | 75 | 2.6 | 50 | mes 3 | 15% | 205 / 567 / 940 | 144 | 22.7 |
+| 9 | R12 | Truco contra una IA que «chicanea» (con personalidad y voz) | Replicar lo que ya funciona | Segunda ola | 75 | 1.6 | 50 | mes 2 | 10% | 183 / 604 / 1.147 | 123 | 35.9 |
+| 10 | C1 | Logistic Lab: calculadoras y simuladores logísticos (depósito + distribución) en español | Software con tu conocimiento | Hacer ya | 75 | 3.3 | 300 | mes 6 | 25% | -35 / 393 / 3.785 | 994 | 52.6 |
+| 11 | D4 | Sello de música instrumental con IA en YouTube (piano para orar, estudiar, dormir) con curaduría humana | Canales, comunidad y afiliados | En el plan | 75 | 0.6 | 30 | mes 8 | 15% | -35 / 379 / 2.743 | 447 | 150.6 |
+| 12 | A2 | Juego de gestión (tycoon) de logística: construí tu imperio de depósitos y camiones | Apps y juegos | Segunda ola | 74 | 3.9 | 300 | mes 4 | 12% | 302 / 1.224 / 4.051 | 573 | 47.5 |
+| 13 | R2 | Juego diario que se comparte por WhatsApp (tipo Wordle): Biblia, fútbol o Argentina | Replicar lo que ya funciona | Segunda ola | 74 | 1.3 | 20 | mes 3 | 12% | 79 / 234 / 453 | 61 | 22.7 |
+| 14 | G1 | Motor de renta en dólares (obligaciones negociables + letras de EE.UU. + índice) | Tu plata trabajando | Hacer ya | 74 | 0.4 | 0 | mes 1 | 85% | 8 / 18 / 61 | 53 | 19.3 |
+| 15 | R5 | Plantillas digitales para iglesias y ministerios (flyers, presentaciones, planificadores) en Canva, Etsy y Hotmart | Replicar lo que ya funciona | Segunda ola | 73 | 1.9 | 20 | mes 3 | 15% | 76 / 206 / 478 | 77 | 14.0 |
+| 16 | R8 | Llevar tus herramientas a ChatGPT y Claude (apps y conectores) mientras el canal es nuevo | Replicar lo que ya funciona | Segunda ola | 73 | 1.6 | 50 | mes 6 | 12% | 53 / 553 / 1.806 | 248 | 43.5 |
+| 17 | C3 | Plantillas y calculadoras logísticas en Excel/Sheets en marketplaces | Software con tu conocimiento | Segunda ola | 73 | 1.6 | 50 | mes 2 | 15% | 101 / 262 / 532 | 81 | 22.4 |
+| 18 | D1 | Comparador de electrodomésticos por costo total + detector de ofertas falsas, con afiliados | Canales, comunidad y afiliados | Segunda ola | 73 | 2.3 | 100 | mes 2 | 15% | 132 / 592 / 1.602 | 240 | 32.4 |
+| 19 | A13 | Traer al español (y portugués) apps exitosas que solo existen en inglés | Apps y juegos | Segunda ola | 72 | 3.3 | 150 | mes 3 | 15% | 129 / 751 / 1.953 | 296 | 28.0 |
+| 20 | B2 | Asistente IA de comercio exterior y logística (aranceles, courier, costo puesto) | Asistentes de IA de nicho | Segunda ola | 72 | 2.3 | 100 | mes 4 | 12% | 139 / 595 / 1.682 | 215 | 27.1 |
+| 21 | C4 | Fábrica de herramientas para agentes de IA y desarrolladores (Apify, MCP) | Software con tu conocimiento | Solo si… | 72 | 2.0 | 50 | mes 3 | 25% | 57 / 422 / 1.119 | 291 | 36.6 |
+| 22 | H3 | Pasar tu empleo a uno remoto en dólares (o sumar un contrato remoto part-time) | Tus horas en dólares | Palanca aparte | 72 | 0.9 | 0 | mes 4 | 30% | 878 / 1.332 / 1.948 | 610 | 392.2 |
+| 23 | M3 | Farmacias de turno y guardias de todo el país en una sola app (De Turno) | Municipio y Estado | En el plan | 72 | 1.3 | 50 | mes 1 | 15% | 61 / 223 / 690 | 108 | 37.9 |
+| 24 | M4 | Recordatorios personales de lo que el Estado te paga o te cobra: ANSES, ARCA, monotributo, VTV, licencia, vacunas (Me Toca) | Municipio y Estado | En el plan | 72 | 1.3 | 50 | mes 1 | 12% | 6 / 100 / 586 | 72 | 20.9 |
+| 25 | A8 | Buscador de alquileres con aviso anticipado del inquilino que se va (mercado de relevo + reseñas de edificios) | Apps y juegos | En el plan | 71 | 1.1 | 300 | mes 4 | 12% | -51 / 332 / 3.568 | 457 | 92.7 |
+| 26 | A11 | Tutor IA para estudiantes: apuntes → audio → preguntas de examen | Apps y juegos | Segunda ola | 71 | 3.6 | 150 | mes 4 | 12% | 88 / 551 / 1.958 | 261 | 20.0 |
+| 27 | R7 | Microaprendizaje en español para el viaje: 10 minutos por día de ideas útiles (negocios, finanzas, ciencia, historia) | Replicar lo que ya funciona | Segunda ola | 71 | 3.6 | 300 | mes 4 | 8% | 252 / 1.524 / 5.693 | 481 | 41.4 |
+| 28 | C5 | Extensión de Chrome o complemento de Google Sheets de nicho, por suscripción | Software con tu conocimiento | Segunda ola | 71 | 2.6 | 100 | mes 4 | 10% | 142 / 836 / 2.556 | 290 | 37.6 |
+| 29 | D7 | Sitio de calculadoras argentinas (sueldo, aguinaldo, indemnización, alquiler) con publicidad | Canales, comunidad y afiliados | Solo si… | 70 | 1.6 | 50 | mes 4 | 10% | 57 / 358 / 910 | 106 | 23.4 |
+| 30 | R6 | Libros de nicho en Amazon: cuadernos de ejercicios de logística y actividades bíblicas para chicos | Replicar lo que ya funciona | Segunda ola | 69 | 1.9 | 50 | mes 3 | 15% | 65 / 205 / 413 | 65 | 12.3 |
+| 31 | D8 | Bot de alertas por suscripción (dólar, turnos, ofertas, alquileres) | Canales, comunidad y afiliados | Solo si… | 69 | 1.6 | 50 | mes 3 | 8% | 74 / 286 / 738 | 58 | 14.4 |
+| 32 | M2 | Logística pública: recorridos de recolección, barrido y transporte escolar presentados a desafíos de innovación municipal (Andén Ciudad) | Municipio y Estado | Solo si… | 69 | 2.3 | 100 | mes 12 | 10% | -23 / 514 / 2.072 | 218 | 21.8 |
+| 33 | C2 | Juego de cadena de suministro para cátedras (en español y a precio latinoamericano) | Software con tu conocimiento | Segunda ola | 68 | 2.9 | 500 | mes 9 | 15% | -50 / 490 / 2.669 | 394 | 22.9 |
+| 34 | A3 | Trivia de cultura general 'útil' para el viaje en colectivo | Apps y juegos | Así no | 67 | 3.6 | 150 | mes 3 | 7% | 112 / 599 / 1.992 | 152 | 14.0 |
+| 35 | R11 | Simuladores de exámenes que la gente busca (ingreso a la universidad, idóneo del mercado de capitales, oposiciones) | Replicar lo que ya funciona | Segunda ola | 67 | 2.6 | 100 | mes 3 | 12% | 130 / 451 / 959 | 123 | 16.6 |
+| 36 | B1 | Asistente IA de trámites y ARCA (monotributo, facturas, impuestos) | Asistentes de IA de nicho | Solo si… | 67 | 3.6 | 150 | mes 3 | 10% | 171 / 756 / 2.297 | 278 | 22.3 |
+| 37 | D3 | Afiliados de Mercado Libre con contenido anónimo (hogar, mate, tecnología) | Canales, comunidad y afiliados | Segunda ola | 67 | 3.3 | 50 | mes 2 | 15% | 109 / 495 / 1.451 | 229 | 21.6 |
+| 38 | R9 | Apps para la tienda de Tiendanube, aprovechando que las viejas se desinstalan desde el 30-10-2026 | Replicar lo que ya funciona | Solo si… | 66 | 3.9 | 200 | mes 4 | 10% | 226 / 1.002 / 2.355 | 248 | 22.4 |
+| 39 | R10 | Extensión de Chrome para vendedores de Mercado Libre (como las de Amazon): margen real por publicación | Replicar lo que ya funciona | Solo si… | 66 | 2.9 | 100 | mes 4 | 8% | 174 / 767 / 2.377 | 210 | 24.3 |
+| 40 | G2 | Motos para repartidores a través de un operador | Tu plata trabajando | Solo si… | 66 | 1.3 | 2.500 | mes 1 | 70% | 113 / 113 / 17 | 14 | -0.8 |
+| 41 | R3 | Juego en Roblox (la plataforma trae los jugadores y paga en Robux) | Replicar lo que ya funciona | Solo si… | 65 | 3.6 | 50 | mes 4 | 6% | 196 / 1.053 / 2.729 | 172 | 18.7 |
+| 42 | D5 | Cuenta anónima de videos cortos (curiosidades o fe) que empuja las apps | Canales, comunidad y afiliados | Solo si… | 65 | 2.3 | 0 | mes 6 | 10% | 21 / 160 / 716 | 80 | 10.1 |
+| 43 | H2 | Freelance remoto de análisis y automatización (Excel, Power BI, Python) para empresas del exterior | Tus horas en dólares | Así no | 65 | 6.0 | 0 | mes 2 | 35% | 526 / 817 / 1.308 | 468 | 29.7 |
+| 44 | A12 | Prode y fantasy de fútbol entre amigos, con publicidad | Apps y juegos | Solo si… | 64 | 2.6 | 100 | mes 3 | 8% | 127 / 506 / 1.371 | 134 | 17.6 |
+| 45 | R4 | Directorio de nicho con fichas destacadas pagas (proveedores logísticos, o iglesias y eventos) | Replicar lo que ya funciona | Segunda ola | 64 | 2.6 | 100 | mes 5 | 12% | 55 / 416 / 1.217 | 157 | 18.9 |
+| 46 | D6 | Newsletter anónima de logística y comercio exterior con sponsors | Canales, comunidad y afiliados | Solo si… | 64 | 2.3 | 20 | mes 9 | 10% | -23 / 245 / 1.227 | 127 | 11.9 |
+| 47 | A4 | App de diseño de interiores con IA | Apps y juegos | Así no | 62 | 3.6 | 300 | mes 3 | 6% | 165 / 1.094 / 2.216 | 134 | 13.5 |
+| 48 | I1 | Dar un curso de logística en la universidad o en un programa de extensión | Enseñar | Solo si… | 62 | 4.0 | 0 | mes 6 | 40% | 54 / 269 / 332 | 136 | 11.0 |
+| 49 | A5 | Lector de PDFs y apuntes en voz alta con publicidad | Apps y juegos | Así no | 61 | 2.6 | 100 | mes 3 | 5% | 67 / 314 / 808 | 40 | 5.1 |
+| 50 | C6 | Construir el simulador logístico completo (3D, todo) antes de tener usuarios | Software con tu conocimiento | Así no | 60 | 6.5 | 600 | mes 6 | 5% | -77 / 690 / 3.296 | 192 | 2.9 |
+| 51 | D2 | Comparador universal tipo 'buscador de vuelos' para todo lo que se compra | Canales, comunidad y afiliados | Solo si… | 60 | 5.2 | 300 | mes 4 | 5% | 61 / 689 / 3.063 | 152 | 5.3 |
+| 52 | I2 | Curso online anónimo de logística (voz IA) en marketplaces de cursos | Enseñar | Así no | 60 | 2.2 | 50 | mes 3 | 8% | 50 / 148 / 238 | 22 | 3.5 |
+| 53 | B3 | Atención automática por WhatsApp para comercios (app en la tienda de Tiendanube) | Asistentes de IA de nicho | Así no | 59 | 4.6 | 300 | mes 4 | 7% | 183 / 1.111 / 3.027 | 219 | 14.1 |
+| 54 | B4 | Chatbot genérico para consultar cualquier cosa | Asistentes de IA de nicho | Así no | 59 | 2.6 | 100 | mes 3 | 2% | -5 / 155 / 567 | 12 | -4.1 |
+| 55 | E2 | Tienda de nicho con un proveedor que despacha (sin stock propio) | Productos físicos | Así no | 59 | 5.3 | 800 | mes 2 | 10% | 10 / 410 / 1.509 | 162 | -0.3 |
+| 56 | G3 | Cocheras en CABA para alquilar | Tu plata trabajando | Así no | 59 | 0.9 | 25.000 | mes 2 | 80% | 59 / 59 / 64 | 56 | 13.2 |
+| 57 | A14 | Generador de imágenes con IA genérico (tipo los que se venden en Flippa), creciendo con publicidad paga | Apps y juegos | Así no | 58 | 4.6 | 1.000 | mes 2 | 5% | 227 / 1.076 / 2.136 | 103 | 4.2 |
+| 58 | E4 | Productos impresos a pedido (tazas, remeras) con diseños IA | Productos físicos | Así no | 58 | 3.3 | 150 | mes 2 | 6% | 30 / 212 / 560 | 38 | 1.7 |
+| 59 | H1 | Entrenar IA desde casa: evaluar y escribir respuestas para modelos (Outlier, Mercor, Mindrift, TELUS) | Tus horas en dólares | Así no | 58 | 3.3 | 0 | mes 2 | 25% | 164 / 164 / 102 | 27 | 7.6 |
+| 60 | A9 | App para transportistas: esperas, costos del viaje y trámites | Apps y juegos | Solo si… | 57 | 3.6 | 200 | mes 6 | 6% | 33 / 393 / 1.202 | 75 | 4.7 |
+| 61 | E1 | Marca propia de hogar, mate y marroquinería con lanzamiento agresivo (precio de entrada, sorteos, publicidad) | Productos físicos | Así no | 57 | 8.6 | 5.000 | mes 1 | 12% | -670 / 277 / 3.132 | 380 | -24.6 |
+| 62 | M5 | Red vecinal de alertas que ordena los grupos de WhatsApp del barrio | Municipio y Estado | Solo si… | 56 | 2.6 | 100 | mes 9 | 6% | -39 / 193 / 935 | 68 | 4.7 |
+| 63 | A7 | App de organización diaria con publicidad | Apps y juegos | Así no | 55 | 3.6 | 100 | mes 4 | 3% | 27 / 231 / 849 | 27 | 1.3 |
+| 64 | A6 | App de gestión de proyectos (PC y celular conectados) con publicidad | Apps y juegos | Así no | 51 | 4.6 | 150 | mes 4 | 3% | 25 / 303 / 1.155 | 40 | 1.6 |
+| 65 | E3 | Importar y revender genéricos en Mercado Libre | Productos físicos | Así no | 50 | 6.6 | 2.000 | mes 2 | 8% | -202 / 149 / 486 | 43 | -18.2 |
 
 ## Trampas y alternativas en pausa
 
 | ID | Alternativa | Veredicto | Por qué | En su lugar / se reactiva si |
 |---|---|---|---|---|
+| M6 | Vender un sistema de gestión a municipios | Así no | Choca con el perfil (licitaciones, reuniones, ciclos políticos, pagos lentos) y ya hay jugadores con 1.000+ municipios (MuniDigital). | M2 gana un desafío o aparece un integrador que venda por nosotros. |
 | J1 | Trading automático con IA | Trampa | 97% de los day traders persistentes pierde plata; 92,6% de los fondos activos pierde contra el índice en 20 años; es el disfraz más común de las estafas con IA (CNV, CFTC). | ver G1 |
 | J2 | Minería de criptomonedas en casa | Trampa | Con la luz residencial de CABA un equipo de 200 TH pierde ~USD 180/mes con el equipo incluido. | Tenés energía propia a menos de USD 0,05 por kWh. |
-| J3 | Encuestas, ver anuncios y apps que 'pagan' | Trampa | Pagan USD 1–4 por hora (USD 30–80/mes combinando apps). | ver H1 |
+| J3 | Encuestas, ver anuncios y apps que 'pagan' | Trampa | Pagan USD 1–4 por hora (USD 30–80/mes combinando apps). | Aparece una plataforma fácil y segura que pague al menos USD 10 por hora en español. |
 | J4 | Alquilar tu placa de video | Trampa | La placa cuesta USD 3.500–5.000 y en el caso típico pierde ~USD 36/mes después de amortizarla. | Ninguna condición razonable a la vista. |
 | J5 | Rendimientos cripto de 10–17% en dólares digitales | Trampa | Lo que paga muy por encima de ~4% cobra riesgo de contraparte (Celsius, BlockFi, FTX). | ver G1 |
 | J6 | Comprar vistas o seguidores para llegar al umbral | Trampa | YouTube no las cuenta y puede cerrar el canal (política de interacción falsa). | ver D5 |
@@ -188,13 +197,13 @@ Roadmap de la mejor versión: Versículo diario + plan de lectura dentro de la s
 - **S7–12 · Medir la racha** (Claude): Cuántos vuelven 7 días seguidos
 - ✂️ Corte: Si la racha promedio es menor a 3 días, se simplifica o se quita.
 
-### A8 · Buscador de alquileres — Solo si…
+### A8 · Buscador de alquileres — En el plan
 
 - **S1–3 · Validar el dolor** (Juntos): Encuesta anónima en grupos de estudiantes que se mudan a CABA
 - **S3–6 · Buscar socio** (Vos): Una inmobiliaria que aporte avisos (un solo acuerdo, por mensaje)
 - **S6–10 · Prototipo** (Claude): Aviso anticipado del inquilino que se va + alertas
 - **S11–20 · Temporada** (Juntos): Probar en febrero–marzo, con las mudanzas universitarias
-- ✂️ Corte: Sin un socio con avisos propios al mes 3, no se construye.
+- ✂️ Corte: Si después de la temporada de febrero–marzo de 2028 hay menos de 30 relevos publicados, queda solo la calculadora y la cuenta temática.
 
 ### A9 · App para camioneros — Solo si…
 
@@ -204,7 +213,7 @@ Roadmap de la mejor versión: Versículo diario + plan de lectura dentro de la s
 - **S9–16 · Medir** (Claude): Usos por mes y funciones que piden
 - ✂️ Corte: Si al mes 4 no hay 300 usos por mes, queda como sección de C1.
 
-### A10 · Fábrica de réplicas — Segunda ola
+### A10 · Fábrica de réplicas — En el plan
 
 - **S1–4 · Radar en segundo plano (desde el mes 3)** (Claude)
 - **S4–5 · 3 candidatas con datos** (Claude)
@@ -249,7 +258,7 @@ Roadmap de la mejor versión: Imágenes con el versículo del día para comparti
 - **S7–12 · Medir** (Claude): Imágenes compartidas por usuario y descargas que traen
 - ✂️ Corte: Si cada 100 usuarios no traen al menos 10 nuevos, queda como función y no se invierte más.
 
-### R1 · Juegos web en portales — Segunda ola
+### R1 · Juegos web en portales — En el plan
 
 - **S1 · Elegir el primer juego** (Juntos)
 - **S2–4 · Programar la primera versión** (Claude)
@@ -458,15 +467,13 @@ Roadmap de la mejor versión: Logistic Lab por módulos de 4 semanas (C1), cada 
 - **S11–20 · Medir** (Claude): Clics y comisiones por producto
 - ✂️ Corte: Mes 6: con menos de USD 50/mes de comisiones, se deja el contenido y se pasa a D1.
 
-### D4 · Canal de música IA — Así no
-
-Roadmap de la mejor versión: Si te divierte: un canal de música de oración curada que empuje la suite cristiana (A1).
+### D4 · Música instrumental IA — En el plan
 
 - **S1 · Condición** (Vos): Solo si te divierte curar música
 - **S2–4 · Selección** (Juntos): Música instrumental curada, con aviso de IA
 - **S5–8 · Integrar** (Claude): Sonido de fondo para la oración y la lectura en A1
 - **S9–20 · Canal** (Vos): YouTube como vidriera de la app, sin comprar vistas
-- ✂️ Corte: Si no trae descargas a A1 en 3 meses, se deja.
+- ✂️ Corte: Si a los 9 meses no entró al programa de socios de YouTube, se deja de producir (queda publicado) y la serie de oración sigue dentro de Senda.
 
 ### D5 · Videos cortos anónimos — Solo si…
 
@@ -533,7 +540,7 @@ Roadmap de la mejor versión: Solo como merchandising de una comunidad que ya ex
 - **S6–12 · Medir** (Claude): Pedidos por diseño
 - ✂️ Corte: Con menos de 30 pedidos en 2 meses, se cierra.
 
-### F1 · Comprar una app que ya factura — Hacer ya
+### F1 · Comprar una app que ya factura — En el plan
 
 - **S1–4 · Criterios y embudo semanal** (Claude)
 - **S3–8 · 3 análisis de práctica** (Claude)
@@ -569,14 +576,16 @@ Roadmap de la mejor versión: Solo como merchandising de una comunidad que ya ex
 
 - Se reactiva si: Hay más de USD 50.000 de capital y el rendimiento neto supera 5% anual. Hoy los mismos dólares rinden más y son líquidos en G1.
 
-### H1 · Entrenar IA (boleto) — Solo si…
+### H1 · Entrenar IA (boleto) — Así no
 
 - **S1–2 · Aplicar a 3–4 plataformas** (Vos)
 - **S2–6 · Pruebas y espera** (Vos)
 - **S6–26 · Tareas si llegan (2–3 h/semana)** (Vos)
 - ✂️ Corte: Si en 6 semanas ninguna plataforma dio tareas pagas, se deja sin costo.
 
-### H2 · Freelance remoto — Solo si…
+### H2 · Freelance remoto — Así no
+
+Roadmap de la mejor versión: Descartado por ahora (ya tenés un trabajo fijo); se reactiva solo si dejás el empleo.
 
 - **S1–2 · Perfil** (Claude): CV y portfolio con 3 casos de análisis
 - **S3–6 · Postular** (Vos): 10 propuestas por semana en Upwork o Workana
@@ -607,6 +616,23 @@ Roadmap de la mejor versión: Guías y ejercicios dentro de Logistic Lab.
 - **S7–16 · Medir** (Juntos): Ventas y afiliados de Hotmart
 - ✂️ Corte: Con menos de 10 ventas en 3 meses, quedan gratis en C1.
 
+### M2 · Logística pública — Solo si…
+
+- **S1–6 · Plantilla** (Claude): Recorridos de recolección con datos públicos de un municipio de ejemplo
+- **S7–12 · Convocatoria** (Juntos): Presentación a un desafío de innovación abierta
+- **S13–26 · Piloto** (Juntos): Si gana: piloto financiado con un municipio
+- ✂️ Corte: Si en 2 convocatorias no hay piloto, queda como plantilla gratuita de Andén.
+
+### M5 · Red vecinal de alertas — Solo si…
+
+- **S1–8 · Convocatoria** (Juntos): Detectar un municipio interesado por desafío de innovación
+- **S9–26 · Piloto** (Claude): Mapa y avisos verificados en 3 barrios
+- ✂️ Corte: Sin municipio interesado, no se construye.
+
+### M6 · Software para municipios — Así no
+
+- Se reactiva si: M2 gana un desafío o aparece un integrador que venda por nosotros.
+
 ### J1 · Trading con IA — Trampa
 
 - En su lugar: ver G1.
@@ -617,7 +643,7 @@ Roadmap de la mejor versión: Guías y ejercicios dentro de Logistic Lab.
 
 ### J3 · Encuestas y anuncios pagos — Trampa
 
-- En su lugar: ver H1.
+- Se reactiva si: Aparece una plataforma fácil y segura que pague al menos USD 10 por hora en español.
 
 ### J4 · Alquilar GPU — Trampa
 

@@ -38,6 +38,7 @@ CRITERIOS = {
 }
 VEREDICTOS = {
     "hacer_ya": "Hacer ya",
+    "plan": "En el plan",
     "segunda_ola": "Segunda ola",
     "solo_si": "Solo si…",
     "no": "Así no",
