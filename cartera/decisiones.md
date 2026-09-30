@@ -157,3 +157,39 @@
 - **Fuentes**: siete bitácoras `conocimiento/2026-09-28-*.md`; informe `informes/2026-09-el-holding-v3.pdf`.
 - **Revisar**: diciembre de 2026 (Claude Max y empresa), abril de 2027 (corte de Senda), julio de 2027 (compra y fábrica),
   septiembre de 2027 (corte de Andén) y el comité anual de cada diciembre.
+
+## DEC-2026-09-30-1 — Senda: el proyecto completo de la app y el camino por fases con la app publicada
+
+- **Contexto**: el fundador pidió (30-09-2026) el proyecto completo de la app cristiana (P1): definición (misión, visión, objetivos,
+  descripción), alcance internacional (app primero, web después), todos los módulos con nombres (trivia tipo Preguntados con la
+  lógica del espadeo, camino tipo Duolingo con mascota, Biblia gratis con versiones, audio y comentarios detrás de un «+», Dibujalo,
+  Tutti Frutti y demás juegos), gamificación al servicio de edificar, perfil y conexión entre hermanos, UX/UI como prioridad, marca,
+  merch y sorteos, contenido libre, monetización (videos opcionales, suscripción barata, plan para líderes), marco teórico,
+  newsletter y eventos, tecnología y escalabilidad, benchmark, roadmap con metodología MVP y publicación por fases, y patentes.
+- **Decisión** (propuesta; las 12 decisiones del capítulo 27 quedan para el fundador):
+  1. **Producto**: cinco pestañas (Inicio, Biblia, Camino, Jugar, Comunidad). Espadeo con la **armadura de Dios** (6 piezas de
+     Efesios 6 = 6 categorías), Camino de 13 secciones, Biblia sin publicidad con Nueva Biblia Viva (abierta) por defecto y RVR1909,
+     la **Lámpara** (racha con rayitos, día de reposo, aceite) como única mecánica dentro de la Biblia, **Senda Reunión** para
+     líderes, **Liga Senda** entre iglesias, **Berea** (IA que siempre cita) y la mascota **Lani** (oveja; Semi queda de alternativa).
+  2. **Método**: MVP «Primera luz» publicado el **18-12-2026** (prueba cerrada de 12 testers × 14 días antes), una versión cada dos
+     semanas con la app en las tiendas, lanzamientos graduales e interruptores de función; v1 «Reunión» (ene–abr 2027), v2 «Liga»
+     (may–ago), v3 «Iglesia» (sep–dic); portugués, inglés y web en 2028. **Regla de corte el 30-04-2027**: 1.000 personas por semana
+     con 3+ días con la Palabra y 10% que vuelve a la semana siguiente.
+  3. **Plata**: Biblia y contenido gratis y sin publicidad para siempre; Plus USD 0,99, Líder USD 2,99, Iglesia USD 9,99 por mes y
+     videos solo opcionales en los juegos. Presupuesto del primer año USD 524 / 3.074 / 8.544 (mínimo / recomendado / ideal); el
+     recomendado se paga en 4 tramos, cada uno solo si el anterior cumplió su condición.
+  4. **Propiedad intelectual**: no se patenta (Ley 24.481 art. 6 excluye el software; en EE.UU. sería caro e incierto); se protege con
+     marcas en el INPI (Senda en noviembre de 2026; logo y Lani después), cesión de derechos del ilustrador, animador y diseñador de
+     sonido, autoría humana de la mascota y del logo, dominios y secreto comercial. Cada comité anual pregunta si hay una invención
+     técnica nueva antes de publicarla.
+- **Por qué**: junta en español de origen lo que hoy está en cinco apps en inglés; el crecimiento viene de los grupos (una reunión =
+  20 a 60 instalaciones) y de la liga entre iglesias, no de comprar publicidad. Proyección del escenario normal (ESTIMACIÓN): neto de
+  USD 620 por mes en diciembre de 2027 y USD 7.949 en diciembre de 2030; escenario malo ~USD 3.500 en 2030. El millón de descargas es
+  la meta ambiciosa para fines de 2030.
+- **Descartado**: chat abierto y feed infinito, cajas de premios pagas, publicidad en la Biblia o en las lecciones, Bible Brain
+  (prohíbe cobrar a los usuarios), incrustar videos de BibleProject (solo enlace).
+- **Pendiente de ajustar**: el caso de negocio del holding (`P1-senda.yaml`) usa un precio del plan Iglesia más prudente; se alinea en
+  el próximo comité con los datos de la validación.
+- **Fuentes**: `conocimiento/2026-09-30-proyecto-senda-investigacion.md` y las bitácoras del 28-09-2026. Proyecto:
+  `oportunidades/proyectos/senda/`; informe: `informes/2026-09-senda-proyecto.pdf`.
+- **Revisar**: 25-10-2026 (decisión de seguir tras la validación), 18-12-2026 (publicación), 30-04-2027 (regla de corte).

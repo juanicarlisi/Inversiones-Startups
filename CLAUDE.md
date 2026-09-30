@@ -64,7 +64,7 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
 | `cartera/` | Estrategia a 5 años, estado de la cartera (`cartera.yaml`), libro de capital (`libro-capital.csv`), decisiones, experimentos | Mensual (`/comite`, `/revision`) |
 | `conocimiento/` | Bitácoras de investigación con hechos fechados y fuentes | Cada investigación |
 | `herramientas/` | Scripts: tablero de oportunidades, motor de escenarios Monte Carlo, cartera, generador de informes | Cuando haga falta |
-| `informes/` | Informes PDF + HTML y su fuente (1: cartografía inicial; 2: ingresos sin vender; 3: el plan). Estilo del 3: práctico, visual, sin jerga | Trimestral o a pedido |
+| `informes/` | Informes PDF + HTML y su fuente (1: cartografía inicial; 2: ingresos sin vender; 3: el plan; proyecto completo de Senda, fuente en `oportunidades/proyectos/senda/`). Estilo del 3: práctico, visual, sin jerga | Trimestral o a pedido |
 | `TABLERO.md` | **Generado** por `python3 herramientas/oportunidades.py`. No editar a mano | Tras cambiar fichas |
 
 ## 4. El equipo (subagentes en `.claude/agents/`)

@@ -4,6 +4,10 @@ Sistema vivo para **detectar, investigar, evaluar, desarrollar y capturar oportu
 cartera de negocios e inversiones que genere caja, se reinvierta y componga. Punto de partida: Argentina (CABA), sep-2026.
 Principio: *con poco hacer muchísimo*. Filosofía: *ir un paso adelante*.
 
+> **Nuevo (30-09-2026)**: `informes/2026-09-senda-proyecto.pdf`, el **proyecto completo de Senda** (la app cristiana, P1): 27
+> capítulos con definición, módulos, gamificación, UX/UI, marca, monetización, tecnología, legal y patentes, presupuesto y roadmap
+> por fases con hoja A3. Fuente: `oportunidades/proyectos/senda/`.
+>
 > **Empezá por acá**: `informes/2026-09-el-holding-v3.pdf` (**informe 3, versión 3: el holding**, con los 9 proyectos definidos,
 > el plan mes a mes hasta 2030 en una hoja A3, el caso de negocio de cada uno a 2031 y el backlog de 38 ideas en su versión viable).
 > Antecedentes: `informes/2026-09-el-plan.pdf` (informe 3 v2, las alternativas una por una), `informes/2026-09-ingresos-sin-vender.pdf`
@@ -53,6 +57,7 @@ python3 herramientas/cartera.py proyectar                 # proyección compuest
 python3 herramientas/cartera.py resumen                   # libro de capital
 python3 herramientas/catalogo.py --md                     # puntúa y simula las 81 alternativas → oportunidades/CATALOGO.md
 python3 herramientas/holding.py                           # casos de negocio de los 9 proyectos a 2031 → cartera/holding-resultados.md
+python3 informes/construir_senda.py                       # regenera el proyecto completo de Senda (P1, con hoja A3)
 python3 informes/construir_plan_v3.py                     # regenera el informe 3 v3 (el holding, con hoja A3)
 python3 informes/construir_informe3.py                    # regenera el informe 3 v2 (el plan, alternativa por alternativa)
 python3 herramientas/plan_sin_venta.py                    # simula el plan del informe 2 a 60 meses
@@ -70,6 +75,8 @@ python3 informes/construir_ingresos_sin_vender.py         # regenera el informe 
 - **Backlog**: 38 ideas en su versión viable (`oportunidades/backlog.yaml`); 7 secundarias entran desde fines de 2028.
 - **Catálogo**: 81 alternativas, con la familia nueva Municipio y Estado (`oportunidades/catalogo.yaml` → `CATALOGO.md`).
 - **Informe**: `informes/2026-09-el-holding-v3.pdf` (70 páginas, 21 capítulos + anexo; hoja A3 del plan en la página 56).
+- **Senda, proyecto completo** (DEC-2026-09-30-1): `informes/2026-09-senda-proyecto.pdf` (96 páginas, 27 capítulos + anexo; hoja A3
+  del roadmap en la página 90). MVP publicado el 18-12-2026 y una versión cada dos semanas; 12 decisiones pendientes en el capítulo 27.
 - Detalle: `cartera/cartera.yaml`, `cartera/decisiones.md`, `cartera/holding-resultados.md`, `doctrina/08-formas-de-pensar.md`.
 
 ## Reglas de oro
