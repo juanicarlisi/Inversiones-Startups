@@ -193,3 +193,49 @@
 - **Fuentes**: `conocimiento/2026-09-30-proyecto-senda-investigacion.md` y las bitácoras del 28-09-2026. Proyecto:
   `oportunidades/proyectos/senda/`; informe: `informes/2026-09-senda-proyecto.pdf`.
 - **Revisar**: 25-10-2026 (decisión de seguir tras la validación), 18-12-2026 (publicación), 30-04-2027 (regla de corte).
+
+## DEC-2026-10-02-1 — Senda v2: experiencia profesional primero, liga por persona, calendario y ruta principal a junio de 2027
+
+- **Contexto**: el fundador revisó la v1 del proyecto (02-10-2026) y mandó 30 correcciones ordenadas más sus notas originales. El eje:
+  la experiencia (UX/UI, animación, sonido, entretenimiento, comunidad) es la prioridad absoluta; nada infantil ni aburrido; colores
+  que no parezcan banco, sistema administrativo ni juguete; Espadeo más cercano a Preguntados; vidas y videos como en Duolingo y
+  Candy Crush sin regalar todo; liga por persona y no por iglesia; calendario adelantado; Senda Reunión y Berea sin IA; sin Prode;
+  la ruta principal antes de 2028; justificar el abogado y los USD 1.000; más en menos tiempo.
+- **Decisión** (propuesta; las 16 decisiones del capítulo 30 quedan para el fundador):
+  1. **Experiencia**: prioridad número uno del proyecto, con la «prueba de la grilla» (cada pantalla al lado de su equivalente en
+     Duolingo, Preguntados, Clash Royale o Candy Crush). **Paleta B (ámbar + índigo)** recomendada, a validar contra A y C con 30
+     jóvenes; tipografías Unbounded, Plus Jakarta Sans y Literata; íconos propios sin emojis; coreografía de cada momento con luz,
+     sonido y vibración. **Lani v2** (oveja joven neutra, sin rasgos de bebé, 30 reacciones en Rive) y **Tu Lani** personalizable
+     con atuendos y vehículos; se aprueba con un «infantilómetro».
+  2. **Nombres**: regla de 6 pruebas. **Travesía** (con Rutas adentro) reemplaza a Camino; categorías Héroes, Palabra, Historia, Vida,
+     Verdad y Mapa con las piezas Escudo, Espada, Casco, Coraza, Cinturón y Botas; Oveja Perdida (ex Impostor), Abecé (ex Rosco, con
+     otra mecánica), ¡Prohibido!, Giro diario (ex Maná del día). «El Rosco», «Tabú», «Libertadores», «Champions» y «Copa América» no
+     se usan porque tienen dueño.
+  3. **Producto**: Espadeo con Carga (3 aciertos), Prueba de pieza, Armería, Cara a cara, 6 comodines y armadura visible arriba a la
+     derecha; **Liga Senda por persona** (Apertura 12-04 → 11-07 y Clausura 16-08 → 14-11 de 2027; divisiones, zonas de 12, 11 fechas,
+     playoffs, 3 ascensos y 3 descensos) más Copas, Supercopa y Copa Continental (2028); **semana Senda** con una cita fija por día
+     (el Viernes de Espadeo como estrella); **calendario** de tres capas desde el MVP; **Senda Reunión** como armador por bloques con
+     registro; **Púlpito** como Desafío del domingo; **Berea** como sección guiada por Lani, sin IA para usuarios; Pulso, Estados y
+     herramientas contra el scroll. Prode eliminado.
+  4. **Biblia**: Reina-Valera por defecto (RV1909 ya; RVR1960 con licencia); NTV, NVI, DHH y TLA en v1; tres caminos de licencia
+     (YouVersion Platform, API.Bible, titulares) con su costo en la proyección.
+  5. **Economía**: vidas 5 / 15 / ilimitadas (Gratis / Plus / Max), el repaso devuelve vidas y nunca se cobra la Biblia ni la Travesía;
+     Plus USD 0,99, Max 2,49, Familia 4,99, Pase Senda 1,99 por temporada, Líder 3,49, Iglesia 12,99; videos opcionales en todos los
+     planes con topes; anuncio corto como máximo cada 3 partidas solo en juegos del plan gratis; nunca ventaja pagada en lo oficial.
+  6. **Plata y tiempos**: presupuesto como **menú de calidad** (básico USD 1.084, **profesional USD 5.974**, premium USD 15.244) en 4
+     tramos condicionados; los «USD 1.000» de la v1 eran el tramo 1 (USD 954). MVP el **18-12-2026**; v1 «Juntos» a marzo, v2 «Liga»
+     con la **ruta Fundamentos completa el 30-06-2027**, v3 «Copa» en el segundo semestre, portugués en marzo de 2028. El abogado no
+     hace falta para lanzar (documentos propios; revisión puntual opcional solo para estudios con datos sensibles o sorteos
+     internacionales).
+- **Por qué**: la v1 era correcta en la estrategia pero pobre en la experiencia, que es justamente lo que decide si los jóvenes se
+  quedan. La liga por persona evita la competencia entre iglesias; el calendario y la semana Senda dan razones para volver cada día;
+  la escalera de planes captura más valor sin romper la experiencia. Proyección del escenario normal (ESTIMACIÓN, `economia.yaml`):
+  neto de **USD 526 por mes en diciembre de 2027** y **USD 8.722 en diciembre de 2030**; malo ~USD 2.900 y bueno ~USD 23.100 en 2030.
+- **Descartado**: IA para usuarios (Berea y Senda Reunión), Prode del Mundial 2030, liga entre iglesias, botón para ir a otras apps,
+  nombres con dueño.
+- **Pendiente de ajustar**: el caso de negocio del holding (`P1-senda.yaml`) sigue con los supuestos prudentes de la v1; se alinea en el
+  próximo comité.
+- **Fuentes**: `conocimiento/2026-10-02-senda-v2-investigacion.md` (con nivel de confianza por dato) y las bitácoras anteriores.
+  Proyecto: `oportunidades/proyectos/senda/` (`economia.yaml` nuevo); informe: `informes/2026-10-senda-proyecto-v2.pdf`.
+- **Revisar**: 25-10-2026 (decisión de seguir, nombres, Lani, paleta y nivel del tramo 1), 18-12-2026 (publicación), 30-04-2027
+  (regla de corte), 30-06-2027 (ruta Fundamentos completa).

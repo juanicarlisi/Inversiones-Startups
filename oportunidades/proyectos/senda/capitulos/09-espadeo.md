@@ -1,140 +1,239 @@
-# Módulo Espadeo: la trivia bíblica con la armadura de Dios
+# Espadeo: la trivia con la armadura de Dios
 
 <div class="enpocas" markdown="1">
-**En pocas palabras.** Una trivia de duelos por turnos como Preguntados, donde cada categoría es una pieza de la **armadura de
-Dios** (Efesios 6:13–17) y gana quien completa primero la armadura. Tiene además el **¡Desenvainá!** (el espadeo clásico de las
-iglesias: encontrar citas contra reloj), un desafío diario compartible, contrarreloj, supervivencia y torneos. Cada pregunta tiene su
-cita y se puede ir al pasaje. Los jugadores pueden proponer preguntas, que se revisan antes de publicarse.
+**En pocas palabras.** Una trivia de duelos tipo Preguntados (4 opciones, ruleta, preguntas con imagen) donde cada categoría es una
+pieza de la **armadura de Dios** (Efesios 6:13–17) y gana quien la completa primero. En la v2 se rehízo lo que estaba mal logrado:
+**categorías que cruzan Antiguo y Nuevo Testamento** (Héroes, Palabra, Historia, Vida, Verdad, Mapa), **piezas con nombres de
+juego** (Escudo, Espada, Casco, Coraza, Cinturón, Botas) e íconos propios, **la armadura que se va completando arriba a la derecha**
+con animaciones y sonido de primera, **seis comodines** (dos inventados por Senda) y rivales al azar, amigos, tu grupo o tu rival de
+la Liga.
 </div>
 
-## 1. El nombre
+## 1. Qué estaba mal y qué se cambió
 
-**Espadeo** (recomendado): es como muchas iglesias llaman a la competencia de buscar citas y responder sobre la Biblia, y
-viene de «la espada del Espíritu, que es la palabra de Dios» (Efesios 6:17). Otras opciones en el capítulo {{cap:13}}.
+La idea (seis categorías = seis piezas de la armadura, que se aprenden jugando) era buena; la ejecución no. Los nombres eran largos y
+de sermón («Calzado del evangelio de la paz»), los íconos eran emojis pobres (una sandalia que nadie quiere ganar) y la categoría
+«Escudo de la fe» quedaba atada solo al Antiguo Testamento, cuando la fe atraviesa toda la Biblia. En la v2:
 
-## 2. Las seis categorías: la armadura de Dios
+- **Cada pieza tiene un nombre corto de juego** y un ícono de equipo épico; el nombre bíblico completo aparece cuando la ganás, como
+  premio y enseñanza («¡Ganaste las Botas! *Calzados los pies con el apresto del evangelio de la paz*, Efesios 6:15»).
+- **Cada categoría cruza AT y NT** y tiene sentido con su pieza, para que la armadura se recuerde sola.
+- **La armadura se ve todo el tiempo** en un emblema arriba a la derecha que se completa pieza por pieza.
+
+## 2. Cómo funciona Preguntados, exactamente
+
+| Elemento | Preguntados (Etermax) |
+|---|---|
+| Ruleta | 7 casillas: Arte, Ciencia, Deportes, Entretenimiento, Geografía, Historia y la Corona (elegís) |
+| Categorías | **Cada una es un personaje** con nombre propio (Tito es Geografía, Albert es Ciencia, Bonzo es Deportes) |
+| Pregunta | 4 opciones, tiempo limitado; también **preguntas con imagen** |
+| Avance | Cada acierto suma; con 3 aciertos jugás por un personaje (la Corona) |
+| Victoria | Quien junta los 6 personajes; si se terminan las rondas, quien tenga más |
+| Comodines | Tiempo extra, bomba (saca 2 incorrectas), doble oportunidad, saltar; se compran con monedas |
+| Vidas (Preguntados 2) | Cada partida nueva gasta una; máximo 3; vuelve 1 por hora |
+
+Fuente: bitácora del 02-10-2026. Lo tomamos como base porque funciona y la gente ya lo sabe jugar (ley de Jakob), y lo mejoramos
+donde Senda tiene algo que Preguntados no (sección 6).
+
+## 3. Las seis categorías: la armadura de Dios
 
 {{ARMADURA}}
 
-| Pieza (Efesios 6) | Categoría | Qué se pregunta | Color |
-|---|---|---|---|
-| **Escudo de la fe** | Antiguo Testamento | Historias, personajes y hechos del AT (Hebreos 11: «por la fe…») | Azul |
-| **Calzado del evangelio de la paz** | Jesús y los Evangelios | Vida, enseñanzas, milagros y parábolas de Jesús | Coral |
-| **Yelmo de la salvación** | Iglesia y cartas | Hechos, las cartas y Apocalipsis | Violeta |
-| **Espada del Espíritu** | Versículos | ¿Dónde dice…?, completá el versículo, ¿quién lo escribió? | Naranja |
-| **Cinto de la verdad** | Apologética y doctrina | Lo central de la fe y cómo responder preguntas sobre ella | Verde |
-| **Coraza de justicia** | Personajes y vida cristiana | Personajes de toda la Biblia y valores para vivir | Amarillo |
+| Pieza | Versículo | Categoría | Qué se pregunta (AT y NT) | Por qué esa pieza |
+|---|---|---|---|---|
+| **Escudo** | «el escudo de la fe» (6:16) | **Héroes** | Personajes de toda la Biblia: Abraham, Ester, Daniel, Pedro, Lidia, Pablo; quién hizo qué | Hebreos 11 es el «salón de la fe»: la fe se ve en personas |
+| **Espada** | «la espada del Espíritu, que es la palabra de Dios» (6:17) | **Palabra** | Versículos: ¿dónde dice?, completá, ¿quién lo dijo?, libros de la Biblia | La espada *es* la Palabra |
+| **Casco** | «el yelmo de la salvación» (6:17) | **Historia** | La gran historia de la salvación: hechos, épocas, reyes, profecías cumplidas, qué pasó antes | El casco protege la cabeza: saber la historia completa |
+| **Coraza** | «la coraza de justicia» (6:14) | **Vida** | Cómo vivir: mandamientos, Proverbios, Sermón del monte, frutos del Espíritu, decisiones de los personajes | La justicia que se vive cubre el corazón |
+| **Cinturón** | «ceñidos vuestros lomos con la verdad» (6:14) | **Verdad** | Lo central de la fe compartida y cómo responder preguntas (apologética) | El cinturón sostiene todo lo demás |
+| **Botas** | «calzados los pies con el apresto del evangelio de la paz» (6:15) | **Mapa** | Lugares y viajes: el Éxodo, Galilea, Jerusalén, los viajes de Pablo; dónde pasó | Los pies que llevan el evangelio: caminos y lugares |
 
-Cada categoría tiene su color **y** su ícono (la pieza), para que se distinga también sin ver colores.
+- **Nombres de categoría de una palabra**, como en un juego (equivalen a Historia, Geografía o Ciencia en Preguntados). Se validan en
+  la prueba de nombres de octubre.
+- **Colores de joya** armonizados entre sí (mismo brillo y saturación) para que se vean como un set y no como un cambalache (capítulo
+  {{cap:19}}); cada categoría tiene además **su ícono**, para que se distinga sin color.
+- **Balance:** cada categoría tiene preguntas de los dos Testamentos y de los tres niveles de dificultad.
 
-## 3. El duelo (modo principal)
+## 4. La armadura que se completa
+
+- **El emblema:** arriba a la derecha, la silueta de un guerrero estilizado (sin cara ni género) con seis espacios. Cada pieza ganada
+  vuela desde la pregunta hasta su lugar y se enciende con el color de su categoría.
+- **El rival también:** su emblema se ve chico al lado del tuyo; sabés cuánto le falta.
+- **Armadura completa:** cinemática de 4 a 5 segundos: las seis piezas brillan, un destello dorado, la cámara se acerca, **Tu Lani
+  aparece con la armadura puesta** en pose heroica, suena la fanfarria de la marca y vibra el teléfono. Se puede compartir el momento.
+- **Colección:** cada armadura completa suma a tu vitrina; con logros se desbloquean **acabados** de las piezas (bronce, plata, oro,
+  legendario).
+
+{{STORYBOARD_ARMADURA}}
+
+## 5. El duelo, paso a paso
 
 {{MOCK:espadeo}}
 
-1. **Se juega por turnos, uno contra uno**, sin tener que estar conectados a la vez (como Preguntados). Cada jugador tiene 48 horas
-   para su turno; si no juega, pierde el turno.
-2. **En tu turno girás la ruleta de 7 casillas:** las 6 piezas y una casilla dorada, **«¡Armadura!»**, que te deja elegir por qué
-   pieza jugar.
-3. **Respondés la pregunta** (4 opciones, 30 segundos). Si acertás, girás de nuevo; si fallás, pasa el turno.
-4. **Con 3 aciertos seguidos** se llena la barra y podés **jugar por una pieza**: una pregunta más difícil de esa categoría. Si
-   acertás, la pieza es tuya y aparece puesta en tu Lani.
-5. **Gana quien completa la armadura** (las 6 piezas). Si después de 25 rondas nadie la completó, gana quien tenga más piezas; si hay
-   empate, una pregunta de desempate por velocidad.
-6. **Después de cada respuesta** se muestra la cita y un botón «Leer el pasaje». En la pantalla de resultado, las preguntas del duelo
-   se pueden repasar.
-7. **Contra quién:** amigos (por invitación o enlace), alguien de tu grupo o iglesia, un rival al azar de tu franja de edad, o
-   **Lani** (un rival automático con dificultad regulable) para quien todavía no tiene con quién jugar.
-8. **Sin chat.** Solo reacciones prediseñadas («¡Buena!», «¡Revancha!», «🙏», «🔥»).
+1. **Por turnos, uno contra uno**, sin estar conectados a la vez. Cada jugador tiene 48 horas para su turno.
+2. **Girás la ruleta de 7 casillas:** las 6 categorías y la **Armería** (casilla dorada: elegís por qué pieza jugar).
+3. **Respondés** (4 opciones o imagen; 25 segundos). Si acertás, girás de nuevo y suma la **Carga**; si fallás, pasa el turno.
+4. **Con la Carga llena** (3 aciertos) jugás la **Prueba de pieza**: una pregunta más difícil de la categoría que caiga (o la que
+   elijas en la Armería). Si acertás, ganás la pieza.
+5. **Cara a cara** (opcional, con la Carga llena): en vez de ganar una pieza nueva, desafiás al rival por una de las suyas: 5 preguntas
+   iguales para los dos, quien acierta más se la queda.
+6. **Gana quien completa la armadura.** Después de 25 rondas, gana quien tenga más piezas; si hay empate, pregunta de velocidad.
+7. **Después de cada respuesta**, la cita y «Leer el pasaje». **Lo que fallaste se suma a tu Repaso** en la Travesía: el juego enseña.
+8. **Sin chat:** reacciones prediseñadas y animadas («¡Buena!», «¡Revancha!», «¡Uff!»).
 
-## 4. Ayudas (comodines)
+## 6. ¿Copia de Preguntados? Lo que Senda mejora
 
-| Ayuda | Qué hace | Costo |
+| | Preguntados | Senda |
 |---|---|---|
-| **Luz** | Elimina dos respuestas incorrectas | 25 Talentos |
-| **Tiempo** | +15 segundos | 15 Talentos |
-| **Otra oportunidad** | Si fallás, podés responder de nuevo | 30 Talentos |
-| **Pista** | Muestra la cita donde está la respuesta (¡y te invita a leerla!) | 20 Talentos |
-| **Cambiar** | Cambia la pregunta por otra de la misma pieza | 20 Talentos |
+| Categorías | Personajes simpáticos sin significado | Piezas de la armadura: **jugando aprendés Efesios 6** |
+| Después de responder | Sigue el juego | **La cita y el pasaje a un toque**; los errores vuelven en tu Repaso |
+| Comodines | 4 clásicos | 6, con **Pista** (te lleva a la cita) y **Tribuna** (cómo respondió la comunidad) |
+| Robar | Desafío por un personaje | **Cara a cara**, con preguntas iguales para los dos |
+| Jugar en equipo | — | **Escuadra 2v2** con un amigo (una armadura compartida) |
+| Rivales | Amigos o al azar | Al azar de tu nivel, amigos, tu grupo, **tu rival de la Liga**, o Lani |
+| Temporadas | Ruletas temáticas | Ruletas de temporada (Semana Santa, Navidad) y el **Desafío del domingo** de tu iglesia |
+| Vidas | Gasta una al empezar partida | Igual, pero los partidos oficiales, las salas y los eventos en vivo no gastan |
+| Difusión | — | **Comodines y vidas por invitar** (como HQ); cada armadura completa se comparte |
 
-Una ayuda por pregunta. También se ganan en cofres, en el Maná del día y viendo un video opcional.
+## 7. Tipos de pregunta
 
-## 5. Los otros modos
+- **4 opciones** (el corazón del juego).
+- **Con imagen:** una ilustración y «¿quién es?», «¿qué historia es?», «¿qué objeto es?» (alguien abriendo el mar, una barca en la
+  tormenta, una honda y cinco piedras).
+- **Emojis:** «🦁🦁🙏 ¿quién?».
+- **Mapa:** «¿dónde queda Nínive?» tocando el mapa (categoría Mapa).
+- **Completá la cita** (categoría Palabra).
+- **Verdadero o falso** (solo en Contrarreloj).
+
+## 8. Contra quién
+
+- **Rival al azar** de tu nivel y de tu franja de edad (emparejamiento por puntaje).
+- **Tus amigos** de Senda (los que agregaste con «Conectar hermano»): se eligen de tu lista.
+- **Alguien de tu grupo.**
+- **Tu rival de la fecha** en la Liga (el partido oficial de la semana, capítulo {{cap:11}}).
+- **Lani**, un rival automático con dificultad regulable, para practicar o cuando no hay nadie.
+- **Revancha** con un toque al terminar.
+
+Senda no lee los contactos del teléfono: los «contactos» son tus amigos dentro de la app.
+
+## 9. Comodines
+
+### El benchmark
+
+| Juego | Comodines | Qué tiene de bueno |
+|---|---|---|
+| ¿Quién quiere ser millonario? | 50:50, llamar a un amigo, preguntar al público, cambiar la pregunta, doble intento | Los más reconocidos; los sociales (amigo, público) son los más memorables |
+| Preguntados | Tiempo, bomba, doble oportunidad, saltar | Simples y rápidos |
+| Kahoot (modos con potenciadores) | Doble puntaje, mezclar respuestas, caja misteriosa | Pensados para el vivo |
+| HQ Trivia | Vida extra por invitar a un amigo | El comodín como motor de difusión |
+| Candy Crush | Potenciadores y vidas que se piden a amigos | La economía social |
+
+### Los seis de Senda
+
+| Comodín | Qué hace | De dónde viene |
+|---|---|---|
+| **Luz** | Elimina dos respuestas incorrectas | 50:50 / bomba |
+| **Tiempo** | +15 segundos | Preguntados |
+| **Doble** | Si fallás, respondés otra vez | Doble oportunidad / doble intento |
+| **Cambio** | Otra pregunta de la misma categoría | Saltar / cambiar la pregunta |
+| **Pista** | Muestra la cita donde está la respuesta (y te invita a leerla después) | **Propio de Senda** |
+| **Tribuna** | Muestra cómo respondió esa pregunta la comunidad, o tus amigos si ya la jugaron | Preguntar al público, **con datos reales de Senda** |
+
+En vivo (Viernes de Espadeo, Senda Reunión) hay dos especiales: **x2** (doble puntaje en una pregunta) y **Congelar** (frena el reloj 5
+segundos).
+
+**Reglas:** un comodín por pregunta; en el partido de la fecha de la Liga y en las Copas, **máximo 3 por partido para todos** (nadie gana
+por pagar).
+
+**De dónde salen:** jugando (cofres, misiones, Giro diario, ascensos); con Talentos (20 a 40); **viendo un video** (1 comodín al azar;
+entra en el tope diario de videos); **invitando** (3 por cada amigo que instala); **Plus trae 30 por mes y Max 100**; el Pase Senda
+trae paquetes. Precios y topes en el capítulo {{cap:17}}.
+
+## 10. Vidas en Espadeo
+
+Empezar un duelo nuevo o una partida individual (Contrarreloj, Supervivencia) cuesta 1 vida; los turnos de un duelo ya empezado no
+cuestan. **No cuestan:** el partido de la fecha, las Copas, el Viernes de Espadeo, el Desafío del día, las salas con amigos y Senda
+Reunión. Sin vidas: esperar, pedirle a un amigo, repasar en la Travesía, ver un video o tener Plus o Max (capítulo {{cap:17}}).
+
+## 11. Los modos
 
 | Modo | Cómo es | Por qué |
 |---|---|---|
-| **¡Desenvainá!** (el espadeo clásico) | Cuatro pruebas contra reloj: **Encontrá la cita** (aparece «Juan 3:16» y hay que abrirla en la Biblia de la app y tocar el versículo), **¿Dónde dice?** (aparece el texto, elegís la cita), **Ordená los libros** (arrastrar libros en orden) y **¿En qué libro?** | Enseña a manejar la Biblia de verdad; tablas de récord por velocidad |
-| **Desafío del día** | Las mismas 10 preguntas para todos; el resultado se comparte con cuadraditos de colores, sin revelar respuestas (como Wordle) | Hábito y difusión |
-| **Contrarreloj** | Tantas preguntas como puedas en 60 segundos | Adrenalina corta |
-| **Supervivencia** | Una sola vida; ¿hasta dónde llegás? | Récord personal |
-| **Práctica por pieza** | Elegís una categoría y practicás sin presión | Aprender |
-| **Torneos** | Fines de semana; por liga, grupo o iglesia; formato de eliminación o puntos (capítulo {{cap:11}}) | Comunidad y eventos |
-| **Espadeo en vivo** (dentro de Senda Reunión) | El líder dice una cita, los chicos la buscan en su Biblia de papel; la app toma los tiempos y lleva el puntaje | La tradición de las iglesias, con marcador en pantalla |
+| **Duelo** | El modo principal (sección 5) | El gancho social |
+| **Escuadra 2v2** | Vos y un amigo contra otra dupla; una armadura compartida; se turnan las preguntas | Jugar *con* alguien, no solo contra |
+| **¡Desenvainá!** (el espadeo clásico) | Cuatro pruebas contra reloj: encontrá la cita en la Biblia de la app, ¿dónde dice?, ordená los libros, ¿en qué libro? | Enseña a manejar la Biblia; récords |
+| **Desafío del día** | Las mismas 10 preguntas para todos; se comparte con cuadraditos sin spoilers | Hábito y difusión |
+| **Contrarreloj** | Tantas como puedas en 60 segundos | Adrenalina corta |
+| **Supervivencia** | Una sola vida: ¿hasta dónde llegás? | Récord personal |
+| **Práctica por categoría** | Sin presión, sin vidas | Aprender |
+| **Partido de la fecha y Copas** | Duelo oficial de la Liga (capítulo {{cap:11}}) | Competencia con temporada |
+| **Viernes de Espadeo** | En vivo, todos a la vez, con Lani de conductora | La cita fija de la semana |
+| **Espadeo en Senda Reunión** | Quiz en vivo armado por el líder, o con la Biblia de papel (el espadeo de siempre) | La tradición, con marcador en pantalla |
+| **Desafío del domingo** | El juego que arma tu pastor con su mensaje (capítulo {{cap:12}}) | Del púlpito a la semana |
+| **Ruletas de temporada** | Semana Santa, Navidad, la Reforma: categorías especiales por unas semanas | Novedad y calendario |
 
-## 6. Cómo es una pregunta (la ficha)
+## 12. Cómo es una pregunta (la ficha)
 
-Cada pregunta guarda: texto, 4 opciones, la correcta, **cita** (libro, capítulo, versículo), explicación de una o dos frases,
-pieza (categoría) y subtema, **dificultad** (1 a 5, recalculada con las respuestas reales), idioma, versiones contra las que se
-verificó, fuente y licencia, autor (equipo, IA revisada o jugador), revisores, estado (borrador, en revisión, publicada, retirada),
-marcas de sensibilidad (doctrina discutida, contenido fuerte para menores) y franja de edad recomendada.
+Texto, 4 opciones, la correcta, **cita**, explicación corta, categoría y subtema, testamento, **dificultad** (1 a 5, recalculada con las
+respuestas reales), tipo (texto, imagen, emoji, mapa), imagen y su licencia si tiene, idioma, versiones contra las que se verificó,
+fuente y licencia, autor (equipo, IA revisada o jugador), revisores, estado, marcas de sensibilidad y franja de edad.
 
-**Reglas de calidad:** una sola respuesta correcta sin discusión; nada que dependa de la traducción (si cambia entre versiones, no
-va); nada de «trampas» de palabras; sin temas en los que las iglesias protestantes discrepan (bautismo, escatología, dones) salvo en
-la categoría de doctrina y mostrando posturas.
+**Reglas de calidad:** una sola respuesta correcta sin discusión; nada que dependa de la traducción; sin trampas de palabras; sin temas
+en los que las iglesias protestantes discrepan salvo en Verdad y mostrando posturas; imágenes que no representan a Dios Padre y que
+muestran a Jesús con respeto (de espaldas o a distancia, para no dividir sensibilidades).
 
-## 7. Proponé tu pregunta (como la fábrica de Preguntados)
+## 13. Proponé tu pregunta (como la fábrica de Preguntados)
 
-1. **Formulario:** pregunta, 4 opciones, la correcta, **cita obligatoria** y pieza.
-2. **Controles automáticos:** que no esté repetida, que la cita exista y que la respuesta esté en el texto (verificación con IA).
-3. **Votación de la comunidad:** otros jugadores (16 o más) la ven en una pantalla de «¿Buena pregunta?» y la califican.
-4. **Revisión humana** de las mejor votadas antes de publicarse.
-5. **Premio:** Talentos, la insignia **Escriba** (por 1, 10 y 50 preguntas publicadas) y, si querés, tu nombre de usuario en la
-   pregunta («Propuesta por @…»).
-6. **Límites:** 5 propuestas por día; bloqueo automático de quien envía contenido inapropiado.
-7. **Licencia:** al proponer, el jugador cede el uso de su pregunta a Senda (queda escrito en los términos).
+1. **Formulario:** pregunta, 4 opciones, la correcta, **cita obligatoria** y categoría.
+2. **Controles automáticos:** que no esté repetida, que la cita exista y que la respuesta esté en el texto.
+3. **Votación de la comunidad** (16 o más): «¿Buena pregunta?».
+4. **Revisión humana** antes de publicarse.
+5. **Premio:** Talentos, Pasos, la insignia **Escriba** (1, 10 y 50 publicadas) y, si querés, tu usuario en la pregunta.
+6. **Límites:** 5 por día; bloqueo de quien envía contenido inapropiado.
+7. **Licencia:** al proponer, cedés el uso de la pregunta a Senda (en los términos).
 
-## 8. El banco de preguntas: benchmark, filtro y producción
+## 14. El banco de preguntas: benchmark, filtro y producción
 
-**Parte del trabajo a hacer** (no se incluyen las preguntas en este documento):
+**Parte del trabajo a hacer** (las preguntas no van en este documento):
 
-1. **Relevar todos los bancos existentes:** colecciones abiertas (1.290 pares en Hugging Face, OpenTriviaQA con licencia CC BY-SA,
-   Open Trivia Database), listas en español que circulan en PDF (de 38 a 1.800 preguntas), materiales de espadeo y esgrima bíblica de
-   las iglesias y, más adelante, bancos en portugués e inglés.
-2. **Clasificar la licencia de cada fuente:** lo que tiene licencia abierta se puede importar (con atribución y, si es CC BY-SA,
-   compartiendo igual); lo demás se usa **solo como referencia** de temas, categorías y dificultad, y se reescribe.
-3. **Filtro pregunta por pregunta:** eliminar duplicados → verificar contra el texto bíblico (que el pasaje exista y la respuesta
-   sea correcta, en dos versiones) → descartar lo doctrinalmente discutido o ajeno al foco protestante → asignar pieza, subtema,
-   dificultad y cita → revisión humana de lo sensible y muestreo del resto → registrar fuente y licencia.
-4. **Producción propia desde la Biblia:** Claude genera preguntas pasaje por pasaje (con la cita incluida) para cubrir los huecos que
-   dejan los bancos existentes, que suelen repetir las mismas historias.
-5. **Las dos cosas a la vez:** se usan los bancos existentes como base y se completa con producción propia. Estimación: 30% viene de
-   bancos (importado o reescrito) y 70% es propio.
-6. **Calibración:** la dificultad real sale de cómo responden los jugadores; las preguntas con demasiados errores o reportes se
-   revisan.
+1. **Relevar los bancos existentes:** colecciones abiertas (OpenTriviaQA con licencia CC BY-SA, Open Trivia Database, conjuntos en
+   Hugging Face), listas en español que circulan en PDF, materiales de espadeo de las iglesias y, más adelante, bancos en portugués e
+   inglés.
+2. **Clasificar la licencia de cada fuente:** lo abierto se importa con atribución; lo demás se usa solo como referencia y se reescribe.
+3. **Filtro pregunta por pregunta:** duplicados → verificación contra el texto en dos versiones → descarte de lo discutido → categoría,
+   testamento, dificultad y cita → revisión humana de lo sensible y muestreo del resto.
+4. **Producción propia** pasaje por pasaje para cubrir huecos (los bancos repiten siempre las mismas historias) y **equilibrar AT y NT
+   en cada categoría**.
+5. **Banco de imágenes:** 100 ilustraciones al inicio (escenas, personajes de espaldas o en silueta, objetos y mapas) para las preguntas
+   con imagen, más emojis; crece con la app.
+6. **Calibración** con las respuestas reales.
 
-| Versión | Preguntas en español | Por pieza | Otros idiomas |
+| Versión | Preguntas en español | Con imagen o emoji | Otros idiomas |
 |---|---|---|---|
-| MVP | 3.000 | 500 | — |
-| v1 | 6.000 | 1.000 | — |
-| Fin de 2027 | 10.000 | ~1.700 | — |
-| 2028 | 15.000 | 2.500 | 10.000 en portugués y en inglés |
+| MVP | 4.000 | 300 | — |
+| v1 (mar-2027) | 7.000 | 600 | — |
+| v2 (jun-2027) | 10.000 | 1.000 | — |
+| Fin de 2027 | 14.000 | 1.500 | — |
+| 2028 | 20.000 | 2.500 | 12.000 en portugués e inglés |
 
-Costo de generación y verificación con IA por lotes: ~USD 0,012 por pregunta (≈ USD 36 cada 3.000). Lo que más cuesta es la
-revisión humana, por eso se prioriza lo doctrinal.
+Costo de generación y verificación con IA por lotes: ~USD 0,012 por pregunta. Lo que más cuesta es la revisión humana y las imágenes.
 
-## 9. Animación y sonido (lo que hace que se sienta como un juego de primera)
+## 15. Animación y sonido (lo que lo hace sentir de primera)
 
-| Momento | Animación | Sonido |
-|---|---|---|
-| Girar la ruleta | Gira con física real (acelera, frena, «clic» en cada casilla) | Tic-tic que se desacelera |
-| Cae en una pieza | La pieza salta y se agranda con su color | Acorde corto del color de la categoría |
-| Cuenta regresiva | Los últimos 5 segundos la barra late | Latido suave |
-| Acierto | Destello verde, confeti chico, +puntos que suben | Dos notas ascendentes (campanita) |
-| Error | Leve sacudida de la tarjeta; aparece la correcta con su cita | Nota grave suave (nunca un «buzzer» agresivo) |
-| Ganar una pieza | La pieza vuela hasta Lani y se le pone | Metal suave + fanfarria corta |
-| Armadura completa | Lani con la armadura entera, pose heroica, luz dorada | Fanfarria de marca (5 segundos) |
-| Perder | Lani saluda al rival; «¡Revancha!» | Melodía corta y amable |
+| Momento | Imagen | Sonido | Vibración |
+|---|---|---|---|
+| Girar la ruleta | Gira con física real; clics en cada casilla; luces que la recorren | Tic-tic que se desacelera | Clics suaves |
+| Cae en una categoría | La pieza salta al centro, gira y se agranda con su color | Acorde de la categoría | Ligera |
+| Acierto | **La tarjeta estalla en partículas de luz** del color de la categoría; la Carga sube con un brillo | Dos notas ascendentes; **suben de tono con cada acierto seguido** | Ligera |
+| Error | Sacudida corta; aparece la correcta con su cita | Nota grave amable | Media |
+| Carga llena | La barra se enciende y late; Lani se pone en guardia | Sube un «whoosh» | Doble |
+| Pieza ganada | La pieza vuela al emblema, choca con un destello metálico y una onda expansiva | Metal + campana | Fuerte corta |
+| Cara a cara | Pantalla partida, los dos emblemas enfrentados | Tambor | — |
+| Armadura completa | Cinemática de 4–5 s (sección 4) | Fanfarria de la marca | Patrón de festejo |
+| Ganar / perder | Lluvia de luz y Lani con trofeo / Lani saluda al rival y ofrece revancha | Tema de victoria / melodía corta | Patrón / ligera |
 
-## 10. Cómo se mide
+## 16. Cómo se mide
 
-Duelos iniciados y terminados por usuario, porcentaje de duelos con amigos contra al azar, invitaciones que terminan en instalación,
-aciertos por pieza, preguntas reportadas, preguntas propuestas y aprobadas, uso de ayudas y récords de ¡Desenvainá!.
+Duelos iniciados y terminados por usuario, porcentaje con amigos contra al azar, invitaciones que terminan en instalación, aciertos por
+categoría, uso de comodines (y de cuáles), armaduras completas compartidas, preguntas reportadas, propuestas aprobadas y récords de
+¡Desenvainá!.

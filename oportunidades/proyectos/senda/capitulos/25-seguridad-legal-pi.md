@@ -3,9 +3,10 @@
 <div class="enpocas" markdown="1">
 **En pocas palabras.** Senda la van a usar muchos menores: la seguridad es parte del producto, no un agregado. Datos mínimos, nada de
 contacto con desconocidos, moderación de todo lo que escriben o dibujan los usuarios y un protocolo para situaciones de riesgo. En lo
-legal: términos, privacidad y bases de sorteos revisados. En propiedad intelectual: **no conviene patentar** (el software no es
-patentable en Argentina y en EE.UU. sería caro e incierto); sí **registrar la marca, la mascota y los derechos de autor**, y cumplir
-las licencias del contenido libre.
+legal: **no hace falta un abogado para lanzar**: Claude redacta todos los documentos con las normas a la vista y se sugiere una revisión
+profesional puntual y opcional solo en dos casos (estudios con datos sensibles y sorteos fuera de Argentina). En propiedad intelectual:
+**no conviene patentar**; sí **registrar la marca, la mascota y los derechos de autor**, cumplir las licencias y no usar nombres con
+dueño (como «El Rosco» o «Tabú»).
 </div>
 
 ## 1. Privacidad: qué datos se guardan
@@ -20,7 +21,11 @@ las licencias del contenido libre.
 | Progreso, rachas, monedas | Sí | Que la app funcione |
 | Notas, resaltados, respuestas de «Palabra para hoy» | Sí, privados | Solo para la persona |
 | Pedidos de oración | Sí, privados del grupo | Con opción anónima; vencen a los 30 días |
-| Preguntas a Berea | Sí, sin datos personales | Calidad y seguridad |
+| Respuestas a encuestas de estudio (Pulso) | **Separadas de la cuenta**, sin forma de volver a la persona | Estadísticas agregadas |
+| Encuestas del grupo | Anónimas por defecto; resultados con 5 o más respuestas | El líder conoce a su grupo |
+| Asistencia (QR) y turnos | Sí, dentro del grupo | Organización del grupo |
+| Tu Lani, club y escudo | Sí | Perfil y Liga |
+| Uso de redes (*Primero la Palabra*) | No sale del teléfono; solo el resumen que ve la persona | Que la persona vea su progreso |
 | Datos de uso | Sí, anónimos o seudónimos | Mejorar la app (sin grabar sesiones de menores) |
 
 Derechos: acceder, corregir, exportar y **borrar la cuenta desde la app**. Los datos no se venden nunca.
@@ -31,6 +36,10 @@ Derechos: acceder, corregir, exportar y **borrar la cuenta desde la app**. Los d
 |---|---|---|---|
 | Buscar y ser encontrado por @usuario | No | Sí (opcional) | Sí |
 | Conectar con amigos | Solo por código/QR o dentro del grupo | Código, QR, grupo o búsqueda | Todo |
+| Rivales al azar y Liga | Solo de su franja (13–17), sin chat | Solo de su franja (13–17), sin chat | 18+ |
+| Estados | No | Solo plantillas, sin texto libre ni fotos | Plantillas + texto corto |
+| Encuestas | Preguntas del día y de la semana sin temas sensibles | Igual, más estudios sin temas sensibles | Todas (voluntarias) |
+| Compras | Con los controles de la tienda; sin ofertas por tiempo limitado | Igual | Configurable |
 | Mensajes de texto libres | No | No | Más adelante, entre amigos |
 | Proponer preguntas | No | Sí | Sí |
 | Anuncios | No personalizados | Personalizables con permiso | Personalizables con permiso |
@@ -52,14 +61,17 @@ Derechos: acceder, corregir, exportar y **borrar la cuenta desde la app**. Los d
 | Dibujos (Dibujalo) | Solo entre amigos o en salas con código; no se guardan; reporte en vivo |
 | Pedidos de oración | Privados del grupo; filtro automático; el líder modera |
 | Eventos | Solo organizadores verificados; revisión de destacados |
-| Respuestas de Berea | Verificador de citas; revisión por muestreo; reporte |
+| Nombres de clubes, escudos y Estados | Filtro automático + reporte; plantillas para menores |
+| Plantillas de reuniones compartidas | Revisión antes de destacarlas |
+| Encuestas de líderes y pastores | Filtro de preguntas inapropiadas; anonimato por defecto |
 
 **Herramientas obligatorias** (las exigen las tiendas para contenido de usuarios): reportar, bloquear, filtrar y un contacto de soporte.
 **Tiempos:** reportes graves en menos de 24 horas; el resto en 72 horas.
 
 ## 4. Protocolo de riesgo
 
-Si en un pedido de oración, una respuesta o una consulta a Berea aparecen señales de autolesión, abuso o peligro:
+Si en un pedido de oración, un Estado, una respuesta de la «Palabra para hoy» o un texto de usuario aparecen señales de autolesión,
+abuso o peligro:
 
 1. La app muestra **líneas de ayuda del país** y sugiere hablar con un adulto de confianza (la lista de líneas por país se arma y se
    verifica antes del lanzamiento).
@@ -68,7 +80,30 @@ Si en un pedido de oración, una respuesta o una consulta a Berea aparecen seña
 4. Nunca se promete confidencialidad absoluta ante un riesgo para la vida.
 5. Se registra el caso para revisión (sin datos innecesarios).
 
-## 5. Documentos legales
+## 5. ¿Hace falta un abogado?
+
+**Respuesta corta: no para lanzar.** Lo que una app como Senda necesita es un conjunto de documentos y prácticas que siguen modelos
+conocidos y normas públicas. Claude los redacta con las normas a la vista (Ley 25.326, LGPD, COPPA, el régimen de sorteos y las
+políticas de Google Play y App Store), vos los aprobás y se publican. El análisis, documento por documento:
+
+| Documento o tarea | ¿Lo puede preparar Claude? | Riesgo si sale mal | ¿Revisión profesional? |
+|---|---|---|---|
+| Términos y condiciones | Sí (modelos estándar de apps + lo propio de Senda) | Bajo | No |
+| Política de privacidad y formulario de datos de las tiendas | Sí | Medio (las tiendas lo revisan y piden cambios si falta algo) | No |
+| Normas de la comunidad | Sí | Bajo | No |
+| Créditos y licencias | Sí | Bajo | No |
+| Inscripción de la base de datos en la AAIP | Sí (vos la presentás con clave fiscal; es gratis) | Bajo | No |
+| Contratos con ilustrador, animador y sonido (cesión de derechos) | Sí (modelos de cesión) | Medio | No |
+| Bases de sorteos en Argentina | Sí (régimen de lealtad comercial; sin compra) | Bajo–medio | No |
+| Licencias de Biblias | Las prepara Claude; los contratos los da cada titular | Medio | No (son contratos estándar del titular) |
+| **Estudios de Pulso con datos sensibles y acuerdos con terceros para estudios** | Sí, con diseño anónimo | **Alto** (datos de fe = datos sensibles) | **Recomendada, una vez** antes del primer informe o acuerdo |
+| **Sorteos en varios países** | Parcial (cada país tiene reglas) | Medio–alto | **Recomendada** si se hace un sorteo internacional |
+| Empresa del holding y transferencia de la app | Parcial | Medio | Contador o escribano (no necesariamente abogado) |
+
+**Conclusión:** sin abogado para lanzar; una **revisión puntual opcional** (USD 0–400, una sola vez, en el capítulo {{cap:28}}) en los dos
+casos marcados, y solo cuando lleguen. Así Senda queda segura, confiable y en regla sin un gasto fijo.
+
+## 6. Documentos legales
 
 | Documento | Contenido clave | Cuándo |
 |---|---|---|
@@ -79,12 +114,15 @@ Si en un pedido de oración, una respuesta o una consulta a Berea aparecen seña
 | Bases de sorteos | Premios, fechas, mecánica sin compra, menores | Con cada sorteo |
 | Acuerdos con freelancers | **Cesión de derechos** de ilustraciones, animaciones y sonidos a la empresa | Antes de pagar cada trabajo |
 | Acuerdo con revisores | Confidencialidad del contenido no publicado, reconocimiento | Al sumarlos |
+| Política de encuestas e investigación | Para qué se pregunta, anonimato, mínimos para mostrar resultados, que nunca se venden datos | Antes de Pulso (MVP: pregunta del día) |
+| Inscripción en la AAIP | Registro de la base de datos personales (gratis) | Octubre de 2026 |
 
-**Normas que aplican:** Ley 25.326 de datos personales (Argentina), LGPD y ECA Digital (Brasil), RGPD (España y la UE), COPPA (menores
-de 13 en EE.UU.), régimen de lealtad comercial para sorteos (DNU 274/2019 y Res. SCI 241/2020), defensa del consumidor para
-suscripciones y las políticas de Google Play y App Store (familias, contenido de usuarios, suscripciones, anuncios).
+**Normas que aplican:** Ley 25.326 de datos personales (Argentina; **las convicciones religiosas son datos sensibles**, art. 2 y 7) y la
+inscripción en el Registro de la AAIP; LGPD y ECA Digital (Brasil), RGPD (España y la UE), COPPA (menores de 13 en EE.UU.), régimen de
+lealtad comercial para sorteos (DNU 274/2019 y Res. SCI 241/2020), defensa del consumidor para suscripciones y las políticas de Google
+Play y App Store (familias, contenido de usuarios, suscripciones, anuncios, uso de la API de Tiempo de Uso y de permisos de uso de apps).
 
-## 6. Propiedad intelectual
+## 7. Propiedad intelectual
 
 ### ¿Hace falta patentar?
 
@@ -114,7 +152,7 @@ suscripciones y las políticas de Google Play y App Store (familias, contenido d
 | **Marcas en otros países** | Brasil (INPI de Brasil) antes de la versión en portugués; EE.UU. (USD 350 por clase) cuando haya ingresos allí | Por país | 2028 en adelante |
 
 Argentina no está en el Protocolo de Madrid: cada país se registra por separado. **Decisión pendiente:** a nombre de quién se
-presenta la marca (vos o la empresa del holding), porque el registro es público (capítulo {{cap:27}}).
+presenta la marca (vos o la empresa del holding), porque el registro es público (capítulo {{cap:30}}).
 
 ### Licencias del contenido libre (cumplirlas es parte de la protección)
 
@@ -123,10 +161,24 @@ presenta la marca (vos o la empresa del holding), porque el registro es público
   escritas desde cero y verificadas contra textos de dominio público son de Senda.
 - **CC BY** (Español Sencillo, OpenBible.info): atribuir.
 - **Dominio público / CC0:** libre.
-- **BibleProject:** solo enlazar o insertar desde su sitio, con crédito, sin alojar ni lucrar.
+- **Biblias con licencia** (RVR1960, NTV, NVI, DHH, TLA): aviso de derechos visible, sin modificar el texto, reglas de guardado de
+  cada licencia.
 - Cada fuente queda registrada en la base (campo «fuente y licencia» de cada pregunta y cada nota).
 
-## 7. Anonimato del fundador
+### Nombres con dueño (lo que no usamos)
+
+| Nombre | Dueño o problema | En Senda |
+|---|---|---|
+| «El Rosco» / «Pasapalabra» | Formato protegido por la justicia española (titular MC&F) y marcas de ITV | **Abecé**, con otra mecánica |
+| «Tabú» | Juego de mesa de Hasbro | **¡Prohibido!** |
+| «El Impostor» | Libre, pero choca con la propuesta | **Oveja Perdida** |
+| «Libertadores», «Champions», «Copa América», «Mundial» de FIFA | Marcas de CONMEBOL, UEFA y FIFA | Copa Senda, Supercopa, **Copa Continental**, Mundial Senda (a verificar) |
+| «Wordle» | Marca del New York Times | **Palabra del día** |
+| «Duolingo», «Preguntados», «Kahoot» | Marcas de terceros | Solo como referencia interna, nunca en la app |
+
+Antes de fijar cada nombre se busca en el INPI y en las tiendas.
+
+## 8. Anonimato del fundador
 
 - Las cuentas de desarrollador muestran el nombre del titular. Plan: publicar con tu cuenta personal **sin compras dentro** (Google
   no muestra la dirección en ese caso), y **transferir la app a la empresa del holding** antes de activar la suscripción (las dos

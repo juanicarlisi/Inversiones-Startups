@@ -1,6 +1,6 @@
 # Tablero de oportunidades
 
-> Generado por `python3 herramientas/oportunidades.py` el 2026-09-28. **No editar a mano.**
+> Generado por `python3 herramientas/oportunidades.py` el 2026-10-02. **No editar a mano.**
 > Puntaje 0–100 (scorecard ponderado). IVR = (valor esperado al mes 36 − capital óptimo) / recurso,
 > con recurso = capital óptimo + horas del fundador × tarifa sombra. La tesorería (OP-09) marca el piso.
 > Referencias: puntaje ≥ 70 = prioridad; IVR ≥ 1.0 en unidades operativas; en activos intensivos en capital, IVR ≥ 2× el de la tesorería.

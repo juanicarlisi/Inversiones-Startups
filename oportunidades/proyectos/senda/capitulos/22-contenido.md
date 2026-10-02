@@ -1,17 +1,18 @@
 # Contenido: qué hay libre, qué producimos y cómo se revisa
 
 <div class="enpocas" markdown="1">
-**En pocas palabras.** La Biblia, los comentarios, las referencias, los mapas y buena parte del material de estudio existen con
-licencia libre (casi todo en inglés); lo traducimos y lo revisamos. Lo que no existe (preguntas, lecciones, devocionales, juegos) lo
-produce Claude con cita y lo revisan personas de tu comunidad. Hay una línea editorial escrita, un circuito de revisión y un botón para
-reportar errores en todo.
+**En pocas palabras.** Las Biblias más usadas se licencian (Reina-Valera, NTV, NVI, DHH, TLA) y el resto del material de estudio
+existe con licencia libre (casi todo en inglés): lo traducimos y lo revisamos. Lo que no existe (preguntas, lecciones de todas las
+Rutas, devocionales, palabras de juegos, imágenes para preguntas) lo produce el equipo (Claude con revisión humana) con cita en todo.
+Hay una línea editorial escrita, guardas doctrinales, un circuito de revisión y un botón para reportar errores en todo.
 </div>
 
 ## 1. Inventario de contenido libre y reconocido
 
 | Contenido | Fuente | Licencia | Idiomas | Uso en Senda |
 |---|---|---|---|---|
-| Biblias en español | RVR1909; Nueva Biblia Viva (Biblica, abierta 2008); Versión Biblia Libre; Biblia Libre para el Mundo; Español Sencillo | Dominio público, CC BY-SA, CC0, CC BY | ES | Lector, audio, verificación de preguntas |
+| Biblias en español con licencia | RVR1960, DHH y TLA (SBU); NVI (Biblica); NTV (Tyndale) | Licencia vía YouVersion Platform, API.Bible o directa (capítulo {{cap:07}}) | ES | Lector, audio si la licencia lo incluye |
+| Biblias en español libres | RV1909; Nueva Biblia Viva (Biblica, abierta 2008); Versión Biblia Libre; Biblia Libre para el Mundo; Español Sencillo | Dominio público, CC BY-SA, CC0, CC BY | ES | Lector, audio, verificación de preguntas |
 | Biblias en portugués | Nova Bíblia Viva (abierta 2007); Bíblia Livre | CC BY-SA / CC BY | PT | 2028 |
 | Biblias en inglés | Berean Standard Bible; KJV; WEB | Dominio público | EN | 2028 |
 | Biblias en otros idiomas | eBible.org y la Free Use Bible API (1.000+ traducciones) | Libres (se verifica una por una) | 700+ | Etapa 3 |
@@ -23,7 +24,6 @@ reportar errores en todo.
 | Palabras originales | Concordancia de Strong | Dominio público | EN → ES | «+» Palabras (v2) |
 | Clásicos cristianos | Bunyan, Spurgeon (originales), historia de la Reforma | Dominio público | EN → ES; LibriVox en ES | Biblioteca |
 | Himnos | Letras del siglo XIX (J. B. Cabrera y otros) | Dominio público | ES | Biblioteca |
-| Videos | BibleProject | Gratis, sin alojar ni lucrar | ES, PT, EN | Enlace «ver el video del libro» |
 | Bancos de preguntas | OpenTriviaQA, Open Trivia DB, set de Hugging Face | CC BY-SA / citar / revisar | EN | Base del banco (capítulo {{cap:09}}) |
 
 **Atribución:** una pantalla **«Créditos y licencias»** lista cada fuente con su licencia; cada comentario muestra su autor y
@@ -34,15 +34,18 @@ con la lista de cambios.
 
 | Contenido | Quién lo produce | Cómo se verifica | MVP | Fin de 2027 |
 |---|---|---|---|---|
-| Preguntas de Espadeo | Claude + bancos filtrados + jugadores | Automático (cita, respuesta en el texto) + humano | 3.000 | 10.000 |
-| Lecciones del Camino | Claude desde fichas de unidad | Automático + humano | 90 lecciones | 600 lecciones |
+| Preguntas de Espadeo | Claude + bancos filtrados + jugadores | Automático (cita, respuesta en el texto) + humano | 4.000 | 14.000 |
+| Ilustraciones para preguntas | Ilustrador (o IA con retoque y revisión) | Revisor doctrinal (cómo se representa) | 100 | 400 |
+| Lecciones de la Travesía (todas las Rutas) | Claude desde fichas de unidad | Automático + humano | 130 lecciones | 1.600 lecciones (Fundamentos completa en junio) |
 | Devocionales y planes | Claude | Revisor doctrinal | 5 planes | 30 planes, 100 devocionales |
-| Palabras de juegos (Dibujalo, Impostor, Tutti Frutti, Rosco) | Claude | Automático (existen en la Biblia) + muestreo | — | 1.500 + 800 + 5.000 + 780 |
-| Tarjetas de apologética | Claude | Revisor doctrinal | — | 40 |
+| Palabras de juegos (Dibujalo, Oveja Perdida, Tutti Frutti, Abecé, ¡Prohibido!) | Claude | Automático (existen en la Biblia) + muestreo | — | 1.500 + 800 + 5.000 + 780 + 600 |
+| Ruta Preparados (apologética) | Claude | Revisor doctrinal | — | 40 tarjetas + niveles |
+| Preguntas del Viernes de Espadeo | Claude | Revisor | 4 semanas | 52 semanas |
+| Encuestas de Pulso | Claude + escalas reconocidas de libre uso | Revisión de redacción y ética | Pregunta del día | Estudio anual |
 | Traducciones de notas y comentarios | Claude por lotes | Automático (citas) + muestreo | — | Libros prioritarios |
 | Imágenes de versículos | Plantillas + ilustración | Diseño | 30 | 150 |
 | Audio | Voz neuronal | Escucha por muestreo | — | 2 versiones |
-| Dinámicas para Senda Reunión | Claude + curaduría | Líderes | — | 200 |
+| Plantillas de reuniones | **Los líderes** (biblioteca compartida); Senda solo las ordena | Revisión antes de destacarlas | — | 200 |
 | Contenido para redes | Claude | Vos aprobás | 3–5 por semana | 5–7 por semana |
 
 ## 3. Línea editorial (la «declaración de fe» de Senda)
@@ -51,14 +54,17 @@ con la lista de cambios.
    Dios y verdadero hombre, muerto y resucitado; salvación por gracia mediante la fe en Cristo; la iglesia como comunidad de creyentes.
    Referencias: el Credo de los Apóstoles y el Pacto de Lausana.
 2. **Temas en los que las iglesias protestantes discrepan** (forma del bautismo, dones espirituales, gobierno de la iglesia, orden de
-   los tiempos finales, predestinación): no entran en preguntas de «una sola respuesta»; en el «+», en Preparados y en Berea se
-   presentan las posturas con sus textos y se invita a hablarlo con el pastor.
+   los tiempos finales, predestinación): no entran en preguntas de «una sola respuesta» ni tienen una Ruta propia; si aparecen (en el
+   «+» o en Preparados) se presentan las posturas con sus textos y se invita a hablarlo con el pastor.
 3. **Respeto:** sin burlas a otras confesiones ni religiones.
 4. **Edad:** contenido apto para 13 años; los pasajes fuertes (violencia, sexualidad) se tratan con cuidado y sin detalles gráficos
    en juegos.
 5. **Fidelidad al texto:** toda afirmación bíblica lleva su cita; lo interpretativo se presenta como tal.
+6. **Imágenes:** no se representa a Dios Padre; Jesús aparece con respeto (de espaldas, a distancia o en silueta) para no dividir
+   sensibilidades entre iglesias; nada de violencia gráfica.
+7. **Rutas sensibles** (Vida real: ansiedad, noviazgo, identidad): para 16 o más, escritas con cuidado pastoral y revisadas siempre.
 
-**Decisión pendiente:** confirmar esta línea con tus revisores (capítulo {{cap:27}}).
+**Decisión pendiente:** confirmar esta línea con tus revisores (capítulo {{cap:30}}).
 
 ## 4. El circuito de revisión
 
@@ -87,22 +93,21 @@ con la lista de cambios.
 | Mes | Contenido especial |
 |---|---|
 | Enero | 21 días de oración y ayuno; Copa Senda de verano; campamentos |
-| Febrero | Amistad y noviazgo (plan temático); fin de campamentos |
-| Marzo | Vuelta a clases y a los grupos de jóvenes; arranca la temporada 1 de la liga |
-| Marzo–abril | **Semana Santa** (28-03-2027; 16-04-2028) |
+| Febrero | Amistad (plan temático); fin de campamentos y de la Copa de verano |
+| Marzo | Vuelta a clases y a los grupos de jóvenes |
+| Marzo–abril | **Semana Santa** (28-03-2027; 16-04-2028); arranca la **Liga Apertura** (abril) |
 | Mayo–junio | Pentecostés (50 días en Hechos) |
-| Julio | **Copa Senda de invierno**; campamentos de invierno |
-| Agosto | Temporada 2 de la liga; vuelta a clases en México y EE.UU. |
+| Julio | Final del Apertura; **Copa Senda de invierno**; campamentos de invierno |
+| Agosto | Arranca el **Clausura**; vuelta a clases en México y EE.UU. |
 | Septiembre | Aniversario de Senda; en varios países se celebra el mes o el día de la Biblia (fecha según cada país) |
 | Octubre | Reforma (31 de octubre) |
-| Noviembre | Gratitud; final de la temporada 2 |
-| Diciembre | Adviento y Navidad; **Tu año en la Palabra** |
+| Noviembre | Gratitud; final del Clausura |
+| Diciembre | Supercopa; Adviento y Navidad; **Tu año en Senda**; Informe Pulso |
 
-## 7. Contenido para redes (sin mostrar a nadie)
+## 7. Contenido para redes (sin mostrar a nadie; detalle en el capítulo {{cap:21}})
 
 - **La que habla es Lani:** la cuenta de Instagram y TikTok es la voz de la mascota.
-- **Formatos:** versículo del día con imagen; «¿Sabías que…?» (carrusel); trivia en historias con encuestas; clips de partidas del
-  Impostor y del Rosco (grabación de pantalla con voz sintética); memes de Lani; resultados de la liga y de los torneos; anuncios de
-  sorteos.
+- **Formatos:** versículo del día con imagen; «¿Sabías que…?» (carrusel); trivia en historias con encuestas; clips de partidas de
+  Oveja Perdida y del Abecé; memes de Lani; resultados de la Liga y del Viernes de Espadeo; anuncios de Copas y sorteos.
 - **Ritmo:** 3–5 publicaciones por semana al principio; 1–2 reels por semana; historias diarias.
 - **Producción:** Claude arma el lote semanal; vos aprobás en 20 minutos los lunes y respondés comentarios en ratos (ver el roadmap).

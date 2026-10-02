@@ -3,7 +3,8 @@
 <div class="enpocas" markdown="1">
 **En pocas palabras.** El celular ya es el lugar donde los jóvenes pasan la mayor parte de su tiempo libre, y buena parte de ese
 tiempo se va en contenido que no deja nada. Pedir «usalo menos» no alcanza: el diseño de las apps está hecho para retener. Senda
-toma las mismas herramientas (juego, hábito, comunidad) y las pone al servicio de algo que edifica, con límites éticos escritos.
+toma las mismas herramientas (juego, hábito, comunidad) y las pone al servicio de algo que edifica, con límites éticos escritos, y
+además ofrece herramientas concretas para ganarle minutos al scroll (capítulo {{cap:14}}).
 </div>
 
 ## 1. Cuánto usamos el celular
@@ -26,6 +27,19 @@ El orden es parecido en todo el mundo: **redes sociales y video corto** primero,
 Entre los adolescentes de EE.UU., YouTube lo usa el 90% y lo abre a diario el 73%; TikTok el 63% (Pew, 2024).
 
 **INFERENCIA:** el tiempo de pantalla no va a bajar a cero. La pregunta útil es qué hay dentro de esas horas.
+
+### Y entre los jóvenes cristianos
+
+| Dato | Fuente |
+|---|---|
+| El **60%** de los jóvenes de 13 a 21 años dice que su generación pasa demasiado tiempo con pantallas; un adolescente usa el celular unas **5 h 15 min por día** | Barna Group (citado por movieguide.org y christianpost.com) |
+| El **85%** de los pastores está preocupado por el tiempo de pantalla de los jóvenes, pero el **86%** dice que su iglesia no tiene un plan para enseñar un uso sabio de la tecnología | Barna Group |
+| Los adolescentes comprometidos con leer la Escritura muestran más discernimiento con sus dispositivos y mejor salud emocional | Barna Group (christianpost.com) |
+| Ya hay apps cristianas que muestran un versículo **antes** de abrir Instagram o TikTok (Psalmo, Prayin): la necesidad existe y la gente la paga | App Store (consulta del 02-10-2026) |
+
+**INFERENCIA:** los jóvenes cristianos saben que usan demasiado el celular y las iglesias no tienen herramientas para ayudarlos.
+Senda puede ser esa herramienta: no con sermones sobre la pantalla, sino con algo mejor para hacer en ella y con funciones concretas
+para cortar el scroll (capítulo {{cap:14}}).
 
 ## 3. La decadencia: qué está pasando
 
@@ -51,11 +65,12 @@ mayoría. La alternativa realista es **ocupar ese lugar con algo mejor**: una ap
 | Teoría o evidencia | Qué dice | Cómo la aplica Senda |
 |---|---|---|
 | **Teoría de la autodeterminación** (Deci y Ryan) | La motivación sana nace de tres necesidades: autonomía (elegir), competencia (sentir que avanzo) y vínculo (pertenecer) | Elegís tu camino y tu meta diaria; el progreso se ve; se juega con amigos, el grupo y la iglesia |
-| **Práctica de recuperación** («testing effect», Roediger y Karpicke, 2006) | Responder preguntas fija más que releer | El Camino y Espadeo hacen preguntas; no solo muestran texto |
+| **Práctica de recuperación** («testing effect», Roediger y Karpicke, 2006) | Responder preguntas fija más que releer | La Travesía y Espadeo hacen preguntas; no solo muestran texto |
 | **Repetición espaciada** (curva del olvido de Ebbinghaus) | Repasar justo antes de olvidar fija a largo plazo | Repaso inteligente de lo que fallaste y de los versículos para memorizar |
 | **Hábitos pequeños** (modelo de Fogg: conducta = motivación × facilidad × disparador) | Un hábito se instala si es fácil y tiene un disparador diario | Lecciones de 3 a 5 minutos, versículo del día, un aviso a la hora que elegís |
 | **Flujo** (Csikszentmihalyi) | Se disfruta cuando el desafío está a la altura de la habilidad | Dificultad que se adapta a cada uno |
-| **Evidencia de Duolingo** | Quien llega a 7 días de racha retiene 2,4 veces más; las ligas subieron 17% el tiempo de estudio | Racha (la Lámpara) y ligas, con límites éticos |
+| **Evidencia de Duolingo** | Quien llega a 7 días de racha retiene 2,4 veces más; las ligas subieron 17% el tiempo de estudio; con una racha compartida con un amigo, 22% más chances de cumplir la lección del día | Racha (también compartida), Liga y misiones en dupla, con límites éticos |
+| **Jugosidad** («juice», Jonasson y Purho, 2012) | Los pequeños efectos (rebotes, partículas, sonidos, sacudidas) hacen que una interacción se sienta viva y satisfactoria | Cada momento de la app tiene su coreografía de imagen, sonido y vibración (capítulo {{cap:19}}) |
 | **Tecnología humana** (Center for Humane Technology) | Medir el éxito por el bien que deja, no por el tiempo que roba | Sin feed infinito, límite diario opcional, avisos respetuosos, día de reposo |
 
 ## 6. La mirada bíblica: el celular para un buen fin
@@ -64,12 +79,14 @@ Senda no inventa el principio; lo toma de la Biblia:
 
 - **Aprovechar bien el tiempo** (Efesios 5:15–16): el tiempo es un regalo que se administra.
 - **Pensar en lo que es bueno** (Filipenses 4:8): lo verdadero, lo honesto, lo justo, lo puro, lo amable.
-- **La Palabra como lámpara** (Salmo 119:105): alumbra el camino de cada día (de ahí la racha de Senda, la *Lámpara*).
+- **La Palabra como lámpara** (Salmo 119:105): alumbra el camino de cada día (de ahí la lámpara que simboliza la racha y el logo).
 - **Guardar la Palabra en el corazón** (Salmo 119:11) y **meditar en ella de día y de noche** (Josué 1:8).
 - **Que la Palabra habite en abundancia, enseñándose unos a otros** (Colosenses 3:16).
 - **Estimularse al amor y a las buenas obras, sin dejar de congregarse** (Hebreos 10:24–25): la app empuja a la iglesia real.
-- **Examinar las Escrituras cada día** como los de Berea (Hechos 17:11): el nombre del asistente con IA.
-- **Estar preparados para responder** con mansedumbre (1 Pedro 3:15): el módulo de apologética *Preparados*.
+- **Examinar las Escrituras cada día** como los de Berea (Hechos 17:11): el nombre de la sección de planes y desafíos.
+- **Estar preparados para responder** con mansedumbre (1 Pedro 3:15): la Ruta de apologética *Preparados*.
+- **Todo me es lícito, pero no todo conviene; no me dejaré dominar de ninguna** (1 Corintios 6:12): la base del Ayuno de redes y de
+  *Primero la Palabra*.
 
 Tres verbos resumen el enfoque: **edificar** (formar la fe con la Palabra), **crecer** (avanzar un poco cada día) y **conectar**
 (con Dios, con amigos, con la iglesia).
@@ -94,7 +111,8 @@ idioma.
 | Feed infinito | No hay feed de contenido infinito; cada sesión tiene un final claro |
 | Recompensas al azar pagas | Los cofres se ganan jugando; **nunca se venden por plata** |
 | Culpa y ansiedad | Notificaciones amables, una por día como máximo, ninguna de noche para menores |
-| Racha que esclaviza | Día de reposo semanal, protectores (*Aceite*) y forma de recuperarla leyendo más |
-| Tiempo sin fin | Límite diario opcional; después de 45 minutos de juego, una sugerencia de pausa |
-| Soledad | Todo lo social es con amigos, grupo o iglesia; nada de desconocidos |
+| Racha que esclaviza | Día libre semanal, protectores y forma de recuperarla leyendo más |
+| Tiempo sin fin | Límite diario opcional; después de 45 minutos de juego, una sugerencia de pausa; vidas que ponen un ritmo |
+| Scroll en otras apps | *Primero la Palabra* (un versículo antes de abrir la red elegida) y el Ayuno de redes en grupo |
+| Soledad | Todo lo social es con amigos, grupo o iglesia; con desconocidos solo se juega (sin chat) |
 | Contenido trivial | Todo lleva a un pasaje bíblico; cada lección termina con algo para vivir |
