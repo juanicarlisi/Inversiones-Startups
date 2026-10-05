@@ -5,7 +5,7 @@
 la Liga. La plata viene de una **escalera de planes** pensada con teoría y benchmark: **Plus** (USD 0,99 por mes: más vidas y menos
 espera), **Max** (USD 2,49: vidas ilimitadas, más comodines y el Pase Senda; el que recomendamos), **Familia** (USD 4,99 para 6),
 el **Pase Senda** por temporada (USD 1,99, para quien no quiere suscripción), **Líder** (USD 3,49) e **Iglesia** (USD 12,99); más
-**videos opcionales**, un **anuncio corto** al terminar algunas partidas gratis y **Perlas** para Tu Lani. Ningún plan regala todo y
+**videos opcionales**, un **anuncio corto** al terminar cada partida en el plan gratis y **Perlas** para Tu Lani. Ningún plan regala todo y
 ningún plan da ventaja en lo oficial.
 </div>
 
@@ -83,7 +83,7 @@ escalón da más sin regalar todo, como pediste.
 | Tipo | Dónde | Reglas |
 |---|---|---|
 | **Video recompensado** (la persona elige verlo) | Vida extra, comodín, cofre extra, segundo Giro diario | Tope de 8 por día (5 para 13–17) |
-| **Anuncio corto al terminar una partida** (solo plan gratis) | Al final de partidas de Espadeo y de otros juegos | Como máximo uno cada 3 partidas; nunca en la Biblia, Berea, la Travesía, la Liga, eventos en vivo ni salas |
+| **Anuncio corto al terminar una partida** (solo plan gratis) | Al final de partidas de Espadeo y de otros juegos | **Uno al terminar cada partida** (decisión del 05-10-2026; se ajusta con datos); nunca en la Biblia, Berea, la Travesía, la Liga, eventos en vivo ni salas |
 | Banners | — | **Nunca** |
 
 - **Plataforma:** AdMob, con mediación desde 2028.

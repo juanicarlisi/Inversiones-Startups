@@ -4,8 +4,12 @@ Sistema vivo para **detectar, investigar, evaluar, desarrollar y capturar oportu
 cartera de negocios e inversiones que genere caja, se reinvierta y componga. Punto de partida: Argentina (CABA), sep-2026.
 Principio: *con poco hacer muchísimo*. Filosofía: *ir un paso adelante*.
 
-> **Nuevo (05-10-2026)**: arrancó el **desarrollo de Senda** (sprint 0: Biblia con 3 versiones libres, una lección, Espadeo de
-> práctica; vista previa web privada). El código vive en su propio repositorio `senda-app` (copia temporal en `apps/senda-app/`). El
+> **Nuevo (05-10-2026, tarde)**: **sprint 1 de Senda** (temas, Ajustes, lector tipo Biblia de papel, Nueva Biblia Viva, 36 sonidos
+> propios, bienvenida, «¡Volviste!», Pausa con Lani) y APK de prueba con GitHub Actions. Benchmark de navegación y Biblias libres en
+> `conocimiento/2026-10-05-senda-navegacion-biblias-sprint1.md`; decisiones en DEC-2026-10-05-2.
+>
+> **05-10-2026**: arrancó el **desarrollo de Senda** (sprint 0: Biblia con 3 versiones libres, una lección, Espadeo de
+> práctica; vista previa web privada). El código vive en su propio repositorio `juanicarlisi/senda-app`. El
 > proyecto pasó a la v2.1 con las 16 decisiones del fundador y el capítulo nuevo de diseño emocional (DEC-2026-10-05-1).
 >
 > **Proyecto (02-10-2026, v2.1 el 05-10)**: `informes/2026-10-senda-proyecto-v2.pdf`, el **proyecto completo de Senda v2** (la app cristiana, P1):

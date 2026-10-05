@@ -21,7 +21,7 @@ Max) tiene fecha y monto, y se aprueba antes.
 | 8 | **Claude Max** | **Desde diciembre** (noviembre no). Octubre y noviembre con Pro |
 | 9 | **Biblias** | Arrancar con las libres; ver a fondo la RVR1960 sin licencia (resultado en el capítulo {{cap:07}}: no conviene) |
 | 10 | **Planes y precios** | Aprobados por ahora |
-| 11 | **Anuncio corto al terminar partidas** | Aprobado (con el tope de uno cada 3 partidas como punto de partida; se ajusta con datos) |
+| 11 | **Anuncio corto al terminar partidas** | **Uno al terminar cada partida** (precisado en la segunda tanda); se ajusta con datos |
 | 12 | **Vidas** | **3 gratis, 1 por hora**; repasar **no** devuelve vidas por ahora |
 | 13 | **Revisores doctrinales** | 2 personas de tu comunidad |
 | 14 | **Línea editorial** | La del capítulo {{cap:23}}, por ahora |
@@ -30,12 +30,27 @@ Max) tiene fecha y monto, y se aprueba antes.
 
 Además, sumaste el **diseño emocional** como parte del proyecto: está en el capítulo {{cap:20}} y ya se aplica en la app.
 
+**Segunda tanda (05-10-2026, después de probar la vista previa del sprint 0):**
+
+| Tema | Lo que pediste | Lo que quedó |
+|---|---|---|
+| Repositorio de la app | Creado | El código vive en `juanicarlisi/senda-app`; se borró la copia temporal de este repositorio |
+| Expo y la red | Que Claude haga todo lo posible | **No hace falta cuenta de Expo ni tocar la red:** el APK de prueba lo arma GitHub Actions (gratis) y queda en Releases |
+| Anuncios | Uno al terminar cada partida | Aplicado (simulado en la prueba; nunca en la Biblia ni en las lecciones) |
+| Temas | Elegir entre los diseños del proyecto | **5 temas** (las paletas A, B y C + Clásico claro y Medianoche) y 3 papeles para la Biblia (capítulo {{cap:19}}, sección 18) |
+| Ajustes | Lo que suelen tener las apps | Pantalla de **Perfil y ajustes** desde el avatar: tema, letra, sonido, vibración, animaciones, idioma, privacidad, créditos… |
+| Navegación | Benchmark: ¿íconos abajo o menú arriba? | **Recomendación: la barra de abajo** (evidencia en el capítulo {{cap:19}}, sección 17). A confirmar por vos |
+| Animaciones y sonidos | Todo lo del proyecto, punto por punto | Sprint 1: 36 sonidos propios y los momentos de los capítulos 19 y 20; matriz de lo hecho y lo que falta en la app (`docs/DISENO_EMOCIONAL.md`) |
+| Más versiones de la Biblia | Todas las libres protestantes | Se sumó la **Nueva Biblia Viva** (Biblica). Las demás libres se descartaron con su razón (capítulo {{cap:07}}); la RVG necesita permiso (borrador listo) |
+| RVR1960 más barata | Si hay algo más barato que ~USD 39 | **No hay vía legal más barata.** Mientras tanto: enlace a la RVR1960 en Bible.com y pedido de precio de ministerio (borradores listos) |
+| Lectura «como papel» | Marcador, hojas que se pasan con el dedo | **Lector de papel**: hojas que giran sobre el lomo, 3 cintas de raso, resaltadores, notas, canto dorado, voz |
+
 ## 2. Cómo seguimos: el desarrollo
 
 | Qué | Cómo |
 |---|---|
-| **Dónde vive el código** | En un repositorio propio, `senda-app`, separado del holding. Mientras lo creás, queda una copia temporal en este repositorio (`apps/senda-app/`) |
-| **Cómo probás** | Cada sprint publica una **vista previa web** privada que abrís desde el celular (sin cuentas ni costo). Desde noviembre, además, una **app instalable en Android** (APK de prueba, con una cuenta gratis de Expo) |
+| **Dónde vive el código** | En su repositorio propio, `juanicarlisi/senda-app` (privado), separado del holding |
+| **Cómo probás** | Cada sprint publica una **vista previa web** privada que abrís desde el celular, y un **APK de prueba para Android** que arma GitHub Actions y queda en la pestaña Releases del repositorio (sin cuenta de Expo, sin costo) |
 | **Ritmo** | Un sprint cada dos semanas; vos probás 30 minutos y decidís qué sigue |
 | **Gastos** | Nada hasta noviembre. Después, solo lo imprescindible y con tu aprobación: Google Play (USD 25, una vez), RVR1960 por API.Bible (~USD 39 por mes, opcional), Claude Max (desde diciembre) |
 
@@ -44,7 +59,7 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | Sprint | Fechas | Qué sale |
 |---|---|---|
 | 0 | 5–11 oct | Base de la app, sistema de diseño, Inicio, Biblia con 3 versiones libres, una lección, Espadeo de práctica, semana Senda. **Hecho** |
-| 1 | 12–25 oct | Biblia completa (búsqueda, notas, planes, audio), racha con rayitos y Día libre, bienvenida, sonidos propios, «¡Volviste!» |
+| 1 | 12–25 oct | **Adelantado al 5-oct (lo principal):** temas y Ajustes, lector de papel, búsqueda, notas, cintas, voz, Nueva Biblia Viva, racha con Día libre e hitos, bienvenida, «¡Volviste!», 36 sonidos, Pausa con Lani. **Falta:** planes de lectura, protector de racha, recordatorio real |
 | 2 | 26 oct – 8 nov | Motor de la Travesía con las secciones 0 a 2, repaso, misiones y cofres, cuentas y sincronización (Supabase gratis) |
 | 3 | 9–22 nov | Espadeo real: duelos por turnos con amigos y con Lani, 6 comodines, Armería, banco de preguntas grande; tarjetas para compartir |
 | 4 | 23 nov – 6 dic | Calendario completo, Giro diario, Desafío del día, Tu Lani, pulido, accesibilidad; **prueba cerrada en Google Play** |
@@ -54,11 +69,13 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 
 | # | Tema | Recomendación | Hasta cuándo |
 |---|---|---|---|
-| 1 | **Crear el repositorio de la app** | Crear `senda-app` privado en tu GitHub (2 minutos) y darle acceso a Claude | Esta semana |
+| 1 | ~~Crear el repositorio de la app~~ | **Hecho** el 05-10-2026 | — |
 | 2 | **Verificar el nombre** | Buscar «Senda» en el INPI (clases 9, 41 y 42), en las tiendas y en redes; ver dominios. Ojo con **Chile**: allí SENDA es el servicio estatal de prevención de drogas y alcohol (sección 4) | 15-10-2026 |
-| 3 | **Cuenta de Expo** (gratis) y red del entorno | Crearla y permitir `expo.dev` en la configuración de red del entorno, para compilar el APK de prueba | 31-10-2026 |
+| 3 | ~~Cuenta de Expo y red del entorno~~ | **Ya no hace falta:** el APK se arma con GitHub Actions | — |
+| 3b | **Navegación** | Confirmar la barra de abajo (recomendado) o pedir una variante con menú arriba para comparar | Con la próxima prueba |
+| 3c | **Enlace a la RVR1960 en Bible.com** | Es la única salida de la app (el proyecto pedía que todo pase adentro). Recomendación: dejarlo hasta tener la licencia | Con la próxima prueba |
 | 4 | **Cuenta de Google Play** (USD 25) | Abrirla **a más tardar el 15-11**: las cuentas personales nuevas necesitan 12 testers durante 14 días antes de publicar | 15-11-2026 |
-| 5 | **RVR1960** | Enviar el pedido de precio de ministerio (Claude lo redacta); decidir si se paga API.Bible para el lanzamiento o desde marzo | Pedido: oct; pago: dic o mar |
+| 5 | **RVR1960 y RVG** | Revisar y enviar los pedidos ya redactados (`borradores/`): precio de ministerio de la RVR1960 (American Bible Society y Sociedad Bíblica Argentina) y permiso de la Reina Valera Gómez. Decidir si se paga API.Bible para el lanzamiento o desde marzo | Pedido: oct; pago: dic o mar |
 | 6 | **Cuenta de Apple** (USD 99 por año) | Si querés iOS el 18-12, abrirla a principios de diciembre; si no, iOS en enero o febrero | 01-12-2026 |
 | 7 | **Identificador de la app en las tiendas** | Hoy es provisorio (`com.sendaapp.biblia`); no se puede cambiar después de la primera publicación | Antes de la prueba cerrada |
 
@@ -78,17 +95,19 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 
 ### Vos
 
-- [ ] Abrir la vista previa del sprint 0 en el celular y contarme qué te gusta y qué no (30 minutos).
-- [ ] Crear el repositorio `senda-app` y darle acceso a Claude; después, iniciar las sesiones de desarrollo desde ese repositorio.
+- [x] Abrir la vista previa del sprint 0 en el celular y contarme qué te gusta y qué no.
+- [x] Crear el repositorio `senda-app` y darle acceso a Claude.
+- [ ] Probar la vista previa del sprint 1 (temas, Ajustes, lector de papel, sonidos) y, si tenés Android, instalar el APK de prueba.
+- [ ] Confirmar la navegación (barra de abajo) y el enlace a la RVR1960.
 - [ ] Verificar el nombre con la lista de la sección 4; reservar los usuarios de redes (gratis).
 - [ ] Elegir 2 revisores doctrinales y anotar 12 testers con Android (para la prueba cerrada de noviembre).
-- [ ] Crear la cuenta gratis de Expo y permitir `expo.dev` en la red del entorno (para el APK de prueba).
-- [ ] Revisar y decidir el envío del pedido de licencia de la RVR1960.
+- [ ] Revisar y decidir el envío de los pedidos de licencia (RVR1960 y RVG) y desde qué correo.
 
 ### Claude
 
-- [ ] Sprint 1 y sprint 2 (tabla de la sección 2), con una vista previa nueva al final de cada uno.
+- [x] Sprint 1 (lo principal), con vista previa y APK de prueba.
+- [ ] Lo que falta del sprint 1 (planes de lectura, protector de racha, recordatorio) y el sprint 2.
 - [ ] Banco de preguntas: benchmark de bancos con licencia, filtro y las primeras 1.000 preguntas revisables.
 - [ ] Lecciones de las secciones 0 a 2 de Fundamentos para revisión doctrinal.
-- [ ] Borrador del pedido de licencia de la RVR1960 y de los textos legales (términos, privacidad, normas).
-- [ ] Sonidos propios (biblioteca libre de derechos y la firma de tres notas) y las primeras ideas del capítulo {{cap:20}}.
+- [x] Borradores de los pedidos de licencia y de los textos legales (privacidad y términos, en la app; falta normas de comunidad).
+- [x] Sonidos propios (36, sintetizados, con la firma de tres notas) y las ideas del capítulo {{cap:20}}.

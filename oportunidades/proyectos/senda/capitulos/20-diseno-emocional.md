@@ -122,10 +122,15 @@ se lea como «cosa de chicos».
 | Palabras en las reseñas («lindo», «me emocioné», «me hace bien») | El nivel reflexivo |
 | Sesiones después de las 23 | Que no estemos dañando el descanso |
 
-## 9. Lo que ya está en la primera versión de la app
+## 9. Lo que ya está en la app (sprints 0 y 1)
 
-Lani **respira y parpadea**; el saludo cambia según la hora y de noche Lani **duerme**; las opciones correctas largan **chispas**;
-el error **sacude** suave y Lani hace «uff»; las misiones y lecciones terminan con una **celebración** que cuenta los Talentos de a
-uno; los botones **se hunden** como botones físicos; hay **cinco vibraciones** con intención; el nodo actual del mapa **brilla**; la
-ruleta **desacelera** con suspenso y la pieza ganada **vuela** a la armadura. Lo que sigue (sprints 1 y 2): sonidos propios,
-«¡Volviste!», Pausa con Lani, armonía creciente y lecciones en franelógrafo.
+Lani **respira, parpadea, saluda y duerme** de noche con sus «zzz»; la **firma de tres notas** suena la primera vez del día; quien
+vuelve después de días encuentra **«¡Volviste!»**; la bienvenida tiene la **cajita de música con «Cristo me ama»**; el versículo del
+día llega en un **sobre que se abre** como las figuritas; la **escalera de aciertos** suena un escalón más arriba con cada acierto
+seguido y las chispas crecen; **«¡Imparable!»** con Lani bailando; el **corazón se quiebra** al perder una vida y Lani **se desmaya y
+se levanta** sin vidas; la lección termina con **lluvia de luz, estrellas de a una y contadores que suben**; la ruleta tiene **focos y
+un tic que frena**; el reloj **late** en los últimos 5 segundos; la pieza ganada llega con **onda expansiva y metal**; la armadura
+completa, con **cámara lenta y fanfarria**; los hitos de racha (3, 7, 14, 30…) tienen su **pantalla de luz**; la **Pausa con Lani**
+respira con vos con «Sublime gracia» de fondo; y el lector es una **Biblia de papel** (hojas que se dan vuelta, canto dorado, cintas
+de raso, la página que «amanece» al terminar). Son 36 sonidos propios. La matriz punto por punto (qué está, qué es parcial y qué
+falta, con su sprint) vive en el repositorio de la app: `docs/DISENO_EMOCIONAL.md`.

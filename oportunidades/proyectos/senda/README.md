@@ -24,7 +24,7 @@ Marcadores que reemplaza el generador dentro de los capítulos: `{{cap:NN}}` (n�
 `{{PROYECCION_CORTA}}`, `{{ARQUITECTURA}}`, `{{PRESUPUESTO}}`, `{{TRAMOS}}`, `{{FASES}}`, `{{GANTT_DETALLE}}` (hoja A3) y
 `{{GANTT_GENERAL}}`.
 
-El código de la app está en el repositorio `senda-app` (copia temporal en `apps/senda-app/` de este repositorio).
+El código de la app está en el repositorio `juanicarlisi/senda-app`. Borradores de pedidos a terceros (requieren aprobación): `borradores/`.
 
 Reglas:
 

@@ -104,7 +104,7 @@ o en el Pase Senda.
 |---|---|---|
 | Te quedaste sin vidas a mitad de una racha de juego | Esperar · pedir a un amigo · repasar · **video (+1)** · **Plus o Max** | Es el momento de más ganas (lo mismo que hace Candy Crush) |
 | Pregunta difícil en un duelo casual | Comodín con Talentos · **video (1 comodín)** · Plus/Max (comodines por mes) | Ayuda puntual |
-| Terminaste una partida (gratis) | Un **anuncio corto** cada 3 partidas como máximo | Ingreso por volumen; nunca en la Biblia ni en la Travesía |
+| Terminaste una partida (gratis) | Un **anuncio corto** al terminar cada partida (decisión 05-10-2026) | Ingreso por volumen; nunca en la Biblia ni en la Travesía |
 | Cofre ganado | **Video para abrir otro** o duplicar el premio | Recompensa opcional |
 | Racha en riesgo | Protector con Talentos o **video** | Cuida el hábito |
 | Querés algo de Tu Lani | Talentos (lento) · **Perlas** · **Pase Senda** | Deseo de estilo, sin ventaja |

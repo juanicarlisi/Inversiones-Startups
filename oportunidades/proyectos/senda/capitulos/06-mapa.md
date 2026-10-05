@@ -20,7 +20,7 @@ y de la reunión del sábado.
 | **Comunidad** | Estar con los tuyos | Amigos, tu grupo, el **calendario**, Oremos, Pulso, Estados; y para líderes y pastores, Senda Reunión y Senda Púlpito |
 | **Perfil** (avatar) | Quién sos y cómo vas | Tu Lani (atuendos y vehículos), el escudo de tu club, insignias, estadísticas, tienda, plan y ajustes |
 
-Por qué cinco: es el máximo que se lee de un vistazo en la barra inferior (ley de Hick) y separa los dos «climas» de la app: **la
+Por qué abajo y no un menú desplegable arriba: lo explica el benchmark del capítulo {{cap:19}} (sección 17). Por qué cinco: es el máximo que se lee de un vistazo en la barra inferior (ley de Hick) y separa los dos «climas» de la app: **la
 Biblia es calma** y **Jugar es energía** (capítulo {{cap:19}}). La pestaña Travesía cambió de nombre (antes «Camino») para sonar a
 aventura, no a deber (capítulo {{cap:16}}).
 

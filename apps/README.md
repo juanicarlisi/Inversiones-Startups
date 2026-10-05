@@ -1,5 +1,10 @@
-# apps/ (temporal)
+# apps/
 
-`senda-app/` es una **copia temporal** del código de la app Senda (sprint 0, 05-10-2026) mientras se crea su repositorio propio
-(`senda-app`, privado). Cuando exista, el código se mueve allá con su historia y esta carpeta se borra.
-Los textos bíblicos (`assets/biblia/*.bib`, 12 MB) no se copian acá: se regeneran con `./scripts/descargar_biblias.sh`.
+Las apps del holding viven en **repositorios propios**, no acá. Esta carpeta solo indica dónde está cada una.
+
+| App | Repositorio | Proyecto |
+|---|---|---|
+| **Senda** (Biblia + juegos para jóvenes) | `juanicarlisi/senda-app` (privado) | `oportunidades/proyectos/senda/` |
+
+La copia temporal de `senda-app` que estuvo acá durante el sprint 0 se borró el 05-10-2026, cuando se creó su repositorio (su
+historia sigue en el git de este repositorio).

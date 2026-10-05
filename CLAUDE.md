@@ -66,7 +66,7 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
 | `herramientas/` | Scripts: tablero de oportunidades, motor de escenarios Monte Carlo, cartera, generador de informes | Cuando haga falta |
 | `informes/` | Informes PDF + HTML y su fuente (1: cartografía inicial; 2: ingresos sin vender; 3: el plan; proyecto completo de Senda, fuente en `oportunidades/proyectos/senda/`). Estilo del 3: práctico, visual, sin jerga | Trimestral o a pedido |
 | `TABLERO.md` | **Generado** por `python3 herramientas/oportunidades.py`. No editar a mano | Tras cambiar fichas |
-| `apps/` | Copia **temporal** del código de apps del holding mientras se crea su repositorio propio (hoy: `senda-app`, la app de Senda) | Hasta mudarla |
+| `apps/` | Índice de las apps del holding: cada una vive en su repositorio propio (Senda → `juanicarlisi/senda-app`) | Al crear una app |
 
 ## 4. El equipo (subagentes en `.claude/agents/`)
 

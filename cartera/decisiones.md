@@ -263,3 +263,18 @@
   recién cuando hacen falta.
 - **Fuentes**: `conocimiento/2026-10-05-senda-desarrollo-y-licencias.md`; proyecto v2.1 en `informes/2026-10-senda-proyecto-v2.pdf`.
 - **Revisar**: 15-11-2026 (Google Play y prueba cerrada), 18-12-2026 (lanzamiento), 30-04-2027 (regla de corte).
+
+## DEC-2026-10-05-2 — Senda: segunda tanda de decisiones y sprint 1
+
+- **Fecha:** 2026-10-05 · **Decide:** fundador (con recomendaciones de Claude)
+- **Contexto:** el fundador probó la vista previa del sprint 0 y pidió temas, Ajustes, más animaciones y sonidos «punto por punto»,
+  un benchmark de navegación, más Biblias libres, una RVR1960 más barata y una lectura que se sienta como papel.
+- **Decidido por el fundador:** el repositorio `senda-app` existe (la copia temporal sale de `apps/`); **un anuncio al terminar cada
+  partida** (plan gratis); temas elegibles con los diseños del proyecto; Ajustes como en las apps de referencia; seguir sin gastar.
+- **Hecho por Claude (sprint 1):** 5 temas y Ajustes; lector de papel; Nueva Biblia Viva; búsqueda; 36 sonidos propios; momentos de
+  los capítulos 19 y 20; APK de prueba con GitHub Actions (sin cuenta de Expo); textos legales en borrador; pedidos de licencia en
+  borrador (`oportunidades/proyectos/senda/borradores/`, no se envían sin aprobación).
+- **Recomendado, a confirmar:** mantener la barra de pestañas abajo (benchmark en el capítulo 19, sección 17); mantener el enlace a la
+  RVR1960 en Bible.com hasta tener la licencia.
+- **Corrección registrada:** la cita libre de 500 versículos de la RVR1960 solo vale para obras no comerciales (capítulo 7).
+- **Evidencia:** `conocimiento/2026-10-05-senda-navegacion-biblias-sprint1.md`.

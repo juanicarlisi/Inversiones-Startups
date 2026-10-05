@@ -247,3 +247,51 @@ o forma (el 8% de los varones tiene alguna forma de daltonismo) y todo jugable c
 4. **Métricas de experiencia:** finalización de la primera lección, tiempo hasta el primer acierto, abandono por pantalla, calificación
    en tiendas (meta 4,7), encuesta de usabilidad (SUS) por trimestre.
 5. **Nada sale sin pulir:** una función sin su animación, su sonido o su estado vacío ilustrado no está terminada.
+
+## 17. Navegación: ¿barra de abajo o menú desplegable arriba? (benchmark, 05-10-2026)
+
+**La pregunta:** dejar los íconos abajo o usar un menú desplegable arriba («hamburguesa»), como en muchas páginas web en el
+teléfono.
+
+**Lo que dice la evidencia:**
+
+| Fuente | Qué encontró |
+|---|---|
+| Nielsen Norman Group, estudio cuantitativo con 179 personas | La navegación escondida (menú hamburguesa) bajó un **20 % lo que la gente descubre** de una app o un sitio, la hizo sentir más difícil y más lenta (**15 % más lenta en el teléfono**); con el menú escondido, la gente lo usa menos |
+| Pruebas A/B publicadas | **Facebook** pasó en 2013 de un menú arriba a la izquierda a una barra de pestañas abajo: subieron el uso, la satisfacción y la sensación de velocidad. **Zeebox** pasó de pestañas a hamburguesa, sus números cayeron y volvió. **Redbooth** reemplazó la hamburguesa por pestañas: **+65 % de usuarios diarios y +70 % de duración de sesión**. **Spotify** probó la barra de pestañas en iOS: **+9 % de toques en general y +30 % en el menú** |
+| Steven Hoober, 1.300 personas observadas | El **49 % usa el teléfono con una sola mano** y el 75 % de los toques son con el pulgar; la zona cómoda es **la parte de abajo y el centro**; las esquinas de arriba son las más difíciles de alcanzar |
+| Nielsen Norman Group, íconos | Solo tres íconos se entienden sin texto (inicio, imprimir y buscar): **los íconos de navegación llevan etiqueta** |
+| Google (Material 3) y Apple (guías de interfaz) | La barra de navegación inferior es el patrón para **3 a 5 destinos principales**; más de 5 → otro patrón. Apple, en iOS 26, sumó que la barra **se achica al bajar** para dar más lugar al contenido |
+| Las apps de referencia | **Duolingo, YouVersion, Spotify, Instagram, Headspace, Hallow, Preguntados**: todas usan barra de pestañas abajo; los ajustes y el perfil van en un botón aparte |
+
+**Decisión recomendada: se queda la barra de abajo.** Es la opción con evidencia, la que el pulgar alcanza y la que la gente ya conoce
+(ley de Jakob). El menú desplegable arriba esconde las secciones, está fuera del alcance del pulgar y baja el uso. Lo que se suma:
+
+1. **Perfil y ajustes** en el avatar de Tu Lani, arriba a la izquierda, en todas las pestañas (como Duolingo y YouVersion), en vez
+   de una sexta pestaña o un menú.
+2. **Siempre con etiqueta** debajo de cada ícono, y una **píldora** que se desliza hasta la pestaña activa.
+3. **La barra se esconde donde molesta:** en el lector de la Biblia, las lecciones y la Pausa no aparece (pantalla completa).
+4. **Más adelante (v1):** que la barra se achique al bajar en las listas largas, como en iOS 26.
+
+Si querés comparar con tus manos, se puede armar una variante con menú arriba solo para la vista previa y probarla un día.
+
+## 18. Temas y Ajustes (05-10-2026)
+
+**Temas.** Las tres paletas evaluadas en la sección 5 pasaron a ser temas que cada persona elige, más dos que se piden mucho:
+
+| Tema | Qué es |
+|---|---|
+| **Índigo** (por defecto) | La paleta B: ámbar sobre índigo profundo |
+| **Petróleo** | La paleta C: ámbar sobre verde azulado |
+| **Azul noche** | La paleta A de la v1, en oscuro |
+| **Clásico claro** | Fondo claro con azul noche y ámbar, como las pantallas de la v1 |
+| **Medianoche** | Negro puro: descansa la vista y ahorra batería en pantallas OLED |
+
+El lector de la Biblia tiene sus propios tonos de papel: **Papel** (crema), **Sepia** y **Noche**. Los colores de las categorías del
+juego no cambian con el tema (son identidad). Cada tema se elige en la bienvenida y en Ajustes, con una miniatura de cómo se ve.
+
+**Ajustes** (lo que suelen tener las apps de referencia, adaptado a Senda): perfil (nombre), tema, papel, tamaño de letra, cómo
+pasar las hojas (páginas o deslizar), números de versículo, versión preferida, sonidos y volumen, sonido de páginas, cajita de
+música, vibración, animaciones (como el teléfono, todas o reducidas), velocidad de la voz, recordatorio diario (uno como máximo,
+nunca después de las 22), idioma (español; portugués e inglés más adelante), plan, política de privacidad, términos, licencias y
+créditos, ver la bienvenida otra vez y borrar los datos.
