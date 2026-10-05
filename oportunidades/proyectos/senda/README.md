@@ -27,7 +27,7 @@ Marcadores que reemplaza el generador dentro de los capítulos: `{{cap:NN}}` (n�
 `{{GANTT_GENERAL}}`.
 
 El código de la app está en el repositorio `juanicarlisi/senda-app`. Borradores de pedidos a terceros (requieren aprobación): `borradores/`.
-La **Consola de Senda** (capítulo 32) se arma con `python3 scripts/consola.py --holding <este repositorio>` desde el repositorio de la
+La **Consola de Senda** (capítulo 32; https://claude.ai/artifact/42zkxKvQh6RD3RZXDgztmR) se arma con `python3 scripts/consola.py --holding <este repositorio>` desde el repositorio de la
 app y se publica como página privada; lo que el fundador marca ahí (pendientes, licencias, propuestas, sonidos) se lee al empezar
 cada sesión.
 
