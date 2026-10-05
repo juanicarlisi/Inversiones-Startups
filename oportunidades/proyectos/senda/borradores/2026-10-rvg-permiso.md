@@ -25,3 +25,4 @@ Muchas gracias por su tiempo y por su trabajo con las Escrituras.
 
 Saludos cordiales,
 Equipo de Senda
+appsenda.ok@gmail.com

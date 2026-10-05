@@ -52,7 +52,7 @@ donde Senda tiene algo que Preguntados no (sección 6).
   la prueba de nombres de octubre.
 - **Colores de joya** armonizados entre sí (mismo brillo y saturación) para que se vean como un set y no como un cambalache (capítulo
   {{cap:19}}); cada categoría tiene además **su ícono**, para que se distinga sin color.
-- **Balance:** cada categoría tiene preguntas de los dos Testamentos y de los tres niveles de dificultad.
+- **Balance:** cada categoría tiene preguntas de los dos Testamentos y de los cinco niveles de dificultad (sección 15).
 
 ## 4. La armadura que se completa
 
@@ -218,7 +218,30 @@ muestran a Jesús con respeto (de espaldas o a distancia, para no dividir sensib
 
 Costo de generación y verificación con IA por lotes: ~USD 0,012 por pregunta. Lo que más cuesta es la revisión humana y las imágenes.
 
-## 15. Animación y sonido (lo que lo hace sentir de primera)
+## 15. La dificultad: ni aburrido ni imposible
+
+En la prueba 2 (05-10-2026) el fundador sintió que las preguntas eran todas fáciles, y lo eran: las 60 tenían nivel 1. Pidió que
+alternen: a veces fáciles, a veces difíciles y, de vez en cuando, casi imposibles. La solución combina lo que hacen Duolingo (su
+modelo Birdbrain estima la probabilidad de que aciertes cada ejercicio y, si venís bien, te da los de ~70 %), los sistemas de
+práctica adaptativa (Elo para alumnos y preguntas, Pelánek 2016) y los juegos de preguntas (arranque fácil, 70 % accesible y 30 %
+desafiante, lo imposible como hazaña).
+
+| Pieza | Cómo funciona |
+|---|---|
+| **Cinco niveles** | 1 Fácil · 2 Media · 3 Difícil · 4 Muy difícil · 5 **De oro** (casi nadie la sabe) |
+| **Tu habilidad por categoría** | Como el Elo del ajedrez: acertar una difícil sube mucho, fallar una fácil baja. No se muestra; sirve para elegir |
+| **La ola de la partida** | Cada pregunta apunta a una probabilidad de acierto que sube y baja (92 %, 85 %, 74 %, 82 %, 64 %…; promedio ≈ 73 %) |
+| **Rescate y racha** | Dos seguidas mal → una que se sabe; tres seguidas bien → más desafío |
+| **Prueba de pieza** | Un poco más difícil: la pieza se gana |
+| **Pregunta de oro** | Una por partida como mucho, cuando venís en racha. Fallarla no cuesta nada; acertarla da 15 talentos y celebración |
+| **Se ve la dificultad** | Cinco marcas en la cabecera de la pregunta; la palabra, desde «Difícil» |
+
+**Banco (05-10-2026):** 127 preguntas, 36 fáciles, 34 medias, 30 difíciles, 16 muy difíciles y 11 de oro, todas con cita verificada
+contra la RV1909. Proporción objetivo: 25 / 30 / 25 / 13 / 7 %. **Con datos reales** (sprint 2): la dificultad de cada pregunta se
+recalcula con las respuestas (Elo de preguntas) y la Consola muestra su salud (% de acierto, tiempo, reportes). Detalle y guía para
+escribir cada nivel: `docs/DIFICULTAD.md` del repositorio de la app.
+
+## 16. Animación y sonido (lo que lo hace sentir de primera)
 
 | Momento | Imagen | Sonido | Vibración |
 |---|---|---|---|
@@ -232,7 +255,7 @@ Costo de generación y verificación con IA por lotes: ~USD 0,012 por pregunta. 
 | Armadura completa | Cinemática de 4–5 s (sección 4) | Fanfarria de la marca | Patrón de festejo |
 | Ganar / perder | Lluvia de luz y Lani con trofeo / Lani saluda al rival y ofrece revancha | Tema de victoria / melodía corta | Patrón / ligera |
 
-## 16. Cómo se mide
+## 17. Cómo se mide
 
 Duelos iniciados y terminados por usuario, porcentaje con amigos contra al azar, invitaciones que terminan en instalación, aciertos por
 categoría, uso de comodines (y de cuáles), armaduras completas compartidas, preguntas reportadas, propuestas aprobadas y récords de

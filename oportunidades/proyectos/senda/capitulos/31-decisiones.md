@@ -60,6 +60,20 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | Biblia al marcar versículos | Corta y tosca | Varios versículos a la vez, barra de acciones animada, resaltador que pinta, versículo que «respira» mientras se escucha |
 | Gobierno de la app | ¿Desde dónde se gobierna todo? | **Consola de Senda** (capítulo {{cap:32}}): proyecto, contenido, propuestas, sonidos, licencias y métricas; el contenido pasó a ser datos con verificación automática |
 
+**Cuarta tanda (05-10-2026, después de probar el APK de la prueba 2):**
+
+| Tema | Lo que dijiste | Lo que quedó |
+|---|---|---|
+| Sonidos que no paraban | En el teléfono, la hoja y el «correcto» sonaban sin fin, aun fuera de la app | **Arreglado (prueba 3):** en Android, rebobinar un sonido terminado lo hacía sonar otra vez; ahora se pausa antes de rebobinar, un guardián corta cualquier efecto largo y todo se calla al salir de la app |
+| Biblia de papel | Texto «pegado» sobre un papel que parecía sucio | **Rehecha como Biblia impresa:** renglones parejos, justificado con guiones, capitular, versalitas, una o dos columnas, hojas llenas hasta abajo con versículos partidos entre hojas, titulillo, texto del dorso que se transparenta, papel biblia sin manchas (capítulo {{cap:07}}) |
+| Elegir sonidos | No se podía (estaban rotos) | **Los elegí yo** de bancos libres (CC0): cortos y limpios; cambiar alguno es opcional |
+| Voz | La de Samsung «es-US-SMTl01» es la mejor | La app la prefiere sola |
+| Trivia | Demasiado fácil; que alterne | **Dificultad que alterna** (capítulo {{cap:09}}, sección 15): 5 niveles, habilidad por categoría estilo Elo, ola de la partida, rescate, preguntas de oro; 127 preguntas |
+| Correos de licencias | No sabía cómo; correo appsenda.ok@gmail.com | Botones que abren cada correo ya escrito en Gmail desde ese correo; formularios con «Copiar» por dato; contactos de ABS y Tyndale corregidos |
+| Supabase y PostHog | Explicar paso a paso | Pasos en la Consola; las claves van como secretos de GitHub (nunca por el chat); la app y las tablas ya están listas para conectarse |
+| Presupuesto | ¿Por qué un diseñador de interfaz si lo hace Claude? | **Tenías razón:** lo hago yo. Presupuesto **mínimo recomendado del primer año: USD 55** (Google Play + IA para traducciones); lo profesional queda como opción (capítulo {{cap:29}}) |
+| Lo próximo | Avanzar | Planes de lectura (5), protector de racha, métricas anónimas y base de datos listas (prueba 4) |
+
 ## 2. Cómo seguimos: el desarrollo
 
 | Qué | Cómo |
@@ -67,14 +81,14 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | **Dónde vive el código** | En su repositorio propio, `juanicarlisi/senda-app` (privado), separado del holding |
 | **Cómo probás** | Cada sprint publica una **vista previa web** privada que abrís desde el celular, y un **APK de prueba para Android** que arma GitHub Actions y queda en la pestaña Releases del repositorio (sin cuenta de Expo, sin costo) |
 | **Ritmo** | Un sprint cada dos semanas; vos probás 30 minutos y decidís qué sigue |
-| **Gastos** | Nada hasta noviembre. Después, solo lo imprescindible y con tu aprobación: Google Play (USD 25, una vez), RVR1960 por API.Bible (~USD 39 por mes, opcional), Claude Max (desde diciembre) |
+| **Gastos** | Nada hasta noviembre. Después, solo lo imprescindible y con tu aprobación: Google Play (USD 25, una vez), RVR1960 por API.Bible (~USD 39 por mes, opcional), Claude Max (desde diciembre). Mínimo recomendado del primer año en gastos únicos: USD 55 |
 
 **Plan de sprints hasta el lanzamiento** (detalle en el repositorio de la app, `docs/SPRINTS.md`):
 
 | Sprint | Fechas | Qué sale |
 |---|---|---|
 | 0 | 5–11 oct | Base de la app, sistema de diseño, Inicio, Biblia con 3 versiones libres, una lección, Espadeo de práctica, semana Senda. **Hecho** |
-| 1 | 12–25 oct | **Adelantado al 5-oct (lo principal):** temas y Ajustes, lector de papel, búsqueda, notas, cintas, voz, Nueva Biblia Viva, racha con Día libre e hitos, bienvenida, «¡Volviste!», 36 sonidos, Pausa con Lani. **Falta:** planes de lectura, protector de racha, recordatorio real |
+| 1 | 12–25 oct | **Hecho el 5-oct (pruebas 1 a 4):** temas y Ajustes, lector de Biblia impresa, búsqueda, notas, cintas, voz, Nueva Biblia Viva, racha con Día libre, Protector e hitos, bienvenida, «¡Volviste!», sonidos libres, «Antes de leer», planes de lectura, dificultad del Espadeo. **Falta:** recordatorio real (pasa al sprint 2) |
 | 2 | 26 oct – 8 nov | Motor de la Travesía con las secciones 0 a 2, repaso, misiones y cofres, cuentas y sincronización (Supabase gratis) |
 | 3 | 9–22 nov | Espadeo real: duelos por turnos con amigos y con Lani, 6 comodines, Armería, banco de preguntas grande; tarjetas para compartir |
 | 4 | 23 nov – 6 dic | Calendario completo, Giro diario, Desafío del día, Tu Lani, pulido, accesibilidad; **prueba cerrada en Google Play** |

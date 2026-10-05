@@ -90,6 +90,7 @@ Está incluido en la proyección del capítulo {{cap:24}}.
 | Compartir | Texto con la cita, o **imagen** con el versículo sobre un fondo de la marca, lista para historias de Instagram y estados de WhatsApp | MVP |
 | Escuchar | Voz del teléfono al lanzamiento; voz neuronal de calidad desde v1; velocidad 0,75× a 2×; resalta el versículo que suena; sigue con la pantalla apagada | MVP / v1 |
 | Aspecto | Claro, sepia y oscuro; tamaño y tipo de letra; interlineado; números de versículo visibles o no | MVP |
+| **Como una Biblia impresa** (05-10-2026, hecho) | Renglones de alto fijo (una grilla), justificado con guiones, capitular de dos renglones y primera palabra en versalitas, **una o dos columnas** con filete al medio, hojas llenas hasta abajo (un versículo que no entra sigue en la hoja siguiente, partido en el renglón justo), titulillo con los versículos de la hoja («JUAN · 3:1–8»), texto del dorso que se transparenta apenas (papel fino), papel biblia sin manchas con la luz del libro abierto, el lomo y el canto de las hojas por leer (más grueso al comienzo de la Biblia) | MVP |
 | Sin conexión | Las versiones libres se descargan completas; las con licencia, según lo que permita cada una | MVP |
 | **«+» notas y comentarios** | Ver sección 4 | v1 (primera tanda) / v2 (completo) |
 | Planes y desafíos | En Berea (capítulo {{cap:15}}) | MVP |

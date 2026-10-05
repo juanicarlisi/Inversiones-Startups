@@ -298,3 +298,21 @@
 - **Pendiente del fundador:** elegir sonidos y voz; crear el correo del proyecto y enviar los pedidos; cuentas gratis de Supabase y
   PostHog antes del 26-10; Google Play antes del 15-11.
 - **Evidencia:** `conocimiento/2026-10-05-senda-consola-sonido-licencias.md`.
+
+## DEC-2026-10-05-4 — Senda: cuarta tanda (prueba 2 en el teléfono), presupuesto mínimo y dificultad de la trivia
+
+- **Fecha:** 2026-10-05 · **Decide:** fundador (con recomendaciones de Claude)
+- **Contexto:** el fundador probó el APK de la prueba 2 en un Samsung: los sonidos quedaban en bucle (hasta con la app cerrada), la
+  Biblia todavía no se sentía de papel («texto pegado sobre un papel sucio»), no pudo elegir sonidos, no sabía cómo enviar los
+  correos ni crear las cuentas, la trivia le pareció demasiado fácil y preguntó por qué el presupuesto incluía un diseñador de
+  interfaz si la interfaz la hace Claude. Eligió la voz Samsung «es-US-SMTl01» y dio el correo del proyecto (appsenda.ok@gmail.com).
+- **Decidido:** presupuesto **mínimo recomendado de USD 55** en gastos únicos del primer año (Google Play + IA de traducción); el menú
+  profesional pasa a ser opcional (capítulo 29); **Android primero** e iPhone en 2027 (recomendado, a confirmar en diciembre); marcas
+  del INPI después del lanzamiento (el registro es público); dificultad de la trivia que **alterna** (capítulo 9, sección 15).
+- **Hecho por Claude:** arreglo del bucle de sonido en Android; lector como Biblia impresa (renglones, capitular, dos columnas, hojas
+  llenas, dorso que se transparenta, papel biblia); sonidos elegidos de bancos CC0; 67 preguntas nuevas (127 en total, 5 niveles) con
+  dosificador de dificultad; planes de lectura (5); protector de racha; métricas anónimas y tablas de Supabase listas para conectarse;
+  Consola con correos listos para Gmail y pasos a paso; APK pruebas 3 y 4.
+- **Pendiente del fundador:** probar la prueba 4; enviar los pedidos de licencia (15 minutos); crear Supabase y PostHog y cargar los
+  secretos en GitHub antes del 26-10; Google Play antes del 15-11.
+- **Evidencia:** `conocimiento/2026-10-05-senda-dificultad-cuentas-presupuesto.md`.

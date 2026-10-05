@@ -1,13 +1,31 @@
 # Presupuesto: el menú de calidad, la proyección y el camino al millón
 
 <div class="enpocas" markdown="1">
-**En pocas palabras.** Los «USD 1.000 iniciales» de la v1 eran la suma del **primer tramo** del presupuesto recomendado (cuentas de las
-tiendas, dominios, marca, diseño de Lani y sonidos: USD 954). En la v2 el presupuesto se arma como un **menú de calidad**: para cada
-área (interfaz, Lani, animación, íconos, sonido, ilustraciones, imágenes, video) hay tres niveles —**básico, profesional y premium**—
-y vos elegís en cada paso. El nivel **profesional** (el recomendado, porque la experiencia es la prioridad) suma **USD 5.974** en el
-primer año, pagados en **4 tramos** que se habilitan solo si el anterior funcionó. Sin derroche: cada gasto se aprueba antes y se piden
-3 presupuestos.
+**En pocas palabras (actualizado el 05-10-2026).** El fundador preguntó, con razón, por qué contratar un diseñador de interfaz si
+la interfaz la hace Claude. Revisado ítem por ítem: **casi todo lo hace Claude** (código, interfaz, animaciones, íconos, sonidos con
+bancos libres, contenido), así que lo que hay que gastar de verdad en gastos únicos del primer año es **USD 55**: la cuenta de
+Google Play (USD 25) y la IA para traducir comentarios en 2027 (USD 30). El **menú de calidad** (básico, profesional y premium, USD
+5.974 en el nivel profesional) queda como **opción** para sumar manos externas solo donde los datos o el gusto lo pidan; por ejemplo,
+un Lani dibujado por un ilustrador (USD 150–500) o una revisión de 2–3 horas de un diseñador después del lanzamiento (USD 100–200).
+Cada gasto se aprueba antes y se piden 3 presupuestos.
 </div>
+
+## 0. Lo que hay que gastar de verdad (05-10-2026)
+
+| Ítem | Mínimo | Quién lo hace y por qué |
+|---|---|---|
+| Cuenta de Google Play | **USD 25** | Imprescindible para Android; la abre y la paga el fundador (Claude no puede crear cuentas ni pagar) |
+| Apple Developer | USD 0 este año | Lanzar primero en Android y sumar iPhone en 2027 (ahorra USD 99) |
+| Dominio y correo | USD 0 | El correo ya existe (Gmail del proyecto); la página de privacidad que piden las tiendas se publica gratis |
+| Marcas en el INPI | USD 0 por ahora | El registro es público y lleva el nombre del titular: decidir después del lanzamiento, idealmente con una sociedad |
+| Interfaz y sistema visual | USD 0 | Lo hace Claude; opcional una revisión externa después del lanzamiento |
+| Lani final | USD 0 por ahora | Hoy es vectorial de Claude; decidir en noviembre si vale un ilustrador (USD 150–500) |
+| Íconos y armadura | USD 0 | Claude + juegos de íconos libres |
+| Sonido | USD 0 | Bancos libres CC0 elegidos por Claude |
+| Animación, ilustraciones, video de tienda | USD 0 | Claude (en código y con grabaciones de la app) |
+| Voces neuronales | USD 0 | Voces libres; Google Chirp 3 HD (~USD 30–100 una vez) es opcional |
+| Traducción con IA (2027) | USD 30 | Uso por lotes |
+| **Total del primer año** | **USD 55** | Más los costos mensuales (sección 5) y las palancas (sección 6), que se deciden aparte |
 
 ## 1. De dónde salían los USD 1.000
 
@@ -16,13 +34,13 @@ Apple USD 99 + dominios USD 45 + marca en el INPI USD 135 + diseño de Lani USD 
 «~USD 1.000». No era un monto mágico: era lo mínimo para lanzar bien. En la v2 ese criterio se reemplaza por uno más claro y más
 ambicioso en calidad.
 
-## 2. El menú de calidad (gastos únicos del primer año)
+## 2. El menú de calidad (opcional: gastos únicos del primer año si se suman manos externas)
 
 {{PRESUPUESTO}}
 
 - **Básico:** alcanza para lanzar, con la interfaz diseñada por Claude, una Lani dibujada por un ilustrador junior, animaciones simples
-  y sonidos de bibliotecas. **Riesgo alto de verse «hecho en Claude»**: contradice la prioridad del proyecto.
-- **Profesional (recomendado):** un diseñador de interfaz define el sistema visual; Lani, la armadura y los íconos los hacen
+  y sonidos de bibliotecas.
+- **Profesional (opcional):** un diseñador de interfaz define el sistema visual; Lani, la armadura y los íconos los hacen
   especialistas; Lani animada en Rive con 20+ reacciones; sonido propio; video de tienda. Es el nivel que pide «nada infantil, nada
   aburrido, nivel profesional».
 - **Premium:** todo lo anterior con más profundidad (más pantallas diseñadas, más estados de Lani, más ilustración, voz de Lani con

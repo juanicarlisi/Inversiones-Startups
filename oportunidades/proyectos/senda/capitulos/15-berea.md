@@ -28,6 +28,11 @@ si te atrasaste, te ofrece ponerte al día sin culpa. Más adelante puede sumars
 
 Cada día de un plan cuenta como momento con la Palabra (racha) y suma Pasos.
 
+**Hecho (05-10-2026, prueba 4):** los cinco planes del MVP, con los días armados solos para que cada uno tenga una cantidad pareja de
+versículos (el Salmo 119 ocupa un día; Proverbios va de a un capítulo); pantalla de cada plan con el día de hoy, el avance y todos los
+días; los días se marcan solos al terminar sus capítulos en el Lector (o a mano) y se festejan; si te atrasaste, seguís desde donde
+quedaste, sin culpa.
+
 ## 3. Desafíos con fecha
 
 | Desafío | Fecha | Qué es |

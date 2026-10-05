@@ -22,3 +22,4 @@ Could you let us know whether this is possible, and the terms and fees for a dig
 
 Thank you for your faithful work on these translations.
 The Senda Team
+appsenda.ok@gmail.com

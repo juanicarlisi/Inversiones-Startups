@@ -54,11 +54,11 @@ formatos abiertos (archivos JSON y Postgres), así que se puede cambiar de herra
 
 | Pestaña | Qué muestra | Qué se hace ahí |
 |---|---|---|
-| **Proyecto** | Avance del MVP (ponderado por área), días al lanzamiento, próximo hito, cada parte de Senda con lo hecho, lo que falta y lo próximo, etapas y presupuesto por tramo | Marcar como hechos tus pendientes |
+| **Proyecto** | Avance del MVP (ponderado por área), días al lanzamiento, próximo hito, cada parte de Senda con lo hecho, lo que falta y lo próximo, etapas y presupuesto (con el mínimo recomendado y quién hace cada cosa) | Marcar como hechos tus pendientes, cada uno con su «Cómo, paso a paso» |
 | **Contenido** | Cantidades por tipo y por categoría, estado de revisión, resultado de la verificación automática y el catálogo navegable (Espadeo, Travesía, Pulso, semana Senda, versículos del día) | Buscar y filtrar; ver respuestas y citas |
 | **Proponer** | Formularios para preguntas de Espadeo, encuestas de Pulso (con fecha) e ideas o correcciones | Cargar propuestas; ver si se incorporaron |
 | **Sonidos y voz** | Cada momento con sonido, el actual y los candidatos libres; muestras de voces neuronales | Escuchar y elegir |
-| **Licencias** | Cada titular, sus versiones, el camino, el contacto y el texto del pedido listo para copiar | Copiar, enviar, marcar el estado y anotar la respuesta |
+| **Licencias** | Cada titular, sus versiones, el camino y el pedido ya escrito: los correos se abren listos en Gmail desde el correo del proyecto; los formularios traen cada dato con su botón «Copiar» | Enviar, marcar el estado y anotar la respuesta |
 | **Métricas** | El indicador que manda, las metas de abril y diciembre de 2027 y los eventos que va a mandar la app | Desde el sprint 2, ver los números en vivo |
 | **Cómo se gobierna** | Este capítulo, resumido | — |
 

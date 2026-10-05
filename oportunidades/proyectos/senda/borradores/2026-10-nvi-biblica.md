@@ -24,3 +24,4 @@ NVI through a partner (for example, API.Bible) if that is your preferred channel
 
 Thank you for your ministry.
 The Senda Team
+appsenda.ok@gmail.com

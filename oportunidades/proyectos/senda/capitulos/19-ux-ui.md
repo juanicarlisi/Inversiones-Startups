@@ -160,8 +160,11 @@ da, se reducen las partículas automáticamente. **Reducir movimiento:** si el s
 - **Sonido solo para lo que importa (05-10-2026):** aciertos, errores, logros, la hoja que pasa, la ruleta. Los botones, las
   pestañas y la navegación son silenciosos (solo vibración corta): un sonido en cada toque cansa, y ninguna app de referencia lo hace.
 - **Sin demoras:** cada sonido queda cargado de antemano y empieza en el mismo instante del gesto (nunca al terminar una animación).
-- **Íconos sonoros:** cada evento tiene su sonido corto (80–400 ms), que se aprende rápido. Los definitivos los elige el fundador
-  de oído en la Sala de sonidos de la Consola (capítulo {{cap:32}}), entre los propios y bancos libres (Kenney y Freesound, CC0).
+- **Íconos sonoros:** cada evento tiene su sonido corto (50–600 ms), que se aprende rápido. Desde el 05-10-2026 son grabaciones y
+  sonidos de interfaz de bancos libres (Kenney y Freesound, CC0) elegidos por Claude con análisis de duración, tono y ruido (nada de
+  8 bits ni zumbidos); el fundador puede cambiar cualquiera en la Sala de sonidos de la Consola (capítulo {{cap:32}}).
+- **Nunca en bucle:** en Android, rebobinar un sonido terminado lo hacía sonar otra vez sin fin (falla de la prueba 2). Ahora se pausa
+  antes de rebobinar, un guardián corta cualquier efecto que dure más que su archivo y todo se calla al salir de la app.
 - **Ascendente = bien, descendente = mal**, sin «buzzer» agresivo.
 - **La escalera de la racha:** cada acierto seguido suena un semitono más agudo (como los combos de Candy Crush).
 - **Exclamaciones de Lani** grabadas por una voz joven: «¡Bien!», «¡Imparable!», «¡Leyenda!», «¡Armadura completa!».
