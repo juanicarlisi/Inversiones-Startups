@@ -8,11 +8,13 @@ fundador y capítulo 20, diseño emocional), sobre la v2 del 02-10-2026 (DEC-202
 | Archivo | Qué tiene |
 |---|---|
 | `capitulos/00-como-leer.md` | Cómo leer el documento y la tabla «tu corrección → dónde se resolvió» |
-| `capitulos/01…31-*.md` | Un capítulo por archivo; el número del archivo es el número del capítulo |
+| `capitulos/01…32-*.md` | Un capítulo por archivo; el número del archivo es el número del capítulo (el 32, la Consola, se sumó el 05-10-2026) |
 | `capitulos/90-anexo.md` | Glosario, eventos de analítica y fuentes |
 | `roadmap.yaml` | Fases F0–F10 (hipótesis, entregables, condición para seguir), tareas por carril y responsable, hitos y vista 2026–2030 |
 | `presupuesto.yaml` | Menú de calidad del primer año: tres niveles (básico, profesional, premium), impacto y tramo de cada gasto |
 | `economia.yaml` | Vidas, comodines, monedas, ganar y gastar, planes y precios, y los supuestos de la proyección de ingresos |
+| `estado.yaml` | **Estado vivo del proyecto** (avance por área, pendientes del fundador, alertas): lo actualiza Claude al cerrar cada sesión y lo muestra la Consola de Senda |
+| `licencias.yaml` | Titulares de las versiones protestantes, camino, contacto y borrador de cada pedido (pestaña Licencias de la Consola) |
 
 Visuales: `informes/senda_visual.py` (paleta B, íconos propios, Lani v2, piezas de la armadura, vehículos, logo) e
 `informes/senda_pantallas.py` (pantallas de ejemplo y bloques gráficos). Tipografías libres (SIL OFL) en `informes/tipografia/`.
@@ -25,6 +27,9 @@ Marcadores que reemplaza el generador dentro de los capítulos: `{{cap:NN}}` (n�
 `{{GANTT_GENERAL}}`.
 
 El código de la app está en el repositorio `juanicarlisi/senda-app`. Borradores de pedidos a terceros (requieren aprobación): `borradores/`.
+La **Consola de Senda** (capítulo 32) se arma con `python3 scripts/consola.py --holding <este repositorio>` desde el repositorio de la
+app y se publica como página privada; lo que el fundador marca ahí (pendientes, licencias, propuestas, sonidos) se lee al empezar
+cada sesión.
 
 Reglas:
 

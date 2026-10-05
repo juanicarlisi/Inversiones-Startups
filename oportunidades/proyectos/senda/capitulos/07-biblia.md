@@ -27,6 +27,8 @@ Acá vive también **Berea** (planes y desafíos, capítulo {{cap:15}}).
 | **NVI** (Nueva Versión Internacional) | Biblica | Con derechos; licencia | Alternativa moderna | v1 |
 | **DHH** (Dios Habla Hoy) | SBU | Con derechos; licencia | Alternativa en lenguaje popular | v1 |
 | **TLA** (Traducción en Lenguaje Actual) | SBU | Con derechos; licencia | Alternativa para nuevos creyentes y chicos | v1 |
+| **LBLA** y **NBLA** (La Biblia de las Américas y Nueva Biblia de las Américas) | The Lockman Foundation | Con derechos; licencia | Alternativas de estudio, más literales | Cuando llegue la licencia (pedido listo) |
+| **RVC** (Reina-Valera Contemporánea) | SBU | Con derechos; licencia | Reina-Valera en lenguaje actual | Junto con la RVR1960, si conviene |
 | Portugués e inglés | Varios | Libres y con licencia | — | 2028 |
 
 **Por qué la Reina-Valera por defecto:** es la que usa la mayoría de las iglesias evangélicas de habla hispana, la que se lee en voz
@@ -60,12 +62,14 @@ la RVR1960 no.
 
 1. **Ya:** la app sale con cuatro Biblias libres (RV1909 por defecto, NBV, PDT y BES), con su atribución en cada pantalla, y el
    enlace a la RVR1960 en Bible.com.
-2. **Octubre de 2026:** los pedidos ya están redactados (`oportunidades/proyectos/senda/borradores/`): a la American Bible Society,
-   a la Sociedad Bíblica Argentina (precio de ministerio para la RVR1960) y al titular de la Reina Valera Gómez (permiso gratuito).
-   Vos los revisás y decidís si se envían y desde qué correo.
+2. **Octubre de 2026:** los pedidos ya están redactados (`oportunidades/proyectos/senda/borradores/` y pestaña Licencias de la
+   Consola, capítulo {{cap:32}}), **solo de versiones protestantes** (decisión del 05-10-2026): American Bible Society y Sociedad Bíblica
+   Argentina (RVR1960, DHH, TLA y RVC), Tyndale (NTV, por correo a permisos@tyndale.com), Biblica (NVI, por su formulario), The
+   Lockman Foundation (LBLA y NBLA, por su formulario) y el titular de la Reina Valera Gómez. Se envían desde un **correo del
+   proyecto** (un Gmail nuevo, firmado «Equipo de Senda») y su estado se marca en la Consola.
 3. **Diciembre de 2026 o marzo de 2027:** si no hay respuesta mejor, se activa API.Bible Pro con la RVR1960 (~USD 39 por mes), con tu
    aprobación: para el lanzamiento si querés que salga con la RVR1960, o en marzo, cuando empiezan los planes pagos.
-4. **v1:** NTV, NVI, DHH y TLA por el mismo camino, por demanda: si casi nadie usa una, no se renueva.
+4. **v1:** NTV, NVI, LBLA/NBLA, DHH y TLA según lo que respondan los titulares (o por API.Bible), por demanda: si casi nadie usa una, no se renueva.
 5. **Siempre:** se guarda cada licencia en el repositorio, se muestra el aviso de derechos donde aparece el texto y se respetan las
    reglas (no modificar el texto, refrescar lo guardado cuando lo pide la licencia; capítulo {{cap:26}}).
 

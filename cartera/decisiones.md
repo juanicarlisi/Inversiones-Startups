@@ -278,3 +278,23 @@
   RVR1960 en Bible.com hasta tener la licencia.
 - **Corrección registrada:** la cita libre de 500 versículos de la RVR1960 solo vale para obras no comerciales (capítulo 7).
 - **Evidencia:** `conocimiento/2026-10-05-senda-navegacion-biblias-sprint1.md`.
+
+## DEC-2026-10-05-3 — Senda: tercera tanda, la Consola y las versiones protestantes
+
+- **Fecha:** 2026-10-05 · **Decide:** fundador (con recomendaciones de Claude)
+- **Contexto:** el fundador probó el sprint 1: le gustó en general, pero el paso de hoja se veía mal, varios sonidos sonaban baratos,
+  llegaban tarde o cansaban, la «Pausa con Lani» parecía meditación oriental, la voz que lee sonaba fea y con acento de España, y
+  Jugar y Travesía se sentían tiesos. Además planteó un tema de fondo: desde dónde se gobierna la app y el proyecto.
+- **Decidido por el fundador:** barra de pestañas abajo (confirmada); enlace a la RVR1960 en Bible.com por ahora (confirmado);
+  **solo versiones protestantes**; la Pausa se va y en su lugar una invitación a orar antes de leer; se pueden usar sonidos libres
+  en vez de crearlos todos.
+- **Hecho por Claude:** hoja que se dobla con el dedo; marcado de varios versículos con resaltador que pinta; «Antes de leer»;
+  motor de sonido sin demoras y sin sonido en botones; Jugar y Travesía con física y reacciones; selector de voz; contenido como
+  datos con verificación automática (60 preguntas); **Consola de Senda v0** (capítulo 32); pedidos de licencia para SBU, Tyndale,
+  Biblica y Lockman; candidatos de sonido CC0 y muestras de voces libres para elegir.
+- **Recomendado:** gobernar Senda desde la Consola a medida en tres etapas (v0 hoy en claude.ai, v1 en el sprint 2 sobre Supabase y
+  PostHog, v2 en 2027 con revisores y propuestas de jugadores), en lugar de un CMS o un panel genérico; enviar los pedidos desde un
+  correo del proyecto.
+- **Pendiente del fundador:** elegir sonidos y voz; crear el correo del proyecto y enviar los pedidos; cuentas gratis de Supabase y
+  PostHog antes del 26-10; Google Play antes del 15-11.
+- **Evidencia:** `conocimiento/2026-10-05-senda-consola-sonido-licencias.md`.

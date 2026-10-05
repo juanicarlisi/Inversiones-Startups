@@ -115,6 +115,9 @@ Cada rol existe porque aporta una capacidad distinta, no por moda. Se invocan co
 1. Leer `cartera/cartera.yaml` y las últimas entradas de `cartera/decisiones.md` para saber en qué estamos.
 2. Revisar `radar/vigilancia.md`: ¿se activó algún disparador?
 3. Hacer lo que pida el fundador. Si no pide nada concreto, proponer el siguiente paso de mayor valor esperado según `TABLERO.md`.
+   Si se trabaja en **Senda**: antes de nada, leer lo que el fundador marcó en la **Consola de Senda** (propuestas, sonidos y voz
+   elegidos, pendientes hechos, estado de licencias; ver `oportunidades/proyectos/senda/capitulos/32-consola.md`) y, al cerrar,
+   actualizar `oportunidades/proyectos/senda/estado.yaml` y volver a publicar la Consola.
 4. Antes de cerrar: registrar hechos nuevos (con fecha y fuente), decisiones y aprendizajes. Commit con mensaje descriptivo.
 
 ## 8. Limitaciones conocidas del entorno

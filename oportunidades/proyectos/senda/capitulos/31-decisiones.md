@@ -45,6 +45,21 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | RVR1960 más barata | Si hay algo más barato que ~USD 39 | **No hay vía legal más barata.** Mientras tanto: enlace a la RVR1960 en Bible.com y pedido de precio de ministerio (borradores listos) |
 | Lectura «como papel» | Marcador, hojas que se pasan con el dedo | **Lector de papel**: hojas que giran sobre el lomo, 3 cintas de raso, resaltadores, notas, canto dorado, voz |
 
+**Tercera tanda (05-10-2026, después de probar el sprint 1):**
+
+| Tema | Lo que dijiste | Lo que quedó |
+|---|---|---|
+| Navegación | La barra de abajo, muy bien | **Confirmada** |
+| Enlace a la RVR1960 en Bible.com | Dejarlo por ahora | **Confirmado** (la única salida de la app, hasta tener la licencia) |
+| Versiones de la Biblia | Solo protestantes (NTV, TLA, DHH, NVI, LBLA…) | Pedidos de licencia listos para cada titular: SBU (RVR1960, DHH, TLA, RVC), Tyndale (NTV), Biblica (NVI) y Lockman (LBLA, NBLA); se envían desde un correo del proyecto (capítulo {{cap:07}} y Consola) |
+| Paso de hoja | Se veía muy feo | **Rehecho:** la hoja se dobla siguiendo el dedo, con el dorso del papel y su sombra; la elección «pasar hojas o deslizar» sigue en Ajustes |
+| Sonidos | Algunos baratos, tardíos o cansadores | Motor sin demoras; sin sonido en botones y pestañas; **Sala de sonidos** en la Consola para elegir entre los propios y bancos libres (Kenney y Freesound, CC0) |
+| «Pausa con Lani» | Parecía meditación oriental: se va | **Reemplazada por «Antes de leer»:** invitación breve a orar con el Salmo 119:18, una vez por día, desactivable |
+| Jugar y Travesía | Menos tiesos | Ruleta con física, carta de categoría, opciones en cascada, Lani que reacciona; mapa que se dibuja, globo para empezar, Lani que camina |
+| Voz que lee | Fea y con acento de España | Elige sola la mejor voz latinoamericana y natural del teléfono; selector en Ajustes; muestras de voces neuronales libres para elegir la definitiva |
+| Biblia al marcar versículos | Corta y tosca | Varios versículos a la vez, barra de acciones animada, resaltador que pinta, versículo que «respira» mientras se escucha |
+| Gobierno de la app | ¿Desde dónde se gobierna todo? | **Consola de Senda** (capítulo {{cap:32}}): proyecto, contenido, propuestas, sonidos, licencias y métricas; el contenido pasó a ser datos con verificación automática |
+
 ## 2. Cómo seguimos: el desarrollo
 
 | Qué | Cómo |

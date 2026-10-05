@@ -35,7 +35,7 @@ emociones bien diseñadas son la diferencia entre «una app correcta» y «mi ap
 | **Nostalgia** | Que Senda se sienta «de los nuestros» | Historias bíblicas, temporadas, «Tu año en Senda» | Recuerdos compartidos de la vida de iglesia (sección 4) |
 | **Pertenencia** | No estar solo | Grupo, Liga, Pulso, Senda Reunión | «38 jugando ahora», la meta del grupo, la racha compartida, «el 63% de la comunidad respondió como tú» |
 | **Orgullo** | Que el esfuerzo se vea | Insignias, escudo del club, ascensos, Tu Lani | Rareza visible (bronce → legendaria), estrellas en el escudo, tarjetas lindas para compartir |
-| **Calma** | Que la Biblia sea un lugar de paz | El Santuario (lector), Berea, la noche | Fondo crema, Literata, sin sonidos de juego, transiciones lentas, la «Pausa con Lani» (sección 5) |
+| **Calma** | Que la Biblia sea un lugar de paz | El Santuario (lector), Berea, la noche | Fondo crema, Literata, sin sonidos de juego, transiciones lentas, la invitación a orar «Antes de leer» (sección 6) |
 | **Esperanza** | Que nadie se sienta fracasado | Errores, rachas perdidas, regresos después de días | Nunca castigo: «Te guardé tu lugar», la racha se recupera leyendo, versículos de consuelo cuando cuesta |
 
 Además, una tensión controlada que se resuelve en alivio: la ruleta que desacelera, los últimos 5 segundos del reloj con un latido
@@ -93,8 +93,10 @@ se lea como «cosa de chicos».
 
 ## 6. Ideas nuevas que salen de esta mirada
 
-- **Pausa con Lani** (Berea, v1): un minuto antes de leer, Lani respira con vos (inhalar 4 segundos, exhalar 6) mientras aparece un
-  versículo. Baja la ansiedad de venir de las redes.
+- **Antes de leer** (reemplaza a la «Pausa con Lani», que se sentía como meditación oriental y se quitó el 05-10-2026): la primera
+  vez del día que se abre la Biblia, una invitación breve a **orar** antes de leer, con el Salmo 119:18 («Abre mis ojos, y miraré
+  las maravillas de tu ley») y una oración de ejemplo para quien no sabe cómo empezar. Sin temporizador ni música; siempre se puede
+  ir directo a leer y se apaga en Ajustes.
 - **«¡Volviste!»**: quien vuelve después de días encuentra a Lani esperándolo, una lección fácil para retomar y ningún reproche.
 - **Armonía creciente** en lecciones y Espadeo: cada acierto suma una nota; la lección perfecta completa una melodía.
 - **Lecciones en franelógrafo** para las historias de la Ruta Fundamentos.

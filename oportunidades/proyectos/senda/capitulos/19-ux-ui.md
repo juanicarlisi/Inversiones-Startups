@@ -26,7 +26,7 @@ real, en un teléfono. La miran vos y 5 jóvenes. Si en algún criterio Senda qu
 
 1. **Nada de fondos blancos vacíos** en la zona de juego: fondos con color, profundidad y luz (degradés, escenarios ilustrados).
 2. **Cero emojis del sistema como íconos:** íconos propios, coherentes, con volumen.
-3. **Cada toque responde** con imagen, sonido y vibración en menos de 100 ms.
+3. **Cada toque responde** con imagen y vibración en menos de 100 ms; el sonido queda para lo que importa (ver la sección 8).
 4. **Cada logro tiene su momento:** animación, sonido y, si corresponde, Lani.
 5. **Jerarquía clara:** una acción principal por pantalla, grande y abajo.
 6. **Tipografía con carácter** y tamaños consistentes; números que no «saltan».
@@ -157,7 +157,11 @@ da, se reducen las partículas automáticamente. **Reducir movimiento:** si el s
 
 ## 8. Sonido
 
-- **Íconos sonoros:** cada evento tiene su sonido corto (80–400 ms), que se aprende rápido.
+- **Sonido solo para lo que importa (05-10-2026):** aciertos, errores, logros, la hoja que pasa, la ruleta. Los botones, las
+  pestañas y la navegación son silenciosos (solo vibración corta): un sonido en cada toque cansa, y ninguna app de referencia lo hace.
+- **Sin demoras:** cada sonido queda cargado de antemano y empieza en el mismo instante del gesto (nunca al terminar una animación).
+- **Íconos sonoros:** cada evento tiene su sonido corto (80–400 ms), que se aprende rápido. Los definitivos los elige el fundador
+  de oído en la Sala de sonidos de la Consola (capítulo {{cap:32}}), entre los propios y bancos libres (Kenney y Freesound, CC0).
 - **Ascendente = bien, descendente = mal**, sin «buzzer» agresivo.
 - **La escalera de la racha:** cada acierto seguido suena un semitono más agudo (como los combos de Candy Crush).
 - **Exclamaciones de Lani** grabadas por una voz joven: «¡Bien!», «¡Imparable!», «¡Leyenda!», «¡Armadura completa!».
@@ -174,7 +178,7 @@ Ligera en toques y aciertos, media en errores, patrones en festejos; sincronizad
 
 | Momento | Imagen | Sonido | Vibración | Duración |
 |---|---|---|---|---|
-| Tocar un botón | Se hunde y rebota | «Toc» suave | Ligera | 120 ms |
+| Tocar un botón | Se hunde y rebota | Ninguno (decisión del 05-10-2026: cansaba) | Ligera | 120 ms |
 | Acierto | Explosión de luz del color de la categoría; tilde que se dibuja; Lani asiente | Dos notas ascendentes (suben con la racha) | Ligera | 300 ms |
 | Error | Sacudida corta; la correcta aparece con su cita; Lani «uff» | Nota grave amable | Media | 350 ms |
 | 5 aciertos seguidos | Llamas en las zapatillas de Lani; «¡Imparable!»; +1 vida | Arpegio + voz de Lani | Doble | 800 ms |
@@ -270,7 +274,7 @@ teléfono.
 1. **Perfil y ajustes** en el avatar de Tu Lani, arriba a la izquierda, en todas las pestañas (como Duolingo y YouVersion), en vez
    de una sexta pestaña o un menú.
 2. **Siempre con etiqueta** debajo de cada ícono, y una **píldora** que se desliza hasta la pestaña activa.
-3. **La barra se esconde donde molesta:** en el lector de la Biblia, las lecciones y la Pausa no aparece (pantalla completa).
+3. **La barra se esconde donde molesta:** en el lector de la Biblia, las lecciones y «Antes de leer» no aparece (pantalla completa).
 4. **Más adelante (v1):** que la barra se achique al bajar en las listas largas, como en iOS 26.
 
 Si querés comparar con tus manos, se puede armar una variante con menú arriba solo para la vista previa y probarla un día.

@@ -67,6 +67,8 @@ contenido**. Por eso se encargan desde el principio (capítulos {{cap:29}} y {{c
 | Código y pruebas automáticas | GitHub + GitHub Actions | Repositorio privado, pruebas en cada cambio | Gratis | — |
 | Pantalla escudo (*Primero la Palabra*) | API de Tiempo de Uso de Apple (FamilyControls, ManagedSettings) y permiso de uso de apps en Android, con módulos nativos | Versículo antes de abrir la red elegida | Gratis (requiere permiso de Apple) | — |
 | Sitio web y páginas para compartir | Next.js en Vercel o Cloudflare Pages | Rápido, buen posicionamiento en Google | Gratis al principio | — |
+| **Consola de Senda** (gobierno del proyecto y del contenido) | Página propia: hoy en claude.ai; desde el sprint 2, web con inicio de sesión sobre Supabase en Cloudflare Pages (capítulo {{cap:32}}) | Proyecto, contenido, propuestas, sonidos, licencias y métricas en un solo lugar; la mantiene Claude | Gratis | Retool, Directus, CMS con git |
+| Contenido como datos | Archivos JSON con esquema y validador (citas y respuestas contra la RV1909) → paquetes que la app baja sola (v1) | Cambiar preguntas, lecciones y Pulso sin publicar otra versión | Gratis | Contenido dentro del código |
 
 ## 4. Tiempo real y multijugador
 
