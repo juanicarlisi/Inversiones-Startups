@@ -239,3 +239,27 @@
   Proyecto: `oportunidades/proyectos/senda/` (`economia.yaml` nuevo); informe: `informes/2026-10-senda-proyecto-v2.pdf`.
 - **Revisar**: 25-10-2026 (decisión de seguir, nombres, Lani, paleta y nivel del tramo 1), 18-12-2026 (publicación), 30-04-2027
   (regla de corte), 30-06-2027 (ruta Fundamentos completa).
+
+## DEC-2026-10-05-1 — Senda: decisiones del fundador y arranque del desarrollo
+
+- **Contexto**: el fundador respondió las 16 decisiones del proyecto v2 (05-10-2026), pidió empezar a desarrollar lo antes posible
+  sin gastar más que Claude Pro (salvo gastos chicos), abrir las tiendas recién en noviembre o diciembre, y sumar el diseño emocional
+  (nostalgia, ternura, alegría, sorpresa, curiosidad) como parte del proyecto.
+- **Decisión**:
+  1. **Nombre Senda**, con verificaciones (INPI, tiendas, dominios y redes) a cargo del fundador; riesgo detectado en Chile (SENDA es
+     el servicio estatal de prevención de drogas): se mitiga con bajada en tienda y consulta en el INAPI antes de invertir allí.
+  2. **Sin validación previa con jóvenes**: el proyecto es el punto de partida y se valida con la app en uso. Lani v2, paleta B,
+     categorías, nombres de juegos, planes, anuncio corto, revisores, línea editorial, cuentas e idioma neutro: aprobados.
+  3. **Vidas: 3 gratis, 1 por hora**; repasar no devuelve vidas por ahora. **Claude Max desde diciembre**.
+  4. **Biblias**: arrancar con RV1909, BES y PDT (libres, ya en la app). La RVR1960 **no se usa sin licencia** (marca registrada,
+     distribución mundial, riesgo con las tiendas); YouVersion Platform no aplica (exige app no comercial). Se pide precio de
+     ministerio a la American Bible Society; si no, API.Bible (~USD 39 por mes) desde el lanzamiento o desde marzo, a decidir.
+  5. **Desarrollo**: repositorio propio `senda-app` (Expo SDK 57, React Native, TypeScript, React Navigation, zustand). Sprint 0
+     hecho el mismo día, con vista previa web privada para probar desde el celular. Copia temporal en `apps/senda-app/` de este
+     repositorio hasta que exista el repositorio propio. Google Play (USD 25) a más tardar el 15-11-2026; Apple cuando se decida iOS.
+  6. **Diseño emocional**: capítulo 20 nuevo del proyecto (diez emociones, cinco herramientas, mapa de momentos, reglas para no
+     manipular) y guía práctica en el repositorio de la app.
+- **Por qué**: empezar ya acorta el camino al lanzamiento del 18-12-2026 y permite validar con algo real; las cuentas pagas se abren
+  recién cuando hacen falta.
+- **Fuentes**: `conocimiento/2026-10-05-senda-desarrollo-y-licencias.md`; proyecto v2.1 en `informes/2026-10-senda-proyecto-v2.pdf`.
+- **Revisar**: 15-11-2026 (Google Play y prueba cerrada), 18-12-2026 (lanzamiento), 30-04-2027 (regla de corte).

@@ -5,12 +5,18 @@ cómo se construye, cuánto cuesta, cómo se sostiene y en qué orden se hace. L
 repositorio; esta incorpora todas tus correcciones del 02-10-2026 y lo que hizo falta cambiar alrededor de ellas para que el
 proyecto siga siendo coherente.
 
+<div class="caja rec" markdown="1"><h4>Versión 2.1 (05-10-2026)</h4>
+
+Tus 16 decisiones están en el capítulo {{cap:31}}; el diseño emocional que pediste sumar es el capítulo nuevo {{cap:20}}; la respuesta
+sobre la RVR1960 está en el capítulo {{cap:07}}; y el desarrollo ya empezó (sprint 0, con vista previa para el celular).
+</div>
+
 <div class="caja si" markdown="1"><h4>Si tenés 15 minutos</h4>
 
 1. La tabla de abajo: cada corrección tuya y dónde quedó resuelta.
 2. El capítulo {{cap:01}} (el proyecto en una página).
 3. Las pantallas del capítulo {{cap:19}} y la armadura nueva del capítulo {{cap:09}}.
-4. El roadmap del capítulo {{cap:29}} y las decisiones pendientes del capítulo {{cap:30}}.
+4. El roadmap del capítulo {{cap:30}} y las decisiones pendientes del capítulo {{cap:31}}.
 </div>
 
 ## Las tres ideas que cambian en esta versión
@@ -22,7 +28,7 @@ proyecto siga siendo coherente.
    encuestas, herramientas reales para el líder y el pastor, y un plan para ganarle tiempo a las redes (capítulos {{cap:11}} a
    {{cap:14}}).
 3. **Más en menos tiempo.** Lo principal de la Travesía (ex Camino) y de la comunidad queda listo a fines de **junio de 2027**,
-   no en 2028; el calendario entra en la primera versión (capítulo {{cap:29}}).
+   no en 2028; el calendario entra en la primera versión (capítulo {{cap:30}}).
 
 ## Tus correcciones, punto por punto
 
@@ -35,7 +41,7 @@ proyecto siga siendo coherente.
 | 5 | Sacar el botón que manda a otra app | Eliminado (también el enlace a videos externos) | {{cap:07}} |
 | 6 | «Camino» aburrido; que atrape; investigar Duolingo; que sea enorme, casi infinito; Fundamentos y después más niveles y rutas; todo antes de 2028, idealmente junio de 2027 | **Travesía**: varias **Rutas** que se eligen como idiomas (Fundamentos, Héroes, Mapas, Preparados, Profecías y más), niveles Fundamentos → Profundo → Maestría, Repaso del día infinito. Fundamentos completa el 30-06-2027 | {{cap:08}} |
 | 7 | Lani muy bien, pero con reacciones y movimientos tipo búho de Duolingo; cuidado con lo infantil y lo muy femenino | **Lani v2**: proporciones menos «bebé», actitud, humor, 30 reacciones, neutra para que todos se identifiquen, personalizable (Tu Lani) y una prueba con jóvenes antes de aprobarla | {{cap:16}} |
-| 8 | No a una app infantil o aburrida | Principio número 1 del producto; lista de control «anti-infantil»; riesgo número 1 del proyecto | {{cap:02}}, {{cap:19}}, {{cap:27}} |
+| 8 | No a una app infantil o aburrida | Principio número 1 del producto; lista de control «anti-infantil»; riesgo número 1 del proyecto | {{cap:02}}, {{cap:19}}, {{cap:28}} |
 | 9 | UX/UI: prioridad absoluta; las pantallas de la v1 eran un modelo pobre; mirar Candy Crush; colores, explosiones, gestos, sonidos, todo integrado | El capítulo de experiencia se reescribe con una **definición medible de «profesional»**, catálogo de efectos («jugosidad»), coreografía de cada momento y pantallas nuevas | {{cap:19}} |
 | 10 | Colores: me gustan, pero que no parezcan banco, app de administración, jueguito ni cambalache; investigar y elegir | Evaluación con benchmark y psicología del color: se mantiene el ámbar, el azul marino pasa a **índigo** (deja de parecer banco) y se prueban 3 paletas con jóvenes antes de decidir | {{cap:19}} |
 | 11 | Las 6 categorías de la armadura: buena idea mal lograda; nombres e íconos pobres; tipo Preguntados (4 opciones, imágenes); el escudo de la fe no es solo AT; ¿copia o mejora? | Categorías nuevas que cruzan AT y NT (**Héroes, Palabra, Historia, Vida, Verdad, Mapa**), piezas con nombres cortos (Escudo, Espada, Casco, Coraza, Cinturón, Botas), íconos de juego, preguntas con imagen, la armadura que se completa arriba a la derecha y mejoras propias sobre Preguntados | {{cap:09}} |
@@ -48,16 +54,16 @@ proyecto siga siendo coherente.
 | 18 | Sacar el Prode del Mundial 2030 | Eliminado de todo el proyecto | — |
 | 19 | Senda Reunión: no una IA que arme la reunión, sino recursos para que el líder la arme | Rehecha como **caja de herramientas del líder**: él arma el esquema (bosquejo, quiz tipo Kahoot, juegos, campeonato, liga, algo del día), juega en vivo y después ve registros, puntajes y un reporte mensual. Sin IA que prepare nada | {{cap:12}} |
 | 20 | Berea: una sección con un personaje, no un asistente de IA | **Berea** es la sección de planes, desafíos, memoria y biblioteca, guiada por Lani en modo explorador. No hay IA para preguntarle cosas | {{cap:15}} |
-| 21 | Todo lo que difunda: compartir estados, triunfos, logros | Capítulo nuevo de **crecimiento dentro de la app**: tarjetas para historias y estados, invitaciones que premian, enlaces de desafío | {{cap:21}} |
+| 21 | Todo lo que difunda: compartir estados, triunfos, logros | Capítulo nuevo de **crecimiento dentro de la app**: tarjetas para historias y estados, invitaciones que premian, enlaces de desafío | {{cap:22}} |
 | 22 | Que todo sume puntos; canjes que enganchen (avatares, una moto, un auto para Lani) | **Todo suma Pasos y Talentos**; tienda de **Tu Lani** con atuendos, vehículos (bici, moto, auto y legendarios como el carro de fuego) y el escudo de tu club | {{cap:17}}, {{cap:18}} |
 | 23 | Revisar la economía de la página 49 para sacar rentabilidad sin romper la experiencia | Economía rediseñada: tres monedas, vidas, comodines, Pase Senda y un mapa de dónde aparece un video o el plan, y dónde nunca | {{cap:17}} |
 | 24 | Las insignias, muy bien | Se profundizan: rarezas, colecciones, secretas, de temporada y de grupo | {{cap:17}} |
-| 25 | Los planes no deben quedar totalmente libres de videos; más alternativas de membresía, bien pensadas y equilibradas | Benchmark y teoría de membresías; **Gratis, Plus, Max, Familia, Pase Senda, Líder e Iglesia**; los planes dan más, no todo | {{cap:23}} |
+| 25 | Los planes no deben quedar totalmente libres de videos; más alternativas de membresía, bien pensadas y equilibradas | Benchmark y teoría de membresías; **Gratis, Plus, Max, Familia, Pase Senda, Líder e Iglesia**; los planes dan más, no todo | {{cap:24}} |
 | 26 | El módulo tipo Duolingo con opciones y profundidad | Igual que los puntos 6 y 13 | {{cap:08}} |
-| 27 | ¿Hace falta un abogado? ¿No podemos hacer nosotros todas las políticas? | Análisis documento por documento: **no hace falta para lanzar**; Claude redacta todo; solo se sugiere una revisión puntual y opcional en dos casos | {{cap:25}} |
-| 28 | Adelantar el calendario general: más en menos tiempo, lo principal en junio de 2027 | Roadmap comprimido; palancas para acelerar | {{cap:29}} |
-| 29 | ¿De dónde salen los USD 1.000 iniciales? Máximo nivel profesional sin derrochar; opciones mientras avanzamos | Se explica el número y se reemplaza por un **menú de calidad** en tres niveles por área, con tramos y decisiones en cada paso | {{cap:28}} |
-| 30 | Objetivo general: experiencia profesional sin perder de vista los costos | Atraviesa todo el documento; el capítulo {{cap:24}} dice qué hace falta, más allá del código, para llegar a ese nivel | {{cap:19}}, {{cap:24}}, {{cap:28}} |
+| 27 | ¿Hace falta un abogado? ¿No podemos hacer nosotros todas las políticas? | Análisis documento por documento: **no hace falta para lanzar**; Claude redacta todo; solo se sugiere una revisión puntual y opcional en dos casos | {{cap:26}} |
+| 28 | Adelantar el calendario general: más en menos tiempo, lo principal en junio de 2027 | Roadmap comprimido; palancas para acelerar | {{cap:30}} |
+| 29 | ¿De dónde salen los USD 1.000 iniciales? Máximo nivel profesional sin derrochar; opciones mientras avanzamos | Se explica el número y se reemplaza por un **menú de calidad** en tres niveles por área, con tramos y decisiones en cada paso | {{cap:29}} |
+| 30 | Objetivo general: experiencia profesional sin perder de vista los costos | Atraviesa todo el documento; el capítulo {{cap:25}} dice qué hace falta, más allá del código, para llegar a ese nivel | {{cap:19}}, {{cap:25}}, {{cap:29}} |
 | + | El nombre «El Rosco» pertenece a un programa de TV | Confirmado: es un formato protegido y con marca. Pasa a llamarse **Abecé** y cambia la mecánica | {{cap:10}} |
 | + | «Maná del día» suena muy de iglesia: nombres atrapantes, modernos y para merch, sin perder la esencia (como Senda) | Nueva **regla de nombres** con 6 pruebas aplicada a todo: Giro diario, De memoria, Antes o después, Oveja Perdida, Abecé y más | {{cap:16}} |
 

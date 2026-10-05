@@ -4,7 +4,11 @@ Sistema vivo para **detectar, investigar, evaluar, desarrollar y capturar oportu
 cartera de negocios e inversiones que genere caja, se reinvierta y componga. Punto de partida: Argentina (CABA), sep-2026.
 Principio: *con poco hacer muchísimo*. Filosofía: *ir un paso adelante*.
 
-> **Nuevo (02-10-2026)**: `informes/2026-10-senda-proyecto-v2.pdf`, el **proyecto completo de Senda v2** (la app cristiana, P1):
+> **Nuevo (05-10-2026)**: arrancó el **desarrollo de Senda** (sprint 0: Biblia con 3 versiones libres, una lección, Espadeo de
+> práctica; vista previa web privada). El código vive en su propio repositorio `senda-app` (copia temporal en `apps/senda-app/`). El
+> proyecto pasó a la v2.1 con las 16 decisiones del fundador y el capítulo nuevo de diseño emocional (DEC-2026-10-05-1).
+>
+> **Proyecto (02-10-2026, v2.1 el 05-10)**: `informes/2026-10-senda-proyecto-v2.pdf`, el **proyecto completo de Senda v2** (la app cristiana, P1):
 > 30 capítulos con las 30 correcciones del fundador integradas: experiencia profesional primero (paleta, Lani v2, pantallas nuevas),
 > Travesía, Espadeo con la armadura visible, Liga por persona, calendario, Senda Reunión sin IA, economía y planes, menú de calidad y
 > roadmap con la ruta principal completa en junio de 2027 (hoja A3). Fuente: `oportunidades/proyectos/senda/`. La v1 del 30-09-2026
@@ -77,9 +81,9 @@ python3 informes/construir_ingresos_sin_vender.py         # regenera el informe 
 - **Backlog**: 38 ideas en su versión viable (`oportunidades/backlog.yaml`); 7 secundarias entran desde fines de 2028.
 - **Catálogo**: 81 alternativas, con la familia nueva Municipio y Estado (`oportunidades/catalogo.yaml` → `CATALOGO.md`).
 - **Informe**: `informes/2026-09-el-holding-v3.pdf` (70 páginas, 21 capítulos + anexo; hoja A3 del plan en la página 56).
-- **Senda, proyecto completo v2** (DEC-2026-10-02-1, sobre DEC-2026-09-30-1): `informes/2026-10-senda-proyecto-v2.pdf` (133 páginas,
-  30 capítulos + anexo; hoja A3 del roadmap en la página 127). MVP el 18-12-2026, ruta Fundamentos completa el 30-06-2027; 16
-  decisiones pendientes en el capítulo 30.
+- **Senda, proyecto completo v2.1** (DEC-2026-10-05-1, sobre DEC-2026-10-02-1 y DEC-2026-09-30-1): `informes/2026-10-senda-proyecto-v2.pdf`
+  (139 páginas, 31 capítulos + anexo; hoja A3 del roadmap). Decisiones tomadas el 05-10-2026 (capítulo 31); desarrollo en marcha
+  (sprint 0); MVP el 18-12-2026, ruta Fundamentos completa el 30-06-2027.
 - Detalle: `cartera/cartera.yaml`, `cartera/decisiones.md`, `cartera/holding-resultados.md`, `doctrina/08-formas-de-pensar.md`.
 
 ## Reglas de oro

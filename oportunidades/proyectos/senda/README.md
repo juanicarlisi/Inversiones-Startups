@@ -1,14 +1,14 @@
 # Senda · proyecto completo (P1)
 
-Fuente del proyecto completo de la app cristiana del holding. Versión 2 del 02-10-2026 (DEC-2026-10-02-1), que integra las 30
-correcciones del fundador sobre la v1 del 30-09-2026 (DEC-2026-09-30-1). El PDF y el HTML se generan con
+Fuente del proyecto completo de la app cristiana del holding. Versión 2.1 del 05-10-2026 (DEC-2026-10-05-1: decisiones del
+fundador y capítulo 20, diseño emocional), sobre la v2 del 02-10-2026 (DEC-2026-10-02-1) y la v1 del 30-09-2026 (DEC-2026-09-30-1). El PDF y el HTML se generan con
 `python3 informes/construir_senda.py` → `informes/2026-10-senda-proyecto-v2.pdf` y `.html` (la v1 queda en
 `informes/2026-09-senda-proyecto.pdf`).
 
 | Archivo | Qué tiene |
 |---|---|
 | `capitulos/00-como-leer.md` | Cómo leer el documento y la tabla «tu corrección → dónde se resolvió» |
-| `capitulos/01…30-*.md` | Un capítulo por archivo; el número del archivo es el número del capítulo |
+| `capitulos/01…31-*.md` | Un capítulo por archivo; el número del archivo es el número del capítulo |
 | `capitulos/90-anexo.md` | Glosario, eventos de analítica y fuentes |
 | `roadmap.yaml` | Fases F0–F10 (hipótesis, entregables, condición para seguir), tareas por carril y responsable, hitos y vista 2026–2030 |
 | `presupuesto.yaml` | Menú de calidad del primer año: tres niveles (básico, profesional, premium), impacto y tramo de cada gasto |
@@ -23,6 +23,8 @@ Marcadores que reemplaza el generador dentro de los capítulos: `{{cap:NN}}` (n�
 `{{ECONOMIA}}`, `{{TU_LANI}}`, `{{PALETAS}}`, `{{PALETA}}`, `{{MOCKS_UX}}`, `{{LOGO}}`, `{{SHARE}}`, `{{PLANES}}`, `{{PROYECCION}}`,
 `{{PROYECCION_CORTA}}`, `{{ARQUITECTURA}}`, `{{PRESUPUESTO}}`, `{{TRAMOS}}`, `{{FASES}}`, `{{GANTT_DETALLE}}` (hoja A3) y
 `{{GANTT_GENERAL}}`.
+
+El código de la app está en el repositorio `senda-app` (copia temporal en `apps/senda-app/` de este repositorio).
 
 Reglas:
 

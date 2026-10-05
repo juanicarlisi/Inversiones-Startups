@@ -11,7 +11,7 @@ Hay una línea editorial escrita, guardas doctrinales, un circuito de revisión 
 
 | Contenido | Fuente | Licencia | Idiomas | Uso en Senda |
 |---|---|---|---|---|
-| Biblias en español con licencia | RVR1960, DHH y TLA (SBU); NVI (Biblica); NTV (Tyndale) | Licencia vía YouVersion Platform, API.Bible o directa (capítulo {{cap:07}}) | ES | Lector, audio si la licencia lo incluye |
+| Biblias en español con licencia | RVR1960, DHH y TLA (SBU); NVI (Biblica); NTV (Tyndale) | Licencia vía API.Bible o directa (YouVersion Platform solo admite apps no comerciales) (capítulo {{cap:07}}) | ES | Lector, audio si la licencia lo incluye |
 | Biblias en español libres | RV1909; Nueva Biblia Viva (Biblica, abierta 2008); Versión Biblia Libre; Biblia Libre para el Mundo; Español Sencillo | Dominio público, CC BY-SA, CC0, CC BY | ES | Lector, audio, verificación de preguntas |
 | Biblias en portugués | Nova Bíblia Viva (abierta 2007); Bíblia Livre | CC BY-SA / CC BY | PT | 2028 |
 | Biblias en inglés | Berean Standard Bible; KJV; WEB | Dominio público | EN | 2028 |
@@ -64,7 +64,7 @@ con la lista de cambios.
    sensibilidades entre iglesias; nada de violencia gráfica.
 7. **Rutas sensibles** (Vida real: ansiedad, noviazgo, identidad): para 16 o más, escritas con cuidado pastoral y revisadas siempre.
 
-**Decisión pendiente:** confirmar esta línea con tus revisores (capítulo {{cap:30}}).
+**Decisión pendiente:** confirmar esta línea con tus revisores (capítulo {{cap:31}}).
 
 ## 4. El circuito de revisión
 
@@ -104,7 +104,7 @@ con la lista de cambios.
 | Noviembre | Gratitud; final del Clausura |
 | Diciembre | Supercopa; Adviento y Navidad; **Tu año en Senda**; Informe Pulso |
 
-## 7. Contenido para redes (sin mostrar a nadie; detalle en el capítulo {{cap:21}})
+## 7. Contenido para redes (sin mostrar a nadie; detalle en el capítulo {{cap:22}})
 
 - **La que habla es Lani:** la cuenta de Instagram y TikTok es la voz de la mascota.
 - **Formatos:** versículo del día con imagen; «¿Sabías que…?» (carrusel); trivia en historias con encuestas; clips de partidas de

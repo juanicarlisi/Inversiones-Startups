@@ -23,7 +23,7 @@ jerga, suena moderno, sirve para merch, conserva la esencia, no tiene dueño, es
 | Camino (v1) | Claro, conectado con Senda | Aburrido; repite la idea de la marca | 17 |
 
 **Recomendación: Travesía**, y cada curso adentro es una **Ruta** («Ruta Fundamentos», «Ruta Héroes»). Se valida en la prueba de
-nombres de octubre (capítulo {{cap:29}}).
+nombres de octubre (capítulo {{cap:30}}).
 
 ## 2. Qué hace Duolingo por dentro (y qué tomamos)
 
@@ -39,7 +39,7 @@ nombres de octubre (capítulo {{cap:29}}).
 | Práctica de errores y repaso personalizado | Que no se olvide | Repaso con el algoritmo FSRS (el de Anki) |
 | Ligas, **racha con amigos** y **misiones en dupla** | Compromiso social | Liga Senda, racha compartida y misiones en dupla |
 | Duo con personalidad (y un humor que no es infantil) | Que la marca se recuerde | Lani v2 (capítulo {{cap:16}}) |
-| Energía (2025): cada ejercicio gasta | Ritmo y suscripción | **No**: en Senda se pierde una vida por error y **repasar devuelve vidas** |
+| Energía (2025): cada ejercicio gasta | Ritmo y suscripción | **No**: en Senda se pierde una vida solo por error, y leer o repasar nunca gasta vidas |
 
 ## 3. Cómo está armada
 
@@ -120,7 +120,7 @@ La sección 9 se adelanta para estar lista en Semana Santa (28-03-2027), antes q
 
 **Guardas doctrinales:** no se arman Rutas sobre temas en los que las iglesias protestantes discrepan (forma del bautismo, orden de
 los tiempos finales, dones, gobierno de la iglesia, predestinación). Si aparecen dentro de una Ruta, se muestran las posturas con sus
-textos y se invita a hablarlo con el pastor (capítulo {{cap:22}}).
+textos y se invita a hablarlo con el pastor (capítulo {{cap:23}}).
 
 ## 8. La lección, paso a paso
 
@@ -172,8 +172,9 @@ textos y se invita a hablarlo con el pastor (capítulo {{cap:22}}).
 
 ## 11. Vidas en la Travesía
 
-Cada error cuesta una vida; con 5 aciertos seguidos se gana una; **repasar devuelve vidas** y siempre se puede repasar, así que nadie se
-queda sin aprender. Sin vidas, las opciones son: repasar, esperar, pedirle una a un amigo, ver un video o tener Plus o Max. El detalle
+Cada error cuesta una vida (3 en el plan gratis; vuelve 1 por hora); con 5 aciertos seguidos se gana una. Repasar **no gasta**
+vidas (por ahora tampoco las devuelve, decisión del 05-10-2026). Sin vidas, las opciones son: leer la Biblia (nunca gasta), esperar,
+pedirle una a un amigo, ver un video o tener Plus o Max. El detalle
 está en el capítulo {{cap:17}}.
 
 ## 12. Dificultad y repaso

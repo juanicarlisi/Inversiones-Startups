@@ -10,7 +10,7 @@ primer día en español. A fines de 2027 se podrá entrar a una sala desde el na
 
 | Etapa | Idiomas | Mercados | Biblias |
 |---|---|---|---|
-| **Etapa 1** (dic-2026 → 2027) | Español neutro, con variantes locales de algunas palabras y juegos | Toda Latinoamérica, hispanos de EE.UU. y España. La app se publica en todas las tiendas del mundo desde el día 1 | Reina-Valera (RV1909 libre; RVR1960 con licencia), NTV, NVI, DHH y TLA con licencia; Nueva Biblia Viva y Español Sencillo libres |
+| **Etapa 1** (dic-2026 → 2027) | Español neutro, con variantes locales de algunas palabras y juegos | Toda Latinoamérica, hispanos de EE.UU. y España. La app se publica en todas las tiendas del mundo desde el día 1 | Reina-Valera (RV1909 libre; RVR1960 con licencia), NTV, NVI, DHH y TLA con licencia; Español Sencillo y Palabra de Dios para ti libres (ya en la app) |
 | **Etapa 2** (2028) | Portugués (Brasil, marzo) e inglés (segundo semestre) | Brasil (47,4 M de evangélicos), Portugal, EE.UU. y el mundo anglófono | Libres (Nova Bíblia Viva, Bíblia Livre; BSB, KJV, WEB) y las más usadas con licencia |
 | **Etapa 3** (2029 en adelante) | Francés y otros según datos | Donde ya haya descargas espontáneas | eBible.org y YouVersion Platform cubren cientos de idiomas |
 
@@ -50,7 +50,7 @@ Apple ofrece una API que informa la franja de edad sin pedir la fecha de nacimie
 | Juntos | Perfil y Tu Lani, amigos, grupos, calendario (Senda, personal y del grupo o iglesia), Liga Senda, Copas, la semana Senda, Pulso, Estados, Oremos, Senda Reunión, Senda Púlpito | MVP a v3 |
 | Crecer | Berea: planes, desafíos con fecha, Ayuno de redes, De memoria, *Primero la Palabra*; Biblioteca (2028); Tu año en Senda | MVP a 2028 |
 
-El detalle por versión está en el roadmap (capítulo {{cap:29}}).
+El detalle por versión está en el roadmap (capítulo {{cap:30}}).
 
 ## 5. Qué no incluye
 
@@ -83,9 +83,9 @@ El detalle por versión está en el roadmap (capítulo {{cap:29}}).
 
 - **Tus horas:** 5 por semana hasta diciembre de 2026 y algo menos después. Claude hace el 80–90% del trabajo técnico y de contenido;
   vos decidís, probás, aprobás y cuidás la comunidad.
-- **Plata:** menú de calidad en tres niveles (capítulo {{cap:28}}); lo grande se paga por tramos, solo si el tramo anterior funciona.
-- **Velocidad:** el roadmap comprimido supone Claude con más horas de trabajo desde noviembre (decisión en el capítulo {{cap:30}}).
+- **Plata:** menú de calidad en tres niveles (capítulo {{cap:29}}); lo grande se paga por tramos, solo si el tramo anterior funciona.
+- **Velocidad:** el roadmap comprimido supone Claude con más horas de trabajo desde diciembre (decisión en el capítulo {{cap:31}}).
 - **Anonimato:** la cuenta de desarrollador muestra el nombre del titular. Se publica primero con tu cuenta personal sin compras
   dentro y la app se transfiere a la empresa del holding antes de activar la suscripción.
 - **Doctrina:** protestante amplio, con revisores de tu comunidad para todo lo doctrinal.
-- **Licencias:** solo contenido libre o con licencia; las licencias con «compartir igual» se respetan (capítulo {{cap:25}}).
+- **Licencias:** solo contenido libre o con licencia; las licencias con «compartir igual» se respetan (capítulo {{cap:26}}).

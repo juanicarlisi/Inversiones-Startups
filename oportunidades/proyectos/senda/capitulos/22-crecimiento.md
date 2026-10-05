@@ -82,12 +82,12 @@ agenda no muestra quién va a un evento salvo a su grupo.
 ## 7. Embajadores y sorteos
 
 Programa de embajadores (líderes con Senda Líder gratis que comparten plantillas e invitan a otros grupos) y sorteos sin compra con bases
-publicadas (capítulo {{cap:20}}).
+publicadas (capítulo {{cap:21}}).
 
 ## 8. Publicidad paga
 
 No es el motor. Se prueba con USD 100–200 en Semana Santa de 2027 para medir costo por instalación y retención, y se usa solo para
-acelerar lo que ya funciona cuando cada usuario deja al menos 3 veces lo que cuesta traerlo (capítulo {{cap:28}}).
+acelerar lo que ya funciona cuando cada usuario deja al menos 3 veces lo que cuesta traerlo (capítulo {{cap:29}}).
 
 ## 9. Cómo se mide
 

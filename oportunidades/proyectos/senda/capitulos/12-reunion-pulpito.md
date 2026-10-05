@@ -122,7 +122,7 @@ evaluaría como opción explícita y revisada, nunca automática.
 - Botón **«Estoy orando por vos»** (le llega un aviso a quien pidió) y suma Pasos.
 - Vencen a los 30 días o cuando se marcan como respondidos («¡Dios respondió!»).
 - Moderación del líder y filtro automático; si aparece una señal de riesgo, se muestra ayuda profesional y se avisa al líder según el
-  protocolo (capítulo {{cap:25}}).
+  protocolo (capítulo {{cap:26}}).
 
 ## 11. Cómo se mide
 

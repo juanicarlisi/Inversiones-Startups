@@ -116,7 +116,7 @@ con lo local** (idioma, cultura, iglesia).
 
 - Cajas de premios pagas (además, en Brasil el ECA Digital endurece desde marzo de 2026 las reglas para apps que usan menores).
 - Un sistema que gaste vidas por cada ejercicio (la Energía de Duolingo): en Senda se pierde una vida por error o al empezar partida,
-  y repasar devuelve vidas.
+  y leer nunca gasta vidas.
 - Notificaciones que hacen sentir culpa o que llegan de noche.
 - Feeds infinitos.
 - Muros de pago sobre la Biblia o sobre el aprendizaje.

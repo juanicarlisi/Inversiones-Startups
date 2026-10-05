@@ -4,7 +4,7 @@
 **En pocas palabras.** Una sola base de código para Android, iOS y (en 2028) web: **React Native con Expo**, en TypeScript, el lenguaje
 en el que Claude Code rinde mejor. Detrás, **Supabase** (base de datos, cuentas, tiempo real y archivos), **Cloudflare R2** para las
 Biblias y los audios, **Rive** para que Lani se mueva como el búho de Duolingo, **RevenueCat** para las suscripciones, **AdMob** para
-los videos, **PostHog** y **Sentry** para medir, la Biblia con licencia vía **YouVersion Platform o API.Bible**, y la **API de
+los videos, **PostHog** y **Sentry** para medir, la Biblia con licencia vía **API.Bible** (más tres Biblias libres desde el día 1), y la **API de
 Claude solo por detrás** (producir, traducir y moderar contenido; no hay IA para los usuarios). Claude Code puede construir casi todo;
 para llegar al **nivel profesional** hacen falta, además, un **diseñador de interfaz**, un **ilustrador**, un **animador de Rive** y
 un **diseñador de sonido**. Costo mensual: USD 80–330 en 2027 (con licencias de Biblias) y ~USD 0,009 por usuario activo más
@@ -30,10 +30,10 @@ licencias después.
 | Contenido (preguntas, lecciones, traducciones) | **Sí**, con verificación automática | **Revisores humanos** |
 | Pruebas en teléfonos reales | Automatiza pruebas | **Testers humanos** con distintos teléfonos (incluido iPhone) |
 | Publicación en tiendas | Prepara todo (fichas, capturas, textos) | **Vos** apretás el botón y manejás las cuentas |
-| Legal | **Sí**: todos los documentos (capítulo {{cap:25}}) | Revisión profesional puntual y opcional en dos casos |
+| Legal | **Sí**: todos los documentos (capítulo {{cap:26}}) | Revisión profesional puntual y opcional en dos casos |
 
 **Conclusión:** el cuello de botella no es el código sino **la dirección visual, el arte (Lani), el sonido y la revisión de
-contenido**. Por eso se encargan desde el principio (capítulos {{cap:28}} y {{cap:29}}).
+contenido**. Por eso se encargan desde el principio (capítulos {{cap:29}} y {{cap:30}}).
 
 ## 2. La arquitectura
 
@@ -58,7 +58,7 @@ contenido**. Por eso se encargan desde el principio (capítulos {{cap:28}} y {{c
 | Errores y rendimiento | **Sentry** | Cierres inesperados con detalle | Gratis (plan desarrollador) | Crashlytics |
 | Avisos | Expo Notifications (FCM + APNs) | Integrado | Gratis | OneSignal |
 | IA (solo interna) | **API de Claude** (Anthropic), fuera de la app | Producción y verificación de contenido, traducción, moderación de textos de usuarios | Por uso (sección 7) | — |
-| Biblias con licencia | **YouVersion Platform** (kit para React Native) o **API.Bible** | Versiones con derechos sin negociar una por una | Gratis o USD 29 + por versión | Licencia directa |
+| Biblias con licencia | **API.Bible** (YouVersion Platform no aplica: exige app no comercial) | Versiones con derechos sin negociar una por una | USD 29 + por versión | Licencia directa |
 | Fuentes tipográficas | Unbounded, Plus Jakarta Sans, Literata | Licencia libre (SIL OFL), incluidas en la app | Gratis | — |
 | Compartir | Sharing to Stories (Meta), hojas de compartir del sistema | Historias de Instagram, estados de WhatsApp, Facebook | Gratis | — |
 | Enlaces que abren la app | Enlaces universales (iOS) y App Links (Android) | Cada desafío, evento o sala abre en el lugar correcto | Gratis | — |
@@ -153,7 +153,7 @@ delicado, Sonnet 5.5 o Haiku 4.5 para el volumen), con pruebas antes de cada lot
 | Gran escala | 1 M+ | Equipo técnico, infraestructura dedicada | A definir con ingresos |
 
 Regla práctica: **~USD 0,009 por persona activa por mes** (servidores + IA interna; sin asistente de IA para usuarios), **más las
-licencias de las Biblias** (USD 230–880 por mes con 5 versiones vía API.Bible según usuarios; cero si alcanza YouVersion Platform).
+licencias de las Biblias** (USD 230–880 por mes con 5 versiones vía API.Bible según usuarios; menos con un precio de ministerio).
 
 ## 11. Lo que hace falta para el nivel profesional (más allá del código)
 
@@ -165,10 +165,10 @@ licencias de las Biblias** (USD 230–880 por mes con 5 versiones vía API.Bible
 | **Diseñador de sonido** | Firma, 60 efectos, música de menús, la escalera de la racha | USD 400 | Nov-2026 |
 | **Voz de Lani** | 30 exclamaciones grabadas | USD 150 | Mar-2027 |
 | Teléfonos de prueba | Un Android de gama baja y acceso a iPhone (testers) | — | Siempre |
-| Licencias de Biblias | RVR1960, NTV, NVI, DHH, TLA | 0 (YouVersion) o USD 39–330 por mes en 2027 | Desde el lanzamiento |
+| Licencias de Biblias | RVR1960, NTV, NVI, DHH, TLA | USD 39–330 por mes en 2027 (0 con solo las libres) | Desde el lanzamiento |
 | Cuentas | Apple (USD 99 por año), Google Play (USD 25 una vez), Meta (gratis) | — | Oct-2026 |
 
-Detalle, niveles y alternativas más baratas o más caras en el **menú de calidad** del capítulo {{cap:28}}.
+Detalle, niveles y alternativas más baratas o más caras en el **menú de calidad** del capítulo {{cap:29}}.
 
 ## 12. Integraciones para configurar desde el principio
 
@@ -182,7 +182,7 @@ Detalle, niveles y alternativas más baratas o más caras en el **menú de calid
 | PostHog | Analítica y experimentos | 0 | Oct-2026 |
 | Sentry | Errores | 0 | Oct-2026 |
 | API de Claude | Contenido y moderación (por detrás) | Por uso | Oct-2026 |
-| YouVersion Platform / API.Bible | Biblias con licencia | 0 o USD 29 + versiones | Oct-2026 |
+| API.Bible | Biblias con licencia | USD 29 + versiones | Cuando se apruebe la RVR1960 |
 | Meta for Developers | Compartir en historias de Instagram | 0 | Nov-2026 |
 | Apple: permiso Family Controls | *Primero la Palabra* en iOS | 0 (a pedido) | Mar-2027 |
 | Google Play Console | Tienda Android | USD 25 | Oct-2026 |

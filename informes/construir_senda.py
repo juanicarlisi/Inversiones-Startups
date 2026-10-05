@@ -165,7 +165,7 @@ def bloque_resumen(D) -> str:
     p = D["presupuesto"]["items"]
     tot = {k: sum(i[k] for i in p) for k in ("basico", "profesional", "premium")}
     pilares = [
-        ("biblia", "Leer", "Biblia gratis y sin anuncios: Reina-Valera y 4 versiones más, audio y el «+»", V.INDIGO_M),
+        ("biblia", "Leer", "Biblia gratis y sin anuncios: Reina-Valera y más versiones, audio y el «+»", V.INDIGO_M),
         ("travesia", "Aprender", "La Travesía: Rutas casi infinitas, con vidas, repaso y Tu Lani", V.VERDE),
         ("jugar", "Jugar", "Espadeo con la armadura de Dios, Liga Senda, Copas y juegos", V.ROJO),
         ("comunidad", "Juntos", "Calendario, Senda Reunión para el líder y Púlpito para el pastor", V.VIOLETA),
@@ -204,12 +204,12 @@ calidad de las mejores apps del mundo. Junta en un solo lugar, en español de or
 <div class="caja si"><h4 class="ico-t">{V.icono("estrella", 13, V.AMBAR)} El diferencial</h4>{lista(dif, 'apretada')}</div>
 <div class="caja"><h4 class="ico-t">{V.icono("mapa", 13, V.INDIGO_M)} Cómo crece: publicada temprano y por etapas</h4><div class="ets">{et}</div>
 <p class="nota" style="margin-top:2mm">Cada etapa prueba una hipótesis y tiene una condición para seguir. La primera regla de corte es el
-30 de abril de 2027 (capítulo {{{{cap:29}}}}).</p></div>
+30 de abril de 2027 (capítulo {{{{cap:30}}}}).</p></div>
 </div>
 <div class="caja rec"><h4 class="ico-t">{V.icono("check", 13, V.VERDE)} Lo que necesito de vos para arrancar</h4>
-<p>Responder las decisiones del capítulo {{{{cap:30}}}} (nombres, Lani v2, paleta, Biblias, nivel de calidad, cuentas), abrir las cuentas de
-Google Play y Apple, elegir 2 revisores y 12 testers, hacer las entrevistas y las pruebas con 30 jóvenes y empezar la rutina de redes.
-Todo gasto y toda publicación salen con tu aprobación.</p></div>"""
+<p>Las 16 decisiones ya están tomadas (capítulo {{{{cap:31}}}}) y el desarrollo empezó el 05-10-2026. Ahora: probar cada vista previa
+desde el celular, crear el repositorio de la app, verificar el nombre, elegir 2 revisores y 12 testers y abrir Google Play a más tardar
+el 15-11. Todo gasto y toda publicación salen con tu aprobación.</p></div>"""
 
 
 def bloque_mapa_app() -> str:
@@ -602,12 +602,12 @@ def bloque_gantt_general(D) -> str:
 
 # ─────────────────────────────────────────────── documento ───────────────────────────────────────────────
 PARTES = {1: "I · Qué es y por qué", 6: "II · La app, módulo por módulo", 16: "III · Cómo se ve, se juega y se sostiene",
-          24: "IV · Cómo se construye y se cuida", 28: "V · Plata, tiempos y decisiones"}
+          25: "IV · Cómo se construye y se cuida", 29: "V · Plata, tiempos y decisiones"}
 
 
 def portada(D) -> str:
     tot = sum(i["profesional"] for i in D["presupuesto"]["items"])
-    pilares = [("biblia", "Leer", "Reina-Valera y 4 versiones más, audio y el «+»", V.INDIGO_M), ("travesia", "Aprender", "La Travesía, casi infinita", V.VERDE),
+    pilares = [("biblia", "Leer", "Reina-Valera y más versiones, audio y el «+»", V.INDIGO_M), ("travesia", "Aprender", "La Travesía, casi infinita", V.VERDE),
                ("jugar", "Jugar", "Espadeo, Liga Senda y Copas", V.ROJO), ("comunidad", "Juntos", "Calendario, Reunión y Púlpito", V.VIOLETA),
                ("lampara", "Crecer", "Berea, Pulso y menos scroll", V.AMBAR_OSC)]
     pil = "".join(f'<div style="--c:{c}"><span class="ps-i" style="background:{c}">{V.icono(i, 14, "#fff")}</span><b>{t}</b>{d}</div>' for i, t, d, c in pilares)
@@ -615,7 +615,7 @@ def portada(D) -> str:
              (f"USD {usd(tot)}", "primer año en nivel profesional, por tramos (hay básico y premium)"), ("1 millón", "de descargas: la meta para fines de 2030")]
     dt_ = "".join(f"<div><b>{a}</b><span>{b}</span></div>" for a, b in datos)
     return f"""<section class="portada-s">
-<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 2 · 2 de octubre de 2026 · uso privado</div>
+<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 2.1 · 5 de octubre de 2026 · uso privado</div>
 <div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v2</p>
 <p class="ps-lema">Una app cristiana para que los jóvenes conozcan la Biblia <b>jugando, leyendo y en comunidad</b>, con nivel profesional:
 nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen; Android e iOS primero y la web después.</p></div>
@@ -626,7 +626,7 @@ nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen
 <div class="ps-mv"><div><span>Misión</span>Ayudar a cada joven a conocer, amar y vivir la Palabra de Dios todos los días, con una experiencia alegre y
 excelente, en comunidad, gratis y en su idioma.</div><div><span>Visión</span>Ser la app cristiana número uno del mundo de habla hispana y
 portuguesa —la más descargada y la que mejor edifica a los jóvenes—, y una generación que conoce las Escrituras.</div></div>
-<div class="ps-pie">Esta versión incorpora las 30 correcciones del fundador (capítulo «Cómo leer este documento»). HECHO lleva fuente y fecha;
+<div class="ps-pie">Esta versión incorpora las 30 correcciones y las 16 decisiones del fundador, y el diseño emocional (capítulo 20). HECHO lleva fuente y fecha;
 ESTIMACIÓN lleva método. Nada que mueva plata o hable con terceros sale sin la aprobación del fundador. Lani, logo y pantallas son
 bocetos de dirección: el diseño final lo hacen especialistas.</div>
 </section>"""

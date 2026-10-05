@@ -94,4 +94,4 @@ a un resumen semanal.
 ## 10. Modo familia (2028)
 
 Perfil para chicos de 6 a 12 años administrado por un adulto, con consentimiento; Travesía adaptada por edad, sin elementos sociales ni
-anuncios; los padres ven el progreso y eligen el tiempo diario. Se integra con Senda Familia (capítulo {{cap:23}}).
+anuncios; los padres ven el progreso y eligen el tiempo diario. Se integra con Senda Familia (capítulo {{cap:24}}).

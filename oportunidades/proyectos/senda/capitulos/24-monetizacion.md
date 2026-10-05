@@ -118,7 +118,8 @@ mes.
 
 {{PROYECCION}}
 
-- **Con YouVersion Platform** (si aprueba a Senda), las licencias bajarían a cero y el neto subiría en esa línea.
+- **Licencias de Biblias:** un precio de ministerio de la American Bible Society bajaría esa línea. YouVersion Platform no aplica mientras
+  Senda tenga planes pagos y anuncios (exige apps no comerciales).
 - **Escenario malo** (la mitad de usuarios, de conversión y de iglesias): el neto de 2030 queda en torno a un tercio del normal.
   **Bueno** (2,5 veces los usuarios y las iglesias): cerca de tres veces el normal. Los tres valores están en la última fila de la tabla.
 - Lo que más mueve el resultado: **personas activas**, **iglesias con plan** y **conversión a Max**. Por eso el foco está en la

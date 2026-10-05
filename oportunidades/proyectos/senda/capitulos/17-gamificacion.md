@@ -46,13 +46,13 @@ motivaciones «de sombrero blanco» (sentido, logro, creatividad, pertenencia) y
 
 | | Gratis | Plus | Max |
 |---|---|---|---|
-| Máximo | **5** | **15** | **Ilimitadas** |
+| Máximo | **3** | **15** | **Ilimitadas** |
 | Vuelve 1 cada | 60 minutos | 20 minutos | — |
 
 **Cuestan una vida:** un error en una lección de la Travesía; empezar una partida individual o un duelo nuevo (Espadeo, Dibujalo exprés,
 Abecé, Antes o después).
 
-**Nunca cuestan:** leer o escuchar la Biblia, planes y Berea; **repasar** (y el repaso devuelve vidas); jugar en salas con amigos y en
+**Nunca cuestan:** leer o escuchar la Biblia, planes y Berea; **repasar**; jugar en salas con amigos y en
 Senda Reunión; el partido de la fecha de la Liga, las Copas y el Viernes de Espadeo; el Desafío del día.
 
 **Cómo se recuperan:**
@@ -60,7 +60,6 @@ Senda Reunión; el partido de la fecha de la Liga, las Copas y el Viernes de Esp
 | Forma | Cuánto |
 |---|---|
 | Esperar | 1 cada 60 min (Plus: 20 min) |
-| Repasar | +1 por cada repaso completo |
 | 5 aciertos seguidos en una lección | +1 |
 | Pedírselas a tus amigos (y regalarles) | Hasta 5 por día; regalar no te cuesta nada |
 | Invitar a alguien que instala Senda | +3 |
@@ -68,10 +67,11 @@ Senda Reunión; el partido de la fecha de la Liga, las Copas y el Viernes de Esp
 | Talentos | 1 vida = 40; recarga completa = 150 |
 | Perlas | Recarga completa = 15 |
 
-**Por qué así:** el ejemplo de tu nota (3 vidas gratis y 15 con Plus) va en la dirección correcta; se proponen **5** gratis porque en la
-Travesía los que recién empiezan se equivocan más (Duolingo encontró que los principiantes se quedaban sin corazones el doble de veces)
-y **siempre se puede seguir aprendiendo repasando**. La presión para pagar o ver un video aparece en las rachas largas de juego, no en el
-aprendizaje. Los números se ajustan con datos.
+**Por qué así (decisión del 05-10-2026):** 3 vidas gratis con una por hora, como en tu nota; repasar no gasta vidas pero por ahora
+tampoco las devuelve. Como los que recién empiezan se equivocan más (Duolingo encontró que los principiantes se quedaban sin corazones
+el doble de veces), se mide desde la prueba cerrada cuántos se quedan sin vidas en su primera semana; si son muchos, las palancas son
+volver a 5 vidas en la primera semana o que el repaso devuelva una. Leer la Biblia nunca gasta vidas, así que nadie queda sin nada
+para hacer.
 
 ## 4. Comodines
 

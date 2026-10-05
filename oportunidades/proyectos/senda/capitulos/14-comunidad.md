@@ -25,7 +25,7 @@ vuelva por los demás, no solo por el juego.
 | **Pulso** | Encuestas y resultados de la comunidad | Este capítulo |
 | **Estados** | Compartir un logro o un versículo con tus amigos por 24 h | Este capítulo |
 | Reacciones | «Amén», «¡Bien ahí!», «Orando por vos» a los logros de otros | Capítulo {{cap:18}} |
-| Embajadores | Líderes que contagian a otros grupos | Capítulo {{cap:21}} |
+| Embajadores | Líderes que contagian a otros grupos | Capítulo {{cap:22}} |
 
 ## 2. Pulso: las encuestas de Senda
 
@@ -65,7 +65,7 @@ difusión gratis y posiciona a Senda. Primera edición: diciembre de 2027.
 - **Menores:** 13–15, solo preguntas del día y de la semana sin temas sensibles; nada de estudios.
 - **Nunca se venden datos.** Si en el futuro una sociedad bíblica o un ministerio quiere un estudio, recibe resultados agregados, nunca
   datos de personas; antes del primer acuerdo de ese tipo y antes de publicar el primer informe se hace la revisión legal puntual del
-  capítulo {{cap:25}}.
+  capítulo {{cap:26}}.
 
 ## 3. Menos scroll: ganarle tiempo a las redes
 

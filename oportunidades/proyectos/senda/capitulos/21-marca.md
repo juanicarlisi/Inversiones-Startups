@@ -51,7 +51,7 @@ quieran usar (incluido el escudo de su club). Crece en redes sin mostrar a nadie
   cada video de redes.
 - **Tema de la racha:** una variación lenta y cálida para los hitos de racha.
 - **Fanfarria de la Armadura:** la versión épica de la firma.
-- Se producen con un diseñador de sonido o se componen con herramientas con licencia comercial (capítulo {{cap:24}}).
+- Se producen con un diseñador de sonido o se componen con herramientas con licencia comercial (capítulo {{cap:25}}).
 
 ## 5. Stickers
 
@@ -101,7 +101,7 @@ requiere tu aprobación.
 4. **Instagram:** el sorteo es de la marca, Instagram no lo patrocina (lo exigen sus reglas de promociones); nada de pedir
    etiquetas falsas.
 5. **Elección al azar** con una herramienta verificable y grabación de la pantalla.
-6. **Aprobación tuya** de cada sorteo (regla 8) y presupuesto en el capítulo {{cap:28}}.
+6. **Aprobación tuya** de cada sorteo (regla 8) y presupuesto en el capítulo {{cap:29}}.
 
 ## 8. Embajadores
 
@@ -117,7 +117,7 @@ Documento corto (10–15 páginas) con: logo y sus usos, colores, tipografías, 
 plantillas de redes, merch y **lo que no se hace** (usar a Lani en temas políticos o polémicos, deformar el logo, mezclar con marcas
 de terceros). Se arma cuando estén el logo y la mascota finales (noviembre de 2026).
 
-## 10. Protección de la marca (detalle en el capítulo {{cap:25}})
+## 10. Protección de la marca (detalle en el capítulo {{cap:26}})
 
 Registro en el INPI de la palabra **Senda** y del logo, y de **Lani** (v2) como marca figurativa, en las clases de software y apps (9),
 educación y entretenimiento (41), servicios en línea (42) y, para el merch, ropa (25), papelería y stickers (16) y juguetes (28).

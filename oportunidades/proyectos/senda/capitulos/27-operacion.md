@@ -19,7 +19,7 @@ mensual. El indicador que manda: **personas con 3 o más días con la Palabra po
 | **Ilustrador, animador de Rive y diseñador de sonido** | Freelancers | Lani v2, armadura, íconos, escenarios, Tu Lani, sonidos | Por proyecto |
 | **Embajadores** | Líderes de jóvenes | Usan Senda Reunión, invitan, dan devoluciones | Voluntario (con beneficios) |
 | **Moderadores** | El líder de cada grupo + vos + filtros automáticos | Reportes y contenido de usuarios | Minutos por día |
-| **Revisión legal puntual** | Profesional externo, opcional | Solo antes del primer estudio de Pulso con terceros o de un sorteo internacional (capítulo {{cap:25}}) | Una vez |
+| **Revisión legal puntual** | Profesional externo, opcional | Solo antes del primer estudio de Pulso con terceros o de un sorteo internacional (capítulo {{cap:26}}) | Una vez |
 
 ## 2. El ritmo de trabajo
 

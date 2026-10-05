@@ -58,6 +58,8 @@
 
 Las fuentes con fecha de cada dato están en las bitácoras del repositorio:
 
+- `conocimiento/2026-10-05-senda-desarrollo-y-licencias.md` — RVR1960 (derechos, uso sin permiso, YouVersion Platform, API.Bible, Ley 11.723),
+  Biblias libres incorporadas, verificación del nombre «Senda» y condiciones para desarrollar sin gastar.
 - `conocimiento/2026-10-02-senda-v2-investigacion.md` — Duolingo por dentro, Preguntados exacto, comodines, vidas, membresías, licencias
   de las Biblias (YouVersion Platform, API.Bible, titulares), calendario e iglesias, pantallas y redes, datos sensibles, nombres con
   dueño, color y jugosidad, tarifas.

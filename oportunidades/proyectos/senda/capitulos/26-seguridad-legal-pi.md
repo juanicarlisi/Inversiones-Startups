@@ -100,7 +100,7 @@ políticas de Google Play y App Store), vos los aprobás y se publican. El anál
 | **Sorteos en varios países** | Parcial (cada país tiene reglas) | Medio–alto | **Recomendada** si se hace un sorteo internacional |
 | Empresa del holding y transferencia de la app | Parcial | Medio | Contador o escribano (no necesariamente abogado) |
 
-**Conclusión:** sin abogado para lanzar; una **revisión puntual opcional** (USD 0–400, una sola vez, en el capítulo {{cap:28}}) en los dos
+**Conclusión:** sin abogado para lanzar; una **revisión puntual opcional** (USD 0–400, una sola vez, en el capítulo {{cap:29}}) en los dos
 casos marcados, y solo cuando lleguen. Así Senda queda segura, confiable y en regla sin un gasto fijo.
 
 ## 6. Documentos legales
@@ -152,7 +152,7 @@ Play y App Store (familias, contenido de usuarios, suscripciones, anuncios, uso 
 | **Marcas en otros países** | Brasil (INPI de Brasil) antes de la versión en portugués; EE.UU. (USD 350 por clase) cuando haya ingresos allí | Por país | 2028 en adelante |
 
 Argentina no está en el Protocolo de Madrid: cada país se registra por separado. **Decisión pendiente:** a nombre de quién se
-presenta la marca (vos o la empresa del holding), porque el registro es público (capítulo {{cap:30}}).
+presenta la marca (vos o la empresa del holding), porque el registro es público (capítulo {{cap:31}}).
 
 ### Licencias del contenido libre (cumplirlas es parte de la protección)
 

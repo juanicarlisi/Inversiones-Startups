@@ -21,9 +21,9 @@ completa, en 2028.
 | **Funciones que se prenden de a poco** | Lo nuevo sale apagado y se prende para el 5%, 20%, 50% y 100% de los usuarios |
 | **Lanzamiento gradual en tiendas y actualizaciones por aire** | Si algo falla, se frena; arreglos y contenido nuevo sin pasar por la tienda |
 | **Pistas de prueba** | Interna (vos) → cerrada (12–30 testers) → acceso anticipado → todos |
-| **Validar antes de construir lo grande** | Entrevistas, pruebas de nombres, de Lani y de paletas; «puertas falsas» que miden interés |
+| **Validar con la app en uso** | Sin validación previa (decisión del 05-10-2026): la vista previa, la prueba cerrada y la app publicada miden lo que importa; «puertas falsas» para medir interés en lo que todavía no existe |
 | **Trabajo en paralelo** | Producto, contenido, arte y difusión avanzan a la vez (es lo que permite comprimir el calendario) |
-| **Terminado es terminado** | Pruebas, analítica, textos traducibles, accesibilidad, animación y sonido, revisión doctrinal (si aplica) y sin conexión |
+| **Terminado es terminado** | Pruebas, analítica, textos traducibles, accesibilidad, la emoción del momento con su animación, sonido y vibración (capítulo {{cap:20}}), revisión doctrinal (si aplica) y sin conexión |
 
 ## 2. Qué entra en el MVP (18-12-2026)
 
@@ -68,13 +68,13 @@ hace. Las fechas se ajustan en cada comité mensual.
 | Portugués | Junio de 2028 | Marzo de 2028 |
 
 **Lo que lo hace posible:** trabajo en paralelo, contenido producido por lotes con revisión por muestreo, interruptores de funciones y
-Claude con más horas desde noviembre (decisión en el capítulo {{cap:30}}).
+Claude con más horas desde diciembre (decisión en el capítulo {{cap:31}}).
 
 ## 7. Los pasos clave, en orden
 
 1. **Escribir el proyecto** (v1 el 30-09; esta v2 el 02-10-2026).
-2. **Validar** (2 al 25 de octubre): entrevistas a 10 jóvenes, 5 líderes y 2 pastores; encuesta en tus grupos (50+); prueba de nombres,
-   de Lani v2 («infantilómetro») y de las 3 paletas con 30 jóvenes; prototipo navegable con 5. Decisión: seguir o ajustar.
+2. **Arrancar el desarrollo** (5 de octubre): repositorio propio de la app y sprint 0 con vista previa web para probar desde el
+   celular. Sin validación previa: se valida con la app en uso.
 3. **Fundaciones** (octubre): cuentas de Google Play y Apple, dominios, redes, AAIP; pedido de licencias de Biblias; repositorio, backend,
    analítica; revisores y 12 testers.
 4. **Difusión desde el día 1:** Instagram, TikTok y el canal de WhatsApp (1–7 de octubre); 3–5 publicaciones por semana con Lani; seguir
@@ -100,7 +100,8 @@ Claude con más horas desde noviembre (decisión en el capítulo {{cap:30}}).
 
 | Fecha | Hito | Condición |
 |---|---|---|
-| 25-10-2026 | Decisión de seguir | Entrevistas y prototipo confirman interés; Lani y paleta aprobadas por los jóvenes |
+| 05-10-2026 | Arranca el desarrollo | Decisiones tomadas; sprint 0 publicado como vista previa |
+| 15-11-2026 | Cuenta de Google Play | Abierta a tiempo para la prueba cerrada (12 testers × 14 días) |
 | 18-12-2026 | Publicada | Aprobada en las dos tiendas y pasa la prueba de la grilla |
 | 21-01-2027 | Fin del desafío de 21 días | 500 participantes; 40% llega al día 7 |
 | 21-03-2027 | v1 «Juntos» | 20 grupos usando Senda Reunión |
@@ -116,7 +117,7 @@ Claude con más horas desde noviembre (decisión en el capítulo {{cap:30}}).
 | Cuándo | Tarea |
 |---|---|
 | Oct-2026 | Búsqueda de antecedentes de los nombres (Senda, Lani, Travesía, juegos) en INPI y tiendas; dominios y redes; inscripción en la AAIP |
-| Oct–nov 2026 | Pedido de licencias de Biblias (YouVersion Platform, API.Bible) |
+| Oct–nov 2026 | Pedido de precio de ministerio para la RVR1960 (American Bible Society); API.Bible si se aprueba |
 | Nov-2026 | Marca «Senda» (clases 9, 41 y 42); contratos con cesión de derechos para interfaz, ilustración, animación y sonido; términos, privacidad, normas y política de encuestas |
 | Ene–feb 2027 | Marcas del logo y de Lani; empresa del holding y transferencia de la app |
 | Mar-2027 | Pedido del permiso de Apple para *Primero la Palabra* |

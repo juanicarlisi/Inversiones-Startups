@@ -30,7 +30,7 @@ como «sana pero desquiciada»: dentro de la app, un entrenador amable; en redes
 
 **Prueba antes de aprobar («infantilómetro»):** 3 versiones de Lani (bocetos del ilustrador) a 30 jóvenes de 15 a 25 años: «¿qué tan
 infantil es? (1 a 5)», «¿te identificás?», «¿la usarías de foto de perfil?», «¿es de chica, de chico o de los dos?». Se aprueba la que
-saque **infantil ≤ 2 de 5**, «cool» ≥ 4 de 5 y «de los dos» como respuesta más votada. Es parte de la fase de validación de octubre.
+saque **infantil ≤ 2 de 5**, «cool» ≥ 4 de 5 y «de los dos» como respuesta más votada. Se hace con usuarios reales cuando la app esté en uso (decisión del 05-10-2026: no hay validación previa; el boceto v2 es el punto de partida).
 
 ## 2. Lani: la ficha del personaje
 
@@ -86,7 +86,7 @@ mezcla con la siguiente sin cortes. Mira hacia donde tocás, parpadea y respira 
 Espadeo (conductora), redes sociales, stickers de WhatsApp, merch.
 
 **Protección:** la versión final la dibuja y anima una persona (no solo IA) para que tenga derechos de autor, con cesión por escrito; se
-registra como marca figurativa (capítulo {{cap:25}}).
+registra como marca figurativa (capítulo {{cap:26}}).
 
 ## 4. El elenco (más adelante)
 
@@ -157,4 +157,4 @@ Se aprueba con 24 de 30 o más; los nombres clave se validan con jóvenes en oct
 | Cofres | **Cofres** | Tesoros | Universal en juegos |
 | Pase por temporada | **Pase Senda** | — | Directo |
 | Tu mascota personalizada | **Tu Lani** | — | Es tuya |
-| Planes | **Plus, Max, Familia, Líder, Iglesia** | Plus, Líder, Iglesia | Escalera clara (capítulo {{cap:23}}) |
+| Planes | **Plus, Max, Familia, Líder, Iglesia** | Plus, Líder, Iglesia | Escalera clara (capítulo {{cap:24}}) |

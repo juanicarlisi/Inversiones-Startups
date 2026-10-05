@@ -15,7 +15,7 @@ coreografía para cada momento.
   estética-usabilidad: lo lindo se percibe más fácil de usar).
 - **El público compara con lo mejor:** un joven de 16 usa Clash Royale, TikTok y Duolingo. Si Senda se ve como «una lámina blanca con
   un dibujo arriba», se nota que no está a la altura y se va.
-- **El riesgo número 1 del proyecto** es que la app parezca infantil o aburrida (capítulo {{cap:27}}).
+- **El riesgo número 1 del proyecto** es que la app parezca infantil o aburrida (capítulo {{cap:28}}).
 
 ## 2. Qué significa «profesional»: la vara
 
@@ -45,7 +45,7 @@ real, en un teléfono. La miran vos y 5 jóvenes. Si en algún criterio Senda qu
 | **Clash Royale / Brawl Stars** | Atraen a adolescentes sin ser infantiles: botones gruesos, metales, brillos, tipografía pesada | El tono de la Arena: piezas de armadura metálicas, botones con volumen, títulos con peso |
 | **Kahoot** | La energía del vivo: cuenta regresiva, música, podio | Senda Reunión y el Viernes de Espadeo |
 | **Headspace** | Calma visual | El Santuario (la Biblia) |
-| **Spotify Wrapped** | Pantallas hechas para compartir | Las tarjetas para historias y estados (capítulo {{cap:21}}) |
+| **Spotify Wrapped** | Pantallas hechas para compartir | Las tarjetas para historias y estados (capítulo {{cap:22}}) |
 
 ## 4. Los dos climas
 
@@ -104,10 +104,9 @@ luz, energía, calidez y algo de trascendencia.
 | **B · Ámbar + índigo** (recomendada) | El mismo ámbar; el azul marino pasa a **índigo-violeta profundo**; categorías en tonos de joya armonizados | Mantiene la familia que te gusta; deja de parecer banco; suma lo espiritual y lo nocturno del juego; se distingue de todos | Hay que cuidar que el violeta no se vuelva infantil (por eso es profundo, casi noche) |
 | **C · Ámbar + verde azulado** | Ámbar + petróleo | Fresco, calmo | Se acerca a apps de salud y bienestar; menos energía de juego |
 
-**Cómo se decide:** en la validación de octubre, las tres paletas aplicadas a las mismas 3 pantallas (Inicio, una pregunta de Espadeo y
-el mapa de la Travesía) se muestran a 30 jóvenes: preferencia y palabras que les sugieren (banco, infantil, juego, cristiana, moderna,
-profesional), una prueba de 5 segundos y la «grilla de tienda» (el ícono de Senda entre los de la competencia). **Si B no gana, se
-queda la que gane.**
+**Decidido (05-10-2026): la B es el punto de partida** y ya está en la app. Se ajusta con el uso: cuando haya usuarios, una encuesta corta
+(¿qué palabras te sugiere: banco, infantil, juego, cristiana, moderna, profesional?), la «grilla de tienda» (el ícono de Senda entre los
+de la competencia) y pruebas A/B en la ficha de Google Play.
 
 ### Reglas para que nunca sea un cambalache
 
@@ -206,7 +205,7 @@ Unbounded y Plus Jakarta Sans, íconos propios sin emojis, profundidad, luz y bo
 este documento: muestran el nivel y el tono buscados; el diseño final lo hace el diseñador de interfaz con el sistema de este capítulo.
 El resto de las pantallas v2 está en cada módulo: Inicio y Pulso (capítulo {{cap:06}}), Travesía (capítulo {{cap:08}}), Espadeo
 (capítulo {{cap:09}}), Liga (capítulo {{cap:11}}), Senda Reunión (capítulo {{cap:12}}), calendario (capítulo {{cap:13}}), Tu Lani y
-cofres (capítulo {{cap:18}}) y las tarjetas para compartir (capítulo {{cap:21}}).
+cofres (capítulo {{cap:18}}) y las tarjetas para compartir (capítulo {{cap:22}}).
 
 {{MOCKS_UX}}
 
@@ -235,14 +234,14 @@ o forma (el 8% de los varones tiene alguna forma de daltonismo) y todo jugable c
 ## 15. Voz y tono
 
 - **Español neutro de Latinoamérica** con «tú» para toda la región y variantes locales (voseo en Argentina y Uruguay; «Basta» en
-  México) que se activan por país. **Decisión pendiente** (capítulo {{cap:30}}).
+  México) que se activan por país. **Decisión pendiente** (capítulo {{cap:31}}).
 - Frases cortas, con humor; nunca sermón ni reto; nunca aniñado.
 - Errores explicados sin culpa («Casi. Era José, Génesis 37:28»).
 
 ## 16. Cómo se asegura la calidad
 
 1. **Sistema de diseño primero:** el diseñador de interfaz define colores, tipografías, componentes, íconos y movimiento antes de
-   construir pantallas (capítulo {{cap:28}}). Claude lo programa tal cual.
+   construir pantallas (capítulo {{cap:29}}). Claude lo programa tal cual.
 2. **La prueba de la grilla** antes de cada versión.
 3. **Pruebas con 5 jóvenes cada dos semanas** (con 5 personas aparecen la mayoría de los problemas de uso).
 4. **Métricas de experiencia:** finalización de la primera lección, tiempo hasta el primer acierto, abandono por pantalla, calificación

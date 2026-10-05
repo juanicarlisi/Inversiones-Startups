@@ -2,7 +2,8 @@
 
 <div class="enpocas" markdown="1">
 **En pocas palabras.** Una Biblia completa, gratis y **sin publicidad**, con la **Reina-Valera por defecto** y como alternativas las
-versiones que más usan las iglesias (**NTV, NVI, DHH y TLA**), que se lee sin conexión y se escucha en voz alta. Al tocar el **«+»**
+versiones que más usan las iglesias (**NTV, NVI, DHH y TLA**) a medida que lleguen las licencias. Desde el primer día trae tres
+Biblias libres (RV1909, Español Sencillo y Palabra de Dios para ti). Se lee sin conexión y se escucha en voz alta. Al tocar el **«+»**
 de un versículo se abre una hoja con notas de estudio, comentarios clásicos, referencias y mapas, todo con licencia libre. No hay
 botones que manden a otras apps: todo pasa dentro de Senda. Acá vive también **Berea** (planes y desafíos, capítulo {{cap:15}}).
 </div>
@@ -11,14 +12,15 @@ botones que manden a otras apps: todo pasa dentro de Senda. Acá vive también *
 
 | Versión | Titular | Licencia | Rol en la app | Cuándo |
 |---|---|---|---|---|
-| **Reina-Valera 1960** | Sociedades Bíblicas Unidas (SBU) | Con derechos; licencia | **Versión por defecto** en cuanto esté la licencia | MVP si llega la licencia; si no, v1 |
-| **Reina-Valera 1909** | — | Dominio público | **Por defecto desde el día 1** hasta tener la RVR1960; después, alternativa clásica | MVP |
+| **Reina-Valera 1909** | — | Dominio público | **Por defecto desde el día 1** hasta tener la RVR1960; después, alternativa clásica | **Ya en la app** (sprint 0) |
+| **La Biblia en Español Sencillo** (BES) | AudioBiblia.org / Irma Flores | CC BY 4.0 | Alternativa en lenguaje simple y actual | **Ya en la app** |
+| **Palabra de Dios para ti** (PDT) | Centro Mundial de Traducción de la Biblia | CC BY-SA 4.0 | Alternativa moderna | **Ya en la app** |
+| Versión Biblia Libre (VBL) | Comunidad (eBible.org) | CC BY-SA 4.0 | Alternativa libre de reserva | Si los usuarios la piden |
+| **Reina-Valera 1960** | Sociedades Bíblicas Unidas (SBU); licencias por la American Bible Society | Con derechos y marca registrada | **Versión por defecto** en cuanto esté la licencia | Lanzamiento o v1, según la licencia (sección 2) |
 | **NTV** (Nueva Traducción Viviente) | Tyndale House Foundation | Con derechos; licencia | Alternativa moderna y clara | v1 (feb–mar 2027) |
 | **NVI** (Nueva Versión Internacional) | Biblica | Con derechos; licencia | Alternativa moderna | v1 |
 | **DHH** (Dios Habla Hoy) | SBU | Con derechos; licencia | Alternativa en lenguaje popular | v1 |
 | **TLA** (Traducción en Lenguaje Actual) | SBU | Con derechos; licencia | Alternativa para nuevos creyentes y chicos | v1 |
-| Nueva Biblia Viva (edición abierta) | Biblica | CC BY-SA 4.0 | Alternativa libre (no depende de licencias) | MVP |
-| La Biblia en Español Sencillo | — | CC BY 4.0 | Alternativa libre | MVP |
 | Portugués e inglés | Varios | Libres y con licencia | — | 2028 |
 
 **Por qué la Reina-Valera por defecto:** es la que usa la mayoría de las iglesias evangélicas de habla hispana, la que se lee en voz
@@ -29,30 +31,37 @@ ya leía en 1909 elige si cambia.
 **Cómo verifican los juegos:** las preguntas y lecciones se comprueban contra dos versiones (la Reina-Valera y una moderna) para que
 ninguna respuesta dependa de una traducción.
 
-## 2. Cómo se consiguen las licencias, paso a paso
+## 2. ¿Se puede usar la RVR1960 sin licencia? Y cómo se consigue
 
-Hay tres caminos. Se intentan en este orden porque van del más barato al más trabajoso.
+**Por qué una Biblia tiene derechos:** el texto original (hebreo, arameo y griego) es de todos, pero **cada traducción o revisión
+moderna es una obra nueva** que alguien hizo y financió. La RVR1960 es una revisión de 1960 hecha por las Sociedades Bíblicas; con
+las licencias, las sociedades bíblicas financian traducciones a otros idiomas. Por eso la RV1909 es libre (sus derechos vencieron) y
+la RVR1960 no.
 
-| | Camino | Qué es | Costo | Qué hay que verificar |
-|---|---|---|---|---|
-| 1 | **YouVersion Platform** | Desde diciembre de 2025, YouVersion abre gratis su tecnología y sus acuerdos con editoriales a otras apps: API, kit para React Native y 1.487 Biblias de 36 editoriales | **Gratis** | Si una app con planes pagos y anuncios en los juegos (aunque la Biblia no los tenga) puede usarla, y qué permite cada editorial (lectura sin conexión, mostrar el texto en preguntas) |
-| 2 | **API.Bible** (American Bible Society) | Biblias con derechos a través de una API, con licencias por traducción | Plan Pro desde **USD 29/mes** + cada versión **desde USD 10/mes** (1.000 usuarios) hasta **USD 250/mes** (100.000 usuarios) | Que estén disponibles en uso comercial las 5 versiones; reglas: aviso de derechos siempre visible, no modificar el texto, refrescar lo guardado cada 30 días como máximo |
-| 3 | **Licencia directa** | Pedirla a cada titular: SBU (RVR1960, DHH, TLA), Biblica (NVI) y Tyndale (NTV: permisos@tyndale.com) | A negociar | Plazos de 2 a 8 semanas; casi siempre piden datos de la empresa y del uso |
+**Lo que se averiguó (05-10-2026, por buscador; a confirmar en la fuente):**
 
-**El paso a paso:**
+| Dato | Qué dice | Qué significa para Senda |
+|---|---|---|
+| Titular | © Sociedades Bíblicas en América Latina, 1960; derechos renovados en 1988 por las Sociedades Bíblicas Unidas. «Reina-Valera 1960» es **marca registrada** y solo se usa con licencia | Ni el texto ni el nombre se pueden usar libremente |
+| Uso sin permiso | Se pueden citar **hasta 500 versículos** sin permiso escrito, siempre que no sean la mitad de un libro, con el aviso «Texto bíblico: Reina-Valera 1960 © Sociedades Bíblicas en América Latina, 1960. Renovado © Sociedades Bíblicas Unidas, 1988. Utilizado con permiso» | Sirve para citar algunos versículos (por ejemplo en preguntas), **no para tener la Biblia completa** |
+| Ley argentina | La Ley 11.723 (art. 8) da 50 años desde la publicación a las obras anónimas de personas jurídicas | **HIPÓTESIS sin valor práctico:** aunque en la Argentina pudiera discutirse que venció, la app se baja en todo el mundo (en EE.UU. y otros países sigue protegida), la marca sigue vigente y las tiendas bajan apps ante un reclamo, con riesgo de perder la cuenta de desarrollador. **No se recomienda** |
+| YouVersion Platform | Gratis, pero **solo para apps no comerciales** (sin anuncios, sin muros de pago y sin suscripciones) | Senda, con planes y anuncios en los juegos, **no califica**. Solo serviría si Senda fuera totalmente gratis |
+| API.Bible (American Bible Society) | Tiene la RVR1960. Uso comercial con el plan **Pro desde USD 29 por mes** más cada traducción **desde USD 10 por mes** | **El camino más simple: ~USD 39 por mes** al empezar, sin negociar |
+| Licencia directa | Permisos de la American Bible Society (licensing@americanbible.org) y de las Sociedades Bíblicas de cada país | Vale la pena **pedir un precio de ministerio o un permiso gratuito**: preguntar no cuesta nada |
 
-1. **Octubre de 2026:** Claude prepara la consulta a YouVersion Platform (qué es Senda, cómo se financia, que la Biblia nunca tiene
-   publicidad) y la cuenta en API.Bible. Vos la revisás y la enviás.
-2. **Si YouVersion responde que sí:** se integran las cinco versiones con su kit, sin costo.
-3. **Si no, o mientras tanto:** se activa API.Bible Pro con la RVR1960 primero (USD 39 por mes al inicio) y en v1 se suman NTV, NVI,
-   DHH y TLA.
-4. **Si alguna versión no está en API.Bible:** se escribe al titular con el modelo de carta que prepara Claude.
-5. **Siempre:** se guarda cada licencia en el repositorio, se muestra el aviso de derechos en cada pantalla donde aparece el texto y se
-   respeta cada regla de uso (capítulo {{cap:25}}).
+**El plan:**
+
+1. **Ya:** la app sale con tres Biblias libres (RV1909 por defecto, BES y PDT), con su atribución en cada pantalla.
+2. **Octubre de 2026:** Claude redacta el pedido a la American Bible Society y a la Sociedad Bíblica Argentina (qué es Senda, que la
+   Biblia nunca tiene anuncios, cuántos usuarios se esperan) pidiendo un precio de ministerio. Vos lo revisás y decidís si se envía.
+3. **Diciembre de 2026 o marzo de 2027:** si no hay respuesta mejor, se activa API.Bible Pro con la RVR1960 (~USD 39 por mes), con tu
+   aprobación: para el lanzamiento si querés que salga con la RVR1960, o en marzo, cuando empiezan los planes pagos.
+4. **v1:** NTV, NVI, DHH y TLA por el mismo camino, por demanda: si casi nadie usa una, no se renueva.
+5. **Siempre:** se guarda cada licencia en el repositorio, se muestra el aviso de derechos donde aparece el texto y se respetan las
+   reglas (no modificar el texto, refrescar lo guardado cuando lo pide la licencia; capítulo {{cap:26}}).
 
 **ESTIMACIÓN de costo con API.Bible** (5 versiones con derechos): ~USD 230 por mes con 8.000 personas activas, ~USD 880 con 60.000.
-Está incluido en la proyección del capítulo {{cap:23}}; con YouVersion Platform ese costo podría ser cero. Para no pagar de más, las
-versiones se licencian por demanda: si casi nadie usa una, se evalúa dejarla.
+Está incluido en la proyección del capítulo {{cap:24}}.
 
 ## 3. El lector: lo que hace
 
@@ -110,7 +119,7 @@ Resultado: **la primera colección libre de notas y comentarios bíblicos en esp
 |---|---|---|---|
 | MVP | Voz del propio teléfono (gratis, sin conexión) | 0 | Aceptable |
 | v1 | **Voz neuronal generada una vez** por versión libre (Google o Azure), guardada en nuestro almacenamiento | USD 17–130 por versión | Muy buena |
-| v1–v2 | Audio de las versiones con licencia, si la licencia lo incluye (YouVersion o API.Bible) | Según licencia | Muy buena |
+| v1–v2 | Audio de las versiones con licencia, si la licencia lo incluye (API.Bible o licencia directa) | Según licencia | Muy buena |
 | Futuro | Narradores humanos para la versión por defecto, si hay ingresos | Miles de dólares | La mejor |
 
 No se usa el audio de Faith Comes By Hearing porque su licencia prohíbe apps en las que el usuario pague algo.
@@ -128,7 +137,7 @@ No se usa el audio de Faith Comes By Hearing porque su licencia prohíbe apps en
   la Palabra del día abre el **Cofre de la Palabra** (Talentos). Así se cumple que *todo suma* sin convertir la lectura en una carrera.
 - **Sin publicidad ni ofertas:** nunca en este módulo.
 
-## 8. Contenido necesario (resumen; detalle en el capítulo {{cap:22}})
+## 8. Contenido necesario (resumen; detalle en el capítulo {{cap:23}})
 
 | Pieza | MVP | v1–v2 | 2028 |
 |---|---|---|---|

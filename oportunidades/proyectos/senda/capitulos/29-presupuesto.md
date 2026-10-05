@@ -55,7 +55,7 @@ Todo gasto lo aprobás antes (regla 8). Si un tramo no se habilita, se sigue con
 |---|---|---|
 | Oct–dic 2026 | Supabase (gratis → Pro), dominios, planes gratis del resto; licencia RVR1960 si llega (API.Bible Pro USD 29 + USD 10) | USD 5–70 |
 | 2027 | Supabase Pro, R2, EAS en meses de mucho trabajo, API.Bible Pro + 5 versiones (USD 10–50 cada una según usuarios) | USD 80–330 |
-| 2028 en adelante | ~USD 0,009 por persona activa + licencias de Biblias (USD 450–880 con 5 versiones; 0 si alcanza YouVersion Platform) | USD 650–1.400 |
+| 2028 en adelante | ~USD 0,009 por persona activa + licencias de Biblias (USD 450–880 con 5 versiones; menos con un precio de ministerio) | USD 650–1.400 |
 
 Claude (Pro o Max) se presupuesta a nivel del holding, no de Senda.
 
@@ -63,7 +63,7 @@ Claude (Pro o Max) se presupuesta a nivel del holding, no de Senda.
 
 | Palanca | Costo | Qué se gana |
 |---|---|---|
-| **Claude Max desde noviembre de 2026** (en vez de enero de 2027) | +USD 80 por mes durante 2 meses | Más horas de trabajo de Claude por semana: el MVP ampliado llega con margen |
+| **Claude Max desde diciembre de 2026** (decidido el 05-10; noviembre no) | +USD 80 por mes | Más horas de trabajo de Claude por semana: el MVP ampliado llega con margen |
 | Un segundo revisor pago por horas | USD 100–200 por mes en picos | Fundamentos completa en junio sin depender solo de voluntarios |
 | Testers pagos en plataformas de pruebas | USD 50–150 por ronda | Pruebas con desconocidos además de tu comunidad |
 
@@ -71,12 +71,12 @@ Claude (Pro o Max) se presupuesta a nivel del holding, no de Senda.
 
 | Período | Horas por semana | En qué |
 |---|---|---|
-| Oct–dic 2026 | 5 | Validación (nombres, Lani, paletas), cuentas, licencias, revisores, testers, pruebas, redes |
+| Oct–dic 2026 | 4–5 | Probar cada vista previa, cuentas (Google Play en noviembre), licencias, revisores, testers, redes |
 | Ene–jun 2027 | 4 | Pruebas cada dos semanas, líderes para Senda Reunión, redes, comité |
 | Jul–dic 2027 | 2,5–3,5 | Pruebas, comité, comunidad, embajadores |
 | 2028 en adelante | 1,5–2 | Comité, decisiones, comunidad |
 
-## 8. Ingresos (resumen del capítulo {{cap:23}})
+## 8. Ingresos (resumen del capítulo {{cap:24}})
 
 {{PROYECCION_CORTA}}
 

@@ -64,7 +64,7 @@ la tabla de la Liga, las tarjetas para compartir y la cinemática de armadura co
 Con rivales al azar se juega **sin chat ni perfil completo**: se ve su Lani, su apodo, su club y su país. Para conectar después hace
 falta que los dos acepten y, si alguno es menor de 16, no se puede.
 
-## 5. Seguridad y cuidado (resumen; detalle en el capítulo {{cap:25}})
+## 5. Seguridad y cuidado (resumen; detalle en el capítulo {{cap:26}})
 
 | Riesgo | Qué hace la app |
 |---|---|
