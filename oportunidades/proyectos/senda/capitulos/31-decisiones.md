@@ -101,6 +101,23 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | Escala | Preparada para millones, sincronización perfecta, sin cuelgues | Bandeja de salida persistente e idempotente, resúmenes que no recorren millones de filas (migración aplicada) y el plan por etapas en `docs/ESCALA.md` (capítulo {{cap:25}}, sección 10) |
 | Juegos nuevos (evolutivos) | Juegos de mesa y de consola llevados a la Biblia; algo tipo Mario Party; juegos de campamento | Registrados con benchmark y regla de corte en el capítulo {{cap:10}} (secciones 11 a 13): El arca, Jericó, Nehemías, José, David, Los viajes de Pablo de mesa, Babel; **Senda Fiesta** (tablero, dado, coronas, un minijuego por ronda); esgrima bíblica, rally, lotería y más para el modo campamento |
 
+**Séptima tanda (06-10-2026, después de probar el APK de la prueba 6):**
+
+| Tema | Lo que dijiste | Lo que quedó |
+|---|---|---|
+| La hoja y los sonidos de la Biblia | Mucho mejor | Se mantienen |
+| Marcar y seleccionar | Marcar un versículo o una página, o seleccionar, está muy lento | **Rehecho (prueba 7):** cada versículo escucha solo sus marcas, así que marcar, resaltar o poner una cinta no redibuja la hoja; todas las animaciones van en el hilo nativo y lo guardado se escribe de a lotes. En la prueba con el procesador frenado, cada toque pasó de 170–260 ms de trabajo a 60–90 ms |
+| Clic de la ruleta | Bien en general; que el clic sea más profesional | Dientes de una matraca grabada con el cuerpo de la caja china: livianos cuando gira rápido, llenos cuando frena, y un rebote al final. En la Consola están los tres giros completos para comparar |
+| Ganar una pieza | Más fiesta: Lani baila, música | **La fiesta:** música propia (bongós, congas, xilofón con el motivo de Senda); Lani baila al pulso, confeti en cada compás y salto en el remate. **La gran fiesta** al completar la armadura, con Lani acorazada |
+| Travesía: ayuda | Que vea que aprendió; una ayuda que diga dónde leer; algo como 3 ayudas | **3 Lámparas** por lección que abren el pasaje con el versículo clave (no gastan vidas; la lección perfecta es sin Lámparas). **Lectura recomendada** al empezar y «Para profundizar» al final. **Repaso espaciado:** lo fallado vuelve mañana, lo acertado cada vez más lejos, y «Ya quedaron N» |
+| Calendario | Muy bien por ahora | Sin cambios |
+| Costos | Optimizar todo el diseño para bajar el costo de servidores | Regla del costo mínimo (capítulo {{cap:25}} y `docs/COSTOS.md`): lo hace el teléfono, nada en vivo si alcanza con turnos, lógica en la base, muestras en las métricas. Las palancas para crecer quedan guardadas, no activadas |
+| Escalar sin rehacer | Que crezca sin cambiar la estructura ni el backend | Cada proveedor detrás de un módulo propio, contratos estables por vistas y funciones, identificadores idempotentes y etapas que son configuración. Queda como regla 13 de la app |
+| Palabra original | Transliteración y la palabra original con el «+», como opción | Diseñado con datos libres de STEPBible (CC BY 4.0) y significados propios en español; se baja por libro y solo si se usa (v1.1). El Strong en español tiene derechos y no se usa |
+| «Alimenta a Elías» y las ideas de juegos | Son ideas para evaluar y tomar como forma de pensar, no para replicar | La **fábrica de juegos** (capítulo {{cap:10}}, §14): ocho preguntas con puntaje. «Así no» (Flappy Bird frustra) «→ mejor así»: **Los cuervos de Querit** (32/40); la familia, encabezada por **Maná** (34/40); y la fusión, una biblioteca de minijuegos que sirve al Arcade, a Senda Fiesta, a Reunión y a los campamentos. Queda como doctrina 08 §9 |
+| Duelos al publicar | ¿Sirve para duelos o falta backend? Partidas abiertas que vencen | **Todavía no:** faltan cuentas anónimas, partidas en la base, invitaciones, push y vencimientos. Todo entra en el plan gratis, y el costo extra es USD 0 hasta el Pro previsto. Turnos de 72 h con recordatorios; si vence, gana el que jugó último (`docs/DUELOS.md`, sprint 3). Vos creás dos cuentas gratis, Expo y Firebase, con la guía |
+| Backlog | Avanzar con todo | **Adelantado del sprint 2:** completar el versículo, unir parejas y ¿quién lo dijo?, con validación textual contra la RV1909, y la sección 1 de Fundamentos entera (4 lecciones nuevas, en revisión doctrinal) |
+
 ## 2. Cómo seguimos: el desarrollo
 
 | Qué | Cómo |

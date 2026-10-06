@@ -247,7 +247,66 @@ Fuentes: [Esgrima bíblica (FaithGateway)](https://faithgateway.com/products/esg
 [dinámicas para jóvenes (ACI Prensa)](https://www.aciprensa.com/catequesis/dinamicas2.htm),
 [juegos para ministerio juvenil (StudioBinder)](https://cache.studiobinder.com/youth-ministry-games).
 
-## 14. Cómo se mide
+## 14. La fábrica de juegos bíblicos: cómo pensamos un juego (prueba 7, 06-10-2026)
+
+**De dónde sale.**
+- El fundador propuso un ejemplo: «Alimenta a Elías», un cuervo al estilo Flappy Bird.
+- Aclaró que sus ejemplos (Jericó, el arca, Mario Party, Flappy Bird) no son encargos. Son ideas que le gustan, para evaluar si encajan, qué hacer con ellas y qué ideas nuevas salen.
+- Esa forma de pensar queda como regla (doctrina 08, §9).
+
+**Las ocho preguntas que pasa todo juego (puntaje de 1 a 5 cada una):**
+1. **¿La mecánica nace del texto?** Lo que se hace con el dedo es lo que pasa en la historia. Si se puede cambiar la historia sin cambiar el juego, es un reskin y no va.
+2. **¿Se aprende algo comprobable?** Un versículo, un orden, un lugar, un personaje o una idea del relato. Al final, una tarjeta «Lo que aprendiste» con la cita.
+3. **¿Es corto y de un dedo?** Partidas de 60 a 120 segundos, que se entienden en 3 segundos.
+4. **¿El género divierte de verdad?** Mecánicas probadas por millones (vuelo de un toque, ritmo, acomodar, honda, carrera), con una curva de dificultad que pide «una más».
+5. **¿Es barato de hacer?** Reutiliza el motor (Reanimated y Skia), el arte de Lani y los sonidos de la firma.
+6. **¿Cuesta cero de servidor?** Todo en el teléfono. La tabla semanal de amigos usa la misma base de los duelos.
+7. **¿Es reverente?** Sin violencia gráfica y sin burlarse de lo sagrado. Si Dios aparece, no es un personaje del juego.
+8. **¿Se comparte?** Un récord o un clip de 10 segundos que dé ganas de mandarlo al grupo.
+
+**El ejemplo evaluado: «Alimenta a Elías» → «Los cuervos de Querit» (1 Reyes 17:2-6).**
+- **Encaja muy bien.** En la historia, Dios manda a los cuervos a llevarle a Elías «pan y carne por la mañana, y pan y carne por la tarde» junto al arroyo de Querit. Volar con un toque es exactamente lo que hacen.
+- **Así no:** Flappy Bird es famoso por frustrar (un roce y se termina). Para chicos y jóvenes frustra de más, y además castiga sin enseñar.
+- **Mejor así:**
+  - el cuervo vuela entre los peñascos del valle;
+  - si choca, **se le cae la comida** (no muere) y tiene que volver a buscarla;
+  - hay **dos vuelos por día**, mañana y tarde, como dice el texto;
+  - el arroyo baja un poco cada día por la sequía (1 Reyes 17:7). Cuando se seca, el nivel termina y abre el siguiente: la viuda de Sarepta, donde la harina y el aceite no se acaban (otra mecánica: repartir sin que se vacíe la tinaja);
+  - las palabras de 1 Reyes 17:6 aparecen sueltas en el camino, y juntarlas completa el versículo.
+- **Puntaje (estimación de Claude):** texto 5, aprendizaje 4, género 5, costo 4 (un escenario y un personaje nuevo), servidor 5, reverencia 5, se comparte 4 → **32 de 40**.
+
+**La familia que sale de la misma pregunta (historia → mecánica), ordenada por puntaje (estimaciones de Claude):**
+
+| Juego (provisorio) | Historia | Mecánica | Qué se aprende jugando | Puntaje (de 40) |
+|---|---|---|---|---|
+| **Maná** | Éxodo 16 | Atrapar lo que cae, con las reglas del texto: lo justo para cada uno; lo que se guarda para mañana se echa a perder; el sexto día, doble; el séptimo no cae | Las reglas del maná y el día de reposo (el juego *es* la lección) | 34 |
+| **Los cuervos de Querit** | 1 Reyes 17 | Vuelo de un toque | Dios provee; versículo por partes | 32 |
+| **Jericó** | Josué 6 | Ritmo: una vuelta por día y siete el séptimo, las trompetas a tiempo | La secuencia del relato; obedecer | 31 |
+| **Pedro sobre el agua** | Mateo 14 | Mantener la mirada: el dedo sigue a Jesús mientras el viento y las olas distraen; si se suelta, Pedro se hunde y una mano lo levanta | Fe y duda; el relato | 30 |
+| **El arca** | Génesis 6–9 | Acomodar de a pares en tres cubiertas antes de la lluvia | Orden y fechas del diluvio; el pacto | 30 |
+| **Nehemías** | Nehemías 4–6 | Apilar la muralla tramo a tramo mientras se cuidan las puertas | Los 52 días; trabajar y orar | 29 |
+| **David en el valle** | 1 Samuel 17 | Honda con física; Goliat cae como dice el texto, sin sangre | El contexto y la confianza de David | 28 |
+| **Samuel, ¿quién llama?** | 1 Samuel 3 | Memoria de sonidos: distinguir la voz | El llamado de Samuel | 27 |
+| **Gedeón** | Jueces 7 | Reacción al unísono: romper los cántaros y alzar las antorchas al mismo tiempo | Por qué solo 300 | 27 |
+| **Zaqueo** | Lucas 19 | Trepar el sicómoro, al estilo Doodle Jump | El encuentro con Jesús | 26 |
+| **José en Egipto** | Génesis 41 | Gestión corta: guardar en los siete años buenos | Previsión y el sueño del faraón | 26 |
+| **Rut en el campo** | Rut 2 | Espigar detrás de los segadores (recolección con tiempo) | La ley de los pobres y la bondad de Booz | 25 |
+
+**La fusión: una sola biblioteca de minijuegos que sirve a todo.**
+Estos minijuegos no son productos sueltos. Cada uno se usa en cuatro lugares:
+1. **El Arcade de la Travesía:** terminar la lección de una historia desbloquea su minijuego, en el ciclo aprendo → juego → vuelvo a la lección para mejorar.
+2. **Los minijuegos de cada ronda de Senda Fiesta** (§12).
+3. **Los desafíos en vivo de Senda Reunión** (capítulo {{cap:12}}).
+4. **El modo campamento**, con postas y campeonato.
+
+Hacer uno sirve cuatro veces. Esa es la vara para elegir qué construir.
+
+**Cuándo y regla de corte:**
+- Después del lanzamiento (primer semestre de 2027).
+- Primero **Maná** y **Los cuervos de Querit**, unas 2 a 3 semanas de trabajo de Claude cada uno, con el motor común. Se prueban con 50 jóvenes.
+- Si menos del 30% vuelve a jugarlos en la semana, o si «Lo que aprendiste» no sube el acierto en las preguntas de esa historia, no se hacen más.
+
+## 15. Cómo se mide
 
 Partidas por juego y por usuario, porcentaje con amigos contra al azar, salas creadas, revanchas, conexiones nuevas después de jugar,
 contenido cargado por líderes y resultados compartidos.

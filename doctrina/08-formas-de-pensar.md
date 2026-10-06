@@ -67,3 +67,21 @@ municipales) para el Estado; APIs y funciones nuevas de las plataformas (como lo
 Marca en el INPI antes del lanzamiento público de lo que siga (≈ USD 27 por clase); cuentas, dominios y marcas a nombre de la
 empresa del holding, no personales; patentes solo si aparece una invención técnica y el proyecto factura. Detalle:
 `conocimiento/2026-09-28-patentes-marcas-anonimato.md`.
+
+## 9. Las ideas del fundador son semillas: evaluar el encaje, sacar la familia y fusionar (06-10-2026)
+
+El fundador lo pidió así: lo que nombra (Jericó, el arca de Noé, Mario Party, un juego tipo Flappy Bird) no es necesariamente algo
+para replicar. Son ideas que le gustan; Claude tiene que evaluarlas y tomarlas como forma de pensar para todo lo que sigue.
+
+**Ante cada ejemplo:**
+1. **Evaluar el encaje, con criterio y no con entusiasmo.** ¿Qué tiene de bueno? ¿Encaja con el producto, con su gente y con su economía? Si no encaja como está: «así no → mejor así», con la mejor versión.
+2. **Sacar el principio.** ¿Por qué funciona? En los juegos bíblicos: la mecánica nace de la historia.
+3. **Generar la familia.** Con el mismo principio, ¿qué otras diez cosas salen? Puntuarlas con criterios explícitos y escritos (en Senda: las ocho preguntas de la fábrica de juegos, capítulo 10, §14).
+4. **Fusionar con lo que ya existe.** Una pieza nueva tiene que servir a varias. Por ejemplo, una biblioteca de minijuegos que alimenta a la vez el Arcade de la Travesía, Senda Fiesta, Senda Reunión y el modo campamento. Lo que sirve una sola vez rara vez vale lo que cuesta.
+5. **Ponerle fecha y regla de corte.** Lo evolutivo no compite con el MVP: va al roadmap con cuándo, cuánto cuesta y qué número lo mata.
+
+**En todo diseño, también (06-10-2026):**
+- **Costo mínimo de servidores:** lo hace el teléfono; nada en vivo si alcanza con turnos.
+- **Crecer sin rehacer:** cada proveedor detrás de un módulo propio; contratos estables entre la app y la nube.
+
+Detalle para Senda: `docs/COSTOS.md` y `docs/ESCALA.md` del repositorio de la app.

@@ -165,6 +165,21 @@ viejo. La migración se aplicó sola en Supabase el 06-10-2026. Cuentas de servi
 pedidos por segundo de promedio (70 en el pico). El multijugador va por etapas: duelos por turnos y ligas por lotes (escalan como lo
 demás) y salas en vivo con tiempo real (Supabase Pro trae 500 conexiones simultáneas; para miles de salas, un servicio por sala).
 
+**Costo mínimo por diseño y crecer sin rehacer (06-10-2026, pedido del fundador; `docs/COSTOS.md`).** Siete reglas:
+1. Lo hace el teléfono.
+2. El contenido es un archivo.
+3. Nada de sondeos: avisa una push gratis.
+4. Lotes idempotentes y resúmenes.
+5. La lógica oficial en funciones de la base y `pg_cron`.
+6. Muestra en lo que se repite mucho: a PostHog va 1 de cada 10 respuestas, porque Supabase ya las tiene todas.
+7. Cada proveedor detrás de un módulo propio.
+
+Además:
+- Las palancas (muestrear respuestas, particionar, CDN) quedan **guardadas, no activadas**.
+- Alarmas al pasar a Pro, con meta de menos de USD 0,002 por persona activa por mes en la etapa 1.
+- Una lista de seis preguntas antes de tocar el servidor.
+- **Duelos:** con una semilla por turno, las preguntas no viajan; la base corrige con su tabla de claves; las jugadas se limpian a los 30 días. Con el plan gratis entran unas 2.500 partidas por día; con el Pro, unas 40 mil.
+
 ## 11. Lo que hace falta para el nivel profesional (más allá del código)
 
 | Quién o qué | Para qué | Costo (nivel profesional) | Cuándo |

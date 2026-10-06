@@ -225,6 +225,20 @@ está en el capítulo {{cap:17}}.
 - **Saltar:** quien ya sabe hace la prueba de una sección y la salta.
 - **Examen de sección:** 20 preguntas al final; abre la siguiente.
 
+**Lo que ya funciona (prueba 7, 06-10-2026):**
+- **Lámparas:** 3 por lección. Cada una abre, sin salir de la lección, el pasaje donde está la respuesta, con el versículo clave resaltado (Salmo 119:105). No gastan vidas, y la lección perfecta es sin Lámparas.
+- **Lectura recomendada:** al empezar sale de las citas de la lección (por ejemplo, «Génesis 2–3»), y al terminar aparece «Para profundizar».
+- **Repaso espaciado en el teléfono:** cajas de Leitner, la versión simple de FSRS, con 1, 3, 7, 16 y 35 días.
+  - Lo fallado vuelve mañana; lo acertado a la primera, a la semana.
+  - En el mapa aparece «Repaso de hoy» con hasta 10 preguntas.
+  - Al final se ve «Ya quedaron N»: lo que se recordó en días distintos. Así la persona **ve que aprendió**.
+- **Tipos nuevos:**
+  - completar el versículo (con banco de palabras);
+  - unir parejas (se perdona un error);
+  - ¿quién lo dijo? (la frase textual).
+  - El validador comprueba que lo que se completa o se cita esté palabra por palabra en la RV1909.
+- **Fundamentos, sección 1 completa:** la creación, Adán y Eva, Caín y Abel, Noé y Babel, más el cofre y el jefe. Las 4 nuevas esperan la revisión doctrinal.
+
 ## 13. Lani en la Travesía
 
 Lani acompaña con reacciones distintas para cada momento (entrada, acierto, racha, error, último ejercicio, resultado, legendario,

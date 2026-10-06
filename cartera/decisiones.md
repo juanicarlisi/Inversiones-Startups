@@ -366,3 +366,38 @@
 - **Hecho por Claude:** todo lo anterior en la app (APK prueba 6), migración de escala aplicada en Supabase, Consola y proyecto al día.
 - **Pendiente del fundador:** probar la prueba 6; esperar las respuestas de ABS y Tyndale; Google Play antes del 15-11.
 - **Evidencia:** `conocimiento/2026-10-06-senda-prueba5-audio-travesia-escala.md`.
+
+## DEC-2026-10-06-3 · Senda: séptima tanda (después de la prueba 6) y dos reglas permanentes
+
+- **Contexto:** el fundador probó la prueba 6.
+  - La hoja y los sonidos de la Biblia, mucho mejor; el calendario, bien.
+  - Marcar o seleccionar versículos, muy lento.
+  - El clic de la ruleta, mejorable; y quiere «más fiesta» al ganar una pieza.
+  - En la Travesía pidió ayudas que digan dónde leer y que se note lo aprendido.
+  - Sumó tres pedidos de diseño: costo mínimo de servidores, escalar sin rehacer y partidas abiertas que vencen.
+  - Aclaró que sus ejemplos de juegos (Jericó, el arca, Mario Party, «alimenta a Elías» tipo Flappy Bird) son semillas para evaluar, no encargos.
+- **Decidido:**
+  - **Dos reglas permanentes:**
+    - costo mínimo y crecer sin rehacer (regla 13 de la app, `docs/COSTOS.md`);
+    - las ideas del fundador son semillas: evaluar el encaje, sacar la familia y fusionar (doctrina 08, §9).
+  - **Travesía:**
+    - 3 Lámparas por lección, sin costo de vidas; la lección perfecta es sin Lámparas;
+    - lectura recomendada;
+    - repaso espaciado en el teléfono.
+  - **Duelos (sprint 3):** por turnos de 72 h; si vence, gana el que jugó último. Cuentas anónimas, semilla por turno, lógica en la base y push gratis. Costo extra USD 0 hasta el Pro previsto.
+  - **La palabra original con el «+»:** v1.1, con STEPBible (CC BY 4.0) y significados propios. No se usa el Strong en español de Caribe, que tiene derechos.
+  - **Juegos:** la fábrica de ocho preguntas. «Los cuervos de Querit» (32/40) y «Maná» (34/40) son los primeros del Arcade de 2027, con regla de corte. Una sola biblioteca de minijuegos para el Arcade, Senda Fiesta, Reunión y los campamentos.
+- **Hecho por Claude (APK prueba 7):**
+  - marcar al instante;
+  - el clic nuevo de la ruleta y la fiesta (música propia y Lani que baila);
+  - Lámparas, lectura recomendada y repaso;
+  - tres tipos de ejercicio nuevos con validación textual;
+  - sección 1 de Fundamentos completa;
+  - documentos de costos, duelos y palabras originales;
+  - Consola y proyecto al día.
+- **Pendiente del fundador:**
+  - probar la prueba 7;
+  - escuchar y elegir en la Consola los giros y la fiesta;
+  - en noviembre, crear las cuentas gratis de Expo y Firebase (guía de Claude);
+  - Google Play antes del 15-11.
+- **Evidencia:** `conocimiento/2026-10-06-senda-prueba6-fiesta-lamparas-costos.md`.

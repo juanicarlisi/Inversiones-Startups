@@ -126,6 +126,15 @@ ser invisible para quien solo quiere leer y estar a un toque para quien quiere e
 6. **Transparencia:** cada comentario lleva su etiqueta (*comentario clásico, siglos XVII–XIX*; *traducción asistida por IA y
    revisada*) y su licencia.
 
+**La palabra original con el «+» (prueba 7, 06-10-2026; diseño en `docs/PALABRAS_ORIGINALES.md` de la app).**
+- Al marcar un versículo, «+ Original» lo muestra palabra por palabra en hebreo o griego, con la transliteración y el significado en español; cada palabra abre su ficha.
+- **Datos:** STEPBible (TAGNT, TAHOT y los léxicos breves TBESG y TBESH, CC BY 4.0, citando a «STEP Bible»), con significados traducidos y revisados.
+- El Diccionario Strong en español (Caribe) tiene derechos y no se usa.
+- Se baja por libro y solo si se toca (costo cero de servidor). Versión 1.1.
+
+**Marcar al instante (prueba 7).**
+- Seleccionar, resaltar, anotar y poner cintas ya no redibujan la hoja: cada versículo escucha solo sus marcas, las animaciones corren en el hilo nativo y lo guardado se escribe de a lotes.
+
 ## 5. Comentarios en español: cómo se consiguen
 
 **HECHO:** no existen comentarios clásicos libres en español ni en portugués (las ediciones en español de Matthew Henry y

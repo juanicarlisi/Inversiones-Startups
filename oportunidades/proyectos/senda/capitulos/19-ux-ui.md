@@ -201,6 +201,19 @@ da, se reducen las partículas automáticamente. **Reducir movimiento:** si el s
     aviso (notificaciones), pasos de Lani en el mapa y, con el ajuste **Sonidos de toques** (prendido de entrada), un toque suave en
     los botones, las pestañas y las hojas que suben. **Cambio de criterio:** el 05-10 los botones eran silenciosos; el fundador pidió
     muchos más sonidos, de calidad, así que ahora suenan muy bajito y se pueden apagar.
+- **Prueba 7 (06-10-2026): clic profesional, fiesta y respuesta instantánea.**
+  - **El clic de la ruleta:**
+    - los dientes de una matraca grabada (los 8 más limpios de la toma lenta: mucho golpe y poca cola) con el cuerpo corto de la caja china;
+    - una saturación suave le da el «crac» del plástico sin subir el pico;
+    - mientras gira rápido suenan las 4 tomas livianas, al frenar las 4 llenas, y la lengüeta rebota dos veces contra el último clavo.
+  - **La fiesta:**
+    - un grupo chico tocando en vivo, con 6,8 s para la pieza y 11,3 s para la armadura: bongós, congas, shaker, pandereta, palmas y bombo suave;
+    - la marimba hace el bajo y el «chas»; el xilofón canta el motivo, afinado a ±2 cents y corregido porque el de la VCSL está unos 15 cents alto;
+    - todo en re mayor y a 125 negras por minuto, el pulso al que baila Lani.
+  - **Al instante:**
+    - marcar, resaltar y poner cintas redibujan solo el versículo tocado;
+    - el guardado se junta y se escribe de a lotes (`util/almacen.ts`).
+
 - **Respeto:** modo silencio del teléfono, volumen propio de la app, ningún sonido en el Santuario.
 
 ## 9. Vibración

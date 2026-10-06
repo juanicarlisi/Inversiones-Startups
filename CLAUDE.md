@@ -33,6 +33,9 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   IA y "horas en dólares" quedan fuera salvo algo fácil y seguro; recordatorios pendientes del fundador: cargar su agente de
   inversiones (renta), su agente de alquileres y una descripción general (sin código ni datos de la empresa) de su simulador de
   última milla.
+- **Datos del 06-10-2026:**
+  - todo diseño minimiza el costo de servidores y escala sin rehacer la app;
+  - los ejemplos del fundador (juegos, apps) son semillas para evaluar, fusionar y generar familias, nunca encargos de copia (`doctrina/08-formas-de-pensar.md` §9).
 
 ## 2. Reglas no negociables
 

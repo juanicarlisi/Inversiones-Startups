@@ -255,6 +255,19 @@ escribir cada nivel: `docs/DIFICULTAD.md` del repositorio de la app.
 | Armadura completa | Cinemática de 4–5 s (sección 4) | Fanfarria de la marca | Patrón de festejo |
 | Ganar / perder | Lluvia de luz y Lani con trofeo / Lani saluda al rival y ofrece revancha | Tema de victoria / melodía corta | Patrón / ligera |
 
+**Prueba 7 (06-10-2026):**
+- **Clic de la ruleta:**
+  - dientes de matraca grabados con el cuerpo de la caja china;
+  - 4 tomas livianas mientras gira rápido y 4 llenas al frenar;
+  - el rebote de la lengüeta al final.
+- **La fiesta de la pieza:**
+  - música propia en re mayor a 125 negras por minuto (bongós, congas, shaker, pandereta, palmas, bombo, marimba y el motivo en xilofón), agendada en el reloj del audio;
+  - Lani baila al pulso: salta, se inclina y gira cada dos compases;
+  - confeti y rayos que laten;
+  - salto en el remate.
+- **La gran fiesta:** 4 compases con platillo, timbal y aplausos cuando se completa la armadura, con Lani acorazada.
+- **Duelos:** por turnos, con partidas abiertas que vencen a las 72 h; si vence, gana el que jugó último. Diseño de costo mínimo en `docs/DUELOS.md` (sprint 3).
+
 ## 17. Cómo se mide
 
 Duelos iniciados y terminados por usuario, porcentaje con amigos contra al azar, invitaciones que terminan en instalación, aciertos por
