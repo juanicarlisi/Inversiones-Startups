@@ -3,7 +3,8 @@
 <div class="enpocas" markdown="1">
 **En pocas palabras.** **Senda Reunión** es la **caja de herramientas del líder**: él arma el esquema de su reunión (su bosquejo, un
 quiz tipo Kahoot, juegos, un campeonato o una liga del grupo, algo del día), la juega en la pantalla grande con todos y después ve
-registros, puntajes, en qué reforzar y un reporte mensual. **Nada lo arma una IA:** la app da recursos; el líder decide. **Senda
+registros, puntajes, en qué reforzar y un reporte mensual. **Nada lo arma una IA sin el líder:** la app da recursos y, si el líder
+lo pide, le propone preguntas desde su PDF (06-10-2026); el líder revisa y decide. **Senda
 Púlpito** hace lo mismo para el pastor: arma un **Desafío del domingo** con su mensaje y lo comparte con su iglesia para jugar durante
 la semana.
 </div>
@@ -33,7 +34,7 @@ para que participen todos (aunque sean 60) y para saber después cómo fue.
 
 1. **Nueva reunión** desde el calendario del grupo («Sábado 10-oct, 18 h») o desde cero. Título y tema, si quiere.
 2. **Su bosquejo (opcional):** sube su PDF, una foto o escribe sus notas. Queda en su teléfono como guía y, si quiere, lo proyecta como
-   diapositivas. Senda no lo lee ni lo transforma.
+   diapositivas. Senda solo lo lee si el líder pide preguntas a partir de él (ver «El quiz en vivo, a fondo»).
 3. **¿Qué querés sumar?** Elige bloques y los ordena arrastrando:
 
 | Bloque | Qué es | Cómo se arma |
@@ -49,6 +50,28 @@ para que participen todos (aunque sean 60) y para saber después cómo fue.
 4. **Tiempos:** le pone minutos a cada bloque; la app le muestra la duración total.
 5. **Guardar como plantilla** para reusarla o **compartirla con otros líderes** (biblioteca de reuniones hechas por líderes, con su
    nombre; Senda solo la ordena y la revisa).
+
+### El quiz en vivo, a fondo (pedido del fundador, 06-10-2026)
+
+No es una copia de Kahoot: toma lo que funciona (todos responden desde su teléfono, ritmo y podio) y le suma lo de Senda.
+
+- **Entrar es un toque:** un **enlace** para el grupo de WhatsApp, un **código** de 6 letras o el **QR** en la pantalla grande. El
+  código vale el día entero, así el líder lo puede mandar antes (Kahoot amplió su PIN de 4 a 8 horas por lo mismo).
+- **Modos:** clásico (rapidez y acierto), **por equipos**, **supervivencia con vidas** (cada uno empieza con 3; el que se queda sin
+  vidas sigue jugando para su equipo y puede volver con una pregunta de rescate; estas vidas son de la reunión, **nunca** las de la
+  app) y **precisión** (sin reloj, para los más chicos o preguntas de pensar).
+- **Video:** un bloque puede ser un video corto (de YouTube o subido por el líder) y las preguntas siguientes son sobre lo que se vio.
+- **Las preguntas las arma el líder:** las escribe, las elige del banco de Senda por pasaje o tema, o **sube un PDF** (su bosquejo, un
+  estudio, una guía) y Senda **le propone** preguntas sacadas de ese texto, cada una con su cita si la tiene; el líder las revisa,
+  corrige, borra o agrega antes de usarlas. **Cambio de decisión:** antes «Senda no lee el bosquejo»; ahora lo lee solo si el líder lo
+  pide, y nada se usa sin su aprobación (Kahoot ofrece algo parecido desde 2024: el PDF se transforma en preguntas).
+- **Lo que lo hace de Senda:** cada pregunta tiene su cita y al final «Leer el pasaje»; el quiz puede quedar abierto toda la semana como
+  desafío del grupo; los menores juegan con apodo; Lani anima en la pantalla; el registro muestra qué reforzar.
+- **Escala:** las salas en vivo usan tiempo real (docs/ESCALA.md del repositorio de la app, sección 5): hasta cientos de salas a la vez
+  con Supabase Pro; para miles, un servicio de tiempo real por sala.
+
+Fuentes: [Kahoot: del PDF a preguntas con IA (2024)](https://kahoot.com/blog/2024/01/17/ai-pdf-question-generator-for-educators/),
+[novedades de Kahoot EDU, 2025 (PIN de 8 horas)](https://support.kahoot.com/hc/en-us/articles/40981626377235-Kahoot-EDU-Quarterly-Newsletter-Q2-2025).
 
 ## 4. En vivo
 

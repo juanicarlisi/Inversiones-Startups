@@ -98,29 +98,66 @@ La sección 9 se adelanta para estar lista en Semana Santa (28-03-2027), antes q
 4. **Nivel Maestría** (2028): preguntas abiertas, citas de memoria, relacionar pasajes de distintos libros.
 5. **Rutas nuevas cada mes** (sección 7) y **unidades de temporada** (21 días, Semana Santa, Pentecostés, Navidad).
 
-## 7. El catálogo de Rutas
+## 7. El mapa completo de la Travesía (MECE)
 
-| Ruta | Qué enseña | Cuándo |
+**Pedido del fundador (06-10-2026):** que la Travesía sea exhaustiva y MECE, con rutas como apologética, geografía bíblica o historia
+de la Iglesia, sin inclinaciones teológicas, y que sea una de las estrellas de la app.
+
+**La regla que la hace MECE.** La Travesía tiene **8 áreas** y cada una responde **una sola pregunta**. Cada lección va al área de la
+pregunta que responde; si un tema toca dos áreas (Pablo es personaje y también viajero), la lección se escribe en una y la otra solo lo
+repasa. Así no hay huecos (toda pregunta sobre la fe cae en un área) ni repeticiones.
+
+| Área | La pregunta | Rutas (56 en total) |
 |---|---|---|
-| **Fundamentos** | La historia de toda la Biblia | MVP → completa en jun-2027 |
-| **Héroes** | 60 personajes de AT y NT con su historia (de Abraham a Lidia) | v1 (mar-2027) |
-| **Mapas** | Geografía bíblica: tocar dónde pasó cada historia; los viajes del Éxodo, de Jesús y de Pablo | v2 (jun-2027) |
-| **66 Libros** | Un nivel por libro: autor, época, tema, versículo clave | v2 (jun-2027) |
-| **Preparados** (apologética) | Cómo responder preguntas sobre la fe con respeto (1 Pedro 3:15) | v3 (sep-2027) |
-| **Jesús** | Su vida en orden, sus enseñanzas y su obra | v3 (sep-2027) |
-| **Parábolas y milagros** | Las 30+ parábolas y los milagros, qué significan | v3 (oct-2027) |
-| **Profecías** | De la promesa al cumplimiento (las cumplidas en Cristo) | v3 (nov-2027) |
-| **Sabiduría** | Salmos, Proverbios y Eclesiastés para la vida diaria | v3 (nov-2027) |
-| **Vida real** (16+) | Identidad, amistad, ansiedad, noviazgo, redes, trabajo, con lo que dice la Biblia | v3 (dic-2027), con revisión pastoral |
-| **Mujeres de la Biblia** | Sara, Débora, Rut, Ester, María, Lidia y más | 2028 |
-| **Pactos** | De Noé a la nueva alianza: el hilo de toda la Biblia | 2028 |
-| **Historia de la fe** | De la iglesia de Hechos a la Reforma y las misiones (lo compartido por los protestantes) | 2028 |
-| **Liderazgo** (para líderes) | Cómo guiar un grupo según la Biblia | 2028 |
-| **Griego y hebreo básicos** | El alfabeto y 100 palabras clave, como un curso de idioma | 2029 |
+| **La Biblia, libro por libro** | ¿Qué dice cada libro? | El gran relato (Fundamentos), Pentateuco, Históricos, Poesía y sabiduría, Profetas mayores, Los doce profetas, Evangelios, Hechos, Cartas de Pablo, Hebreos y cartas generales, Apocalipsis |
+| **Personajes** | ¿Quién fue y qué aprendo de su vida? | Patriarcas, Moisés, Jueces y reyes, Vidas de profetas, Mujeres de la Biblia, La vida de Jesús, Los apóstoles |
+| **Tierras y tiempos** | ¿Dónde y cuándo pasó? | **Los viajes de Pablo** (abierta), Tierra Santa, Los grandes viajes, Por donde caminó Jesús, Imperios y pueblos, Línea de tiempo, Vida cotidiana, Arqueología |
+| **Cómo leer la Biblia** | ¿Cómo la leo bien y cómo llegó hasta mí? | Géneros, Leer con contexto, Palabras clave (hebreo y griego), Cómo se formó la Biblia, La Biblia en español |
+| **Lo que creemos** | ¿Qué enseña la Biblia sobre…? | El Credo de los Apóstoles, Dios, Jesús, La salvación, El Espíritu Santo, La iglesia, La esperanza |
+| **Historia de la iglesia** | ¿Qué pasó después de Hechos? | Primeros siglos, Edad Media, La Reforma, Avivamientos y misiones, El evangelio en América Latina, Testigos |
+| **Defender la fe** (apologética) | ¿Por qué creer que es verdad? | ¿Existe Dios?, ¿Es confiable la Biblia?, ¿Resucitó Jesús?, Ciencia y fe, El dolor y el mal, Responder con respeto |
+| **Vivir la fe** | ¿Cómo lo vivo hoy? | Oración, Hábitos, Carácter (mandamientos, bienaventuranzas, fruto del Espíritu), Relaciones, Estudio-trabajo-dinero, Servir y compartir la fe |
 
-**Guardas doctrinales:** no se arman Rutas sobre temas en los que las iglesias protestantes discrepan (forma del bautismo, orden de
-los tiempos finales, dones, gobierno de la iglesia, predestinación). Si aparecen dentro de una Ruta, se muestran las posturas con sus
-textos y se invita a hablarlo con el pastor (capítulo {{cap:23}}).
+El mapa vive en `contenido/travesia.json` (repositorio de la app) con cada ruta y sus secciones; las abiertas se juegan y las demás
+se ven «en preparación» en **la Travesía completa** (se abre tocando la ruta arriba del mapa).
+
+**De dónde sale (benchmark de currículas, 06-10-2026).** Los seminarios acreditados organizan la formación en cuatro bloques:
+herencia religiosa (Escritura, hermenéutica, teología, historia), contexto cultural, formación espiritual y ministerio (estándar de la
+Association of Theological Schools, 1996). Un MDiv típico tiene un núcleo de estudios bíblicos (AT y NT), estudios históricos y
+teológicos, formación espiritual y ministerio. Los institutos y licenciaturas en estudios bíblicos en español suman geografía bíblica,
+arqueología, historia y entorno social de cada época, y métodos de interpretación. Los cursos de geografía bíblica recorren la Tierra
+Santa, el Éxodo, la vida de Jesús y los viajes de Pablo. BibleProject Classroom trabaja libro por libro con estudio de palabras hebreas.
+Las 8 áreas cubren todo eso salvo lo que es de ministerio pastoral (va a Senda Reunión) y los idiomas en profundidad (Palabras clave
+es la puerta de entrada). Fuentes: [MDiv de Campbell University](https://divinity.campbell.edu/academics/degree-programs/master-of-divinity/degree-plan/),
+[MDiv de Gardner-Webb 2025-2026](https://gardner-webb.smartcatalogiq.com/en/2025-2026/academic-catalog/school-of-divinity/degree-programs/masters-programs/master-of-divinity),
+[Master of Divinity y estándar ATS (Wikipedia)](https://en.wikipedia.org/wiki/Master_of_Divinity),
+[Máster en Estudios Bíblicos de Deusto](https://repositorio.comillas.edu/rest/bitstreams/28733/retrieve) (vía buscador),
+[Lands of the Bible, Indiana Wesleyan](https://indwes.smartcatalogiq.com/en/2015-2016/catalog/courses/bil-biblical-literature/200/bil-280),
+[Geografía del NT, Beth Bible College](https://bethbc.edu/geography-of-the-bible-new-testament-online-course/),
+[BibleProject Classroom](https://faith.tools/app/bibleproject-classroom).
+
+**Sin tomar partido (las guardas, ampliadas).** No hay rutas sobre lo que los cristianos entienden de distintas maneras: sistemas de
+los tiempos finales (milenio, arrebatamiento), predestinación y libre albedrío, forma y edad del bautismo, la Cena del Señor, dones
+(cesacionismo y continuismo), gobierno de la iglesia, ministerio de la mujer, edad de la Tierra y evolución, día de reposo, seguridad
+de la salvación. Lo que se enseña: **lo que dice el texto** y **lo que comparten las iglesias** (el Credo de los Apóstoles y las
+verdades que unen a los protestantes: la Escritura, la gracia, la fe y Cristo). Si un tema roza una de esas cuestiones, la lección
+dice «los cristianos lo entienden de distintas maneras» y ninguna respuesta correcta depende de una postura. Apocalipsis se enseña por
+lo que dice (las siete iglesias, el trono y el Cordero, todo hecho nuevo), sin sistemas de interpretación. La revisión doctrinal la
+hace un panel de distintas tradiciones antes de publicar (capítulo {{cap:23}}).
+
+**Cuándo abre cada área** (se mantienen las fechas del plan): Fundamentos completa en jun-2027; Personajes (antes «Héroes») en la
+v1, mar-2027; Tierras y tiempos (antes «Mapas») y La Biblia libro por libro (antes «66 Libros») en la v2, jun-2027; Defender la fe
+(antes «Preparados») y Vivir la fe (con revisión pastoral para 16+) en la v3, sep–dic-2027; Lo que creemos, Historia de la iglesia y
+Cómo leer la Biblia en 2028; Palabras clave (hebreo y griego) en 2029. **Adelanto de la prueba 6:** la ruta **Los viajes de Pablo**
+ya está abierta como vidriera de cómo se va a ver toda la Travesía.
+
+**La vidriera: Los viajes de Pablo (prueba 6, 06-10-2026).** Cinco lecciones (Hechos 13–28: primer viaje, concilio de Jerusalén,
+Europa, Éfeso y la despedida, rumbo a Roma), un cofre y un jefe que repasa toda la ruta. **Pablo**, un personaje nuevo dibujado con el
+mismo trazo que Lani (viajero, bastón, rollo, barba y frente despejada como lo pinta la tradición), presenta cada lección y camina al
+lado de tu Lani en el mapa. Cada lección abre con **el mapa real del Mediterráneo** (costas de Natural Earth, dominio público) y el
+recorrido que se dibuja solo; hay preguntas de **tocar el lugar** (cuatro alfileres A–D sin nombre: se aprende geografía de verdad,
+no se lee el nombre) y de **ordenar** el viaje. Cada respuesta trae una explicación corta con su cita, y la lección termina con
+**Lo que aprendiste**: tres ideas para recordar.
 
 ## 8. La lección, paso a paso
 
@@ -136,6 +173,9 @@ textos y se invita a hablarlo con el pastor (capítulo {{cap:23}}).
 4. **Palabra para hoy (cierre).** Una pregunta de aplicación sin nota; se puede escribir una respuesta privada o saltear.
 5. **Resultado.** Pasos y Talentos que suben contando, precisión, tiempo, la racha si es el primer momento del día, el avance en el
    mapa (Tu Lani avanza con su vehículo hasta el próximo nodo) y un botón para compartir.
+6. **Lo que aprendiste (pedido del fundador, 06-10-2026).** Al final de cada lección, tres ideas cortas con su cita para fijar lo
+   aprendido (la memoria se afirma al repasar lo esencial al cierre). En el jefe de cada sección, un repaso general. Ya está en la
+   prueba 6.
 
 ## 9. Los tipos de ejercicio
 

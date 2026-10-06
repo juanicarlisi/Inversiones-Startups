@@ -157,6 +157,14 @@ delicado, Sonnet 5.5 o Haiku 4.5 para el volumen), con pruebas antes de cada lot
 Regla práctica: **~USD 0,009 por persona activa por mes** (servidores + IA interna; sin asistente de IA para usuarios), **más las
 licencias de las Biblias** (USD 230–880 por mes con 5 versiones vía API.Bible según usuarios; menos con un precio de ministerio).
 
+**Preparada para millones (06-10-2026, pedido del fundador).** El detalle está en `docs/ESCALA.md` del repositorio de la app. Lo ya
+hecho: lo personal vive en el teléfono; a la nube van lotes chicos con una **bandeja de salida persistente e idempotente** (cada fila con
+su `cliente_id`, reintentos escalonados con azar para que un millón de teléfonos no golpeen a la vez); la salud de cada pregunta y el
+conteo del Pulso se **suman al escribir** (leer cuesta lo mismo con 100 o con 100 millones de respuestas); índice para borrar lo crudo
+viejo. La migración se aplicó sola en Supabase el 06-10-2026. Cuentas de servilleta: un millón de personas por día jugando son unos 7
+pedidos por segundo de promedio (70 en el pico). El multijugador va por etapas: duelos por turnos y ligas por lotes (escalan como lo
+demás) y salas en vivo con tiempo real (Supabase Pro trae 500 conexiones simultáneas; para miles de salas, un servicio por sala).
+
 ## 11. Lo que hace falta para el nivel profesional (más allá del código)
 
 | Quién o qué | Para qué | Costo (nivel profesional) | Cuándo |

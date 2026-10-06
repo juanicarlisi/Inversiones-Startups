@@ -21,6 +21,16 @@ asistencia e invitaciones lindas para compartir). Todo se pasa al calendario del
   máximo, con textos que cambian, y si ya leíste hoy empieza mañana. Tocar un aviso lleva al día del evento o a la Biblia.
 - La semana Senda se ve en la misma agenda (se puede ocultar) y Comunidad muestra tus eventos del día con «+ Evento» y «Mes».
 
+**Prueba 6 (06-10-2026), pedidos del fundador:**
+
+- **Vista semanal como Google Calendar:** selector Mes/Semana (se recuerda); siete columnas de lunes a domingo, una franja por hora,
+  cada evento como un bloque del largo de su duración (los que se pisan se reparten el ancho), los de todo el día arriba y una línea
+  roja con la hora actual. Tocar un hueco arma un evento a esa hora; se cambia de semana con las flechas o deslizando.
+- **Avisos más lindos:** el ícono chico de la barra es la S con la llama, recortada para que se vea grande y nítida (antes ocupaba un
+  tercio del espacio y se veía diminuta); cada aviso se tiñe del color de su tipo; el texto ya no repite (arriba «Reunión de oración ·
+  20:00», abajo «En una hora · toca para unirte por Meet»); suena «aviso», dos campanas de mano (la–re) de la firma de Senda; y en
+  Ajustes hay un botón para probar cómo se ve y cómo suena.
+
 Lo que sigue (con las cuentas, sprint 4 y febrero de 2027) es **lo compartido**: grupos con roles y la agenda del grupo o la
 iglesia (sección 3b).
 

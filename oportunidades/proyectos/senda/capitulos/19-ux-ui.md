@@ -183,6 +183,24 @@ da, se reducen las partículas automáticamente. **Reducir movimiento:** si el s
   - **Por qué así:** benchmark en {{cap:31}}, quinta tanda. Un logo sonoro funciona si es corto, simple y se usa en todos lados; el
     audio sube la concentración y el disfrute en los juegos de preguntas; y el premio se siente si tiene anticipación, golpe,
     recompensa y calma.
+- **Prueba 6 (06-10-2026): motor nuevo e instrumentos grabados.** El fundador probó la prueba 5: la ruleta y la corona no sonaban,
+  algunos sonidos llegaban tarde o se colgaban en la Travesía, eran pocos y algunos sonaban «baratos».
+  - **La causa:** cada sonido era un reproductor aparte (expo-audio, ExoPlayer en Android): tarda 50 a 150 ms en arrancar, los clics
+    rápidos de la ruleta se pisaban y con unos 30 reproductores abiertos algunos dejaban de sonar. Además el clic de la ruleta estaba
+    unos 20 dB por debajo de un acierto.
+  - **El motor nuevo:** un solo contexto de audio (react-native-audio-api, la Web Audio API sobre Oboe/AAudio en Android y
+    AVAudioEngine en iOS) con todos los sonidos decodificados en memoria: cada disparo es una voz nueva que suena en el próximo ciclo
+    de audio (10 a 20 ms), las voces se superponen, hay tope por sonido y el flujo se pausa a los 30 s sin sonar (batería). Los clics
+    de la ruleta se **agendan de antemano** con la misma curva que la animación, así caen justo en cada casillero aunque el teléfono
+    esté ocupado. Compilación verificada en el APK.
+  - **Los instrumentos ahora son grabados:** la Versilian Community Sample Library (CC0): marimba, **campanas de mano** (el coro de
+    campanas de las iglesias), glockenspiel, campanas tubulares, árbol de campanas, aplausos, caja china, matraca y shaker. Todo en re
+    mayor, con el motivo re–la–si–fa♯ y nivelado por sonoridad (se midió cada archivo).
+  - **Sonidos nuevos:** corona (la Carga llena: árbol de campanas y el acorde que se abre), la Carga que sube (dos campanas), Luz
+    (campanitas), las opciones que aparecen en cascada (una nota por opción, subiendo), elegir, guardado, umbral (al abrir la Biblia),
+    aviso (notificaciones), pasos de Lani en el mapa y, con el ajuste **Sonidos de toques** (prendido de entrada), un toque suave en
+    los botones, las pestañas y las hojas que suben. **Cambio de criterio:** el 05-10 los botones eran silenciosos; el fundador pidió
+    muchos más sonidos, de calidad, así que ahora suenan muy bajito y se pueden apagar.
 - **Respeto:** modo silencio del teléfono, volumen propio de la app, ningún sonido en el Santuario.
 
 ## 9. Vibración

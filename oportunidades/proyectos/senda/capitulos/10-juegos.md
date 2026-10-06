@@ -23,6 +23,8 @@ diario**, **Antes o después** y **De memoria**.
 | **Giro diario** (ex Maná del día) | Ruleta de premios una vez por día | Solo | — | MVP |
 | **Búsqueda del tesoro** y **escape bíblico** | Pistas con QR | Equipos, presencial | — | v3 |
 | **Lani corre** (evolutivo, pedido del fundador del 06-10-2026) | Carrera sin fin por historias bíblicas | Solo, contra el «fantasma» de un amigo, desafío semanal | Amigos, al azar | 2027 (después del lanzamiento) |
+| **Juegos de historias** (El arca, Jericó, Nehemías…, evolutivo) | Juegos de mesa y de consola llevados a la Biblia | Solo, en grupo, impresos | Amigos, grupo | 2027, uno por vez |
+| **Senda Fiesta** (tipo Mario Party, evolutivo) | Tablero, dado, coronas y un minijuego por ronda | Mismo teléfono, tele de la reunión, en línea | Amigos, grupo | 2027, si Espadeo y Reunión retienen |
 
 Los juegos de **memoria** (De memoria) y de **apologética** (Preparados) pasaron a Berea y a la Travesía (capítulos {{cap:15}} y
 {{cap:08}}).
@@ -173,7 +175,79 @@ todos; el arte, los personajes, los escenarios y los nombres son propios. Cada n
   primero **un nivel** (El mar abierto) y se prueba con 50 jóvenes. Si menos del 30 % vuelve a jugarlo en la semana, no se hacen más
   niveles.
 
-## 11. Cómo se mide
+## 11. Juegos de mesa y de consola llevados a la Biblia (evolutivos, investigados el 06-10-2026)
+
+**Qué enseña la historia.** En los noventa, Wisdom Tree vendió juegos bíblicos para consolas fuera de las tiendas de videojuegos, en
+librerías cristianas: *Bible Adventures* (NES, 1991: Noé, el bebé Moisés y David y Goliat) vendió unas 350.000 copias; *Exodus*
+(Sega Genesis, 1993) y *Super 3D Noah's Ark* (SNES, sobre el motor de Wolfenstein 3D, con cabras y bananas en lugar de armas) quedaron
+como curiosidades: eran juegos ajenos con la Biblia pegada encima. Hoy lo que más se vende en juegos de mesa bíblicos son mazos de
+trivia y adaptaciones de juegos clásicos (¿Quién es quién? bíblico). **Regla de Senda:** la mecánica tiene que nacer de la historia
+(en Jericó se gana con ritmo porque la muralla cayó con trompetas), con calidad de juego de verdad, nunca un reskin. Fuentes:
+[Wisdom Tree (Wikipedia)](https://en.wikipedia.org/wiki/Wisdom_Tree), [Bible Adventures (Giant Bomb)](https://giantbomb.com/wiki/Games/Bible_Adventures),
+[ranking de juegos de mesa bíblicos más vendidos (AsInsight)](https://www.asinsight.com/report/US/bible-board-games).
+
+| Juego | Historia | Mecánica (del género que funciona) | Qué se aprende |
+|---|---|---|---|
+| **El arca** | Noé (Génesis 6–9) | Rompecabezas de acomodar: los animales de a pares en las tres cubiertas antes de la lluvia, con reglas (los que no pueden ir juntos) | La historia, el orden de los días del diluvio, el pacto del arco iris |
+| **Jericó** | Josué 6 | Ritmo: seis días una vuelta, el séptimo siete; tocar las trompetas a tiempo | Obedecer aunque no se entienda; la secuencia del relato |
+| **Nehemías** | Nehemías 2–6 | Construcción por turnos: reconstruir la muralla por tramos mientras se cuidan las puertas | Liderazgo, oración y trabajo; los 52 días |
+| **José, el administrador** | Génesis 41–47 | Gestión: guardar en los siete años buenos para los siete malos | Sabiduría, previsión, perdón |
+| **David en el valle** | 1 Samuel 17 | Precisión con la honda (física), sin violencia gráfica: Goliat cae como dice el texto | La confianza de David; el contexto |
+| **Los viajes de Pablo, el juego de mesa** | Hechos 13–28 | Cooperativo tipo *Pandemic*: el grupo lleva el mensaje por el mapa; cartas de evento (tormenta, cárcel, visión, naufragio) | Geografía y relato de Hechos; jugar en equipo |
+| **Babel** | Génesis 11 | Rompecabezas de idiomas: entenderse con señas y símbolos | El relato y por qué hay tantos idiomas |
+
+Se pueden jugar en el teléfono y, los de mesa, también impresos (versión para imprimir desde Senda Reunión). **Cuándo y regla de corte:**
+después de Lani corre; se prototipa uno (El arca) en 3 a 4 semanas y se prueba con 50 jóvenes: si menos del 30 % lo vuelve a jugar en la
+semana, no se hacen más.
+
+## 12. Senda Fiesta: un juego de tablero tipo Mario Party (evolutivo)
+
+**Qué hace Mario Party (y por qué funciona).** Se gana juntando **estrellas** en una cantidad fija de turnos: cada jugador tira un dado
+(1 a 10), avanza por el tablero, gana o pierde monedas según la casilla, y compra la estrella (por 20 monedas) en una casilla que
+cambia de lugar cada vez que alguien la compra. **Al final de cada ronda hay un minijuego** entre todos, y los ganadores se llevan 10
+monedas. *Super Mario Party Jamboree* llevaba 7,48 millones de copias al 31-03-2025 y fue el lanzamiento más rápido de la serie.
+Fuentes: [Mario Party (Wikipedia)](https://en.wikipedia.org/wiki/Mario_Party_(video_game)),
+[Jamboree, el lanzamiento más rápido (Nintendo Life)](https://nintendolife.com/news/2025/02/super-mario-party-jamboree-is-the-fastest-selling-entry-in-franchise-history),
+[más de 6 millones (Shacknews)](https://shacknews.com/article/142968/mario-party-jamboree-launch-sales-6-million).
+
+**Senda Fiesta (nombre provisorio; alternativas: Gran Camino, La Fiesta de Lani).** De 2 a 4 jugadores, en un mismo teléfono que
+pasa de mano, en la tele de la reunión o en línea:
+
+- **Tableros que son historias:** «Camino a Jerusalén» (la fiesta de la Pascua), «El arca», «Los viajes de Pablo» (el mapa real de la
+  Travesía), «El templo de Salomón».
+- **Talentos en lugar de monedas y coronas en lugar de estrellas:** la corona se compra en una casilla que se mueve; las casillas de
+  historia dan y quitan (el maná suma, la tormenta resta, el buen samaritano le da a otro y gana más).
+- **Un minijuego por ronda, de los de Senda:** pregunta relámpago, Abecé exprés, ordenar el relato, tocar el lugar en el mapa,
+  Dibujalo de 20 segundos, el versículo que falta. Se gana sabiendo y con rapidez, no solo con suerte.
+- **Lo que lo hace distinto:** la última ronda se juega en equipo (todos contra la tormenta) para que nadie termine humillado; cada
+  partida deja tres cosas aprendidas (como «Lo que aprendiste»); el líder puede cargar sus preguntas.
+- **No es una copia:** se toman las ideas de género (tablero, dado, minijuego por ronda), que son de todos; el arte, los personajes,
+  los nombres y las reglas son propios. Antes de construir, revisión legal y búsqueda de patentes (INFERENCIA: las mecánicas no se
+  protegen con derecho de autor, la presentación sí).
+- **Cuándo y regla de corte:** 2027, después de que el Espadeo y Senda Reunión retengan. Prototipo: un tablero y 6 minijuegos (6 a
+  8 semanas de trabajo de Claude), probado con 10 grupos de jóvenes. Si menos del 40 % de los grupos lo vuelve a jugar en el mes, se
+  guarda.
+
+## 13. Juegos de campamento y de iglesia (registro para evolutivos)
+
+Lo que ya se juega en grupos y campamentos, para llevarlo a Senda Reunión y al modo campamento (capítulo {{cap:12}}):
+
+| Juego | Cómo es | En Senda |
+|---|---|---|
+| **Esgrima bíblica** | Competencia de preguntas o de encontrar el versículo en la Biblia de papel; hay libros con más de 900 preguntas | Ya pensado como «¡Desenvainá!» en Reunión; banco por pasaje |
+| **Búsqueda del tesoro** | Pistas basadas en versículos, escondidas por el lugar | Ya en el plan (v3) con QR |
+| **Rally bíblico por postas** | Equipos que pasan por estaciones: una pregunta, una prueba física, un versículo | Modo campamento: postas con QR y marcador en pantalla |
+| **Lotería o bingo bíblico** | Cartones con personajes o libros; se canta la pista | Cartones impresos desde la app y pistas en pantalla |
+| **Firmas** | Llevar una cita a amigos y familia para que la lean y firmen | Desafío semanal compartible |
+| **Uno, dos, tres, cristianos** | Variante de «uno, dos, tres, pescado» con posturas | Dinámica de inicio en el armador de la reunión |
+| **Olimpíadas bíblicas** | Varios juegos en un día, con medallero por equipo | Campeonato del modo campamento |
+| **Maratón de versículos** | Recitar de memoria por equipos | Con De memoria (Berea) |
+
+Fuentes: [Esgrima bíblica (FaithGateway)](https://faithgateway.com/products/esgrima-biblica),
+[dinámicas para jóvenes (ACI Prensa)](https://www.aciprensa.com/catequesis/dinamicas2.htm),
+[juegos para ministerio juvenil (StudioBinder)](https://cache.studiobinder.com/youth-ministry-games).
+
+## 14. Cómo se mide
 
 Partidas por juego y por usuario, porcentaje con amigos contra al azar, salas creadas, revanchas, conexiones nuevas después de jugar,
 contenido cargado por líderes y resultados compartidos.

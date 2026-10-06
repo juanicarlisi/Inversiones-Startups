@@ -87,6 +87,20 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | Supabase y PostHog | Listos (token sin vencimiento y con todos los permisos) | Tablas aplicadas desde GitHub; la app manda respuestas anónimas y votos del Pulso y lee resultados reales; PostHog activo. El token funciona; conviene cambiarlo por uno que venza en un año (opcional) |
 | Licencias | Mandaste los dos correos; los formularios te trabaron | Marcados como enviados. **Formularios, más adelante:** Biblica no licencia apps en desarrollo ni a personas, y Lockman pide dirección postal. Cada campo quedó listo en la Consola |
 
+**Sexta tanda (06-10-2026, después de probar el APK de la prueba 5):**
+
+| Tema | Lo que dijiste | Lo que quedó |
+|---|---|---|
+| Vuelta de hoja lenta | Pasar la hoja de la Biblia es lento y se traba | **Rehecha (prueba 6):** el gesto y la animación corren en el hilo nativo (Reanimated y Gesture Handler), las hojas no se vuelven a dibujar al pasar y el lector escucha solo lo que usa |
+| Sonidos | Faltan, llegan tarde, se cuelgan; la ruleta y la corona mudas; muy pocos y algunos baratos | **Motor de audio nuevo** (un solo contexto de audio, voces superpuestas, clics de la ruleta agendados con la animación) e **instrumentos grabados** (VCSL, CC0: marimba, campanas de mano, glockenspiel, campanas tubulares, aplausos…). Sonidos nuevos: corona, carga, luz, opciones en cascada, toques, pestañas, hojas, guardado, umbral y aviso. Detalle en el capítulo {{cap:19}}, sección 8 |
+| Animaciones | Muy buenas, seguir evolucionando | Se suman el mapa que se dibuja solo, los alfileres, Pablo y la cascada de opciones con su nota |
+| Calendario | Vista semanal como Google; la notificación es fea | **Vista semanal por horas** y **avisos nuevos** (ícono nítido, color del tipo, texto sin repetir, sonido propio, botón para probar). Capítulo {{cap:13}} |
+| Tipo Kahoot | Enlace, vidas, video, para líderes; armar preguntas o subir un PDF; no una réplica | Registrado en Senda Reunión (capítulo {{cap:12}}): enlace/código/QR, modos con vidas de la reunión, bloques de video y **preguntas propuestas desde el PDF del líder, que él aprueba** (cambio de decisión: antes Senda no leía el bosquejo) |
+| Frases al abrir la Biblia | Cada tanto, como «leer la Biblia es como escuchar a Dios», configurable | **Hecho:** el «umbral», 18 frases, 35 % de las veces y como mucho una cada 18 horas; se editan, se proponen y se ajustan desde la Consola |
+| Travesía | Exhaustiva y MECE, sin inclinaciones, con resumen al final; Pablo y sus viajes con imágenes | **Mapa completo** de 8 áreas y 56 rutas (capítulo {{cap:08}}, sección 7), guardas doctrinales ampliadas, **Los viajes de Pablo** jugable con mapa real y Pablo de guía, y **Lo que aprendiste** al final de cada lección |
+| Escala | Preparada para millones, sincronización perfecta, sin cuelgues | Bandeja de salida persistente e idempotente, resúmenes que no recorren millones de filas (migración aplicada) y el plan por etapas en `docs/ESCALA.md` (capítulo {{cap:25}}, sección 10) |
+| Juegos nuevos (evolutivos) | Juegos de mesa y de consola llevados a la Biblia; algo tipo Mario Party; juegos de campamento | Registrados con benchmark y regla de corte en el capítulo {{cap:10}} (secciones 11 a 13): El arca, Jericó, Nehemías, José, David, Los viajes de Pablo de mesa, Babel; **Senda Fiesta** (tablero, dado, coronas, un minijuego por ronda); esgrima bíblica, rally, lotería y más para el modo campamento |
+
 ## 2. Cómo seguimos: el desarrollo
 
 | Qué | Cómo |

@@ -345,3 +345,24 @@
   - APK prueba 5.
 - **Pendiente del fundador:** probar la prueba 5; esperar las respuestas de ABS y Tyndale; Google Play antes del 15-11.
 - **Evidencia:** `conocimiento/2026-10-06-senda-prueba4-sonido-calendario.md`.
+
+## DEC-2026-10-06-2 · Senda: sexta tanda (después de la prueba 5)
+
+- **Contexto:** el fundador probó la prueba 5:
+  - la vuelta de hoja seguía lenta y trabada;
+  - faltaban sonidos o llegaban tarde, la ruleta y la corona no sonaban, y pidió muchos más y de calidad;
+  - pidió vista semanal y avisos más lindos, frases al abrir la Biblia, una Travesía exhaustiva y MECE sin inclinaciones, la app
+    preparada para millones, y registrar algo tipo Kahoot y juegos futuros (de mesa y consola, tipo Mario Party, de campamento).
+- **Decidido:**
+  - **motor de audio nuevo** (un solo contexto de audio) y **firma con instrumentos grabados** (VCSL, CC0); los botones dejan de ser
+    silenciosos: suenan muy bajito y se pueden apagar con «Sonidos de toques»;
+  - **Travesía de 8 áreas MECE** (cada una responde una pregunta) con guardas doctrinales ampliadas; **Los viajes de Pablo** abierta
+    como vidriera, con Pablo como personaje y el mapa real;
+  - **quiz en vivo de Senda Reunión:** el líder puede subir un PDF y Senda le propone preguntas que él aprueba (**cambia** lo decidido:
+    antes Senda no leía el bosquejo);
+  - **escala por etapas** (docs/ESCALA.md): lo personal en el teléfono, envíos idempotentes, resúmenes al escribir; Supabase Pro al
+    lanzar y un servicio de tiempo real por sala recién con miles de salas;
+  - **evolutivos 2027** con regla de corte: juegos de historias (El arca primero), Senda Fiesta (tipo Mario Party) y modo campamento.
+- **Hecho por Claude:** todo lo anterior en la app (APK prueba 6), migración de escala aplicada en Supabase, Consola y proyecto al día.
+- **Pendiente del fundador:** probar la prueba 6; esperar las respuestas de ABS y Tyndale; Google Play antes del 15-11.
+- **Evidencia:** `conocimiento/2026-10-06-senda-prueba5-audio-travesia-escala.md`.

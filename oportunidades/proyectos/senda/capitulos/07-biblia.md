@@ -95,6 +95,16 @@ Está incluido en la proyección del capítulo {{cap:24}}.
 | **«+» notas y comentarios** | Ver sección 4 | v1 (primera tanda) / v2 (completo) |
 | Planes y desafíos | En Berea (capítulo {{cap:15}}) | MVP |
 
+**El umbral (prueba 6, 06-10-2026, pedido del fundador).** Al abrir la Biblia para leer, cada tanto (no siempre) aparece sobre el
+papel una frase de expectativa, como «Leer la Biblia es escuchar a Dios» o «Abre mis ojos, y veré las maravillas de tu palabra»
+(Salmo 119:18), con dos campanas suaves. Se queda unos segundos y se va sola (o con un toque). No sale en las consultas rápidas ni
+justo después de orar. Son 18 frases (paráfrasis breves con su cita o frases propias); la frecuencia (35 %), las horas mínimas entre
+una y otra (18) y las frases se ajustan desde la Consola (capítulo {{cap:32}}).
+
+**La vuelta de hoja, otra vez (prueba 6).** El fundador la sintió lenta y trabada en la prueba 5. Ahora el gesto y la animación corren
+en el hilo nativo del teléfono (no esperan a JavaScript), cada hoja se dibuja una sola vez y queda guardada, y al pasar solo se
+intercambian los papeles de las hojas en un cuadro. Probado en la web; falta la prueba en el teléfono.
+
 ## 4. El «+»: cómo se muestran los comentarios
 
 **El problema a resolver:** las Biblias de estudio muestran demasiado a la vez; las apps simples no muestran nada. El «+» tiene que
