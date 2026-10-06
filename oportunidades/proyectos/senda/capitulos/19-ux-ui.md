@@ -170,7 +170,19 @@ da, se reducen las partículas automáticamente. **Reducir movimiento:** si el s
 - **Exclamaciones de Lani** grabadas por una voz joven: «¡Bien!», «¡Imparable!», «¡Leyenda!», «¡Armadura completa!».
 - **Música por zona:** la Arena con una base rítmica suave; el Viernes de Espadeo con su tema; el Santuario en silencio.
 - **Timbres:** marimba, campanas, cuerdas punteadas y metales suaves (cálidos y modernos, lejos del arcade estridente).
-- **Firma sonora** de tres notas («Sen-da») al abrir la app y en los grandes logros.
+- **Firma sonora (hecha el 06-10-2026, `scripts/firma_senda.py`):** que al escucharla se sepa «esto es Senda», sin copiar a nadie.
+  - **El instrumento:** una marimba (madera, cálida, latinoamericana) con una campanita encima (la luz), sintetizada por modos como
+    una tecla real.
+  - **El motivo «la senda»:** cuatro notas que suben como un camino, re–la–si–fa♯, corto-corto-corto-largo. Todo está en re mayor.
+  - **Dónde suena:** firma (al abrir el primer día), pieza (aire que viene volando, golpe y motivo con acorde y chispas), armadura
+    completa (el motivo dos veces y el acorde con trémolo), logro, misión, lección, ¡Volviste! (despacio y cálido), racha e
+    imparable.
+  - **La ruleta:** cada casillero suena con un clic de grabación real (la lengüeta contra el clavo, cuatro variantes para que no suene
+    a metralleta) y al frenar suena la nota de la categoría; la corona suena con el acorde entero.
+  - **Lo chico no cambia:** el acierto, el error y la hoja, que al fundador ya le gustaban.
+  - **Por qué así:** benchmark en {{cap:31}}, quinta tanda. Un logo sonoro funciona si es corto, simple y se usa en todos lados; el
+    audio sube la concentración y el disfrute en los juegos de preguntas; y el premio se siente si tiene anticipación, golpe,
+    recompensa y calma.
 - **Respeto:** modo silencio del teléfono, volumen propio de la app, ningún sonido en el Santuario.
 
 ## 9. Vibración

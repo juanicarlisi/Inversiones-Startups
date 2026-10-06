@@ -22,6 +22,7 @@ diario**, **Antes o después** y **De memoria**.
 | **Antes o después** (ex Línea de tiempo) | Ordenar hechos | Solo y contra reloj | Al azar, amigos | v2 |
 | **Giro diario** (ex Maná del día) | Ruleta de premios una vez por día | Solo | — | MVP |
 | **Búsqueda del tesoro** y **escape bíblico** | Pistas con QR | Equipos, presencial | — | v3 |
+| **Lani corre** (evolutivo, pedido del fundador del 06-10-2026) | Carrera sin fin por historias bíblicas | Solo, contra el «fantasma» de un amigo, desafío semanal | Amigos, al azar | 2027 (después del lanzamiento) |
 
 Los juegos de **memoria** (De memoria) y de **apologética** (Preparados) pasaron a Berea y a la Travesía (capítulos {{cap:15}} y
 {{cap:08}}).
@@ -133,7 +134,46 @@ se termina. **Modos:** diario, contra reloj y contra un rival (gana quien arma l
 El líder imprime códigos QR con pistas bíblicas y los esconde; los equipos los escanean, resuelven el acertijo (con la cita) y avanzan.
 El escape bíblico es una historia con candados que se abren resolviendo acertijos. Se arma desde el modo campamento de Senda Reunión.
 
-## 10. Cómo se mide
+## 10. Lani corre (evolutivo para 2027)
+
+Una carrera sin fin con el espíritu de Senda: Lani corre por **escenas de historias bíblicas**, esquiva, salta y junta cosas con el
+dedo (tres carriles, deslizar a los lados, arriba y abajo). No es una copia de Subway Surfers: se toma solo la mecánica, que es de
+todos; el arte, los personajes, los escenarios y los nombres son propios. Cada nivel es una historia, así que tiene principio y final.
+
+| Nivel | Qué pasa | Qué se junta | Final |
+|---|---|---|---|
+| **El mar abierto** (Éxodo 14) | Correr por el fondo del mar entre dos paredes de agua, con los carros detrás | Maná y codornices | Las aguas se cierran detrás |
+| **Jericó** (Josué 6) | Siete vueltas a la muralla, cada una más rápida | Trompetas (el impulso) | La muralla cae |
+| **David** (1 Samuel 17) | Por el valle de Ela, juntando piedras del arroyo | 5 piedras lisas | Una honda, un tiro |
+| **Jonás** (Jonás 1–2) | La tormenta en el barco y, después, adentro del pez | Gotas de luz | La playa |
+| **Nehemías** (Nehemías 4) | Reconstruir la muralla mientras corrés | Ladrillos | La muralla terminada en 52 días |
+| **El naufragio de Pablo** (Hechos 27) | Nadar entre tablas hasta Malta | Tablas y salvavidas | Todos a salvo |
+| **Panes y peces** (Juan 6) | Repartir a la multitud | Panes y peces para 5.000 | 12 canastas que sobran |
+
+- **Lo que lo hace distinto:**
+  - **la armadura como poderes:** el escudo de la fe aguanta un golpe, el yelmo da unos segundos invencible y la espada abre paso;
+    se ganan en el Espadeo y conectan los dos juegos;
+  - **el versículo por partes:** cada nivel esconde las palabras de un versículo y juntarlas todas lo completa (memoria sin darse cuenta);
+  - **la historia al final:** una tarjeta corta con la cita, que se abre en el lector, y una pregunta que da Talentos;
+  - **el fantasma de un amigo:** correr contra su mejor carrera;
+  - **el desafío de la semana:** el mismo nivel para todos, con tabla del grupo de jóvenes.
+- **Reglas de Senda:** nada se compra para ganar, las partidas cortas (2 a 4 minutos) cuestan una vida como los otros juegos, sin
+  violencia: los obstáculos se esquivan y nadie se lastima.
+- **Propiedad intelectual (INFERENCIA, a revisar con un abogado antes de publicar):**
+  - las mecánicas de juego (carriles, deslizar, juntar monedas) no se protegen con derecho de autor; sí el arte, los personajes, los
+    nombres y la presentación;
+  - no se usa nada parecido a vías de tren, grafitis, inspector con perro ni tablas voladoras;
+  - antes de construir se hace una búsqueda de patentes (gratis, en Google Patents); en la búsqueda del 06-10-2026 no apareció
+    ninguna sobre este tipo de carrera.
+- **Cómo se construye:**
+  - 2,5D con React Native Skia y animaciones en el hilo nativo (sin salir de la app), o una escena 3D liviana con three.js;
+  - el arte (escenarios, Lani corriendo) es lo que más trabajo lleva;
+  - un nivel jugable en unas 3 a 4 semanas de trabajo de Claude.
+- **Cuándo y regla de corte:** después del lanzamiento, en el segundo trimestre de 2027, solo si el Espadeo retiene. Se construye
+  primero **un nivel** (El mar abierto) y se prueba con 50 jóvenes. Si menos del 30 % vuelve a jugarlo en la semana, no se hacen más
+  niveles.
+
+## 11. Cómo se mide
 
 Partidas por juego y por usuario, porcentaje con amigos contra al azar, salas creadas, revanchas, conexiones nuevas después de jugar,
 contenido cargado por líderes y resultados compartidos.

@@ -316,3 +316,32 @@
 - **Pendiente del fundador:** probar la prueba 4; enviar los pedidos de licencia (15 minutos); crear Supabase y PostHog y cargar los
   secretos en GitHub antes del 26-10; Google Play antes del 15-11.
 - **Evidencia:** `conocimiento/2026-10-05-senda-dificultad-cuentas-presupuesto.md`.
+
+## DEC-2026-10-06-1 — Senda: quinta tanda (prueba 4 en el teléfono), firma sonora, calendario y licencias más adelante
+
+- **Fecha:** 2026-10-06 · **Decide:** fundador (con recomendaciones de Claude)
+- **Contexto:** el fundador probó la prueba 4:
+  - la Biblia mejoró, pero se cortaba abajo, se trababa y desde un plan el Salmo 1 quedaba solo;
+  - la ruleta sonaba fea y al ganar una pieza no había festejo;
+  - pidió sonidos propios que se reconozcan, eventos propios en el calendario y, como evolutivos, grupos con roles y un juego de
+    carrera con Lani;
+  - creó Supabase y PostHog, envió los dos primeros correos de licencia y se trabó con los formularios.
+- **Decidido:**
+  - **firma sonora propia** (marimba con campanita y el motivo re–la–si–fa♯) en los momentos grandes y la ruleta; los sonidos chicos
+    quedan como estaban;
+  - **Mi calendario en el MVP**, con eventos y avisos reales; los grupos con roles y la agenda compartida van en febrero de 2027, con
+    las cuentas;
+  - **Lani corre** queda como evolutivo para el segundo trimestre de 2027: un nivel de prueba y una regla de corte;
+  - **NVI y LBLA** se piden después del lanzamiento y con la empresa (recomendado);
+  - el token de Supabase se cambia por uno que venza en un año (opcional, no urgente).
+- **Hecho por Claude:**
+  - lector sin cortes ni trabas, y plan de lectura de corrido;
+  - firma sonora, ruleta nueva y festejo de pieza a pantalla entera;
+  - calendario con eventos (foto, lugar o Meet, repetición, fechas tope) y avisos reales;
+  - recordatorio diario real;
+  - tablas aplicadas en Supabase, respuestas y Pulso reales, y región de PostHog detectada sola;
+  - política de privacidad 0.2;
+  - campos de los formularios listos y registro de los evolutivos;
+  - APK prueba 5.
+- **Pendiente del fundador:** probar la prueba 5; esperar las respuestas de ABS y Tyndale; Google Play antes del 15-11.
+- **Evidencia:** `conocimiento/2026-10-06-senda-prueba4-sonido-calendario.md`.

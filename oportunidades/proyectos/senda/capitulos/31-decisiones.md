@@ -74,6 +74,19 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | Presupuesto | ¿Por qué un diseñador de interfaz si lo hace Claude? | **Tenías razón:** lo hago yo. Presupuesto **mínimo recomendado del primer año: USD 55** (Google Play + IA para traducciones); lo profesional queda como opción (capítulo {{cap:29}}) |
 | Lo próximo | Avanzar | Planes de lectura (5), protector de racha, métricas anónimas y base de datos listas (prueba 4) |
 
+**Quinta tanda (06-10-2026, después de probar el APK de la prueba 4):**
+
+| Tema | Lo que dijiste | Lo que quedó |
+|---|---|---|
+| Biblia cortada abajo y trabada | La hoja salía cortada abajo y se trababa al usarla | **Arreglado (prueba 5):** la letra del sistema (Samsung la agranda) ahora entra en la grilla y ya no corta la hoja; las hojas vecinas quedan precargadas y el gesto ya no vuelve a armar el texto |
+| Salmos desde el plan | Salía el Salmo 1 y al dar vuelta solo «Terminar capítulo» | «Terminé» ocupa dos renglones y entra debajo del Salmo 1; con un plan dice «Terminé · sigue Salmos 2», pasa solo y la cabecera muestra «día 1 · 2 de 8» |
+| Ruleta y festejo | La ruleta sonaba fea; al ganar una pieza no había festejo | **Firma sonora propia** (capítulo {{cap:19}}, sección 8): la ruleta con clics reales y una nota por categoría; festejo de pieza a pantalla entera (cae, golpea al compás, rayos de su color, lluvia de luz, encastre en la armadura) |
+| Benchmark de Preguntados y otras | Investigar lo mejor de su mejor época, sin imitar | Lo que tomamos: la consigna simple, la ruleta como anticipación, coleccionar las 6 piezas, el audio que sube la concentración (Kahoot), la campanita breve del acierto (Duolingo); lo que evitamos: los límites que cortan la sesión y los anuncios invasivos (las quejas de Trivia Crack 2) |
+| Calendario | Eventos propios; grupos con roles; video, fotos, recordatorios, fechas tope | **Mi calendario hecho** (capítulo {{cap:13}}): eventos con foto, lugar o Meet, repetición, fechas tope y avisos reales; **grupos con roles** (líder, coordinador, miembro) y agenda compartida en febrero de 2027 (sección 3b) |
+| Juego de carrera con Lani | Algo tipo Subway Surfers con el espíritu de Senda | **Lani corre** (capítulo {{cap:10}}, sección 10): historias bíblicas como niveles, la armadura como poderes, el versículo por partes; un nivel de prueba en el segundo trimestre de 2027 con regla de corte |
+| Supabase y PostHog | Listos (token sin vencimiento y con todos los permisos) | Tablas aplicadas desde GitHub; la app manda respuestas anónimas y votos del Pulso y lee resultados reales; PostHog activo. El token funciona; conviene cambiarlo por uno que venza en un año (opcional) |
+| Licencias | Mandaste los dos correos; los formularios te trabaron | Marcados como enviados. **Formularios, más adelante:** Biblica no licencia apps en desarrollo ni a personas, y Lockman pide dirección postal. Cada campo quedó listo en la Consola |
+
 ## 2. Cómo seguimos: el desarrollo
 
 | Qué | Cómo |
