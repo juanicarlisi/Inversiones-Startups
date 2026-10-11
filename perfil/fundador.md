@@ -37,6 +37,17 @@
 | Formas de pensar | Ver `doctrina/08-formas-de-pensar.md` (ejemplos = disparadores; mirar lo que funciona; explorar antes de descartar; audiencia a costo cero y sin cara; diferencial extraordinario; ficha completa con nombres) | Estándar de todo análisis futuro |
 | Ideas que trajo como disparador | Niveles tipo Duolingo, torneos de iglesias tipo Gran DT, chats y comunidades, módulo para reuniones de jóvenes con juegos dentro de la app, suscripción muy barata | Todas exploradas como ecosistema en `conocimiento/2026-09-28-apps-cristianas-y-mecanicas.md` |
 
+### Pautas del 11-10-2026 (Senda)
+
+| Pauta | Valor | Implicancia |
+|---|---|---|
+| Propósito de Senda | Que mientras se juega o se usa cualquier función se aprenda y se crezca en la relación con Dios y en su Palabra | Todo enseña y edifica: lo que solo entretiene no va (capítulo 10 §14 del proyecto) |
+| Antes de leer | Nada: la Biblia abre directo, cuando la persona quiere | Sin invitaciones ni frases previas |
+| Lo que trae de terceros | Es dirección, nunca algo para copiar (por ejemplo, un juego de mesa visto en una conferencia) | Se dice siempre en qué se diferencia lo nuestro |
+| Calidad del contenido | Todo revisado y totalmente correcto; investigación profunda; claro, interactivo y útil; la UX es clave | Verificación línea por línea contra el texto; lo interpretativo se marca |
+| Ritmo | Prefiere calidad extraordinaria aunque lleve tiempo | Ir despacio y bien antes que rápido y flojo |
+| Material propio | Va a mandar más material para sumar | Incorporarlo con la misma verificación |
+
 ## Lo que falta (y por qué importa)
 
 | # | Pregunta | Por qué importa | Qué cambia según la respuesta |
