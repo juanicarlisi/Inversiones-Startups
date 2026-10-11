@@ -88,6 +88,49 @@ Espadeo (conductora), redes sociales, stickers de WhatsApp, merch.
 **Protección:** la versión final la dibuja y anima una persona (no solo IA) para que tenga derechos de autor, con cesión por escrito; se
 registra como marca figurativa (capítulo {{cap:26}}).
 
+## 3b. Lani en 3D (prueba 8, 11-10-2026)
+
+**El pedido.** En la prueba 7, al fundador el baile de Lani le pareció un poco infantil. Además preguntó si Lani no podía ser en 3D, como en Duolingo.
+
+**Qué hace Duolingo (HECHO).**
+- Los personajes de Duolingo son **2D**, armados en Rive con una máquina de estados: un personaje con estados reutilizables (reposo, escucha, habla, festeja) que la app dispara y mezcla en el momento ([blog de Duolingo](https://blog.duolingo.com/world-character-visemes); [DEV Community](https://dev.to/uianimation/how-duolingo-style-character-animations-are-built-in-rive-and-how-product-teams-integrate-them-into-2k6l)).
+- La sensación de volumen sale del dibujo (luces, sombras, giros de cabeza) y de la animación (anticipación, estirar y aplastar, movimiento secundario), no de un motor 3D.
+- Para exportar un archivo de Rive hace falta un plan pago (desde USD 9 por mes); el motor en la app es gratis y no cobra por uso ([precios de Rive](https://rive.app/blog/new-pricing); [blog de Rive](https://rive.app/blog/rive-s-new-9-mo-plan)).
+
+**Qué hicimos: Lani en 3D de verdad, hecha con código.**
+- No hay modelos ni texturas para bajar. Lani está armada con formas (copos de lana, cabeza, orejas, pañuelo con la llama, zapatillas), luz de estudio y sombra suave.
+- Se dibuja en el teléfono con three.js sobre expo-gl, con fondo transparente, encima de la fiesta. El mismo código la muestra en la Consola, donde se la puede girar con el dedo.
+- Las piernas usan cinemática inversa: los pies quedan apoyados en el piso aunque Lani baje con las rodillas.
+- Si el teléfono no puede dibujar 3D, baila la Lani 2D, y en Ajustes se puede apagar «Lani en 3D».
+- **Costo:** cero. Solo existe mientras dura la fiesta; al terminar, libera la memoria.
+
+**Por qué el baile parecía infantil y qué cambió.**
+- **Antes:** saltitos en cada tiempo, aplastarse al caer y una vuelta entera cada dos compases. Es el lenguaje de los dibujos para chicos.
+- **Ahora:** un groove de cuatro compases al pulso de la música de la fiesta (125 negras por minuto), como en un recital de jóvenes:
+  1. las rodillas marcan cada tiempo y el peso pasa de un lado al otro; la cabeza asiente; las orejas llegan tarde;
+  2. chasquidos a los costados de la cabeza;
+  3. el gesto propio: **señala al cielo** y mira arriba;
+  4. aplausos en el 2 y el 4;
+  5. manos arriba;
+  6. al final, la pose: mira a cámara, puño arriba y la otra mano en la cintura.
+- La cámara acompaña con un arco lento y se acerca en la pose. La Lani 2D también dejó los saltitos y las vueltas.
+
+{{LANI_3D}}
+
+**Los tres caminos para la Lani final.**
+
+| Camino | Cómo se ve | Quién lo hace | Costo | Lo bueno | Lo que falta |
+|---|---|---|---|---|---|
+| **2D en Rive** (el plan original) | Como Duolingo | Un animador de Rive | USD 1.200 del presupuesto (capítulo {{cap:29}}) | Archivos chicos; la mezcla de estados la resuelve el editor | Claude no puede editar un archivo de Rive: cada cambio pasa por el animador |
+| **3D hecha con código** (la prueba 8) | Volumen real, se puede girar | Claude | USD 0 | Cambios en minutos; la armadura y los atuendos de Tu Lani se le «ponen» encima en 3D | El acabado depende de formas simples: no llega al detalle de un modelador |
+| **3D de un modelador** (después) | Como un personaje de juego | Un artista 3D (modelo y animaciones en glTF) | A cotizar; reemplazaría la línea del animador de Rive | El mejor acabado; usa el mismo motor que ya está en la app | Hay que cotizar y elegir a la persona |
+
+**Recomendación (INFERENCIA de Claude).**
+- Probar la 3D en el teléfono con la prueba 8.
+- Si al fundador le gusta, extenderla a Tu Lani (atuendos, vehículos y la armadura puestos en 3D) y a la bienvenida.
+- **Decisión en noviembre:** la línea de USD 1.200 del animador de Rive pasa a un artista 3D o se queda en Rive. Mientras tanto, la Lani 3D hecha con código sirve para el lanzamiento.
+- La versión final la termina una persona, para que tenga derechos de autor (ver «Protección» en la sección 3).
+
 ## 4. El elenco (más adelante)
 
 Duolingo suma personajes humanos de distintas edades y personalidades, y eso le da mundo y le saca lo infantil. Senda puede hacer lo

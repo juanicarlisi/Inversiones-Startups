@@ -24,7 +24,7 @@ diario**, **Antes o después** y **De memoria**.
 | **Búsqueda del tesoro** y **escape bíblico** | Pistas con QR | Equipos, presencial | — | v3 |
 | **Lani corre** (evolutivo, pedido del fundador del 06-10-2026) | Carrera sin fin por historias bíblicas | Solo, contra el «fantasma» de un amigo, desafío semanal | Amigos, al azar | 2027 (después del lanzamiento) |
 | **Juegos de historias** (El arca, Jericó, Nehemías…, evolutivo) | Juegos de mesa y de consola llevados a la Biblia | Solo, en grupo, impresos | Amigos, grupo | 2027, uno por vez |
-| **Senda Fiesta** (tipo Mario Party, evolutivo) | Tablero, dado, coronas y un minijuego por ronda | Mismo teléfono, tele de la reunión, en línea | Amigos, grupo | 2027, si Espadeo y Reunión retienen |
+| **Senda Fiesta** (tablero con minijuegos, evolutivo) | Tablero que es una historia, la nube que se mueve, coronas que se ganan sabiendo y un minijuego por ronda | Mismo teléfono, tele de la reunión, por turnos con amigos, campamento | Amigos, grupo, campamento | 2027, después de los duelos y Reunión |
 
 Los juegos de **memoria** (De memoria) y de **apologética** (Preparados) pasaron a Berea y a la Travesía (capítulos {{cap:15}} y
 {{cap:08}}).
@@ -200,33 +200,100 @@ Se pueden jugar en el teléfono y, los de mesa, también impresos (versión para
 después de Lani corre; se prototipa uno (El arca) en 3 a 4 semanas y se prueba con 50 jóvenes: si menos del 30 % lo vuelve a jugar en la
 semana, no se hacen más.
 
-## 12. Senda Fiesta: un juego de tablero tipo Mario Party (evolutivo)
+## 12. Senda Fiesta: el modo fiesta, con identidad propia (evolutivo; rediseñado el 11-10-2026)
 
-**Qué hace Mario Party (y por qué funciona).** Se gana juntando **estrellas** en una cantidad fija de turnos: cada jugador tira un dado
-(1 a 10), avanza por el tablero, gana o pierde monedas según la casilla, y compra la estrella (por 20 monedas) en una casilla que
-cambia de lugar cada vez que alguien la compra. **Al final de cada ronda hay un minijuego** entre todos, y los ganadores se llevan 10
-monedas. *Super Mario Party Jamboree* llevaba 7,48 millones de copias al 31-03-2025 y fue el lanzamiento más rápido de la serie.
-Fuentes: [Mario Party (Wikipedia)](https://en.wikipedia.org/wiki/Mario_Party_(video_game)),
-[Jamboree, el lanzamiento más rápido (Nintendo Life)](https://nintendolife.com/news/2025/02/super-mario-party-jamboree-is-the-fastest-selling-entry-in-franchise-history),
-[más de 6 millones (Shacknews)](https://shacknews.com/article/142968/mario-party-jamboree-launch-sales-6-million).
+**De dónde sale.**
+- Al fundador le parece que la biblioteca de minijuegos (§14) encaja con un modo de tablero al estilo Mario Party.
+- Lo pidió con nuestra impronta y sin réplicas, para no tener problemas legales.
+- Acá está cómo lo queremos hacer.
 
-**Senda Fiesta (nombre provisorio; alternativas: Gran Camino, La Fiesta de Lani).** De 2 a 4 jugadores, en un mismo teléfono que
-pasa de mano, en la tele de la reunión o en línea:
+**Qué hace Mario Party (y por qué funciona).**
+- Se gana juntando **estrellas** en una cantidad fija de turnos. Cada jugador tira un dado (1 a 10), avanza por el tablero y gana o pierde monedas según la casilla.
+- La estrella se compra (por 20 monedas) en una casilla que cambia de lugar cada vez que alguien la compra.
+- **Al final de cada ronda hay un minijuego** entre todos, y los ganadores se llevan 10 monedas.
+- *Super Mario Party Jamboree* llevaba 7,48 millones de copias al 31-03-2025 y fue el lanzamiento más rápido de la serie.
+- Fuentes: [Mario Party (Wikipedia)](https://en.wikipedia.org/wiki/Mario_Party_(video_game)), [Jamboree, el lanzamiento más rápido (Nintendo Life)](https://nintendolife.com/news/2025/02/super-mario-party-jamboree-is-the-fastest-selling-entry-in-franchise-history), [más de 6 millones (Shacknews)](https://shacknews.com/article/142968/mario-party-jamboree-launch-sales-6-million).
 
-- **Tableros que son historias:** «Camino a Jerusalén» (la fiesta de la Pascua), «El arca», «Los viajes de Pablo» (el mapa real de la
-  Travesía), «El templo de Salomón».
-- **Talentos en lugar de monedas y coronas en lugar de estrellas:** la corona se compra en una casilla que se mueve; las casillas de
-  historia dan y quitan (el maná suma, la tormenta resta, el buen samaritano le da a otro y gana más).
-- **Un minijuego por ronda, de los de Senda:** pregunta relámpago, Abecé exprés, ordenar el relato, tocar el lugar en el mapa,
-  Dibujalo de 20 segundos, el versículo que falta. Se gana sabiendo y con rapidez, no solo con suerte.
-- **Lo que lo hace distinto:** la última ronda se juega en equipo (todos contra la tormenta) para que nadie termine humillado; cada
-  partida deja tres cosas aprendidas (como «Lo que aprendiste»); el líder puede cargar sus preguntas.
-- **No es una copia:** se toman las ideas de género (tablero, dado, minijuego por ronda), que son de todos; el arte, los personajes,
-  los nombres y las reglas son propios. Antes de construir, revisión legal y búsqueda de patentes (INFERENCIA: las mecánicas no se
-  protegen con derecho de autor, la presentación sí).
-- **Cuándo y regla de corte:** 2027, después de que el Espadeo y Senda Reunión retengan. Prototipo: un tablero y 6 minijuegos (6 a
-  8 semanas de trabajo de Claude), probado con 10 grupos de jóvenes. Si menos del 40 % de los grupos lo vuelve a jugar en el mes, se
-  guarda.
+**Lo que se toma del género (es de todos) y lo que es nuestro.**
+- **Del género:** tablero por turnos, dado, una moneda para conseguir la meta, un minijuego por ronda, premios al final y una forma de que el último pueda volver.
+- **Nuestro: siete reglas que nacen de la Biblia y que Mario Party no tiene.**
+
+| Regla de Senda Fiesta | De dónde sale (RV1909) | Qué cambia en el juego |
+|---|---|---|
+| **La nube se mueve** | «Según que se alzaba la nube del tabernáculo, los hijos de Israel se partían» (Números 9:17) | La corona está donde se posa la columna de nube. Cuando alguien la alcanza, la nube se levanta y se posa en otro lugar del tablero |
+| **La corona se gana sabiendo** | «Procura con diligencia presentarte á Dios aprobado» (2 Timoteo 2:15) | Para llevarse la corona hay que pagar 10 Talentos **y** acertar una pregunta del relato del tablero. Si falla, paga la mitad y prueba en la ronda siguiente |
+| **El maná se echa a perder** | Lo que dejaron para otro día «crió gusanos, y pudrióse» (Éxodo 16:20) | Los Talentos guardados más de tres rondas pierden uno por ronda: conviene usarlos o darlos |
+| **Dar suma** | «Más bienaventurada cosa es dar que recibir» (Hechos 20:35) | En la casilla del buen samaritano se le puede dar a otro jugador; quien da junta «gracia», que cuenta al final |
+| **Los últimos serán primeros** | «Los postreros primeros» (Mateo 20:16) | La casilla de la viña le paga más al que va último, y el último elige el minijuego de la ronda siguiente |
+| **Nadie le roba a nadie** | — | No hay objetos para quitarle algo a otro (en Mario Party y en Pummel Party sí). Los objetos sirven para avanzar o protegerse: sandalias (+3 casillas), lámpara (ver dos opciones de la pregunta), escudo de la fe (frena una tormenta), cuerda de Rahab (salir de una casilla mala) |
+| **Las bienaventuranzas del final** | Mateo 5 | En lugar de premios sorpresa, cuatro coronas por virtudes: el que más dio, el que más aprendió (más preguntas acertadas), el que más ayudó en los minijuegos por equipo y el que nunca se rindió (perdió más minijuegos y siguió) |
+
+- **La última ronda, todos contra la tormenta.** Es cooperativa y suma para todos, para que nadie termine humillado.
+- **Cada partida deja tres cosas aprendidas**, como «Lo que aprendiste» de la Travesía, con la cita.
+
+{{FIESTA_TABLERO}}
+
+**Cómo se juega una partida.**
+- **Jugadores:** de 2 a 4 personas, o hasta 8 equipos en un campamento.
+- **Duración:** exprés de 6 rondas (unos 12 minutos), normal de 12 (unos 25) y campamento con postas (60 a 90).
+- **Cada ronda:**
+  - cada uno tira el dado (1 a 6) y avanza;
+  - la casilla da o quita Talentos, cuenta un pedazo de la historia o hace una pregunta;
+  - después, minijuego para todos: los cuatro contra todos, dos contra dos o uno contra tres.
+- **Las casillas:**
+  - Talento (+3) y desierto (−3);
+  - pregunta (acertar suma);
+  - historia (pasa algo del relato del tablero);
+  - buen samaritano (dar) y viña (paga más al último);
+  - tormenta (resta, salvo con escudo);
+  - posta (solo en campamento: una prueba física que confirma el líder con un QR);
+  - la nube (la corona).
+
+**Los tableros: cada uno es una historia y enseña su relato.**
+
+| Tablero | Lo que pasa en el tablero | Lo que se aprende |
+|---|---|---|
+| **El Éxodo: de Egipto al Sinaí** (el primero) | La nube guía; el mar Rojo se abre cada tres rondas y es un atajo; el maná le da 2 Talentos a todos; Mara (el agua amarga se vuelve dulce); Refidim (el agua de la roca); al llegar al Sinaí, las preguntas son los diez mandamientos | El orden del viaje, las provisiones de Dios y los mandamientos |
+| **Camino a Jerusalén** | La peregrinación de la Pascua por los quince «cánticos graduales» (Salmos 120–134), un escalón por salmo | Los cánticos graduales y las fiestas de Israel |
+| **Los viajes de Pablo** | El mapa real del Mediterráneo (el mismo de la Travesía); barcos, la tormenta y el naufragio en Malta; la cárcel de Filipos (se pierde un turno, salvo que se cante: se abren las puertas, Hechos 16:25-26) | La geografía y el relato de Hechos |
+| **Nehemías: la muralla** | Todos construyen la muralla por tramos y gana el que más pone. Si no se termina en las rondas que dura la partida (52 días en el relato), pierden todos | Trabajar y orar; los 52 días |
+| **El arca** | Juntar los animales de a pares antes de que empiece la lluvia | El orden y las fechas del diluvio; el pacto |
+
+**Dónde se juega: cuatro maneras con la misma partida.**
+
+| Modo | Cómo | Servidor | Cuándo |
+|---|---|---|---|
+| **En un mismo teléfono** | El teléfono pasa de mano | Ninguno | El prototipo |
+| **En la tele de la reunión** | El proyector muestra el tablero y cada uno juega desde su teléfono, como un control (al estilo Jackbox) | Una sala en vivo, solo mientras dura (capítulo {{cap:12}}) | Con Senda Reunión |
+| **Por turnos con amigos** | Cada uno juega su ronda cuando puede. Los minijuegos se juegan con la misma semilla y se comparan los puntajes, como contra un fantasma. 72 horas por ronda, como los duelos | La misma base de los duelos: cero tráfico de contenido | Después de los duelos |
+| **En el campamento** | Equipos de hasta 8, con casillas de posta (pruebas físicas que el líder confirma con un QR) y un medallero para la olimpíada bíblica (§13) | Ninguno: alcanza el teléfono del líder | Modo campamento |
+
+El modo **por turnos con amigos** es nuestro: un tablero con minijuegos que se juega de a ratos, con costo de servidor casi cero.
+
+**Los minijuegos: la biblioteca de §14.**
+- Cada minijuego se hace una vez y se juega en tres formatos: solo (el Arcade de la Travesía), de a cuatro (la Fiesta) y por equipos (Reunión y campamento).
+- **Mitad habilidad y mitad saber**, para que gane también el que conoce menos la Biblia:
+  - **habilidad:** Maná, Los cuervos de Querit, Jericó, Pedro sobre el agua, Gedeón;
+  - **saber:** pregunta relámpago, ordenar el relato, completar el versículo, tocar el lugar en el mapa, Dibujalo de 20 segundos.
+
+**Para no tener problemas legales (INFERENCIA de Claude; antes de construir, consulta con un abogado de propiedad intelectual).**
+- **Las mecánicas son libres.** El derecho de autor no protege la idea de un juego, su nombre ni el método para jugarlo: protege el texto, el arte y la música. Así lo dice la Oficina de Copyright de Estados Unidos ([circular FL-108, copia archivada de 2004](https://webharvest.gov/peth04/20041015023438/http://www.copyright.gov/fls/fl108.html); [ABA Landslide](https://www.americanbar.org/groups/intellectual_property_law/resources/landslide/archive/why-videogame-rules-are-not-expression-protected-copyright-law/)). Hay que confirmarlo en la versión actual de copyright.gov antes de decidir.
+- **El aspecto sí se protege.** En *Tetris Holding v. Xio* (2012), un clon perdió por copiar las formas, los colores y las medidas del tablero ([Wikipedia](https://en.wikipedia.org/wiki/Tetris_Holding,_LLC_v._Xio_Interactive,_Inc.)). Senda Fiesta usa su propio arte (Lani, la paleta de Senda y los mapas bíblicos), su música y sus nombres.
+- **Las marcas no se tocan.**
+  - Mario, Mario Party, Nintendo y los nombres de sus personajes, objetos y casillas no aparecen en ningún lado.
+  - Tampoco en la tienda ni en la publicidad: nada de «el Mario Party cristiano». En la ficha va «juego de tablero con minijuegos».
+- **Las patentes, con cuidado.**
+  - Nintendo usa patentes de mecánicas: en 2024 demandó en Japón a los creadores de *Palworld* por tres patentes (capturar y montar criaturas).
+  - A julio de 2026 seguía sin fallo y sin medidas contra el juego ([Open Class Actions](https://openclassactions.com/news/palworld-nintendo-patent-lawsuit-update-july-2026.php), [PatentArcade](https://www.patentarcade.com/?p=7128)).
+  - **Regla de Senda:** usar solo mecánicas que existen hace más de 20 años, más las propias. Las patentes duran 20 años y Mario Party salió en 1998.
+  - Antes de construir, una búsqueda de patentes en Google Patents.
+- **El género ya es de todos.** *Pummel Party* (Rebuilt Games, 2018), un tablero con minijuegos para 4 a 8 jugadores, se vende en Steam desde hace años con unas 57 mil reseñas ([Steam](https://store.steampowered.com/app/880940/Pummel_Party), [Nodal](https://nodal.gg/game/pummel-party-880940)).
+
+**Costo, cuándo y regla de corte.**
+- **Cuándo:** 2027, después de los duelos y de Senda Reunión, y cuando haya al menos 6 minijuegos de la biblioteca.
+- **Prototipo:** el tablero del Éxodo, en un mismo teléfono y en campamento. Unas 6 a 8 semanas de trabajo de Claude, con el motor de los minijuegos.
+- **Costo de servidor:** cero en esos dos modos; el modo por turnos usa la base de los duelos.
+- **Regla de corte:** se prueba con 10 grupos de jóvenes. Si menos del 40% lo vuelve a jugar en el mes, se guarda.
 
 ## 13. Juegos de campamento y de iglesia (registro para evolutivos)
 

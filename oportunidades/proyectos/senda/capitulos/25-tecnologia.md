@@ -45,7 +45,7 @@ contenido**. Por eso se encargan desde el principio (capítulos {{cap:29}} y {{c
 |---|---|---|---|---|
 | App móvil | **React Native + Expo** (TypeScript) | Una base para Android e iOS (y web); actualizaciones sin pasar por la tienda; enorme ecosistema; Claude rinde mejor en TypeScript | Gratis | Flutter |
 | Compilación y publicación | **Expo EAS** (Build, Submit, Update) | Compila iOS en la nube sin Mac; publica en tiendas; actualizaciones «por aire» | Gratis → USD 19/mes (Starter) en meses de mucho trabajo | Compilar a mano |
-| Animación de la mascota | **Rive** (runtime gratis y abierto) | Lo que usa Duolingo: máquina de estados, archivos chicos, boca sincronizada | Editor: el animador usa su cuenta (desde USD 9/mes); el motor en la app es gratis | Lottie (más limitado) |
+| Animación de la mascota | **Rive** (runtime gratis y abierto) o **Lani 3D** con three.js sobre expo-gl (prueba 8; se decide en noviembre, capítulo {{cap:16}} §3b) | Rive: lo que usa Duolingo (máquina de estados, archivos chicos, boca sincronizada). 3D: hecha con código, cambios en minutos, la armadura se le pone encima | Rive: el animador usa su cuenta (desde USD 9/mes). 3D: gratis | Lottie (más limitado) |
 | Microanimaciones | **Reanimated** + **Lottie** | 60 cuadros por segundo en el hilo de la interfaz | Gratis | — |
 | Dibujo y gráficos | **React Native Skia** | Lienzo rápido (Dibujalo), ruleta, efectos de luz | Gratis | — |
 | Sonido y vibración | expo-audio + expo-haptics | Sonidos precargados y vibración sincronizada | Gratis | — |

@@ -27,6 +27,7 @@ import markdown
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import senda_mapas as MP  # noqa: E402
 import senda_pantallas as S  # noqa: E402
 import senda_visual as V  # noqa: E402
 
@@ -37,8 +38,8 @@ FUENTE = RAIZ / "informes" / "fuente-senda"
 GRAF = FUENTE / "graficos"
 TIPO = RAIZ / "informes" / "tipografia"
 TITULO = "Senda · El proyecto completo de la app"
-SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v2.pdf"
-SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v2.html"
+SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3.pdf"
+SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3.html"
 SALIDA_HTML = FUENTE / "informe.html"
 
 AMBAR, NOCHE, VERDE, GRANADA, CREMA, TINTA = V.AMBAR, V.NOCHE, V.VERDE, V.ROJO, V.CREMA, "#1B1B1F"
@@ -162,6 +163,7 @@ def lista(items, clase="") -> str:
 
 
 def bloque_resumen(D) -> str:
+    cm = MP.cuenta_mapa()
     p = D["presupuesto"]["items"]
     tot = {k: sum(i[k] for i in p) for k in ("basico", "profesional", "premium")}
     pilares = [
@@ -206,10 +208,9 @@ calidad de las mejores apps del mundo. Junta en un solo lugar, en español de or
 <p class="nota" style="margin-top:2mm">Cada etapa prueba una hipótesis y tiene una condición para seguir. La primera regla de corte es el
 30 de abril de 2027 (capítulo {{{{cap:30}}}}).</p></div>
 </div>
-<div class="caja rec"><h4 class="ico-t">{V.icono("check", 13, V.VERDE)} Lo que necesito de vos para arrancar</h4>
-<p>Las 16 decisiones ya están tomadas (capítulo {{{{cap:31}}}}) y el desarrollo empezó el 05-10-2026. Ahora: probar cada vista previa
-desde el celular, crear el repositorio de la app, verificar el nombre, elegir 2 revisores y 12 testers y abrir Google Play a más tardar
-el 15-11. Todo gasto y toda publicación salen con tu aprobación.</p></div>"""
+<div class="caja rec"><h4 class="ico-t">{V.icono("check", 13, V.VERDE)} Dónde estamos y qué necesito de vos</h4>
+<p>Ocho versiones de prueba desde el 05-10-2026: ya funcionan {cm["hecho"]} de las {cm["total"]} funciones de la app (capítulos {{{{cap:06}}}} y
+{{{{cap:33}}}}). Ahora: probar cada versión, 2 revisores y 12 testers, Expo y Firebase gratis para los duelos y Google Play antes del 15-11.</p></div>"""
 
 
 def bloque_mapa_app() -> str:
@@ -615,8 +616,8 @@ def portada(D) -> str:
              (f"USD {usd(tot)}", "primer año en nivel profesional, por tramos (hay básico y premium)"), ("1 millón", "de descargas: la meta para fines de 2030")]
     dt_ = "".join(f"<div><b>{a}</b><span>{b}</span></div>" for a, b in datos)
     return f"""<section class="portada-s">
-<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 2.1 · 5 de octubre de 2026 · uso privado</div>
-<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v2</p>
+<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3 · 11 de octubre de 2026 · uso privado</div>
+<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3</p>
 <p class="ps-lema">Una app cristiana para que los jóvenes conozcan la Biblia <b>jugando, leyendo y en comunidad</b>, con nivel profesional:
 nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen; Android e iOS primero y la web después.</p></div>
 <div class="ps-img"><div class="ps-esc">{V.lani("saludo", 148, buzo=V.VIOLETA, gorra=V.AMBAR)}</div>{V.logo_txt(30, V.NOCHE)}</div></div>
@@ -626,7 +627,7 @@ nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen
 <div class="ps-mv"><div><span>Misión</span>Ayudar a cada joven a conocer, amar y vivir la Palabra de Dios todos los días, con una experiencia alegre y
 excelente, en comunidad, gratis y en su idioma.</div><div><span>Visión</span>Ser la app cristiana número uno del mundo de habla hispana y
 portuguesa —la más descargada y la que mejor edifica a los jóvenes—, y una generación que conoce las Escrituras.</div></div>
-<div class="ps-pie">Esta versión incorpora las 30 correcciones y las 16 decisiones del fundador, y el diseño emocional (capítulo 20). HECHO lleva fuente y fecha;
+<div class="ps-pie">Esta versión suma todo lo que cambió con las ocho pruebas en el teléfono (capítulo 31), el mapa de toda la app en una hoja (capítulo 6), Lani en 3D, Senda Fiesta y el desarrollo hasta hoy (capítulo 33). HECHO lleva fuente y fecha;
 ESTIMACIÓN lleva método. Nada que mueva plata o hable con terceros sale sin la aprobación del fundador. Lani, logo y pantallas son
 bocetos de dirección: el diseño final lo hacen especialistas.</div>
 </section>"""
@@ -684,6 +685,10 @@ def construir_html(D, incrustar: bool = False, paginas: dict | None = None) -> s
         "{{MOCK:espadeo}}": lambda: bloque_mock("espadeo"),
         "{{MOCK:reunion}}": lambda: bloque_mock("reunion"),
         "{{MOCK:calendario}}": lambda: bloque_mock("calendario"),
+        "{{MAPA_TOTAL}}": MP.mapa_total,
+        "{{FIESTA_TABLERO}}": MP.fiesta_tablero,
+        "{{LANI_3D}}": MP.lani3d_bloque,
+        "{{ESTADO}}": MP.estado_bloque,
     }
     md = markdown.Markdown(extensions=["tables", "sane_lists", "md_in_html"])
     archivos = sorted(CAPITULOS.glob("*.md"))
@@ -789,7 +794,7 @@ def main() -> int:
     env.setdefault("NODE_PATH", "/opt/node22/lib/node_modules")
 
     def imprimir():
-        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v2", "css", "oct-2026"],
+        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3", "css", "oct-2026"],
                        check=True, env=env)
     imprimir()
     paginas = paginas_capitulos(D, SALIDA_PDF)

@@ -118,6 +118,17 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | Duelos al publicar | ¿Sirve para duelos o falta backend? Partidas abiertas que vencen | **Todavía no:** faltan cuentas anónimas, partidas en la base, invitaciones, push y vencimientos. Todo entra en el plan gratis, y el costo extra es USD 0 hasta el Pro previsto. Turnos de 72 h con recordatorios; si vence, gana el que jugó último (`docs/DUELOS.md`, sprint 3). Vos creás dos cuentas gratis, Expo y Firebase, con la guía |
 | Backlog | Avanzar con todo | **Adelantado del sprint 2:** completar el versículo, unir parejas y ¿quién lo dijo?, con validación textual contra la RV1909, y la sección 1 de Fundamentos entera (4 lecciones nuevas, en revisión doctrinal) |
 
+**Octava tanda (11-10-2026, después de probar el APK de la prueba 7):**
+
+| Tema | Lo que dijiste | Lo que quedó |
+|---|---|---|
+| Las pruebas de la prueba 7 | Salieron prácticamente todas bien | Se mantiene lo hecho: marcar al instante, el clic de la ruleta, la fiesta, las Lámparas y el repaso |
+| El baile de Lani | Parece un poco infantil; ¿no se puede en 3D, como Duolingo? | **Lani en 3D** hecha con código (three.js en el teléfono, sin archivos que bajar) y un **baile nuevo** sin saltitos ni vueltas: groove con las rodillas, chasquidos, señala al cielo, aplausos en el 2 y el 4, manos arriba y la pose final. Duolingo en realidad es 2D (Rive); hay tres caminos para la Lani final y se decide en noviembre (capítulo {{cap:16}}, §3b) |
+| El PDF del proyecto | Actualizarlo con todo lo que se habló desde la versión anterior | **Versión 3** de este documento (11-10-2026): las ocho pruebas, el mapa de toda la app, Lani en 3D, Senda Fiesta y el desarrollo hasta hoy (capítulo {{cap:33}}) |
+| Minijuegos y modo fiesta | Sumarlos a campamentos y partidas; sirven para el modo tipo Mario Party, con impronta propia y sin réplicas | **Senda Fiesta rediseñada** (capítulo {{cap:10}}, §12): siete reglas que nacen de la Biblia (la nube que se mueve, la corona que se gana sabiendo, el maná que se echa a perder, dar suma, los últimos serán primeros, nadie le roba a nadie, las bienaventuranzas del final), cuatro maneras de jugar (mismo teléfono, tele de la reunión, por turnos con amigos y campamento) y los límites legales |
+| El mapa de toda la app | Un diagrama MECE que muestre todo y cómo encaja, al primer vistazo | **La hoja grande del capítulo {{cap:06}}**: 130 funciones en tres niveles (lo que usa la persona, lo que la hace andar, lo que la sostiene), con la etapa de cada una, cómo se conecta todo y cuánto llega en cada etapa. También en la Consola, pestaña «Mapa de la app» |
+| Avanzar con lo próximo | Seguir con lo que estaba planeado | **Bienvenida en siete pasos** (edad con pregunta neutral, qué te trae, cuánto sabés, áreas de interés) que personaliza la app; menores de 13 sin anuncios ni estadísticas; **duelo contra Lani** (turnos hasta fallar, las dos armaduras, 25 rondas y revancha), sin servidor y base de los duelos con amigos |
+
 ## 2. Cómo seguimos: el desarrollo
 
 | Qué | Cómo |
@@ -127,15 +138,14 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | **Ritmo** | Un sprint cada dos semanas; vos probás 30 minutos y decidís qué sigue |
 | **Gastos** | Nada hasta noviembre. Después, solo lo imprescindible y con tu aprobación: Google Play (USD 25, una vez), RVR1960 por API.Bible (~USD 39 por mes, opcional), Claude Max (desde diciembre). Mínimo recomendado del primer año en gastos únicos: USD 55 |
 
-**Plan de sprints hasta el lanzamiento** (detalle en el repositorio de la app, `docs/SPRINTS.md`):
+**Plan de sprints hasta el lanzamiento** (detalle en el repositorio de la app, `docs/SPRINTS.md`; el avance real, en el capítulo {{cap:33}}):
 
 | Sprint | Fechas | Qué sale |
 |---|---|---|
-| 0 | 5–11 oct | Base de la app, sistema de diseño, Inicio, Biblia con 3 versiones libres, una lección, Espadeo de práctica, semana Senda. **Hecho** |
-| 1 | 12–25 oct | **Hecho el 5-oct (pruebas 1 a 4):** temas y Ajustes, lector de Biblia impresa, búsqueda, notas, cintas, voz, Nueva Biblia Viva, racha con Día libre, Protector e hitos, bienvenida, «¡Volviste!», sonidos libres, «Antes de leer», planes de lectura, dificultad del Espadeo. **Falta:** recordatorio real (pasa al sprint 2) |
-| 2 | 26 oct – 8 nov | Motor de la Travesía con las secciones 0 a 2, repaso, misiones y cofres, cuentas y sincronización (Supabase gratis) |
-| 3 | 9–22 nov | Espadeo real: duelos por turnos con amigos y con Lani, 6 comodines, Armería, banco de preguntas grande; tarjetas para compartir |
-| 4 | 23 nov – 6 dic | Calendario completo, Giro diario, Desafío del día, Tu Lani, pulido, accesibilidad; **prueba cerrada en Google Play** |
+| 0 y 1 | 5 al 11 oct (pruebas 1 a 8) | **Hecho y adelantado:** Biblia como impresa con marcas al instante, planes, voz y el umbral; Travesía con 8 áreas, Lámparas, repaso y la sección 1 de Fundamentos; Espadeo con ruleta, fiesta y Lani 3D; calendario con avisos; bienvenida completa; duelo contra Lani; métricas y Supabase |
+| 2 | 26 oct – 8 nov | Las primeras 40 lecciones de Fundamentos con revisión doctrinal; cuentas anónimas y respaldo del progreso; misiones reales |
+| 3 | 9–22 nov | Duelos por turnos con amigos y rival al azar, partidas abiertas que vencen a las 72 h, avisos push; banco grande de preguntas |
+| 4 | 23 nov – 6 dic | Tu Lani (atuendos y vehículos), Giro diario, accesibilidad; **prueba cerrada en Google Play** |
 | Lanzamiento | 7–18 dic | Correcciones, fichas de tienda, publicación gradual el **18-12-2026** |
 
 ## 3. Lo que queda abierto

@@ -401,3 +401,29 @@
   - en noviembre, crear las cuentas gratis de Expo y Firebase (guía de Claude);
   - Google Play antes del 15-11.
 - **Evidencia:** `conocimiento/2026-10-06-senda-prueba6-fiesta-lamparas-costos.md`.
+
+## DEC-2026-10-11-1 · Senda: octava tanda (después de la prueba 7), Lani en 3D, Senda Fiesta y el proyecto v3
+
+- **Contexto:** el fundador probó la prueba 7.
+  - Las pruebas salieron prácticamente todas bien.
+  - El baile de Lani le pareció un poco infantil, y preguntó si Lani podía ser 3D como en Duolingo.
+  - Pidió actualizar el PDF del proyecto con todo lo conversado y sumar un diagrama MECE de toda la app, que se entienda al primer vistazo.
+  - Le gustó sumar los minijuegos a campamentos y partidas, y usarlos en el modo tipo Mario Party, con impronta propia y sin réplicas.
+  - Pidió avanzar con lo próximo del roadmap.
+- **Decidido:**
+  - **Lani en 3D hecha con código** (three.js sobre expo-gl) para las fiestas, con vuelta a la 2D si el teléfono no puede y un interruptor en Ajustes. Duolingo es 2D (Rive); la Lani final (3D con artista 3D o 2D con animador de Rive, la misma línea de USD 1.200) se decide en noviembre, después de probarla.
+  - **Baile nuevo**, sin saltitos ni vueltas: groove de recital juvenil con chasquidos, señalar al cielo, aplausos en el 2 y el 4 y manos arriba.
+  - **Senda Fiesta con identidad propia:** siete reglas que nacen de la Biblia, cuatro maneras de jugar (incluida por turnos con amigos, con costo de servidor casi cero) y límites legales: mecánicas de más de 20 años o propias, nada de marcas ni del aspecto de Nintendo, búsqueda de patentes antes de construir y consulta con un abogado de PI.
+  - **El mapa de toda la app** (`oportunidades/proyectos/senda/mapa_total.yaml`) como fuente única para el PDF (hoja A3) y la Consola; se actualiza al cerrar cada sesión.
+  - **Menores de 13:** sin anuncios, sin estadísticas, sin cuenta y sin jugar con desconocidos.
+- **Hecho por Claude (APK prueba 8):**
+  - Lani 3D y baile nuevo (también la 2D sin saltitos);
+  - bienvenida en siete pasos (edad neutral, qué te trae, cuánto sabés, áreas de interés) que personaliza la app;
+  - duelo contra Lani, sin servidor;
+  - Consola con «Mapa de la app» y «Lani 3D»;
+  - proyecto v3 en PDF (171 páginas): tabla de lo que cambió, hoja A3, Senda Fiesta, Lani 3D, octava tanda y el capítulo 33 (el desarrollo hasta hoy).
+- **Pendiente del fundador:**
+  - probar la prueba 8;
+  - en noviembre, decidir la Lani final y crear las cuentas gratis de Expo y Firebase;
+  - Google Play antes del 15-11.
+- **Evidencia:** `conocimiento/2026-10-11-senda-prueba7-lani3d-fiesta-mece.md`.

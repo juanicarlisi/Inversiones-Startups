@@ -10,6 +10,13 @@ const { chromium } = require("playwright");
   const browser = await chromium.launch();
   const page = await browser.newPage();
   await page.goto("file://" + path.resolve(entrada), { waitUntil: "networkidle" });
+  // esperar a que carguen todas las tipografías: si no, Chromium imprime con letras de reemplazo, la paginación cambia y el
+  // PDF puede salir cortado (pasó con la v3 de Senda, 11-10-2026)
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    await Promise.all([...document.fonts].map((f) => (f.status === "loaded" ? null : f.load().catch(() => null))));
+  });
+  await page.waitForTimeout(400);
   await page.pdf({
     path: salida,
     format: "A4",

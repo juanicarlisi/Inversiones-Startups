@@ -7,6 +7,21 @@ fallaste vuelve en tu repaso, lo que hacés suma Pasos para la Liga y el Pase Se
 y de la reunión del sábado.
 </div>
 
+## 0. Toda la app en una hoja (v3, 11-10-2026)
+
+El fundador pidió ver de un vistazo cómo encaja cada cosa en una app que «parece infinita». La hoja grande que sigue la ordena en
+tres niveles que no se pisan y lo cubren todo (MECE):
+
+- **A · Lo que usa la persona:** las cinco pestañas y el perfil. Cada función vive en un solo lugar.
+- **B · Lo que la hace andar:** los sistemas que comparten todas las pestañas (juego y progreso, Lani, sonido y animación, contenido, plataforma y cuidado).
+- **C · Lo que la sostiene:** la Consola, el negocio, las licencias y el lanzamiento.
+
+Cada función lleva un punto de color con su etapa: ya funciona en la app de prueba, sale en el lanzamiento, en la v1 «Juntos» o en
+la v2 y v3, o queda para 2028 o como evolutivo. Abajo, cómo se conecta todo y cuánto llega en cada etapa. La fuente es
+`mapa_total.yaml`: la misma hoja aparece en la Consola y se actualiza al cerrar cada sesión.
+
+{{MAPA_TOTAL}}
+
 ## 1. Las cinco pestañas
 
 {{MAPA_APP}}

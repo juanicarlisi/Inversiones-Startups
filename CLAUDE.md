@@ -36,6 +36,9 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
 - **Datos del 06-10-2026:**
   - todo diseño minimiza el costo de servidores y escala sin rehacer la app;
   - los ejemplos del fundador (juegos, apps) son semillas para evaluar, fusionar y generar familias, nunca encargos de copia (`doctrina/08-formas-de-pensar.md` §9).
+- **Datos del 11-10-2026:**
+  - lo inspirado en juegos ajenos (Mario Party y otros) se hace con impronta propia: mecánicas de más de 20 años o propias, nada de marcas ni del aspecto del original, búsqueda de patentes y consulta legal antes de construir;
+  - el proyecto Senda tiene un mapa de toda la app (`oportunidades/proyectos/senda/mapa_total.yaml`) que se actualiza al cerrar cada sesión, igual que `estado.yaml`.
 
 ## 2. Reglas no negociables
 
