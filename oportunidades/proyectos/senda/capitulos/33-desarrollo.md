@@ -1,10 +1,11 @@
 # El desarrollo hasta hoy
 
 <div class="enpocas" markdown="1">
-**En pocas palabras.** El desarrollo empezó el 05-10-2026. En una semana salieron ocho versiones de prueba que el fundador probó
-en su teléfono, y cada una cambió algo de lo que él marcó. Hoy funcionan 64 de las 130 funciones del mapa de toda la app
-(capítulo {{cap:06}}). Lo que más se adelantó: la Biblia (casi completa para el lanzamiento), el motor de la Travesía y el Espadeo
-de práctica. Lo que más falta: el contenido (lecciones y preguntas revisadas), los duelos con amigos y las cuentas.
+**En pocas palabras.** El desarrollo empezó el 05-10-2026. En una semana salieron nueve versiones de prueba, y cada una cambió algo
+de lo que el fundador marcó. Hoy funcionan 67 de las 140 funciones del mapa de toda la app (capítulo {{cap:06}}). Lo que más se
+adelantó: la Biblia (casi completa para el lanzamiento, ahora directa y más rápida), el motor de la Travesía con «¿Sabías que…?» y
+«Para tu vida», y el Espadeo de práctica. Lo que más falta: la revisión doctrinal del contenido (31 lecciones y 157 preguntas
+esperando), los duelos con amigos y las cuentas.
 </div>
 
 ## 1. Cuánto falta para el lanzamiento, por área
@@ -29,13 +30,15 @@ previa, no lo que está diseñado en este proyecto. Lo actualiza Claude al cerra
 - **Lo hace el teléfono.** Biblia, Travesía, Espadeo solo, sonido y la Lani 3D no cuestan servidor. El servidor guarda solo lo compartido.
 - **Crecer sin rehacer.** Cada proveedor detrás de un módulo propio; las etapas de escala son configuración, no reescritura.
 - **Las ideas del fundador son semillas.** Se evalúan, se fusionan y se mejoran («así no → mejor así»); nunca se copian.
+- **Todo enseña y edifica** (prueba 9). Si una función o un juego no ayuda a aprender o a vivir algo de Dios y de su Palabra, no va.
 
 ## 3. Lo que sigue
 
 | Cuándo | Qué | Quién |
 |---|---|---|
-| Esta semana | Probar la prueba 8: Lani en 3D, el baile nuevo, la bienvenida con edad y objetivo, el duelo contra Lani | Vos |
-| Sprint 2 (26-10 al 8-11) | Las primeras 40 lecciones de Fundamentos con revisión doctrinal; cuentas anónimas y respaldo del progreso; misiones reales | Claude |
+| Esta semana | Probar la prueba 9: la Biblia directa y más rápida, las cinco rutas nuevas, «¿Sabías que…?» y «Para tu vida» (y lo de la prueba 8) | Vos |
+| Antes del 26-10 | Elegir 1 o 2 revisores doctrinales: hay 31 lecciones y 157 preguntas esperando | Vos |
+| Sprint 2 (26-10 al 8-11) | Las primeras 40 lecciones de Fundamentos con revisión doctrinal; La historia de Israel y Las promesas (sección 1); cuentas anónimas y respaldo del progreso; misiones reales | Claude |
 | Sprint 3 (9 al 22-11) | Duelos por turnos con amigos y rival al azar, partidas abiertas que vencen a las 72 h, avisos push; banco grande de preguntas | Claude; vos creás las cuentas gratis de Expo y Firebase |
 | Antes del 15-11 | Cuenta de Google Play (USD 25) para la prueba cerrada de 12 testers durante 14 días | Vos |
 | Sprint 4 (23-11 al 6-12) | Tu Lani (atuendos y vehículos, en 3D si te gusta), Giro diario, accesibilidad y la prueba cerrada | Claude y los testers |

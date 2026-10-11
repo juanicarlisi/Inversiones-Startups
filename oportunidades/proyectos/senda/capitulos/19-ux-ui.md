@@ -320,7 +320,7 @@ teléfono.
 1. **Perfil y ajustes** en el avatar de Tu Lani, arriba a la izquierda, en todas las pestañas (como Duolingo y YouVersion), en vez
    de una sexta pestaña o un menú.
 2. **Siempre con etiqueta** debajo de cada ícono, y una **píldora** que se desliza hasta la pestaña activa.
-3. **La barra se esconde donde molesta:** en el lector de la Biblia, las lecciones y «Antes de leer» no aparece (pantalla completa).
+3. **La barra se esconde donde molesta:** en el lector de la Biblia y en las lecciones no aparece (pantalla completa).
 4. **Más adelante (v1):** que la barra se achique al bajar en las listas largas, como en iOS 26.
 
 Si querés comparar con tus manos, se puede armar una variante con menú arriba solo para la vista previa y probarla un día.

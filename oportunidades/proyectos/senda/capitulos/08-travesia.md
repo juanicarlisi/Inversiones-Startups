@@ -103,23 +103,30 @@ La sección 9 se adelanta para estar lista en Semana Santa (28-03-2027), antes q
 **Pedido del fundador (06-10-2026):** que la Travesía sea exhaustiva y MECE, con rutas como apologética, geografía bíblica o historia
 de la Iglesia, sin inclinaciones teológicas, y que sea una de las estrellas de la app.
 
-**La regla que la hace MECE.** La Travesía tiene **8 áreas** y cada una responde **una sola pregunta**. Cada lección va al área de la
+**La regla que la hace MECE.** La Travesía tiene **9 áreas** (desde el 11-10-2026; antes 8) y cada una responde **una sola pregunta**. Cada lección va al área de la
 pregunta que responde; si un tema toca dos áreas (Pablo es personaje y también viajero), la lección se escribe en una y la otra solo lo
 repasa. Así no hay huecos (toda pregunta sobre la fe cae en un área) ni repeticiones.
 
-| Área | La pregunta | Rutas (56 en total) |
+| Área | La pregunta | Rutas (62 en total) |
 |---|---|---|
 | **La Biblia, libro por libro** | ¿Qué dice cada libro? | El gran relato (Fundamentos), Pentateuco, Históricos, Poesía y sabiduría, Profetas mayores, Los doce profetas, Evangelios, Hechos, Cartas de Pablo, Hebreos y cartas generales, Apocalipsis |
+| **El plan de Dios** (nueva, 11-10-2026) | ¿Cómo encaja todo, de Génesis a Apocalipsis? | **El Mesías prometido** (abierta), **Las fiestas del Señor** (abierta), Los pactos de Dios, Sombras de Cristo, Israel en el plan de Dios, Las promesas de Dios bien leídas |
 | **Personajes** | ¿Quién fue y qué aprendo de su vida? | Patriarcas, Moisés, Jueces y reyes, Vidas de profetas, Mujeres de la Biblia, La vida de Jesús, Los apóstoles |
-| **Tierras y tiempos** | ¿Dónde y cuándo pasó? | **Los viajes de Pablo** (abierta), Tierra Santa, Los grandes viajes, Por donde caminó Jesús, Imperios y pueblos, Línea de tiempo, Vida cotidiana, Arqueología |
-| **Cómo leer la Biblia** | ¿Cómo la leo bien y cómo llegó hasta mí? | Géneros, Leer con contexto, Palabras clave (hebreo y griego), Cómo se formó la Biblia, La Biblia en español |
-| **Lo que creemos** | ¿Qué enseña la Biblia sobre…? | El Credo de los Apóstoles, Dios, Jesús, La salvación, El Espíritu Santo, La iglesia, La esperanza |
+| **Tierras y tiempos** | ¿Dónde y cuándo pasó? | **Los viajes de Pablo** (abierta), Tierra Santa, Los grandes viajes, Por donde caminó Jesús, Imperios y pueblos, La historia de Israel en orden (antes Línea de tiempo), Vida cotidiana, Arqueología |
+| **Cómo leer la Biblia** | ¿Cómo la leo bien y cómo llegó hasta mí? | Géneros, **Leer con contexto** (abierta), Palabras clave (hebreo y griego), Cómo se formó la Biblia, La Biblia en español |
+| **Lo que creemos** | ¿Qué enseña la Biblia sobre…? | **Lo esencial de la fe** (abierta; incluye el Credo de los Apóstoles), Dios, Jesús, La salvación, El Espíritu Santo, La iglesia, La esperanza |
 | **Historia de la iglesia** | ¿Qué pasó después de Hechos? | Primeros siglos, Edad Media, La Reforma, Avivamientos y misiones, El evangelio en América Latina, Testigos |
 | **Defender la fe** (apologética) | ¿Por qué creer que es verdad? | ¿Existe Dios?, ¿Es confiable la Biblia?, ¿Resucitó Jesús?, Ciencia y fe, El dolor y el mal, Responder con respeto |
-| **Vivir la fe** | ¿Cómo lo vivo hoy? | Oración, Hábitos, Carácter (mandamientos, bienaventuranzas, fruto del Espíritu), Relaciones, Estudio-trabajo-dinero, Servir y compartir la fe |
+| **Vivir la fe** | ¿Cómo lo vivo hoy? | **La oración** (abierta), Hábitos, Carácter (mandamientos, bienaventuranzas, fruto del Espíritu), Relaciones, Estudio-trabajo-dinero, Servir y compartir la fe |
 
 El mapa vive en `contenido/travesia.json` (repositorio de la app) con cada ruta y sus secciones; las abiertas se juegan y las demás
 se ven «en preparación» en **la Travesía completa** (se abre tocando la ruta arriba del mapa).
+
+**Por qué un área nueva (11-10-2026).** La investigación sobre lo que más cuesta entender (capítulo {{cap:34}}) trajo temas que cruzan
+toda la Biblia: las profecías del Mesías, las fiestas, los pactos, las figuras de Cristo, Israel y las promesas. No responden «¿qué
+dice cada libro?» ni «¿qué enseña la Biblia sobre…?», sino «¿cómo encaja todo?» (lo que las escuelas llaman teología bíblica, al lado
+de la sistemática). Por eso tienen su propia área y el mapa sigue siendo MECE. Desde la prueba 9, cada lección nueva cierra con
+«¿Sabías que…?» y «Para tu vida».
 
 **De dónde sale (benchmark de currículas, 06-10-2026).** Los seminarios acreditados organizan la formación en cuatro bloques:
 herencia religiosa (Escritura, hermenéutica, teología, historia), contexto cultural, formación espiritual y ministerio (estándar de la
@@ -127,7 +134,7 @@ Association of Theological Schools, 1996). Un MDiv típico tiene un núcleo de e
 teológicos, formación espiritual y ministerio. Los institutos y licenciaturas en estudios bíblicos en español suman geografía bíblica,
 arqueología, historia y entorno social de cada época, y métodos de interpretación. Los cursos de geografía bíblica recorren la Tierra
 Santa, el Éxodo, la vida de Jesús y los viajes de Pablo. BibleProject Classroom trabaja libro por libro con estudio de palabras hebreas.
-Las 8 áreas cubren todo eso salvo lo que es de ministerio pastoral (va a Senda Reunión) y los idiomas en profundidad (Palabras clave
+Las áreas cubren todo eso salvo lo que es de ministerio pastoral (va a Senda Reunión) y los idiomas en profundidad (Palabras clave
 es la puerta de entrada). Fuentes: [MDiv de Campbell University](https://divinity.campbell.edu/academics/degree-programs/master-of-divinity/degree-plan/),
 [MDiv de Gardner-Webb 2025-2026](https://gardner-webb.smartcatalogiq.com/en/2025-2026/academic-catalog/school-of-divinity/degree-programs/masters-programs/master-of-divinity),
 [Master of Divinity y estándar ATS (Wikipedia)](https://en.wikipedia.org/wiki/Master_of_Divinity),

@@ -5,6 +5,14 @@ cómo se construye, cuánto cuesta, cómo se sostiene y en qué orden se hace. L
 guardadas en el repositorio. La 2 incorporó tus 30 correcciones del 02-10-2026; la 3 suma lo que cambió con las ocho pruebas de la
 app en tu teléfono.
 
+<div class="caja rec" markdown="1"><h4>Versión 3.1 (11-10-2026, misma noche)</h4>
+
+Suma tu mensaje después de la versión 3: **todo enseña y edifica** (salió «Alimenta a Elías»), la Biblia **directo a leer** y más rápida,
+la **investigación** de lo que cuesta entender con un área nueva y **21 lecciones** ya en la app (capítulo nuevo {{cap:34}}), **cuatro
+juegos propios** inspirados en la dirección del juego de la conferencia (capítulo {{cap:10}}, §15), las **iglesias que suben su
+material** y Supabase despierto. El detalle está en la novena tanda (capítulo {{cap:31}}).
+</div>
+
 <div class="caja rec" markdown="1"><h4>Versión 3 (11-10-2026)</h4>
 
 El desarrollo ya va por la octava versión de prueba en tu teléfono. Esta versión suma todo lo que cambió desde la 2.1: la tabla de
@@ -21,9 +29,10 @@ sobre la RVR1960 está en el capítulo {{cap:07}}; y el desarrollo ya empezó (s
 <div class="caja si" markdown="1"><h4>Si tenés 15 minutos</h4>
 
 1. La hoja grande del capítulo {{cap:06}}: toda la app en una hoja.
-2. La tabla «Lo que cambió desde la v2.1», más abajo.
-3. El capítulo {{cap:33}}: cuánto falta para el lanzamiento y qué sigue.
-4. Lani en 3D (capítulo {{cap:16}}, §3b) y Senda Fiesta (capítulo {{cap:10}}, §12).
+2. El capítulo {{cap:34}}: lo que cuesta entender y las rutas nuevas (lo nuevo de la 3.1).
+3. La tabla «Lo que cambió desde la v2.1», más abajo.
+4. El capítulo {{cap:33}}: cuánto falta para el lanzamiento y qué sigue.
+5. Los juegos que enseñan (capítulo {{cap:10}}, §14 y §15) y Lani en 3D (capítulo {{cap:16}}, §3b).
 </div>
 
 ## Lo que cambió desde la v2.1 (del 5 al 11 de octubre de 2026)
@@ -33,18 +42,19 @@ capítulo {{cap:31}}; el avance real, en el capítulo {{cap:33}}.
 
 | Tema | Lo que marcaste (en pocas palabras) | Qué cambió | Dónde |
 |---|---|---|---|
-| La Biblia | Que se sienta de papel; que no se corte ni se trabe; que marcar sea instantáneo | Lector como Biblia impresa (renglones parejos, capitular, dos columnas, papel biblia, hoja que se dobla con el dedo en el hilo nativo), planes de corrido, el umbral al abrir y marcas al instante | {{cap:07}} |
+| La Biblia | Que se sienta de papel; que no se corte ni se trabe; que marcar sea instantáneo | Lector como Biblia impresa (renglones parejos, capitular, dos columnas, papel biblia, hoja que se dobla con el dedo en el hilo nativo), planes de corrido y marcas al instante (desde la prueba 9, directo a leer, sin nada antes) | {{cap:07}} |
 | Versiones y licencias | Más versiones y la RVR1960 más barata | 4 versiones libres, enlace a la RVR1960 y pedidos enviados a la American Bible Society y a Tyndale; Biblica y Lockman, después del lanzamiento | {{cap:07}}, {{cap:32}} |
 | Sonido | Sonidos de calidad, que no se repitan en bucle, una identidad propia | Firma sonora con instrumentos grabados (VCSL, CC0), motor de audio sin demoras, ruleta audible con clics de matraca, la fiesta y la gran fiesta | {{cap:19}} |
 | Animación y Lani | Más vida; después, que el baile no sea infantil y que Lani pueda ser 3D | Animaciones del capítulo 19 en toda la app; Lani en 3D hecha con código y baile nuevo de recital | {{cap:16}}, {{cap:19}} |
-| La Travesía | Un mapa completo y ordenado; ver que se aprende; ayudas para pasar | 8 áreas y 56 rutas (MECE), motor de lecciones con 8 tipos, Los viajes de Pablo con mapa real, Lámparas, lectura recomendada y repaso espaciado | {{cap:08}} |
-| El Espadeo | Dificultad que no aburra ni frustre; fiesta al ganar; duelos | Dificultad que alterna, 127 preguntas verificadas, la fiesta con Lani, y el duelo contra Lani (los duelos con amigos, en el sprint 3) | {{cap:09}} |
+| La Travesía | Un mapa completo y ordenado; ver que se aprende; ayudas para pasar | 9 áreas y 62 rutas (MECE), motor de lecciones con 8 tipos, Los viajes de Pablo con mapa real, Lámparas, lectura recomendada y repaso espaciado | {{cap:08}} |
+| El Espadeo | Dificultad que no aburra ni frustre; fiesta al ganar; duelos | Dificultad que alterna, 157 preguntas verificadas, la fiesta con Lani, y el duelo contra Lani (los duelos con amigos, en el sprint 3) | {{cap:09}} |
 | El calendario | Eventos propios con aviso y una vista tipo agenda; grupos con roles más adelante | Mi calendario con mes, semana y día, avisos reales y plantillas; grupos con roles en febrero de 2027 | {{cap:13}} |
-| Juegos nuevos | Tipo Kahoot, juegos de mesa y consola bíblicos, tipo Mario Party, campamentos, «Alimenta a Elías» | La fábrica de juegos (ocho preguntas), Maná y Los cuervos de Querit, una biblioteca de minijuegos que sirve cuatro veces y Senda Fiesta con siete reglas propias | {{cap:10}}, {{cap:12}} |
+| Juegos nuevos | Tipo Kahoot, juegos de mesa y consola bíblicos, tipo Mario Party, campamentos; después, que todo enseñe y sacar «Alimenta a Elías» | La puerta «¿enseña y edifica?» antes de las ocho preguntas, Maná y Emaús primero, una biblioteca de minijuegos que sirve cuatro veces, Senda Fiesta solo si edifica y cuatro juegos propios (Hasta lo último, Emaús, El Tabernáculo, El calendario de Dios) | {{cap:10}}, {{cap:12}} |
+| Aprender de verdad | Investigar lo que cuesta entender, memorizar o se da por sentado; que las iglesias suban su material | Investigación y bench, área «El plan de Dios», 21 lecciones con «¿Sabías que…?» y «Para tu vida», 30 preguntas del Espadeo y el evolutivo de las iglesias | {{cap:34}} |
 | Costos y escala | Costo mínimo de servidores; crecer sin rehacer la app | Lo hace el teléfono, nada en vivo si alcanza con turnos, lógica en la base, muestras en las métricas, cada proveedor detrás de un módulo | {{cap:25}} |
 | La palabra original | Transliteración y la palabra en hebreo o griego con el «+» | Diseñado con STEPBible (CC BY 4.0), por libro y solo si se usa (v1.1) | {{cap:07}} |
 | Gobierno del proyecto | Un lugar para ver todo y marcar lo hecho | La Consola de Senda: proyecto, mapa, Lani 3D, contenido, propuestas, sonidos, licencias y métricas | {{cap:32}} |
-| Ver la app entera | Un diagrama MECE de todo | La hoja grande con 130 funciones en tres niveles | {{cap:06}} |
+| Ver la app entera | Un diagrama MECE de todo | La hoja grande con todas las funciones en tres niveles | {{cap:06}} |
 
 ## Las tres ideas que cambian en esta versión
 

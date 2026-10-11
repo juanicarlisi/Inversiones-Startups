@@ -39,6 +39,9 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
 - **Datos del 11-10-2026:**
   - lo inspirado en juegos ajenos (Mario Party y otros) se hace con impronta propia: mecánicas de más de 20 años o propias, nada de marcas ni del aspecto del original, búsqueda de patentes y consulta legal antes de construir;
   - el proyecto Senda tiene un mapa de toda la app (`oportunidades/proyectos/senda/mapa_total.yaml`) que se actualiza al cerrar cada sesión, igual que `estado.yaml`.
+  - en Senda, **todo enseña y edifica**: cada función y cada juego tiene que ayudar a aprender y crecer en la relación con Dios y en su Palabra; lo que solo entretiene, afuera (salió «Alimenta a Elías»; puerta de dos preguntas en el capítulo 10, §14);
+  - la Biblia abre directo, sin nada antes de leer; el contenido bíblico se verifica línea por línea contra el texto y lo interpretativo se marca como tal;
+  - lo que el fundador trae de terceros (por ejemplo, un juego visto en una conferencia) es dirección, nunca algo para copiar.
 
 ## 2. Reglas no negociables
 

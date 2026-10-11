@@ -95,11 +95,23 @@ Está incluido en la proyección del capítulo {{cap:24}}.
 | **«+» notas y comentarios** | Ver sección 4 | v1 (primera tanda) / v2 (completo) |
 | Planes y desafíos | En Berea (capítulo {{cap:15}}) | MVP |
 
-**El umbral (prueba 6, 06-10-2026, pedido del fundador).** Al abrir la Biblia para leer, cada tanto (no siempre) aparece sobre el
-papel una frase de expectativa, como «Leer la Biblia es escuchar a Dios» o «Abre mis ojos, y veré las maravillas de tu palabra»
-(Salmo 119:18), con dos campanas suaves. Se queda unos segundos y se va sola (o con un toque). No sale en las consultas rápidas ni
-justo después de orar. Son 18 frases (paráfrasis breves con su cita o frases propias); la frecuencia (35 %), las horas mínimas entre
-una y otra (18) y las frases se ajustan desde la Consola (capítulo {{cap:32}}).
+**Directo a la Palabra (prueba 9, 11-10-2026, decisión del fundador).** La Biblia abre directo al texto, cuando la persona quiere: se
+sacaron la invitación a orar antes de leer (pantalla «Antes de leer», su ajuste y su tarjeta) y el «umbral» (la frase de expectativa
+que salía cada tanto al abrir, de la prueba 6). Las dos frenaban la entrada. Lo que enseñan sobre la oración vive ahora en la ruta «La
+oración» de la Travesía (capítulo {{cap:34}}). Las 18 frases del umbral quedan en el historial del repositorio de la app por si se
+quieren recuperar como una línea que no frene.
+
+**Marcar y resaltar al instante; pasar hojas seguidas (prueba 9).** El fundador sintió el paso de hoja «un poco lento» y el marcado y
+el resaltado «bastante lentos». Las causas y los arreglos:
+- **Marcar:** la marca aparecía con un resorte con rebote que tardaba en asentarse. Ahora aparece en 70 ms y la barra de acciones sube en
+  150 ms, sin rebote.
+- **Resaltar:** la tinta esperaba a propósito 400 ms a que pasara el resaltador. Ahora queda en el acto y la pasada dura 190 ms.
+- **Pasar de hoja:** la vuelta con un toque dura 320 ms (antes 430); un toque a mitad de una vuelta la termina y arranca la siguiente
+  (antes se perdía); hay una hoja más montada de cada lado, así varias vueltas seguidas no esperan; cada hoja se dibuja una sola vez
+  (antes se volvía a armar entera al pasar a ser la que se lee, y otra vez para el dorso); la pista de la primera vez se corta con un
+  toque.
+- **Probado en la vista previa:** tres toques seguidos pasan tres hojas, hacia adelante y hacia atrás, también cruzando de capítulo;
+  marcar y resaltar responden en el primer cuadro.
 
 **La vuelta de hoja, otra vez (prueba 6).** El fundador la sintió lenta y trabada en la prueba 5. Ahora el gesto y la animación corren
 en el hilo nativo del teléfono (no esperan a JavaScript), cada hoja se dibuja una sola vez y queda guardada, y al pasar solo se

@@ -79,6 +79,10 @@ para replicar. Son ideas que le gustan; Claude tiene que evaluarlas y tomarlas c
 3. **Generar la familia.** Con el mismo principio, ¿qué otras diez cosas salen? Puntuarlas con criterios explícitos y escritos (en Senda: las ocho preguntas de la fábrica de juegos, capítulo 10, §14).
 4. **Fusionar con lo que ya existe.** Una pieza nueva tiene que servir a varias. Por ejemplo, una biblioteca de minijuegos que alimenta a la vez el Arcade de la Travesía, Senda Fiesta, Senda Reunión y el modo campamento. Lo que sirve una sola vez rara vez vale lo que cuesta.
 5. **Ponerle fecha y regla de corte.** Lo evolutivo no compite con el MVP: va al roadmap con cuándo, cuánto cuesta y qué número lo mata.
+6. **El propósito manda sobre la diversión (11-10-2026).** Si la pieza no sirve al propósito del producto, no va aunque divierta. En
+   Senda el propósito es que se aprenda y se crezca en la relación con Dios y en su Palabra: el fundador sacó «Alimenta a Elías» porque
+   un juego de vuelo no enseña nada. Y lo que trae de terceros (un juego visto en una conferencia) se toma como dirección, nunca como
+   algo para copiar: se dice en qué se diferencia lo nuestro.
 
 **En todo diseño, también (06-10-2026):**
 - **Costo mínimo de servidores:** lo hace el teléfono; nada en vivo si alcanza con turnos.

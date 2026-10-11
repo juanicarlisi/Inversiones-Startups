@@ -129,6 +129,19 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | El mapa de toda la app | Un diagrama MECE que muestre todo y cómo encaja, al primer vistazo | **La hoja grande del capítulo {{cap:06}}**: 130 funciones en tres niveles (lo que usa la persona, lo que la hace andar, lo que la sostiene), con la etapa de cada una, cómo se conecta todo y cuánto llega en cada etapa. También en la Consola, pestaña «Mapa de la app» |
 | Avanzar con lo próximo | Seguir con lo que estaba planeado | **Bienvenida en siete pasos** (edad con pregunta neutral, qué te trae, cuánto sabés, áreas de interés) que personaliza la app; menores de 13 sin anuncios ni estadísticas; **duelo contra Lani** (turnos hasta fallar, las dos armaduras, 25 rondas y revancha), sin servidor y base de los duelos con amigos |
 
+**Novena tanda (11-10-2026, después de la versión 3 del proyecto y antes de probar la prueba 8):**
+
+| Tema | Lo que dijiste | Lo que quedó |
+|---|---|---|
+| El propósito de todo | Que mientras se juega o se usa cualquier función se aprenda y se crezca en la relación con Dios y en la Palabra | **Regla nueva: todo enseña y edifica.** Cada lección cierra con «¿Sabías que…?» y «Para tu vida» (saber, ser y hacer); los juegos pasan una puerta de dos preguntas antes del puntaje (capítulo {{cap:10}}, §14; capítulo {{cap:34}}) |
+| «Alimenta a Elías» | Sacarlo: los juegos que no ayudan a aprender o entender algo, afuera | **Sacado** (Los cuervos de Querit), junto con Gedeón y Zaqueo. Reconvertidos para que enseñen: Lani corre (los carriles son respuestas), el Giro diario (primero una pregunta o un dato), Jericó, Nehemías y Pedro sobre el agua. Maná y Emaús relámpago encabezan el Arcade |
+| Antes de leer | Sacar la sugerencia de orar o de tomarse el tiempo; ir directo a la Biblia cuando la persona quiera | **Hecho:** se sacaron la invitación a orar (pantalla, ajuste y tarjeta) y la frase al abrir (el umbral de la prueba 6), que también frenaba la entrada. En Inicio, «Orar» pasó a «Buscar». Si querés la frase de vuelta, puede volver como una línea que no frene |
+| La Biblia | Pasar de hoja todavía un poco lento; marcar y resaltar todavía bastante lentos | **Hecho:** marcar en 70 ms (antes un resorte con rebote), resaltar en el acto (antes esperaba 400 ms), vuelta de hoja en 320 ms, los toques seguidos ya no se pierden y cada hoja se dibuja una sola vez (capítulo {{cap:07}}) |
+| El juego de la conferencia | Una referencia de dirección (aprender jugando, amar más a Cristo, morir a uno mismo), no para copiar | **Cuatro juegos propios** (capítulo {{cap:10}}, §15): Hasta lo último (cooperativo de misiones por los anillos de Hechos 1:8, con los cuatro suelos y «Dios da el crecimiento»), Emaús, El Tabernáculo y El calendario de Dios. Se dice en qué se diferencian del de la conferencia |
+| Investigar a fondo | Temas difíciles, que no se memorizan o se dan por sentado: fiestas, historia de Israel, profecías del Mesías, promesas, sobre qué orar, lo básico; todo con cita y bench | **Investigación y bench** (capítulo {{cap:34}}): encuestas, catecismos, declaraciones de fe, teología sistemática y bíblica, apps; un **área nueva** («El plan de Dios»; 9 áreas y 62 rutas) y **5 rutas abiertas con 21 lecciones y 128 preguntas** verificadas contra la RV1909, más **30 preguntas del Espadeo**. En revisión doctrinal |
+| Las iglesias suben su material | Que cada iglesia pueda subir sus PDF y armar su capítulo de la Travesía, marcado como suyo, y pedir que entre a lo global con nuestra aprobación | **Diseñado** como evolutivo de la v2 (capítulo {{cap:34}}, §8): propuesta automática por detrás, validador, aprobación del líder, etiqueta «De la iglesia», cola de revisión en la Consola y crédito si entra a lo global. Unos USD 0,30 por PDF (estimación) |
+| Supabase pausado | Llegó el aviso de que el proyecto gratis se pausó por 7 días sin uso; ¿hay que hacer algo? | **Ya está despierto.** Se reactivó gratis con la API desde GitHub (estaba INACTIVE; en 5 minutos, ACTIVE_HEALTHY). El flujo del APK lo despierta solo antes de cada prueba. No se lo mantiene despierto a la fuerza: con testers, el uso real alcanza; Pro (USD 25 por mes) recién al lanzamiento, como estaba en el presupuesto |
+
 ## 2. Cómo seguimos: el desarrollo
 
 | Qué | Cómo |
@@ -142,7 +155,7 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 
 | Sprint | Fechas | Qué sale |
 |---|---|---|
-| 0 y 1 | 5 al 11 oct (pruebas 1 a 8) | **Hecho y adelantado:** Biblia como impresa con marcas al instante, planes, voz y el umbral; Travesía con 8 áreas, Lámparas, repaso y la sección 1 de Fundamentos; Espadeo con ruleta, fiesta y Lani 3D; calendario con avisos; bienvenida completa; duelo contra Lani; métricas y Supabase |
+| 0 y 1 | 5 al 11 oct (pruebas 1 a 9) | **Hecho y adelantado:** Biblia como impresa, directa y con marcas al instante, planes y voz; Travesía con 9 áreas, Lámparas, repaso, «¿Sabías que…?», «Para tu vida», la sección 1 de Fundamentos y 5 rutas nuevas (21 lecciones); Espadeo con ruleta, fiesta, Lani 3D y 157 preguntas; calendario con avisos; bienvenida completa; duelo contra Lani; métricas y Supabase |
 | 2 | 26 oct – 8 nov | Las primeras 40 lecciones de Fundamentos con revisión doctrinal; cuentas anónimas y respaldo del progreso; misiones reales |
 | 3 | 9–22 nov | Duelos por turnos con amigos y rival al azar, partidas abiertas que vencen a las 72 h, avisos push; banco grande de preguntas |
 | 4 | 23 nov – 6 dic | Tu Lani (atuendos y vehículos), Giro diario, accesibilidad; **prueba cerrada en Google Play** |
@@ -160,6 +173,7 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | 4 | **Cuenta de Google Play** (USD 25) | Abrirla **a más tardar el 15-11**: las cuentas personales nuevas necesitan 12 testers durante 14 días antes de publicar | 15-11-2026 |
 | 5 | **RVR1960 y RVG** | Revisar y enviar los pedidos ya redactados (`borradores/`): precio de ministerio de la RVR1960 (American Bible Society y Sociedad Bíblica Argentina) y permiso de la Reina Valera Gómez. Decidir si se paga API.Bible para el lanzamiento o desde marzo | Pedido: oct; pago: dic o mar |
 | 6 | **Cuenta de Apple** (USD 99 por año) | Si querés iOS el 18-12, abrirla a principios de diciembre; si no, iOS en enero o febrero | 01-12-2026 |
+| 6b | **Revisores doctrinales** | Elegir 1 o 2 personas de tu comunidad. Es lo que más frena publicar el contenido: hoy hay 31 lecciones y 157 preguntas esperando revisión | Antes del sprint 2 (26-10) |
 | 7 | **Identificador de la app en las tiendas** | Hoy es provisorio (`com.sendaapp.biblia`); no se puede cambiar después de la primera publicación | Antes de la prueba cerrada |
 
 ## 4. Verificación del nombre (lo que se pudo hacer desde acá)

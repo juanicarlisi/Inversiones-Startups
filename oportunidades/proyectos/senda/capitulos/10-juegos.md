@@ -6,6 +6,11 @@ juego se revisó para tener **su mejor versión**: se puede jugar contra **rival
 pastor pueden cargar su propio contenido, y todos llevan a la Biblia. Cambian tres nombres: **El Impostor → Oveja Perdida**, **El
 Rosco → Abecé** (el nombre y el formato tienen dueño) y **Tabú → ¡Prohibido!**; y las actividades diarias pasan a llamarse **Giro
 diario**, **Antes o después** y **De memoria**.
+
+**Desde el 11-10-2026 manda una sola regla: todo enseña y edifica.** El fundador sacó «Alimenta a Elías» (Los cuervos de Querit) y
+pidió que no quede ningún juego que no ayude a aprender o entender algo de Dios y de su Palabra. Cada juego pasó por una puerta de dos
+preguntas (§14): los que no enseñan, afuera; los que enseñan poco, reconvertidos. Y hay cuatro juegos nuevos que nacen de lo que más
+cuesta entender (§15).
 </div>
 
 ## Resumen
@@ -20,11 +25,15 @@ diario**, **Antes o después** y **De memoria**.
 | **Mímica** y **¡Prohibido!** (ex Tabú) | Hacer adivinar | Presencial y en sala | — | v3 |
 | **Palabra del día** | Adivinar una palabra del versículo | Solo, compartible | Comparás con amigos | MVP |
 | **Antes o después** (ex Línea de tiempo) | Ordenar hechos | Solo y contra reloj | Al azar, amigos | v2 |
-| **Giro diario** (ex Maná del día) | Ruleta de premios una vez por día | Solo | — | MVP |
+| **Giro diario** (ex Maná del día) | Ruleta una vez por día: cae en una categoría, primero una pregunta o un «¿Sabías que…?» y después el premio | Solo | — | MVP |
 | **Búsqueda del tesoro** y **escape bíblico** | Pistas con QR | Equipos, presencial | — | v3 |
-| **Lani corre** (evolutivo, pedido del fundador del 06-10-2026) | Carrera sin fin por historias bíblicas | Solo, contra el «fantasma» de un amigo, desafío semanal | Amigos, al azar | 2027 (después del lanzamiento) |
+| **Lani corre** (evolutivo, pedido del fundador del 06-10-2026) | Carrera por historias bíblicas: los carriles son las respuestas | Solo, contra el «fantasma» de un amigo, desafío semanal | Amigos, al azar | 2027 (después del lanzamiento) |
 | **Juegos de historias** (El arca, Jericó, Nehemías…, evolutivo) | Juegos de mesa y de consola llevados a la Biblia | Solo, en grupo, impresos | Amigos, grupo | 2027, uno por vez |
-| **Senda Fiesta** (tablero con minijuegos, evolutivo) | Tablero que es una historia, la nube que se mueve, coronas que se ganan sabiendo y un minijuego por ronda | Mismo teléfono, tele de la reunión, por turnos con amigos, campamento | Amigos, grupo, campamento | 2027, después de los duelos y Reunión |
+| **Senda Fiesta** (tablero con minijuegos, evolutivo) | Tablero que es una historia, la nube que se mueve, coronas que se ganan sabiendo y un minijuego por ronda (todos enseñan) | Mismo teléfono, tele de la reunión, por turnos con amigos, campamento | Amigos, grupo, campamento | 2027, después de los duelos y Reunión |
+| **Emaús** (nuevo, 11-10-2026) | Unir cada promesa del Antiguo Testamento con su cumplimiento en Jesús | Solo, duelo, Reunión | Amigos, al azar, grupo | v1 (dentro de la ruta El Mesías prometido) |
+| **El Tabernáculo** (nuevo) | Armar el tabernáculo de la puerta al arca; cada pieza muestra algo de Cristo | Solo, en grupo | Amigos, grupo | v2 |
+| **El calendario de Dios** (nuevo) | Ubicar las siete fiestas en el año de Israel y unirlas con Jesús; avisa cuando llega cada fiesta | Solo | — | v1 |
+| **Hasta lo último** (nuevo) | Juego de mesa cooperativo de misiones: el evangelio de Jerusalén hasta lo último de la tierra | Mismo teléfono, impreso, Reunión, campamento | Grupo, campamento | 2027, después de Senda Fiesta |
 
 Los juegos de **memoria** (De memoria) y de **apologética** (Preparados) pasaron a Berea y a la Travesía (capítulos {{cap:15}} y
 {{cap:08}}).
@@ -39,6 +48,9 @@ Los juegos de **memoria** (De memoria) y de **apologética** (Preparados) pasaro
 - **Contenido del líder:** en Senda Reunión el líder (y el pastor, en el Desafío del domingo) puede cargar sus propias palabras,
   preguntas o categorías para cualquier juego (capítulo {{cap:12}}).
 - **Siempre la Biblia:** cada palabra, personaje o pregunta tiene su cita, que aparece al final.
+- **Todo enseña y edifica (11-10-2026):** ninguna partida termina sin algo aprendido con su cita («Lo que aprendiste») y, cuando cabe,
+  un «Para tu vida». Puntúa más el que sabe que el que es rápido; la habilidad solo pone ritmo. Las partidas terminan: nada de bucles
+  para pasar el tiempo.
 
 ## 1. Dibujalo
 
@@ -125,7 +137,9 @@ se termina. **Modos:** diario, contra reloj y contra un rival (gana quien arma l
 
 ## 8. Giro diario (antes «Maná del día»)
 
-- Una vez por día se gira una ruleta con premios: Talentos, comodines, vidas, un protector de racha, un objeto de Tu Lani.
+- Una vez por día se gira una ruleta. **Desde el 11-10-2026, el giro enseña:** cae en una de las seis categorías y, antes del premio,
+  muestra una pregunta corta o un «¿Sabías que…?» con su cita (de las rutas que la persona eligió). Acertar o leerlo libera el premio:
+  Talentos, comodines, vidas, un protector de racha, un objeto de Tu Lani.
 - **No se acumula:** si no girás hoy, se pierde (la esencia del maná del desierto, Éxodo 16, que se juntaba cada mañana; ahora contada
   adentro, no en el nombre).
 - **No se compran giros.** Con Plus hay un segundo giro; con un video, uno extra.
@@ -174,6 +188,11 @@ todos; el arte, los personajes, los escenarios y los nombres son propios. Cada n
 - **Cuándo y regla de corte:** después del lanzamiento, en el segundo trimestre de 2027, solo si el Espadeo retiene. Se construye
   primero **un nivel** (El mar abierto) y se prueba con 50 jóvenes. Si menos del 30 % vuelve a jugarlo en la semana, no se hacen más
   niveles.
+- **Reconversión por la regla «todo enseña» (11-10-2026).** Como estaba, la carrera divertía y enseñaba poco (las palabras sueltas al
+  costado). Ahora el corazón del juego es aprender: **los tres carriles son tres respuestas**. Adelante aparece una pregunta del relato
+  («¿Qué hizo Moisés con la vara?») y se corre por el carril de la respuesta correcta; equivocarse frena, no mata. Al final, «Lo que
+  aprendiste» y la pregunta que da Talentos. Si en la prueba con 50 jóvenes el acierto en esas preguntas no sube de la primera a la
+  tercera partida, se archiva.
 
 ## 11. Juegos de mesa y de consola llevados a la Biblia (evolutivos, investigados el 06-10-2026)
 
@@ -272,9 +291,15 @@ El modo **por turnos con amigos** es nuestro: un tablero con minijuegos que se j
 
 **Los minijuegos: la biblioteca de §14.**
 - Cada minijuego se hace una vez y se juega en tres formatos: solo (el Arcade de la Travesía), de a cuatro (la Fiesta) y por equipos (Reunión y campamento).
-- **Mitad habilidad y mitad saber**, para que gane también el que conoce menos la Biblia:
-  - **habilidad:** Maná, Los cuervos de Querit, Jericó, Pedro sobre el agua, Gedeón;
-  - **saber:** pregunta relámpago, ordenar el relato, completar el versículo, tocar el lugar en el mapa, Dibujalo de 20 segundos.
+- **Todos enseñan (cambia el 11-10-2026; antes era «mitad habilidad y mitad saber»).** En cada minijuego el puntaje sale de saber algo
+  del relato; la destreza solo pone el ritmo y desempata, para que el que conoce menos la Biblia también pueda ganar una ronda
+  aprendiendo:
+  - **con el dedo y con el relato:** Maná (las reglas del texto), Jericó (las vueltas y el versículo al ritmo de las trompetas), Fija la
+    mirada (Pedro sobre el agua: tocar solo las verdades sobre Jesús), El arca (de a siete los animales limpios);
+  - **de saber:** pregunta relámpago, ordenar el relato, completar el versículo, tocar el lugar en el mapa, Dibujalo de 20 segundos,
+    Emaús relámpago (unir promesa y cumplimiento).
+- **Condición del fundador (11-10-2026):** el modo fiesta queda solo si edifica. Por eso la regla de corte suma una vara de aprendizaje
+  (abajo).
 
 **Para no tener problemas legales (INFERENCIA de Claude; antes de construir, consulta con un abogado de propiedad intelectual).**
 - **Las mecánicas son libres.** El derecho de autor no protege la idea de un juego, su nombre ni el método para jugarlo: protege el texto, el arte y la música. Así lo dice la Oficina de Copyright de Estados Unidos ([circular FL-108, copia archivada de 2004](https://webharvest.gov/peth04/20041015023438/http://www.copyright.gov/fls/fl108.html); [ABA Landslide](https://www.americanbar.org/groups/intellectual_property_law/resources/landslide/archive/why-videogame-rules-are-not-expression-protected-copyright-law/)). Hay que confirmarlo en la versión actual de copyright.gov antes de decidir.
@@ -293,7 +318,9 @@ El modo **por turnos con amigos** es nuestro: un tablero con minijuegos que se j
 - **Cuándo:** 2027, después de los duelos y de Senda Reunión, y cuando haya al menos 6 minijuegos de la biblioteca.
 - **Prototipo:** el tablero del Éxodo, en un mismo teléfono y en campamento. Unas 6 a 8 semanas de trabajo de Claude, con el motor de los minijuegos.
 - **Costo de servidor:** cero en esos dos modos; el modo por turnos usa la base de los duelos.
-- **Regla de corte:** se prueba con 10 grupos de jóvenes. Si menos del 40% lo vuelve a jugar en el mes, se guarda.
+- **Regla de corte:** se prueba con 10 grupos de jóvenes. Si menos del 40% lo vuelve a jugar en el mes, se guarda. Y aunque guste, si
+  después de jugar no aciertan más preguntas del relato del tablero que antes de jugarlo (una prueba corta antes y después), también se
+  guarda: un tablero que no enseña no va.
 
 ## 13. Juegos de campamento y de iglesia (registro para evolutivos)
 
@@ -314,66 +341,124 @@ Fuentes: [Esgrima bíblica (FaithGateway)](https://faithgateway.com/products/esg
 [dinámicas para jóvenes (ACI Prensa)](https://www.aciprensa.com/catequesis/dinamicas2.htm),
 [juegos para ministerio juvenil (StudioBinder)](https://cache.studiobinder.com/youth-ministry-games).
 
-## 14. La fábrica de juegos bíblicos: cómo pensamos un juego (prueba 7, 06-10-2026)
+## 14. La fábrica de juegos bíblicos: cómo pensamos un juego (prueba 7, 06-10-2026; puerta nueva el 11-10-2026)
 
 **De dónde sale.**
-- El fundador propuso un ejemplo: «Alimenta a Elías», un cuervo al estilo Flappy Bird.
-- Aclaró que sus ejemplos (Jericó, el arca, Mario Party, Flappy Bird) no son encargos. Son ideas que le gustan, para evaluar si encajan, qué hacer con ellas y qué ideas nuevas salen.
-- Esa forma de pensar queda como regla (doctrina 08, §9).
+- En la prueba 7, el fundador propuso un ejemplo: «Alimenta a Elías», un cuervo al estilo Flappy Bird. Aclaró que sus ejemplos
+  (Jericó, el arca, Mario Party, Flappy Bird) no son encargos sino ideas para evaluar (doctrina 08, §9).
+- En la prueba 8 (11-10-2026) lo cerró: **el propósito de la app es que, mientras alguien juega o usa cualquier función, aprenda y
+  crezca en su relación con Dios y en el conocimiento de su Palabra**. «Alimenta a Elías» sale, y sale todo juego que no ayude a
+  aprender o a entender algo.
 
-**Las ocho preguntas que pasa todo juego (puntaje de 1 a 5 cada una):**
+**La puerta: dos preguntas que se contestan antes del puntaje (si alguna es «no», el juego no va, aunque divierta).**
+1. **¿Enseña algo comprobable mientras se juega?** No al final, en una tarjeta: durante. Lo que se hace con el dedo tiene que ser
+   saber algo (elegir la respuesta, ubicar el lugar, ordenar el relato, completar el versículo, unir la promesa con su cumplimiento).
+   Prueba: después de tres partidas, ¿la persona contesta mejor preguntas de ese tema que antes?
+2. **¿Edifica?** ¿Lleva a conocer mejor a Dios, a amar más a Cristo o a vivir lo aprendido (saber, ser y hacer)? ¿O solo hace pasar el
+   rato? Las partidas terminan, sin bucles; cuando cabe, cierran con «Para tu vida».
+
+**Después de la puerta, las ocho preguntas de siempre (puntaje de 1 a 5 cada una, de 40):**
 1. **¿La mecánica nace del texto?** Lo que se hace con el dedo es lo que pasa en la historia. Si se puede cambiar la historia sin cambiar el juego, es un reskin y no va.
-2. **¿Se aprende algo comprobable?** Un versículo, un orden, un lugar, un personaje o una idea del relato. Al final, una tarjeta «Lo que aprendiste» con la cita.
+2. **¿Se aprende algo comprobable?** (ahora con más peso: menos de 4 aquí, y no pasa).
 3. **¿Es corto y de un dedo?** Partidas de 60 a 120 segundos, que se entienden en 3 segundos.
-4. **¿El género divierte de verdad?** Mecánicas probadas por millones (vuelo de un toque, ritmo, acomodar, honda, carrera), con una curva de dificultad que pide «una más».
+4. **¿El género divierte de verdad?** Mecánicas probadas por millones, con una curva de dificultad que pide «una más».
 5. **¿Es barato de hacer?** Reutiliza el motor (Reanimated y Skia), el arte de Lani y los sonidos de la firma.
 6. **¿Cuesta cero de servidor?** Todo en el teléfono. La tabla semanal de amigos usa la misma base de los duelos.
 7. **¿Es reverente?** Sin violencia gráfica y sin burlarse de lo sagrado. Si Dios aparece, no es un personaje del juego.
 8. **¿Se comparte?** Un récord o un clip de 10 segundos que dé ganas de mandarlo al grupo.
 
-**El ejemplo evaluado: «Alimenta a Elías» → «Los cuervos de Querit» (1 Reyes 17:2-6).**
-- **Encaja muy bien.** En la historia, Dios manda a los cuervos a llevarle a Elías «pan y carne por la mañana, y pan y carne por la tarde» junto al arroyo de Querit. Volar con un toque es exactamente lo que hacen.
-- **Así no:** Flappy Bird es famoso por frustrar (un roce y se termina). Para chicos y jóvenes frustra de más, y además castiga sin enseñar.
-- **Mejor así:**
-  - el cuervo vuela entre los peñascos del valle;
-  - si choca, **se le cae la comida** (no muere) y tiene que volver a buscarla;
-  - hay **dos vuelos por día**, mañana y tarde, como dice el texto;
-  - el arroyo baja un poco cada día por la sequía (1 Reyes 17:7). Cuando se seca, el nivel termina y abre el siguiente: la viuda de Sarepta, donde la harina y el aceite no se acaban (otra mecánica: repartir sin que se vacíe la tinaja);
-  - las palabras de 1 Reyes 17:6 aparecen sueltas en el camino, y juntarlas completa el versículo.
-- **Puntaje (estimación de Claude):** texto 5, aprendizaje 4, género 5, costo 4 (un escenario y un personaje nuevo), servidor 5, reverencia 5, se comparte 4 → **32 de 40**.
+**Lo que salió: «Los cuervos de Querit» (1 Reyes 17).** Había sacado 32 de 40 en la prueba 7 y estaba primero en el plan del Arcade
+junto con Maná. Con la puerta nueva no pasa: volar con un toque no enseña nada que no se aprenda mejor leyendo 1 Reyes 17:2-6, y el
+versículo por partes era un adorno, no el juego. Lo decidió el fundador el 11-10-2026. Queda registrado acá (nunca se borra la
+historia), fuera del roadmap.
 
-**La familia que sale de la misma pregunta (historia → mecánica), ordenada por puntaje (estimaciones de Claude):**
+**La familia, revisada con la puerta (estimaciones de Claude, 11-10-2026).**
 
-| Juego (provisorio) | Historia | Mecánica | Qué se aprende jugando | Puntaje (de 40) |
-|---|---|---|---|---|
-| **Maná** | Éxodo 16 | Atrapar lo que cae, con las reglas del texto: lo justo para cada uno; lo que se guarda para mañana se echa a perder; el sexto día, doble; el séptimo no cae | Las reglas del maná y el día de reposo (el juego *es* la lección) | 34 |
-| **Los cuervos de Querit** | 1 Reyes 17 | Vuelo de un toque | Dios provee; versículo por partes | 32 |
-| **Jericó** | Josué 6 | Ritmo: una vuelta por día y siete el séptimo, las trompetas a tiempo | La secuencia del relato; obedecer | 31 |
-| **Pedro sobre el agua** | Mateo 14 | Mantener la mirada: el dedo sigue a Jesús mientras el viento y las olas distraen; si se suelta, Pedro se hunde y una mano lo levanta | Fe y duda; el relato | 30 |
-| **El arca** | Génesis 6–9 | Acomodar de a pares en tres cubiertas antes de la lluvia | Orden y fechas del diluvio; el pacto | 30 |
-| **Nehemías** | Nehemías 4–6 | Apilar la muralla tramo a tramo mientras se cuidan las puertas | Los 52 días; trabajar y orar | 29 |
-| **David en el valle** | 1 Samuel 17 | Honda con física; Goliat cae como dice el texto, sin sangre | El contexto y la confianza de David | 28 |
-| **Samuel, ¿quién llama?** | 1 Samuel 3 | Memoria de sonidos: distinguir la voz | El llamado de Samuel | 27 |
-| **Gedeón** | Jueces 7 | Reacción al unísono: romper los cántaros y alzar las antorchas al mismo tiempo | Por qué solo 300 | 27 |
-| **Zaqueo** | Lucas 19 | Trepar el sicómoro, al estilo Doodle Jump | El encuentro con Jesús | 26 |
-| **José en Egipto** | Génesis 41 | Gestión corta: guardar en los siete años buenos | Previsión y el sueño del faraón | 26 |
-| **Rut en el campo** | Rut 2 | Espigar detrás de los segadores (recolección con tiempo) | La ley de los pobres y la bondad de Booz | 25 |
+| Juego (provisorio) | Historia | Mecánica | Qué se aprende jugando | Puerta | Puntaje (de 40) |
+|---|---|---|---|---|---|
+| **Maná** | Éxodo 16 | Atrapar lo que cae con las reglas del texto: lo justo para cada uno; lo guardado se echa a perder; el sexto día, doble; el séptimo no cae | Las reglas del maná, el día de reposo y «Yo soy el pan de vida» (Juan 6:35): el juego *es* la lección | Pasa | 34 |
+| **Emaús relámpago** | Lucas 24 | Unir cada promesa con su cumplimiento contra reloj | Las profecías y dónde se cumplen | Pasa | 34 |
+| **Fija la mirada** (Pedro sobre el agua) | Mateo 14 | El dedo sigue a Jesús; vuelan frases y se tocan solo las verdades sobre Él («Jesús es Dios», no «fue solo un maestro») | Lo esencial de la fe, con los errores más comunes como distractores | Pasa (reconvertido) | 32 |
+| **El arca** | Génesis 6–9 | Acomodar los animales antes de la lluvia: de a siete los limpios, de a dos los demás | El detalle que casi nadie sabe (Génesis 7:2), las fechas del diluvio y el pacto | Pasa | 31 |
+| **Jericó** | Josué 6 | Ritmo: una vuelta por día y siete el séptimo; cada trompetazo a tiempo es la palabra que sigue de Hebreos 11:30 | La secuencia del relato y un versículo de memoria | Pasa (reconvertido) | 30 |
+| **Rut en el campo** | Rut 2–4 | Espigar detrás de los segadores, con la ley de los rincones (Levítico 19:9-10) y el pariente redentor | La ley de los pobres, la bondad de Booz y el redentor como figura de Cristo | Pasa | 29 |
+| **Nehemías** | Nehemías 2–6 | Cada piedra de la muralla es una respuesta del relato; las puertas se cuidan orando (Nehemías 4:9) | Los 52 días, orar y trabajar | Pasa (reconvertido) | 28 |
+| **Samuel, ¿quién llama?** | 1 Samuel 3 | Escuchar una voz y decir quién lo dijo (audio) | «¿Quién lo dijo?» con oído: frases de toda la Biblia | Pasa (reconvertido) | 27 |
+| **José en Egipto** | Génesis 41–47 | Guardar en los siete años buenos respondiendo sobre la historia; repartir en los malos | La historia de José, la previsión y el perdón | Pasa justo | 25 |
+| **David en el valle** | 1 Samuel 17 | Las cinco piedras son cinco preguntas; la honda solo apunta a la respuesta | El relato y las palabras de David (1 Samuel 17:45) | En duda: se prueba con la puerta | 24 |
+| **Gedeón** | Jueces 7 | Reacción al unísono | Poco: por qué solo 300 se dice, no se juega | **No pasa** | — |
+| **Zaqueo** | Lucas 19 | Trepar el sicómoro | Casi nada | **No pasa** | — |
+| ~~Los cuervos de Querit~~ | 1 Reyes 17 | Vuelo de un toque | Casi nada | **Sacado por el fundador** | — |
 
-**La fusión: una sola biblioteca de minijuegos que sirve a todo.**
-Estos minijuegos no son productos sueltos. Cada uno se usa en cuatro lugares:
-1. **El Arcade de la Travesía:** terminar la lección de una historia desbloquea su minijuego, en el ciclo aprendo → juego → vuelvo a la lección para mejorar.
-2. **Los minijuegos de cada ronda de Senda Fiesta** (§12).
-3. **Los desafíos en vivo de Senda Reunión** (capítulo {{cap:12}}).
-4. **El modo campamento**, con postas y campeonato.
-
-Hacer uno sirve cuatro veces. Esa es la vara para elegir qué construir.
+**La fusión: una sola biblioteca de minijuegos que sirve a todo.** Cada minijuego se usa en cuatro lugares: el Arcade de la Travesía
+(terminar la lección de una historia desbloquea su minijuego, en el ciclo aprendo → juego → vuelvo a la lección), las rondas de Senda
+Fiesta (§12), los desafíos en vivo de Senda Reunión (capítulo {{cap:12}}) y el modo campamento. Hacer uno sirve cuatro veces.
 
 **Cuándo y regla de corte:**
 - Después del lanzamiento (primer semestre de 2027).
-- Primero **Maná** y **Los cuervos de Querit**, unas 2 a 3 semanas de trabajo de Claude cada uno, con el motor común. Se prueban con 50 jóvenes.
-- Si menos del 30% vuelve a jugarlos en la semana, o si «Lo que aprendiste» no sube el acierto en las preguntas de esa historia, no se hacen más.
+- Primero **Maná** y **Emaús relámpago**, unas 2 a 3 semanas de trabajo de Claude cada uno, con el motor común. Se prueban con 50 jóvenes.
+- Si menos del 30% vuelve a jugarlos en la semana, o si el acierto en las preguntas de esa historia no sube después de jugar, no se
+  hacen más.
 
-## 15. Cómo se mide
+## 15. Juegos nuevos que enseñan (prueba 9, 11-10-2026)
+
+**De dónde salen.**
+- El fundador contó que en una conferencia vio un juego de mesa de misiones hecho por jóvenes: ministros que representan países (al
+  estilo TEG), discípulos que se ganan completando frases y uniendo versículos, y un final con el regreso de Cristo y coronas.
+- Lo trajo **como dirección, no para copiarlo** (sería un plagio): aprender jugando, conocer más a Dios y su Palabra, amar más a Cristo,
+  morir a uno mismo.
+- De esa dirección, y de la investigación sobre lo que más cuesta entender (capítulo {{cap:34}}), salen cuatro juegos propios.
+
+**1. Hasta lo último (juego de mesa cooperativo de misiones).**
+- **La idea:** el grupo lleva el evangelio por los cuatro anillos de Hechos 1:8 («en Jerusalem, y en toda Judea, y Samaria, y hasta lo
+  último de la tierra»). Se gana **juntos** cuando el evangelio llegó a todos los anillos.
+- **Mecánicas propias:**
+  - **Las semillas son versículos:** para sembrar en una región hay que completar el versículo o responder la pregunta de esa carta.
+  - **Los cuatro suelos** (Mateo 13): cada siembra cae en camino, pedregal, espinos o buena tierra; lo sembrado crece solo si se riega
+    (enseñar, orar, acompañar).
+  - **Dios da el crecimiento** (1 Corintios 3:6-7): el crecimiento final no lo controla ningún jugador; se revela con una carta.
+  - **Morir a uno mismo** (Filipenses 2:3-4; Mateo 16:25): un jugador puede ceder su turno o sus recursos a otro, y eso multiplica la
+    cosecha del grupo. El que más dio recibe la mención del final.
+  - **Cartas de la historia real:** la cárcel de Filipos, el naufragio en Malta, Guillermo Carey, Hudson Taylor, los colportores en
+    América Latina, cada una con su hecho y su fecha.
+  - **El final:** no hay coronas ni conquista. Cuando todos los anillos tienen fruto, se abre la escena de Apocalipsis 7:9: «una gran
+    compañía… de todas gentes y linajes y pueblos y lenguas», con la lista de lo que el grupo aprendió.
+- **En qué se diferencia del juego de la conferencia:** aquel es competitivo, de conquista por países, con ministros y coronas al
+  regreso de Cristo. Este es cooperativo, por anillos de Hechos 1:8, con los suelos de la parábola y sin coronas. Ningún nombre, arte
+  ni regla se toma de él.
+- **Dónde se juega:** en un mismo teléfono, impreso (desde Senda Reunión), en la tele de la reunión y en campamento.
+- **Cuándo:** 2027, después de Senda Fiesta. Prototipo impreso primero (2 semanas) y prueba con 5 grupos. Regla de corte: si después de
+  jugar no aciertan más preguntas de Hechos y de la misión que antes, no se digitaliza.
+
+**2. Emaús (profecía y cumplimiento).**
+- **La idea:** dos caminantes en el camino a Emaús. Cada promesa del Antiguo Testamento se une con su cumplimiento en Jesús; cada unión
+  correcta enciende un tramo del camino «comenzando desde Moisés» (Lucas 24:27). Al final: «¿No ardía nuestro corazón…?» (24:32).
+- **Modos:** dentro de la ruta El Mesías prometido (ya se juega en las lecciones de unir parejas), en duelo y en Senda Reunión.
+- **Cuándo:** v1 (marzo de 2027), con el motor de parejas que ya existe.
+
+**3. El Tabernáculo.**
+- **La idea:** armar el tabernáculo de afuera hacia adentro (Éxodo 25–40): la puerta, el altar de bronce, la fuente, el candelero, la mesa
+  de los panes, el altar del incienso, el velo y el arca. Cada pieza se coloca respondiendo qué muestra de Cristo (Juan 10:9; 1:29; 8:12;
+  6:35; Hebreos 7:25; 10:19-20; Romanos 3:25).
+- **El momento:** al final, el velo se rompe «de alto á bajo» (Mateo 27:51) y se puede entrar.
+- **Cuándo:** v2, con la ruta Sombras de Cristo.
+
+**4. El calendario de Dios.**
+- **La idea:** ubicar las siete fiestas de Levítico 23 en el año de Israel y unir cada una con lo que Cristo cumplió o con lo que los
+  cristianos esperan (marcando lo que se entiende de distintas maneras).
+- **Vivo:** la app avisa cuando llega cada fiesta en el calendario judío (en 2027, la Pascua empieza al atardecer del 21 de abril) y
+  propone la lección de esa fiesta.
+- **Cuándo:** v1, con la ruta Las fiestas del Señor.
+
+**Y dos formatos chicos que ya se pueden jugar en la Travesía y el Espadeo:**
+- **¿Qué dice en realidad?:** un versículo famoso y tres contextos posibles; después, el pasaje entero (ruta Leer con contexto).
+- **Verdad o error:** frases que muchos creyentes creen y la Biblia no enseña, con el dato de la encuesta y los versículos (ruta Lo
+  esencial de la fe).
+
+**Para no tener problemas legales:** las mismas reglas de §12. Mecánicas de más de 20 años o propias; arte, nombres y reglas propias;
+búsqueda de patentes y consulta con un abogado antes de construir.
+
+## 16. Cómo se mide
 
 Partidas por juego y por usuario, porcentaje con amigos contra al azar, salas creadas, revanchas, conexiones nuevas después de jugar,
 contenido cargado por líderes y resultados compartidos.

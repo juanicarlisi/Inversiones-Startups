@@ -427,3 +427,41 @@
   - en noviembre, decidir la Lani final y crear las cuentas gratis de Expo y Firebase;
   - Google Play antes del 15-11.
 - **Evidencia:** `conocimiento/2026-10-11-senda-prueba7-lani3d-fiesta-mece.md`.
+
+## DEC-2026-10-11-2 · Senda: novena tanda, todo enseña y edifica, la Biblia directa y la investigación de lo que cuesta entender
+
+- **Contexto:** después de la versión 3 del proyecto, y antes de probar la prueba 8, el fundador mandó un mensaje largo (resumen, sin
+  citas textuales):
+  - el propósito de la app es que, mientras se juega o se usa cualquier función, se aprenda y se crezca en la relación con Dios y en su
+    Palabra; los juegos que no enseñan, afuera, empezando por «Alimenta a Elías»;
+  - sacar la sugerencia de orar o de tomarse el tiempo antes de leer: ir directo a la Biblia cuando la persona quiera;
+  - pasar de hoja sigue un poco lento; marcar y resaltar, bastante lentos;
+  - un juego de mesa de misiones que vio en una conferencia, como dirección y no para copiar;
+  - investigar sin límites lo que cuesta entender, memorizar o se da por sentado (fiestas, historia de Israel, profecías del Mesías,
+    promesas, sobre qué orar, lo básico), con citas y bench;
+  - un evolutivo para que las iglesias suban sus PDF y armen su propia Travesía, marcada como suya, con pedido a lo global;
+  - el aviso de Supabase: el proyecto gratis se pausó por 7 días sin uso;
+  - el modo tipo Mario Party, solo si edifica; calidad extraordinaria aunque lleve tiempo; va a mandar más material.
+- **Decidido:**
+  - **Regla «todo enseña y edifica»** en el proyecto, en la app (regla 15 de su CLAUDE.md) y en la doctrina 08 (§9, punto 6). Los juegos
+    pasan una puerta de dos preguntas antes del puntaje. Salen Los cuervos de Querit, Gedeón y Zaqueo; se reconvierten Lani corre, el Giro
+    diario, Jericó, Nehemías y Pedro sobre el agua; Senda Fiesta suma una vara de aprendizaje a su regla de corte.
+  - **La Biblia abre directo:** fuera la invitación a orar y la frase al abrir (el umbral de la prueba 6, que también frenaba).
+  - **Área nueva de la Travesía, «El plan de Dios»** (9 áreas y 62 rutas), y cuatro juegos propios: Hasta lo último (cooperativo de
+    misiones), Emaús, El Tabernáculo y El calendario de Dios.
+  - **Las iglesias suben su material** como evolutivo de la v2 (unos USD 0,30 por PDF, estimación).
+  - **Supabase:** reactivarlo gratis cuando haga falta (lo hace el flujo del APK) y no mantenerlo despierto a la fuerza; Pro recién al
+    lanzamiento, como estaba presupuestado.
+- **Hecho por Claude (APK prueba 9):**
+  - lector: marcar en 70 ms, resaltar en el acto, vuelta de hoja en 320 ms, toques seguidos que no se pierden, cada hoja dibujada una sola vez;
+  - lecciones con «¿Sabías que…?» y «Para tu vida»; 5 rutas abiertas con 21 lecciones y 128 preguntas, y 30 preguntas nuevas del
+    Espadeo, todas verificadas contra la RV1909 (en revisión doctrinal);
+  - Supabase reactivado (INACTIVE → ACTIVE_HEALTHY en 5 minutos, gratis, por la API desde GitHub);
+  - proyecto v3.1: capítulo 34 (investigación, bench, rutas, fuentes externas, Israel sin tomar partido, iglesias), capítulo 10 con la
+    puerta y los juegos nuevos, novena tanda, mapa, estado y roadmap.
+- **Pendiente del fundador:**
+  - probar la prueba 9;
+  - elegir 1 o 2 revisores doctrinales antes del 26-10 (es lo que más frena publicar el contenido);
+  - mandar el material que quiera sumar.
+- **Evidencia:** `conocimiento/2026-10-11-senda-todo-ensena-investigacion.md`.
+

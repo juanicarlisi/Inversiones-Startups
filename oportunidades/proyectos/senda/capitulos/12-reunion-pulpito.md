@@ -138,6 +138,9 @@ evaluaría como opción explícita y revisada, nunca automática.
 - **Encuestas a la congregación** (Pulso, capítulo {{cap:14}}).
 - Cinco cuentas Líder incluidas; reporte mensual de la iglesia.
 - Dos eventos destacados por mes en la agenda de la ciudad.
+- **El material de la iglesia en su Travesía** (evolutivo de la v2, pedido del fundador del 11-10-2026): la iglesia sube sus PDF y Senda
+  le propone una ruta propia, visible solo para su iglesia y marcada «De [la iglesia]»; puede pedir que entre a la Travesía de todos,
+  con nuestra revisión (capítulo {{cap:34}}, §8).
 
 ## 10. Oremos (muro de oración del grupo)
 
