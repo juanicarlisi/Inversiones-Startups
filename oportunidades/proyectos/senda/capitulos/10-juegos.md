@@ -132,8 +132,11 @@ cuadraditos para compartir sin spoilers.
 
 ## 7. Antes o después (antes «Línea de tiempo»)
 
-Aparecen hechos de a uno y hay que ubicarlos **antes o después** de los que ya están en la línea (del Éxodo a Pentecostés). Un error y
-se termina. **Modos:** diario, contra reloj y contra un rival (gana quien arma la línea más larga). Al final, fechas aproximadas y citas.
+Aparecen hechos de a uno y hay que ubicarlos **antes o después** de los que ya están en la línea. **Construido en la prueba 10
+(12-10-2026):** 41 hechos de la creación a Patmos, en el orden del relato, elegidos para que no haya dudas sobre qué vino primero (se
+dejaron afuera Rut, Sansón y Job); cada uno con su cita verificada. Tres vidas: si se falla, se muestra dónde iba y por qué, con la cita.
+Récord en el teléfono. **Pendiente:** modos diario, contra reloj y contra un rival (gana quien arma la línea más larga), y fechas
+aproximadas al final (marcadas como aproximadas).
 
 ## 8. Giro diario (antes «Maná del día»)
 
@@ -458,7 +461,49 @@ Fiesta (§12), los desafíos en vivo de Senda Reunión (capítulo {{cap:12}}) y 
 **Para no tener problemas legales:** las mismas reglas de §12. Mecánicas de más de 20 años o propias; arte, nombres y reglas propias;
 búsqueda de patentes y consulta con un abogado antes de construir.
 
-## 16. Cómo se mide
+## 16. Benchmark profundo de juegos bíblicos (prueba 10, 12-10-2026)
+
+**Qué pidió el fundador (resumen).** Un benchmark a fondo de todas las apps, juegos de mesa, de rol y de consola sobre la Biblia (el
+diluvio, la creación, la historia de Israel, los jueces, David, el Apocalipsis y el regreso de Cristo), pensando en jóvenes, parejas,
+hombres y mujeres; desarrollar lo que se pueda y dejar el resto en el backlog.
+
+### 16.1 Lo que hay (HECHOS, con fuente; consultado el 12-10-2026)
+
+| Medio | Ejemplos | Qué pasó | Lección para Senda |
+|---|---|---|---|
+| **Consola (años 90)** | *Bible Adventures* (NES, 1991), *Exodus*, *Joshua & the Battle of Jericho* (1992), *Super 3D Noah's Ark* (SNES) | Wisdom Tree vendía en librerías cristianas, sin licencia de Nintendo; *Bible Adventures* vendió unas 350.000 copias. Casi todos eran motores ajenos con la Biblia pegada (*Exodus* reusa *Crystal Mines*; *Noah's Ark*, el motor de *Wolfenstein 3D*). Reseñas: curiosidades | Un reskin no enseña ni dura. La mecánica tiene que salir de la historia ([Wisdom Tree](https://en.wikipedia.org/wiki/Wisdom_Tree), [Joshua](https://en.wikipedia.org/wiki/Joshua_%26_the_Battle_of_Jericho)) |
+| **Consola (2005-2006)** | *The Bible Game* (Crave; PS2, Xbox, GBA): concurso de preguntas del Antiguo Testamento. *Left Behind: Eternal Forces* (2006): estrategia en tiempo real sobre el Apocalipsis | *Left Behind* fue criticado por su violencia y por jugar como un juego barato a precio alto; un estudio académico español concluye que no transmite valores cristianos como dice | El Apocalipsis no se juega como guerra. Para el regreso de Cristo: esperanza, posturas marcadas y nada de violencia ([Wikipedia](https://en.wikipedia.org/wiki/Left_Behind:_Eternal_Forces), [AV Club](https://www.avclub.com/left-behind-eternal-forces-1798210322)) |
+| **PC hoy** | *I Am Jesus Christ* (Steam, abril de 2026, primera persona por los evangelios): reseñas «Muy positivas» (~1.300-1.500) con críticas a la jugabilidad y las animaciones. *The Serpent & The Seed* (relato de Edén a Cristo), *Gate Zero* (aventura por Israel), *Bibelgame* (plataformas, 2025), *Alpha/Omega* (rol, sin terminar) | Hay apetito por vivir los relatos; la calidad técnica es despareja y casi nadie verifica el texto | Calidad de juego de verdad y texto verificado son el diferencial ([Steam](https://store.steampowered.com/app/1198970/I_Am_Jesus_Christ/), [faith.tools](https://faith.tools/app/130-the-serpent-the-seed)) |
+| **Juegos de mesa** | *Kings of Israel* (cooperativo, 2-4, de Saúl a Oseas, mecánica tipo *Pandemic* con «cubos de pecado»; versión en Steam a USD 4,99), *Bibleopoly* (se gana construyendo una iglesia, no arruinando al otro), *Settlers of Canaan* (criticado por copiar *Catan*), *Omega* (trivia de Daniel y Apocalipsis), *Deliverance* (ángeles, Apocalipsis 12), *Critter Cruise* y *Ark & Noah* (Noé), *David & Goliath* (cartas, 1997) | Los mejor reseñados son cooperativos y enseñan geografía y reyes; los peor vistos, copias de clásicos | Cooperativo y con contenido real; nunca una copia ([One Board Family](https://oneboardfamily.com/kings-of-israel-review/), [Bible Gateway](https://www.biblegateway.com/learn/?p=4469), [Plugged In](https://www.pluggedin.com/blog/christian-board-game-review-deliverance/)) |
+| **Apps** | *Superbook* (CBN): más de 20 juegos (trivia, sopa de letras, versículos desordenados), Biblia para chicos con audio; CBN dice más de 39 millones de descargas (dato propio, sin fecha). YouVersion pasó los mil millones de instalaciones (toda su familia de apps). Apps chicas con rachas y puntos al estilo Duolingo: *Bible Memory Goal*, *Bible Brief*, *BibleMigo*, *Bible Loop* | Los juegos de las apps grandes son simples (trivia, sopas); las apps «tipo Duolingo» son chicas y sin contenido verificado | Hay lugar para juegos con profundidad y verificación ([Superbook](https://www2.cbn.com/superbook/superbook-free-kids-bible-app.aspx), [Learn of Christ](https://learnofchrist.com/resources/bible-memory-goal)) |
+| **Competencias de iglesia** | *Bible Quizzing* nazareno (equipos de 5, asientos que saltan con bloqueo electrónico, libros del Nuevo Testamento fijados cada año; 20 puntos por respuesta, sale quien acierta 6), *Bible Bowl*, «quoting bee» (recitar un versículo palabra por palabra) | Décadas de uso real con jóvenes: lo que motiva es competir **sabiendo el texto de memoria** | El formato de la Trivia de la iglesia y de la Liga ([Wikipedia](https://en.wikipedia.org/wiki/Nazarene_Bible_Quizzing), [reglas BQF 2026](https://www.familylife.org/wp-content/uploads/BQF-Quiz-Rules-May-2026-Final-Update-1.pdf)) |
+| **Parejas** | Mazos de conversación: *101 Conversation Starters for Couples* (Chapman), *Convo Cards* (FamilyLife), *YOKED* (citas cristianas, 2022) | No hay juegos que enseñen la Biblia en pareja: solo preguntas para charlar | Un modo pareja con la Biblia en el centro es un hueco libre |
+
+**Lo que no encontramos:** juegos serios sobre los **jueces** (solo material para niños), sobre la **formación del canon** o la
+**historia de la iglesia**, y un juego del **Apocalipsis** que no sea guerra o trivia. Son huecos para Senda.
+
+### 16.2 Juegos por historia y por público (pasan la puerta de dos preguntas del §14)
+
+| Historia | Juego | Mecánica (de más de 20 años o propia) | Público | Estado |
+|---|---|---|---|---|
+| Toda la Biblia | **Antes o después** | Ubicar hechos en la línea del tiempo (orden del relato, con la cita) | Todos | **Desarrollado en la prueba 10** |
+| El mensaje del domingo | **Trivia de la iglesia** | Concurso por turnos; gana quien acierta más (formato de *Bible Quizzing*) | Jóvenes, iglesia | **Desarrollado en la prueba 10** (paquete de ejemplo) |
+| Creación (Génesis 1–2) | **Los seis días** | Ordenar y unir: qué se creó cada día y qué separa Dios (luz y tinieblas, aguas, tierra) | Niños, jóvenes | Backlog v1 (motor de parejas y ordenar) |
+| Diluvio (Génesis 6–9) | **El arca** | Rompecabezas de acomodar (§11), con las medidas y los días del texto | Familias | Backlog (después de Lani corre) |
+| Patriarcas | **La promesa** | Árbol genealógico que se arma: de Abraham a las doce tribus | Jóvenes | Backlog v1 |
+| Historia de Israel | **El reino** | Cooperativo por turnos: cada rey elige; lo que hace se ve en el mapa (como *Kings of Israel*, pero con las citas de Reyes y Crónicas y sin copiar sus reglas) | Hombres, jóvenes | Backlog v2 |
+| Jueces | **El ciclo** | Ronda que se repite: pecado, opresión, clamor, libertador, descanso (Jueces 2:11-19); hay que reconocer en qué parte del ciclo está cada relato | Jóvenes, hombres | Backlog v1 (hueco libre en el mercado) |
+| David | **David en el valle** | Precisión con la honda (§11), con las palabras de 1 Samuel 17:45-47 | Jóvenes | Backlog |
+| Ester, Rut, Débora, María | **Valientes** | Decisiones con consecuencias: elegir lo que eligió cada mujer y ver el texto | Mujeres | Backlog v2 |
+| Proverbios | **Sabiduría en casa** | Situaciones de pareja y familia; cada uno elige el proverbio que corresponde y se compara (sin puntaje entre los dos) | Parejas | Backlog v1 (modo pareja) |
+| Apocalipsis y el regreso de Cristo | **Las siete iglesias** | Cartas de Apocalipsis 2–3: unir cada iglesia con su elogio, su reproche y su promesa; final con Apocalipsis 21:4. Sin guerra; lo que se interpreta distinto, como posturas | Todos | Backlog v1 |
+| Formación de la Biblia | **El copista** | Copiar un rollo sin errores contra reloj, como los escribas (y ver cuántos manuscritos hay) | Jóvenes | Backlog v2 |
+| Historia de la iglesia | **Testigos** | Línea del tiempo con personajes reales (Policarpo, Atanasio, Lutero, Carey) y su fecha | Jóvenes, adultos | Backlog v2 |
+
+**Regla legal (de siempre):** mecánicas de más de 20 años o propias; arte, nombres y reglas propias; búsqueda de patentes y consulta
+con un abogado antes de construir cada juego de mesa (§12).
+
+## 17. Cómo se mide
 
 Partidas por juego y por usuario, porcentaje con amigos contra al azar, salas creadas, revanchas, conexiones nuevas después de jugar,
 contenido cargado por líderes y resultados compartidos.

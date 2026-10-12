@@ -141,7 +141,11 @@ Todas vía buscador el 11-10-2026: **re-verificar cada una en la fuente primaria
 - **El Estado de Israel de hoy (1948):** se cuenta como historia, con fechas. Qué significa en el plan de Dios se presenta como postura,
   nunca como respuesta única, y sin política. Se invita a hablarlo con el pastor (línea editorial, punto 2).
 
-## 8. Evolutivo: cada iglesia sube su material y arma su Travesía
+## 8. Evolutivo incierto: cada iglesia sube su material y arma su Travesía
+
+> **Cambio de la prueba 10 (12-10-2026).** Este evolutivo pasa a **incierto**: el refuerzo semanal lo cubre la **Trivia de la iglesia**
+> y el pedido de rutas nuevas, **Proponer una travesía** (capítulo {{cap:35}}, §2 y §3). Se reconsidera si más de 50 iglesias piden su
+> propia ruta. Lo que sigue queda como diseño de referencia.
 
 **Qué pidió el fundador.** Que las iglesias puedan subir sus PDF y generar su propio capítulo o grupo de la Travesía, visible para su
 iglesia; que se marque qué es oficial de Senda y qué es de la iglesia; y que la iglesia pueda pedir que entre a la app global, con

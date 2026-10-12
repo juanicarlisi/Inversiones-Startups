@@ -42,6 +42,15 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - en Senda, **todo enseña y edifica**: cada función y cada juego tiene que ayudar a aprender y crecer en la relación con Dios y en su Palabra; lo que solo entretiene, afuera (salió «Alimenta a Elías»; puerta de dos preguntas en el capítulo 10, §14);
   - la Biblia abre directo, sin nada antes de leer; el contenido bíblico se verifica línea por línea contra el texto y lo interpretativo se marca como tal;
   - lo que el fundador trae de terceros (por ejemplo, un juego visto en una conferencia) es dirección, nunca algo para copiar.
+- **Datos del 12-10-2026 (Senda, prueba 10):**
+  - misión nueva: que una generación conozca la Palabra de Dios como ninguna antes y por ella se rinda a Cristo y lo ame; la visión se
+    mide por lo que la gente sabe y vive, no por descargas;
+  - cada travesía, absolutamente completa: en cada nivel, todo lo que hay que leer y dónde está cada respuesta (también en la trivia); lo
+    que no está en un versículo va como nota con su fuente;
+  - fuentes protestantes confiables; la biblioteca de comentarios (repositorio `biblioteca-estudios-biblicos`) solo para entender,
+    nunca para copiar (capítulo 23 §3b);
+  - el inventario bíblico (`oportunidades/proyectos/senda/inventario_biblico.yaml`) se completa en cada sesión y su cobertura se
+    regenera con `python3 herramientas/inventario_senda.py`, igual que `estado.yaml` y `mapa_total.yaml`.
 
 ## 2. Reglas no negociables
 

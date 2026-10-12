@@ -48,6 +48,18 @@
 | Ritmo | Prefiere calidad extraordinaria aunque lleve tiempo | Ir despacio y bien antes que rápido y flojo |
 | Material propio | Va a mandar más material para sumar | Incorporarlo con la misma verificación |
 
+### Pautas del 12-10-2026 (Senda, prueba 10)
+
+| Pauta | Valor | Implicancia |
+|---|---|---|
+| Misión de Senda | Que una generación conozca la Palabra de Dios como ninguna antes y por ella se rinda a Cristo y lo ame | La visión se mide por lo que la gente sabe y vive; las descargas, como medio (capítulo 2) |
+| Lo completo | Cada travesía absolutamente completa: en cada nivel, todo lo que hay que leer y dónde está cada respuesta, nunca por la mitad; también en la trivia | Regla en el validador; datos de historia como nota con fuente |
+| La experiencia | Un botón tapado o cortado no puede pasar | Auditoría de zonas seguras en cada pantalla nueva, en tres tamaños |
+| Amplitud | Mucho contenido «es así y ya», como las unidades de Duolingo; él revisa después y va a mandar su propio contenido | Abrir rutas verificadas en cada tanda (capítulo 35) |
+| Fuentes | Protestantes confiables (nombró Coalición por el Evangelio, Toma Tu Lugar y MiSión); la biblioteca de comentarios para entender, nunca para plagiar | Reglas en el capítulo 23 §3b; confirmar nombres exactos |
+| Iglesias | Una trivia del mensaje del domingo (1 contra 1, contra Lani, torneo; gana el que acierta más); la Travesía desde el PDF de la iglesia pasa a incierta | Capítulo 35 §2 y §3 |
+| Ritmo | Despacio, pero con altísima calidad | Igual que la pauta del 11-10 |
+
 ## Lo que falta (y por qué importa)
 
 | # | Pregunta | Por qué importa | Qué cambia según la respuesta |

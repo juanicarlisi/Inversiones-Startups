@@ -103,21 +103,25 @@ La sección 9 se adelanta para estar lista en Semana Santa (28-03-2027), antes q
 **Pedido del fundador (06-10-2026):** que la Travesía sea exhaustiva y MECE, con rutas como apologética, geografía bíblica o historia
 de la Iglesia, sin inclinaciones teológicas, y que sea una de las estrellas de la app.
 
-**La regla que la hace MECE.** La Travesía tiene **9 áreas** (desde el 11-10-2026; antes 8) y cada una responde **una sola pregunta**. Cada lección va al área de la
+**La regla que la hace MECE.** La Travesía tiene **10 áreas** (desde el 12-10-2026: se sumó «De memoria»; antes 9 y 8) y cada una responde **una sola pregunta**. Cada lección va al área de la
 pregunta que responde; si un tema toca dos áreas (Pablo es personaje y también viajero), la lección se escribe en una y la otra solo lo
 repasa. Así no hay huecos (toda pregunta sobre la fe cae en un área) ni repeticiones.
 
-| Área | La pregunta | Rutas (62 en total) |
+| Área | La pregunta | Rutas (67 en total) |
 |---|---|---|
-| **La Biblia, libro por libro** | ¿Qué dice cada libro? | El gran relato (Fundamentos), Pentateuco, Históricos, Poesía y sabiduría, Profetas mayores, Los doce profetas, Evangelios, Hechos, Cartas de Pablo, Hebreos y cartas generales, Apocalipsis |
+| **La Biblia, libro por libro** | ¿Qué dice cada libro? | El gran relato (Fundamentos), Pentateuco, Históricos, Poesía y sabiduría, Profetas mayores, Los doce profetas, Evangelios, Hechos, Cartas de Pablo, Hebreos y cartas generales, Apocalipsis, Datos que sorprenden (nueva, 12-10-2026) |
+| **De memoria** (nueva, 12-10-2026) | ¿Qué conviene saber de memoria? | **Listas de la Biblia** (abierta), Los 66 libros, Versículos para guardar |
 | **El plan de Dios** (nueva, 11-10-2026) | ¿Cómo encaja todo, de Génesis a Apocalipsis? | **El Mesías prometido** (abierta), **Las fiestas del Señor** (abierta), Los pactos de Dios, Sombras de Cristo, Israel en el plan de Dios, Las promesas de Dios bien leídas |
 | **Personajes** | ¿Quién fue y qué aprendo de su vida? | Patriarcas, Moisés, Jueces y reyes, Vidas de profetas, Mujeres de la Biblia, La vida de Jesús, Los apóstoles |
 | **Tierras y tiempos** | ¿Dónde y cuándo pasó? | **Los viajes de Pablo** (abierta), Tierra Santa, Los grandes viajes, Por donde caminó Jesús, Imperios y pueblos, La historia de Israel en orden (antes Línea de tiempo), Vida cotidiana, Arqueología |
-| **Cómo leer la Biblia** | ¿Cómo la leo bien y cómo llegó hasta mí? | Géneros, **Leer con contexto** (abierta), Palabras clave (hebreo y griego), Cómo se formó la Biblia, La Biblia en español |
-| **Lo que creemos** | ¿Qué enseña la Biblia sobre…? | **Lo esencial de la fe** (abierta; incluye el Credo de los Apóstoles), Dios, Jesús, La salvación, El Espíritu Santo, La iglesia, La esperanza |
+| **Cómo leer la Biblia** | ¿Cómo la leo bien y cómo llegó hasta mí? | Géneros, **Leer con contexto** (abierta), Palabras clave (hebreo y griego), **Cómo se formó la Biblia** (abierta: los escritos y el canon), La Biblia en español |
+| **Lo que creemos** | ¿Qué enseña la Biblia sobre…? | **Lo esencial de la fe** (abierta; incluye el Credo de los Apóstoles), **Más que el oro** (abierta: lo que la Biblia dice de sí misma), Dios, Jesús, La salvación, El Espíritu Santo, La iglesia, La esperanza |
 | **Historia de la iglesia** | ¿Qué pasó después de Hechos? | Primeros siglos, Edad Media, La Reforma, Avivamientos y misiones, El evangelio en América Latina, Testigos |
 | **Defender la fe** (apologética) | ¿Por qué creer que es verdad? | ¿Existe Dios?, ¿Es confiable la Biblia?, ¿Resucitó Jesús?, Ciencia y fe, El dolor y el mal, Responder con respeto |
 | **Vivir la fe** | ¿Cómo lo vivo hoy? | **La oración** (abierta), Hábitos, Carácter (mandamientos, bienaventuranzas, fruto del Espíritu), Relaciones, Estudio-trabajo-dinero, Servir y compartir la fe |
+
+**De memoria y Carácter no se pisan (12-10-2026).** En «Listas de la Biblia» se aprenden las listas para saberlas (qué dicen y en qué
+orden); en «Carácter» se aprende a vivirlas. Cada lección va al área de la pregunta que responde (capítulo {{cap:35}}, §4).
 
 El mapa vive en `contenido/travesia.json` (repositorio de la app) con cada ruta y sus secciones; las abiertas se juegan y las demás
 se ven «en preparación» en **la Travesía completa** (se abre tocando la ruta arriba del mapa).

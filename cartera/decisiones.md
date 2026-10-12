@@ -465,3 +465,44 @@
   - mandar el material que quiera sumar.
 - **Evidencia:** `conocimiento/2026-10-11-senda-todo-ensena-investigacion.md`.
 
+## DEC-2026-10-12-1 · Senda: décima tanda (prueba 10), amplitud, trivia de la iglesia, misión nueva y proyecto v3.2
+
+- **Contexto:** el fundador mandó un mensaje largo después de la prueba 9 (resumen, sin citas textuales):
+  - el «Empezar» quedaba tapado por el menú y el «Seguir» cortado: la experiencia es fundamental y eso no puede pasar;
+  - fondos de la Travesía relacionados con cada ruta y un camino que se desplace como Duolingo;
+  - el festejo de la armadura parecía un dibujito: profesionalizarlo (buscar en Rive y en todo lo posible);
+  - el orden del contenido tiene que ser excelente y cada paso tiene que decir dónde está la respuesta, completo, nunca por la mitad;
+  - una bienvenida con preguntas para armar la app a medida;
+  - la Travesía propia desde el PDF de la iglesia pasa a evolutivo incierto; que cualquiera pueda proponer una travesía;
+  - mucha amplitud de contenido «es así y ya», como las unidades de Duolingo; seguir explorando categorías;
+  - un benchmark profundo de juegos bíblicos (apps, mesa, rol, consola) por historia y por público;
+  - travesías sobre lo que la Biblia dice de sí misma, la formación del canon, la historia de la iglesia y datos sorprendentes;
+  - una trivia para que la iglesia repase el mensaje del domingo (1 contra 1, contra Lani o torneo; gana el que acierta más);
+  - fuentes protestantes confiables; la biblioteca de comentarios para entender, nunca para plagiar;
+  - una misión nueva en la línea de «una generación que conoce la Palabra como ninguna antes y por ella se rinde y ama a Cristo», y una
+    visión en sintonía, no atada al millón de descargas;
+  - un inventario personaje por personaje e historia por historia; ir despacio pero con altísima calidad.
+- **Decidido:**
+  - **Misión nueva** (capítulo 2 del proyecto): que una generación conozca la Palabra de Dios como ninguna antes, y que por medio de ella
+    se rinda a Cristo y lo ame. La visión se mide por lo que la gente sabe y vive (personas con tres días por semana con la Palabra,
+    aciertos en el repaso, versículos guardados, iglesias que usan la trivia); las descargas, como medio.
+  - **Regla de lo completo:** cada nivel muestra todas sus lecturas; cada pregunta, el capítulo de la respuesta; los datos de historia
+    van como nota con su fuente. El validador lo exige en la Travesía, el Espadeo, la trivia y Antes o después.
+  - **Área nueva «De memoria»** (10 áreas, 67 rutas) y tres travesías abiertas: Más que el oro, Listas de la Biblia y Cómo se formó la
+    Biblia (con el canon).
+  - **La Travesía desde el PDF de la iglesia, evolutivo incierto;** en su lugar, Proponer una travesía (en la app) y la Trivia de la
+    iglesia (prototipo; con PDF en la v2, unos USD 0,05 por material según estimación).
+  - **Fuentes:** reglas de uso de la biblioteca (142 PDF, acceso confirmado) y de las fuentes en línea: entender, nunca copiar.
+  - **Inventario bíblico** permanente (94 personajes, 129 historias) con cobertura calculada por `herramientas/inventario_senda.py`.
+- **Hecho por Claude (APK prueba 10):**
+  - zonas seguras en toda la app; Travesía tipo Duolingo con 14 escenas de fondo; festejo de la armadura en 3D; bienvenida en 13 pasos;
+  - lecturas completas en las 197 preguntas de la Travesía y en el Espadeo; 22 lecciones y 135 preguntas nuevas verificadas;
+  - Proponer una travesía, Trivia de la iglesia y el juego Antes o después (41 hechos con su cita);
+  - proyecto v3.2: capítulo 35, benchmark de juegos (capítulo 10 §16), misión y visión, fuentes (capítulo 23 §3b), mapa y estado.
+- **Pendiente del fundador:**
+  - probar la prueba 10;
+  - confirmar las fuentes «Toma Tu Lugar» y «MiSión» (nombre y sitio exactos);
+  - elegir los revisores doctrinales;
+  - si quiere que Claude busque en la comunidad de Rive, habilitar `rive.app` en la red del entorno.
+- **Evidencia:** `oportunidades/proyectos/senda/capitulos/35-amplitud.md` y las fuentes citadas en los capítulos 10 §16 y 23 §3b.
+

@@ -14,37 +14,42 @@ Una generación entera pasa entre cuatro y cinco horas por día con el celular e
 una parte de ese tiempo sirva para **conocer las Escrituras, crecer y conectarse con otros creyentes**, con una experiencia tan buena
 como la de las mejores apps del mercado, y para ganarle terreno a lo que no deja nada.
 
-## Misión
+## Misión (nueva, prueba 10, 12-10-2026)
 
-> **Ayudar a cada joven a conocer, amar y vivir la Palabra de Dios todos los días, con una experiencia alegre y excelente, en
-> comunidad, gratis y en su idioma, y ser la app que mejor edifica a los jóvenes.**
+> **Que una generación conozca la Palabra de Dios como ninguna antes, y que por medio de ella se rinda a Cristo y lo ame.**
+
+La propuso el fundador el 12-10-2026 y reemplaza a la anterior («ayudar a cada joven a conocer, amar y vivir la Palabra de Dios todos
+los días…», que queda en el historial de decisiones). El cambio de fondo: la meta ya no es una app exitosa sino **personas que conocen
+la Escritura y aman a Cristo**; la app es el medio.
 
 | Palabra | Qué obliga a hacer |
 |---|---|
-| Conocer | Aprendizaje medible: niveles, preguntas con cita, repaso de lo que se olvida |
-| Amar | Que la experiencia sea linda y no una obligación; nada de culpa ni presión |
-| Vivir | Cada lección termina con algo para aplicar; la app empuja a la iglesia real, no la reemplaza |
-| Todos los días | Hábito: racha, versículo del día, la semana Senda, avisos respetuosos |
-| Alegre y excelente | Diseño, animación y sonido al nivel de Duolingo, Preguntados y Candy Crush; nada infantil |
-| En comunidad | Amigos, grupos, Liga, calendario, reuniones, encuestas |
-| Gratis | La Biblia y el contenido nunca se cobran y la Biblia nunca tiene publicidad |
-| En su idioma | Español primero; portugués e inglés en 2028; después más idiomas |
-| Que mejor edifica | La gamificación está al servicio de edificar, nunca al revés |
+| **Una generación** | Jóvenes primero, pero también parejas, hombres, mujeres y familias; y las iglesias que los forman (Trivia de la iglesia, Senda Reunión) |
+| **Conozca la Palabra** | Aprendizaje medible y completo: niveles con todas sus lecturas, preguntas con cita, repaso de lo que se olvida, listas y versículos de memoria |
+| **Como ninguna antes** | Profundidad y amplitud: toda la Biblia, su historia, cómo se formó, la historia de la iglesia; y rigor: cada línea verificada contra el texto |
+| **Por medio de ella** | La Biblia en el centro: abre directo, sin nada antes; todo juego y toda función enseñan algo comprobable de la Palabra |
+| **Se rinda a Cristo** | Cada lección termina en «Para tu vida» (ser y hacer); el evangelio claro en Lo esencial; nada de culpa ni presión |
+| **Y lo ame** | Cristo en el centro de toda la Escritura (Lucas 24:27; Juan 5:39); experiencia alegre y excelente; la app empuja a la iglesia real, no la reemplaza |
 
-## Visión
+**Lo que se mantiene de la misión anterior** (como compromisos, no como lema): gratis (la Biblia y el contenido nunca se cobran y la
+Biblia nunca tiene publicidad), en su idioma (español primero; portugués e inglés en 2028) y con calidad de primer nivel (nada infantil).
 
-> **Ser la app cristiana número uno del mundo de habla hispana y portuguesa —la más descargada y la que mejor edifica a los
-> jóvenes—: un ecosistema donde la Biblia se lee, se aprende, se juega y se vive en comunidad, y una generación de jóvenes que
-> conoce las Escrituras.**
+## Visión (en sintonía con la misión nueva)
 
-Cómo sabremos que vamos hacia ahí (metas, no promesas):
+> **Iglesias llenas de personas que abren la Biblia cada día, la entienden, la recuerdan y la viven, y que pueden enseñarla a otros;
+> y Senda como la herramienta en la que confían, porque todo lo que muestra está comprobado en la Escritura.**
+
+Ya no se mide por descargas sino por lo que la gente **sabe y vive**. Las descargas importan como medio.
 
 | Año | Señal de que la visión avanza |
 |---|---|
-| 2027 | 50 mil descargas; 8 mil personas activas por mes; 50 grupos usando Senda Reunión cada semana; primera Liga Apertura y Clausura |
-| 2028 | 250 mil descargas; versión en portugués y en inglés; primera Copa Continental |
-| 2030 | **1 millón de descargas**; 60 mil personas activas por mes; 500 iglesias con plan; top 10 de apps de libros y referencia en Latinoamérica |
-| 2035 | La app cristiana de referencia para jóvenes en español y portugués |
+| 2027 | 3 mil personas por semana con al menos tres días con la Palabra (de unas 8 mil activas por mes); quien completa una ruta acierta en el repaso al menos el 80 % de lo que aprendió un mes después; 50 iglesias usan la Trivia de la iglesia cada semana |
+| 2028 | 10 mil personas por semana con tres días con la Palabra; 1 millón de versículos guardados de memoria (sumando a todos); versión en portugués y en inglés |
+| 2030 | 25 mil personas por semana con tres días con la Palabra (de unas 60 mil activas por mes); 500 iglesias con plan; la mitad de los usuarios de un año leyó la Biblia completa o la mitad de ella |
+| 2035 | Una generación de hispanos y lusófonos que conoce la Escritura mejor que cualquier generación anterior (se mide con la prueba de conocimiento de la app, comparada año a año) |
+
+**Medio, no fin:** las metas de descargas del plan de negocio (capítulo {{cap:24}}) siguen como herramienta para sostener la obra, no
+como la visión.
 
 ## El objetivo
 

@@ -38,8 +38,8 @@ FUENTE = RAIZ / "informes" / "fuente-senda"
 GRAF = FUENTE / "graficos"
 TIPO = RAIZ / "informes" / "tipografia"
 TITULO = "Senda · El proyecto completo de la app"
-SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-1.pdf"
-SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-1.html"
+SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-2.pdf"
+SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-2.html"
 SALIDA_HTML = FUENTE / "informe.html"
 
 AMBAR, NOCHE, VERDE, GRANADA, CREMA, TINTA = V.AMBAR, V.NOCHE, V.VERDE, V.ROJO, V.CREMA, "#1B1B1F"
@@ -181,7 +181,7 @@ def bloque_resumen(D) -> str:
         ("Cómo se sostiene", "Gratis + Plus (USD 0,99) + Max (USD 2,49) + Familia + Pase Senda + Líder + Iglesia + videos opcionales y Perlas"),
         ("Cuándo sale", "<b>18 de diciembre de 2026</b>, una versión cada dos semanas y la <b>ruta principal completa el 30-06-2027</b>"),
         ("Cuánto cuesta", f"Menú de calidad del primer año: básico USD {usd(tot['basico'])}, <b>profesional USD {usd(tot['profesional'])}</b> (recomendado, por tramos), premium USD {usd(tot['premium'])}"),
-        ("La meta", "<b>1 millón de descargas en 2030</b>; lo que manda: personas con 3+ días con la Palabra por semana"),
+        ("La meta", "<b>25 mil personas por semana con 3+ días con la Palabra en 2030</b>; las descargas, como medio"),
     ]
     fic = "".join(f'<div class="fic"><div class="fic-k">{k}</div><div class="fic-v">{v}</div></div>' for k, v in fichas)
     dif = [
@@ -209,9 +209,10 @@ calidad de las mejores apps del mundo. Junta en un solo lugar, en español de or
 30 de abril de 2027 (capítulo {{{{cap:30}}}}).</p></div>
 </div>
 <div class="caja rec"><h4 class="ico-t">{V.icono("check", 13, V.VERDE)} Dónde estamos y qué necesito de vos</h4>
-<p>Nueve versiones de prueba desde el 05-10-2026: ya funcionan {cm["hecho"]} de las {cm["total"]} funciones de la app (capítulos {{{{cap:06}}}} y
-{{{{cap:33}}}}). Desde la 9, todo enseña y edifica: 21 lecciones nuevas con «¿Sabías que…?» y «Para tu vida» (capítulo {{{{cap:34}}}}).
-Ahora: probar la prueba 9, 2 revisores doctrinales antes del 26-10, 12 testers y Google Play antes del 15-11.</p></div>"""
+<p>Diez versiones de prueba desde el 05-10-2026: ya funcionan {cm["hecho"]} de las {cm["total"]} funciones de la app (capítulos {{{{cap:06}}}} y
+{{{{cap:33}}}}). Desde la 9, todo enseña y edifica (capítulo {{{{cap:34}}}}); la 10 suma una misión nueva, tres travesías completas, la
+trivia de la iglesia, Antes o después y el inventario bíblico (capítulo {{{{cap:35}}}}).
+Ahora: probar la prueba 10, confirmar las fuentes, 2 revisores doctrinales antes del 26-10, 12 testers y Google Play antes del 15-11.</p></div>"""
 
 
 def bloque_mapa_app() -> str:
@@ -614,21 +615,21 @@ def portada(D) -> str:
                ("lampara", "Crecer", "Berea, Pulso y menos scroll", V.AMBAR_OSC)]
     pil = "".join(f'<div style="--c:{c}"><span class="ps-i" style="background:{c}">{V.icono(i, 14, "#fff")}</span><b>{t}</b>{d}</div>' for i, t, d, c in pilares)
     datos = [("18-12-2026", "sale en Android e iOS, con un MVP más completo"), ("30-06-2027", "la ruta principal de la Travesía, completa"),
-             (f"USD {usd(tot)}", "primer año en nivel profesional, por tramos (hay básico y premium)"), ("1 millón", "de descargas: la meta para fines de 2030")]
+             (f"USD {usd(tot)}", "primer año en nivel profesional, por tramos (hay básico y premium)"), ("25 mil", "personas por semana con la Palabra 3 días o más: la meta de 2030")]
     dt_ = "".join(f"<div><b>{a}</b><span>{b}</span></div>" for a, b in datos)
     return f"""<section class="portada-s">
-<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.1 · 11 de octubre de 2026 · uso privado</div>
-<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.1</p>
+<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.2 · 12 de octubre de 2026 · uso privado</div>
+<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.2</p>
 <p class="ps-lema">Una app cristiana para que los jóvenes conozcan la Biblia <b>jugando, leyendo y en comunidad</b>, con nivel profesional:
 nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen; Android e iOS primero y la web después.</p></div>
 <div class="ps-img"><div class="ps-esc">{V.lani("saludo", 148, buzo=V.VIOLETA, gorra=V.AMBAR)}</div>{V.logo_txt(30, V.NOCHE)}</div></div>
 <div class="ps-pils">{pil}</div>
 <div class="ps-datos">{dt_}</div>
 <div class="ps-mks">{S.m_inicio()}{S.m_travesia_mapa()}{S.m_espadeo_ruleta()}{S.m_pieza_ganada()}{S.m_liga()}</div>
-<div class="ps-mv"><div><span>Misión</span>Ayudar a cada joven a conocer, amar y vivir la Palabra de Dios todos los días, con una experiencia alegre y
-excelente, en comunidad, gratis y en su idioma.</div><div><span>Visión</span>Ser la app cristiana número uno del mundo de habla hispana y
-portuguesa —la más descargada y la que mejor edifica a los jóvenes—, y una generación que conoce las Escrituras.</div></div>
-<div class="ps-pie">Esta versión suma todo lo que cambió con las ocho pruebas en el teléfono (capítulo 31), el mapa de toda la app en una hoja (capítulo 6), Lani en 3D, Senda Fiesta y el desarrollo hasta hoy (capítulo 33). HECHO lleva fuente y fecha;
+<div class="ps-mv"><div><span>Misión</span>Que una generación conozca la Palabra de Dios como ninguna antes, y que por medio de ella se rinda a
+Cristo y lo ame.</div><div><span>Visión</span>Iglesias llenas de personas que abren la Biblia cada día, la entienden, la recuerdan y la viven; y
+Senda como la herramienta en la que confían, porque todo lo que muestra está comprobado en la Escritura.</div></div>
+<div class="ps-pie">Esta versión suma la prueba 10: misión nueva, travesías completas, la trivia de la iglesia, Antes o después y el inventario bíblico (capítulo 35), sobre todo lo que cambió con las pruebas anteriores (capítulos 31, 33 y 34) y el mapa de toda la app (capítulo 6). HECHO lleva fuente y fecha;
 ESTIMACIÓN lleva método. Nada que mueva plata o hable con terceros sale sin la aprobación del fundador. Lani, logo y pantallas son
 bocetos de dirección: el diseño final lo hacen especialistas.</div>
 </section>"""
@@ -814,7 +815,7 @@ def main() -> int:
     env.setdefault("NODE_PATH", "/opt/node22/lib/node_modules")
 
     def imprimir():
-        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.1", "css", "oct-2026"],
+        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.2", "css", "oct-2026"],
                        check=True, env=env)
     imprimir()
     paginas = paginas_capitulos(D, SALIDA_PDF)

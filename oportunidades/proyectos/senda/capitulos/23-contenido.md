@@ -66,6 +66,38 @@ con la lista de cambios.
 
 **Decisión pendiente:** confirmar esta línea con tus revisores (capítulo {{cap:31}}).
 
+## 3b. Fuentes confiables y la biblioteca de estudio (prueba 10, 12-10-2026)
+
+**Qué pidió el fundador (resumen).** Usar siempre fuentes protestantes confiables (nombró la Coalición por el Evangelio, Toma Tu Lugar y
+MiSión, o similares), aprender de ellas **sin copiar y pegar**; la biblioteca de comentarios (de Génesis a Apocalipsis) se puede usar
+para entender, nunca para plagiar, y no hay que limitarse a ella.
+
+**Acceso a la biblioteca (confirmado el 11-10-2026).** El repositorio privado `juanicarlisi/biblioteca-estudios-biblicos` tiene 142 PDF
+(guardados con Git LFS). Claude los lee bajándolos por la API de LFS. Los PDF **nunca** se publican ni se copian a la app ni a este
+repositorio: tienen derechos de autor.
+
+**Qué hay (y con qué cuidado se usa cada uno).**
+
+| Obra | Tradición | Para qué sirve | Cuidado |
+|---|---|---|---|
+| Diccionario Bíblico Mundo Hispano (Douglas y Tenney, 2003) | Evangélica | Datos de historia, idiomas, canon, lugares: es la fuente de las notas de «Cómo se formó la Biblia» | Citar entrada; re-verificar fechas que decidan algo |
+| MacArthur (comentarios del NT y Biblia de estudio), Hendriksen y Kistemaker, Carballosa, Stott, Walvoord, Moody, Mundo Hispano, Matthew Henry, Spurgeon (Salmos), Lutero (Romanos y Gálatas), Edersheim | Protestante (reformada, bautista, dispensacional, luterana) | Contexto, sentido del pasaje, preguntas difíciles | Cuando dos de ellos discrepan (por ejemplo, el orden de los tiempos finales), es tema de posturas |
+| Beacon | Protestante (wesleyana) | Contexto | Igual que arriba |
+| Barclay | Protestante, con posturas liberales en algunos temas (milagros, inspiración) | Trasfondo histórico y palabras griegas | No usar para doctrina |
+| Ladd, Larkin, Hanegraaff, Iafrancesco (Apocalipsis) | Protestantes con escuelas distintas (premilenial histórica, dispensacional con gráficos, preterista parcial) | Mostrar las posturas sobre el Apocalipsis | Nunca como respuesta única |
+| Pikaza (Apocalipsis) | Católica | Contraste académico | No es fuente protestante: no se usa para enseñar |
+
+**Las reglas (no negociables).**
+1. **Entender, nunca copiar.** Nada de frases tomadas de un comentario o de un sitio. Se escribe con palabras propias, después de entender.
+2. **La Biblia manda.** Toda respuesta está en el texto bíblico (verificado línea por línea contra la RV1909); los comentarios ayudan a no
+   equivocarse en el sentido y en el contexto.
+3. **Datos de historia, con fuente.** Lo que no está en un versículo (fechas, idiomas, canon) va como nota con su fuente nombrada.
+4. **Interpretación, marcada.** «Muchos estudiosos ven…», «es una interpretación».
+5. **Lo que divide, como posturas**, citando los textos de cada una.
+6. **Sitios en línea:** Coalición por el Evangelio y otros ministerios evangélicos sirven para ver cómo se explica un tema hoy; se leen,
+   no se copian. **Pendiente:** confirmar con el fundador los nombres y sitios exactos de «Toma Tu Lugar» y «MiSión» (no los encontramos
+   con certeza) y si hay otros que quiera sumar.
+
 ## 4. El circuito de revisión
 
 1. **Producción:** Claude produce el contenido con su cita y lo marca por nivel de sensibilidad (normal, doctrinal, delicado).

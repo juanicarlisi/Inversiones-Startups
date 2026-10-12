@@ -116,6 +116,10 @@ tabla en pantalla y cierre con premiación.
 
 **La idea:** que el mensaje del domingo siga vivo durante la semana, jugando.
 
+> **Prueba 10 (12-10-2026):** ya hay una versión jugable, la **Trivia de la iglesia** (contra Lani, 1 contra 1 y torneo), con un paquete de
+> ejemplo; cada pregunta dice en qué punto del material está la respuesta. Con el plan Iglesia, el líder sube el PDF del mensaje y aprueba
+> las preguntas que arma Senda (capítulo {{cap:35}}, §2).
+
 1. **El pastor arma su desafío** desde su cuenta: escribe de 5 a 15 preguntas sobre su mensaje (con plantillas que lo hacen en 10
    minutos), o las elige del banco de Senda filtrando por el pasaje que predicó, o mezcla. También puede elegir el **versículo de la
    semana** y un **plan de lectura** con los pasajes del mensaje.
