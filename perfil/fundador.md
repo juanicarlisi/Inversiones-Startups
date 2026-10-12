@@ -60,6 +60,18 @@
 | Iglesias | Una trivia del mensaje del domingo (1 contra 1, contra Lani, torneo; gana el que acierta más); la Travesía desde el PDF de la iglesia pasa a incierta | Capítulo 35 §2 y §3 |
 | Ritmo | Despacio, pero con altísima calidad | Igual que la pauta del 11-10 |
 
+### Pautas del 12-10-2026 (Senda, prueba 11)
+
+| Pauta | Valor | Implicancia |
+|---|---|---|
+| Línea clara | Cada travesía con una línea clarísima y progresiva (Pablo en orden; Israel que nace, es esclavo y es liberado) | «La historia» en cada lección y resumen en cada capítulo; el validador lo exige (capítulo 36) |
+| Publicar lo confiable | Revisar todo contra las fuentes y publicar; él lo revisa en la app | Claude revisa pregunta por pregunta y publica; los revisores humanos confirman después |
+| Historia de la Iglesia | Quiere los mártires y la cronología de los referentes | Dos travesías nuevas; cada dato no bíblico con su fuente y lo dudoso marcado |
+| Vidas | Que no se terminen rápido y se recuperen con anuncios sin límite | 5 vidas, recarga cada 30 min, video +1 sin límite, leer devuelve vidas |
+| Biblia | Notas por versículo como MyBible, lectura continua por defecto, temas, velocidad | El «+» de estudio y siete temas; el papel queda como opción |
+| Lani y música | Lani en Rive con experiencia excelente; música de inicio alegre, moderna y sobria | Lani en Rive hecha con código; firma de apertura nueva |
+| No quedarse en «no se puede» | Explorar hasta la última vía (pedido sobre la RVR1960) | Se revisaron 13 vías; se hizo lo legal posible hoy y se preparó el pedido a la SBA |
+
 ## Lo que falta (y por qué importa)
 
 | # | Pregunta | Por qué importa | Qué cambia según la respuesta |

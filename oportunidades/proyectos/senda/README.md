@@ -1,11 +1,13 @@
 # Senda · proyecto completo (P1)
 
-Fuente del proyecto completo de la app cristiana del holding. Versión 3.2 del 12-10-2026 (DEC-2026-10-12-1: la prueba 10, amplitud,
+Fuente del proyecto completo de la app cristiana del holding. Versión 3.3 del 12-10-2026 (DEC-2026-10-12-2: la prueba 11, una línea
+clara, Lani en Rive, contenido publicado, la RVR1960 y el capítulo 36), sobre la 3.2 del mismo día (DEC-2026-10-12-1: la prueba 10, amplitud,
 trivia de la iglesia, misión nueva, inventario bíblico y el capítulo 35), sobre la 3.1 del 11-10-2026 (DEC-2026-10-11-2: todo enseña y edifica,
 la Biblia directa, la investigación de lo que cuesta entender y el capítulo 34), sobre la 3 del mismo día (DEC-2026-10-11-1: las ocho
 pruebas, el mapa de toda la app, Lani en 3D, Senda Fiesta y el capítulo 33), la 2.1 del 05-10-2026 (DEC-2026-10-05-1), la v2 del
 02-10-2026 (DEC-2026-10-02-1) y la v1 del 30-09-2026 (DEC-2026-09-30-1). El PDF y el HTML se generan con
-`python3 informes/construir_senda.py` → `informes/2026-10-senda-proyecto-v3-2.pdf` y `.html` (quedan la v3.1 en
+`python3 informes/construir_senda.py` → `informes/2026-10-senda-proyecto-v3-3.pdf` y `.html` (quedan la v3.2 en
+`informes/2026-10-senda-proyecto-v3-2.pdf`, la v3.1 en
 `informes/2026-10-senda-proyecto-v3-1.pdf`, la v3 en
 `informes/2026-10-senda-proyecto-v3.pdf`, la v2 en `informes/2026-10-senda-proyecto-v2.pdf` y la v1 en
 `informes/2026-09-senda-proyecto.pdf`). El armador normaliza las listas anidadas con 2 espacios (Python-Markdown pide 4).
@@ -13,7 +15,7 @@ pruebas, el mapa de toda la app, Lani en 3D, Senda Fiesta y el capítulo 33), la
 | Archivo | Qué tiene |
 |---|---|
 | `capitulos/00-como-leer.md` | Cómo leer el documento y la tabla «tu corrección → dónde se resolvió» |
-| `capitulos/01…35-*.md` | Un capítulo por archivo; el número del archivo es el número del capítulo (el 32, la Consola, se sumó el 05-10-2026; el 33, el desarrollo, y el 34, lo que cuesta entender, el 11-10-2026; el 35, la prueba 10, el 12-10-2026) |
+| `capitulos/01…36-*.md` | Un capítulo por archivo; el número del archivo es el número del capítulo (el 32, la Consola, se sumó el 05-10-2026; el 33, el desarrollo, y el 34, lo que cuesta entender, el 11-10-2026; el 35, la prueba 10, y el 36, la prueba 11, el 12-10-2026) |
 | `capitulos/90-anexo.md` | Glosario, eventos de analítica y fuentes |
 | `roadmap.yaml` | Fases F0–F10 (hipótesis, entregables, condición para seguir), tareas por carril y responsable, hitos y vista 2026–2030 |
 | `presupuesto.yaml` | Menú de calidad del primer año: tres niveles (básico, profesional, premium), impacto y tramo de cada gasto |

@@ -51,6 +51,11 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     nunca para copiar (capítulo 23 §3b);
   - el inventario bíblico (`oportunidades/proyectos/senda/inventario_biblico.yaml`) se completa en cada sesión y su cobertura se
     regenera con `python3 herramientas/inventario_senda.py`, igual que `estado.yaml` y `mapa_total.yaml`.
+- **Datos del 12-10-2026 (Senda, prueba 11):**
+  - cada travesía con una línea clarísima y progresiva: en las rutas que cuentan una historia, cada lección dice qué pasó antes, qué
+    pasa, cuándo y qué sigue; cada capítulo, qué se aprende (lo exige el validador);
+  - lo revisado y confiable se publica (Claude revisa pregunta por pregunta); los revisores doctrinales humanos confirman después;
+  - no quedarse en «no se puede»: explorar hasta la última vía (así se hizo con la RVR1960), siempre dentro de lo legal.
 
 ## 2. Reglas no negociables
 

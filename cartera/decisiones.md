@@ -506,3 +506,44 @@
   - si quiere que Claude busque en la comunidad de Rive, habilitar `rive.app` en la red del entorno.
 - **Evidencia:** `oportunidades/proyectos/senda/capitulos/35-amplitud.md` y las fuentes citadas en los capítulos 10 §16 y 23 §3b.
 
+
+## DEC-2026-10-12-2 · Senda: undécima tanda (prueba 11), una línea clara, Lani en Rive, contenido publicado, la RVR1960 y proyecto v3.3
+
+- **Contexto:** el fundador mandó otro mensaje largo el 12-10-2026 (resumen, sin citas textuales):
+  - música de inicio moderna, divertida, tecnológica, alegre y sobria;
+  - la mascota hecha en Rive, con una experiencia excelente; cambiarla si conviene;
+  - revisar exhaustivamente todo el contenido pendiente contra las fuentes y publicar lo confiable;
+  - cada travesía con una línea muy clara y progresiva (Pablo en orden cronológico; Israel que nace, es esclavo y es liberado);
+  - que las vidas no se terminen rápido y se recuperen con anuncios sin límite;
+  - travesías nuevas: los mártires y la cronología de los referentes de la Iglesia;
+  - en la Biblia: notas por versículo como MyBible con fuentes confiables en el «+», lectura continua por defecto (la de papel como
+    opción), temas, velocidad excelente, marcadores y paso de hoja rápidos;
+  - durante la sesión: buscar hasta la última vía para tener hoy la RVR1960 en la app sin la licencia.
+- **Decidido:**
+  - **Lani se mantiene y pasa a Rive,** hecha con código (escritor de `.riv` con los tipos del motor oficial): 18 animaciones y máquina
+    de estados con data binding. La Lani 3D queda como opción. En noviembre: animador de Rive (USD 1.200) o la hecha con código.
+  - **Línea clara obligatoria:** en las rutas que cuentan una historia, cada lección trae «La historia» (antes, relato, cuándo, después)
+    y cada capítulo de todas las rutas, su resumen. El validador lo exige.
+  - **Contenido publicado** tras la revisión de Claude pregunta por pregunta (validador + revisión manual); 8 preguntas del Espadeo
+    retiradas. Los revisores doctrinales humanos siguen recomendados, pero ya no frenan la publicación.
+  - **Vidas:** 5, una cada 30 minutos, video +1 sin límite y leer un capítulo devuelve una (hasta 3 por día).
+  - **Lectura continua por defecto** en la Biblia; la de papel, en Ajustes; siete temas.
+  - **El «+» de estudio:** referencias cruzadas de OpenBible.info (CC BY) y notas de traducción de la PDT y la NBV; siguen STEPBible,
+    un diccionario de dominio público e introducciones a los libros.
+  - **RVR1960:** sin licencia no hay texto completo legal (13 vías revisadas en la fuente, bitácora del 12-10). Se hizo lo posible hoy:
+    lectura vía Bible.com dentro de Senda y lugar para citar hasta 500 versículos según la política de la Sociedad Bíblica Argentina.
+    Recomendado enviar ya el pedido a la SBA como uso no comercial. YouVersion Platform solo si Senda renunciara a todo ingreso: no
+    recomendado. API.Bible no tiene la RVR1960 (corrige lo anotado el 05-10 en el proyecto y el presupuesto).
+- **Hecho por Claude (APK prueba 11):**
+  - Lani en Rive; firma de apertura nueva (vibráfono, campana FM, golpe grave, re mayor);
+  - el gran relato completo (9 capítulos, 47 lecciones), Pablo en orden (11 lecciones), Testigos fieles (9) y La historia de la Iglesia
+    (18), cada dato no bíblico como nota con su fuente y lo dudoso marcado: 12 rutas abiertas, 128 lecciones, 782 preguntas;
+  - Biblia: lectura continua al instante, el «+» por versículo, siete temas y RVR1960 en un toque; vidas nuevas;
+  - proyecto v3.3: capítulo 36, capítulo 16 §3c, estado, mapa e inventario (96 personajes, 131 historias y 27 referentes de la
+    historia de la Iglesia).
+- **Pendiente del fundador:**
+  - probar la prueba 11;
+  - enviar el pedido de la RVR1960 a la Sociedad Bíblica Argentina (y el recordatorio a ABS si no responde al 19-10), listos en la Consola;
+  - elegir los revisores doctrinales.
+- **Evidencia:** `oportunidades/proyectos/senda/capitulos/36-linea-clara.md`, `conocimiento/2026-10-12-senda-rvr1960-todas-las-vias.md`
+  y las fuentes citadas en cada lección (repositorio de la app, `scripts/autor/martires.py` e `historia_iglesia.py`).

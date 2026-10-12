@@ -71,7 +71,7 @@ Todo gasto lo aprobás antes (regla 8). Si un tramo no se habilita, se sigue con
 
 | Período | Servicios | Monto mensual |
 |---|---|---|
-| Oct–dic 2026 | Supabase (gratis → Pro), dominios, planes gratis del resto; licencia RVR1960 si llega (API.Bible Pro USD 29 + USD 10) | USD 5–70 |
+| Oct–dic 2026 | Supabase (gratis → Pro), dominios, planes gratis del resto; licencia RVR1960 si llega (directa con las Sociedades Bíblicas; API.Bible no la tiene) u opcionalmente NTV o NBLA por API.Bible (Pro USD 29 + USD 10) | USD 5–70 |
 | 2027 | Supabase Pro, R2, EAS en meses de mucho trabajo, API.Bible Pro + 5 versiones (USD 10–50 cada una según usuarios) | USD 80–330 |
 | 2028 en adelante | ~USD 0,009 por persona activa + licencias de Biblias (USD 450–880 con 5 versiones; menos con un precio de ministerio) | USD 650–1.400 |
 

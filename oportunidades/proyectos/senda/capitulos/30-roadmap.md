@@ -117,7 +117,7 @@ Claude con más horas desde diciembre (decisión en el capítulo {{cap:31}}).
 | Cuándo | Tarea |
 |---|---|
 | Oct-2026 | Búsqueda de antecedentes de los nombres (Senda, Lani, Travesía, juegos) en INPI y tiendas; dominios y redes; inscripción en la AAIP |
-| Oct–nov 2026 | Pedido de precio de ministerio para la RVR1960 (American Bible Society); API.Bible si se aprueba |
+| Oct–nov 2026 | Pedido de la RVR1960 a la American Bible Society (05-10) y a la Sociedad Bíblica Argentina como uso no comercial; licencia directa si se aprueba (API.Bible no la tiene) |
 | Nov-2026 | Marca «Senda» (clases 9, 41 y 42); contratos con cesión de derechos para interfaz, ilustración, animación y sonido; términos, privacidad, normas y política de encuestas |
 | Ene–feb 2027 | Marcas del logo y de Lani; empresa del holding y transferencia de la app |
 | Mar-2027 | Pedido del permiso de Apple para *Primero la Palabra* |

@@ -149,7 +149,7 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | **Dónde vive el código** | En su repositorio propio, `juanicarlisi/senda-app` (privado), separado del holding |
 | **Cómo probás** | Cada sprint publica una **vista previa web** privada que abrís desde el celular, y un **APK de prueba para Android** que arma GitHub Actions y queda en la pestaña Releases del repositorio (sin cuenta de Expo, sin costo) |
 | **Ritmo** | Un sprint cada dos semanas; vos probás 30 minutos y decidís qué sigue |
-| **Gastos** | Nada hasta noviembre. Después, solo lo imprescindible y con tu aprobación: Google Play (USD 25, una vez), RVR1960 por API.Bible (~USD 39 por mes, opcional), Claude Max (desde diciembre). Mínimo recomendado del primer año en gastos únicos: USD 55 |
+| **Gastos** | Nada hasta noviembre. Después, solo lo imprescindible y con tu aprobación: Google Play (USD 25, una vez), licencia de la RVR1960 si las Sociedades Bíblicas la aprueban (monto a negociar; API.Bible no la tiene), Claude Max (desde diciembre). Mínimo recomendado del primer año en gastos únicos: USD 55 |
 
 **Plan de sprints hasta el lanzamiento** (detalle en el repositorio de la app, `docs/SPRINTS.md`; el avance real, en el capítulo {{cap:33}}):
 
@@ -169,11 +169,11 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | 2 | **Verificar el nombre** | Buscar «Senda» en el INPI (clases 9, 41 y 42), en las tiendas y en redes; ver dominios. Ojo con **Chile**: allí SENDA es el servicio estatal de prevención de drogas y alcohol (sección 4) | 15-10-2026 |
 | 3 | ~~Cuenta de Expo y red del entorno~~ | **Ya no hace falta:** el APK se arma con GitHub Actions | — |
 | 3b | **Navegación** | Confirmar la barra de abajo (recomendado) o pedir una variante con menú arriba para comparar | Con la próxima prueba |
-| 3c | **Enlace a la RVR1960 en Bible.com** | Es la única salida de la app (el proyecto pedía que todo pase adentro). Recomendación: dejarlo hasta tener la licencia | Con la próxima prueba |
+| 3c | ~~Enlace a la RVR1960 en Bible.com~~ | **Resuelto en la prueba 11:** se abre dentro de Senda, desde el lector y desde cada lección (capítulo {{cap:36}}, §7) | — |
 | 4 | **Cuenta de Google Play** (USD 25) | Abrirla **a más tardar el 15-11**: las cuentas personales nuevas necesitan 12 testers durante 14 días antes de publicar | 15-11-2026 |
-| 5 | **RVR1960 y RVG** | Revisar y enviar los pedidos ya redactados (`borradores/`): precio de ministerio de la RVR1960 (American Bible Society y Sociedad Bíblica Argentina) y permiso de la Reina Valera Gómez. Decidir si se paga API.Bible para el lanzamiento o desde marzo | Pedido: oct; pago: dic o mar |
+| 5 | **RVR1960 y RVG** | Enviar el pedido a la Sociedad Bíblica Argentina como uso no comercial (listo en la Consola) y, si ABS no responde al 19-10, el recordatorio. Sin licencia no hay texto completo legal: hoy se lee vía Bible.com dentro de Senda y se pueden citar hasta 500 versículos (capítulo {{cap:36}}, §7). API.Bible no tiene la RVR1960 | Pedido: esta semana |
 | 6 | **Cuenta de Apple** (USD 99 por año) | Si querés iOS el 18-12, abrirla a principios de diciembre; si no, iOS en enero o febrero | 01-12-2026 |
-| 6b | **Revisores doctrinales** | Elegir 1 o 2 personas de tu comunidad. Es lo que más frena publicar el contenido: hoy hay 31 lecciones y 157 preguntas esperando revisión | Antes del sprint 2 (26-10) |
+| 6b | **Revisores doctrinales** | Elegir 1 o 2 personas de tu comunidad. Desde la prueba 11 el contenido está publicado tras la revisión de Claude (128 lecciones, 137 preguntas); los revisores lo confirman | Antes del sprint 2 (26-10) |
 | 7 | **Identificador de la app en las tiendas** | Hoy es provisorio (`com.sendaapp.biblia`); no se puede cambiar después de la primera publicación | Antes de la prueba cerrada |
 
 ## 4. Verificación del nombre (lo que se pudo hacer desde acá)

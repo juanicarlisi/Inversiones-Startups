@@ -207,7 +207,7 @@ Detalle, niveles y alternativas más baratas o más caras en el **menú de calid
 | PostHog | Analítica y experimentos | 0 | Oct-2026 |
 | Sentry | Errores | 0 | Oct-2026 |
 | API de Claude | Contenido y moderación (por detrás) | Por uso | Oct-2026 |
-| API.Bible | Biblias con licencia | USD 29 + versiones | Cuando se apruebe la RVR1960 |
+| API.Bible | Biblias con licencia exprés (NTV, LBLA, NBLA; no tiene la RVR1960) | USD 29 + versiones | Si se elige una versión moderna con licencia inmediata |
 | Meta for Developers | Compartir en historias de Instagram | 0 | Nov-2026 |
 | Apple: permiso Family Controls | *Primero la Palabra* en iOS | 0 (a pedido) | Mar-2027 |
 | Google Play Console | Tienda Android | USD 25 | Oct-2026 |

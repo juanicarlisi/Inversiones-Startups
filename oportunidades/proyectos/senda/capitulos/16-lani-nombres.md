@@ -131,6 +131,23 @@ registra como marca figurativa (capítulo {{cap:26}}).
 - **Decisión en noviembre:** la línea de USD 1.200 del animador de Rive pasa a un artista 3D o se queda en Rive. Mientras tanto, la Lani 3D hecha con código sirve para el lanzamiento.
 - La versión final la termina una persona, para que tenga derechos de autor (ver «Protección» en la sección 3).
 
+## 3c. Lani en Rive, hecha con código (prueba 11, 12-10-2026)
+
+**El pedido.** El fundador pidió la mascota hecha en Rive, con una experiencia excelente, y cambiarla si convenía.
+
+**Qué se hizo.** Se mantuvo Lani y pasó a Rive. Como el sitio de Rive está bloqueado en la red del entorno, Claude escribió un generador
+de archivos `.riv` con los tipos y claves del motor oficial (repositorio de la app: `scripts/rive/escritor.py` y `scripts/rive/lani.py`).
+Así, **Claude sí puede cambiar a Lani** (la fila «2D en Rive» de la tabla anterior suponía que no), sin pagar el plan del editor.
+
+- **Articulada:** cuerpo, cadera, cintura, hombros y codos, cuello, orejas, cejas, ojos con parpadeo y mirada, bocas y mechón.
+- **18 animaciones** con anticipación, impulso y movimiento secundario, y una **máquina de estados con data binding**: la app solo cambia
+  el modelo «Lani» (estado, armadura, Tu Lani, disparadores) y Rive mezcla las animaciones.
+- **En la app:** motor nativo en el teléfono, wasm en la web, un solo archivo de 41 KB compartido por todas las Lani y poses quietas de
+  respaldo. La Lani 3D queda como opción para las fiestas.
+
+**Lo que sigue.** En noviembre se decide si un animador de Rive la pule (la línea de USD 1.200) o si queda la hecha con código. Sigue
+valiendo que la versión final la termine una persona, por los derechos de autor. Detalle en el capítulo {{cap:36}}, §2.
+
 ## 4. El elenco (más adelante)
 
 Duolingo suma personajes humanos de distintas edades y personalidades, y eso le da mundo y le saca lo infantil. Senda puede hacer lo
