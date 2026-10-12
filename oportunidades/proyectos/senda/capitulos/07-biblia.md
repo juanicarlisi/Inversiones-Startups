@@ -46,17 +46,17 @@ moderna es una obra nueva** que alguien hizo y financió. La RVR1960 es una revi
 las licencias, las sociedades bíblicas financian traducciones a otros idiomas. Por eso la RV1909 es libre (sus derechos vencieron) y
 la RVR1960 no.
 
-**Lo que se averiguó (05-10-2026, por buscador; a confirmar en la fuente):**
+**Lo que se averiguó (05-10-2026, revisado en las fuentes el 12-10-2026; detalle de las trece vías en `conocimiento/2026-10-12-senda-rvr1960-todas-las-vias.md`):**
 
 | Dato | Qué dice | Qué significa para Senda |
 |---|---|---|
 | Titular | © Sociedades Bíblicas en América Latina, 1960; derechos renovados en 1988 por las Sociedades Bíblicas Unidas. «Reina-Valera 1960» es **marca registrada** y solo se usa con licencia | Ni el texto ni el nombre se pueden usar libremente |
-| Uso sin permiso | Se pueden citar **hasta 500 versículos** sin permiso escrito (sin llegar a la mitad de un libro ni al 25 % de la obra), con el aviso de derechos, **pero solo en obras de uso no comercial** (dato corregido el 05-10-2026) | **No sirve para Senda**, que tiene planes y anuncios: ni siquiera para citar versículos en las preguntas sin permiso |
-| Enlace a Bible.com | Abrir el capítulo en Bible.com (YouVersion) con la RVR1960 es un enlace, no una copia del texto | **Gratis y sin licencia:** es el puente mientras tanto (en cada capítulo y en el selector de versiones). Sale de la app, por eso es temporal |
+| Uso sin permiso | La política de la **Sociedad Bíblica Argentina** (leída en su PDF el 12-10-2026) permite citar **hasta 500 versículos en cualquier medio** sin permiso escrito (sin llegar a la mitad de un libro ni al 25 % de la obra), con la leyenda; y define «comercial» como lo que se **vende, alquila, arrienda o trueca**. La American Bible Society es más estricta: pide uso no comercial | **Sirve para citas** (versículo del día, versículos para memorizar): Senda es gratis. Quedó el lugar en la app (`contenido/rvr1960_citas.json`) con el contador del límite; falta cargar el texto de una fuente legítima |
+| Enlace a Bible.com | Abrir el capítulo en Bible.com (YouVersion) con la RVR1960 es un enlace, no una copia del texto | **Gratis y sin licencia:** es el puente mientras tanto. Desde el 12-10-2026 se abre **en una hoja dentro de Senda** (no sale de la app), desde cada capítulo, el selector de versiones y las lecturas de cada lección |
 | Ley argentina | La Ley 11.723 (art. 8) da 50 años desde la publicación a las obras anónimas de personas jurídicas | **HIPÓTESIS sin valor práctico:** aunque en la Argentina pudiera discutirse que venció, la app se baja en todo el mundo (en EE.UU. y otros países sigue protegida), la marca sigue vigente y las tiendas bajan apps ante un reclamo, con riesgo de perder la cuenta de desarrollador. **No se recomienda** |
-| YouVersion Platform | Gratis, pero **solo para apps no comerciales** (sin anuncios, sin muros de pago y sin suscripciones) | Senda, con planes y anuncios en los juegos, **no califica**. Solo serviría si Senda fuera totalmente gratis |
-| API.Bible (American Bible Society) | Tiene la RVR1960. Uso comercial con el plan **Pro desde USD 29 por mes** más cada traducción con derechos por cantidad de usuarios: **USD 10 por mes hasta 5.000**, 25 hasta 20.000, 75 hasta 50.000, 150 hasta 100.000 y 250 por encima | **El camino más simple: ~USD 39 por mes** al empezar. **No encontramos una vía más barata** que sea legal: la alternativa es pedir un precio de ministerio |
-| Licencia directa | Permisos de la American Bible Society (licensing@americanbible.org) y de las Sociedades Bíblicas de cada país | Vale la pena **pedir un precio de ministerio o un permiso gratuito**: preguntar no cuesta nada |
+| YouVersion Platform | Gratis, con SDK para Expo, pero hoy **no acepta apps comerciales**: nada de anuncios, patrocinios, muros de pago ni ingresos «directos o indirectos» con la Escritura (leído en su web el 12-10-2026). Cada editorial decide si su Biblia está en Platform | Senda, con anuncios en los juegos y suscripción, **no califica**. Solo serviría con una Senda sin ningún ingreso |
+| API.Bible (American Bible Society) | **No tiene la RVR1960** (catálogo consultado el 12-10-2026; corrige lo anotado el 05-10). Sí licencia al instante, para uso comercial, la **NTV** (Tyndale) y la **LBLA y NBLA** (Lockman): plan Pro desde USD 29 por mes más un cargo por versión según usuarios | Para la RVR1960 **no hay vía paga inmediata**: solo la licencia directa. Si se quiere una versión moderna con licencia ya, la NTV o la NBLA por API.Bible |
+| Licencia directa | Permisos de la American Bible Society (licensing@americanbible.org) y de la Sociedad Bíblica Argentina (info@biblica.org, según su política) | **La vía real.** A la ABS se le pidió el 05-10 (recordatorio listo para el 19-10); a la SBA conviene pedírselo ya como uso no comercial, que es lo que Senda es según su definición |
 
 **El plan:**
 
@@ -67,8 +67,10 @@ la RVR1960 no.
    Argentina (RVR1960, DHH, TLA y RVC), Tyndale (NTV, por correo a permisos@tyndale.com), Biblica (NVI, por su formulario), The
    Lockman Foundation (LBLA y NBLA, por su formulario) y el titular de la Reina Valera Gómez. Se envían desde un **correo del
    proyecto** (un Gmail nuevo, firmado «Equipo de Senda») y su estado se marca en la Consola.
-3. **Diciembre de 2026 o marzo de 2027:** si no hay respuesta mejor, se activa API.Bible Pro con la RVR1960 (~USD 39 por mes), con tu
-   aprobación: para el lanzamiento si querés que salga con la RVR1960, o en marzo, cuando empiezan los planes pagos.
+3. **Mientras llega la licencia (desde el 12-10-2026):** la RVR1960 se lee dentro de Senda en un toque (hoja con Bible.com) y se
+   pueden mostrar hasta 500 versículos citados con su leyenda. Si no hay respuesta, se insiste (recordatorio a la ABS, pedido a la
+   SBA). API.Bible no la tiene, así que no hay atajo pago para esta versión; si querés una versión moderna con licencia ya, la NTV o
+   la NBLA por API.Bible (con tu aprobación).
 4. **v1:** NTV, NVI, LBLA/NBLA, DHH y TLA según lo que respondan los titulares (o por API.Bible), por demanda: si casi nadie usa una, no se renueva.
 5. **Siempre:** se guarda cada licencia en el repositorio, se muestra el aviso de derechos donde aparece el texto y se respetan las
    reglas (no modificar el texto, refrescar lo guardado cuando lo pide la licencia; capítulo {{cap:26}}).
