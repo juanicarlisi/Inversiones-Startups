@@ -81,7 +81,7 @@ Senda. Y medir si funciona.
 |---|---|
 | Entretenimiento para el aburrimiento | Un duelo de 3 minutos, la Palabra del día, un Abecé |
 | Estar con sus amigos | Duelos, rachas compartidas, Escuadra, el grupo, el calendario |
-| Mostrarse y que los vean | Tu Lani, el escudo de tu club, insignias, Estados, ascensos |
+| Mostrarse y que los vean | Tu Lany, el escudo de tu club, insignias, Estados, ascensos |
 | Novedades | Lo nuevo de tu grupo y de tu iglesia; la semana Senda |
 | Inspiración | El versículo del día y los planes de Berea |
 | No perderse nada | Eventos en vivo con fecha (Viernes de Espadeo, finales, Copas) |
@@ -101,7 +101,7 @@ Senda. Y medir si funciona.
 4. **Estados** (v2): compartir con tus amigos y tu grupo, por 24 horas, un logro, un versículo o un pedido de oración, con plantillas de
    Senda. Le da a las ganas de compartir un lugar dentro de la app. Menores de 16: solo plantillas, sin texto libre ni fotos; nada
    público.
-5. **Las redes, al revés:** la cuenta de Lani en Instagram y TikTok invita siempre a jugar adentro («¿Me ganás este duelo?», con un
+5. **Las redes, al revés:** la cuenta de Lany en Instagram y TikTok invita siempre a jugar adentro («¿Me ganás este duelo?», con un
    enlace que abre el desafío en Senda). Usamos las redes para traer gente a algo mejor.
 
 ### Senda no puede ser otra red adictiva

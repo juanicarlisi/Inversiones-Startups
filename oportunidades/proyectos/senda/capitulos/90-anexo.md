@@ -9,14 +9,14 @@
 | **Núcleo innegociable** | Lo que sí o sí sale en una versión; el resto sale si llega, detrás de un interruptor |
 | **Prueba de la grilla** | Poner cada pantalla al lado de su equivalente en las apps de referencia; si se ve más pobre, se rehace |
 | **Jugosidad** («juice») | Efectos chicos (rebotes, partículas, sonidos, sacudidas) que hacen que un juego se sienta vivo |
-| **Infantilómetro** | Prueba con 30 jóvenes para medir si Lani (o una pantalla) se ve infantil |
+| **Infantilómetro** | Prueba con 30 jóvenes para medir si Lany (o una pantalla) se ve infantil |
 | **Travesía / Ruta** | El módulo de aprendizaje / cada curso dentro de él (Fundamentos, Héroes, Mapas…) |
 | **Repaso del día** | El nodo que aparece al terminar una Ruta y trae 6 niveles nuevos cada día |
 | **Armería / Carga / Prueba de pieza / Cara a cara** | Casilla dorada de la ruleta / barra de 3 aciertos / pregunta para ganar una pieza / duelo por una pieza del rival |
 | **Liga Senda, Apertura, Clausura** | La liga por persona y sus dos torneos anuales |
 | **Partido de la fecha** | El duelo oficial semanal de la Liga |
 | **Pase Senda** | Recorrido de premios por temporada, con carril gratis y premium |
-| **Tu Lani** | Tu versión personalizada de la mascota |
+| **Tu Lany** | Tu versión personalizada de la mascota |
 | **Pulso** | Las encuestas de Senda |
 | **Primero la Palabra** | Pantalla con un versículo antes de abrir una red social elegida |
 | **Sprint o ciclo** | Dos semanas de trabajo que terminan en una versión probada |

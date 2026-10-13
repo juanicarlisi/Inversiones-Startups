@@ -32,7 +32,7 @@ Resumen de lo pedido (sin citas textuales) y cómo se resolvió.
 | Seguir explorando categorías | Área nueva «De memoria» y rutas nuevas en el plan | Hecho (sigue) | §4 |
 | Benchmark profundo de juegos bíblicos | Consolas, PC, juegos de mesa, apps, competencias de iglesia y parejas; juegos por historia y por público | Hecho | {{cap:10}} §16 |
 | Travesías sobre lo que la Biblia dice de sí misma, la formación del canon, la historia de la iglesia y datos sorprendentes | «Más que el oro» y «Cómo se formó la Biblia» (con el canon) abiertas; Historia de la iglesia y Datos que sorprenden, en el plan | Hecho / plan | §4 |
-| Trivia de la iglesia con el material del domingo | Prototipo jugable (contra Lani, 1 contra 1, torneo) y diseño completo con el PDF del líder | Prototipo | §2 |
+| Trivia de la iglesia con el material del domingo | Prototipo jugable (contra Lany, 1 contra 1, torneo) y diseño completo con el PDF del líder | Prototipo | §2 |
 | Fuentes protestantes confiables, la biblioteca para entender y nunca plagiar | Reglas y lista de fuentes con su tradición y cuidado | Hecho | {{cap:23}} §3b |
 | Misión y visión nuevas | Misión del fundador y una visión que se mide por lo que la gente sabe y vive | Hecho | {{cap:02}} |
 | Inventario personaje por personaje e historia por historia | 94 personajes y 129 historias planificados, con cobertura calculada | Hecho (permanente) | §6 |
@@ -47,7 +47,7 @@ serie) y la iglesia juega con preguntas sobre eso.
 - **Antes de jugar:** se puede leer el material completo.
 - **Cada pregunta** dice en qué punto del material está la respuesta y, al responder, muestra la frase exacta y la cita bíblica para
   abrirla. El validador comprueba que esa frase esté, palabra por palabra, en ese punto.
-- **Contra Lani:** Lani acierta más o menos 7 de 10 y tarda como una persona.
+- **Contra Lany:** Lany acierta más o menos 7 de 10 y tarda como una persona.
 - **1 contra 1 y torneo (de 2 a 8):** en el mismo teléfono, por turnos. Para que el que mira no se lleve las respuestas, la correcta se
   muestra al final, con el repaso completo y dónde está cada una.
 - **Gana quien acierta más**; si empatan, el más rápido (20 segundos por pregunta). Es el formato de las competencias de Biblia que las
@@ -148,7 +148,7 @@ serie) y la iglesia juega con preguntas sobre eso.
     entorno.
 - **Lottie:** la 7.5 pide React Native 0.84 o más (la app usa la 0.86).
 - **Se eligió** dibujar las piezas en 3D con three.js:
-  - ya estaba en la app por Lani;
+  - ya estaba en la app por Lany;
   - no pesa archivos extra;
   - se ve profesional.
 

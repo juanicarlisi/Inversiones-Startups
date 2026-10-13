@@ -6,7 +6,7 @@ la interfaz la hace Claude. Revisado ítem por ítem: **casi todo lo hace Claude
 bancos libres, contenido), así que lo que hay que gastar de verdad en gastos únicos del primer año es **USD 55**: la cuenta de
 Google Play (USD 25) y la IA para traducir comentarios en 2027 (USD 30). El **menú de calidad** (básico, profesional y premium, USD
 5.974 en el nivel profesional) queda como **opción** para sumar manos externas solo donde los datos o el gusto lo pidan; por ejemplo,
-un Lani dibujado por un ilustrador (USD 150–500) o una revisión de 2–3 horas de un diseñador después del lanzamiento (USD 100–200).
+un Lany dibujado por un ilustrador (USD 150–500) o una revisión de 2–3 horas de un diseñador después del lanzamiento (USD 100–200).
 Cada gasto se aprueba antes y se piden 3 presupuestos.
 </div>
 
@@ -19,7 +19,7 @@ Cada gasto se aprueba antes y se piden 3 presupuestos.
 | Dominio y correo | USD 0 | El correo ya existe (Gmail del proyecto); la página de privacidad que piden las tiendas se publica gratis |
 | Marcas en el INPI | USD 0 por ahora | El registro es público y lleva el nombre del titular: decidir después del lanzamiento, idealmente con una sociedad |
 | Interfaz y sistema visual | USD 0 | Lo hace Claude; opcional una revisión externa después del lanzamiento |
-| Lani final | USD 0 por ahora | Hoy es vectorial de Claude; decidir en noviembre si vale un ilustrador (USD 150–500) |
+| Lany final | USD 0 por ahora | Hoy es vectorial de Claude; decidir en noviembre si vale un ilustrador (USD 150–500) |
 | Íconos y armadura | USD 0 | Claude + juegos de íconos libres |
 | Sonido | USD 0 | Bancos libres CC0 elegidos por Claude |
 | Animación, ilustraciones, video de tienda | USD 0 | Claude (en código y con grabaciones de la app) |
@@ -30,7 +30,7 @@ Cada gasto se aprueba antes y se piden 3 presupuestos.
 ## 1. De dónde salían los USD 1.000
 
 En la v1, el nivel recomendado (USD 3.074) se pagaba por tramos. El **tramo 1** (octubre–noviembre de 2026) era: Google Play USD 25 +
-Apple USD 99 + dominios USD 45 + marca en el INPI USD 135 + diseño de Lani USD 400 + sonidos USD 250 = **USD 954**, redondeado a
+Apple USD 99 + dominios USD 45 + marca en el INPI USD 135 + diseño de Lany USD 400 + sonidos USD 250 = **USD 954**, redondeado a
 «~USD 1.000». No era un monto mágico: era lo mínimo para lanzar bien. En la v2 ese criterio se reemplaza por uno más claro y más
 ambicioso en calidad.
 
@@ -38,18 +38,18 @@ ambicioso en calidad.
 
 {{PRESUPUESTO}}
 
-- **Básico:** alcanza para lanzar, con la interfaz diseñada por Claude, una Lani dibujada por un ilustrador junior, animaciones simples
+- **Básico:** alcanza para lanzar, con la interfaz diseñada por Claude, una Lany dibujada por un ilustrador junior, animaciones simples
   y sonidos de bibliotecas.
-- **Profesional (opcional):** un diseñador de interfaz define el sistema visual; Lani, la armadura y los íconos los hacen
-  especialistas; Lani animada en Rive con 20+ reacciones; sonido propio; video de tienda. Es el nivel que pide «nada infantil, nada
+- **Profesional (opcional):** un diseñador de interfaz define el sistema visual; Lany, la armadura y los íconos los hacen
+  especialistas; Lany animada en Rive con 20+ reacciones; sonido propio; video de tienda. Es el nivel que pide «nada infantil, nada
   aburrido, nivel profesional».
-- **Premium:** todo lo anterior con más profundidad (más pantallas diseñadas, más estados de Lani, más ilustración, voz de Lani con
+- **Premium:** todo lo anterior con más profundidad (más pantallas diseñadas, más estados de Lany, más ilustración, voz de Lany con
   actor, 1.000 imágenes de preguntas, publicidad de prueba de USD 1.000).
 
-**Dónde poner la plata primero** (lo que más mueve la sensación de app profesional): (1) dirección visual e interfaz, (2) Lani (diseño y
+**Dónde poner la plata primero** (lo que más mueve la sensación de app profesional): (1) dirección visual e interfaz, (2) Lany (diseño y
 animación), (3) sonido, (4) íconos y armadura. Lo último: merch, publicidad paga.
 
-**Se puede mezclar:** por ejemplo, interfaz y Lani en profesional, ilustraciones en básico, y subir después lo que los datos pidan.
+**Se puede mezclar:** por ejemplo, interfaz y Lany en profesional, ilustraciones en básico, y subir después lo que los datos pidan.
 
 ## 3. Cómo se paga el nivel profesional: por tramos
 
@@ -61,9 +61,9 @@ Todo gasto lo aprobás antes (regla 8). Si un tramo no se habilita, se sigue con
 
 | Cuándo | Qué decidís | Opciones que te voy a traer |
 |---|---|---|
-| 25-oct-2026 | Seguir o no; nivel del tramo 1 | Básico / profesional / premium para interfaz, Lani, íconos y sonido, con 3 presupuestos reales cada uno |
-| Fin de nov-2026 | Si la prueba cerrada va bien: tramo 2 | Animación de Lani (8, 20 o 40 reacciones), video de tienda, merch |
-| Fin de ene-2027 | Si hay 500+ activos por semana: tramo 3 | Más ilustraciones, imágenes para preguntas, voz de Lani |
+| 25-oct-2026 | Seguir o no; nivel del tramo 1 | Básico / profesional / premium para interfaz, Lany, íconos y sonido, con 3 presupuestos reales cada uno |
+| Fin de nov-2026 | Si la prueba cerrada va bien: tramo 2 | Animación de Lany (8, 20 o 40 reacciones), video de tienda, merch |
+| Fin de ene-2027 | Si hay 500+ activos por semana: tramo 3 | Más ilustraciones, imágenes para preguntas, voz de Lany |
 | 30-abr-2027 | Regla de corte; tramo 4 | Publicidad de prueba, premios, traducciones |
 | Cada comité mensual | Ajustes | Subir o bajar el nivel de un área según los datos |
 

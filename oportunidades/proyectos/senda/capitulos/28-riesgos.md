@@ -9,7 +9,7 @@ Biblias, el roadmap más apretado y tus horas. Cada uno tiene una forma concreta
 | # | Riesgo | Probabilidad | Impacto | Cómo se baja |
 |---|---|---|---|---|
 | 1 | **La app se ve infantil o aburrida** (y el joven se va como llegó) | Media | Muy alto | Principio número 1; diseño emocional en cada función (capítulo {{cap:20}}); la prueba de la grilla antes de cada versión; diseñador de interfaz cuando se apruebe el presupuesto; tipografías y colores sin rasgos infantiles; lista anti-prototipo; pruebas con 5 jóvenes cada dos semanas |
-| 2 | **Lani se ve infantil o muy femenina** | Alta si no se cuida | Alto | Rediseño v2 (proporciones, cejas, cara carbón, pañuelo, zapatillas), personalidad con humor, Tu Lani personalizable, «infantilómetro» con usuarios reales cuando la app esté en uso |
+| 2 | **Lany se ve infantil o muy femenina** | Alta si no se cuida | Alto | Rediseño v2 (proporciones, cejas, cara carbón, pañuelo, zapatillas), personalidad con humor, Tu Lany personalizable, «infantilómetro» con usuarios reales cuando la app esté en uso |
 | 3 | **No se instala el hábito** | Media | Alto | Lecciones de 3 minutos, racha y racha compartida, semana Senda, Liga, calendario; medir cada semana; regla de corte en abril de 2027 |
 | 4 | **Error doctrinal o de cita** que se viraliza | Media | Alto | Cita en todo, verificación automática, revisores, guardas doctrinales por Ruta, botón de reporte, retiro en 24 horas |
 | 5 | **Incidente con menores** (contacto indebido, contenido inapropiado) | Baja | Muy alto | Sin chat, sin búsqueda de menores, rivales al azar solo de su franja, Estados con plantillas, moderación, protocolo de riesgo, líderes verificados |

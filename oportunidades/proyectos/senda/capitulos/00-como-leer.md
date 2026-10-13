@@ -16,7 +16,7 @@ material** y Supabase despierto. El detalle está en la novena tanda (capítulo 
 <div class="caja rec" markdown="1"><h4>Versión 3 (11-10-2026)</h4>
 
 El desarrollo ya va por la octava versión de prueba en tu teléfono. Esta versión suma todo lo que cambió desde la 2.1: la tabla de
-abajo dice dónde quedó cada cosa. Lo nuevo de esta tanda: **toda la app en una hoja** (capítulo {{cap:06}}), **Lani en 3D**
+abajo dice dónde quedó cada cosa. Lo nuevo de esta tanda: **toda la app en una hoja** (capítulo {{cap:06}}), **Lany en 3D**
 (capítulo {{cap:16}}), **Senda Fiesta** con identidad propia (capítulo {{cap:10}}) y **el desarrollo hasta hoy** (capítulo {{cap:33}}).
 </div>
 
@@ -32,7 +32,7 @@ sobre la RVR1960 está en el capítulo {{cap:07}}; y el desarrollo ya empezó (s
 2. El capítulo {{cap:34}}: lo que cuesta entender y las rutas nuevas (lo nuevo de la 3.1).
 3. La tabla «Lo que cambió desde la v2.1», más abajo.
 4. El capítulo {{cap:33}}: cuánto falta para el lanzamiento y qué sigue.
-5. Los juegos que enseñan (capítulo {{cap:10}}, §14 y §15) y Lani en 3D (capítulo {{cap:16}}, §3b).
+5. Los juegos que enseñan (capítulo {{cap:10}}, §14 y §15) y Lany en 3D (capítulo {{cap:16}}, §3b).
 </div>
 
 ## Lo que cambió desde la v2.1 (del 5 al 11 de octubre de 2026)
@@ -45,20 +45,20 @@ capítulo {{cap:31}}; el avance real, en el capítulo {{cap:33}}.
 | La Biblia | Que se sienta de papel; que no se corte ni se trabe; que marcar sea instantáneo | Lector como Biblia impresa (renglones parejos, capitular, dos columnas, papel biblia, hoja que se dobla con el dedo en el hilo nativo), planes de corrido y marcas al instante (desde la prueba 9, directo a leer, sin nada antes) | {{cap:07}} |
 | Versiones y licencias | Más versiones y la RVR1960 más barata | 4 versiones libres, enlace a la RVR1960 y pedidos enviados a la American Bible Society y a Tyndale; Biblica y Lockman, después del lanzamiento | {{cap:07}}, {{cap:32}} |
 | Sonido | Sonidos de calidad, que no se repitan en bucle, una identidad propia | Firma sonora con instrumentos grabados (VCSL, CC0), motor de audio sin demoras, ruleta audible con clics de matraca, la fiesta y la gran fiesta | {{cap:19}} |
-| Animación y Lani | Más vida; después, que el baile no sea infantil y que Lani pueda ser 3D | Animaciones del capítulo 19 en toda la app; Lani en 3D hecha con código y baile nuevo de recital | {{cap:16}}, {{cap:19}} |
+| Animación y Lany | Más vida; después, que el baile no sea infantil y que Lany pueda ser 3D | Animaciones del capítulo 19 en toda la app; Lany en 3D hecha con código y baile nuevo de recital | {{cap:16}}, {{cap:19}} |
 | La Travesía | Un mapa completo y ordenado; ver que se aprende; ayudas para pasar | 10 áreas y 67 rutas (MECE; 10 abiertas en la prueba 10), motor de lecciones con 8 tipos, Los viajes de Pablo con mapa real, Lámparas, lectura recomendada y repaso espaciado | {{cap:08}} |
-| El Espadeo | Dificultad que no aburra ni frustre; fiesta al ganar; duelos | Dificultad que alterna, 157 preguntas verificadas, la fiesta con Lani, y el duelo contra Lani (los duelos con amigos, en el sprint 3) | {{cap:09}} |
+| El Espadeo | Dificultad que no aburra ni frustre; fiesta al ganar; duelos | Dificultad que alterna, 157 preguntas verificadas, la fiesta con Lany, y el duelo contra Lany (los duelos con amigos, en el sprint 3) | {{cap:09}} |
 | El calendario | Eventos propios con aviso y una vista tipo agenda; grupos con roles más adelante | Mi calendario con mes, semana y día, avisos reales y plantillas; grupos con roles en febrero de 2027 | {{cap:13}} |
 | Juegos nuevos | Tipo Kahoot, juegos de mesa y consola bíblicos, tipo Mario Party, campamentos; después, que todo enseñe y sacar «Alimenta a Elías» | La puerta «¿enseña y edifica?» antes de las ocho preguntas, Maná y Emaús primero, una biblioteca de minijuegos que sirve cuatro veces, Senda Fiesta solo si edifica y cuatro juegos propios (Hasta lo último, Emaús, El Tabernáculo, El calendario de Dios) | {{cap:10}}, {{cap:12}} |
 | Aprender de verdad | Investigar lo que cuesta entender, memorizar o se da por sentado; que las iglesias suban su material | Investigación y bench, área «El plan de Dios», 21 lecciones con «¿Sabías que…?» y «Para tu vida», 30 preguntas del Espadeo y el evolutivo de las iglesias | {{cap:34}} |
 | Costos y escala | Costo mínimo de servidores; crecer sin rehacer la app | Lo hace el teléfono, nada en vivo si alcanza con turnos, lógica en la base, muestras en las métricas, cada proveedor detrás de un módulo | {{cap:25}} |
 | La palabra original | Transliteración y la palabra en hebreo o griego con el «+» | Diseñado con STEPBible (CC BY 4.0), por libro y solo si se usa (v1.1) | {{cap:07}} |
-| Gobierno del proyecto | Un lugar para ver todo y marcar lo hecho | La Consola de Senda: proyecto, mapa, Lani 3D, contenido, propuestas, sonidos, licencias y métricas | {{cap:32}} |
+| Gobierno del proyecto | Un lugar para ver todo y marcar lo hecho | La Consola de Senda: proyecto, mapa, Lany 3D, contenido, propuestas, sonidos, licencias y métricas | {{cap:32}} |
 | Ver la app entera | Un diagrama MECE de todo | La hoja grande con todas las funciones en tres niveles | {{cap:06}} |
 
 ## Las tres ideas que cambian en esta versión
 
-1. **Nada infantil, nada aburrido, nivel profesional.** La experiencia (colores, movimiento, sonido, Lani, recompensas) pasa a ser
+1. **Nada infantil, nada aburrido, nivel profesional.** La experiencia (colores, movimiento, sonido, Lany, recompensas) pasa a ser
    el criterio que manda sobre todo lo demás, con una vara medible: una pantalla no sale si al lado de Duolingo, Preguntados o Candy
    Crush se ve más pobre (capítulo {{cap:19}}).
 2. **Comunidad como sistema.** Calendario, Liga por persona con Apertura y Clausura, la semana Senda (Viernes de Espadeo y más),
@@ -77,7 +77,7 @@ capítulo {{cap:31}}; el avance real, en el capítulo {{cap:33}}.
 | 4 | Reina-Valera por defecto; NTV, NVI, TLA y DHH como alternativas; cómo se licencian | Reina-Valera por defecto (RV1909 libre desde el día 1 y RVR1960 en cuanto esté la licencia); las cuatro clásicas con licencia; **tres caminos de licencia** explicados paso a paso, con costos | {{cap:07}} |
 | 5 | Sacar el botón que manda a otra app | Eliminado (también el enlace a videos externos) | {{cap:07}} |
 | 6 | «Camino» aburrido; que atrape; investigar Duolingo; que sea enorme, casi infinito; Fundamentos y después más niveles y rutas; todo antes de 2028, idealmente junio de 2027 | **Travesía**: varias **Rutas** que se eligen como idiomas (Fundamentos, Héroes, Mapas, Preparados, Profecías y más), niveles Fundamentos → Profundo → Maestría, Repaso del día infinito. Fundamentos completa el 30-06-2027 | {{cap:08}} |
-| 7 | Lani muy bien, pero con reacciones y movimientos tipo búho de Duolingo; cuidado con lo infantil y lo muy femenino | **Lani v2**: proporciones menos «bebé», actitud, humor, 30 reacciones, neutra para que todos se identifiquen, personalizable (Tu Lani) y una prueba con jóvenes antes de aprobarla | {{cap:16}} |
+| 7 | Lany muy bien, pero con reacciones y movimientos tipo búho de Duolingo; cuidado con lo infantil y lo muy femenino | **Lany v2**: proporciones menos «bebé», actitud, humor, 30 reacciones, neutra para que todos se identifiquen, personalizable (Tu Lany) y una prueba con jóvenes antes de aprobarla | {{cap:16}} |
 | 8 | No a una app infantil o aburrida | Principio número 1 del producto; lista de control «anti-infantil»; riesgo número 1 del proyecto | {{cap:02}}, {{cap:19}}, {{cap:28}} |
 | 9 | UX/UI: prioridad absoluta; las pantallas de la v1 eran un modelo pobre; mirar Candy Crush; colores, explosiones, gestos, sonidos, todo integrado | El capítulo de experiencia se reescribe con una **definición medible de «profesional»**, catálogo de efectos («jugosidad»), coreografía de cada momento y pantallas nuevas | {{cap:19}} |
 | 10 | Colores: me gustan, pero que no parezcan banco, app de administración, jueguito ni cambalache; investigar y elegir | Evaluación con benchmark y psicología del color: se mantiene el ámbar, el azul marino pasa a **índigo** (deja de parecer banco) y se prueban 3 paletas con jóvenes antes de decidir | {{cap:19}} |
@@ -90,9 +90,9 @@ capítulo {{cap:31}}; el avance real, en el capítulo {{cap:33}}.
 | 17 | Viernes de Espadeo: muy bueno; sumar más cosas así | **La semana Senda**: una cita fija para cada día, más torneos del mes y temporadas | {{cap:11}} |
 | 18 | Sacar el Prode del Mundial 2030 | Eliminado de todo el proyecto | — |
 | 19 | Senda Reunión: no una IA que arme la reunión, sino recursos para que el líder la arme | Rehecha como **caja de herramientas del líder**: él arma el esquema (bosquejo, quiz tipo Kahoot, juegos, campeonato, liga, algo del día), juega en vivo y después ve registros, puntajes y un reporte mensual. Sin IA que prepare nada | {{cap:12}} |
-| 20 | Berea: una sección con un personaje, no un asistente de IA | **Berea** es la sección de planes, desafíos, memoria y biblioteca, guiada por Lani en modo explorador. No hay IA para preguntarle cosas | {{cap:15}} |
+| 20 | Berea: una sección con un personaje, no un asistente de IA | **Berea** es la sección de planes, desafíos, memoria y biblioteca, guiada por Lany en modo explorador. No hay IA para preguntarle cosas | {{cap:15}} |
 | 21 | Todo lo que difunda: compartir estados, triunfos, logros | Capítulo nuevo de **crecimiento dentro de la app**: tarjetas para historias y estados, invitaciones que premian, enlaces de desafío | {{cap:22}} |
-| 22 | Que todo sume puntos; canjes que enganchen (avatares, una moto, un auto para Lani) | **Todo suma Pasos y Talentos**; tienda de **Tu Lani** con atuendos, vehículos (bici, moto, auto y legendarios como el carro de fuego) y el escudo de tu club | {{cap:17}}, {{cap:18}} |
+| 22 | Que todo sume puntos; canjes que enganchen (avatares, una moto, un auto para Lany) | **Todo suma Pasos y Talentos**; tienda de **Tu Lany** con atuendos, vehículos (bici, moto, auto y legendarios como el carro de fuego) y el escudo de tu club | {{cap:17}}, {{cap:18}} |
 | 23 | Revisar la economía de la página 49 para sacar rentabilidad sin romper la experiencia | Economía rediseñada: tres monedas, vidas, comodines, Pase Senda y un mapa de dónde aparece un video o el plan, y dónde nunca | {{cap:17}} |
 | 24 | Las insignias, muy bien | Se profundizan: rarezas, colecciones, secretas, de temporada y de grupo | {{cap:17}} |
 | 25 | Los planes no deben quedar totalmente libres de videos; más alternativas de membresía, bien pensadas y equilibradas | Benchmark y teoría de membresías; **Gratis, Plus, Max, Familia, Pase Senda, Líder e Iglesia**; los planes dan más, no todo | {{cap:24}} |

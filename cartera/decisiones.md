@@ -547,3 +547,37 @@
   - elegir los revisores doctrinales.
 - **Evidencia:** `oportunidades/proyectos/senda/capitulos/36-linea-clara.md`, `conocimiento/2026-10-12-senda-rvr1960-todas-las-vias.md`
   y las fuentes citadas en cada lección (repositorio de la app, `scripts/autor/martires.py` e `historia_iglesia.py`).
+
+## DEC-2026-10-13-1 · Senda: duodécima tanda (prueba 12), Lany guía, el «+» a mano, los 66 libros y proyecto v3.4
+
+- **Contexto:** el fundador escribió el 13-10-2026 (resumen, sin citas textuales):
+  - la app le parece muy buena;
+  - quiere el «+» de estudio a la vista en el versículo al leer, sin tener que tocar antes el versículo, con cuidado de la UX;
+  - en la Travesía esperaba más animaciones de la mascota, parecidas a Duolingo, que se vean hechas por expertos;
+  - el nombre se escribe **Lany**, no «Lani»;
+  - avanzar con lo próximo del plan, a fondo.
+- **Decidido:**
+  - **El nombre es Lany** desde el 13-10-2026 (se pronuncia igual). Se cambió en la app, la Consola y los documentos vivos del proyecto;
+    las decisiones y bitácoras anteriores quedan como se escribieron.
+  - **El «+» vive en el margen derecho de cada versículo** en la lectura continua, chico y tenue; se marca más donde hay notas; se apaga
+    en Ajustes. En la Biblia de papel sigue en la barra del versículo, porque sus márgenes son para pasar la hoja.
+  - **Lany es la guía de la lección y del camino,** con el patrón de las apps que enseñan con un personaje (dirección, no copia):
+    presenta cada pregunta con globo y voz, señala, piensa, festeja, baila en racha y da ánimo tras un error; en el camino corre,
+    festeja al llegar y comenta. Una sola Lany por pantalla.
+  - **Los 66 libros** se adelanta del sprint 2. Quién escribió cada libro: lo que dice el mismo libro, con su cita; si no lo dice, la
+    tradición marcada como tal y con su fuente; si no se sabe, se dice.
+- **Hecho por Claude (APK prueba 12):**
+  - el «+» en el margen;
+  - Lany guía: 22 animaciones en Rive (nuevas: señalar, ánimo, hablar y callada) y la boca que habla;
+  - la travesía «Los 66 libros»: 9 lecciones y 62 preguntas, con lo que no está en la Biblia como nota con su fuente;
+  - «Sobre este libro» en el «+» (66 fichas) y la lista de libros por grupos;
+  - 13 rutas abiertas, 137 lecciones y 844 preguntas;
+  - proyecto v3.4: capítulo 37, capítulo 16 §3d, estado, mapa e inventario (sección de los 66 libros).
+- **Pendiente del fundador:**
+  - probar la prueba 12;
+  - enviar el pedido de la RVR1960 a la Sociedad Bíblica Argentina, si todavía no lo hizo;
+  - elegir los revisores doctrinales.
+- **Evidencia:**
+  - `oportunidades/proyectos/senda/capitulos/37-lany-guia.md`;
+  - repositorio de la app: `scripts/autor/libros.py`, `contenido/libros.json`, `src/componentes/lanyGuia.tsx`, `scripts/rive/lani.py`.
+

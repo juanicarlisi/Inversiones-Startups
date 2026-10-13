@@ -38,7 +38,7 @@ Reunión) o para armar **ligas privadas internas**, que son un juego entre amigo
 | **Playoffs** | Los 4 mejores de cada zona juegan semifinales y final (una semana cada ronda; la final, en vivo un sábado). Los campeones de zona de Primera juegan después una fase final nacional |
 | **Ascensos y descensos** | Al final de cada torneo, los 3 primeros de la tabla de cada zona ascienden y los 3 últimos descienden |
 | **Clubes nuevos** | Entran en Inicial en cualquier momento (zonas que se abren cada lunes) |
-| **Inactivos** | Dos fechas sin jugar: el club pasa a «en pausa» y su lugar lo ocupa Lani (bot) hasta que vuelva |
+| **Inactivos** | Dos fechas sin jugar: el club pasa a «en pausa» y su lugar lo ocupa Lany (bot) hasta que vuelva |
 | **Justicia** | Comodines limitados a 3 por partido para todos; preguntas iguales; antitrampas por tiempo y patrón de respuestas |
 
 **Por qué un duelo y no los puntos de la semana:** un duelo directo se entiende como un partido, se puede programar en el calendario
@@ -58,7 +58,7 @@ importa también sume.
 **Alternativas de nombre** para la internacional: Copa de las Naciones · Gran Copa · Copa Global. «Libertadores», «Champions» o «Copa
 América» no se usan: tienen dueño.
 
-**Premios:** trofeos e insignias, estrellas en el escudo, objetos exclusivos de Tu Lani y del escudo, un lugar en el salón de la fama;
+**Premios:** trofeos e insignias, estrellas en el escudo, objetos exclusivos de Tu Lany y del escudo, un lugar en el salón de la fama;
 en las finales, sorteos de merch entre los participantes (sin compra). **Sin premios en dinero.**
 
 ## 5. Ligas privadas
@@ -74,7 +74,7 @@ automático, tabla, fechas semanales. Es lo más cercano al prode entre amigos, 
 | **Martes** | Versículo de la semana | Desafío de memoria (De memoria) con ranking de amigos |
 | **Miércoles** | De a dos | Escuadra 2v2 con un amigo: Pasos dobles para las duplas |
 | **Jueves** | Pulso | La encuesta de la semana y los resultados de la anterior |
-| **Viernes** | **Viernes de Espadeo** | 21 h (hora de cada país): 15 preguntas en vivo, todos a la vez, con Lani de conductora; ranking nacional, premios cosméticos |
+| **Viernes** | **Viernes de Espadeo** | 21 h (hora de cada país): 15 preguntas en vivo, todos a la vez, con Lany de conductora; ranking nacional, premios cosméticos |
 | **Sábado** | Día de reunión | Las reuniones de jóvenes con Senda Reunión; el primer sábado del mes, **torneo relámpago** a las 18 h |
 | **Domingo** | Desafío del domingo | El juego que arma tu pastor con su mensaje; y es el día libre más elegido para la racha |
 
@@ -85,7 +85,7 @@ diciembre. Todo aparece en el calendario (capítulo {{cap:13}}) y avisa una sola
 
 ## 7. El Viernes de Espadeo, en detalle
 
-- **Formato:** 15 preguntas, 10 segundos cada una, las mismas para todos; Lani conduce (voz y animaciones); entre preguntas, el
+- **Formato:** 15 preguntas, 10 segundos cada una, las mismas para todos; Lany conduce (voz y animaciones); entre preguntas, el
   porcentaje de la comunidad que acertó.
 - **En 2 etapas:** desde el 08-01-2027 se juega como **ventana** (las 15 preguntas disponibles de 21 a 23 h; ranking a las 23 h); desde
   junio de 2027, **en vivo y en tiempo real** (todos a la misma hora, como HQ Trivia).

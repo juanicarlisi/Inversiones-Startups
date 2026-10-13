@@ -1,8 +1,8 @@
-# Una línea clara, Lani en Rive y la Biblia para estudiar: la prueba 11
+# Una línea clara, Lany en Rive y la Biblia para estudiar: la prueba 11
 
 <div class="enpocas" markdown="1">
 **En pocas palabras.** La prueba 11 (12-10-2026) responde al pedido largo del fundador del mismo día.
-- **Lani en Rive:** el personaje anima de verdad, con 18 animaciones y una máquina de estados, hecho con código.
+- **Lany en Rive:** el personaje anima de verdad, con 18 animaciones y una máquina de estados, hecho con código.
 - **Música de apertura nueva:** alegre, moderna y sobria.
 - **Travesías con una línea clarísima:** cada lección cuenta qué pasó antes, qué pasa y qué sigue.
 - **El gran relato, completo:** 9 capítulos y 47 lecciones.
@@ -19,12 +19,12 @@
 
 Resumen de lo pedido (sin citas textuales) y cómo se resolvió.
 
-**Lani, música, contenido y Travesía**
+**Lany, música, contenido y Travesía**
 
 | Pedido | Qué se hizo | Estado | Dónde |
 |---|---|---|---|
 | Música de inicio moderna, divertida, tecnológica, alegre y sobria | Firma nueva: sube en semicorcheas con vibráfono y campana, aterriza con un golpe grave y remata arriba, en re mayor con novena, a 132 por minuto. Las variantes «Calma» y «Chispa», y la anterior, quedan en la Consola para comparar | Hecho | {{cap:20}} |
-| La mascota hecha en Rive, con una experiencia excelente; cambiarla si conviene | Lani pasa a Rive: articulada, con 18 animaciones y máquina de estados. Se mantiene Lani (no hacía falta cambiarla) | Hecho | §2 y {{cap:16}} §3c |
+| La mascota hecha en Rive, con una experiencia excelente; cambiarla si conviene | Lany pasa a Rive: articulada, con 18 animaciones y máquina de estados. Se mantiene Lany (no hacía falta cambiarla) | Hecho | §2 y {{cap:16}} §3c |
 | Revisar todo el contenido pendiente contra las fuentes y publicar lo confiable | Revisión pregunta por pregunta; se publicó todo lo confiable y se retiraron 8 preguntas del Espadeo | Hecho | §4 |
 | Cada travesía con una línea muy clara y progresiva; Pablo en orden; Israel que nace, es esclavo y es liberado | «La historia» en cada lección, resumen en cada capítulo, el gran relato completo y Pablo en tres capítulos | Hecho | §3 |
 | Que las vidas no se terminen rápido; videos sin límite para recuperarlas | 5 vidas, una nueva cada 30 minutos, un video da una vida cuando quieras y leer un capítulo devuelve una (hasta 3 por día) | Hecho | §5 y {{cap:17}} |
@@ -40,28 +40,28 @@ Resumen de lo pedido (sin citas textuales) y cómo se resolvió.
 | Marcadores y paso de hoja rápidos | Se mantienen las mejoras de las pruebas 6 a 9; la lectura continua no mide nada antes de mostrar | Hecho | {{cap:07}} |
 | Tener hoy la RVR1960 en la app sin la licencia (pedido durante la sesión) | 13 vías revisadas en la fuente: hoy se lee dentro de Senda vía Bible.com y se pueden citar hasta 500 versículos; pedido a la Sociedad Bíblica Argentina listo | Hecho (falta enviar) | §7 |
 
-## 2. Lani en Rive
+## 2. Lany en Rive
 
 **Por qué Rive.** Rive dibuja personajes vectoriales con huesos, mezcla animaciones sin cortes y tiene una máquina de estados: la app
-no mueve piezas, le dice a Lani qué está pasando («acertaste», «perdiste una vida», «hay fiesta») y Lani reacciona sola. Pesa poco
-(el archivo de Lani ocupa 41 KB) y el mismo archivo anda en Android, iPhone y la web.
+no mueve piezas, le dice a Lany qué está pasando («acertaste», «perdiste una vida», «hay fiesta») y Lany reacciona sola. Pesa poco
+(el archivo de Lany ocupa 41 KB) y el mismo archivo anda en Android, iPhone y la web.
 
 **Cómo se hizo.** El sitio de Rive está bloqueado en la red del entorno de Claude, así que no se pudo usar su editor. Claude escribió un
 generador de archivos `.riv` que usa los mismos tipos y claves que el motor oficial (tomados de las cabeceras del código abierto de
-Rive), y con él armó a Lani:
+Rive), y con él armó a Lany:
 
 - **Articulaciones:** cuerpo que se aplasta y se estira desde el piso, cadera y cintura, hombros y codos, cuello, orejas, cejas, ojos
   (forma, parpadeo y mirada por separado), bocas y mechón.
 - **18 animaciones** con anticipación, impulso, frenada y movimiento secundario: reposo con miradas, saludo, festejo, acierto, error,
-  tocar, pensando, triste, dormida, baile al pulso de la fiesta, guardia, corriendo, desmayo, armadura y Tu Lani (buzo y gorra).
-- **Máquina de estados con data binding:** un modelo de datos «Lani» (estado, armadura, Tu Lani y los disparadores). El parpadeo es
-  una capa aparte que sigue mientras Lani hace cualquier otra cosa.
+  tocar, pensando, triste, dormida, baile al pulso de la fiesta, guardia, corriendo, desmayo, armadura y Tu Lany (buzo y gorra).
+- **Máquina de estados con data binding:** un modelo de datos «Lany» (estado, armadura, Tu Lany y los disparadores). El parpadeo es
+  una capa aparte que sigue mientras Lany hace cualquier otra cosa.
 
 **En la app.** Motor nativo de Rive en el teléfono y su versión web (wasm) en la vista previa. El archivo se carga una sola vez y todas
-las Lani lo comparten. Para tamaños chicos, con «reducir movimiento» o si Rive fallara, se muestran poses quietas salidas del mismo
-archivo. Lani 3D (prueba 8) queda como opción en Ajustes para las fiestas.
+las Lany lo comparten. Para tamaños chicos, con «reducir movimiento» o si Rive fallara, se muestran poses quietas salidas del mismo
+archivo. Lany 3D (prueba 8) queda como opción en Ajustes para las fiestas.
 
-**La decisión.** Se mantiene Lani: el personaje ya está definido ({{cap:16}}) y ahora se mueve como uno profesional. En noviembre se
+**La decisión.** Se mantiene Lany: el personaje ya está definido ({{cap:16}}) y ahora se mueve como uno profesional. En noviembre se
 decide si un animador de Rive la pule (la línea de USD 1.200 del presupuesto) o si queda la hecha con código.
 
 ## 3. Una línea clarísima en la Travesía
@@ -137,6 +137,6 @@ Se descartaron las copias que circulan en internet y la importación de archivos
 
 ## 8. Qué sigue
 
-- **El fundador:** probar la prueba 11 (Lani, la música, las travesías nuevas, el «+» y las vidas) y enviar el pedido a la Sociedad
+- **El fundador:** probar la prueba 11 (Lany, la música, las travesías nuevas, el «+» y las vidas) y enviar el pedido a la Sociedad
   Bíblica Argentina.
 - **Claude, sprint 2 (26-10 a 8-11):** Los 66 libros y Personajes; más paquetes del «+»; cuentas opcionales y la Consola v1.

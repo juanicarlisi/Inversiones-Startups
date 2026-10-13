@@ -72,6 +72,15 @@
 | Lani y música | Lani en Rive con experiencia excelente; música de inicio alegre, moderna y sobria | Lani en Rive hecha con código; firma de apertura nueva |
 | No quedarse en «no se puede» | Explorar hasta la última vía (pedido sobre la RVR1960) | Se revisaron 13 vías; se hizo lo legal posible hoy y se preparó el pedido a la SBA |
 
+### Pautas del 13-10-2026 (Senda, prueba 12)
+
+| Pauta | Valor | Implicancia |
+|---|---|---|
+| El nombre | La mascota se escribe **Lany** | Se cambió en la app y el proyecto; la historia queda como se escribió |
+| El «+» | A la vista en el versículo al leer, sin tocarlo antes; cuidar la UX | «+» en el margen de cada versículo (capítulo 37 §2) |
+| Lany | Más animaciones en la Travesía, como Duolingo, que parezcan de expertos | Lany guía en la lección y en el camino (capítulo 37 §3) |
+| Ritmo | Avanzar con lo planificado, a fondo | Se adelantó «Los 66 libros» del sprint 2 |
+
 ## Lo que falta (y por qué importa)
 
 | # | Pregunta | Por qué importa | Qué cambia según la respuesta |

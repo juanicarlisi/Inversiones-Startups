@@ -78,7 +78,7 @@ con lo local** (idioma, cultura, iglesia).
 | **Psalmo, Prayin** (versículo antes de abrir Instagram o TikTok) | *Primero la Palabra*, dentro de Senda y con el grupo (capítulo {{cap:14}}) |
 | **Bible Chat, Pulpit AI** | Nada de su IA: Senda no tiene un asistente para preguntarle ni arma el contenido del pastor |
 | **Headspace** | La calma visual para la zona de lectura |
-| **Finch** (mascota que crece con tus hábitos; la adoptan adultos jóvenes) | Que la mascota sea **tuya** y se personalice: *Tu Lani* |
+| **Finch** (mascota que crece con tus hábitos; la adoptan adultos jóvenes) | Que la mascota sea **tuya** y se personalice: *Tu Lany* |
 | **Spotify Wrapped** | *Tu año en Senda*: resumen compartible en diciembre |
 | **Locket** | El versículo en el widget, a la vista todo el día |
 
@@ -110,7 +110,7 @@ con lo local** (idioma, cultura, iglesia).
 5. **El calendario que la iglesia no tenía:** actividades semanales, turnos, asistencia e invitaciones lindas, conectado con los
    juegos y los eventos.
 6. **La primera Biblia con notas y comentarios libres en español**, con la Reina-Valera por defecto, sin publicidad.
-7. **Gamificación que edifica y te devuelve tiempo:** todo suma, Tu Lani, insignias, y herramientas reales contra el scroll.
+7. **Gamificación que edifica y te devuelve tiempo:** todo suma, Tu Lany, insignias, y herramientas reales contra el scroll.
 
 ## 10. Lo que no copiamos
 

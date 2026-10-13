@@ -1,4 +1,4 @@
-"""Visuales del proyecto Senda v2: paleta, íconos propios, Lani v2, armadura, vehículos y escenas (SVG).
+"""Visuales del proyecto Senda v2: paleta, íconos propios, Lany v2, armadura, vehículos y escenas (SVG).
 
 Lo usa informes/construir_senda.py. Todo es SVG en línea, sin emojis del sistema, para que las pantallas de ejemplo se vean al
 nivel buscado (capítulo 19). Son bocetos de dirección: el diseño final lo hacen especialistas.
@@ -169,7 +169,7 @@ def emblema(ganadas: list[str], tam: float = 60, rival: bool = False) -> str:
 </svg>"""
 
 
-# ─────────────────────────────── Lani v2 ───────────────────────────────
+# ─────────────────────────────── Lany v2 ───────────────────────────────
 _POSES = {
     #          mano izq        mano der        cuerpo°  piernas      expresión
     "reposo": ((63, 170), (137, 170), 0, "quieto", "canchera"),
@@ -189,7 +189,7 @@ _POSES = {
 def lani(pose: str = "reposo", tam: float = 160, buzo: str | None = None, gorra: str | None = None, lentes: bool = False,
          auriculares: bool = False, armadura: bool = False, panuelo: str = AMBAR, sombra: bool = True, mirada=(0.0, 0.0),
          clase: str = "") -> str:
-    """Lani v2: oveja joven de pie, cara carbón, cejas de lana, pañuelo y zapatillas. Neutra; nada de rasgos de bebé."""
+    """Lany v2: oveja joven de pie, cara carbón, cejas de lana, pañuelo y zapatillas. Neutra; nada de rasgos de bebé."""
     u = _uid("ln")
     (lx, ly), (rx, ry), giro, piernas, expr = _POSES[pose]
     armadura = armadura or pose == "armadura"
@@ -344,7 +344,7 @@ def lani(pose: str = "reposo", tam: float = 160, buzo: str | None = None, gorra:
     trans = f"translate(0 {dy}) rotate({giro} 100 200)" if pose != "desmayo" else "translate(-6 46) rotate(72 100 150) scale(.86)"
     cuerpo_todo = (f'<g transform="{trans}">{patas}{cuerpo}{ropa}{arm}{brazos}{cuello}'
                    f'<g>{cabeza}{acc}</g>{manos}</g>')
-    return (f'<svg class="ln2 {clase}" viewBox="0 0 200 240" width="{tam}" height="{tam * 1.2:.0f}" role="img" aria-label="Lani">{defs}'
+    return (f'<svg class="ln2 {clase}" viewBox="0 0 200 240" width="{tam}" height="{tam * 1.2:.0f}" role="img" aria-label="Lany">{defs}'
             f'{sombra_svg}{cuerpo_todo}{extra}</svg>')
 
 
@@ -354,7 +354,7 @@ def _escudo_simple() -> str:
             f'<circle cx="30" cy="30" r="9" fill="{c}" stroke="{AMBAR}" stroke-width="2"/>')
 
 
-# ─────────────────────────────── vehículos de Tu Lani ───────────────────────────────
+# ─────────────────────────────── vehículos de Tu Lany ───────────────────────────────
 def vehiculo(tipo: str, tam: float = 90) -> str:
     u = _uid("vh")
     if tipo == "moto":

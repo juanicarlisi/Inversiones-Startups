@@ -29,7 +29,7 @@ evolutivo para que **cada iglesia suba su material** y arme su propia Travesía.
 | **Los juegos** | La puerta de dos preguntas: ¿enseña algo comprobable mientras se juega? ¿edifica? | Capítulo {{cap:10}}, §14 |
 
 - **Lo que salió en esta tanda por el mismo principio:** «Alimenta a Elías» (Los cuervos de Querit), la invitación a orar antes de leer y
-  la frase al abrir la Biblia (la Biblia abre directo, cuando la persona quiere), Gedeón y Zaqueo del Arcade. Lani corre y el Giro diario
+  la frase al abrir la Biblia (la Biblia abre directo, cuando la persona quiere), Gedeón y Zaqueo del Arcade. Lany corre y el Giro diario
   se reconvirtieron para que enseñen (capítulo {{cap:10}}).
 
 ## 2. Qué encontramos: lo que más se confunde, lo que más cuesta y lo que se da por sentado

@@ -2,7 +2,7 @@
 
 <div class="enpocas" markdown="1">
 **En pocas palabras.** El módulo de aprendizaje deja de llamarse «Camino» y pasa a ser la **Travesía**: un mapa de niveles cortos
-(3 a 5 minutos) que se recorre con Lani. Como en Duolingo se eligen idiomas, en Senda se eligen **Rutas**: **Fundamentos** recorre
+(3 a 5 minutos) que se recorre con Lany. Como en Duolingo se eligen idiomas, en Senda se eligen **Rutas**: **Fundamentos** recorre
 toda la Biblia de Génesis a Apocalipsis (la ruta principal de la v1, ahora completa en **junio de 2027**), y después hay muchas más:
 Héroes, Mapas, 66 Libros, Preparados, Profecías, Jesús, Sabiduría… Cada ruta tiene niveles de profundidad (Fundamentos → Profundo →
 Maestría) y, al terminar, un **Repaso del día** que se renueva siempre. No se termina nunca.
@@ -32,13 +32,13 @@ nombres de octubre (capítulo {{cap:30}}).
 | **Se eligen varios cursos** (idiomas) y se cambia de uno a otro con un toque | Cada persona arma su propio aprendizaje | **Rutas** que se suman y se alternan |
 | Camino de **secciones → unidades → lecciones**, con cofres y personajes en el recorrido | Ver el avance y querer el próximo nodo | Igual, con escenarios ilustrados por sección |
 | **Prueba de nivel** y «saltar acá» | Que el que sabe no se aburra | Prueba al empezar y en cada sección |
-| **Legendario** (repetir una unidad sin errores para dorarla) | Volver a lo hecho con un desafío mayor | **Legendario** con su insignia y un atuendo de Lani |
+| **Legendario** (repetir una unidad sin errores para dorarla) | Volver a lo hecho con un desafío mayor | **Legendario** con su insignia y un atuendo de Lany |
 | **Daily Refresh**: al terminar el curso, 6 niveles nuevos por día con lo ya aprendido | Que el curso no se termine nunca | **Repaso del día**, siempre renovado |
 | Cursos que se **amplían** (en abril de 2026 llevaron 9 cursos hasta nivel B2) | Siempre hay más | Niveles **Profundo** y **Maestría**, y Rutas nuevas cada mes |
 | **Historias** con personajes y voces | Emoción y contexto | **Historias** de la Biblia narradas e interactivas (v2) |
 | Práctica de errores y repaso personalizado | Que no se olvide | Repaso con el algoritmo FSRS (el de Anki) |
 | Ligas, **racha con amigos** y **misiones en dupla** | Compromiso social | Liga Senda, racha compartida y misiones en dupla |
-| Duo con personalidad (y un humor que no es infantil) | Que la marca se recuerde | Lani v2 (capítulo {{cap:16}}) |
+| Duo con personalidad (y un humor que no es infantil) | Que la marca se recuerde | Lany v2 (capítulo {{cap:16}}) |
 | Energía (2025): cada ejercicio gasta | Ritmo y suscripción | **No**: en Senda se pierde una vida solo por error, y leer o repasar nunca gasta vidas |
 
 ## 3. Cómo está armada
@@ -92,7 +92,7 @@ La sección 9 se adelanta para estar lista en Semana Santa (28-03-2027), antes q
 
 1. **Repaso del día** (como Daily Refresh): al terminar una Ruta aparece un último nodo que cada día trae 6 niveles nuevos armados con
    lo que ya aprendiste, lo que estás por olvidar y lo que fallaste en Espadeo. Mantiene la racha y la memoria.
-2. **Legendario:** cada unidad se puede repetir sin errores y contra reloj para dorarla. Dorar una sección entera da un atuendo de Lani.
+2. **Legendario:** cada unidad se puede repetir sin errores y contra reloj para dorarla. Dorar una sección entera da un atuendo de Lany.
 3. **Nivel Profundo** (desde el segundo semestre de 2027): Fundamentos otra vez, libro por libro y con más detalle (contexto, autor,
    estructura, versículos clave, el «+» integrado).
 4. **Nivel Maestría** (2028): preguntas abiertas, citas de memoria, relacionar pasajes de distintos libros.
@@ -164,8 +164,8 @@ ya está abierta como vidriera de cómo se va a ver toda la Travesía.
 
 **La vidriera: Los viajes de Pablo (prueba 6, 06-10-2026).** Cinco lecciones (Hechos 13–28: primer viaje, concilio de Jerusalén,
 Europa, Éfeso y la despedida, rumbo a Roma), un cofre y un jefe que repasa toda la ruta. **Pablo**, un personaje nuevo dibujado con el
-mismo trazo que Lani (viajero, bastón, rollo, barba y frente despejada como lo pinta la tradición), presenta cada lección y camina al
-lado de tu Lani en el mapa. Cada lección abre con **el mapa real del Mediterráneo** (costas de Natural Earth, dominio público) y el
+mismo trazo que Lany (viajero, bastón, rollo, barba y frente despejada como lo pinta la tradición), presenta cada lección y camina al
+lado de tu Lany en el mapa. Cada lección abre con **el mapa real del Mediterráneo** (costas de Natural Earth, dominio público) y el
 recorrido que se dibuja solo; hay preguntas de **tocar el lugar** (cuatro alfileres A–D sin nombre: se aprende geografía de verdad,
 no se lee el nombre) y de **ordenar** el viaje. Cada respuesta trae una explicación corta con su cita, y la lección termina con
 **Lo que aprendiste**: tres ideas para recordar.
@@ -174,16 +174,16 @@ no se lee el nombre) y de **ordenar** el viaje. Cada respuesta trae una explicac
 
 {{MOCK:travesia}}
 
-1. **Apertura (5 segundos).** Lani entra al nodo, presenta el tema en una frase y muestra el versículo central. Botón «Leer el pasaje»
+1. **Apertura (5 segundos).** Lany entra al nodo, presenta el tema en una frase y muestra el versículo central. Botón «Leer el pasaje»
    (abre la Biblia de Senda en ese lugar, sin salir de la lección).
 2. **Ejercicios (10–15)**, mezclados y de menor a mayor dificultad. Al acertar: la tarjeta estalla en luz del color de la Ruta, sonido
-   ascendente y Lani reacciona. Al fallar: sacudida suave, sonido grave amable, la respuesta correcta **con su cita**, y ese ejercicio
+   ascendente y Lany reacciona. Al fallar: sacudida suave, sonido grave amable, la respuesta correcta **con su cita**, y ese ejercicio
    vuelve al final.
-3. **Racha de aciertos.** Cada acierto seguido sube un tono el sonido (como Candy Crush); con 5 seguidos, «¡Imparable!», Lani baila y
+3. **Racha de aciertos.** Cada acierto seguido sube un tono el sonido (como Candy Crush); con 5 seguidos, «¡Imparable!», Lany baila y
    ganás una vida.
 4. **Palabra para hoy (cierre).** Una pregunta de aplicación sin nota; se puede escribir una respuesta privada o saltear.
 5. **Resultado.** Pasos y Talentos que suben contando, precisión, tiempo, la racha si es el primer momento del día, el avance en el
-   mapa (Tu Lani avanza con su vehículo hasta el próximo nodo) y un botón para compartir.
+   mapa (Tu Lany avanza con su vehículo hasta el próximo nodo) y un botón para compartir.
 6. **Lo que aprendiste (pedido del fundador, 06-10-2026).** Al final de cada lección, tres ideas cortas con su cita para fijar lo
    aprendido (la memoria se afirma al repasar lo esencial al cierre). En el jefe de cada sección, un repaso general. Ya está en la
    prueba 6.
@@ -213,9 +213,9 @@ no se lee el nombre) y de **ordenar** el viaje. Cada respuesta trae una explicac
 
 - **Un mapa que da ganas de recorrer:** cada sección tiene su escenario (el desierto, el mar abierto, el palacio, Galilea), con
   cofres, personajes y el jefe de unidad a la vista.
-- **Tu Lani en el mapa:** avanza entre nodos con el vehículo que elegiste (a pie, en bici, en moto, en el carro de fuego).
+- **Tu Lany en el mapa:** avanza entre nodos con el vehículo que elegiste (a pie, en bici, en moto, en el carro de fuego).
 - **Premios en el recorrido:** cada sección completa da un atuendo temático (el del desierto, el de pescador de Galilea).
-- **Jefe de unidad:** un desafío contrarreloj con música propia; si lo pasás, se dora el nodo y Lani festeja.
+- **Jefe de unidad:** un desafío contrarreloj con música propia; si lo pasás, se dora el nodo y Lany festeja.
 - **Hora dorada:** al completar las 3 misiones del día, 15 minutos de Pasos dobles.
 - **Revancha con tus errores:** lo que fallaste (también en Espadeo) vuelve en el repaso, con una animación de «cuenta saldada».
 - **Racha, racha compartida y misiones en dupla** con amigos.
@@ -250,14 +250,14 @@ está en el capítulo {{cap:17}}.
   - El validador comprueba que lo que se completa o se cita esté palabra por palabra en la RV1909.
 - **Fundamentos, sección 1 completa:** la creación, Adán y Eva, Caín y Abel, Noé y Babel, más el cofre y el jefe. Las 4 nuevas esperan la revisión doctrinal.
 
-## 13. Lani en la Travesía
+## 13. Lany en la Travesía
 
-Lani acompaña con reacciones distintas para cada momento (entrada, acierto, racha, error, último ejercicio, resultado, legendario,
+Lany acompaña con reacciones distintas para cada momento (entrada, acierto, racha, error, último ejercicio, resultado, legendario,
 vuelta después de días). El catálogo completo de reacciones y movimientos está en el capítulo {{cap:16}}.
 
 ## 14. Avisos
 
-A la hora que eligió la persona; **uno por día como máximo**; tono amable y con humor («Tu Lani te guardó el lugar en el desierto.
+A la hora que eligió la persona; **uno por día como máximo**; tono amable y con humor («Tu Lany te guardó el lugar en el desierto.
 ¿Seguimos?»). Si pasan 3 días sin entrar, se espacian; a las 2 semanas, resumen semanal. **Nunca** de noche para menores ni con culpa.
 
 ## 15. Cómo se produce el contenido (y si llegamos a junio de 2027)

@@ -7,7 +7,7 @@ Uso:
 
 Texto: oportunidades/proyectos/senda/capitulos/*.md (un archivo por capítulo; el número del archivo es el del capítulo).
 Datos: oportunidades/proyectos/senda/roadmap.yaml (fases, tareas, hitos), presupuesto.yaml (menú de calidad) y economia.yaml
-(vidas, comodines, monedas, planes y proyección). Visuales: informes/senda_visual.py (íconos, Lani, armadura) y
+(vidas, comodines, monedas, planes y proyección). Visuales: informes/senda_visual.py (íconos, Lany, armadura) y
 informes/senda_pantallas.py (pantallas de ejemplo y bloques gráficos).
 Marcadores en los capítulos: {{cap:NN}} (número de capítulo), {{GRAF:x}}, {{MOCK:x}} y bloques {{NOMBRE}} generados acá.
 """
@@ -38,8 +38,8 @@ FUENTE = RAIZ / "informes" / "fuente-senda"
 GRAF = FUENTE / "graficos"
 TIPO = RAIZ / "informes" / "tipografia"
 TITULO = "Senda · El proyecto completo de la app"
-SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-3.pdf"
-SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-3.html"
+SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-4.pdf"
+SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-4.html"
 SALIDA_HTML = FUENTE / "informe.html"
 
 AMBAR, NOCHE, VERDE, GRANADA, CREMA, TINTA = V.AMBAR, V.NOCHE, V.VERDE, V.ROJO, V.CREMA, "#1B1B1F"
@@ -168,7 +168,7 @@ def bloque_resumen(D) -> str:
     tot = {k: sum(i[k] for i in p) for k in ("basico", "profesional", "premium")}
     pilares = [
         ("biblia", "Leer", "Biblia gratis y sin anuncios: Reina-Valera y más versiones, audio y el «+»", V.INDIGO_M),
-        ("travesia", "Aprender", "La Travesía: Rutas casi infinitas, con vidas, repaso y Tu Lani", V.VERDE),
+        ("travesia", "Aprender", "La Travesía: Rutas casi infinitas, con vidas, repaso y Tu Lany", V.VERDE),
         ("jugar", "Jugar", "Espadeo con la armadura de Dios, Liga Senda, Copas y juegos", V.ROJO),
         ("comunidad", "Juntos", "Calendario, Senda Reunión para el líder y Púlpito para el pastor", V.VIOLETA),
         ("lampara", "Crecer", "Berea: planes, desafíos, memoria, Ayuno de redes y Pulso", V.AMBAR_OSC),
@@ -190,10 +190,10 @@ def bloque_resumen(D) -> str:
         "La <b>Liga Senda por persona</b>: Apertura, Clausura, ascensos y Copas, sin enfrentar iglesias.",
         "El <b>calendario</b> que junta lo de Senda, lo tuyo y lo de tu grupo.",
         "<b>Senda Reunión</b>: el líder arma su reunión con bloques y recibe el registro.",
-        "<b>Tu Lani</b>: tu mascota con atuendos y vehículos; todo lo que hacés suma.",
+        "<b>Tu Lany</b>: tu mascota con atuendos y vehículos; todo lo que hacés suma.",
         "<b>Menos scroll</b>: Primero la Palabra y un inicio que termina.",
     ]
-    etapas = [("dic-26", "MVP «Primera luz»", "Biblia, Travesía, Espadeo nuevo, calendario, Tu Lani"), ("mar-27", "v1 «Juntos»", "Grupos, Senda Reunión, planes y Pase Senda"),
+    etapas = [("dic-26", "MVP «Primera luz»", "Biblia, Travesía, Espadeo nuevo, calendario, Tu Lany"), ("mar-27", "v1 «Juntos»", "Grupos, Senda Reunión, planes y Pase Senda"),
               ("jun-27", "v2 «Liga»", "Liga Apertura, Fundamentos completa, Púlpito"), ("dic-27", "v3 «Copa»", "Copas, Clausura, 6 Rutas nuevas, salas web"),
               ("2028", "Nuevos idiomas", "Portugués, inglés, web, Copa Continental"), ("2030", "El millón", "Ligas en más países y plan institucional")]
     et = "".join(f'<div class="et"><div class="et-f">{f}</div><b>{n}</b><span>{d}</span></div>' for f, n, d in etapas)
@@ -209,11 +209,12 @@ calidad de las mejores apps del mundo. Junta en un solo lugar, en español de or
 30 de abril de 2027 (capítulo {{{{cap:30}}}}).</p></div>
 </div>
 <div class="caja rec"><h4 class="ico-t">{V.icono("check", 13, V.VERDE)} Dónde estamos y qué necesito de vos</h4>
-<p>Once versiones de prueba desde el 05-10-2026: ya funcionan {cm["hecho"]} de las {cm["total"]} funciones de la app (capítulos {{{{cap:06}}}} y
+<p>Doce versiones de prueba desde el 05-10-2026: ya funcionan {cm["hecho"]} de las {cm["total"]} funciones de la app (capítulos {{{{cap:06}}}} y
 {{{{cap:33}}}}). Desde la 9, todo enseña y edifica (capítulo {{{{cap:34}}}}); la 10 suma una misión nueva, tres travesías, la trivia de la
-iglesia y el inventario bíblico (capítulo {{{{cap:35}}}}); la 11, Lani en Rive, una línea clara en cada travesía, el gran relato
-completo, la historia de la Iglesia, el «+» de estudio y todo el contenido publicado (capítulo {{{{cap:36}}}}).
-Ahora: probar la prueba 11, enviar el pedido de la RVR1960 a la Sociedad Bíblica Argentina, 2 revisores doctrinales, 12 testers y
+iglesia y el inventario bíblico (capítulo {{{{cap:35}}}}); la 11, Lany en Rive, una línea clara en cada travesía, el gran relato
+completo, la historia de la Iglesia, el «+» de estudio y todo el contenido publicado (capítulo {{{{cap:36}}}}); la 12, Lany como guía
+de la Travesía, el «+» en cada versículo y los 66 libros (capítulo {{{{cap:37}}}}).
+Ahora: probar la prueba 12, enviar el pedido de la RVR1960 a la Sociedad Bíblica Argentina, 2 revisores doctrinales, 12 testers y
 Google Play antes del 15-11.</p></div>"""
 
 
@@ -224,7 +225,7 @@ def bloque_mapa_app() -> str:
         ("biblia", "Biblia", ["Leer: lector y versiones", "Audio", "«+» notas y comentarios", "Notas y resaltados", "Berea: planes y desafíos",
                               "De memoria", "Ayuno de redes", "Biblioteca"], "#9A6B2F", "Santuario"),
         ("travesia", "Travesía", ["Tus Rutas", "El camino de niveles", "Repaso del día", "Práctica de errores", "Jefes y legendarios",
-                                  "Tu Lani en el mapa"], V.VERDE, "Arena"),
+                                  "Tu Lany en el mapa"], V.VERDE, "Arena"),
         ("jugar", "Jugar", ["Espadeo", "Liga Senda y Copas", "Viernes de Espadeo", "Oveja Perdida · Abecé", "¡Prohibido! · Antes o después",
                             "Dibujalo exprés", "Salas con amigos"], V.ROJO, "Arena"),
         ("comunidad", "Comunidad", ["Amigos", "Tu grupo", "Calendario", "Oremos", "Pulso y Estados", "Senda Reunión (líderes)",
@@ -234,7 +235,7 @@ def bloque_mapa_app() -> str:
     for ico, n, items, c, clima in tabs:
         cols.append(f'<div class="mt" style="--c:{c}"><div class="mt-h">{V.icono(ico, 14, "#fff")}<b>{n}</b></div><div class="mt-c">Clima: {clima}</div>'
                     + "".join(f"<div class=mt-i>{esc(i)}</div>" for i in items) + "</div>")
-    perfil = (f'<div class="mt-perfil ico-t">{V.icono("estrella", 12, V.AMBAR)}<span><b>Perfil</b> (tu avatar, arriba a la derecha): Tu Lani con sus atuendos y '
+    perfil = (f'<div class="mt-perfil ico-t">{V.icono("estrella", 12, V.AMBAR)}<span><b>Perfil</b> (tu avatar, arriba a la derecha): Tu Lany con sus atuendos y '
               'vehículos, el escudo de tu club, insignias, estadísticas, tienda, plan y ajustes</span></div>')
     return f'<div class="mapa-tabs">{"".join(cols)}</div>{perfil}'
 
@@ -267,7 +268,7 @@ def bloque_arquitectura() -> str:
     return """<div class="arq">
 <div class="arq-col">
 <div class="arq-t">En el teléfono (y la web en 2028)</div>
-<div class="arq-b arq-app"><b>App Senda</b> · React Native + Expo (TypeScript)<div class="arq-mini"><span>Rive (Lani)</span><span>Reanimated</span><span>Skia (ruleta, dibujo, luz)</span><span>Lottie</span><span>Sonido + vibración</span><span>SQLite (sin conexión)</span></div></div>
+<div class="arq-b arq-app"><b>App Senda</b> · React Native + Expo (TypeScript)<div class="arq-mini"><span>Rive (Lany)</span><span>Reanimated</span><span>Skia (ruleta, dibujo, luz)</span><span>Lottie</span><span>Sonido + vibración</span><span>SQLite (sin conexión)</span></div></div>
 <div class="arq-b">Tiendas: Google Play y App Store · Expo EAS compila y publica · actualizaciones por aire</div>
 <div class="arq-b"><b>Módulos nativos</b>: Primero la Palabra (Tiempo de Uso de Apple; uso de apps en Android), compartir en historias</div>
 </div>
@@ -310,7 +311,7 @@ def bloque_presupuesto(D) -> str:
 
 TRAMOS = {
     1: ("Arranque y calidad base", "Oct–nov 2026", "Siempre, después de la decisión de seguir del 25-10 (con 3 presupuestos reales por rubro)"),
-    2: ("Lanzamiento y Lani viva", "Dic 2026 – feb 2027", "La prueba cerrada muestra que la gente termina lecciones y vuelve"),
+    2: ("Lanzamiento y Lany viva", "Dic 2026 – feb 2027", "La prueba cerrada muestra que la gente termina lecciones y vuelve"),
     3: ("Arte y contenido", "Feb–mar 2027", "En enero hay 500 o más personas activas por semana"),
     4: ("Crecer", "Mar–dic 2027", "Se cumplió la regla de corte del 30-04-2027 (la publicidad paga, además, espera los datos de retención)"),
 }
@@ -620,8 +621,8 @@ def portada(D) -> str:
              (f"USD {usd(tot)}", "primer año en nivel profesional, por tramos (hay básico y premium)"), ("25 mil", "personas por semana con la Palabra 3 días o más: la meta de 2030")]
     dt_ = "".join(f"<div><b>{a}</b><span>{b}</span></div>" for a, b in datos)
     return f"""<section class="portada-s">
-<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.3 · 12 de octubre de 2026 · uso privado</div>
-<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.3</p>
+<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.4 · 13 de octubre de 2026 · uso privado</div>
+<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.4</p>
 <p class="ps-lema">Una app cristiana para que los jóvenes conozcan la Biblia <b>jugando, leyendo y en comunidad</b>, con nivel profesional:
 nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen; Android e iOS primero y la web después.</p></div>
 <div class="ps-img"><div class="ps-esc">{V.lani("saludo", 148, buzo=V.VIOLETA, gorra=V.AMBAR)}</div>{V.logo_txt(30, V.NOCHE)}</div></div>
@@ -631,8 +632,8 @@ nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen
 <div class="ps-mv"><div><span>Misión</span>Que una generación conozca la Palabra de Dios como ninguna antes, y que por medio de ella se rinda a
 Cristo y lo ame.</div><div><span>Visión</span>Iglesias llenas de personas que abren la Biblia cada día, la entienden, la recuerdan y la viven; y
 Senda como la herramienta en la que confían, porque todo lo que muestra está comprobado en la Escritura.</div></div>
-<div class="ps-pie">Esta versión suma la prueba 11: Lani en Rive, una línea clara en cada travesía, el gran relato completo, la historia de la Iglesia, el «+» de estudio y todo el contenido publicado (capítulo 36), sobre la prueba 10 (capítulo 35) y todo lo que cambió con las pruebas anteriores (capítulos 31, 33 y 34) y el mapa de toda la app (capítulo 6). HECHO lleva fuente y fecha;
-ESTIMACIÓN lleva método. Nada que mueva plata o hable con terceros sale sin la aprobación del fundador. Lani, logo y pantallas son
+<div class="ps-pie">Esta versión suma la prueba 12: Lany como guía de la Travesía, el «+» en cada versículo y los 66 libros (capítulo 37), sobre la prueba 11 (capítulo 36), la prueba 10 (capítulo 35) y todo lo que cambió con las pruebas anteriores (capítulos 31, 33 y 34) y el mapa de toda la app (capítulo 6). HECHO lleva fuente y fecha;
+ESTIMACIÓN lleva método. Nada que mueva plata o hable con terceros sale sin la aprobación del fundador. Lany, logo y pantallas son
 bocetos de dirección: el diseño final lo hacen especialistas.</div>
 </section>"""
 
@@ -817,7 +818,7 @@ def main() -> int:
     env.setdefault("NODE_PATH", "/opt/node22/lib/node_modules")
 
     def imprimir():
-        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.3", "css", "oct-2026"],
+        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.4", "css", "oct-2026"],
                        check=True, env=env)
     imprimir()
     paginas = paginas_capitulos(D, SALIDA_PDF)

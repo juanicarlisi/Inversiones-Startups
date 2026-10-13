@@ -2,7 +2,7 @@
 
 <div class="enpocas" markdown="1">
 **En pocas palabras.** Cinco pestañas: **Inicio, Biblia, Travesía, Jugar y Comunidad**. Arriba siempre se ven tus vidas, tu racha y
-tus Talentos; tu perfil (y Tu Lani) está en tu avatar. Todo se conecta: una lección te lleva al pasaje, una pregunta de Espadeo que
+tus Talentos; tu perfil (y Tu Lany) está en tu avatar. Todo se conecta: una lección te lleva al pasaje, una pregunta de Espadeo que
 fallaste vuelve en tu repaso, lo que hacés suma Pasos para la Liga y el Pase Senda, y el calendario te avisa del partido de la fecha
 y de la reunión del sábado.
 </div>
@@ -13,7 +13,7 @@ El fundador pidió ver de un vistazo cómo encaja cada cosa en una app que «par
 tres niveles que no se pisan y lo cubren todo (MECE):
 
 - **A · Lo que usa la persona:** las cinco pestañas y el perfil. Cada función vive en un solo lugar.
-- **B · Lo que la hace andar:** los sistemas que comparten todas las pestañas (juego y progreso, Lani, sonido y animación, contenido, plataforma y cuidado).
+- **B · Lo que la hace andar:** los sistemas que comparten todas las pestañas (juego y progreso, Lany, sonido y animación, contenido, plataforma y cuidado).
 - **C · Lo que la sostiene:** la Consola, el negocio, las licencias y el lanzamiento.
 
 Cada función lleva un punto de color con su etapa: ya funciona en la app de prueba, sale en el lanzamiento, en la v1 «Juntos» o en
@@ -33,7 +33,7 @@ la v2 y v3, o queda para 2028 o como evolutivo. Abajo, cómo se conecta todo y c
 | **Travesía** | Aprender en orden, sin fin | Tus Rutas (Fundamentos, Héroes, Mapas…), el camino de niveles, el Repaso del día, la práctica de errores |
 | **Jugar** | Jugar solo, con amigos o con el grupo | Espadeo, la Liga Senda y las Copas, el Viernes de Espadeo, los juegos y las salas |
 | **Comunidad** | Estar con los tuyos | Amigos, tu grupo, el **calendario**, Oremos, Pulso, Estados; y para líderes y pastores, Senda Reunión y Senda Púlpito |
-| **Perfil** (avatar) | Quién sos y cómo vas | Tu Lani (atuendos y vehículos), el escudo de tu club, insignias, estadísticas, tienda, plan y ajustes |
+| **Perfil** (avatar) | Quién sos y cómo vas | Tu Lany (atuendos y vehículos), el escudo de tu club, insignias, estadísticas, tienda, plan y ajustes |
 
 Por qué abajo y no un menú desplegable arriba: lo explica el benchmark del capítulo {{cap:19}} (sección 17). Por qué cinco: es el máximo que se lee de un vistazo en la barra inferior (ley de Hick) y separa los dos «climas» de la app: **la
 Biblia es calma** y **Jugar es energía** (capítulo {{cap:19}}). La pestaña Travesía cambió de nombre (antes «Camino») para sonar a
@@ -52,15 +52,15 @@ día una razón para volver.
 
 El objetivo es que la persona **sienta el valor y la calidad antes de registrarse**.
 
-1. **Bienvenida:** Lani entra corriendo, frena, saluda con un gesto y suena la firma de tres notas. Nada de pantallas blancas.
+1. **Bienvenida:** Lany entra corriendo, frena, saluda con un gesto y suena la firma de tres notas. Nada de pantallas blancas.
 2. **Idioma y edad:** idioma del teléfono (se puede cambiar) y franja de edad (menores de 13: explicación y salida).
 3. **¿Qué te trae a Senda?** *Conocer más la Biblia* · *Jugar con mis amigos* · *Organizar mi grupo* (soy líder). Personaliza lo que se
    muestra primero.
 4. **Elegí tus Rutas** (como elegir idiomas): Fundamentos viene marcada; se pueden sumar Héroes, Mapas o Preparados.
 5. **¿Cuánto sabés?** *Estoy empezando* / *Conozco las historias* / *Me la sé* (con prueba de nivel de 2 minutos que te ubica).
-6. **Primera lección** (3 minutos), con Lani reaccionando, sonidos y la primera explosión de luz al acertar.
+6. **Primera lección** (3 minutos), con Lany reaccionando, sonidos y la primera explosión de luz al acertar.
 7. **Resultado:** Pasos y Talentos que suben contando, el primer rayito de la racha y tu primera insignia.
-8. **Tu Lani:** elegís el primer atuendo (tres opciones) y el color del pañuelo.
+8. **Tu Lany:** elegís el primer atuendo (tres opciones) y el color del pañuelo.
 9. **Crear cuenta** (Google, Apple o correo) para no perder lo ganado.
 10. **Avisos:** se explica para qué sirven antes de pedir permiso («¿A qué hora te recuerdo tu momento con la Palabra?»).
 11. **Tu grupo (opcional):** con un código o un QR entrás al grupo y su calendario aparece en Inicio.

@@ -2,7 +2,7 @@
 
 <div class="enpocas" markdown="1">
 **En pocas palabras.** La app **sale publicada el 18 de diciembre de 2026** con un MVP más completo que en la v1 (Biblia con
-Reina-Valera, Travesía con 3 secciones, Espadeo nuevo, **calendario**, Tu Lani y compartir) y crece con **una versión cada dos
+Reina-Valera, Travesía con 3 secciones, Espadeo nuevo, **calendario**, Tu Lany y compartir) y crece con **una versión cada dos
 semanas**. Lo principal llega antes que en la v1: grupos, Senda Reunión y suscripciones en **marzo de 2027**; la **Liga Apertura** en
 **abril**; la **Ruta Fundamentos completa**, Púlpito y las herramientas contra el scroll a fines de **junio de 2027** (antes: 2028).
 El segundo semestre suma Copas, Rutas nuevas, el calendario de iglesia completo y salas desde el navegador. Portugués, inglés y web
@@ -31,12 +31,12 @@ completa, en 2028.
 |---|---|---|
 | Biblia: Reina-Valera por defecto (RV1909), 2 versiones libres, audio del teléfono, planes, racha | RVR1960 (depende de la licencia) | NTV, NVI, DHH, TLA (v1); «+» (v1) |
 | Travesía: Fundamentos secciones 0–2 + «21 días», vidas, repaso | Preguntas con imagen en la Travesía | Secciones 3–12 (v1 y v2), otras Rutas |
-| Espadeo: 6 categorías nuevas, Armería, Carga, 6 comodines, rival al azar, amigos y Lani, 4.000 preguntas | Cara a cara | Escuadra (v1), Liga (v2) |
+| Espadeo: 6 categorías nuevas, Armería, Carga, 6 comodines, rival al azar, amigos y Lany, 4.000 preguntas | Cara a cara | Escuadra (v1), Liga (v2) |
 | Calendario de Senda y Mi calendario | Agregar al calendario del teléfono | Calendario del grupo (v1) |
-| Tu Lani (3 atuendos), perfil, amigos por código | 2 vehículos | Tienda completa (v1) |
+| Tu Lany (3 atuendos), perfil, amigos por código | 2 vehículos | Tienda completa (v1) |
 | Misiones, cofres, insignias base, compartir logros | Pulso (pregunta del día) | Estados (v2) |
 | Giro diario, Desafío del día, Palabra del día | — | Otros juegos (v1–v3) |
-| Lani ilustrada con animaciones simples; sonidos propios | — | Lani en Rive (feb-2027) |
+| Lany ilustrada con animaciones simples; sonidos propios | — | Lany en Rive (feb-2027) |
 | Sin suscripción ni anuncios (todavía) | — | Planes, Pase Senda y videos (mar-2027), cuando la app esté en la cuenta de la empresa |
 
 ## 3. Las fases
@@ -77,15 +77,15 @@ Claude con más horas desde diciembre (decisión en el capítulo {{cap:31}}).
    celular. Sin validación previa: se valida con la app en uso.
 3. **Fundaciones** (octubre): cuentas de Google Play y Apple, dominios, redes, AAIP; pedido de licencias de Biblias; repositorio, backend,
    analítica; revisores y 12 testers.
-4. **Difusión desde el día 1:** Instagram, TikTok y el canal de WhatsApp (1–7 de octubre); 3–5 publicaciones por semana con Lani; seguir
+4. **Difusión desde el día 1:** Instagram, TikTok y el canal de WhatsApp (1–7 de octubre); 3–5 publicaciones por semana con Lany; seguir
    y conversar con 20–40 cuentas por día.
-5. **Dirección visual** (26-oct a fin de noviembre): diseñador de interfaz, Lani final, íconos y armadura, sonidos.
+5. **Dirección visual** (26-oct a fin de noviembre): diseñador de interfaz, Lany final, íconos y armadura, sonidos.
 6. **Construir el MVP** en 4 ciclos de dos semanas (12-oct al 6-dic), con el contenido en paralelo (4.000 preguntas, 130 lecciones).
 7. **Marca y legal:** marca «Senda» en el INPI, términos, privacidad y normas (noviembre).
 8. **Pruebas:** prueba cerrada en Google Play (12 testers, 14 días, 23-11 al 07-12) y TestFlight; prueba de la grilla.
 9. **Publicar** el **18 de diciembre de 2026**, de forma gradual.
 10. **Sorteo de lanzamiento**, **21 días** (1 al 21 de enero) y **primer Viernes de Espadeo** (8 de enero).
-11. **v1 «Juntos»** (enero a marzo): grupos y calendario del grupo, Senda Reunión, racha compartida, Escuadra, planes y Pase Senda, Lani en
+11. **v1 «Juntos»** (enero a marzo): grupos y calendario del grupo, Senda Reunión, racha compartida, Escuadra, planes y Pase Senda, Lany en
     Rive, Fundamentos 3–6 y 9, Ruta Héroes, las cuatro Biblias con licencia, Semana Santa.
 12. **v2 «Liga»** (fines de marzo a junio): **Liga Apertura** (desde el 12-04), regla de corte (30-04), Fundamentos completa (30-06),
     Rutas Mapas y 66 Libros, Líder e Iglesia con Púlpito, Pulso de grupos, Primero la Palabra y Ayuno de redes, Estados, más juegos,
@@ -116,11 +116,11 @@ Claude con más horas desde diciembre (decisión en el capítulo {{cap:31}}).
 
 | Cuándo | Tarea |
 |---|---|
-| Oct-2026 | Búsqueda de antecedentes de los nombres (Senda, Lani, Travesía, juegos) en INPI y tiendas; dominios y redes; inscripción en la AAIP |
+| Oct-2026 | Búsqueda de antecedentes de los nombres (Senda, Lany, Travesía, juegos) en INPI y tiendas; dominios y redes; inscripción en la AAIP |
 | Oct–nov 2026 | Pedido de la RVR1960 a la American Bible Society (05-10) y a la Sociedad Bíblica Argentina como uso no comercial; licencia directa si se aprueba (API.Bible no la tiene) |
 | Nov-2026 | Marca «Senda» (clases 9, 41 y 42); contratos con cesión de derechos para interfaz, ilustración, animación y sonido; términos, privacidad, normas y política de encuestas |
-| Ene–feb 2027 | Marcas del logo y de Lani; empresa del holding y transferencia de la app |
+| Ene–feb 2027 | Marcas del logo y de Lany; empresa del holding y transferencia de la app |
 | Mar-2027 | Pedido del permiso de Apple para *Primero la Palabra* |
-| 2027 | Depósito del software y de Lani en la DNDA (opcional); revisión legal puntual antes del primer Informe Pulso |
+| 2027 | Depósito del software y de Lany en la DNDA (opcional); revisión legal puntual antes del primer Informe Pulso |
 | Cada diciembre | Comité anual: ¿hay alguna invención técnica nueva? Si sí, consulta de patente **antes** de publicarla |
 | 2027–2028 | Marca en Brasil antes del portugués; EE.UU. cuando haya ingresos allí |

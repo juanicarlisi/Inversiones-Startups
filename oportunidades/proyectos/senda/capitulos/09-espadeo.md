@@ -59,7 +59,7 @@ donde Senda tiene algo que Preguntados no (sección 6).
 - **El emblema:** arriba a la derecha, la silueta de un guerrero estilizado (sin cara ni género) con seis espacios. Cada pieza ganada
   vuela desde la pregunta hasta su lugar y se enciende con el color de su categoría.
 - **El rival también:** su emblema se ve chico al lado del tuyo; sabés cuánto le falta.
-- **Armadura completa:** cinemática de 4 a 5 segundos: las seis piezas brillan, un destello dorado, la cámara se acerca, **Tu Lani
+- **Armadura completa:** cinemática de 4 a 5 segundos: las seis piezas brillan, un destello dorado, la cámara se acerca, **Tu Lany
   aparece con la armadura puesta** en pose heroica, suena la fanfarria de la marca y vibra el teléfono. Se puede compartir el momento.
 - **Colección:** cada armadura completa suma a tu vitrina; con logros se desbloquean **acabados** de las piezas (bronce, plata, oro,
   legendario).
@@ -90,7 +90,7 @@ donde Senda tiene algo que Preguntados no (sección 6).
 | Comodines | 4 clásicos | 6, con **Pista** (te lleva a la cita) y **Tribuna** (cómo respondió la comunidad) |
 | Robar | Desafío por un personaje | **Cara a cara**, con preguntas iguales para los dos |
 | Jugar en equipo | — | **Escuadra 2v2** con un amigo (una armadura compartida) |
-| Rivales | Amigos o al azar | Al azar de tu nivel, amigos, tu grupo, **tu rival de la Liga**, o Lani |
+| Rivales | Amigos o al azar | Al azar de tu nivel, amigos, tu grupo, **tu rival de la Liga**, o Lany |
 | Temporadas | Ruletas temáticas | Ruletas de temporada (Semana Santa, Navidad) y el **Desafío del domingo** de tu iglesia |
 | Vidas | Gasta una al empezar partida | Igual, pero los partidos oficiales, las salas y los eventos en vivo no gastan |
 | Difusión | — | **Comodines y vidas por invitar** (como HQ); cada armadura completa se comparte |
@@ -111,7 +111,7 @@ donde Senda tiene algo que Preguntados no (sección 6).
 - **Tus amigos** de Senda (los que agregaste con «Conectar hermano»): se eligen de tu lista.
 - **Alguien de tu grupo.**
 - **Tu rival de la fecha** en la Liga (el partido oficial de la semana, capítulo {{cap:11}}).
-- **Lani**, un rival automático con dificultad regulable, para practicar o cuando no hay nadie.
+- **Lany**, un rival automático con dificultad regulable, para practicar o cuando no hay nadie.
 - **Revancha** con un toque al terminar.
 
 Senda no lee los contactos del teléfono: los «contactos» son tus amigos dentro de la app.
@@ -167,7 +167,7 @@ Reunión. Sin vidas: esperar, pedirle a un amigo, repasar en la Travesía, ver u
 | **Supervivencia** | Una sola vida: ¿hasta dónde llegás? | Récord personal |
 | **Práctica por categoría** | Sin presión, sin vidas | Aprender |
 | **Partido de la fecha y Copas** | Duelo oficial de la Liga (capítulo {{cap:11}}) | Competencia con temporada |
-| **Viernes de Espadeo** | En vivo, todos a la vez, con Lani de conductora | La cita fija de la semana |
+| **Viernes de Espadeo** | En vivo, todos a la vez, con Lany de conductora | La cita fija de la semana |
 | **Espadeo en Senda Reunión** | Quiz en vivo armado por el líder, o con la Biblia de papel (el espadeo de siempre) | La tradición, con marcador en pantalla |
 | **Desafío del domingo** | El juego que arma tu pastor con su mensaje (capítulo {{cap:12}}) | Del púlpito a la semana |
 | **Ruletas de temporada** | Semana Santa, Navidad, la Reforma: categorías especiales por unas semanas | Novedad y calendario |
@@ -249,11 +249,11 @@ escribir cada nivel: `docs/DIFICULTAD.md` del repositorio de la app.
 | Cae en una categoría | La pieza salta al centro, gira y se agranda con su color | Acorde de la categoría | Ligera |
 | Acierto | **La tarjeta estalla en partículas de luz** del color de la categoría; la Carga sube con un brillo | Dos notas ascendentes; **suben de tono con cada acierto seguido** | Ligera |
 | Error | Sacudida corta; aparece la correcta con su cita | Nota grave amable | Media |
-| Carga llena | La barra se enciende y late; Lani se pone en guardia | Sube un «whoosh» | Doble |
+| Carga llena | La barra se enciende y late; Lany se pone en guardia | Sube un «whoosh» | Doble |
 | Pieza ganada | La pieza vuela al emblema, choca con un destello metálico y una onda expansiva | Metal + campana | Fuerte corta |
 | Cara a cara | Pantalla partida, los dos emblemas enfrentados | Tambor | — |
 | Armadura completa | Cinemática de 4–5 s (sección 4) | Fanfarria de la marca | Patrón de festejo |
-| Ganar / perder | Lluvia de luz y Lani con trofeo / Lani saluda al rival y ofrece revancha | Tema de victoria / melodía corta | Patrón / ligera |
+| Ganar / perder | Lluvia de luz y Lany con trofeo / Lany saluda al rival y ofrece revancha | Tema de victoria / melodía corta | Patrón / ligera |
 
 **Prueba 7 (06-10-2026):**
 - **Clic de la ruleta:**
@@ -262,10 +262,10 @@ escribir cada nivel: `docs/DIFICULTAD.md` del repositorio de la app.
   - el rebote de la lengüeta al final.
 - **La fiesta de la pieza:**
   - música propia en re mayor a 125 negras por minuto (bongós, congas, shaker, pandereta, palmas, bombo, marimba y el motivo en xilofón), agendada en el reloj del audio;
-  - Lani baila al pulso: salta, se inclina y gira cada dos compases;
+  - Lany baila al pulso: salta, se inclina y gira cada dos compases;
   - confeti y rayos que laten;
   - salto en el remate.
-- **La gran fiesta:** 4 compases con platillo, timbal y aplausos cuando se completa la armadura, con Lani acorazada.
+- **La gran fiesta:** 4 compases con platillo, timbal y aplausos cuando se completa la armadura, con Lany acorazada.
 - **Duelos:** por turnos, con partidas abiertas que vencen a las 72 h; si vence, gana el que jugó último. Diseño de costo mínimo en `docs/DUELOS.md` (sprint 3).
 
 ## 17. Cómo se mide

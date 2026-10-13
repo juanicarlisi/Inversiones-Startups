@@ -102,7 +102,7 @@ def m_travesia_mapa() -> str:
 <div class="sec-h"><div><div class="kk">Ruta Fundamentos · Sección 3</div><b class="t-un">Libres del faraón</b></div><span class="sec-r">{icono("mapa", 12, "#fff")}</span></div>
 <div class="ruta2">{''.join(ns)}<div class="tip" style="left:62%;top:35%">EMPEZAR</div>
 <div class="ln-moto" style="left:22%;top:47%"><div class="ln-sobre">{lani("saludo", 36, sombra=False, buzo=VIOLETA, gorra=AMBAR)}</div>{V.vehiculo("moto", 50)}</div></div>"""
-    return tel(c, "Travesía: el mapa de la sección, con Tu Lani en moto", nav="Travesía")
+    return tel(c, "Travesía: el mapa de la sección, con Tu Lany en moto", nav="Travesía")
 
 
 def m_leccion_imagen() -> str:
@@ -198,7 +198,7 @@ def storyboard() -> str:
         ("0,4 s", "La pieza vuela al emblema", f'<div class="sb-c"><div class="sb-vuelo">{pieza_svg("botas", 30)}</div><div class="sb-emb">{V.emblema(["escudo", "espada", "casco"], 44)}</div></div>', "Estela dorada · «whoosh» que sube"),
         ("1,0 s", "Impacto", f'<div class="sb-c">{V.emblema(["escudo", "espada", "casco", "botas"], 58)}{destellos(ORO, 12, 26, 38, 96)}</div>', "Onda expansiva · metal + campana · vibración fuerte"),
         ("2,0 s", "Armadura completa", f'<div class="sb-c">{V.emblema([c[0] for c in CATS], 64)}</div>', "Las 6 brillan · cámara lenta 300 ms"),
-        ("3,0 s", "Tu Lani con la armadura", f'<div class="sb-c">{lani("armadura", 62, sombra=False)}</div>', "Pose heroica · fanfarria de la marca · compartir"),
+        ("3,0 s", "Tu Lany con la armadura", f'<div class="sb-c">{lani("armadura", 62, sombra=False)}</div>', "Pose heroica · fanfarria de la marca · compartir"),
     ]
     out = "".join(f'<div class="sb"><div class="sb-t">{t}</div>{img}<b>{n}</b><span>{d}</span></div>' for t, n, img, d in cuadros)
     return f'<div class="sbs">{out}</div>'
@@ -322,15 +322,15 @@ def m_reunion_registro() -> str:
     return tel(c, "Después: registro, en qué reforzar y qué sigue en la semana", nav="Comunidad")
 
 
-# ─────────────────────────────── Tu Lani, momentos y Pulso ───────────────────────────────
+# ─────────────────────────────── Tu Lany, momentos y Pulso ───────────────────────────────
 def m_tu_lani() -> str:
     items = [("moto", "Moto", "4.500", True), ("auto", "Auto", "6.000", False), ("skate", "Skate", "1.800", True), ("carro", "Carro de fuego", "Legendario", False)]
     it = "".join(f'<div class="it2{" eq" if k == 0 else ""}">{V.vehiculo(t, 44)}<b>{n}</b><span>{icono("talento", 8, ORO) if p[0].isdigit() else icono("corona", 8, ORO)}{p}</span></div>'
                  for k, (t, n, p, _) in enumerate(items))
     c = f"""{chips()}<div class="tl-st">{lani("reposo", 92, buzo=VIOLETA, gorra=AMBAR, lentes=False)}<div class="tl-pl"></div></div>
-<div class="tl-n"><b class="t-un">Tu Lani</b><span>Nivel 14 · Joaco FC</span></div>
+<div class="tl-n"><b class="t-un">Tu Lany</b><span>Nivel 14 · Joaco FC</span></div>
 <div class="tabs2"><span>Atuendos</span><span class="on">Vehículos</span><span>Accesorios</span><span>Festejos</span></div><div class="its2">{it}</div>"""
-    return tel(c, "Tu Lani: atuendos, accesorios y vehículos que se ganan o se compran", nav=None,
+    return tel(c, "Tu Lany: atuendos, accesorios y vehículos que se ganan o se compran", nav=None,
                fondo="background:radial-gradient(circle at 50% 28%, #5B43C9 0%, #2E2170 42%, #140E33 100%)")
 
 
@@ -421,14 +421,14 @@ def paleta_final() -> str:
     return f'<div class="sws3">{sw}</div><div class="sws3 c6">{cats}</div>'
 
 
-# ─────────────────────────────── Lani: bloques ───────────────────────────────
+# ─────────────────────────────── Lany: bloques ───────────────────────────────
 def lani_bloque() -> str:
     return f"""<div class="lani2"><div class="lani2-h">{lani("reposo", 150)}</div><div class="lani2-t"><div class="lani-k">Boceto de dirección v2 (no es el diseño final)</div>
 <p>Oveja joven de pie, cabeza más chica, piernas largas, cara carbón con cejas de lana, párpados con actitud, pañuelo ámbar con la lámpara
 y zapatillas. Sin pestañas, sin rubor, sin rosa: <b>neutra</b>. La versión final la dibuja y la anima un profesional con esta guía y
 se aprueba con el «infantilómetro».</p>
 <div class="lani2-v">{lani("reposo", 62, buzo=VIOLETA, gorra=AMBAR)}{lani("saludo", 62, lentes=True, auriculares=True)}{lani("reposo", 62, buzo=V.CAT["botas"][3])}{lani("guardia", 62, buzo=VERDE)}</div>
-<div class="lani2-c">Cuatro de las mil combinaciones de Tu Lani</div></div></div>"""
+<div class="lani2-c">Cuatro de las mil combinaciones de Tu Lany</div></div></div>"""
 
 
 def lani_reacciones() -> str:
@@ -437,7 +437,7 @@ def lani_reacciones() -> str:
              ("baile", "Baile de festejo", "#5B43C9"), ("armadura", "Armadura completa", "#8a6400"), ("saludo", "Saludo", "#3E2D97"),
              ("dormida", "De noche", "#141033"), ("desmayo", "Sin vidas (dramática)", "#7a2433")]
     celdas = "".join(f'<div class="reac-c" style="--m:{m}">{lani(p, 76, sombra=False)}<span>{n}</span></div>' for p, n, m in poses)
-    celdas += f'<div class="reac-c" style="--m:#5B43C9">{lani("saludo", 76, sombra=False, buzo=VIOLETA, gorra=AMBAR)}<span>Con Tu Lani puesta</span></div>'
+    celdas += f'<div class="reac-c" style="--m:#5B43C9">{lani("saludo", 76, sombra=False, buzo=VIOLETA, gorra=AMBAR)}<span>Con Tu Lany puesta</span></div>'
     return f'<div class="reac">{celdas}</div>'
 
 
@@ -456,7 +456,7 @@ def m_tu_lani_fila() -> str:
 # ─────────────────────────────── economía ───────────────────────────────
 def economia_mapa() -> str:
     hace = ["Leer y escuchar", "Lecciones y repasos", "Duelos y juegos", "Orar por alguien", "Invitar amigos", "Misiones y cofres"]
-    usa = [("Talentos", "talento", ORO, "Vidas · comodines · protectores · Tu Lani · escudo del club"),
+    usa = [("Talentos", "talento", ORO, "Vidas · comodines · protectores · Tu Lany · escudo del club"),
            ("Pasos", "rayo", VERDE, "Nivel · Pase Senda · desempates"),
            ("Perlas", "perla", "#C9B0FF", "Objetos especiales · recargas · Pase Senda")]
     h = "".join(f"<span>{x}</span>" for x in hace)

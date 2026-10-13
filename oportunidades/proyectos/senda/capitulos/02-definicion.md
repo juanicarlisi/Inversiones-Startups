@@ -93,23 +93,23 @@ Senda es una app gratuita para Android y iOS (con salas desde el navegador a fin
 - **Leer** — una Biblia completa y gratis, **sin publicidad**, con la Reina-Valera por defecto y las versiones más usadas, que se escucha
   en voz alta y que al tocar el **«+»** de un versículo muestra notas de estudio, comentarios clásicos, referencias y mapas.
 - **Aprender** — la **Travesía**: rutas de niveles cortos tipo Duolingo que se eligen como idiomas (Fundamentos recorre toda la
-  Biblia; después Héroes, Mapas, Preparados, Profecías y muchas más), con Lani, vidas, racha y repaso de lo que se olvida. No se
+  Biblia; después Héroes, Mapas, Preparados, Profecías y muchas más), con Lany, vidas, racha y repaso de lo que se olvida. No se
   termina nunca.
 - **Jugar** — **Espadeo**, una trivia tipo Preguntados donde se gana completando la *armadura de Dios* (Efesios 6), y una colección
   de juegos: Dibujalo, Oveja Perdida, Tutti Frutti, Abecé, ¿Quién soy?, ¡Prohibido!, Palabra del día y Antes o después.
 - **Juntos** — amigos, grupos, el **calendario** de tu iglesia, la **Liga Senda** por persona (Apertura, Clausura y Copas), la semana
   Senda con el **Viernes de Espadeo**, encuestas (**Pulso**) y **Senda Reunión** y **Senda Púlpito** para líderes y pastores.
 - **Crecer** — **Berea**: planes de lectura, desafíos con fecha (21 días, Semana Santa, Ayuno de redes), memorizar versículos (De
-  memoria) y, más adelante, una biblioteca de clásicos; Lani acompaña.
+  memoria) y, más adelante, una biblioteca de clásicos; Lany acompaña.
 
 Se sostiene con planes baratos y escalonados (**Plus, Max, Familia, Pase Senda, Líder e Iglesia**), videos opcionales en los juegos y
-compras de cosas para **Tu Lani**. La Biblia y el contenido siempre son gratis; la Biblia, además, sin publicidad.
+compras de cosas para **Tu Lany**. La Biblia y el contenido siempre son gratis; la Biblia, además, sin publicidad.
 
 ## Para quién
 
 | Público | Qué necesita | Qué le da Senda |
 |---|---|---|
-| **Jóvenes de 13 a 30 años** (principal) | Algo que enganche como sus juegos, que no sea infantil y que los conecte con sus amigos | Travesía, Espadeo, juegos, Liga, Tu Lani, amigos |
+| **Jóvenes de 13 a 30 años** (principal) | Algo que enganche como sus juegos, que no sea infantil y que los conecte con sus amigos | Travesía, Espadeo, juegos, Liga, Tu Lany, amigos |
 | **Líderes de jóvenes y maestros** (el canal que multiplica) | Armar la reunión de cada semana con recursos que les ahorren tiempo, y ver cómo va el grupo | Senda Reunión (armador, quiz, juegos, registros), calendario del grupo |
 | **Pastores e iglesias** | Que la gente lea en la semana, que el mensaje del domingo no se pierda y organizar las actividades | Senda Púlpito (Desafío del domingo), calendario de la iglesia, encuestas |
 | **Adultos que quieren leer y aprender** | Una buena Biblia con comentarios, audio y planes | La Biblia completa, el «+», Berea |
@@ -118,7 +118,7 @@ compras de cosas para **Tu Lani**. La Biblia y el contenido siempre son gratis; 
 **Personas tipo** (para diseñar pensando en alguien concreto):
 
 - **Joaquín, 16 años, Córdoba.** Juega Clash Royale y mira TikTok. Va a la reunión de jóvenes los sábados. Lee la Biblia solo cuando
-  alguien se lo pide. *Lo engancha:* los duelos, la Liga (quiere ascender a Primera), su Lani con moto y que no parezca «de chicos».
+  alguien se lo pide. *Lo engancha:* los duelos, la Liga (quiere ascender a Primera), su Lany con moto y que no parezca «de chicos».
 - **Sofía, 23 años, líder de jóvenes en el Gran Buenos Aires.** Estudia y trabaja. Arma la reunión del sábado el viernes a la noche.
   Usó Kahoot pero se quedó sin lugar para los 40 chicos. *Le sirve:* el armador de Senda Reunión (carga su bosquejo, elige el quiz y
   un juego), el registro de cada reunión y el calendario del grupo.

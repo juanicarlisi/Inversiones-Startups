@@ -16,7 +16,7 @@ mensual. El indicador que manda: **personas con 3 o más días con la Palabra po
 | **Revisores doctrinales** | 1–2 personas de tu comunidad | Revisan lo doctrinal y un muestreo del resto | 1–2 h/sem cada uno |
 | **Testers** | 12 al inicio, 30 después | Prueban versiones antes de salir | 30 min por versión |
 | **Diseñador de interfaz** | Freelance | Sistema visual, pantallas clave, prueba de la grilla | Por proyecto (oct–nov 2026) y revisiones puntuales |
-| **Ilustrador, animador de Rive y diseñador de sonido** | Freelancers | Lani v2, armadura, íconos, escenarios, Tu Lani, sonidos | Por proyecto |
+| **Ilustrador, animador de Rive y diseñador de sonido** | Freelancers | Lany v2, armadura, íconos, escenarios, Tu Lany, sonidos | Por proyecto |
 | **Embajadores** | Líderes de jóvenes | Usan Senda Reunión, invitan, dan devoluciones | Voluntario (con beneficios) |
 | **Moderadores** | El líder de cada grupo + vos + filtros automáticos | Reportes y contenido de usuarios | Minutos por día |
 | **Revisión legal puntual** | Profesional externo, opcional | Solo antes del primer estudio de Pulso con terceros o de un sorteo internacional (capítulo {{cap:26}}) | Una vez |
@@ -77,7 +77,7 @@ Cada función sale con sus **eventos definidos** (por ejemplo: «lección_termin
   en menos de 48 horas.
 - **Reseñas en tiendas:** se responden todas las de 1 a 3 estrellas (Claude propone la respuesta).
 - **ASO (posicionamiento en tiendas):** título y subtítulo con palabras clave («Biblia», «trivia bíblica», «juegos cristianos»),
-  capturas que muestran a Lani, la armadura y la Liga con el nivel visual del capítulo {{cap:19}}, video corto, ficha en español,
+  capturas que muestran a Lany, la armadura y la Liga con el nivel visual del capítulo {{cap:19}}, video corto, ficha en español,
   portugués e inglés, prueba de versiones de la ficha.
 - **Destacados:** nominar la app a los destacados de Google Play en los primeros 120 días y a las historias del App Store.
 - **Comunidad:** cuenta de Instagram, canal de WhatsApp, grupo de embajadores y la biblioteca de plantillas de reuniones de los líderes.

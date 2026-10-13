@@ -56,6 +56,10 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     pasa, cuándo y qué sigue; cada capítulo, qué se aprende (lo exige el validador);
   - lo revisado y confiable se publica (Claude revisa pregunta por pregunta); los revisores doctrinales humanos confirman después;
   - no quedarse en «no se puede»: explorar hasta la última vía (así se hizo con la RVR1960), siempre dentro de lo legal.
+- **Datos del 13-10-2026 (Senda, prueba 12):**
+  - la mascota se escribe **Lany** (antes «Lani»); la historia anterior queda como se escribió;
+  - Lany es la guía de la Travesía, con la calidad de una app hecha por expertos (patrón Duolingo como dirección, nunca copia);
+  - el «+» de estudio, a la vista en cada versículo al leer (DEC-2026-10-13-1).
 
 ## 2. Reglas no negociables
 

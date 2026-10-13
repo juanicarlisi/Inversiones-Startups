@@ -26,7 +26,7 @@ los eventos cristianos de la agenda.
 
 | Momento | La tarjeta muestra | Formato |
 |---|---|---|
-| Armadura completa | Tu Lani con la armadura, el rival vencido, la cantidad de armaduras | Historia vertical + estado de WhatsApp |
+| Armadura completa | Tu Lany con la armadura, el rival vencido, la cantidad de armaduras | Historia vertical + estado de WhatsApp |
 | Ascenso o título en la Liga | El escudo de tu club subiendo de división; la estrella del título | Historia |
 | Hito de racha (7, 30, 100, 365) | La lámpara con sus rayitos y el número | Historia + estado |
 | Resultado del Viernes de Espadeo | Tu posición, aciertos y «¿Me ganás el viernes?» | Historia con enlace |
@@ -38,7 +38,7 @@ los eventos cristianos de la agenda.
 | Tu año en Senda | Resumen del año (como Wrapped) | Serie de historias |
 | Evento del grupo | Invitación con portada divertida | WhatsApp |
 
-**Diseño de cada tarjeta:** vertical (1080 × 1920), con Tu Lani, el dato grande, la marca discreta, un **código o enlace** que abre el
+**Diseño de cada tarjeta:** vertical (1080 × 1920), con Tu Lany, el dato grande, la marca discreta, un **código o enlace** que abre el
 desafío o la tienda y nada de datos personales de menores. En Instagram se comparte como fondo + sticker (la forma oficial de Meta para
 compartir desde apps); en WhatsApp y Facebook, como imagen con enlace.
 
@@ -58,9 +58,9 @@ públicas (versículos, resultados, eventos abiertos) además atraen visitas des
 
 ## 5. Redes de Senda (sin mostrar a nadie)
 
-- **Habla Lani:** las cuentas de Instagram y TikTok son su voz, con humor de internet y respeto.
+- **Habla Lany:** las cuentas de Instagram y TikTok son su voz, con humor de internet y respeto.
 - **Formatos:** versículo del día con imagen, «¿Sabías que…?», trivia en historias con encuestas, clips de partidas (grabación de
-  pantalla con la voz de Lani), memes de Lani, resultados de la Liga y del Viernes de Espadeo, anuncios de Copas y sorteos.
+  pantalla con la voz de Lany), memes de Lany, resultados de la Liga y del Viernes de Espadeo, anuncios de Copas y sorteos.
 - **Siempre una invitación a jugar adentro:** «¿Me ganás este duelo?» con el enlace.
 - **Ritmo:** 3–5 publicaciones por semana; 1–2 reels; historias diarias. Claude arma el lote semanal; vos lo aprobás.
 

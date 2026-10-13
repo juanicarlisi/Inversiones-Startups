@@ -2,7 +2,7 @@
 
 - mapa_total(): toda la app en una hoja A3, MECE (oportunidades/proyectos/senda/mapa_total.yaml).
 - fiesta_tablero(): el tablero del Éxodo de Senda Fiesta (capítulo 10, §12).
-- lani3d_bloque(): Lani en 3D (capturas de la escena real de la app, en informes/fuente-senda/graficos/lani3d_*.png).
+- lani3d_bloque(): Lany en 3D (capturas de la escena real de la app, en informes/fuente-senda/graficos/lani3d_*.png).
 - estado_bloque(): el avance del desarrollo por área (estado.yaml) y las pruebas en el teléfono.
 """
 from __future__ import annotations
@@ -28,7 +28,7 @@ CONEXIONES = [
     ("Leés un capítulo", "suma a la racha y a las misiones de Inicio"),
     ("Fallás una pregunta del Espadeo o de una lección", "vuelve en tu repaso de la Travesía"),
     ("Usás una Lámpara en la lección", "se abre el pasaje en la Biblia"),
-    ("Todo lo que hacés", "da Talentos para Tu Lani y los protectores"),
+    ("Todo lo que hacés", "da Talentos para Tu Lany y los protectores"),
     ("La reunión de tu grupo", "aparece en tu calendario y te avisa"),
     ("Cada minijuego se hace una vez", "y sirve cuatro: Arcade, Fiesta, Reunión y campamento"),
 ]
@@ -214,7 +214,7 @@ def fiesta_tablero() -> str:
     return f'<div class="ft">{"".join(partes)}<div class="ft-ley">{ley}</div><p class="nota">Boceto del primer tablero: el Éxodo, de Egipto al Sinaí. Los cuatro marcadores son los jugadores. Arte final con el estilo de Senda.</p></div>'
 
 
-# ─────────────────────────────── Lani en 3D ───────────────────────────────
+# ─────────────────────────────── Lany en 3D ───────────────────────────────
 def lani3d_bloque() -> str:
     import base64
     graf = RAIZ / "informes" / "fuente-senda" / "graficos"
@@ -232,13 +232,13 @@ def lani3d_bloque() -> str:
 
 # ─────────────────────────────── el desarrollo hasta hoy ───────────────────────────────
 PRUEBAS = [
-    ("05-10", "Vista previa", "Sprint 0: base, Lani, Inicio, Biblia, Travesía y Espadeo de práctica"),
+    ("05-10", "Vista previa", "Sprint 0: base, Lany, Inicio, Biblia, Travesía y Espadeo de práctica"),
     ("05-10", "Prueba 2", "Primer APK: hoja que se dobla, marcar versículos, Consola v0"),
     ("05-10", "Pruebas 3 y 4", "Biblia como impresa, sonidos elegidos, trivia con dificultad, planes, Supabase listo"),
     ("06-10", "Prueba 5", "Lector sin trabas, firma sonora propia, calendario con avisos, métricas reales"),
     ("06-10", "Prueba 6", "Hoja en el hilo nativo, audio con instrumentos reales, Travesía MECE, Pablo, escala"),
     ("06-10", "Prueba 7", "Marcar al instante, la fiesta, Lámparas, repaso, tipos nuevos, costos y duelos"),
-    ("11-10", "Prueba 8", "Lani en 3D, baile sin saltitos, bienvenida con edad y objetivo, mapa de toda la app"),
+    ("11-10", "Prueba 8", "Lany en 3D, baile sin saltitos, bienvenida con edad y objetivo, mapa de toda la app"),
 ]
 
 

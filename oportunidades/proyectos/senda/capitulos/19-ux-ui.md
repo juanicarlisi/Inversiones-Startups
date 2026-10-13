@@ -27,11 +27,11 @@ real, en un teléfono. La miran vos y 5 jóvenes. Si en algún criterio Senda qu
 1. **Nada de fondos blancos vacíos** en la zona de juego: fondos con color, profundidad y luz (degradés, escenarios ilustrados).
 2. **Cero emojis del sistema como íconos:** íconos propios, coherentes, con volumen.
 3. **Cada toque responde** con imagen y vibración en menos de 100 ms; el sonido queda para lo que importa (ver la sección 8).
-4. **Cada logro tiene su momento:** animación, sonido y, si corresponde, Lani.
+4. **Cada logro tiene su momento:** animación, sonido y, si corresponde, Lany.
 5. **Jerarquía clara:** una acción principal por pantalla, grande y abajo.
 6. **Tipografía con carácter** y tamaños consistentes; números que no «saltan».
 7. **Transiciones** entre pantallas (nada aparece de golpe).
-8. **Estados vacíos y de error ilustrados** (con Lani), nunca un texto gris.
+8. **Estados vacíos y de error ilustrados** (con Lany), nunca un texto gris.
 9. **60 cuadros por segundo** en un teléfono de gama media; efectos que se simplifican solos en uno bajo.
 10. **Nada infantil:** ni colores de juguete, ni letras redondas tipo jardín, ni voces aniñadas (sección 6 y capítulo {{cap:16}}).
 
@@ -39,9 +39,9 @@ real, en un teléfono. La miran vos y 5 jóvenes. Si en algún criterio Senda qu
 
 | Referencia | Qué hace muy bien | Qué tomamos |
 |---|---|---|
-| **Duolingo** | Claridad total, un personaje con actitud, botones que «se hunden», progreso siempre visible | El mapa de niveles, el botón con borde inferior, Lani con reacciones, celebraciones cortas |
+| **Duolingo** | Claridad total, un personaje con actitud, botones que «se hunden», progreso siempre visible | El mapa de niveles, el botón con borde inferior, Lany con reacciones, celebraciones cortas |
 | **Preguntados** | Identidad fuerte por categoría (color + personaje), la ruleta como momento central | Seis categorías con color e ícono propio; la ruleta con física y luces |
-| **Candy Crush** | La referencia de «jugosidad»: explosiones, cascadas, sonidos que suben de tono con cada combo, voces que celebran, colores saturados sobre fondos ricos | Explosiones de luz al acertar, el tono que sube con la racha de aciertos, las exclamaciones de Lani |
+| **Candy Crush** | La referencia de «jugosidad»: explosiones, cascadas, sonidos que suben de tono con cada combo, voces que celebran, colores saturados sobre fondos ricos | Explosiones de luz al acertar, el tono que sube con la racha de aciertos, las exclamaciones de Lany |
 | **Clash Royale / Brawl Stars** | Atraen a adolescentes sin ser infantiles: botones gruesos, metales, brillos, tipografía pesada | El tono de la Arena: piezas de armadura metálicas, botones con volumen, títulos con peso |
 | **Kahoot** | La energía del vivo: cuenta regresiva, música, podio | Senda Reunión y el Viernes de Espadeo |
 | **Headspace** | Calma visual | El Santuario (la Biblia) |
@@ -135,7 +135,7 @@ Las tres tienen licencia libre (SIL Open Font License). Las pantallas de este do
 
 ## 7. Movimiento y «jugosidad»
 
-**Principios:** los 12 principios de la animación (anticipación, estirar y encoger, acción secundaria, exageración) para Lani y los
+**Principios:** los 12 principios de la animación (anticipación, estirar y encoger, acción secundaria, exageración) para Lany y los
 festejos; duraciones de 100–200 ms en microinteracciones, 250–350 ms en transiciones, 0,8–2 s en festejos y nada que bloquee más de
 3 s sin poder saltearse; curvas con resorte (física real); el movimiento explica (la pieza vuela al emblema para mostrar dónde quedó).
 
@@ -145,10 +145,10 @@ festejos; duraciones de 100–200 ms en microinteracciones, 250–350 ms en tran
 |---|---|
 | Explosión de partículas de luz | Acierto (del color de la categoría o de la Ruta) |
 | Onda expansiva y destello | Pieza ganada, ascenso, armadura completa |
-| Estirar y encoger | Botones al tocarlos, Lani al saltar, el cofre antes de abrirse |
+| Estirar y encoger | Botones al tocarlos, Lany al saltar, el cofre antes de abrirse |
 | Sacudida corta | Error (la tarjeta), impacto de una pieza (la pantalla, apenas) |
 | Contadores que suben | Pasos y Talentos al terminar |
-| Estelas y brillos | La ruleta girando, la pieza volando, el vehículo de Tu Lani en el mapa |
+| Estelas y brillos | La ruleta girando, la pieza volando, el vehículo de Tu Lany en el mapa |
 | Cámara lenta de 300 ms | El instante de la armadura completa |
 | Escalada | Cada acierto seguido hace el efecto un poco más grande (y el sonido un poco más agudo) |
 
@@ -167,7 +167,7 @@ da, se reducen las partículas automáticamente. **Reducir movimiento:** si el s
   antes de rebobinar, un guardián corta cualquier efecto que dure más que su archivo y todo se calla al salir de la app.
 - **Ascendente = bien, descendente = mal**, sin «buzzer» agresivo.
 - **La escalera de la racha:** cada acierto seguido suena un semitono más agudo (como los combos de Candy Crush).
-- **Exclamaciones de Lani** grabadas por una voz joven: «¡Bien!», «¡Imparable!», «¡Leyenda!», «¡Armadura completa!».
+- **Exclamaciones de Lany** grabadas por una voz joven: «¡Bien!», «¡Imparable!», «¡Leyenda!», «¡Armadura completa!».
 - **Música por zona:** la Arena con una base rítmica suave; el Viernes de Espadeo con su tema; el Santuario en silencio.
 - **Timbres:** marimba, campanas, cuerdas punteadas y metales suaves (cálidos y modernos, lejos del arcade estridente).
 - **Firma sonora (hecha el 06-10-2026, `scripts/firma_senda.py`):** que al escucharla se sepa «esto es Senda», sin copiar a nadie.
@@ -198,7 +198,7 @@ da, se reducen las partículas automáticamente. **Reducir movimiento:** si el s
     mayor, con el motivo re–la–si–fa♯ y nivelado por sonoridad (se midió cada archivo).
   - **Sonidos nuevos:** corona (la Carga llena: árbol de campanas y el acorde que se abre), la Carga que sube (dos campanas), Luz
     (campanitas), las opciones que aparecen en cascada (una nota por opción, subiendo), elegir, guardado, umbral (al abrir la Biblia),
-    aviso (notificaciones), pasos de Lani en el mapa y, con el ajuste **Sonidos de toques** (prendido de entrada), un toque suave en
+    aviso (notificaciones), pasos de Lany en el mapa y, con el ajuste **Sonidos de toques** (prendido de entrada), un toque suave en
     los botones, las pestañas y las hojas que suben. **Cambio de criterio:** el 05-10 los botones eran silenciosos; el fundador pidió
     muchos más sonidos, de calidad, así que ahora suenan muy bajito y se pueden apagar.
 - **Prueba 7 (06-10-2026): clic profesional, fiesta y respuesta instantánea.**
@@ -209,7 +209,7 @@ da, se reducen las partículas automáticamente. **Reducir movimiento:** si el s
   - **La fiesta:**
     - un grupo chico tocando en vivo, con 6,8 s para la pieza y 11,3 s para la armadura: bongós, congas, shaker, pandereta, palmas y bombo suave;
     - la marimba hace el bajo y el «chas»; el xilofón canta el motivo, afinado a ±2 cents y corregido porque el de la VCSL está unos 15 cents alto;
-    - todo en re mayor y a 125 negras por minuto, el pulso al que baila Lani.
+    - todo en re mayor y a 125 negras por minuto, el pulso al que baila Lany.
   - **Al instante:**
     - marcar, resaltar y poner cintas redibujan solo el versículo tocado;
     - el guardado se junta y se escribe de a lotes (`util/almacen.ts`).
@@ -225,19 +225,19 @@ Ligera en toques y aciertos, media en errores, patrones en festejos; sincronizad
 | Momento | Imagen | Sonido | Vibración | Duración |
 |---|---|---|---|---|
 | Tocar un botón | Se hunde y rebota | Ninguno (decisión del 05-10-2026: cansaba) | Ligera | 120 ms |
-| Acierto | Explosión de luz del color de la categoría; tilde que se dibuja; Lani asiente | Dos notas ascendentes (suben con la racha) | Ligera | 300 ms |
-| Error | Sacudida corta; la correcta aparece con su cita; Lani «uff» | Nota grave amable | Media | 350 ms |
-| 5 aciertos seguidos | Llamas en las zapatillas de Lani; «¡Imparable!»; +1 vida | Arpegio + voz de Lani | Doble | 800 ms |
-| Lección terminada | Lluvia de luz, Lani baila, contadores que suben, Tu Lani avanza en el mapa | Melodía de 2 s | Patrón | 2 s |
+| Acierto | Explosión de luz del color de la categoría; tilde que se dibuja; Lany asiente | Dos notas ascendentes (suben con la racha) | Ligera | 300 ms |
+| Error | Sacudida corta; la correcta aparece con su cita; Lany «uff» | Nota grave amable | Media | 350 ms |
+| 5 aciertos seguidos | Llamas en las zapatillas de Lany; «¡Imparable!»; +1 vida | Arpegio + voz de Lany | Doble | 800 ms |
+| Lección terminada | Lluvia de luz, Lany baila, contadores que suben, Tu Lany avanza en el mapa | Melodía de 2 s | Patrón | 2 s |
 | Nuevo rayito de la racha | La llama crece y titila | Campana cálida | Ligera | 1 s |
 | Hito de racha (7, 30, 100) | La lámpara ilumina toda la pantalla; fuegos artificiales | Tema de la racha | Patrón | 3 s |
 | Girar la ruleta de Espadeo | Física real, luces que la recorren, clics | Tic-tic que se desacelera | Clics | 2–3 s |
 | Pieza ganada | Vuela al emblema, impacto metálico, onda expansiva | Metal + campana | Fuerte corta | 1,2 s |
-| Armadura completa | Cinemática: piezas que brillan, cámara lenta, Tu Lani en pose heroica | Fanfarria de la marca | Patrón de festejo | 4–5 s |
+| Armadura completa | Cinemática: piezas que brillan, cámara lenta, Tu Lany en pose heroica | Fanfarria de la marca | Patrón de festejo | 4–5 s |
 | Abrir un cofre | Tiembla, se abre con un haz de luz, los premios saltan de a uno | Crujido + brillos + «¡ta-da!» | Creciente | 2–3 s |
 | Ascenso en la Liga | El escudo de tu club sube de división con un destello | Fanfarria corta | Patrón | 3 s |
 | Perder una vida | El corazón se quiebra y se desarma en brillos | Nota descendente | Ligera | 400 ms |
-| Sin vidas | Lani se desmaya dramáticamente y se levanta con opciones | Silencio + «¡Uy!» | — | — |
+| Sin vidas | Lany se desmaya dramáticamente y se levanta con opciones | Silencio + «¡Uy!» | — | — |
 
 ## 11. Íconos e ilustración
 
@@ -246,7 +246,7 @@ Ligera en toques y aciertos, media en errores, patrones en festejos; sincronizad
 - **Escenarios ilustrados** para cada sección de la Travesía (el desierto, el mar abierto, el palacio, Galilea).
 - **Ilustraciones para preguntas:** escenas y personajes (de espaldas o en silueta cuando corresponde), mapas y objetos, con el mismo
   estilo.
-- **Lani y Tu Lani** con las reglas del capítulo {{cap:16}}.
+- **Lany y Tu Lany** con las reglas del capítulo {{cap:16}}.
 
 ## 12. Pantallas de ejemplo
 
@@ -254,7 +254,7 @@ Ligera en toques y aciertos, media en errores, patrones en festejos; sincronizad
 Unbounded y Plus Jakarta Sans, íconos propios sin emojis, profundidad, luz y botones con volumen). Son bocetos de dirección hechos para
 este documento: muestran el nivel y el tono buscados; el diseño final lo hace el diseñador de interfaz con el sistema de este capítulo.
 El resto de las pantallas v2 está en cada módulo: Inicio y Pulso (capítulo {{cap:06}}), Travesía (capítulo {{cap:08}}), Espadeo
-(capítulo {{cap:09}}), Liga (capítulo {{cap:11}}), Senda Reunión (capítulo {{cap:12}}), calendario (capítulo {{cap:13}}), Tu Lani y
+(capítulo {{cap:09}}), Liga (capítulo {{cap:11}}), Senda Reunión (capítulo {{cap:12}}), calendario (capítulo {{cap:13}}), Tu Lany y
 cofres (capítulo {{cap:18}}) y las tarjetas para compartir (capítulo {{cap:22}}).
 
 {{MOCKS_UX}}
@@ -278,7 +278,7 @@ recompensa variable → inversión) usado con ética: la recompensa variable est
 
 ## 14. Accesibilidad
 
-Contraste AA, letra ajustable, lector de pantalla, reducir movimiento, subtítulos en todo lo que habla Lani, colores siempre con ícono
+Contraste AA, letra ajustable, lector de pantalla, reducir movimiento, subtítulos en todo lo que habla Lany, colores siempre con ícono
 o forma (el 8% de los varones tiene alguna forma de daltonismo) y todo jugable con una mano.
 
 ## 15. Voz y tono
@@ -317,7 +317,7 @@ teléfono.
 **Decisión recomendada: se queda la barra de abajo.** Es la opción con evidencia, la que el pulgar alcanza y la que la gente ya conoce
 (ley de Jakob). El menú desplegable arriba esconde las secciones, está fuera del alcance del pulgar y baja el uso. Lo que se suma:
 
-1. **Perfil y ajustes** en el avatar de Tu Lani, arriba a la izquierda, en todas las pestañas (como Duolingo y YouVersion), en vez
+1. **Perfil y ajustes** en el avatar de Tu Lany, arriba a la izquierda, en todas las pestañas (como Duolingo y YouVersion), en vez
    de una sexta pestaña o un menú.
 2. **Siempre con etiqueta** debajo de cada ícono, y una **píldora** que se desliza hasta la pestaña activa.
 3. **La barra se esconde donde molesta:** en el lector de la Biblia y en las lecciones no aparece (pantalla completa).

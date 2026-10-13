@@ -1,18 +1,18 @@
-# Perfil, Tu Lani y amigos
+# Perfil, Tu Lany y amigos
 
 <div class="enpocas" markdown="1">
 **En pocas palabras.** Un perfil que cuenta quién sos en la fe (versículo preferido, qué significa tu nombre, hobbies) y cómo vas
-(racha, nivel, armaduras, el club de la Liga). Tu imagen es **Tu Lani**: tu propia versión de la mascota, con atuendos, accesorios y
+(racha, nivel, armaduras, el club de la Liga). Tu imagen es **Tu Lany**: tu propia versión de la mascota, con atuendos, accesorios y
 vehículos (bici, skate, moto, auto y legendarios como el carro de fuego de Elías) que se ganan jugando o se compran. Así todos se
-identifican con Lani y nadie necesita mostrar su cara. Para conectarse, **«Conectar hermano»**: por código, QR, tu grupo o después de
+identifican con Lany y nadie necesita mostrar su cara. Para conectarse, **«Conectar hermano»**: por código, QR, tu grupo o después de
 jugar; nunca chat abierto con desconocidos.
 </div>
 
-## 1. Tu Lani
+## 1. Tu Lany
 
 {{TU_LANI}}
 
-**Por qué:** es la forma más directa de bajar el riesgo de que Lani sea «de otros» o «de chicos»: cada uno la arma a su gusto, la
+**Por qué:** es la forma más directa de bajar el riesgo de que Lany sea «de otros» o «de chicos»: cada uno la arma a su gusto, la
 muestra en su perfil, en los duelos y en el mapa de la Travesía. Funciona como foto de perfil sin fotos (mejor para la privacidad de
 los menores) y es el corazón de la tienda (capítulo {{cap:17}}).
 
@@ -25,7 +25,7 @@ los menores) y es el corazón de la tienda (capítulo {{cap:17}}).
 | **Marcos y fondos** | Para el perfil y las tarjetas que compartís | Insignias, temporadas |
 | **La armadura** | Acabados de bronce, plata, oro y legendario para las piezas | Logros de Espadeo |
 
-**Dónde se ve Tu Lani:** perfil, duelos (frente a frente con el Lani del rival), el mapa de la Travesía (avanzando con su vehículo),
+**Dónde se ve Tu Lany:** perfil, duelos (frente a frente con el Lany del rival), el mapa de la Travesía (avanzando con su vehículo),
 la tabla de la Liga, las tarjetas para compartir y la cinemática de armadura completa.
 
 **Buen gusto:** los atuendos se revisan para que ninguno sea irrespetuoso (nada de disfraces de personajes sagrados en broma).
@@ -34,7 +34,7 @@ la tabla de la Liga, las tarjetas para compartir y la cinemática de armadura co
 
 | Campo | Detalle | Visibilidad por defecto |
 |---|---|---|
-| **Tu Lani** (o un avatar humano ilustrado, si preferís) | La imagen del perfil | Amigos |
+| **Tu Lany** (o un avatar humano ilustrado, si preferís) | La imagen del perfil | Amigos |
 | **Nombre visible** | Nombre o apodo (filtro de palabras inapropiadas) | Amigos |
 | **Usuario** | @usuario único | Amigos |
 | **Edad** | Solo la franja (13–15, 16–17, 18+) | Nunca se muestra |
@@ -61,7 +61,7 @@ la tabla de la Liga, las tarjetas para compartir y la cinemática de armadura co
 
 ## 4. Jugar con desconocidos, sin riesgo
 
-Con rivales al azar se juega **sin chat ni perfil completo**: se ve su Lani, su apodo, su club y su país. Para conectar después hace
+Con rivales al azar se juega **sin chat ni perfil completo**: se ve su Lany, su apodo, su club y su país. Para conectar después hace
 falta que los dos acepten y, si alguno es menor de 16, no se puede.
 
 ## 5. Seguridad y cuidado (resumen; detalle en el capítulo {{cap:26}})

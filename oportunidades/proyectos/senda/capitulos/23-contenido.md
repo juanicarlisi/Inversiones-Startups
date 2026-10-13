@@ -138,8 +138,8 @@ repositorio: tienen derechos de autor.
 
 ## 7. Contenido para redes (sin mostrar a nadie; detalle en el capítulo {{cap:22}})
 
-- **La que habla es Lani:** la cuenta de Instagram y TikTok es la voz de la mascota.
+- **La que habla es Lany:** la cuenta de Instagram y TikTok es la voz de la mascota.
 - **Formatos:** versículo del día con imagen; «¿Sabías que…?» (carrusel); trivia en historias con encuestas; clips de partidas de
-  Oveja Perdida y del Abecé; memes de Lani; resultados de la Liga y del Viernes de Espadeo; anuncios de Copas y sorteos.
+  Oveja Perdida y del Abecé; memes de Lany; resultados de la Liga y del Viernes de Espadeo; anuncios de Copas y sorteos.
 - **Ritmo:** 3–5 publicaciones por semana al principio; 1–2 reels por semana; historias diarias.
 - **Producción:** Claude arma el lote semanal; vos aprobás en 20 minutos los lunes y respondés comentarios en ratos (ver el roadmap).

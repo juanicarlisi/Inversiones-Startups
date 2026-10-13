@@ -3,7 +3,7 @@
 <div class="enpocas" markdown="1">
 **En pocas palabras.** **Berea** deja de ser un asistente con IA y pasa a ser **una sección**: el lugar de los planes de lectura, los
 desafíos con fecha (21 días, Semana Santa, el Ayuno de redes), **De memoria** (memorizar versículos) y, más adelante, la Biblioteca.
-La acompaña **Lani en modo explorador** (con su lámpara y su mapa), que te guía, celebra y te recuerda dónde ibas. No hay una IA para
+La acompaña **Lany en modo explorador** (con su lámpara y su mapa), que te guía, celebra y te recuerda dónde ibas. No hay una IA para
 hacerle preguntas. Este capítulo también reúne lo que cuida el bienestar: avisos, límites y modo familia.
 </div>
 
@@ -13,7 +13,7 @@ Los de Berea «recibieron la palabra con toda solicitud, escudriñando cada día
 nombre porque es el lugar de **examinar la Palabra cada día**: leerla con un plan, sostenerla con un desafío y guardarla en la memoria.
 Vive en la pestaña **Biblia**, al lado del lector («Leer | Berea»), porque todo lo de Berea lleva a leer.
 
-**El personaje:** Lani en **modo explorador** (lámpara encendida, mapa, mochila). Presenta cada plan, marca el día, festeja los hitos y,
+**El personaje:** Lany en **modo explorador** (lámpara encendida, mapa, mochila). Presenta cada plan, marca el día, festeja los hitos y,
 si te atrasaste, te ofrece ponerte al día sin culpa. Más adelante puede sumarse un segundo personaje guía (capítulo {{cap:16}}).
 
 ## 2. Planes de lectura
@@ -72,7 +72,7 @@ Versículo del día, racha y **el próximo evento del calendario** en la pantall
 ## 7. Tu año en Senda (diciembre)
 
 Resumen personal compartible, como Spotify Wrapped: días con la Palabra, capítulos leídos, Rutas y legendarios, armaduras completas,
-campaña de tu club en la Liga, versículos de memoria, tu Lani del año. Una versión del grupo para el líder y de la iglesia para el pastor.
+campaña de tu club en la Liga, versículos de memoria, tu Lany del año. Una versión del grupo para el líder y de la iglesia para el pastor.
 
 ## 8. Avisos (sistema de notificaciones)
 
@@ -90,7 +90,7 @@ a un resumen semanal.
 
 ## 9. Bienestar digital
 
-- **Límite diario opcional** de tiempo en juegos; al llegar, Lani propone cerrar («¡Gran día! Ahora a vivirlo»).
+- **Límite diario opcional** de tiempo en juegos; al llegar, Lany propone cerrar («¡Gran día! Ahora a vivirlo»).
 - **Pausa sugerida** después de 45 minutos seguidos de juego.
 - **Día libre** en la racha.
 - **Sin feed infinito** y sin reproducción automática.

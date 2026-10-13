@@ -2,9 +2,9 @@
 
 <div class="enpocas" markdown="1">
 **En pocas palabras.** **Senda**: el camino que se recorre paso a paso con la luz de la Palabra. Una marca cálida, joven, con
-energía de juego y reverente, **nunca infantil**: Lani v2 (una oveja con actitud), un logo que une una **S como camino** con una
+energía de juego y reverente, **nunca infantil**: Lany v2 (una oveja con actitud), un logo que une una **S como camino** con una
 **lámpara**, el **ámbar** como firma sobre **índigo**, un sonido de tres notas y una colección de stickers y merch que los jóvenes
-quieran usar (incluido el escudo de su club). Crece en redes sin mostrar a nadie: la que habla es Lani.
+quieran usar (incluido el escudo de su club). Crece en redes sin mostrar a nadie: la que habla es Lany.
 </div>
 
 ## 1. La idea de marca
@@ -40,7 +40,7 @@ quieran usar (incluido el escudo de su club). Crece en redes sin mostrar a nadie
 - **Colores:** ámbar (#F5A524) sobre índigo (#1C1446 / #3A2A8C) como firma; crema pergamino para la lectura y seis colores de joya
   para las categorías (capítulo {{cap:19}}). Decisión final tras la prueba de paletas de octubre.
 - **Tipografías:** Unbounded (títulos), Plus Jakarta Sans (interfaz) y Literata (lectura).
-- **Ilustración:** vectorial con volumen y luz, nada de trazo infantil; Lani v2 como protagonista; piezas de armadura como objetos de
+- **Ilustración:** vectorial con volumen y luz, nada de trazo infantil; Lany v2 como protagonista; piezas de armadura como objetos de
   juego; escenarios por sección de la Travesía.
 - **Fotografía:** no se usa (marca sin caras); todo es ilustración, tipografía y animación.
 - **Plantillas:** posts, historias, reels, imágenes de versículos, anuncios de torneos y resultados de la liga, todas en un mismo sistema.
@@ -55,7 +55,7 @@ quieran usar (incluido el escudo de su club). Crece en redes sin mostrar a nadie
 
 ## 5. Stickers
 
-- **Stickers de WhatsApp** (el canal más usado: más del 90% de los usuarios de internet en Argentina): paquete gratuito de Lani con
+- **Stickers de WhatsApp** (el canal más usado: más del 90% de los usuarios de internet en Argentina): paquete gratuito de Lany con
   frases y reacciones («¡Amén!», «Orando por vos», «¡7 días!», «Revancha», «Armadura completa», «Me fui de Travesía»). Cada sticker
   compartido es publicidad gratis.
 - **Stickers y GIF para Instagram y TikTok** (GIPHY), con la misma colección.
@@ -65,15 +65,15 @@ quieran usar (incluido el escudo de su club). Crece en redes sin mostrar a nadie
 
 | Producto | Idea | Costo estimado por unidad | Cuándo |
 |---|---|---|---|
-| Stickers de vinilo | Lani, la lámpara, las 6 piezas de la armadura (en su versión de juego) | USD 0,10–0,30 (tirada de 500) | Lanzamiento |
+| Stickers de vinilo | Lany, la lámpara, las 6 piezas de la armadura (en su versión de juego) | USD 0,10–0,30 (tirada de 500) | Lanzamiento |
 | Remera | Logo chico + frase «Un paso por día» o la armadura en la espalda | USD 6–9 | Lanzamiento |
 | Buzo | Para campamentos y la Copa Senda | USD 15–22 | Invierno 2027 |
 | **Remera con el escudo de tu club** | Cada uno con el escudo que armó en la Liga (impresión a pedido) | USD 6–9 | 2028 |
 | Gorra | Bordado del símbolo | USD 5–8 | 2027 |
 | Funda para Biblia | Con el símbolo y la frase del Salmo 23 | USD 6–10 | 2027 |
 | Pulsera «rayitos» | Silicona con la lámpara | USD 0,5–1 | Para rachas de 100 días |
-| Llavero de Lani | Acrílico o goma | USD 1–2 | 2027 |
-| **Figura o peluche de Lani** (con armadura desmontable) | El producto estrella, en el estilo v2 (nada de peluche de bebé) | USD 8–15 (fabricación por mayor) | 2028, si la comunidad lo pide |
+| Llavero de Lany | Acrílico o goma | USD 1–2 | 2027 |
+| **Figura o peluche de Lany** (con armadura desmontable) | El producto estrella, en el estilo v2 (nada de peluche de bebé) | USD 8–15 (fabricación por mayor) | 2028, si la comunidad lo pide |
 | Cuaderno de devocionales | Con planes de 30 días | USD 3–5 | 2028 |
 
 **Cómo se vende:** primero **no se vende**: el merch se usa para sorteos, premios de la Copa y regalos a embajadores. Desde 2027 se
@@ -113,12 +113,12 @@ requiere tu aprobación.
 
 ## 9. Manual de marca
 
-Documento corto (10–15 páginas) con: logo y sus usos, colores, tipografías, Lani (poses permitidas, lo que nunca hace), tono de voz,
-plantillas de redes, merch y **lo que no se hace** (usar a Lani en temas políticos o polémicos, deformar el logo, mezclar con marcas
+Documento corto (10–15 páginas) con: logo y sus usos, colores, tipografías, Lany (poses permitidas, lo que nunca hace), tono de voz,
+plantillas de redes, merch y **lo que no se hace** (usar a Lany en temas políticos o polémicos, deformar el logo, mezclar con marcas
 de terceros). Se arma cuando estén el logo y la mascota finales (noviembre de 2026).
 
 ## 10. Protección de la marca (detalle en el capítulo {{cap:26}})
 
-Registro en el INPI de la palabra **Senda** y del logo, y de **Lani** (v2) como marca figurativa, en las clases de software y apps (9),
+Registro en el INPI de la palabra **Senda** y del logo, y de **Lany** (v2) como marca figurativa, en las clases de software y apps (9),
 educación y entretenimiento (41), servicios en línea (42) y, para el merch, ropa (25), papelería y stickers (16) y juguetes (28).
 Dominios y usuarios en redes reservados desde octubre de 2026.

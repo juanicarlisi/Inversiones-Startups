@@ -3,7 +3,7 @@
 <div class="enpocas" markdown="1">
 **En pocas palabras.** Una sola base de código para Android, iOS y (en 2028) web: **React Native con Expo**, en TypeScript, el lenguaje
 en el que Claude Code rinde mejor. Detrás, **Supabase** (base de datos, cuentas, tiempo real y archivos), **Cloudflare R2** para las
-Biblias y los audios, **Rive** para que Lani se mueva como el búho de Duolingo, **RevenueCat** para las suscripciones, **AdMob** para
+Biblias y los audios, **Rive** para que Lany se mueva como el búho de Duolingo, **RevenueCat** para las suscripciones, **AdMob** para
 los videos, **PostHog** y **Sentry** para medir, la Biblia con licencia vía **API.Bible** (más tres Biblias libres desde el día 1), y la **API de
 Claude solo por detrás** (producir, traducir y moderar contenido; no hay IA para los usuarios). Claude Code puede construir casi todo;
 para llegar al **nivel profesional** hacen falta, además, un **diseñador de interfaz**, un **ilustrador**, un **animador de Rive** y
@@ -25,14 +25,14 @@ licencias después.
 | Compartir en historias de Instagram, WhatsApp y Facebook | **Sí** | Un Facebook App ID (cuenta de desarrollador de Meta) |
 | Lienzo de dibujo (Dibujalo) | **Sí** (Skia) | — |
 | **Mascota animada con estados y boca que habla** | **Parcial**: integra el archivo y lo controla por código | **Animador de Rive** que dibuja y arma la máquina de estados |
-| **Ilustraciones** (Lani, armadura, avatares, fondos) | **Parcial**: bocetos y conceptos con IA | **Ilustrador** para la versión final (y para tener derechos de autor) |
+| **Ilustraciones** (Lany, armadura, avatares, fondos) | **Parcial**: bocetos y conceptos con IA | **Ilustrador** para la versión final (y para tener derechos de autor) |
 | **Diseño de sonido** (40–60 sonidos + firma) | **Parcial**: especifica, busca en bibliotecas con licencia, genera con herramientas de efectos | **Diseñador de sonido** para la firma y la mezcla final (o curaduría cuidadosa) |
 | Contenido (preguntas, lecciones, traducciones) | **Sí**, con verificación automática | **Revisores humanos** |
 | Pruebas en teléfonos reales | Automatiza pruebas | **Testers humanos** con distintos teléfonos (incluido iPhone) |
 | Publicación en tiendas | Prepara todo (fichas, capturas, textos) | **Vos** apretás el botón y manejás las cuentas |
 | Legal | **Sí**: todos los documentos (capítulo {{cap:26}}) | Revisión profesional puntual y opcional en dos casos |
 
-**Conclusión:** el cuello de botella no es el código sino **la dirección visual, el arte (Lani), el sonido y la revisión de
+**Conclusión:** el cuello de botella no es el código sino **la dirección visual, el arte (Lany), el sonido y la revisión de
 contenido**. Por eso se encargan desde el principio (capítulos {{cap:29}} y {{cap:30}}).
 
 ## 2. La arquitectura
@@ -45,7 +45,7 @@ contenido**. Por eso se encargan desde el principio (capítulos {{cap:29}} y {{c
 |---|---|---|---|---|
 | App móvil | **React Native + Expo** (TypeScript) | Una base para Android e iOS (y web); actualizaciones sin pasar por la tienda; enorme ecosistema; Claude rinde mejor en TypeScript | Gratis | Flutter |
 | Compilación y publicación | **Expo EAS** (Build, Submit, Update) | Compila iOS en la nube sin Mac; publica en tiendas; actualizaciones «por aire» | Gratis → USD 19/mes (Starter) en meses de mucho trabajo | Compilar a mano |
-| Animación de la mascota | **Rive** (runtime gratis y abierto) o **Lani 3D** con three.js sobre expo-gl (prueba 8; se decide en noviembre, capítulo {{cap:16}} §3b) | Rive: lo que usa Duolingo (máquina de estados, archivos chicos, boca sincronizada). 3D: hecha con código, cambios en minutos, la armadura se le pone encima | Rive: el animador usa su cuenta (desde USD 9/mes). 3D: gratis | Lottie (más limitado) |
+| Animación de la mascota | **Rive** (runtime gratis y abierto) o **Lany 3D** con three.js sobre expo-gl (prueba 8; se decide en noviembre, capítulo {{cap:16}} §3b) | Rive: lo que usa Duolingo (máquina de estados, archivos chicos, boca sincronizada). 3D: hecha con código, cambios en minutos, la armadura se le pone encima | Rive: el animador usa su cuenta (desde USD 9/mes). 3D: gratis | Lottie (más limitado) |
 | Microanimaciones | **Reanimated** + **Lottie** | 60 cuadros por segundo en el hilo de la interfaz | Gratis | — |
 | Dibujo y gráficos | **React Native Skia** | Lienzo rápido (Dibujalo), ruleta, efectos de luz | Gratis | — |
 | Sonido y vibración | expo-audio + expo-haptics | Sonidos precargados y vibración sincronizada | Gratis | — |
@@ -94,7 +94,7 @@ contenido**. Por eso se encargan desde el principio (capítulos {{cap:29}} y {{c
 
 ## 6. Datos: las entidades principales
 
-Usuario y perfil · franja de edad y consentimientos · Tu Lani (inventario y equipamiento) · amistades, rachas compartidas y vidas
+Usuario y perfil · franja de edad y consentimientos · Tu Lany (inventario y equipamiento) · amistades, rachas compartidas y vidas
 regaladas · grupos e iglesias (y verificación) · progreso de la Travesía (por Ruta, nivel y tarjeta de repaso) · racha (días) · monedas,
 vidas y transacciones · duelos y turnos · preguntas (con su ficha e imagen) · propuestas y votos · salas, reuniones (esquema, bloques,
 registros) · liga (temporadas, divisiones, zonas, fechas, partidos, clubes y escudos) · calendario (eventos, repeticiones, asistencia,
@@ -185,10 +185,10 @@ Además:
 | Quién o qué | Para qué | Costo (nivel profesional) | Cuándo |
 |---|---|---|---|
 | **Diseñador de interfaz** | Sistema visual (paleta probada, componentes, íconos, movimiento) y 12 pantallas clave | USD 900 | Oct–nov 2026 |
-| **Ilustrador** | Lani v2 final, piezas de armadura, íconos, escenarios, objetos de Tu Lani, imágenes para preguntas | USD 500 + 450 + 600 + 300 | Nov-2026 a mar-2027 |
-| **Animador de Rive** | Lani con 20+ reacciones y movimientos, boca sincronizada después | USD 1.200 | Dic-2026 a feb-2027 |
+| **Ilustrador** | Lany v2 final, piezas de armadura, íconos, escenarios, objetos de Tu Lany, imágenes para preguntas | USD 500 + 450 + 600 + 300 | Nov-2026 a mar-2027 |
+| **Animador de Rive** | Lany con 20+ reacciones y movimientos, boca sincronizada después | USD 1.200 | Dic-2026 a feb-2027 |
 | **Diseñador de sonido** | Firma, 60 efectos, música de menús, la escalera de la racha | USD 400 | Nov-2026 |
-| **Voz de Lani** | 30 exclamaciones grabadas | USD 150 | Mar-2027 |
+| **Voz de Lany** | 30 exclamaciones grabadas | USD 150 | Mar-2027 |
 | Teléfonos de prueba | Un Android de gama baja y acceso a iPhone (testers) | — | Siempre |
 | Licencias de Biblias | RVR1960, NTV, NVI, DHH, TLA | USD 39–330 por mes en 2027 (0 con solo las libres) | Desde el lanzamiento |
 | Cuentas | Apple (USD 99 por año), Google Play (USD 25 una vez), Meta (gratis) | — | Oct-2026 |
@@ -222,7 +222,7 @@ Detalle, niveles y alternativas más baratas o más caras en el **menú de calid
 ## 13. Qué hace que sea superadora (la vara técnica)
 
 - **Pasa la prueba de la grilla:** cada pantalla al nivel de Duolingo, Preguntados o Candy Crush.
-- **Lani viva**: 20+ reacciones en Rive, mira lo que tocás, parpadea, baila, se pone la armadura; desde 2027 habla con la boca
+- **Lany viva**: 20+ reacciones en Rive, mira lo que tocás, parpadea, baila, se pone la armadura; desde 2027 habla con la boca
   sincronizada.
 - **Jugosidad en cada momento:** explosiones de luz, sonidos que suben con la racha, vibración sincronizada.
 - **Coreografía de toque, sonido y vibración** en cada interacción (tabla del capítulo {{cap:19}}).

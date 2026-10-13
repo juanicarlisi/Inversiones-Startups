@@ -27,7 +27,7 @@ cuesta entender (§15).
 | **Antes o después** (ex Línea de tiempo) | Ordenar hechos | Solo y contra reloj | Al azar, amigos | v2 |
 | **Giro diario** (ex Maná del día) | Ruleta una vez por día: cae en una categoría, primero una pregunta o un «¿Sabías que…?» y después el premio | Solo | — | MVP |
 | **Búsqueda del tesoro** y **escape bíblico** | Pistas con QR | Equipos, presencial | — | v3 |
-| **Lani corre** (evolutivo, pedido del fundador del 06-10-2026) | Carrera por historias bíblicas: los carriles son las respuestas | Solo, contra el «fantasma» de un amigo, desafío semanal | Amigos, al azar | 2027 (después del lanzamiento) |
+| **Lany corre** (evolutivo, pedido del fundador del 06-10-2026) | Carrera por historias bíblicas: los carriles son las respuestas | Solo, contra el «fantasma» de un amigo, desafío semanal | Amigos, al azar | 2027 (después del lanzamiento) |
 | **Juegos de historias** (El arca, Jericó, Nehemías…, evolutivo) | Juegos de mesa y de consola llevados a la Biblia | Solo, en grupo, impresos | Amigos, grupo | 2027, uno por vez |
 | **Senda Fiesta** (tablero con minijuegos, evolutivo) | Tablero que es una historia, la nube que se mueve, coronas que se ganan sabiendo y un minijuego por ronda (todos enseñan) | Mismo teléfono, tele de la reunión, por turnos con amigos, campamento | Amigos, grupo, campamento | 2027, después de los duelos y Reunión |
 | **Emaús** (nuevo, 11-10-2026) | Unir cada promesa del Antiguo Testamento con su cumplimiento en Jesús | Solo, duelo, Reunión | Amigos, al azar, grupo | v1 (dentro de la ruta El Mesías prometido) |
@@ -142,20 +142,20 @@ aproximadas al final (marcadas como aproximadas).
 
 - Una vez por día se gira una ruleta. **Desde el 11-10-2026, el giro enseña:** cae en una de las seis categorías y, antes del premio,
   muestra una pregunta corta o un «¿Sabías que…?» con su cita (de las rutas que la persona eligió). Acertar o leerlo libera el premio:
-  Talentos, comodines, vidas, un protector de racha, un objeto de Tu Lani.
+  Talentos, comodines, vidas, un protector de racha, un objeto de Tu Lany.
 - **No se acumula:** si no girás hoy, se pierde (la esencia del maná del desierto, Éxodo 16, que se juntaba cada mañana; ahora contada
   adentro, no en el nombre).
 - **No se compran giros.** Con Plus hay un segundo giro; con un video, uno extra.
-- **Alternativas de nombre:** Ruleta de Lani · Regalo del día.
+- **Alternativas de nombre:** Ruleta de Lany · Regalo del día.
 
 ## 9. Búsqueda del tesoro y escape bíblico (v3, para campamentos)
 
 El líder imprime códigos QR con pistas bíblicas y los esconde; los equipos los escanean, resuelven el acertijo (con la cita) y avanzan.
 El escape bíblico es una historia con candados que se abren resolviendo acertijos. Se arma desde el modo campamento de Senda Reunión.
 
-## 10. Lani corre (evolutivo para 2027)
+## 10. Lany corre (evolutivo para 2027)
 
-Una carrera sin fin con el espíritu de Senda: Lani corre por **escenas de historias bíblicas**, esquiva, salta y junta cosas con el
+Una carrera sin fin con el espíritu de Senda: Lany corre por **escenas de historias bíblicas**, esquiva, salta y junta cosas con el
 dedo (tres carriles, deslizar a los lados, arriba y abajo). No es una copia de Subway Surfers: se toma solo la mecánica, que es de
 todos; el arte, los personajes, los escenarios y los nombres son propios. Cada nivel es una historia, así que tiene principio y final.
 
@@ -186,7 +186,7 @@ todos; el arte, los personajes, los escenarios y los nombres son propios. Cada n
     ninguna sobre este tipo de carrera.
 - **Cómo se construye:**
   - 2,5D con React Native Skia y animaciones en el hilo nativo (sin salir de la app), o una escena 3D liviana con three.js;
-  - el arte (escenarios, Lani corriendo) es lo que más trabajo lleva;
+  - el arte (escenarios, Lany corriendo) es lo que más trabajo lleva;
   - un nivel jugable en unas 3 a 4 semanas de trabajo de Claude.
 - **Cuándo y regla de corte:** después del lanzamiento, en el segundo trimestre de 2027, solo si el Espadeo retiene. Se construye
   primero **un nivel** (El mar abierto) y se prueba con 50 jóvenes. Si menos del 30 % vuelve a jugarlo en la semana, no se hacen más
@@ -219,7 +219,7 @@ trivia y adaptaciones de juegos clásicos (¿Quién es quién? bíblico). **Regl
 | **Babel** | Génesis 11 | Rompecabezas de idiomas: entenderse con señas y símbolos | El relato y por qué hay tantos idiomas |
 
 Se pueden jugar en el teléfono y, los de mesa, también impresos (versión para imprimir desde Senda Reunión). **Cuándo y regla de corte:**
-después de Lani corre; se prototipa uno (El arca) en 3 a 4 semanas y se prueba con 50 jóvenes: si menos del 30 % lo vuelve a jugar en la
+después de Lany corre; se prototipa uno (El arca) en 3 a 4 semanas y se prueba con 50 jóvenes: si menos del 30 % lo vuelve a jugar en la
 semana, no se hacen más.
 
 ## 12. Senda Fiesta: el modo fiesta, con identidad propia (evolutivo; rediseñado el 11-10-2026)
@@ -306,7 +306,7 @@ El modo **por turnos con amigos** es nuestro: un tablero con minijuegos que se j
 
 **Para no tener problemas legales (INFERENCIA de Claude; antes de construir, consulta con un abogado de propiedad intelectual).**
 - **Las mecánicas son libres.** El derecho de autor no protege la idea de un juego, su nombre ni el método para jugarlo: protege el texto, el arte y la música. Así lo dice la Oficina de Copyright de Estados Unidos ([circular FL-108, copia archivada de 2004](https://webharvest.gov/peth04/20041015023438/http://www.copyright.gov/fls/fl108.html); [ABA Landslide](https://www.americanbar.org/groups/intellectual_property_law/resources/landslide/archive/why-videogame-rules-are-not-expression-protected-copyright-law/)). Hay que confirmarlo en la versión actual de copyright.gov antes de decidir.
-- **El aspecto sí se protege.** En *Tetris Holding v. Xio* (2012), un clon perdió por copiar las formas, los colores y las medidas del tablero ([Wikipedia](https://en.wikipedia.org/wiki/Tetris_Holding,_LLC_v._Xio_Interactive,_Inc.)). Senda Fiesta usa su propio arte (Lani, la paleta de Senda y los mapas bíblicos), su música y sus nombres.
+- **El aspecto sí se protege.** En *Tetris Holding v. Xio* (2012), un clon perdió por copiar las formas, los colores y las medidas del tablero ([Wikipedia](https://en.wikipedia.org/wiki/Tetris_Holding,_LLC_v._Xio_Interactive,_Inc.)). Senda Fiesta usa su propio arte (Lany, la paleta de Senda y los mapas bíblicos), su música y sus nombres.
 - **Las marcas no se tocan.**
   - Mario, Mario Party, Nintendo y los nombres de sus personajes, objetos y casillas no aparecen en ningún lado.
   - Tampoco en la tienda ni en la publicidad: nada de «el Mario Party cristiano». En la ficha va «juego de tablero con minijuegos».
@@ -365,7 +365,7 @@ Fuentes: [Esgrima bíblica (FaithGateway)](https://faithgateway.com/products/esg
 2. **¿Se aprende algo comprobable?** (ahora con más peso: menos de 4 aquí, y no pasa).
 3. **¿Es corto y de un dedo?** Partidas de 60 a 120 segundos, que se entienden en 3 segundos.
 4. **¿El género divierte de verdad?** Mecánicas probadas por millones, con una curva de dificultad que pide «una más».
-5. **¿Es barato de hacer?** Reutiliza el motor (Reanimated y Skia), el arte de Lani y los sonidos de la firma.
+5. **¿Es barato de hacer?** Reutiliza el motor (Reanimated y Skia), el arte de Lany y los sonidos de la firma.
 6. **¿Cuesta cero de servidor?** Todo en el teléfono. La tabla semanal de amigos usa la misma base de los duelos.
 7. **¿Es reverente?** Sin violencia gráfica y sin burlarse de lo sagrado. Si Dios aparece, no es un personaje del juego.
 8. **¿Se comparte?** Un récord o un clip de 10 segundos que dé ganas de mandarlo al grupo.
@@ -489,7 +489,7 @@ hombres y mujeres; desarrollar lo que se pueda y dejar el resto en el backlog.
 | Toda la Biblia | **Antes o después** | Ubicar hechos en la línea del tiempo (orden del relato, con la cita) | Todos | **Desarrollado en la prueba 10** |
 | El mensaje del domingo | **Trivia de la iglesia** | Concurso por turnos; gana quien acierta más (formato de *Bible Quizzing*) | Jóvenes, iglesia | **Desarrollado en la prueba 10** (paquete de ejemplo) |
 | Creación (Génesis 1–2) | **Los seis días** | Ordenar y unir: qué se creó cada día y qué separa Dios (luz y tinieblas, aguas, tierra) | Niños, jóvenes | Backlog v1 (motor de parejas y ordenar) |
-| Diluvio (Génesis 6–9) | **El arca** | Rompecabezas de acomodar (§11), con las medidas y los días del texto | Familias | Backlog (después de Lani corre) |
+| Diluvio (Génesis 6–9) | **El arca** | Rompecabezas de acomodar (§11), con las medidas y los días del texto | Familias | Backlog (después de Lany corre) |
 | Patriarcas | **La promesa** | Árbol genealógico que se arma: de Abraham a las doce tribus | Jóvenes | Backlog v1 |
 | Historia de Israel | **El reino** | Cooperativo por turnos: cada rey elige; lo que hace se ve en el mapa (como *Kings of Israel*, pero con las citas de Reyes y Crónicas y sin copiar sus reglas) | Hombres, jóvenes | Backlog v2 |
 | Jueces | **El ciclo** | Ronda que se repite: pecado, opresión, clamor, libertador, descanso (Jueces 2:11-19); hay que reconocer en qué parte del ciclo está cada relato | Jóvenes, hombres | Backlog v1 (hueco libre en el mercado) |

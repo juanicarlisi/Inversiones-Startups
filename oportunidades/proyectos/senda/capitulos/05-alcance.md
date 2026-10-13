@@ -47,7 +47,7 @@ Apple ofrece una API que informa la franja de edad sin pedir la fecha de nacimie
 | Leer | Biblia (versiones, audio, «+», notas, planes), racha, versículo del día | MVP y v1 |
 | Aprender | Travesía: Ruta Fundamentos (toda la Biblia, completa en junio de 2027), Rutas temáticas (Héroes, Mapas, 66 Libros, Preparados, Profecías y más), Repaso del día, niveles Profundo y Maestría | MVP a 2028 |
 | Jugar | Espadeo (duelos, Escuadra, ¡Desenvainá!, Desafío del día), Dibujalo, Oveja Perdida, Tutti Frutti, Abecé, ¿Quién soy?, ¡Prohibido!, Palabra del día, Antes o después, Giro diario | MVP a v3 |
-| Juntos | Perfil y Tu Lani, amigos, grupos, calendario (Senda, personal y del grupo o iglesia), Liga Senda, Copas, la semana Senda, Pulso, Estados, Oremos, Senda Reunión, Senda Púlpito | MVP a v3 |
+| Juntos | Perfil y Tu Lany, amigos, grupos, calendario (Senda, personal y del grupo o iglesia), Liga Senda, Copas, la semana Senda, Pulso, Estados, Oremos, Senda Reunión, Senda Púlpito | MVP a v3 |
 | Crecer | Berea: planes, desafíos con fecha, Ayuno de redes, De memoria, *Primero la Palabra*; Biblioteca (2028); Tu año en Senda | MVP a 2028 |
 
 El detalle por versión está en el roadmap (capítulo {{cap:30}}).

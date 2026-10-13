@@ -3,7 +3,7 @@
 <div class="enpocas" markdown="1">
 **En pocas palabras.** En la v2 **todo lo que hacés en Senda suma**: Pasos (para subir de nivel, la Liga y el Pase Senda) y Talentos
 (para gastar). Hay tres monedas (Pasos, Talentos y Perlas), **vidas** para la Travesía y los juegos, **seis comodines**, cofres,
-misiones, insignias más profundas y una tienda de **Tu Lani** con atuendos, vehículos (bici, moto, auto y legendarios como el carro de
+misiones, insignias más profundas y una tienda de **Tu Lany** con atuendos, vehículos (bici, moto, auto y legendarios como el carro de
 fuego) y piezas para el escudo de tu club. La economía está pensada para que, en algún momento, ver un video o tener un plan sea
 tentador, sin romper la experiencia y sin que pagar dé ventaja en lo oficial.
 </div>
@@ -32,7 +32,7 @@ motivaciones «de sombrero blanco» (sentido, logro, creatividad, pertenencia) y
 | Elemento | Qué es | Se gana con | Se usa para |
 |---|---|---|---|
 | **Pasos** | Experiencia | Todo lo que hacés | Nivel de la cuenta, Liga (desempates), Pase Senda, misiones |
-| **Talentos** | Moneda del juego | Todo lo que hacés (tabla de abajo) | Vidas, comodines, protectores, objetos de Tu Lani, piezas del escudo |
+| **Talentos** | Moneda del juego | Todo lo que hacés (tabla de abajo) | Vidas, comodines, protectores, objetos de Tu Lany, piezas del escudo |
 | **Perlas** | Moneda especial | Rara jugando (insignias, ascensos, cofres de oro, Plus y Max) y **se compra** | Objetos especiales, recargas, Pase Senda; nunca ventaja en lo oficial |
 | **Vidas** | Intentos | Tiempo, repaso, aciertos seguidos, amigos, invitaciones, videos | Travesía (errores) y empezar partidas |
 | **Comodines** | Ayudas en las preguntas | Cofres, misiones, Giro diario, videos, invitaciones, planes | Espadeo y juegos de preguntas |
@@ -107,7 +107,7 @@ o en el Pase Senda.
 | Terminaste una partida (gratis) | Un **anuncio corto** al terminar cada partida (decisión 05-10-2026) | Ingreso por volumen; nunca en la Biblia ni en la Travesía |
 | Cofre ganado | **Video para abrir otro** o duplicar el premio | Recompensa opcional |
 | Racha en riesgo | Protector con Talentos o **video** | Cuida el hábito |
-| Querés algo de Tu Lani | Talentos (lento) · **Perlas** · **Pase Senda** | Deseo de estilo, sin ventaja |
+| Querés algo de Tu Lany | Talentos (lento) · **Perlas** · **Pase Senda** | Deseo de estilo, sin ventaja |
 | Líder con 25 chicos en la sala | **Senda Líder** (200 jugadores) | Necesidad real |
 | **Nunca** | Biblia, planes, Berea, en medio de una lección, eventos en vivo, menores de 13 | — |
 
@@ -153,7 +153,7 @@ Apertura inmediata (sin esperas que empujan a pagar), con animación y sonido; *
 ## 10. Pase Senda (por temporada)
 
 Cada temporada (Apertura y Clausura) tiene un recorrido de **40 niveles** que se avanza con Pasos. El **carril gratis** da Talentos,
-comodines y algunos objetos; el **carril premium** (USD 1,99 por temporada, incluido en Max) suma atuendos y vehículos de Tu Lani,
+comodines y algunos objetos; el **carril premium** (USD 1,99 por temporada, incluido en Max) suma atuendos y vehículos de Tu Lany,
 piezas exclusivas del escudo, festejos animados y Perlas. Sin presión: lo que no se completa no se pierde en Perlas, y no hay avisos de
 «última oportunidad» para menores.
 

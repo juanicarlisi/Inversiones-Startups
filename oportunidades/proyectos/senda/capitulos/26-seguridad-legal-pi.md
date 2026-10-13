@@ -24,7 +24,7 @@ dueño (como «El Rosco» o «Tabú»).
 | Respuestas a encuestas de estudio (Pulso) | **Separadas de la cuenta**, sin forma de volver a la persona | Estadísticas agregadas |
 | Encuestas del grupo | Anónimas por defecto; resultados con 5 o más respuestas | El líder conoce a su grupo |
 | Asistencia (QR) y turnos | Sí, dentro del grupo | Organización del grupo |
-| Tu Lani, club y escudo | Sí | Perfil y Liga |
+| Tu Lany, club y escudo | Sí | Perfil y Liga |
 | Uso de redes (*Primero la Palabra*) | No sale del teléfono; solo el resumen que ve la persona | Que la persona vea su progreso |
 | Datos de uso | Sí, anónimos o seudónimos | Mejorar la app (sin grabar sesiones de menores) |
 
@@ -142,10 +142,10 @@ Play y App Store (familias, contenido de usuarios, suscripciones, anuncios, uso 
 | Herramienta | Qué protege | Costo | Cuándo |
 |---|---|---|---|
 | **Marca «Senda» en el INPI** | El nombre en apps y servicios | ~USD 27 por clase | Presentar en **noviembre de 2026** (antes del lanzamiento público) |
-| **Marca del logo** (mixta) y **de Lani** (figurativa) | El símbolo y la mascota | ~USD 27 por clase | Cuando estén los diseños finales (dic-2026 a feb-2027) |
+| **Marca del logo** (mixta) y **de Lany** (figurativa) | El símbolo y la mascota | ~USD 27 por clase | Cuando estén los diseños finales (dic-2026 a feb-2027) |
 | Clases recomendadas | 9 (software y apps), 41 (educación y entretenimiento), 42 (servicios en línea); para merch, 16 (papelería y stickers), 25 (ropa), 28 (juguetes) | 3 clases al inicio (~USD 80); 6 con merch (~USD 160) | Por tandas |
 | **Derechos de autor** | Código, textos propios, ilustraciones y sonidos | Automáticos; depósito opcional en la DNDA (~ARS 1.400) como prueba de fecha | 2027 |
-| **Autoría humana** | Lo generado solo por IA no tiene derechos de autor (EE.UU., 2025) → Lani y el logo **finales los hace una persona**, con cesión por escrito | Incluido en el trabajo del ilustrador | Nov-2026 |
+| **Autoría humana** | Lo generado solo por IA no tiene derechos de autor (EE.UU., 2025) → Lany y el logo **finales los hace una persona**, con cesión por escrito | Incluido en el trabajo del ilustrador | Nov-2026 |
 | **Modelo o diseño industrial** (INPI) | La forma del peluche y objetos de merch | Bajo | Solo si se fabrica el peluche (2028) |
 | **Secreto comercial** | Banco de preguntas completo, fichas de unidades, algoritmos de dificultad | Gratis (acceso restringido) | Siempre |
 | **Dominios y usuarios en redes** | senda con variantes (.app, .com, .com.ar) y @ en Instagram, TikTok, YouTube, WhatsApp | ~USD 20–45 por año | **Octubre de 2026** |
@@ -184,4 +184,4 @@ Antes de fijar cada nombre se busca en el INPI y en las tiendas.
   no muestra la dirección en ese caso), y **transferir la app a la empresa del holding** antes de activar la suscripción (las dos
   tiendas permiten transferir apps entre cuentas).
 - La marca en el INPI y los dominios, a nombre de la empresa cuando exista (o transferidos después).
-- En redes habla Lani; nadie muestra la cara.
+- En redes habla Lany; nadie muestra la cara.

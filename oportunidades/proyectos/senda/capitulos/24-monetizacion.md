@@ -5,7 +5,7 @@
 la Liga. La plata viene de una **escalera de planes** pensada con teoría y benchmark: **Plus** (USD 0,99 por mes: más vidas y menos
 espera), **Max** (USD 2,49: vidas ilimitadas, más comodines y el Pase Senda; el que recomendamos), **Familia** (USD 4,99 para 6),
 el **Pase Senda** por temporada (USD 1,99, para quien no quiere suscripción), **Líder** (USD 3,49) e **Iglesia** (USD 12,99); más
-**videos opcionales**, un **anuncio corto** al terminar cada partida en el plan gratis y **Perlas** para Tu Lani. Ningún plan regala todo y
+**videos opcionales**, un **anuncio corto** al terminar cada partida en el plan gratis y **Perlas** para Tu Lany. Ningún plan regala todo y
 ningún plan da ventaja en lo oficial.
 </div>
 
@@ -94,7 +94,7 @@ escalón da más sin regalar todo, como pediste.
 
 ## 9. Compras dentro de la app
 
-- **Perlas:** 120 por USD 0,99; 650 por USD 4,99; 1.400 por USD 9,99. Para objetos de Tu Lani, recargas y el Pase Senda.
+- **Perlas:** 120 por USD 0,99; 650 por USD 4,99; 1.400 por USD 9,99. Para objetos de Tu Lany, recargas y el Pase Senda.
 - **Sin cajas pagas** ni compras de ventaja en lo oficial.
 - **Menores:** sin ofertas por tiempo limitado; las tiendas aplican sus controles parentales.
 

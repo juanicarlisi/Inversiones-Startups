@@ -13,7 +13,7 @@ Max) tiene fecha y monto, y se aprueba antes.
 |---|---|---|
 | 1 | **Nombre de la app** | **Senda**. Verificaciones en curso (sección 3) |
 | 2 | **Validación con jóvenes** | **No por ahora**: el proyecto es el punto de partida; se valida y ajusta con la app en uso |
-| 3 | **Lani v2** | Aprobado el diseño de dirección |
+| 3 | **Lany v2** | Aprobado el diseño de dirección |
 | 4 | **Paleta** | **B (ámbar + índigo)**; se ajusta más adelante con datos |
 | 5 | **Las 6 categorías y piezas de Espadeo** | Aprobadas |
 | 6 | **Nombres de juegos** | Aprobados |
@@ -54,8 +54,8 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | Versiones de la Biblia | Solo protestantes (NTV, TLA, DHH, NVI, LBLA…) | Pedidos de licencia listos para cada titular: SBU (RVR1960, DHH, TLA, RVC), Tyndale (NTV), Biblica (NVI) y Lockman (LBLA, NBLA); se envían desde un correo del proyecto (capítulo {{cap:07}} y Consola) |
 | Paso de hoja | Se veía muy feo | **Rehecho:** la hoja se dobla siguiendo el dedo, con el dorso del papel y su sombra; la elección «pasar hojas o deslizar» sigue en Ajustes |
 | Sonidos | Algunos baratos, tardíos o cansadores | Motor sin demoras; sin sonido en botones y pestañas; **Sala de sonidos** en la Consola para elegir entre los propios y bancos libres (Kenney y Freesound, CC0) |
-| «Pausa con Lani» | Parecía meditación oriental: se va | **Reemplazada por «Antes de leer»:** invitación breve a orar con el Salmo 119:18, una vez por día, desactivable |
-| Jugar y Travesía | Menos tiesos | Ruleta con física, carta de categoría, opciones en cascada, Lani que reacciona; mapa que se dibuja, globo para empezar, Lani que camina |
+| «Pausa con Lany» | Parecía meditación oriental: se va | **Reemplazada por «Antes de leer»:** invitación breve a orar con el Salmo 119:18, una vez por día, desactivable |
+| Jugar y Travesía | Menos tiesos | Ruleta con física, carta de categoría, opciones en cascada, Lany que reacciona; mapa que se dibuja, globo para empezar, Lany que camina |
 | Voz que lee | Fea y con acento de España | Elige sola la mejor voz latinoamericana y natural del teléfono; selector en Ajustes; muestras de voces neuronales libres para elegir la definitiva |
 | Biblia al marcar versículos | Corta y tosca | Varios versículos a la vez, barra de acciones animada, resaltador que pinta, versículo que «respira» mientras se escucha |
 | Gobierno de la app | ¿Desde dónde se gobierna todo? | **Consola de Senda** (capítulo {{cap:32}}): proyecto, contenido, propuestas, sonidos, licencias y métricas; el contenido pasó a ser datos con verificación automática |
@@ -83,7 +83,7 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | Ruleta y festejo | La ruleta sonaba fea; al ganar una pieza no había festejo | **Firma sonora propia** (capítulo {{cap:19}}, sección 8): la ruleta con clics reales y una nota por categoría; festejo de pieza a pantalla entera (cae, golpea al compás, rayos de su color, lluvia de luz, encastre en la armadura) |
 | Benchmark de Preguntados y otras | Investigar lo mejor de su mejor época, sin imitar | Lo que tomamos: la consigna simple, la ruleta como anticipación, coleccionar las 6 piezas, el audio que sube la concentración (Kahoot), la campanita breve del acierto (Duolingo); lo que evitamos: los límites que cortan la sesión y los anuncios invasivos (las quejas de Trivia Crack 2) |
 | Calendario | Eventos propios; grupos con roles; video, fotos, recordatorios, fechas tope | **Mi calendario hecho** (capítulo {{cap:13}}): eventos con foto, lugar o Meet, repetición, fechas tope y avisos reales; **grupos con roles** (líder, coordinador, miembro) y agenda compartida en febrero de 2027 (sección 3b) |
-| Juego de carrera con Lani | Algo tipo Subway Surfers con el espíritu de Senda | **Lani corre** (capítulo {{cap:10}}, sección 10): historias bíblicas como niveles, la armadura como poderes, el versículo por partes; un nivel de prueba en el segundo trimestre de 2027 con regla de corte |
+| Juego de carrera con Lany | Algo tipo Subway Surfers con el espíritu de Senda | **Lany corre** (capítulo {{cap:10}}, sección 10): historias bíblicas como niveles, la armadura como poderes, el versículo por partes; un nivel de prueba en el segundo trimestre de 2027 con regla de corte |
 | Supabase y PostHog | Listos (token sin vencimiento y con todos los permisos) | Tablas aplicadas desde GitHub; la app manda respuestas anónimas y votos del Pulso y lee resultados reales; PostHog activo. El token funciona; conviene cambiarlo por uno que venza en un año (opcional) |
 | Licencias | Mandaste los dos correos; los formularios te trabaron | Marcados como enviados. **Formularios, más adelante:** Biblica no licencia apps en desarrollo ni a personas, y Lockman pide dirección postal. Cada campo quedó listo en la Consola |
 
@@ -108,7 +108,7 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | La hoja y los sonidos de la Biblia | Mucho mejor | Se mantienen |
 | Marcar y seleccionar | Marcar un versículo o una página, o seleccionar, está muy lento | **Rehecho (prueba 7):** cada versículo escucha solo sus marcas, así que marcar, resaltar o poner una cinta no redibuja la hoja; todas las animaciones van en el hilo nativo y lo guardado se escribe de a lotes. En la prueba con el procesador frenado, cada toque pasó de 170–260 ms de trabajo a 60–90 ms |
 | Clic de la ruleta | Bien en general; que el clic sea más profesional | Dientes de una matraca grabada con el cuerpo de la caja china: livianos cuando gira rápido, llenos cuando frena, y un rebote al final. En la Consola están los tres giros completos para comparar |
-| Ganar una pieza | Más fiesta: Lani baila, música | **La fiesta:** música propia (bongós, congas, xilofón con el motivo de Senda); Lani baila al pulso, confeti en cada compás y salto en el remate. **La gran fiesta** al completar la armadura, con Lani acorazada |
+| Ganar una pieza | Más fiesta: Lany baila, música | **La fiesta:** música propia (bongós, congas, xilofón con el motivo de Senda); Lany baila al pulso, confeti en cada compás y salto en el remate. **La gran fiesta** al completar la armadura, con Lany acorazada |
 | Travesía: ayuda | Que vea que aprendió; una ayuda que diga dónde leer; algo como 3 ayudas | **3 Lámparas** por lección que abren el pasaje con el versículo clave (no gastan vidas; la lección perfecta es sin Lámparas). **Lectura recomendada** al empezar y «Para profundizar» al final. **Repaso espaciado:** lo fallado vuelve mañana, lo acertado cada vez más lejos, y «Ya quedaron N» |
 | Calendario | Muy bien por ahora | Sin cambios |
 | Costos | Optimizar todo el diseño para bajar el costo de servidores | Regla del costo mínimo (capítulo {{cap:25}} y `docs/COSTOS.md`): lo hace el teléfono, nada en vivo si alcanza con turnos, lógica en la base, muestras en las métricas. Las palancas para crecer quedan guardadas, no activadas |
@@ -123,18 +123,18 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 | Tema | Lo que dijiste | Lo que quedó |
 |---|---|---|
 | Las pruebas de la prueba 7 | Salieron prácticamente todas bien | Se mantiene lo hecho: marcar al instante, el clic de la ruleta, la fiesta, las Lámparas y el repaso |
-| El baile de Lani | Parece un poco infantil; ¿no se puede en 3D, como Duolingo? | **Lani en 3D** hecha con código (three.js en el teléfono, sin archivos que bajar) y un **baile nuevo** sin saltitos ni vueltas: groove con las rodillas, chasquidos, señala al cielo, aplausos en el 2 y el 4, manos arriba y la pose final. Duolingo en realidad es 2D (Rive); hay tres caminos para la Lani final y se decide en noviembre (capítulo {{cap:16}}, §3b) |
-| El PDF del proyecto | Actualizarlo con todo lo que se habló desde la versión anterior | **Versión 3** de este documento (11-10-2026): las ocho pruebas, el mapa de toda la app, Lani en 3D, Senda Fiesta y el desarrollo hasta hoy (capítulo {{cap:33}}) |
+| El baile de Lany | Parece un poco infantil; ¿no se puede en 3D, como Duolingo? | **Lany en 3D** hecha con código (three.js en el teléfono, sin archivos que bajar) y un **baile nuevo** sin saltitos ni vueltas: groove con las rodillas, chasquidos, señala al cielo, aplausos en el 2 y el 4, manos arriba y la pose final. Duolingo en realidad es 2D (Rive); hay tres caminos para la Lany final y se decide en noviembre (capítulo {{cap:16}}, §3b) |
+| El PDF del proyecto | Actualizarlo con todo lo que se habló desde la versión anterior | **Versión 3** de este documento (11-10-2026): las ocho pruebas, el mapa de toda la app, Lany en 3D, Senda Fiesta y el desarrollo hasta hoy (capítulo {{cap:33}}) |
 | Minijuegos y modo fiesta | Sumarlos a campamentos y partidas; sirven para el modo tipo Mario Party, con impronta propia y sin réplicas | **Senda Fiesta rediseñada** (capítulo {{cap:10}}, §12): siete reglas que nacen de la Biblia (la nube que se mueve, la corona que se gana sabiendo, el maná que se echa a perder, dar suma, los últimos serán primeros, nadie le roba a nadie, las bienaventuranzas del final), cuatro maneras de jugar (mismo teléfono, tele de la reunión, por turnos con amigos y campamento) y los límites legales |
 | El mapa de toda la app | Un diagrama MECE que muestre todo y cómo encaja, al primer vistazo | **La hoja grande del capítulo {{cap:06}}**: 130 funciones en tres niveles (lo que usa la persona, lo que la hace andar, lo que la sostiene), con la etapa de cada una, cómo se conecta todo y cuánto llega en cada etapa. También en la Consola, pestaña «Mapa de la app» |
-| Avanzar con lo próximo | Seguir con lo que estaba planeado | **Bienvenida en siete pasos** (edad con pregunta neutral, qué te trae, cuánto sabés, áreas de interés) que personaliza la app; menores de 13 sin anuncios ni estadísticas; **duelo contra Lani** (turnos hasta fallar, las dos armaduras, 25 rondas y revancha), sin servidor y base de los duelos con amigos |
+| Avanzar con lo próximo | Seguir con lo que estaba planeado | **Bienvenida en siete pasos** (edad con pregunta neutral, qué te trae, cuánto sabés, áreas de interés) que personaliza la app; menores de 13 sin anuncios ni estadísticas; **duelo contra Lany** (turnos hasta fallar, las dos armaduras, 25 rondas y revancha), sin servidor y base de los duelos con amigos |
 
 **Novena tanda (11-10-2026, después de la versión 3 del proyecto y antes de probar la prueba 8):**
 
 | Tema | Lo que dijiste | Lo que quedó |
 |---|---|---|
 | El propósito de todo | Que mientras se juega o se usa cualquier función se aprenda y se crezca en la relación con Dios y en la Palabra | **Regla nueva: todo enseña y edifica.** Cada lección cierra con «¿Sabías que…?» y «Para tu vida» (saber, ser y hacer); los juegos pasan una puerta de dos preguntas antes del puntaje (capítulo {{cap:10}}, §14; capítulo {{cap:34}}) |
-| «Alimenta a Elías» | Sacarlo: los juegos que no ayudan a aprender o entender algo, afuera | **Sacado** (Los cuervos de Querit), junto con Gedeón y Zaqueo. Reconvertidos para que enseñen: Lani corre (los carriles son respuestas), el Giro diario (primero una pregunta o un dato), Jericó, Nehemías y Pedro sobre el agua. Maná y Emaús relámpago encabezan el Arcade |
+| «Alimenta a Elías» | Sacarlo: los juegos que no ayudan a aprender o entender algo, afuera | **Sacado** (Los cuervos de Querit), junto con Gedeón y Zaqueo. Reconvertidos para que enseñen: Lany corre (los carriles son respuestas), el Giro diario (primero una pregunta o un dato), Jericó, Nehemías y Pedro sobre el agua. Maná y Emaús relámpago encabezan el Arcade |
 | Antes de leer | Sacar la sugerencia de orar o de tomarse el tiempo; ir directo a la Biblia cuando la persona quiera | **Hecho:** se sacaron la invitación a orar (pantalla, ajuste y tarjeta) y la frase al abrir (el umbral de la prueba 6), que también frenaba la entrada. En Inicio, «Orar» pasó a «Buscar». Si querés la frase de vuelta, puede volver como una línea que no frene |
 | La Biblia | Pasar de hoja todavía un poco lento; marcar y resaltar todavía bastante lentos | **Hecho:** marcar en 70 ms (antes un resorte con rebote), resaltar en el acto (antes esperaba 400 ms), vuelta de hoja en 320 ms, los toques seguidos ya no se pierden y cada hoja se dibuja una sola vez (capítulo {{cap:07}}) |
 | El juego de la conferencia | Una referencia de dirección (aprender jugando, amar más a Cristo, morir a uno mismo), no para copiar | **Cuatro juegos propios** (capítulo {{cap:10}}, §15): Hasta lo último (cooperativo de misiones por los anillos de Hechos 1:8, con los cuatro suelos y «Dios da el crecimiento»), Emaús, El Tabernáculo y El calendario de Dios. Se dice en qué se diferencian del de la conferencia |
@@ -155,10 +155,10 @@ Además, sumaste el **diseño emocional** como parte del proyecto: está en el c
 
 | Sprint | Fechas | Qué sale |
 |---|---|---|
-| 0 y 1 | 5 al 11 oct (pruebas 1 a 9) | **Hecho y adelantado:** Biblia como impresa, directa y con marcas al instante, planes y voz; Travesía con 9 áreas, Lámparas, repaso, «¿Sabías que…?», «Para tu vida», la sección 1 de Fundamentos y 5 rutas nuevas (21 lecciones); Espadeo con ruleta, fiesta, Lani 3D y 157 preguntas; calendario con avisos; bienvenida completa; duelo contra Lani; métricas y Supabase |
+| 0 y 1 | 5 al 11 oct (pruebas 1 a 9) | **Hecho y adelantado:** Biblia como impresa, directa y con marcas al instante, planes y voz; Travesía con 9 áreas, Lámparas, repaso, «¿Sabías que…?», «Para tu vida», la sección 1 de Fundamentos y 5 rutas nuevas (21 lecciones); Espadeo con ruleta, fiesta, Lany 3D y 157 preguntas; calendario con avisos; bienvenida completa; duelo contra Lany; métricas y Supabase |
 | 2 | 26 oct – 8 nov | Las primeras 40 lecciones de Fundamentos con revisión doctrinal; cuentas anónimas y respaldo del progreso; misiones reales |
 | 3 | 9–22 nov | Duelos por turnos con amigos y rival al azar, partidas abiertas que vencen a las 72 h, avisos push; banco grande de preguntas |
-| 4 | 23 nov – 6 dic | Tu Lani (atuendos y vehículos), Giro diario, accesibilidad; **prueba cerrada en Google Play** |
+| 4 | 23 nov – 6 dic | Tu Lany (atuendos y vehículos), Giro diario, accesibilidad; **prueba cerrada en Google Play** |
 | Lanzamiento | 7–18 dic | Correcciones, fichas de tienda, publicación gradual el **18-12-2026** |
 
 ## 3. Lo que queda abierto

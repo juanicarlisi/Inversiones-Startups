@@ -66,7 +66,7 @@ No es una copia de Kahoot: toma lo que funciona (todos responden desde su teléf
   corrige, borra o agrega antes de usarlas. **Cambio de decisión:** antes «Senda no lee el bosquejo»; ahora lo lee solo si el líder lo
   pide, y nada se usa sin su aprobación (Kahoot ofrece algo parecido desde 2024: el PDF se transforma en preguntas).
 - **Lo que lo hace de Senda:** cada pregunta tiene su cita y al final «Leer el pasaje»; el quiz puede quedar abierto toda la semana como
-  desafío del grupo; los menores juegan con apodo; Lani anima en la pantalla; el registro muestra qué reforzar.
+  desafío del grupo; los menores juegan con apodo; Lany anima en la pantalla; el registro muestra qué reforzar.
 - **Escala:** las salas en vivo usan tiempo real (docs/ESCALA.md del repositorio de la app, sección 5): hasta cientos de salas a la vez
   con Supabase Pro; para miles, un servicio de tiempo real por sala.
 
@@ -116,7 +116,7 @@ tabla en pantalla y cierre con premiación.
 
 **La idea:** que el mensaje del domingo siga vivo durante la semana, jugando.
 
-> **Prueba 10 (12-10-2026):** ya hay una versión jugable, la **Trivia de la iglesia** (contra Lani, 1 contra 1 y torneo), con un paquete de
+> **Prueba 10 (12-10-2026):** ya hay una versión jugable, la **Trivia de la iglesia** (contra Lany, 1 contra 1 y torneo), con un paquete de
 > ejemplo; cada pregunta dice en qué punto del material está la respuesta. Con el plan Iglesia, el líder sube el PDF del mensaje y aprueba
 > las preguntas que arma Senda (capítulo {{cap:35}}, §2).
 
