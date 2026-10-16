@@ -156,8 +156,30 @@ lecturas en esa versión. Además cuenta cuál se abre más (métrica anónima):
 appsenda.ok@gmail.com (regla 8: son mensajes a terceros); y, si quiere, mirar en el checkout de API.Bible el precio de la NTV por tramo
 sin pagar.
 
+## 5b. Prueba 13b (16-10-2026): la música de la bienvenida y Lany cortada
+
+El fundador probó la prueba 13 y marcó dos cosas (resumen, sin citas textuales): la música cuando Lany se presenta seguía siendo la
+misma y sonaba triste y fea; y Lany aparecía cortada en la introducción.
+
+**La música.** La firma de apertura se había cambiado en la prueba 11, pero la bienvenida tocaba otra pieza: una cajita de música con
+«Cristo me ama». Un análisis del audio la ubica en **mi menor** (correlación 0,82 con ese tono), sin pulso ni graves y con mucha
+reverberación: suena a recuerdo, no a comienzo. Se reemplazó por una **música de bienvenida propia** (17 segundos):
+- **re mayor** (correlación 0,90), solo acordes mayores (re · sol · la · re) a 120 por minuto;
+- arranca con el **motivo de la firma** y aterriza en su misma frase final, así la bienvenida y la apertura suenan a una sola marca;
+- ritmo suave (bombo, palmas en 2 y 4, shaker), bajo con síncopa, acordes cortos y un arpegio de vibráfono;
+- instrumentos grabados de la VCSL (dominio público) y sintetizados; sin voces.
+En la Consola (sala de sonidos, «Música de bienvenida») quedan dos variantes para elegir: **Calma** (más lenta, sin palmas) y
+**Chispa** (más rápida, con bongós). En Ajustes, «Cajita de música» pasa a llamarse «Música».
+
+**Lany cortada.** Rive arma su superficie de dibujo con el tamaño que tiene al crearse. En la bienvenida, Lany pasa de 170 a 92 puntos
+en los pasos con opciones (edad, motivos y otros); la vista seguía con el tamaño viejo y se veía solo una esquina de la cabeza. Lo mismo
+pasaba en la lección, de 104 a 66 en las preguntas de mapa. Ahora cada tamaño crea su propia vista (el archivo ya cargado se comparte) y
+la bienvenida deja lugar arriba para el salto de Lany. Se comprobó paso por paso en la vista previa.
+
 ## 6. Cómo probar la prueba 13
 
+0. **Prueba 13b:** escuchá la música de la bienvenida (Ajustes → Probar los sonidos, o reiniciando los datos de prueba) y mirá que
+   Lany se vea entera en los pasos con opciones.
 1. **Lany en la lección:** que mire la pregunta, las respuestas, arriba cuando tardás, y que se vea con volumen.
 2. **Lany en el camino:** que mire hacia el nivel que sigue y se dé vuelta cuando dice algo.
 3. **El «+»:** abrir «Sobre este libro» y tocar una parte de «Cómo está armado».

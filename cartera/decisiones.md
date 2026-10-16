@@ -621,3 +621,8 @@
   - `conocimiento/2026-10-13-senda-licencias-y-rentabilidad.md`;
   - repositorio de la app: `scripts/rive/lani.py`, `src/componentes/lanyGuia.tsx`, `scripts/autor/mujeres.py`, `scripts/autor/patriarcas.py`,
     `scripts/autor/bosquejos.py`.
+- **Adenda (16-10-2026, prueba 13b):** el fundador marcó que la música de la bienvenida (cuando Lany se presenta) seguía siendo triste
+  y que Lany aparecía cortada en la introducción. Se decidió: sale la cajita con «Cristo me ama» (el análisis la ubica en mi menor) y
+  entra una música de bienvenida propia en re mayor con el motivo de la firma (dos variantes en la Consola); Lany se rehace cuando
+  cambia de tamaño. APK prueba 13b. Evidencia: capítulo 38 §5b; repositorio de la app, `scripts/musica_bienvenida.py` y
+  `src/arte/Arte.tsx`.

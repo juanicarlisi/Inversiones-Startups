@@ -89,6 +89,7 @@
 | Lany | Mejorarla todo lo posible con lo que hacen Duolingo y lo que permite Rive; aspecto 3D como Duolingo, hecho con Rive | Volumen con luz y sombra, sombras de contacto y mirada que gira la cabeza; la Lany final es la de Rive con volumen (se cierra la duda 3D o 2D) |
 | El «+» y el contenido | Van bien: seguir evolucionando y avanzar | «Cómo está armado» en los 66 libros; Mujeres de la Biblia y Los patriarcas |
 | Licencias | Explorar a fondo y ayudarlo a decidir: sacar ingresos, otra monetización o pagar una versión | Recomendación con regla de corte (capítulo 38 §5); la decisión es suya |
+| Música (16-10) | La música de la bienvenida seguía triste; nada de cajitas ni melancolía | Toda música de Senda en modo mayor, con pulso y el motivo de la firma; se mide el tono antes de publicar (capítulo 38 §5b) |
 
 ## Lo que falta (y por qué importa)
 
