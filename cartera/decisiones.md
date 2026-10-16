@@ -581,3 +581,43 @@
   - `oportunidades/proyectos/senda/capitulos/37-lany-guia.md`;
   - repositorio de la app: `scripts/autor/libros.py`, `contenido/libros.json`, `src/componentes/lanyGuia.tsx`, `scripts/rive/lani.py`.
 
+## DEC-2026-10-13-2 · Senda: decimotercera tanda (prueba 13), Lany sin voz y con volumen, Personajes, licencias y proyecto v3.5
+
+- **Contexto:** el fundador escribió el 13-10-2026 (resumen, sin citas textuales):
+  - Lany hablando se siente mal: sacarlo;
+  - mejorar a Lany todo lo posible con lo que hacen Duolingo y lo que permite Rive, con un aspecto en 3D como el de Duolingo;
+  - el «+» va bien y las lecciones también: seguir evolucionando y avanzar con lo planificado;
+  - licencias: Tyndale respondió que la NTV se pide por API.Bible; el grupo de Lockman cuesta USD 500 por mes para 25.000 a 100.000
+    usuarios y no le parece escalable. Pidió explorar a fondo y ayudarlo a decidir (sacar anuncios y suscripciones, otra
+    monetización, pagar una sola versión u otras salidas).
+- **Decidido:**
+  - **Lany no habla.** Se sacaron la boca que habla y la voz del teléfono en el globo. Lany actúa con el cuerpo y la mirada.
+  - **La Lany final es la de Rive con volumen** (cierra el pendiente «3D o 2D»): luz y sombra en dos tonos, sombras de contacto y cinco
+    miradas que giran la cabeza. El animador de Rive (línea de USD 1.200) se evalúa en noviembre, sobre esta base.
+  - **Personajes empieza** con Mujeres de la Biblia y Los patriarcas. No se repiten las preguntas del gran relato; lo interpretativo
+    se marca.
+- **Recomendado, para que decida el fundador (licencias):**
+  - no sacar anuncios ni suscripciones (sin ingresos se pierden de 10 a 30 veces los ingresos posibles);
+  - lanzar con las versiones libres y la RVR1960, la NVI y la NTV en un toque (costo 0), y hacer una RV1909 con ortografía actual;
+  - pedir la RVR1960 como ministerio (SBA; ABS el 19-10);
+  - consultar a API.Bible antes de pagar;
+  - sumar la NTV cuando: licencias ≤ 10% del ingreso neto de dos meses, ≥ 5.000 usuarios por mes y la NTV es la más pedida;
+    Lockman, recién con más de 25.000 usuarios y si la piden.
+- **Hecho por Claude (APK prueba 13):**
+  - Lany: 25 animaciones, volumen y capa de mirada (48,7 KB); la lección y el camino deciden hacia dónde mira;
+  - «Cómo está armado» en los 66 libros, con validación de huecos;
+  - Mujeres de la Biblia (11 lecciones, 65 preguntas) y Los patriarcas (11 lecciones, 66 preguntas);
+  - 15 rutas abiertas, 159 lecciones y 975 preguntas;
+  - licencias: bitácora con 16 hechos, diez caminos, recomendación y consulta a API.Bible lista; `economia.yaml` con el costo de una
+    versión por tramo (ESTIMACIÓN);
+  - proyecto v3.5: capítulo 38, capítulo 16 §3e, estado, mapa e inventario.
+- **Pendiente del fundador:**
+  - probar la prueba 13;
+  - decidir el camino de las licencias;
+  - mandar la consulta a API.Bible y el pedido a la SBA (regla 8: mensajes a terceros);
+  - elegir los revisores doctrinales.
+- **Evidencia:**
+  - `oportunidades/proyectos/senda/capitulos/38-lany-volumen-licencias.md`;
+  - `conocimiento/2026-10-13-senda-licencias-y-rentabilidad.md`;
+  - repositorio de la app: `scripts/rive/lani.py`, `src/componentes/lanyGuia.tsx`, `scripts/autor/mujeres.py`, `scripts/autor/patriarcas.py`,
+    `scripts/autor/bosquejos.py`.

@@ -162,6 +162,19 @@ valiendo que la versión final la termine una persona, por los derechos de autor
   jefe, señala el nivel que tocás y guarda su globo cuando se abre la tarjeta del nivel.
 - **Rive:** 22 animaciones (nuevas: señalar, dar ánimo, hablar y callada), 45 KB.
 
+## 3e. Lany sin voz, con volumen y con mirada (prueba 13, 13-10-2026)
+
+**El pedido.** El fundador sintió que Lany hablando quedaba mal y pidió sacarlo; y mejorar a Lany todo lo posible, con lo que hacen
+Duolingo y lo que permite Rive, con un aspecto en 3D como el de Duolingo.
+
+**Qué se hizo** (detalle en el capítulo {{cap:38}}):
+- **Sin habla:** se sacaron la boca que habla, la propiedad «habla» y la voz del teléfono en el globo. El globo trae el texto; Lany actúa.
+- **Volumen:** luz y sombra en cada parte (sombreado en dos tonos, la técnica de Duolingo, con el dibujo de Lany) y sombras de contacto
+  suaves bajo los pies y la cabeza.
+- **Mirada:** cinco miradas (frente, respuestas, izquierda, derecha y arriba) que giran la cabeza con profundidad; la lección y el camino
+  deciden hacia dónde mira. En la lección, Lany pasa de 76 a 104 puntos.
+- **Rive:** 25 animaciones y una capa nueva de mirada, 48,7 KB.
+
 ## 4. El elenco (más adelante)
 
 Duolingo suma personajes humanos de distintas edades y personalidades, y eso le da mundo y le saca lo infantil. Senda puede hacer lo

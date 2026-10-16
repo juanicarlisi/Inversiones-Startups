@@ -112,14 +112,16 @@ escalón da más sin regalar todo, como pediste.
 ## 11. Proyección (escenario normal)
 
 ESTIMACIÓN con las personas activas por mes del caso de negocio del holding y los supuestos de `economia.yaml` (conversión por plan,
-anuncios con eCPM de Latinoamérica conservador, licencias de 5 Biblias vía API.Bible). Los planes personales se calculan al 88% del
+anuncios con eCPM de Latinoamérica conservador; licencias: versiones libres al lanzar y la NTV por API.Bible desde 2028, ver el capítulo {{cap:38}}). Los planes personales se calculan al 88% del
 precio mensual (una parte paga el plan anual, más barato) y las iglesias, con el plan anual. Cifras a diciembre de cada año, en USD por
 mes.
 
 {{PROYECCION}}
 
-- **Licencias de Biblias:** un precio de ministerio de la American Bible Society bajaría esa línea. YouVersion Platform no aplica mientras
-  Senda tenga planes pagos y anuncios (exige apps no comerciales).
+- **Licencias de Biblias (13-10-2026, capítulo {{cap:38}}):** con 22.000 usuarios, una versión con licencia pesa entre 5% y 19% del
+  ingreso neto; con 60.000, entre 1% y 5%. Por eso se lanza sin licencias pagas y la NTV entra con una regla de corte. La RVR1960 y la NVI
+  no se pueden comprar hoy para una app comercial; se piden como ministerio. YouVersion Platform no aplica mientras Senda tenga planes
+  pagos y anuncios (exige apps no comerciales).
 - **Escenario malo** (la mitad de usuarios, de conversión y de iglesias): el neto de 2030 queda en torno a un tercio del normal.
   **Bueno** (2,5 veces los usuarios y las iglesias): cerca de tres veces el normal. Los tres valores están en la última fila de la tabla.
 - Lo que más mueve el resultado: **personas activas**, **iglesias con plan** y **conversión a Max**. Por eso el foco está en la

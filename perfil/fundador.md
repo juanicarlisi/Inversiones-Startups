@@ -81,6 +81,15 @@
 | Lany | Más animaciones en la Travesía, como Duolingo, que parezcan de expertos | Lany guía en la lección y en el camino (capítulo 37 §3) |
 | Ritmo | Avanzar con lo planificado, a fondo | Se adelantó «Los 66 libros» del sprint 2 |
 
+### Pautas del 13-10-2026 (Senda, prueba 13)
+
+| Tema | Pauta (resumen, sin citas textuales) | Cómo se aplica |
+|---|---|---|
+| Lany | Que no hable: la boca y la voz se sienten mal | Lany actúa con el cuerpo y la mirada; el texto va en el globo (capítulo 38 §2) |
+| Lany | Mejorarla todo lo posible con lo que hacen Duolingo y lo que permite Rive; aspecto 3D como Duolingo, hecho con Rive | Volumen con luz y sombra, sombras de contacto y mirada que gira la cabeza; la Lany final es la de Rive con volumen (se cierra la duda 3D o 2D) |
+| El «+» y el contenido | Van bien: seguir evolucionando y avanzar | «Cómo está armado» en los 66 libros; Mujeres de la Biblia y Los patriarcas |
+| Licencias | Explorar a fondo y ayudarlo a decidir: sacar ingresos, otra monetización o pagar una versión | Recomendación con regla de corte (capítulo 38 §5); la decisión es suya |
+
 ## Lo que falta (y por qué importa)
 
 | # | Pregunta | Por qué importa | Qué cambia según la respuesta |

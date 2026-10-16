@@ -60,6 +60,10 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - la mascota se escribe **Lany** (antes «Lani»); la historia anterior queda como se escribió;
   - Lany es la guía de la Travesía, con la calidad de una app hecha por expertos (patrón Duolingo como dirección, nunca copia);
   - el «+» de estudio, a la vista en cada versículo al leer (DEC-2026-10-13-1).
+- **Datos del 13-10-2026 (Senda, prueba 13):**
+  - Lany **no habla** (ni boca ni voz): actúa con el cuerpo y la mirada; su aspecto con volumen, como Duolingo, se hace en Rive;
+  - licencias: la recomendación (no sacar anuncios ni suscripciones; lanzar con las versiones libres; sumar la NTV por API.Bible con
+    regla de corte) espera su decisión (DEC-2026-10-13-2; capítulo 38 §5).
 
 ## 2. Reglas no negociables
 

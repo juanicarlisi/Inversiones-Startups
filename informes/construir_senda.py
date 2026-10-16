@@ -38,8 +38,8 @@ FUENTE = RAIZ / "informes" / "fuente-senda"
 GRAF = FUENTE / "graficos"
 TIPO = RAIZ / "informes" / "tipografia"
 TITULO = "Senda · El proyecto completo de la app"
-SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-4.pdf"
-SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-4.html"
+SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-5.pdf"
+SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-5.html"
 SALIDA_HTML = FUENTE / "informe.html"
 
 AMBAR, NOCHE, VERDE, GRANADA, CREMA, TINTA = V.AMBAR, V.NOCHE, V.VERDE, V.ROJO, V.CREMA, "#1B1B1F"
@@ -209,13 +209,14 @@ calidad de las mejores apps del mundo. Junta en un solo lugar, en español de or
 30 de abril de 2027 (capítulo {{{{cap:30}}}}).</p></div>
 </div>
 <div class="caja rec"><h4 class="ico-t">{V.icono("check", 13, V.VERDE)} Dónde estamos y qué necesito de vos</h4>
-<p>Doce versiones de prueba desde el 05-10-2026: ya funcionan {cm["hecho"]} de las {cm["total"]} funciones de la app (capítulos {{{{cap:06}}}} y
+<p>Trece versiones de prueba desde el 05-10-2026: ya funcionan {cm["hecho"]} de las {cm["total"]} funciones de la app (capítulos {{{{cap:06}}}} y
 {{{{cap:33}}}}). Desde la 9, todo enseña y edifica (capítulo {{{{cap:34}}}}); la 10 suma una misión nueva, tres travesías, la trivia de la
 iglesia y el inventario bíblico (capítulo {{{{cap:35}}}}); la 11, Lany en Rive, una línea clara en cada travesía, el gran relato
 completo, la historia de la Iglesia, el «+» de estudio y todo el contenido publicado (capítulo {{{{cap:36}}}}); la 12, Lany como guía
-de la Travesía, el «+» en cada versículo y los 66 libros (capítulo {{{{cap:37}}}}).
-Ahora: probar la prueba 12, enviar el pedido de la RVR1960 a la Sociedad Bíblica Argentina, 2 revisores doctrinales, 12 testers y
-Google Play antes del 15-11.</p></div>"""
+de la Travesía, el «+» en cada versículo y los 66 libros (capítulo {{{{cap:37}}}}); la 13, Lany con volumen y mirada, las primeras
+rutas de Personajes y la recomendación sobre las licencias (capítulo {{{{cap:38}}}}).
+Ahora: probar la prueba 13, decidir el camino de las licencias, mandar la consulta a API.Bible y el pedido de la RVR1960 a la Sociedad
+Bíblica Argentina, 2 revisores doctrinales, 12 testers y Google Play antes del 15-11.</p></div>"""
 
 
 def bloque_mapa_app() -> str:
@@ -399,7 +400,8 @@ def proyectar(D, f_activos: float = 1.0, f_conv: float = 1.0, f_igl: float = 1.0
         r["ingreso"] = r["tienda_neto"] + r["anuncios"]
         r["servidores"] = a * pr["costo_servidores_por_activo"]
         lic = pr["licencias_biblias"]
-        r["licencias"] = lic["pro"] + lic["por_version"][k] * lic["versiones"]
+        pro = lic["pro"][k] if isinstance(lic["pro"], list) else lic["pro"]
+        r["licencias"] = pro + lic["por_version"][k] * lic["versiones"]
         r["costos"] = r["servidores"] + r["licencias"]
         r["neto"] = r["ingreso"] - r["costos"]
         out.append(r)
@@ -621,8 +623,8 @@ def portada(D) -> str:
              (f"USD {usd(tot)}", "primer año en nivel profesional, por tramos (hay básico y premium)"), ("25 mil", "personas por semana con la Palabra 3 días o más: la meta de 2030")]
     dt_ = "".join(f"<div><b>{a}</b><span>{b}</span></div>" for a, b in datos)
     return f"""<section class="portada-s">
-<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.4 · 13 de octubre de 2026 · uso privado</div>
-<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.4</p>
+<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.5 · 14 de octubre de 2026 · uso privado</div>
+<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.5</p>
 <p class="ps-lema">Una app cristiana para que los jóvenes conozcan la Biblia <b>jugando, leyendo y en comunidad</b>, con nivel profesional:
 nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen; Android e iOS primero y la web después.</p></div>
 <div class="ps-img"><div class="ps-esc">{V.lani("saludo", 148, buzo=V.VIOLETA, gorra=V.AMBAR)}</div>{V.logo_txt(30, V.NOCHE)}</div></div>
@@ -632,7 +634,7 @@ nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen
 <div class="ps-mv"><div><span>Misión</span>Que una generación conozca la Palabra de Dios como ninguna antes, y que por medio de ella se rinda a
 Cristo y lo ame.</div><div><span>Visión</span>Iglesias llenas de personas que abren la Biblia cada día, la entienden, la recuerdan y la viven; y
 Senda como la herramienta en la que confían, porque todo lo que muestra está comprobado en la Escritura.</div></div>
-<div class="ps-pie">Esta versión suma la prueba 12: Lany como guía de la Travesía, el «+» en cada versículo y los 66 libros (capítulo 37), sobre la prueba 11 (capítulo 36), la prueba 10 (capítulo 35) y todo lo que cambió con las pruebas anteriores (capítulos 31, 33 y 34) y el mapa de toda la app (capítulo 6). HECHO lleva fuente y fecha;
+<div class="ps-pie">Esta versión suma la prueba 13: Lany con volumen y mirada, Personajes y la recomendación sobre las licencias (capítulo 38), sobre la prueba 12 (capítulo 37), la prueba 11 (capítulo 36), la prueba 10 (capítulo 35) y todo lo que cambió con las pruebas anteriores (capítulos 31, 33 y 34) y el mapa de toda la app (capítulo 6). HECHO lleva fuente y fecha;
 ESTIMACIÓN lleva método. Nada que mueva plata o hable con terceros sale sin la aprobación del fundador. Lany, logo y pantallas son
 bocetos de dirección: el diseño final lo hacen especialistas.</div>
 </section>"""
@@ -818,7 +820,7 @@ def main() -> int:
     env.setdefault("NODE_PATH", "/opt/node22/lib/node_modules")
 
     def imprimir():
-        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.4", "css", "oct-2026"],
+        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.5", "css", "oct-2026"],
                        check=True, env=env)
     imprimir()
     paginas = paginas_capitulos(D, SALIDA_PDF)
