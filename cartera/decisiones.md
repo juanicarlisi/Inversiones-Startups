@@ -626,3 +626,50 @@
   entra una música de bienvenida propia en re mayor con el motivo de la firma (dos variantes en la Consola); Lany se rehace cuando
   cambia de tamaño. APK prueba 13b. Evidencia: capítulo 38 §5b; repositorio de la app, `scripts/musica_bienvenida.py` y
   `src/arte/Arte.tsx`.
+
+## DEC-2026-10-16-1 · Senda: decimocuarta tanda (prueba 14), la Travesía en estantes, el evangelio, el calendario y la vía de la RVR1960
+
+- **Contexto:** el fundador escribió el 16-10-2026 (resumen, sin citas textuales):
+  - API.Bible respondió: cualquier ingreso es uso comercial y la RVR1960 se ofrece solo a organizaciones registradas, por la Digital
+    Bible Library; el ministerio aliado todavía no está registrado: ver cómo hacerlo;
+  - sumar a la Travesía las áreas del evangelio (desde el estudio del ministerio, con la Gran Comisión), historia de la Iglesia,
+    mártires, oración, buenas obras, personajes (todos), libros, Israel, profecías y apologética; sacar «Lo que creemos», renombrar
+    «De memoria» y separar «El plan de Dios» sin tomar posición; Tierras y tiempos al máximo;
+  - que toda la trivia y la Travesía tomen la RVR1960 de referencia, si se puede;
+  - planes de estudio de institutos y ministerios conocidos, y libros de referencia, solo para inspirarse;
+  - el calendario: más cómodo, a mano desde Inicio, el lugar con mapa, el teclado que tapaba, la semana finita y avisos elegantes;
+  - calidad antes que velocidad.
+- **Decidido:**
+  - **La Travesía en 15 áreas y 5 estantes**, cada área con una sola pregunta; lo que falta queda a la vista como «en preparación».
+  - **«El evangelio, paso a paso»** (7 capítulos, 42 niveles): temas y orden del estudio del ministerio, palabras propias, citas
+    verificadas contra la RV1909 y la Gran Comisión al final. Las doctrinas secundarias del estudio no entran como enseñanza (lista en
+    el capítulo 39 §3, para que el fundador confirme).
+  - **RVR1960 como referencia:** los huecos de «completar» usan palabras que la RVR1960 conserva (se movieron 15) y el validador lo
+    controla.
+  - **Calendario:** editor nuevo, «Ubicar en el mapa» con el buscador del teléfono (sin servidor ni clave), el teclado que ya no tapa,
+    vista de 3 días, «Tu calendario» en Inicio y avisos con sonido nuevo.
+- **Recomendado, para que decida el fundador (licencias y figura legal):**
+  - el titular de una licencia comercial tiene que ser quien cobra: una **SAS de Senda** (desde 24 horas hábiles; capital mínimo de 2
+    salarios mínimos);
+  - el ministerio sigue como aliado; si quiere su propia figura, asociación civil o simple asociación;
+  - no crear nada antes de lanzar: crear la SAS y pedir la RVR1960 por la Digital Bible Library cuando la RVR1960 sea la más pedida y
+    su licencia sea como máximo el 10 % del ingreso neto de dos meses;
+  - antes, mandar el seguimiento a API.Bible (listo).
+- **Hecho por Claude (APK prueba 14):**
+  - estructura de la Travesía, «El evangelio, paso a paso», «Orar como Jesús enseñó», «El contexto de los versículos más conocidos»;
+    Historia re-chequeada: 15 rutas abiertas, 203 lecciones y 1.240 preguntas;
+  - calendario y avisos (seis puntos) y sonido nuevo con dos alternativas en la Consola;
+  - licencias: bitácora, análisis de la figura legal, `licencias.yaml` corregido y seguimiento a API.Bible;
+  - proyecto v3.6: capítulo 39, estado, mapa e inventario.
+- **Pendiente del fundador:**
+  - probar la prueba 14;
+  - confirmar las doctrinas secundarias de «El evangelio»;
+  - decidir licencias y figura legal;
+  - mandar el seguimiento a API.Bible y el pedido a la SBA (regla 8: mensajes a terceros);
+  - avisar cuando termine de subir los libros de referencia.
+- **Evidencia:**
+  - `oportunidades/proyectos/senda/capitulos/39-estantes-evangelio-calendario.md`;
+  - `conocimiento/2026-10-16-senda-rvr1960-dbl-y-figura-legal.md`;
+  - `oportunidades/proyectos/senda/borradores/2026-10-apibible-seguimiento.md`;
+  - repositorio de la app: `docs/TRAVESIA_AREAS.md`, `docs/LICENCIAS_RVR1960.md`, `scripts/autor/evangelio.py`,
+    `src/pantallas/Evento.tsx`, `src/util/lugares.ts`, `scripts/aviso_moderno.py`.

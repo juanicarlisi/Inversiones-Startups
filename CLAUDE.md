@@ -64,6 +64,16 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - Lany **no habla** (ni boca ni voz): actúa con el cuerpo y la mirada; su aspecto con volumen, como Duolingo, se hace en Rive;
   - licencias: la recomendación (no sacar anuncios ni suscripciones; lanzar con las versiones libres; sumar la NTV por API.Bible con
     regla de corte) espera su decisión (DEC-2026-10-13-2; capítulo 38 §5).
+- **Datos del 16-10-2026 (Senda, prueba 14):**
+  - calidad antes que velocidad: ir despacio, leer todo y preguntar cualquier duda;
+  - Senda trabaja con un ministerio juvenil aliado (su nombre y su material van solo en el repositorio privado de la app); su estudio
+    del evangelio es la base del área «El evangelio» (temas, nunca copia);
+  - la Travesía, en 15 áreas y 5 estantes; nada de doctrinas secundarias; Israel y los últimos tiempos, sin tomar posición;
+  - libros de referencia: solo de autores y editoriales protestantes reconocidos, para entender y nunca para copiar ni enseñar desde
+    ellos; los de autor desconocido o dudoso no se abren; el repositorio de libros no se toca hasta que el fundador avise;
+  - la trivia y la Travesía se responden leyendo la RVR1960 (los huecos usan palabras que la RVR1960 conserva);
+  - la RVR1960 completa solo se licencia a organizaciones registradas (Digital Bible Library): la figura legal y el camino de
+    licencias esperan su decisión (DEC-2026-10-16-1; capítulo 39 §4).
 
 ## 2. Reglas no negociables
 

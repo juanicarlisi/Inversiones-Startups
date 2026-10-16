@@ -91,6 +91,17 @@
 | Licencias | Explorar a fondo y ayudarlo a decidir: sacar ingresos, otra monetización o pagar una versión | Recomendación con regla de corte (capítulo 38 §5); la decisión es suya |
 | Música (16-10) | La música de la bienvenida seguía triste; nada de cajitas ni melancolía | Toda música de Senda en modo mayor, con pulso y el motivo de la firma; se mide el tono antes de publicar (capítulo 38 §5b) |
 
+### Pautas del 16-10-2026 (Senda, prueba 14)
+
+| Tema | Pauta (resumen, sin citas textuales) | Cómo se aplica |
+|---|---|---|
+| Ritmo | Prefiere calidad antes que velocidad: ir despacio, leer todo, contextualizar y consultar dudas | Cada entrega se revisa con capturas y validadores antes de publicarse; las dudas se le preguntan |
+| Travesía | Sumar las áreas que pidió (evangelio, historia, mártires, oración, buenas obras, personajes, libros, Israel, profecías, apologética) y que no falte nada | 15 áreas en 5 estantes; lo que falta queda a la vista como «en preparación» (capítulo 39 §2) |
+| Doctrina | Nada de doctrinas secundarias; Israel y los últimos tiempos sin tomar posición; Historia con enfoque protestante | Lo que se discute entre iglesias no se enseña como verdad: se reemplaza por lo que todas confiesan o se muestran las lecturas en paralelo |
+| Materiales de terceros | Planes de estudio y libros solo para inspirarse; nunca copiar ni enseñar desde ellos; solo autores protestantes reconocidos | Se toman temas; los textos son propios; los libros de autor dudoso no se abren |
+| RVR1960 | Que la trivia y la Travesía tomen la RVR1960 de referencia | Los huecos usan palabras que la RVR1960 conserva y el validador lo controla (capítulo 39 §5) |
+| Calendario | Que crear un evento sea cómodo, esté a mano desde Inicio, con el lugar en el mapa, sin que el teclado tape, con la semana legible y avisos elegantes | Editor nuevo, «Ubicar en el mapa», vista de 3 días y sonido nuevo (capítulo 39 §6) |
+
 ## Lo que falta (y por qué importa)
 
 | # | Pregunta | Por qué importa | Qué cambia según la respuesta |
