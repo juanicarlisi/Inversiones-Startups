@@ -12,6 +12,8 @@ nueva de Gmail «senda.app»), firmando como «Equipo de Senda», para respetar 
 | `2026-10-ntv-tyndale.md` | Tyndale Español (permisos@tyndale.com) | Licencia de la NTV | 0 (preguntar) |
 | `2026-10-nvi-biblica.md` | Biblica (formulario web) | Licencia de la NVI | 0 (preguntar) |
 | `2026-10-lbla-lockman.md` | The Lockman Foundation (formulario web) | Licencia de la LBLA y la NBLA | 0 (preguntar) |
+| `2026-10-apibible-consultas.md` | API.Bible (soporte) | Preguntas antes de licenciar la NTV (respondió el 16-10-2026) | 0 (preguntar) |
+| `2026-10-apibible-seguimiento.md` | API.Bible (soporte, mismo hilo del 16-10) | Quién puede pedir la RVR1960 por la Digital Bible Library, precio, ejercicios y voz | 0 (preguntar) |
 
 El estado de cada pedido (pendiente, enviado, respondió) se marca en la pestaña **Licencias** de la Consola de Senda; la lista de
 titulares, versiones y contactos está en `../licencias.yaml`.
