@@ -673,3 +673,41 @@
   - `oportunidades/proyectos/senda/borradores/2026-10-apibible-seguimiento.md`;
   - repositorio de la app: `docs/TRAVESIA_AREAS.md`, `docs/LICENCIAS_RVR1960.md`, `scripts/autor/evangelio.py`,
     `src/pantallas/Evento.tsx`, `src/util/lugares.ts`, `scripts/aviso_moderno.py`.
+
+## DEC-2026-10-16-2 · Senda: decimoquinta tanda (prueba 15), Lany adulto, la armadura puesta, trivia que cuenta más y la Biblia con la ortografía de hoy
+
+- **Contexto:** el fundador escribió el 16-10-2026 a la noche (resumen, sin citas textuales):
+  - en El evangelio, dejar la doctrina del estudio del ministerio aliado aunque haya diferencias, porque es su doctrina;
+  - «crió» es una falta inadmisible; lo viejo de 1909 tiene que leerse como la RVR1960, que es la que lee la mayoría;
+  - Lany más canchero: gorra, saco o chaleco según el área; más masculino, más esbelto, más alto, con menos lana, otras posturas; que
+    se note que es oveja pero más adulto; mejorar la UX con Lany;
+  - trivia con preguntas creativas («qué pasó después»), curiosidades y datos muy interesantes, siempre bien chequeados;
+  - al ganar una pieza, ver a Lany poniéndosela;
+  - los libros ya están en el repositorio nuevo; la música de inicio sonaba infantil (que sea de juego, moderna, elegante); «Ubicar»
+    no encontraba direcciones; licencias, después; el token, como está; la mejor UX del mercado; avanzar con todo.
+- **Decidido:**
+  - **El evangelio enseña la doctrina del estudio tal cual** (excepción a «nada de doctrinas secundarias», solo para esta área; en las
+    demás la regla sigue). Donde un texto se lee de más de una manera, un «¿Sabías que…?» lo dice con su fuente. El nombre del
+    ministerio y su material siguen solo en el repositorio privado de la app.
+  - **La Biblia de la app con la ortografía actual** (RV1909, mismas palabras de dominio público): acentos, nombres, gentilicios,
+    «creó». Los ejercicios eligen versículos y huecos que se leen igual en la RVR1960.
+  - **Lany pasa a ser un personaje adulto** (unas 3,3 cabezas, torso en V, lana corta, cara alargada) con ropa por área (criterio de
+    Claude: chaleco para recorrer, saco para estudiar, gorra al aire libre, boina con lo antiguo), posturas nuevas y la armadura pieza
+    por pieza, con el gesto de ponerse cada una.
+  - **Trivia:** 71 preguntas nuevas verificadas contra el texto, con un dato que sale del texto y se ve al responder; el validador
+    controla las comillas del dato.
+  - **«Ubicar en el mapa»** busca en OpenStreetMap (Nominatim) respetando su política de uso; el buscador del teléfono queda de respaldo.
+  - **Música de inicio:** «Salón», composición propia; tres temas de Kevin MacLeod (CC BY 4.0) para comparar en la Consola.
+- **Hecho por Claude (APK prueba 15, versión 0.15.0):** todo lo anterior; inventario de LIBROS-REFERENCIA3 solo con los nombres de los
+  archivos (470 de autores protestantes reconocidos; 52 con reservas; el resto no se abre); proyecto v3.7: capítulo 40, estado, mapa e
+  inventario.
+- **Pendiente del fundador:**
+  - probar la prueba 15 (pasos en la Consola);
+  - elegir la música de inicio (o dejar «Salón»);
+  - confirmar los libros con reservas y avisar si algún autor quedó mal clasificado;
+  - decidir licencias y figura legal (sin cambios desde DEC-2026-10-16-1).
+- **Evidencia:**
+  - `oportunidades/proyectos/senda/capitulos/40-lany-adulto-armadura-trivia.md`;
+  - repositorio de la app: `scripts/rive/lani.py`, `scripts/rive/poses.cjs`, `src/componentes/laniRiveComun.ts`,
+    `src/componentes/festejoPieza.tsx`, `scripts/autor/trivia_creativa.py`, `scripts/ortografia.py`, `docs/ORTOGRAFIA.md`,
+    `src/util/lugares.ts`, `scripts/musica_inicio.py`, `docs/LIBROS_REFERENCIA3.md`.

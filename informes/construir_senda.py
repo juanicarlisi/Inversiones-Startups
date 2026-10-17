@@ -38,8 +38,8 @@ FUENTE = RAIZ / "informes" / "fuente-senda"
 GRAF = FUENTE / "graficos"
 TIPO = RAIZ / "informes" / "tipografia"
 TITULO = "Senda · El proyecto completo de la app"
-SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-6.pdf"
-SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-6.html"
+SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-7.pdf"
+SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-7.html"
 SALIDA_HTML = FUENTE / "informe.html"
 
 AMBAR, NOCHE, VERDE, GRANADA, CREMA, TINTA = V.AMBAR, V.NOCHE, V.VERDE, V.ROJO, V.CREMA, "#1B1B1F"
@@ -209,16 +209,18 @@ calidad de las mejores apps del mundo. Junta en un solo lugar, en español de or
 30 de abril de 2027 (capítulo {{{{cap:30}}}}).</p></div>
 </div>
 <div class="caja rec"><h4 class="ico-t">{V.icono("check", 13, V.VERDE)} Dónde estamos y qué necesito de vos</h4>
-<p>Catorce versiones de prueba desde el 05-10-2026: ya funcionan {cm["hecho"]} de las {cm["total"]} funciones de la app (capítulos {{{{cap:06}}}} y
+<p>Quince versiones de prueba desde el 05-10-2026: ya funcionan {cm["hecho"]} de las {cm["total"]} funciones de la app (capítulos {{{{cap:06}}}} y
 {{{{cap:33}}}}). Desde la 9, todo enseña y edifica (capítulo {{{{cap:34}}}}); la 10 suma una misión nueva, tres travesías, la trivia de la
 iglesia y el inventario bíblico (capítulo {{{{cap:35}}}}); la 11, Lany en Rive, una línea clara en cada travesía, el gran relato
 completo, la historia de la Iglesia, el «+» de estudio y todo el contenido publicado (capítulo {{{{cap:36}}}}); la 12, Lany como guía
 de la Travesía, el «+» en cada versículo y los 66 libros (capítulo {{{{cap:37}}}}); la 13, Lany con volumen y mirada, las primeras
 rutas de Personajes y la recomendación sobre las licencias (capítulo {{{{cap:38}}}}); la 14, la Travesía en 15 áreas y 5 estantes,
-«El evangelio, paso a paso», el calendario más cómodo y la vía de la RVR1960 por la Digital Bible Library (capítulo {{{{cap:39}}}}).
-Ahora: probar la prueba 14, decidir las licencias y la figura legal, confirmar las doctrinas secundarias de «El evangelio», mandar el
-seguimiento a API.Bible y el pedido de la RVR1960 a la Sociedad Bíblica Argentina, 2 revisores doctrinales, 12 testers y Google Play
-antes del 15-11.</p></div>"""
+«El evangelio, paso a paso», el calendario más cómodo y la vía de la RVR1960 por la Digital Bible Library (capítulo {{{{cap:39}}}}); la
+15, Lany adulto y vestido según el área, la armadura que Lany se pone, 71 preguntas nuevas con su «¿Sabías que…?», la Biblia con la
+ortografía de hoy y «El evangelio» con la doctrina del estudio (capítulo {{{{cap:40}}}}).
+Ahora: probar la prueba 15, decidir las licencias y la figura legal, elegir la música de inicio, confirmar los libros con reservas,
+mandar el seguimiento a API.Bible y el pedido de la RVR1960 a la Sociedad Bíblica Argentina, 2 revisores doctrinales, 12 testers y
+Google Play antes del 15-11.</p></div>"""
 
 
 def bloque_mapa_app() -> str:
@@ -605,6 +607,29 @@ def bloque_gantt_detalle(D) -> str:
 Las tareas se reordenan en cada comité mensual.</div></div>{g}</section>"""
 
 
+LANY15 = RAIZ / "informes" / "fuente-senda" / "lany15"
+
+
+def lany_png(nombre: str, ancho: float) -> str:
+    """Lany de la prueba 15 tal como la dibuja Rive en la app (scripts/rive/poses.cjs en el repositorio de la app)."""
+    b = base64.b64encode((LANY15 / f"{nombre}.png").read_bytes()).decode()
+    return f'<img src="data:image/png;base64,{b}" style="width:{ancho}px;height:auto;display:block" alt="Lany">'
+
+
+def bloque_lany_adulto() -> str:
+    """La tira del capítulo 40: la ropa según el área y las posturas nuevas."""
+    items = [("clasico", "Tal cual", "El evangelio · La oración"), ("chaleco", "Chaleco", "Panorama · Personajes · Israel"),
+             ("explorador", "Chaleco y gorra", "Tierras y tiempos · Buenas obras"), ("saco", "Saco", "Libro por libro · Defender la fe…"),
+             ("historia", "Saco y boina", "Historia de la Iglesia"), ("leyendo", "Leyendo", "Cuando hay lecturas"),
+             ("cruzado", "Brazos cruzados", "El nivel jefe"), ("armadura", "La armadura", "Pieza por pieza"), ("tu", "Tu Lany", "Los juegos")]
+    celdas = "".join(f'<div style="flex:1;min-width:0;text-align:center"><div style="height:34mm;display:flex;align-items:flex-end;'
+                     f'justify-content:center">{lany_png(n, 60)}</div><b style="display:block;font-size:7.4pt;margin-top:1.5mm;line-height:1.15">{t}</b>'
+                     f'<span style="display:block;font-size:6.4pt;color:#c9c3ee;line-height:1.25">{d}</span></div>' for n, t, d in items)
+    return (f'<div class="caja" style="display:flex;gap:1.2mm;align-items:flex-start;background:linear-gradient(#2c2363,#1d1747);color:#fff;'
+            f'padding:3mm 2mm">{celdas}</div>'
+            '<p class="nota">Lany dibujado por el motor de Rive con el mismo archivo de la app (prueba 15).</p>')
+
+
 def bloque_gantt_general(D) -> str:
     r = D["roadmap"]
     return gantt_html(r["general"], r["hitos_general"], dt.date(2026, 10, 1), dt.date(2030, 12, 31), 176 - 40, "gx-a4", "trimestres")
@@ -625,18 +650,18 @@ def portada(D) -> str:
              (f"USD {usd(tot)}", "primer año en nivel profesional, por tramos (hay básico y premium)"), ("25 mil", "personas por semana con la Palabra 3 días o más: la meta de 2030")]
     dt_ = "".join(f"<div><b>{a}</b><span>{b}</span></div>" for a, b in datos)
     return f"""<section class="portada-s">
-<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.6 · 16 de octubre de 2026 · uso privado</div>
-<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.6</p>
+<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.7 · 17 de octubre de 2026 · uso privado</div>
+<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.7</p>
 <p class="ps-lema">Una app cristiana para que los jóvenes conozcan la Biblia <b>jugando, leyendo y en comunidad</b>, con nivel profesional:
 nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen; Android e iOS primero y la web después.</p></div>
-<div class="ps-img"><div class="ps-esc">{V.lani("saludo", 148, buzo=V.VIOLETA, gorra=V.AMBAR)}</div>{V.logo_txt(30, V.NOCHE)}</div></div>
+<div class="ps-img"><div class="ps-esc">{lany_png("tu", 100)}</div>{V.logo_txt(30, V.NOCHE)}</div></div>
 <div class="ps-pils">{pil}</div>
 <div class="ps-datos">{dt_}</div>
 <div class="ps-mks">{S.m_inicio()}{S.m_travesia_mapa()}{S.m_espadeo_ruleta()}{S.m_pieza_ganada()}{S.m_liga()}</div>
 <div class="ps-mv"><div><span>Misión</span>Que una generación conozca la Palabra de Dios como ninguna antes, y que por medio de ella se rinda a
 Cristo y lo ame.</div><div><span>Visión</span>Iglesias llenas de personas que abren la Biblia cada día, la entienden, la recuerdan y la viven; y
 Senda como la herramienta en la que confían, porque todo lo que muestra está comprobado en la Escritura.</div></div>
-<div class="ps-pie">Esta versión suma la prueba 14: la Travesía en estantes, «El evangelio, paso a paso», el calendario más cómodo y la vía de la RVR1960 (capítulo 39), sobre la prueba 13 (capítulo 38), la prueba 12 (capítulo 37), la prueba 11 (capítulo 36), la prueba 10 (capítulo 35) y todo lo que cambió con las pruebas anteriores (capítulos 31, 33 y 34) y el mapa de toda la app (capítulo 6). HECHO lleva fuente y fecha;
+<div class="ps-pie">Esta versión suma la prueba 15: Lany adulto y vestido según el área, la armadura que se pone, la trivia con «¿Sabías que…?» y la Biblia con la ortografía de hoy (capítulo 40), sobre la prueba 14 (capítulo 39), la prueba 13 (capítulo 38), la prueba 12 (capítulo 37), la prueba 11 (capítulo 36), la prueba 10 (capítulo 35) y todo lo que cambió con las pruebas anteriores (capítulos 31, 33 y 34) y el mapa de toda la app (capítulo 6). HECHO lleva fuente y fecha;
 ESTIMACIÓN lleva método. Nada que mueva plata o hable con terceros sale sin la aprobación del fundador. Lany, logo y pantallas son
 bocetos de dirección: el diseño final lo hacen especialistas.</div>
 </section>"""
@@ -671,6 +696,7 @@ def construir_html(D, incrustar: bool = False, paginas: dict | None = None) -> s
         "{{LIGA}}": bloque_liga,
         "{{SEMANA}}": S.semana_bloque,
         "{{LANI}}": S.lani_bloque,
+        "{{LANY_ADULTO}}": bloque_lany_adulto,
         "{{LANI_REACCIONES}}": S.lani_reacciones,
         "{{ECONOMIA_MAPA}}": S.economia_mapa,
         "{{ECONOMIA}}": lambda: bloque_economia(D),
@@ -822,7 +848,7 @@ def main() -> int:
     env.setdefault("NODE_PATH", "/opt/node22/lib/node_modules")
 
     def imprimir():
-        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.6", "css", "oct-2026"],
+        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.7", "css", "oct-2026"],
                        check=True, env=env)
     imprimir()
     paginas = paginas_capitulos(D, SALIDA_PDF)

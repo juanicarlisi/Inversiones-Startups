@@ -74,6 +74,15 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - la trivia y la Travesía se responden leyendo la RVR1960 (los huecos usan palabras que la RVR1960 conserva);
   - la RVR1960 completa solo se licencia a organizaciones registradas (Digital Bible Library): la figura legal y el camino de
     licencias esperan su decisión (DEC-2026-10-16-1; capítulo 39 §4).
+- **Datos del 16-10-2026 a la noche (Senda, prueba 15):**
+  - «El evangelio» enseña la doctrina del estudio del ministerio aliado tal cual, aunque haya diferencias: es la única excepción a
+    «nada de doctrinas secundarias» (DEC-2026-10-16-2; capítulo 40 §2);
+  - la Biblia de la app se escribe con la ortografía de hoy («creó», nunca «crió»); lo que la RVR1960 dice distinto se resuelve en los
+    ejercicios, que se leen igual en las dos;
+  - Lany es un personaje adulto y canchero (más alto, esbelto, menos lana), vestido según el área, y se pone la armadura que se gana;
+  - la trivia suma «qué pasó después» y curiosidades, siempre verificadas contra el texto; la música de inicio, de juego y elegante;
+  - los libros de referencia están en LIBROS-REFERENCIA3 (inventario solo con los nombres; se usan solo los de autores protestantes
+    reconocidos, para entender); licencias, todavía sin decidir; la meta de UX: la mejor del mercado.
 
 ## 2. Reglas no negociables
 

@@ -102,6 +102,17 @@
 | RVR1960 | Que la trivia y la Travesía tomen la RVR1960 de referencia | Los huecos usan palabras que la RVR1960 conserva y el validador lo controla (capítulo 39 §5) |
 | Calendario | Que crear un evento sea cómodo, esté a mano desde Inicio, con el lugar en el mapa, sin que el teclado tape, con la semana legible y avisos elegantes | Editor nuevo, «Ubicar en el mapa», vista de 3 días y sonido nuevo (capítulo 39 §6) |
 
+### Pautas del 16-10-2026 a la noche (Senda, prueba 15)
+
+| Tema | Pauta (resumen, sin citas textuales) | Cómo se aplica |
+|---|---|---|
+| El evangelio | La doctrina del estudio del ministerio aliado va tal cual, aunque haya diferencias | Única excepción a «nada de doctrinas secundarias»; donde un texto se lee de más de una manera, un «¿Sabías que…?» lo dice (capítulo 40 §2) |
+| Ortografía | Una falta como «crió» es inadmisible; lo viejo tiene que leerse como la RVR1960 | La Biblia de la app con la ortografía de hoy; ejercicios que se leen igual en la RVR1960 (capítulo 40 §3) |
+| Lany | Más canchero, masculino, esbelto, alto, con menos lana y más adulto, pero claramente oveja; ropa según el contexto; otras posturas | Personaje rehecho, ropa por área, posturas nuevas y usos con sentido en la app (capítulo 40 §4) |
+| Trivia | Preguntas creativas, curiosidades y datos muy interesantes, siempre muy bien chequeados | Cada respuesta y cada dato salen del texto citado; el validador lo controla (capítulo 40 §6) |
+| Música | Moderna, de juego, elegante; ni infantil, ni aburrida, ni triste, ni alegre de más | «Salón» y alternativas para elegir (capítulo 40 §7) |
+| UX | La mejor del mercado | Cada gesto y cada pantalla tienen que decir algo sin palabras; se revisa con capturas en cada prueba |
+
 ## Lo que falta (y por qué importa)
 
 | # | Pregunta | Por qué importa | Qué cambia según la respuesta |
