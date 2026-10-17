@@ -325,7 +325,7 @@
         { etiqueta: 'Por parada', valor: h.p(r.porParada), nota: h.n(v.paradasRecorrido, 0) + ' paradas' },
         { etiqueta: 'Por paquete', valor: h.p(r.porPaquete), nota: h.n(v.paquetesRecorrido, 0) + ' paquetes o bultos' },
         { etiqueta: 'Por mes', valor: h.p(r.costoMes), nota: h.u(r.costoMes) + ' · ' + h.n(r.kmMes, 0) + ' km' },
-        { etiqueta: 'Fijos del vehículo', valor: h.p(r.fijosMes) + ' por mes', nota: h.p(r.fijoRecorrido) + ' por recorrido' }
+        { etiqueta: 'Fijos del vehículo por mes', valor: h.p(r.fijosMes), nota: h.p(r.fijoRecorrido) + ' por recorrido' }
       ];
     },
     desglose: function (r, v, h) {
@@ -774,7 +774,7 @@
     },
     desglose: function (r, v, h) {
       return [{
-        titulo: 'Cubicaje del pallet',
+        titulo: 'Cubicaje del pallet', texto: true,
         columnas: ['Dato', 'Valor'],
         filas: [
           ['Pallet', h.n(r.pallet.largo, 1) + ' × ' + h.n(r.pallet.ancho, 1) + ' cm'],

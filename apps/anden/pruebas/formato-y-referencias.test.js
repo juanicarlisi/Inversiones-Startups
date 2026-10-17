@@ -19,11 +19,13 @@ test('leerNumero entiende cómo se escriben los números en Argentina', () => {
 });
 
 test('formato en pesos, dólares y porcentaje', () => {
-  assert.equal(F.pesos(1126149.4), '$ 1.126.149');
-  assert.equal(F.pesos(27.62), '$ 27,62');
-  assert.equal(F.pesos(-355), '−$ 355');
-  assert.equal(F.usd(733.4, 0), 'USD 733');
-  assert.equal(F.porcentaje(31.444), '31,4 %');
+  const e = '\u00a0'; // espacio que no se corta
+  assert.equal(F.pesos(1126149.4), `$${e}1.126.149`);
+  assert.equal(F.pesos(27.62), `$${e}27,62`);
+  assert.equal(F.pesos(0), `$${e}0`);
+  assert.equal(F.pesos(-355), `−$${e}355`);
+  assert.equal(F.usd(733.4, 0), `USD${e}733`);
+  assert.equal(F.porcentaje(31.444), `31,4${e}%`);
   assert.equal(F.paraCampo(1126149.4), '1.126.149,4');
   assert.equal(F.fecha('2026-10-16'), '16-10-2026');
   assert.equal(F.fecha('2026-09'), 'sep-2026');

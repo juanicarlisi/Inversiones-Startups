@@ -129,9 +129,11 @@
 
 | Dato | Valor | Implicancia |
 |---|---|---|
-| Claude | **Max desde el 17-10-2026** (antes: Pro hasta fin de 2026); falta confirmar si es 5x o 20x | Claude deja de ser el cuello de botella: se adelanta lo que casi no pide horas suyas (Andén, juegos en portales, automatizaciones); sus horas siguen siendo el límite (doctrina 05 §5b) |
+| Claude | **Max 5x desde el 17-10-2026** (antes: Pro hasta fin de 2026) | Claude deja de ser el cuello de botella: se adelanta lo que casi no pide horas suyas (Andén, juegos en portales, automatizaciones); sus horas siguen siendo el límite (doctrina 05 §5b) |
 | Ideas que trajo | Un simulador de vuelo o de aeropuerto al estilo de los tycoon de aerolíneas; alguna app más divertida | Semilla evaluada con su familia: el simulador de vuelo no (3D y servidores), el tycoon de red aérea con hub y carga sí (Hub Nocturno, prototipo hecho); de las apps divertidas, Trámite Imposible al plan y un juego con IA como experimento (bitácora del 17-10-2026) |
 | Pedido | Avanzar con todo lo que se pueda del holding | Se adelantaron Andén (calculadoras v0) y Carpincho Games (Hub Nocturno) (DEC-2026-10-17-2) |
+| Hub Nocturno | No lo va a jugar él: Claude evalúa la experiencia e itera hasta el mejor producto del mercado | Pruebas de juego con agentes (novato, diseñador, portal, arte) y un jugador automático; Claude decide y registra |
+| Andén | Quiere el simulador logístico más espectacular, profundo, realista y avanzado que exista, por encima de FlexSim, en 2D y 3D | Andén pasa de «calculadoras + simulador acotado» a simulador de categoría propia (DEC-2026-10-17-3) |
 
 ## Lo que falta (y por qué importa)
 

@@ -94,10 +94,13 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     vota en la Consola (pestaña «Ideas para ser n.º 1»): leer su voto al empezar cada sesión de Senda.
 
 - **Datos del 17-10-2026 (holding):**
-  - **Claude Max desde el 17-10-2026** (reemplaza «Pro hasta fin de 2026»); Max saca el límite de Claude, no el de sus horas: se
+  - **Claude Max 5x desde el 17-10-2026** (reemplaza «Pro hasta fin de 2026»); Max saca el límite de Claude, no el de sus horas: se
     adelanta lo que casi no pide horas suyas (doctrina 05 §5b, DEC-2026-10-17-2);
   - el simulador de vuelo o de aeropuerto que trajo se evaluó como semilla: va el tycoon de red aérea con hub y carga (Hub Nocturno,
-    prototipo en `apps/juegos/aviacion/`), que absorbe a Última Milla Tycoon; el simulador de vuelo no (3D y servidores).
+    prototipo en `apps/juegos/aviacion/`), que absorbe a Última Milla Tycoon; el simulador de vuelo no (3D y servidores);
+  - Hub Nocturno no lo prueba él: Claude evalúa la experiencia con pruebas de juego e itera hasta el mejor producto del mercado;
+  - **Andén al máximo nivel concebible:** el simulador logístico más profundo, realista y avanzado (2D y 3D), por encima de FlexSim;
+    nada de MVP superficial (DEC-2026-10-17-3).
 
 ## 2. Reglas no negociables
 

@@ -45,6 +45,19 @@
     return (typeof t === 'number' && t > 0) ? t : REF.ref('tc_usd');
   }
 
+  /* ───────────── Métricas sin cookies (solo si se publicó con GoatCounter; si no, no hace nada) ─────────────
+   * Eventos: calculo:<id> (primera edición de la sesión: la métrica norte «cálculos por semana»),
+   * compartir:<id>, imprimir:<id>, importar:<id>, ejemplo:<id>. No se manda ningún número cargado. */
+  var medidos = {};
+  function medir(evento, unaVez) {
+    if (unaVez) { if (medidos[evento]) { return; } medidos[evento] = true; }
+    try {
+      if (window.goatcounter && typeof window.goatcounter.count === 'function') {
+        window.goatcounter.count({ path: evento, title: evento, event: true });
+      }
+    } catch (e) { /* nunca romper la calculadora por una métrica */ }
+  }
+
   /* ───────────── Aviso breve ───────────── */
   var avisoTimer;
   function aviso(texto) {
@@ -219,6 +232,7 @@
       if (msj) { msj.textContent = ''; }
       valores[id] = x;
       actualizar();
+      medir('calculo:' + cfg.id, true);
     });
 
     form.addEventListener('change', function (ev) {
@@ -230,6 +244,7 @@
           valores.preset = p.id;
           visibilidad(); actualizar();
           aviso('Cargaste el ejemplo: ' + p.nombre);
+          medir('ejemplo:' + cfg.id, true);
         }
         return;
       }
@@ -242,6 +257,7 @@
         valores[id] = op ? op.valor : c.defecto;
       } else { return; }
       visibilidad(); actualizar();
+      medir('calculo:' + cfg.id, true);
     });
 
     form.addEventListener('focusout', function (ev) {
@@ -263,6 +279,7 @@
       if (!isFinite(x)) { aviso('No se pudo calcular en la calculadora ' + otra.numero + '.'); return; }
       ponerValor(id, x);
       actualizar();
+      medir('importar:' + cfg.id, true);
       aviso('Traído de la calculadora ' + otra.numero + (dv.guardado ? ' (tu escenario guardado)' : ' (valores de referencia)') + ': ' + F.paraCampo(x));
     });
 
@@ -278,13 +295,14 @@
     // Acciones
     raiz.querySelector('[data-accion="copiar"]').addEventListener('click', function () {
       guardar();
+      medir('compartir:' + cfg.id);
       var url = window.location.href;
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(url).then(function () { aviso('Enlace copiado: quien lo abra ve este mismo escenario.'); },
           function () { window.prompt('Copiá el enlace:', url); });
       } else { window.prompt('Copiá el enlace:', url); }
     });
-    raiz.querySelector('[data-accion="imprimir"]').addEventListener('click', function () { window.print(); });
+    raiz.querySelector('[data-accion="imprimir"]').addEventListener('click', function () { medir('imprimir:' + cfg.id); window.print(); });
     raiz.querySelector('[data-accion="restablecer"]').addEventListener('click', function () {
       var ini = CALCS.valoresIniciales(cfg);
       Object.keys(ini).forEach(function (k) { if (k !== 'preset') { ponerValor(k, ini[k]); } });
@@ -309,7 +327,7 @@
     html += '<div class="acciones">' +
       '<button type="button" data-accion="copiar">Copiar enlace</button>' +
       '<button type="button" data-accion="imprimir">Imprimir</button>' +
-      '<button type="button" data-accion="restablecer" class="secundario">Valores de referencia</button>' +
+      '<button type="button" data-accion="restablecer" class="secundario">Volver a los valores de referencia</button>' +
       '<span class="estado-guardado">' + (origen === 'enlace' ? 'Escenario abierto desde un enlace.' : 'Tu escenario se guarda solo en este navegador.') + '</span></div>';
     html += '<div class="calc">';
     html += '<section class="principal tarjeta-principal" aria-live="polite"></section>';
@@ -367,10 +385,11 @@
   }
 
   function tablaHtml(t) {
-    var html = '<h2>' + esc(t.titulo) + '</h2><div class="tabla-envoltura"><table><thead><tr>' +
-      t.columnas.map(function (c, i) { return '<th scope="col"' + (i > 0 ? ' class="num"' : '') + '>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
-      t.filas.map(function (f) { return '<tr>' + f.map(function (x, i) { return i === 0 ? '<th scope="row">' + esc(x) + '</th>' : '<td class="num">' + esc(x) + '</td>'; }).join('') + '</tr>'; }).join('') +
-      '</tbody>' + (t.pie ? '<tfoot><tr>' + t.pie.map(function (x, i) { return i === 0 ? '<th scope="row">' + esc(x) + '</th>' : '<td class="num">' + esc(x) + '</td>'; }).join('') + '</tr></tfoot>' : '') +
+    var clase = t.texto ? 'texto' : 'num';   // t.texto: la segunda columna es texto y puede cortarse en líneas
+    var html = '<h2>' + esc(t.titulo) + '</h2><div class="tabla-envoltura"><table' + (t.texto ? ' class="tabla-texto"' : '') + '><thead><tr>' +
+      t.columnas.map(function (c, i) { return '<th scope="col"' + (i > 0 ? ' class="' + clase + '"' : '') + '>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      t.filas.map(function (f) { return '<tr>' + f.map(function (x, i) { return i === 0 ? '<th scope="row">' + esc(x) + '</th>' : '<td class="' + clase + '">' + esc(x) + '</td>'; }).join('') + '</tr>'; }).join('') +
+      '</tbody>' + (t.pie ? '<tfoot><tr>' + t.pie.map(function (x, i) { return i === 0 ? '<th scope="row">' + esc(x) + '</th>' : '<td class="' + clase + '">' + esc(x) + '</td>'; }).join('') + '</tr></tfoot>' : '') +
       '</table></div>';
     return html;
   }

@@ -1,6 +1,7 @@
 /*
  * Andén — lectura y formato de números en castellano rioplatense.
  * Puro (sin DOM): lo usan la interfaz y las pruebas.
+ * Entre el símbolo y el número va un espacio que no se corta (\u00a0).
  */
 (function (raiz, fabrica) {
   var api = fabrica();
@@ -62,18 +63,18 @@
 
   function pesos(x, decimales) {
     if (typeof x !== 'number' || !isFinite(x)) { return '—'; }
-    var d = (decimales === undefined || decimales === null) ? (Math.abs(x) >= 100 ? 0 : 2) : decimales;
-    return (x < 0 ? '−$ ' : '$ ') + numero(Math.abs(x), d);
+    var d = (decimales === undefined || decimales === null) ? ((Math.abs(x) >= 100 || x === 0) ? 0 : 2) : decimales;
+    return (x < 0 ? '−$\u00a0' : '$\u00a0') + numero(Math.abs(x), d);
   }
 
   function usd(x, decimales) {
     if (typeof x !== 'number' || !isFinite(x)) { return '—'; }
-    return (x < 0 ? '−USD ' : 'USD ') + numero(Math.abs(x), decimales);
+    return (x < 0 ? '−USD\u00a0' : 'USD\u00a0') + numero(Math.abs(x), decimales);
   }
 
   function porcentaje(x, decimales) {
     if (typeof x !== 'number' || !isFinite(x)) { return '—'; }
-    return numero(x, decimales === undefined ? 1 : decimales) + ' %';
+    return numero(x, decimales === undefined ? 1 : decimales) + '\u00a0%';
   }
 
   /* Valor para mostrar dentro de un campo editable (sin símbolo, con separador de miles). */

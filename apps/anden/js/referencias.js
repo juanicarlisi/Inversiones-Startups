@@ -241,7 +241,7 @@
     feriados_2026: {
       nombre: 'Feriados nacionales de 2026 que caen de lunes a sábado',
       valor: 16, unidad: 'días por año', fecha: '2026',
-      fuente: 'https://www.argentina.gob.ar/interior/feriados-nacionales-2026', tipo: 'ESTIMACIÓN',
+      fuente: 'https://www.argentina.gob.ar/feriados', tipo: 'ESTIMACIÓN',
       metodo: 'Conteo propio de los 16 feriados de la Ley 27.399 en el calendario 2026 (15 de lunes a viernes y el 20 de junio, sábado), con las fechas trasladables publicadas por medios. No incluye días no laborables.'
     },
     ausentismo: {
@@ -357,15 +357,15 @@
 
     /* ───────────── Productividades (anclas externas) ───────────── */
     prod_picking: {
-      nombre: 'Picking: líneas preparadas y despachadas por hora',
-      valor: 70, unidad: 'líneas por hora-persona', fecha: '2024-07',
-      fuente: 'https://www.yale.com/globalassets/coms/yale/north-america/documents/white-papers/snack-drawer/yale-1520_werc-dc-metrics-infographic_072924.pdf', tipo: 'ESTIMACIÓN',
-      metodo: 'Umbral de referencia de la infografía de Yale basada en el estudio DC Measures de WERC (Estados Unidos). No es un dato argentino ni de tu operación.'
+      nombre: 'Picking: líneas preparadas y despachadas por persona y hora',
+      valor: 50, unidad: 'líneas por hora-persona', fecha: '2025',
+      fuente: 'https://www.yale.com/globalassets/coms/yale/north-america/documents/white-papers/snack-drawer/YALE-1520_WERC-DC-Metrics-infographic.pdf', tipo: 'ESTIMACIÓN',
+      metodo: 'El informe DC Measures 2025 de WERC (Estados Unidos), según la infografía de Yale, pone el «mejor de su clase» en 70 o más líneas por persona-hora. Es un techo, no un promedio: se toma ~70% de ese valor como supuesto para una pyme. Reemplazar por la medición propia.'
     },
     prod_clasificacion: {
       nombre: 'Clasificación manual de paquetes por hora',
       valor: 200, unidad: 'paquetes por hora-persona', fecha: '2026-10',
-      fuente: 'https://www.oversight.gov/sites/default/files/oig-reports/20-064-R20.pdf', tipo: 'ESTIMACIÓN',
+      fuente: 'https://www.oversight.gov/sites/default/files/documents/reports/2019-12/20-064-R20.pdf', tipo: 'ESTIMACIÓN',
       metodo: 'Supuesto de trabajo. Ancla externa: el correo de EE.UU. promedió 74 paquetes por hora en clasificación manual (2019), contando todas las horas del centro; un puesto de clasificación a rutas con escáner rinde bastante más. Es el primer número a validar.'
     },
     prod_otros: {

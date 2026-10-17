@@ -13,6 +13,19 @@ const REF = require('../js/referencias.js');
 const F = require('../js/formato.js');
 
 const RAIZ = path.join(__dirname, '..');
+
+/*
+ * Métricas sin cookies (opcional). Si se publica con GoatCounter (no usa cookies ni guarda IP), generar así:
+ *     ANDEN_GOATCOUNTER=https://<cuenta>.goatcounter.com/count node herramientas/paginas.js
+ * Sin la variable, las páginas no cargan ningún script de terceros.
+ */
+const URL_CONTADOR = process.env.ANDEN_GOATCOUNTER || '';
+if (URL_CONTADOR && !/^https:\/\/[a-z0-9-]+\.goatcounter\.com\/count$/.test(URL_CONTADOR)) {
+  throw new Error('ANDEN_GOATCOUNTER tiene que ser https://<cuenta>.goatcounter.com/count');
+}
+const CONTADOR = URL_CONTADOR
+  ? `\n<script data-goatcounter="${URL_CONTADOR}" async src="https://gc.zgo.at/count.js"></script>`
+  : '';
 const esc = CALCS.esc;
 const minuscula = s => s.charAt(0).toLowerCase() + s.slice(1);
 
@@ -56,7 +69,7 @@ function documento({ archivo, titulo, descripcion, cuerpo, pagina }) {
 <meta name="description" content="${esc(descripcion)}">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#0f7a55">
-<link rel="stylesheet" href="css/anden.css">
+<link rel="stylesheet" href="css/anden.css">${CONTADOR}
 <script>try{var t=JSON.parse(localStorage.getItem('anden:tema'));if(t==='claro'||t==='oscuro'){document.documentElement.setAttribute('data-tema',t);}}catch(e){}</script>
 </head>
 <body data-pagina="${pagina}">
