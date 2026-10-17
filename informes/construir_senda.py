@@ -38,8 +38,8 @@ FUENTE = RAIZ / "informes" / "fuente-senda"
 GRAF = FUENTE / "graficos"
 TIPO = RAIZ / "informes" / "tipografia"
 TITULO = "Senda · El proyecto completo de la app"
-SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-8.pdf"
-SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-8.html"
+SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-9.pdf"
+SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-9.html"
 SALIDA_HTML = FUENTE / "informe.html"
 
 AMBAR, NOCHE, VERDE, GRANADA, CREMA, TINTA = V.AMBAR, V.NOCHE, V.VERDE, V.ROJO, V.CREMA, "#1B1B1F"
@@ -209,7 +209,7 @@ calidad de las mejores apps del mundo. Junta en un solo lugar, en español de or
 30 de abril de 2027 (capítulo {{{{cap:30}}}}).</p></div>
 </div>
 <div class="caja rec"><h4 class="ico-t">{V.icono("check", 13, V.VERDE)} Dónde estamos y qué necesito de vos</h4>
-<p>Dieciséis versiones de prueba desde el 05-10-2026: ya funcionan {cm["hecho"]} de las {cm["total"]} funciones de la app (capítulos {{{{cap:06}}}} y
+<p>Diecisiete versiones de prueba desde el 05-10-2026: ya funcionan {cm["hecho"]} de las {cm["total"]} funciones de la app (capítulos {{{{cap:06}}}} y
 {{{{cap:33}}}}). Desde la 9, todo enseña y edifica (capítulo {{{{cap:34}}}}); la 10 suma una misión nueva, tres travesías, la trivia de la
 iglesia y el inventario bíblico (capítulo {{{{cap:35}}}}); la 11, Lany en Rive, una línea clara en cada travesía, el gran relato
 completo, la historia de la Iglesia, el «+» de estudio y todo el contenido publicado (capítulo {{{{cap:36}}}}); la 12, Lany como guía
@@ -219,8 +219,9 @@ rutas de Personajes y la recomendación sobre las licencias (capítulo {{{{cap:3
 15, Lany adulto y vestido según el área, la armadura que Lany se pone, 71 preguntas nuevas con su «¿Sabías que…?», la Biblia con la
 ortografía de hoy y «El evangelio» con la doctrina del estudio (capítulo {{{{cap:40}}}}); la 16, Lany v3, el logo nuevo, la senda
 iluminada, la guía de los 66 libros, Rut, Jonás y Quién es quién, «Vivir la historia», el kit de juegos de mesa y las ideas para ser la
-app número uno (capítulo {{{{cap:41}}}}).
-Ahora: probar la prueba 16, votar las ideas en la Consola, elegir la música, decidir si se comparte el kit, decidir las licencias y
+app número uno (capítulo {{{{cap:41}}}}); la 17, la redacción que nunca enseña un error, lecciones que entran en la pantalla, música
+publicitaria, Lany más viva, desafíos con fecha, Tu año en la Palabra, el sitio de las guías y Habacuc (capítulo {{{{cap:42}}}}).
+Ahora: probar la prueba 17, escuchar la música, decidir el camino de la voz, crear la cuenta de Cloudflare para el sitio, decidir las licencias y
 la figura legal, mandar el seguimiento a API.Bible y el pedido de la RVR1960 a la Sociedad Bíblica Argentina, 2 revisores doctrinales, 12 testers y
 Google Play antes del 15-11.</p></div>"""
 
@@ -686,6 +687,20 @@ def bloque_pantallas16() -> str:
             '<p class="nota">Capturas de la vista previa web de la app, prueba 16 (17-10-2026).</p>')
 
 
+P17 = RAIZ / "informes" / "fuente-senda" / "prueba17"
+
+
+def bloque_pantallas17() -> str:
+    items = [("leccion", "La lección entra sin deslizar (letra a 1,2)"), ("travesia", "El globo de Lany, sin tapar"), ("adviento", "Desafío con fecha: Adviento"),
+             ("anio", "Tu año en la Palabra"), ("web", "El sitio de las guías")]
+    celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center"><img src="data:image/jpeg;base64,'
+                     f'{base64.b64encode((P17 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:3mm;display:block;'
+                     f'box-shadow:0 1mm 3mm rgba(0,0,0,.25)"><figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>'
+                     for n, t in items)
+    return (f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+            '<p class="nota">Capturas de la vista previa web de la app en un teléfono de 360 puntos de ancho, prueba 17 (17-10-2026).</p>')
+
+
 def bloque_gantt_general(D) -> str:
     r = D["roadmap"]
     return gantt_html(r["general"], r["hitos_general"], dt.date(2026, 10, 1), dt.date(2030, 12, 31), 176 - 40, "gx-a4", "trimestres")
@@ -706,8 +721,8 @@ def portada(D) -> str:
              (f"USD {usd(tot)}", "primer año en nivel profesional, por tramos (hay básico y premium)"), ("25 mil", "personas por semana con la Palabra 3 días o más: la meta de 2030")]
     dt_ = "".join(f"<div><b>{a}</b><span>{b}</span></div>" for a, b in datos)
     return f"""<section class="portada-s">
-<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.8 · 17 de octubre de 2026 · uso privado</div>
-<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.8</p>
+<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.9 · 17 de octubre de 2026 · uso privado</div>
+<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.9</p>
 <p class="ps-lema">Una app cristiana para que los jóvenes conozcan la Biblia <b>jugando, leyendo y en comunidad</b>, con nivel profesional:
 nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen; Android e iOS primero y la web después.</p></div>
 <div class="ps-img"><div class="ps-esc">{lany16_png("tu_reposo", 100)}</div>{V.logo_txt(30, V.NOCHE)}</div></div>
@@ -717,7 +732,7 @@ nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen
 <div class="ps-mv"><div><span>Misión</span>Que una generación conozca la Palabra de Dios como ninguna antes, y que por medio de ella se rinda a
 Cristo y lo ame.</div><div><span>Visión</span>Iglesias llenas de personas que abren la Biblia cada día, la entienden, la recuerdan y la viven; y
 Senda como la herramienta en la que confían, porque todo lo que muestra está comprobado en la Escritura.</div></div>
-<div class="ps-pie">Esta versión suma la prueba 16: Lany v3, el logo «la puerta abierta», la senda iluminada, la guía de los 66 libros, los juegos de mesa y de rol y las ideas para ser la app número uno (capítulo 41), sobre las pruebas anteriores (capítulos 31 y 33 a 40) y el mapa de toda la app (capítulo 6). HECHO lleva fuente y fecha;
+<div class="ps-pie">Esta versión suma la prueba 17: redacción que nunca enseña un error, lecciones que entran en la pantalla, música publicitaria, Lany más viva y las ideas votadas (desafíos con fecha, Tu año en la Palabra, el sitio de las guías y Habacuc) (capítulo 42), sobre las pruebas anteriores (capítulos 31 y 33 a 41) y el mapa de toda la app (capítulo 6). HECHO lleva fuente y fecha;
 ESTIMACIÓN lleva método. Nada que mueva plata o hable con terceros sale sin la aprobación del fundador. Lany, logo y pantallas son
 bocetos de dirección: el diseño final lo hacen especialistas.</div>
 </section>"""
@@ -756,6 +771,7 @@ def construir_html(D, incrustar: bool = False, paginas: dict | None = None) -> s
         "{{LANY_V3}}": bloque_lany_v3,
         "{{MARCA16}}": bloque_marca16,
         "{{PANTALLAS16}}": bloque_pantallas16,
+        "{{PANTALLAS17}}": bloque_pantallas17,
         "{{LANI_REACCIONES}}": S.lani_reacciones,
         "{{ECONOMIA_MAPA}}": S.economia_mapa,
         "{{ECONOMIA}}": lambda: bloque_economia(D),
@@ -907,7 +923,7 @@ def main() -> int:
     env.setdefault("NODE_PATH", "/opt/node22/lib/node_modules")
 
     def imprimir():
-        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.8", "css", "oct-2026"],
+        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.9", "css", "oct-2026"],
                        check=True, env=env)
     imprimir()
     paginas = paginas_capitulos(D, SALIDA_PDF)

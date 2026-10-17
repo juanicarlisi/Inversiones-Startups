@@ -92,6 +92,16 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - los juegos de mesa y de rol que enseñan son prioridad (Vivir la historia y el kit imprimible);
   - las ideas para ser la app cristiana número uno viven en `oportunidades/proyectos/senda/ideas_numero_uno.yaml` y el fundador las
     vota en la Consola (pestaña «Ideas para ser n.º 1»): leer su voto al empezar cada sesión de Senda.
+- **Datos del 17-10-2026 (Senda, prueba 17):**
+  - nada puede prestarse a confusión: lo que se lee al responder (pregunta, opciones, respuesta correcta, hueco) enseña la verdad por
+    sí solo; la respuesta correcta nunca es la frase de un error y el error se nombra como error (`docs/REDACCION.md` en la app; el
+    validador lo controla);
+  - ni textos tapados ni deslizar para seguir: la lección se compacta sola; probar siempre en teléfono chico y con letra grande;
+  - música de inicio tipo publicitaria: «Nonstop» (Kevin MacLeod, CC BY 4.0, con crédito); FreePD cerró;
+  - el kit imprimible, en pausa; sin animador pago: Claude pule a Lany;
+  - votó las ideas: sí a diez (proyector, temporadas, ligas, duelos, la Biblia entera, líderes, voz, sitio web, Tu año, portugués) y
+    no al sello de confianza; la voz Piper elegida no se usa para audio que se reparte (su base tiene licencia solo para
+    investigación) y el camino de la voz espera su decisión (DEC-2026-10-17-2; capítulo 42 §6).
 
 ## 2. Reglas no negociables
 

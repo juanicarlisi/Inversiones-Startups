@@ -4,8 +4,8 @@
 > `inventario_biblico.yaml`. Cuenta las preguntas (Travesía, Espadeo, Trivia) y los hechos (Antes o después) que caen en los capítulos
 > de cada personaje o historia. «Con contenido» = al menos 4 preguntas de la Travesía; «empezado» = algo; «sin contenido» = nada todavía.
 
-**Personajes (114):** 93 con contenido, 20 empezado, 1 sin contenido.
-**Historias (131):** 80 con contenido, 42 empezado, 9 sin contenido.
+**Personajes (115):** 94 con contenido, 20 empezado, 1 sin contenido.
+**Historias (132):** 81 con contenido, 42 empezado, 9 sin contenido.
 
 ## Personajes
 
@@ -78,7 +78,7 @@
 | María, la madre de Jesús | Lucas 1–2; Mateo 1–2; Juan 2:1-11; 19:25-27; Hechos 1:14 | 40 | 14 | 1 | 0 | con contenido | alta |
 | José, el esposo de María | Mateo 1–2; Lucas 2 | 16 | 6 | 1 | 0 | con contenido | media |
 | Zacarías y Elisabet | Lucas 1 | 9 | 1 | 0 | 0 | con contenido | baja |
-| Jesús | Mateo, Marcos, Lucas y Juan; Hechos 1; Hebreos; Apocalipsis 1; 19–22 | 304 | 65 | 5 | 3 | con contenido | alta |
+| Jesús | Mateo, Marcos, Lucas y Juan; Hechos 1; Hebreos; Apocalipsis 1; 19–22 | 305 | 65 | 5 | 3 | con contenido | alta |
 | Pedro | Mateo 4; 14; 16; 26; Juan 21; Hechos 1–12; 15; 1–2 Pedro | 106 | 21 | 3 | 0 | con contenido | alta |
 | Andrés | Juan 1:40-42; 6:8-9; 12:22 | 14 | 5 | 0 | 0 | con contenido | baja |
 | Juan | Mateo 4:21; Juan 13:23; 19:26; 21:20-24; Hechos 3–4; Apocalipsis 1 | 29 | 6 | 1 | 0 | con contenido | alta |
@@ -125,6 +125,7 @@
 | Coré | Números 16; Judas 1:11 | 2 | 1 | 0 | 0 | empezado | media |
 | Las hijas de Zelofehad | Números 27:1-11; 36 | 1 | 0 | 0 | 0 | empezado | baja |
 | Og, rey de Basán | Números 21:33-35; Deuteronomio 3:1-11 | 1 | 0 | 0 | 0 | empezado | baja |
+| Habacuc | Habacuc 1–3; Romanos 1:17; Gálatas 3:11; Hebreos 10:38 | 46 | 0 | 0 | 0 | con contenido | alta |
 
 ## Historias
 
@@ -161,7 +162,7 @@
 | El maná y el agua de la roca | Éxodo 16–17; Juan 6:31-35; 1 Corintios 10:4 | 9 | 1 | 0 | 0 | con contenido | media |
 | El Sinaí y los diez mandamientos | Éxodo 19–20; Deuteronomio 5 | 6 | 3 | 1 | 0 | con contenido | alta |
 | El becerro de oro | Éxodo 32–34 | 4 | 1 | 1 | 0 | con contenido | alta |
-| El tabernáculo | Éxodo 25–40; Hebreos 8–10 | 12 | 1 | 1 | 0 | con contenido | media |
+| El tabernáculo | Éxodo 25–40; Hebreos 8–10 | 13 | 1 | 1 | 0 | con contenido | media |
 | Los doce espías | Números 13–14 | 6 | 1 | 0 | 0 | con contenido | media |
 | La serpiente de bronce | Números 21:4-9; Juan 3:14-15 | 7 | 2 | 0 | 0 | con contenido | media |
 | Balaam y la asna | Números 22–24 | 3 | 1 | 0 | 0 | empezado | baja |
@@ -261,3 +262,4 @@
 | Las cartas a las siete iglesias | Apocalipsis 2–3 | 6 | 1 | 0 | 0 | con contenido | alta |
 | El trono y el Cordero | Apocalipsis 4–5 | 1 | 0 | 0 | 0 | empezado | media |
 | Cielo nuevo y tierra nueva | Apocalipsis 21–22 | 8 | 1 | 0 | 0 | con contenido | alta |
+| Habacuc le pregunta a Dios | Habacuc 1–3 | 33 | 0 | 0 | 0 | con contenido | alta |

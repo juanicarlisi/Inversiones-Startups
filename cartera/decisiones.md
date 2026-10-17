@@ -747,3 +747,40 @@
     `scripts/musica_synthpop.py`, `scripts/autor/guias_libros.py`, `scripts/autor/libro_a_libro.py`, `scripts/autor/quien_es_quien.py`,
     `scripts/autor/historias_rol.py`, `docs/JUEGOS_MESA_ROL.md`, `scripts/kit_mesa.py`, `src/componentes/desafioDia.tsx`,
     `src/pantallas/Linea.tsx`, `src/componentes/pruebaNivel.tsx`.
+
+## DEC-2026-10-17-2 · Senda: decimoséptima tanda (prueba 17), claridad que no enseña errores, lecciones que entran en la pantalla, música publicitaria y las ideas votadas
+
+- **Contexto:** el fundador escribió el 17-10-2026 (resumen, sin citas textuales):
+  - una pregunta de Historia de la Iglesia daba como respuesta la frase del error de Arrio: quien solo responde podía aprenderlo; todo
+    tiene que ser lógico, claro y sin prestarse a confusión (textos, preguntas, huecos);
+  - en la Travesía a veces hay textos tapados y en las respuestas a veces hay que deslizar para seguir;
+  - cambiar otra vez la música de inicio por algo más tipo publicitaria, libre si hace falta;
+  - el kit de juegos, no por ahora; el animador de Rive (USD 1.200) no se puede pagar: que Claude pula a Lany;
+  - ya votó las ideas para ser la número uno; avanzar con todo lo próximo y pendiente.
+- **Decidido:**
+  - **Regla de redacción para toda la app** (docs/REDACCION.md): la respuesta correcta siempre dice algo verdadero; el error se nombra
+    como error; las mentiras que cita la Biblia, como mentira; en doctrina, el verdadero o falso afirma la verdad. El validador da
+    error si se nombra a un hereje sin decir que era un error.
+  - **La lección se compacta sola** si no entra en la pantalla; la letra del sistema, hasta 1,2 veces.
+  - **Música de inicio: «Nonstop», de Kevin MacLeod** (CC BY 4.0, con el crédito en la app). FreePD (CC0) cerró (HECHO, 17-10-2026).
+  - **Kit imprimible en pausa.** **Sin animador pago:** Claude pule a Lany con código.
+  - **Ideas:** se hacen las votadas que no necesitan cuentas (temporadas, Tu año, el sitio, más libros); el sello de confianza, votado
+    que no, sale de los planes; proyector, ligas, duelos y líderes esperan las cuentas.
+  - **Voz de la Biblia narrada:** no se usa la voz Piper elegida para audio que se reparte, porque hereda una base con licencia solo
+    para investigación (lessac, Blizzard 2013). Recomendación: lanzar con la voz del teléfono y pagar una voz con licencia comercial
+    (ESTIMACIÓN: USD 100 a 300) solo si más del 20 % de los usuarios activos usa «Escuchar» cada semana al mes del lanzamiento.
+    Espera la confirmación del fundador.
+- **Hecho por Claude (APK prueba 17, versión 0.17.0):** lo anterior, más los desafíos con fecha (Adviento 2026, enero y Semana Santa
+  2027), «Tu año en la Palabra», el sitio estático de las 66 guías y Quién es quién (falta publicarlo), Habacuc jugable (3 de 66
+  libros), Lany más viva (reposo, parpadeo, suspiro) y el globo de Lany que ya no queda tapado; proyecto v3.9 (capítulo 42, estado,
+  mapa e inventario).
+- **Pendiente del fundador:** probar la prueba 17; escuchar la música (y elegir otra si quiere); decidir el camino de la voz; crear la
+  cuenta de Cloudflare para publicar el sitio; y lo que ya estaba (licencias y figura legal, API.Bible, Sociedad Bíblica Argentina,
+  revisores, Google Play antes del 15-11, Supabase).
+- **Evidencia:**
+  - `oportunidades/proyectos/senda/capitulos/42-claridad-lecciones-temporadas.md`, `oportunidades/proyectos/senda/ideas_numero_uno.yaml`;
+  - repositorio de la app: `docs/REDACCION.md`, `scripts/validar_contenido.py`, `src/pantallas/Leccion.tsx`, `src/pantallas/Travesia.tsx`,
+    `scripts/musica_publicitaria.py`, `assets/sonidos/CREDITOS.md`, `scripts/rive/lani.py`, `src/datos/temporadas.ts`,
+    `src/pantallas/Anio.tsx`, `scripts/sitio_web.py`, `web/`, `scripts/autor/habacuc.py`;
+  - licencias de voz: model cards de rhasspy/piper-voices (es_MX-ald, es_ES-davefx, en_US-lessac) y la licencia de Blizzard 2013 en
+    cstr.ed.ac.uk (consultadas el 17-10-2026).

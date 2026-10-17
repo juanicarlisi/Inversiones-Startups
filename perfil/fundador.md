@@ -125,6 +125,17 @@
 | UX y marca | Que no parezca una app cristiana genérica sino una gran app con esencia cristiana; que la Travesía no parezca copia de Duolingo; un logo extraordinario | La senda iluminada, Inicio y lección nuevos y el logo «la puerta abierta» (capítulo 41 §4 a §6) |
 | Ambición | Todas las ideas para ser la app cristiana número uno del mundo | Doce priorizadas con su regla de corte, para votar en la Consola (capítulo 41 §12) |
 
+### Pautas del 17-10-2026 (Senda, prueba 17)
+
+| Tema | Pauta (resumen, sin citas textuales) | Cómo se aplica |
+|---|---|---|
+| Claridad del contenido | Nada puede prestarse a confusión: quien solo responde, sin leer la nota, tiene que aprender la verdad; vale para textos, preguntas y huecos | Regla de redacción y control en el validador: la respuesta correcta siempre es verdadera y el error se nombra como error (capítulo 42 §2) |
+| Pantalla | Ni textos tapados ni deslizar para seguir mientras se juega | La pregunta se compacta sola y el globo de Lany se corre (capítulo 42 §3) |
+| Música | Tipo publicitaria; libre, buscada en la web si hace falta | «Nonstop» de Kevin MacLeod, con crédito, y alternativas (capítulo 42 §4) |
+| Kit imprimible | No por ahora | En pausa (capítulo 42 §8) |
+| Animador de Rive | No lo puede pagar: que lo haga Claude | Lany pulida con código (capítulo 42 §5) |
+| Ideas para ser n.º 1 | Votó sí a diez y no al sello de confianza | Se hacen las que no necesitan cuentas; el sello sale de los planes (capítulo 42 §6) |
+
 ## Lo que falta (y por qué importa)
 
 | # | Pregunta | Por qué importa | Qué cambia según la respuesta |
