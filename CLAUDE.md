@@ -102,6 +102,15 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - votó las ideas: sí a diez (proyector, temporadas, ligas, duelos, la Biblia entera, líderes, voz, sitio web, Tu año, portugués) y
     no al sello de confianza; la voz Piper elegida no se usa para audio que se reparte (su base tiene licencia solo para
     investigación) y el camino de la voz espera su decisión (DEC-2026-10-17-2; capítulo 42 §6).
+- **Datos del 17-10-2026 (Senda, prueba 18):**
+  - no llega a probar el APK, pero el proyecto no se atrasa: se avanza a fondo con todo lo próximo, calidad antes que velocidad;
+  - la plata de Google Play y AdMob va en dólares a una cuenta a nombre de quien figura en el perfil de pagos; recomendación: lanzar
+    con anuncios y sin compras dentro de la app (cuenta personal), monotributo con factura E antes del primer pago y la SAS antes de las
+    suscripciones (decidir en diciembre; capítulo 43 §2);
+  - plantea Claude Max de USD 100: el plan (Biblia entera jugable, trivia hacia 2.000, dos lotes de videos por semana) y su regla de
+    corte esperan su decisión (DEC-2026-10-17-3; capítulo 43 §3);
+  - «¿Quién es?» (tipo Adivina quién, con impronta propia) y «En la frente» quedan en Jugar; la fábrica de videos y los stickers de Lany,
+    hechos: publicarlos es decisión suya.
 
 ## 2. Reglas no negociables
 

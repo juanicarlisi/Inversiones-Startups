@@ -784,3 +784,42 @@
     `src/pantallas/Anio.tsx`, `scripts/sitio_web.py`, `web/`, `scripts/autor/habacuc.py`;
   - licencias de voz: model cards de rhasspy/piper-voices (es_MX-ald, es_ES-davefx, en_US-lessac) y la licencia de Blizzard 2013 en
     cstr.ed.ac.uk (consultadas el 17-10-2026).
+
+## DEC-2026-10-17-3 · Senda: decimoctava tanda (prueba 18), cobros y figura legal, el plan con Max, «¿Quién es?» y la fábrica de difusión
+
+- **Fecha:** 17-10-2026. **Quién:** el fundador pide; Claude ejecuta y recomienda.
+- **Pedido (resumen, sin citas textuales):**
+  - no llega a probar el APK pero no quiere atrasar el proyecto: ir a fondo con todo lo próximo, con calidad antes que velocidad;
+  - seguir puliendo a Lany (Rive, 3D, todo lo posible), mejorar la UX y avanzar con la Travesía y con la cantidad de preguntas;
+  - con Claude Max de USD 100, qué aprovechar para que Senda sea un éxito (publicidad, ideas, desarrollos);
+  - a qué cuenta va lo que paguen las suscripciones y lo que dejen los anuncios, cómo funciona y qué hace falta en lo legal;
+  - seguir explorando juegos de mesa y de rol; recordó el Adivina quién como un juego muy bueno.
+- **Decidido / recomendado:**
+  - **Cobros (recomendación, decide el fundador):** Google Play y AdMob pagan en dólares, por transferencia desde EE.UU., a una cuenta
+    en dólares a nombre del titular del perfil de pagos (HECHO, centros de ayuda de Google, 17-10-2026). Lanzar con cuenta personal,
+    **con anuncios y sin compras dentro de la app** (solo las cuentas que venden muestran su dirección completa); antes del primer
+    pago, caja de ahorro en dólares y monotributo con factura E (desde la «A» 8481 del BCRA los dólares pueden quedar en dólares, sin
+    tope); **decidir la SAS en diciembre y crearla en enero de 2027**, antes de prender las suscripciones; botón de arrepentimiento y
+    de baja (Disposición 954/2025) comprometido en los términos. Todo se re-verifica con un contador antes de facturar.
+  - **Plan con Max (recomendación, decide el fundador):** si pasa a Max, que sea antes del lanzamiento; el uso extra va a lo que no
+    necesita al fundador y acumula valor: la Biblia entera jugable (2 a 3 libros por semana), trivia hacia 2.000 con doble revisión y
+    dos lotes de videos por semana; después, los juegos de grupo (con Supabase), el sitio (con Cloudflare) y el portugués. **Regla de
+    corte:** si a los 60 días lo producido por semana no se duplica respecto de octubre, se vuelve a Pro.
+  - **«¿Quién es?» y «En la frente»:** la mecánica de adivinar con preguntas de sí o no es de dominio común y de más de 20 años; nombre,
+    aspecto y tarjetas propios. Todo enseña: cada «sí» con su versículo y un repaso al final.
+  - **Difusión sin cara:** la fábrica de videos y los stickers quedan hechos; publicar es decisión del fundador (regla 8).
+- **Hecho por Claude (APK prueba 18, versión 0.18.0):** trivia de 228 a 410 preguntas revisadas contra la RV1909; Abdías y Hageo
+  jugables (5 de 66 libros) y Quién es quién capítulo 2 (244 lecciones); «¿Quién es?» (23 personajes verificados) y «En la frente»;
+  Lany asiente y niega en Rive; 13 stickers animados; la fábrica de videos verticales y su primer lote de 7; pantallas angostas sin
+  títulos cortados; la pestaña Difusión en la Consola; proyecto v3.10 (capítulo 43, estado, mapa, inventario e ideas).
+- **Pendiente del fundador:** probar la prueba 18 cuando pueda; crear las cuentas de difusión y publicar; decidir Max; Google Play
+  antes del 15-11; la cuenta en dólares y el monotributo antes del primer pago; la empresa en diciembre; y lo que ya estaba (licencias,
+  API.Bible, Sociedad Bíblica Argentina, revisores, Supabase, Cloudflare, la voz).
+- **Evidencia:**
+  - `oportunidades/proyectos/senda/capitulos/43-cobros-max-quien-es-difusion.md`, `conocimiento/2026-10-17-senda-cobros-cuentas-y-figura-legal.md`,
+    `oportunidades/proyectos/senda/ideas_numero_uno.yaml`;
+  - repositorio de la app: `scripts/autor/trivia_banco2.py`, `scripts/autor/abdias.py`, `scripts/autor/hageo.py`,
+    `scripts/autor/quien_es_quien.py`, `scripts/autor/quien_soy.py`, `src/pantallas/QuienEs.tsx`, `src/pantallas/EnLaFrente.tsx`,
+    `scripts/rive/lani.py`, `scripts/difusion/`, `docs/JUEGOS_MESA_ROL.md` §6, `src/datos/legal.ts`;
+  - precios de Claude: guías de precios de 2026 (noqta.tn, heyuan110.com, consultadas el 17-10-2026); verificar en claude.com/pricing.
+

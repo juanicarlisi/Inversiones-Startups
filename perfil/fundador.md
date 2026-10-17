@@ -29,7 +29,7 @@
 | Cálculos logísticos | Pide investigarlos en el mercado; su lista: tarifa a transportistas vs ingreso y volumen, rutas óptimas, costo laboral por operario, costo de clasificación en media/última milla, costo por recorrido troncal y de última milla, costo por proceso de almacenamiento | Orden de construcción de Logistic Lab (ver bitácora del 28-09) |
 | Simulador propio | Hizo en su empresa un simulador de procesamiento de última milla y quiere usarlo como insumo | **Propiedad intelectual del empleador** (Ley 11.723 art. 4 inc. d; LCT arts. 82, 85, 88): solo describirlo en general, sin código, datos ni nombres; Claude reconstruye desde cero |
 | Agentes propios | Tiene un agente de inversiones y un agente de alquileres armados en otro lado | Cargarlos al repo (recordatorio en el roadmap de renta y de alquileres) |
-| Claude | **Pro hasta fin de 2026**; después evaluar en serio Max | Capacidad de construcción limitada en oct–dic 2026; costo fijo sube desde ene-2027 si se justifica |
+| Claude | **Pro hasta fin de 2026**; después evaluar en serio Max. El 17-10-2026 planteó pasar a Max de USD 100 (plan y regla de corte en el capítulo 43 §3 de Senda) | Capacidad de construcción limitada en oct–dic 2026; costo fijo sube si se justifica |
 | Entrenar IA y horas en dólares | Outlier le resultó muy difícil; solo quiere algo fácil y seguro. Ya tiene trabajo fijo: si no es serio o simple, se descarta | H1 y H2 salen del plan; H3 queda como palanca personal fuera del holding |
 | Compra de una app o juego | Mitad de 2027 | F1 en el gantt para jun–jul 2027 |
 | Horas (28-09-2026) | Si algún mes pasa de 10 h/semana, no es problema por ahora | El plan base se mantiene en ≤ 10 h; lo que se puede adelantar con 1–2 h más se marca aparte |
@@ -135,6 +135,15 @@
 | Kit imprimible | No por ahora | En pausa (capítulo 42 §8) |
 | Animador de Rive | No lo puede pagar: que lo haga Claude | Lany pulida con código (capítulo 42 §5) |
 | Ideas para ser n.º 1 | Votó sí a diez y no al sello de confianza | Se hacen las que no necesitan cuentas; el sello sale de los planes (capítulo 42 §6) |
+
+### Pautas del 17-10-2026 (Senda, prueba 18)
+
+| Tema | Pauta (resumen, sin citas textuales) | Cómo se aplica |
+|---|---|---|
+| Ritmo | No llega a probar el APK, pero el proyecto no se tiene que atrasar: ir a fondo con todo lo próximo, con calidad antes que velocidad | Se avanza con contenido, juegos, Lany y UX; el APK 18 junta la 17 y la 18 para probar cuando pueda (capítulo 43) |
+| Claude Max | Plantea tener Max de USD 100 y pregunta qué aprovechar para que Senda sea un éxito | Plan con ritmo semanal, metas a 60 días y regla de corte; recomendación: pasar antes del lanzamiento si lo decide (capítulo 43 §3) |
+| Cobros | Quiere saber a qué cuenta va la plata de suscripciones y anuncios y qué hace falta en lo legal | Guía: cuenta en dólares a su nombre, monotributo con factura E y la SAS antes de las suscripciones (capítulo 43 §2) |
+| Juegos | Recordó el Adivina quién como muy bueno; seguir explorando juegos de mesa y de rol | «¿Quién es?» y «En la frente» en la app, con impronta propia (capítulo 43 §4) |
 
 ## Lo que falta (y por qué importa)
 
