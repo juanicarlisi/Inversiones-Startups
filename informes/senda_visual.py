@@ -386,16 +386,15 @@ def vehiculo(tipo: str, tam: float = 90) -> str:
 
 # ─────────────────────────────── logo (concepto) ───────────────────────────────
 def logo_simbolo(tam: float = 120, claro: bool = False) -> str:
-    """Una S que es un camino y, arriba, la llama de una lámpara. Concepto para el diseñador, no el logo final."""
+    """El símbolo de Senda (prueba 16): «la puerta abierta», el mismo SVG que la app (assets/marca del repositorio de la app,
+    copiado en informes/fuente-senda/marca). Cada copia renombra sus ids para que los degradés no se pisen."""
+    import re as _re
+    from pathlib import Path as _P
+    t = (_P(__file__).resolve().parent / "fuente-senda" / "marca" / "simbolo_redondeado.svg").read_text()
     u = _uid("lg")
-    fondo = (f'<rect width="120" height="120" rx="28" fill="url(#b{u})"/>' if not claro else
-             '<rect width="120" height="120" rx="28" fill="#fff" stroke="#E6E1F5" stroke-width="2"/>')
-    return (f'<svg viewBox="0 0 120 120" width="{tam}" height="{tam}" role="img" aria-label="Concepto de logo">'
-            f'<defs><linearGradient id="b{u}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#4B36A8"/>'
-            f'<stop offset=".55" stop-color="{INDIGO}"/><stop offset="1" stop-color="{NOCHE}"/></linearGradient>'
-            f'<linearGradient id="s{u}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="{ORO}"/><stop offset="1" stop-color="{AMBAR}"/></linearGradient></defs>'
-            f'{fondo}<path d="M80 38 C58 30 36 40 40 56 C44 72 82 64 80 84 C78 100 54 102 38 92" stroke="url(#s{u})" stroke-width="13" fill="none" stroke-linecap="round"/>'
-            f'<path d="M88 13 C96 23 97 31 88 37 C79 31 80 23 88 13 Z" fill="{ORO}"/><path d="M88 22 C91 27 91 31 88 33 C85 31 85 27 88 22 Z" fill="#FFF4D6"/></svg>')
+    for i in _re.findall(r'id="([^"]+)"', t):
+        t = t.replace(f'id="{i}"', f'id="{i}{u}"').replace(f"url(#{i})", f"url(#{i}{u})")
+    return t.replace("<svg ", f'<svg width="{tam}" height="{tam}" ', 1)
 
 
 def logo_txt(tam: float = 18, color: str = "#fff") -> str:

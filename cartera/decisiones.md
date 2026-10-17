@@ -711,3 +711,39 @@
   - repositorio de la app: `scripts/rive/lani.py`, `scripts/rive/poses.cjs`, `src/componentes/laniRiveComun.ts`,
     `src/componentes/festejoPieza.tsx`, `scripts/autor/trivia_creativa.py`, `scripts/ortografia.py`, `docs/ORTOGRAFIA.md`,
     `src/util/lugares.ts`, `scripts/musica_inicio.py`, `docs/LIBROS_REFERENCIA3.md`.
+
+## DEC-2026-10-17-1 · Senda: decimosexta tanda (prueba 16), Lany v3, la marca nueva, la Biblia libro por libro, juegos que enseñan e ideas para ser la número uno
+
+- **Contexto:** el fundador escribió el 17-10-2026 (resumen, sin citas textuales):
+  - usar solo los libros de referencia que resultaron confiables;
+  - música de inicio más divertida, con sintetizadores, tipo synth-pop;
+  - la travesía de cada libro de la Biblia con todo (género, de qué trata, contexto histórico y geográfico, personajes, historia, cómo
+    apunta a Cristo, tema, teología, autor y fecha, antecedentes y cómo se conecta con lo que sigue);
+  - explorar y crear juegos de mesa y de rol con historias, para aprender y crecer en la fe (muy importante);
+  - rediseñar a Lany como personaje memorable y central de la UX, con muchas expresiones y animaciones fluidas, usando Rive a fondo;
+  - llevar la UX/UI a otro nivel para que no parezca una app cristiana genérica; revisar el parecido de la Travesía con Duolingo;
+  - un logo nuevo, memorable y que funcione como ícono y avatar; todas las ideas para ser la app cristiana número uno; avanzar con todo.
+- **Decidido:**
+  - **Libros:** solo los 470 confiables, para entender; los 52 con reservas no se usan (DEC-2026-10-16-2 queda confirmado).
+  - **Lany v3** en Rive por código: 16 expresiones en una capa propia, manos con gestos, reacciones que crecen con la racha, ocio (se
+    estira y se duerme) y pose orando. Sigue sin hablar.
+  - **Marca: «la puerta abierta»** (puerta en arco, luz y senda), con todas las piezas para la app y las redes.
+  - **La Travesía deja la firma visual de Duolingo** por la senda iluminada (puertas, luz que avanza, hitos); quedan solo los patrones
+    de toda la industria.
+  - **Guía de los 66 libros** en el «+», con fechas aproximadas marcadas y «cómo apunta a Cristo» con base (lo dice el Nuevo Testamento
+    o es lectura cristiana, marcada); las travesías de Rut y Jonás son el modelo de los otros 64.
+  - **Juegos:** «Vivir la historia» en la app (5 historias) y el kit imprimible de La puerta y Crónicas de la senda, gratis; compartirlo
+    con el ministerio aliado espera al fundador (envío a terceros).
+  - **Ideas para ser la número uno:** doce priorizadas por valor esperado y esfuerzo, cada una con quién la lleva a la gente, costo y
+    regla de corte (`ideas_numero_uno.yaml`); el fundador vota en la Consola y el voto ordena el sprint 2.
+- **Hecho por Claude (APK prueba 16, versión 0.16.0):** todo lo anterior, más el desafío del día (con resultado para compartir), la
+  historia en una línea, Quién es quién (capítulo 1), la prueba de nivel de 2 minutos y la primera lección al terminar la bienvenida;
+  la música synth-pop «Neón» con dos variantes; proyecto v3.8 (capítulo 41, estado, mapa e inventario con 18 personajes nuevos).
+- **Pendiente del fundador:** probar la prueba 16; votar las ideas; elegir la música; decidir si se comparte el kit; y lo que ya
+  estaba (licencias y figura legal, API.Bible, Sociedad Bíblica Argentina, revisores, Google Play antes del 15-11).
+- **Evidencia:**
+  - `oportunidades/proyectos/senda/capitulos/41-lany-v3-marca-libros-juegos.md`, `oportunidades/proyectos/senda/ideas_numero_uno.yaml`;
+  - repositorio de la app: `scripts/rive/lani.py`, `scripts/marca/marca.py`, `src/componentes/sendaIluminada.tsx`, `docs/UX_PRUEBA16.md`,
+    `scripts/musica_synthpop.py`, `scripts/autor/guias_libros.py`, `scripts/autor/libro_a_libro.py`, `scripts/autor/quien_es_quien.py`,
+    `scripts/autor/historias_rol.py`, `docs/JUEGOS_MESA_ROL.md`, `scripts/kit_mesa.py`, `src/componentes/desafioDia.tsx`,
+    `src/pantallas/Linea.tsx`, `src/componentes/pruebaNivel.tsx`.

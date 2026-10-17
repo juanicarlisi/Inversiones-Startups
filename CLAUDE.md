@@ -83,6 +83,15 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - la trivia suma «qué pasó después» y curiosidades, siempre verificadas contra el texto; la música de inicio, de juego y elegante;
   - los libros de referencia están en LIBROS-REFERENCIA3 (inventario solo con los nombres; se usan solo los de autores protestantes
     reconocidos, para entender); licencias, todavía sin decidir; la meta de UX: la mejor del mercado.
+- **Datos del 17-10-2026 (Senda, prueba 16):**
+  - de LIBROS-REFERENCIA3 se usan solo los confiables (autores protestantes reconocidos), para entender y nunca para copiar;
+  - la música de inicio, synth-pop con sintetizadores; Lany v3 es pieza central de la UX (muchas expresiones, reacciones, Rive a fondo);
+  - Senda no tiene que parecer una app cristiana genérica sino una gran app con esencia cristiana; la Travesía, con lenguaje propio
+    (la senda iluminada), no el de Duolingo; el logo es «la puerta abierta»;
+  - cada libro de la Biblia lleva su guía completa (contexto, personajes, cómo apunta a Cristo, qué enseña de Dios, fechas) y su travesía;
+  - los juegos de mesa y de rol que enseñan son prioridad (Vivir la historia y el kit imprimible);
+  - las ideas para ser la app cristiana número uno viven en `oportunidades/proyectos/senda/ideas_numero_uno.yaml` y el fundador las
+    vota en la Consola (pestaña «Ideas para ser n.º 1»): leer su voto al empezar cada sesión de Senda.
 
 ## 2. Reglas no negociables
 

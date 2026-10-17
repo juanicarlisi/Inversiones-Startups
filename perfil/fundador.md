@@ -113,6 +113,18 @@
 | Música | Moderna, de juego, elegante; ni infantil, ni aburrida, ni triste, ni alegre de más | «Salón» y alternativas para elegir (capítulo 40 §7) |
 | UX | La mejor del mercado | Cada gesto y cada pantalla tienen que decir algo sin palabras; se revisa con capturas en cada prueba |
 
+### Pautas del 17-10-2026 (Senda, prueba 16)
+
+| Tema | Pauta (resumen, sin citas textuales) | Cómo se aplica |
+|---|---|---|
+| Libros de referencia | Usar solo los que resultaron confiables | Solo los 470 de autores protestantes reconocidos, para entender; nunca para copiar ni enseñar desde ellos (capítulo 41 §2) |
+| Música | Más divertida, con sintetizadores, tipo synth-pop | «Neón», synth-pop propio, con variantes para elegir (capítulo 41 §7) |
+| Cada libro de la Biblia | Su travesía con todo: género, de qué trata, contexto, personajes, historia, cómo apunta a Cristo, tema, teología, autor y fecha, antecedentes y lo que sigue | La guía de los 66 en el «+» y los libros jugables, empezando por Rut y Jonás (capítulo 41 §8) |
+| Juegos de mesa y de rol | Muy importante: explorar y crear juegos con historias para aprender y crecer en la fe | «Vivir la historia» en la app y el kit imprimible de La puerta y Crónicas de la senda (capítulo 41 §10) |
+| Lany | Memorable, con carisma, estético y adulto; muchas expresiones, animaciones fluidas y reacciones según el contexto; nada cuadrado; Rive a fondo | Lany v3 (capítulo 41 §3) |
+| UX y marca | Que no parezca una app cristiana genérica sino una gran app con esencia cristiana; que la Travesía no parezca copia de Duolingo; un logo extraordinario | La senda iluminada, Inicio y lección nuevos y el logo «la puerta abierta» (capítulo 41 §4 a §6) |
+| Ambición | Todas las ideas para ser la app cristiana número uno del mundo | Doce priorizadas con su regla de corte, para votar en la Consola (capítulo 41 §12) |
+
 ## Lo que falta (y por qué importa)
 
 | # | Pregunta | Por qué importa | Qué cambia según la respuesta |
