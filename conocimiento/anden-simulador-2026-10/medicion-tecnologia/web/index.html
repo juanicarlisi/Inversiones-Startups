@@ -1,0 +1,60 @@
+<!doctype html><meta charset="utf-8"><title>bench</title>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js"}}</script>
+<canvas id="c" width="1280" height="720"></canvas>
+<script type="module">
+const W=()=>new Worker('/web/des-worker.js');
+const call=(w,msg,tr=[])=>new Promise(r=>{w.onmessage=e=>r(e.data);w.postMessage(msg,tr);});
+window.T={};
+T.env=async()=>{let gpu=null;try{if(navigator.gpu){const a=await navigator.gpu.requestAdapter();gpu=a?'adapter':'sin adaptador';}else gpu='sin navigator.gpu';}catch(e){gpu='error '+e.message}
+  const gl=document.createElement('canvas').getContext('webgl2');const dbg=gl&&gl.getExtension('WEBGL_debug_renderer_info');
+  return {ua:navigator.userAgent,crossOriginIsolated:self.crossOriginIsolated,sab:typeof SharedArrayBuffer!=='undefined',cores:navigator.hardwareConcurrency,webgpu:gpu,
+    webgl2:!!gl,glRenderer:dbg?gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL):null,offscreen:typeof OffscreenCanvas!=='undefined',compression:typeof CompressionStream!=='undefined',
+    opfs:!!(navigator.storage&&navigator.storage.getDirectory),fsAccess:typeof showSaveFilePicker!=='undefined',estimate:await navigator.storage.estimate()};};
+T.parallel=async(workers,reps,H)=>{const ws=Array.from({length:workers},W);const per=Math.ceil(reps/workers);const t0=performance.now();
+  const res=(await Promise.all(ws.map((w,i)=>call(w,{cmd:'run',H,seeds:Array.from({length:per},(_,j)=>1000+i*per+j)})))).flat();
+  const dt=performance.now()-t0;ws.forEach(w=>w.terminate());const ev=res.reduce((a,b)=>a+b.ev,0);return {workers,reps:res.length,H,seconds:+(dt/1000).toFixed(3),eventsPerSec:Math.round(ev/dt*1000)};};
+T.messaging=async(nEv)=>{const w=W();await call(w,{cmd:'echo',payload:new Float64Array(8)});const out={eventos:nEv};
+  // a) objetos (clon estructurado)
+  const objs=Array.from({length:nEv},(_,i)=>({t:i*0.1,id:i%5000,k:i%7,x:i%100,y:i%60}));
+  let t0=performance.now();await call(w,{cmd:'echo',payload:objs});out.objetos_ida_y_vuelta_ms=+(performance.now()-t0).toFixed(1);
+  // b) arreglo tipado copiado
+  const f=new Float64Array(nEv*5);for(let i=0;i<f.length;i++)f[i]=i;
+  t0=performance.now();await call(w,{cmd:'echo',payload:f});out.tipado_copiado_ida_y_vuelta_ms=+(performance.now()-t0).toFixed(1);
+  // c) transferido
+  let g=new Float64Array(nEv*5);t0=performance.now();g=await call(w,{cmd:'echo',payload:g,transfer:true},[g.buffer]);out.tipado_transferido_ida_y_vuelta_ms=+(performance.now()-t0).toFixed(1);
+  // d) memoria compartida: el worker escribe nEv*5 números y avisa
+  if(self.crossOriginIsolated){const sab=new SharedArrayBuffer(nEv*5*8),flag=new SharedArrayBuffer(4);t0=performance.now();await call(w,{cmd:'sab',sab,flag});out.compartida_escritura_y_aviso_ms=+(performance.now()-t0).toFixed(1);}
+  out.megabytes_tipado=+(nEv*5*8/1048576).toFixed(1);w.terminate();return out;};
+T.idb=async(mb,nrec)=>{const db=await new Promise((r,j)=>{const q=indexedDB.open('b'+Math.random(),1);q.onupgradeneeded=()=>{q.result.createObjectStore('blobs');q.result.createObjectStore('recs',{keyPath:'id'});};q.onsuccess=()=>r(q.result);q.onerror=j;});
+  const tx=(st,fn)=>new Promise((r,j)=>{const t=db.transaction(st,'readwrite');fn(t.objectStore(st));t.oncomplete=r;t.onerror=j;});
+  const buf=new Float64Array(mb*131072);for(let i=0;i<buf.length;i++)buf[i]=Math.sin(i);
+  let t0=performance.now();await tx('blobs',s=>s.put(buf.buffer,'traza'));const w1=performance.now()-t0;
+  t0=performance.now();const back=await new Promise(r=>{const q=db.transaction('blobs').objectStore('blobs').get('traza');q.onsuccess=()=>r(q.result);});const r1=performance.now()-t0;
+  t0=performance.now();await tx('recs',s=>{for(let i=0;i<nrec;i++)s.put({id:i,tipo:'cinta',x:i%100,y:(i/100)|0,vel:1.2,largo:3});});const w2=performance.now()-t0;
+  const persisted=navigator.storage.persist?await navigator.storage.persist():null;
+  return {mb,escribir_blob_ms:+w1.toFixed(0),leer_blob_ms:+r1.toFixed(0),ok:back.byteLength===buf.byteLength,registros:nrec,escribir_registros_ms:+w2.toFixed(0),persist:persisted};};
+T.gzip=async(nEv)=>{// traza realista: tiempo creciente, id entero, tipo, x, y en float32
+  const f=new Float32Array(nEv*5);let t=0;for(let i=0;i<nEv;i++){t+=Math.random()*0.2;f[i*5]=t;f[i*5+1]=(i*7919)%5000;f[i*5+2]=i%7;f[i*5+3]=Math.round(Math.random()*1000)/10;f[i*5+4]=Math.round(Math.random()*600)/10;}
+  const t0=performance.now();const cs=new Blob([f]).stream().pipeThrough(new CompressionStream('gzip'));const out=await new Response(cs).arrayBuffer();const dt=performance.now()-t0;
+  // columnar + delta de tiempo en enteros
+  const cols=new Int32Array(nEv*5);let prev=0;for(let i=0;i<nEv;i++){const ti=Math.round(f[i*5]*1000);cols[i]=ti-prev;prev=ti;cols[nEv+i]=f[i*5+1];cols[2*nEv+i]=f[i*5+2];cols[3*nEv+i]=Math.round(f[i*5+3]*10);cols[4*nEv+i]=Math.round(f[i*5+4]*10);}
+  const out2=await new Response(new Blob([cols]).stream().pipeThrough(new CompressionStream('gzip'))).arrayBuffer();
+  return {eventos:nEv,crudo_MB:+(f.byteLength/1048576).toFixed(1),gzip_MB:+(out.byteLength/1048576).toFixed(1),gzip_ms:+dt.toFixed(0),columnar_delta_gzip_MB:+(out2.byteLength/1048576).toFixed(1)};};
+T.canvas2d=async(N,frames=20)=>{const c=document.getElementById('c');const ctx=c.getContext('2d');const xs=new Float32Array(N),ys=new Float32Array(N);for(let i=0;i<N;i++){xs[i]=Math.random()*1270;ys[i]=Math.random()*710;}
+  const times=[];for(let f=0;f<frames;f++){const t0=performance.now();ctx.fillStyle='#fff';ctx.fillRect(0,0,1280,720);ctx.fillStyle='#c84';for(let i=0;i<N;i++){xs[i]=(xs[i]+0.7)%1270;ctx.fillRect(xs[i],ys[i],6,4);}ctx.getImageData(0,0,1,1);times.push(performance.now()-t0);}
+  times.sort((a,b)=>a-b);return {N,mediana_ms:+times[frames>>1].toFixed(2)};};
+T.three=async(N,frames=20)=>{const THREE=await import('three');const c=document.createElement('canvas');c.width=1280;c.height=720;document.body.appendChild(c);
+  const r=new THREE.WebGLRenderer({canvas:c,antialias:false});r.setSize(1280,720,false);const s=new THREE.Scene();const cam=new THREE.PerspectiveCamera(50,16/9,0.1,2000);cam.position.set(0,120,160);cam.lookAt(0,0,0);
+  s.add(new THREE.AmbientLight(0xffffff,0.6));const dl=new THREE.DirectionalLight(0xffffff,1);dl.position.set(50,100,50);s.add(dl);
+  const m=new THREE.InstancedMesh(new THREE.BoxGeometry(0.6,0.4,0.4),new THREE.MeshLambertMaterial({color:0xcc8844}),N);const M=new THREE.Matrix4();const side=Math.ceil(Math.sqrt(N));
+  const px=new Float32Array(N),pz=new Float32Array(N);for(let i=0;i<N;i++){px[i]=(i%side)-side/2;pz[i]=((i/side)|0)-side/2;}
+  const gl=r.getContext();const times=[];for(let f=0;f<frames;f++){const t0=performance.now();for(let i=0;i<N;i++){px[i]+=0.05;if(px[i]>side/2)px[i]-=side;M.makeTranslation(px[i],0,pz[i]);m.setMatrixAt(i,M);}m.instanceMatrix.needsUpdate=true;if(f===0)s.add(m);r.render(s,cam);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(4));times.push(performance.now()-t0);}
+  times.sort((a,b)=>a-b);const info={N,mediana_ms:+times[frames>>1].toFixed(2),drawCalls:r.info.render.calls,triangulos:r.info.render.triangles};r.dispose();c.remove();return info;};
+T.threeMeshes=async(N,frames=10)=>{const THREE=await import('three');const c=document.createElement('canvas');c.width=1280;c.height=720;document.body.appendChild(c);
+  const r=new THREE.WebGLRenderer({canvas:c});r.setSize(1280,720,false);const s=new THREE.Scene();const cam=new THREE.PerspectiveCamera(50,16/9,0.1,2000);cam.position.set(0,120,160);cam.lookAt(0,0,0);
+  s.add(new THREE.AmbientLight(0xffffff,0.6));const g=new THREE.BoxGeometry(0.6,0.4,0.4),mat=new THREE.MeshLambertMaterial({color:0xcc8844});const side=Math.ceil(Math.sqrt(N));const ms=[];
+  for(let i=0;i<N;i++){const m=new THREE.Mesh(g,mat);m.position.set((i%side)-side/2,0,((i/side)|0)-side/2);s.add(m);ms.push(m);}
+  const gl=r.getContext();const times=[];for(let f=0;f<frames;f++){const t0=performance.now();for(const m of ms){m.position.x+=0.05;}r.render(s,cam);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array(4));times.push(performance.now()-t0);}
+  times.sort((a,b)=>a-b);const info={N,mediana_ms:+times[frames>>1].toFixed(2),drawCalls:r.info.render.calls};r.dispose();c.remove();return info;};
+window.ready=true;
+</script>
