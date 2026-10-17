@@ -56,11 +56,13 @@ La captura que mandó el fundador no llegó a esta sesión; se reprodujo el prob
 393×852) y con la letra del sistema agrandada.
 
 - **Lo que se encontró.** En la Travesía, el globo de Lany («¡Empecemos! Toca el primer nivel») quedaba debajo de la puerta y su
-  cartel ENTRAR en pantallas angostas. En la lección, con la letra del teléfono agrandada (muy común en Android), la última opción
+  cartel ENTRAR en pantallas angostas; y en las rutas que empiezan con secciones en preparación (Los doce profetas), los puntos de
+  la senda y las puertas fantasma cruzaban el título del cartel de la sección («Jonás»). En la lección, con la letra del teléfono agrandada (muy común en Android), la última opción
   quedaba fuera de la pantalla: había que deslizar para verla. En la web de prueba, además, el ScrollView no avisaba su tamaño.
 - **Lo que se hizo.** La pregunta mide si entra; si no entra, se compacta en dos pasos (Lany más chica, enunciado y opciones con
   letra y espacios menores) y vuelve al tamaño normal en la siguiente. La letra del sistema se respeta hasta 1,2 veces. El globo
-  de Lany se ubica del lado libre y, si no entra a lo ancho, se angosta y baja una línea.
+  de Lany se ubica del lado libre y, si no entra a lo ancho, se angosta y baja una línea. El cartel de cada sección va por encima
+  de la senda, con fondo opaco, y Lany por encima de los carteles.
 - **Verificación.** Las seis preguntas de la primera lección de Historia de la Iglesia, El evangelio y Quién es quién, en 360×640
   y 393×852 con letra a 1,2: ninguna obliga a deslizar (antes, cinco de seis en 360×640).
 
