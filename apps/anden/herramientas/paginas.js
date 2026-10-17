@@ -96,7 +96,7 @@ function paginaCalculadora(c) {
 <p class="decision"><strong>Qué decide:</strong> ${esc(minuscula(c.decision))}</p>
 ${NOSCRIPT}
 <div id="calculadora" data-calc="${c.id}"></div>
-<div class="barra-resultado" aria-hidden="true"></div>`;
+<div class="barra-resultado"></div>`;
   return documento({
     archivo: c.archivo, pagina: 'calculadora',
     titulo: `${c.titulo} · Andén`,

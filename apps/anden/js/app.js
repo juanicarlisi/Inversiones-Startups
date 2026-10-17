@@ -70,20 +70,22 @@
   }
 
   /* ───────────── Referencias ───────────── */
-  function insigniaRef(clave) {
-    var r = REF.REFERENCIAS[clave];
-    if (!r) { return ''; }
-    var clase = r.tipo === 'HECHO' ? 'hecho' : 'estimacion';
-    var texto = r.tipo === 'HECHO' ? 'HECHO · ' + F.fecha(r.fecha) : 'ESTIMACIÓN';
-    return '<a class="insignia ' + clase + '" href="#ref-' + clave + '" title="' + esc(r.nombre) + '">' + texto + '</a>';
+  /* La insignia abre un globo en el mismo lugar (sin saltar ni tocar el # del escenario). */
+  function insigniaHtml(e, c) {
+    if (!e) { return ''; }
+    var intro = e.clase === 'tu-dato' ? '<p>Cambiaste el valor de referencia: este número es tuyo.</p>' : '';
+    var nota = e.nota ? '<p>' + esc(e.nota) + '</p>' : '';
+    var refe = e.clave ? '<ul class="lista-refs">' + itemReferencia(e.clave, true) + '</ul>' : '';
+    var volver = e.volverA !== undefined ? '<button type="button" class="volver" data-para="' + c.id + '" data-valor="' + esc(JSON.stringify(e.volverA)) + '">Volver a ' + esc(F.paraCampo(e.volverA)) + '</button>' : '';
+    return '<details class="insignia-det"><summary class="insignia ' + e.clase + '">' + esc(e.texto) + '</summary><div class="globo">' + intro + nota + refe + volver + '</div></details>';
   }
 
-  function itemReferencia(clave) {
+  function itemReferencia(clave, sinId) {
     var r = REF.REFERENCIAS[clave];
     var valor = (r.valor === 0 && r.unidad === '—') ? '' : ': <span class="ref-valor">' + esc(F.numero(r.valor, Number.isInteger(r.valor) ? 0 : 2)) + ' ' + esc(r.unidad) + '</span>';
     var fuente = r.fuente ? ' <a href="' + esc(r.fuente) + '" rel="noopener" target="_blank">Fuente</a>.' : ' <span class="sin-fuente">Sin fuente: supuesto de trabajo.</span>';
     var extra = (r.metodo ? ' <span class="metodo">Método: ' + esc(r.metodo) + '</span>' : '') + (r.nota ? ' <span class="nota-ref">' + esc(r.nota) + '</span>' : '');
-    return '<li id="ref-' + clave + '"><span class="insignia ' + (r.tipo === 'HECHO' ? 'hecho' : 'estimacion') + '">' + r.tipo + '</span> ' +
+    return '<li' + (sinId ? '' : ' id="ref-' + clave + '"') + '><span class="insignia ' + (r.tipo === 'HECHO' ? 'hecho' : 'estimacion') + '">' + r.tipo + '</span> ' +
       '<strong>' + esc(r.nombre) + '</strong>' + valor + ' · ' + esc(F.fecha(r.fecha)) + '.' + fuente + extra + '</li>';
   }
 
@@ -108,7 +110,8 @@
         return;
       }
       var x = parseFloat(valor);
-      if (isFinite(x)) { v[clave] = x; alguno = true; }
+      var min = c.min !== undefined ? c.min : 0;
+      if (isFinite(x) && x >= min && (c.max === undefined || x <= c.max)) { v[clave] = x; alguno = true; }
     });
     return alguno ? { valores: v, tc: tc } : null;
   }
@@ -136,6 +139,16 @@
     return { valores: base, guardado: false };
   }
 
+  function completar(cfg, parcial) {
+    var v = CALCS.valoresIniciales(cfg);
+    Object.keys(v).forEach(function (k) { if (parcial[k] !== undefined) { v[k] = parcial[k]; } });
+    return v;
+  }
+  function mismoEscenario(cfg, a, b) {
+    var x = completar(cfg, a), y = completar(cfg, b);
+    return CALCS.campos(cfg).every(function (c) { return x[c.id] === y[c.id]; });
+  }
+
   /* ════════════════════════════ Una calculadora ════════════════════════════ */
   function iniciarCalculadora(raiz, cfg) {
     var tc = leerTc();
@@ -146,11 +159,15 @@
     if (desdeHash) {
       Object.keys(desdeHash.valores).forEach(function (k) { valores[k] = desdeHash.valores[k]; });
       if (desdeHash.tc) { tc = desdeHash.tc; }
-      origen = 'enlace';
+      // El # que escribe la propia página (al recargar) no es un enlace ajeno.
+      origen = (guardado && guardado.valores && mismoEscenario(cfg, desdeHash.valores, guardado.valores)) ? 'guardado' : 'enlace';
     } else if (guardado && guardado.valores) {
       Object.keys(valores).forEach(function (k) { if (guardado.valores[k] !== undefined) { valores[k] = guardado.valores[k]; } });
       origen = 'guardado';
     }
+    // Escenario compartido: si ya hay uno propio guardado, el enlace no lo pisa hasta «Guardarlo como mío».
+    var compartido = origen === 'enlace' && !!(guardado && guardado.valores);
+    var anterior = null;   // para «Deshacer» después de «Volver a los valores de referencia»
     var todos = CALCS.campos(cfg);
     var porCampo = {};
     todos.forEach(function (c) { porCampo[c.id] = c; });
@@ -176,8 +193,42 @@
     }
 
     function guardar() {
-      almacen.escribir(PREFIJO + cfg.id, { valores: valores, fecha: new Date().toISOString() });
+      if (!compartido) { almacen.escribir(PREFIJO + cfg.id, { valores: valores, fecha: new Date().toISOString() }); }
       escribirHash(cfg, valores, tc);
+    }
+
+    function pintarEstado() {
+      var e = raiz.querySelector('.estado-guardado');
+      var html = compartido
+        ? 'Escenario de un enlace: no toca el tuyo. <button type="button" data-accion="adoptar">Guardarlo como mío</button> <button type="button" data-accion="volver-mio" class="secundario">Volver al mío</button>'
+        : 'Tu escenario se guarda solo en este navegador.';
+      if (anterior) { html += ' <button type="button" data-accion="deshacer" class="secundario">Deshacer «Volver a los valores de referencia»</button>'; }
+      e.innerHTML = html;
+    }
+    function editado() { if (anterior) { anterior = null; pintarEstado(); } }
+
+    function aplicar(vs, nuevoTc) {
+      var ini = CALCS.valoresIniciales(cfg);
+      Object.keys(ini).forEach(function (k) { if (k !== 'preset') { ponerValor(k, vs[k] !== undefined ? vs[k] : ini[k]); } });
+      valores.preset = vs.preset !== undefined ? vs.preset : ini.preset;
+      var sel = form.querySelector('#preset'); if (sel && valores.preset) { sel.value = valores.preset; }
+      tc = nuevoTc; if (nodos.tc) { nodos.tc.value = F.paraCampo(tc); }
+      visibilidad(); actualizar();
+    }
+
+    var ultimaInsignia = {};
+    function traidoDe(c) {
+      if (!c.importar) { return NaN; }
+      try { var otra = CALCS.porId[c.importar.desde]; return c.importar.salida(otra.calcular(Object.assign({}, valoresDe(otra).valores, { tc: tc }))); }
+      catch (e) { return NaN; }
+    }
+    function refrescarInsignias() {
+      todos.forEach(function (c) {
+        var lugar = form.querySelector('[data-insignia="' + c.id + '"]');
+        if (!lugar) { return; }
+        var html = insigniaHtml(CALCS.insignia(cfg, c, valores, traidoDe(c)), c);
+        if (ultimaInsignia[c.id] !== html) { ultimaInsignia[c.id] = html; lugar.innerHTML = html; }
+      });
     }
 
     function actualizar() {
@@ -189,17 +240,18 @@
       nodos.principal.innerHTML = '<p class="principal-etiqueta">' + esc(pr.etiqueta) + '</p>' +
         '<p class="principal-valor">' + esc(pr.valor) + '</p>' +
         '<p class="principal-sub">' + esc(pr.sub) + '</p>';
-      if (nodos.barra) {
-        nodos.barra.innerHTML = '<span>' + esc(pr.etiqueta) + '</span> <strong>' + esc(pr.valor) + '</strong>';
-        nodos.barra.className = 'barra-resultado ' + (pr.estado || '');
+      var tarjetas = cfg.tarjetas(r, v, h);
+      if (nodos.barra) {   // celular: la barra fija se despliega con las 4 primeras tarjetas
+        var abierta = nodos.barra.classList.contains('abierta');
+        nodos.barra.innerHTML = '<div class="barra-tarjetas" id="barra-tarjetas">' + tarjetas.slice(0, 4).map(tarjetaHtml).join('') + '</div>' +
+          '<button type="button" class="barra-boton" aria-expanded="' + abierta + '" aria-controls="barra-tarjetas"><span>' + esc(pr.etiqueta) + '</span> <strong>' + esc(pr.valor) + '</strong></button>';
+        nodos.barra.className = 'barra-resultado ' + (pr.estado || '') + (abierta ? ' abierta' : '');
       }
-      nodos.tarjetas.innerHTML = cfg.tarjetas(r, v, h).map(function (t) {
-        return '<div class="tarjeta ' + (t.estado || '') + '"><p class="tarjeta-etiqueta">' + esc(t.etiqueta) + '</p>' +
-          '<p class="tarjeta-valor">' + esc(t.valor) + '</p>' + (t.nota ? '<p class="tarjeta-nota">' + esc(t.nota) + '</p>' : '') + '</div>';
-      }).join('');
-      nodos.desglose.innerHTML = cfg.desglose(r, v, h).map(tablaHtml).join('');
+      nodos.tarjetas.innerHTML = tarjetas.map(tarjetaHtml).join('');
+      nodos.desglose.innerHTML = cfg.desglose(r, v, h).map(bloqueHtml).join('');
       nodos.sensibilidad.innerHTML = sensibilidadHtml(cfg, v, r, h);
       nodos.pasos.innerHTML = cfg.pasos(r, v, h).map(function (p) { return '<li>' + p + '</li>'; }).join('');
+      refrescarInsignias();
       guardar();
     }
 
@@ -231,7 +283,7 @@
       el.classList.remove('invalido'); el.removeAttribute('aria-invalid');
       if (msj) { msj.textContent = ''; }
       valores[id] = x;
-      actualizar();
+      editado(); actualizar();
       medir('calculo:' + cfg.id, true);
     });
 
@@ -242,7 +294,7 @@
         if (p) {
           Object.keys(p.valores).forEach(function (k) { ponerValor(k, p.valores[k]); });
           valores.preset = p.id;
-          visibilidad(); actualizar();
+          editado(); visibilidad(); actualizar();
           aviso('Cargaste el ejemplo: ' + p.nombre);
           medir('ejemplo:' + cfg.id, true);
         }
@@ -256,7 +308,7 @@
         var op = c.opciones.filter(function (o) { return String(o.valor) === el.value; })[0];
         valores[id] = op ? op.valor : c.defecto;
       } else { return; }
-      visibilidad(); actualizar();
+      editado(); visibilidad(); actualizar();
       medir('calculo:' + cfg.id, true);
     });
 
@@ -268,6 +320,12 @@
     });
 
     form.addEventListener('click', function (ev) {
+      var vb = ev.target.closest ? ev.target.closest('button.volver') : null;
+      if (vb) {
+        ponerValor(vb.getAttribute('data-para'), JSON.parse(vb.getAttribute('data-valor')));
+        editado(); visibilidad(); actualizar();
+        return;
+      }
       var b = ev.target.closest ? ev.target.closest('button.importar') : null;
       if (!b) { return; }
       var id = b.getAttribute('data-para');
@@ -278,19 +336,28 @@
       var x = c.importar.salida(r);
       if (!isFinite(x)) { aviso('No se pudo calcular en la calculadora ' + otra.numero + '.'); return; }
       ponerValor(id, x);
-      actualizar();
+      editado(); actualizar();
       medir('importar:' + cfg.id, true);
       aviso('Traído de la calculadora ' + otra.numero + (dv.guardado ? ' (tu escenario guardado)' : ' (valores de referencia)') + ': ' + F.paraCampo(x));
     });
 
-    // Tipo de cambio
-    nodos.tc.addEventListener('input', function () {
-      var x = F.leerNumero(nodos.tc.value);
-      if (!(x > 0)) { nodos.tc.classList.add('invalido'); return; }
-      nodos.tc.classList.remove('invalido');
-      tc = x; almacen.escribir('anden:tc', x); actualizar();
-    });
-    nodos.tc.addEventListener('focusout', function () { nodos.tc.value = F.paraCampo(tc); });
+    // Tipo de cambio (la calculadora 6 no tiene pesos ni dólar)
+    if (nodos.tc) {
+      nodos.tc.addEventListener('input', function () {
+        var x = F.leerNumero(nodos.tc.value);
+        if (!(x > 0)) { nodos.tc.classList.add('invalido'); return; }
+        nodos.tc.classList.remove('invalido');
+        tc = x; if (!compartido) { almacen.escribir('anden:tc', x); } editado(); actualizar();
+      });
+      nodos.tc.addEventListener('focusout', function () { nodos.tc.value = F.paraCampo(tc); });
+    }
+    if (nodos.barra) {
+      nodos.barra.addEventListener('click', function (ev) {
+        var b = ev.target.closest ? ev.target.closest('.barra-boton') : null;
+        if (!b) { return; }
+        b.setAttribute('aria-expanded', String(nodos.barra.classList.toggle('abierta')));
+      });
+    }
 
     // Acciones
     raiz.querySelector('[data-accion="copiar"]').addEventListener('click', function () {
@@ -304,26 +371,45 @@
     });
     raiz.querySelector('[data-accion="imprimir"]').addEventListener('click', function () { medir('imprimir:' + cfg.id); window.print(); });
     raiz.querySelector('[data-accion="restablecer"]').addEventListener('click', function () {
-      var ini = CALCS.valoresIniciales(cfg);
-      Object.keys(ini).forEach(function (k) { if (k !== 'preset') { ponerValor(k, ini[k]); } });
-      valores.preset = ini.preset;
-      var sel = form.querySelector('#preset'); if (sel && ini.preset) { sel.value = ini.preset; }
-      tc = REF.ref('tc_usd'); almacen.borrar('anden:tc'); nodos.tc.value = F.paraCampo(tc);
-      visibilidad(); actualizar();
-      aviso('Volviste a los valores de referencia.');
+      anterior = { valores: Object.assign({}, valores), tc: tc, tcGuardado: almacen.leer('anden:tc') };
+      if (!compartido) { almacen.borrar('anden:tc'); }
+      aplicar(CALCS.valoresIniciales(cfg), REF.ref('tc_usd'));
+      pintarEstado();
+      aviso('Volviste a los valores de referencia. Podés deshacerlo arriba.');
+    });
+    raiz.querySelector('.acciones').addEventListener('click', function (ev) {
+      var b = ev.target.closest ? ev.target.closest('button[data-accion]') : null;
+      var accion = b && b.getAttribute('data-accion');
+      if (accion === 'deshacer' && anterior) {
+        var a = anterior; anterior = null;
+        if (!compartido && typeof a.tcGuardado === 'number') { almacen.escribir('anden:tc', a.tcGuardado); }
+        aplicar(a.valores, a.tc); pintarEstado();
+        aviso('Recuperaste el escenario anterior.');
+      } else if (accion === 'adoptar') {
+        compartido = false; guardar(); pintarEstado();
+        aviso('Guardado como tu escenario en este navegador.');
+      } else if (accion === 'volver-mio') {
+        var g = almacen.leer(PREFIJO + cfg.id);
+        compartido = false; anterior = null;
+        aplicar(g && g.valores ? g.valores : {}, leerTc()); pintarEstado();
+        aviso('Volviste a tu escenario guardado.');
+      }
     });
 
     visibilidad();
     actualizar();
-    if (origen === 'enlace') { aviso('Abriste un escenario compartido.'); }
+    pintarEstado();
+    if (origen === 'enlace') { aviso(compartido ? 'Abriste un escenario compartido: tu escenario guardado sigue intacto.' : 'Abriste un escenario compartido.'); }
   }
 
   function plantilla(cfg, valores, tc, origen) {
     var R = REF.REFERENCIAS.tc_usd;
     var html = '';
-    html += '<div class="barra-tc"><p>Pesos de ' + esc(REF.PERIODO_PESOS) + ', sin IVA. Dólar de referencia: ' +
-      '<label class="tc-campo"><span class="sr">Tipo de cambio en pesos por dólar</span>$ <input id="tc-valor" inputmode="decimal" autocomplete="off" value="' + esc(F.paraCampo(tc)) + '"></label> ' +
-      '(' + esc(R.nombre) + ', ' + esc(F.fecha(R.fecha)) + '; podés cambiarlo).</p></div>';
+    if (!cfg.sinPesos) {
+      html += '<div class="barra-tc"><p>Pesos de ' + esc(REF.PERIODO_PESOS) + '. Los precios de mercado de referencia (combustible, cubiertas, vehículos) son al público, con IVA, como los paga un monotributista; sueldos y cargas no llevan IVA. Si sos responsable inscripto, cargá ingresos y costos sin IVA (el IVA de lo que comprás es crédito fiscal). Dólar de referencia: ' +
+        '<label class="tc-campo"><span class="sr">Tipo de cambio en pesos por dólar</span>$ <input id="tc-valor" inputmode="decimal" autocomplete="off" value="' + esc(F.paraCampo(tc)) + '"></label> ' +
+        '(' + esc(R.nombre) + ', ' + esc(F.fecha(R.fecha)) + '; podés cambiarlo).</p></div>';
+    }
     html += '<div class="acciones">' +
       '<button type="button" data-accion="copiar">Copiar enlace</button>' +
       '<button type="button" data-accion="imprimir">Imprimir</button>' +
@@ -366,7 +452,7 @@
 
   function campoHtml(c, valor) {
     var id = 'c-' + c.id;
-    var ins = c.ref ? insigniaRef(c.ref) : '';
+    var ins = (c.ref || c.importar || c.calculado) ? '<span class="insignia-lugar" data-insignia="' + c.id + '"></span>' : '';
     var ayuda = c.ayuda ? '<p class="ayuda" id="a-' + c.id + '">' + esc(c.ayuda) + '</p>' : '';
     var describe = c.ayuda ? ' aria-describedby="a-' + c.id + ' m-' + c.id + '"' : ' aria-describedby="m-' + c.id + '"';
     var importar = c.importar ? '<button type="button" class="importar" data-para="' + c.id + '">' + esc(c.importar.texto) + '</button>' : '';
@@ -384,9 +470,21 @@
       ayuda + importar + '<p class="mensaje" id="m-' + c.id + '" aria-live="polite"></p></div>';
   }
 
+  function tarjetaHtml(t) {
+    return '<div class="tarjeta ' + (t.estado || '') + '"><p class="tarjeta-etiqueta">' + esc(t.etiqueta) + '</p>' +
+      '<p class="tarjeta-valor">' + esc(t.valor) + '</p>' + (t.nota ? '<p class="tarjeta-nota">' + esc(t.nota) + '</p>' : '') + '</div>';
+  }
+
+  /* Un bloque del desglose: tabla o dibujo (el SVG lo arma calculadoras.js solo con números). */
+  function bloqueHtml(t) {
+    if (!t.svg) { return tablaHtml(t); }
+    return '<h2>' + esc(t.titulo) + '</h2>' + (t.nota ? '<p class="nota">' + esc(t.nota) + '</p>' : '') + '<figure class="plano-fig">' + t.svg + '</figure>';
+  }
+
   function tablaHtml(t) {
     var clase = t.texto ? 'texto' : 'num';   // t.texto: la segunda columna es texto y puede cortarse en líneas
-    var html = '<h2>' + esc(t.titulo) + '</h2><div class="tabla-envoltura"><table' + (t.texto ? ' class="tabla-texto"' : '') + '><thead><tr>' +
+    var html = '<h2>' + esc(t.titulo) + '</h2>' + (t.nota ? '<p class="nota">' + esc(t.nota) + '</p>' : '') +
+      '<div class="tabla-envoltura" tabindex="0" role="region" aria-label="' + esc(t.titulo) + '"><table' + (t.texto ? ' class="tabla-texto"' : '') + '><thead><tr>' +
       t.columnas.map(function (c, i) { return '<th scope="col"' + (i > 0 ? ' class="' + clase + '"' : '') + '>' + esc(c) + '</th>'; }).join('') + '</tr></thead><tbody>' +
       t.filas.map(function (f) { return '<tr>' + f.map(function (x, i) { return i === 0 ? '<th scope="row">' + esc(x) + '</th>' : '<td class="' + clase + '">' + esc(x) + '</td>'; }).join('') + '</tr>'; }).join('') +
       '</tbody>' + (t.pie ? '<tfoot><tr>' + t.pie.map(function (x, i) { return i === 0 ? '<th scope="row">' + esc(x) + '</th>' : '<td class="' + clase + '">' + esc(x) + '</td>'; }).join('') + '</tr></tfoot>' : '') +
@@ -407,7 +505,7 @@
       }) };
     });
     var html = '<h2>' + esc(s.titulo) + '</h2><p class="nota">Cada columna mueve un solo dato (arriba, el dato; abajo, el resultado). El resto queda igual.</p>' +
-      '<div class="tabla-envoltura"><table class="tabla-sens"><thead><tr><th scope="col">Cambio</th>' +
+      '<div class="tabla-envoltura" tabindex="0" role="region" aria-label="' + esc(s.titulo) + '"><table class="tabla-sens"><thead><tr><th scope="col">Cambio</th>' +
       cols.map(function (c) { return '<th scope="col" class="num">' + esc(c.col.etiqueta) + '</th>'; }).join('') + '</tr></thead><tbody>';
     C.FACTORES.forEach(function (k, i) {
       html += '<tr' + (k === 1 ? ' class="actual"' : '') + '><th scope="row">' + ETIQUETA_FACTOR[k] + '</th>' +
@@ -428,7 +526,7 @@
     var ind = document.getElementById('indices');
     if (ind) {
       var claves = ['ict_fadeeac', 'cedol_con_transporte', 'cedol_sin_transporte', 'cedol_distribucion_urbana', 'imc_ultima_milla', 'gasoil', 'nafta_super', 'alquiler_logistico', 'tc_usd'];
-      ind.innerHTML = '<div class="tabla-envoltura"><table><thead><tr><th scope="col">Indicador</th><th scope="col" class="num">Valor</th><th scope="col" class="num">Fecha</th></tr></thead><tbody>' +
+      ind.innerHTML = '<div class="tabla-envoltura" tabindex="0" role="region" aria-label="Índices y precios de referencia"><table class="tabla-indices"><thead><tr><th scope="col">Indicador</th><th scope="col" class="num">Valor</th><th scope="col" class="num">Fecha</th></tr></thead><tbody>' +
         claves.map(function (k) {
           var r = REF.REFERENCIAS[k];
           return '<tr><th scope="row"><a href="' + esc(r.fuente) + '" rel="noopener" target="_blank">' + esc(r.nombre) + '</a></th><td class="num">' + esc(F.numero(r.valor, Number.isInteger(r.valor) ? 0 : 2) + ' ' + r.unidad) + '</td><td class="num">' + esc(F.fecha(r.fecha)) + '</td></tr>';
@@ -453,7 +551,7 @@
     var anio = document.getElementById('anio');
     if (anio) { anio.textContent = String(new Date().getFullYear()); }
     window.addEventListener('beforeprint', function () {
-      Array.prototype.forEach.call(document.querySelectorAll('details'), function (d) { d.setAttribute('data-estaba', d.open ? '1' : '0'); d.open = true; });
+      Array.prototype.forEach.call(document.querySelectorAll('details:not(.insignia-det)'), function (d) { d.setAttribute('data-estaba', d.open ? '1' : '0'); d.open = true; });
     });
     window.addEventListener('afterprint', function () {
       Array.prototype.forEach.call(document.querySelectorAll('details[data-estaba]'), function (d) { d.open = d.getAttribute('data-estaba') === '1'; });

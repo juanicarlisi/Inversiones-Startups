@@ -3,8 +3,10 @@
  * Revisión del sitio en un navegador real (Chromium con Playwright):
  *   - cada página en 360 px y en escritorio, tema claro y oscuro;
  *   - sin errores de JavaScript, sin scroll horizontal, sin «NaN» ni «undefined» en pantalla;
- *   - interacción: editar, guardar en el navegador, compartir por enlace, importar entre calculadoras,
- *     validar números, cambiar el tema e imprimir a PDF;
+ *   - tablas: las dos primeras columnas a la vista y, si se desplazan, que reciban el foco;
+ *   - celular 360 × 740: el primer dato a cargar se ve sin desplazar y la barra fija se despliega con las tarjetas;
+ *   - interacción: editar, guardar en el navegador, compartir por enlace (sin pisar el escenario propio), deshacer,
+ *     importar entre calculadoras, validar números, insignias, cambiar el tema e imprimir a PDF;
  *   - capturas en capturas/.
  * Uso:  node pruebas/revisar-sitio.js        (necesita Playwright y Chromium instalados)
  */
@@ -73,18 +75,64 @@ async function revisarVista(browser, base, vista) {
         const r = el.getBoundingClientRect();
         if (r.width > 0 && r.right > ancho + 1) { anchos.push((el.className || el.tagName) + ' ' + Math.round(r.right)); }
       });
+      const tablas = [];
+      document.querySelectorAll('.tabla-envoltura').forEach(env => {
+        const e = env.getBoundingClientRect();
+        if (e.width === 0) { return; }
+        const ths = env.querySelectorAll('thead th');
+        const titulo = env.getAttribute('aria-label') || '(sin título)';
+        for (let i = 0; i < Math.min(2, ths.length); i++) {
+          if (ths[i].getBoundingClientRect().right > e.right + 1) { tablas.push(titulo + ': columna «' + ths[i].textContent + '» fuera de la vista'); }
+        }
+        if (env.scrollWidth > env.clientWidth + 1 && env.tabIndex < 0) { tablas.push(titulo + ': se desplaza pero no recibe el foco'); }
+      });
       return {
         scroll: document.documentElement.scrollWidth, ancho,
         texto: document.body.innerText,
         anchos: anchos.slice(0, 5),
-        tema: getComputedStyle(document.body).backgroundColor
+        tema: getComputedStyle(document.body).backgroundColor,
+        tablas
       };
     });
+    verificar(datos.tablas.length === 0, `${vista.nombre} ${archivo}: ${datos.tablas.join(' | ')}`);
     verificar(datos.scroll <= datos.ancho, `${vista.nombre} ${archivo}: scroll horizontal (${datos.scroll} > ${datos.ancho}) ${datos.anchos.join(', ')}`);
     verificar(!/\bNaN\b|undefined|Infinity/.test(datos.texto), `${vista.nombre} ${archivo}: aparece NaN/undefined en pantalla`);
     if (vista.colorScheme === 'dark') { verificar(datos.tema !== 'rgb(246, 247, 245)', `${vista.nombre} ${archivo}: no tomó el tema oscuro`); }
   }
   verificar(errores.length === 0, `${vista.nombre}: errores de JavaScript: ${errores.join(' | ')}`);
+  await ctx.close();
+}
+
+/* Celular 360 × 740: el primer dato a cargar se ve sin desplazar y la barra fija se despliega con las tarjetas clave. */
+async function primerPliegue(browser, base) {
+  const ctx = await browser.newContext({ viewport: { width: 360, height: 740 }, locale: 'es-AR' });
+  const page = await ctx.newPage();
+  const errores = [];
+  page.on('pageerror', e => errores.push(e.message));
+  for (const archivo of PAGINAS.filter(a => a !== 'index.html' && a !== 'referencias.html')) {
+    await page.goto(base + archivo);
+    await page.waitForSelector('.principal-valor');
+    const d = await page.evaluate(() => {
+      const control = Array.from(document.querySelectorAll('form.formulario input, form.formulario select')).find(el => el.getBoundingClientRect().height > 0);
+      const barra = document.querySelector('.barra-resultado').getBoundingClientRect();
+      return { abajo: control.getBoundingClientRect().bottom, barra: barra.top };
+    });
+    verificar(d.abajo <= d.barra, `360×740 ${archivo}: el primer dato termina en ${Math.round(d.abajo)} px, debajo de la barra (${Math.round(d.barra)} px)`);
+    await page.click('.barra-boton');
+    const b = await page.evaluate(() => ({
+      tarjetas: Array.from(document.querySelectorAll('.barra-tarjetas .tarjeta')).filter(t => t.getBoundingClientRect().height > 0).length,
+      top: document.querySelector('.barra-resultado').getBoundingClientRect().top,
+      expandida: document.querySelector('.barra-boton').getAttribute('aria-expanded')
+    }));
+    verificar(b.tarjetas >= 3 && b.top >= 0 && b.expandida === 'true', `360×740 ${archivo}: la barra no se desplegó bien (${JSON.stringify(b)})`);
+    if (archivo === 'tarifa-transportista.html') {
+      await page.fill('#c-paradas', '80');
+      await page.waitForFunction(() => /93\.200/.test(document.querySelector('.barra-boton').textContent));
+      verificar(/93\.200/.test(await page.textContent('.barra-boton')) && (await page.getAttribute('.barra-boton', 'aria-expanded')) === 'true',
+        '360×740: la barra abierta no se actualizó al editar');
+    }
+  }
+  verificar(errores.length === 0, 'celular: errores de JavaScript: ' + errores.join(' | '));
   await ctx.close();
 }
 
@@ -161,9 +209,35 @@ async function interaccion(browser, base) {
   verificar((await p2.textContent('.principal-valor')) === (await page.textContent('.principal-valor')), 'enlace compartido: resultado distinto');
   await ctx2.close();
 
-  // Volver a los valores de referencia
+  // Un enlace ajeno no pisa el escenario guardado
+  const propio = await page.evaluate(() => JSON.parse(localStorage.getItem('anden:v0:tarifa')).valores.paradas);
+  await page.goto(base + 'tarifa-transportista.html#paradas=33');
+  await page.reload();
+  await page.waitForSelector('.principal-valor');
+  verificar((await page.inputValue('#c-paradas')) === '33', 'enlace ajeno: no abrió con 33 paquetes');
+  verificar((await page.evaluate(() => JSON.parse(localStorage.getItem('anden:v0:tarifa')).valores.paradas)) === propio, 'enlace ajeno: pisó el escenario guardado');
+  await page.click('[data-accion="volver-mio"]');
+  verificar((await page.inputValue('#c-paradas')) === String(propio), 'enlace ajeno: «Volver al mío» no recuperó el escenario');
+
+  // Volver a los valores de referencia, y deshacer
   await page.click('[data-accion="restablecer"]');
   verificar((await page.textContent('.principal-valor')).replace(/\s/g, ' ').trim() === '$ 69.900', 'tarifa: «valores de referencia» no volvió a $ 69.900');
+  await page.click('[data-accion="deshacer"]');
+  verificar((await page.inputValue('#c-paradas')) === String(propio), 'tarifa: «Deshacer» no recuperó el escenario');
+  await page.click('[data-accion="restablecer"]');
+
+  // La insignia sigue al valor: al editar dice «TU DATO» y su globo vuelve al valor de referencia sin tocar el #
+  await page.fill('#c-ingreso', '4.500');
+  await page.waitForFunction(() => /TU DATO/.test(document.querySelector('[data-insignia="ingreso"]').textContent));
+  const hashAntes = await page.evaluate(() => window.location.hash);
+  await page.click('[data-insignia="ingreso"] summary');
+  await page.click('[data-insignia="ingreso"] button.volver');
+  verificar((await page.inputValue('#c-ingreso')) === '3.900', 'insignia: «Volver a» no puso el valor de referencia');
+  verificar(/HECHO/.test(await page.textContent('[data-insignia="ingreso"]')), 'insignia: no volvió a decir HECHO');
+  verificar(!/#ref-/.test(await page.evaluate(() => window.location.hash)) && hashAntes.length > 0, 'insignia: tocarla cambió el # del escenario');
+
+  // Las cuatro formas de pagar
+  verificar(/Las cuatro formas de pagar/.test(await page.textContent('.desglose')), 'tarifa: falta la comparación de las cuatro formas de pagar');
 
   // Tema
   await page.click('#boton-tema');
@@ -190,6 +264,16 @@ async function interaccion(browser, base) {
   const hora = await page.inputValue('#c-costoHora');
   verificar(hora !== '9.400', `hub: no trajo el costo hora de Maestranza A (quedó ${hora})`);
 
+  // La calculadora 6 no tiene barra de pesos ni dólar, y carga sin errores
+  await page.goto(base + 'peso-volumetrico.html');
+  await page.waitForSelector('.principal-valor');
+  verificar(!(await page.$('.barra-tc')), 'volumétrico: no debería mostrar la barra de pesos');
+  await page.selectOption('#c-divisor', '-1');
+  await page.fill('#c-aforoOtro', '300');
+  await page.waitForFunction(() => /540/.test(document.querySelector('.principal-sub').textContent));
+  verificar(/540/.test(await page.textContent('.principal-sub')), 'volumétrico: 300 kg/m³ debería dar 540 kg volumétricos');
+  await page.click('[data-accion="restablecer"]');
+
   // Impresión a PDF (fuera del repositorio)
   await page.emulateMedia({ media: 'print' });
   const pdf = path.join(os.tmpdir(), 'anden-prueba-impresion.pdf');
@@ -208,11 +292,12 @@ async function interaccion(browser, base) {
   try {
     for (const v of VISTAS) { console.log('Vista', v.nombre); await revisarVista(browser, base, v); }
     console.log('Interacción'); await interaccion(browser, base);
+    console.log('Celular 360×740'); await primerPliegue(browser, base);
     console.log('Capturas'); await capturas(browser, base);
   } finally {
     await browser.close();
     s.close();
   }
   if (fallas.length) { console.log(`\n${fallas.length} fallas`); process.exit(1); }
-  console.log('\nTodo bien: 8 páginas × 4 vistas, interacción e impresión.');
+  console.log('\nTodo bien: 8 páginas × 4 vistas (con tablas legibles), interacción, celular e impresión.');
 })().catch(e => { console.error(e); process.exit(1); });

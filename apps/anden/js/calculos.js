@@ -20,6 +20,18 @@
   function pct(x) { return n(x) / 100; }
   function suma(lista) { return lista.reduce(function (a, b) { return a + b; }, 0); }
 
+  /* Precio mínimo para ganar un margen sobre el precio (y pagar impuestos sobre lo facturado): costo ÷ (1 − m − i). */
+  function precioConMargen(costo, margenPct, impuestosPct) {
+    var k = 1 - pct(margenPct) - pct(impuestosPct);
+    return k > 0 ? div(costo, k) : NaN;
+  }
+
+  /* Días de vacaciones según la antigüedad (LCT art. 150): hasta 5 años, 14; hasta 10, 21; hasta 20, 28; más, 35. */
+  function vacacionesLey(anios) {
+    var a = n(anios);
+    return a <= 5 ? 14 : (a <= 10 ? 21 : (a <= 20 ? 28 : 35));
+  }
+
   /* ════════════════════════════════════════════════════════════════════
    * 1. Tarifa al transportista vs. ingreso y volumen (por ruta y día)
    * ════════════════════════════════════════════════════════════════════
@@ -85,6 +97,10 @@
 
     var dias = n(e.dias);
     var costoTransp = n(e.costoTransportistaDia);
+    var gananciaTranspDia = costoTransp > 0 ? pagoTransportista - costoTransp : NaN;
+    // Del lado del transportista (pago por paquete): paquetes cargados que cubren su costo del día.
+    var cobraPorCargado = modalidad === 'paquete' ? n(e.tarifaPaquete) * (pagaFallidos ? 1 : (1 - f)) : NaN;
+    var equilibrioTransp = (costoTransp > 0 && cobraPorCargado > 0) ? Math.ceil(costoTransp / cobraPorCargado - 1e-9) : NaN;
 
     return {
       entregados: entregados, fallidos: fallidos, reentregas: reentregas, devoluciones: devoluciones,
@@ -105,10 +121,14 @@
       pagoMaximo: pagoMaximo,
       tarifaMaxima: tarifaMaxima,
       unidadTarifa: nombreUnidad,
+      unidadesTarifa: unidadesTarifa,
       margenMes: margenRuta * dias,
       ingresoMes: ingreso * dias,
-      gananciaTransportistaDia: costoTransp > 0 ? pagoTransportista - costoTransp : NaN,
-      gananciaTransportistaMes: costoTransp > 0 ? (pagoTransportista - costoTransp) * dias : NaN
+      gananciaTransportistaDia: gananciaTranspDia,
+      gananciaTransportistaMes: gananciaTranspDia * dias,
+      gananciaTransportistaHora: div(gananciaTranspDia, n(e.horasTransportista)),
+      equilibrioTransportista: equilibrioTransp,
+      tarifaMinimaTransportista: costoTransp > 0 ? div(costoTransp, unidadesTarifa) : NaN
     };
   }
 
@@ -119,7 +139,9 @@
     var valor = n(e.valorVehiculo);
     var residual = pct(e.residualPct);
     var vidaMeses = n(e.vidaAnios) * 12;
-    var amortizacionMes = div(valor * (1 - residual), vidaMeses);
+    // Con un divisor obligatorio en 0 (años de uso, recorridos por mes) el resultado es NaN y la pantalla muestra «—»:
+    // nunca se borra un costo en silencio. Sin vehículo (valor 0) no hay amortización.
+    var amortizacionMes = valor > 0 ? div(valor * (1 - residual), vidaMeses) : 0;
     var capitalMes = valor * (1 + residual) / 2 * pct(e.tasaCapitalPct) / 12;
     var patenteMes = valor * pct(e.patentePct) / 12;
     var seguroMes = n(e.seguroMes);
@@ -131,8 +153,8 @@
     var fijoRecorrido = div(fijosMes, recorridosMes);
 
     var combustibleKm = n(e.consumoL100) / 100 * n(e.precioCombustible);
-    var cubiertasKm = div(n(e.cubiertasCantidad) * n(e.cubiertaPrecio), n(e.cubiertaVidaKm));
-    if (!isFinite(cubiertasKm)) { cubiertasKm = 0; }
+    var costoCubiertas = n(e.cubiertasCantidad) * n(e.cubiertaPrecio);
+    var cubiertasKm = costoCubiertas > 0 ? div(costoCubiertas, n(e.cubiertaVidaKm)) : 0;
     var mantenimientoKm = n(e.mantenimientoKm);
     var variableKm = combustibleKm + cubiertasKm + mantenimientoKm;
 
@@ -154,7 +176,7 @@
       peaje: peajes,
       cocheraYOtros: div(cocheraMes + otrosMes, recorridosMes)
     };
-    var subtotal = suma(Object.keys(partes).map(function (k) { return n(partes[k]); }));
+    var subtotal = suma(Object.keys(partes).map(function (k) { return partes[k]; }));
     partes.gastosGenerales = subtotal * pct(e.gastosGeneralesPct);
     var total = subtotal + partes.gastosGenerales;
 
@@ -175,7 +197,13 @@
       porPaquete: div(total, paquetes),
       sinPersonalPorKm: div(total - partes.personal * (1 + pct(e.gastosGeneralesPct)), km),
       costoMes: total * recorridosMes,
-      kmMes: km * recorridosMes
+      kmMes: km * recorridosMes,
+      tarifario: {
+        viaje: precioConMargen(total, e.margenPct, e.impuestosPct),
+        km: precioConMargen(div(total, km), e.margenPct, e.impuestosPct),
+        hora: precioConMargen(div(total, horas), e.margenPct, e.impuestosPct),
+        paquete: precioConMargen(div(total, paquetes), e.margenPct, e.impuestosPct)
+      }
     };
   }
 
@@ -185,6 +213,7 @@
    * Supuestos (a validar): presentismo sobre básico + antigüedad; SAC = 1/12 de la base;
    * día de vacaciones pagado como sueldo ÷ 25 (LCT art. 155) en lugar de ÷ 30;
    * la detracción solo sobre el sueldo mensual; ART sobre la parte remunerativa.
+   * Comida y viático especial (Camioneros) por día efectivamente trabajado, sin cargas sociales.
    */
   function costoLaboral(e) {
     var basico = n(e.basico);
@@ -212,14 +241,16 @@
     // Horas
     var diasSemana = n(e.diasSemana);
     var horasDia = div(n(e.horasSemana), diasSemana);
-    var diasLaborablesAnio = diasSemana * SEMANAS_POR_ANIO;
+    var diasLaborablesAnio = diasSemana > 0 ? diasSemana * SEMANAS_POR_ANIO : NaN;
     var vacacionesLaborables = vacDias * diasSemana / DIAS_POR_SEMANA_CALENDARIO;
-    var diasPresentesAnio = (diasLaborablesAnio - vacacionesLaborables - n(e.feriados)) * (1 - pct(e.ausentismoPct));
+    var diasPresentesAnio = Math.max(0, (diasLaborablesAnio - vacacionesLaborables - n(e.feriados)) * (1 - pct(e.ausentismoPct)));
     var horasPresentesMes = diasPresentesAnio * horasDia / 12;
     var horasProductivasMes = horasPresentesMes * (1 - pct(e.improductivoPct));
     var horasPagadasMes = n(e.horasSemana) * SEMANAS_POR_ANIO / 12;
     var diasTrabajadosMes = diasPresentesAnio / 12;
-    var viaticosMes = n(e.viaticoDia) * diasTrabajadosMes;
+    var comidaMes = n(e.viaticoDia) * diasTrabajadosMes;
+    var viaticoEspecialMes = n(e.viaticoEspecialDia) * diasTrabajadosMes;
+    var viaticosMes = comidaMes + viaticoEspecialMes;
 
     var cargas = contribuciones + obraSocial + contribNoRem + art + seguroVida + aportesConvenio;
     var total = remunerativo + noRem + sacMes + plusVacacionesMes + viaticosMes + cargas;
@@ -227,6 +258,7 @@
     return {
       remunerativo: remunerativo, noRemunerativo: noRem,
       sacMes: sacMes, plusVacacionesMes: plusVacacionesMes, viaticosMes: viaticosMes,
+      comidaMes: comidaMes, viaticoEspecialMes: viaticoEspecialMes,
       baseContribuciones: baseContribuciones,
       contribuciones: contribuciones, obraSocial: obraSocial, contribNoRem: contribNoRem,
       art: art, seguroVida: seguroVida, aportesConvenio: aportesConvenio,
@@ -241,7 +273,8 @@
       costoHoraPagada: div(total, horasPagadasMes),
       costoDiaPresente: div(total, diasTrabajadosMes),
       factorSobreBasico: div(total, basico),
-      sueldoBolsillo: remunerativo + noRem
+      sueldoBruto: remunerativo + noRem,      // antes de los aportes del trabajador: no es lo que cobra en mano
+      vacacionesLey: vacacionesLey(e.antiguedadAnios)
     };
   }
 
@@ -250,61 +283,92 @@
    * ════════════════════════════════════════════════════════════════════
    * El costo hora es por hora productiva (sale de la calculadora 3): ya incluye pausas,
    * vacaciones, feriados y ausentismo. Cada persona presente aporta «horas productivas por turno».
+   * Ventana de cada proceso: las horas productivas en que tiene que hacerse (0 = todo el turno);
+   * la carga, por ejemplo, tiene que terminar antes de que salgan las rutas.
+   * Personal fijo por proceso: se suman los techos de cada proceso. Personal que rota: el máximo entre
+   * techo(horas-hombre totales ÷ horas del turno) y la mayor cuadrilla simultánea. Es el mínimo exacto si las
+   * ventanas no se superponen o duran todo el turno; si dos ventanas cortas se superponen, hacen falta más.
    */
   function costoClasificacion(e) {
     var V = n(e.paquetesTurno);
     var hp = n(e.horasProdTurno);
     var ch = n(e.costoHora);
     var rt = pct(e.retrabajoPct);
+    var polivalente = !!e.polivalente;
     var defs = [
-      { id: 'induccion', nombre: 'Descarga e inducción', prod: n(e.prodInduccion), retrabajo: false },
-      { id: 'clasificacion', nombre: 'Clasificación por ruta', prod: n(e.prodClasificacion), retrabajo: true },
-      { id: 'carga', nombre: 'Armado de rutas y carga', prod: n(e.prodCarga), retrabajo: false }
+      { id: 'induccion', nombre: 'Descarga e inducción', prod: n(e.prodInduccion), retrabajo: false, ventana: n(e.ventanaInduccion) },
+      { id: 'clasificacion', nombre: 'Clasificación por ruta', prod: n(e.prodClasificacion), retrabajo: true, ventana: n(e.ventanaClasificacion) },
+      { id: 'carga', nombre: 'Armado de rutas y carga', prod: n(e.prodCarga), retrabajo: false, ventana: n(e.ventanaCarga) }
     ];
     var procesos = defs.filter(function (p) { return p.prod > 0; }).map(function (p) {
       var volumen = V * (1 + (p.retrabajo ? rt : 0));
       var horasHombre = volumen / p.prod;
-      var personas = Math.ceil(div(horasHombre, hp) - 1e-9);
-      if (!isFinite(personas) || personas < 0) { personas = 0; }
+      var w = p.ventana > 0 ? Math.min(p.ventana, hp) : hp;   // con horas por turno en 0, NaN: se muestra «—»
+      var personas = Math.ceil(div(horasHombre, w) - 1e-9);
+      if (personas < 0) { personas = 0; }
       return {
         id: p.id, nombre: p.nombre, productividad: p.prod, volumen: volumen,
-        horasHombre: horasHombre, personas: personas,
-        utilizacion: div(horasHombre, personas * hp) * 100,
-        costo: personas * hp * ch
+        horasHombre: horasHombre, ventana: w, personas: personas,
+        utilizacion: div(horasHombre, personas * hp) * 100
       };
     });
-    var operarios = suma(procesos.map(function (p) { return p.personas; }));
-    var supervisores = n(e.operariosPorSupervisor) > 0 ? Math.ceil(operarios / n(e.operariosPorSupervisor) - 1e-9) : 0;
+    var dedicados = suma(procesos.map(function (p) { return p.personas; }));
+    var hhTotal = suma(procesos.map(function (p) { return p.horasHombre; }));
+    var mayorCuadrilla = procesos.reduce(function (a, p) { return Math.max(a, p.personas); }, 0);
+    var rotando = Math.max(Math.ceil(div(hhTotal, hp) - 1e-9), mayorCuadrilla);
+    var operarios = polivalente ? rotando : dedicados;
     var costoOperarios = operarios * hp * ch;
+    procesos.forEach(function (p) {
+      p.costo = polivalente ? costoOperarios * div(p.horasHombre, hhTotal) : p.personas * hp * ch;
+    });
+    var supervisores = n(e.operariosPorSupervisor) > 0 ? Math.ceil(operarios / n(e.operariosPorSupervisor) - 1e-9) : 0;
     var costoSupervision = supervisores * hp * ch * n(e.factorSupervisor);
 
     var turnosMes = n(e.turnosMes);
     var espacioMes = n(e.m2) * (n(e.alquilerUsdM2) * n(e.tc) + n(e.serviciosM2));
     var inv = n(e.equiposInversion);
-    var equiposMes = div(inv, n(e.equiposVidaAnios) * 12) + inv * pct(e.equiposMantPct) / 12 + inv / 2 * pct(e.tasaCapitalPct) / 12;
-    if (!isFinite(equiposMes)) { equiposMes = 0; }
+    var equiposMes = (inv > 0 ? div(inv, n(e.equiposVidaAnios) * 12) : 0) + inv * pct(e.equiposMantPct) / 12 + inv / 2 * pct(e.tasaCapitalPct) / 12;
     var espacioTurno = div(espacioMes, turnosMes);
     var equiposTurno = div(equiposMes, turnosMes);
     var sistemasTurno = div(n(e.sistemasMes), turnosMes);
+    var estructuraTurno = div(n(e.estructuraMes), turnosMes);
     var insumosTurno = n(e.insumosPaquete) * V;
 
-    var totalTurno = costoOperarios + costoSupervision + espacioTurno + equiposTurno + sistemasTurno + insumosTurno;
+    var totalTurno = costoOperarios + costoSupervision + espacioTurno + equiposTurno + sistemasTurno + estructuraTurno + insumosTurno;
     var cuello = procesos.reduce(function (a, b) { return (!a || b.horasHombre > a.horasHombre) ? b : a; }, null);
     var horasTotales = (operarios + supervisores) * hp;
 
+    // Cuánto hay que ahorrar para que sobre una persona (la dotación va por escalones enteros).
+    var ahorroParaUna = NaN, mejoraParaUna = NaN;
+    if (polivalente) {
+      if (operarios - 1 >= mayorCuadrilla && operarios > 1) {
+        ahorroParaUna = hhTotal - (operarios - 1) * hp;
+        mejoraParaUna = (hhTotal / ((operarios - 1) * hp) - 1) * 100;
+      }
+    } else if (cuello && cuello.personas > 1) {
+      ahorroParaUna = cuello.horasHombre - (cuello.personas - 1) * cuello.ventana;
+      mejoraParaUna = (cuello.horasHombre / ((cuello.personas - 1) * cuello.ventana) - 1) * 100;
+    }
+
     return {
       procesos: procesos,
+      polivalente: polivalente,
+      dedicados: dedicados, rotando: rotando, horasHombreTotales: hhTotal,
       operarios: operarios, supervisores: supervisores,
       personasTurno: operarios + supervisores,
+      utilizacionOperarios: div(hhTotal, operarios * hp) * 100,
       costoOperarios: costoOperarios, costoSupervision: costoSupervision,
       espacioMes: espacioMes, equiposMes: equiposMes,
-      espacioTurno: espacioTurno, equiposTurno: equiposTurno, sistemasTurno: sistemasTurno, insumosTurno: insumosTurno,
+      espacioTurno: espacioTurno, equiposTurno: equiposTurno, sistemasTurno: sistemasTurno, estructuraTurno: estructuraTurno,
+      insumosTurno: insumosTurno,
       totalTurno: totalTurno,
       porPaquete: div(totalTurno, V),
       manoDeObraPorPaquete: div(costoOperarios + costoSupervision, V),
       paquetesPorHoraHombre: div(V, horasTotales),
       totalMes: totalTurno * turnosMes,
-      procesoQueMasHorasLleva: cuello ? cuello.nombre : ''
+      procesoQueMasHorasLleva: cuello ? cuello.nombre : '',
+      ahorroParaSacarUna: ahorroParaUna,
+      mejoraParaSacarUna: mejoraParaUna
     };
   }
 
@@ -312,7 +376,8 @@
    * 5. Costo por proceso de almacenamiento (costeo por actividades)
    * ════════════════════════════════════════════════════════════════════
    * Asignación (a validar): el espacio de almacenamiento y los racks van a «almacenamiento»;
-   * el espacio operativo se reparte entre recepción, picking, packing y despacho según horas-hombre;
+   * el espacio operativo (muelles, playa, packing) se reparte entre recepción, packing y despacho según horas-hombre
+   * (el picking se hace en los pasillos de los racks, que ya están en almacenamiento);
    * los gastos de estructura se reparten entre las cinco actividades según horas-hombre.
    */
   function costoAlmacenamiento(e) {
@@ -324,22 +389,25 @@
     var posTotales = n(e.posicionesTotales);
     var posOcupadas = posTotales * pct(e.ocupacionPct);
 
+    // Sin volumen, la actividad no lleva horas; con volumen y productividad 0, NaN (se muestra «—»).
+    function horasDe(volumen, prod) { return volumen > 0 ? div(volumen, prod) : 0; }
     var horas = {
-      recepcion: div(pallets, n(e.prodRecepcion)),
+      recepcion: horasDe(pallets, n(e.prodRecepcion)),
       almacenamiento: n(e.horasInventarioMes),
-      picking: div(lineas, n(e.prodPicking)),
-      packing: div(pedidos, n(e.prodPacking)),
-      despacho: div(pedidos, n(e.prodDespacho))
+      picking: horasDe(lineas, n(e.prodPicking)),
+      packing: horasDe(pedidos, n(e.prodPacking)),
+      despacho: horasDe(pedidos, n(e.prodDespacho))
     };
-    Object.keys(horas).forEach(function (k) { if (!isFinite(horas[k])) { horas[k] = 0; } });
     var horasOperativas = horas.recepcion + horas.picking + horas.packing + horas.despacho;
     var horasTotales = horasOperativas + horas.almacenamiento;
+    // El espacio operativo (muelles, playa, packing) lo usan recepción, packing y despacho; el picking se hace en los
+    // pasillos de los racks, que ya paga almacenamiento.
+    var horasEspacioOperativo = horas.recepcion + horas.packing + horas.despacho;
 
     var espacioAlmacenamiento = n(e.m2Almacenamiento) * precioM2;
     var espacioOperativo = n(e.m2Operativo) * precioM2;
     var inv = posTotales * n(e.rackInversionPosicion);
-    var racksMes = div(inv, n(e.rackVidaAnios) * 12) + inv / 2 * pct(e.tasaCapitalPct) / 12;
-    if (!isFinite(racksMes)) { racksMes = 0; }
+    var racksMes = (inv > 0 ? div(inv, n(e.rackVidaAnios) * 12) : 0) + inv / 2 * pct(e.tasaCapitalPct) / 12;
     var estructura = n(e.estructuraMes);
     var otros = {
       recepcion: n(e.otrosRecepcionMes),
@@ -353,7 +421,7 @@
       var manoDeObra = horas[k] * ch;
       var espacio = k === 'almacenamiento'
         ? espacioAlmacenamiento + racksMes
-        : (horasOperativas > 0 ? espacioOperativo * horas[k] / horasOperativas : 0);
+        : (k === 'picking' || !(horasEspacioOperativo > 0) ? 0 : espacioOperativo * horas[k] / horasEspacioOperativo);
       var estr = horasTotales > 0 ? estructura * horas[k] / horasTotales : 0;
       return { id: k, horasHombre: horas[k], manoDeObra: manoDeObra, otros: otros[k], espacio: espacio, estructura: estr,
         total: manoDeObra + otros[k] + espacio + estr };
@@ -366,6 +434,8 @@
     var packingPorPedido = div(porId.packing.total, pedidos);
     var despachoPorPedido = div(porId.despacho.total, pedidos);
     var personasEquivalentes = div(horasTotales, n(e.horasProdMesPersona));
+    var costoPedidoSinPicking = div(porId.packing.total + porId.despacho.total, pedidos);
+    var mi = e.margenPct, im = e.impuestosPct;
 
     return {
       actividades: actividades,
@@ -381,7 +451,17 @@
       packingPorPedido: packingPorPedido,
       despachoPorPedido: despachoPorPedido,
       porPedido: div(porId.picking.total + porId.packing.total + porId.despacho.total, pedidos),
-      total: total
+      costoPedidoSinPicking: costoPedidoSinPicking,
+      total: total,
+      // Tarifario: cada actividad se cobra una sola vez (el pedido va sin el picking, que se cobra por línea).
+      tarifario: {
+        pallet: precioConMargen(div(porId.recepcion.total, pallets), mi, im),
+        posicionOcupada: precioConMargen(div(porId.almacenamiento.total, posOcupadas), mi, im),
+        posicionDisponible: precioConMargen(div(porId.almacenamiento.total, posTotales), mi, im),
+        linea: precioConMargen(porLinea, mi, im),
+        pedido: precioConMargen(costoPedidoSinPicking, mi, im),
+        facturacionMes: precioConMargen(total, mi, im)
+      }
     };
   }
 
@@ -413,6 +493,7 @@
       pesoVolEnvio: pvEnvio,
       pesoRealEnvio: realEnvio,
       facturableEnvio: facturableEnvio,
+      facturableSumandoBultos: facturableBulto * cantidad,   // si el transportista redondea cada bulto por separado
       cobraPorVolumen: pvEnvio > realEnvio,
       densidad: div(real, volCm3 / 1e6),
       densidadCorte: div(1e6, divisor),
@@ -420,8 +501,8 @@
     };
   }
 
-  /* Mejor cantidad de rectángulos p×q en un área L×W: una orientación o dos bloques (corte guillotina). */
-  function mejorCapa(L, W, p, q) {
+  /* Armado de respaldo: una orientación o dos bloques (corte guillotina). Solo cuenta, no dice dónde va cada caja. */
+  function mejorCapaDosBloques(L, W, p, q) {
     if (p <= 0 || q <= 0 || L <= 0 || W <= 0) { return 0; }
     function fila(largo, ancho, a, b) { return Math.floor(largo / a + 1e-9) * Math.floor(ancho / b + 1e-9); }
     var mejor = Math.max(fila(L, W, p, q), fila(L, W, q, p));
@@ -445,6 +526,81 @@
     return mejor;
   }
 
+  /* Mejor capa por cortes de guillotina: programación dinámica sobre los «patrones normales» (las medidas que se
+   * pueden armar como a·p + b·q). Devuelve la cantidad y dónde va cada caja, para dibujarla e imprimirla.
+   * Trabaja en milímetros enteros: la caja se redondea hacia arriba y el área hacia abajo (nunca promete de más).
+   * Si las medidas dan demasiados patrones (cajas muy chicas para el área), usa el armado de dos bloques, sin dibujo. */
+  var MAX_PATRONES = 120;
+  var memoCapa = {}, clavesMemo = [];
+  function patronesNormales(largo, a, b) {
+    var vistos = {}, lista = [];
+    for (var i = 0; i * a <= largo; i++) {
+      for (var j = 0; i * a + j * b <= largo; j++) {
+        var x = i * a + j * b;
+        if (!vistos[x]) { vistos[x] = true; lista.push(x); if (lista.length > MAX_PATRONES) { return null; } }
+      }
+    }
+    return lista.sort(function (u, v) { return u - v; });
+  }
+  function indiceHasta(lista, x) {   // el mayor patrón ≤ x (el 0 siempre está)
+    var lo = 0, hi = lista.length - 1;
+    while (lo < hi) { var m = (lo + hi + 1) >> 1; if (lista[m] <= x) { lo = m; } else { hi = m - 1; } }
+    return lo;
+  }
+  function capaGuillotina(L, W, p, q) {
+    var Lm = Math.floor(L * 10 + 1e-6), Wm = Math.floor(W * 10 + 1e-6);
+    var pm = Math.ceil(p * 10 - 1e-6), qm = Math.ceil(q * 10 - 1e-6);
+    var NL = patronesNormales(Lm, pm, qm), NW = patronesNormales(Wm, pm, qm);
+    if (!NL || !NW) { return null; }
+    var nl = NL.length, nw = NW.length, f = [], eleccion = [];
+    for (var i = 0; i < nl; i++) {
+      f.push(new Array(nw)); eleccion.push(new Array(nw));
+      for (var j = 0; j < nw; j++) {
+        var l = NL[i], w = NW[j];
+        var a0 = Math.floor(l / pm) * Math.floor(w / qm), a1 = Math.floor(l / qm) * Math.floor(w / pm);
+        var mejor = Math.max(a0, a1), el = { t: 'f', girada: a1 > a0 };
+        for (var k = 1; k < i; k++) {                     // corte a lo largo
+          var r = indiceHasta(NL, l - NL[k]);
+          var v = f[k][j] + f[r][j];
+          if (v > mejor) { mejor = v; el = { t: 'l', k: k, r: r }; }
+        }
+        for (var k2 = 1; k2 < j; k2++) {                  // corte a lo ancho
+          var r2 = indiceHasta(NW, w - NW[k2]);
+          var v2 = f[i][k2] + f[i][r2];
+          if (v2 > mejor) { mejor = v2; el = { t: 'a', k: k2, r: r2 }; }
+        }
+        f[i][j] = mejor; eleccion[i][j] = el;
+      }
+    }
+    var cajas = [];
+    (function armar(i, j, x0, y0) {
+      var el = eleccion[i][j];
+      if (el.t === 'l') { armar(el.k, j, x0, y0); armar(el.r, j, x0 + NL[el.k], y0); return; }
+      if (el.t === 'a') { armar(i, el.k, x0, y0); armar(i, el.r, x0, y0 + NW[el.k]); return; }
+      var bl = el.girada ? qm : pm, ba = el.girada ? pm : qm;
+      for (var a = 0; (a + 1) * bl <= NL[i]; a++) {
+        for (var b = 0; (b + 1) * ba <= NW[j]; b++) {
+          cajas.push({ x: (x0 + a * bl) / 10, y: (y0 + b * ba) / 10, largo: bl / 10, ancho: ba / 10, girada: el.girada });
+        }
+      }
+    })(nl - 1, nw - 1, 0, 0);
+    return { cantidad: f[nl - 1][nw - 1], cajas: cajas };
+  }
+
+  /* La mejor capa de rectángulos p×q en un área L×W, con el dibujo cuando se puede. */
+  function planoCapa(L, W, p, q) {
+    if (!(p > 0 && q > 0 && L > 0 && W > 0)) { return { cantidad: 0, cajas: [] }; }
+    var clave = [L, W, p, q].join('|');
+    if (memoCapa[clave]) { return memoCapa[clave]; }
+    var g = capaGuillotina(L, W, p, q);
+    var respaldo = mejorCapaDosBloques(L, W, p, q);
+    var res = (g && g.cantidad >= respaldo) ? g : { cantidad: respaldo, cajas: null };
+    memoCapa[clave] = res; clavesMemo.push(clave);
+    if (clavesMemo.length > 60) { delete memoCapa[clavesMemo.shift()]; }
+    return res;
+  }
+  function mejorCapa(L, W, p, q) { return planoCapa(L, W, p, q).cantidad; }
+
   function cubicaje(e) {
     var l = n(e.largo), a = n(e.ancho), h = n(e.alto);
     var L = n(e.palletLargo), W = n(e.palletAncho);
@@ -458,13 +614,14 @@
     var maxPorPeso = pesoCaja > 0 ? Math.floor((n(e.pesoMaxPallet) - n(e.pesoPalletVacio)) / pesoCaja + 1e-9) : Infinity;
     var mejor = null;
     orientaciones.forEach(function (o) {
-      var porCapa = mejorCapa(L, W, o.p, o.q);
+      var plano = planoCapa(L, W, o.p, o.q);
+      var porCapa = plano.cantidad;
       var capas = o.alto > 0 ? Math.floor(alturaUtil / o.alto + 1e-9) : 0;
       if (capas < 0) { capas = 0; }
       var porAltura = porCapa * capas;
       var bultos = Math.max(0, Math.min(porAltura, maxPorPeso));
       if (!mejor || bultos > mejor.bultos) {
-        mejor = { orientacion: o.nombre, porCapa: porCapa, capas: capas, porAltura: porAltura, bultos: bultos, altoCaja: o.alto };
+        mejor = { orientacion: o.nombre, porCapa: porCapa, capas: capas, porAltura: porAltura, bultos: bultos, altoCaja: o.alto, plano: plano, base: [o.p, o.q] };
       }
     });
     var bultos = mejor.bultos;
@@ -473,9 +630,11 @@
     var alturaCargada = n(e.alturaPallet) + capasUsadas * mejor.altoCaja;
     var volCaja = l * a * h;
     var cantidad = Math.max(0, Math.round(n(e.cantidad)));
+    var giradas = mejor.plano.cajas ? mejor.plano.cajas.filter(function (c) { return c.girada; }).length : NaN;
     return {
       orientacion: mejor.orientacion,
       porCapa: mejor.porCapa,
+      capa: { cajas: mejor.plano.cajas, largo: L, ancho: W, baseCaja: mejor.base, giradas: giradas, derechas: mejor.porCapa - giradas },
       capas: mejor.capas,
       capasUsadas: capasUsadas,
       bultosPorPallet: bultos,
@@ -490,11 +649,12 @@
 
   /* Pallets por contenedor o caja de camión: posiciones en el piso y, si se apilan, niveles. */
   function palletsEnEspacio(e) {
-    var piso = mejorCapa(n(e.largoInterior), n(e.anchoInterior), n(e.palletLargo), n(e.palletAncho));
+    var plano = planoCapa(n(e.largoInterior), n(e.anchoInterior), n(e.palletLargo), n(e.palletAncho));
+    var piso = plano.cantidad;
     var niveles = e.apilable && n(e.alturaPalletCargado) > 0
       ? Math.max(1, Math.floor(n(e.altoInterior) / n(e.alturaPalletCargado) + 1e-9)) : 1;
     if (n(e.alturaPalletCargado) > n(e.altoInterior)) { niveles = 0; }
-    return { piso: piso, niveles: niveles, total: piso * niveles };
+    return { piso: piso, niveles: niveles, total: piso * niveles, plano: { cajas: plano.cajas, largo: n(e.largoInterior), ancho: n(e.anchoInterior) } };
   }
 
   /* ════════════════════════════════════════════════════════════════════
@@ -519,8 +679,11 @@
     cubicaje: cubicaje,
     palletsEnEspacio: palletsEnEspacio,
     mejorCapa: mejorCapa,
+    planoCapa: planoCapa,
     redondearArriba: redondearArriba,
     sensibilidad: sensibilidad,
+    precioConMargen: precioConMargen,
+    vacacionesLey: vacacionesLey,
     FACTORES: [0.6, 0.8, 1, 1.2, 1.4]
   };
 });

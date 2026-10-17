@@ -78,6 +78,32 @@ test('1. tarifa por km y por hora', () => {
   cerca(h.tarifaMaxima, 19053.53, 0.01);
 });
 
+test('1. del lado del transportista: lo que le queda, desde cuántos paquetes y su tarifa mínima', () => {
+  const r = C.tarifaTransportista({ ...baseTarifa, costoTransportistaDia: 86400, horasTransportista: 9 });
+  // Cobra 57 × 2.200 = 125.400 ; le quedan 125.400 − 86.400 = 39.000 por día, 936.000 por mes, 4.333,33 por hora
+  cerca(r.gananciaTransportistaDia, 39000);
+  cerca(r.gananciaTransportistaMes, 936000);
+  cerca(r.gananciaTransportistaHora, 4333.333, 0.001);
+  // Cubre su costo desde 86.400 ÷ (2.200 × 0,95) = 41,3 → 42 paquetes cargados ; tarifa mínima 86.400 ÷ 57 = 1.515,79
+  assert.equal(r.equilibrioTransportista, 42);
+  cerca(r.tarifaMinimaTransportista, 1515.789, 0.001);
+  // Las unidades de la tarifa salen del cálculo (no de dividir el pago por la tarifa, que falla con tarifa 0)
+  assert.equal(r.unidadesTarifa, 57);
+  assert.equal(C.tarifaTransportista({ ...baseTarifa, tarifaPaquete: 0 }).unidadesTarifa, 57);
+});
+
+test('1. ramas: fallidos pagos, cobro por devolución y fijos por ruta', () => {
+  // Pagando también los fallidos: 60 × 2.200 = 132.000 ; con $1.000 por devolución: ingreso 222.300 + 0,6 × 1.000 = 222.900
+  // y $20.000 fijos por ruta: margen = 222.900 − 132.000 − 27.000 − 20.000 = 43.900
+  const r = C.tarifaTransportista({ ...baseTarifa, pagaFallidos: true, cobroDevolucion: 1000, fijosRuta: 20000 });
+  cerca(r.pagoTransportista, 132000);
+  cerca(r.ingresoRuta, 222900);
+  cerca(r.margenRuta, 43900);
+  // Aporte por parada = 0,95 × 3.900 + 0,05 × 0,2 × 1.000 − 450 − 2.200 = 1.065 → equilibrio 20.000 ÷ 1.065 = 18,8 → 19
+  cerca(r.contribucionPorParada, 1065);
+  assert.equal(r.equilibrioParadas, 19);
+});
+
 test('1. si cada parada pierde plata, no hay volumen que la salve', () => {
   const r = C.tarifaTransportista({ ...baseTarifa, tarifaPaquete: 3800 });
   // 0,95 × 3.900 − 450 − 0,95 × 3.800 = −355 por parada
@@ -160,6 +186,28 @@ test('3. costo laboral de un conductor de 1ª (CCT 40/89)', () => {
   cerca(r.costoHoraPagada, 9497.80, 0.01);
 });
 
+test('3. conductor de 1ª con comida y viático especial (ítem 4.1.13)', () => {
+  const r = C.costoLaboral({ ...baseLaboral, viaticoEspecialDia: 8646.93 });
+  // Viático especial = 8.646,93 × 22,5512 = 194.998,57 ; comida + viático = 365.776,93 + 194.998,57 = 560.775,49
+  cerca(r.viaticoEspecialMes, 194998.57, 0.01);
+  cerca(r.comidaMes, 365776.93, 0.01);
+  cerca(r.viaticosMes, 560775.49, 0.01);
+  // Sin cargas: el total sube exactamente eso → 1.980.968,70 + 194.998,57 = 2.175.967,27 ; ÷ 157,858 h = 13.784,30
+  cerca(r.total, 2175967.27, 0.01);
+  cerca(r.costoHoraProductiva, 13784.30, 0.01);
+  // Las cargas se miden sobre el sueldo bruto (remunerativo + no remunerativo), no sobre lo que cobra en mano
+  cerca(r.sueldoBruto, 1126149.40, 0.01);
+});
+
+test('3. vacaciones según la antigüedad (LCT art. 150) y días que no pueden dar negativo', () => {
+  assert.deepEqual([0, 5, 6, 10, 11, 20, 21].map(C.vacacionesLey), [14, 14, 21, 21, 28, 28, 35]);
+  assert.equal(C.costoLaboral({ ...baseLaboral, antiguedadAnios: 7 }).vacacionesLey, 21);
+  // 400 feriados: los días presentes quedan en 0 (no negativos) y el costo por hora no se puede calcular
+  const r = C.costoLaboral({ ...baseLaboral, feriados: 400 });
+  assert.equal(r.horasProductivasMes, 0);
+  assert.ok(Number.isNaN(r.costoHoraProductiva));
+});
+
 test('3. costo laboral de Maestranza A (CCT 130/75) con suma no remunerativa que integra', () => {
   const r = C.costoLaboral({
     ...baseLaboral, basico: 1183900, antiguedadAnios: 3, presentismoPct: 8.33,
@@ -188,6 +236,34 @@ const baseHub = {
   equiposInversion: 45000000, equiposVidaAnios: 5, equiposMantPct: 10, tasaCapitalPct: 8,
   sistemasMes: 500000, insumosPaquete: 60
 };
+
+test('4. hub: personal que rota y ventanas de cada proceso', () => {
+  // Personal que rota: techo(83,87 horas-hombre ÷ 7 h) = 12 operarios (con personal fijo, 3 + 6 + 4 = 13)
+  const rota = C.costoClasificacion({ ...baseHub, polivalente: true });
+  assert.equal(rota.operarios, 12);
+  assert.equal(rota.dedicados, 13);
+  cerca(rota.costoOperarios, 12 * 7 * 12000);
+  // Ventanas de 2, 3 y 2 h (una después de la otra, suman 7): 16 ÷ 2 = 8 ; 41,2 ÷ 3 = 13,7 → 14 ; 26,67 ÷ 2 = 13,3 → 14
+  const v = { ...baseHub, ventanaInduccion: 2, ventanaClasificacion: 3, ventanaCarga: 2 };
+  const fijo = C.costoClasificacion(v);
+  assert.deepEqual(fijo.procesos.map(p => p.personas), [8, 14, 14]);
+  assert.equal(fijo.operarios, 36);
+  // Las mismas ventanas con personal que rota: el mayor entre 12 y la cuadrilla más grande (14)
+  assert.equal(C.costoClasificacion({ ...v, polivalente: true }).operarios, 14);
+  // Ventana 0 = todo el turno; una ventana más larga que el turno se limita al turno
+  assert.deepEqual(C.costoClasificacion({ ...baseHub, ventanaCarga: 12 }).procesos.map(p => p.personas), [3, 6, 4]);
+});
+
+test('4. hub: cuánto falta para que sobre una persona, y estructura', () => {
+  const r = C.costoClasificacion(baseHub);
+  // Clasificación: 41,2 h-h con 6 personas de 7 h → sobra una con 41,2 − 5 × 7 = 6,2 h-h menos (+17,7 % de productividad)
+  cerca(r.ahorroParaSacarUna, 6.2, 1e-9);
+  cerca(r.mejoraParaSacarUna, 17.714, 0.001);
+  // Estructura de $2.600.000 por mes ÷ 26 turnos = 100.000 por turno → +12,50 por paquete
+  const e = C.costoClasificacion({ ...baseHub, estructuraMes: 2600000 });
+  cerca(e.estructuraTurno, 100000);
+  cerca(e.porPaquete - r.porPaquete, 12.5, 1e-9);
+});
 
 test('4. hub: dotación por proceso y costo por paquete', () => {
   const r = C.costoClasificacion(baseHub);
@@ -235,17 +311,34 @@ test('5. depósito: costeo por actividades', () => {
   cerca(r.horasTotales, 1045.2381, 0.0001);
   // Racks = 2.000 × 120.000 = 240 M → 240 M ÷ 180 + 120 M × 8% ÷ 12 = 1.333.333,33 + 800.000 = 2.133.333,33
   cerca(r.racksMes, 2133333.33, 0.01);
-  // Recepción = 120 × 12.000 + 1.500.000 + 700 × 12.398,5 × 120 ÷ 965,24 + 9.000.000 × 120 ÷ 1.045,24 = 5.052.238,85
-  cerca(a.recepcion.total, 5052238.85, 0.01);
+  // El espacio operativo (muelles, playa, packing) va a recepción, packing y despacho: 120 + 333,33 + 83,33 = 536,67 h.
+  // Recepción = 120 × 12.000 + 1.500.000 + 700 × 12.398,5 × 120 ÷ 536,67 + 9.000.000 × 120 ÷ 1.045,24 = 5.913.892,19
+  cerca(a.recepcion.total, 5913892.19, 0.01);
+  // El picking se hace en los pasillos de los racks, que paga almacenamiento: no lleva espacio operativo
+  assert.equal(a.picking.espacio, 0);
   // Almacenamiento = 80 × 12.000 + 1.800 × 12.398,5 + 2.133.333,33 + 9.000.000 × 80 ÷ 1.045,24 = 26.099.471,60
   cerca(a.almacenamiento.total, 26099471.60, 0.01);
   cerca(r.total, 61172440.48, 0.01);
-  // Unitarios
-  cerca(r.porPalletRecibido, 4210.20, 0.01);
+  // Unitarios (el total no cambia: solo se mueve el reparto del espacio operativo)
+  cerca(r.porPalletRecibido, 4928.24, 0.01);
   cerca(r.porPosicionOcupada, 15352.63, 0.01);   // ÷ (2.000 × 85%) = ÷ 1.700
-  cerca(r.porLinea, 422.89, 0.01);
-  cerca(r.porPedido, 3002.07, 0.01);             // (picking + packing + despacho) ÷ 10.000
+  cerca(r.porLinea, 294.44, 0.01);
+  cerca(r.porPedido, 2915.91, 0.01);             // (picking + packing + despacho) ÷ 10.000
   cerca(r.personasEquivalentes, 6.6214, 0.001);
+});
+
+test('5. depósito: tarifario mínimo (el pedido va sin el picking, que se cobra por línea)', () => {
+  const r = C.costoAlmacenamiento({ ...baseDeposito, margenPct: 15, impuestosPct: 0 });
+  // Pedido sin picking = (packing 15.760.811,63 + despacho 4.565.202,91) ÷ 10.000 = 2.032,60 → ÷ 0,85 = 2.391,29
+  cerca(r.costoPedidoSinPicking, 2032.60, 0.01);
+  cerca(r.tarifario.pedido, 2391.29, 0.01);
+  // Pallet 4.928,24 ÷ 0,85 = 5.797,93 ; línea 294,44 ÷ 0,85 = 346,40 ; facturación 61.172.440,48 ÷ 0,85 = 71.967.577,04
+  cerca(r.tarifario.pallet, 5797.93, 0.01);
+  cerca(r.tarifario.linea, 346.40, 0.01);
+  cerca(r.tarifario.facturacionMes, 71967577.04, 0.01);
+  // Cobrar pedido con picking y además la línea cobraría el picking dos veces: la suma del tarifario es la facturación
+  const t = r.tarifario;
+  cerca(t.pallet * 1200 + t.posicionOcupada * 1700 + t.linea * 30000 + t.pedido * 10000, t.facturacionMes, 0.05);
 });
 
 /* ───────────── 6. Peso volumétrico y cubicaje ───────────── */
@@ -265,6 +358,8 @@ test('6. peso facturable con divisor 5.000 y redondeo al medio kilo', () => {
   // Envío: 1,8 m³ → 360 kg volumétricos contra 300 kg reales → 360 kg
   cerca(r.volumenEnvioM3, 1.8);
   cerca(r.facturableEnvio, 360);
+  // Si el transportista redondea cada bulto por separado: 50 × 7,5 = 375 kg (el envío entero, 360)
+  cerca(r.facturableSumandoBultos, 375);
   assert.equal(r.cobraPorVolumen, true);
   // Densidad = 6 ÷ 0,036 = 166,7 kg/m³ ; corte = 1.000.000 ÷ 5.000 = 200 kg/m³
   cerca(r.densidad, 166.667, 0.001);
@@ -293,6 +388,29 @@ test('6. cubicaje: cajas de 40 × 30 × 30 en pallet de 1.000 × 1.200', () => {
   assert.equal(r.palletsNecesarios, 2);
 });
 
+test('6. capa por cortes de guillotina: 42 × 28 en un pallet de 120 × 100 entra 9 (antes 8) y el dibujo es válido', () => {
+  // Franja de 28 cm con 2 cajas giradas + bloque de 84 cm con 2 + 2 + 3 cajas (28 + 84 ≤ 120 y 28 + 28 + 42 ≤ 100)
+  assert.equal(C.mejorCapa(120, 100, 42, 28), 9);
+  // Cada caja dentro del pallet y sin superponerse, en casos de 15 a 60 cm sobre 120 × 100 y 120 × 80
+  let semilla = 7;
+  const azar = () => { semilla = (semilla * 16807) % 2147483647; return semilla / 2147483647; };
+  for (let n = 0; n < 60; n++) {
+    const L = 120, W = n % 2 ? 100 : 80, p = 15 + Math.round(azar() * 45), q = 15 + Math.round(azar() * 45);
+    const plano = C.planoCapa(L, W, p, q);
+    assert.ok(plano.cajas, `${p}×${q}: sin dibujo`);
+    assert.equal(plano.cajas.length, plano.cantidad, `${p}×${q}`);
+    plano.cajas.forEach((a, i) => {
+      assert.ok(a.x >= 0 && a.y >= 0 && a.x + a.largo <= L + 1e-9 && a.y + a.ancho <= W + 1e-9, `${p}×${q}: caja ${i} afuera`);
+      plano.cajas.slice(i + 1).forEach(b => {
+        const separadas = a.x + a.largo <= b.x + 1e-9 || b.x + b.largo <= a.x + 1e-9 || a.y + a.ancho <= b.y + 1e-9 || b.y + b.ancho <= a.y + 1e-9;
+        assert.ok(separadas, `${p}×${q}: cajas superpuestas`);
+      });
+    });
+    // Nunca menos que el armado de una orientación
+    assert.ok(plano.cantidad >= Math.max(Math.floor(L / p) * Math.floor(W / q), Math.floor(L / q) * Math.floor(W / p)));
+  }
+});
+
 test('6. cubicaje limitado por peso', () => {
   const r = C.cubicaje({
     largo: 40, ancho: 30, alto: 30, pesoReal: 30, cantidad: 100,
@@ -308,6 +426,34 @@ test('6. pallets en un contenedor de 20 pies', () => {
   // 1.000 × 1.200: 4 filas de 120 × 2 a lo ancho + 1 girado en el resto = 9 ; europallet: 11
   assert.equal(C.palletsEnEspacio({ largoInterior: 589.8, anchoInterior: 235.2, altoInterior: 239.3, palletLargo: 120, palletAncho: 100, apilable: false, alturaPalletCargado: 135 }).total, 9);
   assert.equal(C.palletsEnEspacio({ largoInterior: 589.8, anchoInterior: 235.2, altoInterior: 239.3, palletLargo: 120, palletAncho: 80, apilable: false, alturaPalletCargado: 135 }).total, 11);
+});
+
+test('2. tarifario mínimo del recorrido: costo ÷ (1 − margen − impuestos)', () => {
+  const r = C.costoRecorrido({ ...baseRecorrido, margenPct: 15, impuestosPct: 0 });
+  // 215.733,66 ÷ 0,85 = 253.804,31 por viaje ; 3.318,98 ÷ 0,85 = 3.904,68 por paquete
+  cerca(r.tarifario.viaje, 253804.31, 0.01);
+  cerca(r.tarifario.paquete, 3904.68, 0.01);
+  // Con 5 % de impuestos sobre lo facturado: 100 ÷ (1 − 0,15 − 0,05) = 125
+  cerca(C.precioConMargen(100, 15, 5), 125, 1e-9);
+  assert.ok(Number.isNaN(C.precioConMargen(100, 60, 40)));   // margen + impuestos de 100 %: no hay precio
+});
+
+/* ───────────── Divisores en cero: nunca se borra un costo en silencio ───────────── */
+test('con un divisor obligatorio en cero el resultado no es un número (la pantalla muestra «—»)', () => {
+  const nan = x => assert.ok(Number.isNaN(x), `esperado NaN, dio ${x}`);
+  nan(C.costoRecorrido({ ...baseRecorrido, recorridosMes: 0 }).total);
+  nan(C.costoRecorrido({ ...baseRecorrido, vidaAnios: 0 }).total);
+  nan(C.costoRecorrido({ ...baseRecorrido, cubiertaVidaKm: 0 }).total);
+  // Sin vehículo (valor 0) no hay amortización que dividir: el resto se calcula
+  assert.ok(Number.isFinite(C.costoRecorrido({ ...baseRecorrido, valorVehiculo: 0, vidaAnios: 0 }).total));
+  nan(C.costoLaboral({ ...baseLaboral, diasSemana: 0 }).total);
+  nan(C.costoClasificacion({ ...baseHub, horasProdTurno: 0 }).porPaquete);
+  nan(C.costoClasificacion({ ...baseHub, equiposVidaAnios: 0 }).porPaquete);
+  assert.ok(Number.isFinite(C.costoClasificacion({ ...baseHub, equiposInversion: 0, equiposVidaAnios: 0 }).porPaquete));
+  nan(C.costoAlmacenamiento({ ...baseDeposito, rackVidaAnios: 0 }).total);
+  nan(C.costoAlmacenamiento({ ...baseDeposito, prodPicking: 0 }).total);
+  // Sin volumen, la actividad no lleva horas aunque la productividad sea 0
+  assert.ok(Number.isFinite(C.costoAlmacenamiento({ ...baseDeposito, lineasMes: 0, prodPicking: 0 }).total));
 });
 
 /* ───────────── Sensibilidad ───────────── */
