@@ -14,7 +14,7 @@
 | 5 | F1 | Comprar una app o juego chico que ya factura con publicidad (AdMob verificado) | Comprar algo que ya funciona | En el plan | 78 | 1.6 | 2.000 | mes 1 | 65% | 75 / 97 / 136 | 93 | 9.4 |
 | 6 | F2 | Comprar un micro-negocio digital más grande (SaaS, extensión, plugin) de USD 5–20 k | Comprar algo que ya funciona | Segunda ola | 77 | 3.3 | 8.000 | mes 1 | 61% | 213 / 250 / 296 | 187 | 2.9 |
 | 7 | A10 | Fábrica de réplicas como suite de apps chicas (Palanca Apps): Todo Bien, Rutea, Me Toca, De Turno y un producto del radar por trimestre | Apps y juegos | En el plan | 76 | 2.3 | 150 | mes 4 | 20% | 164 / 767 / 2.379 | 512 | 53.5 |
-| 8 | R1 | Juegos web cortos para portales (Carpincho Games): Hub Rush, Última Milla Tycoon, Palabras Vivas | Replicar lo que ya funciona | En el plan | 75 | 2.6 | 50 | mes 3 | 15% | 205 / 567 / 940 | 144 | 22.7 |
+| 8 | R1 | Juegos web cortos para portales (Carpincho Games): Hub Nocturno, Trámite Imposible, Hub Rush, Palabras Vivas | Replicar lo que ya funciona | En el plan | 75 | 2.6 | 50 | mes 3 | 15% | 205 / 567 / 940 | 144 | 22.7 |
 | 9 | R12 | Truco contra una IA que «chicanea» (con personalidad y voz) | Replicar lo que ya funciona | Segunda ola | 75 | 1.6 | 50 | mes 2 | 10% | 183 / 604 / 1.147 | 123 | 35.9 |
 | 10 | C1 | Logistic Lab: calculadoras y simuladores logísticos (depósito + distribución) en español | Software con tu conocimiento | Hacer ya | 75 | 3.3 | 300 | mes 6 | 25% | -35 / 393 / 3.785 | 994 | 52.6 |
 | 11 | D4 | Sello de música instrumental con IA en YouTube (piano para orar, estudiar, dormir) con curaduría humana | Canales, comunidad y afiliados | En el plan | 75 | 0.6 | 30 | mes 8 | 15% | -35 / 379 / 2.743 | 447 | 150.6 |

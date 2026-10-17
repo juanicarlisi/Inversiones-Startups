@@ -54,8 +54,8 @@ del scorecard) y mide cada unidad por su *costo de servir* con IA vs. sin IA.
 | Componente | Costo | Para qué |
 |---|---|---|
 | Claude Pro | USD 20/mes | Uso liviano |
-| **Claude Max 5x** | **USD 100/mes** | Recomendado desde el día 1: sesiones largas de investigación, Claude Code para construir |
-| Claude Max 20x | USD 200/mes | Sprints de construcción (1–3 meses) cuando hay una unidad validada que construir |
+| **Claude Max 5x** | **USD 100/mes** | **Activo desde el 17-10-2026.** Sesiones largas, Claude Code en paralelo, subagentes, tareas programadas; según la página de precios trae un crédito mensual de API de USD 100 (verificar en la cuenta) |
+| Claude Max 20x | USD 200/mes | Sprints de construcción (1–3 meses) o el mes de un lanzamiento, si `/usage` muestra cortes seguidos; crédito de API de USD 200 |
 | API Claude (agentes en producción) | Sonnet 5: USD 2 / 10 por M tokens (entrada/salida); Haiku 4.5: USD 1 / 5; Opus 5.5: USD 4 / 20; *batch* -50%; caché de lectura ~-90% | Agentes 24/7 (WhatsApp, back-office), procesamiento masivo |
 | WhatsApp Business API (Argentina) | Marketing ~USD 0,062/msg; utilidad ~USD 0,012/msg; + BSP USD 0,003–0,01/msg; cobro por mensaje desde 1-10-2026 | Canal principal con clientes argentinos |
 | Meta Ads (Argentina, ago-2026) | CPM promedio ~ARS 2.870 (~USD 1,9); CPC ~ARS 129 (~USD 0,085) | Adquisición barata de atención |
@@ -82,6 +82,26 @@ cierra ventas complejas ni reemplaza la confianza**: se usa como primera línea 
 - **API en producción**: se presupuesta por unidad como costo variable (costo por cliente atendido). Se mide mensualmente.
 - **Revisión mensual** (`/revision`): costo IA total vs horas ahorradas vs ingresos habilitados. Si el ratio empeora 2 meses
   seguidos, bajar de plan.
+
+### 5b. Desde el 17-10-2026: cómo exprimir Max (DEC-2026-10-17-2)
+
+Max saca el cuello de botella de Claude, **no el del fundador** (6–10 h por semana). Entonces:
+
+1. **Adelantar lo que casi no pide horas del fundador**: código, contenido, juegos en portales (el portal trae a los jugadores),
+   calculadoras y automatizaciones. Lo que pide su tiempo o su plata (Posta, la compra, la empresa) sigue en su fecha.
+2. **Una sesión por frente**, cada una con su contexto: Senda (motor 1), Andén (motor 2), juegos (línea de pocas horas) y el holding
+   (radar, comité, informes). El fundador las abre desde el celular cuando tiene un rato.
+3. **Agentes en paralelo** para investigar y verificar (como el 17-10: mercado, ecosistema, documentación y construcción a la vez), y
+   **pruebas automáticas** en todo lo que se construye (la verificación es lo que permite delegar sin bajar la calidad).
+4. **Tareas programadas** para lo repetitivo: `/radar` semanal y `/revision` mensual en sesiones nuevas (se crean con el OK del fundador:
+   consumen cuota aunque nadie mire).
+5. **El crédito de API** (si se confirma) paga las funciones de IA en producción de los primeros meses: la entrevista de Andén, el
+   experimento de juego con IA, el compañero de Senda.
+6. **Medir**: `/usage` cada mes en `/revision`. Si en un mes de sprint se corta seguido la ventana de 5 horas o la semana, 20x ese mes
+   y volver. La regla de ahorro sigue: si a mediados de 2028 los proyectos no cubren los costos fijos, se vuelve a Pro.
+
+Lo que **no** cambia: dos motores a la vez como máximo (por horas del fundador), regla 8 (plata y terceros con su OK) y calidad antes
+que velocidad.
 
 ## 6. Niveles de autonomía
 

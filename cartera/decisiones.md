@@ -747,3 +747,44 @@
     `scripts/musica_synthpop.py`, `scripts/autor/guias_libros.py`, `scripts/autor/libro_a_libro.py`, `scripts/autor/quien_es_quien.py`,
     `scripts/autor/historias_rol.py`, `docs/JUEGOS_MESA_ROL.md`, `scripts/kit_mesa.py`, `src/componentes/desafioDia.tsx`,
     `src/pantallas/Linea.tsx`, `src/componentes/pruebaNivel.tsx`.
+
+## DEC-2026-10-17-2 · Holding: Claude Max adelantado, Andén y los juegos se adelantan, Hub Nocturno y las apps que divierten
+
+- **Contexto:** el fundador escribió el 17-10-2026 (resumen, sin citas textuales):
+  - ya tiene Claude Max y quiere aprovecharlo al máximo en los proyectos;
+  - propone sumar un simulador de vuelo o de aeropuerto al estilo de los tycoon de aerolíneas y pregunta por otra app más divertida;
+  - pide avanzar con todo lo que se pueda del holding.
+- **Decidido:**
+  - **Max desde el 17-10-2026** en los costos del holding (USD 100 por mes como 5x hasta que el fundador confirme el plan). Cómo se
+    usa: doctrina 05 §5b. Lo central: Max saca el límite de Claude, no el de las horas del fundador; se adelanta lo que casi no las
+    pide y se mantiene «dos motores a la vez».
+  - **Andén se adelanta un mes:** Claude construyó las calculadoras v0 (en `apps/anden/`); el fundador valida fórmulas en
+    noviembre–diciembre (1 h por semana) y Andén sale en enero de 2027. El pico de horas de 2027 baja (de 3,5 a 3 h por semana).
+  - **Carpincho Games arranca nueve meses antes:** **Hub Nocturno** (semilla del fundador: tycoon de red aérea con hub, noche y carga,
+    del correo de 1929 al continente) tiene prototipo jugable y va a lanzamiento básico en CrazyGames en diciembre de 2026.
+    **Última Milla Tycoon se fusiona en Hub Nocturno** como su segunda campaña (mismo motor). **Trámite Imposible** (plataformas con
+    trampas de burocracia) entra en marzo de 2027 y **Hub Rush** pasa de septiembre a junio de 2027.
+  - **Así no → mejor así:** el simulador de vuelo no (3D, física, imágenes satelitales y servidores; sin diferencial); el control de
+    tráfico aéreo solo como ronda dentro del juego, sin dibujar trayectorias (patentes de Nintendo vigentes); la red minimalista,
+    no (mecánica de 2015). El patovica de boliche no; «Convencé al de la ventanilla» sí, como experimento de una semana con regla de
+    corte (necesita tu OK por la función en la nube y la clave de API).
+  - **Apps divertidas al radar:** Dibujá contra la IA y ¿Sobrevivís? (juego de grupo con IA) entran a los juegos del radar; el juego
+    diario compartible sigue en reserva, reforzado por un dato nuevo (86% vuelve al día siguiente en LinkedIn).
+- **Por qué** (`herramientas/holding.py`, 4.000 futuros): ingreso esperado del holding a fin de 2027 USD 246 por mes (antes 103),
+  a fin de 2028 USD 1.668 (antes 1.533) y a fin de 2030 USD 6.644 (antes 6.541; mediana 4.812); 79% de chances de que funcione al
+  menos un proyecto principal; horas del fundador: máximo 9,8 por semana, 9,0 de promedio en 2027. Max suma USD 240 de costo en
+  2026 (octubre a diciembre). Todo es ESTIMACIÓN con supuestos en cada ficha.
+- **Hecho por Claude:** bitácora `conocimiento/2026-10-17-max-aviacion-y-juegos-divertidos.md` (tres investigaciones en paralelo:
+  Max, juegos de aviación con patentes y marcas, apps divertidas); prototipo **Hub Nocturno v0** (`apps/juegos/aviacion/`: 3 capítulos,
+  37 ciudades, 7 aviones propios, transbordo, balizas, carga mínima, tormentas, ausencia, español e inglés, 6 pruebas y un jugador
+  automático que mide el balance); calculadoras **Andén v0** (`apps/anden/`); P2 y P6 actualizados; plan mensual, cartera, costos,
+  doctrina 05, perfil, señales y vigilancia.
+- **Pendiente del fundador:**
+  - confirmar si el plan es Max 5x o 20x, y mirar en su cuenta el crédito de API que muestra la página de precios;
+  - jugar Hub Nocturno 20 minutos y validar las fórmulas de Andén (1 h por semana desde noviembre);
+  - crear la cuenta de desarrollador en CrazyGames (gratis) en diciembre;
+  - decidir si se arma el experimento de la ventanilla (función en la nube y clave de API) y si se crean las tareas programadas
+    (radar semanal y revisión mensual);
+  - crear los repositorios propios de los juegos y de Andén cuando quiera (por ahora viven en `apps/`).
+- **Revisar:** diciembre de 2026 (¿5x alcanza en el lanzamiento de Senda?; Hub Nocturno en prueba), febrero de 2027 (¿Hub Nocturno
+  pasa a lanzamiento completo?).

@@ -24,3 +24,6 @@
 | V-17 | OP-12 / OP-14 Canales de agentes | OpenAI habilita bienes digitales o suscripciones dentro de las apps de ChatGPT, o un directorio de MCP empieza a pagar a desarrolladores | Publicar las herramientas de OP-12 en ese canal en ≤ 30 días (ser de los primeros) | Vigilar (sep-2026: solo bienes físicos) |
 | V-18 | OP-13 Motos | Una fintech de motos para repartidores emite ON o fideicomiso financiero con oferta pública | Evaluarlo como alternativa regulada a comprar motos | Vigilar |
 | V-19 | OP-13 / K26 Movilidad en CABA | La Legislatura porteña sanciona la ley de plataformas de transporte | Revisar K26 y los costos de operadores de flota | Vigilar (fallo de may-2026 vigente) |
+| V-20 | P6 juegos con IA (JGX1) | CrazyGames o Poki publican su política sobre juegos que llaman a APIs de IA | Decidir si el experimento de la ventanilla va al portal | Vigilar (oct-2026: sin política publicada) |
+| V-21 | Palanca IA / Max | Se confirman las condiciones del crédito de API de Max en la cuenta del fundador | Usarlo para la entrevista de Andén y el experimento JGX1; recalcular sus costos | Pendiente (17-10-2026) |
+| V-22 | P6 Hub Nocturno | Vence la patente de Nintendo US7637813B2 (22-05-2027) | Revisar si conviene sumar trazos en la ronda de la torre (la US10843074B2 sigue hasta 2032) | Esperando |

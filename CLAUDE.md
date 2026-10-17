@@ -93,6 +93,12 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - las ideas para ser la app cristiana número uno viven en `oportunidades/proyectos/senda/ideas_numero_uno.yaml` y el fundador las
     vota en la Consola (pestaña «Ideas para ser n.º 1»): leer su voto al empezar cada sesión de Senda.
 
+- **Datos del 17-10-2026 (holding):**
+  - **Claude Max desde el 17-10-2026** (reemplaza «Pro hasta fin de 2026»); Max saca el límite de Claude, no el de sus horas: se
+    adelanta lo que casi no pide horas suyas (doctrina 05 §5b, DEC-2026-10-17-2);
+  - el simulador de vuelo o de aeropuerto que trajo se evaluó como semilla: va el tycoon de red aérea con hub y carga (Hub Nocturno,
+    prototipo en `apps/juegos/aviacion/`), que absorbe a Última Milla Tycoon; el simulador de vuelo no (3D y servidores).
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**

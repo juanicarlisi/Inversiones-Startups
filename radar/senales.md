@@ -48,3 +48,13 @@
 | SEN-2026-09-38 | 2026 | Info asimétrica | Kits materos personalizados: categoría de regalos empresariales consolidada y competida | Ganan: proveedores con escala o diseño | 1 | OP-05 | Madu; Hipólito |
 | SEN-2026-09-39 | 2026 | Costos que suben | Depósitos logísticos AMBA USD 7,2/m²/mes (CABA 14,5); disponibilidad en CABA "prácticamente nula" | Ganan: microfulfillment periurbano, optimización de espacio | 1 | OP-04 | Infobae Movant |
 | SEN-2026-09-40 | 2026 | Arbitraje geográfico | Balibetov (familia argentina) vende accesorios de mate en Amazon EE.UU. con fuerte presencia | Prueba de canal para marcas materas exportables | 2 | OP-05 | Amazon.com |
+
+## Barrido del 17-10-2026 (Max, aviación y juegos divertidos)
+
+| ID | Fecha dato | Lente | Señal | Gana / pierde / obligado | Int. | Vinculada | Fuente |
+|---|---|---|---|---|---|---|---|
+| SEN-2026-10-01 | 2026-09 | Info asimétrica | Trophy Games compró Playrion (Airlines Manager) a Paradox por €2,25 M + 9% de lo que facture 3 años; Airline Manager 4 con más de 100.000 jugadores por día | Comprador natural de juegos de aerolínea que retengan; el género paga | 2 | P6 (Hub Nocturno) | paradoxinteractive.com; inderes.se |
+| SEN-2026-10-02 | 2024–2026 | Costos que caen | La IA como mecánica de juego: Death by AI ~7 M de usuarios en Discord; modelos livianos a USD 0,10/0,40 por millón de tokens | Ganan los juegos con IA rival o narradora; obligación: moderar | 2 | P6 (experimento JGX1) | discord.com; ai.google.dev |
+| SEN-2026-10-03 | 2026-08 | Segundo orden | Rechazo de los jugadores al contenido «hecho con IA» como relleno | Pierde el arte genérico; gana el estilo propio | 2 | P6, Senda | caixinglobal.com |
+| SEN-2026-10-04 | 2026-10 | Wildcards | Level Devil (un solo desarrollador) sigue en tendencias de Poki con 3,6 M de «me gusta» | El portal sigue siendo canal sin pagar para juegos simples | 2 | P6 (Trámite Imposible) | poki.com |
+| SEN-2026-10-05 | 2026-10 | Costos que caen | Claude Max incluye crédito mensual de API (USD 100 en 5x, USD 200 en 20x, según la página de precios) | Baja el costo de las funciones de IA en producción de Andén, Senda y los juegos | 2 | P2, P1, P6 | claude.com/pricing |

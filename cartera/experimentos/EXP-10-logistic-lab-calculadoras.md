@@ -2,7 +2,7 @@
 id: EXP-10
 oportunidad: OP-16
 estado: diseñado
-inicio: 2026-12
+inicio: 2026-10
 fin_previsto: 2027-06
 presupuesto_usd: 200
 horas_fundador_total: 40
@@ -28,4 +28,7 @@ menos una cátedra la adopta en clase.
 4. Mensaje a 2–3 docentes de la red universitaria para usarla en clase (contacto con terceros: lo aprueba el fundador).
 
 ## Registro de resultados (fechado)
+- 17-10-2026: con Claude Max se adelantó el paso 2: Claude construyó las 5 calculadoras v0 y la de peso volumétrico (`apps/anden/`),
+  con fórmulas en un módulo probado y valores de referencia con fuente y fecha. Falta la validación del fundador (paso 2) antes de
+  publicar (DEC-2026-10-17-2).
 ## Aprendizajes y decisión

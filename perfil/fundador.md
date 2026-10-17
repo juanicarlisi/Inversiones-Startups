@@ -29,7 +29,7 @@
 | Cálculos logísticos | Pide investigarlos en el mercado; su lista: tarifa a transportistas vs ingreso y volumen, rutas óptimas, costo laboral por operario, costo de clasificación en media/última milla, costo por recorrido troncal y de última milla, costo por proceso de almacenamiento | Orden de construcción de Logistic Lab (ver bitácora del 28-09) |
 | Simulador propio | Hizo en su empresa un simulador de procesamiento de última milla y quiere usarlo como insumo | **Propiedad intelectual del empleador** (Ley 11.723 art. 4 inc. d; LCT arts. 82, 85, 88): solo describirlo en general, sin código, datos ni nombres; Claude reconstruye desde cero |
 | Agentes propios | Tiene un agente de inversiones y un agente de alquileres armados en otro lado | Cargarlos al repo (recordatorio en el roadmap de renta y de alquileres) |
-| Claude | **Pro hasta fin de 2026**; después evaluar en serio Max | Capacidad de construcción limitada en oct–dic 2026; costo fijo sube desde ene-2027 si se justifica |
+| Claude | **Pro hasta fin de 2026**; después evaluar en serio Max (superado: Max desde el 17-10-2026) | Capacidad de construcción limitada en oct–dic 2026; costo fijo sube desde ene-2027 si se justifica |
 | Entrenar IA y horas en dólares | Outlier le resultó muy difícil; solo quiere algo fácil y seguro. Ya tiene trabajo fijo: si no es serio o simple, se descarta | H1 y H2 salen del plan; H3 queda como palanca personal fuera del holding |
 | Compra de una app o juego | Mitad de 2027 | F1 en el gantt para jun–jul 2027 |
 | Horas (28-09-2026) | Si algún mes pasa de 10 h/semana, no es problema por ahora | El plan base se mantiene en ≤ 10 h; lo que se puede adelantar con 1–2 h más se marca aparte |
@@ -124,6 +124,14 @@
 | Lany | Memorable, con carisma, estético y adulto; muchas expresiones, animaciones fluidas y reacciones según el contexto; nada cuadrado; Rive a fondo | Lany v3 (capítulo 41 §3) |
 | UX y marca | Que no parezca una app cristiana genérica sino una gran app con esencia cristiana; que la Travesía no parezca copia de Duolingo; un logo extraordinario | La senda iluminada, Inicio y lección nuevos y el logo «la puerta abierta» (capítulo 41 §4 a §6) |
 | Ambición | Todas las ideas para ser la app cristiana número uno del mundo | Doce priorizadas con su regla de corte, para votar en la Consola (capítulo 41 §12) |
+
+### Datos del 17-10-2026 (holding)
+
+| Dato | Valor | Implicancia |
+|---|---|---|
+| Claude | **Max desde el 17-10-2026** (antes: Pro hasta fin de 2026); falta confirmar si es 5x o 20x | Claude deja de ser el cuello de botella: se adelanta lo que casi no pide horas suyas (Andén, juegos en portales, automatizaciones); sus horas siguen siendo el límite (doctrina 05 §5b) |
+| Ideas que trajo | Un simulador de vuelo o de aeropuerto al estilo de los tycoon de aerolíneas; alguna app más divertida | Semilla evaluada con su familia: el simulador de vuelo no (3D y servidores), el tycoon de red aérea con hub y carga sí (Hub Nocturno, prototipo hecho); de las apps divertidas, Trámite Imposible al plan y un juego con IA como experimento (bitácora del 17-10-2026) |
+| Pedido | Avanzar con todo lo que se pueda del holding | Se adelantaron Andén (calculadoras v0) y Carpincho Games (Hub Nocturno) (DEC-2026-10-17-2) |
 
 ## Lo que falta (y por qué importa)
 
