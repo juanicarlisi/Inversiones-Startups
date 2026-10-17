@@ -198,7 +198,9 @@ function pintarMenu() {
     [t('idioma'), () => { cambiarLengua(); U.textosFijos(); refrescar(); }],
     [sonidoActivo() ? t('sonidoSi') : t('sonidoNo'), () => { alternarSonido(); }],
     [t('creditos'), () => U.ventana({ titulo: t('creditos'), texto: t('creditosTexto'), botones: [{ txt: t('cerrar'), principal: true }] })],
-    [t('reiniciar'), () => { if (confirm(t('confirmarReinicio'))) { try { localStorage.removeItem(CLAVE); } catch { /* nada */ } s = M.nuevoEstado(Date.now() % 1e9); vis.sel = null; centrar(); intro(); } }],
+    [t('reiniciar'), () => U.ventana({ titulo: t('reiniciar'), texto: t('confirmarReinicio'), botones: [
+      { txt: t('reiniciar'), principal: true, accion: () => { try { localStorage.removeItem(CLAVE); } catch { /* nada */ } s = M.nuevoEstado(Date.now() % 1e9); vis.sel = null; centrar(); intro(); } },
+      { txt: t('cancelar') }] })],
   ];
   for (const [txt, fn] of items) { const b = document.createElement('button'); b.textContent = txt; b.onclick = () => { menu.hidden = true; fn(); }; menu.appendChild(b); }
 }
