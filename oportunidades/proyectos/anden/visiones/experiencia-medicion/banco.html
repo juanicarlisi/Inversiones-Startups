@@ -1,0 +1,68 @@
+<!doctype html><meta charset="utf-8"><title>Banco de la visión Experiencia</title>
+<style>body{margin:0;background:#222}canvas{display:block}</style>
+<script type="importmap">{"imports":{"three":"/node_modules/three/build/three.module.js","mediabunny":"/node_modules/mediabunny/dist/bundles/mediabunny.min.mjs"}}</script>
+<canvas id="c2d" width="1280" height="720"></canvas>
+<script type="module">
+// Andén · visión «Experiencia» · banco de medición en el navegador (17-10-2026). Lo maneja correr.cjs con Playwright.
+import { simular, HUB_BASE, hubGrande } from './hub.mjs';
+import { Reproductor } from './reproductor.mjs';
+import { Vista2D, VistaIso, Vista3D } from './vistas.mjs';
+const T = window.T = {}; let sim = null, rep = null, tPico = 0;
+const mediana = (a) => { const w = [...a].sort((x, y) => x - y); return +w[w.length >> 1].toFixed(2); };
+const p95 = (a) => { const w = [...a].sort((x, y) => x - y); return +w[Math.floor(w.length * 0.95)].toFixed(2); };
+const lienzo = (w = 1280, h = 720) => { const c = document.createElement('canvas'); c.width = w; c.height = h; document.body.appendChild(c); return c; };
+
+T.entorno = async () => {
+  let gpu = 'sin navigator.gpu'; try { if (navigator.gpu) { const a = await navigator.gpu.requestAdapter(); gpu = a ? 'adaptador' : 'sin adaptador'; } } catch (e) { gpu = 'error ' + e.message; }
+  const gl = document.createElement('canvas').getContext('webgl2'), dbg = gl && gl.getExtension('WEBGL_debug_renderer_info');
+  const formatos = {}; for (const f of ['gzip', 'deflate', 'deflate-raw', 'brotli']) { try { new CompressionStream(f); formatos[f] = true; } catch (e) { formatos[f] = false; } }
+  const codecs = {}; if (self.VideoEncoder) for (const [n, c] of [['h264', 'avc1.42001f'], ['vp8', 'vp8'], ['vp9', 'vp09.00.10.08'], ['av1', 'av01.0.04M.08']]) {
+    try { codecs[n] = (await VideoEncoder.isConfigSupported({ codec: c, width: 1280, height: 720, bitrate: 4e6, framerate: 30 })).supported; } catch (e) { codecs[n] = 'error'; } }
+  const rec = {}; if (self.MediaRecorder) for (const m of ['video/mp4;codecs=avc1', 'video/webm;codecs=vp9', 'video/webm;codecs=vp8']) rec[m] = MediaRecorder.isTypeSupported(m);
+  return { ua: navigator.userAgent, nucleos: navigator.hardwareConcurrency, webgpu: gpu, webgl2: !!gl, gl: dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : null,
+    compresion: formatos, webcodecs: codecs, mediaRecorder: rec };
+};
+T.simular = (cual = 'base', semilla = 2) => { const p = cual === 'base' ? HUB_BASE : hubGrande(); simular(p, 99);
+  const t0 = performance.now(); sim = simular(p, semilla); const ms = performance.now() - t0; rep = new Reproductor(sim);
+  // instante con más cosas a la vista (muestreo cada 2 minutos)
+  let mx = 0; for (let t = sim.traza.inicio; t < sim.traza.fin; t += 120000) { rep.ir(t); const n = rep.posiciones(t); if (n > mx) { mx = n; tPico = t; } } rep.reiniciar();
+  return { cual, semilla, msNoche: +ms.toFixed(0), paquetes: sim.kpi.paquetes, tramos: sim.traza.n, visiblesEnElPico: mx, pico: tPico, kpi: { alCorte: sim.kpi.pctAlCorte, recirc: sim.kpi.recirculacionPct } };
+};
+T.simularWorker = async (cual = 'base', semillas = 8) => {
+  const w = new Worker('./worker-hub.mjs', { type: 'module' }); const r = await new Promise((ok) => { w.onmessage = (e) => ok(e.data); w.postMessage({ cual, semillas }); }); w.terminate(); return r;
+};
+async function medir(vista, frames, sincronizar) {
+  rep.reiniciar(); const tiempos = []; let n = 0; const t0 = tPico - 45000, calentar = 15; // 15 cuadros de calentamiento que no se cuentan
+  for (let f = 0; f < frames + calentar; f++) { const t = t0 + f * 1000; const a = performance.now(); n = vista.dibujar(t); if (sincronizar) sincronizar(); if (f >= calentar) tiempos.push(performance.now() - a); }
+  return { frames, visibles: n, medianaMs: mediana(tiempos), p95Ms: p95(tiempos) };
+}
+T.soloJS = (frames = 120) => { rep.reiniciar(); const t0 = tPico - 30000, ts = []; let n = 0;
+  for (let f = 0; f < frames; f++) { const a = performance.now(); rep.ir(t0 + f * 1000); n = rep.posiciones(t0 + f * 1000); ts.push(performance.now() - a); }
+  return { visibles: n, medianaMs: mediana(ts), p95Ms: p95(ts) }; };
+T.vista2d = async (frames = 120) => { const c = lienzo(), v = new Vista2D(c, rep), g = c.getContext('2d'); const r = await medir(v, frames, () => g.getImageData(0, 0, 1, 1)); c.remove(); return r; };
+T.vistaIso = async (frames = 120) => { const c = lienzo(), v = new VistaIso(c, rep), g = c.getContext('2d'); const r = await medir(v, frames, () => g.getImageData(0, 0, 1, 1)); c.remove(); return r; };
+T.vista3d = async (frames = 60, escala = 1) => { const THREE = await import('three'); const c = lienzo(), v = new Vista3D(THREE, c, rep, { escala });
+  const r = await medir(v, frames, () => v.sincronizar()); v.liberar(); c.remove(); return { escala, ...r }; };
+T.captura = async (modo, t = tPico) => { const c = lienzo(); let v;
+  if (modo === '2d') v = new Vista2D(c, rep); else if (modo === 'iso') v = new VistaIso(c, rep); else { const THREE = await import('three'); v = new Vista3D(THREE, c, rep, { escala: 1, antialias: true }); }
+  rep.reiniciar(); v.dibujar(t); if (v.sincronizar) v.sincronizar(); const url = c.toDataURL('image/png'); if (v.liberar) v.liberar(); c.remove(); return url; };
+T.video = async (segundos = 10, fps = 30) => {
+  const MB = await import('mediabunny'); const c = lienzo(), v = new VistaIso(c, rep);
+  const codec = await MB.getFirstEncodableVideoCodec(['avc', 'vp9', 'vp8', 'av1'], { width: 1280, height: 720 });
+  const formato = codec === 'avc' ? new MB.Mp4OutputFormat() : new MB.WebMOutputFormat();
+  const salida = new MB.Output({ format: formato, target: new MB.BufferTarget() });
+  const fuente = new MB.CanvasSource(c, { codec, bitrate: 2_500_000 }); salida.addVideoTrack(fuente, { frameRate: fps }); await salida.start();
+  rep.reiniciar(); const a = performance.now(); const n = segundos * fps;
+  for (let f = 0; f < n; f++) { v.dibujar(tPico - 60000 + f * (60000 / fps)); await fuente.add(f / fps, 1 / fps); } // ×60: 1 s de video = 1 min del hub
+  await salida.finalize(); const ms = performance.now() - a; const bytes = salida.target.buffer.byteLength; c.remove();
+  return { codec, contenedor: codec === 'avc' ? 'mp4' : 'webm', segundos, fps, msCodificar: +ms.toFixed(0), vecesTiempoReal: +((segundos * 1000) / ms).toFixed(2), kB: Math.round(bytes / 1024) };
+};
+T.primerCuadro = async (fragmento) => { // abrir un enlace: descomprimir el modelo, simular los primeros 15 minutos, dibujar
+  const a = performance.now(); const b64 = fragmento.replace(/-/g, '+').replace(/_/g, '/'); const bin = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+  const txt = await new Response(new Blob([bin]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).text(); const doc = JSON.parse(txt);
+  const b = performance.now(); const s = simular(HUB_BASE, 2, { hasta: 22 * 3600 * 1000 + 10 * 60 * 1000 }); const r = new Reproductor(s);
+  const c = lienzo(); const v = new Vista2D(c, r); v.dibujar(22 * 3600 * 1000 + 5 * 60 * 1000); c.getContext('2d').getImageData(0, 0, 1, 1); const d = performance.now(); c.remove();
+  return { objetosEnElModelo: doc.layout.rampas.length + doc.personas.length, msDescomprimirYLeer: +(b - a).toFixed(1), msSimular15minYDibujar: +(d - b).toFixed(1), msTotal: +(d - a).toFixed(1) };
+};
+window.listo = true;
+</script>
