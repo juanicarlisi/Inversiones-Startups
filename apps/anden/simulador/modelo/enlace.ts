@@ -73,7 +73,7 @@ function juntar(partes: readonly Uint8Array[], total: number): Uint8Array<ArrayB
   return out;
 }
 
-function flujoDe(bytes: Uint8Array): ReadableStream<Uint8Array> {
+function flujoDe(bytes: Uint8Array): ReadableStream<Uint8Array<ArrayBuffer>> {
   const copia = new Uint8Array(bytes.length);
   copia.set(bytes);
   return new Blob([copia]).stream();

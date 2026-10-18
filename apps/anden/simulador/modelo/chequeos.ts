@@ -9,7 +9,7 @@ import {
   bandejasLazo, calcularF0, distribucionEfectiva, largoLazo, media, paquetesNominales, parametroDe, ranuraDe, soporteMinimo, tickMs,
 } from './f0.ts';
 import { aplicarParcheJson, ErrorParche, escaparToken, leerPuntero } from './parches.ts';
-import { estimarPresupuesto } from './presupuesto.ts';
+import { estimarPresupuesto, eventosRecurrentes, lugaresDeMemoria, MAX_LUGARES_MEMORIA } from './presupuesto.ts';
 
 /** Catálogo de controles (lo cuenta I-CONTROLES para el comprobante: controles, cuántos pasaron, avisos). */
 export const CONTROLES = [
@@ -313,11 +313,23 @@ export function chequear(m: Modelo, c: Colector, o: OpcionesChequeo): Estimacion
     c.aviso('A-CORTE-IMPOSIBLE', '/calendario/corte', undefined, { fin: f0.finEstimado, corte: m.calendario.corte });
   }
   const p = estimarPresupuesto(m);
-  if (p.paquetes > LIMITES_ENLACE.maxPaquetesEstimados) {
-    c.error('E-PRESUPUESTO', '/demanda/camiones', 'paquetes', { estimado: p.paquetes, max: LIMITES_ENLACE.maxPaquetesEstimados });
+  // Se compara con «no ≤» y no con «>»: un NaN (que no debería llegar) tiene que rechazarse, nunca pasar por debajo del tope.
+  if (!(p.paquetes <= LIMITES_ENLACE.maxPaquetesEstimados)) {
+    c.error('E-PRESUPUESTO', '/demanda/camiones', 'paquetes', { estimado: Number.isFinite(p.paquetes) ? p.paquetes : '∞', max: LIMITES_ENLACE.maxPaquetesEstimados });
   }
-  if (p.eventos > LIMITES_ENLACE.maxEventosEstimados) {
+  if (!(p.eventos <= LIMITES_ENLACE.maxEventosEstimados)) {
     c.error('E-PRESUPUESTO', '', 'eventos', { estimado: Number.isFinite(p.eventos) ? p.eventos : '∞', max: LIMITES_ENLACE.maxEventosEstimados });
+  }
+  // Cotas de seguridad que la especificación no nombra (NOTAS-CONTRATO.md §8): memoria y eventos que no dependen de los paquetes.
+  const lugares = lugaresDeMemoria(m);
+  if (!(lugares <= MAX_LUGARES_MEMORIA)) {
+    c.error('E-PRESUPUESTO', '', 'memoria', { estimado: Number.isFinite(lugares) ? lugares : '∞', max: MAX_LUGARES_MEMORIA });
+  }
+  if (p.eventos <= LIMITES_ENLACE.maxEventosEstimados) {
+    const total = p.eventos + eventosRecurrentes(m);
+    if (!(total <= LIMITES_ENLACE.maxEventosEstimados)) {
+      c.error('E-PRESUPUESTO', '', 'recurrentes', { estimado: Number.isFinite(total) ? total : '∞', max: LIMITES_ENLACE.maxEventosEstimados });
+    }
   }
   if (c.errores > antes) return null;
   if (o.profundo && o.revisar && decisionOk) chequearProfundo(m, c, o.revisar);
