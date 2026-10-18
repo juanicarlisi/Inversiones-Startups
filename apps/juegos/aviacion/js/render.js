@@ -87,7 +87,7 @@ export function dibujar(ctx, W, H, s, cam, vis, ahoraMs) {
   ctx.setTransform(vis.dpr, 0, 0, vis.dpr, 0, 0);
 
   const P = (id) => aPantalla(cam, W, H, POS[id]);
-  const enRed = new Set(M.red(s).nodos);
+  const enRed = new Set(M.nodosRed(s));
   const zoomLejos = cam.z < 9;
 
   // rutas
@@ -155,7 +155,7 @@ export function dibujar(ctx, W, H, s, cam, vis, ahoraMs) {
   const ocupado = [];
   const pisa = (r) => ocupado.some((o) => r[0] < o[2] && r[2] > o[0] && r[1] < o[3] && r[3] > o[1]);
   for (const a of [...AEROPUERTOS].sort((x, y) => (y.id === 'BUE') - (x.id === 'BUE') || y.peso - x.peso)) {
-    if (a.cap > s.cap) continue;
+    if (!M.ciudadDisponible(s, a.id)) continue; // las ciudades aparecen con su capítulo o su misión
     const [x, y] = P(a.id);
     if (x < -40 || y < -40 || x > W + 40 || y > H + 40) continue;
     const enLaRed = enRed.has(a.id);
@@ -211,7 +211,7 @@ export function dibujar(ctx, W, H, s, cam, vis, ahoraMs) {
 export function tocar(s, cam, W, H, sx, sy) {
   let mejor = null, dmin = 18;
   for (const a of AEROPUERTOS) {
-    if (a.cap > s.cap) continue;
+    if (!M.ciudadDisponible(s, a.id)) continue;
     const [x, y] = aPantalla(cam, W, H, POS[a.id]);
     const d = Math.hypot(x - sx, y - sy);
     if (d < dmin) { dmin = d; mejor = { tipo: 'ap', id: a.id }; }

@@ -15,8 +15,28 @@ let s = null, cam = null, vel = 1, acc = 0, ultimo = performance.now(), ocultoDe
 const vis = { sel: null, modo: null, origen: null, destino: null, puntero: null, flotan: [], frac: 0, dpr: 1, ultimoFlota: {} };
 
 // ───────────── guardado ─────────────
-function leer() { try { const x = localStorage.getItem(CLAVE); return x ? M.restaurar(x) : null; } catch { return null; } }
-function guardar() { try { if (s) localStorage.setItem(CLAVE, M.guardar(s)); } catch { /* sin almacenamiento (incógnito, portal) */ } }
+// Un guardado inválido no rompe nada: se empieza de nuevo. Uno de una versión mayor no se pisa (se juega sin guardar).
+let noGuardar = false;
+function leer() {
+  try {
+    const x = localStorage.getItem(CLAVE);
+    if (!x) return null;
+    const r = M.restaurar(x);
+    if (r?.error) { if (r.error === 'version') noGuardar = true; return null; }
+    return r;
+  } catch { return null; }
+}
+function guardar() { try { if (s && !noGuardar) localStorage.setItem(CLAVE, M.guardar(s)); } catch { /* sin almacenamiento (incógnito, portal) */ } }
+// Premio de «La ronda del día» (se juega en ronda.html?dia y deja el premio pendiente acá).
+function cobrarRondaDelDia() {
+  try {
+    const k = 'hubnocturno.rondaDia', o = JSON.parse(localStorage.getItem(k) ?? 'null');
+    if (!o?.premioPendiente || !s) return;
+    const r = M.premioRondaDelDia(s, o.premioPendiente);
+    localStorage.setItem(k, JSON.stringify({ ...o, premioPendiente: 0 }));
+    if (r.ok) U.aviso(`+${plata(r.monto)}`, 'bueno');
+  } catch { /* sin almacenamiento */ }
+}
 
 // ───────────── tamaño ─────────────
 function medir() {
@@ -48,6 +68,12 @@ function atender(eventos) {
       U.aviso(t('tormentaAviso', { lista: e.zona.map((z) => M.AP[z].nombre).join(', ') }), 'malo');
     } else if (e.tipo === 'capitulo') {
       finCapitulo();
+    } else if (e.tipo === 'contrato') {
+      sonar('mision'); U.aviso(t('contratoCumplido', { premio: plata(e.premio) }), 'bueno');
+    } else if (['primeraNoche', 'avisoNoche', 'ventaForzada', 'pronostico', 'bancoListo', 'rondaDisponible', 'contratoVencido'].includes(e.tipo)) {
+      // avisos mínimos del modelo v1 (la interfaz v1 los convierte en momentos propios)
+      const lista = e.zona ? e.zona.map((z) => M.AP[z].nombre).join(', ') : '';
+      U.aviso(t(e.tipo, { n: e.aviones?.length ?? 0, monto: plata(e.monto ?? 0), lista }), e.tipo === 'ventaForzada' || e.tipo === 'pronostico' ? 'malo' : '');
     }
   }
 }
@@ -197,6 +223,7 @@ function pintarMenu() {
   const items = [
     [t('idioma'), () => { cambiarLengua(); U.textosFijos(); refrescar(); }],
     [sonidoActivo() ? t('sonidoSi') : t('sonidoNo'), () => { alternarSonido(); }],
+    [t('rondaDia'), () => { guardar(); location.href = 'ronda.html?dia'; }],
     [t('creditos'), () => U.ventana({ titulo: t('creditos'), texto: t('creditosTexto'), botones: [{ txt: t('cerrar'), principal: true }] })],
     [t('reiniciar'), () => U.ventana({ titulo: t('reiniciar'), texto: t('confirmarReinicio'), botones: [
       { txt: t('reiniciar'), principal: true, accion: () => { try { localStorage.removeItem(CLAVE); } catch { /* nada */ } s = M.nuevoEstado(Date.now() % 1e9); vis.sel = null; centrar(); intro(); } },
@@ -222,6 +249,7 @@ function intro() {
 
 // ───────────── arranque ─────────────
 (async function arrancar() {
+  M.fijarFechaDispositivo(Date.now()); // el Correo de Navidad mira también la fecha del dispositivo
   await portal.iniciar();
   U.textosFijos();
   medir();
@@ -231,6 +259,7 @@ function intro() {
   if (guardada?.guardado) volver((Date.now() - guardada.guardado) / 1000);
   else if (!guardada) intro();
   portal.cargaTermino(); portal.jugando(true);
+  cobrarRondaDelDia();
   refrescar();
   requestAnimationFrame(cuadro);
   window.__juego = { estado: () => s, M }; // para las pruebas de interfaz

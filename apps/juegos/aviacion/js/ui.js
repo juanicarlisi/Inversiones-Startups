@@ -26,11 +26,11 @@ export function mision(s) {
     } else el.innerHTML = `<b>${esc(t('finTitulo'))}</b>`;
     return;
   }
-  const meta = m.tipo === 'gananciaDia' ? plata(m.meta) : numero(m.meta);
+  const meta = m.tipo === 'mejorDia' ? plata(m.meta) : numero(m.meta);
   const p = Math.min(1, M.progreso(s, m) / m.meta);
   const total = MISIONES.filter((x) => x.cap === s.cap).length, n = MISIONES.filter((x) => x.cap === s.cap && M.misionHecha(s, x.id)).length + 1;
   el.innerHTML = `<div class="mision-cab">${esc(t('mision'))} ${n}/${total}${m.premio ? ` · ${esc(t('premio', { premio: plata(m.premio) }))}` : ''}</div>
-    <div class="mision-txt">${esc(t(m.id, { meta }))}</div><div class="progreso"><span style="width:${(p * 100).toFixed(1)}%"></span></div>`;
+    <div class="mision-txt">${esc(t(m.id, { meta, n: numero(m.n ?? 0) }))}</div><div class="progreso"><span style="width:${(p * 100).toFixed(1)}%"></span></div>`;
 }
 
 function filaCargas(s, ap) {
@@ -65,14 +65,14 @@ function panelGeneral(s, el) {
 
 function panelAeropuerto(s, id, el) {
   const a = M.AP[id];
-  if (a.cap > s.cap) { el.innerHTML = `<h2>${nom(id)}</h2><p class="tenue">${esc(t('bloqueadaCap', { n: a.cap }))}</p>`; return; }
+  if (!M.ciudadDisponible(s, id)) { el.innerHTML = `<h2>${nom(id)}</h2><p class="tenue">${esc(t('bloqueadaCap', { n: a.cap }))}</p>`; return; }
   const enRed = M.enRed(s, id);
   const niv = s.niveles[id] ?? 0, cap = M.capacidadTransbordo(s, id), sig = TRANSBORDO[niv + 1];
   const rutas = s.rutas.filter((r) => r.a === id || r.b === id).map((r) => {
     const otro = r.a === id ? r.b : r.a;
     return `<button class="fila" data-accion="verRuta" data-id="${esc(r.id)}"><span>⇄ ${nom(otro)}</span><span>${t('km', { n: numero(r.km) })}</span></button>`;
   }).join('');
-  const puede = enRed || (M.red(s).nodos.length === 0 && id === 'BUE');
+  const puede = enRed || (M.nodosRed(s).length === 0 && id === 'BUE');
   el.innerHTML = `<h2>${nom(id)}${id === 'BUE' ? ' <span class="etiqueta">hub</span>' : ''}</h2>
     <p class="${enRed ? 'verde' : 'tenue'}">${esc(enRed ? t('enRed') : t('sinConectar'))}</p>
     ${enRed ? `<div class="bloque"><div class="tenue">${esc(t('esperan'))}</div>${filaCargas(s, id)}</div>
@@ -111,10 +111,10 @@ function panelRuta(s, id, el, avionSel) {
   const avs = r.aviones.map((av) => `<div class="fila ${av.id === avionSel ? 'marcada' : ''}"><span>✈ ${esc(M.AV[av.tipo].nombre)}</span><small>${esc(estadoAvion(av))}</small>
       <button class="boton chico" data-accion="vender" data-id="${av.id}" title="${esc(t('venderPor', { precio: plata(M.AV[av.tipo].precio * 0.6) }))}">${esc(t('vender'))}</button></div>`).join('');
   const tipos = AVIONES.filter((x) => M.avionDisponible(s, x) && x.alcance >= r.km).map((x) =>
-    `<button class="fila compra" data-accion="comprar" data-id="${x.id}" ${s.dinero < x.precio ? 'disabled' : ''}><span><b>${esc(x.nombre)}</b> <small>${esc(capacidadTxt(x))}</small></span><span>${plata(x.precio)}</span></button>`).join('');
+    `<button class="fila compra" data-accion="comprar" data-id="${x.id}" ${M.puedeComprar(s, x.id, r.id).ok ? '' : 'disabled'}><span><b>${esc(x.nombre)}</b> <small>${esc(capacidadTxt(x))}</small></span><span>${plata(x.precio)}</span></button>`).join('');
   const necesitaBalizas = r.aviones.some((av) => !M.AV[av.tipo].nocturno) || (s.cap === 1);
   const balizas = !necesitaBalizas ? '' : r.balizas ? `<p class="verde">✦ ${esc(t('balizasSi'))}</p>` :
-    `<p class="ayuda">${esc(t('balizasAyuda'))}</p><button class="boton" data-accion="balizas" ${s.dinero < M.costoBalizas(r) ? 'disabled' : ''}>✦ ${esc(t('balizasPoner', { precio: plata(M.costoBalizas(r)) }))}</button>`;
+    `<p class="ayuda">${esc(t('balizasAyuda'))}</p><button class="boton" data-accion="balizas" ${s.dinero < M.costoBalizas(r, s) ? 'disabled' : ''}>✦ ${esc(t('balizasPoner', { precio: plata(M.costoBalizas(r, s)) }))}</button>`;
   const cm = M.CARGA_MINIMA.map((v) => `<button class="seg" data-accion="cargaMin" data-v="${v}" aria-pressed="${r.minCarga === v}">${esc(t('cm' + Math.round(v * 100)))}</button>`).join('');
   el.innerHTML = `<h2>${nom(r.a)} ⇄ ${nom(r.b)}</h2><p class="tenue">${esc(t('km', { n: numero(r.km) }))}</p>
     <div class="bloque">${dem}</div>
