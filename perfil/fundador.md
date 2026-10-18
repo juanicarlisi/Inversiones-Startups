@@ -145,6 +145,17 @@
 | Cobros | Quiere saber a qué cuenta va la plata de suscripciones y anuncios y qué hace falta en lo legal | Guía: cuenta en dólares a su nombre, monotributo con factura E y la SAS antes de las suscripciones (capítulo 43 §2) |
 | Juegos | Recordó el Adivina quién como muy bueno; seguir explorando juegos de mesa y de rol | «¿Quién es?» y «En la frente» en la app, con impronta propia (capítulo 43 §4) |
 
+### Pautas del 18-10-2026 (Senda, prueba 19)
+
+- La vara explícita: la mejor app de la tienda en UX, diseño y sonido; puede usarse cualquier software (Rive y otros); calidad antes
+  que velocidad; estudiar otras apps para sacar ideas de colores y movimientos.
+- Los juegos tienen que tener un objetivo claro; si una mecánica no lo tiene, se rediseña o se saca («Vivir la historia» se rediseñó).
+- Las preguntas fijas no alcanzan en un juego de deducción: tiene que poder formularse la pregunta, y los personajes necesitan cara.
+- Música: nada desagradable, infantil ni triste, tampoco que canse; la referencia es cómo trabaja Apple y las apps n.º 1 de juegos de
+  mesa; música de fondo en los juegos.
+- Quiere Lany siempre en 3D si conviene; aceptó que Claude evalúe lo mejor para la UX (recomendación: 2D con volumen).
+- Pide métodos de difusión concretos y baratos (sorteos, redes) y saber desde ahora qué hacer para cobrar anuncios y suscripciones.
+
 ## Lo que falta (y por qué importa)
 
 | # | Pregunta | Por qué importa | Qué cambia según la respuesta |

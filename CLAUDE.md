@@ -111,6 +111,18 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     corte esperan su decisión (DEC-2026-10-17-3; capítulo 43 §3);
   - «¿Quién es?» (tipo Adivina quién, con impronta propia) y «En la frente» quedan en Jugar; la fábrica de videos y los stickers de Lany,
     hechos: publicarlos es decisión suya.
+- **Datos del 18-10-2026 (Senda, prueba 19):**
+  - la vara es ser la mejor app de la tienda en UX, diseño y sonido; se puede usar Rive u otro software; calidad antes que velocidad;
+    estudiar otras apps y tomar ideas de color y movimiento;
+  - Lany: el interruptor «Lany en 3D» solo cambiaba la fiesta de la armadura (ahora se llama «Fiesta en 3D» y muestra qué hace); Lany es
+    2D con volumen de dos tonos en toda la app, y el 3D permanente no conviene mientras cueste expresiones (capítulo 44 §2);
+  - «¿Quién es?»: pregunta libre que Lany entiende, sugerencias que cambian según el tablero y retratos de los 41 personajes;
+  - «Vivir la historia» tiene objetivo: decidir en las mismas encrucijadas del personaje, ver lo que pasó y por qué, y el espejo al final;
+    sin puntos por coincidir; láminas animadas dibujadas con código; Jesús nunca se dibuja;
+  - música: de compositores profesionales con licencia para apps (Mixkit); la de inicio la elige el fundador en la Consola entre nueve;
+    música de fondo baja y apagable en los juegos;
+  - difusión y cobros: capítulo 44 §7 y §8 (sorteos solo con bases y autorización; preferir concursos de habilidad; cuenta de Play antes
+    del 15-11; público 13+; sitio con política de privacidad y app-ads.txt).
 
 ## 2. Reglas no negociables
 

@@ -823,3 +823,36 @@
     `scripts/rive/lani.py`, `scripts/difusion/`, `docs/JUEGOS_MESA_ROL.md` §6, `src/datos/legal.ts`;
   - precios de Claude: guías de precios de 2026 (noqta.tn, heyuan110.com, consultadas el 17-10-2026); verificar en claude.com/pricing.
 
+
+## DEC-2026-10-18-1 · Senda: decimonovena tanda (prueba 19), Lany con volumen, «¿Quién es?» y «Vivir la historia» rediseñados, música, difusión y cobros
+
+- **Fecha:** 18-10-2026. **Quién:** el fundador pide; Claude ejecuta y recomienda.
+- **Pedido (resumen, sin citas textuales):** seguir a fondo con Lany y la UX hasta ser la mejor app de la tienda, usando Rive u otros
+  programas y estudiando otras apps; repensar la mecánica de «¿Quién es?» (preguntas libres o variables, muñequitos o caras); encontrar
+  el objetivo de «Vivir la historia» o sacarlo, con animación de lo que se elige; música de fondo para los juegos y una música de inicio
+  muy buena; colores menos llanos; por qué «Lany en 3D» no cambiaba nada y si conviene siempre 3D; difusión concreta y barata; qué
+  hacer desde ahora para cobrar; seguir con trivia y travesías.
+- **Decidido / recomendado:**
+  - **Lany 2D con volumen en toda la app; 3D solo en la fiesta** (recomendación): el 3D permanente perdería las 15 expresiones y gastaría
+    batería; se revisa si Rive suma 3D o hay presupuesto para un animador. El ajuste pasó a llamarse «Fiesta en 3D» y muestra qué hace.
+  - **«Vivir la historia» v2:** de cuatro caminos (sacarlo, relato sin decisiones, finales alternativos, encrucijadas reales), se eligió
+    **encrucijadas reales con espejo**: nunca se altera lo que cuenta la Biblia, no hay puntos por coincidir, y el aprendizaje está en el
+    porqué. Láminas animadas dibujadas con código; Jesús nunca se dibuja.
+  - **Música (decide el fundador):** fuente nueva de compositores profesionales con licencia para apps; «Driving Ambition» por defecto y
+    ocho alternativas en la Consola; cinco bucles de fondo, bajos y apagables.
+  - **Difusión (decide el fundador):** once métodos sin costo salvo premios y dominio; sorteos solo con bases y autorización (en CABA,
+    LOTBA, fuente secundaria), preferir concursos de habilidad; nada de «etiquetá a tres amigos» (Meta lo prohíbe); plan de 90 días.
+  - **Cobros (decide el fundador):** la lista de 12 pasos del capítulo 44 §8; público 13+; sitio con política de privacidad y app-ads.txt;
+    AdMob cobra desde USD 100; Hyperwallet disponible para Argentina (fuente secundaria).
+- **Hecho por Claude (APK prueba 19, versión 0.19.0):** sistema de color v2; Lany con sombra y luz de dos tonos en Rive y mirada hacia la
+  tarjeta; «¿Quién es?» v2 (41 rasgos, sugerencias, 41 retratos, tableros de 12/16/20); «Vivir la historia» v2 (7 historias, 23
+  encrucijadas, 16 láminas, el espejo, validador ampliado); música de inicio y de fondo con ajuste; trivia 560 (+150); Joel, Sofonías,
+  Filemón, 2 y 3 Juan y Judas jugables (10 de 66) y la ruta «Las cartas» (261 lecciones); proyecto v3.11 (capítulo 44, estado, mapa,
+  inventario, ideas, bitácoras).
+- **Pendiente del fundador:** probar la prueba 19; elegir la música de inicio en la Consola; decidir la difusión y crear las cuentas;
+  Google Play antes del 15-11; lo de siempre (licencias, API.Bible, Supabase, Cloudflare, Max, SAS).
+- **Evidencia:** `oportunidades/proyectos/senda/capitulos/44-lany-volumen-vivir-la-historia-musica-difusion.md`,
+  `conocimiento/2026-10-17-senda-benchmark-ux-color-sonido.md`, `conocimiento/2026-10-18-senda-difusion-cobros-y-vivir-la-historia.md`;
+  repositorio de la app: `scripts/rive/lani.py`, `scripts/arte/retratos.py`, `scripts/arte/laminas.py`, `scripts/autor/quien_soy.py`,
+  `scripts/autor/historias_rol.py`, `scripts/autor/libros_cortos.py`, `scripts/autor/trivia_banco3.py`, `scripts/musica_fondo.py`,
+  `src/componentes/lamina.tsx`, `src/pantallas/Historias.tsx`, `src/pantallas/QuienEs.tsx`, `src/tema.ts`.
