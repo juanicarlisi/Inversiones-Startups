@@ -18,7 +18,7 @@ import type { BloqueMedicion } from './medicion.ts';
 /** Tipos de evento del hub, por bloque (rangos separados para leer la traza del motor a simple vista). */
 export const EV = {
   LLEGADA_CAMION: 1,
-  ABRIR_ANDENES: 10, FIN_DESCARGA: 11, ANDEN_LIBRE: 12,
+  ABRIR_ANDENES: 10, FIN_DESCARGA: 11, ANDEN_LIBRE: 12, ANDEN_SIGUE: 13,
   LLEGA_ACUMULACION: 20,
   FIN_INDUCCION: 30, PAUSA_INICIO_INDUCCION: 31, PAUSA_FIN_INDUCCION: 32,
   PASO: 40, PARADA_INICIO: 41, PARADA_FIN: 42, LLEGA_RAMPA_F2: 43,
@@ -43,6 +43,8 @@ export const ALERTA = { RAMPA_CAPACIDAD: 1, BANDEJA_UNICA: 2, TIEMPO: 4, PAUSA: 
 
 /** Lo que el hub necesita del sorter, sea el de bandejas (F3) o la demora fija (F2). */
 export interface Lazo extends Bloque {
+  /** Índice del bloque en el motor (lo asigna registrar). */
+  id: number;
   readonly S: {
     enBandejas: number; esperando: number; colocaciones: number; noLeidos: number; vueltasExtra: number;
     paradas: number; msDetenido: number; parado: number; tParada: number; enCamino: Int32Array; rampaVueltas: Int32Array;
@@ -91,8 +93,11 @@ export function volcar(S: EstadoPlano, prefijo: string, out: EstadoBloque): Esta
   return out;
 }
 
-/** Reemplaza cada clave de S por una COPIA de lo que trae el estado, con el mismo tipo; si falta algo, lo dice. */
-export function cargar(S: EstadoPlano, e: EstadoBloque, prefijo: string, quien: string): void {
+/**
+ * Reemplaza cada clave de S por una COPIA de lo que trae el estado, con el mismo tipo y (salvo las claves de `largoLibre`) el mismo
+ * largo: un arreglo de otro largo quiere decir que la foto es de otro modelo, y se rechaza diciendo qué se esperaba.
+ */
+export function cargar(S: EstadoPlano, e: EstadoBloque, prefijo: string, quien: string, largoLibre?: ReadonlySet<string>): void {
   for (const k of Object.keys(S)) {
     const clave = prefijo + k, v = e[clave], actual = S[k];
     if (v === undefined) throw new Error(`${quien}: al restaurar falta «${clave}» (se esperaba ${describir(actual)}).`);
@@ -102,6 +107,9 @@ export function cargar(S: EstadoPlano, e: EstadoBloque, prefijo: string, quien: 
     } else {
       if (typeof v === 'number' || v.constructor !== actual.constructor) {
         throw new TypeError(`${quien}: «${clave}» tiene que ser ${describir(actual)} y vino ${describir(v)}.`);
+      }
+      if (!largoLibre?.has(k) && v.length !== actual.length) {
+        throw new RangeError(`${quien}: «${clave}» trae ${v.length} elementos y este hub espera ${actual.length} (¿la foto es de otro modelo?).`);
       }
       S[k] = v.slice();
     }

@@ -3,7 +3,9 @@
 // - un camión llega y toma el andén libre de menor índice; si no hay, espera en la playa (FIFO por llegada). Los que llegan antes del
 //   inicio esperan hasta que abren los andenes (inicio, fase NORMAL);
 // - el andén con p personas descarga el paquete i en ritmo(camión, i) ÷ p; al terminar, el paquete NACE (tramo DESCARGA desde que
-//   el andén lo empezó) y entra a su cinta en max(t, última entrada + paso ÷ velocidad); viaja largo ÷ velocidad (tramo CINTA);
+//   el andén lo empezó) y entra a su cinta en max(t, última entrada + paso ÷ velocidad); viaja largo ÷ velocidad (tramo CINTA).
+//   Mientras espera el hueco en la cinta, lo tienen las personas del andén: el paquete que sigue empieza cuando este entró
+//   (bloqueo después del servicio; NOTAS-CONTRATO §3);
 // - contrapresión: antes de empezar cada paquete, si acumulación + cintas + en descarga ≥ lugares de la acumulación, el andén para
 //   y el tramo DESCARGA que sigue lleva causa BLOQUEO; vuelve cuando la acumulación saca un paquete (NOTAS-CONTRATO §3);
 // - al terminar el último paquete, `papeleo` segundos y el andén queda libre.
@@ -54,7 +56,8 @@ export class BloqueAndenes implements Bloque {
       case EV.ABRIR_ANDENES: this.abrir(t); return;
       case EV.FIN_DESCARGA: this.finDescarga(arg, t); return;
       case EV.ANDEN_LIBRE: this.liberar(arg, t); return;
-      default: throw new Error(`hub.andenes: tipo de evento desconocido ${tipo} (se esperaba ${EV.ABRIR_ANDENES}, ${EV.FIN_DESCARGA} o ${EV.ANDEN_LIBRE}).`);
+      case EV.ANDEN_SIGUE: this.S.descargando[arg] = 0; this.intentar(arg, t); return;
+      default: throw new Error(`hub.andenes: tipo de evento desconocido ${tipo} (se esperaba ${EV.ABRIR_ANDENES}, ${EV.FIN_DESCARGA}, ${EV.ANDEN_LIBRE} o ${EV.ANDEN_SIGUE}).`);
     }
   }
 
@@ -137,7 +140,6 @@ export class BloqueAndenes implements Bloque {
   private finDescarga(d: number, t: number): void {
     const h = this.h, cfg = h.cfg, S = this.S, P = h.P;
     const c = S.camion[d], i = S.indice[d];
-    S.descargando[d] = 0;
     S.enDescarga--;
     const e = P.nacer(c, i, S.tListo[d], t);
     const entrada = S.ultimaEntrada[d] < 0 ? t : Math.max(t, S.ultimaEntrada[d] + cfg.espaciadoMs[d]);
@@ -149,13 +151,22 @@ export class BloqueAndenes implements Bloque {
     S.enCinta++;
     h.m.agendar(llega, h.acum.id, EV.LLEGA_ACUMULACION, e, Fase.NORMAL, 0);
     S.fueBloqueado[d] = 0;
-    S.tListo[d] = t;
+    S.tListo[d] = entrada;
     S.indice[d] = i + 1;
     S.resta[d]--;
-    if (S.resta[d] > 0) this.intentar(d, t);
-    else this.ultimoPaquete(d, t);
+    if (S.resta[d] === 0) {
+      S.descargando[d] = 0;
+      this.ultimoPaquete(d, entrada);
+    } else if (entrada > t) {
+      // las personas del andén sostienen el paquete hasta que entra a la cinta; el que sigue empieza en ese instante
+      h.m.agendar(entrada, this.id, EV.ANDEN_SIGUE, d, Fase.NORMAL, 0);
+    } else {
+      S.descargando[d] = 0;
+      this.intentar(d, t);
+    }
   }
 
+  /** Último paquete del camión: termina en `t` (cuando entró a la cinta); después, el papeleo y el andén libre. */
   private ultimoPaquete(d: number, t: number): void {
     const h = this.h, cfg = h.cfg;
     h.demanda.S.descargados++;

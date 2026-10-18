@@ -33,6 +33,12 @@ function estadoInicial(cap: number) {
   };
 }
 
+/** Claves con un elemento por paquete (su largo es la capacidad del almacén). */
+const POR_PAQUETE: ReadonlySet<string> = (() => {
+  const e0: Record<string, unknown> = estadoInicial(0);
+  return new Set(Object.keys(e0).filter((k) => k !== 'cuentas' && typeof e0[k] !== 'number'));
+})();
+
 export class Paquetes {
   readonly h: Hub;
   S: ReturnType<typeof estadoInicial>;
@@ -129,7 +135,14 @@ export class Paquetes {
   }
 
   restaurar(e: EstadoBloque, prefijo: string): void {
-    cargar(this.S, e, prefijo, 'hub (paquetes)');
+    // El largo de los arreglos por paquete depende de la réplica (factor del día): se acepta otro, pero todos iguales entre sí.
+    cargar(this.S, e, prefijo, 'hub (paquetes)', POR_PAQUETE);
+    const n = this.S.camion.length;
+    for (const k of POR_PAQUETE) {
+      const v = this.S[k as keyof typeof this.S];
+      if (typeof v !== 'number' && v.length !== n) throw new RangeError(`hub (paquetes): «${prefijo}${k}» trae ${v.length} elementos y «${prefijo}camion» ${n}.`);
+    }
+    if (this.S.nacidos > n) throw new RangeError(`hub (paquetes): la foto dice ${this.S.nacidos} nacidos y hay lugar para ${n}.`);
     // La traza no viaja en la foto: los tramos abiertos antes de la foto no se pueden cerrar en el escritor nuevo.
     this.idx = new Int32Array(this.capacidad).fill(-1);
   }
