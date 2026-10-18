@@ -81,6 +81,8 @@ function armarRegistro(): Record<string, readonly string[]> {
     'explicacion.cambio.conjunta': [],
     // formulario por decisión y plan de medición
     'explicacion.formulario.listo': [],
+    'explicacion.formulario.ninguna_cumple': [],
+    'explicacion.formulario.en_duda': [],
     'explicacion.pregunta.porque.puestos': ['medio', 'bajo', 'alto', 'n'],
     'explicacion.pregunta.porque.rampa': ['medio', 'bajo', 'alto', 'n'],
     'explicacion.pregunta.porque.reten': ['medio', 'bajo', 'alto', 'n'],

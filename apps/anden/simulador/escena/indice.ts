@@ -23,14 +23,16 @@ export { componer2d, type Composicion, type Capa } from './componer2d.ts';
 export { componerIso } from './componeriso.ts';
 export { pintar } from './pintar.ts';
 export { crearVistaCon, encuadrarVista } from './vista.ts';
-export { crearProyector, encuadrar, type Primitiva, type Marco } from './primitivas.ts';
+export { crearProyector, encuadrar, giroAuto, GIRO_ISO, type Primitiva, type Marco } from './primitivas.ts';
 export { medidorDeCuadro, UMBRAL_ISO_MS } from './piso.ts';
 export { elegirNoche, type CualNoche } from './riesgo.ts';
 export { MomentoDerivado, claveMomento } from './momentos.ts';
 export { narrar } from './narracion.ts';
 export {
-  conMovimientoReducido, CLAVE_ESTADO, COLOR_ESTADO, FORMA_ESTADO, PARES_TEXTO, contraste, luminancia, type Forma,
+  conMovimientoReducido, CLAVE_ESTADO, COLOR_ESTADO, FORMA_ESTADO, PARES_TEXTO, PARES_GRAFICOS, claveRiesgo, colorRiesgo, nivelRiesgo,
+  contraste, luminancia, type Forma,
 } from './estilo.ts';
 export {
-  EstadoPersona, EstadoPuesto, UMBRAL_ESPERA_MS, esReproductorEscena, type PosicionesEscena, type ReproductorEscena,
+  CLAVE_CLASE, CLAVE_PERSONA, CLAVE_PUESTO, EstadoPersona, EstadoPuesto, UMBRAL_ESPERA_MS, esReproductorEscena, textoEstado, type PosicionesEscena,
+  type ReproductorEscena,
 } from './reproductor.ts';

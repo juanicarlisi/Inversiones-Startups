@@ -25,11 +25,12 @@ test('FILA: la espera en la acumulación', () => {
 test('BLOQUEO: la descarga con causa BLOQUEO', () => {
   const c = new ConstructorTraza();
   const v = viaje(c, T0).descarga(8 * MIN, 1, true).cinta(40000).fila(1000).induccion(3000).bandeja(30000).rampa(1000, 0, PERSONA.R1).mano(3000, PERSONA.R1).jaula(0);
-  const e = esperasDe(c.construir(), ClaseEntidad.PAQUETE, v.id);
+  // las demás esperas del viaje duran 1 s: son esperas (FILA, rampa), pero lo que se prueba acá es la de la descarga
+  const e = esperasDe(c.construir(), ClaseEntidad.PAQUETE, v.id).filter((x) => x.donde === TipoTramo.DESCARGA);
   assert.equal(e.length, 1);
   assert.equal(e[0].causa, Causa.BLOQUEO);
-  assert.equal(e[0].donde, TipoTramo.DESCARGA);
   assert.equal(e[0].recurso, 1);
+  assert.equal(e[0].hasta - e[0].desde, 8 * MIN);
 });
 
 test('FALTA_BANDEJA: espera de bandeja sin el lazo detenido; con menos de la mitad detenido sigue siendo falta de bandeja', () => {
@@ -188,14 +189,14 @@ test('persona: pausa, ausencia y cierre de jaula; puesto: pausas y ausencias de 
 test('rampa: los lapsos entre RAMPA_LLENA y RAMPA_LIBERA, con las vueltas que causó como evidencia', () => {
   const c = new ConstructorTraza();
   const v = viaje(c, T0).descarga(1000).cinta(1000).fila(1000).induccion(1000).bandeja(1000).vuelta(90000, 1, 1).rampa(1000, 1, PERSONA.R2).mano(3000, PERSONA.R2, 1).jaula(1);
-  c.momento(T0 + 2 * MIN, TipoMomento.RAMPA_LLENA, 1, 20);
+  c.momento(T0 + 1 * MIN, TipoMomento.RAMPA_LLENA, 1, 20);   // la vuelta extra (de T0 + 4 s a T0 + 94 s) cruza este instante
   c.momento(T0 + 9 * MIN, TipoMomento.RAMPA_LIBERA, 1, 19);
   c.momento(T0 + 3 * MIN, TipoMomento.RAMPA_LLENA, 2, 20);      // otra rampa: no cuenta
   c.momento(T0 + 20 * MIN, TipoMomento.RAMPA_LLENA, 1, 20);     // queda llena hasta el final
   const t = c.construir();
   const e = esperasDe(t, ClaseEntidad.RAMPA, 1);
   assert.equal(e.length, 2);
-  assert.equal(e[0].hasta - e[0].desde, 7 * MIN);
+  assert.equal(e[0].hasta - e[0].desde, 8 * MIN);
   assert.equal(e[1].hasta, t.fin, 'la que no se liberó dura hasta el fin de la traza');
   assert.ok(e.every((x) => x.causa === Causa.RAMPA_LLENA && x.causante === refDe(ClaseEntidad.RAMPA, 1)));
   assert.equal(e[0].evidencia.length, 1, 'la vuelta extra del paquete cae dentro del primer lapso');
@@ -256,4 +257,32 @@ test('la hora de las esperas es la del tramo (referencia de tiempo del turno)', 
   const v = viaje(c, hm(23, 50)).descarga(1000).cinta(1000).fila(6 * MIN).induccion(1000).bandeja(1000).rampa(1000, 0, PERSONA.R1).mano(1000, PERSONA.R1).jaula(0);
   const e = esperasDe(c.construir(), ClaseEntidad.PAQUETE, v.id);
   assert.equal(e[0].desde, hm(23, 50) + 2000);
+});
+
+test('cobertura de la taxonomía: las 12 causas (todas menos NINGUNA) se detectan, cada una en su traza sintética', () => {
+  const vistas = new Set<number>();
+  const anotar = (esperas: { causa: number }[]) => esperas.forEach((e) => vistas.add(e.causa));
+
+  const c = new ConstructorTraza();
+  const p = viaje(c, T0).descarga(8 * MIN, 0, true).cinta(1000).fila(7 * MIN).induccion(1000).esperaBandeja(9 * MIN).bandeja(1000)
+    .vuelta(60000, 1, 0).rampa(9 * MIN, 0, PERSONA.R1).mano(1000, PERSONA.R1).jaula(0);                      // BLOQUEO, FILA, FALTA_BANDEJA, RAMPA_LLENA, rampa
+  c.tramo(PERSONA.R1, TipoTramo.PERSONA_PAUSA, 0, 0, T0 + 20 * MIN, T0 + 40 * MIN);                           // PAUSA (de la persona y de la rampa)
+  const q = viaje(c, T0).descarga(1000).cinta(1000).fila(1000).induccion(1000).bandeja(1000).rampa(9 * MIN, 1, PERSONA.R2).mano(1000, PERSONA.R2, 1).jaula(1);
+  c.tramo(PERSONA.R2, TipoTramo.PERSONA_AUSENTE, -1, 0, H22, H22 + 8 * 60 * MIN);                             // AUSENCIA
+  const r = viaje(c, T0).descarga(1000).cinta(1000).fila(1000).induccion(1000).bandeja(1000).rampa(9 * MIN, 2, PERSONA.R3).mano(1000, PERSONA.R3, 2).jaula(2);
+  c.tramo(PERSONA.R3, TipoTramo.PERSONA_CIERRA_JAULA, 2, 0, T0 + 2 * MIN, T0 + 12 * MIN);                     // CIERRE_JAULA
+  const s = viaje(c, T0).descarga(1000).cinta(1000).fila(1000).induccion(1000).bandeja(1000).rampa(9 * MIN, 0, PERSONA.D1).mano(1000, PERSONA.D1).jaula(0);
+  c.tramo(PERSONA.D1, TipoTramo.PERSONA_TRABAJA, 0, 0, T0, T0 + 20 * MIN);                                    // PERSONA_OCUPADA
+  const u = viaje(c, T0).descarga(1000).cinta(1000).fila(1000).induccion(1000).bandeja(1000).colaManual(6 * MIN, Causa.NO_LEIDO).manual(1000).jaula(0);                // NO_LEIDO
+  const w = viaje(c, T0).descarga(1000).cinta(1000).fila(1000).colaManual(6 * MIN, Causa.NO_TRANSPORTABLE).manual(1000).jaula(0);                                       // NO_TRANSPORTABLE
+  const x = viaje(c, T0 + 60 * MIN).descarga(1000).cinta(1000).fila(1000).induccion(1000).esperaBandeja(30 * MIN).bandeja(1000).rampa(1000, 0, PERSONA.R1).mano(1000, PERSONA.R1).jaula(0);
+  c.tramo(-1, TipoTramo.LAZO_DETENIDO, 0, 100, T0 + 60 * MIN + 5000, T0 + 100 * MIN, Causa.FALLA);          // FALLA (más de la mitad de la espera de bandeja)
+  c.tramo(0, TipoTramo.CAMION_PLAYA, -1, 0, T0, T0 + 12 * MIN, Causa.ANDEN_OCUPADO);                         // ANDEN_OCUPADO
+  const t = c.construir();
+  for (const id of [p.id, q.id, r.id, s.id, u.id, w.id, x.id]) anotar(esperasDe(t, ClaseEntidad.PAQUETE, id));
+  anotar(esperasDe(t, ClaseEntidad.CAMION, 0));
+  const todas = Object.entries(Causa).filter(([, v]) => v !== Causa.NINGUNA);
+  const faltan = todas.filter(([, v]) => !vistas.has(v)).map(([nombre]) => nombre);
+  assert.deepEqual(faltan, [], `causas de la taxonomía que ninguna traza sintética detectó: ${faltan.join(', ')}`);
+  assert.equal(todas.length, 12);
 });

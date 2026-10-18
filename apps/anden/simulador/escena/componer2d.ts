@@ -49,13 +49,22 @@ const proyectar = (p: Proyector, pts: number[], z = 0): number[] => {
   return out;
 };
 
-/** Contorno del lazo muestreado cada medio metro (en el mundo). */
-export function contornoLazo(D: Disposicion, paso = 0.5): number[] {
+/**
+ * Contorno del lazo muestreado cada medio metro (en el mundo). Con `desplazamiento` (m), la curva paralela corrida hacia afuera (> 0) o
+ * hacia adentro (< 0) del estadio: la normal hacia afuera en s es (sen θ, −cos θ), porque el lazo va en sentido antihorario.
+ */
+export function contornoLazo(D: Disposicion, paso = 0.5, desplazamiento = 0): number[] {
   const l = D.lazo, o = [0, 0, 0], pts: number[] = [];
   const n = Math.max(8, Math.ceil(l.largo / paso));
-  for (let i = 0; i < n; i++) { posEnLazo(l, (i * l.largo) / n, o); pts.push(o[0], o[1]); }
+  for (let i = 0; i < n; i++) {
+    posEnLazo(l, (i * l.largo) / n, o);
+    pts.push(o[0] + Math.sin(o[2]) * desplazamiento, o[1] - Math.cos(o[2]) * desplazamiento);
+  }
   return pts;
 }
+
+/** Distancia (m) del eje del lazo a cada una de las dos líneas que marcan el lazo detenido: por fuera de las bandejas. */
+export const BORDE_LAZO_DETENIDO = 0.75;
 
 /** Caja que encierra la fila de la acumulación (en el mundo). */
 export function cajaFila(D: Disposicion): number[] {
@@ -151,7 +160,6 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
   const rep = c.rep, rec = b.rec, pos = b.pos, op = c.opciones ?? {};
   let prof = 100000;
   const L = D.lazo;
-  if (rec.lazoDetenido) prims.push({ tipo: 'linea', pts: proyectar(p, contornoLazo(D)), color: color(e, 'lazoDetenido'), grosor: Math.max(2, tm.lazo * 0.35), guion: [6, 4], cerrada: true, prof: prof++ });
   // capa de riesgo (cien noches): el tobogán entero teñido por la probabilidad de llenarse
   const riesgo = op.riesgo ?? null;
   for (let r = 0; r < D.rampas.length; r++) {
@@ -180,6 +188,13 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
     posBandeja(L, j, rec.pasoLazo, o3);
     p.aPantalla(o3[0], o3[1], 0, o);
     prims.push({ tipo: 'rect', x: o[0] - tb / 2, y: o[1] - tb / 2, w: tb, h: tb, relleno: cb, borde: null, grosor: 0, prof: prof++ });
+  }
+  // lazo detenido (micro-parada): dos líneas punteadas del color de alarma, por fuera de las bandejas, encima del lazo
+  if (rec.lazoDetenido) {
+    const cd = color(e, 'lazoDetenido'), g = Math.max(2, 0.14 * z);
+    for (const d of [BORDE_LAZO_DETENIDO, -BORDE_LAZO_DETENIDO]) {
+      prims.push({ tipo: 'linea', pts: proyectar(p, contornoLazo(D, 0.5, d)), color: cd, grosor: g, guion: [6, 4], cerrada: true, prof: prof++ });
+    }
   }
   // puestos de inducción, por estado
   for (let s = 0; s < D.estaciones.length; s++) {

@@ -11,11 +11,13 @@ import type { Disposicion, V2 } from './disposicion.ts';
 import { COLOR_ESTADO, FORMA_ESTADO, color, colorRiesgo, sombrear } from './estilo.ts';
 import { posBandeja } from './lazo.ts';
 import { crearProyector, esquinas, type Primitiva, type Proyector, type PGlifo } from './primitivas.ts';
-import { cajaFila, halo, tamanos, tobogan, toboganCarga, type Composicion } from './componer2d.ts';
+import { BORDE_LAZO_DETENIDO, cajaFila, contornoLazo, halo, tamanos, tobogan, toboganCarga, type Composicion } from './componer2d.ts';
 import { EstadoPuesto, esReproductorEscena } from './reproductor.ts';
 
 /** Alturas (m) de lo fijo, como la maqueta. */
 export const ALTURAS = { lazo: 0.85, lazoTapa: 1.07, cinta: 0.58, cintaTapa: 0.7, toboganAlto: 0.8, toboganBajo: 0.4, mesa: 0.85, anden: 1.2 };
+/** Altura (m) del rótulo de una rampa cuya jaula queda entre el rótulo y la cámara: por encima de la jaula llena (0,06 + 1,1 m). */
+export const ALTURA_ROTULO_ATRAS = 1.5;
 
 /**
  * Caras visibles de una caja orientada (centro cx, cy; dirección del largo dx, dy; base en z0; alto h): las laterales que miran a la
@@ -125,11 +127,14 @@ function fondo(c: Composicion, p: Proyector, D: Disposicion, prims: Primitiva[])
   }
   cosas.sort((a, b) => b.prof - a.prof);
   for (const x of cosas) prims.push(x);
-  // rótulos (datos del modelo), siempre encima de lo fijo
+  // rótulos (datos del modelo), siempre encima de lo fijo. Un rótulo que queda DETRÁS de su jaula (más lejos de la cámara) se levanta
+  // por encima de la jaula llena (1,16 m), para que la carga de la capa móvil no lo tape.
   if (tm.rotulo >= 8) {
     const rot = color(e, 'rotulo');
     for (const r of D.rampas) {
-      p.aPantalla(r.jaula[0] + r.dir[0] * 0.9, r.jaula[1] + r.dir[1] * 0.9, 0, o);
+      const x = r.jaula[0] + r.dir[0] * 0.9, y = r.jaula[1] + r.dir[1] * 0.9;
+      const z = p.prof(x, y) > p.prof(r.jaula[0], r.jaula[1]) ? ALTURA_ROTULO_ATRAS : 0;
+      p.aPantalla(x, y, z, o);
       prims.push({ tipo: 'texto', x: o[0], y: o[1], texto: r.id.slice(0, 8), tam: tm.rotulo, color: rot, alinear: 'center', prof: -Infinity });
     }
   }
@@ -140,9 +145,11 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
   const rep = c.rep, rec = b.rec, pos = b.pos, op = c.opciones ?? {};
   const lista: Primitiva[] = [];
   if (rec.lazoDetenido) {
-    const pts: number[] = [], q = [0, 0, 0];
-    for (let s = 0; s < D.lazo.largo; s += 0.5) { posEnLazo(D.lazo, s, q); pts.push(q[0], q[1]); }
-    lista.push({ tipo: 'linea', pts: plano(p, pts, A.lazoTapa + 0.02), color: color(e, 'lazoDetenido'), grosor: Math.max(2, tm.lazo * 0.3), guion: [6, 4], cerrada: true, prof: Infinity });
+    // dos líneas punteadas del color de alarma a los costados del lazo, a la altura de las bandejas (nada de la capa móvil las tapa)
+    const cd = color(e, 'lazoDetenido'), g = Math.max(2, 0.12 * z);
+    for (const d of [BORDE_LAZO_DETENIDO, -BORDE_LAZO_DETENIDO]) {
+      lista.push({ tipo: 'linea', pts: plano(p, contornoLazo(D, 0.5, d), A.lazoTapa + 0.02), color: cd, grosor: g, guion: [6, 4], cerrada: true, prof: Infinity });
+    }
   }
   const alt = alturasTobogan().map((h) => h + 0.02);
   const riesgo = op.riesgo ?? null;

@@ -85,11 +85,27 @@ export function crearProyector(piso: Piso, c: Camara, m: Marco): Proyector {
   };
 }
 
+/** Ganancia mínima de escala para girar el plano un cuarto de vuelta (un 25% más grande, por lo menos). */
+export const GANANCIA_GIRO = 1.25;
+
+/**
+ * Giro por defecto de la cámara para un marco: el de siempre (0 en la planta, GIRO_ISO en la isométrica) o un cuarto de vuelta más si
+ * así el hub se ve al menos GANANCIA_GIRO veces más grande. Es lo que pasa con un hub apaisado en un teléfono parado (360 × 740): sin
+ * girar, el plano ocupa una franja de un tercio de la pantalla.
+ */
+export function giroAuto(lim: Limites, m: Marco, piso: Piso, margen = 12): number {
+  const base = piso === 'iso' ? GIRO_ISO : 0;
+  const z0 = encuadrar(lim, m, piso, margen, base).zoom;
+  const z1 = encuadrar(lim, m, piso, margen, base + Math.PI / 2).zoom;
+  return z1 >= z0 * GANANCIA_GIRO ? base + Math.PI / 2 : base;
+}
+
 /**
  * Cámara que encuadra los límites en el marco con un margen (px). En la isométrica se encuadran las cuatro esquinas del piso y una
- * altura de 3 m (camiones y personas).
+ * altura de 3 m (camiones y personas). Sin `giro`, lo elige giroAuto.
  */
-export function encuadrar(lim: Limites, m: Marco, piso: Piso, margen = 12, giro = piso === 'iso' ? GIRO_ISO : 0): Camara {
+export function encuadrar(lim: Limites, m: Marco, piso: Piso, margen = 12, giroPedido?: number): Camara {
+  const giro = giroPedido ?? giroAuto(lim, m, piso, margen);
   const W = Math.max(1, m.ancho - 2 * margen), H = Math.max(1, m.alto - 2 * margen);
   const cg = Math.cos(giro), sg = Math.sin(giro);
   if (piso === '2d') {

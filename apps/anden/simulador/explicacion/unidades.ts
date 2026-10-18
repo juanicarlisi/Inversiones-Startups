@@ -5,7 +5,7 @@
 
 const POTENCIAS_DE_10 = [1, 10, 100, 1000, 10000, 100000, 1000000] as const;
 
-/** Redondeo simétrico (la mitad se aleja del cero) a `decimales` (0 a 6). Sin Math.pow: potencias de una tabla. */
+/** Redondeo simétrico (la mitad se aleja del cero) a `decimales` (0 a 6). Sin potencias nativas: las potencias de 10 salen de una tabla. */
 export function redondear(x: number, decimales: number): number {
   const p = POTENCIAS_DE_10[decimales];
   if (p === undefined) throw new Error(`redondear: se esperaban entre 0 y 6 decimales y llegó ${decimales}`);

@@ -28,6 +28,7 @@ import {
   crearIndiceTiempo, cuantosHasta, entradasHasta, ordenarFilas, salidasHasta, type IndiceTiempo,
 } from './indice-tiempo.ts';
 import { crearRelojLazo, modulo, posBandeja, type RelojLazo } from './lazo.ts';
+import { CLAVE_ESTADO } from './estilo.ts';
 
 /** Un paquete que espera en una fila desde hace al menos esto se ve «esperando» (el mismo umbral que usa el explicador). */
 export const UMBRAL_ESPERA_MS = 5 * 60_000;
@@ -36,6 +37,26 @@ export const UMBRAL_ESPERA_MS = 5 * 60_000;
 export const EstadoPuesto = { LIBRE: 0, INDUCE: 1, ESPERA_BANDEJA: 2, PAUSA: 3, SIN_PERSONA: 4 } as const;
 /** Estado de una persona en EstadoRecursos.personaEstado. */
 export const EstadoPersona = { LIBRE: 0, TRABAJA: 1, PAUSA: 2, CAMINA: 3, AUSENTE: 4, CIERRA_JAULA: 5 } as const;
+
+/** Texto (clave i18n y variables) del estado visual de una entidad, para la leyenda y los lectores de pantalla. */
+export function textoEstado(estado: number): { clave: string; vars: Record<string, string | number> } {
+  const e = (estado in CLAVE_ESTADO ? estado : EstadoVisual.NORMAL) as EstadoVisual;
+  return { clave: CLAVE_ESTADO[e], vars: e === EstadoVisual.ESPERANDO ? { minutos: UMBRAL_ESPERA_MS / 60_000 } : {} };
+}
+
+/** Clave i18n de cada estado de puesto (índice = código de EstadoPuesto). El texto lleva la variable {puesto}. */
+export const CLAVE_PUESTO: readonly string[] = [
+  'escena.puesto.libre', 'escena.puesto.induce', 'escena.puesto.esperaBandeja', 'escena.puesto.pausa', 'escena.puesto.sinPersona',
+];
+/** Clave i18n de cada estado de persona (índice = código de EstadoPersona). */
+export const CLAVE_PERSONA: readonly string[] = [
+  'escena.persona.libre', 'escena.persona.trabaja', 'escena.persona.pausa', 'escena.persona.camina', 'escena.persona.ausente',
+  'escena.persona.cierraJaula',
+];
+/** Clave i18n del nombre de cada clase de entidad (índice = ClaseEntidad). */
+export const CLAVE_CLASE: readonly string[] = [
+  'escena.clase.paquete', 'escena.clase.persona', 'escena.clase.camion', 'escena.clase.equipo', 'escena.clase.rampa', 'escena.clase.puesto',
+];
 
 /** Posiciones con la altura (m) de cada entidad sobre el piso, para la vista 2,5D. */
 export interface PosicionesEscena extends Posiciones { z: Float32Array }
@@ -67,6 +88,11 @@ export interface ReproductorEscena extends Reproductor {
   jaulas(t: Ms, nivel: Float32Array, numero: Int32Array): void;
   /** Paquetes esperando el puesto manual en t. */
   colaExcepcion(t: Ms): number;
+  /**
+   * Cuántas posiciones calculadas cayeron fuera de `limites` y se recortaron al borde desde que se creó el reproductor (red de seguridad
+   * del dibujo). Con una disposición bien hecha es 0: las pruebas lo exigen para que el recorte no tape un error de las fórmulas.
+   */
+  readonly recortes: number;
 }
 
 export function esReproductorEscena(r: Reproductor): r is ReproductorEscena {
@@ -244,7 +270,7 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
 
   // ---- Memoria de trabajo (sin asignar por cuadro) ----
   const act = new Int32Array(Math.max(1, indice.maxCandidatos));
-  let nAct = 0, tAct = NaN, cuadro = 0, salAcum = 0, salExc = 0, salExcRampa = 0;
+  let nAct = 0, tAct = NaN, cuadro = 0, salAcum = 0, salExc = 0, salExcRampa = 0, recortes = 0;
   const tramoPersona = new Int32Array(NP);
   const playa: number[] = [];
   const marcaRampa = new Int32Array(NR).fill(-1), tomadasRampa = new Int32Array(NR);
@@ -461,6 +487,7 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
     let v = 0;
     const poner = (clase: number, id: number, est: number, h: number) => {
       if (v >= cap) throw new RangeError(`escena: Posiciones tiene lugar para ${cap} entidades y hay más (usar reproductor.crearPosiciones()).`);
+      if (o3[0] < lim.xmin || o3[0] > lim.xmax || o3[1] < lim.ymin || o3[1] > lim.ymax) recortes++;
       acotar(lim, o3);
       out.x[v] = o3[0]; out.y[v] = o3[1]; out.ang[v] = o3[2];
       out.estado[v] = est; out.clase[v] = clase; out.id[v] = id;
@@ -583,6 +610,7 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
 
   return {
     traza: tr, inicio, fin, maxVisibles, disposicion: D, reloj, capacidadJaula,
+    get recortes() { return recortes; },
     crearPosiciones, crearEstadoRecursos, posiciones, recursos, tocar, instante,
     bandejasDe: (e: number) => (e >= 0 && e < dosBandejas.length && dosBandejas[e] ? 2 : 1),
     jaulas(t: Ms, nivel: Float32Array, numero: Int32Array): void {

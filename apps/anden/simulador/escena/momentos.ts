@@ -59,7 +59,8 @@ export const detectarMomentos: DetectarMomentos = (tr: Traza): MomentoEscena[] =
     const listo = Pq.listo[e];
     if (listo >= 0 && listo <= tr.corte) continue;
     pendientes++;
-    if (primero < 0 || Pq.creado[e] < Pq.creado[primero]) primero = e;
+    // un paquete sin hora de creación (creado < 0: no nació en esta traza) cuenta como pendiente pero no puede marcar un instante
+    if (Pq.creado[e] >= 0 && (primero < 0 || Pq.creado[e] < Pq.creado[primero])) primero = e;
   }
 
   for (let q = 0; q < M.n; q++) {

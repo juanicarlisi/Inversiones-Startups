@@ -14,6 +14,10 @@ import { redondear } from './unidades.ts';
 
 /** Clave del mensaje con que termina el formulario cuando nada de lo que falta cambia la respuesta. */
 export const MENSAJE_FORMULARIO_LISTO = 'explicacion.formulario.listo';
+/** Cuando no quedan preguntas pero la decisión NO tiene respuesta (ninguna opción probada cumple): «Ya está» sería mentira. */
+export const MENSAJE_FORMULARIO_NINGUNA_CUMPLE = 'explicacion.formulario.ninguna_cumple';
+/** Cuando no quedan preguntas pero la decisión sigue en duda por el azar de las noches (faltan réplicas, no datos). */
+export const MENSAJE_FORMULARIO_EN_DUDA = 'explicacion.formulario.en_duda';
 /** SUPUESTO: lo que lleva anotar una observación con el cronómetro del teléfono, además de lo que dura lo medido. */
 export const SEGUNDOS_DE_ANOTACION = 10;
 
@@ -58,12 +62,17 @@ function fraseDelPorQue(r: ResultadoTamizado, nombre: string, p: Parametro, ruta
 
 /**
  * Preguntas en orden de pérdida esperada (de mayor a menor), solo las que pierden al menos la zona de indiferencia. Una lista vacía
- * significa «ya está»: la interfaz muestra `MENSAJE_FORMULARIO_LISTO`.
+ * significa que no hay nada más que preguntar: la interfaz muestra el mensaje de `cierreDelFormulario` (`MENSAJE_FORMULARIO_LISTO` cuando
+ * la decisión tiene respuesta).
  */
 export const armarFormulario: ArmarFormulario = (mv, ranking) => {
   const decision = mv.modelo.decision;
   if (!decision) throw new Error('armarFormulario: el modelo no tiene `decision` y se esperaba una (con su zona de indiferencia)');
   const indiferencia = decision.indiferencia.valor;
+  // Si con los valores supuestos la decisión sigue EN DUDA por el azar de las noches, «decidir hoy» no existe y la pérdida esperada (que
+  // compara contra esa decisión) saldría del ruido, no de lo que no se sabe: antes de preguntar hacen falta más noches. Cuando ninguna
+  // opción cumple (no hay duda, hay una respuesta: «no alcanza») sí se pregunta, porque un valor más favorable puede cambiarla.
+  if (cierreDelFormulario(ranking).motivo === 'en-duda') return [];
   // se ordena una copia (el orden del tamizado ya es este, pero el formulario no depende de que se lo hayan respetado)
   const ordenado = ranking.map((r, i) => ({ r, i })).sort((a, b) => b.r.perdidaEsperada - a.r.perdidaEsperada || a.i - b.i);
   const preguntas: Pregunta[] = [];
@@ -86,3 +95,19 @@ export const armarFormulario: ArmarFormulario = (mv, ranking) => {
   }
   return preguntas;
 };
+
+export type CierreDelFormulario = 'listo' | 'ninguna-cumple' | 'en-duda';
+
+/**
+ * Con qué mensaje cierra el formulario cuando `armarFormulario` devuelve una lista vacía. «Ya está: lo que falta no cambia la respuesta»
+ * solo es cierto si hay respuesta (una recomendación con los valores supuestos). Si la decisión con los valores supuestos no tiene
+ * recomendación, se dice por qué: porque ninguna de las opciones probadas cumple (hay respuesta: «no alcanza»), o porque sigue en duda
+ * por el azar de las noches (todavía no hay respuesta, y lo que falta saber no la va a dar). Mira el valor medio, que es común a todas
+ * las filas del ranking; sin ranking no hay nada que mirar y vale «listo».
+ */
+export function cierreDelFormulario(ranking: readonly ResultadoTamizado[]): { motivo: CierreDelFormulario; clave: string } {
+  if (ranking.length === 0 || ranking[0].decisiones[1] !== null) return { motivo: 'listo', clave: MENSAJE_FORMULARIO_LISTO };
+  const configuraciones = ranking[0].evaluaciones?.[1]?.configuraciones ?? [];
+  if (configuraciones.some((c) => c.estado === 'en-duda')) return { motivo: 'en-duda', clave: MENSAJE_FORMULARIO_EN_DUDA };
+  return { motivo: 'ninguna-cumple', clave: MENSAJE_FORMULARIO_NINGUNA_CUMPLE };
+}

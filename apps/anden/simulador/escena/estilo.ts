@@ -55,6 +55,21 @@ export const PARES_TEXTO: readonly (readonly [texto: string, fondo: string])[] =
   ['etiquetaTexto', 'etiquetaFondo'], ['rotulo', 'fondo'], ['rotulo', 'piso'],
 ];
 
+/** Superficies sobre las que se dibuja una entidad (el piso, una bandeja del lazo, el tobogán de una rampa). */
+export const SUPERFICIES_ENTIDAD: readonly string[] = ['piso', 'bandeja', 'rampa'];
+
+/**
+ * Pares de gráfico y fondo que tienen que tener contraste ≥ 3:1 (WCAG 2.1, criterio 1.4.11, contraste de lo que no es texto): cada color
+ * de estado y de persona contra cada superficie de entidad, y las marcas de alarma (rampa llena, lazo detenido) y la carga de la rampa
+ * contra donde se pintan. Lo prueba `pruebas/estilo.test.ts` en los dos temas.
+ */
+export const PARES_GRAFICOS: readonly (readonly [grafico: string, fondo: string])[] = [
+  ...['estadoNormal', 'estadoVuelta', 'estadoExcepcion', 'estadoEsperando', 'estadoAtrasado', 'estadoSeleccionado', 'estadoEnCamion',
+    'persona', 'personaPausa'].flatMap((g) => SUPERFICIES_ENTIDAD.map((f) => [g, f] as const)),
+  ['rampaLlena', 'piso'], ['rampaLlena', 'rampa'], ['lazoDetenido', 'piso'], ['rampaCarga', 'rampa'], ['excepcion', 'piso'],
+  ['estacion', 'piso'], ['seleccion', 'piso'], ['fantasma', 'piso'],
+];
+
 /** Colores de cada tema. Las claves son las mismas en los dos (lo prueba estilo.test.ts). */
 const CLARO: Record<string, string> = {
   // superficies y texto
@@ -63,16 +78,16 @@ const CLARO: Record<string, string> = {
   // instalaciones (neutras)
   lazo: '#8d97a3', lazoBorde: '#6b7682', lazoDetenido: '#b42318', bandeja: '#d3d8de', bandejaBorde: '#a7b0ba',
   cinta: '#b9b2a6', cintaBorde: '#9a9284', anden: '#5b6470', camion: '#dfe3e8', camionBorde: '#7b8794',
-  rampa: '#c3cad2', rampaBorde: '#8d97a3', rampaCarga: '#6b7f99', rampaLlena: '#b42318',
+  rampa: '#c3cad2', rampaBorde: '#8d97a3', rampaCarga: '#56698a', rampaLlena: '#b42318',
   jaula: '#9aa4ae', jaulaCarga: '#a8743f', estacion: '#2f3a48', lector: '#3e4c59', excepcion: '#7e22ce',
   acumulacion: '#e2ddd3', acumulacionBorde: '#b9b2a6',
   // estados de las entidades (glifo y sprite)
-  estadoNormal: '#8b5e34', estadoVuelta: '#1d4ed8', estadoExcepcion: '#7e22ce', estadoEsperando: '#a16207',
+  estadoNormal: '#8b5e34', estadoVuelta: '#1d4ed8', estadoExcepcion: '#7e22ce', estadoEsperando: '#a35200',
   estadoAtrasado: '#c81e1e', estadoSeleccionado: '#111827', estadoEnCamion: '#475569',
   // personas y camiones
-  persona: '#2f3a48', personaPausa: '#a16207', camionEspera: '#a16207',
-  // capa de riesgo (escala secuencial de 5 pasos, de nada a casi siempre)
-  riesgo0: '#e5e7eb', riesgo1: '#fde68a', riesgo2: '#f59e0b', riesgo3: '#dc2626', riesgo4: '#7f1d1d',
+  persona: '#2f3a48', personaPausa: '#a35200', camionEspera: '#a35200',
+  // capa de riesgo (escala secuencial de 5 pasos, de nada a casi siempre; monótona en luminancia: se lee también en escala de grises)
+  riesgo0: '#f3f4f6', riesgo1: '#fcd34d', riesgo2: '#f59e0b', riesgo3: '#dc2626', riesgo4: '#7f1d1d',
   // fantasma (el otro escenario en la pantalla dividida) y selección
   fantasma: '#1d4ed8', seleccion: '#111827',
 };
@@ -88,7 +103,7 @@ const OSCURO: Record<string, string> = {
   estadoNormal: '#d9a066', estadoVuelta: '#60a5fa', estadoExcepcion: '#c084fc', estadoEsperando: '#facc15',
   estadoAtrasado: '#f87171', estadoSeleccionado: '#f9fafb', estadoEnCamion: '#94a3b8',
   persona: '#c3cad2', personaPausa: '#facc15', camionEspera: '#facc15',
-  riesgo0: '#2b323b', riesgo1: '#78350f', riesgo2: '#b45309', riesgo3: '#ef4444', riesgo4: '#fecaca',
+  riesgo0: '#2b323b', riesgo1: '#78350f', riesgo2: '#b45309', riesgo3: '#ef4444', riesgo4: '#fca5a5',
   fantasma: '#60a5fa', seleccion: '#f9fafb',
 };
 
@@ -109,13 +124,21 @@ export function color(e: Estilo, nombre: string): string {
   return c;
 }
 
+/** Paso (0–4) de la escala de riesgo de una probabilidad en [0, 1]: nunca · < 1 de 10 · 1 a 3 · 3 a 6 · 6 o más noches de cada 10. */
+export function nivelRiesgo(p: number): 0 | 1 | 2 | 3 | 4 {
+  if (!(p > 0)) return 0;
+  if (p < 0.1) return 1;
+  if (p < 0.3) return 2;
+  if (p < 0.6) return 3;
+  return 4;
+}
 /** Escala de riesgo: probabilidad en [0, 1] → nombre del color (5 pasos). */
 export function colorRiesgo(p: number): string {
-  if (!(p > 0)) return 'riesgo0';
-  if (p < 0.1) return 'riesgo1';
-  if (p < 0.3) return 'riesgo2';
-  if (p < 0.6) return 'riesgo3';
-  return 'riesgo4';
+  return `riesgo${nivelRiesgo(p)}`;
+}
+/** Clave i18n de la leyenda del paso de riesgo de una probabilidad ('escena.riesgo.nivel0' … 'nivel4'). */
+export function claveRiesgo(p: number): string {
+  return `escena.riesgo.nivel${nivelRiesgo(p)}`;
 }
 
 // ---- Contraste (WCAG 2.x) ----
