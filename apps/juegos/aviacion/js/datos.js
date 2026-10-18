@@ -120,7 +120,8 @@ export const CAPITULOS = [
 //  despeguesNoche: despegues de noche por rutas iluminadas · entregasEn: unidades que llegan a destino en «ciudad»
 //  entregas: unidades de «carga» entregadas · ciudadesActivas: ciudades con al menos un vuelo en el último día de juego
 //  enServicio: aviones de ese tipo que ya completaron un vuelo · entregasEnTodas: «n» entregas en cada una de «ciudades»
-//  mejorDia: el mejor día de ganancia alcanzado (no retrocede)
+//  mejorDia: el mejor día de ganancia desde que se activa la misión (no retrocede; las horas de antes no cuentan)
+//  contratos: contratos del día cumplidos desde que se activa
 //  rondaPct: % del correo de una noche de ronda que llegó a primera hora (la mejor noche desde que se activa)
 // sacas (opcional): correo que ya espera en «a» para «b» cuando la misión se activa (sale apenas la ruta tiene avión).
 // avionPista (opcional): el avión que nombra la pista de la misión.
@@ -131,19 +132,20 @@ export const MISIONES = [
   { id: 'm1_noche', cap: 1, tipo: 'despeguesNoche', meta: 4, premio: 8000 },
   { id: 'm1_sur', cap: 1, tipo: 'entregasEn', ciudad: 'CRD', meta: 40, premio: 14000 },
   { id: 'm1_gallegos', cap: 1, tipo: 'entregasEn', ciudad: 'RGL', meta: 30, premio: 18000 },
-  { id: 'm1_caja', cap: 1, tipo: 'mejorDia', meta: 115000, premio: 0, cierra: true },
+  { id: 'm1_caja', cap: 1, tipo: 'mejorDia', meta: 65000, premio: 0, cierra: true },
   { id: 'm2_pax', cap: 2, tipo: 'entregas', carga: 'pasajeros', meta: 400, premio: 60000, avionPista: 'chaja' },
   { id: 'm2_andes', cap: 2, tipo: 'entregasEn', ciudad: 'SCL', meta: 300, premio: 60000 },
   { id: 'm2_red', cap: 2, tipo: 'ciudadesActivas', meta: 18, premio: 100000 },
   { id: 'm2_cauquen', cap: 2, tipo: 'enServicio', avion: 'cauquen', meta: 1, premio: 40000 },
-  { id: 'm2_conexiones', cap: 2, tipo: 'transbordos', ciudad: 'BUE', meta: 4500, premio: 150000 },
-  { id: 'm2_caja', cap: 2, tipo: 'mejorDia', meta: 1300000, premio: 0, cierra: true },
+  { id: 'm2_conexiones', cap: 2, tipo: 'transbordos', ciudad: 'BUE', meta: 5500, premio: 150000 },
+  { id: 'm2_caja', cap: 2, tipo: 'mejorDia', meta: 1200000, premio: 0, cierra: true },
   { id: 'm3_jet', cap: 3, tipo: 'enServicio', avion: 'halcon', meta: 1, premio: 1500000 },
   { id: 'm3_carga', cap: 3, tipo: 'entregas', carga: 'carga', meta: 600, premio: 2000000, avionPista: 'cormoran' },
   { id: 'm3_continente', cap: 3, tipo: 'entregasEnTodas', ciudades: ['LIM', 'BOG', 'SPA'], n: 250, meta: 750, premio: 3000000 },
-  { id: 'm3_ronda', cap: 3, tipo: 'rondaPct', meta: 75, premio: 1500000 },
-  { id: 'm3_hub2', cap: 3, tipo: 'transbordos', ciudad: 'SPA', meta: 9000, premio: 2000000 },
-  { id: 'm3_caja1', cap: 3, tipo: 'mejorDia', meta: 3000000, premio: 1000000 },
-  { id: 'm3_caja2', cap: 3, tipo: 'mejorDia', meta: 3300000, premio: 1500000 },
-  { id: 'm3_caja3', cap: 3, tipo: 'mejorDia', meta: 3600000, premio: 0, cierra: true },
+  { id: 'm3_ronda', cap: 3, tipo: 'rondaPct', meta: 85, premio: 1500000 },
+  { id: 'm3_hub2', cap: 3, tipo: 'transbordos', ciudad: 'SPA', meta: 8000, premio: 2000000 },
+  { id: 'm3_contratos', cap: 3, tipo: 'contratos', meta: 3, premio: 1000000 },
+  { id: 'm3_caja1', cap: 3, tipo: 'mejorDia', meta: 3600000, premio: 1000000 },
+  { id: 'm3_caja2', cap: 3, tipo: 'mejorDia', meta: 3900000, premio: 1500000 },
+  { id: 'm3_caja3', cap: 3, tipo: 'mejorDia', meta: 4200000, premio: 0, cierra: true },
 ];

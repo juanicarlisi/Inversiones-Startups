@@ -74,6 +74,8 @@ const T = {
     u_pct: '%',
     m3_hub2: 'Hacé de São Paulo tu segundo hub: conectá {meta} unidades ahí',
     pista_m3_hub2: 'El centro de transbordo de São Paulo arranca chico: mejoralo y abrí rutas desde ahí.',
+    m3_contratos: 'Cumplí {meta} contratos del día',
+    pista_m3_contratos: 'Aceptá contratos entre ciudades que ya tienen vuelos: el correo de contrato pasa primero por los centros.',
     m3_caja1: 'Ganá {meta} en un día', m3_caja2: 'Ganá {meta} en un día', m3_caja3: 'Ganá {meta} en un día',
     // pistas: aparecen si una misión lleva 200 minutos de juego sin avanzar
     pista_noche: 'De noche, sin balizas, tus biplanos no vuelan: iluminá una ruta y siguen trabajando.',
@@ -102,7 +104,7 @@ const T = {
     contrato: '{n} {u} de {a} a {b} en {dias} días', contratoNavidad: 'Correo de Navidad: {n} sacas de {a} a {b} en {dias} días',
     contratos: 'Contratos del día', aceptar: 'Aceptar', contratoCumplido: '¡Contrato cumplido! +{premio}', contratoVencido: 'Se venció un contrato',
     // unidades del avance
-    u_despegues: 'despegues', u_ciudades: 'ciudades', u_aviones: 'aviones', u_entregas: 'entregas', u_plata: '',
+    u_despegues: 'despegues', u_ciudades: 'ciudades', u_aviones: 'aviones', u_entregas: 'entregas', u_plata: '', u_contratos: 'contratos',
     // avisos del modelo
     avisoNoche: 'Se viene la noche: sin balizas, tus biplanos se quedan en tierra.', primeraNoche: 'Cayó la noche: {n} aviones esperan el día. Las balizas los hacen volar.',
     ventaForzada: 'Un día en rojo: se vendió un avión que perdía plata (+{monto}).', pronostico: 'Pronóstico: tormenta en {lista} dentro de unas horas.',
@@ -194,6 +196,8 @@ const T = {
     u_pct: '%',
     m3_hub2: 'Make São Paulo your second hub: connect {meta} units there',
     pista_m3_hub2: 'The São Paulo transfer center starts small: upgrade it and open routes from there.',
+    m3_contratos: 'Fulfil {meta} of today’s contracts',
+    pista_m3_contratos: 'Accept contracts between cities that already have flights: contract mail goes first at the transfer centers.',
     m3_caja1: 'Earn {meta} in one day', m3_caja2: 'Earn {meta} in one day', m3_caja3: 'Earn {meta} in one day',
     pista_noche: 'At night, without beacons, your biplanes stay grounded: light a route and they keep working.',
     pista_m1_primera: 'Tap Montevideo on the map to open the route, then buy a Golondrina.',
@@ -219,7 +223,7 @@ const T = {
     pista_m3_caja3: 'Upgrade your hubs’ transfer centers and add planes where cargo is waiting.',
     contrato: '{n} {u} from {a} to {b} in {dias} days', contratoNavidad: 'Christmas mail: {n} bags from {a} to {b} in {dias} days',
     contratos: 'Today’s contracts', aceptar: 'Accept', contratoCumplido: 'Contract fulfilled! +{premio}', contratoVencido: 'A contract expired',
-    u_despegues: 'take-offs', u_ciudades: 'cities', u_aviones: 'planes', u_entregas: 'deliveries', u_plata: '',
+    u_despegues: 'take-offs', u_ciudades: 'cities', u_aviones: 'planes', u_entregas: 'deliveries', u_plata: '', u_contratos: 'contracts',
     avisoNoche: 'Night is coming: without beacons, your biplanes stay on the ground.', primeraNoche: 'Night has fallen: {n} planes wait for daylight. Beacons keep them flying.',
     ventaForzada: 'A day in the red: a money-losing plane was sold (+{monto}).', pronostico: 'Forecast: a storm over {lista} in a few hours.',
     tormentaFin: 'The storm is over.', bancoListo: 'Your hub can now run the night round.', rondaDisponible: 'Night round in Buenos Aires tonight: will you play it?',

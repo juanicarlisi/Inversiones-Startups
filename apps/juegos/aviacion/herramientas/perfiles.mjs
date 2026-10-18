@@ -143,9 +143,17 @@ function seguirHistoria(s, conPista = true, ctx = {}) {
       if (nivel < 3 && s.dinero >= [0, 8000, 30000, 250000][nivel + 1] * 1.5) return { tipo: 'transbordo', id: m.ciudad };
       return avionDondeEspera(s, masBarato, 1);
     }
+    case 'contratos': { // «cumplí N contratos»: aceptar uno entre ciudades que ya tienen vuelos
+      const objs = I.misionesActivas(s);
+      if (objs.filter((o) => o.tipo === 'contrato' && !o.oferta).length >= 2) return null;
+      const oferta = objs.find((o) => o.tipo === 'contrato' && o.oferta && I.servido(s, o.o) && I.servido(s, o.d));
+      return oferta ? { tipo: 'contrato', id: oferta.contrato } : null;
+    }
     case 'mejorDia': {
       if (!conPista || !obj.pista) return null;
-      // «abrí más ciudades desde Buenos Aires»: la ciudad más grande que todavía no está, si algún avión llega; si no, aviones
+      // la pista dice «seguí la mejor próxima acción»: la que muestra la estrella (abrir ciudades, sumar o vender aviones, balizas)
+      const sug = I.sugerencia(s);
+      if (sug && sug.tipo !== 'contrato') return accionDe(sug);
       const vacia = avionParaRutasVacias(s); if (vacia) return vacia;
       const nueva = Object.values(I.AP).filter((a) => I.ciudadDisponible(s, a.id) && !I.enRed(s, a.id) && I.puedeAbrirRuta(s, I.HUB, a.id).ok).sort((a, b) => b.peso - a.peso)[0];
       if (nueva) return { tipo: 'ruta', a: I.HUB, b: nueva.id };
@@ -174,13 +182,13 @@ export const PERFILES = {
     const activos = objs.filter((o) => o.tipo === 'contrato' && !o.oferta).length;
     const oferta = objs.find((o) => o.tipo === 'contrato' && o.oferta && I.servido(s, o.o) && I.servido(s, o.d));
     if (oferta && activos < 2) return { tipo: 'contrato', id: oferta.contrato };
-    const h = seguirHistoria(s, false);
+    const h = seguirHistoria(s, true, ctx); // lee las pistas: es lo más barato que hace avanzar la historia
     if (h) return h;
     const sug = I.sugerencia(s);
     return sug ? accionDe(sug) : null;
   },
   compraTodo(s, ctx) {
-    const h = seguirHistoria(s, false);
+    const h = seguirHistoria(s, true, ctx);
     if (h) return h;
     const vacia = avionParaRutasVacias(s);
     if (vacia) return vacia;

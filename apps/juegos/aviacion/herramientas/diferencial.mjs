@@ -1,9 +1,9 @@
 // ¿Pagan los diferenciales? Mide el % de diferencia de neto por día de juego en 6 casos (redes armadas a mano, sin jugador):
 //  (a) transbordo de Buenos Aires en nivel 0 contra nivel 2, en una estrella de 5 radios
-//  (b) las 4 opciones de carga mínima en 3 rutas de referencia (dentro de la estrella)
+//  (b) las 4 opciones de carga mínima en 3 rutas de referencia de una red típica del capítulo 1
 //  (c) estrella contra cadena, con los mismos aviones
 //  (d) 4 rutas sin aviones entre las puntas de la estrella
-//  (e) 10 rutas durante 30 días, con clima y sin clima (promedio de 3 semillas)
+//  (e) 10 rutas durante 30 días, con clima y sin clima (promedio de 8 semillas: cada tormenta pega distinto)
 //  (f) perfil «listo» contra «compraTodo» a los 60 minutos reales (jugadores.mjs)
 // Metas (HN-04 y HN-05): (a) ≥ +30% · (b) en 2 de 3 rutas la mejor es 30% o 60% y la peor rinde ≥ 15% menos · (c) estrella ≥ +35%
 // · (d) baja ≤ 2% · (e) el clima resta entre 3% y 10% · (f) listo ≥ +25%.
@@ -52,30 +52,48 @@ export function casoA(semilla = 3) {
   const n2 = netoDia(armar(base(semilla), ESTRELLA, { nivelBUE: 2 }));
   return { nivel0: Math.round(n0), nivel2: Math.round(n2), dif: pct(n2, n0), meta: '≥ +30%', ok: pct(n2, n0) >= 30 };
 }
-// (b) Cada ruta de referencia se mide por su propio neto (lo que muestra su panel), con las demás en 60%: los tres radios cortos de la
-// estrella, con 2 aviones cada uno (con un solo avión por ruta la carga mínima casi no cambia nada: el avión sale lleno igual).
-// Lo que se espera: en los tramos cortos y cargados conviene salir seguido (30% o 60%); en los largos, llenar (se ve en el informe).
-export const REFERENCIA_B = [['BUE', 'MVD'], ['BUE', 'ROS'], ['BUE', 'MDQ']];
-export function casoB(semilla = 3) {
+// (b) Una red típica del capítulo 1 a la hora y media de juego (la estrella con dos aviones en las troncales y el correo del sur
+// con uno por tramo). Cada ruta de referencia se mide por su propio neto (lo que muestra su panel), con las demás en 60%:
+//  - Buenos Aires–Montevideo y Buenos Aires–Rosario, las troncales cargadas;
+//  - Comodoro Rivadavia–Río Gallegos, el ramal flaco del sur (lo que llega en conexión, de a tandas).
+// Lo que se espera: en las troncales, «lo que haya» quema vuelos medio vacíos; en el ramal flaco, esperar a llenar deja el correo
+// tarde y la gente manda menos. Promedio de 8 semillas y 10 días; dos opciones a 5% o menos una de otra cuentan como empate (es el
+// ruido entre semillas: la diferencia entre 60% y lleno en una troncal, o entre «lo que haya» y 30% en el ramal, cambia de signo
+// según la semilla).
+export const RED_TIPICA = [['BUE', 'MVD', 2], ['BUE', 'ROS', 2], ['BUE', 'MDQ', 1], ['BUE', 'BHI', 2], ['BUE', 'COR', 2], ['BHI', 'CRD', 1],
+  ['CRD', 'RGL', 1], ['BHI', 'NQN', 1], ['COR', 'MDZ', 1]];
+export const REFERENCIA_B = [['BUE', 'MVD'], ['BUE', 'ROS'], ['CRD', 'RGL']];
+const EMPATE = 0.05;
+export function casoB(semillas = [1, 2, 3, 4, 5, 6, 7, 8], dias = 10) {
   const filas = REFERENCIA_B.map(([a, b]) => {
-    const por = {};
+    const id = M.idRuta(a, b), por = {};
     for (const v of M.CARGA_MINIMA) {
-      const s = armar(base(semilla), ESTRELLA, { nivelBUE: 2, aviones: 2 });
-      for (const r of s.rutas) M.fijarCargaMinima(s, r.id, 0.6);
-      const id = M.idRuta(a, b);
-      M.fijarCargaMinima(s, id, v);
-      const r = s.rutas.find((x) => x.id === id);
-      for (let i = 0; i < 2 * 1440 / M.PASO; i++) M.paso(s);
-      const n0 = r.ingresos - r.costos;
-      for (let i = 0; i < 7 * 1440 / M.PASO; i++) M.paso(s);
-      por[v] = Math.round((r.ingresos - r.costos - n0) / 7);
+      let tot = 0;
+      for (const se of semillas) {
+        const s = base(se);
+        for (const [x, y, n] of RED_TIPICA) {
+          const r = M.abrirRuta(s, x, y).ruta;
+          for (let i = 0; i < n; i++) { s.dinero = 1e8; M.comprarAvion(s, r.km > 650 ? 'tero' : 'golondrina', r.id); }
+          M.ponerBalizas(s, r.id); M.fijarCargaMinima(s, r.id, 0.6);
+        }
+        M.mejorarTransbordo(s, 'BUE'); M.mejorarTransbordo(s, 'BUE');
+        M.fijarCargaMinima(s, id, v);
+        const r = s.rutas.find((x) => x.id === id);
+        for (let i = 0; i < 2 * 1440 / M.PASO; i++) M.paso(s);
+        const n0 = r.ingresos - r.costos;
+        for (let i = 0; i < dias * 1440 / M.PASO; i++) M.paso(s);
+        tot += (r.ingresos - r.costos - n0) / dias;
+      }
+      por[v] = Math.round(tot / semillas.length);
     }
     const orden = Object.entries(por).sort((x, y) => y[1] - x[1]);
-    const mejor = Number(orden[0][0]), peor = orden.at(-1)[1];
-    return { ruta: `${a}-${b}`, neto: por, mejor, peorRindeMenos: +((1 - peor / orden[0][1]) * 100).toFixed(1) };
+    const top = orden[0][1];
+    const mejores = orden.filter(([, n]) => n >= top - EMPATE * Math.abs(top)).map(([k]) => Number(k));
+    const peor = orden.at(-1)[1];
+    return { ruta: `${a}-${b}`, neto: por, mejor: Number(orden[0][0]), empatan: mejores, peorRindeMenos: +((1 - peor / top) * 100).toFixed(1) };
   });
-  const buenas = filas.filter((f) => (f.mejor === 0.3 || f.mejor === 0.6) && f.peorRindeMenos >= 15).length;
-  return { rutas: filas, meta: 'en 2 de 3 la mejor es 30% o 60% y la peor rinde ≥ 15% menos', ok: buenas >= 2 };
+  const buenas = filas.filter((f) => (f.empatan.includes(0.3) || f.empatan.includes(0.6)) && f.peorRindeMenos >= 15).length;
+  return { rutas: filas, meta: 'en 2 de 3 la mejor (o empatada a 5%) es 30% o 60% y la peor rinde ≥ 15% menos', ok: buenas >= 2 };
 }
 export function casoC(semilla = 3) {
   const st = netoDia(armar(base(semilla), ESTRELLA, { nivelBUE: 2 }));
@@ -91,7 +109,7 @@ export function casoD(semilla = 3) {
   const con = netoDia(armar(base(semilla), ESTRELLA, { nivelBUE: 2, sinAvion: PUNTAS }));
   return { sinVacias: Math.round(sin), conVacias: Math.round(con), dif: pct(con, sin), meta: 'baja ≤ 2%', ok: pct(con, sin) >= -2 };
 }
-export function casoE(semillas = [1, 2, 3]) {
+export function casoE(semillas = [1, 2, 3, 4, 5, 6, 7, 8]) {
   let con = 0, sin = 0;
   for (const se of semillas) {
     con += netoDia(armar(base(se), DIEZ, { nivelBUE: 2 }), 30, 1);
@@ -113,7 +131,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (process.argv.includes('--json')) console.log(JSON.stringify(r, null, 1));
   else {
     console.log(`(a) transbordo BUE nivel 0 → 2: ${r.a.nivel0} → ${r.a.nivel2} por día (${r.a.dif}%) · meta ${r.a.meta} · ${r.a.ok ? 'sí' : 'NO'}`);
-    for (const f of r.b.rutas) console.log(`(b) ${f.ruta}: ${Object.entries(f.neto).map(([k, v]) => `${k * 100}% ${v}`).join(' · ')} → mejor ${f.mejor * 100}%, la peor rinde ${f.peorRindeMenos}% menos`);
+    for (const f of r.b.rutas) console.log(`(b) ${f.ruta}: ${Object.entries(f.neto).map(([k, v]) => `${k * 100}% ${v}`).join(' · ')} → mejor ${f.empatan.map((x) => x * 100 + '%').join(' = ')}, la peor rinde ${f.peorRindeMenos}% menos`);
     console.log(`(b) meta ${r.b.meta} · ${r.b.ok ? 'sí' : 'NO'}`);
     console.log(`(c) estrella ${r.c.estrella} contra cadena ${r.c.cadena} por día (${r.c.dif}%) · meta ${r.c.meta} · ${r.c.ok ? 'sí' : 'NO'}`);
     console.log(`(d) 4 rutas vacías entre las puntas: ${r.d.sinVacias} → ${r.d.conVacias} (${r.d.dif}%) · meta ${r.d.meta} · ${r.d.ok ? 'sí' : 'NO'}`);
