@@ -38,8 +38,8 @@ FUENTE = RAIZ / "informes" / "fuente-senda"
 GRAF = FUENTE / "graficos"
 TIPO = RAIZ / "informes" / "tipografia"
 TITULO = "Senda · El proyecto completo de la app"
-SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-17.pdf"
-SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-17.html"
+SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-18.pdf"
+SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-18.html"
 SALIDA_HTML = FUENTE / "informe.html"
 
 AMBAR, NOCHE, VERDE, GRANADA, CREMA, TINTA = V.AMBAR, V.NOCHE, V.VERDE, V.ROJO, V.CREMA, "#1B1B1F"
@@ -780,6 +780,7 @@ def bloque_pantallas22() -> str:
 
 P23 = RAIZ / "informes" / "fuente-senda" / "prueba23"
 P24 = RAIZ / "informes" / "fuente-senda" / "prueba24"
+P25 = RAIZ / "informes" / "fuente-senda" / "prueba25"
 
 
 def bloque_pantallas23() -> str:
@@ -808,6 +809,26 @@ def bloque_pantallas24() -> str:
                     ("biblia_corchetes", "La Biblia entre corchetes"), ("paginas", "La hoja de papel: la ficha al tocar")]))
 
 
+def bloque_pantallas25() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P25 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def tira(n, t):
+        return f'<figure style="margin:1.6mm 0">{img(n)}<figcaption style="font-size:7pt;margin-top:1mm;line-height:1.2">{t}</figcaption></figure>'
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (tira("desmayo_antes", "Antes (prueba 20): el desmayo en bloque; catorce cuadros repartidos en los 2 segundos, los últimos iguales")
+            + tira("desmayo", "Ahora: anticipación, tambaleo con la cabeza y las orejas que llegan tarde, caída con gravedad, impacto, asentamiento")
+            + tira("desmayada", "«Desmayada» (bucle): respira en el piso, mueve una oreja, una pata y la cola hasta que la app la levanta")
+            + tira("patatus", "El patatús (2,8 s): la misma caída y se levanta de un salto, con estirar y aplastar, sacudiendo la cabeza")
+            + fila([("pasaje_nbv", "Gálatas 5:22 en una lección: se abre en la NBV, con los chips y el motivo"), ("pasaje_rv1909", "Tocar «RV1909»: el mismo versículo, «caridad» subrayada"),
+                    ("trivia", "«Leer» después de una pregunta de la trivia: Gálatas 5:22 en la NBV, con la atribución"), ("inicio", "Inicio: el versículo del día usa la mejor versión")]))
+
+
 def bloque_gantt_general(D) -> str:
     r = D["roadmap"]
     return gantt_html(r["general"], r["hitos_general"], dt.date(2026, 10, 1), dt.date(2030, 12, 31), 176 - 40, "gx-a4", "trimestres")
@@ -829,7 +850,7 @@ def portada(D) -> str:
     dt_ = "".join(f"<div><b>{a}</b><span>{b}</span></div>" for a, b in datos)
     return f"""<section class="portada-s">
 <div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.17 · 19 de octubre de 2026 · uso privado</div>
-<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.17</p>
+<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.18</p>
 <p class="ps-lema">Una app cristiana para que los jóvenes conozcan la Biblia <b>jugando, leyendo y en comunidad</b>, con nivel profesional:
 nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen; Android e iOS primero y la web después.</p></div>
 <div class="ps-img"><div class="ps-esc">{lany16_png("tu_reposo", 100)}</div>{V.logo_txt(30, V.NOCHE)}</div></div>
@@ -886,6 +907,7 @@ def construir_html(D, incrustar: bool = False, paginas: dict | None = None) -> s
         "{{PANTALLAS22}}": bloque_pantallas22,
         "{{PANTALLAS23}}": bloque_pantallas23,
         "{{PANTALLAS24}}": bloque_pantallas24,
+        "{{PANTALLAS25}}": bloque_pantallas25,
         "{{LANI_REACCIONES}}": S.lani_reacciones,
         "{{ECONOMIA_MAPA}}": S.economia_mapa,
         "{{ECONOMIA}}": lambda: bloque_economia(D),
@@ -1037,7 +1059,7 @@ def main() -> int:
     env.setdefault("NODE_PATH", "/opt/node22/lib/node_modules")
 
     def imprimir():
-        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.17", "css", "oct-2026"],
+        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.18", "css", "oct-2026"],
                        check=True, env=env)
     imprimir()
     paginas = paginas_capitulos(D, SALIDA_PDF)

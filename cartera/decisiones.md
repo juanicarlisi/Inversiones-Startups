@@ -1024,3 +1024,24 @@
   cargar los versículos de lectura distinta en `rvr1960_citas.json` desde su ejemplar, dentro del cupo.
 - **Regla que queda:** la 1909 es la Biblia de la Travesía y la trivia, no una obligación de lectura: la persona puede leer en la
   PDT, la NBV o la BES; y toda ayuda de versión se explica con palabras de Senda, nunca con texto de una versión con derechos.
+
+## DEC-2026-10-19-7 · Senda: vigésima quinta tanda (prueba 25), Lany cae de verdad y la versión que mejor se lee en cada versículo
+
+- **Fecha:** 2026-10-19 (noche) · **Quién:** el fundador pide y fija el criterio; Claude construye.
+- **Pedido:** «cuando Lany se desmaya está muy dura; tiene que ser más fluido; andá a fondo con las animaciones, Rive, 3D, lo que
+  haga falta»; y, por el ejemplo de Gálatas 5:22 («amor» en la NBV, «caridad» en la RV1909), validar versículo por versículo cuál de
+  las versiones libres se lee mejor y usarla en cada trivia, travesía, versículo del día o juego.
+- **Decidido / hecho (capítulo 51):** el desmayo y el patatús rehechos en Rive con los principios de animación (anticipación,
+  tambaleo con las partes que llegan tarde, caída con gravedad, impacto con aplastar y rebote, asentamiento) y un estado nuevo
+  «desmayada» en bucle (respira en el piso hasta que la app la levanta); verificado cuadro a cuadro y en la máquina de estados.
+  Lany sigue 2D con volumen: lo que faltaba era oficio de animación, no otro motor (capítulo 44 §2 sigue en pie). Regla medible
+  para la versión de cada pasaje fuera del lector: si la RV1909 trae un falso amigo, gana entre la PDT y la NBV la que tiene menos
+  palabras difíciles en ese versículo (formas del glosario que las versiones modernas casi no usan; la BES solo si falta el
+  versículo): 1.223 versículos (876 PDT, 342 NBV, 5 BES), chips para cambiar y el motivo a la vista; el lector, los ejercicios y la
+  trivia siguen en la RV1909. Glosario con «longanimidad» y «benignidad».
+- **Espera decisión del fundador:** si la caída convence, el mismo oficio para mano a la cara, mareo, taparse los ojos y el giro de
+  festejo (prueba 26); y lo pendiente de DEC-2026-10-19-6 (consulta a la Sociedad Bíblica, ejemplar de la 1960, subrayado o
+  corchetes de fábrica, color de Lany, fila de versión afinada).
+- **Regla que queda:** «se lee mejor» se mide (palabras difíciles por versículo), no se decide por gusto versículo por versículo; y
+  toda mejora de Lany se busca primero en el tiempo de la animación (claves, retrasos, curvas) antes que en cambiar de tecnología.
+

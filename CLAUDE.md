@@ -178,6 +178,13 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     consulta para que conste que vale para una app con anuncios espera que el fundador la mande (`docs/legal/consulta_sba.md`);
   - el ejemplar de la 1960 que el fundador carga es solo para examinar: nunca entra a la app ni a un repositorio;
   - los nombres propios de la Biblia de Senda ya tienen la grafía de hoy (Sansón, Noemí, Finees); «Líbano» va con mayúscula.
+- **Datos del 19-10-2026 (Senda, prueba 25):**
+  - toda animación de Lany tiene que ser fluida: nada se mueve en bloque; anticipación, partes que llegan tarde, caída con gravedad,
+    impacto con aplastar y rebote; después de caer no se congela (estado «desmayada» en bucle); se revisa cuadro a cuadro con
+    `scripts/rive/cuadros.cjs`; Lany sigue 2D con volumen (el oficio de animación antes que cambiar de motor; capítulo 51);
+  - «no hay que usar siempre la 1909» se mide: fuera del lector, cada pasaje se abre en la versión libre con menos palabras difíciles
+    en ese versículo (PDT o NBV; BES solo si falta), con chips para cambiar; el lector, los ejercicios y la trivia siguen en la RV1909;
+    la tabla se regenera con `python3 scripts/autor/versiones_por_versiculo.py` después del glosario.
 
 ## 2. Reglas no negociables
 

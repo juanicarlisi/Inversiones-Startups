@@ -186,6 +186,8 @@
 - Lo legal nunca a costa de algo clave de la UX: medir el riesgo real contra lo que pierde la experiencia y preguntar si se nota (19-10-2026, noche).
 - Quiere saber de verdad cuánto cambia entre la RV1909 y la RVR1960 y que la app sea fiel sin confundir: se mide con método y sin copiar la 1960 (19-10-2026, noche).
 - No hay que usar siempre la RV1909: si una versión libre traduce mejor un versículo clave, se puede mostrar esa; la mejor traducción entre paréntesis (corchetes) le parece bien; quiere un tope claro para citar la 1960 sin licencia (19-10-2026, noche).
+- Toda animación de Lany tiene que ser fluida, nunca «dura» (nada en bloque; anticipación, partes que llegan tarde, impacto); está dispuesto a Rive, 3D o lo que haga falta (19-10-2026, noche).
+- Quiere que «se lee mejor» se valide versículo por versículo entre las versiones libres (su ejemplo: Gálatas 5:22, «amor» en la NBV) y que esa versión se use en trivia, travesía, versículo del día y juegos; se resolvió con una regla medible (palabras difíciles por versículo) (19-10-2026, noche).
 
 - Prioridad absoluta a no tener problemas legales: pide investigar a fondo la ley y los casos, revisar nombres e imágenes y reforzar.
 - Quiere fidelidad bíblica sin confundir versiones: que la gente sepa qué lee y pueda ver la RVR1960 con un toque, con una UX impecable
