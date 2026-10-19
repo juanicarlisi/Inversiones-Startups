@@ -38,8 +38,8 @@ FUENTE = RAIZ / "informes" / "fuente-senda"
 GRAF = FUENTE / "graficos"
 TIPO = RAIZ / "informes" / "tipografia"
 TITULO = "Senda · El proyecto completo de la app"
-SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-15.pdf"
-SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-15.html"
+SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-16.pdf"
+SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-16.html"
 SALIDA_HTML = FUENTE / "informe.html"
 
 AMBAR, NOCHE, VERDE, GRANADA, CREMA, TINTA = V.AMBAR, V.NOCHE, V.VERDE, V.ROJO, V.CREMA, "#1B1B1F"
@@ -814,8 +814,8 @@ def portada(D) -> str:
              (f"USD {usd(tot)}", "primer año en nivel profesional, por tramos (hay básico y premium)"), ("25 mil", "personas por semana con la Palabra 3 días o más: la meta de 2030")]
     dt_ = "".join(f"<div><b>{a}</b><span>{b}</span></div>" for a, b in datos)
     return f"""<section class="portada-s">
-<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.15 · 19 de octubre de 2026 · uso privado</div>
-<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.15</p>
+<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.16 · 19 de octubre de 2026 · uso privado</div>
+<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.16</p>
 <p class="ps-lema">Una app cristiana para que los jóvenes conozcan la Biblia <b>jugando, leyendo y en comunidad</b>, con nivel profesional:
 nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen; Android e iOS primero y la web después.</p></div>
 <div class="ps-img"><div class="ps-esc">{lany16_png("tu_reposo", 100)}</div>{V.logo_txt(30, V.NOCHE)}</div></div>
@@ -1022,7 +1022,7 @@ def main() -> int:
     env.setdefault("NODE_PATH", "/opt/node22/lib/node_modules")
 
     def imprimir():
-        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.15", "css", "oct-2026"],
+        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.16", "css", "oct-2026"],
                        check=True, env=env)
     imprimir()
     paginas = paginas_capitulos(D, SALIDA_PDF)

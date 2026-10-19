@@ -71,4 +71,51 @@ Travesía y la trivia ya son compatibles con las dos. El costo es el de la licen
 
 1. **Fundador:** probar la fila y la pantalla de versiones en el APK 23 y decir si la explicación convence; decidir si la NTV se paga ya
    (DEC-2026-10-19-3).
-2. **Claude (prueba 24):** la pregunta de la bienvenida (§3, G); el glosario de palabras en el lector (§3, F).
+2. **Claude (prueba 24):** la pregunta de la bienvenida (§3, G); el glosario de palabras en el lector con la lista medida (§7, 1);
+   los nombres propios como hoy (§7, 2); los ≈25 ejercicios y el validador (§7, 3); las lecturas distintas (§7, 4); la fila de
+   versión afinada (capítulo 48 §6.3) si el fundador la aprueba.
+
+## 7. Medido de verdad: cuánto cambia, qué es peligroso y qué se hace (pedido del fundador, 19-10 a la noche)
+
+El fundador pidió ver de verdad qué y cuántos cambios hay entre las dos versiones, si son significativos, cuáles son peligrosos para
+la interpretación y cómo mitigarlos. Se midió sin copiar la RVR1960 (tiene dueño): el texto de Senda contra las tres Biblias modernas
+que la app ya tiene con licencia, 25 versículos leídos uno por uno en la 1960 y las fuentes publicadas. Detalle, método y tablas en
+`conocimiento/2026-10-19-senda-rv1909-vs-rvr1960.md`.
+
+**Cuánto cambia (ESTIMACIÓN con método):**
+
+| Capa | Ejemplo | Tamaño | ¿La 1960 igual? |
+|---|---|---|---|
+| Nombres con grafía vieja | «Samsón», «Noemi», «Phinees», «Thamar» | 99 nombres frecuentes (826 lugares) y unos 120 raros | no («Sansón», «Noemí», «Finees», «Tamar») |
+| Verbo con pronombre pegado | «díjole», «levantose» | 17 % de los versículos | no («le dijo») |
+| Formas que la 1960 conserva | «vosotros», «hubiere» | 5.882 lugares | sí |
+| Léxico viejo o con otro sentido | «empero» (402), «parió», «pontífice», «concierto», «caridad» | **18 % de los versículos** (AT 20 %, NT 14 %) | no |
+| Lectura distinta (base textual) | Lucas 2:22, Mateo 5:22, Apocalipsis 22:14 | un puñado de versículos | no |
+
+Para leer, se nota en **uno de cada tres versículos**. Para el sentido, es la misma Biblia: de 25 versículos verificados, los que la
+polémica suele atribuir a la 1960 (Marcos 1:2, 1 Juan 5:7, Hechos 8:37, Lucas 4:4, Efesios 3:9…) son iguales en las dos; solo tres
+tienen lectura distinta y ninguno toca una enseñanza de la Travesía. No se encontró ninguna cifra publicada de cambios de la revisión de
+1960; la de arriba es propia.
+
+**Qué es peligroso:** no la palabra rara (se nota y se toca) sino el **falso amigo**, que se cree entender: «caridad» (amor), «salud»
+(salvación), «conversación» (conducta), «concierto» (pacto), «reliquias» (remanente), «pontífice» (sumo sacerdote), «potencia»
+(derecho), «parió» (dio a luz), «hemorroides» (tumores), «unicornio» (búfalo), «espíritu pitónico» (de adivinación); y dos con
+carga doctrinal, «sepulcro» e «infierno» donde la 1960 dice «Seol» y «Hades». En el contenido de Senda: 14.273 versículos usados,
+16 % con alguna palabra vieja; unos 25 ejercicios (de 2.433) usan una palabra vieja en su propio texto u opciones.
+
+**Qué se hace (prueba 24, en este orden):**
+
+1. Glosario en el lector (la opción F, ahora con la lista medida: ≈150 palabras con su significado de hoy, también en las opciones de
+   la trivia).
+2. Nombres propios como hoy (verificados con las Biblias modernas de la app en los mismos versículos; se aplican con `ortografia.py`:
+   es grafía, no traducción).
+3. Los ≈25 ejercicios, reescritos; el validador avisa de cualquier opción o respuesta con una palabra de la lista.
+4. Los versículos de lectura distinta: nunca como hueco ni como trivia textual; nota «+» con la lectura de la 1960 (dentro del cupo
+   de cita de 500 versículos).
+5. Fichas léxicas neutrales para «Seol», «Hades», «infierno».
+
+**Qué no se hace:** cambiar palabras del texto (sería una revisión propia, y mirando la 1960 sería copiarla); bajar la 1960 de sitios
+no autorizados; explicaciones largas.
+
+**La fila de versión, afinada** (capítulo 48 §6.3): en lecciones y trivia, solo la píldora «RV1909 · escritura de hoy» y «RVR1960 ↗»
+adentro de la hoja; en la Biblia, las dos; sin la leyenda repetida debajo del pasaje. Con el visto bueno del fundador tras probar el APK 23.

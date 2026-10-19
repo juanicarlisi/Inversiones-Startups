@@ -163,6 +163,12 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - versiones sin confusión: una sola Biblia a la vista, siempre con nombre, y la RVR1960 a un toque en cada pasaje; explicaciones de
     una pantalla, nunca textos largos; los ejercicios se leen igual en la RV1909 y la RVR1960 (capítulo 49);
   - cada APK trae todas las modificaciones anteriores: solo hace falta probar el último.
+  - lo legal nunca a costa de algo clave de la UX: cada cambio por lo legal se mide (riesgo real × daño, contra lo que pierde la
+    experiencia) y, si la experiencia pierde algo que se nota, se pregunta antes (capítulo 48 §6);
+  - las diferencias entre la RV1909 y la RVR1960 se midieron sin copiar la 1960 (`conocimiento/2026-10-19-senda-rv1909-vs-rvr1960.md`):
+    misma traducción y misma base textual en casi todo, pero se nota en uno de cada tres versículos; lo peligroso son los falsos amigos
+    («caridad», «salud», «conversación», «concierto») y los nombres con grafía vieja («Samsón»); mitigación: glosario en el lector,
+    nombres de hoy, ejercicios sin palabras viejas, lecturas distintas marcadas (capítulo 49 §7).
 
 ## 2. Reglas no negociables
 

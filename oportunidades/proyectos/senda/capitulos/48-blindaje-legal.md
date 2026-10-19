@@ -79,3 +79,52 @@ ya existe». Senda cumple por diseño: app completa y propia, toda cita verifica
    en vivo; el glosario de palabras que la RVR1960 dice distinto, en el lector (capítulo 49).
 3. **Regla permanente:** cada activo nuevo entra con su licencia anotada; cada juego inspirado en otro, con nombre, personajes y
    aspecto propios; cada cita, verificada.
+
+## 6. Lo legal sin romper nada clave de la UX: riesgo real y qué vale la pena
+
+El fundador pidió, la noche del 19-10-2026, que lo legal no rompa nada clave de la experiencia y que cada cambio se mida en serio.
+La regla que se usa desde ahora: un cambio por lo legal vale la pena cuando **(probabilidad de un reclamo × daño si llega) supera con
+claridad lo que pierde la experiencia**. El daño típico no es un juicio: es que Google Play baje la app por una denuncia de marca o de
+derechos (la tienda baja primero y pregunta después) justo cuando la difusión arranca.
+
+| Cambio | Riesgo real (de qué, quién reclamaría, cuán probable) | Qué pierde la UX | Veredicto |
+|---|---|---|---|
+| **Música: Mixkit → Kevin MacLeod** | HECHO (19-10): la licencia gratuita de Mixkit dice «Not allowed: Video Games» y no menciona apps; Senda tiene siete juegos. Reclamaría Envato o el autor, con una denuncia en Play. Probabilidad baja (no se encontraron casos contra apps chicas), daño inmediato y visible si llega. | La música de inicio no cambia («Nonstop» ya era de MacLeod, elegida en la prueba 17). Cambian los cinco fondos de los juegos: correctos, pero son temas muy oídos en YouTube; menos «nivel Apple» que los de Mixkit. | **Vale la pena hoy** (costo cero, riesgo cero). Camino de vuelta a la calidad en §6.1. |
+| **Lany v4 (cara, patas y manos canela)** | La v3 (cara y patas negras, lana blanca, copete) era el esquema de Shaun the Sheep (Aardman: marcas registradas y personaje con derechos; licencia el personaje a fabricantes). Probabilidad media si Senda crece: la mascota es lo primero que mira un equipo de licencias en la ficha de la tienda. Daño alto: rehacer la mascota después del lanzamiento, con videos, stickers y ficha ya publicados. | Ninguna función cambia; cambia el color de la cara. La v4 conserva proporciones, expresiones, ropa y armadura. El costo real es afectivo: el fundador tiene que querer a la v4 tanto como a la v3. | **Vale la pena.** Para que no sea una imposición, Claude deja en la Consola tres colores de cara (canela, gris pizarra, crema) y el fundador elige (§6.2). |
+| **El yunque en vez de la corona (Espadeo)** | La ruleta de seis categorías de colores con un casillero de corona es la firma visual de Preguntados (Etermax, Buenos Aires: mismo mercado y mismas tiendas). La mecánica no es protegible (Ley 11.723, art. 1); el conjunto visual sí puede serlo (Tetris v. Xio). No se encontraron demandas de Etermax contra copias (búsqueda del 19-10). Probabilidad baja, daño medio. | La corona dice sola «premio, elegí». El yunque hay que explicarlo una vez («Cómo se juega» ya lo dice: en la Armería se forja la pieza). | **Vale la pena**, costo mínimo. Revisar en el APK 23 que el ícono se lea a 44 px. |
+| **«Quién fue quién»** | Marca de Hasbro («¿Quién es quién?», Guess Who?). | Nada: es el título de una ruta. | **Obvio.** |
+| **La fila de versión en cada pasaje** | No es un cambio legal: es la respuesta al pedido de fidelidad entre versiones (capítulo 49). | Dos cosas que se notan: (a) la versión aparece dos veces, en la píldora y en la leyenda larga de abajo del pasaje; (b) «RVR1960 ↗» en medio de una lección saca de la app (abre Bible.com o YouVersion) y puede sugerir que la 1960 es «la de verdad» y la de Senda una copia menor. | **Ajustar en la prueba 24** (§6.3), sin tocar nada legal. |
+
+### 6.1 Música: cómo volver a la vara alta sin riesgo
+
+- HECHO (19-10-2026, audiojungle.net/licenses/terms/music_standard): la licencia **Music Standard** de AudioJungle lista «apps,
+  games» entre los productos finales, permite productos «free or commercial, monetized or not» y pone un límite de **10.000 copias o
+  descargas**; la **Music Mass Reproduction** no tiene límite de copias. El precio lo fija cada autor; fuentes secundarias (no
+  oficiales) ubican la reproducción masiva entre USD 50 y 200 por pista (ESTIMACIÓN; verificar en la compra).
+- ESTIMACIÓN: un inicio y cinco fondos con licencia de reproducción masiva, USD 300 a 1.000 una sola vez. Se compra cuando haya
+  ingresos o cuando el fundador decida subir la vara (regla 8: lo aprueba él). Hasta entonces, MacLeod.
+- Envato Elements (suscripción) también cubre apps si el proyecto se registra con la suscripción activa, y esa licencia queda
+  perpetua para ese producto (HECHO por fuentes secundarias del 19-10; la página oficial no se pudo leer hoy: verificar antes de pagar).
+
+### 6.2 Lany: que el color lo elija el fundador
+
+La paleta de Lany está en `scripts/rive/lani.py` (constantes `CARBON`, `CARBON_LUZ`, `CARBON_OSC`): cambiar el color de la cara es
+una línea. Las dos variantes (gris pizarra y crema) ya están generadas con sus 20 poses (`scripts/rive/lani_variantes.py`) y se
+eligen en la Consola, pestaña «Lany», junto a la canela y a la v3 archivada; la elección queda guardada y Claude regenera a Lany con ese
+color en la prueba 24. Lo que no vuelve: cara negra con lana blanca y copete (la combinación de Shaun). Lo que sí puede
+volver si la v3 le gusta mucho más: la forma de la v3 con otro color.
+
+### 6.3 La fila de versión: misma fidelidad, menos ruido
+
+En las lecciones y en la trivia, dejar solo la píldora de la izquierda («RV1909 · escritura de hoy» ⓘ) y mover «RVR1960 ↗» adentro
+de la hoja «Las versiones, en una pantalla» (un toque más, misma disponibilidad; no se sale de la lección por accidente). En la
+Biblia, las dos píldoras como hoy. Sacar la leyenda repetida de abajo del pasaje cuando la fila está a la vista (la atribución completa
+sigue en Licencias y créditos y en el pie del lector). Listo para hacer con el visto bueno del fundador después de probar el APK 23.
+
+### 6.4 Lo que no se cambia por lo legal (y no conviene cambiar)
+
+El camino de la Travesía (mecánica genérica, con lenguaje propio: la senda iluminada), las reacciones de Lany, la ruleta misma,
+«Vivir la historia», «En la frente», «Nombres por letra» (mecánicas de más de veinte años con nombres propios), la trivia por
+categorías. Cambiarlos «para estar más seguros» sería pagar en experiencia por un riesgo que ya es bajo. Regla para adelante: antes
+de cualquier cambio por lo legal, la misma tabla (riesgo real × daño, contra costo de UX); si la experiencia pierde algo que se nota,
+se le pregunta al fundador antes.

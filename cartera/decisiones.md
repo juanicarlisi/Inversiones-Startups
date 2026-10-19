@@ -976,3 +976,30 @@
 - **Registro:** capítulos 48 y 49; bitácora `conocimiento/2026-10-19-senda-blindaje-legal.md`; en la app, `docs/LEGAL.md`,
   `docs/legal/autorizacion_ministerio.md`, `scripts/musica_macleod.py`, `scripts/rive/lani.py` (paleta v4), `src/componentes/versiones.tsx`,
   `src/datos/legal.ts`, `tienda/` (gráfico y capturas de la ficha).
+
+## DEC-2026-10-19-5 · Senda: lo legal sin romper la UX y las versiones medidas (recomendaciones que esperan decisión)
+
+- **Fecha:** 2026-10-19 (noche) · **Quién:** el fundador pide; Claude evalúa y recomienda; decide el fundador.
+- **Pedido:** que lo legal no rompa nada clave de la experiencia (evaluar el riesgo real de cada cambio y qué vale la pena), y revisar
+  de verdad las diferencias entre la RV1909 y la RVR1960: cuántas, cuáles, si son significativas, cuáles peligrosas, cómo mitigar.
+- **Evaluación (capítulo 48 §6):** regla «riesgo real × daño, contra lo que pierde la UX». Vale la pena: la música de MacLeod (riesgo
+  cero hoy; la licencia de Mixkit excluye videojuegos), Lany v4 (la v3 era el esquema de Shaun the Sheep; la mascota es lo que primero
+  mira un equipo de licencias), el yunque (la corona es la firma de Preguntados; costo mínimo) y «Quién fue quién» (gratis). A afinar:
+  la fila de versión (versión repetida con la leyenda de abajo; salida de la app en medio de la lección). No se cambia nada más por
+  lo legal: el camino, las reacciones de Lany, la ruleta, los juegos de mesa.
+- **Medición (capítulo 49 §7 y bitácora `conocimiento/2026-10-19-senda-rv1909-vs-rvr1960.md`):** sin copiar la 1960. Se nota en uno
+  de cada tres versículos (18 % con léxico viejo, 17 % con verbo y pronombre pegado, 99 nombres con grafía vieja); misma base textual
+  en casi todo (25 versículos verificados: tres con lectura distinta, ninguno toca una enseñanza de la Travesía). Peligrosos: los falsos
+  amigos («caridad», «salud», «conversación», «concierto», «reliquias», «pontífice», «parió») y «sepulcro»/«infierno» por «Seol»/«Hades».
+  Unos 25 ejercicios usan una palabra vieja en su propio texto.
+- **Espera decisión del fundador:**
+  1. **Color de Lany:** elegir en la Consola entre canela (v4), gris pizarra y crema; nunca la cara negra con lana blanca y copete.
+  2. **Música:** MacLeod hasta que haya ingresos; después, comprar las pistas con licencia de reproducción masiva en AudioJungle
+     (ESTIMACIÓN USD 300–1.000 una vez) o una suscripción a Envato Elements registrando el proyecto. Aprobar cuando toque gastar.
+  3. **Fila de versión afinada** (48 §6.3): sí o no, después de probar el APK 23.
+  4. **Nombres propios como hoy** en la Biblia de Senda (grafía verificada con las Biblias modernas de la app): sí o no.
+- **Lo que Claude hace en la prueba 24 salvo indicación en contra:** glosario en el lector con la lista medida; los ≈25 ejercicios y
+  el validador más estricto; la lista de lecturas distintas; las fichas de «Seol», «Hades» e «infierno»; las dos variantes de color de
+  Lany en la Consola.
+- **Regla que queda:** antes de cualquier cambio por lo legal, la tabla de riesgo real contra costo de UX; si la experiencia pierde algo
+  que se nota, se pregunta antes.
