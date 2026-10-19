@@ -174,6 +174,14 @@
 - Si algo no le convence (el modo en grupo de «Vivir la historia»), prefiere sacarlo antes que dejarlo a medias.
 - En los formularios, lo mínimo: un dato por pantalla y controles conocidos (el calendario del mes, la rueda de la alarma).
 
+### Pautas del 19-10-2026 (Senda, prueba 22)
+
+- Está dispuesto a pagar licencias de Biblias desde el inicio si hace falta: la Biblia que la gente lee vale más que la regla de corte.
+- Quiere todo lo visual posible (mapas, líneas de tiempo, diagramas, animaciones) en travesías, trivia y juegos: «todo lo que
+  pueda sumar y mejorar esto a fondo».
+- Piensa en las tiendas como próximo paso concreto y pregunta qué falta y cómo seguir: prefiere listas de pasos con quién hace cada uno.
+- Quiere abrir mercados en portugués e inglés cuanto antes, aunque sea por la base (idioma y Biblia) y el contenido después.
+
 ## Lo que falta (y por qué importa)
 
 | # | Pregunta | Por qué importa | Qué cambia según la respuesta |

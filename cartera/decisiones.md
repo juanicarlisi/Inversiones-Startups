@@ -915,3 +915,37 @@
   cuenta de Google Play antes del 15-11.
 - **Registro:** capítulo 46; en la app, `scripts/autor/historias_rol.py`, `src/estado/misiones.ts`, `src/pantallas/Historias.tsx`,
   `src/componentes/comoSeJuega.tsx`, `src/componentes/rueda.tsx`, `src/pantallas/Evento.tsx`, `scripts/autor/trivia_banco4.py`.
+
+## DEC-2026-10-19-3 · Senda: vigésima segunda tanda (prueba 22), licencias pagando, visual a fondo, tiendas, contenido e idiomas
+
+- **Fecha:** 2026-10-19 · **Quién:** el fundador pide; Claude recomienda y construye.
+- **Pedido:** evaluar a fondo incluir una licencia de las Biblias (no importa pagar al empezar); en trivias, travesías y juegos,
+  más diagramas, líneas de tiempo e imágenes animadas, todo lo que sume a la diversión y la UX; ver si ya vamos a Play Store y App
+  Store (qué falta, cómo seguimos); a fondo con los contenidos de trivia y travesías; ver si se puede iniciar portugués e inglés.
+- **Decidido / hecho:**
+  - **Licencias, plan pagando (recomendación; el fundador decide):** API.Bible Pro + NTV ahora (USD 29 + 10 a 25 por mes al
+    empezar; 150 por versión con 50.000 usuarios); la **SAS en noviembre** (adelantada de enero) como titular de licencias y
+    cuentas; con la SAS, la RVR1960 por la Digital Bible Library y el formulario de la ABS; la NVI no se vende para apps con
+    ingresos (sigue en un toque desde Bible.com). La YouVersion Platform (gratis, 1.487 Biblias, pero sin anuncios ni
+    suscripciones) queda como plan B del camino «ministerio sin ingresos». La regla de corte del 13-10 (hasta el 10 % del ingreso
+    neto) sigue como tope, no como condición para empezar.
+  - **Sistema visual:** mapas sobre costas y ríos reales (Natural Earth; 54 lugares, 6 recorridos, 4 encuadres), seis líneas de
+    tiempo, ocho diagramas por capas y las láminas, en portadas, preguntas, trivia («tipo con imagen»), prueba de nivel, desafío del
+    día y el final de «Antes o después». Regla: un visual nunca regala la respuesta; la línea de tiempo en «ordenar» aparece al
+    responder. El visual va antes del texto en la portada.
+  - **Tiendas:** flujos de firma y AAB para Play, `eas.json` y `app.json` para iOS, textos de ficha, clasificación y seguridad de
+    datos (`docs/TIENDAS.md`); falta lo que solo hace el fundador: cuentas (Play USD 25, Apple USD 99 por año, Expo gratis), sitio
+    público con la política de privacidad y 12 testers.
+  - **Contenido:** rutas «El mapa de la Tierra Santa» y «La gran línea de tiempo» (12 lecciones), Quién es quién capítulos 4 y 5
+    (12 lecciones; la ruta completa), trivia banco 5 (42 nuevas, 8 con mapa; 644 en total). Travesía: 421 niveles, 291 lecciones.
+  - **Idiomas:** selector en Ajustes (español, portugués, inglés); Biblias libres en portugués (Bíblia Livre, Nova Bíblia Viva) e
+    inglés (BSB, WEB) dentro de la app; pestañas traducidas; el contenido se traduce ruta por ruta en 2027, primero portugués.
+  - **Vista previa:** `?demo=leccion:ID` y `?demo=espadeo:ID` abren una lección o una pregunta directo (Consola y pruebas).
+- **Pendiente del fundador:** pagar la NTV en API.Bible; crear la SAS en noviembre; cuentas de Play, Apple y Expo; publicar el
+  sitio; 12 testers; opcional, consultar a YouVersion por un acuerdo comercial. Siguen abiertas la música de inicio, la voz, Claude
+  Max y la cuenta de Play antes del 15-11. Probar el APK prueba 22 (incluye el 21, que no llegó a probar).
+- **Registro:** capítulo 47; bitácora `conocimiento/2026-10-19-senda-licencias-pagas-tiendas-idiomas.md`; en la app,
+  `scripts/arte/mapa_biblia.py`, `scripts/arte/diagramas.py`, `scripts/autor/lineas.py`, `scripts/autor/visuales.py`,
+  `scripts/autor/tierras.py`, `scripts/autor/quien_es_quien_45.py`, `scripts/autor/trivia_banco5.py`, `src/componentes/visual.tsx`,
+  `src/componentes/mapaBiblia.tsx`, `src/componentes/lineaTiempo.tsx`, `src/componentes/diagrama.tsx`, `src/i18n/textos.ts`,
+  `eas.json`, `.github/workflows/firma.yml`, `.github/workflows/aab.yml`, `docs/TIENDAS.md`.

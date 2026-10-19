@@ -146,6 +146,15 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - el evento del calendario se arma con el título solo (sin clasificaciones), el día en el calendario del mes y la hora con ruedas
     de alarma o escrita; compacto y sencillo.
 
+- **Datos del 19-10-2026 (Senda, prueba 22):**
+  - licencias: pagar está permitido desde el inicio; la recomendación (NTV por API.Bible ahora, SAS en noviembre, RVR1960 por la DBL
+    con la SAS; YouVersion Platform como plan B sin ingresos) espera su decisión (DEC-2026-10-19-3; capítulo 47 §2);
+  - todo lo que se pueda ver, se ve: mapas, líneas de tiempo, diagramas y láminas en travesías, trivia y juegos; un visual nunca
+    regala la respuesta; el visual va antes del texto en la portada de la lección;
+  - tiendas: lo técnico está listo; cuentas (Play, Apple, Expo), sitio público y 12 testers son del fundador (`docs/TIENDAS.md`);
+  - idiomas: español, portugués e inglés en Ajustes; Biblias libres en portugués e inglés; el contenido se traduce en 2027, primero
+    portugués; la vista previa abre lecciones y preguntas con `?demo=leccion:ID` y `?demo=espadeo:ID`.
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
