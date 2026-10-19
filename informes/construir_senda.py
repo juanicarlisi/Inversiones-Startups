@@ -825,6 +825,9 @@ def bloque_pantallas25() -> str:
             + tira("desmayo", "Ahora: anticipación, tambaleo con la cabeza y las orejas que llegan tarde, caída con gravedad, impacto, asentamiento")
             + tira("desmayada", "«Desmayada» (bucle): respira en el piso, mueve una oreja, una pata y la cola hasta que la app la levanta")
             + tira("patatus", "El patatús (2,8 s): la misma caída y se levanta de un salto, con estirar y aplastar, sacudiendo la cabeza")
+            + tira("facepalm", "Mano a la cara (1,6 s): anticipación, la mano con retroceso y rebote, la cabeza cae tarde y niega apenas")
+            + tira("mareo", "Mareo (1,8 s): sacudón de anticipación, vueltas con el jopo y la cola que llegan tarde, el cuerpo que respira con el vaivén")
+            + tira("tapaojos", "Taparse los ojos (1,7 s): la cabeza se va para atrás antes de las manos, se encoge, espía de reojo y las baja")
             + fila([("pasaje_nbv", "Gálatas 5:22 en una lección: se abre en la NBV, con los chips y el motivo"), ("pasaje_rv1909", "Tocar «RV1909»: el mismo versículo, «caridad» subrayada"),
                     ("trivia", "«Leer» después de una pregunta de la trivia: Gálatas 5:22 en la NBV, con la atribución"), ("inicio", "Inicio: el versículo del día usa la mejor versión")]))
 

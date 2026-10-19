@@ -1039,8 +1039,8 @@
   palabras difíciles en ese versículo (formas del glosario que las versiones modernas casi no usan; la BES solo si falta el
   versículo): 1.223 versículos (876 PDT, 342 NBV, 5 BES), chips para cambiar y el motivo a la vista; el lector, los ejercicios y la
   trivia siguen en la RV1909. Glosario con «longanimidad» y «benignidad».
-- **Espera decisión del fundador:** si la caída convence, el mismo oficio para mano a la cara, mareo, taparse los ojos y el giro de
-  festejo (prueba 26); y lo pendiente de DEC-2026-10-19-6 (consulta a la Sociedad Bíblica, ejemplar de la 1960, subrayado o
+- **También hecho:** mano a la cara, mareo y taparse los ojos con el mismo oficio, sin cambiar sus duraciones (capítulo 51 §6).
+- **Espera decisión del fundador:** si la caída y las reacciones convencen; y lo pendiente de DEC-2026-10-19-6 (consulta a la Sociedad Bíblica, ejemplar de la 1960, subrayado o
   corchetes de fábrica, color de Lany, fila de versión afinada).
 - **Regla que queda:** «se lee mejor» se mide (palabras difíciles por versículo), no se decide por gusto versículo por versículo; y
   toda mejora de Lany se busca primero en el tiempo de la animación (claves, retrasos, curvas) antes que en cambiar de tecnología.

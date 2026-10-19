@@ -54,7 +54,7 @@ el desmayo dejó (la raíz acostada, los brazos abiertos) para que el cambio no 
 con estirar en el aire y aplastar al aterrizar, y sacude la cabeza como quien vuelve en sí. Dramática y graciosa, nunca burlona
 (regla de la prueba 20).
 
-Números: el archivo `assets/lani/lani.riv` pasa de 109 a 110 animaciones (271 KB); la pose fija «desmayo» se regeneró con la
+Números: el archivo `assets/lani/lani.riv` pasa de 109 a 110 animaciones (272 KB); la pose fija «desmayo» se regeneró con la
 caída nueva; las demás poses no cambian.
 
 ## 4. Cómo se verificó (sin la app y en la app)
@@ -83,11 +83,20 @@ mano «busque» el piso). Nuestro escritor de `.riv` (`escritor.py`) no genera m
 persona que anime, o extender el escritor. ESTIMACIÓN: dos o tres días de trabajo propio para mallas simples; queda para después del
 lanzamiento, si el fundador ve que la lana rígida se nota.
 
-## 6. Las otras reacciones
+## 6. Las otras reacciones, con el mismo oficio
 
-Mano a la cara, mareo y taparse los ojos no se tocaron en esta prueba: no son caídas y se veían razonablemente bien, pero tienen la
-misma deuda (poco retraso entre partes, sin anticipación). Si al fundador le gusta cómo quedó la caída, la prueba 26 les pasa el
-mismo peine a las tres y al giro de festejo.
+Mano a la cara, mareo y taparse los ojos no son caídas, pero tenían la misma deuda: poco retraso entre partes y ninguna
+anticipación. En la misma prueba se les pasó el mismo peine, sin cambiar sus duraciones (la app las temporiza igual):
+
+- **Mano a la cara (1,6 s):** la cabeza sube apenas y las cejas se levantan antes de que la mano suba (anticipación); la mano llega
+  a la frente con retroceso y rebote; la cabeza cae tarde y niega apenas («no puede ser»); el torso, el jopo y la cola llegan después;
+  se repone con un pequeño pasarse.
+- **Mareo (1,8 s):** un sacudón hacia atrás y recién después las vueltas; los ojos la siguen al revés; el jopo y la cola llegan tarde;
+  el cuerpo se bambolea y respira con el vaivén.
+- **Taparse los ojos (1,7 s):** la cabeza y las cejas se van para atrás antes de que suban las manos; el cuerpo se encoge; al espiar,
+  la cabeza se ladea, las pupilas miran de reojo y la cola se sacude; las baja con un pequeño pasarse.
+
+El giro de festejo queda como estaba (ya tenía aplastar, estirar y rebote). Las tiras de las tres están abajo del §4.
 
 ## 7. La versión que mejor se lee en cada versículo
 
@@ -138,9 +147,8 @@ Senda; es la PDT. Es otra razón para que ahí gane la NBV.
 
 1. **Fundador:** probar el APK 25 (una lección hasta quedarse sin vidas: el desmayo, y respirando en el piso; errar una pregunta hasta
    que toque el patatús; Travesía → «El fruto del Espíritu» → Lámpara: el pasaje en la NBV con los chips; Jugar → una pregunta de
-   1 Corintios 13 → «Leer»: la PDT). Decir si la caída convence para pasar el mismo peine a las otras reacciones. Siguen esperando:
+   1 Corintios 13 → «Leer»: la PDT). Decir si la caída y las reacciones convencen. Siguen esperando:
    la consulta a la Sociedad Bíblica, dónde quedó el ejemplar de la 1960, subrayado o corchetes de fábrica, el color de Lany, la fila
    de versión afinada (capítulo 50 §7).
-2. **Claude (prueba 26):** mano a la cara, mareo, taparse los ojos y el giro de festejo con el mismo oficio; la comparación con el
-   ejemplar de la 1960 cuando esté; la pregunta de versión en la bienvenida (capítulo 49 §3, G); más mapas y libros jugables
+2. **Claude (prueba 26):** la comparación con el ejemplar de la 1960 cuando esté; la pregunta de versión en la bienvenida (capítulo 49 §3, G); más mapas y libros jugables
    (capítulo 47).
