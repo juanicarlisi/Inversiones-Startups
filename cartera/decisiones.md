@@ -856,3 +856,38 @@
   repositorio de la app: `scripts/rive/lani.py`, `scripts/arte/retratos.py`, `scripts/arte/laminas.py`, `scripts/autor/quien_soy.py`,
   `scripts/autor/historias_rol.py`, `scripts/autor/libros_cortos.py`, `scripts/autor/trivia_banco3.py`, `scripts/musica_fondo.py`,
   `src/componentes/lamina.tsx`, `src/pantallas/Historias.tsx`, `src/pantallas/QuienEs.tsx`, `src/tema.ts`.
+
+## DEC-2026-10-19-1 · Senda: vigésima tanda (prueba 20), textos claros y glosario, Lany graciosa, juegos en grupo, fiesta, calendario y widget
+
+- **Fecha:** 19-10-2026. **Quién:** el fundador pide; Claude ejecuta y recomienda.
+- **Pedido (resumen, sin citas textuales):** más animaciones y más gracia en Lany (que se desmaye al errar) con investigación de
+  otras mascotas; arreglar el doble «Siguiente» y las áreas que no se desmarcaban en la bienvenida, con menos opciones; intros de
+  lección cortas y hermosas; revisar las travesías línea por línea (los ángeles, Babel, «caridad», «potencia y divinidad», lo
+  básico explicado); repaso opcional menos invasivo; globos de Lany que no se pisen; mucha más fiesta y una pantalla de pieza con
+  tablero grande y menos texto; calendario en pasos y evaluar lugar, enlace y notas; widget del versículo; un juego de nombres por
+  letra para grupos; «¿Quién es?» contra alguien con preguntas escritas; «Vivir la historia» interactivo y útil; verificar que
+  ningún libro no confiable se usó; registrar el entorno de prueba para líderes y la idea de los kits por puntos.
+- **Decidido / recomendado:**
+  - **Glosario automático y redacción:** 95 palabras explicadas (RV1909 y términos básicos) inyectadas en 256 lecciones y
+    resaltadas en la historia; ocho preguntas sin contexto reescritas; «caridad» siempre como amor (dentro de la licencia: las
+    comillas siguen siendo texto exacto de 1909 y la explicación va afuera).
+  - **Lany:** cinco gestos nuevos en Rive (patatús, mano a la cara, mareo, taparse los ojos, giro); al errar, la primera vez el
+    «uff» clásico y después una reacción distinta cada vez; nunca burla. Investigación: Duolingo no tiene reacciones al error (espacio
+    libre), Lily mezcla 64 variaciones de reposo, Finch genera apego por nombre y espera; la viralidad viene de años de
+    personalidad coherente antes de cualquier golpe.
+  - **«¿Quién es?»:** se suma «contra alguien» (recomendación: no sacar a Lany; su intérprete pasó a raíces, sinónimos, tipeo y
+    desempate por especificidad, y se agregaron los rasgos «guerra» y «esposo o esposa» que pedían las preguntas naturales).
+  - **«Vivir la historia» en grupo** (voto secreto, votos a la vista, un minuto de charla con pregunta escrita, espejo de cada uno)
+    y copy nuevo cuando el personaje hizo otra cosa. **«Nombres por letra»** nuevo, con 255 nombres verificados.
+  - **Fiesta:** confeti y globos en lección, capítulo y pieza; pantalla de pieza con tablero grande, «n de 6» y frase; versículo chico.
+  - **Calendario:** evento en tres pasos; lugar, enlace y notas se quedan (sirven a los grupos) pero plegados; la tarjeta de Inicio
+    solo con eventos. **Widget** «Versículo del día» con react-native-android-widget (Android 16 lo muestra en la pantalla de bloqueo).
+  - **Libros:** manda la clasificación A del fundador; 76 títulos del inventario anterior quedaron afuera; ninguno se había usado.
+  - **Registrado:** entorno de prueba para líderes (hito previo a la prueba cerrada, cuando existan cuentas) y «10 kits por puntos»
+    como método 12 de difusión (capítulo 44 §7.1; necesita bases y, si es sorteo, autorización; concurso de habilidad si gana el
+    puntaje).
+- **Pendiente del fundador:** probar el APK prueba 20; la música de inicio en la Consola (sigue sin elegirse).
+- **Registro:** capítulo 45 y `conocimiento/2026-10-19-senda-mascotas-widgets-y-juegos-en-grupo.md`; en la app,
+  `scripts/autor/glosario.py`, `scripts/autor/nombres.py`, `src/componentes/textoRico.tsx`, `src/componentes/fiesta.tsx`,
+  `src/pantallas/Letra.tsx`, `src/widget/`.
+

@@ -1,6 +1,6 @@
 # Cobertura del inventario bíblico en la app
 
-> **Generado** por `python3 herramientas/inventario_senda.py` el 2026-10-18. No editar a mano: la fuente es
+> **Generado** por `python3 herramientas/inventario_senda.py` el 2026-10-19. No editar a mano: la fuente es
 > `inventario_biblico.yaml`. Cuenta las preguntas (Travesía, Espadeo, Trivia) y los hechos (Antes o después) que caen en los capítulos
 > de cada personaje o historia. «Con contenido» = al menos 4 preguntas de la Travesía; «empezado» = algo; «sin contenido» = nada todavía.
 

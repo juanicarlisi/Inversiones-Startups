@@ -205,6 +205,7 @@ sino **los jóvenes de iglesias evangélicas y sus líderes**: ahí se concentra
 | 9 | **Reseñas en la tienda** | Pedir la reseña en el momento justo (al terminar una historia o ganar una pieza) con el diálogo oficial de Play, nunca con premios | USD 0 | Claude lo programa | Reseñas y nota en la ficha |
 | 10 | **Iglesias y medios cristianos** | Nota de prensa breve y Lany para radios y portales evangélicos de Argentina; un correo por semana desde appsenda.ok@gmail.com | USD 0 | Claude redacta; el fundador aprueba y manda | Menciones e instalaciones |
 | 11 | **Publicidad paga** | Recién en Semana Santa de 2027, prueba de USD 100 a 200 en Google Ads para apps con regla de corte (plan del capítulo 43) | USD 100 a 200 | El fundador | Costo por instalación y retención a 7 días |
+| 12 | **«10 kits por puntos»** (anotado el 19-10-2026 para cuando se vea la difusión) | Diez kits (Biblias, remeras de Lany o un kit de líder impreso) para las primeras diez personas o diez iglesias que junten X puntos en toda la app, con canje desde la app (un código que se muestra al llegar). Si gana el puntaje, es **concurso de habilidad** (sin trámite de sorteo); si se sortea entre los que llegan, lleva bases y, en CABA, autorización (§7.2). Necesita cuentas para contar puntos por iglesia | Los kits (ESTIMACIÓN: ARS 30.000 a 60.000 cada uno) | El fundador decide y paga; Claude arma las bases y el canje | Inscriptos, puntos y canjes |
 
 ### 7.2 Sorteos: el marco legal (HECHO, 18-10-2026; verificar con un abogado antes del primero)
 

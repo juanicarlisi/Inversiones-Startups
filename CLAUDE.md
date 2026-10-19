@@ -123,6 +123,21 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     música de fondo baja y apagable en los juegos;
   - difusión y cobros: capítulo 44 §7 y §8 (sorteos solo con bases y autorización; preferir concursos de habilidad; cuenta de Play antes
     del 15-11; público 13+; sitio con política de privacidad y app-ads.txt).
+- **Datos del 19-10-2026 (Senda, prueba 20):**
+  - cada texto de la Travesía tiene que entenderse a la primera: nada de preguntas sin contexto ni palabras que suenen mal (los
+    serafines «se decían uno al otro», nunca «se gritaban»); las palabras que la RV1909 usa distinto («caridad», «potencia») van
+    explicadas y, cuando ayuda, con el original; lo básico se explica para el recién llegado (qué es «santo»): glosario automático
+    (`scripts/autor/glosario.py`, correrlo después de regenerar el contenido);
+  - las intros de las lecciones: cortas, con negritas, citas en color y pasos; nunca texto plano;
+  - Lany reacciona al error con gracia y nunca burlona (patatús, mano a la cara, mareo, taparse los ojos); la meta es un personaje
+    del que todos hablen;
+  - los juegos tienen que poder jugarse con otros: «¿Quién es?» contra alguien (preguntas escritas, la persona contesta sí o no),
+    «Vivir la historia» en grupo (voto secreto y un minuto de charla), «Nombres por letra» (nuevo);
+  - más fiesta al ganar (confeti, globos, tablero grande); el evento del calendario se arma en tres pasos; widget del versículo del
+    día en Android;
+  - libros: manda la clasificación A del fundador (repositorio `estudios-biblicos-con-ani`); nada de esa biblioteca se usó en Senda;
+  - registrado para antes del lanzamiento: un entorno de prueba para líderes (cuenta de líder y Max, con 2 o 3 personas) y, para la
+    difusión, «10 kits por puntos» (sortear entre las primeras 10 personas o iglesias que junten X puntos, canje en la app).
 
 ## 2. Reglas no negociables
 

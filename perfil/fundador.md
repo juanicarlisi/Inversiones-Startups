@@ -156,6 +156,16 @@
 - Quiere Lany siempre en 3D si conviene; aceptó que Claude evalúe lo mejor para la UX (recomendación: 2D con volumen).
 - Pide métodos de difusión concretos y baratos (sorteos, redes) y saber desde ahora qué hacer para cobrar anuncios y suscripciones.
 
+### Pautas del 19-10-2026 (Senda, prueba 20)
+
+- Prueba la app línea por línea y le importa cada palabra: una pregunta sin contexto o una palabra que suena mal («se gritaban»)
+  invalida la pantalla entera. Pide que lo básico esté explicado para el que recién empieza.
+- Prefiere menos opciones y más claras (bienvenida, calendario): una pregunta por pantalla y lo secundario plegado.
+- Quiere juegos que se jueguen con otros, no solo contra la app; si la app no entiende lo escrito, mejor que conteste una persona.
+- Quiere más fiesta cuando se gana y un personaje gracioso del que la gente hable; nunca burla.
+- Mantiene su biblioteca de referencia filtrada (solo autores protestantes confiables) y espera que Senda respete esa misma lista.
+- Quiere probar la app también desde el lugar del líder (cargar material, sumar gente) antes de lanzar.
+
 ## Lo que falta (y por qué importa)
 
 | # | Pregunta | Por qué importa | Qué cambia según la respuesta |
