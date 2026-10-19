@@ -169,6 +169,15 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     misma traducción y misma base textual en casi todo, pero se nota en uno de cada tres versículos; lo peligroso son los falsos amigos
     («caridad», «salud», «conversación», «concierto») y los nombres con grafía vieja («Samsón»); mitigación: glosario en el lector,
     nombres de hoy, ejercicios sin palabras viejas, lecturas distintas marcadas (capítulo 49 §7).
+- **Datos del 19-10-2026 (Senda, prueba 24):**
+  - no hay que usar siempre la RV1909: la persona lee en la versión libre que quiera; para los versículos clave, la hoja de estudio
+    muestra el mismo versículo en una versión libre de hoy (la PDT es la más parecida a la 1960) y el aviso cuando la 1960 lee distinto;
+  - la «mejor traducción entre paréntesis» se hace entre corchetes y a elección (subrayadas y se tocan, de fábrica; entre corchetes;
+    o nada), solo con las palabras seguras y con palabras de Senda, nunca con texto de una versión con derechos (capítulo 50 §3);
+  - tope de cita de la RVR1960: 500 versículos con la leyenda y sin permiso escrito (Sociedad Bíblica Argentina, 19-10-2026); la
+    consulta para que conste que vale para una app con anuncios espera que el fundador la mande (`docs/legal/consulta_sba.md`);
+  - el ejemplar de la 1960 que el fundador carga es solo para examinar: nunca entra a la app ni a un repositorio;
+  - los nombres propios de la Biblia de Senda ya tienen la grafía de hoy (Sansón, Noemí, Finees); «Líbano» va con mayúscula.
 
 ## 2. Reglas no negociables
 

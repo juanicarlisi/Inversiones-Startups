@@ -1003,3 +1003,24 @@
   Lany en la Consola.
 - **Regla que queda:** antes de cualquier cambio por lo legal, la tabla de riesgo real contra costo de UX; si la experiencia pierde algo
   que se nota, se pregunta antes.
+
+## DEC-2026-10-19-6 · Senda: vigésima cuarta tanda (prueba 24), las palabras de hoy, los nombres de hoy y los versículos clave
+
+- **Fecha:** 2026-10-19 (noche) · **Quién:** el fundador pide y fija el criterio; Claude investiga y construye.
+- **Pedido:** examinar despacio las diferencias con un ejemplar autorizado de la RVR1960 (solo para analizar; nada va a la app),
+  mitigar las peligrosas, y responder: si hay un tope para citar la 1960 sin licencia, si se puede poner la mejor traducción entre
+  paréntesis, y si para los versículos clave conviene una de las versiones libres de la app. Criterio del fundador: no hay que usar
+  siempre la 1909; avanzar con todos los pendientes.
+- **Hechos nuevos:** la Sociedad Bíblica Argentina permite citar hasta 500 versículos de la RVR1960 sin permiso escrito (menos del
+  50 % de un libro y del 25 % de la obra, con la leyenda; sba.org.ar, 19-10-2026). La Palabra de Dios para ti es la versión libre
+  de la app que más se parece a la 1960 en los versículos verificados (ESTIMACIÓN con método, capítulo 50 §4).
+- **Decidido / hecho (capítulo 50):** glosario de la Biblia (185 palabras: falsos amigos, palabras viejas, medidas, palabras con
+  carga de sentido) con tres modos en Ajustes: subrayadas y se tocan (de fábrica), la palabra de hoy entre corchetes («caridad
+  [amor]»; solo las seguras), o nada; nombres propios con la grafía de hoy (987 lugares; «Líbano» corregido); 13 versículos clave
+  con el mismo versículo en una versión libre y el aviso de lectura distinta en la hoja de estudio; once ejercicios y dos huecos
+  reescritos; validador con la lista medida. El texto de la 1909 no cambia ninguna palabra.
+- **Espera decisión del fundador:** mandar la consulta a la Sociedad Bíblica (`docs/legal/consulta_sba.md`); confirmar dónde
+  quedó el ejemplar de la 1960 (no apareció en ningún repositorio visible el 19-10 a la noche); subrayado o corchetes de fábrica;
+  cargar los versículos de lectura distinta en `rvr1960_citas.json` desde su ejemplar, dentro del cupo.
+- **Regla que queda:** la 1909 es la Biblia de la Travesía y la trivia, no una obligación de lectura: la persona puede leer en la
+  PDT, la NBV o la BES; y toda ayuda de versión se explica con palabras de Senda, nunca con texto de una versión con derechos.
