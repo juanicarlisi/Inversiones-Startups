@@ -1,4 +1,4 @@
-# Notas de contrato · P4 El hub (18-10-2026)
+# Notas de contrato · P4 El hub (18-10-2026, revisadas el mismo día)
 
 Lo que el contrato (`contratos/`) o la especificación (`oportunidades/proyectos/anden/corte-1.md`) no fija, fija de forma contradictoria
 o que, aplicado al pie de la letra, da un resultado que conviene que la integración conozca. En cada punto: qué pasa, el supuesto con el
@@ -116,12 +116,14 @@ Node 22.22.0, en el contenedor del entorno, el 18-10-2026, salvo indicación.
 `ACUMULACION_LLENA` se emite cuando un andén para por contrapresión y `ACUMULACION_LIBERA` cuando ningún andén está parado y lo ocupado
 (acumulación + cintas + en descarga) baja al 80% de los lugares. Sin histéresis, en saturación saldría un par de momentos por paquete.
 
-## 13. La plantilla chica, al pie de la letra, la limita la rampa y no la inducción
+## 13. La plantilla chica, al pie de la letra, la limita la rampa y no la inducción; «KPI sanos» de §9 no se puede cumplir con ella
 
 - **Qué pasa.** F0 (§5) dice que el cuello es la inducción (ρ 0,81) y la rampa queda en 0,68, pero F0 ignora la caminata y las pausas en el
-  pico. En F3, con dos rampas por persona y «la-mas-llena», la persona cambia de rampa casi en cada paquete (2 s más por paquete), y las
-  pausas de rampa caen de 00:10 a 01:15, en el pico, sin retén: las rampas de quien pausa se llenan en unos 4 minutos, los paquetes dan
-  vueltas, van a excepción por vueltas máximas y el único puesto manual (20 s por paquete) se satura. MEDIDO en 50 noches:
+  pico. En F3, con dos rampas por persona y «la-mas-llena», la persona cambia de rampa en la mitad de los paquetes (MEDIDO por persona: 41–56% de sus
+  paquetes con caminata en dos noches sin faltas, r4 y r20; 51–73% en dos con una persona de rampa ausente, r3 y r15), lo que suma ~1 s por paquete, y las
+  pausas de rampa caen de 00:10 a 01:15, en el pico, sin nadie que cubra: las rampas de quien pausa se llenan en unos 4 minutos, los
+  paquetes dan vueltas, van a excepción por vueltas máximas y el único puesto manual (20 s por paquete, cuatro veces lo que cuesta en la
+  rampa) se satura y pone la cola de la noche. MEDIDO en 50 noches (semilla 20261017, réplicas 0–49):
 
   | Variante del hub chico | Fin (min) P50 · P90 · máx | Recirculación % P50 · P90 | A excepción P50 | Pendientes al corte P50 · P90 |
   |---|---|---|---|---|
@@ -133,16 +135,83 @@ Node 22.22.0, en el contenedor del entorno, el 18-10-2026, salvo indicación.
   | 2 puestos de inducción | 240 · 359 · 449 | 9,6 · 13,1 | 432 | 182 · 3.054 |
 
   F0 estima el fin a las 24:30 (150 min); F3 da la mediana a las 01:37 (217 min).
-- **Consecuencia para la prueba «KPI sanos».** §9 pide `finClasificacionMin` entre 120 y 300 en 50 noches; con la plantilla literal, 5 de
-  50 noches pasan los 300 (la peor, 428: dos de tres inductores ausentes; las otras, una persona de rampa ausente sin retén con volumen
-  alto o atraso común). La prueba exige, en las 50 noches, todo clasificado, 0 alertas y fin dentro del turno (≤ 480); la mediana entre
-  120 y 300, y entre 120 y 300 en todas las noches sin faltas ni atraso común (28 de 50; la peor, 246).
-- **Consecuencia para la decisión de la plantilla** («¿cuántos puestos de inducción para no perder el corte?»). Sigue teniendo sentido
-  (con 2 puestos se pierde mucho más), pero un cuarto puesto aumenta la recirculación: la respuesta depende de la rampa, y el tamizado
-  (P7) debería mostrar que la caminata y las pausas de rampa mueven la decisión.
-- **Propuesta.** Dejarlo como hallazgo del simulador (es justo lo que una planilla no ve) y, para la plantilla de portada, publicar
-  `hub-chico@1.1.0` con un retén de rampa o 7 personas de rampa; que F0 (P3) sume la caminata (`caminar` en cada paquete en el peor caso)
-  y la pausa del pico, o que el aviso `A-RHO` mire la rampa con la caminata.
+
+- **El criterio literal de §9 es imposible con hub-chico@1.0.0 (no es un problema del hub ni de la semilla).** §9 pide
+  `finClasificacionMin` entre 120 y 300 en las 50 noches. Con la semilla de la plantilla, 45 de 50 quedan dentro. Las 5 de afuera:
+
+  | Noche | Fin (min) | Golpe de la noche | La misma noche sin el golpe (números comunes) |
+  |---|---|---|---|
+  | r3 | 350 | 1 persona de rampa ausente, 8.610 paquetes | 227 |
+  | r15 | 348 | 1 persona de rampa ausente, 9.090 paquetes | 238 |
+  | r21 | 305 | atraso común | 228 |
+  | r44 | 428 | 2 de 3 inductores ausentes | 227 (240 con un retén) |
+  | r45 | 317 | 1 persona de rampa ausente, 8.800 paquetes | 217 |
+
+  r44 es **imposible por §6.7**, con cualquier implementación: sin retén (regla 2) el puesto queda sin persona, y el único inductor
+  presente necesita 334 min solo para inducir la primera vez a los transportables (Σ de sus tiempos base, sorteados por dirección; la cota
+  no depende del mecanismo). Y no es mala suerte de esta semilla: en 200 noches (réplicas 0–199), 27 quedan fuera del rango (13,5%), así
+  que la probabilidad de que 50 noches seguidas caigan todas adentro es ≈ 0,865⁵⁰ ≈ 0,07% (cuenta). Las 27 tienen un golpe discreto y
+  las 27 vuelven al rango sin él (19 por faltas, 8 por atraso común; MEDIDO).
+
+- **Qué exigen las pruebas (`kpi.test.ts`).** Tres pruebas, una por pregunta:
+  1. **Sobre 1.0.0, lo más fuerte que es cierto** (pasa). En las 50 noches: 0 alertas, todo clasificado al horizonte, 24 KPI finitos, las
+     definiciones de §6.9 y los costos; el fin nunca antes de la cota de la inducción (control del mecanismo); la mediana entre 120 y 300;
+     **cada noche fuera de 120–300 tiene un golpe discreto (faltas o atraso común) y el contrafactual con la misma semilla y réplica sin ese
+     golpe cae entre 120 y 300** (de a un golpe y, si ninguno solo alcanza, juntos, como el contrafactual de P7); y al menos una noche es
+     imposible por la inducción (si eso deja de pasar, la prueba avisa que §9 ya se puede pedir al pie de la letra). Su salida muestra el
+     criterio literal («45 de 50») con cada noche de afuera y su explicación.
+  2. **El criterio literal de §9 sobre 1.0.0, como prueba pendiente** (`todo` de `node:test`): corre, falla con las 5 noches de afuera
+     (r3 350,1 · r15 348,0 · r21 304,8 · r44 428,0 · r45 316,8 min) y no rompe la suite. El resumen la cuenta como `todo 1`. Queda así a
+     la vista hasta que la integración decida; no reusa ninguna noche distinta de las de la prueba 1 (las corre una vez).
+  3. **El criterio literal de §9 sobre la propuesta 1.1.0** (pasa): las 50 noches entre 120 y 300 min, todo clasificado, sin alertas.
+
+- **La propuesta 1.1.0 ya está lista para publicar (18-10-2026).** Ya no es un parche dentro de las pruebas: es una plantilla guardada,
+  `hub/plantillas/hub-chico-1.1.0.json`, exportada como `PROPUESTAS['hub-chico@1.1.0']` (`registro.ts` e `indice.ts`) y **fuera de
+  `PLANTILLAS`**: la app, el enlace y `plantilla(id, versión)` no la ven. La genera `generarHubChico110` (`generar.ts`) desde 1.0.0 con
+  `PARCHE_HUB_CHICO_1_1_0`; `plantillas.test.ts` controla que el generador la reproduzca exacta, que fuera de los metadatos sea 1.0.0 +
+  el parche (mismo id de modelo, mismos parámetros, misma decisión, misma semilla), que la procedencia de los tres valores sea SUPUESTO con
+  fuente y fecha, que ningún escenario quede sin efecto (el «reten» de 1.0.0 pasa a «sin-reten»), y le aplica lo mismo que a las
+  publicadas: coherencia, geometría, textos ≤ 1.000 caracteres sin caracteres de control y lista negra. Además, el compilador de P3 tal como
+  está hoy la acepta sin errores ni avisos (solo `I-SUPUESTOS` e `I-CONTROLES`; MEDIDO con un guion aparte, fuera de `hub/`).
+
+- **Lo medido, otra vez, el 18-10-2026** (motor de referencia, semilla 20261017, réplicas 0–199; guion fuera del repo):
+
+  | Versión | Fin (min) P50 · P90 · máx | Noches fuera de 120–300 | Alertas | Sin clasificar | P(todo al corte) | Costo medio por noche |
+  |---|---|---|---|---|---|---|
+  | 1.0.0 | 219 · 315 · 514 | 27 de 200 (13,5%) | 0 | 0 | 0,365 | $1,38 M |
+  | 1.1.0 (propuesta) | 195 · 209 · 252 | 0 de 200 | 0 | 0 | 0,905 | $1,54 M |
+
+- **La decisión con 1.1.0 tiene respuesta parcial** (MEDIDO, 400 noches por valor, réplicas 0–399, Wilson al 95% como en §7):
+
+  | Puestos activos | P(todo al corte) | Wilson 95% | Estado con meta 0,9 | Costo medio |
+  |---|---|---|---|---|
+  | 2 | 0,3125 (125 de 400) | 0,269 – 0,360 | no-cumple | $1,49 M |
+  | 3 | 0,9175 (367 de 400) | 0,886 – 0,941 | **en duda** al llegar a 400 | $1,54 M |
+  | 4 | 0,9375 (375 de 400) | 0,909 – 0,957 | cumple | $1,60 M |
+  | 5 | 0,9400 (376 de 400) | 0,912 – 0,959 | cumple | $1,65 M |
+
+  Con la regla de §7 («el menor valor que cumple si todos los menores no-cumplen; si alguno sigue en duda, null»), 3 queda en duda y la
+  recomendación es null con semáforo amarillo `decision-en-duda`; la tabla sí muestra que 4 cumple. El techo de ~0,94 lo pone el atraso
+  común (10% de las noches, 15 a 45 min), que con el corte a la 01:30 hace perder el corte con cualquier dotación: la meta de 0,9 queda
+  pegada a ese techo. Con 1.0.0 es peor: ningún valor llega a 0,9 (0,035 · 0,365 · 0,465 · 0,450 en 200 noches) y los cuatro dan
+  «no-cumple». Si la integración quiere que «decidir» muestre una recomendación verde con el hub chico, eso pide una decisión aparte sobre
+  la pregunta (la meta o el corte), que este paquete no toma.
+
+- **Propuesta para la integración** (decide; el hub no publica nada). Dos caminos, no excluyentes:
+  1. **Publicar `hub-chico@1.1.0`.** El cambio, en archivos de P4, es mover la entrada de `PROPUESTAS` a `PLANTILLAS` en
+     `hub/plantillas/registro.ts`, cambiar en `plantillas.test.ts` la lista de claves que espera el registro, y en `kpi.test.ts` sacar
+     la marca `todo` (la prueba 2 pasa a correr sobre la versión publicada que la integración elija para «el hub chico»; la prueba 3 ya
+     pasa). Efectos en otros paquetes: el inicio de P8 recorre todas las claves del registro, así que mostraría dos tarjetas del hub
+     chico (conviene mostrar solo la última versión de cada id); el F0 de §5 y las pruebas de P3 siguen sobre 1.0.0, que no cambia; los
+     enlaces `t=hub-chico@1.0.0` siguen abriendo lo mismo. La integración elige cuál abre «decidir» (ver la tabla de la decisión).
+     Alternativa mínima solo para «KPI sanos»: retén 1 y 2 puestos manuales (fin P90 221, máx 258, 0 de 200 fuera), pero su decisión no
+     llega a 0,9 con ningún valor (0,355 · 0,850 · 0,895 · 0,875; MEDIDO por el constructor anterior, 200 noches).
+  2. **Corregir §9** si 1.0.0 sigue siendo la plantilla de la prueba: «`finClasificacionMin` entre 120 y 300 en toda noche sin golpes
+     discretos; las que tienen faltas o atraso común pueden pasarse, pero el contrafactual sin el golpe tiene que caer en el rango», que es
+     exactamente lo que exige la prueba 1. En ese caso, borrar la prueba 2.
+  Además: que F0 (P3) sume la caminata (`caminar` por paquete en el peor caso) y la pausa del pico, o que el aviso `A-RHO` mire la rampa
+  con la caminata; hoy F0 dice «cuello: inducción» (ρ 0,81) en las dos versiones del hub chico, cuyo cuello en F3 es la rampa con la
+  excepción.
 
 ## 14. Fotos y restauración
 

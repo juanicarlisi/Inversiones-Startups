@@ -7,7 +7,7 @@ import { crearMotorReferencia } from '../../contratos/referencia/motor-referenci
 import type { CrearMotor } from '../../contratos/motor.ts';
 import type { NivelTraza, Traza } from '../../contratos/traza.ts';
 import type { ResultadoReplica } from '../../contratos/resultados.ts';
-import { PLANTILLAS } from '../plantillas/registro.ts';
+import { PLANTILLAS, PROPUESTAS } from '../plantillas/registro.ts';
 import { armarNoche, opcionesNoche } from '../simular.ts';
 import type { Fidelidad } from '../config.ts';
 import type { Hub } from '../bloques/comun.ts';
@@ -20,6 +20,14 @@ export function chico(): Modelo {
 }
 export function grande(): Modelo {
   return structuredClone(PLANTILLAS['hub-lazo-noche@1.0.0']) as Modelo;
+}
+
+/**
+ * PROPUESTA, no publicada (NOTAS-CONTRATO §13): hub-chico@1.1.0 tal como está guardada en plantillas/hub-chico-1.1.0.json
+ * (registro.ts › PROPUESTAS), la que cumple al pie de la letra «KPI sanos» de corte-1.md §9. Publicarla lo decide la integración.
+ */
+export function propuestaChico110(): Modelo {
+  return structuredClone(PROPUESTAS['hub-chico@1.1.0']) as Modelo;
 }
 export function validado(m: Modelo): ModeloValidado {
   return validadoSinChequeos(m);

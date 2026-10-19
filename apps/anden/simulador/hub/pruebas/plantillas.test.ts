@@ -1,12 +1,15 @@
-// hub/pruebas/plantillas.test.ts · P4 · Las dos plantillas publicadas: contenido, reglas de generación, geometría y lista negra.
-// Con ANDEN_GENERAR=1 reescribe hub/plantillas/hub-lazo-noche.json desde generar.ts (solo para la primera vez o una versión nueva).
+// hub/pruebas/plantillas.test.ts · P4 · Las dos plantillas publicadas y la propuesta hub-chico@1.1.0 (no publicada): contenido,
+// reglas de generación, geometría, largo de los textos y lista negra.
+// Con ANDEN_GENERAR=1 reescribe hub/plantillas/hub-lazo-noche.json y hub/plantillas/hub-chico-1.1.0.json desde generar.ts (solo para
+// la primera vez o una versión nueva: una plantilla guardada no cambia).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, writeFileSync } from 'node:fs';
-import type { Modelo } from '../../contratos/modelo.ts';
+import type { Modelo, OpParche } from '../../contratos/modelo.ts';
 import { horaASeg } from '../../contratos/tipos-base.ts';
-import { PLANTILLAS, plantilla } from '../plantillas/registro.ts';
-import { generarHubLazoNoche, pesosRutas } from '../plantillas/generar.ts';
+import { LIMITES_ENLACE } from '../../contratos/escena.ts';
+import { PLANTILLAS, PROPUESTAS, plantilla } from '../plantillas/registro.ts';
+import { PARCHE_HUB_CHICO_1_1_0, generarHubChico110, generarHubLazoNoche, pesosRutas, reemplazar } from '../plantillas/generar.ts';
 import { geometria } from '../geometria.ts';
 import { posEnLazo } from '../../contratos/geometria.ts';
 import { bandejasLazo, capacidadAcumulacion, compilarConfig, largoLazo, ranuraDe } from '../config.ts';
@@ -14,8 +17,15 @@ import { bandejasLazo, capacidadAcumulacion, compilarConfig, largoLazo, ranuraDe
 const leer = (ruta: string) => JSON.parse(readFileSync(new URL(ruta, import.meta.url), 'utf8')) as Modelo;
 const ejemplo = leer('../../contratos/ejemplos/hub-chico.json');
 const RUTA_GRANDE = new URL('../plantillas/hub-lazo-noche.json', import.meta.url);
+const RUTA_CHICO_110 = new URL('../plantillas/hub-chico-1.1.0.json', import.meta.url);
+const valorDe = (o: OpParche): unknown => ('value' in o ? o.value : undefined);
+/** Las publicadas y las propuestas: todas tienen que poder publicarse (coherencia, geometría, textos, lista negra). */
+const TODAS = { ...PLANTILLAS, ...PROPUESTAS };
 
-if (process.env.ANDEN_GENERAR === '1') writeFileSync(RUTA_GRANDE, JSON.stringify(generarHubLazoNoche(ejemplo), null, 2) + '\n');
+if (process.env.ANDEN_GENERAR === '1') {
+  writeFileSync(RUTA_GRANDE, JSON.stringify(generarHubLazoNoche(ejemplo), null, 2) + '\n');
+  writeFileSync(RUTA_CHICO_110, JSON.stringify(generarHubChico110(ejemplo), null, 2) + '\n');
+}
 
 test('el registro tiene exactamente las dos plantillas, congeladas, y resuelve por id y versión', () => {
   assert.deepEqual(Object.keys(PLANTILLAS).sort(), ['hub-chico@1.0.0', 'hub-lazo-noche@1.0.0']);
@@ -26,6 +36,56 @@ test('el registro tiene exactamente las dos plantillas, congeladas, y resuelve p
   }
   assert.equal(plantilla('hub-chico', '1.0.0'), PLANTILLAS['hub-chico@1.0.0']);
   assert.equal(plantilla('hub-chico', '9.9.9'), null);
+});
+
+test('las propuestas están congeladas, fuera del registro publicado y sin que plantilla() las resuelva', () => {
+  assert.deepEqual(Object.keys(PROPUESTAS), ['hub-chico@1.1.0']);
+  for (const [clave, m] of Object.entries(PROPUESTAS)) {
+    assert.ok(!(clave in PLANTILLAS), `${clave} no puede estar a la vez publicada y propuesta`);
+    assert.ok(Object.isFrozen(m) && Object.isFrozen(m.personas.rampa) && Object.isFrozen(m.procedencia), `${clave} tiene que estar congelada en profundidad`);
+    assert.equal(`${m.plantilla?.id}@${m.plantilla?.version}`, clave, `${clave}: el campo plantilla tiene que coincidir con la clave`);
+  }
+  assert.equal(plantilla('hub-chico', '1.1.0'), null, 'una propuesta no se abre por enlace hasta que la integración la publique');
+});
+
+test('hub-chico@1.1.0 (propuesta): el generador reproduce exacto el JSON guardado', () => {
+  assert.deepEqual(generarHubChico110(ejemplo), JSON.parse(readFileSync(RUTA_CHICO_110, 'utf8')),
+    'si cambia el generador, la propuesta guardada no cambia: otra dotación sería otra versión');
+  assert.deepEqual(structuredClone(PROPUESTAS['hub-chico@1.1.0']), JSON.parse(readFileSync(RUTA_CHICO_110, 'utf8')));
+  assert.throws(() => generarHubChico110(structuredClone(PLANTILLAS['hub-lazo-noche@1.0.0']) as Modelo), /se esperaba la base hub-chico@1\.0\.0/);
+});
+
+test('hub-chico@1.1.0 = hub-chico@1.0.0 + PARCHE_HUB_CHICO_1_1_0: la dotación es lo único que cambia la simulación', () => {
+  const p = PROPUESTAS['hub-chico@1.1.0'];
+  assert.deepEqual(PARCHE_HUB_CHICO_1_1_0.map((o) => [o.op, o.path, valorDe(o)]), [
+    ['replace', '/personas/induccion/reten', 1], ['replace', '/personas/rampa/cantidad', 7], ['replace', '/personas/excepcion/cantidad', 2]]);
+  // Fuera de los metadatos (versión, fecha, descripción, procedencia, escenarios), la propuesta es la 1.0.0 con el parche.
+  const sinMeta = (m: Modelo) => {
+    const x = structuredClone(m) as Partial<Modelo>;
+    for (const k of ['plantilla', 'creado', 'descripcion', 'procedencia', 'escenarios'] as const) delete x[k];
+    return x;
+  };
+  assert.deepEqual(sinMeta(p), sinMeta(reemplazar(structuredClone(ejemplo), PARCHE_HUB_CHICO_1_1_0)));
+  assert.equal(p.id, ejemplo.id);
+  assert.deepEqual(p.parametros, ejemplo.parametros, 'los mismos parámetros, con sus fuentes');
+  assert.deepEqual(p.decision, ejemplo.decision, 'la misma decisión');
+  assert.equal(p.experimento.semilla, ejemplo.experimento.semilla, 'la misma semilla');
+  // La procedencia conserva la de 1.0.0 y suma cada valor del parche como SUPUESTO con fecha (corte-1.md §14.4).
+  for (const [k, v] of Object.entries(ejemplo.procedencia ?? {})) assert.deepEqual(p.procedencia?.[k], v, `procedencia ${k} igual que en 1.0.0`);
+  for (const op of PARCHE_HUB_CHICO_1_1_0) {
+    const pr = p.procedencia?.[op.path];
+    assert.ok(pr && pr.etiqueta === 'SUPUESTO' && pr.fuente.length > 40 && pr.fecha === '2026-10-18', `${op.path}: procedencia SUPUESTO con fuente y fecha`);
+  }
+  // Ningún escenario queda sin efecto: el de «una persona de retén» de 1.0.0 pasa a «sin la persona de retén».
+  const esc = p.escenarios ?? [];
+  assert.deepEqual(esc.map((e) => e.id), ['base', 'mas-un-puesto', 'sin-reten', 'rampas-contiguas', 'pico']);
+  for (const e of esc) {
+    for (const op of e.parche) {
+      const actual = op.path.split('/').slice(1).reduce<unknown>((x, k) => (x as Record<string, unknown>)?.[k], p);
+      assert.ok(actual !== undefined, `escenario ${e.id}: la ruta ${op.path} existe`);
+      assert.notDeepEqual(actual, valorDe(op), `escenario ${e.id}: ${op.path} ya vale ${JSON.stringify(valorDe(op))} (el escenario no cambiaría nada)`);
+    }
+  }
 });
 
 test('hub-chico@1.0.0 es idéntica al modelo de ejemplo de contratos/ (corte-1.md §5)', () => {
@@ -74,8 +134,8 @@ test('hub-lazo-noche@1.0.0 cumple las reglas de §5', () => {
   assert.deepEqual(m.parametros, ejemplo.parametros, 'los mismos parámetros que el ejemplo');
 });
 
-test('las dos plantillas son coherentes: ranuras distintas, todo dentro del lazo, fracciones que suman 1, referencias que existen', () => {
-  for (const [clave, m] of Object.entries(PLANTILLAS)) {
+test('las plantillas (y la propuesta) son coherentes: ranuras distintas, todo dentro del lazo, fracciones que suman 1, referencias que existen', () => {
+  for (const [clave, m] of Object.entries(TODAS)) {
     const s = m.hub.sorter, T = bandejasLazo(s), L = largoLazo(s);
     const puntos = [...m.hub.induccion.puestos, ...m.hub.rampas, m.hub.excepcion];
     const ranuras = new Set<number>();
@@ -95,8 +155,8 @@ test('las dos plantillas son coherentes: ranuras distintas, todo dentro del lazo
   }
 });
 
-test('la geometría de las dos plantillas queda dentro de sus límites', () => {
-  for (const [clave, m] of Object.entries(PLANTILLAS)) {
+test('la geometría de las plantillas (y de la propuesta) queda dentro de sus límites', () => {
+  for (const [clave, m] of Object.entries(TODAS)) {
     const g = geometria(m), { xmin, xmax, ymin, ymax } = g.limites;
     const dentro = (x: number, y: number, que: string) =>
       assert.ok(x >= xmin && x <= xmax && y >= ymin && y <= ymax, `${clave}: ${que} en (${x}, ${y}) fuera de [${xmin}, ${xmax}] × [${ymin}, ${ymax}]`);
@@ -127,7 +187,7 @@ test('ningún nombre de la lista negra en las plantillas (las empresas solo en c
     assert.ok(patrones.some((p) => p.test(sembrado)), `la búsqueda tiene que detectar «${sembrado}»`);
   }
   assert.ok(!patrones.some((p) => p.test('grupos, focales, suburbanos')), 'sin falsos positivos dentro de palabras');
-  for (const [clave, m] of Object.entries(PLANTILLAS)) {
+  for (const [clave, m] of Object.entries(TODAS)) {
     const textos: [string, string][] = [];
     const recorrer = (x: unknown, ruta: string) => {
       if (typeof x === 'string') textos.push([ruta, x]);
@@ -137,5 +197,21 @@ test('ningún nombre de la lista negra en las plantillas (las empresas solo en c
     recorrer(m, '');
     assert.ok(textos.length > 50, 'se recorrieron los textos');
     for (const [ruta, t] of textos) for (const p of patrones) assert.ok(!p.test(t), `${clave}${ruta}: «${t}» nombra a una empresa (${p})`);
+  }
+});
+
+test(`ningún texto de las plantillas (ni de la propuesta) pasa los ${LIMITES_ENLACE.maxLargoTexto} caracteres que acepta el enlace`, () => {
+  for (const [clave, m] of Object.entries(TODAS)) {
+    let n = 0;
+    const recorrer = (x: unknown, ruta: string): void => {
+      if (typeof x === 'string') {
+        n++;
+        assert.ok(x.length <= LIMITES_ENLACE.maxLargoTexto, `${clave}${ruta}: ${x.length} caracteres (tope ${LIMITES_ENLACE.maxLargoTexto})`);
+        assert.ok(!/[\u0000-\u001f\u007f]/.test(x), `${clave}${ruta}: tiene caracteres de control`);
+      } else if (Array.isArray(x)) x.forEach((v, i) => recorrer(v, `${ruta}/${i}`));
+      else if (x && typeof x === 'object') for (const [k, v] of Object.entries(x)) recorrer(v, `${ruta}/${k}`);
+    };
+    recorrer(m, '');
+    assert.ok(n > 50, `${clave}: se recorrieron ${n} textos`);
   }
 });

@@ -3,7 +3,7 @@ export { crearSimularNoche, armarNoche, opcionesNoche, ORDEN_BLOQUES, type Noche
 export { crearSimularNocheF2, DOMINIO_F2 } from './f2.ts';
 export { geometria } from './geometria.ts';
 export { planBalanceado, asignarRampas } from './plan.ts';
-export { PLANTILLAS, plantilla } from './plantillas/registro.ts';
+export { PLANTILLAS, PROPUESTAS, plantilla } from './plantillas/registro.ts';
 export { crearAnillo, Anillo } from './estructuras/anillo.ts';
 export { crearRueda, Rueda } from './estructuras/rueda.ts';
 export { compilarConfig, horizonteMs, type Fidelidad } from './config.ts';

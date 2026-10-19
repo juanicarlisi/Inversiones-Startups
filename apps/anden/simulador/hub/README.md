@@ -17,6 +17,7 @@ eventos iniciales y las direcciones del azar. Cambiar cualquiera de esas cosas e
 | `geometria: GeometriaDe` | Geometría del hub en metros para las vistas (`geometria.ts`) |
 | `planBalanceado: PlanBalanceado` | El parche `replace /personas/rampa/asignacion → 'por-volumen'` |
 | `PLANTILLAS: RegistroPlantillas` | `hub-chico@1.0.0` y `hub-lazo-noche@1.0.0`, congeladas en profundidad; `plantilla(id, versión)` las resuelve |
+| `PROPUESTAS: RegistroPlantillas` | Versiones nuevas listas para publicar, **no publicadas**: `hub-chico@1.1.0` (NOTAS-CONTRATO §13). `plantilla()` no las resuelve; publicarlas lo decide la integración |
 | `crearAnillo`, `crearRueda` | `AnilloI32` y `RuedaTiempos` de `contratos/motor.ts` (`estructuras/`) |
 | `armarNoche(motor, mv, fidelidad?)`, `opcionesNoche(mv, semilla, réplica, traza)` | Para R06 de la integración (§7) y para instrumentar pruebas |
 | `ORDEN_BLOQUES`, `EV`, `compilarConfig`, `horizonteMs`, `asignarRampas`, `sorteaAusencia` | Piezas públicas para pruebas y documentación |
@@ -168,6 +169,11 @@ foto y restauración): misma huella y mismos KPI con fotos a las 22:20, 23:30, 0
   (35 arriba), como la maqueta; rampa i → lugar (i·37) mod 60 (lugar p < 50 → ruta p; p ≥ 50 → segunda rampa de la ruta p − 50), para
   repartir las rutas grandes por el lazo; andenes en x = −20, −14, −8, −2; decisión hasta 6 puestos; escenario «pico» con 1.385 paquetes.
   Para regenerarla (solo para una versión nueva): `ANDEN_GENERAR=1 node --test hub/pruebas/plantillas.test.ts`.
+- `plantillas/hub-chico-1.1.0.json` (**propuesta, no publicada**; `PROPUESTAS` en `registro.ts`) la genera `generarHubChico110` de
+  `generar.ts`: hub-chico@1.0.0 + `PARCHE_HUB_CHICO_1_1_0` (retén 1, 7 personas de rampa, 2 puestos manuales), con la procedencia de los
+  tres valores como SUPUESTO y el escenario «reten» cambiado por «sin-reten». Es la que cumple al pie de la letra «KPI sanos» de §9; con
+  1.0.0 no se puede (NOTAS-CONTRATO §13). Publicarla es mover su entrada de `PROPUESTAS` a `PLANTILLAS` en `registro.ts` y actualizar la
+  lista que controla `plantillas.test.ts`.
 
 ## 9. Pruebas (`node --test "hub/**/*.test.ts"`, con `crearMotorReferencia`)
 
@@ -180,16 +186,17 @@ foto y restauración): misma huella y mismos KPI con fotos a las 22:20, 23:30, 0
 | `azar.test.ts` | **P02**, **R05a**, **R05b**, **R01** (5 semillas); la traza no cambia la corrida |
 | `invariantes.test.ts` | **I01–I06** en 20 noches por plantilla, con las alertas y leyendo la traza |
 | `doradas.test.ts` | Huella, eventos y 24 KPI de 5 semillas del hub chico (`doradas.json`) |
-| `kpi.test.ts` | KPI sanos en 50 noches del hub chico y definiciones de §6.9; costos; percentiles |
+| `kpi.test.ts` | KPI sanos en 50 noches del hub chico: 0 alertas, todo clasificado, definiciones de §6.9 y costos; el fin entre 120 y 300 min o, si no, un golpe discreto confirmado por contrafactual (NOTAS-CONTRATO §13: el criterio literal es imposible con 1.0.0); el criterio literal de §9 sobre 1.0.0 como prueba **pendiente** (`todo`: falla, lo muestra y no rompe la suite hasta que decida la integración); el criterio literal sobre la propuesta `hub-chico@1.1.0` (pasa); percentiles |
 | `plan.test.ts` | Asignación por volumen, contiguas y lista; 30 noches de la grande: P90 de recirculación por volumen ≤ contiguas |
 | `foto.test.ts` | R06 del hub (adelantado) y rechazo de fotos de otro modelo |
 | `traza.test.ts` | Columnas por tipo de tramo, causas y causantes, momentos, resumen por paquete, catálogo |
 | `personas.test.ts` | Retén, temporarios, fatiga y pausas contra el sorteo de cada paquete |
 | `variantes.test.ts` | Camiones en lista, `alternar`, reglas `la-que-se-llena-antes` y `en-orden`, retén y F2 |
-| `plantillas.test.ts` | Las dos plantillas, su generador, su geometría dentro de los límites y la lista negra de marcas |
+| `plantillas.test.ts` | Las dos plantillas y la propuesta 1.1.0: generadores, reglas de §5, 1.1.0 = 1.0.0 + parche, geometría dentro de los límites, textos ≤ 1.000 caracteres y lista negra de marcas |
 | `tokens.test.ts` | Ningún token prohibido de §1.4 en `hub/` |
 
 MEDIDO el 18-10-2026 (Node 22.22.0, contenedor de 4 núcleos, carga ≈ 1, motor de **referencia**, mediana de 5 noches; informativo):
 hub chico (≈ 7.900 paquetes) 94 ms sin traza y 101 ms con traza completa (93.000 tramos, 11,8 por paquete; 10,0 eventos por paquete);
-hub grande (≈ 23.700 paquetes) 187 ms sin traza y 297 ms con traza (277.000 tramos; 8,1 eventos por paquete). Los 16 archivos (61
-pruebas) tardan ≈ 22 s de reloj (≈ 57 s de CPU). Los presupuestos de §11 los mide el banco de la integración con el núcleo de producción.
+hub grande (≈ 23.700 paquetes) 187 ms sin traza y 297 ms con traza (277.000 tramos; 8,1 eventos por paquete). Los 16 archivos (67
+pruebas: 66 pasan y 1 pendiente, el criterio literal de §9 sobre 1.0.0) tardan 19–21 s de reloj (dos corridas, el 18-10-2026; el límite
+de §9 es 90 s). Los presupuestos de §11 los mide el banco de la integración con el núcleo de producción.

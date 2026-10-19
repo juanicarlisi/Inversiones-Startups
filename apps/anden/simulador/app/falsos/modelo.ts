@@ -183,6 +183,13 @@ export const compilarFalso: Compilar = async (x) => {
   } catch {
     return { ok: false, diagnosticos: [{ codigo: 'E-ESQUEMA', nivel: 'error', ruta: '', clave: 'modelo.diag.E-ESQUEMA', vars: {} }] };
   }
+  for (const [nombre, p] of Object.entries(m.parametros)) {
+    const v = typeof p.valor === 'number' ? p.valor : mediaDe(p.valor);
+    if (p.rango && (v < p.rango[0] || v > p.rango[1])) {
+      return { ok: false, diagnosticos: [{ codigo: 'E-RANGO', nivel: 'error', ruta: `/parametros/${nombre}/valor`, clave: 'modelo.diag.E-RANGO.fuera-de-rango',
+        vars: { valor: v, min: p.rango[0], max: p.rango[1] } }] };
+    }
+  }
   for (const [k, u] of Object.entries(f0.utilizacion)) {
     if (u >= 1) d.push({ codigo: 'A-RHO', nivel: 'aviso', ruta: '', clave: `modelo.diag.A-RHO.${k}`, vars: { rho: Math.round(u * 100) / 100 } });
   }

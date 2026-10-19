@@ -53,12 +53,13 @@ export function sellos(ctx: Contexto, compacto = false): HTMLElement {
     ? ctx.t('app.sello.motor', { version: c.motor.version, pasaron: c.motor.pasaron, exigibles: c.motor.pruebasExigibles })
     : ctx.t('app.sello.motor.pendiente', { version: ctx.servicios.versionMotor });
   const rep = s.selloReproducida();
-  const reproducida = ctx.t(`app.sello.reproducida.${rep}`, { receta: s.receta?.motor ?? '', motor: ctx.servicios.versionMotor });
+  const reproducida = ctx.t(`app.sello.reproducida.${rep}`, { receta: s.recetaEnlace?.motor ?? '', motor: ctx.servicios.versionMotor });
   const v = c?.validacion ?? { estado: 'sin-validar' as const };
   const validacion = v.estado === 'sin-validar' ? ctx.t('app.sello.validacion.sinValidar')
     : ctx.t('app.sello.validacion.validada', { dias: v.dias, dentro: v.dentroDelIntervalo });
   const item = (tipo: string, txt: string, extra: Hijo = null) =>
-    el('li', { class: `sello sello--${tipo}`, 'data-sello': tipo }, el('span', { class: 'sello__marca', 'aria-hidden': 'true' }), el('span', null, txt), extra);
+    el('li', { class: `sello sello--${tipo}`, 'data-sello': tipo }, el('span', { class: 'sello__marca', 'aria-hidden': 'true' }),
+      el('span', { class: 'sello__texto' }, txt, extra ? ' ' : null, extra));
   return el('ul', { class: `sellos${compacto ? ' sellos--compacto' : ''}`, 'aria-label': ctx.t('app.sello.titulo') },
     item('motor', motor, el('button', { type: 'button', class: 'enlace-boton', 'data-accion': 'ver-motor', onclick: () => ctx.ir('comprobante') }, ctx.t('app.sello.ver'))),
     item(`reproducida-${rep}`, reproducida),

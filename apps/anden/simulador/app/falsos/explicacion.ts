@@ -3,7 +3,7 @@
 // explicacion/ y escena/ (P7 y P6) con sus variables, para que la interfaz se vea con los textos reales; la lógica es mínima. La app real
 // usa las de P7 y P6 (la integración las pasa en Servicios).
 import type { Ms } from '../../contratos/tipos-base.ts';
-import { ClaseEntidad, TipoMomento, TipoTramo, type Traza } from '../../contratos/traza.ts';
+import { ClaseEntidad, TipoMomento, TipoTramo, refDe, type Traza } from '../../contratos/traza.ts';
 import type { Modelo } from '../../contratos/modelo.ts';
 import type { Afirmacion, Biografia, Contrafactual, Frase, PasoBiografia, VerificarFrases, Espera } from '../../contratos/explicacion.ts';
 import type { DetectarMomentos, MomentoEscena } from '../../contratos/vistas.ts';
@@ -57,8 +57,10 @@ export function biografiaFalsa(tr: Traza, _m: Modelo, clase: ClaseEntidad, id: n
   const P = tr.paquetes, pasos: PasoBiografia[] = [];
   const espera = (i: number, causa: Causa, causante = -1): Espera =>
     ({ desde: T.t0[i], hasta: T.t1[i], donde: T.k[i] as Espera['donde'], recurso: T.r[i], causa, causante, evidencia: [i] });
+  let vueltasAntes = 0;
   for (const i of tramosDe(tr, id)) {
     const k = T.k[i], d = T.t1[i] - T.t0[i], m = min(d);
+    if (k === TipoTramo.BANDEJA) vueltasAntes = T.a[i];
     let f: Frase | null = null; let w: Espera | null = null;
     switch (k) {
       case TipoTramo.DESCARGA:
@@ -70,11 +72,17 @@ export function biografiaFalsa(tr: Traza, _m: Modelo, clase: ClaseEntidad, id: n
         f = frase('explicacion.paso.acumulacion', { min: m }, [af(m, 'min', i, 'duracion')]); w = espera(i, Causa.FILA); break;
       case TipoTramo.INDUCCION: f = frase('explicacion.paso.induccion', { persona: C.personas[T.r[i]]?.id ?? '—', puesto: C.puestos[T.r[i]] ?? '—' }); break;
       case TipoTramo.BANDEJA:
-        if (T.a[i] > 0) { f = frase('explicacion.paso.vuelta', { vuelta: T.a[i], rampa: C.rampas[P.ruta[id]] ?? '—' }, [af(T.a[i], 'vueltas', i, 'a')]); w = espera(i, Causa.RAMPA_LLENA); }
+        if (T.a[i] > 0) { f = frase('explicacion.paso.vuelta', { vuelta: T.a[i], rampa: C.rampas[P.ruta[id]] ?? '—' }, [af(T.a[i], 'vueltas', i, 'a')]); w = espera(i, Causa.RAMPA_LLENA, refDe(ClaseEntidad.RAMPA, P.ruta[id])); }
         else f = frase('explicacion.paso.bandeja', { min: m }, [af(m, 'min', i, 'duracion')]);
         break;
       case TipoTramo.RAMPA:
-        if (T.r[i] >= NR) { f = frase('explicacion.paso.cola_manual.no_leido', { min: m }, [af(m, 'min', i, 'duracion')]); w = espera(i, Causa.NO_LEIDO); break; }
+        if (T.r[i] >= NR) {
+          const porVueltas = vueltasAntes > 0;
+          f = frase(porVueltas ? 'explicacion.paso.cola_manual.rampa_llena' : 'explicacion.paso.cola_manual.no_leido', { min: m }, [af(m, 'min', i, 'duracion')]);
+          w = espera(i, porVueltas ? Causa.RAMPA_LLENA : Causa.NO_LEIDO, porVueltas ? refDe(ClaseEntidad.RAMPA, P.ruta[id]) : -1);
+          vueltasAntes = 0;
+          break;
+        }
         if (d < 3000) break;
         f = frase('explicacion.paso.rampa.ocupada', { min: m, rampa: C.rampas[T.r[i]] ?? '—', persona: personaRampa(tr, T.q[i]) }, [af(m, 'min', i, 'duracion')]);
         w = espera(i, Causa.PERSONA_OCUPADA, T.q[i]); break;

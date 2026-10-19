@@ -154,18 +154,26 @@ export const crearVistaFalsa: CrearVista = (lienzo, r, estilo: Estilo, piso: Pis
   let ancho = 300, alto = 150, dpr = 1;
   const c = (nombre: string, porDefecto: string) => estilo.colores[nombre] ?? porDefecto;
   // proyección mundo → pantalla (sin la cámara): planta con y hacia arriba; 2,5D girada 45° y achatada
-  const proyectar = (x: number, y: number, z = 0): [number, number] => {
+  let girado = false;
+  const proyectar = (x0: number, y0: number, z = 0): [number, number] => {
+    const x = girado ? y0 : x0, y = girado ? -x0 : y0;
     if (piso === '2d') return [x, -y];
     const u = (x - y) * ISO_COS, v = (x + y) * ISO_COS * ISO_ACHATADO;
     return [u, -v - z];
   };
   const camara: Camara = { cx: 0, cy: 0, zoom: 1, giro: 0 };
   const encuadrar = () => {
-    const esquinas = [[lim.xmin, lim.ymin], [lim.xmax, lim.ymin], [lim.xmin, lim.ymax], [lim.xmax, lim.ymax]].map(([x, y]) => proyectar(x, y));
-    const xs = esquinas.map((e) => e[0]), ys = esquinas.map((e) => e[1]);
-    const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
-    camara.cx = (Math.max(...xs) + Math.min(...xs)) / 2; camara.cy = (Math.max(...ys) + Math.min(...ys)) / 2;
-    camara.zoom = Math.max(0.1, Math.min(ancho / (w * 1.06), alto / (h * 1.06)));
+    const medir = (g: boolean) => {
+      girado = g;
+      const esquinas = [[lim.xmin, lim.ymin], [lim.xmax, lim.ymin], [lim.xmin, lim.ymax], [lim.xmax, lim.ymax]].map(([x, y]) => proyectar(x, y));
+      const xs = esquinas.map((e) => e[0]), ys = esquinas.map((e) => e[1]);
+      const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
+      return { cx: (Math.max(...xs) + Math.min(...xs)) / 2, cy: (Math.max(...ys) + Math.min(...ys)) / 2, zoom: Math.max(0.1, Math.min(ancho / (w * 1.06), alto / (h * 1.06))) };
+    };
+    const recto = medir(false), cuarto = medir(true);
+    const usar = cuarto.zoom >= recto.zoom * 1.25 ? cuarto : recto;
+    girado = usar === cuarto;
+    camara.cx = usar.cx; camara.cy = usar.cy; camara.zoom = usar.zoom; camara.giro = girado ? Math.PI / 2 : 0;
   };
   const aPantalla = (x: number, y: number, z = 0): [number, number] => {
     const [u, v] = proyectar(x, y, z);
@@ -211,10 +219,14 @@ export const crearVistaFalsa: CrearVista = (lienzo, r, estilo: Estilo, piso: Pis
     },
     aMundo(px, py) {
       const u = (px - ancho / 2) / camara.zoom + camara.cx, v = (py - alto / 2) / camara.zoom + camara.cy;
-      if (piso === '2d') return [u, -v];
-      // inversa de la 2,5D sobre el piso (z = 0)
-      const s = u / ISO_COS, q = -v / (ISO_COS * ISO_ACHATADO);
-      return [(s + q) / 2, (q - s) / 2];
+      let x: number, y: number;
+      if (piso === '2d') { x = u; y = -v; } else {
+        // inversa de la 2,5D sobre el piso (z = 0)
+        const s = u / ISO_COS, q = -v / (ISO_COS * ISO_ACHATADO);
+        x = (s + q) / 2; y = (q - s) / 2;
+      }
+      // deshacer el cuarto de vuelta: (x, y) = (y0, −x0)
+      return girado ? [-y, x] : [x, y];
     },
     dibujar(t: Ms, o: OpcionesDibujo = {}) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

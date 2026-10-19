@@ -1,18 +1,84 @@
 // hub/pruebas/kpi.test.ts · P4 · KPI sanos en 50 noches del hub chico (corte-1.md §9, P4) y definiciones de §6.9 y costos.
+// §9 pide, en las 50 noches, todo clasificado, sin alertas y el fin entre 120 y 300 min. Con hub-chico@1.0.0 eso no se puede al pie
+// de la letra (NOTAS-CONTRATO §13: una noche con dos de tres inductores ausentes necesita más de 300 min solo de inducción), así que:
+//  1. la prueba principal exige sobre 1.0.0 lo más fuerte que es cierto: todo clasificado y sin alertas en las 50, y cada noche fuera
+//     del rango con un golpe discreto (faltas o atraso común) que la explica, confirmado por el contrafactual con números comunes (la
+//     misma noche sin el golpe cae en el rango);
+//  2. el criterio literal sobre 1.0.0 corre como prueba PENDIENTE (`todo`): falla, lo dice en la salida y no rompe la suite, hasta que la
+//     integración decida (publicar hub-chico@1.1.0 o corregir §9);
+//  3. el criterio literal sobre la propuesta hub-chico@1.1.0 (plantillas/hub-chico-1.1.0.json, registro.ts › PROPUESTAS) tiene que pasar.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import type { Modelo } from '../../contratos/modelo.ts';
 import { KPIS } from '../../contratos/resultados.ts';
 import { costoNoche, costoPorPaquete, horasPersonaPagadas } from '../costos.ts';
 import { percentil } from '../kpi.ts';
-import { chico, noche } from './modelos.ts';
+import type { Hub } from '../bloques/comun.ts';
+import { chico, noche, propuestaChico110 } from './modelos.ts';
 
 const NOCHES = 50;
+/** Rango del fin de la clasificación que pide §9 (min desde el inicio del turno). */
+const FIN_MIN = 120, FIN_MAX = 300;
+const dentro = (min: number): boolean => min >= FIN_MIN && min <= FIN_MAX;
 
-function contarNoTransportables(h: ReturnType<typeof noche>['hub']): number {
+/** Lo que mira el criterio literal de §9 en una noche. */
+interface Literal { fin: number; clasificados: number; paquetes: number; alertas: readonly string[] }
+const literalDe = (k: { finClasificacionMin: number; clasificados: number; paquetes: number }, alertas: readonly string[]): Literal =>
+  ({ fin: k.finClasificacionMin, clasificados: k.clasificados, paquetes: k.paquetes, alertas });
+/** Faltas al criterio literal de §9 (vacío si la noche lo cumple). */
+function faltasLiterales(n: Literal, donde: string): string[] {
+  const f: string[] = [];
+  if (n.alertas.length > 0) f.push(`${donde}: alertas ${n.alertas.join(', ')}`);
+  if (n.clasificados !== n.paquetes) f.push(`${donde}: ${n.clasificados} clasificados de ${n.paquetes} paquetes`);
+  if (!dentro(n.fin)) f.push(`${donde}: fin ${n.fin.toFixed(1)} min fuera de [${FIN_MIN}, ${FIN_MAX}]`);
+  return f;
+}
+/** Las 50 noches de 1.0.0 se corren una vez: la prueba principal guarda lo que mira la pendiente. */
+const literal100 = new Map<number, Literal>();
+function literalChico100(r: number): Literal {
+  let x = literal100.get(r);
+  if (!x) {
+    const s = noche(chico(), r);
+    x = literalDe(s.resultado.kpi, s.resultado.alertas);
+    literal100.set(r, x);
+  }
+  return x;
+}
+
+function contarNoTransportables(h: Hub): number {
   const P = h.P.S;
   let n = 0;
   for (let e = 0; e < P.nacidos; e++) if (!h.cfg.claseTransportable[P.clase[e]]) n++;
   return n;
+}
+
+/**
+ * Golpes discretos de la noche (los parámetros con `golpeDiscreto` que pegan una vez por noche: ausentismo y atraso común; las
+ * micro-paradas pasan todas las noches) y el cambio que los saca. Con direcciones semánticas (§6.3) sacar un golpe no cambia ningún
+ * otro sorteo: es la misma noche sin ese golpe.
+ */
+const SIN_GOLPE: Record<string, (m: Modelo) => void> = {
+  ausencias: (m) => { m.personas.induccion.ausentismo = 0; m.personas.rampa.ausentismo = 0; },
+  'atraso común': (m) => { m.demanda.atrasoComun = { ...m.demanda.atrasoComun, probabilidad: 0 }; },
+};
+function golpesDe(h: Hub): string[] {
+  const g: string[] = [];
+  if (h.personas.S.ausentes > 0) g.push('ausencias');
+  if (h.demanda.S.atraso === 1) g.push('atraso común');
+  return g;
+}
+
+/**
+ * Cota inferior del fin (min) que pone la inducción: la primera inducción de cada transportable dura al menos su tiempo base
+ * (fatiga ≥ 1, eficiencia ≤ 1) y la hacen `presentes` personas en paralelo desde el inicio, así que el último paquete no puede estar
+ * listo antes de Σ base ÷ presentes. Solo depende de los sorteos (paquetes, clases, tiempos base y faltas: direcciones fijas), no
+ * del mecanismo: si pasa los 300 min, ningún hub que cumpla §6.7 termina esa noche en 300 min.
+ */
+function cotaInduccionMin(h: Hub, presentes: number): number {
+  const P = h.P.S;
+  let ms = 0;
+  for (let e = 0; e < P.nacidos; e++) if (h.cfg.claseTransportable[P.clase[e]]) ms += Math.round(P.base0[e] * 1000);
+  return presentes > 0 ? ms / presentes / 60_000 : Infinity;
 }
 const INICIO = 22 * 3_600_000, FIN = 30 * 3_600_000;
 
@@ -34,21 +100,43 @@ test('costos: horas pagadas, costo de la noche y costo por paquete (regla 1 de �
   assert.equal(costoPorPaquete(1000, 4), 250);
 });
 
-test(`KPI sanos en ${NOCHES} noches del hub chico: todo clasificado, sin alertas, fin plausible y definiciones de §6.9`, () => {
+test(`KPI sanos en ${NOCHES} noches del hub chico: todo clasificado, sin alertas, fin entre ${FIN_MIN} y ${FIN_MAX} min o explicado, y §6.9`, (t) => {
   const fines: number[] = [];
-  let nominales = 0;
+  const fuera: string[] = [];
+  let nominales = 0, enRango = 0, imposibles = 0;
   for (let r = 0; r < NOCHES; r++) {
     const s = noche(chico(), r);
     const k = s.resultado.kpi, h = s.hub, donde = `réplica ${r}`;
+    literal100.set(r, literalDe(k, s.resultado.alertas));
     assert.deepEqual(s.resultado.alertas, [], `${donde}: sin alertas`);
     for (const id of KPIS) assert.ok(Number.isFinite(k[id]), `${donde}: el KPI ${id} tiene que ser finito y es ${k[id]}`);
     assert.equal(k.clasificados, k.paquetes, `${donde}: todo paquete clasificado al horizonte`);
-    assert.ok(k.finClasificacionMin >= 120 && k.finClasificacionMin <= 480, `${donde}: fin ${k.finClasificacionMin} min fuera del turno`);
     fines.push(k.finClasificacionMin);
-    // las noches sin faltas ni atraso común terminan entre 2 y 5 horas (ver NOTAS-CONTRATO §13 para las demás)
-    if (k.ausentes === 0 && h.demanda.S.atraso === 0) {
-      nominales++;
-      assert.ok(k.finClasificacionMin >= 120 && k.finClasificacionMin <= 300, `${donde}: noche sin golpes con fin ${k.finClasificacionMin} min`);
+    // Cota de la inducción: ninguna noche termina antes de que los inductores presentes hagan su trabajo (control del mecanismo).
+    const cota = cotaInduccionMin(h, k.inductoresPresentes);
+    assert.ok(k.finClasificacionMin >= cota, `${donde}: fin ${k.finClasificacionMin} min antes de la cota de la inducción (${cota} min)`);
+    const golpes = golpesDe(h);
+    if (golpes.length === 0) nominales++;
+    if (dentro(k.finClasificacionMin)) enRango++;
+    else {
+      // §9 pide el fin entre 120 y 300 min. Una noche fuera tiene que tener un golpe discreto que la explique, confirmado por el
+      // contrafactual con números comunes (misma semilla y réplica, sin el golpe): primero de a uno y, si ninguno solo alcanza, juntos.
+      assert.ok(golpes.length > 0, `${donde}: fin ${k.finClasificacionMin} min fuera de [${FIN_MIN}, ${FIN_MAX}] en una noche sin faltas ni atraso común`);
+      let explica = '', juntos = false, finSin = Number.NaN;
+      for (const g of [...golpes.map((x) => [x]), ...(golpes.length > 1 ? [golpes] : [])]) {
+        const m = chico();
+        for (const x of g) SIN_GOLPE[x](m);
+        finSin = noche(m, r).resultado.kpi.finClasificacionMin;
+        if (dentro(finSin)) { explica = g.join(' y '); juntos = g.length > 1; break; }
+      }
+      assert.ok(explica !== '', `${donde}: fin ${k.finClasificacionMin} min y sin ${golpes.join(' ni ')} da ${finSin} min: el golpe no explica la noche`);
+      let imposible = '';
+      if (cota > FIN_MAX) {
+        imposibles++;
+        const quien = k.inductoresPresentes === 1 ? 'el único inductor presente necesita' : `los ${k.inductoresPresentes} inductores presentes necesitan`;
+        imposible = `; imposible por §6.7: ${quien} ${cota.toFixed(0)} min solo para inducir`;
+      }
+      fuera.push(`r${r} ${k.finClasificacionMin.toFixed(0)} min (${explica}: ${finSin.toFixed(0)} min sin ${juntos ? 'los dos' : 'ese golpe'}${imposible})`);
     }
     // definiciones
     assert.equal(k.pctAlCorte, (100 * (k.paquetes - k.pendientesAlCorte)) / k.paquetes);
@@ -84,6 +172,29 @@ test(`KPI sanos en ${NOCHES} noches del hub chico: todo clasificado, sin alertas
   }
   fines.sort((a, b) => a - b);
   const mediana = fines[NOCHES >> 1];
-  assert.ok(mediana >= 120 && mediana <= 300, `la mediana del fin (${mediana} min) tiene que estar entre 120 y 300`);
+  assert.ok(dentro(mediana), `la mediana del fin (${mediana} min) tiene que estar entre ${FIN_MIN} y ${FIN_MAX}`);
   assert.ok(nominales >= 15, `hubo ${nominales} noches sin golpes para controlar`);
+  // El criterio literal no se puede cumplir con esta plantilla y esta semilla, y la prueba lo deja asentado: si un día deja de ser
+  // así (otra plantilla, otras direcciones), esta línea avisa que §9 ya se puede pedir al pie de la letra.
+  assert.ok(imposibles >= 1, `se esperaba al menos una noche imposible de terminar en ${FIN_MAX} min por la inducción sola y hubo ${imposibles}`);
+  // Lo que §9 pide al pie de la letra, a la vista en la salida de la prueba (NOTAS-CONTRATO §13: con hub-chico@1.0.0 no se puede).
+  t.diagnostic(`§9 al pie de la letra: ${enRango} de ${NOCHES} noches con el fin entre ${FIN_MIN} y ${FIN_MAX} min. ` +
+    `Fuera, cada una con su golpe confirmado por contrafactual: ${fuera.join('; ') || 'ninguna'}.`);
+});
+
+test(`§9 al pie de la letra en ${NOCHES} noches de hub-chico@1.0.0 (PENDIENTE de la integración)`, {
+  todo: 'imposible con hub-chico@1.0.0 (NOTAS-CONTRATO §13): la integración decide si publica hub-chico@1.1.0 o corrige §9',
+}, () => {
+  const faltas: string[] = [];
+  for (let r = 0; r < NOCHES; r++) faltas.push(...faltasLiterales(literalChico100(r), `réplica ${r}`));
+  assert.deepEqual(faltas, [], `§9 literal con hub-chico@1.0.0: ${faltas.length} faltas en ${NOCHES} noches`);
+});
+
+test(`KPI sanos al pie de la letra (§9) en ${NOCHES} noches de la propuesta hub-chico@1.1.0 (NOTAS-CONTRATO §13)`, () => {
+  const faltas: string[] = [];
+  for (let r = 0; r < NOCHES; r++) {
+    const s = noche(propuestaChico110(), r);
+    faltas.push(...faltasLiterales(literalDe(s.resultado.kpi, s.resultado.alertas), `propuesta 1.1.0, réplica ${r}`));
+  }
+  assert.deepEqual(faltas, [], `§9 literal con la propuesta hub-chico@1.1.0: ${faltas.length} faltas en ${NOCHES} noches`);
 });

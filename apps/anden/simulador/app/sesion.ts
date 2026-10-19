@@ -70,7 +70,8 @@ export class Sesion {
   readonly almacen: Almacen;
   mv: ModeloValidado | null = null;
   origen: Origen = { tipo: 'modelo' };
-  receta: Receta | null = null;
+  /** La receta que trajo el enlace (null si se abrió una plantilla o un modelo sin receta). */
+  recetaEnlace: Receta | null = null;
   semilla = 0;
   N = 0;
   resultados: (ResultadoReplica | undefined)[] = [];
@@ -92,6 +93,8 @@ export class Sesion {
   private oyentes = new Set<(t: Tema) => void>();
   private tokenPrevia = 0;
   private previaEnCurso = false;
+  /** Noches con traza ya calculadas (las miniaturas del inicio): abrir esa plantilla no la vuelve a simular. Como mucho 2. */
+  private guardadas = new Map<string, SalidaSimulacion>();
 
   constructor(servicios: ServiciosApp, almacen: Almacen) {
     this.servicios = servicios;
@@ -120,15 +123,15 @@ export class Sesion {
   get nochesLlegadas(): ResultadoReplica[] { return this.resultados.filter((r): r is ResultadoReplica => r !== undefined); }
 
   /** Abre un modelo (de una plantilla, de un enlace o del modo ingeniero) y arranca la película y las cien noches. */
-  abrir(mv: ModeloValidado, origen: Origen, receta: Receta | null = null): void {
+  abrir(mv: ModeloValidado, origen: Origen, receta: Receta | null = null, respuestas: Record<string, number> = {}): void {
     this.generacion++;
     this.servicios.cancelarDesde(Prioridad.VISTA_PREVIA);
-    this.mv = mv; this.origen = origen; this.receta = receta;
+    this.mv = mv; this.origen = origen; this.recetaEnlace = receta;
     this.semilla = receta?.semilla ?? mv.modelo.experimento.semilla;
     this.N = Math.max(1, receta?.replicas ?? mv.modelo.experimento.nochesEscena);
     this.resultados = new Array(this.N); this.llegadas = 0; this.nochesListas = false;
     this.mapa = null; this.resumenCosto = null; this.propCorte = null; this.semaforo = null; this.comprobante = null;
-    this.noche = null; this.ysi = Sesion.ysiVacio(); this.decision = Sesion.decisionVacia(); this.ultimoError = null;
+    this.noche = null; this.ysi = Sesion.ysiVacio(); this.decision = { ...Sesion.decisionVacia(), respuestas }; this.ultimoError = null;
     this.pidiendoNoches = false;
     this.emitir('modelo');
     const inicial = receta?.noche !== undefined && receta.noche < this.N ? receta.noche
@@ -138,13 +141,22 @@ export class Sesion {
     void this.pedirNoches();
   }
 
+  /** Guarda una noche ya simulada (con traza) para no repetirla si se abre ese mismo modelo con esa semilla y réplica. */
+  recordarNoche(mv: ModeloValidado, semilla: number, replica: number, salida: SalidaSimulacion): void {
+    if (!salida.traza) return;
+    this.guardadas.set(`${mv.huella}|${semilla}|${replica}`, salida);
+    while (this.guardadas.size > 2) this.guardadas.delete(this.guardadas.keys().next().value as string);
+  }
+
   /** Carga la noche `replica` con traza completa (la que se ve). Mantiene el cabezal si la noche nueva lo contiene. */
   async cargarNoche(replica: number, cual: CualNocheMostrada, t?: number): Promise<void> {
     const mv = this.mv; if (!mv) return;
     const gen = this.generacion;
     this.cargandoNoche = true; this.emitir('noche');
     try {
-      const salida = await this.servicios.noche(mv, this.semilla, replica, Prioridad.VISTA_PREVIA);
+      const clave = `${mv.huella}|${this.semilla}|${replica}`;
+      const salida = this.guardadas.get(clave) ?? await this.servicios.noche(mv, this.semilla, replica, Prioridad.VISTA_PREVIA);
+      this.guardadas.delete(clave);
       if (gen !== this.generacion) return;
       const traza = salida.traza;
       if (!traza) throw new Error('la noche llegó sin traza');
@@ -315,6 +327,8 @@ export class Sesion {
   /** Evalúa la decisión del modelo (réplicas secuenciales) y después tamiza los supuestos para armar el formulario. Cancelable. */
   async decidir(): Promise<void> {
     const mv = this.mv; if (!mv?.modelo.decision) return;
+    // una sola evaluación a la vez (la pantalla y «responder» pueden pedirla juntas)
+    if (this.decision.fase === 'evaluando' || this.decision.fase === 'tamizando') return;
     const gen = this.generacion;
     const respuestas = this.decision.respuestas;
     this.decision = { ...Sesion.decisionVacia(), respuestas, fase: 'evaluando' }; this.emitir('decision');
@@ -374,8 +388,7 @@ export class Sesion {
       const mvNuevo = await this.servicios.variante(mv, ops);
       const respuestas = { ...this.decision.respuestas, [parametro]: valor };
       const origen: Origen = this.origen.tipo === 'plantilla' ? { ...this.origen, parche: [...this.origen.parche, ...ops] } : { tipo: 'modelo' };
-      this.abrir(mvNuevo, origen, null);
-      this.decision = { ...Sesion.decisionVacia(), respuestas };
+      this.abrir(mvNuevo, origen, null, respuestas);
       void this.decidir();
     } catch (e) { this.fallar('app.error.variante', e); }
   }
@@ -412,7 +425,7 @@ export class Sesion {
   // ---------- compartir ----------
 
   /** Receta de lo que se está mirando (la del comprobante más la noche, el cabezal y la velocidad). */
-  receta(): Receta | null {
+  recetaActual(): Receta | null {
     const mv = this.mv; if (!mv) return null;
     const e = this.almacen.estado;
     const base = this.comprobante?.receta ?? { v: 1 as const, modelo: mv.huella, motor: this.servicios.versionMotor, semilla: this.semilla, replicas: this.N };
@@ -429,7 +442,7 @@ export class Sesion {
    */
   async enlace(anonimizar: boolean): Promise<{ fragmento: string; enlace: Enlace; anonimizado: boolean; plantilla: boolean }> {
     const mv = this.mv; if (!mv) throw new Error('no hay modelo abierto');
-    const receta = this.receta();
+    const receta = this.recetaActual();
     const sensible = (op: OpParche) => /^\/(parametros|costos|demanda|procedencia|titulo|descripcion|autor)/.test(op.path);
     if (this.origen.tipo === 'plantilla' && (!anonimizar || !this.origen.parche.some(sensible))) {
       const e: Enlace = { tipo: 'plantilla', plantilla: this.origen.plantilla, parche: this.origen.parche, ...(receta ? { receta } : {}) };
@@ -450,10 +463,11 @@ export class Sesion {
 
   /** Estado del sello «Reproducida en este dispositivo» (diseño maestro §5.9). */
   selloReproducida(): 'reproducida' | 'sin-receta' | 'otro-motor' | 'calculando' {
-    if (!this.receta || !this.mv) return 'sin-receta';
-    if (this.receta.motor !== this.servicios.versionMotor) return 'otro-motor';
+    const r = this.recetaEnlace;
+    if (!r || !this.mv) return 'sin-receta';
+    if (r.motor !== this.servicios.versionMotor) return 'otro-motor';
     if (!this.nochesListas) return 'calculando';
-    return this.receta.modelo === this.mv.huella ? 'reproducida' : 'sin-receta';
+    return r.modelo === this.mv.huella ? 'reproducida' : 'sin-receta';
   }
 }
 

@@ -6,7 +6,10 @@
 // 15 personas de rampa por volumen; 2 puestos manuales; corte a las 06:00 (30:00); los mismos parámetros.
 // La salida se guarda UNA vez como JSON inmutable (hub-lazo-noche.json); la prueba plantillas.test.ts verifica que este generador la
 // reproduce exacta. Una versión nueva sería otro id@versión. Es una herramienta: no corre en la app.
-import type { Modelo } from '../../contratos/modelo.ts';
+//
+// También genera la PROPUESTA `hub-chico@1.1.0` (NOTAS-CONTRATO §13): la plantilla chica con la dotación que hace que «KPI sanos» de
+// §9 se cumpla al pie de la letra. No está publicada: la integración decide si la suma a PLANTILLAS (registro.ts › PROPUESTAS).
+import type { Modelo, OpParche } from '../../contratos/modelo.ts';
 import { matNativa } from '../../contratos/referencia/motor-referencia.ts';
 
 const dos = (n: number) => String(n).padStart(2, '0');
@@ -93,5 +96,83 @@ export function generarHubLazoNoche(base: Modelo): Modelo {
     { id: 'rampas-contiguas', titulo: 'Cada persona de rampa con rampas vecinas', parche: [{ op: 'replace', path: '/personas/rampa/asignacion', value: 'contiguas' }] },
     { id: 'pico', titulo: 'Pico de evento: 50% más paquetes por camión', parche: [{ op: 'replace', path: '/demanda/camiones/paquetes', value: 1385 }] },
   ];
+  return m;
+}
+
+/**
+ * Aplica operaciones RFC 6902 `replace` sobre rutas que ya existen, en el lugar, y devuelve el mismo modelo. Es lo mínimo que necesitan
+ * el generador y las pruebas del hub; el parche completo (add, remove, test, escapes) es de modelo/ (P3), que el hub no importa.
+ */
+export function reemplazar(m: Modelo, ops: readonly OpParche[]): Modelo {
+  for (const op of ops) {
+    if (op.op !== 'replace') throw new Error(`reemplazar: solo acepta 'replace' y vino '${op.op}' en ${op.path}.`);
+    const partes = op.path.split('/').slice(1).map((p) => p.replace(/~1/g, '/').replace(/~0/g, '~'));
+    let x = m as unknown as Record<string, unknown>;
+    for (const p of partes.slice(0, -1)) {
+      if (typeof x[p] !== 'object' || x[p] === null) throw new Error(`reemplazar: la ruta ${op.path} no existe (falta «${p}»).`);
+      x = x[p] as Record<string, unknown>;
+    }
+    const ultima = partes[partes.length - 1];
+    if (!Object.prototype.hasOwnProperty.call(x, ultima)) throw new Error(`reemplazar: la ruta ${op.path} no existe (falta «${ultima}»).`);
+    x[ultima] = structuredClone(op.value);
+  }
+  return m;
+}
+
+/**
+ * El cambio de dotación de la propuesta hub-chico@1.1.0 sobre hub-chico@1.0.0, como parche RFC 6902 (solo `replace`). Es lo único que
+ * cambia en la simulación; lo demás de la propuesta es metadato (versión, descripción, procedencia de estos tres valores y el
+ * escenario del retén, que con 1.0.0 agregaba la persona que 1.1.0 ya tiene).
+ */
+export const PARCHE_HUB_CHICO_1_1_0: readonly OpParche[] = Object.freeze([
+  Object.freeze({ op: 'replace', path: '/personas/induccion/reten', value: 1 }),
+  Object.freeze({ op: 'replace', path: '/personas/rampa/cantidad', value: 7 }),
+  Object.freeze({ op: 'replace', path: '/personas/excepcion/cantidad', value: 2 }),
+] as OpParche[]);
+
+/** Fecha de la propuesta 1.1.0 (la de las mediciones de NOTAS-CONTRATO §13). */
+const FECHA_1_1_0 = '2026-10-18';
+
+/**
+ * PROPUESTA hub-chico@1.1.0 desde hub-chico@1.0.0 (`base`): aplica PARCHE_HUB_CHICO_1_1_0 y escribe la procedencia de los tres
+ * valores como SUPUESTO con la medición que los justifica. Mismo id de modelo, mismos parámetros, misma decisión y misma semilla.
+ */
+export function generarHubChico110(base: Modelo): Modelo {
+  const m = structuredClone(base) as Modelo;
+  if (m.plantilla?.id !== 'hub-chico' || m.plantilla.version !== '1.0.0') {
+    throw new Error(`generarHubChico110: se esperaba la base hub-chico@1.0.0 y vino ${m.plantilla?.id}@${m.plantilla?.version}.`);
+  }
+  reemplazar(m, PARCHE_HUB_CHICO_1_1_0);
+  m.plantilla = { id: 'hub-chico', version: '1.1.0' };
+  m.creado = FECHA_1_1_0;
+  m.descripcion =
+    'Hub de última milla con sorter de bandejas: 10 camiones de 800 paquetes, 3 andenes, 5 puestos de inducción (3 con persona y una ' +
+    'de retén que cubre faltas), 12 rampas para 10 rutas con 7 personas y 2 puestos manuales. Supuestos de ejemplo con su fuente; no es ' +
+    'un hub real ni sale de ninguna empresa.';
+  m.procedencia = {
+    ...(m.procedencia ?? {}),
+    '/personas/induccion/reten': {
+      etiqueta: 'SUPUESTO',
+      fuente: 'Dotación de ejemplo (versión 1.1.0): una persona de retén cubre las faltas de inducción y después las de rampa. Sin ' +
+        'retén, una noche con dos de tres inductores ausentes no termina en 5 h: el único presente tarda más que eso solo en inducir.',
+      fecha: FECHA_1_1_0,
+    },
+    '/personas/rampa/cantidad': {
+      etiqueta: 'SUPUESTO',
+      fuente: 'Dotación de ejemplo (versión 1.1.0): 7 personas de rampa en vez de 6. Con 6, la caminata entre rampas y las pausas en ' +
+        'el pico hacen de la rampa el cuello (F0 no cuenta la caminata). MEDIDO con el motor de referencia en 200 noches (18-10-2026): ' +
+        'fin P50 195 · P90 209 · máx. 252 min; con 1.0.0, el 13,5% de las noches pasa los 300 min.',
+      fecha: FECHA_1_1_0,
+    },
+    '/personas/excepcion/cantidad': {
+      etiqueta: 'SUPUESTO',
+      fuente: 'Dotación de ejemplo (versión 1.1.0): 2 puestos manuales en vez de 1. Con uno, la excepción (20 s por paquete, ' +
+        'supuesto) pone la cola de la noche cuando las rampas se llenan.',
+      fecha: FECHA_1_1_0,
+    },
+  };
+  // Con 1.0.0 el escenario «reten» agregaba la persona que 1.1.0 ya tiene: pasa a mostrar qué compra esa persona.
+  m.escenarios = (m.escenarios ?? []).map((e) => e.id !== 'reten' ? e
+    : { id: 'sin-reten', titulo: 'Sin la persona de retén', parche: [{ op: 'replace', path: '/personas/induccion/reten', value: 0 }] });
   return m;
 }
