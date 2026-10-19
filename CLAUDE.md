@@ -138,6 +138,13 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - libros: manda la clasificación A del fundador (repositorio `estudios-biblicos-con-ani`); nada de esa biblioteca se usó en Senda;
   - registrado para antes del lanzamiento: un entorno de prueba para líderes (cuenta de líder y Max, con 2 o 3 personas) y, para la
     difusión, «10 kits por puntos» (sortear entre las primeras 10 personas o iglesias que junten X puntos, canje en la app).
+- **Datos del 19-10-2026 (Senda, prueba 21):**
+  - antes de empezar cada juego, sus instrucciones claras y cortas («Cómo se juega»: sola la primera vez y siempre a mano);
+  - «Vivir la historia» es la misión de la semana: individual, una historia por lunes (al lanzar, una sola), varios pasos con
+    opciones más difíciles, puntos al cumplirla y cumplida solo sin errores; el modo en grupo se sacó; antes del lanzamiento, la
+    fecha de inicio pasa a ser el lunes en que sale la app;
+  - el evento del calendario se arma con el título solo (sin clasificaciones), el día en el calendario del mes y la hora con ruedas
+    de alarma o escrita; compacto y sencillo.
 
 ## 2. Reglas no negociables
 

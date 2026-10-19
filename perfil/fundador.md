@@ -166,6 +166,14 @@
 - Mantiene su biblioteca de referencia filtrada (solo autores protestantes confiables) y espera que Senda respete esa misma lista.
 - Quiere probar la app también desde el lugar del líder (cargar material, sumar gente) antes de lanzar.
 
+### Pautas del 19-10-2026 (Senda, prueba 21)
+
+- Quiere que cada juego explique sus reglas antes de empezar, en pocas palabras.
+- Prefiere desafíos con calendario (una historia por semana) a contenido que se agota de una vez; lo que se repite tiene que dar
+  puntos y premiar hacerlo bien, no solo terminarlo.
+- Si algo no le convence (el modo en grupo de «Vivir la historia»), prefiere sacarlo antes que dejarlo a medias.
+- En los formularios, lo mínimo: un dato por pantalla y controles conocidos (el calendario del mes, la rueda de la alarma).
+
 ## Lo que falta (y por qué importa)
 
 | # | Pregunta | Por qué importa | Qué cambia según la respuesta |

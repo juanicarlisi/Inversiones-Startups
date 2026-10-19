@@ -891,3 +891,27 @@
   `scripts/autor/glosario.py`, `scripts/autor/nombres.py`, `src/componentes/textoRico.tsx`, `src/componentes/fiesta.tsx`,
   `src/pantallas/Letra.tsx`, `src/widget/`.
 
+
+## DEC-2026-10-19-2 · Senda: vigésima primera tanda (prueba 21), la misión de la semana, «Cómo se juega» y un calendario más simple
+
+- **Fecha:** 2026-10-19 · **Quién:** el fundador pide; Claude recomienda y construye.
+- **Pedido:** explicar las instrucciones de cada juego antes de empezar, fácil y sencillo; «Vivir la historia» no le cierra (una vez
+  hecha queda tildada): una historia por semana como desafío, individual, con más opciones y más difíciles, varios pasos y puntos;
+  sacar el modo en grupo; al lanzar, una sola historia; textos más amigables; si se erró, que no quede completada sino para volver a
+  hacerla bien. Calendario sin clasificaciones: el título y listo; el día con un calendario dinámico y lindo; la hora como en la
+  alarma, deslizando o escribiendo; después si se repite; más compacto. Revisar la UX en general y avanzar con todo lo pendiente.
+- **Decidido / hecho:**
+  - **«Vivir la historia» v3, la misión de la semana:** una historia por lunes desde una fecha de inicio (hoy 19-10-2026 para
+    probar; **antes del lanzamiento se pone el lunes en que sale la app**); 6 a 8 pasos, 4 opciones parecidas por paso con el porqué
+    de cada error; se cumple solo sin errores; 50 talentos en su semana y 25 después; la misión de la semana en Inicio. Siete
+    historias hasta el 30-11. Se sacó el modo en grupo (pedido del fundador). Las opciones correctas ya no se adivinan por el largo
+    (regla nueva del validador).
+  - **«Cómo se juega»** en los siete juegos, sola la primera vez y siempre a mano.
+  - **Evento en cuatro pasos:** título (el tipo sale solo del título), día en el calendario del mes, hora con ruedas de alarma o
+    escrita, y al final repetición, aviso y «Más opciones».
+  - **Lo previsto:** Quién es quién capítulo 3 (poetas y profetas), trivia de 602, tableros por tema en «¿Quién es?».
+  - **Corregido:** pantallas transparentes en la web por una animación que arrancaba antes de montar la vista.
+- **Pendiente del fundador:** probar el APK prueba 21; siguen abiertas la música de inicio, licencias y figura legal, la voz y la
+  cuenta de Google Play antes del 15-11.
+- **Registro:** capítulo 46; en la app, `scripts/autor/historias_rol.py`, `src/estado/misiones.ts`, `src/pantallas/Historias.tsx`,
+  `src/componentes/comoSeJuega.tsx`, `src/componentes/rueda.tsx`, `src/pantallas/Evento.tsx`, `scripts/autor/trivia_banco4.py`.
