@@ -1,4 +1,4 @@
-# Notas de la integración · corte 1, pasos I-1 (§10.1 a §10.5) e I-2 (§10.6, §10.7 y §10.9) · 19-10-2026
+# Notas de la integración · corte 1, pasos I-1 (§10.1 a §10.5), I-2 (§10.6, §10.7 y §10.9) e I-3 (§10.8, §10.10 y §10.11) · 19-10-2026
 
 Qué decidió la integración sobre lo que anotaron los ocho paquetes en sus `NOTAS-CONTRATO.md`, qué quedó cableado, qué cambió en otros
 paquetes (cambio mínimo, con sus pruebas en verde) y qué queda para decidir. **`contratos/` no cambió**: no hay `CAMBIOS-CONTRATO.md`, y
@@ -98,9 +98,9 @@ tandas pasan los 3 minutos de §12.1) y van al informe de salida. Propuesta para
    rango», que es lo que ya exige y cumple la prueba nº 25) y **no publicar 1.1.0 en este corte**: `hub-chico@1.0.0` es el ejemplo de §5 (F0,
    huella dorada, tamaños de enlace) y cambiar la dotación para pasar una prueba cambia la historia de la decisión. 1.1.0 queda como
    propuesta. Decide el orquestador.
-2. **El recorrido «decidir» hasta «Ya está» (§10.8).** Con `hub-chico@1.0.0` ninguna opción cumple la meta (y con 1.1.0 el valor 3 queda en
-   duda): el formulario termina en «ninguna cumple» o «en duda», que es lo honesto. Para el e2e del paso §10.8 hace falta una decisión con
-   meta alcanzable (otra pregunta en la plantilla, o un escenario), sin tocar las plantillas publicadas.
+2. ~~**El recorrido «decidir» hasta «Ya está» (§10.8).**~~ **Resuelto en I-3** sin tocar las plantillas publicadas: el recorrido abre
+   `hub-chico@1.0.0` con los datos de un hub propio por enlace (plantilla + parche: retén 1, 7 de rampa, 2 manuales, corte 03:00) y llega a
+   «Ya está» después de contestar dos preguntas (§10). Con la plantilla tal cual la app sigue diciendo «ninguna cumple», que es lo honesto.
 3. **Presentar: 4 pasos o «tres actos»** (P8): los 4 pasos cubren los tres actos de §9; lo confirma el fundador.
 4. ~~El comprobante del motor dice «0 de 85 (—)» hasta §10.6.~~ **Resuelto en I-2:** `npm run verificar` escribe
    `integracion/salida/bateria-nucleo.json` y la construcción ya pone «85 de 85» con la fecha de la corrida (ver §6).
@@ -227,3 +227,104 @@ principal, 10,3 MB). La decisión del chico recomienda `null` (ninguna opción c
 2. **4G ≤ 1,5 s**: cumple solo con el margen de ±30% (1,87 s); mejora con lo mismo que el punto 1.
 3. **S03** (§6) y **la tabla de §8** (8,7697 y 0,363864, §1): correcciones de texto propuestas para `corte-1.md`.
 4. **R04 en Firefox y WebKit**: pendiente (no instalados; instalar no está permitido acá).
+
+## 10. Paso I-3 · §10.8: recorridos de punta a punta (`npm run e2e`)
+
+`integracion/e2e/correr.mjs` (con `comun.mjs`, `primer-minuto.mjs`, `decidir.mjs` y `compartir.mjs`) corre los cuatro recorridos sobre
+`dist/` con los servicios reales (Workers con el núcleo de producción), en Chromium 141 del entorno, en 1280 × 800 y 360 × 740, claro y
+oscuro: 16 recorridos. Exige 0 errores y 0 avisos de consola, 0 errores de página, 0 pedidos fallidos, 0 pedidos a otro sitio que no sea
+127.0.0.1, 0 claves de texto faltantes y nada que desborde a lo ancho. Escribe `salida/e2e.json` y deja 8 capturas en `e2e/capturas/`
+(con `--revision=<carpeta>`, todas). Los enlaces se arman en Node con el mismo ensamblado que los Workers (R04: Node = Chromium).
+
+- **Primer minuto.** El enlace de la plantilla GRANDE con 1 cambio (rampas vecinas: el plan de un hub «como está hoy») y la receta de la
+  peor de las cien noches (la 82: un atraso común, 5.675 paquetes pierden el corte), parada a las 05:58. La película corre (reproducir y
+  ver avanzar el cabezal), se vuelve al instante tocando la línea de tiempo, se acerca con la rueda sobre un paquete atrasado, se arrastra
+  el plano para traerlo al centro y se lo **toca con el puntero sobre el lienzo** (la posición sale de invertir `aMundo` de una vista
+  igual); al volver, la cámara sigue acercada y «Ver todo el hub» la devuelve al encuadre completo. Su biografía muestra la causa
+  confirmada («esperó 15,5 min en la rampa R43: la persona estaba en pausa»; sin pausas llegaba a las 05:50). Después las cien noches y
+  «¿y si…?» con «balancear el plan»: 40 noches pareadas, pantalla dividida, y «B es mejor» en P90 del tiempo en el hub y en vueltas de más.
+  **Por qué el cambio de plan:** `hub-lazo-noche@1.0.0` ya reparte por volumen, así que balancearlo no cambia el modelo; la app ahora lo
+  dice («El plan ya reparte las rampas por volumen… B sería igual a A») sin simular ni comparar (lo prueba el recorrido en 1280 claro).
+- **Decidir.** Con `hub-chico@1.0.0` tal cual ninguna opción cumple (§3.2). El recorrido abre la plantilla chica con los datos de un hub
+  propio, sin tocar la plantilla publicada: retén 1, 7 personas de rampa, 2 puestos manuales (los de la propuesta 1.1.0) y corte a las
+  03:00. Recomendación 2 puestos en verde; el formulario pregunta el tiempo de inducción y el error del pronóstico; un dato fuera de rango
+  se rechaza; con los dos datos contestados (cada respuesta recalcula decisión y tamizado, 65–85 s) termina en «Ya está: lo que falta no
+  cambia la respuesta.».
+- **Compartir.** La plantilla chica en la noche mediana, parada a las 23:40: enlace de 78 caracteres (plantilla + receta) con su QR;
+  «Abrir en otra pestaña» abre el enlace tal cual (sin modo de depuración) y esa pestaña recalcula todo: misma noche, misma hora, misma
+  huella agregada (`d4f7128687bd85cf`), misma huella de la noche y del modelo, y el sello «Los números que ves los calculó este
+  dispositivo y coinciden con la receta del autor».
+- **Enlace hostil.** H01 (bomba de deflate, 12.978 caracteres) por la URL: aviso en 0,3–0,4 s, vuelta al inicio, la página contesta en
+  milisegundos y abre una plantilla.
+
+## 11. Paso I-3 · la experiencia, mirada como alguien que viene de FlexSim (y lo que se arregló)
+
+Recorrí las capturas de las 10 pantallas en las cuatro combinaciones con los servicios reales. Lo que estaba roto, pobre o confuso, y
+el arreglo (cambio mínimo en el paquete dueño, con sus pruebas en verde y pruebas nuevas donde hacía falta):
+
+| Qué se veía | Arreglo | Dónde |
+|---|---|---|
+| **Error de página** al alternar A/B en 360 px: la mitad oculta mide 0 y la vista lanzaba «redimensionar espera ancho… > 0» | Una caja de 0 px no se redimensiona ni se dibuja | `app/ui/lienzo.ts` |
+| La película no decía qué pasa **en ese instante** (un simulador de escritorio muestra reloj y contadores) | **Tablero en vivo** sobre el lienzo: hora, paquetes en jaula de N, adentro, fila de inducción, rampas llenas, personas en pausa, lazo detenido y, pasado el corte, cuántos no llegaron; todo de la traza (búsqueda binaria, sin memoria por cuadro); en el teléfono solo hora, jaula y alertas | `app/ui/tablero.ts` (nuevo), `lienzo.ts`, `estilos.css` |
+| No se podía **acercar** la escena para ver una rampa | Rueda (anclada al cursor), arrastrar, pellizcar (en pasos de 25%, para reusar los sprites del 2,5D), doble clic o «Ver todo el hub» para volver; un dedo vertical sigue desplazando la página; la cámara se recuerda por modelo y piso (tocar un paquete y volver no la pierde) y queda en `data-camara` del lienzo (la usan los recorridos para saber dónde quedó cada cosa) | `app/ui/camara.ts` (nuevo), `lienzo.ts` (escena, cien noches y presentar) |
+| En 4 núcleos el piso salía a veces **2D**: `elegirPiso` mide el 2,5D en el primer segundo, cuando 3 Workers simulan las cien noches y le ganan la CPU al hilo de la interfaz (el banco mide 1,5 ms por cuadro 2,5D con la CPU libre) | Si salió 2D, se vuelve a medir una vez con las cien noches listas y, si el 2,5D anda, se pasa a 2,5D | `app/ui/lienzo.ts`, `escena.ts` (el botón de piso lo refleja) |
+| «¿Y si…?» con «balancear el plan» sobre un plan que ya va por volumen: B idéntico a A y una tabla de ceros que decía «No se distingue: haría falta simular unas — noches» | Si el modelo B tiene la misma huella que A, la app lo dice y no compara; una diferencia idéntica en las 40 noches dice «Igual en las 40 noches»; sin cuenta de noches dice «No se distingue»; «Por volumen» se marca al balancear | `app/sesion.ts` (fase `igual`), `app/pantallas/ysi.ts` |
+| La comparación no mostraba lo que balancear mejora | Suma «% de vueltas de más» (recirculación) a la pantalla dividida | `app/sesion.ts` (`KPI_COMPARACION`), `ysi.ts` |
+| Decidir el hub grande decía «Recomendado: 4» con «No usar» al lado: las noches de 2 puestos no terminan en el horizonte | Un «no-termina» en una opción que **no cumple** (sobrecargada) ya no pone en rojo la decisión; en una que cumple o está en duda, sí. Y con el semáforo en rojo la app no recomienda nada | `experimentos/decision.ts` (+ prueba), `app/pantallas/decidir.ts` |
+| El formulario preguntaba «¿«errorPronosticoCv» (…)?» y «Tus datos: induccionBase = 2,4» | Si el parámetro no trae su pregunta, se pregunta por lo que mide («¿Cuánto vale en tu hub el coeficiente de variación del volumen del día?»); los datos dados van con su unidad | `app/pantallas/decidir.ts` |
+| Biografía: «La descarga tardó 0 min porque se frenó…», «Tardó más que el 100,0%», «Con el cambio (…) llegaría a las 02:51; sin el cambio llega a las 02:51. Llegaría antes del corte.» | El freno se cuenta si se ve al redondear (≥ 0,1 min); el último es «el paquete que más tardó»; misma hora = «ese cambio no lo adelanta», y el corte solo se menciona si el cambio lo cruza; la línea confirmada lleva la hora de antes («llegaba a las 05:50, no a las 06:05») | `explicacion/biografia.ts`, `app/pantallas/biografia.ts` |
+| «Ver un paquete que pierde el corte» en una noche donde ninguno lo pierde | Dice «Ver el paquete que más tardó (ninguno pierde el corte)» | `app/pantallas/escena.ts` |
+| Línea de tiempo en 360 px: horas encimadas («22:0023:00») y marcas que se pisan | Las horas van cada 1, 2, 3, 4 o 6 h según el ancho (≥ 48 px entre rótulos); marcas a menos de 16 px no se dibujan (quedan las más importantes); se rearma al cambiar el ancho | `app/ui/linea-tiempo.ts`, `estilos.css` |
+| Miniaturas del inicio: un rectángulo vacío mientras se simula | «Simulando una noche…» hasta que hay película | `app/pantallas/inicio.ts`, `estilos.css` |
+| Modo ingeniero: «la clasificación terminaría a las 28:30» | Hora del reloj (04:30) | `app/pantallas/comun.ts` (`horaDelDia`), `escena.ts`, `ingeniero.ts` |
+| Comprobante: «Se hicieron 24 controles» dos veces | El diagnóstico I-CONTROLES no se repite | `app/pantallas/comprobante.ts` |
+| Etiqueta «Calculando la noche…» sobre una mitad B vacía | Sin película B no hay etiqueta (y el lado vacío dice por qué) | `app/pantallas/ysi.ts` |
+| La tabla de la decisión no marcaba cuál es la recomendada | La fila recomendada va resaltada (salvo con el semáforo en rojo) | `app/ui/tabla.ts` (`destacada`), `decidir.ts`, `estilos.css` |
+| Selector «La noche mediana · La peor · La mejor» partido en dos renglones desparejos en 360 px | En el teléfono es una fila de partes iguales | `estilos.css` |
+
+Pruebas nuevas: `app/pruebas/tablero.test.ts` (3), `app/pruebas/camara.test.ts` (4), la fase `igual` en `sesion.test.ts`, el texto del
+contrafactual en `textos-pantalla.test.ts` y la regla del «no-termina» en `experimentos/pruebas/decision.test.ts`. Las pruebas de P8 (84 con
+las nuevas), las de P5 (con la nueva) y las de P7, y el humo de P8 con servicios falsos (`app/pruebas/humo.mjs --sin-capturas`, 10 pantallas ×
+4 combinaciones) siguen en verde.
+
+Lo que miré y dejé como está (no es roto ni confuso): la escala de riesgo del tema oscuro termina en rosa claro (es la de P6, monótona en
+luminancia y probada en grises); el encuadre del 2,5D deja margen alrededor del piso (con zoom ya no importa). Las capturas pueden salir
+en 2D o en 2,5D según lo que mida `elegirPiso` en ese momento (las dos son pisos válidos).
+
+`e2e/humo.mjs` (I-1) ahora guarda sus capturas en una carpeta temporal: en `e2e/capturas/` quedan solo las 8 elegidas de los recorridos.
+
+**Corrida final (MEDIDO, 19-10-2026):** 16 de 16 recorridos en verde, 0 errores ni avisos de consola, 0 pedidos fallidos o a otro sitio,
+0 claves faltantes, nada desborda; 17,6 min; 8 capturas, 1,17 MB. Película del enlace a los 1,4–1,9 s, cien noches del hub grande a los
+11 s, el toque cae en el paquete (el arrastre lo deja a 2 px del puntero), confirmación de «¿y si…?» en 4,2–4,8 s; decidir: primera
+respuesta en 87–93 s y cada dato recalcula en 62–81 s. Una lección de la corrida: las coordenadas de un toque se toman justo antes de
+tocar (una captura desplaza la página).
+
+## 12. Paso I-3 · §10.10 y §10.11: informe de salida y README
+
+- **`npm run informe`** (`integracion/informe-salida.mjs`) escribe `salida/informe-salida.json`: corre `npm test` con un reportero JSON
+  propio (`integracion/reportero.mjs`: totales y resultado por archivo, para atar cada criterio a sus pruebas), mide las invariantes en 200
+  noches de cada plantilla y el enlace con el códec de producción, y junta `bateria-nucleo.json`, `r04.json`, `banco.json` y `e2e.json`.
+- **README** del simulador en `apps/anden/simulador/README.md`: cómo correrlo, cómo probarlo, qué hay, qué no y qué queda abierto.
+- **Excepción nueva en `pruebas/arquitectura.test.ts`:** las herramientas de la integración que miden §12.7 (`e2e/*.mjs` e
+  `informe-salida.mjs`) importan el catálogo H01–H12 de P3 (`modelo/pruebas/hostiles/entradas.ts`) como datos; nada de eso entra en `dist/`.
+- **Banco repetido** después de los cambios de I-3 (`salida/banco.json`, 399 s): 12 cumplen, 1 con margen, 1 no cumple. Primera carga
+  137,8 KB brotli (era 134,7: el tablero y la cámara suman 3 KB; meta 150); primer cuadro desde el enlace 1.238 ms (meta 150, **no cumple**,
+  igual que en I-2); con 4G 1.858 ms (con margen); cuadro 2,5D 1,23 / 7,16 ms con CPU 4×; cien noches 10,8 s; vista previa 502 ms;
+  tamizado 41,6 s; decisión 3,6 s; memoria 44,3 MB.
+
+**Estado de §12 (MEDIDO, 19-10-2026): 11 de 12 → «cerrado con pendientes».**
+
+| # | Criterio | Medido | Estado |
+|---|---|---|---|
+| 1 | `npm test` verde en < 3 min | 1.017 pruebas: 1.015 pasan, 0 fallan, 1 `todo` («KPI sanos» de P4), 1 omitida (la batería completa); 118 s | cumple |
+| 2 | 85 de 85 con el núcleo; S01 y S02 fallan; informe | 85 de 85, S01 y S02 fallan como deben, 0 reintentos, 66 doradas, informe en `verificacion/informe/` (corrida de I-2; nada de lo que corre la batería cambió después: núcleo, hub, verificación y casos de la integración idénticos, y los cambios de I-3 en experimentos/ y explicacion/ no los usa) | cumple |
+| 3 | R08b | `diferencial.test.ts` en verde (chico 5 semillas, grande, F2, sin traza, batería rápida); doradas iguales | cumple |
+| 4 | R04 | Node = Chromium 141 en 95 de 95 claves; Firefox y WebKit pendientes (no instalados, no se permite instalar) | cumple (con pendientes) |
+| 5 | E01 y E02 | 0 frases causales sin confirmar (E01 con la reformulación de §2; E02 a la letra) | cumple (E01 reformulado: decide el orquestador) |
+| 6 | I01–I06 en 200 noches | 0 alertas en 200 noches de cada plantilla con el núcleo (6,8 s y 16,4 s) | cumple |
+| 7 | Enlace | ida y vuelta exacta (modelo, parche, receta); 6.024 / 206 / 62 caracteres; H01–H12 (y 3 variantes) rechazadas con su error; la otra pestaña reproduce la huella en las 4 combinaciones | cumple |
+| 8 | Recorridos §10.8 | 16 de 16, 0 errores de consola, 8 capturas | cumple |
+| 9 | Presupuestos §11 | 12 cumplen, 1 con margen (4G), **1 no cumple: primer cuadro 1.238 ms contra 150** | **no cumple** |
+| 10 | Textos | claves es = en; etiqueta de noche y tres sellos en la escena (4 combinaciones); 0 marcas | cumple |
+| 11 | Arquitectura | `arquitectura.test.ts` en verde | cumple |
+| 12 | Nada publicado | servidor solo en 127.0.0.1; 0 pedidos a otro sitio en los recorridos; ningún script publica; sin commits de la integración | cumple |

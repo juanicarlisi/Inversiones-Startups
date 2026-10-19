@@ -5,9 +5,11 @@
 //   · 0 errores ni avisos de consola, 0 errores de página, 0 pedidos fallidos y 0 claves de texto faltantes;
 //   · la huella agregada de las cien noches del hub chico igual a la que da Node con el mismo motor (adelanto de R04, §10.7);
 //   · que la página no desborde a lo ancho.
-// Guarda capturas en integracion/e2e/capturas/humo-*.png. Los recorridos completos de §10.8 son e2e/correr.mjs.
+// Guarda sus capturas en una carpeta temporal (la ruta sale al final): las del repositorio, integracion/e2e/capturas/, son las 8 elegidas
+// de los recorridos completos de §10.8 (e2e/correr.mjs). Con --capturas=<carpeta>, ahí.
 // Uso (desde apps/anden/simulador):  NODE_PATH=/opt/node-tools/node_modules node integracion/e2e/humo.mjs [--sin-construir]
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,7 +17,7 @@ import { construir, DIST } from '../construir.mjs';
 import { servir } from '../servir.mjs';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
-const CAPTURAS = join(AQUI, 'capturas');
+const CAPTURAS = process.argv.find((a) => a.startsWith('--capturas='))?.slice(11) ?? mkdtempSync(join(tmpdir(), 'anden-humo-'));
 const CHROMIUM = process.env.CHROMIUM ?? '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const requerir = createRequire(join(process.env.NODE_PATH ?? '/opt/node-tools/node_modules', 'x.js'));
 const { chromium } = requerir('playwright');
@@ -125,6 +127,7 @@ async function principal() {
     await s.cerrar();
   }
   console.log(fallas.length ? `\n${fallas.length} fallas` : '\nhumo: todo en orden');
+  console.log(`capturas del humo en ${CAPTURAS}`);
   process.exitCode = fallas.length ? 1 : 0;
 }
 

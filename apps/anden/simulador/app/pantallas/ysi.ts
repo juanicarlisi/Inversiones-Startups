@@ -22,6 +22,8 @@ function valorKpi(ctx: Contexto, kpi: string, v: number, conSigno = false): stri
   const signo = conSigno && v > 0 ? '+' : '';
   if (kpi === 'costoPorPaquete' || kpi === 'costoNoche') return signo + ctx.f.moneda(v, moneda);
   if (kpi.endsWith('Min')) return signo + ctx.t('app.unidad.min', { n: ctx.f.numero(v, 1) });
+  // los KPI «…Pct» ya vienen en puntos porcentuales (0 a 100)
+  if (kpi.endsWith('Pct')) return signo + ctx.f.porcentaje(v / 100, Math.abs(v) < 1 ? 2 : 1);
   return signo + ctx.f.numero(v, Math.abs(v) < 10 && !Number.isInteger(v) ? 1 : 0);
 }
 
@@ -105,6 +107,8 @@ export const montarYsi: Montar = (raiz, ctx) => {
     ladoB.classList.toggle('dividida__lado--vacio', !y.nocheB);
     vacioB.textContent = ctx.t(y.fase === 'igual' ? 'app.ysi.bIgualA' : y.fase === 'previa' ? 'app.ysi.calculandoPrevia' : 'app.ysi.moveUnaPerilla');
     etqA.actualizar(); etqB.actualizar();
+    // sin película de B (todavía no se movió nada, o B quedó igual a A) no hay noche que etiquetar
+    etqB.nodo.hidden = !y.nocheB && y.fase !== 'previa';
     // estado de la comparación
     const partes: HTMLElement[] = [];
     if (y.fase === 'nada') partes.push(el('p', { class: 'nota' }, ctx.t('app.ysi.instrucciones')));

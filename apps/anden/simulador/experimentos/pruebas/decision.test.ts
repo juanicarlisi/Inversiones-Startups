@@ -131,6 +131,23 @@ test('alertas en las noches (aunque sea en una) ponen el semáforo de la evaluac
   assert.equal(ev.semaforo.vars.nombre, 'rampa-capacidad'); assert.equal(ev.semaforo.vars.replica, 7);
 });
 
+test('«no-termina» en una opción que no cumple (sobrecargada) no pone en rojo la decisión; en una opción que cumple, sí (integración, I-3)', async () => {
+  // con 2 puestos la noche no termina (y pierde el corte); el resto como siempre
+  const conNoTermina = (valor: number, cada: number): Simulador => (mv, semilla, replica, o) => {
+    const s = simuladorPorValor(PROBAS)(mv, semilla, replica, o);
+    return mv.modelo.personas.induccion.puestosActivos === valor && replica % cada === 7
+      ? { resultado: { ...s.resultado, alertas: ['no-termina'], kpi: { ...s.resultado.kpi, pendientesAlCorte: 50 } } } : s;
+  };
+  const sobrecargada = await evaluarDecision(modeloConSemilla(20261017), planificadorSincrono(conNoTermina(2, 8)), varianteFalsa, OPCIONES);
+  assert.equal(sobrecargada.configuraciones[0].estado, 'no-cumple');
+  assert.equal(sobrecargada.semaforo.color, 'verde', `se esperaba verde y salió ${sobrecargada.semaforo.color} (${sobrecargada.semaforo.motivo})`);
+  assert.equal(sobrecargada.recomendacion, 4);
+  // una sola noche que no termina con 5 puestos: la opción no queda «no cumple», así que la alerta sí cuenta
+  const enLaRecomendada = await evaluarDecision(modeloConSemilla(20261017), planificadorSincrono(conNoTermina(5, 1000)), varianteFalsa, OPCIONES);
+  assert.notEqual(enLaRecomendada.configuraciones[3].estado, 'no-cumple');
+  assert.equal(enLaRecomendada.semaforo.color, 'rojo'); assert.equal(enLaRecomendada.semaforo.motivo, 'inestable');
+});
+
 test('pocas noches iniciales (10) y todo resuelto se avisan como «pocas-replicas»', async () => {
   const ev = await evaluarDecision(modeloConSemilla(5), planificadorSincrono(simuladorPorValor({ 2: 0.0, 3: 0.0, 4: 0.0, 5: 0.0 })), varianteFalsa,
     { replicasIniciales: 10, tanda: 10, replicasMax: 10 });

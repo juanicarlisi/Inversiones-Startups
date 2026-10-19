@@ -119,7 +119,10 @@ test('arquitectura · imports: integracion/ no importa pruebas de otros paquetes
     for (const i of importsDe(p)) {
       if (!i.esp.startsWith('.')) continue;
       const destino = rel(resolve(dirname(p), i.esp));
-      if (/^(nucleo|verificacion|modelo|hub|experimentos|escena|explicacion|app)\/pruebas\//.test(destino)) malos.push(`${r}:${i.linea} importa ${destino}`);
+      // Única excepción (I-3): las herramientas de la integración que miden §12.7 (los recorridos y el informe de salida) usan el catálogo
+      // H01–H12 de P3 como DATOS, sin copiarlo; nunca entra en dist/ (lo controla la prueba del paquete construido).
+      const catalogoHostil = destino === 'modelo/pruebas/hostiles/entradas.ts' && /^integracion\/(e2e\/[^/]+\.mjs|informe-salida\.mjs)$/.test(r);
+      if (!catalogoHostil && /^(nucleo|verificacion|modelo|hub|experimentos|escena|explicacion|app)\/pruebas\//.test(destino)) malos.push(`${r}:${i.linea} importa ${destino}`);
       if (/^app\/(servicios-falsos|entrada-falsa|falsos\/)/.test(destino)) malos.push(`${r}:${i.linea} importa ${destino}`);
     }
   }

@@ -25,7 +25,7 @@ import { hayCambios } from './estado.ts';
 /** Noches de la confirmación pareada de «¿y si…?» (corte-1.md §9 P8.5). */
 export const NOCHES_CONFIRMACION = 40;
 /** KPI que se comparan en la pantalla dividida, en este orden. */
-export const KPI_COMPARACION: readonly KpiId[] = ['costoPorPaquete', 'pendientesAlCorte', 'finClasificacionMin', 'esperaP90Min'];
+export const KPI_COMPARACION: readonly KpiId[] = ['costoPorPaquete', 'pendientesAlCorte', 'finClasificacionMin', 'esperaP90Min', 'recirculacionPct'];
 
 export interface NocheVista {
   replica: number;

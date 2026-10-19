@@ -26,7 +26,8 @@ export const montarNoches: Montar = (raiz, ctx) => {
   };
   const barra = el('div', { class: 'noches__progreso' });
   const etq = etiquetaNoche(ctx, 'A');
-  const lienzo = crearLienzo(ctx, { reproductor: () => s.noche?.reproductor ?? null, riesgo: mapa, tocable: true, etiqueta: ctx.t('app.noches.lienzo') });
+  const lienzo = crearLienzo(ctx, { reproductor: () => s.noche?.reproductor ?? null, riesgo: mapa, tocable: true, etiqueta: ctx.t('app.noches.lienzo'), camara: true,
+    claveCamara: `noches|${s.mv?.huella ?? ''}` });
   L.sumar(lienzo.destruir);
   const leyenda = el('ul', { class: 'leyenda leyenda--riesgo', 'aria-label': ctx.t('app.noches.leyenda') },
     ...[0, 1, 2, 3, 4].map((n) => el('li', { class: `leyenda__item leyenda__item--riesgo${n}` }, el('span', { class: 'leyenda__muestra', 'aria-hidden': 'true' }),

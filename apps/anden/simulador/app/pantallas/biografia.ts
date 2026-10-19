@@ -135,7 +135,9 @@ export const montarBiografia: Montar = (raiz, ctx) => {
         el('ul', { class: 'causas' }, ...mostrables.map((f) => el('li', { class: 'causa', 'data-causa': f.clave }, textoFrase(ctx, f)))),
         confirmados.length ? el('ul', { class: 'confirmados' }, ...confirmados.map((c) => el('li', { class: 'confirmado' },
           el('span', { class: 'confirmado__marca', 'aria-hidden': 'true' }, '✓'),
-          c.despues.listo !== null ? ctx.t('app.bio.confirmado', { cambio: ctx.t(c.cambio.clave, c.cambio.vars), hora: ctx.f.hora(c.despues.listo) })
+          // con la hora de antes al lado («llegaba a las 05:50, no a las 06:05»): lo que agrega esta línea a la frase de la causa
+          c.despues.listo !== null ? ctx.t('app.bio.confirmado', { cambio: ctx.t(c.cambio.clave, c.cambio.vars), hora: ctx.f.hora(c.despues.listo),
+            antes: c.antes.listo !== null ? ctx.f.hora(c.antes.listo) : ctx.t('app.bio.noLlega') })
             : ctx.t('app.bio.confirmadoSinHora', { cambio: ctx.t(c.cambio.clave, c.cambio.vars) })))) : null);
     }).catch(() => { if (vivo) { raiz.dataset.listo = '1'; poner(causasCaja, el('p', null, ctx.t('app.error.causas'))); } });
   }

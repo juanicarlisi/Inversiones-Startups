@@ -5,7 +5,7 @@
 import type { Contexto, Montar } from '../contexto.ts';
 import { ClaseEntidad } from '../../contratos/traza.ts';
 import { el, limpiezas, poner } from '../ui/dom.ts';
-import { crearLienzo } from '../ui/lienzo.ts';
+import { crearLienzo, pisoActual } from '../ui/lienzo.ts';
 import { bucleReproduccion, controlesReproduccion, crearLineaTiempo } from '../ui/linea-tiempo.ts';
 import { etiquetaNoche, franjaSupuestos } from '../ui/etiqueta-noche.ts';
 import { lineaResumen, sellos } from '../ui/resumen.ts';
@@ -50,7 +50,8 @@ export const montarEscena: Montar = (raiz, ctx) => {
   const resumen = el('div', { class: 'escena__resumen' });
   const etq = etiquetaNoche(ctx, 'A');
   const franja = el('div', { class: 'escena__franja' });
-  const lienzo = crearLienzo(ctx, { reproductor: () => s.noche?.reproductor ?? null, tocable: true, etiqueta: ctx.t('app.escena.lienzo'), tablero: true });
+  const lienzo = crearLienzo(ctx, { reproductor: () => s.noche?.reproductor ?? null, tocable: true, etiqueta: ctx.t('app.escena.lienzo'), tablero: true, camara: true,
+    claveCamara: `escena|${mv.huella}` });
   L.sumar(lienzo.destruir);
   const linea = crearLineaTiempo(ctx, { momentos: () => s.noche?.momentos ?? [], corte: () => s.noche?.traza.corte ?? null,
     minImportancia: () => (ctx.esAncho() ? 2 : 3) });
@@ -94,7 +95,7 @@ export const montarEscena: Montar = (raiz, ctx) => {
     const e = ctx.almacen.estado;
     botonIng.textContent = ctx.t(e.ingeniero ? 'app.escena.ingenieroSalir' : 'app.escena.ingeniero');
     botonIng.setAttribute('aria-pressed', String(e.ingeniero));
-    const actual = lienzo.vista()?.piso ?? e.piso ?? '2d';
+    const actual = e.piso ?? lienzo.vista()?.piso ?? pisoActual(ctx);
     botonPiso.textContent = ctx.t(actual === 'iso' ? 'app.escena.piso2d' : 'app.escena.pisoIso');
     if (!e.ingeniero || !s.noche || !s.mv) { ingeniero.replaceChildren(); ingeniero.hidden = true; return; }
     ingeniero.hidden = false;
@@ -128,6 +129,7 @@ export const montarEscena: Montar = (raiz, ctx) => {
   L.sumar(s.suscribir((tema) => {
     if (tema === 'noche') { etq.actualizar(); linea.actualizar(); pintarCarga(); pintarIngeniero(); pintarAtajo(); }
     if (tema === 'progreso' || tema === 'noches' || tema === 'modelo') { pintarResumen(); etq.actualizar(); }
+    if (tema === 'noches') pintarIngeniero();
   }));
   L.sumar(bucleReproduccion(ctx));
   raiz.dataset.listo = s.noche ? '1' : '0';

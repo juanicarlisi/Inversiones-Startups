@@ -46,7 +46,10 @@ function tarjetaPregunta(ctx: Contexto, p: Pregunta): HTMLElement {
     error.textContent = '';
     void ctx.sesion.responder(p.parametro, v);
   } }, ctx.t('app.decidir.usar'));
-  const textoPregunta = el('h3', { class: 'pregunta__texto' }); textoPregunta.textContent = p.texto;
+  // si el parámetro no trae su pregunta en criollo, se pregunta por lo que mide (su unidad), nunca por su nombre interno
+  const conPregunta = !!ctx.sesion.mv?.modelo.parametros[p.parametro]?.pregunta;
+  const textoPregunta = el('h3', { class: 'pregunta__texto' });
+  textoPregunta.textContent = conPregunta || !unidad ? p.texto : ctx.t('app.decidir.preguntaPorUnidad', { unidad });
   const fuente = el('span', { class: 'pregunta__fuente' }); fuente.textContent = p.referencia.fuente;
   return el('li', { class: 'pregunta', 'data-pregunta': p.parametro },
     el('span', { class: 'pregunta__orden', 'aria-hidden': 'true' }, String(p.orden)), textoPregunta,
@@ -101,13 +104,17 @@ export const montarDecidir: Montar = (raiz, ctx) => {
             el('span', { class: `estado-config estado-config--${c.estado}` }, ctx.t(`experimentos.estado.${c.estado}`)),
             ctx.t('app.decidir.costo', { media: ctx.f.moneda(c.objetivo.media, moneda), mas: ctx.f.moneda(c.objetivo.semiancho, moneda) }),
             ctx.f.numero(c.prop.n, 0)]),
-          { titulo: ctx.t('app.decidir.tablaTitulo', { variable: ctx.t('app.decidir.variable') }), numericas: [1, 3, 4], accion: 'decision', apilable: true }),
+          { titulo: ctx.t('app.decidir.tablaTitulo', { variable: ctx.t('app.decidir.variable') }), numericas: [1, 3, 4], accion: 'decision', apilable: true,
+            // la opción recomendada se ve en la tabla (salvo con el semáforo en rojo, que no recomienda nada)
+            destacada: ev.semaforo.color === 'rojo' ? -1 : ev.configuraciones.findIndex((c) => c.valor === ev.recomendacion) }),
         el('div', { class: 'decidir__recomendacion', 'data-recomendacion': ev.semaforo.color === 'rojo' ? 'ninguna' : ev.recomendacion ?? 'ninguna' },
           el('p', { class: 'decidir__recomendacion-texto' }, textoRecomendacion(ctx, ev)), detalleSemaforo(ctx, ev.semaforo)),
         el('p', { class: 'nota' }, ctx.t('app.decidir.noches', { n: ev.replicasUsadas })));
     } else poner(evaluacion, el('p', { class: 'nota' }, ctx.t('app.decidir.sinEvaluacion')));
     const dadas = Object.entries(x.respuestas);
-    poner(respuestas, dadas.length ? el('p', { class: 'decidir__dadas' }, ctx.t('app.decidir.tusDatos', { lista: dadas.map(([k, v]) => `${k} = ${ctx.f.numero(v)}`).join(' · ') })) : null);
+    // cada dato con su unidad («2,4 s por paquete»), no con el nombre interno del parámetro
+    const conUnidad = ([k, v]: [string, number]) => { const u = mv.modelo.parametros[k]?.unidad; return u ? `${ctx.f.numero(v)} ${u}` : `${k} = ${ctx.f.numero(v)}`; };
+    poner(respuestas, dadas.length ? el('p', { class: 'decidir__dadas' }, ctx.t('app.decidir.tusDatos', { lista: dadas.map(conUnidad).join(' · ') })) : null);
     if (x.preguntas) {
       poner(formulario, x.preguntas.length
         ? el('ol', { class: 'preguntas' }, ...x.preguntas.map((p) => tarjetaPregunta(ctx, p)))

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { crearServiciosFalsos } from '../servicios-falsos.ts';
 import { crearAlmacen, estadoInicial, PERILLAS_VACIAS } from '../estado.ts';
-import { Sesion, NOCHES_CONFIRMACION } from '../sesion.ts';
+import { Sesion, NOCHES_CONFIRMACION, KPI_COMPARACION } from '../sesion.ts';
 import { esperarA } from './ayudas.ts';
 import { ClaseEntidad } from '../../contratos/traza.ts';
 import type { ModeloValidado } from '../../contratos/modelo.ts';
@@ -62,12 +62,18 @@ test('¿y si…?: vista previa de una noche con la misma réplica y confirmació
   ]);
   assert.equal(sesion.ysi.nocheB?.replica, replicaA, 'B se ve con la misma noche (misma suerte) que A');
   assert.equal(sesion.ysi.mvB?.modelo.personas.induccion.puestosActivos, 4);
-  assert.equal(sesion.ysi.comparaciones.length, 4);
+  assert.equal(sesion.ysi.comparaciones.length, KPI_COMPARACION.length, 'un indicador por fila de la pantalla dividida (KPI_COMPARACION)');
   for (const c of sesion.ysi.comparaciones) { assert.equal(c.pareada, true); assert.equal(c.n, NOCHES_CONFIRMACION); }
   // volver a «como está» borra B
   await sesion.previsualizar({ ...PERILLAS_VACIAS });
   assert.equal(sesion.ysi.fase, 'nada');
   assert.equal(sesion.ysi.mvB, null);
+  // un cambio que deja el modelo igual (balancear un plan que ya va por volumen): fase «igual», sin película B ni 40 noches (I-3)
+  assert.equal(sesion.mv!.modelo.personas.rampa.asignacion, 'por-volumen');
+  await sesion.previsualizar({ ...PERILLAS_VACIAS, balanceado: true });
+  assert.equal(sesion.ysi.fase, 'igual', `se esperaba «igual» y salió «${sesion.ysi.fase}»`);
+  assert.equal(sesion.ysi.nocheB, null); assert.equal(sesion.ysi.comparaciones.length, 0);
+  await sesion.previsualizar({ ...PERILLAS_VACIAS });
 });
 
 test('«balancear el plan» usa el parche de planBalanceado; «quedarme con B» lo suma al origen', async () => {
