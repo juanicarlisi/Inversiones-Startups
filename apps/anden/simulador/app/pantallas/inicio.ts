@@ -20,7 +20,8 @@ export function paquetesNominales(m: Modelo): number {
 function miniatura(ctx: Contexto, clave: string, caja: HTMLElement): () => void {
   let vivo = true, id = 0, vista: Vista | null = null, ro: ResizeObserver | null = null;
   const lienzo = el('canvas', { class: 'miniatura__lienzo', role: 'img', 'aria-label': ctx.t('app.inicio.miniatura') });
-  caja.appendChild(lienzo);
+  // mientras se simula la noche de la miniatura, se dice qué pasa (no un rectángulo vacío)
+  caja.append(lienzo, el('p', { class: 'miniatura__cargando', 'aria-hidden': 'true' }, ctx.t('app.inicio.simulando')));
   (async () => {
     const c = await ctx.servicios.compilar(ctx.servicios.plantillas[clave]);
     if (!vivo || !c.ok) return;

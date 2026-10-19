@@ -9,7 +9,7 @@ import { horaASeg } from '../../contratos/tipos-base.ts';
 import { el, limpiezas, poner } from '../ui/dom.ts';
 import { cabecera, tarjeta } from '../ui/tarjeta.ts';
 import { tabla } from '../ui/tabla.ts';
-import { botonVolver } from './comun.ts';
+import { botonVolver, horaDelDia } from './comun.ts';
 
 /** Traza en CSV: una fila por tramo, con las columnas del contrato (e, k, r, a, t0, t1, c, q). */
 export function trazaACsv(t: Traza): string {
@@ -81,7 +81,7 @@ export const montarIngeniero: Montar = (raiz, ctx) => {
     const mv = s.mv!, f0 = mv.f0;
     const etapas = ['descarga', 'induccion', 'sorter', 'rampas'] as const;
     const cap = { descarga: f0.capacidadDescargaPorHora, induccion: f0.capacidadInduccionPorHora, sorter: f0.capacidadSorterTeoricaPorHora, rampas: f0.capacidadRampasPorHora };
-    poner(f0Caja, el('p', null, ctx.t('app.ingeniero.f0Llegada', { llegada: ctx.f.numero(f0.llegadaMediaPorHora, 0), fin: f0.finEstimado, cuello: ctx.t(`modelo.etapa.${f0.cuello}`) })),
+    poner(f0Caja, el('p', null, ctx.t('app.ingeniero.f0Llegada', { llegada: ctx.f.numero(f0.llegadaMediaPorHora, 0), fin: horaDelDia(f0.finEstimado), cuello: ctx.t(`modelo.etapa.${f0.cuello}`) })),
       tabla([ctx.t('app.ingeniero.col.etapa'), ctx.t('app.ingeniero.col.capacidad'), ctx.t('app.ingeniero.col.utilizacion')],
         etapas.map((k) => [ctx.t(`modelo.etapa.${k}`), ctx.f.numero(cap[k], 0), ctx.f.porcentaje(f0.utilizacion[k], 0)]), { numericas: [1, 2], titulo: ctx.t('app.ingeniero.f0Tabla') }));
     const rs = s.nochesLlegadas;

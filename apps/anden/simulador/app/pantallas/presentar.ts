@@ -33,7 +33,7 @@ export const montarPresentar: Montar = (raiz, ctx) => {
   const etq = etiquetaNoche(ctx, 'A');
   const conRiesgo = { activo: false };
   const lienzo = crearLienzo(ctx, { reproductor: () => s.noche?.reproductor ?? null, riesgo: () => (conRiesgo.activo ? s.mapa : null), tocable: true,
-    etiqueta: ctx.t('app.presentar.lienzo'), clase: 'escena__caja--presentar' });
+    etiqueta: ctx.t('app.presentar.lienzo'), clase: 'escena__caja--presentar', tablero: true });
   L.sumar(lienzo.destruir);
   const linea = crearLineaTiempo(ctx, { momentos: () => s.noche?.momentos ?? [], corte: () => s.noche?.traza.corte ?? null, minImportancia: () => 3 });
   L.sumar(linea.destruir);

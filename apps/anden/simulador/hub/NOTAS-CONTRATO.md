@@ -1,4 +1,4 @@
-# Notas de contrato · P4 El hub (18-10-2026, revisadas el mismo día)
+# Notas de contrato · P4 El hub (18-10-2026, revisadas el mismo día; vueltas a medir y con el certificado de §13 el 19-10-2026)
 
 Lo que el contrato (`contratos/`) o la especificación (`oportunidades/proyectos/anden/corte-1.md`) no fija, fija de forma contradictoria
 o que, aplicado al pie de la letra, da un resultado que conviene que la integración conozca. En cada punto: qué pasa, el supuesto con el
@@ -148,22 +148,41 @@ Node 22.22.0, en el contenedor del entorno, el 18-10-2026, salvo indicación.
   | r45 | 317 | 1 persona de rampa ausente, 8.800 paquetes | 217 |
 
   r44 es **imposible por §6.7**, con cualquier implementación: sin retén (regla 2) el puesto queda sin persona, y el único inductor
-  presente necesita 334 min solo para inducir la primera vez a los transportables (Σ de sus tiempos base, sorteados por dirección; la cota
-  no depende del mecanismo). Y no es mala suerte de esta semilla: en 200 noches (réplicas 0–199), 27 quedan fuera del rango (13,5%), así
-  que la probabilidad de que 50 noches seguidas caigan todas adentro es ≈ 0,865⁵⁰ ≈ 0,07% (cuenta). Las 27 tienen un golpe discreto y
-  las 27 vuelven al rango sin él (19 por faltas, 8 por atraso común; MEDIDO).
+  presente necesita 333,5 min solo para inducir la primera vez a sus 8.319 transportables (Σ de sus tiempos base, sorteados por dirección;
+  la cota no depende del mecanismo). **Desde el 19-10-2026 eso está certificado sin el hub:** `kpi.test.ts` sortea con la fuente de
+  referencia de `contratos/` y las direcciones de §6.3 (factor del día, clase y tiempo base de cada (camión, índice), faltas de inducción
+  y del retén), sin ningún código de `hub/`, y llega a los mismos 8.460 paquetes, 8.319 transportables, 1 inductor presente y 333,5 min;
+  después controla que el hub sorteó exactamente eso (misma Σ de tiempos base al milisegundo) y que su fin (428,0) no queda antes.
+  Que sea r44 sí es suerte de esta semilla: en 400 noches (réplicas 0–399) es la única con esa cota por encima de 300 (la que sigue, r313,
+  con dos inductores ausentes y 7.140 transportables, da 286,3 min; MEDIDO con el mismo cálculo). Pero con otra semilla el criterio literal
+  tampoco se cumpliría: en 200 noches (réplicas 0–199) del hub, 27 quedan fuera del rango (13,5%), así que la probabilidad de que 50 noches
+  seguidas caigan todas adentro es ≈ 0,865⁵⁰ ≈ 0,07% (cuenta). Las 27 tienen un golpe discreto y las 27 vuelven al rango sin él (19 por
+  faltas, 8 por atraso común; MEDIDO). Elegir una semilla «que pase» sería buscarla entre unas 1.400: no se hace (la prueba usa la de la
+  plantilla, `experimento.semilla`).
+  Las otras cuatro (r3, r15, r21, r45) no son imposibles por una cota: su inducción pide 110–120 min. Las pone afuera la dinámica de §6.7
+  (rampas que se llenan durante las pausas del pico, vueltas máximas y un único puesto manual de 20 s), que la especificación fija regla
+  por regla. Se probó si alguna elección que la especificación deja libre las mete en el rango (MEDIDO el 19-10-2026, copias del hub fuera
+  del repositorio, las 50 noches): con el andén que empieza el paquete siguiente sin esperar el hueco de la cinta (la otra lectura del
+  punto 3) quedan en r3 336,2 · r15 357,2 · r21 300,6 · r44 428,0 · r45 319,0 min; con la jaula completa cerrada en el acto, antes de una
+  pausa pendiente, dan exactamente lo mismo que hoy; con las dos juntas, lo mismo que la primera. Las 45 restantes siguen adentro y sin
+  alertas en las tres. El punto 6 no cambia ninguna bandeja (lo dice el punto) y el 8 actúa cuando el hub ya terminó. Ninguna elección
+  libre las salva: hace falta cambiar la plantilla o el criterio.
 
-- **Qué exigen las pruebas (`kpi.test.ts`).** Tres pruebas, una por pregunta:
+- **Qué exigen las pruebas (`kpi.test.ts`).** Cuatro pruebas, una por pregunta:
   1. **Sobre 1.0.0, lo más fuerte que es cierto** (pasa). En las 50 noches: 0 alertas, todo clasificado al horizonte, 24 KPI finitos, las
      definiciones de §6.9 y los costos; el fin nunca antes de la cota de la inducción (control del mecanismo); la mediana entre 120 y 300;
      **cada noche fuera de 120–300 tiene un golpe discreto (faltas o atraso común) y el contrafactual con la misma semilla y réplica sin ese
      golpe cae entre 120 y 300** (de a un golpe y, si ninguno solo alcanza, juntos, como el contrafactual de P7); y al menos una noche es
      imposible por la inducción (si eso deja de pasar, la prueba avisa que §9 ya se puede pedir al pie de la letra). Su salida muestra el
      criterio literal («45 de 50») con cada noche de afuera y su explicación.
-  2. **El criterio literal de §9 sobre 1.0.0, como prueba pendiente** (`todo` de `node:test`): corre, falla con las 5 noches de afuera
+  2. **El certificado de imposibilidad, sin correr el hub** (pasa; nueva el 19-10-2026): con la semilla de la plantilla, al menos una de
+     las 50 noches tiene la cota de la inducción por encima de 300 min calculada solo con la plantilla y §6.3 (hoy, r44: 333,5 min), y en
+     esas noches el hub sorteó lo mismo y no terminó antes. Si deja de haber una, la prueba falla y avisa que §9 ya se podría pedir al pie
+     de la letra.
+  3. **El criterio literal de §9 sobre 1.0.0, como prueba pendiente** (`todo` de `node:test`): corre, falla con las 5 noches de afuera
      (r3 350,1 · r15 348,0 · r21 304,8 · r44 428,0 · r45 316,8 min) y no rompe la suite. El resumen la cuenta como `todo 1`. Queda así a
      la vista hasta que la integración decida; no reusa ninguna noche distinta de las de la prueba 1 (las corre una vez).
-  3. **El criterio literal de §9 sobre la propuesta 1.1.0** (pasa): las 50 noches entre 120 y 300 min, todo clasificado, sin alertas.
+  4. **El criterio literal de §9 sobre la propuesta 1.1.0** (pasa): las 50 noches entre 120 y 300 min, todo clasificado, sin alertas.
 
 - **La propuesta 1.1.0 ya está lista para publicar (18-10-2026).** Ya no es un parche dentro de las pruebas: es una plantilla guardada,
   `hub/plantillas/hub-chico-1.1.0.json`, exportada como `PROPUESTAS['hub-chico@1.1.0']` (`registro.ts` e `indice.ts`) y **fuera de
@@ -197,10 +216,19 @@ Node 22.22.0, en el contenedor del entorno, el 18-10-2026, salvo indicación.
   «no-cumple». Si la integración quiere que «decidir» muestre una recomendación verde con el hub chico, eso pide una decisión aparte sobre
   la pregunta (la meta o el corte), que este paquete no toma.
 
+- **Vuelto a medir el 19-10-2026** (misma semilla, réplicas 0–49, motor de referencia, Node 22.22): la suite del hub da 68 pruebas, 67
+  pasan, 0 fallan y 1 queda `todo`, que es el criterio literal sobre 1.0.0 (29 s de reloj; límite 90 s). Las 5 noches de afuera son las
+  mismas, con los mismos fines: r3 350,1 · r15 348,0 · r21 304,8 · r44 428,0 · r45 316,8 min. La prueba nueva certifica r44 sin correr el
+  hub (333,5 min de inducción con 1 de 3 inductores). La propuesta 1.1.0 da 50 de 50, y el compilador de P3 tal como está hoy acepta las
+  tres (1.0.0, la grande y 1.1.0) sin errores ni avisos: solo `I-SUPUESTOS` e `I-CONTROLES`, F0 «cuello: inducción» (MEDIDO con un guion
+  fuera de `hub/`). Este punto sigue el procedimiento de §14.8 para lo imposible: se anota con su propuesta y el trabajo sigue. El paquete
+  queda completo salvo esta decisión, que es de la integración: P4 no puede cumplir el criterio literal sin cambiar una plantilla
+  publicada (§5: «nunca cambian») o elegir otra semilla a dedo, y no hace ninguna de las dos.
+
 - **Propuesta para la integración** (decide; el hub no publica nada). Dos caminos, no excluyentes:
   1. **Publicar `hub-chico@1.1.0`.** El cambio, en archivos de P4, es mover la entrada de `PROPUESTAS` a `PLANTILLAS` en
      `hub/plantillas/registro.ts`, cambiar en `plantillas.test.ts` la lista de claves que espera el registro, y en `kpi.test.ts` sacar
-     la marca `todo` (la prueba 2 pasa a correr sobre la versión publicada que la integración elija para «el hub chico»; la prueba 3 ya
+     la marca `todo` (la prueba 3 pasa a correr sobre la versión publicada que la integración elija para «el hub chico»; la prueba 4 ya
      pasa). Efectos en otros paquetes: el inicio de P8 recorre todas las claves del registro, así que mostraría dos tarjetas del hub
      chico (conviene mostrar solo la última versión de cada id); el F0 de §5 y las pruebas de P3 siguen sobre 1.0.0, que no cambia; los
      enlaces `t=hub-chico@1.0.0` siguen abriendo lo mismo. La integración elige cuál abre «decidir» (ver la tabla de la decisión).
@@ -208,7 +236,7 @@ Node 22.22.0, en el contenedor del entorno, el 18-10-2026, salvo indicación.
      llega a 0,9 con ningún valor (0,355 · 0,850 · 0,895 · 0,875; MEDIDO por el constructor anterior, 200 noches).
   2. **Corregir §9** si 1.0.0 sigue siendo la plantilla de la prueba: «`finClasificacionMin` entre 120 y 300 en toda noche sin golpes
      discretos; las que tienen faltas o atraso común pueden pasarse, pero el contrafactual sin el golpe tiene que caer en el rango», que es
-     exactamente lo que exige la prueba 1. En ese caso, borrar la prueba 2.
+     exactamente lo que exige la prueba 1. En ese caso, borrar la prueba 3 (la 2, el certificado, queda como constancia de por qué).
   Además: que F0 (P3) sume la caminata (`caminar` por paquete en el peor caso) y la pausa del pico, o que el aviso `A-RHO` mire la rampa
   con la caminata; hoy F0 dice «cuello: inducción» (ρ 0,81) en las dos versiones del hub chico, cuyo cuello en F3 es la rampa con la
   excepción.
@@ -226,6 +254,10 @@ Node 22.22.0, en el contenedor del entorno, el 18-10-2026, salvo indicación.
   referencia (hub chico y grande, semillas 1 y 20261017, traza completa: R08 del hub), y R06 con su `foto()` real da la misma huella y
   los mismos KPI (foto a las 00:00, las dos plantillas). Una noche con traza completa con el núcleo: 73 ms el hub chico y 169 ms el
   grande, ya calientes (presupuestos de §11: 150 y 400 ms).
+  **Vuelto a medir el 19-10-2026** con el núcleo de hoy (mismo guion aparte): R08 del hub igual en las 8 corridas (dos plantillas,
+  semillas 1 y 20261017, réplicas 0 y 3: misma huella, 24 KPI idénticos, misma cantidad de tramos, 0 alertas); R06 con `foto()` a las
+  00:00 y a la 01:30, las dos plantillas: misma huella y mismos KPI que la corrida continua. Mediana de 5 noches con traza completa, ya
+  calientes y con otras pruebas corriendo en paralelo: 91 ms el chico y 241 ms el grande (informativo; lo mide el banco).
 
 ## 15. Plantilla grande: lo que eligió el generador
 

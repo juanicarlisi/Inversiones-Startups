@@ -27,7 +27,8 @@ export const montarComprobante: Montar = (raiz, ctx) => {
     const proc = c.procedencia;
     const cuenta: Record<string, number> = { DATO_USUARIO: proc.datoUsuario, MEDIDO: proc.medido, HECHO: proc.hecho, ESTIMACION: proc.estimacion,
       HIPOTESIS: proc.hipotesis, SUPUESTO: proc.supuesto };
-    const diags = mv.diagnosticos.filter((d) => d.nivel !== 'error');
+    // I-CONTROLES repite la línea de arriba («Se hicieron 24 controles…»): no se muestra dos veces
+    const diags = mv.diagnosticos.filter((d) => d.nivel !== 'error' && d.codigo !== 'I-CONTROLES');
     poner(cuerpo,
       tarjeta(ctx.t('app.comprobante.sellos'), '', sellos(ctx)),
       tarjeta(ctx.t('app.comprobante.receta'), '', el('dl', { class: 'datos', 'data-comprobante': 'receta' },

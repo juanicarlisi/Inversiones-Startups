@@ -13,7 +13,9 @@ import { intervaloMedia } from '../formulas/estadistica.ts';
 export type Suite = 'rapida' | 'completa';
 export type TipoPrueba = 'exigible' | 'informativa' | 'debe-fallar';
 export type EstadoPrueba = 'pasa' | 'falla' | 'informativa' | 'debe-fallar-ok';
-export type Familia = 'V' | 'C' | 'D' | 'M' | 'R' | 'S';
+export type Familia = 'V' | 'C' | 'D' | 'M' | 'R' | 'S' | 'K' | 'L' | 'P';
+/** Dueño de la prueba (§8): las de P2 viven en casos/; las demás las suma la integración con `casosExtra` (K, L, P02, R04–R07, S…). */
+export type Dueno = 'P1' | 'P2' | 'P4' | 'P5' | 'I';
 
 /** Umbral de z de la batería (99,9% bilateral). */
 export const Z_MAX = 3.29;
@@ -58,7 +60,7 @@ export interface ResultadoPrueba {
   familia: Familia;
   suite: Suite;
   tipo: TipoPrueba;
-  dueno: 'P2';
+  dueno: Dueno;
   caso: string;
   criterio: string;
   esperado: Esperado;
@@ -99,6 +101,16 @@ export interface Contexto {
   conservacion(): { corridas: number; violaciones: string[] };
 }
 
+/**
+ * Una corrida de otro paquete que también entra en R01 (misma semilla y réplica → misma huella) y R03 (otra réplica → otra huella):
+ * por ejemplo, el hub chico de P4, que la integración suma con `casosExtra` (§8: «cada caso de la batería y el hub chico»).
+ */
+export interface Reproducible {
+  etiqueta: string;
+  /** Corre con el motor dado y devuelve la huella y lo que tiene que repetirse exacto (serializable con JSON). */
+  correr(crearMotor: CrearMotor, semilla: number, replica: number): { huella: string; medidas: unknown };
+}
+
 export interface Caso {
   id: string;
   titulo: string;
@@ -111,6 +123,8 @@ export interface Caso {
   pruebas: DeclaracionPrueba[];
   /** Versiones cortas (pocos miles de eventos) para R01, R03, M02 y las doradas. */
   cortas: RedCorta[];
+  /** Corridas que no son redes de colas y también entran en R01 y R03 (opcional; ver `Reproducible`). */
+  reproducibles?: Reproducible[];
   /** Se corre después de todos los demás (M02 necesita ver todas las corridas). */
   alFinal?: boolean;
   correr(ctx: Contexto): ResultadoPrueba[];

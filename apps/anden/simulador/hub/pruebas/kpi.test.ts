@@ -4,17 +4,22 @@
 //  1. la prueba principal exige sobre 1.0.0 lo más fuerte que es cierto: todo clasificado y sin alertas en las 50, y cada noche fuera
 //     del rango con un golpe discreto (faltas o atraso común) que la explica, confirmado por el contrafactual con números comunes (la
 //     misma noche sin el golpe cae en el rango);
-//  2. el criterio literal sobre 1.0.0 corre como prueba PENDIENTE (`todo`): falla, lo dice en la salida y no rompe la suite, hasta que la
+//  2. el certificado de imposibilidad, calculado SIN correr el hub (solo la plantilla y las direcciones de §6.3): con la semilla de la
+//     plantilla hay al menos una noche en la que los inductores presentes no llegan a inducir todo en 300 min, con cualquier mecanismo;
+//  3. el criterio literal sobre 1.0.0 corre como prueba PENDIENTE (`todo`): falla, lo dice en la salida y no rompe la suite, hasta que la
 //     integración decida (publicar hub-chico@1.1.0 o corregir §9);
-//  3. el criterio literal sobre la propuesta hub-chico@1.1.0 (plantillas/hub-chico-1.1.0.json, registro.ts › PROPUESTAS) tiene que pasar.
+//  4. el criterio literal sobre la propuesta hub-chico@1.1.0 (plantillas/hub-chico-1.1.0.json, registro.ts › PROPUESTAS) tiene que pasar.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import type { Direccion } from '../../contratos/azar.ts';
 import type { Modelo } from '../../contratos/modelo.ts';
 import { KPIS } from '../../contratos/resultados.ts';
+import { distribucion, numero } from '../../contratos/referencias.ts';
+import { claveDe, crearFuenteAzarReferencia } from '../../contratos/referencia/motor-referencia.ts';
 import { costoNoche, costoPorPaquete, horasPersonaPagadas } from '../costos.ts';
 import { percentil } from '../kpi.ts';
 import type { Hub } from '../bloques/comun.ts';
-import { chico, noche, propuestaChico110 } from './modelos.ts';
+import { SEMILLA, chico, noche, propuestaChico110 } from './modelos.ts';
 
 const NOCHES = 50;
 /** Rango del fin de la clasificación que pide §9 (min desde el inicio del turno). */
@@ -81,6 +86,44 @@ function cotaInduccionMin(h: Hub, presentes: number): number {
   return presentes > 0 ? ms / presentes / 60_000 : Infinity;
 }
 const INICIO = 22 * 3_600_000, FIN = 30 * 3_600_000;
+
+/** Lo que el certificado sortea de una noche sin correr el hub. */
+interface CotaSinHub { cota: number; presentes: number; transportables: number; paquetes: number }
+
+/**
+ * La misma cota de la inducción, pero calculada SIN el hub: solo la plantilla y las direcciones de §6.3, sorteadas con la fuente de
+ * referencia de `contratos/` (factor del día, clase y tiempo base de cada (camión, índice), faltas de inducción y del retén). Ningún
+ * código de `hub/` interviene, así que si pasa los 300 min ninguna implementación de §6.7 con esas direcciones termina la noche a
+ * tiempo: un transportable no llega a su jaula sin una primera inducción (reglas 5 y 6), y nadie más induce que los puestos activos
+ * con su persona o con el retén (regla 2). La cota se queda corta a propósito (no suma pausas, descarga ni cinta).
+ */
+function cotaSinHub(m: Modelo, semilla: number, replica: number): CotaSinHub {
+  const cam = m.demanda.camiones;
+  if (!('serie' in cam)) throw new Error('cotaSinHub: se esperaba una serie de camiones (la plantilla chica) y llegó una lista');
+  const az = crearFuenteAzarReferencia(semilla, replica);
+  const d = (ruta: string, proposito: string, a = 0, b = 0, c = 0): Direccion => ({ clave: claveDe(ruta, proposito), a, b, c });
+  const pi = m.personas.induccion, p = numero(m, pi.ausentismo);
+  const falta = (rol: string, i: number) => az.sortear({ tipo: 'bernoulli', p }, d(`personas.${rol}`, 'ausencia', i)) === 1;
+  let ausentes = 0, retenes = 0;
+  for (let i = 0; i < pi.puestosActivos; i++) if (falta('induccion', i)) ausentes++;
+  for (let i = 0; i < pi.reten; i++) if (!falta('reten', i)) retenes++; // el retén falta con el ausentismo de inducción (NOTAS §1)
+  const presentes = pi.puestosActivos - Math.max(0, ausentes - retenes);
+  const cv = numero(m, m.demanda.errorPronostico.cv);
+  const factor = cv > 0 ? az.sortear({ tipo: 'lognormal', media: 1, cv }, d('demanda', 'errorPronostico')) : 1;
+  const porCamion = Math.round(cam.paquetes * factor);
+  const clases = m.hub.perfilPaquete.clases;
+  const distClase = { tipo: 'discreta' as const, valores: clases.map((_, j) => j), pesos: clases.map((c) => c.fraccion) };
+  const base = distribucion(m, m.hub.induccion.tiempo);
+  let ms = 0, transportables = 0;
+  for (let c = 0; c < cam.cantidad; c++) {
+    for (let i = 0; i < porCamion; i++) {
+      if (!clases[az.sortear(distClase, d('hub.perfilPaquete', 'clase', c, i))].transportable) continue;
+      transportables++;
+      ms += Math.round(az.sortear(base, d('hub.induccion', 'tiempo', c, i, 0)) * 1000);
+    }
+  }
+  return { cota: presentes > 0 ? ms / presentes / 60_000 : Infinity, presentes, transportables, paquetes: porCamion * cam.cantidad };
+}
 
 test('percentil: P_q = x₍min(n−1, ⌊q·n⌋)₎ con x ordenado', () => {
   const x = Float64Array.from({ length: 10 }, (_, i) => i + 1);
@@ -182,8 +225,33 @@ test(`KPI sanos en ${NOCHES} noches del hub chico: todo clasificado, sin alertas
     `Fuera, cada una con su golpe confirmado por contrafactual: ${fuera.join('; ') || 'ninguna'}.`);
 });
 
+test(`§9 al pie de la letra es imposible en ${NOCHES} noches de hub-chico@1.0.0 con su semilla: certificado sin correr el hub`, (t) => {
+  const m = chico();
+  assert.equal(m.experimento.semilla, SEMILLA, 'las 50 noches son las de la semilla de la plantilla (experimento.semilla)');
+  const imposibles: { r: number; c: CotaSinHub }[] = [];
+  for (let r = 0; r < NOCHES; r++) {
+    const c = cotaSinHub(m, SEMILLA, r);
+    if (c.cota > FIN_MAX) imposibles.push({ r, c });
+  }
+  assert.ok(imposibles.length >= 1,
+    `se esperaba al menos una noche en la que la inducción sola pase los ${FIN_MAX} min y no hubo ninguna: §9 ya se podría pedir al pie de la letra`);
+  // Control cruzado con el hub en esas noches: sorteó lo mismo (paquetes, transportables, inductores y la misma suma de tiempos base) y
+  // su fin no queda antes de la cota. Si el hub sorteara con otras direcciones, esto lo diría.
+  for (const { r, c } of imposibles) {
+    const s = noche(chico(), r), k = s.resultado.kpi, donde = `réplica ${r}`;
+    assert.equal(k.paquetes, c.paquetes, `${donde}: paquetes del hub contra los de las direcciones de §6.3`);
+    assert.equal(k.paquetes - contarNoTransportables(s.hub), c.transportables, `${donde}: transportables del hub contra los de §6.3`);
+    assert.equal(k.inductoresPresentes, c.presentes, `${donde}: inductores presentes del hub contra las faltas de §6.3`);
+    assert.equal(cotaInduccionMin(s.hub, k.inductoresPresentes), c.cota, `${donde}: Σ de tiempos base del hub contra la de §6.3`);
+    assert.ok(k.finClasificacionMin >= c.cota, `${donde}: el hub termina en ${k.finClasificacionMin} min, antes de la cota ${c.cota} min`);
+  }
+  t.diagnostic(`Imposibles por §6.7 con la semilla ${SEMILLA}: ` + imposibles.map(({ r, c }) =>
+    `r${r} (${c.presentes} de ${m.personas.induccion.puestosActivos} inductores, retén ${m.personas.induccion.reten}, ` +
+    `${c.transportables} transportables: ${c.cota.toFixed(1)} min solo de inducción)`).join('; ') + '.');
+});
+
 test(`§9 al pie de la letra en ${NOCHES} noches de hub-chico@1.0.0 (PENDIENTE de la integración)`, {
-  todo: 'imposible con hub-chico@1.0.0 (NOTAS-CONTRATO §13): la integración decide si publica hub-chico@1.1.0 o corrige §9',
+  todo: 'imposible con hub-chico@1.0.0 y su semilla (certificado arriba, sin correr el hub; NOTAS-CONTRATO §13): la integración decide si publica hub-chico@1.1.0 o corrige §9',
 }, () => {
   const faltas: string[] = [];
   for (let r = 0; r < NOCHES; r++) faltas.push(...faltasLiterales(literalChico100(r), `réplica ${r}`));

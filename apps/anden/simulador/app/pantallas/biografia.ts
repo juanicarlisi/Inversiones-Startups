@@ -91,9 +91,10 @@ export const montarBiografia: Montar = (raiz, ctx) => {
   } }, ctx.t('app.bio.verEnNoche'));
   const partes: HTMLElement[] = [];
   if (bio.percentil !== null) {
-    // nunca «más que el 100%»: se trunca hacia abajo (99,96 → 99,9)
+    // nunca «más que el 100%»: el último es «el que más tardó»; si no, se trunca hacia abajo (99,96 → 99,9)
     const p = bio.percentil >= 99 ? Math.floor(bio.percentil * 10) / 10 : Math.floor(bio.percentil);
-    partes.push(el('p', { class: 'bio__percentil' }, ctx.t('app.bio.percentil', { p: ctx.f.numero(p, p >= 99 ? 1 : 0) })));
+    partes.push(el('p', { class: 'bio__percentil' }, p >= 100 ? ctx.t('app.bio.elQueMasTardo')
+      : ctx.t('app.bio.percentil', { p: ctx.f.numero(p, p >= 99 ? 1 : 0) })));
   }
   partes.push(tarjeta(ctx.t('app.bio.pasos'), 'bio__pasos', bio.pasos.length ? lista : el('p', null, ctx.t('app.bio.sinPasos'))));
 
@@ -145,6 +146,12 @@ export function textoContrafactual(ctx: Contexto, cf: Contrafactual): string {
   const cambio = ctx.t(cf.cambio.clave, cf.cambio.vars);
   const antes = cf.antes.listo === null ? ctx.t('app.bio.noLlega') : ctx.f.hora(cf.antes.listo);
   if (cf.despues.listo === null) return ctx.t('app.bio.ysiNoLlega', { cambio, antes });
-  const base = ctx.t('app.bio.ysiLlega', { cambio, hora: ctx.f.hora(cf.despues.listo), antes });
-  return `${base} ${ctx.t(cf.despues.antesDelCorte ? 'app.bio.ysiAntesDelCorte' : 'app.bio.ysiDespuesDelCorte')}`;
+  const hora = ctx.f.hora(cf.despues.listo);
+  // a la misma hora (al minuto): el cambio no le sirve a este paquete; decirlo así, sin «llegaría… llega» con dos horas iguales
+  if (cf.antes.listo !== null && hora === antes) return ctx.t('app.bio.ysiIgual', { cambio, hora });
+  const base = ctx.t('app.bio.ysiLlega', { cambio, hora, antes });
+  // el corte solo se menciona si el cambio lo cruza (rescata un paquete atrasado) o si sigue sin llegar a tiempo
+  if (cf.despues.antesDelCorte && !cf.antes.antesDelCorte) return `${base} ${ctx.t('app.bio.ysiAntesDelCorte')}`;
+  if (!cf.despues.antesDelCorte) return `${base} ${ctx.t('app.bio.ysiDespuesDelCorte')}`;
+  return base;
 }

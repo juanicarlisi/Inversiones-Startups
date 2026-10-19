@@ -186,7 +186,7 @@ foto y restauración): misma huella y mismos KPI con fotos a las 22:20, 23:30, 0
 | `azar.test.ts` | **P02**, **R05a**, **R05b**, **R01** (5 semillas); la traza no cambia la corrida |
 | `invariantes.test.ts` | **I01–I06** en 20 noches por plantilla, con las alertas y leyendo la traza |
 | `doradas.test.ts` | Huella, eventos y 24 KPI de 5 semillas del hub chico (`doradas.json`) |
-| `kpi.test.ts` | KPI sanos en 50 noches del hub chico: 0 alertas, todo clasificado, definiciones de §6.9 y costos; el fin entre 120 y 300 min o, si no, un golpe discreto confirmado por contrafactual (NOTAS-CONTRATO §13: el criterio literal es imposible con 1.0.0); el criterio literal de §9 sobre 1.0.0 como prueba **pendiente** (`todo`: falla, lo muestra y no rompe la suite hasta que decida la integración); el criterio literal sobre la propuesta `hub-chico@1.1.0` (pasa); percentiles |
+| `kpi.test.ts` | KPI sanos en 50 noches del hub chico: 0 alertas, todo clasificado, definiciones de §6.9 y costos; el fin entre 120 y 300 min o, si no, un golpe discreto confirmado por contrafactual (NOTAS-CONTRATO §13: el criterio literal es imposible con 1.0.0); el **certificado** de esa imposibilidad calculado sin correr el hub (solo la plantilla y las direcciones de §6.3: r44 necesita 333,5 min de inducción) y cotejado con lo que sorteó el hub; el criterio literal de §9 sobre 1.0.0 como prueba **pendiente** (`todo`: falla, lo muestra y no rompe la suite hasta que decida la integración); el criterio literal sobre la propuesta `hub-chico@1.1.0` (pasa); percentiles |
 | `plan.test.ts` | Asignación por volumen, contiguas y lista; 30 noches de la grande: P90 de recirculación por volumen ≤ contiguas |
 | `foto.test.ts` | R06 del hub (adelantado) y rechazo de fotos de otro modelo |
 | `traza.test.ts` | Columnas por tipo de tramo, causas y causantes, momentos, resumen por paquete, catálogo |
@@ -197,6 +197,6 @@ foto y restauración): misma huella y mismos KPI con fotos a las 22:20, 23:30, 0
 
 MEDIDO el 18-10-2026 (Node 22.22.0, contenedor de 4 núcleos, carga ≈ 1, motor de **referencia**, mediana de 5 noches; informativo):
 hub chico (≈ 7.900 paquetes) 94 ms sin traza y 101 ms con traza completa (93.000 tramos, 11,8 por paquete; 10,0 eventos por paquete);
-hub grande (≈ 23.700 paquetes) 187 ms sin traza y 297 ms con traza (277.000 tramos; 8,1 eventos por paquete). Los 16 archivos (67
-pruebas: 66 pasan y 1 pendiente, el criterio literal de §9 sobre 1.0.0) tardan 19–21 s de reloj (dos corridas, el 18-10-2026; el límite
-de §9 es 90 s). Los presupuestos de §11 los mide el banco de la integración con el núcleo de producción.
+hub grande (≈ 23.700 paquetes) 187 ms sin traza y 297 ms con traza (277.000 tramos; 8,1 eventos por paquete). Los 16 archivos (68
+pruebas: 67 pasan y 1 pendiente, el criterio literal de §9 sobre 1.0.0) tardan 29 s de reloj (el 19-10-2026, con otros paquetes corriendo
+en paralelo; 19–21 s el 18-10-2026 con 67; el límite de §9 es 90 s). Los presupuestos de §11 los mide el banco de la integración con el núcleo de producción.

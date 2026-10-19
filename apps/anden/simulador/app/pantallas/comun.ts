@@ -9,6 +9,12 @@ export function botonVolver(ctx: Contexto): HTMLElement {
     ctx.t('app.volver.atras'));
 }
 
+/** «HH:MM» del modelo (HH de 00 a 47, contratos/tipos-base.ts) como hora del reloj: las «28:30» de un turno noche son las 04:30. */
+export function horaDelDia(hhmm: string): string {
+  const m = /^(\d{2}):(\d{2})$/.exec(hhmm);
+  return m ? `${String(Number(m[1]) % 24).padStart(2, '0')}:${m[2]}` : hhmm;
+}
+
 /** Texto de una frase (clave + variables). */
 export function textoFrase(ctx: Contexto, f: Frase): string {
   return ctx.t(f.clave, f.vars);

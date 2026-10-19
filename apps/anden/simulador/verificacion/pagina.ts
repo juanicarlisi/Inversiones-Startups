@@ -38,7 +38,8 @@ const ETIQUETA: Record<ResultadoPrueba['estado'], { texto: string; signo: string
 
 const FAMILIAS: Record<string, string> = {
   V: 'V · Teoría de colas', C: 'C · Casos publicados', D: 'D · Degeneradas', M: 'M · Metamórficas y conservación',
-  R: 'R · Reproducibilidad', S: 'S · Estadística (demostraciones)',
+  R: 'R · Reproducibilidad', S: 'S · Estadística (demostraciones)', K: 'K · Cinemática y cintas', L: 'L · Lazo del sorter',
+  P: 'P · Personas',
 };
 
 function fila(r: ResultadoPrueba): string {
@@ -70,9 +71,11 @@ export function paginaInforme(inf: InformeBateria): string {
 ${filas}
 </tbody></table></div>`;
   }).join('\n');
+  // Con los casos que suma la integración (casosExtra) ya no son solo las de P2.
+  const deQuien = r.exigiblesCorridas > r.exigiblesP2 ? 'del corte' : 'de P2';
   const veredicto = r.aprobada
-    ? `Aprobada: ${r.pasaron} de ${r.exigiblesCorridas} exigibles de P2 pasan`
-    : `No aprobada: ${r.fallaron} de ${r.exigiblesCorridas} exigibles de P2 fallan`;
+    ? `Aprobada: ${r.pasaron} de ${r.exigiblesCorridas} exigibles ${deQuien} pasan`
+    : `No aprobada: ${r.fallaron} de ${r.exigiblesCorridas} exigibles ${deQuien} fallan`;
   const dor = inf.doradas;
   const textoDoradas = dor.estado === 'no-pedidas' ? 'no se compararon en esta corrida'
     : dor.estado === 'sin-archivo' ? 'no hay doradas.json (se generan con --generar-doradas)'
@@ -140,7 +143,7 @@ ${casos}
 <footer>Criterio de §8 del corte 1: estocásticas con |error| ≤ 3,29 errores estándar y error relativo ≤ 3% (≤ 2% en probabilidades),
 con un diseño que da un semiancho del 95% ≤ 2% del valor (≤ 1% en probabilidades); una falla se re-corre sola con otra semilla y cuatro
 veces más réplicas y es error del motor solo si vuelve a fallar. Deterministas, exactas. Página local generada por
-<code>node verificacion/bateria.ts</code>; no se publica.</footer>
+<code>node verificacion/bateria.ts</code> (o, con el núcleo de producción y las 85 exigibles, por <code>npm run verificar</code>); no se publica.</footer>
 </main>
 </body>
 </html>

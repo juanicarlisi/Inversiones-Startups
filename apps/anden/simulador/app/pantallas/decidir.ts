@@ -15,12 +15,15 @@ import { insignia } from '../ui/insignia.ts';
 import { botonVolver } from './comun.ts';
 
 function textoRecomendacion(ctx: Contexto, ev: EvaluacionDecision): string {
+  // con el semáforo en rojo («no usar») no se recomienda nada, aunque la cuenta dé un valor
+  if (ev.semaforo.color === 'rojo') return ctx.t('app.decidir.sinRecomendacionRojo');
   if (ev.recomendacion !== null) return ctx.t('experimentos.recomendacion.valor', { valor: ev.recomendacion });
   return ctx.t(ev.semaforo.motivo === 'decision-en-duda' ? 'experimentos.recomendacion.en-duda' : 'experimentos.recomendacion.ninguna-cumple');
 }
 
 /** Mensaje de cierre del formulario cuando no queda ninguna pregunta que cambie la respuesta (explicacion/NOTAS-CONTRATO.md §11). */
 export function claveCierreFormulario(ev: EvaluacionDecision | null): string {
+  if (ev && ev.semaforo.color === 'rojo') return 'app.decidir.formularioRojo';
   if (ev && ev.recomendacion !== null) return 'explicacion.formulario.listo';
   if (ev && ev.semaforo.motivo === 'decision-en-duda') return 'explicacion.formulario.en_duda';
   return 'explicacion.formulario.ninguna_cumple';
@@ -99,7 +102,7 @@ export const montarDecidir: Montar = (raiz, ctx) => {
             ctx.t('app.decidir.costo', { media: ctx.f.moneda(c.objetivo.media, moneda), mas: ctx.f.moneda(c.objetivo.semiancho, moneda) }),
             ctx.f.numero(c.prop.n, 0)]),
           { titulo: ctx.t('app.decidir.tablaTitulo', { variable: ctx.t('app.decidir.variable') }), numericas: [1, 3, 4], accion: 'decision', apilable: true }),
-        el('div', { class: 'decidir__recomendacion', 'data-recomendacion': ev.recomendacion ?? 'ninguna' },
+        el('div', { class: 'decidir__recomendacion', 'data-recomendacion': ev.semaforo.color === 'rojo' ? 'ninguna' : ev.recomendacion ?? 'ninguna' },
           el('p', { class: 'decidir__recomendacion-texto' }, textoRecomendacion(ctx, ev)), detalleSemaforo(ctx, ev.semaforo)),
         el('p', { class: 'nota' }, ctx.t('app.decidir.noches', { n: ev.replicasUsadas })));
     } else poner(evaluacion, el('p', { class: 'nota' }, ctx.t('app.decidir.sinEvaluacion')));

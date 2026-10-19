@@ -251,9 +251,16 @@ export function arrancar(servicios: Servicios, raiz: HTMLElement, opciones: Opci
   L.sumar(escuchar(window, 'hashchange', () => { hashVisto = location.hash; const f = location.hash.slice(1); if (f) void ctx.abrirFragmento(f); }));
 
   aplicarTema();
-  montar('inicio');
   const fragmento = location.hash.slice(1);
-  if (fragmento) void ctx.abrirFragmento(fragmento);
+  if (fragmento) {
+    // Con un enlace no se monta antes el inicio: sus miniaturas vivas piden dos noches con traza (la de 24.000 incluida) que le ganan los
+    // Workers a la película del enlace y, al cancelarlas, el planificador recrea esos Workers en frío (lo midió integracion/banco.mjs,
+    // corte-1.md §11). Mientras se abre el enlace se ve el aviso de carga; si el enlace no abre, el inicio.
+    pintarCabecera();
+    contenido.replaceChildren(el('p', { class: 'escena__cargando', role: 'status' }, ctx.t('app.escena.cargandoNoche')));
+    const alInicio = () => { if (!contenido.dataset.pantalla) montar('inicio'); };
+    void ctx.abrirFragmento(fragmento).then((ok) => { if (!ok) alInicio(); }, alInicio);
+  } else montar('inicio');
 
   const conPwa = opciones.pwa ?? true;
   if (conPwa && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {

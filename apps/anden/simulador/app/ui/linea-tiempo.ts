@@ -56,12 +56,25 @@ export function crearLineaTiempo(ctx: Contexto, o: { momentos: () => MomentoEsce
   let firma = '';
   const armarFijos = () => {
     const e = ctx.almacen.estado, ms = o.momentos(), min = o.minImportancia?.() ?? 1;
-    const f = `${e.inicio}|${e.fin}|${ms.length}|${min}|${ctx.traductor.idioma}`;
+    // el ancho real decide cuántas marcas y horas entran sin pisarse (en 360 px no entran las nueve horas de la noche)
+    const ancho = pista.clientWidth || 800;
+    const f = `${e.inicio}|${e.fin}|${ms.length}|${min}|${ctx.traductor.idioma}|${Math.round(ancho / 24)}`;
     if (f === firma) return;
     firma = f;
     marcas.replaceChildren();
-    for (const m of ms) {
-      if (m.importancia < min || m.t < e.inicio || m.t > e.fin) continue;
+    // marcas que no se pisan: primero las más importantes; una marca a menos de 16 px de otra ya puesta no se dibuja (sigue en la
+    // narración y en la biografía; la línea de tiempo es para saltar, no un registro completo)
+    const sep = 16 / Math.max(1, ancho), puestas: number[] = [];
+    const candidatas = ms.filter((m) => m.importancia >= min && m.t >= e.inicio && m.t <= e.fin)
+      .sort((a, b) => b.importancia - a.importancia || a.t - b.t)
+      .filter((m) => {
+        const x = fraccion(m.t, e.inicio, e.fin);
+        if (puestas.some((y) => Math.abs(y - x) < sep)) return false;
+        puestas.push(x);
+        return true;
+      })
+      .sort((a, b) => a.t - b.t);
+    for (const m of candidatas) {
       const texto = `${ctx.f.hora(m.t)} · ${ctx.t(m.clave, m.vars)}`;
       const b = el('button', { type: 'button', class: `lt__marca lt__marca--${m.importancia}`, title: texto, 'aria-label': texto, 'data-accion': 'momento',
         onclick: () => { ctx.almacen.despachar({ tipo: 'pausar' }); ctx.almacen.despachar({ tipo: 'cabezal', t: m.t }); ctx.narrar(texto); } });
@@ -70,10 +83,13 @@ export function crearLineaTiempo(ctx: Contexto, o: { momentos: () => MomentoEsce
     }
     horas.replaceChildren();
     const h0 = Math.ceil(e.inicio / 3_600_000), h1 = Math.floor(e.fin / 3_600_000);
-    const paso = h1 - h0 > 8 ? 2 : 1;
+    // cada rótulo «00:00» ocupa ~36 px: se elige el paso (1, 2, 3, 4 o 6 h) que los deja al menos a 48 px
+    const pxPorHora = ancho / Math.max(1e-9, (e.fin - e.inicio) / 3_600_000);
+    const paso = [1, 2, 3, 4, 6].find((p) => p * pxPorHora >= 48) ?? 6;
     for (let h = h0; h <= h1; h += paso) {
-      const s = el('span', { class: 'lt__hora' }, ctx.f.hora(h * 3_600_000));
-      s.style.left = pct(fraccion(h * 3_600_000, e.inicio, e.fin));
+      const fr = fraccion(h * 3_600_000, e.inicio, e.fin);
+      const s = el('span', { class: fr > 0.96 ? 'lt__hora lt__hora--fin' : fr < 0.04 ? 'lt__hora lt__hora--inicio' : 'lt__hora' }, ctx.f.hora(h * 3_600_000));
+      s.style.left = pct(fr);
       horas.appendChild(s);
     }
     const c = o.corte();
@@ -90,6 +106,12 @@ export function crearLineaTiempo(ctx: Contexto, o: { momentos: () => MomentoEsce
     pista.setAttribute('aria-valuetext', ctx.f.hora(e.t));
   };
   actualizar();
+  // al cambiar el ancho (girar el teléfono, abrir la pantalla dividida) se vuelven a repartir marcas y horas
+  if (typeof ResizeObserver === 'function') {
+    const ro = new ResizeObserver(() => actualizar());
+    ro.observe(pista);
+    L.sumar(() => ro.disconnect());
+  }
   return { nodo, actualizar, destruir: () => L.correr() };
 }
 

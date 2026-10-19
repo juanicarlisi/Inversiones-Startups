@@ -46,7 +46,8 @@ export interface EstadoYsi {
   parche: OpParche[];
   mvB: ModeloValidado | null;
   nocheB: NocheVista | null;
-  fase: 'nada' | 'previa' | 'lista' | 'confirmando' | 'confirmada';
+  /** 'igual': los cambios dejan el modelo idéntico a A (por ejemplo, balancear un plan que ya va por volumen): no hay nada que comparar. */
+  fase: 'nada' | 'previa' | 'igual' | 'lista' | 'confirmando' | 'confirmada';
   comparaciones: Comparacion[];
   nochesB: ResultadoReplica[];
   progreso: number;
@@ -272,6 +273,8 @@ export class Sesion {
     try {
       const mvB = await this.servicios.variante(mv, parche);
       if (token !== this.tokenPrevia || gen !== this.generacion) return;
+      // misma huella = mismo modelo: B sería la misma película y las 40 noches darían diferencia 0 en todo. Se dice y no se simula.
+      if (mvB.huella === mv.huella) { this.ysi = { ...Sesion.ysiVacio(), parche, mvB, fase: 'igual' }; this.emitir('ysi'); return; }
       const replica = this.noche?.replica ?? 0;
       const salida = await this.servicios.noche(mvB, this.semilla, replica, Prioridad.VISTA_PREVIA);
       if (token !== this.tokenPrevia || gen !== this.generacion || !salida.traza) return;
@@ -316,7 +319,7 @@ export class Sesion {
 
   /** Pasa B a ser el modelo que se mira (y se comparte). */
   quedarseConB(): void {
-    const mvB = this.ysi.mvB; if (!mvB) return;
+    const mvB = this.ysi.mvB; if (!mvB || this.ysi.fase === 'igual') return;
     const origen: Origen = this.origen.tipo === 'plantilla'
       ? { ...this.origen, parche: [...this.origen.parche, ...this.ysi.parche] } : { tipo: 'modelo' };
     this.abrir(mvB, origen, null);

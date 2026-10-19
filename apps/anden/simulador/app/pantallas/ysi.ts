@@ -25,10 +25,20 @@ function valorKpi(ctx: Contexto, kpi: string, v: number, conSigno = false): stri
   return signo + ctx.f.numero(v, Math.abs(v) < 10 && !Number.isInteger(v) ? 1 : 0);
 }
 
+/** Veredicto en palabras. Si las n noches dieron exactamente lo mismo en A y en B, se dice «igual» (no «no se distingue»: no hay ruido). */
+export function textoVeredicto(ctx: Contexto, c: Comparacion): { clase: string; texto: string } {
+  if (c.media === 0 && c.ic[0] === 0 && c.ic[1] === 0) return { clase: 'igual', texto: ctx.t('app.ysi.igualEnTodas', { n: c.n }) };
+  if (c.veredicto === 'no-se-distingue' && !(Number.isFinite(c.replicasSugeridas) && (c.replicasSugeridas ?? 0) > 0)) {
+    return { clase: c.veredicto, texto: ctx.t('app.ysi.noSeDistingue') };
+  }
+  return { clase: c.veredicto, texto: ctx.t(`experimentos.veredicto.${c.veredicto}`, { replicasSugeridas: ctx.f.numero(c.replicasSugeridas ?? 0, 0) }) };
+}
+
 export function filaComparacion(ctx: Contexto, c: Comparacion): (string | HTMLElement)[] {
+  const v = textoVeredicto(ctx, c);
   return [ctx.t(`app.kpi.${c.kpi}`), valorKpi(ctx, c.kpi, c.media, true),
     ctx.t('app.ysi.ic', { bajo: valorKpi(ctx, c.kpi, c.ic[0], true), alto: valorKpi(ctx, c.kpi, c.ic[1], true) }),
-    el('span', { class: `veredicto veredicto--${c.veredicto}` }, ctx.t(`experimentos.veredicto.${c.veredicto}`, { replicasSugeridas: c.replicasSugeridas ?? '—' }))];
+    el('span', { class: `veredicto veredicto--${v.clase}` }, v.texto)];
 }
 
 export const montarYsi: Montar = (raiz, ctx) => {
@@ -61,12 +71,13 @@ export const montarYsi: Montar = (raiz, ctx) => {
 
   // pantalla dividida: A y B con el mismo cabezal
   const etqA = etiquetaNoche(ctx, 'A'), etqB = etiquetaNoche(ctx, 'B');
-  const lienzoA = crearLienzo(ctx, { reproductor: () => s.noche?.reproductor ?? null, tocable: true, etiqueta: ctx.t('app.ysi.lienzoA'), clase: 'escena__caja--mitad' });
-  const lienzoB = crearLienzo(ctx, { reproductor: () => s.ysi.nocheB?.reproductor ?? null, tocable: false, etiqueta: ctx.t('app.ysi.lienzoB'), clase: 'escena__caja--mitad' });
+  const lienzoA = crearLienzo(ctx, { reproductor: () => s.noche?.reproductor ?? null, tocable: true, etiqueta: ctx.t('app.ysi.lienzoA'), clase: 'escena__caja--mitad', tablero: 'compacto' });
+  const lienzoB = crearLienzo(ctx, { reproductor: () => s.ysi.nocheB?.reproductor ?? null, tocable: false, etiqueta: ctx.t('app.ysi.lienzoB'), clase: 'escena__caja--mitad', tablero: 'compacto' });
   L.sumar(lienzoA.destruir); L.sumar(lienzoB.destruir);
+  const vacioB = el('p', { class: 'dividida__vacio' });
   const ladoA = el('div', { class: 'dividida__lado', 'data-lado': 'A' }, el('h2', { class: 'dividida__titulo' }, ctx.t('app.ysi.ladoA')), etqA.nodo, lienzoA.nodo);
   const ladoB = el('div', { class: 'dividida__lado', 'data-lado': 'B' }, el('h2', { class: 'dividida__titulo' }, ctx.t('app.ysi.ladoB')), etqB.nodo, lienzoB.nodo,
-    el('p', { class: 'dividida__vacio' }, ctx.t('app.ysi.moveUnaPerilla')));
+    vacioB);
   const alternar = el('button', { type: 'button', class: 'boton boton--primario dividida__alternar', 'data-accion': 'alternar-ab',
     onclick: () => ctx.almacen.despachar({ tipo: 'lado' }) });
   const dividida = el('div', { class: 'dividida' }, ladoA, ladoB);
@@ -81,7 +92,9 @@ export const montarYsi: Montar = (raiz, ctx) => {
 
   const pintar = () => {
     const e = ctx.almacen.estado, p = e.perillas, y = s.ysi;
-    planes.forEach((b, i) => b.setAttribute('aria-checked', String((p.plan ?? planOrig) === (['por-volumen', 'contiguas'] as const)[i] && !p.balanceado)));
+    // «balancear el plan» es repartir por volumen (corte-1.md §6.7.7): se marca esa opción
+    const planVisto = p.balanceado ? 'por-volumen' : (p.plan ?? planOrig);
+    planes.forEach((b, i) => b.setAttribute('aria-checked', String(planVisto === (['por-volumen', 'contiguas'] as const)[i])));
     balancear.setAttribute('aria-pressed', String(p.balanceado));
     reiniciar.disabled = !hayCambios(p);
     const ancho = ctx.esAncho();
@@ -90,11 +103,16 @@ export const montarYsi: Montar = (raiz, ctx) => {
     alternar.hidden = ancho || !y.nocheB;
     alternar.textContent = ctx.t(e.lado === 'A' ? 'app.ysi.verB' : 'app.ysi.verA');
     ladoB.classList.toggle('dividida__lado--vacio', !y.nocheB);
+    vacioB.textContent = ctx.t(y.fase === 'igual' ? 'app.ysi.bIgualA' : y.fase === 'previa' ? 'app.ysi.calculandoPrevia' : 'app.ysi.moveUnaPerilla');
     etqA.actualizar(); etqB.actualizar();
     // estado de la comparación
     const partes: HTMLElement[] = [];
     if (y.fase === 'nada') partes.push(el('p', { class: 'nota' }, ctx.t('app.ysi.instrucciones')));
     if (y.fase === 'previa') partes.push(el('p', { class: 'nota', role: 'status' }, ctx.t('app.ysi.calculandoPrevia')));
+    if (y.fase === 'igual') {
+      partes.push(el('p', { class: 'ysi__igual', 'data-ysi': 'igual', role: 'status' },
+        ctx.t(p.balanceado && planOrig === 'por-volumen' ? 'app.ysi.yaBalanceado' : 'app.ysi.sinCambioReal')));
+    }
     if (y.nocheB && s.noche && (y.fase === 'lista' || y.fase === 'confirmando' || y.fase === 'confirmada')) {
       const a = s.noche.salida.resultado.kpi, b = y.nocheB.salida.resultado.kpi;
       const ini = horaASeg(m.calendario.inicio) * 1000, h = (min: number) => ctx.f.hora(ini + min * 60000);
@@ -113,7 +131,7 @@ export const montarYsi: Montar = (raiz, ctx) => {
         quedarse));
     }
     poner(estado, ...partes);
-    raiz.dataset.listo = y.fase === 'confirmada' || y.fase === 'nada' ? '1' : '0';
+    raiz.dataset.listo = y.fase === 'confirmada' || y.fase === 'nada' || y.fase === 'igual' ? '1' : '0';
     lienzoA.redibujar(); lienzoB.redibujar();
   };
   pintar();

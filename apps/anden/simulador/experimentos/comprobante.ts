@@ -49,6 +49,14 @@ export function contarProcedencia(mv: ModeloValidado): Comprobante['procedencia'
 }
 
 export function contarControles(diagnosticos: readonly Diagnostico[]): Comprobante['modelo'] {
+  // Integración (integracion/NOTAS-CONTRATO.md §1): si el compilador informa su propio catálogo (I-CONTROLES, modelo/chequeos.ts:
+  // CONTROLES), ese es el total de controles; así el comprobante dice lo mismo que el compilador. Los informativos no son controles.
+  const resumen = diagnosticos.find((d) => d.codigo === 'I-CONTROLES' && typeof d.vars?.controles === 'number');
+  if (resumen) {
+    const controles = resumen.vars!.controles as number;
+    const conError = new Set(diagnosticos.filter((d) => d.nivel === 'error').map((d) => d.codigo));
+    return { controles, pasaron: Math.max(0, controles - conError.size), avisos: diagnosticos.filter((d) => d.nivel === 'aviso').length };
+  }
   const codigos = new Set(CODIGOS_DE_CONTROL);
   for (const d of diagnosticos) codigos.add(d.codigo);                      // un control que el compilador agregue también cuenta
   const conError = new Set(diagnosticos.filter((d) => d.nivel === 'error').map((d) => d.codigo));

@@ -57,7 +57,8 @@ function fraseDelPorQue(r: ResultadoTamizado, nombre: string, p: Parametro, ruta
   const [dB, dM, dA] = r.decisiones;
   if (dB === null || dM === null || dA === null) return crearFrase('explicacion.pregunta.porque.sin_respuesta', vars, afirmaciones);
   const n = Math.max(dB, dM, dA) - Math.min(dB, dM, dA);
-  return crearFrase(`explicacion.pregunta.porque.${variableDe(ruta)}`, { ...vars, n }, afirmaciones);
+  // Singular con n = 1 («en 1 puesto», no «en hasta 1 puestos»): integracion/NOTAS-CONTRATO.md §1 (lo encontró P8).
+  return crearFrase(`explicacion.pregunta.porque.${variableDe(ruta)}${n === 1 ? '.uno' : ''}`, { ...vars, n }, afirmaciones);
 }
 
 /**

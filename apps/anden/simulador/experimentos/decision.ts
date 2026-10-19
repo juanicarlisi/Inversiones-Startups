@@ -146,6 +146,12 @@ export async function evaluarDecisionCon(
   const primero = enDuda[0];
   const faltan = primero ? nochesQueFaltan(primero.prop.exitos, primero.prop.n, meta, confianza) : null;
   const todas = configs.flatMap((c) => c.rs);
+  // Una opción que «no cumple» porque su noche ni siquiera termina en el horizonte (por ejemplo, 2 puestos para 24.000 paquetes) está
+  // sobrecargada: eso ES no cumplir, no una inestabilidad de la opción recomendada. Su alerta «no-termina» no pone el semáforo de la
+  // decisión en rojo (integración, I-3). Cualquier otra alerta (conservación, invariantes, tope de eventos, lazo de tiempo cero), o un
+  // «no-termina» en una opción que cumple o está en duda, sigue en rojo.
+  const paraSemaforo = configs.flatMap((c, i) => evals[i].estado !== 'no-cumple' ? c.rs
+    : c.rs.map((r) => (r.alertas.includes('no-termina') ? { ...r, alertas: r.alertas.filter((a) => a !== 'no-termina') } : r)));
   const minimoPorConfig = Math.min(...configs.map((c) => c.rs.length));
   return {
     decision: decision.id,
@@ -153,7 +159,7 @@ export async function evaluarDecisionCon(
     recomendacion: recomendar(evals),
     semaforo: semaforo({
       // «replicas» es lo que el texto del semáforo cuenta: las noches del valor que sigue en duda; si nada está en duda, el mínimo.
-      diagnosticos: mv.diagnosticos, resultados: todas, replicas: primero ? primero.prop.n : minimoPorConfig, confianza,
+      diagnosticos: mv.diagnosticos, resultados: paraSemaforo, replicas: primero ? primero.prop.n : minimoPorConfig, confianza,
       decisionEnDuda: enDuda.length > 0 ? { valores: enDuda.map((x) => x.valor), faltan } : undefined,
     }),
     replicasUsadas: todas.length,

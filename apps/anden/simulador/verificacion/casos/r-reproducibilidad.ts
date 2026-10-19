@@ -1,6 +1,6 @@
 // verificacion/casos/r-reproducibilidad.ts · Reproducibilidad (suite rápida).
 // R01: misma semilla y réplica → misma huella y mismas medidas, en la versión corta de cada caso de la batería y con 5 semillas.
-//      (El hub chico lo prueba P4 con sus 5 semillas.)
+//      Los casos que suma la integración pueden traer `reproducibles` (el hub chico con sus 5 semillas): entran acá y en R03.
 // R02: números aleatorios comunes: con 2 o con 3 servidores, las primeras 50 llegadas y sus servicios son idénticos.
 // R03: otra réplica → otra huella (en los casos con azar; la Penny Fab determinista no tiene).
 import { correrRed, type ConfigRed, type MedidasRed } from '../flujo/red.ts';
@@ -31,7 +31,7 @@ export function casosReproducibilidad(): Caso[] {
   const casoR01: Caso = {
     id: 'r01-misma-huella', titulo: 'Misma semilla y réplica, misma huella', archivo: 'casos/r-reproducibilidad.ts', suite: 'rapida',
     replicas: 1, horizonte: 0, calentamiento: 0,
-    pruebas: [{ id: 'R01', nombre: 'Misma semilla y réplica → misma huella (cada caso de la batería, 5 semillas)', familia: 'R', tipo: 'exigible',
+    pruebas: [{ id: 'R01', nombre: 'Misma semilla y réplica → misma huella (cada caso de la batería y lo que sumen los demás paquetes, como el hub chico; 5 semillas)', familia: 'R', tipo: 'exigible',
       esperado: 'idénticas', criterio: { tipo: 'identico' } }],
     cortas: [],
     correr(ctx) {
@@ -44,6 +44,13 @@ export function casosReproducibilidad(): Caso[] {
         n++;
         if (a.corrida.huella !== b.corrida.huella) dif.push(`${caso.id}/${c.etiqueta}, semilla ${semilla}: huellas ${a.corrida.huella} y ${b.corrida.huella}`);
         else { const d = mismasMedidas(a, b); if (d) dif.push(`${caso.id}/${c.etiqueta}, semilla ${semilla}: misma huella pero medidas distintas: ${d}`); }
+      }
+      for (const caso of ctx.casos()) for (const r of caso.reproducibles ?? []) for (let s = 0; s < SEMILLAS; s++) {
+        const semilla = (ctx.semilla + s) >>> 0;
+        const a = r.correr(ctx.crearMotor, semilla, 0), b = r.correr(ctx.crearMotor, semilla, 0);
+        n++;
+        if (a.huella !== b.huella) dif.push(`${caso.id}/${r.etiqueta}, semilla ${semilla}: huellas ${a.huella} y ${b.huella}`);
+        else if (JSON.stringify(a.medidas) !== JSON.stringify(b.medidas)) dif.push(`${caso.id}/${r.etiqueta}, semilla ${semilla}: misma huella pero medidas distintas`);
       }
       return [evaluarIdentico(casoR01, decl(casoR01, 'R01'), ctx, n, dif, `${n} pares; ${dif.length} distintos`)];
     },
@@ -71,7 +78,7 @@ export function casosReproducibilidad(): Caso[] {
   const casoR03: Caso = {
     id: 'r03-otra-replica', titulo: 'Otra réplica, otra huella', archivo: 'casos/r-reproducibilidad.ts', suite: 'rapida',
     replicas: 1, horizonte: 0, calentamiento: 0,
-    pruebas: [{ id: 'R03', nombre: 'Otra réplica → otra huella (cada caso de la batería con azar, 5 semillas)', familia: 'R', tipo: 'exigible',
+    pruebas: [{ id: 'R03', nombre: 'Otra réplica → otra huella (cada caso de la batería con azar y lo que sumen los demás paquetes; 5 semillas)', familia: 'R', tipo: 'exigible',
       esperado: 'distintas', criterio: { tipo: 'identico' } }],
     cortas: [],
     correr(ctx) {
@@ -86,6 +93,12 @@ export function casosReproducibilidad(): Caso[] {
           n++;
           if (a.corrida.huella === b.corrida.huella) dif.push(`${caso.id}/${c.etiqueta}, semilla ${semilla}: réplicas 0 y 1 con la misma huella ${a.corrida.huella}`);
         }
+      }
+      for (const caso of ctx.casos()) for (const r of caso.reproducibles ?? []) for (let s = 0; s < SEMILLAS; s++) {
+        const semilla = (ctx.semilla + s) >>> 0;
+        const a = r.correr(ctx.crearMotor, semilla, 0), b = r.correr(ctx.crearMotor, semilla, 1);
+        n++;
+        if (a.huella === b.huella) dif.push(`${caso.id}/${r.etiqueta}, semilla ${semilla}: réplicas 0 y 1 con la misma huella ${a.huella}`);
       }
       return [evaluarIdentico(casoR03, decl(casoR03, 'R03'), ctx, n, dif, `${n} pares; ${dif.length} iguales`)];
     },

@@ -9,7 +9,7 @@ import { crearLienzo } from '../ui/lienzo.ts';
 import { bucleReproduccion, controlesReproduccion, crearLineaTiempo } from '../ui/linea-tiempo.ts';
 import { etiquetaNoche, franjaSupuestos } from '../ui/etiqueta-noche.ts';
 import { lineaResumen, sellos } from '../ui/resumen.ts';
-import { leyendaEstados } from './comun.ts';
+import { horaDelDia, leyendaEstados } from './comun.ts';
 
 /** Primer paquete (por hora de creación) que no llega al corte; si ninguno lo pierde, el que más tardó. */
 export function paqueteParaMostrar(ctx: Contexto): number | null {
@@ -24,6 +24,13 @@ export function paqueteParaMostrar(ctx: Contexto): number | null {
     if (w > peorEspera) { peorEspera = w; masTardo = e; }
   }
   return mejor >= 0 ? mejor : masTardo >= 0 ? masTardo : null;
+}
+/** ¿Algún paquete de la noche que se ve pierde el corte? (si no, el atajo muestra el que más tardó y lo dice). */
+export function hayAtrasado(ctx: Contexto): boolean {
+  const n = ctx.sesion.noche; if (!n) return false;
+  const P = n.traza.paquetes, corte = n.traza.corte;
+  for (let e = 0; e < P.n; e++) if (P.creado[e] >= 0 && (P.listo[e] < 0 || P.listo[e] > corte)) return true;
+  return false;
 }
 /** Rampa con más minutos llena en la noche que se ve. */
 export function rampaMasLlena(ctx: Contexto): number | null {
@@ -43,7 +50,7 @@ export const montarEscena: Montar = (raiz, ctx) => {
   const resumen = el('div', { class: 'escena__resumen' });
   const etq = etiquetaNoche(ctx, 'A');
   const franja = el('div', { class: 'escena__franja' });
-  const lienzo = crearLienzo(ctx, { reproductor: () => s.noche?.reproductor ?? null, tocable: true, etiqueta: ctx.t('app.escena.lienzo') });
+  const lienzo = crearLienzo(ctx, { reproductor: () => s.noche?.reproductor ?? null, tocable: true, etiqueta: ctx.t('app.escena.lienzo'), tablero: true });
   L.sumar(lienzo.destruir);
   const linea = crearLineaTiempo(ctx, { momentos: () => s.noche?.momentos ?? [], corte: () => s.noche?.traza.corte ?? null,
     minImportancia: () => (ctx.esAncho() ? 2 : 3) });
@@ -62,11 +69,14 @@ export const montarEscena: Montar = (raiz, ctx) => {
   const acciones = el('nav', { class: 'escena__acciones', 'aria-label': ctx.t('app.escena.acciones') },
     ir('noches', 'ir-noches', 'app.escena.noches'), ir('ysi', 'ir-ysi', 'app.escena.ysi'), ir('decidir', 'ir-decidir', 'app.escena.decidir'),
     ir('compartir', 'ir-compartir', 'app.escena.compartir'), ir('presentar', 'ir-presentar', 'app.escena.presentar'), botonPiso, botonIng);
+  const verAtrasado = el('button', { type: 'button', class: 'boton boton--suave', 'data-accion': 'ver-atrasado', onclick: () => {
+    const e = paqueteParaMostrar(ctx);
+    if (e !== null) ctx.almacen.despachar({ tipo: 'seleccionar', seleccion: { clase: ClaseEntidad.PAQUETE, id: e }, abrir: true });
+  } });
+  const pintarAtajo = () => { verAtrasado.textContent = ctx.t(hayAtrasado(ctx) || !s.noche ? 'app.escena.verAtrasado' : 'app.escena.verMasTardo'); };
+  pintarAtajo();
   const atajos = el('div', { class: 'escena__atajos' },
-    el('button', { type: 'button', class: 'boton boton--suave', 'data-accion': 'ver-atrasado', onclick: () => {
-      const e = paqueteParaMostrar(ctx);
-      if (e !== null) ctx.almacen.despachar({ tipo: 'seleccionar', seleccion: { clase: ClaseEntidad.PAQUETE, id: e }, abrir: true });
-    } }, ctx.t('app.escena.verAtrasado')),
+    verAtrasado,
     el('button', { type: 'button', class: 'boton boton--suave', 'data-accion': 'ver-rampa', onclick: () => {
       const r = rampaMasLlena(ctx);
       if (r !== null) ctx.almacen.despachar({ tipo: 'seleccionar', seleccion: { clase: ClaseEntidad.RAMPA, id: r }, abrir: true });
@@ -95,7 +105,7 @@ export const montarEscena: Montar = (raiz, ctx) => {
       el('dt', null, ctx.t('app.ingeniero.eventos')), el('dd', null, ctx.f.numero(n.salida.resultado.eventos, 0)),
       el('dt', null, ctx.t('app.ingeniero.tramos')), el('dd', null, ctx.f.numero(n.traza.tramos.n, 0)),
       el('dt', null, ctx.t('app.ingeniero.f0')), el('dd', null, ctx.t('app.ingeniero.f0Detalle', {
-        cuello: ctx.t(`modelo.etapa.${f0.cuello}`), fin: f0.finEstimado, rho: ctx.f.porcentaje(f0.utilizacion[f0.cuello], 0) }))),
+        cuello: ctx.t(`modelo.etapa.${f0.cuello}`), fin: horaDelDia(f0.finEstimado), rho: ctx.f.porcentaje(f0.utilizacion[f0.cuello], 0) }))),
     el('button', { type: 'button', class: 'boton', 'data-accion': 'ir-ingeniero', onclick: () => ctx.ir('ingeniero') }, ctx.t('app.escena.abrirIngeniero')));
   };
   const pintarCarga = () => {
@@ -116,7 +126,7 @@ export const montarEscena: Montar = (raiz, ctx) => {
     ultimoT = n.t;
   }));
   L.sumar(s.suscribir((tema) => {
-    if (tema === 'noche') { etq.actualizar(); linea.actualizar(); pintarCarga(); pintarIngeniero(); }
+    if (tema === 'noche') { etq.actualizar(); linea.actualizar(); pintarCarga(); pintarIngeniero(); pintarAtajo(); }
     if (tema === 'progreso' || tema === 'noches' || tema === 'modelo') { pintarResumen(); etq.actualizar(); }
   }));
   L.sumar(bucleReproduccion(ctx));

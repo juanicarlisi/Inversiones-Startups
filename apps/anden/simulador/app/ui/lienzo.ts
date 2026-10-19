@@ -6,6 +6,7 @@ import type { Contexto } from '../contexto.ts';
 import type { MapaRiesgo, Piso, Reproductor, Vista } from '../../contratos/vistas.ts';
 import type { Estado } from '../estado.ts';
 import { el, escuchar, limpiezas } from './dom.ts';
+import { crearTablero } from './tablero.ts';
 
 /** Piso elegido midiendo el primer cuadro 2,5D (una vez por sesión de la página). */
 let pisoMedido: Piso | null = null;
@@ -23,6 +24,8 @@ export interface OpcionesLienzo {
   instante?: () => number;
   /** Piso fijo (las miniaturas van en planta). */
   piso?: Piso;
+  /** Tablero en vivo sobre la película (hora y cuentas del instante; ui/tablero.ts). 'compacto' para las mitades de la pantalla dividida. */
+  tablero?: boolean | 'compacto';
 }
 
 export interface Lienzo { nodo: HTMLElement; redibujar(): void; destruir(): void; vista(): Vista | null }
@@ -38,6 +41,8 @@ export function crearLienzo(ctx: Contexto, o: OpcionesLienzo): Lienzo {
   const L = limpiezas();
   const lienzo = el('canvas', { class: 'escena__lienzo', role: 'img', 'aria-label': o.etiqueta });
   const nodo = el('div', { class: `escena__caja ${o.clase ?? ''}`.trim() }, lienzo);
+  const tablero = o.tablero ? crearTablero(ctx, o.reproductor, o.tablero === 'compacto') : null;
+  if (tablero) nodo.appendChild(tablero.nodo);
   let vista: Vista | null = null, deReproductor: Reproductor | null = null, deTema = '', dePiso: Piso | null = null;
   let ancho = 0, alto = 0;
   const dpr = () => Math.min(2, (typeof devicePixelRatio === 'number' && devicePixelRatio > 0) ? devicePixelRatio : 1);
@@ -68,8 +73,9 @@ export function crearLienzo(ctx: Contexto, o: OpcionesLienzo): Lienzo {
     pendiente = 0;
     const v = asegurarVista();
     if (!v) return;
-    const e = ctx.almacen.estado;
-    v.dibujar(o.instante ? o.instante() : e.t, { seleccion: e.seleccion, riesgo: o.riesgo?.() ?? null, fantasma: o.fantasma?.() ?? null });
+    const e = ctx.almacen.estado, t = o.instante ? o.instante() : e.t;
+    v.dibujar(t, { seleccion: e.seleccion, riesgo: o.riesgo?.() ?? null, fantasma: o.fantasma?.() ?? null });
+    tablero?.actualizar(t);
     nodo.dataset.listo = '1';
   };
   const redibujar = () => { if (!pendiente) pendiente = requestAnimationFrame(dibujarYa); };
@@ -79,6 +85,8 @@ export function crearLienzo(ctx: Contexto, o: OpcionesLienzo): Lienzo {
     const w = Math.round(r.width), h = Math.round(r.height);
     if (w === ancho && h === alto) return;
     ancho = w; alto = h;
+    // una caja oculta (la mitad que no se ve en la pantalla dividida alternada) mide 0: no hay nada que redimensionar ni dibujar
+    if (ancho < 2 || alto < 2) return;
     if (vista) vista.redimensionar(ancho, alto, dpr());
     redibujar();
   });

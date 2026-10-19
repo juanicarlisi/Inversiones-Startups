@@ -49,8 +49,9 @@ function pasoDePaquete(t: Traza, i: number, esp: Espera | null): PasoBiografia |
   switch (k[i]) {
     case TipoTramo.DESCARGA: {
       const anden = nombreDe(cat.andenes, r[i], 'A');
-      if (c[i] === Causa.BLOQUEO && dur > 0) {
-        const min = afirmarMinutos(t, i);
+      // «tardó 0 min porque se frenó» no explica nada: el freno se cuenta solo si se ve al redondear (≥ 0,1 min)
+      const min = c[i] === Causa.BLOQUEO && dur > 0 ? afirmarMinutos(t, i) : null;
+      if (min && min.valor > 0) {
         return paso(t, i, crearFrase('explicacion.paso.descarga.bloqueo', { anden, min: min.valor }, [min]), esp);
       }
       const hora = afirmarHora(t, i, 't0');

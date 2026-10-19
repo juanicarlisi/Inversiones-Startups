@@ -76,9 +76,14 @@ test('resultado del contrafactual en palabras: hora con y sin el cambio, y si ll
   const ctx = ctxDe();
   const cf = { cambio: { clave: 'explicacion.cambio.pausa', vars: {}, parche: [] }, antes: { listo: 93_000_000, antesDelCorte: false },
     despues: { listo: 91_200_000, antesDelCorte: true } } as unknown as Contrafactual;
-  assert.equal(textoContrafactual(ctx, cf), 'Con el cambio (sin pausas) llegaría a las 01:20; sin el cambio llega a las 01:50. Llegaría antes del corte.');
+  assert.equal(textoContrafactual(ctx, cf), 'Repetida la noche sin pausas, llegaría a las 01:20 (tal como está, llega a las 01:50). Con el cambio llega antes del corte.');
   const no = { ...cf, despues: { listo: null, antesDelCorte: false } } as Contrafactual;
   assert.match(textoContrafactual(ctx, no), /tampoco llegaría/);
+  // si ya llegaba antes del corte, el corte no se menciona; a la misma hora, se dice que el cambio no lo adelanta (integración, I-3)
+  const yaLlegaba = { ...cf, antes: { listo: 93_000_000, antesDelCorte: true }, despues: { listo: 91_200_000, antesDelCorte: true } } as Contrafactual;
+  assert.equal(textoContrafactual(ctx, yaLlegaba), 'Repetida la noche sin pausas, llegaría a las 01:20 (tal como está, llega a las 01:50).');
+  const igual = { ...cf, antes: { listo: 93_000_000, antesDelCorte: true }, despues: { listo: 93_010_000, antesDelCorte: true } } as Contrafactual;
+  assert.equal(textoContrafactual(ctx, igual), 'Repetida la noche sin pausas, llega a la misma hora (01:50): a este paquete ese cambio no lo adelanta.');
 });
 
 test('traza en CSV: encabezado del contrato y una fila por tramo', () => {
