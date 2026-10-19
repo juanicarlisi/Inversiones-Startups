@@ -59,6 +59,11 @@ acuerdos comerciales, que manda el fundador si quiere (regla 8).
    RVR1960 por la DBL»).
 4. **2027, con portugués:** NAA o NTLH (Sociedade Bíblica do Brasil) y NLT o CSB (API.Bible), si el uso lo pide.
 
+**Actualización del 19-10-2026 (DEC-2026-10-19-4).** El fundador decidió **no crear la SAS** ni ahora ni próximamente: los pasos 2 y 3
+quedan en espera hasta que se cumpla un disparador (capítulo {{cap:26}} §9). Sin empresa no se puede pedir la RVR1960 por la DBL
+ni la NVI ni la LBLA, y sigue en pie el paso 1 (NTV por API.Bible Pro) con una pregunta abierta: si API.Bible la contrata a una
+persona humana (HIPÓTESIS; se confirma en el seguimiento).
+
 **Cuánto pesa.** Con 8.000 usuarios y dos versiones pagas, USD 79 por mes; con 60.000 y tres, USD 479: el 5 % del ingreso neto
 proyectado para 2030 (`economia.yaml`). La regla de corte del 13-10 (licencias hasta el 10 % del ingreso neto) sigue como tope, pero
 deja de ser la condición para empezar. Lo que no se puede comprar ni pagando (la NVI) sigue «en un toque» desde Bible.com.

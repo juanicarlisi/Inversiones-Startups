@@ -949,3 +949,37 @@
   `scripts/autor/tierras.py`, `scripts/autor/quien_es_quien_45.py`, `scripts/autor/trivia_banco5.py`, `src/componentes/visual.tsx`,
   `src/componentes/mapaBiblia.tsx`, `src/componentes/lineaTiempo.tsx`, `src/componentes/diagrama.tsx`, `src/i18n/textos.ts`,
   `eas.json`, `.github/workflows/firma.yml`, `.github/workflows/aab.yml`, `docs/TIENDAS.md`.
+
+## DEC-2026-10-19-4 · Senda: sin SAS por ahora y registro de los riesgos que podrían tocar el patrimonio del fundador
+
+- **Fecha:** 2026-10-19 · **Quién:** el fundador decide; Claude analiza y registra. **Reemplaza** la parte de la SAS de
+  DEC-2026-10-19-3 (SAS en noviembre) y la fila de la empresa del capítulo 43 §2 (decidir en diciembre, crear en enero de 2027).
+- **Contexto:** el pendiente `empresa` costaba ARS 750.000 a 1.000.000 al crearla y ARS 120.000 a 250.000 por mes con contador
+  (ESTIMACIÓN de ago-2026; ~USD 1.400 a 2.600 el primer año, 20–40 % del capital mensual de USD 400 cada mes de mantenimiento).
+- **Decidido:**
+  - **No se crea la SAS ni ahora ni próximamente.** Senda sale con la cuenta de Google Play personal, anuncios y **sin compras dentro
+    de la app** (lo que ya recomendaban el capítulo 39 §4 y el 43 §2). El monotributo con factura E se abre antes del primer cobro.
+  - **Se registran los riesgos** (capítulo 26 §9, riesgo 21 del capítulo 28, bitácora
+    `conocimiento/2026-10-19-senda-responsabilidad-patrimonial-sin-sas.md`): sin sociedad, Senda es el fundador y un reclamo ganado
+    se cobra de su patrimonio; probabilidad baja para una app gratis, con anuncios, 13+, con contenido propio o libre y sin chat
+    (INFERENCIA, no verificada con un abogado). Nueve riesgos (derechos de autor, datos, menores, consumidor, sorteos, fiscal,
+    contratos, contenido de usuarios, seguridad) con su mitigación y su estado.
+  - **Qué no se hace mientras no haya empresa:** activar suscripciones o compras; pedir licencias que exijan organización (RVR1960
+    por la DBL, NVI, LBLA); sorteos con premios, comunidad o chat de usuarios, estudios con terceros; firmar garantías personales o
+    indemnidades sin límite sin un abogado; pagar trabajo creativo sin cesión de derechos; copiar.
+  - **Lista previa al lanzamiento:** registro único de fuentes y licencias y créditos (Claude), AAIP, política y términos publicados
+    con mail de reclamos, cesiones y acuerdo con el ministerio aliado, dos pasos en las cuentas, **consulta puntual con un abogado**
+    (pasa de opcional a recomendada; USD 0 a 400), una hora con un contador antes del primer cobro.
+  - **Disparadores para reabrir la SAS** (V-20 en `radar/vigilancia.md`): suscripciones o compras; licencia que exija organización;
+    reclamo formal; sorteo con premios, comunidad o estudio con terceros; ingreso neto anual de ~10 veces el costo anual de la SAS
+    (USD ~9.300 a 19.400, propuesta).
+- **Descartado:** asociación civil (escritura pública, meses de trámite, no reparte ganancias: encaja con un ministerio sin ingresos,
+  que contradice la misión); simple asociación (barata y rápida, pero los fundadores y administradores responden en forma solidaria e
+  ilimitada, a confirmar); Senda sin ingresos como ministerio con YouVersion Platform (plan B del capítulo 47).
+- **Qué la revisaría:** cualquiera de los disparadores de arriba; una respuesta del abogado que cambie el análisis; que API.Bible
+  exija una organización para la NTV.
+- **Pendiente del fundador:** inscribir la base en la AAIP; contratar la consulta con un abogado; abrir las cuentas con verificación
+  en dos pasos; decidir a nombre de quién va la marca; decidir si paga la NTV. **Pendiente de Claude:** registro único de fuentes y
+  licencias y créditos completos; volver a publicar la Consola (se arma desde `senda-app`, fuera de esta sesión).
+- **Registro:** capítulos 26 §9, 28 (riesgo 21), 43 §2 y 47 §2; `estado.yaml` (pendientes `empresa`, `aaip` y `abogado`),
+  `roadmap.yaml`, `mapa_total.yaml`; `radar/vigilancia.md` V-20.

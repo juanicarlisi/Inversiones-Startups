@@ -58,6 +58,10 @@ banco puede pedir documentación al recibir el pago, aun por montos chicos.
 | Decidir en diciembre, crear en enero de 2027 | La empresa del holding (SAS en CABA): ARS 750.000 a 1.000.000 al crearla y ARS 120.000 a 250.000 por mes con contador (HECHO, ago-2026) | La tienda muestra su dirección y no la del fundador; puede tener las licencias (la RVR1960 por la DBL exige una organización); limita la responsabilidad |
 | Al prender las suscripciones (plan: febrero o marzo de 2027) | Botón de arrepentimiento (10 días) y botón de baja a la vista y sin registrarse (Disposición 954/2025) | Es obligatorio para servicios en línea; ya quedó comprometido en los términos de la app |
 
+**Actualización del 19-10-2026.** El fundador decidió no crear la SAS ni ahora ni próximamente (DEC-2026-10-19-4): la fila de la
+empresa pasa a «solo si se cumple un disparador» y, sin empresa, no se activan compras dentro de la app. Qué riesgos tocan su
+patrimonio y cómo se bajan: capítulo {{cap:26}} §9.
+
 **Cada pago, en la práctica.** Llega la orden de pago al home banking; se acepta con el concepto «exportación de servicios»; se
 emite la factura E por el importe a la entidad de Google que figure en el informe de pagos; y se guarda todo.
 

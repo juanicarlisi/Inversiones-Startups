@@ -154,6 +154,14 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - tiendas: lo técnico está listo; cuentas (Play, Apple, Expo), sitio público y 12 testers son del fundador (`docs/TIENDAS.md`);
   - idiomas: español, portugués e inglés en Ajustes; Biblias libres en portugués e inglés; el contenido se traduce en 2027, primero
     portugués; la vista previa abre lecciones y preguntas con `?demo=leccion:ID` y `?demo=espadeo:ID`.
+- **Datos del 19-10-2026 (Senda, a la noche):**
+  - sin SAS ni ahora ni próximamente (DEC-2026-10-19-4): Senda sale con cuenta personal de Play, anuncios y sin compras dentro de la
+    app; sin empresa, el patrimonio del fundador responde por cualquier reclamo, así que el proyecto lleva un registro de riesgos
+    legales (capítulo 26 §9, riesgo 21 del capítulo 28, disparador V-20 en `radar/vigilancia.md`);
+  - mientras no haya empresa, no se activan compras, sorteos con premios, chat de usuarios ni estudios con terceros, ni se piden
+    licencias que exijan organización (RVR1960 por la DBL, NVI, LBLA); ningún trabajo creativo se paga sin cesión de derechos;
+  - antes del lanzamiento: registro de fuentes y licencias, AAIP, política y términos con mail de reclamos, consulta puntual con un
+    abogado y una hora con un contador antes del primer cobro; leer la lista al empezar cada sesión de Senda y en cada `/revision`.
 
 ## 2. Reglas no negociables
 

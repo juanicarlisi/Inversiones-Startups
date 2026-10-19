@@ -4,7 +4,8 @@
 **En pocas palabras.** Senda la van a usar muchos menores: la seguridad es parte del producto, no un agregado. Datos mínimos, nada de
 contacto con desconocidos, moderación de todo lo que escriben o dibujan los usuarios y un protocolo para situaciones de riesgo. En lo
 legal: **no hace falta un abogado para lanzar**: Claude redacta todos los documentos con las normas a la vista y se sugiere una revisión
-profesional puntual y opcional solo en dos casos (estudios con datos sensibles y sorteos fuera de Argentina). En propiedad intelectual:
+profesional puntual y opcional solo en dos casos (estudios con datos sensibles y sorteos fuera de Argentina). **Desde el 19-10-2026,
+sin SAS, esa consulta pasa a recomendada** y el §9 registra qué riesgos podrían tocar el patrimonio del fundador y cómo se bajan. En propiedad intelectual:
 **no conviene patentar**; sí **registrar la marca, la mascota y los derechos de autor**, cumplir las licencias y no usar nombres con
 dueño (como «El Rosco» o «Tabú»).
 </div>
@@ -103,6 +104,9 @@ políticas de Google Play y App Store), vos los aprobás y se publican. El anál
 **Conclusión:** sin abogado para lanzar; una **revisión puntual opcional** (USD 0–400, una sola vez, en el capítulo {{cap:29}}) en los dos
 casos marcados, y solo cuando lleguen. Así Senda queda segura, confiable y en regla sin un gasto fijo.
 
+**Actualización del 19-10-2026.** El fundador decidió no crear la SAS (DEC-2026-10-19-4). Sin sociedad que separe los patrimonios, la
+consulta puntual deja de ser opcional: pasa a **recomendada antes del lanzamiento** y con una lista de temas (§9).
+
 ## 6. Documentos legales
 
 | Documento | Contenido clave | Cuándo |
@@ -185,3 +189,66 @@ Antes de fijar cada nombre se busca en el INPI y en las tiendas.
   tiendas permiten transferir apps entre cuentas).
 - La marca en el INPI y los dominios, a nombre de la empresa cuando exista (o transferidos después).
 - En redes habla Lany; nadie muestra la cara.
+- **Actualización del 19-10-2026:** el fundador decidió no crear la SAS ni ahora ni próximamente (DEC-2026-10-19-4). La transferencia
+  de la app a la empresa antes de la suscripción queda **condicionada**: sin empresa no se activan compras dentro de la app (la
+  cuenta de Play que cobra muestra la dirección), o se reabre la decisión con los disparadores del §9. La marca y los dominios van a
+  nombre del fundador si se registran antes (el registro del INPI es público): decidirlo antes de presentarla.
+
+## 9. Responder con el patrimonio personal: riesgos y cómo se bajan (sin SAS)
+
+<div class="enpocas" markdown="1">
+**En pocas palabras.** El 19-10-2026 el fundador decidió no pagar la SAS ni ahora ni próximamente. **Sin sociedad, Senda es el
+fundador:** si alguien reclama y gana, cobra de su patrimonio (el monotributo es solo un régimen impositivo y no lo cambia). Para una
+app gratis, con anuncios, 13+, con contenido propio o libre y sin chat entre usuarios, el riesgo es **bajo** y lo más común es el aviso
+de la tienda y retirar el contenido. Sube con suscripciones, sorteos con premios, contenido de usuarios, estudios con datos de fe y
+material de terceros sin cesión. Hechos, inferencias y salvedades:
+`conocimiento/2026-10-19-senda-responsabilidad-patrimonial-sin-sas.md` (**INFERENCIA**, no verificada con un abogado).
+</div>
+
+### Registro de riesgos legales
+
+| # | Riesgo | Cuándo se da | Probabilidad (INFERENCIA) | Cómo se baja | Estado |
+|---|---|---|---|---|---|
+| L1 | **Derechos de autor y licencias** | Se usa un texto, música, imagen, tipografía, mapa o pregunta derivada sin licencia o sin cumplir su atribución | Baja–media | Solo versiones libres dentro de la app; RVR1960, NVI y demás en un toque desde Bible.com; música con licencia y crédito; libros de referencia solo para entender; mecánicas de más de 20 años y nada de marcas ajenas; **registro único de fuentes y licencias**, créditos completos y un mail público de reclamos con retiro en 24 a 72 horas | Parcial: falta el registro único y el mail público |
+| L2 | **Datos personales y sensibles** | No se inscribe la base, se filtran datos o se piden de más (la fe es un dato sensible) | Baja–media | Datos mínimos (§1); inscribir la base en la AAIP; política de privacidad publicada; Pulso separado de la cuenta; ningún estudio con terceros sin revisión legal | Parcial: falta la AAIP y publicar la política |
+| L3 | **Menores** | Entra un menor de 13, hay un contacto indebido o una publicidad no apta | Baja, con impacto muy alto | Reglas del §2: público 13+, sin chat, sin anuncios personalizados de 13 a 15, rivales de su franja; protocolo de riesgo (§4); líneas de ayuda por país verificadas antes del lanzamiento; revisar el ECA Digital antes del portugués | Parcial: falta la lista de líneas de ayuda |
+| L4 | **Consumidor y suscripciones** | Se cobra sin botón de arrepentimiento y de baja, con cobros confusos, o se expone la dirección | Solo si hay cobros | No activar compras sin decidir antes la empresa (disparador 1); los botones ya están comprometidos en los términos | No aplica hoy |
+| L5 | **Sorteos y promociones** | Un sorteo con premio sin bases y autorización | Media si se hace | Sin sorteos hasta tener bases y autorización; preferir concursos de habilidad; los «10 kits por puntos» esperan la consulta legal | Sin sorteos hoy |
+| L6 | **Fiscal** | Se cobra sin facturar o mal categorizado | Baja | Monotributo y factura E antes del primer pago; una hora con un contador (Ingresos Brutos en CABA, código de actividad); guardar cada orden de pago | Pendiente: antes del primer cobro |
+| L7 | **Contratos con terceros** | Freelancers sin cesión, el ministerio aliado sin acuerdo escrito, licencias con garantía personal o indemnidad sin límite | Media | Cesión por escrito antes de pagar cada trabajo; Lany y el logo finales por una persona; acuerdo con el ministerio aliado (roles y material: su estudio se usa para temas, nunca copia) y con los revisores; no firmar garantías personales ni indemnidades ilimitadas sin que un abogado las lea | Pendiente |
+| L8 | **Contenido de usuarios y error doctrinal** | Un usuario publica algo injurioso o ilegal, o un error doctrinal se difunde | Baja hoy (no hay chat ni comunidad abierta) | Si se suma comunidad: reportar, bloquear, filtrar y moderar (§3); el error doctrinal está en el riesgo 4 del capítulo {{cap:28}} | En control |
+| L9 | **Seguridad y exposición del fundador** | Se filtra una clave o una cuenta de tienda, o se publica el domicilio | Baja–media | Verificación en dos pasos en Play, Apple, GitHub, Expo, API.Bible y el correo; claves solo como secretos, nunca en el repositorio; correo propio de Senda; privacidad de datos del dominio; casilla de correo si un titular pide dirección postal; decidir a nombre de quién van marca y dominios (§7) | Parcial |
+
+### Qué no hacer mientras no haya empresa
+
+1. No activar suscripciones ni compras dentro de la app.
+2. No pedir licencias que exijan una organización (RVR1960 por la DBL, NVI, LBLA): se leen en un toque desde Bible.com.
+3. No hacer sorteos con premios, comunidad o chat de usuarios ni estudios de Pulso con terceros sin consulta legal.
+4. No firmar contratos de licencia ni de servicios con garantía personal o indemnidad sin límite sin que un abogado los lea.
+5. No pagar un trabajo creativo sin la cesión de derechos firmada.
+6. No copiar nada: ni libros de referencia, ni juegos ajenos, ni música sin licencia.
+
+### Lista de verificación antes del lanzamiento (18-12-2026)
+
+| # | Qué | Quién | Cuándo | Costo |
+|---|---|---|---|---|
+| 1 | Registro único de fuentes y licencias (fuente, licencia, fecha, enlace, obligación de atribución) y pantalla de créditos completa | Claude | Antes de la prueba cerrada (15-11) | 0 |
+| 2 | Inscripción de la base de datos en la AAIP | Fundador con clave fiscal; Claude arma los datos | Octubre (roadmap: hasta el 25-10) | 0 |
+| 3 | Política de privacidad, términos y normas publicados en el sitio, con mail de reclamos y procedimiento de retiro | Claude redacta; el fundador publica | Antes de la prueba cerrada | Sitio gratis + dominio ≈ USD 10 por año |
+| 4 | **Consulta puntual con un abogado de tecnología o propiedad intelectual:** términos, política, créditos, esta lista, limitaciones de responsabilidad y, si tiene vivienda propia, la afectación de la vivienda | El fundador contrata; Claude arma el paquete | Antes del lanzamiento, ideal antes del 15-11 | USD 0 a 400 (ESTIMACIÓN del §5) |
+| 5 | Cesión de derechos del arte final (Lany, logo) y de todo trabajo pago | Claude redacta; el fundador firma | Antes de pagar cada trabajo (nov-2026) | 0 |
+| 6 | Acuerdo escrito con el ministerio aliado y con los revisores | Claude redacta; el fundador firma | Antes del lanzamiento | 0 |
+| 7 | Verificación en dos pasos y claves fuera del repositorio | Fundador y Claude | Al abrir las cuentas (antes del 15-11) | 0 |
+| 8 | Una hora con un contador: monotributo, factura E, Ingresos Brutos | Fundador | Antes del primer cobro (ESTIMACIÓN: febrero o marzo de 2027) | A cotizar |
+| 9 | Decidir a nombre de quién va la marca «Senda» (el registro del INPI es público) | Fundador | Antes de presentarla | ~USD 27 por clase |
+
+### Cuándo reabrir la SAS (disparadores, propuesta del 19-10-2026)
+
+Si ocurre cualquiera, se lleva al `/comite` (ficha V-20 en `radar/vigilancia.md`):
+1. Se decide activar suscripciones o compras dentro de la app.
+2. Se quiere la RVR1960 por la DBL u otra licencia que exija una organización (regla de corte del capítulo {{cap:39}} §4).
+3. Llega un reclamo formal (carta documento, aviso de derechos de autor que no se resuelve retirando el contenido, o un contrato que pida garantía personal).
+4. Se planea un sorteo con premios, una comunidad o chat de usuarios o un estudio con terceros sobre datos de fe.
+5. El ingreso neto anual llega a unas 10 veces el costo anual de mantener la SAS (USD ~9.300 a 19.400; HIPÓTESIS a validar en el comité).
+
+Esta lista se repasa en cada `/revision` mensual y cuando se active V-20.
