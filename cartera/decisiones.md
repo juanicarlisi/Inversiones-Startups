@@ -949,3 +949,30 @@
   `scripts/autor/tierras.py`, `scripts/autor/quien_es_quien_45.py`, `scripts/autor/trivia_banco5.py`, `src/componentes/visual.tsx`,
   `src/componentes/mapaBiblia.tsx`, `src/componentes/lineaTiempo.tsx`, `src/componentes/diagrama.tsx`, `src/i18n/textos.ts`,
   `eas.json`, `.github/workflows/firma.yml`, `.github/workflows/aab.yml`, `docs/TIENDAS.md`.
+
+## DEC-2026-10-19-4 · Senda: vigésima tercera tanda (prueba 23), blindaje legal y versiones sin confusión
+
+- **Fecha:** 2026-10-19 · **Quién:** el fundador pide; Claude investiga, recomienda y construye.
+- **Pedido:** seguir con la prueba 23 sin esperar la prueba del 22; antes que nada, investigar exhaustivamente todos los riesgos
+  legales (plagio, imitar apps o juegos, música, contenido, nombres, imágenes) con ley y casos, y reforzar; que el último APK traiga
+  todas las modificaciones. Después: evaluar con calma cómo evitar que la gente se confunda entre la RV1909 de la app y la RVR1960,
+  con una UX muy amigable, fiel, sin texto gigante, manteniendo anuncios y suscripciones y contemplando que la RVR1960 no esté al
+  principio.
+- **Decidido / hecho (blindaje legal, capítulo 48):**
+  - **Música:** la licencia gratuita de Mixkit no permite videojuegos (página oficial, 19-10): los seis temas se retiraron; toda la
+    música es de Kevin MacLeod, CC BY 4.0, con crédito tema por tema («Nonstop» en la bienvenida, la elegida en la prueba 17).
+  - **Lany v4:** cara, patas y manos canela (la v3, negra con lana clara y copete, compartía los rasgos distintivos de Shaun the Sheep);
+    el fundador puede comparar en la Consola y pedir volver.
+  - **Espadeo:** el casillero de la corona (igual que Preguntados) pasa a ser el yunque de la Armería. La ruta «Quién es quién» pasa a
+    «Quién fue quién» (Hasbro vende «¿Quién es quién?»).
+  - **Créditos completos** y **docs/LEGAL.md** (inventario de activos con licencia, nombres, reglas, lista de control antes de cada
+    publicación); borrador de autorización escrita del ministerio aliado.
+  - **Pendiente del fundador:** INPI (Senda y Lany, clases 9, 41, 42; ≈ ARS 41.000 por clase), una hora con un abogado de PI,
+    la autorización del ministerio, el dominio (sendabiblia.com o .app).
+- **Decidido / hecho (versiones, capítulo 49):** regla «una sola Biblia a la vista, con nombre, y la RVR1960 a un toque»: fila de
+  versión en cada pasaje («RV1909 · escritura de hoy» + «RVR1960 ↗»), hoja «Las versiones, en una pantalla» (tres ideas) desde la
+  fila, la Biblia y Ajustes; los ejercicios siguen leyéndose igual en las dos versiones. Para la prueba 24: la pregunta de la
+  bienvenida («¿qué Biblia usan en tu iglesia?») y el glosario de palabras en el lector.
+- **Registro:** capítulos 48 y 49; bitácora `conocimiento/2026-10-19-senda-blindaje-legal.md`; en la app, `docs/LEGAL.md`,
+  `docs/legal/autorizacion_ministerio.md`, `scripts/musica_macleod.py`, `scripts/rive/lani.py` (paleta v4), `src/componentes/versiones.tsx`,
+  `src/datos/legal.ts`, `tienda/` (gráfico y capturas de la ficha).

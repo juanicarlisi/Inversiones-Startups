@@ -182,6 +182,13 @@
 - Piensa en las tiendas como próximo paso concreto y pregunta qué falta y cómo seguir: prefiere listas de pasos con quién hace cada uno.
 - Quiere abrir mercados en portugués e inglés cuanto antes, aunque sea por la base (idioma y Biblia) y el contenido después.
 
+### Pautas del 19-10-2026 (Senda, prueba 23)
+
+- Prioridad absoluta a no tener problemas legales: pide investigar a fondo la ley y los casos, revisar nombres e imágenes y reforzar.
+- Quiere fidelidad bíblica sin confundir versiones: que la gente sepa qué lee y pueda ver la RVR1960 con un toque, con una UX impecable
+  (sin textos largos ni feos), manteniendo anuncios y suscripciones. Pide pensar con calma, sin apurarse.
+- Prueba solo el último APK: cada uno tiene que traer todo lo anterior.
+
 ## Lo que falta (y por qué importa)
 
 | # | Pregunta | Por qué importa | Qué cambia según la respuesta |

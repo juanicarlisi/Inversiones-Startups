@@ -154,6 +154,15 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - tiendas: lo técnico está listo; cuentas (Play, Apple, Expo), sitio público y 12 testers son del fundador (`docs/TIENDAS.md`);
   - idiomas: español, portugués e inglés en Ajustes; Biblias libres en portugués e inglés; el contenido se traduce en 2027, primero
     portugués; la vista previa abre lecciones y preguntas con `?demo=leccion:ID` y `?demo=espadeo:ID`.
+- **Datos del 19-10-2026 (Senda, prueba 23):**
+  - blindaje legal como prioridad: nada que pueda traer una demanda (plagio, imitar apps o juegos, música, nombres, imágenes); cada
+    activo entra con su licencia anotada (`docs/LEGAL.md` en la app) y cada juego inspirado en otro lleva nombre, personajes y aspecto
+    propios; la música de Mixkit no se usa (su licencia no permite videojuegos): toda la música es de Kevin MacLeod, CC BY 4.0;
+  - Lany v4 (cara y patas canela, nunca negra con lana clara y copete: era Shaun the Sheep); el yunque en la ruleta (no la corona);
+    la ruta «Quién fue quién» (no «Quién es quién»); pendientes del fundador: INPI, abogado de PI, autorización del ministerio;
+  - versiones sin confusión: una sola Biblia a la vista, siempre con nombre, y la RVR1960 a un toque en cada pasaje; explicaciones de
+    una pantalla, nunca textos largos; los ejercicios se leen igual en la RV1909 y la RVR1960 (capítulo 49);
+  - cada APK trae todas las modificaciones anteriores: solo hace falta probar el último.
 
 ## 2. Reglas no negociables
 
