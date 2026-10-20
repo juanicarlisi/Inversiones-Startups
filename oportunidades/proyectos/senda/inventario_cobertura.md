@@ -15,7 +15,7 @@
 | Caín y Abel | Génesis 4; Hebreos 11:4; 1 Juan 3:12 | 26 | 4 | 1 | 0 | con contenido | media |
 | Enoc | Génesis 5:21-24; Hebreos 11:5; Judas 14-15 | 16 | 5 | 0 | 0 | con contenido | baja |
 | Noé | Génesis 6–9; Hebreos 11:7; 1 Pedro 3:20; Mateo 24:37-39 | 36 | 14 | 1 | 0 | con contenido | alta |
-| Abraham | Génesis 11:26–25:10; Romanos 4; Hebreos 11:8-19; Santiago 2:21-23 | 103 | 21 | 3 | 0 | con contenido | alta |
+| Abraham | Génesis 11:26–25:10; Romanos 4; Hebreos 11:8-19; Santiago 2:21-23 | 107 | 21 | 3 | 0 | con contenido | alta |
 | Sara | Génesis 11–23; Hebreos 11:11; 1 Pedro 3:6 | 86 | 18 | 3 | 0 | con contenido | media |
 | Agar e Ismael | Génesis 16; 21:8-21; Gálatas 4:21-31 | 16 | 2 | 0 | 0 | con contenido | media |
 | Lot | Génesis 11–14; 18–19; 2 Pedro 2:7-8; Lucas 17:28-32 | 49 | 7 | 2 | 0 | con contenido | baja |
@@ -30,7 +30,7 @@
 | Moisés | Éxodo 2 – Deuteronomio 34; Hechos 7:20-44; Hebreos 11:23-29 | 121 | 45 | 6 | 0 | con contenido | alta |
 | Aarón | Éxodo 4–40; Levítico 8–10; Números 12; 17; 20 | 50 | 23 | 5 | 0 | con contenido | media |
 | Miriam | Éxodo 2:4-8; 15:20-21; Números 12; 20:1; Miqueas 6:4 | 8 | 5 | 0 | 0 | con contenido | media |
-| El faraón del éxodo | Éxodo 1–14; Romanos 9:17 | 34 | 11 | 4 | 0 | con contenido | media |
+| El faraón del éxodo | Éxodo 1–14; Romanos 9:17 | 37 | 11 | 4 | 0 | con contenido | media |
 | Jetro | Éxodo 2:16-22; 3:1; 18 | 8 | 3 | 1 | 0 | con contenido | baja |
 | Josué | Éxodo 17; 24; 33; Números 13–14; 27; Josué 1–24 | 36 | 20 | 1 | 0 | con contenido | alta |
 | Caleb | Números 13–14; Josué 14:6-15 | 8 | 3 | 0 | 0 | con contenido | media |
@@ -101,12 +101,12 @@
 | Bernabé | Hechos 4:36-37; 9:27; 11:22-30; 13–15 | 56 | 12 | 2 | 0 | con contenido | media |
 | Silas y Timoteo | Hechos 15–18; 1–2 Timoteo; Filipenses 2:19-22 | 47 | 20 | 1 | 0 | con contenido | media |
 | Lidia y el carcelero de Filipos | Hechos 16 | 17 | 8 | 0 | 0 | con contenido | media |
-| Priscila y Aquila | Hechos 18; Romanos 16:3-5; 1 Corintios 16:19 | 13 | 6 | 0 | 0 | con contenido | media |
-| Apolos | Hechos 18:24-28; 1 Corintios 3:4-6 | 10 | 4 | 0 | 0 | con contenido | baja |
+| Priscila y Aquila | Hechos 18; Romanos 16:3-5; 1 Corintios 16:19 | 21 | 6 | 0 | 0 | con contenido | media |
+| Apolos | Hechos 18:24-28; 1 Corintios 3:4-6 | 15 | 4 | 0 | 0 | con contenido | baja |
 | Juan Marcos | Hechos 12:12; 13:13; 15:37-39; 2 Timoteo 4:11 | 37 | 7 | 1 | 0 | con contenido | media |
 | Santiago, el hermano del Señor | Hechos 15:13-21; Gálatas 1:19; 2:9; Santiago | 72 | 11 | 1 | 0 | con contenido | media |
 | Filemón y Onésimo | Filemón; Colosenses 4:9 | 19 | 4 | 0 | 0 | con contenido | baja |
-| Febe y Dorcas | Romanos 16:1-2; Hechos 9:36-42 | 24 | 6 | 1 | 0 | con contenido | baja |
+| Febe y Dorcas | Romanos 16:1-2; Hechos 9:36-42 | 29 | 6 | 1 | 0 | con contenido | baja |
 | Set y Enós | Génesis 4:25-26; 5:3-11 | 15 | 2 | 1 | 0 | con contenido | media |
 | Jabal, Jubal y Tubal-caín | Génesis 4:20-22 | 11 | 0 | 1 | 0 | con contenido | baja |
 | Matusalén y Lamec | Génesis 5:21-31 | 4 | 2 | 0 | 0 | con contenido | media |
@@ -125,7 +125,7 @@
 | Coré | Números 16; Judas 1:11 | 18 | 2 | 0 | 0 | con contenido | media |
 | Las hijas de Zelofehad | Números 27:1-11; 36 | 1 | 0 | 0 | 0 | empezado | baja |
 | Og, rey de Basán | Números 21:33-35; Deuteronomio 3:1-11 | 1 | 0 | 0 | 0 | empezado | baja |
-| Habacuc | Habacuc 1–3; Romanos 1:17; Gálatas 3:11; Hebreos 10:38 | 54 | 6 | 0 | 0 | con contenido | alta |
+| Habacuc | Habacuc 1–3; Romanos 1:17; Gálatas 3:11; Hebreos 10:38 | 61 | 6 | 0 | 0 | con contenido | alta |
 | Hageo | Hageo 1–2; Esdras 5:1; 6:14 | 38 | 0 | 0 | 0 | con contenido | alta |
 | Zorobabel y el sumo sacerdote Josué | Esdras 3:2-8; 5:2; Hageo 1:1, 12-14; 2:2-4, 20-23; Zacarías 4:6-10; Mateo 1:12-13 | 47 | 7 | 0 | 0 | con contenido | media |
 | Abdías | Abdías 1; Jeremías 49:7-22 | 19 | 1 | 0 | 0 | con contenido | alta |
@@ -136,7 +136,7 @@
 | Nombre | Dónde | Travesía | Espadeo | Antes o después | Trivia | Estado | Prioridad |
 |---|---|---|---|---|---|---|---|
 | La creación | Génesis 1–2; Salmos 104; Juan 1:1-3; Colosenses 1:16 | 35 | 15 | 1 | 0 | con contenido | alta |
-| La caída | Génesis 3; Romanos 5:12-21 | 19 | 2 | 1 | 0 | con contenido | alta |
+| La caída | Génesis 3; Romanos 5:12-21 | 26 | 2 | 1 | 0 | con contenido | alta |
 | Caín y Abel | Génesis 4 | 11 | 0 | 1 | 0 | con contenido | media |
 | El diluvio | Génesis 6–9 | 10 | 8 | 1 | 0 | con contenido | alta |
 | La torre de Babel | Génesis 11:1-9 | 12 | 2 | 1 | 0 | con contenido | media |
@@ -161,9 +161,9 @@
 | Moisés en el río | Éxodo 1–2 | 8 | 2 | 0 | 0 | con contenido | alta |
 | La zarza ardiente | Éxodo 3–4 | 4 | 1 | 1 | 0 | con contenido | alta |
 | Las diez plagas | Éxodo 7–11 | 10 | 3 | 1 | 0 | con contenido | alta |
-| La Pascua | Éxodo 12; Lucas 22; 1 Corintios 5:7 | 14 | 4 | 1 | 0 | con contenido | alta |
+| La Pascua | Éxodo 12; Lucas 22; 1 Corintios 5:7 | 18 | 4 | 1 | 0 | con contenido | alta |
 | El paso del mar | Éxodo 14–15 | 6 | 3 | 1 | 0 | con contenido | alta |
-| El maná y el agua de la roca | Éxodo 16–17; Juan 6:31-35; 1 Corintios 10:4 | 9 | 12 | 0 | 0 | con contenido | media |
+| El maná y el agua de la roca | Éxodo 16–17; Juan 6:31-35; 1 Corintios 10:4 | 12 | 12 | 0 | 0 | con contenido | media |
 | El Sinaí y los diez mandamientos | Éxodo 19–20; Deuteronomio 5 | 8 | 4 | 1 | 0 | con contenido | alta |
 | El becerro de oro | Éxodo 32–34 | 4 | 1 | 1 | 0 | con contenido | alta |
 | El tabernáculo | Éxodo 25–40; Hebreos 8–10 | 27 | 6 | 1 | 0 | con contenido | media |
@@ -245,7 +245,7 @@
 | Pedro niega a Jesús | Lucas 22:54-62 | 2 | 1 | 0 | 0 | empezado | alta |
 | El juicio ante Pilato | Juan 18:28–19:16 | 7 | 4 | 0 | 0 | con contenido | alta |
 | La crucifixión | Lucas 23:26-49; Juan 19:17-37 | 11 | 5 | 1 | 0 | con contenido | alta |
-| La resurrección | Lucas 24; Juan 20; 1 Corintios 15 | 37 | 11 | 1 | 0 | con contenido | alta |
+| La resurrección | Lucas 24; Juan 20; 1 Corintios 15 | 44 | 11 | 1 | 0 | con contenido | alta |
 | El camino a Emaús | Lucas 24:13-35 | 14 | 2 | 1 | 0 | con contenido | alta |
 | Jesús restaura a Pedro | Juan 21 | 2 | 2 | 0 | 0 | empezado | alta |
 | La ascensión | Hechos 1:1-11 | 14 | 6 | 0 | 0 | con contenido | alta |

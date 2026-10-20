@@ -1126,3 +1126,22 @@
   entender, para ver cómo se arma un estudio y para chequear doctrina; nunca se replica su estructura ni se copia su texto; una
   idea tomada de un libro va con su fuente. Y toda clave de traducción guardada en el estado se traduce al mostrarla; la vista
   previa se recorre entera, en los tres idiomas, antes de cada APK.
+
+## DEC-2026-10-20-5 · Senda: trigésima tanda (prueba 30), Romanos y 1 Corintios, la interfaz entera traducida, tres misiones y 350 lecciones con visual
+
+- **Fecha:** 2026-10-20 (noche) · **Quién:** el fundador pide seguir; Claude construye.
+- **Pedido:** «Ok. Avanzá con los próximos siguientes! Luego reviso dónde está la versión de la RVR1960».
+- **Decidido / hecho (capítulo 56):** los cuatro «próximos» del capítulo 55 §9: Romanos (11 lecciones) y 1 Corintios (10) jugables
+  desde la RV1909, validados, lo interpretativo marcado (la elección, «todo Israel será salvo», el «yo» de Romanos 7, el velo, los
+  dones, 1 Corintios 14:34-35, el orden de la resurrección) y sin doctrinas secundarias (352 lecciones); el resto de la interfaz en
+  portugués e inglés hasta la última etiqueta de accesibilidad (1.312 claves), con los días, los meses, las fechas, el saludo y la voz
+  que lee siguiendo el idioma; tres misiones más para «Vivir la historia» (Gedeón, Naamán, y Pedro y Cornelio: 19 pasos, 76 opciones,
+  seis láminas nuevas; 10 misiones hasta el 21-12); visuales para 130 lecciones más (350 de 352; quedan 2 a propósito) con seis
+  diagramas nuevos (el fruto del Espíritu, los «Yo soy», el Padre nuestro, un cuerpo, tres idiomas, Adán y Cristo); Éfeso y Estéfanas
+  con la grafía de hoy; APK 30 consolidada.
+- **Espera decisión del fundador:** el archivo de la 1960 (si aparece, se adjunta en el chat; si no, se cierra) y lo pendiente de las
+  pruebas 24 a 29.
+- **Regla que queda:** cuando el fundador dice «avanzá con los próximos», los próximos son los que el último capítulo dejó listados
+  en «Pendientes y decisiones», en ese orden; una respuesta correcta de «Vivir la historia» no puede ser casi siempre la más larga
+  (el validador lo controla); un visual se pone solo cuando dice algo verdadero del pasaje, y si no hay ninguno que no fuerce el texto,
+  la lección queda sin visual.

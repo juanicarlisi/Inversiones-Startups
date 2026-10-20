@@ -224,6 +224,15 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     línea (26 momentos con fuente); los siete juegos y los carteles de Lany en portugués e inglés (579 claves); «avanzá con todos los
     próximos que tengas pendientes»: el plan de próximos se ejecuta sin esperar pedido (capítulo 55 §9).
 
+- **Datos del 20-10-2026 (Senda, prueba 30):**
+  - «avanzá con los próximos siguientes»: se ejecutan los «próximos» que dejó el último capítulo, en orden (Romanos y 1 Corintios, la
+    interfaz entera en portugués e inglés, más misiones de «Vivir la historia», visuales para las lecciones sin ninguno; capítulo 56);
+  - la interfaz está entera en tres idiomas (1.312 claves): las fechas, el saludo y la voz que lee siguen el idioma; lo que queda en
+    español es contenido y se traduce en 2027; nada se guarda como texto en el estado sin su clave;
+  - en «Vivir la historia» la respuesta correcta no puede ser casi siempre la más larga (el validador lo controla); un visual se pone
+    solo cuando dice algo verdadero del pasaje (quedan 2 lecciones sin visual a propósito: la parábola del hijo y Job);
+  - el archivo de la RVR1960: «luego reviso dónde está»; sigue sin aparecer y nada depende de él.
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
