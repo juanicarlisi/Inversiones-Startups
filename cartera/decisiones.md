@@ -1099,5 +1099,30 @@
 - **Espera decisión del fundador:** lo que revise de la Consola y «más cosas»; dónde está el ejemplar de la 1960; y lo pendiente de
   las pruebas 24 a 27 (consulta a la Sociedad Bíblica, subrayado o corchetes, color de Lany, fila de versión, sonido del tachado).
 - **Regla que queda:** la trivia nunca cita la RV1909 entre paréntesis: la opción dice la palabra de hoy y el pasaje se abre en la
-  versión libre que la trae (si ninguna la trae, se reescribe la pregunta); las lecciones salen del texto bíblico libre y de nada más,
-  y cuando usen una idea de un libro lo dirán con su fuente.
+  versión libre que la trae (si ninguna la trae, se reescribe la pregunta); cero plagio quiere decir «no replicar ni copiar», no
+  «no usar»: los libros de referencia confiables se usan para entender, ver cómo se arma un estudio y chequear doctrina, nunca se
+  replica su estructura ni se copia su texto, y cuando una lección use una idea de un libro lo dirá con su fuente (aclarado por el
+  fundador el 20-10 a la noche).
+
+## DEC-2026-10-20-4 · Senda: vigésima novena tanda (prueba 29), la regla de los libros bien dicha, Hebreos y 2 Pedro, y los juegos en portugués e inglés
+
+- **Fecha:** 2026-10-20 (noche) · **Quién:** el fundador corrige y pide; Claude construye.
+- **Pedido:** probó el APK 28 («viene bien dentro de todo»); que la regla de cero plagio se cuente como es («no te pedí que *no
+  uses* los libros, sino que no repliques ni copies y pegues; fijate bien todo esto»); que se explique qué es «el ejemplar de la
+  1960» (no entendía la pregunta); corregir el «texto raro» del bloque de los tres desafíos del día en Inicio; y avanzar con todos
+  los pendientes.
+- **Decidido / hecho (capítulo 55):** la regla reescrita en todos los lugares donde estaba (capítulo 54 §7, CLAUDE.md, DEC-2026-10-20-3)
+  y revisado que no quede ningún texto que diga «no usar los libros»; el ejemplar de la 1960 explicado desde el principio (es el
+  archivo de la RVR1960 que dijo que cargaría en la prueba 24 para comparar versículo por versículo, solo análisis; no apareció en
+  cinco repositorios; nada depende de él) y el pendiente de la Consola reescrito con esas palabras; «Misiones de hoy» traduce la
+  clave al mostrarla (mostraba «mision.leerCapitulo»); Hebreos (8 lecciones) y 2 Pedro (4) jugables desde la RV1909, validados, lo
+  interpretativo marcado y sin doctrinas secundarias (331 lecciones); la historia de la Iglesia en una línea (26 momentos con fuente)
+  y 57 lecciones más con visual (188 de 331 en la portada); los siete juegos, «Cómo se juega» y los carteles de Lany en portugués e
+  inglés (250 cadenas; 579 claves); APK 29 consolidada.
+- **Espera decisión del fundador:** el archivo de la 1960 (adjuntarlo o decir que no lo tiene y se cierra); y lo pendiente de las
+  pruebas 24 a 28 (consulta a la Sociedad Bíblica, subrayado o corchetes, color de Lany, fila de versión, sonido del tachado, lo de
+  la Consola y «más cosas»).
+- **Regla que queda:** lo que un informe diga sobre los libros de referencia tiene que decir exactamente esto: se usan para
+  entender, para ver cómo se arma un estudio y para chequear doctrina; nunca se replica su estructura ni se copia su texto; una
+  idea tomada de un libro va con su fuente. Y toda clave de traducción guardada en el estado se traduce al mostrarla; la vista
+  previa se recorre entera, en los tres idiomas, antes de cada APK.

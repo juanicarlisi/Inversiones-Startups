@@ -135,14 +135,22 @@ Al elegir portugués, la lección muestra «O que você vai ler», «Palavras ·
 2027. Falta de interfaz (ESTIMACIÓN): unas 300 cadenas (los carteles de Lany, los juegos por dentro, Comunidad y Calendario, el
 lector, los avisos).
 
-## 7. Cero plagio: cómo se cumple
+## 7. Cero plagio: qué significa y cómo se cumple
 
-El fundador lo recordó y vale dejarlo escrito. En esta prueba: las lecciones de Santiago y 1 Pedro salen del texto bíblico libre
-(RV1909 de dominio público) y de nada más; no se abrió ningún libro de referencia para escribirlas y no se copió la estructura de
-ningún estudio ajeno (nada de «cinco cosas sobre la fe» tomadas de un autor). La trivia se corrigió solo con las cuatro versiones
-libres de la app. La RVR1960 no entra ni al contenido ni a los repositorios; el ejemplar del fundador, cuando aparezca, se usa solo
-para comparar. Los libros de LIBROS-REFERENCIA3 siguen siendo para entender un tema y saber cómo se arma un estudio, nunca para
-replicar; cuando alguna lección use una idea de un libro, lo dirá con su fuente (como las notas de historia).
+El fundador lo recordó y vale dejarlo escrito sin ambigüedad, porque la primera versión de esta sección lo dijo mal («no se abrió
+ningún libro»). La regla **no es «no usar los libros»**: los libros de referencia confiables (LIBROS-REFERENCIA3, autores y editoriales
+protestantes reconocidos) **se usan**, y mucho: para entender un pasaje difícil, para ver cómo arma un estudio un autor con oficio,
+para chequear que una lección no diga algo que la enseñanza protestante corriente no sostiene, para encontrar un ángulo que no se nos
+ocurrió. Lo que está prohibido es **replicar**: tomar la estructura de un estudio y volverla travesía («si MacArthur dice "cinco
+cosas sobre la fe", no hacemos una travesía con esas cinco cosas»), copiar y pegar frases, reproducir sus bosquejos, sus listas o sus
+ilustraciones como si fueran nuestras. Lo mismo con las versiones de la Biblia con derechos (RVR1960, NVI, NTV): se leen para
+comparar y entender; su texto no entra ni al contenido ni a los repositorios.
+
+Cómo queda, en la práctica: cada lección sale del texto bíblico libre (la RV1909 de dominio público) leído capítulo por capítulo; los
+libros ayudan a entenderlo y a no equivocarse, y cuando una idea viene de un libro, se dice con su fuente (como las notas de historia).
+En esta prueba, las lecciones de Santiago y 1 Pedro no necesitaron consulta aparte; donde haga falta (Hebreos, Romanos, los profetas
+mayores), se consulta y se cita. El validador sigue controlando lo medible (citas textuales, huecos, redacción); lo de no replicar es
+un criterio de autor que se revisa en cada lección nueva.
 
 ## 8. Las APK
 

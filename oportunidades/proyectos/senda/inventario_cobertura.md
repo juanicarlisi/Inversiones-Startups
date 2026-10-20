@@ -5,45 +5,45 @@
 > de cada personaje o historia. «Con contenido» = al menos 4 preguntas de la Travesía; «empezado» = algo; «sin contenido» = nada todavía.
 
 **Personajes (119):** 106 con contenido, 13 empezado.
-**Historias (134):** 97 con contenido, 35 empezado, 2 sin contenido.
+**Historias (134):** 98 con contenido, 34 empezado, 2 sin contenido.
 
 ## Personajes
 
 | Nombre | Dónde | Travesía | Espadeo | Antes o después | Trivia | Estado | Prioridad |
 |---|---|---|---|---|---|---|---|
 | Adán y Eva | Génesis 1–3; 5:1-5 | 39 | 7 | 2 | 0 | con contenido | alta |
-| Caín y Abel | Génesis 4; Hebreos 11:4; 1 Juan 3:12 | 19 | 4 | 1 | 0 | con contenido | media |
-| Enoc | Génesis 5:21-24; Hebreos 11:5; Judas 14-15 | 9 | 5 | 0 | 0 | con contenido | baja |
-| Noé | Génesis 6–9; Hebreos 11:7; 1 Pedro 3:20; Mateo 24:37-39 | 29 | 14 | 1 | 0 | con contenido | alta |
-| Abraham | Génesis 11:26–25:10; Romanos 4; Hebreos 11:8-19; Santiago 2:21-23 | 96 | 21 | 3 | 0 | con contenido | alta |
-| Sara | Génesis 11–23; Hebreos 11:11; 1 Pedro 3:6 | 79 | 18 | 3 | 0 | con contenido | media |
+| Caín y Abel | Génesis 4; Hebreos 11:4; 1 Juan 3:12 | 26 | 4 | 1 | 0 | con contenido | media |
+| Enoc | Génesis 5:21-24; Hebreos 11:5; Judas 14-15 | 16 | 5 | 0 | 0 | con contenido | baja |
+| Noé | Génesis 6–9; Hebreos 11:7; 1 Pedro 3:20; Mateo 24:37-39 | 36 | 14 | 1 | 0 | con contenido | alta |
+| Abraham | Génesis 11:26–25:10; Romanos 4; Hebreos 11:8-19; Santiago 2:21-23 | 103 | 21 | 3 | 0 | con contenido | alta |
+| Sara | Génesis 11–23; Hebreos 11:11; 1 Pedro 3:6 | 86 | 18 | 3 | 0 | con contenido | media |
 | Agar e Ismael | Génesis 16; 21:8-21; Gálatas 4:21-31 | 16 | 2 | 0 | 0 | con contenido | media |
-| Lot | Génesis 11–14; 18–19; 2 Pedro 2:7-8; Lucas 17:28-32 | 42 | 7 | 2 | 0 | con contenido | baja |
-| Melquisedec | Génesis 14:18-20; Salmos 110:4; Hebreos 5–7 | 7 | 2 | 0 | 0 | con contenido | media |
-| Isaac | Génesis 21–28; 35:27-29; Hebreos 11:20 | 44 | 11 | 1 | 0 | con contenido | alta |
+| Lot | Génesis 11–14; 18–19; 2 Pedro 2:7-8; Lucas 17:28-32 | 49 | 7 | 2 | 0 | con contenido | baja |
+| Melquisedec | Génesis 14:18-20; Salmos 110:4; Hebreos 5–7 | 14 | 2 | 0 | 0 | con contenido | media |
+| Isaac | Génesis 21–28; 35:27-29; Hebreos 11:20 | 51 | 11 | 1 | 0 | con contenido | alta |
 | Rebeca | Génesis 24–27 | 22 | 3 | 0 | 0 | con contenido | baja |
-| Esaú | Génesis 25–36; Hebreos 12:16-17 | 33 | 8 | 1 | 0 | con contenido | baja |
+| Esaú | Génesis 25–36; Hebreos 12:16-17 | 38 | 8 | 1 | 0 | con contenido | baja |
 | Jacob | Génesis 25–50; Oseas 12:3-4 | 71 | 17 | 3 | 0 | con contenido | alta |
 | Raquel y Lea | Génesis 29–35 | 14 | 5 | 1 | 0 | con contenido | media |
-| José | Génesis 37–50; Hechos 7:9-16; Hebreos 11:22 | 52 | 13 | 2 | 0 | con contenido | alta |
+| José | Génesis 37–50; Hechos 7:9-16; Hebreos 11:22 | 59 | 13 | 2 | 0 | con contenido | alta |
 | Judá | Génesis 37–38; 43–44; 49:8-12 | 15 | 3 | 1 | 0 | con contenido | media |
-| Moisés | Éxodo 2 – Deuteronomio 34; Hechos 7:20-44; Hebreos 11:23-29 | 114 | 45 | 6 | 0 | con contenido | alta |
+| Moisés | Éxodo 2 – Deuteronomio 34; Hechos 7:20-44; Hebreos 11:23-29 | 121 | 45 | 6 | 0 | con contenido | alta |
 | Aarón | Éxodo 4–40; Levítico 8–10; Números 12; 17; 20 | 50 | 23 | 5 | 0 | con contenido | media |
 | Miriam | Éxodo 2:4-8; 15:20-21; Números 12; 20:1; Miqueas 6:4 | 8 | 5 | 0 | 0 | con contenido | media |
 | El faraón del éxodo | Éxodo 1–14; Romanos 9:17 | 34 | 11 | 4 | 0 | con contenido | media |
 | Jetro | Éxodo 2:16-22; 3:1; 18 | 8 | 3 | 1 | 0 | con contenido | baja |
 | Josué | Éxodo 17; 24; 33; Números 13–14; 27; Josué 1–24 | 36 | 20 | 1 | 0 | con contenido | alta |
 | Caleb | Números 13–14; Josué 14:6-15 | 8 | 3 | 0 | 0 | con contenido | media |
-| Balaam | Números 22–24; 31:16; 2 Pedro 2:15; Apocalipsis 2:14 | 7 | 2 | 0 | 0 | con contenido | baja |
-| Rahab | Josué 2; 6:22-25; Hebreos 11:31; Santiago 2:25; Mateo 1:5 | 32 | 15 | 1 | 0 | con contenido | alta |
+| Balaam | Números 22–24; 31:16; 2 Pedro 2:15; Apocalipsis 2:14 | 14 | 2 | 0 | 0 | con contenido | baja |
+| Rahab | Josué 2; 6:22-25; Hebreos 11:31; Santiago 2:25; Mateo 1:5 | 39 | 15 | 1 | 0 | con contenido | alta |
 | Débora | Jueces 4–5 | 7 | 3 | 1 | 0 | con contenido | alta |
-| Gedeón | Jueces 6–8; Hebreos 11:32 | 8 | 6 | 1 | 0 | con contenido | alta |
-| Jefté | Jueces 11–12; Hebreos 11:32 | 6 | 4 | 0 | 0 | con contenido | baja |
-| Sansón | Jueces 13–16; Hebreos 11:32 | 10 | 4 | 0 | 0 | con contenido | media |
+| Gedeón | Jueces 6–8; Hebreos 11:32 | 15 | 6 | 1 | 0 | con contenido | alta |
+| Jefté | Jueces 11–12; Hebreos 11:32 | 13 | 4 | 0 | 0 | con contenido | baja |
+| Sansón | Jueces 13–16; Hebreos 11:32 | 17 | 4 | 0 | 0 | con contenido | media |
 | Rut, Noemí y Booz | Rut 1–4; Mateo 1:5 | 47 | 10 | 0 | 0 | con contenido | alta |
 | Ana | 1 Samuel 1–2 | 11 | 2 | 0 | 0 | con contenido | media |
 | Elí | 1 Samuel 1–4 | 13 | 5 | 1 | 0 | con contenido | baja |
-| Samuel | 1 Samuel 1–25; Hechos 3:24; Hebreos 11:32 | 41 | 20 | 3 | 1 | con contenido | alta |
+| Samuel | 1 Samuel 1–25; Hechos 3:24; Hebreos 11:32 | 48 | 20 | 3 | 1 | con contenido | alta |
 | Saúl | 1 Samuel 9–31 | 18 | 11 | 2 | 1 | con contenido | alta |
 | Jonatán | 1 Samuel 13–20; 31; 2 Samuel 1 | 14 | 7 | 1 | 1 | con contenido | media |
 | David | 1 Samuel 16 – 1 Reyes 2; Salmos; Hechos 13:22 | 88 | 46 | 2 | 7 | con contenido | alta |
@@ -78,7 +78,7 @@
 | María, la madre de Jesús | Lucas 1–2; Mateo 1–2; Juan 2:1-11; 19:25-27; Hechos 1:14 | 58 | 33 | 1 | 0 | con contenido | alta |
 | José, el esposo de María | Mateo 1–2; Lucas 2 | 26 | 16 | 1 | 0 | con contenido | media |
 | Zacarías y Elisabet | Lucas 1 | 11 | 6 | 0 | 0 | con contenido | baja |
-| Jesús | Mateo, Marcos, Lucas y Juan; Hechos 1; Hebreos; Apocalipsis 1; 19–22 | 369 | 204 | 5 | 3 | con contenido | alta |
+| Jesús | Mateo, Marcos, Lucas y Juan; Hechos 1; Hebreos; Apocalipsis 1; 19–22 | 424 | 204 | 5 | 3 | con contenido | alta |
 | Pedro | Mateo 4; 14; 16; 26; Juan 21; Hechos 1–12; 15; 1–2 Pedro | 135 | 48 | 3 | 0 | con contenido | alta |
 | Andrés | Juan 1:40-42; 6:8-9; 12:22 | 16 | 16 | 0 | 0 | con contenido | baja |
 | Juan | Mateo 4:21; Juan 13:23; 19:26; 21:20-24; Hechos 3–4; Apocalipsis 1 | 36 | 17 | 1 | 0 | con contenido | alta |
@@ -97,7 +97,7 @@
 | Antipas | Apocalipsis 2:12-13 | 4 | 1 | 0 | 0 | con contenido | media |
 | Felipe el evangelista y el etíope | Hechos 8; 21:8-9 | 17 | 6 | 0 | 0 | con contenido | media |
 | Cornelio | Hechos 10–11 | 10 | 3 | 0 | 0 | con contenido | media |
-| Pablo | Hechos 7–28; Romanos a Filemón; 2 Pedro 3:15-16 | 144 | 51 | 3 | 0 | con contenido | alta |
+| Pablo | Hechos 7–28; Romanos a Filemón; 2 Pedro 3:15-16 | 151 | 51 | 3 | 0 | con contenido | alta |
 | Bernabé | Hechos 4:36-37; 9:27; 11:22-30; 13–15 | 56 | 12 | 2 | 0 | con contenido | media |
 | Silas y Timoteo | Hechos 15–18; 1–2 Timoteo; Filipenses 2:19-22 | 47 | 20 | 1 | 0 | con contenido | media |
 | Lidia y el carcelero de Filipos | Hechos 16 | 17 | 8 | 0 | 0 | con contenido | media |
@@ -125,7 +125,7 @@
 | Coré | Números 16; Judas 1:11 | 18 | 2 | 0 | 0 | con contenido | media |
 | Las hijas de Zelofehad | Números 27:1-11; 36 | 1 | 0 | 0 | 0 | empezado | baja |
 | Og, rey de Basán | Números 21:33-35; Deuteronomio 3:1-11 | 1 | 0 | 0 | 0 | empezado | baja |
-| Habacuc | Habacuc 1–3; Romanos 1:17; Gálatas 3:11; Hebreos 10:38 | 47 | 6 | 0 | 0 | con contenido | alta |
+| Habacuc | Habacuc 1–3; Romanos 1:17; Gálatas 3:11; Hebreos 10:38 | 54 | 6 | 0 | 0 | con contenido | alta |
 | Hageo | Hageo 1–2; Esdras 5:1; 6:14 | 38 | 0 | 0 | 0 | con contenido | alta |
 | Zorobabel y el sumo sacerdote Josué | Esdras 3:2-8; 5:2; Hageo 1:1, 12-14; 2:2-4, 20-23; Zacarías 4:6-10; Mateo 1:12-13 | 47 | 7 | 0 | 0 | con contenido | media |
 | Abdías | Abdías 1; Jeremías 49:7-22 | 19 | 1 | 0 | 0 | con contenido | alta |
@@ -140,14 +140,14 @@
 | Caín y Abel | Génesis 4 | 11 | 0 | 1 | 0 | con contenido | media |
 | El diluvio | Génesis 6–9 | 10 | 8 | 1 | 0 | con contenido | alta |
 | La torre de Babel | Génesis 11:1-9 | 12 | 2 | 1 | 0 | con contenido | media |
-| El llamado de Abraham | Génesis 12:1-9; Hebreos 11:8 | 13 | 3 | 1 | 0 | con contenido | alta |
+| El llamado de Abraham | Génesis 12:1-9; Hebreos 11:8 | 20 | 3 | 1 | 0 | con contenido | alta |
 | Abraham y Lot se separan | Génesis 13 | 4 | 0 | 0 | 0 | con contenido | baja |
 | Melquisedec bendice a Abram | Génesis 14:17-24 | 5 | 1 | 0 | 0 | con contenido | media |
 | El pacto con Abraham | Génesis 15; 17 | 7 | 4 | 0 | 0 | con contenido | alta |
 | Agar en el desierto | Génesis 16; 21:8-21 | 13 | 1 | 0 | 0 | con contenido | media |
 | Sodoma y Gomorra | Génesis 18–19 | 8 | 3 | 0 | 0 | con contenido | media |
 | Nace Isaac | Génesis 18:9-15; 21:1-7 | 12 | 1 | 0 | 0 | con contenido | media |
-| El monte Moriah | Génesis 22; Hebreos 11:17-19 | 11 | 4 | 1 | 0 | con contenido | alta |
+| El monte Moriah | Génesis 22; Hebreos 11:17-19 | 18 | 4 | 1 | 0 | con contenido | alta |
 | Una esposa para Isaac | Génesis 24 | 7 | 1 | 0 | 0 | con contenido | baja |
 | La primogenitura y la bendición | Génesis 25:27-34; 27 | 8 | 2 | 0 | 0 | con contenido | media |
 | La escalera de Betel | Génesis 28:10-22; Juan 1:51 | 15 | 9 | 0 | 0 | con contenido | media |
@@ -166,7 +166,7 @@
 | El maná y el agua de la roca | Éxodo 16–17; Juan 6:31-35; 1 Corintios 10:4 | 9 | 12 | 0 | 0 | con contenido | media |
 | El Sinaí y los diez mandamientos | Éxodo 19–20; Deuteronomio 5 | 8 | 4 | 1 | 0 | con contenido | alta |
 | El becerro de oro | Éxodo 32–34 | 4 | 1 | 1 | 0 | con contenido | alta |
-| El tabernáculo | Éxodo 25–40; Hebreos 8–10 | 13 | 6 | 1 | 0 | con contenido | media |
+| El tabernáculo | Éxodo 25–40; Hebreos 8–10 | 27 | 6 | 1 | 0 | con contenido | media |
 | Los doce espías | Números 13–14 | 7 | 2 | 0 | 0 | con contenido | media |
 | La serpiente de bronce | Números 21:4-9; Juan 3:14-15 | 7 | 5 | 0 | 0 | con contenido | media |
 | Balaam y la asna | Números 22–24 | 3 | 1 | 0 | 0 | empezado | baja |
@@ -233,7 +233,7 @@
 | Jesús calma la tormenta | Marcos 4:35-41 | 1 | 0 | 0 | 0 | empezado | media |
 | La alimentación de los cinco mil | Juan 6:1-14; Mateo 14:13-21 | 4 | 9 | 0 | 0 | con contenido | media |
 | Jesús camina sobre el agua | Mateo 14:22-33 | 2 | 1 | 0 | 0 | empezado | media |
-| La transfiguración | Mateo 17:1-13; 2 Pedro 1:16-18 | 2 | 1 | 0 | 0 | empezado | media |
+| La transfiguración | Mateo 17:1-13; 2 Pedro 1:16-18 | 15 | 1 | 0 | 0 | con contenido | media |
 | El buen samaritano | Lucas 10:25-37 | 3 | 3 | 0 | 0 | empezado | alta |
 | El hijo pródigo | Lucas 15 | 7 | 2 | 0 | 0 | con contenido | alta |
 | El sembrador | Mateo 13:1-23 | 1 | 1 | 0 | 0 | empezado | alta |

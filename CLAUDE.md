@@ -205,9 +205,24 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     que sobra; capítulo 54 §3);
   - la trivia nunca cita la RV1909 entre paréntesis: la opción dice la palabra de hoy y el pasaje se abre en la versión libre que la
     trae (`FORZADOS` en `versiones_por_versiculo.py`); si ninguna la trae, se reescribe la pregunta (capítulo 54 §4);
-  - **cero plagio**, recordado por el fundador: nada de versiones con derechos ni de los libros de referencia; los libros sirven para
-    entender y saber cómo se arma un estudio, nunca para replicar («si MacArthur dice "5 cosas sobre la fe", no se hace una travesía
-    con eso»); las lecciones salen del texto bíblico libre y cualquier idea tomada de un libro va con su fuente (capítulo 54 §7).
+  - **cero plagio**, recordado por el fundador y aclarado el 20-10 a la noche: la regla es «no replicar ni copiar», **no** «no usar»:
+    los libros de referencia confiables se usan (para entender, para ver cómo se arma un estudio, para chequear doctrina, para
+    encontrar ángulos), pero nunca se replica su estructura ni se copia su texto («si MacArthur dice "5 cosas sobre la fe", no se
+    hace una travesía con esas cinco cosas»); las versiones con derechos se leen para comparar y su texto no entra a nada; cada
+    lección sale del texto bíblico libre y cualquier idea tomada de un libro va con su fuente (capítulo 54 §7).
+
+- **Datos del 20-10-2026 (Senda, prueba 29):**
+  - el APK 28 «viene bien dentro de todo»; la regla de los libros se cuenta siempre así: **se usan** para entender, para ver cómo se
+    arma un estudio y para chequear doctrina; **nunca se replica ni se copia**; decir «no abrí ningún libro» es contar una regla que
+    el fundador no pidió (capítulo 55 §2);
+  - «el ejemplar de la 1960» es el archivo de la RVR1960 que dijo que cargaría en la prueba 24 para comparar con la 1909 versículo
+    por versículo (solo análisis); no apareció en cinco repositorios y **nada depende de él**: si lo tiene, lo adjunta en el chat; si
+    no, se cierra (capítulo 55 §3); las preguntas al fundador se hacen con palabras llanas, sin dar por sabido el contexto;
+  - «Misiones de hoy» en Inicio mostraba claves de traducción crudas: toda clave guardada en el estado se traduce al mostrarla y la
+    vista previa se recorre entera (Inicio hasta abajo), en los tres idiomas, antes de cada APK (capítulo 55 §4);
+  - Hebreos y 2 Pedro jugables (331 lecciones; lo interpretativo marcado, sin doctrinas secundarias); la historia de la Iglesia en una
+    línea (26 momentos con fuente); los siete juegos y los carteles de Lany en portugués e inglés (579 claves); «avanzá con todos los
+    próximos que tengas pendientes»: el plan de próximos se ejecuta sin esperar pedido (capítulo 55 §9).
 
 ## 2. Reglas no negociables
 
