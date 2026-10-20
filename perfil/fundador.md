@@ -189,6 +189,7 @@
 - Toda animación de Lany tiene que ser fluida, nunca «dura» (nada en bloque; anticipación, partes que llegan tarde, impacto); está dispuesto a Rive, 3D o lo que haga falta (19-10-2026, noche).
 - Quiere que «se lee mejor» se valide versículo por versículo entre las versiones libres (su ejemplo: Gálatas 5:22, «amor» en la NBV) y que esa versión se use en trivia, travesía, versículo del día y juegos; se resolvió con una regla medible (palabras difíciles por versículo) (19-10-2026, noche).
 - En los juegos, lo que la app puede deducir lo hace sola (en «¿Quién es?», tachar las tarjetas que no corresponden), de a uno y con sonido profesional sin derechos; prefiere entender lo técnico en fácil, con pros y contras (Lany 2D o 3D) (20-10-2026).
+- Mira el detalle de la mascota (cómo agarra la espada, que aparezca con la armadura entera al ganar) y la fluidez de los flujos (que nada pase solo antes de tocar «Siguiente»); prefiere una sola APK consolidada por ciclo de trabajo (20-10-2026).
 
 - Prioridad absoluta a no tener problemas legales: pide investigar a fondo la ley y los casos, revisar nombres e imágenes y reforzar.
 - Quiere fidelidad bíblica sin confundir versiones: que la gente sepa qué lee y pueda ver la RVR1960 con un toque, con una UX impecable

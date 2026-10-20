@@ -1062,3 +1062,22 @@
 - **Regla que queda:** toda pregunta nueva de trivia se escribe sobre un versículo que ningún banco use todavía (`--repetidas`), y
   los juegos nuevos se agregan solo cuando enseñan algo que los siete que hay no enseñan.
 
+## DEC-2026-10-20-2 · Senda: vigésima séptima tanda (prueba 27), la espada en la mano, la armadura entera y 1 y 2 Timoteo
+
+- **Fecha:** 2026-10-20 · **Quién:** el fundador pide y fija el criterio; Claude construye.
+- **Pedido:** que Lany agarre bien la espada (parecía «agarrada de arriba») y que el festejo de cada pieza se vea mejor; que al
+  ganar las seis piezas aparezca Lany con toda la armadura; volver a buscar el ejemplar de la RVR1960 (él cree haberlo subido a
+  LIBROS-REFERENCIA3); sacar de la bienvenida «¿qué Biblia usan en tu iglesia?»; que la bienvenida no salte sola antes de
+  «Siguiente»; avanzar a fondo con todo lo pendiente y entregar una sola APK consolidada.
+- **Decidido / hecho (capítulo 53):** la espada rehecha en Rive (nace dentro del puño, la hoja sigue el antebrazo: al piso en reposo,
+  al cielo en alto; el giro lo decide cada pose); el festejo de pieza con Lany grande en el centro y la pieza que vuela hasta ella;
+  la armadura completa con Lany en guardia poniéndose la última pieza y festejando; la bienvenida sin ese paso y sin avance
+  automático (una sola regla: «Siguiente» avanza); 1 y 2 Timoteo jugables (12 lecciones; 307), banco 7 de trivia (728), diagramas
+  del templo de Salomón y de la estatua de Daniel, la línea de los imperios, 84 visuales más (144 lecciones con visual), la línea de
+  tiempo unificada en «La historia en una línea», y más interfaz en portugués e inglés. El ejemplar de la 1960 no está en ningún
+  repositorio al que la sesión llegue (cinco revisados con clon fresco): hay que adjuntarlo en el chat o dar el repositorio y la
+  carpeta exactos.
+- **Espera decisión del fundador:** dónde está el ejemplar de la 1960; el sonido del tachado (Consola); y lo pendiente de las
+  pruebas 24 y 25 (consulta a la Sociedad Bíblica, subrayado o corchetes, color de Lany, fila de versión).
+- **Regla que queda:** en la bienvenida nada avanza solo (las opciones marcan; «Siguiente» avanza); todo lo que Lany sostiene se
+  dibuja dentro de la mano y sigue el antebrazo; cada APK de prueba trae todo lo anterior consolidado.

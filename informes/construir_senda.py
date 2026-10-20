@@ -38,8 +38,8 @@ FUENTE = RAIZ / "informes" / "fuente-senda"
 GRAF = FUENTE / "graficos"
 TIPO = RAIZ / "informes" / "tipografia"
 TITULO = "Senda · El proyecto completo de la app"
-SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-19.pdf"
-SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-19.html"
+SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-20.pdf"
+SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-20.html"
 SALIDA_HTML = FUENTE / "informe.html"
 
 AMBAR, NOCHE, VERDE, GRANADA, CREMA, TINTA = V.AMBAR, V.NOCHE, V.VERDE, V.ROJO, V.CREMA, "#1B1B1F"
@@ -782,6 +782,7 @@ P23 = RAIZ / "informes" / "fuente-senda" / "prueba23"
 P24 = RAIZ / "informes" / "fuente-senda" / "prueba24"
 P25 = RAIZ / "informes" / "fuente-senda" / "prueba25"
 P26 = RAIZ / "informes" / "fuente-senda" / "prueba26"
+P27 = RAIZ / "informes" / "fuente-senda" / "prueba27"
 
 
 def bloque_pantallas23() -> str:
@@ -852,6 +853,24 @@ def bloque_pantallas26() -> str:
             + fila([("tito", "Tito, en «Las cartas»"), ("tito_historia", "Antes de abrir Tito: la historia"), ("trivia_mapa", "Trivia del banco 6 con mapa"), ("jugar_pt", "Jugar en portugués")]))
 
 
+def bloque_pantallas27() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P27 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (fila([("lany_espada_reposo", "Reposo: la empuñadura en el puño, la hoja hacia el piso"), ("lany_espada_alto", "Al ponérsela: el brazo sube y la hoja apunta al cielo"),
+                  ("lany_espada_guardia", "En guardia con la armadura entera: la hoja en diagonal, sin cruzar la cara")])
+            + fila([("pieza_vitrina", "Pieza ganada: Lany grande y la espada en la vitrina"), ("pieza_puesta", "La pieza voló hasta Lany y ya la tiene puesta"),
+                    ("armadura_espada", "Armadura completa: Lany se pone la última pieza"), ("armadura_festejo", "…y festeja con confeti y globos")])
+            + fila([("timoteo", "1 Timoteo, en «Las cartas»"), ("templo", "El templo de Salomón (capa 1 de 5)"), ("estatua", "La estatua del sueño (capa 1 de 5)"),
+                    ("imperios", "La línea de los imperios, en Habacuc")])
+            + fila([("galilea", "Quién fue quién: Galilea, donde Jesús sanó"), ("timoteo2", "2 Timoteo: he peleado la buena batalla"), ("bienvenida_edad", "Bienvenida: la opción se marca y «Siguiente» avanza")]))
+
+
 def bloque_gantt_general(D) -> str:
     r = D["roadmap"]
     return gantt_html(r["general"], r["hitos_general"], dt.date(2026, 10, 1), dt.date(2030, 12, 31), 176 - 40, "gx-a4", "trimestres")
@@ -872,8 +891,8 @@ def portada(D) -> str:
              (f"USD {usd(tot)}", "primer año en nivel profesional, por tramos (hay básico y premium)"), ("25 mil", "personas por semana con la Palabra 3 días o más: la meta de 2030")]
     dt_ = "".join(f"<div><b>{a}</b><span>{b}</span></div>" for a, b in datos)
     return f"""<section class="portada-s">
-<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.17 · 19 de octubre de 2026 · uso privado</div>
-<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.19</p>
+<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.20 · 20 de octubre de 2026 · uso privado</div>
+<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.20</p>
 <p class="ps-lema">Una app cristiana para que los jóvenes conozcan la Biblia <b>jugando, leyendo y en comunidad</b>, con nivel profesional:
 nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen; Android e iOS primero y la web después.</p></div>
 <div class="ps-img"><div class="ps-esc">{lany16_png("tu_reposo", 100)}</div>{V.logo_txt(30, V.NOCHE)}</div></div>
@@ -932,6 +951,7 @@ def construir_html(D, incrustar: bool = False, paginas: dict | None = None) -> s
         "{{PANTALLAS24}}": bloque_pantallas24,
         "{{PANTALLAS25}}": bloque_pantallas25,
         "{{PANTALLAS26}}": bloque_pantallas26,
+        "{{PANTALLAS27}}": bloque_pantallas27,
         "{{LANI_REACCIONES}}": S.lani_reacciones,
         "{{ECONOMIA_MAPA}}": S.economia_mapa,
         "{{ECONOMIA}}": lambda: bloque_economia(D),
@@ -1083,7 +1103,7 @@ def main() -> int:
     env.setdefault("NODE_PATH", "/opt/node22/lib/node_modules")
 
     def imprimir():
-        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.19", "css", "oct-2026"],
+        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.20", "css", "oct-2026"],
                        check=True, env=env)
     imprimir()
     paginas = paginas_capitulos(D, SALIDA_PDF)

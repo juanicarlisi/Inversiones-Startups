@@ -191,6 +191,13 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     grabación CC0 más síntesis propia (nunca de otra app); la vida en reposo de Lany nunca repite el gesto anterior;
   - trivia: cada pregunta nueva va sobre un versículo que ningún banco use (`python3 scripts/autor/trivia_bancoN.py --repetidas`);
   - juegos nuevos solo si enseñan algo que los siete no enseñan; las traducciones del contenido siguen el plan de `docs/TRADUCCIONES.md`.
+- **Datos del 20-10-2026 (Senda, prueba 27):**
+  - en la bienvenida nada avanza solo: las opciones marcan y «Siguiente» avanza (el temporizador de avance de la prueba 20 confundía);
+    la pregunta por la Biblia de la iglesia salió («es medio raro»);
+  - lo que Lany sostiene (espada, escudo) se dibuja dentro de la mano y sigue el antebrazo; al ganar las seis piezas aparece Lany con
+    toda la armadura puesta; el festejo de cada pieza tiene a Lany grande en el centro (capítulo 53);
+  - el ejemplar de la RVR1960 no está en ningún repositorio accesible (cinco revisados el 20-10): se pide adjunto en el chat, nunca en un
+    repositorio; cada APK de prueba trae todo lo anterior consolidado (una sola APK por ciclo).
 
 ## 2. Reglas no negociables
 
