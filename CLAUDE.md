@@ -185,6 +185,12 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - «no hay que usar siempre la 1909» se mide: fuera del lector, cada pasaje se abre en la versión libre con menos palabras difíciles
     en ese versículo (PDT o NBV; BES solo si falta), con chips para cambiar; el lector, los ejercicios y la trivia siguen en la RV1909;
     la tabla se regenera con `python3 scripts/autor/versiones_por_versiculo.py` después del glosario.
+- **Datos del 20-10-2026 (Senda, prueba 26):**
+  - Lany es 2D y sigue 2D (capítulo 52 §2): lo que la hace viva es el tiempo de la animación; el 3D queda solo en la fiesta;
+  - en «¿Quién es?», las tarjetas que no corresponden se bajan solas, de a una, con trazo y sonido; el sonido del tachado es de
+    grabación CC0 más síntesis propia (nunca de otra app); la vida en reposo de Lany nunca repite el gesto anterior;
+  - trivia: cada pregunta nueva va sobre un versículo que ningún banco use (`python3 scripts/autor/trivia_bancoN.py --repetidas`);
+  - juegos nuevos solo si enseñan algo que los siete no enseñan; las traducciones del contenido siguen el plan de `docs/TRADUCCIONES.md`.
 
 ## 2. Reglas no negociables
 

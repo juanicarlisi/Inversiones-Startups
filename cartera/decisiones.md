@@ -1045,3 +1045,20 @@
 - **Regla que queda:** «se lee mejor» se mide (palabras difíciles por versículo), no se decide por gusto versículo por versículo; y
   toda mejora de Lany se busca primero en el tiempo de la animación (claves, retrasos, curvas) antes que en cambiar de tecnología.
 
+## DEC-2026-10-20-1 · Senda: vigésima sexta tanda (prueba 26), el tachado automático, Lany con vida y más contenido
+
+- **Fecha:** 2026-10-20 (madrugada) · **Quién:** el fundador pide y fija el criterio; Claude construye.
+- **Pedido:** explicar en fácil lo de Lany 2D o 3D; que en «¿Quién es?» las tarjetas que no corresponden se tachen solas, de a una,
+  con un sonido profesional sin derechos (investigar el Adivina quién del iPad); seguir mejorando la UX de Lany; avanzar con todo lo
+  pendiente (trivia, travesías, juegos nuevos si corresponde, traducciones). Probará la última versión mañana.
+- **Decidido / hecho (capítulo 52):** Lany es y sigue 2D (la explicación en fácil y la tabla de pros y contras quedan en el §2); el
+  tachado automático con trazo de marcador y sonido propio (grabación CC0 + tock sintetizado; alternativas en la Consola; en el modo
+  contra alguien, también cuando la pregunta se reconoce); dos gestos de vida en reposo (ojeada, rascar) con rutina que no repite;
+  banco 6 de trivia (42 preguntas sobre versículos sin usar; 686 en total; `--repetidas` controla las repeticiones); Tito jugable (295
+  lecciones); «¿qué Biblia usan en tu iglesia?» en la bienvenida; Inicio y Jugar en portugués e inglés con el plan del contenido
+  (`docs/TRADUCCIONES.md`). Juegos nuevos: evaluados cinco, no se agrega ninguno hoy (capítulo 52 §7).
+- **Queda para la prueba 27:** mapas y diagramas que faltan y la línea de tiempo unificada; 1 y 2 Timoteo; más interfaz traducida.
+- **Espera decisión del fundador:** el sonido del tachado (si prefiere otro de la Consola) y lo pendiente de las pruebas 24 y 25.
+- **Regla que queda:** toda pregunta nueva de trivia se escribe sobre un versículo que ningún banco use todavía (`--repetidas`), y
+  los juegos nuevos se agregan solo cuando enseñan algo que los siete que hay no enseñan.
+
