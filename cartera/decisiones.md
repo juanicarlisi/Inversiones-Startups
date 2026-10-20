@@ -1081,3 +1081,23 @@
   pruebas 24 y 25 (consulta a la Sociedad Bíblica, subrayado o corchetes, color de Lany, fila de versión).
 - **Regla que queda:** en la bienvenida nada avanza solo (las opciones marcan; «Siguiente» avanza); todo lo que Lany sostiene se
   dibuja dentro de la mano y sigue el antebrazo; cada APK de prueba trae todo lo anterior consolidado.
+
+## DEC-2026-10-20-3 · Senda: vigésima octava tanda (prueba 28), el desmayo sin rigidez, el festejo en una pantalla y la trivia sin paréntesis
+
+- **Fecha:** 2026-10-20 · **Quién:** el fundador pide y fija el criterio; Claude construye.
+- **Pedido:** que Lany deje de desmayarse «con los brazos extendidos» (la animación seguía rígida), hecho despacio y bien; que el
+  festejo de la pieza ganada entre en una sola pantalla con el botón abajo; que la trivia no muestre la palabra correcta con la forma
+  de la RV1909 entre paréntesis, revisando si una versión libre trae la palabra de hoy; seguir despacio con todos los pendientes; y
+  **cero plagio** (ni versiones con derechos ni los libros de referencia, que son para entender y nunca para replicar).
+- **Decidido / hecho (capítulo 54):** el desmayo y el patatús rehechos de cero como un vahído de dibujo animado (mano a la sien con
+  el codo afuera, mareo con el brazo que oscila por inercia, rodillas que ceden, caída con los brazos que llegan tarde, impacto con
+  latigazo, antebrazo cruzado sobre la panza y el otro brazo flojo; una sola caída compartida por desmayo, desmayada y patatús); el
+  festejo que mide lo fijo y le da a Lany el alto que sobra, con el tablero en una fila (probado en tres tamaños); 28 preguntas sin
+  paréntesis, con el pasaje que se abre en la versión libre que trae la palabra de hoy (19 versículos forzados, con el motivo en la
+  hoja) y cuatro nombres más con la grafía de hoy (Rode, Gayo, Gabaón, Malta; la reina de Sabá); Santiago y 1 Pedro jugables (12
+  lecciones; 319); Ajustes y la lección por dentro en portugués e inglés (175 cadenas); APK 28 consolidada.
+- **Espera decisión del fundador:** lo que revise de la Consola y «más cosas»; dónde está el ejemplar de la 1960; y lo pendiente de
+  las pruebas 24 a 27 (consulta a la Sociedad Bíblica, subrayado o corchetes, color de Lany, fila de versión, sonido del tachado).
+- **Regla que queda:** la trivia nunca cita la RV1909 entre paréntesis: la opción dice la palabra de hoy y el pasaje se abre en la
+  versión libre que la trae (si ninguna la trae, se reescribe la pregunta); las lecciones salen del texto bíblico libre y de nada más,
+  y cuando usen una idea de un libro lo dirán con su fuente.

@@ -14,9 +14,9 @@
 | Adán y Eva | Génesis 1–3; 5:1-5 | 39 | 7 | 2 | 0 | con contenido | alta |
 | Caín y Abel | Génesis 4; Hebreos 11:4; 1 Juan 3:12 | 19 | 4 | 1 | 0 | con contenido | media |
 | Enoc | Génesis 5:21-24; Hebreos 11:5; Judas 14-15 | 9 | 5 | 0 | 0 | con contenido | baja |
-| Noé | Génesis 6–9; Hebreos 11:7; 1 Pedro 3:20; Mateo 24:37-39 | 22 | 14 | 1 | 0 | con contenido | alta |
-| Abraham | Génesis 11:26–25:10; Romanos 4; Hebreos 11:8-19; Santiago 2:21-23 | 89 | 21 | 3 | 0 | con contenido | alta |
-| Sara | Génesis 11–23; Hebreos 11:11; 1 Pedro 3:6 | 72 | 18 | 3 | 0 | con contenido | media |
+| Noé | Génesis 6–9; Hebreos 11:7; 1 Pedro 3:20; Mateo 24:37-39 | 29 | 14 | 1 | 0 | con contenido | alta |
+| Abraham | Génesis 11:26–25:10; Romanos 4; Hebreos 11:8-19; Santiago 2:21-23 | 96 | 21 | 3 | 0 | con contenido | alta |
+| Sara | Génesis 11–23; Hebreos 11:11; 1 Pedro 3:6 | 79 | 18 | 3 | 0 | con contenido | media |
 | Agar e Ismael | Génesis 16; 21:8-21; Gálatas 4:21-31 | 16 | 2 | 0 | 0 | con contenido | media |
 | Lot | Génesis 11–14; 18–19; 2 Pedro 2:7-8; Lucas 17:28-32 | 42 | 7 | 2 | 0 | con contenido | baja |
 | Melquisedec | Génesis 14:18-20; Salmos 110:4; Hebreos 5–7 | 7 | 2 | 0 | 0 | con contenido | media |
@@ -35,7 +35,7 @@
 | Josué | Éxodo 17; 24; 33; Números 13–14; 27; Josué 1–24 | 36 | 20 | 1 | 0 | con contenido | alta |
 | Caleb | Números 13–14; Josué 14:6-15 | 8 | 3 | 0 | 0 | con contenido | media |
 | Balaam | Números 22–24; 31:16; 2 Pedro 2:15; Apocalipsis 2:14 | 7 | 2 | 0 | 0 | con contenido | baja |
-| Rahab | Josué 2; 6:22-25; Hebreos 11:31; Santiago 2:25; Mateo 1:5 | 25 | 15 | 1 | 0 | con contenido | alta |
+| Rahab | Josué 2; 6:22-25; Hebreos 11:31; Santiago 2:25; Mateo 1:5 | 32 | 15 | 1 | 0 | con contenido | alta |
 | Débora | Jueces 4–5 | 7 | 3 | 1 | 0 | con contenido | alta |
 | Gedeón | Jueces 6–8; Hebreos 11:32 | 8 | 6 | 1 | 0 | con contenido | alta |
 | Jefté | Jueces 11–12; Hebreos 11:32 | 6 | 4 | 0 | 0 | con contenido | baja |
@@ -56,7 +56,7 @@
 | La reina de Sabá | 1 Reyes 10:1-13; Mateo 12:42 | 3 | 1 | 0 | 0 | empezado | baja |
 | Jeroboam y Roboam | 1 Reyes 11–14 | 10 | 5 | 1 | 0 | con contenido | media |
 | Acab y Jezabel | 1 Reyes 16–22; 2 Reyes 9 | 6 | 10 | 1 | 0 | con contenido | media |
-| Elías | 1 Reyes 17 – 2 Reyes 2; Malaquías 4:5; Lucas 9:30; Santiago 5:17-18 | 14 | 13 | 1 | 0 | con contenido | alta |
+| Elías | 1 Reyes 17 – 2 Reyes 2; Malaquías 4:5; Lucas 9:30; Santiago 5:17-18 | 21 | 13 | 1 | 0 | con contenido | alta |
 | Eliseo | 1 Reyes 19:16-21; 2 Reyes 2–13 | 4 | 10 | 0 | 0 | con contenido | media |
 | Naamán | 2 Reyes 5; Lucas 4:27 | 4 | 5 | 0 | 0 | con contenido | media |
 | Ezequías | 2 Reyes 18–20; 2 Crónicas 29–32; Isaías 36–39 | 3 | 6 | 0 | 0 | empezado | media |
@@ -73,7 +73,7 @@
 | Ezequiel | Ezequiel 1–48 | 5 | 2 | 0 | 0 | con contenido | media |
 | Jonás | Jonás 1–4; Mateo 12:39-41 | 33 | 11 | 0 | 0 | con contenido | alta |
 | Oseas | Oseas 1–3; 11; 14 | 2 | 1 | 0 | 0 | empezado | baja |
-| Job | Job 1–42; Santiago 5:11 | 8 | 11 | 0 | 0 | con contenido | media |
+| Job | Job 1–42; Santiago 5:11 | 15 | 11 | 0 | 0 | con contenido | media |
 | Juan el Bautista | Lucas 1; 3; Mateo 3; 11; 14; Juan 1:19-36; 3:30 | 46 | 25 | 1 | 0 | con contenido | alta |
 | María, la madre de Jesús | Lucas 1–2; Mateo 1–2; Juan 2:1-11; 19:25-27; Hechos 1:14 | 58 | 33 | 1 | 0 | con contenido | alta |
 | José, el esposo de María | Mateo 1–2; Lucas 2 | 26 | 16 | 1 | 0 | con contenido | media |
@@ -104,7 +104,7 @@
 | Priscila y Aquila | Hechos 18; Romanos 16:3-5; 1 Corintios 16:19 | 13 | 6 | 0 | 0 | con contenido | media |
 | Apolos | Hechos 18:24-28; 1 Corintios 3:4-6 | 10 | 4 | 0 | 0 | con contenido | baja |
 | Juan Marcos | Hechos 12:12; 13:13; 15:37-39; 2 Timoteo 4:11 | 37 | 7 | 1 | 0 | con contenido | media |
-| Santiago, el hermano del Señor | Hechos 15:13-21; Gálatas 1:19; 2:9; Santiago | 32 | 11 | 1 | 0 | con contenido | media |
+| Santiago, el hermano del Señor | Hechos 15:13-21; Gálatas 1:19; 2:9; Santiago | 72 | 11 | 1 | 0 | con contenido | media |
 | Filemón y Onésimo | Filemón; Colosenses 4:9 | 19 | 4 | 0 | 0 | con contenido | baja |
 | Febe y Dorcas | Romanos 16:1-2; Hechos 9:36-42 | 24 | 6 | 1 | 0 | con contenido | baja |
 | Set y Enós | Génesis 4:25-26; 5:3-11 | 15 | 2 | 1 | 0 | con contenido | media |

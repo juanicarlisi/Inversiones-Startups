@@ -198,6 +198,16 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     toda la armadura puesta; el festejo de cada pieza tiene a Lany grande en el centro (capítulo 53);
   - el ejemplar de la RVR1960 no está en ningún repositorio accesible (cinco revisados el 20-10): se pide adjunto en el chat, nunca en un
     repositorio; cada APK de prueba trae todo lo anterior consolidado (una sola APK por ciclo).
+- **Datos del 20-10-2026 (Senda, prueba 28):**
+  - los pedidos se hacen despacio y bien («no importa si tardás»): el desmayo de Lany se rehízo de cero porque seguía rígido (brazos
+    extendidos); ahora cae floja, con la mano a la sien, mareo y brazos que llegan tarde (capítulo 54 §2);
+  - todo festejo o pantalla de premio entra en una sola pantalla con el botón abajo, sin deslizar (se mide lo fijo y Lany toma el alto
+    que sobra; capítulo 54 §3);
+  - la trivia nunca cita la RV1909 entre paréntesis: la opción dice la palabra de hoy y el pasaje se abre en la versión libre que la
+    trae (`FORZADOS` en `versiones_por_versiculo.py`); si ninguna la trae, se reescribe la pregunta (capítulo 54 §4);
+  - **cero plagio**, recordado por el fundador: nada de versiones con derechos ni de los libros de referencia; los libros sirven para
+    entender y saber cómo se arma un estudio, nunca para replicar («si MacArthur dice "5 cosas sobre la fe", no se hace una travesía
+    con eso»); las lecciones salen del texto bíblico libre y cualquier idea tomada de un libro va con su fuente (capítulo 54 §7).
 
 ## 2. Reglas no negociables
 
