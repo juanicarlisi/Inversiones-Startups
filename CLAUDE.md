@@ -242,6 +242,19 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - las 21 cartas jugables (25 lecciones nuevas; 377 en la Travesía); 1 Corintios en sección propia (un repaso por carta);
   - si el arreglo urge puede salir una APK sola con el arreglo (31) y otra con todo al cerrar (31b): se prueba la última;
   - la primera ruta en portugués no entró (una prueba entera): es lo primero de la próxima.
+- **Datos del 21-10-2026 (Senda, prueba 32):**
+  - «Continuemos con los próximos»: se hicieron en el orden del capítulo 57 §8; «El gran relato» es «A grande história», la primera
+    ruta entera en portugués (47 lecciones, 9 capítulos, 65 niveles, 6 líneas de tiempo) con citas textuales de la Bíblia Livre, los
+    nombres propios como ella los escribe, «o SENHOR» por Jehová y «você»; lo que queda en español dentro de la ruta (diagramas,
+    nombres de lugares, áreas y rutas no traducidas) es a propósito y se traduce con los visuales y con cada ruta;
+  - el motor de contenido traducido (`contenido/traducciones/<idioma>/<ruta>.json`, `src/datos/traducciones.ts`, `docs/TRADUCCIONES.md`):
+    solo texto, español de respaldo, citas que se escriben solas en el idioma; el validador exige la ruta entera y la revisa contra la
+    Biblia libre del idioma con las reglas de la RV1909; una ruta se publica en un idioma solo entera (DEC-2026-10-21-2);
+  - la prueba de arranque vive en `pruebas/arranque` (`npm run prueba:arranque`) y corre en GitHub Actions con el validador antes de
+    cada APK: un APK que no arranca o un contenido con errores no se compila;
+  - «Vivir la historia» con 13 misiones (José y sus hermanos, Elías en el Carmelo y el ciego de Juan 9, semanas 10 a 12) y cinco láminas
+    nuevas; la correcta nunca la más larga (el validador lo hizo reescribir las opciones);
+  - el fundador dijo que después chequea el backlog: está ordenado en el capítulo 58 §7; se prueba el APK 32 (contiene todo).
 
 ## 2. Reglas no negociables
 

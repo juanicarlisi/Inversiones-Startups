@@ -1167,3 +1167,29 @@
   valor por defecto); cuando un cierre no se puede reproducir, se endurecen las causas plausibles y se instrumenta la app para que la
   próxima vez el fallo se vea, en vez de apostar a una sola causa; si el arreglo urge, puede salir una APK sola con el arreglo y otra
   con todo al cerrar la prueba (se prueba la última).
+
+## DEC-2026-10-21-2 · Senda: trigésima segunda tanda (prueba 32), «A grande história», la prueba de arranque en el repositorio y tres misiones
+
+- **Fecha:** 2026-10-21 · **Quién:** el fundador pide («Continuemos con los próximos, luego chequeo todo lo que está en backlog»);
+  Claude construye en el orden que dejó el capítulo 57 §8.
+- **Decidido / hecho (capítulo 58):** la primera ruta de contenido en portugués: «El gran relato» entero como «A grande história»
+  (47 lecciones con 286 preguntas, 9 capítulos, 65 niveles y las 6 líneas de tiempo que usan sus lecciones), en portugués de Brasil
+  con «você», los nombres propios como los escribe la Bíblia Livre, «o SENHOR» por Jehová y cada cita textual de la Bíblia Livre;
+  para eso, el motor de contenido traducido (un archivo por ruta e idioma con las claves del español; fusión clave por clave con el
+  español de respaldo; lo estructural nunca se traduce; las citas se escriben solas con los nombres de los libros del idioma; entra en
+  la lección, el jefe, el repaso, el camino, Inicio, el explorador y las líneas de tiempo) y el validador que exige la ruta entera y
+  revisa cada lección contra la Biblia libre del idioma con las reglas de la RV1909. La prueba de arranque en Node queda dentro del
+  repositorio (pruebas/arranque, «npm run prueba:arranque») y corre en GitHub Actions con el validador antes de compilar cada APK.
+  Tres misiones más de «Vivir la historia» (José y sus hermanos, Elías en el Carmelo, el ciego de Juan 9; semanas 10 a 12; cinco
+  láminas nuevas; 13 misiones hasta el 11-01-2027). APK 32 con todo.
+- **No entró / queda en español a propósito:** los diagramas, los nombres de lugares de mapas y láminas, y los nombres de las áreas
+  y rutas no traducidas (se traducen con los visuales y con cada ruta); «profetas mayores o más libros» (sin pedido del fundador) y el
+  comparador de la RVR1960 (sin el archivo).
+- **Espera del fundador:** probar el APK 32 (portugués en Ajustes → Idioma); el backlog que dijo que iba a chequear, ordenado en el
+  capítulo 58 §7 (licencias, consulta SBA, INPI y abogado, autorización del ministerio, Google Play antes del 15-11, sitio, Claude Max,
+  voz, color de Lany, entorno de líderes, el archivo de la 1960).
+- **Regla que queda:** el contenido traducido se verifica contra la Biblia libre de su idioma con las mismas reglas que el español
+  (huecos y frases palabra por palabra, entrecomillados en los pasajes de la lección, errores nombrados como error), y una ruta se
+  publica en un idioma solo entera (lecciones, capítulos, niveles y líneas de tiempo); lo estructural (tipo, correcta, citas,
+  visuales, lecturas) nunca se traduce y las citas se escriben solas en el idioma; un APK no se compila si el contenido tiene errores o
+  si la app no arranca en la prueba automática.
