@@ -1,6 +1,6 @@
 # Cobertura del inventario bíblico en la app
 
-> **Generado** por `python3 herramientas/inventario_senda.py` el 2026-10-20. No editar a mano: la fuente es
+> **Generado** por `python3 herramientas/inventario_senda.py` el 2026-10-21. No editar a mano: la fuente es
 > `inventario_biblico.yaml`. Cuenta las preguntas (Travesía, Espadeo, Trivia) y los hechos (Antes o después) que caen en los capítulos
 > de cada personaje o historia. «Con contenido» = al menos 4 preguntas de la Travesía; «empezado» = algo; «sin contenido» = nada todavía.
 
@@ -17,7 +17,7 @@
 | Noé | Génesis 6–9; Hebreos 11:7; 1 Pedro 3:20; Mateo 24:37-39 | 36 | 14 | 1 | 0 | con contenido | alta |
 | Abraham | Génesis 11:26–25:10; Romanos 4; Hebreos 11:8-19; Santiago 2:21-23 | 107 | 21 | 3 | 0 | con contenido | alta |
 | Sara | Génesis 11–23; Hebreos 11:11; 1 Pedro 3:6 | 86 | 18 | 3 | 0 | con contenido | media |
-| Agar e Ismael | Génesis 16; 21:8-21; Gálatas 4:21-31 | 16 | 2 | 0 | 0 | con contenido | media |
+| Agar e Ismael | Génesis 16; 21:8-21; Gálatas 4:21-31 | 23 | 2 | 0 | 0 | con contenido | media |
 | Lot | Génesis 11–14; 18–19; 2 Pedro 2:7-8; Lucas 17:28-32 | 49 | 7 | 2 | 0 | con contenido | baja |
 | Melquisedec | Génesis 14:18-20; Salmos 110:4; Hebreos 5–7 | 14 | 2 | 0 | 0 | con contenido | media |
 | Isaac | Génesis 21–28; 35:27-29; Hebreos 11:20 | 51 | 11 | 1 | 0 | con contenido | alta |
@@ -99,13 +99,13 @@
 | Cornelio | Hechos 10–11 | 10 | 3 | 0 | 0 | con contenido | media |
 | Pablo | Hechos 7–28; Romanos a Filemón; 2 Pedro 3:15-16 | 151 | 51 | 3 | 0 | con contenido | alta |
 | Bernabé | Hechos 4:36-37; 9:27; 11:22-30; 13–15 | 56 | 12 | 2 | 0 | con contenido | media |
-| Silas y Timoteo | Hechos 15–18; 1–2 Timoteo; Filipenses 2:19-22 | 47 | 20 | 1 | 0 | con contenido | media |
+| Silas y Timoteo | Hechos 15–18; 1–2 Timoteo; Filipenses 2:19-22 | 54 | 20 | 1 | 0 | con contenido | media |
 | Lidia y el carcelero de Filipos | Hechos 16 | 17 | 8 | 0 | 0 | con contenido | media |
 | Priscila y Aquila | Hechos 18; Romanos 16:3-5; 1 Corintios 16:19 | 21 | 6 | 0 | 0 | con contenido | media |
 | Apolos | Hechos 18:24-28; 1 Corintios 3:4-6 | 15 | 4 | 0 | 0 | con contenido | baja |
 | Juan Marcos | Hechos 12:12; 13:13; 15:37-39; 2 Timoteo 4:11 | 37 | 7 | 1 | 0 | con contenido | media |
-| Santiago, el hermano del Señor | Hechos 15:13-21; Gálatas 1:19; 2:9; Santiago | 72 | 11 | 1 | 0 | con contenido | media |
-| Filemón y Onésimo | Filemón; Colosenses 4:9 | 19 | 4 | 0 | 0 | con contenido | baja |
+| Santiago, el hermano del Señor | Hechos 15:13-21; Gálatas 1:19; 2:9; Santiago | 79 | 11 | 1 | 0 | con contenido | media |
+| Filemón y Onésimo | Filemón; Colosenses 4:9 | 21 | 4 | 0 | 0 | con contenido | baja |
 | Febe y Dorcas | Romanos 16:1-2; Hechos 9:36-42 | 29 | 6 | 1 | 0 | con contenido | baja |
 | Set y Enós | Génesis 4:25-26; 5:3-11 | 15 | 2 | 1 | 0 | con contenido | media |
 | Jabal, Jubal y Tubal-caín | Génesis 4:20-22 | 11 | 0 | 1 | 0 | con contenido | baja |
@@ -125,7 +125,7 @@
 | Coré | Números 16; Judas 1:11 | 18 | 2 | 0 | 0 | con contenido | media |
 | Las hijas de Zelofehad | Números 27:1-11; 36 | 1 | 0 | 0 | 0 | empezado | baja |
 | Og, rey de Basán | Números 21:33-35; Deuteronomio 3:1-11 | 1 | 0 | 0 | 0 | empezado | baja |
-| Habacuc | Habacuc 1–3; Romanos 1:17; Gálatas 3:11; Hebreos 10:38 | 61 | 6 | 0 | 0 | con contenido | alta |
+| Habacuc | Habacuc 1–3; Romanos 1:17; Gálatas 3:11; Hebreos 10:38 | 68 | 6 | 0 | 0 | con contenido | alta |
 | Hageo | Hageo 1–2; Esdras 5:1; 6:14 | 38 | 0 | 0 | 0 | con contenido | alta |
 | Zorobabel y el sumo sacerdote Josué | Esdras 3:2-8; 5:2; Hageo 1:1, 12-14; 2:2-4, 20-23; Zacarías 4:6-10; Mateo 1:12-13 | 47 | 7 | 0 | 0 | con contenido | media |
 | Abdías | Abdías 1; Jeremías 49:7-22 | 19 | 1 | 0 | 0 | con contenido | alta |
@@ -135,7 +135,7 @@
 
 | Nombre | Dónde | Travesía | Espadeo | Antes o después | Trivia | Estado | Prioridad |
 |---|---|---|---|---|---|---|---|
-| La creación | Génesis 1–2; Salmos 104; Juan 1:1-3; Colosenses 1:16 | 35 | 15 | 1 | 0 | con contenido | alta |
+| La creación | Génesis 1–2; Salmos 104; Juan 1:1-3; Colosenses 1:16 | 42 | 15 | 1 | 0 | con contenido | alta |
 | La caída | Génesis 3; Romanos 5:12-21 | 26 | 2 | 1 | 0 | con contenido | alta |
 | Caín y Abel | Génesis 4 | 11 | 0 | 1 | 0 | con contenido | media |
 | El diluvio | Génesis 6–9 | 10 | 8 | 1 | 0 | con contenido | alta |

@@ -1145,3 +1145,25 @@
   en «Pendientes y decisiones», en ese orden; una respuesta correcta de «Vivir la historia» no puede ser casi siempre la más larga
   (el validador lo controla); un visual se pone solo cuando dice algo verdadero del pasaje, y si no hay ninguno que no fuerce el texto,
   la lección queda sin visual.
+
+## DEC-2026-10-21-1 · Senda: trigésima primera tanda (prueba 31), la app que se cerraba al abrir, la guardia y las 21 cartas
+
+- **Fecha:** 2026-10-21 · **Quién:** el fundador reporta y pide; Claude investiga y construye.
+- **Pedido:** «Instalé la app pero cuando la abro se cierra. No funciona. Arreglá eso y avanzá con todo lo próximo!».
+- **Decidido / hecho (capítulo 57):** el cierre no se pudo reproducir (la parte nativa del APK 30 es idéntica a la del 28; el arranque
+  entero corre sin error en Node con el preset de Android y un estado guardado como el del fundador; nada de Hermes nuevo; ningún id
+  del contenido cambió; la compilación fue limpia), así que se endurecieron las causas plausibles (una traducción con clave inexistente
+  o un tipo de evento guardado que ya no existe cerraban la app) y, sobre todo, se cambió lo que pasa cuando algo revienta: la guardia
+  (primer módulo de todos) y la pantalla de fallo sin dependencias atrapan los errores al cargar, al dibujar y en segundo plano, y
+  muestran el detalle para copiar y mandar, «Reintentar» y «Borrar lo guardado»; «Último fallo registrado» en Ajustes. Las 21 cartas
+  jugables: 2 Corintios, Gálatas, Efesios, Filipenses, Colosenses y 1 y 2 Tesalonicenses (25 lecciones; 377 en la Travesía), desde la
+  RV1909 con cada cita verificada, lo interpretativo marcado y sin doctrinas secundarias. Dos APK: 31 (solo el arreglo, publicada
+  primero) y 31b (todo); se prueba la 31b.
+- **No entró:** la primera ruta en portugués (una prueba entera; lo primero de la próxima).
+- **Espera del fundador:** probar el APK 31b y, si se cierra o sale «Algo falló», pegar el detalle en el chat; lo pendiente de las
+  pruebas 24 a 30.
+- **Regla que queda:** ningún fallo de la app puede cerrarla en silencio: todo error se muestra con el detalle para copiar; ninguna
+  función que traduce o que lee un dato guardado puede reventar por una clave o un id que ya no existe (devuelve la clave o cae en el
+  valor por defecto); cuando un cierre no se puede reproducir, se endurecen las causas plausibles y se instrumenta la app para que la
+  próxima vez el fallo se vea, en vez de apostar a una sola causa; si el arreglo urge, puede salir una APK sola con el arreglo y otra
+  con todo al cerrar la prueba (se prueba la última).

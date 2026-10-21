@@ -232,6 +232,16 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - en «Vivir la historia» la respuesta correcta no puede ser casi siempre la más larga (el validador lo controla); un visual se pone
     solo cuando dice algo verdadero del pasaje (quedan 2 lecciones sin visual a propósito: la parábola del hijo y Job);
   - el archivo de la RVR1960: «luego reviso dónde está»; sigue sin aparecer y nada depende de él.
+- **Datos del 21-10-2026 (Senda, prueba 31):**
+  - «Instalé la app pero cuando la abro se cierra»: el cierre del APK 30 no se pudo reproducir (nativo idéntico al 28; arranque entero
+    sin error en Node con el preset de Android y un estado guardado como el suyo); regla: cuando un cierre no se reproduce, se endurecen
+    las causas plausibles y se instrumenta la app para que el fallo se vea (capítulo 57 §2);
+  - la app no se cierra en silencio: guardia como primer módulo y pantalla de fallo sin dependencias (al cargar, al dibujar, en segundo
+    plano) con el detalle para copiar, «Reintentar» y «Borrar lo guardado»; «Último fallo registrado» en Ajustes; `?demo=fallo` en la
+    vista previa; ninguna traducción ni dato guardado viejo puede reventar (devuelve la clave o cae en el valor por defecto);
+  - las 21 cartas jugables (25 lecciones nuevas; 377 en la Travesía); 1 Corintios en sección propia (un repaso por carta);
+  - si el arreglo urge puede salir una APK sola con el arreglo (31) y otra con todo al cerrar (31b): se prueba la última;
+  - la primera ruta en portugués no entró (una prueba entera): es lo primero de la próxima.
 
 ## 2. Reglas no negociables
 

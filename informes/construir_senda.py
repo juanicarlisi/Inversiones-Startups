@@ -38,8 +38,8 @@ FUENTE = RAIZ / "informes" / "fuente-senda"
 GRAF = FUENTE / "graficos"
 TIPO = RAIZ / "informes" / "tipografia"
 TITULO = "Senda · El proyecto completo de la app"
-SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-23.pdf"
-SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-23.html"
+SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-24.pdf"
+SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-24.html"
 SALIDA_HTML = FUENTE / "informe.html"
 
 AMBAR, NOCHE, VERDE, GRANADA, CREMA, TINTA = V.AMBAR, V.NOCHE, V.VERDE, V.ROJO, V.CREMA, "#1B1B1F"
@@ -786,6 +786,7 @@ P27 = RAIZ / "informes" / "fuente-senda" / "prueba27"
 P28 = RAIZ / "informes" / "fuente-senda" / "prueba28"
 P29 = RAIZ / "informes" / "fuente-senda" / "prueba29"
 P30 = RAIZ / "informes" / "fuente-senda" / "prueba30"
+P31 = RAIZ / "informes" / "fuente-senda" / "prueba31"
 
 
 def bloque_pantallas23() -> str:
@@ -876,6 +877,22 @@ def bloque_pantallas30() -> str:
             + tira("diagramas", "Los seis diagramas nuevos, con todas sus capas puestas"))
 
 
+def bloque_pantallas31() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P31 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (fila([("fallo", "«Algo falló»: la pantalla que se ve si algo revienta, con el detalle para copiar, «Reintentar» y «Borrar lo guardado»"),
+                  ("ajustes_fallo", "Ajustes → Ayuda y legal: «Último fallo registrado»"),
+                  ("corintios2", "2 Corintios 1–2: la portada, con la línea de la Iglesia"), ("corintios2_pregunta", "Una pregunta de 2 Corintios")])
+            + fila([("galatas", "Gálatas 5–6: el fruto del Espíritu en la portada"), ("efesios", "Efesios 6: la armadura de Dios"),
+                    ("colosenses", "Colosenses 1: Cristo, imagen del Dios invisible"), ("tesalonicenses_pregunta", "Una pregunta de 1 Tesalonicenses 4–5")]))
+
+
 def bloque_pantallas29() -> str:
     def img(n, extra=""):
         return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P29 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
@@ -957,7 +974,7 @@ def portada(D) -> str:
     dt_ = "".join(f"<div><b>{a}</b><span>{b}</span></div>" for a, b in datos)
     return f"""<section class="portada-s">
 <div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.22 · 20 de octubre de 2026 · uso privado</div>
-<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.23</p>
+<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.24</p>
 <p class="ps-lema">Una app cristiana para que los jóvenes conozcan la Biblia <b>jugando, leyendo y en comunidad</b>, con nivel profesional:
 nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen; Android e iOS primero y la web después.</p></div>
 <div class="ps-img"><div class="ps-esc">{lany16_png("tu_reposo", 100)}</div>{V.logo_txt(30, V.NOCHE)}</div></div>
@@ -1020,6 +1037,7 @@ def construir_html(D, incrustar: bool = False, paginas: dict | None = None) -> s
         "{{PANTALLAS28}}": bloque_pantallas28,
         "{{PANTALLAS29}}": bloque_pantallas29,
         "{{PANTALLAS30}}": bloque_pantallas30,
+        "{{PANTALLAS31}}": bloque_pantallas31,
         "{{LANI_REACCIONES}}": S.lani_reacciones,
         "{{ECONOMIA_MAPA}}": S.economia_mapa,
         "{{ECONOMIA}}": lambda: bloque_economia(D),
@@ -1171,7 +1189,7 @@ def main() -> int:
     env.setdefault("NODE_PATH", "/opt/node22/lib/node_modules")
 
     def imprimir():
-        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.23", "css", "oct-2026"],
+        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.24", "css", "oct-2026"],
                        check=True, env=env)
     imprimir()
     paginas = paginas_capitulos(D, SALIDA_PDF)
