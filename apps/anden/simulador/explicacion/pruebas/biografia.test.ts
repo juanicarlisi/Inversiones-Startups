@@ -40,7 +40,8 @@ test('un paquete con el viaje completo: un paso por tramo, en orden, con la hora
   assert.equal(b.clase, ClaseEntidad.PAQUETE);
   assert.equal(b.id, v.id);
   assert.equal(b.titulo.clave, 'explicacion.titulo.paquete');
-  assert.deepEqual(b.titulo.vars, { indice: '233', camion: 'T02', ruta: 'Ruta 03', tamano: 'mediano' });
+  // el paquete 233 (desde 0) del camión 1 es, para las personas, el 234 del camión T02: los dos se cuentan desde 1
+  assert.deepEqual(b.titulo.vars, { indice: '234', camion: 'T02', ruta: 'Ruta 03', tamano: 'mediano' });
   assert.deepEqual(b.causas, [], 'ArmarBiografia es síncrona y no simula: las causas confirmadas las agrega CausasConfirmadas');
   assert.deepEqual(b.pasos.map((p) => p.frase.clave), [
     'explicacion.paso.descarga', 'explicacion.paso.cinta', 'explicacion.paso.acumulacion', 'explicacion.paso.induccion',

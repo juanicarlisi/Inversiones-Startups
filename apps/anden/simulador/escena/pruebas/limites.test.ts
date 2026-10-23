@@ -88,6 +88,32 @@ test('traza sintética con todo tipo de tramos (personas, camiones, lazo, excepc
   assert.equal(recortes, 0, `${recortes} posiciones recortadas al borde (se esperaba 0)`);
 });
 
+test('caminata por el pasillo con el plano justo: en la curva el pasillo se arrima al lazo y nada sale de los límites ni salta', () => {
+  // A la derecha del estadio (x hasta 10,91 m) quedan solo 0,59 m de plano: el pasillo de 3,8 m no entra y se achica en la curva.
+  const geo = geometriaSintetica();
+  geo.limites = { ...geo.limites, xmax: 11.5 };
+  const g = PERSONAS.R1;
+  const tr = trazaSintetica((s) => {
+    s.tramo(g, TipoTramo.PERSONA_TRABAJA, 1, 0, 0, 1000);
+    s.tramo(g, TipoTramo.PERSONA_CAMINA, 2, 0, 1000, 11_800);
+    s.tramo(g, TipoTramo.PERSONA_TRABAJA, 2, 0, 11_800, 13_000);
+  }, { geometria: geo });
+  const rep = crearReproductor(tr), pos = rep.crearPosiciones(), L = geo.limites;
+  let antes: [number, number] | null = null, saltoMax = 0;
+  for (let t = 0; t < 13_000; t += 100) {
+    rep.posiciones(t, pos);
+    let k = -1;
+    for (let i = 0; i < pos.n; i++) if (pos.clase[i] === ClaseEntidad.PERSONA && pos.id[i] === g) k = i;
+    assert.ok(k >= 0, `en t = ${t} ms se esperaba ver a P-R1`);
+    const x = pos.x[k], y = pos.y[k];
+    assert.ok(x >= L.xmin && x <= L.xmax && y >= L.ymin && y <= L.ymax, `en t = ${t} ms P-R1 está en (${x.toFixed(3)}, ${y.toFixed(3)}), fuera de ${JSON.stringify(L)}`);
+    if (antes) saltoMax = Math.max(saltoMax, Math.hypot(x - antes[0], y - antes[1]));
+    antes = [x, y];
+  }
+  assert.equal(rep.recortes, 0, `${rep.recortes} posiciones recortadas al borde (se esperaba 0: el pasillo se achica solo)`);
+  assert.ok(saltoMax <= 0.6, `la caminata tiene que ser continua (a 1 m/s, ≤ 0,6 m cada 100 ms) y saltó ${saltoMax.toFixed(3)} m`);
+});
+
 /** Todos los puntos fijos que dibuja la escena. */
 function puntosFijos(D: Disposicion): [string, number, number][] {
   const p: [string, number, number][] = [];

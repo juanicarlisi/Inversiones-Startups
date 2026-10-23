@@ -71,8 +71,11 @@ export function textoSelloMotor(ctx: Contexto, m: Comprobante['motor'] | null | 
   return ctx.t('app.sello.motor', { version: m.version, pasaron: m.pasaron, exigibles: m.pruebasExigibles });
 }
 
-/** Los tres sellos con su texto exacto (diseño maestro §5.9). `compacto` = una línea cada uno (para la escena). */
-export function sellos(ctx: Contexto, compacto = false): HTMLElement {
+/**
+ * Los tres sellos con su texto exacto (diseño maestro §5.9). `compacto` = una línea cada uno (para la escena). `conVer` = el «(ver)» del
+ * motor, que lleva al comprobante (en el comprobante mismo no va: no llevaría a ningún lado).
+ */
+export function sellos(ctx: Contexto, compacto = false, conVer = true): HTMLElement {
   const s = ctx.sesion, c = s.comprobante;
   // el resultado de la batería se conoce al construir: el sello sale completo desde el primer cuadro (hallazgo UX-18)
   const motor = textoSelloMotor(ctx, c?.motor ?? ctx.servicios.motorVerificado);
@@ -85,7 +88,8 @@ export function sellos(ctx: Contexto, compacto = false): HTMLElement {
     el('li', { class: `sello sello--${tipo}`, 'data-sello': tipo }, el('span', { class: 'sello__marca', 'aria-hidden': 'true' }),
       el('span', { class: 'sello__texto' }, txt, extra ? ' ' : null, extra));
   return el('ul', { class: `sellos${compacto ? ' sellos--compacto' : ''}`, 'aria-label': ctx.t('app.sello.titulo') },
-    item('motor', motor, el('button', { type: 'button', class: 'enlace-boton', 'data-accion': 'ver-motor', onclick: () => ctx.ir('comprobante') }, ctx.t('app.sello.ver'))),
+    item('motor', motor, conVer
+      ? el('button', { type: 'button', class: 'enlace-boton', 'data-accion': 'ver-motor', onclick: () => ctx.ir('comprobante') }, ctx.t('app.sello.ver')) : null),
     item(`reproducida-${rep}`, reproducida),
     item('validacion', validacion));
 }

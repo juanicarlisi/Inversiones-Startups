@@ -11,8 +11,9 @@
 //   y lo pone en la jaula (JAULA, a = jaula·1000 + posición). Al completar la jaula la cierra (`cierre` s, PERSONA_CIERRA_JAULA) y
 //   empieza otra;
 // - pausas como en la inducción (regla 6), con las de `personas.rampa.pausas`; desde 1.1.0 (hallazgo R3) mientras una persona está en
-//   pausa sus rampas las atiende la siguiente persona presente que no esté en pausa (en ronda), como con una ausencia, y al volver
-//   las recupera; y si la noche se alarga después del fin del turno, las pausas siguen con el mismo ritmo mientras quede trabajo (R4).
+//   pausa sus rampas las atiende la siguiente persona presente que no esté en pausa (en ronda), como con una ausencia, o, si no había
+//   ninguna, la primera que vuelve de la suya; al volver las recupera; y si la noche se alarga después del fin del turno, las pausas
+//   siguen con el mismo ritmo mientras quede trabajo (R4).
 import type { Bloque, EstadoBloque, Motor } from '../../contratos/motor.ts';
 import { Fase, aMs } from '../../contratos/tipos-base.ts';
 import { ClaseEntidad, TipoMomento, TipoTramo, refDe } from '../../contratos/traza.ts';
@@ -39,6 +40,8 @@ function estadoInicial(cfg: ConfigHub) {
     estado: new Uint8Array(nW), ultima: new Int32Array(nW).fill(-1), objetivo: new Int32Array(nW).fill(-1),
     /** 'en-orden': la última rampa atendida (índice de rampa; −1 si todavía ninguna). */
     tarea: new Uint8Array(nW), item: new Int32Array(nW).fill(-1), pendientes: new Uint8Array(nW), posOrden: new Int32Array(nW).fill(-1),
+    /** Número de la jaula que está cerrando cada persona (las de una rampa se cierran en el orden en que se completaron). */
+    cerrando: new Int32Array(nW).fill(-1),
   };
 }
 
@@ -205,6 +208,16 @@ export class BloqueRampas implements Bloque {
   private ejecutar(w: number, t: number): void {
     const h = this.h, S = this.S, cfg = h.cfg, r = S.objetivo[w], g = this.trabajador(w);
     if (S.tarea[w] === CERRAR) {
+      if (S.pendiente[r] <= 0) {
+        // La cerró otra persona mientras esta caminaba (un relevo que llega cuando la dueña ya volvió de la pausa y la cerró en el
+        // acto): no hay jaula que cerrar. Sin esta guarda se daba por cerrada una jaula que todavía no se había completado, y esa,
+        // al completarse, no se cerraba nunca (NOTAS-CONTRATO §16). Busca otra tarea, como cuando la rampa quedó vacía.
+        S.estado[w] = PersonaRampa.LIBRE;
+        this.atender(w, t);
+        return;
+      }
+      // Se completaron nroJaula jaulas y quedan `pendiente` sin empezar a cerrar: esta es la primera de esas.
+      S.cerrando[w] = S.nroJaula[r] - S.pendiente[r];
       S.pendiente[r]--;
       S.estado[w] = PersonaRampa.CIERRA;
       h.personas.tarea(g, TipoTramo.PERSONA_CIERRA_JAULA, r, 0, t, t + cfg.cierreMs);
@@ -230,14 +243,23 @@ export class BloqueRampas implements Bloque {
   }
 
   private finManejo(w: number, t: number): void {
-    const S = this.S, e = S.item[w];
+    const S = this.S, e = S.item[w], r = S.objetivo[w];
     S.item[w] = -1;
-    this.aJaula(e, S.objetivo[w], t);
+    this.aJaula(e, r, t);
     this.finTarea(w, t);
+    // Si mientras esta persona manejaba el paquete la rampa pasó a otra (la dueña volvió de la pausa y recuperó sus rampas) y el
+    // paquete completó la jaula, la jaula queda pendiente para quien atiende la rampa ahora, como toda jaula pendiente: si está libre,
+    // tiene que enterarse ya. Sin este aviso quedaba libre con una jaula para cerrar hasta que le cayera otro paquete (NOTAS-CONTRATO
+    // §17). Si no hay jaula pendiente, quien está libre no tiene nada que hacer en sus rampas y `atender` no hace nada.
+    const x = S.asignada[r];
+    if (x >= 0 && x !== w && S.estado[x] === PersonaRampa.LIBRE) this.atender(x, t);
   }
 
   private finCierre(w: number, t: number): void {
-    this.h.m.traza.momento(t, TipoMomento.JAULA_CERRADA, this.S.objetivo[w], this.S.nroJaula[this.S.objetivo[w]] - 1);
+    // v = la jaula que cerró esta persona (no la última completa: mientras cerraba se pudo completar otra, por ejemplo con un no
+    // transportable que entró directo desde el puesto manual).
+    this.h.m.traza.momento(t, TipoMomento.JAULA_CERRADA, this.S.objetivo[w], this.S.cerrando[w]);
+    this.S.cerrando[w] = -1;
     this.finTarea(w, t);
   }
 
@@ -298,8 +320,14 @@ export class BloqueRampas implements Bloque {
   private terminarPausa(w: number, t: number): void {
     const S = this.S;
     this.h.personas.finPausa(this.trabajador(w), t);
-    // Vuelve y recupera sus rampas, las tenga quien las tenga.
-    for (let r = 0; r < this.h.cfg.NR; r++) if (S.duenia[r] === w) S.asignada[r] = w;
+    // Vuelve y recupera sus rampas, las tenga quien las tenga. Y releva las rampas que quedaron sin nadie porque cuando su persona
+    // empezó la pausa no había otra disponible (todas en pausa): «durante la pausa sus rampas las atiende la siguiente persona presente
+    // que no esté en pausa» (1.1.0, R3) vale también para quien vuelve durante esa pausa (NOTAS-CONTRATO §17). Con tres personas de
+    // rampa o más y las pausas de las plantillas no pasa nunca (a lo sumo dos personas en pausa a la vez).
+    for (let r = 0; r < this.h.cfg.NR; r++) {
+      if (S.duenia[r] === w) S.asignada[r] = w;
+      else if (S.asignada[r] >= 0 && S.asignada[r] !== w && S.estado[S.asignada[r]] === PersonaRampa.PAUSA) S.asignada[r] = w;
+    }
     if (S.pendientes[w] > 0) {
       S.pendientes[w]--;
       this.empezarPausa(w, t);

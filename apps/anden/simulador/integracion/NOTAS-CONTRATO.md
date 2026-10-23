@@ -1,4 +1,4 @@
-# Notas de la integración · corte 1, pasos I-1 (§10.1 a §10.5), I-2 (§10.6, §10.7 y §10.9) e I-3 (§10.8, §10.10 y §10.11) · 19-10-2026
+# Notas de la integración · corte 1, pasos I-1 (§10.1 a §10.5), I-2 (§10.6, §10.7 y §10.9) e I-3 (§10.8, §10.10 y §10.11) · 19-10-2026; I-1 otra vez el 23-10-2026 (§13)
 
 Qué decidió la integración sobre lo que anotaron los ocho paquetes en sus `NOTAS-CONTRATO.md`, qué quedó cableado, qué cambió en otros
 paquetes (cambio mínimo, con sus pruebas en verde) y qué queda para decidir. **`contratos/` no cambió**; lo que los arreglos de la revisión (20-10-2026) cambian de la especificación o extienden por fuera de un
@@ -24,7 +24,7 @@ Números MEDIDOS en el contenedor del entorno (4 núcleos, Node 22.22.0, Chromiu
 | `banco.mjs`, `banco/pagina.ts` | **`npm run banco`** (§10.9 y §11): mediana de 5 corridas de cada presupuesto, sin frenar y con CPU 4× para los cuadros; referencia M/M/1 en Node y en Chromium; escribe `salida/banco.json`. |
 | `navegador.mjs` | Lo común a R04 y al banco: Playwright y Chromium del entorno (nunca se instalan), qué navegadores hay (Firefox y WebKit, pendientes con su motivo), empaquetar una página de pruebas (con `node:*` vacíos para `verificacion/bateria.ts`). |
 | `e2e/humo.mjs` | Abre `dist/` en Chromium con los servicios reales, en 1280 × 800 y 360 × 740, claro y oscuro; enlace de la plantilla grande y de la chica, película y cien noches; 0 errores de consola; enlace de ida y vuelta en el navegador; huella agregada Chromium = Node. |
-| `pruebas/` | `arquitectura`, `diferencial` (R08b), `r06-hub`, `e-explicador` (E01, E02), `s-estadistica` (S01–S03), `s-estadistica-whitt` (S08, S09, S11), `textos`, `marcas`, `trabajador`, `puente`; ayudas `hilos.ts`, `hilo-trabajador.ts` (la M/M/1 pasó a `bateria/mm1.ts` en I-2). |
+| `pruebas/` | `arquitectura`, `diferencial` (R08b), `r06-hub`, `e-explicador` (E01, E02), `s-estadistica` (S01–S03), `s-estadistica-whitt` (S08, S09, S11), `textos`, `marcas`, `trabajador`, `puente`, `huella-fuentes` (sello del motor), `bateria-extra` (las 85), `plano` (la escena acepta la traza vacía del plano de P8; §13); ayudas `hilos.ts`, `hilo-trabajador.ts` (la M/M/1 pasó a `bateria/mm1.ts` en I-2). |
 
 ## 1. Decisiones sobre las notas de los paquetes
 
@@ -98,7 +98,8 @@ tandas pasan los 3 minutos de §12.1) y van al informe de salida. Propuesta para
    «fin entre 120 y 300 en toda noche sin golpes discretos; las que los tienen pueden pasarse si el contrafactual sin el golpe cae en el
    rango», que es lo que ya exige y cumple la prueba nº 25) y **no publicar 1.1.0 en este corte**: `hub-chico@1.0.0` es el ejemplo de §5 (F0,
    huella dorada, tamaños de enlace) y cambiar la dotación para pasar una prueba cambia la historia de la decisión. 1.1.0 queda como
-   propuesta. Decide el orquestador.
+   propuesta. Decide el orquestador. **Decidido el 23-10-2026 (§13): camino 2.** La prueba `todo` de P4 se borró; el texto para
+   `corte-1.md` §9 está en `CAMBIOS-CONTRATO.md` §10 y lo pasa el orquestador.
 2. ~~**El recorrido «decidir» hasta «Ya está» (§10.8).**~~ **Resuelto en I-3** sin tocar las plantillas publicadas: el recorrido abre
    `hub-chico@1.0.0` con los datos de un hub propio por enlace (plantilla + parche: retén 1, 7 de rampa, 2 manuales, corte 03:00) y llega a
    «Ya está» después de contestar dos preguntas (§10). Con la plantilla tal cual la app sigue diciendo «ninguna cumple», que es lo honesto.
@@ -331,3 +332,114 @@ tocar (una captura desplaza la página).
 | 10 | Textos | claves es = en; etiqueta de noche y tres sellos en la escena (4 combinaciones); 0 marcas | cumple |
 | 11 | Arquitectura | `arquitectura.test.ts` en verde | cumple |
 | 12 | Nada publicado | servidor solo en 127.0.0.1; 0 pedidos a otro sitio en los recorridos; ningún script publica; sin commits de la integración | cumple |
+
+## 13. Paso I-1 otra vez (23-10-2026): los ocho paquetes después de su segunda vuelta
+
+Los ocho paquetes volvieron a pasar por su §9 el 23-10-2026 (arreglos y pruebas nuevas; ningún cambio en `contratos/`). La integración
+volvió a ensamblar todo, leyó las secciones nuevas de cada `NOTAS-CONTRATO.md` y resolvió lo que no encajaba. MEDIDO en el contenedor del
+entorno (4 núcleos, Node 22.22.0, Chromium 141), con otros procesos corriendo.
+
+**Lo que no encajaba y cómo quedó (cambio mínimo, con las pruebas de cada dueño en verde):**
+
+| Qué | Arreglo | Dónde |
+|---|---|---|
+| `arquitectura.test.ts` fallaba: `nucleo/pruebas/tokens.test.ts` importa `typescript` (P1 sumó la búsqueda de tokens por árbol sintáctico, la misma que hace esta prueba) | Las pruebas pueden importar las dos dependencias de desarrollo fijadas en `package-lock.json` (§1.3): `esbuild` y `typescript`. El código de la app sigue sin poder importar ningún paquete de npm | `integracion/pruebas/arquitectura.test.ts` |
+| «KPI sanos» de §9 sobre `hub-chico@1.0.0` (P4 quedaba «incompleto» esperando esta decisión) | **Camino 2**: §9 se corrige para pedir lo que ya exige y cumple la prueba principal de P4; `hub-chico@1.0.0` sigue siendo el ejemplo de §5 y 1.1.0 queda como propuesta sin publicar. Se borró la prueba `todo` (y su ayuda); el certificado de imposibilidad queda como constancia. Texto para `corte-1.md` §9 en `CAMBIOS-CONTRATO.md` §10 (lo pasa el orquestador: la especificación no es de ningún paquete) | `hub/pruebas/kpi.test.ts`, `hub/NOTAS-CONTRATO.md` (nota de resuelto), `README.md`, `informe-salida.mjs` |
+| La interfaz (P8, `app/ui/plano.ts`) dibuja el plano del hub con una traza de `n = 0` mientras simula; ningún contrato le promete que la escena (P6) la acepte (`app/NOTAS-CONTRATO.md` §13.2 a) | La integración lo fija con una prueba sobre las piezas reales (P3 compila, P4 da la geometría, P8 arma la traza, P6 reproduce y compone): las dos plantillas, los dos pisos y los dos temas; 0 entidades, recursos vacíos y finitos, fondo completo con coordenadas finitas, y tocar el plano nunca da un paquete, una persona ni un camión. Sin cambio de contrato (la `crearVistaPlano` de `contratos/vistas.ts` queda como propuesta para el corte 2) | `integracion/pruebas/plano.test.ts` (nuevo) |
+| En 360 px el «Simulando una noche…» de las miniaturas del inicio parecía escrito dos veces («Sim» encimado): la píldora entera latía de opacidad 0,55 a 1 y a media opacidad se veían los puestos de inducción del plano debajo de las letras | Late solo el color del texto (`latido-texto`); la píldora queda opaca. Se borró `@keyframes latido`, que no usaba nadie más | `app/estilos.css` |
+| `experimentos.comprobante.sin-validar` decía «datos reales» y el sello «días reales» (`app/NOTAS-CONTRATO.md` §13.5, para P5) | Mismo texto que el sello en es y en. Hoy ningún código la usa (la interfaz usa la del sello), pero sigue en el diccionario de P5 y no puede contradecir al sello | `experimentos/textos.es.json`, `textos.en.json` |
+
+**Decisiones sobre lo nuevo de las notas (sin cambio de código):**
+- **P1 §13.** `VERSION_MOTOR = '1.1.0'` versiona el motor entero (núcleo + hub): se queda en `nucleo/version.ts` en el corte 1; mudarla o
+  separar `VERSION_NUCLEO`, en el corte 2. «(0, 1]» en §6.6 y `contratos/azar.ts`, y los 52 bits, al motor 2.0.0 (cambian todas las huellas).
+  Texto propuesto en `CAMBIOS-CONTRATO.md` §11.
+- **P2 §4.** La tolerancia ancha solo para los cuatro valores impresos con pocas cifras: aceptada (es más estricta que la de I-1).
+- **P3 §12.** Enlace canónico estricto: aceptado (ningún enlace emitido cambia; `e2e/` arma los suyos con el códec). Compilar el enlace en un
+  Worker para el peor caso de latencia (≈ 0,5 s en Node, 2–5 s estimados en un teléfono): corte 2, junto con el primer cuadro progresivo.
+- **P4 §16 y §17.** Los cuatro arreglos de robustez se aceptan; cambian 1 de 200 noches de `hub-chico@1.0.0` (r34) y la r25 del primer
+  minuto, nada que esté fijado en una dorada. La huella agregada de las cien noches del hub chico pasó de `d4f7128687bd85cf` (19-10, motor
+  1.0.0) a `a266bb376bb5c8ca` (hoy, Chromium = Node); ninguna prueba la fija (los recorridos la recalculan). Los textos de las reglas 7 y 11
+  de 1.1.0 van a `CAMBIOS-CONTRATO.md` §11.
+- **P5 §12.** Bonferroni, `icPercentil` sin recortar y los textos del semáforo: ya registrados (`CAMBIOS-CONTRATO.md` §6). KPI neutros
+  (P5 §6): `comparar` lanza y la interfaz filtra con `META_KPI` (`app/sesion.ts`, `KPI_COMPARACION`); se acepta sin el cuarto veredicto.
+- **P6 §16.** La caminata por el pasillo del lazo queda dibujada como la mide el hub. Escribir su camino en `contratos/traza.ts` (o llevar la
+  distancia en `a`) y la acumulación como polilínea: corte 2 (cambian el contrato).
+- **P7 §14.** `ResultadoTamizadoConDuda` (superconjunto de `ResultadoTamizado`): aceptado; la interfaz lee `peorCaso`. AUSENCIA en rampa y las
+  fuentes `tamizado` y `contrafactual` de `Afirmacion`: corte 2.
+- **P8 §13.** `Sesion.sincronizarB()`, el plano mientras se simula y los avisos por pantalla: aceptados. El banco puede informar «plano
+  visible» como hito aparte (I-2); la meta de la película no cambia.
+
+**El sello del motor dice «sin verificar» hasta volver a correr la batería (§10.6, paso I-2).** Cinco archivos de la clausura de la batería
+cambiaron después de la corrida del 19-10 (`hub/bloques/rampas.ts`, `hub/bloques/sorter.ts`, `modelo/enlace.ts`,
+`experimentos/estadistica/percentiles.ts`, `explicacion/indice.ts`): la huella de fuentes ya no es `cf61bfbb…` y la construcción, como debe
+(hallazgo H5), pone «sin verificar» en el comprobante. Nada de lo que cambió esta vuelta en la integración está en esa clausura. `npm run
+verificar` (≈ 9 min) lo devuelve a «85 de 85» si la batería pasa con el hub de hoy.
+
+**Medido al cerrar esta vuelta (23-10-2026):**
+- `npm test`: **1.066 pruebas, 1.065 pasan, 0 fallan, 0 `todo`, 1 omitida** (la batería completa, con `VERIFICAR=1`); 94 s (§12.1: < 3 min).
+  Al empezar: 1.065, 1 falla (arquitectura) y 1 `todo` (P4).
+- `npx tsc -p tsconfig.json`: 0 errores.
+- `npm run construir`: esbuild en 173 ms; `entrada.js` 454,0 KB y `worker.js` 127,7 KB sin comprimir (el peso brotli de la primera carga lo
+  mide el banco en I-2; en I-3 era 137,8 KB contra 150); 9 archivos; motor «sin verificar» (ver arriba).
+- `e2e/humo.mjs` sobre ese `dist/` con los servicios reales: **0 errores ni avisos de consola, 0 pedidos fallidos** en 1280 × 800 y 360 × 740,
+  claro y oscuro; película del enlace del hub de 24.000 en 0,8–1,0 s y del chico en 0,14–0,21 s; cien noches en 6,9–7,9 s y 2,1–2,5 s con 3
+  Workers; enlace completo 6.024 caracteres y plantilla + 5 cambios 206, ida y vuelta exacta; huella agregada de las cien noches del hub
+  chico **Chromium = Node = `a266bb376bb5c8ca`**. El humo de P8 con servicios falsos (`app/pruebas/humo.mjs --sin-capturas`) también en verde.
+
+## 14. Paso I-2 otra vez (23-10-2026): batería, R04 y banco con los paquetes de la segunda vuelta
+
+MEDIDO en el contenedor del entorno (4 núcleos, Intel Xeon 2,10 GHz, Node 22.22.0, Chromium 141.0.7390.37), con la máquina libre (carga
+0,7–1,4). Nada se publicó; el servidor del banco escuchó solo en 127.0.0.1.
+
+**§10.6 · `npm run verificar` (semilla 20261017): 85 de 85 exigibles pasan con el núcleo de producción**, S01 (8,0%) y S02 (83,2%) fallan
+como deben, 6 informativas, **0 reintentos**, 66 doradas iguales, 8.104 corridas de red sin violaciones de conservación; 5 min 4 s en total
+(la batería 291 s). Mayor |z| de las 54 exigibles con z: 2,47. Por dueño: P1 4, P2 59, P4 13, P5 3, I 6. Lo del hub, que es lo que cambió:
+K01–K03 y L01 exactos (12.000/h), L02 11.774 (z = 0,91), L03 10.932 (z = 0,80), L04 1.456 = 4 × 364, L05 y L06 exactos, L07 F2/F3 +0,11%
+en paquetes por hora y −0,55% en tiempo en el hub (z = 1,14), P02 0,0499 (z = −0,05), R05a y R05b sin una diferencia, R06 10 fotos
+idénticas, R07 30 noches con 1 y 3 hilos idénticas. Estadística: S03 sin sesgo (z = −1,46; cobertura informativa S03c 92,2%), S08
+T·Var(L̄) = 1.485 con IC ∋ 1.800, S09 L = 3,996 (z = −0,72), S11 sesgo −0,013 (z = −0,20), S12 94,05%, S13 exacto. Ninguna tolerancia se
+tocó. La huella de fuentes nueva es `7e620446…` (135 archivos): coincide con el árbol de trabajo, así que `dist/` vuelve a llevar el sello
+«85 de 85 · 23-10-2026» (lo confirmó la construcción del banco).
+
+**§10.7 · R04: Node = Chromium 141 en 95 de 95 claves** (9 de la suite rápida, 66 doradas, 2 huellas de modelo, 12 del hub: el chico con 5
+semillas y el grande con 1, con traza completa, y 6 grupos de doradas de matemática con 0 distintas), 0 errores de consola, 4,5 s en la
+página. **Firefox y WebKit: pendientes**, con el mismo motivo de §7 (no están en el entorno y esta corrida no permite instalarlos).
+
+**§10.9 · banco (mediana de 5 corridas; referencia M/M/1: 3,99 M eventos/s en Node y 2,49 M en Chromium): 12 cumplen, 1 con margen,
+1 no cumple.**
+
+| Presupuesto (§11) | Meta | Mediana (mín–máx) | Estado | 19-10 |
+|---|---|---|---|---|
+| Noche de 24.000 con traza, Node | ≤ 400 ms | 180 ms (171–207) | cumple | 254 |
+| Noche del chico con traza, Node | ≤ 150 ms | 56 ms (54–60) | cumple | 75 |
+| Cien noches de 24.000, 3 Workers, con progreso | ≤ 20 s | 7,9 s (7,6–8,3); 101 avances, el primero a los 109 ms | cumple | 10,8 |
+| Vista previa del deslizador | ≤ 600 ms | 307 ms (283–378) | cumple | 502 |
+| **Primer cuadro desde el enlace, sin red** | ≤ 150 ms | **953 ms** (813–959); el chico, 550 ms | **no cumple** | 1.238 |
+| Primer cuadro con Fast 4G | ≤ 1,5 s | 1.534 ms (1.437–1.602); Slow 4G 3,3 s (informativo) | con margen (+2,3%) | 1.858 |
+| Cuadro 2,5D de 24.000 | ≤ 4 · ≤ 16,7 ms con 4× | 0,97 · 5,05 ms (con rasterizado 3,4 · 19,7) | cumple | 1,23 · 7,16 |
+| Cuadro 2D de 24.000 | ≤ 3 · ≤ 10 ms con 4× | 0,42 · 1,75 ms (con rasterizado 2,1 · 10,4) | cumple | 0,54 · 3,06 |
+| Tamizado del chico, 3 Workers, cancelable | ≤ 60 s | **58,5 s** (57,4–61,7); cancelado en 1 ms | cumple (justo) | 41,6 |
+| Evaluación de la decisión del chico | ≤ 20 s | 6,0 s (5,6–6,1); recomienda `null` | cumple | 3,6 |
+| Memoria con la noche de 24.000 y su par | ≤ 150 MB | 45,5 MB (45,2–47,7) | cumple | 44,3 |
+| JavaScript de la primera carga, brotli | ≤ 150 KB | **145,7 KB** (entrada.js 113,7 + worker.js 31,9 + trozo 0,1) | cumple (3% de holgura) | 137,8 |
+
+- **Hitos del primer cuadro (mediana, sin red, hub de 24.000):** `entrada.js` 36 ms, `worker.js` 66, DOM listo 109, primera pintura 185,
+  modelo compilado 150, **plano visible 192 ms** (172–223; hito nuevo e informativo, `data-plano="1"`, app/NOTAS-CONTRATO.md §13.2 b),
+  película 953. El plano no es la película (no tiene un instante simulado) y no cambia el estado del presupuesto: sigue sin cumplir por la
+  misma causa de §8 (la noche entera, en un Worker frío, antes del primer cuadro). Con Fast 4G: plano 802 ms y película 1.534.
+- **Tamizado: más lento por más noches, no por un motor más lento (MEDIDO con una sonda en Node con 3 hilos, el mismo código de servicios
+  del 19-10 contra el de hoy):** el tamizado del hub chico pasó de 1.200 noches (25,4 s) a 2.640 (51,9 s) y la decisión de 80 a 220
+  noches (2,3 → 5,2 s); el costo por noche bajó un 7%. Las noches de más vienen de las reglas de parada que entraron el 20-10 (Bonferroni
+  sobre 20 miradas en `evaluarDecision`, CAMBIOS-CONTRATO.md §6, y el tamizado con «en duda» de P7 §14.2). Cumple por la regla de §11
+  (mediana), pero 2 de 5 corridas pasaron de 60 s: en un teléfono no va a llegar. Opciones para decidir (cambian la estadística, no las
+  toca este paso): reusar en cada extremo las noches de la evaluación base (números comunes), bajar `REPLICAS_MAX_TAMIZADO` (100) o
+  tamizar con una tanda fija y decidir después con la evaluación completa solo los supuestos que mueven la decisión.
+- **Primera carga:** 145,7 KB contra 150 (era 137,8 el 19-10): lo que sumó la segunda vuelta de los paquetes son 7,9 KB brotli (no lo
+  desglosé por paquete). Cualquier pantalla nueva del corte 2 tiene que ir en un trozo aparte o el presupuesto se rompe.
+- `npm test` después de todo esto: 1.066 pruebas, 1.065 pasan, 0 fallan, 0 `todo`, 1 omitida (la batería con `VERIFICAR=1`); 93 s.
+  `tsc` sin errores. Único cambio de código de este paso: `integracion/banco.mjs` (el hito «plano visible»; no entra en la huella de la
+  batería).
+
+**Abierto después de este I-2:** (1) primer cuadro ≤ 150 ms: no cumple (953 ms); decidir entre el primer cuadro progresivo (corte 2) o
+reescribir el presupuesto; (2) 4G con margen (1.534 ms, +2,3%); (3) tamizado al límite (58,5 s de 60); (4) R04 en Firefox y WebKit,
+pendiente; (5) los textos de `corte-1.md` §8, §9 y §6.6 de `CAMBIOS-CONTRATO.md` §4, §10 y §11, para el orquestador.

@@ -96,8 +96,17 @@ async function recorrido(browser, base, ancho, alto, tema) {
     }).slice(0, 3).map((e) => `${e.tagName.toLowerCase()}.${String(e.className).split(' ')[0]}`));
     if (fuera.length) fallar(`${etiqueta} · ${p}: elementos que se salen de la pantalla: ${fuera.join(', ')}`);
   };
+  // en el recorrido normal no tiene que aparecer ningún aviso de error; los informativos son pasajeros y se cierran antes de capturar
+  // (la captura muestra la pantalla, no el aviso que quedó de la anterior)
+  const avisos = async (p) => {
+    const error = await page.$eval('.aviso--error', (x) => x.textContent).catch(() => null);
+    if (error) fallar(`${etiqueta} · ${p}: aviso de error en el recorrido normal: «${error}»`);
+    const cerrar = await page.$('[data-accion="cerrar-aviso"]');
+    if (cerrar) { await cerrar.click(); await page.waitForSelector('[data-aviso]', { state: 'detached', timeout: 2000 }).catch(() => {}); }
+  };
   const capturar = async (n, p) => {
     await sinDesborde(p);
+    await avisos(p);
     if (!conCapturas) return;
     await page.evaluate(() => window.scrollTo(0, 0));
     const archivo = join(CAPTURAS, `${String(n).padStart(2, '0')}-${p}-${etiqueta}.png`);
@@ -125,6 +134,9 @@ async function recorrido(browser, base, ancho, alto, tema) {
     await esperarPantalla('escena');
     await page.waitForSelector('[data-resumen="costo"]', { timeout: 30000 });
     await page.waitForFunction(() => /mediana/.test(document.querySelector('[data-etiqueta-noche="A"]')?.textContent ?? ''), null, { timeout: 30000 });
+    // la película pasó sola de la noche provisoria a la mediana con la escena a la vista: se avisa (hallazgo UX-12)
+    const cambio = await page.waitForSelector('[data-aviso="app.noche.cambio.mediana"]', { timeout: 5000 }).then((x) => x.textContent()).catch(() => null);
+    if (!cambio || !/provisoria/.test(cambio)) fallar(`${etiqueta} · escena: se esperaba el aviso del cambio de la noche provisoria a la mediana y salió «${cambio}»`);
     await cabezal('23:40');
     await page.waitForTimeout(150);
     const etq = await page.textContent('[data-etiqueta-noche="A"]');
@@ -161,6 +173,10 @@ async function recorrido(browser, base, ancho, alto, tema) {
     await capturar(5, 'ysi');
     const filas = await page.$$eval('[data-tabla="comparacion"] tbody tr', (xs) => xs.length);
     if (filas < 3) fallar(`${etiqueta} · ¿y si…?: ${filas} filas en la comparación (se esperaban 4)`);
+    // misma suerte en pantalla: A y B muestran la misma noche
+    const nochesAB = await page.$$eval('[data-etiqueta-noche]', (xs) => xs.map((x) => `${x.getAttribute('data-etiqueta-noche')}:${/\d+/.exec(x.textContent ?? '')?.[0] ?? '?'}`));
+    const numA = nochesAB.find((x) => x.startsWith('A:'))?.slice(2), numB = nochesAB.find((x) => x.startsWith('B:'))?.slice(2);
+    if (!numA || numA !== numB) fallar(`${etiqueta} · ¿y si…?: A y B tienen que mostrar la misma noche y salió A ${numA}, B ${numB}`);
     ok(`¿y si…?: comparación pareada con ${filas} indicadores`);
     await clic('reiniciar-perillas');
     await clic('volver'); await esperarPantalla('escena');
@@ -249,6 +265,14 @@ async function recorrido(browser, base, ancho, alto, tema) {
     await page.waitForSelector('[data-aviso]', { timeout: 10000 });
     await esperarPantalla('inicio');
     ok('enlace hostil: aviso y vuelta al inicio');
+    // al abrir un enlace, mientras se simula la noche se ve el plano del hub (no un rectángulo vacío) y después la película
+    await page.goto(`${base}/?retardo=400#t=hub-chico@1.0.0`);
+    const plano = await page.waitForSelector('section[data-pantalla="escena"] .escena__caja[data-plano="1"]', { timeout: 10000 }).then(() => true).catch(() => false);
+    const aviso = plano ? await page.textContent('section[data-pantalla="escena"] .escena__caja .escena__cargando') : null;
+    await esperarPantalla('escena');
+    const sigue = await page.$('section[data-pantalla="escena"] .escena__caja[data-plano="1"]');
+    if (!plano || !/Calculando/.test(aviso ?? '') || sigue) fallar(`${etiqueta} · enlace: se esperaba el plano con «Calculando…» mientras se simula y después la película (plano ${plano}, aviso «${aviso}», plano después ${!!sigue})`);
+    else ok('enlace: el plano del hub mientras se simula, después la película');
     // en inglés: la misma escena, sin claves faltantes
     if (ancho === 1280 && tema === 'claro') {
       await page.goto(`${base}/?retardo=3#t=hub-chico@1.0.0`);

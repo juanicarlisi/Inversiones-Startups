@@ -138,6 +138,17 @@ test('textos: cada motivo tiene su clave experimentos.semaforo.<motivo> en espa�
   }
 });
 
+test('textos: la variante «sin estimación» de la duda usa solo las variables que el semáforo entrega (y nunca {faltan}, que ahí no existe)', () => {
+  const es = leer('textos.es.json'), en = leer('textos.en.json');
+  const s = semaforo({ resultados: veinte(), replicas: 400, decisionEnDuda: { valores: [3, 4], faltan: null } });
+  const clave = claveTextoSemaforo(s);
+  assert.equal(clave, 'experimentos.semaforo.decision-en-duda.sin-estimacion');
+  for (const [idioma, textos] of [['es', es], ['en', en]] as const) {
+    assert.ok(typeof textos[clave] === 'string' && textos[clave].length > 10, `falta el texto «${clave}» en ${idioma}`);
+    assert.deepEqual(variablesDe(textos[clave]).sort(), Object.keys(s.vars).sort(), `el texto «${clave}» (${idioma}) y las variables del semáforo tienen que coincidir`);
+  }
+});
+
 test('textos: es y en tienen exactamente las mismas claves, todas con prefijo experimentos., y las mismas variables en cada una', () => {
   const es = leer('textos.es.json'), en = leer('textos.en.json');
   assert.deepEqual(Object.keys(es).sort(), Object.keys(en).sort());

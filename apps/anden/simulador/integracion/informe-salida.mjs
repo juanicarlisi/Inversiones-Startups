@@ -117,8 +117,10 @@ async function principal() {
     { pruebas: npm.totales.pasa + npm.totales.falla + npm.totales.todo + npm.totales.omitida, pasan: npm.totales.pasa, fallan: npm.totales.falla,
       todo: npm.totales.todo, omitidas: npm.totales.omitida, segundos: npm.segundos, node: npm.node, fallas: npm.fallas },
     'integracion/salida/npm-test.json (integracion/reportero.mjs)',
-    npm.totales.todo ? 'La prueba `todo` es «KPI sanos en 50 noches» de P4 sobre hub-chico@1.0.0 (imposible al pie de la letra; espera la decisión del ' +
-      'orquestador: integracion/NOTAS-CONTRATO.md §3.1). La omitida es la batería completa dentro de npm test (corre con `npm run verificar`).' : null);
+    npm.totales.todo || npm.totales.omitida
+      ? `${npm.totales.todo ? `Hay ${npm.totales.todo} prueba(s) \`todo\` (desde el 23-10-2026 no debería quedar ninguna: «KPI sanos» de P4 se resolvió ` +
+        'con el camino 2, integracion/CAMBIOS-CONTRATO.md §10). ' : ''}La omitida es la batería completa dentro de npm test (corre con \`npm run verificar\`).`
+      : null);
   // 2
   const informeLocal = existsSync(join(RAIZ, 'verificacion', 'informe', 'informe.html')) && existsSync(join(RAIZ, 'verificacion', 'informe', 'resultados.json'));
   // la batería vale para el código de hoy solo si la huella de sus fuentes coincide (hallazgo H5: antes bastaba el texto de la versión)
@@ -169,9 +171,11 @@ async function principal() {
     !!e2e && e2e.pasa && e2e.completo && recorridos.length === 16 && recorridos.every((x) => x.pasa && x.erroresConsola === 0) && (e2e.capturas?.archivos?.length ?? 0) >= 6,
     e2e ? { recorridos, capturas: e2e.capturas, chromium: e2e.chromium, minutos: e2e.minutos, fallas: e2e.fallas, fecha: e2e.fecha } : null,
     'integracion/salida/e2e.json (npm run e2e) · integracion/e2e/capturas/',
-    'Primer minuto con el enlace de la plantilla grande + 1 cambio (rampas vecinas) y la receta de la peor noche, para que «balancear el plan» ' +
-    'tenga algo que balancear; con la plantilla tal cual el plan ya va por volumen y la app lo dice sin comparar (también se prueba). Decidir, con ' +
-    'la plantilla chica + los datos de un hub propio (retén 1, 7 de rampa, 2 manuales, corte 03:00): con hub-chico@1.0.0 tal cual ninguna opción cumple.');
+    'Primer minuto con el enlace de la plantilla grande + 2 cambios (9 personas de rampa con rampas vecinas) y la receta de la peor noche, ' +
+    'parada durante el turno en el instante en que se ve la causa confirmada del paquete (desde el 23-10-2026; antes abría a media mañana, con ' +
+    'el turno terminado), para que «balancear el plan» tenga algo que balancear; con la plantilla tal cual el plan ya va por volumen y la app lo ' +
+    'dice sin comparar (también se prueba). Decidir, con la plantilla chica + los datos de un hub propio (retén 1, 7 de rampa, 2 manuales, corte ' +
+    '03:00): con hub-chico@1.0.0 tal cual ninguna opción cumple.');
   // 9
   const noCumplen = banco?.presupuestos?.filter((p) => p.estado === 'no-cumple') ?? null;
   criterio(9, 'Presupuestos de §11 dentro del margen', !!banco && noCumplen.length === 0,
@@ -211,12 +215,14 @@ async function principal() {
     cumplen: pasan, de: criterios.length,
     criterios,
     decisionesAbiertas: [
-      '«KPI sanos» de §9 sobre hub-chico@1.0.0 (la prueba `todo` de P4): camino 2 recomendado (reescribir §9), hub-chico@1.1.0 queda como propuesta.',
+      '«KPI sanos» de §9 sobre hub-chico@1.0.0: la integración eligió el camino 2 (23-10-2026; la prueba `todo` de P4 se borró); falta pasar a corte-1.md §9 el texto de integracion/CAMBIOS-CONTRATO.md §10. hub-chico@1.1.0 queda como propuesta.',
       'Presupuesto «primer cuadro ≤ 150 ms»: primer cuadro progresivo en el corte 2 o reescribir la meta.',
       'E01 reformulado (solidez + completitud, esperas ≥ 5 min dentro de la pausa) y S03 como independencia + sesgo con la cobertura informativa (S03c): confirmar y pasar a corte-1.md §8.',
       'Motor 1.1.0 (caminata por distancia, plan por volumen en bloques vecinos, persistencia, relevo en las pausas, pausas después del fin, utilizaciones por jornada), la huella `h` en la receta, Bonferroni en la decisión secuencial y el tope de tramos: pasar a corte-1.md (integracion/CAMBIOS-CONTRATO.md).',
       'R4 (cobertura entre roles y jornada máxima), R6–R10 y E-11: quedan para el corte 2 (integracion/CAMBIOS-CONTRATO.md §9).',
       'Presentar en 4 pasos (los de diseño maestro §5.6) en lugar de «tres actos»: lo confirma el fundador.',
+      'Tamizado del hub chico al límite de su presupuesto (mediana cerca de 60 s, alguna corrida por encima) desde las reglas de parada del 20-10: reusar las noches de la evaluación base, bajar REPLICAS_MAX_TAMIZADO o tamizar con una tanda fija (integracion/NOTAS-CONTRATO.md §14). Cambia la estadística: decide el orquestador.',
+      'Primera carga a menos de 5 KB brotli del tope de 150 KB: lo que sume el corte 2 va en trozos aparte.',
     ],
   };
   writeFileSync(join(SALIDA, 'informe-salida.json'), `${JSON.stringify(informe, null, 2)}\n`);

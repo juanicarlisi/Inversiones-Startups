@@ -2,6 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ErrorCancelado, esCancelacion, evaluarDecision, evaluarDecisionCon, recomendar } from '../decision.ts';
+import { readFileSync } from 'node:fs';
+import { claveTextoSemaforo } from '../semaforo.ts';
 import { crearPlanificador } from '../planificador.ts';
 import { trabajadorEnProceso } from '../en-proceso.ts';
 import { Prioridad } from '../../contratos/experimentos.ts';
@@ -144,6 +146,14 @@ test('«no-termina» en una opción que no cumple (sobrecargada) no pone en rojo
   assert.equal(sobrecargada.configuraciones[0].estado, 'no-cumple');
   assert.equal(sobrecargada.semaforo.color, 'verde', `se esperaba verde y salió ${sobrecargada.semaforo.color} (${sobrecargada.semaforo.motivo})`);
   assert.equal(sobrecargada.recomendacion, 4);
+  // el verde no dice «ninguna alerta» después de haberlas filtrado: cuenta TODAS las noches y nombra la opción sobrecargada (hallazgo E-08)
+  assert.deepEqual(sobrecargada.semaforo.vars, { replicas: sobrecargada.replicasUsadas, sobrecargadas: '2' });
+  assert.equal(claveTextoSemaforo(sobrecargada.semaforo), 'experimentos.semaforo.ok.sobrecargadas');
+  for (const archivo of ['textos.es.json', 'textos.en.json']) {
+    const textos = JSON.parse(readFileSync(new URL(`../${archivo}`, import.meta.url), 'utf8')) as Record<string, string>;
+    const usadas = [...textos['experimentos.semaforo.ok.sobrecargadas'].matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
+    assert.deepEqual(usadas, ['replicas', 'sobrecargadas'], `${archivo}: el texto de «ok.sobrecargadas» usa las variables que entrega la decisión`);
+  }
   // una sola noche que no termina con 5 puestos: la opción no queda «no cumple», así que la alerta sí cuenta
   const enLaRecomendada = await evaluarDecision(modeloConSemilla(20261017), planificadorSincrono(conNoTermina(5, 1000)), varianteFalsa, OPCIONES);
   assert.notEqual(enLaRecomendada.configuraciones[3].estado, 'no-cumple');

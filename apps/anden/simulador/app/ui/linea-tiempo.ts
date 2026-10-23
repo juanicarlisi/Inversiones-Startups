@@ -76,6 +76,8 @@ export function crearLineaTiempo(ctx: Contexto, o: { momentos: () => MomentoEsce
     if (f === firma) return;
     firma = f;
     marcas.replaceChildren();
+    // todavía no hay noche (se ve el plano mientras se simula): ni horas ni marcas que inventar
+    if (e.fin <= e.inicio) { horas.replaceChildren(); corte.hidden = true; return; }
     // marcas que no se pisan: primero las más importantes; una marca a menos de 16 px de otra ya puesta no se dibuja (sigue en la
     // narración y en la biografía; la línea de tiempo es para saltar, no un registro completo)
     const sep = 16 / Math.max(1, ancho), puestas: number[] = [];
@@ -117,6 +119,8 @@ export function crearLineaTiempo(ctx: Contexto, o: { momentos: () => MomentoEsce
     armarFijos();
     const e = ctx.almacen.estado, fr = fraccion(e.t, e.inicio, e.fin);
     progreso.style.width = pct(fr); cabezal.style.left = pct(fr);
+    cabezal.hidden = e.fin <= e.inicio;
+    pista.setAttribute('aria-disabled', String(e.fin <= e.inicio));
     pista.setAttribute('aria-valuemin', String(Math.round(e.inicio / 60000)));
     pista.setAttribute('aria-valuemax', String(Math.round(e.fin / 60000)));
     pista.setAttribute('aria-valuenow', String(Math.round(e.t / 60000)));
@@ -150,7 +154,10 @@ export function controlesReproduccion(ctx: Contexto): { nodo: HTMLElement; actua
     // símbolo casi invisible: hallazgo UX-06)
     reproducir.setAttribute('aria-label', txt); reproducir.title = txt;
     if (velocidad.value !== String(e.velocidad)) velocidad.value = String(e.velocidad);
-    hora.textContent = ctx.f.hora(e.t);
+    // sin noche cargada (el plano mientras se simula) no hay nada que reproducir ni una hora que mostrar
+    const sinNoche = e.fin <= e.inicio;
+    reproducir.disabled = sinNoche; rebobinar.disabled = sinNoche;
+    hora.textContent = sinNoche ? '—' : ctx.f.hora(e.t);
   };
   actualizar();
   return { nodo: el('div', { class: 'controles' }, rebobinar, reproducir, velocidad, hora), actualizar };

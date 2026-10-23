@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { det, tablaNpio2 } from '../matematica/det.ts';
+import { generarDoradas, type Doradas } from '../matematica/generar-doradas.ts';
 import { crearFuenteAzar } from '../azar/fuente.ts';
 import { matNativa } from '../../contratos/referencia/motor-referencia.ts';
 import type { Direccion } from '../../contratos/azar.ts';
@@ -99,6 +100,27 @@ test('det coincide exactamente con doradas-mat.json (1.000 entradas por función
   const pow = doc.funciones.pow;
   assert.equal(pow.length, 1000);
   for (const [x, y, z] of pow) comparar('pow', det.pow(deHex(x), deHex(y)), z, `${deHex(x)}, ${deHex(y)}`);
+});
+
+test('doradas-mat.json es exactamente lo que genera generar-doradas.ts (sin escribir nada) y det sigue igual a V8 en esas entradas', () => {
+  const archivo = readFileSync(new URL('../matematica/doradas-mat.json', import.meta.url), 'utf8');
+  const guardadas = JSON.parse(archivo) as Doradas['doc'];
+  const generadas = generarDoradas(guardadas.fecha);
+  assert.deepEqual(generadas.difieren, [], `al regenerar, det difiere de V8 en: ${generadas.difieren.slice(0, 5).join(' · ')}`);
+  for (const nombre of Object.keys(guardadas.funciones)) {
+    const a = guardadas.funciones[nombre], b = generadas.doc.funciones[nombre];
+    assert.equal(b.length, a.length, `${nombre}: se esperaban ${a.length} entradas regeneradas y salieron ${b.length}`);
+    const primera = a.findIndex((fila, i) => fila.join() !== b[i].join());
+    assert.equal(primera, -1, primera < 0 ? '' :
+      `${nombre}, fila ${primera}: el archivo tiene ${JSON.stringify(a[primera])} y el generador da ${JSON.stringify(b[primera])}`);
+  }
+  assert.deepEqual(Object.keys(generadas.doc.funciones), Object.keys(guardadas.funciones));
+  // Con el mismo Node y el mismo V8 que las generaron, el texto es idéntico byte a byte (cabecera incluida).
+  if (guardadas.node === process.version && guardadas.v8 === process.versions.v8) {
+    assert.equal(generadas.texto, archivo, 'el texto regenerado tiene que ser idéntico al archivo commiteado');
+  }
+  // Dos generaciones seguidas dan lo mismo: el generador no arrastra estado entre llamadas.
+  assert.equal(generarDoradas(guardadas.fecha).texto, generadas.texto);
 });
 
 test('det: casos especiales (ceros con signo, infinitos, NaN, subnormales, bordes de desborde)', () => {

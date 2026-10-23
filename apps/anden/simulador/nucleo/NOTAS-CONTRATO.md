@@ -1,4 +1,4 @@
-# Notas de contrato · P1 Núcleo determinista (18-10-2026)
+# Notas de contrato · P1 Núcleo determinista (18-10-2026; segunda vuelta el 23-10-2026, §13)
 
 Lo que el contrato (`contratos/`) o la especificación (`corte-1.md`) no fija, fija de forma contradictoria o que la referencia
 (`contratos/referencia/motor-referencia.ts`) hace distinto. En cada punto: qué pasa, qué supuesto tomó el núcleo y la propuesta para la
@@ -111,3 +111,54 @@ sintéticos y cinco semillas (`nucleo/pruebas/diferencial.test.ts`).
 - Dos decisiones de rendimiento medidas: el estado que cambia por evento vive en un `Float64Array` y no en variables de la clausura
   (+12–17%: los uint32 de la huella no entran en un entero pequeño de V8 y obligaban a reservar memoria por evento), y la huella separa
   `t` en palabras de 32 bits con una resta exacta en vez de `%` de punto flotante.
+
+## 13. Segunda vuelta (23-10-2026): estado, lo que decidió la integración y lo que queda
+
+**Estado (MEDIDO el 23-10-2026, Node 22.22.0, con los otros paquetes corriendo en paralelo: carga ≈ 3,7 en 4 núcleos).**
+`node --test "nucleo/**/*.test.ts"`: 83 de 83 en 4,1 s. `tsc`: 0 errores. Tokens prohibidos de §1.4 en todo `nucleo/` (código, pruebas
+y herramientas): 0, con dos miradas (texto sin comentarios y árbol sintáctico de TypeScript, que suma el operador de potencia).
+Rendimiento informativo (`node nucleo/pruebas/rendimiento.ts`): M/M/1 3,81 M eventos/s de mediana (corridas de 2,9 a 4,9; la
+referencia, 2,33; misma huella), Philox 17,7 M bloques/s y 21,4 M uniformes/s. Con esa carga la meta de ≥ 4 M/s no dice nada del motor
+(el 18-10-2026, con carga ≈ 1,4, dio 4,1–4,6): el informe ahora trae la carga y los núcleos para que el número se lea bien.
+
+**Lo que decidió la integración sobre estas notas** (`integracion/NOTAS-CONTRATO.md` §1): (1) se acepta la fórmula; la corrección es
+de texto. (2) sin cambio (nadie llama a `correrHasta` más allá del horizonte). (3)(4)(9) se aceptan las validaciones más estrictas; el
+compilador ya rechaza Erlang con k > 512. (8) la foto sin traza queda para el corte 2. (11) la prueba de arquitectura usa la lista
+ampliada más el operador `**`.
+
+**Lo que se sumó en esta vuelta (todo fuera de la huella de fuentes de la batería, ver abajo).**
+- `pruebas/tokens.test.ts`: segunda búsqueda con el árbol sintáctico de TypeScript sobre todo `nucleo/` (también pruebas y
+  `generar-doradas.ts`), con el operador de potencia (`**` y `**=`), y su control con un ejemplo sembrado.
+- `matematica/generar-doradas.ts` exporta `generarDoradas()` (en memoria, sin escribir) y `pruebas/det.test.ts` comprueba que
+  `doradas-mat.json` es **byte a byte** lo que genera (con el mismo Node y V8 que lo generaron; con otros, las 6.000 filas) y que `det`
+  sigue igual a V8 en esas entradas. Antes nada probaba que el archivo saliera del generador.
+- `pruebas/distribuciones.test.ts`: las 11 distribuciones con los uniformes extremos (2⁻⁵⁴ y exactamente 1): valores finitos dentro de su
+  soporte y lo que da cada borde, fijado.
+- `pruebas/rendimiento.ts`: mide también el azar solo (bloques Philox y uniformes por segundo) y anota la carga del equipo.
+
+**Por qué no se tocó ningún archivo del motor.** Desde el hallazgo H5 (`integracion/CAMBIOS-CONTRATO.md` §8) el sello «85 de 85» depende
+del SHA-256 de los archivos que corre la batería; del núcleo son 14: `indice.ts`, `version.ts`, `azar/` (4), `cinematica/trapezoidal.ts`,
+`matematica/det.ts` y `doradas-mat.json`, `motor/` (4) y `traza/escritor.ts`. Cambiar uno solo (aunque sea un comentario) pone el sello
+en «sin verificar» hasta que la integración vuelva a correr `npm run verificar` (≈ 8 min). Esta vuelta no encontró ningún defecto que lo
+justifique; la huella de fuentes sigue en `cf61bfbb…` (135 archivos), la misma de `integracion/salida/bateria-nucleo.json`.
+
+**Para juntar con el próximo cambio que obligue a correr la batería** (ninguno cambia una huella):
+- `azar/fuente.ts`: «se esperaba la semilla entero» → «se esperaba la semilla entera» (concordancia; lo mismo con «la réplica»), y las
+  pruebas que lo buscan (`fuente.test.ts`).
+- `azar/fuente.ts`, `uniforme()`: 21 M/s con carga contra 25–41 M/s de la base; pidiendo de a pares rinde ≈ 40% menos que dos
+  uniformes por bloque de Philox solo (validación, conversiones y caché por dirección). Hay margen sin cambiar ningún resultado, si
+  el banco lo pide.
+
+**Nuevo sobre el punto 1 (`uniforme` puede dar 1).** Con u = 1 exacto, `bernoulli` de p = 1 da **0** (`u < p` es falso): un suceso
+seguro falla una vez cada 2⁵³ sorteos (lo fija `distribuciones.test.ts`). En la práctica no pasa (una noche de 24.000 paquetes pide
+≈ 200.000 uniformes, diseño maestro §4.5: un uniforme igual a 1 sale una vez cada ≈ 4,5·10¹⁰ noches), pero el texto «siempre en
+(0, 1)» es falso. **Propuesta para el motor 2.0.0** (cambia
+todas las huellas, así que solo junto con otro cambio de contrato): usar 52 bits, `u = ((hi >>> 6)·2²⁶ + (lo >>> 6) + 0,5) / 2⁵²`,
+que queda **estrictamente** en (0, 1): mínimo 2⁻⁵³ y máximo 1 − 2⁻⁵³, todos exactos (MEDIDO con Node el 23-10-2026). Mientras tanto,
+corregir el texto de §6.6 y de `contratos/azar.ts` a «(0, 1]».
+
+**`VERSION_MOTOR` dice `'1.1.0'` y §9 dice `'1.0.0'`.** La subió la integración porque cambió la semántica del **hub** (motor 1.1.0,
+`integracion/CAMBIOS-CONTRATO.md` §2); el núcleo no cambió y sus huellas tampoco. O sea: la constante vive en `nucleo/` pero versiona
+el motor entero (núcleo + hub), que es lo que va en la receta y en el comprobante. **Propuesta:** corregir §9 («`VERSION_MOTOR`: la
+versión del motor completo; la sube quien cambie una huella») y, en el corte 2, mudarla a un archivo de la integración o separar
+`VERSION_NUCLEO` de `VERSION_MOTOR`, para que el dueño del número sea el que puede moverlo.

@@ -81,12 +81,19 @@ function tarjetaPregunta(ctx: Contexto, p: Pregunta): HTMLElement {
   const textoPregunta = el('h3', { class: 'pregunta__texto' });
   textoPregunta.textContent = conPregunta || !unidad ? p.texto : ctx.t('app.decidir.preguntaPorUnidad', { unidad });
   const fuente = el('span', { class: 'pregunta__fuente' }); fuente.textContent = p.referencia.fuente;
+  // la pregunta en criollo suele hablar de paquetes por hora y el parámetro está en segundos por paquete: se muestran los dos, para
+  // que nadie tenga que hacer la cuenta (revisión de la experiencia, I-3: «¿cuántos paquetes por hora…?» y «Referencia: 2,4 s»)
+  const porHora = /^s por paquete\b/.test(unidad) && p.referencia.valor > 0 && p.rango[0] > 0;
+  const h = (seg: number) => ctx.f.numero(3600 / seg, 0);
   return el('li', { class: 'pregunta', 'data-pregunta': p.parametro },
     el('span', { class: 'pregunta__orden', 'aria-hidden': 'true' }, String(p.orden)), textoPregunta,
     el('p', { class: 'pregunta__porque' }, ctx.t(p.porQue.clave, p.porQue.vars)),
-    el('p', { class: 'pregunta__referencia' }, ctx.t('app.decidir.referencia', { valor: ctx.f.numero(p.referencia.valor), unidad }), ' ',
+    el('p', { class: 'pregunta__referencia' }, ctx.t('app.decidir.referencia', { valor: ctx.f.numero(p.referencia.valor), unidad }),
+      porHora ? ` ${ctx.t('app.decidir.equivalePorHora', { n: h(p.referencia.valor) })}` : '', ' ',
       insignia(ctx, p.referencia.etiqueta as Etiqueta), ' ', fuente),
-    el('p', { class: 'pregunta__rango' }, ctx.t('app.decidir.rango', { bajo: ctx.f.numero(p.rango[0]), alto: ctx.f.numero(p.rango[1]), unidad })),
+    el('p', { class: 'pregunta__rango' }, porHora
+      ? ctx.t('app.decidir.rangoPorHora', { bajo: ctx.f.numero(p.rango[0]), alto: ctx.f.numero(p.rango[1]), unidad, hBajo: h(p.rango[1]), hAlto: h(p.rango[0]) })
+      : ctx.t('app.decidir.rango', { bajo: ctx.f.numero(p.rango[0]), alto: ctx.f.numero(p.rango[1]), unidad })),
     el('p', { class: 'pregunta__medir' }, ctx.t('app.decidir.medilo', { observaciones: p.medir.observaciones, minutos: p.medir.minutos,
       error: ctx.f.numero(p.medir.errorRelativo * 100, 0) })),
     el('div', { class: 'pregunta__respuesta' }, el('label', { for: id, class: 'campo__etiqueta' }, ctx.t('app.decidir.tuDato', { unidad })), entrada, usar), error);

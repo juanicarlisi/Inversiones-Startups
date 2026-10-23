@@ -14,7 +14,9 @@ test('la cadena del capítulo 1 es la del diseño', () => {
   const [p, seg, tb, no, sur, gal] = c1;
   assert.equal(p.tipo, 'ruta'); assert.ok(['MVD', 'ROS'].includes(p.b) && M.km(p.a, p.b) <= 300);
   assert.deepEqual([seg.tipo, seg.a, seg.b], ['ruta', 'BUE', 'BHI']);
-  assert.equal(tb.tipo, 'transbordos'); assert.ok(tb.meta >= 50 && tb.meta <= 100);
+  assert.equal(tb.tipo, 'transbordos'); assert.ok(tb.meta >= 15 && tb.meta <= 25, 'HN-30: 25 sacas o menos'); // y con correo en conexión esperando
+  assert.ok(tb.conexion?.length >= 2 && tb.conexion.every(([o, d, n]) => o !== 'BUE' && d !== 'BUE' && n > 0));
+  assert.ok(no.trasNoche, 'm1_noche espera la primera noche');
   assert.equal(no.tipo, 'despeguesNoche'); assert.ok(no.meta >= 3 && no.meta <= 5);
   assert.deepEqual([sur.tipo, sur.ciudad], ['entregasEn', 'CRD']); assert.ok(sur.meta >= 30 && sur.meta <= 60);
   assert.deepEqual([gal.tipo, gal.ciudad], ['entregasEn', 'RGL']);

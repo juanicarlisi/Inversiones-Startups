@@ -143,8 +143,14 @@ export class BloqueSorter implements Lazo {
     this.agendarPaso(k);
   }
 
+  /**
+   * Agenda el paso k (en tRef + (k − kRef)·tick). Nunca un paso que ya se tomó: si en el mismo instante en que se procesó el paso k
+   * vuelve la actividad (una cadena de tareas de 0 s: manual → acumulación → inducción), el próximo paso posible es k + 1, en el
+   * instante siguiente de la grilla. Sin esta guarda la rueda recibiría dos veces el paso k (y lo rechaza).
+   */
   private agendarPaso(k: number): void {
     const S = this.S;
+    if (k <= this.rueda.paso) k = this.rueda.paso + 1;
     S.seqPaso = this.h.m.agendar(S.tRef + (k - S.kRef) * this.h.cfg.tick, this.id, EV.PASO, k, Fase.NORMAL, PRIORIDAD_PASO);
     S.pasoAgendado = 1;
   }

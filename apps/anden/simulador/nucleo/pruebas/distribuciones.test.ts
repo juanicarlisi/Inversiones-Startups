@@ -127,6 +127,50 @@ test('sortear coincide bit a bit con la referencia en 50.000 sorteos por distrib
   assert.equal(distintos, 0, `se esperaban 0 diferencias con la referencia y hubo ${distintos} (primera: ${primero})`);
 });
 
+test('uniformes extremos (2^-54 y exactamente 1): las 11 distribuciones dan valores finitos dentro de su soporte', () => {
+  // La fórmula de §6.6 da su mínimo 2^-54 con los dos uint32 en 0 y da EXACTAMENTE 1 con los dos en 0xffffffff (2^53 − 0,5 se
+  // redondea al par, 2^53): probabilidad 2^-53 por uniforme (nucleo/NOTAS-CONTRATO.md §1). Esta prueba fija qué hace cada
+  // distribución en esos bordes, para que un cambio de la fórmula o de las distribuciones no pase sin que se note.
+  const DOS_M54 = 1 / 18014398509481984; // 2^-54 (sin el operador potencia: la búsqueda de tokens de P1 lo prohíbe)
+  const aUniforme = (hi: number, lo: number) => ((hi >>> 5) * 67108864 + (lo >>> 6) + 0.5) / 9007199254740992;
+  assert.equal(aUniforme(0, 0), DOS_M54, 'el mínimo de la fórmula es 2^-54');
+  assert.equal(aUniforme(0xffffffff, 0xffffffff), 1, 'con todos los bits en 1 la fórmula da exactamente 1');
+  assert.ok(aUniforme(0xffffffff, 0xffffffbf) < 1, 'el anterior ya es menor que 1');
+  const soporte: [Distribucion, number, number][] = [
+    [{ tipo: 'fija', valor: 2.5 }, 2.5, 2.5],
+    [{ tipo: 'uniforme', min: -300, max: 600 }, -300, 600],
+    [{ tipo: 'exponencial', media: 2700 }, 0, Infinity],
+    [{ tipo: 'triangular', min: 1, moda: 2, max: 6 }, 1, 6],
+    [{ tipo: 'normal', media: 10, desvio: 2 }, -Infinity, Infinity],
+    [{ tipo: 'normal', media: 10, desvio: 3, min: 4, max: 15 }, 4, 15],
+    [{ tipo: 'lognormal', media: 2.4, cv: 0.35 }, 0, Infinity],
+    [{ tipo: 'erlang', k: 3, media: 6 }, 0, Infinity],
+    [{ tipo: 'weibull', forma: 1.5, escala: 2 }, 0, Infinity],
+    [{ tipo: 'bernoulli', p: 0.5 }, 0, 1],
+    [{ tipo: 'discreta', valores: [10, 20, 30], pesos: [1, 1, 1] }, 10, 30],
+    [{ tipo: 'empirica', valores: [1, 2, 4, 8, 16] }, 1, 16],
+  ];
+  const d: Direccion = { clave: 1, a: 0, b: 0, c: 0 };
+  for (const u of [DOS_M54, 1]) {
+    const sortear = crearSorteador(() => u, det);
+    for (const [dist, min, max] of soporte) {
+      const x = sortear(dist, d);
+      assert.ok(Number.isFinite(x) && x >= min && x <= max,
+        `${dist.tipo} con u = ${u}: se esperaba un valor finito en [${min}, ${max}] y salió ${x}`);
+    }
+  }
+  // Lo que da cada borde, fijado (con u = 1: exponencial −0, Weibull 0, triangular y empírica el máximo, discreta el último valor).
+  const conUno = crearSorteador(() => 1, det);
+  assert.ok(Object.is(conUno({ tipo: 'exponencial', media: 5 }, d), -0));
+  assert.equal(conUno({ tipo: 'weibull', forma: 2, escala: 3 }, d), 0);
+  assert.equal(conUno({ tipo: 'triangular', min: 1, moda: 2, max: 6 }, d), 6);
+  assert.equal(conUno({ tipo: 'empirica', valores: [1, 2, 4] }, d), 4);
+  assert.equal(conUno({ tipo: 'discreta', valores: [7, 8, 9], pesos: [0.1, 0.2, 0.7] }, d), 9);
+  // Bernoulli: u < p. Con u = 1, una Bernoulli de p = 1 da 0 (una vez cada 2^53 sorteos); con u = 2^-54 una de p = 0 da 0.
+  assert.equal(conUno({ tipo: 'bernoulli', p: 1 }, d), 0, 'borde conocido: bernoulli(1) da 0 si u = 1 (NOTAS-CONTRATO.md §1)');
+  assert.equal(crearSorteador(() => DOS_M54, det)({ tipo: 'bernoulli', p: 0 }, d), 0);
+});
+
 test('errores claros en distribuciones mal formadas', () => {
   const f = crearFuenteAzar(1, 1), d: Direccion = { clave: 1, a: 0, b: 0, c: 0 };
   assert.throws(() => f.sortear({ tipo: 'erlang', k: 0, media: 1 }, d), /erlang: se esperaba k entero entre 1 y 512 y se recibió 0/);

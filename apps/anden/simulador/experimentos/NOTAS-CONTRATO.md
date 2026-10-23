@@ -1,4 +1,4 @@
-# Notas de contrato · P5 Experimentos y estadística (18-10-2026)
+# Notas de contrato · P5 Experimentos y estadística (18-10-2026; puesta al día el 23-10-2026 con los arreglos de la revisión: ver §12)
 
 Lo que el contrato (`contratos/`) o la especificación (`corte-1.md`) no fija, fija de forma ambigua o no alcanza a cubrir, y lo que este
 paquete agregó por su cuenta. En cada punto: qué pasa, qué supuesto tomó P5 y la propuesta para la integración. **Ninguno cambia un
@@ -47,8 +47,11 @@ contrato**: P5 cumple las firmas de `contratos/experimentos.ts` tal cual (lo com
 - **§7 dice** «tandas solo a los valores en duda». **Supuesto de P5:** solo a los valores en duda **que están por debajo del menor valor que
   ya cumple** (un valor por encima de uno que cumple no puede cambiar la recomendación, que es «el menor que cumple»). Por eso la tabla
   final puede mostrar «en duda» un valor alto que ya no importaba; el semáforo `decision-en-duda` solo salta por los valores que sí importan.
-- **Medido** (simulador falso 0,60 · 0,80 · 0,97 · 0,995, meta 0,9, 200 corridas con semillas 1000–1199): recomienda 4 en **200 de 200**
-  (la especificación pide ≥ 95%) y usa en promedio **205 noches = 12,8%** de las 1.600 de correr 400 fijas por valor (pide < 60%).
+- **Medido** (simulador falso 0,60 · 0,80 · 0,97 · 0,995, meta 0,9, 200 corridas con semillas 1000–1199, `OPCIONES` 20/20/400): con la corrección por
+  mirar varias veces (§12.1) recomienda 4 en **199 de 200** (la especificación pide ≥ 95%; la corrida que falla, semilla 1188, saca 376 de 400
+  en la opción de 0,97, 3,5 desvíos por debajo de lo esperado, y queda «en duda» con el semáforo amarillo correcto) y usa en promedio
+  **416,7 noches = 26,0%** de las 1.600 de correr 400 fijas por valor (pide < 60%). MEDIDO el 23-10-2026. Antes de la corrección (versión del
+  18-10) eran 200 de 200 y 12,8%: el costo de no declarar «cumple» por azar es esperar más noches.
 - **Estimación de lo que falta.** Cuando algo queda en duda al llegar a `replicasMax`, `vars.faltan` es una ESTIMACIÓN (`nochesQueFaltan`): las
   noches que harían falta para que el Wilson de la **misma proporción observada** deje de cruzar la meta. Si la proporción es justo la meta,
   o harían falta más de un millón, se informa 1.000.000. Se calcula para el valor en duda más bajo (el que bloquea la recomendación), y
@@ -64,6 +67,9 @@ contrato**: P5 cumple las firmas de `contratos/experimentos.ts` tal cual (lo com
   (integración) lo conecta a `worker.onerror` y `onmessageerror`, y el planificador rechazaría el trabajo y reemplazaría al trabajador
   (ESTIMACIÓN: ~10 líneas en `planificador.ts`). Mientras tanto, el «guardián que termina el Worker si se pasa del tiempo» (diseño maestro §4.9) puede
   usar `cancelar(id)`, que ya termina y reemplaza al trabajador.
+- **Estado (integración, 19-10-2026): resuelto sin tocar el contrato.** `integracion/puente.ts › puertoDeWorker` traduce `error` y `messageerror` del
+  Worker en un mensaje `error` del protocolo por cada trabajo en curso; el planificador lo trata como cualquier otro `error` del simulador (rechaza
+  el trabajo y sigue). P5 no cambió. La propuesta de `alFallar` queda como mejora de limpieza para el corte 2.
 
 ## 6. `comparar` no da veredicto para KPI neutros
 
@@ -139,3 +145,58 @@ Todas ordenan por índice de réplica antes de sumar (así R07 da bit a bit lo m
   `estadoPorWilson`, `estadoConfiguracion`, `nochesQueFaltan`, `recomendar`, `ErrorCancelado`, `esCancelacion`, `correrYAgregar` (corre un
   trabajo y devuelve los resultados **ordenados por réplica**), `trabajadorEnProcesoCon`, `huellaAgregada`, `claveSemaforo`, `tieneSentido`,
   `ordenarPorReplica`, `resumirNumeros`.
+
+## 12. Lo que cambió después de la revisión adversarial (19-10-2026) y cómo quedó hoy (23-10-2026)
+
+La versión del 18-10 cumplía la letra de §7 y §9. La revisión con cinco lentes (19-10) encontró defectos que la letra deja pasar; los
+arreglos están en el código, con sus pruebas, y **desvían a propósito** de la letra de §7 en los puntos 1 y 2. La integración los registró
+también en `integracion/CAMBIOS-CONTRATO.md` (§6) con el texto propuesto para la especificación. Ningún cambio toca `contratos/`.
+
+1. **La decisión secuencial mira varias veces y por eso corrige (hallazgos H2 y E-03).** §7 dice «tandas hasta que ninguno queda en duda» con el
+   Wilson de la confianza del experimento en cada mirada. Mirar el Wilson al 95% hasta 20 veces y quedarse con el primer «cumple» declaraba
+   «cumple» en ~9% de las decisiones cuando la probabilidad real era justo la meta (con una sola mirada es ≤ 2,5%). Ahora cada mirada decide con
+   el Wilson de confianza 1 − (1 − confianza) ÷ K y z = Φ⁻¹(1 − α/(2K)), con K = 1 + ⌈(replicasMax − replicasIniciales) ÷ tanda⌉ (Bonferroni;
+   20, 20 y 400 → K = 20, confianza por mirada 0,9975, z = 3,0233). `estadistica/normal.ts` calcula la cola normal y su inversa con solo
+   aritmética (sin `Math.log` ni `Math.exp`: §1.4; control: Q⁻¹(0,025) = 1,959963984540054). **Lo que cambia para quien consume:**
+   - `EvaluacionConfiguracion.prop.ic` y `prop.confianza` son los **de la mirada** (0,9975), no los 0,95 del experimento: el intervalo que se
+     muestra es el que decide, así estado e intervalo nunca se contradicen. La interfaz tiene que decir la confianza (`prop.confianza`).
+   - **S13** (`estadoPorWilson` sobre `wilson(éxitos, n, conf)`: 19/20 → en-duda, 97/100 → cumple, 336/400 → no-cumple) sigue exacto **para la
+     función con una sola mirada**, que es lo que prueba la batería. Dentro de `evaluarDecision` con 20 miradas, 97/100 queda **en duda**
+     (Wilson con z = 3,0233: [0,8675; 0,9938]) y hacen falta 100 de 100 para «cumplir» con 100 noches. Es el precio de no declarar «cumple» por azar.
+   - Medido: la probabilidad exacta (programación dinámica sobre la binomial) de declarar «cumple» con p real = meta es ≤ 2,5% para metas 0,8,
+     0,9 y 0,95 (antes 9,2% y 4,0%), y 2.000 decisiones con la `evaluarDecision` real caen dentro de 2,5% + 3 ee (`pruebas/normal.test.ts`).
+2. **El IC del P90 no se recorta (hallazgo E-07).** §7 dice «recortados a [0, n−1]». Recortar el rango superior al máximo daba un intervalo que se
+   llamaba «95%» y cubría 84–93% con 20 a 40 réplicas. Ahora `icPercentil` devuelve **null** si alguno de los dos rangos cae fuera de [0, n−1] (además
+   de n < 20). Para el P90 el IC existe desde **42 réplicas con 0,90, 53 con 0,95 y 79 con 0,99** (MEDIDO; `pruebas/percentiles.test.ts`); para la
+   mediana, desde 20. `Resumen.icP90` ya admitía `null`: la interfaz muestra el P90 sin intervalo cuando falta (hallazgo E-06). Con las 100 noches
+   de la pantalla de noches el IC existe en las tres confianzas.
+3. **Semáforo, tres arreglos de texto (hallazgos E-08, E-09, E-10).**
+   - E-08: una opción que «no cumple» porque su noche no termina (sobrecargada) ya no pone la decisión en rojo por `no-termina`, y el verde
+     deja de decir «ninguna alerta» después de haberlas filtrado: cuenta **todas** las noches (`vars.replicas`) y nombra las opciones
+     sobrecargadas (`vars.sobrecargadas`, texto `experimentos.semaforo.ok.sobrecargadas`). Un `no-termina` en una opción que cumple o está en
+     duda, y cualquier otra alerta (conservación, invariantes, tope de eventos, lazo de tiempo cero), siguen en rojo.
+   - E-09: `vars.replica` es el número de noche **como lo muestra la etiqueta** («Noche 1 de 100»): índice + 1.
+   - E-10: si no se puede estimar cuántas noches faltan (la proporción está justo en la meta, o harían falta más de un millón), `vars.faltan` **no
+     va** y el texto es `experimentos.semaforo.decision-en-duda.sin-estimacion`; no se inventa un número.
+   - **Para quien muestra el texto:** la clave no es siempre `experimentos.semaforo.<motivo>`. Usar `claveTextoSemaforo(semaforo)` (exportada por
+     `semaforo.ts`; `claveSemaforo(motivo)` queda para el caso general). Las dos variantes existen en es y en, con las variables verificadas por prueba.
+4. **`I-CONTROLES` (integración, 19-10-2026).** `armarComprobante` toma de los diagnósticos del modelo el total de controles que informó el
+   compilador (P3 cuenta 24; P5 contaba 18 + los informativos y el comprobante y el compilador decían números distintos). `pasaron` = controles
+   sin ningún diagnóstico de nivel `error` (la pantalla dice «sin errores»); un aviso no resta y se cuenta aparte. Los 18 códigos de §9 P3
+   quedan como respaldo si no viene `I-CONTROLES` (o viene sin números). Esto cierra la propuesta del punto 8. Ahora con prueba propia.
+5. **Pruebas nuevas de hoy:** la rama `I-CONTROLES` de `contarControles`; las variantes de texto del semáforo (`sin-estimacion` y
+   `ok.sobrecargadas`) contra lo que entrega `evaluarDecision`; el umbral exacto de réplicas del IC del P90; y `pruebas/planificador-azar.test.ts`
+   (30 secuencias al azar con semilla fija de `enviar` / `cancelar` / `cancelarDesde` sobre trabajadores en proceso, que exigen a la vez: cada
+   réplica una vez, nada después de cancelar, nada colgado ni rechazado sin motivo y creados = terminados al cerrar; 0 violaciones, también en 60
+   semillas probadas aparte). Ninguna depende del reloj.
+6. **Verificación independiente de la tabla de t (23-10-2026).** Las 600 entradas de `tabla-t.json` (ν = 1…200 × 0,90 · 0,95 · 0,99) se
+   compararon con las **fórmulas cerradas de Abramowitz y Stegun 26.7.3 y 26.7.4** (sumas finitas, sin beta incompleta) resueltas por bisección en
+   Python: error relativo máximo **3,0e-11**. Es una segunda implementación distinta de la que genera la tabla (fracción continua de Lentz).
+
+### Lo que sigue abierto y no es de P5
+
+- **E-11** (la precisión que pide la plantilla, ±5% en `esperaP90Min`, no se alcanza con 100 noches y el semáforo queda en amarillo
+  `precision-no-lograda`): el semáforo hace lo que debe; falta decidir entre más tandas, un botón de «simular más» o revisar la plantilla
+  (integración, `CAMBIOS-CONTRATO.md` §9).
+- Los puntos 1, 2, 3, 6 y 8 de arriba (§1, §2, §3, §6, §8) siguen pidiendo decisiones que no son de este paquete: `semaforo(...)` sin firma en el contrato,
+  la prioridad en las opciones de `EvaluarDecision`, el rechazo con `ErrorCancelado`, el veredicto de KPI neutros y la lista de controles.

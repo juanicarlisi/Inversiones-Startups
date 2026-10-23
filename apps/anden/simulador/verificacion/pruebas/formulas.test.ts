@@ -1,6 +1,8 @@
 // Pruebas de verificacion/formulas/colas.ts: cada valor esperado de la tabla de corte-1.md §8 sale de una fórmula con error ≤ 1e-5.
-// La tabla imprime los valores redondeados (por ejemplo 8,770 para E[N(66 h)] = 8,76971…): la tolerancia es la mayor entre 1e-5
-// relativo y media unidad de la última cifra impresa (ver NOTAS-CONTRATO.md). También se prueba que la batería use estas fórmulas.
+// Cuatro valores están impresos con menos cifras de las que pide 1e-5 (8,770 para E[N(66 h)] = 8,76971…, 0,36386 para el Erlang C de
+// la M/M/50 = 0,363864…, y dos informativas de cuatro decimales): solo esos, nombrados en REDONDEADOS, se comparan con media unidad de la
+// última cifra impresa (ver NOTAS-CONTRATO.md §4). Todos los demás, con 1e-5 relativo estricto. También se prueba que la batería use
+// estas fórmulas: cada esperado declarado es, bit a bit, el valor de la fórmula.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { matNativa } from '../../contratos/referencia/motor-referencia.ts';
@@ -41,19 +43,35 @@ const TABLA: [string, string, () => number][] = [
   ['V12c', '0.5744', () => f.allenCunneen(3.4, 1, 4, 0.5, 0.5)], ['V12d', '1.8669', () => f.allenCunneen(3.4, 1, 4, 1, 2.25)],
 ];
 
-function tolerancia(impreso: string): number {
-  const v = Number(impreso);
+/**
+ * Los únicos valores impresos con menos cifras de las que pide 1e-5 relativo: para ellos la tolerancia es media unidad de la última
+ * cifra impresa (el valor de la fórmula redondeado a esas cifras tiene que dar lo impreso). Si una fórmula se rompe, no hay
+ * tolerancia ancha que la tape: un «1» impreso se compara con 1e-5, no con 0,5.
+ */
+const REDONDEADOS: ReadonlySet<string> = new Set(['V06c', 'V28d', 'V12b', 'V12c']);
+const TOL_REL = 1e-5;
+
+function mediaUnidad(impreso: string): number {
   const dec = impreso.includes('.') ? impreso.split('.')[1].length : 0;
-  let mediaUnidad = 0.5;
-  for (let i = 0; i < dec; i++) mediaUnidad /= 10;
-  return Math.max(1e-5 * Math.abs(v), mediaUnidad);
+  let x = 0.5;
+  for (let i = 0; i < dec; i++) x /= 10;
+  return x;
+}
+function tolerancia(id: string, impreso: string): number {
+  return REDONDEADOS.has(id) ? Math.max(TOL_REL * Math.abs(Number(impreso)), mediaUnidad(impreso)) : TOL_REL * Math.abs(Number(impreso));
 }
 
-test('formulas/ reproduce cada valor esperado de la tabla de §8 (error ≤ 1e-5 o media unidad de la última cifra impresa)', () => {
+test('formulas/ reproduce cada valor esperado de la tabla de §8 (error relativo ≤ 1e-5; los impresos redondeados, a su última cifra)', () => {
   for (const [id, impreso, formula] of TABLA) {
-    const v = formula(), e = Number(impreso), tol = tolerancia(impreso);
+    const v = formula(), e = Number(impreso), tol = tolerancia(id, impreso);
     assert.ok(Math.abs(v - e) <= tol, `${id}: la tabla dice ${impreso} y la fórmula da ${v} (diferencia ${Math.abs(v - e)}, tolerancia ${tol})`);
   }
+});
+
+test('la tolerancia ancha es solo para los impresos redondeados: los demás cumplen 1e-5 y esos cuatro de verdad lo necesitan', () => {
+  const necesitan = TABLA.filter(([, impreso, formula]) => Math.abs(formula() - Number(impreso)) > TOL_REL * Math.abs(Number(impreso))).map(([id]) => id);
+  assert.deepEqual(necesitan.sort(), [...REDONDEADOS].sort(),
+    `se esperaba que solo ${[...REDONDEADOS].join(', ')} pasaran de 1e-5 por cómo están impresos y pasan ${necesitan.join(', ') || 'ninguno'}`);
 });
 
 test('Erlang B y C: casos de borde y recursión', () => {
@@ -87,15 +105,16 @@ test('M_t/M/∞ con amplitud 0 es la M/M/∞ que arranca vacía: λ/μ (1 − e^
   assert.ok(Math.abs(v - 20 * (1 - matNativa.exp(-3))) < 1e-12, `${v}`);
 });
 
-test('la batería usa las fórmulas: cada esperado declarado coincide con la tabla', () => {
+test('la batería usa las fórmulas: cada esperado declarado es el valor de la fórmula, bit a bit', () => {
+  // La referencia usa matNativa: los esperados que piden log, exp, sen o cos (D/M/1 y M_t/M/∞) salen iguales que en TABLA.
   const casos = crearBateria(crearMotorReferencia).casos;
   const declarado = new Map(casos.flatMap((c) => c.pruebas.map((p) => [p.id, p.esperado] as const)));
-  for (const [id, impreso] of TABLA) {
+  for (const [id, , formula] of TABLA) {
     const base = id.split(' ')[0];
     const d = declarado.get(base);
     assert.ok(d !== undefined, `la batería no declara ${base}`);
     const v = typeof d === 'number' ? d : (d as Record<string, number>)[id.split(' ')[1]];
-    assert.ok(Math.abs(v - Number(impreso)) <= tolerancia(impreso), `${id}: la batería espera ${v} y la tabla dice ${impreso}`);
+    assert.equal(v, formula(), `${id}: la batería espera ${v} y la fórmula da ${formula()}`);
   }
 });
 

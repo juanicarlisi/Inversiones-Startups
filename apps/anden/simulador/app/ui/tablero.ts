@@ -6,7 +6,11 @@
 // búsqueda binaria; el DOM solo se toca si cambió el texto.
 import type { Contexto } from '../contexto.ts';
 import type { EstadoRecursos, Reproductor } from '../../contratos/vistas.ts';
+import { TipoTramo } from '../../contratos/traza.ts';
 import { el } from './dom.ts';
+
+/** Desde cuántos paquetes en la cola del puesto manual el dato se marca como alerta (y se muestra también en el teléfono). */
+export const ALERTA_COLA_MANUAL = 100;
 
 /** Cuántos valores de `xs` (ordenado ascendente) son ≤ t. */
 export function contarHasta(xs: Float64Array, t: number): number {
@@ -23,6 +27,9 @@ export interface DatosNoche {
   corte: number;
   /** Paquetes que no estaban en una jaula a la hora del corte (los «pendientes al corte» de §6.9). */
   pendientesAlCorte: number;
+  /** Entradas y salidas de la cola del puesto manual (tramos COLA_MANUAL), ordenadas: cuántos esperan ahí en t, sin recorrer la traza. */
+  manualDesde: Float64Array;
+  manualHasta: Float64Array;
 }
 
 export function datosDeNoche(r: Reproductor): DatosNoche {
@@ -38,12 +45,22 @@ export function datosDeNoche(r: Reproductor): DatosNoche {
     if (P.listo[e] < 0 || P.listo[e] > corte) pend++;
   }
   creados.sort(); listos.sort();
-  return { creados, listos, total: creados.length, corte, pendientesAlCorte: pend };
+  // la cola del puesto manual: la pila que se ve junto a la mesa de excepción (la escena la amontona; acá se cuenta)
+  const T = r.traza.tramos;
+  let m = 0;
+  if (T) for (let i = 0; i < T.n; i++) if (T.k[i] === TipoTramo.COLA_MANUAL) m++;
+  const manualDesde = new Float64Array(m), manualHasta = new Float64Array(m);
+  m = 0;
+  if (T) for (let i = 0; i < T.n; i++) if (T.k[i] === TipoTramo.COLA_MANUAL) { manualDesde[m] = T.t0[i]; manualHasta[m] = T.t1[i]; m++; }
+  manualDesde.sort(); manualHasta.sort();
+  return { creados, listos, total: creados.length, corte, pendientesAlCorte: pend, manualDesde, manualHasta };
 }
 
 /** Las cuentas del instante t (puras, para probarlas en Node). */
 export interface Instante {
   enJaula: number; adentro: number; fila: number; rampasLlenas: number; enPausa: number; lazoDetenido: boolean;
+  /** Paquetes esperando el puesto manual en t (entraron a la cola y todavía no salieron). */
+  colaManual: number;
   /** null antes del corte; después, cuántos no llegaron. */
   noLlegaron: number | null;
 }
@@ -54,6 +71,8 @@ export function instanteDe(d: DatosNoche, rec: EstadoRecursos, t: number): Insta
   for (let i = 0; i < rec.personaEstado.length; i++) enPausa += rec.personaEstado[i] === 2 ? 1 : 0;
   return {
     enJaula, adentro: Math.max(0, nacidos - enJaula), fila: rec.filaAcumulacion, rampasLlenas, enPausa, lazoDetenido: rec.lazoDetenido,
+    // un tramo [t0, t1) está en la cola en t si t0 ≤ t < t1
+    colaManual: Math.max(0, contarHasta(d.manualDesde, t) - contarHasta(d.manualHasta, t)),
     noLlegaron: t >= d.corte ? d.pendientesAlCorte : null,
   };
 }
@@ -69,9 +88,10 @@ export function crearTablero(ctx: Contexto, reproductor: () => Reproductor | nul
   const rampas = el('span', { class: 'tablero__dato tablero__dato--alerta', 'data-tablero': 'rampas' });
   const pausa = el('span', { class: 'tablero__dato', 'data-tablero': 'pausa' });
   const lazo = el('span', { class: 'tablero__dato tablero__dato--alerta', 'data-tablero': 'lazo' });
+  const manual = el('span', { class: 'tablero__dato', 'data-tablero': 'manual' });
   const corte = el('span', { class: 'tablero__dato', 'data-tablero': 'corte' });
   const nodo = el('div', { class: `tablero${compacto ? ' tablero--compacto' : ''}`, 'aria-hidden': 'true', 'data-tablero-vivo': '' },
-    hora, jaula, ...(compacto ? [] : [adentro, fila]), rampas, pausa, lazo, corte);
+    hora, jaula, ...(compacto ? [] : [adentro, fila]), rampas, pausa, manual, lazo, corte);
   nodo.hidden = true;
   let de: Reproductor | null = null, datos: DatosNoche | null = null, rec: EstadoRecursos | null = null;
   const poner = (n: HTMLElement, texto: string | null) => {
@@ -94,6 +114,8 @@ export function crearTablero(ctx: Contexto, reproductor: () => Reproductor | nul
     poner(rampas, x.rampasLlenas ? ctx.t(x.rampasLlenas === 1 ? 'app.tablero.rampaLlena' : 'app.tablero.rampasLlenas', { n: x.rampasLlenas }) : null);
     poner(pausa, x.enPausa ? ctx.t(x.enPausa === 1 ? 'app.tablero.unaEnPausa' : 'app.tablero.enPausa', { n: x.enPausa }) : null);
     poner(lazo, x.lazoDetenido ? ctx.t('app.tablero.lazoDetenido') : null);
+    poner(manual, x.colaManual ? ctx.t(x.colaManual === 1 ? 'app.tablero.unoEnManual' : 'app.tablero.enManual', { n: num(x.colaManual) }) : null);
+    manual.classList.toggle('tablero__dato--alerta', x.colaManual >= ALERTA_COLA_MANUAL);
     if (x.noLlegaron === null) poner(corte, null);
     else {
       poner(corte, x.noLlegaron ? ctx.t('app.tablero.noLlegaron', { n: num(x.noLlegaron) }) : ctx.t('app.tablero.todoAlCorte'));

@@ -4,8 +4,9 @@
 import { I } from './interfaz.mjs';
 
 // Segundos reales entre una acción y la siguiente (lo que tarda una persona en tocar, leer y decidir).
-export const REACCION = { literal: 1, novato: 2, listo: 1.5, compraTodo: 1 };
-export const NOVEDADES = new Set(['mision', 'capituloNuevo', 'avionNuevo', 'ciudadesNuevas', 'contrato', 'bancoListo', 'resultadoNoche', 'primeraNoche', 'finHistoria']);
+export const REACCION = { literal: 1, novato: 2, listo: 1.5, compraTodo: 1, soloChip: 1.5 };
+export const NOVEDADES = new Set(['mision', 'capituloNuevo', 'avionNuevo', 'ciudadesNuevas', 'contrato', 'bancoListo', 'resultadoNoche', 'primeraNoche', 'finHistoria',
+  'primerasBalizas', 'primerDespegueNoche', 'clasificacion', 'clasificacionHecha']);
 
 // ───────── lo que ve el jugador ─────────
 const conAvion = (s, r) => s.aviones.some((a) => a.ruta === r.id);
@@ -78,6 +79,7 @@ function historiaEspera(s) { return s.rutas.some((r) => !conAvion(s, r)); }
 function seguirHistoria(s, conPista = true, ctx = {}) {
   const obj = I.misionesActivas(s).find((o) => o.tipo === 'historia');
   if (!obj) return null;
+  if (obj.espera) return avionParaRutasVacias(s); // «se viene la primera noche»: la misión todavía no pide nada
   const m = obj.mision;
   // una ruta abierta por la historia y todavía sin avión es algo a medio hacer: primero, su avión
   const aMedias = avionParaRutasVacias(s);
@@ -177,11 +179,23 @@ function seguirHistoria(s, conPista = true, ctx = {}) {
   }
 }
 
+// La primera clasificación del hub (una pregunta en el panel): el novato contesta a la suerte (la mitad acierta); el listo razona
+// que lo que vuela más lejos tiene que salir antes. Ninguno de los dos mira el resultado previsto (el panel no lo muestra antes).
+function contestarClasificacion(s, ctx, razona) {
+  const c = I.clasificacionActual(s);
+  if (c?.estado !== 'oferta') return null;
+  const op = c.opciones;
+  const id = razona ? [...op].sort((a, b) => b.vuelo - a.vuelo)[0].id : op[Math.floor((ctx.azar?.() ?? 0) * op.length)].id;
+  return { tipo: 'clasificar', id };
+}
+
 export const PERFILES = {
   literal(s, ctx) { return rondaSiLaPide(s, ctx) ?? seguirHistoria(s, true, ctx); },
   novato(s, ctx) {
     const h = rondaSiLaPide(s, ctx) ?? seguirHistoria(s, true, ctx);
     if (h) return h;
+    const cl = contestarClasificacion(s, ctx, false);
+    if (cl) return cl;
     const objs = I.misionesActivas(s);
     const oferta = objs.find((o) => o.tipo === 'contrato' && o.oferta);
     if (oferta && objs.filter((o) => o.tipo === 'contrato' && !o.oferta).length < 2) return { tipo: 'contrato', id: oferta.contrato };
@@ -192,12 +206,24 @@ export const PERFILES = {
   },
   listo(s, ctx) {
     if (ctx.rondaDisponible) return { tipo: 'ronda' }; // juega la ronda con el plan sugerido
+    const cl = contestarClasificacion(s, ctx, true);
+    if (cl) return cl;
     const objs = I.misionesActivas(s);
     const activos = objs.filter((o) => o.tipo === 'contrato' && !o.oferta).length;
     const oferta = objs.find((o) => o.tipo === 'contrato' && o.oferta && I.servido(s, o.o) && I.servido(s, o.d));
     if (oferta && activos < 2) return { tipo: 'contrato', id: oferta.contrato };
-    const h = seguirHistoria(s, true, ctx); // lee las pistas: es lo más barato que hace avanzar la historia
+    // el chip para los objetivos (misión, seguridad, cuello de botella); después las pistas; y, pensando por su cuenta, la mejor
+    // decisión económica que muestran los botones del panel (se paga en 2 días), sin el tope de un consejo por día del chip
+    const sug = I.sugerencia(s);
+    if (sug && (sug.mision || sug.seguridad || sug.cuello) && sug.tipo !== 'ahorrar') return accionDe(sug);
+    const h = seguirHistoria(s, true, ctx);
     if (h) return h;
+    const d = mejorDecision(s);
+    return d ? accionDe(d) : null; // elige su propia velocidad: juega a ×1
+  },
+  // Toca solo el chip de la mejor próxima acción, cada 1,5 s, y hace lo que marca (también «×3 hasta juntar»). Es el jugador de portal
+  // que no lee nada más: el chip tiene que jugar bien para él sin quitarle lugar a quien piensa.
+  soloChip(s) {
     const sug = I.sugerencia(s);
     return sug ? accionDe(sug) : null;
   },
@@ -210,11 +236,20 @@ export const PERFILES = {
     return avionDondeEspera(s, masGrande, 0);
   },
 };
+// La mejor decisión económica por su cuenta: la que más rinde por peso de las que se pagan en 2 días de juego.
+const ECONOMICAS = new Set(['avion', 'ruta', 'balizas', 'transbordo', 'cargaMin', 'vender']);
+function mejorDecision(s) {
+  const caja = s.dinero, gd = Math.max(5000, Math.abs(I.gananciaDia(s)) / 2);
+  const ok = I.decisiones(s).filter((d) => ECONOMICAS.has(d.tipo) && d.efectoDia > 0 && (d.costo <= 0 || (d.costo <= 2 * d.efectoDia && caja - d.costo > 0)));
+  return ok.sort((a, b) => b.efectoDia / Math.max(gd / 4, b.costo + gd) - a.efectoDia / Math.max(gd / 4, a.costo + gd))[0] ?? null;
+}
 // Si la misión de historia es la de la ronda, se juega la ronda (con el plan sugerido, como dice la pista).
 function rondaSiLaPide(s, ctx) {
   return ctx.rondaDisponible && I.misionActual(s)?.tipo === 'rondaPct' ? { tipo: 'ronda' } : null;
 }
-const accionDe = (d) => (d.tipo === 'ruta' ? { tipo: 'ruta', a: d.a, b: d.b } : d.tipo === 'avion' ? { tipo: 'avion', id: d.id, ruta: d.ruta } : d.tipo === 'cargaMin' ? { tipo: 'cargaMin', id: d.id, v: d.v } : { tipo: d.tipo, id: d.id });
+const accionDe = (d) => (d.tipo === 'ruta' ? { tipo: 'ruta', a: d.a, b: d.b } : d.tipo === 'avion' ? { tipo: 'avion', id: d.id, ruta: d.ruta }
+  : d.tipo === 'cargaMin' ? { tipo: 'cargaMin', id: d.id, v: d.v } : d.tipo === 'acelerar' ? { tipo: 'acelerar', meta: d.meta }
+  : d.tipo === 'vender' ? { tipo: 'vender', id: d.id, sobra: !!d.sobra, seguridad: !!d.seguridad } : { tipo: d.tipo, id: d.id });
 
 export function aplicar(s, a) {
   switch (a.tipo) {
@@ -226,7 +261,9 @@ export function aplicar(s, a) {
     case 'contrato': return I.aceptarContrato(s, a.id);
     case 'cargaMin': return I.fijarCargaMinima(s, a.id, a.v);
     case 'ronda': return I.aplicarPlan(s, I.planSugerido(s, I.HUB));
+    case 'clasificar': return I.elegirClasificacion(s, a.id);
     case 'esperar': case 'ahorrar': return { ok: false }; // junta plata para lo que pide la pista o la mejor próxima acción
+    case 'acelerar': return { ok: true, acelerar: a.meta }; // «×3 hasta juntar $X»: la velocidad la maneja quien corre la partida
     default: return { ok: false };
   }
 }

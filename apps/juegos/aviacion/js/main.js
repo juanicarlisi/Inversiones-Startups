@@ -164,6 +164,10 @@ function atender(eventos) {
       case 'primeraNoche': U.aviso(t('primeraNoche', { n: e.aviones?.length ?? 0 }), 'noche', { dura: 5000 }); break;
       case 'ventaForzada': U.aviso(t('ventaForzada', { monto: plata(e.monto ?? 0) }), 'malo'); break;
       case 'bancoListo': U.aviso(t('bancoListo'), 'noche', { dura: 5000 }); break;
+      case 'primerasBalizas': U.aviso(t('primerasBalizas'), 'noche'); break;
+      case 'primerDespegueNoche': U.aviso(t('primerDespegueNoche'), 'noche'); break;
+      case 'clasificacion': U.aviso(t('clasifAviso'), 'bueno', { ico: 'hub', dura: 5000 }); break;
+      case 'clasificacionHecha': sonar('mision'); U.aviso(t('clasifHechaAviso', { pct: `${numero(e.pct * 100)}%`, monto: plata(e.ingreso) }), 'bueno', { ico: 'hub' }); U.contarCaja(s.dinero - (e.ingreso ?? 0), s.dinero); break;
       case 'rondaDisponible': U.aviso(t('rondaDisponible'), 'noche', { dura: 5000 }); break;
       case 'resultadoNoche': { const r = RJ.resultado(s, e, refrescarFuerte); if (r.aviso) U.aviso(r.aviso, 'noche', { ico: 'medalla' }); break; }
       default: break;
@@ -414,6 +418,7 @@ const ACCIONES = {
     if (c) E.encuadrar([POS(c.o), POS(c.d)], { ms: 450, zMax: 70 });
   },
   aceptarContrato: (b) => { const res = M.aceptarContrato(s, Number(b.dataset.id)); if (!res.ok) return error(res); sonar('compra'); },
+  clasificar: (b) => { const res = M.elegirClasificacion(s, b.dataset.id || null); if (!res.ok) return error(res); sonar('compra'); },
   siguienteCapitulo: () => finCapitulo(),
   sugerencia: () => {
     const d = sug ?? M.sugerencia(s);

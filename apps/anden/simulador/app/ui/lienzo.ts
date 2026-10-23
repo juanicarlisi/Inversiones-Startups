@@ -1,7 +1,8 @@
 // app/ui/lienzo.ts · Andén simulador, corte 1 · P8 (interfaz).
 // Un lienzo con la vista de la escena (servicios.crearVista sobre el reproductor de la noche): se redibuja cuando cambia el cabezal, la
 // selección, el tema, el piso o la noche; se adapta al tamaño de su caja (ResizeObserver) y a la densidad de la pantalla; tocar algo
-// lo selecciona y abre su biografía. Lo que se dibuja sale de la traza (lo que se ve es lo que se calculó).
+// lo selecciona y abre su biografía. Lo que se dibuja sale de la traza (lo que se ve es lo que se calculó). Mientras no hay noche, si se
+// pasa `plano`, dibuja el plano vacío del hub (ui/plano.ts): sin tablero, sin toques y sin marcarse listo, porque no es un instante.
 import type { Contexto } from '../contexto.ts';
 import type { MapaRiesgo, Piso, Reproductor, Vista } from '../../contratos/vistas.ts';
 import type { Estado } from '../estado.ts';
@@ -38,6 +39,8 @@ export interface OpcionesLienzo {
   claveCamara?: string;
   /** Se llama cada vez que la vista se arma con otro piso (el medido, el elegido o el remedido): para el botón de piso (hallazgo UX-07). */
   alCambiarPiso?: (piso: Piso) => void;
+  /** El plano vacío del hub (ui/plano.ts), que se dibuja mientras `reproductor()` da null. Si su vista falla, se deja de intentar. */
+  plano?: () => Reproductor | null;
 }
 
 export interface Lienzo { nodo: HTMLElement; redibujar(): void; destruir(): void; vista(): Vista | null }
@@ -80,9 +83,36 @@ export function crearLienzo(ctx: Contexto, o: OpcionesLienzo): Lienzo {
       return ctx.servicios.elegirPiso(() => { const t0 = performance.now(); prueba.dibujar(t); return performance.now() - t0; });
     } finally { prueba.destruir(); }
   };
+  // el plano mientras se simula: nunca mide el piso (vacío, el 2,5D siempre andaría rápido) y, si algo falla, se deja de intentar
+  let planoRoto = false;
+  const asegurarPlano = (): Vista | null => {
+    const p = !planoRoto && o.plano ? o.plano() : null;
+    if (!p || ancho < 2 || alto < 2) return null;
+    // el piso elegido, el ya medido en esta página o el 2,5D (el que elige casi cualquier equipo: el banco midió 1,5 ms por cuadro)
+    const piso = o.piso ?? ctx.almacen.estado.piso ?? pisoMedido ?? 'iso';
+    const tema = `${ctx.temaResuelto()}|${ctx.reducirMovimiento()}`;
+    if (vista && deReproductor === p && deTema === tema && dePiso === piso) return vista;
+    try {
+      vista?.destruir();
+      vista = ctx.servicios.crearVista(lienzo, p, ctx.estilo(), piso);
+      vista.redimensionar(ancho, alto, dpr());
+    } catch {
+      planoRoto = true; vista = null; deReproductor = null; delete nodo.dataset.plano;
+      return null;
+    }
+    encuadre = { ...vista.camara };
+    deReproductor = p; deTema = tema; dePiso = piso;
+    const k = claveDe(piso);
+    propia = k ? camaras.get(k) ?? null : null;
+    if (propia) vista.camara = { ...propia };
+    pintarEncuadrar();
+    nodo.dataset.plano = '1';
+    return vista;
+  };
   const asegurarVista = (): Vista | null => {
     const r = o.reproductor();
-    if (!r || ancho < 2 || alto < 2) return null;
+    if (!r) return asegurarPlano();
+    if (ancho < 2 || alto < 2) return null;
     const piso = o.piso ?? pisoActual(ctx, () => medirIso(r));
     const tema = `${ctx.temaResuelto()}|${ctx.reducirMovimiento()}`;
     if (vista && deReproductor === r && deTema === tema && dePiso === piso) return vista;
@@ -96,6 +126,7 @@ export function crearLienzo(ctx: Contexto, o: OpcionesLienzo): Lienzo {
     deReproductor = r; deTema = tema; dePiso = piso;
     if (propia) vista.camara = { ...propia };
     pintarEncuadrar();
+    delete nodo.dataset.plano;
     const cambio = nodo.dataset.piso !== piso;
     nodo.dataset.piso = piso;
     if (cambio) o.alCambiarPiso?.(piso);
@@ -106,6 +137,11 @@ export function crearLienzo(ctx: Contexto, o: OpcionesLienzo): Lienzo {
     pendiente = 0;
     const v = asegurarVista();
     if (!v) return;
+    if (!o.reproductor()) {
+      // el plano: en el inicio del turno, sin tablero ni marca de listo (no es un instante simulado)
+      try { v.dibujar(deReproductor?.inicio ?? 0); } catch { planoRoto = true; v.destruir(); vista = null; deReproductor = null; delete nodo.dataset.plano; }
+      return;
+    }
     const e = ctx.almacen.estado, t = o.instante ? o.instante() : e.t;
     v.dibujar(t, { seleccion: e.seleccion, riesgo: o.riesgo?.() ?? null, fantasma: o.fantasma?.() ?? null });
     tablero?.actualizar(t);

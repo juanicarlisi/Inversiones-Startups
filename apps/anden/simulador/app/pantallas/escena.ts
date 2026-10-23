@@ -6,6 +6,7 @@ import type { Contexto, Montar } from '../contexto.ts';
 import { ClaseEntidad, TipoTramo, refDe } from '../../contratos/traza.ts';
 import { el, limpiezas, poner } from '../ui/dom.ts';
 import { crearLienzo, pisoActual } from '../ui/lienzo.ts';
+import { crearPlano } from '../ui/plano.ts';
 import { bucleReproduccion, controlesReproduccion, crearLineaTiempo } from '../ui/linea-tiempo.ts';
 import { etiquetaNoche, franjaSupuestos } from '../ui/etiqueta-noche.ts';
 import { lineaResumen, sellos } from '../ui/resumen.ts';
@@ -74,13 +75,17 @@ export const montarEscena: Montar = (raiz, ctx) => {
   const franja = el('div', { class: 'escena__franja' });
   // el botón de piso se repinta cuando el lienzo arma su vista con el piso medido (antes decía «Ver en 2,5D» viendo 2,5D: UX-07)
   const lienzo = crearLienzo(ctx, { reproductor: () => s.noche?.reproductor ?? null, tocable: true, etiqueta: ctx.t('app.escena.lienzo'), tablero: true, camara: true,
-    claveCamara: `escena|${mv.huella}`, alCambiarPiso: () => pintarIngeniero() });
+    claveCamara: `escena|${mv.huella}`, alCambiarPiso: () => pintarIngeniero(),
+    // mientras se simula la noche (≈ 1 s con un enlace), el plano del hub en lugar de un rectángulo vacío
+    plano: crearPlano(() => ctx.servicios.geometria(mv.modelo), ctx.servicios.crearReproductor, mv) });
   L.sumar(lienzo.destruir);
   const linea = crearLineaTiempo(ctx, { momentos: () => s.noche?.momentos ?? [], corte: () => s.noche?.traza.corte ?? null,
     minImportancia: () => (ctx.esAncho() ? 2 : 3) });
   L.sumar(linea.destruir);
   const controles = controlesReproduccion(ctx);
-  const cargando = el('p', { class: 'escena__cargando', role: 'status' });
+  // sobre el lienzo (encima del plano), no debajo
+  const cargando = el('p', { class: 'escena__cargando escena__cargando--sobre', role: 'status' });
+  lienzo.nodo.appendChild(cargando);
   const selloCaja = el('div', { class: 'escena__sellos' });
   const ingeniero = el('div', { class: 'escena__ingeniero' });
   const pisoVisto = () => ctx.almacen.estado.piso ?? lienzo.vista()?.piso ?? (lienzo.nodo.dataset.piso as 'iso' | '2d' | undefined) ?? pisoActual(ctx);
@@ -113,7 +118,7 @@ export const montarEscena: Montar = (raiz, ctx) => {
     el('div', { class: 'escena__etiquetas' }, etq.nodo, franja),
     // la película con su línea de tiempo y sus controles pegados abajo, todo dentro de la primera pantalla (hallazgo UX-08); los
     // controles van antes que las marcas en el orden del teclado (UX-13)
-    el('div', { class: 'escena__pelicula' }, lienzo.nodo, cargando, el('div', { class: 'escena__reproduccion' }, controles.nodo, linea.nodo)),
+    el('div', { class: 'escena__pelicula' }, lienzo.nodo, el('div', { class: 'escena__reproduccion' }, controles.nodo, linea.nodo)),
     leyendaEstados(ctx), acciones, atajos, ingeniero, selloCaja);
 
   const pintarResumen = () => { poner(resumen, lineaResumen(ctx)); poner(selloCaja, sellos(ctx, true)); poner(franja, franjaSupuestos(ctx)); };
@@ -142,7 +147,7 @@ export const montarEscena: Montar = (raiz, ctx) => {
   let ultimoT = ctx.almacen.estado.t;
   L.sumar(ctx.almacen.suscribir((n, a) => {
     if (n.t !== a.t || n.inicio !== a.inicio || n.fin !== a.fin) linea.actualizar();
-    if (n.t !== a.t || n.reproduciendo !== a.reproduciendo || n.velocidad !== a.velocidad) controles.actualizar();
+    if (n.t !== a.t || n.inicio !== a.inicio || n.fin !== a.fin || n.reproduciendo !== a.reproduciendo || n.velocidad !== a.velocidad) controles.actualizar();
     if (n.ingeniero !== a.ingeniero || n.piso !== a.piso) pintarIngeniero();
     // narrar los momentos importantes que el cabezal acaba de pasar (aria-live)
     if (n.reproduciendo && n.t > ultimoT && s.noche) {

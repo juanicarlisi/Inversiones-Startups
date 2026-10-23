@@ -10,6 +10,8 @@ export async function primerMinuto({ contexto, base, etiqueta, combo, prep, fall
   const h = await abrirPestana(contexto, { fallar, etiqueta });
   const { page } = h;
   const datos = {};
+  // el enlace muestra la causa confirmada durante el turno (no a media mañana, con el turno terminado: revisión de I-3)
+  if (!prep.paquete.enTurno) fallar(`${etiqueta} · primer minuto: el enlace abre a las ${horaDe(prep.instante)}, sin la causa confirmada a la vista antes del corte`);
   const t0 = Date.now();
   await page.goto(`${base}?depuracion=1#${prep.primerMinuto}`);
   await h.pantalla('escena', 60_000);

@@ -104,7 +104,9 @@ test('arquitectura · imports: cada paquete usa solo los contratos y su propia c
           if (!esPrueba(r)) malos.push(`${r}:${i.linea} importa ${destino}: el código de la app corre en el navegador (Node solo en pruebas y herramientas)`);
           continue;
         }
-        if (!destino.includes('/') && esPrueba(r) && destino === 'esbuild') continue;    // app/pruebas/humo.mjs construye con esbuild
+        // Dependencias de desarrollo fijadas en package-lock.json (corte-1.md §1.3), solo en pruebas: app/pruebas/humo.mjs construye con
+        // esbuild y nucleo/pruebas/tokens.test.ts busca los tokens de §1.4 en el árbol sintáctico de typescript (como esta misma prueba).
+        if (esPrueba(r) && (destino === 'esbuild' || destino === 'typescript')) continue;
         malos.push(`${r}:${i.linea} importa ${destino}${i.soloTipos ? ' (solo tipos)' : ''}: un paquete solo puede usar contratos/ y su carpeta (corte-1.md §14.3)`);
       }
     }

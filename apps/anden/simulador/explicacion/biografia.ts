@@ -130,7 +130,8 @@ function biografiaDePaquete(t: Traza, m: Modelo, id: number): Biografia {
   }
   const clases = m?.hub?.perfilPaquete?.clases;
   const titulo = crearFrase('explicacion.titulo.paquete', {
-    indice: String(t.paquetes.indice[id]),
+    // contado desde 1, como el camión (T01 es el camión 0): «Paquete 0 del camión T01» no lo dice nadie (revisión de la experiencia, I-3)
+    indice: String(t.paquetes.indice[id] + 1),
     camion: nombreDe(t.catalogo.camiones, t.paquetes.camion[id], 'T'),
     ruta: nombreDe(t.catalogo.rutas, t.paquetes.ruta[id], 'Ruta '),
     tamano: clases?.[t.paquetes.clase[id]]?.id ?? String(t.paquetes.clase[id]),

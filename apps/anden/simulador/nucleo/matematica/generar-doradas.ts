@@ -8,6 +8,7 @@
 // Formato: cada número es el patrón de bits IEEE 754 en hexadecimal (16 caracteres, palabra alta primero); un NaN de salida se
 // guarda como "nan" (JavaScript no fija los bits de un NaN).
 import { writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import { det } from './det.ts';
 import { philox4x32_10 } from '../azar/philox.ts';
 import { matNativa } from '../../contratos/referencia/motor-referencia.ts';
@@ -119,9 +120,19 @@ function entradasPow(): [number, number][] {
   return x;
 }
 
-function principal(): void {
-  const fechaArg = process.argv.find((a) => a.startsWith('--fecha='));
-  const fecha = fechaArg ? fechaArg.slice(8) : '2026-10-18';
+/** Lo que produce una generación: el documento, su texto tal como se escribe y las salidas de `det` que difieren de V8. */
+export interface Doradas {
+  doc: { version: 1; descripcion: string; generadoCon: string; fecha: string; node: string; v8: string; funciones: Record<string, string[][]> };
+  texto: string;
+  difieren: string[];
+}
+
+/**
+ * Genera las doradas en memoria, sin escribir nada. Es una función pura de `det`, de la matemática nativa y de la fecha: el contador
+ * de Philox arranca de cero en cada llamada, así que dos llamadas dan el mismo texto (lo prueba det.test.ts contra el archivo).
+ */
+export function generarDoradas(fecha = '2026-10-18'): Doradas {
+  contador = 0;
   const e = entradas1();
   const funciones: Record<string, string[][]> = {};
   const difieren: string[] = [];
@@ -138,11 +149,7 @@ function principal(): void {
     if (salida(a) !== salida(b)) difieren.push(`pow(${x}, ${y}) = ${a} con det y ${b} con V8`);
     return [aHex(x), aHex(y), salida(a)];
   });
-  if (difieren.length > 0) {
-    console.error(`No se escriben las doradas: ${difieren.length} salidas de det difieren de V8:\n${difieren.slice(0, 20).join('\n')}`);
-    process.exit(1);
-  }
-  const doc = {
+  const doc: Doradas['doc'] = {
     version: 1,
     descripcion: 'Doradas de la matemática determinista del núcleo (nucleo/matematica/det.ts): 1.000 entradas por función. ' +
       'Cada número es el patrón de bits IEEE 754 en hexadecimal (palabra alta primero); un NaN de salida es "nan". ' +
@@ -160,8 +167,19 @@ function principal(): void {
   const { funciones: _f, ...cabecera } = doc;
   void _f;
   const texto = JSON.stringify(cabecera, null, 2).replace(/\n}$/, `,\n  "funciones": {\n${cuerpo}\n  }\n}\n`);
-  writeFileSync(new URL('./doradas-mat.json', import.meta.url), texto);
-  console.log(`doradas-mat.json escrito: ${Object.keys(funciones).length} funciones × ${POR_FUNCION} entradas, 0 diferencias con V8`);
+  return { doc, texto, difieren };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) principal();
+function principal(): void {
+  const fechaArg = process.argv.find((a) => a.startsWith('--fecha='));
+  const { doc, texto, difieren } = generarDoradas(fechaArg ? fechaArg.slice(8) : undefined);
+  if (difieren.length > 0) {
+    console.error(`No se escriben las doradas: ${difieren.length} salidas de det difieren de V8:\n${difieren.slice(0, 20).join('\n')}`);
+    process.exit(1);
+  }
+  writeFileSync(new URL('./doradas-mat.json', import.meta.url), texto);
+  console.log(`doradas-mat.json escrito: ${Object.keys(doc.funciones).length} funciones × ${POR_FUNCION} entradas, 0 diferencias con V8`);
+}
+
+// Solo escribe si se lo corre directo (importarlo desde una prueba no toca el archivo).
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) principal();

@@ -29,6 +29,11 @@ export interface DispRampa {
   jaula: V2;
   ancho: number;
   capacidad: number;
+  /**
+   * Distancia con signo (m) del lugar de la persona al lazo, sobre la normal hacia afuera del estadio en `s` (positiva si la rampa sale
+   * hacia afuera). Es la distancia a la que corre el pasillo por el que camina la persona entre rampas (`enPasillo`).
+   */
+  pasillo: number;
 }
 export interface DispEstacion { id: string; s: number; base: V2; dir: V2; borde: V2; mano: V2; operador: V2 }
 export interface DispAnden { id: string; base: V2; dirCamion: V2; lat: V2; salida: V2; camion: V2; cinta: number }
@@ -95,38 +100,95 @@ function dirRampa(l: LazoEstadio, s: number, lado: number): V2 {
 function rampaEn(l: LazoEstadio, id: string, s: number, dir: V2, A: number, ancho: number, capacidad: number): DispRampa {
   const base = enLazo(l, s);
   const lat: V2 = [-dir[1], dir[0]];
+  const n = [0, 0];
+  normalAfuera(l, s, n);
   return {
     id, s, base, dir, lat, ancho, capacidad,
     ini: add(base, dir, Math.max(0.6, 0.15 * A)),
     fin: add(base, dir, 0.6 * A),
     persona: add(base, dir, 0.76 * A),
     jaula: add(base, dir, 0.92 * A),
+    pasillo: (dir[0] * n[0] + dir[1] * n[1]) * 0.76 * A,
   };
 }
 
+// Memoria de trabajo de enPasillo (se llama en cada cuadro por cada persona que camina: no asigna).
+const pPasillo = new Float64Array(3), pDesde: V2 = [0, 0], dHacia: V2 = [0, 0];
+
+/**
+ * Punto a la fracción f (0–1) de la caminata de una persona de rampa del lugar de la rampa `a` al de la rampa `b`, por el pasillo que
+ * rodea el lazo y por el lado más corto: el mismo camino con el que el hub calcula cuánto tarda (motor 1.1.0, distancia sobre el lazo
+ * = min(|sa − sb|, largo − |sa − sb|) a 1,2 m/s). Sin esto la persona cruzaba el sorter en línea recta de una recta a la otra.
+ * - El avance es parejo en s: el hub mide la distancia sobre el lazo, así que a mitad del tiempo va por la mitad de esa distancia.
+ * - El pasillo va a la distancia del lazo a la que se para la persona de cada rampa (interpolada entre las dos, por si una sale hacia
+ *   adentro), sin pasar los límites del plano.
+ * En f = 0 y f = 1 da exactamente el lugar de la persona de cada rampa. Escribe [x, y, ángulo de marcha].
+ */
+export function enPasillo(
+  l: LazoEstadio, lim: Limites, a: DispRampa, b: DispRampa, f: number, out: Float32Array | Float64Array | number[], i = 0,
+): void {
+  const L = l.largo;
+  let ds = ((b.s - a.s) % L + L) % L;
+  if (ds > L / 2) ds -= L; // por el lado más corto (con empate exacto, hacia adelante)
+  const g = f < 0 ? 0 : f > 1 ? 1 : f;
+  const p = pPasillo;
+  posEnLazo(l, a.s + ds * g, p);
+  const nx = Math.sin(p[2]), ny = -Math.cos(p[2]); // normal hacia afuera (lazo antihorario)
+  let off = a.pasillo + (b.pasillo - a.pasillo) * g;
+  if (g > 0 && g < 1) {
+    // en el medio del camino, sin salir del plano (en las puntas el lugar de la persona ya está adentro)
+    const s = off >= 0 ? 1 : -1;
+    pDesde[0] = p[0]; pDesde[1] = p[1]; dHacia[0] = nx * s; dHacia[1] = ny * s;
+    const cabe = alcanceHasta(lim, pDesde, dHacia) - 0.05;
+    if (Math.abs(off) > cabe) off = s * Math.max(0, cabe);
+  }
+  out[i] = p[0] + nx * off;
+  out[i + 1] = p[1] + ny * off;
+  out[i + 2] = ds >= 0 ? p[2] : p[2] + Math.PI;
+}
+
+/**
+ * La pila del puesto manual (la excepción no tiene tope): 8 lugares a lo largo del tobogán × 5 a lo ancho por capa, y las capas se
+ * apilan hacia arriba hasta PILA_CAPAS. Antes las columnas seguían hacia los costados sin límite y, con mil paquetes en la cola (una
+ * noche en que muchos agotan sus vueltas), la fila salía del edificio como una línea de 60 m (revisión de la integración, I-3,
+ * 23-10-2026). Desde la última capa los lugares se repiten: los paquetes quedan amontonados en el mismo bloque, y cuántos son lo dice el
+ * tablero de la interfaz («N en el puesto manual»). Es solo dibujo: ningún número sale de acá.
+ */
+export const PILA_FILAS = 8;
+export const PILA_COLUMNAS = 5;
+export const PILA_CAPAS = 4;
+/** Alto de cada capa de la pila (m), para la vista 2,5D. */
+export const ALTURA_CAPA_PILA = 0.3;
+
 /**
  * Lugar `l` (0 = el próximo en salir) en el tobogán de una rampa, en dos columnas desde el extremo de la persona hacia el lazo.
- * Para la excepción (sin tope) las columnas siguen hacia los costados.
+ * Para la excepción (sin tope) es la pila de arriba. Devuelve la capa (0 en las rampas; 0…PILA_CAPAS − 1 en la pila).
  */
-export function lugarEnRampa(r: DispRampa, l: number, sinTope: boolean, out: Float32Array | Float64Array | number[], i = 0): void {
+export function lugarEnRampa(r: DispRampa, l: number, sinTope: boolean, out: Float32Array | Float64Array | number[], i = 0): number {
   const dx = r.fin[0] - r.ini[0], dy = r.fin[1] - r.ini[1];
   const largo = Math.sqrt(dx * dx + dy * dy);
-  let fila: number, col: number, filas: number;
+  let fila: number, col: number, filas: number, capa = 0;
   if (sinTope) {
-    filas = 8;
-    fila = l % filas;
-    col = Math.floor(l / filas);
+    const porCapa = PILA_FILAS * PILA_COLUMNAS;
+    capa = Math.min(PILA_CAPAS - 1, Math.floor(l / porCapa));
+    const m = l % porCapa;
+    filas = PILA_FILAS;
+    fila = m % filas;
+    col = Math.floor(m / filas);
   } else {
     filas = Math.max(1, Math.ceil(r.capacidad / 2));
     fila = Math.min(filas - 1, Math.floor(l / 2));
     col = l % 2;
   }
-  const along = largo * (1 - (fila + 0.5) / filas);
-  // dos columnas: −1 y +1; sin tope: 0, +1, −1, +2, −2… (en anchos de media columna)
-  const lado = sinTope ? (col === 0 ? 0 : (col % 2 === 1 ? 1 : -1) * Math.ceil(col / 2)) : col === 0 ? -0.5 : 0.5;
+  // cada capa corrida media celda, como una pila de cajas (en la planta 2D se ve el bloque más tupido)
+  const corrido = capa % 2 === 1 ? 0.5 : 0;
+  const along = largo * (1 - Math.min(filas - 0.5, fila + 0.5 + corrido * 0.5) / filas);
+  // dos columnas: −1 y +1; la pila: 0, +1, −1, +2, −2 (en pasos de 0,4 m)
+  const lado = sinTope ? (col === 0 ? 0 : (col % 2 === 1 ? 1 : -1) * Math.ceil(col / 2)) + corrido * (col % 2 === 1 ? -1 : 1) * 0.5 : col === 0 ? -0.5 : 0.5;
   const ancho = sinTope ? 0.4 : r.ancho * 0.5;
   out[i] = r.ini[0] + r.dir[0] * along + r.lat[0] * lado * ancho;
   out[i + 1] = r.ini[1] + r.dir[1] * along + r.lat[1] * lado * ancho;
+  return capa;
 }
 
 /** Lugar `l` de la fila de la acumulación (0 = el próximo en ir a la inducción), en serpentina. */

@@ -137,11 +137,25 @@ function scriptProgreso() {
   new MutationObserver(mirar).observe(document, { subtree: true, childList: true, characterData: true });
 }
 
+/**
+ * Registra, antes de que arranque la app, el primer instante en que un lienzo muestra el plano vacío del hub (`data-plano="1"`, que la
+ * interfaz pone mientras simula la noche: app/ui/lienzo.ts). Es un hito informativo (app/NOTAS-CONTRATO.md §13.2 b): el presupuesto de
+ * §11 sigue midiendo la película. Si la película llega antes que el plano (el hub chico), queda en null.
+ */
+function scriptPlano() {
+  window.__planoVisible = null;
+  const obs = new MutationObserver(() => {
+    if (window.__planoVisible === null && document.querySelector('[data-plano="1"]')) { window.__planoVisible = performance.now(); obs.disconnect(); }
+  });
+  obs.observe(document, { subtree: true, childList: true, attributes: true, attributeFilter: ['data-plano'] });
+}
+
 /** Abre el enlace de una plantilla y espera la película (rAF): devuelve ms desde el comienzo de la navegación y la primera pintura. */
 async function abrirEnlace(page, base, plantilla, timeout = 60_000) {
   const respuestas = [];
   const alResponder = (r) => { if (r.url().endsWith('.js')) respuestas.push({ url: r.url(), codificacion: r.headers()['content-encoding'] ?? '' }); };
   page.on('response', alResponder);
+  await page.addInitScript(scriptPlano);
   await page.goto(`${base}?depuracion=1#t=${plantilla}`, { waitUntil: 'commit' });
   // hitos: el modelo compilado y abierto en la sesión, y la película lista (la noche simulada en un Worker, con su traza)
   const hm = await page.waitForFunction(() => (window.__anden?.sesion?.mv ? performance.now() : false), null, { polling: 'raf', timeout });
@@ -152,10 +166,10 @@ async function abrirEnlace(page, base, plantilla, timeout = 60_000) {
     const fin = (n) => performance.getEntriesByType('resource').find((e) => e.name.endsWith(n))?.responseEnd ?? null;
     const nav = performance.getEntriesByType('navigation')[0];
     return { fcp: performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? null, dcl: nav?.domContentLoadedEventEnd ?? null,
-      entrada: fin('/entrada.js'), worker: fin('/worker.js') };
+      entrada: fin('/entrada.js'), worker: fin('/worker.js'), plano: window.__planoVisible ?? null };
   });
   page.off('response', alResponder);
-  return { pelicula, fcp: otros.fcp, hitos: { dcl: otros.dcl, entradaJs: otros.entrada, workerJs: otros.worker, modelo, pelicula }, respuestas };
+  return { pelicula, fcp: otros.fcp, hitos: { dcl: otros.dcl, entradaJs: otros.entrada, workerJs: otros.worker, modelo, plano: otros.plano, pelicula }, respuestas };
 }
 
 /** Cuadros de una vista sobre la noche que se ve: mediana por cuadro de `dibujar` y, aparte, con el rasterizado forzado. */
@@ -327,7 +341,11 @@ export async function correrBanco({ corridas = 5, construirAntes = true, solo = 
         const g = [];
         for (let i = 0; i < corridas; i++) g.push(await corridaGrande(browser, s.url, i, log));
         res.detalle.grande = g.map(({ js, ...x }) => x);
-        const hitos = (xs) => Object.fromEntries(Object.keys(xs[0]?.hitos ?? {}).map((k) => [k, Math.round(mediana(xs.map((x) => x.hitos[k] ?? NaN)))]));
+        // mediana de cada hito entre las corridas que lo tienen (el plano falta si la película llegó antes); null si ninguna lo tiene
+        const hitos = (xs) => Object.fromEntries(Object.keys(xs[0]?.hitos ?? {}).map((k) => {
+          const v = xs.map((x) => x.hitos[k]).filter((y) => Number.isFinite(y));
+          return [k, v.length ? Math.round(mediana(v)) : null];
+        }));
         res.presupuestos.push(presupuesto('primerCuadro', g.map((x) => x.pelicula), eps, { fcpMediana: mediana(g.map((x) => x.fcp)), hitosMediana: hitos(g),
           nota: 'del comienzo de la navegación al cuadro en que la película de la noche está lista; incluye cargar la app, compilar el modelo, simular la noche entera en un Worker y transferir su traza' }));
         res.presupuestos.push(presupuesto('cienNoches', g.map((x) => x.nochesListas), eps, { trabajadores: g[0]?.trabajadores,

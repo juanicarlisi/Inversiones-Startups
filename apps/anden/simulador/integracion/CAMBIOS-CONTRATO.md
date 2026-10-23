@@ -108,3 +108,32 @@ entorno (4 núcleos, Node 22.22.0) el 20-10-2026.
   R10 (jaulas a medio llenar al corte): cambian §6.7 y §6.9 y el esquema; corte 2.
 - E-11 (la precisión de la plantilla no se alcanza con 100 noches): hace falta decidir entre más tandas, un botón o revisar la plantilla.
 - SEG-05 (primer cuadro desde el enlace 7,5 veces arriba de la meta): ya estaba abierto (`NOTAS-CONTRATO.md` §9).
+
+## 10. «KPI sanos» de §9 (P4): la integración elige el camino 2 · 23-10-2026
+
+**`contratos/` no cambia.** Lo que cambia es el texto de `corte-1.md` §9 (P4, «Pruebas propias»), que no es de ningún paquete: lo pasa
+el orquestador.
+
+- **Por qué.** Al pie de la letra (`finClasificacionMin` entre 120 y 300 en las 50 noches) es imposible con `hub-chico@1.0.0` y su semilla:
+  en r44 faltan dos de los tres inductores y el único presente necesita 333,5 min solo para inducir (certificado sin correr el hub,
+  `hub/pruebas/kpi.test.ts`), y en 200 noches 13 quedan fuera, todas con un golpe discreto que el contrafactual confirma
+  (`hub/NOTAS-CONTRATO.md` §13). Publicar `hub-chico@1.1.0` para que pase cambiaría la plantilla que es el ejemplo de §5 (F0, huella dorada
+  `0491977a06fedf2a`, tamaños del enlace) y la historia de la decisión que muestra la app.
+- **Qué se hizo en el código.** Se borró la prueba `todo` de `hub/pruebas/kpi.test.ts` (la principal ya exige el texto de abajo y pasa; el
+  certificado y el criterio literal sobre la propuesta 1.1.0 siguen). `hub-chico@1.1.0` sigue en `PROPUESTAS`, sin publicar.
+- **Texto propuesto para §9, P4, «Pruebas propias».** Reemplazar «KPI sanos en 50 noches del hub chico (`clasificados = paquetes` al
+  horizonte, `finClasificacionMin` entre 120 y 300, sin alertas)» por: «KPI sanos en 50 noches del hub chico (`clasificados = paquetes` al
+  horizonte y sin alertas en todas; `finClasificacionMin` entre 120 y 300 en toda noche sin golpes discretos; una noche con faltas o atraso
+  común puede pasarse, pero la misma noche sin ese golpe —misma semilla y réplica— tiene que caer en el rango)».
+
+## 11. Textos de la especificación que trajeron los paquetes en su segunda vuelta · 23-10-2026
+
+Ninguno cambia código ni `contratos/`; son correcciones de `corte-1.md` (y de comentarios del contrato) para que diga lo que el código hace.
+
+| Dónde | Texto propuesto | De |
+|---|---|---|
+| §6.6 y comentario de `contratos/azar.ts` | «siempre en (0, 1]» en lugar de «(0, 1)»: con `hi` y `lo` en `0xffffffff` la fórmula da 1 exacto (probabilidad 2⁻⁵³). Los 52 bits que lo dejan en (0, 1) estricto, en el motor 2.0.0 (cambian todas las huellas) | P1, `nucleo/NOTAS-CONTRATO.md` §13 |
+| §9 P1, «Entrega» | «`VERSION_MOTOR`: la versión del motor completo (núcleo + hub); la sube quien cambie una huella» (hoy `'1.1.0'`) | P1 §13 |
+| §6.7 regla 7 (1.1.0, relevo) | «durante la pausa sus rampas las atiende la siguiente persona presente que no esté en pausa; si no hay ninguna, la primera que vuelva de la suya» | P4, `hub/NOTAS-CONTRATO.md` §17.2 |
+| §6.7 regla 11 (1.1.0, jaulas) | «una jaula completa la cierra quien atiende la rampa en ese momento (la primera persona que llega); si ya la cerró otra, busca otra tarea» | P4 §16.2 y §17.1 |
+| §9 P4, «plan» | comparar `'por-volumen'` contra `'contiguas'` en la plantilla grande con 9 personas de rampa (con las 15 de la plantilla ninguna rampa se llena con ninguno de los dos planes y la prueba no distingue nada) | P4 §15 |

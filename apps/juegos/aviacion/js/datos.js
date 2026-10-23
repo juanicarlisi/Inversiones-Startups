@@ -125,15 +125,19 @@ export const CAPITULOS = [
 //  contratos: contratos del día cumplidos desde que se activa
 //  rondaPct: % del correo de una noche de ronda que llegó a primera hora (la mejor noche desde que se activa)
 // sacas (opcional): correo que ya espera en «a» para «b» cuando la misión se activa (sale apenas la ruta tiene avión).
+// conexion (opcional): correo que ya espera en una punta para la otra cuando la misión se activa ([origen, destino, sacas]): cambia
+//   de avión en el hub, así el primer transbordo llega enseguida (es correo real: hay que llevarlo y clasificarlo).
+// trasNoche (opcional): la misión no pide nada hasta que cae la primera noche con aviones (antes muestra «m1_noche_espera»), así las
+//   balizas no se piden antes de que el jugador vea a sus aviones quedarse en tierra.
 // avionPista (opcional): el avión que nombra la pista de la misión.
 export const MISIONES = [
   { id: 'm1_primera', cap: 1, tipo: 'ruta', a: 'BUE', b: 'MVD', meta: 1, premio: 3000, sacas: 24 },
   { id: 'm1_segunda', cap: 1, tipo: 'ruta', a: 'BUE', b: 'BHI', meta: 1, premio: 5000, sacas: 24 },
-  { id: 'm1_transbordo', cap: 1, tipo: 'transbordos', ciudad: 'BUE', meta: 60, premio: 8000 },
-  { id: 'm1_noche', cap: 1, tipo: 'despeguesNoche', meta: 4, premio: 8000 },
-  { id: 'm1_sur', cap: 1, tipo: 'entregasEn', ciudad: 'CRD', meta: 40, premio: 14000 },
-  { id: 'm1_gallegos', cap: 1, tipo: 'entregasEn', ciudad: 'RGL', meta: 30, premio: 18000 },
-  { id: 'm1_caja', cap: 1, tipo: 'mejorDia', meta: 50000, premio: 0, cierra: true },
+  { id: 'm1_transbordo', cap: 1, tipo: 'transbordos', ciudad: 'BUE', meta: 25, premio: 8000, conexion: [['MVD', 'BHI', 12], ['BHI', 'MVD', 12]] },
+  { id: 'm1_noche', cap: 1, tipo: 'despeguesNoche', meta: 4, premio: 11000, trasNoche: true },
+  { id: 'm1_sur', cap: 1, tipo: 'entregasEn', ciudad: 'CRD', meta: 50, premio: 14000 },
+  { id: 'm1_gallegos', cap: 1, tipo: 'entregasEn', ciudad: 'RGL', meta: 20, premio: 18000 },
+  { id: 'm1_caja', cap: 1, tipo: 'mejorDia', meta: 65000, premio: 0, cierra: true },
   { id: 'm2_pax', cap: 2, tipo: 'entregas', carga: 'pasajeros', meta: 320, premio: 60000, avionPista: 'chaja' },
   { id: 'm2_andes', cap: 2, tipo: 'entregasEn', ciudad: 'SCL', meta: 300, premio: 60000 },
   { id: 'm2_red', cap: 2, tipo: 'ciudadesActivas', meta: 18, premio: 100000 },

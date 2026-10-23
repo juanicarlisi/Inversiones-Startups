@@ -200,6 +200,27 @@ test('«¿y si…?» antes de que lleguen las 40 noches de A: pide las que falta
   assert.ok(sesion.ysi.comparaciones.every((x) => x.n === NOCHES_CONFIRMACION));
 });
 
+test('«¿y si…?» con la noche provisoria: cuando A pasa a la mediana, B se rehace con la misma noche (misma suerte en pantalla)', async () => {
+  const { sesion } = await abrirChica(5);
+  await esperarA(() => !!sesion.noche && !sesion.cargandoNoche, 'noche provisoria');
+  assert.equal(sesion.cualNoche, 'provisoria');
+  const provisoria = sesion.noche!.replica;
+  await sesion.previsualizar({ ...PERILLAS_VACIAS, puestos: 4 });
+  await esperarA(() => sesion.ysi.fase === 'confirmada', 'confirmación');
+  // llegan las cien noches: A cambia sola a la mediana (en los servicios falsos, otra réplica que la provisoria)
+  await esperarA(() => sesion.nochesListas && sesion.cualNoche === 'mediana' && !sesion.cargandoNoche, 'noche mediana');
+  const mediana = sesion.noche!.replica;
+  assert.notEqual(mediana, provisoria, 'la prueba necesita que la mediana sea otra noche que la provisoria');
+  await esperarA(() => sesion.ysi.nocheB?.replica === mediana,
+    `B en la noche ${mediana + 1} como A (estaba en la ${(sesion.ysi.nocheB?.replica ?? -2) + 1})`);
+  assert.equal(sesion.ysi.fase, 'confirmada', 'rehacer la película de B no toca la comparación de las 40 noches');
+  assert.equal(sesion.ysi.nocheB!.salida.resultado.modelo, sesion.ysi.mvB!.huella, 'la noche de B es del modelo B');
+  assert.equal(sesion.ultimoError, null);
+  // mirar la peor también lleva B a la peor
+  await sesion.mostrarNoche('peor');
+  await esperarA(() => sesion.ysi.nocheB?.replica === sesion.noche!.replica, 'B en la peor noche como A');
+});
+
 test('biografía y causas: un paquete de la noche, con pasos verificados', async () => {
   const { sesion } = await abrirChica();
   await esperarA(() => !!sesion.noche && !sesion.cargandoNoche, 'noche');

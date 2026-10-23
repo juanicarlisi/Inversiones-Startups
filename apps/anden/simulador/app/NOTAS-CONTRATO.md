@@ -106,7 +106,8 @@ integración (corte-1.md §2 y §14.8). **Ningún punto cambia un contrato**: `a
 
 ## 10. Para P6 y P7 (informativo)
 
-- **P7:** `explicacion.pregunta.porque.puestos` dice «en hasta 1 puestos» con `n = 1`: falta el singular.
+- **P7:** `explicacion.pregunta.porque.puestos` dice «en hasta 1 puestos» con `n = 1`: falta el singular. **Resuelto** (P7 sumó `explicacion.pregunta.porque.puestos.uno`; los
+  servicios falsos de `app/falsos/` lo usan desde el 23-10-2026).
 - **P6:** la interfaz da una alternativa sin puntero al toque sobre el lienzo («Ver un paquete que pierde el corte», «Ver la rampa que más se llena»,
   con `porRecurso.rampaMinutosLlena` de la noche que se ve) y elige el piso una vez por página con `elegirPiso`, midiendo una vista 2,5D de prueba
   sobre el mismo lienzo. Para tocar usa `vista.aMundo` (vale con la cámara girada, `escena/NOTAS-CONTRATO.md` §12).
@@ -121,3 +122,48 @@ integración (corte-1.md §2 y §14.8). **Ningún punto cambia un contrato**: `a
 
 - El ícono es un SVG (`app/pwa/icono.svg`). Chromium pide además PNG de 192 y 512 px para ofrecer «instalar»: la app anda sin red igual (el
   service worker no depende del ícono). Propuesta: que la construcción genere los PNG desde el SVG (corte 2).
+
+## 13. Corrida del 23-10-2026: lo que se arregló y lo que se sumó (ningún punto cambia un contrato)
+
+Estado al empezar: 88 de 88 pruebas propias, `tsc` sin errores y el humo en verde, pero las 40 capturas eran del 18-10-2026 (antes de los
+arreglos de la integración y de la revisión). Se volvieron a correr y a mirar una por una; lo que salió:
+
+1. **«¿Y si…?» mostraba A y B de noches distintas como «la misma suerte» (error, arreglado).** Si se movía una perilla mientras la noche
+   de A era la provisoria (la 1) y después llegaban las cien noches, A pasaba sola a la mediana (la 77 en `hub-lazo-noche@1.0.0` con los
+   servicios reales) y B se quedaba en la 1: la pantalla dividida, la línea «La noche que se ve, con la misma suerte en A y en B…» y la
+   etiqueta de B («Noche 1 de 100 · la mediana…») decían algo falso. Ahora `Sesion.sincronizarB()` rehace la película de B con la noche
+   de A cada vez que A cambia de noche (la provisoria → la mediana, o la peor o la mejor elegidas en las cien noches); mientras tanto B no
+   se muestra («Rehaciendo B con la noche N, la misma que se ve en A…»). La comparación de las 40 noches no cambia: no depende de la noche
+   que se ve. Prueba: `sesion.test.ts` («con la noche provisoria…»), que fallaba antes del arreglo; el humo controla que las etiquetas de
+   A y B digan la misma noche; con los servicios reales (construido aparte en una carpeta temporal) A 77 = B 77 en 1280 y 360 px.
+2. **El plano del hub mientras se simula (nuevo, `app/ui/plano.ts`).** Al abrir un enlace, la escena mostraba un rectángulo vacío y
+   «Calculando la noche…» durante ≈ 1,2 s. Ahora dibuja el **plano vacío** (andenes, cintas, acumulación, lazo, puestos y rampas) con
+   «Calculando la noche en este dispositivo…» encima, sin tablero, sin toques y sin marcarse lista (no es un instante simulado: no hay
+   paquetes ni personas); las miniaturas del inicio hacen lo mismo. La línea de tiempo no inventa horas sin noche (los controles quedan
+   desactivados y la hora dice «—»; antes decía «00:00»). Es una traza con `n = 0` en tramos, momentos y paquetes, `replica = -1`, la
+   geometría de `servicios.geometria` y el calendario del modelo; si el reproductor o la vista la rechazan, no se dibuja nada (como antes).
+   - **MEDIDO (23-10-2026, verificación local con los servicios reales, no se publicó nada):** plano a los 275–374 ms del comienzo de la
+     navegación y película a los 1,2–1,6 s, en 1280 × 800 y 360 × 740, 0 errores ni avisos de consola. La escena real de P6 acepta la
+     traza vacía en las dos plantillas, los dos pisos y los dos temas (0 excepciones, el plano completo dibujado).
+   - **Lo que NO cambia:** el presupuesto «primer cuadro desde el enlace ≤ 150 ms» de §11 mide la película (`sesion.noche`), y sigue sin
+     cumplirse; el plano no es la película y no se cuenta como tal. Mejora lo que se ve mientras se espera, no la medición.
+   - **Propuesta.** (a) Que P6 se comprometa a aceptar una traza con `n = 0` (una prueba en `escena/pruebas/`), porque hoy anda pero no
+     está en su contrato; o, en el corte 2, una `crearVistaPlano(geometria)` en `contratos/vistas.ts`. (b) Si el banco quiere, puede
+     informar aparte «plano visible» (el lienzo con `data-plano="1"`) como hito, sin cambiar la meta de la película.
+3. **Avisos.** El de «la película pasó de la noche 1 (provisoria) a la 5, la mediana» salía en cualquier pantalla (en el formulario de
+   decidir después de cada dato, en el comprobante, en la biografía, que queda atada a su noche): ahora solo donde se ve la película
+   (`PANTALLAS_CON_PELICULA` en `estado.ts`: escena, cien noches, «¿y si…?» y presentar). Y un aviso informativo (copiado, cambio de
+   noche) se va al cambiar de pantalla; uno de error se queda hasta que se cierra o vence (`estado.ts`, probado en `estado.test.ts`).
+4. **«Quedarme con B» cuando B es peor en todo.** Si ningún indicador mejora con B y alguno empeora (sin contar lo igual en la práctica),
+   el botón deja de ser la acción principal y se dice «Con estos cambios ningún indicador mejora y alguno empeora: hoy, A es mejor.»
+   (`balanceDeB` en `pantallas/ysi.ts`, probado en `textos-pantalla.test.ts`).
+5. **Textos.** La tarjeta «Validación» del comprobante usaba `experimentos.comprobante.sin-validar` («Sin validar contra datos reales») y
+   el sello dice «Sin validar contra **días** reales» (diseño maestro §5.9): ahora usa el texto del sello y explica qué quiere decir. En el
+   comprobante el sello del motor ya no lleva «(ver)» (llevaba al mismo comprobante). En el formulario, la referencia de cada pregunta
+   decía «Hoy suponemos…» dos veces seguidas (la de P7 y la de la interfaz): ahora es «Referencia: 2,4 s por paquete (persona de planta)».
+   **Para P5 (informativo):** `experimentos.comprobante.sin-validar` podría decir «días reales», como el sello.
+6. **Humo (`pruebas/humo.mjs`).** Suma: el aviso del cambio de noche aparece en la escena; A y B muestran la misma noche; el plano se ve
+   mientras se simula un enlace y desaparece con la película; ningún aviso de error en el recorrido normal; y los avisos informativos se
+   cierran antes de capturar (las capturas muestran la pantalla, no el aviso que quedó de la anterior). Las 40 capturas, regeneradas.
+7. **Visto con la integración (informativo):** `integracion/pruebas/arquitectura.test.ts` falla hoy por `nucleo/pruebas/tokens.test.ts`
+   (importa `typescript`), un cambio en curso de P1; `app/` no tiene ningún import fuera de lo permitido.

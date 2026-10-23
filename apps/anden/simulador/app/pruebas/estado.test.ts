@@ -2,7 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ACTOS, MAX_HISTORIAL, PANTALLAS, VELOCIDADES, crearAlmacen, estadoInicial, hayCambios, reducir, velocidadValida, type Accion, type Estado,
+  ACTOS, MAX_HISTORIAL, PANTALLAS, VELOCIDADES, crearAlmacen, estadoInicial, hayCambios, muestraPelicula, reducir, velocidadValida, type Accion,
+  type Estado,
 } from '../estado.ts';
 import { ClaseEntidad } from '../../contratos/traza.ts';
 
@@ -180,4 +181,23 @@ test('almacén: avisa solo cuando algo cambia, con el estado nuevo, el anterior 
   a.despachar({ tipo: 'ir', pantalla: 'noches' });
   assert.deepEqual(vistos, ['ir:inicio→escena', 'volver:escena→inicio']);
   assert.equal(a.estado.pantalla, 'noches');
+});
+
+test('al cambiar de pantalla se va el aviso informativo; el de error se queda', () => {
+  const info = { clave: 'app.compartir.copiado', vars: {}, nivel: 'info' as const };
+  const error = { clave: 'app.enlace.invalido', vars: { detalle: 'x' }, nivel: 'error' as const };
+  const e = aplicar(conNoche(), { tipo: 'ir', pantalla: 'escena' }, { tipo: 'aviso', aviso: info });
+  assert.equal(e.aviso, info);
+  assert.equal(reducir(e, { tipo: 'ir', pantalla: 'decidir' }).aviso, null, 'ir a otra pantalla saca el aviso informativo');
+  assert.equal(reducir(e, { tipo: 'volver' }).aviso, null, 'volver también');
+  assert.equal(reducir(e, { tipo: 'seleccionar', seleccion: { clase: ClaseEntidad.PAQUETE, id: 1 }, abrir: true }).aviso, null,
+    'abrir una biografía también');
+  assert.equal(reducir(e, { tipo: 'cabezal', t: 80_000_000 }).aviso, info, 'sin cambiar de pantalla el aviso sigue');
+  const conError = reducir(e, { tipo: 'aviso', aviso: error });
+  assert.equal(reducir(conError, { tipo: 'ir', pantalla: 'inicio' }).aviso, error, 'un aviso de error sigue a la vista después de ir al inicio');
+});
+
+test('pantallas con película: escena, cien noches, «¿y si…?» y presentar (ahí se avisa si la película cambia de noche)', () => {
+  assert.deepEqual(PANTALLAS.filter(muestraPelicula), ['escena', 'noches', 'ysi', 'presentar']);
+  assert.equal(muestraPelicula('biografia'), false, 'la biografía queda atada a su noche');
 });

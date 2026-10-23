@@ -6,8 +6,9 @@ import assert from 'node:assert/strict';
 import { Causa, ClaseEntidad, TipoMomento, TipoTramo, type Traza } from '../../contratos/traza.ts';
 import { EstadoVisual, type Posiciones } from '../../contratos/vistas.ts';
 import { crearReproductor, EstadoPersona, EstadoPuesto, UMBRAL_ESPERA_MS, type ReproductorEscena } from '../reproductor.ts';
-import { lugarEnFila, lugarEnPlaya, lugarEnRampa } from '../disposicion.ts';
-import { PERSONAS, dist, lazoEnMarcha, trazaSintetica } from './ayudas.ts';
+import { ALTURA_CAPA_PILA, PILA_CAPAS, PILA_COLUMNAS, PILA_FILAS, lugarEnFila, lugarEnPlaya, lugarEnRampa } from '../disposicion.ts';
+import { posEnLazo } from '../../contratos/geometria.ts';
+import { PERSONAS, dist, geometriaSintetica, lazoEnMarcha, trazaSintetica } from './ayudas.ts';
 
 /** Entidad (clase, id) en t: posición y estado, o null si no se ve. */
 function ver(rep: ReproductorEscena, t: number, clase: number, id: number): { x: number; y: number; ang: number; estado: number } | null {
@@ -155,6 +156,62 @@ test('personas: en su rampa, caminando entre dos rampas (interpolada), en pausa 
   }
 });
 
+test('caminata entre las dos rectas: por el pasillo, rodeando la curva del lado más corto (como mide el hub), parejo en s y sin entrar al estadio', () => {
+  // R02 (s 7,2, abajo) → R03 (s 18, arriba): 10,8 m hacia adelante por la curva derecha (no 19,2 por la izquierda); después R03 → R01
+  // (s 4,8): 13,2 m hacia atrás, otra vez por la curva derecha. 1 ms por mm de s, para que los instantes caigan en s redondos.
+  const g = PERSONAS.R1;
+  const tr = trazaSintetica((s) => {
+    s.tramo(g, TipoTramo.PERSONA_TRABAJA, 1, 0, 0, 1000);
+    s.tramo(g, TipoTramo.PERSONA_CAMINA, 2, 0, 1000, 11_800);
+    s.tramo(g, TipoTramo.PERSONA_TRABAJA, 2, 0, 11_800, 12_000);
+    s.tramo(g, TipoTramo.PERSONA_CAMINA, 0, 0, 12_000, 25_200);
+    s.tramo(g, TipoTramo.PERSONA_TRABAJA, 0, 0, 25_200, 26_000);
+  });
+  const rep = crearReproductor(tr), D = rep.disposicion, L = D.lazo, R = L.radio, [x0, y0] = L.origen;
+  const off = D.rampas[1].pasillo;
+  assert.ok(off > 0 && Math.abs(D.rampas[2].pasillo - off) < 1e-12, `las dos rampas salen hacia afuera con el mismo pasillo (vino ${off} y ${D.rampas[2].pasillo})`);
+  const en = (t: number) => { const v = ver(rep, t, ClaseEntidad.PERSONA, g); assert.ok(v, `en t = ${t} ms se esperaba ver a P-R1`); return v; };
+  cerca(en(1000), D.rampas[1].persona, 1e-5, 'al salir, en el lugar de la persona de R02');
+  cerca(en(11_799), D.rampas[2].persona, 0.002, 'al llegar, en el lugar de la persona de R03');
+  cerca(en(25_199), D.rampas[0].persona, 0.002, 'al volver, en el lugar de la persona de R01');
+  // s = 12 es la mitad de la curva derecha (de 9 a 15): el punto de más a la derecha del pasillo.
+  cerca(en(5800), [x0 + L.recta + R + off, y0 + R], 1e-4, 'a 4,8 m de R02 (s = 12), en la punta de la curva derecha');
+  cerca(en(18_000), [x0 + L.recta + R + off, y0 + R], 1e-4, 'a 6 m de R03 hacia atrás (s = 12), en la punta de la curva derecha');
+  // En todo el camino: a R + pasillo del eje del estadio (afuera del lazo, nunca encima ni adentro).
+  const eje = (x: number, y: number) => {
+    const dx = x < x0 ? x - x0 : x > x0 + L.recta ? x - (x0 + L.recta) : 0;
+    return Math.sqrt(dx * dx + (y - (y0 + R)) ** 2);
+  };
+  for (let t = 1000; t < 25_200; t += 200) {
+    if (t >= 11_800 && t < 12_000) continue;
+    const v = en(t);
+    assert.ok(Math.abs(eje(v.x, v.y) - (R + off)) < 1e-4,
+      `en t = ${t} ms la persona tiene que ir por el pasillo, a ${(R + off).toFixed(3)} m del eje del estadio, y está a ${eje(v.x, v.y).toFixed(3)} m`);
+    assert.ok(v.x > x0 + 4.8 - 1e-6, `en t = ${t} ms la persona tiene que rodear por la curva derecha y está en x = ${v.x.toFixed(3)}`);
+  }
+});
+
+test('caminata que pasa por el origen del lazo: el lado más corto da la vuelta por s = 0 (s 28 → s 4,8 son 6,8 m, no 23,2)', () => {
+  const geo = geometriaSintetica();
+  const pc = [0, 0, 0];
+  posEnLazo(geo.lazo, 28, pc);
+  geo.rampas.push({ id: 'R04', s: 28, lado: -1, x: pc[0], y: pc[1], capacidad: 3, ruta: 'Ruta 03' });
+  const g = PERSONAS.R1;
+  const tr = trazaSintetica((s) => {
+    s.tramo(g, TipoTramo.PERSONA_TRABAJA, 3, 0, 0, 1000);
+    s.tramo(g, TipoTramo.PERSONA_CAMINA, 0, 0, 1000, 7800);
+    s.tramo(PERSONAS.R2, TipoTramo.PERSONA_CAMINA, 2, 0, 0, 1000); // sin tramo anterior: no sabe de qué rampa salió
+  }, { geometria: geo });
+  const rep = crearReproductor(tr), D = rep.disposicion;
+  const off = D.rampas[0].pasillo;
+  const v = ver(rep, 4400, ClaseEntidad.PERSONA, g)!;
+  // a mitad del tiempo, 3,4 m después de s = 28: s = 31,4 ≡ 1,4 sobre la recta de abajo, a `pasillo` m hacia −y
+  cerca(v, [1.4, -off], 1e-4, 'a mitad de la caminata de R04 a R01, pasando por el origen');
+  cerca(ver(rep, 1000, ClaseEntidad.PERSONA, g)!, D.rampas[3].persona, 1e-5, 'al salir, en el lugar de la persona de R04 (en la curva)');
+  const otra = ver(rep, 500, ClaseEntidad.PERSONA, PERSONAS.R2);
+  assert.ok(otra && Number.isFinite(otra.x) && Number.isFinite(otra.y), 'una caminata sin rampa de salida se dibuja igual (en línea recta desde su lugar)');
+});
+
 test('puestos de inducción: induce, espera bandeja, pausa, libre y sin persona', () => {
   const tr = trazaSintetica((s) => {
     lazoEnMarcha(s);
@@ -225,6 +282,48 @@ test('la cola del puesto manual cuenta lo que entró y todavía no salió', () =
   assert.equal(rep.colaExcepcion(5500), 1);
   assert.equal(rep.colaExcepcion(7000), 0);
   assert.equal(verPaquete(rep, 10_000, 0).estado, EstadoVisual.EXCEPCION, 'en el puesto manual: excepción');
+});
+
+test('mil paquetes en la cola del puesto manual: una pila acotada junto a la mesa que crece hacia arriba, no una fila que sale del plano', () => {
+  // Revisión de la integración (I-3, 23-10-2026): las columnas de la excepción seguían hacia los costados sin límite y, con mil paquetes
+  // en la cola, la fila salía del edificio. Ahora es un bloque de PILA_FILAS × PILA_COLUMNAS por capa y las capas suben hasta PILA_CAPAS.
+  const N = 1000;
+  const tr = trazaSintetica((s) => {
+    for (let e = 0; e < N; e++) {
+      s.tramo(e, TipoTramo.COLA_MANUAL, 0, e, 1000, 3_000_000, Causa.RAMPA_LLENA);
+      s.paquete(e, { creado: 0, listo: -1 });
+    }
+  });
+  const rep = crearReproductor(tr), pos = rep.crearPosiciones();
+  rep.posiciones(10_000, pos);
+  const X = rep.disposicion.excepcion;
+  let paquetes = 0, latMax = 0, zMin = Infinity, zMax = -Infinity;
+  const capas = new Set<number>();
+  for (let k = 0; k < pos.n; k++) {
+    if (pos.clase[k] !== ClaseEntidad.PAQUETE) continue;
+    paquetes++;
+    const dx = pos.x[k] - X.ini[0], dy = pos.y[k] - X.ini[1];
+    latMax = Math.max(latMax, Math.abs(dx * X.lat[0] + dy * X.lat[1]));
+    zMin = Math.min(zMin, pos.z[k]); zMax = Math.max(zMax, pos.z[k]);
+    capas.add(Math.round((pos.z[k] - zMin) / ALTURA_CAPA_PILA));
+    assert.equal(pos.estado[k], EstadoVisual.EXCEPCION, `el paquete ${pos.id[k]} de la cola manual tiene que verse como excepción`);
+  }
+  assert.equal(paquetes, N, `se esperaban los ${N} paquetes de la cola a la vista y salieron ${paquetes}`);
+  const latTope = (Math.floor(PILA_COLUMNAS / 2) + 0.5) * 0.4 + 1e-9;
+  assert.ok(latMax <= latTope, `la pila tiene que quedar a ±${latTope.toFixed(2)} m de la mesa a lo ancho y llegó a ${latMax.toFixed(2)} m`);
+  assert.ok(Math.abs(zMax - zMin - (PILA_CAPAS - 1) * ALTURA_CAPA_PILA) < 1e-6,
+    `con ${N} paquetes (más de ${PILA_FILAS * PILA_COLUMNAS * PILA_CAPAS}) la pila llega a ${PILA_CAPAS} capas: alto ${(zMax - zMin).toFixed(2)} m`);
+  assert.equal(rep.recortes, 0, 'ninguna posición de la pila cae fuera de los límites');
+  assert.equal(rep.colaExcepcion(10_000), N, 'cuántos son lo cuenta colaExcepcion (lo muestra el tablero)');
+  // los primeros 40 ocupan lugares distintos de la capa de abajo
+  const o: number[] = [0, 0], vistos = new Set<string>();
+  for (let l = 0; l < PILA_FILAS * PILA_COLUMNAS; l++) {
+    assert.equal(lugarEnRampa(X, l, true, o), 0, `el lugar ${l} va en la capa 0`);
+    vistos.add(`${o[0].toFixed(3)},${o[1].toFixed(3)}`);
+  }
+  assert.equal(vistos.size, PILA_FILAS * PILA_COLUMNAS, 'cada lugar de una capa es distinto');
+  assert.equal(lugarEnRampa(X, PILA_FILAS * PILA_COLUMNAS, true, o), 1, 'el lugar 40 abre la segunda capa');
+  assert.equal(lugarEnRampa(X, 10_000, true, o), PILA_CAPAS - 1, 'desde la última capa los lugares se repiten');
 });
 
 test('el retén que cubre a alguien hace su rol (REEMPLAZO: r = retén, v = persona cubierta)', () => {

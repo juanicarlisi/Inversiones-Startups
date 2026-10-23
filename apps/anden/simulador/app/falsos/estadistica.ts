@@ -240,7 +240,8 @@ export function formularioSintetico(mv: ModeloValidado, ranking: ResultadoTamiza
       const segundos = /^s\b/.test(p.unidad) ? central(m, `@${r.parametro}`) + 10 : 10;
       return {
         parametro: r.parametro, orden: i + 1, texto: p.pregunta ?? `${r.parametro} (${p.unidad})`,
-        porQue: { clave: 'explicacion.pregunta.porque.puestos', vars: { medio: inc.medio, bajo: inc.bajo, alto: inc.alto, n: nCambio },
+        // singular con 1 («cambia en 1 puesto»), como explicacion/formulario.ts
+        porQue: { clave: nCambio === 1 ? 'explicacion.pregunta.porque.puestos.uno' : 'explicacion.pregunta.porque.puestos', vars: { medio: inc.medio, bajo: inc.bajo, alto: inc.alto, n: nCambio },
           afirmaciones: [{ valor: inc.medio, unidad: p.unidad, decimales: 2, fuente: { tipo: 'parametro', nombre: `${r.parametro}.medio` } }] },
         referencia: { valor: central(m, `@${r.parametro}`), fuente: p.fuente, etiqueta: p.etiqueta },
         rango: [inc.bajo, inc.alto] as [number, number],

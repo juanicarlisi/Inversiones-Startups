@@ -63,6 +63,11 @@ export interface EstadoYsi {
   comparaciones: Comparacion[];
   nochesB: ResultadoReplica[];
   progreso: number;
+  /**
+   * La película de B se está rehaciendo porque A pasó a otra noche (de la provisoria a la mediana, o la peor elegida en las cien noches).
+   * Mientras tanto B no se muestra: nunca A y B de noches distintas lado a lado («misma suerte» en pantalla).
+   */
+  rehaciendoB: boolean;
 }
 export interface EstadoDecision {
   fase: 'nada' | 'evaluando' | 'tamizando' | 'listo' | 'cancelado';
@@ -118,7 +123,9 @@ export class Sesion {
     this.almacen = almacen;
   }
 
-  static ysiVacio(): EstadoYsi { return { parche: [], mvB: null, nocheB: null, fase: 'nada', comparaciones: [], nochesB: [], progreso: 0 }; }
+  static ysiVacio(): EstadoYsi {
+    return { parche: [], mvB: null, nocheB: null, fase: 'nada', comparaciones: [], nochesB: [], progreso: 0, rehaciendoB: false };
+  }
   static decisionVacia(): EstadoDecision {
     return { fase: 'nada', evaluacion: null, ranking: null, preguntas: null, hechas: 0, maximo: 0, respuestas: {} };
   }
@@ -182,9 +189,10 @@ export class Sesion {
       if (gen !== this.generacion) return;
       const traza = salida.traza;
       if (!traza) throw new Error('la noche llegó sin traza');
-      this.noche = { replica, salida, traza, reproductor: this.servicios.crearReproductor(traza), momentos: this.servicios.detectarMomentos(traza) };
+      this.noche = this.nocheVista(replica, salida);
       this.cualNoche = cual;
       this.almacen.despachar({ tipo: 'cargarNoche', inicio: traza.inicio, fin: traza.fin, t });
+      void this.sincronizarB();
     } catch (e) {
       if (gen === this.generacion) this.fallar('app.error.noche', e);
     } finally {
@@ -266,6 +274,14 @@ export class Sesion {
     this.noche = noche; this.cualNoche = cual;
     this.almacen.despachar({ tipo: 'cargarNoche', inicio: noche.traza.inicio, fin: noche.traza.fin, t });
     this.emitir('noche');
+    void this.sincronizarB();
+  }
+
+  /** La noche con su traza, su reproductor y sus momentos (lo que necesita una película). */
+  private nocheVista(replica: number, salida: SalidaSimulacion): NocheVista {
+    const traza = salida.traza;
+    if (!traza) throw new Error(`la noche ${replica + 1} llegó sin traza`);
+    return { replica, salida, traza, reproductor: this.servicios.crearReproductor(traza), momentos: this.servicios.detectarMomentos(traza) };
   }
 
   async mostrarNoche(cual: CualNoche): Promise<void> {
@@ -296,7 +312,7 @@ export class Sesion {
   async previsualizar(p: Perillas): Promise<void> {
     const mv = this.mv; if (!mv) return;
     const token = ++this.tokenPrevia, gen = this.generacion;
-    if (this.previaEnCurso || this.ysi.fase === 'confirmando') this.servicios.cancelarDesde(Prioridad.VISTA_PREVIA);
+    if (this.previaEnCurso || this.ysi.fase === 'confirmando' || this.ysi.rehaciendoB) this.servicios.cancelarDesde(Prioridad.VISTA_PREVIA);
     if (!hayCambios(p)) { this.ysi = Sesion.ysiVacio(); this.emitir('ysi'); void this.pedirNoches(); return; }
     const parche = this.parcheDe(p);
     this.ysi = { ...Sesion.ysiVacio(), parche, fase: 'previa' };
@@ -310,9 +326,10 @@ export class Sesion {
       const replica = this.noche?.replica ?? 0;
       const salida = await this.servicios.noche(mvB, this.semilla, replica, Prioridad.VISTA_PREVIA);
       if (token !== this.tokenPrevia || gen !== this.generacion || !salida.traza) return;
-      this.ysi = { ...this.ysi, mvB, fase: 'lista', nocheB: { replica, salida, traza: salida.traza,
-        reproductor: this.servicios.crearReproductor(salida.traza), momentos: this.servicios.detectarMomentos(salida.traza) } };
+      this.ysi = { ...this.ysi, mvB, fase: 'lista', nocheB: this.nocheVista(replica, salida) };
       this.emitir('ysi');
+      // A pudo pasar a otra noche mientras se calculaba B (llegaron las cien noches): B la sigue
+      if (this.noche && this.noche.replica !== replica) void this.sincronizarB();
     } catch (e) {
       if (token === this.tokenPrevia) { this.ysi = { ...this.ysi, fase: 'nada' }; this.fallar('app.error.variante', e); this.emitir('ysi'); }
       return;
@@ -321,6 +338,31 @@ export class Sesion {
       void this.pedirNoches();
     }
     await this.confirmar(token);
+  }
+
+  /**
+   * Misma suerte en pantalla: si A pasó a otra noche, la película de B se rehace con esa misma noche (prioridad de vista previa). Mientras
+   * tanto B no se muestra. La comparación de las 40 noches no cambia: no depende de la noche que se ve. Si la persona mueve otra perilla,
+   * esto se cancela (lo reemplaza la vista previa nueva).
+   */
+  private async sincronizarB(): Promise<void> {
+    const mvB = this.ysi.mvB, a = this.noche, fase = this.ysi.fase;
+    if (!mvB || !a || (fase !== 'lista' && fase !== 'confirmando' && fase !== 'confirmada')) return;
+    if (this.ysi.nocheB?.replica === a.replica) return;
+    const token = this.tokenPrevia, gen = this.generacion, replica = a.replica;
+    this.ysi = { ...this.ysi, nocheB: null, rehaciendoB: true }; this.emitir('ysi');
+    try {
+      const salida = await this.servicios.noche(mvB, this.semilla, replica, Prioridad.VISTA_PREVIA);
+      if (token !== this.tokenPrevia || gen !== this.generacion || this.ysi.mvB !== mvB) return;
+      // A volvió a cambiar de noche mientras tanto: lo rehace la llamada de ese cambio
+      if (this.noche?.replica !== replica) return;
+      this.ysi = { ...this.ysi, rehaciendoB: false, nocheB: this.nocheVista(replica, salida) };
+      this.emitir('ysi');
+    } catch (e) {
+      if (token !== this.tokenPrevia || gen !== this.generacion) return;
+      this.ysi = { ...this.ysi, rehaciendoB: false }; this.emitir('ysi');
+      this.fallar('app.error.variante', e);
+    }
   }
 
   /** Confirmación pareada: 40 noches de A y de B con la misma semilla y réplicas 0…39, diferencia con IC y veredicto. */

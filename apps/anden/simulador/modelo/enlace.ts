@@ -46,7 +46,11 @@ export function aBase64url(b: Uint8Array): string {
   return s;
 }
 
-/** null si hay un carácter fuera del alfabeto o el largo es imposible (resto 1 al dividir por 4). */
+/**
+ * null si hay un carácter fuera del alfabeto, el largo es imposible (resto 1 al dividir por 4) o los bits sobrantes del último carácter
+ * no son cero. Esto último hace que cada secuencia de bytes tenga UN solo texto (si no, el último carácter admitiría 4 o 16 variantes
+ * que decodifican igual y un mismo enlace tendría varias direcciones): el codificador siempre rellena con ceros.
+ */
 export function deBase64url(s: string): Uint8Array<ArrayBuffer> | null {
   if (s.length % 4 === 1) return null;
   const out = new Uint8Array((s.length * 3) >> 2);
@@ -59,6 +63,7 @@ export function deBase64url(s: string): Uint8Array<ArrayBuffer> | null {
     bits += 6;
     if (bits >= 8) { bits -= 8; out[o++] = (acc >> bits) & 255; }
   }
+  if (bits > 0 && (acc & ((1 << bits) - 1)) !== 0) return null;
   return out;
 }
 
@@ -258,6 +263,8 @@ export function decodificarReceta(s: string): { ok: true; receta: Receta } | { o
         const raw = l.bytes(8);
         for (let i = 0; i < 8; i++) f.setUint8(i, raw[i]);
         r.vel = f.getFloat64(0, true);
+        // Un entero va siempre como entero (varint): con float64 habría dos textos para la misma receta.
+        if (Number.isSafeInteger(r.vel)) throw new Error('vel no canónico: un entero se escribe como entero, no como float64');
       } else r.vel = l.varint();
     }
     if (banderas & 16) {

@@ -33,6 +33,9 @@ export function franjaSupuestos(ctx: Contexto): HTMLElement {
   const supuestos = ps.filter((p) => p.etiqueta === 'SUPUESTO').length;
   const estimaciones = ps.filter((p) => p.etiqueta === 'ESTIMACION' || p.etiqueta === 'HIPOTESIS').length;
   const propios = ps.filter((p) => p.etiqueta === 'DATO_USUARIO' || p.etiqueta === 'MEDIDO').length;
+  // en el teléfono, la versión corta (un renglón: la película empieza más arriba); el detalle sigue en el comprobante
+  const vars = { supuestos, estimaciones, propios, referencia: supuestos + estimaciones };
   return el('button', { type: 'button', class: 'franja-supuestos', 'data-accion': 'ir-comprobante-supuestos', onclick: () => ctx.ir('comprobante') },
-    ctx.t(propios ? 'app.franja.conPropios' : 'app.franja.supuestos', { supuestos, estimaciones, propios }));
+    el('span', { class: 'boton__texto-ancho' }, ctx.t(propios ? 'app.franja.conPropios' : 'app.franja.supuestos', vars)),
+    el('span', { class: 'boton__texto-corto' }, ctx.t(propios ? 'app.franja.conPropiosCorto' : 'app.franja.supuestosCorto', vars)));
 }

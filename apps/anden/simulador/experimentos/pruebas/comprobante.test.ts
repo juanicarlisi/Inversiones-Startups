@@ -77,6 +77,19 @@ test('controles del modelo: 18 controles estáticos; pasa el que no dejó errore
   assert.deepEqual(contarControles([diag('E-NUEVO', 'error')]), { controles: 19, pasaron: 18, avisos: 0 }, 'un control que el compilador agregue también cuenta');
 });
 
+test('controles del modelo: si el compilador informa su catálogo (I-CONTROLES), el comprobante cuenta con ese total y dice lo mismo que el compilador', () => {
+  const resumen: Diagnostico = { ...diag('I-CONTROLES', 'info'), vars: { controles: 24, pasaron: 24, avisos: 0 } };
+  assert.deepEqual(contarControles([resumen]), { controles: 24, pasaron: 24, avisos: 0 }, 'el informativo no es un control más: el total es el del compilador');
+  assert.deepEqual(contarControles([resumen, diag('I-SUPUESTOS', 'info')]), { controles: 24, pasaron: 24, avisos: 0 }, 'ni los demás informativos');
+  // «pasaron» = controles sin ningún error (el texto de la pantalla dice «sin errores»); un aviso no resta y se cuenta aparte
+  assert.deepEqual(contarControles([resumen, diag('A-RHO', 'aviso'), diag('A-PESOS', 'aviso')]), { controles: 24, pasaron: 24, avisos: 2 });
+  assert.deepEqual(contarControles([resumen, diag('E-REF', 'error'), diag('E-REF', 'error'), diag('E-RANGO', 'error')]), { controles: 24, pasaron: 22, avisos: 0 },
+    'dos controles con error (aunque E-REF salte dos veces)');
+  // un I-CONTROLES sin números (o con un número raro) no engaña: se vuelve al respaldo de P5 y nunca queda «pasaron» negativo
+  assert.equal(contarControles([{ ...diag('I-CONTROLES', 'info'), vars: { controles: 'muchos' } }]).controles, 19, 'respaldo: los 18 de §9 más el código raro');
+  assert.equal(contarControles([{ ...resumen, vars: { controles: 2, pasaron: 2, avisos: 0 } }, diag('E-A', 'error'), diag('E-B', 'error'), diag('E-C', 'error')]).pasaron, 0);
+});
+
 test('el comprobante toma los diagnósticos del modelo validado', async () => {
   const mv = { ...validadoEjemplo(), diagnosticos: [diag('A-PESOS', 'aviso'), diag('I-SUPUESTOS', 'info')] };
   const c = await armarComprobante(mv, replicas(3), VERDE, MOTOR, { semilla: 20261017, replicas: 3 });

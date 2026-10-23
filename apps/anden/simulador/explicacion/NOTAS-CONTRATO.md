@@ -1,4 +1,4 @@
-# Notas de contrato · P7 Explicación y decisión (18-10-2026)
+# Notas de contrato · P7 Explicación y decisión (18-10-2026; actualizadas el 23-10-2026, ver §14)
 
 Lo que el contrato (`contratos/`) o la especificación (`oportunidades/proyectos/anden/corte-1.md`) no fija, fija de forma ambigua o no
 alcanza a cubrir, lo que este paquete agregó por su cuenta y lo que midió contra el hub real. En cada punto: qué pasa, el supuesto con el
@@ -6,7 +6,8 @@ que siguió P7 y la propuesta. Decide la integración (corte-1.md §2 y §14.8).
 `contratos/explicacion.ts` y `contratos/decision.ts` tal cual (lo comprueba `tsc`). Los números son MEDIDOS el 18-10-2026 en Node 22.22.0, con
 el motor de referencia, el hub (P4) y el compilador (P3) tal como estaban ese día, en scripts de prueba fuera del repositorio (P7 no importa
 otros paquetes; la integración puede rehacerlos). Los puntos 1 a 6 piden un cableado o una decisión de la integración o de P8; los demás
-son informativos.
+son informativos. **Qué cambió desde entonces** (revisión adversarial del 19-10, hub y motor 1.1.0, cableado de la integración) y los números
+re-medidos el 23-10-2026 están en la **§14**; donde una cifra de §5 a §13 quedó vieja, la §14 dice cuál vale hoy.
 
 ## 1. Cableado de `Servicios` (el contrato no trae `sim` ni `variante`)
 
@@ -147,8 +148,9 @@ son informativos.
 
 - **Pérdida esperada.** `Σ pesoᵢ · |costoᵢ(dᵢ) − costoᵢ(d_medio)|` con `costo` = media del KPI **objetivo** de la decisión
   (`decision.objetivo.minimizar`, `objetivo.media` de la evaluación): está en pesos por noche solo si el objetivo es `costoNoche`. Los pesos
-  de `incierto.pesos` se normalizan si no suman 1 (error que dice cuál parámetro si son negativos o suman 0). Si `dᵢ` es `null` (ninguna
-  opción cumple o sigue en duda), se usa el máximo de la variable y la decisión queda en `null` en el resultado para que se vea.
+  de `incierto.pesos` se normalizan si no suman 1 (error que dice cuál parámetro si son negativos o suman 0). Si `dᵢ` es `null` porque
+  **ninguna opción cumple**, se usa el máximo de la variable (§9) y la decisión queda en `null` en el resultado para que se vea. Si es `null`
+  porque alguna opción **quedó en duda**, desde el 19-10 no se usa el máximo sino la peor resolución posible de la duda (§14.2).
 - **Evaluaciones.** 1 (el modelo) + 2 por supuesto, en secuencia, para que cancelar sea inmediato; si una `evaluar` se rechaza (por ejemplo
   con `ErrorCancelado` de P5), `tamizar` se rechaza con **el mismo error** y no lanza más: la integración y P8 tienen que atrapar
   `ErrorCancelado` y tratarlo como «el usuario cambió algo» (experimentos/NOTAS §3). Un valor bajo igual al medio no se vuelve a evaluar.
@@ -197,3 +199,79 @@ con `textos.es.json` y `textos.en.json` (mismas claves, mismas variables, sin cl
 
 Primer acceso a una traza (arma el índice por entidad): 49 ms; 1.000 `esperasDe`: 9 ms; 100 biografías de paquete: 21 ms; 1.000
 `candidatasDe`: 6 ms; biografía de una rampa, una persona y el lazo: 11 ms. Los índices se guardan por traza (`WeakMap`): se liberan con ella.
+
+## 14. Después de la revisión del 19-10 y con el hub 1.1.0: qué cambió y qué vale hoy (23-10-2026)
+
+Ningún punto de esta sección cambia un contrato: `contratos/explicacion.ts` y `contratos/decision.ts` se cumplen tal cual (`tsc` sin errores).
+
+### 14.1 Estado
+
+- **Pruebas propias:** 133 en 10 archivos (`node --test "explicacion/**/*.test.ts"`, 1,9 s, sin reloj ni red), todas pasan. Cubren cada punto de
+  «Pruebas propias» de §9: las 12 causas de la taxonomía en su traza sintética y ninguna fuera de ella; biografía con pasos encadenados; 200
+  frases verdaderas con 0 fallas y 20 falsas sembradas con 20 de 20 detectadas (valor, signo, «diferencia real» con IC que cruza el cero, sin
+  fuente); contrafactual con simulador falso que rescata (`confirma = true`) y que no (`false`); tamizado con un modelo donde solo un supuesto
+  cambia la decisión (primero, con pérdida > 0, y los demás con 0); formulario que se detiene bajo la indiferencia; plan de medición (cv 0,6 →
+  62). Más: arquitectura (tokens de §1.4, imports, TypeScript borrable) y textos (mismas claves y variables en es y en).
+- **Archivos más allá de la lista de §2:** `consulta.ts` (índices por entidad, solapes y búsqueda por (camión, índice)), `frases.ts` (registro
+  de claves y variables, constructores de frases con afirmaciones), `parametros.ts` (valor central, cv y parche de un parámetro) y
+  `unidades.ts` (el único redondeo, compartido por quien escribe la cifra y por quien la controla); en `pruebas/`, `ayudas.ts` (trazas
+  sintéticas, simulador y variante falsos).
+- **Cableado hecho por la integración** (§1): `integracion/ensamblar.ts` arma `crearContrafactual(simularNoche)`; en el navegador el `Simulador`
+  es asíncrono y pide cada noche al planificador con prioridad `CONFIRMACION`, así que ningún contrafactual simula en el hilo de la interfaz;
+  el tamizado usa `replicasMax` 100 por valor (`REPLICAS_MAX_TAMIZADO`). **MEDIDO por el banco de la integración** (mediana de 5 corridas):
+  tamizado del hub chico con 3 Workers **41,6 s** (meta ≤ 60 s) y evaluación de la decisión **3,6 s** (meta ≤ 20 s).
+
+### 14.2 Tamizado y formulario: «en duda» no es «ninguna opción cumple» (hallazgo E-05)
+
+- **Qué pasaba.** Cuando con el valor bajo o el alto la recomendación era `null` porque una opción quedó **en duda** (el tamizado mira hasta
+  100 noches por opción), §9 al pie de la letra manda usar el máximo de la variable. Eso comparaba contra una decisión que nadie tomaría
+  (poner el máximo de puestos) y la frase del formulario decía «ninguna opción probada alcanza», que no es lo que pasó.
+- **Qué hace el código.** `decisionesPosibles(ev)` (exportada) da las decisiones entre las que está la duda: desde la menor opción en duda hasta
+  la menor que cumple después de ella, o hasta la última si ninguna cumple; `null` si hay recomendación o si no hay duda (ninguna cumple →
+  sigue valiendo «el máximo de la variable», §9). La pérdida de un extremo se calcula con **cada** decisión posible y se usa la **mayor** (lo
+  más que puede costar equivocarse). Las filas de `tamizar` traen, además del contrato (`ResultadoTamizadoConDuda`, exportado): `enDuda`
+  `[bajo, medio, alto]` (qué extremos quedaron en duda y no en «ninguna cumple»), `perdidaRango` `[mejor resolución, peor resolución]` y `peorCaso`.
+  La decisión de esa fila sigue siendo `null` para que se vea. Frases del formulario: `explicacion.pregunta.porque.sin_respuesta` (ninguna
+  opción alcanza) y `explicacion.pregunta.porque.en_duda` (harían falta más noches), con las tres cifras atadas a la ficha del parámetro.
+- **Medido en la prueba sintética** (`tamizado.test.ts`, «un extremo que quedó EN DUDA…»): la pérdida es 12.500 (0,25 · |30.000 − 80.000|, con
+  la decisión 3) y no 7.500 (con el máximo, 5); el rango queda en [0, 12.500].
+- **Para quien muestra el resultado.** `perdidaEsperada` es un **promedio ponderado** por los pesos previos; el «cuesta hasta» de la pantalla
+  tiene que ser `peorCaso` (hallazgo E-12: Presentar decía «hasta» con el promedio). `app/pantallas/presentar.ts` ya lo lee (por duck-typing;
+  ahora el tipo sale de `indice.ts`).
+
+### 14.3 Singular en «¿cuánto cambia la respuesta?» (lo encontró P8)
+
+`explicacion.pregunta.porque.<variable>` decía «cambia en hasta 1 puestos». Con `n = 1` se usa la variante `.uno` (cuatro claves nuevas,
+`puestos`, `rampa`, `reten` y `generica`, en es y en, con su registro en `frases.ts` y sus variables verificadas por `textos.test.ts`).
+
+### 14.4 Re-medición con el hub y el motor 1.1.0 (MEDIDO el 23-10-2026, Node 22.22.0, motor de producción)
+
+El hub cambió desde las mediciones de §5 a §13 (relevo en las pausas, caminata por distancia, plan por volumen en bloques contiguos, pausas
+después del fin: `integracion/CAMBIOS-CONTRATO.md` §2). P7 no cambió por eso; se volvió a medir.
+
+| Medida | Resultado |
+|---|---|
+| Biografías de paquete y de las demás entidades, `hub-chico@1.0.0` (réplicas 0 y 3: 7.450 y 8.610 paquetes; 1 de cada 2) y `hub-lazo-noche@1.0.0` (22.334 y 25.818 paquetes; 1 de cada 7 y 1 de cada 8) | 14.449 biografías de paquete y 332 de camiones, personas, rampas, puestos y lazo; **0 esperas fuera de la taxonomía** en 39.773 esperas; **0 huecos** ≥ 3 s ni solapes entre pasos; **0 fallas del verificador** en 121.919 frases de paquete y en las de las 332 entidades |
+| Tiempo del análisis (esperas + biografía + candidatas + verificación) de 3.200 a 4.300 paquetes de una noche, sin contar simularla (0,2–0,4 s con traza completa) | 0,5–0,7 s en el hub chico y 0,8–1,0 s en el grande |
+| Causas que aparecen (esperas de paquete) | Con el hub chico: fila, bloqueo, falta de bandeja, rampa llena, pausa, falla, cierre de jaula, no leído, persona ocupada y no transportable. **AUSENCIA: 0**, igual que en §5: sigue sin detectarse en rampa con la traza del hub (no hay causa falsa, hay una causa que no se dice) |
+| **E01**, con la forma que decidió la integración (`integracion/NOTAS-CONTRATO.md` §2), **50 réplicas**, pausas de rampa de 45 min, corte a las 00:30 | 13.615 paquetes pierden el corte con ≥ 5 min de espera dentro de una pausa; **508 (3,7%)** llegan sin pausas; las 508 llevan la frase de PAUSA; **0 frases falsas, 0 faltantes** (completitud 100%) |
+| Ídem, corte a las 01:30 (el de la plantilla) | 1.795 pierden el corte; **1.520 (84,7%)** llegan sin pausas; las 1.520 con la frase; **0 falsas, 0 faltantes** |
+| **E02**, 10 réplicas × 50 paquetes | 500 paquetes con candidatas, 624 frases de una causa, 1 conjunta, 12 paquetes sin causa afirmable; **0 frases causales sin confirmar** |
+| Las tres pruebas juntas, con 50 réplicas (`ANDEN_COMPLETA=1 node --test integracion/pruebas/e-explicador.test.ts`) | 3 de 3, 95,5 s. En `npm test` corre la muestra de 4 réplicas (31 s) |
+
+- **Lo que dice sobre §6.** El rescate de la pausa depende del corte, no del explicador: con el corte de la letra (00:30) solo el 3,7% de los
+  paquetes que esperan sobre una pausa llegaría al corte sin ella (el hub no llega por capacidad), y con el de la plantilla (01:30), el 84,7%.
+  En los dos casos el explicador dice PAUSA en **exactamente** los que sí se rescatan: es la medida de honestidad que §6 proponía. Los números de
+  §6 (13% y 98,0%) eran del hub 1.0.0 y de una definición más laxa de «espera sobre una pausa» (con relevo, una espera que apenas roza la pausa
+  ya no es «por la pausa»: la otra persona estaba trabajando).
+- **Cifras de §10 que valen hoy:** 0 huecos ≥ 3 s en 14.449 biografías (6.700 el 18-10); todas las causas dentro de la taxonomía.
+
+### 14.5 Lo que sigue abierto de P7 (nada de esto rompe una prueba)
+
+1. **AUSENCIA en rampa** (§5): necesita un cambio del hub (marcar el tramo RAMPA con `c = AUSENCIA` y `q` = la persona ausente). Corte 2.
+2. **Fuentes de afirmación para el tamizado y el contrafactual** (§4): `{ tipo: 'tamizado' }` y `{ tipo: 'contrafactual' }` en `Afirmacion`. Corte 2.
+3. **Parámetros sin `incierto` que importan** (§11): la caminata entre rampas, el cierre de jaula y las pausas no se pueden tamizar con
+   `hub-chico@1.0.0`. Propuesta de §11 (`hub-chico@1.1.0` y `Pausas` con referencias en `anden.modelo/1.1`) sigue pendiente; la integración
+   recomendó no publicarla en este corte.
+4. **`hub-chico@1.0.0` con su decisión tal cual no tiene respuesta** (ninguna configuración cumple): el formulario termina en «ninguna cumple»,
+   no en «Ya está» (§11, `cierreDelFormulario`). El recorrido «decidir» de la integración usa un hub propio por enlace para llegar a «Ya está».

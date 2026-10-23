@@ -41,8 +41,13 @@ Decide la integración (corte-1.md §2 y §14.8). Fecha: 18-10-2026.
 
 - **Hecho.** La tabla imprime valores redondeados: 8,770 para E[N(66 h)] = 8,769712 y 0,36386 para el Erlang C de la M/M/50 = 0,363864.
   Con 1e-5 relativo estricto, esas dos fallan por la impresión y no por la fórmula (3,3·10⁻⁵ y 1,2·10⁻⁵).
-- **Supuesto.** Tolerancia = máx(1e-5 relativo; media unidad de la última cifra impresa) (`pruebas/formulas.test.ts`). La batería usa
-  como esperado el valor exacto de la fórmula, nunca el redondeado.
+- **Supuesto.** Tolerancia = máx(1e-5 relativo; media unidad de la última cifra impresa) **solo** para los cuatro valores impresos con
+  menos cifras de las que pide 1e-5: V06c, V28d y las informativas V12b (0,8889 = 0,888889) y V12c (0,5744 = 0,574430). Todos los demás
+  se comparan con 1e-5 relativo estricto, y una prueba exige que esos cuatro sean exactamente los que lo necesitan
+  (`pruebas/formulas.test.ts`). La batería usa como esperado el valor exacto de la fórmula, nunca el redondeado (otra prueba lo
+  compara bit a bit).
+- **Corrección del 23-10-2026.** Antes la tolerancia ancha se aplicaba a todos los valores: un «1» impreso (V01a) se comparaba con
+  ±0,5, y una fórmula rota podía pasar. Ahora no.
 - **Propuesta.** En la tabla, escribir 8,7697 y 0,363864, o dejar escrita la regla.
 
 ## 5. Diseño de réplicas y horizontes por encima del mínimo de validacion.js

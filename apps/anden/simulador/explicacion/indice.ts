@@ -5,7 +5,8 @@
 //   esperasDe · armarBiografia · crearContrafactual(sim) · causasConfirmadas · verificarFrases · supuestosDe · tamizar · armarFormulario · planDeMedicion
 // Extras (opcionales para quien integra):
 //   candidatasDe · cambioDeCausa · fraseDeCausa · verificarAfirmacion · cifrasSinRespaldo · fraseDeMedicion · MENSAJE_FORMULARIO_LISTO · cierreDelFormulario ·
-//   segundosPorObservacion · todasLasClaves · VARIABLES_POR_CLAVE · CAUSAS_AFIRMABLES · constantes de umbrales
+//   segundosPorObservacion · decisionesPosibles · ResultadoTamizadoConDuda (los campos que el tamizado agrega al contrato: enDuda, perdidaRango, peorCaso) ·
+//   todasLasClaves · VARIABLES_POR_CLAVE · CAUSAS_AFIRMABLES · constantes de umbrales
 // Textos: textos.es.json y textos.en.json (claves `explicacion.*`).
 // Todo es determinista: sin azar, sin reloj. Las simulaciones las corre quien llama (simulador y variante se inyectan).
 export { esperasDe, CAUSAS_AFIRMABLES, CAUSAS_DE_LA_TAXONOMIA } from './esperas.ts';
@@ -16,7 +17,8 @@ export {
 } from './causas.ts';
 export type { Candidata, ItemDeCausa } from './causas.ts';
 export { verificarFrases, verificarAfirmacion, cifrasSinRespaldo, esFraseControlada, PREFIJOS_CONTROLADOS } from './verificador.ts';
-export { supuestosDe, tamizar } from './tamizado.ts';
+export { supuestosDe, tamizar, decisionesPosibles } from './tamizado.ts';
+export type { ResultadoTamizadoConDuda } from './tamizado.ts';
 export {
   armarFormulario, cierreDelFormulario, segundosPorObservacion, MENSAJE_FORMULARIO_LISTO, MENSAJE_FORMULARIO_NINGUNA_CUMPLE, MENSAJE_FORMULARIO_EN_DUDA,
   SEGUNDOS_DE_ANOTACION,

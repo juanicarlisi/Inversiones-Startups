@@ -12,10 +12,11 @@ import { textoPerderCorte } from '../ui/resumen.ts';
 import { claveCierreFormulario } from '../pantallas/decidir.ts';
 import { cambiosDe } from '../pantallas/biografia.ts';
 import { trazaACsv } from '../pantallas/ingeniero.ts';
+import { balanceDeB } from '../pantallas/ysi.ts';
 import { textoConfirmado, textoContrafactual } from '../pantallas/biografia.ts';
 import { Causa, ClaseEntidad, TipoTramo, refDe, type Traza } from '../../contratos/traza.ts';
 import type { Biografia, Contrafactual } from '../../contratos/explicacion.ts';
-import type { EvaluacionDecision, Proporcion } from '../../contratos/experimentos.ts';
+import type { Comparacion, EvaluacionDecision, Proporcion } from '../../contratos/experimentos.ts';
 import type { NocheVista } from '../sesion.ts';
 import { validadoSinChequeos } from '../../contratos/referencias.ts';
 import { plantillaChica } from '../falsos/plantillas.ts';
@@ -98,4 +99,19 @@ test('traza en CSV: encabezado del contrato y una fila por tramo', () => {
   const t = { tramos: { n: 2, e: Int32Array.of(5, -1), k: Uint8Array.of(TipoTramo.CINTA, TipoTramo.LAZO_MARCHA), r: Int32Array.of(1, 0), a: Int32Array.of(0, 7),
     t0: Float64Array.of(1000, 0), t1: Float64Array.of(2500, 9000), c: Uint8Array.of(0, 0), q: Int32Array.of(-1, -1) } } as unknown as Traza;
   assert.equal(trazaACsv(t), 'e,k,r,a,t0,t1,c,q\n5,11,1,0,1000,2500,0,-1\n-1,40,0,7,0,9000,0,-1\n');
+});
+
+test('«¿y si…?»: si B no mejora ningún indicador y empeora alguno, se dice (y «Quedarme con B» deja de ser lo principal)', () => {
+  const base = ctxDe();
+  const ctx = { ...base, sesion: { kpiNoche: 'finClasificacionMin', mv: validadoSinChequeos(plantillaChica()), nochesListas: false, nochesLlegadas: [] } } as unknown as Contexto;
+  const comp = (kpi: Comparacion['kpi'], media: number, ic: [number, number], veredicto: Comparacion['veredicto']): Comparacion =>
+    ({ kpi, n: 40, pareada: true, media, ic, veredicto, replicasSugeridas: null });
+  // el costo por paquete sube $ 7,24 (más que la indiferencia: $ 20.000 por noche ÷ 8.000 paquetes = $ 2,50): A es mejor
+  const peorCosto = comp('costoPorPaquete', 7.24, [7.17, 7.31], 'a-mejor');
+  // la hora de fin se corre 0,3 min: «a-mejor» para la estadística, pero igual en la práctica (menos de 1 min)
+  const finIgual = comp('finClasificacionMin', 0.3, [0.1, 0.5], 'a-mejor');
+  const menosPerdidos = comp('pendientesAlCorte', -50, [-60, -40], 'b-mejor');
+  assert.deepEqual(balanceDeB(ctx, [peorCosto, finIgual]), { mejoran: 0, empeoran: 1 }, 'lo igual en la práctica no cuenta como empeorar');
+  assert.deepEqual(balanceDeB(ctx, [peorCosto, finIgual, menosPerdidos]), { mejoran: 1, empeoran: 1 });
+  assert.match(base.t('app.ysi.bPeor'), /A es mejor/);
 });

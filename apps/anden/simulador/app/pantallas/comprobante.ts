@@ -19,7 +19,7 @@ export const montarComprobante: Montar = (raiz, ctx) => {
   const pintar = () => {
     const c = s.comprobante, mv = s.mv!;
     if (!c) {
-      poner(cuerpo, sellos(ctx), progreso(s.llegadas / Math.max(1, s.N), ctx.t('app.comprobante.esperando', { llegadas: s.llegadas, N: s.N })));
+      poner(cuerpo, sellos(ctx, false, false), progreso(s.llegadas / Math.max(1, s.N), ctx.t('app.comprobante.esperando', { llegadas: s.llegadas, N: s.N })));
       raiz.dataset.listo = '0';
       return;
     }
@@ -30,7 +30,7 @@ export const montarComprobante: Montar = (raiz, ctx) => {
     // I-CONTROLES repite la línea de arriba («Se hicieron 24 controles…»): no se muestra dos veces
     const diags = mv.diagnosticos.filter((d) => d.nivel !== 'error' && d.codigo !== 'I-CONTROLES');
     poner(cuerpo,
-      tarjeta(ctx.t('app.comprobante.sellos'), '', sellos(ctx)),
+      tarjeta(ctx.t('app.comprobante.sellos'), '', sellos(ctx, false, false)),
       tarjeta(ctx.t('app.comprobante.receta'), '', el('dl', { class: 'datos', 'data-comprobante': 'receta' },
         ...dato('app.comprobante.huellaModelo', r.modelo, true),
         ...dato('app.comprobante.motor', r.motor, true),
@@ -51,8 +51,10 @@ export const montarComprobante: Montar = (raiz, ctx) => {
       tarjeta(ctx.t('app.comprobante.procedencia'), '', el('p', { class: 'nota' }, ctx.t('app.comprobante.procedenciaNota')),
         el('div', { class: 'insignias', 'data-comprobante': 'procedencia' }, ...ETIQUETAS.map((x) => insignia(ctx, x, cuenta[x] ?? 0)))),
       tarjeta(ctx.t('app.comprobante.confianza'), '', detalleSemaforo(ctx, c.semaforo)),
-      tarjeta(ctx.t('app.comprobante.validacion'), '', el('p', null, c.validacion.estado === 'sin-validar'
-        ? ctx.t('experimentos.comprobante.sin-validar') : ctx.t('app.sello.validacion.validada', { dias: c.validacion.dias, dentro: c.validacion.dentroDelIntervalo }))));
+      // el mismo texto que el sello (diseño maestro §5.9: «Sin validar contra días reales») y qué quiere decir
+      tarjeta(ctx.t('app.comprobante.validacion'), '', el('p', { 'data-comprobante': 'validacion' }, c.validacion.estado === 'sin-validar'
+        ? ctx.t('app.sello.validacion.sinValidar') : ctx.t('app.sello.validacion.validada', { dias: c.validacion.dias, dentro: c.validacion.dentroDelIntervalo })),
+      c.validacion.estado === 'sin-validar' ? el('p', { class: 'nota' }, ctx.t('app.comprobante.validacionNota')) : null));
     raiz.dataset.listo = '1';
   };
   pintar();

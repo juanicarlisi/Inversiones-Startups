@@ -144,6 +144,9 @@ export function nuevoEstado(semilla = 20291101) {
     contratos: { tablero: [], activos: [], dia: null, sig: 1, cumplidos: 0 },
     banco: {},
     ronda: { listo: false, ultima: null, noche: null, historial: [] },
+    clasif: null,             // la primera clasificación del hub (capítulo 1): oferta → corriendo → hecha
+    vendidas: {},             // ruta → minuto de la última venta (histéresis del chip)
+    chip: null,               // el último consejo económico del chip { k, t } (como mucho uno nuevo por día de juego)
     clima: { combustible: 1, tormenta: null, pronostico: null },
     flags: {},
     diario: { hoy: {}, dias: [] },
@@ -313,6 +316,7 @@ export function comprarAvion(s, tipoId, rutaId) {
   const primero = !conAvion(s, rutaId);
   // Sale enseguida: el primer control de carga es en el próximo paso, y el vuelo cuenta desde el comienzo de ese paso (así el primer
   // cobro de la partida llega antes de los 10 s también con los 3 toques de la interfaz).
+  (s.flags.apoyo ??= {})[rutaId] = s.t; // la sugerencia de apoyo a una misión de entregas espera medio día en esta ruta
   const av = { id: s.sigId++, tipo: tipoId, ruta: rutaId, en: base, hacia: base === r.a ? r.b : r.a,
     fase: 'tierra', resta: 0, dur: PASO, carga: [], espera: null, v: 0, ing: 0, cos: 0, desde: s.t };
   s.aviones.push(av);
@@ -327,6 +331,7 @@ export function venderAvion(s, avionId) {
   const monto = Math.round(AV[av.tipo].precio * VENTA);
   s.dinero += monto;
   s.aviones = s.aviones.filter((x) => x.id !== avionId);
+  (s.vendidas ??= {})[av.ruta] = s.t; // histéresis del chip: en esta ruta no se sugiere comprar otro en el día
   // Si estaba en vuelo, su carga vuelve al aeropuerto de salida (no se pierde por vender).
   for (const x of av.carga) sumarCola(s, av.en, x.d, x.c, x.n, x.tc, x.p, x.km, x.k);
   const ultimo = !conAvion(s, av.ruta);
@@ -341,7 +346,9 @@ export function ponerBalizas(s, rutaId) {
   if (!r || r.balizas) return { ok: false };
   const costo = costoBalizas(r, s);
   if (s.dinero < costo) return { ok: false, error: 'plata', costo };
+  const primeras = !s.flags.balizas;
   gastar(s, costo); r.balizas = true; s.flags.balizas = true;
+  if (primeras) emitir(s, { tipo: 'primerasBalizas', ruta: r.id });
   revisarYEmitir(s);
   return { ok: true, costo };
 }
@@ -758,7 +765,10 @@ function despegar(s, av, t, r, noche, ronda, ev) {
   r.ocup = r.vuelos === 1 ? oc : r.ocup * 0.85 + 0.15 * oc;
   r.unidades = (r.unidades ?? 0) + uni;
   av.costoVuelo = costo;
-  if (noche && iluminada(s, r)) s.stats.despNoche++;
+  if (noche && iluminada(s, r)) {
+    s.stats.despNoche++;
+    if (!s.flags.despNoche1) { s.flags.despNoche1 = true; ev.push({ tipo: 'primerDespegueNoche', avion: av.id, ruta: r.id }); }
+  }
   s.ultVuelo[av.en] = s.t; s.ultSalida[`${av.en}>${av.hacia}`] = s.t;
   if (ronda && av.en === HUB) { ronda.salio[r.id] = true; av.ronda = ronda.id; }
   const horas = r.km / t.vel;
@@ -868,7 +878,7 @@ function cerrarHora(s, ev) {
     if (s.t - s.flags.rojoDesde >= 1440 && s.aviones.length) {
       // Un día entero en rojo: se venden los aviones que más pierden hasta volver a cero (nadie queda atrapado en la espiral).
       for (let i = 0; i < 20 && s.dinero < 0 && s.aviones.length; i++) {
-        const peor = peorAvion(s);
+        const peor = peorAvion(s, true) ?? peorAvion(s);
         const r = venderAvion(s, peor.id);
         s.stats.ventasForzadas++;
         ev.push({ tipo: 'ventaForzada', avion: peor.id, avionTipo: peor.tipo, monto: r.monto });
@@ -923,7 +933,11 @@ function activarMision(s) {
   s.mision = m ? { id: m.id, base: baseDe(s, m), tAv: s.t, ult: 0, t0: s.t } : null;
   if (m?.tipo === 'mejorDia') { s.mision.h0 = Math.ceil(s.t / 60); s.mision.mejor = 0; }
   if (m?.sacas) sumarCola(s, m.a, m.b, 'correo', m.sacas, s.t, 0, km(m.a, m.b));
+  for (const [o, d, n] of m?.conexion ?? []) sumarCola(s, o, d, 'correo', n, s.t, 0, km(o, d));
 }
+// Una misión «trasNoche» espera hasta que cae la primera noche con aviones: mientras tanto no pide nada (ni balizas ni pista).
+const enEspera_ = (s, m) => !!m?.trasNoche && !s.flags.primeraNoche;
+export function misionEnEspera(s, m = misionActual(s)) { return enEspera_(s, m); }
 
 // Avance real de una misión desde que se activó (las misiones miden servicio, no compras).
 export function progreso(s, m) {
@@ -959,10 +973,11 @@ export function misionesActivas(s) {
   const m = misionActual(s);
   if (m) {
     const v = progreso(s, m);
-    out.push({ id: m.id, tipo: 'historia', texto: m.id, mision: m, progreso: Math.min(1, Math.max(0, v / m.meta)),
+    const espera = enEspera_(s, m);
+    out.push({ id: m.id, tipo: 'historia', texto: espera ? `${m.id}_espera` : m.id, espera, mision: m, progreso: Math.min(1, Math.max(0, v / m.meta)),
       avance: { n: Math.floor(Math.max(0, v)), meta: m.meta, unidad: m.tipo === 'entregas' ? `u_${m.carga}` : UNIDAD[m.tipo] },
       avanceTxt: m.tipo === 'ruta' ? null : `${Math.floor(Math.max(0, v))}/${m.meta}`,
-      premio: m.premio, pista: s.mision && s.t - s.mision.tAv >= PISTA_MIN ? pistaDe(s, m) : null });
+      premio: m.premio, pista: !espera && s.mision && s.t - s.mision.tAv >= PISTA_MIN ? pistaDe(s, m) : null });
   }
   const { activos, tablero } = s.contratos;
   for (const c of activos) out.push(objetivoContrato(s, c, false));
@@ -1017,13 +1032,13 @@ function revisarObjetivos(s, ev) {
     if (c.hechas >= c.n) {
       s.dinero += c.premio; s.contratos.cumplidos++;
       s.contratos.activos = s.contratos.activos.filter((x) => x !== c);
-      ev.push({ tipo: 'contrato', id: c.id, premio: c.premio, o: c.o, d: c.d, navidad: c.navidad });
+      ev.push({ tipo: 'contrato', id: c.id, premio: c.premio, o: c.o, d: c.d, navidad: c.navidad, corto: !!c.horas });
     } else if (s.t > c.vence) {
       s.contratos.activos = s.contratos.activos.filter((x) => x !== c);
       ev.push({ tipo: 'contratoVencido', id: c.id });
     }
   }
-  if (s.contratos.dia == null && contratosHabilitados(s)) renovarContratos(s, ev, true);
+  if ((s.contratos.dia == null || (enCortos(s) && !s.contratos.tablero.length)) && contratosHabilitados(s)) renovarContratos(s, ev, true);
   revisarBanco(s, ev);
 }
 function revisarYEmitir(s) { const ev = []; revisarObjetivos(s, ev); for (const e of ev) emitir(s, e); }
@@ -1061,10 +1076,17 @@ export function avanzarCapitulo(s) {
 // cada día de juego, determinista por semilla, entre ciudades de la red o a una ruta de distancia. Al menos uno pasa por un
 // transbordo en el hub. El jugador acepta hasta 2. Solo cuentan las entregas reales del par pedido: las unidades del contrato
 // viajan marcadas. No automatizan nada ni dan multiplicadores permanentes.
-export const CONTRATO = { maxActivos: 2, ofertas: 3, dias: [2, 3], parteCapacidad: 0.25, horasCapacidad: 30, minN: 8, maxN: 300, premioPorTarifa: 0.6, navidad: 1.8 };
+export const CONTRATO = { maxActivos: 2, ofertas: 3, dias: [2, 3], parteCapacidad: 0.25, horasCapacidad: 30, minN: 8, maxN: 300, premioPorTarifa: 0.6, navidad: 1.8,
+  // los primeros tableros de la partida (hasta cumplir 10 contratos) traen contratos cortos entre ciudades que ya tienen vuelos (1 día,
+  // unas 2 horas de capacidad del camino, que salen en 2 horas): el primero se cumple en el primer minuto y medio y enseñan la
+  // mecánica antes de que lleguen los de 2 y 3 días
+  primero: { dias: 1, horas: 2, parte: 1, hasta: 10 } };
 
 function contratosHabilitados(s) { return (red(s).adj[HUB]?.length ?? 0) >= 2; }
-function azarDia(s) { return RONDA.azar(((s.semilla ^ 0x5bd1e995) + (s.dia ?? 0) * 2654435761) >>> 0); }
+// el azar del tablero depende del día y de cuántos contratos se ofrecieron (un tablero que se repone el mismo día no repite)
+function azarDia(s) { return RONDA.azar(((s.semilla ^ 0x5bd1e995) + (s.dia ?? 0) * 2654435761 + (s.contratos.sig ?? 0) * 40503) >>> 0); }
+// Mientras duran los contratos cortos (capítulo 1, hasta cumplir 10), el tablero se repone apenas se acepta el último que ofrecía.
+const enCortos = (s) => s.cap === 1 && (s.contratos.cumplidos ?? 0) < CONTRATO.primero.hasta;
 
 // Capacidad ofrecida por hora en cada sentido de una ruta, para la carga c (los aviones hacen ida y vuelta). Se calcula una vez por
 // versión de la red (cambia solo al abrir o cerrar rutas y al comprar o vender aviones): antes se recorría toda la flota en cada
@@ -1084,6 +1106,18 @@ function capacidades(s) {
   return m;
 }
 function capacidadHora(s, rutaId, c) { return capacidades(s)[rutaId]?.[c] ?? 0; }
+// ¿Todo el camino de o a d vuela de noche (rutas iluminadas o aviones nocturnos)?
+function caminoDeNoche(s, o, d) {
+  const R = red(s);
+  let a = o;
+  for (let i = 0; i < 8 && a !== d; i++) {
+    const h = R.sig[a]?.[d], r = h && R.porId[idRuta(a, h)];
+    if (!r) return false;
+    if (!iluminada(s, r) && s.aviones.some((x) => x.ruta === r.id && !AV[x.tipo].nocturno)) return false;
+    a = h;
+  }
+  return a === d;
+}
 // Lo que puede pasar por hora de o a d: el tramo más flaco del camino y, en cada escala, la mitad de lo que clasifica su centro de
 // transbordo (la otra mitad es para el resto del correo).
 function capacidadCamino(s, o, d, c) {
@@ -1104,6 +1138,8 @@ function renovarContratos(s, ev, inicial = false) {
   const r = azarDia(s);
   const cargas = Object.keys(capitulo(s).cargas);
   const navidad = factorTemporada(s, 'correo', true) > 1;
+  const corto = enCortos(s) ? CONTRATO.primero : null; // los primeros tableros
+  const hayLuz = s.rutas.some((x) => x.balizas && conAvion(s, x.id));
   const ofertas = [];
   const usado = new Set(s.contratos.activos.map((c) => `${c.o}>${c.d}`));
   const elegir = (lista) => lista.length ? lista[Math.floor(r() * lista.length)] : null;
@@ -1113,15 +1149,17 @@ function renovarContratos(s, ev, inicial = false) {
     if (R.sig[o]?.[d]) { const p = posibles(o, d); if (!p.includes(c)) c = p.length ? p[Math.floor(r() * p.length)] : null; }
     // caminos cortos: hasta 3 tramos (2 para pasajeros, que se van si la conexión demora)
     if (c && R.tramos[o]?.[d] > (c === 'pasajeros' ? 2 : 3)) return;
+    if (corto && !R.sig[o]?.[d]) return; // un contrato corto nunca pide abrir una ciudad nueva
+    if (corto && hayLuz && !caminoDeNoche(s, o, d)) return; // y, si ya hay rutas iluminadas, va por ellas (vuela también de noche)
     if (!c || !o || !d || o === d || usado.has(`${o}>${d}`)) return;
     usado.add(`${o}>${d}`);
     const dist = km(o, d);
     const cap = capacidadCamino(s, o, d, c) || capTotal(AV.golondrina) / (2 * (dist / 180 + 1));
-    const n = Math.max(CONTRATO.minN, Math.min(CONTRATO.maxN, Math.round(cap * CONTRATO.horasCapacidad * CONTRATO.parteCapacidad)));
-    const dias = CONTRATO.dias[Math.floor(r() * CONTRATO.dias.length)];
+    const n = Math.max(CONTRATO.minN, Math.min(CONTRATO.maxN, Math.round(cap * (corto ? corto.horas * corto.parte : CONTRATO.horasCapacidad * CONTRATO.parteCapacidad))));
+    const dias = corto ? corto.dias : CONTRATO.dias[Math.floor(r() * CONTRATO.dias.length)];
     const fNav = extra.navidad ? CONTRATO.navidad : 1;
     ofertas.push({ id: s.contratos.sig++, o, d, c, n, dias, premio: Math.round(n * tarifa(c, dist) * CONTRATO.premioPorTarifa * fNav / 100) * 100,
-      hub: R.sig[o]?.[d] === HUB || (extra.hub ?? false), navidad: !!extra.navidad });
+      hub: R.sig[o]?.[d] === HUB || (extra.hub ?? false), navidad: !!extra.navidad, ...(corto ? { horas: corto.horas } : {}) });
   };
   // 1) uno que pasa por el transbordo del hub: de un radio a otro
   const radios = R.adj[HUB] ?? [];
@@ -1152,17 +1190,90 @@ export function aceptarContrato(s, id) {
   return { ok: true };
 }
 
-// Las unidades del contrato salen parejas durante la primera mitad del plazo, mientras haya camino, hasta completar N.
+// Las unidades del contrato salen parejas durante la primera mitad del plazo (o en sus «horas», los cortos), mientras haya camino,
+// hasta completar N.
 function generarContratos(s, dt) {
   const R = red(s);
   for (const c of s.contratos.activos) {
     if (!R.sig[c.o]?.[c.d] || c.hechas + c.vivas >= c.n) continue;
-    c.acum += c.n / (c.dias * 12) * dt / 60;
+    c.acum += c.n / (c.horas ?? c.dias * 12) * dt / 60;
     const n = Math.min(Math.floor(c.acum), c.n - c.hechas - c.vivas);
     if (n <= 0) continue;
     c.acum -= n; c.vivas += n;
     sumarCola(s, c.o, c.d, c.c, n, s.t, 0, km(c.o, c.d), c.id);
   }
+}
+
+// ───────────────────────── primera clasificación del hub ─────────────────────────
+// Antes del minuto 3 (HN-30): la primera mañana después de la primera noche, con «m1_transbordo» cumplida y dos radios del hub con
+// avión, el hub ofrece una sola decisión: «¿Qué sale primero: Montevideo o Bahía Blanca?». Llegaron juntas las sacas de los dos (las
+// del tramo corto, primero) y el centro de verdad las clasifica de a una; cada avión sale cuando termina su correo. La resuelve
+// ronda.js, el mismo motor de la ronda nocturna, con los vuelos de verdad de esos radios: por orden de llegada sale cerca del 50% a
+// tiempo y eligiendo bien (el tramo largo primero, porque vence antes), el 100%. Dura lo que tarda en aterrizar el último avión de la
+// escena (menos de 300 minutos de juego: 30 s reales a ×1) y paga lo que llega (unos $4.200 con la buena elección en 1929). Se
+// puede saltear (corre por orden de llegada) y, si nadie contesta en 6 horas de juego, corre sola. No depende de CONFIG.ronda.
+export const CLASIF = { esperaMax: 360, desde: 6, hasta: 18, minDif: 60 };
+function escenaClasificacion(s) {
+  const R = red(s), radios = [];
+  for (const d of R.adj[HUB] ?? []) {
+    const r = R.porId[idRuta(HUB, d)];
+    const avs = r ? s.aviones.filter((a) => a.ruta === r.id) : [];
+    if (!avs.length) continue;
+    const vel = Math.min(...avs.map((a) => AV[a.tipo].vel)); // el avión más lento de la ruta
+    radios.push({ id: d, nombre: AP[d].nombre, vuelo: Math.max(5, Math.round(r.km / vel * 60 / 5) * 5), tarifa: Math.round(tarifa('correo', r.km)) });
+  }
+  if (radios.length < 2) return null;
+  radios.sort((a, b) => a.vuelo - b.vuelo);
+  const corto = radios[0], largo = radios.at(-1);
+  if (largo.vuelo - corto.vuelo < CLASIF.minDif) return null;
+  return RONDA.primeraClasificacion({ centro: capacidadTransbordo(s, HUB), radios: [corto, largo], semilla: s.dia ?? 1 });
+}
+function cicloClasificacion(s, ev) {
+  const c = s.clasif;
+  if (!c) {
+    if (s.cap !== 1 || !misionHecha(s, 'm1_transbordo') || !s.flags.primeraNoche) return;
+    const h = hora(s);
+    if (h < CLASIF.desde || h >= CLASIF.hasta) return;
+    const e = escenaClasificacion(s);
+    if (!e) return;
+    s.clasif = { estado: 'oferta', t: s.t, escena: e };
+    ev.push({ tipo: 'clasificacion', opciones: e.radios.map((x) => x.id) });
+    return;
+  }
+  if (c.estado === 'oferta' && s.t - c.t >= CLASIF.esperaMax) iniciarClasificacion(s, null, true);
+  if (c.estado === 'corriendo' && s.t >= c.fin) {
+    c.estado = 'hecha';
+    const monto = c.res.ingreso;
+    s.dinero += monto; s.stats.ingresos += monto; s.netoHora += monto;
+    ev.push({ tipo: 'clasificacionHecha', primero: c.primero, pct: c.res.pct, ingreso: monto, ingresoAuto: c.auto.ingreso, ingresoMejor: c.mejor.ingreso,
+      mejor: c.mejor.primero, medalla: c.res.medalla, sola: !!c.sola, radios: c.res.radios.map((x) => ({ id: x.id, aTiempo: x.aTiempo, sacas: x.sacas, semaforo: x.semaforo })) });
+  }
+}
+function iniciarClasificacion(s, primero, sola = false) {
+  const c = s.clasif, e = c.escena;
+  const res = RONDA.resolverClasificacion(e, primero), auto = RONDA.resolverClasificacion(e, null), mejor = RONDA.mejorClasificacion(e);
+  const sinFn = (r) => ({ pct: r.pct, ingreso: r.ingreso, aTiempo: r.aTiempo, sacas: r.sacas, medalla: r.medalla, primero: r.primero, duracion: r.duracion,
+    radios: r.radios.map((x) => ({ id: x.id, salida: x.salida, llega: x.llega, llevadas: x.llevadas, aTiempo: x.aTiempo, sacas: x.sacas, semaforo: x.semaforo })) });
+  Object.assign(c, { estado: 'corriendo', primero, sola, inicio: s.t, fin: s.t + res.duracion, res: sinFn(res), auto: sinFn(auto), mejor: sinFn(mejor) });
+}
+// La decisión: «primero» es el destino que se clasifica primero; null saltea (por orden de llegada).
+export function elegirClasificacion(s, primero = null) {
+  const c = s.clasif;
+  if (!c || c.estado !== 'oferta') return { ok: false, error: 'sinClasificacion' };
+  if (primero != null && !c.escena.radios.some((x) => x.id === primero)) return { ok: false, error: 'invalida' };
+  iniciarClasificacion(s, primero);
+  return { ok: true, resultado: c.res };
+}
+// Lo que muestra el panel del hub: la pregunta (oferta), la escena corriendo (con su minuto) o el resultado.
+export function clasificacionActual(s) {
+  const c = s.clasif;
+  if (!c) return null;
+  const e = c.escena;
+  return { estado: c.estado, opciones: e.radios.map((x) => ({ id: x.id, nombre: x.nombre, vuelo: x.vuelo, sacas: x.sacas })), centro: e.centro,
+    ventana: e.ventana, primero: c.primero ?? null, res: c.res ?? null, auto: c.auto ?? null, mejor: c.mejor ?? null,
+    minuto: c.estado === 'corriendo' ? s.t - c.inicio : null, quedan: c.estado === 'oferta' ? Math.max(0, CLASIF.esperaMax - (s.t - c.t)) : c.estado === 'corriendo' ? Math.max(0, c.fin - s.t) : 0,
+    // la hora límite (la raya) en minutos de juego desde ahora, para el texto «tienen que llegar antes de las HH:MM»
+    limite: c.estado === 'oferta' ? e.ventana : c.estado === 'corriendo' ? c.inicio + e.ventana - s.t : null };
 }
 
 // ───────────────────────── ronda nocturna en el hub ─────────────────────────
@@ -1341,23 +1452,31 @@ function demandaTramo(s, a, b, c = null) {
   const f = c ? f0?.porCarga[c] : f0;
   return f ? { u: f.u, valor: f.u ? f.valor / f.u : 0 } : { u: 0, valor: 0 };
 }
+// Comprar y vender salen de la misma cuenta (HN-32): valorAvion. estimarAvion es lo que agrega un avión más (como si fuera el
+// próximo en llegar a la ruta); aporteAvion, lo que aporta uno que ya vuela (como si fuera el último en llegar). Recién comprado, su
+// aporte es lo que se estimó al comprarlo: el chip nunca sugiere comprar algo que al rato diga que sobra.
 export function estimarAvion(s, tipoId, rutaId) {
   const t = AV[tipoId], r = s.rutas.find((x) => x.id === rutaId);
   if (!t || !r) return null;
-  const sinRed = !s.aviones.some((a) => a.ruta === rutaId);
-  // si la ruta todavía no tiene avión, la red no la usa: se estima con la demanda directa del par
-  const demanda = sinRed ? (x, y, c) => ({ u: demandaHora(s, x, y, c), valor: tarifa(c, r.km) }) : (x, y, c) => demandaTramo(s, x, y, c);
-  const ofrecida = sinRed ? () => 0 : (c) => capacidadHora(s, rutaId, c);
-  return estimarTramo(s, t, r.a, r.b, r.km, iluminada(s, r), ofrecida, r.minCarga ?? 0.6, demanda);
+  return valorAvion(s, t, r);
 }
-// Lo que aporta hoy un avión que ya vuela en su ruta (lo mismo que estimarAvion, como si fuera el último en llegar). Si es negativo,
-// sobra: venderlo mejora el neto por día.
-function aporteAvion(s, av) {
+// Si es negativo, sobra: venderlo mejora el neto por día.
+export function aporteAvion(s, av) {
   const t = AV[av.tipo], r = red(s).porId[av.ruta];
   if (!r) return 0;
+  return valorAvion(s, t, r, av);
+}
+function valorAvion(s, t, r, propio = null) {
+  if (!s.aviones.some((a) => a.ruta === r.id)) {
+    // la ruta todavía no tiene aviones, así que la red no la usa: se estima con la demanda que tendría (la del par y, si una punta
+    // está fuera de la red, también lo que llegaría en conexión por la otra)
+    const R = red(s), enA = !!R.adj[r.a], enB = !!R.adj[r.b];
+    const demanda = enA !== enB ? demandaRutaNueva(s, enA ? r.a : r.b, enA ? r.b : r.a) : (x, y, c) => ({ u: demandaHora(s, x, y, c), valor: tarifa(c, r.km) });
+    return estimarTramo(s, t, r.a, r.b, r.km, iluminada(s, r), () => 0, r.minCarga ?? 0.6, demanda);
+  }
   const cicloH = 2 * (r.km / t.vel + t.giro / 60);
-  return estimarTramo(s, t, r.a, r.b, r.km, iluminada(s, r), (c) => Math.max(0, capacidadHora(s, r.id, c) - (t.lleva[c] ?? 0) / cicloH),
-    r.minCarga ?? 0.6, (x, y, c) => demandaTramo(s, x, y, c));
+  const ofrecida = propio && propio.tipo === t.id ? (c) => Math.max(0, capacidadHora(s, r.id, c) - (t.lleva[c] ?? 0) / cicloH) : (c) => capacidadHora(s, r.id, c);
+  return estimarTramo(s, t, r.a, r.b, r.km, iluminada(s, r), ofrecida, r.minCarga ?? 0.6, (x, y, c) => demandaTramo(s, x, y, c));
 }
 // Lo que agrega por día un avión de tipo t en el tramo a⇄b: las unidades por hora que lleva de la demanda que hoy no se atiende
 // (hasta su capacidad), a lo que vale cada una, menos sus vuelos y sus horas parado. Los vuelos son los que hacen falta para llevar
@@ -1433,9 +1552,15 @@ function expansiones(s) {
   return out;
 }
 
-function peorAvion(s) {
+// Histéresis (HN-32): un avión se juzga recién con 2 días de juego; en una ruta donde se vendió uno, no se compra otro en el día.
+export const CHIP = { diasVenta: 2, diasRecompra: 1, diasRepago: 2, consejosPorDia: 1, diasAcelerar: 3 };
+const avionViejo = (s, av) => s.t - (av.desde ?? 0) >= CHIP.diasVenta * 1440;
+const vendidaHoy = (s, rutaId) => s.vendidas?.[rutaId] != null && s.t - s.vendidas[rutaId] < CHIP.diasRecompra * 1440;
+// soloViejos: solo entre los que tienen 2 días o más (la sugerencia); la venta forzada mira todos si hace falta.
+function peorAvion(s, soloViejos = false) {
   let peor = null, v = Infinity;
   for (const av of s.aviones) {
+    if (soloViejos && !avionViejo(s, av)) continue;
     const horas = Math.max(1, (s.t - (av.desde ?? 0)) / 60);
     const x = (av.ing - av.cos) / horas;
     if (x < v) { v = x; peor = av; }
@@ -1454,7 +1579,7 @@ export function decisiones(s) {
   const tiene = (id) => !!porRuta[id];
   const memo = new Map();
   const est = (tid, rid) => { const k = `${tid}|${rid}`; let v = memo.get(k); if (v === undefined) memo.set(k, (v = estimarAvion(s, tid, rid))); return v; };
-  const mejorTipo = (r) => mejorTipoPara(s, r, est);
+  const mejorTipo = (r) => (vendidaHoy(s, r.id) ? null : mejorTipoPara(s, r, est));
   // Si lo que pide la historia todavía no alcanza pero la red lo junta pronto (en 1,5 días de juego o menos), la mejor próxima
   // acción es juntar para eso en vez de gastar en otra cosa: «Juntá $X para el Halcón». No cuesta nada ni suma por día; trae lo
   // que falta y en cuántos minutos reales se junta a este ritmo.
@@ -1478,20 +1603,52 @@ export function decisiones(s) {
       else { const b = masBaratoPara(r); if (b) ahorrar(b.precio + reserva(s, { t: b, r }), 'avion', b.id); }
     }
   }
-  if (m?.tipo === 'despeguesNoche' && !s.rutas.some((r) => r.balizas && tiene(r.id))) {
+  // las balizas se piden y se sugieren recién después de la primera noche con aviones (antes el jugador no sabe para qué sirven)
+  const noche1 = !!s.flags.primeraNoche;
+  if (m?.tipo === 'despeguesNoche' && noche1 && !s.rutas.some((r) => r.balizas && tiene(r.id))) {
     const r = [...s.rutas].filter((x) => tiene(x.id)).sort((x, y) => costoBalizas(x, s) - costoBalizas(y, s))[0];
     if (r && s.dinero >= costoBalizas(r, s) && res(costoBalizas(r, s))) out.push({ tipo: 'balizas', id: r.id, costo: costoBalizas(r, s), efectoDia: estimarBalizas(s, r), mision: true });
     else if (r) ahorrar(costoBalizas(r, s) + reservaSugerencia(s), 'balizas', r.id);
   }
   if ((m?.tipo === 'entregasEn' || m?.tipo === 'entregasEnTodas') ) {
     const metas = m.tipo === 'entregasEn' ? [m.ciudad] : m.ciudades;
+    let hecho = false;
     for (const c of metas) {
       const d = pasoHacia(s, c);
-      if (d) { out.push({ ...d, mision: true }); break; }
+      if (d) { out.push({ ...d, mision: true }); hecho = true; break; }
       // la ruta hacia la ciudad ya está abierta pero su avión no alcanza: juntar para él (si la red lo junta pronto)
       const sinAv = !red(s).adj[c] && s.rutas.find((r) => (r.a === c || r.b === c) && !tiene(r.id));
       const b = sinAv && masBaratoPara(sinAv);
-      if (b) { ahorrar(b.precio + reserva(s, { t: b, r: sinAv }), 'avion', b.id); break; }
+      if (b) { ahorrar(b.precio + reserva(s, { t: b, r: sinAv }), 'avion', b.id); hecho = true; break; }
+    }
+    // la ciudad ya recibe vuelos: un avión más en la ruta que más correo le lleva y todavía deja esperando (si suma por día y se paga
+    // en 4 días), así las entregas llegan antes; como mucho uno por ruta cada medio día
+    if (!hecho) {
+      let mejor = null;
+      for (const c of metas) for (const r of s.rutas) {
+        if ((r.a !== c && r.b !== c) || !tiene(r.id) || (s.flags.apoyo?.[r.id] ?? -1e9) > s.t - 720) continue;
+        const t = mejorTipo(r);
+        if (!t) continue;
+        const e = est(t.id, r.id), otra = r.a === c ? r.b : r.a;
+        const espera = indice(s).n[otra]?.[c] ? Object.values(indice(s).n[otra][c]).reduce((a, b) => a + b, 0) : 0;
+        if (e > 0 && t.precio <= 4 * e && espera >= capTotal(t) && (!mejor || espera > mejor.espera)) mejor = { tipo: 'avion', id: t.id, ruta: r.id, costo: t.precio, efectoDia: e, mision: true, apoyo: true, espera };
+      }
+      if (mejor) { delete mejor.espera; out.push(mejor); }
+    }
+  }
+  if (m?.tipo === 'transbordos') {
+    // primero el centro de la ciudad de la misión (si es lo que frena: cola de más de una hora, pérdidas en el centro o un centro sin
+    // mejorar con conexiones), después rutas desde ahí (cada ruta nueva desde esa ciudad le manda conexiones)
+    const c = m.ciudad, costo = costoTransbordo(s, c), cap = capacidadTransbordo(s, c);
+    const conexiones = (red(s).adj[c] ?? []).length;
+    const perdTb = (s.diario.hoy[c]?.perdTb ?? 0) + (s.diario.dias[0]?.[c]?.perdTb ?? 0);
+    const frena = conexiones >= 2 && (enTransbordo(s, c) >= cap || perdTb > 0 || ((s.niveles[c] ?? 0) === 0 && c !== HUB));
+    if (costo != null && frena) {
+      if (res(costo)) out.push({ tipo: 'transbordo', id: c, costo, efectoDia: Math.max(1, estimarTransbordo(s, c)), mision: true });
+      else ahorrar(costo + reservaSugerencia(s), 'transbordo', c);
+    } else {
+      const d = rutaDesde(s, c, est);
+      if (d) out.push({ ...d, mision: true });
     }
   }
   if (m?.tipo === 'entregas') { // un avión que lleve esa carga donde más demanda de esa carga queda sin atender
@@ -1526,15 +1683,23 @@ export function decisiones(s) {
     if (r && puedeComprar(s, m.avion, r.id).ok) out.push({ tipo: 'avion', id: m.avion, ruta: r.id, costo: AV[m.avion].precio, efectoDia: Math.max(0, est(m.avion, r.id)), mision: true });
     else if (r && avionDisponible(s, m.avion)) ahorrar(AV[m.avion].precio + reserva(s, { t: AV[m.avion], r }), 'avion', m.avion);
   }
+  // la primera clasificación ofrecida: gratis; suma lo que paga elegir bien sobre el orden de llegada
+  if (s.clasif?.estado === 'oferta') {
+    const e = s.clasif.escena, mejor = RONDA.mejorClasificacion(e), auto = RONDA.resolverClasificacion(e, null);
+    out.push({ tipo: 'clasificar', id: mejor.primero, costo: 0, efectoDia: Math.max(1, mejor.ingreso - auto.ingreso), objetivo: true });
+  }
   // contratos: aceptar es gratis y suma el premio (si hay camino para cumplirlo)
   if (s.contratos.activos.length < CONTRATO.maxActivos) for (const c of s.contratos.tablero) {
     if (red(s).sig[c.o]?.[c.d]) out.push({ tipo: 'contrato', id: c.id, costo: 0, efectoDia: Math.round(c.premio / c.dias), objetivo: true, ...(m?.tipo === 'contratos' ? { mision: true } : {}) });
   }
-  // red de seguridad: si la caja no alcanza para 2 vuelos y el neto lleva un día negativo, vender el avión que más pierde
+  // red de seguridad: si la caja no alcanza para 2 vuelos y el neto lleva un día negativo, vender el avión que más pierde (de los
+  // que tienen 2 días o más: uno recién comprado todavía no se puede juzgar)
   if (s.aviones.length > 1 && s.dinero < reservaSugerencia(s) && s.flags.negDesde != null && s.t - s.flags.negDesde >= 1440) {
-    const p = peorAvion(s);
-    const perdidaDia = Math.round(-(p.ing - p.cos) / Math.max(1, (s.t - p.desde) / 1440));
-    out.push({ tipo: 'vender', id: p.id, costo: -Math.round(AV[p.tipo].precio * VENTA), efectoDia: Math.max(1, perdidaDia), seguridad: true });
+    const p = peorAvion(s, true);
+    if (p) {
+      const perdidaDia = Math.round(-(p.ing - p.cos) / Math.max(1, (s.t - p.desde) / 1440));
+      out.push({ tipo: 'vender', id: p.id, costo: -Math.round(AV[p.tipo].precio * VENTA), efectoDia: Math.max(1, perdidaDia), seguridad: true });
+    }
   }
   // aviones de más: en una ruta con 2 o más, el que no aporta (la ruta lleva lo mismo sin él) se vende
   if (!out.some((d) => d.seguridad)) {
@@ -1543,7 +1708,11 @@ export function decisiones(s) {
       if (avs.length < 2) continue;
       let peor = null;
       const porTipo = {}; // dos aviones del mismo tipo en la misma ruta aportan lo mismo: se estima una vez por tipo
-      for (const av of [...avs].reverse()) { const v = (porTipo[av.tipo] ??= aporteAvion(s, av)); if (v < 0 && (!peor || v < peor.v)) peor = { av, v }; } // a igual aporte, el más nuevo
+      for (const av of [...avs].reverse()) {
+        if (!avionViejo(s, av)) continue; // un avión con menos de 2 días de juego no se juzga todavía
+        const v = (porTipo[av.tipo] ??= aporteAvion(s, av));
+        if (v < 0 && (!peor || v < peor.v)) peor = { av, v }; // a igual aporte, el más nuevo
+      }
       if (peor) out.push({ tipo: 'vender', id: peor.av.id, ruta: id, costo: -Math.round(AV[peor.av.tipo].precio * VENTA), efectoDia: -peor.v, sobra: true });
     }
   }
@@ -1551,7 +1720,7 @@ export function decisiones(s) {
   for (const r of s.rutas) {
     const t = mejorTipo(r); // ya filtra lo que se puede comprar
     if (t) { const e = est(t.id, r.id); if (e > 0) out.push({ tipo: 'avion', id: t.id, ruta: r.id, costo: t.precio, efectoDia: e }); }
-    if (!iluminada(s, r) && (porRuta[r.id] ?? []).some((a) => !AV[a.tipo].nocturno)) {
+    if (noche1 && !iluminada(s, r) && (porRuta[r.id] ?? []).some((a) => !AV[a.tipo].nocturno)) {
       const c = costoBalizas(r, s);
       if (s.dinero >= c && res(c)) { const e = estimarBalizas(s, r); if (e > 0) out.push({ tipo: 'balizas', id: r.id, costo: c, efectoDia: e }); }
     }
@@ -1601,6 +1770,31 @@ function estimarTransbordo(s, ap) {
   // lo que se pierde por día más lo que llega tarde por la demora, a una tarifa de conexión típica
   return Math.round((perdAyer + perdHoy + Math.max(0, cola - 2 * cap)) * tarifa('correo', 600) * 0.4);
 }
+// Para una misión de transbordos en «c»: el avión de una ruta desde c que todavía no tiene, o la mejor ruta nueva desde c (con su
+// primer avión), primero hacia ciudades que todavía no están en la red (cada una le manda conexiones de toda la red).
+function rutaDesde(s, c, est) {
+  const R = red(s), tipos = avionesDisponibles(s);
+  const sin = s.rutas.find((r) => (r.a === c || r.b === c) && !s.aviones.some((a) => a.ruta === r.id));
+  if (sin) { const t = mejorTipoPara(s, sin, est); return t ? { tipo: 'avion', id: t.id, ruta: sin.id, costo: t.precio, efectoDia: Math.max(0, est(t.id, sin.id)) } : null; }
+  let mejor = null;
+  for (const a of AEROPUERTOS) {
+    if (a.id === c || !ciudadDisponible(s, a.id) || (R.adj[c] ?? []).includes(a.id)) continue;
+    const p = puedeAbrirRuta(s, c, a.id);
+    if (!p.ok) continue;
+    const fuera = !R.tocados.has(a.id);
+    const demanda = fuera ? demandaRutaNueva(s, c, a.id) : (x, y, cg) => ({ u: demandaHora(s, x, y, cg), valor: tarifa(cg, p.km) });
+    for (const t of tipos) {
+      if (t.alcance < p.km) continue;
+      const costo = p.costo + t.precio;
+      if (s.dinero - costo < reserva(s, { t, r: { km: p.km } })) continue;
+      const e = estimarTramo(s, t, c, a.id, p.km, s.cap >= 2, () => 0, 0.6, demanda);
+      const v = Math.max(1, e) / costo * (fuera ? 2 : 1);
+      if (!mejor || v > mejor.v) mejor = { tipo: 'ruta', id: idRuta(c, a.id), a: c, b: a.id, avion: t.id, costo, efectoDia: Math.max(0, e), v };
+    }
+  }
+  if (mejor) delete mejor.v;
+  return mejor;
+}
 // La acción más barata que acerca una ciudad que todavía no recibe vuelos.
 function pasoHacia(s, ciudad, aunqueTocada = false) {
   const R = red(s);
@@ -1626,21 +1820,69 @@ function pasoHacia(s, ciudad, aunqueTocada = false) {
   return mejor;
 }
 
-// La mejor próxima acción: primero la red de seguridad, después lo que pide la historia (o juntar para eso, tipo 'ahorrar', si la
-// red lo junta pronto), después lo que más rinde por peso. Nunca sugiere algo con efecto negativo ni algo que deje la caja por
-// debajo del costo de 2 vuelos.
+// La mejor próxima acción (HN-32: el chip es el juego para la mayoría del portal, así que juega bien y deja lugar para jugar mejor).
+// Orden: la red de seguridad; el cuello de botella del hub (si su centro pierde por día más de lo que suma la misión y mejorarlo
+// cuesta menos de un día de ganancia); lo que pide la misión (o juntar para eso, tipo 'ahorrar'); la primera clasificación y los
+// contratos (gratis); y como mucho un consejo económico nuevo por día de juego, solo si se paga en 2 días o menos. Si no hay
+// ninguno, «×3 hasta juntar $X» (tipo 'acelerar') para el próximo que sí se paga. Nunca sugiere algo con efecto negativo, ni algo que
+// deje la caja por debajo del costo de 2 vuelos, ni vender un avión con menos de 2 días, ni comprar donde se vendió uno hoy.
+const ECONOMICOS = new Set(['avion', 'ruta', 'balizas', 'transbordo', 'cargaMin', 'vender']);
+const llaveConsejo = (d) => `${d.tipo}|${d.id}|${d.ruta ?? ''}|${d.v ?? ''}`;
+const sePaga = (d) => d.costo <= 0 || d.costo <= CHIP.diasRepago * d.efectoDia;
 export function sugerencia(s) {
-  const ds = decisiones(s).filter((d) => d.efectoDia >= 0 && (d.costo <= 0 || s.dinero - d.costo >= reservaSugerencia(s)));
+  const todas = decisiones(s);
+  const ds = todas.filter((d) => d.efectoDia >= 0 && (d.costo <= 0 || s.dinero - d.costo >= reservaSugerencia(s)));
   const seg = ds.find((d) => d.seguridad);
   if (seg) return seg;
   const hist = ds.find((d) => d.mision);
+  const cuello = cuelloDeBotella(s, hist);
+  if (cuello) return cuello;
   if (hist) return hist;
-  // rinde por peso, pero con una escala: medio día de la ganancia actual (así una acción gratis que suma poco no le gana a una que
-  // cuesta y suma mucho, y vender lo que sobra no tapa lo que hace crecer la red)
+  const objetivo = ds.find((d) => d.tipo === 'clasificar') ?? ds.find((d) => d.tipo === 'contrato');
+  if (objetivo) return objetivo;
+  // un consejo económico: el que más rinde por peso entre los que se pagan en 2 días (con una escala de medio día de ganancia, así
+  // una acción gratis que suma poco no le gana a una que cuesta y suma mucho)
   const escala = Math.max(5000, Math.abs(gananciaDia(s)) / 2);
   const puntaje = (d) => d.efectoDia / Math.max(escala / 4, d.costo + escala);
-  const eco = ds.filter((d) => d.efectoDia > 0).sort((a, b) => puntaje(b) - puntaje(a))[0];
-  return eco ?? null;
+  const eco = ds.filter((d) => ECONOMICOS.has(d.tipo) && d.efectoDia > 0 && sePaga(d)).sort((a, b) => puntaje(b) - puntaje(a));
+  const vigente = s.chip && eco.find((d) => llaveConsejo(d) === s.chip.k);
+  if (vigente) return vigente;                               // el consejo del día sigue en pie: no cambia bajo el dedo
+  // con una misión de ganancia («Ganá $X en un día»), mejorar la red es lo que pide la misión: el tope de un consejo por día no corre
+  const pideGanar = MIS[misionActual(s)?.id]?.tipo === 'mejorDia';
+  if (eco.length && (pideGanar || !s.chip || s.t - s.chip.t >= 1440 / CHIP.consejosPorDia)) {
+    s.chip = { k: llaveConsejo(eco[0]), t: s.t };
+    return eco[0];
+  }
+  return acelerarPara(s);
+}
+// El cuello de botella va primero: el centro del hub (o el de la misión de transbordos) pierde por día más de lo que suma la misión
+// y mejorarlo cuesta menos de un día de ganancia.
+function cuelloDeBotella(s, hist) {
+  const gd = gananciaDia(s), m = misionActual(s);
+  if (gd <= 0) return null;
+  for (const ap of new Set([HUB, ...(m?.tipo === 'transbordos' ? [m.ciudad] : [])])) {
+    const costo = costoTransbordo(s, ap);
+    if (costo == null || costo >= gd || s.dinero - costo < reservaSugerencia(s)) continue;
+    const pierde = estimarTransbordo(s, ap);
+    if (pierde > 0 && pierde > (hist?.efectoDia ?? 0)) return { tipo: 'transbordo', id: ap, costo, efectoDia: pierde, cuello: true };
+  }
+  return null;
+}
+// «×3 hasta juntar $X»: el próximo consejo que se paga en 2 días y hoy no alcanza (o espera al día siguiente), si la red lo junta en
+// 3 días de juego o menos. Para encontrarlo se miran las decisiones como si la caja no tuviera fondo.
+function acelerarPara(s) {
+  const gd = gananciaDia(s);
+  if (gd <= 0) return null;
+  const caja = s.dinero;
+  let cands;
+  try { s.dinero = 1e12; cands = decisiones(s); } finally { s.dinero = caja; }
+  const mejor = cands.filter((d) => ECONOMICOS.has(d.tipo) && d.tipo !== 'vender' && d.costo > 0 && d.efectoDia > 0 && sePaga(d) && d.costo + reservaSugerencia(s) > caja)
+    .sort((a, b) => b.efectoDia / b.costo - a.efectoDia / a.costo)[0];
+  if (!mejor) return null;
+  const meta = Math.round(mejor.costo + reservaSugerencia(s)), falta = Math.ceil(meta - caja);
+  if (falta > CHIP.diasAcelerar * gd) return null;
+  return { tipo: 'acelerar', id: mejor.id, vel: 3, que: mejor.tipo, para: { ...mejor }, costo: 0, efectoDia: 0, meta, falta,
+    minutos: +(falta / gd * 1440 / MIN_POR_SEG / 60 / 3).toFixed(1) };
 }
 
 // ───────────────────────── lecturas para la interfaz ─────────────────────────
@@ -1718,6 +1960,7 @@ export function paso(s, dt = PASO) {
   procesarTransbordo(s, dt);
   moverAviones(s, dt, ev);
   avisosDeNoche(s, ev);
+  cicloClasificacion(s, ev);
   cicloRonda(s, ev);
   cerrarHora(s, ev);
   revisarObjetivos(s, ev);
@@ -1725,12 +1968,20 @@ export function paso(s, dt = PASO) {
 }
 
 // La primera noche avisa qué aviones se van a quedar parados por falta de balizas (y dos horas antes, que se viene).
+// La primera noche con aviones marca s.flags.primeraNoche (desde ahí se piden y se sugieren balizas). Los avisos salen solo si de
+// verdad hay aviones que se quedan en tierra: nunca un «cayó la noche: 0 aviones esperan».
 function avisosDeNoche(s, ev) {
   if (s.flags.primeraNoche) return;
   const h = hora(s);
   const parados = () => { const R = red(s); return s.aviones.filter((a) => !AV[a.tipo].nocturno && !iluminada(s, R.porId[a.ruta] ?? {})).map((a) => a.id); };
-  if (!s.flags.avisoNoche && h >= 18 && h < 20 && s.aviones.length) { s.flags.avisoNoche = true; ev.push({ tipo: 'avisoNoche', aviones: parados() }); }
-  if (esNoche(s) && s.aviones.length) { s.flags.primeraNoche = true; ev.push({ tipo: 'primeraNoche', aviones: parados() }); }
+  if (!s.flags.avisoNoche && h >= 18 && h < 20 && s.aviones.length) { s.flags.avisoNoche = true; const p = parados(); if (p.length) ev.push({ tipo: 'avisoNoche', aviones: p }); }
+  if (esNoche(s) && s.aviones.length) {
+    s.flags.primeraNoche = true;
+    const p = parados();
+    if (p.length) ev.push({ tipo: 'primeraNoche', aviones: p });
+    const m = misionActual(s);
+    if (m?.trasNoche && s.mision?.id === m.id) { s.mision.tAv = s.t; s.mision.base = baseDe(s, m); } // la misión empieza a medir ahora
+  }
 }
 
 // ───────────────────────── ausencia ─────────────────────────
@@ -1878,7 +2129,7 @@ export function guardar(s) {
     aviones: avionesTxt(s), colas: colasTxt(s.colas, s.t), transbordo: colasTxt(s.transbordo, s.t),
     stats: { ...s.stats, ingresos: Math.round(s.stats.ingresos), gastos: Math.round(s.stats.gastos), mejorDia: Math.round(s.stats.mejorDia) },
     hora24: s.hora24.map(r2), horaIdx: s.horaIdx, netoHora: r2(s.netoHora),
-    misiones: s.misiones, mision: s.mision, contratos: s.contratos, banco: s.banco,
+    misiones: s.misiones, mision: s.mision, contratos: s.contratos, banco: s.banco, clasif: s.clasif, vendidas: s.vendidas, chip: s.chip,
     ronda: { ...s.ronda, noche: s.ronda.noche ? { ...s.ronda.noche, escena: undefined } : null },
     clima: { ...s.clima, combustible: Math.round(s.clima.combustible * 1e4) / 1e4 }, flags: s.flags,
     diario: { hoy: diario(s.diario.hoy), dias: s.diario.dias.map(diario) }, ultVuelo: s.ultVuelo, ultSalida: s.ultSalida, dia: s.dia,
@@ -1925,6 +2176,9 @@ function deV2(o) {
   s.misiones = o.misiones ?? []; s.mision = o.mision ?? null;
   s.contratos = { ...s.contratos, ...(o.contratos ?? {}) };
   s.banco = o.banco ?? {}; s.ronda = { ...s.ronda, ...(o.ronda ?? {}) };
+  s.clasif = o.clasif && typeof o.clasif === 'object' && o.clasif.escena?.radios ? o.clasif : null;
+  s.vendidas = o.vendidas && typeof o.vendidas === 'object' ? o.vendidas : {};
+  s.chip = o.chip && typeof o.chip === 'object' ? o.chip : null;
   s.clima = { ...s.clima, ...(o.clima ?? {}) }; s.flags = o.flags ?? {};
   const diario = (d) => Object.fromEntries(Object.entries(d ?? {}).map(([ap, x]) => [ap, { ok: x[0], tot: x[1], perd: x[2], perdTb: x[3] ?? 0 }]));
   s.diario = { hoy: diario(o.diario?.hoy), dias: (o.diario?.dias ?? []).map(diario) };
@@ -1978,4 +2232,6 @@ export const API_INTERFAZ = [
   'aceptarContrato', 'premioRondaDelDia', 'escenaRonda', 'rondaEnCurso', 'fijarPrioridad', 'moverSalida', 'planSugerido', 'aplicarPlan', 'simularAusencia', 'guardar', 'restaurar',
   // lecturas que agregó la interfaz v1 (ficha de avión, resumen de capítulo, efecto de comprar en el botón)
   'fichaAvion', 'resumenCapitulo', 'estimarAvion', 'idRuta', 'fijarFechaDispositivo', 'CONFIG', 'RONDA_CADA',
+  // v1 (HN-30): la primera clasificación del hub y la misión que espera la primera noche
+  'clasificacionActual', 'elegirClasificacion', 'misionEnEspera',
 ];

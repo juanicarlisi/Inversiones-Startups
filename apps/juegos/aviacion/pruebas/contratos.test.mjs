@@ -76,11 +76,14 @@ test('el Correo de Navidad aparece del 10 al 24 de diciembre (fecha del juego o 
   assert.ok(t.contratos.tablero.some((x) => x.navidad), 'en el juego también');
 });
 
-test('perfil novato con contratos: cada contrato cumplido pide entre 2 y 5 minutos reales (mediana, semillas 1 a 3)', () => {
-  const tiempos = [];
-  for (const semilla of [1, 2, 3]) tiempos.push(...correr('novato', { semilla, minutos: 30 }).contratosMin);
-  tiempos.sort((a, b) => a - b);
+// Los contratos cortos del comienzo (1 día, capítulo 1) se miden aparte: se cumplen en menos de 1,5 min (enseñan la mecánica).
+test('perfil novato con contratos: cada contrato del día pide entre 2 y 5 minutos reales (mediana, semillas 1 a 3); los cortos, menos de 1,5', () => {
+  const tiempos = [], cortos = [];
+  for (const semilla of [1, 2, 3]) { const r = correr('novato', { semilla, minutos: 30 }); tiempos.push(...r.contratosMin); cortos.push(...r.contratosCortosMin); }
+  tiempos.sort((a, b) => a - b); cortos.sort((a, b) => a - b);
   assert.ok(tiempos.length >= 5, `contratos cumplidos: ${tiempos.length}`);
   const mediana = tiempos[Math.floor(tiempos.length / 2)];
   assert.ok(mediana >= 2 && mediana <= 5, `mediana ${mediana} min (${tiempos.join(', ')})`);
+  assert.ok(cortos.length >= 6, `contratos cortos cumplidos: ${cortos.length}`);
+  assert.ok(cortos[Math.floor(cortos.length / 2)] <= 1.5, `cortos: ${cortos.join(', ')}`);
 });

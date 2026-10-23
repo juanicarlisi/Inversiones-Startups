@@ -1,10 +1,13 @@
 // «Hecho cuando» de P1 (corte-1.md §9 y regla técnica §1.4): una búsqueda de los tokens prohibidos en nucleo/, fuera de
-// comentarios, da cero. Los tokens se arman por partes para que este archivo tampoco los contenga.
+// comentarios, da cero. Dos miradas: el texto sin comentarios (la búsqueda que pide §9) y el árbol sintáctico de TypeScript (la misma
+// que la prueba de arquitectura de la integración, más el operador de potencia). Los tokens se arman por partes para que este archivo
+// tampoco los contenga.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const RAIZ = fileURLToPath(new URL('..', import.meta.url)); // nucleo/
 const M = 'Ma' + 'th';
@@ -96,6 +99,59 @@ test('ningún token prohibido de la regla §1.4 en nucleo/ (fuera de comentarios
     });
   }
   assert.equal(hallazgos.length, 0, `se esperaban 0 tokens prohibidos y hay ${hallazgos.length}:\n${hallazgos.join('\n')}`);
+});
+
+// ---- Segunda mirada, con el árbol sintáctico de TypeScript (no la engañan textos, plantillas ni expresiones regulares) ----
+// Suma el operador de potencia (`**` y `**=`), que es Math.pow con otra sintaxis y tampoco está fijado bit a bit: lo prohíbe la prueba
+// de arquitectura de la integración (integracion/NOTAS-CONTRATO.md §1, P1 (11)). Acá se aplica a TODO nucleo/, pruebas incluidas.
+
+const POTENCIA = 'operador de potencia (la potencia nativa con otra sintaxis)';
+
+/** Usos prohibidos en un archivo según su árbol sintáctico: [línea, qué]. */
+function usosProhibidos(ruta: string, texto: string): [number, string][] {
+  const fuente = ts.createSourceFile(ruta, texto, ts.ScriptTarget.Latest, true, /\.m?js$/.test(ruta) ? ts.ScriptKind.JS : ts.ScriptKind.TS);
+  const out: [number, string][] = [];
+  const linea = (n: ts.Node) => fuente.getLineAndCharacterOfPosition(n.getStart()).line + 1;
+  const esMath = (e: ts.Expression) => ts.isIdentifier(e) && e.text === M;
+  const visitar = (n: ts.Node): void => {
+    if (ts.isPropertyAccessExpression(n) && esMath(n.expression) && FUNCIONES.includes(n.name.text)) out.push([linea(n), `${M}.${n.name.text}`]);
+    else if (ts.isElementAccessExpression(n) && esMath(n.expression)) out.push([linea(n), `${M}[…] (acceso indirecto)`]);
+    else if (ts.isIdentifier(n) && (n.text === 'Da' + 'te' || n.text === 'perfor' + 'mance')) {
+      const p = n.parent;
+      const esNombreDePropiedad = ((ts.isPropertyAccessExpression(p) || ts.isPropertyAssignment(p) || ts.isMethodDeclaration(p) ||
+        ts.isPropertySignature(p) || ts.isPropertyDeclaration(p)) && p.name === n);
+      if (!esNombreDePropiedad) out.push([linea(n), n.text]);
+    } else if (ts.isBinaryExpression(n) && (n.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskToken ||
+      n.operatorToken.kind === ts.SyntaxKind.AsteriskAsteriskEqualsToken)) {
+      out.push([linea(n), POTENCIA]);
+    }
+    ts.forEachChild(n, visitar);
+  };
+  visitar(fuente);
+  return out;
+}
+
+test('árbol sintáctico: 0 usos prohibidos en todo nucleo/ (código, pruebas y herramientas), operador de potencia incluido', () => {
+  const lista = archivos(RAIZ);
+  const hallazgos: string[] = [];
+  for (const archivo of lista) {
+    for (const [l, que] of usosProhibidos(archivo, readFileSync(archivo, 'utf8'))) hallazgos.push(`${relative(RAIZ, archivo)}:${l} · ${que}`);
+  }
+  assert.equal(hallazgos.length, 0, `se esperaban 0 usos prohibidos y hay ${hallazgos.length}:\n${hallazgos.join('\n')}`);
+});
+
+test('el detector por árbol sintáctico ve el código y no los comentarios ni los textos (control)', () => {
+  const P = '*' + '*';
+  const ejemplo = [
+    `// ${M}.log(1) en un comentario no cuenta, ni 2 ${P} 3`,
+    `const a = "${M}.exp(2) y 2 ${P} 3 en un texto"; const b = \`${M}.cos(3)\`; const r = /${M}\\.sin|a\\*\\*b/;`,
+    `const c = ${M}.sqrt(4) + ${M}.floor(1.5) + ${M}.imul(2, 3) + ${M}.PI; const o = { ${'Da' + 'te'}: 1 }.${'Da' + 'te'};`,
+    `const d = ${M}.pow(2, 3); const e = ${M}['sin'](1); let f = 2 ${P} 3; f ${P}= 2; const g = new ${'Da' + 'te'}(); const h = ${'perfor' + 'mance'}.now();`,
+  ].join('\n');
+  const usos = usosProhibidos('ejemplo.ts', ejemplo);
+  assert.deepEqual(usos.map(([l]) => l), [4, 4, 4, 4, 4, 4], `todo lo prohibido está en la línea 4 y salió ${JSON.stringify(usos)}`);
+  assert.deepEqual(usos.map(([, q]) => q), [`${M}.pow`, `${M}[…] (acceso indirecto)`, POTENCIA,
+    POTENCIA, 'Da' + 'te', 'perfor' + 'mance']);
 });
 
 test('la búsqueda sí encuentra un token prohibido cuando está (control de la prueba)', () => {

@@ -53,6 +53,16 @@ test('IC del P90: null con menos de 20 datos y también si un rango cae fuera de
   assert.equal(icPercentil(Array.from({ length: 50 }, (_, i) => i), 0.99, 0.95), null, 'P99 con 50 datos: el techo caería fuera');
 });
 
+test('desde cuántas réplicas existe el IC del P90 (42 con 0,90 · 53 con 0,95 · 79 con 0,99) y de la mediana (20): el primer n en que ningún rango se sale', () => {
+  const hay = (n: number, q: number, conf: number) => icPercentil(Array.from({ length: n }, (_, i) => i), q, conf) !== null;
+  for (const [conf, desde] of [[0.9, 42], [0.95, 53], [0.99, 79]] as const) {
+    assert.equal(hay(desde - 1, 0.9, conf), false, `con ${desde - 1} réplicas y confianza ${conf} el P90 todavía no tiene IC`);
+    assert.equal(hay(desde, 0.9, conf), true, `con ${desde} réplicas y confianza ${conf} el P90 ya tiene IC`);
+    for (let n = desde; n <= desde + 60; n++) assert.ok(hay(n, 0.9, conf), `con ${n} réplicas (≥ ${desde}) y confianza ${conf} el IC del P90 tiene que existir`);
+    assert.equal(hay(20, 0.5, conf), true, 'la mediana ya tiene IC con 20');
+  }
+});
+
 test('IC del P90 con n = 20 y n = 30: si existe, cubre al menos 93% (cobertura exacta por la binomial); si no, es null', () => {
   // cobertura exacta de [x₍l₎, x₍u₎] para el cuantil q: P(l < B ≤ u) con B ~ Binomial(n, q) (índices desde 0)
   const cobertura = (n: number, l: number, u: number, q: number) => {

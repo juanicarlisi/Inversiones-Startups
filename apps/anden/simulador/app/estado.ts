@@ -10,6 +10,12 @@ export const PANTALLAS = [
   'inicio', 'escena', 'biografia', 'noches', 'ysi', 'decidir', 'comprobante', 'compartir', 'presentar', 'ingeniero',
 ] as const;
 export type Pantalla = (typeof PANTALLAS)[number];
+/**
+ * Pantallas donde se ve la película de la noche (A): solo ahí tiene sentido avisar que la película cambió sola de noche. La biografía
+ * queda atada a la noche con que se abrió, y las demás no muestran película.
+ */
+export const PANTALLAS_CON_PELICULA: readonly Pantalla[] = ['escena', 'noches', 'ysi', 'presentar'];
+export function muestraPelicula(p: Pantalla): boolean { return PANTALLAS_CON_PELICULA.includes(p); }
 
 /** Velocidades de reproducción: ×1 (tiempo real) a ×3.600 (una hora por segundo). ×600 es la de las miniaturas y la presentación. */
 export const VELOCIDADES = [1, 10, 60, 600, 3600] as const;
@@ -128,8 +134,17 @@ function irA(e: Estado, p: Pantalla): Estado {
   return { ...e, pantalla: p, historial, acto: p === 'presentar' ? 0 : e.acto };
 }
 
-/** Transición pura. Una acción que no cambia nada devuelve el mismo objeto (así las vistas no se redibujan de más). */
+/**
+ * Transición pura. Una acción que no cambia nada devuelve el mismo objeto (así las vistas no se redibujan de más). Al cambiar de pantalla,
+ * un aviso informativo (copiado, la película cambió de noche) se va: era de la pantalla anterior. Un aviso de error se queda hasta que se
+ * cierra o vence (un enlace que no abre avisa y lleva al inicio).
+ */
 export function reducir(e: Estado, a: Accion): Estado {
+  const n = transicion(e, a);
+  return n.pantalla !== e.pantalla && n.aviso?.nivel === 'info' && a.tipo !== 'aviso' ? { ...n, aviso: null } : n;
+}
+
+function transicion(e: Estado, a: Accion): Estado {
   switch (a.tipo) {
     case 'ir':
       return esPantalla(a.pantalla) ? irA(e, a.pantalla) : e;
@@ -172,7 +187,7 @@ export function reducir(e: Estado, a: Accion): Estado {
     case 'pausar':
       return e.reproduciendo ? { ...e, reproduciendo: false } : e;
     case 'alternarReproduccion':
-      return reducir(e, { tipo: e.reproduciendo ? 'pausar' : 'reproducir' });
+      return transicion(e, { tipo: e.reproduciendo ? 'pausar' : 'reproducir' });
     case 'velocidad': {
       const v = velocidadValida(a.velocidad);
       return v === e.velocidad ? e : { ...e, velocidad: v };

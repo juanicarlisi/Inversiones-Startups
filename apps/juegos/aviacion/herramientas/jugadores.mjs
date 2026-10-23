@@ -13,30 +13,43 @@ import { PERFILES, REACCION, NOVEDADES, aplicar } from './perfiles.mjs';
 // Cada paso del modelo son PASO minutos de juego = 0,5 s reales a velocidad 1. Las ventanas de fin de capítulo pausan el juego
 // (como en la interfaz) y suman 4 s reales.
 // ausencias: [{ min, horas }] → a esos minutos reales el jugador se va esas horas (simularAusencia) y vuelve.
-export function correr(perfil, { semilla = 1, minutos = 90, vel = 1, ventanas = 4, ausencias = [] } = {}) {
+// vel: la velocidad base; velMax: la que permite el juego (HN-33 la puede bajar). «×3 hasta juntar $X» (el chip) sube la velocidad a
+// ×3 hasta que la caja llega a X.
+export function correr(perfil, { semilla = 1, minutos = 90, vel = 1, velMax = 6, ventanas = 4, ausencias = [] } = {}) {
   const decidir = PERFILES[perfil];
   if (!decidir) throw new Error(`perfil desconocido: ${perfil}`);
   const s = I.nuevoEstado(semilla);
-  const dtReal = I.PASO / I.MIN_POR_SEG / vel;
+  let acelera = null; // meta de «×3 hasta juntar»
+  const velAhora = () => Math.min(velMax, acelera != null && s.dinero < acelera ? Math.max(vel, 3) : vel);
+  let dtReal = I.PASO / I.MIN_POR_SEG / velAhora();
   let seg = 0, espera = REACCION[perfil];  // la primera acción llega después de tocar «Empezar»
   const out = { perfil, semilla, primerDespegue: null, primerCobro: null, primerViajeNeto: null, primerTransbordo: null, misiones: [], capitulos: [],
     novedades: [], gananciaDia: {}, cajaMin: s.dinero, trabadas: [], acciones: 0, sinDecision3min: 0, rojoMaxDias: 0, negMaxDias30: 0, cajaMin30: s.dinero,
-    bancoListo: null, rondas: 0, contratos: 0, desdeMision: 0, primerAvionRepago: null, atrasoPremio: 0, ausencias: [], contratosMin: [], contratosVencidos: 0,
-    compras: {}, medallas: [], primeraRonda: null };
+    bancoListo: null, rondas: 0, contratos: 0, desdeMision: 0, primerAvionRepago: null, atrasoPremio: 0, ausencias: [], contratosMin: [], contratosCortosMin: [], contratosVencidos: 0,
+    compras: {}, medallas: [], primeraRonda: null, acciones60: 0, utiles: [], ventasSobra: 0, ventasSeguridad: 0, ventasJovenes: 0, comprasTotal: 0, aceleradas: 0 };
   const aceptado = {};
   const pendientes = [...ausencias].sort((a, b) => a.min - b.min);
   let avance = { id: null, v: -1, t: 0 }, rojo = null, neg = null, ultimaDecisionPositiva = 0, primerAvion = null;
-  const ctx = { rondaDisponible: false }; // lo que el jugador vio aparecer en pantalla
+  // lo que el jugador vio aparecer en pantalla, y su propio azar (determinista por semilla: dos corridas iguales dan lo mismo)
+  let az = (semilla * 2654435761) >>> 0;
+  const ctx = { rondaDisponible: false, azar: () => { az = (az + 0x6d2b79f5) >>> 0; let t = az; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; } };
   const marcas = [10, 30, 60];
   const min = () => seg / 60;
   while (seg < minutos * 60) {
     if (espera <= 0) {
       const a = decidir(s, ctx);
-      const r = a ? aplicar(s, a) : null;
+      // una venta: ¿lo que sobra o la red de seguridad? ¿un avión con menos de 2 días de juego?
+      const vendido = a?.tipo === 'vender' ? s.aviones.find((x) => x.id === a.id) : null;
+      const r = a?.tipo === 'acelerar' && acelera === a.meta && s.dinero < acelera ? { ok: false } : a ? aplicar(s, a) : null;
       // Sin nada para hacer (o si la acción no salió), vuelve a mirar la pantalla después de su tiempo de reacción: nota lo nuevo
       // con una demora de entre 0 y ese tiempo, como una persona que no está mirando cada medio segundo.
       if (r?.ok) {
         out.acciones++;
+        out.utiles.push(+seg.toFixed(1));
+        if (seg <= 60) out.acciones60++;
+        if (r.acelerar != null) { acelera = r.acelerar; out.aceleradas++; }
+        if (vendido) { if (a.sobra) out.ventasSobra++; if (a.seguridad) out.ventasSeguridad++; if (s.t - (vendido.desde ?? 0) < 2 * 1440) out.ventasJovenes++; }
+        if (a.tipo === 'avion') out.comprasTotal++;
         if (a.tipo === 'contrato') aceptado[a.id] = seg;
         if (a.tipo === 'avion') { if (!primerAvion) primerAvion = r.avion; const c = (out.compras[s.cap] ??= {}); c[a.id] = (c[a.id] ?? 0) + 1; } // aviones comprados por capítulo y tipo
         if (a.tipo === 'ronda') ctx.rondaDisponible = false;
@@ -52,7 +65,7 @@ export function correr(perfil, { semilla = 1, minutos = 90, vel = 1, ventanas = 
       if (e.tipo === 'rondaDisponible') { ctx.rondaDisponible = true; if (out.primeraRonda === null) out.primeraRonda = +min().toFixed(2); }
       if (e.tipo === 'rondaCorte') ctx.rondaDisponible = false;
       if (e.tipo === 'resultadoNoche') { out.rondas++; out.medallas.push({ min: +min().toFixed(2), pct: e.pctPrimeraHora, medalla: e.medalla, jugada: e.jugada }); }
-      if (e.tipo === 'contrato') { out.contratos++; if (aceptado[e.id] != null) out.contratosMin.push(+((seg - aceptado[e.id]) / 60).toFixed(2)); }
+      if (e.tipo === 'contrato') { out.contratos++; if (aceptado[e.id] != null) (e.corto ? out.contratosCortosMin : out.contratosMin).push(+((seg - aceptado[e.id]) / 60).toFixed(2)); }
       if (e.tipo === 'contratoVencido') out.contratosVencidos++;
       if (e.tipo === 'capitulo') {
         out.capitulos.push({ cap: e.cap, min: +min().toFixed(2) });
@@ -62,6 +75,7 @@ export function correr(perfil, { semilla = 1, minutos = 90, vel = 1, ventanas = 
       }
     }
     seg += dtReal; espera -= dtReal;
+    dtReal = I.PASO / I.MIN_POR_SEG / velAhora();
     // ninguna misión queda cumplida sin premio después de un paso
     const act = I.misionActual(s);
     if (act && I.progreso(s, act) >= act.meta) out.atrasoPremio++;
@@ -108,6 +122,8 @@ export function correr(perfil, { semilla = 1, minutos = 90, vel = 1, ventanas = 
   out.cajaMin = Math.round(out.cajaMin); out.cajaMin30 = Math.round(out.cajaMin30);
   out.rojoMaxDias = +out.rojoMaxDias.toFixed(2); out.rojoMaxDias30 = +(out.rojoMaxDias30 ?? 0).toFixed(2); out.negMaxDias30 = +out.negMaxDias30.toFixed(2); out.sinDecision3min = +out.sinDecision3min.toFixed(1);
   out.minPorCapitulo = out.capitulos.map((c, i) => ({ cap: c.cap, min: +(c.min - (out.capitulos[i - 1]?.min ?? 0)).toFixed(2) }));
+  // segundos máximos sin una acción útil (una que hizo algo, «×3» incluido) en los primeros 5 minutos
+  { let antes = 0, h = 0; for (const t of out.utiles) { if (t > 300) break; h = Math.max(h, t - antes); antes = t; } out.sinAccionUtil5min = +Math.max(h, Math.min(300, seg) - antes).toFixed(1); }
   out.estado = s;
   return out;
 }

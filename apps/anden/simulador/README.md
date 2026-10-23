@@ -49,7 +49,7 @@ Español primero; inglés con el selector de la barra (las mismas claves en `tex
 
 | Comando | Qué prueba | Cuánto tarda (contenedor de 4 núcleos) |
 |---|---|---|
-| `npm test` | Las 1.034 pruebas de los ocho paquetes y de la integración (arquitectura, R08b, R06 del hub, E01/E02, S01–S03, S08, S09, S11, textos, marcas, Workers) | ≈ 2 min |
+| `npm test` | Las 1.066 pruebas de los ocho paquetes y de la integración (arquitectura, R08b, R06 del hub, E01/E02, S01–S03, S08, S09, S11, textos, marcas, Workers, plano) | ≈ 1,5–2 min |
 | `npx tsc -p tsconfig.json` | Los tipos (TypeScript «borrable»: Node corre los `.ts` directo) | ≈ 15 s |
 | `npm run verificar` | La batería «Andén Verificado» completa con el núcleo de producción: 85 pruebas exigibles contra teoría de colas y casos publicados, S01 y S02 que tienen que fallar, informe en `verificacion/informe/` | ≈ 9 min |
 | `npm run r04` | La misma huella en Node y en Chromium (suite rápida, doradas, hub chico con 5 semillas, matemática bit a bit) | ≈ 15 s |
@@ -101,8 +101,9 @@ cuadro desde un enlace.
 
 - **Primer cuadro desde el enlace:** la meta de §11 es ≤ 150 ms y se mide ≈ 1,2 s (la noche entera se simula antes de dibujar; con 4G,
   1,9 s). O primer cuadro progresivo en el corte 2, o reescribir la meta.
-- **«KPI sanos» de §9 sobre `hub-chico@1.0.0`:** imposible al pie de la letra (queda como prueba `todo`); la integración recomienda
-  reescribir el criterio y dejar `hub-chico@1.1.0` como propuesta.
+- **«KPI sanos» de §9 sobre `hub-chico@1.0.0`:** imposible al pie de la letra. La integración eligió (23-10-2026) reescribir el criterio
+  y dejar `hub-chico@1.1.0` como propuesta; la prueba `todo` de P4 se borró y falta pasar a `corte-1.md` §9 el texto de
+  `integracion/CAMBIOS-CONTRATO.md` §10.
 - **E01** se exige reformulado (esperas de ≥ 5 min dentro de la pausa) y **S03** exige independencia y sesgo, con la cobertura del 95%
   como informativa (S03c) (`integracion/NOTAS-CONTRATO.md` §2 y `integracion/CAMBIOS-CONTRATO.md` §4).
 - **Motor 1.1.0** (arreglos de la revisión del 19-10-2026): caminata por distancia, plan por volumen en bloques de rampas vecinas,

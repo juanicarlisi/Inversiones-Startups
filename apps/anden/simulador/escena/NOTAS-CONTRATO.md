@@ -1,4 +1,4 @@
-# Notas de contrato · P6 La escena (18-10-2026)
+# Notas de contrato · P6 La escena (18-10-2026; revisadas el 23-10-2026, §16)
 
 Lo que el contrato (`contratos/vistas.ts`, `contratos/traza.ts`, `contratos/geometria.ts`) o la especificación
 (`oportunidades/proyectos/anden/corte-1.md` §9 P6) no fija, fija de forma ambigua o que conviene que la integración y la interfaz (P8)
@@ -133,3 +133,44 @@ Los números son MEDIDOS en Node 22.22.0 y en el Chromium 141 del entorno, en el
   0,13 ms y P90 0,24 ms por cuadro en Node (meta ≤ 1 ms). Componer la capa móvil de la 90.000: 0,9 ms la planta y 1,7 ms la 2,5D (Node).
   Cuadro completo en Chromium (1280 × 800, dpr 2, ya caliente, mediana de 60): hub chico 0,2 ms la planta y 0,5 ms la 2,5D; hub de 24.000
   0,3 ms y 1,1 ms (presupuestos de §11: 3 ms y 4 ms).
+
+## 16. Revisión del 23-10-2026: la escena contra el hub del motor 1.1.0
+
+Se volvió a pasar la entrega completa de §9 P6 (entrega, «cómo», pruebas propias y «hecho cuando») y se midió la escena contra trazas
+**reales** del hub de hoy (motor 1.1.0, `integracion/CAMBIOS-CONTRATO.md` §2), con un guion aparte fuera de `escena/` (el paquete no
+importa `hub/`): `crearSimularNoche(crearMotorReferencia)`, 3 noches de cada caso (hub chico, hub chico con `contiguas`, hub de 24.000 y
+hub de 24.000 con 9 personas de rampa y `contiguas`), 1.000 instantes por noche. MEDIDO en Node 22.22.0, en el contenedor de referencia.
+
+- **Lo que estaba mal: la persona de rampa cruzaba el sorter.** Desde 1.1.0 (hallazgo R1 de la revisión) el hub hace caminar a la persona
+  de rampa **por el pasillo que rodea el lazo, por el lado más corto** (`hub/config.ts` › `distanciaRampas` = min(|sa − sb|, largo −
+  |sa − sb|), a 1,2 m/s, con `caminar` s de mínimo). La escena la dibujaba en línea recta de una rampa a la otra: entre la recta de abajo
+  y la de arriba atravesaba el lazo. MEDIDO antes del arreglo: entre 7 y 89 cuadros de 1.000 con una persona adentro del estadio en el hub
+  chico y entre 234 y 319 en el de 24.000 (todas personas de rampa caminando). Lo que se veía no era lo que se calculó.
+- **Arreglo.** `disposicion.ts` › `enPasillo`: la caminata va por la curva paralela al lazo a la distancia a la que se para la persona de
+  cada rampa (`DispRampa.pasillo`, con signo: positiva hacia afuera), por el lado más corto y **parejo en s** (el hub mide la distancia
+  sobre el lazo: a mitad del tiempo va por la mitad de esa distancia); en las puntas da exactamente el lugar de la persona de cada rampa, y
+  en una curva con poco plano el pasillo se arrima al lazo en lugar de salirse de los límites. La rampa de salida es la del último tramo
+  anterior de la persona que dice una rampa (`r` de TRABAJA, CIERRA_JAULA, PAUSA o CAMINA, que es `S.ultima` del hub). Cualquier otra
+  caminata (sin rampa de salida conocida) sigue en línea recta desde donde estaba. MEDIDO después: **0** cuadros con una persona adentro
+  del estadio en los 12 casos, 0 recortes y 0 posiciones no finitas.
+  Pruebas nuevas: `pruebas/reproductor.test.ts` (recta de abajo → arriba y vuelta, rodeando la curva derecha, a R + pasillo del eje en
+  todo el camino y parejo en s; caminata que pasa por s = 0; caminata sin rampa de salida) y `pruebas/limites.test.ts` (plano justo:
+  el pasillo se achica, nada sale de los límites, sin saltos).
+- **Lo demás, igual con 1.1.0.** El relevo en las pausas (otra persona atiende las rampas de quien pausa) y las pausas después del fin no
+  cambian la forma de la traza que lee la escena; `traza.fin` cubre la noche entera (`max(fin, último evento, último listo)`).
+- **Costo con trazas reales (MEDIDO, informativo).** `crearReproductor`: 31 ms el hub chico (88.643 tramos) y 48 ms el de 24.000 (259.807
+  tramos), mediana de 5; suma al primer cuadro desde el enlace (el presupuesto abierto de §11 lo domina la simulación, ≈ 1,2 s).
+  `posiciones` ≤ 0,14 ms por cuadro; componer la capa móvil del de 24.000: 0,45 ms la planta y 0,76 ms la 2,5D.
+- **Saltos que quedan, por la geometría (no se tocaron).** Midiendo cuánto se mueve cada entidad en 50 ms, los únicos saltos de más de un
+  paso de bandeja son pasos entre tramos que la traza no recorre: de la punta de la cinta a la cola de la fila (hasta 12,6 m en el chico y
+  18 m en el grande, cuando la fila es larga), de la cabeza de la fila al puesto de inducción (hasta 5,1 y 6,6 m) y de la cinta directo al
+  puesto con la fila vacía (7,3 m). Vienen de §3 de estas notas: la acumulación es un **punto** y la fila se dibuja como un bloque al lado;
+  un paquete está, según la fórmula de §9, en el lugar `a − salidas` desde que entra. Inventar un recorrido sería dibujar lo que no se
+  calculó. Las personas y los camiones no saltan.
+- **Propuesta (corte 2).** (a) La acumulación como polilínea en la geometría (ya propuesta en §3): la fila se dibuja sobre la cinta de
+  acumulación, de donde llegan las cintas a donde están los puestos, y los dos primeros saltos pasan a ser lo que la cinta mide. (b) Escribir
+  en `contratos/traza.ts` el camino de `PERSONA_CAMINA` de una persona de rampa («por el pasillo del lazo, por el lado más corto, distancia
+  min(|Δs|, largo − |Δs|)») o llevar la distancia en `a`, para que la escena y el hub no puedan separarse si el corte 2 cambia la caminata.
+
+**Estado de la entrega (23-10-2026).** `node --test "escena/**/*.test.ts"`: 99 de 99 en verde; `tsc` sin errores en `escena/`. Lo de §9
+P6 está todo: entrega, «cómo», pruebas propias (las diez de la lista) y «hecho cuando».

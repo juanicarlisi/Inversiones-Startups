@@ -6,7 +6,7 @@ import type { EvaluacionConfiguracion, EvaluacionDecision } from '../../contrato
 import type { ModeloValidado } from '../../contratos/modelo.ts';
 import { validadoSinChequeos } from '../../contratos/referencias.ts';
 import { armarFormulario, cierreDelFormulario } from '../formulario.ts';
-import { supuestosDe, tamizar } from '../tamizado.ts';
+import { decisionesPosibles, supuestosDe, tamizar } from '../tamizado.ts';
 import { verificarFrases } from '../verificador.ts';
 import { crearVarianteFalsa, modeloEjemplo, validadoEjemplo } from './ayudas.ts';
 
@@ -303,7 +303,8 @@ test('un extremo que quedó EN DUDA no se trata como «ninguna cumple»: la pér
   assert.deepEqual(fila.enDuda, [false, false, true]);
   // decisiones posibles con el valor alto: 2 (en duda) o 3 (la menor que cumple). Contra la del medio (2): 0 o |30.000 − 80.000| = 50.000
   assert.deepEqual(fila.perdidaRango, [0, 0.25 * 50000]);
-  assert.equal(fila.perdidaEsperada, 12500, 'la pérdida es lo más que puede costar (antes se usaba el máximo de la variable: 0,25 · |50.000 − 80.000|… con el 5)');
+  assert.equal(fila.perdidaEsperada, 12500,
+    'la pérdida es lo más que puede costar equivocarse: 0,25 · |30.000 − 80.000| con la decisión 3 (con el máximo de la variable, 5, habría dado 0,25 · |50.000 − 80.000| = 7.500)');
   // con indiferencia 20.000 no se pregunta: ni la peor resolución de la duda la alcanza
   assert.deepEqual(armarFormulario(mv, r), []);
   // con indiferencia menor sí, y la frase dice que quedó en duda (no que ninguna opción alcanza)
@@ -311,4 +312,25 @@ test('un extremo que quedó EN DUDA no se trata como «ninguna cumple»: la pér
   const preguntas = armarFormulario(validadoSinChequeos(m2), r);
   assert.equal(preguntas.length, 1);
   assert.equal(preguntas[0].porQue.clave, 'explicacion.pregunta.porque.en_duda');
+});
+
+test('decisionesPosibles: desde la menor opción en duda hasta la menor que cumple; null si hay recomendación o si no hay duda', () => {
+  const conf = (valor: number, estado: EvaluacionConfiguracion['estado']): EvaluacionConfiguracion => ({
+    valor, estado,
+    prop: { exitos: 9, n: 10, p: 0.9, ic: [0.6, 0.98], metodo: 'wilson', confianza: 0.95 },
+    objetivo: { kpi: 'costoNoche', n: 10, media: 1, desvio: 0, confianza: 0.95, ic: [1, 1], semiancho: 0, p50: 1, p90: 1, icP90: null, min: 1, max: 1 },
+  });
+  const ev = (estados: EvaluacionConfiguracion['estado'][], recomendacion: number | null): EvaluacionDecision => ({
+    decision: 'dotacion-induccion', configuraciones: estados.map((e, i) => conf(i + 2, e)), recomendacion,
+    semaforo: { color: 'amarillo', motivo: 'decision-en-duda', vars: {} }, replicasUsadas: 10,
+  });
+  assert.deepEqual(decisionesPosibles(ev(['no-cumple', 'en-duda', 'cumple', 'cumple'], null)), [3, 4], 'la duda del 3 y el 4, que es la menor que cumple');
+  assert.deepEqual(decisionesPosibles(ev(['en-duda', 'en-duda', 'cumple', 'cumple'], null)), [2, 3, 4], 'varias en duda seguidas, hasta la primera que cumple');
+  assert.deepEqual(decisionesPosibles(ev(['no-cumple', 'en-duda', 'en-duda', 'no-cumple'], null)), [3, 4, 5], 'si ninguna cumple, hasta la última opción');
+  assert.equal(decisionesPosibles(ev(['no-cumple', 'no-cumple', 'no-cumple', 'no-cumple'], null)), null, 'ninguna cumple y nada en duda: hay respuesta («no alcanza»)');
+  assert.equal(decisionesPosibles(ev(['no-cumple', 'cumple', 'cumple', 'cumple'], 3)), null, 'con recomendación no hay nada que resolver');
+  // las configuraciones desordenadas dan lo mismo (se ordenan por valor)
+  const desordenada = ev(['no-cumple', 'en-duda', 'cumple', 'cumple'], null);
+  desordenada.configuraciones.reverse();
+  assert.deepEqual(decisionesPosibles(desordenada), [3, 4]);
 });

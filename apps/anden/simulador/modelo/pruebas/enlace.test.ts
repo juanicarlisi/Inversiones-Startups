@@ -202,6 +202,29 @@ test('base64url: ida y vuelta para todos los largos de 0 a 300 bytes y rechazo d
   for (const mala of ['a+b', 'a/b', 'a=', 'a b', 'ñ', 'a\u0000', 'abcde', 'a', '%41']) assert.equal(deBase64url(mala), null, `«${mala}» tiene que rechazarse`);
 });
 
+test('base64url estricto: los bits sobrantes del último carácter tienen que ser cero (una sola dirección por contenido)', () => {
+  const ALF = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  assert.deepEqual(deBase64url('QQ'), Uint8Array.of(0x41), '«QQ» es el byte 0x41');
+  assert.equal(deBase64url('QR'), null, '«QR» daría el mismo byte con un bit sobrante en 1');
+  assert.deepEqual(deBase64url('QUA'), Uint8Array.of(0x41, 0x40));
+  assert.deepEqual(deBase64url('QUI'), Uint8Array.of(0x41, 0x42), '«QUI»: los 2 bits sobrantes son 00');
+  assert.equal(deBase64url('QUJ'), null, '«QUJ» tiene un bit sobrante en 1');
+  // Para cada contenido (con resto de 1 o 2 bytes) hay 64 variantes del último carácter; las que dan los MISMOS bytes que el original
+  // son exactamente una: la que el codificador escribe.
+  const lcg = new Lcg(77);
+  for (let n = 1; n <= 40; n++) {
+    const b = new Uint8Array(n);
+    for (let i = 0; i < n; i++) b[i] = lcg.hasta(256);
+    const s = aBase64url(b);
+    if (n % 3 === 0) continue; // sin resto no hay bits sobrantes
+    const mismos = [...ALF].map((c) => s.slice(0, -1) + c).filter((t) => {
+      const d = deBase64url(t);
+      return d !== null && d.length === b.length && d.every((x, i) => x === b[i]);
+    });
+    assert.deepEqual(mismos, [s], `${n} bytes (${s.slice(-4)}): se esperaba un solo texto para esos bytes y hubo ${mismos.length}`);
+  }
+});
+
 // ---- receta binaria ----
 
 test('receta: ida y vuelta de todas las combinaciones de campos opcionales', () => {
@@ -231,6 +254,26 @@ test('receta: ida y vuelta de todas las combinaciones de campos opcionales', () 
     assert.deepEqual(d.receta, r);
     assert.equal(codificarReceta(d.receta), s, 'la codificación es canónica');
   }
+});
+
+test('receta canónica: un solo texto por receta (ni el último carácter ni la forma de la velocidad admiten variantes)', () => {
+  const ALF = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  const recetas: Receta[] = [RECETA, { v: 1, modelo: HUELLA_EJEMPLO, motor: '1.1.0', semilla: 7, replicas: 20 },
+    { v: 1, modelo: HUELLA_EJEMPLO, motor: '1.1.0', semilla: 7, replicas: 20, vel: 0.5, esc: ['a'] },
+    { v: 1, modelo: HUELLA_EJEMPLO, motor: '1.1.0', semilla: 7, replicas: 20, noche: 3, t: 1000 },
+    { v: 1, modelo: HUELLA_EJEMPLO, motor: '1.1.0', semilla: 7, replicas: 20, noche: 3 }];
+  let conResto = 0;
+  for (const r of recetas) {
+    const s = codificarReceta(r);
+    // Variantes del último carácter que decodifican a la MISMA receta (las demás cambian algún dato y son otra receta).
+    const iguales = [...ALF].map((c) => s.slice(0, -1) + c).filter((t) => {
+      const d = decodificarReceta(t);
+      return d.ok && JSON.stringify(d.receta) === JSON.stringify(r);
+    });
+    assert.deepEqual(iguales, [s], `la receta ${s} tiene que ser el único texto de su contenido y hay ${iguales.length}`);
+    if (s.length % 4 !== 0) conResto++;
+  }
+  assert.ok(conResto >= 2, 'la prueba tiene que incluir recetas cuyo último grupo tenga bits sobrantes');
 });
 
 test('receta: valida cada campo con un mensaje que dice qué se esperaba', () => {
@@ -303,6 +346,13 @@ test('receta: bytes mal formados se rechazan con «formato» o «esquema», nunc
   assert.ok(!r.ok && /no canónico/.test(r.detalle), JSON.stringify(r));
   const largo = Uint8Array.from([1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x01, 20, 0]);
   assert.ok(!mal(largo).ok);
+  // Una velocidad entera escrita como float64 no es canónica: habría dos textos para la misma receta.
+  const conFloat = Uint8Array.from(deBase64url(codificarReceta({ v: 1, modelo: HUELLA_EJEMPLO, motor: '1.0.0', semilla: 1, replicas: 20, vel: 0.5 }))!);
+  new DataView(conFloat.buffer).setFloat64(conFloat.length - 8, 3600, true);
+  const fl = mal(conFloat);
+  assert.ok(!fl.ok && fl.error === 'formato' && /vel no canónico/.test(fl.detalle), JSON.stringify(fl));
+  new DataView(conFloat.buffer).setFloat64(conFloat.length - 8, 0.25, true);
+  assert.ok(mal(conFloat).ok, 'un float que no es entero sí es válido');
   // UTF-8 inválido en un id de escenario.
   const conEsc = codificarReceta({ v: 1, modelo: HUELLA_EJEMPLO, motor: '1.0.0', semilla: 1, replicas: 20, esc: ['a'] });
   const be = Uint8Array.from(deBase64url(conEsc)!); be[be.length - 1] = 0xff;

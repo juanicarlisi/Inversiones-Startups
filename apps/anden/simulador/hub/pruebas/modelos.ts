@@ -11,6 +11,7 @@ import { PLANTILLAS, PROPUESTAS } from '../plantillas/registro.ts';
 import { armarNoche, opcionesNoche } from '../simular.ts';
 import type { Fidelidad } from '../config.ts';
 import type { Hub } from '../bloques/comun.ts';
+import { percentil } from '../kpi.ts';
 
 export const SEMILLA = 20261017;
 export const fija = (valor: number): Distribucion => ({ tipo: 'fija', valor });
@@ -105,4 +106,13 @@ export function acumulacionSinInduccion(): Modelo {
   m.hub.acumulacion = { ...m.hub.acumulacion, largo: 42, paso: 0.6 };
   m.personas.induccion.puestosActivos = 0;
   return m;
+}
+
+/** P90 de la recirculación (%) en 30 noches (réplicas 0–29, semilla de las pruebas) del modelo con la asignación pedida. */
+export function recirculacionP90(base: () => Modelo, asignacion: 'por-volumen' | 'contiguas', personas?: number): number {
+  const m = base();
+  m.personas.rampa.asignacion = asignacion;
+  if (personas !== undefined) m.personas.rampa.cantidad = personas;
+  const x = Float64Array.from({ length: 30 }, (_, r) => noche(m, r).resultado.kpi.recirculacionPct);
+  return percentil(x.sort(), 0.9);
 }

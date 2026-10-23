@@ -49,7 +49,7 @@ export function armarObjetivos(s) {
       else if (m.tipo === 'mejorDia') num = `${plata(h.avance.n)} / ${plata(m.meta)}`;
       else if (m.tipo === 'rondaPct') num = `${numero(h.avance.n)}% / ${numero(m.meta)}%`;
       else num = `${h.avance.unidad ? t(h.avance.unidad) + ' ' : ''}${numero(h.avance.n)}/${numero(m.meta)}`;
-      const txt = textoMision(m);
+      const txt = h.espera ? t(h.texto) : textoMision(m); // la misión que espera la primera noche no pide nada todavía
       html += `<button class="obj" data-accion="irObjetivo" data-id="${esc(m.id)}" data-k="obj-h" title="${esc(txt)}"><span class="obj-txt">${esc(txt)}</span>
         <span class="obj-pie"><span class="obj-barra"><i ${v.e('obw', { w: `${(h.progreso * 100).toFixed(1)}%` })}></i></span>${v.t('obn', num, 'obj-num')}
         <span class="tenue">${n}/${total}</span>${m.premio ? `<span class="obj-premio">${plata(m.premio)}</span>` : ''}</span></button>`;
@@ -115,6 +115,7 @@ export function textoSugerencia(s, d) {
     case 'contrato': { const c = s.contratos.tablero.find((x) => x.id === d.id); return c ? t('sug_contrato', { a: M.AP[c.o].nombre, b: M.AP[c.d].nombre }) : ''; }
     case 'vender': { const av = s.aviones.find((a) => a.id === d.id); return av ? (d.seguridad ? t('sug_venderSeg', { avion: M.AV[av.tipo].nombre, el: articulo(av.tipo, true) }) : t('sug_vender', { avion: M.AV[av.tipo].nombre, un: articulo(av.tipo), ...par(av.ruta) })) : ''; }
     case 'esperar': return d.texto;
+    case 'clasificar': return t('sug_clasificar');
     case 'ahorrar': {
       const que = d.que === 'avion' ? M.AV[d.id]?.nombre ?? '' : d.que === 'balizas' ? t('que_balizas') : t('que_ruta', { ciudad: (() => { const [a, b] = String(d.id).split('-'); return M.AP[M.enRed(s, a) ? b : a]?.nombre ?? ''; })() });
       return t('sug_ahorrar', { falta: plata(d.falta), que, min: numero(d.minutos, 1) });
@@ -148,6 +149,7 @@ export function destinoSugerencia(s, d) {
     case 'cargaMin': return { sel: { tipo: 'ruta', id: d.id }, marca: `cm-${d.v}` };
     case 'contrato': return { sel: null, marca: `acc-${d.id}` };
     case 'vender': { const av = s.aviones.find((a) => a.id === d.id); return av ? { sel: { tipo: 'ruta', id: av.ruta }, marca: `vender-${d.id}` } : null; }
+    case 'clasificar': return { sel: { tipo: 'ap', id: M.HUB }, marca: `clasif-${d.id}` };
     case 'ahorrar': return null;
     default: return null;
   }

@@ -56,7 +56,7 @@ export async function prepararEnlaces({ log = () => {} } = {}) {
   const { ensamblar } = await import('../ensamblar.ts');
   const { causasConfirmadas, esperasDe } = await import('../../explicacion/indice.ts');
   const { Prioridad } = await import('../../contratos/experimentos.ts');
-  const { ClaseEntidad } = await import('../../contratos/traza.ts');
+  const { Causa, ClaseEntidad } = await import('../../contratos/traza.ts');
   const E = ensamblar();
   const hilos = fabricaDeHilos();
   const S = crearServicios({ fabrica: hilos.fabrica, trabajadores: 3 });
@@ -77,19 +77,30 @@ export async function prepararEnlaces({ log = () => {} } = {}) {
     for (let e = 0; e < P.n; e++) if (P.creado[e] >= 0 && (P.listo[e] < 0 || P.listo[e] > traza.corte)) atrasados.push(e);
     const espera = (e) => esperasDe(traza, ClaseEntidad.PAQUETE, e).reduce((m, w) => (w.hasta - w.desde > m.hasta - m.desde ? w : m), { desde: 0, hasta: 0 });
     const candidatos = atrasados.map((e) => ({ e, w: espera(e) })).filter((x) => x.w.hasta - x.w.desde >= 5 * 60_000)
-      .sort((a, b) => (b.w.hasta - b.w.desde) - (a.w.hasta - a.w.desde)).slice(0, 12);
-    let elegido = null;
+      .sort((a, b) => (b.w.hasta - b.w.desde) - (a.w.hasta - a.w.desde)).slice(0, 20);
+    // El instante del enlace es el de la causa CONFIRMADA, durante el turno: «mirá cómo se traba la rampa a las 4». Antes era la mitad
+    // de la espera más larga del paquete, y en la peor noche esa espera es la cola del puesto manual hasta media mañana: el enlace abría
+    // a las 08:38, con el turno terminado (revisión de la experiencia, I-3, 23-10-2026). Si ningún candidato muestra su causa antes del
+    // corte, queda la regla de antes con el primero que tenga una causa confirmada.
+    let elegido = null, respaldo = null;
     for (const { e, w } of candidatos) {
       const r = await causasConfirmadas(traza, mv, semilla, peor, P.camion[e], P.indice[e],
         (cambio) => E.contrafactual(E.simularNoche, mv, semilla, peor, P.camion[e], P.indice[e], cambio, E.variante));
       const confirmados = r.contrafactuales.filter((c) => c.confirma);
-      if (confirmados.length) { elegido = { e, w, causa: confirmados[0].cambio.clave }; break; }
+      if (!confirmados.length) continue;
+      const clave = confirmados[0].cambio.clave;
+      const causa = Causa[clave.replace('explicacion.cambio.', '').toUpperCase()];
+      const enTurno = esperasDe(traza, ClaseEntidad.PAQUETE, e).find((x) => x.causa === causa && x.desde < traza.corte - 10 * 60_000 && x.hasta - x.desde >= 20_000);
+      if (enTurno) { elegido = { e, w: enTurno, causa: clave, enTurno: true }; break; }
+      respaldo ??= { e, w, causa: clave, enTurno: false };
     }
+    elegido ??= respaldo;
     if (!elegido) throw new Error(`primer minuto: ninguno de los ${candidatos.length} paquetes atrasados de la noche ${peor + 1} tiene una causa confirmada`);
-    // el instante del enlace: un poco antes de la mitad de su espera más larga (se ve quieto, esperando)
-    const instante = Math.round((elegido.w.desde + elegido.w.hasta) / 2 / 60_000) * 60_000;
+    // a la mitad de esa espera (se ve el paquete en ella: dando vueltas, en la rampa o en la fila), al segundo
+    const instante = Math.round((elegido.w.desde + elegido.w.hasta) / 2 / 1000) * 1000;
     log(`primer minuto: paquete ${P.indice[elegido.e] + 1} del camión ${P.camion[elegido.e] + 1}, ${atrasados.length} atrasados en la noche, ` +
-      `causa confirmada «${elegido.causa}», espera de ${((elegido.w.hasta - elegido.w.desde) / 60_000).toFixed(1)} min; enlace a las ${horaDe(instante)}`);
+      `causa confirmada «${elegido.causa}» ${elegido.enTurno ? 'a la vista durante el turno' : '(sin espera de esa causa antes del corte)'}, ` +
+      `espera de ${((elegido.w.hasta - elegido.w.desde) / 60_000).toFixed(1)} min; enlace a las ${horaDe(instante)}`);
     // la receta lleva la huella agregada de las cien noches del autor (`h`, hallazgo H1): la pestaña que abre el enlace la compara con la
     // suya y recién entonces dice «reproducida»
     const comprobante = await S.comprobante(mv, noches, S.semaforoDe(mv, noches));
@@ -103,7 +114,7 @@ export async function prepararEnlaces({ log = () => {} } = {}) {
     const hostilPelicula = await HOSTILES.find((x) => x.id === 'H07b').fragmento();
     return {
       primerMinuto, decidir, hostil, hostilPelicula, peor, instante, huellaModeloPrimerMinuto: mv.huella, huellaAgregadaPrimerMinuto: comprobante.huellaAgregada,
-      paquete: { camion: P.camion[elegido.e], indice: P.indice[elegido.e], causa: elegido.causa },
+      paquete: { camion: P.camion[elegido.e], indice: P.indice[elegido.e], causa: elegido.causa, enTurno: elegido.enTurno },
       atrasadosEnLaPeor: atrasados.length,
     };
   } finally {

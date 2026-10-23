@@ -30,7 +30,8 @@ export function percentil(xs: ArrayLike<number>, q: number): number {
 /**
  * IC del percentil P_q por rangos: l = ⌊nq − z√(nq(1−q))⌋ y u = ⌈nq + z√(nq(1−q))⌉; el intervalo es [x₍l₎, x₍u₎]. null si n < 20
  * (con menos datos los rangos de la normal no valen) y también si alguno de los dos rangos cae FUERA de [0, n−1]: recortarlo al mínimo o
- * al máximo daba un intervalo que se llamaba «95%» y cubría 84–93% con 20 a 40 réplicas (hallazgo E-07; con q = 0,9 pasa para n < ~45).
+ * al máximo daba un intervalo que se llamaba «95%» y cubría 84–93% con 20 a 40 réplicas (hallazgo E-07). Para el P90 el IC existe desde 42
+ * réplicas con confianza 0,90, desde 53 con 0,95 y desde 79 con 0,99 (MEDIDO con esta función, 23-10-2026); para la mediana, desde 20.
  */
 export function icPercentilOrdenado(x: ArrayLike<number>, q: number, confianza: number): [number, number] | null {
   validarQ(q);

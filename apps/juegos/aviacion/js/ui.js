@@ -291,16 +291,44 @@ function panelAeropuerto(s, vis, v) {
       ${sig ? boton(v, 'transbordo', { id, dis: s.dinero < costo, html: esc(t('mejorar', { u: numero(sig.u), precio: plata(sig.precio) })) }) : `<p class="explica">${esc(t('maximo'))}</p>`}
       <button class="detalle-btn" data-accion="detalle" data-v="ap" data-k="det-ap" aria-expanded="${vis.detalle === 'ap'}">${esc(t('detalle'))}${icono('abajo')}</button>${detalle}</div>`;
   }
+  const clasif = id === M.HUB ? bloqueClasificacion(s, v) : '';
   const lista = rutasDe.map((r) => {
     const otro = r.a === id ? r.b : r.a;
     return `<button class="ruta" data-accion="verRuta" data-id="${esc(r.id)}" data-k="ar-${esc(r.id)}"><b>⇄ ${nom(otro)}</b><span class="v">${esc(t('km', { n: numero(r.km) }))}</span></button>`;
   }).join('');
   return `${cabecera(`${nom(id)}${esHub ? ' <span class="etiqueta">hub</span>' : ''}`, esc(t('enRed')))}
     <div class="bloque" style="border:0;margin-top:0"><h3>${esc(t('esperan'))}</h3><div class="cargas">${cargas}</div></div>
-    ${centro}
+    ${clasif}${centro}
     ${boton(v, 'nuevaRuta', { id, clase: 'boton principal', html: `${icono('ruta')}<span>${esc(t('nuevaRuta'))}</span>` })}
     ${lista ? `<div class="bloque lista-rutas"><h3>${esc(t('tusRutas'))}</h3>${lista}</div>` : ''}`;
 }
+
+// La primera clasificación (HN-30, capítulo 1): la pregunta con un botón por destino y «por orden de llegada»; mientras corre, el
+// semáforo de cada avión; al terminar, el resultado (y, si no fue la mejor, cuál era). Bloque mínimo del área «modelo»: el área
+// «interfaz» lo puede rediseñar.
+function bloqueClasificacion(s, v) {
+  const c = M.clasificacionActual(s);
+  if (!c) return '';
+  const [a, b] = c.opciones;
+  if (c.estado === 'oferta') {
+    const hora = horaJuego(s, c.limite);
+    return `<div class="bloque bloque-clasif"><h3>${esc(t('clasifTitulo'))}</h3><p><b>${esc(t('clasifPregunta', { a: a.nombre, b: b.nombre }))}</b></p>
+      <p class="explica">${esc(t('clasifTexto', { n: numero(a.sacas), c: numero(c.centro), hora }))}</p>
+      ${c.opciones.map((o) => boton(v, 'clasificar', { id: o.id, clase: 'boton principal', html: esc(t('clasifPrimero', { ciudad: o.nombre })), k: `clasif-${o.id}` })).join('')}
+      ${boton(v, 'clasificar', { id: '', html: esc(t('clasifSaltear')), k: 'clasif-saltear' })}</div>`;
+  }
+  const r = c.res, nombre = (id) => c.opciones.find((o) => o.id === id)?.nombre ?? '';
+  const luces = r.radios.map((x) => `<span class="ficha"><span class="rj-luz ${esc(c.estado === 'hecha' || (c.minuto ?? 0) >= x.llega ? x.semaforo : '')}" role="img"></span>${esc(nombre(x.id))} ${numero(x.aTiempo)}/${numero(x.sacas)}</span>`).join('');
+  if (c.estado === 'corriendo') {
+    return `<div class="bloque bloque-clasif"><h3>${esc(t('clasifTitulo'))}</h3><p>${esc(c.primero ? t('clasifCorre', { ciudad: nombre(c.primero) }) : t('clasifCorreAuto'))}</p><div class="cargas">${luces}</div></div>`;
+  }
+  // hecha: el resultado queda a la vista un día de juego
+  if (s.t - (s.clasif?.fin ?? 0) > 1440) return '';
+  const pista = c.primero === c.mejor.primero ? t('clasifBien') : t('clasifMejor', { ciudad: nombre(c.mejor.primero) });
+  return `<div class="bloque bloque-clasif"><h3>${esc(t('clasifTitulo'))}</h3><p><b>${esc(t('clasifRes', { pct: `${numero(r.pct * 100)}%`, monto: plata(r.ingreso) }))}</b></p>
+    <div class="cargas">${luces}</div><p class="explica">${esc(pista)}</p></div>`;
+}
+const horaJuego = (s, enMin) => { const f = new Date(M.fecha(s).getTime() + enMin * 60000); return `${String(f.getUTCHours()).padStart(2, '0')}:${String(f.getUTCMinutes()).padStart(2, '0')}`; };
 
 function panelNuevaRuta(s, vis, v) {
   const o = vis.origen;

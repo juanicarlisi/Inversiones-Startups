@@ -58,13 +58,13 @@ Fases y prioridades de `corte-1.md` §6.8. `arg` es el número que viaja con el 
 | 30 | `FIN_INDUCCION` | hub.induccion | NORMAL · 0 | puesto | El paquete espera bandeja (F3) o sale (F2) |
 | 31 | `PAUSA_INICIO_INDUCCION` | hub.induccion | URGENTE · 0 | puesto | Empieza la pausa (o queda pendiente hasta que termine la tarea) |
 | 32 | `PAUSA_FIN_INDUCCION` | hub.induccion | NORMAL · 0 | puesto | Fin de la pausa |
-| 40 | `PASO` | hub.sorter | NORMAL · **9** | paso k | Un paso del lazo (se descarta si una parada lo invalidó: `m.seq` distinto del guardado) |
+| 40 | `PASO` | hub.sorter | NORMAL · **9** | paso k | Un paso del lazo (se descarta si una parada lo invalidó: `m.seq` distinto del guardado). Nunca se agenda un paso ya tomado (§11) |
 | 41 | `PARADA_INICIO` | hub.sorter | URGENTE · 0 | n | Micro-parada n (no se para si ya no queda trabajo) |
 | 42 | `PARADA_FIN` | hub.sorter | URGENTE · 0 | n | Arranca el lazo; agenda la parada n + 1 |
 | 43 | `LLEGA_RAMPA_F2` | hub.sorter (F2) | NORMAL · 0 | paquete | En F2, el paquete llega a su rampa o a la excepción |
-| 50 | `FIN_CAMINATA` | hub.rampas | NORMAL · 0 | persona de rampa | Llegó a la rampa: toma un paquete o cierra la jaula |
+| 50 | `FIN_CAMINATA` | hub.rampas | NORMAL · 0 | persona de rampa | Llegó a la rampa: toma un paquete o cierra la jaula; si otra persona ya la vació o ya cerró esa jaula, busca otra tarea (§11) |
 | 51 | `FIN_MANEJO` | hub.rampas | NORMAL · 0 | persona de rampa | El paquete entra a la jaula (listo) |
-| 52 | `FIN_CIERRE` | hub.rampas | NORMAL · 0 | persona de rampa | Jaula cerrada (momento `JAULA_CERRADA`) |
+| 52 | `FIN_CIERRE` | hub.rampas | NORMAL · 0 | persona de rampa | Jaula cerrada (momento `JAULA_CERRADA` con la jaula que cerró esa persona) |
 | 53 | `PAUSA_INICIO_RAMPA` | hub.rampas | URGENTE · 0 | persona de rampa | Como en inducción |
 | 54 | `PAUSA_FIN_RAMPA` | hub.rampas | NORMAL · 0 | persona de rampa | Como en inducción |
 | 60 | `FIN_MANUAL` | hub.excepcion | NORMAL · 0 | puesto manual | Vuelve a la acumulación (intento + 1) o, si no es transportable, a la jaula de su ruta |
@@ -133,7 +133,7 @@ su descarga (`creado`) hasta su jaula (`listo`); lo controla el almacén al escr
 
 Momentos: `CAMION_LLEGA` (r = camión, v = minutos de atraso), `CAMION_ATRASADO`, `ATRASO_COMUN` (v = minutos), `RAMPA_LLENA` y
 `RAMPA_LIBERA` (r = rampa, v = ocupación), `LAZO_PARA` y `LAZO_ARRANCA` (v = n), `PAUSA_INICIO` y `PAUSA_FIN` (r = persona), `AUSENCIA`
-(r = persona), `REEMPLAZO` (r = retén, v = persona cubierta), `JAULA_CERRADA` (r = rampa, v = jaula), `CORTE`, `PRIMER_PAQUETE`,
+(r = persona), `REEMPLAZO` (r = retén, v = persona cubierta), `JAULA_CERRADA` (r = rampa, v = la jaula que se cerró; las de una rampa se cierran en el orden en que se completaron), `CORTE`, `PRIMER_PAQUETE`,
 `ULTIMO_CLASIFICADO` (r = paquete), `ACUMULACION_LLENA` (cuando un andén para) y `ACUMULACION_LIBERA` (ningún andén parado y lo ocupado
 baja al 80% de los lugares). La traza empieza en min(inicio, primera llegada) y termina en max(fin del turno, último evento, último listo).
 
@@ -188,6 +188,9 @@ foto y restauración): misma huella y mismos KPI con fotos a las 22:20, 23:30, 0
 | `doradas.test.ts` | Huella, eventos y 24 KPI de 5 semillas del hub chico (`doradas.json`) |
 | `kpi.test.ts` | KPI sanos en 50 noches del hub chico: 0 alertas, todo clasificado, definiciones de §6.9 y costos; el fin entre 120 y 300 min o, si no, un golpe discreto confirmado por contrafactual (NOTAS-CONTRATO §13: el criterio literal es imposible con 1.0.0); el **certificado** de esa imposibilidad calculado sin correr el hub (solo la plantilla y las direcciones de §6.3: r44 necesita 333,5 min de inducción) y cotejado con lo que sorteó el hub; el criterio literal de §9 sobre 1.0.0 como prueba **pendiente** (`todo`: falla, lo muestra y no rompe la suite hasta que decida la integración); el criterio literal sobre la propuesta `hub-chico@1.1.0` (pasa); percentiles |
 | `plan.test.ts` | Asignación por volumen (bloques de rampas vecinas con la carga pareja, motor 1.1.0), `particionPareja`, contiguas y lista; 30 noches de la chica: P90 de recirculación por volumen ≤ contiguas |
+| `plan-grande.test.ts` | §9 al pie de la letra: 30 noches de la **grande**, P90 de recirculación por volumen ≤ contiguas (con las 15 personas de la plantilla los dos dan 0%); y con 9 personas de rampa, donde el plan decide: por volumen al menos diez veces menos (0,011% contra 29,5%) |
+| `bordes.test.ts` | Casos de borde del esquema que no pueden romper la noche (§11): tareas de 0 s encadenadas (el lazo nunca toma dos veces un paso) y relevo que llega a cerrar una jaula que la dueña ya cerró (cada jaula se cierra una vez, después de completarse, y ninguna queda sin cerrar) |
+| `conservacion-trabajo.test.ts` | Conservación del trabajo, evento por evento: ningún puesto de inducción, puesto manual, persona de rampa ni andén libre con trabajo que las reglas le dan, y ninguna rampa sin nadie mientras otra persona de rampa está fuera de pausa; en r21, r34 y r44 del chico, en el hub del primer minuto y en dos modelos que ejercitan el relevo (fallan con el código anterior a §12); y un control de que el auditor ve una falta sembrada |
 | `foto.test.ts` | R06 del hub (adelantado) y rechazo de fotos de otro modelo |
 | `traza.test.ts` | Columnas por tipo de tramo, causas y causantes, momentos, resumen por paquete, catálogo |
 | `personas.test.ts` | Retén, temporarios, fatiga y pausas contra el sorteo de cada paquete |
@@ -195,11 +198,13 @@ foto y restauración): misma huella y mismos KPI con fotos a las 22:20, 23:30, 0
 | `plantillas.test.ts` | Las dos plantillas y la propuesta 1.1.0: generadores, reglas de §5, 1.1.0 = 1.0.0 + parche, geometría dentro de los límites, textos ≤ 1.000 caracteres y lista negra de marcas |
 | `tokens.test.ts` | Ningún token prohibido de §1.4 en `hub/` |
 
-MEDIDO el 18-10-2026 (Node 22.22.0, contenedor de 4 núcleos, carga ≈ 1, motor de **referencia**, mediana de 5 noches; informativo):
-hub chico (≈ 7.900 paquetes) 94 ms sin traza y 101 ms con traza completa (93.000 tramos, 11,8 por paquete; 10,0 eventos por paquete);
-hub grande (≈ 23.700 paquetes) 187 ms sin traza y 297 ms con traza (277.000 tramos; 8,1 eventos por paquete). Los 16 archivos (68
-pruebas: 67 pasan y 1 pendiente, el criterio literal de §9 sobre 1.0.0) tardan 29 s de reloj (el 19-10-2026, con otros paquetes corriendo
-en paralelo; 19–21 s el 18-10-2026 con 67; el límite de §9 es 90 s). Los presupuestos de §11 los mide el banco de la integración con el núcleo de producción.
+MEDIDO el 23-10-2026 (Node 22.22.0, contenedor de 4 núcleos con otros paquetes construyéndose en paralelo, carga 2,4 al medir, motor de
+**referencia**, mediana de 5 noches; informativo): hub chico (7.500 paquetes en esas noches) 90 ms sin traza y 120 ms con traza completa
+(86.000 tramos, 11,5 por paquete; 8,9 eventos por paquete); hub grande (22.500 paquetes) 256 ms sin traza y 360 ms con traza (262.000
+tramos, 11,7 por paquete; 8,3 eventos por paquete). Los 18 archivos (78 pruebas: 77 pasan y 1 pendiente, el criterio literal de §9 sobre
+1.0.0) tardan 35 s de reloj con carga 1,5 (segunda vuelta del 23-10-2026; antes, con 17 archivos, 42 s con carga 2 y 59 s con carga 12) (los otros paquetes corriendo a la vez); 74 s de CPU, de los que un
+tercio son las 120 noches de la grande de `plan-grande.test.ts`, que va en su propio archivo para correr en paralelo. El límite de §9 es 90 s. Los presupuestos de §11
+los mide el banco de la integración con el núcleo de producción.
 
 ## 10. Motor 1.1.0 (20-10-2026): lo que cambió en el hub
 
@@ -213,11 +218,41 @@ Los arreglos de los hallazgos R1, R2, R3, R4 (parcial) y R5 de la revisión del 
 - **Persistencia (regla 11, R2).** Con `la-mas-llena` y `la-que-se-llena-antes` la persona se queda en su rampa mientras tenga paquetes y
   ninguna otra de las suyas esté llena; en un empate gana la actual y después la más cercana.
 - **Relevo en las pausas (reglas 6 y 7, R3).** Mientras alguien de rampa está en pausa, sus rampas las atiende la siguiente persona
-  presente que no esté en pausa (en ronda); al volver las recupera. El compilador informa `I-PAUSAS-SUPERPUESTAS` si el escalón es menor
-  que la pausa.
+  presente que no esté en pausa (en ronda) o, si no había ninguna, la primera que vuelva de la suya (§12); al volver las recupera. El
+  compilador informa `I-PAUSAS-SUPERPUESTAS` si el escalón es menor que la pausa.
 - **Pausas después del fin (regla 6, R4).** Si la noche se alarga, las pausas de inducción y de rampa siguen con su ritmo mientras quede
   trabajo. La cobertura entre roles y la jornada máxima (el resto de R4) quedan para el corte 2.
 - **Utilizaciones (§6.9, R5).** `utilInduccionPct` y `personaOcupadaPct` dividen por la jornada real, `max(fin, último listo) − inicio`.
 
 Las doradas (`pruebas/doradas.json`) se regeneraron con 1.1.0. MEDIDO (20 noches, chico): por volumen contra contiguas, P(todo antes del
 corte) 0,73 contra 0,67 y recirculación 5,3% contra 12,0%; con 2 puestos en el grande la utilización de inducción da 78% (en 1.0.0, 175%).
+
+## 11. Arreglos del 23-10-2026 (no cambian ninguna huella de las plantillas)
+
+Dos casos de borde que el esquema permite y las plantillas no usan (NOTAS-CONTRATO §16; pruebas en `pruebas/bordes.test.ts`, que fallan
+con el código anterior). Las guardas no actúan en ninguna noche de las plantillas (MEDIDO: 0 veces en 50 noches del chico, 50 de la
+propuesta 1.1.0 y 20 de la grande): las doradas siguen iguales.
+
+- **Paso del lazo tomado dos veces** (`bloques/sorter.ts` › `agendarPaso`). Con tareas de 0 s, un paso dejaba el lazo vacío y en el mismo
+  instante volvía la actividad (manual → acumulación → inducción de 0 s) y se pedía otra vez ese paso: la rueda lo rechazaba y la noche se
+  cortaba con un error. Ahora el próximo paso posible es el siguiente de la grilla.
+- **Jaula cerrada antes de completarse** (`bloques/rampas.ts` › `ejecutar`). Un relevo que llegaba a cerrar una jaula que la dueña, de
+  vuelta de su pausa, ya había cerrado, «cerraba» igual: se daba por cerrada la jaula siguiente antes de completarse y esa nunca se cerraba.
+  Ahora busca otra tarea (cierra la primera persona que llega). El momento `JAULA_CERRADA` lleva en `v` la jaula que cerró esa persona
+  (`S.cerrando`, nuevo en el estado de `hub.rampas`), no la última completa.
+
+## 12. Auditoría de la cascada y dos arreglos del relevo (23-10-2026, segunda vuelta)
+
+El verificador no había revisado regla por regla la cascada de las dos noches del hub chico que quedan fuera de 120–300 min (pausas de
+rampa → rampas llenas → excepción → un puesto manual). Se auditó de dos maneras (NOTAS-CONTRATO §13, «Auditoría de la cascada»):
+conservación del trabajo después de cada evento (`pruebas/conservacion-trabajo.test.ts`) y las reglas 9, 10 y 12 leídas solo de la traza.
+En r21 y r44, ninguna falta: las noches largas no son un defecto del hub. La auditoría encontró dos faltas del relevo de 1.1.0 en otras
+noches, arregladas en `bloques/rampas.ts` (NOTAS-CONTRATO §17):
+
+- **Jaula completada por un relevo cuando la dueña ya volvió** (`finManejo`): la dueña, si está libre, se entera en el acto y va a
+  cerrarla (antes quedaba libre hasta que le caía otro paquete; en 200 noches del chico, una vez: la r34, 0,6 min).
+- **Rampas sin relevo** (`terminarPausa`): si alguien empezó la pausa con todas las demás personas de rampa en pausa, la primera que vuelve
+  toma sus rampas (antes quedaban sin nadie hasta el fin de esa pausa; con tres personas o más y las pausas de las plantillas no pasa).
+
+Doradas, r21, r44 y las tablas de la decisión no cambian; de las 200 noches del chico cambia la r34 (fin 195,5 → 190,9 min) y ninguna de la
+propuesta 1.1.0, de la grande ni del hub del primer minuto. El estado de `hub.rampas` no tiene claves nuevas.

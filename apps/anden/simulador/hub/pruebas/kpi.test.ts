@@ -6,8 +6,8 @@
 //     misma noche sin el golpe cae en el rango);
 //  2. el certificado de imposibilidad, calculado SIN correr el hub (solo la plantilla y las direcciones de §6.3): con la semilla de la
 //     plantilla hay al menos una noche en la que los inductores presentes no llegan a inducir todo en 300 min, con cualquier mecanismo;
-//  3. el criterio literal sobre 1.0.0 corre como prueba PENDIENTE (`todo`): falla, lo dice en la salida y no rompe la suite, hasta que la
-//     integración decida (publicar hub-chico@1.1.0 o corregir §9);
+//  3. el criterio literal sobre 1.0.0 ya no corre: la integración eligió el camino 2 de NOTAS-CONTRATO §13 (23-10-2026,
+//     integracion/CAMBIOS-CONTRATO.md §10): §9 se corrige para pedir lo que exige la prueba 1, y 1.1.0 queda como propuesta;
 //  4. el criterio literal sobre la propuesta hub-chico@1.1.0 (plantillas/hub-chico-1.1.0.json, registro.ts › PROPUESTAS) tiene que pasar.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -38,18 +38,6 @@ function faltasLiterales(n: Literal, donde: string): string[] {
   if (!dentro(n.fin)) f.push(`${donde}: fin ${n.fin.toFixed(1)} min fuera de [${FIN_MIN}, ${FIN_MAX}]`);
   return f;
 }
-/** Las 50 noches de 1.0.0 se corren una vez: la prueba principal guarda lo que mira la pendiente. */
-const literal100 = new Map<number, Literal>();
-function literalChico100(r: number): Literal {
-  let x = literal100.get(r);
-  if (!x) {
-    const s = noche(chico(), r);
-    x = literalDe(s.resultado.kpi, s.resultado.alertas);
-    literal100.set(r, x);
-  }
-  return x;
-}
-
 function contarNoTransportables(h: Hub): number {
   const P = h.P.S;
   let n = 0;
@@ -150,7 +138,6 @@ test(`KPI sanos en ${NOCHES} noches del hub chico: todo clasificado, sin alertas
   for (let r = 0; r < NOCHES; r++) {
     const s = noche(chico(), r);
     const k = s.resultado.kpi, h = s.hub, donde = `réplica ${r}`;
-    literal100.set(r, literalDe(k, s.resultado.alertas));
     assert.deepEqual(s.resultado.alertas, [], `${donde}: sin alertas`);
     for (const id of KPIS) assert.ok(Number.isFinite(k[id]), `${donde}: el KPI ${id} tiene que ser finito y es ${k[id]}`);
     assert.equal(k.clasificados, k.paquetes, `${donde}: todo paquete clasificado al horizonte`);
@@ -248,14 +235,6 @@ test(`§9 al pie de la letra es imposible en ${NOCHES} noches de hub-chico@1.0.0
   t.diagnostic(`Imposibles por §6.7 con la semilla ${SEMILLA}: ` + imposibles.map(({ r, c }) =>
     `r${r} (${c.presentes} de ${m.personas.induccion.puestosActivos} inductores, retén ${m.personas.induccion.reten}, ` +
     `${c.transportables} transportables: ${c.cota.toFixed(1)} min solo de inducción)`).join('; ') + '.');
-});
-
-test(`§9 al pie de la letra en ${NOCHES} noches de hub-chico@1.0.0 (PENDIENTE de la integración)`, {
-  todo: 'imposible con hub-chico@1.0.0 y su semilla (certificado arriba, sin correr el hub; NOTAS-CONTRATO §13): la integración decide si publica hub-chico@1.1.0 o corrige §9',
-}, () => {
-  const faltas: string[] = [];
-  for (let r = 0; r < NOCHES; r++) faltas.push(...faltasLiterales(literalChico100(r), `réplica ${r}`));
-  assert.deepEqual(faltas, [], `§9 literal con hub-chico@1.0.0: ${faltas.length} faltas en ${NOCHES} noches`);
 });
 
 test(`KPI sanos al pie de la letra (§9) en ${NOCHES} noches de la propuesta hub-chico@1.1.0 (NOTAS-CONTRATO §13)`, () => {

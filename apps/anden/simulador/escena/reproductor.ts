@@ -5,7 +5,8 @@
 // - fila de la acumulación, de cada rampa y de la excepción: lugar = secuencia (a) − salidas hasta t (búsqueda binaria en los t1
 //   ordenados);
 // - bandeja: ranura (j + k(t)) con k(t) con fracción desde los tramos LAZO_MARCHA y LAZO_DETENIDO (escena/lazo.ts);
-// - personas: en su puesto, en su rampa, en su andén o en su mesa; caminando, interpoladas entre la rampa de antes y la de destino.
+// - personas: en su puesto, en su rampa, en su andén o en su mesa; caminando de una rampa a otra, por el pasillo que rodea el lazo y
+//   por el lado más corto, parejo en s (el mismo camino con el que el hub calcula cuánto tarda: disposicion.ts › enPasillo).
 // Lo que se ve es lo que se calculó: ninguna entidad se mueve si no hay un tramo que lo diga.
 //
 // Estados visuales (EstadoVisual): DANDO_VUELTA (BANDEJA con a > 0), EXCEPCION (rumbo a, en o saliendo del puesto manual),
@@ -22,7 +23,7 @@ import { ClaseEntidad, TipoMomento, TipoTramo, type Traza } from '../contratos/t
 import { EstadoVisual, type EstadoRecursos, type Posiciones, type Reproductor } from '../contratos/vistas.ts';
 import { posEnLazo } from '../contratos/geometria.ts';
 import {
-  acotar, crearDisposicion, enCinta, lugarEnFila, lugarEnPlaya, lugarEnRampa, type Disposicion, type V2,
+  acotar, ALTURA_CAPA_PILA, crearDisposicion, enCinta, enPasillo, lugarEnFila, lugarEnPlaya, lugarEnRampa, type Disposicion, type V2,
 } from './disposicion.ts';
 import {
   crearIndiceTiempo, cuantosHasta, entradasHasta, ordenarFilas, salidasHasta, type IndiceTiempo,
@@ -271,6 +272,8 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
   // ---- Memoria de trabajo (sin asignar por cuadro) ----
   const act = new Int32Array(Math.max(1, indice.maxCandidatos));
   let nAct = 0, tAct = NaN, cuadro = 0, salAcum = 0, salExc = 0, salExcRampa = 0, recortes = 0;
+  /** Altura extra (m) del último paquete ubicado por `paquete`: la capa de la pila del puesto manual (0 en cualquier otro lugar). */
+  let alturaPila = 0;
   const tramoPersona = new Int32Array(NP);
   const playa: number[] = [];
   const marcaRampa = new Int32Array(NR).fill(-1), tomadasRampa = new Int32Array(NR);
@@ -330,6 +333,7 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
     const k = K[i], r = R[i], e = E[i];
     let est: number = EstadoVisual.NORMAL;
     out[2] = 0;
+    alturaPila = 0;
     switch (k) {
       case TipoTramo.DESCARGA: {
         const a = NA ? D.andenes[r < 0 ? 0 : r >= NA ? NA - 1 : r] : null;
@@ -372,7 +376,7 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
       }
       case TipoTramo.RAMPA:
         if (r >= 0 && r < NR) lugarEnRampa(D.rampas[r], Math.max(0, A[i] - tomadas(r, tq)), false, out);
-        else { lugarEnRampa(D.excepcion, Math.max(0, A[i] - salExcRampa), true, out); est = EstadoVisual.EXCEPCION; }
+        else { alturaPila = lugarEnRampa(D.excepcion, Math.max(0, A[i] - salExcRampa), true, out) * ALTURA_CAPA_PILA; est = EstadoVisual.EXCEPCION; }
         break;
       case TipoTramo.MANO: {
         const Rr = rampaDe(A[i]), f = fraccion(i, tq);
@@ -380,7 +384,7 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
         break;
       }
       case TipoTramo.COLA_MANUAL:
-        lugarEnRampa(D.excepcion, Math.max(0, A[i] - salExc), true, out);
+        alturaPila = lugarEnRampa(D.excepcion, Math.max(0, A[i] - salExc), true, out) * ALTURA_CAPA_PILA;
         est = EstadoVisual.EXCEPCION;
         break;
       case TipoTramo.MANUAL: {
@@ -460,10 +464,26 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
     for (let p = Math.max(q + 1, perOff[g]); p < perOff[g + 1]; p++) if (lugarPersona(g, perIdx[p], out)) return;
     casa(g, out);
   };
+  /** Rampa de la que salió la persona g en la caminata i: la del último tramo suyo anterior que dice una rampa (−1 si ninguno). */
+  const rampaDeSalida = (g: number, i: number): number => {
+    for (let p = ultimoTramo(g, T0[i] - 1e-6); p >= perOff[g]; p--) {
+      const r = R[perIdx[p]];
+      if (perIdx[p] !== i && r >= 0 && r < NR) return r;
+    }
+    return -1;
+  };
   const persona = (g: number, tq: number, out: Float64Array): number => {
     const i = tramoPersona[g];
     out[2] = 0;
     if (i >= 0 && K[i] === TipoTramo.PERSONA_CAMINA) {
+      // Persona de rampa entre dos rampas: por el pasillo que rodea el lazo, por el lado más corto (como lo mide el hub).
+      const rb = R[i], ra = rolEf[g] === 'rampa' && rb >= 0 && rb < NR ? rampaDeSalida(g, i) : -1;
+      if (ra >= 0 && ra !== rb) {
+        enPasillo(L, D.limites, D.rampas[ra], D.rampas[rb], fraccion(i, tq), out);
+        out[2] = 0;
+        return EstadoVisual.NORMAL;
+      }
+      // Cualquier otra caminata: en línea recta desde donde estaba.
       lugarHasta(g, ultimoTramo(g, T0[i] - 1e-6), tmp); // de dónde salió
       const x0 = tmp[0], y0 = tmp[1];
       if (!lugarPersona(g, i, tmp)) { tmp[0] = x0; tmp[1] = y0; }
@@ -509,7 +529,8 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
         poner(ClaseEntidad.CAMION, E[i], EstadoVisual.NORMAL, 0);
         continue;
       }
-      poner(ClaseEntidad.PAQUETE, E[i], paquete(i, tq, o3), alturaDeTramo(k));
+      // `paquete` se evalúa antes que la altura: deja en alturaPila la capa de la pila del puesto manual
+      poner(ClaseEntidad.PAQUETE, E[i], paquete(i, tq, o3), alturaDeTramo(k) + alturaPila);
     }
     if (playa.length) {
       playa.sort((x, y) => T0[x] - T0[y] || E[x] - E[y]);

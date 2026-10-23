@@ -7,6 +7,7 @@ import type { Reproductor, Vista } from '../../contratos/vistas.ts';
 import { Prioridad } from '../../contratos/experimentos.ts';
 import { el, limpiezas } from '../ui/dom.ts';
 import { tarjeta } from '../ui/tarjeta.ts';
+import { trazaDelPlano } from '../ui/plano.ts';
 
 const VELOCIDAD_MINIATURA = 600;
 
@@ -26,28 +27,43 @@ export function paquetesComoTitulo(ctx: Contexto, n: number): string {
   return ctx.f.numero(n, 0);
 }
 
-/** Miniatura viva: una noche de la plantilla, en planta, en bucle a ×600. */
+/**
+ * Miniatura viva: una noche de la plantilla, en planta, en bucle a ×600. Mientras se simula, el plano vacío del hub (ui/plano.ts) con
+ * «Simulando una noche…» encima; si el plano no se puede dibujar, queda el aviso solo.
+ */
 function miniatura(ctx: Contexto, clave: string, caja: HTMLElement): () => void {
   let vivo = true, id = 0, vista: Vista | null = null, ro: ResizeObserver | null = null;
+  // lo que está quieto (el plano, o la noche con movimiento reducido) se vuelve a dibujar después de un cambio de tamaño
+  let quieto: (() => void) | null = null;
   const lienzo = el('canvas', { class: 'miniatura__lienzo', role: 'img', 'aria-label': ctx.t('app.inicio.miniatura') });
   // mientras se simula la noche de la miniatura, se dice qué pasa (no un rectángulo vacío)
   caja.append(lienzo, el('p', { class: 'miniatura__cargando', 'aria-hidden': 'true' }, ctx.t('app.inicio.simulando')));
+  const medir = () => {
+    const b = caja.getBoundingClientRect();
+    vista?.redimensionar(Math.max(10, Math.round(b.width)), Math.max(10, Math.round(b.height)), Math.min(2, devicePixelRatio || 1));
+  };
+  const soltar = () => { vista?.destruir(); vista = null; };
+  const usar = (r: Reproductor) => { soltar(); vista = ctx.servicios.crearVista(lienzo, r, ctx.estilo(), '2d'); medir(); };
   (async () => {
     const c = await ctx.servicios.compilar(ctx.servicios.plantillas[clave]);
     if (!vivo || !c.ok) return;
+    ro = new ResizeObserver(() => { medir(); quieto?.(); }); ro.observe(caja);
+    try {
+      const plano = ctx.servicios.crearReproductor(trazaDelPlano(c.mv, ctx.servicios.geometria(c.mv.modelo)));
+      usar(plano);
+      quieto = () => vista?.dibujar(plano.inicio); quieto();
+      caja.dataset.plano = '1';
+    } catch { soltar(); quieto = null; }
     const semilla = c.mv.modelo.experimento.semilla;
     const salida = await ctx.servicios.noche(c.mv, semilla, 0, Prioridad.VISTA_PREVIA);
     if (!vivo || !salida.traza) return;
     // si después se abre esta plantilla, la primera noche ya está calculada
     ctx.sesion.recordarNoche(c.mv, semilla, 0, salida);
     const r: Reproductor = ctx.servicios.crearReproductor(salida.traza);
-    vista = ctx.servicios.crearVista(lienzo, r, ctx.estilo(), '2d');
-    const medir = () => { const b = caja.getBoundingClientRect(); vista?.redimensionar(Math.max(10, Math.round(b.width)), Math.max(10, Math.round(b.height)), Math.min(2, devicePixelRatio || 1)); };
-    medir();
-    ro = new ResizeObserver(medir); ro.observe(caja);
+    usar(r); quieto = null; delete caja.dataset.plano;
     const dur = r.fin - r.inicio;
     let t = r.inicio + dur * 0.35, previo = 0;
-    if (ctx.reducirMovimiento()) { vista.dibujar(t); caja.dataset.listo = '1'; return; }
+    if (ctx.reducirMovimiento()) { quieto = () => vista?.dibujar(t); quieto(); caja.dataset.listo = '1'; return; }
     const cuadro = (ahora: number) => {
       if (!vivo || !vista) return;
       if (previo) t += (ahora - previo) * VELOCIDAD_MINIATURA;
@@ -59,7 +75,7 @@ function miniatura(ctx: Contexto, clave: string, caja: HTMLElement): () => void 
     };
     id = requestAnimationFrame(cuadro);
   })().catch(() => { caja.dataset.listo = 'error'; });
-  return () => { vivo = false; cancelAnimationFrame(id); ro?.disconnect(); vista?.destruir(); };
+  return () => { vivo = false; cancelAnimationFrame(id); ro?.disconnect(); soltar(); };
 }
 
 export const montarInicio: Montar = (raiz, ctx) => {

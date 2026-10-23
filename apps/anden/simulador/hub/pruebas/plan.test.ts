@@ -3,10 +3,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { compilarConfig } from '../config.ts';
 import { asignarRampas, particionPareja, planBalanceado } from '../plan.ts';
-import { percentil } from '../kpi.ts';
-import { chico, noche } from './modelos.ts';
+import type { Modelo } from '../../contratos/modelo.ts';
+import { chico, recirculacionP90 } from './modelos.ts';
 
-function asignacion(m: ReturnType<typeof chico>, presentes: number[]): number[] {
+function asignacion(m: Modelo, presentes: number[]): number[] {
   const cfg = compilarConfig(m, 'F3'), out = new Int32Array(cfg.NR);
   asignarRampas(cfg, Uint8Array.from(presentes), out);
   return Array.from(out);
@@ -64,15 +64,8 @@ test('planBalanceado devuelve el parche que pone «por-volumen»', () => {
 });
 
 test("30 noches de la plantilla chica: el P90 de recirculación con 'por-volumen' ≤ con 'contiguas'", () => {
-  // En la grande, desde el motor 1.1.0 (persistencia y relevo en las pausas) ninguna rampa se llena con ninguno de los dos planes:
-  // el plan se nota en la chica, donde las rampas sí son el cuello (MEDIDO: 5,3% contra 12,0% de recirculación media en 30 noches).
-  const recirculacion = (asignacion: 'por-volumen' | 'contiguas') => {
-    const m = chico();
-    m.personas.rampa.asignacion = asignacion;
-    const x = Float64Array.from({ length: 30 }, (_, r) => noche(m, r).resultado.kpi.recirculacionPct);
-    return percentil(x.sort(), 0.9);
-  };
-  const volumen = recirculacion('por-volumen'), contiguas = recirculacion('contiguas');
+  // En la chica las rampas sí son el cuello con la dotación de la plantilla (MEDIDO: 5,3% contra 12,0% de recirculación media).
+  const volumen = recirculacionP90(chico, 'por-volumen'), contiguas = recirculacionP90(chico, 'contiguas');
   assert.ok(volumen <= contiguas, `P90 de recirculación: por volumen ${volumen.toFixed(3)}% contra contiguas ${contiguas.toFixed(3)}%`);
   assert.ok(contiguas > 0, 'con rampas contiguas hay recirculación que ahorrar');
 });

@@ -86,6 +86,19 @@ export function notaNochesComparadas(ctx: Contexto, n: number): string {
     : ctx.t('app.ysi.nochesComparadasSinLaVista', { n, vista: vista + 1 });
 }
 
+/**
+ * Cuántos indicadores mejoran y cuántos empeoran con B, según el veredicto en palabras (lo «igual en la práctica» no cuenta). Si B no
+ * mejora ninguno y empeora alguno, «Quedarme con B» deja de ser la acción principal y se dice por qué.
+ */
+export function balanceDeB(ctx: Contexto, cs: readonly Comparacion[]): { mejoran: number; empeoran: number } {
+  let mejoran = 0, empeoran = 0;
+  for (const c of cs) {
+    const v = textoVeredicto(ctx, c).clase;
+    if (v === 'b-mejor') mejoran++; else if (v === 'a-mejor') empeoran++;
+  }
+  return { mejoran, empeoran };
+}
+
 export function filaComparacion(ctx: Contexto, c: Comparacion): (string | HTMLElement)[] {
   const v = textoVeredicto(ctx, c);
   return [ctx.t(`app.kpi.${c.kpi}`), valorKpi(ctx, c.kpi, c.media, true),
@@ -155,7 +168,8 @@ export const montarYsi: Montar = (raiz, ctx) => {
     alternar.hidden = ancho || !y.nocheB;
     alternar.textContent = ctx.t(e.lado === 'A' ? 'app.ysi.verB' : 'app.ysi.verA');
     ladoB.classList.toggle('dividida__lado--vacio', !y.nocheB);
-    vacioB.textContent = ctx.t(y.fase === 'igual' ? 'app.ysi.bIgualA' : y.fase === 'previa' ? 'app.ysi.calculandoPrevia' : 'app.ysi.moveUnaPerilla');
+    vacioB.textContent = y.rehaciendoB ? ctx.t('app.ysi.rehaciendoB', { n: (s.noche?.replica ?? 0) + 1 })
+      : ctx.t(y.fase === 'igual' ? 'app.ysi.bIgualA' : y.fase === 'previa' ? 'app.ysi.calculandoPrevia' : 'app.ysi.moveUnaPerilla');
     etqA.actualizar(); etqB.actualizar();
     // sin película de B (todavía no se movió nada, o B quedó igual a A) no hay noche que etiquetar
     etqB.nodo.hidden = !y.nocheB && y.fase !== 'previa';
@@ -178,11 +192,14 @@ export const montarYsi: Montar = (raiz, ctx) => {
     if (y.fase === 'confirmando') partes.push(progreso(y.progreso, ctx.t('app.ysi.confirmando', { n: Math.round(y.progreso * 40) })));
     if (y.fase === 'confirmada') {
       const conSentido = y.comparaciones.filter((c) => META_KPI[c.kpi].mejor !== 'neutro');
+      const balance = balanceDeB(ctx, conSentido), bPeor = balance.mejoran === 0 && balance.empeoran > 0;
+      quedarse.className = `boton ${bPeor ? '' : 'boton--primario'}`.trim();
       partes.push(el('div', { class: 'ysi__confirmada', 'data-ysi': 'confirmada' },
         el('p', { class: 'ysi__titular' }, ctx.t('app.ysi.confirmada', { n: conSentido[0]?.n ?? 0 })),
         el('p', { class: 'nota', 'data-ysi': 'noches-comparadas' }, notaNochesComparadas(ctx, conSentido[0]?.n ?? 0)),
         tabla([ctx.t('app.ysi.col.kpi'), ctx.t('app.ysi.col.diferencia'), ctx.t('app.ysi.col.ic'), ctx.t('app.ysi.col.veredicto')],
           conSentido.map((c) => filaComparacion(ctx, c)), { titulo: ctx.t('app.ysi.tablaTitulo'), numericas: [1, 2], accion: 'comparacion', apilable: true }),
+        bPeor ? el('p', { class: 'nota', 'data-ysi': 'b-peor' }, ctx.t('app.ysi.bPeor')) : null,
         quedarse));
     }
     poner(estado, ...partes);
@@ -193,7 +210,7 @@ export const montarYsi: Montar = (raiz, ctx) => {
   let previas: Perillas = ctx.almacen.estado.perillas;
   L.sumar(ctx.almacen.suscribir((n, a) => {
     if (n.t !== a.t || n.inicio !== a.inicio || n.fin !== a.fin) linea.actualizar();
-    if (n.t !== a.t || n.reproduciendo !== a.reproduciendo || n.velocidad !== a.velocidad) controles.actualizar();
+    if (n.t !== a.t || n.inicio !== a.inicio || n.fin !== a.fin || n.reproduciendo !== a.reproduciendo || n.velocidad !== a.velocidad) controles.actualizar();
     if (n.perillas !== previas) { previas = n.perillas; void s.previsualizar(n.perillas); }
     if (n.lado !== a.lado || n.perillas !== a.perillas) pintar();
   }));
