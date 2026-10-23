@@ -1193,3 +1193,46 @@
   publica en un idioma solo entera (lecciones, capítulos, niveles y líneas de tiempo); lo estructural (tipo, correcta, citas,
   visuales, lecturas) nunca se traduce y las citas se escriben solas en el idioma; un APK no se compila si el contenido tiene errores o
   si la app no arranca en la prueba automática.
+
+## DEC-2026-10-23-1 · Senda: trigésima tercera tanda (prueba 33), empezar por el principio, la Travesía en tu orden, las copas y el peso
+
+- **Fecha:** 2026-10-23 · **Quién:** el fundador pide (la serie de Personajes empezaba en los patriarcas y su primera pregunta daba
+  por sabido a Abram; «comenzar por el principio, y terminar por el final» en todas las travesías y revisarlo todo «antes de seguir
+  escalando»; el orden de la Travesía; la línea de tiempo en la Consola; la Pascua; el peso; y una lista de pedidos de la app).
+  Claude investiga, construye y revisa.
+- **Decidido / hecho (capítulo 59):** la Travesía en el orden del fundador, sin estantes (13 áreas; «Buenas obras» pasa a «Vivir la
+  fe» y «Mártires» a «Historia de la Iglesia»; «Los últimos tiempos», que aparecía dos veces en su lista, queda una sola vez después de
+  la Historia de la Iglesia). Personajes desde Adán: «De Adán a Noé» (13 lecciones) y «Los patriarcas» rehecha desde Génesis 11:26 (26
+  lecciones); 24 fichas de personaje antes de cualquier pregunta. La regla nueva revisó las 405 lecciones (160 corregidas). La ruleta
+  que se agarra, el tachado de a una en «¿Quién es?» con las preguntas revisadas, la rueda de la hora sin trabas, descansar a los 45
+  minutos, la próxima copa en Inicio con campana y el puntaje por acierto y velocidad, fichas de juego, la entrada con Lany de brazos
+  cruzados y la armadura, el nivel que nunca baja, la Almeida y la King James como referencia de los huecos en portugués e inglés, el
+  peso medido (89,1 MB) y la carga al abrir reducida (72 módulos propios en lugar de 158), la línea de tiempo en la Consola con la
+  Pascua 2027 (recorrido por Tierra Santa) como gran hito, y los sonidos elegidos el 22-10. APK 33 con todo.
+- **No entró / queda a la vista:** Josué y Jueces antes de Rut y Oseas antes de Joel (libros que todavía no se escribieron; lo primero
+  de contenido cuando se vuelva a escalar); R8 (va solo en el APK 34, para medir y comprobar que abre); la captura de Preguntados no
+  llegó (la entrada salió de la descripción).
+- **Espera del fundador:** probar el APK 33; el álbum (DEC-2026-10-23-2); reenviar la captura si quiere compararla; lo pendiente de
+  antes (licencias, consulta SBA, INPI y abogado, autorización del ministerio, Google Play antes del 15-11, sitio, Claude Max, voz).
+- **Reglas que quedan:** «empezar por el principio y terminar por el final» es error del validador en todas las rutas (ningún nombre
+  se pregunta antes de presentarse, ninguna pregunta va para atrás en la historia, cada personaje lleva su ficha antes de las
+  preguntas) y se corrige en el texto, nunca escondiendo un nombre; entre «» va solo la Biblia, textual; el contenido de la app va en
+  «tú»; en portugués e inglés cada hueco se tiene que poder llenar también leyendo la Almeida o la King James; los talentos nunca se
+  venden; el nivel mide el camino en la app, no la fe, y no desbloquea contenido; al abrir, la app carga solo lo que necesita Inicio;
+  cada compilación publica el peso del APK.
+
+## DEC-2026-10-23-2 · Senda: el álbum de personajes (pendiente del fundador)
+
+- **Fecha:** 2026-10-23 · **Quién:** el fundador propone («se puede ir completando un álbum; con monedas puedas comprar un sobre que
+  trae un personaje [...] y que además ayude a conocer sobre ese personaje»); Claude evalúa y propone.
+- **Recomendación (docs/ECONOMIA.md de la app; capítulo 59 §6):** sí, con este diseño: sobres pagados solo con talentos, que nunca se
+  venden (ni con plata, ni con suscripción, ni con anuncios); nunca una figurita repetida (el azar solo decide el orden); la figurita
+  queda dorada si se responde bien la pregunta del personaje, nunca por suerte; ningún personaje vale más que otro; Jesús no es una
+  figurita (el centro del álbum es una página sin retrato con Juan 5:39); 72 personajes por año en 12 páginas; el primer sobre de
+  cada página gratis y los demás a 40 talentos.
+- **Por qué así (HECHO, con fuente):** la Lei 15.211 de Brasil (ECA Digital, art. 20) prohíbe las cajas de recompensa en juegos para
+  niños y adolescentes o de acceso probable por ellos; el Decreto 12.880 exige impedir el acceso de verdad; la Nota Técnica 55/2026
+  del Ministerio de Justicia incluye la moneda del juego comprada con plata. Google Play y Apple exigen mostrar las probabilidades de
+  cualquier ítem al azar que se compre.
+- **Decisión pedida:** sí o no al álbum con ese diseño y, si es sí, para cuándo (antes del lanzamiento o con la temporada de
+  Adviento). Costo: 0; unas dos o tres sesiones de trabajo.

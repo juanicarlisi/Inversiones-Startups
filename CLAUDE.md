@@ -255,6 +255,24 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - «Vivir la historia» con 13 misiones (José y sus hermanos, Elías en el Carmelo y el ciego de Juan 9, semanas 10 a 12) y cinco láminas
     nuevas; la correcta nunca la más larga (el validador lo hizo reescribir las opciones);
   - el fundador dijo que después chequea el backlog: está ordenado en el capítulo 58 §7; se prueba el APK 32 (contiene todo).
+- **Datos del 23-10-2026 (Senda, prueba 33):**
+  - **empezar por el principio y terminar por el final**, en todas las rutas y antes de seguir escalando: ningún nombre se pregunta
+    antes de presentarse, ninguna pregunta va para atrás en la historia y cada personaje lleva su ficha (quién es, qué quiere decir su
+    nombre, su familia con cita, cuándo vivió, por qué importa) antes de las preguntas; lo controla el validador
+    (`scripts/autor/principio.py`) y se corrige en el texto, nunca escondiendo un nombre; las 405 lecciones revisadas (capítulo 59 §3);
+  - la Travesía en el orden del fundador, sin estantes (13 áreas: «Buenas obras» → «Vivir la fe», «Mártires» → «Historia de la
+    Iglesia»; «Los últimos tiempos» una sola vez, después de la Historia de la Iglesia); Personajes arranca en Adán («De Adán a Noé» y
+    «Los patriarcas» rehecha);
+  - entre «» va solo la Biblia, textual; el contenido de la app va en «tú»; en portugués e inglés cada hueco tiene que poder llenarse
+    también con la Almeida o la King James (referencia del validador, no entran a la app);
+  - los talentos siguen (se gastan) y los pasos dan un nivel que nunca baja (mide el camino en la app, no la fe); los talentos nunca se
+    venden; el álbum de personajes con sobres espera su decisión (DEC-2026-10-23-2; sobres al azar pagados con plata o con moneda
+    comprada: prohibidos para adolescentes en Brasil, Lei 15.211 art. 20);
+  - las copas en Inicio con campana y el puntaje por acierto y velocidad (500 a 1000 por acierto); descansar a los 45 minutos; la
+    ruleta se agarra; la entrada con Lany de brazos cruzados y la armadura (la captura de Preguntados no llegó);
+  - el peso se mide en cada compilación (APK 33: 89,1 MB) y al abrir la app carga solo lo que necesita Inicio; R8 va solo en el APK 34;
+  - la Consola tiene la línea de tiempo «Cómo venimos y lo que viene» (`oportunidades/proyectos/senda/linea_tiempo.yaml`, se actualiza al
+    cerrar cada sesión, igual que `estado.yaml`); la Pascua 2027 con un recorrido por Tierra Santa es el gran hito del año.
 
 ## 2. Reglas no negociables
 
