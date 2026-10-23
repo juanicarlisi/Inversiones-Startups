@@ -56,6 +56,10 @@ integración (corte-1.md §2 y §14.8). **Ningún punto cambia un contrato**: `a
   `sin-receta`, cada uno con su texto). Con un motor determinista y verificado (R04) es la misma cuenta, pero compara **entradas**, no
   **salidas**. La huella agregada y la de la noche que se ve están en el comprobante (para que el recorrido «compartir» de §10.8 las compare).
 - **Propuesta (corte 2).** `huella?: string` (la agregada) en `Receta`, para que el dispositivo compare su resultado con el del autor.
+- **Resuelto el 20-10-2026 (hallazgos H1 y E-01).** El códec lleva `h` (la huella agregada del autor) como campo extra opcional de la receta
+  (`integracion/CAMBIOS-CONTRATO.md` §1). `Sesion.selloReproducida()` compara la huella agregada que calculó este dispositivo con `h`:
+  `reproducida` si coinciden (y coinciden réplicas y semilla), `no-coincide` si no, `sin-huella` si el enlace no la trae (receta vieja o
+  modelo anonimizado: «no se puede comprobar»), además de `sin-receta`, `otro-motor` y `calculando`. El modelo anonimizado no lleva `h`.
 
 ## 6. Cancelar una vista previa cancela también las cien noches
 

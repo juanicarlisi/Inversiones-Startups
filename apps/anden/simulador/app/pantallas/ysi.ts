@@ -27,13 +27,63 @@ function valorKpi(ctx: Contexto, kpi: string, v: number, conSigno = false): stri
   return signo + ctx.f.numero(v, Math.abs(v) < 10 && !Number.isInteger(v) ? 1 : 0);
 }
 
-/** Veredicto en palabras. Si las n noches dieron exactamente lo mismo en A y en B, se dice «igual» (no «no se distingue»: no hay ruido). */
+/**
+ * Diferencia mínima que importa en la práctica, por KPI (hallazgo UX-10): por debajo de esto, una diferencia «significativa» no se pinta
+ * como alarma ni como mejora. El costo por paquete usa la zona de indiferencia de la decisión del modelo (pesos por noche) repartida en
+ * sus paquetes nominales; los tiempos, 1 minuto; los paquetes que pierden el corte, 1; la recirculación, 0,1 puntos.
+ */
+export function minimoPractico(ctx: Contexto, kpi: string): number {
+  const m = ctx.sesion.mv?.modelo;
+  if (kpi === 'costoPorPaquete' && m?.decision) return m.decision.indiferencia.valor / Math.max(1, paquetesNominales(m));
+  if (kpi === 'costoNoche' && m?.decision) return m.decision.indiferencia.valor;
+  if (kpi.endsWith('Min')) return 1;
+  if (kpi === 'pendientesAlCorte' || kpi === 'vueltasExtra') return 1;
+  if (kpi.endsWith('Pct')) return 0.1;
+  return 0;
+}
+function paquetesNominales(m: NonNullable<Contexto['sesion']['mv']>['modelo']): number {
+  const c = m.demanda.camiones;
+  return Array.isArray(c) ? c.reduce((n, x) => n + x.paquetes, 0) : c.cantidad * c.paquetes;
+}
+
+/** Tope de noches sugeridas que se dice con número: más que esto es «la diferencia es prácticamente nula» (hallazgo UX-10). */
+export const TOPE_NOCHES_SUGERIDAS = 1000;
+
+/**
+ * Veredicto en palabras. Si las n noches dieron exactamente lo mismo en A y en B, se dice «igual» (no «no se distingue»: no hay
+ * ruido); si el intervalo entero queda dentro de la diferencia mínima que importa, «iguales en la práctica»; y si harían falta más de
+ * TOPE_NOCHES_SUGERIDAS noches para ver la diferencia, se dice que es prácticamente nula en lugar de un número absurdo. Si el evento es
+ * raro (nadie pierde el corte en las noches comparadas pero sí en las de A), no se dice «igual»: no se puede comparar con esas noches.
+ */
 export function textoVeredicto(ctx: Contexto, c: Comparacion): { clase: string; texto: string } {
-  if (c.media === 0 && c.ic[0] === 0 && c.ic[1] === 0) return { clase: 'igual', texto: ctx.t('app.ysi.igualEnTodas', { n: c.n }) };
+  const s = ctx.sesion;
+  if (c.media === 0 && c.ic[0] === 0 && c.ic[1] === 0) {
+    if (c.kpi === 'pendientesAlCorte' && s.nochesListas) {
+      const conPerdida = s.nochesLlegadas.filter((r) => r.kpi.pendientesAlCorte > 0).length;
+      if (conPerdida > 0) return { clase: 'no-se-distingue', texto: ctx.t('app.ysi.eventoRaro', { n: c.n, k: conPerdida, N: s.N }) };
+    }
+    return { clase: 'igual', texto: ctx.t('app.ysi.igualEnTodas', { n: c.n }) };
+  }
+  const minimo = minimoPractico(ctx, c.kpi);
+  if (minimo > 0 && c.ic[0] >= -minimo && c.ic[1] <= minimo) {
+    return { clase: 'igual', texto: ctx.t('app.ysi.igualEnLaPractica', { minimo: valorKpi(ctx, c.kpi, minimo) }) };
+  }
   if (c.veredicto === 'no-se-distingue' && !(Number.isFinite(c.replicasSugeridas) && (c.replicasSugeridas ?? 0) > 0)) {
     return { clase: c.veredicto, texto: ctx.t('app.ysi.noSeDistingue') };
   }
+  if (c.veredicto === 'no-se-distingue' && (c.replicasSugeridas ?? 0) > Math.max(TOPE_NOCHES_SUGERIDAS, 10 * c.n)) {
+    const semi = Math.max(Math.abs(c.ic[0]), Math.abs(c.ic[1]));
+    return { clase: 'igual', texto: ctx.t('app.ysi.practicamenteNula', { semiancho: valorKpi(ctx, c.kpi, semi) }) };
+  }
   return { clase: c.veredicto, texto: ctx.t(`experimentos.veredicto.${c.veredicto}`, { replicasSugeridas: ctx.f.numero(c.replicasSugeridas ?? 0, 0) }) };
+}
+
+/** Qué noches se compararon y si la que se ve arriba está entre ellas (hallazgo UX-05). */
+export function notaNochesComparadas(ctx: Contexto, n: number): string {
+  const vista = ctx.sesion.noche?.replica;
+  if (vista === undefined) return ctx.t('app.ysi.nochesComparadas', { n });
+  return vista < n ? ctx.t('app.ysi.nochesComparadasIncluye', { n, vista: vista + 1 })
+    : ctx.t('app.ysi.nochesComparadasSinLaVista', { n, vista: vista + 1 });
 }
 
 export function filaComparacion(ctx: Contexto, c: Comparacion): (string | HTMLElement)[] {
@@ -130,6 +180,7 @@ export const montarYsi: Montar = (raiz, ctx) => {
       const conSentido = y.comparaciones.filter((c) => META_KPI[c.kpi].mejor !== 'neutro');
       partes.push(el('div', { class: 'ysi__confirmada', 'data-ysi': 'confirmada' },
         el('p', { class: 'ysi__titular' }, ctx.t('app.ysi.confirmada', { n: conSentido[0]?.n ?? 0 })),
+        el('p', { class: 'nota', 'data-ysi': 'noches-comparadas' }, notaNochesComparadas(ctx, conSentido[0]?.n ?? 0)),
         tabla([ctx.t('app.ysi.col.kpi'), ctx.t('app.ysi.col.diferencia'), ctx.t('app.ysi.col.ic'), ctx.t('app.ysi.col.veredicto')],
           conSentido.map((c) => filaComparacion(ctx, c)), { titulo: ctx.t('app.ysi.tablaTitulo'), numericas: [1, 2], accion: 'comparacion', apilable: true }),
         quedarse));

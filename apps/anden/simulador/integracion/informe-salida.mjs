@@ -12,6 +12,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { huellaFuentes } from './huella-fuentes.mjs';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = resolve(AQUI, '..');
@@ -120,12 +121,17 @@ async function principal() {
       'orquestador: integracion/NOTAS-CONTRATO.md §3.1). La omitida es la batería completa dentro de npm test (corre con `npm run verificar`).' : null);
   // 2
   const informeLocal = existsSync(join(RAIZ, 'verificacion', 'informe', 'informe.html')) && existsSync(join(RAIZ, 'verificacion', 'informe', 'resultados.json'));
+  // la batería vale para el código de hoy solo si la huella de sus fuentes coincide (hallazgo H5: antes bastaba el texto de la versión)
+  const fuentesHoy = huellaFuentes();
+  const mismasFuentes = bat?.fuentes?.sha256 === fuentesHoy.sha256;
   criterio(2, '`npm run verificar`: 85 de 85 exigibles con el núcleo de producción; S01 y S02 fallan como deben; informe local generado',
-    !!bat && bat.pasaron === 85 && bat.pruebasExigibles === 85 && bat.debeFallarOk === 2 && informeLocal,
+    !!bat && bat.pasaron === 85 && bat.pruebasExigibles === 85 && bat.debeFallarOk === 2 && informeLocal && mismasFuentes,
     bat ? { exigibles: bat.pruebasExigibles, pasaron: bat.pasaron, fallaron: bat.fallaron, debeFallarOk: `${bat.debeFallarOk} de ${bat.debeFallar}`,
-      reintentos: bat.reintentos, doradas: bat.doradas, porDueno: bat.porDueno, segundos: Math.round(bat.segundos), fecha: bat.fecha, informeLocal } : null,
-    'integracion/salida/bateria-nucleo.json · verificacion/informe/',
-    'S03 con la banda corregida [91,4%; 95,9%] (la cobertura real del IC de t con 10 réplicas en esa cola es ≈ 93,6%): propuesta de texto para corte-1.md §8 en NOTAS-CONTRATO.md §6.');
+      reintentos: bat.reintentos, doradas: bat.doradas, porDueno: bat.porDueno, segundos: Math.round(bat.segundos), fecha: bat.fecha, informeLocal,
+      motor: bat.motor ?? null, fuentes: { archivos: fuentesHoy.archivos, sha256: fuentesHoy.sha256, coincideConLaCorrida: mismasFuentes } } : null,
+    'integracion/salida/bateria-nucleo.json · verificacion/informe/ · integracion/huella-fuentes.mjs',
+    'S03 exige réplicas sin sesgo y sin correlación entre vecinas (|z| ≤ 3,29); la cobertura del 95% queda informativa como S03c (hallazgo H3). ' +
+    'Las pruebas con ee de las réplicas usan t(0,9995; n − 1) (H4). Texto propuesto para corte-1.md §8 en integracion/CAMBIOS-CONTRATO.md §4 y §5.');
   // 3
   const dif = archivo(npm, 'integracion/pruebas/diferencial.test.ts');
   criterio(3, 'R08b: el núcleo de producción y la referencia dan la misma huella en la batería rápida y en el hub chico',
@@ -207,7 +213,9 @@ async function principal() {
     decisionesAbiertas: [
       '«KPI sanos» de §9 sobre hub-chico@1.0.0 (la prueba `todo` de P4): camino 2 recomendado (reescribir §9), hub-chico@1.1.0 queda como propuesta.',
       'Presupuesto «primer cuadro ≤ 150 ms»: primer cuadro progresivo en el corte 2 o reescribir la meta.',
-      'E01 reformulado (solidez + completitud) y la banda de S03 [91,4%; 95,9%]: confirmar y pasar a corte-1.md §8.',
+      'E01 reformulado (solidez + completitud, esperas ≥ 5 min dentro de la pausa) y S03 como independencia + sesgo con la cobertura informativa (S03c): confirmar y pasar a corte-1.md §8.',
+      'Motor 1.1.0 (caminata por distancia, plan por volumen en bloques vecinos, persistencia, relevo en las pausas, pausas después del fin, utilizaciones por jornada), la huella `h` en la receta, Bonferroni en la decisión secuencial y el tope de tramos: pasar a corte-1.md (integracion/CAMBIOS-CONTRATO.md).',
+      'R4 (cobertura entre roles y jornada máxima), R6–R10 y E-11: quedan para el corte 2 (integracion/CAMBIOS-CONTRATO.md §9).',
       'Presentar en 4 pasos (los de diseño maestro §5.6) en lugar de «tres actos»: lo confirma el fundador.',
     ],
   };

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { crearServiciosFalsos } from '../servicios-falsos.ts';
 import { crearAlmacen, estadoInicial, PERILLAS_VACIAS } from '../estado.ts';
-import { Sesion, NOCHES_CONFIRMACION, KPI_COMPARACION } from '../sesion.ts';
+import { Sesion, NOCHES_CONFIRMACION, KPI_COMPARACION, MAX_NOCHES_ESCENA } from '../sesion.ts';
 import { esperarA } from './ayudas.ts';
 import { ClaseEntidad } from '../../contratos/traza.ts';
 import type { ModeloValidado } from '../../contratos/modelo.ts';
@@ -104,6 +104,17 @@ test('decidir: evaluación, tamizado y formulario; contestar las preguntas lleva
   assert.deepEqual(Object.keys(sesion.decision.respuestas).sort(), preguntas.map((p) => p.parametro).sort());
 });
 
+test('cuando ninguna cumple, «probar con más opciones» cambia la decisión con un parche y vuelve a decidir (hallazgo UX-03)', async () => {
+  const { sesion, mv } = await abrirChica();
+  const max = mv.modelo.decision!.variable.max;
+  await sesion.cambiarDecision([{ op: 'replace', path: '/decision/variable/max', value: max + 1 }]);
+  assert.equal(sesion.mv?.modelo.decision?.variable.max, max + 1, `se esperaba el máximo ${max + 1} y quedó ${sesion.mv?.modelo.decision?.variable.max}`);
+  assert.deepEqual(sesion.origen.tipo === 'plantilla' ? sesion.origen.parche : null, [{ op: 'replace', path: '/decision/variable/max', value: max + 1 }],
+    'el cambio queda en el parche del origen (y por lo tanto en el enlace)');
+  await esperarA(() => sesion.decision.fase === 'listo', 'la decisión de nuevo');
+  assert.equal(sesion.decision.evaluacion?.configuraciones.length, max + 1 - mv.modelo.decision!.variable.min + 1, 'una opción más en la tabla');
+});
+
 test('decidir se puede cancelar y no deja nada a medias', async () => {
   const { sesion } = await abrirChica(3);
   const d = sesion.decidir();
@@ -133,20 +144,60 @@ test('enlace: plantilla + parche si no hay datos propios; modelo anonimizado (ot
   assert.match(tal.fragmento, /^t=hub-chico@1\.0\.0&p=/, 'sin anonimizar viaja la plantilla con el parche de los datos propios');
 });
 
-test('sello «reproducida en este dispositivo»: con la receta del enlace y el mismo motor', async () => {
+test('sello «reproducida en este dispositivo»: compara la huella agregada de las noches con la del autor (hallazgo H1)', async () => {
   const servicios = crearServiciosFalsos({ retardo: 0 });
-  const sesion = new Sesion(servicios, crearAlmacen(estadoInicial()));
   const c = await servicios.compilar(servicios.plantillas['hub-chico@1.0.0']);
   assert.ok(c.ok); if (!c.ok) return;
-  sesion.abrir(c.mv, { tipo: 'modelo' }, { v: 1, modelo: c.mv.huella, motor: '1.0.0', semilla: 5, replicas: 20, noche: 3 });
-  assert.equal(sesion.selloReproducida(), 'calculando');
-  assert.equal(sesion.N, 20);
-  await esperarA(() => sesion.nochesListas && !sesion.cargandoNoche, 'noches');
-  assert.equal(sesion.selloReproducida(), 'reproducida');
-  assert.equal(sesion.noche?.replica, 3, 'se ve la noche que dice la receta');
-  assert.equal(sesion.cualNoche, 'receta');
-  sesion.abrir(c.mv, { tipo: 'modelo' }, { v: 1, modelo: c.mv.huella, motor: '2.0.0', semilla: 5, replicas: 20 });
-  assert.equal(sesion.selloReproducida(), 'otro-motor');
+  // el autor: abre la plantilla, espera las noches y su comprobante, y arma la receta (con la huella agregada `h`)
+  const autor = new Sesion(servicios, crearAlmacen(estadoInicial()));
+  autor.abrir(c.mv, { tipo: 'modelo' }, { v: 1, modelo: c.mv.huella, motor: '1.0.0', semilla: 5, replicas: 20 });
+  await esperarA(() => autor.nochesListas && !!autor.comprobante && !autor.cargandoNoche, 'noches del autor');
+  const receta = autor.recetaActual()!;
+  assert.equal(receta.h, autor.comprobante!.huellaAgregada, 'la receta lleva la huella agregada de las noches del autor');
+  // quien abre el enlace: mientras calcula, «calculando»; con las mismas noches, «reproducida»
+  const otro = new Sesion(servicios, crearAlmacen(estadoInicial()));
+  otro.abrir(c.mv, { tipo: 'modelo' }, { ...receta, noche: 3 });
+  assert.equal(otro.selloReproducida(), 'calculando');
+  assert.equal(otro.N, 20);
+  await esperarA(() => otro.nochesListas && !!otro.comprobante && !otro.cargandoNoche, 'noches');
+  assert.equal(otro.selloReproducida(), 'reproducida');
+  assert.equal(otro.noche?.replica, 3, 'se ve la noche que dice la receta');
+  assert.equal(otro.cualNoche, 'receta');
+  // un enlace con la huella alterada: este dispositivo calculó OTRA cosa → «no-coincide» (nunca «reproducida»)
+  const alterada = new Sesion(servicios, crearAlmacen(estadoInicial()));
+  alterada.abrir(c.mv, { tipo: 'modelo' }, { ...receta, h: receta.h!.replace(/^./, (x) => (x === '0' ? '1' : '0')) });
+  await esperarA(() => alterada.nochesListas && !!alterada.comprobante, 'noches');
+  assert.equal(alterada.selloReproducida(), 'no-coincide');
+  // una receta sin `h` (modelo anonimizado o enlace anterior): no hay con qué comparar
+  const sinH = new Sesion(servicios, crearAlmacen(estadoInicial()));
+  sinH.abrir(c.mv, { tipo: 'modelo' }, { v: 1, modelo: c.mv.huella, motor: '1.0.0', semilla: 5, replicas: 20 });
+  assert.equal(sinH.selloReproducida(), 'sin-huella');
+  // otra versión del motor
+  sinH.abrir(c.mv, { tipo: 'modelo' }, { v: 1, modelo: c.mv.huella, motor: '2.0.0', semilla: 5, replicas: 20 });
+  assert.equal(sinH.selloReproducida(), 'otro-motor');
+});
+
+test('una receta que pide más noches que el tope corre el tope y lo dice (hallazgo SEG-03)', async () => {
+  const servicios = crearServiciosFalsos({ retardo: 0 });
+  const c = await servicios.compilar(servicios.plantillas['hub-chico@1.0.0']);
+  assert.ok(c.ok); if (!c.ok) return;
+  const sesion = new Sesion(servicios, crearAlmacen(estadoInicial()));
+  sesion.abrir(c.mv, { tipo: 'modelo' }, { v: 1, modelo: c.mv.huella, motor: '1.0.0', semilla: 5, replicas: 1000 });
+  assert.equal(sesion.N, MAX_NOCHES_ESCENA);
+  assert.equal(sesion.nochesPedidas, 1000);
+  sesion.abrir(c.mv, { tipo: 'modelo' }, null);
+  assert.equal(sesion.nochesPedidas, null);
+});
+
+test('«¿y si…?» antes de que lleguen las 40 noches de A: pide las que faltan en lugar de comparar con huecos (hallazgo SEG-02)', async () => {
+  const { sesion } = await abrirChica(5);
+  await esperarA(() => !!sesion.noche && !sesion.cargandoNoche, 'noche');
+  assert.ok(sesion.llegadas < NOCHES_CONFIRMACION, `todavía no tenían que estar las ${NOCHES_CONFIRMACION} noches (llegaron ${sesion.llegadas})`);
+  await sesion.previsualizar({ ...PERILLAS_VACIAS, puestos: 4 });
+  await esperarA(() => sesion.ysi.fase === 'confirmada' || sesion.ultimoError !== null, 'confirmación');
+  assert.equal(sesion.ultimoError, null, `no tenía que fallar: ${JSON.stringify(sesion.ultimoError)}`);
+  assert.equal(sesion.ysi.fase, 'confirmada');
+  assert.ok(sesion.ysi.comparaciones.every((x) => x.n === NOCHES_CONFIRMACION));
 });
 
 test('biografía y causas: un paquete de la noche, con pasos verificados', async () => {

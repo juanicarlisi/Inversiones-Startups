@@ -12,7 +12,7 @@ import { textoPerderCorte } from '../ui/resumen.ts';
 import { claveCierreFormulario } from '../pantallas/decidir.ts';
 import { cambiosDe } from '../pantallas/biografia.ts';
 import { trazaACsv } from '../pantallas/ingeniero.ts';
-import { textoContrafactual } from '../pantallas/biografia.ts';
+import { textoConfirmado, textoContrafactual } from '../pantallas/biografia.ts';
 import { Causa, ClaseEntidad, TipoTramo, refDe, type Traza } from '../../contratos/traza.ts';
 import type { Biografia, Contrafactual } from '../../contratos/explicacion.ts';
 import type { EvaluacionDecision, Proporcion } from '../../contratos/experimentos.ts';
@@ -77,8 +77,16 @@ test('resultado del contrafactual en palabras: hora con y sin el cambio, y si ll
   const cf = { cambio: { clave: 'explicacion.cambio.pausa', vars: {}, parche: [] }, antes: { listo: 93_000_000, antesDelCorte: false },
     despues: { listo: 91_200_000, antesDelCorte: true } } as unknown as Contrafactual;
   assert.equal(textoContrafactual(ctx, cf), 'Repetida la noche sin pausas, llegaría a las 01:20 (tal como está, llega a las 01:50). Con el cambio llega antes del corte.');
+  // con el cambio no llega: «tampoco» solo si tal como está tampoco llega
   const no = { ...cf, despues: { listo: null, antesDelCorte: false } } as Contrafactual;
-  assert.match(textoContrafactual(ctx, no), /tampoco llegaría/);
+  assert.equal(textoContrafactual(ctx, no), 'Repetida la noche sin pausas, no llegaría a una jaula esta noche (tal como está, llega a las 01:50).');
+  const ninguna = { ...cf, antes: { listo: null, antesDelCorte: false }, despues: { listo: null, antesDelCorte: false } } as Contrafactual;
+  assert.match(textoContrafactual(ctx, ninguna), /tampoco llegaría a una jaula esta noche \(tal como está: no llega\)/);
+  // tal como está no llega y con el cambio sí (antes salía «llega a las no llega»)
+  const rescata = { ...cf, antes: { listo: null, antesDelCorte: false } } as Contrafactual;
+  assert.equal(textoContrafactual(ctx, rescata), 'Repetida la noche sin pausas, llegaría a las 01:20 (tal como está, no llega a una jaula esta noche). Con el cambio llega antes del corte.');
+  assert.equal(textoConfirmado(ctx, rescata), 'Repetida sin pausas: llegaba a las 01:20; tal como está, no llega a una jaula esta noche.');
+  assert.equal(textoConfirmado(ctx, cf), 'Repetida sin pausas: llegaba a las 01:20, no a las 01:50.');
   // si ya llegaba antes del corte, el corte no se menciona; a la misma hora, se dice que el cambio no lo adelanta (integración, I-3)
   const yaLlegaba = { ...cf, antes: { listo: 93_000_000, antesDelCorte: true }, despues: { listo: 91_200_000, antesDelCorte: true } } as Contrafactual;
   assert.equal(textoContrafactual(ctx, yaLlegaba), 'Repetida la noche sin pausas, llegaría a las 01:20 (tal como está, llega a las 01:50).');

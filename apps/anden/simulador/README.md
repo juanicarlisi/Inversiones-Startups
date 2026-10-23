@@ -38,7 +38,8 @@ Lo que se ve en el primer minuto:
    pareadas con la diferencia, su intervalo y el veredicto, en pantalla dividida (en el teléfono, A y B alternan con un toque).
 6. **Decidir:** la probabilidad de cumplir la meta por opción (con su intervalo), la recomendación con semáforo y el formulario que
    pregunta solo lo que puede cambiar la respuesta, hasta «Ya está».
-7. **Compartir:** el enlace (plantilla + cambios + receta) y su QR; quien lo abre recalcula todo en su equipo y ve el sello «reproducida».
+7. **Compartir:** el enlace (plantilla + cambios + receta con la huella agregada de las noches del autor) y su QR; quien lo abre recalcula
+   todo en su equipo y ve el sello «reproducida» solo si su huella agregada coincide con la del autor («no coincide» si no).
 8. **Presentar** (pantalla completa, flechas del teclado), **comprobante** (receta, huellas, motor 85 de 85, procedencia de cada dato) y
    **modo ingeniero** (el modelo en JSON con validación en vivo, la traza en CSV y la tabla de réplicas).
 
@@ -48,11 +49,11 @@ Español primero; inglés con el selector de la barra (las mismas claves en `tex
 
 | Comando | Qué prueba | Cuánto tarda (contenedor de 4 núcleos) |
 |---|---|---|
-| `npm test` | Las 1.017 pruebas de los ocho paquetes y de la integración (arquitectura, R08b, R06 del hub, E01/E02, S01–S03, S08, S09, S11, textos, marcas, Workers) | ≈ 2 min |
+| `npm test` | Las 1.034 pruebas de los ocho paquetes y de la integración (arquitectura, R08b, R06 del hub, E01/E02, S01–S03, S08, S09, S11, textos, marcas, Workers) | ≈ 2 min |
 | `npx tsc -p tsconfig.json` | Los tipos (TypeScript «borrable»: Node corre los `.ts` directo) | ≈ 15 s |
 | `npm run verificar` | La batería «Andén Verificado» completa con el núcleo de producción: 85 pruebas exigibles contra teoría de colas y casos publicados, S01 y S02 que tienen que fallar, informe en `verificacion/informe/` | ≈ 9 min |
 | `npm run r04` | La misma huella en Node y en Chromium (suite rápida, doradas, hub chico con 5 semillas, matemática bit a bit) | ≈ 15 s |
-| `npm run e2e` | Los recorridos de punta a punta en Chromium, en 360 × 740 y 1280 × 800, claro y oscuro (primer minuto, decidir, compartir, enlace hostil), con 0 errores de consola; 8 capturas en `integracion/e2e/capturas/` | ≈ 18 min |
+| `npm run e2e` | Los recorridos de punta a punta en Chromium, en 360 × 740 y 1280 × 800, claro y oscuro (primer minuto, decidir, compartir, enlaces hostiles H01 y H07b), con 0 errores de consola; 8 capturas en `integracion/e2e/capturas/` | ≈ 18 min |
 | `npm run banco` | Los presupuestos de tiempo, memoria y peso de §11 (mediana de 5 corridas, con la CPU frenada 4× para los cuadros); sale con código 1 mientras alguno no cumpla | ≈ 7 min |
 | `npm run informe` | Corre `npm test`, mide invariantes (200 noches por plantilla) y el enlace, junta lo de arriba y escribe `integracion/salida/informe-salida.json` | ≈ 4 min |
 | `node integracion/e2e/humo.mjs` | Humo rápido de `dist/` en Chromium (película, cien noches, enlace de ida y vuelta) | ≈ 1 min |
@@ -102,5 +103,11 @@ cuadro desde un enlace.
   1,9 s). O primer cuadro progresivo en el corte 2, o reescribir la meta.
 - **«KPI sanos» de §9 sobre `hub-chico@1.0.0`:** imposible al pie de la letra (queda como prueba `todo`); la integración recomienda
   reescribir el criterio y dejar `hub-chico@1.1.0` como propuesta.
-- **E01** se exige reformulado y la banda de **S03** se corrigió (`integracion/NOTAS-CONTRATO.md` §2 y §6).
+- **E01** se exige reformulado (esperas de ≥ 5 min dentro de la pausa) y **S03** exige independencia y sesgo, con la cobertura del 95%
+  como informativa (S03c) (`integracion/NOTAS-CONTRATO.md` §2 y `integracion/CAMBIOS-CONTRATO.md` §4).
+- **Motor 1.1.0** (arreglos de la revisión del 19-10-2026): caminata por distancia, plan por volumen en bloques de rampas vecinas,
+  persistencia en la rampa, relevo en las pausas, pausas después del fin y utilizaciones por jornada; la receta lleva la huella `h`;
+  la decisión secuencial corrige por mirar varias veces (Bonferroni). Todo lo que cambia la especificación está en
+  `integracion/CAMBIOS-CONTRATO.md`, para pasarlo a `corte-1.md`. Quedan para el corte 2: R4 (cobertura entre roles, jornada máxima),
+  R6–R10 y E-11.
 - **Presentar** tiene 4 pasos (los del diseño maestro §5.6) en lugar de «tres actos».

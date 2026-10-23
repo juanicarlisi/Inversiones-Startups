@@ -20,7 +20,8 @@ import type { ExtrasServicios } from '../app/extras.ts';
 import { anonimizar } from '../modelo/indice.ts';
 import { geometria, planBalanceado } from '../hub/indice.ts';
 import {
-  armarComprobante, comparar, correrYAgregar, crearPlanificador, ErrorCancelado, evaluarDecisionCon, proporcion, resumir, semaforoDe,
+  armarComprobante, comparar, correrYAgregar, crearPlanificador, ErrorCancelado, evaluarDecisionCon, icPercentil, proporcion, resumir, semaforoDe,
+  wilson,
 } from '../experimentos/indice.ts';
 import {
   agregarRiesgo, crearReproductor, crearVista, detectarMomentos, elegirPiso, estilos,
@@ -143,6 +144,8 @@ export function crearServicios(o: OpcionesPuente): ServiciosIntegracion {
     // extras que la interfaz sabe usar (app/extras.ts; app/NOTAS-CONTRATO.md §3 y §4)
     estilos,
     semaforoDe: (mv, rs) => semaforoDe(mv, rs),
+    motorVerificado: motor,
+    intervalos: { wilson, icPercentil: (xs, q, conf) => icPercentil(xs as number[], q, conf) },
     planificador,
     simuladorAsincrono,
     cerrar: () => planificador.cerrar(),

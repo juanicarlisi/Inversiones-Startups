@@ -44,10 +44,9 @@ test('un guardado de una versión mayor se rechaza sin modificarlo', () => {
   assert.equal(txt, copia);
 });
 
-// Sin las fracciones de demanda (no se guardan), un avión puede salir un paso antes o después y la partida diverge un poco: por
-// eso la meta se mide en promedio, en partidas reales de 3 semillas, en dos momentos (capítulo 2 y capítulo 3).
-test('guardar y restaurar conserva el estado y, en promedio, el mismo dinero ±1% tras un día de juego', () => {
-  let suma = 0, n = 0;
+// El modelo guarda sus promedios con la misma precisión que el guardado (minutos enteros, centésimos, km enteros) y las fases de la
+// demanda dependen de la semilla inicial: guardar y restaurar deja la partida exactamente igual (el criterio pide ±1%).
+test('guardar y restaurar conserva el estado y, tras un día de juego, el mismo dinero (exacto, el criterio pide ±1%)', () => {
   for (const semilla of [1, 2, 3]) for (const minutos of [12, 20]) {
     const s = correr('novato', { semilla, minutos }).estado;
     const t = M.restaurar(M.guardar(s));
@@ -56,9 +55,9 @@ test('guardar y restaurar conserva el estado y, en promedio, el mismo dinero ±1
     assert.ok(Math.abs(t.dinero - s.dinero) < 1);
     assert.deepEqual(t.misiones, s.misiones);
     for (let i = 0; i < 1440 / M.PASO; i++) { M.paso(s); M.paso(t); }
-    suma += Math.abs(t.dinero - s.dinero) / Math.abs(s.dinero); n++;
+    assert.ok(Math.abs(t.dinero - s.dinero) <= 0.01 * Math.abs(s.dinero), `semilla ${semilla}, ${minutos} min: ${t.dinero} contra ${s.dinero}`);
+    assert.ok(Math.abs(t.dinero - s.dinero) < 1, `semilla ${semilla}, ${minutos} min: la partida restaurada diverge (${t.dinero} contra ${s.dinero})`);
   }
-  assert.ok(suma / n <= 0.01, `diferencia media ${(suma / n * 100).toFixed(2)}%`);
 });
 
 test('formato compacto: un capítulo 3 con 300 aviones pesa menos de 50 KB y no guarda las fracciones de demanda', () => {
@@ -107,11 +106,16 @@ test('la ausencia rinde menos cada vez, nunca más que jugar el mismo tiempo, y 
   }
 });
 
-test('una noche afuera (14 h) deja al menos un hito de misión al alcance del novato (semillas 1 a 3)', () => {
+// HN-10: a los 15 min de juego activo el novato está en el capítulo 2 con la próxima meta a la vista; una noche afuera (14 h) le
+// alcanza para al menos un hito: se cumple mientras no está (con lo que la red entrega de verdad) o en los 5 minutos siguientes.
+test('una noche afuera (14 h) a los 15 min de juego deja al menos un hito de misión al alcance del novato (semillas 1 a 3)', () => {
   for (const semilla of [1, 2, 3]) {
-    const r = correr('novato', { semilla, minutos: 16, ausencias: [{ min: 10, horas: 14 }] });
-    const despues = r.misiones.filter((m) => m.min >= 10);
-    assert.ok(despues.length >= 1, `semilla ${semilla}: ninguna misión en la ausencia ni en los 6 minutos siguientes`);
+    const r = correr('novato', { semilla, minutos: 20, ausencias: [{ min: 15, horas: 14 }] });
+    const a = r.ausencias[0];
+    assert.ok(a.neto > 0, `semilla ${semilla}: la noche afuera no acreditó nada`);
+    assert.equal(r.estado.cap, 2, `semilla ${semilla}: a los 15 min el novato está en el capítulo 2`);
+    const hito = r.misiones.find((m) => m.min >= 15 && m.min <= 20);
+    assert.ok(hito, `semilla ${semilla}: ninguna misión en la ausencia ni en los 5 minutos siguientes`);
   }
 });
 

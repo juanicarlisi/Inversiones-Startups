@@ -5,12 +5,18 @@
 //  · después, tandas SOLO para los valores en duda que todavía pueden cambiar la recomendación, hasta que ninguno
 //    queda en duda o se llega a `replicasMax` por valor;
 //  · la recomendación es el menor valor que cumple si todos los menores no cumplen; si alguno sigue en duda, null.
+//  · CORRECCIÓN POR MIRAR VARIAS VECES (hallazgos H2 y E-03 de la revisión del 19-10-2026): mirar el Wilson al 95% después de cada
+//    tanda, hasta 20 veces, y quedarse con el primer «cumple» declaraba «cumple» en ~9% de las decisiones cuando la probabilidad real
+//    era justo la meta (con una sola mirada es ≤ 2,5%). Ahora cada mirada decide con el Wilson de confianza 1 − (1 − confianza) ÷ K,
+//    con K = las miradas posibles (Bonferroni; 20 miradas → z = 3,02): sumando todas, el «cumple» falso no pasa de (1 − confianza) ÷ 2.
+//    El intervalo que se muestra (prop.ic, prop.confianza) es ESE, el que decide: así el estado y el intervalo nunca se contradicen.
 import { Prioridad } from '../contratos/experimentos.ts';
 import type { EvaluacionConfiguracion, EvaluacionDecision, Planificador } from '../contratos/experimentos.ts';
 import type { ModeloValidado, Variante } from '../contratos/modelo.ts';
 import type { ResultadoReplica } from '../contratos/resultados.ts';
-import { estadoConfiguracion, proporcion, resumir } from './estadistica/resumen.ts';
-import { nochesQueFaltan } from './estadistica/wilson.ts';
+import { proporcion, resumir } from './estadistica/resumen.ts';
+import { estadoPorWilson, nochesQueFaltanZ, wilsonZ } from './estadistica/wilson.ts';
+import { confianzaPorMirada, miradasSecuenciales } from './estadistica/normal.ts';
 import { semaforo } from './semaforo.ts';
 
 /** La evaluación fue cancelada (el usuario movió un deslizador, el planificador se cerró…). No es un fallo del modelo. */
@@ -92,6 +98,8 @@ export async function evaluarDecisionCon(
 
   const maximo = replicasMax * configs.length;
   let hechas = 0;
+  // Confianza de cada mirada (Bonferroni sobre las K miradas posibles por opción).
+  const porMirada = confianzaPorMirada(confianza, miradasSecuenciales(replicasIniciales, tanda, replicasMax));
 
   /** Una ronda: lanza todos los trabajos juntos y espera. Si algo se cancela o falla, cancela el resto y relanza. */
   async function ronda(trabajos: { cfg: Config; desde: number; hasta: number }[]): Promise<void> {
@@ -122,8 +130,10 @@ export async function evaluarDecisionCon(
   }
 
   const evaluar = (cfg: Config): EvaluacionConfiguracion => {
-    const prop = proporcion(cfg.rs, restriccion.kpi, restriccion.comparador, restriccion.umbral, confianza);
-    return { valor: cfg.valor, prop, estado: estadoConfiguracion(prop, meta), objetivo: resumir(cfg.rs, objetivo.minimizar, confianza) };
+    const base = proporcion(cfg.rs, restriccion.kpi, restriccion.comparador, restriccion.umbral, confianza);
+    const ic = wilsonZ(base.exitos, base.n, porMirada.z);
+    const prop = { ...base, ic, confianza: porMirada.confianza };
+    return { valor: cfg.valor, prop, estado: estadoPorWilson(ic, meta), objetivo: resumir(cfg.rs, objetivo.minimizar, confianza) };
   };
   /** Valores en duda que pueden cambiar la recomendación: los que están por debajo del menor que ya cumple. */
   const relevantesEnDuda = (evals: EvaluacionConfiguracion[]): EvaluacionConfiguracion[] => {
@@ -144,24 +154,35 @@ export async function evaluarDecisionCon(
   // Lo que quedó en duda al llegar al máximo bloquea la recomendación: se avisa en amarillo con una estimación de lo que faltaría.
   const enDuda = relevantesEnDuda(evals);
   const primero = enDuda[0];
-  const faltan = primero ? nochesQueFaltan(primero.prop.exitos, primero.prop.n, meta, confianza) : null;
+  const faltan = primero ? nochesQueFaltanZ(primero.prop.exitos, primero.prop.n, meta, porMirada.z) : null;
   const todas = configs.flatMap((c) => c.rs);
   // Una opción que «no cumple» porque su noche ni siquiera termina en el horizonte (por ejemplo, 2 puestos para 24.000 paquetes) está
   // sobrecargada: eso ES no cumplir, no una inestabilidad de la opción recomendada. Su alerta «no-termina» no pone el semáforo de la
   // decisión en rojo (integración, I-3). Cualquier otra alerta (conservación, invariantes, tope de eventos, lazo de tiempo cero), o un
   // «no-termina» en una opción que cumple o está en duda, sigue en rojo.
-  const paraSemaforo = configs.flatMap((c, i) => evals[i].estado !== 'no-cumple' ? c.rs
-    : c.rs.map((r) => (r.alertas.includes('no-termina') ? { ...r, alertas: r.alertas.filter((a) => a !== 'no-termina') } : r)));
+  const sobrecargadas: number[] = [];
+  const paraSemaforo = configs.flatMap((c, i) => {
+    if (evals[i].estado !== 'no-cumple') return c.rs;
+    if (c.rs.some((r) => r.alertas.includes('no-termina'))) sobrecargadas.push(c.valor);
+    return c.rs.map((r) => (r.alertas.includes('no-termina') ? { ...r, alertas: r.alertas.filter((a) => a !== 'no-termina') } : r));
+  });
   const minimoPorConfig = Math.min(...configs.map((c) => c.rs.length));
+  const sem = semaforo({
+    // «replicas» es lo que el texto del semáforo cuenta: las noches del valor que sigue en duda; si nada está en duda, el mínimo.
+    diagnosticos: mv.diagnosticos, resultados: paraSemaforo, replicas: primero ? primero.prop.n : minimoPorConfig, confianza,
+    decisionEnDuda: enDuda.length > 0 ? { valores: enDuda.map((x) => x.valor), faltan } : undefined,
+  });
+  // En verde, el texto cuenta TODAS las noches de la evaluación y nombra las opciones que no terminaron la noche (sobrecargadas: cuentan
+  // como «no cumple»), en lugar de decir «ninguna alerta» después de haberlas filtrado (hallazgo E-08).
+  if (sem.motivo === 'ok') {
+    sem.vars = { ...sem.vars, replicas: todas.length };
+    if (sobrecargadas.length > 0) sem.vars.sobrecargadas = sobrecargadas.join(', ');
+  }
   return {
     decision: decision.id,
     configuraciones: evals,
     recomendacion: recomendar(evals),
-    semaforo: semaforo({
-      // «replicas» es lo que el texto del semáforo cuenta: las noches del valor que sigue en duda; si nada está en duda, el mínimo.
-      diagnosticos: mv.diagnosticos, resultados: paraSemaforo, replicas: primero ? primero.prop.n : minimoPorConfig, confianza,
-      decisionEnDuda: enDuda.length > 0 ? { valores: enDuda.map((x) => x.valor), faltan } : undefined,
-    }),
+    semaforo: sem,
     replicasUsadas: todas.length,
   };
 }

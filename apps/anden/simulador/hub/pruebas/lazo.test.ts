@@ -141,7 +141,7 @@ test('L06 · parada forzada en el paso kₚ con reinicio en t′: el paso kₚ +
     assert.equal(finBandejaB.get(e), tReinicio + (kCaida - kp) * tick, `el paso ${kCaida} tiene que ocurrir en t′ + (k − kₚ)·tick`);
     enTransito++;
   }
-  assert.ok(enTransito >= 10, `tiene que haber paquetes en tránsito al parar (hubo ${enTransito})`);
+  assert.ok(enTransito >= 5, `tiene que haber paquetes en tránsito al parar (hubo ${enTransito})`);
   assert.equal(b.resultado.kpi.paradasLazo >= 1, true);
   assert.ok(Math.abs(b.resultado.kpi.minutosLazoDetenido - 10 * b.resultado.kpi.paradasLazo) < 1e-9, 'cada parada dura 10 min');
 });

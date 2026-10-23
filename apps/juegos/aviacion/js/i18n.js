@@ -1,89 +1,130 @@
 // Textos del juego en español (rioplatense) e inglés. Los portales piden inglés; el español es la casa.
+// {Toca}/{toca}: el verbo según el dispositivo («Tocá»/«Tap» con pantalla táctil, «Hacé clic en»/«Click» con mouse o touchpad).
+// Las unidades van siempre escritas («8,3 sacas/h», «Pasaron 6 días»).
 const T = {
   es: {
     titulo: 'Hub Nocturno',
     subtitulo: 'Del correo aéreo a la carga del continente',
-    dinero: 'Caja', porDia: 'por día', pausa: 'Pausa', vel1: 'Normal', vel3: 'Rápido',
-    menu: 'Menú', idioma: 'English', sonidoSi: 'Sonido: sí', sonidoNo: 'Sonido: no', reiniciar: 'Empezar de nuevo',
+    dinero: 'Caja', porDia: 'por día', porDiaTxt: '{monto} por día', ultimoVuelo: 'último vuelo: {monto}', sinVuelos: 'todavía sin vuelos',
+    pausa: 'Pausa', reanudar: 'Seguir', vel1: 'Normal', vel3: 'Rápido', vel6: 'Muy rápido', acelerar: 'Cambiar la velocidad', rondaLenta: 'ronda',
+    menu: 'Menú', idioma: 'English', sonidoSi: 'Sonido: sí', sonidoNo: 'Sonido: no', reiniciar: 'Empezar de nuevo', guiaOtraVez: 'Ver la guía de nuevo',
     confirmarReinicio: '¿Seguro? Se borra la partida guardada.', creditos: 'Créditos', cerrar: 'Cerrar',
-    acercar: 'Acercar', alejar: 'Alejar', centrar: 'Centrar',
+    acercar: 'Acercar', alejar: 'Alejar', centrar: 'Ver toda la red', verRutas: 'Tus rutas', cerrarPanel: 'Cerrar el panel', desplegar: 'Mostrar el panel',
+    hojaAlto: 'Agrandar o achicar el panel',
     noche: 'noche', dia: 'día',
-    inicioTitulo: 'Capítulo 1 · El correo del sur',
-    inicioTexto: 'Noviembre de 1929. El correo aéreo empieza a llegar a la Patagonia. Tenés un hangar en Buenos Aires, {dinero} y un biplano por comprar. Uní el país por aire: cada saca que llega a tiempo se cobra completa.',
-    inicioSabias: '¿Sabías que…? El 1 de noviembre de 1929 salió el primer vuelo del correo aéreo de Bahía Blanca a Comodoro Rivadavia, con escalas en San Antonio Oeste y Trelew.',
-    empezar: 'Empezar',
-    cap2Titulo: 'Capítulo 2 · Pasajeros', cap2Texto: 'Marzo de 1946. Los aviones ya vuelan de noche con instrumentos y aparecen los pasajeros. Tu red sigue en pie: sumá ciudades, cruzá la cordillera y llená los bimotores.',
-    cap3Titulo: 'Capítulo 3 · Jets y carga', cap3Texto: 'Enero de 1970. Llegan los jets y la carga aérea. El continente entero se abre: el que maneja bien su hub, gana.',
-    finTitulo: '¡Terminaste los tres capítulos!', finTexto: 'Tu hub mueve el continente. Podés seguir jugando y agrandando la red.',
-    seguir: 'Seguir',
-    ausenteTitulo: 'Mientras no estabas', ausenteTexto: 'Pasaron {horas} horas de juego. Tu red ganó {neto}.',
+    // portada (15 palabras como máximo, sin contar el nombre del juego ni el botón)
+    portadaSub: '1929 · El correo del sur',
+    inicioTexto: 'Uní el país por aire desde Buenos Aires.',
+    empezar: 'Empezar', lenguaOtra: 'English',
+    cap2Titulo: 'Capítulo 2 · Pasajeros', cap2Texto: 'Marzo de 1946. Los aviones ya vuelan de noche y llegan los pasajeros. Tu red sigue en pie.',
+    cap3Titulo: 'Capítulo 3 · Jets y carga', cap3Texto: 'Enero de 1970. Llegan los jets y la carga aérea: se abre el continente entero.',
+    finTitulo: '¡Terminaste los tres capítulos!', finTexto: 'Tu hub mueve el continente. El juego sigue: contratos del día y rondas con medalla.',
+    seguir: 'Seguir', seguirJugando: 'Seguir jugando',
+    // vuelta y parte de la mañana
+    ausenteTitulo: 'Mientras no estabas', ausenteTexto: 'Pasaron {tiempo}. Tu red ganó {neto}.',
+    ausentePerdio: 'Pasaron {tiempo}. Tu red perdió {neto}: revisá las rutas en rojo.',
+    pasaron: 'Pasaron {tiempo}', aPrimeraHora: 'a primera hora',
+    tiempoDias: '{n} días de juego', tiempoUnDia: '1 día de juego', tiempoHoras: '{n} horas de juego',
     parteTitulo: 'Parte de la mañana', parteTexto: 'Entregas: {entregas} ({aTiempo} a tiempo) · perdidas: {perdidas} · mejor ruta: {ruta}.',
-    ausentePerdio: 'Pasaron {horas} horas de juego. Tu red perdió {neto}: revisá las rutas en rojo.',
+    parteGano: 'Tu red ganó {monto}', partePerdio: 'Tu red perdió {monto}',
+    parteEntregas: 'entregas', parteATiempo: 'a tiempo', partePerdidas: 'perdidas', parteMejor: 'Mejor ruta: {ruta} ({monto})',
+    parteMisiones: 'Cumpliste mientras no estabas: {lista}', parteRondas: '{n} rondas corrieron en automático. Jugándolas, unos {monto} más.',
+    proximaMeta: 'Próxima meta: {mision}',
     cobrar: 'Cobrar', duplicar: 'Duplicar con un video',
     videoSimulado: 'Video (simulado en la versión de prueba)',
-    // panel
-    ayudaInicio: 'Tocá Buenos Aires y abrí tu primera ruta.',
+    // guía de 3 pasos (6 palabras como máximo cada uno)
+    guia1: '{Toca} {ciudad}', guia2: 'Conectá la ruta', guia3: 'Comprá un avión', guiaRuta: '{Toca} la ruta', guiaSaltear: 'Saltear guía',
+    // panel: ciudad
+    ayudaInicio: '{Toca} una ciudad para conectarla con tu red.',
     tusRutas: 'Tus rutas', sinRutas: 'Todavía no tenés rutas.',
-    enRed: 'En tu red', sinConectar: 'Sin conectar', bloqueadaCap: 'Se abre en el capítulo {n}',
-    potencial: 'Demanda si la conectás: {n} por hora', esperan: 'Esperan salir', enTransbordoTxt: 'En transbordo',
-    transbordo: 'Centro de transbordo', transbordoAyuda: 'Clasifica el correo y la carga y conecta pasajeros que siguen viaje. Si no da abasto, todo llega tarde y se cobra menos.',
+    enRed: 'En tu red', sinConectar: 'Sin conectar', bloqueadaCap: 'Se abre en el capítulo {n}.', bloqueadaMision: 'Se abre al cumplir la misión «{mision}».',
+    conectarCon: 'Conectar con {ciudad} · {precio}', conectarExplica: 'Abre la ruta {a} ⇄ {b} ({km} km).',
+    escalaEn: 'Ningún avión tuyo llega directo: hacé escala en {ciudad}.', irA: 'Ver {ciudad}',
+    sinAlcance: 'Ningún avión tuyo llega todavía: más adelante se abren aviones de más alcance.',
+    faltaPlata: 'Te faltan {monto}.', esLaRed: 'Es tu hangar: tocá otra ciudad para abrir una ruta desde acá.',
+    potencialTxt: 'Si la conectás: {n} {u}/h', esperan: 'Esperan salir', nadaEspera: 'No espera nada.', enTransbordoTxt: 'En el centro',
+    transbordo: 'Centro de transbordo', transbordoAyuda: 'Clasifica lo que cambia de avión acá. Si no da abasto, todo llega tarde.',
+    hubLinea: '{pct} a tiempo · {h} h de atraso', hubSinDatos: 'sin entregas todavía', hubCapacidad: 'Clasifica {u}/h · en cola {n}',
     capacidad: '{u} por hora', mejorar: 'Mejorar a {u}/h · {precio}', maximo: 'Nivel máximo',
-    nuevaRuta: 'Nueva ruta desde acá', elegiDestino: 'Elegí el destino en el mapa', cancelar: 'Cancelar',
+    hubOcupacion: 'Ocupación media', hubPerdida: 'Demanda perdida por día', hubCostoU: 'Costo por unidad', hubEntregas7: 'Entregas en 7 días',
+    primeraClasificacion: 'Tu hub clasificó sus primeras sacas: el correo cambia de avión en Buenos Aires.',
+    nuevaRuta: 'Nueva ruta desde acá', elegiDestino: '{Toca} el destino en el mapa', cancelar: 'Cancelar',
     rutaA: '{a} ⇄ {b}', km: '{n} km', abrirRutaPor: 'Abrir ruta · {precio}', alcanzan: 'Aviones que llegan: {lista}',
-    ninguno: 'ninguno',
+    ninguno: 'ninguno', detalle: 'Detalle',
     demandaIda: 'Demanda {a} → {b}', porHora: '{n}/h',
-    aviones: 'Aviones', comprar: 'Comprar', sinAviones: 'Sin aviones: comprá uno para que la ruta funcione.',
+    // panel: ruta
+    rutaKm: '{km} km · {vuelos} vuelos',
+    aviones: 'Aviones', comprar: 'Comprar', comprarAvion: 'Comprar un avión', sinAviones: 'Sin aviones: comprá uno para que la ruta funcione.',
     estado_vuelo: 'volando a {a}', estado_tierra: 'en {a}', estado_noche: 'espera el día (sin balizas)',
-    estado_carga: 'junta carga', estado_tormenta: 'tormenta', estado_vacio: 'sin carga',
+    estado_carga: 'espera carga', estado_tormenta: 'tormenta', estado_vacio: 'sin carga',
     vender: 'Vender', venderPor: 'Vender por {precio}',
+    venderUltimoTitulo: '¿Vender el último avión?', venderUltimoTexto: 'La ruta queda sin vuelos y lo que espera salir por acá se traba.',
+    cerrarRutaTitulo: '¿Cerrar la ruta?', cerrarRutaTexto: 'Se venden sus {n} aviones.',
     balizas: 'Balizas', balizasSi: 'Ruta iluminada: el biplano vuela de noche', balizasPoner: 'Iluminar la ruta · {precio}',
     balizasAyuda: 'Sin balizas, los aviones de esta época no despegan de noche.',
-    cargaMinima: 'Sale con', cargaMinimaAyuda: 'Esperar más carga llena el avión pero demora las entregas: con 30% espera hasta 2 h, con 60% hasta 4 h y lleno hasta 12 h. En tramos cargados conviene llenar; en los flacos, salir antes.',
-    cm0: 'lo que haya', cm30: '30%', cm60: '60%', cm90: 'lleno',
+    cargaMinima: 'Sale con', cargaMinimaAyuda: 'Esperar carga llena el avión pero demora: con 30% espera hasta 2 h, con 60% hasta 4 h y lleno hasta 12 h.',
+    cm0: 'Lo que haya', cm30: '30%', cm60: '60%', cm90: 'Lleno',
     resultado: 'Resultado', ingresos: 'Ingresos', costos: 'Costos', neto: 'Neto', ocupacion: 'Ocupación', vuelos: 'Vuelos',
     cerrarRuta: 'Cerrar ruta (vende sus aviones)',
     capacidadAvion: '{cap} · {vel} km/h · {alc} km',
+    alertaSobran: 'Sobran aviones: subí la carga mínima o vendé uno.', alertaTrabadas: '{n} {u} trabadas: esta ruta no tiene aviones.',
+    flujoLinea: 'Pasan {pasan} · Ofrecés {ofreces} · Se pierden {pierden} {u}/h', flujoSinAviones: 'Sin aviones · demanda directa: {n} {u}/h', flujoCap: 'capacidad', flujoPasa: 'lo que pasa',
+    flujoSentido: '{a} → {b}: {loc} locales + {con} en conexión ({u}/h)', costoDespegue: 'Costo por despegue', ingresoVuelo: 'Ingreso medio por vuelo',
+    costoParado: 'Costo por hora parado', perdidasSentido: 'Se pierden {a} → {b}',
+    efectoDia: '{monto}/día estimado', efectoSobra: 'Ya ofrecés más de lo que pasa: {monto}/día', efectoCero: 'no suma por ahora',
+    u_flujo1: 'sacas', u_flujo: 'unidades',
+    // panel: avión
+    fichaLleva: 'Lleva {n} {u} a {ciudad}', fichaVacio: 'Vuela vacío', fichaLlega: 'Llega a {ciudad} a las {hora}',
+    fichaEnTierra: 'En {ciudad}: {estado}', fichaListo: 'Para cargar: {n}/{m}', fichaViaje: 'Este viaje: {monto} estimado',
+    fichaTotal: 'Desde que lo compraste: {monto} en {n} viajes', verRuta: 'Ver la ruta',
+    // panel general
+    ordenarPor: 'Ordenar por', ordNeto: 'Neto', ordOcup: 'Ocupación', ordPerdida: 'Perdida',
+    rutaFilaSub: '{n} aviones · {ocup}% lleno · pierde {perdida}/h', rutaFilaSub1: '1 avión · {ocup}% lleno · pierde {perdida}/h', rutaFilaSub0: 'sin aviones · pierde {perdida}/h',
     // cargas
     correo: 'correo', pasajeros: 'pasajeros', carga: 'carga',
-    u_correo: 'sacas', u_pasajeros: 'pax', u_carga: 't',
+    u_correo: 'sacas', u_pasajeros: 'pax', u_carga: 't', u_saca: 'saca',
     // avisos
     e_plata: 'No te alcanza la plata ({precio}).', e_alcance: 'Ningún avión tuyo llega tan lejos ({km} km).',
     e_desconectada: 'La ruta tiene que salir de tu red.', e_existe: 'Esa ruta ya existe.', e_bloqueada: 'Esa ciudad se abre más adelante.',
     e_invalida: 'No se puede.', e_bloqueado: 'Ese avión todavía no está disponible.',
     e_reserva: 'Te quedarías sin plata para el combustible: hacen falta {precio}.', e_contratos: 'Ya tenés 2 contratos en curso.', e_sinRonda: 'Esta noche no hay ronda.',
-    rutaAbierta: 'Ruta abierta: {a} ⇄ {b}', avionComprado: '{avion} comprado', tormentaAviso: 'Tormenta: cerrados {lista}',
-    misionHecha: '¡Misión cumplida! +{premio}', nuevoAvion: 'Nuevo avión disponible: {avion}',
+    rutaAbierta: 'Ruta abierta: {a} ⇄ {b}', avionComprado: '{avion} comprado', avionVendido: 'Vendido: +{monto}', tormentaAviso: 'Tormenta: cerrados {lista}',
+    misionHecha: '¡Misión cumplida! +{premio}', misionHechaSin: '¡Misión cumplida!', misionesAgrupadas: '{n} misiones cumplidas: +{premio}',
+    nuevoAvion: 'Nuevo avión disponible: {avion}', ciudadesNuevas: 'Nuevas ciudades: {lista}',
     capituloListo: 'Capítulo terminado', siguienteCapitulo: 'Ir al capítulo {n}',
-    // misiones
-    m1_primera: 'Abrí el correo a Montevideo: la ruta desde Buenos Aires y un avión',
-    m1_segunda: 'Abrí el correo del sur: Buenos Aires ⇄ Bahía Blanca, con su avión',
+    sello: 'Cumplida', combustible: 'combustible', netoTxt: 'neto',
+    // misiones (cortas: la tarjeta las muestra en una línea; la pista da el detalle)
+    m1_primera: 'Abrí el correo a Montevideo: ruta y avión',
+    m1_segunda: 'Correo del sur: ruta a Bahía Blanca y avión',
     m1_transbordo: 'Transbordá {meta} sacas en Buenos Aires',
-    m1_noche: 'Hacé {meta} despegues nocturnos por una ruta con balizas',
+    m1_noche: 'Hacé {meta} despegues de noche con balizas',
     m1_sur: 'Entregá {meta} sacas en Comodoro Rivadavia',
     m1_gallegos: 'Entregá {meta} sacas en Río Gallegos',
     m1_caja: 'Ganá {meta} en un día',
     m2_pax: 'Llevá {meta} pasajeros a destino',
-    m2_andes: 'Cruzá la cordillera: entregá {meta} pasajeros y sacas en Santiago',
-    m2_red: 'Que {meta} ciudades tengan vuelos en un mismo día',
+    m2_andes: 'Cruzá los Andes: {meta} entregas en Santiago',
+    m2_red: 'Vuelos en {meta} ciudades en un mismo día',
     m2_caja: 'Ganá {meta} en un día',
     m3_jet: 'Poné a volar tu primer jet (Halcón)',
     m3_carga: 'Llevá {meta} toneladas de carga a destino',
-    m3_continente: 'Entregá {n} unidades en Lima, en Bogotá y en São Paulo',
-    m3_ronda: 'Que en una noche de ronda llegue a primera hora el {meta}% del correo de Buenos Aires',
+    m3_continente: 'Entregá {n} unidades en Lima, Bogotá y São Paulo',
+    m3_ronda: 'Una ronda con el {meta}% del correo a primera hora',
     pista_m3_ronda: 'Jugá la ronda nocturna: clasificá primero lo que sale antes. Si una ruta no llega a las 7, le falta un avión de noche.',
     u_pct: '%',
-    m3_hub2: 'Hacé de São Paulo tu segundo hub: conectá {meta} unidades ahí',
+    m3_hub2: 'São Paulo, segundo hub: conectá {meta} unidades',
     pista_m3_hub2: 'El centro de transbordo de São Paulo arranca chico: mejoralo y abrí rutas desde ahí.',
     m3_contratos: 'Cumplí {meta} contratos del día',
     pista_m3_contratos: 'Aceptá contratos entre ciudades que ya tienen vuelos: el correo de contrato pasa primero por los centros.',
     m3_caja1: 'Ganá {meta} en un día', m3_caja2: 'Ganá {meta} en un día', m3_caja3: 'Ganá {meta} en un día',
     // pistas: aparecen si una misión lleva 200 minutos de juego sin avanzar
     pista_noche: 'De noche, sin balizas, tus biplanos no vuelan: iluminá una ruta y siguen trabajando.',
-    pista_m1_primera: 'Tocá Montevideo en el mapa para abrir la ruta y después comprá una Golondrina.',
-    pista_m1_segunda: 'Tocá Bahía Blanca, abrí la ruta desde Buenos Aires y poné un avión.',
+    pista_ronda_centro: 'La última ronda, el centro de Buenos Aires no terminó de clasificar antes de que salieran los aviones: mejoralo para la próxima.',
+    pista_m1_primera: '{Toca} Montevideo en el mapa, conectala con Buenos Aires y comprá una Golondrina.',
+    pista_m1_segunda: '{Toca} Bahía Blanca, conectala con Buenos Aires y poné un avión.',
     pista_m1_transbordo: 'El correo de Montevideo a Bahía Blanca cambia de avión en Buenos Aires: más vuelos por esas rutas, más transbordos.',
     pista_m1_noche: 'Iluminá con balizas la ruta más barata y esperá la noche: los aviones siguen volando.',
-    pista_m1_sur: 'Desde Bahía Blanca, el Tero llega directo a Comodoro Rivadavia.',
+    // el dato histórico de la portada del v0 pasó a ser esta pista (verificado el 17-10-2026, fuentes en el README)
+    pista_m1_sur: 'Como el 1 de noviembre de 1929: de Bahía Blanca a Comodoro Rivadavia, con escalas o directo con el Tero.',
     pista_m1_gallegos: 'Abrí Comodoro Rivadavia ⇄ Río Gallegos y poné un avión.',
     pista_m1_caja: 'Abrí más ciudades desde Buenos Aires: cada una le suma correo a toda tu red.',
     pista_m2_pax: 'Los pasajeros quieren volar desde Buenos Aires: abrí la ruta a Rosario o a Córdoba con un Chajá.',
@@ -100,18 +141,47 @@ const T = {
     pista_m3_caja1: 'Mejorá el centro de transbordo de tus hubs y sumá aviones donde la carga espera.',
     pista_m3_caja2: 'Mejorá el centro de transbordo de tus hubs y sumá aviones donde la carga espera.',
     pista_m3_caja3: 'Mejorá el centro de transbordo de tus hubs y sumá aviones donde la carga espera.',
-    // contratos del día
+    // tarjeta de objetivos
+    mision: 'Misión', premio: 'Premio {premio}', misionN: 'Misión {n}/{total}', rutaFalta: 'falta la ruta', avionFalta: 'falta el avión',
     contrato: '{n} {u} de {a} a {b} en {dias} días', contratoNavidad: 'Correo de Navidad: {n} sacas de {a} a {b} en {dias} días',
+    contratoChip: '{n} {u} → {b}', contratoSub: '{quedan} · {premio}', contratoOferta: '{dias} días · {premio}',
+    quedanDH: 'quedan {d} d {h} h', quedanH: 'quedan {h} h',
     contratos: 'Contratos del día', aceptar: 'Aceptar', contratoCumplido: '¡Contrato cumplido! +{premio}', contratoVencido: 'Se venció un contrato',
-    // unidades del avance
+    contratosAgrupados: '{n} contratos cumplidos: +{premio}',
     u_despegues: 'despegues', u_ciudades: 'ciudades', u_aviones: 'aviones', u_entregas: 'entregas', u_plata: '', u_contratos: 'contratos',
+    // mejor próxima acción
+    sugTitulo: 'Mejor próxima acción',
+    sug_ruta: 'Abrí {a} ⇄ {b}', sug_rutaAvion: 'Abrí {a} ⇄ {b} con {un} {avion}', sug_avion: 'Poné {un} {avion} en {ruta}',
+    sug_balizas: 'Iluminá {ruta}', sug_transbordo: 'Mejorá el centro de {ap}', sug_cargaMin: 'Que {ruta} salga con {v}',
+    sug_contrato: 'Aceptá el contrato {a} → {b}', sug_vender: 'Vendé {un} {avion} que sobra en {ruta}', sug_venderSeg: 'Vendé {el} {avion} que pierde plata',
+    sug_esperar: 'Tus aviones juntan plata. Misión: {mision}', rutaA_hub: 'la ruta a {ciudad}', un_f: 'una', un_m: 'un', el_f: 'la', el_m: 'el',
+    sug_ahorrar: 'Juntá {falta} más para {que} (unos {min} min a este ritmo).', sugEfecto: '+{monto}/día',
+    que_ruta: 'la ruta a {ciudad}', que_balizas: 'las balizas',
+    // hangar
+    hangarNuevo: 'Nuevo en el hangar', velocidad: 'Velocidad', alcance: 'Alcance', capacidadTit: 'Capacidad', precio: 'Precio',
+    // fin de capítulo
+    resumenTitulo: 'Capítulo {n} completo', statSacas: 'sacas entregadas', statPax: 'pasajeros', statTon: 'toneladas', statKm: 'km volados',
+    statATiempo: 'a tiempo', statMejor: 'Mejor ruta: {ruta} ({monto})', loQueSigue: 'Lo que sigue',
+    sigueCap2: 'Capítulo 2 · 1946: llegan los pasajeros y los bimotores.', sigueCap3: 'Capítulo 3 · 1970: jets, carga y todo el continente.',
+    primeraMision: 'Primera misión: {mision}', sigueFin: 'Contratos del día y rondas con medalla, sin fin.',
+    datoCap1: 'En 1930 la línea del correo aéreo del sur llegó hasta Río Gallegos.',
+    datoCap2: 'El 4 de junio de 1946 salió el primer vuelo de una aerolínea argentina hacia Europa: un hidroavión rumbo al Reino Unido.',
+    datoCap3: 'El 22 de enero de 1970 voló con pasajeros el primer avión de fuselaje ancho: de Nueva York a Londres, con 335 a bordo.',
+    datoTit: 'Dato de época',
     // avisos del modelo
     avisoNoche: 'Se viene la noche: sin balizas, tus biplanos se quedan en tierra.', primeraNoche: 'Cayó la noche: {n} aviones esperan el día. Las balizas los hacen volar.',
     ventaForzada: 'Un día en rojo: se vendió un avión que perdía plata (+{monto}).', pronostico: 'Pronóstico: tormenta en {lista} dentro de unas horas.',
     tormentaFin: 'Pasó la tormenta.', bancoListo: 'Tu hub ya puede hacer la ronda nocturna.', rondaDisponible: 'Esta noche hay ronda en Buenos Aires: ¿la jugás?',
+    finHistoria: 'Terminaste la historia. Tu red sigue: contratos del día y rondas con medalla.',
     estado_ronda: 'espera su hora de salida',
-    mision: 'Misión', premio: 'Premio {premio}',
-    // ronda nocturna
+    // ronda nocturna dentro del juego
+    rondaChip: 'La ronda empieza a las 22:00', rondaChipCorre: 'Ronda en curso · {hora}', rondaJugar: 'Jugar la ronda', rondaVolverMapa: 'Volver al mapa',
+    rondaSubir: 'Subir en la cinta', rondaBajar: 'Bajar en la cinta', rondaFilaInfo: '{n} sacas · vuelo {v}', rondaCorteTxt: 'Corte 22:00 · a primera hora es antes de las 07:00',
+    rondaLento: 'Mientras jugás la ronda, el tiempo va más lento.', rondaResTitulo: 'Ronda nocturna: {m}', rondaResPct: '{pct}% llegó a primera hora',
+    rondaVsAutoMas: '{monto} más que el automático', rondaVsAutoIgual: 'Lo mismo que el automático', rondaVsAutoMenos: '{monto} menos que el automático',
+    rondaAutoAviso: 'Ronda automática: {pct}% a primera hora.', rondaTut1: 'Subí en la cinta lo que sale antes: se clasifica primero.',
+    rondaTut2: 'Con − y + movés cada salida de a 15 min. La raya roja es la última que llega a las 7.', rondaGuia: 'Ronda',
+    // ronda nocturna (escena aislada)
     rondaTitulo: 'Ronda nocturna', rondaDia: 'La ronda del día', rondaSub: 'Corte 22:00 · todo tiene que llegar antes de las 07:00',
     rondaCinta: 'Cinta del centro', rondaCentro: 'clasifica {n} sacas por hora', rondaOrdenLlegada: 'por orden de llegada', rondaOrdenTuyo: 'en tu orden',
     rondaAviones: 'Aviones', rondaSugerido: 'Plan sugerido', rondaVolar: 'Volar la noche', rondaRepetir: 'Volar de nuevo', rondaOtra: 'Otra noche',
@@ -124,93 +194,129 @@ const T = {
     rondaSiguiente: 'Siguiente', rondaEntendido: 'Entendido', rondaSaltear: 'Saltear',
     semaforo_verde: 'todo a tiempo', semaforo_amarillo: 'casi todo a tiempo', semaforo_rojo: 'mucho llega tarde',
     medalla_oro: 'oro', medalla_plata: 'plata', medalla_bronce: 'bronce', medalla_nada: 'sin medalla',
-    creditosTexto: 'Prototipo del holding. Mapa: Natural Earth (dominio público). Aviones, nombres y arte propios. Hecho con Claude.',
+    // robustez
+    sinGuardado: 'En esta ventana no se guarda el progreso', errorTitulo: 'Algo falló',
+    errorTexto: 'El juego tuvo un problema. Podés volver al último guardado o empezar de nuevo.', restaurarRespaldo: 'Restaurar respaldo',
+    selectorTitulo: 'Elegí la ciudad',
+    creditosTexto: 'Prototipo del holding. Mapa: Natural Earth (dominio público). Aviones, nombres, arte y sonido propios, hechos por código. Hecho con Claude.',
   },
   en: {
     titulo: 'Night Hub',
     subtitulo: 'From airmail to a continent of cargo',
-    dinero: 'Cash', porDia: 'per day', pausa: 'Pause', vel1: 'Normal', vel3: 'Fast',
-    menu: 'Menu', idioma: 'Español', sonidoSi: 'Sound: on', sonidoNo: 'Sound: off', reiniciar: 'Start over',
+    dinero: 'Cash', porDia: 'per day', porDiaTxt: '{monto} per day', ultimoVuelo: 'last flight: {monto}', sinVuelos: 'no flights yet',
+    pausa: 'Pause', reanudar: 'Resume', vel1: 'Normal', vel3: 'Fast', vel6: 'Very fast', acelerar: 'Change speed', rondaLenta: 'round',
+    menu: 'Menu', idioma: 'Español', sonidoSi: 'Sound: on', sonidoNo: 'Sound: off', reiniciar: 'Start over', guiaOtraVez: 'Show the guide again',
     confirmarReinicio: 'Sure? Your saved game will be erased.', creditos: 'Credits', cerrar: 'Close',
-    acercar: 'Zoom in', alejar: 'Zoom out', centrar: 'Center',
+    acercar: 'Zoom in', alejar: 'Zoom out', centrar: 'See your whole network', verRutas: 'Your routes', cerrarPanel: 'Close the panel', desplegar: 'Show the panel',
+    hojaAlto: 'Expand or shrink the panel',
     noche: 'night', dia: 'day',
-    inicioTitulo: 'Chapter 1 · The southern mail',
-    inicioTexto: 'November 1929. Airmail is reaching Patagonia. You have a hangar in Buenos Aires, {dinero} and a biplane to buy. Connect the country by air: every mailbag that arrives on time is paid in full.',
-    inicioSabias: 'Did you know? On 1 November 1929 the first airmail flight left Bahía Blanca for Comodoro Rivadavia, stopping at San Antonio Oeste and Trelew.',
-    empezar: 'Start',
-    cap2Titulo: 'Chapter 2 · Passengers', cap2Texto: 'March 1946. Planes now fly at night on instruments and passengers arrive. Your network is still standing: add cities, cross the Andes and fill your twin-engines.',
-    cap3Titulo: 'Chapter 3 · Jets and cargo', cap3Texto: 'January 1970. Jets and air cargo arrive. The whole continent opens up: whoever runs the best hub wins.',
-    finTitulo: 'You finished all three chapters!', finTexto: 'Your hub moves the continent. Keep playing and growing your network.',
-    seguir: 'Continue',
-    ausenteTitulo: 'While you were away', ausenteTexto: '{horas} game hours went by. Your network earned {neto}.',
+    portadaSub: '1929 · The southern mail',
+    inicioTexto: 'Connect the country by air from Buenos Aires.',
+    empezar: 'Start', lenguaOtra: 'Español',
+    cap2Titulo: 'Chapter 2 · Passengers', cap2Texto: 'March 1946. Planes now fly at night and passengers arrive. Your network is still standing.',
+    cap3Titulo: 'Chapter 3 · Jets and cargo', cap3Texto: 'January 1970. Jets and air cargo arrive: the whole continent opens up.',
+    finTitulo: 'You finished all three chapters!', finTexto: 'Your hub moves the continent. The game goes on: daily contracts and night rounds with medals.',
+    seguir: 'Continue', seguirJugando: 'Keep playing',
+    ausenteTitulo: 'While you were away', ausenteTexto: '{tiempo} went by. Your network earned {neto}.',
+    ausentePerdio: '{tiempo} went by. Your network lost {neto}: check the routes in red.',
+    pasaron: '{tiempo} went by', aPrimeraHora: 'first thing',
+    tiempoDias: '{n} game days', tiempoUnDia: '1 game day', tiempoHoras: '{n} game hours',
     parteTitulo: 'Morning report', parteTexto: 'Deliveries: {entregas} ({aTiempo} on time) · lost: {perdidas} · best route: {ruta}.',
-    ausentePerdio: '{horas} game hours went by. Your network lost {neto}: check the routes in red.',
+    parteGano: 'Your network earned {monto}', partePerdio: 'Your network lost {monto}',
+    parteEntregas: 'deliveries', parteATiempo: 'on time', partePerdidas: 'lost', parteMejor: 'Best route: {ruta} ({monto})',
+    parteMisiones: 'Completed while you were away: {lista}', parteRondas: '{n} night rounds ran on autopilot. Playing them would have paid about {monto} more.',
+    proximaMeta: 'Next goal: {mision}',
     cobrar: 'Collect', duplicar: 'Double it with a video',
     videoSimulado: 'Video (simulated in the test build)',
-    ayudaInicio: 'Tap Buenos Aires and open your first route.',
+    guia1: '{Toca} {ciudad}', guia2: 'Connect the route', guia3: 'Buy a plane', guiaRuta: '{Toca} the route', guiaSaltear: 'Skip guide',
+    ayudaInicio: '{Toca} a city to connect it to your network.',
     tusRutas: 'Your routes', sinRutas: 'No routes yet.',
-    enRed: 'In your network', sinConectar: 'Not connected', bloqueadaCap: 'Opens in chapter {n}',
-    potencial: 'Demand if connected: {n} per hour', esperan: 'Waiting to depart', enTransbordoTxt: 'In transfer',
-    transbordo: 'Transfer center', transbordoAyuda: 'Sorts mail and cargo and connects passengers who fly on. If it falls behind, everything arrives late and pays less.',
+    enRed: 'In your network', sinConectar: 'Not connected', bloqueadaCap: 'Opens in chapter {n}.', bloqueadaMision: 'Opens when you complete «{mision}».',
+    conectarCon: 'Connect to {ciudad} · {precio}', conectarExplica: 'Opens the route {a} ⇄ {b} ({km} km).',
+    escalaEn: 'None of your planes flies there directly: stop over in {ciudad}.', irA: 'See {ciudad}',
+    sinAlcance: 'None of your planes can reach it yet: longer-range planes come later.',
+    faltaPlata: 'You need {monto} more.', esLaRed: 'This is your hangar: pick another city to open a route from here.',
+    potencialTxt: 'If connected: {n} {u}/h', esperan: 'Waiting to depart', nadaEspera: 'Nothing waiting.', enTransbordoTxt: 'At the center',
+    transbordo: 'Transfer center', transbordoAyuda: 'Sorts everything that changes planes here. If it falls behind, everything arrives late.',
+    hubLinea: '{pct} on time · {h} h behind', hubSinDatos: 'no deliveries yet', hubCapacidad: 'Sorts {u}/h · queued {n}',
     capacidad: '{u} per hour', mejorar: 'Upgrade to {u}/h · {precio}', maximo: 'Max level',
-    nuevaRuta: 'New route from here', elegiDestino: 'Pick the destination on the map', cancelar: 'Cancel',
+    hubOcupacion: 'Average load factor', hubPerdida: 'Lost demand per day', hubCostoU: 'Cost per unit', hubEntregas7: 'Deliveries in 7 days',
+    primeraClasificacion: 'Your hub sorted its first bags: the mail changes planes in Buenos Aires.',
+    nuevaRuta: 'New route from here', elegiDestino: '{Toca} the destination on the map', cancelar: 'Cancel',
     rutaA: '{a} ⇄ {b}', km: '{n} km', abrirRutaPor: 'Open route · {precio}', alcanzan: 'Planes that reach: {lista}',
-    ninguno: 'none',
+    ninguno: 'none', detalle: 'Details',
     demandaIda: 'Demand {a} → {b}', porHora: '{n}/h',
-    aviones: 'Planes', comprar: 'Buy', sinAviones: 'No planes: buy one so the route runs.',
+    rutaKm: '{km} km · {vuelos} flights',
+    aviones: 'Planes', comprar: 'Buy', comprarAvion: 'Buy a plane', sinAviones: 'No planes: buy one so the route runs.',
     estado_vuelo: 'flying to {a}', estado_tierra: 'at {a}', estado_noche: 'waiting for daylight (no beacons)',
-    estado_carga: 'loading', estado_tormenta: 'storm', estado_vacio: 'no load',
+    estado_carga: 'Waiting for load', estado_tormenta: 'storm', estado_vacio: 'no load',
     vender: 'Sell', venderPor: 'Sell for {precio}',
+    venderUltimoTitulo: 'Sell the last plane?', venderUltimoTexto: 'The route will have no flights and everything waiting here gets stuck.',
+    cerrarRutaTitulo: 'Close the route?', cerrarRutaTexto: 'Its {n} planes will be sold.',
     balizas: 'Beacons', balizasSi: 'Lit route: biplanes fly at night', balizasPoner: 'Light the route · {precio}',
     balizasAyuda: 'Without beacons, planes of this era do not take off at night.',
-    cargaMinima: 'Departs with', cargaMinimaAyuda: 'Waiting for more load fills the plane but delays deliveries: 30% waits up to 2 h, 60% up to 4 h, full up to 12 h. On busy legs, fill up; on thin ones, leave earlier.',
-    cm0: 'whatever', cm30: '30%', cm60: '60%', cm90: 'full',
+    cargaMinima: 'Departs with', cargaMinimaAyuda: 'Waiting for load fills the plane but delays it: 30% waits up to 2 h, 60% up to 4 h, full up to 12 h.',
+    cm0: 'Any load', cm30: '30%', cm60: '60%', cm90: 'Full',
     resultado: 'Results', ingresos: 'Revenue', costos: 'Costs', neto: 'Net', ocupacion: 'Load factor', vuelos: 'Flights',
     cerrarRuta: 'Close route (sells its planes)',
     capacidadAvion: '{cap} · {vel} km/h · {alc} km',
+    alertaSobran: 'Too many planes: raise the minimum load or sell one.', alertaTrabadas: '{n} {u} stuck: this route has no planes.',
+    flujoLinea: '{pasan} pass · You offer {ofreces} · {pierden} lost {u}/h', flujoSinAviones: 'No planes · direct demand: {n} {u}/h', flujoCap: 'capacity', flujoPasa: 'flow',
+    flujoSentido: '{a} → {b}: {loc} local + {con} connecting ({u}/h)', costoDespegue: 'Cost per take-off', ingresoVuelo: 'Average revenue per flight',
+    costoParado: 'Cost per idle hour', perdidasSentido: 'Lost {a} → {b}',
+    efectoDia: 'est. {monto}/day', efectoSobra: 'You already offer more than the flow: {monto}/day', efectoCero: 'adds nothing for now',
+    u_flujo1: 'bags', u_flujo: 'units',
+    fichaLleva: 'Carries {n} {u} to {ciudad}', fichaVacio: 'Flying empty', fichaLlega: 'Lands at {ciudad} at {hora}',
+    fichaEnTierra: 'At {ciudad}: {estado}', fichaListo: 'Ready to load: {n}/{m}', fichaViaje: 'This trip: est. {monto}',
+    fichaTotal: 'Since you bought it: {monto} in {n} trips', verRuta: 'See the route',
+    ordenarPor: 'Sort by', ordNeto: 'Net', ordOcup: 'Load factor', ordPerdida: 'Lost',
+    rutaFilaSub: '{n} planes · {ocup}% full · loses {perdida}/h', rutaFilaSub1: '1 plane · {ocup}% full · loses {perdida}/h', rutaFilaSub0: 'no planes · loses {perdida}/h',
     correo: 'mail', pasajeros: 'passengers', carga: 'cargo',
-    u_correo: 'bags', u_pasajeros: 'pax', u_carga: 't',
+    u_correo: 'bags', u_pasajeros: 'pax', u_carga: 't', u_saca: 'bag',
     e_plata: 'Not enough cash ({precio}).', e_alcance: 'None of your planes can fly that far ({km} km).',
     e_desconectada: 'The route must start in your network.', e_existe: 'That route already exists.', e_bloqueada: 'That city opens later.',
     e_invalida: 'Not possible.', e_bloqueado: 'That plane is not available yet.',
     e_reserva: 'You would run out of fuel money: you need {precio}.', e_contratos: 'You already have 2 contracts running.', e_sinRonda: 'No night round tonight.',
-    rutaAbierta: 'Route opened: {a} ⇄ {b}', avionComprado: '{avion} bought', tormentaAviso: 'Storm: closed {lista}',
-    misionHecha: 'Mission complete! +{premio}', nuevoAvion: 'New plane available: {avion}',
+    rutaAbierta: 'Route opened: {a} ⇄ {b}', avionComprado: '{avion} bought', avionVendido: 'Sold: +{monto}', tormentaAviso: 'Storm: closed {lista}',
+    misionHecha: 'Mission complete! +{premio}', misionHechaSin: 'Mission complete!', misionesAgrupadas: '{n} missions complete: +{premio}',
+    nuevoAvion: 'New plane available: {avion}', ciudadesNuevas: 'New cities: {lista}',
     capituloListo: 'Chapter complete', siguienteCapitulo: 'Go to chapter {n}',
-    m1_primera: 'Open the mail to Montevideo: the route from Buenos Aires and a plane',
-    m1_segunda: 'Open the southern mail: Buenos Aires ⇄ Bahía Blanca, with its plane',
-    m1_transbordo: 'Transfer {meta} mailbags in Buenos Aires',
-    m1_noche: 'Make {meta} night take-offs on a route with beacons',
-    m1_sur: 'Deliver {meta} mailbags to Comodoro Rivadavia',
-    m1_gallegos: 'Deliver {meta} mailbags to Río Gallegos',
+    sello: 'Done', combustible: 'fuel', netoTxt: 'net',
+    m1_primera: 'Open the mail to Montevideo: route and plane',
+    m1_segunda: 'Southern mail: route to Bahía Blanca and plane',
+    m1_transbordo: 'Transfer {meta} bags in Buenos Aires',
+    m1_noche: 'Make {meta} night take-offs with beacons',
+    m1_sur: 'Deliver {meta} bags to Comodoro Rivadavia',
+    m1_gallegos: 'Deliver {meta} bags to Río Gallegos',
     m1_caja: 'Earn {meta} in one day',
     m2_pax: 'Fly {meta} passengers to their destination',
-    m2_andes: 'Cross the Andes: deliver {meta} passengers and mailbags to Santiago',
-    m2_red: 'Have flights at {meta} cities in a single day',
+    m2_andes: 'Cross the Andes: {meta} deliveries to Santiago',
+    m2_red: 'Flights at {meta} cities in a single day',
     m2_caja: 'Earn {meta} in one day',
     m3_jet: 'Get your first jet (Halcón) flying',
     m3_carga: 'Deliver {meta} tonnes of cargo',
-    m3_continente: 'Deliver {n} units each to Lima, Bogotá and São Paulo',
-    m3_ronda: 'In one night round, have {meta}% of the Buenos Aires mail arrive first thing',
+    m3_continente: 'Deliver {n} units to Lima, Bogotá and São Paulo',
+    m3_ronda: 'A night round with {meta}% of the mail first thing',
     pista_m3_ronda: 'Play the night round: sort first what leaves first. If a route misses 7 o’clock, it needs another night plane.',
     u_pct: '%',
-    m3_hub2: 'Make São Paulo your second hub: connect {meta} units there',
+    m3_hub2: 'São Paulo, second hub: connect {meta} units',
     pista_m3_hub2: 'The São Paulo transfer center starts small: upgrade it and open routes from there.',
     m3_contratos: 'Fulfil {meta} of today’s contracts',
     pista_m3_contratos: 'Accept contracts between cities that already have flights: contract mail goes first at the transfer centers.',
     m3_caja1: 'Earn {meta} in one day', m3_caja2: 'Earn {meta} in one day', m3_caja3: 'Earn {meta} in one day',
     pista_noche: 'At night, without beacons, your biplanes stay grounded: light a route and they keep working.',
-    pista_m1_primera: 'Tap Montevideo on the map to open the route, then buy a Golondrina.',
-    pista_m1_segunda: 'Tap Bahía Blanca, open the route from Buenos Aires and add a plane.',
+    pista_ronda_centro: 'Last round, the Buenos Aires transfer center couldn’t finish sorting before the planes left: upgrade it for the next one.',
+    pista_m1_primera: '{Toca} Montevideo on the map, connect it to Buenos Aires and buy a Golondrina.',
+    pista_m1_segunda: '{Toca} Bahía Blanca, connect it to Buenos Aires and add a plane.',
     pista_m1_transbordo: 'Mail from Montevideo to Bahía Blanca changes planes in Buenos Aires: more flights on those routes, more transfers.',
     pista_m1_noche: 'Light the cheapest route with beacons and wait for the night: the planes keep flying.',
-    pista_m1_sur: 'From Bahía Blanca, the Tero flies straight to Comodoro Rivadavia.',
+    pista_m1_sur: 'Like on 1 November 1929: from Bahía Blanca to Comodoro Rivadavia, with stops or straight with the Tero.',
     pista_m1_gallegos: 'Open Comodoro Rivadavia ⇄ Río Gallegos and add a plane.',
     pista_m1_caja: 'Open more cities from Buenos Aires: each one adds mail to your whole network.',
     pista_m2_pax: 'Passengers want to fly from Buenos Aires: open the route to Rosario or Córdoba with a Chajá.',
     m2_cauquen: 'Get the Cauquén flying on a long route',
     pista_m2_cauquen: 'The Cauquén shines on legs over 1,000 km: try it towards Santiago or São Paulo.',
-    m2_conexiones: 'Connect {meta} passengers and mailbags in Buenos Aires',
+    m2_conexiones: 'Connect {meta} passengers and bags in Buenos Aires',
     pista_m2_conexiones: 'The Buenos Aires transfer center is the bottleneck: upgrade it and it connects more per hour.',
     pista_m2_andes: 'Reach Mendoza from your network and open Mendoza ⇄ Santiago: the short hop crosses the Andes.',
     pista_m2_red: 'Open routes from Buenos Aires: from the hub, every new city reaches the rest with a single stop.',
@@ -221,14 +327,40 @@ const T = {
     pista_m3_caja1: 'Upgrade your hubs’ transfer centers and add planes where cargo is waiting.',
     pista_m3_caja2: 'Upgrade your hubs’ transfer centers and add planes where cargo is waiting.',
     pista_m3_caja3: 'Upgrade your hubs’ transfer centers and add planes where cargo is waiting.',
+    mision: 'Mission', premio: 'Reward {premio}', misionN: 'Mission {n}/{total}', rutaFalta: 'route missing', avionFalta: 'plane missing',
     contrato: '{n} {u} from {a} to {b} in {dias} days', contratoNavidad: 'Christmas mail: {n} bags from {a} to {b} in {dias} days',
+    contratoChip: '{n} {u} → {b}', contratoSub: '{quedan} · {premio}', contratoOferta: '{dias} days · {premio}',
+    quedanDH: '{d} d {h} h left', quedanH: '{h} h left',
     contratos: 'Today’s contracts', aceptar: 'Accept', contratoCumplido: 'Contract fulfilled! +{premio}', contratoVencido: 'A contract expired',
+    contratosAgrupados: '{n} contracts fulfilled: +{premio}',
     u_despegues: 'take-offs', u_ciudades: 'cities', u_aviones: 'planes', u_entregas: 'deliveries', u_plata: '', u_contratos: 'contracts',
+    sugTitulo: 'Best next move',
+    sug_ruta: 'Open {a} ⇄ {b}', sug_rutaAvion: 'Open {a} ⇄ {b} with {un} {avion}', sug_avion: 'Put {un} {avion} on {ruta}',
+    sug_balizas: 'Light {ruta}', sug_transbordo: 'Upgrade the {ap} center', sug_cargaMin: 'Make {ruta} depart with {v}',
+    sug_contrato: 'Accept the contract {a} → {b}', sug_vender: 'Sell {un} spare {avion} on {ruta}', sug_venderSeg: 'Sell {el} money-losing {avion}',
+    sug_esperar: 'Your planes are earning. Mission: {mision}', rutaA_hub: 'the route to {ciudad}', un_f: 'a', un_m: 'a', el_f: 'the', el_m: 'the',
+    sug_ahorrar: 'Save {falta} more for {que} (about {min} min at this pace).', sugEfecto: '+{monto}/day',
+    que_ruta: 'the route to {ciudad}', que_balizas: 'the beacons',
+    hangarNuevo: 'New in the hangar', velocidad: 'Speed', alcance: 'Range', capacidadTit: 'Capacity', precio: 'Price',
+    resumenTitulo: 'Chapter {n} complete', statSacas: 'bags delivered', statPax: 'passengers', statTon: 'tonnes', statKm: 'km flown',
+    statATiempo: 'on time', statMejor: 'Best route: {ruta} ({monto})', loQueSigue: 'What’s next',
+    sigueCap2: 'Chapter 2 · 1946: passengers and twin-engines arrive.', sigueCap3: 'Chapter 3 · 1970: jets, cargo and the whole continent.',
+    primeraMision: 'First mission: {mision}', sigueFin: 'Daily contracts and night rounds with medals, without end.',
+    datoCap1: 'In 1930 the southern airmail line reached Río Gallegos.',
+    datoCap2: 'On 4 June 1946 an Argentine airline flew to Europe for the first time: a flying boat bound for the United Kingdom.',
+    datoCap3: 'On 22 January 1970 the first wide-body airliner flew passengers: New York to London, with 335 on board.',
+    datoTit: 'From the period',
     avisoNoche: 'Night is coming: without beacons, your biplanes stay on the ground.', primeraNoche: 'Night has fallen: {n} planes wait for daylight. Beacons keep them flying.',
     ventaForzada: 'A day in the red: a money-losing plane was sold (+{monto}).', pronostico: 'Forecast: a storm over {lista} in a few hours.',
     tormentaFin: 'The storm is over.', bancoListo: 'Your hub can now run the night round.', rondaDisponible: 'Night round in Buenos Aires tonight: will you play it?',
+    finHistoria: 'You finished the story. Your network keeps going: daily contracts and night rounds with medals.',
     estado_ronda: 'waiting for its departure time',
-    mision: 'Mission', premio: 'Reward {premio}',
+    rondaChip: 'The night round starts at 22:00', rondaChipCorre: 'Night round on · {hora}', rondaJugar: 'Play the round', rondaVolverMapa: 'Back to the map',
+    rondaSubir: 'Move up the belt', rondaBajar: 'Move down the belt', rondaFilaInfo: '{n} bags · {v} flight', rondaCorteTxt: 'Cut-off 22:00 · first thing means before 07:00',
+    rondaLento: 'While you play the round, time runs slower.', rondaResTitulo: 'Night round: {m}', rondaResPct: '{pct}% arrived first thing',
+    rondaVsAutoMas: '{monto} more than autopilot', rondaVsAutoIgual: 'Same as autopilot', rondaVsAutoMenos: '{monto} less than autopilot',
+    rondaAutoAviso: 'Autopilot round: {pct}% first thing.', rondaTut1: 'Move up the belt what leaves first: it gets sorted first.',
+    rondaTut2: 'Use − and + to move each departure by 15 min. The red line is the last one that lands by 7.', rondaGuia: 'Round',
     rondaTitulo: 'Night round', rondaDia: 'Today’s round', rondaSub: 'Cut-off 22:00 · everything must arrive before 07:00',
     rondaCinta: 'Sorting belt', rondaCentro: 'sorts {n} bags per hour', rondaOrdenLlegada: 'in order of arrival', rondaOrdenTuyo: 'in your order',
     rondaAviones: 'Planes', rondaSugerido: 'Suggested plan', rondaVolar: 'Fly the night', rondaRepetir: 'Fly again', rondaOtra: 'Another night',
@@ -241,41 +373,68 @@ const T = {
     rondaSiguiente: 'Next', rondaEntendido: 'Got it', rondaSaltear: 'Skip',
     semaforo_verde: 'all on time', semaforo_amarillo: 'almost all on time', semaforo_rojo: 'much arrives late',
     medalla_oro: 'gold', medalla_plata: 'silver', medalla_bronce: 'bronze', medalla_nada: 'no medal',
-    creditosTexto: 'Holding prototype. Map: Natural Earth (public domain). Original planes, names and art. Made with Claude.',
+    sinGuardado: 'Progress is not saved in this window', errorTitulo: 'Something went wrong',
+    errorTexto: 'The game hit a problem. You can go back to the last save or start over.', restaurarRespaldo: 'Restore backup',
+    selectorTitulo: 'Pick the city',
+    creditosTexto: 'Holding prototype. Map: Natural Earth (public domain). Original planes, names, art and sound, all made by code. Made with Claude.',
   },
 };
 
-let idioma = 'es';
-try { idioma = localStorage.getItem('hubnocturno.idioma') || ((navigator.language || 'es').startsWith('es') ? 'es' : 'en'); } catch { /* sin almacenamiento */ }
+// Verbo según el dispositivo: táctil o puntero fino (mouse, touchpad).
+const VERBO = {
+  es: { tactil: ['Tocá', 'tocá'], puntero: ['Hacé clic en', 'hacé clic en'] },
+  en: { tactil: ['Tap', 'tap'], puntero: ['Click', 'click'] },
+};
+let dispositivo = 'puntero';
+export function fijarDispositivo(d) { dispositivo = d === 'tactil' ? 'tactil' : 'puntero'; }
+export const dispositivoActual = () => dispositivo;
 
+// Idioma: la elección guardada del jugador manda; si no hay, el locale del portal (CrazyGames) y después el del navegador. El
+// respaldo es inglés.
+const deLocale = (l) => (typeof l === 'string' && l ? (l.toLowerCase().startsWith('es') ? 'es' : 'en') : null);
+let elegido = null;
+try { const x = localStorage.getItem('hubnocturno.idioma'); if (x === 'es' || x === 'en') elegido = x; } catch { /* sin almacenamiento */ }
+let idioma = elegido ?? deLocale(typeof navigator !== 'undefined' ? navigator.language : null) ?? 'en';
+export function fijarLocalePortal(locale) { if (!elegido) idioma = deLocale(locale) ?? idioma; }
 export function lengua() { return idioma; }
 export function cambiarLengua() {
-  idioma = idioma === 'es' ? 'en' : 'es';
+  idioma = idioma === 'es' ? 'en' : 'es'; elegido = idioma;
   try { localStorage.setItem('hubnocturno.idioma', idioma); } catch { /* sin almacenamiento */ }
 }
 
 export function t(clave, vars = {}) {
   let s = T[idioma][clave] ?? T.es[clave] ?? clave;
+  if (s.includes('{Toca}') || s.includes('{toca}')) {
+    const [V, v] = VERBO[idioma][dispositivo];
+    s = s.replaceAll('{Toca}', V).replaceAll('{toca}', v);
+  }
   for (const [k, v] of Object.entries(vars)) s = s.replaceAll(`{${k}}`, v);
   return s;
 }
 
+const loc = () => (idioma === 'es' ? 'es-AR' : 'en-US');
 export function plata(n) {
   const v = Math.round(n);
   const abs = Math.abs(v);
-  const loc = idioma === 'es' ? 'es-AR' : 'en-US';
-  const txt = abs >= 1e6 ? `${(abs / 1e6).toLocaleString(loc, { maximumFractionDigits: 2 })} M` : abs.toLocaleString(loc);
+  const txt = abs >= 1e6 ? `${(abs / 1e6).toLocaleString(loc(), { maximumFractionDigits: 2 })} M` : abs.toLocaleString(loc());
   return `${v < 0 ? '−' : ''}$ ${txt}`;
 }
+export const plataSigno = (n) => (Math.round(n) > 0 ? '+' : '') + plata(n);
 
 export function numero(n, dec = 0) {
-  return Number(n).toLocaleString(idioma === 'es' ? 'es-AR' : 'en-US', { maximumFractionDigits: dec, minimumFractionDigits: 0 });
+  return Number(n).toLocaleString(loc(), { maximumFractionDigits: dec, minimumFractionDigits: 0 });
 }
 
 export function fechaTexto(f) {
-  return f.toLocaleDateString(idioma === 'es' ? 'es-AR' : 'en-US', { timeZone: 'UTC', day: 'numeric', month: 'short', year: 'numeric' }) +
-    ' · ' + f.toLocaleTimeString(idioma === 'es' ? 'es-AR' : 'en-US', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', hour12: false });
+  return f.toLocaleDateString(loc(), { timeZone: 'UTC', day: 'numeric', month: 'short', year: 'numeric' }) + ' · ' + horaTexto(f);
 }
+const MESES = { es: ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'], en: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] };
+// «2 nov 1929» / «Nov 2, 1929»: corta, para que entre en la barra.
+export const fechaCorta = (f) => {
+  const d = f.getUTCDate(), m = MESES[idioma][f.getUTCMonth()], a = f.getUTCFullYear();
+  return idioma === 'es' ? `${d} ${m} ${a}` : `${m} ${d}, ${a}`;
+};
+export const horaTexto = (f) => f.toLocaleTimeString(loc(), { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', hour12: false });
 
 // Para las pruebas: todas las claves en los dos idiomas.
 export const TEXTOS = T;

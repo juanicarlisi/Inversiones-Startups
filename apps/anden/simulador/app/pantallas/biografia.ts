@@ -11,6 +11,9 @@ import { esRef } from '../../contratos/referencias.ts';
 import { el, limpiezas, poner } from '../ui/dom.ts';
 import { cabecera, tarjeta } from '../ui/tarjeta.ts';
 import { botonVolver, textoFrase } from './comun.ts';
+import { textoEtiquetaNoche } from '../ui/etiqueta-noche.ts';
+import { duracionEntreHoras } from '../i18n/formato.ts';
+import type { CualNocheMostrada, NocheVista } from '../sesion.ts';
 
 const NOMBRE_CAUSA: Record<number, string> = Object.fromEntries(Object.entries(Causa).map(([k, v]) => [v, k.toLowerCase()]));
 
@@ -63,17 +66,33 @@ export function cambiosDe(bio: Biografia, mv: ModeloValidado, tr: Traza): Contra
 
 export const montarBiografia: Montar = (raiz, ctx) => {
   const L = limpiezas(), s = ctx.sesion;
+  // La biografía queda ATADA a la noche con la que se armó (hallazgo UX-01 y UX-09): su etiqueta lo dice, sus causas y su «¿y si…?»
+  // corren sobre esa noche aunque la escena cambie de noche mientras está abierta, y si cambia se avisa y se ofrece la misma entidad
+  // en la noche nueva.
+  let armada: { limpiar(): void } | null = null;
+  const armar = (noche: NocheVista | null, cual: CualNocheMostrada) => {
+    armada?.limpiar();
+    raiz.replaceChildren();
+    armada = armarBiografia(raiz, ctx, noche, cual, (otra, otraCual) => armar(otra, otraCual));
+  };
+  armar(s.noche, s.cualNoche);
+  return () => { armada?.limpiar(); L.correr(); };
+};
+
+function armarBiografia(raiz: HTMLElement, ctx: Contexto, noche: NocheVista | null, cual: CualNocheMostrada,
+  rearmar: (noche: NocheVista, cual: CualNocheMostrada) => void): { limpiar(): void } {
+  const L = limpiezas(), s = ctx.sesion;
   const sel = ctx.almacen.estado.seleccion;
-  const bio = sel ? s.biografia(sel.clase, sel.id) : null;
-  if (!bio || !s.noche || !s.mv) {
+  const bio = sel && noche ? s.biografia(sel.clase, sel.id, noche) : null;
+  if (!bio || !noche || !s.mv || !sel) {
     raiz.append(cabecera(ctx.t('app.bio.titulo'), botonVolver(ctx)), el('p', null, ctx.t('app.bio.nada')));
     raiz.dataset.listo = '1';
-    return () => L.correr();
+    return { limpiar: () => L.correr() };
   }
-  const noche = s.noche, mv = s.mv;
+  const mv = s.mv;
   // el verificador controla cada cifra contra su fuente: una frase que no pasa no se muestra (se dice que se retuvo)
   const frases: Frase[] = [bio.titulo, ...bio.pasos.map((p) => p.frase)];
-  const ok = s.verificar(frases);
+  const ok = s.verificar(frases, noche);
   const decir = (f: Frase, i: number) => (ok[i] ? textoFrase(ctx, f) : ctx.t('app.bio.retenida'));
   const titulo = decir(bio.titulo, 0);
   const lista = el('ol', { class: 'pasos' }, ...bio.pasos.map((p, i) => {
@@ -81,20 +100,38 @@ export const montarBiografia: Montar = (raiz, ctx) => {
     return el('li', { class: `paso${p.espera ? ' paso--espera' : ''}`, 'data-paso': i },
       el('span', { class: 'paso__hora' }, ctx.f.hora(p.desde)),
       el('span', { class: 'paso__texto' }, decir(p.frase, i + 1),
-        dur > 0 && !('min' in p.frase.vars) && !('espera' in p.frase.vars) ? el('span', { class: 'paso__duracion' }, ` · ${ctx.f.duracion(dur)}`) : null,
+        // la duración se calcula con las horas que se leen (truncadas al minuto): «de 02:24 a 02:35 · 11 min» (hallazgo UX-17)
+        dur > 0 && !('min' in p.frase.vars) && !('espera' in p.frase.vars) ? el('span', { class: 'paso__duracion' }, ` · ${duracionEntreHoras(p.desde, p.hasta)}`) : null,
         p.espera ? el('span', { class: `paso__causa paso__causa--${NOMBRE_CAUSA[p.espera.causa] ?? 'otra'}` }, ctx.t(`app.causa.${NOMBRE_CAUSA[p.espera.causa] ?? 'ninguna'}`)) : null));
   }));
+  // la etiqueta de la noche de ESTA biografía (regla 9 del contrato de honestidad: ninguna noche sin su etiqueta)
+  const etiqueta = el('p', { class: 'etiqueta-noche', 'data-etiqueta-noche': 'bio' }, textoEtiquetaNoche(ctx, noche, cual, s.N));
+  const avisoNoche = el('div', { class: 'bio__aviso-noche', 'aria-live': 'polite', hidden: true });
   const verEnNoche = el('button', { type: 'button', class: 'boton boton--primario', 'data-accion': 'ver-en-noche', onclick: () => {
     const t0 = bio.pasos[0]?.desde;
-    if (t0 !== undefined) ctx.almacen.despachar({ tipo: 'cabezal', t: t0 });
+    // si la escena ya muestra otra noche, se vuelve a la de esta historia (la ya calculada), con su etiqueta
+    if (s.noche !== noche) s.volverANoche(noche, cual, t0);
+    else if (t0 !== undefined) ctx.almacen.despachar({ tipo: 'cabezal', t: t0 });
     ctx.ir('escena');
   } }, ctx.t('app.bio.verEnNoche'));
+  const pintarAvisoNoche = () => {
+    const actual = s.noche;
+    if (!actual || actual === noche || actual.replica === noche.replica) { avisoNoche.hidden = true; avisoNoche.replaceChildren(); return; }
+    const otroId = s.mismaEntidad(sel.clase, sel.id, noche, actual);
+    avisoNoche.hidden = false;
+    poner(avisoNoche, el('p', null, ctx.t('app.bio.otraNoche', { esta: noche.replica + 1, otra: actual.replica + 1 })),
+      otroId !== null ? el('button', { type: 'button', class: 'boton', 'data-accion': 'bio-otra-noche', onclick: () => {
+        ctx.almacen.despachar({ tipo: 'seleccionar', seleccion: { clase: sel.clase, id: otroId } });
+        rearmar(actual, s.cualNoche);
+      } }, ctx.t('app.bio.verEnLaOtra', { otra: actual.replica + 1 })) : null);
+  };
+  L.sumar(s.suscribir((tema) => { if (tema === 'noche') pintarAvisoNoche(); }));
   const partes: HTMLElement[] = [];
   if (bio.percentil !== null) {
     // nunca «más que el 100%»: el último es «el que más tardó»; si no, se trunca hacia abajo (99,96 → 99,9)
     const p = bio.percentil >= 99 ? Math.floor(bio.percentil * 10) / 10 : Math.floor(bio.percentil);
-    partes.push(el('p', { class: 'bio__percentil' }, p >= 100 ? ctx.t('app.bio.elQueMasTardo')
-      : ctx.t('app.bio.percentil', { p: ctx.f.numero(p, p >= 99 ? 1 : 0) })));
+    partes.push(el('p', { class: 'bio__percentil' }, p >= 100 ? ctx.t('app.bio.elQueMasTardo', { noche: noche.replica + 1 })
+      : ctx.t('app.bio.percentil', { p: ctx.f.numero(p, p >= 99 ? 1 : 0), noche: noche.replica + 1 })));
   }
   partes.push(tarjeta(ctx.t('app.bio.pasos'), 'bio__pasos', bio.pasos.length ? lista : el('p', null, ctx.t('app.bio.sinPasos'))));
 
@@ -111,23 +148,24 @@ export const montarBiografia: Montar = (raiz, ctx) => {
         onclick: async () => {
           resultado.textContent = ctx.t('app.bio.ysiCalculando');
           try {
-            const cf = await s.contrafactual(sel!.id, c);
+            const cf = await s.contrafactual(sel.id, c, noche);
             if (cf) resultado.textContent = textoContrafactual(ctx, cf);
           } catch { resultado.textContent = ctx.t('app.error.contrafactual'); }
         } }, ctx.t(c.clave, c.vars)))) : el('p', null, ctx.t('app.bio.ysiSinCambios')),
       resultado, ysiCaja));
   }
-  raiz.append(cabecera(titulo, botonVolver(ctx), verEnNoche), ...partes);
+  raiz.append(cabecera(titulo, botonVolver(ctx), verEnNoche), etiqueta, avisoNoche, ...partes);
+  pintarAvisoNoche();
   raiz.dataset.listo = esPaquete ? '0' : '1';
   if (esPaquete) {
     poner(causasCaja, el('p', { class: 'nota', role: 'status' }, ctx.t('app.bio.buscandoCausas')));
     let vivo = true;
     L.sumar(() => { vivo = false; });
-    s.causas(sel!.id).then((r) => {
+    s.causas(sel.id, noche).then((r) => {
       if (!vivo) return;
       raiz.dataset.listo = '1';
       if (!r) { poner(causasCaja, el('p', null, ctx.t('app.bio.sinCausas'))); return; }
-      const okC = s.verificar(r.causas);
+      const okC = s.verificar(r.causas, noche);
       const mostrables = r.causas.filter((_, i) => okC[i]);
       const confirmados = r.contrafactuales.filter((c) => c.confirma);
       if (!mostrables.length) { poner(causasCaja, el('p', null, ctx.t('app.bio.sinCausas'))); return; }
@@ -136,19 +174,36 @@ export const montarBiografia: Montar = (raiz, ctx) => {
         confirmados.length ? el('ul', { class: 'confirmados' }, ...confirmados.map((c) => el('li', { class: 'confirmado' },
           el('span', { class: 'confirmado__marca', 'aria-hidden': 'true' }, '✓'),
           // con la hora de antes al lado («llegaba a las 05:50, no a las 06:05»): lo que agrega esta línea a la frase de la causa
-          c.despues.listo !== null ? ctx.t('app.bio.confirmado', { cambio: ctx.t(c.cambio.clave, c.cambio.vars), hora: ctx.f.hora(c.despues.listo),
-            antes: c.antes.listo !== null ? ctx.f.hora(c.antes.listo) : ctx.t('app.bio.noLlega') })
-            : ctx.t('app.bio.confirmadoSinHora', { cambio: ctx.t(c.cambio.clave, c.cambio.vars) })))) : null);
+          textoConfirmado(ctx, c)))) : null);
     }).catch(() => { if (vivo) { raiz.dataset.listo = '1'; poner(causasCaja, el('p', null, ctx.t('app.error.causas'))); } });
   }
-  return () => L.correr();
-};
+  return { limpiar: () => L.correr() };
+}
+
+/**
+ * La línea de una causa confirmada, con la hora de antes al lado («llegaba a las 05:50, no a las 06:05»). Si tal como está el paquete no
+ * llega a una jaula esa noche, lo dice con palabras (antes salía «no a las no llega»).
+ */
+export function textoConfirmado(ctx: Contexto, c: Contrafactual): string {
+  const cambio = ctx.t(c.cambio.clave, c.cambio.vars);
+  if (c.despues.listo === null) return ctx.t('app.bio.confirmadoSinHora', { cambio });
+  const hora = ctx.f.hora(c.despues.listo);
+  if (c.antes.listo === null) return ctx.t('app.bio.confirmadoNoLlegaba', { cambio, hora });
+  return ctx.t('app.bio.confirmado', { cambio, hora, antes: ctx.f.hora(c.antes.listo) });
+}
 
 export function textoContrafactual(ctx: Contexto, cf: Contrafactual): string {
   const cambio = ctx.t(cf.cambio.clave, cf.cambio.vars);
   const antes = cf.antes.listo === null ? ctx.t('app.bio.noLlega') : ctx.f.hora(cf.antes.listo);
-  if (cf.despues.listo === null) return ctx.t('app.bio.ysiNoLlega', { cambio, antes });
+  if (cf.despues.listo === null) {
+    // «tampoco» solo si tal como está tampoco llega; si llega y con el cambio no, se dice al revés
+    return cf.antes.listo === null ? ctx.t('app.bio.ysiNoLlega', { cambio, antes }) : ctx.t('app.bio.ysiYaNoLlega', { cambio, antes });
+  }
   const hora = ctx.f.hora(cf.despues.listo);
+  if (cf.antes.listo === null) {
+    const base = ctx.t('app.bio.ysiLlegaNoLlegaba', { cambio, hora });
+    return cf.despues.antesDelCorte ? `${base} ${ctx.t('app.bio.ysiAntesDelCorte')}` : `${base} ${ctx.t('app.bio.ysiDespuesDelCorte')}`;
+  }
   // a la misma hora (al minuto): el cambio no le sirve a este paquete; decirlo así, sin «llegaría… llega» con dos horas iguales
   if (cf.antes.listo !== null && hora === antes) return ctx.t('app.bio.ysiIgual', { cambio, hora });
   const base = ctx.t('app.bio.ysiLlega', { cambio, hora, antes });

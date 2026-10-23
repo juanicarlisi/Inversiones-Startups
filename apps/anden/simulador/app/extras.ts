@@ -6,13 +6,20 @@ import type { Servicios } from '../contratos/servicios.ts';
 import type { Estilo } from '../contratos/vistas.ts';
 import type { ModeloValidado } from '../contratos/modelo.ts';
 import type { ResultadoReplica } from '../contratos/resultados.ts';
-import type { Resumir, Semaforo } from '../contratos/experimentos.ts';
+import type { Comprobante, Resumir, Semaforo } from '../contratos/experimentos.ts';
 
 export interface ExtrasServicios {
   /** Los estilos de la escena (escena/indice.ts: `estilos`). */
   estilos?: { claro: Estilo; oscuro: Estilo };
   /** El semáforo de experimentos/ para un conjunto de noches (experimentos/semaforo.ts: `semaforoDe`). */
   semaforoDe?: (mv: ModeloValidado, resultados: ResultadoReplica[]) => Semaforo;
+  /** El resultado de la batería con el motor de producción (lo pone la construcción): el sello del motor sin esperar a las noches. */
+  motorVerificado?: Comprobante['motor'];
+  /** Intervalos que la interfaz muestra y no calcula (experimentos/): Wilson de éxitos en n y el IC de un percentil (null si no hay). */
+  intervalos?: {
+    wilson(exitos: number, n: number, confianza: number): [number, number];
+    icPercentil(xs: readonly number[], q: number, confianza: number): [number, number] | null;
+  };
 }
 export type ServiciosApp = Servicios & ExtrasServicios;
 
@@ -35,6 +42,7 @@ export function semaforoLocal(mv: ModeloValidado, rs: readonly ResultadoReplica[
   const conAlerta = (f: (a: string) => boolean) => rs.filter((r) => r.alertas.some(f)).sort((a, b) => a.replica - b.replica);
   const cons = conAlerta((a) => a === 'conservacion');
   if (cons.length) return { color: 'rojo', motivo: 'conservacion', vars: { afectadas: cons.length, replicas, replica: cons[0].replica + 1 } };
+  // (el número de noche va desde 1, igual que la etiqueta de noche y que experimentos/semaforo.ts)
   const inv = conAlerta((a) => a.startsWith('invariante'));
   if (inv.length) {
     const nombre = inv[0].alertas.find((a) => a.startsWith('invariante')) ?? 'invariante';

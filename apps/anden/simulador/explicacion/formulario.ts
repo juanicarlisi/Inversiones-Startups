@@ -11,6 +11,7 @@ import { crearFrase } from './frases.ts';
 import { CV_POR_DEFECTO, ERROR_RELATIVO_POR_DEFECTO, planDeMedicion } from './medicion.ts';
 import { cvDe, valorCentral } from './parametros.ts';
 import { redondear } from './unidades.ts';
+import type { ResultadoTamizadoConDuda } from './tamizado.ts';
 
 /** Clave del mensaje con que termina el formulario cuando nada de lo que falta cambia la respuesta. */
 export const MENSAJE_FORMULARIO_LISTO = 'explicacion.formulario.listo';
@@ -55,7 +56,12 @@ function fraseDelPorQue(r: ResultadoTamizado, nombre: string, p: Parametro, ruta
   const vars = { medio: medio.valor, bajo: bajo.valor, alto: alto.valor };
   const afirmaciones = [medio, bajo, alto];
   const [dB, dM, dA] = r.decisiones;
-  if (dB === null || dM === null || dA === null) return crearFrase('explicacion.pregunta.porque.sin_respuesta', vars, afirmaciones);
+  if (dB === null || dM === null || dA === null) {
+    // null por «ninguna opción cumple» o por «quedó en duda» (faltan noches): son frases distintas (hallazgo E-05)
+    const duda = (r as Partial<ResultadoTamizadoConDuda>).enDuda;
+    const ningunaCumple = ([dB, dM, dA] as (number | null)[]).some((d, i) => d === null && !(duda?.[i] ?? false));
+    return crearFrase(ningunaCumple ? 'explicacion.pregunta.porque.sin_respuesta' : 'explicacion.pregunta.porque.en_duda', vars, afirmaciones);
+  }
   const n = Math.max(dB, dM, dA) - Math.min(dB, dM, dA);
   // Singular con n = 1 («en 1 puesto», no «en hasta 1 puestos»): integracion/NOTAS-CONTRATO.md §1 (lo encontró P8).
   return crearFrase(`explicacion.pregunta.porque.${variableDe(ruta)}${n === 1 ? '.uno' : ''}`, { ...vars, n }, afirmaciones);

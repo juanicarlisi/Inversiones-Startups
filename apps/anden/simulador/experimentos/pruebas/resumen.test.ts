@@ -28,8 +28,8 @@ test('resumir: media, desvío, IC de t, P50, P90, mínimo y máximo con una mues
   assert.equal(r.icP90, null, 'con 8 datos no hay IC del P90');
 });
 
-test('resumir con n ≥ 20 trae el IC del P90; con una sola corrida lanza error (nunca un intervalo de una corrida)', () => {
-  const r = resumir(conValores(Array.from({ length: 30 }, (_, i) => i)), 'esperaP90Min', 0.9);
+test('resumir con n suficiente trae el IC del P90; con una sola corrida lanza error (nunca un intervalo de una corrida)', () => {
+  const r = resumir(conValores(Array.from({ length: 60 }, (_, i) => i)), 'esperaP90Min', 0.9);
   assert.ok(r.icP90 !== null && r.icP90[0] <= r.p90 && r.p90 <= r.icP90[1]);
   assert.throws(() => resumir(conValores([3]), 'esperaP90Min', 0.95), /al menos 2 réplicas independientes y llegaron 1: con una sola corrida no hay intervalo/);
   assert.throws(() => resumir([], 'esperaP90Min', 0.95), /al menos 2 réplicas/);

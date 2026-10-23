@@ -133,6 +133,13 @@ export async function primerMinuto({ contexto, base, etiqueta, combo, prep, fall
     return { noches: m.noches, rampasQueSeLlenan: [...m.rampaProbLlena].filter((p) => p > 0).length, p50: m.finClasificacionMin.p50 };
   });
   if (riesgo.noches !== 100) fallar(`${etiqueta} · cien noches: el mapa tiene ${riesgo.noches} noches`);
+  // el sello «reproducida» compara la huella agregada de ESTA pestaña con la `h` de la receta del autor (hallazgo H1)
+  await h.esperar(() => !!window.__anden.sesion.comprobante, null, 60_000, 'el comprobante de las cien noches');
+  const sello = await h.sesion(() => ({ sello: window.__anden.sesion.selloReproducida(), huella: window.__anden.sesion.comprobante.huellaAgregada }));
+  if (sello.sello !== 'reproducida' || sello.huella !== prep.huellaAgregadaPrimerMinuto) {
+    fallar(`${etiqueta} · cien noches: sello «${sello.sello}» con la huella agregada ${sello.huella} (se esperaba «reproducida» con ${prep.huellaAgregadaPrimerMinuto}, la del autor)`);
+  }
+  riesgo.sello = sello.sello; riesgo.huellaAgregada = sello.huella;
   datos.cienNoches = riesgo;
   await h.sinDesborde('cien noches');
   await guardar('primer-minuto-cien-noches', page, { completa: true });

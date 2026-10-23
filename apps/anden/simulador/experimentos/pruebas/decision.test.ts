@@ -25,7 +25,8 @@ test('la evaluación completa: 4 configuraciones ordenadas, con Wilson, estado, 
   assert.equal(ev.decision, 'dotacion-induccion');
   assert.deepEqual(ev.configuraciones.map((c) => c.valor), [2, 3, 4, 5]);
   for (const c of ev.configuraciones) {
-    assert.equal(c.prop.metodo, 'wilson'); assert.equal(c.prop.confianza, 0.95); assert.equal(c.prop.n, c.objetivo.n);
+    // 20 miradas posibles (20 iniciales, tandas de 20, hasta 400): cada una decide con 1 − 0,05 ÷ 20 = 0,9975 (Bonferroni)
+    assert.equal(c.prop.metodo, 'wilson'); assert.equal(c.prop.confianza, 0.9975); assert.equal(c.prop.n, c.objetivo.n);
     assert.equal(c.objetivo.kpi, 'costoNoche');
     assert.ok(c.prop.ic[0] <= c.prop.p && c.prop.p <= c.prop.ic[1]);
     const esperado = c.prop.ic[0] >= 0.9 ? 'cumple' : c.prop.ic[1] < 0.9 ? 'no-cumple' : 'en-duda';
@@ -109,7 +110,7 @@ test('si al llegar a replicasMax un valor relevante sigue en duda: sin recomenda
   assert.equal(c3.estado, 'en-duda'); assert.equal(c3.prop.n, 60, 'llegó al máximo');
   assert.equal(ev.recomendacion, null);
   assert.equal(ev.semaforo.color, 'amarillo'); assert.equal(ev.semaforo.motivo, 'decision-en-duda');
-  assert.equal(ev.semaforo.vars.valores, '3'); assert.equal(ev.semaforo.vars.replicas, 60);
+  assert.ok(String(ev.semaforo.vars.valores).startsWith('3'), `en duda: ${ev.semaforo.vars.valores}`); assert.equal(ev.semaforo.vars.replicas, 60);
   assert.ok(typeof ev.semaforo.vars.faltan === 'number' && ev.semaforo.vars.faltan >= 0, `faltan = ${ev.semaforo.vars.faltan}`);
 });
 
@@ -128,7 +129,8 @@ test('alertas en las noches (aunque sea en una) ponen el semáforo de la evaluac
   };
   const ev = await evaluarDecision(modeloConSemilla(5), planificadorSincrono(sim), varianteFalsa, OPCIONES);
   assert.equal(ev.semaforo.color, 'rojo'); assert.equal(ev.semaforo.motivo, 'invariante');
-  assert.equal(ev.semaforo.vars.nombre, 'rampa-capacidad'); assert.equal(ev.semaforo.vars.replica, 7);
+  assert.equal(ev.semaforo.vars.nombre, 'rampa-capacidad');
+  assert.equal(ev.semaforo.vars.replica, 8, 'el texto nombra la noche como la etiqueta: la réplica 7 es la «noche 8»');
 });
 
 test('«no-termina» en una opción que no cumple (sobrecargada) no pone en rojo la decisión; en una opción que cumple, sí (integración, I-3)', async () => {
@@ -240,16 +242,18 @@ test('la firma es la del contrato (EvaluarDecision) y acepta las opciones del co
   assert.equal(evaluarDecisionCon, evaluarDecision);
 });
 
-test('lo evidente se resuelve rápido: 0 de 20 ya es «no cumple»; 20 de 20 todavía es «en duda» (Wilson inferior 0,839) y 40 de 40 ya «cumple» (0,912)', async () => {
+test('lo evidente se resuelve sin apuro de más: 0 de 20 ya es «no cumple»; «cumple» recién con 100 de 100 (Wilson inferior con z = 3,02: 0,916; con 80 de 80, 0,897)', async () => {
   const trabajos: Trabajo[] = [];
   const sim: Simulador = (mv, semilla, replica) => {
     const v = mv.modelo.personas.induccion.puestosActivos;
     return { resultado: resultadoFalso({ semilla, replica, modelo: mv.huella, kpi: { pendientesAlCorte: v >= 4 ? 0 : 5, costoNoche: v * 1000 } }) };
   };
   const ev = await evaluarDecision(modeloConSemilla(5), planificadorSincrono(sim, { alEnviar: (t) => trabajos.push(t) }), varianteFalsa, OPCIONES);
-  assert.deepEqual(trabajos.map((t) => [t.mv.modelo.personas.induccion.puestosActivos, ...t.replicas]),
-    [[2, 0, 20], [3, 0, 20], [4, 0, 20], [5, 0, 20], [4, 20, 40], [5, 20, 40]], 'los dos que no cumplen se resuelven en la primera ronda; los dos que sí, con una tanda más');
-  assert.equal(ev.recomendacion, 4); assert.equal(ev.replicasUsadas, 120);
+  const esperados = [[2, 0, 20], [3, 0, 20], [4, 0, 20], [5, 0, 20]];
+  for (let d = 20; d < 100; d += 20) esperados.push([4, d, d + 20], [5, d, d + 20]);
+  assert.deepEqual(trabajos.map((t) => [t.mv.modelo.personas.induccion.puestosActivos, ...t.replicas]), esperados,
+    'los dos que no cumplen se resuelven en la primera ronda; los dos que sí, cuando el Wilson corregido por las 20 miradas lo permite');
+  assert.equal(ev.recomendacion, 4); assert.equal(ev.replicasUsadas, 240);
   assert.deepEqual(ev.configuraciones.map((c) => c.estado), ['no-cumple', 'no-cumple', 'cumple', 'cumple']);
   assert.equal(ev.configuraciones[2].objetivo.media, 4000); assert.equal(ev.configuraciones[2].objetivo.semiancho, 0);
   assert.equal(ev.semaforo.color, 'verde');

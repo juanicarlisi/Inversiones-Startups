@@ -4,11 +4,12 @@
 // fila (de menor a mayor índice de puesto). Tiempo = base(camión, índice, intento) × fatiga ÷ eficiencia, con fatiga
 // 1 + máximo · (1 − exp(−(t − fin de la última pausa) ÷ τ)) si está activa. Después el paquete espera bandeja (lo maneja el lazo) y
 // la persona queda ocupada hasta que lo coloca. Pausas en inicio + primera + i·escalón + m·cada mientras sean < fin; si la persona
-// está ocupada, la pausa espera a que termine la tarea y dura lo mismo.
+// está ocupada, la pausa espera a que termine la tarea y dura lo mismo. Desde el motor 1.1.0 (hallazgo R4 de la revisión), si la
+// noche se alarga después del fin del turno, las pausas siguen con el mismo ritmo mientras quede trabajo.
 import type { Bloque, EstadoBloque, Motor } from '../../contratos/motor.ts';
 import { Fase, aMs } from '../../contratos/tipos-base.ts';
 import { TipoTramo } from '../../contratos/traza.ts';
-import { instantesDePausa } from '../config.ts';
+import { instantesDePausa, pausaTrasFin } from '../config.ts';
 import { EV, Lugar, cargar, duracionMs, volcar, type Hub } from './comun.ts';
 
 /** Estados de un puesto. */
@@ -39,11 +40,16 @@ export class BloqueInduccion implements Bloque {
     const h = this.h, cfg = h.cfg;
     for (let s = 0; s < cfg.activos; s++) {
       for (const t of instantesDePausa(cfg, cfg.pausasInduccion, s)) h.m.agendar(t, this.id, EV.PAUSA_INICIO_INDUCCION, s, Fase.URGENTE, 0);
+      // La primera pausa después del fin del turno: si para entonces no queda trabajo, se descarta sin dejar rastro.
+      const tras = pausaTrasFin(cfg, cfg.pausasInduccion, s, cfg.fin - 1);
+      if (tras >= 0) h.m.agendar(tras, this.id, EV.PAUSA_INICIO_INDUCCION, s, Fase.URGENTE, 0);
     }
   }
 
   manejar(m: Motor, tipo: number, s: number): void {
     const t = m.ahora;
+    // Una pausa después del fin del turno sin trabajo pendiente no pasa: ni siquiera mueve el último instante de la noche.
+    if (tipo === EV.PAUSA_INICIO_INDUCCION && t >= this.h.cfg.fin && this.h.terminado()) return;
     this.h.tUltimo = t;
     switch (tipo) {
       case EV.FIN_INDUCCION: this.finInduccion(s, t); return;
@@ -115,7 +121,11 @@ export class BloqueInduccion implements Bloque {
   }
 
   private pedirPausa(s: number, t: number): void {
-    const S = this.S;
+    const S = this.S, cfg = this.h.cfg;
+    if (t >= cfg.fin) {
+      const otra = pausaTrasFin(cfg, cfg.pausasInduccion, s, t);
+      if (otra >= 0) this.h.m.agendar(otra, this.id, EV.PAUSA_INICIO_INDUCCION, s, Fase.URGENTE, 0);
+    }
     if (S.estado[s] === Puesto.SIN_PERSONA) return;
     if (S.estado[s] === Puesto.LIBRE) this.empezarPausa(s, t);
     else S.pendientes[s]++;

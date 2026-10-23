@@ -24,7 +24,7 @@ test('la entrega de P1 está completa: crearMotor, crearFuenteAzar, claveDe, det
   }
   assert.equal(typeof nucleo.det, 'object');
   for (const f of ['log', 'exp', 'cos', 'sin', 'pow', 'sqrt'] as const) assert.equal(typeof nucleo.det[f], 'function', `falta det.${f}`);
-  assert.equal(nucleo.VERSION_MOTOR, '1.0.0');
+  assert.equal(nucleo.VERSION_MOTOR, '1.1.0');
 });
 
 test('un motor del índice corre de punta a punta con traza completa', () => {

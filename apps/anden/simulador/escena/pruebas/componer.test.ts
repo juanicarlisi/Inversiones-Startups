@@ -152,7 +152,17 @@ test('capa de riesgo: cada tobogán se tiñe con el color de su probabilidad de 
   for (const piso of ['2d', 'iso'] as const) {
     const ps = (piso === 'iso' ? componerIso : componer2d)(comp(rep, piso, 'movil', { opciones: { riesgo } }));
     for (const nombre of ['riesgo0', 'riesgo2', 'riesgo4']) {
-      assert.equal(contar(ps, (p) => p.tipo === 'poligono' && p.relleno === c[nombre]), 1, `${piso}: un tobogán con ${nombre}`);
+      assert.equal(contar(ps, (p) => p.tipo === 'poligono' && p.relleno === c[nombre] && p.prof !== -Infinity), 1, `${piso}: un tobogán con ${nombre}`);
+    }
+    if (piso === 'iso') {
+      // y en 2,5D, una placa encima de la jaula (dibujada al final) por cada rampa con riesgo, para las del lado lejano (UX-02)
+      for (const nombre of ['riesgo2', 'riesgo4']) {
+        assert.equal(contar(ps, (p) => p.tipo === 'poligono' && p.relleno === c[nombre] && p.prof === -Infinity), 1, `iso: una placa con ${nombre}`);
+      }
+      assert.equal(contar(ps, (p) => p.tipo === 'poligono' && p.relleno === c.riesgo0 && p.prof === -Infinity), 0, 'sin riesgo, sin placa');
+      // la placa es lo último que se dibuja: nada la tapa
+      const ultimo = ps.map((p, i) => [p, i] as const).filter(([p]) => p.tipo === 'poligono' && p.relleno === c.riesgo4 && p.prof === -Infinity)[0][1];
+      assert.ok(ps.slice(ultimo + 1).every((p) => p.prof === -Infinity), 'después de la placa solo puede venir otra cosa «encima de todo»');
     }
   }
 });
@@ -179,7 +189,10 @@ test('lazo detenido: se marca con dos líneas punteadas del color de alarma; ram
   for (const piso of ['2d', 'iso'] as const) {
     const ps = (piso === 'iso' ? componerIso : componer2d)(comp(rep, piso, 'movil'));
     assert.equal(contar(ps, (p) => p.tipo === 'linea' && p.color === c.lazoDetenido && p.guion !== null), 2, `${piso}: el lazo detenido se marca a los dos costados`);
-    assert.equal(contar(ps, (p) => p.tipo === 'poligono' && p.relleno === c.rampaLlena), 1, `${piso}: la rampa R02 llena`);
+    assert.equal(contar(ps, (p) => p.tipo === 'poligono' && p.relleno === c.rampaLlena && p.prof !== -Infinity), 1, `${piso}: la rampa R02 llena`);
+    // y además se marca encima de todo (UX-02): en 2D el contorno del tobogán, en 2,5D la placa sobre la jaula
+    if (piso === '2d') assert.equal(contar(ps, (p) => p.tipo === 'poligono' && p.relleno === null && p.borde === c.rampaLlena), 1, '2d: contorno de la rampa llena');
+    else assert.equal(contar(ps, (p) => p.tipo === 'poligono' && p.relleno === c.rampaLlena && p.prof === -Infinity), 1, 'iso: placa de la rampa llena');
     const despues = (piso === 'iso' ? componerIso : componer2d)(comp(rep, piso, 'movil', { t: 45_000 }));
     assert.equal(contar(despues, (p) => p.tipo === 'linea' && p.color === c.lazoDetenido), 0, `${piso}: con el lazo andando no hay marca`);
   }

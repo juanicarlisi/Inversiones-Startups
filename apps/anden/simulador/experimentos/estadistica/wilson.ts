@@ -27,6 +27,16 @@ export function wilson(exitos: number, n: number, confianza: number): [number, n
   return wilsonDeP(exitos / n, n, cuantilNormal(confianza));
 }
 
+/** Wilson con un z cualquiera (el de cada mirada de la decisión secuencial, que corrige por mirar varias veces: normal.ts). */
+export function wilsonZ(exitos: number, n: number, z: number): [number, number] {
+  if (!Number.isInteger(n) || n < 1) throw new Error(`wilson: n tiene que ser un entero ≥ 1 y llegó ${n}`);
+  if (!Number.isInteger(exitos) || exitos < 0 || exitos > n) {
+    throw new Error(`wilson: los éxitos tienen que ser un entero entre 0 y n=${n} y llegaron ${exitos}`);
+  }
+  if (!(z > 0) || !Number.isFinite(z)) throw new Error(`wilson: z tiene que ser un número finito > 0 y llegó ${z}`);
+  return wilsonDeP(exitos / n, n, z);
+}
+
 /** cumple: el extremo inferior ya alcanza la meta · no-cumple: el superior no la alcanza · en-duda: el intervalo la cruza. */
 export function estadoPorWilson(ic: readonly [number, number], meta: number): EstadoConfiguracion {
   if (ic[0] >= meta) return 'cumple';
@@ -40,7 +50,11 @@ export function estadoPorWilson(ic: readonly [number, number], meta: number): Es
  * harían falta más de `tope` noches. Es un cálculo de planificación, no un resultado: la usa el semáforo para decir «faltarían unas N».
  */
 export function nochesQueFaltan(exitos: number, n: number, meta: number, confianza: number, tope = 1_000_000): number | null {
-  const z = cuantilNormal(confianza);
+  return nochesQueFaltanZ(exitos, n, meta, cuantilNormal(confianza), tope);
+}
+
+/** Lo mismo que `nochesQueFaltan` con el z de cada mirada (la decisión secuencial corrige por mirar varias veces). */
+export function nochesQueFaltanZ(exitos: number, n: number, meta: number, z: number, tope = 1_000_000): number | null {
   const p = exitos / n;
   if (p === meta) return null;
   const resuelto = (m: number): boolean => estadoPorWilson(wilsonDeP(p, m, z), meta) !== 'en-duda';

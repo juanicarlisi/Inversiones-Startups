@@ -77,6 +77,14 @@ export const HOSTILES: Hostil[] = [
     fragmento: () => fragmentoDeTexto(ejemploCon((m) => { m.demanda.camiones.paquetes = 1e9; })),
   },
   {
+    // SEG-01 (revisión del 19-10-2026): pasaba los topes de paquetes (1.924.000 de 2.000.000) y de eventos y su película pedía 11,5
+    // millones de tramos (1,2 GB en la pestaña). Ahora la rechaza el tope de tramos de la película.
+    id: 'H07b', nombre: '40 camiones de 48.100 paquetes sin error de pronóstico (película de 23 millones de tramos)', esperado: 'presupuesto',
+    fragmento: () => fragmentoDeTexto(ejemploCon((m) => {
+      m.demanda.camiones.cantidad = 40; m.demanda.camiones.paquetes = 48100; m.parametros.errorPronosticoCv.valor = 0;
+    })),
+  },
+  {
     id: 'H08', nombre: 'paso: 0', esperado: 'esquema',
     fragmento: () => fragmentoDeTexto(ejemploCon((m) => { m.hub.sorter.paso = 0; })),
   },

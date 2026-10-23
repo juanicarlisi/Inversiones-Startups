@@ -17,6 +17,25 @@ export const HORAS_DE_GRACIA = 8;
 export const MAX_LUGARES_MEMORIA = 2_000_000;
 
 /**
+ * Tramos de traza por paquete, para estimar la película antes de correr (hallazgo SEG-01 de la revisión del 19-10-2026). MEDIDO el
+ * 20-10-2026 con el motor 1.1.0 en 20 noches: 11,5 en hub-chico@1.0.0 y 11,6 en hub-lazo-noche@1.0.0, 11,9 la noche más cargada
+ * (descarga, cinta, acumulación, inducción, bandeja, rampa, mano, jaula y las tareas de las personas); 11,0 en el enlace del hallazgo.
+ * Los paquetes estimados ya van a 4 desvíos del pronóstico, así que 12 queda del lado seguro.
+ */
+export const TRAMOS_POR_PAQUETE = 12;
+/**
+ * Tope de tramos de la película de una noche (≈ 35 bytes por tramo: ~70 MB; con la pantalla dividida de «¿y si…?» son dos noches,
+ * dentro de los 150 MB de §11). La plantilla grande estima ~380.000. Un enlace de 7.950 caracteres que pedía 11,5 millones de tramos
+ * (400 MB por noche) pasaba los topes de paquetes y eventos y llevaba la pestaña a 1,2 GB; con este tope se rechaza antes de correr.
+ */
+export const MAX_TRAMOS_ESTIMADOS = 2_000_000;
+
+/** Tramos estimados de la película de una noche: paquetes estimados × TRAMOS_POR_PAQUETE. */
+export function tramosEstimados(m: Modelo): number {
+  return estimarPresupuesto(m).paquetes * TRAMOS_POR_PAQUETE;
+}
+
+/**
  * Redondeo hacia arriba que no se deja engañar por el ruido de punto flotante (10560,000000000002 → 10560). Un valor que ya no
  * es finito se devuelve tal cual: Infinity − Infinity es NaN, y un NaN pasaría por debajo de cualquier tope (`NaN > max` es falso).
  */

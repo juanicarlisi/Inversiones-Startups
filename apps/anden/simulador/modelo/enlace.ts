@@ -122,11 +122,23 @@ export async function descomprimirConTope(bytes: Uint8Array, max: number):
 // Receta binaria v1
 // ---------------------------------------------------------------------------------------------------------------------------
 // byte 0: versión del formato (1 = Receta.v 1) · bytes 1–8: huella del modelo (16 hex) · varint mayor, menor y parche del motor ·
-// varint semilla · varint réplicas · byte de banderas (bit 0 noche · 1 t · 2 vel · 3 vel en float64 · 4 esc) · los opcionales en
+// varint semilla · varint réplicas · byte de banderas (bit 0 noche · 1 t · 2 vel · 3 vel en float64 · 4 esc · 5 h) · los opcionales en
 // ese orden: varint noche · varint t · vel (varint si es entero, si no float64 little-endian) · varint cantidad de escenarios y, por
-// cada uno, varint largo + UTF-8. Nada después del último campo.
+// cada uno, varint largo + UTF-8 · h: 8 bytes. Nada después del último campo.
+//
+// `h` (bit 5, agregado el 20-10-2026 por el hallazgo H1/E-01 de la revisión) es la HUELLA AGREGADA de las noches del autor (16 hex,
+// la del comprobante): con ella quien abre el enlace compara SUS números con los del autor y el sello «reproducida» deja de ser
+// verdadero por construcción. El contrato `Receta` (congelado) no la tiene: viaja como campo extra opcional (RecetaConHuella), anotado
+// en integracion/CAMBIOS-CONTRATO.md §1. Una receta sin `h` (vieja, o de un modelo anonimizado) sigue siendo válida.
 
 const RE_HUELLA = /^[0-9a-f]{16}$/;
+/** Receta con la huella agregada de las noches del autor (extensión de `Receta`; ver arriba). */
+export type RecetaConHuella = Receta & { h?: string };
+/**
+ * Máximo de noches que puede pedir una receta (hallazgo SEG-03): un enlace de 43 caracteres pedía 100.000 noches y la app las corría
+ * sin preguntar (≈ 1 h de 3 núcleos al 100% con la plantilla chica). 1.000 es 10 veces las cien noches de la escena.
+ */
+export const MAX_REPLICAS_RECETA = 1000;
 const RE_MOTOR = /^(\d{1,4})\.(\d{1,4})\.(\d{1,4})$/;
 export const MAX_ESCENARIOS_RECETA = 8;
 const UTF8 = new TextEncoder();
@@ -174,8 +186,8 @@ export function problemaReceta(r: Receta): string | null {
   if (typeof r.modelo !== 'string' || !RE_HUELLA.test(r.modelo)) return 'modelo: se esperaban 16 caracteres hex en minúscula';
   if (typeof r.motor !== 'string' || !RE_MOTOR.test(r.motor)) return 'motor: se esperaba una versión «x.y.z»';
   if (!Number.isInteger(r.semilla) || r.semilla < 0 || r.semilla > 4294967295) return 'semilla: se esperaba un entero de 32 bits sin signo';
-  if (!Number.isInteger(r.replicas) || r.replicas < 1 || r.replicas > 100000) return 'replicas: se esperaba un entero entre 1 y 100.000';
-  if (r.noche !== undefined && (!Number.isInteger(r.noche) || r.noche < 0 || r.noche > 100000)) return 'noche: se esperaba un entero entre 0 y 100.000';
+  if (!Number.isInteger(r.replicas) || r.replicas < 1 || r.replicas > MAX_REPLICAS_RECETA) return `replicas: se esperaba un entero entre 1 y ${MAX_REPLICAS_RECETA}`;
+  if (r.noche !== undefined && (!Number.isInteger(r.noche) || r.noche < 0 || r.noche >= MAX_REPLICAS_RECETA)) return `noche: se esperaba un entero entre 0 y ${MAX_REPLICAS_RECETA - 1}`;
   if (r.t !== undefined && (!Number.isSafeInteger(r.t) || r.t < 0)) return 't: se esperaban ms enteros no negativos';
   if (r.vel !== undefined && (typeof r.vel !== 'number' || !Number.isFinite(r.vel) || !(r.vel > 0) || r.vel > 1e6)) return 'vel: se esperaba un número mayor que 0 y hasta 1.000.000';
   if (r.esc !== undefined) {
@@ -184,7 +196,9 @@ export function problemaReceta(r: Receta): string | null {
       if (typeof e !== 'string' || e.length === 0 || e.length > 64 || revisarTexto(e)) return 'esc: cada id es un texto de 1 a 64 caracteres sin caracteres de control';
     }
   }
-  const extra = Object.keys(r).filter((k) => !['v', 'modelo', 'motor', 'semilla', 'replicas', 'noche', 't', 'vel', 'esc'].includes(k) && (r as unknown as Record<string, unknown>)[k] !== undefined);
+  const h = (r as RecetaConHuella).h;
+  if (h !== undefined && (typeof h !== 'string' || !RE_HUELLA.test(h))) return 'h: se esperaba la huella agregada, 16 caracteres hex en minúscula';
+  const extra = Object.keys(r).filter((k) => !['v', 'modelo', 'motor', 'semilla', 'replicas', 'noche', 't', 'vel', 'esc', 'h'].includes(k) && (r as unknown as Record<string, unknown>)[k] !== undefined);
   if (extra.length) return `campo desconocido en la receta: ${extra[0]}`;
   return null;
 }
@@ -199,7 +213,9 @@ export function codificarReceta(r: Receta): string {
   varint(out, r.semilla);
   varint(out, r.replicas);
   const velFloat = r.vel !== undefined && !Number.isSafeInteger(r.vel);
-  const banderas = (r.noche !== undefined ? 1 : 0) | (r.t !== undefined ? 2 : 0) | (r.vel !== undefined ? 4 : 0) | (velFloat ? 8 : 0) | (r.esc !== undefined ? 16 : 0);
+  const h = (r as RecetaConHuella).h;
+  const banderas = (r.noche !== undefined ? 1 : 0) | (r.t !== undefined ? 2 : 0) | (r.vel !== undefined ? 4 : 0) | (velFloat ? 8 : 0) | (r.esc !== undefined ? 16 : 0)
+    | (h !== undefined ? 32 : 0);
   out.push(banderas);
   if (r.noche !== undefined) varint(out, r.noche);
   if (r.t !== undefined) varint(out, r.t);
@@ -214,6 +230,7 @@ export function codificarReceta(r: Receta): string {
     varint(out, r.esc.length);
     for (const e of r.esc) { const b = UTF8.encode(e); varint(out, b.length); for (const x of b) out.push(x); }
   }
+  if (h !== undefined) for (let i = 0; i < 16; i += 2) out.push(parseInt(h.slice(i, i + 2), 16));
   return aBase64url(new Uint8Array(out));
 }
 
@@ -230,7 +247,7 @@ export function decodificarReceta(s: string): { ok: true; receta: Receta } | { o
     const semilla = l.varint();
     const replicas = l.varint();
     const banderas = l.byte();
-    if (banderas & ~31) throw new Error('banderas desconocidas en la receta');
+    if (banderas & ~63) throw new Error('banderas desconocidas en la receta');
     if ((banderas & 8) && !(banderas & 4)) throw new Error('bandera de vel en float64 sin vel');
     const r: Receta = { v: 1, modelo, motor, semilla, replicas };
     if (banderas & 1) r.noche = l.varint();
@@ -249,6 +266,11 @@ export function decodificarReceta(s: string): { ok: true; receta: Receta } | { o
       const esc: string[] = [];
       for (let i = 0; i < n; i++) esc.push(UTF8_ESTRICTO.decode(l.bytes(l.varint())));
       r.esc = esc;
+    }
+    if (banderas & 32) {
+      let h = '';
+      for (const x of l.bytes(8)) h += x.toString(16).padStart(2, '0');
+      (r as RecetaConHuella).h = h;
     }
     if (l.i !== b.length) throw new Error('bytes de más al final de la receta');
     const p = problemaReceta(r);

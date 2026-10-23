@@ -66,6 +66,17 @@ export function duracionDeMs(ms: number): string {
   return `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, '0')} min`;
 }
 
+/**
+ * Duración de un tramo que se muestra con su hora de inicio (y a veces la de fin) truncadas al minuto: se calcula con esas horas,
+ * para que la resta de lo que se lee dé lo que se escribe («de 02:24 a 02:35 · 11 min», hallazgo UX-17). Por debajo del minuto real,
+ * en segundos.
+ */
+export function duracionEntreHoras(desde: number, hasta: number): string {
+  if (!Number.isFinite(desde) || !Number.isFinite(hasta)) return '—';
+  if (hasta - desde < 60000) return duracionDeMs(hasta - desde);
+  return duracionDeMs((Math.floor(hasta / 60000) - Math.floor(desde / 60000)) * 60000);
+}
+
 export function crearFormato(idioma: Idioma): Formato {
   const numero = (x: number, decimales?: number) => numeroEn(idioma, x, decimales);
   return {

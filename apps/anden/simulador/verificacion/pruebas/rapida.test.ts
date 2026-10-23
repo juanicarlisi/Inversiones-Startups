@@ -75,7 +75,8 @@ test('un motor con la exponencial corrida 5% hace fallar V25 (rendimiento de la 
   const inf = crearBateria(corrido).correr({ suite: 'completa', ids: ['V25'], reintentar: false });
   const r = inf.resultados.find((x) => x.id === 'V25')!;
   assert.equal(r.estado, 'falla', `V25 con la exponencial corrida: ${r.simulado}`);
-  assert.match(r.motivo ?? '', /\|z\| = .* > 3.29/);
+  // el umbral es t(0,9995; n − 1) (hallazgo H4): con las réplicas de V25 es 3,3 y pico
+  assert.match(r.motivo ?? '', /\|z\| = .* > 3,\d\d \(t\(0,9995; \d+\)\)/);
 });
 
 /** Un caso falso cuyo resultado depende de la semilla y del factor de réplicas (para probar la política de reintento). */

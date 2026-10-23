@@ -232,6 +232,15 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
     }
     if (ref === refSel) prims.push(halo(c, o[0], o[1], clase === ClaseEntidad.PERSONA ? tm.persona : tm.paquete, ref, prof++));
   }
+  // rampas llenas: el contorno del tobogán encima de los paquetes, para que la rampa llena se vea aunque la tapen (hallazgo UX-02)
+  if (!riesgo) {
+    const cl = color(e, 'rampaLlena'), g = Math.max(2, 0.12 * z);
+    for (let r = 0; r < D.rampas.length; r++) {
+      if (rec.rampaLlena[r] !== 1) continue;
+      const R = D.rampas[r];
+      prims.push({ tipo: 'poligono', pts: proyectar(p, tobogan(R.ini, R.fin, R.ancho)), relleno: null, borde: cl, grosor: g, prof: prof++ });
+    }
+  }
   // selección de un recurso fijo
   if (sel && sel.clase === ClaseEntidad.RAMPA && sel.id >= 0 && sel.id < D.rampas.length) {
     const R = D.rampas[sel.id];

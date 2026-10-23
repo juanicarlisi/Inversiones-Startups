@@ -187,7 +187,7 @@ foto y restauración): misma huella y mismos KPI con fotos a las 22:20, 23:30, 0
 | `invariantes.test.ts` | **I01–I06** en 20 noches por plantilla, con las alertas y leyendo la traza |
 | `doradas.test.ts` | Huella, eventos y 24 KPI de 5 semillas del hub chico (`doradas.json`) |
 | `kpi.test.ts` | KPI sanos en 50 noches del hub chico: 0 alertas, todo clasificado, definiciones de §6.9 y costos; el fin entre 120 y 300 min o, si no, un golpe discreto confirmado por contrafactual (NOTAS-CONTRATO §13: el criterio literal es imposible con 1.0.0); el **certificado** de esa imposibilidad calculado sin correr el hub (solo la plantilla y las direcciones de §6.3: r44 necesita 333,5 min de inducción) y cotejado con lo que sorteó el hub; el criterio literal de §9 sobre 1.0.0 como prueba **pendiente** (`todo`: falla, lo muestra y no rompe la suite hasta que decida la integración); el criterio literal sobre la propuesta `hub-chico@1.1.0` (pasa); percentiles |
-| `plan.test.ts` | Asignación por volumen, contiguas y lista; 30 noches de la grande: P90 de recirculación por volumen ≤ contiguas |
+| `plan.test.ts` | Asignación por volumen (bloques de rampas vecinas con la carga pareja, motor 1.1.0), `particionPareja`, contiguas y lista; 30 noches de la chica: P90 de recirculación por volumen ≤ contiguas |
 | `foto.test.ts` | R06 del hub (adelantado) y rechazo de fotos de otro modelo |
 | `traza.test.ts` | Columnas por tipo de tramo, causas y causantes, momentos, resumen por paquete, catálogo |
 | `personas.test.ts` | Retén, temporarios, fatiga y pausas contra el sorteo de cada paquete |
@@ -200,3 +200,24 @@ hub chico (≈ 7.900 paquetes) 94 ms sin traza y 101 ms con traza completa (93.0
 hub grande (≈ 23.700 paquetes) 187 ms sin traza y 297 ms con traza (277.000 tramos; 8,1 eventos por paquete). Los 16 archivos (68
 pruebas: 67 pasan y 1 pendiente, el criterio literal de §9 sobre 1.0.0) tardan 29 s de reloj (el 19-10-2026, con otros paquetes corriendo
 en paralelo; 19–21 s el 18-10-2026 con 67; el límite de §9 es 90 s). Los presupuestos de §11 los mide el banco de la integración con el núcleo de producción.
+
+## 10. Motor 1.1.0 (20-10-2026): lo que cambió en el hub
+
+Los arreglos de los hallazgos R1, R2, R3, R4 (parcial) y R5 de la revisión del 19-10-2026 cambian reglas de `corte-1.md` §6.7 y §6.9
+(`integracion/CAMBIOS-CONTRATO.md` §2 tiene la tabla 1.0.0 → 1.1.0 y el texto propuesto). En corto:
+
+- **Caminata (regla 11, R1).** Pasar de una rampa a otra cuesta la distancia por el pasillo del lazo, por el lado más corto, a
+  `VELOCIDAD_CAMINAR_MPS` = 1,2 m/s (SUPUESTO), con `caminar` s como mínimo (`config.ts` › `caminataMs`). En 1.0.0 eran `caminar` s fijos.
+- **Plan por volumen (regla 7, R1).** Bloques de rampas vecinas (en el orden del lazo) con la carga del más cargado lo menor posible
+  (`plan.ts` › `particionPareja`). En 1.0.0 repartía por volumen por todo el lazo.
+- **Persistencia (regla 11, R2).** Con `la-mas-llena` y `la-que-se-llena-antes` la persona se queda en su rampa mientras tenga paquetes y
+  ninguna otra de las suyas esté llena; en un empate gana la actual y después la más cercana.
+- **Relevo en las pausas (reglas 6 y 7, R3).** Mientras alguien de rampa está en pausa, sus rampas las atiende la siguiente persona
+  presente que no esté en pausa (en ronda); al volver las recupera. El compilador informa `I-PAUSAS-SUPERPUESTAS` si el escalón es menor
+  que la pausa.
+- **Pausas después del fin (regla 6, R4).** Si la noche se alarga, las pausas de inducción y de rampa siguen con su ritmo mientras quede
+  trabajo. La cobertura entre roles y la jornada máxima (el resto de R4) quedan para el corte 2.
+- **Utilizaciones (§6.9, R5).** `utilInduccionPct` y `personaOcupadaPct` dividen por la jornada real, `max(fin, último listo) − inicio`.
+
+Las doradas (`pruebas/doradas.json`) se regeneraron con 1.1.0. MEDIDO (20 noches, chico): por volumen contra contiguas, P(todo antes del
+corte) 0,73 contra 0,67 y recirculación 5,3% contra 12,0%; con 2 puestos en el grande la utilización de inducción da 78% (en 1.0.0, 175%).

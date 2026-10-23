@@ -17,6 +17,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createRequire } from 'node:module';
+import { huellaFuentes } from './huella-fuentes.mjs';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 export const RAIZ = resolve(AQUI, '..');                       // apps/anden/simulador
@@ -26,14 +27,19 @@ const ENTRADAS = { entrada: join(AQUI, 'entrada.ts'), worker: join(AQUI, 'worker
 /** Navegadores de referencia: Chromium 141 del entorno; es2022 cubre los de 2023 en adelante (módulos en Workers, import.meta). */
 export const OBJETIVO = 'es2022';
 
-/** Lo que dice el comprobante del motor (Comprobante['motor']): el resultado de la batería con el motor de producción, si se corrió. */
+/**
+ * Lo que dice el comprobante del motor (Comprobante['motor']): el resultado de la batería con el motor de producción, si se corrió CON
+ * ESTE CÓDIGO. Además de la versión, la huella de los archivos que corre la batería tiene que ser la que se guardó al correrla
+ * (hallazgo H5): si alguien tocó el núcleo, el hub, la verificación o la estadística después, el sello dice «sin verificar».
+ */
 export function motorVerificado() {
   const version = /VERSION_MOTOR\s*=\s*'([^']+)'/.exec(readFileSync(join(RAIZ, 'nucleo', 'version.ts'), 'utf8'))?.[1] ?? '?';
   const archivo = join(AQUI, 'salida', 'bateria-nucleo.json');
   if (existsSync(archivo)) {
     try {
       const b = JSON.parse(readFileSync(archivo, 'utf8'));
-      if (b && b.version === version && Number.isInteger(b.pasaron) && Number.isInteger(b.pruebasExigibles) && typeof b.fecha === 'string') {
+      const mismoCodigo = b?.fuentes?.sha256 === huellaFuentes().sha256;
+      if (b && b.version === version && mismoCodigo && Number.isInteger(b.pasaron) && Number.isInteger(b.pruebasExigibles) && typeof b.fecha === 'string') {
         return { version, pruebasExigibles: b.pruebasExigibles, pasaron: b.pasaron, fecha: b.fecha };
       }
     } catch { /* un archivo roto cuenta como «sin verificar» */ }
@@ -148,7 +154,7 @@ if (esPrincipal) {
     const peso = (f) => statSync(join(r.destino, f)).size;
     console.log(`Andén: construido en ${relative(process.cwd(), r.destino) || '.'} con ${r.plan} en ${ms.toFixed(0)} ms (service worker ${r.version}).`);
     for (const f of ['entrada.js', 'worker.js']) if (existsSync(join(r.destino, f))) console.log(`  ${f.padEnd(12)} ${(peso(f) / 1024).toFixed(1)} KB`);
-    console.log(`  ${r.archivos.length} archivos · motor: ${r.motor ? `${r.motor.pasaron} de ${r.motor.pruebasExigibles} (${r.motor.fecha})` : 'sin verificar (falta integracion/salida/bateria-nucleo.json)'}`);
+    console.log(`  ${r.archivos.length} archivos · motor: ${r.motor ? `${r.motor.pasaron} de ${r.motor.pruebasExigibles} (${r.motor.fecha})` : 'sin verificar (falta integracion/salida/bateria-nucleo.json, o el código que corre la batería cambió desde la última corrida: npm run verificar)'}`);
     for (const a of r.advertencias) console.log(`  aviso: ${a}`);
   }, (e) => {
     console.error(`Andén: la construcción falló: ${e instanceof Error ? (process.env.DEPURAR ? e.stack : e.message) : String(e)}`);

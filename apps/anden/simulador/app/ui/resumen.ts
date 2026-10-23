@@ -2,20 +2,35 @@
 // La línea de arriba de la escena (diseño maestro §5.3): «Costo por paquete $X (± Y) · Perder el corte: 1 noche de cada N · Confianza:
 // [semáforo] · Comprobante», y los tres sellos que no se mezclan (§5.9): motor verificado, reproducida en este dispositivo y validación.
 // Ningún número sin su incertidumbre: el costo lleva su ± (IC de t sobre las noches) y la probabilidad, su IC de Wilson.
-import type { Proporcion } from '../../contratos/experimentos.ts';
+import type { Comprobante, Proporcion } from '../../contratos/experimentos.ts';
 import type { Contexto } from '../contexto.ts';
 import { el, type Hijo } from './dom.ts';
 import { fichaSemaforo } from './semaforo.ts';
 
-/** «1 noche de cada 10», «3 de cada 10 noches», «ninguna de 100 noches»… a partir de P(no perder el corte). */
+/**
+ * Un extremo de intervalo en porcentaje que no miente al redondear (hallazgo E-14): 0 y 1 exactos van sin decimales; un valor positivo
+ * menor que 1% nunca se muestra «0%» (va con un decimal, o «<0,1%»), y uno menor que 100% nunca «100%».
+ */
+export function porcentajeExtremo(ctx: Contexto, x: number): string {
+  if (x <= 0) return ctx.f.porcentaje(0, 0);
+  if (x >= 1) return ctx.f.porcentaje(1, 0);
+  if (x < 0.001) return `<${ctx.f.porcentaje(0.001, 1)}`;
+  if (x < 0.01) return ctx.f.porcentaje(x, 1);
+  if (x > 0.999) return `>${ctx.f.porcentaje(0.999, 1)}`;
+  if (x > 0.99) return ctx.f.porcentaje(x, 1);
+  return ctx.f.porcentaje(x, 0);
+}
+
+/** «1 noche de cada 10», «3 de cada 10 noches», «ninguna de 100 noches», «todas las 100 noches»… a partir de P(no perder el corte). */
 export function textoPerderCorte(ctx: Contexto, prop: Proporcion): { texto: string; ic: string } {
   const p = 1 - prop.p, bajo = 1 - prop.ic[1], alto = 1 - prop.ic[0];
   let texto: string;
   if (prop.exitos === prop.n) texto = ctx.t('app.resumen.perder.ninguna', { N: prop.n });
+  else if (prop.exitos === 0) texto = ctx.t('app.resumen.perder.todas', { N: prop.n });
   else if (p >= 0.95) texto = ctx.t('app.resumen.perder.casiTodas');
   else if (p >= 0.2) texto = ctx.t('app.resumen.perder.deCada10', { k: Math.round(p * 10) });
   else texto = ctx.t('app.resumen.perder.unaDeCada', { cada: Math.max(2, Math.round(1 / p)) });
-  const ic = ctx.t('app.resumen.perder.ic', { bajo: ctx.f.porcentaje(bajo, 0), alto: ctx.f.porcentaje(alto, 0) });
+  const ic = ctx.t('app.resumen.perder.ic', { bajo: porcentajeExtremo(ctx, bajo), alto: porcentajeExtremo(ctx, alto) });
   return { texto, ic };
 }
 
@@ -28,6 +43,9 @@ export function lineaResumen(ctx: Contexto): HTMLElement {
   if (!s.nochesListas) {
     partes.push(el('span', { class: 'resumen__item resumen__item--calculando', 'data-resumen': 'calculando' },
       ctx.t('app.resumen.calculando', { llegadas: s.llegadas, N: s.N })));
+  } else if (s.semaforo?.color === 'rojo') {
+    // «No usar»: el texto del semáforo dice «No se muestran números», y no se muestran (hallazgo E-02; contrato de honestidad §7.10.5)
+    partes.push(el('span', { class: 'resumen__item resumen__item--rojo', 'data-resumen': 'sin-numeros' }, ctx.t('app.resumen.sinNumeros')));
   } else {
     const moneda = mv.modelo.costos.moneda;
     if (s.resumenCosto) {
@@ -46,12 +64,18 @@ export function lineaResumen(ctx: Contexto): HTMLElement {
   return el('div', { class: 'resumen', role: 'group', 'aria-label': ctx.t('app.resumen.titulo') }, ...partes);
 }
 
+/** Texto del sello del motor: el resultado de la batería con ESTE código, o «sin verificar» si no hay una corrida que le corresponda. */
+export function textoSelloMotor(ctx: Contexto, m: Comprobante['motor'] | null | undefined): string {
+  if (!m) return ctx.t('app.sello.motor.pendiente', { version: ctx.servicios.versionMotor });
+  if (m.pasaron === 0 && m.fecha === '—') return ctx.t('app.sello.motor.sinVerificar', { version: m.version });
+  return ctx.t('app.sello.motor', { version: m.version, pasaron: m.pasaron, exigibles: m.pruebasExigibles });
+}
+
 /** Los tres sellos con su texto exacto (diseño maestro §5.9). `compacto` = una línea cada uno (para la escena). */
 export function sellos(ctx: Contexto, compacto = false): HTMLElement {
   const s = ctx.sesion, c = s.comprobante;
-  const motor = c
-    ? ctx.t('app.sello.motor', { version: c.motor.version, pasaron: c.motor.pasaron, exigibles: c.motor.pruebasExigibles })
-    : ctx.t('app.sello.motor.pendiente', { version: ctx.servicios.versionMotor });
+  // el resultado de la batería se conoce al construir: el sello sale completo desde el primer cuadro (hallazgo UX-18)
+  const motor = textoSelloMotor(ctx, c?.motor ?? ctx.servicios.motorVerificado);
   const rep = s.selloReproducida();
   const reproducida = ctx.t(`app.sello.reproducida.${rep}`, { receta: s.recetaEnlace?.motor ?? '', motor: ctx.servicios.versionMotor });
   const v = c?.validacion ?? { estado: 'sin-validar' as const };

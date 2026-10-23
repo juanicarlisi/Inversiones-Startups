@@ -18,6 +18,12 @@ import { EstadoPuesto, esReproductorEscena } from './reproductor.ts';
 export const ALTURAS = { lazo: 0.85, lazoTapa: 1.07, cinta: 0.58, cintaTapa: 0.7, toboganAlto: 0.8, toboganBajo: 0.4, mesa: 0.85, anden: 1.2 };
 /** Altura (m) del rótulo de una rampa cuya jaula queda entre el rótulo y la cámara: por encima de la jaula llena (0,06 + 1,1 m). */
 export const ALTURA_ROTULO_ATRAS = 1.5;
+/**
+ * Altura (m) de la placa que marca el estado de una rampa (riesgo de las cien noches o rampa llena) por ENCIMA de su jaula: en 2,5D el
+ * tobogán de las rampas del lado lejano se ve de canto y lo tapan las bandejas y los paquetes del lazo, y la mitad de las rampas no se
+ * veía (hallazgo UX-02). La placa se dibuja al final, sobre todo lo demás.
+ */
+export const ALTURA_PLACA_RAMPA = 1.45;
 
 /**
  * Caras visibles de una caja orientada (centro cx, cy; dirección del largo dx, dy; base en z0; alto h): las laterales que miran a la
@@ -216,6 +222,16 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
     }
     lista.push({ tipo: 'sprite', clave, x: o[0], y: o[1], respaldo, prof: pr });
     if (ref === refSel) lista.push(halo(c, o[0], o[1], clase === ClaseEntidad.PERSONA ? tm.persona : tm.paquete, ref, pr - 0.001));
+  }
+  // placas de estado sobre las jaulas: riesgo (si la capa está activa) o rampa llena, visibles desde cualquier lado
+  for (let r = 0; r < D.rampas.length; r++) {
+    const R = D.rampas[r];
+    const nivel = riesgo && r < riesgo.rampaProbLlena.length ? colorRiesgo(riesgo.rampaProbLlena[r]) : null;
+    const llena = !riesgo && rec.rampaLlena[r] === 1;
+    if (!(nivel && nivel !== 'riesgo0') && !llena) continue;
+    const lado = Math.min(R.ancho * 1.25, 1.4);
+    lista.push({ tipo: 'poligono', pts: plano(p, esquinas(R.jaula[0], R.jaula[1], R.dir[0], R.dir[1], lado, lado), ALTURA_PLACA_RAMPA),
+      relleno: color(e, nivel && nivel !== 'riesgo0' ? nivel : 'rampaLlena'), borde: color(e, 'texto'), grosor: 1.2, prof: -Infinity });
   }
   if (sel && sel.clase === ClaseEntidad.RAMPA && sel.id >= 0 && sel.id < D.rampas.length) {
     const R = D.rampas[sel.id];

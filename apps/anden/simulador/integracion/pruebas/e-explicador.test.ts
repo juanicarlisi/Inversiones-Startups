@@ -74,7 +74,12 @@ function causasDe(t: Traza, mv: ModeloValidado, camion: number, indice: number) 
 
 // ------------------------------------------------------------------------------------------------ E01
 
-/** Paquetes que pierden el corte con una espera en RAMPA ≥ 5 min superpuesta a una pausa de la persona que atiende la rampa. */
+/**
+ * Paquetes que pierden el corte con una espera en RAMPA ≥ 5 min superpuesta a una pausa de la persona que atiende la rampa, con al
+ * menos 5 min de la espera DENTRO de la pausa. Desde el motor 1.1.0 (hallazgo R3) mientras una persona está en pausa sus rampas las
+ * atiende otra: una espera que apenas roza la pausa ya no es una espera «por la pausa» (la persona estaba trabajando, o cerrando una
+ * jaula, casi todo el tiempo) y el explicador, bien, no la atribuye a la pausa (integracion/CAMBIOS-CONTRATO.md §2).
+ */
 function esperanSobrePausa(t: Traza): number[] {
   const T = t.tramos, P = t.paquetes;
   const pausas = new Map<number, [number, number][]>();
@@ -91,7 +96,8 @@ function esperanSobrePausa(t: Traza): number[] {
     if (antesDelCorte(P.listo[e], t.corte)) continue;
     const q = T.q[i];
     if (q < 0 || claseDeRef(q) !== ClaseEntidad.PERSONA) continue;
-    if ((pausas.get(idDeRef(q)) ?? []).some(([a, b]) => a < T.t1[i] && b > T.t0[i])) out.add(e);
+    const solape = (pausas.get(idDeRef(q)) ?? []).reduce((n, [a, b]) => n + Math.max(0, Math.min(b, T.t1[i]) - Math.max(a, T.t0[i])), 0);
+    if (solape >= UMBRAL_ESPERA_MS) out.add(e);
   }
   return [...out].sort((a, b) => a - b);
 }

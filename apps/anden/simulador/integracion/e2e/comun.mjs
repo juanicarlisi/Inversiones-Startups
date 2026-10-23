@@ -23,11 +23,16 @@ const rep = (path, value) => ({ op: 'replace', path, value });
 
 /**
  * Primer minuto (§10.8 y diseño maestro §5.3): «Mirá cómo se traba el hub», con el enlace de la plantilla GRANDE.
- * El hub de quien comparte reparte las rampas por vecindad (1 cambio sobre hub-lazo-noche@1.0.0) y el enlace lleva la receta de la peor
- * de las cien noches, parada en un instante en que se ve un paquete que pierde el corte con una causa confirmada. Así «balancear el plan»
- * tiene algo que balancear (con la plantilla tal cual el plan ya va por volumen: la app lo dice y no compara; lo prueba aparte el recorrido).
+ * El hub de quien comparte tiene 9 personas de rampa (no 15) y las reparte por vecindad, en tramos de igual cantidad de rampas (2 cambios
+ * sobre hub-lazo-noche@1.0.0): cuando falta alguien, sus rampas se suman a las de la persona siguiente (regla 7) y esa persona no da
+ * abasto. El enlace lleva la receta de la peor de las cien noches, parada en un instante en que se ve un paquete que pierde el corte con
+ * una causa confirmada. «Balancear el plan» (bloques de rampas vecinas con la carga pareja entre las personas presentes) tiene algo que
+ * mejorar: MEDIDO el 20-10-2026 con el motor 1.1.0 en 100 noches, P(todo antes del corte) 0,84 → 0,98 y recirculación 5,0% → 0,0%.
+ * Con 8 personas la peor noche no terminaba en el horizonte (alerta «no-termina»); con 10 o más casi no hay diferencia (0,97 → 0,98); con
+ * las 15 de la plantilla, ninguna rampa se llena con ninguno de los dos planes desde el motor 1.1.0. Con la plantilla tal cual el plan ya
+ * va por volumen: la app lo dice y no compara (lo prueba aparte el recorrido).
  */
-export const PARCHE_PRIMER_MINUTO = [rep('/personas/rampa/asignacion', 'contiguas')];
+export const PARCHE_PRIMER_MINUTO = [rep('/personas/rampa/cantidad', 9), rep('/personas/rampa/asignacion', 'contiguas')];
 
 /**
  * Decidir (§10.8): con hub-chico@1.0.0 tal cual ninguna opción cumple la meta (integracion/NOTAS-CONTRATO.md §3.2) y el formulario no
@@ -85,14 +90,19 @@ export async function prepararEnlaces({ log = () => {} } = {}) {
     const instante = Math.round((elegido.w.desde + elegido.w.hasta) / 2 / 60_000) * 60_000;
     log(`primer minuto: paquete ${P.indice[elegido.e] + 1} del camión ${P.camion[elegido.e] + 1}, ${atrasados.length} atrasados en la noche, ` +
       `causa confirmada «${elegido.causa}», espera de ${((elegido.w.hasta - elegido.w.desde) / 60_000).toFixed(1)} min; enlace a las ${horaDe(instante)}`);
-    const receta = { v: 1, modelo: mv.huella, motor: E.versionMotor, semilla, replicas: N, noche: peor, t: instante, vel: 600 };
+    // la receta lleva la huella agregada de las cien noches del autor (`h`, hallazgo H1): la pestaña que abre el enlace la compara con la
+    // suya y recién entonces dice «reproducida»
+    const comprobante = await S.comprobante(mv, noches, S.semaforoDe(mv, noches));
+    const receta = { v: 1, modelo: mv.huella, motor: E.versionMotor, semilla, replicas: N, noche: peor, t: instante, vel: 600, h: comprobante.huellaAgregada };
     const primerMinuto = await E.codec.codificar({ tipo: 'plantilla', plantilla: { id: 'hub-lazo-noche', version: '1.0.0' }, parche: PARCHE_PRIMER_MINUTO, receta });
     const decidir = await E.codec.codificar({ tipo: 'plantilla', plantilla: { id: 'hub-chico', version: '1.0.0' }, parche: PARCHE_DECIDIR });
-    // H01 de modelo/pruebas/hostiles: una bomba de deflate (10 MB de ceros en ~13.000 caracteres de enlace)
+    // H01 de modelo/pruebas/hostiles: una bomba de deflate (10 MB de ceros en ~13.000 caracteres de enlace); y H07b (hallazgo SEG-01):
+    // un modelo que pasaba los topes de paquetes y eventos y pedía una película de millones de tramos (más de 1 GB en la pestaña)
     const { HOSTILES } = await import('../../modelo/pruebas/hostiles/entradas.ts');
     const hostil = await HOSTILES.find((x) => x.id === 'H01').fragmento();
+    const hostilPelicula = await HOSTILES.find((x) => x.id === 'H07b').fragmento();
     return {
-      primerMinuto, decidir, hostil, peor, instante, huellaModeloPrimerMinuto: mv.huella,
+      primerMinuto, decidir, hostil, hostilPelicula, peor, instante, huellaModeloPrimerMinuto: mv.huella, huellaAgregadaPrimerMinuto: comprobante.huellaAgregada,
       paquete: { camion: P.camion[elegido.e], indice: P.indice[elegido.e], causa: elegido.causa },
       atrasadosEnLaPeor: atrasados.length,
     };

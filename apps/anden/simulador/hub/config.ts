@@ -18,6 +18,12 @@ export type Regla = (typeof Regla)[keyof typeof Regla];
 export const HORIZONTE_EXTRA_S = 8 * 3600;
 /** Medición cada cuarto de hora (regla 15). */
 export const MEDICION_MS = 15 * 60 * 1000;
+/**
+ * Velocidad de marcha de una persona de rampa entre dos rampas (m/s), motor 1.1.0. SUPUESTO: 1,2 m/s es la velocidad de marcha
+ * habitual de un adulto que camina sin carga (a medir en la planta). El esquema anden.modelo/1 no tiene un campo para esto: queda como
+ * regla del motor, igual que el horizonte (integracion/CAMBIOS-CONTRATO.md §2).
+ */
+export const VELOCIDAD_CAMINAR_MPS = 1.2;
 
 export interface PausasCfg { duracion: number; cada: number; primera: number; escalon: number } // segundos
 
@@ -48,6 +54,8 @@ export interface ConfigHub {
   jaulaCap: number; cierreMs: Ms;
   // personas de rampa
   nW: number; asignacion: 'por-volumen' | 'contiguas' | string[][]; regla: Regla; manejo: Distribucion; caminarMs: Ms;
+  /** Posición de cada rampa sobre el lazo, en [0, largoLazo) (m): para la distancia de la caminata y el plan por volumen. */
+  rampaS: Float64Array;
   pausasRampa: PausasCfg; ausentismoRampa: number;
   // excepción (puesto manual)
   nX: number; tiempoManual: Distribucion; excepcionId: string;
@@ -262,6 +270,7 @@ export function compilarConfig(m: Modelo, fidelidad: Fidelidad): ConfigHub {
     jaulaCap, cierreMs: aMs(noNegativo(numero(m, h.jaulas.cierre), 'hub.jaulas.cierre')),
     nW, asignacion: pe.rampa.asignacion, regla, manejo: distribucion(m, pe.rampa.manejo),
     caminarMs: aMs(noNegativo(numero(m, pe.rampa.caminar), 'personas.rampa.caminar')),
+    rampaS: Float64Array.from(h.rampas, (r) => { const L = largoLazo(s); return ((r.s % L) + L) % L; }),
     pausasRampa: pausas(pe.rampa.pausas, 'personas.rampa.pausas'),
     ausentismoRampa: probabilidad(m, pe.rampa.ausentismo, 'personas.rampa.ausentismo'),
     nX, tiempoManual: distribucion(m, pe.excepcion.tiempo), excepcionId: h.excepcion.id,
@@ -270,6 +279,39 @@ export function compilarConfig(m: Modelo, fidelidad: Fidelidad): ConfigHub {
     fijoNoche: noNegativo(numero(m, m.costos.fijoNoche), 'costos.fijoNoche'),
     catalogo,
   };
+}
+
+/**
+ * Distancia (m) que camina una persona de rampa entre las rampas a y b: por el pasillo que rodea el lazo, medida sobre el lazo y por
+ * el lado más corto (las rampas salen hacia afuera del lazo, así que para pasar de una recta a la otra se rodea la curva). Motor 1.1.0.
+ */
+export function distanciaRampas(cfg: Pick<ConfigHub, 'rampaS' | 'largoLazo'>, a: number, b: number): number {
+  const d = Math.abs(cfg.rampaS[a] - cfg.rampaS[b]);
+  return Math.min(d, cfg.largoLazo - d);
+}
+
+/**
+ * Lo que tarda en ms una persona de rampa en pasar de la rampa `de` a la rampa `a` (motor 1.1.0, corrige el hallazgo R1 de la
+ * revisión): la distancia ÷ la velocidad de marcha, con `caminar` (el parámetro del modelo) como mínimo por cambio de rampa
+ * (arrancar, girar, frenar). 0 si no cambia de rampa o si todavía no estaba en ninguna.
+ */
+export function caminataMs(cfg: Pick<ConfigHub, 'rampaS' | 'largoLazo' | 'caminarMs'>, de: number, a: number): Ms {
+  if (de < 0 || de === a) return 0;
+  return Math.max(cfg.caminarMs, aMs(distanciaRampas(cfg, de, a) / VELOCIDAD_CAMINAR_MPS));
+}
+
+/**
+ * Pausas después del fin del turno (motor 1.1.0, hallazgo R4): si la noche se alarga, la persona sigue con su ritmo de pausas
+ * (inicio + primera + i·escalón + m·cada) mientras quede trabajo y antes del horizonte. Devuelve el primer instante del ritmo que es
+ * ≥ max(fin, después de t) y < horizonte, o −1 si no hay. Quien la recibe la descarta si ya no queda trabajo.
+ */
+export function pausaTrasFin(cfg: ConfigHub, p: PausasCfg, i: number, t: number): number {
+  if (!(p.cada > 0)) return -1;
+  for (let k = 0; ; k++) {
+    const ms = aMs(cfg.inicioS + p.primera + i * p.escalon + k * p.cada);
+    if (ms >= cfg.horizonte) return -1;
+    if (ms >= cfg.fin && ms > t) return ms;
+  }
 }
 
 /** Instantes de pausa de la persona i de un rol: inicio + primera + i·escalón + m·cada, mientras sean < fin (regla 6). En ms. */

@@ -1,7 +1,8 @@
 # Notas de la integración · corte 1, pasos I-1 (§10.1 a §10.5), I-2 (§10.6, §10.7 y §10.9) e I-3 (§10.8, §10.10 y §10.11) · 19-10-2026
 
 Qué decidió la integración sobre lo que anotaron los ocho paquetes en sus `NOTAS-CONTRATO.md`, qué quedó cableado, qué cambió en otros
-paquetes (cambio mínimo, con sus pruebas en verde) y qué queda para decidir. **`contratos/` no cambió**: no hay `CAMBIOS-CONTRATO.md`, y
+paquetes (cambio mínimo, con sus pruebas en verde) y qué queda para decidir. **`contratos/` no cambió**; lo que los arreglos de la revisión (20-10-2026) cambian de la especificación o extienden por fuera de un
+contrato está en `CAMBIOS-CONTRATO.md` (ver §13), y
 `pruebas/arquitectura.test.ts` exige que siga idéntico byte a byte al anexo del paso 0 y al código de los Anexos A y B de `corte-1.md`.
 Números MEDIDOS en el contenedor del entorno (4 núcleos, Node 22.22.0, Chromium 141) el 19-10-2026.
 
@@ -109,7 +110,8 @@ tandas pasan los 3 minutos de §12.1) y van al informe de salida. Propuesta para
 
 - Restaurar una foto con traza completa da una traza parcial (y `invariante:tiempo`): foto de la traza.
 - La causa AUSENCIA no se detecta en rampa con la traza actual del hub (P7 §5): no hay causa falsa, hay una causa que no se dice.
-- La receta lleva la huella del modelo y no la de las noches: el sello «reproducida» compara entradas (P8 §5).
+- ~~La receta lleva la huella del modelo y no la de las noches: el sello «reproducida» compara entradas (P8 §5).~~ **Resuelto el
+  20-10-2026** (hallazgo H1): la receta lleva `h`, la huella agregada del autor (`CAMBIOS-CONTRATO.md` §1).
 - `Math.sin` y `Math.cos` en el Worker lanzan solo mientras corre el motor: la geometría de la traza (`posEnLazo` del contrato) los usa
   para dibujar después de la corrida. El resto de la matemática nativa lanza siempre.
 
@@ -153,7 +155,8 @@ como pide §8; `pagina.ts` nombra las familias nuevas y dice «exigibles del cor
 - la causa: las medias de réplica son **asimétricas** (asimetría 1,1–1,5: con ρ = 0,9 hay períodos ocupados largos) y el IC de t con
   n = 10 cubre de menos con datos asimétricos. La banda de §8, [93,1%; 96,9%], supone que el método cubre exactamente el 95%: con la
   real en 93,6% la prueba cae por azar cerca de la mitad de las veces con 500 macro-experimentos.
-**Corrección:** la banda se centra en la cobertura real del método con el mismo ancho: **[91,4%; 95,9%]** (93,6% ± 1,96 ee de 500
+**Corrección (reemplazada el 20-10-2026, hallazgo H3: recentrar la banda en lo que dio el mismo método es circular; ahora S03 exige
+independencia y sesgo y la cobertura queda informativa como S03c, `CAMBIOS-CONTRATO.md` §4):** la banda se centra en la cobertura real del método con el mismo ancho: **[91,4%; 95,9%]** (93,6% ± 1,96 ee de 500
 macro-experimentos, más la incertidumbre del centro). Además, S03 ahora exige que la media de las 5.000 medias no tenga sesgo (|z| ≤ 3,29)
 y reporta la asimetría de la corrida. En la corrida final: 92,2% (461 de 500), asimetría 1,29, media 8,966 (z = −1,46) → pasa sin
 reintento. `pruebas/s-estadistica.test.ts` usa la misma banda (con su semilla da 94,8%). **Propuesta para `corte-1.md` §8:** S03 «Entre

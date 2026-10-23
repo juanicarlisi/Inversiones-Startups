@@ -13,7 +13,7 @@ import { etiquetaNoche } from '../ui/etiqueta-noche.ts';
 import { lineaResumen, sellos } from '../ui/resumen.ts';
 import { tabla } from '../ui/tabla.ts';
 import { filaComparacion } from './ysi.ts';
-import { rampaMasLlena, paqueteParaMostrar } from './escena.ts';
+import { rampaMasLlena, paqueteDeRampa, paqueteParaMostrar } from './escena.ts';
 import { textoFrase } from './comun.ts';
 
 interface Candado { release(): Promise<void> }
@@ -45,8 +45,11 @@ export const montarPresentar: Montar = (raiz, ctx) => {
   const salir = el('button', { type: 'button', class: 'boton', 'data-accion': 'salir-presentar', onclick: () => ctx.almacen.despachar({ tipo: 'volver' }) }, ctx.t('app.presentar.salir'));
   raiz.append(
     el('div', { class: 'presentar__barra' }, puntos, el('div', { class: 'presentar__botones' }, completa, salir)),
-    el('div', { class: 'presentar__escenario' }, el('div', { class: 'presentar__texto' }, titulo, subtitulo, etq.nodo), lienzo.nodo, linea.nodo, panel),
-    el('div', { class: 'presentar__nav' }, anterior, el('p', { class: 'presentar__ayuda' }, ctx.t('app.presentar.ayuda')), siguiente));
+    // en pantalla completa y apaisado, la película a la izquierda y el texto del acto a la derecha, sin desplazar (hallazgo UX-08)
+    el('div', { class: 'presentar__escenario' },
+      el('div', { class: 'presentar__pelicula' }, lienzo.nodo, linea.nodo),
+      el('div', { class: 'presentar__lado' }, el('div', { class: 'presentar__texto' }, titulo, subtitulo, etq.nodo), panel,
+        el('div', { class: 'presentar__nav' }, anterior, el('p', { class: 'presentar__ayuda' }, ctx.t('app.presentar.ayuda')), siguiente))));
 
   let acto = -1;
   const pintarActo = () => {
@@ -115,22 +118,30 @@ function panelDelActo(ctx: Contexto, a: number, panel: HTMLElement): void {
   const s = ctx.sesion;
   if (a === 0) { poner(panel, lineaResumen(ctx)); return; }
   if (a === 1) {
-    const r = rampaMasLlena(ctx), e = paqueteParaMostrar(ctx), noche = s.noche;
+    // La rampa resaltada y la causa que se cuenta son del MISMO lugar (hallazgo UX-04): el paquete es uno que esperó por esa rampa.
+    // Si ningún paquete esperó por la rampa que más se llenó, se cuenta el paquete atrasado (o el que más tardó) sin decir que es de ella.
+    const r = rampaMasLlena(ctx), noche = s.noche;
+    const deRampa = r !== null ? paqueteDeRampa(ctx, r) : null;
+    const e = deRampa ?? paqueteParaMostrar(ctx);
     const bio = r !== null ? s.biografia(ClaseEntidad.RAMPA, r) : null;
     const lista = el('ul', { class: 'presentar__lista' });
     if (bio) {
       const ok = s.verificar([bio.titulo, ...bio.pasos.map((p) => p.frase)]);
       lista.append(el('li', { class: 'presentar__destacado' }, ok[0] ? textoFrase(ctx, bio.titulo) : ctx.t('app.bio.retenida')));
-      bio.pasos.slice(0, 3).forEach((p, i) => lista.append(el('li', null, `${ctx.f.hora(p.desde)} · ${ok[i + 1] ? textoFrase(ctx, p.frase) : ctx.t('app.bio.retenida')}`)));
+      // del relato de la rampa, primero cuándo estuvo llena (no los cierres de jaula)
+      const idx = bio.pasos.map((p, i) => [p, i] as const);
+      const llenas = idx.filter(([p]) => p.frase.clave === 'explicacion.paso.rampa_llena');
+      const elegidos = (llenas.length ? llenas : idx).slice(0, 3);
+      elegidos.forEach(([p, i]) => lista.append(el('li', null, `${ctx.f.hora(p.desde)} · ${ok[i + 1] ? textoFrase(ctx, p.frase) : ctx.t('app.bio.retenida')}`)));
     }
     const causas = el('div', { class: 'presentar__causas' }, el('p', { class: 'nota' }, ctx.t('app.bio.buscandoCausas')));
-    poner(panel, lista, causas);
+    poner(panel, lista, el('p', { class: 'presentar__subtitulo' }, ctx.t(deRampa !== null ? 'app.presentar.paqueteDeRampa' : 'app.presentar.paqueteOtro')), causas);
     if (e !== null && noche) {
       let p = causasPresentacion.get(noche);
       if (!p) {
-        p = s.causas(e).then((x) => {
+        p = s.causas(e, noche).then((x) => {
           if (!x) return [];
-          const ok = s.verificar(x.causas);
+          const ok = s.verificar(x.causas, noche);
           return x.causas.filter((_, i) => ok[i]).map((f) => textoFrase(ctx, f));
         }).catch(() => []);
         causasPresentacion.set(noche, p);
@@ -154,17 +165,29 @@ function panelDelActo(ctx: Contexto, a: number, panel: HTMLElement): void {
   // acto 3: cuánto confiar
   const m = s.mapa;
   const items: HTMLElement[] = [];
-  if (m && Number.isFinite(m.finClasificacionMin.p50) && s.mv) {
+  if (s.semaforo?.color === 'rojo') {
+    // «No usar»: ni abanico ni peor noche (hallazgo E-02); el motivo está en el resumen
+    items.push(lineaResumen(ctx));
+  } else if (m && Number.isFinite(m.finClasificacionMin.p50) && s.mv) {
     const base = horaASeg(s.mv.modelo.calendario.inicio) * 1000;
     const h = (min: number) => ctx.f.hora(base + min * 60000);
     items.push(el('p', null, ctx.t('app.noches.abanico', { p10: h(m.finClasificacionMin.p10), p50: h(m.finClasificacionMin.p50), p90: h(m.finClasificacionMin.p90) })));
-    items.push(el('p', null, ctx.t('app.presentar.peor', { n: m.nochePeor + 1 })));
+    // la peor noche con su tamaño: a qué hora termina y cuántos paquetes quedan afuera del corte (hallazgo UX-15)
+    const peor = s.resultados[m.nochePeor];
+    items.push(el('p', null, peor
+      ? ctx.t('app.presentar.peorConTamano', { n: m.nochePeor + 1, hora: h(peor.kpi.finClasificacionMin), pendientes: ctx.f.numero(peor.kpi.pendientesAlCorte, 0) })
+      : ctx.t('app.presentar.peor', { n: m.nochePeor + 1 })));
   } else items.push(el('p', { class: 'nota' }, ctx.t('app.noches.progreso', { llegadas: s.llegadas, N: s.N })));
   const r = s.decision.ranking;
   if (r && r.length) {
+    const moneda = s.mv?.modelo.costos.moneda ?? 'ARS';
     items.push(el('p', { class: 'presentar__destacado' }, ctx.t('app.presentar.loQuePesa')));
-    items.push(el('ul', { class: 'presentar__lista' }, ...r.slice(0, 3).map((x) => el('li', null, ctx.t('app.presentar.supuesto', {
-      parametro: x.parametro, perdida: ctx.f.moneda(x.perdidaEsperada, s.mv?.modelo.costos.moneda ?? 'ARS') })))));
+    // la pérdida esperada es un PROMEDIO ponderado; el «hasta» es el peor extremo (hallazgo E-12)
+    items.push(el('ul', { class: 'presentar__lista' }, ...r.slice(0, 3).map((x) => {
+      const peor = (x as { peorCaso?: number }).peorCaso;
+      return el('li', null, ctx.t(peor !== undefined ? 'app.presentar.supuestoConPeor' : 'app.presentar.supuesto', {
+        parametro: x.parametro, perdida: ctx.f.moneda(x.perdidaEsperada, moneda), peor: ctx.f.moneda(peor ?? x.perdidaEsperada, moneda) }));
+    })));
   } else items.push(el('p', null, ctx.t('app.presentar.sinTamizado')));
   poner(panel, ...items, sellos(ctx, true));
 }

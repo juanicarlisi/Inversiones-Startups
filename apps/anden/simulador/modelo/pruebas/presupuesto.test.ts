@@ -2,7 +2,7 @@
 // paquetes = Σ nominales × (1 + 4 · cv del pronóstico); eventos ≈ paquetes × 14 + (horizonte ÷ tick).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { estimarPresupuesto, eventosRecurrentes, EVENTOS_POR_PAQUETE, HORAS_DE_GRACIA, lugaresDeMemoria, MAX_LUGARES_MEMORIA } from '../presupuesto.ts';
+import { MAX_TRAMOS_ESTIMADOS, TRAMOS_POR_PAQUETE, tramosEstimados, estimarPresupuesto, eventosRecurrentes, EVENTOS_POR_PAQUETE, HORAS_DE_GRACIA, lugaresDeMemoria, MAX_LUGARES_MEMORIA } from '../presupuesto.ts';
 import { compilar } from '../compilar.ts';
 import { LIMITES_ENLACE } from '../../contratos/escena.ts';
 import { ejemploModelo, hubGrandeJson, resumen } from './ayudas.ts';
@@ -63,13 +63,34 @@ test('los límites del enlace son los del contrato: 2.000.000 de paquetes y 50.0
   assert.equal(estimarPresupuesto(m).paquetes, 2000000);
   assert.equal(estimarPresupuesto(m).eventos > LIMITES_ENLACE.maxEventosEstimados, false);
   m.escenarios = m.escenarios!.slice(0, 4);
+  // En el límite de paquetes el compilador ya no lo acepta por OTRO tope, el de la película (SEG-01): 24 millones de tramos.
   const r = await compilar(m);
-  assert.ok(r.ok, r.ok ? '' : resumen(r.diagnosticos));
+  assert.equal(r.ok, false);
+  assert.ok(!r.ok && !r.diagnosticos.some((d) => d.clave === 'modelo.diag.E-PRESUPUESTO.paquetes'), 'en el límite, los paquetes pasan');
+  assert.ok(!r.ok && r.diagnosticos.some((d) => d.clave === 'modelo.diag.E-PRESUPUESTO.traza'), 'y la película no entra');
   // Un paquete más sobre el límite: se rechaza antes de correr.
   m.demanda.camiones = { serie: true, cantidad: 1, primero: '22:00', cada: 900, paquetes: 1515152 };
   const r2 = await compilar(m);
   assert.equal(r2.ok, false);
   assert.ok(!r2.ok && r2.diagnosticos.some((d) => d.clave === 'modelo.diag.E-PRESUPUESTO.paquetes' && d.vars?.max === 2000000), 'falta E-PRESUPUESTO.paquetes');
+});
+
+test('tope de la película (SEG-01): 2.000.000 de tramos estimados (12 por paquete); justo en el tope pasa, un paquete más no', async () => {
+  assert.equal(TRAMOS_POR_PAQUETE, 12);
+  assert.equal(MAX_TRAMOS_ESTIMADOS, 2_000_000);
+  const m = ejemploModelo();
+  m.escenarios = m.escenarios!.slice(0, 4);
+  // 126.262 nominales × 1,32 = 166.665,8 → 166.666 paquetes → 1.999.992 tramos: pasa
+  m.demanda.camiones = { serie: true, cantidad: 1, primero: '22:00', cada: 900, paquetes: 126262 };
+  assert.equal(tramosEstimados(m), 1_999_992);
+  const r = await compilar(m);
+  assert.ok(!(!r.ok && r.diagnosticos.some((d) => d.clave === 'modelo.diag.E-PRESUPUESTO.traza')), 'en el tope, la película entra');
+  // 126.263 → 166.668 paquetes → 2.000.016 tramos: no
+  m.demanda.camiones = { serie: true, cantidad: 1, primero: '22:00', cada: 900, paquetes: 126263 };
+  const r2 = await compilar(m);
+  assert.ok(!r2.ok && r2.diagnosticos.some((d) => d.clave === 'modelo.diag.E-PRESUPUESTO.traza' && d.vars?.max === 2_000_000), 'falta E-PRESUPUESTO.traza');
+  // las dos plantillas quedan muy lejos del tope
+  for (const clave of ['hub-chico@1.0.0']) assert.ok(tramosEstimados(ejemploModelo()) < 200_000, clave);
 });
 
 test('el aviso de presupuesto no depende de que el modelo sea «razonable»: 1e9 paquetes se rechaza sin colgarse', async () => {

@@ -104,6 +104,7 @@ for (const [nombre, modelo] of [['hub-chico', chico], ['hub-lazo-noche', grande]
     assert.ok(paquetes > NOCHES * 7000, 'noches con paquetes');
     assert.ok(ausentes > 0, `hubo faltas en ${NOCHES} noches`);
     assert.ok(paradas > 0, 'hubo micro-paradas');
-    assert.ok(vueltas > 0, 'hubo rampas llenas y vueltas extra');
+    // En la grande, desde el motor 1.1.0 (persistencia y relevo) las rampas ya no se llenan: el tope de rampa se ejercita en la chica.
+    if (nombre === 'hub-chico') assert.ok(vueltas > 0, 'hubo rampas llenas y vueltas extra');
   });
 }

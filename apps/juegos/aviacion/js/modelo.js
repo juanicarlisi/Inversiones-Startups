@@ -37,7 +37,7 @@ const factorEspera = (sinSalir, gracia) => {
 const cacheGracia = new WeakMap();
 function graciaRutas(s) {
   const R = red(s), c = cacheGracia.get(s);
-  if (c && c.R === R) return c.g;
+  if (c && c.R === R && c.v === s.verRed) return c.g;
   const frec = {};
   for (const av of s.aviones) {
     const r = R.porId[av.ruta], t = AV[av.tipo];
@@ -45,7 +45,7 @@ function graciaRutas(s) {
   }
   const g = {};
   for (const id in frec) g[id] = Math.max(SERVICIO.gracia, SERVICIO.ciclo / frec[id]);
-  cacheGracia.set(s, { R, g });
+  cacheGracia.set(s, { R, v: s.verRed, g });
   return g;
 }
 export function factorServicio(s, a, b) {
@@ -57,7 +57,7 @@ export const ESPERA_MAX = 240;       // minutos que un avión espera la carga m�
 // red gana por hora a ritmo de ausencia (un décimo de la velocidad normal: 1 h afuera = 2,5 días de juego). Así una noche afuera
 // (14 h) acredita unos 8,5 días de ganancia de la red, un día entero unos 13,5, y nunca más que jugar el mismo tiempo.
 // (Leída sobre la velocidad normal, la misma curva daría hasta 135 días de ganancia por 24 h y salteaba la historia.)
-export const AUSENCIA = { tramos: [[2, 0.5], [24, 0.2]], ritmo: 0.1, muestraMin: 360, muestraMax: 1440, paso: 10 };
+export const AUSENCIA = { tramos: [[2, 0.5], [24, 0.2]], ritmo: 0.1, muestraMin: 360, muestraMax: 1440, paso: 15 }; // pasos de 15 min: la vuelta no congela la página
 export const RONDA_CADA = 3;         // como máximo una noche de ronda cada 3 noches de juego
 export const PISTA_MIN = 200;        // minutos de juego sin avanzar antes de mostrar una pista
 const VENTA = ECONOMIA.venta;
@@ -69,11 +69,14 @@ const AP_IDX = Object.fromEntries(AEROPUERTOS.map((a, i) => [a.id, i]));
 const CARGA_IDS = Object.keys(CARGAS);
 
 // ───────────────────────── utilidades ─────────────────────────
-const cacheKm = new Map();
+// Distancias entre todos los aeropuertos, calculadas una vez (una tabla por índice: es la consulta más frecuente del modelo).
+const N_AP = AEROPUERTOS.length;
+const tablaKm = new Float64Array(N_AP * N_AP).fill(-1);
 export function km(a, b) {
-  const llave = a < b ? a + b : b + a;
-  let v = cacheKm.get(llave);
-  if (v === undefined) { v = kmReal(a, b); cacheKm.set(llave, v); }
+  const i = AP_IDX[a], j = AP_IDX[b];
+  if (i === undefined || j === undefined) return kmReal(a, b);
+  let v = tablaKm[i * N_AP + j];
+  if (v < 0) { v = kmReal(a, b); tablaKm[i * N_AP + j] = tablaKm[j * N_AP + i] = v; }
   return v;
 }
 function kmReal(a, b) {
@@ -119,12 +122,15 @@ const statsVacias = () => ({
   entregas: { correo: 0, pasajeros: 0, carga: 0 }, entregasEn: {}, transbordos: {}, perdidas: 0, perdidasAp: {},
   ingresos: 0, gastos: 0, despNoche: 0, aTiempo: 0, tarde: 0, mejorDia: 0, ultimoVuelo: null, trabadas: {}, vuelos: 0,
   perdTramo: {}, perdTramo0: {}, perdTramoAyer: {}, ventasForzadas: 0,
+  km: 0,            // km volados con carga (para el resumen del capítulo)
+  inicioCap: null,  // totales al empezar el capítulo (el resumen de fin de capítulo resta esto)
 });
 
 export function nuevoEstado(semilla = 20291101) {
   const c = CAPITULOS[0];
   const s = {
     v: VERSION, cap: 1, semilla,
+    sem0: semilla,            // la semilla con que empezó la partida (las fases de la demanda no cambian con el azar del clima)
     t0: inicioCapitulo(c, 0), t: 0,
     dinero: c.dineroInicial,
     niveles: {},              // nivel del centro de transbordo por aeropuerto
@@ -143,7 +149,7 @@ export function nuevoEstado(semilla = 20291101) {
     diario: { hoy: {}, dias: [] },
     ultVuelo: {}, ultSalida: {},
     dia: null,
-    sigId: 1, verRed: 0,
+    sigId: 1, verRed: 0, verTopo: 0,
   };
   s.dia = diaCalendario(s);
   activarMision(s); // el correo de la primera misión ya espera en Buenos Aires: sale apenas la ruta tiene avión
@@ -152,11 +158,16 @@ export function nuevoEstado(semilla = 20291101) {
 
 // ───────────────────────── red y ruteo ─────────────────────────
 // La red para rutear usa solo rutas con al menos un avión: una ruta vacía no se traga el tráfico. BFS por escalas; a igual
-// cantidad de escalas, menos km. La caché se invalida con s.verRed (abrir o cerrar rutas, comprar o vender aviones).
+// cantidad de escalas, menos km. Dos contadores de versión, sin join en cada llamada:
+//  - s.verRed sube al abrir o cerrar rutas y al comprar o vender aviones (lo usan las cachés que dependen de la flota: capacidad
+//    por ruta, frecuencia, costo medio de la flota);
+//  - s.verTopo sube solo cuando cambia el dibujo de la red (una ruta abierta o cerrada, una ruta que gana su primer avión o pierde
+//    el último): la red, los pares con su demanda y los flujos dependen solo de eso. Sumar el quinto avión a una ruta no rehace el
+//    ruteo de todo el continente.
 const cacheRed = new WeakMap();
 export function red(s) {
   const c = cacheRed.get(s);
-  if (c && c.ver === s.verRed && c.nr === s.rutas.length && c.na === s.aviones.length) return c;
+  if (c && c.ver === (s.verTopo ?? 0) && c.nr === s.rutas.length) return c;
   const conAvion = new Set();
   for (const av of s.aviones) conAvion.add(av.ruta);
   const adj = {}, tocados = new Set(), porId = {};
@@ -182,11 +193,13 @@ export function red(s) {
     delete dist[o]; delete kmAc[o];
     sig[o] = prim; tramos[o] = dist; kmRec[o] = kmAc;
   }
-  const res = { ver: s.verRed, nr: s.rutas.length, na: s.aviones.length, adj, nodos, sig, tramos, kmRec, tocados, porId, conAvion };
+  const res = { ver: s.verTopo ?? 0, nr: s.rutas.length, adj, nodos, sig, tramos, kmRec, tocados, porId };
   cacheRed.set(s, res);
   return res;
 }
-const cambioRed = (s) => { s.verRed = (s.verRed ?? 0) + 1; };
+// topo: el cambio altera el dibujo de la red (no solo la flota).
+const cambioRed = (s, topo = true) => { s.verRed = (s.verRed ?? 0) + 1; if (topo) s.verTopo = (s.verTopo ?? 0) + 1; };
+const conAvion = (s, rutaId) => s.aviones.some((a) => a.ruta === rutaId);
 
 export function enRed(s, ap) { return red(s).tocados.has(ap); }   // tocada por alguna ruta (para abrir rutas desde ahí)
 export function servido(s, ap) { return !!red(s).adj[ap]; }        // con al menos una ruta con avión
@@ -231,10 +244,10 @@ export function costoVuelo(s, t, r) {
 const cacheFlota = new WeakMap();
 function totalesFlota(s) {
   const R = red(s), c = cacheFlota.get(s);
-  if (c && c.R === R && c.comb === s.clima.combustible) return c;
+  if (c && c.R === R && c.v === s.verRed && c.comb === s.clima.combustible) return c;
   let suma = 0, n = 0, tierra = 0;
   for (const av of s.aviones) { const r = R.porId[av.ruta]; tierra += AV[av.tipo].tierraHora; if (r) { suma += costoVuelo(s, AV[av.tipo], r); n++; } }
-  const x = { R, comb: s.clima.combustible, medio: n ? suma / n : 0, tierra };
+  const x = { R, v: s.verRed, comb: s.clima.combustible, medio: n ? suma / n : 0, tierra };
   cacheFlota.set(s, x);
   return x;
 }
@@ -297,11 +310,13 @@ export function comprarAvion(s, tipoId, rutaId) {
   const t = AV[tipoId], r = s.rutas.find((x) => x.id === rutaId);
   gastar(s, t.precio);
   const base = r.a === HUB || r.b === HUB ? HUB : r.a;
-  // Sale enseguida: el primer control de carga es en el próximo paso.
+  const primero = !conAvion(s, rutaId);
+  // Sale enseguida: el primer control de carga es en el próximo paso, y el vuelo cuenta desde el comienzo de ese paso (así el primer
+  // cobro de la partida llega antes de los 10 s también con los 3 toques de la interfaz).
   const av = { id: s.sigId++, tipo: tipoId, ruta: rutaId, en: base, hacia: base === r.a ? r.b : r.a,
-    fase: 'tierra', resta: PASO, dur: PASO, carga: [], espera: null, v: 0, ing: 0, cos: 0, desde: s.t };
+    fase: 'tierra', resta: 0, dur: PASO, carga: [], espera: null, v: 0, ing: 0, cos: 0, desde: s.t };
   s.aviones.push(av);
-  cambioRed(s);
+  cambioRed(s, primero);
   revisarYEmitir(s);
   return { ok: true, avion: av };
 }
@@ -314,8 +329,9 @@ export function venderAvion(s, avionId) {
   s.aviones = s.aviones.filter((x) => x.id !== avionId);
   // Si estaba en vuelo, su carga vuelve al aeropuerto de salida (no se pierde por vender).
   for (const x of av.carga) sumarCola(s, av.en, x.d, x.c, x.n, x.tc, x.p, x.km, x.k);
-  cambioRed(s);
-  if (!s.aviones.some((x) => x.ruta === av.ruta)) barrerSinCamino(s, av.ruta);
+  const ultimo = !conAvion(s, av.ruta);
+  cambioRed(s, ultimo);
+  if (ultimo) barrerSinCamino(s, av.ruta);
   revisarYEmitir(s);
   return { ok: true, monto };
 }
@@ -342,6 +358,8 @@ export function fijarCargaMinima(s, rutaId, v) {
 }
 
 export function capacidadTransbordo(s, ap) { return TRANSBORDO[s.niveles[ap] ?? 0].u; }
+// Precio del próximo nivel del centro de transbordo (null si ya está al máximo): lo muestra el botón de mejorar.
+export function costoTransbordo(s, ap) { return TRANSBORDO[(s.niveles[ap] ?? 0) + 1]?.precio ?? null; }
 export function mejorarTransbordo(s, ap) {
   const n = (s.niveles[ap] ?? 0) + 1;
   if (n >= TRANSBORDO.length) return { ok: false, error: 'maximo' };
@@ -379,12 +397,14 @@ function idxSumar(x, ap, h, c, k, n) {
 function idxVigente(s) { const x = indices.get(s); return x && x.R === red(s) ? x : null; }
 
 const llaveGrupo = (d, c, k) => (k ? `${d}>${c}>${k}` : `${d}>${c}`);
+// Al fundir dos grupos, los promedios se redondean a lo que guarda el guardado (minutos enteros, centésimos de lo cobrado, km
+// enteros): así guardar y restaurar deja la partida exactamente igual, sin que un redondeo cambie la hora de salida de un avión.
 function fundir(g, n, tc, p, kmOD, tl) {
   const tot = g.n + n;
-  g.tc = (g.tc * g.n + tc * n) / tot;
-  g.p = (g.p * g.n + p * n) / tot;
-  g.km = (g.km * g.n + kmOD * n) / tot;
-  if (g.tl !== undefined) g.tl = (g.tl * g.n + (tl ?? tc) * n) / tot;
+  g.tc = Math.round((g.tc * g.n + tc * n) / tot);
+  g.p = r2((g.p * g.n + p * n) / tot);
+  g.km = Math.round((g.km * g.n + kmOD * n) / tot);
+  if (g.tl !== undefined) g.tl = Math.round((g.tl * g.n + (tl ?? tc) * n) / tot);
   g.n = tot;
 }
 function nuevoGrupo(d, c, n, tc, p, kmOD, k, tl) {
@@ -488,7 +508,7 @@ const topeGrupo = (porHora) => Math.ceil(4 * porHora + 20); // 4 horas de demand
 const cachePares = new WeakMap();
 function pares(s) {
   const R = red(s);
-  const llave = `${R.ver}|${R.nr}|${R.na}|${s.cap}|${factorTemporada(s, 'correo')}`;
+  const llave = `${R.ver}|${R.nr}|${s.cap}|${factorTemporada(s, 'correo')}`;
   const c = cachePares.get(s);
   if (c && c.llave === llave) return c.lista;
   const lista = [];
@@ -498,7 +518,7 @@ function pares(s) {
     for (const cg of cargas) {
       const porHora = demandaRed(s, o, d, cg);
       if (porHora <= 0) continue;
-      lista.push({ o, d, c: cg, k: `${o}>${d}>${cg}`, fase: hash32(`${s.semilla}|${o}>${d}>${cg}`) / 4294967296, kc: `${d}>${cg}`, kh: `${o}>${R.sig[o][d]}`, rh: idRuta(o, R.sig[o][d]), km: km(o, d), porHora, tope: topeGrupo(porHora), h: R.sig[o][d] });
+      lista.push({ o, d, c: cg, k: `${o}>${d}>${cg}`, fase: hash32(`${s.sem0 ?? s.semilla}|${o}>${d}>${cg}`) / 4294967296, kc: `${d}>${cg}`, kh: `${o}>${R.sig[o][d]}`, rh: idRuta(o, R.sig[o][d]), km: km(o, d), porHora, tope: topeGrupo(porHora), h: R.sig[o][d] });
     }
   }
   cachePares.set(s, { llave, lista });
@@ -519,9 +539,11 @@ function generarDemanda(s, dt) {
   const tm = s.clima.tormenta && s.t < s.clima.tormenta.hasta ? new Set(s.clima.tormenta.zona) : null;
   for (const x of pares(s)) {
     if (tm && (tm.has(x.o) || tm.has(x.d))) continue; // con el aeropuerto cerrado por tormenta, nadie despacha correo aéreo hacia ahí
+    const az = azarPaso(x.fase, paso);
+    if (x.porHora * fr + az < 1) continue; // ni con el servicio completo llega a una unidad en este paso (la mayoría de los pares chicos)
     const u = us[x.kh];
     const f = u === undefined ? 1 : factorEspera(s.t - u, gr[x.rh] ?? SERVICIO.gracia);
-    const n = Math.floor(x.porHora * f * fr + azarPaso(x.fase, paso));
+    const n = Math.floor(x.porHora * f * fr + az);
     if (!n) continue;
     const g = s.colas[x.o]?.[x.kc];
     const sobra = (g?.n ?? 0) + n - x.tope;
@@ -529,8 +551,8 @@ function generarDemanda(s, dt) {
       const viejos = Math.min(sobra, g?.n ?? 0);
       if (viejos > 0) {
         const quedan = g.n - viejos;
-        g.tc = s.t - (s.t - g.tc) * quedan / g.n;
-        if (g.tl !== undefined) g.tl = s.t - (s.t - g.tl) * quedan / g.n;
+        g.tc = Math.round(s.t - (s.t - g.tc) * quedan / g.n);
+        if (g.tl !== undefined) g.tl = Math.round(s.t - (s.t - g.tl) * quedan / g.n);
         quitarCola(s, x.o, x.kc, viejos);
       }
       perder(s, x.o, sobra, x.h);
@@ -619,6 +641,46 @@ export function listoParaCargar(s, avionId) {
   const av = s.aviones.find((a) => a.id === avionId);
   if (!av || av.fase !== 'tierra') return 0;
   return paraLlevar(s, av.en, av.hacia, AV[av.tipo]);
+}
+
+// Ficha de un avión para la interfaz: lo que lleva (por destino), adónde va, en cuántos minutos de juego llega y cuánto deja el
+// viaje (estimado como lo liquida el aterrizaje: tarifa × parte del tramo × puntualidad a la hora de llegada, menos el vuelo).
+export function fichaAvion(s, avionId) {
+  const av = s.aviones.find((a) => a.id === avionId);
+  const r = av && s.rutas.find((x) => x.id === av.ruta);
+  if (!r) return null;
+  const t = AV[av.tipo], R = red(s), vuela = av.fase === 'vuelo';
+  const llegaEn = vuela ? Math.max(0, av.resta) : null;
+  let ingreso = 0, unidades = 0;
+  const porDestino = {};
+  for (const x of vuela ? av.carga : []) {
+    const resto = x.d === av.hacia ? 0 : (R.kmRec[av.hacia]?.[x.d] ?? km(av.hacia, x.d));
+    const parte = (1 - x.p) * r.km / (r.km + resto);
+    ingreso += x.n * tarifa(x.c, x.km) * parte * puntualidad(x.c, s.t + llegaEn - x.tc, x.km);
+    unidades += x.n;
+    (porDestino[`${x.d}>${x.c}`] ??= { d: x.d, c: x.c, n: 0 }).n += x.n;
+  }
+  const costo = vuela ? (av.costoVuelo ?? 0) : costoVuelo(s, t, r);
+  return { id: av.id, tipo: av.tipo, ruta: av.ruta, fase: av.fase, en: av.en, hacia: av.hacia, espera: av.espera ?? null,
+    carga: Object.values(porDestino).sort((a, b) => b.n - a.n), unidades, capacidad: capTotal(t), llegaEn,
+    ingresoEst: Math.round(ingreso), costo: Math.round(costo), netoEst: vuela ? Math.round(ingreso - costo) : null,
+    listo: vuela ? 0 : listoParaCargar(s, av.id), neto: Math.round((av.ing ?? 0) - (av.cos ?? 0)), viajes: av.v ?? 0 };
+}
+
+// Totales que resume el fin de capítulo (entregas por carga, a tiempo, tarde, km e ingresos).
+function totalesCapitulo(s) {
+  const st = s.stats;
+  return { entregas: { ...st.entregas }, aTiempo: st.aTiempo, tarde: st.tarde, km: st.km ?? 0, ingresos: Math.round(st.ingresos),
+    rutas: Object.fromEntries(s.rutas.map((r) => [r.id, Math.round(r.ingresos - r.costos)])) };
+}
+// Resumen del capítulo en curso (desde que empezó): sacas, pasajeros, toneladas, km volados, % a tiempo y la ruta que más dejó.
+export function resumenCapitulo(s) {
+  const a = totalesCapitulo(s), b = s.stats.inicioCap ?? { entregas: { correo: 0, pasajeros: 0, carga: 0 }, aTiempo: 0, tarde: 0, km: 0, ingresos: 0, rutas: {} };
+  const entregas = Object.fromEntries(Object.keys(a.entregas).map((c) => [c, a.entregas[c] - (b.entregas[c] ?? 0)]));
+  const ok = a.aTiempo - b.aTiempo, tarde = a.tarde - b.tarde;
+  let mejorRuta = null;
+  for (const r of s.rutas) { const v = (a.rutas[r.id] ?? 0) - (b.rutas?.[r.id] ?? 0); if (!mejorRuta || v > mejorRuta.neto) mejorRuta = { id: r.id, a: r.a, b: r.b, neto: v }; }
+  return { cap: s.cap, entregas, km: a.km - b.km, aTiempo: ok + tarde ? ok / (ok + tarde) : null, ingresos: a.ingresos - b.ingresos, mejorRuta };
 }
 
 function cargar(s, av, t) {
@@ -731,7 +793,7 @@ function aterrizar(s, av, t, r, ronda, ev) {
       // correo de un contrato, que tiene prioridad y entra siempre).
       const entra = x.k ? x.n : Math.max(0, Math.min(x.n, Math.floor(libreTb)));
       libreTb -= entra;
-      if (entra) sumarTb(s, llega, { ...x, n: entra, p: x.p + parte }, s.t);
+      if (entra) sumarTb(s, llega, { ...x, n: entra, p: r2(x.p + parte) }, s.t);
       if (x.n > entra) { perder(s, llega, x.n - entra, null, x.k); diarioDe(s, llega).perdTb += x.n - entra; }
     }
   }
@@ -742,6 +804,7 @@ function aterrizar(s, av, t, r, ronda, ev) {
   const netoViaje = cobro - (av.costoVuelo ?? 0);
   av.costoVuelo = 0;
   s.stats.ultimoVuelo = netoViaje;
+  if (unidades) s.stats.km = (s.stats.km ?? 0) + Math.round(r.km);
   av.v = (av.v ?? 0) + 1;
   ev.push({ tipo: 'aterrizaje', avion: av.id, ruta: r.id, ingreso: cobro, netoViaje, ap: llega });
   if (av.ronda != null) {
@@ -764,7 +827,7 @@ export const CLIMA = { prob: 0.2, dur: 300, rango: 420, desde: 4, radio: 600 };
 function climaDelDia(s, ev) {
   if (s.opciones?.sinClima) { s.clima.combustible = 1; return; }
   const c = s.clima.combustible;
-  s.clima.combustible = Math.min(1.25, Math.max(0.8, c + (1 - c) * 0.15 + (rng(s) - 0.5) * 0.06));
+  s.clima.combustible = Math.round(1e4 * Math.min(1.25, Math.max(0.8, c + (1 - c) * 0.15 + (rng(s) - 0.5) * 0.06))) / 1e4;
   const nodos = red(s).nodos;
   if (!s.clima.tormenta && !s.clima.pronostico && nodos.length > 2 && s.t >= CLIMA.desde * 1440 && rng(s) < CLIMA.prob) {
     // un frente de tormenta: una ciudad de la red al azar y las vecinas a menos de CLIMA.radio km (el hub queda afuera)
@@ -906,8 +969,13 @@ export function misionesActivas(s) {
   for (const c of tablero) { if (out.length >= 3) break; out.push(objetivoContrato(s, c, true)); }
   return out.slice(0, 3);
 }
-// La pista depende de lo que pasa: si es de noche y la mayoría de los aviones está parada por falta de balizas, la pista es esa.
+// La pista depende de lo que pasa: si es de noche y la mayoría de los aviones está parada por falta de balizas, la pista es esa; si
+// la última ronda no llegó a la meta porque el centro del hub tardaba horas en clasificar, la pista es mejorar el centro.
 function pistaDe(s, m) {
+  if (m.tipo === 'rondaPct') {
+    const u = s.ronda?.historial?.[0];
+    if (u && u.pctPrimeraHora * 100 < m.meta && (u.horasCentro ?? 0) >= 2 && costoTransbordo(s, HUB) != null) return 'pista_ronda_centro';
+  }
   if (esNoche(s) && s.aviones.length) {
     const R = red(s);
     const parados = s.aviones.filter((a) => !AV[a.tipo].nocturno && !iluminada(s, R.porId[a.ruta] ?? {})).length;
@@ -933,7 +1001,12 @@ function revisarObjetivos(s, ev) {
     for (const a of AVIONES) if (a.desbloquea === m.id) ev.push({ tipo: 'avionNuevo', avion: a.id });
     const ciudades = AEROPUERTOS.filter((a) => a.abre === m.id && a.cap <= s.cap).map((a) => a.id);
     if (ciudades.length) ev.push({ tipo: 'ciudadesNuevas', ciudades });
-    if (m.cierra) { s.mision = null; ev.push({ tipo: 'capitulo', cap: s.cap }); break; }
+    if (m.cierra) {
+      s.mision = null; ev.push({ tipo: 'capitulo', cap: s.cap });
+      // fin de la historia: el juego sigue con los contratos del día y las rondas con medalla (no con un «Seguir» vacío)
+      if (s.cap >= CAPITULOS.length) ev.push({ tipo: 'finHistoria' });
+      break;
+    }
     activarMision(s);
     m = misionActual(s);
   }
@@ -955,6 +1028,7 @@ function revisarObjetivos(s, ev) {
 }
 function revisarYEmitir(s) { const ev = []; revisarObjetivos(s, ev); for (const e of ev) emitir(s, e); }
 
+export function historiaTerminada(s) { return s.cap >= CAPITULOS.length && capituloTerminado(s); }
 export function capituloTerminado(s) {
   const fin = MISIONES.find((m) => m.cap === s.cap && m.cierra);
   return fin ? misionHecha(s, fin.id) : false;
@@ -969,6 +1043,7 @@ export function avanzarCapitulo(s) {
   s.clima.tormenta = null; s.clima.pronostico = null;
   s.dia = diaCalendario(s);
   s.dinero += c.premio ?? 0;
+  s.stats.inicioCap = totalesCapitulo(s);
   s.ronda.ultima = null; s.ronda.noche = null; delete s.banco[HUB];
   activarMision(s);
   const ev = [{ tipo: 'capituloNuevo', cap: s.cap }];
@@ -991,17 +1066,24 @@ export const CONTRATO = { maxActivos: 2, ofertas: 3, dias: [2, 3], parteCapacida
 function contratosHabilitados(s) { return (red(s).adj[HUB]?.length ?? 0) >= 2; }
 function azarDia(s) { return RONDA.azar(((s.semilla ^ 0x5bd1e995) + (s.dia ?? 0) * 2654435761) >>> 0); }
 
-// Capacidad ofrecida por hora en el sentido a→b de una ruta, para la carga c (los aviones hacen ida y vuelta).
-function capacidadHora(s, rutaId, c) {
-  let u = 0;
+// Capacidad ofrecida por hora en cada sentido de una ruta, para la carga c (los aviones hacen ida y vuelta). Se calcula una vez por
+// versión de la red (cambia solo al abrir o cerrar rutas y al comprar o vender aviones): antes se recorría toda la flota en cada
+// consulta, y con 500 aviones la mejor próxima acción tardaba segundos.
+const cacheCapacidad = new WeakMap();
+function capacidades(s) {
+  const R = red(s), c = cacheCapacidad.get(s);
+  if (c && c.R === R && c.v === s.verRed) return c.m;
+  const m = {};
   for (const av of s.aviones) {
-    if (av.ruta !== rutaId) continue;
-    const t = AV[av.tipo], r = red(s).porId[rutaId];
-    if (!t.lleva[c]) continue;
-    u += t.lleva[c] / (2 * (r.km / t.vel + t.giro / 60));
+    const t = AV[av.tipo], r = R.porId[av.ruta];
+    if (!r) continue;
+    const x = (m[r.id] ??= {}), ciclo = 2 * (r.km / t.vel + t.giro / 60);
+    for (const cg in t.lleva) x[cg] = (x[cg] ?? 0) + t.lleva[cg] / ciclo;
   }
-  return u;
+  cacheCapacidad.set(s, { R, v: s.verRed, m });
+  return m;
 }
+function capacidadHora(s, rutaId, c) { return capacidades(s)[rutaId]?.[c] ?? 0; }
 // Lo que puede pasar por hora de o a d: el tramo más flaco del camino y, en cada escala, la mitad de lo que clasifica su centro de
 // transbordo (la otra mitad es para el resto del correo).
 function capacidadCamino(s, o, d, c) {
@@ -1109,6 +1191,7 @@ function cicloRonda(s, ev) {
   }
   if (n?.estado === 'previa' && s.t >= n.corte) {
     n.estado = 'corriendo';
+    n.horasCentro = +(enTransbordo(s, HUB) / capacidadTransbordo(s, HUB)).toFixed(2); // lo que tarda el centro en vaciarse a las 22:00
     n.escena = escenaRonda(s);
     n.prometidas = Object.fromEntries(n.escena.radios.map((x) => [x.id, x.sacas]));
     n.tarifas = Object.fromEntries(n.escena.radios.map((x) => [x.id, x.tarifa]));
@@ -1139,7 +1222,7 @@ function resultadoRonda(s, n) {
   const auto = n.escena ? RONDA.simular(n.escena) : null;
   const ingresoSugerido = sugerido && auto?.ingreso ? (n.jugada ? ingresoAutomatico : ingreso) * sugerido.ingreso / auto.ingreso : ingreso;
   return { id: n.id, t: s.t, sacas, pctPrimeraHora: +pct.toFixed(3), ingreso: Math.round(ingreso), ingresoAutomatico: Math.round(ingresoAutomatico),
-    ingresoSugerido: Math.round(ingresoSugerido), medalla: RONDA.medallaDe(pct), jugada: n.jugada };
+    ingresoSugerido: Math.round(ingresoSugerido), medalla: RONDA.medallaDe(pct), jugada: n.jugada, horasCentro: n.horasCentro ?? 0 };
 }
 
 // Escena de la noche armada con lo que hay en el hub: un radio por ruta iluminada con avión, lo que espera salir por él (en el
@@ -1365,6 +1448,21 @@ export function decisiones(s) {
   const out = [];
   const res = (costo) => s.dinero - costo >= reservaSugerencia(s);
   const m = misionActual(s);
+  // aviones por ruta y estimaciones de compra, una vez por llamada (con cientos de aviones, recorrer la flota por cada ruta pesa)
+  const porRuta = {};
+  for (const av of s.aviones) (porRuta[av.ruta] ??= []).push(av);
+  const tiene = (id) => !!porRuta[id];
+  const memo = new Map();
+  const est = (tid, rid) => { const k = `${tid}|${rid}`; let v = memo.get(k); if (v === undefined) memo.set(k, (v = estimarAvion(s, tid, rid))); return v; };
+  const mejorTipo = (r) => mejorTipoPara(s, r, est);
+  // Si lo que pide la historia todavía no alcanza pero la red lo junta pronto (en 1,5 días de juego o menos), la mejor próxima
+  // acción es juntar para eso en vez de gastar en otra cosa: «Juntá $X para el Halcón». No cuesta nada ni suma por día; trae lo
+  // que falta y en cuántos minutos reales se junta a este ritmo.
+  const ahorrar = (total, que, id) => {
+    const falta = Math.ceil(total - s.dinero), gd = gananciaDia(s);
+    if (falta > 0 && gd > 0 && falta <= 1.5 * gd) out.push({ tipo: 'ahorrar', id, que, costo: 0, meta: Math.round(total), falta, efectoDia: 0, mision: true, minutos: +(falta / gd * 1440 / MIN_POR_SEG / 60).toFixed(1) });
+  };
+  const masBaratoPara = (r) => avionesDisponibles(s).filter((t) => t.alcance >= r.km).sort((x, y) => x.precio - y.precio)[0];
   // de la historia
   if (m?.tipo === 'ruta') {
     const id = idRuta(m.a, m.b), r = s.rutas.find((x) => x.id === id);
@@ -1372,33 +1470,43 @@ export function decisiones(s) {
       const p = puedeAbrirRuta(s, m.a, m.b);
       if (p.ok && res(p.costo)) out.push({ tipo: 'ruta', id, a: m.a, b: m.b, costo: p.costo, efectoDia: 0, mision: true });
       else if (p.error === 'desconectada') { const d = pasoHacia(s, km(HUB, m.a) < km(HUB, m.b) ? m.a : m.b, true); if (d) out.push({ ...d, mision: true }); }
+      else if (p.ok || p.error === 'plata') ahorrar(p.costo + reservaSugerencia(s), 'ruta', id);
     }
-    else if (!s.aviones.some((a) => a.ruta === id)) {
-      const t = mejorTipoPara(s, r);
-      if (t) out.push({ tipo: 'avion', id: t.id, ruta: id, costo: t.precio, efectoDia: Math.max(0, estimarAvion(s, t.id, id)), mision: true });
+    else if (!tiene(id)) {
+      const t = mejorTipo(r);
+      if (t) out.push({ tipo: 'avion', id: t.id, ruta: id, costo: t.precio, efectoDia: Math.max(0, est(t.id, id)), mision: true });
+      else { const b = masBaratoPara(r); if (b) ahorrar(b.precio + reserva(s, { t: b, r }), 'avion', b.id); }
     }
   }
-  if (m?.tipo === 'despeguesNoche' && !s.rutas.some((r) => r.balizas && s.aviones.some((a) => a.ruta === r.id))) {
-    const r = [...s.rutas].filter((x) => s.aviones.some((a) => a.ruta === x.id)).sort((x, y) => costoBalizas(x, s) - costoBalizas(y, s))[0];
+  if (m?.tipo === 'despeguesNoche' && !s.rutas.some((r) => r.balizas && tiene(r.id))) {
+    const r = [...s.rutas].filter((x) => tiene(x.id)).sort((x, y) => costoBalizas(x, s) - costoBalizas(y, s))[0];
     if (r && s.dinero >= costoBalizas(r, s) && res(costoBalizas(r, s))) out.push({ tipo: 'balizas', id: r.id, costo: costoBalizas(r, s), efectoDia: estimarBalizas(s, r), mision: true });
+    else if (r) ahorrar(costoBalizas(r, s) + reservaSugerencia(s), 'balizas', r.id);
   }
   if ((m?.tipo === 'entregasEn' || m?.tipo === 'entregasEnTodas') ) {
     const metas = m.tipo === 'entregasEn' ? [m.ciudad] : m.ciudades;
-    for (const c of metas) { const d = pasoHacia(s, c); if (d) { out.push({ ...d, mision: true }); break; } }
+    for (const c of metas) {
+      const d = pasoHacia(s, c);
+      if (d) { out.push({ ...d, mision: true }); break; }
+      // la ruta hacia la ciudad ya está abierta pero su avión no alcanza: juntar para él (si la red lo junta pronto)
+      const sinAv = !red(s).adj[c] && s.rutas.find((r) => (r.a === c || r.b === c) && !tiene(r.id));
+      const b = sinAv && masBaratoPara(sinAv);
+      if (b) { ahorrar(b.precio + reserva(s, { t: b, r: sinAv }), 'avion', b.id); break; }
+    }
   }
   if (m?.tipo === 'entregas') { // un avión que lleve esa carga donde más demanda de esa carga queda sin atender
     let mejor = null;
     for (const r of s.rutas) for (const t of avionesDisponibles(s)) {
       if (!t.lleva[m.carga] || t.alcance < r.km || !puedeComprar(s, t.id, r.id).ok) continue;
-      const e = estimarAvion(s, t.id, r.id);
+      const e = est(t.id, r.id);
       if (e > 0 && (!mejor || e / t.precio > mejor.v)) mejor = { tipo: 'avion', id: t.id, ruta: r.id, costo: t.precio, efectoDia: e, mision: true, v: e / t.precio };
     }
     if (mejor) { delete mejor.v; out.push(mejor); }
   }
   if (m?.tipo === 'ciudadesActivas' && progreso(s, m) < m.meta) {
-    const sinAvion = s.rutas.find((r) => !s.aviones.some((a) => a.ruta === r.id));
-    const t = sinAvion && mejorTipoPara(s, sinAvion);
-    if (t) out.push({ tipo: 'avion', id: t.id, ruta: sinAvion.id, costo: t.precio, efectoDia: Math.max(0, estimarAvion(s, t.id, sinAvion.id)), mision: true });
+    const sinAvion = s.rutas.find((r) => !tiene(r.id));
+    const t = sinAvion && mejorTipo(sinAvion);
+    if (t) out.push({ tipo: 'avion', id: t.id, ruta: sinAvion.id, costo: t.precio, efectoDia: Math.max(0, est(t.id, sinAvion.id)), mision: true });
     else if (!sinAvion) {
       let mejor = null;
       // desde el hub si algún avión llega (una sola escala para todo el resto de la red); si no, desde la ciudad más cercana
@@ -1415,7 +1523,8 @@ export function decisiones(s) {
   }
   if (m?.tipo === 'enServicio' && !s.aviones.some((a) => a.tipo === m.avion)) {
     const r = [...s.rutas].filter((x) => AV[m.avion].alcance >= x.km).sort((x, y) => y.km - x.km)[0];
-    if (r && puedeComprar(s, m.avion, r.id).ok) out.push({ tipo: 'avion', id: m.avion, ruta: r.id, costo: AV[m.avion].precio, efectoDia: Math.max(0, estimarAvion(s, m.avion, r.id)), mision: true });
+    if (r && puedeComprar(s, m.avion, r.id).ok) out.push({ tipo: 'avion', id: m.avion, ruta: r.id, costo: AV[m.avion].precio, efectoDia: Math.max(0, est(m.avion, r.id)), mision: true });
+    else if (r && avionDisponible(s, m.avion)) ahorrar(AV[m.avion].precio + reserva(s, { t: AV[m.avion], r }), 'avion', m.avion);
   }
   // contratos: aceptar es gratis y suma el premio (si hay camino para cumplirlo)
   if (s.contratos.activos.length < CONTRATO.maxActivos) for (const c of s.contratos.tablero) {
@@ -1429,28 +1538,27 @@ export function decisiones(s) {
   }
   // aviones de más: en una ruta con 2 o más, el que no aporta (la ruta lleva lo mismo sin él) se vende
   if (!out.some((d) => d.seguridad)) {
-    const porRuta = {};
-    for (const av of s.aviones) (porRuta[av.ruta] ??= []).push(av);
     for (const id in porRuta) {
       const avs = porRuta[id];
       if (avs.length < 2) continue;
       let peor = null;
-      for (const av of [...avs].reverse()) { const v = aporteAvion(s, av); if (v < 0 && (!peor || v < peor.v)) peor = { av, v }; } // a igual aporte, el más nuevo
+      const porTipo = {}; // dos aviones del mismo tipo en la misma ruta aportan lo mismo: se estima una vez por tipo
+      for (const av of [...avs].reverse()) { const v = (porTipo[av.tipo] ??= aporteAvion(s, av)); if (v < 0 && (!peor || v < peor.v)) peor = { av, v }; } // a igual aporte, el más nuevo
       if (peor) out.push({ tipo: 'vender', id: peor.av.id, ruta: id, costo: -Math.round(AV[peor.av.tipo].precio * VENTA), efectoDia: -peor.v, sobra: true });
     }
   }
   // economía: un avión más donde sobra demanda, balizas, centro de transbordo
   for (const r of s.rutas) {
-    const t = mejorTipoPara(s, r);
-    if (t && puedeComprar(s, t.id, r.id).ok) { const e = estimarAvion(s, t.id, r.id); if (e > 0) out.push({ tipo: 'avion', id: t.id, ruta: r.id, costo: t.precio, efectoDia: e }); }
-    if (!iluminada(s, r) && s.aviones.some((a) => a.ruta === r.id && !AV[a.tipo].nocturno)) {
+    const t = mejorTipo(r); // ya filtra lo que se puede comprar
+    if (t) { const e = est(t.id, r.id); if (e > 0) out.push({ tipo: 'avion', id: t.id, ruta: r.id, costo: t.precio, efectoDia: e }); }
+    if (!iluminada(s, r) && (porRuta[r.id] ?? []).some((a) => !AV[a.tipo].nocturno)) {
       const c = costoBalizas(r, s);
       if (s.dinero >= c && res(c)) { const e = estimarBalizas(s, r); if (e > 0) out.push({ tipo: 'balizas', id: r.id, costo: c, efectoDia: e }); }
     }
   }
   // carga mínima (gratis): si los vuelos de una ruta salen por debajo del equilibrio, esperar un escalón más de carga
   for (const r of s.rutas) {
-    const avs = s.aviones.filter((x) => x.ruta === r.id);
+    const avs = porRuta[r.id] ?? [];
     if (!avs.length || r.vuelos < 4) continue;
     const t = AV[avs[0].tipo];
     const lleno = Object.entries(t.lleva).reduce((a2, [c, n]) => a2 + (capitulo(s).cargas[c] ? n * tarifa(c, r.km) : 0), 0);
@@ -1471,10 +1579,10 @@ export function decisiones(s) {
   }
   return out;
 }
-function mejorTipoPara(s, r) {
+function mejorTipoPara(s, r, est = (tid, rid) => estimarAvion(s, tid, rid)) {
   const tipos = avionesDisponibles(s).filter((t) => t.alcance >= r.km && puedeComprar(s, t.id, r.id).ok);
   let mejor = null, v = -Infinity;
-  for (const t of tipos) { const e = estimarAvion(s, t.id, r.id) / t.precio; if (e > v) { v = e; mejor = t; } }
+  for (const t of tipos) { const e = est(t.id, r.id) / t.precio; if (e > v) { v = e; mejor = t; } }
   return mejor;
 }
 // Iluminar una ruta deja volar las 10 horas de noche: lo que la red manda por ahí en esas horas (hasta lo que pueden llevar sus
@@ -1518,8 +1626,9 @@ function pasoHacia(s, ciudad, aunqueTocada = false) {
   return mejor;
 }
 
-// La mejor próxima acción: primero lo que pide la historia, después la red de seguridad, después lo que más rinde por peso.
-// Nunca sugiere algo con efecto negativo ni algo que deje la caja por debajo del costo de 2 vuelos.
+// La mejor próxima acción: primero la red de seguridad, después lo que pide la historia (o juntar para eso, tipo 'ahorrar', si la
+// red lo junta pronto), después lo que más rinde por peso. Nunca sugiere algo con efecto negativo ni algo que deje la caja por
+// debajo del costo de 2 vuelos.
 export function sugerencia(s) {
   const ds = decisiones(s).filter((d) => d.efectoDia >= 0 && (d.costo <= 0 || s.dinero - d.costo >= reservaSugerencia(s)));
   const seg = ds.find((d) => d.seguridad);
@@ -1548,9 +1657,13 @@ export function resumenRuta(s, id) {
     costoDespegue: t ? costoVuelo(s, t, r) : null, ingresoMedio: r.vuelos ? Math.round(r.ingresos / r.vuelos) : 0,
     costoHoraParado: aviones.reduce((a, av) => a + AV[av.tipo].tierraHora, 0),
     esperan: { ida: suma(x[r.a]?.[r.b]), vuelta: suma(x[r.b]?.[r.a]) },          // lo que espera salir por esta ruta, por sentido
+    // lo que espera en una punta con destino final en la otra (aunque la ruta no tenga aviones y la red no lo rutee por acá)
+    directo: { ida: esperaHacia(s, r.a, r.b), vuelta: esperaHacia(s, r.b, r.a) },
     porHora: { ida: fi?.u ?? 0, vuelta: fv?.u ?? 0 },                            // lo que la red quiere mandar por acá
     capacidadHora: Object.keys(capitulo(s).cargas).reduce((a, c) => a + capacidadHora(s, r.id, c), 0) };
 }
+
+function esperaHacia(s, ap, d) { let n = 0; for (const g of Object.values(s.colas[ap] ?? {})) if (g.d === d) n += g.n; return n; }
 
 // Por sentido: unidades por hora que pasan (locales y en conexión), capacidad ofrecida por hora, perdidas por hora y trabadas.
 export function flujoTramo(s, rutaId) {
@@ -1629,7 +1742,7 @@ export function rindeAusencia(segundos) {
 }
 
 // Simula la ausencia (pestaña cerrada u oculta): la red trabaja de verdad hasta la mañana siguiente (de 6 a 24 h de juego, con
-// pasos de 10 min) y con eso arma el parte de la mañana; las misiones y los contratos avanzan con lo que de verdad se entrega.
+// pasos de 15 min) y con eso arma el parte de la mañana; las misiones y los contratos avanzan con lo que de verdad se entrega.
 // Lo acreditado sigue la curva decreciente (rindeAusencia) sobre lo que la red ganó por día en esa muestra. Si el neto es
 // negativo se cobra lo que pasó, sin dejar la caja por debajo de cero. Con CONFIG.ausencia = false no pasa nada (los guardados
 // siguen sirviendo).
@@ -1666,9 +1779,9 @@ const premiosDe = (ev) => ev.reduce((a, e) => a + ((e.tipo === 'mision' || e.tip
 
 // ───────────────────────── guardado ─────────────────────────
 // Formato compacto (v2): las colas y los aviones van como enteros empaquetados en texto (5 bits por carácter, base 64 sin
-// escapes), sin las fracciones de demanda (acum) y con los decimales redondeados (edades en minutos enteros, fracción cobrada en
-// centésimos, km de a 10). Un grupo que espera en su origen (nada cobrado, distancia = la del par) ocupa 3 enteros. Un capítulo 3
-// con 300 aviones pesa menos de 50 KB.
+// escapes), con la misma precisión que usa el modelo (edades en minutos enteros, fracción cobrada en centésimos, km enteros: ver
+// fundir), así guardar y restaurar deja la partida exactamente igual. Un grupo que espera en su origen (nada cobrado, distancia =
+// la del par) ocupa 3 enteros. Un capítulo 3 con 300 aviones pesa menos de 50 KB.
 const r2 = (x) => Math.round(x * 100) / 100;
 const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 const B64_IDX = Object.fromEntries([...B64].map((c, i) => [c, i]));
@@ -1696,9 +1809,9 @@ export function desempacar(txt) {
 // grupo → enteros. código = ((destino × 3 + carga) × 8) + banderas (1: en origen, 2: contrato, 4: hora de llegada propia).
 function grupoInts(g, ap, t, out) {
   const enOrigen = ap && g.p === 0 && Math.round(g.km) === km(ap, g.d);
-  const conTl = g.tl !== undefined && Math.abs(g.tl - g.tc) >= 5;
+  const conTl = g.tl !== undefined && g.tl !== g.tc;
   out.push((AP_IDX[g.d] * 3 + CARGA_IDS.indexOf(g.c)) * 8 + (enOrigen ? 1 : 0) + (g.k ? 2 : 0) + (conTl ? 4 : 0), g.n, t - g.tc);
-  if (!enOrigen) out.push(g.p * 100, g.km / 10);
+  if (!enOrigen) out.push(g.p * 100, g.km);
   if (g.k) out.push(g.k);
   if (conTl) out.push(t - g.tl);
 }
@@ -1708,7 +1821,7 @@ function grupoDeInts(a, i, ap, t) {
   if (!d || !c) throw new Error('grupo inválido');
   const n = a[i++], tc = t - a[i++];
   let p = 0, kmOD = ap ? km(ap, d) : 0;
-  if (!(f & 1)) { p = a[i++] / 100; kmOD = a[i++] * 10; }
+  if (!(f & 1)) { p = a[i++] / 100; kmOD = a[i++]; }
   const k = f & 2 ? a[i++] : 0;
   const tl = f & 4 ? t - a[i++] : tc;
   return [nuevoGrupo(d, c, n, tc, p, kmOD, k, tl), i];
@@ -1760,11 +1873,11 @@ function avionesDeTxt(txt, rutas, t, dia) {
 export function guardar(s) {
   const diario = (d) => Object.fromEntries(Object.entries(d).map(([ap, x]) => [ap, [x.ok, x.tot, x.perd, x.perdTb ?? 0]]));
   const o = {
-    v: VERSION, cap: s.cap, semilla: s.semilla, t0: s.t0, t: s.t, dinero: r2(s.dinero), niveles: s.niveles, sigId: s.sigId, verRed: s.verRed,
+    v: VERSION, cap: s.cap, semilla: s.semilla, sem0: s.sem0, t0: s.t0, t: s.t, dinero: r2(s.dinero), niveles: s.niveles, sigId: s.sigId, verRed: s.verRed,
     rutas: s.rutas.map((r) => [r.a, r.b, r.balizas ? 1 : 0, r.minCarga, r.esperaMax, r.vuelos, Math.round(r.ingresos), Math.round(r.costos), r2(r.ocup), r.unidades ?? 0]),
     aviones: avionesTxt(s), colas: colasTxt(s.colas, s.t), transbordo: colasTxt(s.transbordo, s.t),
     stats: { ...s.stats, ingresos: Math.round(s.stats.ingresos), gastos: Math.round(s.stats.gastos), mejorDia: Math.round(s.stats.mejorDia) },
-    hora24: s.hora24.map(Math.round), horaIdx: s.horaIdx, netoHora: Math.round(s.netoHora),
+    hora24: s.hora24.map(r2), horaIdx: s.horaIdx, netoHora: r2(s.netoHora),
     misiones: s.misiones, mision: s.mision, contratos: s.contratos, banco: s.banco,
     ronda: { ...s.ronda, noche: s.ronda.noche ? { ...s.ronda.noche, escena: undefined } : null },
     clima: { ...s.clima, combustible: Math.round(s.clima.combustible * 1e4) / 1e4 }, flags: s.flags,
@@ -1801,7 +1914,7 @@ function base(o) {
 function deV2(o) {
   const s = base(o);
   if (!Array.isArray(o.rutas) || typeof o.aviones !== 'string' || !finito(o.t)) return null;
-  Object.assign(s, { cap: o.cap, semilla: o.semilla, t0: o.t0, t: o.t, dinero: o.dinero, niveles: o.niveles ?? {}, sigId: o.sigId, verRed: o.verRed ?? 0 });
+  Object.assign(s, { cap: o.cap, semilla: o.semilla, sem0: finito(o.sem0) ? o.sem0 : o.semilla, t0: o.t0, t: o.t, dinero: o.dinero, niveles: o.niveles ?? {}, sigId: o.sigId, verRed: o.verRed ?? 0 });
   s.rutas = o.rutas.map((x) => ({ id: idRuta(x[0], x[1]), a: x[0], b: x[1], km: AP[x[0]] && AP[x[1]] ? km(x[0], x[1]) : NaN, balizas: !!x[2], minCarga: x[3], esperaMax: x[4],
     vuelos: x[5], ingresos: x[6], costos: x[7], ocup: x[8], unidades: x[9] ?? 0 }));
   s.dia = o.dia ?? diaCalendario(s);
@@ -1824,7 +1937,7 @@ function deV2(o) {
 function deV1(o) {
   const s = base(o);
   if (!Array.isArray(o.rutas) || !Array.isArray(o.aviones)) return null;
-  Object.assign(s, { cap: o.cap, semilla: o.semilla, t0: o.t0, t: o.t, dinero: o.dinero, niveles: o.niveles ?? {}, sigId: o.sigId });
+  Object.assign(s, { cap: o.cap, semilla: o.semilla, sem0: o.semilla, t0: o.t0, t: o.t, dinero: o.dinero, niveles: o.niveles ?? {}, sigId: o.sigId });
   s.rutas = o.rutas.map((r) => ({ unidades: 0, esperaMax: ESPERA_MAX, ...r }));
   s.aviones = o.aviones.map((a) => ({ v: 0, ing: 0, cos: 0, desde: o.t, ...a, carga: a.carga ?? [] }));
   const grupos = (c) => { const out = {}; for (const ap in c ?? {}) { out[ap] = {}; for (const g of Object.values(c[ap])) { const x = nuevoGrupo(g.d, g.c, g.n, g.tc, g.p ?? 0, g.km, 0, g.tc); out[ap][llaveGrupo(x.d, x.c)] = x; } } return out; };
@@ -1857,10 +1970,12 @@ function validar(s) {
 
 // Lo que puede usar la interfaz (y, por eso, los jugadores automáticos). Una prueba falla si un perfil usa algo fuera de esta lista.
 export const API_INTERFAZ = [
-  'MIN_POR_SEG', 'PASO', 'HUB', 'AP', 'AV', 'CARGA_MINIMA', 'paso', 'tomarEventos', 'nuevoEstado', 'avanzarCapitulo', 'capituloTerminado',
+  'MIN_POR_SEG', 'PASO', 'HUB', 'AP', 'AV', 'CARGA_MINIMA', 'paso', 'tomarEventos', 'nuevoEstado', 'avanzarCapitulo', 'capituloTerminado', 'historiaTerminada',
   'abrirRuta', 'puedeAbrirRuta', 'cerrarRuta', 'comprarAvion', 'puedeComprar', 'venderAvion', 'ponerBalizas', 'costoBalizas', 'fijarCargaMinima',
-  'mejorarTransbordo', 'capacidadTransbordo', 'costoRuta', 'gananciaDia', 'esNoche', 'fecha', 'hora', 'misionActual', 'misionesActivas',
+  'mejorarTransbordo', 'capacidadTransbordo', 'costoTransbordo', 'costoRuta', 'gananciaDia', 'esNoche', 'fecha', 'hora', 'misionActual', 'misionesActivas',
   'progreso', 'misionHecha', 'capitulo', 'enEspera', 'enTransbordo', 'enRed', 'servido', 'nodosRed', 'potencial', 'km', 'avionesDisponibles',
   'avionDisponible', 'ciudadDisponible', 'iluminada', 'resumenRuta', 'sugerencia', 'decisiones', 'listoParaCargar', 'flujoTramo', 'indicadoresHub',
   'aceptarContrato', 'premioRondaDelDia', 'escenaRonda', 'rondaEnCurso', 'fijarPrioridad', 'moverSalida', 'planSugerido', 'aplicarPlan', 'simularAusencia', 'guardar', 'restaurar',
+  // lecturas que agregó la interfaz v1 (ficha de avión, resumen de capítulo, efecto de comprar en el botón)
+  'fichaAvion', 'resumenCapitulo', 'estimarAvion', 'idRuta', 'fijarFechaDispositivo', 'CONFIG', 'RONDA_CADA',
 ];

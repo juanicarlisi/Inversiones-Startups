@@ -89,9 +89,13 @@ test('puente · contrafactual y causas pidiendo las noches a los Workers (priori
   const mv = await chico();
   const { traza: t } = await S.noche(mv, 20261017, 0, Prioridad.VISTA_PREVIA);
   assert.ok(t);
-  let e = -1;
-  for (let i = t.paquetes.n - 1; i >= 0; i--) if (t.paquetes.listo[i] > t.corte) { e = i; break; }
-  assert.ok(e >= 0, 'en la noche 0 del hub chico algún paquete pierde el corte');
+  // el paquete que más tardó en el hub (con el motor 1.1.0 la noche 0 del chico puede no perder el corte): tiene esperas que probar
+  let e = -1, peor = -1;
+  for (let i = 0; i < t.paquetes.n; i++) {
+    const w = (t.paquetes.listo[i] < 0 ? t.fin : t.paquetes.listo[i]) - t.paquetes.creado[i];
+    if (w > peor) { peor = w; e = i; }
+  }
+  assert.ok(e >= 0, 'la noche 0 del hub chico tiene paquetes');
   const { causas, contrafactuales } = await S.causas(t, mv, t.paquetes.camion[e], t.paquetes.indice[e]);
   assert.ok(contrafactuales.length > 0, 'el paquete tiene candidatas y se probaron');
   for (const f of causas) assert.match(f.clave, /^explicacion\.causa\./);

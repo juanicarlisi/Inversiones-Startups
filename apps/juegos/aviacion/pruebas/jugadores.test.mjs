@@ -6,6 +6,8 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import * as M from '../js/modelo.js';
+import { correr } from '../herramientas/jugadores.mjs';
+import * as D from '../herramientas/diferencial.mjs';
 
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 // el código de los perfiles, sin comentarios (los comentarios pueden nombrar modelo.js)
@@ -37,13 +39,14 @@ test('jugadores.mjs imprime el JSON prometido; con --novedad, la línea de tiemp
   assert.ok(nov.split('\n').filter((l) => /min/.test(l)).length > 5);
 });
 
+// Se mide el tiempo de CPU del proceso (no el de reloj): node --test corre los archivos de prueba en paralelo y el reloj mediría
+// la competencia por el procesador, no lo que tardan las herramientas.
 test('las 4 corridas de perfil con semilla 1 y diferencial.mjs terminan en menos de 60 s en total', () => {
-  const t0 = Date.now();
-  for (const p of ['literal', 'novato', 'listo', 'compraTodo']) execFileSync('node', ['herramientas/jugadores.mjs', '--perfil', p, '--semilla', '1'], { cwd: dir, encoding: 'utf8' });
-  const dif = execFileSync('node', ['herramientas/diferencial.mjs', '--json'], { cwd: dir, encoding: 'utf8' });
-  const seg = (Date.now() - t0) / 1000;
-  assert.ok(seg < 60, `${seg.toFixed(1)} s`);
-  const d = JSON.parse(dif);
+  const c0 = process.cpuUsage(), t0 = Date.now();
+  for (const p of ['literal', 'novato', 'listo', 'compraTodo']) correr(p, { semilla: 1 }); // lo mismo que la línea de comandos
+  const d = { a: D.casoA(), b: D.casoB(), c: D.casoC(), d: D.casoD(), e: D.casoE(), f: D.casoF() };
+  const cpu = process.cpuUsage(c0), seg = (cpu.user + cpu.system) / 1e6;
+  assert.ok(seg < 60, `${seg.toFixed(1)} s de CPU (${((Date.now() - t0) / 1000).toFixed(1)} s de reloj)`);
   for (const k of ['a', 'b', 'c', 'd', 'e', 'f']) assert.ok(d[k], `caso ${k}`);
 });
 

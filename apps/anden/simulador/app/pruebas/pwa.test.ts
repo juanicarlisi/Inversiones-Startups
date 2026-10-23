@@ -53,3 +53,39 @@ test('el QR de un enlace de plantilla entra con corrección L y es determinista'
   // patrón de posición arriba a la izquierda: borde oscuro de 7 × 7
   for (let i = 0; i < 7; i++) { assert.ok(a.isDark(0, i) && a.isDark(6, i) && a.isDark(i, 0) && a.isDark(i, 6)); }
 });
+
+test('service worker: sin red, la copia de la app nunca es un 404 ni un archivo cualquiera abierto como página (hallazgo SEG-04)', async () => {
+  const sw = leer(join(APP, 'pwa', 'sw.js'));
+  const oyentes: Record<string, (ev: unknown) => void> = {};
+  const guardado = new Map<string, { status: number; tipo: string }>();
+  const cache = {
+    put: async (clave: string, r: { status: number; headers: Headers }) => { guardado.set(clave, { status: r.status, tipo: r.headers.get('content-type') ?? '' }); },
+    match: async () => undefined, add: async () => undefined,
+  };
+  const entorno = {
+    addEventListener: (tipo: string, f: (ev: unknown) => void) => { oyentes[tipo] = f; },
+    location: { origin: 'http://127.0.0.1:8080', href: 'http://127.0.0.1:8080/sw.js' },
+    skipWaiting: async () => undefined, clients: { claim: async () => undefined },
+  };
+  const respuestas: Record<string, { status: number; tipo: string; cuerpo: string }> = {
+    '/': { status: 200, tipo: 'text/html; charset=utf-8', cuerpo: '<!doctype html>' },
+    '/no-existe': { status: 404, tipo: 'text/plain; charset=utf-8', cuerpo: 'no está' },
+    '/sw.js': { status: 200, tipo: 'text/javascript', cuerpo: '//' },
+    '/otra.html': { status: 200, tipo: 'text/html', cuerpo: '<p>otra</p>' },
+  };
+  const fetchFalso = async (pedido: { url: string }) => {
+    const r = respuestas[new URL(pedido.url).pathname];
+    return new Response(r.cuerpo, { status: r.status, headers: { 'content-type': r.tipo } });
+  };
+  const correr = new Function('self', 'caches', 'fetch', 'Response', sw);
+  correr(entorno, { open: async () => cache, keys: async () => [], match: async () => undefined }, fetchFalso, Response);
+  const navegar = async (ruta: string) => {
+    let promesa: Promise<unknown> | null = null;
+    oyentes.fetch({ request: { method: 'GET', mode: 'navigate', url: `http://127.0.0.1:8080${ruta}` }, respondWith: (p: Promise<unknown>) => { promesa = p; } });
+    await promesa;
+  };
+  for (const ruta of ['/no-existe', '/sw.js', '/otra.html']) await navegar(ruta);
+  assert.equal(guardado.size, 0, `no se tenía que guardar nada como la app y se guardó ${JSON.stringify([...guardado])}`);
+  await navegar('/');
+  assert.deepEqual(guardado.get('./index.html'), { status: 200, tipo: 'text/html; charset=utf-8' }, 'la página de la app sí se guarda');
+});

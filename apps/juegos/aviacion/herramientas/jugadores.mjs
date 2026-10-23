@@ -21,7 +21,8 @@ export function correr(perfil, { semilla = 1, minutos = 90, vel = 1, ventanas = 
   let seg = 0, espera = REACCION[perfil];  // la primera acción llega después de tocar «Empezar»
   const out = { perfil, semilla, primerDespegue: null, primerCobro: null, primerViajeNeto: null, primerTransbordo: null, misiones: [], capitulos: [],
     novedades: [], gananciaDia: {}, cajaMin: s.dinero, trabadas: [], acciones: 0, sinDecision3min: 0, rojoMaxDias: 0, negMaxDias30: 0, cajaMin30: s.dinero,
-    bancoListo: null, rondas: 0, contratos: 0, desdeMision: 0, primerAvionRepago: null, atrasoPremio: 0, ausencias: [], contratosMin: [], contratosVencidos: 0 };
+    bancoListo: null, rondas: 0, contratos: 0, desdeMision: 0, primerAvionRepago: null, atrasoPremio: 0, ausencias: [], contratosMin: [], contratosVencidos: 0,
+    compras: {}, medallas: [], primeraRonda: null };
   const aceptado = {};
   const pendientes = [...ausencias].sort((a, b) => a.min - b.min);
   let avance = { id: null, v: -1, t: 0 }, rojo = null, neg = null, ultimaDecisionPositiva = 0, primerAvion = null;
@@ -32,17 +33,25 @@ export function correr(perfil, { semilla = 1, minutos = 90, vel = 1, ventanas = 
     if (espera <= 0) {
       const a = decidir(s, ctx);
       const r = a ? aplicar(s, a) : null;
-      if (r?.ok) { out.acciones++; espera = REACCION[perfil]; if (a.tipo === 'contrato') aceptado[a.id] = seg; if (a.tipo === 'avion' && !primerAvion) primerAvion = r.avion; if (a.tipo === 'ronda') ctx.rondaDisponible = false; } else espera = 0.5;
+      // Sin nada para hacer (o si la acción no salió), vuelve a mirar la pantalla después de su tiempo de reacción: nota lo nuevo
+      // con una demora de entre 0 y ese tiempo, como una persona que no está mirando cada medio segundo.
+      if (r?.ok) {
+        out.acciones++;
+        if (a.tipo === 'contrato') aceptado[a.id] = seg;
+        if (a.tipo === 'avion') { if (!primerAvion) primerAvion = r.avion; const c = (out.compras[s.cap] ??= {}); c[a.id] = (c[a.id] ?? 0) + 1; } // aviones comprados por capítulo y tipo
+        if (a.tipo === 'ronda') ctx.rondaDisponible = false;
+      }
+      espera = REACCION[perfil];
     }
     for (const e of I.paso(s)) {
       if (e.tipo === 'despegue' && out.primerDespegue === null) out.primerDespegue = +seg.toFixed(1);
       if (e.tipo === 'aterrizaje' && e.ingreso > 0 && out.primerCobro === null) { out.primerCobro = +(seg + dtReal).toFixed(1); out.primerViajeNeto = e.netoViaje; }
-      if (NOVEDADES.has(e.tipo)) out.novedades.push({ min: +min().toFixed(2), tipo: e.tipo, id: e.id ?? e.avion ?? e.ciudades?.join(',') ?? e.medalla ?? '' });
+      if (NOVEDADES.has(e.tipo)) out.novedades.push({ min: +min().toFixed(2), tipo: e.tipo, id: e.tipo === 'resultadoNoche' ? e.medalla ?? '-' : e.id ?? e.avion ?? e.ciudades?.join(',') ?? '' });
       if (e.tipo === 'mision') { out.misiones.push({ id: e.id, min: +min().toFixed(2), duracion: +(min() - out.desdeMision).toFixed(2) }); out.desdeMision = min(); }
       if (e.tipo === 'bancoListo' && out.bancoListo === null) out.bancoListo = +min().toFixed(2);
-      if (e.tipo === 'rondaDisponible') ctx.rondaDisponible = true;
+      if (e.tipo === 'rondaDisponible') { ctx.rondaDisponible = true; if (out.primeraRonda === null) out.primeraRonda = +min().toFixed(2); }
       if (e.tipo === 'rondaCorte') ctx.rondaDisponible = false;
-      if (e.tipo === 'resultadoNoche') out.rondas++;
+      if (e.tipo === 'resultadoNoche') { out.rondas++; out.medallas.push({ min: +min().toFixed(2), pct: e.pctPrimeraHora, medalla: e.medalla, jugada: e.jugada }); }
       if (e.tipo === 'contrato') { out.contratos++; if (aceptado[e.id] != null) out.contratosMin.push(+((seg - aceptado[e.id]) / 60).toFixed(2)); }
       if (e.tipo === 'contratoVencido') out.contratosVencidos++;
       if (e.tipo === 'capitulo') {

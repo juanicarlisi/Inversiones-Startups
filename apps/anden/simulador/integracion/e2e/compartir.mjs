@@ -83,11 +83,20 @@ export async function enlaceHostil({ contexto, base, etiqueta, prep, fallar, ok,
   const respuestaMs = Date.now() - tr;
   if (respuestaMs > 1000) fallar(`${etiqueta} · enlace hostil: la página tardó ${respuestaMs} ms en contestar después del aviso`);
   await guardar('enlace-hostil', page);
+  // H07b (hallazgo SEG-01): una película que no entra en la memoria de un teléfono se rechaza al leer el enlace, antes de simular
+  const t1 = Date.now();
+  await page.goto(`${base}?depuracion=1#${prep.hostilPelicula}`);
+  await page.waitForSelector('[data-aviso="modelo.enlace.presupuesto"]', { timeout: 15_000 });
+  const avisoPeliculaMs = Date.now() - t1;
+  await h.pantalla('inicio', 15_000);
+  const noSimulo = await page.evaluate(() => !window.__anden.sesion.mv);
+  if (!noSimulo) fallar(`${etiqueta} · enlace hostil H07b: la app abrió el modelo de la película gigante`);
   await page.click('[data-accion="abrir-plantilla"][data-plantilla="hub-chico@1.0.0"]');
   await h.pantalla('escena', 60_000);
-  ok(`${etiqueta} · enlace hostil H01 (${prep.hostil.length} caracteres): aviso a los ${avisoMs} ms («${aviso}»), la página contesta en ${respuestaMs} ms y abre una plantilla`);
+  ok(`${etiqueta} · enlace hostil H01 (${prep.hostil.length} caracteres): aviso a los ${avisoMs} ms («${aviso}»), la página contesta en ${respuestaMs} ms y abre una plantilla; ` +
+    `H07b (película de 23 millones de tramos, ${prep.hostilPelicula.length} caracteres): rechazado a los ${avisoPeliculaMs} ms sin simular`);
   const faltan = await h.faltantes();
   if (faltan.length) fallar(`${etiqueta} · enlace hostil: claves de texto faltantes: ${faltan.join(', ')}`);
   await page.close();
-  return { datos: { avisoMs, respuestaMs, aviso, caracteres: prep.hostil.length }, errores: h.errores };
+  return { datos: { avisoMs, respuestaMs, aviso, caracteres: prep.hostil.length, avisoPeliculaMs, caracteresPelicula: prep.hostilPelicula.length }, errores: h.errores };
 }

@@ -2,7 +2,9 @@
 // Guarda los archivos construidos para que la app ande sin red (presentar en una sala sin wifi, diseño maestro §5.6). No hay servidor de
 // datos: todo lo que la app calcula se calcula en el dispositivo y el modelo viaja en el fragmento del enlace (#), que nunca llega acá.
 // - Al instalarse guarda la cáscara y la lista de archivos construidos (la escribe el paso de construcción en ARCHIVOS_CONSTRUIDOS).
-// - La página (navegación): primero la red, para recibir versiones nuevas; sin red, la copia guardada.
+// - La página (navegación): primero la red, para recibir versiones nuevas; sin red, la copia guardada. Solo se guarda como la app una
+//   respuesta OK, HTML y de la ruta de la app («/» o «/index.html»): un 404 o un archivo cualquiera abierto como página pisaban la copia
+//   y la app sin red mostraba «no está» (hallazgo SEG-04).
 // - El resto de los archivos del mismo origen: la copia guardada y, en segundo plano, se actualiza.
 // Para invalidar todo, cambiar VERSION (la construcción la reemplaza por la huella de los archivos).
 const VERSION = 'anden-c1-/*VERSION*/dev';
@@ -35,8 +37,13 @@ self.addEventListener('fetch', (evento) => {
     evento.respondWith((async () => {
       try {
         const r = await fetch(pedido);
-        const cache = await caches.open(VERSION);
-        await cache.put('./index.html', r.clone()).catch(() => null);
+        const tipo = r.headers.get('content-type') ?? '';
+        const base = new URL('./', self.location.href).pathname;
+        const esLaApp = url.pathname === base || url.pathname === `${base}index.html`;
+        if (r.ok && tipo.startsWith('text/html') && esLaApp) {
+          const cache = await caches.open(VERSION);
+          await cache.put('./index.html', r.clone()).catch(() => null);
+        }
         return r;
       } catch {
         return (await caches.match('./index.html')) ?? (await caches.match('./')) ?? Response.error();

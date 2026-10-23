@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { clasificarAlerta, claveSemaforo, COLOR_DE_MOTIVO, semaforo, semaforoDe, MINIMO_REPLICAS } from '../semaforo.ts';
+import { clasificarAlerta, claveSemaforo, COLOR_DE_MOTIVO, semaforo, semaforoDe, MINIMO_REPLICAS, claveTextoSemaforo } from '../semaforo.ts';
 import { resultadoFalso, validadoEjemplo } from './ayudas.ts';
 import type { Diagnostico } from '../../contratos/modelo.ts';
 import type { MotivoSemaforo } from '../../contratos/experimentos.ts';
@@ -24,11 +24,12 @@ test('rojo / modelo-con-errores: un diagnóstico de nivel error (los avisos no)'
 });
 
 test('rojo / conservacion, invariante e inestable (no-termina, tope-eventos y lazo-tiempo-cero)', () => {
+  // la primera alerta es la de la réplica 4, que la etiqueta de noche llama «Noche 5»: el texto usa ese número (hallazgo E-09)
   const una = (a: string) => semaforo({ resultados: veinte((i) => (i === 4 || i === 9 ? [a] : [])) });
-  assert.deepEqual(una('conservacion'), { color: 'rojo', motivo: 'conservacion', vars: { afectadas: 2, replicas: 20, replica: 4 } });
-  assert.deepEqual(una('invariante:rampa-capacidad'), { color: 'rojo', motivo: 'invariante', vars: { afectadas: 2, replicas: 20, replica: 4, nombre: 'rampa-capacidad' } });
+  assert.deepEqual(una('conservacion'), { color: 'rojo', motivo: 'conservacion', vars: { afectadas: 2, replicas: 20, replica: 5 } });
+  assert.deepEqual(una('invariante:rampa-capacidad'), { color: 'rojo', motivo: 'invariante', vars: { afectadas: 2, replicas: 20, replica: 5, nombre: 'rampa-capacidad' } });
   for (const a of ['no-termina', 'tope-eventos', 'lazo-tiempo-cero']) {
-    assert.deepEqual(una(a), { color: 'rojo', motivo: 'inestable', vars: { afectadas: 2, replicas: 20, replica: 4, motivo: a } }, `la alerta «${a}» cuenta como inestable`);
+    assert.deepEqual(una(a), { color: 'rojo', motivo: 'inestable', vars: { afectadas: 2, replicas: 20, replica: 5, motivo: a } }, `la alerta «${a}» cuenta como inestable`);
   }
   assert.equal(una('algo-que-no-conocemos').motivo, 'invariante', 'una alerta desconocida nunca se ignora');
 });
@@ -50,7 +51,11 @@ test('el rojo gana a los amarillos: con alertas no importa que haya pocas répli
 test('amarillo / decision-en-duda: algún valor relevante en duda al llegar al máximo, con cuántas noches faltarían', () => {
   const s = semaforo({ resultados: veinte(), replicas: 400, decisionEnDuda: { valores: [3, 4], faltan: 120 } });
   assert.deepEqual(s, { color: 'amarillo', motivo: 'decision-en-duda', vars: { valores: '3, 4', replicas: 400, faltan: 120 } });
-  assert.equal(semaforo({ resultados: veinte(), decisionEnDuda: { valores: [3], faltan: null } }).vars.faltan, 1_000_000, 'si no se puede estimar, un tope legible');
+  // si no se puede estimar, no se inventa un número: `faltan` no va y el texto es la variante «sin estimación» (hallazgo E-10)
+  const sinEstimar = semaforo({ resultados: veinte(), decisionEnDuda: { valores: [3], faltan: null } });
+  assert.equal(sinEstimar.vars.faltan, undefined);
+  assert.equal(claveTextoSemaforo(sinEstimar), 'experimentos.semaforo.decision-en-duda.sin-estimacion');
+  assert.equal(claveTextoSemaforo(s), 'experimentos.semaforo.decision-en-duda');
   assert.equal(semaforo({ resultados: veinte(), decisionEnDuda: { valores: [], faltan: null } }).color, 'verde', 'sin valores en duda no hay aviso');
 });
 

@@ -48,8 +48,9 @@ for (const regla of ['la-que-se-llena-antes', 'en-orden'] as const) {
     sana(s, regla);
     const T = s.traza!.tramos, atendidas = new Map<number, Set<number>>();
     for (let i = 0; i < T.n; i++) if (T.k[i] === TipoTramo.MANO) { if (!atendidas.has(T.r[i])) atendidas.set(T.r[i], new Set()); atendidas.get(T.r[i])!.add(T.a[i]); }
-    const total = [...atendidas.values()].reduce((n, x) => n + x.size, 0);
-    assert.equal(total, 12, 'entre todas las personas atendieron las 12 rampas');
+    // Desde el motor 1.1.0 una rampa la atiende su persona y, en las pausas de esa persona, quien la releva: se cuentan rampas distintas.
+    const todas = new Set([...atendidas.values()].flatMap((x) => [...x]));
+    assert.equal(todas.size, 12, 'entre todas las personas atendieron las 12 rampas');
   });
 }
 

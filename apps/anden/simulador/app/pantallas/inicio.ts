@@ -16,6 +16,16 @@ export function paquetesNominales(m: Modelo): number {
   return Array.isArray(c) ? c.reduce((a, x) => a + x.paquetes, 0) : c.cantidad * c.paquetes;
 }
 
+/**
+ * Los paquetes nominales como los dice el título de la plantilla: si están a menos de 0,2% de un número redondo de miles (23.998 en una
+ * plantilla de «24.000 paquetes»), «≈ 24.000»; si no, el número exacto (hallazgo UX-20).
+ */
+export function paquetesComoTitulo(ctx: Contexto, n: number): string {
+  const redondo = Math.round(n / 1000) * 1000;
+  if (redondo > 0 && n !== redondo && Math.abs(n - redondo) / redondo < 0.002) return `≈ ${ctx.f.numero(redondo, 0)}`;
+  return ctx.f.numero(n, 0);
+}
+
 /** Miniatura viva: una noche de la plantilla, en planta, en bucle a ×600. */
 function miniatura(ctx: Contexto, clave: string, caja: HTMLElement): () => void {
   let vivo = true, id = 0, vista: Vista | null = null, ro: ResizeObserver | null = null;
@@ -65,7 +75,7 @@ export const montarInicio: Montar = (raiz, ctx) => {
       caja,
       el('div', { class: 'plantilla__cuerpo' },
         el('h2', { class: 'plantilla__problema' }, problema), tituloModelo,
-        el('p', { class: 'plantilla__datos' }, ctx.t('app.inicio.datos', { paquetes: ctx.f.numero(paquetesNominales(m), 0), rampas: m.hub.rampas.length,
+        el('p', { class: 'plantilla__datos' }, ctx.t('app.inicio.datos', { paquetes: paquetesComoTitulo(ctx, paquetesNominales(m)), rampas: m.hub.rampas.length,
           puestos: m.personas.induccion.puestosActivos })),
         el('button', { type: 'button', class: 'boton boton--primario', 'data-accion': 'abrir-plantilla', 'data-plantilla': clave,
           onclick: () => void ctx.abrirPlantilla(clave) }, ctx.t('app.inicio.verNoche'))));
@@ -83,7 +93,9 @@ export const montarInicio: Montar = (raiz, ctx) => {
     const d = ctx.servicios.plantillas[clave].decision!;
     const b = el('button', { type: 'button', class: 'decision-opcion', 'data-accion': 'decidir-plantilla', 'data-plantilla': clave,
       onclick: () => void ctx.abrirPlantilla(clave, 'decidir') });
-    const pregunta = el('span', { class: 'decision-opcion__pregunta' }); pregunta.textContent = d.pregunta;
+    // las dos plantillas preguntan lo mismo: la pregunta dice para qué hub (hallazgo UX-20)
+    const pregunta = el('span', { class: 'decision-opcion__pregunta' });
+    pregunta.textContent = ctx.t('app.inicio.decisionPara', { pregunta: d.pregunta, paquetes: paquetesComoTitulo(ctx, paquetesNominales(ctx.servicios.plantillas[clave])) });
     const plantilla = el('span', { class: 'decision-opcion__plantilla' }); plantilla.textContent = ctx.servicios.plantillas[clave].titulo;
     b.append(pregunta, plantilla);
     return el('li', null, b);

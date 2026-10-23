@@ -124,6 +124,7 @@ export function calcularResultado(h: Hub, rc: ResultadoCorrida, modelo: string, 
   for (let s = 0; s < cfg.activos; s++) if (Pe.S.trabajadorInd[s] >= 0) inductores++;
   const presentes = Pe.presentes();
   const horas = horasPersonaPagadas(presentes, inicio, fin, maxListo);
+  const jornada = Math.max(fin - inicio, maxListo >= 0 ? maxListo - inicio : 0);
   const costo = costoNoche(horas, cfg.horaPersona, cfg.fijoNoche);
   const msDetenido = S.msDetenido + (S.parado ? Math.max(0, h.tUltimo - S.tParada) : 0);
 
@@ -141,7 +142,9 @@ export function calcularResultado(h: Hub, rc: ResultadoCorrida, modelo: string, 
     esperaMediaMin: clasificados > 0 ? suma / clasificados : 0,
     esperaP50Min: clasificados > 0 ? percentil(esp, 0.5) : 0,
     esperaP90Min: clasificados > 0 ? percentil(esp, 0.9) : 0,
-    utilInduccionPct: inductores > 0 ? (100 * I.msInduciendo) / (inductores * (fin - inicio)) : 0,
+    // Motor 1.1.0 (hallazgo R5): sobre el tiempo PAGADO de cada inductor (max(fin, último listo) − inicio, el de horasPersonaPagadas),
+    // no sobre el turno fijo: si la noche se alarga, el uso ya no pasa de 100%.
+    utilInduccionPct: inductores > 0 ? (100 * I.msInduciendo) / (inductores * jornada) : 0,
     inductoresPresentes: inductores,
     ausentes: Pe.S.ausentes,
     horasRampaLlena: msLlena / MS_POR_HORA,
@@ -153,7 +156,6 @@ export function calcularResultado(h: Hub, rc: ResultadoCorrida, modelo: string, 
     costoNoche: costo,
     costoPorPaquete: costoPorPaquete(costo, clasificados),
   };
-  const turno = fin - inicio;
   const Q = h.medicion.S;
   return {
     modelo, semilla, replica, huella: rc.huella, kpi,
@@ -161,7 +163,8 @@ export function calcularResultado(h: Hub, rc: ResultadoCorrida, modelo: string, 
       rampaRecibidos: Array.from(R.recibidos),
       rampaVueltas: Array.from(S.rampaVueltas),
       rampaMinutosLlena,
-      personaOcupadaPct: Array.from({ length: cfg.nPersonas }, (_, g) => (100 * Pe.ocupadoHasta(g, h.tUltimo)) / turno),
+      // Sobre la jornada pagada (1.1.0, R5), igual que utilInduccionPct.
+      personaOcupadaPct: Array.from({ length: cfg.nPersonas }, (_, g) => (100 * Pe.ocupadoHasta(g, h.tUltimo)) / jornada),
       puestoInducidos: Array.from(I.inducidos),
     },
     series: { filaInduccionMax: Array.from(Q.filaMax.subarray(0, Q.nQ)), clasificados: Array.from(Q.clasificados.subarray(0, Q.nQ)) },

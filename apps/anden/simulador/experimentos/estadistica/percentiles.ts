@@ -28,8 +28,9 @@ export function percentil(xs: ArrayLike<number>, q: number): number {
 }
 
 /**
- * IC del percentil P_q por rangos: l = ⌊nq − z√(nq(1−q))⌋ y u = ⌈nq + z√(nq(1−q))⌉, recortados a [0, n−1]; el intervalo es
- * [x₍l₎, x₍u₎]. null si n < 20 (con menos datos los rangos de la normal no valen).
+ * IC del percentil P_q por rangos: l = ⌊nq − z√(nq(1−q))⌋ y u = ⌈nq + z√(nq(1−q))⌉; el intervalo es [x₍l₎, x₍u₎]. null si n < 20
+ * (con menos datos los rangos de la normal no valen) y también si alguno de los dos rangos cae FUERA de [0, n−1]: recortarlo al mínimo o
+ * al máximo daba un intervalo que se llamaba «95%» y cubría 84–93% con 20 a 40 réplicas (hallazgo E-07; con q = 0,9 pasa para n < ~45).
  */
 export function icPercentilOrdenado(x: ArrayLike<number>, q: number, confianza: number): [number, number] | null {
   validarQ(q);
@@ -38,8 +39,9 @@ export function icPercentilOrdenado(x: ArrayLike<number>, q: number, confianza: 
   const z = cuantilNormal(confianza);
   const medio = n * q;
   const amplitud = z * Math.sqrt(n * q * (1 - q));
-  const l = Math.max(0, Math.floor(medio - amplitud));
-  const u = Math.min(n - 1, Math.ceil(medio + amplitud));
+  const l = Math.floor(medio - amplitud);
+  const u = Math.ceil(medio + amplitud);
+  if (l < 0 || u > n - 1) return null;
   return [x[l], x[u]];
 }
 

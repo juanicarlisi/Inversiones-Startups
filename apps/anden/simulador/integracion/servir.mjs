@@ -22,7 +22,9 @@ export const TIPOS = {
   '.svg': 'image/svg+xml', '.png': 'image/png', '.map': 'application/json; charset=utf-8', '.txt': 'text/plain; charset=utf-8',
 };
 /** La misma política que app/index.html (corte-1.md §1.8), también como cabecera. */
-export const CSP = "default-src 'self'; script-src 'self'; worker-src 'self' blob:; img-src 'self' data: blob:; style-src 'self'";
+// La CSP de §1.8 endurecida (hallazgo SEG-06; integracion/CAMBIOS-CONTRATO.md §3): sin `blob:` en worker-src (los Workers salen de
+// ./worker.js), con base-uri y form-action cerrados y, como cabecera (en <meta> se ignora), frame-ancestors 'none': nadie la enmarca.
+export const CSP = "default-src 'self'; script-src 'self'; worker-src 'self'; img-src 'self' data: blob:; style-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 
 const COMPRIMIBLES = new Set(['.html', '.js', '.mjs', '.css', '.json', '.webmanifest', '.svg', '.map', '.txt']);
 

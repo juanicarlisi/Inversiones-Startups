@@ -123,21 +123,8 @@ export function dibujar(ctx, W, H, s, cam, vis, ahoraMs) {
   // aviones
   const frac = vis.frac ?? 0;
   for (const av of s.aviones) {
-    const r = s.rutas.find((x) => x.id === av.ruta);
-    if (!r) continue;
     const tipo = M.AV[av.tipo];
-    let x, y, ang;
-    if (av.fase === 'vuelo') {
-      const u = Math.min(1, Math.max(0, 1 - (av.resta - frac) / av.dur));
-      const base = curva(av.en, av.hacia).map((v, i) => (i % 2 ? (v - cam.y) * cam.z + H / 2 : (v - cam.x) * cam.z + W / 2));
-      const p = puntoCurva(base, u);
-      [x, y] = p; ang = Math.atan2(p[3], p[2]);
-    } else {
-      const [ax, ay] = P(av.en), [bx, by] = P(av.hacia);
-      ang = Math.atan2(by - ay, bx - ax);
-      const lado = (av.id % 5) - 2;
-      x = ax + Math.cos(ang) * 9 - Math.sin(ang) * lado * 4; y = ay + Math.sin(ang) * 9 + Math.cos(ang) * lado * 4;
-    }
+    const [x, y, ang] = posAvion(cam, W, H, av, frac);
     ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
     ctx.shadowColor = osc > 0.5 ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.9)'; ctx.shadowBlur = 3;
     ctx.fillStyle = vis.sel?.tipo === 'avion' && vis.sel.id === av.id ? pal.hub : (osc > 0.5 ? '#e8edf5' : pal.avion);
@@ -198,17 +185,33 @@ export function dibujar(ctx, W, H, s, cam, vis, ahoraMs) {
     const edad = (ahoraMs - f.t0) / 1400;
     if (edad >= 1) continue;
     const [x, y] = P(f.ap);
-    ctx.globalAlpha = 1 - edad; ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-    ctx.strokeText(f.txt, x, y - 18 - edad * 22); ctx.fillStyle = f.color ?? '#2e7d32';
-    if (osc > 0.5 && !f.color) ctx.fillStyle = '#9cff9c';
-    ctx.fillText(f.txt, x, y - 18 - edad * 22); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 1 - edad;
+    // tono: 'bueno' (verde) o 'malo' (rojo), legibles de día y de noche
+    const yf = y - 18 - edad * 22 + (f.dy ?? 0);
+    ctx.lineWidth = 3; ctx.strokeStyle = osc > 0.5 ? 'rgba(0,0,0,0.6)' : 'rgba(255,255,255,0.85)';
+    ctx.strokeText(f.txt, x, yf);
+    ctx.fillStyle = f.color ?? (f.tono === 'malo' ? (osc > 0.5 ? '#ff8a80' : '#b3261e') : (osc > 0.5 ? '#9cff9c' : '#1b5e20'));
+    ctx.fillText(f.txt, x, yf); ctx.globalAlpha = 1;
   }
   vis.flotan = vis.flotan.filter((f) => ahoraMs - f.t0 < 1400);
   ctx.restore();
 }
 
-// Qué hay bajo el puntero: aeropuerto, avión o ruta.
-export function tocar(s, cam, W, H, sx, sy) {
+// Posición en pantalla y rumbo de un avión (en vuelo, sobre la curva de su ruta; en tierra, al costado de su aeropuerto).
+export function posAvion(cam, W, H, av, frac = 0) {
+  if (av.fase === 'vuelo') {
+    const u = Math.min(1, Math.max(0, 1 - (av.resta - frac) / av.dur));
+    const base = curva(av.en, av.hacia).map((v, i) => (i % 2 ? (v - cam.y) * cam.z + H / 2 : (v - cam.x) * cam.z + W / 2));
+    const p = puntoCurva(base, u);
+    return [p[0], p[1], Math.atan2(p[3], p[2])];
+  }
+  const [ax, ay] = aPantalla(cam, W, H, POS[av.en]), [bx, by] = aPantalla(cam, W, H, POS[av.hacia]);
+  const ang = Math.atan2(by - ay, bx - ax), lado = (av.id % 5) - 2;
+  return [ax + Math.cos(ang) * 9 - Math.sin(ang) * lado * 4, ay + Math.sin(ang) * 9 + Math.cos(ang) * lado * 4, ang];
+}
+
+// Qué hay bajo el puntero: aeropuerto, avión en vuelo o ruta. radioAvion: tolerancia del toque sobre un avión (más con el dedo).
+export function tocar(s, cam, W, H, sx, sy, frac = 0, radioAvion = 10) {
   let mejor = null, dmin = 18;
   for (const a of AEROPUERTOS) {
     if (!M.ciudadDisponible(s, a.id)) continue;
@@ -217,6 +220,14 @@ export function tocar(s, cam, W, H, sx, sy) {
     if (d < dmin) { dmin = d; mejor = { tipo: 'ap', id: a.id }; }
   }
   if (mejor) return mejor;
+  let av = null, da = radioAvion;
+  for (const a of s.aviones) {
+    if (a.fase !== 'vuelo') continue; // los que están en tierra se eligen desde su ruta o su aeropuerto
+    const [x, y] = posAvion(cam, W, H, a, frac);
+    const d = Math.hypot(x - sx, y - sy);
+    if (d < da) { da = d; av = a; }
+  }
+  if (av) return { tipo: 'avion', id: av.id };
   for (const r of s.rutas) {
     const c = curva(r.a, r.b).map((v, i) => (i % 2 ? (v - cam.y) * cam.z + H / 2 : (v - cam.x) * cam.z + W / 2));
     for (let i = 0; i <= 24; i++) {

@@ -29,6 +29,36 @@ export function claveCierreFormulario(ev: EvaluacionDecision | null): string {
   return 'explicacion.formulario.ninguna_cumple';
 }
 
+/**
+ * Cuando ninguna opción probada cumple, la pantalla no termina en un callejón (hallazgo UX-03): ofrece probar más opciones (hasta el
+ * máximo físico si la variable son puestos de inducción) o una meta menos exigente. Cada salida cambia la decisión del modelo con un
+ * parche y vuelve a decidir.
+ */
+function salidasSinRespuesta(ctx: Contexto): HTMLElement | null {
+  const s = ctx.sesion, m = s.mv?.modelo, d = m?.decision;
+  if (!m || !d) return null;
+  const botones: HTMLElement[] = [];
+  const fisicos = d.variable.ruta === '/personas/induccion/puestosActivos' ? m.hub.induccion.puestos.length : Infinity;
+  const nuevoMax = Math.min(fisicos, d.variable.max + 3);
+  if (nuevoMax > d.variable.max) {
+    botones.push(el('button', { type: 'button', class: 'boton boton--primario', 'data-accion': 'decidir-mas-opciones',
+      onclick: () => void s.cambiarDecision([{ op: 'replace', path: '/decision/variable/max', value: nuevoMax }]) },
+    ctx.t('app.decidir.masOpciones', { max: nuevoMax })));
+  }
+  const meta = d.restriccion.probabilidadMinima;
+  const otra = meta > 0.8 + 1e-9 ? 0.8 : meta > 0.5 + 1e-9 ? 0.5 : null;
+  if (otra !== null) {
+    const cada = Math.round(1 / (1 - otra));
+    botones.push(el('button', { type: 'button', class: 'boton', 'data-accion': 'decidir-otra-meta',
+      onclick: () => void s.cambiarDecision([
+        { op: 'replace', path: '/decision/restriccion/probabilidadMinima', value: otra },
+        { op: 'replace', path: '/decision/restriccion/dichoComo', value: ctx.t('app.decidir.metaDicha', { cada }) },
+      ]) }, ctx.t('app.decidir.otraMeta', { cada })));
+  }
+  if (!botones.length) return el('p', { class: 'nota' }, ctx.t('app.decidir.sinSalida'));
+  return el('div', { class: 'decidir__salidas', 'data-decidir': 'salidas' }, el('p', null, ctx.t('app.decidir.salidas')), ...botones);
+}
+
 function tarjetaPregunta(ctx: Contexto, p: Pregunta): HTMLElement {
   const unidad = ctx.sesion.mv?.modelo.parametros[p.parametro]?.unidad ?? '';
   const id = `respuesta-${p.parametro}`;
@@ -62,6 +92,13 @@ function tarjetaPregunta(ctx: Contexto, p: Pregunta): HTMLElement {
     el('div', { class: 'pregunta__respuesta' }, el('label', { for: id, class: 'campo__etiqueta' }, ctx.t('app.decidir.tuDato', { unidad })), entrada, usar), error);
 }
 
+/** Estimación del tiempo que falta de una tarea con progreso (hechas de total), a partir de lo que tardó hasta ahora (hallazgo UX-16). */
+function estimarRestante(inicio: number, hechas: number, total: number): number | null {
+  if (!(hechas >= 1) || !(total > hechas)) return null;
+  const transcurrido = performance.now() - inicio;
+  return (transcurrido / hechas) * (total - hechas);
+}
+
 export const montarDecidir: Montar = (raiz, ctx) => {
   const L = limpiezas(), s = ctx.sesion;
   const mv = s.mv;
@@ -81,13 +118,22 @@ export const montarDecidir: Montar = (raiz, ctx) => {
   raiz.append(cabecera(ctx.t('app.decidir.titulo'), botonVolver(ctx)), tarjeta(null, 'decidir__cabeza', pregunta, meta), progresoCaja,
     tarjeta(ctx.t('app.decidir.evaluacion'), '', evaluacion), tarjeta(ctx.t('app.decidir.formulario'), '', respuestas, formulario));
 
+  // cuándo empezó cada fase, para estimar cuánto falta
+  let fasePrevia = '', inicioFase = performance.now();
   const pintar = () => {
     const x = s.decision;
+    if (x.fase !== fasePrevia) { fasePrevia = x.fase; inicioFase = performance.now(); }
     const cancelar = el('button', { type: 'button', class: 'boton', 'data-accion': 'cancelar-decision', onclick: () => s.cancelarDecision() }, ctx.t('app.decidir.cancelar'));
+    const falta = (hechas: number, total: number) => {
+      const ms = estimarRestante(inicioFase, hechas, total);
+      return ms === null ? '' : ` ${ctx.t('app.decidir.falta', { tiempo: ctx.f.duracion(Math.max(1000, ms)) })}`;
+    };
     if (x.fase === 'evaluando') {
       poner(progresoCaja, progreso(x.maximo ? x.hechas / x.maximo : null, ctx.t('app.decidir.evaluando', { hechas: x.hechas })), cancelar);
     } else if (x.fase === 'tamizando') {
-      poner(progresoCaja, progreso(x.maximo ? x.hechas / x.maximo : null, ctx.t('app.decidir.tamizando', { hechas: x.hechas, total: x.maximo })), cancelar);
+      // hasta saber cuántos supuestos hay, progreso indeterminado (nunca «0 de 0»); la recomendación ya está arriba y se puede usar
+      poner(progresoCaja, progreso(x.maximo ? x.hechas / x.maximo : null,
+        x.maximo ? ctx.t('app.decidir.tamizando', { hechas: x.hechas, total: x.maximo }) + falta(x.hechas, x.maximo) : ctx.t('app.decidir.tamizandoEmpieza')), cancelar);
     } else if (x.fase === 'cancelado') {
       poner(progresoCaja, el('p', { class: 'nota' }, ctx.t('app.decidir.cancelado')),
         el('button', { type: 'button', class: 'boton boton--primario', 'data-accion': 'reanudar-decision', onclick: () => void s.decidir() }, ctx.t('app.decidir.reanudar')));
@@ -97,18 +143,28 @@ export const montarDecidir: Montar = (raiz, ctx) => {
     const ev = x.evaluacion;
     if (ev) {
       const moneda = mv.modelo.costos.moneda;
+      const rojo = ev.semaforo.color === 'rojo';
+      // con el semáforo en rojo («No usar») la tabla no muestra números (hallazgo E-02): solo las opciones y su estado
+      const conf = ev.configuraciones[0]?.prop.confianza;
+      const ninguna = !rojo && ev.recomendacion === null && ev.semaforo.motivo !== 'decision-en-duda';
+      const enElBorde = !rojo && ev.recomendacion !== null && ev.recomendacion === d.variable.min;
       poner(evaluacion,
         tabla([ctx.t('app.decidir.col.valor'), ctx.t('app.decidir.col.prob'), ctx.t('app.decidir.col.estado'), ctx.t('app.decidir.col.costo'), ctx.t('app.decidir.col.noches')],
           ev.configuraciones.map((c) => [String(c.valor),
-            ctx.t('app.decidir.prob', { p: ctx.f.porcentaje(c.prop.p, 0), bajo: ctx.f.porcentaje(c.prop.ic[0], 0), alto: ctx.f.porcentaje(c.prop.ic[1], 0) }),
+            rojo ? '—' : ctx.t('app.decidir.prob', { p: ctx.f.porcentaje(c.prop.p, 0), bajo: ctx.f.porcentaje(c.prop.ic[0], 0), alto: ctx.f.porcentaje(c.prop.ic[1], 0) }),
             el('span', { class: `estado-config estado-config--${c.estado}` }, ctx.t(`experimentos.estado.${c.estado}`)),
-            ctx.t('app.decidir.costo', { media: ctx.f.moneda(c.objetivo.media, moneda), mas: ctx.f.moneda(c.objetivo.semiancho, moneda) }),
+            rojo ? '—' : ctx.t('app.decidir.costo', { media: ctx.f.moneda(c.objetivo.media, moneda), mas: ctx.f.moneda(c.objetivo.semiancho, moneda) }),
             ctx.f.numero(c.prop.n, 0)]),
           { titulo: ctx.t('app.decidir.tablaTitulo', { variable: ctx.t('app.decidir.variable') }), numericas: [1, 3, 4], accion: 'decision', apilable: true,
             // la opción recomendada se ve en la tabla (salvo con el semáforo en rojo, que no recomienda nada)
-            destacada: ev.semaforo.color === 'rojo' ? -1 : ev.configuraciones.findIndex((c) => c.valor === ev.recomendacion) }),
-        el('div', { class: 'decidir__recomendacion', 'data-recomendacion': ev.semaforo.color === 'rojo' ? 'ninguna' : ev.recomendacion ?? 'ninguna' },
-          el('p', { class: 'decidir__recomendacion-texto' }, textoRecomendacion(ctx, ev)), detalleSemaforo(ctx, ev.semaforo)),
+            destacada: rojo ? -1 : ev.configuraciones.findIndex((c) => c.valor === ev.recomendacion) }),
+        // el intervalo que decide corrige por mirar varias veces (experimentos/decision.ts): se dice con cuánta confianza
+        conf !== undefined && !rojo ? el('p', { class: 'nota', 'data-decidir': 'confianza' }, ctx.t('app.decidir.confianzaPorMirada', { confianza: ctx.f.porcentaje(conf, 2) })) : null,
+        el('div', { class: `decidir__recomendacion${ninguna ? ' decidir__recomendacion--ninguna' : ''}`, 'data-recomendacion': rojo ? 'ninguna' : ev.recomendacion ?? 'ninguna' },
+          el('p', { class: 'decidir__recomendacion-texto' }, textoRecomendacion(ctx, ev)),
+          enElBorde ? el('p', { class: 'nota', 'data-decidir': 'borde' }, ctx.t('app.decidir.enElBorde', { valor: d.variable.min })) : null,
+          detalleSemaforo(ctx, ev.semaforo),
+          ninguna ? salidasSinRespuesta(ctx) : null),
         el('p', { class: 'nota' }, ctx.t('app.decidir.noches', { n: ev.replicasUsadas })));
     } else poner(evaluacion, el('p', { class: 'nota' }, ctx.t('app.decidir.sinEvaluacion')));
     const dadas = Object.entries(x.respuestas);
@@ -118,7 +174,8 @@ export const montarDecidir: Montar = (raiz, ctx) => {
     if (x.preguntas) {
       poner(formulario, x.preguntas.length
         ? el('ol', { class: 'preguntas' }, ...x.preguntas.map((p) => tarjetaPregunta(ctx, p)))
-        : el('p', { class: 'decidir__listo', 'data-formulario': 'listo' }, ctx.t(claveCierreFormulario(x.evaluacion))));
+        : el('p', { class: `decidir__listo decidir__listo--${claveCierreFormulario(x.evaluacion).split('.').pop()}`, 'data-formulario': 'listo' },
+          ctx.t(claveCierreFormulario(x.evaluacion))));
     } else poner(formulario, el('p', { class: 'nota' }, ctx.t(x.fase === 'tamizando' ? 'app.decidir.armandoFormulario' : 'app.decidir.formularioDespues')));
     raiz.dataset.listo = x.fase === 'listo' || x.fase === 'cancelado' ? '1' : '0';
   };

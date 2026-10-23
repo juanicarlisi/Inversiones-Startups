@@ -9,13 +9,18 @@
 //         de las 25.000 medias da 8,996 (W = 9: sin sesgo). La maqueta, con otro motor, midió 94,4%. Con la banda de §8 la prueba caía
 //         en el borde (92,2% y, en el reintento con 2.000 macro, 93,25%). La banda se CENTRA en la cobertura real del método, con el
 //         mismo ancho (± 1,96 ee de 500 macro, más la incertidumbre del centro): [91,4%; 95,9%]. Ver integracion/NOTAS-CONTRATO.md §6.
+//         20-10-2026 (hallazgo H3 de la revisión): recentrar la banda en la cobertura que dio el mismo método es circular, y un defecto
+//         que bajara la cobertura 2 puntos (réplicas dependientes, un calentamiento corto) pasaba. Ahora S03 EXIGE lo que la cobertura
+//         quería proteger y sí se puede medir sin circularidad: que las réplicas sean independientes (correlación entre medias de réplicas
+//         vecinas ≈ 0, |z| ≤ 3,29) y que la media de las medias no tenga sesgo contra W = 9 (|z| ≤ 3,29). La cobertura queda como
+//         informativa (S03c) con su número y la banda de §8 al lado; integracion/CAMBIOS-CONTRATO.md §4 propone el texto para §8.
 //         S01 y S02 (las demostraciones que tienen que fallar) son de P2 (casos/informativas.ts);
 //   S08 · Whitt (1989): T · Var(L̄) en M/M/1 ρ = 0,8 tiende a 2ρ(1 + ρ)/(1 − ρ)⁴ = 1.800, que tiene que caer en el IC del 95% de la
 //         varianza (χ² con R − 1 grados de libertad, por Wilson-Hilferty). 200 réplicas de T = 200.000 con arranque estacionario;
 //   S09 · las mismas réplicas: L = ρ/(1 − ρ) = 4 dentro de 3,29 ee (con arranque estacionario no hace falta calentar);
 //   S11 · MSER-5 sobre la serie PROMEDIO de 10 réplicas con arranque cargado (100 en el sistema, ρ = 0,9, L = 9): después del corte, el
 //         sesgo de L en 40 macro-experimentos queda dentro de 3,29 ee (maqueta: +0,017 ± 0,144).
-import type { Caso } from '../../verificacion/casos/comun.ts';
+import type { Caso, ResultadoPrueba } from '../../verificacion/casos/comun.ts';
 import { decl, evaluarIntervalo, replicasDe, Z_MAX } from '../../verificacion/casos/comun.ts';
 import { cuantilNormal, mser5, resumirNumeros, serieMedia } from '../../experimentos/indice.ts';
 import { correrMM1, type ConfigMM1 } from './mm1.ts';
@@ -36,8 +41,12 @@ function casoS03(): Caso {
   const caso: Caso = {
     id: 's03-cobertura-replicas', titulo: 'Cobertura del IC del 95% con réplicas independientes (Law 2023, M/M/1 W = 9)', archivo: ARCHIVO,
     suite: 'completa', replicas: MACRO * REPLICAS, horizonte: LAW.horizonte, calentamiento: LAW.calentamiento!,
-    pruebas: [{ id: 'S03', nombre: 'Cobertura del IC del 95% con 10 réplicas independientes con borrado (M/M/1, W = 9) en 500 macro-experimentos',
-      familia: 'S', tipo: 'exigible', esperado: { ...BANDA_S03 }, criterio: { tipo: 'intervalo' } }],
+    pruebas: [
+      { id: 'S03', nombre: 'Réplicas independientes con borrado (M/M/1, W = 9; 5.000 réplicas de 500 macro-experimentos): sin sesgo contra W y sin correlación entre réplicas vecinas',
+        familia: 'S', tipo: 'exigible', esperado: 0, criterio: { tipo: 'z' } },
+      { id: 'S03c', nombre: 'Cobertura del IC del 95% con 10 réplicas independientes con borrado (M/M/1, W = 9) en 500 macro-experimentos (§8: [93,1%; 96,9%])',
+        familia: 'S', tipo: 'informativa', esperado: { ...BANDA_S03 }, criterio: { tipo: 'informativo' } },
+    ],
     cortas: [],
     correr(ctx) {
       const macro = replicasDe(ctx, MACRO);
@@ -54,10 +63,27 @@ function casoS03(): Caso {
       const m = media(todas), ds = Math.sqrt(todas.reduce((a, x) => a + (x - m) * (x - m), 0) / (todas.length - 1));
       const asimetria = todas.reduce((a, x) => { const z = (x - m) / ds; return a + z * z * z; }, 0) / todas.length;
       const sesgoZ = (m - W) / (ds / Math.sqrt(todas.length));
-      const r = conDueno(evaluarIntervalo(caso, decl(caso, 'S03'), ctx, cubre), 'I');
-      if (r.estado === 'pasa' && !(Math.abs(sesgoZ) <= Z_MAX)) { r.estado = 'falla'; r.motivo = `las medias de réplica tienen sesgo: ${coma(m, 3)} contra W = 9 (z = ${coma(sesgoZ)})`; }
-      return [{ ...r, criterio: `la cobertura cae en [91,4%; 95,9%]: la real del IC de t con 10 réplicas (93,6%, no el 95% nominal: medias de réplica ` +
-        `asimétricas, en esta corrida ${coma(asimetria)}) ± 1,96 ee; y la media de las ${todas.length} medias, ${coma(m, 3)}, sin sesgo contra W = 9 (z = ${coma(sesgoZ)})` }];
+      // correlación de orden 1 entre medias de réplicas vecinas (réplica i e i + 1): con réplicas independientes es ≈ N(−1/n, 1/n)
+      let num = 0, den = 0;
+      for (let i = 0; i < todas.length; i++) { const d = todas[i] - m; den += d * d; if (i + 1 < todas.length) num += d * (todas[i + 1] - m); }
+      const r1 = den > 0 ? num / den : 0, n = todas.length;
+      const correlacionZ = (r1 + 1 / n) * Math.sqrt(n);
+      const dS03 = decl(caso, 'S03');
+      const exigible: ResultadoPrueba = {
+        id: 'S03', nombre: dS03.nombre, familia: 'S', suite: caso.suite, tipo: 'exigible', dueno: 'I', caso: caso.id, esperado: 0,
+        simulado: Math.max(Math.abs(sesgoZ), Math.abs(correlacionZ)), semiancho: null, semianchoRelativo: null,
+        z: Math.abs(sesgoZ) >= Math.abs(correlacionZ) ? sesgoZ : correlacionZ, errorRelativo: null, n, replicas: n, semilla: ctx.semilla,
+        estado: 'pasa',
+        criterio: `sin sesgo (media de las ${n} medias ${coma(m, 3)} contra W = 9: z = ${coma(sesgoZ)}) y réplicas vecinas sin correlación ` +
+          `(r₁ = ${coma(r1, 4)}: z = ${coma(correlacionZ)}), las dos con |z| ≤ 3,29`,
+      };
+      const motivos: string[] = [];
+      if (!(Math.abs(sesgoZ) <= Z_MAX)) motivos.push(`las medias de réplica tienen sesgo: ${coma(m, 3)} contra W = 9 (z = ${coma(sesgoZ)})`);
+      if (!(Math.abs(correlacionZ) <= Z_MAX)) motivos.push(`las réplicas vecinas están correlacionadas: r₁ = ${coma(r1, 4)} (z = ${coma(correlacionZ)})`);
+      if (motivos.length) { exigible.estado = 'falla'; exigible.motivo = motivos.join('; '); }
+      const cobertura = conDueno(evaluarIntervalo(caso, decl(caso, 'S03c'), ctx, cubre), 'I');
+      return [exigible, { ...cobertura, estado: 'informativa', criterio: `informativa: §8 pide [93,1%; 96,9%], que supone que el IC de t con 10 réplicas cubre ` +
+        `exactamente el 95%; con medias de réplica asimétricas (en esta corrida ${coma(asimetria)}) el método cubre ≈ 93,6%` }];
     },
   };
   return caso;

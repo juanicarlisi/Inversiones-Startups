@@ -281,7 +281,10 @@ function l06(caso: Caso, ctx: Contexto) {
     else if (fb !== tReinicio + (kCaida - kp) * tick) dif.push(`el paso ${kCaida} tenía que ocurrir en t′ + (k − kₚ)·tick`);
     enTransito++;
   }
-  if (enTransito < 10) dif.push(`tenía que haber paquetes en tránsito al parar (hubo ${enTransito})`);
+  // con el motor 1.1.0 (persistencia y relevo en las rampas) hay menos vueltas de más y menos bandejas ocupadas a la hora de la parada:
+  // 9 con la semilla de la batería (eran más de 10 con 1.0.0). Lo que se controla es que TODAS las que están en tránsito se atrasen igual;
+  // 5 alcanzan para que el control no sea vacío (igual que hub/pruebas/lazo.test.ts).
+  if (enTransito < 5) dif.push(`tenía que haber al menos 5 paquetes en tránsito al parar (hubo ${enTransito})`);
   if (!(b.resultado.kpi.paradasLazo >= 1)) dif.push('no se contó la parada');
   if (!(Math.abs(b.resultado.kpi.minutosLazoDetenido - 10 * b.resultado.kpi.paradasLazo) < 1e-9)) dif.push('cada parada tenía que durar 10 min');
   return evaluarIdentico(caso, decl(caso, 'L06'), ctx, enTransito, dif, `${enTransito} paquetes en tránsito atrasados ${delta} ms`);

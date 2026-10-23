@@ -68,6 +68,8 @@ export const PARES_GRAFICOS: readonly (readonly [grafico: string, fondo: string]
     'persona', 'personaPausa'].flatMap((g) => SUPERFICIES_ENTIDAD.map((f) => [g, f] as const)),
   ['rampaLlena', 'piso'], ['rampaLlena', 'rampa'], ['lazoDetenido', 'piso'], ['rampaCarga', 'rampa'], ['excepcion', 'piso'],
   ['estacion', 'piso'], ['seleccion', 'piso'], ['fantasma', 'piso'],
+  // el camión se distingue del piso por su borde (hallazgo UX-19: en oscuro era casi del color del piso)
+  ['camionBorde', 'piso'],
 ];
 
 /** Colores de cada tema. Las claves son las mismas en los dos (lo prueba estilo.test.ts). */
@@ -77,7 +79,7 @@ const CLARO: Record<string, string> = {
   texto: '#1f2933', textoSuave: '#52606d', rotulo: '#3e4c59', etiquetaFondo: '#1f2933', etiquetaTexto: '#ffffff',
   // instalaciones (neutras)
   lazo: '#8d97a3', lazoBorde: '#6b7682', lazoDetenido: '#b42318', bandeja: '#d3d8de', bandejaBorde: '#a7b0ba',
-  cinta: '#b9b2a6', cintaBorde: '#9a9284', anden: '#5b6470', camion: '#dfe3e8', camionBorde: '#7b8794',
+  cinta: '#b9b2a6', cintaBorde: '#9a9284', anden: '#5b6470', camion: '#dfe3e8', camionBorde: '#6b7785',
   rampa: '#c3cad2', rampaBorde: '#8d97a3', rampaCarga: '#56698a', rampaLlena: '#b42318',
   jaula: '#9aa4ae', jaulaCarga: '#a8743f', estacion: '#2f3a48', lector: '#3e4c59', excepcion: '#7e22ce',
   acumulacion: '#e2ddd3', acumulacionBorde: '#b9b2a6',
@@ -96,7 +98,8 @@ const OSCURO: Record<string, string> = {
   fondo: '#14181d', piso: '#1a1f26', grilla: '#262c35', panel: '#1f252d',
   texto: '#e5e7eb', textoSuave: '#9aa5b1', rotulo: '#c3cad2', etiquetaFondo: '#e5e7eb', etiquetaTexto: '#14181d',
   lazo: '#56606c', lazoBorde: '#7b8794', lazoDetenido: '#f87171', bandeja: '#3a424d', bandejaBorde: '#56606c',
-  cinta: '#4b4f55', cintaBorde: '#6b7076', anden: '#9aa5b1', camion: '#2b323b', camionBorde: '#7b8794',
+  // camión en oscuro con relleno claro de verdad: con #2b323b sobre el piso #1a1f26 (1,3:1) los camiones eran fantasmas (hallazgo UX-19)
+  cinta: '#4b4f55', cintaBorde: '#6b7076', anden: '#9aa5b1', camion: '#64748b', camionBorde: '#94a3b8',
   rampa: '#343c46', rampaBorde: '#56606c', rampaCarga: '#7d93b2', rampaLlena: '#f87171',
   jaula: '#56606c', jaulaCarga: '#c58a52', estacion: '#c3cad2', lector: '#9aa5b1', excepcion: '#c084fc',
   acumulacion: '#232930', acumulacionBorde: '#4b4f55',

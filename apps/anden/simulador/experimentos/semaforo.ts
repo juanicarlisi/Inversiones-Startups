@@ -44,6 +44,16 @@ export function claveSemaforo(motivo: MotivoSemaforo): string {
   return `experimentos.semaforo.${motivo}`;
 }
 
+/**
+ * Clave del texto de UN semáforo, con sus variantes: la duda sin estimación de noches (no se inventa un número, hallazgo E-10) y el
+ * verde de una decisión con opciones sobrecargadas (hallazgo E-08). Las variantes existen en es y en.
+ */
+export function claveTextoSemaforo(s: Pick<Semaforo, 'motivo' | 'vars'>): string {
+  if (s.motivo === 'decision-en-duda' && s.vars.faltan === undefined) return 'experimentos.semaforo.decision-en-duda.sin-estimacion';
+  if (s.motivo === 'ok' && s.vars.sobrecargadas !== undefined) return 'experimentos.semaforo.ok.sobrecargadas';
+  return claveSemaforo(s.motivo);
+}
+
 type ClaseAlerta = 'conservacion' | 'invariante' | 'inestable';
 const GRAVEDAD: ClaseAlerta[] = ['conservacion', 'invariante', 'inestable'];
 
@@ -83,7 +93,8 @@ export function semaforo(e: EntradaSemaforo): Semaforo {
   for (const clase of GRAVEDAD) {
     const hallazgo = porClase.get(clase);
     if (!hallazgo) continue;
-    const base = { afectadas: hallazgo.afectadas, replicas: ordenadas.length, replica: hallazgo.primera };
+    // «replica» es el NÚMERO de la noche como lo muestra la etiqueta de noche («Noche 1 de 100»): índice + 1 (hallazgo E-09).
+    const base = { afectadas: hallazgo.afectadas, replicas: ordenadas.length, replica: hallazgo.primera + 1 };
     if (clase === 'conservacion') return { color: 'rojo', motivo: 'conservacion', vars: base };
     if (clase === 'invariante') return { color: 'rojo', motivo: 'invariante', vars: { ...base, nombre: hallazgo.detalle } };
     return { color: 'rojo', motivo: 'inestable', vars: { ...base, motivo: hallazgo.detalle } };
@@ -94,10 +105,11 @@ export function semaforo(e: EntradaSemaforo): Semaforo {
     return { color: 'amarillo', motivo: 'fuera-de-dominio', vars: { motivo: e.fueraDeDominio.join('; ') } };
   }
   if (e.decisionEnDuda && e.decisionEnDuda.valores.length > 0) {
-    return {
-      color: 'amarillo', motivo: 'decision-en-duda',
-      vars: { valores: e.decisionEnDuda.valores.join(', '), replicas: n, faltan: e.decisionEnDuda.faltan ?? 1_000_000 },
-    };
+    // Sin estimación (la proporción está justo en la meta, o haría falta más de un millón de noches) no se inventa un número: la
+    // variable `faltan` no va y el texto es otro (claveTextoSemaforo).
+    const vars: Record<string, string | number> = { valores: e.decisionEnDuda.valores.join(', '), replicas: n };
+    if (e.decisionEnDuda.faltan !== null) vars.faltan = e.decisionEnDuda.faltan;
+    return { color: 'amarillo', motivo: 'decision-en-duda', vars };
   }
   const minimo = e.minimoReplicas ?? MINIMO_REPLICAS;
   if (n < minimo) return { color: 'amarillo', motivo: 'pocas-replicas', vars: { replicas: n, minimo } };

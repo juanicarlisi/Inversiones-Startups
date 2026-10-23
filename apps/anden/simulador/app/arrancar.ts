@@ -237,6 +237,13 @@ export function arrancar(servicios: Servicios, raiz: HTMLElement, opciones: Opci
     // otro modelo: la pantalla que se ve se vuelve a montar con él (si es la misma pantalla, ir() no la remontaría)
     if (tema === 'modelo') { if (almacen.estado.pantalla !== 'inicio') montar(almacen.estado.pantalla); else pintarCabecera(); }
     if (tema === 'noche' && sesion.noche && reproducirAlCargar) { reproducirAlCargar = false; almacen.despachar({ tipo: 'reproducir' }); }
+    // la película cambió sola de noche (de la provisoria a la mediana): se dice, también al lector de pantalla (hallazgo UX-12)
+    if (tema === 'noche' && sesion.cambioNoche && sesion.noche?.replica === sesion.cambioNoche.a) {
+      const c = sesion.cambioNoche; sesion.cambioNoche = null;
+      const vars = { de: c.de + 1, a: c.a + 1, N: sesion.N };
+      ctx.avisar(`app.noche.cambio.${c.cual}`, vars);
+      ctx.narrar(ctx.t(`app.noche.cambio.${c.cual}`, vars));
+    }
   });
   const alCambiarSistema = () => { if (almacen.estado.tema === 'sistema') { aplicarTema(); montar(almacen.estado.pantalla); } };
   mqOscuro.addEventListener('change', alCambiarSistema);

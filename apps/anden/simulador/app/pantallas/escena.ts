@@ -3,7 +3,7 @@
 // comprobante), la etiqueta de noche obligatoria, la línea de tiempo con marcas y cabezal, los controles, los botones a las demás
 // pantallas, atajos para tocar sin puntero (un paquete que pierde el corte, la rampa que más se llena) y los tres sellos.
 import type { Contexto, Montar } from '../contexto.ts';
-import { ClaseEntidad } from '../../contratos/traza.ts';
+import { ClaseEntidad, TipoTramo, refDe } from '../../contratos/traza.ts';
 import { el, limpiezas, poner } from '../ui/dom.ts';
 import { crearLienzo, pisoActual } from '../ui/lienzo.ts';
 import { bucleReproduccion, controlesReproduccion, crearLineaTiempo } from '../ui/linea-tiempo.ts';
@@ -41,6 +41,28 @@ export function rampaMasLlena(ctx: Contexto): number | null {
   return m;
 }
 
+/**
+ * El paquete que más esperó POR la rampa r en la noche que se ve: en su fila (tramo RAMPA en r) o dando vueltas porque r estaba llena
+ * (BANDEJA con vuelta > 0 y causante r). A igual espera, el que perdió el corte. null si ningún paquete esperó por esa rampa. Lo usa
+ * Presentar para que la rampa resaltada y la causa que se cuenta sean del mismo lugar (hallazgo UX-04).
+ */
+export function paqueteDeRampa(ctx: Contexto, r: number): number | null {
+  const n = ctx.sesion.noche; if (!n) return null;
+  const T = n.traza.tramos, P = n.traza.paquetes, corte = n.traza.corte, causante = refDe(ClaseEntidad.RAMPA, r);
+  const espera = new Map<number, number>();
+  for (let i = 0; i < T.n; i++) {
+    const k = T.k[i];
+    const propia = (k === TipoTramo.RAMPA && T.r[i] === r) || (k === TipoTramo.BANDEJA && T.a[i] > 0 && T.q[i] === causante);
+    if (propia) espera.set(T.e[i], (espera.get(T.e[i]) ?? 0) + (T.t1[i] - T.t0[i]));
+  }
+  let mejor = -1, valor = -1, atrasado = false;
+  for (const [e, w] of espera) {
+    const tarde = P.listo[e] < 0 || P.listo[e] > corte;
+    if (mejor < 0 || (tarde && !atrasado) || (tarde === atrasado && (w > valor || (w === valor && e < mejor)))) { mejor = e; valor = w; atrasado = tarde; }
+  }
+  return mejor >= 0 && valor > 0 ? mejor : null;
+}
+
 export const montarEscena: Montar = (raiz, ctx) => {
   const L = limpiezas(), s = ctx.sesion;
   const mv = s.mv;
@@ -50,8 +72,9 @@ export const montarEscena: Montar = (raiz, ctx) => {
   const resumen = el('div', { class: 'escena__resumen' });
   const etq = etiquetaNoche(ctx, 'A');
   const franja = el('div', { class: 'escena__franja' });
+  // el botón de piso se repinta cuando el lienzo arma su vista con el piso medido (antes decía «Ver en 2,5D» viendo 2,5D: UX-07)
   const lienzo = crearLienzo(ctx, { reproductor: () => s.noche?.reproductor ?? null, tocable: true, etiqueta: ctx.t('app.escena.lienzo'), tablero: true, camara: true,
-    claveCamara: `escena|${mv.huella}` });
+    claveCamara: `escena|${mv.huella}`, alCambiarPiso: () => pintarIngeniero() });
   L.sumar(lienzo.destruir);
   const linea = crearLineaTiempo(ctx, { momentos: () => s.noche?.momentos ?? [], corte: () => s.noche?.traza.corte ?? null,
     minImportancia: () => (ctx.esAncho() ? 2 : 3) });
@@ -60,9 +83,9 @@ export const montarEscena: Montar = (raiz, ctx) => {
   const cargando = el('p', { class: 'escena__cargando', role: 'status' });
   const selloCaja = el('div', { class: 'escena__sellos' });
   const ingeniero = el('div', { class: 'escena__ingeniero' });
+  const pisoVisto = () => ctx.almacen.estado.piso ?? lienzo.vista()?.piso ?? (lienzo.nodo.dataset.piso as 'iso' | '2d' | undefined) ?? pisoActual(ctx);
   const botonPiso = el('button', { type: 'button', class: 'boton', 'data-accion': 'piso', onclick: () => {
-    const actual = lienzo.vista()?.piso ?? '2d';
-    ctx.almacen.despachar({ tipo: 'piso', piso: actual === 'iso' ? '2d' : 'iso' });
+    ctx.almacen.despachar({ tipo: 'piso', piso: pisoVisto() === 'iso' ? '2d' : 'iso' });
   } });
   const botonIng = el('button', { type: 'button', class: 'boton', 'data-accion': 'modo-ingeniero', onclick: () => ctx.almacen.despachar({ tipo: 'ingeniero' }) });
   const ir = (p: Parameters<Contexto['ir']>[0], accion: string, clave: string) =>
@@ -88,15 +111,17 @@ export const montarEscena: Montar = (raiz, ctx) => {
       titulo),
     resumen,
     el('div', { class: 'escena__etiquetas' }, etq.nodo, franja),
-    lienzo.nodo, cargando, leyendaEstados(ctx), linea.nodo, controles.nodo, acciones, atajos, ingeniero, selloCaja);
+    // la película con su línea de tiempo y sus controles pegados abajo, todo dentro de la primera pantalla (hallazgo UX-08); los
+    // controles van antes que las marcas en el orden del teclado (UX-13)
+    el('div', { class: 'escena__pelicula' }, lienzo.nodo, cargando, el('div', { class: 'escena__reproduccion' }, controles.nodo, linea.nodo)),
+    leyendaEstados(ctx), acciones, atajos, ingeniero, selloCaja);
 
   const pintarResumen = () => { poner(resumen, lineaResumen(ctx)); poner(selloCaja, sellos(ctx, true)); poner(franja, franjaSupuestos(ctx)); };
   const pintarIngeniero = () => {
     const e = ctx.almacen.estado;
     botonIng.textContent = ctx.t(e.ingeniero ? 'app.escena.ingenieroSalir' : 'app.escena.ingeniero');
     botonIng.setAttribute('aria-pressed', String(e.ingeniero));
-    const actual = e.piso ?? lienzo.vista()?.piso ?? pisoActual(ctx);
-    botonPiso.textContent = ctx.t(actual === 'iso' ? 'app.escena.piso2d' : 'app.escena.pisoIso');
+    botonPiso.textContent = ctx.t(pisoVisto() === 'iso' ? 'app.escena.piso2d' : 'app.escena.pisoIso');
     if (!e.ingeniero || !s.noche || !s.mv) { ingeniero.replaceChildren(); ingeniero.hidden = true; return; }
     ingeniero.hidden = false;
     const f0 = s.mv.f0, n = s.noche;

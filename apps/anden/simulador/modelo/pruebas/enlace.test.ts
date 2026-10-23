@@ -208,7 +208,9 @@ test('receta: ida y vuelta de todas las combinaciones de campos opcionales', () 
   const mod = HUELLA_EJEMPLO;
   const casos: Receta[] = [
     { v: 1, modelo: mod, motor: '1.0.0', semilla: 0, replicas: 1 },
-    { v: 1, modelo: mod, motor: '1.0.0', semilla: 4294967295, replicas: 100000 },
+    { v: 1, modelo: mod, motor: '1.0.0', semilla: 4294967295, replicas: 1000 },
+    // con la huella agregada de las noches del autor (bit 5, hallazgo H1): viaja y vuelve igual
+    { v: 1, modelo: mod, motor: '1.1.0', semilla: 20261017, replicas: 100, noche: 22, h: '0123456789abcdef' } as Receta,
     { v: 1, modelo: '00000000ffffffff', motor: '12.345.6789', semilla: 20261017, replicas: 400, noche: 0 },
     { v: 1, modelo: mod, motor: '1.0.0', semilla: 1, replicas: 20, t: 0 },
     { v: 1, modelo: mod, motor: '1.0.0', semilla: 1, replicas: 20, t: 2 ** 53 - 1 },
@@ -243,8 +245,12 @@ test('receta: valida cada campo con un mensaje que dice qué se esperaba', () =>
     [{ semilla: -1 }, /semilla: se esperaba un entero de 32 bits sin signo/],
     [{ semilla: 4294967296 }, /semilla/],
     [{ semilla: 1.5 }, /semilla/],
-    [{ replicas: 0 }, /replicas: se esperaba un entero entre 1 y 100\.000/],
-    [{ replicas: 100001 }, /replicas/],
+    [{ replicas: 0 }, /replicas: se esperaba un entero entre 1 y 1000/],
+    [{ replicas: 1001 }, /replicas/, ],
+    [{ replicas: 100000 }, /replicas/],
+    [{ noche: 1000 }, /noche: se esperaba un entero entre 0 y 999/],
+    [{ h: 'ABCDEF0123456789' }, /h: se esperaba la huella agregada/],
+    [{ h: 'abc' }, /h: /],
     [{ noche: -1 }, /noche/],
     [{ noche: 1.5 }, /noche/],
     [{ t: -1 }, /t: se esperaban ms enteros no negativos/],

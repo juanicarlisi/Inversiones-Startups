@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { APP, archivosApp, leer, sinComentarios } from './ayudas.ts';
 
-const CSP = "default-src 'self'; script-src 'self'; worker-src 'self' blob:; img-src 'self' data: blob:; style-src 'self'";
+// La de §1.8 endurecida (hallazgo SEG-06): sin blob: en worker-src y con base-uri y form-action cerrados (frame-ancestors va en la cabecera).
+const CSP = "default-src 'self'; script-src 'self'; worker-src 'self'; img-src 'self' data: blob:; style-src 'self'; base-uri 'none'; form-action 'none'";
 const LISTA_NEGRA = ['Andreani', 'Mercado Libre', 'MercadoLibre', 'Correo Argentino', 'Loginter', 'Urbano', 'Rappi', 'PedidosYa', 'FedEx', 'Amazon'];
 /** Siglas: se buscan en mayúsculas y como palabra («toca» u «oca» no son la empresa). */
 const SIGLAS = ['OCA', 'DHL', 'UPS'];

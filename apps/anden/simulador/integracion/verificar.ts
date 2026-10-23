@@ -15,6 +15,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { crearBateria, escribirInforme, fechaDelSistema, leerDoradas, SEMILLA_BATERIA } from '../verificacion/bateria.ts';
 import { crearMotorProduccion, ensamblar, VERSION_MOTOR } from './ensamblar.ts';
+import { huellaFuentes } from './huella-fuentes.mjs';
 import { crearCasosExtra, EXIGIBLES_DEL_CORTE, type MedicionR04, type MedicionR07 } from './bateria/indice.ts';
 import { medirR07 } from './bateria/casos-experimentos.ts';
 import { fabricaDeHilos } from './pruebas/hilos.ts';
@@ -87,6 +88,8 @@ export async function principal(args: string[]): Promise<number> {
     mkdirSync(dirname(SALIDA_BATERIA), { recursive: true });
     writeFileSync(SALIDA_BATERIA, `${JSON.stringify({
       version: VERSION_MOTOR, motor, fecha: inf.fecha, semilla, suite: inf.suite,
+      // la huella del código que corrió (hallazgo H5): la construcción la recalcula y, si no coincide, el sello dice «sin verificar»
+      fuentes: huellaFuentes(),
       pruebasExigibles: r.exigiblesCorridas, pasaron: r.pasaron, fallaron: r.fallaron,
       debeFallar: r.debeFallar, debeFallarOk: r.debeFallarOk, informativas: r.informativas, reintentos: r.reintentos,
       doradas: inf.doradas.estado, conservacion: inf.conservacion, aprobada: r.aprobada, segundos: (reloj() - t0) / 1000,

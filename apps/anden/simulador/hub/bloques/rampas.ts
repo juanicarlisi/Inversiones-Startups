@@ -1,17 +1,23 @@
 // hub/bloques/rampas.ts · Andén simulador, corte 1 · P4 (el hub). Ruta del bloque: 'hub.rampas'.
-// Rampas con capacidad, jaulas y personas de rampa (corte-1.md §6.7 reglas 7, 10 y 11):
-// - cada rampa es una fila FIFO (tramo RAMPA con a = secuencia en la rampa y q = la persona que la atiende);
-// - el plan (asignación de rampas a personas) se arma en el inicio, después de las ausencias (plan.ts);
+// Rampas con capacidad, jaulas y personas de rampa (corte-1.md §6.7 reglas 7, 10 y 11, con los cambios del motor 1.1.0):
+// - cada rampa es una fila FIFO (tramo RAMPA con a = secuencia en la rampa y q = la persona que la atiende en ese momento);
+// - el plan (a qué persona le toca cada rampa) se arma en el inicio, después de las ausencias (plan.ts);
 // - una persona libre atiende primero una jaula completa pendiente de cierre y si no elige entre sus rampas con paquetes según la
-//   regla ('la-mas-llena', 'la-que-se-llena-antes' o 'en-orden'); si cambia de rampa camina `caminar` s (PERSONA_CAMINA), toma el
-//   primero de la rampa, lo maneja (MANO) y lo pone en la jaula (JAULA, a = jaula·1000 + posición). Al completar la jaula la cierra
-//   (`cierre` s, PERSONA_CIERRA_JAULA) y empieza otra;
-// - pausas como en la inducción (regla 6), con las de `personas.rampa.pausas`.
+//   regla ('la-mas-llena', 'la-que-se-llena-antes' o 'en-orden'). Con 'la-mas-llena' y 'la-que-se-llena-antes' se QUEDA en la rampa
+//   donde está mientras tenga paquetes y ninguna otra de las suyas esté llena, y en un empate gana la rampa donde está y después la
+//   más cercana (1.1.0, hallazgo R2: en 1.0.0 iba y venía entre dos rampas por cada paquete);
+// - si cambia de rampa camina la distancia por el pasillo a 1,2 m/s, con `caminar` s como mínimo (1.1.0, hallazgo R1: en 1.0.0 eran
+//   `caminar` s fijos, cruzara el lazo o no; config.ts › caminataMs) (PERSONA_CAMINA), toma el primero de la rampa, lo maneja (MANO)
+//   y lo pone en la jaula (JAULA, a = jaula·1000 + posición). Al completar la jaula la cierra (`cierre` s, PERSONA_CIERRA_JAULA) y
+//   empieza otra;
+// - pausas como en la inducción (regla 6), con las de `personas.rampa.pausas`; desde 1.1.0 (hallazgo R3) mientras una persona está en
+//   pausa sus rampas las atiende la siguiente persona presente que no esté en pausa (en ronda), como con una ausencia, y al volver
+//   las recupera; y si la noche se alarga después del fin del turno, las pausas siguen con el mismo ritmo mientras quede trabajo (R4).
 import type { Bloque, EstadoBloque, Motor } from '../../contratos/motor.ts';
 import { Fase, aMs } from '../../contratos/tipos-base.ts';
 import { ClaseEntidad, TipoMomento, TipoTramo, refDe } from '../../contratos/traza.ts';
 import { Anillo } from '../estructuras/anillo.ts';
-import { Regla, instantesDePausa, type ConfigHub } from '../config.ts';
+import { Regla, caminataMs, distanciaRampas, instantesDePausa, pausaTrasFin, type ConfigHub } from '../config.ts';
 import { asignarRampas } from '../plan.ts';
 import { ALERTA, EV, Lugar, anidar, cargar, desanidar, mod, volcar, type Hub } from './comun.ts';
 
@@ -25,11 +31,13 @@ function estadoInicial(cfg: ConfigHub) {
     // rampas
     seq: new Int32Array(NR), recibidos: new Int32Array(NR), llenaDesde: new Float64Array(NR).fill(-1), msLlena: new Float64Array(NR),
     seLleno: new Uint8Array(NR), lleno: new Int32Array(NR), nroJaula: new Int32Array(NR), pendiente: new Int32Array(NR),
-    /** Lugar de persona de rampa que atiende cada rampa (−1 nadie). */
+    /** Lugar de persona de rampa que atiende cada rampa AHORA (−1 nadie): la del plan, o quien la releva mientras está en pausa. */
     asignada: new Int32Array(NR).fill(-1),
-    // personas de rampa: lista de rampas de cada una (CSR: rampas del lugar w en lista[off[w]..off[w+1]], en orden del modelo)
-    lista: new Int32Array(NR), off: new Int32Array(nW + 1),
+    /** Lugar de persona de rampa a quien le toca la rampa según el plan del inicio (−1 nadie). */
+    duenia: new Int32Array(NR).fill(-1),
+    // personas de rampa
     estado: new Uint8Array(nW), ultima: new Int32Array(nW).fill(-1), objetivo: new Int32Array(nW).fill(-1),
+    /** 'en-orden': la última rampa atendida (índice de rampa; −1 si todavía ninguna). */
     tarea: new Uint8Array(nW), item: new Int32Array(nW).fill(-1), pendientes: new Uint8Array(nW), posOrden: new Int32Array(nW).fill(-1),
   };
 }
@@ -51,11 +59,16 @@ export class BloqueRampas implements Bloque {
     const h = this.h, cfg = h.cfg;
     for (let w = 0; w < cfg.nW; w++) {
       for (const t of instantesDePausa(cfg, cfg.pausasRampa, w)) h.m.agendar(t, this.id, EV.PAUSA_INICIO_RAMPA, w, Fase.URGENTE, 0);
+      // La primera pausa después del fin del turno (R4): si para entonces no queda trabajo, se descarta sin dejar rastro.
+      const tras = pausaTrasFin(cfg, cfg.pausasRampa, w, cfg.fin - 1);
+      if (tras >= 0) h.m.agendar(tras, this.id, EV.PAUSA_INICIO_RAMPA, w, Fase.URGENTE, 0);
     }
   }
 
   manejar(m: Motor, tipo: number, w: number): void {
     const t = m.ahora;
+    // Una pausa después del fin del turno sin trabajo pendiente no pasa: ni siquiera mueve el último instante de la noche.
+    if (tipo === EV.PAUSA_INICIO_RAMPA && t >= this.h.cfg.fin && this.h.terminado()) return;
     this.h.tUltimo = t;
     switch (tipo) {
       case EV.FIN_CAMINATA: this.finCaminata(w, t); return;
@@ -72,22 +85,17 @@ export class BloqueRampas implements Bloque {
     return this.h.personas.S.trabajadorRam[w];
   }
 
-  /** En el inicio (después de las ausencias): plan de rampas y personas listas. */
+  /** En el inicio (después de las ausencias): plan de rampas y personas listas, cada una parada en la primera de sus rampas. */
   alIniciar(t: number): void {
     const h = this.h, cfg = h.cfg, S = this.S;
     const presentes = Uint8Array.from(h.personas.S.trabajadorRam, (w) => (w >= 0 ? 1 : 0));
     asignarRampas(cfg, presentes, S.asignada);
-    // lista CSR de rampas por persona, en orden del modelo
-    let k = 0;
-    for (let w = 0; w < cfg.nW; w++) {
-      S.off[w] = k;
-      for (let r = 0; r < cfg.NR; r++) if (S.asignada[r] === w) S.lista[k++] = r;
-    }
-    S.off[cfg.nW] = k;
+    S.duenia.set(S.asignada);
     for (let w = 0; w < cfg.nW; w++) {
       S.estado[w] = presentes[w] ? PersonaRampa.LIBRE : PersonaRampa.AUSENTE;
-      S.ultima[w] = S.off[w] < S.off[w + 1] ? S.lista[S.off[w]] : -1;
+      S.ultima[w] = -1;
     }
+    for (let r = cfg.NR - 1; r >= 0; r--) if (S.asignada[r] >= 0) S.ultima[S.asignada[r]] = r;
     for (let r = 0; r < cfg.NR; r++) this.marcar(r, t); // una rampa de capacidad 0 está llena desde el inicio
   }
 
@@ -124,41 +132,52 @@ export class BloqueRampas implements Bloque {
     }
   }
 
-  /** Una persona libre elige su próxima tarea. */
+  /** Una persona libre elige su próxima tarea: una jaula para cerrar (primero la de la rampa donde está) o un paquete. */
   private atender(w: number, t: number): void {
-    const S = this.S;
+    const S = this.S, NR = this.h.cfg.NR;
     if (S.estado[w] !== PersonaRampa.LIBRE) return;
-    for (let i = S.off[w]; i < S.off[w + 1]; i++) {
-      const r = S.lista[i];
-      if (S.pendiente[r] > 0) { this.irA(w, r, CERRAR, t); return; }
+    const aca = S.ultima[w];
+    if (aca >= 0 && S.asignada[aca] === w && S.pendiente[aca] > 0) { this.irA(w, aca, CERRAR, t); return; }
+    for (let r = 0; r < NR; r++) {
+      if (S.asignada[r] === w && S.pendiente[r] > 0) { this.irA(w, r, CERRAR, t); return; }
     }
     const r = this.elegir(w);
     if (r >= 0) this.irA(w, r, TOMAR, t);
   }
 
-  /** Rampa con paquetes según la regla de la persona (regla 11); −1 si ninguna tiene. */
+  /** ¿La rampa r está llena? */
+  private llena(r: number): boolean {
+    return this.filas[r].largo >= this.h.cfg.rampaCap[r];
+  }
+
+  /** Rampa con paquetes según la regla de la persona (regla 11, con la persistencia de 1.1.0); −1 si ninguna de las suyas tiene. */
   private elegir(w: number): number {
-    const S = this.S, cfg = this.h.cfg, ini = S.off[w], fin = S.off[w + 1];
-    if (ini === fin) return -1;
+    const S = this.S, cfg = this.h.cfg, NR = cfg.NR;
     if (cfg.regla === Regla.EN_ORDEN) {
-      // La siguiente con paquetes después de la última atendida, en ronda (si nunca atendió, desde la primera).
-      const n = fin - ini, ultima = S.posOrden[w] < 0 ? ini - 1 : S.posOrden[w];
-      for (let j = 1; j <= n; j++) {
-        const p = ini + mod(ultima - ini + j, n);
-        if (this.filas[S.lista[p]].largo > 0) return S.lista[p];
+      // La siguiente con paquetes después de la última atendida, en ronda por el orden del modelo (si nunca atendió, desde la primera).
+      const ultima = S.posOrden[w];
+      for (let j = 1; j <= NR; j++) {
+        const r = mod(ultima + j, NR);
+        if (S.asignada[r] === w && this.filas[r].largo > 0) return r;
       }
       return -1;
     }
-    let mejor = -1, valor = 0;
-    for (let i = ini; i < fin; i++) {
-      const r = S.lista[i], oc = this.filas[r].largo;
+    // Persistencia (R2): se queda donde está mientras tenga paquetes, salvo que otra de sus rampas esté llena y esta no.
+    const aca = S.ultima[w];
+    let hayLlena = false;
+    for (let r = 0; r < NR; r++) if (r !== aca && S.asignada[r] === w && this.llena(r)) { hayLlena = true; break; }
+    if (aca >= 0 && S.asignada[aca] === w && this.filas[aca].largo > 0 && (!hayLlena || this.llena(aca))) return aca;
+    // Si no, la mejor según la regla. Empate: la rampa donde está, después la más cercana, después el orden del modelo.
+    let mejor = -1, valor = 0, dist = 0;
+    for (let r = 0; r < NR; r++) {
+      if (S.asignada[r] !== w) continue;
+      const oc = this.filas[r].largo;
       if (oc === 0) continue;
-      if (cfg.regla === Regla.LA_MAS_LLENA) {
-        if (mejor < 0 || oc > valor) { mejor = r; valor = oc; }
-      } else {
-        const peso = cfg.rampaPeso[r], v = peso > 0 ? (cfg.rampaCap[r] - oc) / peso : Infinity;
-        if (mejor < 0 || v < valor) { mejor = r; valor = v; }
-      }
+      let v: number;
+      if (cfg.regla === Regla.LA_MAS_LLENA) v = -oc;
+      else { const peso = cfg.rampaPeso[r]; v = peso > 0 ? (cfg.rampaCap[r] - oc) / peso : Infinity; }
+      const d = aca < 0 || r === aca ? -1 : distanciaRampas(cfg, aca, r);
+      if (mejor < 0 || v < valor || (v === valor && d < dist)) { mejor = r; valor = v; dist = d; }
     }
     return mejor;
   }
@@ -167,10 +186,11 @@ export class BloqueRampas implements Bloque {
     const S = this.S, cfg = this.h.cfg;
     S.objetivo[w] = r;
     S.tarea[w] = tarea;
-    if (S.ultima[w] !== r && cfg.caminarMs > 0) {
+    const camina = caminataMs(cfg, S.ultima[w], r);
+    if (camina > 0) {
       S.estado[w] = PersonaRampa.CAMINA;
-      this.h.personas.tarea(this.trabajador(w), TipoTramo.PERSONA_CAMINA, r, 0, t, t + cfg.caminarMs);
-      this.h.m.agendar(t + cfg.caminarMs, this.id, EV.FIN_CAMINATA, w, Fase.NORMAL, 0);
+      this.h.personas.tarea(this.trabajador(w), TipoTramo.PERSONA_CAMINA, r, 0, t, t + camina);
+      this.h.m.agendar(t + camina, this.id, EV.FIN_CAMINATA, w, Fase.NORMAL, 0);
       return;
     }
     S.ultima[w] = r;
@@ -192,14 +212,14 @@ export class BloqueRampas implements Bloque {
       return;
     }
     const fila = this.filas[r];
-    if (fila.largo === 0) { // no debería pasar: solo esta persona vacía la rampa
+    if (fila.largo === 0) { // la vació otra persona mientras esta caminaba (un relevo que termina): busca otra tarea
       S.estado[w] = PersonaRampa.LIBRE;
       this.atender(w, t);
       return;
     }
     const e = fila.sacar();
     this.marcar(r, t);
-    for (let i = S.off[w]; i < S.off[w + 1]; i++) if (S.lista[i] === r) S.posOrden[w] = i;
+    S.posOrden[w] = r;
     const dur = h.P.S.manejo[e];
     h.P.cerrado(e, TipoTramo.MANO, g, r, t, t + dur);
     h.P.mover(e, Lugar.MANO);
@@ -247,22 +267,39 @@ export class BloqueRampas implements Bloque {
   }
 
   private pedirPausa(w: number, t: number): void {
-    const S = this.S;
+    const S = this.S, cfg = this.h.cfg;
+    // Después del fin del turno, la pausa siguiente del mismo ritmo (se descarta en manejar() si para entonces no queda trabajo).
+    if (t >= cfg.fin) {
+      const otra = pausaTrasFin(cfg, cfg.pausasRampa, w, t);
+      if (otra >= 0) this.h.m.agendar(otra, this.id, EV.PAUSA_INICIO_RAMPA, w, Fase.URGENTE, 0);
+    }
     if (S.estado[w] === PersonaRampa.AUSENTE) return;
     if (S.estado[w] === PersonaRampa.LIBRE) this.empezarPausa(w, t);
     else S.pendientes[w]++;
   }
 
   private empezarPausa(w: number, t: number): void {
-    const h = this.h;
-    this.S.estado[w] = PersonaRampa.PAUSA;
-    h.personas.pausa(this.trabajador(w), this.S.ultima[w], t);
+    const h = this.h, S = this.S, nW = h.cfg.nW;
+    S.estado[w] = PersonaRampa.PAUSA;
+    h.personas.pausa(this.trabajador(w), S.ultima[w], t);
     h.m.agendar(t + aMs(h.cfg.pausasRampa.duracion), this.id, EV.PAUSA_FIN_RAMPA, w, Fase.NORMAL, 0);
+    // Relevo (R3): las rampas que atendía pasan a la siguiente persona presente que no está en pausa, en ronda.
+    let v = -1;
+    for (let j = 1; j < nW; j++) {
+      const x = (w + j) % nW;
+      if (S.estado[x] !== PersonaRampa.AUSENTE && S.estado[x] !== PersonaRampa.PAUSA) { v = x; break; }
+    }
+    if (v < 0) return;
+    let paso = false;
+    for (let r = 0; r < h.cfg.NR; r++) if (S.asignada[r] === w) { S.asignada[r] = v; paso = true; }
+    if (paso && S.estado[v] === PersonaRampa.LIBRE) this.atender(v, t);
   }
 
   private terminarPausa(w: number, t: number): void {
     const S = this.S;
     this.h.personas.finPausa(this.trabajador(w), t);
+    // Vuelve y recupera sus rampas, las tenga quien las tenga.
+    for (let r = 0; r < this.h.cfg.NR; r++) if (S.duenia[r] === w) S.asignada[r] = w;
     if (S.pendientes[w] > 0) {
       S.pendientes[w]--;
       this.empezarPausa(w, t);

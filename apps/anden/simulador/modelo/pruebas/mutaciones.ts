@@ -158,6 +158,9 @@ export const CASOS: Caso[] = [
   sobre('paquetes: 1e9 (H07)', 'E-PRESUPUESTO.paquetes', '/demanda/camiones', (m) => { m.demanda.camiones.paquetes = 1e9; }),
   sobre('un millón de camiones', 'E-PRESUPUESTO.paquetes', '/demanda/camiones', (m) => { m.demanda.camiones.cantidad = 1e6; }),
   sobre('pasos del lazo que no entran en el presupuesto de eventos', 'E-PRESUPUESTO.eventos', '', (m) => { m.hub.sorter.paso = 0.001; }),
+  sobre('una película de 23 millones de tramos (SEG-01: 40 camiones de 48.100 paquetes, sin error de pronóstico)', 'E-PRESUPUESTO.traza', '/demanda/camiones', (m) => {
+    m.demanda.camiones.cantidad = 40; m.demanda.camiones.paquetes = 48100; m.parametros.errorPronosticoCv.valor = 0;
+  }),
   sobre('una acumulación de 1e12 m pediría terabytes', 'E-PRESUPUESTO.memoria', '', (m) => { m.hub.acumulacion.largo = 1e12; }),
   sobre('un lazo de mil millones de metros pediría miles de millones de bandejas', 'E-PRESUPUESTO.memoria', '', (m) => { m.hub.sorter.recta = 1e9; }),
   sobre('una rampa con capacidad de mil millones', 'E-PRESUPUESTO.memoria', '', (m) => { m.hub.rampas[0].capacidad = 1e9; }),

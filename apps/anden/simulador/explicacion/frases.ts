@@ -92,6 +92,7 @@ function armarRegistro(): Record<string, readonly string[]> {
     'explicacion.pregunta.porque.reten.uno': ['medio', 'bajo', 'alto', 'n'],
     'explicacion.pregunta.porque.generica.uno': ['medio', 'bajo', 'alto', 'n'],
     'explicacion.pregunta.porque.sin_respuesta': ['medio', 'bajo', 'alto'],
+    'explicacion.pregunta.porque.en_duda': ['medio', 'bajo', 'alto'],
     'explicacion.medicion.resumen': ['observaciones', 'minutos', 'error'],
     // motivos del verificador (modo ingeniero)
     'explicacion.verificador.motivo.sin-fuente': [],

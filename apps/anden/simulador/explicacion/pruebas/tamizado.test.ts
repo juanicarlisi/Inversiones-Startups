@@ -274,3 +274,41 @@ test('de punta a punta: supuestos → tamizado → formulario: pregunta lo que c
   assert.deepEqual(armarFormulario(validadoSinChequeos(m), ranking), []);
   assert.equal(cierreDelFormulario(ranking).motivo, 'listo', 'la decisión tiene respuesta (2 puestos): "Ya está" es verdad');
 });
+
+// ------------------------------------------------------------------------------- en duda no es «ninguna cumple» (hallazgo E-05)
+
+test('un extremo que quedó EN DUDA no se trata como «ninguna cumple»: la pérdida sale de las decisiones posibles y la frase lo dice', async () => {
+  const mv = validadoEjemplo();
+  // Con induccionBase alto: el 2 queda en duda (tope de noches del tamizado) y el 3 cumple; con el medio, 2 alcanza.
+  const evaluar = async (m: ModeloValidado): Promise<EvaluacionDecision> => {
+    const alto = media(m, 'induccionBase') > 3;
+    const estados: EvaluacionConfiguracion['estado'][] = alto ? ['en-duda', 'cumple', 'cumple', 'cumple'] : ['cumple', 'cumple', 'cumple', 'cumple'];
+    const configuraciones: EvaluacionConfiguracion[] = VALORES.map((valor, i) => {
+      // costo propio de cada opción: 10.000 por puesto; con el valor alto, el 2 cuesta 60.000 más (se pierde el corte a veces)
+      const costo = 10000 * valor + (alto && valor === 2 ? 60000 : 0);
+      return {
+        valor, estado: estados[i],
+        prop: { exitos: 95, n: 100, p: 0.95, ic: [0.88, 0.98], metodo: 'wilson', confianza: 0.95 },
+        objetivo: { kpi: 'costoNoche', n: 100, media: costo, desvio: 1000, confianza: 0.95, ic: [costo - 100, costo + 100], semiancho: 100, p50: costo, p90: costo, icP90: null, min: costo, max: costo },
+      };
+    });
+    const recomendacion = alto ? null : 2;
+    return { decision: 'dotacion-induccion', configuraciones, recomendacion,
+      semaforo: alto ? { color: 'amarillo', motivo: 'decision-en-duda', vars: { valores: '2', replicas: 100, faltan: 300 } } : { color: 'verde', motivo: 'ok', vars: {} },
+      replicasUsadas: 400 };
+  };
+  const r = await tamizar(mv, supuestosDe(mv).filter((x) => x.parametro === 'induccionBase'), evaluar, crearVarianteFalsa().variante, {});
+  const fila = r[0] as typeof r[0] & { enDuda: boolean[]; perdidaRango: [number, number] };
+  assert.deepEqual(fila.decisiones, [2, 2, null]);
+  assert.deepEqual(fila.enDuda, [false, false, true]);
+  // decisiones posibles con el valor alto: 2 (en duda) o 3 (la menor que cumple). Contra la del medio (2): 0 o |30.000 − 80.000| = 50.000
+  assert.deepEqual(fila.perdidaRango, [0, 0.25 * 50000]);
+  assert.equal(fila.perdidaEsperada, 12500, 'la pérdida es lo más que puede costar (antes se usaba el máximo de la variable: 0,25 · |50.000 − 80.000|… con el 5)');
+  // con indiferencia 20.000 no se pregunta: ni la peor resolución de la duda la alcanza
+  assert.deepEqual(armarFormulario(mv, r), []);
+  // con indiferencia menor sí, y la frase dice que quedó en duda (no que ninguna opción alcanza)
+  const m2 = structuredClone(mv.modelo); m2.decision!.indiferencia.valor = 1000;
+  const preguntas = armarFormulario(validadoSinChequeos(m2), r);
+  assert.equal(preguntas.length, 1);
+  assert.equal(preguntas[0].porQue.clave, 'explicacion.pregunta.porque.en_duda');
+});

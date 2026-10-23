@@ -37,6 +37,7 @@ export function medir() {
   const kb = texto.length / 1024;
   // guardar, restaurar y simular 1 día contra seguir sin guardar
   // la misma partida sigue en memoria (s) y en una copia que pasó por el guardado; se compara lo que ganan en 1 día
+  // (se compara la ganancia del día, más exigente que el dinero total: la red armada a mano arranca con caja casi infinita)
   const a = M.restaurar(texto), d0 = s.dinero, a0 = a.dinero;
   for (let k = 0; k < 288; k++) { M.paso(a); M.paso(s); }
   const difDinero = Math.abs((a.dinero - a0) - (s.dinero - d0)) / Math.abs(s.dinero - d0);

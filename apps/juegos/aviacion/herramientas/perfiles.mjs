@@ -5,7 +5,7 @@ import { I } from './interfaz.mjs';
 
 // Segundos reales entre una acción y la siguiente (lo que tarda una persona en tocar, leer y decidir).
 export const REACCION = { literal: 1, novato: 2, listo: 1.5, compraTodo: 1 };
-export const NOVEDADES = new Set(['mision', 'capituloNuevo', 'avionNuevo', 'ciudadesNuevas', 'contrato', 'bancoListo', 'resultadoNoche', 'primeraNoche']);
+export const NOVEDADES = new Set(['mision', 'capituloNuevo', 'avionNuevo', 'ciudadesNuevas', 'contrato', 'bancoListo', 'resultadoNoche', 'primeraNoche', 'finHistoria']);
 
 // ───────── lo que ve el jugador ─────────
 const conAvion = (s, r) => s.aviones.some((a) => a.ruta === r.id);
@@ -82,6 +82,11 @@ function seguirHistoria(s, conPista = true, ctx = {}) {
   // una ruta abierta por la historia y todavía sin avión es algo a medio hacer: primero, su avión
   const aMedias = avionParaRutasVacias(s);
   if (aMedias) return aMedias;
+  // «mejorá el centro para la próxima ronda»: mientras la pista esté a la vista, junta la plata para eso (no gasta en otra cosa)
+  if (conPista && obj.pista === 'pista_ronda_centro') {
+    const c = I.costoTransbordo(s, I.HUB);
+    return c != null && s.dinero >= c ? { tipo: 'transbordo', id: I.HUB } : { tipo: 'esperar' };
+  }
   if (obj.pista && (!conPista || (ctx.pistaHasta ?? -1) > s.t)) obj.pista = null;
   else if (obj.pista) ctx.pistaHasta = s.t + 600;
   if (obj.pista === 'pista_noche') { // la pista de la noche: iluminar la ruta más barata con avión
@@ -138,9 +143,18 @@ function seguirHistoria(s, conPista = true, ctx = {}) {
     }
     case 'transbordos': {
       if (!conPista || !obj.pista) return null;
+      // «abrí rutas desde ahí» (el segundo hub): si la ciudad tiene menos de 6 rutas con avión, una ruta más desde ella hacia la
+      // ciudad más cercana que todavía no está conectada con ella (primero las que no están en la red)
+      const desde = s.rutas.filter((r) => (r.a === m.ciudad || r.b === m.ciudad) && conAvion(s, r));
+      if (m.ciudad !== I.HUB && desde.length < 6) {
+        const ya = new Set(desde.flatMap((r) => [r.a, r.b]));
+        const cand = Object.keys(I.AP).filter((id) => id !== m.ciudad && !ya.has(id) && I.ciudadDisponible(s, id) && I.puedeAbrirRuta(s, m.ciudad, id).ok)
+          .sort((a, b) => (I.enRed(s, a) - I.enRed(s, b)) || I.km(m.ciudad, a) - I.km(m.ciudad, b));
+        if (cand.length) return { tipo: 'ruta', a: m.ciudad, b: cand[0] };
+      }
       // «mejoralo y conecta más»: subir el centro del hub si alcanza; si no, más vuelos
       const nivel = (s.niveles[m.ciudad] ?? 0);
-      if (nivel < 3 && s.dinero >= [0, 8000, 30000, 250000][nivel + 1] * 1.5) return { tipo: 'transbordo', id: m.ciudad };
+      if (nivel < 3 && s.dinero >= I.costoTransbordo(s, m.ciudad) * 1.5) return { tipo: 'transbordo', id: m.ciudad };
       return avionDondeEspera(s, masBarato, 1);
     }
     case 'contratos': { // «cumplí N contratos»: aceptar uno entre ciudades que ya tienen vuelos
@@ -212,6 +226,7 @@ export function aplicar(s, a) {
     case 'contrato': return I.aceptarContrato(s, a.id);
     case 'cargaMin': return I.fijarCargaMinima(s, a.id, a.v);
     case 'ronda': return I.aplicarPlan(s, I.planSugerido(s, I.HUB));
+    case 'esperar': case 'ahorrar': return { ok: false }; // junta plata para lo que pide la pista o la mejor próxima acción
     default: return { ok: false };
   }
 }

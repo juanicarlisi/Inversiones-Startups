@@ -22,13 +22,13 @@ export const AEROPUERTOS = [
   { id: 'SLA', nombre: 'Salta', lat: -24.79, lon: -65.41, peso: 14, cap: 2, etq: 'arr', abre: 'm2_pax' },
   { id: 'UAQ', nombre: 'San Juan', lat: -31.54, lon: -68.53, peso: 9, cap: 2, etq: 'arr' },
   { id: 'BRC', nombre: 'Bariloche', lat: -41.13, lon: -71.31, peso: 7, cap: 2, abre: 'm2_andes' },
-  { id: 'USH', nombre: 'Ushuaia', lat: -54.80, lon: -68.30, peso: 4, cap: 2, abre: 'm2_red' },
+  { id: 'USH', nombre: 'Ushuaia', lat: -54.80, lon: -68.30, peso: 4, cap: 2, abre: 'm2_cauquen' },
   { id: 'RES', nombre: 'Resistencia', lat: -27.45, lon: -58.99, peso: 9, cap: 2 },
   { id: 'PSS', nombre: 'Posadas', lat: -27.37, lon: -55.90, peso: 8, cap: 2, etq: 'izq', abre: 'm2_pax' },
   { id: 'IGR', nombre: 'Iguazú', lat: -25.60, lon: -54.58, peso: 5, cap: 2, etq: 'der', abre: 'm2_red' },
   // Región
   { id: 'SCL', nombre: 'Santiago', lat: -33.45, lon: -70.67, peso: 50, cap: 2, etq: 'izq' },
-  { id: 'PUQ', nombre: 'Punta Arenas', lat: -53.16, lon: -70.91, peso: 4, cap: 2, etq: 'izq', abre: 'm2_red' },
+  { id: 'PUQ', nombre: 'Punta Arenas', lat: -53.16, lon: -70.91, peso: 4, cap: 2, etq: 'izq', abre: 'm2_cauquen' },
   { id: 'PMC', nombre: 'Puerto Montt', lat: -41.47, lon: -72.94, peso: 5, cap: 2, abre: 'm2_andes' },
   { id: 'POA', nombre: 'Porto Alegre', lat: -30.03, lon: -51.23, peso: 28, cap: 2, etq: 'der' },
   { id: 'SPA', nombre: 'São Paulo', lat: -23.55, lon: -46.63, peso: 120, cap: 2, etq: 'izq', abre: 'm2_pax' },
@@ -61,9 +61,10 @@ export const ECONOMIA = { despegue: 400, tasaTon: 150, reservaVuelos: 1, reserva
 // Aviones. vel en km/h, alcance en km, giro = minutos en tierra entre vuelos, costoKm = combustible y mantenimiento por km,
 // tripHora = tripulación por hora de vuelo, tierraHora = tripulación y propiedad por hora parado, ton = peso máximo (tasa de
 // aterrizaje). nocturno: vuela de noche sin balizas. nicho: dónde rinde más (tramo corto o largo; correo o pasajeros).
-// venta: capítulos en los que se ofrece. Capacidad y época (INFERENCIA salvo que el README cite otra cosa): la Golondrina es un
-// biplano de correo de fines de los 20 (como el Latécoère 25), el Tero un monoplano de correo de 1929-1932 (como el Latécoère 28),
-// el Chajá un bimotor de 21 asientos de 1936 (como el DC-3) y el Cauquén un cuatrimotor de posguerra (como el DC-4).
+// venta: capítulos en los que se ofrece. Capacidad y época (INFERENCIA, ver la tabla del README): la Golondrina es un biplano
+// de correo de los años 20 (del tipo del Breguet 14, que llevó correo en las líneas de esa década), el Tero un monoplano de correo
+// de 1929 (del tipo del Latécoère 28, que voló el correo sudamericano), el Chajá un bimotor de 21 asientos de 1936 (del tipo del
+// DC-3) y el Cauquén un cuatrimotor de posguerra (del tipo del DC-4). Ninguno usa nombre ni aspecto de un modelo real.
 export const AVIONES = [
   { id: 'golondrina', nombre: 'Golondrina', clase: 'biplano', cap: 1, vel: 180, alcance: 700, giro: 50,
     lleva: { correo: 30 }, precio: 10000, costoKm: 5, tripHora: 40, tierraHora: 30, ton: 2.5, nocturno: false, forma: 'biplano',
@@ -132,12 +133,12 @@ export const MISIONES = [
   { id: 'm1_noche', cap: 1, tipo: 'despeguesNoche', meta: 4, premio: 8000 },
   { id: 'm1_sur', cap: 1, tipo: 'entregasEn', ciudad: 'CRD', meta: 40, premio: 14000 },
   { id: 'm1_gallegos', cap: 1, tipo: 'entregasEn', ciudad: 'RGL', meta: 30, premio: 18000 },
-  { id: 'm1_caja', cap: 1, tipo: 'mejorDia', meta: 65000, premio: 0, cierra: true },
-  { id: 'm2_pax', cap: 2, tipo: 'entregas', carga: 'pasajeros', meta: 400, premio: 60000, avionPista: 'chaja' },
+  { id: 'm1_caja', cap: 1, tipo: 'mejorDia', meta: 50000, premio: 0, cierra: true },
+  { id: 'm2_pax', cap: 2, tipo: 'entregas', carga: 'pasajeros', meta: 320, premio: 60000, avionPista: 'chaja' },
   { id: 'm2_andes', cap: 2, tipo: 'entregasEn', ciudad: 'SCL', meta: 300, premio: 60000 },
   { id: 'm2_red', cap: 2, tipo: 'ciudadesActivas', meta: 18, premio: 100000 },
   { id: 'm2_cauquen', cap: 2, tipo: 'enServicio', avion: 'cauquen', meta: 1, premio: 40000 },
-  { id: 'm2_conexiones', cap: 2, tipo: 'transbordos', ciudad: 'BUE', meta: 5500, premio: 150000 },
+  { id: 'm2_conexiones', cap: 2, tipo: 'transbordos', ciudad: 'BUE', meta: 4800, premio: 150000 },
   { id: 'm2_caja', cap: 2, tipo: 'mejorDia', meta: 1200000, premio: 0, cierra: true },
   { id: 'm3_jet', cap: 3, tipo: 'enServicio', avion: 'halcon', meta: 1, premio: 1500000 },
   { id: 'm3_carga', cap: 3, tipo: 'entregas', carga: 'carga', meta: 600, premio: 2000000, avionPista: 'cormoran' },

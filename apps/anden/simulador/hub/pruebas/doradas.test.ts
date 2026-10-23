@@ -26,8 +26,8 @@ test('doradas del hub chico: misma huella, mismos eventos y mismos KPI que los g
   const ahora = calcular();
   if (process.env.ANDEN_GENERAR === '1' || !existsSync(ARCHIVO)) {
     writeFileSync(ARCHIVO, JSON.stringify({
-      descripcion: 'Doradas del hub chico (hub-chico@1.0.0), réplica 0, traza «no», motor de referencia de contratos/. Generadas por hub/pruebas/doradas.test.ts.',
-      generadas: '2026-10-18',
+      descripcion: 'Doradas del hub chico (hub-chico@1.0.0), réplica 0, traza «no», motor de referencia de contratos/, semántica del hub del motor 1.1.0 (caminata por distancia, persistencia en la rampa, relevo en las pausas, pausas después del fin, uso de la inducción sobre la jornada pagada). Generadas por hub/pruebas/doradas.test.ts.',
+      generadas: '2026-10-19',
       doradas: ahora,
     }, null, 2) + '\n');
   }

@@ -5,7 +5,14 @@
 //   · supuestos = parámetros con `incierto` que el modelo usa de verdad (si `temporarios` es 0, `eficienciaTemporario` no aplica);
 //   · para cada uno, una variante con el valor bajo y otra con el alto (el medio es el modelo), cada una evaluada con `evaluar`;
 //   · decisiones d_bajo, d_medio, d_alto; pérdida esperada = Σ pesoᵢ · |costoᵢ(dᵢ) − costoᵢ(d_medio)| con el costo medio de cada
-//     configuración (si dᵢ es null, se usa el máximo de la variable y la decisión queda en null para que se vea);
+//     configuración. Si dᵢ es null hay dos casos distintos (hallazgo E-05 de la revisión del 19-10-2026):
+//       - NINGUNA opción cumple con ese valor: se usa el máximo de la variable, como dice §9;
+//       - alguna opción quedó EN DUDA (el tamizado mira hasta 100 noches por opción): la decisión está entre la menor opción en duda y
+//         la menor que cumple (o el máximo si ninguna cumple). Se calcula la pérdida con cada candidata y se usa la MAYOR (lo más que
+//         puede costar equivocarse); el rango [menor, mayor] queda en `perdidaRango` y `enDuda` marca qué extremo quedó en duda, para que
+//         el formulario no diga «ninguna opción alcanza» cuando en realidad faltan noches. Antes se usaba el máximo también en la duda,
+//         y eso inflaba la pérdida y hacía preguntas de más.
+//     La decisión queda en null para que se vea;
 //   · el corrimiento del KPI objetivo entre los extremos va como dato secundario.
 // No es el valor esperado de información perfecta completo: son previas de tres puntos, un supuesto por vez (diseño maestro A10).
 //
@@ -94,6 +101,37 @@ export const supuestosDe: SupuestosDe = (mv) => {
 
 // ------------------------------------------------------------------------------------------------------------------ tamizado
 
+/** Lo que el tamizado agrega a cada fila además del contrato (decision.ts): la duda de cada extremo y el rango de la pérdida. */
+export interface ResultadoTamizadoConDuda extends ResultadoTamizado {
+  /** [bajo, medio, alto]: true si con ese valor la decisión quedó en duda (y no «ninguna cumple»). */
+  enDuda: [boolean, boolean, boolean];
+  /** Pérdida esperada con la resolución más favorable y con la más desfavorable de las dudas; iguales si no hubo duda. */
+  perdidaRango: [number, number];
+  /**
+   * Lo que cuesta equivocarse si el valor real es el extremo peor (sin ponderar): max(|Δ_bajo|, |Δ_alto|). La pérdida esperada es un
+   * promedio ponderado; esto es el «hasta» (hallazgo E-12: Presentar decía «cuesta hasta» con el promedio).
+   */
+  peorCaso: number;
+}
+
+/**
+ * Las decisiones posibles de una evaluación sin recomendación que quedó en duda: desde la menor opción en duda (las anteriores no
+ * cumplen) hasta la menor que cumple después de ella, o hasta la última si ninguna cumple. null si no hay duda (ninguna cumple, o hay
+ * recomendación).
+ */
+export function decisionesPosibles(ev: EvaluacionDecision): number[] | null {
+  if (ev.recomendacion !== null) return null;
+  const confs = [...ev.configuraciones].sort((a, b) => a.valor - b.valor);
+  const i = confs.findIndex((c) => c.estado !== 'no-cumple');
+  if (i < 0 || confs[i].estado !== 'en-duda') return null;
+  const out: number[] = [];
+  for (let j = i; j < confs.length; j++) {
+    out.push(confs[j].valor);
+    if (confs[j].estado === 'cumple') break;
+  }
+  return out;
+}
+
 function costoDe(ev: EvaluacionDecision, valor: number, que: string): number {
   const c = ev.configuraciones.find((x) => x.valor === valor);
   if (!c) {
@@ -112,7 +150,7 @@ export const tamizar: Tamizar = async (mv, supuestos, evaluar, variante, o) => {
 
   const medio = await evaluar(mv);
   avisar();
-  const filas: ResultadoTamizado[] = [];
+  const filas: ResultadoTamizadoConDuda[] = [];
   for (const s of supuestos) {
     const p = mv.modelo.parametros[s.parametro];
     if (!p) throw new Error(`tamizar: el parámetro «${s.parametro}» no está en el modelo`);
@@ -129,14 +167,26 @@ export const tamizar: Tamizar = async (mv, supuestos, evaluar, variante, o) => {
 
     const dM = medio.recomendacion, dB = bajo.recomendacion, dA = alto.recomendacion;
     const usar = (d: number | null) => d ?? maximo;
-    const perdida =
-      s.pesos[0] * Math.abs(costoDe(bajo, usar(dB), 'baja') - costoDe(bajo, usar(dM), 'baja')) +
-      s.pesos[2] * Math.abs(costoDe(alto, usar(dA), 'alta') - costoDe(alto, usar(dM), 'alta'));
+    // pérdida de un extremo: [menor, mayor] sobre sus decisiones posibles (una sola si no quedó en duda)
+    const perdidaExtremo = (ev: EvaluacionDecision, d: number | null, que: string): [number, number] => {
+      const base = costoDe(ev, usar(dM), que);
+      const posibles = d === null ? decisionesPosibles(ev) : null;
+      const candidatas = posibles ?? [usar(d)];
+      let lo = Infinity, hi = -Infinity;
+      for (const c of candidatas) { const x = Math.abs(costoDe(ev, c, que) - base); if (x < lo) lo = x; if (x > hi) hi = x; }
+      return [lo, hi];
+    };
+    const pB = perdidaExtremo(bajo, dB, 'baja'), pA = perdidaExtremo(alto, dA, 'alta');
+    const perdidaRango: [number, number] = [s.pesos[0] * pB[0] + s.pesos[2] * pA[0], s.pesos[0] * pB[1] + s.pesos[2] * pA[1]];
+    const perdida = perdidaRango[1];
     filas.push({
       parametro: s.parametro,
       decisiones: [dB, dM, dA],
       cambiaDecision: dB !== dM || dA !== dM,
       perdidaEsperada: perdida,
+      enDuda: [decisionesPosibles(bajo) !== null, decisionesPosibles(medio) !== null, decisionesPosibles(alto) !== null],
+      perdidaRango,
+      peorCaso: Math.max(pB[1], pA[1]),
       corrimientoObjetivo: Math.abs(costoDe(alto, usar(dM), 'alta') - costoDe(bajo, usar(dM), 'baja')),
       replicas: bajo.replicasUsadas + medio.replicasUsadas + alto.replicasUsadas,
       evaluaciones: [bajo, medio, alto],

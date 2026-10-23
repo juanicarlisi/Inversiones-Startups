@@ -41,14 +41,40 @@ test('IC del P90: rangos l = ⌊nq − z√(nq(1−q))⌋ y u = ⌈nq + z√(nq(
   assert.deepEqual(icPercentil(cien, 0.9, 0.9), [85, 95], '90%: 90 ∓ 4,93 → ⌊85,07⌋ = 85 y ⌈94,93⌉ = 95');
 });
 
-test('IC del P90: null con menos de 20 datos; con exactamente 20 existe; los rangos se recortan a [0, n−1]', () => {
+test('IC del P90: null con menos de 20 datos y también si un rango cae fuera de [0, n−1] (nunca se recorta al máximo)', () => {
   assert.equal(icPercentil(Array.from({ length: 19 }, (_, i) => i), 0.9, 0.95), null);
-  const veinte = Array.from({ length: 20 }, (_, i) => i);
-  const ic = icPercentil(veinte, 0.9, 0.95)!;
-  assert.ok(ic !== null && ic[0] >= 0 && ic[1] <= 19 && ic[0] <= percentil(veinte, 0.9) && percentil(veinte, 0.9) <= ic[1], `IC=${ic}`);
-  assert.equal(ic[1], 19, 'con n = 20 el extremo superior se recorta al máximo');
-  const p99 = icPercentil(Array.from({ length: 50 }, (_, i) => i), 0.99, 0.95)!;
-  assert.equal(p99[1], 49, 'P99 con 50 datos: el techo se recorta a n − 1');
+  // n = 20: u = ⌈18 + 1,96·√1,8⌉ = 21 > 19: recortarlo daba [x₁₅, máx], que cubre 83,5% (hallazgo E-07)
+  assert.equal(icPercentil(Array.from({ length: 20 }, (_, i) => i), 0.9, 0.95), null, 'con 20 datos el P90 no tiene IC del 95%');
+  assert.equal(icPercentil(Array.from({ length: 40 }, (_, i) => i), 0.9, 0.95), null, 'con 40 tampoco');
+  const cien = Array.from({ length: 100 }, (_, i) => i);
+  const ic = icPercentil(cien, 0.9, 0.95)!;
+  // l = ⌊90 − 5,88⌋ = 84 y u = ⌈90 + 5,88⌉ = 96
+  assert.deepEqual(ic, [84, 96]);
+  assert.equal(icPercentil(Array.from({ length: 50 }, (_, i) => i), 0.99, 0.95), null, 'P99 con 50 datos: el techo caería fuera');
+});
+
+test('IC del P90 con n = 20 y n = 30: si existe, cubre al menos 93% (cobertura exacta por la binomial); si no, es null', () => {
+  // cobertura exacta de [x₍l₎, x₍u₎] para el cuantil q: P(l < B ≤ u) con B ~ Binomial(n, q) (índices desde 0)
+  const cobertura = (n: number, l: number, u: number, q: number) => {
+    let c = 0;
+    for (let k = l + 1; k <= u; k++) {
+      let comb = 1;
+      for (let i = 0; i < k; i++) comb = (comb * (n - i)) / (i + 1);
+      let pk = 1;
+      for (let i = 0; i < k; i++) pk *= q;
+      for (let i = 0; i < n - k; i++) pk *= 1 - q;
+      c += comb * pk;
+    }
+    return c;
+  };
+  for (const n of [20, 30, 60, 100, 200]) {
+    const xs = Array.from({ length: n }, (_, i) => i);
+    const ic = icPercentil(xs, 0.9, 0.95);
+    if (ic === null) continue;
+    const c = cobertura(n, ic[0], ic[1], 0.9);
+    assert.ok(c >= 0.93, `n = ${n}: IC [x${ic[0]}, x${ic[1]}] cubre ${(c * 100).toFixed(2)}%`);
+  }
+  assert.equal(icPercentil(Array.from({ length: 30 }, (_, i) => i), 0.9, 0.95), null);
 });
 
 test('el IC del P90 siempre contiene al P90 muestral', () => {
@@ -56,7 +82,8 @@ test('el IC del P90 siempre contiene al P90 muestral', () => {
   for (let rep = 0; rep < 200; rep++) {
     const n = 20 + Math.floor(u() * 200);
     const xs = Array.from({ length: n }, () => exponencial(u));
-    const ic = icPercentil(xs, 0.9, 0.95)!;
+    const ic = icPercentil(xs, 0.9, 0.95);
+    if (ic === null) { assert.ok(n < 60, `n=${n}: el IC del P90 solo puede faltar con pocos datos`); continue; }
     const p = percentil(xs, 0.9);
     assert.ok(ic[0] <= p && p <= ic[1], `n=${n}: P90 muestral ${p} fuera de su IC [${ic}]`);
   }

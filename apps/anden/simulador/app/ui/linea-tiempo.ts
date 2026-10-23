@@ -37,6 +37,20 @@ export function crearLineaTiempo(ctx: Contexto, o: { momentos: () => MomentoEsce
   const soltar = () => { arrastrando = false; };
   L.sumar(escuchar(pista, 'pointerup', soltar));
   L.sumar(escuchar(pista, 'pointercancel', soltar));
+  L.sumar(escuchar(marcas, 'keydown', (ev) => {
+    const lista = [...marcas.querySelectorAll<HTMLButtonElement>('.lt__marca')];
+    const i = lista.indexOf(document.activeElement as HTMLButtonElement);
+    if (i < 0) return;
+    let j = -1;
+    if (ev.key === 'ArrowRight' || ev.key === 'ArrowDown') j = Math.min(lista.length - 1, i + 1);
+    else if (ev.key === 'ArrowLeft' || ev.key === 'ArrowUp') j = Math.max(0, i - 1);
+    else if (ev.key === 'Home') j = 0;
+    else if (ev.key === 'End') j = lista.length - 1;
+    if (j < 0) return;
+    ev.preventDefault();
+    lista.forEach((b, k) => b.setAttribute('tabindex', k === j ? '0' : '-1'));
+    lista[j].focus();
+  }));
   L.sumar(escuchar(pista, 'keydown', (ev) => {
     const e = ctx.almacen.estado, d = ev.shiftKey ? PASO_TECLADO_LARGO_MS : PASO_TECLADO_MS;
     let t: number | null = null;
@@ -74,13 +88,16 @@ export function crearLineaTiempo(ctx: Contexto, o: { momentos: () => MomentoEsce
         return true;
       })
       .sort((a, b) => a.t - b.t);
-    for (const m of candidatas) {
+    // las marcas son UNA parada del teclado (tabindex móvil): Tab entra a la primera y las flechas pasan de una a otra (hallazgo
+    // UX-13: eran 32 paradas antes de llegar a «Reproducir»)
+    candidatas.forEach((m, i) => {
       const texto = `${ctx.f.hora(m.t)} · ${ctx.t(m.clave, m.vars)}`;
       const b = el('button', { type: 'button', class: `lt__marca lt__marca--${m.importancia}`, title: texto, 'aria-label': texto, 'data-accion': 'momento',
+        tabindex: i === 0 ? 0 : -1,
         onclick: () => { ctx.almacen.despachar({ tipo: 'pausar' }); ctx.almacen.despachar({ tipo: 'cabezal', t: m.t }); ctx.narrar(texto); } });
       b.style.left = pct(fraccion(m.t, e.inicio, e.fin));
       marcas.appendChild(b);
-    }
+    });
     horas.replaceChildren();
     const h0 = Math.ceil(e.inicio / 3_600_000), h1 = Math.floor(e.fin / 3_600_000);
     // cada rótulo «00:00» ocupa ~36 px: se elige el paso (1, 2, 3, 4 o 6 h) que los deja al menos a 48 px
@@ -129,8 +146,9 @@ export function controlesReproduccion(ctx: Contexto): { nodo: HTMLElement; actua
     const e = ctx.almacen.estado;
     const txt = e.reproduciendo ? ctx.t('app.control.pausar') : ctx.t('app.control.reproducir');
     reproducir.textContent = e.reproduciendo ? '❚❚' : '▶';
+    // el nombre ya dice «Reproducir» o «Pausar»: sin aria-pressed («Pausar, presionado» se leía doble, y su estilo dejaba el
+    // símbolo casi invisible: hallazgo UX-06)
     reproducir.setAttribute('aria-label', txt); reproducir.title = txt;
-    reproducir.setAttribute('aria-pressed', String(e.reproduciendo));
     if (velocidad.value !== String(e.velocidad)) velocidad.value = String(e.velocidad);
     hora.textContent = ctx.f.hora(e.t);
   };

@@ -47,21 +47,25 @@ function netoDia(s, dias = 7, calentar = 2) {
 }
 const pct = (a, b) => +((a / b - 1) * 100).toFixed(1);
 
-export function casoA(semilla = 3) {
-  const n0 = netoDia(armar(base(semilla), ESTRELLA, { nivelBUE: 0 }));
-  const n2 = netoDia(armar(base(semilla), ESTRELLA, { nivelBUE: 2 }));
+// (a) promedio de 4 semillas (entre semillas va de +30% a +36%)
+export function casoA(semillas = [1, 2, 3, 4]) {
+  let n0 = 0, n2 = 0;
+  for (const se of semillas) { n0 += netoDia(armar(base(se), ESTRELLA, { nivelBUE: 0 })); n2 += netoDia(armar(base(se), ESTRELLA, { nivelBUE: 2 })); }
+  n0 /= semillas.length; n2 /= semillas.length;
   return { nivel0: Math.round(n0), nivel2: Math.round(n2), dif: pct(n2, n0), meta: '≥ +30%', ok: pct(n2, n0) >= 30 };
 }
-// (b) Una red típica del capítulo 1 a la hora y media de juego (la estrella con dos aviones en las troncales y el correo del sur
-// con uno por tramo). Cada ruta de referencia se mide por su propio neto (lo que muestra su panel), con las demás en 60%:
-//  - Buenos Aires–Montevideo y Buenos Aires–Rosario, las troncales cargadas;
-//  - Comodoro Rivadavia–Río Gallegos, el ramal flaco del sur (lo que llega en conexión, de a tandas).
-// Lo que se espera: en las troncales, «lo que haya» quema vuelos medio vacíos; en el ramal flaco, esperar a llenar deja el correo
-// tarde y la gente manda menos. Promedio de 8 semillas y 10 días; dos opciones a 5% o menos una de otra cuentan como empate (es el
-// ruido entre semillas: la diferencia entre 60% y lleno en una troncal, o entre «lo que haya» y 30% en el ramal, cambia de signo
-// según la semilla).
-export const RED_TIPICA = [['BUE', 'MVD', 2], ['BUE', 'ROS', 2], ['BUE', 'MDQ', 1], ['BUE', 'BHI', 2], ['BUE', 'COR', 2], ['BHI', 'CRD', 1],
-  ['CRD', 'RGL', 1], ['BHI', 'NQN', 1], ['COR', 'MDZ', 1]];
+// (b) Una red típica del capítulo 1 a la hora y media de juego (la estrella y el correo del sur), con la flota ajustada a la demanda
+// en las rutas de referencia: la capacidad entre 1 y 1,6 veces lo que la red manda por ahí, que es como queda la flota de quien
+// sigue el panel de la ruta («esperan» contra «capacidad por hora»). Cada ruta de referencia se mide por su propio neto (lo que
+// muestra su panel), con las demás en 60%:
+//  - Buenos Aires–Montevideo y Buenos Aires–Rosario, las troncales cargadas (3 Golondrinas: capacidad ≈ demanda);
+//  - Comodoro Rivadavia–Río Gallegos, el ramal largo y flaco del sur (2 Teros: capacidad ≈ 1,6 veces la demanda).
+// Lo que se espera: «lo que haya» quema vuelos medio vacíos; «lleno» deja el correo tarde y la gente manda menos; en el medio está
+// el punto justo. Con la flota corta las opciones casi no importan (todos los vuelos salen llenos) y con flota de más gana esperar a
+// llenar: la tabla de sensibilidad del README lo muestra. Promedio de 8 semillas y 10 días; dos opciones a 5% o menos una de otra
+// cuentan como empate (es el ruido entre semillas).
+export const RED_TIPICA = [['BUE', 'MVD', 3], ['BUE', 'ROS', 3], ['BUE', 'MDQ', 1], ['BUE', 'BHI', 2], ['BUE', 'COR', 2], ['BHI', 'CRD', 1],
+  ['CRD', 'RGL', 2], ['BHI', 'NQN', 1], ['COR', 'MDZ', 1]];
 export const REFERENCIA_B = [['BUE', 'MVD'], ['BUE', 'ROS'], ['CRD', 'RGL']];
 const EMPATE = 0.05;
 export function casoB(semillas = [1, 2, 3, 4, 5, 6, 7, 8], dias = 10) {

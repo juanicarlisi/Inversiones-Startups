@@ -129,7 +129,7 @@ test('los textos y las pistas de todas las misiones existen en español y en ing
     assert.ok(TEXTOS[l][m.id], `${l}: ${m.id}`);
     assert.ok(TEXTOS[l][`pista_${m.id}`], `${l}: pista_${m.id}`);
   }
-  for (const k of ['contrato', 'contratoNavidad', 'primeraNoche', 'ventaForzada', 'pronostico', 'e_reserva', 'estado_ronda', 'parteTitulo'])
+  for (const k of ['contrato', 'contratoNavidad', 'primeraNoche', 'ventaForzada', 'pronostico', 'e_reserva', 'estado_ronda', 'parteTitulo', 'pista_ronda_centro', 'pista_noche', 'finHistoria', 'sug_ahorrar'])
     for (const l of ['es', 'en']) assert.ok(TEXTOS[l][k], `${l}: ${k}`);
   // las ciudades que se abren con una misión apuntan a misiones que existen
   for (const a of AEROPUERTOS) if (a.abre) assert.ok(MISIONES.some((m) => m.id === a.abre), a.id);

@@ -18,12 +18,24 @@ import type { MapaRiesgo, MomentoEscena, Reproductor } from '../contratos/vistas
 import type { Biografia, Contrafactual, Frase } from '../contratos/explicacion.ts';
 import type { Pregunta, ResultadoTamizado } from '../contratos/decision.ts';
 import type { Enlace } from '../contratos/escena.ts';
+
+/**
+ * Receta con la huella agregada `h` de las noches del autor. El contrato `Receta` está congelado; el códec (modelo/enlace.ts) la lleva
+ * como campo extra opcional (integracion/CAMBIOS-CONTRATO.md §1). Se repite el tipo acá porque app/ no importa modelo/.
+ */
+export type RecetaConHuella = Receta & { h?: string };
 import { esCancelacion, semaforoLocal, type ServiciosApp } from './extras.ts';
 import type { Almacen, CualNoche, Perillas } from './estado.ts';
 import { hayCambios } from './estado.ts';
 
 /** Noches de la confirmación pareada de «¿y si…?» (corte-1.md §9 P8.5). */
 export const NOCHES_CONFIRMACION = 40;
+/**
+ * Tope de noches de una escena (hallazgo SEG-03): una receta o un modelo pueden pedir muchas más (el códec acepta hasta 1.000 y el
+ * esquema hasta 10.000 en `nochesEscena`), y cada una corre en los núcleos del que abre el enlace. Con más de esto la app corre este tope
+ * y lo dice (`nochesPedidas`).
+ */
+export const MAX_NOCHES_ESCENA = 400;
 /** KPI que se comparan en la pantalla dividida, en este orden. */
 export const KPI_COMPARACION: readonly KpiId[] = ['costoPorPaquete', 'pendientesAlCorte', 'finClasificacionMin', 'esperaP90Min', 'recirculacionPct'];
 
@@ -75,6 +87,10 @@ export class Sesion {
   recetaEnlace: Receta | null = null;
   semilla = 0;
   N = 0;
+  /** Noches que pedía la receta o el modelo cuando pasaban el tope (MAX_NOCHES_ESCENA); null si no se recortó nada. */
+  nochesPedidas: number | null = null;
+  /** Último cambio automático de noche (de la provisoria a la mediana o la peor), para avisarlo en la escena (hallazgo UX-12). */
+  cambioNoche: { de: number; a: number; cual: CualNoche } | null = null;
   resultados: (ResultadoReplica | undefined)[] = [];
   llegadas = 0;
   nochesListas = false;
@@ -124,13 +140,18 @@ export class Sesion {
   get nochesLlegadas(): ResultadoReplica[] { return this.resultados.filter((r): r is ResultadoReplica => r !== undefined); }
 
   /** Abre un modelo (de una plantilla, de un enlace o del modo ingeniero) y arranca la película y las cien noches. */
-  abrir(mv: ModeloValidado, origen: Origen, receta: Receta | null = null, respuestas: Record<string, number> = {}): void {
+  abrir(mv: ModeloValidado, origen: Origen, receta: RecetaConHuella | null = null, respuestas: Record<string, number> = {}): void {
     this.generacion++;
     this.servicios.cancelarDesde(Prioridad.VISTA_PREVIA);
     this.mv = mv; this.origen = origen; this.recetaEnlace = receta;
     this.semilla = receta?.semilla ?? mv.modelo.experimento.semilla;
-    this.N = Math.max(1, receta?.replicas ?? mv.modelo.experimento.nochesEscena);
-    this.resultados = new Array(this.N); this.llegadas = 0; this.nochesListas = false;
+    const pedidas = Math.max(1, receta?.replicas ?? mv.modelo.experimento.nochesEscena);
+    this.N = Math.min(pedidas, MAX_NOCHES_ESCENA);
+    this.nochesPedidas = pedidas > this.N ? pedidas : null;
+    this.cambioNoche = null;
+    // DENSO, sin huecos (hallazgo SEG-02): `every` saltea los huecos de un arreglo creado con new Array(N), y la confirmación de «¿y si…?»
+    // creía tener las 40 noches de A cuando faltaban.
+    this.resultados = Array.from({ length: this.N }, () => undefined); this.llegadas = 0; this.nochesListas = false;
     this.mapa = null; this.resumenCosto = null; this.propCorte = null; this.semaforo = null; this.comprobante = null;
     this.noche = null; this.ysi = Sesion.ysiVacio(); this.decision = { ...Sesion.decisionVacia(), respuestas }; this.ultimoError = null;
     this.pidiendoNoches = false;
@@ -218,10 +239,13 @@ export class Sesion {
       this.comprobante = c;
       this.emitir('noches');
     } catch (e) { this.fallar('app.error.comprobante', e); }
-    // la noche que se muestra: la de la receta, la elegida en el modelo, o la mediana / peor según el modelo
+    // la noche que se muestra: la de la receta, la elegida en el modelo, o la mediana / peor según el modelo. El cambio desde la
+    // provisoria queda anotado para que la escena lo avise (no cambia la película en silencio: hallazgo UX-12).
     if (this.cualNoche === 'provisoria') {
       const pedida = mv.modelo.experimento.nocheMostrada;
       const cual: CualNoche = pedida === 'peor' ? 'peor' : 'mediana';
+      const de = this.noche?.replica ?? null, a = this.replicaDe(cual);
+      if (de !== null && a !== null && de !== a) this.cambioNoche = { de, a, cual };
       await this.mostrarNoche(cual);
     }
   }
@@ -234,6 +258,14 @@ export class Sesion {
     const k = this.kpiNoche, mas = META_KPI[k].mejor === 'mas';
     const o = [...this.nochesLlegadas].sort((a, b) => (mas ? b.kpi[k] - a.kpi[k] : a.kpi[k] - b.kpi[k]) || a.replica - b.replica);
     return o[0]?.replica ?? null;
+  }
+
+  /** Vuelve a mostrar una noche ya calculada (la de una biografía abierta), con su etiqueta y el cabezal en t. */
+  volverANoche(noche: NocheVista, cual: CualNocheMostrada, t?: number): void {
+    if (!this.mv || noche.salida.resultado.modelo !== this.mv.huella) return;
+    this.noche = noche; this.cualNoche = cual;
+    this.almacen.despachar({ tipo: 'cargarNoche', inicio: noche.traza.inicio, fin: noche.traza.fin, t });
+    this.emitir('noche');
   }
 
   async mostrarNoche(cual: CualNoche): Promise<void> {
@@ -297,8 +329,11 @@ export class Sesion {
     const gen = this.generacion, n = Math.min(NOCHES_CONFIRMACION, Math.max(2, this.N));
     this.ysi = { ...this.ysi, fase: 'confirmando', progreso: 0 }; this.emitir('ysi');
     try {
+      // se cuenta una por una (no con every: un arreglo con huecos los saltearía, hallazgo SEG-02)
       const yaA = this.resultados.slice(0, n);
-      const a = yaA.every((r) => r !== undefined) ? yaA as ResultadoReplica[]
+      let completas = yaA.length === n;
+      for (let i = 0; i < n && completas; i++) if (yaA[i] === undefined) completas = false;
+      const a = completas ? yaA as ResultadoReplica[]
         : await this.servicios.noches(mv, this.semilla, 0, n, Prioridad.CONFIRMACION);
       if (token !== this.tokenPrevia || gen !== this.generacion) return;
       let llegadas = 0;
@@ -396,46 +431,78 @@ export class Sesion {
     } catch (e) { this.fallar('app.error.variante', e); }
   }
 
-  // ---------- biografía y causas ----------
-
-  biografia(clase: ClaseEntidad, id: number): Biografia | null {
-    if (!this.noche || !this.mv) return null;
-    return this.servicios.biografia(this.noche.traza, this.mv.modelo, clase, id);
+  /**
+   * Cambia la decisión del modelo (más opciones, otra meta) con un parche sobre /decision y vuelve a decidir (hallazgo UX-03). Los datos
+   * que la persona ya contestó se conservan.
+   */
+  async cambiarDecision(ops: OpParche[]): Promise<void> {
+    const mv = this.mv; if (!mv) return;
+    try {
+      const mvNuevo = await this.servicios.variante(mv, ops);
+      const respuestas = this.decision.respuestas;
+      const origen: Origen = this.origen.tipo === 'plantilla' ? { ...this.origen, parche: [...this.origen.parche, ...ops] } : { tipo: 'modelo' };
+      this.abrir(mvNuevo, origen, null, respuestas);
+      void this.decidir();
+    } catch (e) { this.fallar('app.error.variante', e); }
   }
 
-  /** Verifica frases contra la traza que se mira y el modelo; devuelve cuáles pasaron. */
-  verificar(frases: Frase[]): boolean[] {
-    if (!this.noche || !this.mv) return frases.map(() => false);
+  // ---------- biografía y causas ----------
+
+  // Todo lo de la biografía recibe la noche con la que se armó (por defecto, la que se mira): si la escena cambia de noche mientras la
+  // biografía está abierta, sus causas y su «¿y si…?» siguen siendo de ESE paquete en ESA noche (hallazgo UX-01).
+
+  biografia(clase: ClaseEntidad, id: number, noche: NocheVista | null = this.noche): Biografia | null {
+    if (!noche || !this.mv) return null;
+    return this.servicios.biografia(noche.traza, this.mv.modelo, clase, id);
+  }
+
+  /** Verifica frases contra la traza de la noche y el modelo; devuelve cuáles pasaron. */
+  verificar(frases: Frase[], noche: NocheVista | null = this.noche): boolean[] {
+    if (!noche || !this.mv) return frases.map(() => false);
     const id = 'noche';
-    const v = this.servicios.verificar(frases, { experimentos: {}, trazas: { [id]: this.noche.traza }, modelo: this.mv.modelo }, id);
+    const v = this.servicios.verificar(frases, { experimentos: {}, trazas: { [id]: noche.traza }, modelo: this.mv.modelo }, id);
     const malas = new Set(v.fallas.map((f) => f.frase));
     return frases.map((_, i) => !malas.has(i));
   }
 
-  async causas(id: number): Promise<{ causas: Frase[]; contrafactuales: Contrafactual[] } | null> {
-    if (!this.noche || !this.mv) return null;
-    const P = this.noche.traza.paquetes;
+  async causas(id: number, noche: NocheVista | null = this.noche): Promise<{ causas: Frase[]; contrafactuales: Contrafactual[] } | null> {
+    if (!noche || !this.mv) return null;
+    const P = noche.traza.paquetes;
     if (id < 0 || id >= P.n) return null;
-    return this.servicios.causas(this.noche.traza, this.mv, P.camion[id], P.indice[id]);
+    return this.servicios.causas(noche.traza, this.mv, P.camion[id], P.indice[id]);
   }
 
-  async contrafactual(id: number, cambio: Contrafactual['cambio']): Promise<Contrafactual | null> {
-    if (!this.noche || !this.mv) return null;
-    const P = this.noche.traza.paquetes;
-    return this.servicios.contrafactual(this.mv, this.semilla, this.noche.replica, P.camion[id], P.indice[id], cambio);
+  async contrafactual(id: number, cambio: Contrafactual['cambio'], noche: NocheVista | null = this.noche): Promise<Contrafactual | null> {
+    if (!noche || !this.mv) return null;
+    const P = noche.traza.paquetes;
+    if (id < 0 || id >= P.n) return null;
+    return this.servicios.contrafactual(this.mv, this.semilla, noche.replica, P.camion[id], P.indice[id], cambio);
+  }
+
+  /** La misma entidad en otra noche: un paquete por (camión, índice), una rampa o una persona por su índice; null si no está. */
+  mismaEntidad(clase: ClaseEntidad, id: number, de: NocheVista, en: NocheVista): number | null {
+    if (clase !== ClaseEntidad.PAQUETE) return id;
+    const A = de.traza.paquetes, B = en.traza.paquetes;
+    if (id < 0 || id >= A.n) return null;
+    for (let e = 0; e < B.n; e++) if (B.camion[e] === A.camion[id] && B.indice[e] === A.indice[id]) return e;
+    return null;
   }
 
   // ---------- compartir ----------
 
-  /** Receta de lo que se está mirando (la del comprobante más la noche, el cabezal y la velocidad). */
-  recetaActual(): Receta | null {
+  /**
+   * Receta de lo que se está mirando (la del comprobante más la noche, el cabezal y la velocidad) y, si ya están las noches, la huella
+   * agregada `h` de esas noches: con ella quien abre el enlace compara SUS números con los del autor (hallazgo H1; modelo/enlace.ts).
+   */
+  recetaActual(): RecetaConHuella | null {
     const mv = this.mv; if (!mv) return null;
     const e = this.almacen.estado;
     const base = this.comprobante?.receta ?? { v: 1 as const, modelo: mv.huella, motor: this.servicios.versionMotor, semilla: this.semilla, replicas: this.N };
-    const r: Receta = { ...base, modelo: mv.huella };
+    const r: RecetaConHuella = { ...base, modelo: mv.huella };
     if (this.noche) r.noche = this.noche.replica;
     if (this.noche && e.t > e.inicio) r.t = Math.round(e.t);
     r.vel = e.velocidad;
+    if (this.comprobante && this.comprobante.receta.replicas === this.N && this.comprobante.receta.semilla === this.semilla) r.h = this.comprobante.huellaAgregada;
     return r;
   }
 
@@ -460,17 +527,30 @@ export class Sesion {
     const anon = this.servicios.anonimizar(mv.modelo, sem[0]);
     const c = await this.servicios.compilar(anon);
     if (!c.ok) throw new Error('el modelo anonimizado no compila');
-    const e: Enlace = { tipo: 'modelo', modelo: c.mv.modelo, ...(receta ? { receta: { ...receta, modelo: c.mv.huella } } : {}) };
+    // El modelo anonimizado tiene otros volúmenes: sus números NO son los del autor. Su receta viaja sin `h` (no hay con qué
+    // comparar) y quien lo abre ve «modelo anonimizado: no comparable», nunca «coinciden con la receta del autor» (hallazgo H1).
+    const sinHuella = receta ? (({ h: _h, ...resto }) => resto)(receta) : null;
+    const e: Enlace = { tipo: 'modelo', modelo: c.mv.modelo, ...(sinHuella ? { receta: { ...sinHuella, modelo: c.mv.huella } } : {}) };
     return { fragmento: await this.servicios.codec.codificar(e), enlace: e, anonimizado: true, plantilla: false };
   }
 
-  /** Estado del sello «Reproducida en este dispositivo» (diseño maestro §5.9). */
-  selloReproducida(): 'reproducida' | 'sin-receta' | 'otro-motor' | 'calculando' {
-    const r = this.recetaEnlace;
+  /**
+   * Estado del sello «Reproducida en este dispositivo» (diseño maestro §5.9: «si la huella recalculada coincide con la de la receta»).
+   * Compara SALIDAS, no entradas (hallazgo H1): la huella agregada de las noches que calculó este dispositivo contra la `h` de la receta.
+   *   reproducida · la misma huella agregada, con el mismo modelo, motor, semilla y cantidad de noches;
+   *   no-coincide · la receta trae `h` y este dispositivo calculó otra cosa (en rojo);
+   *   sin-huella  · la receta no trae `h` (un modelo anonimizado, o un enlace anterior): no hay con qué comparar;
+   *   otro-motor · la receta es de otra versión del motor; calculando · todavía faltan noches o el comprobante; sin-receta · no hubo receta.
+   */
+  selloReproducida(): 'reproducida' | 'no-coincide' | 'sin-huella' | 'sin-receta' | 'otro-motor' | 'calculando' {
+    const r = this.recetaEnlace as RecetaConHuella | null;
     if (!r || !this.mv) return 'sin-receta';
     if (r.motor !== this.servicios.versionMotor) return 'otro-motor';
-    if (!this.nochesListas) return 'calculando';
-    return r.modelo === this.mv.huella ? 'reproducida' : 'sin-receta';
+    if (r.modelo !== this.mv.huella) return 'sin-receta';
+    if (r.h === undefined) return 'sin-huella';
+    if (!this.nochesListas || !this.comprobante) return 'calculando';
+    if (r.replicas !== this.N || r.semilla !== this.semilla) return 'no-coincide';
+    return this.comprobante.huellaAgregada === r.h ? 'reproducida' : 'no-coincide';
   }
 }
 

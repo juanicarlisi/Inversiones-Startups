@@ -85,3 +85,27 @@ test('primer minuto (perfil literal, velocidad 1): primer despegue y primer cobr
     assert.ok(r.primerViajeNeto > 0);
   }
 });
+
+test('primeros 3 minutos (perfil novato, semillas 1 a 3): nunca pasan más de 40 s sin una decisión posible con efecto positivo', () => {
+  for (const semilla of [1, 2, 3]) {
+    const r = correr('novato', { semilla, minutos: 3.2 });
+    assert.ok(r.sinDecision3min <= 40, `semilla ${semilla}: ${r.sinDecision3min} s sin una decisión con efecto positivo`);
+  }
+});
+
+test('si lo que pide la historia no alcanza pero la red lo junta pronto, la mejor próxima acción es juntar para eso', () => {
+  const s = M.nuevoEstado(3);
+  M.tomarEventos(s);
+  s.misiones = ['m1_primera', 'm1_segunda', 'm1_transbordo', 'm1_noche', 'm1_sur', 'm1_gallegos', 'm1_caja', 'm2_pax', 'm2_andes', 'm2_red', 'm2_cauquen', 'm2_conexiones', 'm2_caja'];
+  s.cap = 3; s.t0 = Date.UTC(1970, 0, 1, 9, 0) - s.t * 60000; s.colas = {}; s.dinero = 1e7;
+  M.abrirRuta(s, 'BUE', 'SPA'); M.comprarAvion(s, 'cauquen', 'BUE-SPA');
+  M.paso(s); M.tomarEventos(s);
+  assert.equal(M.misionActual(s).id, 'm3_jet');
+  s.dinero = 1e6; s.hora24 = Array(24).fill(100000); // la red gana unos 2,3 millones por día; el Halcón cuesta 2,5
+  const x = M.sugerencia(s);
+  assert.equal(x.tipo, 'ahorrar', JSON.stringify(x));
+  assert.equal(x.id, 'halcon');
+  assert.ok(x.falta > 0 && x.costo === 0 && x.efectoDia === 0 && x.minutos > 0);
+  s.hora24 = Array(24).fill(1000); // si la red no lo junta pronto, la sugerencia es hacerla crecer
+  assert.notEqual(M.sugerencia(s)?.tipo, 'ahorrar');
+});

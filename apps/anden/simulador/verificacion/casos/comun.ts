@@ -8,7 +8,7 @@ import type { CrearMotor } from '../../contratos/motor.ts';
 import type { MatematicaDeterminista } from '../../contratos/matematica.ts';
 import type { ConfigRed, MedidasRed } from '../flujo/red.ts';
 import { correrRed } from '../flujo/red.ts';
-import { intervaloMedia } from '../formulas/estadistica.ts';
+import { cuantilT, intervaloMedia } from '../formulas/estadistica.ts';
 
 export type Suite = 'rapida' | 'completa';
 export type TipoPrueba = 'exigible' | 'informativa' | 'debe-fallar';
@@ -19,6 +19,16 @@ export type Dueno = 'P1' | 'P2' | 'P4' | 'P5' | 'I';
 
 /** Umbral de z de la batería (99,9% bilateral). */
 export const Z_MAX = 3.29;
+
+/**
+ * Umbral del cociente error ÷ ee cuando el ee sale de las propias réplicas (hallazgo H4 de la revisión del 19-10-2026): ese cociente es
+ * una t de Student con n − 1 grados, no una normal. Con 20 réplicas, |t₁₉| > 3,29 pasa el 0,39% de las veces (no el 0,1%): se usa el
+ * cuantil t(0,9995; n − 1), que con muchas réplicas es 3,29. Así la falsa alarma de cada prueba es la que dice §8.
+ */
+export function umbralT(n: number, mat: MatematicaDeterminista): number {
+  if (!(n >= 2)) return Z_MAX;
+  return Math.max(Z_MAX, cuantilT(0.9995, n - 1, mat));
+}
 /** Z_MAX escrito en español (coma decimal), para textos y motivos. */
 const Z_TXT = '3,29';
 export const TOL_REL = 0.03;
@@ -171,10 +181,11 @@ export function textoCriterio(d: DeclaracionPrueba): string {
   const c = d.criterio;
   switch (c.tipo) {
     case 'estadistico':
-      if (d.esperado === 0) return `|error| ≤ ${Z_TXT} errores estándar`;
+      // el ee sale de las réplicas: el umbral es t(0,9995; n − 1), que con muchas réplicas es 3,29 (umbralT)
+      if (d.esperado === 0) return `|error| ≤ t(0,9995; n − 1) errores estándar (${Z_TXT} con muchas réplicas)`;
       return c.probabilidad
-        ? `|error| ≤ ${Z_TXT} ee y error relativo ≤ 2%, con semiancho del 95% ≤ 1% del valor`
-        : `|error| ≤ ${Z_TXT} ee y error relativo ≤ 3%, con semiancho del 95% ≤ 2% del valor`;
+        ? `|error| ≤ t(0,9995; n − 1) ee (${Z_TXT} con muchas réplicas) y error relativo ≤ 2%, con semiancho del 95% ≤ 1% del valor`
+        : `|error| ≤ t(0,9995; n − 1) ee (${Z_TXT} con muchas réplicas) y error relativo ≤ 3%, con semiancho del 95% ≤ 2% del valor`;
     case 'z': return `|error| ≤ ${Z_TXT} errores estándar`;
     case 'relativo': return c.tolRel <= 1e-9 ? 'exacto (error relativo ≤ 1e-9)' : `error relativo ≤ ${formatoPct(c.tolRel)}`;
     case 'intervalo': return 'la media cae dentro del intervalo publicado';
@@ -206,7 +217,8 @@ export function evaluarEstadistico(caso: Caso, d: DeclaracionPrueba, ctx: Contex
   if (d.tipo === 'informativa' || d.criterio.tipo === 'informativo') { r.estado = 'informativa'; return r; }
   const prob = d.criterio.tipo === 'estadistico' && d.criterio.probabilidad;
   const motivos: string[] = [];
-  if (!(Math.abs(z) <= Z_MAX)) motivos.push(`|z| = ${coma(Math.abs(z).toFixed(2))} > ${Z_TXT} (se esperaba ${esp} y salió ${iv.media})`);
+  const umbral = umbralT(iv.n, ctx.mat);
+  if (!(Math.abs(z) <= umbral)) motivos.push(`|z| = ${coma(Math.abs(z).toFixed(2))} > ${coma(umbral.toFixed(2))} (t(0,9995; ${iv.n - 1})) (se esperaba ${esp} y salió ${iv.media})`);
   if (rel !== null && d.criterio.tipo === 'estadistico') {
     const tol = prob ? TOL_REL_PROB : TOL_REL;
     if (!(Math.abs(rel) <= tol)) motivos.push(`error relativo ${coma((100 * rel).toFixed(2))}% fuera de ±${100 * tol}%`);

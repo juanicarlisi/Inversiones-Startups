@@ -36,6 +36,8 @@ export interface OpcionesLienzo {
   camara?: boolean;
   /** Clave con la que se recuerda la cámara propia entre montajes (por ejemplo, `escena|<huella del modelo>`). */
   claveCamara?: string;
+  /** Se llama cada vez que la vista se arma con otro piso (el medido, el elegido o el remedido): para el botón de piso (hallazgo UX-07). */
+  alCambiarPiso?: (piso: Piso) => void;
 }
 
 export interface Lienzo { nodo: HTMLElement; redibujar(): void; destruir(): void; vista(): Vista | null }
@@ -94,7 +96,9 @@ export function crearLienzo(ctx: Contexto, o: OpcionesLienzo): Lienzo {
     deReproductor = r; deTema = tema; dePiso = piso;
     if (propia) vista.camara = { ...propia };
     pintarEncuadrar();
+    const cambio = nodo.dataset.piso !== piso;
     nodo.dataset.piso = piso;
+    if (cambio) o.alCambiarPiso?.(piso);
     return vista;
   };
   let pendiente = 0;
