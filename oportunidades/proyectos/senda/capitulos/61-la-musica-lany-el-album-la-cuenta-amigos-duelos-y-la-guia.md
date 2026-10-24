@@ -148,7 +148,7 @@ lector, de una lección ni de un juego (mira la ruta que está a la vista), y no
 
 ## 11. El APK 35
 
-Como siempre, **trae absolutamente todo lo anterior**. Versión 0.35.0 (código 36). Chequeo de tipos, prueba de arranque (seis pruebas)
+Como siempre, **trae absolutamente todo lo anterior**. Versión 0.35.0 (código 36); 95,6 MB (las seis pistas nuevas suman unos 4,9 MB; R8 sigue pendiente en un APK aparte). Publicado en https://github.com/juanicarlisi/senda-app/releases/tag/prueba-35. Chequeo de tipos, prueba de arranque (seis pruebas)
 y auditoría de textos de las pantallas pasados antes de compilar. Lo que hay que mirar está en la Consola (pendiente «probar35»).
 
 ## 12. Pendientes y decisiones
