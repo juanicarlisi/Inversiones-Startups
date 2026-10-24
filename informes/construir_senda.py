@@ -38,8 +38,8 @@ FUENTE = RAIZ / "informes" / "fuente-senda"
 GRAF = FUENTE / "graficos"
 TIPO = RAIZ / "informes" / "tipografia"
 TITULO = "Senda · El proyecto completo de la app"
-SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-28.pdf"
-SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-28.html"
+SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-29.pdf"
+SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-29.html"
 SALIDA_HTML = FUENTE / "informe.html"
 
 AMBAR, NOCHE, VERDE, GRANADA, CREMA, TINTA = V.AMBAR, V.NOCHE, V.VERDE, V.ROJO, V.CREMA, "#1B1B1F"
@@ -791,6 +791,7 @@ P32 = RAIZ / "informes" / "fuente-senda" / "prueba32"
 P33 = RAIZ / "informes" / "fuente-senda" / "prueba33"
 P34 = RAIZ / "informes" / "fuente-senda" / "prueba34"
 P35 = RAIZ / "informes" / "fuente-senda" / "prueba35"
+P36 = RAIZ / "informes" / "fuente-senda" / "prueba36"
 
 
 def bloque_pantallas23() -> str:
@@ -910,6 +911,22 @@ def bloque_pantallas32() -> str:
                   ("03_camino_pt", "El camino de la Travesía: «A grande história · Capítulo 1 · Os começos»"), ("04_inicio_pt", "Inicio en portugués: «Seguir sua senda · A grande história»")])
             + f'<figure style="margin:3mm 0 0;text-align:center">{img("05_laminas", "max-width:120mm;margin:0 auto;border-radius:3mm")}'
               f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">Las cinco láminas nuevas de «Vivir la historia» (José, Elías, el ciego de Juan 9), en todos sus estados</figcaption></figure>')
+
+
+def bloque_pantallas36() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P36 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (fila([("02_frente", "En la frente, acostado: el nombre de punta a punta y las tres pistas"), ("04_lany", "Lany en el camino y en la lección, con la ropa de cada área")])
+            + fila([("01_torneo", "El torneo: jugadores, rondas, tiempo y personajes"), ("03_quien", "¿Quién es?: 71 personajes de toda la Biblia"),
+                    ("05_azar", "El Espadeo: el duelo con un rival al azar"), ("06_album", "El álbum: las estrellas dicen qué tan difícil es")])
+            + fila([("08_leccion", "Una lección larga: primero lo esencial"), ("09_oseas", "Oseas, capítulos 1 a 3: Jezreel en el mapa"),
+                    ("10_josue", "Josué 1 a 6: del Jordán a Jericó"), ("11_pregunta", "Una pregunta rehecha: la correcta ya no se nota por el largo")]))
 
 
 def bloque_pantallas35() -> str:
@@ -1042,7 +1059,7 @@ def portada(D) -> str:
     dt_ = "".join(f"<div><b>{a}</b><span>{b}</span></div>" for a, b in datos)
     return f"""<section class="portada-s">
 <div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.27 · 24 de octubre de 2026 · uso privado</div>
-<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.28</p>
+<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.29</p>
 <p class="ps-lema">Una app cristiana para que los jóvenes conozcan la Biblia <b>jugando, leyendo y en comunidad</b>, con nivel profesional:
 nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen; Android e iOS primero y la web después.</p></div>
 <div class="ps-img"><div class="ps-esc">{lany16_png("tu_reposo", 100)}</div>{V.logo_txt(30, V.NOCHE)}</div></div>
@@ -1110,6 +1127,7 @@ def construir_html(D, incrustar: bool = False, paginas: dict | None = None) -> s
         "{{PANTALLAS33}}": bloque_pantallas33,
         "{{PANTALLAS34}}": bloque_pantallas34,
         "{{PANTALLAS35}}": bloque_pantallas35,
+        "{{PANTALLAS36}}": bloque_pantallas36,
         "{{LANI_REACCIONES}}": S.lani_reacciones,
         "{{ECONOMIA_MAPA}}": S.economia_mapa,
         "{{ECONOMIA}}": lambda: bloque_economia(D),
@@ -1261,7 +1279,7 @@ def main() -> int:
     env.setdefault("NODE_PATH", "/opt/node22/lib/node_modules")
 
     def imprimir():
-        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.28", "css", "oct-2026"],
+        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.29", "css", "oct-2026"],
                        check=True, env=env)
     imprimir()
     paginas = paginas_capitulos(D, SALIDA_PDF)

@@ -1296,3 +1296,30 @@
 - **Espera del fundador:** probar el APK 35; decir con qué IA generó a Lany (para docs/LEGAL.md) y, si puede, una versión grande y
   otra sin armadura; activar las cuentas anónimas en Supabase y crear el proyecto de Expo para probar Amigos, Duelos y las push con
   la base viva (docs/LANZAMIENTO.md §7).
+
+## DEC-2026-10-24-4 · Senda: la prueba 36 (En la frente, ¿Quién es?, menos texto, Lany vestida, contenido y los planes de suscripción)
+
+- **Fecha:** 2026-10-24 · **Quién:** el fundador pide «En la frente» horizontal, con pistas más directas, letra grande, más
+  personajes y un torneo con tabla y desempate; algo más breve al adivinar; menos texto («la gente hoy no lee mucho»); que los
+  personajes importantes del álbum sean más difíciles; la entrada legible; la página de Jesús como «la página central»; que nada
+  parezca escrito por una IA; más trivia, más Travesía, más personajes en «En la frente» y en «¿Quién es?» con más aleatoriedad;
+  mejorar mucho las preguntas («están re deficientes»); Lany con ropa u objetos según el contexto; el duelo al azar en lugar del duelo
+  contra Lany; evaluar planes, precios, stock de preguntas y tope de PDF; avisa que generó a Lany con Gemini y pide que le explique
+  lo de Supabase; «avanzá con esto y todos los pendientes». Claude ejecuta y decide lo técnico.
+- **Decidido / hecho:** En la frente acostado con 124 personajes y torneo (desempate de 30 segundos); ¿Quién es? con 71 personajes,
+  tablero variado y preguntas reescritas, final con el personaje y su versículo; duelo al azar (se juega primero mientras la base busca
+  rival); álbum con estrellas; Jesús «el centro» (Juan 5:39); lecciones largas con lo esencial primero y 30 frases hechas fuera; Lany
+  con túnica, pañuelo, sombrero y cuatro objetos según la lección; Oseas y «Josué y Jueces» (418 lecciones); trivia: banco 8 (788),
+  136 enunciados «Según…» y 129 preguntas que se delataban por el largo rehechos; el Espadeo recuerda lo visto; topes en la base (8
+  trivias del sermón por mes con Max, 1 de prueba sin Max, salas de 10 sin Max) y la función de la trivia del sermón más segura;
+  Gemini en los créditos; la guía de Supabase corregida (no activar el captcha). APK 36 con todo. Capítulo 62.
+- **Propuesta que decide el fundador:** tres planes: Gratis (todo el contenido; anuncios fuera de la Biblia y las lecciones), Premium
+  (sin anuncios y vidas ilimitadas; USD 2,49/mes o 17,99/año en Latinoamérica) y Max (salas de hasta 500 y 8 trivias del sermón por mes;
+  USD 5,99/mes o 44,99/año); Familia, Líder e Iglesia fuera de 2027; Max gratis dos meses a los primeros 100 líderes; meta de 1.500
+  preguntas al lanzamiento y 3.000 para Pascua. Los cobros, con la figura legal (capítulo 43 §2). Detalle: capítulo 62 §8 y
+  docs/SUSCRIPCIONES.md de la app.
+- **Reglas que quedan:** el contenido nunca se cobra (lo pago es comodidad o herramientas para el que guía); en la trivia, la correcta
+  nunca se delata por el largo y la cita no va en el enunciado; si las opciones son frases de la Biblia, todas son textuales; cada
+  costo de IA lleva tope por plan y se registra lo que gasta.
+- **Espera del fundador:** probar el APK 36; decidir la propuesta de planes y precios; activar las cuentas anónimas (sin captcha) y
+  crear el proyecto de Expo; si puede, la ilustración de Lany grande y sin armadura.

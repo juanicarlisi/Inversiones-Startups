@@ -299,6 +299,18 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - «Juntos» ya está en la app (cuenta anónima, Amigos, Duelos por turnos en el Espadeo, token push, guía de bienvenida): se prueba
     con la base viva cuando el fundador active las cuentas anónimas y cree el proyecto de Expo (DEC-2026-10-24-3; capítulo 61).
 
+- **Datos del 24-10-2026 (Senda, prueba 36):**
+  - la gente lee poco: nada de bloques largos; si un texto es largo, primero lo esencial y el resto a un toque; nada que suene a
+    escrito por una IA («no es solo X: es Y», frases hechas) en intros, explicaciones ni juegos;
+  - la trivia: la correcta nunca se delata por el largo, la cita no va en el enunciado y, si las opciones son frases de la Biblia,
+    todas son textuales; el Espadeo recuerda lo que ya viste; meta de stock: 1.500 preguntas al lanzamiento y 3.000 para Pascua;
+  - Lany cambia de ropa y de objeto según la lección; nada de «duelo contra Lany» en la trivia (el duelo es con un rival al azar);
+    en el álbum, los personajes más importantes son más difíciles; Jesús es «la página central», no «no es una figurita»;
+  - la ilustración de Lany se hizo con Gemini (anotado en los créditos y en docs/LEGAL.md);
+  - planes: la propuesta (Gratis con todo el contenido; Premium sin anuncios a USD 2,49; Max con salas en vivo y 8 trivias del sermón
+    por mes a USD 5,99) espera su decisión (DEC-2026-10-24-4; capítulo 62 §8); en Supabase, las cuentas anónimas se activan sin
+    captcha (la app no lo manda).
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
