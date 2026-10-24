@@ -289,6 +289,16 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - Biblica respondió sobre la NVI (remite a su página; licencia exprés solo para apps sin ingresos): la NVI sigue en un toque desde
     Bible.com, sin acción pendiente.
 
+- **Datos del 24-10-2026 (Senda, prueba 35):**
+  - la ilustración de Lany generada por el fundador con otra IA es «el camino»: va en la entrada (recortada, sin fondo) y lo que falta
+    es anotar el generador en `docs/LEGAL.md` y pedir una versión grande y otra sin armadura;
+  - la música de un juego nunca se corta sola: solo la apaga la persona; mientras se responde baja (45 %) y vuelve; los temas nuevos,
+    siempre libres (Kevin MacLeod, CC BY 4.0, con crédito); el motor de sonido nunca sacrifica el fondo al quedarse sin voces;
+  - el álbum de personajes sale como se aprobó: sobres solo con Talentos (el primero de cada página gratis), nunca repetidas, figurita
+    dorada con una pregunta (la correcta nunca se delata por el largo), Jesús como página central y nunca como figurita;
+  - «Juntos» ya está en la app (cuenta anónima, Amigos, Duelos por turnos en el Espadeo, token push, guía de bienvenida): se prueba
+    con la base viva cuando el fundador active las cuentas anónimas y cree el proyecto de Expo (DEC-2026-10-24-3; capítulo 61).
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**

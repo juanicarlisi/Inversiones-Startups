@@ -1277,3 +1277,22 @@
   extensiones en Supabase; marcarse administrador; Expo y Firebase; los productos de suscripción y la cuenta de servicio en Play
   Console; la clave de Anthropic para la trivia del sermón; Supabase Pro solo si la prueba cerrada lo pide.
 
+## DEC-2026-10-24-3 · Senda: la prueba 35 (la música, la ilustración de Lany, el álbum, la cuenta, amigos, duelos y la guía)
+
+- **Fecha:** 2026-10-24 · **Quién:** el fundador manda la ilustración de Lany generada con otra IA («MUY buena imagen, creo que es el
+  camino»), pide que la música de la trivia no se corte nunca (bajar mientras se responde) y más temas del estilo del predeterminado
+  («siempre que se puedan usar sin licencia ni nada»), y «avanzá con esto y todos los próximos». Claude ejecuta y decide lo técnico.
+- **Decidido / hecho:** la causa del corte era el motor de sonido (al llenarse las 36 voces apagaba la más vieja, que era el fondo):
+  el fondo ya no es víctima y baja al 45 % mientras se lee y responde; seis temas más de Kevin MacLeod (CC BY 4.0, con crédito). La
+  ilustración del fundador va en la entrada (recortada, sin fondo) y los medallones pasan al camino. El álbum de personajes como se
+  aprobó el 24-10: 9 páginas, 48 figuritas, primer sobre gratis y 40 Talentos los demás, nunca repetidas, dorada con una pregunta
+  (la correcta nunca se delata por el largo), Jesús como página central y no como figurita. «Juntos» entra a la app: cuenta anónima
+  sin SDK, Amigos, Duelos por turnos jugados en el Espadeo y corregidos por la base (migración generada con las 720 claves), token
+  push y la guía de bienvenida de Lany (15 carteles, tres idiomas). APK 35 con todo. Capítulo 61.
+- **Reglas que quedan:** la música de fondo nunca se corta sola (ni por las voces ni por el juego: solo la apaga la persona); toda
+  hoja inferior entra en la pantalla (lo que no entra se desliza adentro); en el álbum nada se compra con plata, nunca sale una
+  repetida y Jesús no es una figurita; en los duelos el servidor decide y el teléfono reintenta sin duplicar; la guía nunca tapa el
+  lector, una lección ni un juego.
+- **Espera del fundador:** probar el APK 35; decir con qué IA generó a Lany (para docs/LEGAL.md) y, si puede, una versión grande y
+  otra sin armadura; activar las cuentas anónimas en Supabase y crear el proyecto de Expo para probar Amigos, Duelos y las push con
+  la base viva (docs/LANZAMIENTO.md §7).
