@@ -1236,3 +1236,44 @@
   cualquier ítem al azar que se compre.
 - **Decisión pedida:** sí o no al álbum con ese diseño y, si es sí, para cuándo (antes del lanzamiento o con la temporada de
   Adviento). Costo: 0; unas dos o tres sesiones de trabajo.
+
+## DEC-2026-10-24-1 · Senda: la prueba 34 (la Biblia sin ruido, los textos, la trivia, la entrada, «Camino a Navidad»)
+
+- **Fecha:** 2026-10-24 · **Quién:** el fundador pide (la Biblia con «un montón de cosas arriba, re incómodo»; textos que se pisan y se
+  salen del cuadro en toda la app; silenciar la música de la trivia, volumen, que cambie cada tanto; la ruleta protagonista; una
+  entrada «mucho mejor diseñada» sin replicar Preguntados y, a mitad de la prueba, no insistir con la pose de Lany y pasarle un prompt
+  para otra IA; «lo del álbum, va»; qué es «Adviento»). Claude construye, audita y revisa.
+- **Decidido / hecho (capítulo 60):** la Biblia abre con «Hoy en tu plan» y un solo botón «Planes y versiones» (todo lo demás vive
+  ahí). Auditoría automática de textos en toda la app (scripts/auditoria/textos.cjs: 810 lecciones, 728 pantallas de trivia, todas las
+  pantallas, letra normal y grande) y medidor de diagramas con la letra real (scripts/arte/medir.py): siete diagramas corregidos, los
+  mapas con nombres que buscan un lugar libre (src/componentes/rotulos.ts), la línea de tiempo con más espacio, once pantallas; de
+  2.139 hallazgos a 0 y el generador de diagramas se niega a escribir uno con problemas. La ruleta ocupa casi todo el ancho; control de
+  música en el juego (interruptor, volumen, qué suena, «Cambiar de tema») y rotación de cuatro temas de Kevin MacLeod cada 150 s (dos
+  nuevos, CC BY 4.0). La entrada rediseñada (puerta de luz, rayos, medallones en arco, barra de carga); la pose «héroe» se sacó por
+  pedido del fundador y mientras llega la ilustración generada con otra IA (prompt en lany_prompt_entrada.md) va Lany con la armadura.
+  «Adviento» pasa a «Camino a Navidad» y la copa a «Copa de Navidad» (los ids no cambian). El álbum queda aprobado y es lo primero
+  de la prueba 35. APK 34 con todo.
+- **Reglas que quedan:** la auditoría de textos se corre antes de cada APK y un diagrama con textos que se pisan no se genera; los
+  nombres de los mapas nunca van a mano: los ubica el algoritmo; en la app nada se llama «Adviento»; las poses de Lany que el
+  fundador rechaza se sacan sin reintentar y la ilustración de la entrada viene de otra IA con la lámina de referencia; el control de
+  música es parte de la UX de cada juego (volumen de 0 a 1, 0,5 = como sonaba antes).
+
+## DEC-2026-10-24-2 · Senda: «Juntos» sale con el lanzamiento (todas las conexiones el 18-12)
+
+- **Fecha:** 2026-10-24 · **Quién:** el fundador pide que al salir la app ya funcionen las cuentas, los duelos contra un rival al azar
+  o un contacto, las copas y eventos que él crea en el calendario de todos, los grupos e iglesias con campeonatos, la encuesta diaria
+  en vivo, Senda Premium y Senda Max (salas en vivo y trivia del sermón desde un PDF) y una guía dinámica de bienvenida, «todo bien
+  mapeado» y en la línea de tiempo. Claude diseña y construye la base.
+- **Decidido / hecho:** lo que el plan tenía como «v1 Juntos» (enero de 2027) se adelanta al lanzamiento del 18-12-2026. Hecho hoy: la
+  migración 20261101000000_juntos.sql (20 tablas con RLS, 14 funciones, dos tareas programadas; validada con el analizador de
+  Postgres; se aplica sola al subirse a main), las funciones de borde «trivia-sermon» (Claude arma las preguntas con su cita; el PDF
+  no se guarda) y «compras» (verifica el recibo con Google Play), el mapa completo (docs/LANZAMIENTO.md) y el camino: prueba 35
+  (álbum, cuenta, amigos, duelos, guía), 36 (grupos, eventos, encuesta, tabla de copa, torneos), 37 (Premium, Max, salas en vivo), 38
+  (trivia del sermón, guardar la cuenta, progreso en la nube); prueba cerrada del 16 al 30-11. La línea de tiempo de la Consola
+  resume lo que sale el 18-12.
+- **Principios:** sin cuenta también se juega (cuenta anónima y automática, se guarda después); lo competitivo lo decide el servidor;
+  cada tabla con su regla de seguridad; nada pago da ventaja en lo oficial; idempotente y barato (docs/ESCALA.md).
+- **Espera del fundador (sin apuro, cada cosa antes de su prueba; docs/LANZAMIENTO.md §7):** activar las cuentas anónimas y las
+  extensiones en Supabase; marcarse administrador; Expo y Firebase; los productos de suscripción y la cuenta de servicio en Play
+  Console; la clave de Anthropic para la trivia del sermón; Supabase Pro solo si la prueba cerrada lo pide.
+

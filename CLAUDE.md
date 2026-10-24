@@ -274,6 +274,21 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - la Consola tiene la línea de tiempo «Cómo venimos y lo que viene» (`oportunidades/proyectos/senda/linea_tiempo.yaml`, se actualiza al
     cerrar cada sesión, igual que `estado.yaml`); la Pascua 2027 con un recorrido por Tierra Santa es el gran hito del año.
 
+- **Datos del 24-10-2026 (Senda, prueba 34):**
+  - lo clave de la UX no se tapa con ruido: la Biblia abre con lo de hoy y un solo botón («Planes y versiones»); en toda la app los
+    textos no se pisan ni se salen del cuadro, y se controla con la auditoría automática antes de cada APK (`scripts/auditoria/textos.cjs`,
+    `scripts/arte/medir.py`); los nombres de los mapas los ubica el algoritmo (`src/componentes/rotulos.ts`), nunca a mano;
+  - en los juegos, la música se controla desde el juego (silenciar, volumen, cambiar de tema) y rota cada tanto; la ruleta es protagonista;
+  - la ilustración de Lany para la entrada se genera con otra IA (prompt y lámina en `oportunidades/proyectos/senda/lany_prompt_entrada.md`
+    y `lany_referencia.png`): las poses que el fundador rechaza se sacan sin reintentar;
+  - el álbum de personajes está aprobado («va, desde el inicio»; primero en la prueba 35), con la ficha al conseguir cada personaje;
+  - nada en la app se llama «Adviento» (suena a adventista o a católico): «Camino a Navidad» y «Copa de Navidad»;
+  - «Juntos» sale con el lanzamiento (DEC-2026-10-24-2): cuentas anónimas, amigos, duelos, grupos, eventos del fundador en el calendario
+    de todos, encuesta diaria, copas con tabla, Premium y Max (salas en vivo y trivia del sermón); el esquema está en la base
+    (`supabase/migrations/20261101000000_juntos.sql`), el mapa en `docs/LANZAMIENTO.md` y el camino en la línea de tiempo (pruebas 35 a 38);
+  - Biblica respondió sobre la NVI (remite a su página; licencia exprés solo para apps sin ingresos): la NVI sigue en un toque desde
+    Bible.com, sin acción pendiente.
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
