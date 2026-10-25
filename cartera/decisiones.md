@@ -1350,3 +1350,22 @@
   sociedad; la cuenta de Google Play es personal (con anuncios y sin compras no muestra la dirección completa; **al prender las
   suscripciones sí**: decidir antes si se acepta, si se usa un domicilio comercial o si llega la sociedad); la RVR1960 por la DBL
   sigue esperando una organización.
+
+## DEC-2026-10-25-3 · Senda: la prueba 37 (más preguntas, grupos y eventos, Amós, Miqueas y Samuel, inglés y portugués, Expo y Firebase)
+
+- **Fecha:** 2026-10-24/25 · **Quién:** el fundador: «Subamos el stock de preguntas, siento que se va a quedar corto. Luego decidimos
+  lo de los planes, lo de Supabase y Expo y Firebase también lo veo después. Avancemos con todos los próximos mientras tanto»; a la
+  noche cambia de idea con Expo y Firebase («quiero hacerlo ahora… quiero dejarlo resuelto») y lo hace con su extensión de Claude.
+  Claude ejecuta y decide lo técnico.
+- **Decidido / hecho:** la trivia de 788 a 2.150 preguntas activas (bancos 9 a 35) con la meta contada por nivel (lanzamiento: 2.000,
+  cumplida; Pascua 2027: 4.000; reemplaza la de 1.500 y 3.000 del capítulo 62); entre «» solo la Biblia textual en las opciones;
+  grupos con roles y calendario, eventos de Senda y del grupo para todos, la encuesta del día en vivo, la tabla de la copa y los
+  torneos del grupo (puntaje recalculado en la base); Amós, Miqueas y Samuel (439 lecciones); «The Big Story» (inglés, BSB, huecos
+  que también llena la KJV); primer banco de trivia en portugués (345; una pieza se juega en el idioma con 40 o más, nunca mezclada);
+  33 textos de pantallas y las citas fijas de la semana a los tres idiomas; Expo (senda-app-ok) y Firebase (senda-fafc8) conectados y
+  la clave FCM V1 cargada con un almacén de claves de relleno (la clave real de Play nunca va a Expo); R8 con la prueba de humo en un
+  emulador. APK 37 con todo. Capítulo 63.
+- **Aprendizaje (HECHO):** el fundador ve solo el último mensaje de cada turno; lo que tenga que hacer va en el mensaje final, corto y
+  en pasos, con el archivo adjunto si lo hay.
+- **Sigue esperando al fundador:** los planes y precios (DEC-2026-10-24-4), activar las cuentas anónimas de Supabase (sin captcha), la
+  marca en el INPI (DEC-2026-10-25-1), la cuenta de Google Play antes del 15-11.

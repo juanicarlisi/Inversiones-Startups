@@ -311,6 +311,21 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     por mes a USD 5,99) espera su decisión (DEC-2026-10-24-4; capítulo 62 §8); en Supabase, las cuentas anónimas se activan sin
     captcha (la app no lo manda).
 
+- **Datos del 25-10-2026 (Senda, prueba 37):**
+  - **el fundador ve solo el último mensaje de cada turno** (lo del medio le llega plegado): todo lo que tenga que hacer va en el
+    mensaje final, corto, en pasos y con el archivo adjunto si lo hay;
+  - más preguntas: la trivia en 2.150 (meta contada por nivel: 2.000 al lanzamiento, cumplida; 4.000 para Pascua); entre «» solo la
+    Biblia también en las opciones; los planes, Supabase y lo demás «los veo después»: no se insiste, se avanza con los próximos;
+  - grupos, eventos para todos, encuesta del día, tabla de la copa y torneos ya están en la app (se prueban con la base viva);
+    Amós, Miqueas y Samuel jugables (439 lecciones); «The Big Story» en inglés (BSB; cada hueco se llena también con la KJV); la trivia
+    en portugués con su primer banco (una pieza en el idioma solo con 40 o más, nunca mezclada);
+  - Expo (senda-app-ok) y Firebase (senda-fafc8) conectados y la clave FCM V1 cargada en Expo (24-10, con la extensión de Claude del
+    fundador y un almacén de claves de relleno: la clave real de Play nunca va a Expo; la cuenta de servicio de Firebase, nunca al chat);
+  - marca: la mixta «SENDA BIBLIA Y JUEGOS» con el logo y la mixta «LANY», clases 9 y 41, a nombre del fundador (DEC-2026-10-25-1);
+    solo monotributo, sin SAS por ahora, antes del primer cobro (DEC-2026-10-25-2);
+  - ningún texto de pantalla escrito en español dentro del código: todo con su clave en los tres idiomas (se encontraron 33 y los
+    comodines); R8 solo después de pasar la prueba de humo en el emulador (`.github/workflows/humo.yml`; capítulo 63).
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
