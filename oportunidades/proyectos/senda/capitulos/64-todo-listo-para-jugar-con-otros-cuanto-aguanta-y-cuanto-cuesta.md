@@ -135,14 +135,17 @@ la base, el tráfico, las cuentas, los pedidos por segundo en la hora pico, los 
 
 - **Probado:** la prueba de la base (69 de 69, local y en GitHub); el validador («Todo en orden»: 2.214 preguntas, 451 lecciones);
   «empezar por el principio» (sin hallazgos); la prueba de arranque (6 de 6); el chequeo de tipos; la recorrida de la vista previa por
-  el grupo, el sermón y la sala en vivo (sin errores); la auditoría de textos (§7).
+  el grupo, el sermón y la sala en vivo (sin errores); la auditoría de textos de las pantallas, las 12 lecciones nuevas y las 56
+  preguntas nuevas, con letra normal y grande (154 casos: una fecha cortada en la portada de Malaquías, corregida).
 - **No probado:** todo lo social con la base viva y teléfonos reales (falta activar las cuentas); el sermón con un PDF real (falta la
   clave de Claude); las compras de Google Play (falta la cuenta de Play).
 
 ## 7. El APK 38
 
 Como siempre, **trae absolutamente todo lo anterior**. Versión 0.38.0 (código 39), con R8. Antes de compilar pasaron el validador,
-la prueba de la base, la prueba de arranque y la auditoría de textos. Lo que hay que mirar está en la Consola (pendiente «probar38»).
+la prueba de la base, la prueba de arranque, la auditoría de textos y la prueba de humo con R8 en un emulador (el selector de PDF
+es un módulo nativo nuevo). Publicado en https://github.com/juanicarlisi/senda-app/releases/tag/prueba-38 (87,1 MB, lo mismo que el 37
+aunque trae 56 preguntas y 12 lecciones más). Lo que hay que mirar está en la Consola (pendiente «probar38»).
 
 ## 8. Pendientes y decisiones
 
