@@ -326,6 +326,17 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - ningún texto de pantalla escrito en español dentro del código: todo con su clave en los tres idiomas (se encontraron 33 y los
     comodines); R8 solo después de pasar la prueba de humo en el emulador (`.github/workflows/humo.yml`; capítulo 63).
 
+- **Datos del 25-10-2026 (Senda, prueba 38):**
+  - «al descargar la app ya se pueda jugar entre personas, armar los grupos, el grupo de iglesia, cargar el PDF… todas las
+    funcionalidades OK»: lo social se prueba con cuentas de verdad contra una base igual a la de Supabase (`pruebas/nube`, en GitHub
+    antes de tocar la base real) y cada hallazgo se corrige con una migración nueva; la sala en vivo, la trivia del sermón desde el PDF
+    y regalar Max ya están (capítulo 64 §2);
+  - la línea de capacidad y costo vive en la Consola y en `scripts/economia/capacidad.py` de la app (precios fechados, consumo
+    estimado hasta medirlo con gente real; gratis hasta ~5.700 personas por mes);
+  - «Para tu vida» salió de las travesías; un texto de la RV1909 que no se entiende se lee en la PDT o la NBV, con su nombre; un visual
+    va solo si tiene que ver con la lección (lista de lecciones sin visual a propósito, controlada por el validador);
+  - la trivia suma curiosidades («¿Sabías que…?») sobre versículos que ninguna pregunta usaba.
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**

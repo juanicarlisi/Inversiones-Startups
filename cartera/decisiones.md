@@ -1369,3 +1369,26 @@
   en pasos, con el archivo adjunto si lo hay.
 - **Sigue esperando al fundador:** los planes y precios (DEC-2026-10-24-4), activar las cuentas anónimas de Supabase (sin captcha), la
   marca en el INPI (DEC-2026-10-25-1), la cuenta de Google Play antes del 15-11.
+
+## DEC-2026-10-25-4 · Senda: la prueba 38 (todo lo social listo para el lanzamiento, capacidad y costo, curiosidades, Nahúm y Malaquías)
+
+- **Fecha:** 2026-10-25 · **Quién:** el fundador: «Revisar todas las interacciones (mías con las personas… y entre las personas).
+  Dejar bien seteado», y después: «que quede todo preparado para que el día que vamos a publicar, al descargar la app ya se pueda
+  jugar entre personas, armar los grupos, armar el grupo de iglesia, cargar el PDF, etc. Todas las funcionalidades OK»; más
+  curiosidades en la trivia, «una línea» de cuántos usuarios aguanta la app y cuánto costaría crecer, sacar «Para tu vida», textos de la
+  RV1909 que no se entienden, carteles tapados y visuales que no tenían que ver. Claude ejecuta y decide lo técnico.
+- **Decidido / hecho:** prueba de la base con cuentas de verdad contra un Postgres igual al de Supabase (69 pasos, en GitHub antes de
+  tocar la base real); la sala en vivo; la trivia del sermón desde el PDF del líder con revisión y publicación; regalar Max o Premium
+  desde la cuenta del fundador (cubre a las iglesias piloto mientras las compras de Play esperan la cuenta y los precios); despliegue
+  automático de las funciones de borde; limpieza de cada noche (respuestas de más de 30 días, ya resumidas; salas; duelos de 180 días;
+  votos de 60) y la sala en vivo más liviana; el modelo de capacidad y costo (gratis hasta ~5.700 personas por mes; USD 25 a 40 hasta
+  100 mil; cada salto es configuración) en la Consola y en docs/CAPACIDAD.md de la app; 56 curiosidades (banco 36); Nahúm y
+  Malaquías (451 lecciones); «Para tu vida» fuera de todas las lecciones (el validador lo controla); los ejercicios difíciles de la
+  RV1909 se leen en la PDT o la NBV; carteles que miden su texto; 73 visuales que no correspondían, fuera, con lista controlada.
+  APK 38 con todo. Capítulo 64.
+- **Hallazgos de la prueba de la base (HECHO, corregidos):** el turno reintentado de un duelo daba «no es tu turno»; abrir una sala
+  chocaba con la seguridad de la base; la respuesta repetida en una sala devolvía otro puntaje; la limpieza de 90 días nunca se había
+  programado.
+- **Sigue esperando al fundador:** prender lo social (cuentas anónimas sin captcha, la clave de Claude, marcarse administrador, regalar
+  Max a los pilotos), los planes y precios (DEC-2026-10-24-4), la marca en el INPI (DEC-2026-10-25-1), la cuenta de Google Play
+  antes del 15-11.
