@@ -1323,3 +1323,17 @@
   costo de IA lleva tope por plan y se registra lo que gasta.
 - **Espera del fundador:** probar el APK 36; decidir la propuesta de planes y precios; activar las cuentas anónimas (sin captcha) y
   crear el proyecto de Expo; si puede, la ilustración de Lany grande y sin armadura.
+
+## DEC-2026-10-25-1 · Senda: cómo registrar la marca en el INPI (espera del fundador)
+
+- **Fecha:** 2026-10-25 · **Quién:** el fundador comparte su búsqueda en el INPI («SENDA» y «LANY», clases 9, 41 y 42) y pregunta cómo
+  seguir; avisa que ya creó la cuenta de Expo.
+- **Hechos:** clase 9, SENDA PROHIBIDA (VOD Acquisition, concedida a 2033); clase 41, LA SENDA (concedida a 2033) y una docena de
+  «Senda + algo» concedidas después; clase 42, SENDA (Velásquez, concedida el 29-09-2026, software científico); para Lany, PLANY (9 y
+  42). Detalle y fuentes: `conocimiento/2026-10-25-senda-inpi-marca.md`.
+- **Recomendación (decide el fundador):** no pedir «SENDA» sola; pedir la mixta «SENDA BIBLIA Y JUEGOS» con el logo y la mixta «LANY»
+  con el dibujo, en las clases 9 y 41 (≈ ARS 165.000 las cuatro; tasa a confirmar en el portal); a nombre de la SAS si se arma en
+  noviembre, o a su nombre antes del 18-12 si no; antes de pagar, ver la ficha de LA SENDA y una consulta corta con un agente.
+  Guía lista: `docs/legal/marca_inpi.md` (app).
+- **Expo:** paso a paso en `docs/EXPO_FIREBASE.md` (app): el ID del proyecto y el google-services.json van al chat; la clave de la
+  cuenta de servicio de Firebase va solo a Expo.
