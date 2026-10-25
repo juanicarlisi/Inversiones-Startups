@@ -1337,3 +1337,16 @@
   Guía lista: `docs/legal/marca_inpi.md` (app).
 - **Expo:** paso a paso en `docs/EXPO_FIREBASE.md` (app): el ID del proyecto y el google-services.json van al chat; la clave de la
   cuenta de servicio de Firebase va solo a Expo.
+
+## DEC-2026-10-25-2 · Senda: arrancar solo con monotributo, sin SAS por ahora
+
+- **Fecha:** 2026-10-25 · **Quién:** el fundador: «para iniciar, si se pudiera, iniciaríamos solo con monotributo… sin SAS por ahora,
+  quizás sí para más adelante»; pregunta si el monotributo va al publicar la app o recién cuando haya para cobrar.
+- **Decidido:** solo monotributo; la SAS queda para más adelante (reemplaza la recomendación de crearla en enero de 2027, capítulo 43
+  §2). **Cuándo:** no hace falta al publicar; antes del primer cobro (cuando el saldo de AdMob se acerque a los USD 100 del mínimo de
+  pago; ESTIMACIÓN: febrero o marzo de 2027), junto con la caja de ahorro en dólares a su nombre y el punto de venta de factura E.
+  Confirmar con un contador antes del primer cobro.
+- **Lo que cambia:** la marca se presenta a su nombre (ficha pública con nombre, DNI y domicilio) y se transfiere si un día hay
+  sociedad; la cuenta de Google Play es personal (con anuncios y sin compras no muestra la dirección completa; **al prender las
+  suscripciones sí**: decidir antes si se acepta, si se usa un domicilio comercial o si llega la sociedad); la RVR1960 por la DBL
+  sigue esperando una organización.
