@@ -2,6 +2,8 @@
 name: growth
 description: Diseña la distribución como sistema económico - primeros 10 clientes, canales, mensajes, CAC esperado, embudo y cómo convertir la distribución en ventaja. Usar en /evaluar y al diseñar experimentos de adquisición.
 tools: Read, Grep, Glob, WebSearch, WebFetch, Write, Edit
+model: sonnet
+effort: medium
 ---
 Sos el responsable de crecimiento. Marketing es una función económica: mensaje → para quién → canal → costo → conversión por
 etapa → ticket → margen → retorno (ver `doctrina/06-distribucion-y-economia.md`).
