@@ -1,0 +1,77 @@
+# Capítulo 66 — Lany nativo de Rive, que agarra de verdad, y el director de Lany (prueba 40, 30-10-2026)
+
+## 1. Lo que pidió el fundador
+
+- **Lany, un personaje animado de primer nivel**, como el búho de Duolingo o mejor: que se mueva sin parecer un muñeco articulado,
+  cambie de postura y expresión, agarre los objetos de verdad (escudo, espada, casco), levante cosas con el cuerpo acompañando el peso,
+  que los accesorios no parezcan pegatinas y que se puedan crear animaciones nuevas sin reconstruirlo. Una pose de presentación
+  (brazos cruzados, como un jugador con la camiseta) y su variante heroica con escudo y espada. Un sistema central para pedirle cosas
+  desde cualquier pantalla.
+- **Con la herramienta oficial de Rive** (corrección del fundador a mitad de la sesión): Rive CLI (`rive.app/agents`), RML como fuente,
+  `rive . --verify`, nada de generar el `.riv` con un escritor propio ni de simular resortes o restricciones con código propio.
+- Los créditos de la API (USD 200, vencen el 22-11): «lo que sea que sirva para Senda, adelante».
+- CLAUDE.md con el estándar más alto de ingeniería; textos que no suenen a IA; láminas libres para la trivia; más trivia y más
+  contenido.
+
+## 2. Rive CLI y por qué el primer archivo no cargaba
+
+- **HECHO (30-10-2026):** Rive CLI existe y es oficial; se instaló en el entorno (versión 1.8.0, más `libegl1` y `libgles2`).
+- **Causa:** el escritor propio del binario reutilizaba las mismas pinturas en dos formas (los dedos nuevos): un objeto con dos padres,
+  y el motor de Rive rechaza el archivo entero. Falló el generador propio; no el visor oficial, ni el editor, ni el runtime de SENDA.
+- **Ahora:** `scripts/rive/rml.py` escribe la fuente en RML (`rive/lany/lany.rml`) y el `.riv` sale del compilador oficial
+  (`rive rive/lany --verify` y `--once`: 0 errores, 0 advertencias). El orden de dibujo sigue la regla de RML (el primer hijo va
+  adelante).
+
+## 3. El rig nativo
+
+- Brazos y piernas: **huesos de Rive** (`RootBone`/`Bone`) y un solo contorno con **skin y pesos** que se dobla en el codo y la
+  rodilla (sin el círculo de articulación de antes). **IK de Rive** con controles para manos y pies (`controlManoD`, `controlPieI`…):
+  las animaciones mueven el control y Rive resuelve hombro y codo, o cadera y rodilla, en vivo. La mano copia el giro del control con una
+  restricción de rotación.
+- Objetos: **restricciones de transformación y de traslación de Rive** con fuerza animada: con 0 el objeto está en el mundo (baja con
+  luz), con 1 lo lleva la mano. Los dedos que cierran por delante del mango son una pieza atada a la mano y dibujada encima del objeto.
+- Las 128 animaciones anteriores siguen andando sobre los huesos.
+
+## 4. Las actuaciones nuevas (revisadas cuadro a cuadro con capturas del renderizador oficial)
+
+- **Presentación**: carga el peso en una pierna, abre un paso (rodillas que flexionan y pie plantado por IK), saca pecho, cruza los
+  brazos uno después del otro, mentón arriba, guiño; termina en «brazos cruzados» (bucle vivo).
+- **Espada**: baja con luz, gira hacia ella, estira la mano abierta, la cierra sobre el mango, la hoja se mece con el peso, toma
+  impulso y la levanta al cielo en un arco hacia afuera; queda en la mano.
+- **Escudo**: llega mostrando la manija de cuero, la agarra, siente el peso, lo da vuelta en el aire, guardia y toc toc con los nudillos.
+- **Casco**: las dos manos se atan a las asas, lo levanta, inclina la cabeza para recibirlo, se lo pone, lo acomoda, la cabeza cede con
+  el peso y guiño.
+- **Heroica**: se agacha, abre la postura, espada al cielo con el escudo al pecho, baja a la guardia; queda en «heroe» (bucle).
+- Pendientes de la misma calidad: coraza, cinturón y botas (todavía con su llegada anterior) y el resto del repertorio pedido (curiosidad,
+  risa, salto con rodillas, decepción, confusión, tropiezo, caída, despertar, conversar) sobre el rig nuevo.
+
+## 5. El director de Lany
+
+`src/lany/director.ts`: las pantallas piden eventos con sentido (`emitir("victoria")`, `"bienvenida"`, `"armarse"`…) y el director
+decide la reacción del repertorio con prioridad (lo importante interrumpe a lo chico), enfriamiento, variedad (nunca la misma dos
+veces) y canales (cada Lany escucha el suyo). En la bienvenida Lany se presenta; en el festejo de pieza, escudo, espada y casco los trae
+Lany; con la armadura completa, la presentación heroica. Pruebas: `pruebas/arranque/datos.test.tsx`.
+
+## 6. Trivia, librerías y estándar
+
+- **28 preguntas «¿qué historia muestra la imagen?»** con los grabados de Gustave Doré para la Biblia (1866, dominio público;
+  digitalización de Project Gutenberg): nunca escenas con Jesús, desnudos ni escenas sangrientas, ni libros fuera de la Biblia protestante.
+  Banco 38; la trivia en **2.274 preguntas**. Wikimedia Commons limitó las consultas desde el entorno: se usó Gutenberg.
+- **expo-image** (láminas con caché y fundido) y **zod** (lo que llega del servidor se valida fila por fila y nunca rompe Inicio).
+- **CLAUDE.md de la app**: reglas 16 (el estándar más alto, sin atajos), 17 (Lany como Duolingo o mejor, Rive nativo con Rive CLI,
+  director) y 18 (textos que no suenan a IA).
+
+## 7. Los créditos de la API
+
+Aprobados. Flujo «Lotes de Claude» en GitHub Actions (`scripts/lotes/claude_lotes.py`): traducción de la trivia al portugués y al
+inglés y segunda revisión de cada pregunta contra la RV1909, con Claude Opus 5.5 en la API de lotes (mitad de precio). ESTIMACIÓN:
+~USD 35 la traducción y ~USD 20 la revisión. Todo vuelve como borrador a la rama «lotes» y pasa por el validador antes de entrar.
+**Falta la clave**: el fundador la crea en la consola y la carga en GitHub como `ANTHROPIC_API_KEY` (nunca en el chat).
+
+## 8. Próximos (en orden)
+
+1. Si el fundador carga la clave: lanzar los lotes (traducción pt y en, revisión) y revisar los borradores pregunta por pregunta.
+2. Coraza, cinturón y botas con agarre de verdad; la secuencia «armarse» entera fluida; el repertorio nuevo (§4) sobre el rig.
+3. Orejas y cola del pañuelo con huesos y skin (que se doblen) y la lana del torso con malla.
+4. Más trivia: curiosidades, fáciles, difíciles y atrapantes (meta de Pascua: 4.000), y más láminas de dominio público.
+5. Integrar el director en Jugar, la lección y los estados vacíos y de error.

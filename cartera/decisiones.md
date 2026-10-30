@@ -1425,3 +1425,27 @@
   3) la trivia del sermón con 5 a 10 sermones reales; 4) lo que sobre, preguntas hacia la meta de Pascua. Control: tope de gasto en la
   consola, «Usage» cada lunes, y el tamaño de cada lote en tokens antes de mandarlo (el precio, en la consola, no de memoria).
 - **Estado:** espera el «OK créditos» del fundador antes del 15-11 (pendiente «creditos_anthropic»).
+- **Actualización 30-10-2026 (prueba 40):** **aprobado** por el fundador («lo que sea que sirva para Senda, adelante»; los créditos se
+  aplican a Agent SDK, API, API de lotes, Playground y Agentes administrados). Se armó el flujo «Lotes de Claude» en la app
+  (`scripts/lotes/claude_lotes.py`, `.github/workflows/lotes.yml`): traducción de la trivia al portugués y al inglés y una segunda
+  revisión de cada pregunta contra la RV1909, con Claude Opus 5.5 en la API de lotes. Precio de lista consultado el 30-10-2026:
+  USD 4 / 20 por millón de tokens de entrada / salida, la mitad en lotes. ESTIMACIÓN: unos USD 35 para traducir ~4.200 preguntas
+  (los dos idiomas) y unos USD 20 para revisar las 2.274; el resto, para rutas de la Travesía. Todo vuelve como borrador y pasa por
+  el validador antes de entrar. Falta solo que el fundador cargue la clave en GitHub (pendiente «clave_api_lotes»).
+
+
+## DEC-2026-10-30-3 · Senda: la prueba 40 (Lany nativo de Rive con la herramienta oficial, agarre de verdad, director de Lany)
+
+- **Fecha:** 2026-10-30 · **Quién:** pedido del fundador; ejecutado por Claude.
+- **Decisión:** Lany se construye en **Rive nativo con la herramienta oficial** (Rive CLI 1.8.0, `rive.app/agents`): la fuente es RML
+  (`rive/lany/` en la app) y el `.riv` lo compila el compilador oficial (`rive --verify`, `rive --once`). Se dejó el escritor propio del
+  binario. Rig nativo: huesos (`RootBone`/`Bone`), mallas con skin y pesos que se doblan en codo y rodilla, IK de Rive con controles,
+  restricciones de Rive para lo que se agarra. Las pantallas le hablan a Lany por un **director** con eventos (prioridad, enfriamiento,
+  variedad, canales).
+- **Por qué no cargaba el archivo de la primera versión:** el escritor propio reutilizaba las mismas pinturas en dos formas (un objeto
+  con dos padres) y el motor de Rive rechazaba el archivo entero. El fallo era del generador, no del visor oficial, ni del editor, ni
+  del runtime de SENDA. Con el compilador oficial ese error no puede volver.
+- **Hecho:** compila sin errores ni advertencias; verificado con capturas del renderizador oficial, el runtime web de la app (festejo
+  de pieza) y la prueba de humo en el emulador de Android (APK 40).
+- **Regla de corte:** si en el teléfono un objeto flota o un brazo se dobla mal, se corrige la escena en `scripts/rive/actuaciones.py`
+  y se revisa cuadro a cuadro antes de la próxima APK.

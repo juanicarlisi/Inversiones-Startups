@@ -351,6 +351,16 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - USD 200 de créditos de Anthropic que vencen el 22-11: la propuesta de uso espera su OK (DEC-2026-10-30-2; capítulo 65 §7);
   - la base solo deja escribir del perfil lo que le toca a cada uno (nadie se marca admin): el APK 38 ya no crea perfiles, va el 39.
 
+- **Datos del 30-10-2026 (Senda, prueba 40):**
+  - Lany se hace en **Rive nativo con la herramienta oficial** (Rive CLI, `rive.app/agents`): la fuente es RML (`rive/lany/` en la app)
+    y el `.riv` lo compila `rive --verify` / `--once`; nada de escritores propios del binario ni de resortes o IK calculados afuera;
+  - el estándar es el búho de Duolingo o mejor: huesos, mallas con skin, IK y restricciones de Rive; las manos agarran de verdad
+    (espada, escudo y casco ya; coraza, cinturón y botas, próximos); presentación con brazos cruzados y pose heroica; las pantallas le
+    hablan a Lany por el director (`src/lany/director.ts`);
+  - los créditos de la API (USD 200, vencen el 22-11) están aprobados: flujo «Lotes de Claude» listo; falta que el fundador cargue la
+    clave en GitHub (`ANTHROPIC_API_KEY`); todo lo que vuelve es borrador y pasa por el validador;
+  - la trivia usa láminas de dominio público (Doré, 1866) sin escenas con Jesús; textos que no suenan a IA (regla 18 de la app).
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
