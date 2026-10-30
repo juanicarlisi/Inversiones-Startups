@@ -59,7 +59,7 @@ Lany; con la armadura completa, la presentación heroica. Pruebas: `pruebas/arra
 
 - **28 preguntas «¿qué historia muestra la imagen?»** con los grabados de Gustave Doré para la Biblia (1866, dominio público;
   digitalización de Project Gutenberg): nunca escenas con Jesús, desnudos ni escenas sangrientas, ni libros fuera de la Biblia protestante.
-  Banco 38; la trivia en **2.274 preguntas**. Wikimedia Commons limitó las consultas desde el entorno: se usó Gutenberg.
+  Banco 38. Después, el banco 39: 16 preguntas fáciles, difíciles y curiosidades (Génesis 1, el mar Rojo, Jericó, David antes de Goliat, Nehemías 8, Saulo en Damasco, la pesca de Juan 21) sobre versículos que ninguna pregunta usaba; la trivia en **2.290 preguntas**. Wikimedia Commons limitó las consultas desde el entorno: se usó Gutenberg.
 - **expo-image** (láminas con caché y fundido) y **zod** (lo que llega del servidor se valida fila por fila y nunca rompe Inicio).
 - **CLAUDE.md de la app**: reglas 16 (el estándar más alto, sin atajos), 17 (Lany como Duolingo o mejor, Rive nativo con Rive CLI,
   director) y 18 (textos que no suenan a IA).
