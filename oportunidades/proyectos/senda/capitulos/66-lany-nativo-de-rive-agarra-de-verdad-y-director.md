@@ -88,10 +88,17 @@ de la organización en USD 200 por mes; la clave nunca pasó por el chat).
   afirmaban de más. Las traducciones de esas 84 se volvieron a pedir y entraron: 2.204 preguntas en portugués y 2.199 en inglés. El resto eran exigencias de más del revisor (el pasaje entero
   se abre al responder).
 
+**La Travesía en portugués y en inglés (30-10-2026, a pedido del fundador: «continuá usando los créditos para lo que se pueda»):**
+`scripts/lotes/rutas.py` manda un pedido por lección (con los pasajes en la Bíblia Livre o la BSB y, para los huecos, en la Almeida o
+la King James) y uno por cabecera de ruta; `incorporar.py ruta` publica una ruta solo entera y sin errores del validador. Las 22 rutas
+(458 lecciones) quedaron en los tres idiomas: 30 de 42 a la primera, 11 en la primera vuelta de corrección y la última en la segunda.
+El validador tenía un falso positivo («montanha» parecía «montanismo»): corregido. HECHO (log): 6,5 millones de tokens de entrada y
+2,6 de salida en el lote grande, **~USD 39** (ESTIMACIÓN, sin descontar la caché); con el piloto y las correcciones, ~USD 42. En total
+van ~USD 90 de los 200. Después se lanzó una segunda lectura de las 458 lecciones en español contra la RV1909 (~USD 25 estimados).
+
 ## 8. Próximos (en orden)
 
-1. Con los ~USD 150 que quedan (vencen el 22-11): traducir las rutas de la Travesía al portugués y al inglés por lotes (el motor y el
-   validador de rutas traducidas ya existen) y una segunda revisión de las lecciones contra el texto.
+1. Revisar lo que devuelva la segunda lectura de las 458 lecciones contra la RV1909 (lanzada el 30-10) y corregir a mano lo real.
 2. La secuencia «armarse» entera fluida (hoy el director encadena casco → escudo → espada → heroica); el repertorio nuevo (§4) sobre el rig.
 3. Orejas y cola del pañuelo con huesos y skin (que se doblen) y la lana del torso con malla.
 4. Más trivia: curiosidades, fáciles, difíciles y atrapantes (meta de Pascua: 4.000), y más láminas de dominio público.

@@ -361,8 +361,9 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     clave en GitHub (`ANTHROPIC_API_KEY`); todo lo que vuelve es borrador y pasa por el validador;
   - la trivia usa láminas de dominio público (Doré, 1866) sin escenas con Jesús; textos que no suenan a IA (regla 18 de la app);
   - la clave de la API la cargó el fundador con Claude en Chrome (límite de USD 200 por mes); los lotes tradujeron la trivia entera al
-    portugués y al inglés y la revisaron contra la RV1909 (~USD 48); lo que vuelve de un lote entra solo si pasa el validador y una
-    lectura de Claude; las sesiones de Claude Code en la nube usan el plan Pro, no los créditos.
+    portugués y al inglés y la revisaron contra la RV1909 (~USD 48); después, la Travesía entera (22 rutas, 458 lecciones) en los dos
+    idiomas (~USD 42); lo que vuelve de un lote entra solo si pasa el validador y una lectura de Claude (una ruta, solo entera); las
+    sesiones de Claude Code en la nube usan el plan Pro, no los créditos.
 
 ## 2. Reglas no negociables
 
