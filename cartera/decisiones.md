@@ -788,3 +788,18 @@
   - crear los repositorios propios de los juegos y de Andén cuando quiera (por ahora viven en `apps/`).
 - **Revisar:** diciembre de 2026 (¿5x alcanza en el lanzamiento de Senda?; Hub Nocturno en prueba), febrero de 2027 (¿Hub Nocturno
   pasa a lanzamiento completo?).
+
+
+## DEC-2026-10-30-4 · Metodología global: herramientas especializadas primero
+
+- **Fecha:** 2026-10-30 · **Quién:** pedido del fundador; ejecutado por Claude.
+- **Decisión:** en todos los proyectos del holding, no reinventar con código propio lo que una herramienta especializada puede hacer
+  mejor. Investigar el ecosistema, verificar en fuente oficial, elegir una, integrarla de verdad, comprobar y registrar. Detalle en
+  `doctrina/09-herramientas-especializadas.md`; regla 10 de `CLAUDE.md`; skill `/herramientas`; subagente `investigador-tecnologico`.
+- **Por qué:** el caso Lany (escritor propio del binario de Rive vs. Rive CLI oficial, DEC-2026-10-30-3) mostró que se estaba
+  programando a mano algo que ya existía; la calidad del resultado final importa más que la cantidad de código propio.
+- **Alcance técnico (HECHO, verificado en la sesión):** una sesión cloud arranca en un contenedor nuevo; la carpeta `~/.claude/` del
+  usuario no se guarda entre sesiones. Lo que viaja de una sesión a otra es lo que está **committeado en cada repositorio**
+  (`CLAUDE.md`, `.claude/skills/`, `.claude/agents/`). Por eso la metodología se replica en el `CLAUDE.md` y `.claude/` de cada repo.
+- **Regla de corte:** si en 3 meses no hay al menos un caso donde la herramienta elegida mejoró el resultado frente al código propio,
+  revisar si la regla está agregando fricción sin valor.
