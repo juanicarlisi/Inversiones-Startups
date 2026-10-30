@@ -85,7 +85,7 @@ de la organización en USD 200 por mes; la clave nunca pasó por el chat).
   Filipenses termina con la misma frase que Apocalipsis; Jesús también se apareció a los doce; «ochenta» es «más de cuarenta»),
   enunciados ambiguos (a los siete los eligió la multitud, no los apóstoles; «mayormente» es «sobre todo»; una cita que delataba la
   respuesta), palabras que la RV1909 dice distinto («más conjunto», «la sana lengua», el valle «del Alcornoque») y tres datos que
-  afirmaban de más. Las traducciones de esas 84 se volvieron a pedir. El resto eran exigencias de más del revisor (el pasaje entero
+  afirmaban de más. Las traducciones de esas 84 se volvieron a pedir y entraron: 2.204 preguntas en portugués y 2.199 en inglés. El resto eran exigencias de más del revisor (el pasaje entero
   se abre al responder).
 
 ## 8. Próximos (en orden)
