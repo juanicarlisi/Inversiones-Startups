@@ -112,7 +112,7 @@ podía marcarse administrador desde su teléfono (§8). **APK 39**, con todo (§
   las que no se confunden con otra historia; en la de José, todas las opciones son momentos de su vida) y **15 edificantes** (lo que
   el versículo enseña de Dios y de la vida con él). Todas sobre versículos que ninguna pregunta usaba; la app las anuncia («Mira la
   imagen»).
-- **La frase** «Acá no se trata de ganar: se trata de conocer y recordar la Palabra», corta, en la portada del Espadeo.
+- **La frase** «Aquí no se trata de ganar: se trata de conocer y recordar la Palabra», corta, en la portada del Espadeo.
 - **El lema de la entrada**: «Conoce la Palabra» pasó a **«La Palabra ilumina tu senda»** (el nombre de la app y Salmo 119:105, que es
   la lámpara del pañuelo de Lany), con **«by Nueva Generación»** debajo.
 
