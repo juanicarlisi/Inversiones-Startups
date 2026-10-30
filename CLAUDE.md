@@ -381,12 +381,22 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
 8. **Acciones con dinero o con terceros requieren aprobación explícita del fundador**: gastar, contratar, publicar anuncios,
    enviar mensajes o emails a terceros, firmar, invertir. Claude prepara todo "listo para apretar el botón"; el fundador aprueba.
 9. **No es asesoramiento financiero regulado.** Las tesis de inversión son análisis para decisión propia del fundador.
+10. **Herramientas especializadas primero (30-10-2026, `doctrina/09-herramientas-especializadas.md`, DEC-2026-10-30-4).** No reinventar
+    con código propio lo que una herramienta especializada hace mejor. Ante una tarea de cierta complejidad, antes de programar:
+    barrer el ecosistema (apps profesionales, motores, CLI oficiales, SDK, APIs, MCP, plugins, servicios, IA; no solo paquetes),
+    **verificar en fuente oficial** que existe y sirve (nunca afirmar «no existe» sin comprobarlo; el caso Rive CLI es el ejemplo),
+    **elegir una y ejecutar** (no presentar diez opciones), instalarla e integrarla de verdad, comprobar el resultado visual y
+    técnicamente, y registrar la elección en una línea (herramienta, versión, fuente, licencia, por qué, regla de corte).
+    Autonomía total para lo gratuito/open source/CLI/SDK/MCP; consultar al fundador solo por decisión comercial o económica, riesgo
+    de seguridad o privacidad, credenciales que faltan o una intervención manual indispensable. Para tareas complejas, usar
+    `investigador-tecnologico` + `Plan` + `constructor` + un revisor independiente en paralelo (skill `/herramientas`). Aplica también
+    a auditar lo ya construido, sin reemplazar nada hasta validar que lo nuevo es superior.
 
 ## 3. Mapa del repositorio
 
 | Carpeta | Qué contiene | Cuándo se actualiza |
 |---|---|---|
-| `doctrina/` | Principios, marco de evaluación, estándares de evidencia, asignación de capital, lentes de descubrimiento, palanca IA, riesgo, formas de pensar del holding (08) | Rara vez; cambios = decisión registrada |
+| `doctrina/` | Principios, marco de evaluación, estándares de evidencia, asignación de capital, lentes de descubrimiento, palanca IA, riesgo, formas de pensar del holding (08), herramientas especializadas primero (09) | Rara vez; cambios = decisión registrada |
 | `perfil/` | Perfil del fundador: capacidades, restricciones, preguntas abiertas | Cuando el fundador aporta datos |
 | `radar/` | Contexto macro fechado, señales, mapa regulatorio, disparadores de vigilancia, fuentes | Semanal (`/radar`) |
 | `oportunidades/` | Una ficha por oportunidad (`OP-XX-*.md`) con frontmatter YAML; `catalogo.yaml` = todas las alternativas con números (genera `CATALOGO.md` con `herramientas/catalogo.py`); `proyectos.yaml` = definición completa de los proyectos sobrevivientes (nombres, alcance, gantt a 2030, caso de negocio); `descartadas.md` = cementerio con razones | Continuo |
@@ -414,6 +424,7 @@ Cada rol existe porque aporta una capacidad distinta, no por moda. Se invocan co
 | `analista-inversiones` | Acciones, bonos, real estate, tesorería | ¿Hay un uso mejor para este mismo dólar? |
 | `constructor` | Convertir tesis validadas en producto/operación (código, automatizaciones, landing, agentes) | ¿Cuál es la versión mínima que genera aprendizaje o caja? |
 | `asignador` | Comité de inversión: compara todo contra todo | ¿Qué se acelera, qué espera, qué muere? |
+| `investigador-tecnologico` | Descubre y verifica herramientas especializadas en fuentes oficiales y elige una | ¿Existe una herramienta que haga esto mejor que código propio? |
 
 ## 5. Rutinas (skills en `.claude/skills/`)
 
@@ -428,6 +439,7 @@ Cada rol existe porque aporta una capacidad distinta, no por moda. Se invocan co
 | `/revision` | Revisión mensual: libro de capital, métricas, aprendizajes, tablero | Mensual |
 | `/tesis-inversion <activo>` | Tesis de inversión estructurada (activos financieros o reales) | A demanda |
 | `/informe` | Regenera el informe PDF con el estado actual | Trimestral |
+| `/herramientas <tarea o auditar>` | Descubre, verifica, elige, instala e integra la herramienta especializada; o audita código propio reemplazable | Antes de construir algo complejo; auditoría trimestral |
 
 ## 6. Convenciones
 
