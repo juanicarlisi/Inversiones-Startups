@@ -42,8 +42,11 @@
 - **Casco**: las dos manos se atan a las asas, lo levanta, inclina la cabeza para recibirlo, se lo pone, lo acomoda, la cabeza cede con
   el peso y guiño.
 - **Heroica**: se agacha, abre la postura, espada al cielo con el escudo al pecho, baja a la guardia; queda en «heroe» (bucle).
-- Pendientes de la misma calidad: coraza, cinturón y botas (todavía con su llegada anterior) y el resto del repertorio pedido (curiosidad,
-  risa, salto con rodillas, decepción, confusión, tropiezo, caída, despertar, conversar) sobre el rig nuevo.
+- **Coraza**: dos manos a las asas, al pecho (el pecho cede y se infla), toc toc con los nudillos en la gema. **Cinturón**: lo toma de las
+  puntas, lo lleva a la cintura, cierra la hebilla al frente y lo ajusta. **Botas**: se agacha, salta, las botas caen debajo y aterriza
+  adentro (polvo), pisa fuerte. Las seis piezas las trae Lany con las manos en el festejo de pieza (la de la vitrina ya no vuela).
+- Pendiente de la misma calidad: el resto del repertorio pedido (curiosidad, risa, salto, decepción, confusión, tropiezo, caída,
+  despertar, conversar) sobre el rig nuevo.
 
 ## 5. El director de Lany
 
@@ -71,7 +74,7 @@ inglés y segunda revisión de cada pregunta contra la RV1909, con Claude Opus 5
 ## 8. Próximos (en orden)
 
 1. Si el fundador carga la clave: lanzar los lotes (traducción pt y en, revisión) y revisar los borradores pregunta por pregunta.
-2. Coraza, cinturón y botas con agarre de verdad; la secuencia «armarse» entera fluida; el repertorio nuevo (§4) sobre el rig.
+2. La secuencia «armarse» entera fluida (hoy el director encadena casco → escudo → espada → heroica); el repertorio nuevo (§4) sobre el rig.
 3. Orejas y cola del pañuelo con huesos y skin (que se doblen) y la lana del torso con malla.
 4. Más trivia: curiosidades, fáciles, difíciles y atrapantes (meta de Pascua: 4.000), y más láminas de dominio público.
 5. Integrar el director en Jugar, la lección y los estados vacíos y de error.
