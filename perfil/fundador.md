@@ -134,6 +134,7 @@
 | Pedido | Avanzar con todo lo que se pueda del holding | Se adelantaron Andén (calculadoras v0) y Carpincho Games (Hub Nocturno) (DEC-2026-10-17-2) |
 | Hub Nocturno | No lo va a jugar él: Claude evalúa la experiencia e itera hasta el mejor producto del mercado | Pruebas de juego con agentes (novato, diseñador, portal, arte) y un jugador automático; Claude decide y registra |
 | Andén | Quiere el simulador logístico más espectacular, profundo, realista y avanzado que exista, por encima de FlexSim, en 2D y 3D | Andén pasa de «calculadoras + simulador acotado» a simulador de categoría propia (DEC-2026-10-17-3) |
+| Tecnología (30-10-2026) | Usar siempre la mejor herramienta profesional disponible (3D, física, mapas, ruteo, SimPy, dashboards, MCP, CLI), sin limitarse a lo instalado ni al código propio; autonomía total para elegir e integrar; sin listas ni preguntas; no reiniciar lo que funciona; 3D extraordinario; nada simplificado; cuidar los tokens sin bajar calidad | Regla 10 y directriz de Andén y Hub en CLAUDE.md, `doctrina/09-herramientas-especializadas.md` (DEC-2026-10-30-4 y -5) |
 
 ## Lo que falta (y por qué importa)
 

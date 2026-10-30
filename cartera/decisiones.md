@@ -803,3 +803,20 @@
   (`CLAUDE.md`, `.claude/skills/`, `.claude/agents/`). Por eso la metodología se replica en el `CLAUDE.md` y `.claude/` de cada repo.
 - **Regla de corte:** si en 3 meses no hay al menos un caso donde la herramienta elegida mejoró el resultado frente al código propio,
   revisar si la regla está agregando fricción sin valor.
+## DEC-2026-10-30-5 · Andén y Hub: directriz técnica permanente («la mejor herramienta para cada necesidad»)
+
+- **Contexto:** el fundador pidió el 30-10-2026 (resumen, sin citas textuales) que Andén y Hub Nocturno aprovechen lo mejor del
+  ecosistema (motores 3D, simuladores, física, cartografía, animación, APIs, SDK, CLI, MCP) en lugar de resolver todo con código
+  propio; autonomía para elegir e integrar; no detener ni reiniciar lo que viene funcionando; 3D extraordinario y aspecto profesional;
+  algoritmos de ruteo avanzados (genéticos, Dijkstra), eventos discretos con SimPy y dashboards de alto rendimiento; evaluar
+  React + Deck.gl, Three.js y Streamlit + SimPy; nada simplificado; y optimizar el consumo de tokens sin perder calidad.
+- **Decidido:**
+  - aplica a Andén y Hub la metodología general de DEC-2026-10-30-4 (regla 10, `doctrina/09-herramientas-especializadas.md`) con su
+    radar técnico propio, con versiones, licencias y pruebas reales: `oportunidades/proyectos/anden/radar-tecnico.md`;
+  - instaladas y fijadas en `requirements-sim.txt`: SimPy 4.1.2, OR-Tools 9.15, PyVRP 0.14.1, NetworkX 3.7, SciPy 1.18.1, OSMnx 2.1.1;
+  - el motor de eventos discretos de Andén (TypeScript determinista, 85 de 85 pruebas contra teoría) se mantiene: SimPy entra como
+    oráculo independiente para validarlo; cualquier reemplazo exige una prueba comparativa;
+  - el cierre del corte 1 sigue sin reiniciarse; el corte 2 incorpora lo que el radar demuestre (3D del CD, ruteo en calle y live
+    tracking) y Hub Nocturno evalúa su motor de render con el mismo criterio.
+- **Pendiente del fundador:** autorizar un gancho de inicio de sesión que instale las librerías en cada sesión de la nube (el entorno
+  bloquea que Claude cambie su propia configuración); mientras tanto, Claude las instala al empezar.

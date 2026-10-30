@@ -101,6 +101,22 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - Hub Nocturno no lo prueba él: Claude evalúa la experiencia con pruebas de juego e itera hasta el mejor producto del mercado;
   - **Andén al máximo nivel concebible:** el simulador logístico más profundo, realista y avanzado (2D y 3D), por encima de FlexSim;
     nada de MVP superficial (DEC-2026-10-17-3).
+- **Directriz técnica permanente de Andén y Hub (30-10-2026, DEC-2026-10-30-5; aplica la regla 10 y `doctrina/09-herramientas-especializadas.md`; radar técnico en `oportunidades/proyectos/anden/radar-tecnico.md`):**
+  - para cada necesidad, la mejor herramienta profesional del ecosistema (motores 3D, simuladores, física, cartografía y
+    geoespacial, animación, APIs, SDK, CLI, MCP), no solo lo que ya se usa ni código propio: antes de construir algo complejo desde
+    cero, verificar en la documentación oficial si existe algo especializado que dé más calidad, rendimiento o escala; Claude elige,
+    instala, integra y comprueba con autonomía, sin listas de alternativas ni preguntas al fundador;
+  - no se detiene ni se reinicia lo que ya funciona: se reemplaza un componente solo con una prueba comparativa que demuestre que
+    la alternativa es superior;
+  - áreas: simulación logística (CD, ruteo en calle, live tracking), mapas y grandes volúmenes de recorridos, 3D y animación (tiene
+    que ser extraordinario, de aspecto profesional, nunca «hecho con IA»), motores y física, líneas de tiempo, dashboards,
+    automatizaciones;
+  - nada de simplificar: máxima potencia y robustez; algoritmos de optimización de rutas de primer nivel (VRP con OR-Tools y PyVRP,
+    Dijkstra/A* sobre OpenStreetMap), eventos discretos validados (el motor de Andén, con SimPy como oráculo independiente);
+  - el navegador primero; un servidor o una función en el borde solo si multiplica la calidad, con costo medido y sin publicar ni
+    gastar sin OK (regla 8); librerías con licencia permisiva y versión fija (`requirements-sim.txt`, `package.json`);
+  - economía de tokens sin bajar calidad: modelo liviano para verificar y tareas mecánicas, resúmenes en lugar de informes
+    completos entre agentes, un flujo pesado por vez.
 
 ## 2. Reglas no negociables
 
