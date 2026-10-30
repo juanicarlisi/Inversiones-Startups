@@ -316,7 +316,7 @@ export function comprarAvion(s, tipoId, rutaId) {
   const primero = !conAvion(s, rutaId);
   // Sale enseguida: el primer control de carga es en el próximo paso, y el vuelo cuenta desde el comienzo de ese paso (así el primer
   // cobro de la partida llega antes de los 10 s también con los 3 toques de la interfaz).
-  (s.flags.apoyo ??= {})[rutaId] = s.t; // la sugerencia de apoyo a una misión de entregas espera medio día en esta ruta
+  (s.flags.apoyo ??= {})[rutaId] = s.t; // la sugerencia de apoyo a una misión de entregas espera 8 horas en esta ruta
   const av = { id: s.sigId++, tipo: tipoId, ruta: rutaId, en: base, hacia: base === r.a ? r.b : r.a,
     fase: 'tierra', resta: 0, dur: PASO, carga: [], espera: null, v: 0, ing: 0, cos: 0, desde: s.t };
   s.aviones.push(av);
@@ -596,6 +596,7 @@ function procesarTransbordo(s, dt) {
       const n = Math.min(g.n, Math.floor(presup));
       if (n <= 0) break;
       presup -= n; g.n -= n;
+      if (noche && ap === HUB && s.gemelo?.registro) ((s.gemelo.registro[idRuta(ap, h)] ??= [])).push([s.t - noche.corte, n]);
       sumarCola(s, ap, g.d, g.c, n, g.tc, g.p, g.km, g.k, g.tl);
       s.stats.transbordos[ap] = (s.stats.transbordos[ap] ?? 0) + n;
       if (g.n <= 0) delete tb[llave];
@@ -770,7 +771,7 @@ function despegar(s, av, t, r, noche, ronda, ev) {
     if (!s.flags.despNoche1) { s.flags.despNoche1 = true; ev.push({ tipo: 'primerDespegueNoche', avion: av.id, ruta: r.id }); }
   }
   s.ultVuelo[av.en] = s.t; s.ultSalida[`${av.en}>${av.hacia}`] = s.t;
-  if (ronda && av.en === HUB) { ronda.salio[r.id] = true; av.ronda = ronda.id; }
+  if (ronda && av.en === HUB) { ronda.salio[r.id] = true; av.ronda = ronda.id; (ronda.salidaT ??= {})[r.id] ??= minutoRonda(s, ronda); }
   const horas = r.km / t.vel;
   av.fase = 'vuelo'; av.dur = Math.max(PASO, Math.round(horas * 60)); av.resta += av.dur; av.espera = null;
   ev.push({ tipo: 'despegue', avion: av.id, ruta: r.id, costo, carga: uni });
@@ -819,7 +820,10 @@ function aterrizar(s, av, t, r, ronda, ev) {
   ev.push({ tipo: 'aterrizaje', avion: av.id, ruta: r.id, ingreso: cobro, netoViaje, ap: llega });
   if (av.ronda != null) {
     const n = s.ronda.noche;
-    if (n && n.id === av.ronda && sale === HUB) { const k = r.id; n.llegadas[k] = (n.llegadas[k] ?? 0) + (s.t <= n.fin ? unidades : 0); }
+    if (n && n.id === av.ronda && sale === HUB) {
+      const k = r.id; n.llegadas[k] = (n.llegadas[k] ?? 0) + (s.t <= n.fin ? unidades : 0);
+      (n.llegaT ??= {})[k] ??= s.t - n.corte;
+    }
     av.ronda = null;
   }
   s.ultVuelo[llega] = s.t;
@@ -1292,12 +1296,29 @@ function revisarBanco(s, ev) {
 export function rondaEnCurso(s) { const n = s.ronda?.noche; return n && n.estado === 'corriendo' ? n : null; }
 const minutoRonda = (s, n) => s.t - n.corte;
 
+// HN-52: la ronda no miente. Lo que se promete y lo que pasa salen del mismo motor: un gemelo exacto del estado (structuredClone)
+// que corre la noche con el plan que se le pide. El automático también es un gemelo real (desde la foto de las 22:00). Si el
+// automático ya llega al 95% a primera hora, esa noche la ronda no se ofrece (corre igual en automático y cuenta para la misión).
+export const RONDA_OCULTA = 0.95;     // con el automático en este % o más, no se ofrece
+export const RONDA_EMPATE = 0.01;     // diferencia de ingreso por debajo de la cual el plan y el automático empatan
+const fotos = new WeakMap();          // estado → { id de la noche, estado a las 22:00 } (para el gemelo automático; no se guarda)
+const dtDe = new WeakMap();           // estado → minutos del último paso (el gemelo corre con el mismo paso que la partida)
+
 function cicloRonda(s, ev) {
   if (!CONFIG.ronda || !s.ronda.listo) return;
   const md = minutoDelDia(s), n = s.ronda.noche;
   if (!n && md >= 20 * 60 && md < 22 * 60 && (s.ronda.ultima == null || s.dia - s.ronda.ultima >= RONDA_CADA)) {
-    s.ronda.noche = { id: s.dia, estado: 'previa', corte: s.t + (22 * 60 - md), fin: s.t + (22 * 60 - md) + RONDA.VENTANA, salio: {}, llegadas: {}, jugada: false };
-    ev.push({ tipo: 'rondaDisponible', id: s.dia, corte: s.ronda.noche.corte });
+    const nueva = s.ronda.noche = { id: s.dia, estado: 'previa', corte: s.t + (22 * 60 - md), fin: s.t + (22 * 60 - md) + RONDA.VENTANA, salio: {}, llegadas: {}, jugada: false };
+    if (!s.gemelo) {
+      const auto = correrGemelo(s, null).res;
+      if (auto) {
+        nueva.previstoAuto = { pct: auto.pctPrimeraHora, ingreso: auto.ingreso, ver: s.verRed };
+        nueva.previsto = { pct: auto.pctPrimeraHora, ingreso: auto.ingreso, plan: 'auto', t: s.t };
+        if (auto.pctPrimeraHora >= RONDA_OCULTA) nueva.oculta = true; // jugarla no cambia nada: no se ofrece
+        else if (s.enAusencia) { const p = planSugerido(s); if (p?.previsto) nueva.extraJugando = Math.max(0, p.previsto.ingreso - auto.ingreso); }
+      }
+    }
+    if (!nueva.oculta) ev.push({ tipo: 'rondaDisponible', id: s.dia, corte: nueva.corte });
     return;
   }
   if (n?.estado === 'previa' && s.t >= n.corte) {
@@ -1306,34 +1327,83 @@ function cicloRonda(s, ev) {
     n.escena = escenaRonda(s);
     n.prometidas = Object.fromEntries(n.escena.radios.map((x) => [x.id, x.sacas]));
     n.tarifas = Object.fromEntries(n.escena.radios.map((x) => [x.id, x.tarifa]));
-    ev.push({ tipo: 'rondaCorte', id: n.id });
+    if (!s.gemelo) fotos.set(s, { id: n.id, estado: clonar(s) }); // la foto de las 22:00: de acá sale el automático de verdad
+    if (!n.oculta) ev.push({ tipo: 'rondaCorte', id: n.id });
     return;
   }
   if (n?.estado === 'corriendo' && s.t >= n.fin) {
     const res = resultadoRonda(s, n);
     s.ronda.historial.unshift(res); s.ronda.historial.length = Math.min(s.ronda.historial.length, 10);
     s.ronda.ultima = n.id; s.ronda.noche = null; delete s.banco[HUB];
+    if (!s.gemelo) fotos.delete(s);
     ev.push({ tipo: 'resultadoNoche', ...res });
   }
 }
 
+// El resultado de la noche: lo que de verdad llegó a primera hora. Si se jugó, se compara con el automático de verdad (un gemelo
+// desde la foto de las 22:00 sin el plan): «más», «menos» o «empate» (menos del 1% de diferencia).
 function resultadoRonda(s, n) {
   let sacas = 0, ok = 0, ingreso = 0;
+  const radios = [];
   for (const id in n.prometidas) {
     const p = n.prometidas[id], llego = Math.min(p, n.llegadas[id] ?? 0);
     sacas += p; ok += llego; ingreso += n.tarifas[id] * (llego + RONDA.PAGA_TARDE * (p - llego));
+    radios.push({ id, sacas: p, aTiempo: llego, salida: n.salidaT?.[id] ?? null, llega: n.llegaT?.[id] ?? null, semaforo: RONDA.semaforo(llego, p) });
   }
   const pct = sacas ? ok / sacas : 1;
-  let ingresoAutomatico = ingreso;
-  if (n.jugada && n.escena) {
-    const auto = RONDA.simular(n.escena), plan = RONDA.simular(n.escena, { prioridad: s.banco[HUB]?.prioridad, salidas: s.banco[HUB]?.salidas });
-    ingresoAutomatico = plan.ingreso ? ingreso * auto.ingreso / plan.ingreso : ingreso;
+  let ingresoAutomatico = ingreso, pctAutomatico = +pct.toFixed(3), vsAuto = null;
+  if (n.jugada && !s.gemelo) {
+    const auto = automaticoDe(s, n);
+    if (auto) { ingresoAutomatico = auto.ingreso; pctAutomatico = auto.pctPrimeraHora; }
+    const dif = ingreso - ingresoAutomatico;
+    vsAuto = !auto ? null : Math.abs(dif) < RONDA_EMPATE * Math.max(1, ingresoAutomatico) ? 'empate' : dif > 0 ? 'mas' : 'menos';
   }
-  const sugerido = n.escena ? RONDA.simular(n.escena, RONDA.planSugerido(n.escena)) : null;
-  const auto = n.escena ? RONDA.simular(n.escena) : null;
-  const ingresoSugerido = sugerido && auto?.ingreso ? (n.jugada ? ingresoAutomatico : ingreso) * sugerido.ingreso / auto.ingreso : ingreso;
-  return { id: n.id, t: s.t, sacas, pctPrimeraHora: +pct.toFixed(3), ingreso: Math.round(ingreso), ingresoAutomatico: Math.round(ingresoAutomatico),
-    ingresoSugerido: Math.round(ingresoSugerido), medalla: RONDA.medallaDe(pct), jugada: n.jugada, horasCentro: n.horasCentro ?? 0 };
+  return { id: n.id, t: s.t, sacas, aTiempo: ok, pctPrimeraHora: +pct.toFixed(3), ingreso: Math.round(ingreso), ingresoAutomatico: Math.round(ingresoAutomatico),
+    pctAutomatico, vsAuto, dif: Math.round(ingreso - ingresoAutomatico),
+    // lo que se habría ganado jugándola con el plan sugerido (solo se calcula, con gemelos, para las noches de una ausencia)
+    ingresoSugerido: Math.round(ingreso + (n.jugada ? 0 : n.extraJugando ?? 0)),
+    medalla: RONDA.medallaDe(pct), jugada: n.jugada, oculta: !!n.oculta, horasCentro: n.horasCentro ?? 0,
+    previsto: n.previsto?.pct ?? null, radios };
+}
+
+// ───── el gemelo ─────
+const clonar = (s) => structuredClone(s);
+// Corre un gemelo de s hasta que termina la noche de ronda con el banco dado (null: el automático; undefined: el que tiene ahora).
+// registro: si se pide, anota cuándo clasifica el centro del hub cada saca que sigue por cada radio (para retener los aviones).
+function correrGemelo(s, banco, { registro = false, desde = null } = {}) {
+  const g = clonar(desde ?? s);
+  g.gemelo = registro ? { registro: {} } : true;
+  if (banco === null) delete g.banco[HUB];
+  else if (banco !== undefined) g.banco[HUB] = { prioridad: banco.prioridad ? [...banco.prioridad] : null, salidas: banco.salidas ? { ...banco.salidas } : null };
+  if (g.ronda.noche) g.ronda.noche.jugada = banco !== null && !!g.banco[HUB];
+  const dt = dtDe.get(s) ?? PASO;
+  let res = null;
+  for (let i = 0; i < 2000 && g.ronda.noche && !res; i++) for (const e of paso(g, dt)) if (e.tipo === 'resultadoNoche') res = e;
+  return { res, g };
+}
+function automaticoDe(s, n) {
+  const f = fotos.get(s);
+  if (!f || f.id !== n.id) return n.previstoAuto?.ver === s.verRed ? { pctPrimeraHora: n.previstoAuto.pct, ingreso: n.previstoAuto.ingreso } : null;
+  return correrGemelo(s, null, { desde: f.estado }).res;
+}
+// El pronóstico de la noche con un plan (por defecto, el que rige ahora): la misma simulación que la resuelve. Devuelve lo mismo que
+// RONDA.simular (pct, aTiempo, sacas, ingreso, medalla y, por radio, salida, llegada, a tiempo y semáforo), así la vista lo usa igual.
+// Se guarda en caché mientras no cambien el plan ni la red.
+const cachePrev = new WeakMap();
+export function preverRonda(s, plan = undefined) {
+  const n = s.ronda?.noche;
+  if (!n || s.gemelo) return null;
+  const banco = plan === undefined ? s.banco[HUB] ?? null : plan;
+  const llave = `${n.id}|${s.verRed}|${JSON.stringify(banco ?? null)}`;
+  const c = cachePrev.get(s);
+  if (c?.llave === llave) return c.prev;
+  const { res } = correrGemelo(s, banco);
+  if (!res) return null;
+  const prev = { pct: res.pctPrimeraHora, aTiempo: res.aTiempo, sacas: res.sacas, ingreso: res.ingreso, medalla: res.medalla,
+    radios: res.radios.map((x) => ({ ...x, llevadas: x.aTiempo })) };
+  cachePrev.set(s, { llave, prev });
+  if (plan === undefined) n.previsto = { pct: prev.pct, ingreso: prev.ingreso, plan: banco ? 'jugador' : 'auto', t: s.t };
+  return prev;
 }
 
 // Escena de la noche armada con lo que hay en el hub: un radio por ruta iluminada con avión, lo que espera salir por él (en el
@@ -1397,25 +1467,63 @@ export function moverSalida(s, rutaId, delta) {
   n.jugada = true;
   return { ok: true, minuto: b.salidas[rutaId] };
 }
-// En el juego, el plan sugerido ordena la cinta (lo que sale antes se clasifica primero) y deja las salidas en automático: con
-// varios aviones por ruta y varias vueltas por noche, retener aviones resta más de lo que suma. Las salidas solo se programan
-// si el jugador las mueve (moverSalida). En la escena aislada (ronda.js) el plan sugerido también mueve las salidas.
+// El plan sugerido (HN-52): la cinta clasifica primero lo que vence antes (EDD: el radio con la última salida útil más temprana) y
+// cada ruta retiene su primer avión hasta que el centro clasifica su último correo prometido (lo que entra en ese avión), sin
+// pasar la raya (la última salida que llega a las 07:00) ni salir antes de que el avión esté listo. Los tiempos de clasificación
+// salen de un gemelo con la cinta EDD. Antes de proponerlo se compara, con gemelos, contra la cinta EDD sola y contra el automático:
+// se propone el que más rinde (nunca algo peor que el automático). Trae su pronóstico. Se guarda mientras no cambie la red.
 export function planSugerido(s, ap = HUB) {
   if (ap !== HUB) return null;
-  const e = s.ronda?.noche?.escena ?? escenaRonda(s);
-  return { prioridad: RONDA.planSugerido(e).prioridad, salidas: null };
+  const n = s.ronda?.noche;
+  const e = n?.escena ?? escenaRonda(s);
+  const edd = [...e.radios].sort((a, b) => RONDA.limite(a) - RONDA.limite(b) || a.listo - b.listo).map((x) => x.id);
+  if (!n || s.gemelo) return { prioridad: edd, salidas: null };
+  if (n.planCache?.ver === s.verRed && n.planCache.id === n.id) return n.planCache.plan;
+  const A = correrGemelo(s, { prioridad: edd, salidas: null }, { registro: true });
+  const salidas = {};
+  const tl = A.g.gemelo.registro;
+  for (const x of e.radios) {
+    const t = AV[s.aviones.find((a) => a.ruta === x.id)?.tipo];
+    const k = Math.min(x.sacas, t ? capTotal(t) : x.sacas) - (x.yaListas ?? 0); // lo que falta clasificar para llenarlo de lo prometido
+    let fin = 0;
+    if (k > 0) { let cum = 0; for (const [m, u] of tl[x.id] ?? []) { cum += u; if (cum >= k) { fin = m; break; } } if (cum < k) fin = RONDA.VENTANA; }
+    const tope = Math.floor(RONDA.limite(x) / RONDA.GRILLA) * RONDA.GRILLA, desde = Math.ceil(x.listo / RONDA.GRILLA) * RONDA.GRILLA;
+    salidas[x.id] = Math.max(desde, Math.min(Math.ceil(fin / RONDA.GRILLA) * RONDA.GRILLA, tope));
+  }
+  const B = correrGemelo(s, { prioridad: edd, salidas });
+  const auto = n.previstoAuto?.ver === s.verRed && n.estado === 'previa' ? { ingreso: n.previstoAuto.ingreso, pctPrimeraHora: n.previstoAuto.pct } : correrGemelo(s, null).res;
+  const cands = [
+    { tipo: 'eddRetener', prioridad: edd, salidas, res: B.res },
+    { tipo: 'edd', prioridad: edd, salidas: null, res: A.res },
+    { tipo: 'auto', prioridad: null, salidas: null, res: auto },
+  ].filter((c) => c.res);
+  cands.sort((a, b) => b.res.ingreso - a.res.ingreso || b.res.pctPrimeraHora - a.res.pctPrimeraHora);
+  const m = cands[0];
+  const plan = { prioridad: m.prioridad ?? edd, salidas: m.salidas, variante: m.tipo,
+    previsto: m.res ? { pct: m.res.pctPrimeraHora, ingreso: m.res.ingreso } : null, automatico: auto ? { pct: auto.pctPrimeraHora, ingreso: auto.ingreso } : null };
+  if (m.tipo === 'auto') { plan.prioridad = null; plan.salidas = null; }
+  n.planCache = { id: n.id, ver: s.verRed, plan };
+  return plan;
 }
 export function aplicarPlan(s, plan) {
-  if (!s.ronda?.noche) return { ok: false, error: 'sinRonda' };
+  const n = s.ronda?.noche;
+  if (!n) return { ok: false, error: 'sinRonda' };
   s.banco[HUB] = { prioridad: plan.prioridad ? [...plan.prioridad] : null, salidas: plan.salidas ? { ...plan.salidas } : null };
-  s.ronda.noche.jugada = true;
+  n.jugada = true;
+  // lo que se le promete al jugador: el pronóstico de ese plan (el del plan sugerido ya viene calculado)
+  if (plan.previsto && n.planCache?.plan === plan) n.previsto = { pct: plan.previsto.pct, ingreso: plan.previsto.ingreso, plan: 'sugerido', t: s.t };
+  else preverRonda(s);
   return { ok: true };
 }
 
-// Premio chico de «La ronda del día» (se juega fuera de la partida): plata del juego, nunca multiplicadores ni aceleraciones.
+// Premio de «La ronda del día» (se juega fuera de la partida): plata del juego, nunca multiplicadores ni aceleraciones. Escala con
+// lo que gana la red: un oro vale el 10% de un día (plata, dos tercios de eso; bronce, un tercio). «monto» viene en la unidad que
+// guarda la escena (RONDA.PREMIO_DIA: 3.000 por oro) o como nombre de medalla.
+export const PREMIO_DIA = { oro: 0.10, piso: 30000, tope: 3 };
 export function premioRondaDelDia(s, monto) {
-  const m = Math.max(0, Math.min(Math.round(monto), 3 * RONDA.PREMIO_DIA.oro));
-  if (!m) return { ok: false };
+  const oros = typeof monto === 'string' ? (RONDA.PREMIO_DIA[monto] ?? 0) / RONDA.PREMIO_DIA.oro : Math.max(0, Number(monto) || 0) / RONDA.PREMIO_DIA.oro;
+  const m = Math.round(Math.min(oros, PREMIO_DIA.tope) * PREMIO_DIA.oro * Math.max(PREMIO_DIA.piso, gananciaDia(s)));
+  if (!(m > 0)) return { ok: false };
   s.dinero += m;
   return { ok: true, monto: m };
 }
@@ -1622,16 +1730,22 @@ export function decisiones(s) {
       if (b) { ahorrar(b.precio + reserva(s, { t: b, r: sinAv }), 'avion', b.id); hecho = true; break; }
     }
     // la ciudad ya recibe vuelos: un avión más en la ruta que más correo le lleva y todavía deja esperando (si suma por día y se paga
-    // en 4 días), así las entregas llegan antes; como mucho uno por ruta cada medio día
+    // en 4 días), así las entregas llegan antes; como mucho uno por ruta cada 8 horas de juego
     if (!hecho) {
       let mejor = null;
+      // primero, iluminar la ruta que llega a la ciudad si sus aviones no vuelan de noche (después de la primera noche)
       for (const c of metas) for (const r of s.rutas) {
-        if ((r.a !== c && r.b !== c) || !tiene(r.id) || (s.flags.apoyo?.[r.id] ?? -1e9) > s.t - 720) continue;
+        if (mejor || (r.a !== c && r.b !== c) || !tiene(r.id) || !noche1 || iluminada(s, r) || !porRuta[r.id].some((a) => !AV[a.tipo].nocturno)) continue;
+        const costo = costoBalizas(r, s), e = estimarBalizas(s, r);
+        if (e > 0 && costo <= 4 * e && res(costo)) mejor = { tipo: 'balizas', id: r.id, costo, efectoDia: e, mision: true, apoyo: true, espera: Infinity };
+      }
+      for (const c of metas) for (const r of s.rutas) {
+        if (mejor?.tipo === 'balizas' || (r.a !== c && r.b !== c) || !tiene(r.id) || (s.flags.apoyo?.[r.id] ?? -1e9) > s.t - 480) continue;
         const t = mejorTipo(r);
         if (!t) continue;
         const e = est(t.id, r.id), otra = r.a === c ? r.b : r.a;
         const espera = indice(s).n[otra]?.[c] ? Object.values(indice(s).n[otra][c]).reduce((a, b) => a + b, 0) : 0;
-        if (e > 0 && t.precio <= 4 * e && espera >= capTotal(t) && (!mejor || espera > mejor.espera)) mejor = { tipo: 'avion', id: t.id, ruta: r.id, costo: t.precio, efectoDia: e, mision: true, apoyo: true, espera };
+        if (e > 0 && t.precio <= 4 * e && espera >= capTotal(t) / 2 && (!mejor || espera > mejor.espera)) mejor = { tipo: 'avion', id: t.id, ruta: r.id, costo: t.precio, efectoDia: e, mision: true, apoyo: true, espera };
       }
       if (mejor) { delete mejor.espera; out.push(mejor); }
     }
@@ -1652,13 +1766,28 @@ export function decisiones(s) {
     }
   }
   if (m?.tipo === 'entregas') { // un avión que lleve esa carga donde más demanda de esa carga queda sin atender
-    let mejor = null;
+    let mejor = null, caro = null; // caro: el mejor que hoy no alcanza (para juntar la plata)
     for (const r of s.rutas) for (const t of avionesDisponibles(s)) {
-      if (!t.lleva[m.carga] || t.alcance < r.km || !puedeComprar(s, t.id, r.id).ok) continue;
+      if (!t.lleva[m.carga] || t.alcance < r.km || vendidaHoy(s, r.id)) continue;
+      const p = puedeComprar(s, t.id, r.id);
+      if (!p.ok && p.error !== 'plata' && p.error !== 'reserva') continue;
       const e = est(t.id, r.id);
-      if (e > 0 && (!mejor || e / t.precio > mejor.v)) mejor = { tipo: 'avion', id: t.id, ruta: r.id, costo: t.precio, efectoDia: e, mision: true, v: e / t.precio };
+      if (e <= 0) continue;
+      if (p.ok) { if (!mejor || e / t.precio > mejor.v) mejor = { tipo: 'avion', id: t.id, ruta: r.id, costo: t.precio, efectoDia: e, mision: true, v: e / t.precio }; }
+      else if (!caro || e / t.precio > caro.v) caro = { t, r, v: e / t.precio };
     }
     if (mejor) { delete mejor.v; out.push(mejor); }
+    else if (caro) ahorrar(caro.t.precio + reserva(s, { t: caro.t, r: caro.r }), 'avion', caro.t.id);
+    else if (!s.aviones.some((a) => AV[a.tipo].lleva[m.carga])) {
+      // nadie lleva esa carga todavía: el avión que nombra la pista (o el más barato que la lleva) en la ruta donde más espera de esa
+      // carga, aunque al principio no se pague (la misión lo pide); si no alcanza la plata, juntar para él
+      const t = AV[m.avionPista] && avionDisponible(s, m.avionPista) ? AV[m.avionPista] : avionesDisponibles(s).filter((x) => x.lleva[m.carga]).sort((a, b) => a.precio - b.precio)[0];
+      const x = idxVigente(s) ?? indice(s);
+      const espera = (r) => (x.n[r.a]?.[r.b]?.[m.carga] ?? 0) + (x.n[r.b]?.[r.a]?.[m.carga] ?? 0) + demandaHora(s, r.a, r.b, m.carga) + demandaHora(s, r.b, r.a, m.carga);
+      const r = t && s.rutas.filter((y) => tiene(y.id) && t.alcance >= y.km).sort((a, b) => espera(b) - espera(a))[0];
+      if (r && puedeComprar(s, t.id, r.id).ok) out.push({ tipo: 'avion', id: t.id, ruta: r.id, costo: t.precio, efectoDia: Math.max(0, est(t.id, r.id)), mision: true });
+      else if (r) ahorrar(t.precio + reserva(s, { t, r }), 'avion', t.id);
+    }
   }
   if (m?.tipo === 'ciudadesActivas' && progreso(s, m) < m.meta) {
     const sinAvion = s.rutas.find((r) => !tiene(r.id));
@@ -1847,13 +1976,16 @@ export function sugerencia(s) {
   const eco = ds.filter((d) => ECONOMICOS.has(d.tipo) && d.efectoDia > 0 && sePaga(d)).sort((a, b) => puntaje(b) - puntaje(a));
   const vigente = s.chip && eco.find((d) => llaveConsejo(d) === s.chip.k);
   if (vigente) return vigente;                               // el consejo del día sigue en pie: no cambia bajo el dedo
-  // con una misión de ganancia («Ganá $X en un día»), mejorar la red es lo que pide la misión: el tope de un consejo por día no corre
-  const pideGanar = MIS[misionActual(s)?.id]?.tipo === 'mejorDia';
-  if (eco.length && (pideGanar || !s.chip || s.t - s.chip.t >= 1440 / CHIP.consejosPorDia)) {
+  if (eco.length && (!s.chip || s.t - s.chip.t >= 1440 / CHIP.consejosPorDia)) {
     s.chip = { k: llaveConsejo(eco[0]), t: s.t };
     return eco[0];
   }
-  return acelerarPara(s);
+  return acelerarPara(s) ?? (eco.length ? acelerarHasta(s, s.chip.t + 1440 / CHIP.consejosPorDia) : null);
+}
+// «×3 mientras tu red trabaja»: ya se usó el consejo del día y lo próximo se puede pagar, así que se acelera hasta el próximo consejo.
+function acelerarHasta(s, hasta) {
+  if (hasta <= s.t) return null;
+  return { tipo: 'acelerar', id: null, vel: 3, que: 'tiempo', costo: 0, efectoDia: 0, hasta, minutos: +((hasta - s.t) / MIN_POR_SEG / 60 / 3).toFixed(1) };
 }
 // El cuello de botella va primero: el centro del hub (o el de la misión de transbordos) pierde por día más de lo que suma la misión
 // y mejorarlo cuesta menos de un día de ganancia.
@@ -1953,6 +2085,7 @@ export function potencial(s, ap) { // demanda por hora que traería conectar est
 // ───────────────────────── paso ─────────────────────────
 export function paso(s, dt = PASO) {
   const ev = tomarEventos(s);
+  dtDe.set(s, dt);
   s.t += dt;
   climaDelPaso(s, ev);
   cerrarDia(s, ev);
@@ -2008,7 +2141,10 @@ export function simularAusencia(s, segundosReales) {
   const antes = { dinero: s.dinero, entregas: totalEntregas(s), aTiempo: s.stats.aTiempo, perdidas: s.stats.perdidas,
     rutas: Object.fromEntries(s.rutas.map((r) => [r.id, r.ingresos - r.costos])), misiones: s.misiones.length };
   const eventos = [];
-  for (let m = 0; m < minutos; m += AUSENCIA.paso) for (const e of paso(s, AUSENCIA.paso)) if (e.tipo !== 'cobro' && e.tipo !== 'despegue' && e.tipo !== 'aterrizaje') eventos.push(e);
+  s.enAusencia = true; // las noches de ronda de la ausencia calculan, con gemelos, cuánto más daba jugarlas
+  try {
+    for (let m = 0; m < minutos; m += AUSENCIA.paso) for (const e of paso(s, AUSENCIA.paso)) if (e.tipo !== 'cobro' && e.tipo !== 'despegue' && e.tipo !== 'aterrizaje') eventos.push(e);
+  } finally { delete s.enAusencia; }
   const operado = s.dinero - antes.dinero - premiosDe(eventos);
   // Lo que la red gana por día medido en la muestra, llevado a la curva de ausencia y al techo.
   const porDia = operado / (minutos / 1440);
@@ -2234,4 +2370,6 @@ export const API_INTERFAZ = [
   'fichaAvion', 'resumenCapitulo', 'estimarAvion', 'idRuta', 'fijarFechaDispositivo', 'CONFIG', 'RONDA_CADA',
   // v1 (HN-30): la primera clasificación del hub y la misión que espera la primera noche
   'clasificacionActual', 'elegirClasificacion', 'misionEnEspera',
+  // v1 (HN-52): el pronóstico de la ronda sale del mismo motor que la resuelve
+  'preverRonda',
 ];

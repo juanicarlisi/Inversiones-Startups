@@ -7,6 +7,7 @@ import { trazaDeMaqueta } from '../../contratos/fixtures/traza-maqueta.ts';
 import { Causa, ClaseEntidad, TipoTramo, refDe } from '../../contratos/traza.ts';
 import type { MapaRiesgo, Piso } from '../../contratos/vistas.ts';
 import { crearReproductor, type ReproductorEscena } from '../reproductor.ts';
+import { CAPACIDAD_PILA } from '../disposicion.ts';
 import { componer2d, type Capa, type Composicion } from '../componer2d.ts';
 import { componerIso } from '../componeriso.ts';
 import { encuadrar, type Primitiva } from '../primitivas.ts';
@@ -214,5 +215,34 @@ test('maqueta: 20 instantes en las dos vistas sin coordenadas NaN ni infinitas',
       const malos = finitas(ps);
       assert.deepEqual(malos, [], `${piso}, t = ${t}: primitivas con coordenadas no finitas: ${malos.slice(0, 5).join(', ')}`);
     }
+  }
+});
+
+test('la pila del puesto manual: las vistas no dibujan los paquetes tapados por otro idéntico, salvo el seleccionado', () => {
+  // 1.000 paquetes en la cola manual: solo CAPACIDAD_PILA lugares distintos; los demás caen exactamente encima (revisión de I-3: con
+  // 2.455 en la cola, dibujarlos todos llevaba el cuadro 2,5D a 21,6 ms y el piso caía a 2D)
+  const N = 1000;
+  const rep = crearReproductor(trazaSintetica((s) => {
+    for (let e = 0; e < N; e++) { s.tramo(e, TipoTramo.COLA_MANUAL, 0, e, 0, 3_000_000, Causa.RAMPA_LLENA); s.paquete(e, { creado: 0, listo: -1 }); }
+  }));
+  const pos = rep.crearPosiciones();
+  rep.posiciones(T, pos);
+  let tapados = 0;
+  for (let k = 0; k < pos.n; k++) tapados += pos.tapado[k];
+  assert.equal(tapados, N - CAPACIDAD_PILA, `se esperaban ${N - CAPACIDAD_PILA} paquetes tapados y salieron ${tapados}`);
+  // un paquete es un sprite (2,5D, con su glifo de respaldo) o un glifo (2D) cuya referencia es de la clase PAQUETE
+  const refDePrim = (p: Primitiva): number | undefined => p.tipo === 'sprite' ? (p as { respaldo: { ref: number } }).respaldo.ref
+    : p.tipo === 'glifo' ? (p as { ref: number }).ref : undefined;
+  const paquetesDibujados = (ps: Primitiva[]) => contar(ps, (p) => {
+    const r = refDePrim(p);
+    return r !== undefined && r >= 0 && Math.floor(r / 16777216) === ClaseEntidad.PAQUETE;
+  });
+  for (const [piso, f] of [['iso', componerIso], ['2d', componer2d]] as const) {
+    const n = paquetesDibujados(f(comp(rep, piso, 'movil')));
+    assert.equal(n, CAPACIDAD_PILA, `${piso}: se esperaban ${CAPACIDAD_PILA} paquetes dibujados (los lugares distintos de la pila) y salieron ${n}`);
+    // el último de la cola está tapado; seleccionado, se dibuja igual (con su halo)
+    const sel = { clase: ClaseEntidad.PAQUETE, id: N - 1 };
+    const conSel = paquetesDibujados(f(comp(rep, piso, 'movil', { opciones: { seleccion: sel } })));
+    assert.ok(conSel >= CAPACIDAD_PILA + 1, `${piso}: el paquete seleccionado tiene que dibujarse aunque esté tapado (salieron ${conSel})`);
   }
 });

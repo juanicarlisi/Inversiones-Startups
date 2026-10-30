@@ -14,7 +14,7 @@ import { lugarEnFila, type Disposicion } from './disposicion.ts';
 import { COLOR_ESTADO, FORMA_ESTADO, color, colorRiesgo } from './estilo.ts';
 import { posBandeja } from './lazo.ts';
 import { crearProyector, esquinas, type Marco, type Primitiva, type Proyector } from './primitivas.ts';
-import { EstadoPuesto, esReproductorEscena } from './reproductor.ts';
+import { EstadoPuesto, esReproductorEscena, type PosicionesEscena } from './reproductor.ts';
 
 export type Capa = 'fondo' | 'movil' | 'todo';
 
@@ -207,8 +207,11 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
   // entidades
   const sel = op.seleccion ?? null;
   const refSel = sel ? refDe(sel.clase, sel.id) : -1;
+  const tapados = (pos as Partial<PosicionesEscena>).tapado;
   for (let i = 0; i < pos.n; i++) {
     const clase = pos.clase[i], est = pos.estado[i] as EstadoVisual, ref = refDe(clase as ClaseEntidad, pos.id[i]);
+    // un paquete exactamente debajo de otro igual (la pila del puesto manual) no se dibuja, salvo que sea el seleccionado
+    if (tapados && tapados[i] && ref !== refSel) continue;
     p.aPantalla(pos.x[i], pos.y[i], 0, o);
     const ang = -(pos.ang[i] + c.camara.giro); // la cámara gira el mundo por `giro`; en pantalla y va hacia abajo
     if (clase === ClaseEntidad.CAMION) {
@@ -253,8 +256,9 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
   // fantasma: los paquetes del otro escenario en el mismo instante, solo el contorno
   if (op.fantasma) {
     const bf = calcular(op.fantasma, c.t), pf = bf.pos, cf = color(e, 'fantasma');
+    const pft = (pf as Partial<PosicionesEscena>).tapado;
     for (let i = 0; i < pf.n; i++) {
-      if (pf.clase[i] !== ClaseEntidad.PAQUETE) continue;
+      if (pf.clase[i] !== ClaseEntidad.PAQUETE || (pft && pft[i])) continue;
       p.aPantalla(pf.x[i], pf.y[i], 0, o);
       prims.push({
         tipo: 'glifo', forma: FORMA_ESTADO[pf.estado[i] as EstadoVisual], x: o[0], y: o[1], tam: tm.paquete, ang: 0, relleno: cf, borde: null,

@@ -144,7 +144,16 @@ export async function abrirPestana(contexto, { fallar, etiqueta }) {
   const h = {
     page, errores,
     /** Espera la pantalla `p` lista (data-listo="1"). */
-    pantalla: (p, ms = 60_000) => page.waitForSelector(`section[data-pantalla="${p}"][data-listo="1"]`, { timeout: ms }),
+    pantalla: (p, ms = 60_000) => page.waitForSelector(`section[data-pantalla="${p}"][data-listo="1"]`, { timeout: ms }).catch(async (e) => {
+      // si no llega, qué se ve: la pantalla, si está lista, el aviso, lo que dice «cargando», y si hay modelo y película
+      const d = await page.evaluate(() => {
+        const sec = document.querySelector('section[data-pantalla]'), s = window.__anden?.sesion;
+        return { pantalla: sec?.dataset.pantalla ?? null, listo: sec?.dataset.listo ?? null, aviso: document.querySelector('[data-aviso]')?.textContent?.trim() ?? null,
+          cargando: document.querySelector('.escena__cargando')?.textContent?.trim() || null, modelo: !!s?.mv, pelicula: !!s?.noche,
+          serviceWorker: !!navigator.serviceWorker?.controller };
+      }).catch(() => null);
+      throw new Error(`la pantalla «${p}» no quedó lista en ${ms / 1000} s (se ve: ${JSON.stringify(d)}; ${e instanceof Error ? e.message.split('\n')[0] : e})`);
+    }),
     clic: (accion) => page.click(`[data-accion="${accion}"]`),
     sesion: (f, arg) => page.evaluate(f, arg),
     esperar: (f, arg, ms, que) => page.waitForFunction(f, arg, { timeout: ms }).catch(() => { throw new Error(`${que}: no llegó en ${ms / 1000} s`); }),

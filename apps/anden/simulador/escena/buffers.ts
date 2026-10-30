@@ -6,7 +6,7 @@ import { crearDisposicion, type Disposicion } from './disposicion.ts';
 import { esReproductorEscena } from './reproductor.ts';
 
 export interface Buffers {
-  pos: Posiciones & { z?: Float32Array };
+  pos: Posiciones & { z?: Float32Array; tapado?: Uint8Array };
   rec: EstadoRecursos;
   nivelJaula: Float32Array;
   numeroJaula: Int32Array;

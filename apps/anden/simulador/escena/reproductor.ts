@@ -23,7 +23,7 @@ import { ClaseEntidad, TipoMomento, TipoTramo, type Traza } from '../contratos/t
 import { EstadoVisual, type EstadoRecursos, type Posiciones, type Reproductor } from '../contratos/vistas.ts';
 import { posEnLazo } from '../contratos/geometria.ts';
 import {
-  acotar, ALTURA_CAPA_PILA, crearDisposicion, enCinta, enPasillo, lugarEnFila, lugarEnPlaya, lugarEnRampa, type Disposicion, type V2,
+  acotar, ALTURA_CAPA_PILA, CAPACIDAD_PILA, crearDisposicion, enCinta, enPasillo, lugarEnFila, lugarEnPlaya, lugarEnRampa, type Disposicion, type V2,
 } from './disposicion.ts';
 import {
   crearIndiceTiempo, cuantosHasta, entradasHasta, ordenarFilas, salidasHasta, type IndiceTiempo,
@@ -59,8 +59,12 @@ export const CLAVE_CLASE: readonly string[] = [
   'escena.clase.paquete', 'escena.clase.persona', 'escena.clase.camion', 'escena.clase.equipo', 'escena.clase.rampa', 'escena.clase.puesto',
 ];
 
-/** Posiciones con la altura (m) de cada entidad sobre el piso, para la vista 2,5D. */
-export interface PosicionesEscena extends Posiciones { z: Float32Array }
+/**
+ * Posiciones con la altura (m) de cada entidad sobre el piso, para la vista 2,5D, y `tapado`: 1 si la entidad queda exactamente debajo de
+ * otra (los paquetes de la pila del puesto manual más allá de su última capa). Las vistas no dibujan las tapadas, salvo la seleccionada:
+ * con 2.455 paquetes en la cola manual, dibujarlos todos llevaba el cuadro 2,5D a 21,6 ms y el piso caía a 2D (revisión de I-3).
+ */
+export interface PosicionesEscena extends Posiciones { z: Float32Array; tapado: Uint8Array }
 
 /** Altura (m) a la que se dibuja un paquete según su tramo (0 si no es un paquete). */
 export function alturaDeTramo(k: number): number {
@@ -274,6 +278,8 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
   let nAct = 0, tAct = NaN, cuadro = 0, salAcum = 0, salExc = 0, salExcRampa = 0, recortes = 0;
   /** Altura extra (m) del último paquete ubicado por `paquete`: la capa de la pila del puesto manual (0 en cualquier otro lugar). */
   let alturaPila = 0;
+  /** 1 si el último paquete ubicado por `paquete` cayó en un lugar repetido de la pila (queda tapado por otro idéntico). */
+  let tapadoPila = 0;
   const tramoPersona = new Int32Array(NP);
   const playa: number[] = [];
   const marcaRampa = new Int32Array(NR).fill(-1), tomadasRampa = new Int32Array(NR);
@@ -333,7 +339,7 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
     const k = K[i], r = R[i], e = E[i];
     let est: number = EstadoVisual.NORMAL;
     out[2] = 0;
-    alturaPila = 0;
+    alturaPila = 0; tapadoPila = 0;
     switch (k) {
       case TipoTramo.DESCARGA: {
         const a = NA ? D.andenes[r < 0 ? 0 : r >= NA ? NA - 1 : r] : null;
@@ -376,7 +382,11 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
       }
       case TipoTramo.RAMPA:
         if (r >= 0 && r < NR) lugarEnRampa(D.rampas[r], Math.max(0, A[i] - tomadas(r, tq)), false, out);
-        else { alturaPila = lugarEnRampa(D.excepcion, Math.max(0, A[i] - salExcRampa), true, out) * ALTURA_CAPA_PILA; est = EstadoVisual.EXCEPCION; }
+        else {
+          const l = Math.max(0, A[i] - salExcRampa);
+          alturaPila = lugarEnRampa(D.excepcion, l, true, out) * ALTURA_CAPA_PILA; tapadoPila = l >= CAPACIDAD_PILA ? 1 : 0;
+          est = EstadoVisual.EXCEPCION;
+        }
         break;
       case TipoTramo.MANO: {
         const Rr = rampaDe(A[i]), f = fraccion(i, tq);
@@ -384,7 +394,7 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
         break;
       }
       case TipoTramo.COLA_MANUAL:
-        alturaPila = lugarEnRampa(D.excepcion, Math.max(0, A[i] - salExc), true, out) * ALTURA_CAPA_PILA;
+        { const l = Math.max(0, A[i] - salExc); alturaPila = lugarEnRampa(D.excepcion, l, true, out) * ALTURA_CAPA_PILA; tapadoPila = l >= CAPACIDAD_PILA ? 1 : 0; }
         est = EstadoVisual.EXCEPCION;
         break;
       case TipoTramo.MANUAL: {
@@ -503,15 +513,16 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
     tramoPersona.fill(-1);
     playa.length = 0;
     const cap = out.x.length;
-    const z = (out as Partial<PosicionesEscena>).z;
+    const z = (out as Partial<PosicionesEscena>).z, tapado = (out as Partial<PosicionesEscena>).tapado;
     let v = 0;
-    const poner = (clase: number, id: number, est: number, h: number) => {
+    const poner = (clase: number, id: number, est: number, h: number, tap = 0) => {
       if (v >= cap) throw new RangeError(`escena: Posiciones tiene lugar para ${cap} entidades y hay más (usar reproductor.crearPosiciones()).`);
       if (o3[0] < lim.xmin || o3[0] > lim.xmax || o3[1] < lim.ymin || o3[1] > lim.ymax) recortes++;
       acotar(lim, o3);
       out.x[v] = o3[0]; out.y[v] = o3[1]; out.ang[v] = o3[2];
       out.estado[v] = est; out.clase[v] = clase; out.id[v] = id;
       if (z) z[v] = h;
+      if (tapado) tapado[v] = tap;
       v++;
     };
     for (let q = 0; q < nAct; q++) {
@@ -530,7 +541,7 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
         continue;
       }
       // `paquete` se evalúa antes que la altura: deja en alturaPila la capa de la pila del puesto manual
-      poner(ClaseEntidad.PAQUETE, E[i], paquete(i, tq, o3), alturaDeTramo(k) + alturaPila);
+      poner(ClaseEntidad.PAQUETE, E[i], paquete(i, tq, o3), alturaDeTramo(k) + alturaPila, tapadoPila);
     }
     if (playa.length) {
       playa.sort((x, y) => T0[x] - T0[y] || E[x] - E[y]);
@@ -587,7 +598,7 @@ export function crearReproductor(tr: Traza): ReproductorEscena {
   const crearPosiciones = (): PosicionesEscena => ({
     n: 0, x: new Float32Array(maxVisibles), y: new Float32Array(maxVisibles), ang: new Float32Array(maxVisibles),
     estado: new Uint8Array(maxVisibles), clase: new Uint8Array(maxVisibles), id: new Int32Array(maxVisibles),
-    z: new Float32Array(maxVisibles),
+    z: new Float32Array(maxVisibles), tapado: new Uint8Array(maxVisibles),
   });
   const crearEstadoRecursos = (): EstadoRecursos => ({
     pasoLazo: 0, lazoDetenido: false, rampaOcupacion: new Float32Array(NR), rampaLlena: new Uint8Array(NR), filaAcumulacion: 0,

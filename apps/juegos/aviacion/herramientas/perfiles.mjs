@@ -215,10 +215,13 @@ export const PERFILES = {
     // el chip para los objetivos (misión, seguridad, cuello de botella); después las pistas; y, pensando por su cuenta, la mejor
     // decisión económica que muestran los botones del panel (se paga en 2 días), sin el tope de un consejo por día del chip
     const sug = I.sugerencia(s);
-    if (sug && (sug.mision || sug.seguridad || sug.cuello) && sug.tipo !== 'ahorrar') return accionDe(sug);
+    if (sug && sug.tipo !== 'ahorrar' && sug.tipo !== 'acelerar') return accionDe(sug);
     const h = seguirHistoria(s, true, ctx);
     if (h) return h;
+    // además de lo que propone el chip, piensa sus propias compras: como mucho una más cada medio día de juego
+    if ((ctx.ultimaEco ?? -1e9) > s.t - LISTO_ECO_MIN) return null;
     const d = mejorDecision(s);
+    if (d) ctx.ultimaEco = s.t;
     return d ? accionDe(d) : null; // elige su propia velocidad: juega a ×1
   },
   // Toca solo el chip de la mejor próxima acción, cada 1,5 s, y hace lo que marca (también «×3 hasta juntar»). Es el jugador de portal
@@ -236,6 +239,7 @@ export const PERFILES = {
     return avionDondeEspera(s, masGrande, 0);
   },
 };
+export const LISTO_ECO_MIN = 720;
 // La mejor decisión económica por su cuenta: la que más rinde por peso de las que se pagan en 2 días de juego.
 const ECONOMICAS = new Set(['avion', 'ruta', 'balizas', 'transbordo', 'cargaMin', 'vender']);
 function mejorDecision(s) {
@@ -248,7 +252,7 @@ function rondaSiLaPide(s, ctx) {
   return ctx.rondaDisponible && I.misionActual(s)?.tipo === 'rondaPct' ? { tipo: 'ronda' } : null;
 }
 const accionDe = (d) => (d.tipo === 'ruta' ? { tipo: 'ruta', a: d.a, b: d.b } : d.tipo === 'avion' ? { tipo: 'avion', id: d.id, ruta: d.ruta }
-  : d.tipo === 'cargaMin' ? { tipo: 'cargaMin', id: d.id, v: d.v } : d.tipo === 'acelerar' ? { tipo: 'acelerar', meta: d.meta }
+  : d.tipo === 'cargaMin' ? { tipo: 'cargaMin', id: d.id, v: d.v } : d.tipo === 'acelerar' ? { tipo: 'acelerar', meta: d.meta ?? null, hasta: d.hasta ?? null }
   : d.tipo === 'vender' ? { tipo: 'vender', id: d.id, sobra: !!d.sobra, seguridad: !!d.seguridad } : { tipo: d.tipo, id: d.id });
 
 export function aplicar(s, a) {
@@ -263,7 +267,7 @@ export function aplicar(s, a) {
     case 'ronda': return I.aplicarPlan(s, I.planSugerido(s, I.HUB));
     case 'clasificar': return I.elegirClasificacion(s, a.id);
     case 'esperar': case 'ahorrar': return { ok: false }; // junta plata para lo que pide la pista o la mejor próxima acción
-    case 'acelerar': return { ok: true, acelerar: a.meta }; // «×3 hasta juntar $X»: la velocidad la maneja quien corre la partida
+    case 'acelerar': return { ok: true, acelerar: { meta: a.meta, hasta: a.hasta } }; // «×3 hasta juntar $X»: la velocidad la maneja quien corre la partida
     default: return { ok: false };
   }
 }

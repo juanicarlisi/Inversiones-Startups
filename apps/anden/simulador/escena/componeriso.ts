@@ -197,9 +197,11 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
   }
   // entidades: sprites horneados (con un glifo de respaldo)
   const sel = op.seleccion ?? null, refSel = sel ? refDe(sel.clase, sel.id) : -1;
-  const zs = pos.z;
+  const zs = pos.z, tapados = pos.tapado;
   for (let i = 0; i < pos.n; i++) {
     const clase = pos.clase[i], est = pos.estado[i] as EstadoVisual, ref = refDe(clase as ClaseEntidad, pos.id[i]);
+    // un paquete exactamente debajo de otro igual (la pila del puesto manual) no se dibuja, salvo que sea el seleccionado
+    if (tapados && tapados[i] && ref !== refSel) continue;
     const h = zs ? zs[i] : clase === ClaseEntidad.PAQUETE ? 0.9 : 0;
     p.aPantalla(pos.x[i], pos.y[i], h, o);
     const pr = profDe(p, pos.x[i], pos.y[i], h);
@@ -244,7 +246,7 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
   if (op.fantasma) {
     const bf = calcular(op.fantasma, c.t), pf = bf.pos, cf = color(e, 'fantasma');
     for (let i = 0; i < pf.n; i++) {
-      if (pf.clase[i] !== ClaseEntidad.PAQUETE) continue;
+      if (pf.clase[i] !== ClaseEntidad.PAQUETE || (pf.tapado && pf.tapado[i])) continue;
       const h = pf.z ? pf.z[i] : 0.9;
       p.aPantalla(pf.x[i], pf.y[i], h, o);
       lista.push({

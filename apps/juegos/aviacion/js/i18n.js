@@ -165,7 +165,9 @@ const T = {
     sug_contrato: 'Aceptá el contrato {a} → {b}', sug_vender: 'Vendé {un} {avion} que sobra en {ruta}', sug_venderSeg: 'Vendé {el} {avion} que pierde plata',
     sug_esperar: 'Tus aviones juntan plata. Misión: {mision}', rutaA_hub: 'la ruta a {ciudad}', un_f: 'una', un_m: 'un', el_f: 'la', el_m: 'el',
     sug_ahorrar: 'Juntá {falta} más para {que} (unos {min} min a este ritmo).', sugEfecto: '+{monto}/día',
-    que_ruta: 'la ruta a {ciudad}', que_balizas: 'las balizas',
+    que_ruta: 'la ruta a {ciudad}', que_balizas: 'las balizas', que_transbordo: 'mejorar el centro de {ap}',
+    sug_cuello: 'Tu centro de {ap} es el cuello de botella: mejoralo', sug_acelerar: '×3 hasta juntar {meta} (unos {min} min)',
+    sug_acelerarHasta: '×3 mientras tu red trabaja (unos {min} min)',
     // hangar
     hangarNuevo: 'Nuevo en el hangar', velocidad: 'Velocidad', alcance: 'Alcance', capacidadTit: 'Capacidad', precio: 'Precio',
     // fin de capítulo
@@ -357,7 +359,9 @@ const T = {
     sug_contrato: 'Accept the contract {a} → {b}', sug_vender: 'Sell {un} spare {avion} on {ruta}', sug_venderSeg: 'Sell {el} money-losing {avion}',
     sug_esperar: 'Your planes are earning. Mission: {mision}', rutaA_hub: 'the route to {ciudad}', un_f: 'a', un_m: 'a', el_f: 'the', el_m: 'the',
     sug_ahorrar: 'Save {falta} more for {que} (about {min} min at this pace).', sugEfecto: '+{monto}/day',
-    que_ruta: 'the route to {ciudad}', que_balizas: 'the beacons',
+    que_ruta: 'the route to {ciudad}', que_balizas: 'the beacons', que_transbordo: 'upgrading the {ap} center',
+    sug_cuello: 'Your {ap} center is the bottleneck: upgrade it', sug_acelerar: '×3 until you have {meta} (about {min} min)',
+    sug_acelerarHasta: '×3 while your network works (about {min} min)',
     hangarNuevo: 'New in the hangar', velocidad: 'Speed', alcance: 'Range', capacidadTit: 'Capacity', precio: 'Price',
     resumenTitulo: 'Chapter {n} complete', statSacas: 'bags delivered', statPax: 'passengers', statTon: 'tonnes', statKm: 'km flown',
     statATiempo: 'on time', statMejor: 'Best route: {ruta} ({monto})', loQueSigue: 'What’s next',

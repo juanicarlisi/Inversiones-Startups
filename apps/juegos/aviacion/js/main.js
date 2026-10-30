@@ -300,6 +300,7 @@ function pasoCuadro(ahora) {
 
 // ───────────── refresco de la interfaz ─────────────
 function refrescarRapido(ahora, lenta = RJ.lenta(s)) {
+  if (vis.acelerar && (vel !== 3 || (vis.acelerar.meta != null ? s.dinero >= vis.acelerar.meta : s.t >= vis.acelerar.hasta))) { if (vel === 3) fijarVel(1); vis.acelerar = null; }
   U.barra(s, vel, { lenta });
   const obj = O.armarObjetivos(s);
   U.pintar($('#objetivos'), obj.html, obj.campos);
@@ -423,6 +424,8 @@ const ACCIONES = {
   sugerencia: () => {
     const d = sug ?? M.sugerencia(s);
     if (!d) return;
+    // «×3 hasta juntar $X» (HN-32; la interfaz de HN-33 lo puede mejorar): acelera y vuelve a ×1 al llegar a la meta o a la hora
+    if (d.tipo === 'acelerar') { fijarVel(3); vis.acelerar = { meta: d.meta ?? null, hasta: d.hasta ?? null }; return; }
     const dest = O.destinoSugerencia(s, d);
     if (!dest) { const pts = puntosMision(); if (pts.length) E.encuadrar(pts.filter(Boolean), { ms: 450, soloAlejar: true }); return; }
     if (dest.sel) { vis.sel = dest.sel; vis.modo = null; }

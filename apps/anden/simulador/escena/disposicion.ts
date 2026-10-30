@@ -159,6 +159,8 @@ export const PILA_COLUMNAS = 5;
 export const PILA_CAPAS = 4;
 /** Alto de cada capa de la pila (m), para la vista 2,5D. */
 export const ALTURA_CAPA_PILA = 0.3;
+/** Lugares distintos de la pila: desde el lugar CAPACIDAD_PILA cada paquete cae exactamente sobre otro (queda tapado). */
+export const CAPACIDAD_PILA = PILA_FILAS * PILA_COLUMNAS * PILA_CAPAS;
 
 /**
  * Lugar `l` (0 = el próximo en salir) en el tobogán de una rampa, en dos columnas desde el extremo de la persona hacia el lazo.

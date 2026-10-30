@@ -443,3 +443,37 @@ página. **Firefox y WebKit: pendientes**, con el mismo motivo de §7 (no están
 **Abierto después de este I-2:** (1) primer cuadro ≤ 150 ms: no cumple (953 ms); decidir entre el primer cuadro progresivo (corte 2) o
 reescribir el presupuesto; (2) 4G con margen (1.534 ms, +2,3%); (3) tamizado al límite (58,5 s de 60); (4) R04 en Firefox y WebKit,
 pendiente; (5) los textos de `corte-1.md` §8, §9 y §6.6 de `CAMBIOS-CONTRATO.md` §4, §10 y §11, para el orquestador.
+
+## 15. Paso I-3 otra vez (23-10-2026): recorridos, la experiencia mirada de nuevo, informe de salida y README
+
+MEDIDO en el contenedor del entorno (4 núcleos, Node 22.22.0, Chromium 141.0.7390.37). Nada se publicó: el servidor escuchó solo en
+127.0.0.1 y los recorridos cuentan 0 pedidos a otro sitio.
+
+**§10.8 · Recorridos con el código de hoy.** La primera corrida (antes de tocar nada) pasó los 16 recorridos, pero las capturas mostraban
+cosas que alguien que viene de FlexSim marca en el primer minuto. Lo que estaba roto, pobre o confuso, y el arreglo (cambio mínimo en el
+paquete dueño, con sus pruebas en verde y pruebas nuevas):
+
+| Qué se veía | Arreglo | Dónde |
+|---|---|---|
+| **La cola del puesto manual salía del edificio**: las columnas de la excepción seguían hacia los costados sin límite y, en la peor noche del primer minuto (2.455 paquetes esperando el puesto manual a las 05:04), la fila era una línea violeta de decenas de metros por encima del lazo y fuera del piso | Una **pila acotada** junto a la mesa: 8 × 5 lugares por capa, 4 capas que suben en la 2,5D (0,3 m cada una); desde la última capa los lugares se repiten. Las vistas no dibujan los paquetes que quedan exactamente debajo de otro (salvo el seleccionado): el cuadro 2,5D de ese instante bajó de 21,6 a 4,1 ms y el 2D de 6,9 a 2,9 ms, y el piso deja de caer a 2D en las noches trabadas | `escena/disposicion.ts` (`lugarEnRampa`, `CAPACIDAD_PILA`), `escena/reproductor.ts` (`PosicionesEscena.tapado`, extensión propia de P6), `componeriso.ts`, `componer2d.ts`, `buffers.ts`; pruebas nuevas en `reproductor.test.ts` y `componer.test.ts` |
+| La pila no decía cuántos son | El tablero en vivo suma «**N en el puesto manual**» (de la traza: tramos COLA_MANUAL abiertos en t, con búsqueda binaria), en rojo desde 100; en el teléfono solo cuando está en rojo | `app/ui/tablero.ts`, textos `app.tablero.unoEnManual` y `enManual` (es y en), `estilos.css`; prueba nueva en `tablero.test.ts` |
+| **El primer minuto abría a las 08:38**, con el turno terminado a las 06:00: el enlace se paraba en la mitad de la espera más larga del paquete, que en la peor noche es la cola manual hasta media mañana | El enlace se para en la causa **confirmada** del paquete, durante el turno: a las 05:04, con el paquete dando una vuelta porque su rampa está llena y 12 rampas llenas a la vista. El recorrido falla si el enlace no muestra la causa antes del corte | `integracion/e2e/comun.mjs`, `primer-minuto.mjs` |
+| La biografía decía «Paquete 710 del camión T26» del paquete 711 (el índice desde 0 y el camión desde 1) | El paquete también se cuenta desde 1 | `explicacion/biografia.ts` (+ su prueba). Está en la clausura de la batería: se volvió a correr `npm run verificar` (abajo) |
+| En 360 × 740 el botón de reproducir y la línea de tiempo quedaban **debajo del borde** (la cabecera ocupaba 396 px: título en 3 renglones, nombre del modelo cortado en la barra, franja de supuestos en 2 renglones) | Cabecera compacta en el teléfono: título en 2 renglones como mucho, la barra sin el nombre cortado, la franja de supuestos en su versión corta («20 valores de referencia, no tuyos», como en el diseño maestro §5.9; la larga sigue en escritorio). La película empieza en 333 px y el botón de reproducir termina en 733 de 740 | `app/estilos.css`, `app/ui/etiqueta-noche.ts`, textos `app.franja.supuestosCorto` y `conPropiosCorto` |
+| El aviso de error en el tema oscuro: texto blanco sobre rojo claro, **2,8:1** | Texto oscuro sobre el rojo del tema oscuro (7,0:1); en claro sigue blanco sobre rojo oscuro (6,6:1) | `app/estilos.css` (`--sobre-rojo`) |
+| Decidir preguntaba «¿Cuántos paquetes por hora mete una persona…?» y contestaba «Referencia: 2,4 s por paquete»; «(2,25, 2,4 o 4,5)» con comas decimales y de lista mezcladas; «Tu dato (s por paquete (persona de planta))» | Con una unidad en segundos por paquete se muestran también los paquetes por hora («2,4 s por paquete (≈ 1.500 paquetes por hora)»; el rango, «de 800 a 1.600 paquetes por hora»); los tres valores van con punto y coma; «Tu dato, en s por paquete (persona de planta)» | `app/pantallas/decidir.ts`, textos de `app/i18n` y `explicacion/textos.es.json` |
+
+Lo que miré y dejé como está: el 2,5D del hub grande deja margen alrededor del piso (el hub es muy apaisado y el encuadre es isométrico:
+con zoom no importa); en la tabla apilada del teléfono, «$ 1.484.594 (± $ 6.746)» parte el renglón en el «±» (arreglarlo pide espacios
+duros en `formato.moneda`, y §9 P8 fija «$ 1.234» con espacio común); la escena no arranca sola al abrir un enlace con receta (quien lo armó
+la dejó parada en un instante: es lo que quiere mostrar). Los dos pisos (2D y 2,5D) son válidos y las capturas pueden salir en cualquiera.
+
+**Batería (§10.6) otra vez**, por el cambio de `explicacion/biografia.ts` (está en la clausura de fuentes de la batería, H5): `npm run
+verificar` 85 de 85 exigibles, S01 y S02 fallan como deben, 0 reintentos, 66 doradas, 8.104 corridas sin violaciones de conservación, en
+320 s; los mismos valores que en §14 (el motor es determinista y la biografía no entra en ninguna prueba de la batería). Huella de fuentes
+nueva: `a116020e…`; `dist/` lleva «85 de 85 · 23-10-2026».
+
+**Un recorrido intermitente.** En una corrida completa, «decidir» en 360 oscuro no llegó a la escena en 60 s (los otros 15 pasaron); la
+misma combinación sola pasó, y 6 vueltas seguidas de «película grande → ¿y si…? → cerrar → abrir decidir» en el mismo contexto abrieron la
+escena en 0,6–1,4 s. No lo pude reproducir. `e2e/comun.mjs` ahora dice qué se ve cuando una pantalla no llega (pantalla, si está lista,
+aviso, «cargando», si hay modelo y película, service worker), para que la próxima vez se sepa la causa.

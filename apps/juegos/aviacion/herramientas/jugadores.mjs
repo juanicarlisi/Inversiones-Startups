@@ -19,8 +19,9 @@ export function correr(perfil, { semilla = 1, minutos = 90, vel = 1, velMax = 6,
   const decidir = PERFILES[perfil];
   if (!decidir) throw new Error(`perfil desconocido: ${perfil}`);
   const s = I.nuevoEstado(semilla);
-  let acelera = null; // meta de «×3 hasta juntar»
-  const velAhora = () => Math.min(velMax, acelera != null && s.dinero < acelera ? Math.max(vel, 3) : vel);
+  let acelera = null; // «×3 hasta juntar $X» ({ meta }) o «×3 hasta el próximo consejo» ({ hasta }: minuto de juego)
+  const acelerando = () => acelera != null && (acelera.meta != null ? s.dinero < acelera.meta : s.t < acelera.hasta);
+  const velAhora = () => Math.min(velMax, acelerando() ? Math.max(vel, 3) : vel);
   let dtReal = I.PASO / I.MIN_POR_SEG / velAhora();
   let seg = 0, espera = REACCION[perfil];  // la primera acción llega después de tocar «Empezar»
   const out = { perfil, semilla, primerDespegue: null, primerCobro: null, primerViajeNeto: null, primerTransbordo: null, misiones: [], capitulos: [],
@@ -40,7 +41,7 @@ export function correr(perfil, { semilla = 1, minutos = 90, vel = 1, velMax = 6,
       const a = decidir(s, ctx);
       // una venta: ¿lo que sobra o la red de seguridad? ¿un avión con menos de 2 días de juego?
       const vendido = a?.tipo === 'vender' ? s.aviones.find((x) => x.id === a.id) : null;
-      const r = a?.tipo === 'acelerar' && acelera === a.meta && s.dinero < acelera ? { ok: false } : a ? aplicar(s, a) : null;
+      const r = a?.tipo === 'acelerar' && acelerando() ? { ok: false } : a ? aplicar(s, a) : null; // ya va a ×3: tocarlo otra vez no hace nada
       // Sin nada para hacer (o si la acción no salió), vuelve a mirar la pantalla después de su tiempo de reacción: nota lo nuevo
       // con una demora de entre 0 y ese tiempo, como una persona que no está mirando cada medio segundo.
       if (r?.ok) {

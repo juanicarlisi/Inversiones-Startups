@@ -110,14 +110,16 @@ export function textoSugerencia(s, d) {
     case 'ruta': return d.avion ? t('sug_rutaAvion', { a: M.AP[d.a].nombre, b: M.AP[d.b].nombre, avion: M.AV[d.avion].nombre, un: articulo(d.avion) }) : t('sug_ruta', { a: M.AP[d.a].nombre, b: M.AP[d.b].nombre });
     case 'avion': return t('sug_avion', { avion: M.AV[d.id].nombre, un: articulo(d.id), ...par(d.ruta) });
     case 'balizas': return t('sug_balizas', par(d.id));
-    case 'transbordo': return t('sug_transbordo', { ap: M.AP[d.id].nombre });
+    case 'transbordo': return t(d.cuello ? 'sug_cuello' : 'sug_transbordo', { ap: M.AP[d.id].nombre });
+    case 'acelerar': return d.meta != null ? t('sug_acelerar', { meta: plata(d.meta), min: numero(d.minutos, 1) }) : t('sug_acelerarHasta', { min: numero(d.minutos, 1) });
     case 'cargaMin': return t('sug_cargaMin', { ...par(d.id), v: t('cm' + Math.round(d.v * 100)) });
     case 'contrato': { const c = s.contratos.tablero.find((x) => x.id === d.id); return c ? t('sug_contrato', { a: M.AP[c.o].nombre, b: M.AP[c.d].nombre }) : ''; }
     case 'vender': { const av = s.aviones.find((a) => a.id === d.id); return av ? (d.seguridad ? t('sug_venderSeg', { avion: M.AV[av.tipo].nombre, el: articulo(av.tipo, true) }) : t('sug_vender', { avion: M.AV[av.tipo].nombre, un: articulo(av.tipo), ...par(av.ruta) })) : ''; }
     case 'esperar': return d.texto;
     case 'clasificar': return t('sug_clasificar');
     case 'ahorrar': {
-      const que = d.que === 'avion' ? M.AV[d.id]?.nombre ?? '' : d.que === 'balizas' ? t('que_balizas') : t('que_ruta', { ciudad: (() => { const [a, b] = String(d.id).split('-'); return M.AP[M.enRed(s, a) ? b : a]?.nombre ?? ''; })() });
+      const que = d.que === 'avion' ? M.AV[d.id]?.nombre ?? '' : d.que === 'balizas' ? t('que_balizas') : d.que === 'transbordo' ? t('que_transbordo', { ap: M.AP[d.id]?.nombre ?? '' })
+        : t('que_ruta', { ciudad: (() => { const [a, b] = String(d.id).split('-'); return M.AP[M.enRed(s, a) ? b : a]?.nombre ?? ''; })() });
       return t('sug_ahorrar', { falta: plata(d.falta), que, min: numero(d.minutos, 1) });
     }
     default: return '';
@@ -150,7 +152,7 @@ export function destinoSugerencia(s, d) {
     case 'contrato': return { sel: null, marca: `acc-${d.id}` };
     case 'vender': { const av = s.aviones.find((a) => a.id === d.id); return av ? { sel: { tipo: 'ruta', id: av.ruta }, marca: `vender-${d.id}` } : null; }
     case 'clasificar': return { sel: { tipo: 'ap', id: M.HUB }, marca: `clasif-${d.id}` };
-    case 'ahorrar': return null;
+    case 'ahorrar': case 'acelerar': return null;
     default: return null;
   }
 }
@@ -186,7 +188,7 @@ export function armarChips(s, vis, { guia, sug, ronda }) {
   if (guia) html += `<button class="chip chico info" data-accion="saltearGuia" data-k="saltearGuia">${esc(t('guiaSaltear'))}</button>`;
   else if (sug) {
     const txt = textoSugerencia(s, sug);
-    if (txt) html += `<button class="chip ${sug.tipo === 'esperar' ? 'info' : ''}" data-accion="sugerencia" data-k="chip-sug" ${v.e('sgtt', { titulo: `${t('sugTitulo')}: ${txt}` })}>${icono(sug.tipo === 'ahorrar' || sug.tipo === 'esperar' ? 'reloj' : 'estrella')}`
+    if (txt) html += `<button class="chip ${sug.tipo === 'esperar' ? 'info' : ''}" data-accion="sugerencia" data-k="chip-sug" ${v.e('sgtt', { titulo: `${t('sugTitulo')}: ${txt}` })}>${icono(sug.tipo === 'ahorrar' || sug.tipo === 'esperar' || sug.tipo === 'acelerar' ? 'reloj' : 'estrella')}`
       + `${v.t('sgt', txt, 'chip-txt')}${sug.efectoDia > 0 && sug.tipo !== 'ahorrar' ? v.t('sge', t('sugEfecto', { monto: plata(sug.efectoDia) }), 'chip-efecto') : ''}</button>`;
   }
   return { html, campos: v.campos };

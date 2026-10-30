@@ -27,10 +27,11 @@ Lo que se ve en el primer minuto:
 
 1. **Inicio:** las dos plantillas como miniaturas vivas, «¿Qué tenés que decidir?» y «Abrir un enlace».
 2. **Escena:** la noche en 2,5D (o 2D en equipos lentos), con un tablero en vivo (hora, paquetes en jaula y adentro, fila, rampas llenas,
-   personas en pausa, lazo detenido y, pasado el corte, cuántos no llegaron), la línea de arriba (costo por paquete con su ±, «perder el
-   corte: 1 noche de cada N», confianza y comprobante), la etiqueta de la noche («Noche 23 de 100 · la mediana por hora de fin»), la línea
-   de tiempo con los momentos importantes y los tres sellos (motor verificado, reproducida, validación).
-   Rueda o pellizco para acercar, arrastrar para mover, doble clic o «Ver todo el hub» para volver.
+   personas en pausa, cuántos esperan el puesto manual, lazo detenido y, pasado el corte, cuántos no llegaron), la línea de arriba (costo
+   por paquete con su ±, «perder el corte: 1 noche de cada N», confianza y comprobante), la etiqueta de la noche («Noche 23 de 100 · la
+   mediana por hora de fin»), la línea de tiempo con los momentos importantes y los tres sellos (motor verificado, reproducida, validación).
+   Rueda o pellizco para acercar, arrastrar para mover, doble clic o «Ver todo el hub» para volver. En un teléfono de 360 × 740 la
+   película, su línea de tiempo y el botón de reproducir entran en la primera pantalla.
 3. **Tocar** un paquete o una rampa abre su **biografía**: los pasos con hora, las esperas con su causa y, aparte, solo las causas
    confirmadas repitiendo la noche con un cambio («Repetida sin pausas: llegaba a las 05:50, no a las 06:05»).
 4. **Cien noches:** cada rampa pintada por la probabilidad de llenarse, el abanico de la hora de fin y la noche mediana, la peor y la mejor.
