@@ -133,13 +133,16 @@ function armarBiografia(raiz: HTMLElement, ctx: Contexto, noche: NocheVista | nu
     partes.push(el('p', { class: 'bio__percentil' }, p >= 100 ? ctx.t('app.bio.elQueMasTardo', { noche: noche.replica + 1 })
       : ctx.t('app.bio.percentil', { p: ctx.f.numero(p, p >= 99 ? 1 : 0), noche: noche.replica + 1 })));
   }
-  partes.push(tarjeta(ctx.t('app.bio.pasos'), 'bio__pasos', bio.pasos.length ? lista : el('p', null, ctx.t('app.bio.sinPasos'))));
+  const pasosTarjeta = tarjeta(ctx.t('app.bio.pasos'), 'bio__pasos', bio.pasos.length ? lista : el('p', null, ctx.t('app.bio.sinPasos')));
 
   const esPaquete = bio.clase === ClaseEntidad.PAQUETE;
   const causasCaja = el('div', { class: 'bio__causas', 'aria-live': 'polite' });
   const ysiCaja = el('div', { class: 'bio__ysi' });
+  // Primero el porqué confirmado y después los pasos (revisión de la experiencia, I-3, 30-10-2026): con la lista de pasos arriba, en
+  // 360 px la causa confirmada quedaba debajo de quince renglones, fuera de la primera pantalla, y es lo que la persona vino a buscar.
+  if (esPaquete) partes.push(tarjeta(ctx.t('app.bio.causas'), 'bio__causas-tarjeta', causasCaja));
+  partes.push(pasosTarjeta);
   if (esPaquete) {
-    partes.push(tarjeta(ctx.t('app.bio.causas'), 'bio__causas-tarjeta', causasCaja));
     const cambios = cambiosDe(bio, mv, noche.traza);
     const resultado = el('p', { class: 'bio__ysi-resultado', 'aria-live': 'polite', 'data-ysi-resultado': '' });
     partes.push(tarjeta(ctx.t('app.bio.ysi'), 'bio__ysi-tarjeta',

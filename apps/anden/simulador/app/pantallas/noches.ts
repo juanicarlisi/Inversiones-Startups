@@ -8,6 +8,7 @@ import type { CualNoche } from '../estado.ts';
 import { horaASeg } from '../../contratos/tipos-base.ts';
 import { el, limpiezas, poner } from '../ui/dom.ts';
 import { crearLienzo } from '../ui/lienzo.ts';
+import { crearPlano } from '../ui/plano.ts';
 import { cabecera, progreso, tarjeta } from '../ui/tarjeta.ts';
 import { etiquetaNoche } from '../ui/etiqueta-noche.ts';
 import { nivelDeRiesgo } from '../ui/paleta.ts';
@@ -15,7 +16,8 @@ import { botonVolver } from './comun.ts';
 
 export const montarNoches: Montar = (raiz, ctx) => {
   const L = limpiezas(), s = ctx.sesion;
-  if (!s.mv) { ctx.ir('inicio'); return () => {}; }
+  const mv = s.mv;
+  if (!mv) { ctx.ir('inicio'); return () => {}; }
   // El mapa parcial se rearma con las noches que ya llegaron, como mucho cada 300 ms y nunca con más de una cuenta en vuelo: con
   // muchas noches rearmarlo cada 5 llegadas saturaba el hilo de la interfaz (hallazgo SEG-03).
   let parcial: MapaRiesgo | null = null, firmaParcial = -1, ultimoArmado = -Infinity;
@@ -31,8 +33,14 @@ export const montarNoches: Montar = (raiz, ctx) => {
   };
   const barra = el('div', { class: 'noches__progreso' });
   const etq = etiquetaNoche(ctx, 'A');
-  const lienzo = crearLienzo(ctx, { reproductor: () => s.noche?.reproductor ?? null, riesgo: () => (s.semaforo?.color === 'rojo' ? null : mapa()), tocable: true, etiqueta: ctx.t('app.noches.lienzo'), camara: true,
-    claveCamara: `noches|${s.mv?.huella ?? ''}` });
+  // El mapa va sobre el PLANO del hub (corte-1.md §9 P8), no sobre un instante de la noche que se ve: con los paquetes, las bandejas y
+  // las rampas cargadas de las 05:04 encima, las placas de riesgo no se leían, sobre todo en 360 px (revisión de la experiencia, I-3,
+  // 30-10-2026). Va en planta (2D): en 2,5D y en 360 px el hub quedaba en diagonal, chico, y las rampas eran rayitas sin color legible;
+  // en planta cada tobogán se pinta entero con su color de riesgo. Tocar una rampa sigue abriendo su biografía en la noche de la escena
+  // (las rampas son las mismas en el plano).
+  const plano = crearPlano(() => ctx.servicios.geometria(mv.modelo), ctx.servicios.crearReproductor, mv);
+  const lienzo = crearLienzo(ctx, { reproductor: () => (s.noche ? plano() ?? s.noche.reproductor : null), riesgo: () => (s.semaforo?.color === 'rojo' ? null : mapa()), tocable: true, etiqueta: ctx.t('app.noches.lienzo'), camara: true,
+    piso: '2d', claveCamara: `noches|${s.mv?.huella ?? ''}` });
   L.sumar(lienzo.destruir);
   const leyenda = el('ul', { class: 'leyenda leyenda--riesgo', 'aria-label': ctx.t('app.noches.leyenda') },
     ...[0, 1, 2, 3, 4].map((n) => el('li', { class: `leyenda__item leyenda__item--riesgo${n}` }, el('span', { class: 'leyenda__muestra', 'aria-hidden': 'true' }),
@@ -47,8 +55,9 @@ export const montarNoches: Montar = (raiz, ctx) => {
     onclick: () => { ctx.almacen.despachar({ tipo: 'elegirNoche', noche: c }); void s.mostrarNoche(c); } }, ctx.t(`escena.riesgo.noche.${c}`)));
   selector.append(...botones);
   raiz.append(cabecera(ctx.t('app.noches.titulo', { N: s.N }), botonVolver(ctx)), barra,
-    el('section', { class: 'tarjeta noches__mapa' }, tituloRiesgo, etq.nodo, lienzo.nodo, leyenda, nota),
-    tarjeta(ctx.t('app.noches.abanicoTitulo'), 'noches__abanico', abanico, selector),
+    el('section', { class: 'tarjeta noches__mapa' }, tituloRiesgo, lienzo.nodo, leyenda, nota),
+    // la etiqueta de la noche va con el selector que la cambia (el mapa es de las cien, no de una)
+    tarjeta(ctx.t('app.noches.abanicoTitulo'), 'noches__abanico', abanico, selector, etq.nodo),
     tarjeta(ctx.t('app.noches.rampasTitulo'), 'noches__rampas-tarjeta', rampas));
 
   const pintar = () => {

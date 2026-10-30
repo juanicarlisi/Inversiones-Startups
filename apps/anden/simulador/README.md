@@ -32,9 +32,12 @@ Lo que se ve en el primer minuto:
    mediana por hora de fin»), la línea de tiempo con los momentos importantes y los tres sellos (motor verificado, reproducida, validación).
    Rueda o pellizco para acercar, arrastrar para mover, doble clic o «Ver todo el hub» para volver. En un teléfono de 360 × 740 la
    película, su línea de tiempo y el botón de reproducir entran en la primera pantalla.
-3. **Tocar** un paquete o una rampa abre su **biografía**: los pasos con hora, las esperas con su causa y, aparte, solo las causas
-   confirmadas repitiendo la noche con un cambio («Repetida sin pausas: llegaba a las 05:50, no a las 06:05»).
-4. **Cien noches:** cada rampa pintada por la probabilidad de llenarse, el abanico de la hora de fin y la noche mediana, la peor y la mejor.
+3. **Tocar** un paquete o una rampa abre su **biografía**: primero el porqué, solo con las causas confirmadas repitiendo la noche con un
+   cambio («Repetida con la rampa R11 al doble de capacidad: llegaba a las 05:35, no a las 12:09»), y después los pasos con hora, duración
+   y la causa de cada espera.
+4. **Cien noches:** el plano del hub en planta con cada rampa pintada por la probabilidad de llenarse (5 pasos, con su leyenda), las
+   rampas que más se llenan con su intervalo, el abanico de la hora de fin (P10, P50 y P90 con intervalo, y la peor noche con cuántos
+   paquetes deja afuera) y el selector de la noche mediana, la peor y la mejor.
 5. **¿Y si…?:** puestos, personas de rampa, retén, plan de rampas y «balancear el plan»; primero una noche provisoria, después 40 noches
    pareadas con la diferencia, su intervalo y el veredicto, en pantalla dividida (en el teléfono, A y B alternan con un toque).
 6. **Decidir:** la probabilidad de cumplir la meta por opción (con su intervalo), la recomendación con semáforo y el formulario que
@@ -52,9 +55,9 @@ Español primero; inglés con el selector de la barra (las mismas claves en `tex
 |---|---|---|
 | `npm test` | Las 1.066 pruebas de los ocho paquetes y de la integración (arquitectura, R08b, R06 del hub, E01/E02, S01–S03, S08, S09, S11, textos, marcas, Workers, plano) | ≈ 1,5–2 min |
 | `npx tsc -p tsconfig.json` | Los tipos (TypeScript «borrable»: Node corre los `.ts` directo) | ≈ 15 s |
-| `npm run verificar` | La batería «Andén Verificado» completa con el núcleo de producción: 85 pruebas exigibles contra teoría de colas y casos publicados, S01 y S02 que tienen que fallar, informe en `verificacion/informe/` | ≈ 9 min |
+| `npm run verificar` | La batería «Andén Verificado» completa con el núcleo de producción: 85 pruebas exigibles contra teoría de colas y casos publicados, S01 y S02 que tienen que fallar, informe en `verificacion/informe/` | ≈ 5–9 min |
 | `npm run r04` | La misma huella en Node y en Chromium (suite rápida, doradas, hub chico con 5 semillas, matemática bit a bit) | ≈ 15 s |
-| `npm run e2e` | Los recorridos de punta a punta en Chromium, en 360 × 740 y 1280 × 800, claro y oscuro (primer minuto, decidir, compartir, enlaces hostiles H01 y H07b), con 0 errores de consola; 8 capturas en `integracion/e2e/capturas/` | ≈ 18 min |
+| `npm run e2e` | Los recorridos de punta a punta en Chromium, en 360 × 740 y 1280 × 800, claro y oscuro (primer minuto, decidir, compartir, enlaces hostiles H01 y H07b), con 0 errores de consola; 8 capturas en `integracion/e2e/capturas/` (con `--revision=<carpeta>`, todas: 40) | ≈ 13–15 min |
 | `npm run banco` | Los presupuestos de tiempo, memoria y peso de §11 (mediana de 5 corridas, con la CPU frenada 4× para los cuadros); sale con código 1 mientras alguno no cumpla | ≈ 7 min |
 | `npm run informe` | Corre `npm test`, mide invariantes (200 noches por plantilla) y el enlace, junta lo de arriba y escribe `integracion/salida/informe-salida.json` | ≈ 4 min |
 | `node integracion/e2e/humo.mjs` | Humo rápido de `dist/` en Chromium (película, cien noches, enlace de ida y vuelta) | ≈ 1 min |

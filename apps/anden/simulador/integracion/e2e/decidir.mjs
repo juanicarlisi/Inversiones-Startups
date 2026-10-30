@@ -16,6 +16,9 @@ export async function decidir({ contexto, base, etiqueta, prep, fallar, ok, guar
   await h.pantalla('escena', 60_000);
   const t0 = Date.now();
   await h.clic('ir-decidir');
+  // la recomendación con su semáforo sale apenas termina la evaluación; el formulario (el tamizado) sigue debajo, con su progreso
+  await page.waitForSelector('[data-recomendacion]', { timeout: 300_000 });
+  datos.recomendacionS = Number(((Date.now() - t0) / 1000).toFixed(1));
   await h.pantalla('decidir', 300_000);
   datos.primeraRespuestaS = Number(((Date.now() - t0) / 1000).toFixed(1));
   const leerTabla = () => page.$$eval('[data-tabla="decision"] tbody tr', (xs) => xs.map((x) => x.textContent));
@@ -58,7 +61,7 @@ export async function decidir({ contexto, base, etiqueta, prep, fallar, ok, guar
   datos.tusDatos = (await page.textContent('.decidir__dadas').catch(() => ''))?.trim();
   await h.sinDesborde('decidir (ya está)');
   await guardar('decidir-ya-esta', page, { completa: true, altoMax: 2000 });
-  ok(`${etiqueta} · decidir: recomendación ${datos.recomendacion} (${datos.semaforo}) en ${datos.primeraRespuestaS} s; ${datos.preguntas.length} preguntas ` +
+  ok(`${etiqueta} · decidir: recomendación ${datos.recomendacion} (${datos.semaforo}) a los ${datos.recomendacionS} s, formulario a los ${datos.primeraRespuestaS} s; ${datos.preguntas.length} preguntas ` +
     `(${datos.preguntas.map((x) => `${x.parametro} = ${x.valor}, ${x.recalculoS} s`).join('; ')}) → «${listo}» con ${datos.recomendacionFinal}`);
   const faltan = await h.faltantes();
   if (faltan.length) fallar(`${etiqueta} · decidir: claves de texto faltantes: ${faltan.join(', ')}`);

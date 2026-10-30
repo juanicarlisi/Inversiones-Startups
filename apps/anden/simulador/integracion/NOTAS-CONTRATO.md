@@ -477,3 +477,25 @@ nueva: `a116020e…`; `dist/` lleva «85 de 85 · 23-10-2026».
 misma combinación sola pasó, y 6 vueltas seguidas de «película grande → ¿y si…? → cerrar → abrir decidir» en el mismo contexto abrieron la
 escena en 0,6–1,4 s. No lo pude reproducir. `e2e/comun.mjs` ahora dice qué se ve cuando una pantalla no llega (pantalla, si está lista,
 aviso, «cargando», si hay modelo y película, service worker), para que la próxima vez se sepa la causa.
+
+## 16. Paso I-3 otra vez (30-10-2026): recorridos con el código de hoy, la experiencia mirada de nuevo, informe de salida y README
+
+MEDIDO en el contenedor del entorno (4 núcleos, Node 22.22.0, Chromium 141.0.7390.37). Nada se publicó: el servidor escuchó solo en
+127.0.0.1 y los recorridos cuentan 0 pedidos a otro sitio. `contratos/` no cambió.
+
+**Antes de tocar nada.** Con el árbol del commit `909205e` los recorridos de la primera combinación (1280 × 800 claro: primer minuto,
+decidir, compartir y enlace hostil) y el primer minuto de la segunda pasaron sin errores de consola. Se cortó esa corrida para mirar las
+capturas y arreglar lo que se veía mal antes de la corrida completa.
+
+**Lo que se veía pobre o confuso para alguien que viene de FlexSim, y el arreglo** (cambio mínimo en `app/`, con sus 96 pruebas en verde):
+
+| Qué se veía | Arreglo | Dónde |
+|---|---|---|
+| La biografía ponía los quince pasos del paquete antes del porqué: en 360 px la causa **confirmada** (lo que la persona vino a buscar al tocar el paquete) quedaba debajo de quince renglones, fuera de la primera pantalla, y la captura «biografía con causa confirmada» no la mostraba | Primero «Por qué (solo lo confirmado)» y después «Lo que le pasó»; el «¿y si…?» del paquete sigue al final | `app/pantallas/biografia.ts` |
+| El mapa de las cien noches se dibujaba sobre un **instante** de la noche que se ve (las 05:04 de la peor): paquetes, bandejas y rampas cargadas tapaban las placas de riesgo, y en 360 px, en 2,5D, el hub quedaba en diagonal y las rampas eran rayitas sin color legible. Además mezclaba dos cosas: un mapa de cien noches con la etiqueta de una | El mapa va **sobre el plano** del hub (la traza vacía de `ui/plano.ts`, como pide §9 P8: «capa de riesgo sobre el plano») y **en planta**: cada tobogán entero pintado por su probabilidad de llenarse, en 1280 y en 360 (vertical). La etiqueta de noche pasa al selector «mediana / peor / mejor», que es lo que cambia la noche de la escena. Tocar una rampa sigue abriendo su biografía en la noche de la escena | `app/pantallas/noches.ts` |
+| En la pantalla dividida de escritorio cada mitad medía 58vh (la regla de 1100 px de `.escena__caja` pisaba la de `.escena__caja--mitad`) y el hub, largo y bajo, ocupaba un tercio del lienzo: unos 200 px vacíos debajo de cada mitad empujaban la tabla del veredicto fuera de la pantalla | En lado a lado, cada mitad con proporción 16:9 (entre 240 px y 56vh): el hub llena la mitad y la tabla sube 140 px | `app/estilos.css` |
+
+Lo que miré y dejé como está: en 360 px el 2,5D del hub grande queda en diagonal (el encuadre isométrico no gira el hub; la persona puede
+pasar a planta con un toque y acercar con el pellizco); el mapa de riesgo no rotula las rampas en el encuadre completo (60 rampas en
+1.160 px no entran; la lista «Las rampas que más se llenan» las nombra y acercando se rotulan); la pregunta de la plantilla dice «paquetes
+por hora» y el parámetro está en segundos por paquete (la plantilla publicada es inmutable; la pantalla ya muestra las dos unidades).

@@ -99,6 +99,20 @@ const archivo = (npm, nombre) => {
 };
 const verdes = (a) => !!a && a.falla === 0 && a.pasa > 0;
 
+/**
+ * La última revisión de la experiencia (I-3, 30-10-2026): qué se veía pobre o confuso en las capturas y cómo quedó. El detalle, con el
+ * antes y el después, en integracion/NOTAS-CONTRATO.md §16.
+ */
+const REVISION_EXPERIENCIA = [
+  { que: 'La biografía ponía los quince pasos del paquete antes del porqué: en 360 px la causa confirmada quedaba fuera de la primera pantalla',
+    arreglo: 'Primero «Por qué (solo lo confirmado)» y después «Lo que le pasó»', donde: 'app/pantallas/biografia.ts' },
+  { que: 'El mapa de las cien noches se dibujaba sobre un instante de la noche: paquetes, bandejas y rampas cargadas tapaban las placas de riesgo; en 360 px, en 2,5D, las rampas eran rayitas sin color legible',
+    arreglo: 'El mapa va sobre el plano vacío del hub y en planta (2D), con cada tobogán pintado por su probabilidad de llenarse; la etiqueta de noche pasa al selector de noche',
+    donde: 'app/pantallas/noches.ts' },
+  { que: 'En la pantalla dividida de escritorio cada mitad medía 58vh (una regla de 1100 px pisaba la de la mitad) y el hub, largo y bajo, ocupaba un tercio: 200 px vacíos y la tabla del veredicto fuera de la pantalla',
+    arreglo: 'Cada mitad con proporción 16:9 (entre 240 px y 56vh)', donde: 'app/estilos.css' },
+];
+
 async function principal() {
   const fecha = new Date().toISOString().slice(0, 10);
   console.log('npm test (con el reportero JSON)…');
@@ -223,7 +237,11 @@ async function principal() {
       'Presentar en 4 pasos (los de diseño maestro §5.6) en lugar de «tres actos»: lo confirma el fundador.',
       'Tamizado del hub chico al límite de su presupuesto (mediana cerca de 60 s, alguna corrida por encima) desde las reglas de parada del 20-10: reusar las noches de la evaluación base, bajar REPLICAS_MAX_TAMIZADO o tamizar con una tanda fija (integracion/NOTAS-CONTRATO.md §14). Cambia la estadística: decide el orquestador.',
       'Primera carga a menos de 5 KB brotli del tope de 150 KB: lo que sume el corte 2 va en trozos aparte.',
+      'Textos de corte-1.md que quedaron viejos (integracion/CAMBIOS-CONTRATO.md §11): §6.6 «(0, 1]», VERSION_MOTOR como versión del motor completo (hoy 1.1.0), reglas 7 y 11 del motor 1.1.0 y la prueba del plan con 9 personas de rampa. La especificación no es de ningún paquete: la corrige el orquestador.',
+      'R04 en Firefox y WebKit: pendientes (no están en el entorno y no se instalan); van al corte 2 con los teléfonos reales.',
     ],
+    // lo que se arregló al mirar las capturas como alguien que viene de FlexSim (integracion/NOTAS-CONTRATO.md §16)
+    revisionExperiencia: REVISION_EXPERIENCIA,
   };
   writeFileSync(join(SALIDA, 'informe-salida.json'), `${JSON.stringify(informe, null, 2)}\n`);
   console.log(`\ninforme de salida: ${pasan} de ${criterios.length} criterios cumplen → ${informe.estado}`);
