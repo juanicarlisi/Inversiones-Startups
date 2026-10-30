@@ -1392,3 +1392,36 @@
 - **Sigue esperando al fundador:** prender lo social (cuentas anónimas sin captcha, la clave de Claude, marcarse administrador, regalar
   Max a los pilotos), los planes y precios (DEC-2026-10-24-4), la marca en el INPI (DEC-2026-10-25-1), la cuenta de Google Play
   antes del 15-11.
+
+## DEC-2026-10-30-1 · Senda: la prueba 39 (duelos que llegan, torneos de cualquiera, Lany que festeja y el evangelio primero)
+
+- **Fecha:** 2026-10-30 · **Quién:** el fundador, después de jugar un duelo con otro teléfono: «cuando me proponen un duelo no me
+  llega ni la notificación, ni en el inicio, ni en cualquier lado»; «turno enviado vs Alguien»; la victoria «rara y difícil de
+  entender»; la ruleta que ya no se agarra; alias único, roles libres, invitaciones que se aceptan, torneos para cualquiera (también de
+  nombres por letra validados con todos los nombres bíblicos), el Evangelio como primera travesía, planes de 3 meses sin anual, «by
+  Nueva Generación», evaluar Inicio y los anuncios, reducir tokens del PDF y «avancemos con esto y los próximos». Claude ejecuta y
+  decide lo técnico.
+- **Decidido / hecho:** «Te esperan» en Inicio y globito en Jugar (la base arma las novedades en una llamada); permiso de avisos al
+  entrar a lo social y el canal de Android que faltaba; desafiar arranca el duelo; el alias del rival se conserva; fin de turno con
+  los duelos pendientes; victoria con cuatro bailes nuevos de Lany en Rive; la ruleta con Gesture Handler; salir de una partida (en un
+  duelo, el turno se manda como está); alias único; amistad mutua; invitaciones a grupos que se aceptan; títulos libres; Torneos de
+  trivia (Senda, propias, sermón), Nombres por letra (1.421 nombres sacados del texto bíblico) y en vivo; «La buena noticia, de
+  principio a fin» como primera lección de todos y la ruta del Evangelio como entrada; Zacarías (458 lecciones); banco 37 (17 de
+  imagen, 15 edificantes; 2.246); planes de 3 meses (Premium 5,99 y Max 14,99 cada 3 meses en Latinoamérica, 20 % y 17 % de ahorro);
+  anuncios con medida (ninguno en las dos primeras partidas del día, como mucho uno cada 4 minutos); el texto del PDF en lugar del
+  PDF; se cerró que alguien se marcara admin desde su teléfono (consecuencia: el APK 38 ya no crea perfiles; hay que usar el 39).
+- **Por qué:** los duelos son el corazón de «Juntos» y fallaban justo en lo que hace volver (el aviso y verlo en Inicio); lo demás
+  sale de los pedidos del fundador con la vara de UX de 10 puntos y la regla «todo enseña y edifica».
+- **Revisar:** con el APK 39 en dos teléfonos (aviso, «Te esperan», victoria) y con los primeros datos de AdMob y de renovación del
+  plan de 3 meses.
+
+## DEC-2026-10-30-2 · Senda: los USD 200 de créditos de Anthropic (pendiente del fundador)
+
+- **Fecha:** 2026-10-30 · **Quién:** propuesta de Claude; **decide el fundador** (usar los créditos es gastar).
+- **Hecho:** USD 200 de créditos promocionales (API, Batch API, Agent SDK, Managed Agents), otorgados el 30-10-2026, vencen el
+  22-11-2026 (captura del fundador).
+- **Propuesta:** 1) una segunda revisión de las 2.246 preguntas y 458 lecciones por lotes (Batch API, a mitad de precio), con la lista
+  de hallazgos corregida en la prueba 40; 2) borradores de traducción al portugués de rutas enteras, controlados por el validador;
+  3) la trivia del sermón con 5 a 10 sermones reales; 4) lo que sobre, preguntas hacia la meta de Pascua. Control: tope de gasto en la
+  consola, «Usage» cada lunes, y el tamaño de cada lote en tokens antes de mandarlo (el precio, en la consola, no de memoria).
+- **Estado:** espera el «OK créditos» del fundador antes del 15-11 (pendiente «creditos_anthropic»).

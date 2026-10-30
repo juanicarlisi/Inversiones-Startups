@@ -337,6 +337,20 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     va solo si tiene que ver con la lección (lista de lecciones sin visual a propósito, controlada por el validador);
   - la trivia suma curiosidades («¿Sabías que…?») sobre versículos que ninguna pregunta usaba.
 
+- **Datos del 30-10-2026 (Senda, prueba 39):**
+  - los duelos tienen que llegar y verse sin buscarlos: aviso al teléfono, «Te esperan» arriba de todo en Inicio (duelos, amigos,
+    grupos, torneos) y globito en Jugar; desafiar a un amigo lleva directo a jugar; el rival siempre con su nombre; «UX 10 puntos: que
+    nunca tenga que buscar lo que quiere» (capítulo 65 §2);
+  - la victoria es una fiesta enorme de Lany (cuatro bailes nuevos al azar en Rive) y la derrota tiene un mensaje que no humilla;
+  - alias único en todo Senda; las invitaciones a grupos y torneos se aceptan; el líder escribe el rol de cada miembro como texto libre;
+  - torneos para cualquiera con sus amigos (o con su grupo, si es líder): trivia de Senda, propia o del sermón, Nombres por letra
+    validado con todos los nombres de personas de la Biblia (sacados del texto) y en vivo;
+  - la primera lección de todos es «La buena noticia, de principio a fin»; la ruta de entrada, el Evangelio;
+  - planes: sin anual por ahora, como mucho 3 meses con el ahorro a la vista; anuncios con medida (`pausaAnuncio.ts`);
+  - «by Nueva Generación» en la entrada (falta confirmar la autorización del ministerio); el lema, «La Palabra ilumina tu senda»;
+  - USD 200 de créditos de Anthropic que vencen el 22-11: la propuesta de uso espera su OK (DEC-2026-10-30-2; capítulo 65 §7);
+  - la base solo deja escribir del perfil lo que le toca a cada uno (nadie se marca admin): el APK 38 ya no crea perfiles, va el 39.
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
