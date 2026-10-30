@@ -69,11 +69,29 @@ Lany; con la armadura completa, la presentación heroica. Pruebas: `pruebas/arra
 Aprobados. Flujo «Lotes de Claude» en GitHub Actions (`scripts/lotes/claude_lotes.py`): traducción de la trivia al portugués y al
 inglés y segunda revisión de cada pregunta contra la RV1909, con Claude Opus 5.5 en la API de lotes (mitad de precio). ESTIMACIÓN:
 ~USD 35 la traducción y ~USD 20 la revisión. Todo vuelve como borrador a la rama «lotes» y pasa por el validador antes de entrar.
-**Falta la clave**: el fundador la crea en la consola y la carga en GitHub como `ANTHROPIC_API_KEY` (nunca en el chat).
+La clave la creó y la cargó en GitHub el fundador con la extensión de Claude en Chrome (30-10, nombre «senda-lotes», límite de gasto
+de la organización en USD 200 por mes; la clave nunca pasó por el chat).
+
+**Lo que se hizo con los créditos (30-10-2026):**
+- Dos lotes de prueba de 30 preguntas (USD 0,24) y después los tres grandes: revisión de 2.252 preguntas, traducción de 1.907 al
+  portugués y de 2.282 al inglés. HECHO (log del flujo): 16,6 millones de tokens de entrada y 1,5 millones de salida, **~USD 48**
+  (ESTIMACIÓN a precio de lista con el 50 % de lotes, sin descontar la caché). Quedan ~USD 150 hasta el 22-11.
+- **Traducción**: `scripts/lotes/incorporar.py` las incorpora con el validador como filtro (la palabra clave tiene que leerse en las
+  dos Biblias del idioma; si no, busca otra de la respuesta o la pregunta que sí; nada que se delate, se repita o cite mal).
+  Entraron 96 % en portugués y 96 % en inglés. Claude leyó una muestra al azar contra el español y el versículo: correctas, con los
+  nombres de la Bíblia Livre y de la BSB. Resultado: la trivia se juega entera en los tres idiomas (todas las piezas con más de 40).
+- **Revisión**: marcó 117 preguntas (6 error, 111 dudosas). Claude las leyó una por una contra la RV1909: 81 tenían un problema real
+  y se corrigieron (`scripts/autor/trivia_revision40.py`): incorrectas que también eran verdad (el Herodes de Hechos 12 *es* Agripa;
+  Filipenses termina con la misma frase que Apocalipsis; Jesús también se apareció a los doce; «ochenta» es «más de cuarenta»),
+  enunciados ambiguos (a los siete los eligió la multitud, no los apóstoles; «mayormente» es «sobre todo»; una cita que delataba la
+  respuesta), palabras que la RV1909 dice distinto («más conjunto», «la sana lengua», el valle «del Alcornoque») y tres datos que
+  afirmaban de más. Las traducciones de esas 84 se volvieron a pedir. El resto eran exigencias de más del revisor (el pasaje entero
+  se abre al responder).
 
 ## 8. Próximos (en orden)
 
-1. Si el fundador carga la clave: lanzar los lotes (traducción pt y en, revisión) y revisar los borradores pregunta por pregunta.
+1. Con los ~USD 150 que quedan (vencen el 22-11): traducir las rutas de la Travesía al portugués y al inglés por lotes (el motor y el
+   validador de rutas traducidas ya existen) y una segunda revisión de las lecciones contra el texto.
 2. La secuencia «armarse» entera fluida (hoy el director encadena casco → escudo → espada → heroica); el repertorio nuevo (§4) sobre el rig.
 3. Orejas y cola del pañuelo con huesos y skin (que se doblen) y la lana del torso con malla.
 4. Más trivia: curiosidades, fáciles, difíciles y atrapantes (meta de Pascua: 4.000), y más láminas de dominio público.
