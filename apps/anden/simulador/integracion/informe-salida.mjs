@@ -109,6 +109,8 @@ const REVISION_EXPERIENCIA = [
   { que: 'El mapa de las cien noches se dibujaba sobre un instante de la noche: paquetes, bandejas y rampas cargadas tapaban las placas de riesgo; en 360 px, en 2,5D, las rampas eran rayitas sin color legible',
     arreglo: 'El mapa va sobre el plano vacío del hub y en planta (2D), con cada tobogán pintado por su probabilidad de llenarse; la etiqueta de noche pasa al selector de noche',
     donde: 'app/pantallas/noches.ts' },
+  { que: 'En la tabla apilada del teléfono la fila destacada partía la cifra en el «±» («$ 1.484.594 (± $» / «6.746)»)',
+    arreglo: 'La cifra va en un renglón; si falta lugar, se acomoda el rótulo', donde: 'app/estilos.css' },
   { que: 'En la pantalla dividida de escritorio cada mitad medía 58vh (una regla de 1100 px pisaba la de la mitad) y el hub, largo y bajo, ocupaba un tercio: 200 px vacíos y la tabla del veredicto fuera de la pantalla',
     arreglo: 'Cada mitad con proporción 16:9 (entre 240 px y 56vh)', donde: 'app/estilos.css' },
 ];
@@ -238,6 +240,7 @@ async function principal() {
       'Tamizado del hub chico al límite de su presupuesto (mediana cerca de 60 s, alguna corrida por encima) desde las reglas de parada del 20-10: reusar las noches de la evaluación base, bajar REPLICAS_MAX_TAMIZADO o tamizar con una tanda fija (integracion/NOTAS-CONTRATO.md §14). Cambia la estadística: decide el orquestador.',
       'Primera carga a menos de 5 KB brotli del tope de 150 KB: lo que sume el corte 2 va en trozos aparte.',
       'Textos de corte-1.md que quedaron viejos (integracion/CAMBIOS-CONTRATO.md §11): §6.6 «(0, 1]», VERSION_MOTOR como versión del motor completo (hoy 1.1.0), reglas 7 y 11 del motor 1.1.0 y la prueba del plan con 9 personas de rampa. La especificación no es de ningún paquete: la corrige el orquestador.',
+      'Decidir se cierra lento: en el recorrido la recomendación aparece a los 17–18 s, pero el formulario llega a «Ya está» a los ~150 s (y otros ~135 s después de cada dato). Misma causa que el tamizado al límite; mismas tres salidas (integracion/NOTAS-CONTRATO.md §14 y §16).',
       'R04 en Firefox y WebKit: pendientes (no están en el entorno y no se instalan); van al corte 2 con los teléfonos reales.',
     ],
     // lo que se arregló al mirar las capturas como alguien que viene de FlexSim (integracion/NOTAS-CONTRATO.md §16)

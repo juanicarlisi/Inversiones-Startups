@@ -487,13 +487,21 @@ MEDIDO en el contenedor del entorno (4 núcleos, Node 22.22.0, Chromium 141.0.73
 decidir, compartir y enlace hostil) y el primer minuto de la segunda pasaron sin errores de consola. Se cortó esa corrida para mirar las
 capturas y arreglar lo que se veía mal antes de la corrida completa.
 
-**Lo que se veía pobre o confuso para alguien que viene de FlexSim, y el arreglo** (cambio mínimo en `app/`, con sus 96 pruebas en verde):
+**Lo que se veía pobre o confuso para alguien que viene de FlexSim, y el arreglo** (cambio mínimo en `app/`, con sus 96 pruebas y su humo con servicios falsos en verde):
 
 | Qué se veía | Arreglo | Dónde |
 |---|---|---|
 | La biografía ponía los quince pasos del paquete antes del porqué: en 360 px la causa **confirmada** (lo que la persona vino a buscar al tocar el paquete) quedaba debajo de quince renglones, fuera de la primera pantalla, y la captura «biografía con causa confirmada» no la mostraba | Primero «Por qué (solo lo confirmado)» y después «Lo que le pasó»; el «¿y si…?» del paquete sigue al final | `app/pantallas/biografia.ts` |
 | El mapa de las cien noches se dibujaba sobre un **instante** de la noche que se ve (las 05:04 de la peor): paquetes, bandejas y rampas cargadas tapaban las placas de riesgo, y en 360 px, en 2,5D, el hub quedaba en diagonal y las rampas eran rayitas sin color legible. Además mezclaba dos cosas: un mapa de cien noches con la etiqueta de una | El mapa va **sobre el plano** del hub (la traza vacía de `ui/plano.ts`, como pide §9 P8: «capa de riesgo sobre el plano») y **en planta**: cada tobogán entero pintado por su probabilidad de llenarse, en 1280 y en 360 (vertical). La etiqueta de noche pasa al selector «mediana / peor / mejor», que es lo que cambia la noche de la escena. Tocar una rampa sigue abriendo su biografía en la noche de la escena | `app/pantallas/noches.ts` |
+| En la tabla apilada del teléfono, la fila destacada (la opción recomendada, con su barra y su margen) partía la cifra en el «±»: «$ 1.484.594 (± $» y «6.746)» en otro renglón | En la tabla apilada la cifra va en un renglón y, si falta lugar, el que se acomoda en dos es el rótulo («Costo por / noche»). Revisado también en la comparación de «¿y si…?», que se apila igual | `app/estilos.css` |
 | En la pantalla dividida de escritorio cada mitad medía 58vh (la regla de 1100 px de `.escena__caja` pisaba la de `.escena__caja--mitad`) y el hub, largo y bajo, ocupaba un tercio del lienzo: unos 200 px vacíos debajo de cada mitad empujaban la tabla del veredicto fuera de la pantalla | En lado a lado, cada mitad con proporción 16:9 (entre 240 px y 56vh): el hub llena la mitad y la tabla sube 140 px | `app/estilos.css` |
+
+**Decidir tarda en cerrarse.** En el recorrido (plantilla chica con los datos de un hub propio), la recomendación con su semáforo aparece a
+los 17–18 s (MEDIDO hoy en 1280 y en 360, con las cien noches de la escena calculándose al mismo tiempo) y el formulario llega a «Ya está»
+recién a los ~150 s; después de contestar la única pregunta, otros ~135 s. Mientras tanto la pantalla muestra la tabla, la recomendación y
+el progreso del tamizado con lo que falta, y se puede cancelar: no es un cuelgue, pero alguien que viene de FlexSim lo va a sentir lento.
+Es la misma causa del tamizado al límite de §14 (las reglas de parada del 20-10 piden más noches); las tres salidas de §14 cambian la
+estadística y las decide el orquestador. `e2e/decidir.mjs` ahora registra también cuándo aparece la recomendación (`recomendacionS`).
 
 Lo que miré y dejé como está: en 360 px el 2,5D del hub grande queda en diagonal (el encuadre isométrico no gira el hub; la persona puede
 pasar a planta con un toque y acercar con el pellizco); el mapa de riesgo no rotula las rampas en el encuadre completo (60 rampas en

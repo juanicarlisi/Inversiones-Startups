@@ -57,7 +57,7 @@ Español primero; inglés con el selector de la barra (las mismas claves en `tex
 | `npx tsc -p tsconfig.json` | Los tipos (TypeScript «borrable»: Node corre los `.ts` directo) | ≈ 15 s |
 | `npm run verificar` | La batería «Andén Verificado» completa con el núcleo de producción: 85 pruebas exigibles contra teoría de colas y casos publicados, S01 y S02 que tienen que fallar, informe en `verificacion/informe/` | ≈ 5–9 min |
 | `npm run r04` | La misma huella en Node y en Chromium (suite rápida, doradas, hub chico con 5 semillas, matemática bit a bit) | ≈ 15 s |
-| `npm run e2e` | Los recorridos de punta a punta en Chromium, en 360 × 740 y 1280 × 800, claro y oscuro (primer minuto, decidir, compartir, enlaces hostiles H01 y H07b), con 0 errores de consola; 8 capturas en `integracion/e2e/capturas/` (con `--revision=<carpeta>`, todas: 40) | ≈ 13–15 min |
+| `npm run e2e` | Los recorridos de punta a punta en Chromium, en 360 × 740 y 1280 × 800, claro y oscuro (primer minuto, decidir, compartir, enlaces hostiles H01 y H07b), con 0 errores de consola; 8 capturas en `integracion/e2e/capturas/` (con `--revision=<carpeta>`, todas: 40) | ≈ 22 min (cada «decidir» tarda ≈ 5 min) |
 | `npm run banco` | Los presupuestos de tiempo, memoria y peso de §11 (mediana de 5 corridas, con la CPU frenada 4× para los cuadros); sale con código 1 mientras alguno no cumpla | ≈ 7 min |
 | `npm run informe` | Corre `npm test`, mide invariantes (200 noches por plantilla) y el enlace, junta lo de arriba y escribe `integracion/salida/informe-salida.json` | ≈ 4 min |
 | `node integracion/e2e/humo.mjs` | Humo rápido de `dist/` en Chromium (película, cien noches, enlace de ida y vuelta) | ≈ 1 min |
