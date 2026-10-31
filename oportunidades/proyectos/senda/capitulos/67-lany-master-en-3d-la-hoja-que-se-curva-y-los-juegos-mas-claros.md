@@ -49,12 +49,24 @@ con los controles faciales del rig (párpados, cejas, ojos, boca con formas). La
   interior rosado, el jopo de cinco bultos, la lana como nube de 40 vellones alrededor del núcleo (la silueta con festones desde
   cualquier ángulo), pañuelo con nudo y dos puntas, cola, brazos con manos de tres dedos y pulgar, piernas y zapatillas con la franja
   naranja. 15.644 vértices. La boca es una rejilla con cuatro formas (plana, abierta, «o», triste) y dientes y lengua que asoman.
-  Y la armadura: cinturón (un aro con la forma exacta de la cintura), casco (calza sobre el cráneo con 2 px de aire y deja las cejas
-  a la vista), escudo con cruz y asa, espada.
+  Y la armadura entera, seis piezas: cinturón (un aro con la forma exacta de la cintura), casco (calza sobre el cráneo con 2 px de
+  aire y deja las cejas a la vista), escudo con cruz y asa, espada, coraza (una placa curva con grosor que sigue el perfil del torso,
+  borde dorado y gema; `cascara()`) y dos botas (tapan las zapatillas y suben por la canilla).
 - **Rig** (`rig.py`): 53 huesos exportados (raíz, cadera, columna, pecho, cuello, cabeza, jopo, boca, cola, pañuelo; hombro, brazo,
   antebrazo, mano, tres dedos y pulgar por lado; muslo, canilla, pie y punta; ojos, párpados, cejas y orejas de dos tramos) más los
-  controles de IK (mano y pie con sus polos) y **cinco sockets** (cadera, cabeza, espalda, mano izquierda y derecha) donde se enganchan
-  los objetos. Los pesos no son automáticos: cada pieza sabe a qué hueso va y las articulaciones se mezclan a lo largo del hueso.
+  controles de IK (mano y pie con sus polos) y **nueve sockets** (cadera, cabeza, espalda, pecho, las dos manos, los dos tobillos y
+  uno libre para lo que vuela) donde se enganchan los objetos. Los pesos no son automáticos: cada pieza sabe a qué hueso va y las
+  articulaciones se mezclan a lo largo del hueso.
+  **El rig se midió, no se adivinó** (31-10, a la noche): al revisar la coraza, los codos se juntaban adelante al sostener algo. Un
+  script de diagnóstico en Blender (posiciones de codo y rodilla en seis poses, torsión de la mano y la canilla en reposo contra su
+  reposo modelado) mostró la causa: los polos de brazos y piernas tenían el signo cambiado y el brazo y la pierna quedaban girados
+  180° en reposo (los pulgares hacia afuera) y doblaban al revés (codo adelante, rodilla atrás al dar un paso). Se corrigió en el rig
+  (brazos +90° con el polo detrás y abajo del codo, piernas −90° con el polo delante de la rodilla, el codo del reposo 5 px atrás) y
+  se volvió a medir: torsión 6° y 0°, codos atrás/abajo y rodillas adelante en todas las poses, igual de los dos lados. Ningún clip se
+  parchó. Otro hallazgo de las tiras: los brazos de Lany no llegan por encima de su cabeza (cabeza grande, brazos cortos), así que
+  «ponerse el casco» no puede ser levantarlo: ahora lo lanza (toma impulso, el casco sube solo por el socket libre, da una vuelta en
+  el aire, ella lo sigue con los ojos y se acomoda debajo, le cae con aplastón y lo ajusta por el borde). El escudo se muestra de
+  frente con la muñeca extendida y termina colgando, que es como lo lleva puesto.
 - **El lenguaje para animar** (`animaciones.py`): rotaciones en los ejes del personaje (adelante, costado, giro), posiciones en px,
   squash & stretch con volumen, suavizados con nombre (resorte, caída, rebote, salto), cara (parpadeo, ojos, cejas, mirada, boca),
   eventos de objetos y `seguir()`, que genera el movimiento secundario (orejas, pañuelo, jopo y cola llegan tarde y se pasan de largo).
@@ -131,9 +143,12 @@ con los controles faciales del rig (párpados, cejas, ojos, boca con formas). La
 ## 7. Lo que queda (en orden) y lo que es del fundador
 
 1. **Probar el APK 41** y mandar una grabación corta de la vuelta de hoja y de Lany en Inicio (si algo va lento, el interruptor
-   «Lany en 3D» en Ajustes y la regla de corte de la hoja).
-2. Lany Master v2: coraza y botas en 3D; ropa por área (túnica, chaleco, gorras); clips propios para los gestos que hoy comparten clip;
-   las expresiones como capa sobre cualquier clip; que camine por la pantalla; medir en gama baja.
+   «Lany en 3D» en Ajustes y la regla de corte de la hoja). El primer intento de APK 41 (19:26 UTC) falló en el validador: 95
+   preguntas del banco 41 citaban «San Mateo» y «San Lucas» (los títulos de la RV1909, que el instalador de lotes copiaba) y una
+   cita del dato no era textual; se corrigieron las citas en los dos bancos y el instalador escribe los nombres de la app
+   (`_sin_san`) y controla las comillas con la misma regla del validador; el APK se compiló después del arreglo del rig.
+2. Lany Master v2: ropa por área (túnica, chaleco, gorras); clips propios para los gestos que hoy comparten clip; las expresiones
+   como capa sobre cualquier clip; que camine por la pantalla; medir en gama baja.
 3. «¿Quién es?» y «Nombres por letra» contra otras personas (RPC en la base, como los duelos del Espadeo); el torneo con llaves.
 4. La temática por área y nivel (fondos y escenas por ruta, Lany vestida según la lección), con el Lany Master.
 5. El inglés de las 1.593 preguntas nuevas (lotes) y las 331 dudas de la segunda lectura de las lecciones.
@@ -141,8 +156,8 @@ con los controles faciales del rig (párpados, cejas, ojos, boca con formas). La
 
 ## 8. Evidencia
 
-- HECHO: commits de `senda-app` c6c83b5 (Antes o después), cddeb48 (Lany Master), b767173 (hoja curvada), 9bacbf3 (banco 41) y los
-  anteriores de la prueba 41 (94770d8…69aa2f9); las tiras y láminas de control quedaron en el entorno de trabajo de Claude y se
-  regeneran con `construir.py --renders`.
+- HECHO: commits de `senda-app` c6c83b5 (Antes o después), cddeb48 (Lany Master), b767173 (hoja curvada), 9bacbf3 (banco 41),
+  5ca5187 (migración del PDF en Postgres pelado) y el del rig medido, la armadura entera y las citas sin «San» (ver el log de
+  `senda-app`); las tiras y láminas de control quedaron en el entorno de trabajo de Claude y se regeneran con `construir.py --renders`.
 - ESTIMACIÓN: el gasto de créditos (~USD 173 antes de la traducción al portugués; ~USD 183 después); se verifica en la consola de
   Anthropic antes de mandar el inglés.

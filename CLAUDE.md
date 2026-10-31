@@ -375,6 +375,11 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     actuar»: nunca una animación nueva sobre una base que no la soporta; primero el modelo, el rig y los pesos, después la actuación;
     nada de objetos pegados: cada objeto se engancha a un socket del rig y respeta volumen, agarre y oclusión; las cuatro pruebas
     (turnaround, movimiento, interacción, actuación heroica) se revisan cuadro a cuadro en Blender y en el motor de la app;
+  - el rig se mide, no se adivina (31-10 a la noche): un script de diagnóstico mostró que los polos de brazos y piernas tenían el signo
+    cambiado (reposo girado 180°, codos y rodillas al revés); se corrigió el rig y se volvió a medir, sin parchar clips; la armadura
+    3D está entera (seis piezas) y, como los brazos de Lany no llegan por encima de su cabeza, el casco se lanza y le cae puesto;
+  - las citas de la trivia nunca llevan «San» (la RV1909 titula «San Mateo»; la app y el validador dicen «Mateo»): el instalador de
+    lotes las normaliza; el primer APK 41 falló por eso y se compiló de nuevo;
   - la hoja del lector se curva como en Libros del iPhone (Skia 2.6.2 + shader propio, siguiendo el dedo), con regla de corte antes
     del APK 42 (capítulo 67 §5); en la web y con «reducir movimiento», el pliegue de antes;
   - Espadeo con tres caminos, Jugar en secciones, la trivia del sermón programada por el líder con aviso al grupo y PDF compartido,
