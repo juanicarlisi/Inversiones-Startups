@@ -362,8 +362,9 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - la trivia usa láminas de dominio público (Doré, 1866) sin escenas con Jesús; textos que no suenan a IA (regla 18 de la app);
   - la clave de la API la cargó el fundador con Claude en Chrome (límite de USD 200 por mes); los lotes tradujeron la trivia entera al
     portugués y al inglés y la revisaron contra la RV1909 (~USD 48); después, la Travesía entera (22 rutas, 458 lecciones) en los dos
-    idiomas (~USD 42); lo que vuelve de un lote entra solo si pasa el validador y una lectura de Claude (una ruta, solo entera); las
-    sesiones de Claude Code en la nube usan el plan Pro, no los créditos.
+    idiomas (~USD 42); segunda lectura de las lecciones (50 errores corregidos) y 1.557 preguntas nuevas (la trivia en 3.786); en total
+    ~USD 158 estimados: se frena para no pasar del crédito; lo que vuelve de un lote entra solo si pasa el validador y una lectura de
+    Claude (una ruta, solo entera); las sesiones de Claude Code en la nube usan el plan Pro, no los créditos.
 
 ## 2. Reglas no negociables
 

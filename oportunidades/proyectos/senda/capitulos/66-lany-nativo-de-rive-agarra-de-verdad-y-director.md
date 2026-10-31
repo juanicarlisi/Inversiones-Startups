@@ -106,6 +106,19 @@ glosas adentro, datos que el texto no dice —Ananías «oró», Abraham «muere
 portugués y el inglés de cada campo corregido, y se volvieron a traducir por lotes (46 lecciones por idioma; las 4 de «El gran relato»,
 a mano). Las 22 rutas siguen enteras en los tres idiomas. En total van ~USD 106 de los 200 (ESTIMACIÓN sin descontar la caché).
 
+**Trivia nueva por lotes (31-10-2026):** un pedido por capítulo (400 capítulos de 40 libros, los que más versículos sin usar tenían),
+hasta 4 preguntas por capítulo sobre versículos que ninguna pregunta usaba (HECHO, log: USD 9,51). De 1.600 candidatas, 1.598 pasaron el
+control del taller y 40 se sacaron por repetir un hecho ya preguntado; Claude leyó una muestra (correctas, claras, distractores
+falsos y creíbles). Después, una segunda lectura por lotes contra la RV1909 y la traducción al portugués y al inglés (USD 40,72):
+1.496 bien y 61 marcadas (60 dudas y 1 error, casi todas de redacción): las 61 se sacaron en lugar de reescribirlas. **La trivia queda en
+3.786 preguntas en español (meta de Pascua: 4.000), 3.668 en portugués y 3.660 en inglés.** Migración nueva de las respuestas
+(20261118000000; la 20261117000000 ya estaba en la base y se dejó).
+
+**Gasto total de los créditos (ESTIMACIÓN a precio de lista con el 50 % de lotes, sin descontar la caché, que lo baja):** ~USD 158 de
+los 200: trivia traducida y revisada ~51; Travesía en dos idiomas ~42; segunda lectura de las lecciones ~13 y sus retraducciones ~3;
+trivia nueva ~10 y su revisión y traducción ~41. El saldo real se ve en platform.claude.com → Billing; se frena acá para no pasar
+del crédito (el límite de la organización es USD 200 por mes, y lo que pase del crédito se cobraría).
+
 ## 8. Próximos (en orden)
 
 1. Las 331 dudas de la segunda lectura de las lecciones (`contenido/borradores/revision_leccion_es_*.json` en la rama «lotes»): leerlas
