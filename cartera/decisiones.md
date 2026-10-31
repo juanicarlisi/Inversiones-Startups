@@ -1464,3 +1464,31 @@
   (`CLAUDE.md`, `.claude/skills/`, `.claude/agents/`). Por eso la metodología se replica en el `CLAUDE.md` y `.claude/` de cada repo.
 - **Regla de corte:** si en 3 meses no hay al menos un caso donde la herramienta elegida mejoró el resultado frente al código propio,
   revisar si la regla está agregando fricción sin valor.
+
+
+## DEC-2026-10-31-1 · Senda: el Lany Master (el personaje en 3D con la metodología de los estudios)
+
+- **Fecha:** 2026-10-31 · **Quién:** pedido del fundador («no quiero comparaciones ni planes: tomá las decisiones y ejecutá»);
+  ejecutado por Claude.
+- **Decisión:** Lany se produce como personaje de animación: modelo, rig, controles faciales y actuación en **Blender 4.5 LTS**, por
+  código (`scripts/lany3d/`), entregado en **glTF** y reproducido en la app por **three.js sobre expo-gl** con sombreado toon y
+  contorno; Rive sigue para las Lany chiquitas (< 60 px) y como respaldo; un ajuste («Lany en 3D») lo apaga. Reemplaza al capítulo
+  52 §2 («Lany es 2D y sigue 2D»): la razón de entonces (el 3D costaba expresiones) la resuelven los controles faciales del rig.
+- **Hecho (31-10):** modelo de 15.644 vértices con la identidad de Lany v4, rig de 53 huesos con IK y cinco sockets, boca con formas,
+  armadura (cinturón, casco, escudo, espada) que calza y se agarra de verdad, 22 clips (las cuatro pruebas pedidas y el repertorio),
+  GLB de 2,2 MB, actor en la app, verificado en Blender, en el motor de la app en Chromium y dentro de Senda (vista previa web).
+- **Regla de corte:** si en gama baja el 3D baja de 30 cuadros por segundo o se nota en la batería, se baja la resolución del lienzo y
+  los vellones; si no alcanza, el 3D queda para los festejos y las pantallas grandes y Rive vuelve a las demás. Se mide con el APK 41.
+- **Qué sigue:** coraza y botas, ropa por área, clips propios para cada gesto, expresiones como capa, caminar por la pantalla.
+
+## DEC-2026-10-31-2 · Senda: la prueba 41 (la hoja que se curva, el Espadeo y Jugar más claros, la trivia del sermón del líder, banco 41)
+
+- **Fecha:** 2026-10-31 · **Quién:** pedido del fundador; ejecutado por Claude.
+- **Decisión:** la vuelta de hoja del lector se hace con **@shopify/react-native-skia 2.6.2** y un shader propio (regla de corte en el
+  capítulo 67 §5: si en gama baja hay más del 10 % de cuadros lentos tras las tres palancas, vuelve el pliegue y Skia se saca antes
+  del APK 42); el Espadeo con tres caminos y el rival con alias y nombre; Jugar en secciones con la trivia del sermón programada por el
+  líder (torneo del grupo con fecha, hora y cantidad de preguntas, aviso a todos, PDF compartido); «Antes o después» con diez niveles;
+  el álbum anual en Inicio; el versículo del día en la NBV; banco 41 de la trivia (1.593 nuevas; 5.371 vivas) y la traducción al
+  portugués enviada por lotes.
+- **Pendiente para la 42:** «¿Quién es?» y «Nombres por letra» contra otras personas, el torneo con llaves, la temática por área y
+  nivel, el inglés de las nuevas preguntas y las 331 dudas de las lecciones.

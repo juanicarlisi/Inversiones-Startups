@@ -366,6 +366,22 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     ~USD 158 estimados: se frena para no pasar del crédito; lo que vuelve de un lote entra solo si pasa el validador y una lectura de
     Claude (una ruta, solo entera); las sesiones de Claude Code en la nube usan el plan Pro, no los créditos.
 
+- **Datos del 31-10-2026 (Senda, prueba 41):**
+  - **el Lany Master**: desde esta prueba Lany es un personaje en 3D de verdad, construido por código en **Blender 4.5 LTS**
+    (`scripts/lany3d/` en la app: modelo con volumen desde todos los ángulos, rig de 53 huesos con IK y sockets, cara con párpados,
+    cejas, ojos y boca con formas, 22 clips con los principios de la animación), exportado a glTF y dibujado por three.js sobre
+    expo-gl con sombreado toon y contorno; Rive queda para las Lany chiquitas y de respaldo (capítulo 67; reemplaza al capítulo 52 §2);
+  - la regla del fundador: «dejá de pensar en cómo animar una imagen de Lany; empezá a construir a Lany como un personaje que puede
+    actuar»: nunca una animación nueva sobre una base que no la soporta; primero el modelo, el rig y los pesos, después la actuación;
+    nada de objetos pegados: cada objeto se engancha a un socket del rig y respeta volumen, agarre y oclusión; las cuatro pruebas
+    (turnaround, movimiento, interacción, actuación heroica) se revisan cuadro a cuadro en Blender y en el motor de la app;
+  - la hoja del lector se curva como en Libros del iPhone (Skia 2.6.2 + shader propio, siguiendo el dedo), con regla de corte antes
+    del APK 42 (capítulo 67 §5); en la web y con «reducir movimiento», el pliegue de antes;
+  - Espadeo con tres caminos, Jugar en secciones, la trivia del sermón programada por el líder con aviso al grupo y PDF compartido,
+    «Antes o después» con diez niveles, el álbum anual en Inicio, el versículo del día en la NBV;
+  - trivia: banco 41 (1.593 preguntas nuevas por lotes; 5.371 vivas); los bancos nuevos usan ids de cinco cifras para no pisar a los
+    anteriores (las traducciones van por id); créditos ≈ USD 183 estimados con la traducción al portugués enviada: el inglés espera.
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
