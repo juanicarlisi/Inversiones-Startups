@@ -28,7 +28,7 @@
 2. **Compuerta:** antes de fijar si el 3D sale por defecto y cuántos vehículos se muestran, se mide en GPU real (C2-1). Le pide al
    fundador 10 a 15 minutos.
 3. **Barandas:** nueve controles medibles garantizan que el corte 1 no se rompe (§1).
-4. **Tamaño honesto:** 11,5 a 17,5 sesiones (ESTIMACIÓN, §4). No entra en las 6–10 sesiones que el diseño maestro previó para todo el
+4. **Tamaño honesto:** 13 a 19,5 sesiones (ESTIMACIÓN, §4; rev. 31-10: la suma original, 11,5–17,5, no coincidía con las filas). No entra en las 6–10 sesiones que el diseño maestro previó para todo el
    corte 2. Se propone partirlo en **2a «Ver y creer»** y **2b «La calle»**; el orden contra el resto del corte 2 lo decide el comité.
 5. **Hub Nocturno:** el área «render» de la v1 se hace sobre el canvas 2D optimizado, que ya está medido (+40% de fps). PixiJS entra
    solo si cumple su regla en un equipo real.
@@ -43,9 +43,9 @@
 | B4 | `npm test` tarda < 3 min con el equipo libre | Lo pesado va en scripts aparte: `oraculo`, `calles`, `reparto`, `banco3d`, `analisis` |
 | B5 | La primera carga queda en ≤ 150 KB brotli (hoy 146,5) | `npm run banco` falla si se pasa; todo lo nuevo va en trozos a demanda |
 | B6 | Capas respetadas | La prueba de arquitectura se amplía: `vista3d/`, `mapa/` y `analisis/` importan solo `contratos/` y los reproductores; `nucleo/` no importa nada nuevo; `calle/` y `reparto/` no usan DOM ni `Math.random` |
-| B7 | Los recorridos del corte 1 siguen pasando | `npm run e2e`: 16 de 16, con 0 errores de consola |
+| B7 | Los recorridos del corte 1 siguen pasando | `npm run e2e`: 16 de 16, con 0 errores de consola. Base: README del simulador, criterio 8 (30-10). Rev. 31-10: la corrida del 31-10 00:35 en `integracion/salida/e2e.json` dio 13 de 16 por cierre del navegador en 360-oscuro mientras el corte seguía cerrándose; la base se confirma de nuevo cuando el corte 1 cierre, y el e2e corre con el equipo libre |
 | B8 | Nada sale a terceros | Servidor solo en 127.0.0.1. Prueba de red: 0 pedidos fuera del origen en ejecución (PMTiles, wasm, glifos y fuentes autoalojados) y 0 a `tile.openstreetmap.org` |
-| B9 | Licencias | Una prueba lee `package-lock.json` y los activos y falla con cualquier licencia fuera de MIT, BSD, Apache-2.0, ISC, Zlib o CC0. ODbL y CC BY solo como datos con atribución visible |
+| B9 | Licencias | Una prueba lee `package-lock.json` y los activos y falla con cualquier licencia fuera de MIT, BSD, Apache-2.0, ISC, Zlib, CC0, 0BSD o BlueOak-1.0.0. ODbL y CC BY solo como datos con atribución visible; SIL OFL 1.1 solo para fuentes tipográficas (los glifos Noto Sans del mapa), con su aviso. Rev. 31-10, la prueba tiene que: (a) mirar solo las dependencias de producción (`npm ls --omit=dev`), porque `@gltf-transform/cli` arrastra `sharp` y sus binarios `@img/sharp-libvips-*` son LGPL-3.0-or-later (herramienta de construcción, nunca distribuida), y las herramientas de construcción no van al `package-lock.json` del producto; (b) entender expresiones SPDX (`(MIT OR GPL-3.0-or-later)` de `jszip` y `(MIT OR Apache-2.0)` de `@maplibre/mlt` alcanzan con una opción permitida); (c) leer el campo legacy `licenses` (`json-bignum`, MIT) o el archivo LICENSE cuando falte `license`; (d) tratar como fallo cualquier MPL-2.0 transitiva (hoy: Perspective, ver `radar-tecnico.md` §2.7) |
 
 ## 2. Hallazgos que van al cierre del corte 1 (no esperan al corte 2)
 
@@ -101,6 +101,12 @@ Cada paquete tiene un solo dueño por archivo, como en el corte 1. Los criterios
   laboratorio**: ninguna plantilla de hub.
 - **Cómo llega al equipo:** una página privada de claude.ai (Artifact, privada por defecto, con las librerías por CDN de versión fija).
   Si el entorno de la página no permite guardar resultados, muestra un código corto para copiar (INFERENCIA: a verificar al armarla).
+  - **Rev. 31-10, regla 8:** subir esa página a claude.ai es una publicación, aunque quede privada y sea sintética. Se prepara «lista
+    para apretar el botón» y **se publica solo con el OK del fundador**. Como el banco carga librerías por CDN en el equipo del
+    fundador, B8 no se le aplica (B8 es del producto).
+  - **Alternativa que no publica nada:** servir el banco por la red local del fundador con un servidor estático de solo lectura y
+    `--lan`, como el de la autoprueba de Hub Nocturno (`apps/juegos/aviacion/laboratorio/servidor.mjs`, `juego.md` §5), y abrirlo
+    desde el teléfono en la misma red.
 - **Equipos:**
   - mínimo, la notebook y el teléfono del fundador;
   - ideal, un Android de gama baja y un iPhone viejo (decisión 3 de `diseno-maestro.md` §12).
@@ -139,7 +145,8 @@ Cada paquete tiene un solo dueño por archivo, como en el corte 1. Los criterios
 ### C2-3 · Vista 3D del hub (base)
 
 - **Herramientas** (`radar-tecnico.md` §2.1):
-  - three 0.186.1 (`WebGLRenderer`), postprocessing 6.39.5 y N8AO 2.0.1;
+  - three 0.186.1 (`WebGLRenderer`), postprocessing 6.39.5 y N8AO 2.0.1 (rev. 31-10: postprocessing 6.39.5 exige `three < 0.187.0`;
+    subir three pide subir antes postprocessing y repetir la prueba de equivalencia GPU/CPU);
   - glTF Transform 4.5.1 y meshoptimizer 1.3.0;
   - `bpy` 5.2.3 solo en la construcción, y gltf-validator en CI.
 - **Qué:**
@@ -230,7 +237,7 @@ Cada paquete tiene un solo dueño por archivo, como en el corte 1. Los criterios
 
 | Criterio | Umbral | Cómo |
 |---|---|---|
-| Contracción = Dijkstra | Mismo costo en 10.000 de 10.000 pares de CABA; mediana ≤ 0,1 ms por consulta | `npm run calles` |
+| Contracción = Dijkstra | Mismo costo en 10.000 de 10.000 pares de CABA; mediana ≤ 0,1 ms por consulta **y** ≥ 30× más rápida que el Dijkstra en CSR medido en la misma corrida. Rev. 31-10: el laboratorio dio 0,069 ms (43×) y el revisor reprodujo 0,094 ms (39×); 0,1 ms deja 6% de margen contra el ruido de la máquina, por eso se agrega el cociente | `npm run calles` |
 | Matriz en el navegador | 201×201 en ≤ 3 s con la contracción precalculada (INFERENCIA de 2,8 s en `optimizacion.md` §5) | Chromium |
 | R04 | Huella Node = Chromium en la plantilla 3, con 5 semillas | `npm run r04` |
 | Oráculo | ≥ 3 modelos exactos con todos los KPI < 1e-9 y 2 escenarios estadísticos con \|z\| ≤ 3,5; ≥ 4 fallas sembradas detectadas | `npm run oraculo` |
@@ -254,7 +261,7 @@ Cada paquete tiene un solo dueño por archivo, como en el corte 1. Los criterios
 
 | Criterio | Umbral | Cómo |
 |---|---|---|
-| Evaluador | TS = Python en las ≥ 40 soluciones guardadas en `ruteo/resultados/`: costo idéntico en mUSD y misma factibilidad | `npm run reparto` |
+| Evaluador | TS = Python en las 38 soluciones con rutas guardadas en `ruteo/resultados/` (conteo del revisor, 31-10-2026; el plan decía «≥ 40», que hoy no existen: los otros 6 archivos son resúmenes), más las que se agreguen: costo idéntico en mUSD y misma factibilidad | `npm run reparto` |
 | Reproducibilidad | Misma instancia, semilla e iteraciones dan el mismo plan (hash) en Node y Chromium, 10 de 10. El tiempo nunca es el presupuesto de un plan que entra a la receta | ídem |
 | Calidad en el navegador | En 3 instancias de la plantilla 3 (150, 300 y 600 paradas; flota dominante y ruteo pesando), el mejor de la cartera del navegador a 30 s queda ≤ 3% sobre la vara con flota dominante y ≤ 5% con ruteo pesando | CI y Chromium |
 | Interactivo | Primer plan factible de 200 paradas en ≤ 1,5 s en escritorio, contando el arranque | Chromium |
@@ -313,7 +320,8 @@ Cada paquete tiene un solo dueño por archivo, como en el corte 1. Los criterios
   - ECharts 6.1.0 por módulo: mapa de calor, abanico P10/P50/P90 y P99 por camión y ruta.
   - uPlot 1.6.32 para las series de la línea de tiempo, sincronizadas con el cabezal.
   - Raster de densidad para las nubes de 1 M de puntos.
-  - Perspective, solo si el modo ingeniero lo pide.
+  - ~~Perspective, solo si el modo ingeniero lo pide.~~ Rev. 31-10: **fuera del producto**: trae `leb128` y `buffer-pipe` (MPL-2.0)
+    por dependencia transitiva y B9 lo rechazaría (`radar-tecnico.md` §2.7). El modo ingeniero queda con DuckDB-WASM (SQL) hasta que Perspective cumpla B9.
   - La pantalla «cien noches» del corte 1 no cambia.
 - **Aceptación:**
 
@@ -323,7 +331,7 @@ Cada paquete tiene un solo dueño por archivo, como en el corte 1. Los criterios
 | Apertura | Dos gráficos en ≤ 3 s en escritorio, desde cero (en el laboratorio, 2,8 s) | e2e |
 | Consultas | Q1–Q5 en ≤ 100 ms cada una sobre 100 noches del hub chico (≈ 810.000 paquetes) | Chromium |
 | Exactitud | Igual a la agregación JS de `experimentos/` dentro de 1e-6 min | prueba |
-| Nube de 1 M | ≤ 60 ms de primer cuadro y por paso de zoom (CPU 1×) | Chromium |
+| Nube de 1 M | Mediana ≤ 60 ms de primer cuadro y por paso de zoom (CPU 1×). Rev. 31-10: el laboratorio dio 32–47 ms y zoom de 37–48 ms de mediana, pero un máximo de zoom de 150 ms en una de 3 corridas; el umbral es sobre la mediana | Chromium |
 | Memoria | ≤ 250 MB con el análisis abierto | CDP |
 | Terceros | 0 pedidos a CDN | B8 |
 | Cursor | Actualizar las series cuesta ≤ 16 ms | Chromium |
@@ -375,16 +383,17 @@ C2-I al final de cada ola
 | C2-5 última milla y calle | 2–3 | 2b |
 | C2-6 VRP | 1,5–2,5 | 2b |
 | C2-7 mapa y seguimiento | 1,5–2 | 2b |
-| C2-I (dos veces) | 1–1,5 | 2a y 2b |
-| **Total** | **11,5–17,5** | |
+| C2-I (dos veces) | 1–1,5 cada vez | 2a y 2b |
+| **Total** | **13–19,5** (rev. 31-10: con C2-I dos veces; la suma original, 11,5–17,5, no coincidía con las filas; no incluye el «primer cuadro progresivo», que no tiene estimación) | |
 
 **Método.** Por analogía: cada frente del radar fue cerca de una sesión de laboratorio. Pasarlo a producción con contrato, pruebas e
 integración cuesta 1,5 a 2,5 veces más (la misma regla de `diseno-maestro.md` §8). Es gruesa.
 
 **Propuesta para el comité** (la capacidad de Max 5x se comparte; Andén le cede el lugar a Senda y a Hub Nocturno):
-- **2a «Ver y creer»**, diciembre a enero, ≈ 5–7 sesiones: C2-0, C2-1, C2-2, C2-3, C2-8 y el primer cuadro progresivo. Lo que ya existe
+- **2a «Ver y creer»**, diciembre a enero, ≈ 5–7,5 sesiones (rev. 31-10: C2-0, C2-1, C2-2, C2-3, C2-8 y C2-I; más el primer cuadro
+  progresivo, sin estimar): C2-0, C2-1, C2-2, C2-3, C2-8 y el primer cuadro progresivo. Lo que ya existe
   queda verificado de forma independiente y se ve en 3D.
-- **2b «La calle»**, febrero a marzo, ≈ 7–10 sesiones: C2-4, C2-5, C2-6 y C2-7.
+- **2b «La calle»**, febrero a marzo, ≈ 8–12 sesiones (rev. 31-10: antes decía 7–10; suma C2-4, C2-5, C2-6, C2-7 y C2-I): C2-4, C2-5, C2-6 y C2-7.
 - El resto del corte 2 del diseño maestro (planillas, validación por traza, arranque en caliente, IA, video) se ordena contra esto en el
   comité.
 
@@ -401,12 +410,14 @@ integración cuesta 1,5 a 2,5 veces más (la misma regla de `diseno-maestro.md` 
 - Falta el área «render»: la noche como espectáculo, el hub como maqueta, aviones con personalidad y 30 fps con 150 aviones.
 - En el capítulo 3 los jugadores llegan a 300–550 aviones.
 - Hay tareas del modelo en curso (HN-30, HN-32, HN-52). **El render cambia solo `js/render.js` y un `js/atlas.js` nuevo, y mantiene las
-  exportaciones** (`dibujar`, `crearCamara`, `tocar`, `posAvion`, `proyectar`, `POS`). Antes de empezar, `git log` y `git diff` confirman
+  exportaciones** (`dibujar`, `crearCamara`, `tocar`, `posAvion`, `proyectar`, `POS`). Rev. 31-10: la lista omitía `aPantalla`,
+  `aMundo`, `curva` y `puntoCurva`, que también exporta `render.js`; `main.js`, `entrada.js` y `objetivos.js` usan `R.aPantalla` y
+  `R.aMundo` 9 veces. **Se mantienen las 10 exportaciones**, y una prueba compara la lista antes y después. Antes de empezar, `git log` y `git diff` confirman
   que ninguna tarea en curso toca `render.js`; si alguna lo toca, el render va después.
 
 | Paso | Qué | Aceptación (medible) | Sesiones |
 |---|---|---|---|
-| **HN-R1** Canvas optimizado en producción | Pasar a `js/render.js` los 4 cambios de `laboratorio/escena/canvas2d-opt.js`: capa fija aparte con firma de cámara y rutas, atlas de siluetas, balizas y luces en 2 `Path2D` por color, caché de `measureText` | `npm test` y `npm run navegador` en verde. Diferencia ≤ 0,1% de píxeles (umbral 24/255) contra la captura actual en las 3 paletas, de día y de noche (6 capturas). ≥ +30% de fps con CPU 4× en `autoprueba.html`, en rondas intercaladas (en el laboratorio, +44%). ≤ 1.000 llamadas por cuadro con 300 aviones. Con 550 aviones en vuelo, ≥ 30 fps con CPU 1× en este entorno | 0,5 |
+| **HN-R1** Canvas optimizado en producción | Pasar a `js/render.js` los 4 cambios de `laboratorio/escena/canvas2d-opt.js`: capa fija aparte con firma de cámara y rutas, atlas de siluetas, balizas y luces en 2 `Path2D` por color, caché de `measureText` | `npm test` y `npm run navegador` en verde. Diferencia ≤ 0,1% de píxeles (umbral 24/255) contra la captura actual en las 3 paletas, de día y de noche (6 capturas). ≥ +30% de fps con CPU 4× en `autoprueba.html`, en rondas intercaladas (en el laboratorio, +44%). ≤ 1.000 llamadas por cuadro con 300 aviones. Con 550 aviones en vuelo, ≥ 30 fps con CPU 1× en este entorno (rev. 31-10: umbral sin medida previa; el laboratorio llegó a 300 aviones en vuelo, 43,6 fps con el canvas optimizado, 1 sola corrida; si no se cumple, se anota la causa y no se compensa con Pixi sin la regla de corte) | 0,5 |
 | **HN-R2** Cámara en movimiento | Durante el arrastre y el zoom se transforma el mapa de bits de la capa fija (dibujada con 25% de margen) y se redibuja nítida al soltar (INFERENCIA: técnica estándar, no medida) | p95 durante un zoom continuo ≤ 1,3× el p95 con la cámara quieta; nitidez de vuelta ≤ 150 ms después del gesto; 0 bordes vacíos | 0,5 |
 | **HN-R3** La noche como espectáculo, en canvas | Halos aditivos (`lighter`) desde el atlas para luces de ciudad, balizas y luces de navegación; estelas en un búfer circular; el hub como maqueta con sprites prehorneados en la fábrica de Blender de Andén (estilos 1929, 1946 y 1970: infraestructura compartida de la cartera); aviones con alabeo en los virajes y luces propias | Costo ≤ +15% sobre HN-R1 con CPU 4×. 150 aviones a ≥ 30 fps con CPU 1×. Revisión independiente con rúbrica: ≥ 8 de 10 en «la noche como espectáculo». **Esto es también la prueba de la regla de Pixi:** si un efecto no se logra con sprites aditivos, queda anotado | 1 |
 | **HN-R4** Equipo real (opcional) | La misma página de C2-1 corre los 4 motores del juego en un equipo de 4 GB, si el fundador tiene uno | Cifras de fps, p95 y memoria del equipo | — |
@@ -451,3 +462,26 @@ la guía de 5 MB de Poki. Phaser, el globo de three, MapLibre y deck.gl no entra
   9, con las fallas solo en `horasPersonaPagadas` y `costoNoche`.
 - `apps/juegos/aviacion/README.md` (área «render» pendiente; 300–550 aviones en el capítulo 3).
 - `oportunidades/proyectos/anden/diseno-maestro.md` §4, §6, §8, §10 y §12, y `cartera/decisiones.md` (DEC-2026-10-30-4 y -5).
+
+## 9. Revisión independiente (31-10-2026)
+
+Un revisor que no escribió el plan lo leyó junto con `radar-tecnico.md`, comprobó lo citado y corrió pruebas. El detalle de lo
+verificado, de lo reproducido y de lo que no se pudo comprobar está en `radar-tecnico.md` §7. No hizo commits, no publicó nada y no
+tocó `apps/anden/simulador/` ni `apps/juegos/aviacion/`.
+
+**Correcciones hechas en este archivo** (marcadas «rev. 31-10» donde se aplicaron):
+
+1. §0 y §4, sesiones: la suma decía 11,5–17,5 y las filas dan **13–19,5** (con C2-I dos veces). La ola 2b es **8–12** (decía 7–10) y la 2a **5–7,5** (decía 5–7). El «primer cuadro progresivo» sigue sin estimación.
+2. B9, licencias: la lista no aceptaba lo que el propio plan usa (fuentes SIL OFL del mapa, BlueOak y 0BSD en dependencias) y no distinguía producción de construcción: `sharp` y `@img/sharp-libvips-*` (LGPL) vienen con `@gltf-transform/cli`. Ahora la prueba lee solo producción, entiende SPDX y el campo `licenses`, y rechaza MPL-2.0 transitiva.
+3. C2-1, regla 8: subir la página del banco a claude.ai es una publicación; se hace solo con el OK del fundador. Se agrega la alternativa por red local, que no publica nada.
+4. C2-6, evaluador: «≥ 40 soluciones guardadas» eran **38** con rutas.
+5. C2-8, Perspective: sale del producto por sus dependencias MPL-2.0 (B9 lo rechazaría). Y el umbral de la nube de 1 M pasa a ser sobre la mediana (el laboratorio tuvo un máximo de 150 ms en una corrida).
+6. C2-5, contracción: el umbral de 0,1 ms deja 6% de margen contra el ruido (se reprodujo 0,094 ms); se suma el cociente ≥ 30× contra el Dijkstra de la misma corrida.
+7. C2-3, three: postprocessing 6.39.5 exige `three < 0.187.0`.
+8. §5, Hub Nocturno: `render.js` exporta 10 funciones y valores, no 6; `main.js`, `entrada.js` y `objetivos.js` usan `aPantalla` y `aMundo`. Hay que mantener las 10. El umbral de 550 aviones en vuelo no tiene medida previa.
+9. B7, e2e: la base «16 de 16» es del informe del 30-10; la corrida del 31-10 00:35 en disco dio 13 de 16 por cierres del navegador.
+
+**Sin cambios y comprobado:** las barandas B1 a B6 y B8 no se contradicen con nada hallado; las herramientas, versiones y licencias del §3 coinciden
+con el radar corregido; el piso exacto del oráculo (diferencia relativa máxima 1,2e-15) admite el umbral de 1e-9 de C2-2; 6 de 9 del oráculo
+con el motor 1.2.0 se reprodujo; no hay gastos ni publicaciones sin OK (el servidor de VRP, el gancho de sesión y la compra de teléfonos
+quedan como pedidos al fundador en el §6).
