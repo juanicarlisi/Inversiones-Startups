@@ -46,6 +46,8 @@ export const TITULO_ANONIMO = 'Hub anonimizado';
 export const ID_ANONIMO = 'modelo-anonimo';
 export const FUENTE_COSTO = 'Costo redondeado a 2 cifras significativas al anonimizar.';
 export const FUENTE_PROPIA = 'Dato propio (anonimizado).';
+/** La restricción de la decisión, dicha sin el texto libre del autor (podía nombrar al cliente). */
+export const DICHO_ANONIMO = 'cumplir la restricción en al menos el {p}% de las noches';
 
 const ancho = (n: number) => Math.max(2, String(n).length);
 const num = (i: number, n: number) => String(i + 1).padStart(ancho(n), '0');
@@ -153,11 +155,15 @@ export const anonimizar: Anonimizar = (entrada: Modelo, semilla: number): Modelo
   }
   if (m.decision) m.decision.indiferencia.valor = redondear2Cifras(m.decision.indiferencia.valor);
 
-  // 5. Datos propios: la fuente puede nombrar la planta o la persona que midió.
+  // 5. Datos propios: la fuente puede nombrar la planta o la persona que midió. Las fuentes públicas (SUPUESTO, ESTIMACION, HECHO)
+  // quedan: el lector las necesita y el aviso de la app dice que viajan (hallazgo SEG-R5: antes no lo decía).
   for (const k of Object.keys(m.parametros)) {
     const p = m.parametros[k];
     if (p.etiqueta === 'DATO_USUARIO' || p.etiqueta === 'MEDIDO') { p.fuente = FUENTE_PROPIA; delete p.url; delete p.nota; }
   }
+  // La licencia y la frase de la meta son texto libre del autor (podían decir «Confidencial ACME» o nombrar al cliente): fuera (SEG-R5).
+  delete m.licencia;
+  if (m.decision) m.decision.restriccion.dichoComo = DICHO_ANONIMO.replace('{p}', String(Math.round(m.decision.restriccion.probabilidadMinima * 100)));
   if (m.procedencia) {
     for (const k of Object.keys(m.procedencia)) {
       const p = m.procedencia[k];

@@ -60,5 +60,5 @@ test('ningún texto de interfaz fijo en el código: lo único que va al lienzo c
       vistas++;
     }
   }
-  assert.equal(vistas, 3, 'rótulos de rampas y andenes en la planta y de rampas en la isométrica');
+  assert.equal(vistas, 2, 'rótulos de los andenes en la planta y de las rampas en las dos vistas (rotulos.ts)');
 });

@@ -161,10 +161,17 @@ export const CASOS: Caso[] = [
   sobre('una película de 23 millones de tramos (SEG-01: 40 camiones de 48.100 paquetes, sin error de pronóstico)', 'E-PRESUPUESTO.traza', '/demanda/camiones', (m) => {
     m.demanda.camiones.cantidad = 40; m.demanda.camiones.paquetes = 48100; m.parametros.errorPronosticoCv.valor = 0;
   }),
-  sobre('una acumulación de 1e12 m pediría terabytes', 'E-PRESUPUESTO.memoria', '', (m) => { m.hub.acumulacion.largo = 1e12; }),
-  sobre('un lazo de mil millones de metros pediría miles de millones de bandejas', 'E-PRESUPUESTO.memoria', '', (m) => { m.hub.sorter.recta = 1e9; }),
+  sobre('una acumulación con un lugar cada nanómetro pediría terabytes', 'E-PRESUPUESTO.memoria', '', (m) => { m.hub.acumulacion.paso = 1e-9; }),
+  sobre('una acumulación de 1e12 m (más que la cota física de 2.000 m, SEG-R1)', 'E-RANGO.maximo', '/hub/acumulacion/largo', (m) => { m.hub.acumulacion.largo = 1e12; }),
+  sobre('una coordenada a mil millones de metros (SEG-R1)', 'E-RANGO.maximo', '/hub/acumulacion/x', (m) => { m.hub.acumulacion.x = 1e9; }),
+  sobre('una cinta de 12 km (SEG-R1)', 'E-RANGO.cinta-larga', '/hub/cintas/0/puntos', (m) => { m.hub.cintas[0].puntos = [[-14, -10], [4000, -10], [-4000, -10]]; }),
+  sobre('un lazo con un paso de 1 cm: 8.500 bandejas por cuadro (SEG-R2)', 'E-PRESUPUESTO.dibujo', '/hub/sorter/paso', (m) => { m.hub.sorter.paso = 0.01; }),
+  sobre('maxVueltas de 255: los contadores del motor son de 8 bits (REV-D3)', 'E-RANGO.maximo', '/hub/sorter/maxVueltas', (m) => { m.hub.sorter.maxVueltas = 255; }),
+  sobre('1.900.000 personas en un andén (SEG-R3)', 'E-RANGO.maximo', '/hub/andenes/0/personas', (m) => { m.hub.andenes[0].personas = 1_900_000; }),
+  sobre('un lazo de mil millones de metros (más que la cota física de 2.000 m de recta)', 'E-RANGO.maximo', '/hub/sorter/recta', (m) => { m.hub.sorter.recta = 1e9; }),
   sobre('una rampa con capacidad de mil millones', 'E-PRESUPUESTO.memoria', '', (m) => { m.hub.rampas[0].capacidad = 1e9; }),
-  sobre('mil millones de personas de rampa', 'E-PRESUPUESTO.memoria', '', (m) => { m.personas.rampa.cantidad = 1e9; }),
+  sobre('una rampa con mil millones de lugares', 'E-PRESUPUESTO.memoria', '', (m) => { m.hub.rampas[0].capacidad = 1e9; }),
+  sobre('mil millones de personas de rampa (más que el máximo por rol, SEG-R3)', 'E-RANGO.maximo', '/personas/rampa/cantidad', (m) => { m.personas.rampa.cantidad = 1e9; }),
   sobre('una playa de capacidad 1e12', 'E-PRESUPUESTO.memoria', '', (m) => { m.hub.playa.capacidad = 1e12; }),
   sobre('pausas cada milisegundo', 'E-PRESUPUESTO.recurrentes', '', (m) => {
     m.personas.rampa.pausas = { duracion: 0.0005, cada: 0.001, primera: 0, escalon: 0 };

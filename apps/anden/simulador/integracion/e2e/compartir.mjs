@@ -91,12 +91,91 @@ export async function enlaceHostil({ contexto, base, etiqueta, prep, fallar, ok,
   await h.pantalla('inicio', 15_000);
   const noSimulo = await page.evaluate(() => !window.__anden.sesion.mv);
   if (!noSimulo) fallar(`${etiqueta} · enlace hostil H07b: la app abrió el modelo de la película gigante`);
+  // H13 (SEG-R1): una coordenada a mil millones de metros se rechaza en el esquema; antes compilaba y tiraba la pestaña al dibujar
+  const t2 = Date.now();
+  await page.goto(`${base}?depuracion=1#${prep.hostilCoordenada}`);
+  await page.waitForSelector('[data-aviso="modelo.enlace.esquema"]', { timeout: 15_000 });
+  const avisoCoordenadaMs = Date.now() - t2;
+  await h.pantalla('inicio', 15_000);
+  const tr2 = Date.now();
+  await page.evaluate(() => 1);
+  if (Date.now() - tr2 > 1000) fallar(`${etiqueta} · enlace hostil H13: la página tardó ${Date.now() - tr2} ms en contestar`);
   await page.click('[data-accion="abrir-plantilla"][data-plantilla="hub-chico@1.0.0"]');
   await h.pantalla('escena', 60_000);
   ok(`${etiqueta} · enlace hostil H01 (${prep.hostil.length} caracteres): aviso a los ${avisoMs} ms («${aviso}»), la página contesta en ${respuestaMs} ms y abre una plantilla; ` +
-    `H07b (película de 23 millones de tramos, ${prep.hostilPelicula.length} caracteres): rechazado a los ${avisoPeliculaMs} ms sin simular`);
+    `H07b (película de 23 millones de tramos, ${prep.hostilPelicula.length} caracteres): rechazado a los ${avisoPeliculaMs} ms sin simular; ` +
+    `H13 (coordenada de 1e9 m): rechazado a los ${avisoCoordenadaMs} ms`);
+  const accesibilidad = await teclado({ page, h, etiqueta, fallar, ok });
+  const ysiRojo = await bRojo({ page, h, etiqueta, fallar, ok });
   const faltan = await h.faltantes();
   if (faltan.length) fallar(`${etiqueta} · enlace hostil: claves de texto faltantes: ${faltan.join(', ')}`);
   await page.close();
-  return { datos: { avisoMs, respuestaMs, aviso, caracteres: prep.hostil.length, avisoPeliculaMs, caracteresPelicula: prep.hostilPelicula.length }, errores: h.errores };
+  return { datos: { avisoMs, respuestaMs, aviso, caracteres: prep.hostil.length, avisoPeliculaMs, caracteresPelicula: prep.hostilPelicula.length,
+    avisoCoordenadaMs, ...accesibilidad, ...ysiRojo }, errores: h.errores };
+}
+
+/**
+ * Teclado, con las cien noches calculándose (la escena del hub chico recién abierta):
+ *  · EXP-01: el foco en «Comprobante» sobrevive a las noches que llegan (antes la línea de resumen se reconstruía y el foco caía al body);
+ *  · SEG-R4: «Saltar al contenido» lleva el foco al contenido sin cambiar el fragmento (antes sacaba del modelo con «enlace inválido»).
+ */
+async function teclado({ page, h, etiqueta, fallar, ok }) {
+  const llegadas = () => page.evaluate(() => window.__anden.sesion.llegadas);
+  const N = await page.evaluate(() => window.__anden.sesion.N);
+  let focoConservado = null, ticks = 0;
+  if ((await llegadas()) < N - 3) {
+    await page.focus('[data-accion="ir-comprobante"]');
+    const desde = await llegadas();
+    await page.waitForFunction((d) => window.__anden.sesion.llegadas >= d + 3 || window.__anden.sesion.nochesListas, desde, { timeout: 120_000 });
+    ticks = (await llegadas()) - desde;
+    focoConservado = await page.evaluate(() => document.activeElement?.getAttribute('data-accion') ?? document.activeElement?.tagName);
+    if (focoConservado !== 'ir-comprobante') fallar(`${etiqueta} · teclado: con ${ticks} noches que llegaron, el foco pasó de «Comprobante» a «${focoConservado}»`);
+  }
+  // el aviso del enlace hostil anterior (H13) puede seguir a la vista: se cierra antes, así cualquier aviso de enlace después es nuevo
+  if (await page.$('[data-accion="cerrar-aviso"]')) await page.click('[data-accion="cerrar-aviso"]');
+  const hash = await page.evaluate(() => location.hash);
+  await page.focus('a.saltar');
+  const nombre = (await page.textContent('a.saltar'))?.trim();
+  if (!nombre) fallar(`${etiqueta} · teclado: «Saltar al contenido» no tiene nombre`);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  const despues = await page.evaluate(() => ({ hash: location.hash, pantalla: document.querySelector('main')?.dataset.pantalla, foco: document.activeElement?.id,
+    aviso: document.querySelector('[data-aviso]')?.getAttribute('data-aviso') ?? null }));
+  if (despues.hash !== hash || despues.pantalla !== 'escena' || (despues.aviso ?? '').startsWith('modelo.enlace')) {
+    fallar(`${etiqueta} · teclado: «Saltar al contenido» cambió la pantalla o el enlace (${JSON.stringify(despues)})`);
+  }
+  if (despues.foco !== 'contenido') fallar(`${etiqueta} · teclado: «Saltar al contenido» dejó el foco en «${despues.foco}»`);
+  ok(`${etiqueta} · teclado: el foco en «Comprobante» sobrevive a ${ticks} noches que llegan; «${nombre}» lleva al contenido sin tocar el enlace`);
+  return { focoConservado, ticksFoco: ticks, saltar: despues };
+}
+
+/**
+ * EST-01: «¿y si…?» con B = 1 puesto de inducción en el hub chico (sus noches no siempre terminan): el semáforo de B en rojo, la tabla sin
+ * números ni veredictos, y «Quedarme con B» no es la acción principal.
+ */
+async function bRojo({ page, h, etiqueta, fallar, ok }) {
+  await page.waitForFunction(() => window.__anden.sesion.nochesListas, null, { timeout: 300_000 });
+  await page.click('[data-accion="ir-ysi"]');
+  await h.pantalla('ysi', 60_000);
+  await page.$eval('[data-accion="perilla-puestos"]', (x) => { x.value = '1'; x.dispatchEvent(new Event('input', { bubbles: true })); x.dispatchEvent(new Event('change', { bubbles: true })); });
+  const t0 = Date.now();
+  await page.waitForSelector('[data-ysi="confirmada"]', { timeout: 480_000 });
+  const s = Math.round((Date.now() - t0) / 1000);
+  const d = await page.evaluate(() => ({
+    semaforoB: window.__anden.sesion.ysi.semaforoB?.color ?? null,
+    fichaB: !!document.querySelector('[data-ysi-semaforo^="B-"]'),
+    veredictos: [...document.querySelectorAll('[data-tabla="comparacion"] .veredicto')].map((x) => x.className),
+    guiones: [...document.querySelectorAll('[data-tabla="comparacion"] tbody td')].filter((x) => x.textContent.trim() === '—').length,
+    primario: document.querySelector('[data-accion="quedarse-con-b"]')?.classList.contains('boton--primario') ?? null,
+    nota: document.querySelector('[data-ysi="b-secundaria"], [data-ysi="b-peor"]')?.textContent?.trim() ?? null,
+  }));
+  if (d.semaforoB === 'rojo') {
+    if (!d.fichaB) fallar(`${etiqueta} · ¿y si…? B = 1 puesto: el semáforo de B está en rojo y la pantalla no lo muestra`);
+    if (d.veredictos.length) fallar(`${etiqueta} · ¿y si…? B = 1 puesto: con B en rojo hay ${d.veredictos.length} veredictos en la tabla`);
+    if (d.guiones === 0) fallar(`${etiqueta} · ¿y si…? B = 1 puesto: con B en rojo la tabla muestra números`);
+  }
+  if (d.primario) fallar(`${etiqueta} · ¿y si…? B = 1 puesto: «Quedarme con B» sigue como acción principal (semáforo de B: ${d.semaforoB})`);
+  if (!d.nota) fallar(`${etiqueta} · ¿y si…? B = 1 puesto: no se dice por qué «Quedarme con B» no es lo recomendable`);
+  ok(`${etiqueta} · ¿y si…? con B = 1 puesto: confirmado en ${s} s, semáforo de B ${d.semaforoB}, ${d.veredictos.length} veredictos, «Quedarme con B» secundaria («${(d.nota ?? '').slice(0, 60)}…»)`);
+  return { ysiBRojo: { segundos: s, semaforoB: d.semaforoB, veredictos: d.veredictos.length, primario: d.primario } };
 }

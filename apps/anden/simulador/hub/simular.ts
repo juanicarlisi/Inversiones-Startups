@@ -90,6 +90,12 @@ export function armarNoche(m: Motor, mv: ModeloValidado, fidelidad: Fidelidad = 
           inicio: primera, fin: Math.max(cfg.fin, h.tUltimo, P.maxListo), corte: cfg.corte, catalogo: cfg.catalogo,
           geometria: geometria(mv.modelo), huella: rc.huella,
         });
+        // En una noche que no termina, las tareas de fin conocido agendadas antes del horizonte pueden terminar después de `fin` (hallazgo
+        // REV-D8: hasta 20 s): la película tiene que llegar hasta el último tramo.
+        let maxT1 = traza.fin;
+        const t1 = traza.tramos.t1;
+        for (let i = 0; i < traza.tramos.n; i++) if (t1[i] > maxT1 && Number.isFinite(t1[i])) maxT1 = t1[i];
+        if (maxT1 > traza.fin) traza = { ...traza, fin: maxT1 };
         // Control independiente sobre la traza escrita (además del que hace el almacén de paquetes al escribirla).
         if (!trazaEncadenada(traza) && !alertas.includes('invariante:tiempo')) alertas.push('invariante:tiempo');
       }

@@ -10,6 +10,7 @@
 //   el primero en salir) y se orienta hacia donde menos choca con el lazo, las cintas y las rampas (NOTAS-CONTRATO.md §3).
 import { posEnLazo, type GeometriaHub, type LazoEstadio } from '../contratos/geometria.ts';
 import { normalAfuera } from './lazo.ts';
+import { pasoMuestreo } from './primitivas.ts';
 
 export type V2 = [number, number];
 export interface Limites { xmin: number; ymin: number; xmax: number; ymax: number }
@@ -163,33 +164,52 @@ export const ALTURA_CAPA_PILA = 0.3;
 export const CAPACIDAD_PILA = PILA_FILAS * PILA_COLUMNAS * PILA_CAPAS;
 
 /**
- * Lugar `l` (0 = el próximo en salir) en el tobogán de una rampa, en dos columnas desde el extremo de la persona hacia el lazo.
- * Para la excepción (sin tope) es la pila de arriba. Devuelve la capa (0 en las rampas; 0…PILA_CAPAS − 1 en la pila).
+ * El tobogán de una rampa se llena como una pila de cajas (revisión de la experiencia, I-3, 30-10-2026). Antes los lugares se repartían
+ * en dos columnas a lo largo de todo el tobogán: con 25 lugares en 1,05 m quedaban a 8 cm y cada caja (0,42 × 0,34 m, sprites.ts) tapaba
+ * a seis vecinas, así que en la planta acercada una rampa llena se veía como una flecha de rombos encimados. Ahora entran a lo largo las
+ * cajas que caben con PASO_RAMPA_LARGO, a lo ancho las que caben con PASO_RAMPA_ANCHO (hasta 3) y las capas suben ALTURA_CAPA_RAMPA
+ * cada una hasta cubrir la capacidad de la rampa. Es solo dibujo: ningún número sale de acá.
+ */
+export const PASO_RAMPA_LARGO = 0.44;
+export const PASO_RAMPA_ANCHO = 0.4;
+/** Alto de cada capa de cajas en el tobogán de una rampa (m): el alto de la caja, para que en la 2,5D se apoyen una sobre otra. */
+export const ALTURA_CAPA_RAMPA = 0.28;
+
+/** Cuántas cajas entran por capa en el tobogán de una rampa: [filas a lo largo, columnas a lo ancho]. */
+export function grillaRampa(r: DispRampa): [number, number] {
+  const largo = Math.hypot(r.fin[0] - r.ini[0], r.fin[1] - r.ini[1]);
+  return [Math.max(1, Math.floor(largo / PASO_RAMPA_LARGO)), Math.max(1, Math.min(3, Math.floor(r.ancho / PASO_RAMPA_ANCHO)))];
+}
+
+/**
+ * Lugar `l` (0 = el próximo en salir) en el tobogán de una rampa: por capa, desde el extremo de la persona hacia el lazo y de un costado
+ * al otro; llena la capa, sigue la de arriba (desde la última capa que pide la capacidad, los lugares se repiten). Para la excepción (sin
+ * tope) es la pila de arriba. Devuelve la capa: 0…capas − 1 en las rampas (la altura es capa · ALTURA_CAPA_RAMPA) y 0…PILA_CAPAS − 1 en
+ * la pila (capa · ALTURA_CAPA_PILA).
  */
 export function lugarEnRampa(r: DispRampa, l: number, sinTope: boolean, out: Float32Array | Float64Array | number[], i = 0): number {
-  const dx = r.fin[0] - r.ini[0], dy = r.fin[1] - r.ini[1];
-  const largo = Math.sqrt(dx * dx + dy * dy);
-  let fila: number, col: number, filas: number, capa = 0;
-  if (sinTope) {
-    const porCapa = PILA_FILAS * PILA_COLUMNAS;
-    capa = Math.min(PILA_CAPAS - 1, Math.floor(l / porCapa));
-    const m = l % porCapa;
-    filas = PILA_FILAS;
-    fila = m % filas;
-    col = Math.floor(m / filas);
-  } else {
-    filas = Math.max(1, Math.ceil(r.capacidad / 2));
-    fila = Math.min(filas - 1, Math.floor(l / 2));
-    col = l % 2;
+  const largo = Math.hypot(r.fin[0] - r.ini[0], r.fin[1] - r.ini[1]);
+  if (!sinTope) {
+    const [filas, cols] = grillaRampa(r), porCapa = filas * cols;
+    const capa = Math.min(Math.ceil(Math.max(1, r.capacidad) / porCapa) - 1, Math.floor(l / porCapa));
+    const m = l % porCapa, fila = Math.floor(m / cols), col = m % cols;
+    const along = largo * (1 - (fila + 0.5) / filas);
+    const lado = (col - (cols - 1) / 2) * (r.ancho / cols);
+    out[i] = r.ini[0] + r.dir[0] * along + r.lat[0] * lado;
+    out[i + 1] = r.ini[1] + r.dir[1] * along + r.lat[1] * lado;
+    return capa;
   }
+  // la pila del puesto manual: PILA_FILAS a lo largo × PILA_COLUMNAS a lo ancho por capa, hasta PILA_CAPAS
+  const porCapa = PILA_FILAS * PILA_COLUMNAS;
+  const capa = Math.min(PILA_CAPAS - 1, Math.floor(l / porCapa));
+  const m = l % porCapa, fila = m % PILA_FILAS, col = Math.floor(m / PILA_FILAS);
   // cada capa corrida media celda, como una pila de cajas (en la planta 2D se ve el bloque más tupido)
   const corrido = capa % 2 === 1 ? 0.5 : 0;
-  const along = largo * (1 - Math.min(filas - 0.5, fila + 0.5 + corrido * 0.5) / filas);
-  // dos columnas: −1 y +1; la pila: 0, +1, −1, +2, −2 (en pasos de 0,4 m)
-  const lado = sinTope ? (col === 0 ? 0 : (col % 2 === 1 ? 1 : -1) * Math.ceil(col / 2)) + corrido * (col % 2 === 1 ? -1 : 1) * 0.5 : col === 0 ? -0.5 : 0.5;
-  const ancho = sinTope ? 0.4 : r.ancho * 0.5;
-  out[i] = r.ini[0] + r.dir[0] * along + r.lat[0] * lado * ancho;
-  out[i + 1] = r.ini[1] + r.dir[1] * along + r.lat[1] * lado * ancho;
+  const along = largo * (1 - Math.min(PILA_FILAS - 0.5, fila + 0.5 + corrido * 0.5) / PILA_FILAS);
+  // a lo ancho: 0, +1, −1, +2, −2 (en pasos de 0,4 m)
+  const lado = (col === 0 ? 0 : (col % 2 === 1 ? 1 : -1) * Math.ceil(col / 2)) + corrido * (col % 2 === 1 ? -1 : 1) * 0.5;
+  out[i] = r.ini[0] + r.dir[0] * along + r.lat[0] * lado * 0.4;
+  out[i + 1] = r.ini[1] + r.dir[1] * along + r.lat[1] * lado * 0.4;
   return capa;
 }
 
@@ -327,9 +347,10 @@ function filaDe(
 
   // Obstáculos: muestras del lazo, de las cintas (salvo el último metro, que llega a la fila), de las rampas y de las estaciones.
   const obs: number[] = [];
-  for (let s = 0; s < g.lazo.largo; s += 0.5) { const p = enLazo(g.lazo, s); obs.push(p[0], p[1]); }
+  // cada medio metro, con a lo sumo 4.000 muestras por recorrido (hallazgo SEG-R1: una cinta de 1e9 m colgaba la pestaña acá)
+  for (let s = 0, d = pasoMuestreo(g.lazo.largo, 0.5, 4000); s < g.lazo.largo; s += d) { const p = enLazo(g.lazo, s); obs.push(p[0], p[1]); }
   for (const c of cintas) {
-    for (let s = 0; s < c.largo - 1; s += 0.5) { const p = [0, 0, 0]; enCinta(c, s / c.largo, p); obs.push(p[0], p[1]); }
+    for (let s = 0, d = pasoMuestreo(c.largo, 0.5, 4000); s < c.largo - 1; s += d) { const p = [0, 0, 0]; enCinta(c, s / c.largo, p); obs.push(p[0], p[1]); }
   }
   for (const r of [...rampas, exc]) for (let f = 0; f <= 1; f += 0.125) obs.push(r.base[0] + (r.jaula[0] - r.base[0]) * f, r.base[1] + (r.jaula[1] - r.base[1]) * f);
   for (const e of est) obs.push(e.operador[0], e.operador[1], e.mano[0], e.mano[1]);

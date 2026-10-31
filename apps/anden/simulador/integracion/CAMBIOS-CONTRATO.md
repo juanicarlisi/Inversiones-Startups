@@ -137,3 +137,76 @@ Ninguno cambia código ni `contratos/`; son correcciones de `corte-1.md` (y de c
 | §6.7 regla 7 (1.1.0, relevo) | «durante la pausa sus rampas las atiende la siguiente persona presente que no esté en pausa; si no hay ninguna, la primera que vuelva de la suya» | P4, `hub/NOTAS-CONTRATO.md` §17.2 |
 | §6.7 regla 11 (1.1.0, jaulas) | «una jaula completa la cierra quien atiende la rampa en ese momento (la primera persona que llega); si ya la cerró otra, busca otra tarea» | P4 §16.2 y §17.1 |
 | §9 P4, «plan» | comparar `'por-volumen'` contra `'contiguas'` en la plantilla grande con 9 personas de rampa (con las 15 de la plantilla ninguna rampa se llena con ninguno de los dos planes y la prueba no distingue nada) | P4 §15 |
+
+## 12. Arreglos de la revisión del 30-10-2026 · motor 1.2.0 · 31-10-2026
+
+**`contratos/` no cambia** (`pruebas/arquitectura.test.ts` lo sigue exigiendo byte a byte). Lo que sigue extiende tipos por fuera del
+contrato o cambia el texto de `corte-1.md`; el código ya lo hace y lo decide el orquestador (o el fundador). MEDIDO = en el contenedor (4
+núcleos compartidos, Node 22.22) el 30/31-10-2026.
+
+### 12.1 Motor 1.2.0 (cambian las huellas del hub; `hub/pruebas/doradas.json` regenerado)
+
+| Regla | 1.1.0 | 1.2.0 | Hallazgo |
+|---|---|---|---|
+| §6.7 regla 12 · vuelta del puesto manual | entra al final de la acumulación sin mirar lugar (la fila llegaba a 154 en 120 lugares) | si fila + cintas + en descarga ya llegan a la capacidad, el paquete espera en la mesa (tramo MANUAL con causa BLOQUEO; la persona sigue ocupada) y entra apenas se libera un lugar, antes que los andenes parados | HUB-R03 |
+| §6.7 regla 1 · horas pagadas | presentes × max(turno, último paquete − inicio), a tarifa simple | presentes × turno + presentes × (último paquete − fin) con recargo `RECARGO_HORA_EXTRA` = 1,5 + ausentes × turno × `FRACCION_AUSENTE_PAGADA` = 0,5 (SUPUESTOS con fuente en `hub/costos.ts`: LCT arts. 201 y 208 e IDESA 3T-2025, a verificar en la fuente primaria) | HUB-R02 |
+| §6.9 · `personaOcupadaPct` | ÷ la jornada pagada (pasaba de 100% con el cierre de la última jaula y en las noches que no terminan) | ÷ max(jornada, último evento − inicio): numerador y denominador en la misma ventana | REV-D7, HUB-R10 |
+| traza · `fin` | max(fin, último evento, último listo) | además, el mayor t1 de los tramos (en las noches que no terminan, tareas agendadas terminaban hasta 20 s después) | REV-D8 |
+
+- **Extras fuera del contrato (`hub/kpi.ts` › `ResultadoReplicaHub.kpiExtra`).** `esperaDesdeLlegadaMediaMin/P90Min` (listo − llegada del
+  camión), `estadiaCamionMediaMin/P90Min` (andén libre − llegada: el turn time) y las horas pagadas separadas (normales, extra, de ausentes).
+  La «espera» del contrato cuenta desde que empieza la descarga del paquete y no ve la cola en el camión ni en la playa (HUB-R01); la app
+  la rotula así («tiempo en el hub desde la descarga») y muestra los extras en la tabla de réplicas del modo ingeniero. La biografía del
+  paquete empieza con su camión: a qué hora llegó y cuánto esperó en la playa.
+- **Propuesta para el Anexo A (versión 1.2 del contrato, aditiva).** `KPIS` suma `esperaDesdeLlegadaMediaMin`, `esperaDesdeLlegadaP90Min`,
+  `estadiaCamionMediaMin` y `estadiaCamionP90Min` (unidad min, mejor «menos»); el esquema `anden.modelo/2` suma
+  `costos.fraccionAusentePagada` y `costos.recargoHoraExtra` (hoy constantes del motor, como `VELOCIDAD_CAMINAR_MPS`).
+- **Texto propuesto para §6.7 regla 12:** «… vuelve al final de la acumulación si hay lugar (fila + cintas + en descarga < capacidad); si
+  no, espera en la mesa con la persona del puesto y entra apenas se libera uno, antes que los andenes parados». Regla 1: la de la tabla.
+
+### 12.2 Decisión secuencial calibrada exacta (EST-04, REV-D1)
+
+- `experimentos/estadistica/secuencial.ts`: el z de cada mirada ya no es Bonferroni. Cada lado del Wilson tiene su z, calibrado con la
+  distribución EXACTA del proceso (programación dinámica sobre la binomial, con la misma regla que decide) para que, con p = meta, ni
+  «cumple» ni «no cumple» pasen de (1 − confianza) ÷ 2. Para 20/20/400 y confianza 0,95: meta 0,9 → z 2,37 («cumple») y 2,98 («no
+  cumple»), errores exactos 2,46% y 2,10%; con p = 0,94 la opción se confirma el 73% de las veces (Bonferroni: 39%). La meta 0,99 se
+  puede confirmar (381 noches con todas cumpliendo). Con más de 2.000 noches o 200 miradas, Bonferroni.
+- **MEDIDO, de paso:** Bonferroni no solo sobreprotegía «cumple»: del lado de «no cumple» se quedaba CORTO con metas altas (el Wilson
+  superior no es exacto en la binomial): 3,19% con meta 0,95, 3,87% con 0,97 y 5,09% con 0,99, contra el 2,5% prometido.
+- Meta inalcanzable con el presupuesto (n mínimo = ⌈z²·meta ÷ (1 − meta)⌉ > replicasMax): el semáforo en duda lo dice
+  (`experimentos.semaforo.decision-en-duda.inalcanzable`, vars `minimas` y `maximo`).
+- **S13 (§8) mide la regla de la interfaz** (`decidirOpcion`, la misma función que usa `evaluarDecision` en cada mirada). **Texto
+  propuesto para §8:** «S13 · Decisión con datos fijos y la regla secuencial calibrada (meta 0,9; 20 iniciales, tandas de 20, hasta 400):
+  19/20, 20/20 y 97/100 → en-duda; 116/120 y 60/60 → cumple; 336/400 → no-cumple · Exacto». **Para §7:** «Cada mirada usa el Wilson con
+  un z por lado, calibrado con la distribución exacta de la regla secuencial para que, con p = meta, la probabilidad de declarar
+  “cumple” y la de declarar “no cumple” no pasen de α/2 cada una (Bonferroni si el máximo pasa de 2.000 noches).»
+
+### 12.3 Comparación pareada robusta (EST-02, EST-03, EST-05)
+
+- `comparar` (contrato `Comparar`) devuelve `ComparacionRobusta`: los campos del contrato (`media` e `ic` siguen siendo la media de B − A y
+  su IC de t, como dato) más `mediana`, `icMediana` (estadísticos de orden), `bMenor`/`bMayor`/`empates`, `pValor`, `asimetria` y
+  `atipicos`. **El veredicto es la prueba del signo exacta** (B mejor en más noches de las que explica el azar; los empates no cuentan) y
+  `replicasSugeridas`, las noches para verla con 80% de poder. Con las colas reales del hub (asimetría 11,9) el IC de t cubría la media
+  37–62% y daba «B es mejor» con el signo contrario a la media en 1 de cada 4 confirmaciones; el IC de la mediana cubre ≥ 93% y el signo
+  nunca contradice a la mayoría de las noches (`experimentos/pruebas/pareada.test.ts`, 2.000 confirmaciones con la anatomía medida).
+- «¿Y si…?» confirma con las mismas noches que A (las cien de la escena, antes 40) y cada indicador al 99% (Bonferroni sobre los cinco:
+  el error de la tabla entera ≤ 5%; antes, al menos un veredicto falso en el 11% de las tablas). «Iguales en la práctica» solo si el IC de
+  la noche típica Y el promedio caben en el mínimo práctico; si no alcanza, se dice el rango («no alcanza para saber»), no «nula».
+- **Texto propuesto para §7:** «Comparación pareada: Zᵢ = Bᵢ − Aᵢ; veredicto por la prueba del signo exacta al nivel de confianza (sin los
+  empates); se muestra la mediana de Z con su IC por estadísticos de orden y, aparte, las noches atípicas (Iglewicz–Hoaglin, 3,5)».
+  **Para §9 P8.5:** «confirmación con las mismas noches que A (hasta N), cada indicador al 1 − α/5».
+- **Propuesta para `MotivoSemaforo`:** sumar `'colas-pesadas'` (amarillo). Hoy las noches atípicas van como nota debajo de la tabla.
+
+### 12.4 Presupuesto y esquema (SEG-R1, SEG-R2, SEG-R3, REV-D3)
+
+- Esquema (`modelo/esquema.ts`): coordenadas de andenes, acumulación, origen y puntos de cinta en ±5.000 m; recta ≤ 2.000 m, radio ≤
+  500 m; acumulación ≤ 2.000 m; cada cinta ≤ 2.000 m (`E-RANGO cinta-larga`); ≤ 200 andenes y cintas, 500 rampas, 100 puestos; ≤ 50
+  personas por andén y ≤ 2.000 por rol; `maxVueltas` ≤ 254 (el motor lo recortaba en silencio, REV-D3).
+- Presupuesto (`modelo/presupuesto.ts`): los tramos estimados suman los de las personas (2 por persona de andén y camión, 4 por persona
+  de los demás roles y sus pausas) y hay un tope de dibujo: `E-PRESUPUESTO dibujo` con más de 5.000 bandejas. El escritor de la traza
+  tiene un tope duro de 4.000.000 de tramos (`nucleo/traza/escritor.ts`).
+- Hostiles nuevas (`modelo/pruebas/hostiles/entradas.ts`): H13 (acumulación a 1e9 m), H14 (origen en 1e12), H15 (andén y cinta a 1e9),
+  H16 (recta de 300.000 m) y H17 (1,9 millones de personas en un andén) → `esquema`; H16b (paso de 1 cm) → `presupuesto`. El recorrido
+  del enlace hostil abre H13 por la URL.
+- **Texto propuesto para §1.8 / §11:** las cotas de arriba, y «primitivas por cuadro acotadas: grilla ≤ 200 líneas por eje, muestreo de
+  recorridos ≤ 4.000 puntos, lo que queda fuera del lienzo no se compone».

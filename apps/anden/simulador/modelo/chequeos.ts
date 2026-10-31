@@ -4,12 +4,15 @@
 import type { Diagnostico, Dist, EstimacionF0, Modelo, Num } from '../contratos/modelo.ts';
 import { LIMITES_ENLACE } from '../contratos/escena.ts';
 import { horaASeg, segAHoraLarga } from '../contratos/tipos-base.ts';
-import { cifra, type Colector } from './esquema.ts';
+import { cifra, MAX_LARGO_CINTA_M, type Colector } from './esquema.ts';
 import {
   bandejasLazo, calcularF0, distribucionEfectiva, largoLazo, media, paquetesNominales, parametroDe, ranuraDe, soporteMinimo, tickMs,
 } from './f0.ts';
 import { aplicarParcheJson, ErrorParche, escaparToken, leerPuntero } from './parches.ts';
-import { estimarPresupuesto, eventosRecurrentes, lugaresDeMemoria, MAX_LUGARES_MEMORIA, MAX_TRAMOS_ESTIMADOS, TRAMOS_POR_PAQUETE } from './presupuesto.ts';
+import {
+  estimarPresupuesto, eventosRecurrentes, lugaresDeMemoria, MAX_BANDEJAS_DIBUJO, MAX_LUGARES_MEMORIA, MAX_TRAMOS_ESTIMADOS, TRAMOS_POR_PAQUETE,
+  tramosDePersonas,
+} from './presupuesto.ts';
 
 /** Catálogo de controles (lo cuenta I-CONTROLES para el comprobante: controles, cuántos pasaron, avisos). */
 export const CONTROLES = [
@@ -137,6 +140,8 @@ function chequearAndenesYCintas(m: Modelo, c: Colector): void {
       largo += Math.sqrt(dx * dx + dy * dy);
     }
     if (!(largo > 0)) c.error('E-RANGO', `/hub/cintas/${i}/puntos`, 'cinta-sin-largo', { id: ci.id });
+    // SEG-R1: con cada punto dentro de ±5 km, unos pocos puntos ya dan decenas de km de cinta (la escena la recorre cada medio metro)
+    else if (largo > MAX_LARGO_CINTA_M) c.error('E-RANGO', `/hub/cintas/${i}/puntos`, 'cinta-larga', { id: ci.id, largo: cifra(largo, 0), max: MAX_LARGO_CINTA_M });
   });
   h.andenes.forEach((a, i) => { if (cintasPorAnden[i] === 0) c.error('E-REF', `/hub/andenes/${i}`, 'anden-sin-cinta', { id: a.id }); });
   const lugares = Math.floor(h.acumulacion.largo / h.acumulacion.paso + 1e-9);
@@ -208,7 +213,8 @@ function chequearPersonas(m: Modelo, c: Colector): void {
     if (p.duracion >= p.cada) c.error('E-PAUSAS', `/personas/${rol}/pausas/duracion`, undefined, { duracion: p.duracion, cada: p.cada });
     else if (personas >= 2 && p.duracion > 0 && p.escalon < p.duracion) {
       const hasta = p.escalon > 0 ? Math.min(personas, Math.ceil(p.duracion / p.escalon)) : personas;
-      c.info('I-PAUSAS-SUPERPUESTAS', `/personas/${rol}/pausas/escalon`, undefined, { hasta, escalon: p.escalon, duracion: p.duracion });
+      // con el rol en el texto (hallazgo EXP-05): inducción y rampa daban dos tarjetas idénticas en el comprobante
+      c.info('I-PAUSAS-SUPERPUESTAS', `/personas/${rol}/pausas/escalon`, rol, { hasta, escalon: p.escalon, duracion: p.duracion });
     }
   }
   const pr = m.personas.rampa;
@@ -328,8 +334,18 @@ export function chequear(m: Modelo, c: Colector, o: OpcionesChequeo): Estimacion
     c.error('E-PRESUPUESTO', '', 'eventos', { estimado: Number.isFinite(p.eventos) ? p.eventos : '∞', max: LIMITES_ENLACE.maxEventosEstimados });
   }
   // La película (hallazgo SEG-01): tramos estimados de una noche, solo si los paquetes ya entraron en su tope.
-  if (p.paquetes <= LIMITES_ENLACE.maxPaquetesEstimados && !(p.paquetes * TRAMOS_POR_PAQUETE <= MAX_TRAMOS_ESTIMADOS)) {
-    c.error('E-PRESUPUESTO', '/demanda/camiones', 'traza', { estimado: p.paquetes * TRAMOS_POR_PAQUETE, max: MAX_TRAMOS_ESTIMADOS });
+  // Con las personas (hallazgo SEG-R3): las de descarga abren tramos por camión que no dependen de los paquetes.
+  if (p.paquetes <= LIMITES_ENLACE.maxPaquetesEstimados) {
+    const dePaquetes = p.paquetes * TRAMOS_POR_PAQUETE, dePersonas = tramosDePersonas(m), tramos = dePaquetes + dePersonas;
+    if (!(tramos <= MAX_TRAMOS_ESTIMADOS)) {
+      c.error('E-PRESUPUESTO', dePersonas > dePaquetes ? '/hub/andenes' : '/demanda/camiones', 'traza',
+        { estimado: Number.isFinite(tramos) ? tramos : '∞', max: MAX_TRAMOS_ESTIMADOS });
+    }
+  }
+  // El dibujo (hallazgo SEG-R2): una figura por bandeja en cada cuadro.
+  const bandejas = bandejasLazo(m.hub.sorter);
+  if (!(bandejas <= MAX_BANDEJAS_DIBUJO)) {
+    c.error('E-PRESUPUESTO', '/hub/sorter/paso', 'dibujo', { estimado: Number.isFinite(bandejas) ? bandejas : '∞', max: MAX_BANDEJAS_DIBUJO });
   }
   // Cotas de seguridad que la especificación no nombra (NOTAS-CONTRATO.md §8): memoria y eventos que no dependen de los paquetes.
   const lugares = lugaresDeMemoria(m);

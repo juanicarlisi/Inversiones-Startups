@@ -43,6 +43,11 @@ export interface OpcionesArranque {
   depuracion?: boolean;
   /** Idioma inicial (si no, el guardado o español). */
   idioma?: Idioma;
+  /**
+   * Avisa cuando la película empieza o deja de correr a la vista (reproduciendo y en una pantalla con película). La integración lo usa
+   * para dejarle núcleos al dibujo mientras tanto (hallazgo EXP-02).
+   */
+  alPelicula?: (corriendo: boolean) => void;
 }
 
 const CLAVE_PREFS = 'anden.preferencias';
@@ -52,6 +57,11 @@ function leerPrefs(): Preferencias {
 }
 function guardarPrefs(p: Preferencias): void {
   try { localStorage.setItem(CLAVE_PREFS, JSON.stringify(p)); } catch { /* sin almacenamiento: no pasa nada */ }
+}
+
+/** ¿El fragmento (sin «#») tiene la forma de un enlace de Andén (empieza con m=, t=, p= o r=)? Los demás son anclas de la página. */
+export function esFragmentoDeEnlace(f: string): boolean {
+  return /^[mtpr]=/.test(f);
 }
 
 export function arrancar(servicios: Servicios, raiz: HTMLElement, opciones: OpcionesArranque = {}): void {
@@ -77,7 +87,15 @@ export function arrancar(servicios: Servicios, raiz: HTMLElement, opciones: Opci
   const avisos = el('div', { class: 'avisos', role: 'status', 'aria-live': 'polite' });
   const contenido = el('main', { class: 'contenido', id: 'contenido' });
   const cabecera = el('header', { class: 'barra' });
-  raiz.replaceChildren(el('a', { class: 'saltar', href: '#contenido', 'data-accion': 'saltar' }), cabecera, contenido, avisos, narrador);
+  // «Saltar al contenido» (hallazgo SEG-R4 de la revisión del 30-10-2026): no cambia el fragmento. El fragmento ES el enlace del modelo y,
+  // al cambiar a «#contenido», el manejador de hashchange intentaba abrirlo como enlace y sacaba del modelo a quien navega con teclado o
+  // lector de pantalla. Ahora mueve el foco al contenido sin tocar la URL. El texto da su nombre accesible (antes estaba vacío).
+  contenido.tabIndex = -1;
+  const saltar = el('a', { class: 'saltar', href: '#contenido', 'data-accion': 'saltar', onclick: (ev) => {
+    ev.preventDefault();
+    contenido.focus({ preventScroll: false });
+  } });
+  raiz.replaceChildren(saltar, cabecera, contenido, avisos, narrador);
   raiz.classList.add('app');
 
   const ctx: Contexto = {
@@ -150,16 +168,19 @@ export function arrancar(servicios: Servicios, raiz: HTMLElement, opciones: Opci
   };
 
   const pintarCabecera = () => {
+    saltar.textContent = ctx.t('app.saltar');
     const e = almacen.estado;
     const idioma = el('select', { class: 'barra__idioma', 'aria-label': ctx.t('app.barra.idioma'), 'data-accion': 'idioma' },
       el('option', { value: 'es' }, 'ES'), el('option', { value: 'en' }, 'EN'));
     idioma.value = e.idioma;
     idioma.addEventListener('change', () => almacen.despachar({ tipo: 'idioma', idioma: idioma.value === 'en' ? 'en' : 'es' }));
     const siguienteTema: Record<Tema, Tema> = { sistema: 'claro', claro: 'oscuro', oscuro: 'sistema' };
-    const nombreTema = ctx.t(`app.tema.${e.tema}`);
+    const nombreTema = ctx.t(`app.tema.${e.tema}`), cortoTema = ctx.t(`app.tema.corto.${e.tema}`);
+    // El nombre accesible empieza con el texto que se ve en el teléfono («Tema: Auto») y contiene el del escritorio («Tema del
+    // sistema»): quien usa control por voz dice lo que ve (WCAG 2.5.3, hallazgo EXP-10).
     const tema = el('button', { type: 'button', class: 'boton boton--barra boton--tema', 'data-accion': 'tema', title: nombreTema,
-      'aria-label': ctx.t('app.barra.temaAria', { tema: nombreTema }), onclick: () => almacen.despachar({ tipo: 'tema', tema: siguienteTema[almacen.estado.tema] }) },
-    el('span', { class: 'boton__texto-corto', 'aria-hidden': 'true' }, ctx.t(`app.tema.corto.${e.tema}`)), el('span', { class: 'boton__texto-ancho' }, nombreTema));
+      'aria-label': ctx.t('app.barra.temaAria', { tema: nombreTema, corto: cortoTema }), onclick: () => almacen.despachar({ tipo: 'tema', tema: siguienteTema[almacen.estado.tema] }) },
+    el('span', { class: 'boton__texto-corto', 'aria-hidden': 'true' }, ctx.t('app.barra.temaCorto', { corto: cortoTema })), el('span', { class: 'boton__texto-ancho' }, nombreTema));
     const titulo = el('span', { class: 'barra__modelo' });
     titulo.textContent = sesion.mv && e.pantalla !== 'inicio' ? sesion.mv.modelo.titulo : '';
     cabecera.replaceChildren(
@@ -207,7 +228,7 @@ export function arrancar(servicios: Servicios, raiz: HTMLElement, opciones: Opci
   };
 
   // ---- historial del navegador: «atrás» = volver ----
-  let empujadas = 0, ignorarPop = 0, desdePop = false;
+  let empujadas = 0, ignorarPop = 0, desdePop = false, peliculaCorriendo = false;
   const L = limpiezas();
   L.sumar(escuchar(window, 'popstate', () => {
     // ir a otro fragmento (#…) también dispara popstate: eso no es «atrás», lo atiende hashchange
@@ -231,6 +252,8 @@ export function arrancar(servicios: Servicios, raiz: HTMLElement, opciones: Opci
       montar(n.pantalla);
     }
     if (n.aviso !== a.aviso) pintarAviso();
+    const corre = n.reproduciendo && muestraPelicula(n.pantalla);
+    if (corre !== peliculaCorriendo) { peliculaCorriendo = corre; opciones.alPelicula?.(corre); }
   });
   sesion.suscribir((tema) => {
     if (tema === 'error' && sesion.ultimoError) ctx.avisar(sesion.ultimoError.clave, sesion.ultimoError.vars, 'error');
@@ -259,7 +282,13 @@ export function arrancar(servicios: Servicios, raiz: HTMLElement, opciones: Opci
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
     if (almacen.estado.pantalla !== 'inicio') almacen.despachar({ tipo: 'volver' });
   }));
-  L.sumar(escuchar(window, 'hashchange', () => { hashVisto = location.hash; const f = location.hash.slice(1); if (f) void ctx.abrirFragmento(f); }));
+  // Solo un fragmento de enlace (m=, t=, p=, r=) abre un modelo: un ancla interna (hoy «#contenido», mañana otra) no es un enlace roto
+  // (hallazgo SEG-R4). El fragmento con el que se abre la página sí se decodifica siempre: si alguien pegó un enlace roto, se le dice.
+  L.sumar(escuchar(window, 'hashchange', () => {
+    hashVisto = location.hash;
+    const f = location.hash.slice(1);
+    if (f && esFragmentoDeEnlace(f)) void ctx.abrirFragmento(f);
+  }));
 
   aplicarTema();
   const fragmento = location.hash.slice(1);

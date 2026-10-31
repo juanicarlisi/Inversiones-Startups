@@ -86,11 +86,17 @@ export const montarIngeniero: Montar = (raiz, ctx) => {
         etapas.map((k) => [ctx.t(`modelo.etapa.${k}`), ctx.f.numero(cap[k], 0), ctx.f.porcentaje(f0.utilizacion[k], 0)]), { numericas: [1, 2], titulo: ctx.t('app.ingeniero.f0Tabla') }));
     const rs = s.nochesLlegadas;
     const base = horaASeg(mv.modelo.calendario.inicio) * 1000;
+    // desde la llegada del camión hasta la jaula (P90) y la estadía del camión (P90): los indicadores extra del motor 1.2.0 (HUB-R01),
+    // fuera de la lista congelada de KPI; «—» si los servicios no los traen
+    const extra = (r: (typeof rs)[number], k: 'esperaDesdeLlegadaP90Min' | 'estadiaCamionP90Min') => {
+      const v = (r as { kpiExtra?: Record<string, number> }).kpiExtra?.[k];
+      return typeof v === 'number' ? ctx.t('app.unidad.min', { n: ctx.f.numero(v, 0) }) : '—';
+    };
     poner(replicas, rs.length ? tabla([ctx.t('app.ingeniero.col.noche'), ctx.t('app.ingeniero.col.huella'), ctx.t('app.ingeniero.col.fin'), ctx.t('app.ingeniero.col.pendientes'),
-      ctx.t('app.ingeniero.col.costo'), ctx.t('app.ingeniero.col.alertas')],
+      ctx.t('app.ingeniero.col.desdeLlegada'), ctx.t('app.ingeniero.col.estadia'), ctx.t('app.ingeniero.col.costo'), ctx.t('app.ingeniero.col.alertas')],
     rs.map((r) => [String(r.replica + 1), el('span', { class: 'mono' }, r.huella), ctx.f.hora(base + r.kpi.finClasificacionMin * 60000), ctx.f.numero(r.kpi.pendientesAlCorte, 0),
-      ctx.f.moneda(r.kpi.costoPorPaquete, mv.modelo.costos.moneda), r.alertas.length ? r.alertas.join(', ') : '—']),
-    { numericas: [3, 4], titulo: ctx.t('app.ingeniero.replicasTitulo', { n: rs.length, N: s.N }), accion: 'replicas' }) : el('p', { class: 'nota' }, ctx.t('app.noches.esperando')));
+      extra(r, 'esperaDesdeLlegadaP90Min'), extra(r, 'estadiaCamionP90Min'), ctx.f.moneda(r.kpi.costoPorPaquete, mv.modelo.costos.moneda), r.alertas.length ? r.alertas.join(', ') : '—']),
+    { numericas: [3, 4, 5, 6], titulo: ctx.t('app.ingeniero.replicasTitulo', { n: rs.length, N: s.N }), accion: 'replicas' }) : el('p', { class: 'nota' }, ctx.t('app.noches.esperando')));
     descargar.disabled = !s.noche;
   };
   pintar();

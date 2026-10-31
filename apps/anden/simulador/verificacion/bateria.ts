@@ -225,7 +225,8 @@ export function crearBateria(crearMotor: CrearMotor, o: { casosExtra?: Caso[] } 
         exigiblesDelCorte: EXIGIBLES_DEL_CORTE, exigiblesP2: EXIGIBLES_P2.length, exigiblesCorridas: exig.length, pasaron,
         fallaron: exig.length - pasaron, informativas: resultados.filter((r) => r.estado === 'informativa').length,
         debeFallar: debe.length, debeFallarOk: debeOk, reintentos,
-        aprobada: pasaron === exig.length && debeOk === debe.length && doradas.estado !== 'falla',
+        // con la suite completa, las doradas tienen que estar y coincidir: sin el archivo la huella de §6.4 no se controla (REV-D6)
+        aprobada: pasaron === exig.length && debeOk === debe.length && doradas.estado !== 'falla' && !(suite === 'completa' && doradas.estado === 'sin-archivo'),
         ...(t0 !== undefined && tFin !== undefined ? { segundos: (tFin - t0) / 1000 } : {}),
       },
       resultados, casos: infoCasos, doradas, conservacion: { corridas, violaciones: violaciones.length },

@@ -13,7 +13,8 @@ import { calcular, buffersDe, type Buffers } from './buffers.ts';
 import { lugarEnFila, type Disposicion } from './disposicion.ts';
 import { COLOR_ESTADO, FORMA_ESTADO, color, colorRiesgo } from './estilo.ts';
 import { posBandeja } from './lazo.ts';
-import { crearProyector, esquinas, type Marco, type Primitiva, type Proyector } from './primitivas.ts';
+import { crearProyector, enMarco, esquinas, pasoGrilla, pasoMuestreo, type Marco, type Primitiva, type Proyector } from './primitivas.ts';
+import { rotulosDeRampas } from './rotulos.ts';
 import { EstadoPuesto, esReproductorEscena, type PosicionesEscena } from './reproductor.ts';
 
 export type Capa = 'fondo' | 'movil' | 'todo';
@@ -87,8 +88,9 @@ function fondo(c: Composicion, p: Proyector, D: Disposicion, prims: Primitiva[])
   const L = D.limites;
   prims.push({ tipo: 'poligono', pts: proyectar(p, [L.xmin, L.ymin, L.xmax, L.ymin, L.xmax, L.ymax, L.xmin, L.ymax]), relleno: color(e, 'piso'), borde: null, grosor: 0, prof: prof++ });
   const grilla = color(e, 'grilla');
-  for (let x = Math.ceil(L.xmin / 5) * 5; x <= L.xmax; x += 5) prims.push({ tipo: 'linea', pts: proyectar(p, [x, L.ymin, x, L.ymax]), color: grilla, grosor: 1, guion: null, cerrada: false, prof: prof++ });
-  for (let y = Math.ceil(L.ymin / 5) * 5; y <= L.ymax; y += 5) prims.push({ tipo: 'linea', pts: proyectar(p, [L.xmin, y, L.xmax, y]), color: grilla, grosor: 1, guion: null, cerrada: false, prof: prof++ });
+  const pg = pasoGrilla(5, L.xmax - L.xmin, L.ymax - L.ymin);   // nunca más de MAX_LINEAS_GRILLA líneas por eje (SEG-R1)
+  for (let x = Math.ceil(L.xmin / pg) * pg; x <= L.xmax; x += pg) prims.push({ tipo: 'linea', pts: proyectar(p, [x, L.ymin, x, L.ymax]), color: grilla, grosor: 1, guion: null, cerrada: false, prof: prof++ });
+  for (let y = Math.ceil(L.ymin / pg) * pg; y <= L.ymax; y += pg) prims.push({ tipo: 'linea', pts: proyectar(p, [L.xmin, y, L.xmax, y]), color: grilla, grosor: 1, guion: null, cerrada: false, prof: prof++ });
   // acumulación
   prims.push({ tipo: 'poligono', pts: proyectar(p, cajaFila(D)), relleno: color(e, 'acumulacion'), borde: color(e, 'acumulacionBorde'), grosor: 1, prof: prof++ });
   // cintas
@@ -115,13 +117,9 @@ function fondo(c: Composicion, p: Proyector, D: Disposicion, prims: Primitiva[])
     const dx = -Math.sin(n[2]), dy = Math.cos(n[2]);
     prims.push({ tipo: 'linea', pts: proyectar(p, [n[0] - dx * 0.9, n[1] - dy * 0.9, n[0] + dx * 0.9, n[1] + dy * 0.9]), color: color(e, 'lector'), grosor: Math.max(2, 0.25 * z), guion: null, cerrada: false, prof: prof++ });
   }
-  // rótulos de las rampas y los andenes (datos del modelo; solo si se leen)
+  // rótulos de los andenes (datos del modelo; solo si se leen). Los de las rampas van en la capa móvil, encima de todo (rotulos.ts)
   if (tm.rotulo >= 8) {
     const rot = color(e, 'rotulo');
-    for (const r of D.rampas) {
-      p.aPantalla(r.jaula[0] + r.dir[0] * 0.9, r.jaula[1] + r.dir[1] * 0.9, 0, o);
-      prims.push({ tipo: 'texto', x: o[0], y: o[1], texto: r.id.slice(0, 8), tam: tm.rotulo, color: rot, alinear: 'center', prof: prof++ });
-    }
     for (const a of D.andenes) {
       p.aPantalla(a.base[0] - a.dirCamion[0] * 1.2, a.base[1] - a.dirCamion[1] * 1.2, 0, o);
       prims.push({ tipo: 'texto', x: o[0], y: o[1], texto: a.id.slice(0, 8), tam: tm.rotulo, color: rot, alinear: 'center', prof: prof++ });
@@ -133,7 +131,8 @@ function fondo(c: Composicion, p: Proyector, D: Disposicion, prims: Primitiva[])
 function lectorS(D: Disposicion): number {
   const o = [0, 0, 0];
   let mejor = 0, d = Infinity;
-  for (let s = 0; s < D.lazo.largo; s += 0.1) {
+  const paso = pasoMuestreo(D.lazo.largo, 0.1, 20000);   // a lo sumo 20.000 muestras (SEG-R2)
+  for (let s = 0; s < D.lazo.largo; s += paso) {
     posEnLazo(D.lazo, s, o);
     const dd = (o[0] - D.lector[0]) ** 2 + (o[1] - D.lector[1]) ** 2;
     if (dd < d) { d = dd; mejor = s; }
@@ -187,6 +186,7 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
   for (let j = 0; j < T; j++) {
     posBandeja(L, j, rec.pasoLazo, o3);
     p.aPantalla(o3[0], o3[1], 0, o);
+    if (!enMarco(c.marco, o[0], o[1], tb)) continue;   // lo que queda fuera del lienzo no se compone (SEG-R2: acercado, casi todo el lazo)
     prims.push({ tipo: 'rect', x: o[0] - tb / 2, y: o[1] - tb / 2, w: tb, h: tb, relleno: cb, borde: null, grosor: 0, prof: prof++ });
   }
   // lazo detenido (micro-parada): dos líneas punteadas del color de alarma, por fuera de las bandejas, encima del lazo
@@ -207,12 +207,17 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
   // entidades
   const sel = op.seleccion ?? null;
   const refSel = sel ? refDe(sel.clase, sel.id) : -1;
-  const tapados = (pos as Partial<PosicionesEscena>).tapado;
+  const tapados = (pos as Partial<PosicionesEscena>).tapado, celdas = (pos as Partial<PosicionesEscena>).celda;
+  /** Glifo de un paquete: el de siempre o, si tiene lugar fijo en una grilla (tobogán de una rampa), el que entra en su lugar (el rombo
+   *  ocupa 1,25 veces su tamaño: 0,8 del lugar), nunca menos de 3 px. */
+  const tamPaquete = (cel: number) => (cel > 0 ? Math.min(tm.paquete, Math.max(3, 0.8 * cel * z)) : tm.paquete);
+  const margenEntidad = Math.max(64, D.camionLargo * z);
   for (let i = 0; i < pos.n; i++) {
     const clase = pos.clase[i], est = pos.estado[i] as EstadoVisual, ref = refDe(clase as ClaseEntidad, pos.id[i]);
     // un paquete exactamente debajo de otro igual (la pila del puesto manual) no se dibuja, salvo que sea el seleccionado
     if (tapados && tapados[i] && ref !== refSel) continue;
     p.aPantalla(pos.x[i], pos.y[i], 0, o);
+    if (ref !== refSel && !enMarco(c.marco, o[0], o[1], margenEntidad)) continue;   // fuera del lienzo: no se compone (SEG-R3)
     const ang = -(pos.ang[i] + c.camara.giro); // la cámara gira el mundo por `giro`; en pantalla y va hacia abajo
     if (clase === ClaseEntidad.CAMION) {
       const A = D.andenes[0];
@@ -227,13 +232,13 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
         relleno: color(e, est === EstadoVisual.ESPERANDO ? 'personaPausa' : 'persona'), borde: color(e, 'fondo'), ref, alfa: 1, prof: prof++,
       });
     } else {
-      const grande = esReproductorEscena(rep) && rep.bandejasDe(pos.id[i]) === 2;
+      const grande = esReproductorEscena(rep) && rep.bandejasDe(pos.id[i]) === 2, tp = tamPaquete(celdas ? celdas[i] : 0);
       prims.push({
-        tipo: 'glifo', forma: FORMA_ESTADO[est], x: o[0], y: o[1], tam: grande ? tm.paquete * 1.35 : tm.paquete, ang,
+        tipo: 'glifo', forma: FORMA_ESTADO[est], x: o[0], y: o[1], tam: grande ? tp * 1.35 : tp, ang,
         relleno: color(e, COLOR_ESTADO[est]), borde: est === EstadoVisual.ATRASADO ? color(e, 'texto') : null, ref, alfa: 1, prof: prof++,
       });
     }
-    if (ref === refSel) prims.push(halo(c, o[0], o[1], clase === ClaseEntidad.PERSONA ? tm.persona : tm.paquete, ref, prof++));
+    if (ref === refSel) prims.push(halo(c, o[0], o[1], clase === ClaseEntidad.PERSONA ? tm.persona : clase === ClaseEntidad.PAQUETE ? tamPaquete(celdas ? celdas[i] : 0) : tm.paquete, ref, prof++));
   }
   // rampas llenas: el contorno del tobogán encima de los paquetes, para que la rampa llena se vea aunque la tapen (hallazgo UX-02)
   if (!riesgo) {
@@ -256,16 +261,21 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
   // fantasma: los paquetes del otro escenario en el mismo instante, solo el contorno
   if (op.fantasma) {
     const bf = calcular(op.fantasma, c.t), pf = bf.pos, cf = color(e, 'fantasma');
-    const pft = (pf as Partial<PosicionesEscena>).tapado;
+    const pft = (pf as Partial<PosicionesEscena>).tapado, pfc = (pf as Partial<PosicionesEscena>).celda;
     for (let i = 0; i < pf.n; i++) {
       if (pf.clase[i] !== ClaseEntidad.PAQUETE || (pft && pft[i])) continue;
       p.aPantalla(pf.x[i], pf.y[i], 0, o);
       prims.push({
-        tipo: 'glifo', forma: FORMA_ESTADO[pf.estado[i] as EstadoVisual], x: o[0], y: o[1], tam: tm.paquete, ang: 0, relleno: cf, borde: null,
+        tipo: 'glifo', forma: FORMA_ESTADO[pf.estado[i] as EstadoVisual], x: o[0], y: o[1], tam: tamPaquete(pfc ? pfc[i] : 0), ang: 0, relleno: cf, borde: null,
         ref: refDe(ClaseEntidad.PAQUETE, pf.id[i]), alfa: 0.4, prof: prof++,
       });
     }
   }
+  // rótulos de las rampas: la pasada final, encima de todo (hallazgos EXP-03 y EXP-08)
+  rotulosDeRampas(p, D, {
+    estilo: e, marco: c.marco, tamZoom: tm.rotulo, rec, riesgo, seleccion: sel,
+    ancla: (r) => { const R = D.rampas[r]; return [R.jaula[0] + R.dir[0] * 0.9, R.jaula[1] + R.dir[1] * 0.9, 0]; },
+  }, prims, () => prof++);
 }
 
 /** Halo de la selección (pulsa salvo con movimiento reducido). */

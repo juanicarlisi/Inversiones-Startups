@@ -7,12 +7,13 @@ import type { Contexto, Montar } from '../contexto.ts';
 import type { EvaluacionDecision } from '../../contratos/experimentos.ts';
 import type { Pregunta } from '../../contratos/decision.ts';
 import type { Etiqueta } from '../../contratos/tipos-base.ts';
-import { el, limpiezas, poner } from '../ui/dom.ts';
+import { el, limpiezas, poner, reconciliar } from '../ui/dom.ts';
 import { cabecera, progreso, tarjeta } from '../ui/tarjeta.ts';
 import { tabla } from '../ui/tabla.ts';
 import { detalleSemaforo } from '../ui/semaforo.ts';
 import { insignia } from '../ui/insignia.ts';
 import { botonVolver } from './comun.ts';
+import { porcentajeContraMeta } from '../ui/resumen.ts';
 
 function textoRecomendacion(ctx: Contexto, ev: EvaluacionDecision): string {
   // con el semáforo en rojo («no usar») no se recomienda nada, aunque la cuenta dé un valor
@@ -136,10 +137,11 @@ export const montarDecidir: Montar = (raiz, ctx) => {
       return ms === null ? '' : ` ${ctx.t('app.decidir.falta', { tiempo: ctx.f.duracion(Math.max(1000, ms)) })}`;
     };
     if (x.fase === 'evaluando') {
-      poner(progresoCaja, progreso(x.maximo ? x.hechas / x.maximo : null, ctx.t('app.decidir.evaluando', { hechas: x.hechas })), cancelar);
+      // reconciliar: el botón «Cancelar» con foco sobrevive a cada noche que llega (hallazgo EXP-01)
+      reconciliar(progresoCaja, progreso(x.maximo ? x.hechas / x.maximo : null, ctx.t('app.decidir.evaluando', { hechas: x.hechas })), cancelar);
     } else if (x.fase === 'tamizando') {
       // hasta saber cuántos supuestos hay, progreso indeterminado (nunca «0 de 0»); la recomendación ya está arriba y se puede usar
-      poner(progresoCaja, progreso(x.maximo ? x.hechas / x.maximo : null,
+      reconciliar(progresoCaja, progreso(x.maximo ? x.hechas / x.maximo : null,
         x.maximo ? ctx.t('app.decidir.tamizando', { hechas: x.hechas, total: x.maximo }) + falta(x.hechas, x.maximo) : ctx.t('app.decidir.tamizandoEmpieza')), cancelar);
     } else if (x.fase === 'cancelado') {
       poner(progresoCaja, el('p', { class: 'nota' }, ctx.t('app.decidir.cancelado')),
@@ -158,7 +160,8 @@ export const montarDecidir: Montar = (raiz, ctx) => {
       poner(evaluacion,
         tabla([ctx.t('app.decidir.col.valor'), ctx.t('app.decidir.col.prob'), ctx.t('app.decidir.col.estado'), ctx.t('app.decidir.col.costo'), ctx.t('app.decidir.col.noches')],
           ev.configuraciones.map((c) => [String(c.valor),
-            rojo ? '—' : ctx.t('app.decidir.prob', { p: ctx.f.porcentaje(c.prop.p, 0), bajo: ctx.f.porcentaje(c.prop.ic[0], 0), alto: ctx.f.porcentaje(c.prop.ic[1], 0) }),
+            // 199 de 200 no es «100%» y 0,8996 contra la meta 0,90 no es «90%» (hallazgo EST-06)
+            rojo ? '—' : ctx.t('app.decidir.prob', { p: porcentajeContraMeta(ctx, c.prop.p, d.restriccion.probabilidadMinima), bajo: porcentajeContraMeta(ctx, c.prop.ic[0], d.restriccion.probabilidadMinima), alto: porcentajeContraMeta(ctx, c.prop.ic[1], d.restriccion.probabilidadMinima) }),
             el('span', { class: `estado-config estado-config--${c.estado}` }, ctx.t(`experimentos.estado.${c.estado}`)),
             rojo ? '—' : ctx.t('app.decidir.costo', { media: ctx.f.moneda(c.objetivo.media, moneda), mas: ctx.f.moneda(c.objetivo.semiancho, moneda) }),
             ctx.f.numero(c.prop.n, 0)]),

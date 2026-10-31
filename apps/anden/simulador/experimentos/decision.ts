@@ -9,14 +9,18 @@
 //    tanda, hasta 20 veces, y quedarse con el primer «cumple» declaraba «cumple» en ~9% de las decisiones cuando la probabilidad real
 //    era justo la meta (con una sola mirada es ≤ 2,5%). Ahora cada mirada decide con el Wilson de confianza 1 − (1 − confianza) ÷ K,
 //    con K = las miradas posibles (Bonferroni; 20 miradas → z = 3,02): sumando todas, el «cumple» falso no pasa de (1 − confianza) ÷ 2.
+//  · CALIBRACIÓN EXACTA (hallazgo EST-04 de la revisión del 30-10-2026): Bonferroni cumplía la promesa, pero de más (0,22% de «cumple»
+//    falso con meta 0,9 en lugar de 2,5%; la opción buena quedaba en duda). Ahora cada lado del Wilson tiene su z, calibrado con la
+//    distribución exacta del proceso (estadistica/secuencial.ts): meta 0,9 con 20/20/400 → z 2,37 para «cumple» y 2,98 para «no cumple»;
+//    el error exacto queda en 2,46% y 2,10%, y con p = 0,94 la opción se confirma el 73% de las veces (antes, 39%).
 //    El intervalo que se muestra (prop.ic, prop.confianza) es ESE, el que decide: así el estado y el intervalo nunca se contradicen.
 import { Prioridad } from '../contratos/experimentos.ts';
 import type { EvaluacionConfiguracion, EvaluacionDecision, Planificador } from '../contratos/experimentos.ts';
 import type { ModeloValidado, Variante } from '../contratos/modelo.ts';
 import type { ResultadoReplica } from '../contratos/resultados.ts';
 import { proporcion, resumir } from './estadistica/resumen.ts';
-import { estadoPorWilson, nochesQueFaltanZ, wilsonZ } from './estadistica/wilson.ts';
-import { confianzaPorMirada, miradasSecuenciales } from './estadistica/normal.ts';
+import { nochesQueFaltanZ } from './estadistica/wilson.ts';
+import { estadoSecuencial, icSecuencial, nochesMinimasParaCumplir, zSecuencial, type ZSecuencial } from './estadistica/secuencial.ts';
 import { semaforo } from './semaforo.ts';
 
 /** La evaluación fue cancelada (el usuario movió un deslizador, el planificador se cerró…). No es un fallo del modelo. */
@@ -56,6 +60,17 @@ export function recomendar(configuraciones: readonly Pick<EvaluacionConfiguracio
     if (c.estado === 'en-duda') return null;
   }
   return null;
+}
+
+/**
+ * La decisión de UNA opción en una mirada, con los datos fijos: lo mismo que hace `evaluarDecision` con cada configuración (y lo que
+ * mide la prueba S13 de la batería, hallazgo REV-D1: antes medía el Wilson de una sola mirada, que la decisión no usa).
+ */
+export function decidirOpcion(
+  exitos: number, n: number, meta: number, confianza: number, o: Pick<OpcionesEvaluacion, 'replicasIniciales' | 'tanda' | 'replicasMax'>,
+): { estado: EvaluacionConfiguracion['estado']; ic: [number, number]; confianza: number; regla: ZSecuencial } {
+  const regla = zSecuencial(confianza, meta, o.replicasIniciales, o.tanda, o.replicasMax);
+  return { estado: estadoSecuencial(exitos, n, meta, regla.zCumple, regla.zNoCumple), ic: icSecuencial(exitos, n, regla.zCumple, regla.zNoCumple), confianza: regla.confianza, regla };
 }
 
 let secuencia = 0;
@@ -98,8 +113,8 @@ export async function evaluarDecisionCon(
 
   const maximo = replicasMax * configs.length;
   let hechas = 0;
-  // Confianza de cada mirada (Bonferroni sobre las K miradas posibles por opción).
-  const porMirada = confianzaPorMirada(confianza, miradasSecuenciales(replicasIniciales, tanda, replicasMax));
+  // Los z de cada mirada, calibrados con la distribución exacta del proceso (estadistica/secuencial.ts, hallazgo EST-04).
+  const regla = zSecuencial(confianza, meta, replicasIniciales, tanda, replicasMax);
 
   /** Una ronda: lanza todos los trabajos juntos y espera. Si algo se cancela o falla, cancela el resto y relanza. */
   async function ronda(trabajos: { cfg: Config; desde: number; hasta: number }[]): Promise<void> {
@@ -131,9 +146,8 @@ export async function evaluarDecisionCon(
 
   const evaluar = (cfg: Config): EvaluacionConfiguracion => {
     const base = proporcion(cfg.rs, restriccion.kpi, restriccion.comparador, restriccion.umbral, confianza);
-    const ic = wilsonZ(base.exitos, base.n, porMirada.z);
-    const prop = { ...base, ic, confianza: porMirada.confianza };
-    return { valor: cfg.valor, prop, estado: estadoPorWilson(ic, meta), objetivo: resumir(cfg.rs, objetivo.minimizar, confianza) };
+    const prop = { ...base, ic: icSecuencial(base.exitos, base.n, regla.zCumple, regla.zNoCumple), confianza: regla.confianza };
+    return { valor: cfg.valor, prop, estado: estadoSecuencial(base.exitos, base.n, meta, regla.zCumple, regla.zNoCumple), objetivo: resumir(cfg.rs, objetivo.minimizar, confianza) };
   };
   /** Valores en duda que pueden cambiar la recomendación: los que están por debajo del menor que ya cumple. */
   const relevantesEnDuda = (evals: EvaluacionConfiguracion[]): EvaluacionConfiguracion[] => {
@@ -154,7 +168,11 @@ export async function evaluarDecisionCon(
   // Lo que quedó en duda al llegar al máximo bloquea la recomendación: se avisa en amarillo con una estimación de lo que faltaría.
   const enDuda = relevantesEnDuda(evals);
   const primero = enDuda[0];
-  const faltan = primero ? nochesQueFaltanZ(primero.prop.exitos, primero.prop.n, meta, porMirada.z) : null;
+  // lo que faltaría, con el z del lado hacia el que va la proporción observada
+  const faltan = primero
+    ? nochesQueFaltanZ(primero.prop.exitos, primero.prop.n, meta, primero.prop.p > meta ? regla.zCumple : regla.zNoCumple) : null;
+  // ¿la meta se puede confirmar con este presupuesto? Aunque todas las noches cumplan, el Wilson necesita n ≥ z²·meta ÷ (1 − meta)
+  const minimas = nochesMinimasParaCumplir(meta, regla.zCumple);
   const todas = configs.flatMap((c) => c.rs);
   // Una opción que «no cumple» porque su noche ni siquiera termina en el horizonte (por ejemplo, 2 puestos para 24.000 paquetes) está
   // sobrecargada: eso ES no cumplir, no una inestabilidad de la opción recomendada. Su alerta «no-termina» no pone el semáforo de la
@@ -172,6 +190,8 @@ export async function evaluarDecisionCon(
     diagnosticos: mv.diagnosticos, resultados: paraSemaforo, replicas: primero ? primero.prop.n : minimoPorConfig, confianza,
     decisionEnDuda: enDuda.length > 0 ? { valores: enDuda.map((x) => x.valor), faltan } : undefined,
   });
+  // meta inalcanzable con replicasMax noches (EST-04): el texto lo dice en lugar de «faltarían unas N»
+  if (sem.motivo === 'decision-en-duda' && minimas > replicasMax) sem.vars = { ...sem.vars, minimas: Number.isFinite(minimas) ? minimas : '∞', maximo: replicasMax };
   // En verde, el texto cuenta TODAS las noches de la evaluación y nombra las opciones que no terminaron la noche (sobrecargadas: cuentan
   // como «no cumple»), en lugar de decir «ninguna alerta» después de haberlas filtrado (hallazgo E-08).
   if (sem.motivo === 'ok') {

@@ -44,15 +44,25 @@ export class BloqueAcumulacion implements Bloque {
     this.fila.poner(e);
     h.medicion.observarFila(this.fila.largo);
     this.desviarCabeza(t);
-    h.ind.intentar(t);
+    // dentro de `tomar` (la inducción está repartiendo: un paquete del puesto manual entró al liberarse un lugar) no se vuelve a llamar a
+    // la inducción: el puesto que está tomando todavía figura libre y recibiría dos paquetes; el bucle de `intentar` sigue con la fila
+    if (this.tomando === 0) h.ind.intentar(t);
   }
+
+  /** > 0 mientras `tomar` reparte (para que `entrar` no llame a la inducción desde adentro de sí misma). */
+  private tomando = 0;
 
   /** Saca el primero de la fila para un puesto de inducción (el frente nunca es un no transportable). */
   tomar(t: number): number {
     const e = this.fila.sacar();
     this.S.salidas++;
-    this.desviarCabeza(t);
-    this.alSalir(t);
+    this.tomando++;
+    try {
+      this.desviarCabeza(t);
+      this.alSalir(t);
+    } finally {
+      this.tomando--;
+    }
     return e;
   }
 
@@ -69,6 +79,8 @@ export class BloqueAcumulacion implements Bloque {
 
   private alSalir(t: number): void {
     const h = this.h;
+    // primero los paquetes que vuelven del puesto manual y esperan lugar (HUB-R03), después los andenes parados
+    if (h.exc.hayEspera()) h.exc.liberarLugar(t);
     h.andenes.reanudar(t);
     if (this.S.llena && !h.andenes.hayBloqueados() && h.andenes.enCamino() <= Math.floor(FRACCION_LIBERA * h.cfg.acumCap)) {
       this.S.llena = 0;

@@ -145,13 +145,13 @@ export async function primerMinuto({ contexto, base, etiqueta, combo, prep, fall
   datos.cienNoches = riesgo;
   await h.sinDesborde('cien noches');
   await guardar('primer-minuto-cien-noches', page, { completa: true });
-  // «¿y si…?» con «balancear el plan»: pantalla dividida con la misma suerte, confirmada con 40 noches
+  // «¿y si…?» con «balancear el plan»: pantalla dividida con la misma suerte, confirmada con las mismas noches que A (cien desde EST-02)
   await h.clic('volver'); await h.pantalla('escena');
   await h.clic('ir-ysi'); await h.pantalla('ysi');
   const tYsi = Date.now();
   await h.clic('balancear');
   await page.waitForSelector('[data-ysi="previa"]', { timeout: 30_000 });
-  await page.waitForSelector('[data-ysi="confirmada"]', { timeout: 120_000 });
+  await page.waitForSelector('[data-ysi="confirmada"]', { timeout: 480_000 });
   datos.ysiConfirmadaS = Number(((Date.now() - tYsi) / 1000).toFixed(1));
   const filas = await page.$$eval('[data-tabla="comparacion"] tbody tr', (xs) => xs.map((x) => x.textContent));
   const veredictos = await page.$$eval('[data-tabla="comparacion"] .veredicto', (xs) => xs.map((x) => x.className.replace('veredicto veredicto--', '')));

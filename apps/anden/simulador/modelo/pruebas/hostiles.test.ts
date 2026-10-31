@@ -23,9 +23,9 @@ for (const h of HOSTILES) {
   });
 }
 
-test('H01–H12 están todas (y las variantes b)', () => {
+test('H01–H17 están todas (y las variantes b)', () => {
   const ids = HOSTILES.map((h) => h.id);
-  for (let i = 1; i <= 12; i++) assert.ok(ids.includes('H' + String(i).padStart(2, '0')), `falta H${String(i).padStart(2, '0')}`);
+  for (let i = 1; i <= 17; i++) assert.ok(ids.includes('H' + String(i).padStart(2, '0')), `falta H${String(i).padStart(2, '0')}`);
 });
 
 test('H01 de verdad es una bomba: pocos KB comprimidos, megabytes descomprimidos, y entra en el tope de caracteres del enlace', async () => {
@@ -138,7 +138,18 @@ test('compilar: 50 escenarios de 60 operaciones compilan (el trabajo está acota
 
 test('compilar: una cinta con 5.000 puntos (15.000 nodos, dentro del tope) se procesa entera', async () => {
   const m = ejemploJson();
-  m.hub.cintas[0].puntos = Array.from({ length: 5000 }, (_, i) => [-14 + (i % 7), -10 + (i % 5)]);
+  // en zigzag dentro de 30 × 20 cm: 5.000 puntos y menos de 2.000 m de cinta (el máximo desde la revisión del 30-10-2026, SEG-R1)
+  m.hub.cintas[0].puntos = Array.from({ length: 5000 }, (_, i) => [-14 + 0.05 * (i % 7), -10 + 0.05 * (i % 5)]);
   const r = await compilar(m);
   assert.ok(r.ok, r.ok ? '' : JSON.stringify(r.diagnosticos.slice(0, 3)));
+});
+
+test('una cinta de más de 2.000 m se rechaza con E-RANGO «cinta-larga» (SEG-R1), aunque cada punto esté dentro de ±5 km', async () => {
+  const m = ejemploJson();
+  m.hub.cintas[0].puntos = [[-14, -10], [4000, -10], [-4000, -10]];
+  const r = await compilar(m);
+  assert.equal(r.ok, false, 'una cinta de 12 km no puede compilar');
+  if (r.ok) return;
+  assert.ok(r.diagnosticos.some((d) => d.clave === 'modelo.diag.E-RANGO.cinta-larga' && d.ruta === '/hub/cintas/0/puntos'),
+    `se esperaba E-RANGO cinta-larga en /hub/cintas/0/puntos y salió ${JSON.stringify(r.diagnosticos.slice(0, 3))}`);
 });

@@ -1,0 +1,17 @@
+import { Engine } from '@babylonjs/core/Engines/engine.js'; import { Scene } from '@babylonjs/core/scene.js'; import { FreeCamera } from '@babylonjs/core/Cameras/freeCamera.js';
+import { Vector3, Matrix, Quaternion } from '@babylonjs/core/Maths/math.vector.js'; import { Color3, Color4 } from '@babylonjs/core/Maths/math.color.js';
+import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight.js'; import { DirectionalLight } from '@babylonjs/core/Lights/directionalLight.js';
+import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator.js'; import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent.js';
+import { CreateBox } from '@babylonjs/core/Meshes/Builders/boxBuilder.js'; import { CreateGround } from '@babylonjs/core/Meshes/Builders/groundBuilder.js'; import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial.js';
+import '@babylonjs/core/Meshes/thinInstanceMesh.js'; import { N, W, H, cajas, publicar } from './motor-comun.js';
+const canvas = document.getElementById('c'); canvas.width = W; canvas.height = H;
+const eng = new Engine(canvas, false, { preserveDrawingBuffer: true, stencil: false, antialias: false, powerPreference: 'high-performance' }); eng.setSize(W, H);
+const sc = new Scene(eng); sc.clearColor = new Color4(0.05, 0.06, 0.08, 1); const cam = new FreeCamera('c', new Vector3(-44, 30, 40), sc); cam.setTarget(new Vector3(2, 0, 2)); cam.fov = (38 * Math.PI) / 180; cam.minZ = 0.3; cam.maxZ = 400;
+const hemi = new HemisphericLight('h', new Vector3(0, 1, 0), sc); hemi.intensity = 0.9; const sol = new DirectionalLight('s', new Vector3(22, -38, -26).normalize(), sc); sol.position = new Vector3(-22, 38, 26); sol.intensity = 2.4;
+sol.autoUpdateExtends = false; sol.orthoLeft = -42; sol.orthoRight = 42; sol.orthoTop = 28; sol.orthoBottom = -28; sol.shadowMinZ = 5; sol.shadowMaxZ = 90;
+const sg = new ShadowGenerator(2048, sol); sg.filter = ShadowGenerator.FILTER_PCF; sg.bias = 0.0004;
+const piso = CreateGround('p', { width: 80, height: 50 }, sc); const mp = new PBRMaterial('mp', sc); mp.albedoColor = Color3.FromHexString('#8a8a8a'); mp.metallic = 0; mp.roughness = 0.9; piso.material = mp; piso.receiveShadows = true;
+const caja = CreateBox('b', { width: 0.3, height: 0.2, depth: 0.25 }, sc); const mc = new PBRMaterial('mc', sc); mc.albedoColor = Color3.FromHexString('#a87c50'); mc.metallic = 0; mc.roughness = 0.8; caja.material = mc; caja.receiveShadows = true;
+const buf = new Float32Array(N * 16); caja.thinInstanceSetBuffer('matrix', buf, 16, false); caja.alwaysSelectAsActiveMesh = true; sg.addShadowCaster(caja);
+const D = cajas(); const m = new Matrix(), q = new Quaternion(), p = new Vector3(), s = new Vector3(1, 1, 1);
+publicar(eng._gl, (t) => { for (let i = 0; i < N; i++) { const d = D[i]; p.set(((d.x + d.v * t + 34) % 68) - 34, d.y, d.z); Quaternion.RotationAxisToRef(Vector3.Up(), d.yaw, q); Matrix.ComposeToRef(s, q, p, m); m.copyToArray(buf, i * 16); } caja.thinInstanceBufferUpdated('matrix'); }, () => sc.render(), canvas);

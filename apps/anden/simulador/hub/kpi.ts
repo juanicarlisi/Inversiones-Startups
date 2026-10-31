@@ -5,7 +5,7 @@ import type { ResultadoCorrida } from '../contratos/motor.ts';
 import type { KpiId, ResultadoReplica } from '../contratos/resultados.ts';
 import { TipoTramo, type Traza } from '../contratos/traza.ts';
 import { ALERTA, LUGARES, Lugar, type Hub } from './bloques/comun.ts';
-import { costoNoche, costoPorPaquete, horasPersonaPagadas } from './costos.ts';
+import { costoNoche, costoPorPaquete, horasPagadas } from './costos.ts';
 
 const MS_POR_MIN = 60_000, MS_POR_HORA = 3_600_000;
 
@@ -88,14 +88,37 @@ export function alertasDe(h: Hub, rc: ResultadoCorrida): string[] {
   return a;
 }
 
-export function calcularResultado(h: Hub, rc: ResultadoCorrida, modelo: string, semilla: number, replica: number, alertas: string[]): ResultadoReplica {
+/**
+ * Indicadores que la lista congelada de KPI (contratos/resultados.ts) no tiene y que van aparte, en `kpiExtra` (hallazgo HUB-R01 de la
+ * revisión del 30-10-2026). La «espera» del contrato (listo − creado) cuenta desde que empieza a descargarse cada paquete: no ve la cola
+ * dentro del camión ni en la playa, y se queda plana mientras el hub colapsa (con 2.000 paquetes por camión, P90 de 7 min contra 186 min
+ * desde la llegada, con la mitad de los paquetes fuera del corte). Estos miden lo que la logística llama dwell y turn time
+ * (realismo-logistico.md §8): desde que llega el camión hasta la jaula, y la estadía del camión (de la llegada al andén libre).
+ */
+export interface KpiExtra {
+  /** (listo − llegada de su camión) en min, media y P90, sobre los clasificados. */
+  esperaDesdeLlegadaMediaMin: number;
+  esperaDesdeLlegadaP90Min: number;
+  /** (andén libre − llegada) en min, media y P90, sobre los camiones que terminaron. */
+  estadiaCamionMediaMin: number;
+  estadiaCamionP90Min: number;
+  /** Las horas pagadas, separadas (HUB-R02): del turno, de más (con recargo) y de los ausentes. */
+  horasNormales: number;
+  horasExtra: number;
+  horasAusentesPagadas: number;
+}
+/** El resultado de una noche con los indicadores extra (`kpiExtra`, fuera del contrato: integracion/CAMBIOS-CONTRATO.md §12). */
+export type ResultadoReplicaHub = ResultadoReplica & { kpiExtra: KpiExtra };
+
+export function calcularResultado(h: Hub, rc: ResultadoCorrida, modelo: string, semilla: number, replica: number, alertas: string[]): ResultadoReplicaHub {
   const cfg = h.cfg, P = h.P.S, n = P.nacidos, inicio = cfg.inicio, fin = cfg.fin;
   // clasificados, al corte y esperas
   let clasificados = 0, alCorte = 0, maxListo = -1;
-  const esperas = new Float64Array(n);
+  const esperas = new Float64Array(n), desdeLlegada = new Float64Array(n), llegada = h.demanda.S.llegada;
   for (let e = 0; e < n; e++) {
     const L = P.listo[e];
     if (L < 0) continue;
+    desdeLlegada[clasificados] = (L - llegada[P.camion[e]]) / MS_POR_MIN;
     esperas[clasificados++] = (L - P.creado[e]) / MS_POR_MIN;
     if (L <= cfg.corte) alCorte++;
     if (L > maxListo) maxListo = L;
@@ -123,9 +146,11 @@ export function calcularResultado(h: Hub, rc: ResultadoCorrida, modelo: string, 
   let inductores = 0;
   for (let s = 0; s < cfg.activos; s++) if (Pe.S.trabajadorInd[s] >= 0) inductores++;
   const presentes = Pe.presentes();
-  const horas = horasPersonaPagadas(presentes, inicio, fin, maxListo);
+  // motor 1.2.0 (HUB-R02): los ausentes cobran parte del turno y las horas de más llevan recargo (hub/costos.ts)
+  const pagadas = horasPagadas(presentes, Pe.S.ausentes, inicio, fin, maxListo);
+  const horas = pagadas.total;
   const jornada = Math.max(fin - inicio, maxListo >= 0 ? maxListo - inicio : 0);
-  const costo = costoNoche(horas, cfg.horaPersona, cfg.fijoNoche);
+  const costo = costoNoche(pagadas, cfg.horaPersona, cfg.fijoNoche);
   const msDetenido = S.msDetenido + (S.parado ? Math.max(0, h.tUltimo - S.tParada) : 0);
 
   const kpi: Record<KpiId, number> = {
@@ -156,15 +181,33 @@ export function calcularResultado(h: Hub, rc: ResultadoCorrida, modelo: string, 
     costoNoche: costo,
     costoPorPaquete: costoPorPaquete(costo, clasificados),
   };
+  // los extra (HUB-R01): desde la llegada del camión y la estadía de cada camión
+  const desde = desdeLlegada.subarray(0, clasificados).sort();
+  let sumaDesde = 0;
+  for (let i = 0; i < desde.length; i++) sumaDesde += desde[i];
+  const estadias: number[] = [];
+  for (let c = 0; c < cfg.nCam; c++) if (D.salida[c] >= 0) estadias.push((D.salida[c] - D.llegada[c]) / MS_POR_MIN);
+  const est = Float64Array.from(estadias).sort();
+  let sumaEst = 0;
+  for (let i = 0; i < est.length; i++) sumaEst += est[i];
+  const kpiExtra: KpiExtra = {
+    esperaDesdeLlegadaMediaMin: clasificados > 0 ? sumaDesde / clasificados : 0,
+    esperaDesdeLlegadaP90Min: clasificados > 0 ? percentil(desde, 0.9) : 0,
+    estadiaCamionMediaMin: est.length > 0 ? sumaEst / est.length : 0,
+    estadiaCamionP90Min: est.length > 0 ? percentil(est, 0.9) : 0,
+    horasNormales: pagadas.normales, horasExtra: pagadas.extra, horasAusentesPagadas: pagadas.ausentes,
+  };
   const Q = h.medicion.S;
   return {
-    modelo, semilla, replica, huella: rc.huella, kpi,
+    modelo, semilla, replica, huella: rc.huella, kpi, kpiExtra,
     porRecurso: {
       rampaRecibidos: Array.from(R.recibidos),
       rampaVueltas: Array.from(S.rampaVueltas),
       rampaMinutosLlena,
-      // Sobre la jornada pagada (1.1.0, R5), igual que utilInduccionPct.
-      personaOcupadaPct: Array.from({ length: cfg.nPersonas }, (_, g) => (100 * Pe.ocupadoHasta(g, h.tUltimo)) / jornada),
+      // Sobre la jornada pagada (1.1.0, R5), igual que utilInduccionPct; y, desde 1.2.0 (hallazgos REV-D7 y HUB-R10), numerador y
+      // denominador sobre la misma ventana: el cierre de la última jaula (después del último paquete) y las noches que no terminan
+      // (ocupado hasta el horizonte) daban más de 100%.
+      personaOcupadaPct: Array.from({ length: cfg.nPersonas }, (_, g) => (100 * Pe.ocupadoHasta(g, h.tUltimo)) / Math.max(jornada, h.tUltimo - inicio)),
       puestoInducidos: Array.from(I.inducidos),
     },
     series: { filaInduccionMax: Array.from(Q.filaMax.subarray(0, Q.nQ)), clasificados: Array.from(Q.clasificados.subarray(0, Q.nQ)) },

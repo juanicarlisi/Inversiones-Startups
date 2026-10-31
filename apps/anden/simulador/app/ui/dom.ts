@@ -19,7 +19,7 @@ export function el<K extends keyof HTMLElementTagNameMap>(tag: K, props: Props |
       if (v === undefined || v === null || v === false) continue;
       const kl = k.toLowerCase();
       if (PROHIBIDOS.has(kl)) throw new Error(`dom: el atributo «${k}» no se usa (sin innerHTML ni estilos en línea).`);
-      if (typeof v === 'function') { e.addEventListener(kl.slice(2), v as EventListener); continue; }
+      if (typeof v === 'function') { escucharYAnotar(e, kl.slice(2), v as EventListener); continue; }
       if (k === 'class') { e.className = String(v); continue; }
       e.setAttribute(k, v === true ? '' : String(v));
     }
@@ -33,6 +33,62 @@ export function agregar(padre: Node, hijos: Hijo[]): void {
     if (h === null || h === undefined || h === false) continue;
     padre.appendChild(typeof h === 'string' || typeof h === 'number' ? document.createTextNode(String(h)) : h);
   }
+}
+
+/** Manejadores puestos por `el` en cada elemento: `reconciliar` los pasa al nodo que se conserva. */
+const MANEJADORES = new WeakMap<Element, [string, EventListener][]>();
+function escucharYAnotar(e: Element, tipo: string, f: EventListener): void {
+  e.addEventListener(tipo, f);
+  const l = MANEJADORES.get(e);
+  if (l) l.push([tipo, f]); else MANEJADORES.set(e, [[tipo, f]]);
+}
+
+/**
+ * Como `poner`, pero conserva los nodos que no cambiaron de forma (hallazgo EXP-01 de la revisión del 30-10-2026). `poner` reconstruye
+ * todo: en la escena, la línea de resumen se repinta con cada noche que llega y el botón «Comprobante» con foco se destruía una vez por
+ * segundo durante el primer minuto (el foco volvía al <body> y Enter no hacía nada). Acá se compara el árbol nuevo con el que hay, hijo
+ * por hijo: un elemento con la misma etiqueta y el mismo `data-accion` se conserva (con su foco) y se le actualizan atributos, texto y
+ * manejadores; lo demás se reemplaza. Es la técnica de las bibliotecas de «morphing» del DOM (idiomorph, morphdom), reducida a lo que
+ * arma esta interfaz (sin innerHTML, sin listas con clave).
+ */
+export function reconciliar(padre: Element, ...hijos: Hijo[]): void {
+  const nuevo = document.createDocumentFragment();
+  agregar(nuevo, hijos);
+  reconciliarHijos(padre, nuevo);
+}
+
+function compatibles(a: Node, b: Node): boolean {
+  if (a.nodeType !== b.nodeType) return false;
+  if (a.nodeType !== 1) return a.nodeType === 3;
+  const x = a as Element, y = b as Element;
+  return x.tagName === y.tagName && x.getAttribute('data-accion') === y.getAttribute('data-accion');
+}
+
+function reconciliarHijos(viejo: Node, nuevo: Node): void {
+  const nuevos = Array.from(nuevo.childNodes);
+  for (let i = 0; i < nuevos.length; i++) {
+    const n = nuevos[i], v = viejo.childNodes[i];
+    if (!v) viejo.appendChild(n);
+    else if (compatibles(v, n)) reconciliarNodo(v, n);
+    else viejo.replaceChild(n, v);
+  }
+  while (viejo.childNodes.length > nuevos.length) viejo.removeChild(viejo.lastChild!);
+}
+
+function reconciliarNodo(v: Node, n: Node): void {
+  if (v.nodeType === 3) { if (v.nodeValue !== n.nodeValue) v.nodeValue = n.nodeValue; return; }
+  const ve = v as Element, ne = n as Element;
+  // `style` se copia por CSSOM: la CSP (sin 'unsafe-inline') bloquea setAttribute('style', …) pero no el.style (así lo pone la interfaz)
+  for (const a of Array.from(ve.attributes)) if (a.name !== 'style' && !ne.hasAttribute(a.name)) ve.removeAttribute(a.name);
+  for (const a of Array.from(ne.attributes)) if (a.name !== 'style' && ve.getAttribute(a.name) !== a.value) ve.setAttribute(a.name, a.value);
+  const sv = (ve as HTMLElement).style, sn = (ne as HTMLElement).style;
+  if (sv && sn && sv.cssText !== sn.cssText) sv.cssText = sn.cssText;
+  for (const [tipo, f] of MANEJADORES.get(ve) ?? []) ve.removeEventListener(tipo, f);
+  const nuevos = MANEJADORES.get(ne) ?? [];
+  for (const [tipo, f] of nuevos) ve.addEventListener(tipo, f);
+  MANEJADORES.set(ve, nuevos.slice());
+  if ('disabled' in ve && 'disabled' in ne) (ve as HTMLButtonElement).disabled = (ne as HTMLButtonElement).disabled;
+  reconciliarHijos(ve, ne);
 }
 
 /** Reemplaza el contenido de un nodo (sin innerHTML). */

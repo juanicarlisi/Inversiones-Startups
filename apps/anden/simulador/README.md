@@ -38,8 +38,10 @@ Lo que se ve en el primer minuto:
 4. **Cien noches:** el plano del hub en planta con cada rampa pintada por la probabilidad de llenarse (5 pasos, con su leyenda), las
    rampas que más se llenan con su intervalo, el abanico de la hora de fin (P10, P50 y P90 con intervalo, y la peor noche con cuántos
    paquetes deja afuera) y el selector de la noche mediana, la peor y la mejor.
-5. **¿Y si…?:** puestos, personas de rampa, retén, plan de rampas y «balancear el plan»; primero una noche provisoria, después 40 noches
-   pareadas con la diferencia, su intervalo y el veredicto, en pantalla dividida (en el teléfono, A y B alternan con un toque).
+5. **¿Y si…?:** puestos, personas de rampa, retén, plan de rampas y «balancear el plan»; primero una noche provisoria, después las mismas
+   cien noches que A, pareadas: la diferencia en la noche típica (mediana de B − A) con su intervalo, el veredicto por la prueba del
+   signo (cada indicador al 99%: cinco a la vez), las noches atípicas aparte y el semáforo de A y de B (en rojo, sin números ni
+   veredictos); en pantalla dividida (en el teléfono, A y B alternan con un toque).
 6. **Decidir:** la probabilidad de cumplir la meta por opción (con su intervalo), la recomendación con semáforo y el formulario que
    pregunta solo lo que puede cambiar la respuesta, hasta «Ya está».
 7. **Compartir:** el enlace (plantilla + cambios + receta con la huella agregada de las noches del autor) y su QR; quien lo abre recalcula
@@ -53,7 +55,7 @@ Español primero; inglés con el selector de la barra (las mismas claves en `tex
 
 | Comando | Qué prueba | Cuánto tarda (contenedor de 4 núcleos) |
 |---|---|---|
-| `npm test` | Las 1.066 pruebas de los ocho paquetes y de la integración (arquitectura, R08b, R06 del hub, E01/E02, S01–S03, S08, S09, S11, textos, marcas, Workers, plano) | ≈ 1,5–2 min |
+| `npm test` | Las 1.070 pruebas de los ocho paquetes y de la integración (arquitectura, R08b, R06 del hub, E01/E02, S01–S03, S08, S09, S11, textos, marcas, Workers, plano) | ≈ 1,5–2,5 min con el equipo libre (≈ 6 min si otras sesiones usan la máquina) |
 | `npx tsc -p tsconfig.json` | Los tipos (TypeScript «borrable»: Node corre los `.ts` directo) | ≈ 15 s |
 | `npm run verificar` | La batería «Andén Verificado» completa con el núcleo de producción: 85 pruebas exigibles contra teoría de colas y casos publicados, S01 y S02 que tienen que fallar, informe en `verificacion/informe/` | ≈ 5–9 min |
 | `npm run r04` | La misma huella en Node y en Chromium (suite rápida, doradas, hub chico con 5 semillas, matemática bit a bit) | ≈ 15 s |
@@ -95,24 +97,58 @@ Va al corte 2 o después (`corte-1.md` §13): 3D, video, importar planillas, arr
 días, IA, MCP, la página pública «Andén Verificado», y R04 en Firefox, WebKit y teléfonos reales. El corte 1 simula **una noche
 terminante** y lo dice; ningún resultado está validado contra días reales (el sello «Sin validar contra días reales» siempre está).
 
+Desde el 30-10-2026 rige la directriz técnica de Andén (DEC-2026-10-30-5 en `cartera/decisiones.md`): para cada necesidad del corte 2
+(3D del depósito, ruteo en calle, seguimiento en vivo, mapas, tableros) se usa la mejor herramienta profesional verificada en su
+documentación oficial, con licencia permisiva y versión fija, y un componente que ya funciona solo se reemplaza con una prueba
+comparativa. El motor de este corte se queda (85 de 85 contra teoría); SimPy entra como oráculo independiente para validarlo.
+
 ## Estado del corte 1
 
-**Cerrado con pendientes:** 11 de los 12 criterios de salida de `corte-1.md` §12 cumplen (MEDIDO el 19-10-2026; el detalle, en
-`integracion/salida/informe-salida.json` y en `integracion/NOTAS-CONTRATO.md` §12). El que no cumple es un presupuesto de §11: el primer
-cuadro desde un enlace.
+**Cerrado con pendientes:** 11 de los 12 criterios de salida de `corte-1.md` §12 cumplen (MEDIDO el 30-10-2026; el detalle, con la
+fecha de cada medición, en `integracion/salida/informe-salida.json` y en `integracion/NOTAS-CONTRATO.md` §16). El que no cumple es un
+presupuesto de §11: el primer cuadro desde un enlace.
+
+| # | Criterio | Medido | Estado |
+|---|---|---|---|
+| 1 | `npm test` en verde en menos de 3 min | 1.070 pruebas: 1.069 pasan, 0 fallan y 1 se omite (la batería completa, que corre aparte). Con el equipo libre tarda 144 s. Con la máquina compartida por otras sesiones (carga de 9 en 4 núcleos) tardó 357 s | cumple |
+| 2 | Batería con el núcleo de producción | 85 de 85 exigibles, S01 y S02 fallan como deben, informe local; la huella de las fuentes coincide con el código de hoy | cumple |
+| 3 | R08b | núcleo de producción = referencia en la batería rápida y en el hub chico | cumple |
+| 4 | R04 | Node = Chromium 141 en 95 de 95 claves; Firefox y WebKit, pendientes (no están en el entorno) | cumple |
+| 5 | E01 y E02 | 0 frases causales sin confirmar | cumple |
+| 6 | Invariantes I01–I06 | 0 alertas en 200 noches de cada plantilla | cumple |
+| 7 | Enlace | ida y vuelta exacta; 6.024 / 206 / 62 caracteres; H01–H12 rechazadas; otra pestaña con la misma huella en las 4 combinaciones | cumple |
+| 8 | Recorridos de punta a punta | 16 de 16 en 360 × 740 y 1280 × 800, claro y oscuro, con 0 errores de consola; 8 capturas (1,2 MB) | cumple |
+| 9 | Presupuestos de §11 | 13 de 14 dentro del margen (banco del 23-10; la primera carga, medida de nuevo hoy: 146,5 KB). El primer cuadro desde el enlace tarda **953 ms** contra 150 | no cumple |
+| 10 | Textos | mismas claves en es y en; etiqueta de noche y tres sellos en la escena; ninguna marca | cumple |
+| 11 | Arquitectura | imports, tokens prohibidos y contratos intactos | cumple |
+| 12 | Nada publicado | servidor solo en 127.0.0.1, 0 pedidos a otro sitio, ningún script que publique | cumple |
 
 ## Lo que queda abierto (lo decide el orquestador o el fundador)
 
-- **Primer cuadro desde el enlace:** la meta de §11 es ≤ 150 ms y se mide ≈ 1,2 s (la noche entera se simula antes de dibujar; con 4G,
-  1,9 s). O primer cuadro progresivo en el corte 2, o reescribir la meta.
+- **Primer cuadro desde el enlace:** la meta de §11 es ≤ 150 ms y se mide 953 ms de mediana en el hub grande (550 ms en el chico; banco
+  del 23-10-2026): la noche entera se simula en un Worker antes de mostrar la película. El plano del hub ya está a la vista a los ≈ 190 ms,
+  pero no cuenta como primer cuadro porque no muestra ningún instante simulado. Con 4G, 1,53 s (dentro del margen de ±30%). O primer cuadro
+  progresivo en el corte 2, o reescribir la meta.
+- **Tamizado y «Decidir» lentos:** el tamizado del hub chico tarda 58,5 s de mediana contra 60 s de meta (2 de 5 corridas por encima) y,
+  en el recorrido, «Decidir» muestra la recomendación a los ≈ 18 s pero llega a «Ya está» a los ≈ 150 s. La causa son las reglas de
+  parada del 20-10 (Bonferroni y el «en duda» del tamizado), que piden más noches; el motor no se volvió más lento. Hay tres salidas, y
+  todas cambian la estadística: reusar las noches de la evaluación base, bajar `REPLICAS_MAX_TAMIZADO` o tamizar con una tanda fija
+  (`integracion/NOTAS-CONTRATO.md` §14).
+- **Primera carga:** 146,5 KB brotli contra 150 KB de tope (medido el 30-10-2026 sobre `dist/`). Lo que sume el corte 2 va en trozos
+  aparte.
 - **«KPI sanos» de §9 sobre `hub-chico@1.0.0`:** imposible al pie de la letra. La integración eligió (23-10-2026) reescribir el criterio
   y dejar `hub-chico@1.1.0` como propuesta; la prueba `todo` de P4 se borró y falta pasar a `corte-1.md` §9 el texto de
   `integracion/CAMBIOS-CONTRATO.md` §10.
 - **E01** se exige reformulado (esperas de ≥ 5 min dentro de la pausa) y **S03** exige independencia y sesgo, con la cobertura del 95%
   como informativa (S03c) (`integracion/NOTAS-CONTRATO.md` §2 y `integracion/CAMBIOS-CONTRATO.md` §4).
+- **Motor 1.2.0 y la estadística de la revisión del 30-10-2026** (`integracion/NOTAS-CONTRATO.md` §17 y `CAMBIOS-CONTRATO.md` §12): la
+  vuelta del puesto manual espera lugar en la acumulación, los ausentes cobran medio turno y las horas de más llevan recargo (SUPUESTOS
+  con fuente), la espera desde la llegada del camión y la estadía del camión como indicadores extra; la decisión secuencial calibrada
+  exacta (un z por lado; con meta 0,9, poder 73% contra 39% de Bonferroni) y la comparación por la prueba del signo; cotas físicas en el
+  esquema y en el dibujo contra los enlaces que colgaban la pestaña (H13–H17). Falta pasarlo a `corte-1.md` y, lo aditivo, al Anexo A.
 - **Motor 1.1.0** (arreglos de la revisión del 19-10-2026): caminata por distancia, plan por volumen en bloques de rampas vecinas,
   persistencia en la rampa, relevo en las pausas, pausas después del fin y utilizaciones por jornada; la receta lleva la huella `h`;
-  la decisión secuencial corrige por mirar varias veces (Bonferroni). Todo lo que cambia la especificación está en
+  la decisión secuencial corrige por mirar varias veces (Bonferroni, calibrada exacta desde el 31-10). Todo lo que cambia la especificación está en
   `integracion/CAMBIOS-CONTRATO.md`, para pasarlo a `corte-1.md`. Quedan para el corte 2: R4 (cobertura entre roles, jornada máxima),
   R6–R10 y E-11.
 - **Presentar** tiene 4 pasos (los del diseño maestro §5.6) en lugar de «tres actos».

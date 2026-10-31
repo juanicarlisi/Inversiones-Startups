@@ -6,7 +6,10 @@ import assert from 'node:assert/strict';
 import { Causa, ClaseEntidad, TipoMomento, TipoTramo, type Traza } from '../../contratos/traza.ts';
 import { EstadoVisual, type Posiciones } from '../../contratos/vistas.ts';
 import { crearReproductor, EstadoPersona, EstadoPuesto, UMBRAL_ESPERA_MS, type ReproductorEscena } from '../reproductor.ts';
-import { ALTURA_CAPA_PILA, PILA_CAPAS, PILA_COLUMNAS, PILA_FILAS, lugarEnFila, lugarEnPlaya, lugarEnRampa } from '../disposicion.ts';
+import {
+  ALTURA_CAPA_PILA, ALTURA_CAPA_RAMPA, PASO_RAMPA_ANCHO, PASO_RAMPA_LARGO, PILA_CAPAS, PILA_COLUMNAS, PILA_FILAS, grillaRampa, lugarEnFila, lugarEnPlaya,
+  lugarEnRampa, type DispRampa,
+} from '../disposicion.ts';
 import { posEnLazo } from '../../contratos/geometria.ts';
 import { PERSONAS, dist, geometriaSintetica, lazoEnMarcha, trazaSintetica } from './ayudas.ts';
 
@@ -282,6 +285,55 @@ test('la cola del puesto manual cuenta lo que entró y todavía no salió', () =
   assert.equal(rep.colaExcepcion(5500), 1);
   assert.equal(rep.colaExcepcion(7000), 0);
   assert.equal(verPaquete(rep, 10_000, 0).estado, EstadoVisual.EXCEPCION, 'en el puesto manual: excepción');
+});
+
+test('rampa llena: las cajas del tobogán no se enciman, se apilan en capas dentro del tobogán hasta cubrir la capacidad', () => {
+  // Revisión de la experiencia (I-3, 30-10-2026): con 25 lugares en dos columnas a lo largo de un tobogán de 1,05 m las cajas quedaban a
+  // 8 cm y en la planta acercada una rampa llena era una flecha de rombos encimados. Medidas de las plantillas publicadas: 1,05 × 1,3 m.
+  const base = crearReproductor(trazaSintetica(() => {})).disposicion.rampas[0];
+  for (const [largo, ancho, capacidad] of [[1.05, 1.3, 25], [1.05, 1.3, 20], [2.4, 0.9, 25], [0.3, 0.3, 4]] as const) {
+    const R: DispRampa = { ...base, ancho, capacidad, fin: [base.ini[0] + base.dir[0] * largo, base.ini[1] + base.dir[1] * largo] };
+    const [filas, cols] = grillaRampa(R), porCapa = filas * cols, capas = Math.ceil(capacidad / porCapa);
+    const o: number[] = [0, 0], lugares: { a: number; b: number; capa: number }[] = [];
+    for (let l = 0; l < capacidad; l++) {
+      const capa = lugarEnRampa(R, l, false, o);
+      const dx = o[0] - R.ini[0], dy = o[1] - R.ini[1];
+      const a = dx * R.dir[0] + dy * R.dir[1], b = dx * R.lat[0] + dy * R.lat[1];
+      const que = `tobogán de ${largo} × ${ancho} m, capacidad ${capacidad}, lugar ${l}`;
+      assert.ok(a >= -1e-9 && a <= largo + 1e-9, `${que}: a lo largo tiene que quedar entre 0 y ${largo} m y quedó en ${a.toFixed(3)} m`);
+      assert.ok(Math.abs(b) <= ancho / 2 + 1e-9, `${que}: a lo ancho tiene que quedar a ±${(ancho / 2).toFixed(2)} m y quedó en ${b.toFixed(3)} m`);
+      assert.equal(capa, Math.floor(l / porCapa), `${que}: se esperaba la capa ${Math.floor(l / porCapa)} y salió ${capa}`);
+      lugares.push({ a, b, capa });
+    }
+    if (largo === 1.05 && capacidad === 25) assert.deepEqual([filas, cols, capas], [2, 3, 5], 'en las plantillas publicadas: 2 a lo largo × 3 a lo ancho, 5 capas');
+    for (let x = 0; x < lugares.length; x++) {
+      for (let y = x + 1; y < lugares.length; y++) {
+        if (lugares[x].capa !== lugares[y].capa) continue;
+        const d = Math.hypot(lugares[x].a - lugares[y].a, lugares[x].b - lugares[y].b);
+        const minimo = filas > 1 && cols > 1 ? Math.min(PASO_RAMPA_LARGO, PASO_RAMPA_ANCHO) : filas > 1 ? PASO_RAMPA_LARGO : cols > 1 ? PASO_RAMPA_ANCHO : 0;
+        assert.ok(d >= minimo - 1e-9, `tobogán de ${largo} × ${ancho} m: los lugares ${x} y ${y} de la capa ${lugares[x].capa} quedan a ${d.toFixed(3)} m (mínimo ${minimo} m)`);
+      }
+    }
+    // más allá de la capacidad los lugares se repiten en la última capa: nunca una capa de más
+    assert.equal(lugarEnRampa(R, capacidad + 7, false, o), capas - 1, `con más paquetes que lugares la pila no pasa de ${capas} capas`);
+  }
+  // en el reproductor, cada capa una caja más arriba
+  const tr = trazaSintetica((s) => {
+    for (let i = 0; i < 3; i++) {
+      s.tramo(i, TipoTramo.RAMPA, 0, i, 20_000, 40_000, Causa.NINGUNA, 2);
+      s.paquete(i, { creado: 0, listo: 60_000 });
+    }
+  });
+  const rep = crearReproductor(tr), pos = rep.crearPosiciones(), R0 = rep.disposicion.rampas[0];
+  rep.posiciones(22_500, pos);
+  const porCapa0 = grillaRampa(R0)[0] * grillaRampa(R0)[1];
+  const zs = new Map<number, number>();
+  for (let k = 0; k < pos.n; k++) if (pos.clase[k] === ClaseEntidad.PAQUETE) zs.set(pos.id[k], pos.z[k]);
+  for (let i = 1; i < 3; i++) {
+    const capas = Math.floor(i / porCapa0) - Math.floor(0 / porCapa0);
+    assert.ok(Math.abs((zs.get(i) ?? NaN) - (zs.get(0) ?? NaN) - capas * ALTURA_CAPA_RAMPA) < 1e-6,
+      `el paquete ${i} de la rampa tiene que estar ${capas} capa(s) más arriba que el 0 y está ${((zs.get(i) ?? NaN) - (zs.get(0) ?? NaN)).toFixed(3)} m`);
+  }
 });
 
 test('mil paquetes en la cola del puesto manual: una pila acotada junto a la mesa que crece hacia arriba, no una fila que sale del plano', () => {

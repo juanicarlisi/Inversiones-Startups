@@ -1,4 +1,5 @@
-// pruebas/hostiles/entradas.ts · P3 · Las 12 entradas hostiles H01–H12 de corte-1.md §9 (P3) y sus variantes.
+// pruebas/hostiles/entradas.ts · P3 · Las 12 entradas hostiles H01–H12 de corte-1.md §9 (P3), sus variantes y H13–H17 (revisión del
+// 30-10-2026: geometría enorme, lazo enorme y personas de más).
 // Cada una se arma en el momento (algunas pesan megabytes: no se guardan como archivos) y declara el error del enlace esperado.
 // El decodificador tiene que devolver ese error, sin lanzar y sin colgarse; las pruebas miden que lo haga con memoria acotada
 // (el contador de bytes corta la descompresión) y dentro de un tiempo razonable.
@@ -103,6 +104,36 @@ export const HOSTILES: Hostil[] = [
   {
     id: 'H12', nombre: 'fragmento con caracteres fuera de base64url', esperado: 'formato',
     fragmento: async () => 'm=abc+def/ghi=jkl%20mno',
+  },
+  // Revisión del 30-10-2026 (SEG-R1, SEG-R2 y SEG-R3): enlaces de ~6 KB que el esquema aceptaba, simulaban bien y colgaban o tiraban la
+  // pestaña al dibujar (una grilla cada 4 m sobre mil millones de metros, un millón de bandejas por cuadro, una película de 11,5 millones
+  // de tramos). Ahora los rechaza el esquema o el presupuesto antes de correr.
+  {
+    id: 'H13', nombre: 'acumulación a 1e9 m del origen (la grilla del piso colgaba la pestaña)', esperado: 'esquema',
+    fragmento: () => fragmentoDeTexto(ejemploCon((m) => { m.hub.acumulacion.x = 1e9; })),
+  },
+  {
+    id: 'H14', nombre: 'origen del lazo en (1e12, 1e12) (la pestaña se caía)', esperado: 'esquema',
+    fragmento: () => fragmentoDeTexto(ejemploCon((m) => { m.hub.sorter.origen = [1e12, 1e12]; })),
+  },
+  {
+    id: 'H15', nombre: 'andén y cinta a 1e9 m (la disposición recorría la cinta cada medio metro)', esperado: 'esquema',
+    fragmento: () => fragmentoDeTexto(ejemploCon((m) => {
+      m.hub.andenes[0].x = 1e9;
+      m.hub.cintas[0].puntos = [[1e9, m.hub.andenes[0].y], ...m.hub.cintas[0].puntos.slice(1)];
+    })),
+  },
+  {
+    id: 'H16', nombre: 'lazo con recta de 300.000 m (un millón de bandejas por cuadro)', esperado: 'esquema',
+    fragmento: () => fragmentoDeTexto(ejemploCon((m) => { m.hub.sorter.recta = 300_000; })),
+  },
+  {
+    id: 'H16b', nombre: 'lazo con paso de 1 cm (8.500 bandejas: pasa la memoria pero no el dibujo)', esperado: 'presupuesto',
+    fragmento: () => fragmentoDeTexto(ejemploCon((m) => { m.hub.sorter.paso = 0.01; })),
+  },
+  {
+    id: 'H17', nombre: '1.900.000 personas en un andén (película de 11,5 millones de tramos)', esperado: 'esquema',
+    fragmento: () => fragmentoDeTexto(ejemploCon((m) => { m.hub.andenes[0].personas = 1_900_000; })),
   },
 ];
 

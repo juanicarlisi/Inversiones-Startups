@@ -64,7 +64,7 @@ export function colaNormal(z: number): number {
 
 /**
  * z tal que Q(z) = q, para q en (0, ½]: el cuantil 1 − q de la normal estándar. Bisección hasta que el intervalo ya no se achica
- * (determinista: el mismo q da el mismo z en cualquier motor de JavaScript). Control: q = 0,025 → 1,959963984540054.
+ * (determinista: el mismo q da el mismo z en cualquier motor de JavaScript). Control: q = 0,025 → 1,959963984540051 (la tabla: …054; 3e-15 de diferencia, hallazgo EST-10).
  */
 export function zDeCola(q: number): number {
   if (!(q > 0 && q <= 0.5)) throw new Error(`zDeCola: la cola tiene que estar en (0; 0,5] y llegó ${q}`);

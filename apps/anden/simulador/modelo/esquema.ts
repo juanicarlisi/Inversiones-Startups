@@ -454,7 +454,37 @@ const ID: Regla = { t: 'texto', patron: RE_ID, caso: 'id' };
 const TEXTO: Regla = { t: 'texto' };
 const TEXTO_OPC: Regla = { t: 'texto', opcional: true };
 const NO_VACIO: Regla = { t: 'texto', patron: RE_NO_VACIO, caso: 'texto-vacio' };
-const PUNTO: Regla = { t: 'lista', de: N, min: 2, max: 2 };
+/**
+ * Cotas físicas de la geometría (hallazgos SEG-R1 y SEG-R3 de la revisión del 30-10-2026). Antes cualquier número finito valía: un enlace
+ * de 6 KB con `acumulacion.x = 1e9` compilaba, simulaba bien y colgaba la pestaña al dibujar (la grilla del piso iba cada 4 m sobre mil
+ * millones de metros). Son cotas holgadas para un hub real (el más grande que se conoce mide unos 600 × 300 m; un sorter de bandejas
+ * no pasa de 1 km de lazo): quien las pase está describiendo otra cosa, y lo dice el error.
+ */
+export const LIMITE_COORDENADA_M = 5000;
+/** Recta del lazo (m): con el radio máximo, un lazo de ≈ 7 km (los sorters reales: 100 a 1.000 m). */
+export const MAX_RECTA_M = 2000;
+/** Radio de las curvas del lazo (m). */
+export const MAX_RADIO_M = 500;
+/** Largo de una cinta o de la acumulación (m). */
+export const MAX_LARGO_CINTA_M = 2000;
+/** Personas que descargan en un andén (en un andén real trabajan 1 a 4; cada una es un tramo de la película por camión, SEG-R3). */
+export const MAX_PERSONAS_ANDEN = 50;
+/** Andenes, rampas y puestos de inducción de un hub (el grande de las plantillas: 12 andenes, 60 rampas, 8 puestos). */
+export const MAX_ANDENES = 200;
+export const MAX_RAMPAS = 500;
+export const MAX_PUESTOS = 100;
+/**
+ * Vueltas que puede dar un paquete antes de ir a la excepción (hallazgo REV-D3): los contadores del motor son de 8 bits y el motor
+ * recortaba en silencio a 254. Ahora el esquema lo dice (E-RANGO) en lugar de simular otra regla que la escrita.
+ */
+export const MAX_VUELTAS = 254;
+
+/** Personas de un rol (rampa, retén, temporarios, puesto manual): cada una abre tramos y eventos propios (SEG-R3). */
+export const MAX_PERSONAS_ROL = 2000;
+const PERSONAS_ROL: Regla = { t: 'numero', entero: true, min: 0, max: MAX_PERSONAS_ROL };
+
+const COORD: Regla = { t: 'numero', min: -LIMITE_COORDENADA_M, max: LIMITE_COORDENADA_M };
+const PUNTO: Regla = { t: 'lista', de: COORD, min: 2, max: 2 };
 const POSITIVO: Regla = { t: 'numero', mayorQue: 0 };
 const NO_NEGATIVO: Regla = { t: 'numero', min: 0 };
 const ENTERO_NO_NEG: Regla = { t: 'numero', entero: true, min: 0 };
@@ -538,30 +568,30 @@ export const REGLA_MODELO: Regla = { t: 'obj', campos: {
     papeleo: { t: 'num' },
   } },
   hub: { t: 'obj', campos: {
-    andenes: { t: 'lista', min: 1, de: { t: 'obj', campos: { id: ID, x: N, y: N, personas: { t: 'numero', entero: true, min: 1 } } } },
+    andenes: { t: 'lista', min: 1, max: MAX_ANDENES, de: { t: 'obj', campos: { id: ID, x: COORD, y: COORD, personas: { t: 'numero', entero: true, min: 1, max: MAX_PERSONAS_ANDEN } } } },
     playa: { t: 'obj', campos: { capacidad: ENTERO_NO_NEG } },
-    cintas: { t: 'lista', min: 1, de: { t: 'obj', campos: {
+    cintas: { t: 'lista', min: 1, max: MAX_ANDENES, de: { t: 'obj', campos: {
       id: ID, desde: ID, velocidad: POSITIVO, paso: POSITIVO, puntos: { t: 'lista', de: PUNTO, min: 2 },
     } } },
-    acumulacion: { t: 'obj', campos: { largo: POSITIVO, paso: POSITIVO, x: N, y: N } },
+    acumulacion: { t: 'obj', campos: { largo: { t: 'numero', mayorQue: 0, max: MAX_LARGO_CINTA_M }, paso: POSITIVO, x: COORD, y: COORD } },
     sorter: { t: 'obj', campos: {
       id: ID,
       tipo: { t: 'opcion', valores: ['bandeja-basculante', 'banda-cruzada'] },
       forma: { t: 'opcion', valores: ['estadio'] },
-      recta: NO_NEGATIVO,
-      radio: POSITIVO,
+      recta: { t: 'numero', min: 0, max: MAX_RECTA_M },
+      radio: { t: 'numero', mayorQue: 0, max: MAX_RADIO_M },
       origen: PUNTO,
       paso: POSITIVO,
       velocidad: POSITIVO,
-      maxVueltas: { t: 'numero', entero: true, min: 0, max: 1000 },
+      maxVueltas: { t: 'numero', entero: true, min: 0, max: MAX_VUELTAS },
       lector: { t: 'obj', campos: { s: NO_NEGATIVO, noLeido: { t: 'num' } } },
       paradas: { t: 'obj', campos: { activas: { t: 'bool' }, entre: { t: 'dist' }, duracion: { t: 'dist' } } },
     } },
     induccion: { t: 'obj', campos: {
-      puestos: { t: 'lista', min: 1, de: { t: 'obj', campos: { id: ID, s: NO_NEGATIVO } } },
+      puestos: { t: 'lista', min: 1, max: MAX_PUESTOS, de: { t: 'obj', campos: { id: ID, s: NO_NEGATIVO } } },
       tiempo: { t: 'dist' },
     } },
-    rampas: { t: 'lista', min: 1, de: { t: 'obj', campos: {
+    rampas: { t: 'lista', min: 1, max: MAX_RAMPAS, de: { t: 'obj', campos: {
       id: ID, s: NO_NEGATIVO, lado: { t: 'opcion', valores: [-1, 1] }, capacidad: ENTERO_NO_NEG,
     } } },
     excepcion: { t: 'obj', campos: { id: ID, s: NO_NEGATIVO } },
@@ -578,17 +608,17 @@ export const REGLA_MODELO: Regla = { t: 'obj', campos: {
   } },
   personas: { t: 'obj', campos: {
     induccion: { t: 'obj', campos: {
-      puestosActivos: ENTERO_NO_NEG, temporarios: ENTERO_NO_NEG, reten: ENTERO_NO_NEG, antiguedadSemanas: NO_NEGATIVO,
+      puestosActivos: ENTERO_NO_NEG, temporarios: PERSONAS_ROL, reten: PERSONAS_ROL, antiguedadSemanas: NO_NEGATIVO,
       ausentismo: { t: 'num' }, eficienciaTemporario: { t: 'num' }, pausas: PAUSAS,
     } },
     descarga: { t: 'obj', campos: { ritmo: { t: 'dist' } } },
     rampa: { t: 'obj', campos: {
-      cantidad: ENTERO_NO_NEG,
+      cantidad: PERSONAS_ROL,
       asignacion: ASIGNACION,
       regla: { t: 'opcion', valores: ['la-mas-llena', 'la-que-se-llena-antes', 'en-orden'] },
       manejo: { t: 'dist' }, caminar: { t: 'num' }, pausas: PAUSAS, ausentismo: { t: 'num' },
     } },
-    excepcion: { t: 'obj', campos: { cantidad: { t: 'numero', entero: true, min: 1 }, tiempo: { t: 'dist' } } },
+    excepcion: { t: 'obj', campos: { cantidad: { t: 'numero', entero: true, min: 1, max: MAX_PERSONAS_ROL }, tiempo: { t: 'dist' } } },
     fatiga: { t: 'obj', campos: { activa: { t: 'bool' }, maximo: { t: 'num' }, tau: { t: 'num' } } },
   } },
   costos: { t: 'obj', campos: { horaPersona: { t: 'num' }, fijoNoche: { t: 'num' }, moneda: { t: 'opcion', valores: ['ARS', 'USD'] } } },

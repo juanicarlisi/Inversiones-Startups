@@ -11,8 +11,7 @@ import { crearLienzo } from '../ui/lienzo.ts';
 import { bucleReproduccion, crearLineaTiempo } from '../ui/linea-tiempo.ts';
 import { etiquetaNoche } from '../ui/etiqueta-noche.ts';
 import { lineaResumen, sellos } from '../ui/resumen.ts';
-import { tabla } from '../ui/tabla.ts';
-import { filaComparacion } from './ysi.ts';
+import { bloqueComparacion } from './ysi.ts';
 import { rampaMasLlena, paqueteDeRampa, paqueteParaMostrar } from './escena.ts';
 import { textoFrase } from './comun.ts';
 
@@ -153,9 +152,8 @@ function panelDelActo(ctx: Contexto, a: number, panel: HTMLElement): void {
   if (a === 2) {
     const y = s.ysi;
     if (y.fase === 'confirmada') {
-      poner(panel, el('p', { class: 'presentar__destacado' }, ctx.t('app.presentar.propuesta')),
-        tabla([ctx.t('app.ysi.col.kpi'), ctx.t('app.ysi.col.diferencia'), ctx.t('app.ysi.col.ic'), ctx.t('app.ysi.col.veredicto')],
-          y.comparaciones.map((c) => filaComparacion(ctx, c)), { titulo: ctx.t('app.ysi.tablaTitulo'), numericas: [1, 2], apilable: true }));
+      // con el semáforo de A y de B: en rojo, sin números ni veredictos (hallazgo EST-01)
+      poner(panel, el('p', { class: 'presentar__destacado' }, ctx.t('app.presentar.propuesta')), ...bloqueComparacion(ctx, y));
     } else {
       poner(panel, lineaResumen(ctx), el('p', null, ctx.t('app.presentar.sinPropuesta')),
         el('button', { type: 'button', class: 'boton boton--primario', 'data-accion': 'ir-ysi', onclick: () => ctx.ir('ysi') }, ctx.t('app.escena.ysi')));

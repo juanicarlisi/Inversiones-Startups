@@ -3,6 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { colaNormal, confianzaPorMirada, expAritmetica, miradasSecuenciales, zDeCola } from '../estadistica/normal.ts';
+import { zSecuencial } from '../estadistica/secuencial.ts';
+import { decidirOpcion } from '../decision.ts';
 import { estadoPorWilson, wilsonZ } from '../estadistica/wilson.ts';
 import { evaluarDecision } from '../decision.ts';
 import { validadoSinChequeos } from '../../contratos/referencias.ts';
@@ -48,7 +50,9 @@ test('miradas y confianza por mirada: 20 iniciales, tandas de 20 hasta 400 → 2
  * probabilidad real p: mira en n = inicial, inicial + tanda, …, máximo con el Wilson de cada mirada y se queda con la primera decisión.
  */
 function probCumpleSecuencial(p: number, meta: number, inicial: number, tanda: number, maximo: number, confianza: number): number {
-  const z = confianzaPorMirada(confianza, miradasSecuenciales(inicial, tanda, maximo)).z;
+  // la regla REAL de la decisión (decidirOpcion: los z calibrados de estadistica/secuencial.ts); esta programación dinámica es otra,
+  // independiente (triángulo de Pascal en lugar de la binomial desde la moda), así que también controla la calibración
+  const o = { replicasIniciales: inicial, tanda, replicasMax: maximo };
   // binomial(m, j) · p^j · (1−p)^(m−j) sin potencias nativas
   const binomial = (m: number): number[] => {
     let fila = [1];
@@ -65,7 +69,7 @@ function probCumpleSecuencial(p: number, meta: number, inicial: number, tanda: n
   for (;;) {
     for (let k = 0; k < vivos.length; k++) {
       if (vivos[k] === 0) continue;
-      const e = estadoPorWilson(wilsonZ(k, n, z), meta);
+      const e = decidirOpcion(k, n, meta, confianza, o).estado;
       if (e === 'cumple') { cumple += vivos[k]; vivos[k] = 0; } else if (e === 'no-cumple') vivos[k] = 0;
     }
     if (n >= maximo) break;
@@ -78,7 +82,7 @@ function probCumpleSecuencial(p: number, meta: number, inicial: number, tanda: n
 }
 
 test('calibración exacta: con p = meta (o 0,01 menos) la regla secuencial declara «cumple» en ≤ 2,5% (antes: 9,2% y 4,0%)', () => {
-  for (const meta of [0.8, 0.9, 0.95]) {
+  for (const meta of [0.5, 0.8, 0.9, 0.95, 0.97, 0.99]) {
     for (const p of [meta, meta - 0.01]) {
       const c = probCumpleSecuencial(p, meta, 20, 20, 400, 0.95);
       assert.ok(c <= 0.025, `meta ${meta}, p real ${p}: «cumple» falso en ${(c * 100).toFixed(2)}% (tiene que ser ≤ 2,5%)`);
@@ -86,6 +90,26 @@ test('calibración exacta: con p = meta (o 0,01 menos) la regla secuencial decla
   }
   // y no se volvió inútil: con p = 0,97 y meta 0,9 casi siempre llega a «cumple»
   assert.ok(probCumpleSecuencial(0.97, 0.9, 20, 20, 400, 0.95) > 0.99, 'con p = 0,97 tiene que declarar «cumple» casi siempre');
+});
+
+test('poder de la regla calibrada (EST-04): la opción buena se confirma mucho más que con Bonferroni, y la meta 0,99 ya es alcanzable', () => {
+  // MEDIDO con Bonferroni (z = 3,02 en las 20 miradas): meta 0,9 y p = 0,94 → 39,0% «cumple»; meta 0,95 y p = 0,97 → 7,5%; meta 0,99 → 0%
+  const casos: [number, number, number][] = [[0.9, 0.94, 0.7], [0.95, 0.97, 0.35], [0.99, 1, 0.95]];
+  for (const [meta, p, minimo] of casos) {
+    const c = probCumpleSecuencial(p, meta, 20, 20, 400, 0.95);
+    assert.ok(c >= minimo, `meta ${meta}, p real ${p}: «cumple» en ${(c * 100).toFixed(1)}% (se esperaba al menos ${(minimo * 100).toFixed(0)}%)`);
+  }
+  // y la regla misma lo certifica: errores exactos con p = meta ≤ 2,5% de cada lado, con el método exacto
+  for (const meta of [0.5, 0.8, 0.9, 0.95, 0.97, 0.99]) {
+    const r = zSecuencial(0.95, meta, 20, 20, 400);
+    assert.equal(r.metodo, 'exacto');
+    assert.ok(r.errorCumple <= 0.025 && r.errorNoCumple <= 0.025, `meta ${meta}: errores ${r.errorCumple} y ${r.errorNoCumple}`);
+    // el lado de «cumple» era el que Bonferroni sobreprotegía; el de «no cumple», con metas altas, a veces hasta se queda corto
+    // (el Wilson superior no es exacto en la binomial discreta): la calibración lo sube lo justo (meta 0,95: 3,08 contra 3,02)
+    assert.ok(r.zCumple < 3.0233414397391534, `meta ${meta}: el z de «cumple» calibrado (${r.zCumple}) tiene que ser menor que el de Bonferroni`);
+  }
+  // fuera de lo que se puede calibrar rápido, Bonferroni (conservador)
+  assert.equal(zSecuencial(0.95, 0.9, 20, 20, 5000).metodo, 'bonferroni');
 });
 
 test('calibración con la evaluarDecision real: 2.000 decisiones con semilla fija, p₃ = meta → recomendar 3 en ≤ 2,5% + 3 errores estándar', async () => {

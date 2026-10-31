@@ -507,3 +507,113 @@ Lo que miré y dejé como está: en 360 px el 2,5D del hub grande queda en diago
 pasar a planta con un toque y acercar con el pellizco); el mapa de riesgo no rotula las rampas en el encuadre completo (60 rampas en
 1.160 px no entran; la lista «Las rampas que más se llenan» las nombra y acercando se rotulan); la pregunta de la plantilla dice «paquetes
 por hora» y el parámetro está en segundos por paquete (la plantilla publicada es inmutable; la pantalla ya muestra las dos unidades).
+
+**Segunda mirada a las capturas (30-10-2026, después de la corrida completa de las 20:10).** Lo que todavía se veía roto: en la planta
+acercada sobre el paquete, cada rampa llena era una flecha de rombos encimados. El tobogán mide 1,05 × 1,3 m en las dos plantillas
+publicadas (MEDIDO con `crearDisposicion`) y sus 25 lugares (20 en el chico) iban en dos columnas a lo largo: 8 cm entre cajas de 42 cm,
+o sea, cada caja tapaba a seis vecinas. En la 2,5D la rampa llena era una franja chata. Arreglo, solo de dibujo y con el cambio mínimo en
+`escena/`, sin tocar ningún número:
+- `disposicion.ts`: el tobogán se llena como una pila. Por capa entran 2 cajas a lo largo (paso de 0,44 m) y 3 a lo ancho (0,4 m), y las
+  capas suben 0,28 m (el alto de la caja) hasta cubrir la capacidad: 5 capas en el hub grande y 4 en el chico (`grillaRampa`,
+  `ALTURA_CAPA_RAMPA`). La pila del puesto manual no cambió.
+- `reproductor.ts`: la altura de cada caja sale de su capa, y `PosicionesEscena.celda` lleva el lado del lugar.
+- `componer2d.ts`: en la planta cada glifo entra en su lugar (0,8 del lado, nunca menos de 3 px).
+- Prueba nueva en `escena/pruebas/reproductor.test.ts`: dentro del tobogán, sin encimarse en una capa, nunca una capa de más y la altura
+  por capa. Las 102 pruebas de P6 y `tsc` pasan.
+- Comprobado en capturas de la planta acercada (claro y oscuro) y de la 2,5D, y la huella de la batería no cambia (`escena/` no está en
+  sus fuentes).
+
+**Corrida completa con el código de hoy** (`npm run e2e`, 20:22–20:52; MEDIDO): los 16 recorridos pasan, con 0 errores y 0 avisos de
+consola, 0 pedidos a otro sitio y 0 claves faltantes. Quedan 8 capturas de 1.249 KB en total.
+- Huella agregada de las cien noches del hub chico en la otra pestaña: `a266bb376bb5c8ca` en las cuatro combinaciones. Del primer
+  minuto: `b88addd1e5e5b8d3`.
+- Decidir duró de 340 a 419 s por combinación, contra 283 a 295 s en la corrida de las 20:10:
+  - la recomendación apareció a los 18 a 33 s y la primera respuesta a los 160 a 264 s;
+  - la máquina estaba compartida: carga de 7 en 4 núcleos, con otro Chromium y otras pruebas de otra sesión corriendo al mismo tiempo;
+  - es la misma lentitud de §14, ahora agravada por la carga.
+- El JavaScript de la primera carga medido sobre `dist/` de hoy: 146,5 KB brotli, contra 145,7 KB el 23-10 y un tope de 150 KB.
+
+**Informe de salida (§10.10, MEDIDO el 30-10-2026):** 11 de 12 criterios cumplen y el corte queda **cerrado con pendientes**. El que no
+cumple es el 9: el primer cuadro desde el enlace tarda 953 ms contra 150.
+- `npm test`: 1.070 pruebas, 1.069 pasan, 0 fallan, 0 `todo` y 1 omitida (la batería completa).
+  - Con la máquina libre tardó 144 s; la carga al empezar era de 5,5, la del propio `npm test`.
+  - Con otra sesión usando el contenedor (carga de 9 en 4 núcleos) había tardado 290 y 357 s.
+  - Por eso `informe-salida.mjs` guarda ahora la carga junto al tiempo y lo avisa en la nota del criterio 1.
+- El informe dice de cuándo es cada medición (`corridas`):
+  - la batería, R04 y el banco son del 23-10: desde entonces no cambió ningún archivo de la batería, porque su huella de fuentes coincide;
+  - `npm test`, las invariantes, el enlace y los recorridos son de hoy;
+  - la primera carga se vuelve a medir sobre `dist/` de hoy: 146,5 KB.
+
+## 17. Arreglos de la revisión del 30-10-2026 (31-10-2026)
+
+Catorce hallazgos confirmados (seguridad, estadística, hub y experiencia) y los menores baratos. Lo que cambia la especificación o
+extiende un tipo congelado está en `CAMBIOS-CONTRATO.md` §12; `contratos/` no cambió. MEDIDO = en el contenedor (4 núcleos compartidos).
+
+**Seguridad (SEG-R1 a SEG-R4).**
+- El esquema acota la geometría (±5 km, recta 2 km, radio 500 m, cintas y acumulación 2 km), las listas (200 andenes, 500 rampas, 100
+  puestos) y las personas (50 por andén, 2.000 por rol). Los enlaces de 6 KB que tiraban o colgaban la pestaña (acumulación a 1e9 m,
+  origen en 1e12, andén y cinta a 1e9, recta de 300.000 m, 1,9 millones de personas) ahora se rechazan al leerlos: H13–H17 en
+  `modelo/pruebas/hostiles/entradas.ts`, y el recorrido del enlace hostil abre H13 por la URL.
+- Defensa en el dibujo por si el esquema cambia: grilla de a lo sumo 200 líneas por eje, muestreo de recorridos de a lo sumo 4.000
+  puntos, 400 piezas por tramo de cinta, y lo que queda fuera del lienzo (bandejas, entidades) no se compone. Prueba: un hub de 1e9 m se
+  compone en menos de 5 s con la grilla acotada (`escena/pruebas/componer.test.ts`).
+- Presupuesto: `E-PRESUPUESTO dibujo` con más de 5.000 bandejas (las plantillas tienen 142 y 300); los tramos de las personas cuentan en
+  la película (2 por persona de andén y camión); el escritor de la traza corta en 4 millones de tramos con un error que lo dice.
+- «Saltar al contenido» ya no cambia el fragmento (que es el enlace del modelo): mueve el foco a `<main>`. hashchange solo abre
+  fragmentos `m=`, `t=`, `p=`, `r=`. El enlace tiene nombre accesible.
+
+**Estadística (EST-01 a EST-04, REV-D1, y EST-05, EST-06, EST-09, EST-10).**
+- Decisión secuencial: cada lado del Wilson con su z calibrado por programación dinámica exacta (`experimentos/estadistica/secuencial.ts`).
+  Con 20/20/400 y meta 0,9: z 2,37 y 2,98, errores exactos 2,46% y 2,10%, y con p = 0,94 se confirma el 73% (Bonferroni: 39%). MEDIDO de
+  paso: Bonferroni del lado de «no cumple» se quedaba corto con metas altas (3,19% con 0,95; 5,09% con 0,99). La meta inalcanzable con
+  el presupuesto de noches se avisa en el semáforo.
+- S13 de la batería corre la regla de la interfaz (`decidirOpcion`): 97/100 → en duda; 116/120 → cumple.
+- Comparación pareada: veredicto por la prueba del signo exacta; la noche típica (mediana de B − A) con su IC por estadísticos de orden;
+  las noches atípicas (Iglewicz–Hoaglin) en una nota. En 2.000 confirmaciones de 40 noches con la anatomía medida en el hub chico (una de
+  cada 40 noches con 100–250 min de más): el IC de la mediana cubre ≥ 93%, el de t no llega a 90% de la media, y nunca «A es mejor» cuando
+  B es mejor en la mayoría de las noches.
+- «¿Y si…?»: confirma con las cien noches de A (antes 40), cada indicador al 99% (cinco a la vez), semáforo de A y de B (en rojo, la tabla
+  sin números ni veredictos y «Quedarme con B» secundaria con el motivo; lo mismo en el acto 2 de presentar), y el botón principal lo
+  deciden los indicadores de la decisión (restricción y objetivo), no un conteo de votos. «Iguales en la práctica» solo con el intervalo y
+  el promedio dentro del mínimo; si no, «no alcanza para saber» con el rango.
+- Decidir: 199 de 200 no se redondea a «100%» y un extremo de 0,8996 contra la meta 0,90 va con un decimal. «Perder el corte» con 26% dice
+  «1 de cada 4», no «3 de cada 10». Comentarios de cotas numéricas corregidos (Cornish-Fisher < 2e-6; zDeCola …051).
+
+**Hub, motor 1.2.0 (HUB-R01 a HUB-R03, REV-D7, REV-D8).** MEDIDO con `hub-chico@1.1.0` (propuesta):
+- La vuelta del puesto manual espera lugar en la mesa: la fila máxima queda en 120 de 120 lugares (antes 154; 18 de 20 noches por
+  encima con 3 personas de rampa). En esa configuración extrema (3 personas para 12 rampas, recirculación 175%) 1 de 20 noches ya no
+  termina en el horizonte: antes la acumulación «absorbía» de más. El arreglo trajo un caso de reentrada (la acumulación llamaba a la
+  inducción desde adentro de `tomar` y un puesto recibía dos paquetes): se cuida con un contador en `hub/bloques/acumulacion.ts`.
+- Costos: con 25% de faltas la noche cuesta 1.490.685 contra 1.572.920 sin faltas (−5,2%; antes −10%) y termina 68 min más tarde. Lo
+  que sigue «ahorrando» es la mitad no pagada de las faltas; el costo de perder el corte no está en `costoNoche` (está en la restricción
+  de la decisión).
+- Con 2.000 paquetes por camión: espera P90 del contrato 7,2 min contra 187,6 min desde la llegada del camión (estadía del camión P90 232,6
+  min) con la mitad de los paquetes fuera del corte. La biografía del paquete empieza con su camión (hora de llegada y espera en la playa).
+- `personaOcupadaPct` ya no pasa de 100% y la traza llega hasta su último tramo en las noches que no terminan.
+- E02 (sobredeterminación): con el motor 1.2.0 y corte 26:00, 8 de 10 noches sobredeterminaban (el escenario lo exige en 9); con corte
+  25:00, 10 de 10 y 0 frases causales sin confirmar en 500 paquetes.
+
+**Experiencia (EXP-01 a EXP-03 y los menores EXP-05 a EXP-11, SEG-R7).**
+- `reconciliar()` (`app/ui/dom.ts`): repinta comparando el árbol nuevo con el que hay y conserva los nodos con la misma etiqueta y
+  `data-accion` (con su foco y sus manejadores), como las bibliotecas de «morphing» del DOM. La escena, el comprobante y el progreso de
+  decidir ya no destruyen el botón con foco en cada noche que llega. El recorrido del enlace hostil lo comprueba con 3 noches.
+- Mientras la película corre a la vista, a lo sumo 2 Workers calculan (`TRABAJADORES_CON_PELICULA`); al pausarla o salir de la
+  escena, todos (`limite` en el planificador y `reactivar()`).
+- Rótulos de rampa en una pasada final con pastilla (`escena/rotulos.ts`): las llenas, las casi llenas (≥ 80%) y la seleccionada
+  siempre, de al menos 10 px; acercado, todas; sin encimarse. El tablero nombra las llenas («R09 llena», «3 rampas llenas: R01, R07, R09»).
+- Menores: las pausas superpuestas dicen el rol (dos tarjetas distintas en el comprobante); el semáforo traduce el id del KPI; «la rampa
+  se llenó a las 01:05» en lugar de «de 01:05 a 01:05»; bordes de controles ≥ 3:1 en claro y oscuro (y el selector de idioma con el borde
+  fuerte); el botón de tema dice «Tema: Auto» y su nombre accesible empieza con eso; Anterior y Siguiente pegados abajo en Presentar en el
+  teléfono; si el simulador no carga, un texto para la persona y el detalle en la consola.
+- SEG-R5, en parte: al anonimizar se quitan la licencia y la frase de la meta (texto libre que podía decir «Confidencial ACME» o nombrar
+  al cliente), y el aviso de compartir dice ahora que viajan las fuentes y los enlaces de los datos que no son propios. Reemplazar también
+  esas fuentes choca con una decisión anterior y probada de P3 («las fuentes públicas quedan: el lector las necesita»): lo decide el
+  orquestador.
+
+**Lo que no se hizo (y por qué).** HUB-R04 a HUB-R12 (capacidad de la excepción, pausas y faltas de descarga y del puesto manual, el
+retén que cubre pausas, utilización por ventana, jaulas parciales, reasignación dinámica de rampa, campos que no hacen nada, tiempos por
+tamaño) cambian el esquema o el motor más allá de un arreglo: corte 2. EST-07 y EST-08 (IC del abanico en presentar y del tamizado,
+«ya está» con supuestos que cambian la recomendación), SEG-R6 (banco «no concluyente» con la máquina
+cargada), EXP-04 (la película empieza con el hub vacío), EXP-12 (el aviso de las cien noches) y EXP-13 (títulos por idioma): quedan
+anotados para la próxima vuelta. REV-D2 y REV-D5 (la cobertura del IC de t en el sello, R04 con JavaScriptCore): el IC de t ya no
+decide nada; R04 sigue siendo V8 contra V8 y así lo dice su alcance.

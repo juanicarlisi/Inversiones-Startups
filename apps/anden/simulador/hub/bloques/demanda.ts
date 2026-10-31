@@ -17,6 +17,8 @@ function estadoInicial(n: number) {
     llegada: new Float64Array(n), paquetes: new Int32Array(n),
     /** Cuándo tomó andén cada camión (−1 si todavía no). */
     asignado: new Float64Array(n).fill(-1),
+    /** Cuándo dejó libre el andén cada camión, después del papeleo (−1 si todavía no): la estadía es salida − llegada (HUB-R01). */
+    salida: new Float64Array(n).fill(-1),
     factor: 1, atraso: 0, demora: 0,
     /** Camiones con el último paquete ya descargado. */
     descargados: 0,

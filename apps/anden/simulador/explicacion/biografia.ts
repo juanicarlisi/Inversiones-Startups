@@ -120,6 +120,8 @@ function biografiaDePaquete(t: Traza, m: Modelo, id: number): Biografia {
   }
   const porTramo = esperasPorTramo(esperasDe(t, ClaseEntidad.PAQUETE, id));
   const pasos: PasoBiografia[] = [];
+  const llegada = pasoDeLlegada(t, t.paquetes.camion[id]);
+  if (llegada) pasos.push(llegada);
   for (const i of tramosDe(t, 'paquete', id)) {
     const p = pasoDePaquete(t, i, porTramo.get(i) ?? null);
     if (p) pasos.push(p);
@@ -137,6 +139,31 @@ function biografiaDePaquete(t: Traza, m: Modelo, id: number): Biografia {
     tamano: clases?.[t.paquetes.clase[id]]?.id ?? String(t.paquetes.clase[id]),
   }, []);
   return { clase: ClaseEntidad.PAQUETE, id, titulo, pasos, percentil: percentilDe(t, id), causas: [] };
+}
+
+/**
+ * El primer paso de un paquete: cuándo llegó su camión y cuánto esperó el camión en la playa (hallazgo HUB-R01 de la revisión del
+ * 30-10-2026). La traza del paquete empieza recién cuando empieza a bajar, así que un paquete que pierde el corte por una cola de
+ * camiones no tenía en su biografía ninguna espera que la explicara (con 2.000 paquetes por camión, 152 min promedio que no figuraban).
+ * Cada cifra sale de un tramo del camión (la hora de llegada, el t0 de su primer tramo; la espera, la duración de CAMION_PLAYA); la cola
+ * dentro del camión se lee entre esta hora y la del paso siguiente («empezó a bajar… a las…»). Es descriptivo: no afirma causas.
+ */
+function pasoDeLlegada(t: Traza, camion: number): PasoBiografia | null {
+  if (!(camion >= 0)) return null;
+  const lista = tramosDe(t, 'camion', camion);
+  if (lista.length === 0) return null;
+  let playa = -1, primero = lista[0];
+  for (const i of lista) {
+    if (t.tramos.t0[i] < t.tramos.t0[primero]) primero = i;
+    if (t.tramos.k[i] === TipoTramo.CAMION_PLAYA) playa = i;
+  }
+  const nombre = nombreDe(t.catalogo.camiones, camion, 'T'), hora = afirmarHora(t, primero, 't0');
+  if (playa >= 0 && finDeTramo(t, playa) - t.tramos.t0[playa] >= ESPERA_MINIMA_MS) {
+    const min = afirmarMinutos(t, playa);
+    return { desde: t.tramos.t0[primero], hasta: finDeTramo(t, playa),
+      frase: crearFrase('explicacion.paso.llego.playa', { camion: nombre, hora: horaDe(t.tramos.t0[primero]), min: min.valor }, [hora, min]), espera: null };
+  }
+  return { desde: t.tramos.t0[primero], hasta: t.tramos.t0[primero], frase: crearFrase('explicacion.paso.llego', { camion: nombre, hora: horaDe(t.tramos.t0[primero]) }, [hora]), espera: null };
 }
 
 // ----------------------------------------------------------------------------------------------------------------- camión
@@ -246,10 +273,12 @@ function biografiaDeRampa(t: Traza, id: number): Biografia {
   if (geo.capacidad > 0) {
     for (const l of lapsosLlena(t, id, geo.capacidad)) {
       const d = afirmarHora(t, l.entra, 't0'), h = afirmarHora(t, l.sale, 't1');
-      pasos.push({
-        desde: t.tramos.t0[l.entra], hasta: finDeTramo(t, l.sale), espera: null,
-        frase: crearFrase('explicacion.paso.rampa_llena', { desde: horaDe(t.tramos.t0[l.entra]), hasta: horaDe(finDeTramo(t, l.sale)) }, [d, h]),
-      });
+      const desde = t.tramos.t0[l.entra], hasta = finDeTramo(t, l.sale);
+      // «llena de 01:05 a 01:05» no dice nada (hallazgo EXP-07): si empieza y termina en el mismo minuto, «se llenó a las 01:05»
+      const frase = horaDe(desde) === horaDe(hasta)
+        ? crearFrase('explicacion.paso.rampa_llena.instante', { desde: horaDe(desde) }, [d])
+        : crearFrase('explicacion.paso.rampa_llena', { desde: horaDe(desde), hasta: horaDe(hasta) }, [d, h]);
+      pasos.push({ desde, hasta, espera: null, frase });
     }
   }
   const { n, k, r, e } = t.tramos;

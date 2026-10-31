@@ -16,6 +16,13 @@ export interface EscritorTrazaNucleo extends EscritorTraza {
 
 const CAP_TRAMOS = 4096, CAP_MOMENTOS = 256, CAP_PAQUETES = 1024;
 
+/**
+ * Tope duro de tramos de una traza (hallazgo SEG-R3 de la revisión del 30-10-2026). El compilador ya rechaza los modelos cuya película
+ * estima más de 2.000.000 de tramos (modelo/presupuesto.ts), pero el escritor crecía duplicando sin límite: si una estimación se queda
+ * corta, la noche falla con un error que lo dice en lugar de llevar la pestaña a más de 1 GB. La plantilla grande usa ~380.000.
+ */
+export const MAX_TRAMOS_TRAZA = 4_000_000;
+
 // Copian la columna a una de capacidad c (los huecos nuevos quedan en 0, o en `relleno`).
 function crecerF64(a: Float64Array, c: number, relleno = 0): Float64Array<ArrayBuffer> {
   const b = new Float64Array(c); b.set(a); if (relleno !== 0) b.fill(relleno, a.length); return b;
@@ -35,7 +42,10 @@ export function crearEscritorTraza(nivel: NivelTraza): EscritorTrazaNucleo {
   let e = new Int32Array(capT), k = new Uint8Array(capT), r = new Int32Array(capT), a = new Int32Array(capT);
   let t0 = new Float64Array(capT), t1 = new Float64Array(capT), c = new Uint8Array(capT), q = new Int32Array(capT);
   const crecerTramos = () => {
-    capT *= 2;
+    if (capT >= MAX_TRAMOS_TRAZA) {
+      throw new RangeError(`traza: la película pasó el tope de ${MAX_TRAMOS_TRAZA} tramos (presupuesto de la traza); el modelo pide más de lo que entra en la memoria de un teléfono`);
+    }
+    capT = Math.min(capT * 2, MAX_TRAMOS_TRAZA);
     e = crecerI32(e, capT); k = crecerU8(k, capT); r = crecerI32(r, capT); a = crecerI32(a, capT);
     t0 = crecerF64(t0, capT); t1 = crecerF64(t1, capT); c = crecerU8(c, capT); q = crecerI32(q, capT);
   };

@@ -28,8 +28,28 @@ import { esCancelacion, semaforoLocal, type ServiciosApp } from './extras.ts';
 import type { Almacen, CualNoche, Perillas } from './estado.ts';
 import { hayCambios } from './estado.ts';
 
-/** Noches de la confirmación pareada de «¿y si…?» (corte-1.md §9 P8.5). */
-export const NOCHES_CONFIRMACION = 40;
+/**
+ * Noches de la confirmación pareada de «¿y si…?» (corte-1.md §9 P8.5 decía 40). Desde la revisión del 30-10-2026 (hallazgo EST-02) se
+ * confirma con las mismas noches que ya tiene A (las cien de la escena): B cuesta unos segundos más, pero las noches raras (una de cada
+ * 40 con 100 a 250 min de más en la espera P90 del hub chico) aparecen en el 91% de las confirmaciones en lugar del 62%, y la noche que
+ * se ve arriba siempre está entre las comparadas.
+ */
+export const NOCHES_CONFIRMACION = 100;
+/**
+ * Confianza de cada una de las cinco comparaciones (hallazgo EST-05): cinco veredictos al 95% daban al menos uno falso en el 11% de las
+ * tablas sin ninguna diferencia real. Con Bonferroni (1 − 0,05 ÷ 5 = 0,99) el error de la tabla entera no pasa del 5%.
+ */
+export const CONFIANZA_COMPARACIONES = 0.99;
+/**
+ * La comparación como la entrega experimentos/estadistica/pareada.ts (ComparacionRobusta): los campos del contrato más la noche típica
+ * (mediana con su IC), la cuenta de noches de la prueba del signo y las noches atípicas. app/ no importa experimentos/: se declara acá, y
+ * los servicios falsos pueden no traer los extras (opcionales).
+ */
+export type ComparacionApp = Comparacion & {
+  base?: 'signo'; confianza?: number; mediana?: number; icMediana?: [number, number] | null;
+  bMenor?: number; bMayor?: number; empates?: number; pValor?: number; asimetria?: number;
+  atipicos?: { peorB: number; mejorB: number; maxPeor: number; maxMejor: number };
+};
 /**
  * Tope de noches de una escena (hallazgo SEG-03): una receta o un modelo pueden pedir muchas más (el códec acepta hasta 1.000 y el
  * esquema hasta 10.000 en `nochesEscena`), y cada una corre en los núcleos del que abre el enlace. Con más de esto la app corre este tope
@@ -60,8 +80,14 @@ export interface EstadoYsi {
   nocheB: NocheVista | null;
   /** 'igual': los cambios dejan el modelo idéntico a A (por ejemplo, balancear un plan que ya va por volumen): no hay nada que comparar. */
   fase: 'nada' | 'previa' | 'igual' | 'lista' | 'confirmando' | 'confirmada';
-  comparaciones: Comparacion[];
+  comparaciones: ComparacionApp[];
   nochesB: ResultadoReplica[];
+  /**
+   * El semáforo de A y el de B sobre las noches comparadas (hallazgo EST-01): un B que no termina sus noches no puede mostrar veredictos
+   * ni «Quedarme con B» como acción principal. null mientras no hay confirmación.
+   */
+  semaforoA: Semaforo | null;
+  semaforoB: Semaforo | null;
   progreso: number;
   /**
    * La película de B se está rehaciendo porque A pasó a otra noche (de la provisoria a la mediana, o la peor elegida en las cien noches).
@@ -124,7 +150,7 @@ export class Sesion {
   }
 
   static ysiVacio(): EstadoYsi {
-    return { parche: [], mvB: null, nocheB: null, fase: 'nada', comparaciones: [], nochesB: [], progreso: 0, rehaciendoB: false };
+    return { parche: [], mvB: null, nocheB: null, fase: 'nada', comparaciones: [], nochesB: [], progreso: 0, rehaciendoB: false, semaforoA: null, semaforoB: null };
   }
   static decisionVacia(): EstadoDecision {
     return { fase: 'nada', evaluacion: null, ranking: null, preguntas: null, hechas: 0, maximo: 0, respuestas: {} };
@@ -137,7 +163,13 @@ export class Sesion {
   private emitir(t: Tema): void { for (const f of [...this.oyentes]) f(t); }
   private fallar(clave: string, e: unknown): void {
     if (esCancelacion(e)) return;
-    this.ultimoError = { clave, vars: { detalle: e instanceof Error ? e.message : String(e) } };
+    const detalle = e instanceof Error ? e.message : String(e);
+    // si el simulador mismo no está (no bajó worker.js, el navegador no deja crear Workers), un texto para la persona y el detalle
+    // técnico en la consola, no en pantalla (hallazgo SEG-R7)
+    if (/Worker de simulación se cayó|no se pudo enviar el trabajo/.test(detalle)) {
+      console.error(`Andén: ${detalle}`);
+      this.ultimoError = { clave: 'app.error.simuladorNoDisponible', vars: {} };
+    } else this.ultimoError = { clave, vars: { detalle } };
     this.emitir('error');
   }
 
@@ -365,7 +397,10 @@ export class Sesion {
     }
   }
 
-  /** Confirmación pareada: 40 noches de A y de B con la misma semilla y réplicas 0…39, diferencia con IC y veredicto. */
+  /**
+   * Confirmación pareada: las noches de A (las cien de la escena) y las mismas de B, con la misma semilla y réplicas; diferencia con su
+   * IC y veredicto (prueba del signo al 99% por indicador), y el semáforo de cada lado.
+   */
   async confirmar(token = this.tokenPrevia): Promise<void> {
     const mv = this.mv, mvB = this.ysi.mvB; if (!mv || !mvB) return;
     const gen = this.generacion, n = Math.min(NOCHES_CONFIRMACION, Math.max(2, this.N));
@@ -384,8 +419,9 @@ export class Sesion {
       });
       if (token !== this.tokenPrevia || gen !== this.generacion) return;
       const comparaciones = KPI_COMPARACION.filter((k) => META_KPI[k].mejor !== 'neutro')
-        .map((k) => this.servicios.comparar(a, b, k, this.confianza));
-      this.ysi = { ...this.ysi, fase: 'confirmada', comparaciones, nochesB: b, progreso: 1 };
+        .map((k) => this.servicios.comparar(a, b, k, CONFIANZA_COMPARACIONES) as ComparacionApp);
+      const sem = (m: ModeloValidado, rs: ResultadoReplica[]) => (this.servicios.semaforoDe ? this.servicios.semaforoDe(m, rs) : semaforoLocal(m, rs, this.servicios.resumir));
+      this.ysi = { ...this.ysi, fase: 'confirmada', comparaciones, nochesB: b, progreso: 1, semaforoA: sem(mv, a), semaforoB: sem(mvB, b) };
       this.emitir('ysi');
     } catch (e) {
       if (token === this.tokenPrevia && !esCancelacion(e)) { this.ysi = { ...this.ysi, fase: 'lista' }; this.fallar('app.error.confirmacion', e); this.emitir('ysi'); }

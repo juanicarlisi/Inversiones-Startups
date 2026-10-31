@@ -1,5 +1,6 @@
 // Evaluación de la decisión con réplicas secuenciales (corte-1.md §7, §9 P5).
 import { test } from 'node:test';
+import { zSecuencial } from '../estadistica/secuencial.ts';
 import assert from 'node:assert/strict';
 import { ErrorCancelado, esCancelacion, evaluarDecision, evaluarDecisionCon, recomendar } from '../decision.ts';
 import { readFileSync } from 'node:fs';
@@ -27,8 +28,10 @@ test('la evaluación completa: 4 configuraciones ordenadas, con Wilson, estado, 
   assert.equal(ev.decision, 'dotacion-induccion');
   assert.deepEqual(ev.configuraciones.map((c) => c.valor), [2, 3, 4, 5]);
   for (const c of ev.configuraciones) {
-    // 20 miradas posibles (20 iniciales, tandas de 20, hasta 400): cada una decide con 1 − 0,05 ÷ 20 = 0,9975 (Bonferroni)
-    assert.equal(c.prop.metodo, 'wilson'); assert.equal(c.prop.confianza, 0.9975); assert.equal(c.prop.n, c.objetivo.n);
+    // 20 miradas posibles (20 iniciales, tandas de 20, hasta 400): cada lado del Wilson con su z calibrado (EST-04); la confianza que se
+    // muestra es la de cada mirada, 1 − Q(z cumple) − Q(z no cumple)
+    const regla = zSecuencial(0.95, 0.9, 20, 20, 400);
+    assert.equal(c.prop.metodo, 'wilson'); assert.equal(c.prop.confianza, regla.confianza); assert.equal(c.prop.n, c.objetivo.n);
     assert.equal(c.objetivo.kpi, 'costoNoche');
     assert.ok(c.prop.ic[0] <= c.prop.p && c.prop.p <= c.prop.ic[1]);
     const esperado = c.prop.ic[0] >= 0.9 ? 'cumple' : c.prop.ic[1] < 0.9 ? 'no-cumple' : 'en-duda';
@@ -252,7 +255,7 @@ test('la firma es la del contrato (EvaluarDecision) y acepta las opciones del co
   assert.equal(evaluarDecisionCon, evaluarDecision);
 });
 
-test('lo evidente se resuelve sin apuro de más: 0 de 20 ya es «no cumple»; «cumple» recién con 100 de 100 (Wilson inferior con z = 3,02: 0,916; con 80 de 80, 0,897)', async () => {
+test('lo evidente se resuelve sin apuro de más: 0 de 20 ya es «no cumple»; «cumple» recién con 60 de 60 (Wilson inferior con el z calibrado 2,37: 0,914; con 40 de 40, 0,877)', async () => {
   const trabajos: Trabajo[] = [];
   const sim: Simulador = (mv, semilla, replica) => {
     const v = mv.modelo.personas.induccion.puestosActivos;
@@ -260,10 +263,10 @@ test('lo evidente se resuelve sin apuro de más: 0 de 20 ya es «no cumple»; «
   };
   const ev = await evaluarDecision(modeloConSemilla(5), planificadorSincrono(sim, { alEnviar: (t) => trabajos.push(t) }), varianteFalsa, OPCIONES);
   const esperados = [[2, 0, 20], [3, 0, 20], [4, 0, 20], [5, 0, 20]];
-  for (let d = 20; d < 100; d += 20) esperados.push([4, d, d + 20], [5, d, d + 20]);
+  for (let d = 20; d < 60; d += 20) esperados.push([4, d, d + 20], [5, d, d + 20]);
   assert.deepEqual(trabajos.map((t) => [t.mv.modelo.personas.induccion.puestosActivos, ...t.replicas]), esperados,
-    'los dos que no cumplen se resuelven en la primera ronda; los dos que sí, cuando el Wilson corregido por las 20 miradas lo permite');
-  assert.equal(ev.recomendacion, 4); assert.equal(ev.replicasUsadas, 240);
+    'los dos que no cumplen se resuelven en la primera ronda; los dos que sí, cuando el Wilson calibrado para las 20 miradas lo permite');
+  assert.equal(ev.recomendacion, 4); assert.equal(ev.replicasUsadas, 160);
   assert.deepEqual(ev.configuraciones.map((c) => c.estado), ['no-cumple', 'no-cumple', 'cumple', 'cumple']);
   assert.equal(ev.configuraciones[2].objetivo.media, 4000); assert.equal(ev.configuraciones[2].objetivo.semiancho, 0);
   assert.equal(ev.semaforo.color, 'verde');

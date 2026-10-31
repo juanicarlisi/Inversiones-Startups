@@ -64,14 +64,28 @@ export interface ServiciosIntegracion extends Servicios, ExtrasServicios {
   readonly simuladorAsincrono: Simulador;
   /** Termina los trabajadores (al cerrar la página o al terminar una prueba). */
   cerrar(): void;
+  /**
+   * Cuántos trabajadores pueden calcular a la vez desde ahora (null = todos). Mientras la película corre, el navegador deja núcleos
+   * libres para el dibujo (`TRABAJADORES_CON_PELICULA`, hallazgo EXP-02).
+   */
+  limitarTrabajadores(n: number | null): void;
 }
+
+/**
+ * Trabajadores que calculan mientras la película corre (hallazgo EXP-02 de la revisión del 30-10-2026). MEDIDO por la revisión con
+ * hub-lazo-noche a ×600 en 4 núcleos compartidos: con 7 Workers, 11 a 20 cuadros de más de 100 ms en 12 s (p95 50–150 ms); con 3, 3 a 23;
+ * con 1, 1 a 5, casi como sin Workers. Con 2 queda un núcleo para el hilo principal y otro para el compositor en un equipo de 4; las
+ * cien noches tardan más mientras se mira la película, y vuelven a usar todos los núcleos al pausarla o al salir de la escena.
+ */
+export const TRABAJADORES_CON_PELICULA = 2;
 
 let secuencia = 0;
 const nuevoId = (prefijo: string) => `${prefijo}:${++secuencia}`;
 
 export function crearServicios(o: OpcionesPuente): ServiciosIntegracion {
   const { compilar, variante, codec } = ensamblarModelo();
-  const planificador = crearPlanificador(o.fabrica, o.trabajadores);
+  let limite: number | null = null;
+  const planificador = crearPlanificador(o.fabrica, o.trabajadores, { limite: () => limite ?? o.trabajadores });
   const motor = o.motor ?? MOTOR_SIN_VERIFICAR;
   const replicasMaxTamizado = o.replicasMaxTamizado ?? REPLICAS_MAX_TAMIZADO;
 
@@ -149,6 +163,11 @@ export function crearServicios(o: OpcionesPuente): ServiciosIntegracion {
     planificador,
     simuladorAsincrono,
     cerrar: () => planificador.cerrar(),
+    limitarTrabajadores: (n) => {
+      const antes = limite;
+      limite = n === null || !(n >= 1) ? null : Math.floor(n);
+      if ((limite ?? Infinity) > (antes ?? Infinity) || (antes !== null && limite === null)) planificador.reactivar();
+    },
   };
   return servicios;
 }

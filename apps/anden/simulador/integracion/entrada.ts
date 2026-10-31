@@ -3,7 +3,7 @@
 // Nada de app/servicios-falsos.ts ni de app/falsos/ entra acá (lo controla pruebas/arquitectura.test.ts sobre el paquete construido).
 import type { Comprobante } from '../contratos/experimentos.ts';
 import { arrancar } from '../app/arrancar.ts';
-import { crearServiciosNavegador } from './puente.ts';
+import { crearServiciosNavegador, TRABAJADORES_CON_PELICULA } from './puente.ts';
 
 /** Lo pone construir.mjs (esbuild `define`): el resultado de la batería con el motor de producción, si hay una corrida. */
 declare const __ANDEN_MOTOR__: Comprobante['motor'] | null;
@@ -20,4 +20,6 @@ arrancar(servicios, raiz, {
   // window.__anden solo para los recorridos de punta a punta (e2e/): nunca en un enlace que se comparte.
   depuracion: parametros.get('depuracion') === '1',
   idioma: parametros.get('idioma') === 'en' ? 'en' : undefined,
+  // mientras la película corre a la vista, a lo sumo TRABAJADORES_CON_PELICULA calculan: el resto de los núcleos dibuja (hallazgo EXP-02)
+  alPelicula: (corre) => servicios.limitarTrabajadores(corre ? TRABAJADORES_CON_PELICULA : null),
 });

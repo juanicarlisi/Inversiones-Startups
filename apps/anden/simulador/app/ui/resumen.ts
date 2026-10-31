@@ -21,6 +21,16 @@ export function porcentajeExtremo(ctx: Contexto, x: number): string {
   return ctx.f.porcentaje(x, 0);
 }
 
+/**
+ * Un porcentaje que se compara con una meta (hallazgo EST-06): con 0 decimales, 0,8996 contra 0,90 se leía «90%» al lado de «en duda»;
+ * si el redondeo cruza la meta, va con un decimal. Los extremos, como `porcentajeExtremo` (199 de 200 no es «100%»).
+ */
+export function porcentajeContraMeta(ctx: Contexto, x: number, meta: number): string {
+  const cruza = (x < meta) !== (Math.round(x * 100) < Math.round(meta * 100)) || (x !== meta && Math.round(x * 100) === Math.round(meta * 100));
+  if (cruza && x > 0.01 && x < 0.99) return ctx.f.porcentaje(x, 1);
+  return porcentajeExtremo(ctx, x);
+}
+
 /** «1 noche de cada 10», «3 de cada 10 noches», «ninguna de 100 noches», «todas las 100 noches»… a partir de P(no perder el corte). */
 export function textoPerderCorte(ctx: Contexto, prop: Proporcion): { texto: string; ic: string } {
   const p = 1 - prop.p, bajo = 1 - prop.ic[1], alto = 1 - prop.ic[0];
@@ -28,7 +38,8 @@ export function textoPerderCorte(ctx: Contexto, prop: Proporcion): { texto: stri
   if (prop.exitos === prop.n) texto = ctx.t('app.resumen.perder.ninguna', { N: prop.n });
   else if (prop.exitos === 0) texto = ctx.t('app.resumen.perder.todas', { N: prop.n });
   else if (p >= 0.95) texto = ctx.t('app.resumen.perder.casiTodas');
-  else if (p >= 0.2) texto = ctx.t('app.resumen.perder.deCada10', { k: Math.round(p * 10) });
+  // «k de cada 10» redondeaba 25–26% a «3 de cada 10» (hallazgo EST-09): por debajo de 35%, «1 de cada N», que corre mucho menos
+  else if (p >= 0.35) texto = ctx.t('app.resumen.perder.deCada10', { k: Math.round(p * 10) });
   else texto = ctx.t('app.resumen.perder.unaDeCada', { cada: Math.max(2, Math.round(1 / p)) });
   const ic = ctx.t('app.resumen.perder.ic', { bajo: porcentajeExtremo(ctx, bajo), alto: porcentajeExtremo(ctx, alto) });
   return { texto, ic };

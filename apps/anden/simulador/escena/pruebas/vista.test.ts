@@ -43,7 +43,9 @@ test('planta 2D sin lienzo fuera de pantalla: pinta todo en el lienzo, con los r
   const c = l.ctx;
   assert.ok((c.llamadas.fill ?? 0) > 10 && (c.llamadas.stroke ?? 0) > 5, `se esperaba que pinte rellenos y trazos (vino ${JSON.stringify(c.llamadas)})`);
   assert.equal(c.noFinitos, 0, 'ninguna coordenada inválida llega al lienzo');
-  assert.deepEqual(c.textos, ['R01', 'R02', 'R03', 'A1', 'A2']);
+  // los andenes en el fondo; las rampas en la pasada final de la capa móvil (rotulos.ts, EXP-08)
+  assert.deepEqual(c.textos.slice(0, 2), ['A1', 'A2']);
+  assert.deepEqual(c.textos.slice(2).sort(), ['R01', 'R02', 'R03']);
   assert.equal(c.imagenes.length, 0);
 });
 
@@ -53,8 +55,10 @@ test('el fondo se hornea una vez y se copia en cada cuadro; se rehace solo si ca
   for (let i = 0; i < 3; i++) v.dibujar(30_000 + i * 300);
   assert.equal(f.creados.length, 1, 'un solo lienzo de fondo para tres cuadros');
   assert.equal(l.ctx.imagenes.filter((x) => x === f.creados[0]).length, 3, 'el fondo horneado se copia en cada cuadro');
-  assert.equal(l.ctx.textos.length, 0, 'los rótulos están en el fondo horneado, no se repintan');
-  assert.deepEqual(f.creados[0].ctx.textos, ['R01', 'R02', 'R03', 'A1', 'A2']);
+  // los de los andenes están en el fondo horneado; los de las rampas se pintan en cada cuadro, encima de la carga (EXP-08)
+  assert.deepEqual(f.creados[0].ctx.textos, ['A1', 'A2']);
+  assert.deepEqual([...new Set(l.ctx.textos)].sort(), ['R01', 'R02', 'R03'], 'cada cuadro repinta solo los rótulos de las rampas');
+  assert.equal(l.ctx.textos.length, 9, 'tres rótulos por cuadro');
   v.camara = { ...v.camara, zoom: v.camara.zoom * 1.5 };
   v.dibujar(31_000);
   assert.equal(f.creados.length, 2, 'con otra cámara se hornea otro fondo');

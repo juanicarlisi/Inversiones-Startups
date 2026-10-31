@@ -1,0 +1,8 @@
+import * as THREE from 'three'; import { N, W, H, cajas, publicar } from './motor-comun.js';
+const canvas = document.getElementById('c'); const r = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true, powerPreference: 'high-performance' }); r.setSize(W, H, false); r.shadowMap.enabled = true;
+const sc = new THREE.Scene(); sc.background = new THREE.Color('#0d1015'); const cam = new THREE.PerspectiveCamera(38, W / H, 0.3, 400); cam.position.set(-44, 30, 40); cam.lookAt(2, 0, 2);
+sc.add(new THREE.HemisphereLight('#c8d8ff', '#6a6256', 0.9)); const sol = new THREE.DirectionalLight('#fff1dc', 2.4); sol.position.set(-22, 38, 26); sol.castShadow = true; sol.shadow.mapSize.set(2048, 2048); const c = sol.shadow.camera; c.left = -42; c.right = 42; c.top = 28; c.bottom = -28; c.near = 5; c.far = 90; sol.shadow.bias = -0.0004; sc.add(sol);
+const piso = new THREE.Mesh(new THREE.PlaneGeometry(80, 50), new THREE.MeshStandardMaterial({ color: '#8a8a8a', roughness: 0.9 })); piso.rotation.x = -Math.PI / 2; piso.receiveShadow = true; sc.add(piso);
+const im = new THREE.InstancedMesh(new THREE.BoxGeometry(0.3, 0.2, 0.25), new THREE.MeshStandardMaterial({ color: '#a87c50', roughness: 0.8, metalness: 0 }), N); im.castShadow = true; im.receiveShadow = true; im.frustumCulled = false; sc.add(im);
+const D = cajas(); const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1), up = new THREE.Vector3(0, 1, 0);
+publicar(r.getContext(), (t) => { for (let i = 0; i < N; i++) { const d = D[i]; p.set(((d.x + d.v * t + 34) % 68) - 34, d.y, d.z); q.setFromAxisAngle(up, d.yaw); m.compose(p, q, s); im.setMatrixAt(i, m); } im.instanceMatrix.needsUpdate = true; }, () => r.render(sc, cam), canvas);

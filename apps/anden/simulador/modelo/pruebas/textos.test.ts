@@ -19,7 +19,7 @@ const EN = leer('textos.en.json');
 const RESERVADAS = new Set([
   'modelo.diag.E-ESQUEMA', 'modelo.diag.E-REF', 'modelo.diag.E-RANGO', 'modelo.diag.E-HORAS', 'modelo.diag.E-RAMPA-SIN-PERSONA',
   'modelo.diag.E-PRESUPUESTO', 'modelo.diag.A-RHO', 'modelo.diag.E-ESCENARIO', 'modelo.diag.E-DECISION',
-  'modelo.diag.E-ESQUEMA.formato',
+  'modelo.diag.E-ESQUEMA.formato', 'modelo.diag.I-PAUSAS-SUPERPUESTAS',
 ]);
 
 test('es y en tienen exactamente las mismas claves, todas con prefijo «modelo.» y con texto', () => {

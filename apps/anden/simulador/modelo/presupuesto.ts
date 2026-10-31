@@ -30,10 +30,42 @@ export const TRAMOS_POR_PAQUETE = 12;
  */
 export const MAX_TRAMOS_ESTIMADOS = 2_000_000;
 
-/** Tramos estimados de la película de una noche: paquetes estimados × TRAMOS_POR_PAQUETE. */
-export function tramosEstimados(m: Modelo): number {
-  return estimarPresupuesto(m).paquetes * TRAMOS_POR_PAQUETE;
+/**
+ * Tramos de la película por persona de andén y por camión (hallazgo SEG-R3 de la revisión del 30-10-2026). Las personas de descarga
+ * abren tramos por camión que no dependen de los paquetes: con `andenes[0].personas = 1.900.000` el modelo estimaba 126.720 tramos y la
+ * película tenía 11,5 millones. MEDIDO el 30-10-2026 (hub-chico@1.0.0, motor 1.1.0, todas las personas en un andén): 6 tramos por
+ * persona con 4 camiones en ese andén, o sea 1,5 por persona y camión; 2 queda del lado seguro, y se cuentan TODOS los camiones de la
+ * noche (no se sabe de antemano a qué andén va cada uno).
+ */
+export const TRAMOS_POR_PERSONA_ANDEN_Y_CAMION = 2;
+/** Tramos fijos por persona de inducción, rampa y excepción (llegar, trabajar, terminar), además de los de sus pausas. */
+export const TRAMOS_POR_PERSONA = 4;
+
+/** Tramos que no dependen de los paquetes: personas de descarga por camión, el resto de las personas y sus pausas. */
+export function tramosDePersonas(m: Modelo): number {
+  const c = m.demanda.camiones;
+  const camiones = Array.isArray(c) ? c.length : c.cantidad;
+  let deAnden = 0;
+  for (const a of m.hub.andenes) deAnden += a.personas;
+  const pi = m.personas.induccion, pr = m.personas.rampa;
+  const otras = pi.puestosActivos + pi.temporarios + pi.reten + pr.cantidad + m.personas.excepcion.cantidad;
+  const turno = Math.max(0, horaASeg(m.calendario.fin) - horaASeg(m.calendario.inicio));
+  const pausas = (personas: number, cada: number, primera: number) => (cada > 0 ? personas * Math.max(0, techo((turno - primera) / cada)) : 0);
+  return deAnden * camiones * TRAMOS_POR_PERSONA_ANDEN_Y_CAMION + otras * TRAMOS_POR_PERSONA
+    + pausas(pi.puestosActivos + pi.reten, pi.pausas.cada, pi.pausas.primera) + pausas(pr.cantidad, pr.pausas.cada, pr.pausas.primera);
 }
+
+/** Tramos estimados de la película de una noche: paquetes estimados × TRAMOS_POR_PAQUETE más los de las personas (tramosDePersonas). */
+export function tramosEstimados(m: Modelo): number {
+  return estimarPresupuesto(m).paquetes * TRAMOS_POR_PAQUETE + tramosDePersonas(m);
+}
+
+/**
+ * Bandejas del lazo que la escena puede dibujar en cada cuadro (hallazgo SEG-R2 de la revisión del 30-10-2026). La memoria aceptaba
+ * hasta 2 millones de lugares y cada bandeja es una figura por cuadro: `recta = 300.000` (un millón de bandejas) pasaba el presupuesto
+ * y dejaba la película a menos de 1 cuadro por segundo. Las plantillas tienen 142 y 300 bandejas; un sorter real grande, 1.000 a 3.000.
+ */
+export const MAX_BANDEJAS_DIBUJO = 5000;
 
 /**
  * Redondeo hacia arriba que no se deja engañar por el ruido de punto flotante (10560,000000000002 → 10560). Un valor que ya no

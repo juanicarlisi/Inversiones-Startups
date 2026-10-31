@@ -77,6 +77,18 @@ export function instanteDe(d: DatosNoche, rec: EstadoRecursos, t: number): Insta
   };
 }
 
+/** Hasta tres nombres de las rampas llenas, en el orden del modelo («R01, R07, R09…»). */
+export function nombresLlenas(r: Pick<Reproductor, 'traza'>, rec: Pick<EstadoRecursos, 'rampaLlena'>, max = 3): string {
+  const ids = r.traza.geometria.rampas, nombres: string[] = [];
+  let total = 0;
+  for (let i = 0; i < rec.rampaLlena.length; i++) {
+    if (!rec.rampaLlena[i]) continue;
+    total++;
+    if (nombres.length < max) nombres.push(ids[i]?.id ?? `#${i + 1}`);
+  }
+  return nombres.join(', ') + (total > max ? '…' : '');
+}
+
 export interface Tablero { nodo: HTMLElement; actualizar(t: number): void }
 
 /** `compacto`: sin «en el hub» ni la fila (las mitades de la pantalla dividida son angostas). */
@@ -111,7 +123,9 @@ export function crearTablero(ctx: Contexto, reproductor: () => Reproductor | nul
     poner(jaula, ctx.t('app.tablero.enJaula', { n: num(x.enJaula), total: num(datos!.total) }));
     poner(adentro, ctx.t('app.tablero.adentro', { n: num(x.adentro) }));
     poner(fila, ctx.t('app.tablero.fila', { n: num(x.fila) }));
-    poner(rampas, x.rampasLlenas ? ctx.t(x.rampasLlenas === 1 ? 'app.tablero.rampaLlena' : 'app.tablero.rampasLlenas', { n: x.rampasLlenas }) : null);
+    // con el nombre de las rampas llenas (hallazgo EXP-03): «R09 llena», «3 rampas llenas: R01, R07, R09»
+    poner(rampas, x.rampasLlenas ? ctx.t(x.rampasLlenas === 1 ? 'app.tablero.rampaLlenaNombre' : 'app.tablero.rampasLlenasNombres',
+      { n: x.rampasLlenas, rampas: nombresLlenas(r, rec!) }) : null);
     poner(pausa, x.enPausa ? ctx.t(x.enPausa === 1 ? 'app.tablero.unaEnPausa' : 'app.tablero.enPausa', { n: x.enPausa }) : null);
     poner(lazo, x.lazoDetenido ? ctx.t('app.tablero.lazoDetenido') : null);
     poner(manual, x.colaManual ? ctx.t(x.colaManual === 1 ? 'app.tablero.unoEnManual' : 'app.tablero.enManual', { n: num(x.colaManual) }) : null);

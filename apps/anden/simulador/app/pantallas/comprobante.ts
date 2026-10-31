@@ -3,7 +3,7 @@
 // procedencia de cada dato con su insignia y los tres sellos con su texto exacto (diseño maestro §5.9). Es lo que permite que otra persona
 // reproduzca los mismos números en su dispositivo.
 import type { Montar } from '../contexto.ts';
-import { el, limpiezas, poner } from '../ui/dom.ts';
+import { el, limpiezas, poner, reconciliar } from '../ui/dom.ts';
 import { cabecera, progreso, tarjeta } from '../ui/tarjeta.ts';
 import { sellos } from '../ui/resumen.ts';
 import { detalleSemaforo } from '../ui/semaforo.ts';
@@ -19,7 +19,7 @@ export const montarComprobante: Montar = (raiz, ctx) => {
   const pintar = () => {
     const c = s.comprobante, mv = s.mv!;
     if (!c) {
-      poner(cuerpo, sellos(ctx, false, false), progreso(s.llegadas / Math.max(1, s.N), ctx.t('app.comprobante.esperando', { llegadas: s.llegadas, N: s.N })));
+      reconciliar(cuerpo, sellos(ctx, false, false), progreso(s.llegadas / Math.max(1, s.N), ctx.t('app.comprobante.esperando', { llegadas: s.llegadas, N: s.N })));
       raiz.dataset.listo = '0';
       return;
     }

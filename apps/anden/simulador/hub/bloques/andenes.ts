@@ -175,6 +175,7 @@ export class BloqueAndenes implements Bloque {
   }
 
   private liberar(d: number, t: number): void {
+    if (this.S.camion[d] >= 0) this.h.demanda.S.salida[this.S.camion[d]] = t;
     this.h.m.traza.cerrar(this.idxAnden[d], t);
     this.idxAnden[d] = -1;
     this.S.camion[d] = -1;

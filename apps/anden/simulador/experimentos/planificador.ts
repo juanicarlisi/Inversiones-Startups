@@ -26,7 +26,15 @@ export function tamanoDeTrozo(p: Prioridad): number {
 export interface OpcionesPlanificador {
   /** Réplicas por trozo para cada prioridad. Por defecto `tamanoDeTrozo`. */
   tamanoTrozo?: (p: Prioridad) => number;
+  /**
+   * Cuántos trabajadores pueden estar ocupados a la vez en este momento (por defecto, todos). Lo usa el navegador para dejarle núcleos
+   * al dibujo mientras corre la película (hallazgo EXP-02 de la revisión del 30-10-2026); si sube, llamar a `reactivar()`.
+   */
+  limite?: () => number;
 }
+
+/** El planificador con `reactivar()`: vuelve a repartir trabajo cuando el límite de trabajadores ocupados sube. */
+export type PlanificadorAjustable = Planificador & { reactivar(): void };
 
 interface Trozo {
   trabajo: Activo;
@@ -48,7 +56,7 @@ interface Ranura { puerto: PuertoTrabajador; trozo: Trozo | null; vivo: boolean 
 
 const PRIORIDADES: Prioridad[] = [Prioridad.VISTA_PREVIA, Prioridad.CONFIRMACION, Prioridad.NOCHES, Prioridad.DECISION, Prioridad.TAMIZADO];
 
-export function crearPlanificador(fabrica: FabricaTrabajador, trabajadores: number, opciones: OpcionesPlanificador = {}): Planificador {
+export function crearPlanificador(fabrica: FabricaTrabajador, trabajadores: number, opciones: OpcionesPlanificador = {}): PlanificadorAjustable {
   if (!Number.isInteger(trabajadores) || trabajadores < 1) {
     throw new Error(`crearPlanificador: la cantidad de trabajadores tiene que ser un entero ≥ 1 y llegó ${trabajadores}`);
   }
@@ -81,12 +89,17 @@ export function crearPlanificador(fabrica: FabricaTrabajador, trabajadores: numb
 
   function bombear(): void {
     if (cerrado) return;
+    const limite = opciones.limite ? Math.max(1, Math.floor(opciones.limite())) : ranuras.length;
+    let ocupadas = 0;
+    for (const r of ranuras) if (r.vivo && r.trozo) ocupadas++;
     for (let i = 0; i < ranuras.length; i++) {
+      if (ocupadas >= limite) return;
       const ranura = ranuras[i];
       if (!ranura.vivo || ranura.trozo) continue;
       const trozo = siguienteTrozo();
       if (!trozo) return;
       ranura.trozo = trozo;               // antes de enviar: un puerto que responda en el acto no puede pisar este estado
+      ocupadas++;
       const t = trozo.trabajo.t;
       try {
         ranura.puerto.enviar({ tipo: 'correr', id: trozo.idMensaje, mv: t.mv, semilla: t.semilla, desde: trozo.desde, hasta: trozo.hasta, traza: t.traza });
@@ -150,6 +163,7 @@ export function crearPlanificador(fabrica: FabricaTrabajador, trabajadores: numb
 
   return {
     trabajadores,
+    reactivar: bombear,
     enviar(t, alResultado) {
       if (cerrado) return Promise.reject(new Error('el planificador está cerrado: no acepta trabajos nuevos'));
       if (activos.has(t.id)) return Promise.reject(new Error(`ya hay un trabajo en curso con el id «${t.id}»; cada trabajo necesita un id propio`));

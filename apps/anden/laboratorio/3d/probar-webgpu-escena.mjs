@@ -1,0 +1,7 @@
+import http from 'node:http'; import fs from 'node:fs'; import path from 'node:path'; import { createRequire } from 'node:module'; const require = createRequire('/opt/node-tools/node_modules/'); const { chromium } = require('playwright');
+const R = path.dirname(new URL(import.meta.url).pathname); const MIME = { '.html': 'text/html', '.js': 'text/javascript' };
+const srv = http.createServer((q, r) => { const f = path.join(R, q.url.split('?')[0]); if (!fs.existsSync(f)) { r.writeHead(404); return r.end(); } r.writeHead(200, { 'content-type': MIME[path.extname(f)] || 'text/plain' }); fs.createReadStream(f).pipe(r); }); await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', headless: true, args: ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-angle=swiftshader', '--use-webgpu-adapter=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const p = await b.newPage(); const logs = []; p.on('console', (m) => { if (['error', 'warning'].includes(m.type())) logs.push(m.text().slice(0, 160)); });
+await p.goto(`http://127.0.0.1:${srv.address().port}/webgpu.html${process.argv[2] ? '?gl=1' : ''}`); try { await p.waitForFunction(() => window.__res, null, { timeout: 150000 }); console.log(JSON.stringify(await p.evaluate(() => window.__res)), JSON.stringify(logs.slice(0, 3))); } catch (e) { console.log('sin resultado', JSON.stringify(logs.slice(0, 3))); }
+await b.close(); srv.close(); process.exit(0);

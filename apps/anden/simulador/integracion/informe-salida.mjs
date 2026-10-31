@@ -9,7 +9,9 @@
 //
 // Uso (desde apps/anden/simulador):  node integracion/informe-salida.mjs [--sin-npm-test]   (con --sin-npm-test usa salida/npm-test.json)
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { brotliCompressSync, constants as zlib } from 'node:zlib';
+import { cpus, loadavg } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { huellaFuentes } from './huella-fuentes.mjs';
@@ -18,13 +20,28 @@ const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = resolve(AQUI, '..');
 const SALIDA = join(AQUI, 'salida');
 const leerJson = (f) => (existsSync(join(SALIDA, f)) ? JSON.parse(readFileSync(join(SALIDA, f), 'utf8')) : null);
+/** Fecha (AAAA-MM-DD, UTC) en que se escribió una salida de las corridas largas: el informe dice de cuándo es cada medición. */
+const fechaDe = (f) => (existsSync(join(SALIDA, f)) ? statSync(join(SALIDA, f)).mtime.toISOString().slice(0, 10) : null);
+
+/**
+ * El JavaScript de la primera carga, medido de nuevo sobre dist/ de hoy (los mismos archivos que pidió la página en el banco, brotli 11):
+ * el banco es una corrida larga y la interfaz o la escena pueden haber cambiado después.
+ */
+function primeraCargaHoy(banco) {
+  const p = banco?.presupuestos?.find((x) => x.id === 'primeraCarga');
+  const dist = join(RAIZ, 'dist');
+  if (!p?.archivos || !p.archivos.every((a) => existsSync(join(dist, a.archivo)))) return null;
+  const archivos = p.archivos.map((a) => ({ archivo: a.archivo,
+    brotli: brotliCompressSync(readFileSync(join(dist, a.archivo)), { params: { [zlib.BROTLI_PARAM_QUALITY]: 11 } }).length }));
+  return { kb: Number((archivos.reduce((x, a) => x + a.brotli, 0) / 1024).toFixed(1)), meta: p.meta, archivos };
+}
 const args = process.argv.slice(2);
 
 /** `npm test` con el reportero JSON: totales, por archivo y duración de pared. */
 async function correrNpmTest() {
   const destino = join(SALIDA, 'npm-test.json');
   if (args.includes('--sin-npm-test') && existsSync(destino)) return JSON.parse(readFileSync(destino, 'utf8'));
-  const t0 = process.hrtime.bigint();
+  const t0 = process.hrtime.bigint(), cargaAntes = loadavg()[0];
   const codigo = await new Promise((ok) => {
     const p = spawn(process.execPath, ['--test', '--test-reporter=./integracion/reportero.mjs', `--test-reporter-destination=${destino}`,
       '--test-reporter=dot', '--test-reporter-destination=stdout', '**/pruebas/*.test.ts'],
@@ -33,7 +50,9 @@ async function correrNpmTest() {
   });
   const segundos = Number(process.hrtime.bigint() - t0) / 1e9;
   const r = JSON.parse(readFileSync(destino, 'utf8'));
-  r.segundos = Number(segundos.toFixed(1)); r.codigo = codigo; r.node = process.version; r.fecha = new Date().toISOString().slice(0, 10);
+  r.segundos = Number(segundos.toFixed(1)); r.codigo = codigo;
+  // la carga de la máquina (promedio de 1 min) al empezar y al terminar: el tiempo de pared depende de qué más corre en el contenedor
+  r.carga = { antes: Number(cargaAntes.toFixed(2)), despues: Number(loadavg()[0].toFixed(2)), nucleos: cpus().length }; r.node = process.version; r.fecha = new Date().toISOString().slice(0, 10);
   writeFileSync(destino, `${JSON.stringify(r, null, 2)}\n`);
   return r;
 }
@@ -89,7 +108,9 @@ async function enlace() {
     idaYVueltaReceta: dr.ok && dr.enlace.tipo === 'receta' && JSON.stringify(dr.enlace.receta) === JSON.stringify(receta),
     caracteresModelo: fm.length, caracteresPlantillaMas5: fp.length, caracteresReceta: fr.length,
     hostiles, hostilesRechazados: hostiles.filter((x) => x.obtenido === x.esperado).length,
-    h01aH12: hostiles.filter((x) => /^H\d\d$/.test(x.id)).every((x) => x.obtenido === x.esperado),
+    h01aH12: hostiles.filter((x) => /^H(0\d|1[0-2])$/.test(x.id)).every((x) => x.obtenido === x.esperado),
+    // las de la revisión del 30-10-2026 (geometría enorme, lazo enorme, personas de más): H13–H17 y H16b
+    h13aH17: hostiles.filter((x) => /^H1[3-7]b?$/.test(x.id)).length >= 6 && hostiles.filter((x) => /^H1[3-7]b?$/.test(x.id)).every((x) => x.obtenido === x.esperado),
   };
 }
 
@@ -113,6 +134,32 @@ const REVISION_EXPERIENCIA = [
     arreglo: 'La cifra va en un renglón; si falta lugar, se acomoda el rótulo', donde: 'app/estilos.css' },
   { que: 'En la pantalla dividida de escritorio cada mitad medía 58vh (una regla de 1100 px pisaba la de la mitad) y el hub, largo y bajo, ocupaba un tercio: 200 px vacíos y la tabla del veredicto fuera de la pantalla',
     arreglo: 'Cada mitad con proporción 16:9 (entre 240 px y 56vh)', donde: 'app/estilos.css' },
+  { que: 'En la planta acercada una rampa llena era una flecha de rombos encimados: los 25 lugares del tobogán iban en dos columnas a lo largo de 1,05 m (8 cm entre cajas de 42 cm), y en la 2,5D la rampa llena era una franja chata',
+    arreglo: 'El tobogán se llena como una pila de cajas: 2 a lo largo × 3 a lo ancho por capa y las capas suben hasta cubrir la capacidad (5 en el hub grande); en la planta cada glifo entra en su lugar',
+    donde: 'escena/disposicion.ts, escena/reproductor.ts, escena/componer2d.ts (prueba nueva en escena/pruebas/reproductor.test.ts)' },
+];
+
+/**
+ * Los arreglos de la revisión del 30-10-2026 (hallazgos confirmados y los menores baratos), con dónde quedaron. El detalle, con las
+ * mediciones, en integracion/NOTAS-CONTRATO.md §17; lo que cambia la especificación, en integracion/CAMBIOS-CONTRATO.md §12.
+ */
+const ARREGLOS_REVISION_30_10 = [
+  { id: 'SEG-R1', arreglo: 'Cotas físicas en el esquema (±5 km, recta 2 km, radio 500 m, cintas 2 km); grilla, muestreo y cintas acotados en el dibujo; H13–H15', donde: 'modelo/esquema.ts, modelo/chequeos.ts, escena/primitivas.ts, escena/componeriso.ts, escena/componer2d.ts, escena/disposicion.ts' },
+  { id: 'SEG-R2', arreglo: 'E-PRESUPUESTO «dibujo» con más de 5.000 bandejas; lo que queda fuera del lienzo no se compone; H16 y H16b', donde: 'modelo/presupuesto.ts, escena/componer2d.ts, escena/componeriso.ts' },
+  { id: 'SEG-R3', arreglo: 'Tope de 50 personas por andén y 2.000 por rol; los tramos de las personas cuentan en el presupuesto; tope duro de 4 millones de tramos en el escritor; H17', donde: 'modelo/esquema.ts, modelo/presupuesto.ts, nucleo/traza/escritor.ts' },
+  { id: 'SEG-R4', arreglo: '«Saltar al contenido» mueve el foco sin tocar el fragmento y tiene nombre; hashchange solo abre fragmentos m=, t=, p=, r=', donde: 'app/arrancar.ts' },
+  { id: 'EST-01', arreglo: 'Semáforo de A y de B en «¿y si…?» y en presentar: en rojo, sin números ni veredictos y «Quedarme con B» secundaria con el motivo', donde: 'app/sesion.ts, app/pantallas/ysi.ts, app/pantallas/presentar.ts' },
+  { id: 'EST-02', arreglo: 'Veredicto por la prueba del signo exacta; la noche típica (mediana) con su IC por estadísticos de orden; noches atípicas aparte; confirmación con las cien noches', donde: 'experimentos/estadistica/pareada.ts, app/sesion.ts, app/pantallas/ysi.ts' },
+  { id: 'EST-03', arreglo: '«Iguales en la práctica» solo si el intervalo y el promedio caben en el mínimo práctico; si no, «no alcanza para saber» con el rango', donde: 'app/pantallas/ysi.ts' },
+  { id: 'EST-04', arreglo: 'La decisión secuencial con un z por lado calibrado por programación dinámica exacta (errores ≤ 2,5% medidos; poder 73% contra 39%); meta inalcanzable avisada', donde: 'experimentos/estadistica/secuencial.ts, experimentos/decision.ts' },
+  { id: 'REV-D1', arreglo: 'S13 mide la regla de la interfaz (decidirOpcion): 97/100 en duda, 116/120 cumple', donde: 'integracion/bateria/casos-experimentos.ts' },
+  { id: 'HUB-R01', arreglo: 'Espera desde la llegada del camión y estadía del camión (kpiExtra); «tiempo en el hub desde la descarga» en la interfaz; la biografía empieza con el camión', donde: 'hub/kpi.ts, hub/bloques/demanda.ts, explicacion/biografia.ts, app/pantallas/ingeniero.ts' },
+  { id: 'HUB-R02', arreglo: 'Los ausentes cobran medio turno y las horas de más llevan recargo 1,5 (SUPUESTOS con fuente)', donde: 'hub/costos.ts, hub/kpi.ts' },
+  { id: 'HUB-R03', arreglo: 'La vuelta del puesto manual espera lugar en la mesa: la fila nunca pasa la capacidad', donde: 'hub/bloques/excepcion.ts, hub/bloques/acumulacion.ts' },
+  { id: 'EXP-01', arreglo: 'reconciliar() conserva los nodos (y el foco) que no cambiaron al repintar la línea de resumen, los sellos y el progreso', donde: 'app/ui/dom.ts, app/pantallas/escena.ts, comprobante.ts, decidir.ts' },
+  { id: 'EXP-02', arreglo: 'Mientras la película corre a la vista, a lo sumo 2 Workers calculan; al pausarla, todos', donde: 'experimentos/planificador.ts, integracion/puente.ts, integracion/entrada.ts, app/arrancar.ts' },
+  { id: 'EXP-03 · EXP-08', arreglo: 'Rótulos de rampa en una pasada final con pastilla: las llenas, casi llenas y la seleccionada siempre; acercado, todas, sin encimarse; el tablero nombra las llenas', donde: 'escena/rotulos.ts, escena/pintar.ts, app/ui/tablero.ts' },
+  { id: 'menores', arreglo: 'EST-05 (cinco indicadores al 99%, botón por los indicadores que deciden), EST-06, EST-09, EST-10, EXP-05, EXP-06, EXP-07, EXP-09, EXP-10, EXP-11, SEG-R7, REV-D3, REV-D4, REV-D6, REV-D7, REV-D8', donde: 'integracion/NOTAS-CONTRATO.md §17' },
 ];
 
 async function principal() {
@@ -133,10 +180,13 @@ async function principal() {
     { pruebas: npm.totales.pasa + npm.totales.falla + npm.totales.todo + npm.totales.omitida, pasan: npm.totales.pasa, fallan: npm.totales.falla,
       todo: npm.totales.todo, omitidas: npm.totales.omitida, segundos: npm.segundos, node: npm.node, fallas: npm.fallas },
     'integracion/salida/npm-test.json (integracion/reportero.mjs)',
-    npm.totales.todo || npm.totales.omitida
+    (npm.segundos >= 180 && npm.carga && Math.max(npm.carga.antes, npm.carga.despues) > npm.carga.nucleos
+      ? `Tardó ${Math.round(npm.segundos)} s con la máquina compartida (carga ${npm.carga.antes} → ${npm.carga.despues} en ${npm.carga.nucleos} núcleos): ` +
+        'hay que volver a medirlo con el equipo libre (el 23-10-2026, libre, tardó 93 s). '
+      : '') + (npm.totales.todo || npm.totales.omitida
       ? `${npm.totales.todo ? `Hay ${npm.totales.todo} prueba(s) \`todo\` (desde el 23-10-2026 no debería quedar ninguna: «KPI sanos» de P4 se resolvió ` +
         'con el camino 2, integracion/CAMBIOS-CONTRATO.md §10). ' : ''}La omitida es la batería completa dentro de npm test (corre con \`npm run verificar\`).`
-      : null);
+      : '') || null);
   // 2
   const informeLocal = existsSync(join(RAIZ, 'verificacion', 'informe', 'informe.html')) && existsSync(join(RAIZ, 'verificacion', 'informe', 'resultados.json'));
   // la batería vale para el código de hoy solo si la huella de sus fuentes coincide (hallazgo H5: antes bastaba el texto de la versión)
@@ -178,7 +228,7 @@ async function principal() {
   const reabre = e2eCompartir.length === 4 && e2eCompartir.every((c) => c?.pasa);
   criterio(7, 'Enlace: ida y vuelta exacta; ejemplo completo ≤ 8.000 caracteres; plantilla + parche de 5 cambios ≤ 400; receta ≤ 160; H01–H12 rechazadas; abrir el enlace en otra pestaña reproduce la huella',
     enl.idaYVueltaModelo && enl.idaYVueltaParche && enl.idaYVueltaReceta && enl.caracteresModelo <= 8000 && enl.caracteresPlantillaMas5 <= 400 &&
-      enl.caracteresReceta <= 160 && enl.h01aH12 && reabre,
+      enl.caracteresReceta <= 160 && enl.h01aH12 && enl.h13aH17 && reabre,
     { ...enl, otraPestanaMismaHuella: e2eCompartir.map((c) => c?.datos?.huellaAgregada ?? null), otraPestanaEnLas4: reabre },
     'medido por este script (códec de producción) · integracion/salida/e2e.json (recorrido compartir)');
   // 8
@@ -194,9 +244,10 @@ async function principal() {
     '03:00): con hub-chico@1.0.0 tal cual ninguna opción cumple.');
   // 9
   const noCumplen = banco?.presupuestos?.filter((p) => p.estado === 'no-cumple') ?? null;
-  criterio(9, 'Presupuestos de §11 dentro del margen', !!banco && noCumplen.length === 0,
+  const cargaHoy = primeraCargaHoy(banco);
+  criterio(9, 'Presupuestos de §11 dentro del margen', !!banco && noCumplen.length === 0 && !!cargaHoy && cargaHoy.kb <= cargaHoy.meta,
     banco ? { presupuestos: banco.presupuestos.map((p) => ({ id: p.id, meta: p.meta, unidad: p.unidad, mediana: p.mediana, estado: p.estado })),
-      resumen: banco.resumen, maquina: banco.maquina } : null,
+      resumen: banco.resumen, maquina: banco.maquina, medidoEl: fechaDe('banco.json'), primeraCargaHoy: cargaHoy } : null,
     'integracion/salida/banco.json (npm run banco: mediana de 5 corridas, ±30%)',
     noCumplen?.length ? `No cumple: ${noCumplen.map((p) => `${p.nombre} (${Math.round(p.mediana)} ${p.unidad} contra ${p.meta})`).join('; ')}. ` +
       'La meta de 150 ms viene de la maqueta, que dibujaba después de simular 10 min; el corte 1 simula la noche entera en un Worker antes del ' +
@@ -227,6 +278,9 @@ async function principal() {
     especificacion: 'oportunidades/proyectos/anden/corte-1.md §12',
     fecha,
     entorno: { node: process.version, maquina: banco?.maquina ?? null },
+    // de cuándo es cada medición (las corridas largas se leen de integracion/salida/; lo demás lo mide este script hoy)
+    corridas: { npmTest: npm.fecha ?? fechaDe('npm-test.json'), bateria: bat?.fecha ?? fechaDe('bateria-nucleo.json'), r04: fechaDe('r04.json'),
+      banco: fechaDe('banco.json'), e2e: e2e?.fecha ?? fechaDe('e2e.json'), invariantesYEnlace: fecha },
     estado: pasan === criterios.length ? 'cerrado' : 'cerrado con pendientes',
     cumplen: pasan, de: criterios.length,
     criterios,
@@ -234,17 +288,19 @@ async function principal() {
       '«KPI sanos» de §9 sobre hub-chico@1.0.0: la integración eligió el camino 2 (23-10-2026; la prueba `todo` de P4 se borró); falta pasar a corte-1.md §9 el texto de integracion/CAMBIOS-CONTRATO.md §10. hub-chico@1.1.0 queda como propuesta.',
       'Presupuesto «primer cuadro ≤ 150 ms»: primer cuadro progresivo en el corte 2 o reescribir la meta.',
       'E01 reformulado (solidez + completitud, esperas ≥ 5 min dentro de la pausa) y S03 como independencia + sesgo con la cobertura informativa (S03c): confirmar y pasar a corte-1.md §8.',
-      'Motor 1.1.0 (caminata por distancia, plan por volumen en bloques vecinos, persistencia, relevo en las pausas, pausas después del fin, utilizaciones por jornada), la huella `h` en la receta, Bonferroni en la decisión secuencial y el tope de tramos: pasar a corte-1.md (integracion/CAMBIOS-CONTRATO.md).',
+      'Motor 1.1.0 (caminata por distancia, plan por volumen en bloques vecinos, persistencia, relevo en las pausas, pausas después del fin, utilizaciones por jornada), la huella `h` en la receta y el tope de tramos: pasar a corte-1.md (integracion/CAMBIOS-CONTRATO.md).',
+      'Motor 1.2.0 y la estadística de la revisión del 30-10-2026 (vuelta del manual con lugar, costos de ausentes y horas extra, decisión secuencial calibrada exacta, comparación por la prueba del signo, S13 con la regla de la interfaz, cotas del esquema): pasar a corte-1.md y, lo aditivo, al Anexo A (integracion/CAMBIOS-CONTRATO.md §12).',
       'R4 (cobertura entre roles y jornada máxima), R6–R10 y E-11: quedan para el corte 2 (integracion/CAMBIOS-CONTRATO.md §9).',
       'Presentar en 4 pasos (los de diseño maestro §5.6) en lugar de «tres actos»: lo confirma el fundador.',
       'Tamizado del hub chico al límite de su presupuesto (mediana cerca de 60 s, alguna corrida por encima) desde las reglas de parada del 20-10: reusar las noches de la evaluación base, bajar REPLICAS_MAX_TAMIZADO o tamizar con una tanda fija (integracion/NOTAS-CONTRATO.md §14). Cambia la estadística: decide el orquestador.',
       'Primera carga a menos de 5 KB brotli del tope de 150 KB: lo que sume el corte 2 va en trozos aparte.',
-      'Textos de corte-1.md que quedaron viejos (integracion/CAMBIOS-CONTRATO.md §11): §6.6 «(0, 1]», VERSION_MOTOR como versión del motor completo (hoy 1.1.0), reglas 7 y 11 del motor 1.1.0 y la prueba del plan con 9 personas de rampa. La especificación no es de ningún paquete: la corrige el orquestador.',
+      'Textos de corte-1.md que quedaron viejos (integracion/CAMBIOS-CONTRATO.md §11): §6.6 «(0, 1]», VERSION_MOTOR como versión del motor completo (hoy 1.2.0), reglas 7 y 11 del motor 1.1.0 y la prueba del plan con 9 personas de rampa. La especificación no es de ningún paquete: la corrige el orquestador.',
       'Decidir se cierra lento: en el recorrido la recomendación aparece a los 17–18 s, pero el formulario llega a «Ya está» a los ~150 s (y otros ~135 s después de cada dato). Misma causa que el tamizado al límite; mismas tres salidas (integracion/NOTAS-CONTRATO.md §14 y §16).',
       'R04 en Firefox y WebKit: pendientes (no están en el entorno y no se instalan); van al corte 2 con los teléfonos reales.',
     ],
     // lo que se arregló al mirar las capturas como alguien que viene de FlexSim (integracion/NOTAS-CONTRATO.md §16)
     revisionExperiencia: REVISION_EXPERIENCIA,
+    arreglosRevision30_10: ARREGLOS_REVISION_30_10,
   };
   writeFileSync(join(SALIDA, 'informe-salida.json'), `${JSON.stringify(informe, null, 2)}\n`);
   console.log(`\ninforme de salida: ${pasan} de ${criterios.length} criterios cumplen → ${informe.estado}`);

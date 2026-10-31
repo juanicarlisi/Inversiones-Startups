@@ -1,0 +1,8 @@
+// ¿Hay WebGPU en este Chromium sin placa de video? (con Vulkan por software). Informa adaptador y características.
+import http from 'node:http'; import { createRequire } from 'node:module'; const require = createRequire('/opt/node-tools/node_modules/'); const { chromium } = require('playwright');
+const srv = http.createServer((q, r) => { r.writeHead(200, { 'content-type': 'text/html' }); r.end('<!doctype html><title>x</title>'); }); await new Promise((r) => srv.listen(0, '127.0.0.1', r)); const URL_ = `http://127.0.0.1:${srv.address().port}/`; // contexto seguro: navigator.gpu solo existe ahí
+for (const [nombre, args] of [['sin banderas', []], ['webgpu + swiftshader', ['--enable-unsafe-webgpu', '--enable-features=Vulkan', '--use-angle=swiftshader', '--use-webgpu-adapter=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist']]]) {
+  const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args, headless: true }); const p = await b.newPage(); await p.goto(URL_);
+  const r = await Promise.race([p.evaluate(async () => { if (!navigator.gpu) return { gpu: false }; try { const a = await navigator.gpu.requestAdapter(); if (!a) return { gpu: true, adaptador: null }; const i = a.info || {}; return { gpu: true, adaptador: { vendor: i.vendor, arch: i.architecture, desc: i.description, features: [...a.features].length } }; } catch (e) { return { error: String(e) }; } }), new Promise((res) => setTimeout(() => res({ error: 'sin respuesta en 40 s (requestAdapter colgado)' }), 40000))]);
+  console.log(nombre, JSON.stringify(r)); await b.close();
+}

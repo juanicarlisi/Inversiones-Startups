@@ -16,7 +16,8 @@ export { mser5, mser5Detalle, serieMedia, TAMANO_LOTE_MSER } from './estadistica
 export type { DetalleMser } from './estadistica/mser.ts';
 export { resumir, proporcion, estadoConfiguracion, ordenarPorReplica, resumirNumeros } from './estadistica/resumen.ts';
 export { comparar, tieneSentido } from './estadistica/pareada.ts';
-export { evaluarDecision, evaluarDecisionCon, recomendar, ErrorCancelado, esCancelacion, MAX_CONFIGURACIONES } from './decision.ts';
+export { evaluarDecision, evaluarDecisionCon, decidirOpcion, recomendar, ErrorCancelado, esCancelacion, MAX_CONFIGURACIONES } from './decision.ts';
+export { zSecuencial, erroresSecuenciales, estadoSecuencial, icSecuencial, nochesMinimasParaCumplir } from './estadistica/secuencial.ts';
 export type { OpcionesEvaluacion } from './decision.ts';
 export { semaforo, semaforoDe, claveSemaforo, clasificarAlerta, COLOR_DE_MOTIVO, MINIMO_REPLICAS } from './semaforo.ts';
 export type { EntradaSemaforo } from './semaforo.ts';

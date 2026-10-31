@@ -31,7 +31,7 @@ export function cuantilNormal(confianza: number): number {
 
 /**
  * Cuantil t(1 − α/2; ν) del intervalo bilateral con esa confianza (t = 2,2281 para 0,95 y ν = 10).
- * ν = 1…200: tabla (error < 1e-10). ν > 200: Cornish-Fisher t ≈ z + (z³ + z)/(4ν) + (5z⁵ + 16z³ + 3z)/(96ν²) (error < 1e-6).
+ * ν = 1…200: tabla (error < 1e-10). ν > 200: Cornish-Fisher t ≈ z + (z³ + z)/(4ν) + (5z⁵ + 16z³ + 3z)/(96ν²) (error < 2e-6: 1,5e-6 en ν = 201 al 99%, medido contra una beta incompleta independiente, hallazgo EST-10).
  */
 export function cuantilT(confianza: number, nu: number): number {
   const clave = claveConfianza(confianza);

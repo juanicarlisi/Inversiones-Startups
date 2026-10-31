@@ -10,7 +10,8 @@ import { buffersDe, calcular, type Buffers } from './buffers.ts';
 import type { Disposicion, V2 } from './disposicion.ts';
 import { COLOR_ESTADO, FORMA_ESTADO, color, colorRiesgo, sombrear } from './estilo.ts';
 import { posBandeja } from './lazo.ts';
-import { crearProyector, esquinas, type Primitiva, type Proyector, type PGlifo } from './primitivas.ts';
+import { crearProyector, enMarco, esquinas, pasoGrilla, type Primitiva, type Proyector, type PGlifo } from './primitivas.ts';
+import { rotulosDeRampas } from './rotulos.ts';
 import { BORDE_LAZO_DETENIDO, cajaFila, contornoLazo, halo, tamanos, tobogan, toboganCarga, type Composicion } from './componer2d.ts';
 import { EstadoPuesto, esReproductorEscena } from './reproductor.ts';
 
@@ -78,8 +79,10 @@ function fondo(c: Composicion, p: Proyector, D: Disposicion, prims: Primitiva[])
   prims.push({ tipo: 'rect', x: 0, y: 0, w: c.marco.ancho, h: c.marco.alto, relleno: color(e, 'fondo'), borde: null, grosor: 0, prof: lejos });
   prims.push({ tipo: 'poligono', pts: plano(p, [L.xmin, L.ymin, L.xmax, L.ymin, L.xmax, L.ymax, L.xmin, L.ymax], 0), relleno: color(e, 'piso'), borde: null, grosor: 0, prof: lejos });
   const grilla = color(e, 'grilla');
-  for (let x = Math.ceil(L.xmin / 4) * 4; x <= L.xmax; x += 4) prims.push({ tipo: 'linea', pts: plano(p, [x, L.ymin, x, L.ymax], 0), color: grilla, grosor: 1, guion: null, cerrada: false, prof: lejos });
-  for (let y = Math.ceil(L.ymin / 4) * 4; y <= L.ymax; y += 4) prims.push({ tipo: 'linea', pts: plano(p, [L.xmin, y, L.xmax, y], 0), color: grilla, grosor: 1, guion: null, cerrada: false, prof: lejos });
+  // cada 4 m, o más espaciada si el hub es enorme (nunca más de MAX_LINEAS_GRILLA líneas por eje: hallazgo SEG-R1)
+  const pg = pasoGrilla(4, L.xmax - L.xmin, L.ymax - L.ymin);
+  for (let x = Math.ceil(L.xmin / pg) * pg; x <= L.xmax; x += pg) prims.push({ tipo: 'linea', pts: plano(p, [x, L.ymin, x, L.ymax], 0), color: grilla, grosor: 1, guion: null, cerrada: false, prof: lejos });
+  for (let y = Math.ceil(L.ymin / pg) * pg; y <= L.ymax; y += pg) prims.push({ tipo: 'linea', pts: plano(p, [L.xmin, y, L.xmax, y], 0), color: grilla, grosor: 1, guion: null, cerrada: false, prof: lejos });
 
   const cosas: Primitiva[] = [];
   // acumulación: una mesa baja
@@ -94,7 +97,8 @@ function fondo(c: Composicion, p: Proyector, D: Disposicion, prims: Primitiva[])
       const x0 = ci.xy[2 * k - 2], y0 = ci.xy[2 * k - 1], x1 = ci.xy[2 * k], y1 = ci.xy[2 * k + 1];
       const l = ci.acum[k] - ci.acum[k - 1];
       if (!(l > 0)) continue;
-      const nseg = Math.max(1, Math.ceil(l / 1.2)), dx = (x1 - x0) / l, dy = (y1 - y0) / l;
+      // a lo sumo 400 piezas por tramo de cinta (SEG-R1: una cinta de 1e9 m eran mil millones de cajas)
+      const nseg = Math.min(400, Math.max(1, Math.ceil(l / 1.2))), dx = (x1 - x0) / l, dy = (y1 - y0) / l;
       for (let s = 0; s < nseg; s++) {
         const f = (s + 0.5) / nseg, cx = x0 + (x1 - x0) * f, cy = y0 + (y1 - y0) * f;
         carasCaja(p, cx, cy, A.cinta, dx, dy, l / nseg, 0.9, A.cintaTapa - A.cinta, color(e, 'cinta'), profDe(p, cx, cy, A.cinta), cosas);
@@ -133,17 +137,7 @@ function fondo(c: Composicion, p: Proyector, D: Disposicion, prims: Primitiva[])
   }
   cosas.sort((a, b) => b.prof - a.prof);
   for (const x of cosas) prims.push(x);
-  // rótulos (datos del modelo), siempre encima de lo fijo. Un rótulo que queda DETRÁS de su jaula (más lejos de la cámara) se levanta
-  // por encima de la jaula llena (1,16 m), para que la carga de la capa móvil no lo tape.
-  if (tm.rotulo >= 8) {
-    const rot = color(e, 'rotulo');
-    for (const r of D.rampas) {
-      const x = r.jaula[0] + r.dir[0] * 0.9, y = r.jaula[1] + r.dir[1] * 0.9;
-      const z = p.prof(x, y) > p.prof(r.jaula[0], r.jaula[1]) ? ALTURA_ROTULO_ATRAS : 0;
-      p.aPantalla(x, y, z, o);
-      prims.push({ tipo: 'texto', x: o[0], y: o[1], texto: r.id.slice(0, 8), tam: tm.rotulo, color: rot, alinear: 'center', prof: -Infinity });
-    }
-  }
+  // los rótulos de las rampas van en la capa móvil, encima de todo (escena/rotulos.ts, hallazgos EXP-03 y EXP-08)
 }
 
 function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: Primitiva[]): void {
@@ -182,8 +176,12 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
   }
   // bandejas: la tapa de cada una a la altura del lazo
   const T = D.lazo.bandejas, cb = color(e, 'bandeja'), paso = D.lazo.largo / Math.max(1, T);
+  const margenBandeja = Math.max(8, 2 * paso * z);
   for (let j = 0; j < T; j++) {
     posBandeja(D.lazo, j, rec.pasoLazo, o3);
+    // lo que queda fuera del lienzo no se compone (SEG-R2: acercado, casi todo el lazo)
+    p.aPantalla(o3[0], o3[1], A.lazoTapa, o);
+    if (!enMarco(c.marco, o[0], o[1], margenBandeja)) continue;
     const pts = plano(p, esquinas(o3[0], o3[1], Math.cos(o3[2]), Math.sin(o3[2]), paso * 0.82, 0.95), A.lazoTapa);
     lista.push({ tipo: 'poligono', pts, relleno: cb, borde: null, grosor: 0, prof: profDe(p, o3[0], o3[1], A.lazoTapa) });
   }
@@ -197,13 +195,14 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
   }
   // entidades: sprites horneados (con un glifo de respaldo)
   const sel = op.seleccion ?? null, refSel = sel ? refDe(sel.clase, sel.id) : -1;
-  const zs = pos.z, tapados = pos.tapado;
+  const zs = pos.z, tapados = pos.tapado, margenEntidad = Math.max(64, D.camionLargo * z);
   for (let i = 0; i < pos.n; i++) {
     const clase = pos.clase[i], est = pos.estado[i] as EstadoVisual, ref = refDe(clase as ClaseEntidad, pos.id[i]);
     // un paquete exactamente debajo de otro igual (la pila del puesto manual) no se dibuja, salvo que sea el seleccionado
     if (tapados && tapados[i] && ref !== refSel) continue;
     const h = zs ? zs[i] : clase === ClaseEntidad.PAQUETE ? 0.9 : 0;
     p.aPantalla(pos.x[i], pos.y[i], h, o);
+    if (ref !== refSel && !enMarco(c.marco, o[0], o[1], margenEntidad)) continue;   // fuera del lienzo: no se compone (SEG-R3)
     const pr = profDe(p, pos.x[i], pos.y[i], h);
     let respaldo: PGlifo, clave: string;
     if (clase === ClaseEntidad.PERSONA) {
@@ -257,6 +256,12 @@ function movil(c: Composicion, p: Proyector, D: Disposicion, b: Buffers, prims: 
   }
   lista.sort((a, b) => b.prof - a.prof);
   for (const x of lista) prims.push(x);
+  // rótulos de las rampas: la pasada final, encima de la carga, las jaulas y las placas (EXP-03 y EXP-08)
+  rotulosDeRampas(p, D, {
+    estilo: e, marco: c.marco, tamZoom: tm.rotulo, rec, riesgo, seleccion: sel,
+    // sobre la jaula, por encima de la placa de «rampa llena»; detrás de la jaula, más alto (como antes)
+    ancla: (r) => { const R = D.rampas[r]; return [R.jaula[0], R.jaula[1], ALTURA_PLACA_RAMPA + 0.45]; },
+  }, prims, () => -Infinity);
 }
 
 /** Lista de primitivas de la vista 2,5D en el instante c.t, ordenada por profundidad dentro de cada capa. */

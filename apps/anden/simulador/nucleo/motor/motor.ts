@@ -203,7 +203,17 @@ export const crearMotor: CrearMotor = (opciones: OpcionesMotor): Motor => {
     }
     for (const b of bloques) {
       if (typeof b.restaurar !== 'function') throw new TypeError(`restaurar: el bloque «${b.ruta}» no tiene restaurar(e)`);
-      b.restaurar(clonarEstado(f.bloques[b.ruta], b.ruta));
+    }
+    // Los bloques validan su parte al restaurarla (largos, tipos): si uno tardío rechaza la foto, los anteriores ya quedaron pisados. Para
+    // que restaurar sea atómico (hallazgo REV-D4), antes se guarda el estado de cada bloque y, si alguno falla, se devuelven todos a como
+    // estaban y se relanza el error: el motor queda intacto (calendario, contadores y bloques).
+    const previos = bloques.map((b) => (typeof b.estado === 'function' ? clonarEstado(b.estado(), b.ruta) : null));
+    let hechos = 0;
+    try {
+      for (const b of bloques) { b.restaurar!(clonarEstado(f.bloques[b.ruta], b.ruta)); hechos++; }
+    } catch (e) {
+      for (let i = 0; i < hechos; i++) { const p = previos[i]; if (p) bloques[i].restaurar!(p); }
+      throw e;
     }
     cal.cargar(columnas);
     E[AHORA] = fAhora; E[SEQ] = fSeq; E[EVENTOS] = fEventos; E[ACTUAL] = fActual;

@@ -10,7 +10,7 @@ import { Prioridad } from '../../contratos/experimentos.ts';
 import type { KpiId, ResultadoReplica } from '../../contratos/resultados.ts';
 import type { Caso } from '../../verificacion/casos/comun.ts';
 import { decl, evaluarIdentico, evaluarIntervalo, replicasDe } from '../../verificacion/casos/comun.ts';
-import { crearPlanificador, estadoConfiguracion, huellaAgregada, proporcion, resumir, wilson } from '../../experimentos/indice.ts';
+import { crearPlanificador, decidirOpcion, huellaAgregada, proporcion, resumir, wilson } from '../../experimentos/indice.ts';
 import { conDueno } from './comun.ts';
 
 const ARCHIVO = 'integracion/bateria/casos-experimentos.ts';
@@ -122,24 +122,39 @@ function casoS12(): Caso {
   return caso;
 }
 
+/**
+ * S13 · la decisión con datos fijos, por el MISMO camino que la interfaz (hallazgo REV-D1 de la revisión del 30-10-2026). Antes medía
+ * `estadoConfiguracion` (el Wilson al 95% de una sola mirada), que la decisión no usa: la decisión mira hasta 20 veces y cada lado del
+ * Wilson tiene su z calibrado (experimentos/estadistica/secuencial.ts). Ahora cada caso cuenta la proporción con `proporcion` y decide con
+ * `decidirOpcion`, que es lo que `evaluarDecision` hace con cada configuración en cada mirada (meta 0,9, confianza 0,95, 20 iniciales,
+ * tandas de 20, hasta 400 noches). Con los mismos datos, el Wilson de una mirada decía «cumple» en 97/100; la decisión real dice «en
+ * duda» y recién confirma un 97% con 116 de 120.
+ */
 function casoS13(): Caso {
+  const casos: [number, number, string][] = [
+    [19, 20, 'en-duda'], [20, 20, 'en-duda'], [97, 100, 'en-duda'], [116, 120, 'cumple'], [60, 60, 'cumple'], [336, 400, 'no-cumple'],
+  ];
+  const esperado = casos.map((c) => c[2]).join(' · ');
   const caso: Caso = {
-    id: 's13-decision', titulo: 'Estado de una configuración con datos fijos (Wilson contra la meta)', archivo: ARCHIVO, suite: 'rapida',
+    id: 's13-decision', titulo: 'Estado de una configuración con datos fijos (la regla secuencial calibrada de la decisión)', archivo: ARCHIVO, suite: 'rapida',
     replicas: 1, horizonte: 0, calentamiento: 0,
-    pruebas: [{ id: 'S13', nombre: 'Decisión con datos fijos: 19/20 con meta 0,9 → en-duda; 97/100 → cumple; 336/400 → no-cumple', familia: 'S',
-      tipo: 'exigible', esperado: 'en-duda · cumple · no-cumple', criterio: { tipo: 'identico' } }],
+    pruebas: [{ id: 'S13', nombre: 'Decisión con datos fijos y la regla de la interfaz (meta 0,9; 20/20/400): 19/20, 20/20 y 97/100 → en-duda; 116/120 y 60/60 → cumple; 336/400 → no-cumple', familia: 'S',
+      tipo: 'exigible', esperado, criterio: { tipo: 'identico' } }],
     cortas: [],
     correr(ctx) {
-      const casos: [number, number, string][] = [[19, 20, 'en-duda'], [97, 100, 'cumple'], [336, 400, 'no-cumple']];
       const dif: string[] = [], salio: string[] = [];
-      for (const [k, n, esperado] of casos) {
+      const opciones = { replicasIniciales: 20, tanda: 20, replicasMax: 400 };
+      for (const [k, n, esperadoK] of casos) {
         // n noches del mismo modelo: las primeras k llegan al corte (0 pendientes), las demás no
         const rs = Array.from({ length: n }, (_, i) => ({ replica: i, semilla: 1, modelo: 'datos-fijos', kpi: { pendientesAlCorte: i < k ? 0 : 5 } }) as unknown as ResultadoReplica);
         const prop = proporcion(rs, 'pendientesAlCorte', '<=', 0, 0.95);
-        const estado = estadoConfiguracion(prop, 0.9);
-        salio.push(estado);
+        const d = decidirOpcion(prop.exitos, prop.n, 0.9, 0.95, opciones);
+        salio.push(d.estado);
         if (prop.exitos !== k || prop.n !== n || prop.metodo !== 'wilson') dif.push(`${k}/${n}: la proporción contó ${prop.exitos}/${prop.n} con ${prop.metodo}`);
-        if (estado !== esperado) dif.push(`${k}/${n} con meta 0,9: se esperaba «${esperado}» y salió «${estado}» (Wilson [${prop.ic.join('; ')}])`);
+        if (d.estado !== esperadoK) {
+          dif.push(`${k}/${n} con meta 0,9: se esperaba «${esperadoK}» y salió «${d.estado}» (Wilson de la decisión [${d.ic.map((x) => x.toFixed(4)).join('; ')}], ` +
+            `z ${d.regla.zCumple.toFixed(4)} / ${d.regla.zNoCumple.toFixed(4)}, ${d.regla.metodo})`);
+        }
       }
       return [conDueno(evaluarIdentico(caso, decl(caso, 'S13'), ctx, casos.length, dif, salio.join(' · ')), 'P5')];
     },

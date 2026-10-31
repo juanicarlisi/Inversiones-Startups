@@ -112,8 +112,10 @@ export async function prepararEnlaces({ log = () => {} } = {}) {
     const { HOSTILES } = await import('../../modelo/pruebas/hostiles/entradas.ts');
     const hostil = await HOSTILES.find((x) => x.id === 'H01').fragmento();
     const hostilPelicula = await HOSTILES.find((x) => x.id === 'H07b').fragmento();
+    // H13 (hallazgo SEG-R1 de la revisión del 30-10-2026): una coordenada de 1e9 m que pasaba el esquema y colgaba la pestaña al dibujar
+    const hostilCoordenada = await HOSTILES.find((x) => x.id === 'H13').fragmento();
     return {
-      primerMinuto, decidir, hostil, hostilPelicula, peor, instante, huellaModeloPrimerMinuto: mv.huella, huellaAgregadaPrimerMinuto: comprobante.huellaAgregada,
+      primerMinuto, decidir, hostil, hostilPelicula, hostilCoordenada, peor, instante, huellaModeloPrimerMinuto: mv.huella, huellaAgregadaPrimerMinuto: comprobante.huellaAgregada,
       paquete: { camion: P.camion[elegido.e], indice: P.indice[elegido.e], causa: elegido.causa, enTurno: elegido.enTurno },
       atrasadosEnLaPeor: atrasados.length,
     };

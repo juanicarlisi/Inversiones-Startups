@@ -382,3 +382,20 @@ test('en proceso: un simulador que lanza rechaza el trabajo con su mensaje', asy
   await assert.rejects(plan.enviar(trabajo('A', Prioridad.NOCHES, 0, 10), () => {}), /réplicas 0 a 4\): puestosActivos negativo/);
   plan.cerrar();
 });
+
+test('límite de trabajadores ocupados (EXP-02): con la película corriendo calculan solo los permitidos; al subirlo, reactivar reparte', () => {
+  let limite = 1;
+  const { plan, puertos } = entorno(3, { limite: () => limite });
+  void plan.enviar(trabajo('N', Prioridad.NOCHES, 0, 30), () => {});          // seis trozos de 5
+  const hechos = new Set<string>();
+  const enCurso = () => puertos.flatMap((p) => p.correr().filter((m) => !hechos.has(m.id)).map((m) => ({ p, m })));
+  assert.equal(enCurso().length, 1, `con límite 1 se esperaba 1 trozo en curso y hay ${enCurso().length}`);
+  // al terminar el trozo, el siguiente ocupa el mismo cupo: nunca más de uno
+  const [x] = enCurso();
+  hechos.add(x.m.id); completar(x.p, x.m);
+  assert.equal(enCurso().length, 1, 'después de completar un trozo sigue habiendo uno solo en curso');
+  limite = 3;
+  plan.reactivar();
+  assert.equal(enCurso().length, 3, `con límite 3 y reactivar() se esperaban 3 trozos en curso y hay ${enCurso().length}`);
+  assert.equal(new Set(enCurso().map((x) => x.p)).size, 3, 'cada trozo en un trabajador distinto');
+});

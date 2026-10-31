@@ -49,6 +49,7 @@ export function claveSemaforo(motivo: MotivoSemaforo): string {
  * verde de una decisión con opciones sobrecargadas (hallazgo E-08). Las variantes existen en es y en.
  */
 export function claveTextoSemaforo(s: Pick<Semaforo, 'motivo' | 'vars'>): string {
+  if (s.motivo === 'decision-en-duda' && s.vars.minimas !== undefined) return 'experimentos.semaforo.decision-en-duda.inalcanzable';
   if (s.motivo === 'decision-en-duda' && s.vars.faltan === undefined) return 'experimentos.semaforo.decision-en-duda.sin-estimacion';
   if (s.motivo === 'ok' && s.vars.sobrecargadas !== undefined) return 'experimentos.semaforo.ok.sobrecargadas';
   return claveSemaforo(s.motivo);

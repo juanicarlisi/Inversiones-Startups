@@ -19,7 +19,11 @@ export interface PGlifo extends Base {
 /** Sprite horneado de la isométrica (clave del horno); si el horno no lo tiene, se pinta el glifo de respaldo. */
 export interface PSprite extends Base { tipo: 'sprite'; clave: string; x: number; y: number; respaldo: PGlifo }
 /** Texto de DATOS del modelo (id de una rampa, de un andén): nunca un texto de interfaz (esos van por i18n en app/). */
-export interface PTexto extends Base { tipo: 'texto'; x: number; y: number; texto: string; tam: number; color: string; alinear: CanvasTextAlign }
+export interface PTexto extends Base {
+  tipo: 'texto'; x: number; y: number; texto: string; tam: number; color: string; alinear: CanvasTextAlign;
+  /** Pastilla detrás del texto (rótulos de rampa, escena/rotulos.ts), con su borde. Sin `fondo`, el texto va solo. */
+  fondo?: string | null; bordeFondo?: string | null;
+}
 export type Primitiva = PRect | PPoligono | PLinea | PCirculo | PGlifo | PSprite | PTexto;
 
 /** Tamaño de la pantalla en píxeles CSS (el dpr lo aplica el pintor). */
@@ -133,4 +137,29 @@ export function encuadrar(lim: Limites, m: Marco, piso: Piso, margen = 12, giroP
 export function esquinas(cx: number, cy: number, dx: number, dy: number, largo: number, ancho: number): number[] {
   const lx = dx * largo / 2, ly = dy * largo / 2, ax = -dy * ancho / 2, ay = dx * ancho / 2;
   return [cx - lx - ax, cy - ly - ay, cx + lx - ax, cy + ly - ay, cx + lx + ax, cy + ly + ay, cx - lx + ax, cy - ly + ay];
+}
+
+/**
+ * Defensa del dibujo (hallazgo SEG-R1 de la revisión del 30-10-2026): ningún bucle de la escena puede depender del tamaño del modelo sin
+ * tope. El esquema ya acota la geometría (±5 km, cintas de 2 km), pero si mañana cambia, una grilla cada 4 m sobre mil millones de
+ * metros no puede volver a colgar la pestaña.
+ */
+export const MAX_LINEAS_GRILLA = 200;
+/** Paso de la grilla del piso: `base` (m) duplicado hasta que entren a lo sumo MAX_LINEAS_GRILLA líneas por eje (Infinity si no hay rango finito). */
+export function pasoGrilla(base: number, ...rangos: number[]): number {
+  let r = 0;
+  for (const x of rangos) r = Math.max(r, Math.abs(x));
+  if (!Number.isFinite(r)) return Infinity;
+  let paso = base;
+  while (r / paso > MAX_LINEAS_GRILLA) paso *= 2;
+  return paso;
+}
+/** Paso para muestrear un recorrido de largo `largo` (m): `base`, o más largo si harían falta más de `maxMuestras` muestras. */
+export function pasoMuestreo(largo: number, base: number, maxMuestras: number): number {
+  if (!Number.isFinite(largo) || largo <= 0) return Infinity;
+  return Math.max(base, largo / maxMuestras);
+}
+/** ¿El punto de pantalla (x, y) cae dentro del marco, con un margen en px? Para no componer lo que no se ve. */
+export function enMarco(m: Marco, x: number, y: number, margen: number): boolean {
+  return x >= -margen && y >= -margen && x <= m.ancho + margen && y <= m.alto + margen;
 }

@@ -4,7 +4,7 @@
 // pantallas, atajos para tocar sin puntero (un paquete que pierde el corte, la rampa que más se llena) y los tres sellos.
 import type { Contexto, Montar } from '../contexto.ts';
 import { ClaseEntidad, TipoTramo, refDe } from '../../contratos/traza.ts';
-import { el, limpiezas, poner } from '../ui/dom.ts';
+import { el, limpiezas, poner, reconciliar } from '../ui/dom.ts';
 import { crearLienzo, pisoActual } from '../ui/lienzo.ts';
 import { crearPlano } from '../ui/plano.ts';
 import { bucleReproduccion, controlesReproduccion, crearLineaTiempo } from '../ui/linea-tiempo.ts';
@@ -121,7 +121,8 @@ export const montarEscena: Montar = (raiz, ctx) => {
     el('div', { class: 'escena__pelicula' }, lienzo.nodo, el('div', { class: 'escena__reproduccion' }, controles.nodo, linea.nodo)),
     leyendaEstados(ctx), acciones, atajos, ingeniero, selloCaja);
 
-  const pintarResumen = () => { poner(resumen, lineaResumen(ctx)); poner(selloCaja, sellos(ctx, true)); poner(franja, franjaSupuestos(ctx)); };
+  // se repinta con cada noche que llega: `reconciliar` conserva los botones (Comprobante, supuestos, «ver») y su foco (hallazgo EXP-01)
+  const pintarResumen = () => { reconciliar(resumen, lineaResumen(ctx)); reconciliar(selloCaja, sellos(ctx, true)); reconciliar(franja, franjaSupuestos(ctx)); };
   const pintarIngeniero = () => {
     const e = ctx.almacen.estado;
     botonIng.textContent = ctx.t(e.ingeniero ? 'app.escena.ingenieroSalir' : 'app.escena.ingeniero');

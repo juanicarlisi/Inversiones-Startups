@@ -173,7 +173,7 @@ function esElCambioFijo(tipo: string, parche: OpParche[]): boolean {
 test('E02 · dos causas que se sobredeterminan: 0 frases causales sin confirmar en 50 paquetes × 10 réplicas', async () => {
   const base = await plantillaChica();
   const mv = await variante(base, [
-    { op: 'replace', path: '/calendario/corte', value: '26:00' },
+    { op: 'replace', path: '/calendario/corte', value: '25:00' },   // 25:00 desde el motor 1.2.0 (con 26:00, 8 de 10 noches sobredeterminaban)
     { op: 'replace', path: '/hub/sorter/paradas/activas', value: true },
     { op: 'replace', path: '/parametros/paradaLazoEntre/valor', value: { tipo: 'fija', valor: 3600 } },
     { op: 'replace', path: '/parametros/paradaLazoDuracion/valor', value: { tipo: 'fija', valor: 2400 } },

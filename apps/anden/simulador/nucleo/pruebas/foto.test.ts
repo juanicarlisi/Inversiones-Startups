@@ -155,3 +155,21 @@ test('la foto exige estado() con arreglos tipados y números, y rutas únicas', 
   n.registrar({ ...b });
   assert.throws(() => n.foto(), /hay bloques con la misma ruta \(repetida\)/);
 });
+
+test('REV-D4 · restaurar es atómico: si un bloque tardío rechaza la foto, ningún bloque ni el reloj quedan pisados', () => {
+  const a = crearMotor(OPC);
+  redSintetica(a, 300);
+  a.correrHasta(30_000);
+  const f = a.foto();
+  const b = crearMotor(OPC);
+  const bloques = redSintetica(b, 300);
+  b.correrHasta(10_000);
+  const antes = estados(bloques), ahora = b.ahora, eventos = b.eventos;
+  // el último bloque rechaza la foto (como el sorter del hub con otra cantidad de bandejas)
+  const ultimo = bloques[bloques.length - 1], original = ultimo.restaurar!.bind(ultimo);
+  ultimo.restaurar = () => { throw new RangeError('«bandeja» trae 142 elementos y este hub espera 170'); };
+  assert.throws(() => b.restaurar(f), /trae 142 elementos/);
+  ultimo.restaurar = original;
+  assert.deepEqual(estados(bloques), antes, 'los bloques anteriores volvieron a su estado');
+  assert.equal(b.ahora, ahora); assert.equal(b.eventos, eventos);
+});

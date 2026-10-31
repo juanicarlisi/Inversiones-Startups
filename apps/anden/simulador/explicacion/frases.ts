@@ -43,6 +43,8 @@ function armarRegistro(): Record<string, readonly string[]> {
     'explicacion.titulo.puesto': ['puesto'],
     // pasos de un paquete
     'explicacion.paso.descarga': ['camion', 'anden', 'hora'],
+    'explicacion.paso.llego': ['camion', 'hora'],
+    'explicacion.paso.llego.playa': ['camion', 'hora', 'min'],
     'explicacion.paso.descarga.bloqueo': ['anden', 'min'],
     'explicacion.paso.cinta': ['cinta'],
     'explicacion.paso.acumulacion': ['min'],
@@ -73,6 +75,7 @@ function armarRegistro(): Record<string, readonly string[]> {
     'explicacion.paso.persona_ausente': [],
     'explicacion.paso.persona_libre': ['desde', 'hasta'],
     'explicacion.paso.rampa_llena': ['desde', 'hasta'],
+    'explicacion.paso.rampa_llena.instante': ['desde'],
     'explicacion.paso.rampa_cierra_jaula': ['persona', 'hora', 'min'],
     'explicacion.paso.lazo_detenido': ['min', 'hora'],
     // causas confirmadas

@@ -12,7 +12,10 @@ import { textoPerderCorte } from '../ui/resumen.ts';
 import { claveCierreFormulario } from '../pantallas/decidir.ts';
 import { cambiosDe } from '../pantallas/biografia.ts';
 import { trazaACsv } from '../pantallas/ingeniero.ts';
-import { balanceDeB } from '../pantallas/ysi.ts';
+import { accionConB, balanceDeB, textoVeredicto } from '../pantallas/ysi.ts';
+import { porcentajeContraMeta } from '../ui/resumen.ts';
+import { textoMotivo } from '../ui/semaforo.ts';
+import { KPIS } from '../../contratos/resultados.ts';
 import { textoConfirmado, textoContrafactual } from '../pantallas/biografia.ts';
 import { Causa, ClaseEntidad, TipoTramo, refDe, type Traza } from '../../contratos/traza.ts';
 import type { Biografia, Contrafactual } from '../../contratos/explicacion.ts';
@@ -114,4 +117,56 @@ test('«¿y si…?»: si B no mejora ningún indicador y empeora alguno, se dice
   assert.deepEqual(balanceDeB(ctx, [peorCosto, finIgual]), { mejoran: 0, empeoran: 1 }, 'lo igual en la práctica no cuenta como empeorar');
   assert.deepEqual(balanceDeB(ctx, [peorCosto, finIgual, menosPerdidos]), { mejoran: 1, empeoran: 1 });
   assert.match(base.t('app.ysi.bPeor'), /A es mejor/);
+});
+
+test('«¿y si…?» con el semáforo (EST-01 y EST-05): B en rojo o peor en lo que decide nunca es la acción principal', () => {
+  const base = ctxDe();
+  const ctx = { ...base, sesion: { kpiNoche: 'finClasificacionMin', mv: validadoSinChequeos(plantillaChica()), nochesListas: false, nochesLlegadas: [] } } as unknown as Contexto;
+  const comp = (kpi: Comparacion['kpi'], media: number, ic: [number, number], veredicto: Comparacion['veredicto']): Comparacion =>
+    ({ kpi, n: 100, pareada: true, media, ic, veredicto, replicasSugeridas: null });
+  const verde = { color: 'verde', motivo: 'ok', vars: {} } as const, rojo = { color: 'rojo', motivo: 'inestable', vars: { n: 4 } } as const;
+  // B mejora la recirculación (lo único que «mejora», por noches que no terminan) y empeora el costo: antes era la acción principal
+  const cs = [comp('recirculacionPct', -5, [-8, -2], 'b-mejor'), comp('finClasificacionMin', 30, [20, 40], 'a-mejor')];
+  assert.deepEqual(accionConB(ctx, cs, verde, rojo), { principal: false, motivo: 'app.ysi.bRojo', vars: {} }, 'B en rojo: secundaria y se dice por qué');
+  assert.equal(accionConB(ctx, cs, rojo, verde).motivo, 'app.ysi.aRojo');
+  // peor en un indicador principal (el de la restricción de la decisión: paquetes que pierden el corte), aunque mejore otros dos
+  const principal = [comp('pendientesAlCorte', 40, [30, 50], 'a-mejor'), comp('recirculacionPct', -5, [-8, -2], 'b-mejor'), comp('esperaP90Min', -3, [-4, -2], 'b-mejor')];
+  const a = accionConB(ctx, principal, verde, verde);
+  assert.equal(a.principal, false); assert.equal(a.motivo, 'app.ysi.bPeorPrincipal');
+  assert.match(base.t(a.motivo!, a.vars), /paquetes que pierden el corte/);
+  // mejora sin empeorar lo principal: principal
+  assert.equal(accionConB(ctx, [comp('pendientesAlCorte', -40, [-50, -30], 'b-mejor')], verde, verde).principal, true);
+});
+
+test('EST-03 · ruido no es «igual»: sin veredicto y con un intervalo 16 veces el mínimo práctico se dice el rango, no «prácticamente nula»', () => {
+  const base = ctxDe();
+  const ctx = { ...base, sesion: { kpiNoche: 'finClasificacionMin', mv: validadoSinChequeos(plantillaChica()), nochesListas: false, nochesLlegadas: [] } } as unknown as Contexto;
+  // el caso del hallazgo: recirculación −0,37 pp, IC [−1,59; +0,84], mínimo práctico 0,1 pp, 1.701 noches sugeridas
+  const c = { kpi: 'recirculacionPct', n: 40, pareada: true, media: -0.374, ic: [-1.59, 0.84], veredicto: 'no-se-distingue', replicasSugeridas: 1701 } as Comparacion;
+  const v = textoVeredicto(ctx, c);
+  assert.equal(v.clase, 'no-se-distingue');
+  assert.doesNotMatch(v.texto, /nula|igual/i);
+  assert.match(v.texto, /No alcanza para saber: con 40 noches/);
+  // y dentro del mínimo práctico (intervalo y promedio), sí es «iguales en la práctica»
+  const chica = { ...c, media: 0.02, ic: [-0.05, 0.08] as [number, number] };
+  assert.equal(textoVeredicto(ctx, chica).clase, 'igual');
+});
+
+test('EST-06 y EST-09: 199 de 200 no es «100%», el redondeo no cruza la meta y 26% no es «3 de cada 10»', () => {
+  const ctx = ctxDe();
+  assert.notEqual(porcentajeContraMeta(ctx, 199 / 200, 0.9), ctx.f.porcentaje(1, 0));
+  assert.equal(porcentajeContraMeta(ctx, 0.8996, 0.9), ctx.f.porcentaje(0.8996, 1), 'por debajo de la meta, con un decimal');
+  assert.equal(porcentajeContraMeta(ctx, 0.75, 0.9), ctx.f.porcentaje(0.75, 0));
+  const prop = (exitos: number, n: number) => ({ exitos, n, p: exitos / n, ic: [exitos / n - 0.08, exitos / n + 0.08] as [number, number], metodo: 'wilson' as const, confianza: 0.95 });
+  assert.match(textoPerderCorte(ctx, prop(74, 100)).texto, /1 .*cada 4/, '26% de noches que pierden el corte: «1 de cada 4»');
+  assert.match(textoPerderCorte(ctx, prop(60, 100)).texto, /4 de cada 10/);
+});
+
+test('EXP-06 · ningún texto del semáforo muestra un identificador interno: el KPI va con su etiqueta en palabras', () => {
+  const ctx = ctxDe();
+  for (const kpi of KPIS) {
+    const t = textoMotivo(ctx, { motivo: 'precision-no-lograda', vars: { kpi, pedida: 5, lograda: 59.5, replicas: 100 } });
+    assert.doesNotMatch(t, /«[a-z]+[A-Z0-9][A-Za-z0-9]*»/, `el texto muestra un id crudo: ${t}`);
+    assert.ok(t.includes(ctx.t(`app.kpi.${kpi}`)), `se esperaba la etiqueta de ${kpi} en: ${t}`);
+  }
 });

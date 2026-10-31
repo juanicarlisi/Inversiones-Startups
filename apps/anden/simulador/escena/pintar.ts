@@ -136,6 +136,17 @@ export function pintar(ctx: Contexto2D, prims: readonly Primitiva[], horno: Horn
         ctx.font = `600 ${p.tam}px system-ui, -apple-system, "Segoe UI", sans-serif`;
         ctx.textAlign = p.alinear;
         ctx.textBaseline = 'middle';
+        if (p.fondo) {
+          // pastilla ajustada al ancho real del texto (la composición solo lo estima)
+          const w = (typeof ctx.measureText === 'function' ? ctx.measureText(p.texto).width : 0.62 * p.tam * p.texto.length) + 8, h = p.tam + 6;
+          const x0 = p.alinear === 'center' ? p.x - w / 2 : p.alinear === 'right' || p.alinear === 'end' ? p.x - w + 4 : p.x - 4;
+          const y0 = p.y - h / 2;
+          if (typeof ctx.roundRect === 'function') { ctx.beginPath(); ctx.roundRect(x0, y0, w, h, h / 2); }
+          else camino(ctx, [x0, y0, x0 + w, y0, x0 + w, y0 + h, x0, y0 + h], true);
+          ctx.fillStyle = p.fondo;
+          ctx.fill();
+          if (p.bordeFondo) { ctx.lineWidth = 1.5; ctx.strokeStyle = p.bordeFondo; ctx.stroke(); }
+        }
         ctx.fillStyle = p.color;
         ctx.fillText(p.texto, p.x, p.y);
         break;

@@ -10,9 +10,9 @@ import { crearReproductor, type ReproductorEscena } from '../reproductor.ts';
 import { CAPACIDAD_PILA } from '../disposicion.ts';
 import { componer2d, type Capa, type Composicion } from '../componer2d.ts';
 import { componerIso } from '../componeriso.ts';
-import { encuadrar, type Primitiva } from '../primitivas.ts';
+import { encuadrar, MAX_LINEAS_GRILLA, pasoGrilla, pasoMuestreo, type Primitiva } from '../primitivas.ts';
 import { conMovimientoReducido, estilos } from '../estilo.ts';
-import { LAZO, PERSONAS, lazoEnMarcha, trazaSintetica } from './ayudas.ts';
+import { LAZO, PERSONAS, geometriaSintetica, lazoEnMarcha, trazaSintetica } from './ayudas.ts';
 
 const MARCO = { ancho: 1280, alto: 800 };
 const T = 30_000;
@@ -80,8 +80,33 @@ test('isométrica, capa fija: el piso primero, después las cosas de lejos a cer
   assert.equal(ps[0].tipo, 'rect');
   assert.equal((ps[0] as { relleno: string }).relleno, estilos.claro.colores.fondo);
   for (let i = 1; i < ps.length; i++) assert.ok(ps[i].prof <= ps[i - 1].prof, `capa fija: la primitiva ${i} rompe el orden por profundidad`);
-  assert.deepEqual(ps.filter((p) => p.tipo === 'texto').map((p) => (p as { texto: string }).texto), ['R01', 'R02', 'R03']);
+  // los rótulos de las rampas ya no van en el fondo: en la capa móvil, encima de la carga (EXP-08)
+  assert.deepEqual(ps.filter((p) => p.tipo === 'texto').map((p) => (p as { texto: string }).texto), []);
+  const movil = componerIso(comp(rep, 'iso', 'movil'));
+  const textos = movil.filter((p) => p.tipo === 'texto') as { texto: string; prof: number; fondo?: string | null }[];
+  assert.deepEqual(textos.map((p) => p.texto).sort(), ['R01', 'R02', 'R03'], 'acercado, se rotulan todas las rampas');
+  assert.ok(textos.every((p) => p.prof === -Infinity && !!p.fondo), 'encima de todo y en una pastilla');
+  assert.ok(movil.indexOf(textos[0] as unknown as Primitiva) > movil.findIndex((p) => p.tipo === 'sprite'), 'los rótulos van después de las entidades');
 });
+
+test('rótulos de rampa con el zoom bajo (EXP-03): las llenas y la seleccionada siempre, en pastilla de al menos 10 px; las demás no', () => {
+  const rep = escena(), c = estilos.claro.colores;
+  for (const piso of ['iso', '2d'] as const) {
+    const lejos = comp(rep, piso, 'movil');
+    lejos.camara = { ...lejos.camara, zoom: 2 };   // letra del zoom < 8 px: antes no había ningún rótulo
+    const sinNada = (piso === 'iso' ? componerIso(lejos) : componer2d(lejos)).filter((p) => p.tipo === 'texto') as { texto: string }[];
+    const b = rep.crearEstadoRecursos();
+    rep.recursos(T, b);
+    const llenas = D_RAMPAS.filter((_, r) => b.rampaLlena[r] === 1);
+    assert.deepEqual(sinNada.map((x) => x.texto).sort(), [...llenas].sort(), `${piso}: con el zoom bajo solo las rampas llenas (${llenas.join(', ') || 'ninguna'})`);
+    const conSel = { ...lejos, opciones: { seleccion: { clase: ClaseEntidad.RAMPA, id: 2 } } };
+    const ts = (piso === 'iso' ? componerIso(conSel) : componer2d(conSel)).filter((p) => p.tipo === 'texto') as { texto: string; tam: number; fondo?: string | null; color: string }[];
+    const r03 = ts.find((x) => x.texto === 'R03');
+    assert.ok(r03, `${piso}: la rampa seleccionada lleva rótulo con cualquier zoom`);
+    assert.ok(r03!.tam >= 10 && r03!.fondo === c.etiquetaFondo && r03!.color === c.etiquetaTexto, `${piso}: pastilla fuerte de al menos 10 px`);
+  }
+});
+const D_RAMPAS = ['R01', 'R02', 'R03'];
 
 test('planta 2D: fondo con piso, cintas, lazo y rótulos; capa móvil con un glifo por paquete o persona y un polígono por camión', () => {
   const rep = escena(), pos = rep.crearPosiciones(), c = estilos.claro.colores;
@@ -90,10 +115,11 @@ test('planta 2D: fondo con piso, cintas, lazo y rótulos; capa móvil con un gli
   assert.equal(fondo[0].tipo, 'rect');
   assert.equal(contar(fondo, (p) => p.tipo === 'linea' && p.color === c.cinta), 2, 'una línea por cinta');
   assert.equal(contar(fondo, (p) => p.tipo === 'linea' && p.color === c.lazo && p.cerrada), 1, 'el lazo es una línea cerrada');
-  assert.deepEqual(fondo.filter((p) => p.tipo === 'texto').map((p) => (p as { texto: string }).texto), ['R01', 'R02', 'R03', 'A1', 'A2']);
+  assert.deepEqual(fondo.filter((p) => p.tipo === 'texto').map((p) => (p as { texto: string }).texto), ['A1', 'A2']);
+  assert.deepEqual(movil.filter((p) => p.tipo === 'texto').map((p) => (p as { texto: string }).texto).sort(), ['R01', 'R02', 'R03'], 'las rampas, en la capa móvil');
   let camiones = 0;
   for (let i = 0; i < pos.n; i++) if (pos.clase[i] === ClaseEntidad.CAMION) camiones++;
-  assert.equal(contar(movil, (p) => p.tipo === 'glifo'), pos.n - camiones, 'un glifo por paquete o persona');
+  assert.equal(contar(movil, (p) => p.tipo === 'glifo' && p.forma !== 'halo'), pos.n - camiones, 'un glifo por paquete o persona');
   assert.equal(contar(movil, (p) => p.tipo === 'poligono' && p.relleno === c.camion), camiones, 'un polígono por camión');
   for (const capa of [fondo, movil]) for (let i = 1; i < capa.length; i++) assert.ok(capa[i].prof > capa[i - 1].prof, 'en la planta el orden es el de la lista');
   assert.equal(componer2d(comp(rep, '2d', 'todo')).length, fondo.length + movil.length, '«todo» = fondo + móvil');
@@ -245,4 +271,27 @@ test('la pila del puesto manual: las vistas no dibujan los paquetes tapados por 
     const conSel = paquetesDibujados(f(comp(rep, piso, 'movil', { opciones: { seleccion: sel } })));
     assert.ok(conSel >= CAPACIDAD_PILA + 1, `${piso}: el paquete seleccionado tiene que dibujarse aunque esté tapado (salieron ${conSel})`);
   }
+});
+
+test('SEG-R1: un hub de mil millones de metros se compone en un instante y con una grilla acotada (ningún bucle depende del tamaño)', () => {
+  // La geometría que dejaba pasar el esquema antes de la revisión del 30-10-2026: la acumulación a 1e9 m y los límites hasta ahí.
+  const g = geometriaSintetica();
+  g.acumulacion = { ...g.acumulacion, x: 1e9 };
+  g.limites = { ...g.limites, xmax: 1e9 + 10 };
+  g.cintas = [{ ...g.cintas[0], puntos: [[-5, -8], [1e9, -8]], largo: 1e9 + 5 }, g.cintas[1]];
+  const t0 = performance.now();
+  const rep = crearReproductor(trazaSintetica(() => {}, { geometria: g }));
+  let lineas = 0, total = 0;
+  for (const piso of ['iso', '2d'] as const) {
+    const ps = piso === 'iso' ? componerIso(comp(rep, piso, 'fondo')) : componer2d(comp(rep, piso, 'fondo'));
+    total += ps.length;
+    lineas += ps.filter((p) => p.tipo === 'linea').length;
+  }
+  const ms = performance.now() - t0;
+  assert.ok(ms < 5000, `componer un hub de 1e9 m tardó ${ms.toFixed(0)} ms (antes colgaba la pestaña)`);
+  assert.ok(lineas <= 4 * (MAX_LINEAS_GRILLA + 2) + 10, `la grilla tiene que quedar acotada y salieron ${lineas} líneas en los dos pisos`);
+  assert.ok(total < 20_000, `el fondo de los dos pisos tiene ${total} primitivas`);
+  assert.equal(pasoGrilla(4, 1e9) >= 1e9 / MAX_LINEAS_GRILLA, true);
+  assert.equal(pasoGrilla(4, Infinity), Infinity, 'sin rango finito no hay grilla');
+  assert.equal(pasoMuestreo(1e9, 0.5, 4000), 1e9 / 4000);
 });

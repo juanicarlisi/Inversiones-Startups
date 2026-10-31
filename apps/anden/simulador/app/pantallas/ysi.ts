@@ -1,11 +1,13 @@
 // app/pantallas/ysi.ts · Andén simulador, corte 1 · P8 (interfaz). Pantalla 5: «¿y si…?».
 // Perillas (puestos activos, personas de rampa, retén, plan por volumen o contiguo, «balancear el plan»). Al moverlas, una vista previa
-// de UNA noche (la misma suerte que la que se ve), marcada «provisoria (1 noche)», y enseguida la confirmación con 40 noches pareadas:
-// diferencia B − A con su intervalo y el veredicto. En escritorio, pantalla dividida sincronizada (un solo cabezal); en 360 px, A y B se
+// de UNA noche (la misma suerte que la que se ve), marcada «provisoria (1 noche)», y enseguida la confirmación con las cien noches pareadas:
+// la diferencia en la noche típica (mediana de B − A) con su intervalo, el veredicto (prueba del signo) y el semáforo de A y de B. En escritorio, pantalla dividida sincronizada (un solo cabezal); en 360 px, A y B se
 // alternan con un toque.
 import type { Contexto, Montar } from '../contexto.ts';
-import type { Comparacion } from '../../contratos/experimentos.ts';
-import { META_KPI } from '../../contratos/resultados.ts';
+import type { Semaforo } from '../../contratos/experimentos.ts';
+import { META_KPI, type KpiId } from '../../contratos/resultados.ts';
+import { CONFIANZA_COMPARACIONES, NOCHES_CONFIRMACION, type ComparacionApp, type EstadoYsi } from '../sesion.ts';
+import { detalleSemaforo } from '../ui/semaforo.ts';
 import { horaASeg } from '../../contratos/tipos-base.ts';
 import { hayCambios, type Perillas } from '../estado.ts';
 import { el, limpiezas, poner } from '../ui/dom.ts';
@@ -46,16 +48,23 @@ function paquetesNominales(m: NonNullable<Contexto['sesion']['mv']>['modelo']): 
   return Array.isArray(c) ? c.reduce((n, x) => n + x.paquetes, 0) : c.cantidad * c.paquetes;
 }
 
-/** Tope de noches sugeridas que se dice con número: más que esto es «la diferencia es prácticamente nula» (hallazgo UX-10). */
+/** Tope de noches sugeridas que se dice con número: más que esto, se dice el rango y que no alcanza para saber (hallazgo EST-03). */
 export const TOPE_NOCHES_SUGERIDAS = 1000;
 
+/** La noche típica de una comparación: la mediana de B − A con su IC si los servicios la dan; si no, la media con el IC de t. */
+export function centroDe(c: ComparacionApp): { valor: number; ic: [number, number] } {
+  return c.mediana !== undefined && c.icMediana ? { valor: c.mediana, ic: c.icMediana } : { valor: c.media, ic: c.ic };
+}
+
 /**
- * Veredicto en palabras. Si las n noches dieron exactamente lo mismo en A y en B, se dice «igual» (no «no se distingue»: no hay
- * ruido); si el intervalo entero queda dentro de la diferencia mínima que importa, «iguales en la práctica»; y si harían falta más de
- * TOPE_NOCHES_SUGERIDAS noches para ver la diferencia, se dice que es prácticamente nula en lugar de un número absurdo. Si el evento es
+ * Veredicto en palabras. Si las n noches dieron exactamente lo mismo en A y en B, se dice «igual» (no «no se distingue»: no hay ruido);
+ * «iguales en la práctica» solo si el intervalo de la noche típica entero queda dentro de la diferencia mínima que importa Y el promedio
+ * también (una diferencia que solo aparece en algunas noches, como los paquetes que pierden el corte, no es «igual»); si la prueba
+ * decide, el veredicto con cuántas noches lo sostienen; y si no se distingue, cuántas noches harían falta o, si serían demasiadas, el
+ * rango en que podría estar la diferencia (hallazgo EST-03: antes se decía «prácticamente nula» cuando solo había ruido). Si el evento es
  * raro (nadie pierde el corte en las noches comparadas pero sí en las de A), no se dice «igual»: no se puede comparar con esas noches.
  */
-export function textoVeredicto(ctx: Contexto, c: Comparacion): { clase: string; texto: string } {
+export function textoVeredicto(ctx: Contexto, c: ComparacionApp): { clase: string; texto: string } {
   const s = ctx.sesion;
   if (c.media === 0 && c.ic[0] === 0 && c.ic[1] === 0) {
     if (c.kpi === 'pendientesAlCorte' && s.nochesListas) {
@@ -64,18 +73,27 @@ export function textoVeredicto(ctx: Contexto, c: Comparacion): { clase: string; 
     }
     return { clase: 'igual', texto: ctx.t('app.ysi.igualEnTodas', { n: c.n }) };
   }
-  const minimo = minimoPractico(ctx, c.kpi);
-  if (minimo > 0 && c.ic[0] >= -minimo && c.ic[1] <= minimo) {
+  const minimo = minimoPractico(ctx, c.kpi), centro = centroDe(c);
+  if (minimo > 0 && centro.ic[0] >= -minimo && centro.ic[1] <= minimo && Math.abs(c.media) <= minimo) {
     return { clase: 'igual', texto: ctx.t('app.ysi.igualEnLaPractica', { minimo: valorKpi(ctx, c.kpi, minimo) }) };
   }
-  if (c.veredicto === 'no-se-distingue' && !(Number.isFinite(c.replicasSugeridas) && (c.replicasSugeridas ?? 0) > 0)) {
-    return { clase: c.veredicto, texto: ctx.t('app.ysi.noSeDistingue') };
+  if (c.veredicto !== 'no-se-distingue') {
+    const texto = ctx.t(`experimentos.veredicto.${c.veredicto}`, { replicasSugeridas: 0 });
+    // con la prueba del signo, en cuántas noches lo fue (B mejor = B menor si menos es mejor)
+    if (c.bMenor !== undefined && c.bMayor !== undefined) {
+      // cuántas noches fue mejor B, cuántas peor y cuántas igual (con muchos empates, «B es mejor» sin la cuenta se leía como «siempre»)
+      const menosEsMejor = META_KPI[c.kpi].mejor === 'menos';
+      const mejor = menosEsMejor ? c.bMenor : c.bMayor, peor = menosEsMejor ? c.bMayor : c.bMenor;
+      return { clase: c.veredicto, texto: ctx.t('app.ysi.veredictoNoches', { veredicto: texto, mejor, peor, iguales: c.empates ?? c.n - mejor - peor, n: c.n }) };
+    }
+    return { clase: c.veredicto, texto };
   }
-  if (c.veredicto === 'no-se-distingue' && (c.replicasSugeridas ?? 0) > Math.max(TOPE_NOCHES_SUGERIDAS, 10 * c.n)) {
-    const semi = Math.max(Math.abs(c.ic[0]), Math.abs(c.ic[1]));
-    return { clase: 'igual', texto: ctx.t('app.ysi.practicamenteNula', { semiancho: valorKpi(ctx, c.kpi, semi) }) };
+  const sugeridas = c.replicasSugeridas;
+  if (sugeridas !== null && Number.isFinite(sugeridas) && sugeridas > 0 && sugeridas <= Math.max(TOPE_NOCHES_SUGERIDAS, 10 * c.n)) {
+    return { clase: c.veredicto, texto: ctx.t('experimentos.veredicto.no-se-distingue', { replicasSugeridas: ctx.f.numero(sugeridas, 0) }) };
   }
-  return { clase: c.veredicto, texto: ctx.t(`experimentos.veredicto.${c.veredicto}`, { replicasSugeridas: ctx.f.numero(c.replicasSugeridas ?? 0, 0) }) };
+  return { clase: c.veredicto, texto: ctx.t('app.ysi.noAlcanza', {
+    n: c.n, bajo: valorKpi(ctx, c.kpi, centro.ic[0], true), alto: valorKpi(ctx, c.kpi, centro.ic[1], true) }) };
 }
 
 /** Qué noches se compararon y si la que se ve arriba está entre ellas (hallazgo UX-05). */
@@ -87,10 +105,10 @@ export function notaNochesComparadas(ctx: Contexto, n: number): string {
 }
 
 /**
- * Cuántos indicadores mejoran y cuántos empeoran con B, según el veredicto en palabras (lo «igual en la práctica» no cuenta). Si B no
- * mejora ninguno y empeora alguno, «Quedarme con B» deja de ser la acción principal y se dice por qué.
+ * Cuántos indicadores mejoran y cuántos empeoran con B, según el veredicto en palabras (lo «igual en la práctica» no cuenta). Es un dato
+ * de la pantalla; ya no decide solo el botón principal (hallazgo EST-05: ver `accionConB`).
  */
-export function balanceDeB(ctx: Contexto, cs: readonly Comparacion[]): { mejoran: number; empeoran: number } {
+export function balanceDeB(ctx: Contexto, cs: readonly ComparacionApp[]): { mejoran: number; empeoran: number } {
   let mejoran = 0, empeoran = 0;
   for (const c of cs) {
     const v = textoVeredicto(ctx, c).clase;
@@ -99,11 +117,93 @@ export function balanceDeB(ctx: Contexto, cs: readonly Comparacion[]): { mejoran
   return { mejoran, empeoran };
 }
 
-export function filaComparacion(ctx: Contexto, c: Comparacion): (string | HTMLElement)[] {
-  const v = textoVeredicto(ctx, c);
-  return [ctx.t(`app.kpi.${c.kpi}`), valorKpi(ctx, c.kpi, c.media, true),
-    ctx.t('app.ysi.ic', { bajo: valorKpi(ctx, c.kpi, c.ic[0], true), alto: valorKpi(ctx, c.kpi, c.ic[1], true) }),
+/** Los indicadores que deciden: el de la restricción de la decisión del modelo y el de su objetivo (el costo, por paquete en la tabla). */
+export function kpisPrincipales(ctx: Contexto): KpiId[] {
+  const d = ctx.sesion.mv?.modelo.decision;
+  const k: KpiId[] = d ? [d.restriccion.kpi, d.objetivo.minimizar === 'costoNoche' ? 'costoPorPaquete' : d.objetivo.minimizar] : ['pendientesAlCorte', 'costoPorPaquete'];
+  return k.filter((x, i) => k.indexOf(x) === i);
+}
+
+/**
+ * ¿«Quedarme con B» es la acción principal? (hallazgos EST-01 y EST-05). No, con el semáforo de A o de B en rojo (sus números no son
+ * confiables: por ejemplo, B no termina todas sus noches), si B empeora un indicador principal (el de la restricción o el del objetivo
+ * de la decisión) o si no mejora ninguno y empeora alguno. Antes alcanzaba con contar «votos» entre cinco indicadores con el mismo peso.
+ */
+export function accionConB(ctx: Contexto, cs: readonly ComparacionApp[], semA: Semaforo | null, semB: Semaforo | null):
+  { principal: boolean; motivo: string | null; vars: Record<string, string | number> } {
+  if (semB?.color === 'rojo') return { principal: false, motivo: 'app.ysi.bRojo', vars: {} };
+  if (semA?.color === 'rojo') return { principal: false, motivo: 'app.ysi.aRojo', vars: {} };
+  const principales = kpisPrincipales(ctx);
+  const peores = cs.filter((c) => principales.includes(c.kpi) && textoVeredicto(ctx, c).clase === 'a-mejor');
+  if (peores.length) return { principal: false, motivo: 'app.ysi.bPeorPrincipal', vars: { kpis: peores.map((c) => ctx.t(`app.kpi.${c.kpi}`)).join(', ') } };
+  const b = balanceDeB(ctx, cs);
+  if (b.mejoran === 0 && b.empeoran > 0) return { principal: false, motivo: 'app.ysi.bPeor', vars: {} };
+  return { principal: true, motivo: null, vars: {} };
+}
+
+export function filaComparacion(ctx: Contexto, c: ComparacionApp): (string | HTMLElement)[] {
+  const v = textoVeredicto(ctx, c), centro = centroDe(c);
+  return [ctx.t(`app.kpi.${c.kpi}`), valorKpi(ctx, c.kpi, centro.valor, true),
+    ctx.t('app.ysi.ic', { bajo: valorKpi(ctx, c.kpi, centro.ic[0], true), alto: valorKpi(ctx, c.kpi, centro.ic[1], true) }),
     el('span', { class: `veredicto veredicto--${v.clase}` }, v.texto)];
+}
+
+/**
+ * Las noches atípicas que van CONTRA el veredicto, en palabras (hallazgo EST-02): unas pocas noches muy malas para B pueden dar vuelta
+ * el promedio aunque B sea mejor en la mayoría (o al revés si el veredicto es «A es mejor»). Las que van a favor no se listan: no
+ * cambian la lectura y, con muchos empates (MAD = 0), serían ruido.
+ */
+export function notasAtipicas(ctx: Contexto, cs: readonly ComparacionApp[]): string[] {
+  const notas: string[] = [];
+  for (const c of cs) {
+    const a = c.atipicos;
+    if (!a) continue;
+    const kpi = ctx.t(`app.kpi.${c.kpi}`), clase = textoVeredicto(ctx, c).clase;
+    if (a.peorB > 0 && clase !== 'a-mejor') {
+      notas.push(ctx.t('app.ysi.atipicasPeor', { k: a.peorB, n: c.n, kpi, max: valorKpi(ctx, c.kpi, a.maxPeor, true), media: valorKpi(ctx, c.kpi, c.media, true) }));
+    } else if (a.mejorB > 0 && clase === 'a-mejor') {
+      notas.push(ctx.t('app.ysi.atipicasMejor', { k: a.mejorB, n: c.n, kpi, max: valorKpi(ctx, c.kpi, a.maxMejor, true) }));
+    }
+  }
+  return notas;
+}
+
+/**
+ * ¿La ficha del semáforo de un lado va al lado de la tabla? En rojo, siempre; en amarillo, si el motivo afecta a la comparación (pocas
+ * noches, inestable, fuera de dominio…), no si es la precisión pedida para un KPI del modelo o la duda de la decisión, que son de otra
+ * pantalla.
+ */
+function fichaRelevante(sem: Semaforo | null): sem is Semaforo {
+  if (!sem || sem.color === 'verde') return false;
+  return sem.color === 'rojo' || (sem.motivo !== 'precision-no-lograda' && sem.motivo !== 'decision-en-duda');
+}
+
+/**
+ * La tabla de la comparación confirmada, con el semáforo de A y de B (hallazgo EST-01): en rojo, ni números ni veredictos (como en el
+ * resumen, las noches y decidir); en amarillo, la ficha al lado; y las noches atípicas debajo. La usan «¿y si…?» y el acto 2 de presentar.
+ */
+export function bloqueComparacion(ctx: Contexto, y: EstadoYsi, accion?: string): HTMLElement[] {
+  const conSentido = y.comparaciones.filter((c) => META_KPI[c.kpi].mejor !== 'neutro');
+  const rojo = y.semaforoA?.color === 'rojo' || y.semaforoB?.color === 'rojo';
+  const partes: HTMLElement[] = [];
+  const fichas: HTMLElement[] = [];
+  for (const [lado, sem] of [['A', y.semaforoA], ['B', y.semaforoB]] as const) {
+    if (!fichaRelevante(sem)) continue;
+    fichas.push(el('div', { class: 'ysi__semaforo', 'data-ysi-semaforo': `${lado}-${sem.color}` },
+      el('p', { class: 'ysi__semaforo-lado' }, ctx.t(lado === 'A' ? 'app.ysi.semaforoA' : 'app.ysi.semaforoB')), detalleSemaforo(ctx, sem)));
+  }
+  if (fichas.length) partes.push(el('div', { class: 'ysi__semaforos' }, ...fichas));
+  const cab = [ctx.t('app.ysi.col.kpi'), ctx.t('app.ysi.col.diferencia'), ctx.t('app.ysi.col.ic'), ctx.t('app.ysi.col.veredicto')];
+  const titulo = ctx.t('app.ysi.tablaTitulo', { confianza: ctx.f.porcentaje(conSentido[0]?.confianza ?? CONFIANZA_COMPARACIONES, 0) });
+  if (rojo) {
+    partes.push(tabla(cab, conSentido.map((c) => [ctx.t(`app.kpi.${c.kpi}`), '—', '—', '—']), { titulo, numericas: [1, 2], accion, apilable: true }));
+    partes.push(el('p', { class: 'nota', 'data-ysi': 'sin-veredicto' }, ctx.t('app.ysi.sinVeredictoRojo')));
+    return partes;
+  }
+  partes.push(tabla(cab, conSentido.map((c) => filaComparacion(ctx, c)), { titulo, numericas: [1, 2], accion, apilable: true }));
+  const notas = notasAtipicas(ctx, conSentido);
+  if (notas.length) partes.push(el('ul', { class: 'nota ysi__atipicas', 'data-ysi': 'atipicas' }, ...notas.map((x) => el('li', null, x))));
+  return partes;
 }
 
 export const montarYsi: Montar = (raiz, ctx) => {
@@ -189,17 +289,19 @@ export const montarYsi: Montar = (raiz, ctx) => {
         el('p', null, ctx.t('app.ysi.previaDetalle', { finA: h(a.finClasificacionMin), finB: h(b.finClasificacionMin),
           pendA: ctx.f.numero(a.pendientesAlCorte, 0), pendB: ctx.f.numero(b.pendientesAlCorte, 0) }))));
     }
-    if (y.fase === 'confirmando') partes.push(progreso(y.progreso, ctx.t('app.ysi.confirmando', { n: Math.round(y.progreso * 40) })));
+    if (y.fase === 'confirmando') {
+      const total = Math.min(NOCHES_CONFIRMACION, Math.max(2, s.N));
+      partes.push(progreso(y.progreso, ctx.t('app.ysi.confirmando', { n: Math.round(y.progreso * total), total })));
+    }
     if (y.fase === 'confirmada') {
       const conSentido = y.comparaciones.filter((c) => META_KPI[c.kpi].mejor !== 'neutro');
-      const balance = balanceDeB(ctx, conSentido), bPeor = balance.mejoran === 0 && balance.empeoran > 0;
-      quedarse.className = `boton ${bPeor ? '' : 'boton--primario'}`.trim();
+      const accion = accionConB(ctx, conSentido, y.semaforoA, y.semaforoB);
+      quedarse.className = `boton ${accion.principal ? 'boton--primario' : ''}`.trim();
       partes.push(el('div', { class: 'ysi__confirmada', 'data-ysi': 'confirmada' },
         el('p', { class: 'ysi__titular' }, ctx.t('app.ysi.confirmada', { n: conSentido[0]?.n ?? 0 })),
         el('p', { class: 'nota', 'data-ysi': 'noches-comparadas' }, notaNochesComparadas(ctx, conSentido[0]?.n ?? 0)),
-        tabla([ctx.t('app.ysi.col.kpi'), ctx.t('app.ysi.col.diferencia'), ctx.t('app.ysi.col.ic'), ctx.t('app.ysi.col.veredicto')],
-          conSentido.map((c) => filaComparacion(ctx, c)), { titulo: ctx.t('app.ysi.tablaTitulo'), numericas: [1, 2], accion: 'comparacion', apilable: true }),
-        bPeor ? el('p', { class: 'nota', 'data-ysi': 'b-peor' }, ctx.t('app.ysi.bPeor')) : null,
+        ...bloqueComparacion(ctx, y, 'comparacion'),
+        accion.motivo ? el('p', { class: 'nota', 'data-ysi': accion.motivo === 'app.ysi.bPeor' ? 'b-peor' : 'b-secundaria' }, ctx.t(accion.motivo, accion.vars)) : null,
         quedarse));
     }
     poner(estado, ...partes);

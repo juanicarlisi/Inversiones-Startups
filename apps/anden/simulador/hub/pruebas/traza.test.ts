@@ -113,7 +113,11 @@ test('lo que dicen los KPI se lee igual en la traza', () => {
   assert.equal(aExc.size, k.aExcepcion);
   assert.deepEqual([...motivos].sort((a, b) => a - b), [Causa.RAMPA_LLENA, Causa.NO_LEIDO, Causa.NO_TRANSPORTABLE].sort((a, b) => a - b),
     'los tres motivos de excepción aparecen');
-  assert.equal(cuantos(TipoTramo.MANUAL), cuantos(TipoTramo.COLA_MANUAL));
+  // cada paso por la cola manual termina en un tramo MANUAL de trabajo; los de espera de lugar en la acumulación (motor 1.2.0, HUB-R03)
+  // llevan causa BLOQUEO
+  let manualTrabajo = 0;
+  for (let i = 0; i < T.n; i++) if (T.k[i] === TipoTramo.MANUAL && T.c[i] !== Causa.BLOQUEO) manualTrabajo++;
+  assert.equal(manualTrabajo, cuantos(TipoTramo.COLA_MANUAL));
   assert.equal(momentos(TipoMomento.LAZO_PARA).length, k.paradasLazo);
   assert.equal(momentos(TipoMomento.LAZO_ARRANCA).length, k.paradasLazo);
   let detenido = 0;

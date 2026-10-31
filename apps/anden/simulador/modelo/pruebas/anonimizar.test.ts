@@ -201,3 +201,13 @@ test('anonimizar dos veces con la misma semilla sigue siendo un modelo válido y
   const r = await compilar(dos);
   assert.ok(r.ok, r.ok ? '' : resumen(r.diagnosticos));
 });
+
+test('SEG-R5 · la licencia y la frase de la meta (texto libre que podía nombrar a la empresa o al cliente) no viajan en el modelo anonimizado', () => {
+  const m = ejemploJson();
+  m.licencia = 'Confidencial ACME';
+  m.decision.restriccion.dichoComo = 'que el cliente MercadoX reciba todo antes de las 6';
+  const a = anonimizar(m, 12345);
+  assert.equal(a.licencia, undefined);
+  assert.doesNotMatch(JSON.stringify(a), /ACME|MercadoX/, 'ninguna marca sembrada sobrevive');
+  assert.match(a.decision!.restriccion.dichoComo, /al menos el \d+% de las noches/);
+});

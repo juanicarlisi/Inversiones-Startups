@@ -16,7 +16,7 @@ import type { Modelo } from '../../contratos/modelo.ts';
 import { KPIS } from '../../contratos/resultados.ts';
 import { distribucion, numero } from '../../contratos/referencias.ts';
 import { claveDe, crearFuenteAzarReferencia } from '../../contratos/referencia/motor-referencia.ts';
-import { costoNoche, costoPorPaquete, horasPersonaPagadas } from '../costos.ts';
+import { costoNoche, costoPorPaquete, FRACCION_AUSENTE_PAGADA, horasPagadas, horasPersonaPagadas, RECARGO_HORA_EXTRA } from '../costos.ts';
 import { percentil } from '../kpi.ts';
 import type { Hub } from '../bloques/comun.ts';
 import { SEMILLA, chico, noche, propuestaChico110 } from './modelos.ts';
@@ -127,6 +127,13 @@ test('costos: horas pagadas, costo de la noche y costo por paquete (regla 1 de �
   assert.equal(horasPersonaPagadas(16, INICIO, FIN, FIN - 1), 128);
   assert.equal(horasPersonaPagadas(10, INICIO, FIN, FIN + 1_800_000), 85, 'si el último paquete sale después del fin, se paga hasta ahí');
   assert.equal(costoNoche(128, 7085, 496000), 128 * 7085 + 496000);
+  // motor 1.2.0 (HUB-R02): 10 presentes y 2 ausentes, la noche termina 30 min después del fin del turno
+  const h = horasPagadas(10, 2, INICIO, FIN, FIN + 1_800_000);
+  assert.deepEqual(h, { normales: 80, extra: 5, ausentes: 2 * 8 * FRACCION_AUSENTE_PAGADA, total: 85 + 2 * 8 * FRACCION_AUSENTE_PAGADA });
+  assert.equal(costoNoche(h, 7085, 496000), (80 + 5 * RECARGO_HORA_EXTRA + 8) * 7085 + 496000, 'la media hora de más con recargo; los ausentes, medio turno');
+  // faltar ya no abarata la noche: con un ausente más y la misma hora de fin, la noche no cuesta menos que con todos presentes
+  const todos = costoNoche(horasPagadas(12, 0, INICIO, FIN, FIN), 7085, 0), conFaltas = costoNoche(horasPagadas(10, 2, INICIO, FIN, FIN + 3_600_000), 7085, 0);
+  assert.ok(conFaltas >= todos * 0.9, `con faltas y una hora más tarde la noche cuesta ${conFaltas} y con todos ${todos}`);
   assert.equal(costoPorPaquete(1000, 0), 1000, 'max(1, clasificados)');
   assert.equal(costoPorPaquete(1000, 4), 250);
 });
@@ -178,8 +185,10 @@ test(`KPI sanos en ${NOCHES} noches del hub chico: todo clasificado, sin alertas
     assert.equal(k.noLeidosPct, (100 * h.sorter.S.noLeidos) / h.sorter.S.colocaciones);
     const presentes = h.personas.presentes();
     assert.equal(presentes, 16 - k.ausentes);
-    assert.equal(k.horasPersonaPagadas, (presentes * Math.max(8 * 60, k.finClasificacionMin)) / 60);
-    assert.equal(k.costoNoche, k.horasPersonaPagadas * 7085 + 496000);
+    // motor 1.2.0 (HUB-R02): los presentes cobran el turno y lo que pasa del fin con recargo; cada ausente, FRACCION_AUSENTE_PAGADA del turno
+    const extra = (presentes * Math.max(0, k.finClasificacionMin - 8 * 60)) / 60, aus = (k.ausentes * 8 * FRACCION_AUSENTE_PAGADA);
+    assert.ok(Math.abs(k.horasPersonaPagadas - (presentes * 8 + extra + aus)) < 1e-9, `horas pagadas ${k.horasPersonaPagadas}`);
+    assert.ok(Math.abs(k.costoNoche - ((presentes * 8 + extra * RECARGO_HORA_EXTRA + aus) * 7085 + 496000)) < 1e-6, `costo ${k.costoNoche}`);
     assert.equal(k.costoPorPaquete, k.costoNoche / k.clasificados);
     // recursos y series
     const pr = s.resultado.porRecurso;
@@ -195,10 +204,8 @@ test(`KPI sanos en ${NOCHES} noches del hub chico: todo clasificado, sin alertas
     assert.ok(series.clasificados.length >= 32, 'al menos los 32 cuartos de hora del turno');
     assert.equal(series.clasificados.length, series.filaInduccionMax.length);
     assert.equal(series.clasificados.reduce((a, b) => a + b, 0), k.clasificados, 'la serie de clasificados suma todos los clasificados');
-    // la contrapresión frena a los andenes, no a los reingresos del puesto manual (regla 12): la fila puede pasar los 120 lugares
-    // solo por paquetes que vuelven del manual (NOTAS-CONTRATO §4; el control exacto está en invariantes.test.ts)
-    const reingresos = s.resultado.porRecurso.puestoInducidos.reduce((a, b) => a + b, 0) - (k.paquetes - contarNoTransportables(h));
-    assert.ok(Math.max(...series.filaInduccionMax) <= 120 + reingresos, 'la fila supera los lugares solo por reingresos del manual');
+    // motor 1.2.0 (HUB-R03): los reingresos del puesto manual esperan lugar en la mesa, así que la fila nunca pasa los 120 lugares
+    assert.ok(Math.max(...series.filaInduccionMax) <= 120, `la fila llegó a ${Math.max(...series.filaInduccionMax)} paquetes en 120 lugares`);
   }
   fines.sort((a, b) => a - b);
   const mediana = fines[NOCHES >> 1];

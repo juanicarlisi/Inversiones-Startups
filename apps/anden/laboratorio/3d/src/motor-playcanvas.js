@@ -1,0 +1,15 @@
+import * as pc from 'playcanvas'; import { N, W, H, cajas, publicar } from './motor-comun.js';
+const canvas = document.getElementById('c'); canvas.width = W; canvas.height = H;
+const device = await pc.createGraphicsDevice(canvas, { deviceTypes: ['webgl2'], antialias: false, preserveDrawingBuffer: true, powerPreference: 'high-performance' }); device.setResolution?.(W, H); device.maxPixelRatio = 1;
+const opts = new pc.AppOptions(); opts.graphicsDevice = device; opts.componentSystems = [pc.RenderComponentSystem, pc.CameraComponentSystem, pc.LightComponentSystem]; opts.resourceHandlers = [];
+const app = new pc.AppBase(canvas); app.init(opts); app.setCanvasFillMode(pc.FILLMODE_NONE); app.setCanvasResolution(pc.RESOLUTION_FIXED, W, H); app.scene.ambientLight = new pc.Color(0.42, 0.44, 0.5); app.scene.skyboxIntensity = 0; app.autoRender = false;
+const cam = new pc.Entity('cam'); cam.addComponent('camera', { fov: 38, nearClip: 0.3, farClip: 400, clearColor: new pc.Color(0.05, 0.06, 0.08), horizontalFov: false }); cam.setPosition(-44, 30, 40); cam.lookAt(2, 0, 2); app.root.addChild(cam);
+const sol = new pc.Entity('sol'); sol.addComponent('light', { type: 'directional', color: new pc.Color(1, 0.95, 0.86), intensity: 2.4, castShadows: true, shadowResolution: 2048, shadowDistance: 120, shadowBias: 0.2, normalOffsetBias: 0.03, shadowType: pc.SHADOW_PCF3_32F }); sol.setPosition(-22, 38, 26); sol.lookAt(0, 0, 0); app.root.addChild(sol);
+const mat = (hex, gloss) => { const m = new pc.StandardMaterial(); m.diffuse = new pc.Color().fromString(hex); m.useMetalness = true; m.metalness = 0; m.gloss = gloss; m.update(); return m; };
+const piso = new pc.Entity('piso'); piso.addComponent('render', { type: 'plane', material: mat('#8a8a8a', 0.1), castShadows: false, receiveShadows: true }); piso.setLocalScale(80, 1, 50); app.root.addChild(piso);
+const mesh = pc.Mesh.fromGeometry(device, new pc.BoxGeometry({ halfExtents: new pc.Vec3(0.15, 0.1, 0.125) })); const mi = new pc.MeshInstance(mesh, mat('#a87c50', 0.2)); mi.cull = false;
+const mats = new Float32Array(N * 16); const vb = new pc.VertexBuffer(device, pc.VertexFormat.getDefaultInstancingFormat(device), N, { usage: pc.BUFFER_DYNAMIC, data: mats.buffer }); mi.setInstancing(vb);
+const e = new pc.Entity('cajas'); e.addComponent('render', { meshInstances: [mi], castShadows: true, receiveShadows: true }); app.root.addChild(e);
+const D = cajas(); const m = new pc.Mat4(), q = new pc.Quat(), p = new pc.Vec3(), s = new pc.Vec3(1, 1, 1);
+app.start();
+publicar(device.gl, (t) => { for (let i = 0; i < N; i++) { const d = D[i]; p.set(((d.x + d.v * t + 34) % 68) - 34, d.y, d.z); q.setFromAxisAngle(pc.Vec3.UP, (d.yaw * 180) / Math.PI); m.setTRS(p, q, s); mats.set(m.data, i * 16); } vb.setData(mats.buffer); }, () => app.render(), canvas);
