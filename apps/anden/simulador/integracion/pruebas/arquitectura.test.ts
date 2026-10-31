@@ -64,7 +64,7 @@ function importsDe(p: string): { esp: string; soloTipos: boolean; linea: number 
  * relativas a apps/anden/simulador (`a` puede ser 'node:' o un paquete de npm).
  */
 const EXCEPCIONES: { de: RegExp; a: RegExp; motivo: string }[] = [
-  { de: /^app\/i18n\/diccionarios\.ts$/, a: /^(escena|explicacion|modelo|experimentos)\/textos\.(es|en)\.json$/,
+  { de: /^app\/i18n\/diccionario-(es|en)\.ts$/, a: /^(escena|explicacion|modelo|experimentos)\/textos\.(es|en)\.json$/,
     motivo: 'la interfaz junta los textos de todos los paquetes: solo datos, nunca código (app/NOTAS-CONTRATO.md §2)' },
   { de: /^app\/(servicios-falsos\.ts|entrada-falsa\.ts|falsos\/)/, a: /^contratos\/(fixtures|ejemplos|referencia)\//,
     motivo: 'servicios falsos para desarrollar la interfaz sin el resto (corte-1.md §9 P8); no entran en dist/ (control 4)' },

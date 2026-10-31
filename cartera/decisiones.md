@@ -820,3 +820,26 @@
     tracking) y Hub Nocturno evalúa su motor de render con el mismo criterio.
 - **Pendiente del fundador:** autorizar un gancho de inicio de sesión que instale las librerías en cada sesión de la nube (el entorno
   bloquea que Claude cambie su propia configuración); mientras tanto, Claude las instala al empezar.
+
+## DEC-2026-10-31-1 · Andén: corte 1 del simulador cerrado con pendientes; estado de Hub Nocturno al cerrar la sesión
+
+- **Contexto:** sesión del 17 al 31-10-2026, con cortes por el límite de uso de Max 5x y reinicios del contenedor; el fundador pidió el
+  31-10 terminar lo que faltaba y cortar por hoy.
+- **Andén, corte 1 «Hub verificado, en escena» (`apps/anden/simulador/`): cerrado con pendientes, 11 de 12 criterios de §12.**
+  - 1.109 pruebas (1.108 pasan, 0 fallan); batería «Andén Verificado» 85 de 85 contra teoría de colas; mismas huellas en Node,
+    Chromium y Bun (95 de 95); invariantes sin alertas en 200 noches por plantilla; 22 enlaces hostiles rechazados; 16 de 16
+    recorridos de punta a punta sin errores; revisión adversarial con cinco lentes y arreglos aplicados.
+  - No cumple el presupuesto de §11 (banco no concluyente: la máquina rindió el 69% de la referencia): primer cuadro desde el enlace
+    1,3 s contra 0,15 s (hace falta un primer cuadro progresivo) y tamizado 98,7 s contra 60 s.
+  - Decisiones de texto pendientes: pasar a `corte-1.md` los cambios de `integracion/CAMBIOS-CONTRATO.md` (motor 1.2.0, E01, S03,
+    «KPI sanos» de §9) y presentar en 4 pasos.
+- **Radar técnico y corte 2** (DEC-2026-10-30-5): `oportunidades/proyectos/anden/radar-tecnico.md` y `corte-2-plan.md`. three.js 0.186.1
+  con modelos de Blender por código; MapLibre 6.13 + deck.gl 9.4.0; ruteo en calle con fast_paths en WASM; vrp-cli en el navegador con
+  PyVRP y OR-Tools como vara; DuckDB-WASM; SimPy como oráculo (hay que actualizarlo al motor 1.2.0). Corte 2 en dos olas: 2a «Ver y
+  creer» (3D) y 2b «La calle» (ruteo, live tracking, VRP).
+- **Hub Nocturno v1: en pausa a mitad de camino.** Pruebas de juego con seis lentes (v0 entre 26 y 48 puntos), backlog desafiado;
+  economía e interfaz de la v1 mayormente hechas; faltan el área de arte, la QA técnica y la re-prueba. Se retoma con
+  `hub-nocturno-iterar` (desde lo commiteado) en la próxima sesión.
+- **Pendiente del fundador (nada urgente ni con gasto):** abrir una página de medición en su notebook y su teléfono (cifras de 3D en
+  equipos reales); sumar la licencia ODbL de OpenStreetMap a la consulta legal; autorizar el gancho de inicio de sesión que instala
+  las librerías; para Hub Nocturno: cuenta de CrazyGames, nombre con búsqueda de marca y la regla de corte nueva.

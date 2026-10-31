@@ -648,3 +648,8 @@ SEG-R6, EXP-04, EXP-12, EXP-13, REV-D5) se hizo en las dos vueltas siguientes (�
   (la mutación «restaurar sin seq» ahora falla en 10 de 10 fotos).
 - HUB-R11, en parte: aviso `A-SORTER-TIPO` cuando el sorter es de banda cruzada (el motor del corte 1 lo simula como bandejas). HUB-R13: la
   propuesta 1.1.0 dice que `caminarEntreRampas` es el mínimo y que la caminata va por la distancia sobre el lazo.
+- SEG-R6, primera carga: con los arreglos de esta revisión había pasado a 154,2 KB brotli contra 150. Los textos en inglés (≈ 63 KB, 14,8 KB
+  comprimidos) van ahora en un trozo que se baja al elegir el idioma (`app/i18n/cargar.ts`, `diccionario-es.ts`, `diccionario-en.ts`;
+  `diccionarios.ts` sigue juntando los dos para las pruebas): primera carga 143,1 KB. El recorrido del enlace hostil lo comprueba (el
+  trozo no se pide en español, se pide una vez al pasar a inglés, `?idioma=en` arranca en inglés) y el informe mide la primera carga con
+  los trozos que la entrada importa de forma estática.

@@ -110,8 +110,45 @@ export async function enlaceHostil({ contexto, base, etiqueta, prep, fallar, ok,
   const faltan = await h.faltantes();
   if (faltan.length) fallar(`${etiqueta} · enlace hostil: claves de texto faltantes: ${faltan.join(', ')}`);
   await page.close();
+  const idioma = await ingles({ contexto, base, etiqueta, fallar, ok });
   return { datos: { avisoMs, respuestaMs, aviso, caracteres: prep.hostil.length, avisoPeliculaMs, caracteresPelicula: prep.hostilPelicula.length,
-    avisoCoordenadaMs, ...accesibilidad, ...ysiRojo }, errores: h.errores };
+    avisoCoordenadaMs, ...accesibilidad, ...ysiRojo, ingles: idioma.datos }, errores: [...h.errores, ...idioma.errores] };
+}
+
+/**
+ * El inglés va en un trozo aparte (la primera carga estaba al 98% de su tope de §11, hallazgo SEG-R6): con la página en español ese trozo
+ * no se pide; al elegir inglés se baja una vez y la interfaz queda en inglés sin claves faltantes; con `?idioma=en` la página arranca
+ * directamente en inglés (nada se pinta antes en español). Al terminar vuelve a español (la preferencia queda guardada en el contexto).
+ */
+async function ingles({ contexto, base, etiqueta, fallar, ok }) {
+  const h = await abrirPestana(contexto, { fallar, etiqueta });
+  const { page } = h;
+  const pedidos = [];
+  page.on('request', (r) => { if (/\.js($|\?)/.test(new URL(r.url()).pathname)) pedidos.push(new URL(r.url()).pathname); });
+  const trozo = () => pedidos.filter((x) => /diccionario-en/.test(x));
+  await page.goto(`${base}?depuracion=1`);
+  await h.pantalla('inicio', 30_000);
+  const enEspanol = { lang: await page.evaluate(() => document.documentElement.lang), titulo: (await page.textContent('#contenido h1'))?.trim() };
+  if (trozo().length) fallar(`${etiqueta} · inglés: la página en español pidió el trozo del inglés (${trozo().join(', ')})`);
+  await page.selectOption('[data-accion="idioma"]', 'en');
+  await h.esperar(() => document.documentElement.lang === 'en' && !!document.querySelector('section[data-pantalla="inicio"][data-listo="1"]'), null, 15_000,
+    'inglés: la interfaz no pasó a inglés');
+  const enIngles = { titulo: (await page.textContent('#contenido h1'))?.trim(), trozos: trozo().length };
+  if (enIngles.trozos !== 1) fallar(`${etiqueta} · inglés: se esperaba bajar el trozo del inglés una vez y se pidió ${enIngles.trozos}`);
+  if (!enIngles.titulo || enIngles.titulo === enEspanol.titulo) fallar(`${etiqueta} · inglés: el título siguió igual («${enIngles.titulo}»)`);
+  let faltan = await h.faltantes();
+  // con ?idioma=en, la página arranca en inglés
+  await page.goto(`${base}?idioma=en&depuracion=1`);
+  await h.pantalla('inicio', 30_000);
+  const directo = { lang: await page.evaluate(() => document.documentElement.lang), titulo: (await page.textContent('#contenido h1'))?.trim() };
+  if (directo.lang !== 'en' || directo.titulo !== enIngles.titulo) fallar(`${etiqueta} · inglés: con ?idioma=en la página arrancó con ${JSON.stringify(directo)}`);
+  faltan = [...faltan, ...(await h.faltantes())];
+  if (faltan.length) fallar(`${etiqueta} · inglés: claves de texto faltantes: ${faltan.join(', ')}`);
+  await page.selectOption('[data-accion="idioma"]', 'es');
+  await h.esperar(() => document.documentElement.lang === 'es-AR', null, 15_000, 'inglés: no volvió a español');
+  ok(`${etiqueta} · inglés: no viaja en la primera carga; al elegirlo baja un trozo y la interfaz dice «${enIngles.titulo}»; con ?idioma=en arranca en inglés`);
+  await page.close();
+  return { datos: { tituloEs: enEspanol.titulo, tituloEn: enIngles.titulo, trozos: enIngles.trozos, directo }, errores: h.errores };
 }
 
 /**

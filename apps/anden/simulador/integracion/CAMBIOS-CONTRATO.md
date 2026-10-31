@@ -249,3 +249,7 @@ núcleos compartidos, Node 22.22) el 30/31-10-2026.
   aviso lo dice. `playa.capacidad` y `lector.s` siguen sin efecto en la simulación (corte 2: playa con capacidad y lector que importe).
 - **Plantilla `hub-chico@1.1.0` (propuesta, HUB-R13).** `caminarEntreRampas` dice ahora «s como mínimo al cambiar de rampa» y que la
   caminata real va por la distancia sobre el lazo a 1,2 m/s. La 1.0.0 y la grande publicadas no cambian (son inmutables).
+- **§11, primera carga (SEG-R6).** Los arreglos de esta revisión la habían llevado a 154,2 KB brotli (tope 150). El inglés pasa a un trozo
+  aparte que se baja al elegirlo (`app/i18n/cargar.ts`; 14,8 KB): la primera carga queda en 143,1 KB (entrada 110,4 + Worker 32,7 + 0,1).
+  Con `?idioma=en` o la preferencia guardada en inglés, la página baja el trozo antes de pintar (nada se ve en español). Texto propuesto
+  para §1.6: «el idioma que no se usa no viaja en la primera carga».

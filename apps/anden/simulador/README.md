@@ -55,7 +55,7 @@ Español primero; inglés con el selector de la barra (las mismas claves en `tex
 
 | Comando | Qué prueba | Cuánto tarda (contenedor de 4 núcleos) |
 |---|---|---|
-| `npm test` | Las 1.070 pruebas de los ocho paquetes y de la integración (arquitectura, R08b, R06 del hub, E01/E02, S01–S03, S08, S09, S11, textos, marcas, Workers, plano) | ≈ 1,5–2,5 min con el equipo libre (≈ 6 min si otras sesiones usan la máquina) |
+| `npm test` | Las 1.109 pruebas de los ocho paquetes y de la integración (arquitectura, R08b, R06 del hub, E01/E02, S01–S03, S08, S09, S11, textos, marcas, Workers, plano) | ≈ 1,5–2,5 min con el equipo libre (≈ 6 min si otras sesiones usan la máquina) |
 | `npx tsc -p tsconfig.json` | Los tipos (TypeScript «borrable»: Node corre los `.ts` directo) | ≈ 15 s |
 | `npm run verificar` | La batería «Andén Verificado» completa con el núcleo de producción: 85 pruebas exigibles contra teoría de colas y casos publicados, S01 y S02 que tienen que fallar, informe en `verificacion/informe/` | ≈ 5–9 min |
 | `npm run r04` | La misma huella en Node y en Chromium (V8) y en Bun (JavaScriptCore, el motor de Safari) si está en el entorno: suite rápida, doradas, hub chico con 5 semillas, matemática bit a bit | ≈ 30 s |
@@ -104,38 +104,39 @@ comparativa. El motor de este corte se queda (85 de 85 contra teoría); SimPy en
 
 ## Estado del corte 1
 
-**Cerrado con pendientes:** 11 de los 12 criterios de salida de `corte-1.md` §12 cumplen (MEDIDO el 30-10-2026; el detalle, con la
-fecha de cada medición, en `integracion/salida/informe-salida.json` y en `integracion/NOTAS-CONTRATO.md` §16). El que no cumple es un
+**Cerrado con pendientes:** 11 de los 12 criterios de salida de `corte-1.md` §12 cumplen (MEDIDO el 31-10-2026, después de los arreglos
+de la revisión del 30-10; el detalle, con la fecha de cada medición, en `integracion/salida/informe-salida.json` y en
+`integracion/NOTAS-CONTRATO.md` §16 a §18). El que no cumple es un
 presupuesto de §11: el primer cuadro desde un enlace.
 
 | # | Criterio | Medido | Estado |
 |---|---|---|---|
-| 1 | `npm test` en verde en menos de 3 min | 1.070 pruebas: 1.069 pasan, 0 fallan y 1 se omite (la batería completa, que corre aparte). Con el equipo libre tarda 144 s. Con la máquina compartida por otras sesiones (carga de 9 en 4 núcleos) tardó 357 s | cumple |
+| 1 | `npm test` en verde en menos de 3 min | 1.109 pruebas: 1.108 pasan, 0 fallan y 1 se omite (la batería completa, que corre aparte). Con el equipo libre tarda 143 s | cumple |
 | 2 | Batería con el núcleo de producción | 85 de 85 exigibles, S01 y S02 fallan como deben, informe local; la huella de las fuentes coincide con el código de hoy | cumple |
 | 3 | R08b | núcleo de producción = referencia en la batería rápida y en el hub chico | cumple |
-| 4 | R04 | Node = Chromium 141 en 95 de 95 claves; Firefox y WebKit, pendientes (no están en el entorno) | cumple |
+| 4 | R04 | Node (V8) = Chromium 141 (V8) = Bun 1.4.2 (JavaScriptCore) en 95 de 95 claves; Firefox y WebKit, pendientes (no están en el entorno) | cumple |
 | 5 | E01 y E02 | 0 frases causales sin confirmar | cumple |
 | 6 | Invariantes I01–I06 | 0 alertas en 200 noches de cada plantilla | cumple |
-| 7 | Enlace | ida y vuelta exacta; 6.024 / 206 / 62 caracteres; H01–H12 rechazadas; otra pestaña con la misma huella en las 4 combinaciones | cumple |
-| 8 | Recorridos de punta a punta | 16 de 16 en 360 × 740 y 1280 × 800, claro y oscuro, con 0 errores de consola; 8 capturas (1,2 MB) | cumple |
-| 9 | Presupuestos de §11 | 13 de 14 dentro del margen (banco del 23-10; la primera carga, medida de nuevo hoy: 146,5 KB). El primer cuadro desde el enlace tarda **953 ms** contra 150 | no cumple |
+| 7 | Enlace | ida y vuelta exacta; 6.024 / 206 / 62 caracteres; H01–H17 rechazadas (y sus variantes); otra pestaña con la misma huella en las 4 combinaciones | cumple |
+| 8 | Recorridos de punta a punta | 16 de 16 en 360 × 740 y 1280 × 800, claro y oscuro, con 0 errores de consola (incluye teclado, «¿y si…?» con B en rojo y el inglés en su trozo); 8 capturas (1,1 MB) | cumple |
+| 9 | Presupuestos de §11 | Banco del 31-10 (no concluyente: la máquina rindió el 69% de la referencia del 23-10): 12 de 15 cumplen, 1 con margen y 2 no cumplen: primer cuadro desde el enlace **1.347 ms** contra 150 y tamizado del hub chico **98,7 s** contra 60 (≈ 68 s corregido por la velocidad de la máquina). Primera carga 143,1 KB | no cumple |
 | 10 | Textos | mismas claves en es y en; etiqueta de noche y tres sellos en la escena; ninguna marca | cumple |
 | 11 | Arquitectura | imports, tokens prohibidos y contratos intactos | cumple |
 | 12 | Nada publicado | servidor solo en 127.0.0.1, 0 pedidos a otro sitio, ningún script que publique | cumple |
 
 ## Lo que queda abierto (lo decide el orquestador o el fundador)
 
-- **Primer cuadro desde el enlace:** la meta de §11 es ≤ 150 ms y se mide 953 ms de mediana en el hub grande (550 ms en el chico; banco
+- **Primer cuadro desde el enlace:** la meta de §11 es ≤ 150 ms y se midió 953 ms de mediana el 23-10 y 1.347 ms el 31-10 (máquina más lenta) en el hub grande (550 ms en el chico; banco
   del 23-10-2026): la noche entera se simula en un Worker antes de mostrar la película. El plano del hub ya está a la vista a los ≈ 190 ms,
   pero no cuenta como primer cuadro porque no muestra ningún instante simulado. Con 4G, 1,53 s (dentro del margen de ±30%). O primer cuadro
   progresivo en el corte 2, o reescribir la meta.
-- **Tamizado y «Decidir» lentos:** el tamizado del hub chico tarda 58,5 s de mediana contra 60 s de meta (2 de 5 corridas por encima) y,
+- **Tamizado y «Decidir» lentos:** el tamizado del hub chico tardó 58,5 s el 23-10 y 98,7 s el 31-10 (≈ 68 s corregido por la velocidad de la máquina) contra 60 s de meta y,
   en el recorrido, «Decidir» muestra la recomendación a los ≈ 18 s pero llega a «Ya está» a los ≈ 150 s. La causa son las reglas de
   parada del 20-10 (Bonferroni y el «en duda» del tamizado), que piden más noches; el motor no se volvió más lento. Hay tres salidas, y
   todas cambian la estadística: reusar las noches de la evaluación base, bajar `REPLICAS_MAX_TAMIZADO` o tamizar con una tanda fija
   (`integracion/NOTAS-CONTRATO.md` §14).
-- **Primera carga:** 146,5 KB brotli contra 150 KB de tope (medido el 30-10-2026 sobre `dist/`). Lo que sume el corte 2 va en trozos
-  aparte.
+- **Primera carga:** 143,1 KB brotli contra 150 KB de tope (medido el 31-10-2026 sobre `dist/`). Los arreglos de la revisión la habían
+  llevado a 154,2: el inglés pasó a un trozo que se baja al elegirlo. Lo que sume el corte 2 va en trozos aparte.
 - **«KPI sanos» de §9 sobre `hub-chico@1.0.0`:** imposible al pie de la letra. La integración eligió (23-10-2026) reescribir el criterio
   y dejar `hub-chico@1.1.0` como propuesta; la prueba `todo` de P4 se borró y falta pasar a `corte-1.md` §9 el texto de
   `integracion/CAMBIOS-CONTRATO.md` §10.

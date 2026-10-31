@@ -29,6 +29,9 @@ integración (corte-1.md §2 y §14.8). **Ningún punto cambia un contrato**: `a
   `textos.es.json` y `textos.en.json`, con `with { type: 'json' }`), nunca código. `juntarDiccionarios` lanza al arrancar si dos paquetes
   comparten una clave o si una clave no lleva el prefijo de su paquete. Si la integración prefiere inyectarlos, `opciones.diccionarios`.
 - **Propuesta.** Que la prueba de arquitectura de la integración permita `app/i18n/diccionarios.ts → <paquete>/textos.<idioma>.json`.
+- **Desde el 31-10-2026** (hallazgo SEG-R6, primera carga): los imports de datos pasan a `app/i18n/diccionario-es.ts` y
+  `app/i18n/diccionario-en.ts` (uno por idioma; la prueba de arquitectura permite esos dos). La página arranca con `cargar.ts`: el español
+  en la primera carga y el inglés en un trozo que se baja al elegirlo. `diccionarios.ts` junta los dos idiomas para las pruebas.
 
 ## 3. `Servicios` no trae los estilos de la escena
 

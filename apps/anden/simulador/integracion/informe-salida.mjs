@@ -24,16 +24,19 @@ const leerJson = (f) => (existsSync(join(SALIDA, f)) ? JSON.parse(readFileSync(j
 const fechaDe = (f) => (existsSync(join(SALIDA, f)) ? statSync(join(SALIDA, f)).mtime.toISOString().slice(0, 10) : null);
 
 /**
- * El JavaScript de la primera carga, medido de nuevo sobre dist/ de hoy (los mismos archivos que pidió la página en el banco, brotli 11):
- * el banco es una corrida larga y la interfaz o la escena pueden haber cambiado después.
+ * El JavaScript de la primera carga, medido de nuevo sobre dist/ de hoy (brotli 11): la entrada, el Worker y los trozos que la entrada
+ * importa de forma estática (los que se bajan con import() —el QR, el inglés— no viajan en la primera carga). El banco es una corrida larga
+ * y la interfaz o la escena pueden haber cambiado después; los nombres de los trozos cambian con su contenido, por eso se leen de la entrada.
  */
 function primeraCargaHoy(banco) {
   const p = banco?.presupuestos?.find((x) => x.id === 'primeraCarga');
   const dist = join(RAIZ, 'dist');
-  if (!p?.archivos || !p.archivos.every((a) => existsSync(join(dist, a.archivo)))) return null;
-  const archivos = p.archivos.map((a) => ({ archivo: a.archivo,
-    brotli: brotliCompressSync(readFileSync(join(dist, a.archivo)), { params: { [zlib.BROTLI_PARAM_QUALITY]: 11 } }).length }));
-  return { kb: Number((archivos.reduce((x, a) => x + a.brotli, 0) / 1024).toFixed(1)), meta: p.meta, archivos };
+  if (!existsSync(join(dist, 'entrada.js')) || !existsSync(join(dist, 'worker.js'))) return null;
+  const entrada = readFileSync(join(dist, 'entrada.js'), 'utf8');
+  const estaticos = [...new Set([...entrada.matchAll(/(?:from|import)\s*"\.\/(trozos\/[^"]+\.js)"/g)].map((m) => m[1]))];
+  const archivos = ['entrada.js', ...estaticos, 'worker.js'].map((archivo) => ({ archivo,
+    brotli: brotliCompressSync(readFileSync(join(dist, archivo)), { params: { [zlib.BROTLI_PARAM_QUALITY]: 11 } }).length }));
+  return { kb: Number((archivos.reduce((x, a) => x + a.brotli, 0) / 1024).toFixed(1)), meta: p?.meta ?? 150, archivos };
 }
 const args = process.argv.slice(2);
 
@@ -170,6 +173,7 @@ const ARREGLOS_REVISION_30_10 = [
   { id: 'HUB-R01 (explicador)', arreglo: 'La espera dentro del camión (andenes ocupados o cola de descarga) es candidata a causa con su contrafactual «una persona más de descarga en cada andén»: ningún paquete tarde queda sin candidata, y solo se afirma si confirma', donde: 'explicacion/causas.ts, explicacion/frases.ts, app/pantallas/biografia.ts' },
   { id: 'EST-04 (seguir)', arreglo: '«Seguir simulando (hasta N noches por opción)» cuando la decisión queda en duda al llegar al máximo, hasta el tope de la calibración exacta (2.000)', donde: 'app/pantallas/decidir.ts' },
   { id: 'EST-02 (noches reales)', arreglo: 'Cobertura de la comparación pareada medida con 600 pares REALES del hub chico: el IC de la mediana cubre ≥ 98,9% con la configuración de la app y ningún veredicto contradice a la mayoría', donde: 'integracion/pruebas/pareada-hub.test.ts, integracion/pruebas/datos/' },
+  { id: 'SEG-R6 (primera carga)', arreglo: 'El inglés va en un trozo que se baja al elegirlo: la primera carga vuelve a 143 KB brotli (había pasado a 154 con los arreglos; tope 150)', donde: 'app/i18n/cargar.ts, app/i18n/diccionario-es.ts, app/i18n/diccionario-en.ts, app/arrancar.ts' },
   { id: 'menores (3.ª vuelta)', arreglo: 'REV-D6 (R06 exige la foto de ida y vuelta y ahora = hasta), HUB-R11 (aviso A-SORTER-TIPO), HUB-R13 (la caminata de la propuesta 1.1.0 es el mínimo)', donde: 'integracion/bateria/casos-hub.ts, modelo/chequeos.ts, hub/plantillas/generar.ts' },
 ];
 
@@ -306,16 +310,17 @@ async function principal() {
     criterios,
     decisionesAbiertas: [
       '«KPI sanos» de §9 sobre hub-chico@1.0.0: la integración eligió el camino 2 (23-10-2026; la prueba `todo` de P4 se borró); falta pasar a corte-1.md §9 el texto de integracion/CAMBIOS-CONTRATO.md §10. hub-chico@1.1.0 queda como propuesta.',
-      'Presupuesto «primer cuadro ≤ 150 ms»: primer cuadro progresivo en el corte 2 o reescribir la meta.',
+      'Presupuesto «primer cuadro ≤ 150 ms»: medido el 31-10-2026 en 1,35 s de mediana en el hub grande (1,22–1,35 s de mediana en las tres corridas del día, con la máquina a ≈ 69% de la referencia libre; ≈ 0,9 s equivalentes) y 0,9 s en el chico: primer cuadro progresivo en el corte 2 o reescribir la meta.',
       'E01 reformulado (solidez + completitud, esperas ≥ 5 min dentro de la pausa) y S03 como independencia + sesgo con la cobertura informativa (S03c): confirmar y pasar a corte-1.md §8.',
       'Motor 1.1.0 (caminata por distancia, plan por volumen en bloques vecinos, persistencia, relevo en las pausas, pausas después del fin, utilizaciones por jornada), la huella `h` en la receta y el tope de tramos: pasar a corte-1.md (integracion/CAMBIOS-CONTRATO.md).',
       'Motor 1.2.0 y la estadística de la revisión del 30-10-2026 (vuelta del manual con lugar, costos de ausentes y horas extra, decisión secuencial calibrada exacta, comparación por la prueba del signo, S13 con la regla de la interfaz, cotas del esquema): pasar a corte-1.md y, lo aditivo, al Anexo A (integracion/CAMBIOS-CONTRATO.md §12).',
       'R4 (cobertura entre roles y jornada máxima), R6–R10 y E-11: quedan para el corte 2 (integracion/CAMBIOS-CONTRATO.md §9).',
       'Presentar en 4 pasos (los de diseño maestro §5.6) en lugar de «tres actos»: lo confirma el fundador.',
-      'Tamizado del hub chico al límite de su presupuesto (mediana cerca de 60 s, alguna corrida por encima) desde las reglas de parada del 20-10: reusar las noches de la evaluación base, bajar REPLICAS_MAX_TAMIZADO o tamizar con una tanda fija (integracion/NOTAS-CONTRATO.md §14). Cambia la estadística: decide el orquestador.',
-      'Primera carga a menos de 5 KB brotli del tope de 150 KB: lo que sume el corte 2 va en trozos aparte.',
+      'Tamizado del hub chico: medido el 31-10-2026 en 98,7 s de mediana (97,7–101,7 s en 5 corridas) contra 60 s, con la máquina a ≈ 69% de la referencia libre del 23-10 (la corrida salió «no concluyente»; ≈ 68 s equivalentes, dentro del ±30% por cociente, pero ya no «al límite»: eran 58,5 s el 23-10). El motor no se volvió más lento: la regla secuencial calibrada exacta del 30-10 pide más noches. Reusar las noches de la evaluación base, bajar REPLICAS_MAX_TAMIZADO o tamizar con una tanda fija (integracion/NOTAS-CONTRATO.md §14). Cambia la estadística: decide el orquestador.',
+      'Primera carga a menos de 7 KB brotli del tope de 150 KB (143,1 KB medidos el 31-10-2026 sobre dist/): lo que sume el corte 2 va en trozos aparte.',
       'Textos de corte-1.md que quedaron viejos (integracion/CAMBIOS-CONTRATO.md §11): §6.6 «(0, 1]», VERSION_MOTOR como versión del motor completo (hoy 1.2.0), reglas 7 y 11 del motor 1.1.0 y la prueba del plan con 9 personas de rampa. La especificación no es de ningún paquete: la corrige el orquestador.',
-      'Decidir se cierra lento: en el recorrido la recomendación aparece a los 17–18 s, pero el formulario llega a «Ya está» a los ~150 s (y otros ~135 s después de cada dato). Misma causa que el tamizado al límite; mismas tres salidas (integracion/NOTAS-CONTRATO.md §14 y §16).',
+      'Decidir se cierra lento: en los recorridos del 31-10-2026 la recomendación aparece a los ≈ 12 s, pero el formulario llega a «Ya está» a los 122–125 s (la evaluación base tarda ≈ 9 s en el banco). Misma causa que el tamizado; mismas tres salidas (integracion/NOTAS-CONTRATO.md §14 y §16).',
+      'Cuelgue intermitente en el banco (31-10-2026): en una de tres corridas del banco (la segunda corrida completa) el paso «primer cuadro sin red / con 4G» no terminó en 33 minutos, con el renderizador de Chromium a ≈ 300% de CPU (tres Workers calculando) hasta que se lo mató; no se repitió en la corrida completa anterior ni en una corrida solo de la app (3 corridas, 3 minutos). No se sabe si es de la prueba (cierre de página con Workers calculando) o de la app (cancelación o cierre de los Workers); sin arreglar, para el corte 2.',
       'R04 en Firefox y WebKit: pendientes (no están en el entorno y no se instalan); van al corte 2 con los teléfonos reales.',
     ],
     // lo que se arregló al mirar las capturas como alguien que viene de FlexSim (integracion/NOTAS-CONTRATO.md §16)

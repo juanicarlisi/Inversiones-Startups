@@ -15,7 +15,7 @@ import { crearAlmacen, estadoInicial, muestraPelicula, type Pantalla, type Tema 
 import { Sesion, type Origen } from './sesion.ts';
 import { crearFormato } from './i18n/formato.ts';
 import { crearTraductor, type Traductor } from './i18n/traducir.ts';
-import { diccionariosDeTodos } from './i18n/diccionarios.ts';
+import { cargarIngles, diccionarioEspanol } from './i18n/cargar.ts';
 import { estiloPara } from './ui/paleta.ts';
 import { el, escuchar, limpiezas } from './ui/dom.ts';
 import { montarInicio } from './pantallas/inicio.ts';
@@ -36,7 +36,10 @@ export const MONTAJES: Record<Pantalla, Montar> = {
 };
 
 export interface OpcionesArranque {
-  /** Diccionarios ya juntados (por defecto, los textos.*.json de todos los paquetes: i18n/diccionarios.ts). */
+  /**
+   * Diccionarios ya juntados. Por defecto, el español de todos los paquetes (i18n/cargar.ts) y el inglés se baja en un trozo aparte la
+   * primera vez que hace falta (la primera carga no lleva el idioma que no se usa).
+   */
   diccionarios?: Record<Idioma, Diccionario>;
   /** Registrar el service worker (por defecto sí, si el navegador lo tiene y la página se sirve por http o https). */
   pwa?: boolean;
@@ -72,9 +75,20 @@ export function arrancar(servicios: Servicios, raiz: HTMLElement, opciones: Opci
   const idiomaInicial: Idioma = opciones.idioma ?? (prefs.idioma === 'en' ? 'en' : 'es');
   const almacen = crearAlmacen(estadoInicial({ tema: temaGuardado, idioma: idiomaInicial, piso: prefs.piso === '2d' || prefs.piso === 'iso' ? prefs.piso : null }));
   const sesion = new Sesion(S, almacen);
-  const diccionarios = opciones.diccionarios ?? diccionariosDeTodos();
+  const diccionarios: Record<Idioma, Diccionario> = opciones.diccionarios ? { ...opciones.diccionarios } : { es: diccionarioEspanol(), en: {} };
   let traductor: Traductor = crearTraductor(diccionarios, idiomaInicial, crearFormato(idiomaInicial));
   let formato = crearFormato(idiomaInicial);
+  /** Baja el inglés si todavía no está (una sola vez). Si no se puede (sin red y sin la copia del service worker), sigue en español. */
+  let bajandoIngles: Promise<boolean> | null = null;
+  const asegurarIngles = (): Promise<boolean> => {
+    if (Object.keys(diccionarios.en).length > 0) return Promise.resolve(true);
+    bajandoIngles ??= cargarIngles().then((d) => { diccionarios.en = d; return true; }, (e: unknown) => {
+      bajandoIngles = null;
+      console.warn('Andén: no se pudieron bajar los textos en inglés; la interfaz sigue en español.', e);
+      return false;
+    });
+    return bajandoIngles;
+  };
   const mqOscuro = matchMedia('(prefers-color-scheme: dark)');
   const mqReducir = matchMedia('(prefers-reduced-motion: reduce)');
   const mqAncho = matchMedia('(min-width: 900px)');
@@ -242,9 +256,20 @@ export function arrancar(servicios: Servicios, raiz: HTMLElement, opciones: Opci
     if (n.tema !== a.tema || n.idioma !== a.idioma || n.piso !== a.piso) guardarPrefs({ tema: n.tema, idioma: n.idioma, piso: n.piso });
     if (n.tema !== a.tema) { aplicarTema(); pintarCabecera(); }
     if (n.idioma !== a.idioma) {
-      formato = crearFormato(n.idioma);
-      traductor = crearTraductor(diccionarios, n.idioma, formato);
-      aplicarTema(); montar(n.pantalla);
+      const aplicarIdioma = () => {
+        const e = almacen.estado;
+        formato = crearFormato(e.idioma);
+        traductor = crearTraductor(diccionarios, e.idioma, formato);
+        aplicarTema(); montar(e.pantalla);
+      };
+      // el inglés se baja la primera vez que se elige; mientras tanto la pantalla sigue como estaba (nunca a medio traducir)
+      if (n.idioma === 'en' && Object.keys(diccionarios.en).length === 0) {
+        void asegurarIngles().then((ok) => {
+          if (ok) { if (almacen.estado.idioma === 'en') aplicarIdioma(); } else almacen.despachar({ tipo: 'idioma', idioma: 'es' });
+        });
+        return;
+      }
+      aplicarIdioma();
       return;
     }
     if (n.pantalla !== a.pantalla) {
@@ -291,17 +316,28 @@ export function arrancar(servicios: Servicios, raiz: HTMLElement, opciones: Opci
     if (f && esFragmentoDeEnlace(f)) void ctx.abrirFragmento(f);
   }));
 
-  aplicarTema();
-  const fragmento = location.hash.slice(1);
-  if (fragmento) {
-    // Con un enlace no se monta antes el inicio: sus miniaturas vivas piden dos noches con traza (la de 24.000 incluida) que le ganan los
-    // Workers a la película del enlace y, al cancelarlas, el planificador recrea esos Workers en frío (lo midió integracion/banco.mjs,
-    // corte-1.md §11). Mientras se abre el enlace se ve el aviso de carga; si el enlace no abre, el inicio.
-    pintarCabecera();
-    contenido.replaceChildren(el('p', { class: 'escena__cargando', role: 'status' }, ctx.t('app.escena.cargandoNoche')));
-    const alInicio = () => { if (!contenido.dataset.pantalla) montar('inicio'); };
-    void ctx.abrirFragmento(fragmento).then((ok) => { if (!ok) alInicio(); }, alInicio);
-  } else montar('inicio');
+  /** Pinta lo primero: el enlace que trae la página (#…) o el inicio. */
+  const empezar = (): void => {
+    aplicarTema();
+    const fragmento = location.hash.slice(1);
+    if (fragmento) {
+      // Con un enlace no se monta antes el inicio: sus miniaturas vivas piden dos noches con traza (la de 24.000 incluida) que le ganan los
+      // Workers a la película del enlace y, al cancelarlas, el planificador recrea esos Workers en frío (lo midió integracion/banco.mjs,
+      // corte-1.md §11). Mientras se abre el enlace se ve el aviso de carga; si el enlace no abre, el inicio.
+      pintarCabecera();
+      contenido.replaceChildren(el('p', { class: 'escena__cargando', role: 'status' }, ctx.t('app.escena.cargandoNoche')));
+      const alInicio = () => { if (!contenido.dataset.pantalla) montar('inicio'); };
+      void ctx.abrirFragmento(fragmento).then((ok) => { if (!ok) alInicio(); }, alInicio);
+    } else montar('inicio');
+  };
+  // en inglés desde el arranque (?idioma=en o la preferencia guardada): primero se baja el inglés, para no pintar nada en español
+  if (idiomaInicial === 'en' && Object.keys(diccionarios.en).length === 0) {
+    void asegurarIngles().then((ok) => {
+      if (!ok) almacen.despachar({ tipo: 'idioma', idioma: 'es' });
+      else { formato = crearFormato('en'); traductor = crearTraductor(diccionarios, 'en', formato); }
+      empezar();
+    });
+  } else empezar();
 
   const conPwa = opciones.pwa ?? true;
   if (conPwa && 'serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
