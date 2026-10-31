@@ -151,7 +151,9 @@ con los controles faciales del rig (párpados, cejas, ojos, boca con formas). La
    como capa sobre cualquier clip; que camine por la pantalla; medir en gama baja.
 3. «¿Quién es?» y «Nombres por letra» contra otras personas (RPC en la base, como los duelos del Espadeo); el torneo con llaves.
 4. La temática por área y nivel (fondos y escenas por ruta, Lany vestida según la lección), con el Lany Master.
-5. El inglés de las 1.593 preguntas nuevas (lotes) y las 331 dudas de la segunda lectura de las lecciones.
+5. El inglés de las 1.593 preguntas nuevas (lotes; el portugués ya entró: 1.559 de 1.593, la trivia en portugués en 5.227) y las
+   331 dudas de la segunda lectura de las lecciones. El inglés espera porque el gasto de créditos se estima en ~USD 185 de 200: antes
+   de mandarlo hay que leer el consumo real en la consola de Anthropic.
 6. Del fundador: el APK 41; INPI, abogado de PI y la autorización del ministerio; la cuenta de Play; los cuatro pasos de lo social.
 
 ## 8. Evidencia

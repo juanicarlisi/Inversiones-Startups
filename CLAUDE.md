@@ -385,7 +385,8 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - Espadeo con tres caminos, Jugar en secciones, la trivia del sermón programada por el líder con aviso al grupo y PDF compartido,
     «Antes o después» con diez niveles, el álbum anual en Inicio, el versículo del día en la NBV;
   - trivia: banco 41 (1.593 preguntas nuevas por lotes; 5.371 vivas); los bancos nuevos usan ids de cinco cifras para no pisar a los
-    anteriores (las traducciones van por id); créditos ≈ USD 183 estimados con la traducción al portugués enviada: el inglés espera.
+    anteriores (las traducciones van por id); créditos ≈ USD 185 estimados; la traducción al portugués del banco 41 ya entró (1.559 de 1.593; 5.227 en portugués): el inglés
+    espera hasta leer el consumo real en la consola de Anthropic.
 
 ## 2. Reglas no negociables
 
