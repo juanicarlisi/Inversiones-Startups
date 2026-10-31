@@ -32,7 +32,7 @@ function clavesArmadas(): string[] {
     ...['mediana', 'peor', 'mejor'].map((x) => `app.noche.cambio.${x}`),
     ...['sistema', 'claro', 'oscuro'].flatMap((x) => [`app.tema.${x}`, `app.tema.corto.${x}`]),
     ...['por-volumen', 'contiguas'].map((x) => `app.ysi.plan.${x}`),
-    ...['hub-chico', 'hub-lazo-noche'].map((x) => `app.plantilla.${x}.problema`),
+    ...['hub-chico', 'hub-lazo-noche'].flatMap((x) => [`app.plantilla.${x}.problema`, `app.plantilla.${x}.titulo`]),
     // de otros paquetes, armadas por la interfaz
     ...['verde', 'amarillo', 'rojo'].map((c) => `experimentos.semaforo.color.${c}`),
     ...['ok', 'precision-no-lograda', 'decision-en-duda', 'pocas-replicas', 'inestable', 'conservacion', 'invariante', 'fuera-de-dominio', 'modelo-con-errores']

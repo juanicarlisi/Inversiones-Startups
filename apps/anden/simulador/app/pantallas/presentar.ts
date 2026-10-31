@@ -170,6 +170,15 @@ function panelDelActo(ctx: Contexto, a: number, panel: HTMLElement): void {
     const base = horaASeg(s.mv.modelo.calendario.inicio) * 1000;
     const h = (min: number) => ctx.f.hora(base + min * 60000);
     items.push(el('p', null, ctx.t('app.noches.abanico', { p10: h(m.finClasificacionMin.p10), p50: h(m.finClasificacionMin.p50), p90: h(m.finClasificacionMin.p90) })));
+    // cada percentil con su intervalo (estadísticos de orden), como en «Cien noches» (hallazgo EST-07): un P90 de cien noches no es exacto
+    const fines = s.nochesListas ? s.nochesLlegadas.map((r) => r.kpi.finClasificacionMin) : [];
+    const ics = ctx.servicios.intervalos && fines.length ? [0.1, 0.5, 0.9].map((q) => ctx.servicios.intervalos!.icPercentil(fines, q, s.confianza)) : [];
+    if (ics.length === 3 && ics.every((ic) => ic !== null)) {
+      const conIc = (v: number, ic: [number, number]) => ctx.t('app.noches.conIc', { valor: h(v), bajo: h(ic[0]), alto: h(ic[1]) });
+      const f = m.finClasificacionMin;
+      items.push(el('p', { class: 'nota', 'data-presentar': 'percentiles-ic' }, ctx.t('app.presentar.percentilesIc', { conf: ctx.f.porcentaje(s.confianza, 0),
+        p10: conIc(f.p10, ics[0]!), p50: conIc(f.p50, ics[1]!), p90: conIc(f.p90, ics[2]!) })));
+    }
     // la peor noche con su tamaño: a qué hora termina y cuántos paquetes quedan afuera del corte (hallazgo UX-15)
     const peor = s.resultados[m.nochePeor];
     items.push(el('p', null, peor

@@ -1,7 +1,7 @@
 // integracion/e2e/decidir.mjs · Andén simulador, corte 1 · Integración (corte-1.md §10.8 y diseño maestro §5.4–§5.5).
 // Decidir: la pregunta del modelo → la tabla por opción (probabilidad de cumplir con su intervalo, estado, costo) → la recomendación con
 // su semáforo → el formulario por decisión, contestando cada pregunta con un dato propio (un dato fuera del rango de validez se rechaza
-// sin tocar el modelo) hasta «Ya está: lo que falta no cambia la respuesta».
+// sin tocar el modelo) hasta «Ya está» (lo que falta no cambia la respuesta, o la cambiaría por menos que la zona de indiferencia).
 // Con hub-chico@1.0.0 tal cual ninguna opción cumple (lo dice la app: «ninguna cumple»); el recorrido abre la plantilla chica con los
 // datos de un hub propio (comun.mjs: PARCHE_DECIDIR), sin tocar la plantilla publicada.
 import { abrirPestana } from './comun.mjs';
@@ -54,8 +54,11 @@ export async function decidir({ contexto, base, etiqueta, prep, fallar, ok, guar
   }
   const listo = await page.textContent('[data-formulario="listo"]').catch(() => null);
   datos.cierre = listo;
-  if (listo !== 'Ya está: lo que falta no cambia la respuesta.') {
-    fallar(`${etiqueta} · decidir: el formulario terminó en «${listo}» (se esperaba «Ya está: lo que falta no cambia la respuesta.»; preguntas: ${datos.preguntas.map((x) => x.parametro).join(', ')})`);
+  // dos cierres honestos con recomendación: nada de lo que falta la cambia, o algo la cambiaría pero cuesta menos que la zona de
+  // indiferencia (hallazgo EST-08); los dos empiezan con «Ya está:»
+  const cierres = ['Ya está: lo que falta no cambia la respuesta.', /^Ya está: algún dato que falta podría mover la recomendación, pero equivocarse costaría menos que la zona de indiferencia del modelo \(.+\), así que no vale la pena preguntarlo\.$/];
+  if (!cierres.some((c) => (typeof c === 'string' ? listo === c : c.test(listo ?? '')))) {
+    fallar(`${etiqueta} · decidir: el formulario terminó en «${listo}» (se esperaba «Ya está: lo que falta no cambia la respuesta.» o el cierre por la zona de indiferencia; preguntas: ${datos.preguntas.map((x) => x.parametro).join(', ')})`);
   }
   datos.recomendacionFinal = await page.getAttribute('[data-recomendacion]', 'data-recomendacion');
   datos.tusDatos = (await page.textContent('.decidir__dadas').catch(() => ''))?.trim();

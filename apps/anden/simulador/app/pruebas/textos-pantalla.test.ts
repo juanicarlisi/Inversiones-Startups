@@ -20,9 +20,11 @@ import { textoConfirmado, textoContrafactual } from '../pantallas/biografia.ts';
 import { Causa, ClaseEntidad, TipoTramo, refDe, type Traza } from '../../contratos/traza.ts';
 import type { Biografia, Contrafactual } from '../../contratos/explicacion.ts';
 import type { Comparacion, EvaluacionDecision, Proporcion } from '../../contratos/experimentos.ts';
+import type { ResultadoTamizado } from '../../contratos/decision.ts';
 import type { NocheVista } from '../sesion.ts';
 import { validadoSinChequeos } from '../../contratos/referencias.ts';
-import { plantillaChica } from '../falsos/plantillas.ts';
+import { plantillaChica, plantillasFalsas } from '../falsos/plantillas.ts';
+import { tituloModelo } from '../pantallas/comun.ts';
 
 function ctxDe(idioma: 'es' | 'en' = 'es'): Contexto {
   const f = crearFormato(idioma), tr = crearTraductor(diccionariosDeTodos(), idioma, f);
@@ -57,6 +59,13 @@ test('cierre del formulario: «Ya está» solo si hay recomendación; si no, dic
   assert.equal(claveCierreFormulario(ev(null, 'decision-en-duda')), 'explicacion.formulario.en_duda');
   assert.equal(claveCierreFormulario(ev(null, 'ok')), 'explicacion.formulario.ninguna_cumple');
   assert.equal(claveCierreFormulario(null), 'explicacion.formulario.ninguna_cumple');
+  // un supuesto que mueve la recomendación pero cuesta menos que la zona de indiferencia: «Ya está», sin prometer que nada la cambia
+  // (hallazgo EST-08 de la revisión del 30-10-2026)
+  const fila = (cambiaDecision: boolean) => ({ parametro: 'x', decisiones: [3, 3, cambiaDecision ? 4 : 3], cambiaDecision, perdidaEsperada: 10 }) as unknown as ResultadoTamizado;
+  assert.equal(claveCierreFormulario(ev(4, 'ok'), [fila(false)]), 'explicacion.formulario.listo');
+  assert.equal(claveCierreFormulario(ev(4, 'ok'), [fila(false), fila(true)]), 'app.decidir.formularioListoIndiferencia');
+  assert.match(ctxDe().t('app.decidir.formularioListoIndiferencia', { indiferencia: '$ 20.000' }), /^Ya está: .*zona de indiferencia del modelo \(\$ 20\.000\)/);
+  assert.equal(claveCierreFormulario(ev(null, 'decision-en-duda'), [fila(true)]), 'explicacion.formulario.en_duda');
 });
 
 test('«¿y si…?» de la biografía: un cambio fijo por causa, sin repetir, y solo si tiene sentido en el modelo', () => {
@@ -169,4 +178,19 @@ test('EXP-06 · ningún texto del semáforo muestra un identificador interno: el
     assert.doesNotMatch(t, /«[a-z]+[A-Z0-9][A-Za-z0-9]*»/, `el texto muestra un id crudo: ${t}`);
     assert.ok(t.includes(ctx.t(`app.kpi.${kpi}`)), `se esperaba la etiqueta de ${kpi} en: ${t}`);
   }
+});
+
+test('título del modelo: el de la plantilla pública en el idioma de la interfaz; el que escribió una persona, tal cual (hallazgo EXP-13)', () => {
+  const plantillas = plantillasFalsas();
+  const conPlantillas = (idioma: 'es' | 'en') => ({ ...ctxDe(idioma), servicios: { plantillas } }) as unknown as Contexto;
+  const chica = plantillas['hub-chico@1.0.0'], grande = plantillas['hub-lazo-noche@1.0.0'];
+  assert.equal(tituloModelo(conPlantillas('en'), chica), 'Small sorting hub, night shift');
+  assert.equal(tituloModelo(conPlantillas('es'), chica), 'Hub de clasificación chico, turno noche');
+  // la grande ya no promete «24.000 paquetes» exactos: cada noche trae otra cantidad
+  assert.match(tituloModelo(conPlantillas('es'), grande), /≈ 24\.000 paquetes por noche/);
+  assert.match(tituloModelo(conPlantillas('en'), grande), /≈ 24,000 parcels a night/);
+  // un título cambiado, un modelo sin plantilla o una versión que no está en el registro: el título del modelo
+  assert.equal(tituloModelo(conPlantillas('en'), { ...chica, titulo: 'Mi hub de Ezeiza' }), 'Mi hub de Ezeiza');
+  assert.equal(tituloModelo(conPlantillas('en'), { titulo: 'Propio', plantilla: undefined }), 'Propio');
+  assert.equal(tituloModelo(conPlantillas('en'), { ...chica, plantilla: { id: 'hub-chico', version: '1.1.0' } }), chica.titulo);
 });

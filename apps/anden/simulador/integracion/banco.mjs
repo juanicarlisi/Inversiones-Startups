@@ -16,6 +16,7 @@
 //            · cuadro 2,5D y 2D del hub de 24.000 (1280 × 800, dpr 1, 120 instantes de la noche): el tiempo de `dibujar` y, aparte, con
 //              el rasterizado forzado (getImageData de un píxel), sin frenar y con CPU 4×
 //            · tamizado del hub chico (cancelable) y evaluación de su decisión, con los Workers de la app
+//            · intervalo entre cuadros (p95) con la película a ×600 mientras los Workers calculan las cien noches (hallazgo EXP-02)
 //            · memoria de la pestaña con la noche de 24.000 y su par de la pantalla dividida (measureUserAgentSpecificMemory, que
 //              incluye los Workers y los ArrayBuffer; la página se sirve aislada con COOP y COEP)
 //   Archivos · JavaScript de la primera carga sin vendor, brotli calidad 11: los .js que pidió la página al abrir el enlace
@@ -23,7 +24,7 @@
 // El freno de CPU de CDP frena el JavaScript, no la rasterización: no es un teléfono (§11). Escribe integracion/salida/banco.json.
 // Uso (desde apps/anden/simulador):  npm run banco  ·  node integracion/banco.mjs [--corridas=5] [--sin-construir] [--solo=node,app,chico]
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { cpus, tmpdir } from 'node:os';
+import { cpus, loadavg, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { brotliCompressSync, constants as zlib } from 'node:zlib';
@@ -54,6 +55,8 @@ export const PRESUPUESTOS = {
   tamizado: { nombre: 'Tamizado del hub chico con los Workers de la app, cancelable', meta: 60_000, unidad: 'ms', entorno: 'chromium' },
   decision: { nombre: 'Evaluación de la decisión del hub chico', meta: 20_000, unidad: 'ms', entorno: 'chromium' },
   memoria: { nombre: 'Memoria de la pestaña con la noche de 24.000 y su par de la pantalla dividida', meta: 150, unidad: 'MB', entorno: 'chromium' },
+  // hallazgo EXP-02 de la revisión del 30-10-2026: la película se entrecortaba mientras los Workers calculaban las cien noches
+  cuadroConWorkers: { nombre: 'Intervalo entre cuadros (p95) de la película a ×600 mientras los Workers calculan las cien noches', meta: 50, unidad: 'ms', entorno: 'chromium' },
   primeraCarga: { nombre: 'JavaScript de la primera carga (sin vendor), brotli', meta: 150, unidad: 'KB', entorno: 'archivos' },
 };
 
@@ -196,6 +199,33 @@ async function medirCuadros(page, piso) {
   }, piso);
 }
 
+/**
+ * Intervalos entre cuadros (requestAnimationFrame) con la película corriendo a la vista mientras los Workers calculan las cien noches
+ * (hallazgo EXP-02): hasta 5 s o hasta que llegan todas. La app, con la película a la vista, deja a lo sumo TRABAJADORES_CON_PELICULA
+ * Workers calculando; esto mide lo que ve la persona en ese primer minuto.
+ */
+async function medirCuadrosConWorkers(page) {
+  return page.evaluate(async () => {
+    const a = window.__anden;
+    if (!a.almacen.estado.reproduciendo) a.almacen.despachar({ tipo: 'reproducir' });
+    const dt = [];
+    let previo = -1;
+    const fin = performance.now() + 5000;
+    await new Promise((listo) => {
+      const paso = (t) => {
+        if (previo >= 0) dt.push(t - previo);
+        previo = t;
+        if (t < fin && !a.sesion.nochesListas) requestAnimationFrame(paso); else listo();
+      };
+      requestAnimationFrame(paso);
+    });
+    const o = [...dt].sort((x, y) => x - y);
+    const q = (p) => (o.length ? o[Math.min(o.length - 1, Math.floor(p * o.length))] : NaN);
+    return { cuadros: o.length, p50: q(0.5), p95: q(0.95), maximo: o.length ? o[o.length - 1] : NaN, masDe100ms: o.filter((x) => x > 100).length,
+      reproduciendo: a.almacen.estado.reproduciendo, nochesAlTerminar: a.sesion.llegadas };
+  });
+}
+
 /** El recorrido de la plantilla grande: película, cien noches, cuadros (sin frenar y 4×), vista previa y memoria. */
 async function corridaGrande(browser, base, i, log) {
   const contexto = await browser.newContext({ viewport: { width: 1280, height: 800 } });
@@ -207,6 +237,7 @@ async function corridaGrande(browser, base, i, log) {
   const cdp = await contexto.newCDPSession(page);
   try {
     const abierto = await abrirEnlace(page, base, GRANDE);
+    const cuadrosConWorkers = await medirCuadrosConWorkers(page);
     const hn = await page.waitForFunction(() => (window.__anden?.sesion?.nochesListas ? performance.now() : false), null, { polling: 100, timeout: 180_000 });
     const nochesListas = await hn.jsonValue();
     const info = await page.evaluate(() => {
@@ -239,10 +270,11 @@ async function corridaGrande(browser, base, i, log) {
     const { metrics } = await cdp.send('Performance.getMetrics').catch(() => ({ metrics: [] }));
     const heap = metrics.find((x) => x.name === 'JSHeapUsedSize')?.value ?? null;
     const r = { pelicula: abierto.pelicula, fcp: abierto.fcp, hitos: abierto.hitos, nochesListas, ...info, iso, plano, iso4, plano4, previa, memoria, heapPrincipal: heap,
-      js: abierto.respuestas, errores };
+      cuadrosConWorkers, js: abierto.respuestas, errores };
     log(`  corrida ${i + 1}: película ${abierto.pelicula.toFixed(0)} ms (FCP ${abierto.fcp?.toFixed(0)}) · cien noches ${(nochesListas / 1000).toFixed(1)} s con ` +
       `${info.trabajadores} Workers (${info.progreso} avances) · 2,5D ${iso.mediana.toFixed(2)}/${iso4.mediana.toFixed(2)} ms · 2D ${plano.mediana.toFixed(2)}/${plano4.mediana.toFixed(2)} ms · ` +
-      `hitos ${JSON.stringify(Object.fromEntries(Object.entries(abierto.hitos).map(([k, v]) => [k, v === null ? null : Math.round(v)])))} · vista previa ${previa.toFixed(0)} ms · memoria ${memoria.bytes ? (memoria.bytes / 1048576).toFixed(1) : '—'} MB · ${errores.length} errores`);
+      `hitos ${JSON.stringify(Object.fromEntries(Object.entries(abierto.hitos).map(([k, v]) => [k, v === null ? null : Math.round(v)])))} · vista previa ${previa.toFixed(0)} ms · memoria ${memoria.bytes ? (memoria.bytes / 1048576).toFixed(1) : '—'} MB · ` +
+      `cuadros con Workers p95 ${cuadrosConWorkers.p95?.toFixed(0)} ms (${cuadrosConWorkers.cuadros} cuadros, ${cuadrosConWorkers.masDe100ms} de más de 100 ms) · ${errores.length} errores`);
     return r;
   } finally { await contexto.close(); }
 }
@@ -298,6 +330,32 @@ async function corridaChico(browser, base, i, log, conCancelacion) {
   } finally { await contexto.close(); }
 }
 
+// ------------------------------------------------------------------------------------------------ máquina compartida
+
+// Los presupuestos de tiempo solo valen con el equipo libre (hallazgo SEG-R6 de la revisión del 30-10-2026: con otras sesiones usando el
+// contenedor, 5 de 14 salieron en rojo con el motor sin cambios). Dos señales, y cualquiera de las dos vuelve la corrida «no concluyente»:
+//   · la carga del sistema ANTES de empezar (la que pone otro; durante la corrida el banco mismo usa todos los núcleos), y
+//   · la referencia M/M/1 de esta corrida contra la del 23-10-2026 con el equipo libre (MEDIDO: 3,99 M eventos/s en Node y 2,49 M en el
+//     hilo principal de Chromium): si el mismo cálculo va a menos del 80%, la CPU estaba repartida.
+export const REFERENCIA_LIBRE = { fecha: '2026-10-23', nodeEps: 3.99e6, chromiumEps: 2.49e6 };
+export const CARGA_MAXIMA_POR_NUCLEO = 0.75;
+export const RAZON_MINIMA_REFERENCIA = 0.8;
+
+/** ¿La corrida es concluyente? Devuelve los motivos por los que no lo es (vacío = concluyente). */
+export function motivosNoConcluyente({ nucleos, cargaAntes, nodeEps = null, chromiumEps = null }) {
+  const motivos = [];
+  const umbral = nucleos * CARGA_MAXIMA_POR_NUCLEO;
+  if (cargaAntes > umbral) motivos.push(`la carga del sistema al empezar era ${cargaAntes.toFixed(2)} (más de ${umbral.toFixed(2)} en ${nucleos} núcleos): otra sesión usaba la máquina`);
+  const razon = (eps, ref, donde) => {
+    if (eps === null || !Number.isFinite(eps)) return;
+    const r = eps / ref;
+    if (r < RAZON_MINIMA_REFERENCIA) motivos.push(`la referencia M/M/1 en ${donde} corrió a ${(r * 100).toFixed(0)}% de la del ${REFERENCIA_LIBRE.fecha} con el equipo libre (${(eps / 1e6).toFixed(2)} contra ${(ref / 1e6).toFixed(2)} M eventos/s)`);
+  };
+  razon(nodeEps, REFERENCIA_LIBRE.nodeEps, 'Node');
+  razon(chromiumEps, REFERENCIA_LIBRE.chromiumEps, 'Chromium');
+  return motivos;
+}
+
 // ------------------------------------------------------------------------------------------------ armado
 
 function presupuesto(id, valores, eps, extra = {}) {
@@ -313,7 +371,9 @@ function presupuesto(id, valores, eps, extra = {}) {
 export async function correrBanco({ corridas = 5, construirAntes = true, solo = null, log = (s) => console.log(s) } = {}) {
   const t0 = ahora();
   const quiere = (x) => !solo || solo.includes(x);
+  const cargaAntes = loadavg();
   const res = { version: 1, corridas, maquina: { nucleos: cpus().length, cpu: cpus()[0]?.model ?? '?', node: process.version }, presupuestos: [], detalle: {} };
+  log(`carga del sistema al empezar: ${cargaAntes.map((x) => x.toFixed(2)).join(' · ')} (1, 5 y 15 min) en ${res.maquina.nucleos} núcleos`);
   let refNode = null;
   if (quiere('node')) {
     log('Node');
@@ -356,6 +416,10 @@ export async function correrBanco({ corridas = 5, construirAntes = true, solo = 
         res.presupuestos.push(presupuesto('cuadroIso4x', g.map((x) => x.iso4.mediana), eps, { conRasterizadoMediana: mediana(g.map((x) => x.iso4.medianaConRaster)), p90Mediana: mediana(g.map((x) => x.iso4.p90)) }));
         res.presupuestos.push(presupuesto('cuadro2d', g.map((x) => x.plano.mediana), eps, { conRasterizadoMediana: mediana(g.map((x) => x.plano.medianaConRaster)), p90Mediana: mediana(g.map((x) => x.plano.p90)) }));
         res.presupuestos.push(presupuesto('cuadro2d4x', g.map((x) => x.plano4.mediana), eps, { conRasterizadoMediana: mediana(g.map((x) => x.plano4.medianaConRaster)), p90Mediana: mediana(g.map((x) => x.plano4.p90)) }));
+        res.presupuestos.push(presupuesto('cuadroConWorkers', g.map((x) => x.cuadrosConWorkers.p95), null, {
+          p50Mediana: mediana(g.map((x) => x.cuadrosConWorkers.p50)), maximoMediana: mediana(g.map((x) => x.cuadrosConWorkers.maximo)),
+          masDe100msMediana: mediana(g.map((x) => x.cuadrosConWorkers.masDe100ms)), cuadrosMediana: mediana(g.map((x) => x.cuadrosConWorkers.cuadros)),
+          nota: 'requestAnimationFrame en la escena con la película a ×600, desde que está lista hasta 5 s o hasta que llegan las cien noches' }));
         res.presupuestos.push(presupuesto('memoria', g.map((x) => (x.memoria.bytes ?? NaN) / 1048576), null, { aislada: g.every((x) => x.memoria.aislada),
           heapPrincipalMBMediana: mediana(g.map((x) => (x.heapPrincipal ?? NaN) / 1048576)), partes: g[0]?.memoria.partes ?? [],
           nota: 'measureUserAgentSpecificMemory: la página y sus Workers, con los ArrayBuffer de las trazas' }));
@@ -403,6 +467,14 @@ export async function correrBanco({ corridas = 5, construirAntes = true, solo = 
     referenciaNodeMEps: refNode ? Math.round(refNode / 1e4) / 100 : null,
     referenciaChromiumMEps: res.detalle.referenciaChromium ? Math.round(res.detalle.referenciaChromium.eps / 1e4) / 100 : null,
   };
+  // ¿se midió con el equipo libre? (hallazgo SEG-R6)
+  res.carga = { antes: cargaAntes.map((x) => Math.round(x * 100) / 100), despues: loadavg().map((x) => Math.round(x * 100) / 100),
+    umbralAntes: res.maquina.nucleos * CARGA_MAXIMA_POR_NUCLEO, referenciaLibre: REFERENCIA_LIBRE,
+    razonNode: refNode ? Math.round((refNode / REFERENCIA_LIBRE.nodeEps) * 100) / 100 : null,
+    razonChromium: res.detalle.referenciaChromium ? Math.round((res.detalle.referenciaChromium.eps / REFERENCIA_LIBRE.chromiumEps) * 100) / 100 : null };
+  const motivos = motivosNoConcluyente({ nucleos: res.maquina.nucleos, cargaAntes: cargaAntes[0], nodeEps: refNode, chromiumEps: res.detalle.referenciaChromium?.eps ?? null });
+  res.resumen.concluyente = motivos.length === 0;
+  res.resumen.motivosNoConcluyente = motivos;
   res.segundos = (ahora() - t0) / 1000;
   return res;
 }
@@ -420,6 +492,10 @@ if (esPrincipal) {
       console.log(`  ${p.estado.padEnd(18)} ${p.nombre}: ${p.mediana} ${p.unidad} (meta ${p.meta})${p.enEventosReferencia !== undefined ? ` · ≈ ${p.enEventosReferencia.toLocaleString('es-AR')} eventos de la M/M/1 de referencia` : ''}`);
     }
     console.log(`${r.resumen.cumplen} cumplen, ${r.resumen.conMargen} con margen, ${r.resumen.noCumplen.length} no cumplen; ${r.segundos.toFixed(0)} s · integracion/salida/banco.json`);
-    process.exitCode = r.resumen.noCumplen.length ? 1 : 0;
+    if (!r.resumen.concluyente) {
+      console.log(`NO CONCLUYENTE: ${r.resumen.motivosNoConcluyente.join('; ')}. Repetir con el equipo libre antes de dar por medido el criterio 9.`);
+    }
+    // 1: algún presupuesto no cumple con el equipo libre · 3: no concluyente (la máquina estaba compartida)
+    process.exitCode = !r.resumen.concluyente ? 3 : r.resumen.noCumplen.length ? 1 : 0;
   }, (e) => { console.error(e instanceof Error ? e.stack : String(e)); process.exitCode = 2; });
 }

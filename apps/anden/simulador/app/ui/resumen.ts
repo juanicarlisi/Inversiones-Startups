@@ -60,8 +60,9 @@ export function lineaResumen(ctx: Contexto): HTMLElement {
   } else {
     const moneda = mv.modelo.costos.moneda;
     if (s.resumenCosto) {
+      // el ± dice a qué confianza es (hallazgo EST-07): al lado hay un Wilson y en Decidir otro intervalo más exigente
       partes.push(el('span', { class: 'resumen__item', 'data-resumen': 'costo' }, ctx.t('app.resumen.costo', {
-        valor: ctx.f.moneda(s.resumenCosto.media, moneda), mas: ctx.f.moneda(s.resumenCosto.semiancho, moneda) })));
+        valor: ctx.f.moneda(s.resumenCosto.media, moneda), mas: ctx.f.moneda(s.resumenCosto.semiancho, moneda), conf: ctx.f.porcentaje(s.resumenCosto.confianza, 0) })));
     }
     if (s.propCorte) {
       const { texto, ic } = textoPerderCorte(ctx, s.propCorte);

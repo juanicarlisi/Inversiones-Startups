@@ -210,3 +210,15 @@ núcleos compartidos, Node 22.22) el 30/31-10-2026.
   del enlace hostil abre H13 por la URL.
 - **Texto propuesto para §1.8 / §11:** las cotas de arriba, y «primitivas por cuadro acotadas: grilla ≤ 200 líneas por eje, muestreo de
   recorridos ≤ 4.000 puntos, lo que queda fuera del lienzo no se compone».
+
+### 12.5 Segunda vuelta del 31-10-2026: R04 con otro motor y el banco honesto (REV-D5, SEG-R6, EXP-02)
+
+`contratos/` sigue sin cambios. Solo textos de `corte-1.md` (lo decide el orquestador):
+
+- **§8, R04 (y §10.7):** «La misma huella en Node y en Chromium, y en Firefox, WebKit y Bun (JavaScriptCore) si están en el entorno; el
+  alcance dice qué motores de JavaScript se compararon (Node y Chromium comparten V8)». Bun no reemplaza a Safari ni a WebKit (otro DOM,
+  otro Worker): suma un motor que no comparte código con V8 y cuya matemática nativa sí discrepa (por eso el motor usa la propia).
+- **§11, presupuesto nuevo:** «Intervalo entre cuadros de la película a ×600 mientras los Workers calculan las cien noches: p95 ≤ 50 ms»
+  (`cuadroConWorkers` en `integracion/banco.mjs`, hallazgo EXP-02). **§11, cómo se mide:** «una corrida del banco con la carga del sistema
+  al empezar por encima de 0,75 por núcleo, o con la referencia M/M/1 a menos del 80% de la del equipo libre, es “no concluyente” y no
+  cuenta como medición» (hallazgo SEG-R6).

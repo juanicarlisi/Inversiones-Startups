@@ -3,7 +3,9 @@
 //         worker_threads que hacen de Web Workers (el mismo Worker de la app: integracion/trabajador.ts con el núcleo de producción) y el
 //         planificador de experimentos/. Es asíncrono: lo mide `medirR07` antes de correr la batería (que es síncrona) y el caso informa;
 //   S12 · cobertura del IC de Wilson al 95% para p = 0,9 y n = 100 en 2.000 repeticiones, con los uniformes Philox del motor;
-//   S13 · decisión con datos fijos: 19/20 con meta 0,9 → en-duda; 97/100 → cumple; 336/400 → no-cumple.
+//   S13 · decisión con datos fijos y la regla secuencial calibrada de la interfaz (meta 0,9; 20/20/400): 19/20, 20/20 y 97/100 → en-duda;
+//         116/120 y 60/60 → cumple; 336/400 → no-cumple (corte-1.md §8 decía «97/100 → cumple», que es el Wilson de una sola mirada:
+//         CAMBIOS-CONTRATO.md §12.2).
 import type { ModeloValidado } from '../../contratos/modelo.ts';
 import type { FabricaTrabajador } from '../../contratos/experimentos.ts';
 import { Prioridad } from '../../contratos/experimentos.ts';

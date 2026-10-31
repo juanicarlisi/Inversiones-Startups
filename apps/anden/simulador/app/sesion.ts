@@ -13,7 +13,7 @@ import { Prioridad, type Comparacion, type Comprobante, type EvaluacionDecision,
 import type { ModeloValidado, OpParche } from '../contratos/modelo.ts';
 import { META_KPI, type KpiId, type ResultadoReplica } from '../contratos/resultados.ts';
 import type { Traza } from '../contratos/traza.ts';
-import { ClaseEntidad } from '../contratos/traza.ts';
+import { ClaseEntidad, TipoMomento } from '../contratos/traza.ts';
 import type { MapaRiesgo, MomentoEscena, Reproductor } from '../contratos/vistas.ts';
 import type { Biografia, Contrafactual, Frase } from '../contratos/explicacion.ts';
 import type { Pregunta, ResultadoTamizado } from '../contratos/decision.ts';
@@ -109,6 +109,23 @@ export interface EstadoDecision {
 /** Error que la interfaz muestra como aviso (clave i18n y detalle). */
 export interface ErrorSesion { clave: string; vars: Record<string, string | number> }
 
+/** Lo que se ve antes de la primera llegada: un minuto, para ver entrar el primer camión. */
+export const ANTES_DEL_PRIMER_CAMION_MS = 60_000;
+
+/**
+ * Dónde arranca la película de un modelo recién abierto (hallazgo EXP-04 de la revisión del 30-10-2026): un minuto antes de que llegue el
+ * primer camión, no al inicio del turno, que en las plantillas muestra el hub vacío durante los primeros segundos. Si la traza no trae
+ * llegadas de camiones, el primer paquete; si tampoco, el inicio. Siempre dentro de [inicio, fin].
+ */
+export function instanteDeArranque(traza: Pick<Traza, 'inicio' | 'fin' | 'momentos' | 'paquetes'>): number {
+  let t = Infinity;
+  const M = traza.momentos;
+  for (let i = 0; i < M.n; i++) if (M.tipo[i] === TipoMomento.CAMION_LLEGA && M.t[i] < t) t = M.t[i];
+  if (!Number.isFinite(t)) { const P = traza.paquetes; for (let i = 0; i < P.n; i++) if (P.creado[i] >= 0 && P.creado[i] < t) t = P.creado[i]; }
+  if (!Number.isFinite(t)) return traza.inicio;
+  return Math.min(traza.fin, Math.max(traza.inicio, t - ANTES_DEL_PRIMER_CAMION_MS));
+}
+
 export class Sesion {
   readonly servicios: ServiciosApp;
   readonly almacen: Almacen;
@@ -198,7 +215,8 @@ export class Sesion {
     const inicial = receta?.noche !== undefined && receta.noche < this.N ? receta.noche
       : typeof mv.modelo.experimento.nocheMostrada === 'number' ? Math.min(this.N - 1, mv.modelo.experimento.nocheMostrada) : 0;
     const cual: CualNocheMostrada = receta?.noche !== undefined ? 'receta' : typeof mv.modelo.experimento.nocheMostrada === 'number' ? 'elegida' : 'provisoria';
-    void this.cargarNoche(inicial, cual, receta?.t);
+    // sin un instante en la receta, la película arranca cuando el hub empieza a moverse, no con el hub vacío (hallazgo EXP-04)
+    void this.cargarNoche(inicial, cual, receta?.t, receta?.t === undefined);
     void this.pedirNoches();
   }
 
@@ -209,8 +227,11 @@ export class Sesion {
     while (this.guardadas.size > 2) this.guardadas.delete(this.guardadas.keys().next().value as string);
   }
 
-  /** Carga la noche `replica` con traza completa (la que se ve). Mantiene el cabezal si la noche nueva lo contiene. */
-  async cargarNoche(replica: number, cual: CualNocheMostrada, t?: number): Promise<void> {
+  /**
+   * Carga la noche `replica` con traza completa (la que se ve). Mantiene el cabezal si la noche nueva lo contiene; con `arrancar` (un
+   * modelo recién abierto, sin instante en la receta) lo pone donde empieza la acción (`instanteDeArranque`).
+   */
+  async cargarNoche(replica: number, cual: CualNocheMostrada, t?: number, arrancar = false): Promise<void> {
     const mv = this.mv; if (!mv) return;
     const gen = this.generacion;
     this.cargandoNoche = true; this.emitir('noche');
@@ -223,7 +244,7 @@ export class Sesion {
       if (!traza) throw new Error('la noche llegó sin traza');
       this.noche = this.nocheVista(replica, salida);
       this.cualNoche = cual;
-      this.almacen.despachar({ tipo: 'cargarNoche', inicio: traza.inicio, fin: traza.fin, t });
+      this.almacen.despachar({ tipo: 'cargarNoche', inicio: traza.inicio, fin: traza.fin, t: t ?? (arrancar ? instanteDeArranque(traza) : undefined) });
       void this.sincronizarB();
     } catch (e) {
       if (gen === this.generacion) this.fallar('app.error.noche', e);

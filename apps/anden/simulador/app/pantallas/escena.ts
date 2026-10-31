@@ -10,7 +10,7 @@ import { crearPlano } from '../ui/plano.ts';
 import { bucleReproduccion, controlesReproduccion, crearLineaTiempo } from '../ui/linea-tiempo.ts';
 import { etiquetaNoche, franjaSupuestos } from '../ui/etiqueta-noche.ts';
 import { lineaResumen, sellos } from '../ui/resumen.ts';
-import { horaDelDia, leyendaEstados } from './comun.ts';
+import { horaDelDia, leyendaEstados, tituloModelo } from './comun.ts';
 
 /** Primer paquete (por hora de creación) que no llega al corte; si ninguno lo pierde, el que más tardó. */
 export function paqueteParaMostrar(ctx: Contexto): number | null {
@@ -69,7 +69,7 @@ export const montarEscena: Montar = (raiz, ctx) => {
   const mv = s.mv;
   if (!mv) { ctx.ir('inicio'); return () => {}; }
   const titulo = el('h1', { class: 'pantalla__titulo' });
-  titulo.textContent = mv.modelo.titulo;
+  titulo.textContent = tituloModelo(ctx, mv.modelo);
   const resumen = el('div', { class: 'escena__resumen' });
   const etq = etiquetaNoche(ctx, 'A');
   const franja = el('div', { class: 'escena__franja' });

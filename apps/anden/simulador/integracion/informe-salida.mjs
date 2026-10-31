@@ -157,9 +157,15 @@ const ARREGLOS_REVISION_30_10 = [
   { id: 'HUB-R02', arreglo: 'Los ausentes cobran medio turno y las horas de más llevan recargo 1,5 (SUPUESTOS con fuente)', donde: 'hub/costos.ts, hub/kpi.ts' },
   { id: 'HUB-R03', arreglo: 'La vuelta del puesto manual espera lugar en la mesa: la fila nunca pasa la capacidad', donde: 'hub/bloques/excepcion.ts, hub/bloques/acumulacion.ts' },
   { id: 'EXP-01', arreglo: 'reconciliar() conserva los nodos (y el foco) que no cambiaron al repintar la línea de resumen, los sellos y el progreso', donde: 'app/ui/dom.ts, app/pantallas/escena.ts, comprobante.ts, decidir.ts' },
-  { id: 'EXP-02', arreglo: 'Mientras la película corre a la vista, a lo sumo 2 Workers calculan; al pausarla, todos', donde: 'experimentos/planificador.ts, integracion/puente.ts, integracion/entrada.ts, app/arrancar.ts' },
+  { id: 'EXP-02', arreglo: 'Mientras la película corre a la vista, a lo sumo 2 Workers calculan; al pausarla, todos. El banco mide el intervalo entre cuadros (p95 ≤ 50 ms) con los Workers calculando', donde: 'experimentos/planificador.ts, integracion/puente.ts, integracion/entrada.ts, app/arrancar.ts, integracion/banco.mjs' },
   { id: 'EXP-03 · EXP-08', arreglo: 'Rótulos de rampa en una pasada final con pastilla: las llenas, casi llenas y la seleccionada siempre; acercado, todas, sin encimarse; el tablero nombra las llenas', donde: 'escena/rotulos.ts, escena/pintar.ts, app/ui/tablero.ts' },
   { id: 'menores', arreglo: 'EST-05 (cinco indicadores al 99%, botón por los indicadores que deciden), EST-06, EST-09, EST-10, EXP-05, EXP-06, EXP-07, EXP-09, EXP-10, EXP-11, SEG-R7, REV-D3, REV-D4, REV-D6, REV-D7, REV-D8', donde: 'integracion/NOTAS-CONTRATO.md §17' },
+  // segunda vuelta del 31-10-2026 (integracion/NOTAS-CONTRATO.md §18)
+  { id: 'REV-D5', arreglo: 'R04 corre también en Bun (JavaScriptCore, el motor de Safari): ya no es solo V8 contra V8; el alcance dice qué motores se compararon', donde: 'integracion/r04.mjs, integracion/r04/cli.ts, integracion/bateria/casos-r04.ts' },
+  { id: 'SEG-R6', arreglo: 'El banco registra la carga del sistema y la referencia M/M/1 contra la del equipo libre; con la máquina compartida la corrida sale «no concluyente» y no cuenta para el criterio 9', donde: 'integracion/banco.mjs, integracion/informe-salida.mjs' },
+  { id: 'EST-07', arreglo: 'Cada ± dice a qué confianza es (resumen y Decidir) y el abanico de Presentar lleva el intervalo de P10, P50 y P90', donde: 'app/ui/resumen.ts, app/pantallas/decidir.ts, app/pantallas/presentar.ts' },
+  { id: 'EST-08', arreglo: '«Ya está» no promete que nada cambia la respuesta cuando un supuesto la mueve por menos que la zona de indiferencia: lo dice así', donde: 'app/pantallas/decidir.ts' },
+  { id: 'EXP-04 · EXP-12 · EXP-13 · HUB-R07', arreglo: 'La película arranca un minuto antes del primer camión; los avisos van arriba (no tapan el eje ni la velocidad); título de las plantillas públicas en el idioma de la interfaz («≈ 24.000 paquetes por noche»); «% del turno con la inducción ocupada»', donde: 'app/sesion.ts, app/estilos.css, app/pantallas/comun.ts, app/i18n/' },
 ];
 
 async function principal() {
@@ -207,11 +213,17 @@ async function principal() {
     'integracion/pruebas/diferencial.test.ts (en npm test) · 66 doradas de la batería generadas con la referencia');
   // 4
   const chromium = r04?.navegadores?.find((x) => x.nombre === 'chromium');
+  // Bun (JavaScriptCore): otro motor de JavaScript que V8 (hallazgo REV-D5); si corrió, tiene que dar lo mismo
+  const bun = r04?.navegadores?.find((x) => x.nombre === 'bun');
   criterio(4, 'R04: las mismas huellas en Node y Chromium (Firefox y WebKit si se pudieron instalar; si no, pendientes con el motivo)',
-    !!chromium && chromium.estado === 'pasa' && chromium.iguales === chromium.comparadas,
-    r04 ? { claves: r04.claves, chromium: chromium ? `${chromium.iguales} de ${chromium.comparadas} iguales (${chromium.version})` : null,
+    !!chromium && chromium.estado === 'pasa' && chromium.iguales === chromium.comparadas && bun?.estado !== 'falla',
+    r04 ? { claves: r04.claves, alcance: r04.alcance, motores: r04.motores ?? ['V8'],
+      chromium: chromium ? `${chromium.iguales} de ${chromium.comparadas} iguales (${chromium.version})` : null,
+      bunJavaScriptCore: !bun ? null : bun.estado === 'pendiente' ? `pendiente: ${bun.motivo}` : `${bun.iguales} de ${bun.comparadas} iguales (Bun ${bun.version})`,
       matematicaDistinta: chromium?.matDistintas, pendientes: r04.pendientes?.map((p) => `${p.nombre}: ${p.motivo}`) } : null,
-    'integracion/salida/r04.json (npm run r04)', 'Firefox y WebKit pendientes: no están en el entorno y no se permitió instalarlos (corte-1.md §13 los pasa al corte 2).');
+    'integracion/salida/r04.json (npm run r04)', 'Firefox y WebKit pendientes: no están en el entorno y no se permitió instalarlos (corte-1.md §13 los pasa al corte 2). ' +
+    'Node y Chromium comparten motor (V8); desde el 31-10-2026 R04 corre también en Bun (JavaScriptCore, el motor de Safari, hallazgo REV-D5): ' +
+    'no reemplaza a Safari ni a WebKit, pero compara dos motores de JavaScript distintos.');
   // 5
   const eExp = archivo(npm, 'integracion/pruebas/e-explicador.test.ts');
   criterio(5, 'E01 y E02 en verde: 0 frases causales sin confirmar', verdes(eExp),
@@ -245,13 +257,16 @@ async function principal() {
   // 9
   const noCumplen = banco?.presupuestos?.filter((p) => p.estado === 'no-cumple') ?? null;
   const cargaHoy = primeraCargaHoy(banco);
-  criterio(9, 'Presupuestos de §11 dentro del margen', !!banco && noCumplen.length === 0 && !!cargaHoy && cargaHoy.kb <= cargaHoy.meta,
+  // una corrida con la máquina compartida no cuenta como medición (hallazgo SEG-R6): `concluyente` lo dice el banco desde el 31-10-2026
+  const concluyente = banco?.resumen?.concluyente !== false;
+  criterio(9, 'Presupuestos de §11 dentro del margen', !!banco && concluyente && noCumplen.length === 0 && !!cargaHoy && cargaHoy.kb <= cargaHoy.meta,
     banco ? { presupuestos: banco.presupuestos.map((p) => ({ id: p.id, meta: p.meta, unidad: p.unidad, mediana: p.mediana, estado: p.estado })),
-      resumen: banco.resumen, maquina: banco.maquina, medidoEl: fechaDe('banco.json'), primeraCargaHoy: cargaHoy } : null,
-    'integracion/salida/banco.json (npm run banco: mediana de 5 corridas, ±30%)',
-    noCumplen?.length ? `No cumple: ${noCumplen.map((p) => `${p.nombre} (${Math.round(p.mediana)} ${p.unidad} contra ${p.meta})`).join('; ')}. ` +
+      resumen: banco.resumen, carga: banco.carga ?? null, maquina: banco.maquina, medidoEl: fechaDe('banco.json'), primeraCargaHoy: cargaHoy } : null,
+    'integracion/salida/banco.json (npm run banco: mediana de 5 corridas, ±30%; no concluyente si la máquina estaba compartida)',
+    (!concluyente ? `No concluyente: ${banco.resumen.motivosNoConcluyente.join('; ')}. ` : '') +
+    (noCumplen?.length ? `No cumple: ${noCumplen.map((p) => `${p.nombre} (${Math.round(p.mediana)} ${p.unidad} contra ${p.meta})`).join('; ')}. ` +
       'La meta de 150 ms viene de la maqueta, que dibujaba después de simular 10 min; el corte 1 simula la noche entera en un Worker antes del ' +
-      'primer cuadro. Decide el orquestador: primer cuadro progresivo en el corte 2 o reescribir el presupuesto (NOTAS-CONTRATO.md §8).' : null);
+      'primer cuadro. Decide el orquestador: primer cuadro progresivo en el corte 2 o reescribir el presupuesto (NOTAS-CONTRATO.md §8).' : '') || null);
   // 10
   const tex = archivo(npm, 'integracion/pruebas/textos.test.ts'), mar = archivo(npm, 'integracion/pruebas/marcas.test.ts');
   const escenas = e2e ? Object.values(e2e.combinaciones).map((c) => c.primerMinuto?.datos) : [];

@@ -8,6 +8,7 @@ import { Prioridad } from '../../contratos/experimentos.ts';
 import { el, limpiezas } from '../ui/dom.ts';
 import { tarjeta } from '../ui/tarjeta.ts';
 import { trazaDelPlano } from '../ui/plano.ts';
+import { tituloModelo as tituloDelModelo } from './comun.ts';
 
 const VELOCIDAD_MINIATURA = 600;
 
@@ -86,7 +87,7 @@ export const montarInicio: Montar = (raiz, ctx) => {
     const caja = el('div', { class: 'miniatura' });
     L.sumar(miniatura(ctx, clave, caja));
     const problema = ctx.traductor.tiene(`app.plantilla.${id}.problema`) ? ctx.t(`app.plantilla.${id}.problema`) : ctx.t('app.plantilla.generica');
-    const tituloModelo = el('p', { class: 'plantilla__modelo' }); tituloModelo.textContent = m.titulo;
+    const tituloModelo = el('p', { class: 'plantilla__modelo' }); tituloModelo.textContent = tituloDelModelo(ctx, m);
     return el('article', { class: 'plantilla', 'data-plantilla': clave },
       caja,
       el('div', { class: 'plantilla__cuerpo' },
@@ -112,7 +113,7 @@ export const montarInicio: Montar = (raiz, ctx) => {
     // las dos plantillas preguntan lo mismo: la pregunta dice para qué hub (hallazgo UX-20)
     const pregunta = el('span', { class: 'decision-opcion__pregunta' });
     pregunta.textContent = ctx.t('app.inicio.decisionPara', { pregunta: d.pregunta, paquetes: paquetesComoTitulo(ctx, paquetesNominales(ctx.servicios.plantillas[clave])) });
-    const plantilla = el('span', { class: 'decision-opcion__plantilla' }); plantilla.textContent = ctx.servicios.plantillas[clave].titulo;
+    const plantilla = el('span', { class: 'decision-opcion__plantilla' }); plantilla.textContent = tituloDelModelo(ctx, ctx.servicios.plantillas[clave]);
     b.append(pregunta, plantilla);
     return el('li', null, b);
   });

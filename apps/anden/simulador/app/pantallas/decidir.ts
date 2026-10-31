@@ -5,7 +5,7 @@
 // vuelve a decidir. Todo es cancelable; cancelar no es un error.
 import type { Contexto, Montar } from '../contexto.ts';
 import type { EvaluacionDecision } from '../../contratos/experimentos.ts';
-import type { Pregunta } from '../../contratos/decision.ts';
+import type { Pregunta, ResultadoTamizado } from '../../contratos/decision.ts';
 import type { Etiqueta } from '../../contratos/tipos-base.ts';
 import { el, limpiezas, poner, reconciliar } from '../ui/dom.ts';
 import { cabecera, progreso, tarjeta } from '../ui/tarjeta.ts';
@@ -22,10 +22,15 @@ function textoRecomendacion(ctx: Contexto, ev: EvaluacionDecision): string {
   return ctx.t(ev.semaforo.motivo === 'decision-en-duda' ? 'experimentos.recomendacion.en-duda' : 'experimentos.recomendacion.ninguna-cumple');
 }
 
-/** Mensaje de cierre del formulario cuando no queda ninguna pregunta que cambie la respuesta (explicacion/NOTAS-CONTRATO.md §11). */
-export function claveCierreFormulario(ev: EvaluacionDecision | null): string {
+/**
+ * Mensaje de cierre del formulario cuando no queda ninguna pregunta que cambie la respuesta (explicacion/NOTAS-CONTRATO.md §11).
+ * «Lo que falta no cambia la respuesta» solo es cierto si ningún supuesto del tamizado la cambia. El formulario deja afuera lo que
+ * cuesta menos que la zona de indiferencia aunque mueva la recomendación (`cambiaDecision`): en ese caso el cierre lo dice así, con la
+ * zona de indiferencia, y no promete que la respuesta no cambia (hallazgo EST-08 de la revisión del 30-10-2026).
+ */
+export function claveCierreFormulario(ev: EvaluacionDecision | null, ranking: readonly ResultadoTamizado[] | null = null): string {
   if (ev && ev.semaforo.color === 'rojo') return 'app.decidir.formularioRojo';
-  if (ev && ev.recomendacion !== null) return 'explicacion.formulario.listo';
+  if (ev && ev.recomendacion !== null) return ranking?.some((r) => r.cambiaDecision) ? 'app.decidir.formularioListoIndiferencia' : 'explicacion.formulario.listo';
   if (ev && ev.semaforo.motivo === 'decision-en-duda') return 'explicacion.formulario.en_duda';
   return 'explicacion.formulario.ninguna_cumple';
 }
@@ -158,7 +163,9 @@ export const montarDecidir: Montar = (raiz, ctx) => {
       const ninguna = !rojo && ev.recomendacion === null && ev.semaforo.motivo !== 'decision-en-duda';
       const enElBorde = !rojo && ev.recomendacion !== null && ev.recomendacion === d.variable.min;
       poner(evaluacion,
-        tabla([ctx.t('app.decidir.col.valor'), ctx.t('app.decidir.col.prob'), ctx.t('app.decidir.col.estado'), ctx.t('app.decidir.col.costo'), ctx.t('app.decidir.col.noches')],
+        // la probabilidad va con el intervalo por mirada (la nota de abajo) y el costo con el de la decisión: cada uno dice el suyo (EST-07)
+        tabla([ctx.t('app.decidir.col.valor'), ctx.t('app.decidir.col.prob'), ctx.t('app.decidir.col.estado'),
+          ctx.t('app.decidir.col.costo', { conf: ctx.f.porcentaje(ev.configuraciones[0]?.objetivo.confianza ?? d.confianza, 0) }), ctx.t('app.decidir.col.noches')],
           ev.configuraciones.map((c) => [String(c.valor),
             // 199 de 200 no es «100%» y 0,8996 contra la meta 0,90 no es «90%» (hallazgo EST-06)
             rojo ? '—' : ctx.t('app.decidir.prob', { p: porcentajeContraMeta(ctx, c.prop.p, d.restriccion.probabilidadMinima), bajo: porcentajeContraMeta(ctx, c.prop.ic[0], d.restriccion.probabilidadMinima), alto: porcentajeContraMeta(ctx, c.prop.ic[1], d.restriccion.probabilidadMinima) }),
@@ -182,10 +189,13 @@ export const montarDecidir: Montar = (raiz, ctx) => {
     const conUnidad = ([k, v]: [string, number]) => { const u = mv.modelo.parametros[k]?.unidad; return u ? `${ctx.f.numero(v)} ${u}` : `${k} = ${ctx.f.numero(v)}`; };
     poner(respuestas, dadas.length ? el('p', { class: 'decidir__dadas' }, ctx.t('app.decidir.tusDatos', { lista: dadas.map(conUnidad).join(' · ') })) : null);
     if (x.preguntas) {
+      const cierre = claveCierreFormulario(x.evaluacion, x.ranking);
+      // la zona de indiferencia en la unidad de su indicador (moneda si es un costo)
+      const ind = d.indiferencia, enMoneda = ind.kpi.startsWith('costo');
+      const indiferencia = enMoneda ? ctx.f.moneda(ind.valor, mv.modelo.costos.moneda) : ctx.f.numero(ind.valor);
       poner(formulario, x.preguntas.length
         ? el('ol', { class: 'preguntas' }, ...x.preguntas.map((p) => tarjetaPregunta(ctx, p)))
-        : el('p', { class: `decidir__listo decidir__listo--${claveCierreFormulario(x.evaluacion).split('.').pop()}`, 'data-formulario': 'listo' },
-          ctx.t(claveCierreFormulario(x.evaluacion))));
+        : el('p', { class: `decidir__listo decidir__listo--${cierre.split('.').pop()}`, 'data-formulario': 'listo' }, ctx.t(cierre, { indiferencia })));
     } else poner(formulario, el('p', { class: 'nota' }, ctx.t(x.fase === 'tamizando' ? 'app.decidir.armandoFormulario' : 'app.decidir.formularioDespues')));
     raiz.dataset.listo = x.fase === 'listo' || x.fase === 'cancelado' ? '1' : '0';
   };

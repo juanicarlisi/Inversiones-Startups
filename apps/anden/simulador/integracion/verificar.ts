@@ -95,7 +95,7 @@ export async function principal(args: string[]): Promise<number> {
       doradas: inf.doradas.estado, conservacion: inf.conservacion, aprobada: r.aprobada, segundos: (reloj() - t0) / 1000,
       fallas: inf.resultados.filter((x) => x.tipo === 'exigible' && x.estado !== 'pasa').map((x) => `${x.id}: ${x.motivo ?? ''}`),
       porDueno: Object.fromEntries(['P1', 'P2', 'P4', 'P5', 'I'].map((d) => [d, inf.resultados.filter((x) => x.tipo === 'exigible' && x.dueno === d).length])),
-      r04: r04 ? { estado: r04.estado, alcance: r04.alcance, claves: r04.claves, pendientes: r04.pendientes } : { estado: 'sin-medir', motivo: motivoR04 },
+      r04: r04 ? { estado: r04.estado, alcance: r04.alcance, motores: r04.motores, claves: r04.claves, pendientes: r04.pendientes } : { estado: 'sin-medir', motivo: motivoR04 },
     }, null, 2)}\n`);
   }
   for (const x of inf.resultados) if (x.estado === 'falla') log(`FALLA ${x.id} · ${x.nombre}: ${x.motivo ?? ''}`);

@@ -5,9 +5,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { crearServiciosFalsos } from '../servicios-falsos.ts';
 import { crearAlmacen, estadoInicial, PERILLAS_VACIAS } from '../estado.ts';
-import { Sesion, NOCHES_CONFIRMACION, KPI_COMPARACION, MAX_NOCHES_ESCENA } from '../sesion.ts';
+import { Sesion, NOCHES_CONFIRMACION, KPI_COMPARACION, MAX_NOCHES_ESCENA, instanteDeArranque, ANTES_DEL_PRIMER_CAMION_MS } from '../sesion.ts';
 import { esperarA } from './ayudas.ts';
-import { ClaseEntidad } from '../../contratos/traza.ts';
+import { ClaseEntidad, TipoMomento } from '../../contratos/traza.ts';
 import type { ModeloValidado } from '../../contratos/modelo.ts';
 
 async function abrirChica(retardo = 0) {
@@ -39,6 +39,30 @@ test('abrir: la película (noche provisoria), las 100 noches, su resumen con IC,
   assert.equal(sesion.selloReproducida(), 'sin-receta');
 });
 
+test('la película de un modelo recién abierto arranca un minuto antes del primer camión, no con el hub vacío (hallazgo EXP-04)', () => {
+  const INICIO = 79_200_000, FIN = 108_000_000;
+  const traza = (momentos: [number, number][], creados: number[]) => ({
+    inicio: INICIO, fin: FIN,
+    momentos: { n: momentos.length, t: Float64Array.from(momentos.map((m) => m[0])), tipo: Uint8Array.from(momentos.map((m) => m[1])),
+      r: new Int32Array(momentos.length), v: new Float64Array(momentos.length) },
+    paquetes: { n: creados.length, creado: Float64Array.from(creados) },
+  }) as unknown as Parameters<typeof instanteDeArranque>[0];
+  const llega = INICIO + 25 * 60_000;
+  // la primera llegada manda, aunque la traza traiga momentos anteriores de otro tipo y llegadas posteriores
+  assert.equal(instanteDeArranque(traza([[INICIO + 5_000, TipoMomento.PAUSA_INICIO], [llega + 600_000, TipoMomento.CAMION_LLEGA], [llega, TipoMomento.CAMION_LLEGA]], [])),
+    llega - ANTES_DEL_PRIMER_CAMION_MS);
+  // sin llegadas, el primer paquete; sin nada, el inicio; y nunca antes del inicio
+  assert.equal(instanteDeArranque(traza([], [llega + 120_000, llega + 60_000])), llega);
+  assert.equal(instanteDeArranque(traza([], [])), INICIO);
+  assert.equal(instanteDeArranque(traza([[INICIO + 10_000, TipoMomento.CAMION_LLEGA]], [])), INICIO);
+});
+
+test('abrir sin instante en la receta pone el cabezal en el arranque de la acción (EXP-04)', async () => {
+  const { almacen, sesion } = await abrirChica();
+  await esperarA(() => sesion.noche !== null && !sesion.cargandoNoche, 'la primera noche');
+  assert.equal(almacen.estado.t, instanteDeArranque(sesion.noche!.traza));
+});
+
 test('elegir la peor y la mejor noche cambia la película y su etiqueta', async () => {
   const { sesion } = await abrirChica();
   await esperarA(() => sesion.nochesListas && sesion.cualNoche === 'mediana' && !sesion.cargandoNoche, 'noche mediana');
@@ -51,7 +75,7 @@ test('elegir la peor y la mejor noche cambia la película y su etiqueta', async 
   assert.ok(sesion.nochesLlegadas.every((r) => fin(sesion.noche!.replica) <= r.kpi.finClasificacionMin), 'la mejor es la que termina primero');
 });
 
-test('¿y si…?: vista previa de una noche con la misma réplica y confirmación pareada de 40 noches', async () => {
+test('¿y si…?: vista previa de una noche con la misma réplica y confirmación pareada con las mismas noches que A (NOCHES_CONFIRMACION)', async () => {
   const { sesion } = await abrirChica();
   await esperarA(() => sesion.nochesListas && !sesion.cargandoNoche && sesion.cualNoche === 'mediana', 'noches');
   const replicaA = sesion.noche!.replica;
@@ -68,7 +92,7 @@ test('¿y si…?: vista previa de una noche con la misma réplica y confirmació
   await sesion.previsualizar({ ...PERILLAS_VACIAS });
   assert.equal(sesion.ysi.fase, 'nada');
   assert.equal(sesion.ysi.mvB, null);
-  // un cambio que deja el modelo igual (balancear un plan que ya va por volumen): fase «igual», sin película B ni 40 noches (I-3)
+  // un cambio que deja el modelo igual (balancear un plan que ya va por volumen): fase «igual», sin película B ni noches de confirmación (I-3)
   assert.equal(sesion.mv!.modelo.personas.rampa.asignacion, 'por-volumen');
   await sesion.previsualizar({ ...PERILLAS_VACIAS, balanceado: true });
   assert.equal(sesion.ysi.fase, 'igual', `se esperaba «igual» y salió «${sesion.ysi.fase}»`);

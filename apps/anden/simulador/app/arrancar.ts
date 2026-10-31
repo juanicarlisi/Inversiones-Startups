@@ -19,6 +19,7 @@ import { diccionariosDeTodos } from './i18n/diccionarios.ts';
 import { estiloPara } from './ui/paleta.ts';
 import { el, escuchar, limpiezas } from './ui/dom.ts';
 import { montarInicio } from './pantallas/inicio.ts';
+import { tituloModelo } from './pantallas/comun.ts';
 import { montarEscena } from './pantallas/escena.ts';
 import { montarBiografia } from './pantallas/biografia.ts';
 import { montarNoches } from './pantallas/noches.ts';
@@ -182,12 +183,12 @@ export function arrancar(servicios: Servicios, raiz: HTMLElement, opciones: Opci
       'aria-label': ctx.t('app.barra.temaAria', { tema: nombreTema, corto: cortoTema }), onclick: () => almacen.despachar({ tipo: 'tema', tema: siguienteTema[almacen.estado.tema] }) },
     el('span', { class: 'boton__texto-corto', 'aria-hidden': 'true' }, ctx.t('app.barra.temaCorto', { corto: cortoTema })), el('span', { class: 'boton__texto-ancho' }, nombreTema));
     const titulo = el('span', { class: 'barra__modelo' });
-    titulo.textContent = sesion.mv && e.pantalla !== 'inicio' ? sesion.mv.modelo.titulo : '';
+    titulo.textContent = sesion.mv && e.pantalla !== 'inicio' ? tituloModelo(ctx, sesion.mv.modelo) : '';
     cabecera.replaceChildren(
       el('button', { type: 'button', class: 'barra__marca', 'data-accion': 'ir-inicio', 'aria-label': ctx.t('app.barra.inicio'), onclick: () => ctx.ir('inicio') },
         el('span', { class: 'barra__logo', 'aria-hidden': 'true' }), ctx.t('app.nombre')),
       titulo, el('span', { class: 'barra__espacio' }), idioma, tema);
-    document.title = sesion.mv && e.pantalla !== 'inicio' ? ctx.t('app.tituloCon', { modelo: sesion.mv.modelo.titulo }) : ctx.t('app.titulo');
+    document.title = sesion.mv && e.pantalla !== 'inicio' ? ctx.t('app.tituloCon', { modelo: tituloModelo(ctx, sesion.mv.modelo) }) : ctx.t('app.titulo');
   };
   const aplicarTema = () => {
     document.documentElement.dataset.tema = temaResuelto();
