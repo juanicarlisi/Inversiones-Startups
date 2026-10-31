@@ -9,7 +9,7 @@ import { crearFormato } from '../i18n/formato.ts';
 import { diccionariosDeTodos } from '../i18n/diccionarios.ts';
 import { textoEtiquetaNoche } from '../ui/etiqueta-noche.ts';
 import { textoPerderCorte } from '../ui/resumen.ts';
-import { claveCierreFormulario } from '../pantallas/decidir.ts';
+import { claveCierreFormulario, maximoParaSeguir, TOPE_NOCHES_SEGUIR } from '../pantallas/decidir.ts';
 import { cambiosDe } from '../pantallas/biografia.ts';
 import { trazaACsv } from '../pantallas/ingeniero.ts';
 import { accionConB, balanceDeB, textoVeredicto } from '../pantallas/ysi.ts';
@@ -68,6 +68,22 @@ test('cierre del formulario: «Ya está» solo si hay recomendación; si no, dic
   assert.equal(claveCierreFormulario(ev(null, 'decision-en-duda'), [fila(true)]), 'explicacion.formulario.en_duda');
 });
 
+test('EST-04 · «Seguir simulando» con la decisión en duda: pide más noches con margen, nunca más que el tope calibrado', () => {
+  // el doble de las de hoy, en tandas de 20
+  assert.equal(maximoParaSeguir(400, { valores: '3', replicas: 400, faltan: 120 }), 800);
+  // si el semáforo estima que faltan más que el doble, esas
+  assert.equal(maximoParaSeguir(400, { valores: '3', replicas: 400, faltan: 650 }), 1060);
+  // meta inalcanzable con el presupuesto: las mínimas, redondeadas a una tanda
+  assert.equal(maximoParaSeguir(400, { valores: '3', minimas: 905, maximo: 400 }), 920);
+  // más que el tope de la calibración exacta (aunque todas cumplieran): no se ofrece; el semáforo ya pide revisar la meta
+  assert.equal(maximoParaSeguir(400, { valores: '3', minimas: 2500, maximo: 400 }), null);
+  assert.equal(maximoParaSeguir(400, { valores: '3', minimas: '∞', maximo: 400 }), null);
+  // ya en el tope: nada que pedir; cerca del tope: hasta el tope
+  assert.equal(maximoParaSeguir(TOPE_NOCHES_SEGUIR, { valores: '3', faltan: 50 }), null);
+  assert.equal(maximoParaSeguir(1500, {}), TOPE_NOCHES_SEGUIR);
+  assert.match(ctxDe().t('app.decidir.seguir', { max: 800 }), /^Seguir simulando \(hasta 800 noches por opción\)$/);
+});
+
 test('«¿y si…?» de la biografía: un cambio fijo por causa, sin repetir, y solo si tiene sentido en el modelo', () => {
   const mv = validadoSinChequeos(plantillaChica());
   const tr = { catalogo: { rampas: mv.modelo.hub.rampas.map((r) => r.id) } } as unknown as Traza;
@@ -83,6 +99,11 @@ test('«¿y si…?» de la biografía: un cambio fijo por causa, sin repetir, y 
   // sin puestos físicos libres no se ofrece «un puesto más»
   const lleno = validadoSinChequeos({ ...plantillaChica(), personas: { ...plantillaChica().personas, induccion: { ...plantillaChica().personas.induccion, puestosActivos: 5 } } });
   assert.ok(!cambiosDe(bio, lleno, tr).some((c) => c.clave === 'explicacion.cambio.fila'));
+  // el camión esperó en la playa (HUB-R01): primero se ofrece una persona más de descarga en cada andén
+  const conPlaya = { ...bio, pasos: [{ desde: 0, hasta: 1, frase: { clave: 'explicacion.paso.llego.playa', vars: {}, afirmaciones: [] }, espera: null }, ...bio.pasos] } as Biografia;
+  const cp = cambiosDe(conPlaya, mv, tr);
+  assert.equal(cp[0].clave, 'explicacion.cambio.descarga');
+  assert.deepEqual(cp[0].parche, mv.modelo.hub.andenes.map((a, i) => ({ op: 'replace', path: `/hub/andenes/${i}/personas`, value: a.personas + 1 })));
 });
 
 test('resultado del contrafactual en palabras: hora con y sin el cambio, y si llega al corte', () => {

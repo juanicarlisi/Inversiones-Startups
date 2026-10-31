@@ -8,7 +8,9 @@ import type { Afirmacion, Frase } from '../contratos/explicacion.ts';
 import { segAHora } from '../contratos/tipos-base.ts';
 import { enUnidad, redondear } from './unidades.ts';
 
-export const TIPOS_DE_CAUSA = ['pausa', 'ausencia', 'rampa_llena', 'falla', 'fila', 'bloqueo', 'no_leido', 'cierre_jaula'] as const;
+// 'descarga': la espera dentro del camión (andenes ocupados o cola de descarga, HUB-R01). No sale de una Causa de un tramo del paquete
+// (el paquete nace al empezar su descarga): la arma causas.ts › esperaEnCamion con los tramos del camión.
+export const TIPOS_DE_CAUSA = ['pausa', 'ausencia', 'rampa_llena', 'falla', 'fila', 'bloqueo', 'no_leido', 'cierre_jaula', 'descarga'] as const;
 export type TipoDeCausa = (typeof TIPOS_DE_CAUSA)[number];
 
 const TIPO_DE_CAUSA: Partial<Record<number, TipoDeCausa>> = {
@@ -23,9 +25,11 @@ export function tipoDeCausa(c: number): TipoDeCausa | null {
 const VARS_CAUSA: Record<TipoDeCausa, readonly string[]> = {
   pausa: ['espera', 'rampa', 'persona'], ausencia: ['espera', 'rampa', 'persona'], cierre_jaula: ['espera', 'rampa', 'persona'],
   rampa_llena: ['vueltas', 'rampa'], falla: ['espera'], fila: ['espera'], bloqueo: ['espera'], no_leido: ['espera'],
+  descarga: ['camion', 'llegada', 'inicio'],
 };
 const VARS_CAMBIO: Record<TipoDeCausa, readonly string[]> = {
   pausa: [], ausencia: ['reten'], rampa_llena: ['rampa', 'capacidad'], falla: [], fila: ['puestos'], bloqueo: ['puestos'], no_leido: [], cierre_jaula: [],
+  descarga: [],
 };
 
 function armarRegistro(): Record<string, readonly string[]> {

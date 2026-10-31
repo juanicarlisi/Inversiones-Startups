@@ -166,6 +166,11 @@ const ARREGLOS_REVISION_30_10 = [
   { id: 'EST-07', arreglo: 'Cada ± dice a qué confianza es (resumen y Decidir) y el abanico de Presentar lleva el intervalo de P10, P50 y P90', donde: 'app/ui/resumen.ts, app/pantallas/decidir.ts, app/pantallas/presentar.ts' },
   { id: 'EST-08', arreglo: '«Ya está» no promete que nada cambia la respuesta cuando un supuesto la mueve por menos que la zona de indiferencia: lo dice así', donde: 'app/pantallas/decidir.ts' },
   { id: 'EXP-04 · EXP-12 · EXP-13 · HUB-R07', arreglo: 'La película arranca un minuto antes del primer camión; los avisos van arriba (no tapan el eje ni la velocidad); título de las plantillas públicas en el idioma de la interfaz («≈ 24.000 paquetes por noche»); «% del turno con la inducción ocupada»', donde: 'app/sesion.ts, app/estilos.css, app/pantallas/comun.ts, app/i18n/' },
+  // tercera vuelta del 31-10-2026 (integracion/NOTAS-CONTRATO.md §18 y CAMBIOS-CONTRATO.md §12.6)
+  { id: 'HUB-R01 (explicador)', arreglo: 'La espera dentro del camión (andenes ocupados o cola de descarga) es candidata a causa con su contrafactual «una persona más de descarga en cada andén»: ningún paquete tarde queda sin candidata, y solo se afirma si confirma', donde: 'explicacion/causas.ts, explicacion/frases.ts, app/pantallas/biografia.ts' },
+  { id: 'EST-04 (seguir)', arreglo: '«Seguir simulando (hasta N noches por opción)» cuando la decisión queda en duda al llegar al máximo, hasta el tope de la calibración exacta (2.000)', donde: 'app/pantallas/decidir.ts' },
+  { id: 'EST-02 (noches reales)', arreglo: 'Cobertura de la comparación pareada medida con 600 pares REALES del hub chico: el IC de la mediana cubre ≥ 98,9% con la configuración de la app y ningún veredicto contradice a la mayoría', donde: 'integracion/pruebas/pareada-hub.test.ts, integracion/pruebas/datos/' },
+  { id: 'menores (3.ª vuelta)', arreglo: 'REV-D6 (R06 exige la foto de ida y vuelta y ahora = hasta), HUB-R11 (aviso A-SORTER-TIPO), HUB-R13 (la caminata de la propuesta 1.1.0 es el mínimo)', donde: 'integracion/bateria/casos-hub.ts, modelo/chequeos.ts, hub/plantillas/generar.ts' },
 ];
 
 async function principal() {

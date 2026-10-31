@@ -156,6 +156,9 @@ function chequearLazo(m: Modelo, c: Colector): void {
   let ok = true;
   if (T < 2) { c.error('E-RANGO', '/hub/sorter/paso', 'bandejas', { bandejas: T }); ok = false; }
   if (tick < 1) { c.error('E-RANGO', '/hub/sorter/velocidad', 'tick', { segundos: cifra(s.paso / s.velocidad, 6) }); ok = false; }
+  // el motor del corte 1 simula todo lazo como bandejas basculantes: «banda-cruzada» solo cambia el dibujo y no puede pasar por un
+  // sorter que rinde distinto sin decirlo (hallazgo HUB-R11 de la revisión del 30-10-2026)
+  if (s.tipo === 'banda-cruzada') c.aviso('A-SORTER-TIPO', '/hub/sorter/tipo', undefined, { tipo: s.tipo });
   const puntos: { id: string; s: number; ruta: string; estacion: boolean }[] = [
     ...m.hub.induccion.puestos.map((p, i) => ({ id: p.id, s: p.s, ruta: `/hub/induccion/puestos/${i}/s`, estacion: true })),
     ...m.hub.rampas.map((p, i) => ({ id: p.id, s: p.s, ruta: `/hub/rampas/${i}/s`, estacion: true })),

@@ -109,6 +109,8 @@ deja el modelo inválido) e `I-CONTROLES` (controles hechos / sin diagnóstico /
 catálogo de 24 en `chequeos.ts::CONTROLES`) e `I-PAUSAS-SUPERPUESTAS` (información, desde el 20-10-2026: con el escalón menor que la pausa,
 cuántas personas del rol pueden estar en pausa a la vez; con el relevo del motor 1.1.0 es un dato para el comprobante y no un aviso: no entra en
 el catálogo de controles). `E-HORAS.corte` exige `inicio ≤ corte ≤ fin + 8 h` (el horizonte de §6.7 regla 1).
+`A-SORTER-TIPO` (31-10-2026, hallazgo HUB-R11): `hub.sorter.tipo = 'banda-cruzada'` compila, pero el motor del corte 1 simula todo lazo
+como bandejas basculantes; el aviso lo dice en lugar de dejar creer que un cross-belt rinde distinto.
 Por qué se compilan los escenarios y los valores de la decisión **al compilar el modelo** («modo profundo»): para que un modelo con un escenario roto
 no se acepte y se descubra recién al tocarlo. Costo MEDIDO: 6 ms para el ejemplo (con 4 escenarios y 4 valores); decodificar el enlace completo, 10 ms.
 `crearVariante` también compila en modo profundo: una variante se rechaza si sus propios escenarios dejan de ser válidos (no pasó con los del ejemplo).

@@ -143,6 +143,15 @@ export function generarHubChico110(base: Modelo): Modelo {
     throw new Error(`generarHubChico110: se esperaba la base hub-chico@1.0.0 y vino ${m.plantilla?.id}@${m.plantilla?.version}.`);
   }
   reemplazar(m, PARCHE_HUB_CHICO_1_1_0);
+  // Desde el motor 1.1.0 la caminata entre rampas se calcula por la distancia sobre el lazo a 1,2 m/s y este parámetro es solo el mínimo:
+  // la procedencia de 1.0.0 decía lo contrario (hallazgo HUB-R13 de la revisión del 30-10-2026; la 1.0.0 publicada no se toca).
+  const caminar = m.parametros.caminarEntreRampas;
+  if (caminar) {
+    caminar.unidad = 's como mínimo al cambiar de rampa';
+    caminar.fuente = 'Supuesto de la maqueta de medición. Es el mínimo por cambio de rampa: la caminata real se calcula con la distancia ' +
+      'sobre el pasillo del lazo a 1,2 m/s (motor 1.1.0 en adelante).';
+    caminar.fecha = '2026-10-31';
+  }
   m.plantilla = { id: 'hub-chico', version: '1.1.0' };
   m.creado = FECHA_1_1_0;
   m.descripcion =

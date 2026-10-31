@@ -65,6 +65,45 @@ function salidasSinRespuesta(ctx: Contexto): HTMLElement | null {
   return el('div', { class: 'decidir__salidas', 'data-decidir': 'salidas' }, el('p', null, ctx.t('app.decidir.salidas')), ...botones);
 }
 
+/**
+ * Tope de noches por opción que ofrece «Seguir simulando»: hasta acá la regla secuencial sigue calibrada con la distribución exacta
+ * (experimentos/estadistica/secuencial.ts › MAX_REPLICAS_CALIBRACION; la interfaz no importa ese paquete, por eso se repite el número).
+ */
+export const TOPE_NOCHES_SEGUIR = 2000;
+
+/**
+ * Cuántas noches por opción pedir al «Seguir simulando» (hallazgo EST-04): el doble de las de hoy, o las que el semáforo dice que
+ * faltan o que hacen falta como mínimo para la meta, si son más; en múltiplos de 20 (una tanda) y como mucho `TOPE_NOCHES_SEGUIR`.
+ * `null` si ya no hay margen (el máximo ya está en el tope, o la meta pide más noches que el tope aunque todas cumplieran).
+ */
+export function maximoParaSeguir(actual: number, vars: Record<string, string | number> | undefined): number | null {
+  const num = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) ? x : null);
+  const minimas = vars?.minimas === undefined ? null : num(vars.minimas) ?? Infinity;
+  if (minimas !== null && minimas > TOPE_NOCHES_SEGUIR) return null;
+  const faltan = num(vars?.faltan);
+  const pedido = Math.max(2 * actual, minimas ?? 0, faltan !== null ? actual + faltan : 0);
+  const nuevo = Math.min(TOPE_NOCHES_SEGUIR, Math.ceil(pedido / 20) * 20);
+  return nuevo > actual ? nuevo : null;
+}
+
+/**
+ * Con la decisión en duda al llegar al máximo de noches, la pantalla no termina en «faltarían unas N noches» sin forma de pedirlas
+ * (hallazgo EST-04): ofrece seguir simulando con un máximo mayor. Cambia `experimento.replicasMax` con un parche y vuelve a decidir
+ * (con la misma suerte: las noches 0…N de cada opción son las mismas).
+ */
+function seguirSimulando(ctx: Contexto, ev: EvaluacionDecision): HTMLElement | null {
+  const s = ctx.sesion, m = s.mv?.modelo;
+  if (!m || ev.semaforo.color === 'rojo' || ev.semaforo.motivo !== 'decision-en-duda') return null;
+  const actual = m.experimento.replicasMax;
+  const nuevo = maximoParaSeguir(actual, ev.semaforo.vars);
+  if (nuevo === null) return null;
+  return el('div', { class: 'decidir__salidas', 'data-decidir': 'seguir' },
+    el('p', null, ctx.t('app.decidir.seguirNota', { actual })),
+    el('button', { type: 'button', class: 'boton boton--primario', 'data-accion': 'decidir-seguir',
+      onclick: () => void s.cambiarDecision([{ op: 'replace', path: '/experimento/replicasMax', value: nuevo }]) },
+    ctx.t('app.decidir.seguir', { max: nuevo })));
+}
+
 function tarjetaPregunta(ctx: Contexto, p: Pregunta): HTMLElement {
   const unidad = ctx.sesion.mv?.modelo.parametros[p.parametro]?.unidad ?? '';
   const id = `respuesta-${p.parametro}`;
@@ -181,7 +220,7 @@ export const montarDecidir: Montar = (raiz, ctx) => {
           el('p', { class: 'decidir__recomendacion-texto' }, textoRecomendacion(ctx, ev)),
           enElBorde ? el('p', { class: 'nota', 'data-decidir': 'borde' }, ctx.t('app.decidir.enElBorde', { valor: d.variable.min })) : null,
           detalleSemaforo(ctx, ev.semaforo),
-          ninguna ? salidasSinRespuesta(ctx) : null),
+          ninguna ? salidasSinRespuesta(ctx) : seguirSimulando(ctx, ev)),
         el('p', { class: 'nota' }, ctx.t('app.decidir.noches', { n: ev.replicasUsadas })));
     } else poner(evaluacion, el('p', { class: 'nota' }, ctx.t('app.decidir.sinEvaluacion')));
     const dadas = Object.entries(x.respuestas);

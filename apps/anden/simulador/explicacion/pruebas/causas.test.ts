@@ -12,7 +12,7 @@ import type { Simulador } from '../../contratos/experimentos.ts';
 import type { ModeloValidado } from '../../contratos/modelo.ts';
 import { validadoSinChequeos } from '../../contratos/referencias.ts';
 import {
-  MAX_CANDIDATAS, UMBRAL_ESPERA_MS, UMBRAL_FRACCION_EN_HUB, cambioDeCausa, candidatasDe, causasConfirmadas, fraseDeCausa,
+  MAX_CANDIDATAS, UMBRAL_ESPERA_MS, UMBRAL_FRACCION_EN_HUB, cambioDeCausa, candidatasDe, causasConfirmadas, esperaEnCamion, fraseDeCausa,
 } from '../causas.ts';
 import { crearContrafactual } from '../contrafactual.ts';
 import { verificarFrases } from '../verificador.ts';
@@ -500,3 +500,41 @@ test('causas de una noche real de la maqueta: ninguna causa sin su contrafactual
   void frases;
 });
 
+
+test('HUB-R01 · la espera dentro del camión (andenes ocupados, cola de descarga) es candidata, con «una persona más en cada andén»', () => {
+  const mv = validadoEjemplo();
+  const armar = (conCamion: boolean) => {
+    const c = new ConstructorTraza();
+    if (conCamion) {
+      // el camión T01 llega 21:50 (antes del turno: la espera cuenta desde las 22:00), espera la playa hasta 22:05 y baja hasta 22:40
+      c.tramo(0, TipoTramo.CAMION_PLAYA, -1, 0, H22 - 10 * MIN, H22 + 5 * MIN, Causa.ANDEN_OCUPADO);
+      c.tramo(0, TipoTramo.CAMION_ANDEN, 0, 800, H22 + 5 * MIN, H22 + 40 * MIN);
+    }
+    // a este paquete lo empiezan a bajar a las 22:10 (T0): 10 min adentro del camión desde el inicio del turno
+    const v = viaje(c, T0).descarga(2000).cinta(10000).fila(1000).induccion(3000).bandeja(20000).rampa(8000, 0, PERSONA.R1).mano(3000, PERSONA.R1).jaula(0);
+    return { t: c.construir({ corte: CORTE }), id: v.id };
+  };
+  const { t, id } = armar(true);
+  const e = esperaEnCamion(t, id);
+  assert.ok(e, 'el paquete tiene una espera dentro del camión');
+  assert.equal(e.desde, H22, 'antes del turno no se descarga: la espera cuenta desde las 22:00, no desde la llegada');
+  assert.equal(e.hasta, T0, 'hasta que empieza su descarga');
+  assert.equal(e.causa, Causa.ANDEN_OCUPADO);
+  assert.deepEqual(e.causante, refDe(ClaseEntidad.CAMION, 0));
+  const cand = candidatasDe(t, mv, id);
+  assert.equal(cand.length, 1, 'la única espera larga es la del camión');
+  assert.equal(cand[0].items[0].tipo, 'descarga');
+  const andenes = mv.modelo.hub.andenes;
+  assert.deepEqual(cand[0].cambio.parche, andenes.map((a, i) => ({ op: 'replace', path: `/hub/andenes/${i}/personas`, value: a.personas + 1 })));
+  const f = fraseDeCausa(t, cand[0].items[0], 'corte', false);
+  assert.equal(f.clave, 'explicacion.causa.descarga');
+  assert.deepEqual(f.vars, { camion: 'T01', llegada: '21:50', inicio: '22:10' });
+  assert.deepEqual(verificarFrases([f], almacenDe(t, mv), 'noche').fallas, [], 'las dos horas salen de la traza y el verificador las reconoce');
+  // sin los tramos del camión en la traza no hay espera que contar (ni candidata)
+  const sin = armar(false);
+  assert.equal(esperaEnCamion(sin.t, sin.id), null);
+  assert.equal(candidatasDe(sin.t, mv, sin.id).length, 0);
+  // con el tope de personas por andén ya alcanzado, no hay cambio que probar
+  const lleno = validadoSinChequeos({ ...mv.modelo, hub: { ...mv.modelo.hub, andenes: andenes.map((a) => ({ ...a, personas: 50 })) } });
+  assert.equal(cambioDeCausa(lleno, t, 'descarga', -1), null);
+});

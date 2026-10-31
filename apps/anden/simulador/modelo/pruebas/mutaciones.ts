@@ -208,6 +208,7 @@ export const CASOS: Caso[] = [
     m.procedencia['/hub/noExiste'] = { etiqueta: 'SUPUESTO', fuente: 'Prueba.' };
   }),
   sobre('rampa que no pertenece a ninguna ruta', 'A-RAMPA-SIN-RUTA', '/hub/rampas/12', (m) => { m.hub.rampas.push({ id: 'R13', s: 62, lado: 1, capacidad: 20 }); }),
+  sobre('sorter de banda cruzada (el motor del corte 1 lo simula como bandejas: HUB-R11)', 'A-SORTER-TIPO', '/hub/sorter/tipo', (m) => { m.hub.sorter.tipo = 'banda-cruzada'; }),
   sobre('el ejemplo limpio informa los supuestos', 'I-SUPUESTOS', '/parametros', () => {}),
   sobre('el ejemplo limpio informa los controles', 'I-CONTROLES', '', () => {}),
 ];

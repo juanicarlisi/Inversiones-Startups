@@ -156,6 +156,8 @@ function tipoDeFrase(f: Frase): string | null {
 const CAMBIOS_DE: Record<string, string[]> = { fila: ['fila', 'bloqueo'], bloqueo: ['fila', 'bloqueo'] };
 /** El cambio fijo de cada causa según corte-1.md §9 P7, para comprobar que el contrafactual probó lo que dice la frase. */
 function esElCambioFijo(tipo: string, parche: OpParche[]): boolean {
+  // descarga (HUB-R01): una persona más en CADA andén, una operación por andén
+  if (tipo === 'descarga') return parche.length > 0 && parche.every((x) => x.op === 'replace' && /^\/hub\/andenes\/\d+\/personas$/.test(x.path));
   const p = parche[0] as { op: string; path: string; value?: unknown } | undefined;
   if (!p || parche.length !== 1 || p.op !== 'replace') return false;
   switch (tipo) {

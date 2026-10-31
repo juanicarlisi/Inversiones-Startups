@@ -469,6 +469,7 @@ function casoFoto(): Caso {
           // la foto viaja entre hilos (structuredClone, como postMessage) y se restaura en un motor y un hub nuevos
           const b = desdeFoto(ctx.crearMotor, mv, semilla, replica, structuredClone(foto));
           fotos++;
+          if (typeof b === 'string') { dif.push(`${que}, semilla ${semilla}, foto a las ${hora}: ${b}`); continue; }
           const d = diferencia(base, b);
           if (d) dif.push(`${que}, semilla ${semilla}, foto a las ${hora}: ${d}`);
         }
@@ -490,12 +491,24 @@ function fotoEn(cm: CrearMotor, mv: ModeloValidado, semilla: number, replica: nu
   const m = cm(opcionesNoche(mv, semilla, replica, 'no'));
   armarNoche(m, mv);
   const r = m.correrHasta(hasta);
-  return r.estado === 'pausa' ? m.foto() : `la corrida tenía que pausarse en ${hasta} ms y terminó con estado ${r.estado}`;
+  if (r.estado !== 'pausa') return `la corrida tenía que pausarse en ${hasta} ms y terminó con estado ${r.estado}`;
+  // contrato: correrHasta deja ahora = hasta (hallazgo REV-D6: sin esto, una foto «atrasada» pasaba igual)
+  if (m.ahora !== hasta) return `correrHasta(${hasta}) dejó ahora = ${m.ahora} y el contrato pide ahora = hasta`;
+  return m.foto();
 }
-function desdeFoto(cm: CrearMotor, mv: ModeloValidado, semilla: number, replica: number, foto: Foto): ResultadoReplica {
+function desdeFoto(cm: CrearMotor, mv: ModeloValidado, semilla: number, replica: number, foto: Foto): ResultadoReplica | string {
   const m = cm(opcionesNoche(mv, semilla, replica, 'no'));
   const n = armarNoche(m, mv);
+  const original = JSON.stringify(foto);
   m.restaurar(foto);
+  // ida y vuelta: la foto tomada apenas restaurada es la misma (ahora, seq, eventos, huella, calendario y bloques). Detecta un
+  // contador que restaurar() no devuelve (por ejemplo seq) aunque la huella final no llegue a cambiar con pocos cortes (REV-D6)
+  const eco = JSON.stringify(m.foto());
+  if (eco !== original) {
+    const a = JSON.parse(original) as Record<string, unknown>, b = JSON.parse(eco) as Record<string, unknown>;
+    const campos = Object.keys(a).filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+    return `la foto tomada apenas restaurada no es la misma (difieren: ${campos.join(', ')})`;
+  }
   return n.cerrar(m.correr()).resultado;
 }
 function diferencia(a: ResultadoReplica, b: ResultadoReplica): string | null {

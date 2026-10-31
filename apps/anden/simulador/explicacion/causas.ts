@@ -6,19 +6,20 @@
 //        PAUSA → pausas del rol con duración 0        AUSENCIA → retén + 1            RAMPA_LLENA → capacidad de esa rampa × 2
 //        FALLA → sin micro-paradas                    FILA o BLOQUEO → un puesto activo más
 //        NO_LEIDO → noLeido 0                         CIERRE_JAULA → cierre 0         FALTA_BANDEJA → sin causa propia (no se afirma)
-//      (PERSONA_OCUPADA, ANDEN_OCUPADO y NO_TRANSPORTABLE tampoco tienen cambio fijo: se describen en la biografía, no se afirman);
+//        DESCARGA (esperó dentro de su camión: andenes ocupados o cola de descarga) → una persona más de descarga en cada andén
+//      (PERSONA_OCUPADA y NO_TRANSPORTABLE tampoco tienen cambio fijo: se describen en la biografía, no se afirman);
 //   3. se corre el contrafactual de cada candidata con la misma semilla y réplica; solo las confirmadas se muestran como causa;
 //   4. si quedaron 2 o 3 sin confirmar de a una, se prueba el cambio conjunto y, si confirma, se muestra la causa conjunta
 //      (un encabezado `explicacion.causa.conjunta` y una frase `explicacion.causa.conjunta.<tipo>` por cada componente).
 //
 // Dos candidatas con exactamente el mismo cambio (fila y bloqueo piden «un puesto más») se prueban una sola vez y comparten veredicto.
-import { ClaseEntidad, TipoTramo, claseDeRef, idDeRef } from '../contratos/traza.ts';
+import { Causa, ClaseEntidad, TipoTramo, claseDeRef, idDeRef, refDe } from '../contratos/traza.ts';
 import type { Traza } from '../contratos/traza.ts';
 import type { CausasConfirmadas, Contrafactual, Espera, Frase } from '../contratos/explicacion.ts';
 import type { ModeloValidado, OpParche } from '../contratos/modelo.ts';
 import { encontrarPaquete, tiempoEnHub, tramosDe } from './consulta.ts';
 import { esperasDe } from './esperas.ts';
-import { afirmarMinutos, afirmarTramo, crearFrase, nombreDe, tipoDeCausa } from './frases.ts';
+import { afirmarHora, afirmarMinutos, afirmarTramo, crearFrase, horaDe, nombreDe, tipoDeCausa } from './frases.ts';
 import type { TipoDeCausa } from './frases.ts';
 
 export const UMBRAL_ESPERA_MS = 5 * 60 * 1000;
@@ -27,6 +28,8 @@ export const UMBRAL_FRACCION_EN_HUB = 0.2;
 export const MAX_CANDIDATAS = 6;
 /** La causa conjunta se prueba solo con 2 o 3 causas sin confirmar de a una (2^k experimentos; con más, solo de un factor). */
 export const MAX_CAUSAS_CONJUNTAS = 3;
+/** Personas por andén que admite el esquema (modelo/esquema.ts › MAX_PERSONAS_ANDEN; este paquete no importa modelo/). */
+export const TOPE_PERSONAS_ANDEN = 50;
 
 export interface ItemDeCausa {
   tipo: TipoDeCausa;
@@ -86,7 +89,44 @@ export function cambioDeCausa(mv: ModeloValidado, t: Traza, tipo: TipoDeCausa, c
     case 'cierre_jaula':
       if (m.hub.jaulas.cierre === 0) return null;
       return { clave, vars: {}, parche: reemplazo('/hub/jaulas/cierre', 0) };
+    case 'descarga': {
+      // una persona más en CADA andén: baja más rápido el camión del paquete y libera antes los andenes para los que esperan en la playa
+      const andenes = m.hub.andenes;
+      if (andenes.length === 0 || andenes.some((a) => a.personas + 1 > TOPE_PERSONAS_ANDEN)) return null;
+      return { clave, vars: {}, parche: andenes.map((a, i) => ({ op: 'replace', path: `/hub/andenes/${i}/personas`, value: a.personas + 1 })) };
+    }
   }
+}
+
+/**
+ * La espera del paquete DENTRO de su camión (hallazgo HUB-R01 de la revisión del 30-10-2026). El paquete nace cuando empieza su
+ * descarga, así que la cola del camión en la playa (andenes ocupados) y detrás de los paquetes anteriores del mismo camión no es un tramo
+ * suyo, ninguna espera la contaba y un corte perdido por saturación de los andenes quedaba sin causa (con 2.000 paquetes por camión, 1.424
+ * de 9.114 paquetes tarde sin ninguna candidata). Va desde la llegada del camión (o el inicio del turno, si llegó antes: antes del turno no
+ * se descarga) hasta que empieza su descarga. Evidencia: el primer tramo del camión (su llegada) y el tramo DESCARGA del paquete: las dos
+ * horas de la frase salen de esos tramos. `null` si la traza no trae los tramos del camión o la descarga.
+ */
+export function esperaEnCamion(t: Traza, paquete: number): Espera | null {
+  const camion = t.paquetes.camion[paquete];
+  if (!(camion >= 0)) return null;
+  const delCamion = tramosDe(t, 'camion', camion);
+  if (delCamion.length === 0) return null;
+  let llegada = delCamion[0];
+  for (const i of delCamion) if (t.tramos.t0[i] < t.tramos.t0[llegada]) llegada = i;
+  let descarga = -1;
+  for (const i of tramosDe(t, 'paquete', paquete)) if (t.tramos.k[i] === TipoTramo.DESCARGA) { descarga = i; break; }
+  if (descarga < 0) return null;
+  const desde = Math.max(t.tramos.t0[llegada], t.inicio), hasta = t.tramos.t0[descarga];
+  if (!(hasta > desde)) return null;
+  return {
+    desde, hasta, donde: t.tramos.k[llegada] as Espera['donde'], recurso: t.tramos.r[descarga], causa: Causa.ANDEN_OCUPADO,
+    causante: refDe(ClaseEntidad.CAMION, camion), evidencia: [llegada, descarga],
+  };
+}
+
+/** ¿Una espera de `total` ms pasa el umbral de candidata, para un paquete que pasó `enHub` ms en el hub? */
+function esLarga(total: number, enHub: number): boolean {
+  return total >= UMBRAL_ESPERA_MS || (enHub > 0 && total >= UMBRAL_FRACCION_EN_HUB * enHub);
 }
 
 // ------------------------------------------------------------------------------------------------------------------ candidatas
@@ -115,10 +155,16 @@ export function candidatasDe(t: Traza, mv: ModeloValidado, paquete: number): Can
     const g = grupos.get(clave);
     if (g) g.esperas.push(e); else grupos.set(clave, { tipo, esperas: [e] });
   }
+  // la espera dentro del camión (HUB-R01): su umbral se mide contra el tiempo desde que el camión llegó, no desde que el paquete nació
+  const enCamion = esperaEnCamion(t, paquete);
+  if (enCamion) {
+    const largo = enCamion.hasta - enCamion.desde, listo = t.paquetes.listo[paquete];
+    if (esLarga(largo, (listo >= 0 ? listo : t.fin) - enCamion.desde)) grupos.set('descarga', { tipo: 'descarga', esperas: [enCamion] });
+  }
   const porCambio = new Map<string, Candidata>();
   for (const { tipo, esperas } of grupos.values()) {
     const total = esperas.reduce((s, e) => s + (e.hasta - e.desde), 0);
-    if (!(total >= UMBRAL_ESPERA_MS || (enHub > 0 && total >= UMBRAL_FRACCION_EN_HUB * enHub))) continue;
+    if (tipo !== 'descarga' && !esLarga(total, enHub)) continue;
     const principal = esperas.reduce((a, b) => (b.hasta - b.desde > a.hasta - a.desde ? b : a));
     const cambio = cambioDeCausa(mv, t, tipo, principal.causante);
     if (!cambio) continue;
@@ -152,6 +198,13 @@ export function fraseDeCausa(t: Traza, item: ItemDeCausa, modo: 'corte' | 'adela
         rampa: nombreDe(t.catalogo.rampas, e.recurso, 'R'),
         persona: nombreDe(t.catalogo.personas, e.causante >= 0 ? idDeRef(e.causante) : -1, 'P'),
       }, [min]);
+    }
+    case 'descarga': {
+      const [llegada, descarga] = e.evidencia;
+      return crearFrase(clave, {
+        camion: nombreDe(t.catalogo.camiones, idDeRef(e.causante), 'T'),
+        llegada: horaDe(t.tramos.t0[llegada]), inicio: horaDe(t.tramos.t0[descarga]),
+      }, [afirmarHora(t, llegada, 't0'), afirmarHora(t, descarga, 't0')]);
     }
     case 'rampa_llena': {
       const vueltas = afirmarTramo(t, item.tramoVuelta, 'a', 'vueltas', 0);

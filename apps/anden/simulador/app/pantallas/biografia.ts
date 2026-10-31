@@ -21,6 +21,11 @@ const NOMBRE_CAUSA: Record<number, string> = Object.fromEntries(Object.entries(C
 export function cambiosDe(bio: Biografia, mv: ModeloValidado, tr: Traza): Contrafactual['cambio'][] {
   const m = mv.modelo, out: Contrafactual['cambio'][] = [], vistos = new Set<string>();
   const sumar = (c: Contrafactual['cambio']) => { const k = `${c.clave}|${JSON.stringify(c.vars)}`; if (!vistos.has(k)) { vistos.add(k); out.push(c); } };
+  // el camión del paquete esperó en la playa con los andenes ocupados (HUB-R01): «una persona más de descarga en cada andén», el cambio
+  // fijo de la espera dentro del camión (explicacion/causas.ts); el tope de 50 por andén es el del esquema
+  if (bio.pasos.some((p) => p.frase.clave === 'explicacion.paso.llego.playa') && m.hub.andenes.every((a) => a.personas < 50)) {
+    sumar({ clave: 'explicacion.cambio.descarga', vars: {}, parche: m.hub.andenes.map((a, i) => ({ op: 'replace', path: `/hub/andenes/${i}/personas`, value: a.personas + 1 })) });
+  }
   for (const p of bio.pasos) {
     const w = p.espera; if (!w) continue;
     switch (w.causa) {

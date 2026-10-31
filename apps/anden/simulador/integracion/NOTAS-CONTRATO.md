@@ -610,10 +610,41 @@ extiende un tipo congelado está en `CAMBIOS-CONTRATO.md` §12; `contratos/` no 
   esas fuentes choca con una decisión anterior y probada de P3 («las fuentes públicas quedan: el lector las necesita»): lo decide el
   orquestador.
 
-**Lo que no se hizo (y por qué).** HUB-R04 a HUB-R12 (capacidad de la excepción, pausas y faltas de descarga y del puesto manual, el
-retén que cubre pausas, utilización por ventana, jaulas parciales, reasignación dinámica de rampa, campos que no hacen nada, tiempos por
-tamaño) cambian el esquema o el motor más allá de un arreglo: corte 2. EST-07 y EST-08 (IC del abanico en presentar y del tamizado,
-«ya está» con supuestos que cambian la recomendación), SEG-R6 (banco «no concluyente» con la máquina
-cargada), EXP-04 (la película empieza con el hub vacío), EXP-12 (el aviso de las cien noches) y EXP-13 (títulos por idioma): quedan
-anotados para la próxima vuelta. REV-D2 y REV-D5 (la cobertura del IC de t en el sello, R04 con JavaScriptCore): el IC de t ya no
-decide nada; R04 sigue siendo V8 contra V8 y así lo dice su alcance.
+**Lo que no se hizo en esta vuelta (y por qué).** HUB-R04 a HUB-R12 (capacidad de la excepción, pausas y faltas de descarga y del
+puesto manual, el retén que cubre pausas, utilización por ventana, jaulas parciales, reasignación dinámica de rampa, campos que no hacen
+nada, tiempos por tamaño) cambian el esquema o el motor más allá de un arreglo: corte 2. Lo demás que quedó pendiente acá (EST-07, EST-08,
+SEG-R6, EXP-04, EXP-12, EXP-13, REV-D5) se hizo en las dos vueltas siguientes (§18).
+
+## 18. Segunda y tercera vuelta de los arreglos de la revisión del 30-10-2026 (31-10-2026)
+
+`contratos/` no cambió; lo que cambia la especificación está en `CAMBIOS-CONTRATO.md` §12.5 y §12.6.
+
+**Segunda vuelta.**
+- REV-D2: el IC de t que muestra la app (`resumirNumeros`) se cruza en `npm test` con la implementación independiente de la batería
+  (`integracion/pruebas/ic-t-cruzado.test.ts`); el sello sigue sin medirlo (S03 mide independencia y sesgo, `CAMBIOS-CONTRATO.md` §4).
+- REV-D5: R04 corre también en Bun (JavaScriptCore) si el entorno lo tiene; el alcance de R04 dice qué motores se compararon.
+- SEG-R6: el banco registra la carga del sistema y la referencia M/M/1 contra la del equipo libre; con la máquina cargada la corrida es
+  «no concluyente» y no cuenta para el criterio 9.
+- EST-07: cada ± dice su confianza (resumen y Decidir) y el abanico de Presentar lleva el IC de P10, P50 y P90. EST-08: «Ya está» no
+  promete que nada cambia la respuesta cuando un supuesto la mueve por menos que la zona de indiferencia.
+- EXP-04: la película de un modelo recién abierto arranca un minuto antes del primer camión. EXP-12: los avisos van arriba y no tapan el
+  eje ni la velocidad. EXP-13: título de las plantillas públicas en el idioma de la interfaz («≈ 24.000 paquetes por noche»). HUB-R07: «%
+  del turno con la inducción ocupada».
+
+**Tercera vuelta (lo que faltaba de los confirmados).**
+- HUB-R01, el explicador: la espera DENTRO del camión (andenes ocupados o cola de descarga, desde la llegada del camión o el inicio del turno
+  hasta que empieza la descarga del paquete) es una candidata a causa con su cambio fijo, «una persona más de descarga en cada andén»
+  (`explicacion/causas.ts › esperaEnCamion`, tipo `descarga`, textos es/en). MEDIDO (hub-chico@1.1.0, 2.000 paquetes por camión): de 9.171
+  paquetes tarde, ninguno queda sin candidata (antes 1.410). En esa saturación el contrafactual no la confirma (el cuello es la
+  inducción) y no se afirma; con los andenes como cuello la confirma en 40 de 40. La biografía ofrece ese «¿y si…?» cuando el camión esperó
+  en la playa. E01 y E02 siguen en 0 frases sin confirmar (E02: 840 frases de una causa y 6 conjuntas en 500 paquetes).
+- EST-04: «Seguir simulando (hasta N noches por opción)» en Decidir cuando la decisión queda en duda al llegar al máximo (parche a
+  `experimento.replicasMax`, hasta 2.000, el tope de la calibración exacta; `app/pantallas/decidir.ts › maximoParaSeguir`).
+- EST-02: prueba de cobertura con noches REALES del hub (`integracion/pruebas/pareada-hub.test.ts` y el pozo de 600 pares
+  `integracion/pruebas/datos/pares-hub-chico.json`, que la prueba ata a la versión del motor resimulando las tres primeras réplicas). Con
+  la configuración de la app (cien noches, 99%) el IC de la mediana cubre 98,9–100% en los cinco indicadores y ningún veredicto contradice a
+  la mayoría de las noches; el IC de t cubre la media 68% en la espera P90 y en el costo por paquete.
+- REV-D6: R06 de la batería exige que la foto tomada apenas restaurada sea igual a la original y que `correrHasta(T)` deje `ahora = T`
+  (la mutación «restaurar sin seq» ahora falla en 10 de 10 fotos).
+- HUB-R11, en parte: aviso `A-SORTER-TIPO` cuando el sorter es de banda cruzada (el motor del corte 1 lo simula como bandejas). HUB-R13: la
+  propuesta 1.1.0 dice que `caminarEntreRampas` es el mínimo y que la caminata va por la distancia sobre el lazo.

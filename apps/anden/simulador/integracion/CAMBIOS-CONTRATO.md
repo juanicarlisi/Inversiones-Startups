@@ -222,3 +222,30 @@ núcleos compartidos, Node 22.22) el 30/31-10-2026.
   (`cuadroConWorkers` en `integracion/banco.mjs`, hallazgo EXP-02). **§11, cómo se mide:** «una corrida del banco con la carga del sistema
   al empezar por encima de 0,75 por núcleo, o con la referencia M/M/1 a menos del 80% de la del equipo libre, es “no concluyente” y no
   cuenta como medición» (hallazgo SEG-R6).
+
+### 12.6 Tercera vuelta del 31-10-2026: lo que faltaba de los confirmados (HUB-R01, EST-04, EST-02) y menores (REV-D6, HUB-R11, HUB-R13)
+
+`contratos/` sigue sin cambios. Textos para `corte-1.md` (lo decide el orquestador):
+
+- **§9 P7, lista de cambios fijos por causa (HUB-R01).** Sumar: «DESCARGA (el paquete esperó dentro de su camión: andenes ocupados o
+  cola de descarga, desde la llegada del camión o el inicio del turno hasta que empieza su descarga) → una persona más de descarga en cada
+  andén». El paquete nace al empezar su descarga, así que esa espera no es un tramo suyo: `explicacion/causas.ts › esperaEnCamion` la arma
+  con el primer tramo del camión y el tramo DESCARGA del paquete (las dos horas de la frase salen de ahí y el verificador las controla).
+  MEDIDO con `hub-chico@1.1.0` y 2.000 paquetes por camión (réplica 0): 9.171 paquetes pierden el corte y ninguno queda sin candidata
+  (1.410 tienen solo la del camión; antes, sin ninguna). En esa saturación el contrafactual NO la confirma (0 de 35 en una muestra: el cuello
+  es la inducción y más gente de descarga solo llena la acumulación), así que no se afirma; con los andenes como cuello (1 persona por andén
+  y 1.100 paquetes por camión) la confirma en 40 de 40. E01 y E02 siguen en 0 frases sin confirmar.
+- **§7 / §9 P8.6 (EST-04).** Con la decisión en duda al llegar al máximo, Decidir ofrece «Seguir simulando (hasta N noches por opción)»:
+  un parche a `experimento.replicasMax` (el doble, o las noches que el semáforo dice que faltan o que la meta pide como mínimo, en tandas de
+  20 y hasta 2.000, el tope de la calibración exacta). Si la meta pide más de 2.000 noches aunque todas cumplan, no se ofrece y el semáforo
+  pide revisar la meta.
+- **§8 (EST-02).** La comparación pareada tiene una prueba con noches REALES del hub (`integracion/pruebas/pareada-hub.test.ts`, pozo de
+  600 pares de `hub-chico@1.0.0`, puestos 3 → 4, generado con el núcleo de producción y atado a la versión del motor): con cien noches al
+  99% el IC de la mediana cubre 98,9–100% y ningún veredicto contradice a la mayoría de las noches; el IC de t cubre la media 68% en la
+  espera P90 y en el costo por paquete (37% con 40 noches al 95%).
+- **§8, R06 (REV-D6).** «… y la foto tomada apenas restaurada es igual a la original; `correrHasta(T)` deja `ahora = T`». Con eso la
+  batería atrapa un `seq` que `restaurar()` no devuelve (comprobado con la mutación: 10 de 10 fotos distintas).
+- **§9 P3, códigos (HUB-R11).** `A-SORTER-TIPO`: `banda-cruzada` compila pero el motor del corte 1 lo simula como bandejas basculantes; el
+  aviso lo dice. `playa.capacidad` y `lector.s` siguen sin efecto en la simulación (corte 2: playa con capacidad y lector que importe).
+- **Plantilla `hub-chico@1.1.0` (propuesta, HUB-R13).** `caminarEntreRampas` dice ahora «s como mínimo al cambiar de rampa» y que la
+  caminata real va por la distancia sobre el lazo a 1,2 m/s. La 1.0.0 y la grande publicadas no cambian (son inmutables).

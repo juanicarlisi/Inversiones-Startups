@@ -60,14 +60,24 @@ test('hub-chico@1.1.0 = hub-chico@1.0.0 + PARCHE_HUB_CHICO_1_1_0: la dotación e
   assert.deepEqual(PARCHE_HUB_CHICO_1_1_0.map((o) => [o.op, o.path, valorDe(o)]), [
     ['replace', '/personas/induccion/reten', 1], ['replace', '/personas/rampa/cantidad', 7], ['replace', '/personas/excepcion/cantidad', 2]]);
   // Fuera de los metadatos (versión, fecha, descripción, procedencia, escenarios), la propuesta es la 1.0.0 con el parche.
+  // El texto de la caminata entre rampas (unidad, fuente, fecha) también es metadato: en 1.1.0 dice que es un mínimo (hallazgo HUB-R13).
+  const sinTextoCaminar = (pp: Modelo['parametros']) => {
+    const x = structuredClone(pp);
+    const c = x.caminarEntreRampas as unknown as Record<string, unknown> | undefined;
+    if (c) { delete c.unidad; delete c.fuente; delete c.fecha; }
+    return x;
+  };
   const sinMeta = (m: Modelo) => {
     const x = structuredClone(m) as Partial<Modelo>;
     for (const k of ['plantilla', 'creado', 'descripcion', 'procedencia', 'escenarios'] as const) delete x[k];
+    x.parametros = sinTextoCaminar(m.parametros);
     return x;
   };
   assert.deepEqual(sinMeta(p), sinMeta(reemplazar(structuredClone(ejemplo), PARCHE_HUB_CHICO_1_1_0)));
   assert.equal(p.id, ejemplo.id);
-  assert.deepEqual(p.parametros, ejemplo.parametros, 'los mismos parámetros, con sus fuentes');
+  assert.deepEqual(sinTextoCaminar(p.parametros), sinTextoCaminar(ejemplo.parametros), 'los mismos parámetros, con sus fuentes');
+  assert.equal(p.parametros.caminarEntreRampas.unidad, 's como mínimo al cambiar de rampa');
+  assert.match(p.parametros.caminarEntreRampas.fuente, /la caminata real se calcula con la distancia sobre el pasillo del lazo a 1,2 m\/s/);
   assert.deepEqual(p.decision, ejemplo.decision, 'la misma decisión');
   assert.equal(p.experimento.semilla, ejemplo.experimento.semilla, 'la misma semilla');
   // La procedencia conserva la de 1.0.0 y suma cada valor del parche como SUPUESTO con fecha (corte-1.md §14.4).
