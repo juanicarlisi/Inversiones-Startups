@@ -96,9 +96,20 @@ El validador tenía un falso positivo («montanha» parecía «montanismo»): co
 2,6 de salida en el lote grande, **~USD 39** (ESTIMACIÓN, sin descontar la caché); con el piloto y las correcciones, ~USD 42. En total
 van ~USD 90 de los 200. Después se lanzó una segunda lectura de las 458 lecciones en español contra la RV1909 (~USD 25 estimados).
 
+**Segunda lectura de las lecciones (31-10-2026):** las 458 lecciones en español, contra la RV1909, por lotes (HECHO, log: 4,4 millones
+de tokens de entrada, 0,4 de salida, **USD 12,71** ESTIMACIÓN). Marcó 57 errores y 331 dudas. Claude leyó cada error contra el texto:
+50 eran reales y se corrigieron en la fuente con `scripts/autor/parches_revision40.py` (hechos fuera de orden —Jehová cierra la puerta
+del arca antes del diluvio, Abigail antes de la lanza, la oración de Hechos 4 antes que la de Hechos 12—, citas «» de la PDT o con
+glosas adentro, datos que el texto no dice —Ananías «oró», Abraham «muere» antes de los mellizos, Jan «Uz»—). Además, cuatro
+«¿Sabías que…?» mostraban la nota interna «re-verificar»: se verificaron en la fuente (The State of Theology 2025 en ligonier.org:
+53 %, 53 % y 47 %; 2018-2022 en Christianity Today: 78 %, 65 % y 73 %) y se limpió la fuente. `parche.py` ahora deja anotado el
+portugués y el inglés de cada campo corregido, y se volvieron a traducir por lotes (46 lecciones por idioma; las 4 de «El gran relato»,
+a mano). Las 22 rutas siguen enteras en los tres idiomas. En total van ~USD 106 de los 200 (ESTIMACIÓN sin descontar la caché).
+
 ## 8. Próximos (en orden)
 
-1. Revisar lo que devuelva la segunda lectura de las 458 lecciones contra la RV1909 (lanzada el 30-10) y corregir a mano lo real.
+1. Las 331 dudas de la segunda lectura de las lecciones (`contenido/borradores/revision_leccion_es_*.json` en la rama «lotes»): leerlas
+   y corregir las reales con `parches_revision40.py` (las de «El evangelio» siguen la doctrina del ministerio aliado tal cual).
 2. La secuencia «armarse» entera fluida (hoy el director encadena casco → escudo → espada → heroica); el repertorio nuevo (§4) sobre el rig.
 3. Orejas y cola del pañuelo con huesos y skin (que se doblen) y la lana del torso con malla.
 4. Más trivia: curiosidades, fáciles, difíciles y atrapantes (meta de Pascua: 4.000), y más láminas de dominio público.
