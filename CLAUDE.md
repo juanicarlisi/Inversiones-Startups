@@ -402,6 +402,10 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - la prueba de humo del emulador «pasaba» con la app congelada detrás de un cartel del sistema: ahora instala el emulador, despeja
     los carteles y registra las fases `[Lany3D]`; una corrida que no muestra la app recorrida no cuenta como prueba;
   - la velocidad real en el teléfono no se pudo medir: es lo primero que hay que leer de la prueba 42 (APK 42 lanzado el 01-11).
+  - después de probar el APK 42 el fundador decidió (DEC-2026-11-01-3): «Lanny quedó bastante mal en 3d»; el MVP sale con la Lany de
+    Rive como antes del 3D y la entrada con la ilustración de Gemini; el Lany Master queda como evolutivo, apagado con `LANY_3D = false`
+    en `src/arte/Arte.tsx` (APK 42b); con los créditos de la API se mandaron dos lotes de traducción (portugués: lo corregido; inglés: lo
+    corregido y el banco 41) que hay que recibir e incorporar (`incorporar.py traduccion pt|en` y el validador) en la próxima sesión.
 
 ## 2. Reglas no negociables
 

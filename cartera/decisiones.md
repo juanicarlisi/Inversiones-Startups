@@ -1500,3 +1500,8 @@
 ## DEC-2026-11-01-2 — Frenar la revisión de las 331 dudas por consumo del plan
 **Contexto:** el fundador avisó a mitad de sesión que iba por el 90 % del consumo semanal. Seis revisores ya estaban leyendo las dudas.
 **Decisión:** frenarlos antes de que escribieran, guardar las dudas y el plan en `oportunidades/proyectos/senda/revisiones/` y retomarlo en la próxima sesión. Costo: las dudas siguen abiertas (no son errores confirmados).
+
+## DEC-2026-11-01-3 — El MVP de Senda sale con la Lany 2D (Rive); el 3D queda como evolutivo
+**Contexto (HECHO, 01-11-2026):** el fundador probó el APK 42 con la Lany 3D visible: «quedó bastante mal en 3d. Volvamos todo a como estaba antes… dejemos lo de 3d como evolutivo».
+**Decisión:** Lany de Rive en toda la app y la entrada con la ilustración de Gemini, como antes de la prueba 41; el Lany Master queda en el código, apagado (`LANY_3D = false`), para retomarlo después del lanzamiento. APK 42b.
+
