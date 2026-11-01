@@ -388,6 +388,21 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     anteriores (las traducciones van por id); créditos ≈ USD 185 estimados; la traducción al portugués del banco 41 ya entró (1.559 de 1.593; 5.227 en portugués): el inglés
     espera hasta leer el consumo real en la consola de Anthropic.
 
+- **Datos del 01-11-2026 (Senda, prueba 42):**
+  - la Lany 3D nunca se había visto en el teléfono por una causa raíz medida en el emulador (three.js rechaza el contexto de expo-gl
+    por WebGL 1: `WebGL2RenderingContext` hereda de `WebGLRenderingContext` en expo-gl); arreglada y vista en el emulador; el
+    interruptor «Lany en 3D» se sacó («poné directo lo que necesitamos»); de noche Lany duerme con los ojos cerrados (nunca el patatús);
+  - la RV1909 de la app lleva la **numeración de versículos de hoy** (DEC-2026-11-01-1): la fuente traía las divisiones de la edición de
+    1909 en ocho lugares (Job 38-40, Jonás 1-2, Números 12-13 y 29-30, Oseas 11-12, 2 Samuel 20, Job 35, Hechos 19, 2 Corintios 13) y
+    dejaba 16 versículos vacíos; `scripts/biblia_arreglos.py` la realinea y `renumeracion_biblia.py` movió las citas del contenido;
+  - la trivia de los bancos 40 y 41 se leyó pregunta por pregunta (18 revisores, 3.089 preguntas, 310 hallazgos corregidos, 4 repetidas
+    retiradas con `RETIRADAS`, 40 versículos más en `FORZADOS`); las traducciones de lo que cambió se vuelven a pedir por lotes;
+  - el fundador avisó que iba por el 90 % del consumo semanal: avanzar solo con lo necesario y dejar pendientes claros; las 331 dudas de
+    las lecciones quedaron preparadas (`oportunidades/proyectos/senda/revisiones/`) y sin resolver (DEC-2026-11-01-2);
+  - la prueba de humo del emulador «pasaba» con la app congelada detrás de un cartel del sistema: ahora instala el emulador, despeja
+    los carteles y registra las fases `[Lany3D]`; una corrida que no muestra la app recorrida no cuenta como prueba;
+  - la velocidad real en el teléfono no se pudo medir: es lo primero que hay que leer de la prueba 42 (APK 42 lanzado el 01-11).
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**

@@ -1492,3 +1492,11 @@
   portugués enviada por lotes.
 - **Pendiente para la 42:** «¿Quién es?» y «Nombres por letra» contra otras personas, el torneo con llaves, la temática por área y
   nivel, el inglés de las nuevas preguntas y las 331 dudas de las lecciones.
+
+## DEC-2026-11-01-1 — La RV1909 de Senda usa la numeración de versículos de hoy
+**Contexto (HECHO, 01-11-2026):** un barrido de toda la RV1909 de la app encontró 16 versículos vacíos y uno con nueve pegados: la fuente traía las divisiones de la edición de 1909 (que en ocho lugares sigue a la Vulgata) volcadas en el esqueleto de capítulos de hoy. Todas las citas del contenido, las demás Biblias de la app y la RVR1960 de la gente usan la numeración de hoy.
+**Decisión:** realinear la numeración (texto intacto, dominio público) con `scripts/biblia_arreglos.py` y mover las citas escritas con la numeración vieja. Reversible. Documentado en el CLAUDE.md de la app y en docs/LEGAL.md.
+
+## DEC-2026-11-01-2 — Frenar la revisión de las 331 dudas por consumo del plan
+**Contexto:** el fundador avisó a mitad de sesión que iba por el 90 % del consumo semanal. Seis revisores ya estaban leyendo las dudas.
+**Decisión:** frenarlos antes de que escribieran, guardar las dudas y el plan en `oportunidades/proyectos/senda/revisiones/` y retomarlo en la próxima sesión. Costo: las dudas siguen abiertas (no son errores confirmados).
