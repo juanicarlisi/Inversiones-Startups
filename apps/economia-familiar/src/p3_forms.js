@@ -1,5 +1,6 @@
 /* ============ COMPOSITOR (cargar / editar un movimiento) ============ */
 let CP = null; // estado del compositor activo
+const ARTIFACT_URL = 'https://claude.ai/artifact/UTnbTJ1fUtcaYskFkDWApQ';
 const CAT_HINTS = {
   alim: 'comida, bebidas, almacén, verdura, carne, lácteos, panadería', limp: 'limpieza del hogar, papel higiénico, servilletas, detergente, shampoo, jabón, cuidado personal',
   salud: 'farmacia, médicos, dentista, estudios', comer: 'restaurantes, delivery, café, comida lista', serv: 'luz, gas, agua, internet', cel: 'línea de celular',
@@ -37,6 +38,7 @@ function cpBody() {
     {
       h += `<div class="scan"><label for="file-ticket" role="button" tabindex="0">${IC.cam}Foto<small>Ticket, transferencia, Uber: se lee solo</small></label><button data-act="cp-pegar">${IC.list}Pegar texto<small>Ticket digital o mail</small></button><button data-act="cp-quick">${IC.pen}Escribir rápido<small>“Uber 4500 visa”</small></button></div>`;
       h += `<input type="file" id="file-ticket" accept="image/*" multiple class="sr" tabindex="-1">`;
+      if (CP.fotoHint && !CP.foto && CP.scan.state !== 'loading') h += `<div class="note warn">¿No se abre la galería o la cámara? Algunos visores del celular lo bloquean. Dos salidas: <b>Pegar texto</b> (ahí podés pegar una captura o foto copiada) o <a href="${ARTIFACT_URL}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:800">abrir esta app en el navegador del celular</a> (Chrome o Safari).</div>`;
       if (CP.scan.state === 'loading') h += `<div class="card flat row"><span class="spin"></span><div class="grow"><b>Leyendo el comprobante…</b><div class="hint">Separo cada ítem y lo asigno a su rubro. Tarda unos segundos.</div></div></div>`;
       if (CP.scan.state === 'error') h += `<div class="note neg">${esc(CP.scan.msg)}</div>`;
       if (CP.scan.state === 'ok') h += `<div class="note pos">${esc(CP.scan.msg)}</div>`;
@@ -227,7 +229,7 @@ function parsearTicket(txt) {
 function abrirPegar() {
   openSheet({
     id: 'pegar', title: 'Pegar texto del ticket',
-    body: () => `<div class="help">Copiá el texto de un ticket digital, un mail de compra o un PDF y pegalo acá. Claude separa cada ítem con su importe y lo asigna a su rubro.</div><textarea class="inp" id="paste-txt" rows="9" placeholder="Ej:&#10;ATUN GOMEZ PARDO 170G   1.850,00&#10;2 x ACEITE GIRASOL 900ML   5.400,00&#10;TOTAL   7.250,00" style="resize:vertical;font-family:inherit"></textarea>`,
+    body: () => `<div class="help">Copiá el texto de un ticket digital, un mail de compra o un PDF y pegalo acá. Claude separa cada ítem con su importe y lo asigna a su rubro.</div><div class="field"><label>Imagen copiada (opcional)</label><div id="paste-zone" contenteditable="true" role="textbox" aria-label="Pegar imagen" class="inp" style="min-height:64px;border:2px dashed var(--line);display:grid;place-items:center;color:var(--muted)" data-ph="Mantené apretado acá y elegí Pegar (sirve una captura o foto que hayas copiado)"></div></div><div class="field"><label for="paste-txt">Texto del ticket</label><textarea class="inp" id="paste-txt" rows="8" placeholder="Ej:&#10;ATUN GOMEZ PARDO 170G   1.850,00&#10;2 x ACEITE GIRASOL 900ML   5.400,00&#10;TOTAL   7.250,00" style="resize:vertical;font-family:inherit"></textarea>`,
     foot: () => '<button class="btn primary" data-act="paste-ok">Armar ítems</button>'
   });
 }

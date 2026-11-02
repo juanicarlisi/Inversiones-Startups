@@ -17,6 +17,7 @@ function vAjustes() {
     <div class="set-row"><span class="grow ink2">Reglas aprendidas</span><span class="num hint">${Object.keys(S.apr).length} ítems</span></div>
     <div class="set-row"><span class="grow ink2">Conexión</span><span class="pill ${S.mode === 'cloud' ? 'pos' : 'warn'}">${S.mode === 'cloud' ? 'compartida' : 'solo este teléfono'}</span></div>
     <div class="set-row"><span class="grow ink2">Lectura de fotos con Claude</span><span class="pill ${S.cap.sample ? 'pos' : 'warn'}">${S.cap.sample ? (S.cap.images ? 'disponible' : 'a probar') : 'no disponible'}</span></div>
+    <a class="set-row" href="https://claude.ai/artifact/UTnbTJ1fUtcaYskFkDWApQ" target="_blank" rel="noopener" style="color:inherit;text-decoration:none"><span class="grow">Abrir en el navegador del celular</span>${IC.chev}</a>
     <div class="set-row"><span class="grow ink2">Guardar fotos de tickets</span><span class="pill ${S.cap.assets ? 'pos' : 'warn'}">${S.cap.assets ? 'sí' : 'solo mientras cargás'}</span></div></div>`;
   return h + '</div>';
 }
@@ -161,6 +162,7 @@ const ACT = {
   'cp-save': () => cpSave()
 };
 document.addEventListener('click', e => {
+  if (e.target.closest('label[for="file-ticket"]') && CP) setTimeout(() => { if (CP && !CP.foto && !CP.fotoHint) { CP.fotoHint = true; cpRefresh(); } }, 2500);
   const tip = e.target.closest('[data-tip]');
   if (tip) { const svg = tip.closest('svg'); const ro = $('#ro-' + (svg && svg.dataset.ro)); if (ro) ro.textContent = tip.dataset.tip; return; }
   const el = e.target.closest('[data-act]'); if (!el) return;
@@ -198,6 +200,12 @@ document.addEventListener('change', async e => {
   else if (f === 'st-caja') c.caja = parseMonto(el.value); else if (f === 'st-ini') c.inicio = el.value || c.inicio;
   else if (f === 'st-cierre') c.tarjetas[+el.dataset.i].cierre = Math.min(31, parseInt(el.value) || 0);
   if (await guardar(saveCfg)) { if (S.user && !c.usuarios.includes(S.user)) S.user = c.usuarios[0]; render(); }
+});
+document.addEventListener('paste', e => {
+  const z = e.target.closest && e.target.closest('#paste-zone'); if (!z) return;
+  const f = [...((e.clipboardData && e.clipboardData.files) || [])].find(x => x.type.startsWith('image/')) || [...((e.clipboardData && e.clipboardData.items) || [])].map(i => i.kind === 'file' ? i.getAsFile() : null).find(x => x && x.type.startsWith('image/'));
+  e.preventDefault(); if (!f) { toast('No encontré una imagen copiada. Copiá la captura primero.', null, true); return; }
+  const d = sheetOf(z); if (d) closeSheet(d); if (CP) adjuntarFoto([f]);
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && SHEETS.length) closeSheet(); });
 
