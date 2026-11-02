@@ -143,6 +143,7 @@ function header() {
   return `<div class="top"><div class="mes"><button class="icon-btn" data-act="mes-prev" aria-label="Mes anterior">${IC.left}</button><button class="lbl" data-act="mes-pick" aria-label="${ymLabel(S.mes)}">${ymName(S.mes)}<small>${S.mes.slice(0, 4)}${S.mes === ymNow() ? ' · este mes' : ''}</small></button><button class="icon-btn" data-act="mes-next" aria-label="Mes siguiente">${IC.right}</button></div>
   <div class="who" role="group" aria-label="Quién carga">${u.map(n => `<button class="${n === userName() ? 'on' : ''}" data-act="user" data-u="${esc(n)}">${esc(n)}</button>`).join('')}</div>
   <button class="icon-btn" data-act="go" data-v="ajustes" aria-label="Ajustes">${IC.gear}</button></div>
+  ${S.canWrite === false ? '<div class="note neg" style="margin:4px 0 8px"><b>Tu cuenta solo puede mirar.</b> Para cargar, Juan tiene que invitarte como <b>Editor</b> desde Compartir y apagar el link público (con el link público, las cuentas de afuera quedan solo de lectura).</div>' : ''}
   ${S.mode === 'local' ? '<div class="sync">Modo local: lo que cargues queda solo en este teléfono. Abrí el enlace desde la sesión de Claude para compartir con el otro.</div>' : ''}`;
 }
 function pendientes() {

@@ -143,6 +143,7 @@ const Store = {
     let db = null;
     try { if (window.claude && window.claude.use) db = await window.claude.use('db'); } catch (e) { db = null; }
     try { if (window.claude && window.claude.use) { S.cap.downloads = await window.claude.use('downloads'); S.cap.assets = await window.claude.use('assets'); S.cap.sample = await window.claude.use('sample'); } } catch (e) { }
+    try { const u = window.claude && window.claude.use ? await window.claude.use('user') : null; if (u && u.can) { const w = u.can('data.write'); S.canWrite = (w && w.then) ? await w : w; } } catch (e) { S.canWrite = null; }
     try { if (S.cap.sample && S.cap.sample.limits) { const l = await S.cap.sample.limits(); S.cap.images = !!l.images; S.cap.imgLimits = l.images || null; } } catch (e) { S.cap.images = false; }
     if (db) {
       this.mode = 'cloud'; this.db = db; S.mode = 'cloud';
@@ -191,7 +192,13 @@ function applyCfgDocs(o) {
 }
 async function guardar(fn, okMsg) {
   try { await fn(); if (okMsg) toast(okMsg); return true; }
-  catch (e) { console.error(e); toast('No se pudo guardar. Revisá la conexión y probá de nuevo.', null, true); return false; }
+  catch (e) {
+    console.error(e); const c = e && e.code;
+    if (c === 'invalid_argument' || c === 'revoked' || c === 'not_granted' || S.canWrite === false) { S.canWrite = false; render(); toast('Tu cuenta solo puede mirar, no cargar. Pedile a Juan que te invite como Editor.', null, true); }
+    else if (c === 'quota_exceeded') toast('La base compartida llegó a su límite de espacio.', null, true);
+    else toast('No se pudo guardar (' + (c || 'sin conexión') + '). Probá de nuevo en un momento.', null, true);
+    return false;
+  }
 }
 const saveCfg = () => Store.set('cfg', 'main', S.cfg);
 const savePlan = () => Store.set('cfg', 'plan', S.plan);
