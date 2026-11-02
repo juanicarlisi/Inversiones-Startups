@@ -152,8 +152,9 @@ async function adjuntarFoto(files) {
   if (!CP) return;
   if (CP.foto && CP.foto.url) URL.revokeObjectURL(CP.foto.url);
   CP.foto = { blob: blobs[0], blobs, url: URL.createObjectURL(blobs[0]) };
+  if (!S.cap.sample) { try { S.cap.sample = await window.claude.use('sample'); if (S.cap.sample && S.cap.sample.limits) { const l = await S.cap.sample.limits(); S.cap.images = !!l.images; } } catch (e) { S.cap.sample = null; } }
   if (S.cap.sample) { await leerTicket(blobs); return; }
-  CP.scan = { state: 'error', msg: 'En esta cuenta o vista la lectura automática no está disponible. La foto queda de respaldo: cargá el total y el rubro, o dividí en ítems o pegá el texto del ticket.' };
+  CP.scan = { state: 'error', msg: 'La lectura automática no llegó a esta cuenta (Claude no habilitó esa función para este usuario o visor; podés ver el detalle en Ajustes > Diagnóstico). La foto queda de respaldo: cargá el total y el rubro, o dividí en ítems o pegá el texto del ticket.' };
   cpRefresh();
 }
 function promptTicket(texto) {

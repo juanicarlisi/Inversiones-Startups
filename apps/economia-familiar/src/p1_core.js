@@ -145,6 +145,7 @@ const Store = {
     try { if (window.claude && window.claude.use) { S.cap.downloads = await window.claude.use('downloads'); S.cap.assets = await window.claude.use('assets'); S.cap.sample = await window.claude.use('sample'); } } catch (e) { }
     try { const u = window.claude && window.claude.use ? await window.claude.use('user') : null; if (u && u.can) { const w = u.can('data.write'); S.canWrite = (w && w.then) ? await w : w; } } catch (e) { S.canWrite = null; }
     try { if (S.cap.sample && S.cap.sample.limits) { const l = await S.cap.sample.limits(); S.cap.images = !!l.images; S.cap.imgLimits = l.images || null; } } catch (e) { S.cap.images = false; }
+    S.cap.diag = { db: !!db, sample: !!S.cap.sample, assets: !!S.cap.assets, downloads: !!S.cap.downloads, claude: !!(window.claude && window.claude.use) };
     if (db) {
       this.mode = 'cloud'; this.db = db; S.mode = 'cloud';
       let t = setTimeout(() => { if (!S.loaded.mov) toast('Sin conexión con la base: puede que veas datos viejos.', null, true); }, 10000);
