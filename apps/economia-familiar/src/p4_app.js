@@ -16,6 +16,7 @@ function vAjustes() {
   h += `<div class="card"><h2>Datos</h2><button class="set-row" data-act="export-csv"><span class="grow">Exportar movimientos (CSV)</span>${IC.chev}</button>
     <div class="set-row"><span class="grow ink2">Reglas aprendidas</span><span class="num hint">${Object.keys(S.apr).length} ítems</span></div>
     <div class="set-row"><span class="grow ink2">Conexión</span><span class="pill ${S.mode === 'cloud' ? 'pos' : 'warn'}">${S.mode === 'cloud' ? 'compartida' : 'solo este teléfono'}</span></div>
+    <div class="set-row"><span class="grow ink2">Lectura de fotos con Claude</span><span class="pill ${S.cap.images ? 'pos' : 'warn'}">${S.cap.images ? 'disponible' : 'no disponible'}</span></div>
     <div class="set-row"><span class="grow ink2">Guardar fotos de tickets</span><span class="pill ${S.cap.assets ? 'pos' : 'warn'}">${S.cap.assets ? 'sí' : 'solo mientras cargás'}</span></div></div>`;
   return h + '</div>';
 }

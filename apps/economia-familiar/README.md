@@ -14,9 +14,10 @@ Publicada como Artifact de claude.ai con base compartida (`db`); sin esa base ca
 - **Mes de imputación**: efectivo/débito/transferencia → mes de la fecha; tarjeta → mes siguiente (o segundo mes si el día de cierre de la tarjeta está cargado). Cuotas: un movimiento por mes.
 - Vistas por "mes de pago" (caja) o "fecha de compra" (devengado).
 
-## Carga de tickets (sin IA)
-Foto como respaldo visible mientras se cargan los ítems, parser determinista de texto pegado, clasificación por reglas y por lo aprendido
-de las cargas anteriores (`cfg/aprendido`), autocompletado de ítems con último precio y chequeo contra el total del ticket.
+## Carga de tickets
+Al subir la foto, Claude (capacidad `sample` con imágenes; gasta el uso de Claude de quien la sube) devuelve comercio, fecha, medio, total y cada ítem
+con su rubro. Las preferencias aprendidas de la familia (`cfg/aprendido`) pisan al rubro sugerido. Se chequea contra el total del ticket y se agrega
+"Sin detallar" si falta diferencia. Alternativas sin IA: pegar texto de un ticket digital (parser determinista), escribir rápido y autocompletado con el historial.
 
 ## Datos (colecciones del Artifact)
 `mov/<id>` movimientos · `cfg/main` rubros, fondos, tarjetas, parámetros · `cfg/plan` cobros y pagos mensuales · `cfg/metas` metas de compra · `cfg/aprendido` ítem → rubro.

@@ -401,7 +401,8 @@ const Store = {
   async init() {
     let db = null;
     try { if (window.claude && window.claude.use) db = await window.claude.use('db'); } catch (e) { db = null; }
-    try { if (window.claude && window.claude.use) { S.cap.downloads = await window.claude.use('downloads'); S.cap.assets = await window.claude.use('assets'); } } catch (e) { }
+    try { if (window.claude && window.claude.use) { S.cap.downloads = await window.claude.use('downloads'); S.cap.assets = await window.claude.use('assets'); S.cap.sample = await window.claude.use('sample'); } } catch (e) { }
+    try { if (S.cap.sample && S.cap.sample.limits) { const l = await S.cap.sample.limits(); S.cap.images = !!l.images; S.cap.imgLimits = l.images || null; } } catch (e) { S.cap.images = false; }
     if (db) {
       this.mode = 'cloud'; this.db = db; S.mode = 'cloud';
       let t = setTimeout(() => { if (!S.loaded.mov) toast('Sin conexión con la base: puede que veas datos viejos.', null, true); }, 10000);
@@ -1058,8 +1059,10 @@ function cpBody() {
   if (!CP.id) h += `<div class="seg"><button class="${t === 'gasto' ? 'on' : ''}" data-act="cp-tipo" data-k="gasto">Gasto</button><button class="${t === 'ingreso' ? 'on' : ''}" data-act="cp-tipo" data-k="ingreso">Ingreso</button><button class="${t === 'fondo' ? 'on' : ''}" data-act="cp-tipo" data-k="fondo">Fondos</button></div>`;
   if (t === 'gasto' && !CP.id) {
     {
-      h += `<div class="scan"><button data-act="cp-foto">${IC.cam}Foto<small>Ticket o comprobante de respaldo</small></button><button data-act="cp-pegar">${IC.list}Pegar texto<small>Ticket digital o mail</small></button><button data-act="cp-quick">${IC.pen}Escribir rápido<small>“Uber 4500 visa”</small></button></div>`;
-      h += `<input type="file" id="file-ticket" accept="image/*" hidden>`;
+      h += `<div class="scan"><button data-act="cp-foto">${IC.cam}Foto<small>Ticket, transferencia, Uber: se lee solo</small></button><button data-act="cp-pegar">${IC.list}Pegar texto<small>Ticket digital o mail</small></button><button data-act="cp-quick">${IC.pen}Escribir rápido<small>“Uber 4500 visa”</small></button></div>`;
+      h += `<input type="file" id="file-ticket" accept="image/*" multiple hidden>`;
+      if (CP.scan.state === 'loading') h += `<div class="card flat row"><span class="spin"></span><div class="grow"><b>Leyendo el comprobante…</b><div class="hint">Separo cada ítem y lo asigno a su rubro. Tarda unos segundos.</div></div></div>`;
+      if (CP.scan.state === 'error') h += `<div class="note neg">${esc(CP.scan.msg)}</div>`;
       if (CP.scan.state === 'ok') h += `<div class="note pos">${esc(CP.scan.msg)}</div>`;
       if (CP.quick) h += `<div class="field"><label for="quick">Escribí lo que gastaste</label><input class="inp" id="quick" placeholder="Ej: carrefour 23400 visa" autocomplete="off" enterkeyhint="done"></div>`;
     }
@@ -1121,7 +1124,7 @@ function cpFoot() {
   return `<button class="btn primary" data-act="cp-save" id="btn-save">${CP.id ? 'Guardar cambios' : CP.tipo === 'gasto' ? 'Guardar gasto' : CP.tipo === 'ingreso' ? 'Guardar ingreso' : 'Guardar'}${tot ? ' · ' + money(tot) : ''}</button>`;
 }
 function cpAfter() {
-  const el = $('#file-ticket'); if (el) el.onchange = () => { if (el.files.length) adjuntarFoto(el.files[0]); };
+  const el = $('#file-ticket'); if (el) el.onchange = () => { if (el.files.length) adjuntarFoto([...el.files]); };
   const q = $('#quick'); if (q) { q.focus(); q.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); quickParse(q.value); } }; }
 }
 function cpRefresh() { const d = SHEETS.find(s => s.id === 'cp'); if (d) paintSheet(d); }
@@ -1165,12 +1168,66 @@ async function reducir(file) {
     return await new Promise(r => cv.toBlob(b => r(b || file), 'image/jpeg', 0.82));
   } catch (e) { return file; }
 }
-async function adjuntarFoto(file) {
-  const blob = await reducir(file);
+async function adjuntarFoto(files) {
+  files = [].concat(files).slice(0, (S.cap.imgLimits && S.cap.imgLimits.maxCount) || 4);
+  const blobs = await Promise.all(files.map(reducir));
   if (CP.foto && CP.foto.url) URL.revokeObjectURL(CP.foto.url);
-  CP.foto = { blob, url: URL.createObjectURL(blob) };
+  CP.foto = { blob: blobs[0], blobs, url: URL.createObjectURL(blobs[0]) };
+  if (S.cap.sample && S.cap.images) { await leerTicket(blobs); return; }
   if (!CP.split) { CP.split = true; CP.lines = [{ n: CP.com || '', monto: CP.monto || 0, cat: CP.cat, cant: 1, auto: CP.catAuto }, { n: '', monto: 0, cat: 'alim', cant: 1, auto: true }, { n: '', monto: 0, cat: 'alim', cant: 1, auto: true }]; }
-  CP.scan = { state: 'ok', msg: 'Foto guardada como respaldo. Cargá los ítems mirándola; si el ticket es digital, usá “Pegar texto” y se arma solo.' };
+  CP.scan = { state: 'ok', msg: 'La lectura automática no está disponible en esta vista. La foto queda de respaldo: cargá los ítems o usá “Pegar texto”.' };
+  cpRefresh();
+}
+function promptTicket() {
+  const cats = cfg().cats.map(c => `- ${c.id}: ${c.n}${CAT_HINTS[c.id] ? ' (' + CAT_HINTS[c.id] + ')' : ''}`).join('\n');
+  const ej = Object.entries(S.apr).slice(0, 80).map(([k, v]) => `${k.replace(/_/g, ' ')} → ${v}`).join('; ');
+  return `Sos el lector de comprobantes de una app de economía familiar argentina. Las imágenes adjuntas son UN solo comprobante (puede estar en varias fotos): ticket de supermercado, factura, comprobante de transferencia o Mercado Pago, viaje de Uber/Cabify, recibo, etc. Hoy es ${hoy()}.
+Respondé SOLO con un JSON con esta forma:
+{"comercio": string, "fecha": "YYYY-MM-DD" o null, "total": number, "medio": "efectivo"|"debito"|"credito_visa"|"credito_master"|"transferencia"|null, "tipoDoc": string, "items": [{"n": string, "d": string, "cant": number, "monto": number, "cat": string}], "aviso": string o null}
+Reglas:
+- "n": nombre corto, genérico y capitalizado del producto, sin marca ni gramaje ni cantidades (ej: "Atún", "Aceite de girasol", "Papel higiénico", "Milanesas de pollo"). Así el mismo producto se agrupa entre compras.
+- "d": el texto original de la línea. "cant": unidades o kilos (1 si no se sabe). "monto": importe TOTAL de esa línea en pesos, con descuentos de línea ya aplicados.
+- Números con punto decimal, sin símbolos: "1.234,56" se lee 1234.56.
+- Incluí TODAS las líneas del ticket. La suma de "monto" debe ser igual a "total". Si hay un descuento general, repartilo o agregalo como una línea con monto negativo llamada "Descuento".
+- Si el comprobante es de una sola cosa (Uber, una transferencia, una factura de servicio), devolvé un único ítem.
+- "cat": SOLO uno de estos ids de rubro:
+${cats}
+- Si algo no se lee, no lo inventes: usá null o dejalo fuera y explicalo en "aviso".
+${ej ? 'Preferencias de la familia para clasificar (producto → rubro): ' + ej + '.' : ''}`;
+}
+async function leerTicket(blobs) {
+  CP.scan = { state: 'loading' }; cpRefresh();
+  try {
+    const r = await S.cap.sample.json(promptTicket(), { images: blobs, modelTier: 'default', cache: false });
+    if (!CP) return; aplicarScan(r);
+  } catch (e) {
+    if (!CP) return;
+    const m = { not_granted: 'Para leer la foto necesito tu permiso para usar Claude. Volvé a subirla y aceptá el aviso.', rate_limited: 'Se alcanzó el límite de uso de Claude por ahora. Probá en un rato o cargalo a mano.', image_rejected: 'No pude abrir esa imagen. Probá con otra foto.', invalid_json: 'No logré armar el detalle. Probá con una foto más nítida y completa.', images_unavailable: 'La lectura de fotos no está disponible en esta vista.' }[e && e.code] || 'No pude leer el comprobante. Probá de nuevo o cargalo a mano.';
+    if (!CP.split) { CP.split = true; CP.lines = [{ n: CP.com || '', monto: CP.monto || 0, cat: CP.cat, cant: 1, auto: CP.catAuto }, { n: '', monto: 0, cat: 'alim', cant: 1, auto: true }]; }
+    CP.scan = { state: 'error', msg: m }; cpRefresh();
+  }
+}
+function aplicarScan(r) {
+  r = r || {}; const catIds = new Set(cfg().cats.map(c => c.id));
+  const lines = (Array.isArray(r.items) ? r.items : []).map(it => {
+    const n = String(it.n || it.d || 'Ítem').slice(0, 60); let cat = catIds.has(it.cat) ? it.cat : null;
+    const k = keyOf(n); if (S.apr[k] && catIds.has(S.apr[k])) cat = S.apr[k]; if (!cat) cat = clasificar(n, r.comercio) || 'otros';
+    return { n, d: it.d ? String(it.d).slice(0, 120) : '', cant: +it.cant || 1, monto: r2(+it.monto || 0), cat, auto: true };
+  }).filter(l => l.monto !== 0);
+  if (!lines.length && !(+r.total > 0)) { CP.scan = { state: 'error', msg: 'No encontré importes en la imagen. Probá con otra foto o cargalo a mano.' }; cpRefresh(); return; }
+  if (r.comercio) CP.com = String(r.comercio).slice(0, 60);
+  const f = r.fecha && /^\d{4}-\d{2}-\d{2}$/.test(r.fecha) ? r.fecha : null;
+  if (f && f <= addDay(hoy(), 1) && diasEntre(f, hoy()) < 400) CP.fecha = f;
+  const mm = { efectivo: 'ef', debito: 'deb', credito_visa: 'visa', credito_master: 'master', transferencia: 'tr' }[r.medio];
+  if (mm && medios().some(m => m.id === mm) && !CP.medioTouched) CP.medio = mm;
+  const total = +r.total || 0, s = r2(sum(lines, l => l.monto)); CP.warn = null; if (total) CP.totalTicket = total;
+  if (lines.length > 1) {
+    if (total && s < total - 1) { lines.push({ n: 'Sin detallar', d: '', cant: 1, monto: r2(total - s), cat: 'otros', auto: false }); CP.warn = `Las líneas leídas sumaban ${money(s)} y el ticket dice ${money(total)}. Agregué “Sin detallar” por la diferencia; revisalo mirando la foto.`; }
+    else if (total && s > total + 1) CP.warn = `Las líneas suman ${money(s)} pero el ticket dice ${money(total)}. Revisá los importes.`;
+  }
+  if (lines.length > 1) { CP.split = true; CP.lines = lines; CP.monto = 0; }
+  else { CP.split = false; const l = lines[0] || { n: CP.com, monto: total, cat: 'otros' }; CP.monto = l.monto || total; CP.cat = l.cat; CP.catAuto = false; if (!CP.com) CP.com = l.n; }
+  CP.scan = { state: 'ok', msg: `Listo: ${lines.length > 1 ? lines.length + ' ítems' : '1 ítem'} · ${r.tipoDoc || 'comprobante'}. Revisá los importes y elegí cómo pagaste.${r.aviso ? ' ' + r.aviso : ''}` };
   cpRefresh();
 }
 const tituloCaso = s => s.toLowerCase().replace(/(^|\s)([a-zñáéíóú])/g, (m, a, b) => a + b.toUpperCase());
@@ -1425,6 +1482,7 @@ function vAjustes() {
   h += `<div class="card"><h2>Datos</h2><button class="set-row" data-act="export-csv"><span class="grow">Exportar movimientos (CSV)</span>${IC.chev}</button>
     <div class="set-row"><span class="grow ink2">Reglas aprendidas</span><span class="num hint">${Object.keys(S.apr).length} ítems</span></div>
     <div class="set-row"><span class="grow ink2">Conexión</span><span class="pill ${S.mode === 'cloud' ? 'pos' : 'warn'}">${S.mode === 'cloud' ? 'compartida' : 'solo este teléfono'}</span></div>
+    <div class="set-row"><span class="grow ink2">Lectura de fotos con Claude</span><span class="pill ${S.cap.images ? 'pos' : 'warn'}">${S.cap.images ? 'disponible' : 'no disponible'}</span></div>
     <div class="set-row"><span class="grow ink2">Guardar fotos de tickets</span><span class="pill ${S.cap.assets ? 'pos' : 'warn'}">${S.cap.assets ? 'sí' : 'solo mientras cargás'}</span></div></div>`;
   return h + '</div>';
 }

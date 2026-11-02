@@ -142,7 +142,8 @@ const Store = {
   async init() {
     let db = null;
     try { if (window.claude && window.claude.use) db = await window.claude.use('db'); } catch (e) { db = null; }
-    try { if (window.claude && window.claude.use) { S.cap.downloads = await window.claude.use('downloads'); S.cap.assets = await window.claude.use('assets'); } } catch (e) { }
+    try { if (window.claude && window.claude.use) { S.cap.downloads = await window.claude.use('downloads'); S.cap.assets = await window.claude.use('assets'); S.cap.sample = await window.claude.use('sample'); } } catch (e) { }
+    try { if (S.cap.sample && S.cap.sample.limits) { const l = await S.cap.sample.limits(); S.cap.images = !!l.images; S.cap.imgLimits = l.images || null; } } catch (e) { S.cap.images = false; }
     if (db) {
       this.mode = 'cloud'; this.db = db; S.mode = 'cloud';
       let t = setTimeout(() => { if (!S.loaded.mov) toast('Sin conexión con la base: puede que veas datos viejos.', null, true); }, 10000);
