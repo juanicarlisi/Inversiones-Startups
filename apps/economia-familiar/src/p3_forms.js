@@ -21,6 +21,7 @@ function nuevoCP(tipo, extra = {}) {
 }
 function cpTotal() { return CP.tipo === 'gasto' && CP.split ? r2(sum(CP.lines, l => +l.monto || 0)) : (+CP.monto || 0); }
 function cpMes() {
+  if (CP.mesPago && CP.tipo === 'gasto' && esTarjeta(CP.medio) && !CP.pagoFondo) return CP.mesPago;
   if (CP.mesFijo && CP.fecha === CP.fecha0 && CP.medio === CP.medio0) return CP.mesFijo;
   if (CP.tipo === 'gasto' && !CP.pagoFondo) return imputar(CP.fecha, CP.medio);
   return CP.fecha.slice(0, 7);
@@ -64,6 +65,7 @@ function cpBody() {
     }
     h += `<div class="field"><label>Cómo pagaste</label><div class="chips">${medios().map(m => `<button class="chip ${CP.medio === m.id ? 'on' : ''}" data-act="cp-medio" data-k="${m.id}">${m.k === 'card' ? '💳' : m.id === 'ef' ? '💵' : m.id === 'deb' ? '🏧' : '🏦'} ${esc(m.n)}</button>`).join('')}</div></div>`;
     if (esTarjeta(CP.medio) && !CP.id) h += `<div class="field"><label>Cuotas</label><div class="chips">${[1, 3, 6, 12].map(n => `<button class="chip ${CP.cuotas === n ? 'on' : ''}" data-act="cp-cuotas" data-k="${n}">${n === 1 ? 'Sin cuotas' : n + ' cuotas'}</button>`).join('')}</div>${CP.cuotas > 1 ? `<div class="hint">${CP.cuotas} cuotas de ${money(cpTotal() / CP.cuotas)}, una por mes.</div>` : ''}</div>`;
+    if (esTarjeta(CP.medio) && !CP.pagoFondo) { const f0 = CP.fecha.slice(0, 7), sug = imputar(CP.fecha, CP.medio), act = cpMes(); h += `<div class="field"><label>Se paga en</label><div class="chips">${[0, 1, 2, 3, 4].map(i => addM(f0, i)).map(m => `<button class="chip ${act === m ? 'on' : ''}" data-act="cp-mespago" data-k="${m}">${ymShort(m)} ${m.slice(2, 4)}${m === sug ? ' · sugerido' : ''}</button>`).join('')}</div><div class="hint">Elegí en qué resumen entra${CP.cuotas > 1 ? ' la primera cuota' : ''}.</div></div>`; }
   } else if (t === 'ingreso') {
     h += `<div class="field"><label>Tipo de ingreso</label><div class="chips">${cfg().ingCats.map(c => `<button class="chip ${CP.ingCat === c.id ? 'on' : ''}" data-act="cp-ingcat" data-k="${c.id}"><span class="e">${c.e}</span>${esc(c.n)}</button>`).join('')}</div></div>
     <div class="field"><label for="com">Detalle (opcional)</label><input class="inp" id="com" data-f="com" placeholder="Ej: Sueldo, changa, venta" value="${esc(CP.com)}" autocomplete="off"></div>`;
@@ -118,7 +120,7 @@ function cpInput(f, v, el) {
   if (f === 'monto') CP.monto = parseMonto(v);
   else if (f === 'com') { CP.com = v; if (!CP.split && CP.catAuto) { const c = clasificar(v, ''); if (c) { CP.cat = c; const g = $('#cat-grid'); if (g) g.innerHTML = catGrid(); } } }
   else if (f === 'nota') CP.nota = v;
-  else if (f === 'fecha') { if (v) CP.fecha = v; }
+  else if (f === 'fecha') { if (v) { CP.fecha = v; if (CP.mesPago && CP.mesPago < v.slice(0, 7)) CP.mesPago = null; } }
   else if (f === 'ln') { const i = +el.dataset.i, l = CP.lines[i]; l.n = v; if (l.auto !== false) { const c = clasificar(v, CP.com); if (c) { l.cat = c; const b = el.parentElement.querySelector('.catbtn'); const cc = catOf(c); b.textContent = cc.e; b.style.background = cc.c + '22'; } } }
   else if (f === 'lm') { CP.lines[+el.dataset.i].monto = parseMonto(v); }
   else if (f === 'tt') CP.totalTicket = parseMonto(v);
@@ -362,11 +364,11 @@ function abrirFondo(id) {
   const def = openSheet({
     id: 'fondo', title: () => d.e + ' ' + d.n,
     body: () => {
-      const ref = S.mes <= ymNow() ? S.mes : ymNow(); const saldo = saldoFondo(d, ref); const tc = cfg().tc;
+      const saldo = saldoFondo(d, S.mes); const tc = cfg().tc;
       const serie = rmFondo(d, tasa, plazo, saldo, aporte, tc); const fin = serie[serie.length - 1]; const gan = fin.v - fin.ap;
       const hist = S.movs.filter(m => m.fondo === d.id || m.pagoFondo === d.id).sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, 8);
       const need = d.meta > 0 ? aporteNecesario(d.meta, saldo, plazo, tasa, tc) : 0;
-      let h = `<div><div class="eyebrow">Saldo</div><div class="disp num" style="font-size:34px;font-weight:800">${money(saldo)}</div><div class="hint">≈ ${usd(saldo / tc)}</div></div>`;
+      let h = `<div><div class="eyebrow">Saldo confirmado al cierre de ${ymName(S.mes).toLowerCase()}</div><div class="disp num" style="font-size:34px;font-weight:800">${money(saldo)}</div><div class="hint">≈ ${usd(saldo / tc)}</div></div>`;
       if (d.meta > 0) h += `<div><div class="row" style="justify-content:space-between"><b>Meta ${money(d.meta)}</b><span class="pill acc">${Math.min(100, pct(saldo, d.meta))}%</span></div><div class="bar" style="margin-top:6px"><i style="width:${Math.min(100, saldo / d.meta * 100)}%;background:${d.c}"></i></div></div>`;
       h += `<div class="card flat"><h2>Proyección</h2><div class="grid3" style="grid-template-columns:1fr 1fr 1fr">
         <div class="field"><label for="fp-aporte">Aporte / mes</label><input class="inp num" id="fp-aporte" data-f="fp-aporte" inputmode="decimal" value="${fmtInput(aporte)}"></div>

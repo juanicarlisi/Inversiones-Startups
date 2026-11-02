@@ -80,11 +80,12 @@ function barras(id, cols, o = {}) { // cols: [{l, v, c, v2, hatch, tip}]
 function roundTop(x, y, w, h, r) { r = Math.min(r, h); return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`; }
 function lineas(id, series, xl, o = {}) { // series [{pts, c, dash, area}], xl: etiquetas por punto (índices) -> {i: label}
   const W = 340, H = o.h || 170, pl = 4, pb = 20, pt = 10, n = series[0].pts.length;
-  const max = Math.max(1, ...series.flatMap(s => s.pts)) * 1.06;
-  const X = i => pl + (W - pl - 8) * (n === 1 ? 0 : i / (n - 1)), Y = v => pt + (H - pb - pt) * (1 - v / max);
+  const all = series.flatMap(s => s.pts), mn = Math.min(0, ...all), mx = Math.max(1, ...all) * 1.06, rng = (mx - mn) || 1, max = mx;
+  const X = i => pl + (W - pl - 8) * (n === 1 ? 0 : i / (n - 1)), Y = v => pt + (H - pb - pt) * (1 - (v - mn) / rng);
   let g = '';
-  [0.5, 1].forEach(f => { const yy = Y(max / 1.06 * f); g += `<line class="ax" x1="0" x2="${W}" y1="${yy}" y2="${yy}" stroke-dasharray="${f === 1 ? '' : '3 4'}"/>`; });
-  g += `<text x="0" y="${Y(max / 1.06) - 3}" style="font-size:9.5px">${esc(o.yfmt ? o.yfmt(max / 1.06) : compact(max / 1.06))}</text>`;
+  [0, 1].forEach(f => { const yy = f ? Y(mx / 1.06) : Y(0); g += `<line class="ax" x1="0" x2="${W}" y1="${yy}" y2="${yy}" stroke-dasharray="${f === 1 ? '' : '3 4'}"/>`; });
+  g += `<text x="0" y="${Y(mx / 1.06) - 3}" style="font-size:9.5px">${esc(o.yfmt ? o.yfmt(mx / 1.06) : compact(mx / 1.06))}</text>`;
+  if (mn < 0) g += `<text x="0" y="${Y(mn) - 3}" style="font-size:9.5px">${esc(compact(mn))}</text>`;
   series.forEach(s => {
     const d = s.pts.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join('');
     if (s.area) g += `<path d="${d}L${X(n - 1)},${Y(0)}L${X(0)},${Y(0)}Z" fill="${s.c}" opacity=".13"/>`;
@@ -162,8 +163,7 @@ function vInicio() {
   if (!hayAlgo) return `<div class="card">${emptyState('👋', 'Empecemos', 'Cargá tu primer gasto con el botón <b style="display:inline">+</b>. Podés sacarle foto al ticket y se arma solo.', `<button class="btn primary" data-act="nuevo">Cargar un gasto</button>`)}</div>`;
   const tot = Math.max(R.ing, R.cons + Math.max(0, R.apor), 1);
   const wCons = R.cons / tot * 100, wApor = Math.max(0, R.apor) / tot * 100, wSin = Math.max(0, 100 - wCons - wApor);
-  const ref = ym <= now ? ym : now;
-  const caja = cajaHasta(ref), patr = patrimonio(ref);
+  const ac = acumulado(ym);
   let h = '<div class="grid two">';
   h += `<div class="card hero span2"><div class="trio">
     <div><div class="eyebrow">Entró</div><div class="big num pos">${compact(R.ing)}</div><div class="cap">${R.ingP > 0 ? 'faltan ' + compact(R.ingP) : (fut ? 'previsto ' + compact(R.ingEsp) : 'cobrado')}</div></div>
@@ -177,8 +177,8 @@ function vInicio() {
     </div>
     ${R.res < 0 && R.ing > 0 ? '<div class="note neg" style="margin-top:12px">Este mes salió más de lo que entró. Mirá en Análisis qué rubro pesa más.</div>' : ''}
     <div style="margin-top:10px"><button class="link" data-act="explicar">¿Cómo se cuenta cada cosa?</button></div></div>`;
-  h += `<div class="tiles span2"><button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Disponible${ym > now ? ' hoy' : ''}</div><div class="v num ${caja < 0 ? 'neg' : ''}">${compact(caja)}</div><div class="hint">plata líquida sin asignar</div></button>
-    <button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Patrimonio</div><div class="v num">${compact(patr)}</div><div class="hint">disponible + fondos</div></button></div>`;
+  h += `<div class="tiles span2"><button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Sobra acumulada</div><div class="v num ${ac.libre < 0 ? 'neg' : ''}">${compact(ac.libre)}</div><div class="hint">al cierre de ${ymName(ym).toLowerCase()}, sin destino todavía</div></button>
+    <button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Patrimonio</div><div class="v num">${compact(ac.total)}</div><div class="hint">sobra + fondos, con lo previsto</div></button></div>`;
   // checklist
   const rows = checklist(ym);
   if (rows.length) {
@@ -259,11 +259,20 @@ function vAnalisis() {
   const rub = porRubro(R.L), totR = sum(rub, r => r.total);
   const transc = ym === now ? +hoy().slice(8, 10) : (ym < now ? daysIn(ym) : 1);
   let h = `<div class="seg" style="margin-bottom:12px">${[['rubros', 'Rubros'], ['items', 'Ítems'], ['evol', 'Evolución'], ['proy', 'Proyección']].map(([k, l]) => `<button class="${U.anTab === k ? 'on' : ''}" data-act="antab" data-k="${k}">${l}</button>`).join('')}</div>`;
-  h += `<div class="kpis" style="margin-bottom:14px">
-    <div class="kpi"><div class="eyebrow">Gastado</div><div class="v num">${compact(R.cons)}</div><div class="d">${delta(R.cons, P.cons)}</div></div>
-    <div class="kpi"><div class="eyebrow">Por día</div><div class="v num">${compact(R.cons / Math.max(1, transc))}</div><div class="d muted">${ym === now ? 'en ' + transc + ' días' : 'promedio del mes'}</div></div>
-    <div class="kpi"><div class="eyebrow">Rubro más pesado</div><div class="v ell" style="font-size:16px">${rub[0] ? catOf(rub[0].cat).e + ' ' + esc(catOf(rub[0].cat).n) : '—'}</div><div class="d muted">${rub[0] ? pct(rub[0].total, totR) + '% del gasto' : ''}</div></div>
+  const E = esperado(ym), PO = planOriginal(ym), top = rub[0];
+  const kRub = `<div class="kpi"><div class="eyebrow">Rubro más pesado</div><div class="v ell" style="font-size:16px">${top ? catOf(top.cat).e + ' ' + esc(catOf(top.cat).n) : '—'}</div><div class="d muted">${top ? pct(top.total, totR) + '% de lo gastado' : ''}</div></div>`;
+  if (S.base === 'pago') {
+    const dv = PO ? E.consEsp - PO.cons : 0, falta = Math.max(0, E.consEsp - E.cons), resEsp = E.ingEsp - E.consEsp;
+    h += `<div class="kpis" style="margin-bottom:14px">
+    <div class="kpi"><div class="eyebrow">Gastado hasta hoy</div><div class="v num">${compact(E.cons)}</div><div class="d muted">${falta > 500 ? 'faltan ' + compact(falta) + ' por pagar' : 'todo pagado'}</div></div>
+    <div class="kpi"><div class="eyebrow">Gasto esperado del mes</div><div class="v num">${compact(E.consEsp)}</div><div class="d">${PO ? (Math.abs(dv) < 1000 ? '<span class="pill">según el plan</span>' : `<span class="pill ${dv > 0 ? 'neg' : 'pos'}">${dv > 0 ? '▲' : '▼'} ${compact(Math.abs(dv))} ${dv > 0 ? 'sobre' : 'bajo'} el plan</span>`) : '<span class="muted">sin plan para este mes</span>'}</div></div>
+    <div class="kpi"><div class="eyebrow">Resultado esperado</div><div class="v num ${resEsp < 0 ? 'neg' : 'pos'}">${compact(resEsp)}</div><div class="d muted">hoy: ${compact(E.res)}</div></div>${kRub}</div>`;
+  } else {
+    h += `<div class="kpis" style="margin-bottom:14px">
+    <div class="kpi"><div class="eyebrow">Compras del mes</div><div class="v num">${compact(R.cons)}</div><div class="d">${delta(R.cons, P.cons)}</div></div>
+    <div class="kpi"><div class="eyebrow">Por día</div><div class="v num">${compact(R.cons / Math.max(1, transc))}</div><div class="d muted">${ym === now ? 'en ' + transc + ' días' : 'promedio del mes'}</div></div>${kRub}
     <div class="kpi"><div class="eyebrow">Resultado</div><div class="v num ${R.res < 0 ? 'neg' : 'pos'}">${compact(R.res)}</div><div class="d muted">${R.ing ? pct(R.res, R.ing) + '% de lo que entró' : 'sin ingresos cargados'}</div></div></div>`;
+  }
   h += `<div class="row" style="margin-bottom:12px;justify-content:space-between"><span class="hint">Ver por</span><div class="seg" style="width:auto"><button class="${S.base === 'pago' ? 'on' : ''}" data-act="base" data-k="pago">Mes de pago</button><button class="${S.base === 'compra' ? 'on' : ''}" data-act="base" data-k="compra">Fecha de compra</button></div></div>`;
   if (U.anTab === 'rubros') h += anRubros(rub, totR, R);
   else if (U.anTab === 'items') h += anItems(R);
@@ -301,24 +310,28 @@ function anItems(R) {
   return h + '</div>';
 }
 function serieAnio(year) {
-  const now = ymNow(); const out = [];
+  const now = ymNow(); const out = []; let acc = 0;
   for (let i = 1; i <= 12; i++) {
-    const ym = `${year}-${pad(i)}`;
-    if (S.base === 'compra') { const r = resumenMes(ym, 'compra'); out.push({ ym, ing: r.ing, cons: r.cons, apor: r.apor, res: r.res, fut: ym > now, esp: false }); continue; }
-    const e = esperado(ym); const fut = ym >= now;
-    out.push({ ym, ing: fut ? e.ingEsp : e.ing, cons: fut ? e.consEsp : e.cons, apor: e.apor, res: (fut ? e.ingEsp - e.consEsp : e.res), fut: ym > now, esp: fut });
+    const ym = `${year}-${pad(i)}`; let row;
+    if (S.base === 'compra') { const r = resumenMes(ym, 'compra'); row = { ym, ing: r.ing, cons: r.cons, apor: r.apor, res: r.res, fut: ym > now, esp: false, plan: null }; }
+    else { const e = esperado(ym); const fut = ym >= now; row = { ym, ing: fut ? e.ingEsp : e.ing, cons: fut ? e.consEsp : e.cons, apor: fut ? e.aporEsp : e.apor, res: (fut ? e.ingEsp - e.consEsp : e.res), fut: ym > now, esp: fut, plan: planOriginal(ym) }; }
+    acc += row.res; row.acum = acc; out.push(row);
   }
   return out;
 }
 function anEvol() {
   const year = S.mes.slice(0, 4), s = serieAnio(year);
-  const cols = s.map(x => ({ l: ymShort(x.ym)[0], v: x.cons, v2: x.ing || null, c: 'var(--accent)', hatch: x.esp, sel: x.ym === S.mes, tip: `${ymLabel(x.ym)} · gasto ${money(x.cons)} · entra ${money(x.ing)} · resultado ${money(x.res)}${x.esp ? ' (previsto)' : ''}` }));
-  const T = { ing: sum(s, x => x.ing), cons: sum(s, x => x.cons), res: sum(s, x => x.res), apor: sum(s, x => x.apor) };
+  const cols = s.map(x => ({ l: ymShort(x.ym)[0], v: x.cons, v2: x.ing || null, c: 'var(--accent)', hatch: x.esp, sel: x.ym === S.mes, tip: `${ymLabel(x.ym)} · gasto ${money(x.cons)} · entra ${money(x.ing)} · resultado ${money(x.res)}${x.esp ? ' (esperado)' : ''}` }));
+  const T = { ing: sum(s, x => x.ing), cons: sum(s, x => x.cons), res: sum(s, x => x.res) };
+  const dif = x => x.plan ? x.cons - x.plan.cons : null;
+  const dfmt = d => d == null ? '<span class="muted">—</span>' : Math.abs(d) < 1000 ? '<span class="muted">=</span>' : `<span class="${d > 0 ? 'neg' : 'pos'}">${d > 0 ? '+' : '−'}${compact(Math.abs(d)).replace('−', '')}</span>`;
   let h = `<div class="card"><h2>Gasto mes a mes · ${year}</h2>${barras('evo', cols, { def: 'Tocá un mes', label: 'Gasto por mes' })}
-  <div class="hint" style="margin-top:6px"><span class="dot" style="display:inline-block;background:var(--accent);opacity:.55"></span> sin color pleno = previsto &nbsp;·&nbsp; la raya negra marca lo que entra</div></div>
-  <div class="card" style="margin-top:14px"><h2>Año ${year}</h2><div class="scrollx"><table class="tbl"><thead><tr><th>Mes</th><th>Entra</th><th>Gasto</th><th>Resultado</th></tr></thead><tbody>
-  ${s.map(x => `<tr><td>${ymName(x.ym)}${x.esp ? ' <span class="muted">·prev.</span>' : ''}</td><td>${compact(x.ing)}</td><td>${compact(x.cons)}</td><td class="${x.res < 0 ? 'neg' : 'pos'}">${compact(x.res)}</td></tr>`).join('')}
-  <tr><td><b>Total</b></td><td><b>${compact(T.ing)}</b></td><td><b>${compact(T.cons)}</b></td><td class="${T.res < 0 ? 'neg' : 'pos'}"><b>${compact(T.res)}</b></td></tr></tbody></table></div></div>`;
+  <div class="hint" style="margin-top:6px">Barra clara = esperado (lo confirmado + lo que falta del plan). La raya negra marca lo que entra. Al confirmar pagos, cada mes se ajusta solo con los montos reales.</div></div>
+  <div class="card" style="margin-top:14px"><h2>Resultado acumulado · ${year}</h2>${lineas('acum', [{ pts: s.map(x => x.acum), c: 'var(--pos)', area: true }], { 0: 'Ene', 5: 'Jun', 11: 'Dic' }, { def: 'Tocá el gráfico', tip: i => `${ymLabel(s[i].ym)} · resultado del mes ${money(s[i].res)} · acumulado ${money(s[i].acum)}`, label: 'Resultado acumulado' })}</div>
+  <div class="card" style="margin-top:14px"><h2>Mes a mes</h2><div class="scrollx"><table class="tbl"><thead><tr><th>Mes</th><th>Entra</th><th>Gasto</th><th>vs plan</th><th>Resultado</th><th>Acumulado</th></tr></thead><tbody>
+  ${s.map(x => `<tr><td>${ymName(x.ym)}${x.esp ? ' <span class="muted">·esp.</span>' : ''}</td><td>${compact(x.ing)}</td><td>${compact(x.cons)}</td><td>${dfmt(dif(x))}</td><td class="${x.res < 0 ? 'neg' : 'pos'}">${compact(x.res)}</td><td class="${x.acum < 0 ? 'neg' : ''}"><b>${compact(x.acum)}</b></td></tr>`).join('')}
+  <tr><td><b>Total</b></td><td><b>${compact(T.ing)}</b></td><td><b>${compact(T.cons)}</b></td><td></td><td class="${T.res < 0 ? 'neg' : 'pos'}"><b>${compact(T.res)}</b></td><td><b>${compact(s[11].acum)}</b></td></tr></tbody></table></div>
+  <div class="hint" style="margin-top:8px">“vs plan” compara el gasto esperado del mes con lo planeado originalmente: rojo = más que el plan, verde = menos. El resultado es antes de aportes a fondos.</div></div>`;
   return h;
 }
 function anProy() {
@@ -347,26 +360,26 @@ function anProy() {
 
 /* ============ FONDOS ============ */
 function vFondos() {
-  const ym = S.mes, now = ymNow(), ref = ym <= now ? ym : now;
-  const caja = cajaHasta(ref), ds = cfg().destinos, E = esperado(ym);
-  const saldos = ds.map(d => ({ d, s: saldoFondo(d, ref) }));
-  const totF = sum(saldos, x => x.s), patr = caja + totF;
+  const ym = S.mes, ds = cfg().destinos, E = esperado(ym), ac = acumulado(ym), confF = sum(cfg().destinos, d => saldoFondo(d, ym));
+  const saldos = ds.map(d => ({ d, s: ac.fondos[d.id], c: saldoFondo(d, ym) }));
+  const patr = ac.total;
   const aporteTot = sum(ds, d => d.aporte);
   const sobra = E.ingEsp - E.consEsp;
   let h = '<div class="grid two">';
-  h += `<div class="card hero span2"><div class="eyebrow">Patrimonio</div><div class="big num" style="font-size:34px">${money(patr)}</div><div class="cap">≈ ${usd(patr / cfg().tc)} al dólar de referencia ($ ${miles(cfg().tc)})</div><div class="sp"></div>
-  <div class="stack">${saldos.filter(x => x.s > 0).map(x => `<i style="width:${x.s / Math.max(1, patr) * 100}%;background:${x.d.c}"></i>`).join('')}${caja > 0 ? `<i style="width:${caja / Math.max(1, patr) * 100}%;background:var(--pos)"></i>` : ''}</div>
-  <div class="leg"><div class="li"><span class="dot" style="background:var(--pos)"></span>Disponible (plata líquida)<b class="num">${money(caja)}</b></div>${saldos.map(x => `<div class="li"><span class="dot" style="background:${x.d.c}"></span>${x.d.e} ${esc(x.d.n)}<b class="num">${money(x.s)}</b></div>`).join('')}</div></div>`;
+  h += `<div class="card hero span2"><div class="eyebrow">Patrimonio al cierre de ${ymName(ym).toLowerCase()}</div><div class="big num" style="font-size:34px">${money(patr)}</div><div class="cap">≈ ${usd(patr / cfg().tc)} al dólar de referencia ($ ${miles(cfg().tc)}) · en fondos ya confirmado: ${money(confF)}</div><div class="sp"></div>
+  <div class="stack">${saldos.filter(x => x.s > 0).map(x => `<i style="width:${x.s / Math.max(1, patr) * 100}%;background:${x.d.c}"></i>`).join('')}${ac.libre > 0 ? `<i style="width:${ac.libre / Math.max(1, patr) * 100}%;background:var(--pos)"></i>` : ''}</div>
+  <div class="leg"><div class="li"><span class="dot" style="background:var(--pos)"></span>Sobra acumulada, sin destino<b class="num ${ac.libre < 0 ? 'neg' : ''}">${money(ac.libre)}</b></div>${saldos.map(x => `<div class="li"><span class="dot" style="background:${x.d.c}"></span>${x.d.e} ${esc(x.d.n)}<b class="num">${money(x.s)}</b></div>`).join('')}</div>
+  <div class="hint" style="margin-top:10px">Incluye lo confirmado y lo previsto hasta ${ymName(ym).toLowerCase()}. A medida que confirmás cobros, pagos y aportes, se ajusta con los montos reales.</div></div>`;
   if (aporteTot > 0 && sobra > 0 && aporteTot > sobra + 1000) {
     h += `<div class="note warn span2"><b>Tus aportes previstos (${money(aporteTot)}) superan lo que sobra en ${ymName(ym).toLowerCase()} (${money(sobra)}).</b> Eso equivale al ${Math.round(aporteTot / sobra * 100)}% de lo que sobra. <button class="link" data-act="normalizar">Ajustar proporcionalmente</button></div>`;
   }
   h += `<div class="card span2"><h2>Aportes de ${ymName(ym).toLowerCase()}</h2>`;
-  saldos.forEach(({ d, s }) => {
+  saldos.forEach(({ d, s, c }) => {
     const ap = S.movs.filter(m => m.tipo === 'aporte' && m.fondo === d.id && m.mes === ym); const hecho = sum(ap, m => m.total);
     const share = sobra > 0 && d.aporte ? Math.round(d.aporte / sobra * 100) : 0;
     h += `<div class="bar-row"><div class="hd"><button class="hd grow" data-act="fondo-open" data-id="${d.id}" style="gap:10px"><span class="ico sm" style="background:${d.c}22">${d.e}</span><span class="n ell">${esc(d.n)}</span><span class="v num">${money(s)}</span>${IC.chev}</button></div>
     <div class="bar"><i style="width:${d.aporte ? Math.min(100, hecho / d.aporte * 100) : (hecho ? 100 : 0)}%;background:${d.c}"></i></div>
-    <div class="row" style="justify-content:space-between"><span class="hint">${hecho ? 'Aportaste ' + money(hecho) : 'Todavía no aportaste'} de ${money(d.aporte)} previstos${share ? ' · ' + share + '% de lo que sobra' : ''}</span>
+    <div class="row" style="justify-content:space-between"><span class="hint">${hecho ? 'Aportaste ' + money(hecho) : 'Todavía no aportaste'} de ${money(d.aporte)} previstos${share ? ' · ' + share + '% de lo que sobra' : ''}${Math.round(c) !== Math.round(s) ? ' · confirmado ' + money(c) : ''}</span>
     <button class="btn sm ${hecho >= d.aporte && d.aporte ? '' : 'primary'}" data-act="aportar" data-id="${d.id}">${hecho ? 'Sumar otro' : 'Aporté'}</button></div></div>`;
   });
   h += `<div class="sp"></div><button class="btn block ghost" data-act="fondo-nuevo">+ Nuevo destino</button></div>`;
@@ -377,14 +390,14 @@ function vFondos() {
   else {
     const pend = mt.filter(x => !x.hecha), cmp = mt.filter(x => x.hecha);
     h += `<div class="hint" style="margin-bottom:6px">Pendientes: <b class="num">${money(sum(pend, x => x.monto))}</b> en ${pend.length} cosas</div>`;
-    (S.ui.metasAll ? pend : pend.slice(0, 6)).forEach(x => h += `<div class="mv"><button class="grow row" data-act="meta-edit" data-id="${x.id}"><span class="ico sm">🎯</span><span class="grow"><div class="t ell">${esc(x.n)}</div></span><span class="a num">${money(x.monto)}</span></button><button class="btn sm" data-act="meta-comprar" data-id="${x.id}">Compré</button></div>`);
+    (S.ui.metasAll ? pend : pend.slice(0, 6)).forEach(x => h += `<div class="mv"><button class="grow row" data-act="meta-edit" data-id="${x.id}" style="align-items:flex-start"><span class="ico sm">🎯</span><span class="grow"><div class="t" style="white-space:normal;overflow-wrap:anywhere">${esc(x.n)}</div><div class="s num">${money(x.monto)}</div></span></button><button class="btn sm" data-act="meta-comprar" data-id="${x.id}">Compré</button></div>`);
     if (pend.length > 6) h += `<button class="btn block ghost" data-act="metas-all">${S.ui.metasAll ? 'Ver menos' : 'Ver las ' + (pend.length - 6) + ' restantes'}</button>`;
-    if (cmp.length) h += `<div class="group-h">Compradas</div>` + cmp.map(x => `<div class="mv"><span class="ico sm">✅</span><span class="grow"><div class="t ell ink2">${esc(x.n)}</div></span><span class="a num ink2">${money(x.real || x.monto)}</span></div>`).join('');
+    if (cmp.length) h += `<div class="group-h">Compradas</div>` + cmp.map(x => `<div class="mv"><span class="ico sm">✅</span><span class="grow"><div class="t ink2" style="white-space:normal;overflow-wrap:anywhere">${esc(x.n)}</div></span><span class="a num ink2">${money(x.real || x.monto)}</span></div>`).join('');
   }
   h += '</div>';
   h += `<div class="card"><h2>Cómo se cuenta</h2><div class="help"><p style="margin:0 0 8px"><b>Consumo</b> es lo que gastás y no vuelve: súper, alquiler, salidas. Es lo único que resta del resultado del mes.</p>
   <p style="margin:0 0 8px"><b>Aportar a un fondo</b> no es un gasto: la plata pasa de “disponible” al fondo y sigue siendo tuya. Se cuenta una sola vez, el mes que aportás. En los meses siguientes solo suman los aportes nuevos y el rendimiento.</p>
-  <p style="margin:0 0 8px"><b>Patrimonio</b> = disponible + saldo de todos los fondos. Es lo que de verdad tenés.</p>
+  <p style="margin:0 0 8px"><b>Sobra acumulada</b> = lo que fue sobrando mes a mes después de aportar, sin destino todavía. <b>Patrimonio</b> = sobra acumulada + saldo de todos los fondos.</p>
   <p style="margin:0"><b>Si usás un fondo para comprar algo</b> (el auto, un viaje), se registra el gasto “pagado con el fondo”: baja el fondo y no ensucia el consumo del mes.</p></div></div>`;
   return h + '</div>';
 }

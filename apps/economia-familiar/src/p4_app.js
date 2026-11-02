@@ -100,7 +100,7 @@ const ACT = {
   'mov-edit': (el, e, d) => {
     const m = d.m; closeSheet(d);
     const its = m.items || []; const simple = m.tipo === 'gasto' && its.length === 1;
-    const ex = { id: m.id, tipo: m.tipo === 'gasto' ? 'gasto' : m.tipo === 'ingreso' ? 'ingreso' : 'fondo', sub: m.tipo, fecha: m.fecha, medio: m.medio || 'ef', por: m.por || userName(), com: m.com || '', nota: m.nota || '', creado: m.creado, grupo: m.grupo, cuota: m.cuota, src: m.src, planId: m.planId, pagoFondo: m.pagoFondo || null, adv: !!(m.pagoFondo || m.nota), medioTouched: true, mesFijo: m.mes, fecha0: m.fecha, medio0: m.medio || 'ef' };
+    const ex = { id: m.id, tipo: m.tipo === 'gasto' ? 'gasto' : m.tipo === 'ingreso' ? 'ingreso' : 'fondo', sub: m.tipo, fecha: m.fecha, medio: m.medio || 'ef', por: m.por || userName(), com: m.com || '', nota: m.nota || '', creado: m.creado, grupo: m.grupo, cuota: m.cuota, src: m.src, planId: m.planId, pagoFondo: m.pagoFondo || null, adv: !!(m.pagoFondo || m.nota), medioTouched: true, mesPago: m.tipo === 'gasto' && esTarjeta(m.medio) && !m.pagoFondo ? m.mes : null, mesFijo: m.mes, fecha0: m.fecha, medio0: m.medio || 'ef' };
     if (m.tipo === 'gasto') { if (simple) { Object.assign(ex, { split: false, monto: its[0].monto, cat: its[0].cat, catAuto: false, com: m.com || (its[0].n === catOf(its[0].cat).n ? '' : its[0].n) }); } else Object.assign(ex, { split: true, lines: clone(its).map(l => ({ ...l, auto: false })), monto: 0 }); }
     else if (m.tipo === 'ingreso') Object.assign(ex, { monto: m.total, ingCat: m.cat });
     else Object.assign(ex, { monto: m.total, fondo: m.fondo });
@@ -143,7 +143,8 @@ const ACT = {
   'cp-delline': el => { CP.lines.splice(+el.dataset.i, 1); if (!CP.lines.length) CP.lines.push({ n: '', monto: 0, cat: 'alim', cant: 1, auto: true }); cpRefresh(); },
   'cp-addline': () => { CP.lines.push({ n: '', monto: 0, cat: 'alim', cant: 1, auto: true }); cpRefresh(); setTimeout(() => { const ins = $$('[data-f="ln"]'); if (ins.length) ins[ins.length - 1].focus(); }, 30); },
   'cp-split': () => { CP.split = true; CP.lines = [{ n: CP.com || '', monto: CP.monto || 0, cat: CP.cat, cant: 1, auto: CP.catAuto }, { n: '', monto: 0, cat: 'alim', cant: 1, auto: true }]; cpRefresh(); },
-  'cp-medio': el => { CP.medio = el.dataset.k; CP.medioTouched = true; if (!esTarjeta(CP.medio)) CP.cuotas = 1; cpRefresh(); },
+  'cp-medio': el => { CP.medio = el.dataset.k; CP.medioTouched = true; CP.mesPago = null; if (!esTarjeta(CP.medio)) CP.cuotas = 1; cpRefresh(); },
+  'cp-mespago': el => { CP.mesPago = el.dataset.k; cpRefresh(); },
   'cp-cuotas': el => { CP.cuotas = +el.dataset.k; cpRefresh(); },
   'cp-ingcat': el => { CP.ingCat = el.dataset.k; cpRefresh(); },
   'cp-por': el => { CP.por = el.dataset.k; cpRefresh(); },
@@ -188,7 +189,7 @@ document.addEventListener('change', async e => {
   if (d && d.id === 'fondo' && f && f.startsWith('fp-')) { d.set(f.slice(3), el.value); paintSheet(d); return; }
   if (d && d.id === 'pe-select') return;
   if (f === 'pe-c' && d) { d.it.cat = el.value; return; }
-  if (f === 'fecha' && d && d.id === 'cp') { cpInput('fecha', el.value, el); return; }
+  if (f === 'fecha' && d && d.id === 'cp') { cpInput('fecha', el.value, el); if (esTarjeta(CP.medio)) cpRefresh(); return; }
   if (!f || !f.startsWith('st-')) return;
   const c = cfg();
   if (f === 'st-user') c.usuarios[+el.dataset.i] = el.value.trim() || c.usuarios[+el.dataset.i];

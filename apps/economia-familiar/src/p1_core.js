@@ -240,16 +240,16 @@ function realPlan(id, ym) {
   const L = S.movs.filter(m => m.planId === id && m.mes === ym);
   return L.length ? { total: sum(L, m => m.total), movs: L } : null;
 }
-function ingresoDiezmable(ym) {
+function ingresoDiezmable(ym, puro) {
   let s = 0;
-  for (const it of S.plan.items) if (it.tipo === 'ingreso' && it.diez) { const r = realPlan(it.id, ym); s += r ? r.total : planBase(it, ym); }
+  for (const it of S.plan.items) if (it.tipo === 'ingreso' && it.diez) { const r = puro ? null : realPlan(it.id, ym); s += r ? r.total : planBase(it, ym, puro); }
   return s;
 }
-function planBase(it, ym) {
+function planBase(it, ym, puro) {
   if (ovHas(it, ym)) return +it.ov[ym] || 0;
   if (it.desde && ym < it.desde) return 0;
   if (it.hasta && ym > it.hasta) return 0;
-  if (it.pct) return r2(ingresoDiezmable(ym) * it.pct / 100);
+  if (it.pct) return r2(ingresoDiezmable(ym, puro) * it.pct / 100);
   return +it.base || 0;
 }
 function planItemsAll() {
@@ -268,11 +268,38 @@ function checklist(ym) {
   return rows;
 }
 function esperado(ym) {
-  const r = resumenMes(ym, 'pago'); let ingP = 0, fijoP = 0, presP = 0;
-  for (const row of checklist(ym)) if (!row.real) { if (row.it.tipo === 'ingreso') ingP += row.plan; else if (row.it.tipo === 'gasto') fijoP += row.plan; }
+  const r = resumenMes(ym, 'pago'); let ingP = 0, fijoP = 0, presP = 0, aporP = 0;
+  for (const row of checklist(ym)) if (!row.real) { if (row.it.tipo === 'ingreso') ingP += row.plan; else if (row.it.tipo === 'gasto') fijoP += row.plan; else if (row.it.tipo === 'aporte') aporP += row.plan; }
   const L = lineasDe(r.L).filter(l => !l.m.planId);
   for (const c of cfg().cats) if (c.pres > 0 && ym >= cfg().inicio) presP += Math.max(0, c.pres - sum(L.filter(l => l.cat === c.id), l => l.monto));
-  return { ...r, ingP, fijoP, presP, ingEsp: r.ing + ingP, consEsp: r.cons + fijoP + presP };
+  return { ...r, ingP, fijoP, presP, aporP, aporEsp: r.apor + aporP, ingEsp: r.ing + ingP, consEsp: r.cons + fijoP + presP };
+}
+/* Lo que se planeó originalmente para el mes (sin ajustes por lo ya confirmado) */
+function planOriginal(ym) {
+  if (ym < cfg().inicio) return null; let ing = 0, cons = 0;
+  for (const it of S.plan.items) { const v = planBase(it, ym, true); if (it.tipo === 'ingreso') ing += v; else cons += v; }
+  for (const c of cfg().cats) if (c.pres > 0) cons += c.pres;
+  cons += sum(S.movs.filter(m => m.src === 'backlog' && m.mes === ym), m => m.total);
+  return { ing, cons };
+}
+/* Acumulado desde el inicio hasta un mes: lo ya confirmado + lo previsto que falta (meses de hoy en adelante) */
+function acumulado(hasta) {
+  const now = ymNow(), ini = cfg().inicio; let libre = +cfg().caja || 0; const fondos = {};
+  cfg().destinos.forEach(d => fondos[d.id] = +d.saldo0 || 0);
+  for (let m = ini, n = 0; m <= hasta && n < 72; m = addM(m, 1), n++) {
+    const e = esperado(m), fut = m >= now, L = e.L;
+    libre += (fut ? e.ingEsp : e.ing) - (fut ? e.consEsp : e.cons);
+    for (const d of cfg().destinos) {
+      const real = sum(L.filter(x => x.tipo === 'aporte' && x.fondo === d.id), x => x.total);
+      const falta = fut && !realPlan('dest:' + d.id, m) && d.aporte > 0 ? d.aporte : 0;
+      const ret = sum(L.filter(x => x.tipo === 'retiro' && x.fondo === d.id), x => x.total);
+      const rend = sum(L.filter(x => x.tipo === 'rendimiento' && x.fondo === d.id), x => x.total);
+      const usado = sum(L.filter(x => x.tipo === 'gasto' && x.pagoFondo === d.id), x => x.total);
+      libre -= real + falta; libre += ret; fondos[d.id] += real + falta + rend - ret - usado;
+    }
+  }
+  const totalFondos = sum(Object.values(fondos), v => v);
+  return { libre, fondos, totalFondos, total: libre + totalFondos };
 }
 function saldoFondo(d, hastaYm) {
   let s = +d.saldo0 || 0;
