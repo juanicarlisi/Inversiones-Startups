@@ -38,7 +38,7 @@ function cpBody() {
     {
       h += `<div class="scan"><label for="file-ticket" role="button" tabindex="0">${IC.cam}Foto<small>Ticket, transferencia, Uber: se lee solo</small></label><button data-act="cp-pegar">${IC.list}Pegar texto<small>Ticket digital o mail</small></button><button data-act="cp-quick">${IC.pen}Escribir rápido<small>“Uber 4500 visa”</small></button></div>`;
       h += `<input type="file" id="file-ticket" accept="image/*" multiple class="sr" tabindex="-1">`;
-      if (CP.fotoHint && !CP.foto && CP.scan.state !== 'loading') h += `<div class="note warn">¿No se abre la galería o la cámara? Algunos visores del celular lo bloquean. Dos salidas: <b>Pegar texto</b> (ahí podés pegar una captura o foto copiada) o <a href="${ARTIFACT_URL}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:800">abrir esta app en el navegador del celular</a> (Chrome o Safari).</div>`;
+      h += `<div class="note warn" id="foto-hint" hidden>¿No se abre la galería o la cámara? Algunos visores del celular lo bloquean. Dos salidas: <b>Pegar texto</b> (ahí podés pegar una captura o foto copiada) o <a href="${ARTIFACT_URL}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:800">abrir esta app en el navegador del celular</a> (Chrome o Safari).</div>`;
       if (CP.scan.state === 'loading') h += `<div class="card flat row"><span class="spin"></span><div class="grow"><b>Leyendo el comprobante…</b><div class="hint">Separo cada ítem y lo asigno a su rubro. Tarda unos segundos.</div></div></div>`;
       if (CP.scan.state === 'error') h += `<div class="note neg">${esc(CP.scan.msg)}</div>`;
       if (CP.scan.state === 'ok') h += `<div class="note pos">${esc(CP.scan.msg)}</div>`;
@@ -200,8 +200,9 @@ function aplicarScan(r) {
   if (mm && medios().some(m => m.id === mm) && !CP.medioTouched) CP.medio = mm;
   const total = +r.total || 0, s = r2(sum(lines, l => l.monto)); CP.warn = null; if (total) CP.totalTicket = total;
   if (lines.length > 1) {
-    if (total && s < total - 1) { lines.push({ n: 'Sin detallar', d: '', cant: 1, monto: r2(total - s), cat: 'otros', auto: false }); CP.warn = `Las líneas leídas sumaban ${money(s)} y el ticket dice ${money(total)}. Agregué “Sin detallar” por la diferencia; revisalo mirando la foto.`; }
-    else if (total && s > total + 1) CP.warn = `Las líneas suman ${money(s)} pero el ticket dice ${money(total)}. Revisá los importes.`;
+    const grande = Math.abs(total - s) > Math.max(500, total * 0.03);
+    if (total && s < total - 1) { lines.push({ n: 'Sin detallar', d: '', cant: 1, monto: r2(total - s), cat: 'otros', auto: false }); if (grande) CP.warn = `Los ítems leídos sumaban ${money(s)} y el ticket dice ${money(total)}. Puede faltar alguno: la línea “Sin detallar” cubre la diferencia y la podés editar.`; }
+    else if (total && s > total + 1 && grande) CP.warn = `Los ítems suman ${money(s)} y el ticket dice ${money(total)}. Revisá los importes.`;
   }
   if (lines.length > 1) { CP.split = true; CP.lines = lines; CP.monto = 0; }
   else { CP.split = false; const l = lines[0] || { n: '', monto: total, cat: 'otros' }; CP.monto = l.monto || total; CP.cat = l.cat; CP.catAuto = false; if (!CP.com && l.n) CP.com = l.n; }

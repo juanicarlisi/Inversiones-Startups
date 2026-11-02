@@ -170,7 +170,7 @@ const ACT = {
   'cp-save': () => cpSave()
 };
 document.addEventListener('click', e => {
-  if (e.target.closest('label[for="file-ticket"]') && CP) setTimeout(() => { if (CP && !CP.foto && !CP.fotoHint) { CP.fotoHint = true; cpRefresh(); } }, 2500);
+  if (e.target.closest('label[for="file-ticket"]') && CP) setTimeout(() => { const h = $('#foto-hint'); if (h && CP && !CP.foto && CP.scan.state !== 'loading') h.hidden = false; }, 7000);
   const tip = e.target.closest('[data-tip]');
   if (tip) { const svg = tip.closest('svg'); const ro = $('#ro-' + (svg && svg.dataset.ro)); if (ro) ro.textContent = tip.dataset.tip; return; }
   const el = e.target.closest('[data-act]'); if (!el) return;
