@@ -16,7 +16,7 @@ function vAjustes() {
   h += `<div class="card"><h2>Datos</h2><button class="set-row" data-act="export-csv"><span class="grow">Exportar movimientos (CSV)</span>${IC.chev}</button>
     <div class="set-row"><span class="grow ink2">Reglas aprendidas</span><span class="num hint">${Object.keys(S.apr).length} ítems</span></div>
     <div class="set-row"><span class="grow ink2">Conexión</span><span class="pill ${S.mode === 'cloud' ? 'pos' : 'warn'}">${S.mode === 'cloud' ? 'compartida' : 'solo este teléfono'}</span></div>
-    <div class="set-row"><span class="grow ink2">Lectura de fotos con Claude</span><span class="pill ${S.cap.images ? 'pos' : 'warn'}">${S.cap.images ? 'disponible' : 'no disponible'}</span></div>
+    <div class="set-row"><span class="grow ink2">Lectura de fotos con Claude</span><span class="pill ${S.cap.sample ? 'pos' : 'warn'}">${S.cap.sample ? (S.cap.images ? 'disponible' : 'a probar') : 'no disponible'}</span></div>
     <div class="set-row"><span class="grow ink2">Guardar fotos de tickets</span><span class="pill ${S.cap.assets ? 'pos' : 'warn'}">${S.cap.assets ? 'sí' : 'solo mientras cargás'}</span></div></div>`;
   return h + '</div>';
 }
@@ -153,7 +153,7 @@ const ACT = {
   'cp-foto': () => { const f = $('#file-ticket'); if (f) { f.value = ''; f.click(); } },
   'cp-pegar': () => abrirPegar(),
   'metas-all': () => { S.ui.metasAll = !S.ui.metasAll; render(); },
-  'paste-ok': (el, e, d) => { const t = $('#paste-txt').value; if (t.trim() && aplicarPegado(t)) { closeSheet(d); cpRefresh(); } else if (!t.trim()) toast('Pegá el texto primero.', null, true); },
+  'paste-ok': (el, e, d) => { const t = $('#paste-txt').value; if (!t.trim()) { toast('Pegá el texto primero.', null, true); return; } closeSheet(d); leerTexto(t); },
   'cp-vefoto': () => { const u = CP.foto && CP.foto.url; if (u) openSheet({ title: 'Foto del ticket', body: `<img src="${u}" alt="Ticket" style="width:100%;border-radius:12px">` }); },
   'cp-quitafoto': () => { if (CP.foto && CP.foto.url) URL.revokeObjectURL(CP.foto.url); CP.foto = null; cpRefresh(); },
   'cp-resto': () => { const d = r2(CP.totalTicket - cpTotal()); if (d > 0) { CP.lines.push({ n: 'Sin detallar', monto: d, cat: 'otros', cant: 1, auto: false }); cpRefresh(); } },
@@ -184,6 +184,7 @@ document.addEventListener('input', e => {
 });
 document.addEventListener('change', async e => {
   const el = e.target, f = el.dataset && el.dataset.f; const d = sheetOf(el);
+  if (el.id === 'file-ticket') { if (CP && el.files && el.files.length) { const fs = [...el.files]; el.value = ''; adjuntarFoto(fs); } return; }
   if (f === 'ln' && CP && KNOWN) { const l = CP.lines[+el.dataset.i], k = KNOWN.get(keyOf(el.value)); if (k) { l.cat = S.apr[keyOf(el.value)] || k.cat; l.auto = false; if (!l.monto) l.monto = r2(k.last); cpRefresh(); } return; }
   if (el.id === 'it-cat') { const k = el.dataset.key; await guardar(() => Store.merge('cfg', 'aprendido', { [k]: el.value }), 'Listo: la próxima vez va a ese rubro'); return; }
   if (d && d.id === 'fondo' && f && f.startsWith('fp-')) { d.set(f.slice(3), el.value); paintSheet(d); return; }

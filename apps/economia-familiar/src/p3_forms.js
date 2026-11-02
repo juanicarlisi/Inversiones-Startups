@@ -35,8 +35,8 @@ function cpBody() {
   if (!CP.id) h += `<div class="seg"><button class="${t === 'gasto' ? 'on' : ''}" data-act="cp-tipo" data-k="gasto">Gasto</button><button class="${t === 'ingreso' ? 'on' : ''}" data-act="cp-tipo" data-k="ingreso">Ingreso</button><button class="${t === 'fondo' ? 'on' : ''}" data-act="cp-tipo" data-k="fondo">Fondos</button></div>`;
   if (t === 'gasto' && !CP.id) {
     {
-      h += `<div class="scan"><button data-act="cp-foto">${IC.cam}Foto<small>Ticket, transferencia, Uber: se lee solo</small></button><button data-act="cp-pegar">${IC.list}Pegar texto<small>Ticket digital o mail</small></button><button data-act="cp-quick">${IC.pen}Escribir rápido<small>“Uber 4500 visa”</small></button></div>`;
-      h += `<input type="file" id="file-ticket" accept="image/*" multiple hidden>`;
+      h += `<div class="scan"><label for="file-ticket" role="button" tabindex="0">${IC.cam}Foto<small>Ticket, transferencia, Uber: se lee solo</small></label><button data-act="cp-pegar">${IC.list}Pegar texto<small>Ticket digital o mail</small></button><button data-act="cp-quick">${IC.pen}Escribir rápido<small>“Uber 4500 visa”</small></button></div>`;
+      h += `<input type="file" id="file-ticket" accept="image/*" multiple class="sr" tabindex="-1">`;
       if (CP.scan.state === 'loading') h += `<div class="card flat row"><span class="spin"></span><div class="grow"><b>Leyendo el comprobante…</b><div class="hint">Separo cada ítem y lo asigno a su rubro. Tarda unos segundos.</div></div></div>`;
       if (CP.scan.state === 'error') h += `<div class="note neg">${esc(CP.scan.msg)}</div>`;
       if (CP.scan.state === 'ok') h += `<div class="note pos">${esc(CP.scan.msg)}</div>`;
@@ -48,6 +48,7 @@ function cpBody() {
     <div class="field"><label>Fondo</label><div class="chips">${cfg().destinos.map(d => `<button class="chip ${CP.fondo === d.id ? 'on' : ''}" data-act="cp-fondo" data-k="${d.id}"><span class="e">${d.e}</span>${esc(d.n)}</button>`).join('')}</div></div>
     <div class="hint">${CP.sub === 'aporte' ? 'La plata pasa de disponible al fondo. No cuenta como gasto.' : CP.sub === 'retiro' ? 'La plata vuelve a estar disponible. Si la usaste para comprar algo, cargalo como gasto “pagado con el fondo”.' : 'Lo que ganó el fondo (intereses, revalorización). Suma al fondo sin tocar tu plata disponible.'}</div>`;
   }
+  if (t === 'gasto' && CP.foto) h += `<div class="card flat row" style="padding:8px"><button data-act="cp-vefoto" aria-label="Ver foto"><img src="${CP.foto.url}" alt="Foto del ticket" style="width:64px;height:64px;object-fit:cover;border-radius:10px;display:block"></button><div class="grow"><b>Foto del ticket</b><div class="hint">Tocá para verla grande.</div></div><button class="icon-btn" data-act="cp-quitafoto" aria-label="Quitar foto">${IC.x}</button></div>`;
   // monto
   if (!(t === 'gasto' && CP.split)) h += `<div class="field"><label for="monto">Monto</label><div class="amount-wrap"><span class="cur">$</span><input id="monto" data-f="monto" inputmode="decimal" autocomplete="off" placeholder="0" value="${CP.monto ? fmtInput(CP.monto) : ''}"></div></div>`;
   else h += `<div class="amount-wrap"><span class="cur">$</span><div class="disp num" style="font-size:38px;font-weight:800" id="split-total">${fmtInput(cpTotal()) || '0'}</div></div>`;
@@ -57,8 +58,6 @@ function cpBody() {
       h += `<div class="field"><label for="com">¿Dónde o qué?</label><input class="inp" id="com" data-f="com" placeholder="Ej: Verdulería, Uber, Netflix" value="${esc(CP.com)}" autocomplete="off"></div>`;
       h += `<button class="btn ghost sm" data-act="cp-split" style="justify-self:start">Dividir en ítems (ticket con varias cosas)</button>`;
     } else {
-      h += `<div class="field"><label for="com">Comercio</label><input class="inp" id="com" data-f="com" placeholder="Ej: Carrefour" value="${esc(CP.com)}" autocomplete="off"></div>`;
-      if (CP.foto) h += `<div class="card flat row" style="padding:8px"><button data-act="cp-vefoto" aria-label="Ver foto"><img src="${CP.foto.url}" alt="Foto del ticket" style="width:64px;height:64px;object-fit:cover;border-radius:10px;display:block"></button><div class="grow"><b>Foto del ticket</b><div class="hint">Tocá para verla grande mientras cargás.</div></div><button class="icon-btn" data-act="cp-quitafoto" aria-label="Quitar foto">${IC.x}</button></div>`;
       h += `<div class="field"><label>Ítems (${CP.lines.length})</label><div class="lines">${CP.lines.map((l, i) => lineRow(l, i)).join('')}</div></div><button class="btn sm" data-act="cp-addline" style="justify-self:start">+ Agregar ítem</button>
       <datalist id="dl-items">${[...KNOWN.values()].slice(-400).map(x => `<option value="${esc(x.n)}">`).join('')}</datalist>
       <div class="field"><label for="tt">Total que dice el ticket (para chequear)</label><input class="inp num" id="tt" data-f="tt" inputmode="decimal" value="${CP.totalTicket ? fmtInput(CP.totalTicket) : ''}" placeholder="Opcional"><div id="tt-chk">${ttChk()}</div></div>`;
@@ -101,7 +100,6 @@ function cpFoot() {
   return `<button class="btn primary" data-act="cp-save" id="btn-save">${CP.id ? 'Guardar cambios' : CP.tipo === 'gasto' ? 'Guardar gasto' : CP.tipo === 'ingreso' ? 'Guardar ingreso' : 'Guardar'}${tot ? ' · ' + money(tot) : ''}</button>`;
 }
 function cpAfter() {
-  const el = $('#file-ticket'); if (el) el.onchange = () => { if (el.files.length) adjuntarFoto([...el.files]); };
   const q = $('#quick'); if (q) { q.focus(); q.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); quickParse(q.value); } }; }
 }
 function cpRefresh() { const d = SHEETS.find(s => s.id === 'cp'); if (d) paintSheet(d); }
@@ -147,20 +145,21 @@ async function reducir(file) {
 }
 async function adjuntarFoto(files) {
   files = [].concat(files).slice(0, (S.cap.imgLimits && S.cap.imgLimits.maxCount) || 4);
-  const blobs = await Promise.all(files.map(reducir));
+  CP.scan = { state: 'loading' }; cpRefresh();
+  let blobs; try { blobs = await Promise.all(files.map(reducir)); } catch (e) { blobs = files; }
+  if (!CP) return;
   if (CP.foto && CP.foto.url) URL.revokeObjectURL(CP.foto.url);
   CP.foto = { blob: blobs[0], blobs, url: URL.createObjectURL(blobs[0]) };
-  if (S.cap.sample && S.cap.images) { await leerTicket(blobs); return; }
-  if (!CP.split) { CP.split = true; CP.lines = [{ n: CP.com || '', monto: CP.monto || 0, cat: CP.cat, cant: 1, auto: CP.catAuto }, { n: '', monto: 0, cat: 'alim', cant: 1, auto: true }, { n: '', monto: 0, cat: 'alim', cant: 1, auto: true }]; }
-  CP.scan = { state: 'ok', msg: 'La lectura automática no está disponible en esta vista. La foto queda de respaldo: cargá los ítems o usá “Pegar texto”.' };
+  if (S.cap.sample) { await leerTicket(blobs); return; }
+  CP.scan = { state: 'error', msg: 'En esta cuenta o vista la lectura automática no está disponible. La foto queda de respaldo: cargá el total y el rubro, o dividí en ítems o pegá el texto del ticket.' };
   cpRefresh();
 }
-function promptTicket() {
+function promptTicket(texto) {
   const cats = cfg().cats.map(c => `- ${c.id}: ${c.n}${CAT_HINTS[c.id] ? ' (' + CAT_HINTS[c.id] + ')' : ''}`).join('\n');
   const ej = Object.entries(S.apr).slice(0, 80).map(([k, v]) => `${k.replace(/_/g, ' ')} → ${v}`).join('; ');
-  return `Sos el lector de comprobantes de una app de economía familiar argentina. Las imágenes adjuntas son UN solo comprobante (puede estar en varias fotos): ticket de supermercado, factura, comprobante de transferencia o Mercado Pago, viaje de Uber/Cabify, recibo, etc. Hoy es ${hoy()}.
+  return `Sos el lector de comprobantes de una app de economía familiar argentina. ${texto ? 'El texto al final es UN solo comprobante copiado y pegado (puede traer ruido: encabezados, CUIT, datos fiscales, publicidad, que debés ignorar)' : 'Las imágenes adjuntas son UN solo comprobante (puede estar en varias fotos)'}: ticket de supermercado, factura, comprobante de transferencia o Mercado Pago, viaje de Uber/Cabify, recibo, etc. Hoy es ${hoy()}.
 Respondé SOLO con un JSON con esta forma:
-{"comercio": string, "fecha": "YYYY-MM-DD" o null, "total": number, "medio": "efectivo"|"debito"|"credito_visa"|"credito_master"|"transferencia"|null, "tipoDoc": string, "items": [{"n": string, "d": string, "cant": number, "monto": number, "cat": string}], "aviso": string o null}
+{"total": number, "medio": "efectivo"|"debito"|"credito_visa"|"credito_master"|"transferencia"|null, "tipoDoc": string, "items": [{"n": string, "d": string, "cant": number, "monto": number, "cat": string}], "aviso": string o null}
 Reglas:
 - "n": nombre corto, genérico y capitalizado del producto, sin marca ni gramaje ni cantidades (ej: "Atún", "Aceite de girasol", "Papel higiénico", "Milanesas de pollo"). Así el mismo producto se agrupa entre compras.
 - "d": el texto original de la línea. "cant": unidades o kilos (1 si no se sabe). "monto": importe TOTAL de esa línea en pesos, con descuentos de línea ya aplicados.
@@ -170,7 +169,7 @@ Reglas:
 - "cat": SOLO uno de estos ids de rubro:
 ${cats}
 - Si algo no se lee, no lo inventes: usá null o dejalo fuera y explicalo en "aviso".
-${ej ? 'Preferencias de la familia para clasificar (producto → rubro): ' + ej + '.' : ''}`;
+${ej ? 'Preferencias de la familia para clasificar (producto → rubro): ' + ej + '.' : ''}${texto ? '\n\nTexto del comprobante:\n"""\n' + texto.slice(0, 12000) + '\n"""' : ''}`;
 }
 async function leerTicket(blobs) {
   CP.scan = { state: 'loading' }; cpRefresh();
@@ -179,22 +178,21 @@ async function leerTicket(blobs) {
     if (!CP) return; aplicarScan(r);
   } catch (e) {
     if (!CP) return;
+    const code = (e && e.code) || 'desconocido';
     const m = { not_granted: 'Para leer la foto necesito tu permiso para usar Claude. Volvé a subirla y aceptá el aviso.', rate_limited: 'Se alcanzó el límite de uso de Claude por ahora. Probá en un rato o cargalo a mano.', image_rejected: 'No pude abrir esa imagen. Probá con otra foto.', invalid_json: 'No logré armar el detalle. Probá con una foto más nítida y completa.', images_unavailable: 'La lectura de fotos no está disponible en esta vista.' }[e && e.code] || 'No pude leer el comprobante. Probá de nuevo o cargalo a mano.';
-    if (!CP.split) { CP.split = true; CP.lines = [{ n: CP.com || '', monto: CP.monto || 0, cat: CP.cat, cant: 1, auto: CP.catAuto }, { n: '', monto: 0, cat: 'alim', cant: 1, auto: true }]; }
-    CP.scan = { state: 'error', msg: m }; cpRefresh();
+    console.warn('lectura de ticket', e);
+    CP.scan = { state: 'error', msg: m + ' (código: ' + code + '). Mientras tanto cargá el total y el rubro, o pegá el texto del ticket.' }; cpRefresh();
   }
 }
 function aplicarScan(r) {
   r = r || {}; const catIds = new Set(cfg().cats.map(c => c.id));
   const lines = (Array.isArray(r.items) ? r.items : []).map(it => {
     const n = String(it.n || it.d || 'Ítem').slice(0, 60); let cat = catIds.has(it.cat) ? it.cat : null;
-    const k = keyOf(n); if (S.apr[k] && catIds.has(S.apr[k])) cat = S.apr[k]; if (!cat) cat = clasificar(n, r.comercio) || 'otros';
+    const k = keyOf(n); if (S.apr[k] && catIds.has(S.apr[k])) cat = S.apr[k]; if (!cat) cat = clasificar(n, '') || 'otros';
     return { n, d: it.d ? String(it.d).slice(0, 120) : '', cant: +it.cant || 1, monto: r2(+it.monto || 0), cat, auto: true };
   }).filter(l => l.monto !== 0);
   if (!lines.length && !(+r.total > 0)) { CP.scan = { state: 'error', msg: 'No encontré importes en la imagen. Probá con otra foto o cargalo a mano.' }; cpRefresh(); return; }
-  if (r.comercio) CP.com = String(r.comercio).slice(0, 60);
-  const f = r.fecha && /^\d{4}-\d{2}-\d{2}$/.test(r.fecha) ? r.fecha : null;
-  if (f && f <= addDay(hoy(), 1) && diasEntre(f, hoy()) < 400) CP.fecha = f;
+  CP.fecha = hoy();
   const mm = { efectivo: 'ef', debito: 'deb', credito_visa: 'visa', credito_master: 'master', transferencia: 'tr' }[r.medio];
   if (mm && medios().some(m => m.id === mm) && !CP.medioTouched) CP.medio = mm;
   const total = +r.total || 0, s = r2(sum(lines, l => l.monto)); CP.warn = null; if (total) CP.totalTicket = total;
@@ -203,7 +201,7 @@ function aplicarScan(r) {
     else if (total && s > total + 1) CP.warn = `Las líneas suman ${money(s)} pero el ticket dice ${money(total)}. Revisá los importes.`;
   }
   if (lines.length > 1) { CP.split = true; CP.lines = lines; CP.monto = 0; }
-  else { CP.split = false; const l = lines[0] || { n: CP.com, monto: total, cat: 'otros' }; CP.monto = l.monto || total; CP.cat = l.cat; CP.catAuto = false; if (!CP.com) CP.com = l.n; }
+  else { CP.split = false; const l = lines[0] || { n: '', monto: total, cat: 'otros' }; CP.monto = l.monto || total; CP.cat = l.cat; CP.catAuto = false; if (!CP.com && l.n) CP.com = l.n; }
   CP.scan = { state: 'ok', msg: `Listo: ${lines.length > 1 ? lines.length + ' ítems' : '1 ítem'} · ${r.tipoDoc || 'comprobante'}. Revisá los importes y elegí cómo pagaste.${r.aviso ? ' ' + r.aviso : ''}` };
   cpRefresh();
 }
@@ -220,7 +218,7 @@ function parsearTicket(txt) {
     if (SKIP.test(name) || !name) continue;
     let cant = 1; const q = name.match(/^(\d+(?:[.,]\d+)?)\s*[xX*]\s*/); if (q) { cant = parseMonto(q[1]) || 1; name = name.slice(q[0].length); }
     name = name.replace(/-?\d+[.,]\d{2}/g, ' ').replace(/\b\d+([.,]\d+)?\s*(g|gr|grs|kg|kgs|ml|cc|l|lt|lts|u|un|unid)\b/gi, ' ').replace(/\b\d{4,}\b/g, ' ').replace(/\s+[xX]\s*\d+\b/g, ' ').replace(/[*#]+/g, ' ').replace(/\s+/g, ' ').trim();
-    if (name.length < 2) continue;
+    const letras = (name.match(/[a-zA-ZñÑáéíóúÁÉÍÓÚ]/g) || []).length; if (name.length < 3 || letras < 3 || letras / name.length < 0.5 || /cuit|ing\.? ?brutos|www|http|@|tel[eé]fono|\btel\b|iva\b|resp\.? ?inscripto|monotributo|domicilio|av\.|calle|\bcp\b|c\.?p\.?\s?\d|ticket n|n[°º]/i.test(name)) continue;
     const n = tituloCaso(name).slice(0, 60); const k = keyOf(n);
     out.push({ n, d: l.slice(0, 120), cant, monto: r2(monto), cat: S.apr[k] || clasificar(n, '') || 'otros', auto: true });
   }
@@ -229,16 +227,26 @@ function parsearTicket(txt) {
 function abrirPegar() {
   openSheet({
     id: 'pegar', title: 'Pegar texto del ticket',
-    body: () => `<div class="help">Copiá el texto de un ticket digital, un mail de compra o un PDF y pegalo acá. Se separa cada línea con su importe y se asigna el rubro con tus reglas.</div><textarea class="inp" id="paste-txt" rows="9" placeholder="Ej:&#10;ATUN GOMEZ PARDO 170G   1.850,00&#10;2 x ACEITE GIRASOL 900ML   5.400,00&#10;TOTAL   7.250,00" style="resize:vertical;font-family:inherit"></textarea>`,
+    body: () => `<div class="help">Copiá el texto de un ticket digital, un mail de compra o un PDF y pegalo acá. Claude separa cada ítem con su importe y lo asigna a su rubro.</div><textarea class="inp" id="paste-txt" rows="9" placeholder="Ej:&#10;ATUN GOMEZ PARDO 170G   1.850,00&#10;2 x ACEITE GIRASOL 900ML   5.400,00&#10;TOTAL   7.250,00" style="resize:vertical;font-family:inherit"></textarea>`,
     foot: () => '<button class="btn primary" data-act="paste-ok">Armar ítems</button>'
   });
 }
-function aplicarPegado(txt) {
+function aplicarPegadoLocal(txt) {
   const r = parsearTicket(txt);
   if (!r.lines.length) { toast('No encontré líneas con importe. Pegá el ticket completo.', null, true); return false; }
   const vacias = CP.split ? CP.lines.filter(l => l.n || l.monto) : [];
-  CP.split = true; CP.lines = [...vacias, ...r.lines]; CP.monto = 0; if (r.total) CP.totalTicket = r.total; if (r.com && !CP.com) CP.com = r.com;
-  CP.scan = { state: 'ok', msg: `${r.lines.length} ítems armados. Revisá los nombres y los rubros.` }; return true;
+  CP.split = true; CP.lines = [...vacias, ...r.lines]; CP.monto = 0; if (r.total) CP.totalTicket = r.total;
+  CP.scan = { state: 'ok', msg: `${r.lines.length} ítems armados con reglas simples. Revisá nombres, rubros e importes.` }; return true;
+}
+async function leerTexto(txt) {
+  if (S.cap.sample) {
+    CP.scan = { state: 'loading' }; cpRefresh();
+    try {
+      const r = await S.cap.sample.json(promptTicket(txt), { modelTier: 'default', cache: false });
+      if (!CP) return; aplicarScan(r); return;
+    } catch (e) { console.warn('lectura de texto', e); if (!CP) return; CP.scan = { state: 'idle' }; }
+  }
+  if (aplicarPegadoLocal(txt)) cpRefresh(); else cpRefresh();
 }
 let KNOWN = null;
 function knownItems() {
