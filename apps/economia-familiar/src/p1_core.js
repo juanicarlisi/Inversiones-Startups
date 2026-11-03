@@ -87,7 +87,7 @@ function defCfg() {
 
 /* ============ Estado ============ */
 const S = {
-  cfg: defCfg(), plan: { items: [] }, metas: { items: [] }, apr: {}, movs: [],
+  cfg: defCfg(), plan: { items: [] }, metas: { items: [] }, apr: {}, cierres: {}, movs: [],
   mes: ymNow(), vista: 'inicio', base: 'pago', user: null, mode: 'local', ready: false, loaded: { mov: false, cfg: false },
   cap: { sample: null, images: false, downloads: null }, ui: { movVista: 'compras', movFiltro: 'todo', q: '', anTab: 'rubros', abiertos: {}, itemQ: '', itemSort: 'monto', fondoSel: null }
 };
@@ -189,6 +189,7 @@ function applyCfgDocs(o) {
   S.plan = o.plan ? clone(o.plan) : { items: [] }; if (!S.plan.items) S.plan.items = [];
   S.metas = o.metas ? clone(o.metas) : { items: [] }; if (!S.metas.items) S.metas.items = [];
   S.apr = o.aprendido ? clone(o.aprendido) : {};
+  S.cierres = {}; Object.keys(o).forEach(k => { if (k.startsWith('cierre_')) S.cierres[k.slice(7)] = clone(o[k]); });
   if (!S.user) { const u = lsGet('ef_user', null); S.user = u && S.cfg.usuarios.includes(u) ? u : S.cfg.usuarios[0]; }
 }
 async function guardar(fn, okMsg) {
@@ -228,7 +229,7 @@ function resumenMes(ym, base) {
 }
 function lineasDe(list) { // líneas de gasto (consumo), con el movimiento de origen
   const out = [];
-  for (const m of list) if (esConsumo(m)) for (const it of (m.items || [])) out.push({ ...it, m, fecha: m.fecha, mes: m.mes });
+  for (const m of list) if (esConsumo(m) && !m.omitido) for (const it of (m.items || [])) out.push({ ...it, m, fecha: m.fecha, mes: m.mes });
   return out;
 }
 function porRubro(list) {
@@ -260,24 +261,30 @@ function planBase(it, ym, puro) {
   if (it.pct) return r2(ingresoDiezmable(ym, puro) * it.pct / 100);
   return +it.base || 0;
 }
-function planItemsAll() {
+/* Aporte previsto a un fondo en un mes: monto fijo, o % de lo que sobra ese mes (se ajusta solo con lo confirmado) */
+function aportePlan(d, ym) {
+  if (d.modo === 'pct') { const s = sobraEsp(ym); return Math.max(0, Math.round(s * (+d.pct || 0) / 100 / 100) * 100); }
+  return +d.aporte || 0;
+}
+function sobraEsp(ym) { const e = esperado(ym, true); return e.ingEsp - e.consEsp; }
+function planItemsAll(ym, sinAportes) {
   const items = S.plan.items.map(it => ({ ...it }));
-  for (const d of cfg().destinos) if (d.aporte > 0) items.push({ id: 'dest:' + d.id, tipo: 'aporte', n: 'Aporte a ' + d.n, fondo: d.id, base: d.aporte, e: d.e });
+  if (!sinAportes) for (const d of cfg().destinos) { const a = aportePlan(d, ym); if (a > 0) items.push({ id: 'dest:' + d.id, tipo: 'aporte', n: 'Aporte a ' + d.n, fondo: d.id, base: a, e: d.e }); }
   return items;
 }
-function checklist(ym) {
+function checklist(ym, sinAportes) {
   if (ym < cfg().inicio) return [];
   const rows = [];
-  for (const it of planItemsAll()) {
+  for (const it of planItemsAll(ym, sinAportes)) {
     const plan = it.tipo === 'aporte' ? it.base : planBase(it, ym);
     const real = realPlan(it.id, ym);
     if (plan > 0 || real) rows.push({ it, plan, real });
   }
   return rows;
 }
-function esperado(ym) {
+function esperado(ym, sinAportes) {
   const r = resumenMes(ym, 'pago'); let ingP = 0, fijoP = 0, presP = 0, aporP = 0;
-  for (const row of checklist(ym)) if (!row.real) { if (row.it.tipo === 'ingreso') ingP += row.plan; else if (row.it.tipo === 'gasto') fijoP += row.plan; else if (row.it.tipo === 'aporte') aporP += row.plan; }
+  for (const row of checklist(ym, sinAportes)) if (!row.real) { if (row.it.tipo === 'ingreso') ingP += row.plan; else if (row.it.tipo === 'gasto') fijoP += row.plan; else if (row.it.tipo === 'aporte') aporP += row.plan; }
   const L = lineasDe(r.L).filter(l => !l.m.planId);
   for (const c of cfg().cats) if (c.pres > 0 && ym >= cfg().inicio) presP += Math.max(0, c.pres - sum(L.filter(l => l.cat === c.id), l => l.monto));
   return { ...r, ingP, fijoP, presP, aporP, aporEsp: r.apor + aporP, ingEsp: r.ing + ingP, consEsp: r.cons + fijoP + presP };
@@ -299,7 +306,7 @@ function acumulado(hasta) {
     libre += (fut ? e.ingEsp : e.ing) - (fut ? e.consEsp : e.cons);
     for (const d of cfg().destinos) {
       const real = sum(L.filter(x => x.tipo === 'aporte' && x.fondo === d.id), x => x.total);
-      const falta = fut && !realPlan('dest:' + d.id, m) && d.aporte > 0 ? d.aporte : 0;
+      const falta = fut && !realPlan('dest:' + d.id, m) ? aportePlan(d, m) : 0;
       const ret = sum(L.filter(x => x.tipo === 'retiro' && x.fondo === d.id), x => x.total);
       const rend = sum(L.filter(x => x.tipo === 'rendimiento' && x.fondo === d.id), x => x.total);
       const usado = sum(L.filter(x => x.tipo === 'gasto' && x.pagoFondo === d.id), x => x.total);
@@ -348,7 +355,7 @@ function aporteNecesario(meta, saldoARS, meses, tasaPct, tc) {
 function statsItems(desde, hasta) {
   const map = new Map();
   for (const m of S.movs) {
-    if (!esConsumo(m) || m.src === 'backlog') continue;
+    if (!esConsumo(m) || m.src === 'backlog' || m.omitido) continue;
     if (m.cuota && m.cuota.n > 1 && m.cuota.i !== 1) continue;
     const k0 = m.cuota && m.cuota.n > 1 ? m.cuota.n : 1;
     if (desde && m.fecha < desde) continue; if (hasta && m.fecha > hasta) continue;
@@ -406,4 +413,21 @@ function proyAnio(year) {
   }
   for (const o of out) o.total = o.ytd + o.rest;
   return out.filter(o => o.total > 0).sort((a, b) => b.total - a.total);
+}
+
+/* ============ Cierre de mes y rendimiento ============ */
+const finDeMes = ym => ym < ymNow() ? `${ym}-${pad(daysIn(ym))}` : hoy();
+function primerMesSinCerrar() {
+  const now = ymNow(); for (let m = cfg().inicio, n = 0; m < now && n < 60; m = addM(m, 1), n++) if (!S.cierres[m]) return m; return null;
+}
+function aportadoNeto(d, hasta) { let s = +d.saldo0 || 0; for (const m of S.movs) { if (hasta && m.mes > hasta) continue; if (m.fondo === d.id) { if (m.tipo === 'aporte') s += m.total; else if (m.tipo === 'retiro') s -= m.total; } if (m.tipo === 'gasto' && m.pagoFondo === d.id) s -= m.total; } return s; }
+function gananciaFondo(d, hasta) { let s = 0; for (const m of S.movs) { if (hasta && m.mes > hasta) continue; if (m.fondo === d.id && m.tipo === 'rendimiento') s += m.total; } return s; }
+function histRows(fid) {
+  const ds = cfg().destinos.filter(d => !fid || d.id === fid); const out = [];
+  for (const ym of Object.keys(S.cierres).sort()) {
+    const c = S.cierres[ym]; let apor = 0, rend = 0, valor = 0, prev = 0;
+    for (const d of ds) { const f = (c.fondos || {})[d.id]; if (!f) continue; apor += f.aporte || 0; rend += f.rend || 0; valor += f.valor || 0; prev += f.saldoPrev || 0; }
+    const base = prev + apor / 2; out.push({ ym, sobra: c.sobra, apor, rend, valor, prev, pct: base > 0 ? rend / base * 100 : null, aportado: sum(ds, d => aportadoNeto(d, ym)) });
+  }
+  return out;
 }

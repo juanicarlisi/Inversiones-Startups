@@ -372,7 +372,7 @@ async function planTodoOk(def) {
 const PALETA = ['#2a78d6', '#6250d6', '#0e8fa8', '#1baf7a', '#eda100', '#eb6834', '#e0457b', '#9a6b3f', '#8792a4', '#008300'];
 function abrirFondo(id) {
   const d = destOf(id); if (!d) return;
-  let plazo = d.plazo || 12, tasa = cfg().tasa, aporte = d.aporte || 0;
+  let plazo = d.plazo || 12, tasa = cfg().tasa, aporte = aportePlan(d, S.mes);
   const def = openSheet({
     id: 'fondo', title: () => d.e + ' ' + d.n,
     body: () => {
@@ -407,7 +407,8 @@ function abrirFondoEdit(id) {
     id: 'fedit', title: () => nuevo ? 'Nuevo destino' : 'Editar ' + d.n,
     body: () => `<div class="grid3" style="grid-template-columns:70px 1fr"><div class="field"><label for="fe-e">Ícono</label><input class="inp" id="fe-e" data-f="fe-e" value="${esc(d.e)}" maxlength="4" style="text-align:center;font-size:20px"></div><div class="field"><label for="fe-n">Nombre</label><input class="inp" id="fe-n" data-f="fe-n" value="${esc(d.n)}" placeholder="Ej: Vacaciones"></div></div>
     <div class="field"><label>Color</label><div class="chips">${PALETA.map(c => `<button class="chip ${d.c === c ? 'on' : ''}" data-act="fe-color" data-k="${c}" style="padding:0;width:38px;height:38px;justify-content:center"><span class="dot" style="background:${c};width:18px;height:18px;border-radius:50%"></span></button>`).join('')}</div></div>
-    <div class="field"><label for="fe-a">Aporte mensual previsto ($)</label><input class="inp num" id="fe-a" data-f="fe-a" inputmode="decimal" value="${fmtInput(d.aporte)}"></div>
+    <div class="field"><label>Cómo se calcula el aporte</label><div class="seg"><button class="${d.modo !== 'pct' ? 'on' : ''}" data-act="fe-modo" data-k="monto">Monto fijo</button><button class="${d.modo === 'pct' ? 'on' : ''}" data-act="fe-modo" data-k="pct">% de lo que sobra</button></div></div>
+    ${d.modo === 'pct' ? `<div class="field"><label for="fe-pct">Porcentaje de lo que sobra cada mes</label><input class="inp num" id="fe-pct" data-f="fe-pct" inputmode="decimal" value="${String(+d.pct || 0).replace('.', ',')}"></div>` : `<div class="field"><label for="fe-a">Aporte mensual previsto ($)</label><input class="inp num" id="fe-a" data-f="fe-a" inputmode="decimal" value="${fmtInput(d.aporte)}"></div>`}
     <div class="field"><label for="fe-s">Saldo con el que arrancás ($)</label><input class="inp num" id="fe-s" data-f="fe-s" inputmode="decimal" value="${fmtInput(d.saldo0)}"><div class="hint">Lo que ya tenés guardado en este destino hoy.</div></div>
     <div class="grid3" style="grid-template-columns:1fr 1fr"><div class="field"><label for="fe-p">Plazo (meses)</label><input class="inp num" id="fe-p" data-f="fe-p" inputmode="numeric" value="${d.plazo || ''}"></div><div class="field"><label for="fe-m">Meta ($, opcional)</label><input class="inp num" id="fe-m" data-f="fe-m" inputmode="decimal" value="${fmtInput(d.meta)}"></div></div>
     ${!nuevo ? `<button class="btn danger block" data-act="fe-del">Eliminar destino</button>` : ''}`,
@@ -451,4 +452,65 @@ function abrirExplicar() {
     <p style="margin:0 0 10px"><b>Queda disponible</b> = resultado − aportes. Es plata líquida sin destino todavía.</p>
     <p style="margin:0"><b>El mes siguiente</b> el fondo no vuelve a restar: solo cuentan los aportes nuevos. Por eso nada se cuenta dos veces.</p></div>`
   });
+}
+
+/* ============ CIERRE DE MES ============ */
+let W = null;
+function abrirCierre(ym) {
+  const R = resumenMes(ym, 'pago'), ds = cfg().destinos;
+  W = { ym, R, rows: checklist(ym, true).map(x => ({ it: x.it, plan: x.plan, real: x.real, monto: x.real ? x.real.total : x.plan, touched: false, skip: false })), ap: {}, val: {} };
+  ds.forEach(d => { W.ap[d.id] = { hecho: !!realPlan('dest:' + d.id, ym), ya: sum(S.movs.filter(m => m.tipo === 'aporte' && m.fondo === d.id && m.mes === ym), m => m.total), touched: false, monto: '' }; W.val[d.id] = { touched: false, v: '' }; });
+  openSheet({ id: 'cierre', title: 'Cerrar ' + ymLabel(ym), body: wBody, foot: () => `<button class="btn primary" data-act="w-ok">Cerrar ${ymName(ym).toLowerCase()}</button>`, onClose: () => { W = null; }, after: () => wUpdate() });
+}
+function wCalc() {
+  let dz = 0; W.rows.forEach(r => { if (r.it.tipo === 'ingreso' && r.it.diez) dz += r.real ? r.real.total : (r.skip ? 0 : parseMonto(r.monto)); });
+  W.rows.forEach(r => { r.eff = r.real ? r.real.total : r.skip ? 0 : (r.it.pct && !r.touched) ? r2(dz * r.it.pct / 100) : parseMonto(r.monto); });
+  const ing = W.R.ing + sum(W.rows.filter(r => !r.real && r.it.tipo === 'ingreso'), r => r.eff), cons = W.R.cons + sum(W.rows.filter(r => !r.real && r.it.tipo === 'gasto'), r => r.eff), sobra = ing - cons;
+  cfg().destinos.forEach(d => {
+    const a = W.ap[d.id]; a.sug = d.modo === 'pct' ? Math.max(0, Math.round(sobra * (+d.pct || 0) / 100 / 100) * 100) : (+d.aporte || 0);
+    a.eff = a.hecho ? 0 : (a.touched ? parseMonto(a.monto) : a.sug);
+    const v = W.val[d.id]; v.base = saldoFondo(d, W.ym) + a.eff; v.eff = v.touched ? parseMonto(v.v) : v.base; v.dif = v.eff - v.base;
+  });
+  return { ing, cons, sobra };
+}
+function wBody() {
+  const pend = W.rows.filter(r => !r.real), hechos = W.rows.filter(r => r.real);
+  let h = `<div class="note">Cargá lo que realmente pasó en ${ymName(W.ym).toLowerCase()}. Lo que ya confirmaste no se toca.</div>`;
+  if (pend.length) {
+    h += `<div class="field"><label>Cobros y pagos que faltan confirmar</label><div class="lines">` + W.rows.map((r, i) => r.real ? '' : `<div class="card flat" style="padding:10px"><div class="row" style="justify-content:space-between"><b class="ell">${esc(r.it.n)}</b><span class="hint">previsto ${money(r.plan)}</span></div><div class="row" style="margin-top:6px"><input class="inp num" id="w-r-${i}" data-f="w-row" data-i="${i}" inputmode="decimal" value="${fmtInput(r.monto)}" aria-label="Monto real de ${esc(r.it.n)}"><button class="chip ${r.skip ? 'on' : ''}" data-act="w-skip" data-i="${i}">No pasó</button></div></div>`).join('') + '</div></div>';
+  }
+  if (hechos.length) h += `<div class="hint">${hechos.length} ya confirmados: ${esc(hechos.map(r => r.it.n).join(', '))}.</div>`;
+  h += `<div class="card flat"><div class="grid3"><div><div class="eyebrow">Entró</div><div class="num" style="font-weight:800" id="w-ing"></div></div><div><div class="eyebrow">Salió</div><div class="num" style="font-weight:800" id="w-cons"></div></div><div><div class="eyebrow">Sobró</div><div class="num" style="font-weight:800" id="w-sobra"></div></div></div></div>`;
+  h += `<div class="field"><label>Cuánto aportaste a cada fondo</label><div class="lines">${cfg().destinos.map(d => { const a = W.ap[d.id]; return a.hecho ? `<div class="card flat row" style="padding:10px"><span class="ico sm" style="background:${d.c}22">${d.e}</span><span class="grow">${esc(d.n)}</span><b class="num">${money(a.ya)}</b><span class="pill pos">confirmado</span></div>` : `<div class="card flat" style="padding:10px"><div class="row" style="justify-content:space-between"><b class="ell">${d.e} ${esc(d.n)}</b><span class="hint" id="w-as-${d.id}"></span></div><input class="inp num" style="margin-top:6px" id="w-a-${d.id}" data-f="w-ap" data-id="${d.id}" inputmode="decimal" aria-label="Aporte a ${esc(d.n)}"></div>`; }).join('')}</div></div>`;
+  h += `<div class="field"><label>Cuánto vale hoy cada fondo</label><div class="hint">Mirá el saldo real donde lo tengas. La diferencia con lo aportado queda registrada como rendimiento.</div><div class="lines">${cfg().destinos.map(d => `<div class="card flat" style="padding:10px"><div class="row" style="justify-content:space-between"><b class="ell">${d.e} ${esc(d.n)}</b><span class="hint num" id="w-dif-${d.id}"></span></div><input class="inp num" style="margin-top:6px" id="w-v-${d.id}" data-f="w-val" data-id="${d.id}" inputmode="decimal" aria-label="Valor actual de ${esc(d.n)}"></div>`).join('')}</div></div>`;
+  return h;
+}
+function wUpdate() {
+  if (!W) return; const c = wCalc(); const set = (id, t) => { const e = document.getElementById(id); if (e) e.textContent = t; }; const act = document.activeElement;
+  set('w-ing', money(c.ing)); set('w-cons', money(c.cons)); set('w-sobra', money(c.sobra));
+  const so = document.getElementById('w-sobra'); if (so) so.className = 'num ' + (c.sobra < 0 ? 'neg' : 'pos');
+  W.rows.forEach((r, i) => { const e = document.getElementById('w-r-' + i); if (e && e !== act && !r.touched) { e.value = fmtInput(r.eff); } if (e) e.disabled = r.skip; });
+  cfg().destinos.forEach(d => {
+    const a = W.ap[d.id], v = W.val[d.id];
+    const ea = document.getElementById('w-a-' + d.id); if (ea && ea !== act && !a.touched) ea.value = fmtInput(a.sug);
+    set('w-as-' + d.id, d.modo === 'pct' ? `${String(+d.pct || 0).replace('.', ',')}% de ${compact(c.sobra)}` : 'monto fijo');
+    const ev = document.getElementById('w-v-' + d.id); if (ev && ev !== act && !v.touched) ev.value = fmtInput(Math.round(v.base));
+    const base = Math.max(1, v.base - (a.eff || 0) / 2), p = v.dif / base * 100;
+    set('w-dif-' + d.id, Math.abs(v.dif) < 1 ? 'sin cambios' : `${v.dif > 0 ? 'rindió +' : 'perdió −'}${money(Math.abs(v.dif)).replace('−', '')} (${p.toFixed(2).replace('.', ',')}%)`);
+  });
+}
+async function wSave(def) {
+  const c = wCalc(), ym = W.ym, fecha = finDeMes(ym), movs = [];
+  W.rows.forEach(r => { if (r.real) return; const m = movDesdePlan(r.it, ym, r.eff, fecha, 'ef'); if (!(r.eff > 0)) { m.omitido = true; m.total = 0; if (m.items && m.items[0]) m.items[0].monto = 0; } movs.push(m); });
+  const fondos = {};
+  for (const d of cfg().destinos) {
+    const a = W.ap[d.id], v = W.val[d.id], plan = aportePlan(d, ym);
+    if (!a.hecho && (a.eff > 0 || plan > 0)) { const m = movDesdePlan({ id: 'dest:' + d.id, tipo: 'aporte', fondo: d.id }, ym, a.eff, fecha); if (!(a.eff > 0)) { m.omitido = true; m.total = 0; } movs.push(m); }
+    if (Math.abs(v.dif) >= 1) movs.push({ tipo: 'rendimiento', fondo: d.id, total: r2(v.dif), mes: ym, fecha, por: userName(), items: [], com: 'Ajuste de cierre', src: 'cierre', creado: new Date().toISOString() });
+    const rendPrev = sum(S.movs.filter(m => m.tipo === 'rendimiento' && m.fondo === d.id && m.mes === ym), m => m.total);
+    fondos[d.id] = { saldoPrev: saldoFondo(d, addM(ym, -1)), aporte: a.ya + (a.eff || 0), rend: r2(rendPrev + v.dif), valor: r2(v.eff), modo: d.modo || 'monto', pct: +d.pct || 0 };
+  }
+  const doc = { ym, cerradoEn: new Date().toISOString(), por: userName(), ing: r2(c.ing), cons: r2(c.cons), sobra: r2(c.sobra), fondos };
+  const ok = await guardar(async () => { for (const m of movs) await Store.set('mov', uid(), m); await Store.set('cfg', 'cierre_' + ym, doc); });
+  if (ok) { closeSheet(def); toast(ymName(ym) + ' cerrado ✓'); }
 }

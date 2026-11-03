@@ -120,11 +120,18 @@ const ACT = {
   'pl-ok': (el, e, d) => planOk(d), 'pt-ok': (el, e, d) => planTodoOk(d),
   'pl-undo': async (el, e, d) => { const ms = d.row.real.movs; const cp = clone(ms); const ok = await guardar(async () => { for (const m of ms) await Store.del('mov', m.id); }); if (ok) { closeSheet(d); toast('Deshecho', async () => { await guardar(async () => { for (const m of cp) await Store.set('mov', m.id, m); }); }); } },
   'fondo-open': el => abrirFondo(el.dataset.id), 'fondo-nuevo': () => abrirFondoEdit(null), 'fondo-edit': (el, e, d) => { closeSheet(d); abrirFondoEdit(el.dataset.id); },
-  aportar: (el, e, d) => { const dest = destOf(el.dataset.id); if (d && d.id === 'fondo') closeSheet(d); abrirComposer('fondo', { sub: 'aporte', fondo: dest.id, monto: Math.max(0, dest.aporte - sum(S.movs.filter(m => m.tipo === 'aporte' && m.fondo === dest.id && m.mes === S.mes), m => m.total)) || dest.aporte || 0 }); },
+  aportar: (el, e, d) => { const dest = destOf(el.dataset.id); if (d && d.id === 'fondo') closeSheet(d); const ap = aportePlan(dest, S.mes); abrirComposer('fondo', { sub: 'aporte', fondo: dest.id, monto: Math.max(0, ap - sum(S.movs.filter(m => m.tipo === 'aporte' && m.fondo === dest.id && m.mes === S.mes), m => m.total)) || ap || 0 }); },
   normalizar: async () => {
-    const E = esperado(S.mes), sobra = E.ingEsp - E.consEsp, tot = sum(cfg().destinos, d => d.aporte); if (sobra <= 0 || !tot) return;
-    const k = sobra / tot; cfg().destinos.forEach(d => d.aporte = Math.floor(d.aporte * k / 100) * 100); if (await guardar(saveCfg, 'Aportes ajustados a lo que sobra')) render();
+    const sobra = sobraEsp(S.mes), tot = sum(cfg().destinos, d => aportePlan(d, S.mes)); if (sobra <= 0 || !tot) return;
+    const k = sobra / tot; cfg().destinos.forEach(d => { if (d.modo === 'pct') d.pct = Math.floor((+d.pct || 0) * k * 10) / 10; else d.aporte = Math.floor((+d.aporte || 0) * k / 100) * 100; });
+    if (await guardar(saveCfg, 'Aportes ajustados a lo que sobra')) render();
   },
+  cerrar: el => abrirCierre(el.dataset.ym),
+  'rep-modo': async el => { const d = destOf(el.dataset.id), k = el.dataset.k; if (k === 'pct' && !(+d.pct)) { const s = sobraEsp(S.mes); d.pct = s > 0 ? Math.min(100, Math.round((+d.aporte || 0) / s * 1000) / 10) : 0; } d.modo = k; if (await guardar(saveCfg)) render(); },
+  'hist-fondo': el => { S.ui.histFondo = el.dataset.k || null; render(); },
+  'w-skip': (el, e, d) => { const r = W.rows[+el.dataset.i]; r.skip = !r.skip; el.classList.toggle('on', r.skip); wUpdate(); },
+  'w-ok': (el, e, d) => wSave(d),
+  'fe-modo': (el, e, d) => { d.d.modo = el.dataset.k; if (d.d.modo === 'pct' && !(+d.d.pct)) { const s = sobraEsp(S.mes); d.d.pct = s > 0 ? Math.min(100, Math.round((+d.d.aporte || 0) / s * 1000) / 10) : 0; } paintSheet(d); },
   'fe-color': (el, e, d) => { d.d.c = el.dataset.k; paintSheet(d); },
   'fe-save': async (el, e, d) => { const x = d.d; if (!x.n.trim()) { toast('Poné un nombre.', null, true); return; } const ds = cfg().destinos; const i = ds.findIndex(y => y.id === x.id); if (i > -1) ds[i] = x; else ds.push(x); if (await guardar(saveCfg, 'Guardado ✓')) closeSheet(d); },
   'fe-del': async (el, e, d) => { const x = d.d; if (S.movs.some(m => m.fondo === x.id || m.pagoFondo === x.id)) { toast('Este destino tiene movimientos: no se puede eliminar.', null, true); return; } cfg().destinos = cfg().destinos.filter(y => y.id !== x.id); if (await guardar(saveCfg, 'Eliminado')) closeSheet(d); },
@@ -183,10 +190,17 @@ document.addEventListener('input', e => {
   if (el.id === 'q-movs') { S.ui.q = el.value; renderKeep(el); return; }
   if (el.id === 'q-items') { S.ui.itemQ = el.value; renderKeep(el); return; }
   const f = el.dataset && el.dataset.f; if (!f) return;
+  if (f === 'rep-pct') { const dd = destOf(el.dataset.id); dd.pct = +el.value; const a = document.getElementById('rp-pct-' + dd.id); if (a) a.textContent = el.value + '%'; const b = document.getElementById('rp-amt-' + dd.id); if (b) b.textContent = money(aportePlan(dd, S.mes)); return; }
   const d = sheetOf(el);
   if (d && d.id === 'cp') { cpInput(f, el.value, el); return; }
+  if (d && d.id === 'cierre' && W) {
+    if (f === 'w-row') { const r = W.rows[+el.dataset.i]; r.monto = el.value; r.touched = true; }
+    else if (f === 'w-ap') { const a = W.ap[el.dataset.id]; a.monto = el.value; a.touched = true; }
+    else if (f === 'w-val') { const v = W.val[el.dataset.id]; v.v = el.value; v.touched = true; }
+    wUpdate(); return;
+  }
   if (!d) return;
-  if (f === 'fe-n') d.d.n = el.value; else if (f === 'fe-e') d.d.e = el.value || '💰'; else if (f === 'fe-a') d.d.aporte = parseMonto(el.value); else if (f === 'fe-s') d.d.saldo0 = parseMonto(el.value); else if (f === 'fe-p') d.d.plazo = parseInt(el.value) || 0; else if (f === 'fe-m') d.d.meta = parseMonto(el.value);
+  if (f === 'fe-n') d.d.n = el.value; else if (f === 'fe-e') d.d.e = el.value || '💰'; else if (f === 'fe-a') d.d.aporte = parseMonto(el.value); else if (f === 'fe-pct') d.d.pct = parseMonto(String(el.value).replace(',', '.')); else if (f === 'fe-s') d.d.saldo0 = parseMonto(el.value); else if (f === 'fe-p') d.d.plazo = parseInt(el.value) || 0; else if (f === 'fe-m') d.d.meta = parseMonto(el.value);
   else if (f === 'ce-n') d.x.n = el.value; else if (f === 'ce-e') d.x.e = el.value || '🏷️'; else if (f === 'ce-p') d.x.pres = parseMonto(el.value);
   else if (f === 'me-n') d.x.n = el.value; else if (f === 'me-m') d.x.monto = parseMonto(el.value);
   else if (f === 'pe-n') d.it.n = el.value; else if (f === 'pe-b') d.it.base = parseMonto(el.value); else if (f === 'pe-pct') d.it.pct = parseMonto(el.value) || 0; else if (f === 'pe-d') d.it.desde = el.value; else if (f === 'pe-h') d.it.hasta = el.value;
@@ -196,6 +210,8 @@ document.addEventListener('change', async e => {
   const el = e.target, f = el.dataset && el.dataset.f; const d = sheetOf(el);
   if (el.id === 'file-ticket') { if (CP && el.files && el.files.length) { const fs = [...el.files]; el.value = ''; adjuntarFoto(fs); } return; }
   if (f === 'ln' && CP && KNOWN) { const l = CP.lines[+el.dataset.i], k = KNOWN.get(keyOf(el.value)); if (k) { l.cat = S.apr[keyOf(el.value)] || k.cat; l.auto = false; if (!l.monto) l.monto = r2(k.last); cpRefresh(); } return; }
+  if (f === 'rep-pct') { await guardar(saveCfg); render(); return; }
+  if (f === 'rep-monto') { destOf(el.dataset.id).aporte = parseMonto(el.value); await guardar(saveCfg); render(); return; }
   if (el.id === 'it-cat') { const k = el.dataset.key; await guardar(() => Store.merge('cfg', 'aprendido', { [k]: el.value }), 'Listo: la próxima vez va a ese rubro'); return; }
   if (d && d.id === 'fondo' && f && f.startsWith('fp-')) { d.set(f.slice(3), el.value); paintSheet(d); return; }
   if (d && d.id === 'pe-select') return;

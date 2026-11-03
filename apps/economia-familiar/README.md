@@ -14,6 +14,11 @@ Publicada como Artifact de claude.ai con base compartida (`db`); sin esa base ca
 - **Mes de imputación**: efectivo/débito/transferencia → mes de la fecha; tarjeta → mes siguiente (o segundo mes si el día de cierre de la tarjeta está cargado). Cuotas: un movimiento por mes.
 - Vistas por "mes de pago" (caja) o "fecha de compra" (devengado).
 
+## Reparto, cierre de mes e histórico
+- Cada fondo aporta un **monto fijo** o un **% de lo que sobra** (`modo`/`pct` en `cfg/main`). Con %, el aporte previsto de cada mes se recalcula con lo confirmado (`aportePlan`, `sobraEsp`).
+- **Cerrar mes** (asistente en `abrirCierre`): confirma cobros/pagos reales, calcula lo que sobró, sugiere aportes y pide cuánto vale hoy cada fondo. La diferencia entre el valor real y el saldo calculado se registra como movimiento `rendimiento` (src `cierre`). Se guarda un snapshot en `cfg/cierre_YYYY-MM`.
+- Histórico: rendimiento mensual = rend / (saldo inicial + aporte/2); anualizado aproximado con 3 o más meses cerrados.
+
 ## Carga de tickets
 Al subir la foto, Claude (capacidad `sample` con imágenes; gasta el uso de Claude de quien la sube) devuelve comercio, fecha, medio, total y cada ítem
 con su rubro. Las preferencias aprendidas de la familia (`cfg/aprendido`) pisan al rubro sugerido. Se chequea contra el total del ticket y se agrega

@@ -351,7 +351,7 @@ function defCfg() {
 
 /* ============ Estado ============ */
 const S = {
-  cfg: defCfg(), plan: { items: [] }, metas: { items: [] }, apr: {}, movs: [],
+  cfg: defCfg(), plan: { items: [] }, metas: { items: [] }, apr: {}, cierres: {}, movs: [],
   mes: ymNow(), vista: 'inicio', base: 'pago', user: null, mode: 'local', ready: false, loaded: { mov: false, cfg: false },
   cap: { sample: null, images: false, downloads: null }, ui: { movVista: 'compras', movFiltro: 'todo', q: '', anTab: 'rubros', abiertos: {}, itemQ: '', itemSort: 'monto', fondoSel: null }
 };
@@ -453,6 +453,7 @@ function applyCfgDocs(o) {
   S.plan = o.plan ? clone(o.plan) : { items: [] }; if (!S.plan.items) S.plan.items = [];
   S.metas = o.metas ? clone(o.metas) : { items: [] }; if (!S.metas.items) S.metas.items = [];
   S.apr = o.aprendido ? clone(o.aprendido) : {};
+  S.cierres = {}; Object.keys(o).forEach(k => { if (k.startsWith('cierre_')) S.cierres[k.slice(7)] = clone(o[k]); });
   if (!S.user) { const u = lsGet('ef_user', null); S.user = u && S.cfg.usuarios.includes(u) ? u : S.cfg.usuarios[0]; }
 }
 async function guardar(fn, okMsg) {
@@ -492,7 +493,7 @@ function resumenMes(ym, base) {
 }
 function lineasDe(list) { // líneas de gasto (consumo), con el movimiento de origen
   const out = [];
-  for (const m of list) if (esConsumo(m)) for (const it of (m.items || [])) out.push({ ...it, m, fecha: m.fecha, mes: m.mes });
+  for (const m of list) if (esConsumo(m) && !m.omitido) for (const it of (m.items || [])) out.push({ ...it, m, fecha: m.fecha, mes: m.mes });
   return out;
 }
 function porRubro(list) {
@@ -524,24 +525,30 @@ function planBase(it, ym, puro) {
   if (it.pct) return r2(ingresoDiezmable(ym, puro) * it.pct / 100);
   return +it.base || 0;
 }
-function planItemsAll() {
+/* Aporte previsto a un fondo en un mes: monto fijo, o % de lo que sobra ese mes (se ajusta solo con lo confirmado) */
+function aportePlan(d, ym) {
+  if (d.modo === 'pct') { const s = sobraEsp(ym); return Math.max(0, Math.round(s * (+d.pct || 0) / 100 / 100) * 100); }
+  return +d.aporte || 0;
+}
+function sobraEsp(ym) { const e = esperado(ym, true); return e.ingEsp - e.consEsp; }
+function planItemsAll(ym, sinAportes) {
   const items = S.plan.items.map(it => ({ ...it }));
-  for (const d of cfg().destinos) if (d.aporte > 0) items.push({ id: 'dest:' + d.id, tipo: 'aporte', n: 'Aporte a ' + d.n, fondo: d.id, base: d.aporte, e: d.e });
+  if (!sinAportes) for (const d of cfg().destinos) { const a = aportePlan(d, ym); if (a > 0) items.push({ id: 'dest:' + d.id, tipo: 'aporte', n: 'Aporte a ' + d.n, fondo: d.id, base: a, e: d.e }); }
   return items;
 }
-function checklist(ym) {
+function checklist(ym, sinAportes) {
   if (ym < cfg().inicio) return [];
   const rows = [];
-  for (const it of planItemsAll()) {
+  for (const it of planItemsAll(ym, sinAportes)) {
     const plan = it.tipo === 'aporte' ? it.base : planBase(it, ym);
     const real = realPlan(it.id, ym);
     if (plan > 0 || real) rows.push({ it, plan, real });
   }
   return rows;
 }
-function esperado(ym) {
+function esperado(ym, sinAportes) {
   const r = resumenMes(ym, 'pago'); let ingP = 0, fijoP = 0, presP = 0, aporP = 0;
-  for (const row of checklist(ym)) if (!row.real) { if (row.it.tipo === 'ingreso') ingP += row.plan; else if (row.it.tipo === 'gasto') fijoP += row.plan; else if (row.it.tipo === 'aporte') aporP += row.plan; }
+  for (const row of checklist(ym, sinAportes)) if (!row.real) { if (row.it.tipo === 'ingreso') ingP += row.plan; else if (row.it.tipo === 'gasto') fijoP += row.plan; else if (row.it.tipo === 'aporte') aporP += row.plan; }
   const L = lineasDe(r.L).filter(l => !l.m.planId);
   for (const c of cfg().cats) if (c.pres > 0 && ym >= cfg().inicio) presP += Math.max(0, c.pres - sum(L.filter(l => l.cat === c.id), l => l.monto));
   return { ...r, ingP, fijoP, presP, aporP, aporEsp: r.apor + aporP, ingEsp: r.ing + ingP, consEsp: r.cons + fijoP + presP };
@@ -563,7 +570,7 @@ function acumulado(hasta) {
     libre += (fut ? e.ingEsp : e.ing) - (fut ? e.consEsp : e.cons);
     for (const d of cfg().destinos) {
       const real = sum(L.filter(x => x.tipo === 'aporte' && x.fondo === d.id), x => x.total);
-      const falta = fut && !realPlan('dest:' + d.id, m) && d.aporte > 0 ? d.aporte : 0;
+      const falta = fut && !realPlan('dest:' + d.id, m) ? aportePlan(d, m) : 0;
       const ret = sum(L.filter(x => x.tipo === 'retiro' && x.fondo === d.id), x => x.total);
       const rend = sum(L.filter(x => x.tipo === 'rendimiento' && x.fondo === d.id), x => x.total);
       const usado = sum(L.filter(x => x.tipo === 'gasto' && x.pagoFondo === d.id), x => x.total);
@@ -612,7 +619,7 @@ function aporteNecesario(meta, saldoARS, meses, tasaPct, tc) {
 function statsItems(desde, hasta) {
   const map = new Map();
   for (const m of S.movs) {
-    if (!esConsumo(m) || m.src === 'backlog') continue;
+    if (!esConsumo(m) || m.src === 'backlog' || m.omitido) continue;
     if (m.cuota && m.cuota.n > 1 && m.cuota.i !== 1) continue;
     const k0 = m.cuota && m.cuota.n > 1 ? m.cuota.n : 1;
     if (desde && m.fecha < desde) continue; if (hasta && m.fecha > hasta) continue;
@@ -670,6 +677,23 @@ function proyAnio(year) {
   }
   for (const o of out) o.total = o.ytd + o.rest;
   return out.filter(o => o.total > 0).sort((a, b) => b.total - a.total);
+}
+
+/* ============ Cierre de mes y rendimiento ============ */
+const finDeMes = ym => ym < ymNow() ? `${ym}-${pad(daysIn(ym))}` : hoy();
+function primerMesSinCerrar() {
+  const now = ymNow(); for (let m = cfg().inicio, n = 0; m < now && n < 60; m = addM(m, 1), n++) if (!S.cierres[m]) return m; return null;
+}
+function aportadoNeto(d, hasta) { let s = +d.saldo0 || 0; for (const m of S.movs) { if (hasta && m.mes > hasta) continue; if (m.fondo === d.id) { if (m.tipo === 'aporte') s += m.total; else if (m.tipo === 'retiro') s -= m.total; } if (m.tipo === 'gasto' && m.pagoFondo === d.id) s -= m.total; } return s; }
+function gananciaFondo(d, hasta) { let s = 0; for (const m of S.movs) { if (hasta && m.mes > hasta) continue; if (m.fondo === d.id && m.tipo === 'rendimiento') s += m.total; } return s; }
+function histRows(fid) {
+  const ds = cfg().destinos.filter(d => !fid || d.id === fid); const out = [];
+  for (const ym of Object.keys(S.cierres).sort()) {
+    const c = S.cierres[ym]; let apor = 0, rend = 0, valor = 0, prev = 0;
+    for (const d of ds) { const f = (c.fondos || {})[d.id]; if (!f) continue; apor += f.aporte || 0; rend += f.rend || 0; valor += f.valor || 0; prev += f.saldoPrev || 0; }
+    const base = prev + apor / 2; out.push({ ym, sobra: c.sobra, apor, rend, valor, prev, pct: base > 0 ? rend / base * 100 : null, aportado: sum(ds, d => aportadoNeto(d, ym)) });
+  }
+  return out;
 }
 
 /* ============ Iconos ============ */
@@ -854,6 +878,8 @@ function vInicio() {
     <div style="margin-top:10px"><button class="link" data-act="explicar">¿Cómo se cuenta cada cosa?</button></div></div>`;
   h += `<div class="tiles span2"><button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Sobra acumulada</div><div class="v num ${ac.libre < 0 ? 'neg' : ''}">${compact(ac.libre)}</div><div class="hint">al cierre de ${ymName(ym).toLowerCase()}, sin destino todavía</div></button>
     <button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Patrimonio</div><div class="v num">${compact(ac.total)}</div><div class="hint">sobra + fondos, con lo previsto</div></button></div>`;
+  const sc = primerMesSinCerrar();
+  if (sc) h += `<div class="card span2" style="border:2px solid var(--accent)"><h2>Terminó ${ymName(sc).toLowerCase()}</h2><div class="help">Actualizá los montos reales, contá cuánto vale hoy cada fondo y cerrá el mes. Queda guardado el histórico para ver cuánto rindió.</div><div class="sp"></div><button class="btn primary block" data-act="cerrar" data-ym="${sc}">Cerrar ${ymName(sc).toLowerCase()}</button></div>`;
   // checklist
   const rows = checklist(ym);
   if (rows.length) {
@@ -871,6 +897,7 @@ function vInicio() {
     if (pend.length > 1) h += `<div class="sp"></div><button class="btn block" data-act="plan-todo">Confirmar todo lo pendiente (${pend.length})</button>`;
     h += '</div>';
   }
+  if (ym <= now && ym >= cfg().inicio && sc !== ym) h += `<div class="span2"><button class="btn block ghost" data-act="cerrar" data-ym="${ym}">${S.cierres[ym] ? '✓ ' + ymName(ym) + ' cerrado · volver a ajustar' : 'Cerrar ' + ymName(ym).toLowerCase() + ' ahora'}</button></div>`;
   // tarjetas
   const tj = tarjetasMes(ym), tj2 = tarjetasMes(addM(ym, 1));
   if (tj.some(x => x.total) || tj2.some(x => x.total)) {
@@ -890,7 +917,7 @@ function vInicio() {
     h += '</div>';
   }
   // últimos
-  const ult = R.L.filter(m => m.src !== 'plan').sort((a, b) => (b.fecha + (b.creado || '')).localeCompare(a.fecha + (a.creado || ''))).slice(0, 6);
+  const ult = R.L.filter(m => m.src !== 'plan' && !m.omitido).sort((a, b) => (b.fecha + (b.creado || '')).localeCompare(a.fecha + (a.creado || ''))).slice(0, 6);
   if (ult.length) h += `<div class="card"><h2>Últimos movimientos <button class="more" data-act="go" data-v="movs">Ver todos</button></h2>${ult.map(m => mvRow(m)).join('')}</div>`;
   return h + '</div>';
 }
@@ -898,7 +925,7 @@ function vInicio() {
 /* ============ MOVIMIENTOS ============ */
 function vMovs() {
   const U = S.ui; const R = resumenMes(S.mes, 'pago');
-  let L = R.L.slice();
+  let L = R.L.filter(m => !m.omitido);
   if (U.movFiltro === 'gasto') L = L.filter(m => m.tipo === 'gasto'); else if (U.movFiltro === 'ingreso') L = L.filter(m => m.tipo === 'ingreso'); else if (U.movFiltro === 'fondo') L = L.filter(m => ['aporte', 'retiro', 'rendimiento'].includes(m.tipo));
   const q = norm(U.q);
   let h = `<div class="search" style="margin-bottom:10px">${IC.search}<input class="inp" id="q-movs" placeholder="Buscar comercio, ítem, nota…" value="${esc(U.q)}" autocomplete="off"></div>
@@ -1038,7 +1065,7 @@ function vFondos() {
   const ym = S.mes, ds = cfg().destinos, E = esperado(ym), ac = acumulado(ym), confF = sum(cfg().destinos, d => saldoFondo(d, ym));
   const saldos = ds.map(d => ({ d, s: ac.fondos[d.id], c: saldoFondo(d, ym) }));
   const patr = ac.total;
-  const aporteTot = sum(ds, d => d.aporte);
+  const aporteTot = sum(ds, d => aportePlan(d, ym));
   const sobra = E.ingEsp - E.consEsp;
   let h = '<div class="grid two">';
   h += `<div class="card hero span2"><div class="eyebrow">Patrimonio al cierre de ${ymName(ym).toLowerCase()}</div><div class="big num" style="font-size:34px">${money(patr)}</div><div class="cap">≈ ${usd(patr / cfg().tc)} al dólar de referencia ($ ${miles(cfg().tc)}) · en fondos ya confirmado: ${money(confF)}</div><div class="sp"></div>
@@ -1048,16 +1075,18 @@ function vFondos() {
   if (aporteTot > 0 && sobra > 0 && aporteTot > sobra + 1000) {
     h += `<div class="note warn span2"><b>Tus aportes previstos (${money(aporteTot)}) superan lo que sobra en ${ymName(ym).toLowerCase()} (${money(sobra)}).</b> Eso equivale al ${Math.round(aporteTot / sobra * 100)}% de lo que sobra. <button class="link" data-act="normalizar">Ajustar proporcionalmente</button></div>`;
   }
+  h += cardReparto(ym);
   h += `<div class="card span2"><h2>Aportes de ${ymName(ym).toLowerCase()}</h2>`;
   saldos.forEach(({ d, s, c }) => {
     const ap = S.movs.filter(m => m.tipo === 'aporte' && m.fondo === d.id && m.mes === ym); const hecho = sum(ap, m => m.total);
-    const share = sobra > 0 && d.aporte ? Math.round(d.aporte / sobra * 100) : 0;
+    const apPlan = aportePlan(d, ym); const share = sobra > 0 && apPlan ? Math.round(apPlan / sobra * 100) : 0;
     h += `<div class="bar-row"><div class="hd"><button class="hd grow" data-act="fondo-open" data-id="${d.id}" style="gap:10px"><span class="ico sm" style="background:${d.c}22">${d.e}</span><span class="n ell">${esc(d.n)}</span><span class="v num">${money(s)}</span>${IC.chev}</button></div>
-    <div class="bar"><i style="width:${d.aporte ? Math.min(100, hecho / d.aporte * 100) : (hecho ? 100 : 0)}%;background:${d.c}"></i></div>
-    <div class="row" style="justify-content:space-between"><span class="hint">${hecho ? 'Aportaste ' + money(hecho) : 'Todavía no aportaste'} de ${money(d.aporte)} previstos${share ? ' · ' + share + '% de lo que sobra' : ''}${Math.round(c) !== Math.round(s) ? ' · confirmado ' + money(c) : ''}</span>
-    <button class="btn sm ${hecho >= d.aporte && d.aporte ? '' : 'primary'}" data-act="aportar" data-id="${d.id}">${hecho ? 'Sumar otro' : 'Aporté'}</button></div></div>`;
+    <div class="bar"><i style="width:${apPlan ? Math.min(100, hecho / apPlan * 100) : (hecho ? 100 : 0)}%;background:${d.c}"></i></div>
+    <div class="row" style="justify-content:space-between"><span class="hint">${hecho ? 'Aportaste ' + money(hecho) : 'Todavía no aportaste'} de ${money(apPlan)} previstos${share ? ' · ' + share + '% de lo que sobra' : ''}${Math.round(c) !== Math.round(s) ? ' · confirmado ' + money(c) : ''}</span>
+    <button class="btn sm ${hecho >= apPlan && apPlan ? '' : 'primary'}" data-act="aportar" data-id="${d.id}">${hecho ? 'Sumar otro' : 'Aporté'}</button></div></div>`;
   });
   h += `<div class="sp"></div><button class="btn block ghost" data-act="fondo-nuevo">+ Nuevo destino</button></div>`;
+  h += cardHist();
   // metas de compra
   const mt = S.metas.items;
   h += `<div class="card"><h2>Metas de compra <button class="more" data-act="meta-edit" data-id="">Agregar</button></h2>`;
@@ -1075,6 +1104,34 @@ function vFondos() {
   <p style="margin:0 0 8px"><b>Sobra acumulada</b> = lo que fue sobrando mes a mes después de aportar, sin destino todavía. <b>Patrimonio</b> = sobra acumulada + saldo de todos los fondos.</p>
   <p style="margin:0"><b>Si usás un fondo para comprar algo</b> (el auto, un viaje), se registra el gasto “pagado con el fondo”: baja el fondo y no ensucia el consumo del mes.</p></div></div>`;
   return h + '</div>';
+}
+
+function cardReparto(ym) {
+  const ds = cfg().destinos, sobra = sobraEsp(ym); const plan = ds.map(d => aportePlan(d, ym)); const tot = sum(plan);
+  const pctTot = sobra > 0 ? Math.round(tot / sobra * 100) : 0, libre = sobra - tot;
+  let h = `<div class="card span2"><h2>Cómo repartís lo que sobra <span class="pill">${ymName(ym)}: ${compact(sobra)}</span></h2><div class="hint" style="margin-bottom:6px">Elegí por fondo un monto fijo o un % de lo que sobra. Con %, el aporte se recalcula solo cada mes con lo que realmente sobre.</div>`;
+  ds.forEach((d, i) => {
+    const pm = d.modo === 'pct';
+    h += `<div class="bar-row"><div class="hd"><span class="ico sm" style="background:${d.c}22">${d.e}</span><span class="n ell">${esc(d.n)}</span><span class="v num" id="rp-amt-${d.id}">${money(plan[i])}</span></div>
+    <div class="seg" style="padding:3px"><button class="${!pm ? 'on' : ''}" data-act="rep-modo" data-id="${d.id}" data-k="monto">Monto fijo</button><button class="${pm ? 'on' : ''}" data-act="rep-modo" data-id="${d.id}" data-k="pct">% de lo que sobra</button></div>
+    ${pm ? `<div class="row"><input type="range" min="0" max="100" step="1" value="${Math.min(100, +d.pct || 0)}" data-f="rep-pct" data-id="${d.id}" style="flex:1;accent-color:var(--accent)" aria-label="Porcentaje para ${esc(d.n)}"><b class="num" style="width:56px;text-align:right" id="rp-pct-${d.id}">${String(+d.pct || 0).replace('.', ',')}%</b></div>` : `<div class="row"><input class="inp num" data-f="rep-monto" data-id="${d.id}" inputmode="decimal" value="${fmtInput(d.aporte)}" aria-label="Monto fijo para ${esc(d.n)}"><span class="hint" style="white-space:nowrap">${sobra > 0 ? Math.round(plan[i] / sobra * 100) : 0}% de lo que sobra</span></div>`}</div>`;
+  });
+  h += `<div class="row" style="justify-content:space-between;margin-top:10px"><span class="hint">Repartido <b class="num">${pctTot}%</b> · ${libre >= 0 ? 'queda libre ' : 'te pasás por '}<b class="num ${libre < 0 ? 'neg' : 'pos'}">${money(Math.abs(libre))}</b></span>${pctTot > 100 ? '<button class="btn sm" data-act="normalizar">Normalizar a 100%</button>' : ''}</div></div>`;
+  return h;
+}
+function cardHist() {
+  const ds = cfg().destinos, f = S.ui.histFondo, sel = ds.filter(d => !f || d.id === f), now = ymNow();
+  const aport = sum(sel, d => aportadoNeto(d, now)), gan = sum(sel, d => gananciaFondo(d, now)), valor = sum(sel, d => saldoFondo(d, now));
+  const rows = histRows(f);
+  let h = `<div class="card span2"><h2>Rendimiento e histórico</h2><div class="chips scroll" style="margin-bottom:10px"><button class="chip ${!f ? 'on' : ''}" data-act="hist-fondo" data-k="">Todos</button>${ds.map(d => `<button class="chip ${f === d.id ? 'on' : ''}" data-act="hist-fondo" data-k="${d.id}">${d.e} ${esc(d.n.split(' ')[0])}</button>`).join('')}</div>
+  <div class="kpis"><div class="kpi"><div class="eyebrow">Aportado</div><div class="v num">${compact(aport)}</div></div><div class="kpi"><div class="eyebrow">Hoy vale</div><div class="v num">${compact(valor)}</div></div><div class="kpi"><div class="eyebrow">Ganancia</div><div class="v num ${gan < 0 ? 'neg' : 'pos'}">${compact(gan)}</div><div class="d muted">${aport > 0 ? (gan / aport * 100).toFixed(1).replace('.', ',') + '% sobre lo aportado' : ''}</div></div></div>`;
+  if (!rows.length) return h + `<div class="note" style="margin-top:10px">Cuando cierres el primer mes (botón <b>Cerrar mes</b> en Inicio) vas a ver acá cuánto rinde cada fondo, mes a mes.</div></div>`;
+  const ps = rows.filter(r => r.pct != null);
+  if (ps.length >= 3) { const prod = ps.reduce((a, r) => a * (1 + r.pct / 100), 1); const an = (Math.pow(prod, 12 / ps.length) - 1) * 100; h += `<div class="note" style="margin-top:10px">Promedio mensual <b>${(ps.reduce((a, r) => a + r.pct, 0) / ps.length).toFixed(2).replace('.', ',')}%</b> · anualizado aproximado <b>${an.toFixed(1).replace('.', ',')}%</b> (con ${ps.length} meses cerrados: tomalo como orientación).</div>`; }
+  if (rows.length >= 2) h += `<div style="margin-top:12px">${lineas('hist', [{ pts: rows.map(r => r.valor), c: f ? destOf(f).c : 'var(--accent)', area: true }, { pts: rows.map(r => r.aportado), c: 'var(--muted)', dash: true }], { 0: ymShort(rows[0].ym), [rows.length - 1]: ymShort(rows[rows.length - 1].ym) }, { def: 'Tocá el gráfico · raya punteada = lo aportado', tip: i => `${ymLabel(rows[i].ym)} · vale ${money(rows[i].valor)} · aportado ${money(rows[i].aportado)}`, label: 'Valor contra aportado' })}</div>`;
+  h += `<div class="scrollx" style="margin-top:8px"><table class="tbl"><thead><tr><th>Mes</th><th>Sobró</th><th>Aportado</th><th>Rindió</th><th>%</th></tr></thead><tbody>${rows.slice().reverse().map(r => `<tr><td>${ymName(r.ym)}</td><td>${compact(r.sobra || 0)}</td><td>${compact(r.apor)}</td><td class="${r.rend < 0 ? 'neg' : 'pos'}">${compact(r.rend)}</td><td>${r.pct == null ? '—' : r.pct.toFixed(2).replace('.', ',') + '%'}</td></tr>`).join('')}</tbody></table></div>
+  <div class="hint" style="margin-top:8px">“Rindió” es la diferencia entre lo que valía el fondo al cerrar el mes y lo que tenías más lo aportado. El % se calcula sobre el saldo inicial más la mitad del aporte del mes.</div></div>`;
+  return h;
 }
 
 /* ============ COMPOSITOR (cargar / editar un movimiento) ============ */
@@ -1451,7 +1508,7 @@ async function planTodoOk(def) {
 const PALETA = ['#2a78d6', '#6250d6', '#0e8fa8', '#1baf7a', '#eda100', '#eb6834', '#e0457b', '#9a6b3f', '#8792a4', '#008300'];
 function abrirFondo(id) {
   const d = destOf(id); if (!d) return;
-  let plazo = d.plazo || 12, tasa = cfg().tasa, aporte = d.aporte || 0;
+  let plazo = d.plazo || 12, tasa = cfg().tasa, aporte = aportePlan(d, S.mes);
   const def = openSheet({
     id: 'fondo', title: () => d.e + ' ' + d.n,
     body: () => {
@@ -1486,7 +1543,8 @@ function abrirFondoEdit(id) {
     id: 'fedit', title: () => nuevo ? 'Nuevo destino' : 'Editar ' + d.n,
     body: () => `<div class="grid3" style="grid-template-columns:70px 1fr"><div class="field"><label for="fe-e">Ícono</label><input class="inp" id="fe-e" data-f="fe-e" value="${esc(d.e)}" maxlength="4" style="text-align:center;font-size:20px"></div><div class="field"><label for="fe-n">Nombre</label><input class="inp" id="fe-n" data-f="fe-n" value="${esc(d.n)}" placeholder="Ej: Vacaciones"></div></div>
     <div class="field"><label>Color</label><div class="chips">${PALETA.map(c => `<button class="chip ${d.c === c ? 'on' : ''}" data-act="fe-color" data-k="${c}" style="padding:0;width:38px;height:38px;justify-content:center"><span class="dot" style="background:${c};width:18px;height:18px;border-radius:50%"></span></button>`).join('')}</div></div>
-    <div class="field"><label for="fe-a">Aporte mensual previsto ($)</label><input class="inp num" id="fe-a" data-f="fe-a" inputmode="decimal" value="${fmtInput(d.aporte)}"></div>
+    <div class="field"><label>Cómo se calcula el aporte</label><div class="seg"><button class="${d.modo !== 'pct' ? 'on' : ''}" data-act="fe-modo" data-k="monto">Monto fijo</button><button class="${d.modo === 'pct' ? 'on' : ''}" data-act="fe-modo" data-k="pct">% de lo que sobra</button></div></div>
+    ${d.modo === 'pct' ? `<div class="field"><label for="fe-pct">Porcentaje de lo que sobra cada mes</label><input class="inp num" id="fe-pct" data-f="fe-pct" inputmode="decimal" value="${String(+d.pct || 0).replace('.', ',')}"></div>` : `<div class="field"><label for="fe-a">Aporte mensual previsto ($)</label><input class="inp num" id="fe-a" data-f="fe-a" inputmode="decimal" value="${fmtInput(d.aporte)}"></div>`}
     <div class="field"><label for="fe-s">Saldo con el que arrancás ($)</label><input class="inp num" id="fe-s" data-f="fe-s" inputmode="decimal" value="${fmtInput(d.saldo0)}"><div class="hint">Lo que ya tenés guardado en este destino hoy.</div></div>
     <div class="grid3" style="grid-template-columns:1fr 1fr"><div class="field"><label for="fe-p">Plazo (meses)</label><input class="inp num" id="fe-p" data-f="fe-p" inputmode="numeric" value="${d.plazo || ''}"></div><div class="field"><label for="fe-m">Meta ($, opcional)</label><input class="inp num" id="fe-m" data-f="fe-m" inputmode="decimal" value="${fmtInput(d.meta)}"></div></div>
     ${!nuevo ? `<button class="btn danger block" data-act="fe-del">Eliminar destino</button>` : ''}`,
@@ -1530,6 +1588,67 @@ function abrirExplicar() {
     <p style="margin:0 0 10px"><b>Queda disponible</b> = resultado − aportes. Es plata líquida sin destino todavía.</p>
     <p style="margin:0"><b>El mes siguiente</b> el fondo no vuelve a restar: solo cuentan los aportes nuevos. Por eso nada se cuenta dos veces.</p></div>`
   });
+}
+
+/* ============ CIERRE DE MES ============ */
+let W = null;
+function abrirCierre(ym) {
+  const R = resumenMes(ym, 'pago'), ds = cfg().destinos;
+  W = { ym, R, rows: checklist(ym, true).map(x => ({ it: x.it, plan: x.plan, real: x.real, monto: x.real ? x.real.total : x.plan, touched: false, skip: false })), ap: {}, val: {} };
+  ds.forEach(d => { W.ap[d.id] = { hecho: !!realPlan('dest:' + d.id, ym), ya: sum(S.movs.filter(m => m.tipo === 'aporte' && m.fondo === d.id && m.mes === ym), m => m.total), touched: false, monto: '' }; W.val[d.id] = { touched: false, v: '' }; });
+  openSheet({ id: 'cierre', title: 'Cerrar ' + ymLabel(ym), body: wBody, foot: () => `<button class="btn primary" data-act="w-ok">Cerrar ${ymName(ym).toLowerCase()}</button>`, onClose: () => { W = null; }, after: () => wUpdate() });
+}
+function wCalc() {
+  let dz = 0; W.rows.forEach(r => { if (r.it.tipo === 'ingreso' && r.it.diez) dz += r.real ? r.real.total : (r.skip ? 0 : parseMonto(r.monto)); });
+  W.rows.forEach(r => { r.eff = r.real ? r.real.total : r.skip ? 0 : (r.it.pct && !r.touched) ? r2(dz * r.it.pct / 100) : parseMonto(r.monto); });
+  const ing = W.R.ing + sum(W.rows.filter(r => !r.real && r.it.tipo === 'ingreso'), r => r.eff), cons = W.R.cons + sum(W.rows.filter(r => !r.real && r.it.tipo === 'gasto'), r => r.eff), sobra = ing - cons;
+  cfg().destinos.forEach(d => {
+    const a = W.ap[d.id]; a.sug = d.modo === 'pct' ? Math.max(0, Math.round(sobra * (+d.pct || 0) / 100 / 100) * 100) : (+d.aporte || 0);
+    a.eff = a.hecho ? 0 : (a.touched ? parseMonto(a.monto) : a.sug);
+    const v = W.val[d.id]; v.base = saldoFondo(d, W.ym) + a.eff; v.eff = v.touched ? parseMonto(v.v) : v.base; v.dif = v.eff - v.base;
+  });
+  return { ing, cons, sobra };
+}
+function wBody() {
+  const pend = W.rows.filter(r => !r.real), hechos = W.rows.filter(r => r.real);
+  let h = `<div class="note">Cargá lo que realmente pasó en ${ymName(W.ym).toLowerCase()}. Lo que ya confirmaste no se toca.</div>`;
+  if (pend.length) {
+    h += `<div class="field"><label>Cobros y pagos que faltan confirmar</label><div class="lines">` + W.rows.map((r, i) => r.real ? '' : `<div class="card flat" style="padding:10px"><div class="row" style="justify-content:space-between"><b class="ell">${esc(r.it.n)}</b><span class="hint">previsto ${money(r.plan)}</span></div><div class="row" style="margin-top:6px"><input class="inp num" id="w-r-${i}" data-f="w-row" data-i="${i}" inputmode="decimal" value="${fmtInput(r.monto)}" aria-label="Monto real de ${esc(r.it.n)}"><button class="chip ${r.skip ? 'on' : ''}" data-act="w-skip" data-i="${i}">No pasó</button></div></div>`).join('') + '</div></div>';
+  }
+  if (hechos.length) h += `<div class="hint">${hechos.length} ya confirmados: ${esc(hechos.map(r => r.it.n).join(', '))}.</div>`;
+  h += `<div class="card flat"><div class="grid3"><div><div class="eyebrow">Entró</div><div class="num" style="font-weight:800" id="w-ing"></div></div><div><div class="eyebrow">Salió</div><div class="num" style="font-weight:800" id="w-cons"></div></div><div><div class="eyebrow">Sobró</div><div class="num" style="font-weight:800" id="w-sobra"></div></div></div></div>`;
+  h += `<div class="field"><label>Cuánto aportaste a cada fondo</label><div class="lines">${cfg().destinos.map(d => { const a = W.ap[d.id]; return a.hecho ? `<div class="card flat row" style="padding:10px"><span class="ico sm" style="background:${d.c}22">${d.e}</span><span class="grow">${esc(d.n)}</span><b class="num">${money(a.ya)}</b><span class="pill pos">confirmado</span></div>` : `<div class="card flat" style="padding:10px"><div class="row" style="justify-content:space-between"><b class="ell">${d.e} ${esc(d.n)}</b><span class="hint" id="w-as-${d.id}"></span></div><input class="inp num" style="margin-top:6px" id="w-a-${d.id}" data-f="w-ap" data-id="${d.id}" inputmode="decimal" aria-label="Aporte a ${esc(d.n)}"></div>`; }).join('')}</div></div>`;
+  h += `<div class="field"><label>Cuánto vale hoy cada fondo</label><div class="hint">Mirá el saldo real donde lo tengas. La diferencia con lo aportado queda registrada como rendimiento.</div><div class="lines">${cfg().destinos.map(d => `<div class="card flat" style="padding:10px"><div class="row" style="justify-content:space-between"><b class="ell">${d.e} ${esc(d.n)}</b><span class="hint num" id="w-dif-${d.id}"></span></div><input class="inp num" style="margin-top:6px" id="w-v-${d.id}" data-f="w-val" data-id="${d.id}" inputmode="decimal" aria-label="Valor actual de ${esc(d.n)}"></div>`).join('')}</div></div>`;
+  return h;
+}
+function wUpdate() {
+  if (!W) return; const c = wCalc(); const set = (id, t) => { const e = document.getElementById(id); if (e) e.textContent = t; }; const act = document.activeElement;
+  set('w-ing', money(c.ing)); set('w-cons', money(c.cons)); set('w-sobra', money(c.sobra));
+  const so = document.getElementById('w-sobra'); if (so) so.className = 'num ' + (c.sobra < 0 ? 'neg' : 'pos');
+  W.rows.forEach((r, i) => { const e = document.getElementById('w-r-' + i); if (e && e !== act && !r.touched) { e.value = fmtInput(r.eff); } if (e) e.disabled = r.skip; });
+  cfg().destinos.forEach(d => {
+    const a = W.ap[d.id], v = W.val[d.id];
+    const ea = document.getElementById('w-a-' + d.id); if (ea && ea !== act && !a.touched) ea.value = fmtInput(a.sug);
+    set('w-as-' + d.id, d.modo === 'pct' ? `${String(+d.pct || 0).replace('.', ',')}% de ${compact(c.sobra)}` : 'monto fijo');
+    const ev = document.getElementById('w-v-' + d.id); if (ev && ev !== act && !v.touched) ev.value = fmtInput(Math.round(v.base));
+    const base = Math.max(1, v.base - (a.eff || 0) / 2), p = v.dif / base * 100;
+    set('w-dif-' + d.id, Math.abs(v.dif) < 1 ? 'sin cambios' : `${v.dif > 0 ? 'rindió +' : 'perdió −'}${money(Math.abs(v.dif)).replace('−', '')} (${p.toFixed(2).replace('.', ',')}%)`);
+  });
+}
+async function wSave(def) {
+  const c = wCalc(), ym = W.ym, fecha = finDeMes(ym), movs = [];
+  W.rows.forEach(r => { if (r.real) return; const m = movDesdePlan(r.it, ym, r.eff, fecha, 'ef'); if (!(r.eff > 0)) { m.omitido = true; m.total = 0; if (m.items && m.items[0]) m.items[0].monto = 0; } movs.push(m); });
+  const fondos = {};
+  for (const d of cfg().destinos) {
+    const a = W.ap[d.id], v = W.val[d.id], plan = aportePlan(d, ym);
+    if (!a.hecho && (a.eff > 0 || plan > 0)) { const m = movDesdePlan({ id: 'dest:' + d.id, tipo: 'aporte', fondo: d.id }, ym, a.eff, fecha); if (!(a.eff > 0)) { m.omitido = true; m.total = 0; } movs.push(m); }
+    if (Math.abs(v.dif) >= 1) movs.push({ tipo: 'rendimiento', fondo: d.id, total: r2(v.dif), mes: ym, fecha, por: userName(), items: [], com: 'Ajuste de cierre', src: 'cierre', creado: new Date().toISOString() });
+    const rendPrev = sum(S.movs.filter(m => m.tipo === 'rendimiento' && m.fondo === d.id && m.mes === ym), m => m.total);
+    fondos[d.id] = { saldoPrev: saldoFondo(d, addM(ym, -1)), aporte: a.ya + (a.eff || 0), rend: r2(rendPrev + v.dif), valor: r2(v.eff), modo: d.modo || 'monto', pct: +d.pct || 0 };
+  }
+  const doc = { ym, cerradoEn: new Date().toISOString(), por: userName(), ing: r2(c.ing), cons: r2(c.cons), sobra: r2(c.sobra), fondos };
+  const ok = await guardar(async () => { for (const m of movs) await Store.set('mov', uid(), m); await Store.set('cfg', 'cierre_' + ym, doc); });
+  if (ok) { closeSheet(def); toast(ymName(ym) + ' cerrado ✓'); }
 }
 
 /* ============ AJUSTES ============ */
@@ -1654,11 +1773,18 @@ const ACT = {
   'pl-ok': (el, e, d) => planOk(d), 'pt-ok': (el, e, d) => planTodoOk(d),
   'pl-undo': async (el, e, d) => { const ms = d.row.real.movs; const cp = clone(ms); const ok = await guardar(async () => { for (const m of ms) await Store.del('mov', m.id); }); if (ok) { closeSheet(d); toast('Deshecho', async () => { await guardar(async () => { for (const m of cp) await Store.set('mov', m.id, m); }); }); } },
   'fondo-open': el => abrirFondo(el.dataset.id), 'fondo-nuevo': () => abrirFondoEdit(null), 'fondo-edit': (el, e, d) => { closeSheet(d); abrirFondoEdit(el.dataset.id); },
-  aportar: (el, e, d) => { const dest = destOf(el.dataset.id); if (d && d.id === 'fondo') closeSheet(d); abrirComposer('fondo', { sub: 'aporte', fondo: dest.id, monto: Math.max(0, dest.aporte - sum(S.movs.filter(m => m.tipo === 'aporte' && m.fondo === dest.id && m.mes === S.mes), m => m.total)) || dest.aporte || 0 }); },
+  aportar: (el, e, d) => { const dest = destOf(el.dataset.id); if (d && d.id === 'fondo') closeSheet(d); const ap = aportePlan(dest, S.mes); abrirComposer('fondo', { sub: 'aporte', fondo: dest.id, monto: Math.max(0, ap - sum(S.movs.filter(m => m.tipo === 'aporte' && m.fondo === dest.id && m.mes === S.mes), m => m.total)) || ap || 0 }); },
   normalizar: async () => {
-    const E = esperado(S.mes), sobra = E.ingEsp - E.consEsp, tot = sum(cfg().destinos, d => d.aporte); if (sobra <= 0 || !tot) return;
-    const k = sobra / tot; cfg().destinos.forEach(d => d.aporte = Math.floor(d.aporte * k / 100) * 100); if (await guardar(saveCfg, 'Aportes ajustados a lo que sobra')) render();
+    const sobra = sobraEsp(S.mes), tot = sum(cfg().destinos, d => aportePlan(d, S.mes)); if (sobra <= 0 || !tot) return;
+    const k = sobra / tot; cfg().destinos.forEach(d => { if (d.modo === 'pct') d.pct = Math.floor((+d.pct || 0) * k * 10) / 10; else d.aporte = Math.floor((+d.aporte || 0) * k / 100) * 100; });
+    if (await guardar(saveCfg, 'Aportes ajustados a lo que sobra')) render();
   },
+  cerrar: el => abrirCierre(el.dataset.ym),
+  'rep-modo': async el => { const d = destOf(el.dataset.id), k = el.dataset.k; if (k === 'pct' && !(+d.pct)) { const s = sobraEsp(S.mes); d.pct = s > 0 ? Math.min(100, Math.round((+d.aporte || 0) / s * 1000) / 10) : 0; } d.modo = k; if (await guardar(saveCfg)) render(); },
+  'hist-fondo': el => { S.ui.histFondo = el.dataset.k || null; render(); },
+  'w-skip': (el, e, d) => { const r = W.rows[+el.dataset.i]; r.skip = !r.skip; el.classList.toggle('on', r.skip); wUpdate(); },
+  'w-ok': (el, e, d) => wSave(d),
+  'fe-modo': (el, e, d) => { d.d.modo = el.dataset.k; if (d.d.modo === 'pct' && !(+d.d.pct)) { const s = sobraEsp(S.mes); d.d.pct = s > 0 ? Math.min(100, Math.round((+d.d.aporte || 0) / s * 1000) / 10) : 0; } paintSheet(d); },
   'fe-color': (el, e, d) => { d.d.c = el.dataset.k; paintSheet(d); },
   'fe-save': async (el, e, d) => { const x = d.d; if (!x.n.trim()) { toast('Poné un nombre.', null, true); return; } const ds = cfg().destinos; const i = ds.findIndex(y => y.id === x.id); if (i > -1) ds[i] = x; else ds.push(x); if (await guardar(saveCfg, 'Guardado ✓')) closeSheet(d); },
   'fe-del': async (el, e, d) => { const x = d.d; if (S.movs.some(m => m.fondo === x.id || m.pagoFondo === x.id)) { toast('Este destino tiene movimientos: no se puede eliminar.', null, true); return; } cfg().destinos = cfg().destinos.filter(y => y.id !== x.id); if (await guardar(saveCfg, 'Eliminado')) closeSheet(d); },
@@ -1717,10 +1843,17 @@ document.addEventListener('input', e => {
   if (el.id === 'q-movs') { S.ui.q = el.value; renderKeep(el); return; }
   if (el.id === 'q-items') { S.ui.itemQ = el.value; renderKeep(el); return; }
   const f = el.dataset && el.dataset.f; if (!f) return;
+  if (f === 'rep-pct') { const dd = destOf(el.dataset.id); dd.pct = +el.value; const a = document.getElementById('rp-pct-' + dd.id); if (a) a.textContent = el.value + '%'; const b = document.getElementById('rp-amt-' + dd.id); if (b) b.textContent = money(aportePlan(dd, S.mes)); return; }
   const d = sheetOf(el);
   if (d && d.id === 'cp') { cpInput(f, el.value, el); return; }
+  if (d && d.id === 'cierre' && W) {
+    if (f === 'w-row') { const r = W.rows[+el.dataset.i]; r.monto = el.value; r.touched = true; }
+    else if (f === 'w-ap') { const a = W.ap[el.dataset.id]; a.monto = el.value; a.touched = true; }
+    else if (f === 'w-val') { const v = W.val[el.dataset.id]; v.v = el.value; v.touched = true; }
+    wUpdate(); return;
+  }
   if (!d) return;
-  if (f === 'fe-n') d.d.n = el.value; else if (f === 'fe-e') d.d.e = el.value || '💰'; else if (f === 'fe-a') d.d.aporte = parseMonto(el.value); else if (f === 'fe-s') d.d.saldo0 = parseMonto(el.value); else if (f === 'fe-p') d.d.plazo = parseInt(el.value) || 0; else if (f === 'fe-m') d.d.meta = parseMonto(el.value);
+  if (f === 'fe-n') d.d.n = el.value; else if (f === 'fe-e') d.d.e = el.value || '💰'; else if (f === 'fe-a') d.d.aporte = parseMonto(el.value); else if (f === 'fe-pct') d.d.pct = parseMonto(String(el.value).replace(',', '.')); else if (f === 'fe-s') d.d.saldo0 = parseMonto(el.value); else if (f === 'fe-p') d.d.plazo = parseInt(el.value) || 0; else if (f === 'fe-m') d.d.meta = parseMonto(el.value);
   else if (f === 'ce-n') d.x.n = el.value; else if (f === 'ce-e') d.x.e = el.value || '🏷️'; else if (f === 'ce-p') d.x.pres = parseMonto(el.value);
   else if (f === 'me-n') d.x.n = el.value; else if (f === 'me-m') d.x.monto = parseMonto(el.value);
   else if (f === 'pe-n') d.it.n = el.value; else if (f === 'pe-b') d.it.base = parseMonto(el.value); else if (f === 'pe-pct') d.it.pct = parseMonto(el.value) || 0; else if (f === 'pe-d') d.it.desde = el.value; else if (f === 'pe-h') d.it.hasta = el.value;
@@ -1730,6 +1863,8 @@ document.addEventListener('change', async e => {
   const el = e.target, f = el.dataset && el.dataset.f; const d = sheetOf(el);
   if (el.id === 'file-ticket') { if (CP && el.files && el.files.length) { const fs = [...el.files]; el.value = ''; adjuntarFoto(fs); } return; }
   if (f === 'ln' && CP && KNOWN) { const l = CP.lines[+el.dataset.i], k = KNOWN.get(keyOf(el.value)); if (k) { l.cat = S.apr[keyOf(el.value)] || k.cat; l.auto = false; if (!l.monto) l.monto = r2(k.last); cpRefresh(); } return; }
+  if (f === 'rep-pct') { await guardar(saveCfg); render(); return; }
+  if (f === 'rep-monto') { destOf(el.dataset.id).aporte = parseMonto(el.value); await guardar(saveCfg); render(); return; }
   if (el.id === 'it-cat') { const k = el.dataset.key; await guardar(() => Store.merge('cfg', 'aprendido', { [k]: el.value }), 'Listo: la próxima vez va a ese rubro'); return; }
   if (d && d.id === 'fondo' && f && f.startsWith('fp-')) { d.set(f.slice(3), el.value); paintSheet(d); return; }
   if (d && d.id === 'pe-select') return;
