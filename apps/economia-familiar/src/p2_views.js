@@ -187,8 +187,8 @@ function vInicio() {
     ${esp ? '<div class="hint" style="margin-top:10px">Incluye lo que todavía no confirmaste. A medida que confirmás cobros y pagos, se ajusta con los montos reales.</div>' : ''}
     ${resV < 0 && ingV > 0 ? '<div class="note neg" style="margin-top:12px">Este mes sale más de lo que entra. Mirá en Análisis qué rubro pesa más.</div>' : ''}
     <div style="margin-top:10px"><button class="link" data-act="explicar">¿Cómo se cuenta cada cosa?</button></div></div>`;
-  h += `<div class="tiles span2"><button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Sobra acumulada</div><div class="v num ${ac.libre < 0 ? 'neg' : ''}">${compact(ac.libre)}</div><div class="hint">al cierre de ${ymName(ym).toLowerCase()}, sin destino todavía</div></button>
-    <button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Patrimonio</div><div class="v num">${compact(ac.total)}</div><div class="hint">sobra + fondos, con lo previsto</div></button></div>`;
+  h += `<div class="tiles span2"><button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Sobra acumulada</div><div class="v num ${ac.libre < 0 ? 'neg' : ''}">${money(ac.libre)}</div><div class="hint">al cierre de ${ymName(ym).toLowerCase()}, sin destino todavía</div></button>
+    <button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Patrimonio</div><div class="v num">${money(ac.total)}</div><div class="hint">sobra + fondos, con lo previsto</div></button></div>`;
   const sc = primerMesSinCerrar();
   if (sc) h += `<div class="card span2" style="border:2px solid var(--accent)"><h2>Terminó ${ymName(sc).toLowerCase()}</h2><div class="help">Actualizá los montos reales, contá cuánto vale hoy cada fondo y cerrá el mes. Queda guardado el histórico para ver cuánto rindió.</div><div class="sp"></div><button class="btn primary block" data-act="cerrar" data-ym="${sc}">Cerrar ${ymName(sc).toLowerCase()}</button></div>`;
   // checklist
