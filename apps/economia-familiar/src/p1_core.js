@@ -267,6 +267,7 @@ function planBase(it, ym, puro) {
 }
 /* Aporte previsto a un fondo en un mes: monto fijo, o % de lo que sobra ese mes (se ajusta solo con lo confirmado) */
 function aportePlan(d, ym) {
+  if (d.desde && ym < d.desde) return 0;
   if (d.modo === 'pct') { const s = sobraEsp(ym); return Math.max(0, Math.round(s * (+d.pct || 0) / 100 / 100) * 100); }
   return +d.aporte || 0;
 }

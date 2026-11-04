@@ -201,7 +201,7 @@ document.addEventListener('input', e => {
     wUpdate(); return;
   }
   if (!d) return;
-  if (f === 'fe-n') d.d.n = el.value; else if (f === 'fe-e') d.d.e = el.value || '💰'; else if (f === 'fe-a') d.d.aporte = parseMonto(el.value); else if (f === 'fe-pct') d.d.pct = parseMonto(String(el.value).replace(',', '.')); else if (f === 'fe-s') d.d.saldo0 = parseMonto(el.value); else if (f === 'fe-p') d.d.plazo = parseInt(el.value) || 0; else if (f === 'fe-m') d.d.meta = parseMonto(el.value);
+  if (f === 'fe-n') d.d.n = el.value; else if (f === 'fe-e') d.d.e = el.value || '💰'; else if (f === 'fe-a') d.d.aporte = parseMonto(el.value); else if (f === 'fe-d') { if (el.value) d.d.desde = el.value; else delete d.d.desde; } else if (f === 'fe-pct') d.d.pct = parseMonto(String(el.value).replace(',', '.')); else if (f === 'fe-s') d.d.saldo0 = parseMonto(el.value); else if (f === 'fe-p') d.d.plazo = parseInt(el.value) || 0; else if (f === 'fe-m') d.d.meta = parseMonto(el.value);
   else if (f === 'ce-n') d.x.n = el.value; else if (f === 'ce-e') d.x.e = el.value || '🏷️'; else if (f === 'ce-p') d.x.pres = parseMonto(el.value); else if (f === 'ce-pd') { if (el.value) d.x.presDesde = el.value; else delete d.x.presDesde; }
   else if (f === 'me-n') d.x.n = el.value; else if (f === 'me-m') d.x.monto = parseMonto(el.value);
   else if (f === 'pe-n') d.it.n = el.value; else if (f === 'pe-b') d.it.base = parseMonto(el.value); else if (f === 'pe-pct') d.it.pct = parseMonto(el.value) || 0; else if (f === 'pe-d') d.it.desde = el.value; else if (f === 'pe-h') d.it.hasta = el.value;
