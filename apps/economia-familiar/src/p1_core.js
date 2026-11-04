@@ -91,7 +91,7 @@ const S = {
   cache: { mov: false, cfg: false }, t0: Date.now(), mes: ymNow(), vista: 'inicio', base: 'pago', user: null, mode: 'local', ready: false, loaded: { mov: false, cfg: false },
   cap: { sample: null, images: false, downloads: null }, ui: { movVista: 'compras', movFiltro: 'todo', q: '', anTab: 'rubros', abiertos: {}, itemQ: '', itemSort: 'monto', fondoSel: null }
 };
-const APP_BUILD = 'v18 · 4 nov 2026';
+const APP_BUILD = 'v19 · 4 nov 2026';
 const cfg = () => S.cfg;
 const medios = () => [{ id: 'ef', n: 'Efectivo', k: 'cash' }, { id: 'deb', n: 'Débito', k: 'cash' }, { id: 'tr', n: 'Transferencia', k: 'cash' }, ...cfg().tarjetas.map(t => ({ id: t.id, n: t.n, k: 'card', cierre: t.cierre || 0 }))];
 const medioOf = id => medios().find(m => m.id === id) || { id, n: id, k: 'cash' };
@@ -424,6 +424,26 @@ function proyAnio(year) {
   return out.filter(o => o.total > 0).sort((a, b) => b.total - a.total);
 }
 
+/* ============ Reparto: si todos los fondos van por %, siempre suman exactamente 100 ============ */
+const r1 = n => Math.round(n * 10) / 10;
+const todosPct = () => cfg().destinos.length > 0 && cfg().destinos.every(x => x.modo === 'pct');
+function cerrarA100(lista, ancla) { // ajusta el redondeo en el fondo más grande (que no sea el ancla)
+  const dif = r1(100 - sum(lista, x => +x.pct || 0)); if (!dif) return;
+  const cand = lista.filter(x => x !== ancla); const big = (cand.length ? cand : lista).slice().sort((a, b) => (+b.pct || 0) - (+a.pct || 0))[0]; big.pct = r1((+big.pct || 0) + dif);
+}
+function aplicarReparto(id, v) {
+  const ds = cfg().destinos, d = ds.find(x => x.id === id); if (!d) return;
+  d.pct = Math.max(0, Math.min(100, r1(+v || 0)));
+  if (!todosPct()) return;
+  const otros = ds.filter(x => x.id !== id); if (!otros.length) { d.pct = 100; return; }
+  const rem = r1(100 - d.pct), so = sum(otros, x => +x.pct || 0);
+  otros.forEach(x => { x.pct = so > 0 ? r1((+x.pct || 0) * rem / so) : r1(rem / otros.length); });
+  cerrarA100(ds, d);
+}
+function normalizarPct() {
+  const ds = cfg().destinos, tot = sum(ds, x => +x.pct || 0); if (!tot) return;
+  ds.forEach(x => { x.pct = r1((+x.pct || 0) * 100 / tot); }); cerrarA100(ds, null);
+}
 /* ============ Cierre de mes y rendimiento ============ */
 const finDeMes = ym => ym < ymNow() ? `${ym}-${pad(daysIn(ym))}` : hoy();
 function primerMesSinCerrar() {
