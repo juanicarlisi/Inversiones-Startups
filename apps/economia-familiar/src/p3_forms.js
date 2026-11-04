@@ -424,7 +424,7 @@ function abrirFondo(id) {
   });
 }
 function abrirFondoEdit(id) {
-  const base = id ? clone(destOf(id)) : { id: 'f' + uid(), n: '', e: '💰', c: PALETA[cfg().destinos.length % PALETA.length], aporte: 0, saldo0: 0, plazo: 12, meta: 0 };
+  const base = id ? clone(destOf(id)) : { id: 'f' + uid(), n: '', e: '💰', c: PALETA[cfg().destinos.length % PALETA.length], aporte: 0, saldo0: 0, plazo: 12, meta: 0, modo: 'pct', pct: 0 };
   const nuevo = !id; const d = base;
   openSheet({
     id: 'fedit', title: () => nuevo ? 'Nuevo destino' : 'Editar ' + d.n,
