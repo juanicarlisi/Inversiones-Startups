@@ -288,6 +288,7 @@ async function cpSave() {
   const ok = await guardar(async () => { for (const d of docs) await Store.set('mov', d.id, d.data); });
   if (ok) {
     const def = SHEETS.find(s => s.id === 'cp'); closeSheet(def); toast(docs.length > 1 ? `Guardado en ${docs.length} cuotas` : 'Guardado ✓');
+    if (CP_TIPO_GASTO(docs)) { const mes0 = docs[0].data.mes, cats0 = new Set((docs[0].data.items || []).map(i => i.cat)); const b = bolsasDe(mes0).find(x => (x.cats || []).some(c => cats0.has(c))); if (b) setTimeout(() => { const u = bolsaUso(b, mes0); toast(u.pasado > 0 ? `Guardado ✓ · te pasaste ${money(u.pasado)} del presupuesto de ${b.n}` : `Guardado ✓ · te quedan ${money(u.queda)} del presupuesto de ${b.n}`); }, 700); }
     if (metaId) { const x = S.metas.items.find(i => i.id === metaId); if (x) { x.hecha = true; x.real = tot; saveMetas().catch(() => { }); } }
   }
 }
@@ -538,3 +539,5 @@ async function wSave(def) {
   const ok = await guardar(async () => { for (const m of movs) await Store.set('mov', uid(), m); await Store.set('cfg', 'cierre_' + ym, doc); });
   if (ok) { closeSheet(def); toast(ymName(ym) + ' cerrado ✓'); }
 }
+
+const CP_TIPO_GASTO = docs => docs[0] && docs[0].data.tipo === 'gasto' && !docs[0].data.pagoFondo;

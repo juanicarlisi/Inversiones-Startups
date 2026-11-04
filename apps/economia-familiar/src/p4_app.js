@@ -8,6 +8,7 @@ function vAjustes() {
     <div class="field"><label for="st-caja">Plata disponible al empezar ($)</label><input class="inp num" id="st-caja" data-f="st-caja" inputmode="decimal" value="${fmtInput(c.caja)}"></div>
     <div class="field"><label for="st-ini">Empezamos en</label><input class="inp" type="month" id="st-ini" data-f="st-ini" value="${c.inicio}"></div></div>
     <div class="hint" style="margin-top:8px">“Plata disponible al empezar” es lo que tenían líquido (cuenta, efectivo) al comienzo del mes de arranque. Con eso se calcula el disponible de hoy.</div></div>`;
+  h += `<div class="card"><h2>Presupuestos <button class="more" data-act="bolsa-edit" data-id="">Agregar</button></h2><div class="hint" style="margin-bottom:6px">Un tope mensual para varios rubros juntos. Lo que cargues en esos rubros se descuenta solo.</div>${(c.bolsas || []).map(b => `<button class="set-row" data-act="bolsa-edit" data-id="${b.id}"><span class="ico sm">🛒</span><span class="grow"><div class="ell">${esc(b.n)}</div><div class="hint ell">${(b.cats || []).map(id => esc(catOf(id).n)).join(' + ')}${b.desde ? ' · desde ' + ymShort(b.desde) + ' ' + b.desde.slice(2, 4) : ''}</div></span><span class="num hint">${money(b.monto)}</span>${IC.chev}</button>`).join('') || '<div class="hint">Todavía no tenés ninguno.</div>'}</div>`;
   h += `<div class="card"><h2>Rubros <button class="more" data-act="cat-edit" data-id="">Agregar</button></h2>${c.cats.map(x => `<button class="set-row" data-act="cat-edit" data-id="${x.id}"><span class="ico sm" style="background:${x.c}22">${x.e}</span><span class="grow ell">${esc(x.n)}</span><span class="hint">${x.pres > 0 ? 'presup. ' + compact(x.pres) + (x.presDesde ? ' desde ' + ymShort(x.presDesde) + ' ' + x.presDesde.slice(2, 4) : '') : ''}</span>${IC.chev}</button>`).join('')}</div>`;
   h += `<div class="card"><h2>Plan mensual <button class="more" data-act="plan-edit" data-id="">Agregar</button></h2><div class="hint" style="margin-bottom:6px">Lo que cobran y pagan todos los meses. Aparece en Inicio para confirmarlo con un toque.</div>
     ${['ingreso', 'gasto'].map(t => `<div class="group-h">${t === 'ingreso' ? 'Cobros' : 'Pagos'}</div>${S.plan.items.filter(i => i.tipo === t).map(i => `<button class="set-row" data-act="plan-edit" data-id="${i.id}"><span class="ico sm">${t === 'ingreso' ? ingCatOf(i.cat).e : catOf(i.cat).e}</span><span class="grow ell">${esc(i.n)}</span><span class="num hint">${i.pct ? i.pct + '%' : money(i.base)}</span>${IC.chev}</button>`).join('') || '<div class="hint">Nada todavía.</div>'}`).join('')}</div>`;
@@ -29,6 +30,18 @@ function vAjustes() {
     <a class="set-row" href="https://claude.ai/artifact/UTnbTJ1fUtcaYskFkDWApQ" target="_blank" rel="noopener" style="color:inherit;text-decoration:none"><span class="grow">Abrir en el navegador del celular</span>${IC.chev}</a>
     <div class="set-row"><span class="grow ink2">Guardar fotos de tickets</span><span class="pill ${S.cap.assets ? 'pos' : 'warn'}">${S.cap.assets ? 'sí' : 'solo mientras cargás'}</span></div></div>`;
   return h + '</div>';
+}
+function abrirBolsa(id) {
+  const nuevo = !id; const b = nuevo ? { id: 'b' + uid(), n: '', monto: 0, desde: '', cats: [] } : clone((cfg().bolsas || []).find(x => x.id === id));
+  openSheet({
+    title: nuevo ? 'Nuevo presupuesto' : 'Editar presupuesto', b, nuevo,
+    body: () => `<div class="field"><label for="bo-n">Nombre</label><input class="inp" id="bo-n" data-f="bo-n" value="${esc(b.n)}" placeholder="Ej: Comidas y supermercado"></div>
+    <div class="field"><label for="bo-m">Tope mensual ($)</label><div class="amount-wrap"><span class="cur">$</span><input id="bo-m" data-f="bo-m" inputmode="decimal" value="${fmtInput(b.monto)}"></div></div>
+    <div class="field"><label for="bo-d">Rige desde (mes)</label><input class="inp" type="month" id="bo-d" data-f="bo-d" value="${b.desde || ''}"></div>
+    <div class="field"><label>Qué rubros se descuentan</label><div class="chips">${cfg().cats.map(c => `<button class="chip ${b.cats.includes(c.id) ? 'on' : ''}" data-act="bo-cat" data-k="${c.id}"><span class="e">${c.e}</span>${esc(c.n.replace(/ \(.*\)/, ''))}</button>`).join('')}</div><div class="hint">Cada gasto que cargues en esos rubros baja del tope. El gasto igual queda en su rubro correcto.</div></div>
+    ${!nuevo ? '<button class="btn danger block" data-act="bo-del">Eliminar presupuesto</button>' : ''}`,
+    foot: () => '<button class="btn primary" data-act="bo-save">Guardar</button>'
+  });
 }
 function abrirCat(id) {
   const nuevo = !id; const x = nuevo ? { id: 'c' + uid(), n: '', e: '🏷️', c: PALETA[0], pres: 0 } : clone(cfg().cats.find(c => c.id === id));
@@ -150,6 +163,10 @@ const ACT = {
   'me-save': async (el, e, d) => { const x = d.x; if (!x.n.trim()) { toast('Poné qué querés comprar.', null, true); return; } const a = S.metas.items; const i = a.findIndex(y => y.id === x.id); if (i > -1) a[i] = x; else a.push(x); if (await guardar(saveMetas, 'Guardado ✓')) closeSheet(d); },
   'me-del': async (el, e, d) => { S.metas.items = S.metas.items.filter(y => y.id !== d.x.id); if (await guardar(saveMetas, 'Eliminada')) closeSheet(d); },
   'cat-edit': el => abrirCat(el.dataset.id),
+  'bolsa-edit': el => abrirBolsa(el.dataset.id),
+  'bo-cat': (el, e, d) => { const k = el.dataset.k, i = d.b.cats.indexOf(k); if (i > -1) d.b.cats.splice(i, 1); else d.b.cats.push(k); paintSheet(d); },
+  'bo-save': async (el, e, d) => { const x = d.b; if (!x.n.trim()) { toast('Poné un nombre.', null, true); return; } if (!(x.monto > 0)) { toast('Falta el tope mensual.', null, true); return; } if (!x.cats.length) { toast('Elegí al menos un rubro.', null, true); return; } if (!x.desde) Reflect.deleteProperty(x, 'desde'); cfg().bolsas = cfg().bolsas || []; const i = cfg().bolsas.findIndex(y => y.id === x.id); if (i > -1) cfg().bolsas[i] = x; else cfg().bolsas.push(x); if (await guardar(saveCfg, 'Guardado ✓')) closeSheet(d); },
+  'bo-del': async (el, e, d) => { cfg().bolsas = (cfg().bolsas || []).filter(y => y.id !== d.b.id); if (await guardar(saveCfg, 'Eliminado')) closeSheet(d); },
   'ce-color': (el, e, d) => { d.x.c = el.dataset.k; paintSheet(d); },
   'ce-save': async (el, e, d) => { const x = d.x; if (!x.n.trim()) { toast('Poné un nombre.', null, true); return; } const a = cfg().cats; const i = a.findIndex(y => y.id === x.id); if (i > -1) a[i] = x; else a.push(x); if (await guardar(saveCfg, 'Guardado ✓')) closeSheet(d); },
   'ce-del': async (el, e, d) => { const x = d.x; if (S.movs.some(m => (m.items || []).some(i => i.cat === x.id)) || S.plan.items.some(i => i.cat === x.id)) { toast('Hay movimientos con este rubro: no se puede eliminar.', null, true); return; } cfg().cats = cfg().cats.filter(y => y.id !== x.id); if (await guardar(saveCfg, 'Eliminado')) closeSheet(d); },
@@ -216,6 +233,7 @@ document.addEventListener('input', e => {
   }
   if (!d) return;
   if (f === 'fe-n') d.d.n = el.value; else if (f === 'fe-e') d.d.e = el.value || '💰'; else if (f === 'fe-a') d.d.aporte = parseMonto(el.value); else if (f === 'fe-d') { if (el.value) d.d.desde = el.value; else delete d.d.desde; } else if (f === 'fe-pct') d.d.pct = parseMonto(String(el.value).replace(',', '.')); else if (f === 'fe-s') d.d.saldo0 = parseMonto(el.value); else if (f === 'fe-p') d.d.plazo = parseInt(el.value) || 0; else if (f === 'fe-m') d.d.meta = parseMonto(el.value);
+  else if (f === 'bo-n') d.b.n = el.value; else if (f === 'bo-m') d.b.monto = parseMonto(el.value); else if (f === 'bo-d') d.b.desde = el.value;
   else if (f === 'ce-n') d.x.n = el.value; else if (f === 'ce-e') d.x.e = el.value || '🏷️'; else if (f === 'ce-p') d.x.pres = parseMonto(el.value); else if (f === 'ce-pd') { if (el.value) d.x.presDesde = el.value; else delete d.x.presDesde; }
   else if (f === 'me-n') d.x.n = el.value; else if (f === 'me-m') d.x.monto = parseMonto(el.value);
   else if (f === 'pe-n') d.it.n = el.value; else if (f === 'pe-b') d.it.base = parseMonto(el.value); else if (f === 'pe-pct') d.it.pct = parseMonto(el.value) || 0; else if (f === 'pe-d') d.it.desde = el.value; else if (f === 'pe-h') d.it.hasta = el.value;

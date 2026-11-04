@@ -220,6 +220,7 @@ function vInicio() {
     }
     h += '</div>';
   }
+  h += cardBolsas(ym);
   // rubros
   const pr = porRubro(R.L).slice(0, 6), totR = sum(porRubro(R.L), r => r.total);
   if (pr.length) {
@@ -294,11 +295,13 @@ function vAnalisis() {
   return h;
 }
 function anRubros(rub, totR, R) {
+  const cb = cardBolsas(S.mes);
   if (!rub.length) return `<div class="card">${emptyState('📊', 'Sin gastos este mes', 'Cuando cargues gastos, acá ves en qué se va la plata.', '')}</div>`;
   const top = rub.slice(0, 7), otros = sum(rub.slice(7), r => r.total);
   const segs = top.map(r => ({ v: r.total, c: catOf(r.cat).c })); if (otros) segs.push({ v: otros, c: '#8792a4' });
   const abiertos = S.ui.abiertos;
-  let h = `<div class="card"><div class="donut-wrap">${donut(segs, compact(totR), 'gastado')}<div class="grow" style="min-width:150px">${top.map(r => `<div class="li" style="display:flex;align-items:center;gap:8px;font-size:13px;padding:2px 0"><span class="dot" style="background:${catOf(r.cat).c}"></span><span class="ell grow">${esc(catOf(r.cat).n)}</span><b class="num">${pct(r.total, totR)}%</b></div>`).join('')}${otros ? `<div class="li" style="display:flex;align-items:center;gap:8px;font-size:13px;padding:2px 0"><span class="dot" style="background:#8792a4"></span><span class="ell grow">Otros rubros</span><b class="num">${pct(otros, totR)}%</b></div>` : ''}</div></div></div>`;
+  let h = cb ? cb.replace('<div class="card">', '<div class="card" style="margin-bottom:14px">') : '';
+  h += `<div class="card"><div class="donut-wrap">${donut(segs, compact(totR), 'gastado')}<div class="grow" style="min-width:150px">${top.map(r => `<div class="li" style="display:flex;align-items:center;gap:8px;font-size:13px;padding:2px 0"><span class="dot" style="background:${catOf(r.cat).c}"></span><span class="ell grow">${esc(catOf(r.cat).n)}</span><b class="num">${pct(r.total, totR)}%</b></div>`).join('')}${otros ? `<div class="li" style="display:flex;align-items:center;gap:8px;font-size:13px;padding:2px 0"><span class="dot" style="background:#8792a4"></span><span class="ell grow">Otros rubros</span><b class="num">${pct(otros, totR)}%</b></div>` : ''}</div></div></div>`;
   h += `<div class="card" style="margin-top:14px"><h2>Rubros y sus ítems <button class="more" data-act="exp-todo">${rub.every(r => abiertos[r.cat]) ? 'Colapsar todo' : 'Expandir todo'}</button></h2>`;
   rub.forEach(r => {
     const c = catOf(r.cat), open = !!abiertos[r.cat];
@@ -450,4 +453,15 @@ function cardHist() {
   h += `<div class="scrollx" style="margin-top:8px"><table class="tbl"><thead><tr><th>Mes</th><th>Sobró</th><th>Aportado</th><th>Rindió</th><th>%</th></tr></thead><tbody>${rows.slice().reverse().map(r => `<tr><td>${ymName(r.ym)}</td><td>${compact(r.sobra || 0)}</td><td>${compact(r.apor)}</td><td class="${r.rend < 0 ? 'neg' : 'pos'}">${compact(r.rend)}</td><td>${r.pct == null ? '—' : r.pct.toFixed(2).replace('.', ',') + '%'}</td></tr>`).join('')}</tbody></table></div>
   <div class="hint" style="margin-top:8px">“Rindió” es la diferencia entre lo que valía el fondo al cerrar el mes y lo que tenías más lo aportado. El % se calcula sobre el saldo inicial más la mitad del aporte del mes.</div></div>`;
   return h;
+}
+
+function cardBolsas(ym) {
+  const bs = bolsasDe(ym); if (!bs.length) return '';
+  let h = `<div class="card"><h2>Presupuesto del mes</h2>`;
+  bs.forEach(b => {
+    const u = bolsaUso(b, ym), pc = Math.min(100, u.gastado / b.monto * 100), col = u.pasado > 0 ? 'var(--neg)' : pc > 85 ? 'var(--warn)' : 'var(--accent)';
+    h += `<div class="bar-row"><div class="hd"><span class="n ell">🛒 ${esc(b.n)}</span><span class="v num">${money(u.gastado)} <span class="muted" style="font-weight:600">de ${money(b.monto)}</span></span></div><div class="bar"><i style="width:${pc}%;background:${col}"></i></div>
+    <div class="hint">${u.pasado > 0 ? `<span class="neg">Te pasaste ${money(u.pasado)}</span>` : `Te quedan <b class="num">${money(u.queda)}</b>`} · lo que cargues en ${(b.cats || []).map(id => esc(catOf(id).n)).join(' y ')} se descuenta solo</div></div>`;
+  });
+  return h + '</div>';
 }

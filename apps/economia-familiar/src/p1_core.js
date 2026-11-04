@@ -91,7 +91,7 @@ const S = {
   cache: { mov: false, cfg: false }, t0: Date.now(), mes: ymNow(), vista: 'inicio', base: 'pago', user: null, mode: 'local', ready: false, loaded: { mov: false, cfg: false },
   cap: { sample: null, images: false, downloads: null }, ui: { movVista: 'compras', movFiltro: 'todo', q: '', anTab: 'rubros', abiertos: {}, itemQ: '', itemSort: 'monto', fondoSel: null }
 };
-const APP_BUILD = 'v20 · 4 nov 2026';
+const APP_BUILD = 'v21 · 4 nov 2026';
 const cfg = () => S.cfg;
 const medios = () => [{ id: 'ef', n: 'Efectivo', k: 'cash' }, { id: 'deb', n: 'Débito', k: 'cash' }, { id: 'tr', n: 'Transferencia', k: 'cash' }, ...cfg().tarjetas.map(t => ({ id: t.id, n: t.n, k: 'card', cierre: t.cierre || 0 }))];
 const medioOf = id => medios().find(m => m.id === id) || { id, n: id, k: 'cash' };
@@ -101,6 +101,13 @@ const catOf = id => cfg().cats.find(c => c.id === id) || (id === 'otros' ? CATS0
 const ingCatOf = id => cfg().ingCats.find(c => c.id === id) || INGCATS0[4];
 /* Presupuesto mensual de un rubro en un mes (puede empezar desde cierto mes) */
 const presDe = (c, ym) => (c.pres > 0 && (!c.presDesde || ym >= c.presDesde)) ? c.pres : 0;
+/* Presupuestos que juntan varios rubros (ej: supermercado = alimentos + limpieza e higiene) */
+const bolsasDe = ym => (cfg().bolsas || []).filter(b => b.monto > 0 && ym >= cfg().inicio && (!b.desde || ym >= b.desde));
+function bolsaUso(b, ym) {
+  const L = lineasDe(movsEn(ym, 'pago')).filter(l => (b.cats || []).includes(l.cat) && !l.m.planId);
+  const gastado = sum(L, l => l.monto);
+  return { gastado, queda: Math.max(0, b.monto - gastado), pasado: Math.max(0, gastado - b.monto) };
+}
 const destOf = id => cfg().destinos.find(d => d.id === id);
 const userName = () => S.user || cfg().usuarios[0];
 
@@ -292,6 +299,7 @@ function esperado(ym, sinAportes) {
   const r = resumenMes(ym, 'pago'); let ingP = 0, fijoP = 0, presP = 0, aporP = 0;
   for (const row of checklist(ym, sinAportes)) if (!row.real) { if (row.it.tipo === 'ingreso') ingP += row.plan; else if (row.it.tipo === 'gasto') fijoP += row.plan; else if (row.it.tipo === 'aporte') aporP += row.plan; }
   const L = lineasDe(r.L).filter(l => !l.m.planId);
+  for (const b of bolsasDe(ym)) presP += Math.max(0, b.monto - sum(L.filter(l => (b.cats || []).includes(l.cat)), l => l.monto));
   for (const c of cfg().cats) if (presDe(c, ym) > 0 && ym >= cfg().inicio) presP += Math.max(0, presDe(c, ym) - sum(L.filter(l => l.cat === c.id), l => l.monto));
   return { ...r, ingP, fijoP, presP, aporP, aporEsp: r.apor + aporP, ingEsp: r.ing + ingP, consEsp: r.cons + fijoP + presP };
 }
@@ -300,6 +308,7 @@ function planOriginal(ym) {
   if (ym < cfg().inicio) return null; let ing = 0, cons = 0;
   for (const it of S.plan.items) { const v = planBase(it, ym, true); if (it.tipo === 'ingreso') ing += v; else cons += v; }
   for (const c of cfg().cats) cons += presDe(c, ym);
+  for (const b of bolsasDe(ym)) cons += b.monto;
   cons += sum(S.movs.filter(m => m.src === 'backlog' && m.mes === ym), m => m.total);
   return { ing, cons };
 }
@@ -412,7 +421,8 @@ function proyAnio(year) {
         const c = catOf(o.cat); const var0 = sum(L.filter(l => l.cat === o.cat && !l.m.planId), l => l.monto);
         const pres = presDe(c, ym) > 0 ? Math.max(0, presDe(c, ym) - var0) : 0;
         v += fijos + pres;
-        const planCat = fijos > 0 || presDe(c, ym) > 0 || chk.some(r => r.it.tipo === 'gasto' && r.it.cat === o.cat);
+        const bs = bolsasDe(ym); bs.forEach(b => { if ((b.cats || [])[0] === o.cat) v += bolsaUso(b, ym).queda; });
+        const planCat = fijos > 0 || presDe(c, ym) > 0 || bs.some(b => (b.cats || []).includes(o.cat)) || chk.some(r => r.it.tipo === 'gasto' && r.it.cat === o.cat);
         if (planCat) o.tienePlan = true;
         if (ym > now && !planCat) v += ritmo[o.cat].v;
         if (ym === now && !planCat && false) v += 0;
