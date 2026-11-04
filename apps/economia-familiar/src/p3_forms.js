@@ -463,7 +463,7 @@ function abrirCierre(ym) {
   openSheet({ id: 'cierre', title: 'Cerrar ' + ymLabel(ym), body: wBody, foot: () => `<button class="btn primary" data-act="w-ok">Cerrar ${ymName(ym).toLowerCase()}</button>`, onClose: () => { W = null; }, after: () => wUpdate() });
 }
 function wCalc() {
-  let dz = 0; W.rows.forEach(r => { if (r.it.tipo === 'ingreso' && r.it.diez) dz += r.real ? r.real.total : (r.skip ? 0 : parseMonto(r.monto)); });
+  let dz = sum(W.R.L.filter(m => m.tipo === 'ingreso' && m.cat !== 'rend'), m => m.total); W.rows.forEach(r => { if (!r.real && r.it.tipo === 'ingreso' && r.it.cat !== 'rend') dz += r.skip ? 0 : parseMonto(r.monto); });
   W.rows.forEach(r => { r.eff = r.real ? r.real.total : r.skip ? 0 : (r.it.pct && !r.touched) ? r2(dz * r.it.pct / 100) : parseMonto(r.monto); });
   const ing = W.R.ing + sum(W.rows.filter(r => !r.real && r.it.tipo === 'ingreso'), r => r.eff), cons = W.R.cons + sum(W.rows.filter(r => !r.real && r.it.tipo === 'gasto'), r => r.eff), sobra = ing - cons;
   cfg().destinos.forEach(d => {

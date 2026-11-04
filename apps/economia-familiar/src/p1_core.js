@@ -249,9 +249,11 @@ function realPlan(id, ym) {
   const L = S.movs.filter(m => m.planId === id && m.mes === ym);
   return L.length ? { total: sum(L, m => m.total), movs: L } : null;
 }
+/* Diezmo: 10% de todos los ingresos del mes, menos el plazo fijo (rubro "Rendimientos"). Suma lo confirmado, lo cargado a mano y lo previsto que falta. */
 function ingresoDiezmable(ym, puro) {
   let s = 0;
-  for (const it of S.plan.items) if (it.tipo === 'ingreso' && it.diez) { const r = puro ? null : realPlan(it.id, ym); s += r ? r.total : planBase(it, ym, puro); }
+  if (!puro) s += sum(S.movs.filter(m => m.tipo === 'ingreso' && m.mes === ym && m.cat !== 'rend'), m => m.total);
+  for (const it of S.plan.items) if (it.tipo === 'ingreso' && it.cat !== 'rend') { if (puro || !realPlan(it.id, ym)) s += planBase(it, ym, puro); }
   return s;
 }
 function planBase(it, ym, puro) {
