@@ -91,7 +91,7 @@ const S = {
   cache: { mov: false, cfg: false }, t0: Date.now(), mes: ymNow(), vista: 'inicio', base: 'pago', user: null, mode: 'local', ready: false, loaded: { mov: false, cfg: false },
   cap: { sample: null, images: false, downloads: null }, ui: { movVista: 'compras', movFiltro: 'todo', q: '', anTab: 'rubros', abiertos: {}, itemQ: '', itemSort: 'monto', fondoSel: null }
 };
-const APP_BUILD = 'v16 · 4 nov 2026';
+const APP_BUILD = 'v17 · 4 nov 2026';
 const cfg = () => S.cfg;
 const medios = () => [{ id: 'ef', n: 'Efectivo', k: 'cash' }, { id: 'deb', n: 'Débito', k: 'cash' }, { id: 'tr', n: 'Transferencia', k: 'cash' }, ...cfg().tarjetas.map(t => ({ id: t.id, n: t.n, k: 'card', cierre: t.cierre || 0 }))];
 const medioOf = id => medios().find(m => m.id === id) || { id, n: id, k: 'cash' };
@@ -343,7 +343,10 @@ const patrimonio = ym => cajaHasta(ym) + sum(cfg().destinos, d => saldoFondo(d, 
 function tarjetasMes(ym) {
   return cfg().tarjetas.map(t => {
     const L = S.movs.filter(m => m.tipo === 'gasto' && m.medio === t.id && m.mes === ym && !m.pagoFondo);
-    return { t, total: sum(L, m => m.total), previo: sum(L.filter(m => m.src === 'backlog'), m => m.total) };
+    const rows = checklist(ym, true).filter(r => r.it.tarjeta === t.id);
+    const previo = sum(L.filter(m => m.src === 'backlog'), m => m.total) + sum(rows, r => r.real ? r.real.total : r.plan);
+    const pagado = rows.length > 0 && rows.every(r => r.real);
+    return { t, total: sum(L, m => m.total) + sum(rows, r => r.real ? r.real.total : r.plan), previo, pagado };
   });
 }
 function rmFondo(d, tasaPct, meses, saldoARS, aporteARS, tc) {

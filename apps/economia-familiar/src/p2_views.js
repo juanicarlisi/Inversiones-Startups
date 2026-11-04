@@ -215,7 +215,7 @@ function vInicio() {
     h += '<div class="card"><h2>Tarjetas</h2>';
     for (let i = 0; i < tj.length; i++) {
       const a = tj[i], b = tj2[i]; if (!a.total && !b.total) continue;
-      if (a.total) h += `<div class="mv"><span class="ico">💳</span><span class="grow"><div class="t">${esc(a.t.n)}</div><div class="s">Se paga en ${ymName(ym).toLowerCase()}${a.previo ? ' · incluye ' + money(a.previo) + ' de saldo anterior' : ''}</div></span><span class="a num">${money(a.total)}</span></div>`;
+      if (a.total) h += `<div class="mv"><span class="ico">💳</span><span class="grow"><div class="t">${esc(a.t.n)}</div><div class="s">Se paga en ${ymName(ym).toLowerCase()}${a.previo ? ' · incluye ' + money(a.previo) + ' de saldo anterior' + (a.pagado ? ' (ya pagado)' : '') : ''}</div></span><span class="a num">${money(a.total)}</span></div>`;
       if (b.total) h += `<div class="mv"><span class="ico">💳</span><span class="grow"><div class="t">${esc(a.t.n)}</div><div class="s">Ya acumulado para ${ymName(addM(ym, 1)).toLowerCase()}</div></span><span class="a num ink2">${money(b.total)}</span></div>`;
     }
     h += '</div>';
