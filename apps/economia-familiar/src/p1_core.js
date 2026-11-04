@@ -98,6 +98,8 @@ const esTarjeta = id => medioOf(id).k === 'card';
 const SIN = { id: 'sin', n: 'Sin rubro', e: '🧩', c: '#8792a4' };
 const catOf = id => cfg().cats.find(c => c.id === id) || (id === 'otros' ? CATS0[CATS0.length - 1] : SIN);
 const ingCatOf = id => cfg().ingCats.find(c => c.id === id) || INGCATS0[4];
+/* Presupuesto mensual de un rubro en un mes (puede empezar desde cierto mes) */
+const presDe = (c, ym) => (c.pres > 0 && (!c.presDesde || ym >= c.presDesde)) ? c.pres : 0;
 const destOf = id => cfg().destinos.find(d => d.id === id);
 const userName = () => S.user || cfg().usuarios[0];
 
@@ -288,14 +290,14 @@ function esperado(ym, sinAportes) {
   const r = resumenMes(ym, 'pago'); let ingP = 0, fijoP = 0, presP = 0, aporP = 0;
   for (const row of checklist(ym, sinAportes)) if (!row.real) { if (row.it.tipo === 'ingreso') ingP += row.plan; else if (row.it.tipo === 'gasto') fijoP += row.plan; else if (row.it.tipo === 'aporte') aporP += row.plan; }
   const L = lineasDe(r.L).filter(l => !l.m.planId);
-  for (const c of cfg().cats) if (c.pres > 0 && ym >= cfg().inicio) presP += Math.max(0, c.pres - sum(L.filter(l => l.cat === c.id), l => l.monto));
+  for (const c of cfg().cats) if (presDe(c, ym) > 0 && ym >= cfg().inicio) presP += Math.max(0, presDe(c, ym) - sum(L.filter(l => l.cat === c.id), l => l.monto));
   return { ...r, ingP, fijoP, presP, aporP, aporEsp: r.apor + aporP, ingEsp: r.ing + ingP, consEsp: r.cons + fijoP + presP };
 }
 /* Lo que se planeó originalmente para el mes (sin ajustes por lo ya confirmado) */
 function planOriginal(ym) {
   if (ym < cfg().inicio) return null; let ing = 0, cons = 0;
   for (const it of S.plan.items) { const v = planBase(it, ym, true); if (it.tipo === 'ingreso') ing += v; else cons += v; }
-  for (const c of cfg().cats) if (c.pres > 0) cons += c.pres;
+  for (const c of cfg().cats) cons += presDe(c, ym);
   cons += sum(S.movs.filter(m => m.src === 'backlog' && m.mes === ym), m => m.total);
   return { ing, cons };
 }
@@ -403,9 +405,9 @@ function proyAnio(year) {
       if (ym >= now && ym >= cfg().inicio) {
         const fijos = sum(chk.filter(r => !r.real && r.it.tipo === 'gasto' && r.it.cat === o.cat), r => r.plan);
         const c = catOf(o.cat); const var0 = sum(L.filter(l => l.cat === o.cat && !l.m.planId), l => l.monto);
-        const pres = c.pres > 0 ? Math.max(0, c.pres - var0) : 0;
+        const pres = presDe(c, ym) > 0 ? Math.max(0, presDe(c, ym) - var0) : 0;
         v += fijos + pres;
-        const planCat = fijos > 0 || c.pres > 0 || chk.some(r => r.it.tipo === 'gasto' && r.it.cat === o.cat);
+        const planCat = fijos > 0 || presDe(c, ym) > 0 || chk.some(r => r.it.tipo === 'gasto' && r.it.cat === o.cat);
         if (planCat) o.tienePlan = true;
         if (ym > now && !planCat) v += ritmo[o.cat].v;
         if (ym === now && !planCat && false) v += 0;

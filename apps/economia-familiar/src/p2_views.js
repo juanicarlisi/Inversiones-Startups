@@ -294,8 +294,8 @@ function anRubros(rub, totR, R) {
   rub.forEach(r => {
     const c = catOf(r.cat), open = !!abiertos[r.cat];
     h += `<div class="bar-row ${open ? 'open' : ''}"><button class="hd" data-act="rubro-tog" data-k="${r.cat}" style="width:100%"><span class="ico sm" style="background:${c.c}22">${c.e}</span><span class="n ell">${esc(c.n)}</span><span class="pill">${pct(r.total, totR)}%</span><span class="v num">${money(r.total)}</span>${IC.chev}</button>
-      <div class="bar"><i style="width:${r.total / rub[0].total * 100}%;background:${c.c}"></i>${c.pres > 0 ? `<span class="mark" style="left:${Math.min(100, c.pres / rub[0].total * 100)}%" title="Presupuesto"></span>` : ''}</div>
-      ${c.pres > 0 ? `<div class="hint">Presupuesto ${money(c.pres)} · ${r.total > c.pres ? '<span class="neg">te pasaste ' + money(r.total - c.pres) + '</span>' : 'te quedan ' + money(c.pres - r.total)}</div>` : ''}
+      <div class="bar"><i style="width:${r.total / rub[0].total * 100}%;background:${c.c}"></i>${presDe(c, S.mes) > 0 ? `<span class="mark" style="left:${Math.min(100, presDe(c, S.mes) / rub[0].total * 100)}%" title="Presupuesto"></span>` : ''}</div>
+      ${presDe(c, S.mes) > 0 ? `<div class="hint">Presupuesto ${money(presDe(c, S.mes))} · ${r.total > presDe(c, S.mes) ? '<span class="neg">te pasaste ' + money(r.total - presDe(c, S.mes)) + '</span>' : 'te quedan ' + money(presDe(c, S.mes) - r.total)}</div>` : ''}
       <div class="sub-wrap">${r.items.map(it => `<button class="bar-row sub" data-act="item-open" data-k="${it.key}" style="width:100%"><div class="hd"><span class="n ell">${esc(it.n)}${it.veces > 1 ? ` <span class="muted">×${it.veces}</span>` : ''}</span><span class="v num">${money(it.total)}</span></div><div class="bar"><i style="width:${it.total / r.items[0].total * 100}%;background:${c.c};opacity:.75"></i></div></button>`).join('')}</div></div>`;
   });
   return h + '</div>';
