@@ -427,7 +427,7 @@ function vFondos() {
 function cardReparto(ym) {
   const ds = cfg().destinos, sobra = sobraEsp(ym); const plan = ds.map(d => aportePlan(d, ym)); const tot = sum(plan);
   const pctTot = sobra > 0 ? Math.round(tot / sobra * 100) : 0, libre = sobra - tot;
-  let h = `<div class="card span2"><h2>Cómo repartís lo que sobra <span class="pill">${ymName(ym)}: ${compact(sobra)}</span></h2><div class="hint" style="margin-bottom:6px">Elegí por fondo un monto fijo o un % de lo que sobra. Con %, el aporte se recalcula solo cada mes con lo que realmente sobre.</div>`;
+  let h = `<div class="card span2"><h2>Cómo repartís lo que sobra <span class="pill">${ymName(ym)}: ${compact(sobra)}</span></h2><div class="hint" style="margin-bottom:6px">Elegí por fondo un monto fijo o un % de lo que sobra. Con %, el aporte se recalcula solo cada mes con lo que realmente sobre. Los % suman 100% o menos; lo que no asignes queda disponible.</div>`;
   ds.forEach((d, i) => {
     const pm = d.modo === 'pct';
     h += `<div class="bar-row"><div class="hd"><span class="ico sm" style="background:${d.c}22">${d.e}</span><span class="n ell">${esc(d.n)}</span><span class="v num" id="rp-amt-${d.id}">${money(plan[i])}</span></div>

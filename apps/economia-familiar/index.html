@@ -357,7 +357,7 @@ const S = {
   cache: { mov: false, cfg: false }, t0: Date.now(), mes: ymNow(), vista: 'inicio', base: 'pago', user: null, mode: 'local', ready: false, loaded: { mov: false, cfg: false },
   cap: { sample: null, images: false, downloads: null }, ui: { movVista: 'compras', movFiltro: 'todo', q: '', anTab: 'rubros', abiertos: {}, itemQ: '', itemSort: 'monto', fondoSel: null }
 };
-const APP_BUILD = 'v19 · 4 nov 2026';
+const APP_BUILD = 'v20 · 4 nov 2026';
 const cfg = () => S.cfg;
 const medios = () => [{ id: 'ef', n: 'Efectivo', k: 'cash' }, { id: 'deb', n: 'Débito', k: 'cash' }, { id: 'tr', n: 'Transferencia', k: 'cash' }, ...cfg().tarjetas.map(t => ({ id: t.id, n: t.n, k: 'card', cierre: t.cierre || 0 }))];
 const medioOf = id => medios().find(m => m.id === id) || { id, n: id, k: 'cash' };
@@ -697,18 +697,15 @@ function cerrarA100(lista, ancla) { // ajusta el redondeo en el fondo más grand
   const dif = r1(100 - sum(lista, x => +x.pct || 0)); if (!dif) return;
   const cand = lista.filter(x => x !== ancla); const big = (cand.length ? cand : lista).slice().sort((a, b) => (+b.pct || 0) - (+a.pct || 0))[0]; big.pct = r1((+big.pct || 0) + dif);
 }
+/* El reparto puede sumar 100% o menos, nunca más: un fondo no puede pasar de lo que dejan libre los otros */
 function aplicarReparto(id, v) {
   const ds = cfg().destinos, d = ds.find(x => x.id === id); if (!d) return;
-  d.pct = Math.max(0, Math.min(100, r1(+v || 0)));
-  if (!todosPct()) return;
-  const otros = ds.filter(x => x.id !== id); if (!otros.length) { d.pct = 100; return; }
-  const rem = r1(100 - d.pct), so = sum(otros, x => +x.pct || 0);
-  otros.forEach(x => { x.pct = so > 0 ? r1((+x.pct || 0) * rem / so) : r1(rem / otros.length); });
-  cerrarA100(ds, d);
+  const otros = sum(ds.filter(x => x.id !== id && x.modo === 'pct'), x => +x.pct || 0);
+  d.pct = Math.max(0, Math.min(r1(+v || 0), r1(100 - otros)));
 }
-function normalizarPct() {
-  const ds = cfg().destinos, tot = sum(ds, x => +x.pct || 0); if (!tot) return;
-  ds.forEach(x => { x.pct = r1((+x.pct || 0) * 100 / tot); }); cerrarA100(ds, null);
+function normalizarPct() { // solo si pasa de 100: baja todo en proporción
+  const ds = cfg().destinos.filter(x => x.modo === 'pct'), tot = sum(ds, x => +x.pct || 0); if (tot <= 100) return;
+  ds.forEach(x => { x.pct = Math.floor((+x.pct || 0) * 100 / tot * 10) / 10; });
 }
 /* ============ Cierre de mes y rendimiento ============ */
 const finDeMes = ym => ym < ymNow() ? `${ym}-${pad(daysIn(ym))}` : hoy();
@@ -1156,7 +1153,7 @@ function vFondos() {
 function cardReparto(ym) {
   const ds = cfg().destinos, sobra = sobraEsp(ym); const plan = ds.map(d => aportePlan(d, ym)); const tot = sum(plan);
   const pctTot = sobra > 0 ? Math.round(tot / sobra * 100) : 0, libre = sobra - tot;
-  let h = `<div class="card span2"><h2>Cómo repartís lo que sobra <span class="pill">${ymName(ym)}: ${compact(sobra)}</span></h2><div class="hint" style="margin-bottom:6px">Elegí por fondo un monto fijo o un % de lo que sobra. Con %, el aporte se recalcula solo cada mes con lo que realmente sobre.</div>`;
+  let h = `<div class="card span2"><h2>Cómo repartís lo que sobra <span class="pill">${ymName(ym)}: ${compact(sobra)}</span></h2><div class="hint" style="margin-bottom:6px">Elegí por fondo un monto fijo o un % de lo que sobra. Con %, el aporte se recalcula solo cada mes con lo que realmente sobre. Los % suman 100% o menos; lo que no asignes queda disponible.</div>`;
   ds.forEach((d, i) => {
     const pm = d.modo === 'pct';
     h += `<div class="bar-row"><div class="hd"><span class="ico sm" style="background:${d.c}22">${d.e}</span><span class="n ell">${esc(d.n)}</span><span class="v num" id="rp-amt-${d.id}">${money(plan[i])}</span></div>
@@ -1855,19 +1852,19 @@ const ACT = {
   'fondo-open': el => abrirFondo(el.dataset.id), 'fondo-nuevo': () => abrirFondoEdit(null), 'fondo-edit': (el, e, d) => { closeSheet(d); abrirFondoEdit(el.dataset.id); },
   aportar: (el, e, d) => { const dest = destOf(el.dataset.id); if (d && d.id === 'fondo') closeSheet(d); const ap = aportePlan(dest, S.mes); abrirComposer('fondo', { sub: 'aporte', fondo: dest.id, monto: Math.max(0, ap - sum(S.movs.filter(m => m.tipo === 'aporte' && m.fondo === dest.id && m.mes === S.mes), m => m.total)) || ap || 0 }); },
   normalizar: async () => {
-    if (todosPct()) { normalizarPct(); if (await guardar(saveCfg, 'Reparto ajustado a 100%')) render(); return; }
+    if (cfg().destinos.some(x => x.modo === 'pct') && sum(cfg().destinos.filter(x => x.modo === 'pct'), x => +x.pct || 0) > 100) { normalizarPct(); if (await guardar(saveCfg, 'Reparto ajustado a 100%')) render(); return; }
     const sobra = sobraEsp(S.mes), tot = sum(cfg().destinos, d => aportePlan(d, S.mes)); if (sobra <= 0 || !tot) return;
     const k = sobra / tot; cfg().destinos.forEach(d => { if (d.modo === 'pct') d.pct = Math.floor((+d.pct || 0) * k * 10) / 10; else d.aporte = Math.floor((+d.aporte || 0) * k / 100) * 100; });
     if (await guardar(saveCfg, 'Aportes ajustados a lo que sobra')) render();
   },
   cerrar: el => abrirCierre(el.dataset.ym),
-  'rep-modo': async el => { const d = destOf(el.dataset.id), k = el.dataset.k; if (k === 'pct' && !(+d.pct)) { const s = sobraEsp(S.mes); d.pct = s > 0 ? Math.min(100, Math.round((+d.aporte || 0) / s * 1000) / 10) : 0; } d.modo = k; if (k === 'pct' && todosPct()) aplicarReparto(d.id, d.pct); if (await guardar(saveCfg)) render(); },
+  'rep-modo': async el => { const d = destOf(el.dataset.id), k = el.dataset.k; if (k === 'pct' && !(+d.pct)) { const s = sobraEsp(S.mes); d.pct = s > 0 ? Math.min(100, Math.round((+d.aporte || 0) / s * 1000) / 10) : 0; } d.modo = k; if (k === 'pct') aplicarReparto(d.id, d.pct); if (await guardar(saveCfg)) render(); },
   'hist-fondo': el => { S.ui.histFondo = el.dataset.k || null; render(); },
   'w-skip': (el, e, d) => { const r = W.rows[+el.dataset.i]; r.skip = !r.skip; el.classList.toggle('on', r.skip); wUpdate(); },
   'w-ok': (el, e, d) => wSave(d),
   'fe-modo': (el, e, d) => { d.d.modo = el.dataset.k; if (d.d.modo === 'pct' && !(+d.d.pct)) { const s = sobraEsp(S.mes); d.d.pct = s > 0 ? Math.min(100, Math.round((+d.d.aporte || 0) / s * 1000) / 10) : 0; } paintSheet(d); },
   'fe-color': (el, e, d) => { d.d.c = el.dataset.k; paintSheet(d); },
-  'fe-save': async (el, e, d) => { const x = d.d; if (!x.n.trim()) { toast('Poné un nombre.', null, true); return; } const ds = cfg().destinos; const i = ds.findIndex(y => y.id === x.id); if (i > -1) ds[i] = x; else ds.push(x); if (x.modo === 'pct' && todosPct()) aplicarReparto(x.id, x.pct); if (await guardar(saveCfg, 'Guardado ✓')) closeSheet(d); },
+  'fe-save': async (el, e, d) => { const x = d.d; if (!x.n.trim()) { toast('Poné un nombre.', null, true); return; } const ds = cfg().destinos; const i = ds.findIndex(y => y.id === x.id); if (i > -1) ds[i] = x; else ds.push(x); if (x.modo === 'pct') aplicarReparto(x.id, x.pct); if (await guardar(saveCfg, 'Guardado ✓')) closeSheet(d); },
   'fe-del': async (el, e, d) => { const x = d.d; if (S.movs.some(m => m.fondo === x.id || m.pagoFondo === x.id)) { toast('Este destino tiene movimientos: no se puede eliminar.', null, true); return; } cfg().destinos = cfg().destinos.filter(y => y.id !== x.id); if (await guardar(saveCfg, 'Eliminado')) closeSheet(d); },
   'meta-edit': el => abrirMeta(el.dataset.id),
   'meta-comprar': el => { const x = S.metas.items.find(i => i.id === el.dataset.id); abrirComposer('gasto', { monto: x.monto, com: x.n, cat: clasificar(x.n, '') || 'hogar', catAuto: false, metaId: x.id, adv: true }); },
@@ -1926,7 +1923,7 @@ document.addEventListener('input', e => {
   if (el.id === 'q-items') { S.ui.itemQ = el.value; renderKeep(el); return; }
   const f = el.dataset && el.dataset.f; if (!f) return;
   if (f === 'rep-pct') {
-    aplicarReparto(el.dataset.id, +el.value);
+    aplicarReparto(el.dataset.id, +el.value); el.value = destOf(el.dataset.id).pct;
     cfg().destinos.forEach(x => { const a = document.getElementById('rp-pct-' + x.id); if (a) a.textContent = String(+x.pct || 0).replace('.', ',') + '%'; const b = document.getElementById('rp-amt-' + x.id); if (b) b.textContent = money(aportePlan(x, S.mes)); const sl = document.querySelector('[data-f="rep-pct"][data-id="' + x.id + '"]'); if (sl && sl !== el) sl.value = x.pct; });
     return;
   }
