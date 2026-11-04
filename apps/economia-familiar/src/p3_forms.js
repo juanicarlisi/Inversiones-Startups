@@ -325,32 +325,54 @@ function abrirMov(id) {
 function mesFecha(ym) { return ym === ymNow() ? hoy() : (ym < ymNow() ? ym + '-' + pad(Math.min(daysIn(ym), 28)) : ym + '-01'); }
 function abrirPlanRow(id) {
   const ym = S.mes; const row = checklist(ym).find(r => r.it.id === id); if (!row) return;
-  const it = row.it; const done = row.real; let monto = done ? done.total : row.plan; let medio = it.medio || (it.tipo === 'gasto' ? 'ef' : 'tr'); let fecha = done ? done.movs[0].fecha : mesFecha(ym);
+  const it = row.it; const done = row.real; const first = done ? done.movs[0] : null;
+  let monto = done ? done.total : row.plan; let medio = done ? (first.medio || 'ef') : (it.medio || (it.tipo === 'gasto' ? 'ef' : 'tr')); let fecha = done ? first.fecha : mesFecha(ym);
+  let mesPago = done && it.tipo === 'gasto' && esTarjeta(medio) ? first.mes : null;
   const e = it.tipo === 'aporte' ? it.e : (it.tipo === 'ingreso' ? ingCatOf(it.cat).e : catOf(it.cat).e);
-  openSheet({
+  const cardMes = () => it.tipo === 'gasto' && esTarjeta(medio);
+  const mesDef = () => addM(fecha.slice(0, 7) > ym ? fecha.slice(0, 7) : ym, 1);
+  const tieneAjuste = ovHas(it, ym);
+  const def = openSheet({
     id: 'plan', title: () => (it.tipo === 'ingreso' ? 'Cobro: ' : it.tipo === 'aporte' ? '' : 'Pago: ') + it.n,
-    body: () => `<div class="row"><span class="ico">${e}</span><div class="grow"><div class="hint">Previsto para ${ymName(ym).toLowerCase()}</div><div class="disp num" style="font-size:24px;font-weight:800">${money(row.plan)}</div></div>${done ? '<span class="pill pos">registrado</span>' : ''}</div>
-      <div class="field"><label for="pl-monto">${done ? 'Monto registrado' : 'Monto real'}</label><div class="amount-wrap"><span class="cur">$</span><input id="pl-monto" inputmode="decimal" value="${fmtInput(monto)}" autocomplete="off"></div>${it.pct ? '<div class="hint">El diezmo se calcula solo con los ingresos del mes; corregilo si diste otro monto.</div>' : ''}</div>
-      ${it.tipo === 'gasto' ? `<div class="field"><label>Cómo lo pagaste</label><div class="chips">${medios().map(m => `<button class="chip ${medio === m.id ? 'on' : ''}" data-act="pl-medio" data-k="${m.id}">${esc(m.n)}</button>`).join('')}</div></div>` : ''}
-      <div class="field"><label for="pl-fecha">Fecha</label><input class="inp" type="date" id="pl-fecha" value="${fecha}"></div>`,
+    body: () => `<div class="row"><span class="ico">${e}</span><div class="grow"><div class="hint">Previsto para ${ymName(ym).toLowerCase()}</div><div class="disp num" style="font-size:24px;font-weight:800">${row.plan > 0 ? money(row.plan) : 'sin monto'}</div></div>${done ? '<span class="pill pos">registrado</span>' : row.recordatorio ? '<span class="pill warn">recordatorio</span>' : ''}</div>
+      <div class="field"><label for="pl-monto">${done ? 'Monto registrado' : 'Monto real'}</label><div class="amount-wrap"><span class="cur">$</span><input id="pl-monto" inputmode="decimal" value="${fmtInput(monto)}" placeholder="0" autocomplete="off"></div>${it.pct ? '<div class="hint">El diezmo se calcula solo con los ingresos del mes; corregilo si diste otro monto.</div>' : ''}</div>
+      ${it.tipo === 'gasto' ? `<div class="field"><label>Cómo lo pagás</label><div class="chips">${medios().map(m => `<button class="chip ${medio === m.id ? 'on' : ''}" data-act="pl-medio" data-k="${m.id}">${esc(m.n)}</button>`).join('')}</div></div>` : ''}
+      ${cardMes() ? `<div class="field"><label>Se paga en</label><div class="chips">${[1, 2, 3, 4].map(i => addM(fecha.slice(0, 7) > ym ? fecha.slice(0, 7) : ym, i)).map(m => `<button class="chip ${(mesPago || mesDef()) === m ? 'on' : ''}" data-act="pl-mespago" data-k="${m}">${ymShort(m)} ${m.slice(2, 4)}${m === mesDef() ? ' · sugerido' : ''}</button>`).join('')}</div><div class="hint">Con tarjeta el gasto cuenta en el mes en que pagás el resumen, pero acá sigue figurando como hecho en ${ymName(ym).toLowerCase()}.</div></div>` : ''}
+      <div class="field"><label for="pl-fecha">Fecha</label><input class="inp" type="date" id="pl-fecha" value="${fecha}"></div>
+      ${it.tipo !== 'aporte' ? `<div class="card flat" style="display:grid;gap:8px">
+        ${!done ? `<button class="btn ghost sm" data-act="pl-previsto" style="justify-self:start">Cambiar solo lo previsto de ${ymName(ym).toLowerCase()}</button>` : ''}
+        ${tieneAjuste && !done ? `<button class="btn ghost sm" data-act="pl-quitar-ov" style="justify-self:start">Volver al monto habitual</button>` : ''}
+        ${done ? `<button class="btn ghost sm" data-act="pl-editar-mov" style="justify-self:start">Editar el movimiento completo</button>` : ''}
+        <button class="btn ghost sm" data-act="pl-editar-plan" style="justify-self:start">Editar este ítem en el plan (todos los meses)</button></div>` : `<div class="hint">El monto de los aportes se cambia en Fondos, en “Cómo repartís lo que sobra”.</div>`}`,
     foot: () => (done ? `<button class="btn danger" data-act="pl-undo">Deshacer</button>` : '') + `<button class="btn ${it.tipo === 'ingreso' ? 'pos' : 'primary'}" data-act="pl-ok">${done ? 'Guardar cambio' : it.tipo === 'ingreso' ? 'Cobré' : it.tipo === 'aporte' ? 'Aporté' : 'Pagué'}</button>`,
-    it, row, ym, get medio() { return medio; }, set medio(v) { medio = v; }, getMonto: () => parseMonto($('#pl-monto').value), getFecha: () => $('#pl-fecha').value || fecha
+    it, row, ym, get medio() { return medio; }, set medio(v) { medio = v; if (!esTarjeta(v)) mesPago = null; }, set mesPago(v) { mesPago = v; },
+    getMesPago: () => cardMes() ? (mesPago || mesDef()) : ym,
+    getMonto: () => parseMonto($('#pl-monto').value), getFecha: () => $('#pl-fecha').value || fecha, keep: () => { monto = parseMonto($('#pl-monto').value); fecha = $('#pl-fecha').value || fecha; }
   });
 }
-function movDesdePlan(it, ym, monto, fecha, medio) {
-  const base = { por: userName(), fecha, creado: new Date().toISOString(), mes: ym, planId: it.id, src: 'plan', total: r2(monto), com: '' };
+function movDesdePlan(it, ym, monto, fecha, medio, mesPago) {
+  const base = { por: userName(), fecha, creado: new Date().toISOString(), mes: ym, planMes: ym, planId: it.id, src: 'plan', total: r2(monto), com: '' };
   if (it.tipo === 'ingreso') return { ...base, tipo: 'ingreso', cat: it.cat, medio: 'tr', items: [{ n: it.n, cat: it.cat, monto: r2(monto), cant: 1 }] };
   if (it.tipo === 'aporte') return { ...base, tipo: 'aporte', fondo: it.fondo, items: [] };
-  return { ...base, tipo: 'gasto', medio: medio || 'ef', items: [{ n: it.n, cat: it.cat, monto: r2(monto), cant: 1 }] };
+  const m = { ...base, tipo: 'gasto', medio: medio || 'ef', items: [{ n: it.n, cat: it.cat, monto: r2(monto), cant: 1 }] };
+  if (esTarjeta(m.medio) && mesPago) m.mes = mesPago;
+  return m;
 }
 async function planOk(def) {
-  const monto = def.getMonto(); if (!(monto > 0)) { toast('Falta el monto.', null, true); return; }
-  const { it, row, ym } = def;
+  const monto = def.getMonto(); if (!(monto >= 0) || (!(monto > 0) && def.row.real == null && false)) { toast('Falta el monto.', null, true); return; }
+  const { it, row, ym } = def; const mes = def.getMesPago();
   const ok = await guardar(async () => {
-    if (row.real) { const [first, ...rest] = row.real.movs; const nm = { ...first, total: r2(monto), fecha: def.getFecha() }; if (nm.items && nm.items[0]) nm.items = [{ ...nm.items[0], monto: r2(monto) }]; await Store.set('mov', first.id, nm); for (const r of rest) await Store.del('mov', r.id); }
-    else await Store.set('mov', uid(), movDesdePlan(it, ym, monto, def.getFecha(), def.medio));
+    if (row.real) {
+      const [first, ...rest] = row.real.movs; const nm = { ...first, total: r2(monto), fecha: def.getFecha(), planMes: ym };
+      if (it.tipo === 'gasto') { nm.medio = def.medio; nm.mes = esTarjeta(def.medio) ? mes : ym; }
+      if (nm.items && nm.items[0]) nm.items = [{ ...nm.items[0], monto: r2(monto) }];
+      if (monto > 0) delete nm.omitido; else nm.omitido = true;
+      await Store.set('mov', first.id, nm); for (const r of rest) await Store.del('mov', r.id);
+    } else {
+      const m = movDesdePlan(it, ym, monto, def.getFecha(), def.medio, mes); if (!(monto > 0)) m.omitido = true; await Store.set('mov', uid(), m);
+    }
   });
-  if (ok) { closeSheet(def); toast('Registrado ✓'); }
+  if (ok) { closeSheet(def); toast(monto > 0 ? 'Registrado ✓' : 'Marcado como hecho (sin monto)'); }
 }
 function abrirPlanTodo() {
   const ym = S.mes; const pend = checklist(ym).filter(r => !r.real && r.plan > 0);

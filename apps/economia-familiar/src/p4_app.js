@@ -53,6 +53,7 @@ function abrirPlanEdit(id) {
       <div class="field"><label for="pe-n">Nombre</label><input class="inp" id="pe-n" data-f="pe-n" value="${esc(it.n)}" placeholder="Ej: Expensas"></div>
       <div class="field"><label for="pe-c">Rubro</label><select class="inp" id="pe-c" data-f="pe-c">${cats.map(c => `<option value="${c.id}" ${c.id === it.cat ? 'selected' : ''}>${c.e} ${esc(c.n)}</option>`).join('')}</select></div>
       ${it.tipo === 'gasto' ? `<label class="switch"><span>Es un porcentaje de los ingresos que cuentan para el diezmo</span><button class="tg ${it.pct ? 'on' : ''}" data-act="pe-pct" role="switch" aria-checked="${!!it.pct}"></button></label>` : `<div class="hint">El diezmo se calcula solo: 10% de todos los ingresos del mes, menos el plazo fijo (rubro Rendimientos).</div>`}
+      <label class="switch"><span>Recordármelo todos los meses, aunque no tenga monto (ej: luz, internet, celulares)</span><button class="tg ${it.recordar ? 'on' : ''}" data-act="pe-recordar" role="switch" aria-checked="${!!it.recordar}"></button></label>
       ${it.pct ? `<div class="field"><label for="pe-pct">Porcentaje</label><input class="inp num" id="pe-pct" data-f="pe-pct" inputmode="decimal" value="${it.pct}"></div>` : `<div class="field"><label for="pe-b">Monto mensual ($)</label><input class="inp num" id="pe-b" data-f="pe-b" inputmode="decimal" value="${fmtInput(it.base)}"></div>`}
       <div class="grid3" style="grid-template-columns:1fr 1fr"><div class="field"><label for="pe-d">Desde</label><input class="inp" type="month" id="pe-d" data-f="pe-d" value="${it.desde || ''}"></div><div class="field"><label for="pe-h">Hasta (opcional)</label><input class="inp" type="month" id="pe-h" data-f="pe-h" value="${it.hasta || ''}"></div></div>
       ${it.pct ? '' : `<div class="field"><label>Montos distintos por mes</label><div class="row" style="justify-content:center;gap:16px"><button class="icon-btn" data-act="pe-yr" data-k="-1" aria-label="Año anterior">${IC.left}</button><b class="disp">${year}</b><button class="icon-btn" data-act="pe-yr" data-k="1" aria-label="Año siguiente">${IC.right}</button></div>
@@ -86,6 +87,14 @@ async function exportCSV() {
   else toast('Exportar no está disponible en esta vista.', null, true);
 }
 
+function abrirEditarMov(m) {
+  const its = m.items || []; const simple = m.tipo === 'gasto' && its.length === 1;
+  const ex = { id: m.id, tipo: m.tipo === 'gasto' ? 'gasto' : m.tipo === 'ingreso' ? 'ingreso' : 'fondo', sub: m.tipo, fecha: m.fecha, medio: m.medio || 'ef', por: m.por || userName(), com: m.com || '', nota: m.nota || '', creado: m.creado, grupo: m.grupo, cuota: m.cuota, src: m.src, planId: m.planId, planMes: m.planMes, omitido: m.omitido, pagoFondo: m.pagoFondo || null, adv: !!(m.pagoFondo || m.nota), medioTouched: true, mesPago: m.tipo === 'gasto' && esTarjeta(m.medio) && !m.pagoFondo ? m.mes : null, mesFijo: m.mes, fecha0: m.fecha, medio0: m.medio || 'ef' };
+  if (m.tipo === 'gasto') { if (simple) { Object.assign(ex, { split: false, monto: its[0].monto, cat: its[0].cat, catAuto: false, com: m.com || (its[0].n === catOf(its[0].cat).n ? '' : its[0].n) }); } else Object.assign(ex, { split: true, lines: clone(its).map(l => ({ ...l, auto: false })), monto: 0 }); }
+  else if (m.tipo === 'ingreso') Object.assign(ex, { monto: m.total, ingCat: m.cat });
+  else Object.assign(ex, { monto: m.total, fondo: m.fondo });
+  abrirComposer(ex.tipo, ex);
+}
 /* ============ ACCIONES (clicks) ============ */
 const ACT = {
   go: el => { S.vista = el.dataset.v; try { history.replaceState(null, '', '#' + S.vista); } catch (e) { } render(); window.scrollTo(0, 0); },
@@ -108,17 +117,15 @@ const ACT = {
     const ok = await guardar(async () => { for (const x of todos) await Store.del('mov', x.id); });
     if (ok) { closeSheet(d); toast(todos.length > 1 ? 'Cuotas eliminadas' : 'Eliminado', async () => { await guardar(async () => { for (const x of copia) await Store.set('mov', x.id, x); }); }); }
   },
-  'mov-edit': (el, e, d) => {
-    const m = d.m; closeSheet(d);
-    const its = m.items || []; const simple = m.tipo === 'gasto' && its.length === 1;
-    const ex = { id: m.id, tipo: m.tipo === 'gasto' ? 'gasto' : m.tipo === 'ingreso' ? 'ingreso' : 'fondo', sub: m.tipo, fecha: m.fecha, medio: m.medio || 'ef', por: m.por || userName(), com: m.com || '', nota: m.nota || '', creado: m.creado, grupo: m.grupo, cuota: m.cuota, src: m.src, planId: m.planId, pagoFondo: m.pagoFondo || null, adv: !!(m.pagoFondo || m.nota), medioTouched: true, mesPago: m.tipo === 'gasto' && esTarjeta(m.medio) && !m.pagoFondo ? m.mes : null, mesFijo: m.mes, fecha0: m.fecha, medio0: m.medio || 'ef' };
-    if (m.tipo === 'gasto') { if (simple) { Object.assign(ex, { split: false, monto: its[0].monto, cat: its[0].cat, catAuto: false, com: m.com || (its[0].n === catOf(its[0].cat).n ? '' : its[0].n) }); } else Object.assign(ex, { split: true, lines: clone(its).map(l => ({ ...l, auto: false })), monto: 0 }); }
-    else if (m.tipo === 'ingreso') Object.assign(ex, { monto: m.total, ingCat: m.cat });
-    else Object.assign(ex, { monto: m.total, fondo: m.fondo });
-    abrirComposer(ex.tipo, ex);
-  },
+  'mov-edit': (el, e, d) => { const m = d.m; closeSheet(d); abrirEditarMov(m); },
   'plan-open': el => abrirPlanRow(el.dataset.id), 'plan-todo': () => abrirPlanTodo(),
-  'pl-medio': (el, e, d) => { d.medio = el.dataset.k; $$('[data-act="pl-medio"]', d.el).forEach(b => b.classList.toggle('on', b.dataset.k === d.medio)); },
+  'pl-medio': (el, e, d) => { d.keep(); d.medio = el.dataset.k; paintSheet(d); },
+  'pl-mespago': (el, e, d) => { d.keep(); d.mesPago = el.dataset.k; paintSheet(d); },
+  'pl-previsto': async (el, e, d) => { const x = S.plan.items.find(i => i.id === d.it.id); if (!x) return; const v = d.getMonto(); x.ov = { ...(x.ov || {}), [d.ym]: v }; if (await guardar(savePlan, 'Previsto actualizado')) closeSheet(d); },
+  'pl-quitar-ov': async (el, e, d) => { const x = S.plan.items.find(i => i.id === d.it.id); if (!x || !x.ov) return; const ov = { ...x.ov }; Reflect.deleteProperty(ov, d.ym); x.ov = ov; if (await guardar(savePlan, 'Vuelve al monto habitual')) closeSheet(d); },
+  'pl-editar-plan': (el, e, d) => { const id = d.it.id; closeSheet(d); abrirPlanEdit(id); },
+  'pl-editar-mov': (el, e, d) => { const m = d.row.real.movs[0]; closeSheet(d); abrirEditarMov(m); },
+  recargar: () => { toast('Actualizando…'); setTimeout(() => { try { location.reload(); } catch (err) { toast('Cerrá y volvé a abrir el link.', null, true); } }, 200); },
   'pl-ok': (el, e, d) => planOk(d), 'pt-ok': (el, e, d) => planTodoOk(d),
   'pl-undo': async (el, e, d) => { const ms = d.row.real.movs; const cp = clone(ms); const ok = await guardar(async () => { for (const m of ms) await Store.del('mov', m.id); }); if (ok) { closeSheet(d); toast('Deshecho', async () => { await guardar(async () => { for (const m of cp) await Store.set('mov', m.id, m); }); }); } },
   'fondo-open': el => abrirFondo(el.dataset.id), 'fondo-nuevo': () => abrirFondoEdit(null), 'fondo-edit': (el, e, d) => { closeSheet(d); abrirFondoEdit(el.dataset.id); },
@@ -129,7 +136,6 @@ const ACT = {
     if (await guardar(saveCfg, 'Aportes ajustados a lo que sobra')) render();
   },
   cerrar: el => abrirCierre(el.dataset.ym),
-  recargar: () => { try { location.reload(); } catch (e) { toast('Cerrá y volvé a abrir el link.', null, true); } },
   'rep-modo': async el => { const d = destOf(el.dataset.id), k = el.dataset.k; if (k === 'pct' && !(+d.pct)) { const s = sobraEsp(S.mes); d.pct = s > 0 ? Math.min(100, Math.round((+d.aporte || 0) / s * 1000) / 10) : 0; } d.modo = k; if (await guardar(saveCfg)) render(); },
   'hist-fondo': el => { S.ui.histFondo = el.dataset.k || null; render(); },
   'w-skip': (el, e, d) => { const r = W.rows[+el.dataset.i]; r.skip = !r.skip; el.classList.toggle('on', r.skip); wUpdate(); },
@@ -148,9 +154,10 @@ const ACT = {
   'ce-del': async (el, e, d) => { const x = d.x; if (S.movs.some(m => (m.items || []).some(i => i.cat === x.id)) || S.plan.items.some(i => i.cat === x.id)) { toast('Hay movimientos con este rubro: no se puede eliminar.', null, true); return; } cfg().cats = cfg().cats.filter(y => y.id !== x.id); if (await guardar(saveCfg, 'Eliminado')) closeSheet(d); },
   'plan-edit': el => abrirPlanEdit(el.dataset.id),
   'pe-tipo': (el, e, d) => { d.it.tipo = el.dataset.k; d.it.cat = el.dataset.k === 'ingreso' ? 'sueldo' : 'otros'; d.it.pct = 0; d.it.diez = false; paintSheet(d); },
+  'pe-recordar': (el, e, d) => { d.it.recordar = !d.it.recordar; paintSheet(d); },
   'pe-pct': (el, e, d) => { d.it.pct = d.it.pct ? 0 : 10; paintSheet(d); }, 'pe-diez': (el, e, d) => { d.it.diez = !d.it.diez; paintSheet(d); },
   'pe-yr': (el, e, d) => d.setYear(+el.dataset.k),
-  'pe-save': async (el, e, d) => { const x = d.it; if (!x.n.trim()) { toast('Poné un nombre.', null, true); return; } if (!x.desde) delete x.desde; if (!x.hasta) delete x.hasta; if (!x.pct) delete x.pct; if (!x.diez) delete x.diez; const a = S.plan.items; const i = a.findIndex(y => y.id === x.id); if (i > -1) a[i] = x; else a.push(x); if (await guardar(savePlan, 'Guardado ✓')) closeSheet(d); },
+  'pe-save': async (el, e, d) => { const x = d.it; if (!x.n.trim()) { toast('Poné un nombre.', null, true); return; } if (!x.desde) delete x.desde; if (!x.hasta) delete x.hasta; if (!x.pct) delete x.pct; if (!x.diez) delete x.diez; if (!x.recordar) delete x.recordar; const a = S.plan.items; const i = a.findIndex(y => y.id === x.id); if (i > -1) a[i] = x; else a.push(x); if (await guardar(savePlan, 'Guardado ✓')) closeSheet(d); },
   'pe-del': async (el, e, d) => { S.plan.items = S.plan.items.filter(y => y.id !== d.it.id); if (await guardar(savePlan, 'Eliminado del plan')) closeSheet(d); },
   'pick-cat': (el, e, d) => { const f = d.cb; closeSheet(d); f(el.dataset.k); },
   'export-csv': () => exportCSV(),
@@ -213,6 +220,7 @@ document.addEventListener('change', async e => {
   const el = e.target, f = el.dataset && el.dataset.f; const d = sheetOf(el);
   if (el.id === 'file-ticket') { if (CP && el.files && el.files.length) { const fs = [...el.files]; el.value = ''; adjuntarFoto(fs); } return; }
   if (f === 'ln' && CP && KNOWN) { const l = CP.lines[+el.dataset.i], k = KNOWN.get(keyOf(el.value)); if (k) { l.cat = S.apr[keyOf(el.value)] || k.cat; l.auto = false; if (!l.monto) l.monto = r2(k.last); cpRefresh(); } return; }
+  if (el.id === 'pl-fecha' && d && d.id === 'plan') { d.keep(); paintSheet(d); return; }
   if (f === 'rep-pct') { await guardar(saveCfg); render(); return; }
   if (f === 'rep-monto') { destOf(el.dataset.id).aporte = parseMonto(el.value); await guardar(saveCfg); render(); return; }
   if (el.id === 'it-cat') { const k = el.dataset.key; await guardar(() => Store.merge('cfg', 'aprendido', { [k]: el.value }), 'Listo: la próxima vez va a ese rubro'); return; }
@@ -234,6 +242,11 @@ document.addEventListener('paste', e => {
   e.preventDefault(); if (!f) { toast('No encontré una imagen copiada. Copiá la captura primero.', null, true); return; }
   const d = sheetOf(z); if (d) closeSheet(d); if (CP) adjuntarFoto([f]);
 });
+(function () {
+  let y0 = null;
+  document.addEventListener('touchstart', e => { y0 = (window.scrollY <= 0 && !SHEETS.length && e.touches.length === 1) ? e.touches[0].clientY : null; }, { passive: true });
+  document.addEventListener('touchend', e => { if (y0 != null && e.changedTouches[0].clientY - y0 > 140) ACT.recargar(); y0 = null; }, { passive: true });
+})();
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && SHEETS.length) closeSheet(); });
 
 /* ============ Render y arranque ============ */

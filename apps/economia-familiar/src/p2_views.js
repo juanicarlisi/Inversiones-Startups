@@ -15,6 +15,7 @@ const IC = {
   x: '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>',
   trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>',
   chev: '<svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
+  refresh: '<svg viewBox="0 0 24 24"><path d="M20 11a8 8 0 00-14.5-4M4 4v4h4"/><path d="M4 13a8 8 0 0014.5 4M20 20v-4h-4"/></svg>',
   moon: '<svg viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z"/></svg>'
 };
 
@@ -141,7 +142,8 @@ function header() {
   if (S.vista === 'ajustes') return `<div class="top"><button class="icon-btn" data-act="go" data-v="inicio" aria-label="Volver">${IC.left}</button><div class="mes"><span class="lbl">Ajustes</span></div></div>`;
   const u = cfg().usuarios;
   return `<div class="top"><div class="mes"><button class="icon-btn" data-act="mes-prev" aria-label="Mes anterior">${IC.left}</button><button class="lbl" data-act="mes-pick" aria-label="${ymLabel(S.mes)}">${ymName(S.mes)}<small>${S.mes.slice(0, 4)}${S.mes === ymNow() ? ' · este mes' : ''}</small></button><button class="icon-btn" data-act="mes-next" aria-label="Mes siguiente">${IC.right}</button></div>
-  <div class="who" role="group" aria-label="Quién carga">${u.map(n => `<button class="${n === userName() ? 'on' : ''}" data-act="user" data-u="${esc(n)}">${esc(n)}</button>`).join('')}</div>
+  <div class="who" role="group" aria-label="Quién carga">${u.map(n => `<button class="${n === userName() ? 'on' : ''}" data-act="user" data-u="${esc(n)}" aria-label="Carga ${esc(n)}"><span class="full">${esc(n)}</span><span class="ini">${esc(n.slice(0, 1))}</span></button>`).join('')}</div>
+  <button class="icon-btn" data-act="recargar" aria-label="Actualizar">${IC.refresh}</button>
   <button class="icon-btn" data-act="go" data-v="ajustes" aria-label="Ajustes">${IC.gear}</button></div>
   ${S.canWrite === false ? '<div class="note neg" style="margin:4px 0 8px"><b>Tu cuenta solo puede mirar.</b> Para cargar, Juan tiene que invitarte como <b>Editor</b> desde Compartir y apagar el link público (con el link público, las cuentas de afuera quedan solo de lectura).</div>' : ''}
   ${S.mode === 'cloud' && (S.cache.mov || S.cache.cfg) && Date.now() - S.t0 > 3000 ? '<div class="sync">Estás viendo los últimos datos guardados en este teléfono; todavía no llegaron los más nuevos. Revisá la conexión o tocá Recargar en Ajustes.</div>' : ''}
@@ -149,7 +151,7 @@ function header() {
 }
 function pendientes() {
   const n = new Date(); const ym = ymNow();
-  return checklist(ym).filter(r => !r.real && r.plan > 0).length;
+  return checklist(ym).filter(r => !r.real && (r.plan > 0 || r.it.recordar)).length;
 }
 function paintNav() {
   const it = (v, ic, l) => `<button class="it ${S.vista === v ? 'on' : ''}" data-act="go" data-v="${v}" aria-label="${l}">${ic}<span>${l}</span>${v === 'inicio' && pendientes() ? `<span class="badge">${pendientes()}</span>` : ''}</button>`;
@@ -193,14 +195,14 @@ function vInicio() {
   const rows = checklist(ym);
   if (rows.length) {
     const grupos = [['ingreso', 'Cobros'], ['gasto', 'Pagos del mes'], ['aporte', 'Aportes a fondos']];
-    const pend = rows.filter(r => !r.real && r.plan > 0);
-    h += `<div class="card"><h2>Para este mes ${pend.length ? `<span class="pill warn">${pend.length} pendiente${pend.length > 1 ? 's' : ''}</span>` : '<span class="pill pos">Todo al día</span>'}</h2>`;
+    const pend = rows.filter(r => !r.real && r.plan > 0), pendTodos = rows.filter(r => !r.real && (r.plan > 0 || r.it.recordar));
+    h += `<div class="card"><h2>Para este mes ${pendTodos.length ? `<span class="pill warn">${pendTodos.length} pendiente${pendTodos.length > 1 ? 's' : ''}</span>` : '<span class="pill pos">Todo al día</span>'}</h2>`;
     for (const [tipo, lab] of grupos) {
       const rs = rows.filter(r => r.it.tipo === tipo); if (!rs.length) continue;
       h += `<div class="group-h">${lab}</div>`;
       for (const r of rs) {
         const done = !!r.real; const e = r.it.tipo === 'aporte' ? r.it.e : (r.it.tipo === 'ingreso' ? ingCatOf(r.it.cat).e : catOf(r.it.cat).e);
-        h += `<button class="chk ${done ? 'done' : ''}" data-act="plan-open" data-id="${esc(r.it.id)}"><span class="cb">${IC.check}</span><span class="grow"><div class="nm ell">${e} ${esc(r.it.n)}</div><div class="sub">${done ? 'registrado' + (Math.round(r.real.total) !== Math.round(r.plan) ? ' · previsto ' + money(r.plan) : '') : (r.it.pct ? '10% de los ingresos' : fut ? 'previsto' : 'tocá para confirmar')}</div></span><span class="amt num ${done ? 'pos' : ''}">${money(done ? r.real.total : r.plan)}</span></button>`;
+        h += `<button class="chk ${done ? 'done' : ''}" data-act="plan-open" data-id="${esc(r.it.id)}"><span class="cb">${IC.check}</span><span class="grow"><div class="nm ell">${e} ${esc(r.it.n)}</div><div class="sub">${done ? 'registrado' + (Math.round(r.real.total) !== Math.round(r.plan) ? ' · previsto ' + money(r.plan) : '') : (r.recordatorio ? 'recordatorio · cargá el monto cuando llegue' : r.it.pct ? '10% de los ingresos' : fut ? 'previsto' : 'tocá para confirmar')}</div></span><span class="amt num ${done ? 'pos' : ''}">${r.recordatorio ? '<span class="muted" style="font-weight:700">sin monto</span>' : money(done ? r.real.total : r.plan)}</span></button>`;
       }
     }
     if (pend.length > 1) h += `<div class="sp"></div><button class="btn block" data-act="plan-todo">Confirmar todo lo pendiente (${pend.length})</button>`;

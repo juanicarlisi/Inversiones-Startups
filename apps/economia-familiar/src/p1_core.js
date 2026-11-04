@@ -91,7 +91,7 @@ const S = {
   cache: { mov: false, cfg: false }, t0: Date.now(), mes: ymNow(), vista: 'inicio', base: 'pago', user: null, mode: 'local', ready: false, loaded: { mov: false, cfg: false },
   cap: { sample: null, images: false, downloads: null }, ui: { movVista: 'compras', movFiltro: 'todo', q: '', anTab: 'rubros', abiertos: {}, itemQ: '', itemSort: 'monto', fondoSel: null }
 };
-const APP_BUILD = 'v14 · 4 nov 2026';
+const APP_BUILD = 'v15 · 4 nov 2026';
 const cfg = () => S.cfg;
 const medios = () => [{ id: 'ef', n: 'Efectivo', k: 'cash' }, { id: 'deb', n: 'Débito', k: 'cash' }, { id: 'tr', n: 'Transferencia', k: 'cash' }, ...cfg().tarjetas.map(t => ({ id: t.id, n: t.n, k: 'card', cierre: t.cierre || 0 }))];
 const medioOf = id => medios().find(m => m.id === id) || { id, n: id, k: 'cash' };
@@ -249,7 +249,7 @@ function porRubro(list) {
 /* Plan mensual (ingresos y pagos previstos) */
 function ovHas(it, ym) { return it.ov && Object.prototype.hasOwnProperty.call(it.ov, ym); }
 function realPlan(id, ym) {
-  const L = S.movs.filter(m => m.planId === id && m.mes === ym);
+  const L = S.movs.filter(m => m.planId === id && (m.planMes || m.mes) === ym);
   return L.length ? { total: sum(L, m => m.total), movs: L } : null;
 }
 /* Diezmo: 10% de todos los ingresos del mes, menos el plazo fijo (rubro "Rendimientos"). Suma lo confirmado, lo cargado a mano y lo previsto que falta. */
@@ -284,7 +284,7 @@ function checklist(ym, sinAportes) {
   for (const it of planItemsAll(ym, sinAportes)) {
     const plan = it.tipo === 'aporte' ? it.base : planBase(it, ym);
     const real = realPlan(it.id, ym);
-    if (plan > 0 || real) rows.push({ it, plan, real });
+    if (plan > 0 || real || it.recordar) rows.push({ it, plan, real, recordatorio: !real && !(plan > 0) });
   }
   return rows;
 }
