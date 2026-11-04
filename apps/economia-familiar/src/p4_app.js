@@ -13,6 +13,7 @@ function vAjustes() {
     ${['ingreso', 'gasto'].map(t => `<div class="group-h">${t === 'ingreso' ? 'Cobros' : 'Pagos'}</div>${S.plan.items.filter(i => i.tipo === t).map(i => `<button class="set-row" data-act="plan-edit" data-id="${i.id}"><span class="ico sm">${t === 'ingreso' ? ingCatOf(i.cat).e : catOf(i.cat).e}</span><span class="grow ell">${esc(i.n)}</span><span class="num hint">${i.pct ? i.pct + '%' : money(i.base)}</span>${IC.chev}</button>`).join('') || '<div class="hint">Nada todavía.</div>'}`).join('')}</div>`;
   h += `<div class="card"><h2>Tarjetas</h2>${c.tarjetas.map((t, i) => `<div class="set-row"><span class="ico sm">💳</span><span class="grow ell">${esc(t.n)}</span><label class="hint" for="st-ci${i}">cierra el día</label><input class="inp num" style="width:64px;min-height:38px;padding:6px 8px" id="st-ci${i}" data-f="st-cierre" data-i="${i}" inputmode="numeric" value="${t.cierre || ''}" placeholder="—"></div>`).join('')}
     <div class="hint" style="margin-top:6px">Sin día de cierre, todo lo que pagás con tarjeta cuenta en el mes siguiente. Si cargás el día, lo comprado después del cierre pasa al segundo mes.</div></div>`;
+  h += `<div class="card"><h2>Esta app</h2><div class="set-row"><span class="grow ink2">Versión</span><b class="num">${APP_BUILD}</b></div><div class="hint">Si acá no dice la versión que te avisé, el teléfono tiene una copia vieja guardada: cerrá del todo el navegador o la app y volvé a abrir el link.</div><div class="sp"></div><button class="btn block" data-act="recargar">Recargar la app</button></div>`;
   const dg = S.cap.diag || {}; const ok = v => `<span class="pill ${v ? 'pos' : 'warn'}">${v ? 'sí' : 'no'}</span>`;
   h += `<div class="card"><h2>Diagnóstico de esta cuenta</h2>
     <div class="set-row"><span class="grow ink2">Conectada a Claude</span>${ok(dg.claude)}</div>
@@ -128,6 +129,7 @@ const ACT = {
     if (await guardar(saveCfg, 'Aportes ajustados a lo que sobra')) render();
   },
   cerrar: el => abrirCierre(el.dataset.ym),
+  recargar: () => { try { location.reload(); } catch (e) { toast('Cerrá y volvé a abrir el link.', null, true); } },
   'rep-modo': async el => { const d = destOf(el.dataset.id), k = el.dataset.k; if (k === 'pct' && !(+d.pct)) { const s = sobraEsp(S.mes); d.pct = s > 0 ? Math.min(100, Math.round((+d.aporte || 0) / s * 1000) / 10) : 0; } d.modo = k; if (await guardar(saveCfg)) render(); },
   'hist-fondo': el => { S.ui.histFondo = el.dataset.k || null; render(); },
   'w-skip': (el, e, d) => { const r = W.rows[+el.dataset.i]; r.skip = !r.skip; el.classList.toggle('on', r.skip); wUpdate(); },
@@ -253,4 +255,5 @@ function onData() {
 function autoMes() { if (S.mes < cfg().inicio && S.mes === ymNow()) S.mes = ymNow(); }
 function route() { const h = (location.hash || '').replace('#', ''); if (VIEWS[h]) S.vista = h; }
 window.addEventListener('hashchange', () => { route(); render(); });
+setTimeout(() => { if (S.ready) render(); }, 3300);
 Store.init().catch(e => { console.error(e); $('#boot').innerHTML = '<div class="card">No se pudo iniciar la app. Recargá la página.</div>'; });

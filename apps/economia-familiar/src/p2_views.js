@@ -144,6 +144,7 @@ function header() {
   <div class="who" role="group" aria-label="Quién carga">${u.map(n => `<button class="${n === userName() ? 'on' : ''}" data-act="user" data-u="${esc(n)}">${esc(n)}</button>`).join('')}</div>
   <button class="icon-btn" data-act="go" data-v="ajustes" aria-label="Ajustes">${IC.gear}</button></div>
   ${S.canWrite === false ? '<div class="note neg" style="margin:4px 0 8px"><b>Tu cuenta solo puede mirar.</b> Para cargar, Juan tiene que invitarte como <b>Editor</b> desde Compartir y apagar el link público (con el link público, las cuentas de afuera quedan solo de lectura).</div>' : ''}
+  ${S.mode === 'cloud' && (S.cache.mov || S.cache.cfg) && Date.now() - S.t0 > 3000 ? '<div class="sync">Estás viendo los últimos datos guardados en este teléfono; todavía no llegaron los más nuevos. Revisá la conexión o tocá Recargar en Ajustes.</div>' : ''}
   ${S.mode === 'local' ? '<div class="sync">Modo local: lo que cargues queda solo en este teléfono. Abrí el enlace desde la sesión de Claude para compartir con el otro.</div>' : ''}`;
 }
 function pendientes() {

@@ -88,9 +88,10 @@ function defCfg() {
 /* ============ Estado ============ */
 const S = {
   cfg: defCfg(), plan: { items: [] }, metas: { items: [] }, apr: {}, cierres: {}, movs: [],
-  mes: ymNow(), vista: 'inicio', base: 'pago', user: null, mode: 'local', ready: false, loaded: { mov: false, cfg: false },
+  cache: { mov: false, cfg: false }, t0: Date.now(), mes: ymNow(), vista: 'inicio', base: 'pago', user: null, mode: 'local', ready: false, loaded: { mov: false, cfg: false },
   cap: { sample: null, images: false, downloads: null }, ui: { movVista: 'compras', movFiltro: 'todo', q: '', anTab: 'rubros', abiertos: {}, itemQ: '', itemSort: 'monto', fondoSel: null }
 };
+const APP_BUILD = 'v13 · 4 nov 2026';
 const cfg = () => S.cfg;
 const medios = () => [{ id: 'ef', n: 'Efectivo', k: 'cash' }, { id: 'deb', n: 'Débito', k: 'cash' }, { id: 'tr', n: 'Transferencia', k: 'cash' }, ...cfg().tarjetas.map(t => ({ id: t.id, n: t.n, k: 'card', cierre: t.cierre || 0 }))];
 const medioOf = id => medios().find(m => m.id === id) || { id, n: id, k: 'cash' };
@@ -151,9 +152,9 @@ const Store = {
     if (db) {
       this.mode = 'cloud'; this.db = db; S.mode = 'cloud';
       let t = setTimeout(() => { if (!S.loaded.mov) toast('Sin conexión con la base: puede que veas datos viejos.', null, true); }, 10000);
-      db.collection('mov').onSnapshot(snap => { S.movs = snap.docs.map(d => ({ id: d.id, ...d.data() })); S.loaded.mov = true; clearTimeout(t); onData(); }, e => { console.warn('mov', e); });
+      db.collection('mov').onSnapshot(snap => { S.cache.mov = !!(snap.metadata && snap.metadata.fromCache); S.movs = snap.docs.map(d => ({ id: d.id, ...d.data() })); S.loaded.mov = true; clearTimeout(t); onData(); }, e => { console.warn('mov', e); });
       db.collection('cfg').onSnapshot(snap => {
-        const o = {}; snap.docs.forEach(d => o[d.id] = d.data());
+        S.cache.cfg = !!(snap.metadata && snap.metadata.fromCache); const o = {}; snap.docs.forEach(d => o[d.id] = d.data());
         applyCfgDocs(o); S.loaded.cfg = true; onData();
       }, e => { console.warn('cfg', e); });
     } else {
