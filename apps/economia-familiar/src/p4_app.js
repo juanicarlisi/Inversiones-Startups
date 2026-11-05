@@ -134,7 +134,7 @@ const ACT = {
   'plan-open': el => abrirPlanRow(el.dataset.id), 'plan-todo': () => abrirPlanTodo(),
   'pl-medio': (el, e, d) => { d.keep(); d.medio = el.dataset.k; paintSheet(d); },
   'pl-mespago': (el, e, d) => { d.keep(); d.mesPago = el.dataset.k; paintSheet(d); },
-  'pl-previsto': async (el, e, d) => { const x = S.plan.items.find(i => i.id === d.it.id); if (!x) return; const v = d.getMonto(); x.ov = { ...(x.ov || {}), [d.ym]: v }; if (await guardar(savePlan, 'Previsto actualizado')) closeSheet(d); },
+  'pl-previsto': async (el, e, d) => { const x = S.plan.items.find(i => i.id === d.it.id); if (!x) return; const v = d.getMonto(); x.ov = { ...(x.ov || {}), [d.ym]: v }; if (await guardar(savePlan, 'Monto guardado · sigue pendiente')) closeSheet(d); },
   'pl-quitar-ov': async (el, e, d) => { const x = S.plan.items.find(i => i.id === d.it.id); if (!x || !x.ov) return; const ov = { ...x.ov }; Reflect.deleteProperty(ov, d.ym); x.ov = ov; if (await guardar(savePlan, 'Vuelve al monto habitual')) closeSheet(d); },
   'pl-editar-plan': (el, e, d) => { const id = d.it.id; closeSheet(d); abrirPlanEdit(id); },
   'pl-editar-mov': (el, e, d) => { const m = d.row.real.movs[0]; closeSheet(d); abrirEditarMov(m); },
