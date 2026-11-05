@@ -188,7 +188,7 @@ function vInicio() {
     ${resV < 0 && ingV > 0 ? '<div class="note neg" style="margin-top:12px">Este mes sale más de lo que entra. Mirá en Análisis qué rubro pesa más.</div>' : ''}
     <div style="margin-top:10px"><button class="link" data-act="explicar">¿Cómo se cuenta cada cosa?</button></div></div>`;
   h += `<div class="tiles span2"><button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Sobra acumulada</div><div class="v num ${ac.libre < 0 ? 'neg' : ''}">${money(ac.libre)}</div><div class="hint">al cierre de ${ymName(ym).toLowerCase()}, sin destino todavía</div></button>
-    <button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Patrimonio</div><div class="v num">${money(ac.total)}</div><div class="hint">sobra + fondos, con lo previsto</div></button></div>`;
+    <button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Patrimonio</div><div class="v num">${money(ac.total)}</div><div class="hint">sobra + fondos, con rendimiento estimado</div></button></div>`;
   const sc = primerMesSinCerrar();
   if (sc) h += `<div class="card span2" style="border:2px solid var(--accent)"><h2>Terminó ${ymName(sc).toLowerCase()}</h2><div class="help">Actualizá los montos reales, contá cuánto vale hoy cada fondo y cerrá el mes. Queda guardado el histórico para ver cuánto rindió.</div><div class="sp"></div><button class="btn primary block" data-act="cerrar" data-ym="${sc}">Cerrar ${ymName(sc).toLowerCase()}</button></div>`;
   // checklist
@@ -392,7 +392,7 @@ function vFondos() {
   h += `<div class="card hero span2"><div class="eyebrow">Patrimonio al cierre de ${ymName(ym).toLowerCase()}</div><div class="big num" style="font-size:34px">${money(patr)}</div><div class="cap">≈ ${usd(patr / cfg().tc)} al dólar de referencia ($ ${miles(cfg().tc)}) · en fondos ya confirmado: ${money(confF)}</div><div class="sp"></div>
   <div class="stack">${saldos.filter(x => x.s > 0).map(x => `<i style="width:${x.s / Math.max(1, patr) * 100}%;background:${x.d.c}"></i>`).join('')}${ac.libre > 0 ? `<i style="width:${ac.libre / Math.max(1, patr) * 100}%;background:var(--pos)"></i>` : ''}</div>
   <div class="leg"><div class="li"><span class="dot" style="background:var(--pos)"></span>Sobra acumulada, sin destino<b class="num ${ac.libre < 0 ? 'neg' : ''}">${money(ac.libre)}</b></div>${saldos.map(x => `<div class="li"><span class="dot" style="background:${x.d.c}"></span>${x.d.e} ${esc(x.d.n)}<b class="num">${money(x.s)}</b></div>`).join('')}</div>
-  <div class="hint" style="margin-top:10px">Incluye lo confirmado y lo previsto hasta ${ymName(ym).toLowerCase()}. A medida que confirmás cobros, pagos y aportes, se ajusta con los montos reales.</div></div>`;
+  <div class="hint" style="margin-top:10px">Incluye lo confirmado y lo previsto hasta ${ymName(ym).toLowerCase()}, más un rendimiento estimado de <b>${String(+(rendMes() * 100).toFixed(2)).replace('.', ',')}% mensual</b> que se compone mes a mes (${money(ac.totalRendEst)} acumulado). Al cerrar cada mes cargás el valor real y el patrimonio pasa a usar ese.</div></div>`;
   if (aporteTot > 0 && sobra > 0 && aporteTot > sobra + 1000) {
     h += `<div class="note warn span2"><b>Tus aportes previstos (${money(aporteTot)}) superan lo que sobra en ${ymName(ym).toLowerCase()} (${money(sobra)}).</b> Eso equivale al ${Math.round(aporteTot / sobra * 100)}% de lo que sobra. <button class="link" data-act="normalizar">Ajustar proporcionalmente</button></div>`;
   }

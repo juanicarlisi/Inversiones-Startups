@@ -73,7 +73,7 @@ const INGCATS0 = [
 ];
 function defCfg() {
   return {
-    v: 1, inicio: ymNow(), usuarios: ['Juan', 'Ani'], tc: 1545, tasa: 7.5, caja: 0,
+    v: 1, inicio: ymNow(), usuarios: ['Juan', 'Ani'], tc: 1545, tasa: 7.5, rendMensual: 1.6, caja: 0,
     cats: clone(CATS0), ingCats: clone(INGCATS0),
     tarjetas: [{ id: 'ciudad', n: 'Ciudad', cierre: 0 }, { id: 'visa', n: 'BBVA Visa', cierre: 0 }, { id: 'master', n: 'BBVA Mastercard', cierre: 0 }],
     destinos: [
@@ -91,7 +91,7 @@ const S = {
   cache: { mov: false, cfg: false }, t0: Date.now(), mes: ymNow(), vista: 'inicio', base: 'pago', user: null, mode: 'local', ready: false, loaded: { mov: false, cfg: false },
   cap: { sample: null, images: false, downloads: null }, ui: { movVista: 'compras', movFiltro: 'todo', q: '', anTab: 'rubros', abiertos: {}, itemQ: '', itemSort: 'monto', fondoSel: null }
 };
-const APP_BUILD = 'v24 · 5 nov 2026';
+const APP_BUILD = 'v25 · 5 nov 2026';
 const cfg = () => S.cfg;
 const medios = () => [{ id: 'ef', n: 'Efectivo', k: 'cash' }, { id: 'deb', n: 'Débito', k: 'cash' }, { id: 'tr', n: 'Transferencia', k: 'cash' }, ...cfg().tarjetas.map(t => ({ id: t.id, n: t.n, k: 'card', cierre: t.cierre || 0 }))];
 const medioOf = id => medios().find(m => m.id === id) || { id, n: id, k: 'cash' };
@@ -313,11 +313,14 @@ function planOriginal(ym) {
   return { ing, cons };
 }
 /* Acumulado desde el inicio hasta un mes: lo ya confirmado + lo previsto que falta (meses de hoy en adelante) */
+const rendMes = () => { const v = cfg().rendMensual; return (v === undefined || v === null || isNaN(+v) ? 1.6 : +v) / 100; };
+/* Acumulado desde el inicio: lo confirmado + lo previsto. Cada fondo suma su rendimiento estimado del mes (tasa mensual sobre el saldo con que
+   arranca el mes, así se compone mes a mes). Un mes cerrado usa el valor real que se cargó en el cierre; un mes con rendimiento real cargado usa ese. */
 function acumulado(hasta) {
-  const now = ymNow(), ini = cfg().inicio; let libre = +cfg().caja || 0; const fondos = {};
-  cfg().destinos.forEach(d => fondos[d.id] = +d.saldo0 || 0);
+  const now = ymNow(), ini = cfg().inicio; let libre = +cfg().caja || 0; const fondos = {}, rendEst = {}, r = rendMes();
+  cfg().destinos.forEach(d => { fondos[d.id] = +d.saldo0 || 0; rendEst[d.id] = 0; });
   for (let m = ini, n = 0; m <= hasta && n < 72; m = addM(m, 1), n++) {
-    const e = esperado(m), fut = m >= now, L = e.L;
+    const e = esperado(m), fut = m >= now, L = e.L, cierre = S.cierres[m];
     libre += (fut ? e.ingEsp : e.ing) - (fut ? e.consEsp : e.cons);
     for (const d of cfg().destinos) {
       const real = sum(L.filter(x => x.tipo === 'aporte' && x.fondo === d.id), x => x.total);
@@ -325,11 +328,16 @@ function acumulado(hasta) {
       const ret = sum(L.filter(x => x.tipo === 'retiro' && x.fondo === d.id), x => x.total);
       const rend = sum(L.filter(x => x.tipo === 'rendimiento' && x.fondo === d.id), x => x.total);
       const usado = sum(L.filter(x => x.tipo === 'gasto' && x.pagoFondo === d.id), x => x.total);
-      libre -= real + falta; libre += ret; fondos[d.id] += real + falta + rend - ret - usado;
+      libre -= real + falta; libre += ret;
+      const cf = cierre && cierre.fondos && cierre.fondos[d.id];
+      if (cf && cf.valor != null) { fondos[d.id] = +cf.valor; continue; }
+      const est = rend === 0 ? r * Math.max(0, fondos[d.id]) : 0;
+      rendEst[d.id] += est;
+      fondos[d.id] += real + falta + rend - ret - usado + est;
     }
   }
   const totalFondos = sum(Object.values(fondos), v => v);
-  return { libre, fondos, totalFondos, total: libre + totalFondos };
+  return { libre, fondos, rendEst, totalRendEst: sum(Object.values(rendEst), v => v), totalFondos, total: libre + totalFondos };
 }
 function saldoFondo(d, hastaYm) {
   let s = +d.saldo0 || 0;

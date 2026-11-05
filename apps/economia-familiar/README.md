@@ -17,6 +17,7 @@ Publicada como Artifact de claude.ai con base compartida (`db`); sin esa base ca
 ## Reparto, cierre de mes e histórico
 - Cada fondo aporta un **monto fijo** o un **% de lo que sobra** (`modo`/`pct` en `cfg/main`). Con %, el aporte previsto de cada mes se recalcula con lo confirmado (`aportePlan`, `sobraEsp`).
 - **Cerrar mes** (asistente en `abrirCierre`): confirma cobros/pagos reales, calcula lo que sobró, sugiere aportes y pide cuánto vale hoy cada fondo. La diferencia entre el valor real y el saldo calculado se registra como movimiento `rendimiento` (src `cierre`). Se guarda un snapshot en `cfg/cierre_YYYY-MM`.
+- **Rendimiento estimado**: `cfg.rendMensual` (1,6 % por defecto) se aplica cada mes al saldo con que arranca el mes de cada fondo, así se compone (`acumulado()`). Un mes cerrado usa el valor real cargado en el cierre.
 - Histórico: rendimiento mensual = rend / (saldo inicial + aporte/2); anualizado aproximado con 3 o más meses cerrados.
 
 ## Carga de tickets

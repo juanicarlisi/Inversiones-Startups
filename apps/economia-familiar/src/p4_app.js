@@ -4,7 +4,7 @@ function vAjustes() {
   h += `<div class="card"><h2>Personas</h2><div class="grid3" style="grid-template-columns:1fr 1fr">${c.usuarios.map((u, i) => `<div class="field"><label for="st-u${i}">Persona ${i + 1}</label><input class="inp" id="st-u${i}" data-f="st-user" data-i="${i}" value="${esc(u)}"></div>`).join('')}</div></div>`;
   h += `<div class="card"><h2>Parámetros</h2><div class="grid3" style="grid-template-columns:1fr 1fr">
     <div class="field"><label for="st-tc">Dólar de referencia ($)</label><input class="inp num" id="st-tc" data-f="st-tc" inputmode="decimal" value="${fmtInput(c.tc)}"></div>
-    <div class="field"><label for="st-tasa">Rendimiento anual %</label><input class="inp num" id="st-tasa" data-f="st-tasa" inputmode="decimal" value="${String(c.tasa).replace('.', ',')}"></div>
+    <div class="field"><label for="st-rend">Rendimiento mensual estimado de los fondos %</label><input class="inp num" id="st-rend" data-f="st-rend" inputmode="decimal" value="${String(c.rendMensual === undefined ? 1.6 : c.rendMensual).replace('.', ',')}"></div>
     <div class="field"><label for="st-caja">Plata disponible al empezar ($)</label><input class="inp num" id="st-caja" data-f="st-caja" inputmode="decimal" value="${fmtInput(c.caja)}"></div>
     <div class="field"><label for="st-ini">Empezamos en</label><input class="inp" type="month" id="st-ini" data-f="st-ini" value="${c.inicio}"></div></div>
     <div class="hint" style="margin-top:8px">“Plata disponible al empezar” es lo que tenían líquido (cuenta, efectivo) al comienzo del mes de arranque. Con eso se calcula el disponible de hoy.</div></div>`;
@@ -254,7 +254,7 @@ document.addEventListener('change', async e => {
   if (!f || !f.startsWith('st-')) return;
   const c = cfg();
   if (f === 'st-user') c.usuarios[+el.dataset.i] = el.value.trim() || c.usuarios[+el.dataset.i];
-  else if (f === 'st-tc') c.tc = parseMonto(el.value) || c.tc; else if (f === 'st-tasa') c.tasa = parseMonto(String(el.value).replace(',', '.')) || 0;
+  else if (f === 'st-tc') c.tc = parseMonto(el.value) || c.tc; else if (f === 'st-rend') c.rendMensual = Math.max(0, Math.min(30, parseMonto(String(el.value).replace(',', '.')) || 0));
   else if (f === 'st-caja') c.caja = parseMonto(el.value); else if (f === 'st-ini') c.inicio = el.value || c.inicio;
   else if (f === 'st-cierre') c.tarjetas[+el.dataset.i].cierre = Math.min(31, parseInt(el.value) || 0);
   if (await guardar(saveCfg)) { if (S.user && !c.usuarios.includes(S.user)) S.user = c.usuarios[0]; render(); }

@@ -395,11 +395,12 @@ async function planTodoOk(def) {
 const PALETA = ['#2a78d6', '#6250d6', '#0e8fa8', '#1baf7a', '#eda100', '#eb6834', '#e0457b', '#9a6b3f', '#8792a4', '#008300'];
 function abrirFondo(id) {
   const d = destOf(id); if (!d) return;
-  let plazo = d.plazo || 12, tasa = cfg().tasa, aporte = aportePlan(d, S.mes);
+  let plazo = d.plazo || 12, tasaM = +(rendMes() * 100).toFixed(4), aporte = aportePlan(d, S.mes);
   const def = openSheet({
     id: 'fondo', title: () => d.e + ' ' + d.n,
     body: () => {
       const saldo = saldoFondo(d, S.mes); const tc = cfg().tc;
+      const tasa = (Math.pow(1 + tasaM / 100, 12) - 1) * 100;
       const serie = rmFondo(d, tasa, plazo, saldo, aporte, tc); const fin = serie[serie.length - 1]; const gan = fin.v - fin.ap;
       const hist = S.movs.filter(m => m.fondo === d.id || m.pagoFondo === d.id).sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, 8);
       const need = d.meta > 0 ? aporteNecesario(d.meta, saldo, plazo, tasa, tc) : 0;
@@ -408,18 +409,18 @@ function abrirFondo(id) {
       h += `<div class="card flat"><h2>Proyección</h2><div class="grid3" style="grid-template-columns:1fr 1fr 1fr">
         <div class="field"><label for="fp-aporte">Aporte / mes</label><input class="inp num" id="fp-aporte" data-f="fp-aporte" inputmode="decimal" value="${fmtInput(aporte)}"></div>
         <div class="field"><label for="fp-plazo">Meses</label><input class="inp num" id="fp-plazo" data-f="fp-plazo" inputmode="numeric" value="${plazo}"></div>
-        <div class="field"><label for="fp-tasa">Rend. anual %</label><input class="inp num" id="fp-tasa" data-f="fp-tasa" inputmode="decimal" value="${String(tasa).replace('.', ',')}"></div></div>
+        <div class="field"><label for="fp-tasa">Rend. mensual %</label><input class="inp num" id="fp-tasa" data-f="fp-tasa" inputmode="decimal" value="${String(tasaM).replace('.', ',')}"></div></div>
         <div class="sp"></div>
         ${lineas('fp', [{ pts: serie.map(x => x.v * tc), c: d.c, area: true }, { pts: serie.map(x => x.ap * tc), c: 'var(--muted)', dash: true }], { 0: 'hoy', [plazo]: plazo >= 24 ? Math.round(plazo / 12) + ' años' : plazo + ' m' }, { def: 'Tocá el gráfico', tip: i => `Mes ${i}: ${money(serie[i].v * tc)} (aportaste ${money(serie[i].ap * tc)})`, label: 'Proyección del fondo' })}
         <div class="kpis" style="margin-top:10px"><div class="kpi"><div class="eyebrow">En ${plazo >= 24 ? (plazo / 12).toFixed(1).replace('.', ',') + ' años' : plazo + ' meses'}</div><div class="v num">${money(fin.v * tc)}</div><div class="d muted">${usd(fin.v)}</div></div>
         <div class="kpi"><div class="eyebrow">Rendimiento ganado</div><div class="v num pos">${money(gan * tc)}</div><div class="d muted">de ${money(fin.ap * tc)} aportados</div></div></div>
         ${d.meta > 0 ? `<div class="note" style="margin-top:10px">${need <= aporte ? '✅ Con este aporte llegás a la meta' : `Para llegar a ${money(d.meta)} en ${plazo} meses necesitás aportar <b>${money(need)}</b> por mes (hoy ${money(aporte)}).`}</div>` : ''}
-        <div class="hint" style="margin-top:8px">Supuestos: rendimiento constante, tipo de cambio fijo en $ ${miles(tc)}, aportes a fin de cada mes. No es una promesa de rendimiento.</div></div>`;
+        <div class="hint" style="margin-top:8px">Supuestos: rendimiento mensual constante que se compone, aportes a fin de cada mes. Es una estimación, no una promesa de rendimiento.</div></div>`;
       if (hist.length) h += `<div class="card flat" style="padding:6px 14px"><div class="group-h" style="margin-top:8px">Movimientos</div>${hist.map(m => mvRow(m, { noimp: true })).join('')}</div>`;
       return h;
     },
     foot: () => `<button class="btn" data-act="fondo-edit" data-id="${d.id}">Editar</button><button class="btn primary" data-act="aportar" data-id="${d.id}">Aporté</button>`,
-    set: (k, v) => { if (k === 'aporte') aporte = parseMonto(v); if (k === 'plazo') plazo = Math.max(1, Math.min(720, parseInt(v) || 1)); if (k === 'tasa') tasa = Math.max(0, Math.min(60, parseMonto(String(v).replace(',', '.')) || 0)); },
+    set: (k, v) => { if (k === 'aporte') aporte = parseMonto(v); if (k === 'plazo') plazo = Math.max(1, Math.min(720, parseInt(v) || 1)); if (k === 'tasa') tasaM = Math.max(0, Math.min(30, parseMonto(String(v).replace(',', '.')) || 0)); },
     paintKeep: true
   });
 }
@@ -491,9 +492,9 @@ function wCalc() {
   W.rows.forEach(r => { r.eff = r.real ? r.real.total : r.skip ? 0 : (r.it.pct && !r.touched) ? r2(dz * r.it.pct / 100) : parseMonto(r.monto); });
   const ing = W.R.ing + sum(W.rows.filter(r => !r.real && r.it.tipo === 'ingreso'), r => r.eff), cons = W.R.cons + sum(W.rows.filter(r => !r.real && r.it.tipo === 'gasto'), r => r.eff), sobra = ing - cons;
   cfg().destinos.forEach(d => {
-    const a = W.ap[d.id]; a.sug = d.modo === 'pct' ? Math.max(0, Math.round(sobra * (+d.pct || 0) / 100 / 100) * 100) : (+d.aporte || 0);
+    const a = W.ap[d.id]; a.sug = (d.desde && W.ym < d.desde) ? 0 : d.modo === 'pct' ? Math.max(0, Math.round(sobra * (+d.pct || 0) / 100 / 100) * 100) : (+d.aporte || 0);
     a.eff = a.hecho ? 0 : (a.touched ? parseMonto(a.monto) : a.sug);
-    const v = W.val[d.id]; v.base = saldoFondo(d, W.ym) + a.eff; v.eff = v.touched ? parseMonto(v.v) : v.base; v.dif = v.eff - v.base;
+    const v = W.val[d.id]; v.base = saldoFondo(d, W.ym) + a.eff; v.est = rendMes() * Math.max(0, acumulado(addM(W.ym, -1)).fondos[d.id]); v.eff = v.touched ? parseMonto(v.v) : v.base + v.est; v.dif = v.eff - v.base;
   });
   return { ing, cons, sobra };
 }
@@ -506,7 +507,7 @@ function wBody() {
   if (hechos.length) h += `<div class="hint">${hechos.length} ya confirmados: ${esc(hechos.map(r => r.it.n).join(', '))}.</div>`;
   h += `<div class="card flat"><div class="grid3"><div><div class="eyebrow">Entró</div><div class="num" style="font-weight:800" id="w-ing"></div></div><div><div class="eyebrow">Salió</div><div class="num" style="font-weight:800" id="w-cons"></div></div><div><div class="eyebrow">Sobró</div><div class="num" style="font-weight:800" id="w-sobra"></div></div></div></div>`;
   h += `<div class="field"><label>Cuánto aportaste a cada fondo</label><div class="lines">${cfg().destinos.map(d => { const a = W.ap[d.id]; return a.hecho ? `<div class="card flat row" style="padding:10px"><span class="ico sm" style="background:${d.c}22">${d.e}</span><span class="grow">${esc(d.n)}</span><b class="num">${money(a.ya)}</b><span class="pill pos">confirmado</span></div>` : `<div class="card flat" style="padding:10px"><div class="row" style="justify-content:space-between"><b class="ell">${d.e} ${esc(d.n)}</b><span class="hint" id="w-as-${d.id}"></span></div><input class="inp num" style="margin-top:6px" id="w-a-${d.id}" data-f="w-ap" data-id="${d.id}" inputmode="decimal" aria-label="Aporte a ${esc(d.n)}"></div>`; }).join('')}</div></div>`;
-  h += `<div class="field"><label>Cuánto vale hoy cada fondo</label><div class="hint">Mirá el saldo real donde lo tengas. La diferencia con lo aportado queda registrada como rendimiento.</div><div class="lines">${cfg().destinos.map(d => `<div class="card flat" style="padding:10px"><div class="row" style="justify-content:space-between"><b class="ell">${d.e} ${esc(d.n)}</b><span class="hint num" id="w-dif-${d.id}"></span></div><input class="inp num" style="margin-top:6px" id="w-v-${d.id}" data-f="w-val" data-id="${d.id}" inputmode="decimal" aria-label="Valor actual de ${esc(d.n)}"></div>`).join('')}</div></div>`;
+  h += `<div class="field"><label>Cuánto vale hoy cada fondo</label><div class="hint">Mirá el saldo real donde lo tengas y poné ese valor. Te dejo precargado el estimado con ${String(+(rendMes() * 100).toFixed(2)).replace('.', ',')}% mensual: si no lo cambiás, se toma ese. La diferencia con lo aportado queda como rendimiento y actualiza el patrimonio con el valor real.</div><div class="lines">${cfg().destinos.map(d => `<div class="card flat" style="padding:10px"><div class="row" style="justify-content:space-between"><b class="ell">${d.e} ${esc(d.n)}</b><span class="hint num" id="w-dif-${d.id}"></span></div><input class="inp num" style="margin-top:6px" id="w-v-${d.id}" data-f="w-val" data-id="${d.id}" inputmode="decimal" aria-label="Valor actual de ${esc(d.n)}"></div>`).join('')}</div></div>`;
   return h;
 }
 function wUpdate() {
@@ -518,7 +519,7 @@ function wUpdate() {
     const a = W.ap[d.id], v = W.val[d.id];
     const ea = document.getElementById('w-a-' + d.id); if (ea && ea !== act && !a.touched) ea.value = fmtInput(a.sug);
     set('w-as-' + d.id, d.modo === 'pct' ? `${String(+d.pct || 0).replace('.', ',')}% de ${compact(c.sobra)}` : 'monto fijo');
-    const ev = document.getElementById('w-v-' + d.id); if (ev && ev !== act && !v.touched) ev.value = fmtInput(Math.round(v.base));
+    const ev = document.getElementById('w-v-' + d.id); if (ev && ev !== act && !v.touched) ev.value = fmtInput(Math.round(v.base + v.est));
     const base = Math.max(1, v.base - (a.eff || 0) / 2), p = v.dif / base * 100;
     set('w-dif-' + d.id, Math.abs(v.dif) < 1 ? 'sin cambios' : `${v.dif > 0 ? 'rindió +' : 'perdió −'}${money(Math.abs(v.dif)).replace('−', '')} (${p.toFixed(2).replace('.', ',')}%)`);
   });
