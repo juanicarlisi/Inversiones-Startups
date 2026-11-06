@@ -423,6 +423,12 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     amigos; topes: 1.000 por grupo, 30 grupos por persona, 5 como líder;
   - la NBV como Biblia de entrada: recomendada para quien recién instala, con la Reina-Valera a un toque; espera su OK (capítulo 70 §2);
   - un lote de Claude por vez (dos a la vez pisan su registro); la CLI de Supabase queda fija en 3.0.0 con `--remote --yes`.
+- **Datos del 06-11-2026 (Senda, prueba 45):**
+  - la auditoría externa de ChatGPT (03-11, 46 capturas) se evaluó punto por punto (capítulo 71): se toma lo que suma sin tocar lo clave
+    (nombres propios como Travesía y Espadeo, Lany central, lenguaje propio); lo que ya existía no se rehace;
+  - lo social, muy fácil y a mano (pedido del fundador): atajos arriba de Comunidad (Agregar amigo, Mi código, Crear grupo, Unirme a un
+    grupo) y buscador por alias (solo alias, desde 3 letras, sin bloqueados, el otro acepta; cualquiera puede dejar de aparecer);
+  - la privacidad dice lo que pasa: lo que lees queda en el teléfono; lo que compartes (alias, amigos, grupos, partidas), en la nube.
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
