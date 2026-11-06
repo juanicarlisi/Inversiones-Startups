@@ -437,6 +437,20 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     Jesús a predicar?»); los datos menores salen menos; los niveles se calibran a mano y se miden con gente real;
   - la NBV cambia los términos de la Reina-Valera (57 % de los términos clave): no es la predeterminada (DEC-2026-11-06-2);
   - anuncio al terminar una lección, con la misma medida que los juegos; nunca en medio ni en la Biblia; ideas 6 y 7 de la auditoría, no.
+- **Datos del 06-11-2026 (Senda, prueba 47):**
+  - la UX se trabaja con el marco de `docs/MARCO_UX.md` de la app (27 reglas con su fuente y 10 preguntas por pantalla): una acción
+    primaria, como mucho 4 grupos en la primera vista, nada dicho dos veces, rótulos que dicen qué hay detrás, un solo color lleno por
+    vista, lo de hoy a la vista y lo demás a un toque; nada que parezca «hecho con IA en 30 segundos» (capítulo 73 §1);
+  - Inicio: «Tu día» (las tres cosas de hoy como filas directas; la que falta es la acción grande) y «Para hoy» en 2 × 2; Jugar en
+    cuadros con el Espadeo arriba; «Antes o después» como juego (carta en la mano, senda, sin rebotes, lo aprendido al final);
+  - «tiene que andar o bien o nada»: la curva de Skia del lector salió (regla de corte) y los toques van por el hilo nativo
+    (DEC-2026-11-06-5); el número de la prueba en la app lo escribe el armado del APK;
+  - el perfil público muestra logros de juego (álbum, armaduras, duelos ganados, copas), nunca lo que se lee, y se puede ocultar
+    (DEC-2026-11-06-6);
+  - sopa de letras y tipo pasapalabra no van al MVP: el segundo ya era «Abecé» (El Rosco es formato protegido); la «Sopa del
+    versículo» se sumó al roadmap 2027;
+  - licencias: SBU ofrece RVR95, RVC, DHH y TLA por USD 500 por año (solo en línea); la RVR1960 también es de SBU: recomendación,
+    pedir la RVR1960 y pagar solo si entra (DEC-2026-11-06-4; respuesta lista para que la mande el fundador).
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**

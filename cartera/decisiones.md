@@ -1525,3 +1525,20 @@ toque y en el versículo del día. Bitácora `conocimiento/2026-11-06-senda-nbv-
 tercio al elegir, la ola apunta a 79 % de acierto y la Prueba de pieza a 72 %, banco 46 con 104 preguntas que edifican; y un anuncio al
 tocar «Seguir» después de terminar una lección, con la misma medida que los juegos (nunca en medio de la lección ni en la Biblia).
 Las ideas 6 y 7 de la auditoría externa se descartan. Capítulo 72.
+
+## DEC-2026-11-06-4 — Senda: licencias de las Sociedades Bíblicas Unidas (espera al fundador)
+**Contexto (HECHO, correo del 04-11-2026):** SBU ofrece RVR95, RVC, DHH y TLA por USD 500 por año (licencia de 3 años, solo lectura en
+línea para personas individuales, uso comercial porque los juegos usan el texto). La RVR1960 también es de SBU («Renovado © Sociedades
+Bíblicas Unidas, 1988») y no estaba en el pedido. **Recomendación:** no aceptar el paquete como está; pedir la RVR1960 en lugar de la
+RVR95 y pagar hasta USD 500 por año solo si entra la RVR1960. Respuesta lista en
+`oportunidades/proyectos/senda/borradores/2026-11-sbu-respuesta.md` (la manda el fundador). Capítulo 73 §8.
+
+## DEC-2026-11-06-5 — Senda: sale la curva de Skia del lector (regla de corte aplicada)
+**Contexto:** el fundador, por segunda vez: «para pasar de hoja está lentísimo. Tiene que andar o bien o nada». La curva sacaba dos fotos
+de la hoja por cada vuelta en el hilo de la pantalla. **Decisión:** se aplica la regla de corte de la prueba 41: vuelve el pliegue, los
+toques pasan al hilo nativo y la dependencia sale de la app. Reversible (historia de git). Capítulo 73 §6.
+
+## DEC-2026-11-06-6 — Senda: perfil público con logros de juego, nunca lo que se lee
+**Decisión (pedido del fundador):** el perfil que ven los demás muestra alias, nivel, país, desde cuándo y los logros de juego (álbum,
+armaduras, duelos ganados, copas); nada de lectura. Se puede ocultar; los bloqueados no se ven. Política de privacidad borrador 0.5.
+Capítulo 73 §7.
