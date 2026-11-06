@@ -1505,3 +1505,23 @@
 **Contexto (HECHO, 01-11-2026):** el fundador probó el APK 42 con la Lany 3D visible: «quedó bastante mal en 3d. Volvamos todo a como estaba antes… dejemos lo de 3d como evolutivo».
 **Decisión:** Lany de Rive en toda la app y la entrada con la ilustración de Gemini, como antes de la prueba 41; el Lany Master queda en el código, apagado (`LANY_3D = false`), para retomarlo después del lanzamiento. APK 42b.
 
+
+## DEC-2026-11-06-1 — Senda: cada pieza de la armadura pregunta lo que representa en Efesios 6
+**Contexto (06-11-2026):** el fundador dudaba de Cinto, Casco y Botas y pidió revisar los estudios cargados. Se leyeron 4 comentarios de
+Efesios (Stott, MacArthur, Mundo Hispano, Beacon) y 77 libros confiables (Gurnall, MacArthur y Mayhue, Ryle, Chafer, entre otros).
+**Decisión:** Botas = **Evangelio** (la vida de Jesús y cómo se anunció; antes «Mapa»); Casco = **Salvación** (la historia de la
+salvación; antes «Historia»); Escudo = **Fe** (personajes; antes «Héroes»); Cinturón = Verdad, Coraza = Vida y Espada = Palabra siguen.
+Los lugares del Antiguo Testamento pasan al Casco y las preguntas de los Evangelios y Hechos del Casco a las Botas. Reversible en un
+paso (`scripts/autor/ajustes_trivia.py`). Capítulo 72 §2. Queda a la vista del fundador en el APK 46.
+
+## DEC-2026-11-06-2 — Senda: la NBV no pasa a ser la Biblia predeterminada
+**Contexto:** regla del fundador: «si mantiene mejor los términos, usemos esa». **Medición:** la NBV conserva el 57 % de 60 términos
+clave de la Reina-Valera (la PDT el 71 %, la BES el 76 %) y el 39 % de las palabras de cada versículo; cambia «gracia» por
+«misericordia» en Efesios 2:8 y une unos 2.000 versículos. **Decisión:** la Biblia sigue abriendo en la Reina-Valera; la NBV queda a un
+toque y en el versículo del día. Bitácora `conocimiento/2026-11-06-senda-nbv-vs-reina-valera.md`.
+
+## DEC-2026-11-06-3 — Senda: trivia pareja y que edifica; anuncio al terminar una lección
+**Decisión (pedido del fundador):** niveles releídos a mano (552 preguntas; 335 suben, 28 repetidas fuera), los datos menores pesan un
+tercio al elegir, la ola apunta a 79 % de acierto y la Prueba de pieza a 72 %, banco 46 con 104 preguntas que edifican; y un anuncio al
+tocar «Seguir» después de terminar una lección, con la misma medida que los juegos (nunca en medio de la lección ni en la Biblia).
+Las ideas 6 y 7 de la auditoría externa se descartan. Capítulo 72.

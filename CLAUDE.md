@@ -429,6 +429,14 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - lo social, muy fácil y a mano (pedido del fundador): atajos arriba de Comunidad (Agregar amigo, Mi código, Crear grupo, Unirme a un
     grupo) y buscador por alias (solo alias, desde 3 letras, sin bloqueados, el otro acepta; cualquiera puede dejar de aparecer);
   - la privacidad dice lo que pasa: lo que lees queda en el teléfono; lo que compartes (alias, amigos, grupos, partidas), en la nube.
+- **Datos del 06-11-2026 (Senda, prueba 46):**
+  - cada pieza de la armadura pregunta lo que representa en Efesios 6, según los estudios confiables: Botas = Evangelio (la vida de
+    Jesús y cómo se anunció), Casco = Salvación (la historia de la salvación), Escudo = Fe (personajes), Cinturón = Verdad, Coraza =
+    Vida, Espada = Palabra (DEC-2026-11-06-1; capítulo 72); el ejemplo de ChatGPT fue solo un ejemplo;
+  - la trivia: «ni una pavada ni imposible de ganar» y edificante (lo que se aprende y hace crecer en la Palabra, al estilo «¿Qué comenzó
+    Jesús a predicar?»); los datos menores salen menos; los niveles se calibran a mano y se miden con gente real;
+  - la NBV cambia los términos de la Reina-Valera (57 % de los términos clave): no es la predeterminada (DEC-2026-11-06-2);
+  - anuncio al terminar una lección, con la misma medida que los juegos; nunca en medio ni en la Biblia; ideas 6 y 7 de la auditoría, no.
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
