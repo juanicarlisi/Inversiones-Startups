@@ -1542,3 +1542,15 @@ toques pasan al hilo nativo y la dependencia sale de la app. Reversible (histori
 **Decisión (pedido del fundador):** el perfil que ven los demás muestra alias, nivel, país, desde cuándo y los logros de juego (álbum,
 armaduras, duelos ganados, copas); nada de lectura. Se puede ocultar; los bloqueados no se ven. Política de privacidad borrador 0.5.
 Capítulo 73 §7.
+
+## DEC-2026-11-06-7 — Senda: fuera la voz sintetizada de Lany
+**Contexto:** el fundador, al entrar a la Travesía: «un sonido rarísimo […] es un espanto, suena varias veces […] O lo mejoras
+radicalmente o lo eliminamos». Era la voz de sílabas sintetizadas de la prueba 42, que sonaba con cada gesto de Lany. **Decisión:** se
+elimina (`VOZ_LANY = false`): Lany vuelve a no hablar, como fijó la regla del 13-10. En la Travesía queda solo el sonido del nodo. Una
+voz futura, solo profesional, con licencia y con el OK del fundador. De paso, el marco de UX suma que todo texto se prueba sobre su fondo
+real en un tema claro y en uno oscuro (el versículo del día había quedado ilegible). Capítulo 74 §1 y §2.
+
+## DEC-2026-11-06-8 — Senda: los créditos de la API, medidos; no se mandan más lotes
+**HECHO (06-11-2026, tokens devueltos por la API en cada uno de los 31 lotes):** ESTIMACIÓN a precio de lista de Opus 5.5, con 50 % de
+lotes y la caché bien contada: USD ~196 de 200 (antes se estimaban ~190). **Decisión:** no se mandan más lotes, para que nada pase de
+los créditos. Los 294 campos corregidos por idioma (portugués e inglés) se retraducen en una sesión, campo por campo. Capítulo 74 §5.

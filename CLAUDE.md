@@ -451,6 +451,16 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     versículo» se sumó al roadmap 2027;
   - licencias: SBU ofrece RVR95, RVC, DHH y TLA por USD 500 por año (solo en línea); la RVR1960 también es de SBU: recomendación,
     pedir la RVR1960 y pagar solo si entra (DEC-2026-11-06-4; respuesta lista para que la mande el fundador).
+- **Datos del 06-11-2026 (Senda, prueba 48):**
+  - «o lo mejoras radicalmente o lo eliminamos»: la voz sintetizada de Lany (sílabas en cada gesto, el sonido al entrar a la Travesía)
+    salió entera; Lany no habla (DEC-2026-11-06-7); una voz futura, solo profesional, con licencia y con su OK;
+  - todo texto se prueba sobre su fondo real en un tema claro y en uno oscuro (el versículo del día había quedado oscuro sobre oscuro;
+    vuelve el sobre ámbar lleno, excepción R9 del marco de UX);
+  - lo social a mano en Inicio: Agregar amigo, Mi código y Crear evento, debajo de «Te esperan»;
+  - Nombres por letra por equipos: de 2 a 6 (tope para que no se trabe) y dos formas, «se pasan la letra» (un nombre por turno) o
+    «cada uno su tiempo»; marcador y tabla final;
+  - créditos de la API medidos con los tokens de cada lote: USD ~196 de 200; no se mandan más lotes (DEC-2026-11-06-8); quedan 294
+    campos corregidos por idioma para retraducir en una sesión (capítulo 74 §5).
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
