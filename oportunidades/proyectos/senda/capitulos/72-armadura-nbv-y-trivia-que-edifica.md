@@ -109,7 +109,7 @@ Qué se hizo (`senda-app`, `docs/DIFICULTAD.md`):
 de 59 % a 64 % en la Prueba de pieza; uno flojo, de 52 % a 55 %; los datos menores bajan de 6 % a menos de 2 % de lo que sale. Con
 gente real se mide en PostHog (`ejercicio_respondido`) y se recalibra.
 
-Las 104 nuevas se ven en español; en portugués e inglés entran cuando se traduzcan (las piezas ya tienen stock en esos idiomas).
+Las 104 nuevas ya están traducidas por lotes y filtradas por el validador: 99 en portugués y 101 en inglés (commit cf5f244).
 
 ## 5. Publicidad al terminar una lección
 
@@ -129,6 +129,6 @@ y enlace para invitar) siguen como próximas, sin respuesta del fundador.
 
 ## 7. Evidencia
 
-- Commits en `senda-app`: traducciones de las 335 preguntas corregidas (87817d8) y esta prueba (ver el log); validador «Todo en orden»;
+- Commits en `senda-app`: traducciones de las 335 preguntas corregidas (87817d8), esta prueba (f1d68f0) y el banco 46 traducido (cf5f244); APK 46 publicado (release prueba-46, 06-11 19:03 UTC); validador «Todo en orden»;
   `prueba:arranque` 8 de 8; TypeScript sin errores.
 - Lotes recibidos e incorporados: portugués 4.853 y inglés 5.166 preguntas traducidas (después de sacar las 28 retiradas).
