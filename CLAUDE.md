@@ -407,6 +407,12 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     en `src/arte/Arte.tsx` (APK 42b); con los créditos de la API se mandaron dos lotes de traducción (portugués: lo corregido; inglés: lo
     corregido y el banco 41) que hay que recibir e incorporar (`incorporar.py traduccion pt|en` y el validador) en la próxima sesión.
 
+- **Datos del 06-11-2026 (Senda, prueba 43):**
+  - las 331 dudas de la segunda lectura de las lecciones, resueltas contra la RV1909: 309 cambios entraron y 49 propuestas quedaron
+    con su porqué (`scripts/autor/parches_dudas42.py`, decisiones en `scripts/autor/dudas42/`); «Jan Hus» ya no se cambia a «Uz»;
+  - créditos de la API: ~USD 190 de 200 usados (ESTIMACIÓN); retraducir las lecciones corregidas costaría ~USD 19 y no se mandó:
+    queda pendiente por campos o en una sesión (capítulo 69 §2).
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
