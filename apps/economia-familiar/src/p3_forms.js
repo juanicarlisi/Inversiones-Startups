@@ -17,9 +17,12 @@ function nuevoCP(tipo, extra = {}) {
   return Object.assign({
     id: null, tipo: tipo || 'gasto', sub: 'aporte', fecha: hoy(), medio: medios().some(m => m.id === ult) ? ult : 'ef', com: '', nota: '', por: userName(),
     monto: 0, cat: 'alim', catAuto: true, split: false, lines: [], ingCat: 'sueldo', fondo: (cfg().destinos[0] || {}).id, pagoFondo: null, cuotas: 1,
-    scan: { state: 'idle' }, quick: false, adv: false, warn: null, medioTouched: false
+    scan: { state: 'idle' }, quick: false, adv: false, warn: null, medioTouched: false,
+    pend: lsGet('ef_pend_' + (tipo || 'gasto'), 'hecho'), pendMes: S.mes < cfg().inicio ? cfg().inicio : S.mes
   }, extra);
 }
+const cpPuedePend = () => !CP.id && (CP.tipo === 'ingreso' || (CP.tipo === 'gasto' && !CP.split));
+const cpPend = () => cpPuedePend() && CP.pend === 'pend' && !(CP.tipo === 'gasto' && CP.pagoFondo);
 function cpTotal() { return CP.tipo === 'gasto' && CP.split ? r2(sum(CP.lines, l => +l.monto || 0)) : (+CP.monto || 0); }
 function cpMes() {
   if (CP.mesPago && CP.tipo === 'gasto' && esTarjeta(CP.medio) && !CP.pagoFondo) return CP.mesPago;
@@ -54,6 +57,10 @@ function cpBody() {
   // monto
   if (!(t === 'gasto' && CP.split)) h += `<div class="field"><label for="monto">Monto</label><div class="amount-wrap"><span class="cur">$</span><input id="monto" data-f="monto" inputmode="decimal" autocomplete="off" placeholder="0" value="${CP.monto ? fmtInput(CP.monto) : ''}"></div></div>`;
   else h += `<div class="amount-wrap"><span class="cur">$</span><div class="disp num" style="font-size:38px;font-weight:800" id="split-total">${fmtInput(cpTotal()) || '0'}</div></div>`;
+  if (cpPuedePend()) {
+    const pe = CP.pend === 'pend', base = S.mes < cfg().inicio ? cfg().inicio : S.mes;
+    h += `<div class="field"><label>Estado</label><div class="seg"><button class="${!pe ? 'on' : ''}" data-act="cp-pend" data-k="hecho">${t === 'ingreso' ? 'Ya lo cobré' : 'Ya lo pagué'}</button><button class="${pe ? 'on' : ''}" data-act="cp-pend" data-k="pend">Pendiente</button></div>${pe ? `<div class="hint" style="margin-top:6px">Queda en “Para este mes” esperando tu confirmación. Mientras tanto cuenta como previsto. ¿De qué mes es?</div><div class="chips" style="margin-top:6px">${[-1, 0, 1, 2, 3].map(i => addM(base, i)).filter(m => m >= cfg().inicio).map(m => `<button class="chip ${CP.pendMes === m ? 'on' : ''}" data-act="cp-pendmes" data-k="${m}">${ymShort(m)} ${m.slice(2, 4)}</button>`).join('')}</div>` : ''}</div>`;
+  }
   if (t === 'gasto') {
     if (!CP.split) {
       h += `<div class="field"><label>Rubro</label><div class="cats" id="cat-grid">${catGrid()}</div></div>`;
@@ -65,20 +72,20 @@ function cpBody() {
       <div class="field"><label for="tt">Total que dice el ticket (para chequear)</label><input class="inp num" id="tt" data-f="tt" inputmode="decimal" value="${CP.totalTicket ? fmtInput(CP.totalTicket) : ''}" placeholder="Opcional"><div id="tt-chk">${ttChk()}</div></div>`;
     }
     h += `<div class="field"><label>Cómo pagaste</label><div class="chips">${medios().map(m => `<button class="chip ${CP.medio === m.id ? 'on' : ''}" data-act="cp-medio" data-k="${m.id}">${m.k === 'card' ? '💳' : m.id === 'ef' ? '💵' : m.id === 'deb' ? '🏧' : '🏦'} ${esc(m.n)}</button>`).join('')}</div></div>`;
-    if (esTarjeta(CP.medio) && !CP.id) h += `<div class="field"><label>Cuotas</label><div class="chips">${[1, 3, 6, 12].map(n => `<button class="chip ${CP.cuotas === n ? 'on' : ''}" data-act="cp-cuotas" data-k="${n}">${n === 1 ? 'Sin cuotas' : n + ' cuotas'}</button>`).join('')}</div>${CP.cuotas > 1 ? `<div class="hint">${CP.cuotas} cuotas de ${money(cpTotal() / CP.cuotas)}, una por mes.</div>` : ''}</div>`;
-    if (esTarjeta(CP.medio) && !CP.pagoFondo) { const f0 = CP.fecha.slice(0, 7), sug = imputar(CP.fecha, CP.medio), act = cpMes(); h += `<div class="field"><label>Se paga en</label><div class="chips">${[0, 1, 2, 3, 4].map(i => addM(f0, i)).map(m => `<button class="chip ${act === m ? 'on' : ''}" data-act="cp-mespago" data-k="${m}">${ymShort(m)} ${m.slice(2, 4)}${m === sug ? ' · sugerido' : ''}</button>`).join('')}</div><div class="hint">Elegí en qué resumen entra${CP.cuotas > 1 ? ' la primera cuota' : ''}.</div></div>`; }
+    if (esTarjeta(CP.medio) && !CP.id && !cpPend()) h += `<div class="field"><label>Cuotas</label><div class="chips">${[1, 3, 6, 12].map(n => `<button class="chip ${CP.cuotas === n ? 'on' : ''}" data-act="cp-cuotas" data-k="${n}">${n === 1 ? 'Sin cuotas' : n + ' cuotas'}</button>`).join('')}</div>${CP.cuotas > 1 ? `<div class="hint">${CP.cuotas} cuotas de ${money(cpTotal() / CP.cuotas)}, una por mes.</div>` : ''}</div>`;
+    if (esTarjeta(CP.medio) && !CP.pagoFondo && !cpPend()) { const f0 = CP.fecha.slice(0, 7), sug = imputar(CP.fecha, CP.medio), act = cpMes(); h += `<div class="field"><label>Se paga en</label><div class="chips">${[0, 1, 2, 3, 4].map(i => addM(f0, i)).map(m => `<button class="chip ${act === m ? 'on' : ''}" data-act="cp-mespago" data-k="${m}">${ymShort(m)} ${m.slice(2, 4)}${m === sug ? ' · sugerido' : ''}</button>`).join('')}</div><div class="hint">Elegí en qué resumen entra${CP.cuotas > 1 ? ' la primera cuota' : ''}.</div></div>`; }
   } else if (t === 'ingreso') {
     h += `<div class="field"><label>Tipo de ingreso</label><div class="chips">${cfg().ingCats.map(c => `<button class="chip ${CP.ingCat === c.id ? 'on' : ''}" data-act="cp-ingcat" data-k="${c.id}"><span class="e">${c.e}</span>${esc(c.n)}</button>`).join('')}</div></div>
     <div class="field"><label for="com">Detalle (opcional)</label><input class="inp" id="com" data-f="com" placeholder="Ej: Sueldo, changa, venta" value="${esc(CP.com)}" autocomplete="off"></div>`;
   }
-  h += `<div class="grid3" style="grid-template-columns:1fr 1fr"><div class="field"><label for="fecha">Fecha</label><input class="inp" type="date" id="fecha" data-f="fecha" value="${CP.fecha}"></div>
+  if (!cpPend()) h += `<div class="grid3" style="grid-template-columns:1fr 1fr"><div class="field"><label for="fecha">Fecha</label><input class="inp" type="date" id="fecha" data-f="fecha" value="${CP.fecha}"></div>
   <div class="field"><label>Cargó</label><div class="seg" style="padding:3px">${cfg().usuarios.map(u => `<button class="${CP.por === u ? 'on' : ''}" data-act="cp-por" data-k="${esc(u)}">${esc(u)}</button>`).join('')}</div></div></div>`;
-  if (t === 'gasto') {
+  if (t === 'gasto' && !cpPend()) {
     if (!CP.adv) h += `<button class="link" data-act="cp-adv" style="justify-self:start">Más opciones (pagar con un fondo, nota)</button>`;
     else h += `<div class="field"><label>Pagado con un fondo</label><div class="chips"><button class="chip ${!CP.pagoFondo ? 'on' : ''}" data-act="cp-pf" data-k="">No, con plata del mes</button>${cfg().destinos.map(d => `<button class="chip ${CP.pagoFondo === d.id ? 'on' : ''}" data-act="cp-pf" data-k="${d.id}">${d.e} ${esc(d.n)}</button>`).join('')}</div><div class="hint">Baja el fondo y no cuenta en el consumo del mes.</div></div>
       <div class="field"><label for="nota">Nota</label><input class="inp" id="nota" data-f="nota" value="${esc(CP.nota)}" autocomplete="off"></div>`;
   }
-  h += `<div class="note" id="imp">${impText()}</div>`;
+  if (!cpPend()) h += `<div class="note" id="imp">${impText()}</div>`;
   return h;
 }
 function impText() {
@@ -99,7 +106,7 @@ function lineRow(l, i) {
 }
 function cpFoot() {
   const tot = cpTotal();
-  return `<button class="btn primary" data-act="cp-save" id="btn-save">${CP.id ? 'Guardar cambios' : CP.tipo === 'gasto' ? 'Guardar gasto' : CP.tipo === 'ingreso' ? 'Guardar ingreso' : 'Guardar'}${tot ? ' · ' + money(tot) : ''}</button>`;
+  return `<button class="btn primary" data-act="cp-save" id="btn-save">${CP.id ? 'Guardar cambios' : cpPend() ? 'Guardar como pendiente' : CP.tipo === 'gasto' ? 'Guardar gasto' : CP.tipo === 'ingreso' ? 'Guardar ingreso' : 'Guardar'}${tot ? ' · ' + money(tot) : ''}</button>`;
 }
 function cpAfter() {
   const q = $('#quick'); if (q) { q.focus(); q.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); quickParse(q.value); } }; }
@@ -112,7 +119,7 @@ function ttChk() {
 function cpUpdMini() {
   const tc = $('#tt-chk'); if (tc) tc.innerHTML = ttChk();
   const imp = $('#imp'); if (imp) imp.innerHTML = impText();
-  const b = $('#btn-save'); if (b) b.textContent = (CP.id ? 'Guardar cambios' : CP.tipo === 'gasto' ? 'Guardar gasto' : CP.tipo === 'ingreso' ? 'Guardar ingreso' : 'Guardar') + (cpTotal() ? ' · ' + money(cpTotal()) : '');
+  const b = $('#btn-save'); if (b) b.textContent = (CP.id ? 'Guardar cambios' : cpPend() ? 'Guardar como pendiente' : CP.tipo === 'gasto' ? 'Guardar gasto' : CP.tipo === 'ingreso' ? 'Guardar ingreso' : 'Guardar') + (cpTotal() ? ' · ' + money(cpTotal()) : '');
   const st = $('#split-total'); if (st) st.textContent = fmtInput(cpTotal()) || '0';
 }
 function cpInput(f, v, el) {
@@ -262,6 +269,15 @@ const addDay = (f, k) => { const d = new Date(f + 'T12:00:00'); d.setDate(d.getD
 
 async function cpSave() {
   const tot = cpTotal(); if (!(tot > 0) && !(CP.tipo === 'fondo' && CP.sub === 'rendimiento' && tot !== 0)) { toast('Falta el monto.', null, true); return; }
+  if (cpPend()) {
+    const t = CP.tipo, ym = CP.pendMes || S.mes;
+    const it = { id: 'u' + uid(), tipo: t, n: (CP.com || '').trim() || (t === 'ingreso' ? ingCatOf(CP.ingCat).n : catOf(CP.cat).n), cat: t === 'ingreso' ? CP.ingCat : CP.cat, base: r2(tot), desde: ym, hasta: ym, unico: true };
+    if (t === 'gasto') it.medio = CP.medio;
+    S.plan.items.push(it);
+    const okp = await guardar(savePlan);
+    if (!okp) { S.plan.items = S.plan.items.filter(x => x.id !== it.id); return; }
+    closeSheet(SHEETS.find(s => s.id === 'cp')); S.mes = ym; render(); toast(`Quedó pendiente para ${ymName(ym).toLowerCase()} ✓`); return;
+  }
   const base = { por: CP.por, fecha: CP.fecha, creado: CP.creado || new Date().toISOString() };
   const id = CP.id || uid(); let docs = []; const metaId = CP.metaId;
   if (CP.tipo === 'gasto') {
