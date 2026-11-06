@@ -413,6 +413,16 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - créditos de la API: ~USD 190 de 200 usados (ESTIMACIÓN); retraducir las lecciones corregidas costaría ~USD 19 y no se mandó:
     queda pendiente por campos o en una sesión (capítulo 69 §2).
 
+- **Datos del 06-11-2026 (Senda, prueba 44):**
+  - capturas del APK 43: nada se corta en el Espadeo (un solo marcador arriba), la ruleta con los íconos siempre derechos, la pregunta
+    sin etiquetas (dificultad, «de oro», «curiosidad», «mira la imagen») y las «¿Sabías que X? ¿Y?» se muestran «X. ¿Y?»;
+  - nada de grabados en blanco y negro: imágenes libres a color, láminas propias, mapas o diagramas (los Doré salieron);
+  - las preguntas no pueden sonar raras: seis revisores corrigieron 274 (palabras viejas como «cascajo» → «arena», con la versión
+    libre que trae la palabra de hoy en FORZADOS) y retiraron 12 (`scripts/autor/trivia_revision43.py`);
+  - armar un grupo y sumar amigos tiene que ser fácil; en un grupo puede haber gente que no es tu amiga; cualquier miembro invita a sus
+    amigos; topes: 1.000 por grupo, 30 grupos por persona, 5 como líder;
+  - la NBV como Biblia de entrada: recomendada para quien recién instala, con la Reina-Valera a un toque; espera su OK (capítulo 70 §2);
+  - un lote de Claude por vez (dos a la vez pisan su registro); la CLI de Supabase queda fija en 3.0.0 con `--remote --yes`.
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
