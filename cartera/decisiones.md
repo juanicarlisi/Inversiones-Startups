@@ -1589,3 +1589,25 @@ grupos, el avatar y un resumen del perfil (nivel y logros), pero la llave de la 
 reinstalar no se puede volver a entrar. **Recomendación ampliada:** como Duolingo, «Guardá tu progreso» con Google, opcional, más una
 copia del progreso en la nube que vuelve al entrar en otro teléfono (con consentimiento explícito si incluye lo que se lee). Espera
 su OK.
+
+## DEC-2026-11-07-6 — Senda: el lanzamiento es en Latinoamérica (sin Brasil); Brasil, EE. UU. y Europa con fecha fija
+**Pedido del fundador (07-11):** «me gustaría sacar Senda para latam al menos inicialmente… No lo dejaría como "solo Argentina";
+quizás para el lanzamiento latam sin Brasil, y tener SÍ O SÍ seteado en el roadmap para incorporar esos países aunque sea como
+evolutivo». **Decisión:** el 18-12 Senda sale en Argentina y el resto de Latinoamérica de habla hispana (México, Centroamérica, el
+Caribe hispano y Sudamérica sin Brasil). Quedan fuera al principio Brasil, EE. UU. y la Unión Europea (con Reino Unido y Suiza), cada
+uno con su fecha en la hoja de ruta: **Brasil el 01-03-2027** (en portugués, antes de Pascua), **EE. UU. el 01-06-2027** y **Europa
+(España primero) el 01-09-2027**. Las fechas son un plan: cada país entra cuando está hecho lo que pide su ley (`linea_tiempo.yaml`,
+`roadmap.yaml`, capítulo 76 §5). Ajusta la recomendación de DEC-2026-11-07-5 (que ya decía «países de habla hispana», no «solo
+Argentina»).
+
+## DEC-2026-11-07-7 — Senda: «Guardar mi progreso» con Google (aprobado)
+**El fundador respondió a DEC-2026-11-07-4:** «sumar lo de guardar progreso». Se construye en la prueba 51: vincular la cuenta anónima
+con Google (opcional) y una copia del progreso en la nube que vuelve al entrar en otro teléfono o al reinstalar. Lo que le toca al
+fundador (crear el cliente de Google y prenderlo en Supabase) va en la Consola. Capítulo 76 §4.
+
+## DEC-2026-11-07-8 — Senda: grupos de hasta 10.000 personas
+**Pregunta del fundador:** «¿por qué el tope de mil personas por grupo? ver si más». **HECHO (código):** el tope no venía de la base
+sino de los avisos (200 cada 5 minutos: un evento en un grupo de 1.000 tardaba ~25 minutos en llegar a todos) y de la lista de
+miembros (se traía entera). **Decisión:** 10.000 por grupo, con avisos en tandas de 100 teléfonos por pedido (hasta 3.000 por minuto),
+lista por páginas con buscador y el filtro de invitados en la base. Prueba de la base 228 de 228. Siguen 30 grupos por persona y 5
+como líder. Capítulo 76 §2.
