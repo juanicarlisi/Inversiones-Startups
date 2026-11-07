@@ -201,3 +201,28 @@ preguntas frecuentes. Cada dato se verificó en el código de la app antes de es
 - Regalar un sobre a un amigo y marcos para el avatar (Talentos).
 - La ropa de Lany según la zona de la ruta (en «Historias bíblicas», ropa hebrea en el éxodo).
 - Antes del primer cobro: los botones de la Disp. 954/2025 y la información previa a suscribirse.
+
+## 19. Después del cierre (07-11): los roles del grupo y el manual con capturas (prueba 50)
+
+**El pedido.** «Que yo pueda crear el grupo y pasar el "rol de administrador" a otro, y que el administrador también se pueda poner un
+rol en el grupo»; «lo de líder, ayudante y miembro… el que se una, por defecto aparezca como miembro, y después se le asigna lo de
+ayudante, líder u otro rol»; y en el manual, «captura de TODO… en cada uno de los puntos del instructivo».
+
+**Cómo quedó.**
+
+- Quien crea el grupo es **líder**; quien entra (con el código o aceptando la invitación) queda como **miembro**; después el líder
+  toca a alguien y elige: escribir su rol («Sonido»), **Hacer ayudante**, **También líder** (quedan dos líderes) o **Pasarle el
+  liderazgo**. Esto último pide confirmación: el otro queda líder (le llega el aviso «Ahora eres líder») y quien lo pasó, ayudante.
+- El líder toca **su propio nombre** para escribir su rol. El texto de la lista lo explica en tres idiomas.
+- En la base: `pasar_liderazgo(grupo, usuario)` (migración `20261130000004`), solo para el líder, con el tope de 5 grupos como líder;
+  la prueba de la base suma 6 pasos (214 de 214) y la migración ya se aplicó en Supabase (07-11, flujo «Base de datos» en verde).
+- Se corrigió un detalle visto al capturar: la casilla del rol tapaba «Guardar».
+- El **Manual de Senda** tiene ahora **45 capturas** de la vista previa (con datos de ejemplo), cada una con su epígrafe numerado y
+  comparado con la imagen: Inicio, Biblia, Travesía, los juegos, Comunidad, y en Grupos el recorrido entero (crear, el código,
+  invitar, unirse, la lista de miembros, dar un rol, pasar el liderazgo, escribir el propio rol). Se tocan para verlas grandes.
+  Copia en `oportunidades/proyectos/senda/manual-senda.html` con la carpeta `capturas/`.
+- Auditoría de textos: 84 casos sin problemas; prueba de arranque 8 de 8.
+
+**Qué probar en el APK 50** (trae todo lo del 49): crear un grupo, entrar desde otro teléfono (queda como miembro), escribirle un rol,
+pasarle el liderazgo y ver el aviso; tocar tu nombre y escribir tu rol.
+

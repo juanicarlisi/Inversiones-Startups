@@ -471,6 +471,11 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     el éxodo abierto (DEC-2026-11-07-2); los torneos para todos avisan solo a los anotados (DEC-2026-11-07-3);
   - el «Manual de Senda» explica la app entera (https://claude.ai/artifact/GjxDRXYvybeKP8YpHjs3ag; copia en
     `oportunidades/proyectos/senda/manual-senda.html`): se actualiza cuando cambia algo que describe.
+- **Datos del 07-11-2026 (Senda, prueba 50):**
+  - grupos: quien crea es líder y quien entra, miembro; el líder escribe el rol de cada uno (también el suyo, tocando su nombre),
+    nombra ayudantes, suma otro líder o pasa el liderazgo (queda ayudante y al otro le llega el aviso);
+  - el manual lleva captura de cada paso (45, de la vista previa con datos de ejemplo, en `oportunidades/proyectos/senda/capturas/`):
+    cada epígrafe se compara con su imagen y las capturas se rehacen cuando cambia la pantalla que muestran (capítulo 75 §19).
 
 ## 2. Reglas no negociables
 
