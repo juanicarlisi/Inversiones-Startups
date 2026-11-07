@@ -1611,3 +1611,11 @@ sino de los avisos (200 cada 5 minutos: un evento en un grupo de 1.000 tardaba ~
 miembros (se traía entera). **Decisión:** 10.000 por grupo, con avisos en tandas de 100 teléfonos por pedido (hasta 3.000 por minuto),
 lista por páginas con buscador y el filtro de invitados en la base. Prueba de la base 228 de 228. Siguen 30 grupos por persona y 5
 como líder. Capítulo 76 §2.
+
+## DEC-2026-11-07-9 — Senda: el avatar de frente con Avataaars (Pablo Stanley)
+**Pedido del fundador:** «¿por qué los personajes miran para otro lado? Tendrían que mirar al frente, como una foto de perfil… que
+queden muy buenos». **Decisión:** se reemplaza Open Peeps (CC0, de tres cuartos) por **Avataaars** (`@dicebear/avataaars` 9.4.2):
+el único de los diez estilos comparados que mira de frente con calidad profesional y variedad (hiyab, turbante, afro, rulos, barba,
+lentes). **Licencia (HECHO, 07-11):** «Free for personal and commercial use», diseño de Pablo Stanley (LICENSE del paquete y
+dicebear.com/licenses); no es CC estándar: va a la consulta con el abogado de PI (`docs/LEGAL.md`). **Regla de corte:** si el autor
+cambia los términos o una tienda lo objeta, se pasa a Personas de Draftbit (CC BY 4.0, también de frente). Capítulo 76 §8.

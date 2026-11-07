@@ -476,6 +476,15 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     nombra ayudantes, suma otro líder o pasa el liderazgo (queda ayudante y al otro le llega el aviso);
   - el manual lleva captura de cada paso (45, de la vista previa con datos de ejemplo, en `oportunidades/proyectos/senda/capturas/`):
     cada epígrafe se compara con su imagen y las capturas se rehacen cuando cambia la pantalla que muestran (capítulo 75 §19).
+- **Datos del 07-11-2026 (Senda, prueba 51):**
+  - la Consola muestra solo los pendientes abiertos, por prioridad; lo cerrado va a `pendientes_cerrados` y lo breve se le pregunta
+    en el chat; la tarjeta «Fase» es corta (tope de 80 letras, la historia en la línea de tiempo);
+  - nada de «20 mil botones que lleven a lo mismo»: cada cosa vive en un lugar (Comunidad: Amigos y Grupos; la sala en vivo, dentro de
+    Torneos); nada de botoneras de píldoras (regla del marco de UX);
+  - grupos de hasta 10.000 (DEC-2026-11-07-8); guardar el progreso con Google (DEC-2026-11-07-7; falta que el fundador prenda Google);
+    lanzamiento en Latinoamérica sin Brasil, con Brasil (01-03-2027), EE. UU. y Europa fijos en la hoja de ruta (DEC-2026-11-07-6);
+  - torneos con enlace (el desafío del sermón sin grupo), «Sumarme a uno / Crear uno» y la sala con alias único; la eliminatoria con
+    llaves, diseñada para la próxima (capítulo 76 §11); el avatar de frente con Avataaars (DEC-2026-11-07-9).
 
 ## 2. Reglas no negociables
 
