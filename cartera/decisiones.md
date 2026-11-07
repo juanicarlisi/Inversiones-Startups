@@ -1582,3 +1582,10 @@ Capítulo 75 §3.
 (ECA Digital, Lei 15.211) y la UE (RGPD con CMP certificado) piden trabajo propio cada uno. **Recomendación:** excluirlos en Play Console
 al lanzar el 18-12 y abrirlos uno por uno; la interfaz en portugués e inglés queda. Lo decide el fundador al armar la ficha de Play.
 Capítulo 75 §6.
+
+**Agregado a DEC-2026-11-07-4 (07-11-2026, pregunta del fundador: «¿qué pasa si reinstalo la app, pierdo todo?»):** HECHO (código
+de la app): sin cuenta, todo el progreso vive en el teléfono; con la cuenta anónima, en la nube quedan el alias, los amigos, los
+grupos, el avatar y un resumen del perfil (nivel y logros), pero la llave de la cuenta también vive en el teléfono, así que al
+reinstalar no se puede volver a entrar. **Recomendación ampliada:** como Duolingo, «Guardá tu progreso» con Google, opcional, más una
+copia del progreso en la nube que vuelve al entrar en otro teléfono (con consentimiento explícito si incluye lo que se lee). Espera
+su OK.
