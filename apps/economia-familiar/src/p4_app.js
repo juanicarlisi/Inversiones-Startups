@@ -136,6 +136,14 @@ const ACT = {
   'pl-mespago': (el, e, d) => { d.keep(); d.mesPago = el.dataset.k; paintSheet(d); },
   'pl-previsto': async (el, e, d) => { const x = S.plan.items.find(i => i.id === d.it.id); if (!x) return; const v = d.getMonto(); x.ov = { ...(x.ov || {}), [d.ym]: v }; if (await guardar(savePlan, 'Monto guardado · sigue pendiente')) closeSheet(d); },
   'pl-quitar-ov': async (el, e, d) => { const x = S.plan.items.find(i => i.id === d.it.id); if (!x || !x.ov) return; const ov = { ...x.ov }; Reflect.deleteProperty(ov, d.ym); x.ov = ov; if (await guardar(savePlan, 'Vuelve al monto habitual')) closeSheet(d); },
+  'pl-eliminar': async (el, e, d) => {
+    const id = d.it.id, it0 = clone(S.plan.items.find(i => i.id === id)), ms = clone(S.movs.filter(m => m.planId === id));
+    if (!it0) return; S.plan.items = S.plan.items.filter(i => i.id !== id);
+    const ok = await guardar(async () => { await savePlan(); for (const m of ms) await Store.del('mov', m.id); });
+    if (!ok) { S.plan.items.push(it0); return; }
+    closeSheet(d); toast('Eliminado', async () => { S.plan.items.push(it0); await guardar(async () => { await savePlan(); for (const m of ms) await Store.set('mov', m.id, m); }); });
+  },
+  'pl-omitir': async (el, e, d) => { const x = S.plan.items.find(i => i.id === d.it.id); if (!x) return; const antes = x.ov ? { ...x.ov } : null; x.ov = { ...(x.ov || {}), [d.ym]: 0 }; if (await guardar(savePlan)) { closeSheet(d); toast('Omitido en ' + ymName(d.ym).toLowerCase(), async () => { x.ov = antes || {}; if (!antes) Reflect.deleteProperty(x, 'ov'); await guardar(savePlan); }); } },
   'pl-editar-plan': (el, e, d) => { const id = d.it.id; closeSheet(d); abrirPlanEdit(id); },
   'pl-editar-mov': (el, e, d) => { const m = d.row.real.movs[0]; closeSheet(d); abrirEditarMov(m); },
   recargar: () => { toast('Actualizando…'); setTimeout(() => { try { location.reload(); } catch (err) { toast('Cerrá y volvé a abrir el link.', null, true); } }, 200); },
