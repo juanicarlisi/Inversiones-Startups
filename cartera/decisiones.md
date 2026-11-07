@@ -1554,3 +1554,31 @@ real en un tema claro y en uno oscuro (el versículo del día había quedado ile
 **HECHO (06-11-2026, tokens devueltos por la API en cada uno de los 31 lotes):** ESTIMACIÓN a precio de lista de Opus 5.5, con 50 % de
 lotes y la caché bien contada: USD ~196 de 200 (antes se estimaban ~190). **Decisión:** no se mandan más lotes, para que nada pase de
 los créditos. Los 294 campos corregidos por idioma (portugués e inglés) se retraducen en una sesión, campo por campo. Capítulo 74 §5.
+
+## DEC-2026-11-07-1 — Senda: los créditos de la API, cerrados en USD 8,97
+**HECHO (captura del fundador, 06-11-2026):** créditos de la organización USD 8,97; gasto del mes USD 24,28 con límite de USD 200; sin
+recarga automática. Lo gastado (~USD 191) confirma la ESTIMACIÓN del capítulo 74 (~196). **Decisión:** no se mandan más lotes; lo que
+queda es para la trivia del sermón en producción. Las retraducciones pendientes y la traducción de «Historias bíblicas» se hacen en
+sesiones de Claude Code (plan Pro). Capítulo 75 §1.
+
+## DEC-2026-11-07-2 — Senda: «Historias bíblicas» en «La Biblia, libro por libro»
+**Pedido del fundador:** una travesía de historias bíblicas atrapantes, con ambientación por zona que cambia al bajar. **Decisión:** ruta
+nueva después de «El gran relato» (la trama manda; Personajes sigue mirando la vida de una persona). Plan de 22 historias en el orden de
+la Biblia; la primera abierta es Moisés y el éxodo (5 zonas, 13 lecciones, validador sin errores ni avisos). Cada zona tiene su escena,
+también las que se preparan. Capítulo 75 §13 y §14.
+
+## DEC-2026-11-07-3 — Senda: los torneos para todos avisan solo a los anotados
+**Decisión:** un torneo de Senda para todos aparece en el calendario comunitario de todos y en Jugar → Torneos, pero no manda un aviso
+al teléfono de todo el mundo (molesta y no escala). A quien se anota le llega un aviso a la hora en que empieza. Capítulo 75 §12.
+
+## DEC-2026-11-07-4 — Senda: recuperar la cuenta con Google (espera al fundador)
+**Contexto:** la cuenta es anónima, sin correo (pedido del fundador: crear usuario sin correo), y hoy no se recupera al cambiar de
+teléfono. **Recomendación:** un botón opcional «Guardar mi cuenta con Google» (Supabase `linkIdentity`); quien no quiera, sigue
+anónimo. Costo 0; pide un cliente de OAuth en Google Cloud. Descartado el código de traspaso propio (sesiones a mano: más riesgo).
+Capítulo 75 §3.
+
+## DEC-2026-11-07-5 — Senda: lanzar primero en Argentina y los países de habla hispana (recomendación)
+**Contexto (chequeo legal del 07-11, `conocimiento/2026-11-07-senda-chequeo-legal.md`):** EE. UU. (COPPA y leyes de tiendas), Brasil
+(ECA Digital, Lei 15.211) y la UE (RGPD con CMP certificado) piden trabajo propio cada uno. **Recomendación:** excluirlos en Play Console
+al lanzar el 18-12 y abrirlos uno por uno; la interfaz en portugués e inglés queda. Lo decide el fundador al armar la ficha de Play.
+Capítulo 75 §6.

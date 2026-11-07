@@ -461,6 +461,17 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     «cada uno su tiempo»; marcador y tabla final;
   - créditos de la API medidos con los tokens de cada lote: USD ~196 de 200; no se mandan más lotes (DEC-2026-11-06-8); quedan 294
     campos corregidos por idioma para retraducir en una sesión (capítulo 74 §5).
+- **Datos del 07-11-2026 (Senda, prueba 49):**
+  - créditos de la API: quedan USD 8,97 sin recarga automática; no se mandan más lotes (DEC-2026-11-07-1);
+  - las cuentas son anónimas (sin correo) y el alias es único; recuperar la cuenta con Google espera su OK (DEC-2026-11-07-4);
+  - seguridad revisada antes del lanzamiento (14 ataques cerrados; la prueba de la base en 208 pasos); borrar la cuenta, normas,
+    denuncias, privacidad y términos 1.0 y páginas públicas hechos; lo legal que le toca al fundador está en el capítulo 75 §6 y en
+    `conocimiento/2026-11-07-senda-chequeo-legal.md` (recomendación: lanzar sin EE. UU., Brasil ni la UE, DEC-2026-11-07-5);
+  - cada zona de la Travesía tiene su paisaje y cambia al bajar; «Historias bíblicas» va en La Biblia, libro por libro, con Moisés y
+    el éxodo abierto (DEC-2026-11-07-2); los torneos para todos avisan solo a los anotados (DEC-2026-11-07-3);
+  - el «Manual de Senda» explica la app entera (https://claude.ai/artifact/GjxDRXYvybeKP8YpHjs3ag; copia en
+    `oportunidades/proyectos/senda/manual-senda.html`): se actualiza cuando cambia algo que describe.
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
