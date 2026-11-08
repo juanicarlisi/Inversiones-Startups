@@ -304,16 +304,16 @@ async function cpSave() {
   const ok = await guardar(async () => { for (const d of docs) await Store.set('mov', d.id, d.data); });
   if (ok) {
     const def = SHEETS.find(s => s.id === 'cp'); closeSheet(def);
-    const d0 = docs[0].data, mes0 = d0.mes; let titulo = '¡Anotado!', sub = '', tono = 'accent', confeti = false;
+    const d0 = docs[0].data, mes0 = d0.mes; let titulo = 'Gasto guardado', sub = '', tono = 'accent';
     if (d0.tipo === 'gasto') {
       const nIt = (d0.items || []).length, nCat = new Set((d0.items || []).map(i => i.cat)).size;
-      if (docs.length > 1) { titulo = '¡Compra en cuotas!'; sub = `${docs.length} cuotas de ${money(d0.total)}`; }
-      else if (nIt > 1) { titulo = '¡Ticket cargado!'; sub = `${nIt} ítems en ${nCat} ${nCat > 1 ? 'rubros' : 'rubro'}`; }
-      else { titulo = ['¡Anotado!', '¡Listo!', '¡Guardado!'][Math.floor(Math.random() * 3)]; sub = catOf((d0.items[0] || {}).cat).e + ' ' + catOf((d0.items[0] || {}).cat).n; }
+      if (docs.length > 1) { titulo = 'Compra en cuotas'; sub = `${docs.length} cuotas de ${money(d0.total)}`; }
+      else if (nIt > 1) { titulo = 'Ticket cargado'; sub = `${nIt} ítems en ${nCat} ${nCat > 1 ? 'rubros' : 'rubro'}`; }
+      else sub = catOf((d0.items[0] || {}).cat).n;
       if (esTarjeta(d0.medio) && !d0.pagoFondo) sub += ` · se paga en ${ymName(mes0).toLowerCase()}`;
-    } else if (d0.tipo === 'ingreso') { titulo = '¡Entró plata!'; sub = ingCatOf(d0.cat).e + ' ' + ingCatOf(d0.cat).n; tono = 'pos'; confeti = true; }
-    else { titulo = { aporte: '¡Invertiste!', retiro: 'Retiro anotado', rendimiento: '¡Rendimiento anotado!' }[d0.tipo] || '¡Listo!'; sub = (destOf(d0.fondo) || { e: '', n: '' }).e + ' ' + (destOf(d0.fondo) || { n: '' }).n; confeti = d0.tipo === 'aporte'; }
-    const cel = celebrar({ titulo, monto: docs.reduce((s, x) => s + x.data.total, 0) / (docs.length > 1 ? docs.length : 1), sub, tono, confeti });
+    } else if (d0.tipo === 'ingreso') { titulo = 'Ingreso guardado'; sub = ingCatOf(d0.cat).n; tono = 'pos'; }
+    else { titulo = { aporte: 'Aporte guardado', retiro: 'Retiro guardado', rendimiento: 'Rendimiento guardado' }[d0.tipo] || 'Guardado'; sub = (destOf(d0.fondo) || { n: '' }).n; }
+    const cel = celebrar({ titulo, monto: docs.reduce((s, x) => s + x.data.total, 0) / (docs.length > 1 ? docs.length : 1), sub, tono });
     if (CP_TIPO_GASTO(docs)) {
       const cats0 = new Set((d0.items || []).map(i => i.cat)); const bs = bolsasDe(mes0).find(x => (x.cats || []).some(c => cats0.has(c)));
       if (bs) setTimeout(() => { const u = bolsaUso(bs, mes0), msg = u.pasado > 0 ? `Te pasaste ${money(u.pasado)} del presupuesto de ${bs.n}` : `Te quedan ${money(u.queda)} del presupuesto de ${bs.n}`; const s2 = cel && cel.isConnected && cel.querySelector('.sub2'); if (s2) s2.textContent = msg; else toast(msg); }, 700);
@@ -408,8 +408,8 @@ async function planOk(def) {
     if (!(monto > 0)) { toast('Marcado como hecho (sin monto)'); return; }
     S.ui.just = it.id; setTimeout(() => { S.ui.just = null; }, 1500);
     const resto = checklist(ym).filter(x => x.it.id !== it.id && !x.real && (x.plan > 0 || x.it.recordar)).length;
-    const titulo = it.tipo === 'ingreso' ? ['¡Cobraste!', '¡Entró plata!', '¡Cobrado!'][Math.floor(Math.random() * 3)] : it.tipo === 'aporte' ? '¡Aportaste!' : ['¡Pagaste!', '¡Pagado!', '¡Listo, pagado!'][Math.floor(Math.random() * 3)];
-    celebrar({ titulo, monto, tono: it.tipo === 'ingreso' ? 'pos' : 'accent', confeti: it.tipo === 'ingreso' || resto === 0, sub: resto ? `Te ${resto === 1 ? 'falta 1 cosa' : 'faltan ' + resto + ' cosas'} en ${ymName(ym).toLowerCase()}` : `¡Todo al día en ${ymName(ym).toLowerCase()}! 🎉` });
+    const titulo = it.tipo === 'ingreso' ? 'Cobraste' : it.tipo === 'aporte' ? 'Aportaste' : 'Pagaste';
+    celebrar({ titulo, monto, tono: it.tipo === 'ingreso' ? 'pos' : 'accent', sub: resto ? `${resto === 1 ? 'Falta 1 movimiento' : 'Faltan ' + resto + ' movimientos'} en ${ymName(ym).toLowerCase()}` : `Todo al día en ${ymName(ym).toLowerCase()}`, ms: resto ? 1500 : 2000 });
   }
 }
 function abrirPlanTodo() {
@@ -574,7 +574,7 @@ async function wSave(def) {
   }
   const doc = { ym, cerradoEn: new Date().toISOString(), por: userName(), ing: r2(c.ing), cons: r2(c.cons), sobra: r2(c.sobra), fondos };
   const ok = await guardar(async () => { for (const m of movs) await Store.set('mov', uid(), m); await Store.set('cfg', 'cierre_' + ym, doc); });
-  if (ok) { closeSheet(def); const rend = sum(Object.values(fondos), f => f.rend || 0); celebrar({ titulo: `¡${ymName(ym)} cerrado!`, sub: `Sobró ${money(c.sobra)}${rend ? ' · rendimiento ' + money(rend) : ''}`, tono: 'pos', confeti: true, ms: 2600 }); }
+  if (ok) { closeSheet(def); const rend = sum(Object.values(fondos), f => f.rend || 0); celebrar({ titulo: `${ymName(ym)} cerrado`, monto: c.sobra, sub: `Lo que sobró del mes${rend ? ' · rendimiento ' + money(rend) : ''}`, tono: 'pos', ms: 2300 }); }
 }
 
 const CP_TIPO_GASTO = docs => docs[0] && docs[0].data.tipo === 'gasto' && !docs[0].data.pagoFondo;
