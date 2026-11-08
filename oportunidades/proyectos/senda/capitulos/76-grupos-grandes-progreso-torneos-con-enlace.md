@@ -104,6 +104,21 @@ sus tres atajos sociales (pedido de la prueba 48).
 
 [se completa con el resultado del trabajo en paralelo]
 
+## 9b. «Historias bíblicas»: Jericó
+
+La segunda historia de la ruta (Josué 1 a 6), con el mismo cuidado que Moisés: **11 lecciones en 5 zonas** (Josué toma el mando,
+Rahab y los espías, el cruce del Jordán, Gilgal, las murallas de Jericó), con la ficha de Josué y la de Rahab antes de las preguntas,
+tres escenas de fondo nuevas (el Jordán, Gilgal, las murallas), el diagrama de las vueltas y la lámina de la casa en el muro.
+- **Verificación (HECHO):** 129 fragmentos entre «» buscados en su versículo exacto de la RV1909 de la app: todos textuales. Los
+  huecos usan palabras que la RVR1960 conserva («bocina», que cambia, quedó fuera). `principio.py` 0, el validador «Todo en orden».
+- **Lo delicado, cómo quedó:** Rahab, «ramera» (Hebreos 11:31), explicado en una línea; su mentira se cuenta como mentira y se dice que
+  el Nuevo Testamento destaca su fe, sin tomar partido; la destrucción de Jericó, como juicio por la maldad de esos pueblos (Génesis
+  15:16, Deuteronomio 9:5) y Rahab como muestra de que quien se volvía a Dios era salvado; el Príncipe del ejército de Jehová, marcado
+  como lectura que se discute. Ninguna pregunta sobre la mentira ni sobre los muertos.
+- Al revisar el camino apareció un error viejo: si la zona cambiaba dos veces en menos de medio segundo, el fondo quedaba trabado en
+  el paisaje anterior (las dos capas del fundido compartían su opacidad). Arreglado: cada escena tiene la suya.
+- Falta traducirla al portugués y al inglés (una ruta se publica en un idioma solo entera). Siguiente historia: Gedeón.
+
 ## 10. Preguntas cortas al fundador (en el chat, no en la Consola)
 
 1. **Sociedades Bíblicas Unidas:** ¿mandás la respuesta lista (no pagar el paquete de USD 500 por RVR95, RVC, DHH y TLA; pedir la
@@ -130,7 +145,7 @@ No se hizo a medias en esta prueba: son tablas, funciones, un trabajo programado
 ## 12. Próximos
 
 - La eliminatoria con llaves (§11).
-- «Historias bíblicas»: la siguiente historia después de Jericó (Gedeón; después David y Goliat).
+- «Historias bíblicas»: Gedeón (después David y Goliat); traducir Jericó al portugués y al inglés.
 - Retraducir los 294 campos corregidos por idioma, en una sesión.
 - Regalar un sobre a un amigo y marcos para el avatar (Talentos).
 - La ropa de Lany según la zona de la ruta (en «Historias bíblicas», ropa hebrea en el éxodo).
