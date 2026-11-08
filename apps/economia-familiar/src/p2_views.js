@@ -28,6 +28,40 @@ function toast(msg, undo, err) {
   if (undo) t.querySelector('button').onclick = () => { t.remove(); undo(); };
   document.body.appendChild(t); clearTimeout(toastT); toastT = setTimeout(() => t.remove(), undo ? 6000 : 3200);
 }
+/* --- Festejos: tarjeta animada, confeti en hitos, vibración y sonido (todo se puede apagar en Ajustes) --- */
+const pref = (k, d) => lsGet('ef_' + k, d) === '1';
+let AC = null;
+function ding() {
+  if (!pref('snd', '0')) return;
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)(); const n = AC.currentTime;
+    [[659.25, 0], [880, 0.11], [1318.5, 0.22]].forEach(([f, d]) => { const o = AC.createOscillator(), g = AC.createGain(); o.type = 'sine'; o.frequency.value = f; g.gain.setValueAtTime(0.0001, n + d); g.gain.linearRampToValueAtTime(0.055, n + d + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, n + d + 0.3); o.connect(g); g.connect(AC.destination); o.start(n + d); o.stop(n + d + 0.32); });
+  } catch (e) { }
+}
+function haptic() { if (!pref('hap', '1')) return; try { navigator.vibrate && navigator.vibrate([12, 40, 18]); } catch (e) { } }
+function celebrar(o) {
+  const old = document.getElementById('cele'); if (old) old.remove();
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  haptic(); ding();
+  if (!pref('cele', '1') || reduce) { toast(o.titulo + (o.monto ? ' · ' + money(o.monto) : '') + (o.sub ? ' · ' + o.sub : '')); return null; }
+  const col = { accent: 'var(--accent)', pos: 'var(--pos)', warn: 'var(--warn)' }[o.tono || 'accent'];
+  const el = document.createElement('div'); el.id = 'cele'; el.className = 'cele'; el.setAttribute('role', 'status');
+  el.innerHTML = `<div class="cele-card" style="--tono:${col}"><svg class="cele-ring" viewBox="0 0 92 92" aria-hidden="true"><circle class="r1" cx="46" cy="46" r="36"/><circle class="r2" cx="46" cy="46" r="36"/><path class="ck" d="M30 47l11 11 21-24"/></svg><h3>${esc(o.titulo)}</h3>${o.monto ? `<div class="amt num">${money(o.monto)}</div>` : ''}<div class="sub">${esc(o.sub || '')}</div><div class="sub sub2"></div></div>`;
+  if (o.confeti) {
+    const cols = ['var(--accent)', 'var(--pos)', 'var(--warn)', 'var(--neg)', '#b05fd1', '#0e8fa8'];
+    for (let i = 0; i < 34; i++) { const a = Math.random() * Math.PI * 2, d = 90 + Math.random() * 150, s = document.createElement('i'); s.className = 'cf'; s.style.cssText = `background:${cols[i % cols.length]};--dx:${Math.cos(a) * d}px;--dy:${Math.sin(a) * d * .8 - 30 + 120}px;--r:${(Math.random() - .5) * 900}deg;animation-delay:${Math.random() * .12}s`; el.insertBefore(s, el.firstChild); }
+  }
+  document.body.appendChild(el); el.onclick = () => el.remove(); setTimeout(() => { if (el.isConnected) el.remove(); }, o.ms || (o.confeti ? 2300 : 1800));
+  return el;
+}
+function animNums() {
+  const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches; S.prevNums = S.prevNums || {};
+  $$('[data-cnt]').forEach(el => {
+    const k = el.dataset.cnt, to = +el.dataset.v, fmt = el.dataset.fmt === 'm' ? money : compact, from = S.prevNums[k]; S.prevNums[k] = to;
+    if (reduce || from == null || from === to || !isFinite(from)) return;
+    const t0 = performance.now(), dur = 650, step = t => { const q = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - q, 3); el.textContent = fmt(from + (to - from) * e); if (q < 1) requestAnimationFrame(step); else el.textContent = fmt(to); }; requestAnimationFrame(step);
+  });
+}
 let SHEETS = [];
 const val = v => typeof v === 'function' ? v() : v;
 function openSheet(def) {
@@ -175,9 +209,9 @@ function vInicio() {
   const ac = acumulado(ym);
   let h = '<div class="grid two">';
   h += `<div class="card hero span2"><div class="trio">
-    <div><div class="eyebrow">${esp ? 'Entra' : 'Entró'}</div><div class="big num pos">${compact(ingV)}</div><div class="cap">${esp ? (R.ingP > 0 ? 'cobrado ' + compact(R.ing) : 'todo cobrado') : 'cobrado'}</div></div>
-    <div><div class="eyebrow">${esp ? 'Sale' : 'Salió'}</div><div class="big num">${compact(consV)}</div><div class="cap">${esp ? (falta > 500 ? 'pagado ' + compact(R.cons) : 'todo pagado') : 'gastado'}</div></div>
-    <div><div class="eyebrow">${esp ? 'Sobra' : 'Resultado'}</div><div class="big num ${resV < 0 ? 'neg' : 'pos'}">${compact(resV)}</div><div class="cap">${esp ? 'entra − sale, del mes entero' : 'ahorro del mes'}</div></div></div>
+    <div><div class="eyebrow">${esp ? 'Entra' : 'Entró'}</div><div class="big num pos"><span data-cnt="ing" data-v="${ingV}" data-fmt="c">${compact(ingV)}</span></div><div class="cap">${esp ? (R.ingP > 0 ? 'cobrado ' + compact(R.ing) : 'todo cobrado') : 'cobrado'}</div></div>
+    <div><div class="eyebrow">${esp ? 'Sale' : 'Salió'}</div><div class="big num"><span data-cnt="cons" data-v="${consV}" data-fmt="c">${compact(consV)}</span></div><div class="cap">${esp ? (falta > 500 ? 'pagado ' + compact(R.cons) : 'todo pagado') : 'gastado'}</div></div>
+    <div><div class="eyebrow">${esp ? 'Sobra' : 'Resultado'}</div><div class="big num ${resV < 0 ? 'neg' : 'pos'}"><span data-cnt="res" data-v="${resV}" data-fmt="c">${compact(resV)}</span></div><div class="cap">${esp ? 'entra − sale, del mes entero' : 'ahorro del mes'}</div></div></div>
     <div class="stack" role="img" aria-label="Qué se hace con lo que entra"><i style="width:${wCons}%;background:var(--ink2)"></i><i style="width:${wApor}%;background:var(--accent)"></i><i style="width:${wSin}%;background:var(--pos)"></i></div>
     <div class="leg">
       <div class="li"><span class="dot" style="background:var(--ink2)"></span>Consumo (gastos)<small>${pct(consV, ingV)}%</small><b class="num">${money(consV)}</b></div>
@@ -187,8 +221,8 @@ function vInicio() {
     ${esp ? '<div class="hint" style="margin-top:10px">Incluye lo que todavía no confirmaste. A medida que confirmás cobros y pagos, se ajusta con los montos reales.</div>' : ''}
     ${resV < 0 && ingV > 0 ? '<div class="note neg" style="margin-top:12px">Este mes sale más de lo que entra. Mirá en Análisis qué rubro pesa más.</div>' : ''}
     <div style="margin-top:10px"><button class="link" data-act="explicar">¿Cómo se cuenta cada cosa?</button></div></div>`;
-  h += `<div class="tiles span2"><button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Sobra acumulada</div><div class="v num ${ac.libre < 0 ? 'neg' : ''}">${money(ac.libre)}</div><div class="hint">al cierre de ${ymName(ym).toLowerCase()}, sin destino todavía</div></button>
-    <button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Patrimonio</div><div class="v num">${money(ac.total)}</div><div class="hint">sobra + fondos, con rendimiento estimado</div></button></div>`;
+  h += `<div class="tiles span2"><button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Sobra acumulada</div><div class="v num ${ac.libre < 0 ? 'neg' : ''}"><span data-cnt="libre" data-v="${ac.libre}" data-fmt="m">${money(ac.libre)}</span></div><div class="hint">al cierre de ${ymName(ym).toLowerCase()}, sin destino todavía</div></button>
+    <button class="tile" data-act="go" data-v="fondos"><div class="eyebrow">Patrimonio</div><div class="v num"><span data-cnt="patr" data-v="${ac.total}" data-fmt="m">${money(ac.total)}</span></div><div class="hint">sobra + fondos, con rendimiento estimado</div></button></div>`;
   const sc = primerMesSinCerrar();
   if (sc) h += `<div class="card span2" style="border:2px solid var(--accent)"><h2>Terminó ${ymName(sc).toLowerCase()}</h2><div class="help">Actualizá los montos reales, contá cuánto vale hoy cada fondo y cerrá el mes. Queda guardado el histórico para ver cuánto rindió.</div><div class="sp"></div><button class="btn primary block" data-act="cerrar" data-ym="${sc}">Cerrar ${ymName(sc).toLowerCase()}</button></div>`;
   // checklist
@@ -197,12 +231,13 @@ function vInicio() {
     const grupos = [['ingreso', 'Cobros'], ['gasto', 'Pagos del mes'], ['aporte', 'Aportes a fondos']];
     const pend = rows.filter(r => !r.real && r.plan > 0), pendTodos = rows.filter(r => !r.real && (r.plan > 0 || r.it.recordar));
     h += `<div class="card"><h2>Para este mes ${pendTodos.length ? `<span class="pill warn">${pendTodos.length} pendiente${pendTodos.length > 1 ? 's' : ''}</span>` : '<span class="pill pos">Todo al día</span>'}</h2>`;
+    { const hechos = rows.filter(r => r.real).length; h += `<div class="prog"><div class="bar"><i style="width:${pct(hechos, rows.length)}%;background:var(--pos)"></i></div><div class="hint">${hechos} de ${rows.length} hechos${hechos === rows.length ? ' · ¡todo al día!' : ''}</div></div>`; }
     for (const [tipo, lab] of grupos) {
       const rs = rows.filter(r => r.it.tipo === tipo); if (!rs.length) continue;
       h += `<div class="group-h">${lab}</div>`;
       for (const r of rs) {
         const done = !!r.real; const e = r.it.tipo === 'aporte' ? r.it.e : (r.it.tipo === 'ingreso' ? ingCatOf(r.it.cat).e : catOf(r.it.cat).e);
-        h += `<button class="chk ${done ? 'done' : ''}" data-act="plan-open" data-id="${esc(r.it.id)}"><span class="cb">${IC.check}</span><span class="grow"><div class="nm ell">${e} ${esc(r.it.n)}</div><div class="sub">${done ? 'registrado' + (Math.round(r.real.total) !== Math.round(r.plan) ? ' · previsto ' + money(r.plan) : '') : (r.recordatorio ? 'recordatorio · cargá el monto cuando llegue' : r.it.pct ? '10% de los ingresos' : fut ? 'previsto' : 'tocá para confirmar')}</div></span><span class="amt num ${done ? 'pos' : ''}">${r.recordatorio ? '<span class="muted" style="font-weight:700">sin monto</span>' : money(done ? r.real.total : r.plan)}</span></button>`;
+        h += `<button class="chk ${done ? 'done' : ''}${S.ui.just === r.it.id ? ' pop' : ''}" data-act="plan-open" data-id="${esc(r.it.id)}"><span class="cb">${IC.check}</span><span class="grow"><div class="nm ell">${e} ${esc(r.it.n)}</div><div class="sub">${done ? 'registrado' + (Math.round(r.real.total) !== Math.round(r.plan) ? ' · previsto ' + money(r.plan) : '') : (r.recordatorio ? 'recordatorio · cargá el monto cuando llegue' : r.it.pct ? '10% de los ingresos' : fut ? 'previsto' : 'tocá para confirmar')}</div></span><span class="amt num ${done ? 'pos' : ''}">${r.recordatorio ? '<span class="muted" style="font-weight:700">sin monto</span>' : money(done ? r.real.total : r.plan)}</span></button>`;
       }
     }
     if (pend.length > 1) h += `<div class="sp"></div><button class="btn block" data-act="plan-todo">Confirmar todo lo pendiente (${pend.length})</button>`;

@@ -303,8 +303,21 @@ async function cpSave() {
   } else if (CP.img && CP.tipo === 'gasto') docs[0].data.img = CP.img;
   const ok = await guardar(async () => { for (const d of docs) await Store.set('mov', d.id, d.data); });
   if (ok) {
-    const def = SHEETS.find(s => s.id === 'cp'); closeSheet(def); toast(docs.length > 1 ? `Guardado en ${docs.length} cuotas` : 'Guardado ✓');
-    if (CP_TIPO_GASTO(docs)) { const mes0 = docs[0].data.mes, cats0 = new Set((docs[0].data.items || []).map(i => i.cat)); const b = bolsasDe(mes0).find(x => (x.cats || []).some(c => cats0.has(c))); if (b) setTimeout(() => { const u = bolsaUso(b, mes0); toast(u.pasado > 0 ? `Guardado ✓ · te pasaste ${money(u.pasado)} del presupuesto de ${b.n}` : `Guardado ✓ · te quedan ${money(u.queda)} del presupuesto de ${b.n}`); }, 700); }
+    const def = SHEETS.find(s => s.id === 'cp'); closeSheet(def);
+    const d0 = docs[0].data, mes0 = d0.mes; let titulo = '¡Anotado!', sub = '', tono = 'accent', confeti = false;
+    if (d0.tipo === 'gasto') {
+      const nIt = (d0.items || []).length, nCat = new Set((d0.items || []).map(i => i.cat)).size;
+      if (docs.length > 1) { titulo = '¡Compra en cuotas!'; sub = `${docs.length} cuotas de ${money(d0.total)}`; }
+      else if (nIt > 1) { titulo = '¡Ticket cargado!'; sub = `${nIt} ítems en ${nCat} ${nCat > 1 ? 'rubros' : 'rubro'}`; }
+      else { titulo = ['¡Anotado!', '¡Listo!', '¡Guardado!'][Math.floor(Math.random() * 3)]; sub = catOf((d0.items[0] || {}).cat).e + ' ' + catOf((d0.items[0] || {}).cat).n; }
+      if (esTarjeta(d0.medio) && !d0.pagoFondo) sub += ` · se paga en ${ymName(mes0).toLowerCase()}`;
+    } else if (d0.tipo === 'ingreso') { titulo = '¡Entró plata!'; sub = ingCatOf(d0.cat).e + ' ' + ingCatOf(d0.cat).n; tono = 'pos'; confeti = true; }
+    else { titulo = { aporte: '¡Invertiste!', retiro: 'Retiro anotado', rendimiento: '¡Rendimiento anotado!' }[d0.tipo] || '¡Listo!'; sub = (destOf(d0.fondo) || { e: '', n: '' }).e + ' ' + (destOf(d0.fondo) || { n: '' }).n; confeti = d0.tipo === 'aporte'; }
+    const cel = celebrar({ titulo, monto: docs.reduce((s, x) => s + x.data.total, 0) / (docs.length > 1 ? docs.length : 1), sub, tono, confeti });
+    if (CP_TIPO_GASTO(docs)) {
+      const cats0 = new Set((d0.items || []).map(i => i.cat)); const bs = bolsasDe(mes0).find(x => (x.cats || []).some(c => cats0.has(c)));
+      if (bs) setTimeout(() => { const u = bolsaUso(bs, mes0), msg = u.pasado > 0 ? `Te pasaste ${money(u.pasado)} del presupuesto de ${bs.n}` : `Te quedan ${money(u.queda)} del presupuesto de ${bs.n}`; const s2 = cel && cel.isConnected && cel.querySelector('.sub2'); if (s2) s2.textContent = msg; else toast(msg); }, 700);
+    }
     if (metaId) { const x = S.metas.items.find(i => i.id === metaId); if (x) { x.hecha = true; x.real = tot; saveMetas().catch(() => { }); } }
   }
 }
@@ -389,7 +402,15 @@ async function planOk(def) {
       const m = movDesdePlan(it, ym, monto, def.getFecha(), def.medio, mes); if (!(monto > 0)) m.omitido = true; await Store.set('mov', uid(), m);
     }
   });
-  if (ok) { closeSheet(def); toast(monto > 0 ? 'Registrado ✓' : 'Marcado como hecho (sin monto)'); }
+  if (ok) {
+    closeSheet(def);
+    if (row.real) { toast('Cambio guardado ✓'); return; }
+    if (!(monto > 0)) { toast('Marcado como hecho (sin monto)'); return; }
+    S.ui.just = it.id; setTimeout(() => { S.ui.just = null; }, 1500);
+    const resto = checklist(ym).filter(x => x.it.id !== it.id && !x.real && (x.plan > 0 || x.it.recordar)).length;
+    const titulo = it.tipo === 'ingreso' ? ['¡Cobraste!', '¡Entró plata!', '¡Cobrado!'][Math.floor(Math.random() * 3)] : it.tipo === 'aporte' ? '¡Aportaste!' : ['¡Pagaste!', '¡Pagado!', '¡Listo, pagado!'][Math.floor(Math.random() * 3)];
+    celebrar({ titulo, monto, tono: it.tipo === 'ingreso' ? 'pos' : 'accent', confeti: it.tipo === 'ingreso' || resto === 0, sub: resto ? `Te ${resto === 1 ? 'falta 1 cosa' : 'faltan ' + resto + ' cosas'} en ${ymName(ym).toLowerCase()}` : `¡Todo al día en ${ymName(ym).toLowerCase()}! 🎉` });
+  }
 }
 function abrirPlanTodo() {
   const ym = S.mes; const pend = checklist(ym).filter(r => !r.real && r.plan > 0);
@@ -553,7 +574,7 @@ async function wSave(def) {
   }
   const doc = { ym, cerradoEn: new Date().toISOString(), por: userName(), ing: r2(c.ing), cons: r2(c.cons), sobra: r2(c.sobra), fondos };
   const ok = await guardar(async () => { for (const m of movs) await Store.set('mov', uid(), m); await Store.set('cfg', 'cierre_' + ym, doc); });
-  if (ok) { closeSheet(def); toast(ymName(ym) + ' cerrado ✓'); }
+  if (ok) { closeSheet(def); const rend = sum(Object.values(fondos), f => f.rend || 0); celebrar({ titulo: `¡${ymName(ym)} cerrado!`, sub: `Sobró ${money(c.sobra)}${rend ? ' · rendimiento ' + money(rend) : ''}`, tono: 'pos', confeti: true, ms: 2600 }); }
 }
 
 const CP_TIPO_GASTO = docs => docs[0] && docs[0].data.tipo === 'gasto' && !docs[0].data.pagoFondo;

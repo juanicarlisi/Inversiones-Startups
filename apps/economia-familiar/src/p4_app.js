@@ -23,6 +23,10 @@ function vAjustes() {
     <div class="set-row"><span class="grow ink2">Lectura de tickets con Claude</span>${ok(dg.sample)}</div>
     <div class="set-row"><span class="grow ink2">Guardar fotos</span>${ok(dg.assets)}</div>
     <div class="hint" style="margin-top:6px">Si algo dice “no”, es una función que Claude no le habilitó a esta cuenta o visor. Sacale captura a esta tarjeta si necesitás avisarme.</div></div>`;
+  h += `<div class="card"><h2>Sensaciones</h2>
+    <label class="switch"><span>Festejos al pagar, cobrar o cargar<div class="hint">Animación y confeti en los hitos</div></span><button class="tg ${pref('cele', '1') ? 'on' : ''}" data-act="tg-pref" data-k="cele" role="switch" aria-checked="${pref('cele', '1')}"></button></label>
+    <label class="switch"><span>Vibración suave<div class="hint">Solo en celulares que la permiten</div></span><button class="tg ${pref('hap', '1') ? 'on' : ''}" data-act="tg-pref" data-k="hap" role="switch" aria-checked="${pref('hap', '1')}"></button></label>
+    <label class="switch"><span>Sonido de confirmación<div class="hint">Un “ding” corto, bajito</div></span><button class="tg ${pref('snd', '0') ? 'on' : ''}" data-act="tg-pref" data-k="snd" role="switch" aria-checked="${pref('snd', '0')}"></button></label></div>`;
   h += `<div class="card"><h2>Datos</h2><button class="set-row" data-act="export-csv"><span class="grow">Exportar movimientos (CSV)</span>${IC.chev}</button>
     <div class="set-row"><span class="grow ink2">Reglas aprendidas</span><span class="num hint">${Object.keys(S.apr).length} ítems</span></div>
     <div class="set-row"><span class="grow ink2">Conexión</span><span class="pill ${S.mode === 'cloud' ? 'pos' : 'warn'}">${S.mode === 'cloud' ? 'compartida' : 'solo este teléfono'}</span></div>
@@ -171,6 +175,7 @@ const ACT = {
   'me-save': async (el, e, d) => { const x = d.x; if (!x.n.trim()) { toast('Poné qué querés comprar.', null, true); return; } const a = S.metas.items; const i = a.findIndex(y => y.id === x.id); if (i > -1) a[i] = x; else a.push(x); if (await guardar(saveMetas, 'Guardado ✓')) closeSheet(d); },
   'me-del': async (el, e, d) => { S.metas.items = S.metas.items.filter(y => y.id !== d.x.id); if (await guardar(saveMetas, 'Eliminada')) closeSheet(d); },
   'cat-edit': el => abrirCat(el.dataset.id),
+  'tg-pref': el => { const k = el.dataset.k, v = pref(k, k === 'snd' ? '0' : '1') ? '0' : '1'; lsSet('ef_' + k, v); render(); if (v === '1') { if (k === 'snd') ding(); if (k === 'hap') haptic(); if (k === 'cele') celebrar({ titulo: '¡Así se ve!', sub: 'Así festejamos cada pago', tono: 'pos', confeti: true }); } },
   'bolsa-edit': el => abrirBolsa(el.dataset.id),
   'bo-cat': (el, e, d) => { const k = el.dataset.k, i = d.b.cats.indexOf(k); if (i > -1) d.b.cats.splice(i, 1); else d.b.cats.push(k); paintSheet(d); },
   'bo-save': async (el, e, d) => { const x = d.b; if (!x.n.trim()) { toast('Poné un nombre.', null, true); return; } if (!(x.monto > 0)) { toast('Falta el tope mensual.', null, true); return; } if (!x.cats.length) { toast('Elegí al menos un rubro.', null, true); return; } if (!x.desde) Reflect.deleteProperty(x, 'desde'); cfg().bolsas = cfg().bolsas || []; const i = cfg().bolsas.findIndex(y => y.id === x.id); if (i > -1) cfg().bolsas[i] = x; else cfg().bolsas.push(x); if (await guardar(saveCfg, 'Guardado ✓')) closeSheet(d); },
@@ -289,7 +294,7 @@ function render() {
   const y = window.scrollY;
   try { $('#app').innerHTML = header() + (VIEWS[S.vista] || vInicio)(); }
   catch (err) { console.error(err); $('#app').innerHTML = `<div class="card">${emptyState('⚠️', 'Algo salió mal al mostrar esta pantalla', esc(String(err.message || err)), '<button class="btn" data-act="go" data-v="inicio">Volver al inicio</button>')}</div>`; }
-  paintNav(); window.scrollTo(0, y);
+  paintNav(); window.scrollTo(0, y); animNums();
 }
 function renderKeep(el) {
   const id = el.id, pos = el.selectionStart; render(); const n = document.getElementById(id); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) { } }
