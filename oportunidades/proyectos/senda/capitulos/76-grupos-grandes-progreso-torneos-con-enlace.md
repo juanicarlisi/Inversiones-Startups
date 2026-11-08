@@ -102,7 +102,25 @@ sus tres atajos sociales (pedido de la prueba 48).
 
 ## 9. Las botoneras
 
-[se completa con el resultado del trabajo en paralelo]
+Pedido (07-11): «hay mucha botonera que es fácilmente detectable el diseño por IA… siempre redondeadas y de muchos botones (en el
+calendario, cuando elegís si dura 1 h, media h, 2 h)». HECHO: se barrió la app entera y se sacaron todas las filas de píldoras que
+eligen algo (regla R28 del marco de UX, con su porqué en Apple HIG, Material 3 y NN/g).
+
+- **Los controles nuevos** (`src/componentes/elegir.tsx`): de 2 a 4 opciones cortas, el **segmentado** (una sola pieza con
+  divisiones y esquinas moderadas, la elegida llena); muchas opciones o largas, la **fila con hoja** (rótulo, lo elegido y «›»; al
+  tocarla sube la lista); números, **pasos** («−» 10 «+») o la rueda de la hora; frases, **filas con su marca** (aro o casilla);
+  varias acciones sobre lo mismo, **una principal y las demás en «Más opciones»**; un sí o no, **interruptor**. Todos de 44 de alto
+  o más, con rol y estado para el lector de pantalla y probados con letra grande.
+- **Dónde se cambió** (21 pantallas y hojas): el evento propio (el ejemplo del fundador: «Dura» ahora es una fila que abre la lista), el
+  evento de grupo y para todos, Admin, Grupo, Grupos, trivia del sermón, Proponer, Calendario, Lector, versiones, Planes y
+  versiones, Buscar, Bienvenida, Nombres por letra, Línea, Copa, ¿Quién es?, denuncias, Torneos (qué preguntas, cuántas, hasta
+  cuándo), Ajustes (versión y hora del aviso) y el avatar (las pestañas de partes, subrayadas).
+- **Lo que queda con forma de etiqueta** a propósito: lo que no elige nada (el rol en un grupo, «+50 Talentos», el nombre de un
+  equipo) y los enlaces a pasajes dentro de un texto.
+- **Un error que salió al revisar**: las tarjetas con color (el formulario de evento, Comunidad) salían grises porque el tinte venía
+  en `rgba(...)` y la función de transparencia lo leía como negro; `conAlfa` ahora entiende los dos formatos.
+- Controles: tsc, la prueba de arranque (10 de 10), la auditoría de textos (86 casos, 0 problemas) y las capturas del manual
+  rehechas (47).
 
 ## 9b. «Historias bíblicas»: Jericó
 
