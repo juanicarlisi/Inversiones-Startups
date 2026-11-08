@@ -345,7 +345,7 @@ function anRubros(rub, totR, R) {
 }
 function anItems(R) {
   const U = S.ui; let items = []; const map = new Map();
-  for (const l of lineasDe(R.L)) { const k = keyOf(l.n || catOf(l.cat).n); if (!map.has(k)) map.set(k, { key: k, n: l.n || catOf(l.cat).n, cat: l.cat, total: 0, veces: 0, cant: 0 }); const o = map.get(k); o.total += l.monto; o.veces++; o.cant += +l.cant || 1; }
+  for (const l of lineasDe(R.L)) { const k = itemKey(l.n || catOf(l.cat).n); if (!map.has(k)) map.set(k, { key: k, n: itemName(l.n || catOf(l.cat).n), cat: l.cat, total: 0, veces: 0, cant: 0 }); const o = map.get(k); o.total += l.monto; o.veces++; o.cant += +l.cant || 1; }
   items = [...map.values()]; const q = norm(U.itemQ); if (q) items = items.filter(i => norm(i.n).includes(q));
   items.sort(U.itemSort === 'veces' ? (a, b) => b.veces - a.veces || b.total - a.total : U.itemSort === 'nombre' ? (a, b) => a.n.localeCompare(b.n) : (a, b) => b.total - a.total);
   const tot = sum(items, i => i.total);

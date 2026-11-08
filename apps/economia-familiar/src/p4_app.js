@@ -217,8 +217,20 @@ const ACT = {
   'cp-quitafoto': () => { if (CP.foto && CP.foto.url) URL.revokeObjectURL(CP.foto.url); CP.foto = null; cpRefresh(); },
   'cp-resto': () => { const d = r2(CP.totalTicket - cpTotal()); if (d > 0) { CP.lines.push({ n: 'Sin detallar', monto: d, cat: 'otros', cant: 1, auto: false }); cpRefresh(); } },
   'cp-quick': () => { CP.quick = !CP.quick; cpRefresh(); },
-  'cp-save': () => cpSave()
+  'cp-save': () => cpSave(),
+  'sug-pick': el => {
+    if (!CP) return; const n = el.dataset.n, cat = S.apr[keyOf(n)] || el.dataset.cat; sugClose();
+    if (el.dataset.src === 'ln') { const l = CP.lines[+el.dataset.i]; l.n = n; l.cat = cat; l.auto = false; const k = KNOWN && KNOWN.get(keyOf(n)); if (k && !l.monto) l.monto = r2(k.last); cpRefresh(); }
+    else { CP.com = n; CP.cat = cat; CP.catAuto = true; const i = $('#com'); if (i) i.value = n; const g = $('#cat-grid'); if (g) g.innerHTML = catGrid(); cpUpdMini(); }
+  },
+  'sug-add': async el => {
+    const n = el.dataset.n, cat = el.dataset.cat; sugClose();
+    const c = cfg(); c.itemsPropios = c.itemsPropios || []; if (!c.itemsPropios.some(x => norm(x.n) === norm(n))) c.itemsPropios.push({ n, cat }); CATIDX = null;
+    await guardar(saveCfg, 'Agregado a tu lista'); ACT['sug-pick'](el);
+  }
 };
+document.addEventListener('mousedown', e => { if (e.target.closest('.sug')) e.preventDefault(); });
+document.addEventListener('focusout', e => { if (e.target.dataset && e.target.dataset.sug) setTimeout(() => { if (document.activeElement !== e.target) sugClose(); }, 250); });
 document.addEventListener('click', e => {
   if (e.target.closest('label[for="file-ticket"]') && CP) setTimeout(() => { const h = $('#foto-hint'); if (h && CP && !CP.foto && CP.scan.state !== 'loading') h.hidden = false; }, 7000);
   const tip = e.target.closest('[data-tip]');
@@ -229,7 +241,7 @@ document.addEventListener('click', e => {
   fn(el, e, d);
 });
 document.addEventListener('input', e => {
-  const el = e.target;
+  const el = e.target; if (el.dataset && el.dataset.sug) setTimeout(() => sugShow(el), 0);
   if (el.id === 'q-movs') { S.ui.q = el.value; renderKeep(el); return; }
   if (el.id === 'q-items') { S.ui.itemQ = el.value; renderKeep(el); return; }
   const f = el.dataset && el.dataset.f; if (!f) return;
@@ -257,7 +269,7 @@ document.addEventListener('input', e => {
 document.addEventListener('change', async e => {
   const el = e.target, f = el.dataset && el.dataset.f; const d = sheetOf(el);
   if (el.id === 'file-ticket') { if (CP && el.files && el.files.length) { const fs = [...el.files]; el.value = ''; adjuntarFoto(fs); } return; }
-  if (f === 'ln' && CP && KNOWN) { const l = CP.lines[+el.dataset.i], k = KNOWN.get(keyOf(el.value)); if (k) { l.cat = S.apr[keyOf(el.value)] || k.cat; l.auto = false; if (!l.monto) l.monto = r2(k.last); cpRefresh(); } return; }
+  if (f === 'ln' && CP && KNOWN) { const l = CP.lines[+el.dataset.i], k = KNOWN.get(keyOf(itemName(el.value))); if (k) { l.cat = S.apr[keyOf(el.value)] || k.cat; l.auto = false; if (!l.monto) l.monto = r2(k.last); cpRefresh(); } return; }
   if (el.id === 'pl-fecha' && d && d.id === 'plan') { d.keep(); paintSheet(d); return; }
   if (f === 'rep-pct') { await guardar(saveCfg); render(); return; }
   if (f === 'rep-monto') { destOf(el.dataset.id).aporte = parseMonto(el.value); await guardar(saveCfg); render(); return; }

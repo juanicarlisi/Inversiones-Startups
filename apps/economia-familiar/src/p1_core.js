@@ -91,7 +91,7 @@ const S = {
   cache: { mov: false, cfg: false }, t0: Date.now(), mes: ymNow(), vista: 'inicio', base: 'pago', user: null, mode: 'local', ready: false, loaded: { mov: false, cfg: false },
   cap: { sample: null, images: false, downloads: null }, ui: { movVista: 'compras', movFiltro: 'todo', q: '', anTab: 'rubros', abiertos: {}, itemQ: '', itemSort: 'monto', fondoSel: null }
 };
-const APP_BUILD = 'v29 · 8 nov 2026';
+const APP_BUILD = 'v30 · 8 nov 2026';
 const cfg = () => S.cfg;
 const medios = () => [{ id: 'ef', n: 'Efectivo', k: 'cash' }, { id: 'deb', n: 'Débito', k: 'cash' }, { id: 'tr', n: 'Transferencia', k: 'cash' }, ...cfg().tarjetas.map(t => ({ id: t.id, n: t.n, k: 'card', cierre: t.cierre || 0 }))];
 const medioOf = id => medios().find(m => m.id === id) || { id, n: id, k: 'cash' };
@@ -140,6 +140,7 @@ const REGLAS = [
 function clasificar(nombre, comercio) {
   const k = keyOf(nombre);
   if (S.apr[k]) return S.apr[k];
+  const ce = canonEntry(nombre); if (ce && cfg().cats.some(x => x.id === ce.cat)) return ce.cat;
   const t = norm(nombre + ' ' + (comercio || ''));
   for (const [cat, re] of REGLAS) if (re.test(t)) return cat;
   const t2 = norm(nombre);
@@ -247,7 +248,7 @@ function porRubro(list) {
   for (const l of lineasDe(list)) {
     const c = l.cat || 'otros'; if (!map.has(c)) map.set(c, { cat: c, total: 0, items: new Map() });
     const r = map.get(c); r.total += l.monto;
-    const k = keyOf(l.n || catOf(c).n); if (!r.items.has(k)) r.items.set(k, { key: k, n: l.n || catOf(c).n, total: 0, veces: 0, cant: 0 });
+    const k = itemKey(l.n || catOf(c).n); if (!r.items.has(k)) r.items.set(k, { key: k, n: itemName(l.n || catOf(c).n), total: 0, veces: 0, cant: 0 });
     const it = r.items.get(k); it.total += l.monto; it.veces++; it.cant += +l.cant || 1;
   }
   return [...map.values()].sort((a, b) => b.total - a.total).map(r => ({ ...r, items: [...r.items.values()].sort((a, b) => b.total - a.total) }));
@@ -386,8 +387,8 @@ function statsItems(desde, hasta) {
     const k0 = m.cuota && m.cuota.n > 1 ? m.cuota.n : 1;
     if (desde && m.fecha < desde) continue; if (hasta && m.fecha > hasta) continue;
     for (const it of (m.items || [])) {
-      const key = keyOf(it.n || catOf(it.cat).n);
-      if (!map.has(key)) map.set(key, { key, n: it.n || catOf(it.cat).n, cat: it.cat, total: 0, veces: 0, cant: 0, first: m.fecha, last: m.fecha, hist: [] });
+      const key = itemKey(it.n || catOf(it.cat).n);
+      if (!map.has(key)) map.set(key, { key, n: itemName(it.n || catOf(it.cat).n), cat: it.cat, total: 0, veces: 0, cant: 0, first: m.fecha, last: m.fecha, hist: [] });
       const o = map.get(key); o.total += it.monto * k0; o.veces++; o.cant += +it.cant || 1;
       if (m.fecha < o.first) o.first = m.fecha; if (m.fecha > o.last) o.last = m.fecha;
       o.hist.push({ f: m.fecha, monto: it.monto * k0, cant: +it.cant || 1, com: m.com });

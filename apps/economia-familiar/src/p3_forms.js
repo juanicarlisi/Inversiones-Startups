@@ -64,11 +64,10 @@ function cpBody() {
   if (t === 'gasto') {
     if (!CP.split) {
       h += `<div class="field"><label>Rubro</label><div class="cats" id="cat-grid">${catGrid()}</div></div>`;
-      h += `<div class="field"><label for="com">¿Dónde o qué?</label><input class="inp" id="com" data-f="com" placeholder="Ej: Verdulería, Uber, Netflix" value="${esc(CP.com)}" autocomplete="off"></div>`;
+      h += `<div class="field"><label for="com">¿Dónde o qué?</label><input class="inp" id="com" data-f="com" data-sug="1" placeholder="Empezá a escribir: Atún, Colectivo, Netflix…" value="${esc(CP.com)}" autocomplete="off"></div>`;
       h += `<button class="btn ghost sm" data-act="cp-split" style="justify-self:start">Dividir en ítems (ticket con varias cosas)</button>`;
     } else {
       h += `<div class="field"><label>Ítems (${CP.lines.length})</label><div class="lines">${CP.lines.map((l, i) => lineRow(l, i)).join('')}</div></div><button class="btn sm" data-act="cp-addline" style="justify-self:start">+ Agregar ítem</button>
-      <datalist id="dl-items">${[...KNOWN.values()].slice(-400).map(x => `<option value="${esc(x.n)}">`).join('')}</datalist>
       <div class="field"><label for="tt">Total que dice el ticket (para chequear)</label><input class="inp num" id="tt" data-f="tt" inputmode="decimal" value="${CP.totalTicket ? fmtInput(CP.totalTicket) : ''}" placeholder="Opcional"><div id="tt-chk">${ttChk()}</div></div>`;
     }
     h += `<div class="field"><label>Cómo pagaste</label><div class="chips">${medios().map(m => `<button class="chip ${CP.medio === m.id ? 'on' : ''}" data-act="cp-medio" data-k="${m.id}">${m.k === 'card' ? '💳' : m.id === 'ef' ? '💵' : m.id === 'deb' ? '🏧' : '🏦'} ${esc(m.n)}</button>`).join('')}</div></div>`;
@@ -100,7 +99,7 @@ function catGrid() {
 function lineRow(l, i) {
   const c = catOf(l.cat);
   return `<div class="line" data-i="${i}"><button class="catbtn" data-act="cp-linecat" data-i="${i}" aria-label="Rubro" style="background:${c.c}22">${c.e}</button>
-  <input class="inp" data-f="ln" data-i="${i}" list="dl-items" placeholder="Ítem (ej: Atún)" value="${esc(l.n)}" autocomplete="off">
+  <input class="inp" data-f="ln" data-i="${i}" data-sug="1" placeholder="Ítem (ej: Atún)" value="${esc(l.n)}" autocomplete="off">
   <input class="inp num" data-f="lm" data-i="${i}" inputmode="decimal" placeholder="Monto" value="${l.monto ? fmtInput(l.monto) : ''}" autocomplete="off">
   <button class="x" data-act="cp-delline" data-i="${i}" aria-label="Quitar">${IC.x}</button></div>`;
 }
@@ -197,7 +196,7 @@ async function leerTicket(blobs) {
 function aplicarScan(r) {
   r = r || {}; const catIds = new Set(cfg().cats.map(c => c.id));
   const lines = (Array.isArray(r.items) ? r.items : []).map(it => {
-    const n = String(it.n || it.d || 'Ítem').slice(0, 60); let cat = catIds.has(it.cat) ? it.cat : null;
+    const n = itemName(String(it.n || it.d || 'Ítem').slice(0, 60)); let cat = catIds.has(it.cat) ? it.cat : null;
     const k = keyOf(n); if (S.apr[k] && catIds.has(S.apr[k])) cat = S.apr[k]; if (!cat) cat = clasificar(n, '') || 'otros';
     return { n, d: it.d ? String(it.d).slice(0, 120) : '', cant: +it.cant || 1, monto: r2(+it.monto || 0), cat, auto: true };
   }).filter(l => l.monto !== 0);
@@ -230,7 +229,7 @@ function parsearTicket(txt) {
     let cant = 1; const q = name.match(/^(\d+(?:[.,]\d+)?)\s*[xX*]\s*/); if (q) { cant = parseMonto(q[1]) || 1; name = name.slice(q[0].length); }
     name = name.replace(/-?\d+[.,]\d{2}/g, ' ').replace(/\b\d+([.,]\d+)?\s*(g|gr|grs|kg|kgs|ml|cc|l|lt|lts|u|un|unid)\b/gi, ' ').replace(/\b\d{4,}\b/g, ' ').replace(/\s+[xX]\s*\d+\b/g, ' ').replace(/[*#]+/g, ' ').replace(/\s+/g, ' ').trim();
     const letras = (name.match(/[a-zA-ZñÑáéíóúÁÉÍÓÚ]/g) || []).length; if (name.length < 3 || letras < 3 || letras / name.length < 0.5 || /cuit|ing\.? ?brutos|www|http|@|tel[eé]fono|\btel\b|iva\b|resp\.? ?inscripto|monotributo|domicilio|av\.|calle|\bcp\b|c\.?p\.?\s?\d|ticket n|n[°º]/i.test(name)) continue;
-    const n = tituloCaso(name).slice(0, 60); const k = keyOf(n);
+    const n = itemName(tituloCaso(name).slice(0, 60)); const k = keyOf(n);
     out.push({ n, d: l.slice(0, 120), cant, monto: r2(monto), cat: S.apr[k] || clasificar(n, '') || 'otros', auto: true });
   }
   return { lines: out, total, com };
@@ -281,7 +280,7 @@ async function cpSave() {
   const base = { por: CP.por, fecha: CP.fecha, creado: CP.creado || new Date().toISOString() };
   const id = CP.id || uid(); let docs = []; const metaId = CP.metaId;
   if (CP.tipo === 'gasto') {
-    let items = CP.split ? CP.lines.filter(l => l.monto).map(l => ({ n: (l.n || '').trim() || catOf(l.cat).n, d: l.d || '', cant: l.cant || 1, monto: r2(+l.monto), cat: l.cat })) : [{ n: (CP.com || '').trim() || catOf(CP.cat).n, cant: 1, monto: r2(tot), cat: CP.cat }];
+    let items = CP.split ? CP.lines.filter(l => l.monto).map(l => ({ n: itemName((l.n || '').trim()) || catOf(l.cat).n, d: l.d || '', cant: l.cant || 1, monto: r2(+l.monto), cat: l.cat })) : [{ n: itemName((CP.com || '').trim()) || catOf(CP.cat).n, cant: 1, monto: r2(tot), cat: CP.cat }];
     if (!items.length) { toast('Agregá al menos un ítem con monto.', null, true); return; }
     const mes0 = cpMes(), card = esTarjeta(CP.medio) && !CP.pagoFondo;
     const n = card && !CP.id ? CP.cuotas : 1, gr = n > 1 ? uid() : (CP.grupo || null);
@@ -578,3 +577,39 @@ async function wSave(def) {
 }
 
 const CP_TIPO_GASTO = docs => docs[0] && docs[0].data.tipo === 'gasto' && !docs[0].data.pagoFondo;
+
+/* --- Sugerencias con el catálogo estándar --- */
+function sugerir(q) {
+  const nq = norm(q); if (!nq) return [];
+  const usados = new Set(KNOWN ? [...KNOWN.values()].map(x => itemKey(x.n)) : []);
+  const cats = new Set(cfg().cats.map(c => c.id));
+  const sc = (nn, al) => {
+    if (nn === nq) return 100;
+    if (nn.startsWith(nq)) return 90 - Math.min(nn.length - nq.length, 30) / 3;
+    if (nn.split(' ').some(w => w.startsWith(nq))) return 70;
+    let best = 0;
+    for (const a of al) { if (a === nq) best = Math.max(best, 85); else if (a.startsWith(nq)) best = Math.max(best, 65); else if (a.split(' ').some(w => w.startsWith(nq))) best = Math.max(best, 45); }
+    if (best) return best;
+    return nq.length >= 4 && nn.includes(nq) ? 30 : 0;
+  };
+  const out = [];
+  for (const e of catIndex().list) { let s = sc(e.nn, e.al); if (!s) continue; if (usados.has(e.k)) s += 6; if (e.propio) s += 3; out.push({ n: e.n, cat: cats.has(e.cat) ? e.cat : 'otros', s }); }
+  if (KNOWN) for (const x of KNOWN.values()) { if (canonEntry(x.n)) continue; const s = sc(norm(x.n), []); if (s) out.push({ n: x.n, cat: x.cat, s: s + 8 }); }
+  out.sort((a, b) => b.s - a.s || a.n.localeCompare(b.n));
+  const seen = new Set(), res = [];
+  for (const o of out) { const k = norm(o.n); if (seen.has(k)) continue; seen.add(k); res.push(o); if (res.length >= 7) break; }
+  res.top = res.length ? res[0].s : 0;
+  return res;
+}
+function sugClose() { const o = document.getElementById('sug'); if (o) o.remove(); }
+function sugShow(el) {
+  sugClose(); const q = el.value.trim(); if (!q || !CP) return;
+  const L = sugerir(q), ex = canonEntry(q), i = el.dataset.i;
+  const exacto = ex && norm(ex.n) === norm(q);
+  const catAct = el.dataset.f === 'ln' ? CP.lines[+i].cat : CP.cat;
+  let h = L.filter(o => !(exacto && norm(o.n) === norm(q))).map(o => { const c = catOf(o.cat); return `<button type="button" class="sug-i" data-act="sug-pick" data-src="${el.dataset.f}" data-i="${i == null ? '' : i}" data-n="${esc(o.n)}" data-cat="${o.cat}"><span class="e">${c.e}</span><span class="t">${esc(o.n)}</span><span class="r">${esc(c.n.replace(/ \(.*\)/, ''))}</span></button>`; }).join('');
+  if (!ex && q.length >= 2 && L.top < 65) h += `<button type="button" class="sug-i add" data-act="sug-add" data-src="${el.dataset.f}" data-i="${i == null ? '' : i}" data-n="${esc(tituloCaso(q))}" data-cat="${catAct}"><span class="e">+</span><span class="t">Agregar «${esc(tituloCaso(q))}» a mi lista</span></button>`;
+  if (!h) return;
+  const box = document.createElement('div'); box.id = 'sug'; box.className = 'sug'; box.innerHTML = h;
+  (el.closest('.line') || el.parentElement).appendChild(box);
+}
