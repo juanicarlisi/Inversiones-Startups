@@ -15,7 +15,7 @@ NOTAS = {'analogia', 'idea', 'ojo', 'mito', 'dato', 'historia', 'vigencia'}
 DIAGRAMAS = {'capas': ['capas'], 'flujo': ['filas'], 'celdas': ['filas'], 'arbol': ['raiz'], 'linea-tiempo': ['eventos'], 'comparar': ['izq', 'der'], 'svg': ['x'], 'secuencia': ['actores', 'mensajes'], 'grafo': ['nodos']}
 WIDGETS = {'bits', 'utf8', 'ieee', 'color', 'compuertas', 'sumador', 'microcpu', 'bigo', 'cidr', 'hash'}
 FRASES = ['no es solo', 'no es solamente', 'no se trata solo', 'no se trata solamente', 'en el mundo actual', 'en la era digital', 'en la era de la', 'cabe destacar', 'es importante destacar', 'vale la pena destacar', 'vale la pena mencionar',
-          'sin lugar a dudas', 'fascinante', 'revolucionari', 'sumergirnos', 'adentrarnos', 'en el vertiginoso', 'panorama en constante', 'en conclusión', 'tapiz', 'sinfonía de', 'desbloque', 'potenciar', 'en un mundo cada vez']
+          'sin lugar a dudas', 'fascinante', 'revolucionari', 'sumergirnos', 'adentrarnos', 'en el vertiginoso', 'panorama en constante', 'en conclusión', 'tapiz', 'sinfonía de', 'desbloquear el potencial', 'desbloquea el poder', 'potenciar', 'en un mundo cada vez']
 
 def palabras(s): return len(re.findall(r'\w+', re.sub(r'\[\[([^\]|]+)\|?[^\]]*\]\]', r'\1', s)))
 def textos(d):
