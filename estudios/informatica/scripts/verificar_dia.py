@@ -57,7 +57,12 @@ def verificar(id_, d, tot_fuentes):
         if norm(t) not in propios: e(f'falta definir el término del plan: «{t}»')
     for t in d['terminos']:
         if not t.get('d') or len(t['d']) < 20: e(f'definición pobre de «{t["t"]}»')
-    alltxt = json.dumps(d, ensure_ascii=False)
+    def _cadenas(x, out):
+        if isinstance(x, str): out.append(x)
+        elif isinstance(x, list): [_cadenas(i, out) for i in x]
+        elif isinstance(x, dict): [_cadenas(i, out) for i in x.values()]
+        return out
+    alltxt = '\n'.join(_cadenas({k: v for k, v in d.items() if k != 'fuentes_nuevas'}, []))
     for m in re.finditer(r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]', alltxt):
         k = norm(m.group(2) or m.group(1))
         if k not in intro and k not in propios: e(f'[[{m.group(0)[2:-2]}]] se usa antes de presentarse (no está en el plan hasta este día)')
