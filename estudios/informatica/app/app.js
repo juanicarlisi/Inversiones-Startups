@@ -114,6 +114,7 @@ function vistaDia(id) {
   <div class="gancho">${parrafos(d.gancho, ctx)}</div>
   ${cuerpo}${llevas}${quizHTML(id, d.repaso)}
   <section class="escribir"><h2>Explicalo con tus palabras</h2><p>${inline(d.feynman)}</p><textarea id="feyn" placeholder="Escribilo como si se lo explicaras a un amigo que no sabe nada del tema…" data-id="${id}">${esc(ST.feyn[id] || '')}</textarea><p style="font:400 .84rem var(--f-ui);color:var(--muted)">Se guarda en este navegador. Si no podés explicarlo sin mirar, volvé al texto: ahí está lo que falta.</p></section>
+  <section class="notas-pie"><h2>Mis notas del día</h2><textarea class="notas-ta" data-id="${id}" placeholder="Dudas, ideas, cosas para preguntar…">${esc(ST.notas[id] || '')}</textarea></section>
   ${profundizar}${terminos}${fuentes}
   ${d.siguiente ? `<p class="venis" style="margin-top:28px"><b>Mañana:</b> ${inline(d.siguiente)}</p>` : ''}
   <div class="acciones" style="justify-content:center;margin-top:24px"><button type="button" class="btn ${hecho ? 'ok' : 'prim'}" data-acc="hecho" data-id="${id}">${hecho ? '✓ Día completado' : 'Marcar como hecho'}</button></div>${navDia}</article>`;
@@ -191,7 +192,7 @@ function barraInf(id) { const i = ORDEN.indexOf(id), a = ORDEN[i - 1], s = ORDEN
 function puntaje(id) { const d = DATOS.dias[id], el = $('#puntaje'); if (!el || !d) return; const { ok, resp } = puntajeQuiz(id, d.repaso.length); el.textContent = resp ? `Llevás ${ok} de ${d.repaso.length} bien${resp === d.repaso.length ? (ok === d.repaso.length ? ' — ¡perfecto!' : '. Releé lo que falló y probá de nuevo.') : '.'}` : ''; }
 function armarRail(id) {
   const d = DATOS.dias[id], hs = $$('h2[id^="s"]', $('#main'));
-  $('#rail').innerHTML = `<section><h4>En este día</h4><nav class="toc">${hs.map(h => `<a href="#" data-sc="${h.id}">${h.textContent}</a>`).join('')}<a href="#" data-sc="quiz">Preguntas de repaso</a></nav></section>${(d.terminos || []).length ? `<section><h4>Palabras nuevas</h4><div class="chips">${d.terminos.map(t => `<button type="button" class="chip term" data-t="${esc(norm(t.t))}">${esc(t.t)}</button>`).join('')}</div></section>` : ''}<section><h4>Mis notas</h4><textarea id="notas" data-id="${id}" placeholder="Dudas, ideas, cosas para preguntar…">${esc(ST.notas[id] || '')}</textarea></section>`;
+  $('#rail').innerHTML = `<section><h4>En este día</h4><nav class="toc">${hs.map(h => `<a href="#" data-sc="${h.id}">${h.textContent}</a>`).join('')}<a href="#" data-sc="quiz">Preguntas de repaso</a></nav></section>${(d.terminos || []).length ? `<section><h4>Palabras nuevas</h4><div class="chips">${d.terminos.map(t => `<button type="button" class="chip term" data-t="${esc(norm(t.t))}">${esc(t.t)}</button>`).join('')}</div></section>` : ''}<section><h4>Mis notas</h4><textarea class="notas-ta" data-id="${id}" placeholder="Dudas, ideas, cosas para preguntar…">${esc(ST.notas[id] || '')}</textarea></section>`;
   if ('IntersectionObserver' in window) { const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) $$('.toc a').forEach(a => a.classList.toggle('vivo', a.dataset.sc === e.target.id)); }), { rootMargin: '-80px 0px -70% 0px' }); hs.forEach(h => io.observe(h)); const q = $('#quiz'); if (q) io.observe(q); }
 }
 function actualizarLectura() { const b = $('#prog-lectura'), h = document.documentElement; const t = h.scrollHeight - h.clientHeight; b.style.width = (t > 0 ? Math.min(100, 100 * h.scrollTop / t) : 0) + '%'; }
@@ -253,7 +254,7 @@ function seq(box, a) {
 }
 document.addEventListener('input', e => {
   const t = e.target;
-  if (t.id === 'notas') { ST.notas[t.dataset.id] = t.value; clearTimeout(t._g); t._g = setTimeout(guardar, 400); }
+  if (t.classList.contains('notas-ta')) { ST.notas[t.dataset.id] = t.value; clearTimeout(t._g); t._g = setTimeout(guardar, 400); }
   if (t.id === 'feyn') { ST.feyn[t.dataset.id] = t.value; clearTimeout(t._g); t._g = setTimeout(() => { guardar(); activo(); }, 600); }
 });
 document.addEventListener('keydown', e => {
