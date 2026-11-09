@@ -181,7 +181,7 @@ function renderizar() {
   if (v === 'dia' && PLAN[arg]) { ST.ultimo = arg; guardar(); document.title = `Día ${PLAN[arg].n} · ${PLAN[arg].titulo} — Informática desde cero`; } else document.title = 'Informática desde cero — Estudio integral';
   dibujarNav(v === 'dia' ? arg : null);
   $('#barra-inf').innerHTML = v === 'dia' && PLAN[arg] ? barraInf(arg) : '';
-  window.scrollTo(0, 0); main.focus({ preventScroll: true });
+  window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); main.focus({ preventScroll: true });
   if (esDia) { montarWidgets(main); armarRail(arg); puntaje(arg); }
   if (v === 'glosario') { const items = [...GLOS.values()].sort((a, b) => norm(a.t).localeCompare(norm(b.t))); $('#glos-q').oninput = e => $('#glos-l').innerHTML = glosItems(items, e.target.value); }
   $('#nav').classList.remove('abierto'); $('#velo').hidden = true;
@@ -230,7 +230,7 @@ document.addEventListener('click', e => {
   else if (a === 'copiar') { const c = b.closest('.codigo').innerText.replace(/^.*\n/, ''); navigator.clipboard?.writeText(c).then(() => toast('Código copiado')); }
   else if (a === 'js-run') { const f = b.closest('[data-js]'); correrJS($('textarea', f).value, $('.salida', f)); }
   else if (a === 'js-reset') { const f = b.closest('[data-js]'), ta = $('textarea', f); ta.value = ta.dataset.orig; $('.salida', f).textContent = 'Apretá «Ejecutar» para ver la salida.'; }
-  else if (a === 'reintentar') { const card = b.closest('.preg'), qid = card.dataset.qid; delete ST.resp[qid]; guardar(); const [dia] = qid.split('#'); const sy = window.scrollY; renderizar(); window.scrollTo(0, sy); }
+  else if (a === 'reintentar') { const card = b.closest('.preg'), qid = card.dataset.qid; delete ST.resp[qid]; guardar(); const [dia] = qid.split('#'); const sy = window.scrollY; renderizar(); window.scrollTo({ top: sy, left: 0, behavior: 'instant' }); }
   else if (a.startsWith('seq-')) seq(b.closest('.seq'), a);
   else if (a === 'rep-sig') renderizar();
   else if (a === 'rep-azar') { const todas = todasLasPreguntas().filter(x => ST.quiz[x.id]).sort(() => Math.random() - .5).slice(0, 10); REP = { cola: todas, hechas: 0, ok: 0, total: todas.length }; renderizar(); }
