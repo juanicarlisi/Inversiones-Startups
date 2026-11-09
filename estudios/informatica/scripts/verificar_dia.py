@@ -130,7 +130,7 @@ def verificar(id_, d, tot_fuentes):
     for f in FRASES:
         if f in low: e(f'frase de «voz de IA»: «{f}»')
     if len(re.findall(r'—', ' '.join(tx))) > max(6, n // 120): w('demasiadas rayas largas (—): usá comas o puntos')
-    if any(s.count('**') % 2 for s in tx): w('hay un ** sin cerrar')
+    if any(re.sub(r'`[^`]*`', '', s).count('**') % 2 for s in tx): w('hay un ** sin cerrar')
     import re as _re
     for s in tx:
         m = _re.search(r'\b[Dd]ías? \d+\b', s)
