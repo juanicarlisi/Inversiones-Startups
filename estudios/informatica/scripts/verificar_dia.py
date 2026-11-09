@@ -131,6 +131,10 @@ def verificar(id_, d, tot_fuentes):
         if f in low: e(f'frase de «voz de IA»: «{f}»')
     if len(re.findall(r'—', ' '.join(tx))) > max(6, n // 120): w('demasiadas rayas largas (—): usá comas o puntos')
     if any(s.count('**') % 2 for s in tx): w('hay un ** sin cerrar')
+    import re as _re
+    for s in tx:
+        m = _re.search(r'\b[Dd]ías? \d+\b', s)
+        if m: w(f'número de día escrito a mano («{m.group(0)}»): usá [@id]'); break
     if re.search(r'<[a-z/][^>]*>', ' '.join(tx)): e('hay etiquetas HTML en los textos (usá solo el marcado permitido)')
     # fuentes
     nuevas = {f['id']: f for f in d.get('fuentes_nuevas', [])}
