@@ -141,6 +141,21 @@ WIDGETS.bigo = (el, cfg) => {
   r.oninput = draw; draw();
 };
 
+
+/* Contraste WCAG entre dos colores */
+WIDGETS.contraste = (el, cfg) => {
+  el.innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px"><label>Texto <input type="color" value="${cfg.texto || '#767676'}" data-k="t"></label><label>Fondo <input type="color" value="${cfg.fondo || '#ffffff'}" data-k="f"></label></div><div class="mu" style="margin:12px 0;padding:14px 16px;border-radius:10px;border:1px solid var(--line);font:600 1.1rem var(--f-ui)">Así se lee este texto sobre este fondo. <span style="font-weight:400;font-size:.9rem">Y este es un texto más chico.</span></div><div class="lecturas"></div>`;
+  const ts = $('[data-k="t"]', el), fs = $('[data-k="f"]', el), mu = $('.mu', el), lec = $('.lecturas', el);
+  const lum = h => { const c = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+  const draw = () => {
+    const a = lum(ts.value), b = lum(fs.value), r = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+    mu.style.color = ts.value; mu.style.background = fs.value;
+    const ok = (x, n) => `<b style="color:${x >= n ? 'var(--ok)' : 'var(--alerta)'}">${x >= n ? 'cumple' : 'no cumple'}</b>`;
+    lec.innerHTML = `<div class="lectura"><small>Relación de contraste</small><b>${r.toFixed(2)} : 1</b></div><div class="lectura"><small>Texto normal (AA, 4,5)</small>${ok(r, 4.5)}</div><div class="lectura"><small>Texto grande (AA, 3)</small>${ok(r, 3)}</div><div class="lectura"><small>Texto normal (AAA, 7)</small>${ok(r, 7)}</div>`;
+  };
+  ts.oninput = fs.oninput = draw; draw();
+};
+
 /* Calculadora CIDR */
 WIDGETS.cidr = (el, cfg) => {
   el.innerHTML = `<label>Dirección con prefijo: <input type="text" value="${esc(cfg.valor || '192.168.1.37/24')}" style="width:190px"></label><div class="lecturas" style="margin-top:12px"></div>`;

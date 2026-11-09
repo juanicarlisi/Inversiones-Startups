@@ -78,7 +78,7 @@ Marcado en línea dentro de cualquier texto: `**negrita**`, `*cursiva*`, `` `có
 - `{"t":"cita","x":"≤30 palabras textuales","autor":"…","fuente":"id-fuente"}`
 - `{"t":"pasos","titulo":"opcional","pasos":[{"t":"Título del paso","x":"explicación"}]}`
 - `{"t":"senda","titulo":"…","x":"texto o lista","archivos":["ruta/real/en/senda-app"]}`
-- `{"t":"widget","n":"nombre","titulo":"…","cfg":{…},"cap":"…"}`: widgets que existen hoy: `bits` (cfg `bits`, `inicial`, `ascii`), `utf8` (cfg `texto`), `ieee` (cfg `valor`), `color`, `compuertas` (cfg `compuerta`: AND, OR, XOR, NAND, NOR, XNOR, NOT), `sumador` (cfg `completo`), `microcpu` (cfg `prog`: lista de instrucciones LOADI n, LOAD a, ADD a, SUB a, STORE a, JMP p, JNZ p, HALT; `mem`: valores iniciales de las 16 celdas), `bigo` (cfg `max`), `cidr` (cfg `valor`), `hash` (cfg `texto`).
+- `{"t":"widget","n":"nombre","titulo":"…","cfg":{…},"cap":"…"}`: widgets que existen hoy: `bits` (cfg `bits`, `inicial`, `ascii`), `utf8` (cfg `texto`), `ieee` (cfg `valor`), `color`, `compuertas` (cfg `compuerta`: AND, OR, XOR, NAND, NOR, XNOR, NOT), `sumador` (cfg `completo`), `microcpu` (cfg `prog`: lista de instrucciones LOADI n, LOAD a, ADD a, SUB a, STORE a, JMP p, JNZ p, HALT; `mem`: valores iniciales de las 16 celdas), `bigo` (cfg `max`), `cidr` (cfg `valor`), `hash` (cfg `texto`), `contraste` (cfg `texto` y `fondo` en #rrggbb: relación de contraste WCAG).
 - `{"t":"diagrama","tipo":…,"cap":"pie"}` con estos tipos:
   - `capas`: `{"capas":[{"n":"Nombre","d":"descripción","k":"color"}]}` (de arriba hacia abajo)
   - `flujo`: `{"filas":[{"nodos":[{"t":"Título","s":"subtítulo","k":"color","e":"etiqueta de la flecha que llega"}],"baja":"texto entre filas"}]}`; máx. ~4 nodos por fila
