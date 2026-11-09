@@ -26,13 +26,18 @@ def main():
         for fn in d.pop('fuentes_nuevas', []):
             i = fn.pop('id'); fuentes.setdefault(i, fn)
         dias[d['id']] = d
-    datos = {'meta': {'generado': datetime.date.today().isoformat()}, 'partes': plan['partes'], 'plan': plan['dias'], 'orden': plan['orden'], 'dias': dias, 'fuentes': fuentes}
+    datos = {'meta': {'generado': datetime.date.today().isoformat(), 'artefacto': ARTEFACTO}, 'partes': plan['partes'], 'plan': plan['dias'], 'orden': plan['orden'], 'dias': dias, 'fuentes': fuentes}
     js = open(J('app', 'bloques.js')).read() + '\n' + open(J('app', 'widgets.js')).read() + '\n' + open(J('app', 'app.js')).read()
     tpl = open(J('app', 'plantilla.html')).read()
     cabeza = ('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zilla+Slab:ital,wght@0,500;0,600;0,700;1,500&family=Source+Serif+4:ital,opsz,wght@0,8..60,400..700;1,8..60,400..600&family=Public+Sans:wght@400..700&family=JetBrains+Mono:wght@400..700&display=swap">'
               if ARTEFACTO else fuentes_locales())
-    payload = 'window.DATOS = ' + json.dumps(datos, ensure_ascii=False, separators=(',', ':')).replace('</', '<\\/') + ';'
+    payload = 'window.DATOS = ' + json.dumps(datos, ensure_ascii=False, separators=(',', ':')).replace('</', '<\\/').replace('\ufffd', '\\ufffd') + ';'
     out = tpl.replace('/*__FUENTES__*/', cabeza).replace('/*__ESTILOS__*/', open(J('app', 'estilos.css')).read()).replace('/*__DATOS__*/', payload).replace('/*__JS__*/', js.replace('</script', '<\\/script'))
+    if ARTEFACTO:   # el publicador envuelve la página: sin doctype, html, head ni body; el visor pone charset y viewport
+        out = re.sub(r'<!doctype html>\s*<html[^>]*>\s*<head>\s*', '', out, flags=re.I)
+        out = re.sub(r'<meta charset[^>]*>\s*', '', out); out = re.sub(r'<meta name="viewport"[^>]*>\s*', '', out)
+        out = out.replace('</head>\n<body>', '').replace('</body>\n</html>', '')
+        out = out.replace('<title>', '<meta name="claude:viewport-fit-sides" content="cover">\n<title>', 1)
     open(SALIDA, 'w', encoding='utf-8').write(out)
     print(f'escrito {SALIDA} · {len(out)/1e6:.2f} MB · {len(dias)} días escritos de {len(plan["orden"])} · {len(fuentes)} fuentes')
 main()

@@ -16,7 +16,7 @@ function inline(s, ctx) {
     let i = ctx.citas.indexOf(id); if (i < 0) { ctx.citas.push(id); i = ctx.citas.length - 1; }
     return `<a class="cita-n" href="#fuente-${i + 1}" title="${esc((DATOS.fuentes[id] || {}).t || id)}">[${i + 1}]</a>`;
   });
-  s = s.replace(/\[@(\d\d-\d\d[a-z]?)\]/g, (_, id) => (typeof PLAN !== 'undefined' && PLAN[id]) ? `<a href="#/dia/${id}">Día ${PLAN[id].n}</a>` : '');
+  s = s.replace(/\[@(\d\d-\d\d[a-z]?)\]/g, (_, id) => (typeof PLAN !== 'undefined' && PLAN[id]) ? `<a href="#dia-${id}">Día ${PLAN[id].n}</a>` : '');
   s = s.replace(/\[([^\]]+)\]\((https:\/\/[^)\s]+)\)/g, (_, t, u) => `<a href="${u}" target="_blank" rel="noopener noreferrer">${t}</a>`);
   s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/(^|[\s(¿¡"«—])\*([^*\n]+)\*(?=[\s).,;:!?"»—]|$)/g, '$1<em>$2</em>');
   return s.replace(/\u0000(\d+)\u0000/g, (_, i) => `<code>${esc(codigos[+i])}</code>`);

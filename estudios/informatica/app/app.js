@@ -11,6 +11,7 @@ function activo() { const h = hoy(); if (!ST.activos.includes(h)) { ST.activos.p
 function racha() { let n = 0, d = hoy(); if (!ST.activos.includes(d)) d = sumarDias(d, -1); while (ST.activos.includes(d)) { n++; d = sumarDias(d, -1); } return n; }
 
 /* ====== Datos derivados ====== */
+const ARTEFACTO = !!(DATOS.meta && DATOS.meta.artefacto);
 const PLAN = DATOS.plan, ORDEN = DATOS.orden, PARTES = DATOS.partes, PARTE = Object.fromEntries(PARTES.map(p => [p.id, p]));
 const escrito = id => !!DATOS.dias[id];
 const nDias = ORDEN.length, nEscritos = ORDEN.filter(escrito).length;
@@ -21,7 +22,7 @@ const GLOS = new Map();
 })();
 const pct = (a, b) => b ? Math.round(100 * a / b) : 0;
 const hechosDe = p => p.dias.filter(i => ST.hechos[i]).length;
-const hrefDia = id => `#/dia/${id}`;
+const hrefDia = id => `#dia-${id}`;
 const tituloCorto = id => `Día ${PLAN[id].n} · ${PLAN[id].titulo}`;
 const sigEscrito = (desde) => { for (let i = ORDEN.indexOf(desde) + 1; i < ORDEN.length; i++) if (escrito(ORDEN[i])) return ORDEN[i]; return null; };
 function diaDeHoy() { const pend = ORDEN.find(i => escrito(i) && !ST.hechos[i]); return pend || null; }
@@ -45,7 +46,7 @@ function toast(msg) { let t = $('#toast'); if (!t) { t = document.createElement(
 function anillo(p) { const r = 12, c = 2 * Math.PI * r; return `<svg viewBox="0 0 30 30" aria-hidden="true"><circle cx="15" cy="15" r="${r}" fill="none" stroke="var(--line)" stroke-width="4"/><circle cx="15" cy="15" r="${r}" fill="none" stroke="var(--circ)" stroke-width="4" stroke-linecap="round" stroke-dasharray="${c}" stroke-dashoffset="${c * (1 - p / 100)}"/></svg>`; }
 function dibujarNav(actualId) {
   const act = actualId && PLAN[actualId] ? PLAN[actualId].parte : null;
-  $('#nav').innerHTML = `<a class="item${location.hash === '#/' || !location.hash ? ' actual' : ''}" href="#/">⌂ Inicio</a><a class="item" href="#/mapa">▦ El mapa completo</a><a class="item" href="#/repaso">↻ Repaso${pendientes().length ? ` <span class="chip" style="margin-left:auto">${pendientes().length}</span>` : ''}</a><a class="item" href="#/glosario">Aa Glosario</a><a class="item" href="#/fuentes">❡ Fuentes</a><a class="item" href="#/ayuda">? Cómo usar el estudio</a><h4>Las 22 partes</h4>` +
+  $('#nav').innerHTML = `<a class="item${!location.hash || location.hash === '#inicio' ? ' actual' : ''}" href="#inicio">⌂ Inicio</a><a class="item" href="#mapa">▦ El mapa completo</a><a class="item" href="#repaso">↻ Repaso${pendientes().length ? ` <span class="chip" style="margin-left:auto">${pendientes().length}</span>` : ''}</a><a class="item" href="#glosario">Aa Glosario</a><a class="item" href="#fuentes">❡ Fuentes</a><a class="item" href="#ayuda">? Cómo usar el estudio</a><h4>Las 22 partes</h4>` +
     PARTES.map(p => { const h = hechosDe(p), ab = p.id === act; return `<details class="parte" ${ab ? 'open' : ''}><summary><span class="pn">Parte ${p.num}</span><span class="pt">${esc(p.nombre)}</span><span class="pc">${h}/${p.dias.length}</span><span class="barrita"><i style="width:${pct(h, p.dias.length)}%"></i></span></summary>${p.dias.map(i => `<a class="dia-l${ST.hechos[i] ? ' hecho' : ''}${i === actualId ? ' actual' : ''}${escrito(i) ? '' : ' pend'}" href="${hrefDia(i)}"><span class="n">${PLAN[i].n}</span><span>${esc(PLAN[i].titulo)}</span></a>`).join('')}</details>`; }).join('');
   const hechos = Object.keys(ST.hechos).length;
   $('#anillo').innerHTML = `${anillo(pct(hechos, nDias))}<span>${hechos} / ${nDias}</span>`;
@@ -57,10 +58,10 @@ function vistaInicio() {
   const hechos = Object.keys(ST.hechos).length, hd = diaDeHoy(), pend = pendientes().length;
   const min = Object.keys(ST.hechos).reduce((s, i) => s + (DATOS.dias[i]?.minutos || 0), 0);
   const prs = Object.values(ST.quiz); const ok = prs.reduce((s, q) => s + q.ok, 0), tot = prs.reduce((s, q) => s + q.ok + q.ko, 0);
-  return `<div class="ancha"><section class="hero"><span class="sobre">${hechos ? 'Seguís en camino' : 'Para empezar'}</span><h1>${hechos ? 'Hoy toca:' : 'Informática, tecnología y desarrollo de software, desde cero.'}${hd ? `<br><span style="font-weight:600">Día ${PLAN[hd].n} · ${esc(PLAN[hd].titulo)}</span>` : ''}</h1><p>${hd ? esc(DATOS.dias[hd].bajada) : 'Un estudio integral para entender cómo funciona todo lo que hay debajo de una app: de los bits a la nube, hasta poder leer y decidir sobre un producto como Senda.'}</p><div class="acciones">${hd ? `<a class="btn prim" href="${hrefDia(hd)}">${hechos ? 'Continuar' : 'Empezar el Día 1'} →</a>` : `<span class="btn">${nEscritos ? 'Completaste todos los días disponibles' : 'Los primeros días están en preparación'}</span>`}${pend ? `<a class="btn" href="#/repaso">Repasar ${pend} pregunta${pend > 1 ? 's' : ''}</a>` : ''}<a class="btn" href="#/ayuda">Cómo usar el estudio</a></div></section>
+  return `<div class="ancha"><section class="hero"><span class="sobre">${hechos ? 'Seguís en camino' : 'Para empezar'}</span><h1>${hechos ? 'Hoy toca:' : 'Informática, tecnología y desarrollo de software, desde cero.'}${hd ? `<br><span style="font-weight:600">Día ${PLAN[hd].n} · ${esc(PLAN[hd].titulo)}</span>` : ''}</h1><p>${hd ? esc(DATOS.dias[hd].bajada) : 'Un estudio integral para entender cómo funciona todo lo que hay debajo de una app: de los bits a la nube, hasta poder leer y decidir sobre un producto como Senda.'}</p><div class="acciones">${hd ? `<a class="btn prim" href="${hrefDia(hd)}">${hechos ? 'Continuar' : 'Empezar el Día 1'} →</a>` : `<span class="btn">${nEscritos ? 'Completaste todos los días disponibles' : 'Los primeros días están en preparación'}</span>`}${pend ? `<a class="btn" href="#repaso">Repasar ${pend} pregunta${pend > 1 ? 's' : ''}</a>` : ''}<a class="btn" href="#ayuda">Cómo usar el estudio</a></div></section>
   <div class="stats"><div class="stat"><b>${hechos}</b><span>días completados de ${nEscritos} disponibles</span></div><div class="stat"><b>${racha()}</b><span>días seguidos</span></div><div class="stat"><b>${Math.round(min / 60 * 10) / 10} h</b><span>de estudio acumuladas</span></div><div class="stat"><b>${tot ? pct(ok, tot) + '%' : '—'}</b><span>de aciertos en las preguntas</span></div></div>
   <div class="nota vigencia" style="margin-top:0"><span class="et">Estado del estudio</span><p style="margin:0">El plan completo tiene <b>${nDias} días en ${PARTES.length} partes</b> (unos ${Math.round(nDias * 25 / 60)} horas de estudio). Hoy hay <b>${nEscritos}</b> días escritos; el resto aparece en el mapa como «próximamente» con su título y los conceptos que va a presentar, para que veas todo el camino desde ahora. Versión del ${esc(DATOS.meta.generado)}.</p></div>
-  <h2 style="margin-top:30px">Las 22 partes</h2><div class="grid-partes">${PARTES.map(p => { const h = hechosDe(p), e = p.dias.filter(escrito).length; return `<a class="tarjeta" href="#/parte/${p.id}"><span class="pn">Parte ${p.num} · ${p.dias.length} días</span><b>${esc(p.nombre)}</b><p>${esc(p.resumen)}</p><div class="barrita"><i style="width:${pct(h, p.dias.length)}%"></i></div><small>${h} hechos · ${e} escritos de ${p.dias.length}</small></a>`; }).join('')}</div></div>`;
+  <h2 style="margin-top:30px">Las 22 partes</h2><div class="grid-partes">${PARTES.map(p => { const h = hechosDe(p), e = p.dias.filter(escrito).length; return `<a class="tarjeta" href="#parte-${p.id}"><span class="pn">Parte ${p.num} · ${p.dias.length} días</span><b>${esc(p.nombre)}</b><p>${esc(p.resumen)}</p><div class="barrita"><i style="width:${pct(h, p.dias.length)}%"></i></div><small>${h} hechos · ${e} escritos de ${p.dias.length}</small></a>`; }).join('')}</div></div>`;
 }
 VISTAS.inicio = vistaInicio;
 
@@ -71,14 +72,14 @@ function filaDia(i) {
 function vistaParte(id) {
   const p = PARTE[id]; if (!p) return vistaNoEncontrada();
   const i = PARTES.indexOf(p), ant = PARTES[i - 1], sig = PARTES[i + 1];
-  return `<div class="ancha"><span class="sobre">Parte ${p.num} de ${PARTES.length}</span><h1 class="titulo">${esc(p.nombre)}</h1><p class="bajada">${esc(p.resumen)}</p><div class="meta"><span class="tag">${p.dias.length} días</span><span class="tag">${hechosDe(p)} hechos</span><span class="tag">${p.dias.filter(escrito).length} escritos</span></div><div class="puntos" aria-label="Mapa de la parte">${p.dias.map(d => `<a class="cuad tipo-${PLAN[d].tipo}${escrito(d) ? ' escrito' : ''}${ST.hechos[d] ? ' hecho' : ''}" href="${hrefDia(d)}" title="${esc(tituloCorto(d))}"></a>`).join('')}</div><div class="lista-dias">${p.dias.map(filaDia).join('')}</div><div class="nav-dia">${ant ? `<a href="#/parte/${ant.id}"><small>← Parte ${ant.num}</small><b>${esc(ant.nombre)}</b></a>` : '<span class="solo"></span>'}${sig ? `<a href="#/parte/${sig.id}"><small>Parte ${sig.num} →</small><b>${esc(sig.nombre)}</b></a>` : ''}</div></div>`;
+  return `<div class="ancha"><span class="sobre">Parte ${p.num} de ${PARTES.length}</span><h1 class="titulo">${esc(p.nombre)}</h1><p class="bajada">${esc(p.resumen)}</p><div class="meta"><span class="tag">${p.dias.length} días</span><span class="tag">${hechosDe(p)} hechos</span><span class="tag">${p.dias.filter(escrito).length} escritos</span></div><div class="puntos" aria-label="Mapa de la parte">${p.dias.map(d => `<a class="cuad tipo-${PLAN[d].tipo}${escrito(d) ? ' escrito' : ''}${ST.hechos[d] ? ' hecho' : ''}" href="${hrefDia(d)}" title="${esc(tituloCorto(d))}"></a>`).join('')}</div><div class="lista-dias">${p.dias.map(filaDia).join('')}</div><div class="nav-dia">${ant ? `<a href="#parte-${ant.id}"><small>← Parte ${ant.num}</small><b>${esc(ant.nombre)}</b></a>` : '<span class="solo"></span>'}${sig ? `<a href="#parte-${sig.id}"><small>Parte ${sig.num} →</small><b>${esc(sig.nombre)}</b></a>` : ''}</div></div>`;
 }
 VISTAS.parte = vistaParte;
 
-function vistaNoEncontrada() { return `<div class="hoja proximamente"><h1 class="titulo">No encontré esa página</h1><p><a class="btn prim" href="#/">Volver al inicio</a></p></div>`; }
+function vistaNoEncontrada() { return `<div class="hoja proximamente"><h1 class="titulo">No encontré esa página</h1><p><a class="btn prim" href="#inicio">Volver al inicio</a></p></div>`; }
 
 function vistaMapa() {
-  return `<div class="ancha"><span class="sobre">Todo el camino</span><h1 class="titulo">El mapa completo</h1><p class="bajada">Cada cuadradito es un día. Verde oscuro: lo hiciste. Verde claro: está escrito. Gris: viene después. Círculo: cierre de parte. Borde ámbar: día anclado a Senda.</p>${PARTES.map(p => `<h3><a href="#/parte/${p.id}" style="text-decoration:none;color:inherit">Parte ${p.num} · ${esc(p.nombre)}</a></h3><div class="puntos">${p.dias.map(d => `<a class="cuad tipo-${PLAN[d].tipo}${escrito(d) ? ' escrito' : ''}${ST.hechos[d] ? ' hecho' : ''}" href="${hrefDia(d)}" title="${esc(tituloCorto(d))}"></a>`).join('')}</div>`).join('')}</div>`;
+  return `<div class="ancha"><span class="sobre">Todo el camino</span><h1 class="titulo">El mapa completo</h1><p class="bajada">Cada cuadradito es un día. Verde oscuro: lo hiciste. Verde claro: está escrito. Gris: viene después. Círculo: cierre de parte. Borde ámbar: día anclado a Senda.</p>${PARTES.map(p => `<h3><a href="#parte-${p.id}" style="text-decoration:none;color:inherit">Parte ${p.num} · ${esc(p.nombre)}</a></h3><div class="puntos">${p.dias.map(d => `<a class="cuad tipo-${PLAN[d].tipo}${escrito(d) ? ' escrito' : ''}${ST.hechos[d] ? ' hecho' : ''}" href="${hrefDia(d)}" title="${esc(tituloCorto(d))}"></a>`).join('')}</div>`).join('')}</div>`;
 }
 VISTAS.mapa = vistaMapa;
 
@@ -108,7 +109,7 @@ function vistaDia(id) {
   const hecho = !!ST.hechos[id];
   return `<article class="hoja" data-dia="${id}">${cab}<p class="bajada">${inline(d.bajada)}</p>
   <div class="meta"><span class="tag">⏱ ${d.minutos} min</span><span class="tag ${vig[0]}" title="${d.vigencia === 'principio' ? 'Esto no cambia con las modas: sigue valiendo dentro de veinte años.' : 'Parte de lo que sigue depende de versiones y productos actuales; revisado ' + esc(d.revisado || DATOS.meta.generado) + '.'}">${vig[1]}</span>${p.tipo === 'L' ? '<span class="tag">Laboratorio</span>' : ''}${p.tipo === 'S' ? '<span class="tag" style="color:var(--senal)">◆ Senda</span>' : ''}</div>
-  <div class="acciones"><button type="button" class="btn ${hecho ? 'ok' : 'prim'}" data-acc="hecho" data-id="${id}">${hecho ? '✓ Día completado' : 'Marcar como hecho'}</button><button type="button" class="btn" data-acc="imprimir">Imprimir / PDF</button></div>
+  <div class="acciones"><button type="button" class="btn ${hecho ? 'ok' : 'prim'}" data-acc="hecho" data-id="${id}">${hecho ? '✓ Día completado' : 'Marcar como hecho'}</button>${ARTEFACTO ? '' : '<button type="button" class="btn" data-acc="imprimir">Imprimir / PDF</button>'}</div>
   <section class="panel objetivos"><h3>Al terminar el día vas a poder</h3><ul>${d.objetivos.map(o => `<li>${inline(o)}</li>`).join('')}</ul></section>
   ${d.venis_de || apoya.length ? `<p class="venis">${d.venis_de ? inline(d.venis_de) + ' ' : ''}${apoya.length ? `Se apoya en: ${apoya.map(x => `<a href="${hrefDia(x)}">Día ${PLAN[x].n}</a>`).join(', ')}.` : ''}</p>` : ''}
   <div class="gancho">${parrafos(d.gancho, ctx)}</div>
@@ -128,7 +129,7 @@ function vistaRepaso() {
   if (!REP) { const cola = todas.filter(x => ST.quiz[x.id].n <= h); REP = { cola: cola.sort(() => Math.random() - .5), hechas: 0, ok: 0, modo: 'debidas', total: cola.length }; }
   const q = REP.cola[0];
   const intro = `<span class="sobre">Repaso espaciado</span><h1 class="titulo">Repaso</h1>`;
-  if (!todas.length) return `<div class="hoja">${intro}<p class="bajada">Todavía no hay nada para repasar: las preguntas aparecen acá apenas respondas las de un día.</p><a class="btn prim" href="#/">Ir al inicio</a></div>`;
+  if (!todas.length) return `<div class="hoja">${intro}<p class="bajada">Todavía no hay nada para repasar: las preguntas aparecen acá apenas respondas las de un día.</p><a class="btn prim" href="#inicio">Ir al inicio</a></div>`;
   if (!q) return `<div class="hoja">${intro}<div class="panel"><p class="bajada" style="margin:0 0 8px">${REP.hechas ? `Terminaste: ${REP.ok} de ${REP.hechas} bien.` : 'No tenés nada pendiente hoy.'}</p><p style="font:400 .92rem var(--f-ui)">Tenés ${todas.length} preguntas en tu mazo. Las que fallás vuelven mañana; las que acertás se espacian: 1, 3, 7, 16 y 35 días.</p><button type="button" class="btn prim" data-acc="rep-azar">Repasar 10 al azar igual</button></div></div>`;
   const ord = mezclar(q.q.o.length, q.id + (REP.hechas));
   return `<div class="hoja">${intro}<p style="font:600 .85rem var(--f-ui);color:var(--muted)">Quedan ${REP.cola.length} · del <a href="${hrefDia(q.dia)}">Día ${PLAN[q.dia].n}: ${esc(PLAN[q.dia].titulo)}</a></p><div class="preg" data-qid="${q.id}" data-rep="1"><p>${inline(q.q.p)}</p>${ord.map(k => `<button type="button" class="op" data-o="${k}">${inline(q.q.o[k])}</button>`).join('')}<div class="expl" hidden></div><button type="button" class="btn prim" data-acc="rep-sig" hidden style="margin-top:10px">Siguiente →</button></div></div>`;
@@ -160,19 +161,27 @@ function vistaAyuda() {
   <h2>La idea</h2><p>Un día, entre 20 y 30 minutos. Cada día toma un solo grupo de ideas y se apoya en los anteriores: nunca aparece una palabra sin haberla presentado antes. El camino va de cero (qué es un bit) hasta poder entender una app real como Senda, de punta a punta, y tomar decisiones técnicas con criterio.</p>
   <h2>Cómo es un día</h2><ol><li><b>Al terminar vas a poder…</b>: el objetivo concreto.</li><li><b>La lectura</b>, con analogías, diagramas, ejemplos y pequeños laboratorios que se tocan.</li><li><b>Frená y pensá</b>: una pregunta para intentar contestar <i>antes</i> de ver la respuesta.</li><li><b>◆ En Senda</b>: dónde aparece esa idea en el código real de la app (con rutas de archivos).</li><li><b>Lo que te llevás</b> y <b>preguntas de repaso</b>: si fallás, no pasa nada; vuelven en el repaso.</li><li><b>Explicalo con tus palabras</b>: lo que más cuesta y lo que más sirve.</li><li><b>Para profundizar</b>: documentación oficial, RFC, libros y papers. Es optativo.</li></ol>
   <h2>Principio o herramienta</h2><p>Cada día lleva una etiqueta: <span class="tag permanente">Principio permanente</span> son ideas que siguen valiendo dentro de décadas (cómo funciona una CPU); <span class="tag cambia">Herramientas que cambian</span> mezclan ideas con productos y versiones actuales, que se revisan contra la documentación oficial y llevan fecha. Lo que cambia siempre está marcado en un recuadro <i>«Esto cambia con el tiempo»</i>.</p>
-  <h2>Repaso espaciado</h2><p>Las preguntas que respondés pasan a un mazo. Las acertadas vuelven a los 1, 3, 7, 16 y 35 días; las falladas, al día siguiente. Cinco minutos por día en <a href="#/repaso">Repaso</a> valen más que releer.</p>
-  <h2>Atajos y ajustes</h2><ul><li><kbd>/</kbd> o <kbd>Ctrl</kbd>+<kbd>K</kbd>: buscar en todo el estudio.</li><li><kbd>←</kbd> <kbd>→</kbd>: día anterior y siguiente.</li><li>Las palabras con subrayado punteado se tocan para ver su definición.</li><li>Tema claro/oscuro y tamaño de letra en el engranaje. Imprimir o guardar como PDF cualquier día.</li></ul>
+  <h2>Repaso espaciado</h2><p>Las preguntas que respondés pasan a un mazo. Las acertadas vuelven a los 1, 3, 7, 16 y 35 días; las falladas, al día siguiente. Cinco minutos por día en <a href="#repaso">Repaso</a> valen más que releer.</p>
+  <h2>Atajos y ajustes</h2><ul><li><kbd>/</kbd> o <kbd>Ctrl</kbd>+<kbd>K</kbd>: buscar en todo el estudio.</li><li><kbd>←</kbd> <kbd>→</kbd>: día anterior y siguiente.</li><li>Las palabras con subrayado punteado se tocan para ver su definición.</li><li>Tema claro/oscuro y tamaño de letra en el engranaje. ${ARTEFACTO ? '' : 'Imprimir o guardar como PDF cualquier día.'}</li></ul>
   <h2>Tus datos</h2><p>Todo (progreso, respuestas, notas) se guarda <b>en este navegador</b>. Desde el engranaje podés bajar una copia y volver a cargarla en otra computadora o teléfono.</p></div>`;
 }
 VISTAS.ayuda = vistaAyuda;
 
 /* ====== Router ====== */
-function ruta() {
-  const h = location.hash.replace(/^#\/?/, ''), [v, arg] = h.split('/');
-  return { v: v || 'inicio', arg };
+function parseRuta(h) {
+  h = String(h || '').replace(/^#/, '');
+  const l = h.match(/^\/?(dia|parte)\/([\w-]+)$/); if (l) h = l[1] + '-' + l[2];   // compatibilidad con #/dia/ID
+  let m;
+  if ((m = h.match(/^dia-(\d\d-\d\d[a-z]?)$/))) return { v: 'dia', arg: m[1] };
+  if ((m = h.match(/^parte-(\d\d)$/))) return { v: 'parte', arg: m[1] };
+  if (['mapa', 'repaso', 'glosario', 'fuentes', 'ayuda'].includes(h)) return { v: h };
+  if (!h || h === 'inicio' || h === '/') return { v: 'inicio' };
+  return { v: null };   // ancla interna (#s1, #fuente-2, #quiz…): no cambia de vista
 }
-function renderizar() {
-  const { v, arg } = ruta(), main = $('#main'), app = $('#app');
+const ruta = () => parseRuta(location.hash);
+function renderizar(inicial) {
+  let { v, arg } = ruta(); if (v === null) { if (!inicial) return; v = 'inicio'; }
+  const main = $('#main'), app = $('#app');
   if (v !== 'repaso') REP = null;
   const f = VISTAS[v] || (() => vistaNoEncontrada());
   main.innerHTML = f(arg);
@@ -221,6 +230,8 @@ function responder(card, k) {
 }
 document.addEventListener('click', e => {
   const t = e.target;
+  const an = t.closest('a[href^="#"]');
+  if (an && parseRuta(an.getAttribute('href')).v === null) { e.preventDefault(); const el = document.getElementById(an.getAttribute('href').slice(1)); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); if (el.tabIndex === -1 || el.id === 'main') el.focus({ preventScroll: true }); } return; }
   const term = t.closest('.term'); if (term) { e.preventDefault(); abrirTermino(term); return; }
   if (POP && !t.closest('.pop')) cerrarPop();
   const sc = t.closest('[data-sc]'); if (sc) { e.preventDefault(); const el = document.getElementById(sc.dataset.sc); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
@@ -228,7 +239,7 @@ document.addEventListener('click', e => {
   const b = t.closest('[data-acc]'); if (!b) return; const a = b.dataset.acc;
   if (a === 'hecho') { const id = b.dataset.id; if (ST.hechos[id]) delete ST.hechos[id]; else { ST.hechos[id] = Date.now(); activo(); const s = sigEscrito(id); toast(s ? '¡Día completado! Mañana: ' + PLAN[s].titulo : '¡Día completado!'); } guardar(); renderizar(); }
   else if (a === 'imprimir') window.print();
-  else if (a === 'copiar') { const c = b.closest('.codigo').innerText.replace(/^.*\n/, ''); navigator.clipboard?.writeText(c).then(() => toast('Código copiado')); }
+  else if (a === 'copiar') { const c = b.closest('.codigo').innerText.replace(/^.*\n/, ''); navigator.clipboard?.writeText(c).then(() => toast('Código copiado')).catch(() => toast('No se pudo copiar: seleccioná el código a mano')); }
   else if (a === 'js-run') { const f = b.closest('[data-js]'); correrJS($('textarea', f).value, $('.salida', f)); }
   else if (a === 'js-reset') { const f = b.closest('[data-js]'), ta = $('textarea', f); ta.value = ta.dataset.orig; $('.salida', f).textContent = 'Apretá «Ejecutar» para ver la salida.'; }
   else if (a === 'reintentar') { const card = b.closest('.preg'), qid = card.dataset.qid; delete ST.resp[qid]; guardar(); const [dia] = qid.split('#'); const sy = window.scrollY; renderizar(); window.scrollTo({ top: sy, left: 0, behavior: 'instant' }); }
@@ -240,9 +251,13 @@ document.addEventListener('click', e => {
   else if (a === 'buscar') abrirBuscador();
   else if (a === 'tema') { ST.aj.tema = b.dataset.v; guardar(); aplicarAjustes(); marcarAjustes(); }
   else if (a === 'tam') { ST.aj.tam = b.dataset.v; guardar(); aplicarAjustes(); marcarAjustes(); }
-  else if (a === 'bajar') bajarCopia();
+  else if (a === 'copia') { $('#ajustes').hidden = true; abrirCopia(); }
+  else if (a === 'copia-copiar') { const ta = $('#copia-out'); ta.select(); (navigator.clipboard ? navigator.clipboard.writeText(ta.value) : Promise.reject()).then(() => toast('Copia copiada')).catch(() => toast('Seleccioná el texto y copialo a mano')); }
+  else if (a === 'copia-bajar') bajarCopia();
+  else if (a === 'copia-cargar') { try { const d = JSON.parse($('#copia-in').value); if (!d.estado) throw 0; ST = Object.assign(ESTADO0(), d.estado); guardar(); aplicarAjustes(); $('#copia')?.remove(); renderizar(); toast('Copia cargada'); } catch (e) { toast('Ese texto no es una copia válida'); } }
+  else if (a === 'copia-cerrar') $('#copia')?.remove();
   else if (a === 'subir') $('#archivo').click();
-  else if (a === 'borrar') { if (confirm('Esto borra tu progreso, notas y repasos de este navegador. ¿Seguro?')) { ST = ESTADO0(); guardar(); renderizar(); toast('Borrado'); } }
+  else if (a === 'borrar') { if (!b._seguro) { b._seguro = true; b.textContent = '¿Seguro? Tocá de nuevo para borrar'; setTimeout(() => { b._seguro = false; b.textContent = 'Borrar todo mi progreso'; }, 4000); } else { ST = ESTADO0(); guardar(); b._seguro = false; b.textContent = 'Borrar todo mi progreso'; renderizar(); toast('Borrado'); } }
 });
 function seq(box, a) {
   const tot = +box.dataset.total, msgs = $$('.msg', box), txt = $('.paso-txt', box), li = $$('details li', box);
@@ -258,19 +273,25 @@ document.addEventListener('input', e => {
   if (t.id === 'feyn') { ST.feyn[t.dataset.id] = t.value; clearTimeout(t._g); t._g = setTimeout(() => { guardar(); activo(); }, 600); }
 });
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { cerrarPop(); cerrarBuscador(); $('#ajustes').hidden = true; return; }
+  if (e.key === 'Escape') { cerrarPop(); cerrarBuscador(); $('#copia')?.remove(); $('#ajustes').hidden = true; return; }
   const edit = /input|textarea|select/i.test(e.target.tagName) || e.target.isContentEditable;
   if ((e.key === '/' && !edit) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) { e.preventDefault(); abrirBuscador(); return; }
   if (!edit && !e.ctrlKey && !e.metaKey && !e.altKey && ruta().v === 'dia' && PLAN[ruta().arg]) { const i = ORDEN.indexOf(ruta().arg); if (e.key === 'ArrowLeft' && i > 0) location.hash = hrefDia(ORDEN[i - 1]); if (e.key === 'ArrowRight' && i < ORDEN.length - 1) location.hash = hrefDia(ORDEN[i + 1]); }
 });
 window.addEventListener('scroll', actualizarLectura, { passive: true });
-window.addEventListener('hashchange', renderizar);
+window.addEventListener('hashchange', () => renderizar());
 document.addEventListener('keydown', e => { if (e.key === 'Tab' && !$('#nav').classList.contains('abierto')) return; });
 document.addEventListener('keydown', e => { if (e.key === 'Tab' && e.target.tagName === 'TEXTAREA' && e.target.closest('.codigo')) { e.preventDefault(); const t = e.target, s = t.selectionStart; t.value = t.value.slice(0, s) + '  ' + t.value.slice(t.selectionEnd); t.selectionStart = t.selectionEnd = s + 2; } });
 
 /* ====== Ajustes y copia de seguridad ====== */
 function marcarAjustes() { $$('#ajustes [data-acc="tema"]').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === ST.aj.tema)); $$('#ajustes [data-acc="tam"]').forEach(b => b.setAttribute('aria-pressed', b.dataset.v === ST.aj.tam)); }
 function bajarCopia() { const blob = new Blob([JSON.stringify({ version: 1, fecha: new Date().toISOString(), estado: ST }, null, 1)], { type: 'application/json' }), a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `informatica-progreso-${hoy()}.json`; a.click(); toast('Copia descargada'); }
+function abrirCopia() {
+  $('#copia')?.remove(); const f = document.createElement('div'); f.className = 'buscador-fondo'; f.id = 'copia';
+  f.innerHTML = `<div class="buscador" style="padding:18px;gap:10px" role="dialog" aria-label="Copia de seguridad"><b style="font:700 1.15rem var(--f-display)">Copia de seguridad</b><p style="margin:0;font-size:.88rem;color:var(--muted)">Tu progreso, tus respuestas y tus notas viven solo en este navegador. Copiá este texto y guardalo donde quieras; para restaurarlo en otro lugar, pegalo más abajo.</p><textarea id="copia-out" readonly rows="4" aria-label="Tu copia de seguridad"></textarea><div class="acciones" style="margin:0"><button type="button" class="btn prim" data-acc="copia-copiar">Copiar</button>${ARTEFACTO ? '' : '<button type="button" class="btn" data-acc="copia-bajar">Descargar archivo</button>'}</div><b style="font:700 .95rem var(--f-ui)">Restaurar</b><textarea id="copia-in" rows="3" placeholder="Pegá acá una copia…" aria-label="Pegá una copia para restaurar"></textarea><div class="acciones" style="margin:0"><button type="button" class="btn prim" data-acc="copia-cargar">Cargar lo pegado</button><button type="button" class="btn" data-acc="subir">Elegir un archivo…</button><button type="button" class="btn" data-acc="copia-cerrar">Cerrar</button></div></div>`;
+  document.body.appendChild(f); $('#copia-out').value = JSON.stringify({ version: 1, fecha: new Date().toISOString(), estado: ST });
+  f.onclick = e => { if (e.target === f) f.remove(); };
+}
 function subirCopia(f) { const r = new FileReader(); r.onload = () => { try { const d = JSON.parse(r.result); if (!d.estado) throw 0; ST = Object.assign(ESTADO0(), d.estado); guardar(); aplicarAjustes(); renderizar(); toast('Copia cargada'); } catch (e) { toast('Ese archivo no es una copia válida'); } }; r.readAsText(f); }
 
 /* ====== Buscador ====== */
@@ -302,6 +323,6 @@ function cerrarBuscador() { $('#busc')?.remove(); }
 function iniciar() {
   cargar(); aplicarAjustes(); marcarAjustes();
   $('#archivo').onchange = e => e.target.files[0] && subirCopia(e.target.files[0]);
-  renderizar();
+  renderizar(true);
 }
 iniciar();

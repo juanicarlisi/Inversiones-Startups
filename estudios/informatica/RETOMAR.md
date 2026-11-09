@@ -3,15 +3,19 @@
 Estudio integral de informática, software y sistemas para el fundador (no ingeniero): 631 días de 20 a 30 minutos, 22 partes, de los bits a la nube, con Senda como hilo conductor.
 Un solo HTML (`informatica-desde-cero.html`) con progreso, repaso espaciado, buscador, glosario, diagramas y widgets. Pedido original del 09-11-2026.
 
-## Estado
+## Estado (09-11-2026)
+**42 de 631 días escritos** (Parte 0 completa, 6 días; Parte 1 completa, 36 días). Los 42 pasan el validador y el QA en navegador (40 bloques de código ejecutados sin error). Artefacto privado: https://claude.ai/artifact/2ZMuUPpsBUr5fguB5oTphY (publicar con la misma ruta para actualizarlo). Lo no verificado en fuente primaria está en `VERIFICACION.md`. Siguiente: Parte 2 (Sistemas operativos, 32 días), en lotes de dos días por redactor; costo de la primera tanda: ~45 redactores-día, unos 250.000 tokens por par de días.
+
 `python3 scripts/estado.py` imprime días escritos por parte y el próximo pendiente. El plan completo (los 631 días con título y términos que presenta) ya está fijado en `plan/curriculo-*.txt`.
 
 ## Cómo continuar (un lote de días)
 1. `python3 scripts/estado.py` → elegir el siguiente grupo de días (de a 2 consecutivos por redactor).
 2. Lanzar redactores (agente `general-purpose`, sonnet) con este prompt base: *«Sos redactor del estudio… leé ESCRIBIR.md completo… escribí estos dos días EN ORDEN: X e Y… terminado solo con `verificar_dia.py` en 0 errores y 0 avisos… notas específicas del día…»*. Las notas específicas por día (qué verificar, qué widget usar, qué sección del mapa de Senda leer) son lo que más sube la calidad.
 3. Verificar todo: `python3 scripts/verificar_dia.py` (sin argumentos revisa todos) y `python3 scripts/verificar_enlaces.py --dias`.
-4. Armar y probar: `python3 construir.py` (archivo con tipografías incrustadas) o `python3 construir.py salida.html --artefacto` (liviano, para publicar como artefacto). Capturas: `node scripts/captura.cjs archivo.html prefijo "#/dia/01-09,#/"`.
-5. Commit y push a la rama de trabajo.
+4. Armar y probar: `python3 construir.py` (archivo con tipografías incrustadas) o `python3 construir.py salida.html --artefacto` (liviano, para publicar como artefacto). Control de calidad en navegador real (render de todos los días y ejecución de todo el código): `node scripts/qa.cjs archivo.html`. Capturas: `node scripts/captura.cjs archivo.html prefijo "#dia-01-09,#inicio"` (las rutas son `#dia-ID`, `#parte-NN`, `#mapa`, `#repaso`, `#glosario`, `#fuentes`, `#ayuda`: el artefacto solo admite `#nombre`).
+5. `python3 scripts/consolidar_fuentes.py` (unifica fuentes de los días; avisa de ids repetidos con URL distinta: renombrar el id en el día nuevo) y revisar `VERIFICACION.md`.
+6. Publicar: `python3 construir.py /ruta/art.html --artefacto` y Artifact con la **misma ruta** para mantener el enlace. El artefacto no puede imprimir ni descargar: la copia de seguridad es copiar/pegar texto.
+7. Commit y push a la rama de trabajo.
 
 ## Archivos clave
 - `plan/curriculo-a|b|c|d.txt` (fuente del plan) → `scripts/plan.py` → `plan/plan.json`. Los ids de día son estables (el progreso del lector se guarda por id): nunca renumerar; para insertar, usar sufijo (`03-07b`).
