@@ -1619,3 +1619,28 @@ el único de los diez estilos comparados que mira de frente con calidad profesio
 lentes). **Licencia (HECHO, 07-11):** «Free for personal and commercial use», diseño de Pablo Stanley (LICENSE del paquete y
 dicebear.com/licenses); no es CC estándar: va a la consulta con el abogado de PI (`docs/LEGAL.md`). **Regla de corte:** si el autor
 cambia los términos o una tienda lo objeta, se pasa a Personas de Draftbit (CC BY 4.0, también de frente). Capítulo 76 §8.
+
+## DEC-2026-11-10-1 — Senda: los planes cuestan USD 1,99 (Premium) y USD 3,99 (Max) por mes
+**Decisión del fundador (10-11-2026):** «los planes son de 1.99 usd y de 3.99 usd». Reemplaza la propuesta de USD 2,49 y USD 5,99
+(DEC-2026-10-24-4). El de 3 meses queda propuesto en USD 4,99 y USD 9,99 (ahorro de 16 % y 17 %); sin anual (DEC de la prueba 39).
+**Qué cambia (ESTIMACIÓN, `scripts/economia/suscripciones.py` de la app, por cada 10.000 personas activas por mes, elasticidad
+cercana a −1):** Premium deja USD 315 netos por mes (antes 340) con 260 personas pagando (antes 220); Max deja USD 87 (antes 114) con 45
+líderes (antes 35). **Consecuencia a vigilar:** con Max a 3,99 quedan USD 2,89 por líder por mes; un líder típico (4 sermones) cuesta
+USD 0,61 en IA, pero el tope de 8 trivias del sermón, si todas fueran PDF enormes, costaría USD 3,07 (USD 0,18 más de lo que deja).
+**Recomendación:** dejar el tope en 8. **Regla de corte:** si en un mes medido el costo de IA por líder con Max supera USD 1,45 (la
+mitad de lo que deja), el tope baja a 6 o la trivia pasa al modelo más barato. `docs/SUSCRIPCIONES.md` §3 de la app; capítulo 77.
+
+## DEC-2026-11-10-2 — Senda: el iPhone sale junto con Android
+**Decisión del fundador (10-11-2026):** «lo de iphone sale junto con android». Reemplaza la recomendación de lanzar en iPhone en 2027.
+**Qué implica (HECHO, requisitos de Apple):** cuenta de Apple Developer a nombre del fundador (USD 99 por año: lo paga él, pendiente
+`apple_cuenta` de la Consola, antes del 20-11); armado en la nube (sin Mac) con la clave de App Store Connect cargada en GitHub;
+«Iniciar sesión con Apple» junto a Google para guardar el progreso (lo exige la regla 4.8 de la App Store cuando hay otro inicio de
+sesión de terceros); avisos por APNs; ficha de privacidad; prueba por TestFlight con al menos un iPhone real (acá no se puede probar
+un iPhone). **Regla de corte:** si el 05-12 no hay una versión en TestFlight recorrida entera en un iPhone, el iPhone sale después y
+Android no se atrasa. Capítulo 77.
+
+## DEC-2026-11-10-3 — Senda: barra de abajo con Jugar en el centro (la ficha) y la Biblia solo con scroll
+**Pedidos del fundador (10-11-2026):** (a) «dejemos lo del menú de abajo en este orden: inicio, travesía, jugar, biblia, comunidad. El
+jugar debería aparecer en el centro como con un círculo… resaltado»; la primera versión la rechazó («está ESPANTOSO») y se rehízo con
+benchmark y cuatro variantes comparadas: queda la ficha ámbar con canto (regla R29 de `docs/MARCO_UX.md` de la app). (b) «lo de pasar
+la hoja de la biblia no se arregla; dejemos solo el del scroll»: el modo de pasar hojas sale entero de la app. Capítulo 77.
