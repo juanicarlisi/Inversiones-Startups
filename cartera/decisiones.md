@@ -1644,3 +1644,12 @@ Android no se atrasa. Capítulo 77.
 jugar debería aparecer en el centro como con un círculo… resaltado»; la primera versión la rechazó («está ESPANTOSO») y se rehízo con
 benchmark y cuatro variantes comparadas: queda la ficha ámbar con canto (regla R29 de `docs/MARCO_UX.md` de la app). (b) «lo de pasar
 la hoja de la biblia no se arregla; dejemos solo el del scroll»: el modo de pasar hojas sale entero de la app. Capítulo 77.
+
+## DEC-2026-11-10-4 — Senda: logo nuevo, «Camino en la noche» (opción C)
+**Pedido del fundador (10-11-2026):** un logo nuevo para la app en el que la S sea la senda y haya una cruz al final; lo mejor posible,
+vivo y pensado para app. Se compararon tres opciones con todas las vistas (la puerta del APK 52, la senda de luz y el camino en la noche;
+`oportunidades/proyectos/senda/marcas/logo_2026-11/comparar_logos.html`) y nueve variantes de la C. **Decisión:** la C, con la paleta del
+alba y la forma con borde y cruz que brilla, «quizás lo que me sonaba medio feo es… algunas partes muy puntiagudas»: los rincones y la
+punta se redondearon con geometría exacta (unión de discos y cierre redondo con shapely). La S y la cruz quedan siempre separadas (pedido
+expreso). Archivos en `marcas/logo_2026-11/elegido/`; imagen para el INPI, en un tono y sin reivindicar colores: `marcas/senda_logo_inpi.jpg`.
+**Siguiente:** cambiar la imagen en las solicitudes 4208591 y 4208603 antes de firmar, y el ícono, la entrada y la marca en la app (APK 53).
