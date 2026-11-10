@@ -99,5 +99,45 @@ base (el turno queda guardado y se manda solo cuando vuelve la señal) y una sal
 La barra vertical violeta que tapa la pregunta en la captura 1 no es de Senda: es el control de volumen de Samsung, que aparece al
 sacar la captura (encendido + bajar volumen).
 
-[sigue]
+### 2.5 Lany: rodillas y codos en el festejo de cada pieza (en curso)
 
+Revisado cuadro a cuadro. Dos causas, las dos en el esqueleto y no en cada animación:
+
+- **«Las rodillas para adentro».** Las rodillas doblan hacia afuera; lo que se veía mal eran los pies: la zapatilla giraba con la
+  canilla y, al agacharse, las dos puntas se cruzaban. Arreglado: un nodo «tobillo» sin espejo con una restricción de giro hacia el
+  control del pie, que las actuaciones prenden junto con la IK del pie. Visto en `ponBotas`: los pies quedan apoyados y derechos.
+  (Primer intento fallido: la restricción puesta directo en la zapatilla izquierda, que está espejada, la daba vuelta.)
+- **«El codo se articula para adentro».** La IK de Rive dobla siempre hacia el mismo lado de la línea hombro-mano. Con la mano
+  colgando eso es «codo hacia afuera»; con la mano a la altura del hombro o más arriba y hacia afuera, el codo queda arriba, como un
+  ala (se ve al agarrar la espada, 1,2 a 1,8 s, y al bajarla, 2,8 s). `Act.codo(lado, [(t, "abajo" | "arriba")])` anima el sentido
+  (`invertDirection`, que Rive deja animar). **Falta** usarlo: el cambio de sentido va en un cuadro donde el brazo está estirado
+  (control más lejos que el largo del brazo: hombro en (±43, −86), brazo 85) para que no se vea el salto; hay que rehacer el
+  recorrido de las manos en `pon_espada` (agarre con el codo abajo, barrido amplio con el brazo estirado al levantarla), `pon_casco`
+  (manos a las sienes con los codos hacia afuera) y revisar escudo, coraza, cinturón y `heroica`
+  (hojas ya dibujadas en el scratchpad, sin mirar).
+
+Herramientas: `node scripts/rive/cuadros_cli.cjs <disparo> <segundos> [cuadros] [salida] [columnas] [desde]` dibuja la hoja de cuadros
+desde la fuente RML con la CLI oficial (una corrida por cuadro: en este entorno la CLI solo dibuja bien la primera captura).
+
+**Bloqueo de la herramienta:** la CLI de Rive 1.9 reemplazó `--once` por `--publish`, que pide `rive login` con una cuenta de Rive
+(gratis). Sin eso se puede verificar y dibujar, pero no escribir `assets/lani/lani.riv`: el APK sigue con el .riv anterior hasta que
+el fundador inicie sesión (un código en el navegador). `scripts/rive/lani.py` ya avisa y no falla.
+
+### 2.6 Google Play (10-11)
+
+**HECHO (captura del fundador, 10-11-2026):** la cuenta de desarrollador «Senda App» está creada, como cuenta personal. Google está
+verificando la identidad y pide tres pasos más antes de dejar publicar: declarar el estado de operador, verificar el acceso a un
+teléfono Android (app Play Console) y verificar el teléfono de contacto. El pendiente de la Consola quedó reescrito con esos pasos.
+
+### 2.7 Dónde quedó la sesión (10-11, pausa pedida por el fundador para cambiar de modelo)
+
+- Hecho y subido: barra de abajo con la ficha de Jugar, Inicio, entrada, turno trabado, desafío del día, precios, correo a la SBU en
+  la Consola (§2.1 a §2.4) y el arreglo de los pies de Lany (§2.5).
+- Trabajando en ramas aparte (`/home/user/senda-wt/<nombre>`, ramas `p52-<nombre>`): lector solo con scroll, «¿Quién es?»,
+  «Antes o después», trivia rebuscada (con los 11 huecos que no coinciden con la RVR1960) y huecos de la Travesía. Al terminar se
+  revisan y se unen a `main` (trivia antes que huecos; borrar `TRIVIA_EN_ARREGLO_P52`).
+- Sin empezar: «Nombres por letra» (el «+», letras sin repetir, nombres de equipos, voz) y torneos (eliminatoria con llaves, cierre de
+  inscripción, compartir por enlace o código, botón para sumarse; migración `20261201000001_*`).
+- Cierre pendiente: capítulo, estado, línea de tiempo, mapa, inventario, CLAUDE.md, manual con capturas nuevas, Consola y APK 52.
+
+[sigue]
