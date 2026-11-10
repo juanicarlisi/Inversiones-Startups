@@ -99,45 +99,100 @@ base (el turno queda guardado y se manda solo cuando vuelve la señal) y una sal
 La barra vertical violeta que tapa la pregunta en la captura 1 no es de Senda: es el control de volumen de Samsung, que aparece al
 sacar la captura (encendido + bajar volumen).
 
-### 2.5 Lany: rodillas y codos en el festejo de cada pieza (en curso)
+### 2.5 Lany: rodillas y codos en el festejo de cada pieza (pedido 13)
 
-Revisado cuadro a cuadro. Dos causas, las dos en el esqueleto y no en cada animación:
+Revisado cuadro a cuadro con la herramienta oficial de Rive. Dos causas, las dos en el esqueleto y no en cada animación:
 
 - **«Las rodillas para adentro».** Las rodillas doblan hacia afuera; lo que se veía mal eran los pies: la zapatilla giraba con la
-  canilla y, al agacharse, las dos puntas se cruzaban. Arreglado: un nodo «tobillo» sin espejo con una restricción de giro hacia el
+  canilla y al agacharse las dos puntas se cruzaban. Arreglo: un nodo «tobillo» sin espejo con una restricción de giro hacia el
   control del pie, que las actuaciones prenden junto con la IK del pie. Visto en `ponBotas`: los pies quedan apoyados y derechos.
-  (Primer intento fallido: la restricción puesta directo en la zapatilla izquierda, que está espejada, la daba vuelta.)
-- **«El codo se articula para adentro».** La IK de Rive dobla siempre hacia el mismo lado de la línea hombro-mano. Con la mano
-  colgando eso es «codo hacia afuera»; con la mano a la altura del hombro o más arriba y hacia afuera, el codo queda arriba, como un
-  ala (se ve al agarrar la espada, 1,2 a 1,8 s, y al bajarla, 2,8 s). `Act.codo(lado, [(t, "abajo" | "arriba")])` anima el sentido
-  (`invertDirection`, que Rive deja animar). **Falta** usarlo: el cambio de sentido va en un cuadro donde el brazo está estirado
-  (control más lejos que el largo del brazo: hombro en (±43, −86), brazo 85) para que no se vea el salto; hay que rehacer el
-  recorrido de las manos en `pon_espada` (agarre con el codo abajo, barrido amplio con el brazo estirado al levantarla), `pon_casco`
-  (manos a las sienes con los codos hacia afuera) y revisar escudo, coraza, cinturón y `heroica`
-  (hojas ya dibujadas en el scratchpad, sin mirar).
+- **«El codo se articula para adentro».** La IK de Rive dobla siempre hacia el mismo lado de la línea hombro-mano: con la mano
+  colgando es «codo afuera», pero con la mano al costado a la altura del pecho el codo quedaba arriba como un ala, y con la mano
+  arriba quedaba del lado de la cabeza. Arreglo: `codos_automaticos()` (scripts/rive/actuaciones.py) elige cuadro a cuadro el
+  sentido que deja el codo más abajo y más afuera, con histéresis, y pone el cambio donde el brazo está más estirado (el salto no se
+  ve). Afecta ponEspada, ponEscudo, ponCasco, heroica y ponBotas. Visto: al agarrar la espada el codo cae; al subir el casco va afuera.
+- Herramienta nueva: `node scripts/rive/cuadros_cli.cjs <disparo> <segundos> [cuadros] [salida]` dibuja la hoja de cuadros desde la
+  fuente con la CLI oficial (en este entorno la CLI solo dibuja bien la primera captura de cada corrida: una corrida por cuadro).
+- **Bloqueo (fundador):** la CLI de Rive 1.9 reemplazó `--once` por `--publish`, que pide `rive login` con una cuenta de Rive gratis
+  (código en el navegador). Sin eso se verifica y se dibuja, pero no se escribe `assets/lani/lani.riv`: **el APK 52 lleva el .riv
+  anterior** y el arreglo de pies y codos entra en el primer APK después de la sesión iniciada. `lani.py` avisa y no falla.
 
-Herramientas: `node scripts/rive/cuadros_cli.cjs <disparo> <segundos> [cuadros] [salida] [columnas] [desde]` dibuja la hoja de cuadros
-desde la fuente RML con la CLI oficial (una corrida por cuadro: en este entorno la CLI solo dibuja bien la primera captura).
+### 2.6 Biblia solo con scroll (pedido 2)
 
-**Bloqueo de la herramienta:** la CLI de Rive 1.9 reemplazó `--once` por `--publish`, que pide `rive login` con una cuenta de Rive
-(gratis). Sin eso se puede verificar y dibujar, pero no escribir `assets/lani/lani.riv`: el APK sigue con el .riv anterior hasta que
-el fundador inicie sesión (un código en el navegador). `scripts/rive/lani.py` ya avisa y no falla.
+HECHO (rama p52-lector, unida): sale el modo de pasar hojas entero (cuatro archivos y unas 1.750 líneas); quien lo tenía elegido abre
+deslizando con su papel y su letra. Al escuchar un capítulo, el texto sube solo siguiendo a la voz (sin las hojas, el versículo
+iluminado se iba de la pantalla; falta verlo en un teléfono). El interruptor de Ajustes pasa a «Sonido al pasar las páginas del álbum».
 
-### 2.6 Google Play (10-11)
+### 2.7 Desafío del día y la RVR1960 (pedido 5)
 
-**HECHO (captura del fundador, 10-11-2026):** la cuenta de desarrollador «Senda App» está creada, como cuenta personal. Google está
-verificando la identidad y pide tres pasos más antes de dejar publicar: declarar el estado de operador, verificar el acceso a un
-teléfono Android (app Play Console) y verificar el teléfono de contacto. El pendiente de la Consola quedó reescrito con esos pasos.
+- **Cómo funciona (respuesta al fundador):** se genera solo. Cada día la app toma una pregunta del banco de la trivia según la fecha;
+  no hace falta cargar nada. Desde esta prueba elige solo entre las de dificultad media y recorre el banco con un paso primo (no se
+  repite hasta agotarlo).
+- **«Con todo tu ___» → «poder»:** la RVR1960 dice «alma» ahí. La trivia (2.351 marcadas, 1.324 reescritas, 32 retiradas: §2.9) y los
+  557 huecos de la Travesía se revisaron contra la RVR1960: 524 bien, 2 con otro hueco del mismo versículo, 4 reemplazados y 27
+  recortados. El registro por versículo de las palabras que la 1960 cambia pasó a un archivo de datos
+  (`contenido/rv1909_cambia_en.json`, 114 versículos, 147 palabras) y el validador lo aplica como **error** donde cae el hueco, en la
+  trivia y en lo que queda a la vista. Ninguna palabra de la RVR1960 entra a la app: se marca lo que la 1909 dice distinto.
+- **«Qué versión se parece más»:** la regla ya vigente (capítulo 51) sigue: fuera del lector cada pasaje se abre en la versión libre
+  con menos palabras difíciles. Lo que pedía el fundador se resuelve mejor al revés: el ejercicio pide solo palabras que se leen igual
+  en la RV1909 y en la RVR1960, así que da igual con cuál estudie la persona.
 
-### 2.7 Dónde quedó la sesión (10-11, pausa pedida por el fundador para cambiar de modelo)
+### 2.8 Nombres por letra (pedidos 23 a 26)
 
-- Hecho y subido: barra de abajo con la ficha de Jugar, Inicio, entrada, turno trabado, desafío del día, precios, correo a la SBU en
-  la Consola (§2.1 a §2.4) y el arreglo de los pies de Lany (§2.5).
-- Trabajando en ramas aparte (`/home/user/senda-wt/<nombre>`, ramas `p52-<nombre>`): lector solo con scroll, «¿Quién es?»,
-  «Antes o después», trivia rebuscada (con los 11 huecos que no coinciden con la RVR1960) y huecos de la Travesía. Al terminar se
-  revisan y se unen a `main` (trivia antes que huecos; borrar `TRIVIA_EN_ARREGLO_P52`).
-- Sin empezar: «Nombres por letra» (el «+», letras sin repetir, nombres de equipos, voz) y torneos (eliminatoria con llaves, cierre de
-  inscripción, compartir por enlace o código, botón para sumarse; migración `20261201000001_*`).
-- Cierre pendiente: capítulo, estado, línea de tiempo, mapa, inventario, CLAUDE.md, manual con capturas nuevas, Consola y APK 52.
+- **Voz:** el teléfono escucha los nombres dichos en voz alta y los suma solo (en grupo, durante toda la ronda; en el escrito, con el
+  botón del micrófono). Herramienta: `expo-speech-recognition` 57.1 (MIT; usa el reconocedor del teléfono). La parte que decide si es
+  un nombre de la Biblia es propia (`src/util/escucha.ts`): clave fonética y una letra de tolerancia solo en los nombres conocidos
+  («igual» no es Igal). Sin permiso o sin reconocedor, sigue el «+1». Senda no graba ni guarda audio (privacidad 1.2, `docs/LEGAL.md`).
+  El permiso de micrófono, que estaba bloqueado a propósito, se habilitó para esto.
+- El «+» abajo del campo, ancho, y escribir ya no suma solo (suma el «+» o el «Enviar» del teclado).
+- Letras: la partida siguiente contra Lany empieza por las que no salieron; el reloj y el botón no pueden pasar dos veces de letra.
+  En «cada uno su tiempo», **cada equipo saca su propia letra** y gana la vuelta el que dijo más.
+- Cada equipo con su nombre; «LE TOCA A» chico y el nombre grande; el marcador con los nombres.
 
-[sigue]
+### 2.9 Preguntas rebuscadas (pedido 11)
+
+HECHO (rama p52-trivia, unida): un detector marcó 2.351 de 5.381; se leyeron y decidieron 1.356 (1.324 reescritas, 32 retiradas, 0
+dejadas igual); **quedan 1.028 marcadas sin leer**, todas de señales blandas. Las traducciones de lo reescrito se rehicieron a mano
+(1.284 en portugués y 1.284 en inglés). Regla 9 de `docs/REDACCION.md` de la app: una sola pregunta directa que se entiende a la
+primera. El validador avisa las rebuscadas. Ejemplo del fundador: «Samuel dijo al pueblo que pecaría contra Jehová si dejaba de hacer
+algo por ellos. ¿Qué era?» → «¿Qué dijo Samuel que seguiría haciendo por el pueblo, para no pecar contra Jehová?».
+
+### 2.10 ¿Quién es? (pedidos 14 a 18)
+
+HECHO (rama p52-quien, unida): **263 preguntas para los 71 personajes** (antes 43), cada «sí» con su cita (1.735) y un control
+automático contra la RV1909; lo que se escribe lo entiende un emparejador probado con 603 frases; tope de preguntas contra Lany
+(12 personajes → 6, 16 → 7, 20 → 8, elegido simulando 2.500 partidas); una sola lista que se ordena sola; «¿A quién elige Lany?»;
+«¿Cuántos personajes?». Para revisar: algunas celdas por contexto (lista en el informe de la rama).
+
+### 2.11 Torneos: eliminatoria y cierre de inscripción (pedidos 7 a 10)
+
+- **Base** (`20261201000001_eliminatoria.sql`, 26 pasos nuevos de prueba, 287 de 287): formato «todos contra todos» o «eliminatoria».
+  En la eliminatoria se suma gente hasta el día de arranque; ese día se arma el cuadro al azar con pases libres (de 2 a 64 personas →
+  de 1 a 6 fases); **cada día es una fase**; cada cruce juega las mismas preguntas; se decide al jugar el segundo; al vencer el día,
+  pasa el que jugó o, si ninguno, uno al azar; la final puede ir un día elegido; campeón y avisos.
+- **Desafío a la idea del fundador (lo mejoré en dos cosas):** (1) el cruce se decide en el momento en que juega el segundo, y el
+  siguiente rival se conoce apenas se deciden los dos cruces que lo alimentan, sin esperar la medianoche; (2) los pases libres se
+  reparten al azar por el cuadro, no todos juntos.
+- **App:** «¿Cómo se juega?», «¿Cuándo vence?» (antes «¿Hasta cuándo?»), «¿Hasta cuándo se puede sumar gente?» con enlace; en
+  eliminatoria, el día de arranque y el de la final; la tarjeta con «SUMARME», «JUGAR CONTRA BETO», ganaste o quedaste afuera,
+  campeón y **el cuadro** por fases; compartir con el enlace o copiar el código; al abrir un enlace, primero se ve qué torneo es y se
+  confirma con «SUMARME».
+
+### 2.12 Antes o después (pedidos 19 a 22)
+
+[se completa al integrar la rama p52-antes]
+
+### 2.13 Decisiones y cuentas del fundador
+
+- Planes USD 1,99 y 3,99 (DEC-2026-11-10-1); iPhone junto con Android con regla de corte el 05-12 (DEC-2026-11-10-2); autorización
+  de Nueva Generación: ok; el correo a la SBU por la RVR1960, en la Consola con botón «Copiar».
+- **Google Play (HECHO, captura del 10-11):** la cuenta «Senda App» (personal) está creada. Google verifica la identidad y pide tres
+  pasos: estado de operador, acceso a un teléfono Android (app Play Console) y teléfono de contacto. Pendiente reescrito en la Consola.
+
+## 3. Próximos
+
+1. **Rive:** que el fundador inicie sesión en Rive (cuenta gratis) para publicar el `.riv` con los pies y codos nuevos.
+2. Leer las 1.028 preguntas marcadas que quedan (`python3 scripts/autor/rebuscadas.py --lote 60`).
+3. Probar la voz de «Nombres por letra» en el teléfono (Android 13 o más: escucha continua; Android 12 o menos: frase por frase).
+4. Probar una eliminatoria de punta a punta con cuentas reales (la base viva la corre cada 5 minutos).
+5. iPhone: cuenta de Apple antes del 20-11; «Ingresar con Apple» (obligatorio si hay ingreso con Google) y APNs.

@@ -485,6 +485,19 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     lanzamiento en Latinoamérica sin Brasil, con Brasil (01-03-2027), EE. UU. y Europa fijos en la hoja de ruta (DEC-2026-11-07-6);
   - torneos con enlace (el desafío del sermón sin grupo), «Sumarme a uno / Crear uno» y la sala con alias único; la eliminatoria con
     llaves, diseñada para la próxima (capítulo 76 §11); el avatar de frente con Avataaars (DEC-2026-11-07-9).
+- **Datos del 10-11-2026 (Senda, prueba 52):**
+  - la barra en el orden del fundador (Inicio, Travesía, Jugar, Biblia, Comunidad) con Jugar al centro como una ficha dorada con
+    canto: la primera versión le pareció «ESPANTOSA» y se rehízo con benchmark, teoría y variantes comparadas (regla R29 del marco
+    de UX); la Biblia solo con scroll (el pasar de hoja salió entero);
+  - planes USD 1,99 y 3,99 (DEC-2026-11-10-1); iPhone junto con Android, con regla de corte el 05-12 (DEC-2026-11-10-2); la
+    autorización de Nueva Generación está ok; la cuenta de Google Play «Senda App» está creada (faltan tres pasos de Google);
+  - un ejercicio solo pide palabras que se leen igual en la RV1909 y en la RVR1960 (registro `contenido/rv1909_cambia_en.json`, error
+    del validador); la trivia, una sola pregunta directa (regla 9 de `docs/REDACCION.md`; 1.324 reescritas, 1.028 marcadas por leer);
+  - «Nombres por letra» con voz: el teléfono entiende los nombres dichos y los suma solo (sin grabar audio; privacidad 1.2);
+  - torneos con eliminatoria: un día por fase, el cuadro a la vista, sumarse con un botón al abrir el enlace, compartir con enlace o
+    código; «¿Cuándo vence?» y tope opcional para sumarse;
+  - Lany: los pies quedan apoyados y el codo dobla hacia abajo y afuera en cada cuadro (sentido de la IK automático); publicar el
+    `.riv` pide iniciar sesión en Rive (pendiente del fundador).
 
 ## 2. Reglas no negociables
 
