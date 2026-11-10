@@ -1653,3 +1653,12 @@ alba y la forma con borde y cruz que brilla, «quizás lo que me sonaba medio fe
 punta se redondearon con geometría exacta (unión de discos y cierre redondo con shapely). La S y la cruz quedan siempre separadas (pedido
 expreso). Archivos en `marcas/logo_2026-11/elegido/`; imagen para el INPI, en un tono y sin reivindicar colores: `marcas/senda_logo_inpi.jpg`.
 **Siguiente:** cambiar la imagen en las solicitudes 4208591 y 4208603 antes de firmar, y el ícono, la entrada y la marca en la app (APK 53).
+
+## DEC-2026-11-10-5 — Senda: revisión legal exhaustiva hecha por Claude en una sesión exclusiva, en lugar de la consulta paga
+**Pedido del fundador (10-11-2026):** «en un momento antes de publicar, te asignás el rol de abogado, y analizás todo EXHAUSTIVAMENTE.
+Una sesión exclusiva para eso. Y validás contra todo lo que existe. Y ahí de última vemos qué modificar o qué no.» **Decisión:** la
+consulta de una hora con un abogado (ARS 80.000 a 150.000) sale de los pendientes del fundador. Antes de que la ficha de Google Play sea
+pública, una sesión dedicada solo a revisar los 21 puntos de `oportunidades/proyectos/senda/revision_legal_prelanzamiento.md` contra las
+fuentes primarias vigentes, con informe y cambios propuestos; los que tocan la UX se consultan antes. La lista se completa con cada tema
+legal nuevo. Límite: es análisis, no asesoramiento profesional matriculado; si aparece un riesgo alto que solo un abogado puede resolver,
+se dice en el informe.

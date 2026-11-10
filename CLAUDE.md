@@ -498,6 +498,15 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     código; «¿Cuándo vence?» y tope opcional para sumarse;
   - Lany: los pies quedan apoyados y el codo dobla hacia abajo y afuera en cada cuadro (sentido de la IK automático); publicar el
     `.riv` pide iniciar sesión en Rive (pendiente del fundador).
+- **Datos del 10-11-2026 a la noche (Senda, logo y marcas):**
+  - logo nuevo «Camino en la noche» (DEC-2026-11-10-4): la S es un camino que se pierde en el horizonte y la cruz está en la luz; la S y
+    la cruz siempre separadas; sin puntas (geometría redondeada); archivos en `oportunidades/proyectos/senda/marcas/logo_2026-11/elegido/`;
+  - marcas en el INPI con el logo nuevo: 4208861 y 4208894 (SENDA BIBLIA Y JUEGOS, clases 9 y 41), 4208608 y 4208613 (LANY, 9 y 41),
+    ARS 168.172; firmar y pagar a más tardar antes de que la ficha de Play sea pública; con el portal del INPI, si «Finalizar» da error,
+    se cierra sesión y se vuelve a entrar;
+  - las tareas del fundador se dan de a una, cada una con su prompt para Claude en Chrome (en la Consola, botón «Copiar»);
+  - antes de publicar, una sesión exclusiva de revisión legal exhaustiva con Claude en rol de abogado, contra fuentes primarias
+    (`oportunidades/proyectos/senda/revision_legal_prelanzamiento.md`; DEC-2026-11-10-5); reemplaza la consulta paga.
 
 ## 2. Reglas no negociables
 
