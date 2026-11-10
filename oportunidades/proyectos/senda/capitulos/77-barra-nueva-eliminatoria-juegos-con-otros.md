@@ -180,7 +180,15 @@ automático contra la RV1909; lo que se escribe lo entiende un emparejador proba
 
 ### 2.12 Antes o después (pedidos 19 a 22)
 
-[se completa al integrar la rama p52-antes]
+HECHO (rama p52-antes, unida): **la carta se arrastra** hasta su lugar (se levanta sobre el dedo, el hueco más cercano se abre e
+ilumina con una muesca háptica, la lista corre sola en los bordes; sin «+»: el tablero de toques queda solo para lector de pantalla
+o «reducir movimiento»). **317 hechos** (antes 41) de la creación a Patmos, con el orden asegurado por tramos y ramas (Rut, Jonás,
+Ester…: dos hechos se comparan solo si su orden es seguro); cada cita y cada «» controlados contra la RV1909. Cuatro formas:
+**por niveles** (15 épocas con su dibujo propio, que se colorea al ganarla, y 3 repasos; Jesús no se dibuja), **juego libre** (no
+repite hasta agotar el stock), **juega y pasa** (de 2 a 6 nombres, «Le toca a» con el nombre grande y «YA TENGO EL TELÉFONO») y
+**contra un amigo** o un rival al azar (10 cartas iguales para los dos, de fácil a difícil; la base sortea y corrige). Migración
+`20261201000002_antes_despues.sql`; base 326 de 326. Para mirar: algunos órdenes (Ester entre Ciro y Nehemías; Cornelio antes de
+la muerte de Jacobo; la tentación antes de Caná) y que los hechos están solo en español. Falta probar el arrastre en un teléfono.
 
 ### 2.13 Decisiones y cuentas del fundador
 
