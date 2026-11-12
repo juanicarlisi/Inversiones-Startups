@@ -84,7 +84,7 @@ function abrirMeta(id) {
   const nuevo = !id; const x = nuevo ? { id: 'm' + uid(), n: '', monto: 0 } : clone(S.metas.items.find(i => i.id === id));
   openSheet({
     title: nuevo ? 'Nueva meta de compra' : 'Editar meta', x, nuevo,
-    body: () => `<div class="field"><label for="me-n">¿Qué querés comprar?</label><input class="inp" id="me-n" data-f="me-n" value="${esc(x.n)}" placeholder="Ej: Sillón"></div><div class="field"><label for="me-m">Costo estimado ($)</label><div class="amount-wrap"><span class="cur">$</span><input id="me-m" data-f="me-m" inputmode="decimal" value="${fmtInput(x.monto)}"></div></div>${!nuevo ? `<button class="btn danger block" data-act="me-del">Eliminar</button>` : ''}`,
+    body: () => `<div class="field"><label for="me-n">¿Qué querés comprar?</label><input class="inp" id="me-n" data-f="me-n" value="${esc(x.n)}" placeholder="Ej: Sillón"></div><div class="field"><label for="me-m">Costo estimado ($)</label><div class="amount-wrap"><span class="cur">$</span><input id="me-m" data-f="me-m" inputmode="decimal" value="${fmtInput(x.monto)}"></div></div>${!nuevo ? `<div class="row" style="gap:8px;margin-bottom:8px"><button class="btn grow" data-act="me-mover" data-k="-1">Subir prioridad</button><button class="btn grow" data-act="me-mover" data-k="1">Bajar prioridad</button></div><button class="btn danger block" data-act="me-del">Eliminar</button>` : ''}`,
     foot: () => '<button class="btn primary" data-act="me-save">Guardar</button>'
   });
 }
@@ -173,6 +173,7 @@ const ACT = {
   'meta-edit': el => abrirMeta(el.dataset.id),
   'meta-comprar': el => { const x = S.metas.items.find(i => i.id === el.dataset.id); abrirComposer('gasto', { monto: x.monto, com: x.n, cat: clasificar(x.n, '') || 'hogar', catAuto: false, metaId: x.id, adv: true }); },
   'me-save': async (el, e, d) => { const x = d.x; if (!x.n.trim()) { toast('Poné qué querés comprar.', null, true); return; } const a = S.metas.items; const i = a.findIndex(y => y.id === x.id); if (i > -1) a[i] = x; else a.push(x); if (await guardar(saveMetas, 'Guardado ✓')) closeSheet(d); },
+  'me-mover': async (el, e, d) => { const a = S.metas.items, i = a.findIndex(y => y.id === d.x.id), j = i + (+el.dataset.k); if (i < 0 || j < 0 || j >= a.length) return; [a[i], a[j]] = [a[j], a[i]]; if (await guardar(saveMetas, 'Prioridad actualizada')) closeSheet(d); },
   'me-del': async (el, e, d) => { S.metas.items = S.metas.items.filter(y => y.id !== d.x.id); if (await guardar(saveMetas, 'Eliminada')) closeSheet(d); },
   'cat-edit': el => abrirCat(el.dataset.id),
   'tg-pref': el => { const k = el.dataset.k, v = pref(k, k === 'snd' ? '0' : '1') ? '0' : '1'; lsSet('ef_' + k, v); render(); if (v === '1') { if (k === 'snd') ding(); if (k === 'hap') haptic(); if (k === 'cele') celebrar({ titulo: 'Pagaste', monto: 25000, sub: 'Así se ve la confirmación', tono: 'accent' }); } },

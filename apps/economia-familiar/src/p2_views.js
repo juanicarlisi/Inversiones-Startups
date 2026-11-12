@@ -445,8 +445,8 @@ function vFondos() {
   if (!mt.length) h += `<div class="hint">Anotá lo que querés comprar (sillón, microondas, un viaje) con su costo estimado. Cuando lo comprás, se registra como gasto.</div>`;
   else {
     const pend = mt.filter(x => !x.hecha), cmp = mt.filter(x => x.hecha);
-    h += `<div class="hint" style="margin-bottom:6px">Pendientes: <b class="num">${money(sum(pend, x => x.monto))}</b> en ${pend.length} cosas</div>`;
-    (S.ui.metasAll ? pend : pend.slice(0, 6)).forEach(x => h += `<div class="mv"><button class="grow row" data-act="meta-edit" data-id="${x.id}" style="align-items:flex-start"><span class="ico sm">🎯</span><span class="grow"><div class="t" style="white-space:normal;overflow-wrap:anywhere">${esc(x.n)}</div><div class="s num">${money(x.monto)}</div></span></button><button class="btn sm" data-act="meta-comprar" data-id="${x.id}">Compré</button></div>`);
+    h += `<div class="hint" style="margin-bottom:6px">Por orden de prioridad. Pendientes: <b class="num">${money(sum(pend, x => x.monto))}</b> en ${pend.length} cosas</div>`;
+    (S.ui.metasAll ? pend : pend.slice(0, 6)).forEach(x => h += `<div class="mv"><button class="grow row" data-act="meta-edit" data-id="${x.id}" style="align-items:flex-start"><span class="ico sm num" style="font-weight:800;font-size:13px">${pend.indexOf(x) + 1}</span><span class="grow"><div class="t" style="white-space:normal;overflow-wrap:anywhere">${esc(x.n)}</div><div class="s num">${money(x.monto)}</div></span></button><button class="btn sm" data-act="meta-comprar" data-id="${x.id}">Compré</button></div>`);
     if (pend.length > 6) h += `<button class="btn block ghost" data-act="metas-all">${S.ui.metasAll ? 'Ver menos' : 'Ver las ' + (pend.length - 6) + ' restantes'}</button>`;
     if (cmp.length) h += `<div class="group-h">Compradas</div>` + cmp.map(x => `<div class="mv"><span class="ico sm">✅</span><span class="grow"><div class="t ink2" style="white-space:normal;overflow-wrap:anywhere">${esc(x.n)}</div></span><span class="a num ink2">${money(x.real || x.monto)}</span></div>`).join('');
   }
