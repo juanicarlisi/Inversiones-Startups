@@ -1,0 +1,604 @@
+{
+ "id": "06-22",
+ "titulo": "Estado global: Context, Redux, zustand y señales",
+ "bajada": "Qué es un store, un selector y un reductor, cómo se comparan Redux Toolkit, zustand y las señales en una misma prueba, y cómo guarda Senda su progreso con zustand.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Decidir en qué escalón de la escalera del estado vive un dato (local, subido al padre, composición, reductor con contexto, store externo).",
+  "Explicar qué hace un store y cómo un selector evita redibujar componentes que no necesitan enterarse.",
+  "Escribir un reductor puro y reproducir un estado a partir de una lista de acciones.",
+  "Comparar contexto, zustand, Redux Toolkit y señales con conteos de re-renders y distinguir lo medido de lo opinable.",
+  "Leer en el código de Senda cómo se declara, se guarda y se escucha un store de zustand, y qué quedó sin validar."
+ ],
+ "venis_de": "En [@06-21] viste que el contexto redibuja a todos sus consumidores y que un store pasado por contexto evitaba eso (la variante D). Hoy se arma esa pieza entera: el store, el selector y el reductor, con las tres herramientas que la gente usa en la práctica.",
+ "se_apoya_en": [
+  "06-16",
+  "06-18",
+  "06-21",
+  "02-31"
+ ],
+ "gancho": [
+  "Un número, «pedidos pendientes», aparece en la barra de arriba, en la pestaña «Pedidos», en el encabezado de la lista y en el ícono de la app (ejemplo inventado). Cuatro lugares sin parentesco en el árbol de componentes, y cuando un chofer cierra un pedido los cuatro tienen que enterarse. `useState` no alcanza, porque el estado vive en un solo componente. Pasarlo por props obligaría a subirlo y bajarlo por medio árbol. El contexto funciona, pero ya viste lo que cuesta cuando su valor cambia seguido.",
+  "Hoy el dato sale del árbol. Primero qué es un store y cómo se conecta con React; después cómo cambia el estado el reductor de Redux; y con la misma prueba, qué hacen el contexto, zustand, Redux Toolkit y las señales cuando cambia un solo dato. Al final, cómo lo resuelve Senda, con su código y con una cuenta que no coincide con su propio mapa."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Cuándo un dato deja de ser local"
+  },
+  {
+   "t": "p",
+   "x": [
+    "No todo estado es global, y casi nada debería serlo. Una escalera ayuda a decidir hasta dónde subir, y conviene subir un escalón por vez:"
+   ]
+  },
+  {
+   "t": "pasos",
+   "titulo": "La escalera del estado",
+   "pasos": [
+    {
+     "t": "Estado local",
+     "x": "`useState` dentro del componente que lo usa, como el texto de una caja de búsqueda."
+    },
+    {
+     "t": "Subirlo al ancestro común",
+     "x": "Lo usan dos o tres componentes cercanos: el estado vive en su padre y baja por props ([@06-16], [@06-18])."
+    },
+    {
+     "t": "Composición",
+     "x": "Pasar hijos ya armados en lugar de datos para saltear pisos intermedios ([[composición de componentes]])."
+    },
+    {
+     "t": "useReducer más contexto",
+     "x": "Una pantalla compleja con varios pedazos que se tocan entre sí [#front22-react-scaling-reducer-context]."
+    },
+    {
+     "t": "Un store externo",
+     "x": "Lo necesitan muchos componentes lejanos, tiene que sobrevivir a las pantallas o tiene que leerse y cambiarse desde fuera de React."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Al llegar al último escalón se habla de [[estado global]]: un dato que muchas partes de la app, lejanas entre sí en el árbol, leen o cambian, y que suele vivir más que cualquier pantalla. Tomá este ejemplo inventado: un número de «pedidos pendientes» que se ve en la barra de arriba, en la pestaña «Pedidos», en el encabezado de la lista y en el ícono de la app. Cuatro lugares sin parentesco, y cuando un chofer cierra un pedido los cuatro tienen que enterarse. En Senda, el tema elegido (`tema` en `src/estado/ajustes.ts`) y el saldo de Talentos (`talentos` en `src/estado/usuario.ts`, usado en 10 archivos `.tsx`) cumplen esa condición; el texto de una caja de búsqueda, no.",
+    "El contexto de [@06-21] resuelve esto con una limitación que ya mediste: no tiene selectores. Cuando cambia su valor, se redibujan todos los que lo leen, aunque solo les interese un pedazo. La variante D de ayer, un store que viaja por el contexto, era el atajo. Hoy esa idea se toma en serio. Un aviso: los datos que **bajan de un servidor** (la lista de pedidos de una API) parecen globales pero son otro problema, y el de mañana ([@06-23])."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Store y selector: el estado afuera de React"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[store]] es un objeto que vive **afuera** de los componentes y hace tres cosas: guarda el estado, lo cambia mediante funciones que le das y avisa a quien se suscribió. React no lo conoce, así que cualquier código (un componente, un temporizador, el arranque de la app) puede usarlo. Esto es uno completo, sin ninguna biblioteca. Corrélo con el botón:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Un store mínimo: guarda el estado, lo cambia y avisa solo cuando el pedazo que te interesa cambió.\nfunction crearStore(inicial) {\n  let estado = inicial;\n  const oyentes = new Set();\n  return {\n    obtener: () => estado,\n    poner(cambio) {\n      const nuevo = { ...estado, ...(typeof cambio === 'function' ? cambio(estado) : cambio) };\n      const viejo = estado; estado = nuevo;\n      oyentes.forEach((o) => o(estado, viejo));\n    },\n    suscribir(selector, alCambiar) {          // un «selector»: función que elige un pedazo del estado\n      const o = (nuevo, viejo) => { if (!Object.is(selector(nuevo), selector(viejo))) alCambiar(selector(nuevo)); };\n      oyentes.add(o);\n      return () => oyentes.delete(o);          // devuelve cómo darse de baja\n    },\n  };\n}\n\nconst store = crearStore({ talentos: 0, vidas: 5, tema: 'indigo' });\nconst avisos = { talentos: 0, vidas: 0, tema: 0 };\nstore.suscribir((s) => s.talentos, (v) => { avisos.talentos++; console.log('talentos ->', v); });\nstore.suscribir((s) => s.vidas, (v) => { avisos.vidas++; console.log('vidas ->', v); });\nstore.suscribir((s) => s.tema, (v) => { avisos.tema++; console.log('tema ->', v); });\n\nstore.poner((s) => ({ talentos: s.talentos + 10 }));\nstore.poner((s) => ({ talentos: s.talentos + 15 }));\nstore.poner({ vidas: 4 });\nstore.poner({ tema: 'indigo' });                // mismo valor: nadie se entera\nconsole.log('avisos por pedazo:', JSON.stringify(avisos));\nconsole.log('estado final:', JSON.stringify(store.obtener()));",
+   "cap": "Un store mínimo con suscripciones por selector. En esta VM, con node 22, imprime: talentos -> 10, talentos -> 25, vidas -> 4, y «avisos por pedazo: talentos 2, vidas 1, tema 0»."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: la central de avisos de un depósito",
+   "x": "Cada sector le deja a la central un papelito: «avisame solo si cambia el turno de mi andén». Cuando algo cambia, la central revisa los papelitos y llama únicamente a quien le toca. La central es el store y cada papelito es un selector. La analogía falla en que la central entrega el dato por teléfono; en React, el aviso hace que el componente se vuelva a dibujar y lea el dato nuevo desde cero."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La palabra clave es el [[selector]]: una función que elige un pedazo del estado (`(s) => s.talentos`). El store compara el pedazo de antes con el de ahora con `Object.is`, igual que en [@06-21], y solo avisa si cambió. Las tres primeras líneas de salida son los tres avisos reales, y asignar de nuevo el tema al mismo valor no avisó a nadie.",
+    "Falta conectarlo con React: un componente tiene que volver a dibujarse cuando su pedazo cambia. React trae un hook para eso, `useSyncExternalStore(subscribe, getSnapshot)`, que se suscribe al store, lee una «foto» del dato y fuerza un [[re-render]] cuando la foto cambia [#front22-react-usesyncexternalstore]. Las bibliotecas lo envuelven. [[zustand]] (la palabra alemana para «estado») hace que el store sea directamente un hook, sin proveedor, y el selector es su argumento [#front22-zustand-intro]:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { create } from 'zustand';\n\nconst useJuego = create((set) => ({\n  talentos: 0,\n  vidas: 5,\n  ganar: (n) => set((s) => ({ talentos: s.talentos + n })),    // set mezcla lo que le pasás con el estado\n}));\n\nfunction Saldo() {\n  const t = useJuego((s) => s.talentos);       // se redibuja solo si cambia talentos\n  return <b>{t}</b>;\n}\nfunction BotonGanar() {\n  const ganar = useJuego((s) => s.ganar);      // la función no cambia nunca: este componente casi no se redibuja\n  return <button onClick={() => ganar(10)}>+10</button>;\n}",
+   "cap": "Un store de zustand: el estado y las funciones que lo cambian viven en el mismo objeto."
+  },
+  {
+   "t": "pensa",
+   "x": "¿Por qué `BotonGanar` casi nunca se redibuja aunque los talentos cambien todo el tiempo?",
+   "resp": "Porque su selector elige la función `ganar`, que se crea una sola vez con el store y es siempre la misma. El pedazo elegido nunca cambia, así que el store no le avisa. Por eso los botones pueden suscribirse a las acciones sin costo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay una trampa documentada con los selectores. Si el selector devuelve un objeto **nuevo** en cada llamada, como `useJuego((s) => ({ t: s.talentos, v: s.vidas }))`, React ve un pedazo distinto en cada lectura y entra en un bucle. Lo probé con zustand 5.0.15 y React 19.3.1: en producción, el componente murió con el error 185 de React (superó el máximo de actualizaciones anidadas) después de 55 dibujos; en desarrollo, React avisa «The result of getSnapshot should be cached to avoid an infinite loop». El arreglo es `useShallow`, que compara el resultado campo por campo en lugar de por identidad [#front22-zustand-useshallow]. Con él, el mismo componente se dibujó una vez; al sumar un campo que no leía, 0 veces; al sumar uno que sí leía, una [#front22-react-error-185]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Reductor: cambiar el estado con una función pura"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El store de arriba cambia el estado con funciones libres (`ganar`). Otra escuela exige que todo cambio pase por un [[reductor]]: una función **pura** que recibe el estado anterior y una acción y devuelve el estado nuevo. La acción es un objeto que describe qué pasó (`{ tipo: 'ganar', cantidad: 10 }`), no cómo cambiar el estado. Es la idea de Redux, que la resume en tres principios: una sola fuente de verdad (un solo store), un estado de solo lectura que únicamente cambia emitiendo acciones, y cambios hechos por funciones puras [#front22-redux-principios]."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Un reductor: una función pura (estado anterior, acción) -> estado nuevo.\nfunction reductor(estado, accion) {\n  switch (accion.tipo) {\n    case 'ganar':   return { ...estado, talentos: estado.talentos + accion.cantidad };\n    case 'perder_vida': return { ...estado, vidas: Math.max(0, estado.vidas - 1) };\n    case 'reiniciar':   return { talentos: 0, vidas: 5 };\n    default: throw new Error('Acción desconocida: ' + accion.tipo);\n  }\n}\nconst inicial = { talentos: 0, vidas: 5 };\nconst acciones = [\n  { tipo: 'ganar', cantidad: 10 },\n  { tipo: 'perder_vida' },\n  { tipo: 'ganar', cantidad: 15 },\n  { tipo: 'perder_vida' },\n];\nlet estado = inicial;\nfor (const a of acciones) { estado = reductor(estado, a); console.log(JSON.stringify(a).padEnd(36), '->', JSON.stringify(estado)); }\n\n// Como las acciones son datos y el reductor es puro, se puede reproducir todo desde cero:\nconst repetido = acciones.reduce(reductor, inicial);\nconsole.log('reproducido desde cero:', JSON.stringify(repetido), '| igual:', JSON.stringify(repetido) === JSON.stringify(estado));\nconsole.log('el estado inicial quedó intacto:', JSON.stringify(inicial));",
+   "cap": "Un reductor y cuatro acciones. La última línea de salida muestra por qué la idea es potente: repetir las acciones desde cero da exactamente el mismo estado."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo que se gana: como las acciones son datos y el reductor es puro, la historia del estado es reproducible, se puede registrar y se puede probar sin React. Un error que alguien te manda se reproduce con la lista de acciones. Lo que cuesta: escribir un tipo de acción y un caso por cada cambio. React trae la versión chica, `useReducer`, para un componente o una pantalla [#front22-react-scaling-reducer-context]. Y Redux Toolkit, el camino oficial hoy [#front22-rtk-inicio], recorta el ritual: `createSlice` escribe las acciones por vos y usa una biblioteca llamada Immer, que te deja escribir como si mutaras un «borrador» y devuelve un estado nuevo sin tocar el viejo [#front22-zustand-comparacion]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Evento",
+       "s": "clic en «cerrar pedido 7»",
+       "k": "cliente"
+      },
+      {
+       "t": "Acción",
+       "s": "{ tipo: 'cerrar', id: 7 }",
+       "k": "datos",
+       "e": "se emite"
+      },
+      {
+       "t": "Reductor",
+       "s": "(estado, acción) → estado nuevo",
+       "k": "servidor",
+       "e": "la recibe"
+      }
+     ],
+     "baja": "el store guarda el estado nuevo y avisa a sus suscriptos"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Store",
+       "s": "estado + lista de suscriptos",
+       "k": "datos"
+      },
+      {
+       "t": "Selectores",
+       "s": "cada uno compara su pedazo",
+       "k": "red",
+       "e": "avisa"
+      },
+      {
+       "t": "Componentes",
+       "s": "solo se redibujan los que cambiaron",
+       "k": "ok",
+       "e": "el que cambió"
+      }
+     ]
+    }
+   ],
+   "cap": "El camino de un cambio en la escuela Redux. En zustand se salta el paso de la acción y el reductor: la función del store llama a `set` directamente, y el resto del camino es igual."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const rebanada = createSlice({\n  name: 'cont',\n  initialState: { a: 0, b: 0, c: 0, d: 0 },\n  reducers: {\n    sumar: (s, { payload }) => { s[payload] += 1; },    // parece mutar; Immer devuelve un estado nuevo\n  },\n});\nconst tienda = configureStore({ reducer: { cont: rebanada.reducer } });\n\n// en un componente:\nconst v = useSelector((s) => s.cont.a);                 // el selector, igual que en zustand\nconst dispatch = useDispatch();\ndispatch(rebanada.actions.sumar('a'));                  // emite la acción { type: 'cont/sumar', payload: 'a' }",
+   "cap": "El mismo contador en Redux Toolkit, tal como lo corrí en la prueba de abajo."
+  },
+  {
+   "t": "h",
+   "x": "Tres escuelas, una misma prueba"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para comparar sin discutir de gustos armé la misma pantalla con cada herramienta: 100 componentes, cada uno muestra uno de cuatro contadores (25 por contador), y un botón «+a» suma al contador a. Conté cuántos componentes se redibujan con un clic. También medí cuánto pesa cada biblioteca, minificada y comprimida con gzip, sin contar React."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Herramienta",
+    "Componentes redibujados tras 1 clic en «+a»",
+    "Peso (gzip, sin React)"
+   ],
+   "filas": [
+    [
+     "Un contexto con los cuatro contadores (valor memorizado)",
+     "100",
+     "0 (viene con React)"
+    ],
+    [
+     "zustand 5.0.15, un selector por componente",
+     "25",
+     "0,4 KB (`create`); 1,3 KB con `persist`"
+    ],
+    [
+     "Redux Toolkit 2.14.0 con react-redux 9.3.1 y `useSelector`",
+     "25",
+     "9,6 KB (Redux y react-redux solos: 3,0 KB)"
+    ],
+    [
+     "Señales (`@preact/signals-react` 3.12.0), leyendo `.value` en el componente",
+     "25",
+     "2,4 KB"
+    ],
+    [
+     "Señales, con la señal puesta directo en el JSX",
+     "0",
+     "2,4 KB"
+    ]
+   ],
+   "cap": "Medido en esta VM el 13-11-2026: Chromium 153, React 19.3.1 en producción, conteo con un contador por componente (sale igual en cada corrida). Los pesos salen de esbuild con imports mínimos; un app real importa más y comprime distinto."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El contexto pierde porque no tiene selector: cambió el valor, se enteran los 100. Zustand y Redux Toolkit empatan en 25, porque son dos formas de la misma idea: un store externo, un selector por componente, aviso solo a quien le cambió el pedazo. La documentación de zustand dice lo mismo: en render, no hay diferencias mayores con Redux, y en los dos se recomienda optimizar con selectores [#front22-zustand-comparacion]. La diferencia está en el estilo y en el ceremonial, no en el rendimiento.",
+    "Las **señales** son la tercera escuela. Una [[señal]] es un valor que *sabe quién lo está leyendo*: al cambiar, avisa solo a esos lectores y vos no escribís ningún selector. Es el modelo de Angular y Solid, y también de Preact; la propuesta de llevarlas a JavaScript la firman autores de Angular, Preact, Solid, Svelte, Vue y otros [#front22-tc39-senales] [#front22-angular-senales]. En React son un agregado de terceros, y ofrecen un truco: si ponés la señal directo en el JSX, el texto se actualiza sin que el componente se redibuje, lo que da el 0 de la última fila [#front22-preact-senales-react]. Ese 0 tiene precio: la integración con React trae reglas propias (un transformador de Babel recomendado, o un hook `useSignals` en cada componente que lee `.value`) y limitaciones documentadas, como no soportar señales en atributos del DOM."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 13 de noviembre de 2026",
+   "x": [
+    "Según `npm view` ese día: zustand 5.1.0 (publicada el 6-11-2026; Senda trae la 5.0.15 de agosto), Redux Toolkit 2.14.0 (3-11-2026), react-redux 9.3.1 (27-10-2026), redux 5.0.1 (diciembre de 2023) y `@preact/signals-react` 3.12.0 (4-8-2026). La propuesta de señales de TC39 figura como etapa 1 en su README, o sea una exploración, no un estándar [#front22-tc39-senales].",
+    "Las tres escuelas siguen activas. Lo que mide el mercado (cuál se usa más) no lo verifiqué y no lo afirmo."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Si la pantalla de la prueba tuviera 3 consumidores en lugar de 100, ¿cambiaría la conclusión sobre el contexto?",
+   "resp": "En la práctica no: dibujar 3 componentes de más cuesta casi nada, y el contexto sería la opción más simple. La prueba muestra la dirección (el contexto no tiene selectores), no que haya que evitarlo siempre; vale la regla de ayer de medir antes de complicar."
+  },
+  {
+   "t": "h",
+   "x": "El patrón de Senda, en chico"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda usa zustand para casi todo su estado compartido. Para entender el patrón lo reproduje en chico y sin React: un store con sus acciones adentro, el middleware `persist` que lo guarda, una versión del formato con una función `migrate` para datos viejos, y un almacenamiento propio que junta los cambios y escribe 400 ms después del primero (lo que ya viste en [@02-31]). Corrí esto con zustand 5.0.15 en node 22:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node persist.mjs",
+     "s": "1) arranque con datos viejos, migrados -> {\"talentos\":40,\"vidas\":3}\n2) 5 cambios; escrituras al disco enseguida: 0 | lo que pide el estado: {\"talentos\":57,\"vidas\":2}\n   500 ms después, escrituras: 1 | en disco: {\"state\":{\"talentos\":57,\"vidas\":2},\"version\":2}\n3) tienda nueva sobre el mismo disco -> {\"talentos\":57,\"vidas\":2}"
+    }
+   ],
+   "cap": "El «teléfono» es un `Map` en memoria. En el paso 1 el dato viejo guardaba `puntos` y la versión 2 lo llama `talentos`: `migrate` los convierte. En el paso 2, cinco cambios seguidos se juntan en una sola escritura."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres cosas para leer de ahí. El estado y las acciones (`ganar`, `perderVida`) viven en el mismo store, y los componentes eligen lo que necesitan con selectores. `persist` hace la carga y el guardado, y la `version` más `migrate` permiten cambiar la forma de los datos sin perder lo guardado. Y como el guardado está detrás de un objeto con tres funciones (`getItem`, `setItem`, `removeItem`), Senda pudo cambiar cómo y cuándo se escribe sin tocar los stores. La documentación de `persist` trae una advertencia que vale para el paso 1: lo leído del almacenamiento se trata como si tuviera la forma del tipo, sin comprobarlo en ejecución [#front22-zustand-persist]."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Un store con sus acciones, guardado en el teléfono",
+   "x": [
+    "`src/estado/usuario.ts` define `useUsuario = create<EstadoUsuario>()(persist((set, get) => ({ ...inicial(), ganar: …, perderVida: … }), { name: \"senda-usuario\", storage: almacen(), version: 5, migrate }))`. El progreso (vidas, talentos, pasos, lecciones) y las funciones que lo cambian están en un solo objeto. `src/estado/ajustes.ts` hace lo mismo con las preferencias (versión 8 del formato) y expone `useTema()`, un hook que envuelve el selector `useAjustes((s) => s.tema)` para que las pantallas no repitan la función. En `src/util/almacen.ts` está el almacenamiento que junta los cambios y los escribe 400 ms después del primero o en el acto al pasar a segundo plano.",
+    "En `package.json`, `\"zustand\": \"^5.0.15\"`, y el `package-lock.json` fija la 5.0.15. Las pantallas leen con selectores (`useUsuario((s) => s.ganar)` aparece en `Historias.tsx`, `Travesia.tsx` y otras) y solo `Lector.tsx` usa `useShallow` para traer doce campos juntos. Esto corresponde al commit `25e08fa` (9 de noviembre de 2026); el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/estado/usuario.ts",
+    "src/estado/ajustes.ts",
+    "src/util/almacen.ts",
+    "package.json"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Leer el store desde fuera de un componente",
+   "x": [
+    "Algo que el contexto no puede hacer: reaccionar a un cambio sin que haya un componente mirando. En `src/componentes/subirNivel.tsx`, `CapaNivel` se suscribe con `useUsuario.subscribe((ahora, antes) => …)` y, cuando los `pasos` suben de nivel, suena el logro y aparece un aviso. Antes de eso comprueba `useUsuario.persist.hasHydrated()`, y el comentario explica por qué: al abrir, el teléfono carga lo guardado y los pasos pasan «de 0 a tus pasos», lo que no debe contar como subir de nivel. `src/App.tsx` espera a que `useUsuario` y `useAjustes` terminen de cargar (`onFinishHydration`) y se suscribe a `useAgenda`, `useAjustes`, `useUsuario` y `useEventosNube` para reprogramar avisos cuando cambian; además llama `useAjustes.getState()` desde un callback."
+   ],
+   "archivos": [
+    "src/componentes/subirNivel.tsx",
+    "src/App.tsx",
+    "src/pantallas/Lector.tsx"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Hallazgo: son 21 stores guardados, no 11",
+   "x": "El mapa técnico de Senda cuenta 11 stores con `persist` (los de `src/estado/`). Al contar `persist(` en el código del commit `25e08fa` aparecen 21, con nombres `senda-…` distintos: los 11 de `src/estado/` y otros 10 en pantallas y utilidades (`AntesDespues.tsx`, `EnLaFrente.tsx`, `Letra.tsx`, `QuienEs.tsx`, `descanso.tsx`, `desafioDia.tsx`, `comoSeJuega.tsx`, `encuestas.ts`, `eventosNube.ts` y `torneosCalendario.ts`). El mapa tampoco es falso: esas claves sí aparecen en su lista de claves de AsyncStorage. Es una imprecisión de conteo, no de diseño."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Dos cosas que yo revisaría (criterio, no verdad)",
+   "x": [
+    "**`migrate` hace un cast, no una validación.** En `usuario.ts` termina con `{ ...inicial(), ...v } as EstadoUsuario`: completa lo que falte con los valores iniciales, pero si un campo guardado tuviera el tipo equivocado nadie lo detectaría al cargar. No verifiqué qué pasaría con un dato corrupto; la regla de proyecto dice que lo que llega del servidor o de lo guardado se valida (con zod), y acá hay un hueco entre la regla y el código.",
+    "**Cuatro lugares leen el store entero.** `useAjustes()` sin selector aparece en `Bienvenida.tsx`, `Ajustes.tsx`, `Lector.tsx` y `musicaControl.tsx` (contra 34 llamadas con selector). Sin selector, el componente se redibuja con cualquier cambio de cualquier ajuste. Si en la práctica esos ajustes cambian poco mientras se lee, no pasa nada; no lo medí."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Criterio: qué elegir y qué evitar"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Situación",
+    "Punto de partida razonable (criterio mío)"
+   ],
+   "filas": [
+    [
+     "Pocos datos globales que cambian rara vez (tema, idioma, usuario)",
+     "Un contexto con el valor memorizado, o un store chico"
+    ],
+    [
+     "Muchos componentes, cambios frecuentes o lógica fuera de React",
+     "Un store con selectores, como zustand"
+    ],
+    [
+     "Equipo grande, flujos complejos, depuración y trazabilidad de cada cambio",
+     "Redux Toolkit"
+    ],
+    [
+     "Valores que cambian muchas veces por segundo y alimentan mucha interfaz",
+     "Señales, con cuidado en React"
+    ],
+    [
+     "Datos que bajan de un servidor",
+     "Otra herramienta ([@06-23]), no el store global"
+    ]
+   ],
+   "cap": "Un punto de partida, no un reglamento: la regla de ayer sigue valiendo, medir antes de complicar."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Hay una herramienta correcta y las otras están muertas»",
+   "x": "Cada tanto aparece la sentencia «Redux murió» o «el contexto es el estado global de React». Los números de arriba no la respaldan: Redux Toolkit publicó una versión el 3-11-2026 y sus criterios de render son los mismos que los de zustand. Cambian el ceremonial, el ecosistema de herramientas y qué tan fácil es el primer día. Un equipo entiende mejor lo que ya usa, y eso pesa."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Tres abusos frecuentes del estado global",
+   "x": [
+    "**Meter todo.** Si un dato lo usa un solo componente, sacarlo a un store solo agrega indirección.",
+    "**Guardar lo derivable.** Si la cantidad de pedidos pendientes se puede calcular de la lista, calculala; guardarla aparte crea dos fuentes de verdad que se pueden desincronizar.",
+    "**Mutar el estado.** `estado.lista.push(x)` cambia el objeto sin cambiar la referencia, y ninguna comparación con `Object.is` lo ve: el store no avisa y la pantalla queda vieja. Siempre se devuelve un objeto nuevo (o se usa Immer, que lo hace por detrás)."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Una app de reparto tiene estas seis piezas de estado: (1) tema oscuro o claro, (2) el texto de la caja de búsqueda de pedidos, (3) la cantidad de pedidos pendientes que se muestra en cuatro lugares, (4) la lista de pedidos que baja de una API, (5) si un menú desplegable está abierto, (6) el usuario que inició sesión. Decidí en qué escalón de la escalera vive cada una y justificalo en una frase.",
+   "pista": "Preguntate quién la usa, qué tan lejos están esos componentes y si tiene que sobrevivir a una pantalla o leerse desde fuera de React.",
+   "solucion": "(1) Tema: estado global (store o contexto), lo usa casi toda la interfaz y suele guardarse. (2) Texto de búsqueda: local, `useState` en la caja. (5) Menú abierto: local. (3) Pedidos pendientes: si se puede calcular de la lista, no se guarda; si es un número que hay que compartir entre cuatro lugares lejanos, un store con selector. (4) Lista de la API: no es estado global de interfaz, es estado del servidor, con su caché, que se ve mañana. (6) Usuario con sesión: global, lo leen muchas pantallas y tiene que sobrevivir a ellas; además se necesita desde fuera de React (por ejemplo para armar las llamadas a la API), donde un store sirve y un contexto no."
+  }
+ ],
+ "recap": [
+  "El estado se sube de a un escalón: local, ancestro común, composición, `useReducer` con contexto y recién después un store externo. **Estado global** es lo que usan muchos componentes lejanos y tiene que vivir más que una pantalla.",
+  "Un **store** guarda el estado, lo cambia y avisa a los suscriptos; un **selector** elige el pedazo que le interesa a cada uno y se compara con `Object.is`. Un selector que devuelve un objeto nuevo en cada llamada rompe todo; `useShallow` lo arregla.",
+  "Un **reductor** es una función pura (estado, acción) a estado nuevo. Como las acciones son datos, la historia se puede reproducir, registrar y probar sin React. Redux Toolkit agrega `createSlice` e Immer para escribirlos con menos ceremonia.",
+  "Medido con 100 componentes y un clic: el contexto redibuja 100, zustand y Redux Toolkit 25, las señales 25 o 0 si se ponen directo en el JSX. Las dos primeras comparten la idea de fondo; las señales son otro modelo, con una propuesta de TC39 todavía en etapa 1.",
+  "Senda guarda su estado con zustand `persist`, `version` y `migrate`, con un almacenamiento que junta los cambios; escucha stores desde fuera de React y cuida la hidratación. Hay 21 stores guardados, no 11, y `migrate` no valida tipos."
+ ],
+ "repaso": [
+  {
+   "p": "Un contexto lleva los cuatro contadores de una pantalla y 100 componentes leen uno cada uno. Se suma 1 a un solo contador. ¿Cuántos componentes se redibujan con un contexto, y cuántos con un store que usa selectores?",
+   "o": [
+    "Con el contexto, solo los 25 que leen ese contador; con el store, también 25",
+    "Con el contexto se redibujan los 100; con el store, los 25 que leen ese contador",
+    "Con el contexto se redibuja un solo componente; con el store, los 100 que hay",
+    "Con el contexto y con el store se redibujan los 100, porque cambió un estado global"
+   ],
+   "c": 1,
+   "e": "El contexto no tiene selectores: cambia su valor y se enteran todos los que lo leen. El store compara el pedazo elegido por cada componente y avisa solo a los 25 cuyo contador cambió. Las otras opciones suponen que el contexto sabe quién lee qué, o que un cambio global siempre avisa a todos."
+  },
+  {
+   "p": "Un componente escribe `useJuego((s) => ({ t: s.talentos, v: s.vidas }))` con zustand 5. Al montarse entra en un bucle de actualizaciones. ¿Cuál es la causa y la solución?",
+   "o": [
+    "El selector devuelve un objeto nuevo en cada lectura; se arregla con `useShallow`",
+    "El store tiene demasiados campos; hay que partirlo en varios stores más chicos",
+    "`set` no mezcla el estado con lo nuevo; hay que reemplazar todo el estado completo",
+    "Falta envolver la app en un proveedor; sin él zustand redibuja todo en bucle"
+   ],
+   "c": 0,
+   "e": "React compara la «foto» del store con `Object.is`: un objeto nuevo en cada llamada nunca es igual al anterior y fuerza otra lectura, sin fin. `useShallow` compara campo por campo y devuelve la misma referencia mientras nada cambie. Partir el store no ayuda; `set` sí mezcla; zustand no necesita proveedor."
+  },
+  {
+   "p": "¿Cuál de estas es una propiedad que se obtiene al exigir que todo cambio de estado pase por un reductor puro?",
+   "o": [
+    "Que los componentes nunca se redibujan al cambiar el estado",
+    "Que el estado se guarda solo en el teléfono sin ningún código extra",
+    "Que se pueden repetir las acciones desde cero y obtener el mismo estado",
+    "Que las acciones pueden cambiar el estado directamente cuando hace falta"
+   ],
+   "c": 2,
+   "e": "Con un reductor puro, el mismo estado inicial y las mismas acciones dan siempre el mismo resultado: se puede reproducir una historia, registrarla y probarla sin React. No evita los redibujos, no guarda nada por sí solo y prohíbe justamente que las acciones cambien el estado directo."
+  },
+  {
+   "p": "En la prueba de 100 componentes, ¿qué explica que la última fila de señales (la señal puesta directo en el JSX) dé 0 componentes redibujados?",
+   "o": [
+    "Que las señales envuelven cada componente en `memo` y lo saltean siempre que cambian",
+    "Que la señal actualiza el nodo de texto del DOM sin volver a dibujar el componente",
+    "Que React deja de dibujar cualquier componente que muestre un número en pantalla",
+    "Que los 100 componentes comparten un único nodo de texto dentro del DOM real"
+   ],
+   "c": 1,
+   "e": "La integración de señales con React enlaza la señal con el nodo de texto que se crea, y lo actualiza directamente cuando el valor cambia, saltando el dibujo del componente. No es `memo`, ni una regla de React sobre números, y cada componente sigue teniendo su propio texto."
+  },
+  {
+   "p": "Una app de reparto guarda dos veces la cantidad de pedidos pendientes: una en la lista y otra en un contador aparte del store. ¿Cuál es el riesgo principal?",
+   "o": [
+    "Que el store no pueda guardar números sueltos, porque solo acepta listas y objetos",
+    "Que el contador aparte haga más lento cada selector que lee la lista",
+    "Que Immer no pueda copiar un número entero al armar el estado nuevo",
+    "Que las dos copias se desincronicen y la pantalla muestre dos verdades"
+   ],
+   "c": 3,
+   "e": "Guardar un dato que se puede derivar crea dos fuentes de verdad: si una se actualiza y la otra no, la interfaz se contradice. Es más seguro calcular el número de la lista. Los stores guardan números sin problema, el selector no se enlentece por eso y Immer copia lo que haga falta."
+  },
+  {
+   "p": "En `CapaNivel` de Senda, antes de festejar un nivel se comprueba `useUsuario.persist.hasHydrated()`. ¿Para qué sirve esa comprobación?",
+   "o": [
+    "Para no festejar un nivel falso cuando se carga lo guardado y los pasos saltan de 0",
+    "Para guardar los pasos en el teléfono antes de calcular el nivel y evitar perderlos",
+    "Para que el componente se dibuje solo después de que cambie el tema elegido por la persona",
+    "Para borrar los pasos viejos que quedaron guardados de una versión anterior de la app"
+   ],
+   "c": 0,
+   "e": "Al abrir la app el store arranca con valores iniciales y después `persist` carga lo guardado: los pasos pasan de 0 a su valor real, y sin la comprobación eso se leería como una subida de nivel. No guarda nada, no tiene que ver con el tema y la limpieza de datos viejos es tarea de `migrate`."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística qué es un store y un selector sin decir «hook» ni «render». Usá una analogía tuya que no sea la de la central de avisos del depósito, y decí en qué punto deja de valer. Sumá un caso en que un dato no debería ir al store global.",
+ "para_profundizar": [
+  {
+   "fuente": "front22-react-scaling-reducer-context",
+   "nota": "Es la página oficial de React que combina `useReducer` con contexto, el escalón 4 de la escalera. Leela antes de decidir que necesitás una biblioteca."
+  },
+  {
+   "fuente": "front22-zustand-useshallow",
+   "nota": "La guía oficial de zustand sobre el selector que devuelve un objeto nuevo y cómo `useShallow` lo resuelve: es la trampa que reprodujiste hoy."
+  },
+  {
+   "fuente": "front22-redux-principios",
+   "nota": "Los tres principios de Redux en su documentación oficial; sirven para entender de dónde viene la idea del reductor, aunque hoy se escriba con Redux Toolkit."
+  },
+  {
+   "fuente": "front22-tc39-senales",
+   "nota": "El README de la propuesta de señales de TC39: explica el problema que resuelven, qué frameworks participaron y en qué etapa está (etapa 1 al 13-11-2026)."
+  }
+ ],
+ "videos": [
+  {
+   "q": "zustand vs redux toolkit when to use which",
+   "por_que": "Para escuchar los argumentos de quienes usan cada una en proyectos reales, y comparar con lo que medimos hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "estado global",
+   "d": "Dato que muchas partes de una app, lejanas entre sí en el árbol de componentes, leen o cambian, y que suele vivir más que cualquier pantalla. Casi todo lo demás conviene dejarlo local o subirlo al padre más cercano."
+  },
+  {
+   "t": "store",
+   "d": "Objeto que vive fuera de los componentes y guarda el estado, lo cambia mediante funciones y avisa a quienes se suscribieron. Los componentes se conectan a él con un hook, y otros códigos pueden leerlo o escucharlo sin React."
+  },
+  {
+   "t": "reductor",
+   "d": "Función pura que recibe el estado anterior y una acción (un objeto que describe qué pasó) y devuelve el estado nuevo, sin modificar el viejo. Es la base de Redux y de useReducer."
+  },
+  {
+   "t": "selector",
+   "d": "Función que elige un pedazo del estado, como (s) => s.talentos. El store compara el pedazo elegido antes y ahora con Object.is y solo redibuja al componente si cambió."
+  },
+  {
+   "t": "zustand",
+   "d": "Biblioteca pequeña para crear stores en React (la palabra es alemana y significa «estado»). El store es un hook, no necesita proveedor, y los componentes eligen su pedazo con un selector. La usa Senda."
+  },
+  {
+   "t": "señal",
+   "d": "Valor que sabe qué partes de la interfaz lo leen y avisa solo a ellas cuando cambia, sin que el programador escriba selectores. Es el modelo de Angular, Solid y Preact; en React se agrega con una biblioteca."
+  },
+  {
+   "t": "Redux Toolkit",
+   "d": "La forma oficial de escribir Redux hoy: agrega configureStore y createSlice, que crean las acciones y usan Immer para escribir los reductores como si se mutara el estado."
+  }
+ ],
+ "siguiente": "estado del servidor contra estado de la interfaz: por qué los datos que bajan de una API no deberían vivir en un store global, qué es una caché del cliente y cómo se revalida.",
+ "fuentes_nuevas": [
+  {
+   "id": "front22-react-usesyncexternalstore",
+   "t": "useSyncExternalStore",
+   "a": "React (react.dev)",
+   "tipo": "doc",
+   "url": "https://react.dev/reference/react/useSyncExternalStore"
+  },
+  {
+   "id": "front22-react-scaling-reducer-context",
+   "t": "Scaling Up with Reducer and Context",
+   "a": "React (react.dev)",
+   "tipo": "doc",
+   "url": "https://react.dev/learn/scaling-up-with-reducer-and-context"
+  },
+  {
+   "id": "front22-react-error-185",
+   "t": "Minified React error #185",
+   "a": "React (react.dev)",
+   "tipo": "doc",
+   "url": "https://react.dev/errors/185"
+  },
+  {
+   "id": "front22-redux-principios",
+   "t": "Three Principles (Redux)",
+   "a": "Redux",
+   "tipo": "doc",
+   "url": "https://redux.js.org/understanding/thinking-in-redux/three-principles"
+  },
+  {
+   "id": "front22-rtk-inicio",
+   "t": "Getting Started with Redux Toolkit",
+   "a": "Redux Toolkit",
+   "tipo": "doc",
+   "url": "https://redux-toolkit.js.org/introduction/getting-started"
+  },
+  {
+   "id": "front22-zustand-intro",
+   "t": "Introduction (zustand)",
+   "a": "pmndrs",
+   "tipo": "doc",
+   "url": "https://zustand.docs.pmnd.rs/learn/getting-started/introduction"
+  },
+  {
+   "id": "front22-zustand-useshallow",
+   "t": "Prevent rerenders with useShallow (zustand)",
+   "a": "pmndrs",
+   "tipo": "doc",
+   "url": "https://zustand.docs.pmnd.rs/learn/guides/prevent-rerenders-with-use-shallow"
+  },
+  {
+   "id": "front22-zustand-persist",
+   "t": "persist middleware (zustand)",
+   "a": "pmndrs",
+   "tipo": "doc",
+   "url": "https://zustand.docs.pmnd.rs/reference/middlewares/persist"
+  },
+  {
+   "id": "front22-zustand-comparacion",
+   "t": "Comparison with other tools (zustand)",
+   "a": "pmndrs",
+   "tipo": "doc",
+   "url": "https://zustand.docs.pmnd.rs/learn/getting-started/comparison"
+  },
+  {
+   "id": "front22-preact-senales-react",
+   "t": "Signals: React integration (README)",
+   "a": "Preact",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/preactjs/signals/main/packages/react/README.md"
+  },
+  {
+   "id": "front22-tc39-senales",
+   "t": "JavaScript Signals standard proposal (README)",
+   "a": "TC39",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/tc39/proposal-signals/main/README.md"
+  },
+  {
+   "id": "front22-angular-senales",
+   "t": "Angular Signals",
+   "a": "Angular",
+   "tipo": "doc",
+   "url": "https://angular.dev/guide/signals"
+  }
+ ]
+}
