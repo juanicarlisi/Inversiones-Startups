@@ -44,10 +44,61 @@ principios, un prototipo navegable (mapa → región → senda → puerta, con l
 
 Cada ruta del mapa (también las que se preparan) y cada capítulo tienen el paisaje de su lugar o su tema, y cada tramo pinta el suyo
 detrás del camino, fundido con el anterior. Tres escenas nuevas: la vía romana, las ruinas y la tumba vacía (Jesús nunca se dibuja).
+Al cerrar, cada capítulo de las rutas nuevas también tiene el suyo (Defender la fe, Cómo leer la Biblia, Tierras y tiempos,
+Panorama). Se midió dónde está el dibujo en cada una de las 34 escenas: los arcos y la vía se veían vacíos en las postales (el foco
+miraba el cielo) y el «mapa antiguo» eran curvas de nivel casi invisibles; se corrigieron los focos y el mapa se redibujó con mar,
+costa, tierra, un camino punteado entre ciudades y la rosa de los vientos.
 
-### 2.5 Toda la Travesía (pedido 1)
+### 2.5 Lany en las rutas de mártires (pedido del 13-11 a la noche)
 
-(se completa al cerrar: rutas, lecciones y preguntas nuevas, cómo se escribió y se controló, lo que queda para revisión humana)
+«En mártires, cuando completas un nivel o algo, Lany no festeja, más bien es como pose de reverencia». En «Testigos fieles», las
+cuatro rutas de mártires y «La iglesia perseguida hoy», Lany ya no baila ni festeja: al terminar la lección ora (ojos cerrados y
+manos juntas), sin confeti ni chispas y con una nota suave en vez de la fanfarria; en la racha de aciertos asiente; en el camino
+llega asintiendo y con la ruta completa ora; el cofre, también. Las frases del camino cambian («Un testimonio más», «Terminaste la
+ruta. Que su fe te anime»). La vista previa abre la pantalla final con `?demo=fin:ID`.
+
+### 2.6 Toda la Travesía (pedido 1)
+
+**Antes y después (HECHO, contado en `contenido/travesia.json`).**
+
+| | Al empezar (13-11, mañana) | Al cerrar |
+|---|---|---|
+| Rutas abiertas | 23 de 102 | **102 de 102** (ninguna en «pronto») |
+| Capítulos | 104 | 383 |
+| Lecciones | 482 | **1.625** (1.143 nuevas) |
+| Preguntas de la Travesía | 3.019 | **11.007** |
+
+Por región, lo nuevo: La Biblia libro por libro 209 lecciones (Pentateuco, históricos, poéticos, profetas mayores, evangelios,
+Hechos, Apocalipsis, «Datos que sorprenden» y 22 historias bíblicas más); Vivir la fe 195 (14 rutas); Personajes 168 (9 rutas);
+Historia de la Iglesia 84 (de los primeros siglos a América Latina y las cuatro rutas de mártires, más «La iglesia perseguida hoy»);
+Israel 74; Jesús el Mesías 68; Tierras y tiempos 65 (con «Arqueología», nueva); Defender la fe 62 (con «El dolor y el mal», «Jesús y
+las religiones» y «Responder con respeto», nuevas); Cómo leer la Biblia 55 (con «Las promesas de Dios en su contexto» y «La Biblia
+en español», nuevas); Panorama 47 (los 66 libros de cerca, los hilos y del Antiguo al Nuevo Testamento); Los últimos tiempos 45
+(cada postura contada sin tomar partido); El evangelio 41; La oración 30.
+
+**Cómo se escribió y se controló.** Una ruta por script (`scripts/autor/<ruta>.py`), escrita desde el texto de la RV1909 y con los
+libros confiables solo para entender. Cada área la escribió un autor en su propia copia del repositorio (12 en paralelo) con la misma
+guía; después, una segunda lectura pregunta por pregunta contra el versículo. Cada ruta entró solo si: el validador daba «Todo en
+orden» (lecturas que cubren cada cita, nadie preguntado antes de presentarse, nada para atrás en la historia, la correcta nunca
+la más larga, huecos que se leen igual en la RVR1960, entre «» solo la Biblia), ninguna lección existente cambiaba y no repetía
+un versículo ya preguntado en otra ruta. En la segunda lectura se corrigieron, entre otras cosas: preguntas repetidas de otras rutas
+(unas 60), datos mal (el sitio de Jerusalén, Abraham en Egipto, Antioquía y Cornelio, Malaquías y «400 años sin profeta», la
+piedra de Pilato), lecturas que la RVR1960 dice distinto, posturas cristianas sobre la creación que quedaban marcadas como error,
+distractores que tomaban partido sobre el milenio o el bautismo, y frases que no son de la Biblia entre «» (Ignacio, Policarpo,
+Tertuliano, Tyndale). Lo interpretativo va marcado como tal (Israel y los últimos tiempos sin tomar posición).
+
+**Hallazgo aparte.** La RV1909 de la app traía 1 Crónicas 21 con la numeración corrida (el 15 partido en dos y el 30 con dos
+versículos): arreglado en `scripts/biblia_arreglos.py` con la numeración de hoy (DEC-2026-11-01-1).
+
+**Para el revisor doctrinal humano** (todo está publicado en la app de prueba, según la regla de la prueba 11): el tono pastoral de
+«El dolor y el mal»; las descripciones del judaísmo, el islam, el hinduismo y el budismo; las tres lecturas de la creación en
+«Ciencia y fe»; las promesas con y sin condición (1 Samuel 2:30, 2 Timoteo 2:12-13); ágape y filéo en Juan 21; Marcos 7:19;
+«propiciación» en 1 Juan 2:2; los Macabeos; la lectura de Malaquías 3:1 y Oseas 3:5. Las fuentes que los autores no pudieron abrir
+(la Britannica bloquea la lectura) quedan anotadas en cada script para confirmar.
+
+**Lo que falta.** Las rutas nuevas están solo en español (en portugués e inglés se ven en español hasta tener la ruta entera,
+DEC-2026-10-21-2). Visuales que conviene dibujar: el mapa de los imperios y de los reinos helenísticos, el plano de Jerusalén del
+siglo I, la casa con terrado y la sinagoga, los hallazgos arqueológicos, la línea de la Biblia en español, los géneros y los pactos.
 
 ## 3. Próximos
 

@@ -516,6 +516,15 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - «QUE ESTÉ TODO PERFECTO Y COMPLETO PARA EL LANZAMIENTO»: las 1.026 preguntas rebuscadas que quedaban, leídas una por una (978
     reescritas, 31 retiradas, errores de contenido corregidos) y los 294 campos de lecciones por idioma retraducidos; desde ahora las
     traducciones de lo que cambie se escriben en la sesión, sin lotes (capítulo 78).
+- **Datos del 13-11-2026 (Senda, prueba 54):**
+  - «aunque no lo publiquemos en la primera versión, dejemos ya TODO desarrollado»: la Travesía entera, las 102 rutas abiertas (de 482 a
+    1.625 lecciones y de 3.019 a 11.007 preguntas), cada ruta escrita desde la RV1909 y releída pregunta por pregunta; una ruta entra
+    solo con el validador en orden, sin cambiar lecciones existentes y sin repetir un versículo ya preguntado (capítulo 79);
+  - la Travesía es un lugar, no un menú: mapa de 13 regiones, rutas como postales, estandarte por capítulo y un paisaje por capítulo
+    según lo que trata (reglas R30 a R33 del marco de UX); Jugar, un sol asentado en la barra (R29);
+  - en las rutas de mártires y de la iglesia perseguida Lany no festeja: asiente y ora, sin confeti;
+  - las rutas nuevas están solo en español; los puntos para el revisor doctrinal humano están en el capítulo 79 §2.6.
+
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
