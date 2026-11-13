@@ -1,0 +1,567 @@
+{
+ "id": "06-28",
+ "titulo": "Vue: otra respuesta al mismo problema",
+ "bajada": "Construís en 25 líneas el mecanismo que hace andar a Vue, lo comparás con el Vue real y medís cuántos componentes se vuelven a ejecutar frente a React cuando cambia un solo dato.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar con tus palabras cómo la reactividad de Vue anota quién lee cada dato y avisa solo a esos lectores.",
+  "Escribir y predecir la salida de un sistema mínimo de reactividad basado en `Proxy`.",
+  "Leer una plantilla de Vue compilada e identificar qué partes son estáticas y cuáles dinámicas.",
+  "Comparar qué se vuelve a ejecutar en Vue y en React ante el mismo cambio, a partir de una medición.",
+  "Reconocer los tres errores típicos de la reactividad: desestructurar, olvidar `.value` y reemplazar el objeto entero."
+ ],
+ "venis_de": "En [@06-18] a [@06-22] viste cómo React resuelve que la pantalla siga a los datos: la función del componente vuelve a ejecutarse y se compara el resultado. Ayer, en [@06-27], viste qué le agrega Next.js a React. Hoy otro framework, Vue, contesta la misma pregunta con una idea distinta.",
+ "se_apoya_en": [
+  "06-16",
+  "06-18",
+  "06-20",
+  "06-21",
+  "06-22",
+  "06-27"
+ ],
+ "gancho": [
+  "Dos líneas hacen lo mismo: sumar uno a un contador. En React se escribe `setBultos(bultos + 1)`. En Vue, `bultos.value++`. En las dos la pantalla cambia sola. Pero por debajo pasa algo distinto. En React, al apretar el botón, la función del componente vuelve a ejecutarse completa, como viste en [@06-18]. En Vue, un programa había anotado qué piezas de la pantalla leyeron ese número, y avisa solo a esas.",
+  "Hoy armo ese mecanismo en 25 líneas, lo corro, lo comparo con el Vue de verdad (versión 3.5.45) y lo mido contra React con un contador de ejecuciones en un navegador automatizado. Antes de empezar, una advertencia: es una comparación entre dos soluciones al mismo problema, no un torneo. Las dos funcionan, y la medición va a mostrar en qué cosas cada una te hace trabajar más o menos."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El mismo problema, otra respuesta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El problema ya lo conocés: cuando cambia un dato, la pantalla tiene que reflejarlo sin que escribas a mano cada cambio del DOM. React lo resuelve ejecutando de nuevo el componente y comparando el resultado nuevo con el anterior, el [[DOM virtual]] y la [[reconciliación]] de [@06-20]. La pregunta de la que parte Vue es otra: ¿y si el programa supiera de antemano qué pieza de la pantalla usa qué dato? Entonces, cuando ese dato cambia, no hace falta comparar todo: se avisa a los interesados.",
+    "A esa idea la llamamos [[reactividad]]: un sistema que registra qué código leyó qué datos, y vuelve a ejecutar ese código cuando alguno de esos datos cambia. Vue la trae incorporada y es lo que organiza todo lo demás.",
+    "Vue lo creó Evan You en 2014 como proyecto personal, según el FAQ oficial [#vu28-faq]. La versión 3.0.0 salió el 18 de septiembre de 2020 según `npm view vue time`, y Vue 2 llegó al fin de su vida útil el 31 de diciembre de 2023 [#vu28-faq]. La versión vigente al 13-11-2026 es la 3.5.45, publicada el 5 de noviembre. Para ubicar el tamaño relativo, esto dice npm sobre las descargas de la semana del 6 al 12 de noviembre de 2026:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Paquete",
+    "Descargas en la semana"
+   ],
+   "filas": [
+    [
+     "react",
+     "253.620.155"
+    ],
+    [
+     "next",
+     "91.951.280"
+    ],
+    [
+     "vue",
+     "24.681.689"
+    ]
+   ],
+   "cap": "Consultado en la API de descargas de npm el 13-11-2026 (puntos `last-week`, del 6 al 12 de noviembre) [#vu28-descargas]. Las descargas cuentan instalaciones, incluidas las de servidores de integración continua y las de dependencias de otros paquetes: no equivalen a personas ni a proyectos en producción."
+  },
+  {
+   "t": "p",
+   "x": "La tabla dice que Vue es un actor mediano al lado de React, y a la vez que 24 millones de descargas semanales son un ecosistema enorme. Con eso en mente, vamos a ver cómo funciona por dentro."
+  },
+  {
+   "t": "h",
+   "x": "Reactividad: anotar quién lee qué"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay tres movimientos. Un **efecto** es una función que lee datos y hace algo con ellos, por ejemplo dibujar un pedazo de pantalla. Cuando el efecto corre y lee un dato, el sistema **anota** esa lectura: «este efecto depende de este dato». Cuando el dato cambia, el sistema **avisa**: vuelve a ejecutar a quienes lo leyeron.",
+    "La dificultad técnica es cómo enterarse de que alguien leyó o escribió un dato. En JavaScript no hay forma de interceptar la lectura de una variable local. Lo que sí se puede interceptar es el acceso a las propiedades de un objeto, y para eso existe `Proxy`: un objeto que envuelve a otro y deja que el programador intervenga en cada lectura (`get`) y cada escritura (`set`). La documentación de Vue explica que Vue 2 usaba solo «getters y setters» por limitaciones de los navegadores de entonces, y que Vue 3 usa `Proxy` para los objetos reactivos [#vu28-reactividad]. Esto es lo que se obtiene al juntar las piezas, en un sistema de juguete:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Mini sistema de reactividad con Proxy.\nconst suscriptores = new WeakMap();   // objeto -> (propiedad -> conjunto de efectos)\nlet efectoActivo = null;\n\nfunction efecto(fn) {\n  const correr = () => { efectoActivo = correr; fn(); efectoActivo = null; };\n  correr();\n}\n\nfunction reactivo(obj) {\n  return new Proxy(obj, {\n    get(o, clave) {\n      if (efectoActivo) {                       // alguien está leyendo: anotarlo\n        if (!suscriptores.has(o)) suscriptores.set(o, new Map());\n        const mapa = suscriptores.get(o);\n        if (!mapa.has(clave)) mapa.set(clave, new Set());\n        mapa.get(clave).add(efectoActivo);\n      }\n      return o[clave];\n    },\n    set(o, clave, valor) {\n      if (o[clave] === valor) return true;      // sin cambio real, nadie se entera\n      o[clave] = valor;\n      const efectos = suscriptores.get(o)?.get(clave);\n      if (efectos) [...efectos].forEach((e) => e());   // avisar a los que la leyeron\n      return true;\n    },\n  });\n}\n\nconst envio = reactivo({ bultos: 12, cliente: \"Ferretería Norte\", estado: \"en ruta\" });\nlet corridasA = 0, corridasB = 0;\n\nefecto(() => { corridasA++; console.log(\"A lee bultos:\", envio.bultos); });\nefecto(() => { corridasB++; console.log(\"B lee cliente y estado:\", envio.cliente, envio.estado); });\n\nconsole.log(\"--- cambio bultos\");\nenvio.bultos = 15;\nconsole.log(\"--- cambio estado\");\nenvio.estado = \"entregado\";\nconsole.log(\"--- cambio bultos al mismo valor\");\nenvio.bultos = 15;\nconsole.log(`corridas: A=${corridasA}, B=${corridasB}`);",
+   "cap": "Ejecutable. La salida que obtuve con Node 22 es la misma: A corre 2 veces y B corre 2 veces, y el tercer cambio no dispara nada. Los datos del envío son inventados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Leelo en tres tiempos. Cuando el efecto A corre, lee `envio.bultos` y pasa por la trampa `get`, que anota «A depende de `bultos`». B hace lo mismo con `cliente` y `estado`. Cuando después alguien escribe `envio.bultos = 15`, la trampa `set` busca quién se anotó en `bultos` y vuelve a ejecutar solo a A. B no se entera. Esa selectividad es el corazón del asunto: el sistema sabe, sin que nadie se lo declare, quién depende de qué.",
+    "Mi versión es de juguete a propósito: tiene unos 25 renglones y le faltan casi todos los casos difíciles. Para ver lo que hace la real, corrí el paquete de reactividad de Vue con `ref` (un valor envuelto), `computed` (un valor calculado a partir de otros) y `watchEffect` (un efecto que se anota solo):"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node real.mjs   # fragmento: precio, descuento y un dato que nadie lee",
+     "s": "  efecto #1: total = 1000\n1) cambio precio (sin descuento: se usa)\n  efecto #2: total = 2000\n2) cambio 'otro' (nadie lo lee)\n3) prendo descuento\n  efecto #3: total = 1800\n4) cambio precio con descuento\n  efecto #4: total = 2700\n\n--- Dependencia condicional\n  efecto cond #1: A\ncambio b (no se lee todavía)\napago usarA (ahora se lee b)\n  efecto cond #2: B2\ncambio a (ya no se lee)\ncambio b (ahora sí)\n  efecto cond #3: B3"
+    }
+   ],
+   "cap": "Salida real con vue 3.5.45 y Node 22. El código es un programa de unas 30 líneas mío que usa `ref`, `computed` y `watchEffect` con `flush: \"sync\"`, para que el efecto corra en el momento y se vea el orden."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay dos cosas en esa salida. La primera: cambiar `otro`, que nadie lee, no corrió ningún efecto. La segunda es la más fina. El efecto condicional lee `usarA.value ? a.value : b.value`, o sea que según el caso depende de `a` o de `b`. Mientras `usarA` era verdadero, cambiar `b` no hizo nada; cuando lo apagué, el efecto corrió y pasó a depender de `b`; y cambiar `a` dejó de importar. Vue vuelve a anotar las dependencias cada vez que el efecto corre. Mi juguete no lo hace: nunca borra una suscripción vieja y por eso correría de más."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En el ejemplo condicional, un efecto lee `usarA.value ? a.value : b.value`. Si `usarA` es falso, ¿por qué no tiene sentido que el efecto vuelva a ejecutarse cuando cambia `a`?",
+   "resp": "Porque en esa ejecución el efecto no leyó `a`: el resultado no depende de ese dato. Vue anota las dependencias de lo que se leyó en la última ejecución, así que `a` no está en la lista. Si más tarde `usarA` vuelve a ser verdadero, el efecto correrá, leerá `a` y la lista se rearmará."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Suscribirse al seguimiento de un envío",
+   "x": [
+    "Pensalo como el seguimiento de paquetes. Con la reactividad de Vue, cada cliente se suscribe a los avisos de su envío: cuando ese envío cambia de estado, le llega un mensaje solo a él. Con el esquema de React, es como si el depósito, cada vez que algo cambia en cualquier parte, repasara la planilla entera y comparara con la foto anterior para ver qué actualizar.",
+    "Dónde deja de valer: React también evita tocar lo que no cambió en la pantalla, y la planilla se repasa rápido. La diferencia está en cuánto trabajo hace el programa para descubrir qué cambió, no en el resultado que ve la persona."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Plantillas: HTML con huecos que el compilador entiende"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Vue suele escribirse con [[plantilla]]s: un texto parecido a HTML con huecos entre llaves dobles, `{{ cliente }}`, y atributos especiales llamados directivas: `v-if` para mostrar según una condición, `v-for` para repetir, `:class` para atributos dinámicos, `@click` para eventos. Una plantilla describe la pantalla de forma declarativa. Frente a [[JSX]] de [@06-17], que es JavaScript con marcado adentro y te deja usar todo el lenguaje, la plantilla es un lenguaje más acotado. Esa restricción tiene un premio: como la sintaxis es cerrada, un programa puede analizarla antes de ejecutarla. La documentación de Vue dice exactamente eso: las plantillas se analizan estáticamente con facilidad, y eso permite optimizaciones al compilar [#vu28-render].",
+    "Veamos qué hace el compilador. Le di esta plantilla y miré qué salió: un título que nunca cambia, un párrafo con dos huecos y un botón con un evento."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Entrada (plantilla):\n// <div class=\"envio\"><h2>Envío</h2><p>{{ cliente }}: {{ bultos }} bultos</p>\n//   <button @click=\"bultos++\">Sumar</button></div>\n\n// Salida del compilador de Vue 3.5.45:\nconst _hoisted_1 = { class: \"envio\" }\nconst _hoisted_2 = [\"onClick\"]\n\nexport function render(_ctx, _cache) {\n  return (_openBlock(), _createElementBlock(\"div\", _hoisted_1, [\n    _cache[0] || (_cache[0] = _createElementVNode(\"h2\", null, \"Envío\", -1 /* CACHED */)),\n    _createElementVNode(\"p\", null, _toDisplayString(_ctx.cliente) + \": \" + _toDisplayString(_ctx.bultos) + \" bultos\", 1 /* TEXT */),\n    _createElementVNode(\"button\", {\n      onClick: $event => (_ctx.bultos++)\n    }, \"Sumar\", 8 /* PROPS */, _hoisted_2)\n  ]))\n}",
+   "cap": "Salida real de `compile()` del paquete `@vue/compiler-dom` 3.5.45 con las importaciones omitidas. Los comentarios `/* … */` los agrega el propio compilador."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá los números del final de cada línea. Son [[banderas de actualización]]: pistas que el compilador deja para que, en tiempo de ejecución, Vue no tenga que comparar todo. El `h2` lleva `-1 /* CACHED */`: es estático, se crea una vez y se reutiliza sin compararlo nunca. El párrafo lleva `1 /* TEXT */`: lo único que puede cambiar es su texto. El botón lleva `8 /* PROPS */` y una lista con el nombre `onClick`: solo hay que mirar esa propiedad. Los números son bits: el motor los verifica con operaciones bit a bit, las de [@01-12]. La documentación llama a esto «DOM virtual informado por el compilador» [#vu28-render].",
+    "Vue sí tiene DOM virtual. Es un error común creer lo contrario:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "The concept was pioneered by React, and has been adopted in many other frameworks with different implementations, including Vue.",
+   "autor": "Documentación de Vue, «Rendering Mechanism»",
+   "fuente": "vu28-render"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La diferencia entre las dos implementaciones, según la documentación de Vue, es que la de React es puramente de ejecución: no puede asumir nada sobre el árbol que llega y tiene que recorrerlo entero [#vu28-render]. Es la afirmación de una de las partes, y hay que leerla así. React tiene su respuesta, el React Compiler, que agrega memoización automática y que Next.js 16 anunció como estable [#nx27-blog-16]. Yo no medí ese compilador, así que no puedo comparar con él."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Componentes de un archivo y Composition API"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En Vue, un componente se escribe normalmente en un archivo con extensión `.vue` que junta tres cosas: la lógica, la plantilla y los estilos. Se lo llama [[componente de un solo archivo]] [#vu28-sfc]. Este es uno de mi demo, de 426 bytes:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "html",
+   "x": "<script setup>\nimport { ref, computed } from \"vue\";\n\nconst props = defineProps({ cliente: String });\nconst bultos = ref(12);\nconst etiqueta = computed(() => `${props.cliente}: ${bultos.value} bultos`);\n</script>\n\n<template>\n  <section class=\"envio\">\n    <h2>Envío</h2>\n    <p>{{ etiqueta }}</p>\n    <button @click=\"bultos++\">Sumar</button>\n  </section>\n</template>\n\n<style scoped>\n.envio { border: 1px solid #ccc; }\n</style>",
+   "cap": "`Envio.vue`, un componente de mi demo. `scoped` hace que el estilo valga solo para este componente."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La forma de escribir la parte de lógica se llama [[Composition API]]: en vez de declarar opciones fijas (`data`, `methods`, `computed`), importás funciones como `ref`, `computed`, `watch` o `onMounted` y las usás dentro de un bloque. En Vue 3 se usa sobre todo junto con `<script setup>`, y también está disponible en Vue 2.7 [#vu28-composition]. Una función que junta lógica reutilizable hecha con esas piezas se llama [[composable]] y cumple el papel que en React cumple un hook propio.",
+    "Esto es lo que genera el compilador a partir de ese archivo, con el script y la plantilla compilados juntos:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "export default {\n  __name: 'Envio',\n  props: { cliente: String },\n  setup(__props) {\n\n    const props = __props;\n    const bultos = ref(12);\n    const etiqueta = computed(() => `${props.cliente}: ${bultos.value} bultos`);\n\n    return (_ctx, _cache) => {\n      return (_openBlock(), _createElementBlock(\"section\", _hoisted_1, [\n        _cache[1] || (_cache[1] = _createElementVNode(\"h2\", null, \"Envío\", -1 /* CACHED */)),\n        _createElementVNode(\"p\", null, _toDisplayString(etiqueta.value), 1 /* TEXT */),\n        _createElementVNode(\"button\", {\n          onClick: _cache[0] || (_cache[0] = $event => (bultos.value++))\n        }, \"Sumar\")\n      ]))\n    }\n  }\n}",
+   "cap": "Salida real de `compileScript` de `@vue/compiler-sfc` 3.5.45, con las importaciones y la sangría ajustadas. Fijate que el compilador agregó solo el `.value` en la plantilla."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Es el momento de ver lo que cambia respecto de React. Lo que vos escribís en `<script setup>` queda dentro de `setup`, que **corre una sola vez**, y devuelve una función de dibujo que es la que se vuelve a ejecutar cuando cambia algo que leyó. En React, todo el cuerpo del componente se vuelve a ejecutar en cada actualización, y por eso existen las reglas de los hooks (el orden, las listas de dependencias de [@06-19]) y herramientas como [[useMemo]] y [[useCallback]] de [@06-21]. La documentación de Vue lo plantea así: `setup` corre una vez, no hay cierres desactualizados y las dependencias se anotan solas [#vu28-composition]. Otra vez es la versión de una parte, pero se puede medir la primera mitad:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node tres.js   # 3 clics en un botón de React y 3 en uno de Vue, contando ejecuciones",
+     "s": "React {\"3 React cuerpo de la funcion\":4}\nVue   {\"3 Vue setup\":1,\"3 Vue render\":4}\nReact: 3 | Vue: 3"
+    }
+   ],
+   "cap": "Salida real. Chromium automatizado, compilación de producción de React 19.3.0 (con esbuild) y la compilación en el navegador de Vue 3.5.45. Una ejecución inicial más tres clics dan 4 ejecuciones del dibujo en los dos; la diferencia es que en Vue `setup` corrió una sola vez."
+  },
+  {
+   "t": "h",
+   "x": "Qué se vuelve a ejecutar: una medición"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La pregunta práctica es cuánto código corre cuando cambia un solo dato. Armé el mismo ejemplo en React y en Vue: una pantalla con una cabecera sin datos, un contador A y un contador B. Con un contador de ejecuciones dentro de cada componente, apreté «sumar a» y anoté qué volvió a ejecutarse. Medí dos formas de organizar el estado.",
+    "En el **escenario 1** el estado vive en el componente padre y baja a los hijos como [[props]]. En el **escenario 2** el estado es compartido y cada hijo lo lee por su cuenta: en Vue, un objeto `reactive`; en React, dos opciones, un [[contexto]] de [@06-21] y un store de [[zustand]] con [[selector]], como en [@06-22]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Escenario y forma",
+    "Se vuelven a ejecutar",
+    "Cantidad"
+   ],
+   "filas": [
+    [
+     "1. Estado en el padre · React sin `memo`",
+     "Padre, Cabecera, A y B",
+     "4"
+    ],
+    [
+     "1. Estado en el padre · React con `memo` en los hijos",
+     "Padre y A",
+     "2"
+    ],
+    [
+     "1. Estado en el padre · Vue",
+     "Padre y A",
+     "2"
+    ],
+    [
+     "2. Estado compartido · React con contexto",
+     "Proveedor, A y B",
+     "3"
+    ],
+    [
+     "2. Estado compartido · React con zustand y selector",
+     "A",
+     "1"
+    ],
+    [
+     "2. Estado compartido · Vue con `reactive`",
+     "A",
+     "1"
+    ]
+   ],
+   "cap": "Medido el 13-11-2026 en Chromium automatizado: React 19.3.0 y zustand 5.1.0 en compilación de producción, Vue 3.5.45. Cuenta ejecuciones del dibujo de cada componente tras un solo clic; no mide tiempo de pantalla. El resultado es determinista: las cuentas no varían entre corridas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay tres lecturas. Primera: con la configuración por defecto, React vuelve a ejecutar más cosas, porque por diseño vuelve a ejecutar los hijos de un componente que cambió. Con `memo` empareja a Vue en el escenario 1, pero lo escribiste vos, componente por componente. Segunda: en el escenario 2, el contexto es el caso donde React hace trabajo de más (B no usó el dato que cambió y se volvió a ejecutar, y el Proveedor, que guarda el estado, también), y un `selector` de zustand lo arregla, que es precisamente la herramienta de [@06-22]. Tercera, la más importante: Vue llega al mismo número que la mejor versión de React sin que nadie declare nada. Lo hace el sistema de anotaciones. En React, la granularidad fina existe, pero la tenés que pedir.",
+    "Lo que la tabla no dice: no mide cuánto tarda cada pantalla en actualizarse. Menos ejecuciones no significa necesariamente una pantalla más rápida, y en una pantalla tan chica la diferencia de tiempo sería imperceptible. Cuenta trabajo, no velocidad."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En el escenario 1, ¿por qué se vuelve a ejecutar el Padre en Vue y en React con `memo`, si él mismo no cambió de contenido? ¿Qué tendría que pasar para que no se ejecutara?",
+   "resp": "Porque el Padre es quien lee `a` para pasárselo a A como prop: depende del dato, así que tiene que recalcular lo que le pasa a sus hijos. Para que no se ejecutara, el dato tendría que leerse más adentro: en el escenario 2 con Vue o con zustand, donde A lee el dato directamente, el Padre no aparece en la tabla."
+  },
+  {
+   "t": "h",
+   "x": "Qué se rompe: tres trampas de la reactividad"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Que el sistema dependa de interceptar accesos tiene un precio. Hay tres errores que cometen quienes llegan a Vue desde otro lugar, y uno lo reproduje con el mismo `real.mjs`:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node real.mjs   # fragmento final",
+     "s": "  efecto lee estado.n = 1\ncopia = 2 | estado.n = 1 | corridas = 1\n  efecto lee estado.n = 2\ndespués de estado.n++ | corridas = 2"
+    }
+   ],
+   "cap": "Salida real. `const { n: copia } = estado` copia el valor a una variable común, y modificarla no toca al objeto reactivo."
+  },
+  {
+   "t": "lista",
+   "ord": true,
+   "items": [
+    "**Desestructurar corta la conexión.** Al hacer `let { n } = estado`, el valor pasa a una variable común: ya no hay `Proxy` de por medio. La documentación lo advierte [#vu28-reactividad]. Se evita leyendo siempre `estado.n` o con `toRef`, que mantiene la conexión; lo comprobé con un efecto.",
+    "**Los valores simples necesitan `ref` y su `.value`.** Un número no tiene propiedades que interceptar, así que se lo envuelve en un objeto con una propiedad `value`, cuyo acceso sí se intercepta [#vu28-reactividad]. En las plantillas y en `<script setup>` el compilador agrega el `.value` por vos, como viste arriba, y eso hace fácil olvidarlo en el código normal.",
+    "**El `Proxy` tiene otra identidad que el original.** `reactive(obj) === obj` es falso [#vu28-reactividad]. Si guardás el objeto original y modificás ese, el sistema no se entera. Hay que usar siempre el que devolvió `reactive`."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Vue es mágico y React es explícito»",
+   "x": [
+    "Las dos cosas tienen mecanismos que no se ven. En Vue la reactividad corre por un `Proxy` que podés escribir en 25 líneas, como hiciste hoy. En React, el orden de los hooks y la relación entre estado y dibujo son reglas que hay que respetar de memoria, con el linter como ayuda.",
+    "La diferencia real es dónde queda cada complejidad: en Vue, en las trampas del `Proxy` (desestructurar, `.value`, identidad); en React, en las reglas de los hooks y en la memoización manual. Ninguna sale gratis."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El ecosistema de Vue y su vigencia"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Al igual que React, Vue es solo la capa de interfaz y se completa con piezas oficiales o muy cercanas. Para rutas, el enrutador `vue-router`; para estado global, Pinia, que mantiene el equipo central [#vu28-estado]; para armar el proyecto, Vite, hecho por el mismo autor de Vue y con soporte de primera para los archivos `.vue` [#vu28-tooling]. Y así como Next.js agrega servidor y rutas por carpetas a React, el equivalente de Vue es Nuxt, un framework de código abierto para aplicaciones completas con renderizado en el servidor de entrada [#vu28-nuxt]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 13-11-2026",
+   "x": [
+    "Según `npm view` el 13-11-2026, la última versión estable de Vue es la 3.5.45, publicada el 5 de noviembre; hay una línea 3.6 en etapa de candidata a versión (`3.6.0-rc.15`, del 12 de noviembre) que no usé. Las de las piezas vecinas, en la misma fecha y según el mismo comando: Nuxt 4.6.4, Pinia 4.1.0, Vue Router 5.5.1, Vite 8.3.8 [#vu28-registro].",
+    "Los números de versión de este ecosistema cambian seguido y los nombres de las API también. Lo que se mantiene es la idea: anotar lecturas y avisar a los lectores. Antes de copiar código, mirá la versión de la documentación oficial."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa Vue, pero necesitó la misma idea",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. En `package.json` no hay `vue`: Senda usa React 19.2.3 con zustand (`^5.0.15`) para el estado global. Pero el lector de la Biblia tuvo exactamente el problema de la medición de hoy. El comentario de `src/lector/marcas.ts` cuenta que marcar un versículo era lento porque el estado vivía en la pantalla y «cada toque volvía a dibujar la hoja entera». La solución fue sacar esas marcas a un store de zustand y leerlas con selectores.",
+    "En `src/pantallas/Lector.tsx`, cada versículo lee solo lo suyo, con líneas como `useMarcas((m) => vivo && m.sel.includes(i))`. El comentario lo resume: «tocar uno redibuja ese versículo y la barra de acciones, nada más». Es la granularidad que Vue da por defecto, conseguida a mano con selectores. En el resto de la app el patrón es el mismo: el código tiene 56 llamadas a `useUsuario` con selector en las pantallas (`.tsx`), para leer solo el pedazo de estado que cada una necesita."
+   ],
+   "archivos": [
+    "package.json",
+    "src/lector/marcas.ts",
+    "src/pantallas/Lector.tsx",
+    "src/estado/usuario.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cómo pensar la elección"
+  },
+  {
+   "t": "p",
+   "x": [
+    "No hay un ganador entre las dos soluciones, y lo que las separa en la práctica rara vez es el rendimiento. Es criterio mío: cuenta más el equipo, la gente disponible para contratar y las bibliotecas que ya usás que la diferencia de diseño. A favor de Vue, que su comportamiento por defecto (anotar y avisar) se parece a lo que uno espera; a favor de React, un ecosistema más grande, como muestra la tabla de descargas. En [@06-31] armás los criterios completos, con Angular y Svelte ya vistos."
+   ]
+  }
+ ],
+ "recap": [
+  "La reactividad de Vue anota qué código leyó qué dato y vuelve a ejecutar solo ese código cuando el dato cambia; en Vue 3 se apoya en `Proxy`.",
+  "En 25 líneas se puede construir el mecanismo: un `get` que anota al lector y un `set` que avisa a los anotados. La versión real además vuelve a anotar las dependencias en cada ejecución.",
+  "Una plantilla es HTML con huecos y directivas que el compilador analiza antes de ejecutar: deja banderas de actualización para que el DOM virtual compare solo lo que puede cambiar.",
+  "Un componente de un solo archivo junta lógica, plantilla y estilos; con Composition API, `setup` corre una vez y devuelve la función de dibujo que se vuelve a ejecutar.",
+  "Medido en esta VM, con un cambio en un dato: Vue vuelve a ejecutar 2 componentes (estado en el padre) o 1 (estado compartido); React, 4 sin `memo` y 2 con `memo` en el primer caso, y 3 con contexto o 1 con zustand y selector en el segundo.",
+  "Las trampas son tres: desestructurar un objeto reactivo, olvidar `.value` en un valor simple y modificar el objeto original en vez del que devuelve `reactive`."
+ ],
+ "repaso": [
+  {
+   "p": "Un efecto de Vue lee `usarA.value ? a.value : b.value`. Con `usarA` en falso, alguien cambia `a.value`. ¿Qué pasa y por qué?",
+   "o": [
+    "El efecto corre, porque Vue avisa a todos los que alguna vez leyeron `a`",
+    "El efecto no corre, porque en su última ejecución no leyó `a`",
+    "El efecto corre, porque `a` y `b` están en la misma expresión condicional",
+    "El efecto no corre, porque Vue ignora los datos dentro de condicionales"
+   ],
+   "c": 1,
+   "e": "Vue anota las dependencias de lo que se leyó en la última ejecución del efecto. Con `usarA` falso se leyó `b`, no `a`, así que cambiar `a` no avisa a nadie. La reactividad no ignora los condicionales: los sigue, y rearma la lista cuando el efecto vuelve a correr."
+  },
+  {
+   "p": "Un equipo escribe `const { n } = estado`, con `estado` reactivo, y después `n++`. La pantalla no cambia. ¿Cuál es la causa?",
+   "o": [
+    "`n` es una copia común del valor, así que ya no pasa por el `Proxy`",
+    "`n++` es una operación asíncrona que Vue procesa más tarde",
+    "`estado` dejó de ser reactivo en el momento de leerlo por primera vez",
+    "La pantalla solo se actualiza con clics y no con asignaciones de código"
+   ],
+   "c": 0,
+   "e": "Al desestructurar, el valor se copia a una variable normal: modificarla no pasa por la trampa `set` del `Proxy`, así que nadie se entera. Lo comprobé con `watchEffect`: `estado.n` siguió valiendo 1. Atribuirlo a que `n++` sea asíncrono, a que `estado` pierda la reactividad o a que solo cuenten los clics son explicaciones que no se sostienen."
+  },
+  {
+   "p": "En el compilador de Vue, un nodo de la plantilla sale con el número `-1 /* CACHED */` al final de su creación. ¿Qué le dice eso al motor?",
+   "o": [
+    "Que el nodo falló al compilar y se reemplazó por uno de reserva",
+    "Que el nodo es estático: se crea una vez y no hace falta compararlo",
+    "Que el nodo depende de un valor guardado en el navegador",
+    "Que el nodo hay que volver a crearlo cada vez que cambie algo"
+   ],
+   "c": 1,
+   "e": "`CACHED` marca un nodo estático: el compilador sabe que nunca cambia, así que el motor lo crea una sola vez y se salta su comparación. Es una de las banderas de actualización, y es lo que la documentación llama DOM virtual informado por el compilador."
+  },
+  {
+   "p": "Medimos qué se vuelve a ejecutar tras un cambio en un dato leído solo por el componente A. ¿Qué resultado es correcto para el escenario con estado compartido?",
+   "o": [
+    "React con contexto ejecuta de nuevo solo A, igual que Vue con `reactive`",
+    "Vue ejecuta de nuevo todos los hijos, como React con contexto",
+    "React con zustand y selector, y Vue con `reactive`, ejecutan de nuevo solo A",
+    "React con zustand y selector ejecuta de nuevo A y B, como con contexto"
+   ],
+   "c": 2,
+   "e": "En la medición, el contexto de React hizo ejecutar A y B (B no usó el dato). Con un selector de zustand solo corrió A, y lo mismo con `reactive` de Vue. Las otras opciones mezclan los resultados: el contexto no es selectivo y Vue no vuelve a ejecutar de más en este caso."
+  },
+  {
+   "p": "¿Qué corre una sola vez en un componente de Vue con `<script setup>` y qué se vuelve a ejecutar cuando cambia un dato que leyó?",
+   "o": [
+    "Se ejecuta una vez la función de dibujo y se repite todo el código de `setup`",
+    "Se ejecuta una vez `setup`; se repite la función de dibujo que este devuelve",
+    "Se ejecutan una vez todo el `setup` y la plantilla, y después ninguno",
+    "Se ejecuta una vez solo la plantilla; `setup` se repite en cada actualización"
+   ],
+   "c": 1,
+   "e": "`setup` corre una sola vez al crear el componente y devuelve la función de dibujo, que es la que se repite cuando cambia algo que leyó. En la medición: 1 ejecución de `setup` y 4 de dibujo tras tres clics. En React, en cambio, todo el cuerpo se repite."
+  },
+  {
+   "p": "Alguien afirma que Vue «no usa DOM virtual, por eso es más rápido». ¿Cuál es la respuesta correcta?",
+   "o": [
+    "Es cierto: Vue modifica el DOM directamente en cada cambio de dato",
+    "Es falso: Vue sí tiene DOM virtual y le suma banderas del compilador",
+    "Es cierto en Vue 3, pero Vue 2 usaba DOM virtual",
+    "Es falso: Vue usa el mismo DOM virtual que React, sin diferencias"
+   ],
+   "c": 1,
+   "e": "La documentación de Vue dice que su sistema de dibujo se basa en DOM virtual, aunque con una implementación distinta a la de React. Esa implementación aprovecha lo que el compilador sabe de la plantilla (nodos estáticos, banderas). Y menos ejecuciones no prueban por sí solas más velocidad."
+  }
+ ],
+ "feynman": "Explicale a alguien que programa pero no conoce Vue qué hace la reactividad cuando cambia un dato y en qué se diferencia de lo que hace React. Usá una analogía propia que no sea la del seguimiento de envíos.",
+ "para_profundizar": [
+  {
+   "fuente": "vu28-reactividad",
+   "nota": "La guía «Reactivity in Depth» de Vue: cuenta con pseudocódigo el mismo mecanismo de `track` y `trigger` que armaste hoy, y explica las trampas de `Proxy`. Leela completa."
+  },
+  {
+   "fuente": "vu28-render",
+   "nota": "El mecanismo de dibujo de Vue: DOM virtual, banderas de actualización y nodos estáticos. Sirve para entender la salida del compilador que viste."
+  },
+  {
+   "fuente": "vu28-composition",
+   "nota": "Las preguntas frecuentes de la Composition API, incluida la comparación con los hooks de React. Es una fuente interesada, así que contrastala con los hooks de la documentación de React."
+  },
+  {
+   "fuente": "react-docs",
+   "nota": "La documentación oficial de React: para contrastar con la sección anterior. Mirá cómo `memo` y el React Compiler plantean lo mismo desde el otro lado."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Vue 3 reactivity explained Proxy ref reactive effect",
+   "por_que": "Para ver explicado con otro ejemplo el mismo mecanismo de anotar lecturas y avisar a los lectores que construiste hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "reactividad",
+   "d": "Un sistema que registra qué código leyó qué datos y vuelve a ejecutar ese código solo cuando alguno de esos datos cambia. Vue 3 lo implementa con `Proxy` para objetos y con una propiedad `value` para valores simples."
+  },
+  {
+   "t": "plantilla",
+   "d": "En Vue, un texto parecido a HTML con huecos `{{ }}` y directivas como `v-if`, `v-for` y `@click`, que un compilador convierte en una función de dibujo. Su sintaxis cerrada permite analizarla antes de ejecutarla."
+  },
+  {
+   "t": "Composition API",
+   "d": "La forma de escribir la lógica de un componente de Vue importando funciones como `ref`, `computed` y `watch` y usándolas dentro de `setup`. Permite agrupar lógica reutilizable en funciones y está disponible en Vue 3 y en Vue 2.7."
+  },
+  {
+   "t": "componente de un solo archivo",
+   "d": "Un archivo `.vue` que junta la lógica, la plantilla y los estilos de un componente de Vue. Un compilador lo convierte en JavaScript común antes de llegar al navegador."
+  },
+  {
+   "t": "banderas de actualización",
+   "d": "Números que el compilador de Vue agrega a cada nodo de la plantilla para indicar qué puede cambiar (el texto, una propiedad, nada). Así, al actualizar, Vue compara solo lo necesario."
+  },
+  {
+   "t": "composable",
+   "d": "Una función de Vue que agrupa lógica con estado reactivo para reutilizarla entre componentes. Cumple un papel parecido al de un hook propio de React, sin las reglas de orden de los hooks."
+  }
+ ],
+ "siguiente": "Angular: el framework que trae todo. Mañana ves la tercera respuesta, la de un framework que ya trae rutas, formularios, pedidos HTTP e inyección de dependencias, y cómo su idea de flujos de eventos se parece a la reactividad de hoy.",
+ "fuentes_nuevas": [
+  {
+   "id": "nx27-blog-16",
+   "t": "Next.js 16",
+   "a": "Equipo de Next.js (Vercel)",
+   "tipo": "articulo",
+   "anio": 2025,
+   "url": "https://nextjs.org/blog/next-16"
+  },
+  {
+   "id": "vu28-faq",
+   "t": "Vue.js FAQ",
+   "a": "Equipo de Vue",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://vuejs.org/about/faq"
+  },
+  {
+   "id": "vu28-reactividad",
+   "t": "Reactivity in Depth (Vue.js)",
+   "a": "Equipo de Vue",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://vuejs.org/guide/extras/reactivity-in-depth.html"
+  },
+  {
+   "id": "vu28-render",
+   "t": "Rendering Mechanism (Vue.js)",
+   "a": "Equipo de Vue",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://vuejs.org/guide/extras/rendering-mechanism.html"
+  },
+  {
+   "id": "vu28-composition",
+   "t": "Composition API FAQ (Vue.js)",
+   "a": "Equipo de Vue",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://vuejs.org/guide/extras/composition-api-faq.html"
+  },
+  {
+   "id": "vu28-sfc",
+   "t": "Single-File Components (Vue.js)",
+   "a": "Equipo de Vue",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://vuejs.org/guide/scaling-up/sfc.html"
+  },
+  {
+   "id": "vu28-tooling",
+   "t": "Tooling (Vue.js)",
+   "a": "Equipo de Vue",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://vuejs.org/guide/scaling-up/tooling.html"
+  },
+  {
+   "id": "vu28-estado",
+   "t": "State Management (Vue.js)",
+   "a": "Equipo de Vue",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://vuejs.org/guide/scaling-up/state-management.html"
+  },
+  {
+   "id": "vu28-nuxt",
+   "t": "Nuxt: introducción",
+   "a": "Equipo de Nuxt",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://nuxt.com/docs/getting-started/introduction"
+  },
+  {
+   "id": "vu28-registro",
+   "t": "Registro de npm: paquete vue (última versión)",
+   "a": "npm, Inc.",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://registry.npmjs.org/vue/latest"
+  },
+  {
+   "id": "vu28-descargas",
+   "t": "API de descargas de npm: vue, última semana",
+   "a": "npm, Inc.",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://api.npmjs.org/downloads/point/last-week/vue"
+  }
+ ]
+}

@@ -1,0 +1,727 @@
+{
+ "id": "06-10",
+ "titulo": "Cómo un navegador dibuja la página",
+ "bajada": "Del último byte de HTML al primer píxel pasan cinco etapas que se pueden medir, y entender cuál se repite cuando algo cambia explica por qué una animación fluye o se traba.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Ordenar las etapas por las que pasa una página, del HTML y el CSS recibidos a los píxeles en pantalla.",
+  "Explicar qué es el DOM, el CSSOM y el árbol de render, y por qué el CSS bloquea la primera pintura.",
+  "Predecir qué etapas se repiten cuando cambia un ancho, un color o un `transform`.",
+  "Leer una traza de Chromium y reconocer eventos de análisis, estilo, layout, pintura y composición.",
+  "Reconocer y evitar el *layout thrashing* (leer y escribir medidas de forma entrelazada)."
+ ],
+ "venis_de": "En el [@06-02] viste que el navegador convierte el HTML en un árbol de documento, y en el [@06-04] y el [@06-05] cómo la cascada y el modelo de caja deciden el estilo y el tamaño de cada elemento. Hoy ves el proceso completo que une todo eso hasta el píxel, y qué parte se rehace cuando algo cambia.",
+ "se_apoya_en": [
+  "06-02",
+  "06-04",
+  "06-05"
+ ],
+ "gancho": [
+  "Un tablero con 3.000 envíos (datos inventados) llega por la red, y la persona ve la página en blanco hasta que el navegador termina de procesarlo. Lo medí en esta VM con Chromium 153: el primer contenido apareció a los 172 milisegundos del inicio de la navegación, y de ese tiempo, unos 100 se fueron en una sola etapa, calcular dónde va cada celda de la tabla. Con 300 filas esa etapa tardó 16; con 30.000, 923.",
+  "La segunda escena pasa después. Una cajita se desliza por la pantalla, y la animación se puede escribir de dos maneras que se ven idénticas. Con una, en un segundo y medio el navegador recalculó la geometría 91 veces. Con la otra, ninguna. La diferencia no está en el resultado visual sino en qué etapas del proceso se vuelven a ejecutar, y esa es la idea de hoy."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Del byte al píxel: las etapas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando el navegador recibe un documento HTML no «dibuja la página» de una vez. Pasa por una cadena de etapas, cada una con un resultado que alimenta a la siguiente. Los nombres varían entre libros y navegadores; el orden, no. Este es el recorrido de una página con una hoja de estilos:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Bytes de HTML",
+       "s": "llegan por la red",
+       "k": "red"
+      },
+      {
+       "t": "Tokens",
+       "s": "etiquetas, atributos, texto",
+       "k": "cliente",
+       "e": "análisis"
+      },
+      {
+       "t": "DOM",
+       "s": "árbol de nodos",
+       "k": "datos",
+       "e": "se arma el árbol"
+      }
+     ]
+    },
+    {
+     "baja": "en paralelo, con el CSS",
+     "nodos": [
+      {
+       "t": "Bytes de CSS",
+       "s": "llegan por la red",
+       "k": "red"
+      },
+      {
+       "t": "CSSOM",
+       "s": "reglas organizadas",
+       "k": "datos",
+       "e": "análisis"
+      },
+      {
+       "t": "Árbol de render",
+       "s": "lo visible, con su estilo calculado",
+       "k": "servidor",
+       "e": "DOM + CSSOM"
+      }
+     ]
+    },
+    {
+     "baja": "con el árbol de render listo",
+     "nodos": [
+      {
+       "t": "Layout",
+       "s": "tamaño y posición de cada caja",
+       "k": "servidor"
+      },
+      {
+       "t": "Pintura",
+       "s": "qué dibujar y en qué orden",
+       "k": "os",
+       "e": "lista de dibujo"
+      },
+      {
+       "t": "Composición",
+       "s": "capas combinadas en pantalla",
+       "k": "hw",
+       "e": "texturas de GPU"
+      }
+     ]
+    }
+   ],
+   "cap": "Cada flecha es un resultado intermedio. Si algo cambia, el navegador vuelve a la etapa que corresponde, no siempre al principio."
+  },
+  {
+   "t": "h3",
+   "x": "1. Análisis del HTML y el DOM"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El análisis del HTML tiene dos pasos, según el estándar [#whatwg-html]: primero **tokeniza** el texto (separa `<p class=\"e\">Hola</p>` en una etiqueta de apertura con un atributo, un trozo de texto y una etiqueta de cierre) y después **construye el árbol** con esas piezas. El resultado es el [[DOM]] (*Document Object Model*): la página como un árbol de nodos en memoria, el mismo árbol de documento del [@06-02], pero ahora entendido como un objeto vivo que JavaScript puede consultar y modificar (lo vas a hacer en el [@06-11]). Es el árbol tolerante que ya viste: aunque falte una etiqueta de cierre, el análisis sigue y arma algo.",
+    "El análisis puede empezar antes de que llegue todo el archivo: el navegador va procesando los bytes a medida que entran. Cuando encuentra una imagen la pide y sigue. Con un script sin los atributos `async` ni `defer` se detiene: ejecuta el script antes de continuar, porque ese código podría cambiar el documento que se está armando [#render10-mdn-como-funciona]. Por eso los scripts suelen ir al final del cuerpo o con `defer`."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "2. CSS, CSSOM y árbol de render"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El CSS sigue un camino paralelo. El navegador lo analiza y arma el [[CSSOM]] (*CSS Object Model*): las reglas organizadas en una estructura que permite averiguar rápido qué reglas le tocan a cada elemento. Con el DOM y el CSSOM, el navegador recorre el árbol de nodos y calcula el estilo final de cada uno aplicando la [[cascada]] que viste en el [@06-04]. El resultado, que MDN y web.dev llaman [[árbol de render]], contiene solo lo que se va a mostrar, cada nodo con sus estilos ya resueltos [#render10-mdn-como-funciona].",
+    "«Solo lo que se muestra» tiene un detalle útil. Un elemento con `display: none` no entra al árbol de render y no ocupa lugar. Uno con `visibility: hidden` sí entra: es invisible, pero deja su hueco. Y el `<head>` y sus hijos nunca entran. Por eso ocultar algo con `display: none` suele ser más barato que con `visibility`: no hay que calcular su caja."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El CSS frena la primera imagen; los scripts frenan el análisis",
+   "x": [
+    "Son dos bloqueos distintos y se confunden. El CSS no detiene el análisis del HTML, pero **detiene el dibujo**: el navegador no pinta hasta tener los estilos, porque pintar sin ellos mostraría la página cruda y la cambiaría un instante después. Los scripts sin `async` ni `defer` **detienen el análisis**, y como un script puede leer estilos, el navegador espera además al CSS que lo precede [#render10-mdn-como-funciona].",
+    "Una nota de vocabulario honesta: «árbol de render» es el nombre genérico de los materiales de MDN y web.dev. Chromium, por dentro, usa otras estructuras (por ejemplo, el árbol de fragmentos inmutable que crea el layout, según su documentación de arquitectura [#render10-chromium-renderingng]). La idea de «lo visible con su estilo» sirve igual para entender el proceso."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "3. Layout, pintura y composición"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con el árbol de render listo viene el [[layout]]: el cálculo del tamaño y la posición de cada caja, usando el modelo de caja del [@06-05] y las reglas de Flexbox, Grid y el viewport de los días anteriores. El layout pregunta cosas como «¿cuánto mide esta celda si su contenido es este texto y la tabla mide 1.000 píxeles?». La respuesta de una caja depende de sus vecinas y de sus padres, y por eso suele ser costosa: una parte de la página puede mover a otra.",
+    "La [[pintura]] (*paint*) decide **qué dibujar y en qué orden**: fondos, bordes, texto, sombras. Chromium no pinta píxeles directamente: genera una lista de instrucciones de dibujo que después se convierten en píxeles (se llama rasterización y produce baldosas de textura; en una GPU lo hace ella, y en esta VM, que no tiene GPU, lo hizo el software [#render10-chromium-renderingng]). Por último, la [[composición]] combina esas texturas, que pueden estar repartidas en **capas**, en la imagen final. En general es la etapa más barata: se trata de acomodar y mezclar texturas ya dibujadas, sin volver a calcular ni a dibujar nada."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Una página con una hoja de estilos de 200 KB que tarda en llegar. El HTML ya está entero y analizado. ¿Qué ve la persona mientras llega el CSS, y por qué el navegador no pinta lo que ya tiene?",
+   "resp": "Nada: sigue en blanco. El navegador no pinta hasta tener el CSS porque sin él no puede calcular los estilos, y sin estilos no puede hacer el layout de verdad. Pintar el HTML crudo mostraría un aspecto que desaparecería enseguida. Por eso el CSS se considera un recurso que bloquea el dibujo, y por eso conviene que sea chico y que llegue pronto."
+  },
+  {
+   "t": "h3",
+   "x": "Cómo se ven las etapas en una traza real"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Chromium puede grabar una traza: un registro con el nombre, el inicio y la duración de cada etapa. Se maneja con el protocolo de depuración (CDP, el mismo que usan las herramientas de desarrollo y Playwright). Armé el tablero de envíos con 3.000 filas y un CSS aparte, lo serví desde un servidor local y grabé la carga:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// traza.cjs: graba una traza de Chromium con el protocolo de depuración (CDP) y cuenta eventos\nconst { chromium } = require('playwright');\n(async () => {\n  const b = await chromium.launch();\n  const ctx = await b.newContext();\n  const p = await ctx.newPage();\n  const cdp = await ctx.newCDPSession(p);\n  const eventos = [];\n  cdp.on('Tracing.dataCollected', e => eventos.push(...e.value));\n  await cdp.send('Tracing.start', { categories: 'devtools.timeline', transferMode: 'ReportEvents' });\n  await p.goto('http://127.0.0.1:18610/?n=3000', { waitUntil: 'load' });\n  await p.waitForTimeout(400);   // dejar que terminen el layout y la pintura\n  const fin = new Promise(r => cdp.once('Tracing.tracingComplete', r));\n  await cdp.send('Tracing.end'); await fin;\n  const total = nombre => eventos.filter(e => e.name === nombre && e.ph === 'X')\n                                 .reduce((s, e) => s + e.dur / 1000, 0);   // dur viene en microsegundos\n  for (const n of ['ParseHTML', 'UpdateLayoutTree', 'Layout', 'Paint'])\n    console.log(n, total(n).toFixed(1), 'ms');\n  await b.close();\n})();",
+   "cap": "Playwright más CDP. Las duraciones de los eventos de traza vienen en microsegundos. La página es el tablero de envíos de la demostración (datos inventados), servida en un puerto local."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node traza.cjs",
+     "s": "ParseHTML 9.6 ms\nUpdateLayoutTree 15.0 ms\nLayout 106.8 ms\nPaint 4.3 ms"
+    }
+   ],
+   "cap": "Medido en esta VM con Chromium 153.0.8010.12, una corrida. `UpdateLayoutTree` es el cálculo de estilos (lo que DevTools rotula «Recalculate Style»)."
+  },
+  {
+   "t": "p",
+   "x": "Los eventos también tienen orden. En otra corrida de la misma página, medidos desde el inicio de la navegación:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Evento de la traza",
+    "Etapa",
+    "Empezó a los…"
+   ],
+   "filas": [
+    [
+     "`ParseHTML`",
+     "análisis del HTML",
+     "0,6 ms"
+    ],
+    [
+     "`Layout`",
+     "layout (duró 88,8 ms)",
+     "47,1 ms"
+    ],
+    [
+     "`PrePaint`",
+     "prepara lo que hay que dibujar",
+     "137,0 ms"
+    ],
+    [
+     "`Paint`",
+     "pintura (lista de dibujo)",
+     "146,5 ms"
+    ],
+    [
+     "`Layerize`",
+     "reparte la lista en capas",
+     "152,0 ms"
+    ],
+    [
+     "`RasterTask`",
+     "convierte la lista en texturas (16 tareas)",
+     "157,2 ms"
+    ],
+    [
+     "`firstContentfulPaint`",
+     "primer contenido en pantalla",
+     "169,1 ms"
+    ]
+   ],
+   "cap": "Medido en esta VM, una sola traza: los tiempos de una corrida a otra varían. Los nombres son los de Chromium 153; otros navegadores y otras versiones usan otros."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Y cuánto cuesta cada etapa cuando la página crece. Repetí la medición con 300, 3.000 y 30.000 filas, cinco corridas cada una, y tomé la mediana:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Filas",
+    "Nodos DOM",
+    "Análisis",
+    "Estilos",
+    "Layout",
+    "Pintura",
+    "Primer contenido"
+   ],
+   "filas": [
+    [
+     "300",
+     "1.515",
+     "1,8 ms",
+     "2,6 ms",
+     "16 ms",
+     "3 ms",
+     "60 ms"
+    ],
+    [
+     "3.000",
+     "15.015",
+     "9,5 ms",
+     "16 ms",
+     "101 ms",
+     "6 ms",
+     "172 ms"
+    ],
+    [
+     "30.000",
+     "150.015",
+     "153 ms",
+     "223 ms",
+     "923 ms",
+     "76 ms",
+     "584 ms"
+    ]
+   ],
+   "cap": "Medianas de cinco corridas, en esta VM. En una segunda tanda el layout de 3.000 filas dio 94 ms: tomalo como del orden de 100. Con 100 veces más nodos, el layout tardó unas 56 veces más."
+  },
+  {
+   "t": "p",
+   "x": "El layout creció casi en proporción al número de nodos, y fue la etapa más cara en las tres páginas. Es lo habitual en tablas y listas largas, y la razón por la que más abajo se verá qué hacer para que los cambios no lo repitan."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El depósito de un reparto",
+   "x": "Pensalo como el flujo de un depósito: llega la mercadería (bytes), se la clasifica (análisis), se arma la planilla de rutas con lo que hay que despachar (árbol de render), se decide dónde va cada bulto en cada camión (layout), se cargan (pintura) y salen a la calle (composición). Si cambia la dirección de un pedido hay que rearmar la ruta; si solo cambia el color de la etiqueta, no. La analogía deja de valer en que acá cada «camión» sale casi gratis una vez cargado, y lo caro es decidir dónde va cada bulto."
+  },
+  {
+   "t": "h",
+   "x": "Qué se rehace cuando algo cambia"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá fue la carga inicial. Pero una página cambia todo el tiempo: se abre un menú, corre una animación, llegan datos nuevos. El navegador no vuelve a empezar desde los bytes: **vuelve a la etapa más temprana que ese cambio invalidó y repite desde ahí hasta el final**. Para saber hasta dónde llega un cambio alcanza con preguntarse qué cambió:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Si cambia…",
+    "Ejemplos",
+    "Se repite desde…"
+   ],
+   "filas": [
+    [
+     "La geometría",
+     "`width`, `height`, `margin`, `left`, el texto, un elemento nuevo",
+     "estilos + layout + pintura + composición"
+    ],
+    [
+     "Solo el aspecto",
+     "`color`, `background-color`, `box-shadow`",
+     "estilos + pintura + composición (sin layout)"
+    ],
+    [
+     "Solo un efecto de composición",
+     "`transform`, `opacity` (con el elemento en su propia capa)",
+     "solo composición"
+    ]
+   ],
+   "cap": "Resumen de la guía de web.dev sobre propiedades de composición y de la documentación de RenderingNG [#render10-webdev-compositor] [#render10-chromium-renderingng]. La lista exacta depende del navegador y la versión: se comprueba con una traza."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La documentación de arquitectura de Chromium lo dice así: las animaciones de efectos visuales y el desplazamiento pueden **saltear el layout, el pre-pintado y la pintura**, y si se saltean, se pueden ejecutar enteras en el hilo del compositor y no tocan el hilo principal [#render10-chromium-renderingng]. El hilo principal es donde corre también tu JavaScript (lo vas a ver en el [@06-14]); lo que no pasa por ahí no se traba cuando ese hilo está ocupado.",
+    "Lo comprobé. Sobre la misma página de 3.000 filas puse una caja de 60 píxeles que se mueve 600 píxeles en un segundo, de cuatro maneras, y grabé una traza de 1,5 segundos (unos 90 cuadros a 60 por segundo) contando los eventos:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cómo se anima",
+    "Layout",
+    "Estilos",
+    "PrePaint",
+    "Paint"
+   ],
+   "filas": [
+    [
+     "Animación CSS sobre `left`",
+     "91",
+     "91",
+     "91",
+     "182"
+    ],
+    [
+     "Animación CSS sobre `transform`",
+     "0",
+     "0",
+     "0",
+     "0"
+    ],
+    [
+     "JavaScript en cada cuadro, sobre `left`",
+     "90",
+     "90",
+     "90",
+     "180"
+    ],
+    [
+     "JavaScript en cada cuadro, sobre `transform`",
+     "0",
+     "90",
+     "90",
+     "0"
+    ]
+   ],
+   "cap": "Cantidad de eventos en 1,5 s, medida en esta VM (Chromium 153, página de 15.015 nodos). La caja es absoluta y sola: cada layout costó cerca de 1 ms; en un flujo normal de la página sería mucho más."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres lecturas. Primero, **cambiar `left` repite el layout en cada cuadro**: 91 veces en 1,5 segundos. Segundo, la misma animación con `transform` **no hizo ninguna etapa en el hilo principal**: ni estilos, ni layout, ni pintura, porque la hizo el compositor. Tercero, con JavaScript el resultado es intermedio: `transform` evita layout y pintura, pero JavaScript todavía corre en cada cuadro y el navegador todavía recalcula los estilos y prepara la pintura (90 eventos de cada uno)."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En la tabla, la animación CSS de `left` recalculó la geometría 91 veces y costó unos 100 ms de layout y pintura en total, bastante poco. ¿Por qué entonces se dice que animar `left` es una mala idea?",
+   "resp": "Porque ese costo es chico solo por la forma de la prueba: una caja absoluta, sola, que no empuja a nada. Si el elemento está dentro del flujo de la página, mover `left` o `width` obliga a recalcular también a sus vecinos, y el costo crece con el tamaño de la página, como en la tabla de 3.000 filas (101 ms por layout completo). Además, esas etapas se hacen en el hilo principal, que no puede estar ocupado con otra cosa en el mismo cuadro."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué corre en el compositor (13-11-2026)",
+   "x": [
+    "La guía de web.dev sobre capas de composición es de 2015 y dice que solo `transform` y `opacity` pueden resolverse sin layout ni pintura [#render10-webdev-compositor]. Esa lista es la regla práctica estable, pero los navegadores fueron sumando casos, y la propia página de arquitectura de Chromium habla en general de «efectos visuales» [#render10-chromium-renderingng]. Para saber si una propiedad concreta pasa por el compositor, no se confía en una lista: se graba una traza como la de arriba y se cuentan los eventos."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Layout thrashing: cuando el navegador tiene que calcular ya"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Según el estándar, el navegador no recalcula la página cada vez que tu código cambia algo. Junta los cambios y, en cada oportunidad de dibujo (aproximadamente una por actualización de pantalla), recorre en orden: callbacks de animación, estilos y layout, y dibuja [#asincronia-html-event-loops]. Cambiar cien estilos seguidos cuesta, entonces, **un** recálculo al final.",
+    "La trampa aparece cuando tu código **pregunta por una medida** después de haber cambiado algo. Para responder `offsetWidth` de un elemento, el navegador no puede usar el valor viejo: tiene que aplicar los cambios pendientes y hacer el layout ahora, en medio de tu código. Eso se llama *layout forzado* (forced synchronous layout, o *forced reflow* en inglés) [#render10-webdev-layout]. Hecho una vez, es inofensivo. Hecho en un bucle que escribe y lee, repetido, se llama *layout thrashing*. Medí qué lecturas lo fuerzan después de cambiar un ancho:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Lectura después de cambiar `style.width`",
+    "Recálculos de layout",
+    "Recálculos de estilo"
+   ],
+   "filas": [
+    [
+     "`el.offsetWidth`",
+     "1",
+     "1"
+    ],
+    [
+     "`el.getBoundingClientRect()`",
+     "1",
+     "1"
+    ],
+    [
+     "`el.scrollTop` (contenedor con desplazamiento)",
+     "1",
+     "1"
+    ],
+    [
+     "`getComputedStyle(el).width`",
+     "1",
+     "1"
+    ],
+    [
+     "`getComputedStyle(el).color`",
+     "0",
+     "1"
+    ],
+    [
+     "Leer `el.className`",
+     "0",
+     "0"
+    ]
+   ],
+   "cap": "Medido en esta VM con la métrica `Performance.getMetrics` de CDP (`LayoutCount` y `RecalcStyleCount`). Preguntar un estilo que no depende de la geometría (`color`) obliga a recalcular estilos pero no el layout."
+  },
+  {
+   "t": "p",
+   "x": "Ahora el caso entero: 2.000 `<div>` y un bucle que a cada uno le lee el ancho y le escribe el ancho más uno. Una versión mezcla lecturas y escrituras; la otra lee todos los anchos primero y escribe después."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const filas = [...document.querySelectorAll('.f')];   // 2000 divs\n\n// Entrelazado: escribe y lee, escribe y lee...\nfor (const e of filas) {\n  e.style.width = (e.offsetWidth + 1) + 'px';   // leer fuerza el layout, escribir lo invalida\n}\n\n// Agrupado: primero todas las lecturas, después todas las escrituras\nconst anchos = filas.map(e => e.offsetWidth);\nfilas.forEach((e, i) => { e.style.width = (anchos[i] + 1) + 'px'; });",
+   "cap": "La diferencia está solo en el orden. Ambas versiones dejan el mismo resultado final."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "entrelazado (lee y escribe)",
+     "s": "layouts: 2000   recálculos de estilo: 2000   tiempo en JS: 1.894 ms"
+    },
+    {
+     "c": "agrupado (lecturas, luego escrituras)",
+     "s": "layouts: 1      recálculos de estilo: 1      tiempo en JS: 4,9 ms"
+    }
+   ],
+   "cap": "Medido en esta VM, Chromium 153. En otra corrida el entrelazado tardó 2.262 ms y el agrupado 4,6 ms: el orden de magnitud es lo que cuenta. El agrupado incluye el único layout, forzado al final con una lectura."
+  },
+  {
+   "t": "p",
+   "x": "Casi dos segundos contra cinco milisegundos, con el mismo resultado. El motivo es que cada layout forzado cuesta lo mismo que uno normal y el entrelazado lo repite 2.000 veces. Y como el layout depende del tamaño del DOM, el costo se multiplica con la página: es lo que hace que un código que anda bien con 20 elementos se vuelva inusable con 2.000."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "No es que leer sea malo",
+   "x": [
+    "Leer medidas es normal y necesario. El problema es el orden: una lectura **después** de una escritura obliga a calcular ya. La regla práctica es leer todo lo que haga falta, escribir todo, y no volver a leer en el mismo tramo de código. Los marcos como React, que verás más adelante, juntan varios cambios de estado en una sola actualización del DOM, pero no pueden arreglar un código propio que lea y escriba entrelazado."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un tablero de seguimiento muestra 500 tarjetas. Un script recorre cada una y, si su texto mide más que la tarjeta, le agrega la clase `recortada`. Escrito de forma ingenua, ¿hay thrashing? ¿Cómo lo reescribirías para que haga un solo layout?",
+   "pista": "Pensá en qué hace `scrollWidth` (una lectura de geometría) y qué hace `classList.add` (una escritura de estilo) en cada vuelta.",
+   "solucion": "Sí: en cada vuelta lee `scrollWidth` (fuerza layout si hay cambios pendientes) y después escribe la clase (invalida el layout), así que la lectura siguiente vuelve a forzarlo: 500 layouts. La versión sin thrashing hace dos pasadas: una que recorre las 500 tarjetas, lee `scrollWidth` y `clientWidth` y arma una lista con las que se pasan, y otra que recorre esa lista y agrega la clase. Con eso hay un layout (el de la primera lectura) y las 500 escrituras se aplican juntas en el próximo cuadro. Lo comprobé: después de cambiar una clase que modifica el ancho, leer `scrollWidth` o `clientWidth` forzó 1 layout, y el `classList.toggle` solo no forzó ninguno."
+  },
+  {
+   "t": "h",
+   "x": "Capas y `will-change`: el costo de que algo se mueva solo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para que un elemento pueda animarse sin repintar el resto, el navegador necesita pintarlo en su propia textura, una **capa de composición**, y moverla como una lámina sobre las demás. Algunas cosas crean capas solas (`<video>`, `<canvas>`, ciertas transformaciones 3D, algunos casos de `opacity`) [#render10-mdn-como-funciona]; también podés pedirla con la propiedad `will-change`, un aviso de que ese elemento está por cambiar [#render10-mdn-will-change]. MDN la marca como disponible en todos los navegadores desde enero de 2020.",
+    "El costo es memoria: cada capa es una textura. Con la página de 20 paneles de pantalla completa (1.000 por 700 píxeles) y `will-change: transform` en cada uno, pasé de 4 a 24 capas, y la suma de sus tamaños nominales (ancho por alto por 4 bytes por píxel) de 8,0 a 61,4 MiB. Fue medido con la herramienta de capas de CDP; es una cota de lo que podría ocupar, no la memoria real de GPU, que el navegador reparte en baldosas y puede recortar."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si pongo `will-change` en todo, todo anda más rápido»",
+   "x": [
+    "MDN lo advierte de forma explícita: usarlo como último recurso ante un problema que ya existe, no para anticiparse; en pocos elementos; y activarlo y desactivarlo con script antes y después del cambio, porque dejarlo siempre en la hoja de estilos le dice al navegador que mantenga la capa para siempre [#render10-mdn-will-change]. Un `* { will-change: transform }` hace lo que mostró la medición de arriba, a gran escala, y puede dejar sin memoria a un teléfono modesto."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Nombres y etapas de Chromium (13-11-2026)",
+   "x": [
+    "Las etapas de Chromium descritas en su documentación de RenderingNG son: animar, estilo, layout, pre-pintado, desplazamiento, pintura, commit, creación de capas, rasterización, activación, agregado y dibujo [#render10-chromium-renderingng]. Los nombres de los eventos de traza son los de Chromium 153 y pueden cambiar entre versiones. Lo que no cambia es el orden lógico y el criterio de qué se repite cuando algo cambia."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa este recorrido: tiene el suyo, y el mismo principio",
+   "x": [
+    "Senda es una app de React Native (con Expo): en el teléfono no hay HTML, ni CSS, ni DOM. React Native tiene su propio recorrido, que su documentación describe en tres fases: **render** (React arma un árbol propio), **commit** (se calcula el layout con una librería llamada Yoga) y **mount** (se crean y actualizan las vistas nativas del sistema) [#render10-rn-render-pipeline]. En la vista previa web, en cambio, `react-native-web` traduce la app a elementos del navegador, y ahí sí corre lo que viste hoy.",
+    "El principio de «mover sin recalcular» aparece de verdad en el código. El lector de la Biblia (`src/lector/Libro.tsx`) anima la vuelta de hoja con Reanimated y Gesture Handler en el hilo nativo, y el comentario de cabecera cuenta por qué: antes el dedo y la animación pasaban por el hilo de JavaScript y la hoja «se demoraba» (prueba 5). En la prueba 47 se sacó una curva dibujada con Skia que sacaba dos fotos de la hoja por cada vuelta, y el comentario sigue: «Vuelve el pliegue, que se mueve solo con transformaciones (nada se redibuja)». Las hojas se animan con `translateX` interpolado y `opacity` dentro de `useAnimatedStyle`: las dos clases de cambio que el navegador también resuelve sin repetir el layout.",
+    "No son lo mismo: Reanimated y el compositor del navegador son mecanismos distintos, con hilos y reglas propios, y no revisé la implementación de Reanimated. Lo que se comparte es la idea: **un cambio que solo mueve o mezcla algo ya dibujado no tiene por qué pasar por el cálculo de geometría ni por el hilo ocupado**. Esto corresponde al commit `25e08fa`; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/lector/Libro.tsx",
+    "package.json"
+   ]
+  }
+ ],
+ "recap": [
+  "El navegador analiza el HTML en un DOM (árbol de nodos) y el CSS en un CSSOM; los combina en un árbol de render con lo visible y su estilo, calcula el layout (tamaño y posición), pinta (lista de dibujo) y compone capas en la pantalla.",
+  "El CSS bloquea la primera pintura; un script sin `async` ni `defer` bloquea el análisis del HTML. Son dos bloqueos distintos.",
+  "Un cambio no repite todo: cambia la geometría y se repiten estilos, layout, pintura y composición; cambia el aspecto y se salta el layout; cambia `transform` u `opacity` sobre una capa y puede bastar la composición.",
+  "El costo del layout crece con el número de nodos: en la medición, de 16 a 923 ms para 300 y 30.000 filas.",
+  "Leer una medida después de escribir un estilo fuerza un layout inmediato; hacerlo en bucle es el *layout thrashing*: 2.000 layouts contra 1 en la medición. Se evita leyendo todo primero y escribiendo después.",
+  "`will-change` crea capas y las capas cuestan memoria: se usa en pocos elementos, como último recurso y por poco tiempo. La forma de saber qué se repite no es una lista, es una traza."
+ ],
+ "repaso": [
+  {
+   "p": "Un script sin los atributos `async` ni `defer` aparece en medio del HTML. ¿Qué hace el navegador al llegar a él?",
+   "o": [
+    "Sigue analizando el HTML y ejecuta el script al terminar la página",
+    "Pausa el análisis del HTML y ejecuta el script antes de continuar",
+    "Salta el script y lo ejecuta solo cuando alguien toca la pantalla",
+    "Descarga el script y lo ejecuta en el hilo del compositor"
+   ],
+   "c": 1,
+   "e": "Un script común puede cambiar el documento que se está armando, así que el análisis se detiene hasta que se descargue y se ejecute. Con `async` o `defer` no frena el análisis. La opción del compositor mezcla etapas distintas: el compositor no ejecuta JavaScript."
+  },
+  {
+   "p": "La página ya recibió todo el HTML pero todavía no llegó el CSS. ¿Por qué el navegador no muestra lo que tiene?",
+   "o": [
+    "Porque el DOM todavía no está listo hasta que termine de bajar el CSS",
+    "Porque el CSS siempre se descarga antes que cualquier imagen del sitio",
+    "Porque sin estilos no puede calcular el layout y mostraría algo que cambiaría enseguida",
+    "Porque el HTML sin estilos no tiene ningún elemento que se pueda dibujar"
+   ],
+   "c": 2,
+   "e": "El DOM sí está listo, pero el CSS bloquea el dibujo: sin estilos no se puede hacer el layout real, y pintar el HTML crudo mostraría un aspecto que se corregiría un instante después. No es que el CSS tenga prioridad de descarga ni que el HTML no tenga nada dibujable."
+  },
+  {
+   "p": "Cambiás con JavaScript el `background-color` de un botón. ¿Qué etapas se repiten?",
+   "o": [
+    "Todas, desde el análisis del HTML hasta la composición",
+    "Solo la composición, porque es un cambio de color",
+    "Estilos, pintura y composición, pero no el layout",
+    "Solo el layout, porque cambia el aspecto de la caja"
+   ],
+   "c": 2,
+   "e": "El color no cambia el tamaño ni la posición de ninguna caja, así que se salta el layout, pero el aspecto sí cambió: hay que recalcular el estilo y volver a pintar. La composición sola alcanzaría con `transform` u `opacity` sobre una capa propia."
+  },
+  {
+   "p": "Un código recorre 1.000 elementos y en cada vuelta lee `el.offsetWidth` y después escribe `el.style.width`. Tarda segundos. ¿Cuál es la causa?",
+   "o": [
+    "Cada lectura fuerza un layout porque hay una escritura pendiente de la vuelta anterior",
+    "El navegador no puede cambiar anchos de más de cien elementos a la vez",
+    "`offsetWidth` es una propiedad lenta por sí misma, aunque no haya escrituras",
+    "El hilo del compositor está ocupado con otras tareas de dibujo"
+   ],
+   "c": 0,
+   "e": "Después de una escritura, la lectura obliga a aplicar el cambio y hacer el layout ahora: 1.000 vueltas, 1.000 layouts. Leer todo primero y escribir después hace uno solo. `offsetWidth` sin escrituras pendientes se responde con el layout ya calculado, sin costo aparte."
+  },
+  {
+   "p": "Querés animar una caja de un lado al otro de una tabla enorme, con la menor carga posible para el hilo principal. ¿Qué elegís?",
+   "o": [
+    "Cambiar `left` en cada cuadro con JavaScript, porque es lo más directo",
+    "Cambiar `margin-left` con una transición, porque no toca el DOM",
+    "Cambiar `width` para que la caja crezca hasta el otro lado",
+    "Una animación CSS sobre `transform`, que puede ir al compositor"
+   ],
+   "c": 3,
+   "e": "En la medición, la animación CSS sobre `transform` no ejecutó ningún evento de estilo, layout ni pintura en el hilo principal. `left`, `margin-left` y `width` son propiedades de geometría: repiten el layout en cada cuadro, y con una tabla enorme el costo se multiplica."
+  },
+  {
+   "p": "Un equipo agrega `will-change: transform` a todas las tarjetas de una lista de 500 elementos «por si acaso», aunque nada se anima. ¿Qué es lo más probable?",
+   "o": [
+    "Aumenta la memoria usada por las capas y puede empeorar el rendimiento",
+    "La lista se anima sola con más fluidez sin gastar recursos extra",
+    "No pasa nada, porque el navegador ignora `will-change` si no hay animación",
+    "El layout se hace una sola vez en lugar de una vez por tarjeta"
+   ],
+   "c": 0,
+   "e": "Cada elemento promovido a capa necesita su textura y su administración; MDN recomienda usarlo como último recurso y en pocos elementos. En la medición, 20 capas de pantalla completa llevaron la suma nominal de 8 a 61 MiB. El navegador no lo ignora: justamente se prepara para el cambio."
+  },
+  {
+   "p": "En la traza de una carga de página ves, en este orden, eventos `Layout`, `PrePaint`, `Paint`, `Layerize` y `RasterTask`. ¿Qué te dice ese orden?",
+   "o": [
+    "Que la pintura se hace antes que el cálculo de posiciones",
+    "Que la composición ocurre antes de saber qué se va a dibujar",
+    "Que el layout se calcula después de convertir todo en texturas",
+    "Que primero se calcula la geometría y recién después se dibuja y se convierte en texturas"
+   ],
+   "c": 3,
+   "e": "El orden lógico es geometría (layout), preparación y lista de dibujo (pre-pintado y pintura), reparto en capas y conversión en texturas. Las otras opciones invierten etapas: no se puede dibujar algo cuya posición todavía no se calculó."
+  }
+ ],
+ "feynman": "Explicale a alguien que arma planillas de ruteo, no páginas web, por qué mover una caja en pantalla con `transform` es mucho más barato que moverla con `left`, y qué es leer y escribir «entrelazado». Usá una analogía propia, distinta de la del depósito de hoy.",
+ "para_profundizar": [
+  {
+   "fuente": "render10-chromium-renderingng",
+   "nota": "La descripción oficial de Chromium de cada etapa y de en qué hilo y proceso corre. Leé la sección de estructura del pipeline para ubicar los nombres que viste en la traza."
+  },
+  {
+   "fuente": "render10-mdn-como-funciona",
+   "nota": "El recorrido completo (DOM, CSSOM, árbol de render, layout, pintura) en un solo texto de MDN, con el detalle de qué bloquea a qué."
+  },
+  {
+   "fuente": "render10-webdev-layout",
+   "nota": "La guía de web.dev sobre layout forzado y thrashing, con ejemplos y la forma de verlos en DevTools; sirve para ir de la medición de hoy a tu propio código."
+  },
+  {
+   "fuente": "render10-devtools-performance",
+   "nota": "Referencia del panel Performance de Chrome DevTools: cómo grabar y leer en pantalla lo que hoy leíste por consola."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Chrome DevTools Performance panel tutorial layout paint composite",
+   "por_que": "Para ver en el panel gráfico las mismas etapas que hoy mediste con eventos de traza."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "DOM",
+   "d": "*Document Object Model*: la página como un árbol de nodos en memoria, construido por el análisis del HTML. JavaScript puede consultarlo y modificarlo, y el navegador lo recorre para calcular estilos y geometría."
+  },
+  {
+   "t": "CSSOM",
+   "d": "*CSS Object Model*: las reglas CSS ya analizadas y organizadas en una estructura. Junto con el DOM permite calcular el estilo final de cada elemento aplicando la cascada."
+  },
+  {
+   "t": "árbol de render",
+   "d": "Resultado de combinar DOM y CSSOM: solo los nodos que se van a mostrar, cada uno con su estilo calculado. Un elemento con `display: none` no entra; uno con `visibility: hidden` sí, porque ocupa lugar."
+  },
+  {
+   "t": "layout",
+   "d": "Etapa que calcula el tamaño y la posición de cada caja del árbol de render. Se repite (reflow) cuando cambia algo de la geometría, y su costo crece con la cantidad de nodos."
+  },
+  {
+   "t": "pintura",
+   "d": "Etapa que decide qué dibujar y en qué orden (fondos, bordes, texto, sombras) y produce una lista de instrucciones que después se rasteriza en texturas. Se repite si cambia el aspecto de algo."
+  },
+  {
+   "t": "composición",
+   "d": "Última etapa: combina en la imagen final las texturas ya dibujadas, repartidas en capas. Es la más barata, y por eso `transform` y `opacity` sobre una capa propia pueden animarse solo con ella."
+  },
+  {
+   "t": "layout thrashing",
+   "d": "Patrón que mezcla lecturas de medidas con escrituras de estilo: cada lectura fuerza un layout inmediato. Repetido en un bucle multiplica el costo; se evita leyendo todo primero y escribiendo después."
+  },
+  {
+   "t": "capa de composición",
+   "d": "Textura propia de un elemento (o grupo) que el compositor puede mover o mezclar sin volver a pintar el resto. Cada capa gasta memoria, por eso `will-change` se usa con medida."
+  }
+ ],
+ "siguiente": "el DOM por dentro: cómo se busca, se crea y se cambia un nodo con JavaScript, y por qué `innerHTML` y `textContent` no son lo mismo.",
+ "fuentes_nuevas": [
+  {
+   "id": "render10-chromium-renderingng",
+   "t": "RenderingNG architecture",
+   "a": "Chrome for Developers",
+   "tipo": "doc",
+   "url": "https://developer.chrome.com/docs/chromium/renderingng-architecture"
+  },
+  {
+   "id": "render10-mdn-como-funciona",
+   "t": "Populating the page: how browsers work (MDN)",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/Performance/Guides/How_browsers_work"
+  },
+  {
+   "id": "render10-webdev-compositor",
+   "t": "Stick to compositor-only properties and manage layer count",
+   "a": "web.dev",
+   "tipo": "articulo",
+   "anio": 2015,
+   "url": "https://web.dev/articles/stick-to-compositor-only-properties-and-manage-layer-count"
+  },
+  {
+   "id": "render10-webdev-layout",
+   "t": "Avoid large, complex layouts and layout thrashing",
+   "a": "web.dev",
+   "tipo": "articulo",
+   "anio": 2015,
+   "url": "https://web.dev/articles/avoid-large-complex-layouts-and-layout-thrashing"
+  },
+  {
+   "id": "render10-mdn-will-change",
+   "t": "will-change (MDN)",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/CSS/will-change"
+  },
+  {
+   "id": "render10-devtools-performance",
+   "t": "Performance features reference (Chrome DevTools)",
+   "a": "Chrome for Developers",
+   "tipo": "doc",
+   "url": "https://developer.chrome.com/docs/devtools/performance/reference"
+  },
+  {
+   "id": "render10-rn-render-pipeline",
+   "t": "Render, Commit, and Mount",
+   "a": "React Native",
+   "tipo": "doc",
+   "url": "https://reactnative.dev/architecture/render-pipeline"
+  }
+ ]
+}
