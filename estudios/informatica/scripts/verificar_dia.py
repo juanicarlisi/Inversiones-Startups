@@ -135,7 +135,7 @@ def verificar(id_, d, tot_fuentes):
     for s in tx:
         m = _re.search(r'\b[Dd]ías? \d+\b', s)
         if m: w(f'número de día escrito a mano («{m.group(0)}»): usá [@id]'); break
-    if re.search(r'<[a-z/][^>]*>', ' '.join(tx)): e('hay etiquetas HTML en los textos (usá solo el marcado permitido)')
+    if re.search(r'<[a-z/][^>]*>', re.sub(r'`[^`]*`', '', ' '.join(tx))): e('hay etiquetas HTML en los textos (usá solo el marcado permitido; lo que es código va entre comillas invertidas)')
     # fuentes
     nuevas = {f['id']: f for f in d.get('fuentes_nuevas', [])}
     usadas = set(re.findall(r'\[#([a-z0-9_.-]+)\]', alltxt)) | {r.get('fuente') for r in d['para_profundizar'] if r.get('fuente')}
