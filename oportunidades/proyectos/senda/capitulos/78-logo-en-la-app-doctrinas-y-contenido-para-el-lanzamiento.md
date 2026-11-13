@@ -62,3 +62,22 @@ ninguna otra usa; el dato dice dónde lo enseña la Biblia. Una salió por repet
 
 Las 46 están también en portugués e inglés, traducidas a mano (capa `espadeo_mano`). La clave de cada una se lee en las dos Biblias
 del idioma. Validador: todo en orden. Commits 9a7e41f y ee24273.
+
+### 2.5 Las 1.026 preguntas «rebuscadas» que quedaban (pedido 4)
+
+El detector de la prueba 52 (`scripts/autor/rebuscadas.py`) había marcado 1.026 preguntas que nadie había leído todavía. Las leyeron
+**nueve revisores en paralelo**, una por una con su versículo de la RV1909 (lotes 27 a 35 de `scripts/autor/revision52/`), con la
+regla 9 de `docs/REDACCION.md`: una sola pregunta directa, sin comodines, en positivo y corta. Claude controló después que cada lote
+coincidiera con su parte, que ningún par de repetidas quedara retirado por los dos lados (esc-4219 se salvó: su gemela ya estaba
+retirada) y que no quedaran dos enunciados iguales (esp-41141, Marcos, repetía a cin-41090, Mateo: salió).
+
+- **978 reescritas**, **18 quedan como estaban** (ya eran directas) y **31 retiradas** (repetidas de un pasaje paralelo, como
+  Reyes y Crónicas o Mateo y Marcos, o datos menores que no edifican).
+- **Errores de contenido corregidos de paso:** Job 21:12 decía «arpa y flauta» (el versículo dice tamboril y cítara); Salmos 37:35,
+  «cedro» por «laurel»; Proverbios 30:15, una respuesta que no estaba en ninguna Reina-Valera; Proverbios 17:22 y Rut 1:21, que la
+  RVR1960 lee distinto; Hebreos 3:16, que la RV1909 y las versiones de hoy leen al revés (retirada); palabras viejas en opciones
+  («enfervorizó», «doctores», «necio», «la inspiración del Omnipotente» → «el soplo», con Job 33:4 abriéndose en una versión que
+  dice «soplo»).
+- **La Biblia de la app:** errata «las mandamientos» en 1 Corintios 7:19, corregida en `scripts/biblia_arreglos.py`.
+- **Resultado:** 0 preguntas marcadas sin leer; traducciones de lo que cambió en la capa a mano (portugués 5.281 preguntas, inglés
+  5.256); validador: todo en orden. Commit efd5c89.
