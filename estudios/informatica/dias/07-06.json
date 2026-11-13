@@ -1,0 +1,651 @@
+{
+ "id": "07-06",
+ "titulo": "Endpoints, controladores y servicios",
+ "bajada": "Tomás un endpoint que hace todo, le armás una red de pruebas y lo separás en capas sin cambiar su comportamiento; después cambiás la base de datos sin tocar las reglas.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Definir qué es un [[endpoint]] y distinguirlo de la ruta que lo implementa en el framework.",
+  "Asignar cada línea de un manejador gordo a su capa: controlador, servicio o acceso a datos.",
+  "Refactorizar un endpoint a capas conservando su comportamiento, con pruebas antes y después.",
+  "Explicar por qué las reglas no deben conocer HTTP y los controladores no deben aplicar reglas.",
+  "Decidir cuándo separar en capas y cuándo es exceso de ceremonia."
+ ],
+ "venis_de": "Ayer ([@07-05]) viste cómo Express recorre una cadena de eslabones y cómo cada [[ruta]] termina en una función. Hoy abrís esa función: qué conviene que haga y qué conviene que haga otra pieza.",
+ "se_apoya_en": [
+  "07-05",
+  "04-14",
+  "04-15",
+  "04-17",
+  "03-18"
+ ],
+ "gancho": [
+  "En la ventanilla de despachos de un depósito hay una sola persona. Atiende al chofer, mira el pizarrón de camiones, aplica el reglamento de carga, tacha en la planilla, llama al cliente. Funciona mientras nada cambie. Un día el pizarrón se reemplaza por un sistema, o el reglamento sube la capacidad de un camión, y esa persona tiene que revisar **todo** lo que hace, porque lo hace todo junto. Los depósitos que crecen separan puestos: uno atiende, otro aplica el reglamento, otro guarda y busca en el archivo.",
+  "Un servidor web tiene el mismo problema. Ayer cada [[ruta]] terminaba en una función; si esa función hace todo, se vuelve la persona de la ventanilla. Hoy tomo un endpoint real de un depósito inventado, lo escribo de la forma más tentadora (todo adentro), le armo ocho pruebas que fijan lo que hace, lo parto en capas y vuelvo a correr las mismas pruebas. Después hago algo que antes era una semana de trabajo: cambio dónde se guardan los datos sin tocar una sola regla."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Endpoint: lo que ve el cliente"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[endpoint]] es un punto de contacto que un backend ofrece a sus clientes: la combinación de un método y una dirección (`POST /despachos/5/asignar`) con un contrato claro de qué se manda y qué vuelve. La palabra mira el asunto desde afuera. La [[ruta]] de ayer lo mira desde adentro: es cómo el framework declara quién lo atiende. Un mismo endpoint tiene una sola ruta, pero las dos palabras responden preguntas distintas. Un equipo de frontend pregunta «¿qué endpoints hay?»; quien programa el servidor pregunta «¿dónde está la ruta?».",
+    "Para este día armé un servicio de despachos de un depósito (todo inventado). Hay despachos con una cantidad de **bultos** y vehículos con una **capacidad** en bultos. El endpoint de hoy es el que asigna un despacho a un vehículo:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Endpoint",
+    "Qué hace",
+    "Resultados posibles"
+   ],
+   "filas": [
+    [
+     "`GET /despachos`",
+     "Lista los despachos",
+     "200"
+    ],
+    [
+     "`GET /despachos/:id`",
+     "Trae uno",
+     "200, 404"
+    ],
+    [
+     "`POST /despachos/:id/asignar`",
+     "Lo asigna a un vehículo (cuerpo: `{ \"patente\": \"AA111AA\" }`)",
+     "200, 400, 404, 409"
+    ]
+   ],
+   "cap": "Solo el tercero se implementa hoy. Es una acción más que una operación sobre datos: por eso el verbo `asignar` va en la dirección."
+  },
+  {
+   "t": "p",
+   "x": "Las reglas del negocio, tal como las pidió el depósito: el despacho tiene que estar «nuevo»; el vehículo tiene que existir; y lo que ya lleva el vehículo (sin contar lo entregado) más los bultos del despacho no puede pasar su capacidad. Si todo está bien, el despacho queda «asignado» y se le avisa al cliente."
+  },
+  {
+   "t": "h",
+   "x": "Un endpoint gordo"
+  },
+  {
+   "t": "p",
+   "x": "Esta es la versión más tentadora: todo en el manejador. Lo escribí así a propósito y lo corrí tal cual:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Versión «gorda»: un solo manejador hace todo. Datos inventados, todo en memoria.\nconst express = require('express');\n\nfunction crearApp() {\n  const despachos = new Map([\n    [1, { id: 1, cliente: 'Ferretería Norte', bultos: 12, estado: 'nuevo', patente: null }],\n    [2, { id: 2, cliente: 'Kiosco Sur', bultos: 10, estado: 'nuevo', patente: null }],\n    [3, { id: 3, cliente: 'Taller Oeste', bultos: 5, estado: 'entregado', patente: 'AA111AA' }],\n    [4, { id: 4, cliente: 'Librería Este', bultos: 15, estado: 'asignado', patente: 'AA111AA' }],\n    [5, { id: 5, cliente: 'Panadería Centro', bultos: 5, estado: 'nuevo', patente: null }],\n  ]);\n  const vehiculos = new Map([\n    ['AA111AA', { patente: 'AA111AA', capacidad: 20 }],\n    ['BB222BB', { patente: 'BB222BB', capacidad: 8 }],\n  ]);\n  const avisos = [];\n\n  const app = express();\n  app.locals.avisos = avisos;\n  app.use(express.json());\n\n  app.post('/despachos/:id/asignar', (req, res) => {\n    const id = Number(req.params.id);\n    const patente = req.body?.patente;\n    if (!Number.isInteger(id) || typeof patente !== 'string')\n      return res.status(400).json({ error: 'faltan datos' });\n\n    const d = despachos.get(id);\n    if (!d) return res.status(404).json({ error: 'no existe ese despacho' });\n    const v = vehiculos.get(patente);\n    if (!v) return res.status(404).json({ error: 'no existe ese vehículo' });\n\n    if (d.estado !== 'nuevo') return res.status(409).json({ error: 'el despacho ya no está nuevo' });\n    let cargado = 0;\n    for (const otro of despachos.values())\n      if (otro.patente === v.patente && otro.estado !== 'entregado') cargado += otro.bultos;\n    if (cargado + d.bultos > v.capacidad)\n      return res.status(409).json({ error: `no entra: lleva ${cargado} de ${v.capacidad} bultos` });\n\n    d.estado = 'asignado';\n    d.patente = v.patente;\n    avisos.push(`aviso a ${d.cliente}: su despacho ${d.id} sale en ${v.patente}`);\n    res.json(d);\n  });\n\n  return app;\n}\n\nmodule.exports = { crearApp };",
+   "cap": "gordo/app.js (49 líneas). El manejador está entre `app.post(...)` y `res.json(d)`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "IMPL=./gordo/app.js PORT=19706 node servidor.js &   # y después, con curl -s -w ' -> %{http_code}' -X POST .../despachos/<id>/asignar",
+     "s": ""
+    },
+    {
+     "c": "despacho 5 a AA111AA (15 cargados + 5)",
+     "s": "{\"id\":5,\"cliente\":\"Panadería Centro\",\"bultos\":5,\"estado\":\"asignado\",\"patente\":\"AA111AA\"} -> 200"
+    },
+    {
+     "c": "despacho 1 a AA111AA (ya van 20 de 20)",
+     "s": "{\"error\":\"no entra: lleva 20 de 20 bultos\"} -> 409"
+    },
+    {
+     "c": "despacho 4 a AA111AA (ya asignado)",
+     "s": "{\"error\":\"el despacho ya no está nuevo\"} -> 409"
+    },
+    {
+     "c": "despacho 99 (no existe)",
+     "s": "{\"error\":\"no existe ese despacho\"} -> 404"
+    },
+    {
+     "c": "despacho 1 sin patente",
+     "s": "{\"error\":\"faltan datos\"} -> 400"
+    }
+   ],
+   "cap": "Salida real, 13-11-2026. Los pedidos fueron en este orden contra un mismo servidor: por eso el segundo ve el vehículo ya lleno."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Funciona. El problema no es lo que hace sino cuántas cosas hace. Contalas en el manejador: (1) leer y comprobar el pedido, (2) buscar datos, (3) aplicar reglas, (4) modificar el estado, (5) mandar un aviso, (6) elegir el código HTTP de cada fallo. Tres preguntas muestran el costo:"
+   ]
+  },
+  {
+   "t": "lista",
+   "ord": true,
+   "items": [
+    "**¿Cómo probás la regla de capacidad?** Solo levantando un servidor, mandando un pedido HTTP y leyendo la respuesta. La regla está soldada al pedido.",
+    "**¿Cómo la reusás?** Si mañana un proceso nocturno tiene que asignar despachos sin que nadie llame a la API, hay que copiar las reglas o hacerle un pedido HTTP a tu propio servidor.",
+    "**¿Qué pasa cuando los datos dejan de estar en un `Map`?** Hay que reescribir el manejador, con el riesgo de romper las reglas que están mezcladas con las consultas."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Esto tiene nombre en el vocabulario que ya viste: es un [[olor a código]], una señal de que algo conviene separar. Y para separarlo sin romper nada necesitás primero una red de seguridad."
+  },
+  {
+   "t": "h",
+   "x": "Primero las pruebas: fijar lo que hace hoy"
+  },
+  {
+   "t": "p",
+   "x": "La [[refactorización]] ([@04-17]) cambia la estructura sin cambiar el comportamiento. Para saber si el comportamiento se conservó, hay que haberlo fijado antes. Escribí ocho pruebas con `node:test` que tratan al servidor como una caja negra: mandan pedidos reales y miran respuestas. Son [[pruebas de integración|prueba de integración]] chicas ([@04-16]), con el patrón [[arrange-act-assert]] de [@04-15]. Fijate en la primera: usa el caso límite, 15 + 5 = 20, el «error por uno» de [@03-08] que más suele esconderse en una regla de capacidad."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Pruebas de «caracterización»: fijan lo que el endpoint hace hoy, sin mirar cómo está hecho por dentro.\nconst test = require('node:test');\nconst assert = require('node:assert/strict');\nconst { crearApp } = require(process.env.IMPL);\n\nlet app, servidor, base;\ntest.beforeEach(async () => {\n  app = crearApp();\n  servidor = app.listen(0, '127.0.0.1');\n  await new Promise((ok) => servidor.once('listening', ok));\n  base = `http://127.0.0.1:${servidor.address().port}`;\n});\ntest.afterEach(() => servidor.close());\n\nconst asignar = (id, cuerpo) =>\n  fetch(`${base}/despachos/${id}/asignar`, {\n    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(cuerpo),\n  });\n\ntest('asigna cuando entra justo en el vehículo (15 + 5 = 20)', async () => {\n  const r = await asignar(5, { patente: 'AA111AA' });\n  assert.equal(r.status, 200);\n  assert.deepEqual(await r.json(), { id: 5, cliente: 'Panadería Centro', bultos: 5, estado: 'asignado', patente: 'AA111AA' });\n});\ntest('rechaza con 409 si se pasa por un bulto (15 + 12 > 20)', async () => {\n  const r = await asignar(1, { patente: 'AA111AA' });\n  assert.equal(r.status, 409);\n  assert.match((await r.json()).error, /no entra: lleva 15 de 20/);\n});\ntest('404 si el despacho no existe', async () => {\n  assert.equal((await asignar(99, { patente: 'AA111AA' })).status, 404);\n});\ntest('404 si el vehículo no existe', async () => {\n  assert.equal((await asignar(1, { patente: 'ZZ999ZZ' })).status, 404);\n});\ntest('409 si el despacho ya no está nuevo', async () => {\n  assert.equal((await asignar(4, { patente: 'AA111AA' })).status, 409);\n});\ntest('400 si falta la patente', async () => {\n  assert.equal((await asignar(1, {})).status, 400);\n});\ntest('el aviso al cliente sale solo cuando la asignación se concreta', async () => {\n  await asignar(1, { patente: 'AA111AA' });   // rechazada\n  assert.equal(app.locals.avisos.length, 0);\n  await asignar(5, { patente: 'AA111AA' });   // aceptada\n  assert.deepEqual(app.locals.avisos, ['aviso a Panadería Centro: su despacho 5 sale en AA111AA']);\n});\ntest('asignar dos veces el mismo despacho: la segunda da 409', async () => {\n  assert.equal((await asignar(5, { patente: 'AA111AA' })).status, 200);\n  assert.equal((await asignar(5, { patente: 'AA111AA' })).status, 409);\n});",
+   "cap": "pruebas.test.js. Carga la implementación que diga la variable IMPL: así las mismas pruebas sirven para la versión gorda y para las que siguen."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "IMPL=./gordo/app.js node --test pruebas.test.js",
+     "s": "ok 1 - asigna cuando entra justo en el vehículo (15 + 5 = 20)\nok 2 - rechaza con 409 si se pasa por un bulto (15 + 12 > 20)\nok 3 - 404 si el despacho no existe\nok 4 - 404 si el vehículo no existe\nok 5 - 409 si el despacho ya no está nuevo\nok 6 - 400 si falta la patente\nok 7 - el aviso al cliente sale solo cuando la asignación se concreta\nok 8 - asignar dos veces el mismo despacho: la segunda da 409\n# tests 8\n# pass 8\n# fail 0"
+    }
+   ],
+   "cap": "Salida real (recortada). Este tipo de pruebas se llama «de caracterización»: no dicen qué *debería* hacer el código, dicen qué hace."
+  },
+  {
+   "t": "pensa",
+   "x": "Si la prueba 1 usara 14 + 5 en lugar de 15 + 5, el vehículo tendría lugar de sobra. ¿Por qué conviene probar justo el límite y no un caso cómodo?",
+   "resp": "Porque el error típico de una regla de capacidad es un `>` donde iba un `>=` (o al revés). Con un caso holgado las dos versiones pasan; con el caso justo, una pasa y la otra falla. Las pruebas valen por lo que son capaces de detectar."
+  },
+  {
+   "t": "h",
+   "x": "Las capas: quién sabe qué"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La idea que ordena todo es la [[separación de responsabilidades]]. Edsger Dijkstra la describió en 1974 como una técnica para pensar, antes que para programar:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "It is what I sometimes have called «the separation of concerns», which, even if not perfectly possible, is yet the only available technique for effective ordering of one's thoughts.",
+   "autor": "E. W. Dijkstra, «On the role of scientific thought» (EWD447), 1974",
+   "fuente": "be06-dijkstra-ewd447"
+  },
+  {
+   "t": "p",
+   "x": "Aplicada a un backend, significa que cada pieza tiene **un solo motivo para cambiar**. Hay tres capas habituales, y cada una se queda con lo que sabe:"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "Ruta (Express)",
+     "d": "Declara qué método y dirección llegan a qué función. Es el pegamento con el framework.",
+     "k": "cliente"
+    },
+    {
+     "n": "Controlador",
+     "d": "Sabe de HTTP: lee `req`, valida la forma, llama al servicio y traduce el resultado (o el error) a un código de estado y un cuerpo.",
+     "k": "red"
+    },
+    {
+     "n": "Capa de servicio",
+     "d": "Sabe las reglas del negocio: qué se puede asignar y qué no. No conoce HTTP ni dónde se guardan los datos.",
+     "k": "servidor"
+    },
+    {
+     "n": "Acceso a datos (repositorio)",
+     "d": "Sabe dónde y cómo se guardan los datos. No conoce reglas ni HTTP.",
+     "k": "datos"
+    }
+   ],
+   "cap": "El pedido baja por las capas y la respuesta sube. Cada capa solo conoce a la de abajo: el controlador llama al servicio, el servicio al repositorio, nunca al revés."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Capa",
+    "Recibe y devuelve",
+    "No debe saber de…",
+    "En el ejemplo"
+   ],
+   "filas": [
+    [
+     "[[controlador]]",
+     "`req`/`res`; llama al servicio con valores simples",
+     "Reglas de negocio, SQL",
+     "Convierte `no_entra` en un 409"
+    ],
+    [
+     "[[capa de servicio]]",
+     "Valores simples; devuelve resultados o lanza errores del negocio",
+     "`req`, `res`, códigos HTTP, SQL",
+     "Comprueba que 15 + 12 no entra en 20"
+    ],
+    [
+     "Repositorio",
+     "Identificadores y objetos; devuelve datos",
+     "Reglas, HTTP",
+     "`bultosCargados('AA111AA')`"
+    ]
+   ],
+   "cap": "La columna del medio es la que hace posible reusar y probar: lo que no sabe una capa no la ata."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El depósito con puestos",
+   "x": [
+    "El controlador es la ventanilla de recepción: habla con el chofer, entiende su formulario y le contesta en su idioma. El servicio es el supervisor que aplica el reglamento de carga. El repositorio es el archivo: sabe dónde está cada planilla, pero no decide nada.",
+    "Dónde deja de valer: en un depósito los puestos se hablan en persona y pueden improvisar. En el código, la frontera entre capas es una función con parámetros y resultado concretos; si pasás `req` a una capa que no debe verlo, la frontera ya se rompió."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El refactor, pieza por pieza"
+  },
+  {
+   "t": "p",
+   "x": "Se parte de abajo hacia arriba, sacando de la versión gorda lo que pertenece a cada capa. Primero, el **repositorio**: lo único que sabe de dónde salen los datos. Devuelve copias, como haría una base de datos, y su interfaz habla en términos del negocio (`bultosCargados`), no de la estructura interna:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Capa de datos: sabe DÓNDE se guardan las cosas (acá, en memoria). No sabe de reglas ni de HTTP.\nfunction crearRepositorio({ despachos, vehiculos }) {\n  const d = new Map(despachos.map((x) => [x.id, { ...x }]));\n  const v = new Map(vehiculos.map((x) => [x.patente, { ...x }]));\n  return {\n    buscarDespacho: (id) => (d.has(id) ? { ...d.get(id) } : null),\n    buscarVehiculo: (patente) => (v.has(patente) ? { ...v.get(patente) } : null),\n    bultosCargados: (patente) =>\n      [...d.values()].filter((x) => x.patente === patente && x.estado !== 'entregado')\n        .reduce((suma, x) => suma + x.bultos, 0),\n    guardarDespacho: (x) => { d.set(x.id, { ...x }); },\n  };\n}\nmodule.exports = { crearRepositorio };",
+   "cap": "capas/repositorio.js."
+  },
+  {
+   "t": "p",
+   "x": "Después, el **servicio**: las reglas y nada más. Recibe sus dependencias como parámetros (el repositorio y una función para avisar), una forma simple de [[inyección de dependencias]]. No hay `req`, ni `res`, ni códigos HTTP: cuando algo se incumple, lanza un error con un código propio del negocio (`no_entra`), que es una clase de 8 líneas:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Capa de servicio: sabe las REGLAS (qué se puede asignar y qué no). No sabe de HTTP ni de dónde están los datos.\nconst { ErrorDeNegocio } = require('./errores');\n\nfunction crearServicio({ repo, avisar }) {\n  return {\n    asignar(idDespacho, patente) {\n      const despacho = repo.buscarDespacho(idDespacho);\n      if (!despacho) throw new ErrorDeNegocio('despacho_inexistente', 'no existe ese despacho');\n      const vehiculo = repo.buscarVehiculo(patente);\n      if (!vehiculo) throw new ErrorDeNegocio('vehiculo_inexistente', 'no existe ese vehículo');\n\n      if (despacho.estado !== 'nuevo')\n        throw new ErrorDeNegocio('despacho_no_nuevo', 'el despacho ya no está nuevo');\n      const cargado = repo.bultosCargados(patente);\n      if (cargado + despacho.bultos > vehiculo.capacidad)\n        throw new ErrorDeNegocio('no_entra', `no entra: lleva ${cargado} de ${vehiculo.capacidad} bultos`);\n\n      const asignado = { ...despacho, estado: 'asignado', patente };\n      repo.guardarDespacho(asignado);\n      avisar(`aviso a ${asignado.cliente}: su despacho ${asignado.id} sale en ${patente}`);\n      return asignado;\n    },\n  };\n}\nmodule.exports = { crearServicio };",
+   "cap": "capas/servicio.js. El mismo orden de controles que la versión gorda."
+  },
+  {
+   "t": "p",
+   "x": "Por último, el **controlador**. Es lo único que conoce HTTP. Lee los datos del pedido, comprueba su forma, llama al servicio y arma la respuesta. Una tabla traduce los códigos del negocio a códigos de estado; un error que no es del negocio (un bug) sigue de largo hacia el manejador de errores de ayer con `next(e)`:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Controlador: sabe de HTTP. Traduce el pedido a una llamada al servicio y el resultado a una respuesta.\nconst { ErrorDeNegocio } = require('./errores');\n\nconst ESTADO_HTTP = {\n  despacho_inexistente: 404,\n  vehiculo_inexistente: 404,\n  despacho_no_nuevo: 409,\n  no_entra: 409,\n};\n\nfunction crearControlador(servicio) {\n  return {\n    asignar(req, res, next) {\n      const id = Number(req.params.id);\n      const patente = req.body?.patente;\n      if (!Number.isInteger(id) || typeof patente !== 'string')\n        return res.status(400).json({ error: 'faltan datos' });\n      try {\n        res.json(servicio.asignar(id, patente));\n      } catch (e) {\n        if (e instanceof ErrorDeNegocio)\n          return res.status(ESTADO_HTTP[e.codigo] ?? 500).json({ error: e.message });\n        next(e);                      // lo inesperado le toca al manejador de errores\n      }\n    },\n  };\n}\nmodule.exports = { crearControlador };",
+   "cap": "capas/controlador.js."
+  },
+  {
+   "t": "p",
+   "x": "Y el **cableado**: un solo lugar donde se arma cada capa y se las conecta. La ruta ahora es una línea:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Cableado: acá se arma cada capa y se las conecta. Es el único lugar que conoce a todas.\nconst express = require('express');\nconst { SEMILLA } = require('./datos');\nconst { crearRepositorio } = require('./repositorio');\nconst { crearServicio } = require('./servicio');\nconst { crearControlador } = require('./controlador');\n\nfunction crearAppCon(crearRepo) {\n  const avisos = [];\n  const servicio = crearServicio({ repo: crearRepo(SEMILLA), avisar: (texto) => avisos.push(texto) });\n  const controlador = crearControlador(servicio);\n\n  const app = express();\n  app.locals.avisos = avisos;\n  app.use(express.json());\n  app.post('/despachos/:id/asignar', controlador.asignar);\n  return app;\n}\n\nmodule.exports = { crearAppCon, crearApp: () => crearAppCon(crearRepositorio) };",
+   "cap": "capas/app.js. Es el único archivo que conoce a todas las capas."
+  },
+  {
+   "t": "p",
+   "x": "Queda correr las mismas ocho pruebas, sin tocar una línea de ellas, contra la versión con capas:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "IMPL=./gordo/app.js node --test --no-warnings pruebas.test.js | grep -E '^# (pass|fail)'",
+     "s": "# pass 8\n# fail 0"
+    },
+    {
+     "c": "IMPL=./capas/app.js node --test --no-warnings pruebas.test.js | grep -E '^# (pass|fail)'",
+     "s": "# pass 8\n# fail 0"
+    }
+   ],
+   "cap": "Salida real. Mismo comportamiento: el refactor es una reorganización, no un cambio."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Que pasen las pruebas no prueba todo",
+   "x": "Ocho pruebas verifican ocho casos, no que el comportamiento sea idéntico en todos. Es lo mismo que decía Dijkstra de las pruebas en general: muestran presencia de errores, no su ausencia. Aun así, sin ellas, el refactor sería un acto de fe."
+  },
+  {
+   "t": "h",
+   "x": "Lo que ganaste, medido"
+  },
+  {
+   "t": "p",
+   "x": "Con las capas separadas pasan tres cosas que antes no se podían hacer."
+  },
+  {
+   "t": "h3",
+   "x": "1. Probar las reglas sin HTTP"
+  },
+  {
+   "t": "p",
+   "x": "Las pruebas del servicio llaman a una función. No hay servidor, ni puertos, ni JSON. El aviso al cliente se reemplaza por una función que anota lo que se le pidió, un [[mock]] casero de [@04-15]:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Pruebas del servicio SOLO: sin Express, sin HTTP, sin puertos.\nconst test = require('node:test');\nconst assert = require('node:assert/strict');\nconst { SEMILLA } = require('./capas/datos');\nconst { crearRepositorio } = require('./capas/repositorio');\nconst { crearRepositorioSqlite } = require('./capas/repositorio-sqlite');\nconst { crearServicio } = require('./capas/servicio');\n\nfor (const [nombre, crearRepo] of [['memoria', crearRepositorio], ['sqlite', crearRepositorioSqlite]]) {\n  const armar = () => {\n    const avisos = [];\n    return { avisos, servicio: crearServicio({ repo: crearRepo(SEMILLA), avisar: (t) => avisos.push(t) }) };\n  };\n\n  test(`[${nombre}] entra justo: 15 + 5 = 20`, () => {\n    const { servicio, avisos } = armar();\n    assert.equal(servicio.asignar(5, 'AA111AA').estado, 'asignado');\n    assert.equal(avisos.length, 1);\n  });\n  test(`[${nombre}] se pasa por un bulto: error no_entra y sin aviso`, () => {\n    const { servicio, avisos } = armar();\n    assert.throws(() => servicio.asignar(1, 'AA111AA'), { codigo: 'no_entra', message: /lleva 15 de 20/ });\n    assert.equal(avisos.length, 0);\n  });\n  test(`[${nombre}] despacho que no existe`, () => {\n    assert.throws(() => armar().servicio.asignar(99, 'AA111AA'), { codigo: 'despacho_inexistente' });\n  });\n  test(`[${nombre}] despacho que ya no está nuevo`, () => {\n    assert.throws(() => armar().servicio.asignar(4, 'AA111AA'), { codigo: 'despacho_no_nuevo' });\n  });\n  test(`[${nombre}] en un vehículo de 8 bultos entra el despacho de 5 y no el de 10`, () => {\n    const { servicio } = armar();\n    assert.equal(servicio.asignar(5, 'BB222BB').patente, 'BB222BB');\n    assert.throws(() => servicio.asignar(2, 'BB222BB'), { codigo: 'no_entra' });\n  });\n}",
+   "cap": "servicio.test.js. El mismo grupo de pruebas se repite para dos repositorios distintos (ya llego a eso)."
+  },
+  {
+   "t": "p",
+   "x": "Medí cuánto tarda una prueba de cada tipo, repitiendo cada suite cinco veces: la mediana por prueba fue de **7,8 ms** para las pruebas por HTTP y de **0,5 ms** para las del servicio. Son medidas de una sola VM, sirven para la proporción (unas 15 veces) y no como valores absolutos. Con un par de ocho pruebas no importa, pero con cientos, y corridas en cada cambio, sí."
+  },
+  {
+   "t": "h3",
+   "x": "2. Reusar la regla desde otro lugar"
+  },
+  {
+   "t": "p",
+   "x": "Un proceso que no es una API puede llamar al mismo servicio. Este script de consola aplica la regla sin Express:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Un script de consola (sin Express, sin HTTP) que reutiliza la MISMA regla del servicio.\nconst { SEMILLA } = require('./capas/datos');\nconst { crearRepositorio } = require('./capas/repositorio');\nconst { crearServicio } = require('./capas/servicio');\n\nconst servicio = crearServicio({ repo: crearRepositorio(SEMILLA), avisar: (t) => console.log('  (' + t + ')') });\nfor (const [id, patente] of [[5, 'AA111AA'], [1, 'AA111AA'], [2, 'BB222BB']]) {\n  try {\n    console.log(`despacho ${id} -> ${patente}:`, servicio.asignar(id, patente).estado);\n  } catch (e) {\n    console.log(`despacho ${id} -> ${patente}: rechazado (${e.codigo}: ${e.message})`);\n  }\n}",
+   "cap": "reasignar.js."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node reasignar.js",
+     "s": "  (aviso a Panadería Centro: su despacho 5 sale en AA111AA)\ndespacho 5 -> AA111AA: asignado\ndespacho 1 -> AA111AA: rechazado (no_entra: no entra: lleva 20 de 20 bultos)\ndespacho 2 -> BB222BB: rechazado (no_entra: no entra: lleva 0 de 8 bultos)"
+    }
+   ],
+   "cap": "Salida real. La regla es la misma que la del endpoint, porque es el mismo código."
+  },
+  {
+   "t": "h3",
+   "x": "3. Cambiar dónde se guardan los datos"
+  },
+  {
+   "t": "p",
+   "x": "La prueba más seria de una frontera es cambiar una capa. Escribí otro repositorio con la **misma interfaz** (cuatro funciones), pero guardando en SQLite con el módulo `node:sqlite` que trae Node 22:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Otro repositorio con la MISMA interfaz, ahora sobre SQLite (módulo node:sqlite de Node 22).\nconst { DatabaseSync } = require('node:sqlite');\n\nfunction crearRepositorioSqlite({ despachos, vehiculos }) {\n  const db = new DatabaseSync(':memory:');\n  db.exec(`create table despachos (id integer primary key, cliente text, bultos integer, estado text, patente text);\n           create table vehiculos (patente text primary key, capacidad integer);`);\n  const altaD = db.prepare('insert into despachos values (?, ?, ?, ?, ?)');\n  for (const x of despachos) altaD.run(x.id, x.cliente, x.bultos, x.estado, x.patente);\n  const altaV = db.prepare('insert into vehiculos values (?, ?)');\n  for (const x of vehiculos) altaV.run(x.patente, x.capacidad);\n\n  const fila = (r) => (r ? { ...r } : null);\n  return {\n    buscarDespacho: (id) => fila(db.prepare('select * from despachos where id = ?').get(id)),\n    buscarVehiculo: (patente) => fila(db.prepare('select * from vehiculos where patente = ?').get(patente)),\n    bultosCargados: (patente) => db.prepare(\n      \"select coalesce(sum(bultos), 0) as n from despachos where patente = ? and estado <> 'entregado'\").get(patente).n,\n    guardarDespacho: (x) => {\n      db.prepare('update despachos set cliente = ?, bultos = ?, estado = ?, patente = ? where id = ?')\n        .run(x.cliente, x.bultos, x.estado, x.patente, x.id);\n    },\n  };\n}\nmodule.exports = { crearRepositorioSqlite };",
+   "cap": "capas/repositorio-sqlite.js. Abre una base en memoria y crea las tablas con SQL."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "IMPL=./capas/app-sqlite.js node --test --no-warnings pruebas.test.js | grep -E '^# (pass|fail)'",
+     "s": "# pass 8\n# fail 0"
+    },
+    {
+     "c": "node --test --no-warnings servicio.test.js | grep -E '^# (pass|fail)'",
+     "s": "# pass 10\n# fail 0"
+    }
+   ],
+   "cap": "Salida real. Las ocho pruebas HTTP y las diez del servicio (cinco con cada repositorio) pasan. `servicio.js` y `controlador.js` no se tocaron."
+  },
+  {
+   "t": "p",
+   "x": "En la versión gorda, ese cambio habría exigido reescribir el manejador, con las reglas mezcladas con las consultas. Acá fueron 25 líneas nuevas en un archivo nuevo."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Leer, comprobar y guardar necesita una transacción",
+   "x": "En estas versiones no hay problema, porque cada paso corre sin esperar a nadie y Node atiende un pedido a la vez. Con una base real y llamadas asincrónicas, entre «leí cuánto lleva» y «guardé» hay puntos de espera: dos pedidos simultáneos podrían leer 15, comprobar que 5 entran y guardar los dos, dejando el vehículo en 25 de 20. Se resuelve con una transacción o una actualización atómica en la base, tema de la Parte 8. Es un riesgo que me interesa que reconozcas, no algo que demostré acá."
+  },
+  {
+   "t": "h",
+   "x": "Dónde no poner qué, y cuándo no separar"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Si ves esto…",
+    "Qué está pasando",
+    "A dónde va"
+   ],
+   "filas": [
+    [
+     "`res.status(409)` dentro del servicio",
+     "El servicio conoce HTTP",
+     "Que lance un error del negocio; el controlador lo traduce"
+    ],
+    [
+     "Una consulta SQL en el controlador",
+     "El controlador conoce el almacenamiento",
+     "Al repositorio"
+    ],
+    [
+     "Un `if` de regla de negocio en el repositorio",
+     "El archivo decide además de guardar",
+     "Al servicio"
+    ],
+    [
+     "`req.body` pasado entero al servicio",
+     "El servicio depende de la forma del pedido",
+     "El controlador extrae valores simples y los pasa"
+    ],
+    [
+     "Un servicio que solo llama al repositorio",
+     "Una capa que no aporta",
+     "Quizá no hace falta (ver abajo)"
+    ]
+   ],
+   "cap": "Chequeo rápido para una revisión de código."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las capas no son gratis: cuestan archivos, saltos de lectura y código que reenvía llamadas. Una regla práctica, que es criterio y no ley, es **separar cuando hay una regla que aislar, algo que probar más barato o un uso desde otro lugar**. Un endpoint que lista filas sin lógica no necesita un servicio. Meter tres capas ahí sería ceremonia.",
+    "Los frameworks grandes institucionalizan estos nombres. NestJS, que ves en [@07-20], te obliga a hablar de controladores y servicios. Arquitecturas con más capas y reglas de dependencia (limpia, hexagonal) aparecen en la Parte 12. Hoy alcanza con la idea de fondo: cada pieza, un motivo para cambiar."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El controlador ya valida que `patente` sea un texto. Mañana la regla del negocio pide que la patente tenga el formato `AA111AA` o `AB123CD`. ¿Dónde la ponés: controlador o servicio?",
+   "resp": "Es un tema para decidir con criterio, y mañana ([@07-07]) lo vemos con más herramientas. Una guía: lo que es verdad sobre **el pedido** (que venga una patente como texto) es del controlador; lo que es verdad sobre **el negocio** (qué patentes son válidas) es del servicio, porque otro cliente de ese servicio, como el script, también la necesita."
+  },
+  {
+   "t": "senda",
+   "titulo": "Las capas de Senda para un duelo",
+   "x": [
+    "Senda tampoco usa controladores, pero sus capas se reconocen. Seguí un turno de duelo: la pantalla `Jugar.tsx` llama a `jugarTurno(...)` (línea 551); `jugarTurno`, en `src/util/juntos.ts`, hace de servicio del teléfono: si no hay señal guarda el turno en una cola para reenviarlo, y distingue un fallo de red de un rechazo de la regla. Para hablar con la nube usa `rpc(...)` de `src/util/cuenta.ts`, que es el acceso: arma `POST /rest/v1/rpc/jugar_turno`. Y las reglas de verdad (turnos, 40 jugadas como máximo, 3 aciertos para ganar una pieza) están en la **función SQL** `jugar_turno` de la base, según el mapa técnico y la migración `20261127000000_seguridad.sql`.",
+    "Que la regla esté en la base y no en la app es una decisión de capa con motivo: lo que corre en el teléfono lo controla quien tiene el teléfono. En la vista previa web con `?demo=juntos`, `jugarTurno` simula localmente una versión simplificada de la regla (por ejemplo, 6 piezas terminan la partida); es una segunda copia de una regla, y si la función SQL cambiara, la demostración no se enteraría. Es el costo de repetir reglas en dos lugares.",
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/pantallas/Jugar.tsx",
+    "src/util/juntos.ts",
+    "src/util/cuenta.ts",
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Cuando una sola función alcanza",
+   "x": [
+    "La función de borde `borrar-cuenta` hace tres pasos en 41 líneas: borra los PDF del almacén, llama a `preparar_borrado` para que ningún grupo quede sin líder y borra la cuenta. Mezcla lo que en este día separamos: lee el pedido (controlador), ordena los pasos (servicio) y habla con el almacén y la base (acceso a datos). Y está bien así: son tres pasos lineales, no hay reglas que probar aparte y nadie más la usa. Es un ejemplo del criterio de recién: separar cuando algo lo pide."
+   ],
+   "archivos": [
+    "supabase/functions/borrar-cuenta/index.ts"
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Tomá estas cuatro líneas, todas del manejador gordo, y decí a qué capa pertenece cada una: (a) `if (typeof patente !== 'string') return res.status(400)…`; (b) `for (const otro of despachos.values()) if (otro.patente === v.patente && …) cargado += otro.bultos;`; (c) `if (cargado + d.bultos > v.capacidad) return res.status(409)…`; (d) `avisos.push(...)`. Una de ellas tiene que partirse en dos.",
+   "pista": "Pensá qué sabe cada línea: ¿HTTP, reglas o dónde están los datos? Una mezcla dos cosas a la vez.",
+   "solucion": "(a) controlador: valida la forma del pedido y elige el 400. (b) repositorio: recorrer los datos para sumar es saber cómo se guardan (en la versión con capas es `bultosCargados`). (c) **se parte en dos**: la comparación `cargado + bultos > capacidad` es regla del servicio, y el `res.status(409)` es traducción a HTTP del controlador. (d) servicio: decidir que hay que avisar es parte del flujo de negocio; la forma de avisar (aquí, anotar en una lista) se le inyecta."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Agregá una regla nueva: un vehículo no puede llevar más de **3 despachos** a la vez, aunque entren en peso. Decí qué archivos de `capas/` tocarías, en qué orden, y qué prueba escribirías primero.",
+   "pista": "Hace falta un dato que hoy el repositorio no da. ¿Cuál? Y ¿qué código de error nuevo necesita el controlador?",
+   "solucion": "Primero la prueba, en `servicio.test.js`: un vehículo con tres asignados rechaza un cuarto con un error nuevo (digamos `demasiados`), aunque haya lugar en bultos. Después el repositorio (`repositorio.js` y `repositorio-sqlite.js`) gana `despachosCargados(patente)`. Después el servicio comprueba el límite y lanza `ErrorDeNegocio('demasiados', …)`. Por último el controlador suma `demasiados: 409` a la tabla. El servicio y el repositorio cambian por razones distintas, y el controlador solo aprende un código; las pruebas HTTP existentes siguen pasando."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué cambia con las versiones",
+   "x": [
+    "Verificado el 13-11-2026. `node:test`, el ejecutor de pruebas que usé, figura como estable (Stability 2) en la documentación actual de Node [#dep14-node-test]. El módulo `node:sqlite` figura como candidato a versión final (Stability 1.2) en la documentación de la rama actual (v26.13) y como «en desarrollo activo» (1.1) en la de Node 22.23, la que corre en esta VM, donde además imprime una advertencia de módulo experimental (la ocultaba con `--no-warnings`) [#be06-node-sqlite]. Sirve para aprender; para una aplicación de producción, mirá la estabilidad vigente.",
+    "Lo que no cambia es la idea: separar quien habla el protocolo, quien aplica reglas y quien guarda. Los nombres cambian según el framework (controlador, handler, resolver, caso de uso, proveedor, repositorio) y la cantidad de capas según el tamaño del problema."
+   ]
+  }
+ ],
+ "recap": [
+  "Un endpoint es lo que un backend ofrece a sus clientes (método, dirección y contrato); la ruta es cómo el framework lo declara por dentro.",
+  "Un manejador que lo hace todo mezcla pedido, reglas, datos y avisos, y por eso no se puede probar sin HTTP, ni reusar, ni cambiar el almacenamiento sin reescribirlo.",
+  "Antes de refactorizar hay que fijar el comportamiento actual con pruebas, incluyendo los casos límite; después de refactorizar se corren las mismas.",
+  "El controlador sabe de HTTP, el servicio sabe de reglas y el repositorio sabe de datos; cada capa conoce solo a la de abajo.",
+  "El servicio lanza errores del negocio y el controlador los traduce a códigos de estado: así la regla se reusa desde un script o un worker.",
+  "Separar tiene costo: se justifica con una regla que aislar, una prueba más barata o un uso desde otro lugar; un servicio que solo reenvía llamadas es ceremonia.",
+  "Senda pone la regla de los duelos en una función SQL de la base y deja al teléfono la cola de reenvío y la presentación."
+ ],
+ "repaso": [
+  {
+   "p": "En un backend por capas, ¿cuál de estas piezas debería saber qué código HTTP corresponde a una regla incumplida, como «el vehículo no tiene lugar»?",
+   "o": [
+    "El controlador, que traduce el error del negocio a un 409",
+    "El servicio, porque es el que detecta que no entra",
+    "El repositorio, que es el que cuenta los bultos cargados",
+    "Las tres por igual, para que cada una pueda responder"
+   ],
+   "c": 0,
+   "e": "El servicio detecta la regla y lanza un error con un código propio del negocio (`no_entra`); el controlador es la única capa que habla HTTP y lo traduce a 409. Si el servicio conociera los códigos HTTP, no se podría reutilizar desde un script ni probar sin un servidor. El repositorio solo guarda y busca datos."
+  },
+  {
+   "p": "Un compañero propone poner la consulta SQL directamente dentro del manejador de la ruta «porque total es una sola línea». ¿Qué problema concreto aparece cuando después cambie dónde se guardan los datos?",
+   "o": [
+    "Hay que revisar todos los manejadores que escribieron SQL",
+    "El servidor deja de arrancar porque Express no admite SQL",
+    "Los códigos de estado dejan de coincidir con los de antes",
+    "Hay que reescribir las pruebas del servicio, que no existen"
+   ],
+   "c": 0,
+   "e": "El conocimiento de dónde viven los datos queda repartido por cada manejador, y cambiar el almacenamiento obliga a tocar todos. Con un repositorio, el cambio queda en un solo archivo. Express no tiene nada que ver con SQL, los códigos de estado no dependen del almacenamiento y reescribir pruebas que no existen confunde el síntoma con la causa."
+  },
+  {
+   "p": "Vas a refactorizar un endpoint gordo en capas, conservando su comportamiento. ¿Qué es lo primero que conviene hacer?",
+   "o": [
+    "Separar el código en tres archivos y probar después",
+    "Escribir pruebas que fijen lo que hace hoy el endpoint",
+    "Reescribir las reglas de negocio para que sean más claras",
+    "Elegir una librería de capas y adaptar el endpoint a ella"
+   ],
+   "c": 1,
+   "e": "Sin pruebas que fijen el comportamiento actual no hay forma de saber si el refactor lo conservó. Mover el código sin red de seguridad es adivinar; reescribir reglas cambia el comportamiento, que es lo contrario de refactorizar; y una librería no es requisito para separar responsabilidades."
+  },
+  {
+   "p": "Una prueba del servicio de asignación tarda 0,5 ms y la misma verificación hecha por HTTP tarda unos 8 ms. ¿Qué explica mejor la diferencia?",
+   "o": [
+    "Express interpreta el JSON más lento que el servicio",
+    "El servicio es una función y no necesita red ni servidor",
+    "Las pruebas por HTTP ejecutan reglas de negocio distintas",
+    "El servicio guarda en memoria y Express no puede hacerlo"
+   ],
+   "c": 1,
+   "e": "La prueba del servicio llama a una función. La de HTTP levanta un servidor, abre una conexión, arma un pedido, lo interpreta y serializa la respuesta. Las reglas ejecutadas son las mismas, y Express también puede trabajar con datos en memoria; los tiempos son medidas de una sola VM, sirven para ver la proporción."
+  },
+  {
+   "p": "En un servicio, la asignación hace «leer cuánto está cargado, comprobar que entra y después guardar» con una base de datos que usa llamadas asincrónicas. Con muchos pedidos simultáneos, ¿qué riesgo aparece?",
+   "o": [
+    "Que dos pedidos lean el mismo valor y ambos entren",
+    "Que Express rechace todos los pedidos por exceso de carga",
+    "Que el servicio devuelva el código HTTP equivocado siempre",
+    "Que el controlador ejecute la regla dos veces por pedido"
+   ],
+   "c": 0,
+   "e": "Entre la lectura y la escritura hay puntos de espera donde otro pedido puede colarse: los dos leen «lleva 15», los dos comprueban que 5 entran y los dos guardan, y el vehículo queda pasado de capacidad. Se resuelve con una transacción o una actualización atómica. Las otras opciones inventan fallas que no ocurren por la simultaneidad."
+  },
+  {
+   "p": "En Senda, la regla «una pieza se gana solo con 3 aciertos de Carga» vive en una función SQL de la base y no en el teléfono. ¿Qué ventaja tiene eso frente a ponerla en la app?",
+   "o": [
+    "La app queda más liviana y no usa el hilo principal",
+    "Un teléfono modificado no puede saltearse la regla",
+    "Las funciones SQL corren más rápido que cualquier app",
+    "Así la regla puede cambiar sin avisar a la base"
+   ],
+   "c": 1,
+   "e": "Todo lo que corre en el teléfono lo controla quien tiene el teléfono, así que una regla importante tiene que vivir del lado que controlás. El peso de la app o la velocidad de SQL no son la razón, y cambiar la regla sin avisar a la base describe lo contrario de lo que ocurre: cambiar la función requiere una migración."
+  },
+  {
+   "p": "Un endpoint solo lista filas de una tabla y no aplica ninguna regla. Un revisor pide agregarle servicio, repositorio y controlador. ¿Qué criterio práctico conviene aplicar?",
+   "o": [
+    "Siempre tres capas, aunque no haya reglas todavía",
+    "Separar cuando haya una regla, o algo que probar o reutilizar",
+    "Nunca separar: las capas siempre agregan más archivos",
+    "Separar solo si el equipo tiene más de cinco personas"
+   ],
+   "c": 1,
+   "e": "Las capas cuestan archivos y saltos de lectura; se justifican cuando hay una regla que aislar, una prueba que se quiere más barata o un uso desde otro lugar. Un servicio que solo reenvía una llamada no aporta nada. Es un criterio práctico, no una ley: «siempre» y «nunca» ignoran el costo y el beneficio, y el tamaño del equipo no lo decide."
+  }
+ ],
+ "feynman": "Explicale a alguien que no programa por qué conviene que el que atiende el pedido, el que aplica las reglas y el que guarda los datos sean tres cosas distintas, con una analogía propia que no sea la de la ventanilla del depósito. Incluí qué se gana el día que cambia una de las tres.",
+ "para_profundizar": [
+  {
+   "fuente": "be06-dijkstra-ewd447",
+   "nota": "El ensayo de 1974 donde Dijkstra nombra la separación de responsabilidades. Es corto y no habla de backends: sirve para ver que la idea es de pensamiento, no de moda."
+  },
+  {
+   "fuente": "ref-fowler-definicion",
+   "nota": "La definición de refactorización de Martin Fowler: cambiar la estructura sin cambiar el comportamiento observable. Es el criterio con el que las ocho pruebas de hoy fueron la red de seguridad."
+  },
+  {
+   "fuente": "dep14-node-test",
+   "nota": "La documentación de `node:test`, el ejecutor de pruebas de Node que usé: `test`, `describe`, `beforeEach` y los reportes."
+  },
+  {
+   "fuente": "be06-node-sqlite",
+   "nota": "El módulo `node:sqlite`: abrir una base, preparar sentencias y leer filas. Es la API que usa el repositorio de SQLite del ejemplo."
+  }
+ ],
+ "videos": [
+  {
+   "q": "separation of concerns controller service repository layers node explained",
+   "por_que": "Para ver otra explicación de las tres capas con un ejemplo distinto y comparar los nombres que usa cada comunidad."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "endpoint",
+   "d": "Un punto de contacto que un backend ofrece a sus clientes: la combinación de un método y una dirección, con un contrato claro de qué se manda y qué se recibe. Es el nombre «desde afuera» de lo que el framework declara como ruta."
+  },
+  {
+   "t": "controlador",
+   "d": "La capa de un backend que conoce HTTP: lee el pedido, comprueba su forma, llama al servicio y traduce el resultado o el error a un código de estado y un cuerpo. No aplica reglas de negocio ni sabe dónde se guardan los datos."
+  },
+  {
+   "t": "capa de servicio",
+   "d": "La capa que contiene las reglas del negocio y ordena los pasos de una operación. No conoce HTTP ni cómo se almacenan los datos, lo que permite probarla sin servidor y reusarla desde otros procesos."
+  },
+  {
+   "t": "separación de responsabilidades",
+   "d": "Principio de diseño según el cual cada pieza de un sistema se ocupa de una sola cosa y tiene un solo motivo para cambiar. Dijkstra la llamó «separation of concerns» en 1974 como técnica para ordenar el pensamiento."
+  }
+ ],
+ "siguiente": "Modelos, validación y DTO. Hoy el controlador comprobó a mano que la patente fuera un texto; mañana vas a ver cómo se describe la forma de lo que entra y de lo que sale, y por qué todo lo que llega de afuera se valida antes de tocar una regla.",
+ "fuentes_nuevas": [
+  {
+   "id": "be06-dijkstra-ewd447",
+   "t": "On the role of scientific thought (EWD447)",
+   "a": "Edsger W. Dijkstra",
+   "tipo": "paper",
+   "anio": 1974,
+   "url": "https://www.cs.utexas.edu/~EWD/transcriptions/EWD04xx/EWD447.html"
+  },
+  {
+   "id": "be06-node-sqlite",
+   "t": "SQLite (documentación de Node.js)",
+   "a": "OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://nodejs.org/api/sqlite.html"
+  }
+ ]
+}

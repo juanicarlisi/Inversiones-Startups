@@ -1,0 +1,655 @@
+{
+ "id": "07-12",
+ "titulo": "Errores, logs y respuestas coherentes",
+ "bajada": "Armás un servidor que contesta siempre con el mismo formato de error, deja un rastro que se puede seguir con un código, no filtra secretos y soporta que un cliente repita un POST sin duplicar el pedido.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Clasificar un error como esperado o inesperado y decidir qué recibe el cliente y qué queda solo en el log.",
+  "Escribir una respuesta de error con el formato del RFC 9457 (problem details) y leerla desde un cliente sin interpretar texto libre.",
+  "Escribir y consultar logs estructurados con niveles y un identificador de solicitud, y reconocer qué datos no se registran nunca.",
+  "Demostrar con un servidor propio por qué reintentar un POST puede duplicar un pedido y cómo una clave de idempotencia lo evita, incluida la carrera entre dos solicitudes simultáneas.",
+  "Reconocer en Senda su forma de comunicar errores, dónde se pierde información en el camino y dónde usa identificadores del cliente para tolerar reintentos."
+ ],
+ "venis_de": "Ayer, en [@07-11], viste que el servidor tiene que decir «no» cuando alguien pide lo que no le corresponde (403 y 404). Hoy te ocupás de todas las otras maneras en que algo sale mal, de cómo contarlo hacia afuera y hacia adentro, y de qué pasa cuando un pedido se repite sin querer.",
+ "se_apoya_en": [
+  "07-04",
+  "07-05",
+  "07-06",
+  "07-07",
+  "07-11",
+  "05-18"
+ ],
+ "gancho": [
+  "Son las tres de la mañana y Marta, clienta de una distribuidora, le escribe a soporte: «me dio error». Soporte contesta con la pregunta de siempre: «¿qué error?». Marta no sabe. Decía algo en inglés, en rojo, y desapareció. Si el sistema no dejó un rastro que se pueda seguir desde ese mensaje, lo único que queda es adivinar.",
+  "En depósito esto ya está resuelto: cada bulto tiene un número de remito, y cualquiera que lo mencione sirve para reconstruir por dónde pasó el envío. Hoy armás el equivalente en un servidor: qué recibe el cliente cuando algo falla, qué se anota adentro, cómo se une una cosa con la otra y qué sucede cuando Marta, harta de esperar, aprieta «Enviar» dos veces. Todo lo vas a hacer corriendo un servidor propio con Express y mirando lo que sale de verdad."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un servidor, cuatro maneras de decir «mal»"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo primero es ver el desorden. Armé un servidor «descuidado» con cuatro rutas que fallan, cada una escrita por un programador distinto en un día distinto. Esto es lo que ve un cliente que las llama:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "SRV=http://127.0.0.1:19712",
+     "s": ""
+    },
+    {
+     "c": "curl -si $SRV/pedidos/7 | grep -E '^(HTTP|Content-Type)|^<pre>|^[a-z{]' | cut -c1-120",
+     "s": "HTTP/1.1 500 Internal Server Error\nContent-Type: text/html; charset=utf-8\n<pre>Error: no se pudo leer la tabla pedidos: ECONNREFUSED 127.0.0.1:5432<br> &nbsp; &nbsp;at /tmp/be1112/app/descuidado"
+    },
+    {
+     "c": "curl -si $SRV/pedidos/8 | grep -E '^(HTTP|Content-Type)|^<pre>|^[a-z{]' | cut -c1-120",
+     "s": "HTTP/1.1 400 Bad Request\nContent-Type: text/html; charset=utf-8\nerror en el pedido"
+    },
+    {
+     "c": "curl -si $SRV/pedidos/9 | grep -E '^(HTTP|Content-Type)|^<pre>|^[a-z{]' | cut -c1-120",
+     "s": "HTTP/1.1 404 Not Found\nContent-Type: application/json; charset=utf-8\n{\"msg\":\"no hay\"}"
+    },
+    {
+     "c": "curl -si $SRV/pedidos/10 | grep -E '^(HTTP|Content-Type)|^<pre>|^[a-z{]' | cut -c1-120",
+     "s": "HTTP/1.1 422 Unprocessable Entity\nContent-Type: application/json; charset=utf-8\n{\"error\":{\"codigo\":7,\"texto\":\"cantidad invalida\"}}"
+    }
+   ],
+   "cap": "Salida real, 13 de noviembre de 2026, Express 5.3.0 sobre Node 22.23.4, solo en 127.0.0.1. Las dos últimas líneas de cada bloque se recortaron a 120 caracteres."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay cuatro formatos para cuatro errores: una página HTML, un texto suelto, un JSON con un campo `msg` y un JSON con un campo `error` que contiene otro objeto. Un cliente que quiera mostrarle algo útil a Marta tiene que escribir cuatro lectores distintos, y el próximo error será un quinto formato.",
+    "Peor es la primera respuesta. Es el error 500 que Express genera solo cuando una ruta lanza una excepción y nadie la atrapa. La documentación de Express lo dice: el manejador por defecto escribe el *stack trace* (la lista de funciones por las que pasó el error) en la respuesta, y solo lo omite si la variable de entorno `NODE_ENV` vale `production` [#be1112-express-errores]. Ahí un desconocido leyó la ruta de un archivo del servidor, el nombre de una tabla, la dirección de la base de datos (`127.0.0.1:5432`) y la estructura interna de la aplicación. OWASP lo explica como la fase de reconocimiento de un ataque: cada dato técnico que el servidor regala es un dato menos que el atacante tiene que averiguar [#be1112-owasp-errores]."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Mirá la primera respuesta. Sin saber nada más del sistema, ¿qué tres datos útiles para un atacante aparecen ahí?",
+   "resp": "La ruta de un archivo del servidor (`/tmp/be1112/app/…`), que revela la estructura de carpetas y la librería de rutas que se usa; el nombre de la tabla `pedidos`; y la dirección y el puerto de la base de datos, `127.0.0.1:5432`, que es el puerto habitual de Postgres. Con eso ya sabe qué tecnología hay detrás."
+  },
+  {
+   "t": "h",
+   "x": "Esperados e inesperados"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El **manejo de errores** es decidir, para cada cosa que sale mal, tres cosas: qué se le cuenta al cliente, qué se anota para el equipo y si el servidor sigue funcionando. Para decidirlo conviene separar dos familias, porque requieren respuestas opuestas.",
+    "Los errores **esperados** son los que el sistema sabe que van a pasar: el pedido no existe, faltan campos, no tenés permiso, la clave ya se usó. El cliente puede entenderlos y corregirlos, así que la respuesta es **explícita** (qué falló y cómo arreglarlo) y con un código 4xx. Los errores **inesperados** son los que nadie previó: un bug, la base de datos caída, un valor `undefined` donde se esperaba un objeto. El cliente no puede hacer nada útil con la explicación, y el equipo sí necesita todo el detalle. Por eso la respuesta es **opaca** (un 500 con un mensaje genérico) y el detalle va al log.",
+    "Esa distinción te la facilita Express 5: si una función `async` lanza un error o devuelve una promesa rechazada, Express llama solo a `next(error)` y el error llega al manejador de errores [#be1112-express-errores]. Un manejador de errores es un [[middleware]] especial con cuatro parámetros, `(err, req, res, next)`, que se registra al final de la [[cadena de middleware]] de [@07-05]. Con un único manejador, ninguna ruta decide cómo se ve un error: lanzan, y el manejador convierte. En el código de abajo, `ErrorDeApi` es una clase propia que marca a los errores esperados; todo lo que no sea de esa clase es inesperado."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "app.use((err, req, res, next) => {\n  if (res.headersSent) return next(err);\n  const instance = `/solicitudes/${req.id}`;\n  if (err instanceof ErrorDeApi) {              // esperado: el cliente puede corregirlo\n    log(\"info\", \"error esperado\", { request_id: req.id, status: err.status, tipo: err.tipo });\n    return res.status(err.status).type(\"application/problem+json\")\n      .json({ type: err.tipo, title: err.titulo, status: err.status, detail: err.message, instance, ...err.extra });\n  }\n  // inesperado: el detalle va al log; al cliente, un mensaje genérico con el código de la solicitud\n  log(\"error\", \"error inesperado\", { request_id: req.id, error: { name: err.name, message: err.message, stack: err.stack } });\n  res.status(500).type(\"application/problem+json\").json({\n    type: \"about:blank\", title: \"Error interno\", status: 500,\n    detail: \"Algo falló de nuestro lado. Ya quedó registrado; si pedís ayuda, mencioná el código de la solicitud.\", instance });\n});",
+   "cap": "El manejador único del servidor «ordenado». `log` escribe una línea de JSON por la salida estándar; `req.id` es el identificador de la solicitud, que se explica más abajo."
+  },
+  {
+   "t": "h",
+   "x": "Un sobre de error único: RFC 9457"
+  },
+  {
+   "t": "p",
+   "x": [
+    "No hace falta inventar un formato propio. El RFC 9457, de julio de 2023, define el *problem details* (detalles del problema): un objeto JSON con un puñado de campos para contar errores de una API, con el tipo de contenido `application/problem+json` [#be1112-rfc9457]. Reemplaza al RFC 7807. Su propósito declarado es evitar que cada API defina su propio formato de error, que es justo el desorden de recién. Los campos:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Campo",
+    "Qué dice",
+    "Cómo lo usa un programa"
+   ],
+   "filas": [
+    [
+     "`type`",
+     "Un identificador (una URI) del tipo de problema. Si falta, vale `about:blank`.",
+     "Es el identificador principal: el cliente decide qué hacer según este valor."
+    ],
+    [
+     "`title`",
+     "Resumen corto y legible que no cambia de un caso a otro del mismo tipo.",
+     "Solo para personas; sirve, por ejemplo, para leer un log."
+    ],
+    [
+     "`status`",
+     "El código HTTP de esta ocurrencia. Es orientativo y tiene que coincidir con el real.",
+     "Duplica la línea de estado, para cuando el mensaje se guarda sin ella."
+    ],
+    [
+     "`detail`",
+     "Explicación de este caso concreto, pensada para ayudar al cliente a corregir.",
+     "No se debe parsear: la información que el programa necesita va en campos propios."
+    ],
+    [
+     "`instance`",
+     "Identifica esta ocurrencia puntual del problema.",
+     "Es el «número de remito» del error; se pega en el reclamo."
+    ]
+   ],
+   "cap": "Los cinco miembros del RFC 9457 (sección 3.1). Se pueden sumar campos propios, llamados extensiones; el RFC usa uno, `errors`, en su ejemplo de validación."
+  },
+  {
+   "t": "p",
+   "x": "Así sale de mi servidor «ordenado», el mismo que tiene el manejador de arriba. Fijate en el 404 de una ruta que no existe, en el 422 de validación (con una extensión `errors` que dice cuál campo falló) y en el 500 del bug, que no cuenta nada interno:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -si $SRV/pedidos/55 | grep -E '^(HTTP|X-Request-Id|Content-Type)|^\\{'",
+     "s": "HTTP/1.1 404 Not Found\nX-Request-Id: 7b4171c4-f4c8-47dd-86bd-a21810856d72\nContent-Type: application/problem+json; charset=utf-8\n{\"type\":\"https://example.com/probs/pedido-inexistente\",\"title\":\"El pedido no existe\",\"status\":404,\"detail\":\"No hay un pedido con el número 55.\",\"instance\":\"/solicitudes/7b4171c4-f4c8-47dd-86bd-a21810856d72\"}"
+    },
+    {
+     "c": "curl -si -X POST -H 'Content-Type: application/json' -d '{\"cliente\":\"K\",\"bultos\":0}' $SRV/pedidos | grep -E '^(HTTP|X-Request-Id|Content-Type)|^\\{'",
+     "s": "HTTP/1.1 422 Unprocessable Entity\nX-Request-Id: b921720b-58e5-45a8-93cc-387b1ca6bc88\nContent-Type: application/problem+json; charset=utf-8\n{\"type\":\"https://example.com/probs/validacion\",\"title\":\"La solicitud no es válida\",\"status\":422,\"detail\":\"Corregí los campos indicados y reintentá.\",\"instance\":\"/solicitudes/b921720b-58e5-45a8-93cc-387b1ca6bc88\",\"errors\":[{\"pointer\":\"#/cliente\",\"detail\":\"debe ser un texto de al menos 2 letras\"},{\"pointer\":\"#/bultos\",\"detail\":\"debe ser un entero entre 1 y 500\"}]}"
+    },
+    {
+     "c": "curl -si -H 'X-Request-Id: reclamo-4821-marta' $SRV/explota | grep -E '^(HTTP|X-Request-Id|Content-Type)|^\\{'",
+     "s": "HTTP/1.1 500 Internal Server Error\nX-Request-Id: reclamo-4821-marta\nContent-Type: application/problem+json; charset=utf-8\n{\"type\":\"about:blank\",\"title\":\"Error interno\",\"status\":500,\"detail\":\"Algo falló de nuestro lado. Ya quedó registrado; si pedís ayuda, mencioná el código de la solicitud.\",\"instance\":\"/solicitudes/reclamo-4821-marta\"}"
+    }
+   ],
+   "cap": "Salida real (se muestran solo la línea de estado, tres campos y el cuerpo). Las URI de `type` usan `example.com`, que está reservado para ejemplos. La extensión `errors`, con `pointer` y `detail`, sigue el ejemplo del propio RFC; no es obligatoria."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El remito de rechazo",
+   "x": "Cuando un cliente devuelve mercadería, el remito de devolución trae un código de motivo («dañado», «no pedido»), un texto libre para el que lo lee y un número de remito. El código de motivo es el `type`, el texto libre es el `detail` y el número de remito es el `instance`. La analogía deja de valer en que el remito lo lee una persona en el depósito, mientras que el sobre de error lo lee primero un programa: por eso el RFC pide que las decisiones se tomen con `type` y no con el texto de `detail`."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un 200 con el error adentro",
+   "x": "Un error frecuente es contestar siempre 200 y poner `{\"ok\": false}` en el cuerpo. El código de estado lo leen programas que no entienden tu formato: cachés, balanceadores, herramientas de monitoreo, librerías cliente. Si todo es 200, para ellos nunca hubo un error. El RFC 9457 va en el mismo sentido: el código HTTP real es el que cuenta y el `status` del cuerpo solo lo repite, así que tienen que coincidir [#be1112-rfc9457]."
+  },
+  {
+   "t": "h",
+   "x": "Logs estructurados y el número de remito"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo que el cliente no recibe tiene que quedar en algún lado. Ese lado es el **log**: un registro de eventos con fecha, que el servidor escribe mientras trabaja. La metodología *twelve-factor* propone que la aplicación escriba cada evento, sin buffer, a su salida estándar, una línea por evento, y que el entorno (el servidor, el contenedor, la plataforma) decida adónde va [#be1112-12factor-logs].",
+    "Un **log estructurado** es el que escribe cada línea como un objeto JSON con campos fijos, en vez de una frase libre. Compará `solicitud fallida de marta en /pedidos/55 (404) tardó 5 ms` con esto, que es lo que escribe mi servidor:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "jq -c 'select(.msg==\"solicitud\")' ord.log | head -2",
+     "s": "{\"time\":\"2026-11-13T19:32:01.351Z\",\"level\":\"warn\",\"msg\":\"solicitud\",\"request_id\":\"7b4171c4-f4c8-47dd-86bd-a21810856d72\",\"method\":\"GET\",\"path\":\"/pedidos/55\",\"status\":404,\"duration_ms\":4.5}\n{\"time\":\"2026-11-13T19:32:01.363Z\",\"level\":\"warn\",\"msg\":\"solicitud\",\"request_id\":\"b921720b-58e5-45a8-93cc-387b1ca6bc88\",\"method\":\"POST\",\"path\":\"/pedidos\",\"status\":422,\"duration_ms\":7.5}"
+    }
+   ],
+   "cap": "Salida real de `ord.log`, el log del servidor «ordenado». `jq` es un programa de línea de comandos para filtrar JSON; acá lo uso para leer el log."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada línea es un objeto con los mismos campos: **cuándo** (`time`, en formato ISO 8601 y en UTC), **qué importancia** (`level`), **qué pasó** (`msg`), **a qué solicitud pertenece** (`request_id`) y los datos del hecho (método, ruta, estado, duración). OWASP, en su guía de logs, enumera lo mismo con otros nombres: cuándo, dónde, quién, qué y con qué resultado [#owasp-logging]. La ventaja de la estructura es práctica: una máquina puede filtrar, contar y buscar sin adivinar el orden de las palabras.",
+    "Los **niveles** son una forma de ordenar las líneas por gravedad. El RFC 5424, que define el formato de los registros del sistema, usa ocho, de 0 (emergencia) a 7 (depuración) [#be1112-rfc5424]. Las aplicaciones suelen usar menos: la biblioteca de logs `pino` para Node, que verifiqué en su versión 10.4.0 con licencia MIT, define seis, de `trace` (10) a `fatal` (60), y escribe JSON por línea como el de arriba. Mi regla en el servidor, que es una convención habitual y no una norma: `info` para lo que funciona, `warn` para el error del cliente (4xx, que alguien pudo hacer mal y no hay que despertar a nadie) y `error` para el 5xx, que es del servidor y sí pide atención."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "El campo que une todo es `request_id`. El servidor le pone a cada solicitud un identificador (usa el que manda el cliente en `X-Request-Id` si tiene forma razonable, o genera uno nuevo), lo devuelve en la cabecera de la respuesta, lo pega en `instance` del sobre de error y lo repite en **todas** las líneas de log de esa solicitud. Es el número de remito. Cuando Marta escribe «reclamo-4821-marta», soporte hace esto:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "jq -c 'select(.request_id==\"reclamo-4821-marta\") | del(.time, .request_id, .error.stack)' ord.log",
+     "s": "{\"level\":\"error\",\"msg\":\"error inesperado\",\"error\":{\"name\":\"TypeError\",\"message\":\"Cannot read properties of undefined (reading 'cliente')\"}}\n{\"level\":\"error\",\"msg\":\"solicitud\",\"method\":\"GET\",\"path\":\"/explota\",\"status\":500,\"duration_ms\":0.7}"
+    },
+    {
+     "c": "jq -r 'select(.msg==\"error inesperado\") | .error.stack' ord.log | head -3",
+     "s": "TypeError: Cannot read properties of undefined (reading 'cliente')\n    at /tmp/be1112/app/ordenado.js:70:12\n    at Layer.handleRequest (/tmp/be1112/app/node_modules/router/lib/layer.js:152:17)"
+    },
+    {
+     "c": "jq -r 'select(.msg==\"solicitud\") | .level' ord.log | sort | uniq -c",
+     "s": "      1 error\n      2 warn"
+    }
+   ],
+   "cap": "Salida real. Con el código de la clienta se llega, en una búsqueda, al error exacto, a la línea del archivo (`ordenado.js:70`) y al tipo de bug. La tercera consulta cuenta solicitudes por nivel."
+  },
+  {
+   "t": "p",
+   "x": "Dos detalles de seguridad. Primero, el identificador que manda el cliente es dato **no confiable**: si el servidor lo copiara sin mirarlo, alguien podría mandar un `X-Request-Id` con saltos de línea y fabricar líneas falsas en el log (OWASP lo llama inyección de logs [#owasp-logging]). Por eso mi servidor lo acepta solo si coincide con `^[A-Za-z0-9-]{8,64}$`. Segundo, el `request_id` es de un solo servidor; cuando una solicitud cruza varios servicios, el estándar del W3C llamado *Trace Context* define una cabecera, `traceparent`, que viaja de uno a otro, con un ejemplo como `00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01` [#be1112-w3c-trace]. De cómo se comunican los servicios entre sí hablamos en [@07-17]."
+  },
+  {
+   "t": "pensa",
+   "x": "Soporte recibe «me dio error» de otra clienta y no tiene ningún código. ¿Qué datos del log servirían para encontrar su solicitud igual?",
+   "resp": "Con una línea estructurada se puede buscar por combinación: la hora aproximada (`time`), la ruta (`path`) y el estado (`status`), y si el log incluye quién es la persona (en mi servidor no, y hay que decidirlo con cuidado por privacidad), filtrar por ella. Es más lento y menos seguro que el código; por eso conviene que la pantalla de error muestre siempre el `instance`."
+  },
+  {
+   "t": "h",
+   "x": "Lo que nunca va a un log"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un log, a diferencia de una respuesta, se copia: va a herramientas de búsqueda, a tickets, a capturas de pantalla que se pegan en el chat del equipo, y suele conservarse más tiempo que una sesión o un token. Por eso OWASP lista lo que no debería escribirse directamente: tokens de acceso, identificadores de sesión, contraseñas, cadenas de conexión a bases de datos, claves de cifrado y datos personales sensibles. Esas cosas se tienen que quitar, enmascarar, aplicar un hash o cifrar antes de registrarlas [#owasp-logging].",
+    "Es muy fácil romperlo sin querer. Una línea de depuración que vuelca todas las cabeceras de la solicitud es una tentación frecuente. Mirá la diferencia, con las credenciales falsas de práctica:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -o /dev/null -H 'Authorization: Bearer token-de-practica-marta' -H 'Cookie: sid=sesion-de-practica-123' $SRV/pedidos   # servidor con CABECERAS=crudas",
+     "s": ""
+    },
+    {
+     "c": "jq -c 'select(.msg==\"cabeceras\") | .headers' cab_crudas.log",
+     "s": "{\"host\":\"127.0.0.1:19712\",\"user-agent\":\"curl/8.5.0\",\"accept\":\"*/*\",\"authorization\":\"Bearer token-de-practica-marta\",\"cookie\":\"sid=sesion-de-practica-123\"}"
+    },
+    {
+     "c": "jq -c 'select(.msg==\"cabeceras\") | .headers' cab_limpias.log",
+     "s": "{\"host\":\"127.0.0.1:19712\",\"user-agent\":\"curl/8.5.0\",\"accept\":\"*/*\",\"authorization\":\"[REDACTADO]\",\"cookie\":\"[REDACTADO]\"}"
+    }
+   ],
+   "cap": "Salida real de dos corridas del servidor, una que vuelca las cabeceras tal cual y otra que reemplaza las sensibles. El token y la cookie son valores de práctica con formato obvio de falsos."
+  },
+  {
+   "t": "p",
+   "x": "Con la primera versión, cualquiera que pueda leer el log (soporte, otra empresa que ofrece el servicio de logs, quien herede el ticket) puede hacerse pasar por Marta mientras el token valga. La corrección de mi servidor es una función de cuatro líneas que reemplaza el valor de `authorization`, `cookie`, `set-cookie` y `x-api-key` por `[REDACTADO]` antes de escribir. Para mí, el criterio más sólido es el inverso: en vez de listar lo que se oculta, registrar **solo** las cabeceras que vos elegiste (una lista de permitidas). Es una opinión de diseño, no un estándar: con una lista de ocultas, la cabecera nueva que agregue un cliente se filtra sin que nadie lo note."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Los logs son internos, no importa lo que tengan»",
+   "x": "Los logs son internos solo hasta que alguien los comparte, los exporta a un servicio de terceros o los lee un empleado que no debería ver las credenciales de los clientes. Además, también pueden contener secretos que no pusiste vos: un mensaje de error de una librería puede incluir fragmentos de la consulta o de la conexión. Tratá los mensajes de errores externos como texto no confiable antes de guardarlos o devolverlos."
+  },
+  {
+   "t": "h",
+   "x": "Idempotencia: reintentar sin duplicar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@05-18] viste que POST no es idempotente: dos solicitudes iguales pueden producir dos efectos. Ahora mismo se ve por qué importa. La **idempotencia** es la propiedad de una operación cuyo resultado final es el mismo si se aplica una vez o varias. «Dejar el pedido 42 en estado entregado» es idempotente: hacerlo dos veces deja el mismo estado. «Crear un pedido» no lo es: cada vez crea uno nuevo.",
+    "El problema real aparece cuando la respuesta se pierde. Marta aprieta «Enviar», la conexión es lenta, la app se cansa de esperar y reintenta. Pero el servidor ya había recibido el primer pedido y lo estaba procesando. Lo simulo con un servidor lento (una pausa de 800 ms) y un cliente que se rinde a los 300 ms:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "SRV=http://127.0.0.1:19712\n(PORT=19712 IDEM=$1 node ordenado.js > idem_$1.log 2>&1 & echo $! > idem.pid); sleep 1\nJ='Content-Type: application/json'\nB='{\"cliente\":\"Kiosco Sur\",\"bultos\":12}'\necho \"### A. sin clave: el cliente se cansa de esperar y reintenta\"\ncurl -s -m 0.3 -X POST -H \"$J\" -d \"$B\" \"$SRV/pedidos?demora=800\" -w ' [curl salio con codigo %{exitcode}]\\n'\ncurl -s -X POST -H \"$J\" -d \"$B\" \"$SRV/pedidos?demora=100\" -w ' [%{http_code}]\\n'\nsleep 1; curl -s $SRV/pedidos; echo\necho \"### B. con clave K1: mismo escenario\"\ncurl -s -m 0.3 -X POST -H \"$J\" -H 'Idempotency-Key: K1' -d \"$B\" \"$SRV/pedidos?demora=800\" -w ' [curl salio con codigo %{exitcode}]\\n'\nsleep 1\ncurl -si -X POST -H \"$J\" -H 'Idempotency-Key: K1' -d \"$B\" \"$SRV/pedidos?demora=800\" | grep -E '^(HTTP|X-Respuesta|\\{)'\ncurl -s $SRV/pedidos; echo\necho \"### C. dos solicitudes simultaneas con la clave K2\"\n(curl -s -X POST -H \"$J\" -H 'Idempotency-Key: K2' -d \"$B\" \"$SRV/pedidos?demora=500\" -w ' [%{http_code}]\\n' > c1.out &)\ncurl -s -X POST -H \"$J\" -H 'Idempotency-Key: K2' -d \"$B\" \"$SRV/pedidos?demora=500\" -w ' [%{http_code}]\\n' > c2.out\nsleep 1; cat c1.out c2.out\ncurl -s $SRV/pedidos; echo\necho \"### D. la clave K2 con otro contenido\"\ncurl -s -X POST -H \"$J\" -H 'Idempotency-Key: K2' -d '{\"cliente\":\"Libreria Centro\",\"bultos\":5}' \"$SRV/pedidos\" -w ' [%{http_code}]\\n'",
+   "cap": "Guion `probar.sh` que usé contra el servidor «ordenado». Se omiten las líneas que arrancan y apagan el servidor. `curl -m 0.3` abandona a los 300 ms; el código de salida 28 significa «se agotó el tiempo»."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./probar.sh   # servidor con IDEM=seguro",
+     "s": "### A. sin clave: el cliente se cansa de esperar y reintenta\n [curl salio con codigo 28]\n{\"id\":100,\"cliente\":\"Kiosco Sur\",\"bultos\":12} [201]\n{\"total\":2,\"ids\":[100,101]}\n### B. con clave K1: mismo escenario\n [curl salio con codigo 28]\nHTTP/1.1 201 Created\nX-Respuesta-Repetida: si\n{\"id\":102,\"cliente\":\"Kiosco Sur\",\"bultos\":12}\n{\"total\":3,\"ids\":[100,101,102]}\n### C. dos solicitudes simultaneas con la clave K2\n{\"type\":\"https://example.com/probs/en-curso\",\"title\":\"Hay una solicitud en curso con esa clave\",\"status\":409,\"detail\":\"Esperá unos segundos y repetí la solicitud con la misma clave.\",\"instance\":\"/solicitudes/cde5b4bc-9238-4177-a8ce-aa0d1ef61845\"} [409]\n{\"id\":103,\"cliente\":\"Kiosco Sur\",\"bultos\":12} [201]\n{\"total\":4,\"ids\":[100,101,102,103]}\n### D. la clave K2 con otro contenido\n{\"type\":\"https://example.com/probs/clave-reutilizada\",\"title\":\"La clave ya se usó con otro contenido\",\"status\":422,\"detail\":\"Una Idempotency-Key solo puede repetirse con el mismo cuerpo.\",\"instance\":\"/solicitudes/67fa8abc-6092-477f-a2cf-091571e19b83\"} [422]"
+    }
+   ],
+   "cap": "Salida real. En A, el pedido que parecía haberse perdido sí se creó (100) y el reintento hizo otro (101): hay dos pedidos para una sola intención de Marta."
+  },
+  {
+   "t": "p",
+   "x": [
+    "En A pasó lo que había que evitar: **dos pedidos por una sola decisión**. En B se usó una **clave de idempotencia**: un valor que el *cliente* genera por cada intención (un UUID alcanza) y manda en una cabecera, `Idempotency-Key`. El servidor la anota junto con el resultado. Si la misma clave vuelve con el mismo contenido, no repite el trabajo: devuelve la respuesta ya guardada (acá con una cabecera mía, `X-Respuesta-Repetida`). Hay un borrador del IETF que quiere estandarizar esta cabecera: es el draft-ietf-httpapi-idempotency-key-header, en su versión 08 de octubre de 2026, y al 13 de noviembre de 2026 sigue siendo un borrador, no un RFC [#be1112-idempotency-draft]. Define tres respuestas para los casos raros, que mi servidor implementa: 422 si la clave se reutiliza con otro contenido (caso D), 409 si llega una repetición mientras la primera todavía se procesa (caso C) y 400 si falta una clave que la operación exige.",
+    "Esto ya se usa en producción. La API de Stripe, un procesador de pagos, acepta `Idempotency-Key` en los POST, guarda el estado y el cuerpo de la primera solicitud que usó esa clave y devuelve lo guardado en los reintentos, incluso si era un error 500; en su versión v1 las claves pueden borrarse cuando tienen al menos 24 horas, y se comparan los parámetros con los de la solicitud original [#be1112-stripe-idempotencia]. Es la descripción de su documentación al 13-11-2026; los detalles de plazos son de ese producto."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "La línea C esconde la parte difícil, y por eso hay una versión «ingenua» de mi servidor. Esa versión mira si la clave ya existe, trabaja y **después** la anota. Entre mirar y anotar hay un `await`: el servidor pasa a atender otra cosa mientras espera a la base, y como viste en [@07-04] Node tiene un solo hilo pero intercala tareas en cada espera. Así, la segunda solicitud simultánea mira, no encuentra la clave y también trabaja. Es una [[condición de carrera]]. La misma prueba, con la versión ingenua:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./probar.sh   # servidor con IDEM=ingenuo; se muestran solo C y D",
+     "s": "### C. dos solicitudes simultaneas con la clave K2\n{\"id\":104,\"cliente\":\"Kiosco Sur\",\"bultos\":12} [201]\n{\"id\":103,\"cliente\":\"Kiosco Sur\",\"bultos\":12} [201]\n{\"total\":5,\"ids\":[100,101,102,103,104]}\n### D. la clave K2 con otro contenido\n{\"id\":104,\"cliente\":\"Kiosco Sur\",\"bultos\":12} [201]"
+    }
+   ],
+   "cap": "Salida real. Con la clave K2, la versión ingenua creó dos pedidos (103 y 104). En D, además, devolvió el pedido de otro contenido como si fuera la respuesta de la clave."
+  },
+  {
+   "t": "p",
+   "x": "La corrección está en el orden: anotar la clave **antes** del primer `await`, como «en proceso», y completar la respuesta al final. Podés ver la carrera con un fragmento de JavaScript puro que corre acá mismo: dos solicitudes iguales con `Promise.all` contra las dos versiones."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const dormir = (ms) => new Promise((r) => setTimeout(r, ms));\n\nasync function ingenuo(almacen, clave, creados) {\n  if (almacen.has(clave)) return \"repetida\";\n  await dormir(50);                 // acá trabaja la base\n  creados.push(clave);\n  almacen.set(clave, \"lista\");\n  return \"creada\";\n}\n\nasync function seguro(almacen, clave, creados) {\n  if (almacen.has(clave)) return \"repetida o en curso\";\n  almacen.set(clave, \"procesando\"); // se anota ANTES del await\n  await dormir(50);\n  creados.push(clave);\n  almacen.set(clave, \"lista\");\n  return \"creada\";\n}\n\nfor (const [nombre, f] of [[\"ingenuo\", ingenuo], [\"seguro\", seguro]]) {\n  const almacen = new Map(), creados = [];\n  const resultados = await Promise.all([f(almacen, \"K2\", creados), f(almacen, \"K2\", creados)]);\n  console.log(nombre.padEnd(8), JSON.stringify(resultados), \"pedidos creados:\", creados.length);\n}",
+   "ejecutable": true,
+   "cap": "Probalo: comentá la línea que anota «procesando» y fijate que vuelven a crearse dos."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node carrera.js",
+     "s": "ingenuo  [\"creada\",\"creada\"] pedidos creados: 2\nseguro   [\"creada\",\"repetida o en curso\"] pedidos creados: 1"
+    }
+   ],
+   "cap": "Salida real en node 22."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un solo proceso no es todo el servidor",
+   "x": "Anotar antes del `await` funciona porque mi servidor es un único proceso con un `Map` en memoria. En un sistema real hay varias copias del servidor y la memoria no se comparte, así que la clave se guarda en la base de datos, con una restricción de unicidad: es la base la que decide cuál de las dos solicitudes gana. Eso es lo que muestra el último ejemplo."
+  },
+  {
+   "t": "p",
+   "x": "Hay un camino más simple cuando el cliente puede ponerle un identificador a **cada fila** que manda. En vez de una clave por solicitud, el identificador forma parte del dato y la base impide repetirlo. Con Postgres 16.15 de esta VM:"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table respuestas (cliente_id uuid primary key, pregunta text, correcta boolean);\n\ninsert into respuestas values ('7f3c1d52-0a4e-4b8e-9c61-2d5e8a1b7f10', 'p-0042', true)\n  on conflict (cliente_id) do nothing;\n-- la respuesta se perdió y el teléfono reenvía exactamente el mismo lote:\ninsert into respuestas values ('7f3c1d52-0a4e-4b8e-9c61-2d5e8a1b7f10', 'p-0042', true)\n  on conflict (cliente_id) do nothing;\n\nselect count(*) as filas from respuestas;",
+   "cap": "Datos inventados. `on conflict … do nothing` ignora la fila si ya existe esa clave."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -X -f final_idem.sql",
+     "s": "INSERT 0 1\nINSERT 0 0\n filas \n-------\n     1\n(1 row)"
+    }
+   ],
+   "cap": "Salida real (se omitió `CREATE TABLE`). El segundo insert dijo `INSERT 0 0`: no insertó nada, y tampoco dio error."
+  },
+  {
+   "t": "ejercicio",
+   "x": "En el servidor «ordenado», si el trabajo falla con un error 500 después de haber anotado la clave, el código hace `claves.delete(clave)`: libera la clave para que un reintento pueda funcionar. Stripe, en su versión v1, hace lo contrario: guarda también las respuestas 500 y las repite. Escribí una ventaja y un riesgo de cada política.",
+   "pista": "Pensá en dos casos: un fallo que ocurre **antes** de que el pedido se cree y otro que ocurre **después**, con el pedido ya creado pero sin poder responder.",
+   "solucion": "Liberar la clave: ventaja, un fallo pasajero se arregla con solo reintentar con la misma clave. Riesgo, si el error ocurrió después de crear el pedido, el reintento lo crea de nuevo, que es lo que la clave quería evitar. Guardar la respuesta 500: ventaja, jamás se repite un efecto, porque lo mismo que pasó la primera vez vuelve a responderse. Riesgo, el cliente queda atascado con un error repetido y tiene que generar una clave nueva para intentar de nuevo, lo que vuelve a abrir la posibilidad de duplicar. No hay respuesta única: depende de si en esa operación es peor duplicar o fallar."
+  },
+  {
+   "t": "h",
+   "x": "En Senda: errores cortos, información que se pierde y ids del cliente"
+  },
+  {
+   "t": "senda",
+   "titulo": "Códigos cortos en vez de un sobre",
+   "x": [
+    "Senda no tiene servidor propio: sus funciones de negocio son funciones SQL de Postgres, expuestas por el servicio PostgREST de Supabase. Cuando una función no puede continuar, hace `raise exception 'solo_lider'` (o `no_es_tu_turno`, `partida_cerrada`…). Según la documentación de PostgREST, un `raise` con el código por defecto se convierte en un HTTP 400 con un JSON que lleva `message`, `details`, `hint` y `code` [#be1112-postgrest-errores]. En el cliente, la función `peticion()` de `src/util/cuenta.ts` toma ese `message` solo si coincide con la expresión `^[a-z_]+$` y lo convierte en un `ErrorCuenta` con un código corto; la lista de códigos conocidos, `CONOCIDOS`, tiene 53, y `claveError()` los traduce a una clave de texto de la pantalla (`juntos.err.<código>`) o, si no lo reconoce, a `error_nube`.",
+    "Es un sobre propio y mínimo, con las mismas piezas que el RFC 9457 aunque no el formato: el código corto cumple el papel del `type`, la traducción es el `title` que ve la persona y el detalle técnico queda en el campo `detalle` del error, pensado para depuración. Con un solo cliente (la propia app) es una decisión razonable; un formato estándar importaría más si otros equipos consumieran la API. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "supabase/migrations/20261107000000_grupos.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que se pierde en la frontera",
+   "x": [
+    "Las tres funciones de borde de Senda (`borrar-cuenta`, `compras` y `trivia-sermon`) contestan sus errores con **texto plano** y código HTTP: `new Response(\"ya_procesada\", { status: 409 })`, `\"pausada\"` con 503, `\"pdf muy grande\"` con 413. No es JSON. Pero `peticion()` intenta leer el cuerpo como JSON y, si no puede, usa un objeto vacío: el mensaje queda en blanco, no cumple la expresión y el error pasa a ser `error_nube`. Lo comprobé con una réplica de esas líneas en Node: un 409 con cuerpo `ya_procesada` y un 503 con `pausada` terminan ambos en `error_nube`, mientras que un 400 con el JSON de PostgREST llega como `solo_lider`.",
+    "Después, `subirSermon` en `src/util/sermon.ts` captura cualquier error de la función, salvo la falta de señal, y lanza `no_se_pudo`. El resultado: el líder que sube un sermón ve el mismo mensaje cuando el cupo se agotó justo en ese momento, cuando el servicio está pausado por interruptor y cuando algo falló de verdad. Es información que el servidor sí produce y se pierde al cruzar la frontera; devolver JSON con un código habría bastado.",
+    "Lo que sí está bien resuelto es la regla de hoy para los errores inesperados: las funciones, ante un fallo interno, escriben el detalle con `console.error` en su registro y contestan solo `no_se_pudo` con un 500. El comentario del código lo dice: el detalle queda en el registro de la función, nunca en la app. Lo que falta es el número de remito: busqué `request-id`, `x-request-id`, `traceparent` y variantes en `src/` y `supabase/` y no hay ninguno, así que enlazar un reclamo con una línea del registro depende de la hora y de la cuenta."
+   ],
+   "archivos": [
+    "supabase/functions/trivia-sermon/index.ts",
+    "supabase/functions/compras/index.ts",
+    "supabase/functions/borrar-cuenta/index.ts",
+    "src/util/sermon.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Un id del cliente en cada fila",
+   "x": [
+    "Senda aplica la idempotencia de hoy con la variante más simple. La cola de respuestas del Espadeo (`src/util/nube.ts`) le pone a cada fila un `cliente_id` generado en el teléfono y la envía con `POST /rest/v1/respuestas?on_conflict=cliente_id` y `Prefer: return=minimal,resolution=ignore-duplicates`. Según la documentación de PostgREST, esa cabecera descarta los duplicados en lugar de combinarlos [#be1112-postgrest-tablas]: es la versión de `on conflict … do nothing` que corriste arriba. El comentario del código lo explica: si el lote ya había llegado y la respuesta se cortó, no se cuenta dos veces.",
+    "Lo mismo se repite del lado de la base. `jugar_turno` empieza por mirar si ya vio ese `cliente_id` de ese jugador y, si es así, devuelve la partida tal cual sin repetir nada; `marca_copa` inserta con `on conflict do nothing`. Y como el teléfono no sabe si el envío llegó, reintenta con espera creciente: 5 segundos, 10, 20, hasta que el contador de fallos llega a 7, lo que da una espera máxima de entre 160 y 480 segundos por el azar. El tope de 600.000 ms que figura en el código nunca llega a aplicarse. Cómo se espera entre reintentos y cuándo conviene dejar de reintentar es el tema de [@07-17]."
+   ],
+   "archivos": [
+    "src/util/nube.ts",
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261107000000_grupos.sql"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué cambia con el tiempo (13-11-2026)",
+   "x": [
+    "Los principios de hoy (separar errores esperados e inesperados, un formato de error único, un identificador que une cliente y log, no registrar secretos, idempotencia) no dependen de ninguna herramienta. Lo que cambia: el RFC 9457 es el estándar vigente de problem details (reemplazó al 7807 en 2023), pero la cabecera `Idempotency-Key` sigue siendo un borrador del IETF (versión 08, de octubre de 2026, que vence el 25 de abril de 2027) y puede cambiar o no llegar a RFC [#be1112-idempotency-draft].",
+    "La demostración usó Express 5.3.0 sobre Node 22.23.4, `pino` 10.4.0 y PostgreSQL 16.15, las versiones de esta VM. El sitio oficial de PostgREST bloqueó la descarga automática (error 429), así que leí su documentación en el repositorio del proyecto, que es el mismo texto fuente."
+   ]
+  }
+ ],
+ "recap": [
+  "Se separan errores esperados (el cliente puede corregirlos: 4xx con explicación) de inesperados (bugs y caídas: 500 genérico, con el detalle solo en el log). Un manejador único convierte cada error en la respuesta correcta.",
+  "Un sobre de error uniforme evita que cada ruta invente su formato. El RFC 9457 define `type` (identificador), `title`, `status`, `detail` e `instance`; el cliente decide por `type` y no lee el texto de `detail`. El `status` del cuerpo coincide con el de la respuesta.",
+  "Nunca se devuelve a un cliente un stack trace, una ruta de archivo ni una dirección interna: es información de reconocimiento para un atacante. El detalle va al log.",
+  "Un log estructurado escribe un JSON por línea con campos fijos (hora, nivel, mensaje, identificador de solicitud, datos). El identificador viaja en la respuesta, en `instance` y en cada línea, y es el número de remito que une un reclamo con lo que pasó.",
+  "Tokens, cookies, contraseñas, cadenas de conexión y datos sensibles no se registran. Es más seguro registrar solo una lista de cabeceras permitidas que ocultar una lista de prohibidas.",
+  "Un POST repetido puede duplicar el efecto. Una clave de idempotencia generada por el cliente permite devolver la misma respuesta (422 si cambia el contenido, 409 si hay una en curso), y debe anotarse antes del primer `await` o en una restricción única de la base. Senda usa un `cliente_id` por fila y `ignore-duplicates`."
+ ],
+ "repaso": [
+  {
+   "p": "Una ruta de un servidor Express lanza una excepción no prevista y el manejador por defecto responde a un desconocido con el stack trace completo. ¿Cuál es el riesgo principal?",
+   "o": [
+    "Revela rutas, nombres de tablas y direcciones internas útiles para un ataque",
+    "Hace que el servidor se detenga hasta que alguien lo reinicie a mano",
+    "Impide que el cliente reintente la solicitud en los siguientes minutos",
+    "Corrompe el log del servidor porque mezcla texto con JSON ordenado"
+   ],
+   "c": 0,
+   "e": "El stack trace regala datos técnicos del servidor que sirven para el reconocimiento previo a un ataque. Express no detiene el servidor por un error de una solicitud, el cliente puede reintentar cuando quiera, y lo que se devuelve a un cliente no se escribe en el log."
+  },
+  {
+   "p": "Una API devuelve errores como `application/problem+json`. Un cliente quiere decidir si mostrar un mensaje de «sin saldo» o uno de «cantidad inválida». ¿Qué campo debería usar para decidirlo?",
+   "o": [
+    "`type`, el identificador del tipo de problema",
+    "`detail`, el texto que explica este caso",
+    "`title`, el resumen legible del problema",
+    "`instance`, el identificador de la ocurrencia"
+   ],
+   "c": 0,
+   "e": "El RFC 9457 dice que el cliente debe tomar `type` como el identificador principal. `detail` y `title` son textos para personas y pueden cambiar de redacción o de idioma, y `instance` es distinto en cada ocurrencia, así que no sirve para clasificar."
+  },
+  {
+   "p": "Una clienta dice «me dio error» y trae el código `reclamo-4821`. ¿Qué diseño del servidor permite reconstruir su caso en una búsqueda?",
+   "o": [
+    "Escribir los errores en un archivo de texto diario sin estructura",
+    "Mostrar el stack trace en pantalla para que lo copie la clienta",
+    "Devolver siempre 200 y poner el error en el cuerpo de la respuesta",
+    "Un identificador de solicitud que viaja en la respuesta y en cada línea del log"
+   ],
+   "c": 3,
+   "e": "El identificador de solicitud une lo que ve el cliente con lo que anotó el servidor, y con un log estructurado se filtra por ese campo. Un archivo sin estructura obliga a leer a ojo, mostrar el stack trace filtra datos internos, y un 200 con el error adentro esconde el problema a quien mira códigos de estado."
+  },
+  {
+   "p": "Un servidor registra para depurar todas las cabeceras de cada solicitud, incluyendo `Authorization: Bearer …`. ¿Qué es lo más sólido para corregirlo?",
+   "o": [
+    "Borrar los logs cada semana para limitar el tiempo de exposición",
+    "No escribir las cabeceras sensibles: registrar solo las que se eligieron",
+    "Cifrar el disco donde se guarda el archivo de log del servidor",
+    "Permitir leer el log solo a una persona del equipo de soporte"
+   ],
+   "c": 1,
+   "e": "Lo más seguro es que el secreto nunca llegue al log: se registra una lista de cabeceras permitidas o se reemplazan las sensibles. Borrar cada semana, cifrar el disco o restringir la lectura reducen el daño, pero el token sigue estando escrito y puede copiarse a otras herramientas."
+  },
+  {
+   "p": "Un cliente envía `POST /pedidos` con `Idempotency-Key: K9` y un cuerpo A. Más tarde reenvía la misma clave con un cuerpo B distinto. ¿Qué debería hacer el servidor según el borrador del IETF?",
+   "o": [
+    "Devolver la respuesta guardada para el cuerpo A como si fuera la de B",
+    "Crear un pedido nuevo con el cuerpo B y reemplazar la clave",
+    "Responder 409 porque ya existe un pedido para esa clave",
+    "Responder 422 porque la clave se reutilizó con otro contenido"
+   ],
+   "c": 3,
+   "e": "El borrador pide 422 cuando una clave se reutiliza con otro contenido. Devolver la respuesta de A engaña al cliente (le dice que B se procesó), crear uno nuevo rompe el sentido de la clave y el 409 está reservado para cuando la solicitud original todavía se está procesando."
+  },
+  {
+   "p": "Un servidor Node guarda la clave de idempotencia después del `await` que crea el pedido. Dos solicitudes iguales llegan casi juntas. ¿Qué ocurre?",
+   "o": [
+    "Node ejecuta una por vez y la segunda siempre encuentra la clave",
+    "Ambas pasan el chequeo y se crean dos pedidos, aunque haya un solo hilo",
+    "La segunda recibe automáticamente un 409 de parte de Express",
+    "La base de datos rechaza la segunda por tener el mismo cuerpo"
+   ],
+   "c": 1,
+   "e": "El hilo es único, pero cada `await` cede el control: la segunda solicitud mira antes de que la primera haya anotado la clave y ambas trabajan. Es una condición de carrera. Express no pone ningún 409 solo y la base solo rechaza si hay una restricción única, que acá no existe."
+  },
+  {
+   "p": "En Senda, una función de borde contesta `409` con el texto `ya_procesada`. La función `peticion()` hace `r.json().catch(() => ({}))` y acepta el `message` solo si coincide con `^[a-z_]+$`. ¿Qué código de error termina viendo la app?",
+   "o": [
+    "`ya_procesada`, porque el texto coincide con la expresión",
+    "`sin_senal`, porque la respuesta no pudo leerse como JSON",
+    "`error_nube`, porque el cuerpo no es JSON y el mensaje queda vacío",
+    "`no_es_miembro`, porque el 409 es un error de grupos"
+   ],
+   "c": 2,
+   "e": "El texto plano no se puede leer como JSON, el `catch` devuelve un objeto vacío, el mensaje queda en blanco y no cumple la expresión: el error pasa a ser `error_nube`. `sin_senal` es solo para cuando `fetch` falla sin respuesta, y los códigos de grupos vienen de funciones SQL, no de las funciones de borde."
+  }
+ ],
+ "feynman": "Explicale a alguien que trabaja en logística qué es una clave de idempotencia y por qué el cliente (y no el servidor) tiene que generarla. Usá una analogía distinta del remito, por ejemplo el número de operación de una transferencia bancaria, y contá qué pasaría si dos personas aprietan «Enviar» a la vez.",
+ "para_profundizar": [
+  {
+   "fuente": "be1112-rfc9457",
+   "nota": "El RFC de los detalles de problema. Leé la sección 3 (miembros) y la 5 (consideraciones de seguridad): son pocas páginas y te sirven de plantilla para tus respuestas de error."
+  },
+  {
+   "fuente": "owasp-logging",
+   "nota": "La guía de OWASP sobre logs: qué eventos registrar, qué atributos incluir, qué excluir y cómo protegerlos. Leé «Event attributes» y «Data to exclude»."
+  },
+  {
+   "fuente": "be1112-idempotency-draft",
+   "nota": "El borrador de la cabecera `Idempotency-Key`. Leé las secciones 2.2 a 2.7 para ver las reglas de unicidad, la huella y los códigos 400, 409 y 422."
+  },
+  {
+   "fuente": "be1112-express-errores",
+   "nota": "La guía de manejo de errores de Express: errores síncronos, asíncronos, el manejador por defecto y cómo escribir uno propio con cuatro parámetros."
+  },
+  {
+   "fuente": "be1112-stripe-idempotencia",
+   "nota": "Cómo lo hace un servicio real: duración de las claves, comparación de parámetros y qué se guarda. Para ver las decisiones de diseño del ejercicio de hoy en un servicio real."
+  }
+ ],
+ "videos": [
+  {
+   "q": "idempotency key API design retries duplicate payments explained",
+   "por_que": "Para ver otra explicación del mismo problema, con el ejemplo clásico de los pagos duplicados."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "manejo de errores",
+   "d": "Decidir, para cada cosa que sale mal en un servidor, qué se le cuenta al cliente, qué se anota para el equipo y si el servicio sigue funcionando. Separa errores esperados (explicables al cliente, 4xx) de inesperados (bugs y caídas, 500 genérico con el detalle en el log)."
+  },
+  {
+   "t": "log estructurado",
+   "d": "Registro de eventos en el que cada línea es un objeto con campos fijos (hora, nivel, mensaje, identificador de solicitud, datos) y no una frase libre. Permite filtrar, contar y buscar con herramientas, y es lo que suelen escribir las aplicaciones modernas por su salida estándar."
+  },
+  {
+   "t": "idempotencia",
+   "d": "Propiedad de una operación cuyo efecto es el mismo si se aplica una vez o varias. Crear un pedido no lo es; por eso las APIs ofrecen claves de idempotencia que permiten reintentar un POST sin duplicar el efecto."
+  },
+  {
+   "t": "sobre de error",
+   "d": "Formato único y predecible con el que un servidor devuelve todos sus errores, para que los clientes los lean siempre igual. El estándar actual para APIs HTTP es el RFC 9457 (problem details), con los campos type, title, status, detail e instance."
+  },
+  {
+   "t": "identificador de solicitud",
+   "d": "Código que se asigna a cada solicitud, se devuelve al cliente y se repite en todas las líneas de log de esa solicitud, para poder reconstruir lo que pasó a partir del código que menciona la persona. Suele viajar en una cabecera como X-Request-Id, que es una convención, no un estándar."
+  },
+  {
+   "t": "nivel de log",
+   "d": "Etiqueta de gravedad de una línea de log (por ejemplo debug, info, warn, error, fatal). Permite filtrar lo importante y decidir qué avisa al equipo; el significado exacto de cada nivel lo define cada equipo o biblioteca."
+  },
+  {
+   "t": "clave de idempotencia",
+   "d": "Valor único que el cliente genera por cada intención y manda en la cabecera Idempotency-Key. El servidor lo guarda con la respuesta y, si la misma clave vuelve con el mismo contenido, devuelve lo guardado en lugar de repetir el trabajo."
+  },
+  {
+   "t": "problem details",
+   "d": "Nombre del formato del RFC 9457: un objeto JSON con tipo application/problem+json que describe un error de una API con los campos type, title, status, detail e instance, y extensiones propias opcionales."
+  }
+ ],
+ "siguiente": "Procesamiento asíncrono: jobs y workers. Hoy el servidor siempre respondió mientras el cliente esperaba. Mañana, qué hacer con el trabajo que tarda demasiado para eso (mandar un correo, armar un informe): se anota en una cola y lo hace otro proceso, y ahí la idempotencia de hoy se vuelve imprescindible.",
+ "fuentes_nuevas": [
+  {
+   "id": "be1112-rfc9457",
+   "t": "RFC 9457: Problem Details for HTTP APIs",
+   "a": "Nottingham, Wilde y Dalal (IETF)",
+   "tipo": "rfc",
+   "anio": 2023,
+   "url": "https://www.rfc-editor.org/rfc/rfc9457"
+  },
+  {
+   "id": "be1112-rfc5424",
+   "t": "RFC 5424: The Syslog Protocol",
+   "a": "Gerhards (IETF)",
+   "tipo": "rfc",
+   "anio": 2009,
+   "url": "https://www.rfc-editor.org/rfc/rfc5424"
+  },
+  {
+   "id": "be1112-express-errores",
+   "t": "Error handling (guía de Express)",
+   "a": "OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://expressjs.com/en/guide/error-handling.html"
+  },
+  {
+   "id": "be1112-owasp-errores",
+   "t": "Error Handling Cheat Sheet",
+   "a": "OWASP Foundation",
+   "tipo": "doc",
+   "url": "https://cheatsheetseries.owasp.org/cheatsheets/Error_Handling_Cheat_Sheet.html"
+  },
+  {
+   "id": "be1112-12factor-logs",
+   "t": "The Twelve-Factor App: XI. Logs",
+   "a": "Adam Wiggins",
+   "tipo": "doc",
+   "url": "https://12factor.net/logs"
+  },
+  {
+   "id": "be1112-w3c-trace",
+   "t": "Trace Context (W3C Recommendation)",
+   "a": "W3C",
+   "tipo": "doc",
+   "anio": 2021,
+   "url": "https://www.w3.org/TR/trace-context/"
+  },
+  {
+   "id": "be1112-idempotency-draft",
+   "t": "The Idempotency-Key HTTP Header Field (draft-ietf-httpapi-idempotency-key-header-08)",
+   "a": "Jena, Dalal y Tishkin (IETF)",
+   "tipo": "rfc",
+   "anio": 2026,
+   "url": "https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/"
+  },
+  {
+   "id": "be1112-stripe-idempotencia",
+   "t": "Idempotent requests (API de Stripe)",
+   "a": "Stripe",
+   "tipo": "doc",
+   "url": "https://docs.stripe.com/api/idempotent_requests"
+  },
+  {
+   "id": "be1112-postgrest-errores",
+   "t": "Errors (documentación de PostgREST, texto fuente en su repositorio)",
+   "a": "PostgREST",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/PostgREST/postgrest/main/docs/references/errors.rst"
+  },
+  {
+   "id": "be1112-postgrest-tablas",
+   "t": "Tables and Views: Upsert (documentación de PostgREST, texto fuente en su repositorio)",
+   "a": "PostgREST",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/PostgREST/postgrest/main/docs/references/api/tables_views.rst"
+  }
+ ]
+}
