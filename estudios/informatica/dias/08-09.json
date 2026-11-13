@@ -1,0 +1,753 @@
+{
+ "id": "08-09",
+ "titulo": "RPC, gRPC y tRPC",
+ "bajada": "Llamás a una función que vive en otra máquina, mirás en el cable los bytes exactos de una llamada gRPC y entendés por qué una llamada remota nunca es igual a una local.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es una llamada a procedimiento remoto y qué papel cumplen el stub del cliente y el del servidor.",
+  "Predecir qué sabe y qué no sabe un cliente cuando una llamada remota da error de plazo, y qué diseño de operación lo hace tolerable.",
+  "Leer un archivo .proto y reconocer, en una captura de red, las cabeceras HTTP/2, el prefijo de 5 bytes de gRPC y el mensaje Protobuf.",
+  "Distinguir un código de estado de gRPC de uno de HTTP y decir dónde viaja cada uno.",
+  "Elegir entre REST, gRPC y tRPC para un caso concreto, nombrando qué se gana y qué se pierde."
+ ],
+ "venis_de": "En [@08-02] y [@08-03] diseñaste una API alrededor de recursos y URLs, y en [@08-04] viste cómo se serializa un mensaje en Protobuf. Hoy cambia el punto de vista: en vez de «qué cosas hay», pensás en «qué funciones se pueden llamar», y mirás qué trae cada enfoque cuando la llamada cruza una red de verdad.",
+ "se_apoya_en": [
+  "07-12",
+  "07-17",
+  "05-20",
+  "08-02",
+  "08-04",
+  "03-46"
+ ],
+ "gancho": [
+  "Un sistema de pedidos necesita saber en qué estado está el despacho D-1042, que maneja otro sistema, el del transportista. Hay dos maneras de preguntarlo. La primera es apuntar a una dirección: `GET /despachos/D-1042`, como en el [@08-02]. La segunda es llamar a una función: `obtenerDespacho(\"D-1042\")`. Para quien programa, la segunda se siente como cualquier otra línea de código; para la red, son los mismos bytes de siempre.",
+  "Hoy ves esa segunda forma por dentro. Primero la idea, que tiene más de cuarenta años. Después gRPC, su versión más usada entre servidores, con una captura de los bytes reales de una llamada contra un servidor que armé en esta VM. Y por último tRPC, una variante para equipos que escriben todo en TypeScript. Una advertencia: llamar a una función remota se parece mucho a llamar a una local, y los errores caros salen de las diferencias."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "La idea: que una llamada remota se escriba como una local"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[RPC]] (*Remote Procedure Call*, llamada a procedimiento remoto) es una llamada a una función que se ejecuta en otra máquina. Quien llama escribe `obtenerDespacho(\"D-1042\")`, la función corre en el servidor del transportista y el resultado vuelve como valor de retorno. Cambia el enfoque: en REST pensás en **cosas** (el despacho D-1042, que tiene una URL); en RPC, en **acciones** (obtener un despacho, marcarlo entregado, recalcular una ruta).",
+    "La idea es vieja. El artículo clásico de Andrew Birrell y Bruce Nelson, de Xerox PARC, se publicó en febrero de 1984 y describe el mecanismo así: cuando se invoca un procedimiento remoto, el entorno que llama se suspende, los parámetros viajan por la red al entorno donde se va a ejecutar, el procedimiento corre ahí y los resultados vuelven al que llamó, donde la ejecución sigue como si fuera el retorno de una llamada común [#api0809-birrell-nelson-1984]. Los autores aclaran que la propuesta se discutía desde al menos 1976."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "¿Cómo se logra que parezca una llamada común? Con unas piezas intermedias llamadas [[stub]]. Birrell y Nelson cuentan cinco piezas por cada llamada: tu código, el *stub* del cliente, el programa que maneja la comunicación, el *stub* del servidor y el código del servidor [#api0809-birrell-nelson-1984]. El stub del cliente tiene el mismo nombre y los mismos parámetros que la función real, pero por dentro hace otra cosa: convierte los argumentos en bytes (la [[serialización]] que viste en el [@08-04]), los manda, espera y convierte la respuesta de vuelta. El stub del servidor hace el camino inverso y llama a la función verdadera."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Tu código (cliente)",
+     "k": "cliente"
+    },
+    {
+     "n": "Stub del cliente",
+     "k": "cliente"
+    },
+    {
+     "n": "Red",
+     "k": "red"
+    },
+    {
+     "n": "Stub del servidor",
+     "k": "servidor"
+    },
+    {
+     "n": "Tu código (servidor)",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "obtenerDespacho(\"D-1042\")",
+     "d": "Para quien llama es una llamada de función como cualquier otra. El stub se hace pasar por la función real."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "bytes del pedido",
+     "d": "El stub serializa los argumentos y los entrega a la red. Desde acá se pueden perder, demorar o duplicar."
+    },
+    {
+     "de": 2,
+     "a": 3,
+     "t": "bytes del pedido",
+     "d": "Los bytes llegan al otro extremo. El stub del servidor los interpreta con el mismo contrato."
+    },
+    {
+     "de": 3,
+     "a": 4,
+     "t": "obtenerDespacho(\"D-1042\")",
+     "d": "Ahora sí, una llamada local común dentro del servidor, con los argumentos ya reconstruidos."
+    },
+    {
+     "de": 4,
+     "a": 3,
+     "t": "devuelve el despacho",
+     "resp": true,
+     "d": "La función real termina y devuelve su resultado al stub del servidor."
+    },
+    {
+     "de": 3,
+     "a": 2,
+     "t": "bytes de la respuesta",
+     "resp": true,
+     "d": "El stub serializa el resultado. Este camino también puede fallar."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "bytes de la respuesta",
+     "resp": true,
+     "d": "La respuesta cruza la red de vuelta."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "retorna el despacho",
+     "resp": true,
+     "d": "El stub deserializa y devuelve el valor. Quien llamó sigue como si nada."
+    }
+   ],
+   "cap": "Las cinco piezas de una llamada remota, según Birrell y Nelson (1984). Las dos del medio son las que ocultan la red."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: la mesa de pedidos de dos sucursales",
+   "x": "Llamás a la sucursal de Rosario y pedís «el estado del despacho D-1042». Una operadora de tu lado lo anota en un formulario con casilleros fijos (el stub del cliente). En Rosario, otra lee el formulario, le pregunta al encargado y completa otro con la respuesta (el stub del servidor). La analogía deja de valer en un punto clave: si en la oficina nadie contesta, sabés que el encargado no hizo nada; en una RPC, el silencio no te dice si el pedido llegó, si se ejecutó o si solo se perdió la respuesta."
+  },
+  {
+   "t": "h",
+   "x": "Una llamada remota no es una llamada local"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una llamada local tiene dos resultados: vuelve o el programa entero se cae. Una remota suma otros: el pedido se perdió, el servidor lo ejecutó pero la respuesta se perdió, el servidor tarda más de lo que estás dispuesto a esperar, o murió a la mitad. Desde el cliente, todos se ven igual: nadie contesta.",
+    "No es un detalle menor. Birrell y Nelson ya contaban entre los problemas centrales del diseño de una RPC «la semántica precisa de una llamada en presencia de fallas de máquinas y de comunicación» [#api0809-birrell-nelson-1984]. Y en 1994, cuatro investigadores de Sun (Waldo, Wyant, Wollrath y Kendall) sostuvieron que tratar igual a un objeto local y a uno remoto es un error, y que el trabajo basado en un modelo que ignora esa diferencia estaba condenado al fracaso [#api0809-waldo-1994]. Dos décadas después, el equipo de gRPC lo toma como principio de diseño: «servicios, no objetos; mensajes, no referencias» [#api0809-grpc-principios]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Otra diferencia se mide sin discutir: el costo. En esta VM, una llamada local de JavaScript tardó del orden de 2 a 3 nanosegundos. Una llamada gRPC por loopback, sin salir de la máquina, tuvo una mediana de 572 y 850 microsegundos en dos corridas de 2.000 llamadas. Son cinco órdenes de magnitud sin una red de verdad de por medio (datos de una sola VM compartida, no un benchmark)."
+  },
+  {
+   "t": "p",
+   "x": "Veamos el caso más traicionero con un programa chico. Hay una función `marcarEntregado` que tiene un efecto (cuenta cuántas veces se ejecutó). La «red» de juguete pierde la segunda respuesta, y el stub del cliente espera como máximo 100 milisegundos. Corrélo:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Servidor: una función común con un efecto (cuenta las veces que se ejecutó).\nlet ejecuciones = 0;\nfunction marcarEntregado(id) { ejecuciones++; return { id, estado: 'ENTREGADO' }; }\n\n// \"Red\" de juguete: pasa bytes; el tercer mensaje de respuesta se pierde.\nlet respuestas = 0;\nasync function red(bytesPedido) {\n  const pedido = JSON.parse(bytesPedido);                 // stub del servidor: bytes -> argumentos\n  const resultado = marcarEntregado(pedido.id);           // la función real\n  const bytesRespuesta = JSON.stringify(resultado);       // resultado -> bytes\n  respuestas++;\n  if (respuestas === 2) return new Promise(() => {});     // la respuesta se pierde: nunca llega\n  return bytesRespuesta;\n}\n\n// Stub del cliente: parece una función local, pero por dentro serializa, envía y espera con plazo.\nfunction conPlazo(promesa, ms) {\n  return Promise.race([promesa, new Promise((_, rej) => setTimeout(() => rej(new Error('DEADLINE_EXCEEDED')), ms))]);\n}\nasync function marcarEntregadoRemoto(id) {\n  const bytes = JSON.stringify({ id });                   // argumentos -> bytes\n  const resp = await conPlazo(red(bytes), 100);           // enviar y esperar, pero no para siempre\n  return JSON.parse(resp);                                // bytes -> resultado\n}\n\nconsole.log('local :', marcarEntregado('D-1'));\nejecuciones = 0; // desde acá contamos solo lo que pasa por la red\nfor (const id of ['D-2', 'D-3']) {\n  try { console.log('remoto:', await marcarEntregadoRemoto(id)); }\n  catch (e) { console.log('remoto:', id, 'falló con', e.message); }\n}\nconsole.log('pedidos que mandó el cliente: 2 | ejecuciones reales en el servidor:', ejecuciones);\n",
+   "ejecutable": true,
+   "cap": "Una RPC de juguete en JavaScript puro. El cliente ve un fallo en D-3, pero el servidor sí ejecutó el pedido."
+  },
+  {
+   "t": "p",
+   "x": "El cliente mandó dos pedidos remotos. Con D-2 todo salió bien. Con D-3 recibió `DEADLINE_EXCEEDED` (se acabó el plazo), pero el servidor cuenta 2 ejecuciones: **la operación se hizo y el cliente no se enteró**. No es un defecto del juguete. La documentación de gRPC lo dice sobre su propio código de error: en operaciones que cambian el estado del sistema, `DEADLINE_EXCEEDED` puede devolverse aunque la operación haya terminado con éxito, por ejemplo porque la respuesta tardó lo suficiente como para que venza el plazo [#api0809-grpc-status]."
+  },
+  {
+   "t": "pensa",
+   "x": "Tu cliente llama a `marcarEntregado(\"D-3\")` y recibe `DEADLINE_EXCEEDED`. ¿Qué dos cosas razonables podés hacer, y qué propiedad de la operación hace que una de ellas sea segura?",
+   "resp": "Podés consultar el estado de D-3 antes de decidir, o reintentar la misma llamada. Reintentar es seguro solo si la operación es idempotente (ya la viste en el [@07-12]): marcar «entregado» dos veces deja el mismo estado final que una. Un «sumar un bulto al despacho» no lo es, y reintentarlo a ciegas podría contar el bulto dos veces. Por eso en RPC conviene diseñar las operaciones pensando en que alguna vez van a repetirse."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Esperar «para siempre» es una decisión",
+   "x": "La guía oficial de gRPC aclara que por defecto no se fija ningún [[deadline]] (plazo máximo), así que un cliente puede quedarse esperando una respuesta que nunca llega, y recomienda poner siempre uno explícito [#api0809-grpc-deadlines]. Es la idea del [[timeout]] del [@07-17], con una diferencia que ves más abajo: en gRPC el plazo viaja con la llamada y el servidor también lo respeta."
+  },
+  {
+   "t": "h",
+   "x": "gRPC: contrato en .proto, bytes en Protobuf, cable HTTP/2"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[gRPC]] es un sistema de RPC de código abierto que Google dio a conocer en 2015. Nació de Stubby, una infraestructura interna que durante más de una década conectó los microservicios de Google; como Stubby no se basaba en ningún estándar, rehicieron la idea sobre los nuevos (SPDY, HTTP/2 y QUIC) [#api0809-grpc-principios].",
+    "Tiene tres ingredientes. El **contrato** se escribe en un archivo `.proto`, que es la [[definición de servicio]]: lista qué funciones se pueden llamar y qué forma tienen los mensajes. Los **mensajes** viajan en [[Protobuf]], el formato binario que viste en el [@08-04]. Y el **transporte** es [[HTTP/2]] (el protocolo del [@05-20]), que aporta la [[multiplexación]]: muchas llamadas simultáneas sobre una sola conexión. Este es el contrato del servicio de despachos que usé hoy:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "proto",
+   "x": "syntax = \"proto3\";\npackage despachos.v1;\n\nservice Despachos {\n  // Una pregunta, una respuesta.\n  rpc ObtenerDespacho (PedidoDespacho) returns (Despacho);\n  // Una pregunta, muchas respuestas a lo largo del tiempo.\n  rpc SeguirDespacho (PedidoDespacho) returns (stream Posicion);\n}\n\nmessage PedidoDespacho {\n  string id = 1;\n}\n\nmessage Despacho {\n  string id = 1;\n  string estado = 2;\n  string destino = 3;\n  uint32 bultos = 4;\n}\n\nmessage Posicion {\n  string id = 1;\n  double lat = 2;\n  double lng = 3;\n}",
+   "cap": "despachos.proto. Cada campo lleva un número (= 1, = 2…): ese número, no el nombre, es lo que viaja por el cable."
+  },
+  {
+   "t": "p",
+   "x": "Con ese archivo, una herramienta genera el código de los stubs en el lenguaje que quieras. La documentación de gRPC lo describe así: el cliente tiene un objeto local, el *stub*, que implementa los mismos métodos que el servicio y por dentro empaqueta los parámetros, los envía y devuelve la respuesta [#api0809-grpc-conceptos]. Con las librerías de Node que usé el stub se arma al arrancar, leyendo el `.proto`; un generador de tipos produjo además interfaces de TypeScript, con todos los campos opcionales, porque en proto3 un campo ausente equivale a su valor por defecto (cadena vacía, cero)."
+  },
+  {
+   "t": "p",
+   "x": "El servicio declara dos de las cuatro formas de llamada que define gRPC: *unaria* (un pedido, una respuesta: `ObtenerDespacho`), *streaming del servidor* (un pedido, una secuencia de respuestas: `SeguirDespacho`), *streaming del cliente* y *bidireccional* [#api0809-grpc-conceptos]. Un camión que informa su posición cada tanto es un buen ejemplo de la segunda: un flujo de mensajes dentro de una misma llamada."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node cliente.js",
+     "s": "{ id: 'D-1042', estado: 'EN_RUTA', destino: 'Rosario', bultos: 12 }\n{ codigo: 5, nombre: 'NOT_FOUND', detalle: 'no existe el despacho D-9999' }\n{ codigo: 4, nombre: 'DEADLINE_EXCEEDED', detalle: 'Deadline exceeded after 0.201s,remote_addr=127.0.0.1:20809' }\nposición { id: 'D-1042', lat: -34.6, lng: -58.38 }\nposición { id: 'D-1042', lat: -33.9, lng: -59 }\nposición { id: 'D-1042', lat: -33.3, lng: -60.2 }\nfin del flujo"
+    }
+   ],
+   "cap": "Salida real. Servidor y cliente de gRPC en Node, los dos en esta VM, puerto 20809. Datos y coordenadas inventados."
+  },
+  {
+   "t": "h",
+   "x": "Qué viaja por el cable, byte por byte"
+  },
+  {
+   "t": "p",
+   "x": "Para ver qué pasa de verdad capturé el tráfico de loopback con `tshark` mientras el cliente hacía una llamada unaria. El servidor de prueba usa HTTP/2 sin cifrar (en producción va con TLS, y sin las claves no podrías leer nada), así que le indiqué a `tshark` que interprete ese puerto como HTTP/2. Esto apareció:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "tshark -r cap1.pcap -d tcp.port==20809,http2 -Y 'frame.number==9' -V | grep -E 'Header: '",
+     "s": "Header: :method: POST\nHeader: :path: /despachos.v1.Despachos/ObtenerDespacho\nHeader: :scheme: http\nHeader: user-agent: grpc-node-js/1.14.7\nHeader: content-type: application/grpc\nHeader: te: trailers"
+    },
+    {
+     "c": "tshark -r cap1.pcap -d tcp.port==20809,http2 -Y 'http2.type==0' -T fields -e tcp.srcport -e http2.data.data",
+     "s": "42618\t00000000080a06442d31303432                                              (cliente → servidor)\n20809\t000000001c0a06442d313034321207454e5f525554411a07526f736172696f200c       (servidor → cliente)"
+    },
+    {
+     "c": "tshark -r cap1.pcap -d tcp.port==20809,http2 -Y 'frame.number==11' -V | grep -E 'Header: '",
+     "s": "Header: grpc-status: 0\nHeader: grpc-message: OK"
+    }
+   ],
+   "cap": "Capturas reales de esta VM, 13 de noviembre de 2026, abreviadas: omití otras cabeceras (`:authority`, `accept-encoding`) y los paréntesis de la segunda salida son míos. Esa salida muestra los dos DATA frames de la llamada, el pedido y la respuesta."
+  },
+  {
+   "t": "p",
+   "x": "Se lee de arriba abajo. El pedido es un `POST` común de HTTP/2. La «dirección» de la función es el `:path`, armado con el nombre del paquete, el del servicio y el del método: `/despachos.v1.Despachos/ObtenerDespacho`. Esa forma la fija la especificación de gRPC sobre HTTP/2, que también pide `content-type: application/grpc` y `te: trailers` [#api0809-grpc-http2]. Como todas las llamadas son `POST` y la dirección no identifica un recurso, un caché HTTP común (el del [@05-19]) no ayuda acá."
+  },
+  {
+   "t": "p",
+   "x": "Ahora los bytes del pedido, que son el cuerpo del mensaje: `00 00000008 0a 06 442d31303432`. El protocolo antepone a cada mensaje un prefijo de cinco bytes: un byte que dice si el mensaje está comprimido (`00`, no) y cuatro bytes con el largo del mensaje en orden big endian (`00000008`, ocho bytes) [#api0809-grpc-http2]. Después viene el mensaje Protobuf, que son esos ocho bytes: `0a` es la etiqueta del campo 1 (la fórmula es *número de campo desplazado tres bits a la izquierda, más el tipo de dato en el cable*, o sea `(1 << 3) | 2 = 0x0a`, donde el tipo 2 significa «bytes con largo» [#api0809-protobuf-encoding]), `06` es el largo del texto, y `442d31303432` es «D-1042» en ASCII. La respuesta sigue el mismo patrón con cuatro campos. Podés reproducir esos bytes a mano:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Codificación a mano de un mensaje Protobuf: cada campo es etiqueta + valor.\n// etiqueta = (número_de_campo << 3) | tipo_de_cable   (0 = entero variable, 2 = bytes con largo)\nconst enc = new TextEncoder();\nconst hex = (u8) => [...u8].map((b) => b.toString(16).padStart(2, '0')).join(' ');\n\nfunction varint(n) {                       // 7 bits por byte; el bit alto dice «sigue»\n  const out = [];\n  while (n > 127) { out.push((n & 127) | 128); n = Math.floor(n / 128); }\n  out.push(n);\n  return out;\n}\nfunction campoTexto(num, texto) {\n  const b = enc.encode(texto);\n  return [(num << 3) | 2, ...varint(b.length), ...b];\n}\nfunction campoEntero(num, n) {\n  return [(num << 3) | 0, ...varint(n)];\n}\n\n// message Despacho { string id = 1; string estado = 2; string destino = 3; uint32 bultos = 4; }\nconst cuerpo = [\n  ...campoTexto(1, 'D-1042'),\n  ...campoTexto(2, 'EN_RUTA'),\n  ...campoTexto(3, 'Rosario'),\n  ...campoEntero(4, 12),\n];\nconsole.log('mensaje :', hex(cuerpo));\nconsole.log('tamaño  :', cuerpo.length, 'bytes');\n\n// Dentro de gRPC se le antepone un prefijo de 5 bytes: 1 de «comprimido» + 4 de largo.\nconst largo = cuerpo.length;\nconst prefijo = [0, (largo >>> 24) & 255, (largo >>> 16) & 255, (largo >>> 8) & 255, largo & 255];\nconsole.log('con prefijo gRPC:', hex([...prefijo, ...cuerpo]));\n\nconst json = JSON.stringify({ id: 'D-1042', estado: 'EN_RUTA', destino: 'Rosario', bultos: 12 });\nconsole.log('el mismo dato en JSON:', enc.encode(json).length, 'bytes');\nconsole.log('varint de 300:', hex(varint(300)), '(300 = 0b100101100)');\n",
+   "ejecutable": true,
+   "cap": "Codificación Protobuf escrita a mano para el mensaje Despacho. Los 28 bytes son idénticos a los de la respuesta capturada, después del prefijo de 5 bytes."
+  },
+  {
+   "t": "p",
+   "x": "Los 28 bytes coinciden con la captura. El mismo despacho en JSON ocupa 66, porque cada nombre de campo (`estado`, `destino`) viaja como texto; en Protobuf viaja un número de un byte. Esa es la compactación que se compra, y también el costo: sin el `.proto`, esos bytes no se leen a ojo, y con JSON alcanza `curl`."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un error de gRPC viaja con HTTP 200",
+   "x": [
+    "En el pedido de `D-9999`, que no existe, la respuesta capturada trae `:status: 200` y, junto a ella, `grpc-status: 5` y `grpc-message: no%20existe%20el%20despacho%20D-9999`. El resultado de verdad (5, NOT_FOUND) viaja en los *trailers*, campos que HTTP/2 permite mandar al final de la respuesta; cuando la llamada falla enseguida y no hay cuerpo, la especificación los junta con las cabeceras (*Trailers-Only*) [#api0809-grpc-http2].",
+    "La consecuencia práctica: un monitor, un balanceador o un panel que cuente errores mirando el código HTTP va a ver 200 en todas las llamadas fallidas de gRPC. Para medir bien hay que leer `grpc-status`."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Los códigos de gRPC son un conjunto propio, de 0 a 16, que no se mezcla con los de HTTP. Algunos de los que ya viste en la salida, con su significado según la documentación oficial [#api0809-grpc-status]:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Código",
+    "Nombre",
+    "Cuándo se usa",
+    "Pariente aproximado en HTTP"
+   ],
+   "filas": [
+    [
+     "0",
+     "OK",
+     "La llamada salió bien.",
+     "200"
+    ],
+    [
+     "4",
+     "DEADLINE_EXCEEDED",
+     "Venció el plazo; la operación pudo haberse hecho igual.",
+     "504"
+    ],
+    [
+     "5",
+     "NOT_FOUND",
+     "No existe lo que se pidió.",
+     "404"
+    ],
+    [
+     "8",
+     "RESOURCE_EXHAUSTED",
+     "Se agotó una cuota o un recurso.",
+     "429"
+    ],
+    [
+     "14",
+     "UNAVAILABLE",
+     "El servicio no está disponible ahora; suele ser reintentable.",
+     "503"
+    ]
+   ],
+   "cap": "Los números y el significado son de la documentación de gRPC. La columna de la derecha es mi comparación aproximada, no una equivalencia oficial."
+  },
+  {
+   "t": "p",
+   "x": "Falta ver el [[deadline]] en acción. En la captura de la llamada con plazo de 200 milisegundos, el cliente mandó una cabecera `grpc-timeout: 187m` (187 milisegundos: ya se habían gastado unos 13 antes de enviar), y fue el **servidor** quien contestó con `grpc-status: 4` a los 192 ms. Es lo que describe la guía oficial: el servidor cancela por su cuenta una llamada con el plazo vencido, para no gastar recursos en una respuesta que nadie espera [#api0809-grpc-deadlines]. También dice que, cuando un servidor llama a otro, el plazo se pasa como tiempo restante y no como hora, para que los relojes desfasados no lo arruinen. Es una ventaja concreta frente a un `fetch` con timeout: el plazo cruza la cadena de servicios."
+  },
+  {
+   "t": "p",
+   "x": "Y el streaming: en la captura de `SeguirDespacho` hubo un solo `POST`, tres DATA frames de respuesta separados por unos 100 milisegundos y al final los trailers con el cierre. Una llamada, tres mensajes."
+  },
+  {
+   "t": "pensa",
+   "x": "Un colega agrega al `.proto` un campo nuevo `string chofer = 5;` en `Despacho` y despliega el servidor, pero no actualiza un cliente viejo. ¿Qué crees que pasa cuando el cliente viejo recibe la respuesta?",
+   "resp": "Según la documentación de Protobuf, cada campo viaja con su número y su largo, y eso permite que los lectores viejos salteen los que no conocen [#api0809-protobuf-encoding]. El cliente viejo lee los cuatro que conoce e ignora el quinto. En cambio, si se **reutiliza** un número para otra cosa o se cambia su tipo, el cliente viejo interpreta mal los bytes. Por eso los números de campo no se reciclan. Más sobre esto en el [@08-13]."
+  },
+  {
+   "t": "h",
+   "x": "tRPC: el contrato es el tipo de TypeScript"
+  },
+  {
+   "t": "p",
+   "x": "[[tRPC]] (*TypeScript Remote Procedure Call*) resuelve otro problema. Si el servidor y el cliente están escritos en TypeScript, el [[contrato]] se puede escribir como un tipo, sin archivo aparte. Su documentación lo promete así: APIs con tipos de punta a punta, «sin esquemas ni generación de código», aprovechando la inferencia de tipos de TypeScript [#api0809-trpc-docs]. Y lo presenta como RPC sin vueltas: en vez de una URL, llamás a una función, y las acciones son *queries* (leer) o *mutations* (cambiar) [#api0809-trpc-conceptos]. El servidor define sus procedimientos, y de esa definición se exporta un tipo:"
+  },
+  {
+   "t": "codigo",
+   "lang": "ts",
+   "x": "import { initTRPC, TRPCError } from '@trpc/server';\nimport { z } from 'zod';\n\nconst t = initTRPC.create();\n\nexport const appRouter = t.router({\n  despacho: t.router({\n    obtener: t.procedure\n      .input(z.object({ id: z.string() }))\n      .query(({ input }) => {\n        const d = DESPACHOS[input.id];\n        if (!d) throw new TRPCError({ code: 'NOT_FOUND', message: 'no existe el despacho ' + input.id });\n        return d;           // { id, estado, destino, bultos }\n      }),\n  }),\n});\n\nexport type AppRouter = typeof appRouter;   // ESTO es el contrato: un tipo, no un archivo aparte",
+   "cap": "El servidor de tRPC, resumido (@trpc/server 11.28.0 con zod 4.6.7). El contrato es `AppRouter`, un tipo."
+  },
+  {
+   "t": "p",
+   "x": "El cliente importa **solo ese tipo**, no el código del servidor. A partir de él, el compilador sabe qué procedimientos existen, qué argumentos aceptan y qué devuelven. Escribí un cliente con tres errores a propósito y le pasé el compilador:"
+  },
+  {
+   "t": "codigo",
+   "lang": "ts",
+   "x": "import { createTRPCClient, httpBatchLink } from '@trpc/client';\nimport type { AppRouter } from './servidor.ts';   // solo el tipo; el código del servidor no viaja\n\nconst trpc = createTRPCClient<AppRouter>({\n  links: [httpBatchLink({ url: 'http://127.0.0.1:20829' })],\n});\n\nconst d = await trpc.despacho.obtener.query({ id: 1042 });   // id debería ser string\nconsole.log(d.estadoo);                                      // typo\nawait trpc.despacho.cancelar.mutate({ id: 'D-1042' });       // no existe",
+   "cap": "cliente_malo.ts, con tres errores a propósito."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "npx tsc -p tsconfig.json",
+     "s": "cliente_malo.ts(8,47): error TS2322: Type 'number' is not assignable to type 'string'.\ncliente_malo.ts(9,15): error TS2551: Property 'estadoo' does not exist on type '{ id: string; estado: \"ENTREGADO\" | \"EN_RUTA\" | \"PENDIENTE\"; destino: string; bultos: number; }'. Did you mean 'estado'?\ncliente_malo.ts(10,21): error TS2339: Property 'cancelar' does not exist on type 'DecoratedProcedureRecord<…>'."
+    }
+   ],
+   "cap": "Salida real, TypeScript 7.0.2. Los tres errores aparecen antes de ejecutar nada: es el mismo tipo de ayuda que da un `.proto` con generación de código, pero sin generarla."
+  },
+  {
+   "t": "p",
+   "x": "Pero por debajo, tRPC es HTTP con JSON. Según su especificación, un `query` viaja como `GET` con el argumento serializado en la URL, y un `mutation` como `POST` con el argumento en el cuerpo; el nombre del procedimiento anidado es el camino, separado por puntos [#api0809-trpc-http]. Lo comprobé con `curl` contra mi servidor local:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -i 'http://127.0.0.1:20829/despacho.obtener?input=%7B%22id%22%3A%22D-1042%22%7D'",
+     "s": "HTTP/1.1 200 OK\ncontent-type: application/json\n\n{\"result\":{\"data\":{\"id\":\"D-1042\",\"estado\":\"EN_RUTA\",\"destino\":\"Rosario\",\"bultos\":12}}}"
+    },
+    {
+     "c": "curl -s -i 'http://127.0.0.1:20829/despacho.obtener?input=%7B%22id%22%3A42%7D'",
+     "s": "HTTP/1.1 400 Bad Request\ncontent-type: application/json\n\n{\"error\":{\"message\":\"[ … \\\"message\\\": \\\"Invalid input: expected string, received number\\\" … ]\",\"code\":-32600,\"data\":{\"code\":\"BAD_REQUEST\",\"httpStatus\":400,…"
+    }
+   ],
+   "cap": "Salida real, abreviada (las cabeceras de fecha y conexión y los puntos suspensivos son míos). A diferencia de gRPC, acá el error sí usa un código HTTP real: 400. El tipo de TypeScript no existe en la ejecución; lo que rechazó el 42 fue `zod`, la validación del servidor."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Los tipos no se ejecutan",
+   "x": [
+    "La comprobación de tipos del cliente ocurre al compilar. Cualquier persona o programa que mande `{\"id\":42}` con `curl` se salta el compilador, así que el servidor tiene que validar sus entradas igual (por eso el `.input(z.object(...))`, como en el [@07-07]). Los tipos protegen a tu equipo de sus propios errores; no protegen al servidor de nadie.",
+    "Otro detalle de lo que vi: con la variable `NODE_ENV` sin definir, el error trajo el `stack` completo, con rutas de archivos de mi VM. La documentación explica que tRPC incluye la traza solo cuando `isDev` es verdadero y que eso depende de `NODE_ENV` [#api0809-trpc-errores]. En producción hay que asegurarse de que no se filtre."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Dónde brilla tRPC y dónde no",
+   "x": "Su documentación dice que está pensado para monorepos de TypeScript y que sin uno se pierde parte de la garantía [#api0809-trpc-faq]. Sirve para una web y su servidor escritos por el mismo equipo. No sirve como API pública para clientes en Java, Swift o Python: ninguno puede importar un tipo de TypeScript."
+  },
+  {
+   "t": "h",
+   "x": "Cuándo REST, cuándo gRPC, cuándo tRPC"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "REST (JSON sobre HTTP)",
+    "gRPC",
+    "tRPC"
+   ],
+   "filas": [
+    [
+     "Contrato",
+     "Documento aparte (OpenAPI, lo ves en el [@08-14])",
+     "Archivo .proto, obligatorio",
+     "Un tipo de TypeScript"
+    ],
+    [
+     "Formato en el cable",
+     "JSON, texto legible",
+     "Protobuf, binario",
+     "JSON, texto legible"
+    ],
+    [
+     "Transporte",
+     "HTTP/1.1 o HTTP/2",
+     "HTTP/2",
+     "HTTP/1.1 o HTTP/2"
+    ],
+    [
+     "Streaming",
+     "No de forma nativa (SSE o WebSocket aparte)",
+     "Cuatro modos nativos",
+     "Subscriptions por SSE o WebSocket"
+    ],
+    [
+     "Lectores posibles",
+     "Cualquiera con `curl`",
+     "Cualquier lenguaje con generador",
+     "Solo TypeScript"
+    ],
+    [
+     "Desde un navegador",
+     "Directo",
+     "Con gRPC-Web y un proxy",
+     "Directo"
+    ],
+    [
+     "Caché HTTP",
+     "Sí (GET)",
+     "No ayuda (todo es POST)",
+     "Las queries van por GET; no probé el caché"
+    ],
+    [
+     "Cuándo conviene",
+     "API pública, terceros, simplicidad",
+     "Servicios internos de muchos lenguajes, flujos, baja latencia",
+     "Web y servidor TypeScript del mismo equipo"
+    ]
+   ],
+   "cap": "Resumen mío de lo visto hoy. Es criterio, no regla: hay equipos que usan gRPC afuera y REST adentro, y al revés."
+  },
+  {
+   "t": "p",
+   "x": "Una regla práctica: REST cuando no controlás al que llama o querés que cualquiera lo pruebe con `curl`; gRPC cuando controlás los dos lados, hay varios lenguajes o necesitás flujos y plazos que viajen en la llamada; tRPC cuando todo es TypeScript en el mismo repositorio. Un detalle de gRPC que se olvida: un navegador no habla gRPC directamente. El proyecto gRPC-Web existe para eso, y su documentación indica que los clientes se conectan a través de un proxy, que por defecto es Envoy [#api0809-grpc-web]."
+  },
+  {
+   "t": "h",
+   "x": "Senda: RPC sobre HTTP y JSON, sin gRPC"
+  },
+  {
+   "t": "p",
+   "x": "Senda tiene muchas llamadas con forma de RPC y ninguna es gRPC. Las llamadas a funciones de la base de datos de Supabase son el caso: el servicio que expone la base (PostgREST) publica cada función SQL del esquema bajo la ruta `/rpc/<nombre>`, y los argumentos van como un objeto JSON cuyas claves son los nombres de los parámetros [#api0809-postgrest-rpc]. Es la «RPC de base de datos» del [@07-29], vista desde el cable."
+  },
+  {
+   "t": "senda",
+   "titulo": "Una RPC de Senda de punta a punta",
+   "x": [
+    "En el commit 25e08fa, `src/util/cuenta.ts` define una función `rpc(nombre, args)` que hace `POST /rest/v1/rpc/<nombre>` con `JSON.stringify(args)` como cuerpo y devuelve el JSON de la respuesta. Es el stub del cliente: el resto de la app llama `rpc(\"bloquear\", { p_otro: otro })` (en `src/util/moderacion.ts`) como si fuera una función local. Una búsqueda de texto en `src` encontró unos 53 nombres de funciones llamadas así (sin garantía de exhaustividad).",
+    "Del otro lado, la migración `supabase/migrations/20261127000000_seguridad.sql` define `public.bloquear(p_otro uuid)` en SQL, y le da permiso de ejecución solo al rol `authenticated`. El nombre del campo JSON (`p_otro`) es el nombre del parámetro SQL. No hay `.proto` ni generación de código: el «contrato» es la firma de la función en la base."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/util/moderacion.ts",
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Los errores de Senda, a la manera de gRPC",
+   "x": [
+    "Esa función SQL falla con `raise exception 'no_se_puede'` cuando la llamada no tiene sentido. La documentación de PostgREST dice que un `RAISE EXCEPTION` responde con HTTP 400 por defecto [#api0809-postgrest-errores]. En `cuenta.ts`, la función que hace los pedidos lee el `message` del error y, si tiene la forma de un código corto en minúsculas (`^[a-z_]+$`), lo usa como código propio de la app; si no, usa `error_nube`. Es una convención propia, parecida a los códigos de estado de gRPC.",
+    "Y lo que no usa: `package.json` no lista gRPC, GraphQL ni tRPC, y una búsqueda de «grpc», «graphql», «trpc» y «protobuf» en `package.json`, `src` y `supabase` no encontró nada; en `package-lock.json`, «grpc» y «protobuf» tampoco aparecen. Tampoco hay un servidor propio del equipo: la lógica está en funciones de la base y en tres funciones de borde (`senda/mapa-tecnico.md`), así que tRPC no tendría dónde vivir. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "package.json",
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y estado al 13-11-2026",
+   "x": "Lo de hoy se probó con Node 22.23.4, `@grpc/grpc-js` 1.14.7, `@grpc/proto-loader` 0.8.1, `@trpc/server` y `@trpc/client` 11.28.0, `zod` 4.6.7 y TypeScript 7.0.2, que son las versiones que instaló `npm` ese día. La idea de RPC, los stubs, los plazos y la forma del mensaje de gRPC son principios estables; las funciones de las librerías, los valores por defecto de tRPC y los números de versión cambian seguido. La documentación de PostgREST se leyó en su repositorio de GitHub (archivo `.rst`), porque el sitio limitó las consultas esa tarde."
+  }
+ ],
+ "recap": [
+  "Una RPC es una llamada a una función que corre en otra máquina; los stubs de cada lado serializan los argumentos y los resultados para que se escriba como una llamada local.",
+  "Una llamada remota puede fallar de formas que una local no tiene. Un plazo vencido no dice si la operación se hizo, y por eso las operaciones expuestas conviene diseñarlas idempotentes.",
+  "gRPC combina un contrato `.proto`, mensajes Protobuf y HTTP/2. Cada mensaje lleva un prefijo de 5 bytes (marca de compresión y largo), y el plazo viaja en la cabecera `grpc-timeout`.",
+  "Un error de gRPC viaja con HTTP 200: el resultado real está en `grpc-status`, en los trailers, y los códigos de gRPC son un conjunto propio, distinto del de HTTP.",
+  "tRPC usa un tipo de TypeScript como contrato y va sobre HTTP con JSON; da errores en compilación pero no valida en ejecución, así que el servidor sigue necesitando validar.",
+  "REST sirve para APIs abiertas, gRPC para servicios internos entre lenguajes o con flujos, tRPC para web y servidor TypeScript del mismo equipo.",
+  "Senda usa RPC sobre HTTP y JSON (funciones SQL expuestas por PostgREST), no gRPC, y no usa GraphQL ni tRPC."
+ ],
+ "repaso": [
+  {
+   "p": "Un cliente llama a `marcarEntregado` y recibe `DEADLINE_EXCEEDED`. ¿Qué es lo único que puede afirmar con certeza?",
+   "o": [
+    "Que la operación no se ejecutó, porque el servidor no contestó a tiempo",
+    "Que la operación se ejecutó, porque el plazo solo vence si hubo trabajo",
+    "Que no sabe si se ejecutó: el plazo venció antes de recibir la respuesta",
+    "Que el servidor está caído y hay que cambiar de servidor para volver a intentar"
+   ],
+   "c": 2,
+   "e": "Un plazo vencido solo dice que la respuesta no llegó a tiempo. La documentación de gRPC aclara que puede devolverse aunque la operación haya terminado bien. Afirmar que no se ejecutó o que sí se ejecutó son los dos errores típicos, y suponer que el servidor cayó tampoco se desprende de ese código."
+  },
+  {
+   "p": "En la captura de una llamada de gRPC a un despacho inexistente, la cabecera de la respuesta trae `:status: 200` y `grpc-status: 5`. ¿Cómo se interpreta?",
+   "o": [
+    "La llamada salió bien en HTTP y falló en gRPC: el 5 es NOT_FOUND",
+    "La captura está mal formada: un 200 no puede convivir con un error",
+    "El 5 es la clase de error HTTP y el 200 es el código que lo detalla",
+    "El servidor contestó dos veces: una con éxito y otra con error"
+   ],
+   "c": 0,
+   "e": "En gRPC, HTTP solo transporta: el éxito del transporte se marca con 200 y el resultado de la llamada va aparte, en `grpc-status`. Por eso un monitor que mire solo códigos HTTP no ve los errores de gRPC. No es una captura corrupta ni dos respuestas, y el 5 no es una clase HTTP."
+  },
+  {
+   "p": "Un mensaje gRPC en el cable empieza con `00 00 00 00 1c`. ¿Qué dicen esos cinco bytes?",
+   "o": [
+    "El mensaje está comprimido y mide 28 bytes en total",
+    "El mensaje no está comprimido y su contenido mide 28 bytes",
+    "Es el número de campo 0 con un largo de 28 caracteres",
+    "Es la versión del protocolo (0) y un identificador de 28"
+   ],
+   "c": 1,
+   "e": "El primer byte indica compresión (0 es no comprimido) y los cuatro siguientes son el largo del mensaje: 0x1c es 28. Ese largo cuenta solo el contenido Protobuf, no los cinco bytes de prefijo. No hay campo 0 en Protobuf, y el prefijo no lleva versión."
+  },
+  {
+   "p": "Agregás un campo nuevo al final de un mensaje `.proto` con un número que nunca se usó, y desplegás solo el servidor. ¿Qué espera pasar con un cliente viejo?",
+   "o": [
+    "Falla: un cliente solo funciona con la versión exacta del `.proto` del servidor",
+    "Lee el campo nuevo igual, porque el nombre viaja en cada mensaje",
+    "Se cae al deserializar, porque recibe más bytes de los que esperaba",
+    "Ignora el campo nuevo y sigue leyendo los que conoce sin problemas"
+   ],
+   "c": 3,
+   "e": "Protobuf guarda cada campo con su número y su largo, así que quien no conoce un número puede saltearlo. El nombre no viaja, solo el número, y recibir bytes de más no rompe nada. Lo que sí rompe es reciclar un número viejo para otro significado."
+  },
+  {
+   "p": "Un equipo tiene una web en TypeScript y su servidor, también en TypeScript, en el mismo repositorio. Quiere que cambiar un campo del servidor produzca errores en el cliente antes de ejecutar. ¿Qué opción encaja mejor?",
+   "o": [
+    "tRPC, porque el contrato es un tipo que el compilador comprueba en ambos lados",
+    "gRPC, porque es el único con contrato y generación de código",
+    "REST sin documentación, porque JSON ya trae sus propios tipos",
+    "GraphQL, porque un cliente en TypeScript siempre implica GraphQL"
+   ],
+   "c": 0,
+   "e": "tRPC comparte el tipo del servidor con el cliente y el compilador marca las diferencias. gRPC también da contrato y tipos, pero con un `.proto` aparte y un paso de generación; no es el único. REST sin contrato no avisa nada, y no hay relación entre TypeScript y elegir GraphQL."
+  },
+  {
+   "p": "Una persona prueba el servidor tRPC mandando con `curl` `{\"id\":42}` donde se espera un texto. ¿Qué pasa y por qué?",
+   "o": [
+    "Pasa, porque TypeScript solo se aplica en tiempo de ejecución",
+    "Pasa, porque `curl` es de confianza y se salta la validación",
+    "Se rechaza porque `curl` conoce el tipo `AppRouter` del cliente",
+    "Se rechaza porque el servidor valida con `zod`; el tipo no existe al ejecutar"
+   ],
+   "c": 3,
+   "e": "Los tipos de TypeScript desaparecen al compilar, así que no protegen al servidor de pedidos hechos a mano. Lo que rechazó el 42 fue la validación en ejecución. Las otras opciones invierten la causa: TypeScript actúa antes de ejecutar, y curl no conoce ningún tipo."
+  },
+  {
+   "p": "¿Cuál es una buena razón para NO usar gRPC en una API pública pensada para que cualquier programa de terceros la pruebe rápido?",
+   "o": [
+    "Los clientes necesitan el `.proto` y herramientas específicas; con REST alcanza `curl`",
+    "gRPC no soporta clientes en lenguajes distintos de Go",
+    "gRPC solo funciona dentro de la misma red local",
+    "gRPC no puede usar TLS para cifrar el tráfico"
+   ],
+   "c": 0,
+   "e": "gRPC es binario y exige contrato; sin él los bytes no se leen a ojo, y desde un navegador además hace falta un proxy. Soporta muchos lenguajes, funciona por internet y se usa con TLS, así que las otras tres razones son falsas."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó por qué llamar a una función que está en otra máquina no es lo mismo que llamar a una de tu propio programa. Usá un ejemplo con un pedido a una sucursal que no contesta, y explicá por qué conviene que repetir el pedido no haga daño.",
+ "para_profundizar": [
+  {
+   "fuente": "api0809-birrell-nelson-1984",
+   "nota": "El artículo fundacional de Birrell y Nelson. Leé la introducción y la parte sobre los stubs: describen con claridad la mecánica que gRPC y tRPC siguen usando."
+  },
+  {
+   "fuente": "api0809-grpc-http2",
+   "nota": "La especificación de gRPC sobre HTTP/2, corta y legible. Sirve para comparar con la captura de hoy: cabeceras, prefijo de 5 bytes y trailers."
+  },
+  {
+   "fuente": "api0809-grpc-deadlines",
+   "nota": "La guía oficial de plazos de gRPC. Explica por qué siempre hay que fijar uno y cómo se propaga entre servicios."
+  },
+  {
+   "fuente": "api0809-trpc-conceptos",
+   "nota": "La página de conceptos de tRPC. Es breve y deja clara la idea de pensar en funciones, no en URLs."
+  }
+ ],
+ "videos": [
+  {
+   "q": "gRPC explained HTTP/2 protobuf unary streaming",
+   "por_que": "Para ver otra explicación de los cuatro tipos de llamada y comparar con la captura de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "RPC",
+   "d": "Remote Procedure Call: llamar a una función que se ejecuta en otra máquina como si fuera local. Un stub en cada extremo serializa los argumentos y los resultados, y por eso los fallos de red aparecen como errores de llamada."
+  },
+  {
+   "t": "gRPC",
+   "d": "Sistema de RPC de código abierto que Google dio a conocer en 2015. Usa un contrato `.proto`, mensajes Protobuf y HTTP/2, y soporta llamadas unarias y con streaming en un sentido o en ambos."
+  },
+  {
+   "t": "definición de servicio",
+   "d": "El texto, en un archivo `.proto`, que lista las funciones que se pueden llamar a distancia y la forma de sus mensajes. De ella se generan el stub del cliente y la base del servidor."
+  },
+  {
+   "t": "stub",
+   "d": "Pieza de código que se hace pasar por la función remota: tiene su mismo nombre y parámetros, pero por dentro serializa los argumentos, los manda por la red, espera y devuelve el resultado. Hay uno en cada extremo."
+  },
+  {
+   "t": "deadline",
+   "d": "El momento límite, o el tiempo máximo, que un cliente está dispuesto a esperar una respuesta. En gRPC viaja con la llamada, en la cabecera `grpc-timeout`, para que el servidor deje de trabajar cuando ya nadie espera."
+  },
+  {
+   "t": "tRPC",
+   "d": "Biblioteca de RPC para TypeScript: el servidor exporta un tipo con sus procedimientos y el cliente lo usa para comprobar llamadas al compilar. Por debajo usa HTTP con JSON y no necesita un archivo de contrato aparte."
+  }
+ ],
+ "siguiente": "Webhooks: hasta ahora el cliente siempre preguntó. Mañana ves el caso inverso, en el que el servicio de otro te avisa cuando pasa algo, y cómo saber que el aviso es auténtico y no te llega dos veces.",
+ "fuentes_nuevas": [
+  {
+   "id": "api0809-birrell-nelson-1984",
+   "t": "Implementing Remote Procedure Calls",
+   "a": "Andrew D. Birrell y Bruce Jay Nelson (ACM Transactions on Computer Systems 2(1), febrero de 1984)",
+   "tipo": "paper",
+   "anio": 1984,
+   "url": "https://www.cs.princeton.edu/courses/archive/fall11/cos518/papers/rpc.pdf"
+  },
+  {
+   "id": "api0809-waldo-1994",
+   "t": "A Note on Distributed Computing (SMLI TR-94-29)",
+   "a": "Waldo, Wyant, Wollrath y Kendall (informe técnico SMLI TR-94-29 de Sun Microsystems, 1994; la versión consultada es la reimpresión de 1997)",
+   "tipo": "paper",
+   "anio": 1994,
+   "url": "https://dthain.github.io/distsys-fa21/papers/Waldo1997_Chapter_ANoteOnDistributedComputing.pdf"
+  },
+  {
+   "id": "api0809-grpc-principios",
+   "t": "gRPC Motivation and Design Principles",
+   "a": "Louis Ryan (Google), grpc.io, 8 de septiembre de 2015",
+   "tipo": "articulo",
+   "anio": 2015,
+   "url": "https://grpc.io/blog/principles/"
+  },
+  {
+   "id": "api0809-grpc-conceptos",
+   "t": "Core concepts, architecture and lifecycle (gRPC)",
+   "a": "gRPC Authors",
+   "tipo": "doc",
+   "url": "https://grpc.io/docs/what-is-grpc/core-concepts/"
+  },
+  {
+   "id": "api0809-grpc-status",
+   "t": "Status Codes and their use in gRPC",
+   "a": "gRPC Authors",
+   "tipo": "doc",
+   "url": "https://grpc.io/docs/guides/status-codes/"
+  },
+  {
+   "id": "api0809-grpc-deadlines",
+   "t": "Deadlines (guía de gRPC)",
+   "a": "gRPC Authors",
+   "tipo": "doc",
+   "url": "https://grpc.io/docs/guides/deadlines/"
+  },
+  {
+   "id": "api0809-grpc-http2",
+   "t": "gRPC over HTTP2 (especificación del protocolo)",
+   "a": "gRPC Authors (texto en el repositorio grpc/grpc de GitHub)",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/grpc/grpc/master/doc/PROTOCOL-HTTP2.md"
+  },
+  {
+   "id": "api0809-grpc-web",
+   "t": "gRPC-Web (README del proyecto)",
+   "a": "gRPC Authors",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/grpc/grpc-web/master/README.md"
+  },
+  {
+   "id": "api0809-protobuf-encoding",
+   "t": "Encoding (guía de Protocol Buffers)",
+   "a": "Google (protobuf.dev)",
+   "tipo": "doc",
+   "url": "https://protobuf.dev/programming-guides/encoding/"
+  },
+  {
+   "id": "api0809-trpc-docs",
+   "t": "tRPC: introducción",
+   "a": "tRPC (trpc.io)",
+   "tipo": "doc",
+   "url": "https://trpc.io/docs"
+  },
+  {
+   "id": "api0809-trpc-conceptos",
+   "t": "tRPC: conceptos",
+   "a": "tRPC (trpc.io)",
+   "tipo": "doc",
+   "url": "https://trpc.io/docs/concepts"
+  },
+  {
+   "id": "api0809-trpc-http",
+   "t": "tRPC: especificación HTTP RPC",
+   "a": "tRPC (trpc.io)",
+   "tipo": "doc",
+   "url": "https://trpc.io/docs/rpc"
+  },
+  {
+   "id": "api0809-trpc-errores",
+   "t": "tRPC: manejo de errores",
+   "a": "tRPC (trpc.io)",
+   "tipo": "doc",
+   "url": "https://trpc.io/docs/server/error-handling"
+  },
+  {
+   "id": "api0809-trpc-faq",
+   "t": "tRPC: preguntas frecuentes",
+   "a": "tRPC (trpc.io)",
+   "tipo": "doc",
+   "url": "https://trpc.io/docs/faq"
+  },
+  {
+   "id": "api0809-postgrest-rpc",
+   "t": "PostgREST: Functions as RPC",
+   "a": "PostgREST (docs.postgrest.org)",
+   "tipo": "doc",
+   "url": "https://docs.postgrest.org/en/stable/references/api/functions.html"
+  },
+  {
+   "id": "api0809-postgrest-errores",
+   "t": "PostgREST: Errors",
+   "a": "PostgREST (docs.postgrest.org)",
+   "tipo": "doc",
+   "url": "https://docs.postgrest.org/en/stable/references/errors.html"
+  }
+ ]
+}

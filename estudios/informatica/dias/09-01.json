@@ -1,0 +1,758 @@
+{
+ "id": "09-01",
+ "titulo": "Qué problema resuelven las bases de datos",
+ "bajada": "Construís una base de datos casera con un archivo, la ves perder envíos y morir con un corte, y entendés qué le pedimos a un sistema gestor de bases de datos.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar por qué un archivo con un programa falla cuando hay dos escritores o un corte a mitad de escritura.",
+  "Definir SGBD, persistencia e integridad de datos con ejemplos del depósito.",
+  "Enumerar las cinco promesas de un SGBD y asociar cada una con el problema del archivo que resuelve.",
+  "Contar qué propuso Codd en 1970 y qué problema de los años sesenta venía a resolver.",
+  "Decidir con criterios cuándo un archivo alcanza y cuándo hace falta una base."
+ ],
+ "venis_de": "En la Parte 7 viste que un backend existe porque hace falta una autoridad sobre los datos, y en la Parte 8 cómo los sistemas se hablan entre sí. Sabés lo que es un archivo y un sistema de archivos. Falta una pregunta de fondo: ¿dónde viven los datos de verdad y quién los cuida?",
+ "se_apoya_en": [
+  "02-11",
+  "02-22",
+  "07-01",
+  "07-07",
+  "07-08",
+  "03-56"
+ ],
+ "gancho": [
+  "Lunes, siete de la mañana, depósito de zona norte. Hay un cuaderno con los envíos del día: quién los lleva, cuántos bultos son, si ya salieron. Dos personas lo usan a la vez. Una anota un envío nuevo en la hoja de la derecha mientras la otra tacha uno entregado en la misma hoja. Funciona porque el papel es físico: dos lapiceras escriben en dos renglones distintos sin pisarse.",
+  "Ahora pasá el cuaderno a una computadora. Un archivo, un programa que lo abre, y dos programas (la app de los choferes y el panel de la oficina) que quieren escribir al mismo tiempo. Hoy lo vas a ver con números reales: envíos que desaparecen sin ningún error, un archivo de 17 MB que se vuelve basura en medio segundo, reglas que nadie hace cumplir.",
+  "Lo que falta, y lo que resuelve un programa especializado, ocupa las próximas 46 clases: las bases de datos. Para entender por qué existen, primero hay que construir la versión casera y verla fallar."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Una base de datos casera: un archivo y un programa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Casi todos empezamos igual. Hay datos que guardar (los envíos de un depósito, por ejemplo) y la solución más a mano es un archivo de texto. El formato [[JSON]] que ya conocés sirve perfecto: una lista de envíos, cada uno con su código, sus bultos y su estado. Para sumar un envío, el programa hace tres cosas: **lee** todo el archivo, **agrega** el envío en memoria y **reescribe** todo el archivo. Es exactamente lo que hace este código de Python."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import json, sys\n\nARCH = \"envios.json\"\n\ndef agregar(envio):\n    with open(ARCH) as f:\n        datos = json.load(f)       # 1. leer todo el archivo\n    datos.append(envio)            # 2. sumar el envío en memoria\n    with open(ARCH, \"w\") as f:\n        json.dump(datos, f)        # 3. reescribir todo el archivo\n\nif __name__ == \"__main__\":\n    quien, cuantos = sys.argv[1], int(sys.argv[2])\n    for i in range(cuantos):\n        agregar({\"id\": f\"{quien}-{i}\", \"bultos\": 1})",
+   "cap": "Una «base de datos» casera completa. Dos procesos distintos pueden correr este mismo programa a la vez."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con un solo programa y pocos envíos anda sin quejas, y por eso tantas aplicaciones empiezan así. La prueba de fuego: lanzar dos copias a la vez, cada una agregando 300 envíos (A y B, 600 en total). En una base confiable, el archivo terminaría con 600."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "echo '[]' > envios.json; python3 casero.py A 300 & python3 casero.py B 300 & wait",
+     "s": "Traceback (most recent call last):\n  ...\njson.decoder.JSONDecodeError: Expecting value: line 1 column 1 (char 0)"
+    },
+    {
+     "c": "python3 -c \"import json; print(len(json.load(open('envios.json'))))\"",
+     "s": "300"
+    }
+   ],
+   "cap": "Cuatro corridas seguidas el 13-11-2026 en una VM de 4 núcleos compartida: en todas, uno de los dos programas murió con JSONDecodeError y quedaron 300, 300, 300 y 309 envíos de 600. El resultado exacto cambia de una corrida a otra."
+  },
+  {
+   "t": "p",
+   "x": [
+    "¿Qué pasó? Un programa abrió el archivo para reescribirlo, y al abrirlo en modo de escritura (`\"w\"`) el sistema operativo lo **vació al instante**. En ese milisegundo, el otro programa lo abrió para leer, encontró un archivo vacío y se cayó. Es una [[condición de carrera]]: el resultado depende de quién llega primero, y eso no lo controla ninguno de los dos programas.",
+    "Un programador cuidadoso diría: «escribo a un archivo temporal y después lo renombro, así el archivo real nunca queda a medias». Es un buen truco y se usa mucho. Probemos esa versión mejorada con la misma carrera."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "def agregar(envio):\n    with open(ARCH) as f:\n        datos = json.load(f)\n    datos.append(envio)\n    with open(ARCH + \".tmp.\" + str(os.getpid()), \"w\") as f:\n        json.dump(datos, f)\n    os.replace(f.name, ARCH)       # el archivo nunca queda a medio escribir",
+   "cap": "La versión cuidadosa: escribe en un temporal y lo reemplaza de un solo paso."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "for n in 1 2 3 4 5; do echo '[]' > envios.json; python3 casero2.py A 300 & python3 casero2.py B 300 & wait; python3 -c \"import json; print(len(json.load(open('envios.json'))))\"; done",
+     "s": "330\n333\n331\n329\n327"
+    }
+   ],
+   "cap": "Medido el 13-11-2026 en esta VM. Ningún programa falló: los dos terminaron con éxito y no hay ni una línea de error."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Esta es peor, porque no hay error que avise. Terminaron los dos programas «con éxito» y de 600 envíos quedaron entre 327 y 333. **Cerca de 270 envíos desaparecieron sin rastro.** Si fuera la tabla de un depósito, habría paquetes en un camión que no existen en el sistema."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Programa A",
+     "k": "cliente"
+    },
+    {
+     "n": "Archivo",
+     "k": "datos"
+    },
+    {
+     "n": "Programa B",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "leer: hay 10 envíos",
+     "resp": false,
+     "d": "A abre el archivo y lo lee entero. Para A, el archivo tiene 10 envíos."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "leer: hay 10 envíos",
+     "resp": false,
+     "d": "B lee el mismo archivo un instante después, antes de que A haya escrito nada. Para B también hay 10."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "escribir: 11 (los 10 + el de A)",
+     "resp": false,
+     "d": "A suma su envío en memoria y reescribe el archivo con 11 envíos."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "escribir: 11 (los 10 + el de B)",
+     "resp": false,
+     "d": "B suma el suyo a la copia vieja que leyó y reescribe el archivo. El envío de A se pierde: B no sabía que existía. Quedan 11 envíos en lugar de 12 y nadie recibe un error."
+    }
+   ],
+   "cap": "La actualización perdida, paso a paso. Cada programa hizo todo bien visto desde adentro."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Leer, modificar, escribir: el patrón que se rompe",
+   "x": "El problema no es el archivo ni Python. Es el patrón de tres pasos (leer, modificar, escribir) cuando entre el primero y el último otro puede hacer lo mismo. Se llama **actualización perdida**: dos escrituras que no se conocen y una pisa a la otra. Un sistema que guarda datos compartidos tiene que decidir qué hace cuando pasa. Un archivo común no decide nada."
+  },
+  {
+   "t": "pensa",
+   "x": "Alguien propone: «ponemos un cartel en el archivo, `ocupado=true`, y cada programa espera a que diga `false` antes de empezar». ¿Qué problema sigue habiendo?",
+   "resp": "Mirar el cartel y ponerlo en `true` son dos pasos, y entre uno y otro otro programa puede hacer lo mismo: la misma carrera, un nivel más arriba. Y si el programa muere con el cartel en `true`, nadie lo baja. Hace falta una operación indivisible (como el [[mutex]] del [@02-22]) y alguien que la libere si el proceso muere. Es lo que hace por dentro un motor de base de datos."
+  },
+  {
+   "t": "h",
+   "x": "Cuando el programa muere a mitad de escritura"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Otro problema es de naturaleza distinta. Pensemos en un solo programa y un archivo de 200.000 envíos (17,1 MB), generado con este script de semilla fija:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import json, random, sys\nrandom.seed(42)                      # semilla fija: siempre los mismos datos\nZONAS = [\"Norte\", \"Sur\", \"Oeste\", \"Centro\", \"Costa\"]\nESTADOS = [\"pendiente\", \"en_camino\", \"entregado\"]\nn = int(sys.argv[1])\nenvios = [{\"id\": i, \"zona\": random.choice(ZONAS), \"estado\": random.choice(ESTADOS),\n           \"bultos\": random.randint(1, 20), \"chofer_id\": random.randint(1, 30)}\n          for i in range(1, n + 1)]\njson.dump(envios, open(\"envios_grande.json\", \"w\"))",
+   "cap": "Datos inventados: 200.000 envíos de un depósito ficticio. Con la misma semilla salen siempre los mismos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El programa agrega un envío con el mismo patrón (leer, sumar, reescribir), pero a los pocos milisegundos de empezar a escribir muere: lo simulamos con una señal `SIGKILL`, que mata a un proceso sin darle chance de nada. Podría ser un error del programa, un reinicio o que Android lo termine por falta de memoria ([@02-10])."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "hijo = subprocess.Popen([sys.executable, \"-c\", \"\"\"\nimport json\ndatos = json.load(open(\"envios_prod.json\"))\ndatos.append({\"id\": 200001, \"zona\": \"Sur\", \"estado\": \"pendiente\", \"bultos\": 3, \"chofer_id\": 7})\nf = open(\"envios_prod.json\", \"w\")      # desde acá el archivo viejo ya no existe\nprint(\"escribiendo\", flush=True)\njson.dump(datos, f)\nf.close()\n\"\"\"], stdout=subprocess.PIPE, text=True)\nhijo.stdout.readline()                 # esperar a que empiece a escribir\ntime.sleep(0.04)\nos.kill(hijo.pid, signal.SIGKILL)      # el «corte»: el proceso muere sin avisar",
+   "cap": "Fragmento del script que simula el corte. Lo mata a los 40 milisegundos de abrir el archivo en modo de escritura."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 corte.py",
+     "s": "tamaño antes: 17099395  después: 1401289\nno se puede leer: JSONDecodeError - Expecting property name enclosed in double quotes: line 1 column 1401290 (char 1401289)"
+    },
+    {
+     "c": "python3 corte.py",
+     "s": "tamaño antes: 17099395  después: 1294769\nno se puede leer: JSONDecodeError - Expecting ':' delimiter: line 1 column 1294770 (char 1294769)"
+    }
+   ],
+   "cap": "Medido el 13-11-2026. Las dos corridas dejan un archivo cortado en un punto cualquiera: 200.000 envíos se convirtieron en un archivo ilegible."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate el tamaño: el archivo pasó de 17 MB a poco más de 1 MB. El programa no solo no agregó el envío 200.001: **destruyó los 200.000 anteriores**. La causa es la que ya viste: `open(..., \"w\")` vacía el archivo en el acto, y a partir de ahí hay una ventana de tiempo en la que el único ejemplar de los datos está a medio escribir. Un respaldo lo arregla, pero entonces sos vos quien tiene que hacerlo, probarlo y decidir cada cuánto."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Qué simula y qué no simula este experimento",
+   "x": "Matar un proceso con `SIGKILL` no es cortar la luz. Cuando muere un proceso, el sistema operativo sigue vivo y conserva lo que ya tenía en memoria para escribir a disco. Con un corte de energía real puede perderse además esa parte. Los motores hacen más de lo que muestra este día (lo ves en el [@09-27]): lo que probé es una versión suave del problema, no la peor."
+  },
+  {
+   "t": "h",
+   "x": "Reglas que nadie hace cumplir y búsquedas que lo leen todo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Quedan tres problemas menos dramáticos pero igual de costosos. El primero es la **integridad**: el archivo acepta cualquier cosa. Probalo: un envío con −5 bultos, un estado que no existe y dos envíos con el mismo código."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 -c \"from casero import agregar; agregar({'id':'X-1','bultos':-5,'estado':'perdido'}); agregar({'id':'X-1','bultos':2})\"; cat envios.json",
+     "s": "[{\"id\": \"X-1\", \"bultos\": -5, \"estado\": \"perdido\"}, {\"id\": \"X-1\", \"bultos\": 2}]"
+    }
+   ],
+   "cap": "Nadie se quejó: un archivo guarda lo que le des. Las reglas tendrían que estar en cada programa que lo toque."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si hay una sola aplicación escribiendo, se puede validar ahí ([[validación de entrada]], [@07-07]). Pero las aplicaciones se multiplican: el panel de la oficina, la app de los choferes, un script que carga envíos desde una planilla, alguien que abre el archivo a mano. Cada uno tiene que repetir las reglas, y alcanza con que uno se olvide.",
+    "El segundo es la **búsqueda**. Quiero el envío número 150.000 de un archivo de 200.000. El programa casero tiene que leer el archivo entero, convertirlo en objetos en memoria y recién ahí recorrerlo ([[búsqueda lineal]]). El tercero es **la memoria**: todo el archivo tiene que caber en la RAM. Para medirlo, comparé el archivo con una base SQLite con los mismos 200.000 envíos."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Operación (200.000 envíos)",
+    "Archivo JSON (17,1 MB)",
+    "Base SQLite (5,6 MB)"
+   ],
+   "filas": [
+    [
+     "Buscar el envío con id 150000",
+     "141 ms",
+     "0,15 ms"
+    ],
+    [
+     "Contar entregados de zona Norte con más de 10 bultos",
+     "12 ms",
+     "10,6 ms"
+    ],
+    [
+     "Memoria máxima del programa",
+     "94 MB",
+     "15 MB"
+    ]
+   ],
+   "cap": "Medido el 13-11-2026 en esta VM compartida con Python 3.13, tres corridas por programa (los valores son la mediana). Es una sola máquina: sirve para el orden de magnitud, no como número universal."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos lecturas honestas. Buscar *un* envío por su identificador es unas 900 veces más rápido, porque la base no lee el resto. Pero contar con un filtro tardó casi lo mismo en los dos: una base no es mágica, y si la pregunta obliga a mirar los 200.000 registros, los mira. Lo que cambia es que ofrece herramientas (los índices que verás en el [@09-20]) para que muchas preguntas *no* lo obliguen, y que no necesita cargar todo para contestar."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el cuaderno contra el encargado del depósito",
+   "x": [
+    "Un cuaderno donde cada uno anota lo que quiere funciona hasta que dos escriben a la vez, alguien anota «−5 pallets» o el jefe pregunta cuántos paquetes salieron al norte y hay que contarlos a mano.",
+    "Una base de datos es reemplazar el cuaderno por un **encargado** que es el único autorizado a tocarlo. Vos pedís («anotá esto», «dame lo del norte») y él decide el orden, rechaza lo que no cumple las reglas y no deja que dos pedidos se pisen. La analogía deja de valer en que el programa aplica las reglas igual la vez un millón que la primera, pero solo las que alguien le enseñó."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué es un SGBD y qué le pedimos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un **sistema gestor de bases de datos** ([[SGBD]], en inglés DBMS) es el programa que hace de encargado: se interpone entre tus aplicaciones y los datos, y es el único que toca los archivos en disco. Una **[[base de datos]]**, en sentido estricto, es el conjunto de datos organizados que ese programa administra. En el habla cotidiana se mezclan («la base» puede ser el motor o los datos), pero conviene separarlos: PostgreSQL es un SGBD; las tablas de envíos de tu depósito, dentro de él, son una base de datos.",
+    "Hay SGBD de dos formas. Los **servidores** corren aparte y atienden pedidos por red (PostgreSQL, MySQL, SQL Server, Oracle). Las **bibliotecas** se enlazan dentro de tu programa y guardan todo en un archivo (SQLite). La forma cambia la operación, pero las promesas son las mismas: cinco, cada una responde a un problema que acabás de ver romperse."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Promesa del SGBD",
+    "Qué problema del archivo casero resuelve",
+    "Día donde se estudia a fondo"
+   ],
+   "filas": [
+    [
+     "**Persistencia**: lo guardado sobrevive a que el programa termine o la máquina se reinicie",
+     "Datos que viven solo en memoria se pierden; los de disco tienen que escribirse y leerse bien",
+     "Hoy y [@09-19]"
+    ],
+    [
+     "**Concurrencia**: muchos pueden leer y escribir a la vez sin pisarse",
+     "Las 270 pérdidas silenciosas de la prueba con dos escritores",
+     "[@09-25] y [@09-26]"
+    ],
+    [
+     "**Recuperación**: si algo falla a mitad de una operación, queda todo o nada",
+     "El archivo de 17 MB destruido por un corte",
+     "[@09-24], [@09-27] y [@09-28]"
+    ],
+    [
+     "**Integridad**: solo entran datos que cumplen las reglas",
+     "El envío de −5 bultos y los códigos repetidos",
+     "[@09-06], [@09-07]"
+    ],
+    [
+     "**Consulta**: se pregunta *qué* se quiere, no *cómo* buscarlo",
+     "Escribir un recorrido a mano para cada pregunta nueva",
+     "[@09-03] en adelante"
+    ]
+   ],
+   "cap": "Hay una sexta promesa, la seguridad (quién puede ver y tocar qué), que se estudia en el [@09-41]."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "Tus aplicaciones",
+     "d": "La API, el panel, un script de reportes. Piden en un lenguaje de consulta; nunca tocan los archivos.",
+     "k": "cliente"
+    },
+    {
+     "n": "El lenguaje de consulta (SQL)",
+     "d": "Dice qué datos se quieren, no cómo conseguirlos.",
+     "k": "red"
+    },
+    {
+     "n": "El SGBD: reglas y permisos",
+     "d": "Rechaza lo que rompe una restricción o excede los permisos.",
+     "k": "servidor"
+    },
+    {
+     "n": "El SGBD: concurrencia y recuperación",
+     "d": "Ordena escrituras simultáneas y deshace lo que quedó a medias.",
+     "k": "servidor"
+    },
+    {
+     "n": "El SGBD: almacenamiento y búsqueda",
+     "d": "Decide cómo se guardan los datos y qué índices ayudan a encontrarlos.",
+     "k": "datos"
+    },
+    {
+     "n": "Archivos en disco",
+     "d": "Del sistema operativo ([@02-11]). Solo el SGBD los abre.",
+     "k": "os"
+    }
+   ],
+   "cap": "El SGBD es una capa entera entre las aplicaciones y el disco. La idea central es que todas las aplicaciones pasen por la misma puerta."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Todas las aplicaciones pasan por la misma puerta, y ese es el truco de fondo: las reglas, el orden de las escrituras y la recuperación se implementan una sola vez, donde pasan todos, y no repartidas en cada aplicación. Es la idea del [@07-01] (hace falta una **autoridad** que no sea el cliente) llevada hasta los datos."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "La misma prueba, con un SGBD"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Repitamos los experimentos con SQLite, que es una biblioteca y guarda la base entera en un archivo. Se crea una tabla de envíos con las reglas escritas **en la tabla**:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table envios (\n  id     integer primary key,\n  codigo text not null unique,\n  bultos integer not null check (bultos between 1 and 500),\n  estado text not null default 'pendiente'\n         check (estado in ('pendiente', 'en_camino', 'entregado'))\n);",
+   "cap": "Las reglas viven con los datos: bultos entre 1 y 500, códigos únicos, tres estados posibles. Cada parte se explica en los días [@09-05] a [@09-07]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Y un escritor que hace exactamente lo mismo que los de antes (300 envíos, uno por vez), pero ahora cada alta es una **transacción**: un grupo de pasos que el SGBD ejecuta como una sola unidad."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import sqlite3, sys\nquien, cuantos = sys.argv[1], int(sys.argv[2])\ncon = sqlite3.connect(\"envios.db\", timeout=30)   # si otro escribe, esperar hasta 30 s\nfor i in range(cuantos):\n    with con:                                     # una transacción por envío\n        con.execute(\"insert into envios (codigo, bultos) values (?, 1)\", (f\"{quien}-{i}\",))",
+   "cap": "No hay ningún «leer todo y reescribir todo»: el programa le dice al SGBD qué fila agregar."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 sql_escritor.py A 300 & python3 sql_escritor.py B 300 & wait",
+     "s": ""
+    },
+    {
+     "c": "sqlite3 envios.db 'select count(*) from envios'",
+     "s": "600"
+    },
+    {
+     "c": "python3 corte_sql.py   # 500.000 inserts en una transacción; kill -9 a las 100.000",
+     "s": "filas antes: 600  después del corte: 600\nintegrity_check: ok"
+    },
+    {
+     "c": "python3 rechazos.py",
+     "s": "rechazado: CHECK constraint failed: bultos between 1 and 500\nrechazado: UNIQUE constraint failed: envios.codigo\nrechazado: CHECK constraint failed: estado in ('pendiente','en_camino','entregado')"
+    }
+   ],
+   "cap": "Medido el 13-11-2026. Tres corridas del test de dos escritores dieron 600 de 600 cada vez. SQLite 3.53.1, la que trae el Python de esta VM; el comando `sqlite3` de la consola es una versión distinta (3.45.1) y la consulta de conteo es la misma en las dos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los cuatro resultados, uno por uno. **Concurrencia**: 600 de 600, tres veces seguidas. SQLite no hace magia: admite muchos lectores pero **un solo escritor a la vez** por archivo, y los demás hacen cola [#bd0901-sqlite-whentouse]; con `timeout=30`, cada uno espera su turno en vez de fallar. **Recuperación**: a las 100.000 filas se mató al proceso antes del `commit` (la orden que confirma la transacción) y al reabrir no quedó ninguna: la transacción se hizo toda o no se hizo. SQLite explica cómo lo logra en una página dedicada [#bd0901-sqlite-atomiccommit]; lo recorrés en el [@09-24] y el [@09-27]. **Integridad**: los tres datos imposibles fueron rechazados sin que ninguna aplicación validara nada."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "SQLite no es mejor que PostgreSQL por haber ganado este test",
+   "x": "Elegí SQLite porque no necesita instalar un servidor, no porque sea «la» solución. Su documentación dice que no compite con las bases cliente-servidor: «SQLite competes with fopen()» [#bd0901-sqlite-whentouse], o sea, con el archivo casero. Si muchos procesos escriben a la vez, recomienda un servidor."
+  },
+  {
+   "t": "pensa",
+   "x": "En el experimento de recuperación, ¿cuántas filas había en la tabla al reabrir la base: 600, 100.600 o 500.600? ¿Y cuál habría sido la respuesta si el programa hubiera hecho un `commit` por fila, como en el test anterior?",
+   "resp": "Había 600: la transacción larga nunca llegó a confirmarse y la base la deshizo entera. Con un `commit` por fila habría quedado todo lo ya confirmado (en una matanza a las 100.000, unas 100.600), porque cada fila sería una transacción propia. La unidad de «todo o nada» es la transacción, no el programa."
+  },
+  {
+   "t": "h",
+   "x": "Persistencia e integridad: dos palabras para tener claras"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ya usaste las dos sin presentarlas. La **[[persistencia]]** es la propiedad de un dato de seguir existiendo cuando el programa que lo creó terminó. Lo opuesto es un arreglo en la [[memoria volátil]]: desaparece al cerrar. Guardar en disco (un [[archivo]] en un [[SSD]]) da persistencia, pero no la garantiza: el archivo de 17 MB «persistió»... hasta que un corte lo dejó ilegible. Un SGBD ofrece persistencia *confiable*: lo que dijo «confirmado» sigue ahí.",
+    "La **[[integridad de datos]]** es la propiedad de que lo guardado cumpla las reglas del mundo que representa: un envío tiene entre 1 y 500 bultos, un código no se repite, un envío asignado a un chofer apunta a un chofer que existe (esta última, la integridad referencial, se ve en el [@09-07]). Lo importante hoy es dónde viven esas reglas: en el SGBD, además de en la aplicación. La aplicación valida para dar mensajes claros ([@07-07]) y aplica las reglas del negocio ([@07-08]); la base es la **última defensa**, la que sigue funcionando cuando otra aplicación, un script o una persona se saltea todo lo anterior."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda guarda lo mismo de dos maneras distintas",
+   "x": [
+    "En el teléfono, Senda hace lo que hizo tu programa casero: guarda el progreso como texto JSON en un almacén de clave y valor (AsyncStorage 2.2.0). `src/util/almacen.ts` junta los cambios y los escribe de a lotes 400 ms después del primero, y los escribe de inmediato al pasar la app a segundo plano «para no perder nada», dice su comentario. Es una decisión de **persistencia**: si la app muriera dentro de esos 400 ms, el último cambio podría no llegar. Y si el texto guardado estuviera dañado, la lectura atrapa el error y devuelve `null`; lo que pasa después con ese `null` es una INFERENCIA mía (zustand arranca con valores iniciales), no lo probé en un teléfono.",
+    "En la nube, lo compartido (duelos, grupos, copas, perfiles) vive en Postgres dentro de Supabase: 41 tablas en 42 archivos de migración, con reglas escritas en las tablas. Por ejemplo, `respuestas` exige `nivel smallint not null check (nivel between 1 and 5)` y `propuestas_travesia` exige que `estado` sea uno de cuatro valores con `check (estado in (...))`. Es la misma idea de la tabla de envíos de hoy.",
+    "Esto corresponde al commit `25e08fa` (9 de noviembre de 2026): el código cambia, la forma permanece. El criterio de hoy: lo que es de una sola persona y sin competencia puede ir en un archivo; lo que comparten muchos, en un SGBD."
+   ],
+   "archivos": [
+    "src/util/almacen.ts",
+    "src/estado/usuario.ts",
+    "supabase/migrations/20261026000000_inicio.sql",
+    "supabase/migrations/20261011000000_propuestas.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "De dónde viene todo esto: antes de Codd y después de Codd"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las bases de datos modernas tienen un acta de nacimiento bastante precisa. En los años sesenta, los sistemas de información de empresas y gobiernos ya manejaban volúmenes enormes, cada uno con herramientas propias. El caso mejor documentado es IMS, de IBM. Según IBM, nació como ICS/DL/I para el programa Apolo: un sistema para registrar piezas de cohetes, pedido por North American Aviation (luego Rockwell). Su primer mensaje «READY» apareció el 14 de agosto de 1968 en la división espacial de Rockwell, en Downey, California [#bd0901-ibm-ims].",
+    "IMS guardaba los datos en un árbol (modelo jerárquico) y, según la misma fuente, las búsquedas había que programarlas a mano siguiendo esa estructura; cambiar la forma de los datos obligaba a reescribir programas. Codd cita en su artículo el manual de IMS/360 de julio de 1968 [#codd-1970]. Lo que hoy resolvés con un `select` era, en 1968, un oficio de especialistas."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "linea-tiempo",
+   "eventos": [
+    {
+     "a": "1968",
+     "t": "IMS corre en Rockwell",
+     "d": "Primer «READY» el 14 de agosto, para registrar piezas del programa Apolo. Datos en árbol [#bd0901-ibm-ims]."
+    },
+    {
+     "a": "1970",
+     "t": "Codd publica el modelo relacional",
+     "d": "«A Relational Model of Data for Large Shared Data Banks», Communications of the ACM, vol. 13, n.º 6, junio de 1970 [#codd-1970]."
+    },
+    {
+     "a": "1973",
+     "t": "Empieza System R",
+     "d": "Un grupo de IBM construye una implementación de nivel industrial de la idea de Codd; de ahí sale SQL (Chamberlin y Boyce) [#sql-ibm-historia]."
+    },
+    {
+     "a": "1977",
+     "t": "Oracle (Relational Software)",
+     "d": "Según IBM, la empresa de Larry Ellison produjo la primera base relacional comercial [#sql-ibm-historia]."
+    },
+    {
+     "a": "1981",
+     "t": "Turing Award para Codd",
+     "d": "La ACM lo distingue; IBM ya lo había nombrado Fellow en 1976 [#sql-ibm-historia]."
+    },
+    {
+     "a": "1983",
+     "t": "DB2 sale al mercado",
+     "d": "IBM lo entrega por primera vez sobre mainframes MVS [#sql-ibm-historia]."
+    }
+   ],
+   "cap": "Una línea de tiempo mínima, con fechas tomadas de IBM y del artículo original. Hubo otros actores (por ejemplo, el proyecto Ingres en la Universidad de California en Berkeley) que esta línea no cubre."
+  },
+  {
+   "t": "p",
+   "x": [
+    "En 1970, Edgar F. «Ted» Codd, un matemático del laboratorio de investigación de IBM en San José, publicó un artículo que cambió el modo de pensar el problema. Su resumen arranca con una frase que sigue siendo el programa de toda base de datos:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "Future users of large data banks must be protected from having to know how the data is organized in the machine (the internal representation).",
+   "autor": "E. F. Codd, 1970 (resumen del artículo)",
+   "fuente": "codd-1970"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Traducido: quien usa los datos no debería tener que saber cómo están guardados. Es la **independencia de datos**. Codd identifica tres dependencias a eliminar [#bd0901-codd-pdf]: de **orden** (los programas asumen que los registros vienen en el orden en que se guardaron), de **índices** (los programas nombran índices y fallan si se los quita) y de **camino de acceso** (dependen de la forma de árbol o de red en que se organizaron los datos). Fijate cómo reaparecen en el programa casero: si cambiás el orden o la estructura del JSON, todo programa que lo lea se rompe.",
+    "La respuesta de Codd fue describir los datos con una estructura matemática simple, la **relación** (en la práctica, una tabla), donde el vínculo entre datos se expresa por valores y no por punteros ocultos. De ahí salió el modelo relacional, que ves mañana en el [@09-02], y poco después SQL, con el que se le pregunta a una base *qué* se quiere y no *cómo* buscarlo. Casi todo SGBD de uso general desciende de esa idea (el [@09-34] recorre las alternativas)."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Base de datos» no quiere decir «tablas de SQL»",
+   "x": "«Base de datos» es el concepto (datos organizados y administrados por un SGBD), «relacional» es *un* modelo (el de Codd) y SQL es el lenguaje con el que se usa. Existen SGBD de documentos, de pares clave-valor y de grafos. Y una planilla de Excel no es una base de datos en este sentido: no ofrece concurrencia segura ni reglas que se cumplan sin que lo haga cada usuario."
+  },
+  {
+   "t": "h",
+   "x": "Cuándo alcanza un archivo (la parte que casi nadie cuenta)"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Nada de lo anterior significa que todo vaya a un SGBD. Un archivo es una excelente respuesta cuando se cumplen tres condiciones: lo escribe **un solo programa** a la vez, lo que se pierda se puede **rehacer** y las preguntas son **siempre las mismas** y baratas. Un archivo de configuración, el registro de una herramienta o una exportación para mandar por mail pasan esa prueba.",
+    "Lo que cambia la respuesta no es el tamaño sino la presencia de **varios actores**, de **datos que no se pueden perder** o de **preguntas variables**. Con uno solo de los tres ya conviene pensar en un SGBD, y si lo que querés es un archivo con garantías, suele servir una biblioteca como SQLite."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pregunta de decisión",
+    "Si la respuesta es sí, apunta a…"
+   ],
+   "filas": [
+    [
+     "¿Escribe más de un programa o persona a la vez?",
+     "SGBD (concurrencia)"
+    ],
+    [
+     "¿Perder el último cambio tendría un costo real que no se puede rehacer?",
+     "SGBD (recuperación)"
+    ],
+    [
+     "¿Hay reglas del tipo «esto nunca puede pasar» que no deban depender de cada programa?",
+     "SGBD (integridad)"
+    ],
+    [
+     "¿Las preguntas cambian o son demasiadas como para programar cada una?",
+     "SGBD (consulta)"
+    ],
+    [
+     "¿Es un solo programa, datos regenerables y preguntas siempre iguales?",
+     "Un archivo alcanza"
+    ]
+   ],
+   "cap": "Una regla práctica (criterio, no norma): una sola respuesta afirmativa en las cuatro primeras filas ya justifica pensar en un SGBD."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Decidí en cada caso si alcanza un archivo o hace falta un SGBD, y justificá con una promesa: (a) el archivo `.env` con la configuración de tu servidor, (b) la lista de envíos que ven en vivo 40 choferes y 5 personas de la oficina, (c) un CSV con el reporte semanal que generás con un script y mandás a un cliente.",
+   "pista": "Mirá en cada uno cuántos actores escriben, qué pasaría si se pierde y si las preguntas son siempre las mismas.",
+   "solucion": "(a) Alcanza un archivo: lo escribe una persona de vez en cuando y se puede rehacer; no hay concurrencia ni preguntas variables. (b) Hace falta un SGBD: escriben muchos a la vez (concurrencia), perder un cambio tiene costo real (recuperación) y las preguntas de la oficina son cambiantes (consulta). (c) Alcanza un archivo: se genera de nuevo desde otra fuente y nadie lo escribe en paralelo; si se pierde, se regenera."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y fechas de lo que corrí hoy",
+   "x": "Todo se corrió el 13-11-2026 en una VM Linux (Ubuntu 24.04) con Python 3.13 y SQLite 3.53.1 (`select sqlite_version()`), la que trae ese Python; el comando `sqlite3` de la consola es otra versión (3.45.1). Los tiempos son de una sola máquina compartida: valen como orden de magnitud. El artículo de Codd se leyó en una copia en PDF [#bd0901-codd-pdf], porque el sitio de la ACM bloquea las descargas automáticas."
+  }
+ ],
+ "recap": [
+  "Un archivo con un programa es una base de datos casera: persiste, pero no tiene concurrencia, recuperación, integridad ni consultas.",
+  "Con dos escritores, el patrón leer-modificar-escribir pierde datos sin avisar: unos 270 de 600 envíos en la prueba (actualización perdida).",
+  "Si el programa muere a mitad de escritura, el único ejemplar queda a medias: 200.000 envíos se volvieron un archivo ilegible.",
+  "Un SGBD se interpone entre las aplicaciones y los datos: todas pasan por la misma puerta, y las reglas se aplican una sola vez.",
+  "Sus promesas: persistencia confiable, concurrencia, recuperación, integridad y consulta declarativa. SQLite pasó las pruebas de hoy, con un solo escritor a la vez.",
+  "Codd (1970) propuso que quien usa los datos no tenga que saber cómo se guardan (independencia de datos); de ahí salieron el modelo relacional y SQL.",
+  "Un archivo alcanza si lo escribe un solo programa, los datos se pueden regenerar y las preguntas son siempre las mismas."
+ ],
+ "repaso": [
+  {
+   "p": "En la prueba con dos programas que agregaban 300 envíos cada uno al mismo JSON (con escritura segura a archivo temporal), quedaron unos 330 de 600 y ningún error. ¿Cuál es la causa?",
+   "o": [
+    "El disco no tenía lugar para guardar los 600 envíos y descartó los que sobraban",
+    "El programa de Python no logra escribir archivos más de 300 veces por ejecución",
+    "Cada uno leyó antes de que el otro escribiera y después pisó el archivo con su versión",
+    "Los dos programas escribían al mismo tiempo y el sistema operativo mezcló sus bytes"
+   ],
+   "c": 2,
+   "e": "Es el patrón leer-modificar-escribir: cada programa partió de una copia vieja y pisó lo que el otro había agregado. No hubo error porque cada programa hizo bien lo suyo. La opción de los bytes mezclados corresponde a otro problema (escrituras parciales), y la de espacio o del límite de Python no tiene nada que ver: el archivo cabía de sobra."
+  },
+  {
+   "p": "¿Por qué un programa que abre un archivo con `open(ARCH, \"w\")` y muere a mitad de la escritura puede destruir datos que ya estaban guardados?",
+   "o": [
+    "El modo de escritura vacía el archivo al abrirlo y los datos nuevos llegan después",
+    "El sistema operativo borra los archivos de un programa que termina de manera abrupta",
+    "Python guarda una copia de seguridad y la elimina cuando el programa no termina bien",
+    "La señal de muerte del proceso formatea el bloque del disco donde estaba el archivo"
+   ],
+   "c": 0,
+   "e": "El modo \"w\" trunca el archivo en el acto; hasta que termina de escribir, el único ejemplar está incompleto. Ni el sistema operativo ni Python borran nada por su cuenta, y una señal contra un proceso no toca el disco directamente."
+  },
+  {
+   "p": "Un programa inserta 100.000 filas dentro de una única transacción en SQLite y lo matan antes del `commit`. Al reabrir, ¿qué hay de esas filas?",
+   "o": [
+    "Las primeras 100.000, porque se escribieron una por una en el archivo",
+    "Algunas, las que alcanzaron a escribirse antes de la señal de muerte",
+    "Todas, pero marcadas como pendientes hasta que alguien las confirme",
+    "Ninguna: la transacción no se confirmó y la base la descarta completa"
+   ],
+   "c": 3,
+   "e": "La unidad de todo o nada es la transacción: lo que no se confirmó no queda. Por eso la tabla siguió en 600 filas. La respuesta de «algunas» describe lo que pasaría con un archivo casero, que no tiene noción de transacción. Ojo: esto vale para matar un proceso; un corte de luz real depende además de que el sistema escriba bien a disco."
+  },
+  {
+   "p": "Una API valida que `bultos` esté entre 1 y 500, y la tabla de la base no tiene ninguna restricción. Un script de mantenimiento escribe directo en la tabla. ¿Qué es lo más probable que pase?",
+   "o": [
+    "La base reconoce la regla de la API y rechaza el valor por su propia cuenta",
+    "Puede entrar un valor imposible: la regla solo existe en la API que el script no usa",
+    "El script falla porque la API se encarga de todas las escrituras de la tabla",
+    "La base corrige sola el valor, llevándolo al más cercano dentro del rango permitido"
+   ],
+   "c": 1,
+   "e": "Las reglas que están solo en la aplicación se aplican solo a quien pasa por ella. Por eso las restricciones en la tabla son la última defensa: valen para todos los que escriben. Una base no adivina reglas ni corrige valores por su cuenta."
+  },
+  {
+   "p": "Contar los envíos con un filtro tardó casi lo mismo en el JSON que en SQLite, aunque buscar un envío por su identificador fue unas 900 veces más rápido en SQLite. ¿Cómo se explica?",
+   "o": [
+    "SQLite está pensada solo para buscar por identificador y no sabe contar bien filas",
+    "El JSON trae un índice interno que acelera los conteos que usan un filtro por zona",
+    "La memoria de la VM era distinta en el momento en que se midió cada formato, por azar",
+    "El conteo obliga a mirar los 200.000 registros en ambos; la ventaja es poder ir directo a uno"
+   ],
+   "c": 3,
+   "e": "Si la pregunta exige revisar todo, un SGBD también revisa todo; lo que cambia es que ofrece caminos (la clave primaria, los índices) para evitarlo en muchos casos. El JSON no tiene ningún índice, y SQLite cuenta sin problema. Las dos pruebas se hicieron en la misma máquina."
+  },
+  {
+   "p": "Un compañero dice: «Usamos PostgreSQL como base de datos». ¿Qué precisión le agregarías?",
+   "o": [
+    "PostgreSQL es el lenguaje y SQL es el programa que lo ejecuta, y los dos juntos forman la base",
+    "PostgreSQL es una base de datos y SQLite un SGBD, porque uno es servidor y el otro no",
+    "PostgreSQL es el SGBD, el programa que administra; las tablas con los envíos son la base",
+    "PostgreSQL y la base de datos son lo mismo, porque en la práctica no se distinguen"
+   ],
+   "c": 2,
+   "e": "Un SGBD es el software que gestiona; una base de datos es el conjunto de datos que gestiona. La forma de entrega (servidor o biblioteca) no cambia esa distinción: SQLite también es un SGBD. SQL es el lenguaje de consulta, no el programa."
+  },
+  {
+   "p": "¿En cuál de estos casos un archivo es una elección razonable y no hace falta un SGBD?",
+   "o": [
+    "El stock de un depósito que actualizan a la vez varias terminales de carga",
+    "El archivo de configuración de un servidor, escrito a mano por una persona de vez en cuando",
+    "El historial de pedidos de una tienda que los clientes consultan con filtros",
+    "Las cuentas de usuarios y contraseñas de una aplicación con miles de personas"
+   ],
+   "c": 1,
+   "e": "Un único escritor, datos que se pueden rehacer y consultas siempre iguales: el caso en que un archivo alcanza. Las otras opciones tienen varios actores, datos que no pueden perderse o preguntas variables, justo lo que un SGBD resuelve."
+  }
+ ],
+ "feynman": "Explicale a alguien que usa una planilla compartida para llevar los envíos de su negocio por qué, si dos personas la editan a la vez, se pueden perder datos sin ningún aviso, y qué le daría un sistema gestor de bases de datos para evitarlo.",
+ "para_profundizar": [
+  {
+   "fuente": "codd-1970",
+   "nota": "El artículo original. Leé el resumen y la sección 1.2 (dependencias de orden, de índices y de camino de acceso): es el diagnóstico de lo que ya viste romperse en el programa casero."
+  },
+  {
+   "fuente": "bd0901-sqlite-whentouse",
+   "nota": "Cuándo conviene SQLite y cuándo un servidor; la lista de «situaciones donde funciona bien» y «donde conviene otra cosa» es un buen criterio general para elegir."
+  },
+  {
+   "fuente": "bd0901-sqlite-atomiccommit",
+   "nota": "Cómo SQLite logra el todo o nada ante una falla, explicado con diagramas. Es un adelanto de los días de transacciones y recuperación."
+  },
+  {
+   "fuente": "sql-ibm-historia",
+   "nota": "La historia corta de System R, SQL y los primeros productos relacionales, contada por IBM."
+  }
+ ],
+ "videos": [
+  {
+   "q": "qué es una base de datos y por qué se necesita explicación desde cero",
+   "por_que": "Para ver la idea explicada en otro formato; elegí uno que mencione concurrencia y transacciones, no solo tablas."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "SGBD",
+   "d": "Sistema gestor de bases de datos: el programa que administra los datos, ordena los accesos, hace cumplir las reglas y los protege ante fallas. Es lo que se interpone entre las aplicaciones y los archivos en disco (PostgreSQL, SQLite, MySQL)."
+  },
+  {
+   "t": "persistencia",
+   "d": "Propiedad de un dato de seguir existiendo cuando el programa que lo creó terminó o la máquina se reinició. Se logra guardándolo en un medio no volátil, y un SGBD la hace confiable: lo confirmado sigue ahí."
+  },
+  {
+   "t": "integridad de datos",
+   "d": "Propiedad de que los datos guardados cumplan las reglas del mundo que representan (un envío tiene entre 1 y 500 bultos, un código no se repite). Un SGBD las hace cumplir con restricciones, sin depender de cada aplicación."
+  },
+  {
+   "t": "Codd",
+   "d": "Edgar F. «Ted» Codd, matemático de IBM que en 1970 publicó «A Relational Model of Data for Large Shared Data Banks», el artículo que dio origen al modelo relacional. Recibió el Turing Award en 1981."
+  },
+  {
+   "t": "actualización perdida",
+   "d": "Fallo de concurrencia en el que dos programas leen el mismo dato, lo modifican y lo escriben, y la segunda escritura pisa la primera sin que ninguno lo note."
+  },
+  {
+   "t": "independencia de datos",
+   "d": "Idea de Codd: las aplicaciones no deberían depender de cómo están guardados los datos (su orden, sus índices o sus punteros), para que se pueda cambiar la forma de guardarlos sin reescribir los programas."
+  }
+ ],
+ "siguiente": "Mañana: qué es exactamente una tabla en el modelo de Codd, por qué se llama «relacional» y cómo se pregunta por filas y columnas con álgebra.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0901-ibm-ims",
+   "t": "Information Management System (IBM): historia",
+   "a": "IBM",
+   "tipo": "articulo",
+   "url": "https://www.ibm.com/history/information-management-system"
+  },
+  {
+   "id": "bd0901-sqlite-whentouse",
+   "t": "Appropriate Uses For SQLite",
+   "a": "SQLite",
+   "tipo": "doc",
+   "url": "https://www.sqlite.org/whentouse.html"
+  },
+  {
+   "id": "bd0901-sqlite-atomiccommit",
+   "t": "Atomic Commit In SQLite",
+   "a": "SQLite",
+   "tipo": "doc",
+   "url": "https://www.sqlite.org/atomiccommit.html"
+  },
+  {
+   "id": "bd0901-codd-pdf",
+   "t": "A Relational Model of Data for Large Shared Data Banks (copia en PDF)",
+   "a": "Edgar F. Codd",
+   "tipo": "paper",
+   "anio": 1970,
+   "url": "https://www.seas.upenn.edu/~zives/03f/cis550/codd.pdf"
+  }
+ ]
+}

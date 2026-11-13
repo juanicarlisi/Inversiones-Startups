@@ -1,0 +1,629 @@
+{
+ "id": "08-15",
+ "titulo": "Integrar un servicio de terceros: qué pasa por dentro",
+ "bajada": "Armás un adaptador contra un proveedor simulado, lo rompés de seis maneras y medís qué hace cuando el tercero se cae, se pone lento, te frena o cambia el formato sin avisar.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es una dependencia de proveedor y distinguir sus cinco caras: técnica, operativa, económica, legal y de datos.",
+  "Escribir un adaptador que traduzca el formato de un proveedor al lenguaje del negocio y que falle en la frontera cuando el formato cambia.",
+  "Diseñar una escalera de degradación elegante para una lectura y justificar por qué una escritura no puede usarla igual.",
+  "Calcular cuántos pedidos recibe un proveedor caído con y sin circuit breaker y qué métricas permiten notar la degradación.",
+  "Leer una política de uso y traducirla en decisiones de diseño, como el interruptor remoto de Senda."
+ ],
+ "venis_de": "En [@08-12] viste los límites que un servicio te pone y en [@08-14] cómo se documenta un contrato con OpenAPI y se prueba con un SDK. Falta lo que pasa del otro lado de la frontera: qué hace tu app cuando el contrato cambia, el proveedor falla o sus términos cambian.",
+ "se_apoya_en": [
+  "08-12",
+  "08-13",
+  "08-14",
+  "07-17",
+  "07-12"
+ ],
+ "gancho": [
+  "En Senda, cuando alguien arma un evento y escribe dónde va a ser, la app le pregunta por esa dirección a un servicio que no es de Senda: Nominatim, el buscador de OpenStreetMap, que corre en servidores donados y que le permite a cada aplicación, sumados todos sus usuarios, un máximo de un pedido por segundo. Ese servicio puede estar lento una tarde, cambiar el formato de lo que devuelve, o su dueño puede pedir que lo apagues hoy mismo.",
+  "Hoy vas a ver qué se hace antes de que eso pase. Armé un transportista inventado que cotiza envíos, escribí el módulo que habla con él y lo rompí de seis maneras para medir qué ocurre. Es la parte que los tutoriales omiten, porque muestran solo el día en que todo anda."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un servicio ajeno entra a tu casa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Integrar es alquilar. En vez de construir tu propio buscador de direcciones, tu propio cobro con tarjetas o tu propio cálculo de tarifas de envío, usás el de otro por HTTP y a cambio pagás plata, datos o atención. Casi siempre conviene: armar un buscador de direcciones del mundo entero te llevaría años.",
+    "El alquiler tiene una consecuencia que se olvida mientras todo anda: **desde ese momento, una parte de tu producto funciona en computadoras que no controlás, con reglas que escribe otro**. Esa situación se llama [[dependencia de proveedor]]. No es mala por sí misma: lo que importa es saber de qué manera dependés y qué hacés cuando el otro cambia."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "La dependencia tiene cinco caras, y conviene separarlas porque se arreglan con herramientas distintas:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cara",
+    "La pregunta",
+    "Un caso"
+   ],
+   "filas": [
+    [
+     "Técnica",
+     "¿Cuánto de mi código conoce el formato del proveedor?",
+     "El precio llega como texto `\"4900.00\"` y tu código lo usa en veinte lugares."
+    ],
+    [
+     "Operativa",
+     "¿Qué me pasa cuando él está lento o caído?",
+     "La pantalla de cotización queda girando hasta que el usuario se va."
+    ],
+    [
+     "Económica",
+     "¿Cuánto cuesta cada uso y quién puede cambiar el precio?",
+     "Pasa de gratis a pago, o cuenta los reintentos fallidos contra tu [[cuota]]."
+    ],
+    [
+     "Legal",
+     "¿Qué me permite y qué me prohíbe su contrato?",
+     "Exige mostrar su nombre, prohíbe guardar sus respuestas o limita las consultas por segundo."
+    ],
+    [
+     "De datos",
+     "¿Qué datos míos quedan en su sistema y puedo llevármelos?",
+     "Tus clientes y su historial viven en la plataforma de otro."
+    ]
+   ],
+   "cap": "Las cinco caras de depender de un tercero."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Una distribuidora que despacha todo con un único transportista tiene la misma exposición: si él sube la tarifa, cambia el formato del remito o un lunes no pasa por el depósito, ella queda parada. La salida de siempre es tener un procedimiento para cotizar con otro y alguien de administración que traduce el tarifario de cada transportista al sistema propio.",
+    "Dónde deja de valer: cambiar de transportista es un llamado telefónico y una semana de prueba. Cambiar de API es reescribir código, volver a probar y, a veces, migrar datos. Por eso la preparación hay que hacerla antes, cuando todavía no duele."
+   ],
+   "titulo": "El transportista único"
+  },
+  {
+   "t": "pensa",
+   "x": "Una app cotiza envíos con la API de un solo transportista. Si este tiene una caída de dos horas, sube el precio un 30 % y cambia el nombre de un campo, ¿qué dependencias se activaron?",
+   "resp": "La operativa (la caída), la económica (el precio) y la técnica (el campo). La legal y la de datos no se tocaron, pero siguen estando. Una sola mala semana puede activar varias a la vez."
+  },
+  {
+   "t": "h",
+   "x": "El adaptador: que el idioma del proveedor no entre a tu casa"
+  },
+  {
+   "t": "p",
+   "x": "Para practicar armé un transportista inventado, «Envíos Ficticios S. A.», un programa de Node que escucha solo en `127.0.0.1`. Le pedí una cotización para el código postal 1000 y 2 kilos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s 'http://127.0.0.1:20815/v2/quote?to=1000&kg=2'",
+     "s": "{\"quote_id\":\"q_1\",\"svc\":\"EXP\",\"price\":{\"amt\":\"4900.00\",\"cur\":\"ARS\"},\"eta_days\":\"2\"}"
+    }
+   ],
+   "cap": "Respuesta del proveedor inventado, en su propio idioma. Los datos son de prueba."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá cómo habla. `svc: \"EXP\"` es un código interno suyo, `amt` es el precio **como texto** y `eta_days` también. Ninguna de esas decisiones la tomaste vos. Si tu pantalla, tu base de datos y tus informes leen `r.price.amt`, el vocabulario del proveedor queda desparramado por toda la app.",
+    "La solución es poner una frontera. Un [[adaptador]] es un módulo que conoce el idioma del proveedor y el idioma de tu negocio, y es el único que traduce entre los dos. Hacia adentro de la app ofrece una función con tus propios nombres (`cotizar({hasta, kg})`) que devuelve tus propios objetos. Hacia afuera, hace las llamadas HTTP con las particularidades del proveedor."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "La idea es vieja y tiene dos nombres. Alistair Cockburn la publicó en 2005 como «puertos y adaptadores»: la aplicación define lo que necesita, y un adaptador por cada tecnología externa convierte eso en llamadas concretas, de modo que la aplicación no sabe qué hay del otro lado [#integ0815-cockburn-hexagonal]. Cuando el tercero es un sistema que no controlás, la guía de arquitectura de Azure lo llama [[capa anticorrupción]]: una capa que traduce entre dos sistemas para que el diseño de uno no se deforme por las rarezas del otro [#integ0815-azure-acl].",
+    "El mismo documento avisa del precio: la capa agrega latencia y es un componente más que mantener [#integ0815-azure-acl]. Es un costo real, pero chico frente a tocar veinte archivos cada vez que un proveedor renombra un campo."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "El adaptador de hoy hace tres cosas: traduce el formato, decide qué hacer cuando algo sale mal y deja registro de lo que pasó. La primera es esta:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const SERVICIOS = { EXP: 'express', STD: 'estandar' };\n\n/** Del idioma del proveedor al del negocio. Si la forma no es la esperada, falla acá, en la frontera. */\nexport function traducir(raw) {\n  const p = raw?.price;\n  const ok = typeof p?.amt === 'string' && /^\\d+(\\.\\d{1,2})?$/.test(p.amt) && p.cur === 'ARS'\n    && /^\\d+$/.test(raw.eta_days ?? '') && raw.svc in SERVICIOS;\n  if (!ok) throw new ContratoRoto('forma inesperada, claves: ' + Object.keys(raw ?? {}).join(','));\n  const [ent, dec = ''] = p.amt.split('.');\n  return { servicio: SERVICIOS[raw.svc], centavos: Number(ent) * 100 + Number(dec.padEnd(2, '0')), moneda: 'ARS', dias: Number(raw.eta_days) };\n}",
+   "cap": "La traducción, del archivo `adaptador.mjs` que corrí en esta VM. Nada fuera de él conoce `amt` ni `eta_days`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay cuatro decisiones escondidas en esas pocas líneas. **Primero se valida y después se traduce**: si falta algo o tiene otro tipo, la función falla ahí, en la frontera, con un error con nombre (`ContratoRoto`) que dice qué claves llegaron. **El precio se convierte a un entero de centavos** leyendo el texto, sin pasar por un número con coma: con coma flotante, `0.1 + 0.2` da `0.30000000000000004` ([@01-14]), y con plata no se puede tolerar. **El código `EXP` se convierte a la palabra de tu negocio** (`express`), así que el día que el proveedor cambie sus códigos, se cambia un mapa. Y **un valor desconocido no se inventa**: si llega un servicio que no está en el mapa, es un contrato roto.",
+    "Hacia adentro, todo lo que sale de acá tiene la forma `{servicio, centavos, moneda, dias}`."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Pantalla",
+       "s": "habla de cotizaciones",
+       "k": "cliente"
+      },
+      {
+       "t": "Servicio de envíos",
+       "s": "tu lógica de negocio",
+       "k": "servidor"
+      },
+      {
+       "t": "Adaptador",
+       "s": "traduce, protege, mide",
+       "k": "datos",
+       "e": "cotizar({hasta, kg})"
+      },
+      {
+       "t": "Proveedor",
+       "s": "formato propio",
+       "k": "red",
+       "e": "GET /v2/quote"
+      }
+     ],
+     "baja": "Si el proveedor cambia, solo cambia el tercer cuadro."
+    }
+   ],
+   "cap": "Lo que está a la izquierda de la frontera usa el vocabulario de tu negocio; lo que está a la derecha usa el del proveedor."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "El adaptador se arruina cuando se vuelve una tubería transparente: devuelve el objeto del proveedor «por las dudas» o deja que un tipo suyo aparezca en la firma de la función. Desde ese momento el idioma ajeno vuelve a entrar y el adaptador solo suma latencia. Lo mismo vale para el [[SDK generado]] del proveedor ([@08-14]): que lo importe solo el adaptador. Una prueba simple: si cambiás de proveedor, ¿cuántos archivos fuera del adaptador tocarías? Tendrían que ser cero.",
+   "titulo": "El adaptador que no traduce"
+  },
+  {
+   "t": "p",
+   "x": "Un adaptador también se prueba. La [[prueba de contrato]] de [@08-14] guarda una respuesta de muestra del proveedor y verifica que `traducir` la entiende; cuando el proveedor anuncia un cambio, se suma la muestra nueva y se ve qué se rompe antes de producción. Para reintentos y caché alcanza con un doble de prueba que simule al proveedor, como el servidor local de hoy ([@04-15])."
+  },
+  {
+   "t": "pensa",
+   "x": "Tu código de cobro hace `Number(r.price.amt) * 100`. Mañana el proveedor pasa a devolver `price.amount_minor` en lugar de `price.amt`. Sin adaptador, ¿qué obtiene tu cobro?",
+   "resp": "`r.price.amt` vale `undefined`, `Number(undefined)` es `NaN` y `NaN * 100` sigue siendo `NaN`. No hay excepción. Más abajo lo medimos: al serializar, ese `NaN` se convierte en `null`."
+  },
+  {
+   "t": "h",
+   "x": "Seis maneras de fallar, medidas"
+  },
+  {
+   "t": "p",
+   "x": "Corrí el adaptador contra el transportista inventado, que cambia de comportamiento a pedido. Antes de cada falla recibió una respuesta buena, para tener algo guardado. Sus parámetros: plazo de 600 ms por intento, hasta 2 intentos, y un resultado que siempre trae `fuente` (de dónde salió el dato) y `motivo` (por qué no vino del proveedor)."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "export function crearAdaptador({ base, plazoMs = 600, intentos = 2, umbral = 3, enfriarMs = 5000, ttlMs = 600_000, tarifa, log = () => {} }) {\n  let fallos = 0, abiertoHasta = 0;\n  const cache = new Map();\n  const medidas = { llamadas: 0, proveedor: 0, cache: 0, tarifa_propia: 0 };\n\n  function degradar(clave, motivo) {\n    const c = cache.get(clave);\n    if (c && Date.now() - c.t < ttlMs) return { ...c.v, fuente: 'cache', motivo };\n    return { ...tarifa(clave), fuente: 'tarifa_propia', motivo };\n  }\n\n  async function cotizar({ hasta, kg }) {\n    const t0 = Date.now(), clave = `${hasta}|${kg}`;\n    medidas.llamadas++;\n    let r, motivo = 'desconocido';\n    if (Date.now() < abiertoHasta) r = degradar(clave, 'circuito_abierto');\n    else {\n      for (let n = 1; n <= intentos && !r; n++) {\n        try {\n          const resp = await fetch(`${base}/v2/quote?to=${hasta}&kg=${kg}`, { signal: AbortSignal.timeout(plazoMs) });\n          if (resp.status === 429) { motivo = '429'; await new Promise(ok => setTimeout(ok, Math.min(Number(resp.headers.get('retry-after') ?? 1) * 1000, 1000))); continue; }\n          if (resp.status >= 500) { motivo = `http_${resp.status}`; continue; }\n          if (!resp.ok) { motivo = `http_${resp.status}`; break; }          // un 4xx es culpa nuestra: reintentar no lo arregla\n          const v = traducir(await resp.json());\n          cache.set(clave, { v, t: Date.now() });\n          fallos = 0; r = { ...v, fuente: 'proveedor' };\n        } catch (e) {\n          if (e instanceof ContratoRoto) { motivo = 'contrato_roto'; log({ nivel: 'error', motivo, detalle: e.message }); break; } // no tiene sentido repetir\n          motivo = e.name === 'TimeoutError' ? 'timeout' : 'sin_conexion';\n        }\n      }\n      if (!r) { if (++fallos >= umbral) abiertoHasta = Date.now() + enfriarMs; r = degradar(clave, motivo); }\n    }\n    medidas[r.fuente]++;\n    log({ evento: 'cotizacion', fuente: r.fuente, motivo: r.motivo, ms: Date.now() - t0 });\n    return r;\n  }\n  return { cotizar, medidas };\n}",
+   "cap": "El resto del adaptador: plazo, reintentos, circuit breaker, último valor bueno, tarifa propia y una línea de log."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node demo.mjs",
+     "s": "escenario              fuente         motivo            ms  pedidos\nsano                   proveedor      -                  8        1\nlento, con caché       cache          timeout         1205        2\nlento, consulta nueva  tarifa_propia  timeout         1204        2\nresponde 500           cache          http_500           1        2\nresponde 429 (1 s)     cache          429             2004        2\nconexión cortada       cache          sin_conexion       4        2\nformato cambiado       cache          contrato_roto      1        1"
+    }
+   ],
+   "cap": "Una corrida en esta VM; los milisegundos son de ella. «pedidos» = lo que recibió el proveedor tras cambiar de modo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fila por fila. **Sano:** 8 ms. **Lento:** el proveedor tarda 3 segundos y el adaptador espera 600 ms dos veces, así que la persona esperó 1,2 segundos. Con una cotización guardada contesta con ella y la marca `cache`; con una consulta nueva y nada guardado cae en la tarifa propia, un precio de lista inventado que sirve para estimar. **Error 500:** dos intentos, instantáneos, y respuesta desde lo guardado. **Conexión cortada:** igual, con otro motivo.",
+    "**Límite excedido:** el servidor contesta [[error 429]] ([#srv0703-rfc6585]) con `Retry-After: 1`, la cabecera que el RFC 9110 define para pedir que esperes [#rfc9110]. El adaptador espera ese segundo, vuelve a intentar, recibe otro 429 y se rinde: 2,0 segundos en total. Son dos segundos de pantalla quieta, una cuenta que tiene que mirar quien diseña la pantalla.",
+    "**Formato cambiado:** el proveedor devuelve `service`, `price.amount_minor` y `eta`. El adaptador hizo **un solo pedido**, no dos. Reintentar no tiene sentido: la segunda respuesta tendría exactamente la misma forma. Y dejó en el log una línea de nivel `error` con las claves que llegaron, que es lo que necesita quien tenga que arreglarlo."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node -e \"const r={price:{amount_minor:490000}}; const t=Number(r.price.amt)*100; console.log(t, JSON.stringify({total:t}))\"",
+     "s": "NaN {\"total\":null}"
+    }
+   ],
+   "cap": "Sin adaptador y con el formato nuevo: la cuenta da NaN y el JSON queda con `null`, sin error."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "El peor fallo es el que no hace ruido. Un proveedor caído produce una excepción y alguien la ve. Uno que cambia un campo produce un `NaN` que al serializarse se vuelve `null`, y ese `null` puede guardarse en la base o mandarse a otro servicio. Validar en la frontera vuelve ruidoso lo callado y lo acerca a su causa.",
+   "titulo": "Un `null` que viaja"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo que hace el adaptador en todos los casos menos el último se llama [[degradación elegante]]: cuando una pieza falla, el sistema pierde calidad en pasos y no se cae entero. Acá los escalones son cuatro, de mejor a peor: el dato fresco del proveedor, el último valor bueno guardado (una forma de [[caché de aplicación]], [@07-15]), una estimación propia y, si ni eso existe, un error honesto. Cada escalón le dice a quien lo recibe de cuál se trata, y eso es lo que lo hace «elegante»: la persona puede ver «precio estimado» donde corresponde, en lugar de creer que es exacto."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Proveedor",
+       "s": "dato fresco",
+       "k": "ok"
+      },
+      {
+       "t": "Último valor bueno",
+       "s": "caché con vencimiento",
+       "k": "red",
+       "e": "si falla"
+      },
+      {
+       "t": "Tarifa propia",
+       "s": "estimación marcada",
+       "k": "alerta",
+       "e": "si no hay caché"
+      },
+      {
+       "t": "Error honesto",
+       "s": "«no se pudo cotizar»",
+       "k": "neutro",
+       "e": "si no hay nada"
+      }
+     ],
+     "baja": "Cada salida lleva su `fuente`; la interfaz decide cómo mostrarla."
+    }
+   ],
+   "cap": "La escalera de degradación del adaptador de hoy."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La escalera depende de la operación. Cotizar es una lectura: una estimación bien rotulada es mejor que una pantalla vacía. Crear un envío o cobrar es una escritura, y ahí no se puede inventar un éxito. Lo correcto es guardar el pedido en una [[cola de trabajos]], decirle a la persona que quedó pendiente y completarlo cuando el proveedor vuelva.",
+    "En logística pasa lo mismo: cotizar a ojo con el tarifario del mes pasado, avisando que es estimado, es corriente; despachar sin confirmación del transportista, no."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El adaptador reintenta un 500 pero no reintenta un `contrato_roto`. ¿Por qué esa diferencia?",
+   "resp": "Un 500 suele ser pasajero: el mismo pedido puede salir bien un instante después. Un contrato roto es una respuesta correcta en el protocolo pero con otra forma, y pedir lo mismo devuelve la misma forma. Reintentar solo gasta cuota; hace falta que una persona actualice la traducción."
+  },
+  {
+   "t": "h",
+   "x": "Reintentar sin empeorar: la política vive en un solo lugar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[timeout]], el [[reintento con espera]] y el [[circuit breaker]] ya los armaste en [@07-17]. Lo nuevo es **dónde** viven: en el adaptador, el único módulo que sabe que ese proveedor existe. Si la política está repartida entre pantalla, servicio y adaptador, los intentos se multiplican, como viste con las capas que reintentan. En un solo lugar hay un solo presupuesto de intentos.",
+    "El tiempo que espera la persona se calcula: intentos por plazo, más las esperas. En la corrida de arriba, 2 por 600 ms son 1,2 segundos. Un adaptador que no lo declara hereda el valor de la librería, que a menudo se mide en minutos ([@07-17])."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Para ver qué evita el breaker, hice 20 consultas seguidas con el proveedor devolviendo 500, sin breaker y con uno que abre tras 3 fallos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node demo.mjs   # segunda parte",
+     "s": "sin breaker              pedidos recibidos: 40  41 ms en total\ncon breaker (3 fallos)   pedidos recibidos: 6   7 ms en total"
+    }
+   ],
+   "cap": "20 consultas, 2 intentos cada una, proveedor en 500. El breaker abre tras 3 consultas fallidas: 3 por 2 intentos = 6 pedidos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Sin breaker, el proveedor recibió 40 pedidos: 20 consultas por 2 intentos, todos destinados a fallar. Con breaker recibió 6. Si ese proveedor cobra por pedido o cuenta los fallidos contra tu cuota, la diferencia es de 6,7 veces. Y si además está caído y tratando de recuperarse, los 34 pedidos de más le impiden levantarse: es lo que el libro de SRE de Google llama fallas en cascada [#back17-sre-cascading].",
+    "Las escrituras piden un cuidado extra: si reintentás un `POST /envios` y el primero había llegado, creaste dos envíos. La cura es la [[idempotencia]] ([@07-12]): una clave única por operación para que el proveedor ignore la repetición. Algunos la aceptan en una cabecera dedicada, como la API de Stripe [#back13-stripe-idempotencia]. Senda hace lo mismo con sus datos: cada respuesta del Espadeo viaja con un `cliente_id` generado en el teléfono ([@05-18])."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "El proveedor avisa que en dos semanas pasa al formato nuevo (`price.amount_minor`, `eta.max`), pero durante un mes van a convivir los dos. Modificá `traducir` para que acepte ambos y devuelva siempre `{centavos, dias}`. Probalo con una respuesta de cada formato y con una basura.",
+   "pista": "No cambies lo que devuelve la función, solo la entrada. Probá primero el formato viejo; si no coincide, probá el nuevo; si tampoco, tirá el error. Para el formato nuevo, `amount_minor` ya viene en centavos y es entero.",
+   "solucion": "Versión que corrí en esta VM:\n```\nfunction traducir(raw) {\n  const p = raw?.price;\n  if (typeof p?.amt === 'string' && p.cur === 'ARS' && /^\\d+$/.test(raw.eta_days ?? '')) {\n    const [ent, dec = ''] = p.amt.split('.');\n    return { centavos: Number(ent) * 100 + Number(dec.padEnd(2, '0')), dias: Number(raw.eta_days) };\n  }\n  if (Number.isInteger(p?.amount_minor) && p.currency === 'ARS' && Number.isInteger(raw.eta?.max)) {\n    return { centavos: p.amount_minor, dias: raw.eta.max };\n  }\n  throw new Error('contrato_roto');\n}\n```\nLas dos muestras dieron `{ centavos: 490000, dias: 2 }` y la basura dio `contrato_roto`. El resto de la app no se enteró de nada: eso compra la frontera. Terminado el mes, se borra la primera rama."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Un proveedor de cotizaciones simulado (datos inventados) y un adaptador mínimo.\nconst proveedores = {\n  sano:   async () => ({ svc: 'EXP', price: { amt: '4900.00', cur: 'ARS' }, eta_days: '2' }),\n  cambio: async () => ({ service: 'EXP', price: { amount_minor: 490000, currency: 'ARS' }, eta: { min: 1, max: 2 } }),\n  lento:  () => new Promise(ok => setTimeout(() => ok({ svc: 'EXP', price: { amt: '4900.00', cur: 'ARS' }, eta_days: '2' }), 400)),\n};\n\n// Del idioma del proveedor al del negocio. Si la forma es otra, falla acá y no más adentro.\nfunction traducir(raw) {\n  const p = raw?.price;\n  if (typeof p?.amt !== 'string' || p.cur !== 'ARS' || !/^\\d+$/.test(raw.eta_days ?? '')) throw new Error('contrato_roto');\n  const [ent, dec = ''] = p.amt.split('.');\n  return { centavos: Number(ent) * 100 + Number(dec.padEnd(2, '0')), dias: Number(raw.eta_days) };\n}\n\nfunction crearAdaptador(llamar) {\n  let ultima = null;                                    // lo último que salió bien\n  return async function cotizar() {\n    try {\n      const raw = await Promise.race([llamar(), new Promise((_, no) => setTimeout(() => no(new Error('timeout')), 150))]);\n      ultima = traducir(raw);\n      return { ...ultima, fuente: 'proveedor' };\n    } catch (e) {\n      if (ultima) return { ...ultima, fuente: 'cache', motivo: e.message };\n      return { centavos: 650000, dias: 5, fuente: 'tarifa_propia', motivo: e.message };\n    }\n  };\n}\n\n// 1. Todo bien.\nconsole.log(await crearAdaptador(proveedores.sano)());\n\n// 2. El proveedor tarda más que el plazo y todavía no hay nada guardado: tarifa propia.\nconsole.log(await crearAdaptador(proveedores.lento)());\n\n// 3. Funciona una vez y después cambia el formato: se responde con lo último bueno y se avisa por qué.\nlet n = 0;\nconst cotizar = crearAdaptador(() => (++n === 1 ? proveedores.sano() : proveedores.cambio()));\nconsole.log(await cotizar());\nconsole.log(await cotizar());",
+   "cap": "Versión mínima del adaptador con un proveedor simulado dentro del script (sin red). Cambiá el plazo de 150 ms o el proveedor de cada caso y mirá cómo cambia `fuente`."
+  },
+  {
+   "t": "h",
+   "x": "Qué se vigila y cuánto cuesta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una degradación que funciona tiene un defecto: nadie nota que está pasando. Si el proveedor falla desde el martes y la app responde con tarifa propia, la persona ve un precio, tu equipo ve cero errores, y el viernes alguien descubre que se cotizó con una tabla vieja. Lo que lo evita es medir. El adaptador suma un contador por `fuente` y escribe una línea de [[log estructurado]] ([@07-12]) por cotización:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# líneas reales del log de la corrida",
+     "s": "{\"nivel\":\"error\",\"motivo\":\"contrato_roto\",\"detalle\":\"forma inesperada, claves: quote_id,service,price,eta\"}\n{\"evento\":\"cotizacion\",\"fuente\":\"cache\",\"motivo\":\"contrato_roto\",\"ms\":1}\n{\"evento\":\"cotizacion\",\"fuente\":\"proveedor\",\"ms\":5}"
+    }
+   ],
+   "cap": "Cada cotización deja `fuente`, `motivo` y duración."
+  },
+  {
+   "t": "p",
+   "x": "Qué alarmas conviene es criterio de quien opera, pero una regla práctica tiene dos partes. La proporción de respuestas que **no** vinieron del proveedor, sostenida unos minutos, indica una degradación en curso. Y un `contrato_roto` avisa a la primera aparición, porque no se arregla solo."
+  },
+  {
+   "t": "p",
+   "x": "El otro costado es el costo. Cada integración tiene gastos que no siempre se ven en la factura:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Gasto",
+    "Quién lo paga",
+    "Cómo se controla"
+   ],
+   "filas": [
+    [
+     "Precio por llamada",
+     "Vos, cada vez",
+     "Caché de lo que se repite, pedidos en lote, no llamar si el dato no cambió"
+    ],
+    [
+     "Reintentos",
+     "Vos, y a veces cuentan contra tu cuota",
+     "Presupuesto de intentos y circuit breaker"
+    ],
+    [
+     "Estimación equivocada",
+     "Tu margen",
+     "Rotular como estimado, cotejar la tarifa propia con la real cada tanto"
+    ],
+    [
+     "Cuota o límite compartido",
+     "Todos tus usuarios juntos",
+     "Limitador propio ([@08-12]) y caché"
+    ],
+    [
+     "Cambio de precio",
+     "Vos, sin avisar",
+     "Medir el uso por proveedor y tener documentada una alternativa"
+    ]
+   ],
+   "cap": "Los gastos de una integración. La tercera fila existe solo si degradás."
+  },
+  {
+   "t": "pensa",
+   "x": "El proveedor de direcciones permite como máximo 1 pedido por segundo para toda tu app. Si todas las búsquedas de un día ocurren en una ventana de dos horas a la noche, ¿cuántas búsquedas por día soporta como tope absoluto?",
+   "resp": "Dos horas son 7.200 segundos, así que el tope absoluto es de 7.200 búsquedas, y eso suponiendo que llegan perfectamente espaciadas, cosa que nunca pasa. Con picos reales conviene planificar bastante por debajo."
+  },
+  {
+   "t": "h",
+   "x": "El contrato que no está en el código: los términos de uso"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay otra mitad del acuerdo que no viaja por HTTP: las condiciones de uso. Antes de integrar, y cada vez que el proveedor avise cambios, vale la pena leer cinco cosas: **límites** de uso y qué pasa si los pasás; **permisos de caché** (si te dejan guardar sus respuestas, y por cuánto); **atribución** obligatoria; **aviso de cambios** de precio o de API, y con cuánta anticipación; y **qué datos tuyos salen** hacia ellos. Esto es una guía de lectura, no un consejo legal: si hay plata o datos de personas de por medio, lo lee un abogado.",
+    "Un caso real y chico muestra por qué importa. El servicio público de direcciones de OpenStreetMap, Nominatim, publica una política de uso. Al 13 de noviembre de 2026, entre otras cosas pide: un máximo absoluto de **1 pedido por segundo**; una cabecera `User-Agent` o `Referer` que identifique a la aplicación, porque los valores por defecto de las librerías no sirven; mostrar la atribución de los datos, que están bajo licencia ODbL; no usar el servicio para autocompletar mientras alguien escribe; y la que más nos interesa hoy: las apps **tienen que poder apagar el servicio a pedido de ellos en cualquier momento, y sin necesidad de actualizar el software** [#integ0815-nominatim-policy]. Además aclara que el límite se aplica a la aplicación entera, sumando a todos sus usuarios [#integ0815-nominatim-policy]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": [
+    "Una cláusula como la de apagar sin actualizar la app obliga a una decisión de diseño: **tiene que haber un interruptor remoto**. Es un [[feature flag]] ([@07-19]) que se lee al arrancar y desactiva una integración sin publicar una versión nueva. En una app móvil importa más que en una web, porque una actualización tarda días en llegar y algunos teléfonos nunca la instalan."
+   ],
+   "titulo": "Términos de uso que se vuelven código"
+  },
+  {
+   "t": "h",
+   "x": "Cómo lo resuelve Senda"
+  },
+  {
+   "t": "p",
+   "x": "Senda tiene varias integraciones y las más interesantes para hoy son las que muestran cómo se arma la frontera, qué pasa si falla y cómo se cumple una política de uso. Todo lo que sigue corresponde al commit 25e08fa; el código cambia, la forma permanece."
+  },
+  {
+   "t": "senda",
+   "titulo": "Direcciones de eventos: traducir, degradar y poder apagar",
+   "x": [
+    "Cuando alguien arma un evento y escribe dónde es, `src/util/lugares.ts` busca primero en Nominatim. Es una frontera completa en un archivo: el tipo `Nom` es el formato de OpenStreetMap, la función `linea` lo convierte al `Sitio` de Senda y hacia afuera solo sale un resultado propio, `Busqueda`, que dice `ok` o el motivo del fracaso (`permiso`, `nada` o `red`).",
+    "La política aparece traducida en el código: una espera mínima de 1,1 segundos entre búsquedas, la app identificada en el `User-Agent`, búsqueda solo al tocar (nunca mientras se escribe) y, antes de cada pedido, el interruptor `direcciones`. `src/util/interruptores.ts` lo lee una vez por apertura de la tabla `interruptores` de Supabase, lo guarda en el teléfono y, si nunca pudo leer, deja todo encendido. Si Nominatim falla o está apagado, cae al buscador del propio teléfono: la escalera de hoy, en dos escalones.",
+    "Dos matices de criterio. La espera de 1,1 segundos usa una variable del módulo (`ultima`), así que limita a cada teléfono por separado y no a la app entera, como pide la política; con pocos usuarios no importa y el interruptor es la válvula. Y el plazo de 9 segundos es mucho más que los 600 ms de nuestro adaptador: razonable para una búsqueda que la persona acaba de pedir, pero conviene medirlo con usuarios reales."
+   ],
+   "archivos": [
+    "src/util/lugares.ts",
+    "src/util/interruptores.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Un proveedor que cambia sus claves, y una API que se paga por uso",
+   "x": [
+    "Supabase anuncia en su documentación (actualizada el 2 de noviembre de 2026) que va a dejar de usar las claves `anon` y `service_role` hacia fines de 2026 y las reemplaza por `sb_publishable_…` y `sb_secret_…`, con los dos sistemas funcionando a la vez hasta que uno desactiva las viejas [#red31-supabase-api-keys]. En `src/util/nube.ts`, la función `cabeceras` absorbe el cambio: manda la clave en `apikey` y, solo si empieza con `eyJ` (un JWT, o sea la vieja), también en `Authorization`. Hallazgo para el criterio: esa regla vive en tres archivos (`nube.ts`, `interruptores.ts` y `cuenta.ts`) y la de `cuenta.ts` no es idéntica, porque manda siempre `Authorization: Bearer`. Un solo módulo de cabeceras reduciría el riesgo de olvidar uno en una migración.",
+    "La función `supabase/functions/trivia-sermon/index.ts`, que llama a la API de Claude, reserva el cupo en la base (`reclamar_trivia`) antes de llamar y lo devuelve si la llamada falla; valida lo que vuelve (cuatro opciones distintas, una correcta, mínimo cuatro preguntas bien formadas); respeta el interruptor `trivia_ia`; y toma el modelo de una variable de entorno (`MODELO_TRIVIA`), así que cambiar de modelo no exige tocar código. Es el patrón de hoy: validación a la entrada, plan B y un límite de gasto."
+   ],
+   "archivos": [
+    "src/util/nube.ts",
+    "src/util/cuenta.ts",
+    "supabase/functions/trivia-sermon/index.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": [
+    "La política de uso de Nominatim y la documentación de claves de Supabase son textos que cambian. Leí la primera el 13 de noviembre de 2026 en la página oficial de la Fundación OpenStreetMap [#integ0815-nominatim-policy], y la segunda, con la fecha «Updated Nov 2, 2026» en la propia página, el mismo día [#red31-supabase-api-keys]. Los principios de hoy (traducir en la frontera, validar a la entrada, degradar con honestidad, medir, leer los términos) no dependen de ninguno de los dos proveedores.",
+    "El transportista de hoy es inventado y vive solo en esta VM. Ningún dato ni tarifa mencionados son reales."
+   ],
+   "titulo": "Qué verificar antes de usarlo"
+  }
+ ],
+ "recap": [
+  "Integrar es alquilar: parte de tu producto corre en sistemas ajenos. La dependencia de proveedor tiene cinco caras (técnica, operativa, económica, legal y de datos) y cada una pide una herramienta distinta.",
+  "Un adaptador es el único módulo que conoce el idioma del proveedor: traduce a tus tipos, valida lo que llega y falla en la frontera si el formato cambia. Un cambio ajeno toca un archivo, no veinte.",
+  "Sin validación, un campo renombrado puede dar un `NaN` que se serializa como `null` y viaja sin error. Conviene un fallo ruidoso y cerca de su causa.",
+  "La degradación elegante es una escalera: dato fresco, último valor bueno, estimación propia, error honesto, cada uno rotulado. Sirve para lecturas; una escritura no inventa un éxito y va a una cola.",
+  "Un contrato roto no se reintenta; un 500 sí. La política de plazos, reintentos y breaker vive en el adaptador: 20 consultas con el proveedor caído hicieron 40 pedidos sin breaker y 6 con él.",
+  "Una degradación que funciona no hace ruido: se mide por fuente, motivo y duración. Un `contrato_roto` es aviso inmediato.",
+  "Los términos de uso son parte del contrato. Nominatim exige poder apagarlo sin actualizar la app y Senda lo cumple con un interruptor remoto."
+ ],
+ "repaso": [
+  {
+   "p": "Una app guarda el campo `price.amt` del proveedor tal como llega y lo usa en doce pantallas. El proveedor cambia ese campo a `price.amount_minor`. ¿Cuál es el problema de diseño que esto muestra?",
+   "o": [
+    "Faltaba un circuit breaker que evitara las llamadas fallidas",
+    "El lenguaje del proveedor se filtró por toda la app sin una frontera",
+    "El proveedor debería haber avisado con más tiempo del cambio",
+    "Doce pantallas es demasiado y habría que usar solo una"
+   ],
+   "c": 1,
+   "e": "El problema es de diseño propio: sin adaptador, cada pantalla conoce el formato del proveedor y cualquier cambio obliga a tocarlas todas. El circuit breaker protege de caídas, no de cambios de formato. Que el proveedor avise con anticipación ayuda, pero no es algo que controles. La cantidad de pantallas no es el punto: con una sola, igual estaría acoplada."
+  },
+  {
+   "p": "¿Cuál es lo primero que debería hacer un adaptador con la respuesta de un proveedor antes de entregarla al resto de la app?",
+   "o": [
+    "Guardarla tal cual en la caché para poder reutilizarla después",
+    "Reenviarla sin cambios para no agregar latencia a la llamada",
+    "Convertirla a XML para que cualquier servicio pueda leerla",
+    "Validar que tiene la forma esperada y traducirla a los tipos del negocio"
+   ],
+   "c": 3,
+   "e": "Primero se valida y después se traduce: así, una respuesta con otra forma falla en la frontera y no se propaga. Guardar o reenviar la respuesta cruda deja el formato del proveedor adentro de la app, que es lo que el adaptador viene a evitar. Convertir a XML no tiene relación con el problema."
+  },
+  {
+   "p": "En la corrida de hoy, ante un 500 el adaptador hizo dos pedidos y ante un `contrato_roto` hizo uno. ¿Cuál es la razón?",
+   "o": [
+    "Reintentar un contrato roto devolvería otra vez la misma forma",
+    "Un 500 es siempre más grave y por eso se insiste más",
+    "El adaptador tiene un límite de un reintento por cada día",
+    "Los 500 llegan por una conexión distinta y se tratan aparte"
+   ],
+   "c": 0,
+   "e": "Un 500 puede ser pasajero y un segundo intento puede salir bien. Con un contrato roto, la respuesta es la misma cada vez, así que reintentar solo gasta tiempo y cuota. La gravedad no es el criterio, no hay un límite diario en el código y los 500 usan la misma conexión."
+  },
+  {
+   "p": "El proveedor de pagos está caído. ¿Qué diseño es el correcto para la operación «cobrar un pedido»?",
+   "o": [
+    "Marcar el pedido como cobrado y reconciliar más adelante",
+    "Usar el último cobro exitoso de otro cliente como respuesta",
+    "Guardar el pedido como pendiente, avisar a la persona y reintentar después",
+    "Mostrar un error y descartar el pedido sin guardar nada"
+   ],
+   "c": 2,
+   "e": "Una escritura no puede inventar un éxito: marcar como cobrado sin saberlo es mentir, y usar el cobro de otro cliente es peor. La salida correcta es dejar el pedido pendiente en una cola, informar y completar cuando el proveedor vuelva. Descartar el pedido también falla: pierde una venta que se podía rescatar."
+  },
+  {
+   "p": "Un adaptador tiene circuit breaker con umbral de 3 fallos y hace 2 intentos por consulta. El proveedor devuelve 500 siempre. Después de 20 consultas seguidas, ¿cuántos pedidos recibió el proveedor?",
+   "o": [
+    "3, uno por cada fallo que abrió el circuito",
+    "6, tres consultas con dos intentos cada una",
+    "20, uno por cada consulta que se hizo",
+    "40, dos intentos por cada una de las consultas"
+   ],
+   "c": 1,
+   "e": "Cada consulta falla tras sus dos intentos y suma un fallo. Al tercer fallo el circuito abre: son 3 consultas por 2 intentos, 6 pedidos. Las 17 restantes se contestan sin llamar. 40 sería el resultado sin breaker; 3 olvida los reintentos; 20 ignora que cada consulta hace dos intentos."
+  },
+  {
+   "p": "El proveedor cae durante dos días y la app responde con tarifa propia sin errores visibles. ¿Cuál es el riesgo principal si no se mide la proporción de respuestas por fuente?",
+   "o": [
+    "Que la tarifa propia sea más cara que la real y se pierdan ventas",
+    "Que el circuit breaker se quede abierto para siempre",
+    "Que el proveedor bloquee la cuenta por las llamadas fallidas",
+    "Que se cotice con estimaciones durante días sin que nadie lo note"
+   ],
+   "c": 3,
+   "e": "La degradación elegante oculta el problema a propósito, y por eso hay que medirla: sin contadores por fuente, nadie ve que hace dos días que no sale un dato fresco. Que la tarifa sea más cara o más barata es un efecto posible, pero no el principal. El breaker se cierra solo tras su tiempo de espera y el bloqueo de cuenta no es consecuencia de esta situación."
+  },
+  {
+   "p": "La política de uso de un servicio exige que la app pueda dejar de usarlo a pedido del proveedor sin publicar una versión nueva. ¿Qué mecanismo cumple eso?",
+   "o": [
+    "Un interruptor remoto que la app lee al abrir y recuerda en el teléfono",
+    "Una constante en el código que se cambia al lanzar la próxima versión",
+    "Pedirle a cada usuario que actualice la app cuando se avise",
+    "Un temporizador que apague la función después de cierto tiempo"
+   ],
+   "c": 0,
+   "e": "Un interruptor remoto se cambia desde el servidor y la app lo lee sin necesidad de una versión nueva. Una constante en el código exige publicar y esperar a que se instale. Pedirle al usuario que actualice no es controlable. Un temporizador apaga la función aunque no haga falta y no responde a un pedido puntual."
+  }
+ ],
+ "feynman": "Explicale a alguien que no programa por qué una app que usa el servicio de otra empresa necesita un «traductor» en el medio y qué debería hacer ese traductor cuando la otra empresa se cae o cambia lo que manda. Usá una analogía propia, que no sea la del transportista, y decí dónde deja de valer.",
+ "para_profundizar": [
+  {
+   "fuente": "integ0815-azure-acl",
+   "nota": "La descripción oficial del patrón de capa anticorrupción, con cuándo usarlo y qué cuesta. Leé «Problems and considerations»."
+  },
+  {
+   "fuente": "integ0815-cockburn-hexagonal",
+   "nota": "El artículo original de 2005 que propone puertos y adaptadores. Las dos primeras secciones alcanzan para ver de dónde sale la idea."
+  },
+  {
+   "fuente": "integ0815-nominatim-policy",
+   "nota": "La política de uso de Nominatim completa, un ejemplo concreto de términos de un servicio público. Fijate en la sección «Websites and Apps»."
+  },
+  {
+   "fuente": "back17-sre-cascading",
+   "nota": "El capítulo del libro de SRE de Google sobre fallas en cascada: explica por qué reintentar sin límite empeora una caída."
+  }
+ ],
+ "videos": [
+  {
+   "q": "anti-corruption layer pattern explained adapter third-party API",
+   "por_que": "Para ver el mismo patrón explicado con otro ejemplo y comparar la manera de escribir el adaptador."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "adaptador",
+   "d": "Módulo que traduce entre el formato de un sistema externo y el del propio negocio. Es el único que conoce los detalles del proveedor: así, un cambio ajeno obliga a tocar un archivo y no toda la aplicación."
+  },
+  {
+   "t": "dependencia de proveedor",
+   "d": "Situación en que una parte del producto funciona gracias a un servicio ajeno cuyas reglas, precios y disponibilidad decide otro. Tiene caras técnica, operativa, económica, legal y de datos."
+  },
+  {
+   "t": "degradación elegante",
+   "d": "Diseño por el cual un sistema, cuando una pieza falla, pierde calidad en pasos en lugar de caerse entero: por ejemplo, dato fresco, último valor bueno, estimación y error, indicando siempre de cuál se trata."
+  },
+  {
+   "t": "capa anticorrupción",
+   "d": "Nombre de arquitectura para un adaptador que protege el diseño de un sistema de las rarezas de otro que no controlás. Traduce en ambos sentidos y evita que el modelo ajeno se filtre en el propio."
+  },
+  {
+   "t": "interruptor remoto",
+   "d": "Valor que la app lee desde un servidor, normalmente al abrir, para encender o apagar una función sin publicar una versión nueva. Es un feature flag pensado para poder retirar una integración a tiempo."
+  }
+ ],
+ "siguiente": "Integración empresarial. Hoy el tercero era una API moderna; mañana, los sistemas con décadas de historia: EDI, buses de servicios, SOAP, archivos por SFTP y las integraciones de la logística y las empresas grandes.",
+ "fuentes_nuevas": [
+  {
+   "id": "integ0815-azure-acl",
+   "t": "Anti-corruption Layer pattern (Azure Architecture Center)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/anti-corruption-layer"
+  },
+  {
+   "id": "integ0815-cockburn-hexagonal",
+   "t": "Hexagonal architecture (Ports and Adapters), artículo original de 2005",
+   "a": "Alistair Cockburn",
+   "tipo": "articulo",
+   "anio": 2005,
+   "url": "https://alistair.cockburn.us/hexagonal-architecture/"
+  },
+  {
+   "id": "integ0815-nominatim-policy",
+   "t": "Nominatim Usage Policy (aka Geocoding Policy)",
+   "a": "OpenStreetMap Foundation, Operations Working Group",
+   "tipo": "doc",
+   "url": "https://operations.osmfoundation.org/policies/nominatim/"
+  }
+ ]
+}

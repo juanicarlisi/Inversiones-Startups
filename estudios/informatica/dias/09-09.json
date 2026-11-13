@@ -1,0 +1,857 @@
+{
+ "id": "09-09",
+ "titulo": "SQL IV: JOIN, la operación central",
+ "bajada": "Aprendés a juntar tablas con INNER, LEFT, FULL y CROSS JOIN, a predecir cuántas filas devuelve cada una y a ver qué estrategia usa PostgreSQL por dentro para hacerlo.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué hace un JOIN como emparejamiento de filas y describir qué pasa con las filas sin pareja en INNER, LEFT, FULL y CROSS JOIN.",
+  "Predecir el número de filas de una unión contando parejas por clave, y mostrar por qué un diagrama de Venn lleva a predecirlo mal.",
+  "Escribir una unión de tres tablas sin perder filas por error, eligiendo LEFT o INNER según la pregunta.",
+  "Distinguir ON, USING y NATURAL, y decidir cuándo un filtro va en el ON o en el WHERE de un LEFT JOIN.",
+  "Reconocer en un plan de ejecución las tres estrategias de unión (nested loop, hash join y merge join) y cuándo conviene cada una."
+ ],
+ "venis_de": "En [@09-07] y [@09-08] viste cómo se relacionan las tablas con claves foráneas y qué cardinalidades hay (uno a uno, uno a muchos, muchos a muchos). Eso separa los datos para que cada hecho viva una vez. Hoy aprendés la operación que los vuelve a juntar al consultar, que es el JOIN.",
+ "se_apoya_en": [
+  "09-03",
+  "09-04",
+  "09-07",
+  "09-08"
+ ],
+ "gancho": [
+  "Lunes, 7:40. Un cliente llama y pregunta cuándo llega lo suyo. Abrís la tabla de envíos y encontrás la fila del envío 103: `cliente_id` vale 2 y `chofer_id` vale 1. Son números. Para contestarle necesitás el nombre del cliente, que está en otra tabla, y el del chofer, que está en una tercera. A mano, es abrir tres planillas y cruzar números con el dedo. Un JOIN hace eso mismo, pero con miles de filas a la vez.",
+  "En los dos días anteriores separaste los datos para que cada hecho viva en un solo lugar: el nombre de un cliente se escribe una vez y los envíos lo señalan con una [[clave foránea]] ([@09-07], [@09-08]). Esa decisión tiene un costo, y hoy lo pagás: cada vez que querés una respuesta completa hay que volver a juntar lo que se separó. Esa operación es el JOIN, y por eso se la llama la operación central de SQL."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Los datos de hoy y los cuatro tipos de JOIN"
+  },
+  {
+   "t": "p",
+   "x": "Hay cuatro formas básicas de juntar, que son las cuatro palabras que presenta el día: [[CROSS JOIN]], [[INNER JOIN]], [[LEFT JOIN]] y [[FULL JOIN]]. Cada una responde distinto a una pregunta: ¿qué pasa con las filas que no encuentran pareja? Todo lo que sigue está corrido en PostgreSQL 16.15, en esta máquina, con datos inventados. Esta es la base completa, para que la repitas:"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table clientes (id int primary key, nombre text not null);\ncreate table choferes (id int primary key, nombre text not null);\ncreate table envios (\n  id         int primary key,\n  cliente_id int not null references clientes(id),\n  chofer_id  int references choferes(id),   -- puede ser NULL: envío sin chofer asignado\n  bultos     int not null\n);\ninsert into clientes values (1,'Almacén Ríos'),(2,'Ferretería Sur'),(3,'Librería Norte'),(4,'Cooperativa Oeste');\ninsert into choferes values (1,'Marta'),(2,'Hugo'),(3,'Inés');\ninsert into envios values (101,1,1,12),(102,1,2,5),(103,2,1,8),(104,3,null,3),(105,2,2,20);",
+   "cap": "Datos inventados para todo el día: cuatro clientes, tres choferes y cinco envíos. Hay tres casos incómodos a propósito: el envío 104 no tiene chofer (NULL), y Cooperativa Oeste y la chofer Inés no tienen envíos."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "clientes.id",
+    "clientes.nombre"
+   ],
+   "filas": [
+    [
+     "1",
+     "Almacén Ríos"
+    ],
+    [
+     "2",
+     "Ferretería Sur"
+    ],
+    [
+     "3",
+     "Librería Norte"
+    ],
+    [
+     "4",
+     "Cooperativa Oeste"
+    ]
+   ],
+   "cap": "Tabla clientes."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "choferes.id",
+    "choferes.nombre"
+   ],
+   "filas": [
+    [
+     "1",
+     "Marta"
+    ],
+    [
+     "2",
+     "Hugo"
+    ],
+    [
+     "3",
+     "Inés"
+    ]
+   ],
+   "cap": "Tabla choferes."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "envios.id",
+    "cliente_id",
+    "chofer_id",
+    "bultos"
+   ],
+   "filas": [
+    [
+     "101",
+     "1",
+     "1",
+     "12"
+    ],
+    [
+     "102",
+     "1",
+     "2",
+     "5"
+    ],
+    [
+     "103",
+     "2",
+     "1",
+     "8"
+    ],
+    [
+     "104",
+     "3",
+     "NULL",
+     "3"
+    ],
+    [
+     "105",
+     "2",
+     "2",
+     "20"
+    ]
+   ],
+   "cap": "Tabla envios."
+  },
+  {
+   "t": "h",
+   "x": "CROSS JOIN: todas las combinaciones posibles"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Empecemos por la forma más simple, porque las demás se explican a partir de ella. Un [[CROSS JOIN]] combina **cada fila de la primera tabla con cada fila de la segunda**. Es el producto cartesiano: con N y M filas, devuelve N × M, sin mirar ningún dato. La documentación de PostgreSQL lo describe igual y lo equipara a un INNER JOIN con una condición siempre verdadera [#bd09-pg-joins].",
+    "Con cinco envíos y tres choferes salen 15 filas. Agregué una columna `coincide`, que compara el chofer del envío con el de la fila, para que veas cuáles combinaciones tienen sentido:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select e.id as envio, ch.id as chofer, e.chofer_id = ch.id as coincide\nfrom envios e cross join choferes ch\norder by e.id, ch.id;",
+     "s": " envio | chofer | coincide\n-------+--------+----------\n   101 |      1 | t\n   101 |      2 | f\n   101 |      3 | f\n   102 |      1 | f\n   102 |      2 | t\n   102 |      3 | f\n   103 |      1 | t\n   103 |      2 | f\n   103 |      3 | f\n   104 |      1 |\n   104 |      2 |\n   104 |      3 |\n   105 |      1 | f\n   105 |      2 | t\n   105 |      3 | f\n(15 rows)"
+    }
+   ],
+   "cap": "Las 15 combinaciones. `t` es verdadero, `f` es falso y vacío es NULL."
+  },
+  {
+   "t": "p",
+   "x": "Cuatro filas dicen `t`: son los envíos 101, 102, 103 y 105 con su chofer. Las tres del envío 104 quedaron vacías: eso es un [[NULL]]. El envío no tiene chofer, y preguntar si «ningún chofer» es igual al chofer 1 no da verdadero ni falso, da desconocido ([[lógica de tres valores]], [@09-04]). Esa fila va a decidir varias cosas hoy."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El CROSS JOIN crece multiplicando",
+   "x": "Tres tablas de 4, 3 y 5 filas dan 60 combinaciones (lo corrí). Con dos tablas de 10.000 filas, el producto tiene 100 millones. Casi nadie escribe un CROSS JOIN a propósito, salvo para generar combinaciones, como todos los depósitos por todos los días. Lo habitual es que aparezca **por error**, al olvidar la condición de unión. Si una consulta que debía dar 200 filas devuelve 40.000, buscá primero un JOIN sin condición."
+  },
+  {
+   "t": "h",
+   "x": "INNER JOIN: quedarse con lo que coincide"
+  },
+  {
+   "t": "p",
+   "x": "Un [[INNER JOIN]] es, conceptualmente, un CROSS JOIN seguido de un filtro: de todas las combinaciones, se queda con las que cumplen el `ON`. Dije «conceptualmente» porque el motor no arma las 15 combinaciones para descartar 11; la definición describe el **resultado**, no el procedimiento."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select e.id as envio, ch.nombre as chofer\nfrom envios e inner join choferes ch on ch.id = e.chofer_id\norder by e.id;",
+     "s": " envio | chofer\n-------+--------\n   101 | Marta\n   102 | Hugo\n   103 | Marta\n   105 | Hugo\n(4 rows)"
+    }
+   ],
+   "cap": "INNER JOIN entre envíos y choferes: las cuatro filas con `t` de la tabla anterior."
+  },
+  {
+   "t": "p",
+   "x": "Parece bien, y ahí está la trampa. El envío 104 desapareció y la chofer Inés tampoco aparece. Un INNER JOIN **descarta en silencio** toda fila sin pareja, de los dos lados. No hay error ni aviso: el resultado es más corto y nadie se entera. Si esto fuera el reporte de envíos del día, uno de los cinco paquetes no figuraría y el reporte parecería correcto."
+  },
+  {
+   "t": "pensa",
+   "x": "Un reporte hecho con INNER JOIN contra una tabla de choferes pierde envíos. Sin mirar los datos, ¿qué tipo de envío apostarías que falta?",
+   "resp": "Uno sin chofer asignado: su `chofer_id` es NULL y NULL no es igual a nada, así que la condición del `ON` nunca da verdadero para él. El INNER JOIN solo conserva filas con pareja."
+  },
+  {
+   "t": "h",
+   "x": "LEFT JOIN, RIGHT JOIN y FULL JOIN"
+  },
+  {
+   "t": "p",
+   "x": "Cuando la pregunta es «mostrame **todos** los clientes y, si tienen envíos, cuáles», se usa un [[LEFT JOIN]]. Hace el INNER JOIN y después, por cada fila de la tabla de la izquierda (la escrita antes de `JOIN`) que no encontró pareja, agrega una fila con NULL en todas las columnas de la derecha [#bd09-pg-joins]. La tabla izquierda siempre queda completa."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select c.nombre as cliente, e.id as envio, e.bultos\nfrom clientes c left join envios e on e.cliente_id = c.id\norder by c.id, e.id;",
+     "s": "      cliente      | envio | bultos\n-------------------+-------+--------\n Almacén Ríos      |   101 |     12\n Almacén Ríos      |   102 |      5\n Ferretería Sur    |   103 |      8\n Ferretería Sur    |   105 |     20\n Librería Norte    |   104 |      3\n Cooperativa Oeste |       |\n(6 rows)"
+    }
+   ],
+   "cap": "Todos los clientes, con sus envíos si los hay. Cooperativa Oeste sale una vez, con envío y bultos vacíos (NULL)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos cosas para mirar. Cooperativa Oeste está, con huecos: esa fila no dice «el envío no tiene datos», dice «no existe ningún envío para este cliente». Y Almacén Ríos y Ferretería Sur aparecen **dos veces**, una por cada envío. El resultado no tiene una fila por cliente sino una por cada pareja cliente-envío, y por eso el total es seis. Esta idea es la que más confunde, y vuelve en un momento.",
+    "El `RIGHT JOIN` es el LEFT JOIN al revés: `A right join B` da lo mismo que `B left join A`. Casi nadie lo usa, porque se lee mejor con la tabla principal siempre a la izquierda."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "El [[FULL JOIN]] conserva **los dos lados**: las parejas, más las filas sin pareja de la izquierda y de la derecha. Es la herramienta de la **conciliación**, palabra que en logística conocés bien: comparar dos listados y ver qué está en uno, qué en el otro y qué en ambos. Acá, choferes contra envíos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select ch.nombre as chofer, e.id as envio\nfrom choferes ch full join envios e on e.chofer_id = ch.id\norder by ch.id, e.id;",
+     "s": " chofer | envio\n--------+-------\n Marta  |   101\n Marta  |   103\n Hugo   |   102\n Hugo   |   105\n Inés   |\n        |   104\n(6 rows)"
+    }
+   ],
+   "cap": "FULL JOIN entre choferes y envíos. Inés (sin envíos) y el envío 104 (sin chofer) quedan a la vista, cada uno con NULL del otro lado."
+  },
+  {
+   "t": "p",
+   "x": "Seis filas: las cuatro parejas, la chofer sin trabajo y el trabajo sin chofer. Es lo que un supervisor quiere ver en un solo listado. Con INNER JOIN no vería ninguna de las dos cosas, y con LEFT JOIN, solo una."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tipo",
+    "Conserva",
+    "Cuándo se usa"
+   ],
+   "filas": [
+    [
+     "INNER JOIN",
+     "Solo las parejas",
+     "Cuando una fila sin pareja no interesa"
+    ],
+    [
+     "LEFT JOIN",
+     "Todo lo de la izquierda, con NULL a la derecha",
+     "«Todos los X, y sus Y si tienen»"
+    ],
+    [
+     "RIGHT JOIN",
+     "Todo lo de la derecha, con NULL a la izquierda",
+     "Casi nunca: se invierte el orden y se usa LEFT"
+    ],
+    [
+     "FULL JOIN",
+     "Todo, de los dos lados",
+     "Conciliar dos listados"
+    ],
+    [
+     "CROSS JOIN",
+     "Todas las combinaciones, sin condición",
+     "Generar combinaciones; si es sin querer, es un error"
+    ]
+   ],
+   "cap": "Los cinco tipos de un vistazo. «Izquierda» es la tabla escrita antes de la palabra JOIN."
+  },
+  {
+   "t": "h",
+   "x": "Por qué el diagrama de Venn engaña"
+  },
+  {
+   "t": "p",
+   "x": "Si buscás «tipos de JOIN», vas a ver dos círculos superpuestos con zonas pintadas. Son populares porque la idea de «lo que está en los dos» y «lo que está en uno solo» es útil. Pero ese dibujo dice algo falso, y te hace predecir mal el tamaño de un resultado."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "grafo",
+   "alto": 300,
+   "nodos": [
+    {
+     "id": "e101",
+     "x": 14,
+     "y": 12,
+     "t": "envío 101",
+     "k": "cliente"
+    },
+    {
+     "id": "e102",
+     "x": 14,
+     "y": 30,
+     "t": "envío 102",
+     "k": "cliente"
+    },
+    {
+     "id": "e103",
+     "x": 14,
+     "y": 48,
+     "t": "envío 103",
+     "k": "cliente"
+    },
+    {
+     "id": "e104",
+     "x": 14,
+     "y": 66,
+     "t": "envío 104 (sin chofer)",
+     "k": "alerta"
+    },
+    {
+     "id": "e105",
+     "x": 14,
+     "y": 84,
+     "t": "envío 105",
+     "k": "cliente"
+    },
+    {
+     "id": "marta",
+     "x": 84,
+     "y": 22,
+     "t": "Marta",
+     "k": "servidor"
+    },
+    {
+     "id": "hugo",
+     "x": 84,
+     "y": 56,
+     "t": "Hugo",
+     "k": "servidor"
+    },
+    {
+     "id": "ines",
+     "x": 84,
+     "y": 86,
+     "t": "Inés (sin envíos)",
+     "k": "alerta"
+    }
+   ],
+   "aristas": [
+    {
+     "de": "e101",
+     "a": "marta",
+     "dir": false
+    },
+    {
+     "de": "e103",
+     "a": "marta",
+     "dir": false
+    },
+    {
+     "de": "e102",
+     "a": "hugo",
+     "dir": false
+    },
+    {
+     "de": "e105",
+     "a": "hugo",
+     "dir": false
+    }
+   ],
+   "cap": "El INNER JOIN entre envíos y choferes, dibujado como lo que es: **líneas entre filas**. Cuatro líneas, cuatro filas de resultado. Marta y Hugo tienen dos líneas cada uno; Inés y el envío 104, ninguna."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un Venn representa **conjuntos de elementos**, y cada elemento está en un círculo, en el otro o en los dos. Un JOIN trabaja con **parejas de filas**. En la figura lo que importa son las líneas, y no hay una por elemento: Marta tiene dos, y aparece dos veces en el resultado. Del Venn no se puede leer eso.",
+    "La diferencia es de tamaño. Para una clave dada, un INNER JOIN devuelve el **producto** de las filas que tiene cada lado con esa clave: 2 filas a la izquierda y 3 a la derecha dan 2 × 3 = 6. Lo comprobé uniendo envíos consigo misma por cliente, que empareja cada envío con todos los del mismo cliente:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select a.cliente_id, a.id as a, b.id as b\nfrom envios a join envios b on b.cliente_id = a.cliente_id\norder by 1, 2, 3;",
+     "s": " cliente_id |  a  |  b\n------------+-----+-----\n          1 | 101 | 101\n          1 | 101 | 102\n          1 | 102 | 101\n          1 | 102 | 102\n          2 | 103 | 103\n          2 | 103 | 105\n          2 | 105 | 103\n          2 | 105 | 105\n          3 | 104 | 104\n(9 rows)"
+    },
+    {
+     "c": "select count(*) as filas\nfrom envios a join envios b on b.cliente_id = a.cliente_id;",
+     "s": " filas\n-------\n     9\n(1 row)"
+    }
+   ],
+   "cap": "Cinco envíos y la unión da nueve filas. El cliente 1 tiene 2 envíos: 2 × 2 = 4. El cliente 2, igual: 4. El cliente 3 tiene 1: 1 × 1 = 1."
+  },
+  {
+   "t": "p",
+   "x": "Con un Venn nadie predeciría que unir una tabla de cinco filas consigo misma da nueve. Con la regla del producto, sí. Es la raíz de un error muy común en reportes: unir dos tablas «de uno a muchos» y después sumar una columna que quedó repetida, con totales inflados. Mañana lo provocás a propósito, en [@09-10]."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«INNER JOIN es la intersección y FULL JOIN es la unión»",
+   "x": "Cómoda y falsa en el detalle. Una intersección no repite elementos; un INNER JOIN repite filas cuando hay varias parejas. Y `UNION` e `INTERSECT` existen en SQL como otras operaciones, que apilan o cruzan resultados de dos consultas en lugar de emparejar filas."
+  },
+  {
+   "t": "pensa",
+   "x": "Una tabla A tiene tres filas con la clave 7 y una tabla B tiene cuatro. ¿Cuántas filas aporta la clave 7 a un INNER JOIN? ¿Y a un LEFT JOIN de A a B si B no tuviera ninguna con esa clave?",
+   "resp": "Con INNER JOIN, 3 × 4 = 12. Con LEFT JOIN y sin filas en B para la clave 7, aporta 3 (una por cada fila de A), con NULL en las columnas de B."
+  },
+  {
+   "t": "h",
+   "x": "ON, USING y NATURAL: cómo se dice qué coincide"
+  },
+  {
+   "t": "p",
+   "x": "La condición de unión se escribe de tres maneras. La general es `ON`, que acepta cualquier expresión booleana, igual que un `WHERE`. Las otras dos son atajos para cuando las columnas se llaman igual. Con `USING (columna)`, la condición es «esta columna es igual a la del otro lado» y, además, la columna aparece **una sola vez** en el resultado [#bd09-pg-joins]. Para probarlo agregué una cuarta tabla chica, `vehiculos`, con la patente de cada chofer (patentes inventadas), cuya columna `chofer_id` se llama igual que la de `envios`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select * from envios e join vehiculos v on v.chofer_id = e.chofer_id order by e.id limit 2;",
+     "s": " id  | cliente_id | chofer_id | bultos | chofer_id | patente\n-----+------------+-----------+--------+-----------+---------\n 101 |          1 |         1 |     12 |         1 | AB123CD\n 102 |          1 |         2 |      5 |         2 | AC456EF\n(2 rows)"
+    },
+    {
+     "c": "select * from envios e join vehiculos v using (chofer_id) order by e.id limit 2;",
+     "s": " chofer_id | id  | cliente_id | bultos | patente\n-----------+-----+------------+--------+---------\n         1 | 101 |          1 |     12 | AB123CD\n         2 | 102 |          1 |      5 | AC456EF\n(2 rows)"
+    }
+   ],
+   "cap": "La misma unión con ON y con USING. Con ON, `chofer_id` sale dos veces; con USING, una sola, al principio."
+  },
+  {
+   "t": "p",
+   "x": "El `NATURAL JOIN` usa **todas** las columnas que se llaman igual en las dos tablas, sin nombrarlas. Es cómodo y peligroso por eso mismo. Probá unir `clientes` con `choferes`, que tienen ambas una columna `id` y una `nombre`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select * from clientes natural join choferes;",
+     "s": " id | nombre\n----+--------\n(0 rows)"
+    }
+   ],
+   "cap": "NATURAL JOIN entre clientes y choferes: cero filas y ningún error."
+  },
+  {
+   "t": "p",
+   "x": "PostgreSQL unió por `id` **y** por `nombre`. Como no hay un cliente y un chofer con el mismo id y el mismo nombre, el resultado es vacío, y no avisó de nada. La documentación advierte que NATURAL es más riesgoso que USING porque agregar una columna repetida en el esquema cambia la condición sin tocar la consulta [#bd09-pg-joins]. Una regla práctica: `ON` siempre, `USING` si querés una sola copia, y `NATURAL` nunca."
+  },
+  {
+   "t": "h",
+   "x": "ON o WHERE: la diferencia que importa en un LEFT JOIN"
+  },
+  {
+   "t": "p",
+   "x": "Con INNER JOIN, un filtro en el `ON` o en el `WHERE` da lo mismo. Con LEFT JOIN, **no**. La condición del `ON` se aplica **mientras se emparejan** las filas; el `WHERE`, **después**, sobre el resultado ya armado, filas rellenadas con NULL incluidas. Dos consultas casi iguales, pidiendo envíos de más de 6 bultos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select c.nombre, e.id as envio, e.bultos\nfrom clientes c left join envios e on e.cliente_id = c.id and e.bultos > 6\norder by c.id, e.id;",
+     "s": "      nombre       | envio | bultos\n-------------------+-------+--------\n Almacén Ríos      |   101 |     12\n Ferretería Sur    |   103 |      8\n Ferretería Sur    |   105 |     20\n Librería Norte    |       |\n Cooperativa Oeste |       |\n(5 rows)"
+    },
+    {
+     "c": "select c.nombre, e.id as envio, e.bultos\nfrom clientes c left join envios e on e.cliente_id = c.id\nwhere e.bultos > 6\norder by c.id, e.id;",
+     "s": "     nombre     | envio | bultos\n----------------+-------+--------\n Almacén Ríos   |   101 |     12\n Ferretería Sur |   103 |      8\n Ferretería Sur |   105 |     20\n(3 rows)"
+    }
+   ],
+   "cap": "Arriba, el filtro en el ON: los cuatro clientes siguen. Abajo, el mismo filtro en el WHERE: dos desaparecen."
+  },
+  {
+   "t": "p",
+   "x": "En la primera, el filtro dice «emparejá cada cliente solo con sus envíos de más de 6 bultos»: Librería Norte (su único envío tiene 3) y Cooperativa Oeste quedan sin pareja, pero siguen. En la segunda, el LEFT JOIN conserva a todos y después `where e.bultos > 6` evalúa cada fila: con NULL en `bultos`, `NULL > 6` da desconocido y se descarta. El LEFT JOIN terminó comportándose como un INNER JOIN. Es uno de los errores más comunes al escribir SQL."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Dónde va el filtro",
+   "x": "Si es sobre la tabla **conservada** (la izquierda en un LEFT JOIN), va en el `WHERE`: querés sacar clientes enteros. Si es sobre la tabla **opcional** y querés seguir viendo a todos los de la izquierda, va en el `ON`. Un LEFT JOIN seguido de un `WHERE` sobre una columna de la derecha es una señal de alerta."
+  },
+  {
+   "t": "h",
+   "x": "Un caso con tres tablas"
+  },
+  {
+   "t": "p",
+   "x": "Volvamos al lunes de las 7:40. Para contestar con nombres hay que juntar tres tablas, y en SQL se encadenan JOINs: cada uno une el resultado anterior con una tabla más, de izquierda a derecha. Primero con INNER JOIN en los dos pasos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select e.id as envio, c.nombre as cliente, ch.nombre as chofer\nfrom envios e\njoin clientes c on c.id = e.cliente_id\njoin choferes ch on ch.id = e.chofer_id\norder by e.id;",
+     "s": " envio |    cliente     | chofer\n-------+----------------+--------\n   101 | Almacén Ríos   | Marta\n   102 | Almacén Ríos   | Hugo\n   103 | Ferretería Sur | Marta\n   105 | Ferretería Sur | Hugo\n(4 rows)"
+    }
+   ],
+   "cap": "Tres tablas con INNER JOIN. Falta el envío 104."
+  },
+  {
+   "t": "p",
+   "x": "Otra vez falta el 104: el segundo INNER JOIN descartó el envío sin chofer, y el cliente que llama por ese envío es justamente el que tiene un problema. La corrección es cambiar **el JOIN que puede perder filas** por un LEFT JOIN. El primero es seguro: `cliente_id` es `NOT NULL` y tiene clave foránea, así que todo envío tiene un cliente que existe."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select e.id as envio, c.nombre as cliente, ch.nombre as chofer\nfrom envios e\njoin clientes c on c.id = e.cliente_id\nleft join choferes ch on ch.id = e.chofer_id\norder by e.id;",
+     "s": " envio |    cliente     | chofer\n-------+----------------+--------\n   101 | Almacén Ríos   | Marta\n   102 | Almacén Ríos   | Hugo\n   103 | Ferretería Sur | Marta\n   104 | Librería Norte |\n   105 | Ferretería Sur | Hugo\n(5 rows)"
+    }
+   ],
+   "cap": "Con LEFT JOIN al final: están los cinco envíos y el 104 muestra el chofer vacío."
+  },
+  {
+   "t": "p",
+   "x": "Si se parte desde los clientes para no perder ni al que no tiene envíos, hay que usar LEFT JOIN en **los dos** pasos: un INNER JOIN en el segundo volvería a descartar a Cooperativa Oeste, porque su envío es NULL y no se empareja con nadie."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select c.nombre as cliente, e.id as envio, ch.nombre as chofer\nfrom clientes c\nleft join envios e on e.cliente_id = c.id\nleft join choferes ch on ch.id = e.chofer_id\norder by c.id, e.id;",
+     "s": "      cliente      | envio | chofer\n-------------------+-------+--------\n Almacén Ríos      |   101 | Marta\n Almacén Ríos      |   102 | Hugo\n Ferretería Sur    |   103 | Marta\n Ferretería Sur    |   105 | Hugo\n Librería Norte    |   104 |\n Cooperativa Oeste |       |\n(6 rows)"
+    }
+   ],
+   "cap": "Clientes, envíos y choferes, sin perder nada de la izquierda. Seis filas."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Sin ejecutar nada, calculá cuántas filas devuelve cada consulta con los datos de hoy: (a) `clientes cross join choferes cross join envios`; (b) la última consulta de arriba con el segundo `left join` cambiado por `join`.",
+   "pista": "En (a), multiplicá los tamaños. En (b), pensá qué les pasa a las filas de la izquierda cuyo envío o cuyo chofer es NULL cuando el segundo JOIN exige pareja.",
+   "solucion": [
+    "(a) 4 × 3 × 5 = 60 filas; lo corrí más arriba.",
+    "(b) El INNER JOIN con choferes elimina la fila de Cooperativa Oeste (envío NULL) y la del envío 104 (chofer NULL). Quedan cuatro filas. Un INNER JOIN sobre la tabla opcional anula el efecto del LEFT JOIN anterior."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué hace el motor por dentro"
+  },
+  {
+   "t": "p",
+   "x": "Hasta acá hablé del **resultado** de un JOIN. SQL es declarativo: decís qué querés, no cómo conseguirlo. El «cómo» lo decide una parte del motor, el planificador, que elige entre tres estrategias de unión [#bd09-pg-planner] y las muestra con el comando `EXPLAIN` (lo vas a estudiar en [@09-22] y [@09-23]). Hoy alcanza con conocerlas:"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Nested loop (bucle anidado).** Por cada fila de una tabla, busca las que coinciden en la otra. Sin atajo, es fuerza bruta (N × M comparaciones); con un atajo para hallar la pareja (un índice, tema de [@09-20]), cada búsqueda es casi instantánea. En el mostrador: por cada paquete, ir al fichero a buscar la ficha del cliente.",
+    "**Hash join.** Arma en memoria, con la tabla chica, una estructura de búsqueda directa por la columna de unión (una tabla hash) y recorre la grande una sola vez. En el mostrador: armar casilleros por cliente y repartir cada paquete en el suyo.",
+    "**Merge join.** Ordena las dos tablas por la columna de unión y las recorre a la par, como una cremallera. En el mostrador: dos planillas ya ordenadas por cliente y un dedo en cada una."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El mostrador de despacho",
+   "x": "La analogía sirve para entender por qué cada estrategia gana en su caso. Falla en el costo real: en un motor se mide en memoria y lecturas de disco, no en pasos de una persona, y un mostrador no cambia de método según el día, mientras que el planificador lo decide en cada consulta."
+  },
+  {
+   "t": "p",
+   "x": "Para verlas en acción generé más datos inventados, sin azar (todo sale de fórmulas sobre el número de fila): 2.000 clientes y 200.000 envíos, con la fórmula `1 + (n × 7919) % 2000` para repartirlos parejo, 100 por cliente."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table clientes_g (id int primary key, nombre text not null);\ncreate table envios_g (id int primary key, cliente_id int not null references clientes_g(id), bultos int not null);\ninsert into clientes_g select n, 'cliente ' || n from generate_series(1, 2000) n;\ninsert into envios_g select n, 1 + (n * 7919) % 2000, 1 + (n * 31) % 25 from generate_series(1, 200000) n;\nanalyze clientes_g; analyze envios_g;\n\n-- la consulta que vamos a medir\nselect c.nombre, e.bultos from envios_g e join clientes_g c on c.id = e.cliente_id;",
+   "cap": "`generate_series` produce una columna de números; `analyze` actualiza las estadísticas que consulta el planificador."
+  },
+  {
+   "t": "p",
+   "x": "Primero, lo que elige PostgreSQL por su cuenta. Desactivé el paralelismo de la sesión para que la salida sea simple, y corrí cada consulta tres veces, mostrando la última, para que los datos ya estén en memoria:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, costs off) select c.nombre, e.bultos from envios_g e join clientes_g c on c.id = e.cliente_id;",
+     "s": "                                    QUERY PLAN\n-----------------------------------------------------------------------------------\n Hash Join (actual time=0.350..33.041 rows=200000 loops=1)\n   Hash Cond: (e.cliente_id = c.id)\n   ->  Seq Scan on envios_g e (actual time=0.002..9.006 rows=200000 loops=1)\n   ->  Hash (actual time=0.344..0.345 rows=2000 loops=1)\n         Buckets: 2048  Batches: 1  Memory Usage: 114kB\n         ->  Seq Scan on clientes_g c (actual time=0.002..0.145 rows=2000 loops=1)\n Planning Time: 0.091 ms\n Execution Time: 38.529 ms\n(8 rows)"
+    }
+   ],
+   "cap": "Medido en esta VM (4 CPU compartidas, PostgreSQL 16.15, `work_mem` de 4 MB, `shared_buffers` de 128 MB). Los milisegundos sirven para comparar entre sí, no como cifras generales."
+  },
+  {
+   "t": "p",
+   "x": "Se lee de adentro hacia afuera. `Seq Scan on clientes_g` lee la tabla chica entera; `Hash` la carga en memoria (2.048 casilleros, 114 kB); `Seq Scan on envios_g` recorre las 200.000 filas y, por cada una, el `Hash Join` busca su cliente. Ejecución total: 38,5 ms, de los cuales unos 9 se van en leer la tabla grande. («Seq Scan» es leer una tabla completa, sin atajos.) Ahora fuerzo las otras dos estrategias apagando las que el planificador prefería, solo para esta demostración:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "set enable_hashjoin = off; set enable_mergejoin = off;\nexplain (analyze, costs off) select c.nombre, e.bultos from envios_g e join clientes_g c on c.id = e.cliente_id;",
+     "s": "                                                QUERY PLAN\n-----------------------------------------------------------------------------------------------------------\n Nested Loop (actual time=0.014..55.185 rows=200000 loops=1)\n   ->  Seq Scan on envios_g e (actual time=0.002..9.142 rows=200000 loops=1)\n   ->  Memoize (actual time=0.000..0.000 rows=1 loops=200000)\n         Cache Key: e.cliente_id\n         Cache Mode: logical\n         Hits: 198000  Misses: 2000  Evictions: 0  Overflows: 0  Memory Usage: 231kB\n         ->  Index Scan using clientes_g_pkey on clientes_g c (actual time=0.001..0.001 rows=1 loops=2000)\n               Index Cond: (id = e.cliente_id)\n Planning Time: 0.090 ms\n Execution Time: 60.575 ms\n(10 rows)"
+    },
+    {
+     "c": "set enable_nestloop = off; set enable_hashjoin = off;\nexplain (analyze, costs off) select c.nombre, e.bultos from envios_g e join clientes_g c on c.id = e.cliente_id;",
+     "s": "                                     QUERY PLAN\n------------------------------------------------------------------------------------\n Merge Join (actual time=43.096..71.422 rows=200000 loops=1)\n   Merge Cond: (e.cliente_id = c.id)\n   ->  Sort (actual time=42.769..54.073 rows=200000 loops=1)\n         Sort Key: e.cliente_id\n         Sort Method: external merge  Disk: 3528kB\n         ->  Seq Scan on envios_g e (actual time=0.004..11.835 rows=200000 loops=1)\n   ->  Sort (actual time=0.323..0.394 rows=2000 loops=1)\n         Sort Key: c.id\n         Sort Method: quicksort  Memory: 134kB\n         ->  Seq Scan on clientes_g c (actual time=0.008..0.122 rows=2000 loops=1)\n Planning Time: 0.113 ms\n Execution Time: 77.205 ms\n(12 rows)"
+    }
+   ],
+   "cap": "El mismo resultado (200.000 filas) con las otras dos estrategias; tercera ejecución de cada una."
+  },
+  {
+   "t": "p",
+   "x": "El resultado es idéntico, y el camino cambia. En el **nested loop**, cada uno de los 200.000 envíos busca su cliente por la clave primaria (`Index Scan using clientes_g_pkey`), y PostgreSQL agregó un nodo `Memoize` que recuerda los clientes ya buscados: 198.000 búsquedas se contestaron de ese recuerdo (`Hits`) y solo 2.000 fueron a la tabla (`Misses`). En el **merge join** hubo que ordenar los envíos por cliente, y no entraron en los 4 MB que la sesión permite para ordenar (`work_mem`): el orden usó disco (`external merge  Disk: 3528kB`). Por eso fue la más lenta."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Estrategia",
+    "Tiempo",
+    "Qué hizo falta"
+   ],
+   "filas": [
+    [
+     "Hash join (la elegida)",
+     "38,5 ms",
+     "Un hash de 2.000 clientes en memoria y una pasada por los 200.000 envíos"
+    ],
+    [
+     "Nested loop con Memoize (forzada)",
+     "60,6 ms",
+     "200.000 búsquedas, casi todas contestadas de memoria"
+    ],
+    [
+     "Merge join (forzada)",
+     "77,2 ms",
+     "Ordenar 200.000 envíos (a disco) y 2.000 clientes, y recorrer ambos"
+    ]
+   ],
+   "cap": "Tercera ejecución de cada una, medida en esta VM. La diferencia es real pero chica a este tamaño; con cien millones de filas pesaría mucho más."
+  },
+  {
+   "t": "p",
+   "x": "Ahora el caso contrario: no los 200.000 envíos, sino uno solo, el 100, con el nombre de su cliente."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, costs off) select c.nombre, e.bultos from envios_g e join clientes_g c on c.id = e.cliente_id where e.id = 100;",
+     "s": "                                            QUERY PLAN\n--------------------------------------------------------------------------------------------------\n Nested Loop (actual time=0.009..0.010 rows=1 loops=1)\n   ->  Index Scan using envios_g_pkey on envios_g e (actual time=0.005..0.006 rows=1 loops=1)\n         Index Cond: (id = 100)\n   ->  Index Scan using clientes_g_pkey on clientes_g c (actual time=0.001..0.002 rows=1 loops=1)\n         Index Cond: (id = e.cliente_id)\n Planning Time: 0.098 ms\n Execution Time: 0.021 ms\n(7 rows)"
+    }
+   ],
+   "cap": "Un solo envío: 0,021 ms de ejecución, medido en esta VM."
+  },
+  {
+   "t": "p",
+   "x": "Esta vez el planificador eligió **nested loop**: con una fila de un lado y atajos por clave en las dos tablas, son dos búsquedas y listo; nadie armó casilleros ni ordenó nada. La misma consulta con otros datos cambia de estrategia según cuántas filas entran, y por eso no se elige a mano: lo decide el planificador con las estadísticas de cada tabla. Tu trabajo es escribir la consulta correcta. Entender las estrategias sirve para leer un `EXPLAIN` cuando algo tarda de más y para ver por qué el CROSS JOIN por error es tan caro: sin condición no hay atajo posible y se arman todas las combinaciones."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 13-11-2026",
+   "x": "La sintaxis de JOIN (INNER, LEFT, RIGHT, FULL, CROSS, ON, USING, NATURAL) es estándar y la documentación actual de PostgreSQL la describe igual. Lo que cambia entre versiones es el planificador y sus nodos: `Memoize` apareció en PostgreSQL 14 [#bd09-pg-14-notas]. Según la página de versiones, la rama más nueva es la 18 (18.7, publicada el 12-11-2026 junto con la 17.12, la 16.16, la 15.20 y la 14.25) y ese día salió el segundo candidato de la 19 [#postgresql-versioning]. Esta máquina corre la 16.15 de Ubuntu, una menor atrás de la 16.16: los planes y tiempos de hoy son de esa versión y pueden diferir en otras; el resultado de cada consulta, no."
+  },
+  {
+   "t": "senda",
+   "titulo": "Un LEFT JOIN real: la lista de miembros de un grupo",
+   "x": [
+    "La función `miembros_de` arma la lista de personas de un grupo (una iglesia, un grupo de jóvenes) y une `miembros` con `perfiles` así: `from public.miembros m left join public.perfiles p on p.id = m.usuario`. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece.",
+    "¿Por qué LEFT y no INNER? La clave foránea de `miembros.usuario` apunta a `auth.users`, la tabla de cuentas de Supabase, y no a `perfiles`; y en las migraciones no encontré ningún trigger sobre `auth.users` que cree el perfil. Con esa estructura, la base **no garantiza** que cada miembro tenga perfil, y un INNER JOIN lo haría desaparecer de la lista, sin error, como el envío 104. (Si eso pasa de hecho en la app no lo verifiqué: es lo que el esquema permite.) En cambio `mis_grupos` usa un INNER JOIN entre `miembros` y `grupos`, y ahí corresponde: toda fila de `miembros` tiene un grupo que existe, por la clave foránea con `on delete cascade`."
+   ],
+   "archivos": [
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261107000000_grupos.sql",
+    "supabase/migrations/20261026000000_inicio.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué te llevás"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un JOIN junta filas de dos tablas formando parejas que cumplen una condición. Los tipos se distinguen por qué hacen con las filas sin pareja: INNER las descarta, LEFT conserva las de la izquierda, FULL las de los dos lados y CROSS no tiene condición. Para elegir, escribí primero la frase: «quiero **todos** los X, y sus Y si tienen» es LEFT desde X; «quiero **solo** los X que tienen Y» es INNER.",
+    "Tres hábitos para llevarte: contar parejas y no elementos, desconfiar de un `WHERE` sobre la tabla de la derecha de un LEFT JOIN, y escribir siempre el `ON`. Mañana lo practicás: alias de tabla, uniones de varias tablas, la búsqueda de lo que falta y la prueba de cómo se inflan los totales cuando se une mal."
+   ]
+  }
+ ],
+ "recap": [
+  "Un JOIN forma **parejas de filas** que cumplen una condición; lo que distingue a los tipos es qué hacen con las filas sin pareja.",
+  "INNER JOIN las descarta en silencio, LEFT JOIN conserva las de la izquierda con NULL a la derecha, FULL JOIN conserva las de los dos lados y CROSS JOIN no tiene condición: combina todo (N × M filas).",
+  "Para cada clave, un INNER JOIN produce el **producto** de las filas de cada lado: 2 × 3 = 6. Un diagrama de Venn no deja ver esto, y por eso engaña sobre el tamaño del resultado.",
+  "`ON` acepta cualquier condición, `USING` sirve cuando la columna se llama igual y deja una sola copia, y `NATURAL` une por todas las columnas de igual nombre y puede cambiar sin avisar: se evita.",
+  "En un LEFT JOIN, un filtro en el `ON` se aplica al emparejar y uno en el `WHERE` se aplica después: ponerlo en el `WHERE` sobre la tabla de la derecha lo convierte, de hecho, en un INNER JOIN.",
+  "El motor junta con nested loop, hash join o merge join y elige según cuántas filas entran; el resultado es el mismo, el tiempo no (medido acá: 38,5, 60,6 y 77,2 ms para 200.000 envíos)."
+ ],
+ "repaso": [
+  {
+   "p": "La tabla P tiene claves 7, 7, 7 y 8; la tabla Q tiene claves 7, 7 y 9. ¿Cuántas filas devuelve un INNER JOIN de P con Q por esa clave?",
+   "o": [
+    "5 filas, porque la clave 7 aparece 3 veces en un lado y 2 en el otro",
+    "3 filas, porque solo cuentan las filas de la tabla más corta",
+    "6 filas, porque cada una de las 3 filas con 7 se empareja con las 2",
+    "4 filas, porque se suman las claves que aparecen en las dos tablas"
+   ],
+   "c": 2,
+   "e": "Para cada clave, el resultado trae el producto de las filas de cada lado: 3 × 2 = 6 para la clave 7. Las claves 8 y 9 no tienen pareja y un INNER JOIN las descarta. Quien suma (5) trata el JOIN como una unión de listas, y quien toma la tabla más corta (3) imagina que cada fila se usa una sola vez."
+  },
+  {
+   "p": "Con las mismas tablas P (7, 7, 7, 8) y Q (7, 7, 9), ¿cuántas filas devuelve un FULL JOIN por esa clave?",
+   "o": [
+    "8 filas: las 6 parejas de la clave 7, más la 8 sola y la 9 sola",
+    "6 filas: las parejas de la clave 7, porque las otras no coinciden",
+    "7 filas: las 6 parejas y la fila sola de la tabla P con la clave 8",
+    "9 filas: las filas de las dos tablas, apiladas una debajo de otra"
+   ],
+   "c": 0,
+   "e": "El FULL JOIN trae las 6 parejas del INNER JOIN y agrega, con NULL del otro lado, cada fila sin pareja de P (la clave 8) y de Q (la clave 9): 6 + 1 + 1 = 8. Las 7 filas son lo que da un LEFT JOIN de P a Q. Apilar las filas (7) es la operación UNION, que no es un JOIN."
+  },
+  {
+   "p": "Unís dos tablas de 200 filas cada una, escribiste `from a cross join b` por costumbre y esperabas 200 filas. ¿Qué devuelve la consulta?",
+   "o": [
+    "200 filas, porque cada fila de a se empareja con su fila gemela",
+    "400 filas, porque se agregan las de b a las de a",
+    "0 filas, porque no hay condición de coincidencia",
+    "40.000 filas, porque cada fila de a va con todas las de b"
+   ],
+   "c": 3,
+   "e": "Un CROSS JOIN no tiene condición: devuelve el producto cartesiano, N × M = 200 × 200 = 40.000 filas. Es el síntoma típico de un JOIN al que se le olvidó el `ON`. Las 400 sumarían las filas (como un UNION ALL), y las 0 supondrían que sin condición no hay coincidencias, cuando sin condición todas coinciden."
+  },
+  {
+   "p": "Escribís `from clientes c left join envios e on e.cliente_id = c.id where e.bultos > 6` y esperabas ver también a los clientes sin envíos. No aparecen. ¿Por qué?",
+   "o": [
+    "El LEFT JOIN no conserva filas sin pareja cuando hay un WHERE en la misma consulta",
+    "Las filas sin envío tienen NULL en bultos, y `NULL > 6` no es verdadero, así que el WHERE las saca",
+    "El WHERE se evalúa antes que el JOIN y borra de entrada a los clientes sin envíos",
+    "La columna bultos no se puede comparar con un número si pertenece a la tabla de la derecha"
+   ],
+   "c": 1,
+   "e": "El WHERE se aplica después de armar el resultado, incluidas las filas rellenadas con NULL. Para esas filas `bultos > 6` da desconocido y el WHERE solo deja pasar lo verdadero. La solución es mover la condición al `ON` si se quiere conservar a los clientes sin envíos. No es que el LEFT JOIN falle, ni que el WHERE corra antes: corre después."
+  },
+  {
+   "p": "¿Qué riesgo tiene escribir `from clientes natural join choferes` en una consulta que se va a mantener durante años?",
+   "o": [
+    "Es más lento que un ON, porque obliga al motor a comparar el nombre de todas las columnas",
+    "Solo funciona si las dos tablas tienen la misma cantidad de columnas y no devuelve nada si no",
+    "Une por todas las columnas de igual nombre, y agregar una columna repetida cambia el resultado sin avisar",
+    "Descarta siempre las filas con NULL, cosa que otros tipos de JOIN no hacen, y por eso es menos seguro"
+   ],
+   "c": 2,
+   "e": "NATURAL JOIN arma la condición con todas las columnas que se llaman igual en las dos tablas. Si alguien agrega después una columna `nombre` o `creado` en ambas, la unión empieza a exigir también esa igualdad y el resultado cambia, sin error. No es más lento, y la cantidad de columnas no importa; la clave es que la condición queda implícita."
+  },
+  {
+   "p": "Buscás un único envío por su id y mostrás el nombre de su cliente. Las dos tablas tienen clave primaria. ¿Qué estrategia de unión es lo razonable que use el motor?",
+   "o": [
+    "Hash join, porque siempre es la más rápida con cualquier tamaño de tabla",
+    "Merge join, porque conviene ordenar siempre las dos tablas antes de unirlas",
+    "Un CROSS JOIN seguido de un filtro, porque es la forma más directa de lograrlo",
+    "Nested loop, porque con una fila de un lado alcanza con una búsqueda en la otra"
+   ],
+   "c": 3,
+   "e": "Con una sola fila en un lado y un atajo por clave en el otro, el nested loop hace dos búsquedas y termina, sin armar un hash ni ordenar nada (lo medido: 0,021 ms). El hash join gana cuando hay muchas filas que juntar, el merge cuando ya vienen ordenadas, y el CROSS JOIN es justamente lo que el motor evita."
+  },
+  {
+   "p": "Tu equipo dice «el INNER JOIN es la intersección de las dos tablas». ¿Qué corrección es más precisa?",
+   "o": [
+    "Es exacto: devuelve las filas que están en las dos tablas, igual que una intersección de conjuntos",
+    "Es falso: devuelve las filas que están en una tabla o en la otra, como una unión de conjuntos",
+    "Es impreciso: devuelve parejas de filas, y una fila puede repetirse tantas veces como parejas tenga",
+    "Es impreciso: devuelve solo la primera pareja de cada fila, así que no puede repetir ninguna"
+   ],
+   "c": 2,
+   "e": "Un JOIN no mira elementos sino parejas de filas, y para cada clave devuelve el producto de las filas de cada lado, así que una fila se repite si tiene varias parejas. Una intersección de conjuntos no repite elementos. Y tampoco se limita a la primera pareja: devuelve todas, que es lo que hace crecer el resultado."
+  }
+ ],
+ "feynman": "Imaginá que una supervisora te muestra el reporte del día y te dice «faltan envíos, pero no sé cuáles». Explicale, sin jerga y con una analogía propia, qué tres cosas pudieron hacer que un envío no aparezca al juntar las planillas de envíos, clientes y choferes, y qué cambiarías para que ningún envío se pierda.",
+ "para_profundizar": [
+  {
+   "fuente": "bd09-pg-joins",
+   "nota": "La sección «Joined Tables» de la documentación de PostgreSQL define cada tipo de JOIN con la misma lógica de este día. Leé el ejemplo con las tablas t1 y t2 hasta el final: tiene el caso del filtro en ON contra WHERE."
+  },
+  {
+   "fuente": "bd09-pg-planner",
+   "nota": "El apartado donde el manual de PostgreSQL describe las tres estrategias de unión. Es corto y sirve para ver las definiciones oficiales de las que hoy diste una versión con depósito."
+  },
+  {
+   "fuente": "be28-postgres-explain",
+   "nota": "Cómo leer la salida de EXPLAIN. Con esto podés repetir en tus datos las tres mediciones de hoy, y es la base de [@09-22] y [@09-23]."
+  },
+  {
+   "fuente": "use-the-index-luke-join",
+   "nota": "El capítulo sobre JOINs de Use The Index, Luke muestra nested loop, hash join y sort-merge con ejemplos de otros motores. Sirve para ver que las estrategias no son una rareza de PostgreSQL."
+  }
+ ],
+ "videos": [
+  {
+   "q": "SQL joins explained inner left right full outer cross join with examples",
+   "por_que": "Para ver los mismos tipos de JOIN con otras tablas de ejemplo y fijar cuál conserva qué. Mirá cuántos videos arrancan con un Venn y comprobá si alguno cuenta las filas repetidas."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "INNER JOIN",
+   "d": "Unión que devuelve solo las parejas de filas donde la condición del ON es verdadera. Las filas sin pareja, de cualquiera de los dos lados, se descartan."
+  },
+  {
+   "t": "LEFT JOIN",
+   "d": "Unión que conserva todas las filas de la tabla de la izquierda. Si una no tiene pareja, sale con NULL en las columnas de la derecha."
+  },
+  {
+   "t": "FULL JOIN",
+   "d": "Unión que conserva las filas de las dos tablas: las parejas, más las de cada lado sin pareja, con NULL en las columnas del otro. Sirve para conciliar dos listados."
+  },
+  {
+   "t": "CROSS JOIN",
+   "d": "Unión sin condición: combina cada fila de una tabla con cada fila de la otra. Con N y M filas devuelve N × M. También se llama producto cartesiano."
+  },
+  {
+   "t": "RIGHT JOIN",
+   "d": "El LEFT JOIN al revés: conserva todas las filas de la tabla de la derecha. `A right join B` equivale a `B left join A`, y por eso se usa poco."
+  },
+  {
+   "t": "USING",
+   "d": "Forma abreviada de la condición de unión cuando las columnas se llaman igual en las dos tablas: `using (chofer_id)`. En el resultado, esa columna aparece una sola vez."
+  },
+  {
+   "t": "NATURAL JOIN",
+   "d": "Unión que usa todas las columnas con el mismo nombre en las dos tablas, sin nombrarlas. Se evita porque un cambio en el esquema cambia la condición sin avisar."
+  },
+  {
+   "t": "nested loop",
+   "d": "Estrategia de unión que, por cada fila de una tabla, busca las que coinciden en la otra. Es rápida si de un lado hay pocas filas o hay un atajo para encontrar la pareja."
+  },
+  {
+   "t": "hash join",
+   "d": "Estrategia de unión que carga en memoria la tabla más chica en una estructura de búsqueda directa y recorre la otra una sola vez consultándola."
+  },
+  {
+   "t": "merge join",
+   "d": "Estrategia de unión que ordena las dos tablas por la columna de unión y las recorre a la par. Conviene cuando ya vienen ordenadas o son muy grandes."
+  }
+ ],
+ "siguiente": "Alias de tabla, uniones de varias tablas, el anti-join (encontrar lo que falta) y cinco ejercicios corridos, incluido el de los totales inflados por un JOIN mal hecho.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd09-pg-joins",
+   "t": "PostgreSQL: Table Expressions (Joined Tables)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/current/queries-table-expressions.html"
+  },
+  {
+   "id": "bd09-pg-planner",
+   "t": "PostgreSQL 16: Planner/Optimizer (Generating Possible Plans)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/planner-optimizer.html"
+  },
+  {
+   "id": "bd09-pg-14-notas",
+   "t": "PostgreSQL 14: notas de la versión (Release 14)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2021,
+   "url": "https://www.postgresql.org/docs/14/release-14.html"
+  },
+  {
+   "id": "use-the-index-luke-join",
+   "t": "Use The Index, Luke: Joins (nested loops, hash join, sort merge)",
+   "a": "Markus Winand",
+   "tipo": "libro",
+   "url": "https://use-the-index-luke.com/sql/join"
+  }
+ ]
+}

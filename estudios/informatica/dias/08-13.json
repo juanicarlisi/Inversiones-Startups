@@ -1,0 +1,871 @@
+{
+ "id": "08-13",
+ "titulo": "Versionado y evolución de APIs",
+ "bajada": "Probás en un servidor propio qué cambios rompen a un cliente viejo y cuáles no, y aprendés a cambiar un contrato sin dejar a nadie a pie.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Clasificar un cambio en una API como compatible o incompatible, mirando si lo hace el pedido o la respuesta.",
+  "Explicar por qué un cambio que no da error (un campo renombrado, un valor nuevo en una lista) puede ser el más peligroso.",
+  "Comparar poner la versión en la URL, en una cabecera o en una fecha, con sus costos.",
+  "Leer las cabeceras `Deprecation` y `Sunset` y armar un calendario de retiro de una versión.",
+  "Aplicar «expandir y contraer» para renombrar un campo sin romper a nadie."
+ ],
+ "venis_de": "En [@08-12] viste cómo un servidor se defiende de quien le pide demasiado. Hoy cambia la pregunta: qué hace un servidor cuando él mismo necesita cambiar y hay clientes que no pueden cambiar a la par.",
+ "se_apoya_en": [
+  "08-01",
+  "08-02",
+  "08-03",
+  "08-12",
+  "04-05"
+ ],
+ "gancho": [
+  "Un chofer instaló en enero la app de despachos de tu empresa (el caso es inventado). Nunca la actualizó: funciona, ¿para qué tocarla? El lunes, el equipo de backend mejora el servidor. Renombra un campo porque `peso_kg` quedó chico cuando empezaron a cargar toneladas. A la mañana el chofer abre la app, ve el despacho 42 con su cliente y su estado de siempre, y un flete de «$NaN». No hay ningún cartel de error en la pantalla. No hay ningún 500 en el servidor. Todo respondió 200.",
+  "Ese es el problema de fondo de las APIs a lo largo del tiempo: el servidor y sus clientes no cambian al mismo ritmo, y vos controlás solo a uno de los dos. Hoy vas a ver qué cambios rompen y cuáles no (con un cliente viejo y un servidor propio que se lo comprueban), dónde se anota la versión, cómo se avisa que algo va a desaparecer, y qué muestran las migraciones de Senda sobre todo esto."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un servidor, muchos relojes"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@08-01] viste que una API es un [[contrato]]: qué pedidos acepta un sistema y qué respuestas promete. Un contrato que nunca cambia es fácil de cumplir, pero el negocio cambia: aparecen toneladas, estados nuevos, zonas nuevas. El contrato tiene que poder cambiar sin que se caiga todo lo que ya se apoyaba en él.",
+    "La dificultad depende de quién llama. Hay tres tipos de clientes y se actualizan a ritmos muy distintos:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Tu propia web.** Se despliega junto con el servidor, o con minutos de diferencia. Si cambiás los dos a la vez, casi no hay problema de versiones.",
+    "**Tu app móvil.** Cada teléfono tiene la versión que instaló. La tienda tarda en revisar, la gente tarda en actualizar y hay quien nunca lo hace. En cualquier momento hay versiones de hace meses hablando con el servidor de hoy.",
+    "**Clientes de terceros.** Integraciones que escribieron otras empresas. Ni sabés cuáles son ni cuándo las tocan. Cambiar algo sin avisar puede frenar el trabajo de alguien a quien nunca viste."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres términos para ordenar la conversación. Una [[versión de API]] es una forma identificable del contrato: «la de enero», «la v2», «la del 1 de noviembre». La [[compatibilidad hacia atrás]] es la propiedad de un servidor nuevo que sigue funcionando con clientes escritos para el contrato anterior. Y un [[cambio incompatible]] es el que rompe esa propiedad: después de él, un cliente que respetaba el contrato viejo falla o, peor, funciona mal."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "«Funciona mal» es peor que «falla»",
+   "x": "Un cliente que se cae le avisa a alguien: aparece en los reportes, el usuario se queja, el equipo lo arregla esa tarde. Un cliente que sigue andando con datos equivocados (un flete mal calculado, un saldo que no cierra) puede pasar semanas sin que nadie lo note. Casi todo el cuidado del versionado apunta a evitar esta segunda situación."
+  },
+  {
+   "t": "p",
+   "x": "Hay un problema más, que Hyrum Wright, ingeniero de Google, puso en palabras a partir de su trabajo en migraciones de infraestructura:"
+  },
+  {
+   "t": "cita",
+   "x": "it does not matter what you promise in the contract: all observable behaviors of your system will be depended on by somebody.",
+   "autor": "Hyrum Wright, «Hyrum's Law»",
+   "fuente": "v13-hyrum"
+  },
+  {
+   "t": "p",
+   "x": "Es decir: lo que importa no es solo lo que escribiste en la documentación sino lo que el servidor hace de verdad. Si hoy devuelve los despachos ordenados por fecha aunque nunca lo prometiste, alguien ya construyó algo que depende de ese orden. No es una ley física, es una observación con mucha experiencia detrás, y sirve para tomar en serio hasta los cambios que parecen inofensivos."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El remito con columnas fijas",
+   "x": [
+    "Un transportista le manda a tu depósito el remito en una planilla y tu sistema de recepción lo lee **por posición**: la columna 4 es el peso. Si el transportista inserta una columna nueva al final, tu sistema no se entera y todo sigue bien. Si la inserta en el medio, tu sistema carga las toneladas en la columna de bultos y nadie lo detecta hasta el inventario.",
+    "Dónde deja de valer: a un remito lo mira una persona que, con suerte, nota que algo no cierra. Un programa no tiene esa sospecha: hace exactamente lo que le dijeron, con los datos que le dieron."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Una página web tuya y una app móvil tuya llaman a la misma API. ¿Por qué la app es mucho más difícil de versionar, si las dos las escribió tu equipo?",
+   "resp": "Porque el equipo controla cuándo se despliega la web (todos los usuarios ven la versión nueva al recargar) pero no cuándo se actualiza cada teléfono. En la web hay una sola versión del cliente en circulación; en la app hay muchas, y las viejas pueden quedar activas durante meses. El servidor tiene que atender a todas a la vez."
+  },
+  {
+   "t": "h",
+   "x": "Qué rompe y qué no: probalo"
+  },
+  {
+   "t": "p",
+   "x": "En lugar de discutir en abstracto, armé las dos puntas. Un cliente «viejo», de diez líneas, que sigue instalado:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const ETIQUETA = { nuevo: \"Nuevo\", en_ruta: \"En ruta\", entregado: \"Entregado\" };\nconst r = await fetch(`${base}/despachos/42`);\nconst d = await r.json();\nconst flete = d.peso_kg * 85; // $85 por kilo (cifra inventada)\nconsole.log(`HTTP ${r.status} | ${d.cliente} | ${ETIQUETA[d.estado]} | flete $${flete}`);",
+   "cap": "El cliente viejo: lee `peso_kg` y `estado` y traduce el estado con una tabla fija. Es un código normal, el que escribiría cualquiera."
+  },
+  {
+   "t": "p",
+   "x": "Y un servidor local que, en cada corrida, responde lo mismo pero con un cambio distinto. El cliente no se toca nunca. Esto es lo que mostró cada versión de la respuesta:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node corre_cambios.mjs",
+     "s": "0 original             -> HTTP 200 | Ferretería Ñandú | En ruta | flete $10200\n1 agrega campo zona    -> HTTP 200 | Ferretería Ñandú | En ruta | flete $10200\n2 renombra peso_kg     -> HTTP 200 | Ferretería Ñandú | En ruta | flete $NaN\n3 estado nuevo         -> HTTP 200 | Ferretería Ñandú | undefined | flete $10200\n4 peso pasa a texto    -> HTTP 200 | Ferretería Ñandú | En ruta | flete $NaN"
+    }
+   ],
+   "cap": "Salida real de esta VM (13-11-2026, Node 22). El servidor y los datos son inventados; el servidor escucha solo en 127.0.0.1."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá la columna del medio: **las cinco respuestas dicen HTTP 200**. Ninguna falló en la red, en el servidor ni en el cliente. Lo que cambió es lo que el cliente entendió.",
+    "La primera línea es la referencia. En la segunda, el servidor agregó `zona` y el cliente ni lo notó: nunca miró ese campo. En la tercera, `peso_kg` se llama ahora `peso`; el cliente pide `d.peso_kg`, JavaScript le devuelve `undefined` sin quejarse, y `undefined * 85` da `NaN`. En la cuarta, el servidor inventó el estado `demorado`: el cliente lo busca en su tabla, no lo encuentra y escribe `undefined` en pantalla. En la quinta, el peso pasó de número a texto con unidad: `\"120 kg\" * 85` vuelve a dar `NaN`."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Cuatro cambios, un solo cliente, tres resultados distintos: uno no rompe nada y los otros tres rompen sin hacer ruido. Para razonar sin tener que probar cada caso, conviene una tabla de cambios típicos."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cambio en el servidor",
+    "¿Rompe a un cliente viejo?",
+    "Por qué"
+   ],
+   "filas": [
+    [
+     "Agregar un campo a una respuesta",
+     "Casi nunca",
+     "Un cliente que solo lee lo que conoce lo ignora. Se rompe si valida que no haya campos extra."
+    ],
+    [
+     "Agregar un endpoint nuevo",
+     "No",
+     "Nadie lo llama todavía."
+    ],
+    [
+     "Agregar un parámetro **opcional** al pedido",
+     "No",
+     "Los clientes viejos no lo mandan y el servidor usa un valor por defecto."
+    ],
+    [
+     "Agregar un parámetro **obligatorio** al pedido",
+     "Sí",
+     "Los clientes viejos no lo mandan: el servidor los rechaza."
+    ],
+    [
+     "Quitar o renombrar un campo de la respuesta",
+     "Sí",
+     "El cliente lo busca y no está (la tercera línea de la demo)."
+    ],
+    [
+     "Cambiar el tipo o la unidad de un campo",
+     "Sí, y a veces en silencio",
+     "El número pasa a texto, o de kilos a toneladas con el mismo nombre."
+    ],
+    [
+     "Agregar un valor a una lista cerrada (un estado nuevo)",
+     "Depende del cliente",
+     "Si el cliente tiene una rama por defecto, sigue; si no, falla (la cuarta línea)."
+    ],
+    [
+     "Hacer más estricta una validación",
+     "Sí",
+     "Lo que antes aceptabas, ahora lo rechazás."
+    ],
+    [
+     "Cambiar un código de estado (de 200 a 201, de 404 a 204)",
+     "Si el cliente lo compara",
+     "Un `if (status === 200)` deja de entrar."
+    ],
+    [
+     "Cambiar el significado sin cambiar la forma",
+     "Sí, el peor caso",
+     "El campo `peso` pasa de bruto a neto: ninguna validación lo ve."
+    ]
+   ],
+   "cap": "Reglas de la práctica, no leyes. La lista de GitHub (más abajo) coincide en lo central."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La tabla tiene una regla escondida que conviene decir en voz alta. Es una **asimetría entre lo que sale y lo que entra**. A lo que el servidor *manda* se le puede agregar, pero no quitar ni cambiar. De lo que el servidor *pide* se puede relajar, pero no endurecer. Dicho como regla práctica: sumar a las respuestas, aflojar los pedidos; nunca al revés. Un cliente viejo puede ignorar lo que le sobra, pero no puede inventar lo que le falta ni adivinar que ahora lo tiene que mandar."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Las listas «cerradas» que se abren",
+   "x": [
+    "Agregar un valor nuevo a una lista de opciones (un estado, un tipo, un método de pago) es de los cambios más discutidos. GitHub lo clasifica como cambio **aditivo**, que no justifica versión nueva; entre sus cambios que sí rompen cuenta *quitar* valores [#v13-gh-versions]. Stripe distingue entre listas «cerradas» (no crecen) y «abiertas», y para las abiertas pide que tu código tenga «una salida segura, como una rama por defecto en un switch» para valores que todavía no conoce [#v13-stripe-versioning]. La documentación de Protobuf avisa lo mismo desde otro lado: agregar un valor a un enum es seguro en el cable, pero rompe la compilación de código con un switch exhaustivo [#v13-protobuf-evolucion].",
+    "La consecuencia práctica: el proveedor se reserva el derecho de agregar valores, y la responsabilidad pasa al cliente, que tiene que escribir siempre el caso «no sé qué es esto»."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "De los cuatro cambios de la demo, ¿cuál es el más peligroso en un sistema real y por qué? Pensá en quién se entera de cada uno.",
+   "resp": "El renombrado (y el cambio de tipo, que se le parece) porque el servidor devuelve 200, el cliente no lanza ninguna excepción y el error aparece como un número equivocado, a veces recién cuando alguien factura. El campo nuevo no rompe nada; el estado nuevo muestra «undefined» en pantalla, un fallo feo pero visible que alguien reporta."
+  },
+  {
+   "t": "h",
+   "x": "Tolerar al otro sin aceptar cualquier cosa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay otro lado de la misma moneda: no solo importa qué hace el servidor, también qué hace el cliente con lo que no entiende. La [[compatibilidad hacia atrás]] la logra el servidor; su espejo, la **compatibilidad hacia adelante**, la logra el *cliente* viejo: que sepa convivir con respuestas de un servidor más nuevo, ignorando lo que no conoce. Los dos lados tienen que cumplir su parte para que un sistema evolucione sin romperse. En la demo, el cliente viejo pasa la prueba con el campo `zona` (lo ignora) y la falla con el estado nuevo (no tiene qué hacer con él).",
+    "Una receta famosa para esto es el **principio de robustez**, que Jon Postel escribió en la especificación de TCP de 1980:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "be conservative in what you do, be liberal in what you accept from others.",
+   "autor": "Jon Postel, RFC 761 (enero de 1980)",
+   "fuente": "v13-rfc761"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fue una idea muy influyente: mandá datos prolijos y aceptá datos imperfectos. Pero también tiene críticas serias. En 2023 el IAB (el comité que supervisa la arquitectura de Internet) publicó el RFC 9413, «Maintaining Robust Protocols», que sostiene que tolerar en silencio la entrada defectuosa acumula problemas con el tiempo: las implementaciones empiezan a depender de los errores ajenos y esos errores se vuelven parte del «contrato real» [#v13-rfc9413]. Es la ley de Hyrum aplicada a un protocolo entero.",
+    "El mismo documento aclara algo útil para este tema: ignorar campos desconocidos no es lo mismo que aceptar basura. Un mecanismo de extensión bien diseñado tiene reglas **escritas**: «los campos que no conozcas, ignoralos». Con una regla así, un campo nuevo es un evento previsto. Lo que no funciona como estrategia es que el sistema siga adelante *por casualidad* ante lo inesperado [#v13-rfc9413]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Para una API, un criterio razonable (mi criterio, no una norma) es este: **ignorar los campos de más, pero fallar con un mensaje claro cuando falta algo que necesitás**. El cliente viejo de la demo hizo lo contrario con `peso_kg`: siguió con un dato ausente y calculó con él. Una línea de validación («si no vino el peso, avisá y no calcules») lo habría transformado en un error visible."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Una limitación que reconoce el propio RFC 9413",
+   "x": "El documento dice que su consejo (mantener los protocolos con actualizaciones coordinadas) depende de poder actualizar las implementaciones, y reconoce que algunos despliegues se actualizan poco o nunca [#v13-rfc9413]. Las apps ya instaladas en los teléfonos son el ejemplo cotidiano: ahí no alcanza con pedirle al otro lado que se actualice."
+  },
+  {
+   "t": "h",
+   "x": "Dónde se escribe la versión"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si el cambio tiene que ser incompatible, el contrato nuevo y el viejo tienen que convivir un tiempo. Para eso cada pedido tiene que decir **a qué versión se refiere**. Hay varias formas de anotarlo, y cada una tiene sus costos:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dónde va la versión",
+    "Cómo se ve",
+    "Ventajas",
+    "Costos"
+   ],
+   "filas": [
+    [
+     "En la ruta (URL)",
+     "`/v1/despachos/42`",
+     "Se ve a simple vista, se prueba con el navegador o `curl`, las cachés separan versiones solas.",
+     "Una versión nueva suele cambiar «todo el árbol» aunque haya cambiado un solo endpoint."
+    ],
+    [
+     "En una cabecera propia",
+     "`Api-Version: 2026-11-01`",
+     "La URL de un recurso no cambia entre versiones. Se puede versionar más fino.",
+     "No se ve en el navegador. Si hay caché, hay que avisarle que la respuesta depende de esa cabecera (con `Vary`)."
+    ],
+    [
+     "En la negociación de contenido",
+     "`Accept: application/vnd.empresa.v2+json`",
+     "Es lo más fiel a cómo HTTP piensa las representaciones.",
+     "Más difícil de probar a mano, y no todas las herramientas lo manejan bien."
+    ],
+    [
+     "En un parámetro de consulta",
+     "`/despachos/42?version=2`",
+     "Fácil de probar. Se puede dejar de lado en la mayoría de las herramientas.",
+     "Mezcla versión con filtros; las cachés pueden tratar cada combinación por separado."
+    ],
+    [
+     "Por fecha (en cabecera)",
+     "`X-GitHub-Api-Version: 2026-03-10`",
+     "La versión es el día en que el cliente se probó. Permite cambios chicos y frecuentes.",
+     "Hay que mantener cada fecha viva y decidir qué pasa si el cliente no manda nada."
+    ]
+   ],
+   "cap": "Ninguna es la correcta para todos los casos. El caso de «sin versión» (evolucionar sin romper) se trata más abajo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos casos reales con datos verificados el 13-11-2026. GitHub usa **fechas**: la versión actual de su API REST es la `2026-03-10`, se pide con la cabecera `X-GitHub-Api-Version`, y si el cliente no manda nada recibe la `2022-11-28`. Cuando sale una versión nueva, la anterior se sostiene **al menos 24 meses**, y pedir una versión que ya cerró devuelve un `410 Gone` [#v13-gh-versions]. Stripe también usa una cabecera (`Stripe-Version`) con una fecha y un nombre, y desde la versión `2024-09-30.acacia` publica versiones mensuales sin cambios incompatibles, más una versión «mayor» dos veces por año; sin cabecera, la API usa la versión por defecto de tu cuenta [#v13-stripe-versioning].",
+    "Fijate qué tienen en común: el cliente **elige** la versión y la versión **se queda fija** hasta que el cliente decide mudarse. El proveedor se compromete a no cambiarle el piso de abajo."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Una nota sobre los números de versión. En [@04-05] viste el [[versionado semántico]]: tres números (mayor.menor.parche) que dicen cuán grande es un cambio en una biblioteca. En una API web casi nunca se usa entero: el cliente no elige la «versión menor». Lo que se versiona son los cambios incompatibles, es decir, algo parecido a «solo el número mayor»; los compatibles se agregan sin avisar con número nuevo [#semver-2-0-0]."
+  },
+  {
+   "t": "p",
+   "x": "Y hay una tercera estrategia que no tiene versión: **evolucionar sin romper**. En [@08-08] viste que GraphQL tiene una marca para declarar un campo como deprecado sin quitarlo, y en [@08-09] que Protobuf identifica cada campo por un número, de modo que se pueden agregar campos nuevos sin que los lectores viejos se enteren. Es la misma idea: el formato mismo está pensado para crecer."
+  },
+  {
+   "t": "h",
+   "x": "Dos versiones vivas a la vez"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Supongamos que el cambio sí es incompatible: `peso_kg` pasa a ser un objeto `peso` con valor y unidad. El diseño que menos duele es tener **un solo modelo interno** (el nuevo) y un **adaptador** que lo convierte a la forma vieja. Así no duplicás la lógica de negocio, solo la forma de presentarla."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Pedido",
+       "s": "`/v1/...` o cabecera vieja",
+       "k": "cliente"
+      },
+      {
+       "t": "Elegir versión",
+       "s": "ruta o cabecera",
+       "k": "red",
+       "e": "llega"
+      }
+     ],
+     "baja": "se resuelve igual con el modelo nuevo"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Modelo interno",
+       "s": "una sola lógica (la nueva)",
+       "k": "servidor"
+      }
+     ],
+     "baja": "se traduce a la forma que pidió el cliente"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Adaptador a v1",
+       "s": "`peso_kg`, estados viejos",
+       "k": "datos"
+      },
+      {
+       "t": "Respuesta v2",
+       "s": "`peso {valor, unidad}`",
+       "k": "ok"
+      }
+     ]
+    }
+   ],
+   "cap": "Un solo modelo, dos formas de contarlo. El adaptador a v1 es lo que se retira el día del apagado."
+  },
+  {
+   "t": "p",
+   "x": "Este es el adaptador del servidor de práctica. Fijate que la traducción de `demorado` a `en_ruta` es una decisión de negocio: la versión vieja no sabe qué es «demorado», así que se le muestra lo más parecido que entiende."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const despacho = { id: 42, cliente: \"Ferretería Ñandú\", peso: { valor: 120, unidad: \"kg\" }, estado: \"demorado\", zona: \"Sur\" };\n\nfunction aV1(d) {\n  // lo que v1 no conocía se traduce a lo más cercano que v1 entiende\n  const estado = d.estado === \"demorado\" ? \"en_ruta\" : d.estado;\n  return { id: d.id, cliente: d.cliente, peso_kg: d.peso.valor, estado };\n}\n\n// elegir versión: ruta (/v1/..., /v2/...) o cabecera Api-Version (por fecha); sin cabecera, v1\nconst version = !fecha ? \"v1\" : fecha >= \"2026-11-01\" ? \"v2\" : \"v1\";",
+   "cap": "Extracto del servidor de práctica (datos inventados). El servidor completo tiene unas 60 líneas."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -si -A app-choferes/1.4 localhost:20813/v1/despachos/42",
+     "s": "HTTP/1.1 200 OK\nDeprecation: @1788220800\nSunset: Mon, 01 Mar 2027 00:00:00 GMT\nLink: </docs/migrar-a-v2>; rel=\"deprecation\"; type=\"text/html\"\n\n{\"id\":42,\"cliente\":\"Ferretería Ñandú\",\"peso_kg\":120,\"estado\":\"en_ruta\"}"
+    },
+    {
+     "c": "curl -si -A panel-web/3.0 localhost:20813/v2/despachos/42",
+     "s": "HTTP/1.1 200 OK\nApi-Version: 2026-11-01\n\n{\"id\":42,\"cliente\":\"Ferretería Ñandú\",\"peso\":{\"valor\":120,\"unidad\":\"kg\"},\"estado\":\"demorado\",\"zona\":\"Sur\"}"
+    },
+    {
+     "c": "curl -si -A panel-web/3.0 -H \"Api-Version: 2026-11-01\" localhost:20813/despachos/42",
+     "s": "HTTP/1.1 200 OK\nApi-Version: 2026-11-01\n\n{\"id\":42,\"cliente\":\"Ferretería Ñandú\",\"peso\":{\"valor\":120,\"unidad\":\"kg\"},\"estado\":\"demorado\",\"zona\":\"Sur\"}"
+    }
+   ],
+   "cap": "Salida real, con el reloj del servidor fijado al 13-11-2026 para la demo. Filtré las cabeceras que importan (el resto son `Date`, `Connection`, etc.)."
+  },
+  {
+   "t": "p",
+   "x": "Un solo servidor atiende a la vez al celular viejo (v1, con avisos de deprecación que todavía no leyó nadie), al panel nuevo con la ruta `/v2` y a otro cliente que pide la versión por cabecera. El cliente viejo sigue recibiendo `peso_kg` y su estado conocido; los nuevos reciben el objeto `peso` y el estado `demorado`."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Mantener dos versiones tiene costo",
+   "x": "Cada versión viva suma pruebas, documentación, preguntas de soporte y, sobre todo, un riesgo: que una corrección de seguridad en una versión se olvide en la otra. Por eso los proveedores serios ponen plazo (GitHub, 24 meses) y no mantienen versiones para siempre. La decisión de cuántas versiones sostener es económica: se trata de comparar el costo de mantener contra el de romper a los clientes que quedan."
+  },
+  {
+   "t": "h",
+   "x": "Avisar antes de apagar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Sostener una versión para siempre no se puede, así que tarde o temprano hay que apagarla. Hacerlo bien lleva dos pasos separados. **Deprecar** una versión es decir «ya no la usen, va a desaparecer»: sigue funcionando exactamente igual, solo cambia el aviso. **Retirar** (en inglés, *sunset*) es apagarla de verdad. Entre una cosa y otra tiene que pasar el tiempo suficiente para que cada cliente se entere y se mude.",
+    "HTTP tiene dos cabeceras estándar para que ese aviso viaje dentro de cada respuesta, y no solo en un correo que nadie lee. `Deprecation` informa **desde cuándo** el recurso está deprecado y se define en el RFC 9745 (marzo de 2025, ruta de estándares): su valor es una fecha escrita como cantidad de segundos, con una arroba adelante, por ejemplo `@1788220800` (el 1 de septiembre de 2026 a las 00:00 UTC). `Sunset` informa **cuándo se apaga** y está en el RFC 8594 (mayo de 2019, publicado «para información»): su valor es una fecha HTTP, como `Mon, 01 Mar 2027 00:00:00 GMT`. Ambos se pueden acompañar con un `Link` que apunte a la documentación de la migración [#v13-rfc9745] [#v13-rfc8594]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Los dos RFC insisten en lo mismo: son **pistas**. El de `Sunset` dice que los clientes deberían tratar la fecha como una indicación, no como una garantía, y el de `Deprecation` agrega que las aplicaciones tienen que funcionar aun sin esa información. Por eso el aviso en cabeceras complementa a la comunicación humana (correo, sección de novedades, panel del desarrollador), no la reemplaza."
+  },
+  {
+   "t": "p",
+   "x": "Una vez pasada la fecha, ¿qué responde el servidor? El RFC 8594 admite que podría ser un 4xx, una redirección o ninguna respuesta. La práctica más clara es un **410 Gone** con un cuerpo que diga qué pasó y dónde ir, que es lo que usa GitHub [#v13-gh-versions] y lo que hace el servidor de práctica:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -si -A app-choferes/1.4 localhost:20813/v1/despachos/42   # reloj del servidor: 2027-03-02",
+     "s": "HTTP/1.1 410 Gone\nLink: </docs/migrar-a-v2>; rel=\"sunset\"; type=\"text/html\"\n\n{\"error\":\"version_retirada\",\"detalle\":\"v1 se retiró el 2027-03-01. Usá v2.\",\"migrar\":\"/v2/despachos/42\"}"
+    }
+   ],
+   "cap": "Salida real con el reloj del servidor simulado. Un 410 es una señal más clara que un 404: dice «esto existió y lo sacamos a propósito»."
+  },
+  {
+   "t": "p",
+   "x": "Del lado del cliente, leer esas dos cabeceras es una función chica. Correla; fijé la fecha de «hoy» para que el resultado no cambie:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "function aviso(cabeceras, hoy) {\n  const dep = cabeceras[\"deprecation\"];\n  const sun = cabeceras[\"sunset\"];\n  const avisos = [];\n  if (dep) {\n    const m = dep.match(/^@(\\d+)$/); // RFC 9745: fecha como entero, con @ adelante\n    const desde = m ? new Date(Number(m[1]) * 1000) : null;\n    avisos.push(desde ? `deprecada desde ${desde.toISOString().slice(0, 10)}` : `Deprecation con formato raro: ${dep}`);\n  }\n  if (sun) {\n    const retiro = new Date(sun); // RFC 8594: fecha HTTP\n    const dias = Math.ceil((retiro - hoy) / 86400000);\n    avisos.push(`se apaga el ${retiro.toISOString().slice(0, 10)} (faltan ${dias} días)`);\n  }\n  return avisos.length ? avisos.join(\"; \") : \"sin avisos\";\n}\n\nconst hoy = new Date(\"2026-11-13T12:00:00Z\");\nconsole.log(aviso({}, hoy));\nconsole.log(aviso({ deprecation: \"@1788220800\", sunset: \"Mon, 01 Mar 2027 00:00:00 GMT\" }, hoy));\nconsole.log(aviso({ deprecation: \"true\" }, hoy));",
+   "cap": "Probada en Node 22 con esta misma salida. El tercer caso muestra por qué conviene tolerar formatos inesperados sin romperse."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Los proveedores todavía no coinciden",
+   "x": "Verificado el 13-11-2026 [#v13-gh-versions] [#v13-rfc9745]: GitHub describe su cabecera `Deprecation` como una fecha HTTP (`Wed, 27 Nov 2019 14:34:29 GMT`), mientras que el RFC 9745 define una fecha estructurada con arroba (`@1688169599`). Los dos formatos conviven. Un cliente robusto lee los dos y, si no entiende ninguno, no se rompe. Que algo esté publicado como RFC no quiere decir que todos lo hayan adoptado igual."
+  },
+  {
+   "t": "p",
+   "x": "Antes de apagar hay una pregunta que ningún RFC contesta: **¿quién sigue usando esta versión?** El servidor de práctica tiene un contador por versión y por cliente (el `User-Agent`), y alcanza para ver el problema:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s localhost:20813/interno/uso",
+     "s": "{\n \"v1 · app-choferes/1.4\": 1,\n \"v2 · panel-web/3.0\": 2\n}"
+    }
+   ],
+   "cap": "Salida real después de tres pedidos. En producción, el equivalente es un panel que cuente pedidos por versión y por cliente en los registros del servidor."
+  },
+  {
+   "t": "p",
+   "x": "Mientras `app-choferes/1.4` siga apareciendo, apagar v1 deja a esos choferes sin app. Con un contador así, la decisión se parece a la logística: no cerrás un depósito hasta saber qué rutas todavía pasan por él. Y si no podés medir quién usa qué (más abajo vas a ver que a Senda hoy le falta esa pieza), cualquier fecha de apagado es una apuesta."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Anunciar",
+       "s": "documentación + correo",
+       "k": "cliente"
+      },
+      {
+       "t": "Deprecar",
+       "s": "cabeceras `Deprecation` y `Link`",
+       "k": "red",
+       "e": "fecha D"
+      },
+      {
+       "t": "Medir",
+       "s": "quién sigue en la versión vieja",
+       "k": "datos",
+       "e": "meses"
+      }
+     ],
+     "baja": "con la fecha de apagado anunciada (`Sunset`)"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Retirar",
+       "s": "responder 410 Gone con instrucciones",
+       "k": "alerta"
+      },
+      {
+       "t": "Borrar el adaptador",
+       "s": "y sus pruebas",
+       "k": "ok",
+       "e": "después"
+      }
+     ]
+    }
+   ],
+   "cap": "Un ciclo de vida posible. Los plazos son una decisión del proveedor: GitHub se compromete a un mínimo de 24 meses."
+  },
+  {
+   "t": "h",
+   "x": "Cambiar sin romper: expandir y contraer"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Muchos cambios incompatibles se pueden transformar en una serie de cambios compatibles. La técnica se llama **expandir y contraer** (también «cambio en paralelo»): en vez de reemplazar de golpe, primero **agregás** lo nuevo al lado de lo viejo, después **migrás** a los clientes, y recién al final **quitás** lo viejo. Cada paso, por separado, no rompe a nadie."
+   ]
+  },
+  {
+   "t": "pasos",
+   "titulo": "Renombrar `peso_kg` a `peso` sin romper a los clientes",
+   "pasos": [
+    {
+     "t": "Expandir",
+     "x": "El servidor devuelve **los dos campos**: `peso_kg` y `peso`. El cliente viejo sigue leyendo `peso_kg`; el nuevo ya puede leer `peso`. Se agrega la nota «`peso_kg` está deprecado» en la documentación y en una cabecera `Deprecation` si se puede."
+    },
+    {
+     "t": "Migrar",
+     "x": "Se actualizan los clientes uno por uno para que lean `peso`. Se mide cuántos pedidos siguen siendo de clientes viejos (el contador de arriba)."
+    },
+    {
+     "t": "Contraer",
+     "x": "Cuando casi nadie usa el campo viejo y pasó la fecha anunciada, se quita `peso_kg`. Este último paso es el único incompatible, y por eso se hace tarde y con aviso."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Para que el paso de migrar funcione hace falta saber **qué campos usa cada cliente**. Con pocos clientes se pregunta; con muchos se usan las llamadas «pruebas de contrato» (mañana, en [@08-14], las ves en detalle), en las que cada cliente publica qué espera de la API y el servidor, antes de cada cambio, verifica que no se rompe ninguna expectativa."
+  },
+  {
+   "t": "ejercicio",
+   "x": "El campo `zona` de la respuesta (con valores como «Sur» o «Norte») tiene que pasar a llamarse `zona_reparto`, y además se quiere que su valor sea un código («S», «N»). Escribí los pasos con el orden y qué tiene que pasar entre uno y otro, para no romper a nadie. ¿Qué hacés con el nuevo formato del valor?",
+   "pista": "Son dos cambios distintos: el nombre del campo y el significado de su valor. Uno de los dos no se resuelve con «mandar los dos campos»; pensá qué pasa si el campo viejo `zona` empieza a decir «S» en vez de «Sur».",
+   "solucion": "Primero el nombre: se agrega `zona_reparto` y se sigue mandando `zona` con el valor de siempre; se migra y recién después se quita `zona`. El valor es el cambio peligroso: si `zona` empieza a decir «S», los clientes viejos que comparan con «Sur» fallan en silencio. Por eso el campo con el código **tiene que ser nuevo** (`zona_reparto`) y `zona` conserva «Sur» hasta que se retire. Regla general: cambiar el significado o el formato de un campo con el mismo nombre es un cambio incompatible disfrazado; la salida es siempre un campo nuevo."
+  },
+  {
+   "t": "h",
+   "x": "Senda: lo que revelan sus firmas de funciones"
+  },
+  {
+   "t": "p",
+   "x": "Hasta acá todo fue teoría con un servidor inventado. Senda tiene una API real y una historia de cambios que se puede leer en sus migraciones. Todo lo que sigue corresponde al commit 25e08fa; el código cambia, la forma permanece."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no tiene versión propia: usa nombres de función",
+   "x": [
+    "Todo lo que la app le pide a su base pasa por rutas que empiezan con `/rest/v1/`, `/auth/v1/` o `/functions/v1/`. Ese `v1` es de la infraestructura de Supabase, no de Senda. La app **no define ninguna versión propia de su API**. Cuando quiere ejecutar una regla de negocio llama a `/rest/v1/rpc/<nombre>` con un JSON de argumentos, y el contrato real es: el nombre de la función, los nombres de sus parámetros y la forma de su resultado.",
+    "Además, ninguna petición lleva la versión de la app. Las cabeceras que arma `src/util/cuenta.ts` son solo `apikey`, `Content-Type` y `Authorization`; la versión de la prueba (por ejemplo, «prueba 51») existe en la app, pero solo la usa la pantalla de fallos. Y hay otra pista: el comentario de la cuenta anónima en `src/util/cuenta.ts` dice que no hay SDK, solo «unas pocas llamadas HTTP». Es decir, el contrato entero es HTTP más nombres."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/util/nube.ts"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "En las migraciones se ven los cambios de ese contrato. La función `abrir_sala` empezó con cuatro parámetros y en la migración de seguridad ganó un quinto, `p_ids`, **con valor por defecto** (`default null`). La función `miembros_de` empezó con un parámetro, ganó una columna de avatar en el resultado y más tarde cuatro parámetros más, todos con valor por defecto, para buscar y paginar los grupos grandes. En ambos casos la migración termina con un `drop function` de la firma anterior. ¿Por qué hace falta ese `drop`? Lo probé en un PostgreSQL 16 local con una función de práctica con la misma forma:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select * from miembros_de(p_grupo => 1);   -- lo que llama un cliente viejo",
+     "s": " usuario |   rol   \n---------+---------\n ana     | lider\n beto    | miembro\n carla   | miembro"
+    },
+    {
+     "c": "create or replace function miembros_de(p_grupo int) returns table(usuario text, rol text, avatar text) ...",
+     "s": "ERROR:  cannot change return type of existing function\nDETAIL:  Row type defined by OUT parameters is different.\nHINT:  Use DROP FUNCTION miembros_de(integer) first."
+    },
+    {
+     "c": "create or replace function miembros_de(p_grupo int, p_buscar text default null) ...",
+     "s": "CREATE FUNCTION   -- creó una segunda función, no reemplazó la primera"
+    },
+    {
+     "c": "select * from miembros_de(p_grupo => 1);   -- la misma llamada de antes",
+     "s": "ERROR:  function miembros_de(p_grupo => integer) is not unique\nHINT:  Could not choose a best candidate function. You might need to add explicit type casts."
+    },
+    {
+     "c": "drop function miembros_de(int);  select * from miembros_de(p_grupo => 1);",
+     "s": "DROP FUNCTION\n usuario |   rol   \n---------+---------\n ana     | lider\n beto    | miembro\n carla   | miembro"
+    }
+   ],
+   "cap": "Salida real de PostgreSQL 16.15 en esta VM (13-11-2026), con una tabla y funciones inventadas. Recorté las líneas de configuración."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Eso explica los `drop function`. En PostgreSQL, cambiar las columnas del resultado no se puede hacer con `create or replace`, y agregar un parámetro crea una **función distinta** (una «sobrecarga») en lugar de reemplazar a la anterior. Con las dos vivas, una llamada por nombres queda ambigua y falla. La migración tiene que borrar la firma vieja para que la llamada vuelva a resolverse. Es **mecánica de la base de datos**, no un rechazo deliberado a los clientes viejos [#sen29-pg-createfunction].",
+    "Entonces, ¿se rompe el APK viejo? Lo que se puede afirmar de verdad es poco. La documentación de PostgREST (el componente que convierte `/rpc/<nombre>` en una llamada SQL) dice que los nombres de los parámetros son las claves del JSON y que los parámetros con valor por defecto se pueden omitir [#v13-postgrest-rpc]. Por lo tanto, **mi inferencia** es que una llamada vieja a `abrir_sala` con cuatro claves sigue resolviendo contra la firma nueva de cinco parámetros, y que una columna de más en `miembros_de` es un campo extra que el cliente ignora. No corrí PostgREST (no pude instalarlo en este entorno), así que queda como inferencia y no como hecho; lo que el APK viejo haga con un `p_ids` vacío en `abrir_sala` es otra pregunta, que depende de cómo trate la función ese caso."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que sí está implementado: una salida segura para errores desconocidos",
+   "x": [
+    "En `src/util/cuenta.ts`, las funciones SQL avisan los fallos de regla con `raise exception 'codigo_corto'`. La app toma ese código si tiene la forma de letras y guiones bajos, y lo convierte en un texto traducido solo si el código figura en una lista fija (`CONOCIDOS`, 53 códigos al momento de este commit). Si el código es nuevo y la app vieja no lo tiene en su lista, cae en un mensaje genérico (`error_nube`).",
+    "Eso es exactamente el consejo de Stripe sobre las listas abiertas: la rama por defecto. Una migración puede agregar un código de error nuevo sin romper a los APK viejos: la persona verá un mensaje general en lugar de uno preciso. Las líneas relevantes son la que arma `claveError` y la que construye el `ErrorCuenta` (alrededor de las líneas 47 y 189)."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261130000005_grupos_grandes.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que falta: saber quién usa qué versión",
+   "x": [
+    "El mapa técnico de Senda anota tres hechos que, juntos, son el opuesto de la receta de hoy [#v13-mapa-senda]. Primero: **no existe una «versión mínima soportada»**; un APK viejo nunca recibe el mensaje «actualizá». Segundo: **no hay actualizaciones por aire** de la app: cambiar contenido exige un APK nuevo, salvo lo que viva en la base. Tercero: la propiedad `version_app` que se manda a PostHog es una constante escrita en el código, `\"0.13\"`, que no cambia con cada compilación (`VERSION_METRICAS` en `src/util/metricas.ts`). En las métricas, entonces, todas las compilaciones parecen la misma versión.",
+    "Ese tercer hecho importa mucho para el ciclo de la sección anterior: sin saber qué versiones están en uso, el paso «Medir» no se puede hacer, y cualquier fecha de retiro sería una apuesta. Hoy Senda está en etapa de pruebas, con APKs que se instalan a mano y se pisan; cuando salga en las tiendas, la distribución va a tener versiones distintas conviviendo y estas tres piezas pasan a ser relevantes. Es un hallazgo para el criterio del fundador, no una falla: el mapa mismo lo registra como un tema a decidir antes del lanzamiento."
+   ],
+   "archivos": [
+    "src/util/metricas.ts",
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "src/util/salas.ts"
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Senda quiere agregar una función nueva a la base: `abrir_sala` va a recibir un parámetro obligatorio más. ¿Cómo lo harías para que los APK viejos no se rompan, aplicando lo de hoy?",
+   "resp": "No agregues un parámetro obligatorio a la misma función. Lo seguro es crear una función nueva con otro nombre (por ejemplo, `abrir_sala_v2`) que tenga el parámetro obligatorio, dejar la vieja funcionando (con un valor por defecto interno) y migrar la app para que llame a la nueva. Cuando la inmensa mayoría de los teléfonos use la versión nueva, se retira la vieja. Es lo que el mapa técnico de Senda recomienda: «funciones nuevas con nombre nuevo, retirar las viejas más tarde»."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué cambia y qué no con el tiempo",
+   "x": [
+    "Lo que no envejece: la clasificación de cambios compatibles e incompatibles, la asimetría entre pedido y respuesta, la idea de expandir y contraer, y el hecho de que el cliente y el servidor se actualizan a ritmos distintos.",
+    "Lo que sí cambia y verifiqué el 13-11-2026: la versión actual de la API REST de GitHub (`2026-03-10`) y su política de 24 meses [#v13-gh-versions]; la versión actual de la API de Stripe (`2026-10-28.endive`) y su calendario [#v13-stripe-versioning]; el estado de los RFC 9745 (estándar, marzo de 2025) y 8594 (informativo, mayo de 2019) [#v13-rfc9745] [#v13-rfc8594]. Si lo leés más adelante, vuelve a mirar esas páginas antes de citar un plazo."
+   ]
+  }
+ ],
+ "recap": [
+  "Un servidor y sus clientes no cambian a la par: una app móvil instalada puede estar meses atrás. Por eso evolucionar una API es un tema de diseño y no solo de código.",
+  "Un cambio incompatible es el que rompe a un cliente escrito para el contrato anterior. Peor que una falla es que el cliente siga funcionando con datos equivocados (un campo renombrado, un valor nuevo, un cambio de tipo).",
+  "Regla práctica: a las respuestas se les puede sumar y a los pedidos se los puede aflojar; quitar, renombrar, cambiar tipo o significado, o exigir más, rompe.",
+  "La versión se puede anotar en la ruta, en una cabecera, en la negociación de contenido o por fecha, y cada forma tiene costos. Un solo modelo interno con un adaptador a la forma vieja evita duplicar la lógica.",
+  "Deprecar (avisar) y retirar (apagar) son pasos distintos. `Deprecation` (RFC 9745) y `Sunset` (RFC 8594) llevan el aviso en cada respuesta; el apagado claro es un 410 Gone con instrucciones.",
+  "Antes de apagar una versión hay que poder medir quién la usa. Para cambios grandes, «expandir y contraer» los parte en pasos compatibles.",
+  "En Senda, las migraciones usan `drop function` por una regla de PostgreSQL, y la app ya tiene una rama por defecto para errores desconocidos; faltan una versión mínima soportada y una versión real en las métricas."
+ ],
+ "repaso": [
+  {
+   "p": "Tu servidor devuelve `{\"peso_kg\": 120}`. Un cliente viejo lee `d.peso_kg * 85`. El equipo renombra el campo a `peso` y el servidor sigue contestando 200. ¿Qué pasa en el cliente viejo y por qué es un problema serio?",
+   "o": [
+    "Calcula NaN sin avisar; el dato queda mal y nadie recibe un error",
+    "Cae con un error visible, así que el equipo se entera enseguida",
+    "Sigue andando porque JavaScript infiere que `peso` es lo mismo",
+    "Se rompe solo si el servidor cambia también el código de estado"
+   ],
+   "c": 0,
+   "e": "Pedir una propiedad que no existe devuelve `undefined` y multiplicarlo da NaN, sin excepción y con HTTP 200: la falla silenciosa es la peor. JavaScript no infiere que `peso` sea `peso_kg`, y el cambio del código de estado no tiene nada que ver con este caso."
+  },
+  {
+   "p": "¿Cuál de estos cambios de un servidor es, en general, compatible con los clientes viejos?",
+   "o": [
+    "Agregar un parámetro opcional con valor por defecto al pedido",
+    "Agregar un parámetro obligatorio al pedido de creación",
+    "Pasar el peso de número a texto con la unidad incluida",
+    "Hacer que el servidor rechace un formato que antes aceptaba"
+   ],
+   "c": 0,
+   "e": "Los clientes viejos no mandan el parámetro nuevo y el servidor usa su valor por defecto. Los otros tres exigen más o cambian lo que el cliente espera: un parámetro obligatorio, un cambio de tipo y una validación más estricta rompen a quien respetaba el contrato anterior."
+  },
+  {
+   "p": "Un servidor agrega el estado `demorado` a una lista que hasta ahora tenía tres valores. El cliente nuevo y el viejo tienen una tabla fija de etiquetas. ¿Qué es lo más sensato?",
+   "o": [
+    "El cliente debe tener una rama por defecto para los valores que no conoce",
+    "El servidor no debería agregar nunca valores a una lista de opciones",
+    "El cliente puede asumir que la lista no va a cambiar en el futuro",
+    "El servidor debe esperar a que todos los clientes se actualicen primero"
+   ],
+   "c": 0,
+   "e": "Stripe y otros proveedores se reservan el derecho de agregar valores y piden una rama por defecto en el cliente. Prohibir agregar valores paralizaría al servidor, asumir que la lista no cambia es lo que rompió la demo y esperar a todos los clientes no es posible con apps instaladas."
+  },
+  {
+   "p": "¿Qué diferencia hay entre deprecar una versión de una API y retirarla?",
+   "o": [
+    "Deprecar avisa que va a desaparecer y sigue andando; retirar la apaga",
+    "Deprecar la apaga para pruebas; retirar la borra del código fuente",
+    "Deprecar es cambiarla de ruta; retirar es cambiarle el formato",
+    "Son sinónimos: se usan según el proveedor para lo mismo"
+   ],
+   "c": 0,
+   "e": "El RFC 9745 aclara que deprecar no cambia el comportamiento del recurso: solo informa. El retiro (el `Sunset` del RFC 8594) es el momento en que deja de responder. No son lo mismo, y confundirlos hace que se apague algo que se había prometido mantener."
+  },
+  {
+   "p": "Una versión vieja de tu API devuelve `Sunset: Mon, 01 Mar 2027 00:00:00 GMT`. Hoy es 13 de noviembre de 2026. ¿Qué conviene concluir?",
+   "o": [
+    "Hay unos 108 días para migrar, y la fecha es una pista, no una garantía",
+    "La versión funcionará sin cambios hasta esa fecha exacta, sí o sí",
+    "La versión ya está apagada porque el aviso apareció en la respuesta",
+    "Hay que migrar hoy mismo: el aviso significa que ya está deprecada"
+   ],
+   "c": 0,
+   "e": "Desde el 13 de noviembre hasta el 1 de marzo hay 108 días. El RFC 8594 dice que los clientes deben tratar la fecha como indicación, no como garantía. La presencia del aviso no la apaga ni obliga a migrar ese mismo día."
+  },
+  {
+   "p": "Querés renombrar un campo `zona` a `zona_reparto` sin romper a los clientes viejos. ¿Cuál es el orden correcto?",
+   "o": [
+    "Mandar los dos campos, migrar a los clientes y después quitar el viejo",
+    "Quitar el campo viejo y avisar por correo a quienes lo usen",
+    "Mandar solo el campo nuevo y esperar a que los clientes protesten",
+    "Crear un `/v2` sin avisar y apagar la ruta anterior esa misma semana"
+   ],
+   "c": 0,
+   "e": "Es «expandir y contraer»: primero se agrega lo nuevo al lado de lo viejo, después se migra y recién al final se quita lo viejo. Quitar el campo de entrada, o apagar la ruta anterior sin plazo, rompe a quien todavía no migró."
+  },
+  {
+   "p": "En PostgreSQL agregás un parámetro con valor por defecto a una función con `create or replace`. Después, una llamada por nombres falla con «is not unique». ¿Qué explica el error?",
+   "o": [
+    "Quedaron dos funciones con el mismo nombre y la llamada coincide con las dos",
+    "El valor por defecto no se puede combinar con llamadas por nombres",
+    "La función nueva reemplazó a la vieja y borró los datos de la tabla",
+    "PostgreSQL no admite agregar parámetros después de crear una función"
+   ],
+   "c": 0,
+   "e": "`create or replace` solo reemplaza una función con la misma lista de parámetros; con otra lista crea una sobrecarga y las dos conviven. Por eso las migraciones de Senda borran la firma vieja con `drop function`. El valor por defecto sí funciona y no se pierde ninguna fila."
+  }
+ ],
+ "feynman": "Explicale a alguien que trabaja en una empresa de transporte por qué no se puede cambiar el nombre de un dato de un sistema a otro sin avisar, aunque parezca un cambio menor. Usá un ejemplo propio de cómo se rompería algo sin que nadie reciba un error, y contá qué pasos darías para hacer el cambio sin dejar a nadie a pie.",
+ "para_profundizar": [
+  {
+   "fuente": "v13-gh-versions",
+   "nota": "La política de versionado de la API REST de GitHub: qué considera cambio incompatible y cuál aditivo, y cómo anuncia el cierre de una versión. Leé las tres primeras secciones para ver una política real escrita."
+  },
+  {
+   "fuente": "v13-stripe-versioning",
+   "nota": "Cómo Stripe separa versiones mensuales sin cambios incompatibles de versiones mayores, y qué espera de tu código con las listas abiertas (sección «Enums»)."
+  },
+  {
+   "fuente": "v13-rfc9413",
+   "nota": "El análisis del IAB sobre el principio de robustez. Leé las secciones 2 y 4 para ver por qué aceptar cualquier cosa tiene costos a largo plazo."
+  },
+  {
+   "fuente": "v13-rfc9745",
+   "nota": "El estándar de la cabecera `Deprecation`. Es corto (unas 8 páginas): sirve para ver qué promete y qué deja librado a cada proveedor."
+  }
+ ],
+ "videos": [
+  {
+   "q": "API versioning strategies URL header query parameter",
+   "por_que": "Para ver a otra persona comparar las formas de anotar la versión con ejemplos distintos a los de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "cambio incompatible",
+   "d": "Un cambio en un servidor o en su API después del cual un cliente escrito para el contrato anterior deja de funcionar o, peor, funciona mal sin avisar. Ejemplos: quitar o renombrar un campo, cambiar un tipo, exigir un parámetro nuevo."
+  },
+  {
+   "t": "versión de API",
+   "d": "Una forma identificable del contrato de una API: una etiqueta (`v2`, `2026-03-10`) que el cliente puede pedir y que el servidor se compromete a respetar mientras esté vigente."
+  },
+  {
+   "t": "compatibilidad hacia atrás",
+   "d": "La propiedad de un servidor o de una versión nueva de seguir funcionando con clientes escritos para el contrato anterior. Su espejo, la compatibilidad hacia adelante, es la capacidad de un cliente viejo de convivir con respuestas de un servidor más nuevo."
+  },
+  {
+   "t": "compatibilidad hacia adelante",
+   "d": "La capacidad de un cliente (o de un lector de datos) de convivir con respuestas de un servidor más nuevo, ignorando lo que no conoce en lugar de romperse."
+  },
+  {
+   "t": "deprecación",
+   "d": "El aviso de que una versión o un recurso va a desaparecer. Deprecar no cambia el comportamiento: solo informa. En HTTP se puede anunciar con la cabecera `Deprecation`."
+  },
+  {
+   "t": "retiro",
+   "d": "El momento en que una versión de API deja de responder o responde con un error definitivo, como 410 Gone. En HTTP se puede anunciar con la cabecera `Sunset`."
+  },
+  {
+   "t": "expandir y contraer",
+   "d": "Técnica para cambiar un contrato sin romper a nadie: primero se agrega lo nuevo al lado de lo viejo (expandir), después se migra a los clientes y por último se quita lo viejo (contraer)."
+  },
+  {
+   "t": "principio de robustez",
+   "d": "La máxima de Postel (RFC 761, 1980): «sé conservador en lo que mandás y liberal en lo que aceptás». El RFC 9413 (2023) matiza que tolerar en silencio lo defectuoso acumula problemas."
+  }
+ ],
+ "siguiente": "Documentación y contratos: OpenAPI, Postman y SDK. Hoy el contrato era una promesa en la cabeza del equipo; mañana lo escribís en un archivo que una máquina puede leer, generás un cliente a partir de él y te fijás qué pasa cuando alguien lo rompe.",
+ "fuentes_nuevas": [
+  {
+   "id": "v13-hyrum",
+   "t": "Hyrum's Law",
+   "a": "Hyrum Wright",
+   "tipo": "articulo",
+   "url": "https://www.hyrumslaw.com/"
+  },
+  {
+   "id": "v13-rfc761",
+   "t": "RFC 761: DOD Standard Transmission Control Protocol",
+   "a": "Jon Postel (ed.), ISI",
+   "tipo": "rfc",
+   "anio": 1980,
+   "url": "https://www.rfc-editor.org/rfc/rfc761"
+  },
+  {
+   "id": "v13-rfc9413",
+   "t": "RFC 9413: Maintaining Robust Protocols",
+   "a": "M. Thomson, D. Schinazi, IAB",
+   "tipo": "rfc",
+   "anio": 2023,
+   "url": "https://www.rfc-editor.org/rfc/rfc9413"
+  },
+  {
+   "id": "v13-rfc9745",
+   "t": "RFC 9745: The Deprecation HTTP Response Header Field",
+   "a": "S. Dalal, E. Wilde, IETF",
+   "tipo": "rfc",
+   "anio": 2025,
+   "url": "https://www.rfc-editor.org/rfc/rfc9745"
+  },
+  {
+   "id": "v13-rfc8594",
+   "t": "RFC 8594: The Sunset HTTP Header Field",
+   "a": "E. Wilde, IETF",
+   "tipo": "rfc",
+   "anio": 2019,
+   "url": "https://www.rfc-editor.org/rfc/rfc8594"
+  },
+  {
+   "id": "v13-gh-versions",
+   "t": "API Versions (documentación de la API REST de GitHub)",
+   "a": "GitHub",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/rest/about-the-rest-api/api-versions"
+  },
+  {
+   "id": "v13-stripe-versioning",
+   "t": "Versioning (referencia de la API de Stripe)",
+   "a": "Stripe",
+   "tipo": "doc",
+   "url": "https://docs.stripe.com/api/versioning"
+  },
+  {
+   "id": "v13-protobuf-evolucion",
+   "t": "Language Guide (proto3): Updating A Message Type",
+   "a": "Protocol Buffers",
+   "tipo": "doc",
+   "url": "https://protobuf.dev/programming-guides/proto3/"
+  },
+  {
+   "id": "v13-postgrest-rpc",
+   "t": "Functions as RPC (documentación de PostgREST)",
+   "a": "PostgREST",
+   "tipo": "doc",
+   "url": "https://docs.postgrest.org/en/stable/references/api/functions.html"
+  },
+  {
+   "id": "v13-mapa-senda",
+   "t": "Mapa técnico de Senda (commit 25e08fa, secciones 11 y 17)",
+   "a": "Estudio «Informática desde cero»",
+   "tipo": "doc",
+   "url": "https://github.com/juanicarlisi/senda-app"
+  }
+ ]
+}

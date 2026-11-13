@@ -1,0 +1,722 @@
+{
+ "id": "08-05",
+ "titulo": "Autenticación de APIs: claves, bearer y firmas",
+ "bajada": "Armás en un servidor local las tres formas más usadas de probar quién llama a una API, las atacás a propósito y ves qué protege cada una y qué deja sin proteger.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir qué prueba una clave de API, un token bearer y una firma HMAC, y qué deja sin resolver cada una.",
+  "Leer una respuesta 401 con su campo WWW-Authenticate y explicar por qué un 403 es otro problema.",
+  "Calcular a mano una firma HMAC-SHA256 con openssl y verificarla desde Node, incluyendo marca de tiempo y protección contra repetición.",
+  "Planear la rotación de una credencial sin cortar a los clientes que funcionan, y elegir su alcance mínimo.",
+  "Reconocer en el código de Senda qué clave es pública a propósito, cuál es secreta y dónde vive cada una."
+ ],
+ "venis_de": "En [@07-09] y [@07-10] viste cómo un servidor reconoce a una persona con contraseñas, sesiones y tokens. Hoy el que llama suele ser otro programa, y aparecen tres mecanismos para que un servidor confíe en él: la clave, el portador y la firma.",
+ "se_apoya_en": [
+  "05-18",
+  "05-22",
+  "07-09",
+  "07-10",
+  "07-19",
+  "05-31"
+ ],
+ "gancho": [
+  "Un camión llega a la barrera de un depósito en Zárate. El guardia no conoce al chofer y le hace tres preguntas que parecen una sola. ¿Quién sos? (mira la credencial del transportista). ¿Qué estás autorizado a retirar? (mira la orden de retiro). ¿Este remito es el original, nadie lo tocó y es de hoy? (mira el sello y la fecha). La escena es inventada.",
+  "Una API enfrenta las mismas preguntas, pero sin cara y con miles de pedidos por minuto. Hoy vas a construir en tu máquina las tres respuestas más usadas: una clave de API, un token bearer y una firma HMAC. Las vas a usar, las vas a atacar a propósito y vas a ver qué protege cada una y qué no."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El servidor no te ve la cara"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un servidor HTTP no recuerda a nadie. Como viste en [@05-18], cada solicitud llega sola. Si el servidor tiene que saber quién la manda, la prueba tiene que viajar **adentro de esa misma solicitud**: casi siempre, un campo de cabecera con una credencial. HTTP lo prevé: define el campo `Authorization` y obliga al servidor que contesta 401 a incluir `WWW-Authenticate`, que dice qué método acepta [#rfc9110].",
+    "Antes de ver los mecanismos, las tres preguntas del guardia:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pregunta",
+    "En la barrera",
+    "En una API",
+    "Quién la responde hoy"
+   ],
+   "filas": [
+    [
+     "¿Quién llama?",
+     "La credencial del transportista",
+     "[[Autenticación]]",
+     "Clave de API o token bearer"
+    ],
+    [
+     "¿Qué le toca hacer?",
+     "La orden de retiro",
+     "[[Autorización]] ([@07-11])",
+     "Permisos y alcance de la credencial"
+    ],
+    [
+     "¿El mensaje es el original y es reciente?",
+     "El sello y la fecha del remito",
+     "Integridad y frescura del pedido",
+     "Firma HMAC con marca de tiempo"
+    ]
+   ],
+   "cap": "Las tres preguntas son distintas y los mecanismos de hoy cubren partes distintas de ellas. Confundirlas es la fuente de la mayoría de los agujeros."
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@07-09] y [@07-10] la credencial era de una **persona**. Acá quien llama suele ser un **programa**: otro servidor, un script, una app. Guarda un secreto en una variable de entorno ([@07-19]) y lo manda en cada pedido, así que los secretos de programas tienen que poder reemplazarse sin que nadie los tipee de nuevo.",
+    "Una aclaración que ahorra confusiones: [[TLS]] ([@05-22]) cifra el camino y le prueba **al cliente** que habla con el servidor correcto. No le dice **al servidor** quién es el cliente. Para eso hace falta una credencial en cada pedido."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Si todo viaja por HTTPS, ¿por qué hace falta además una credencial en cada pedido?",
+   "resp": "Porque TLS protege el camino, pero el servidor sigue sin saber quién llama: sin credencial, cualquiera que llegue al endpoint puede pedir. Y si la credencial se filtra por otro lado (un log, un repositorio), TLS no ayuda."
+  },
+  {
+   "t": "h",
+   "x": "API key: una contraseña para programas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[API key]] (clave de API) es una cadena larga, generada al azar, que el proveedor le entrega a un cliente cuando lo da de alta. El cliente la manda en cada pedido y el servidor busca a quién pertenece. No hay un estándar para el nombre del campo: algunos proveedores usan `X-API-Key`, otros `apikey` (es el caso de Supabase, que ves más abajo) y otros la ponen en `Authorization` con un esquema propio. El laboratorio de hoy usa `X-API-Key`.",
+    "Lo que identifica una clave es un **cliente** (una app, un sistema, un proyecto), no una persona. Es como la cuenta corriente de una empresa de transporte en el depósito: dice qué empresa viene, no qué chofer maneja el camión.",
+    "Armé un servidor de laboratorio en Node 22 que solo escucha en `127.0.0.1`, puerto 20805. Todas las claves de la clase son inventadas. Tiene dos clientes: un tablero que solo lee y un sistema de despacho que también escribe."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "S=http://127.0.0.1:20805; curl -si $S/v1/envios",
+     "s": "HTTP/1.1 401 Unauthorized\nWWW-Authenticate: ApiKey realm=\"demo\"\n\n{\"error\":\"falta_clave\"}"
+    },
+    {
+     "c": "curl -s $S/v1/envios -H 'X-API-Key: demo_clave_lectura_0001'",
+     "s": "{\"cliente\":\"tablero-depo\",\"envios\":[\"E-1001\",\"E-1002\"]}"
+    },
+    {
+     "c": "curl -si -X POST $S/v1/envios -H 'X-API-Key: demo_clave_lectura_0001'",
+     "s": "HTTP/1.1 403 Forbidden\n\n{\"error\":\"alcance_insuficiente\",\"necesita\":\"escribir\",\"tiene\":[\"leer\"]}"
+    },
+    {
+     "c": "curl -si -X POST $S/v1/envios -H 'X-API-Key: demo_clave_total_0002'",
+     "s": "HTTP/1.1 201 Created\n\n{\"creado\":\"E-1003\",\"por\":\"sistema-despacho\"}"
+    }
+   ],
+   "cap": "Servidor de laboratorio propio, datos inventados. Las salidas son las reales, con las líneas de campo sin interés recortadas. El esquema `ApiKey` del WWW-Authenticate lo inventé para el laboratorio: no es un estándar."
+  },
+  {
+   "t": "pensa",
+   "x": "El tablero, que solo puede leer, intentó crear un envío y recibió 403. ¿Por qué no recibió 401?",
+   "resp": "Porque 401 significa «no pude identificarte» y acá la clave es válida: el servidor sabe quién es. Lo que decidió es que ese cliente no puede escribir. El RFC 9110 define el 403 como «entendí el pedido y me niego a cumplirlo»."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El 401 es un problema de **autenticación** y el 403 es de **autorización** [#rfc9110]: la misma separación de la tabla de arriba. Devolver 401 a un cliente bien identificado lo manda a perseguir un problema de clave que no existe.",
+    "Mirá ahora qué guarda el servidor: **no las claves, sino `sha256(clave)`**. Es la lógica de las contraseñas de [@07-09]: si se llevan la tabla, no se llevan nada usable. A diferencia de las contraseñas, acá alcanza con una [[función hash]] rápida, porque el servidor generó la clave con suficientes bytes al azar y no hay diccionario que probar. (Es una regla práctica de diseño, no una ley.)",
+    "Y el límite más importante de una clave: **viaja tal cual**. Con `nc` armé un «servidor» que guarda lo que le llega y le mandé un pedido con `curl`:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "nc -l -p 20816 -s 127.0.0.1 > captura.txt &",
+     "s": ""
+    },
+    {
+     "c": "curl -s -m 2 http://127.0.0.1:20816/v1/envios -H 'X-API-Key: demo_clave_total_0002' > /dev/null",
+     "s": ""
+    },
+    {
+     "c": "cat captura.txt",
+     "s": "GET /v1/envios HTTP/1.1\nHost: 127.0.0.1:20816\nUser-Agent: curl/8.5.0\nAccept: */*\nX-API-Key: demo_clave_total_0002"
+    }
+   ],
+   "cap": "Sin TLS, la clave queda en texto legible para cualquiera que vea el tráfico. Con HTTPS ([@05-22]) esa misma línea viaja cifrada."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Quien copia esa línea puede hacerse pasar por el sistema de despacho hasta que alguien revoque la clave: no vence sola y no dice nada sobre el cuerpo del pedido. La hoja de OWASP sobre servicios REST le asigna su lugar: sirve para controlar el uso, es relativamente fácil de comprometer cuando la tienen clientes de terceros y no conviene apoyar en ella sola la protección de lo sensible [#api0805-owasp-rest]. También pide que ninguna credencial vaya en la URL, porque las URL quedan en los logs [#api0805-owasp-rest]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Bearer: el que lo porta, manda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[bearer token]] («token al portador») es una credencial que vale para cualquiera que la lleve, como un cheque al portador o una ficha de subte. No le importa quién la presenta. El RFC 6750, que define cómo se usa con HTTP, lo dice así:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "any party in possession of the token (a \"bearer\") can use the token in any way that any other party in possession of it can.",
+   "autor": "RFC 6750, sección 1.2",
+   "fuente": "api0805-rfc6750"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La forma de mandarlo es una sola línea de campo: `Authorization: Bearer <token>` [#api0805-rfc6750]. Nombre del campo y esquema los fija el estándar, a diferencia de lo que pasa con las claves de API.",
+    "A nivel de bytes, una API key y un bearer se parecen: un secreto en una cabecera. Las diferencias están en otra parte. **Quién lo emite:** la clave la entrega el proveedor una vez; un bearer lo emite un proceso de login o de autorización ([@08-06]) cada vez que alguien entra. **A nombre de quién:** la clave, de un cliente; el bearer, de una persona o de una app que actúa por ella, a veces con alcance limitado. **Cuánto dura:** la clave, meses o años; el bearer, minutos u horas. Es el [[token de acceso]] de [@07-10], visto desde el servidor.",
+    "Para ver el vencimiento, el laboratorio emite tokens de 3 segundos (los reales duran minutos u horas):"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -X POST $S/login",
+     "s": "{\"access_token\":\"demo_tok_Fj3QweCeoZCyfXUF\",\"token_type\":\"Bearer\",\"expires_in\":3}"
+    },
+    {
+     "c": "T=demo_tok_Fj3QweCeoZCyfXUF; curl -s $S/v1/mis-envios -H \"Authorization: Bearer $T\"",
+     "s": "{\"usuario\":\"ana\",\"envios\":[\"E-2001\"]}"
+    },
+    {
+     "c": "curl -si $S/v1/mis-envios",
+     "s": "HTTP/1.1 401 Unauthorized\nWWW-Authenticate: Bearer realm=\"demo\""
+    },
+    {
+     "c": "sleep 4; curl -si $S/v1/mis-envios -H \"Authorization: Bearer $T\"",
+     "s": "HTTP/1.1 401 Unauthorized\nWWW-Authenticate: Bearer realm=\"demo\", error=\"invalid_token\", error_description=\"expired\"\n\n{\"error\":\"token_vencido\"}"
+    }
+   ],
+   "cap": "El valor del token cambia en cada corrida. El laboratorio guarda cada token en una tabla en memoria, con su dueño y su hora de vencimiento."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en las dos respuestas 401. Sin credencial, el `WWW-Authenticate` solo dice el esquema. Con un token malo, agrega `error=\"invalid_token\"`. El RFC 6750 define ese código para «vencido, revocado, mal formado o inválido por otra razón», dice que el cliente puede pedir un token nuevo y reintentar, y pide que si el pedido no traía credencial el servidor **no** incluya código de error [#api0805-rfc6750]. Un cliente bien escrito usa esa diferencia: ante `invalid_token` renueva y reintenta."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": [
+    "«Bearer quiere decir JWT.» No. *Bearer* describe **cómo se presenta** el token: quien lo lleva puede usarlo. Adentro puede haber una cadena opaca que el servidor busca en una tabla, como en el laboratorio, o un JWT que se verifica por su firma ([@08-07]). En los dos casos, si te lo copian, quien lo copia manda."
+   ],
+   "titulo": "Bearer no es lo mismo que JWT"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El RFC 6750 pide además que un bearer no vaya en la URL y que siempre viaje con TLS [#api0805-rfc6750]. Como no exige demostrar nada más, sus defensas son dos: que viva poco y que no se filtre. Para no pedir la contraseña cada hora existe el [[refresh token]], que vive más y solo sirve para pedir otro."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Firma HMAC: probar que tenés el secreto sin mandarlo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las dos credenciales anteriores comparten un límite: quien ve el pedido se lleva la credencial entera, y si un intermediario modifica el cuerpo nadie se entera, porque la clave no tiene relación con el contenido. La [[firma HMAC]] cambia el planteo: **el secreto nunca viaja**. Viaja una prueba de que quien armó el pedido lo conoce, calculada sobre el pedido mismo."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Tu empresa y el depósito comparten una tabla secreta. Cada remito sale con un precinto numérico calculado con todo lo que dice: destino, bultos, fecha. El depósito recalcula el precinto con su copia de la tabla y compara. Si no coincide, el remito se tocó o no lo emitió quien dice.",
+    "Dónde deja de valer: **los dos extremos conocen la tabla**, así que cualquiera de los dos podría fabricar un precinto válido. HMAC prueba que lo calculó alguien con el secreto, no cuál de los dos. Para probar quién fue hace falta una firma con [[clave privada]] ([@05-21]), otra herramienta."
+   ],
+   "titulo": "El precinto del remito"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un HMAC (RFC 2104) combina una [[función hash]] con una clave secreta compartida [#rfc2104]. Entra un mensaje de cualquier tamaño y el secreto; sale un número fijo, 256 bits con SHA-256, escrito como 64 caracteres hexadecimales. Sin el secreto no se puede calcular, y con un byte distinto en el mensaje sale algo completamente distinto. Probalo: cambiá un bulto en el cuerpo de abajo."
+   ]
+  },
+  {
+   "t": "widget",
+   "n": "hash",
+   "titulo": "El cuerpo del pedido, resumido",
+   "cfg": {
+    "texto": "{\"destino\":\"Rosario\",\"bultos\":3}"
+   },
+   "cap": "El widget calcula SHA-256 del texto. En el protocolo de abajo, este hash del cuerpo es una de las cuatro líneas que se firman. Cambiá 3 por 4 y compará."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Concatenar el secreto con el mensaje y pasarlo por SHA-256 tiene debilidades conocidas (la extensión de longitud); HMAC mezcla el secreto dos veces para evitarlas. El laboratorio sigue seis pasos, una versión sencilla de lo que hacen los proveedores reales."
+   ]
+  },
+  {
+   "t": "pasos",
+   "titulo": "Un pedido firmado, de punta a punta",
+   "pasos": [
+    {
+     "t": "El cliente arma el texto canónico",
+     "x": "Cuatro líneas: el método, la ruta con su consulta, la marca de tiempo en segundos y el hash SHA-256 del cuerpo. Método y ruta evitan que una firma hecha para una operación sirva para otra; el hash del cuerpo hace que cambiar un byte rompa la firma; la marca da frescura."
+    },
+    {
+     "t": "Calcula el HMAC-SHA256",
+     "x": "Con el secreto como clave y el texto canónico como mensaje: 64 caracteres hexadecimales."
+    },
+    {
+     "t": "Manda el pedido",
+     "x": "Con tres campos nuevos: `X-Key-Id` (cuál secreto usó; no es secreto), `X-Timestamp` y `X-Signature`. El secreto no sale de su máquina."
+    },
+    {
+     "t": "El servidor comprueba la edad",
+     "x": "Si la marca difiere de su reloj más que la ventana (30 segundos en el laboratorio), responde 401 sin calcular nada."
+    },
+    {
+     "t": "Recalcula y compara",
+     "x": "Arma el mismo texto con los **bytes crudos** del cuerpo, calcula el HMAC con su copia del secreto y compara en tiempo constante."
+    },
+    {
+     "t": "Recuerda la firma",
+     "x": "Guarda las firmas vistas durante la ventana; una repetida recibe 409. Las que salen de la ventana se olvidan, porque la comprobación de edad ya las rechaza."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "El cálculo a mano con `openssl`. Para comparar después con otro lenguaje fijo la marca de tiempo; en un pedido real sería la hora del momento."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "SECRETO='demo_secreto_hmac_NO_REAL'; CUERPO='{\"destino\":\"Rosario\",\"bultos\":3}'; TS=1794600629",
+     "s": ""
+    },
+    {
+     "c": "HASH=$(printf '%s' \"$CUERPO\" | openssl dgst -sha256 -hex | awk '{print $NF}')",
+     "s": ""
+    },
+    {
+     "c": "CANON=$(printf 'POST\\n/v1/pedidos\\n%s\\n%s' \"$TS\" \"$HASH\"); echo \"$CANON\"",
+     "s": "POST\n/v1/pedidos\n1794600629\n35b83d154a388d644a02d8f0e5163659d6a0cda46b6e3c6a0803c0bd38e4b47c"
+    },
+    {
+     "c": "printf '%s' \"$CANON\" | openssl dgst -sha256 -hmac \"$SECRETO\" -hex | awk '{print $NF}'",
+     "s": "eeedf7ac49ae2020d0ead9dad23b722094ed8510903d0940bc251022a498ed04"
+    }
+   ],
+   "cap": "openssl del entorno de laboratorio. El secreto es inventado. `printf '%s'` evita que se agregue un salto de línea al final del mensaje, que cambiaría el resultado."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El mismo cálculo en JavaScript, con la API de criptografía web (existe en Node y en el navegador). El resultado tiene que coincidir:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "const enc = new TextEncoder();\nconst hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');\nasync function sha256(texto) { return hex(await crypto.subtle.digest('SHA-256', enc.encode(texto))); }\nasync function hmac(secreto, mensaje) {\n  const clave = await crypto.subtle.importKey('raw', enc.encode(secreto), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);\n  return hex(await crypto.subtle.sign('HMAC', clave, enc.encode(mensaje)));\n}\nconst secreto = 'demo_secreto_hmac_NO_REAL';\nconst cuerpo = '{\"destino\":\"Rosario\",\"bultos\":3}';\nconst ts = '1794600629';\nconst canonico = ['POST', '/v1/pedidos', ts, await sha256(cuerpo)].join('\\n');\nconsole.log(canonico);\nconsole.log('firma:', await hmac(secreto, canonico));\n\n// El mismo pedido con un bulto más: la firma cambia por completo.\nconst otro = ['POST', '/v1/pedidos', ts, await sha256('{\"destino\":\"Rosario\",\"bultos\":4}')].join('\\n');\nconsole.log('con 4 bultos:', await hmac(secreto, otro));",
+   "cap": "Corrido en Node 22, la firma de la primera línea coincide con la de openssl (`eeedf7ac…`). Podés ejecutarlo acá y cambiar el cuerpo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora contra el servidor, con marca fresca: el pedido bueno y tres ataques (repetirlo, cambiarle el cuerpo conservando la firma, y mandarlo firmado con una marca de hace dos minutos)."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "firmar $(date +%s) \"$CUERPO\"; enviar \"$CUERPO\"",
+     "s": "{\"recibido\":{\"destino\":\"Rosario\",\"bultos\":3},\"cliente\":\"cli-7\"} [201]"
+    },
+    {
+     "c": "enviar \"$CUERPO\"    # el mismo pedido, otra vez",
+     "s": "{\"error\":\"solicitud_repetida\"} [409]"
+    },
+    {
+     "c": "enviar '{\"destino\":\"Rosario\",\"bultos\":300}'    # cuerpo cambiado, firma vieja",
+     "s": "{\"error\":\"firma_invalida\"} [401]"
+    },
+    {
+     "c": "firmar $(( $(date +%s) - 120 )) \"$CUERPO\"; enviar \"$CUERPO\"    # firma buena, pero de hace 2 minutos",
+     "s": "{\"error\":\"fuera_de_ventana\",\"edad_s\":121} [401]"
+    }
+   ],
+   "cap": "`firmar` y `enviar` son dos funciones de bash que repiten el cálculo de arriba y mandan el pedido con `curl` al puerto 20805, con los tres campos X-Key-Id, X-Timestamp y X-Signature. Ventana de 30 segundos."
+  },
+  {
+   "t": "pensa",
+   "x": "Un atacante captura un pedido firmado legítimo y lo reenvía tal cual 2 minutos después. ¿Qué parte del diseño lo frena? ¿Y si lo reenviara a los 3 segundos?",
+   "resp": "A los 2 minutos, la ventana: la marca está dentro del texto firmado, así que no se puede poner una fecha nueva sin romper la firma. A los 3 segundos la ventana lo deja pasar y la firma vale: lo frena el registro de firmas ya vistas (409). Sin ese registro, la ventana solo acorta el tiempo para repetir."
+  },
+  {
+   "t": "p",
+   "x": [
+    "No es un invento del laboratorio. Stripe firma así los avisos que manda a sus clientes: el campo `Stripe-Signature` trae una marca de tiempo `t` y una o más firmas `v1`, un HMAC-SHA256 sobre la marca, un punto y el cuerpo crudo; sus bibliotecas rechazan por defecto lo que difiere más de 5 minutos del reloj [#api0805-stripe-webhooks]. Y desde febrero de 2024 hay un estándar, *HTTP Message Signatures* (RFC 9421), con un parámetro `nonce` para detectar repeticiones [#api0805-rfc9421]. En [@08-10] vas a ver este patrón en los webhooks."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": [
+    "Las fallas habituales de una firma HMAC no están en la criptografía sino en los detalles:",
+    "**Firmar otra cosa que lo recibido.** Si el servidor parsea el JSON y lo vuelve a serializar, cambian espacios y orden de claves y la firma no coincide. Se verifica sobre los bytes crudos; Stripe lo advierte [#api0805-stripe-webhooks].",
+    "**Comparar con `==`.** Puede cortarse en el primer carácter distinto y filtrar, en teoría, cuántos coinciden. Se usa una comparación de [[tiempo constante]], como `crypto.timingSafeEqual` en Node [#cripto-node-crypto].",
+    "**No cubrir todo.** Sin método y ruta en la firma, la de un `GET` puede servir para un `DELETE`. Sin marca de tiempo, nunca vence.",
+    "**Relojes desfasados.** La ventana es un compromiso: corta es más segura contra repeticiones, larga tolera relojes malos. Stripe aconseja sincronizar con NTP y avisa que una tolerancia de cero deshabilita la comprobación [#api0805-stripe-webhooks]."
+   ],
+   "titulo": "Dónde se rompe de verdad"
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": [
+    "Los datos de Stripe (tolerancia de 5 minutos, secreto anterior retenido hasta 7 días al rotar) vienen de su documentación consultada el 13-11-2026 [#api0805-stripe-webhooks]. Los detalles de un proveedor cambian; la estructura (marca de tiempo, cuerpo crudo, HMAC, tiempo constante) no."
+   ],
+   "titulo": "Verificado el 13-11-2026"
+  },
+  {
+   "t": "h",
+   "x": "Comparación y combinaciones"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "API key",
+    "Bearer token",
+    "Firma HMAC"
+   ],
+   "filas": [
+    [
+     "Qué prueba",
+     "Que se conoce una cadena registrada",
+     "Que el servidor emitió ese token y vale",
+     "Que se conoce el secreto y el mensaje no cambió"
+    ],
+    [
+     "Qué viaja por la red",
+     "La clave misma",
+     "El token mismo",
+     "La firma; el secreto no sale"
+    ],
+    [
+     "Alguien copia el pedido",
+     "Reusa la clave sin límite",
+     "Reusa el token hasta que venza",
+     "Solo repite ese pedido, una vez y en la ventana"
+    ],
+    [
+     "Alguien cambia el cuerpo",
+     "Nadie se entera",
+     "Nadie se entera",
+     "La firma deja de coincidir"
+    ],
+    [
+     "Vida típica",
+     "Meses o años, hasta rotarla",
+     "Minutos u horas",
+     "La del secreto; cada firma sirve una vez"
+    ],
+    [
+     "Costo para quien llama",
+     "Una cabecera",
+     "Un login y renovaciones",
+     "Calcular la firma en cada pedido"
+    ]
+   ],
+   "cap": "Comparación de los tres mecanismos tal como los armó el laboratorio de hoy. Las propiedades de la fila 3 dependen de usar TLS y de que el servidor lleve el registro de firmas vistas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Se combinan: la clave identifica al proyecto, el bearer a la persona y el proveedor que te manda avisos los firma con HMAC. Ninguna reemplaza a TLS ni a la autorización: saber quién sos es la mitad, decidir qué te toca ([@07-11]) es la otra."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Rotación y alcance: la credencial se va a filtrar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Conviene diseñar suponiendo que una credencial, tarde o temprano, se filtra: un log, un archivo subido a un repositorio, una notebook robada, alguien que se fue de la empresa. Ese día hay que cambiarla **sin cortar a los clientes que andan bien**. Es la rotación de secretos de [@07-19] aplicada a credenciales de API:"
+   ]
+  },
+  {
+   "t": "pasos",
+   "titulo": "Rotar una clave sin cortar el servicio",
+   "pasos": [
+    {
+     "t": "Emitir la nueva",
+     "x": "Con el mismo alcance que la vieja. Durante un tiempo el servidor acepta las dos."
+    },
+    {
+     "t": "Entregarla a cada cliente y desplegar",
+     "x": "Cada cliente cambia a su ritmo. Mientras tanto nada se corta."
+    },
+    {
+     "t": "Mirar quién usa todavía la vieja",
+     "x": "Para eso cada clave tiene un identificador visible (no secreto) y el log registra qué clave hizo cada pedido, nunca la clave completa ([[log estructurado]], [@07-12])."
+    },
+    {
+     "t": "Revocar la vieja",
+     "x": "Cuando el log muestra que nadie la usa. Si hubo una filtración, se revoca de inmediato y se acepta el corte de quien no migró."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los proveedores grandes hacen lo mismo. Stripe deja activo el secreto anterior hasta 7 días y, mientras tanto, firma cada aviso una vez por cada secreto activo para que quien verifica acepte cualquiera [#api0805-stripe-webhooks].",
+    "La otra defensa es el **alcance**: darle a cada credencial el mínimo poder que necesita. La clave del tablero solo leía y por eso no pudo crear envíos. Una clave por cliente y por función limita el daño de una filtración, permite revocar una sin tocar al resto y deja ver en el log quién hace qué. En los bearer el alcance se llama *scope* ([@08-06])."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un proveedor de transporte te dio **una sola clave** y la usan tres sistemas tuyos: el tablero, la facturación y la app del chofer. Se filtra la copia del tablero. ¿Qué hacés ahora y qué problema de diseño quedó a la vista?",
+   "pista": "Pensá qué pasa con los otros dos sistemas si revocás la clave, y qué habría pasado con una clave por sistema.",
+   "solucion": "Si la revocás, cortás también la facturación y la app del chofer, que no se filtraron; si no, el atacante sigue entrando. El problema es compartir una credencial entre tres sistemas: una filtración obliga a cambiar los tres a la vez y no se sabe cuál la perdió. Con una clave por sistema se revoca solo la del tablero, y el log muestra quién usó qué. Además conviene pedir claves de alcance mínimo: el tablero, solo lectura."
+  },
+  {
+   "t": "h",
+   "x": "Senda: una clave pública, una sesión y los secretos del lado del servidor"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si la clave tiene que estar **dentro de la app** para que el teléfono pueda llamar a la API, cualquiera que instale la app puede sacarla. Ofuscarla solo la esconde un rato, así que el diseño sano es el contrario: dentro de la app va solo lo que está **pensado para ser público**, con su poder limitado por reglas del servidor, y los secretos con poder real se quedan en el servidor. Es el diseño de Supabase, y se ve en el código de Senda."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "La clave que va dentro de la app y no es secreta",
+   "x": [
+    "Senda no tiene servidor propio ([@07-29]): la app le habla a Supabase con `fetch`. `cabeceras()` en `src/util/cuenta.ts` arma `apikey: <clave del proyecto>` y `Authorization: Bearer <token de sesión>`. La clave sale de `EXPO_PUBLIC_SUPABASE_ANON_KEY`, que el flujo de compilación inyecta y que viaja dentro de la app, como la [[clave anónima]] de [@05-31]. El token de sesión es el bearer de [@07-10]: dura una hora, la app lo renueva cuando faltan menos de 60 segundos y reintenta una vez tras un 401.",
+    "La documentación de Supabase (13-11-2026) dice que la clave *publishable* es segura de exponer en una app móvil, porque lo que puede hacer lo deciden las reglas de cada tabla ([@07-29]); la secreta, que se las salta, queda solo en el servidor [#red31-supabase-api-keys].",
+    "Esto corresponde al commit `25e08fa` (9 de noviembre de 2026); el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/util/nube.ts",
+    ".github/workflows/apk.yml"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": [
+    "Según la documentación de Supabase al 13-11-2026, las claves largas que empiezan con `eyJ` (`anon` y `service_role`) se retiran antes de fin de 2026, y las nuevas (`sb_publishable_…`, `sb_secret_…`) van en el campo `apikey` y **no** en `Authorization: Bearer`, porque no son JWT [#red31-supabase-api-keys]. El flujo de compilación de Senda pide la clave *publishable* y, si el proyecto no tiene una, usa la `anon`. Con el código solo no se sabe cuál lleva un APK dado, y no tengo credenciales para mirar el panel."
+   ],
+   "titulo": "Las claves de Supabase están cambiando"
+  },
+  {
+   "t": "senda",
+   "titulo": "Dos módulos, dos criterios para la misma cabecera",
+   "x": [
+    "`src/util/nube.ts`, el canal anónimo, sabe de la diferencia: manda la clave siempre en `apikey` y solo la repite como bearer si empieza con `eyJ`, es decir, si es una clave vieja en formato JWT (su comentario lo dice). `cabeceras()` de `src/util/cuenta.ts`, en cambio, manda `Authorization: Bearer ${token ?? CLAVE}`: sin sesión (alta anónima, renovación), la clave del proyecto va también como bearer, sea cual sea su formato.",
+    "Con una clave `anon` es lo esperado. Con una `sb_publishable_…`, la documentación pide mandarla solo en `apikey`, aunque aclara que la verificación de JWT de las funciones acepta cualquiera de los dos campos. **No probé qué hace el servicio real con esa combinación**: es un punto para comprobar con la clave real antes de migrar."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/util/nube.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Los secretos con poder real, solo en el servidor",
+   "x": [
+    "En las funciones de borde (Deno) están las credenciales de verdad. `borrar-cuenta` crea un segundo cliente con `Deno.env.get(\"SUPABASE_SERVICE_ROLE_KEY\")`, la clave de servicio que se salta las reglas, pero solo después de comprobar con `auth.getUser()` que el bearer del pedido corresponde a una cuenta. `trivia-sermon` lee `ANTHROPIC_API_KEY` del entorno de la función: la app nunca la ve. Las dos reenvían a Supabase el `Authorization` recibido: el bearer entra, el servidor verifica y decide.",
+    "`compras` está escrita pero la app todavía no la llama. Ahí Senda es el **cliente**: con una cuenta de servicio guardada como secreto (`PLAY_CUENTA_SERVICIO`) obtiene un token de acceso y lo manda como `Authorization: Bearer` a la API de Android Publisher ([@08-06]).",
+    "Una búsqueda en `src` y `supabase/functions` no encontró ningún uso de HMAC: hoy Senda no firma ni verifica pedidos de ese modo. Aparecería con webhooks de terceros."
+   ],
+   "archivos": [
+    "supabase/functions/borrar-cuenta/index.ts",
+    "supabase/functions/trivia-sermon/index.ts",
+    "supabase/functions/compras/index.ts"
+   ]
+  }
+ ],
+ "recap": [
+  "Una API tiene que responder tres preguntas distintas: quién llama, qué le toca y si el mensaje es auténtico y reciente. Un 401 dice «no te identifiqué» y un 403, «te identifiqué y no».",
+  "Una API key identifica a un cliente y viaja tal cual: quien la copia la usa hasta que se revoca. El servidor guarda su hash.",
+  "Un bearer token vale para quien lo porta. Su defensa es vivir poco, viajar por TLS y no ir en la URL. Se manda como `Authorization: Bearer <token>`.",
+  "Una firma HMAC prueba que se conoce un secreto sin mandarlo y que el cuerpo no cambió. Necesita texto canónico, marca de tiempo, comparación en tiempo constante y un registro de firmas vistas.",
+  "Toda credencial se va a filtrar: por eso importan la rotación (emitir, migrar, observar, revocar) y el alcance mínimo, con una credencial por cliente y por función.",
+  "Dentro de una app solo va lo pensado para ser público: en Senda, la clave del proyecto. El poder real (clave de servicio, clave de Anthropic) vive en funciones del servidor."
+ ],
+ "repaso": [
+  {
+   "p": "Un cliente manda una clave de API válida pero intenta borrar un recurso para el que su clave no tiene permiso. ¿Qué código debería devolver el servidor?",
+   "o": [
+    "401, porque la clave no alcanzó para pasar la autenticación",
+    "403, porque se lo identificó pero no tiene permiso",
+    "404, para no revelar que el recurso existe en el sistema",
+    "400, porque el pedido llegó mal armado desde el cliente"
+   ],
+   "c": 1,
+   "e": "El servidor reconoció la clave, así que no es un problema de autenticación. El permiso es lo que falta, y para eso existe el 403. El 401 se reserva para credencial ausente o inválida. Un 404 puede ser una decisión de diseño para ocultar recursos, pero no es la respuesta estándar a un permiso faltante, y el 400 es para pedidos mal formados."
+  },
+  {
+   "p": "Un servidor guarda en su base la tabla de claves de sus clientes de API. Un atacante consigue una copia de la tabla. ¿Qué diseño limita el daño?",
+   "o": [
+    "Guardar las claves cifradas con una clave maestra en la misma base",
+    "Guardar las claves tal cual pero con acceso restringido a la tabla",
+    "Acortar las claves para que cuesten menos de verificar",
+    "Guardar solo el hash de cada clave, generada al azar y larga"
+   ],
+   "c": 3,
+   "e": "Con solo el hash, la copia robada no contiene claves usables, y como las claves son aleatorias y largas no se pueden adivinar. Cifrarlas con una clave guardada en la misma base se pierde junto con la tabla. Restringir el acceso no sirve cuando ya hubo una copia. Acortarlas las vuelve adivinables."
+  },
+  {
+   "p": "Alguien captura el tráfico entre un cliente y un servidor que usa bearer tokens sobre HTTP, sin TLS. ¿Qué puede hacer con lo que capturó?",
+   "o": [
+    "Usarlo para hacer pedidos hasta que venza o se revoque",
+    "Nada de provecho, porque un token firmado no se puede copiar",
+    "Calcular el secreto del servidor a partir del token capturado",
+    "Solo leer los datos, sin poder hacer pedidos nuevos con él"
+   ],
+   "c": 0,
+   "e": "Un bearer vale para cualquiera que lo porte: copiarlo alcanza para usarlo hasta que venza. Que esté firmado (si es un JWT) sirve para que el servidor detecte falsificaciones, no copias. El token no revela ningún secreto del servidor, y el atacante no se limita a leer."
+  },
+  {
+   "p": "El servidor de un proveedor verifica firmas HMAC pero no guarda las firmas ya vistas, solo mira que la marca de tiempo esté dentro de 30 segundos. Un atacante captura un pedido y lo reenvía 5 segundos después. ¿Qué pasa?",
+   "o": [
+    "Se rechaza, porque la marca de tiempo está dentro de la firma",
+    "Se rechaza, porque HMAC no permite reutilizar el secreto",
+    "Se acepta, porque la firma y la marca siguen siendo válidas",
+    "Se acepta solo si el atacante conoce el secreto"
+   ],
+   "c": 2,
+   "e": "La ventana solo rechaza lo viejo. Un pedido idéntico dentro de la ventana tiene firma válida y marca fresca, así que pasa. Para frenarlo hace falta recordar las firmas de la ventana o incluir un valor único por pedido. El atacante no necesita el secreto: reenvía el pedido tal como lo capturó."
+  },
+  {
+   "p": "Un servidor Node recibe un pedido firmado, parsea el JSON y lo vuelve a convertir en texto antes de calcular el HMAC. Cada tanto, pedidos legítimos fallan con «firma inválida». ¿Cuál es la causa más probable?",
+   "o": [
+    "Los relojes del cliente y del servidor están muy desfasados",
+    "El JSON re-serializado ya no tiene los mismos bytes firmados",
+    "El secreto compartido se corrompe durante el viaje por la red",
+    "SHA-256 no sirve para firmar mensajes en formato JSON"
+   ],
+   "c": 1,
+   "e": "El cliente firmó unos bytes concretos. Al parsear y volver a serializar cambian espacios u orden de claves, y el hash del cuerpo ya no coincide. Los relojes desfasados dan «fuera de ventana», no firma inválida. El secreto nunca viaja y SHA-256 sirve para cualquier secuencia de bytes."
+  },
+  {
+   "p": "Tres sistemas de tu empresa comparten una misma clave de un proveedor. Se filtra. ¿Qué diseño habría reducido el daño?",
+   "o": [
+    "Una clave más larga compartida por los tres",
+    "Cambiar la clave una vez por año",
+    "Guardarla en una variable de entorno distinta en cada sistema",
+    "Una clave por sistema, con el alcance mínimo de cada uno"
+   ],
+   "c": 3,
+   "e": "Con una clave por sistema se revoca solo la comprometida y los otros siguen andando, y el log muestra quién usó cada una. Alargar la clave no ayuda frente a una filtración, una rotación anual deja meses de exposición, y cambiar el nombre de la variable no cambia que la clave sea la misma."
+  },
+  {
+   "p": "Un equipo mobile decide ofuscar la clave secreta de un proveedor de pagos dentro de su app para «protegerla». ¿Qué falla de fondo tiene ese diseño?",
+   "o": [
+    "La ofuscación hace que la app pese más y tarde en abrir",
+    "Las claves no se pueden usar desde un teléfono móvil",
+    "Quien instala la app puede sacar lo que lleva adentro",
+    "El proveedor rechaza las claves que llegan ofuscadas"
+   ],
+   "c": 2,
+   "e": "Lo que está dentro de un paquete instalado en un dispositivo ajeno es extraíble, y ofuscar solo retrasa. El diseño sano deja dentro de la app solo credenciales públicas y mueve el secreto a un servidor propio. El peso, la posibilidad de usar claves desde un teléfono o la reacción del proveedor no son el problema."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó cuál es la diferencia entre una clave de API, un token bearer y una firma HMAC, usando el ejemplo de la barrera del depósito. Después decí en qué caso elegirías cada una y qué le dirías si te pregunta por qué no alcanza con tener HTTPS.",
+ "para_profundizar": [
+  {
+   "fuente": "api0805-rfc6750",
+   "nota": "El estándar de los bearer tokens. Leé la sección 1.2 (definición), la 2.1 (cómo se manda en `Authorization`) y la 3.1 (códigos de error y cuándo no incluirlos)."
+  },
+  {
+   "fuente": "rfc9110",
+   "nota": "La sección 11 («HTTP Authentication») y las secciones sobre 401 y 403 de la semántica de HTTP: de acá sale el campo `WWW-Authenticate`."
+  },
+  {
+   "fuente": "api0805-stripe-webhooks",
+   "nota": "Un caso real de firma HMAC con marca de tiempo y rotación de secretos. Leé «Verify webhook signatures manually» y «Preventing replay attacks»."
+  },
+  {
+   "fuente": "api0805-owasp-rest",
+   "nota": "La hoja de OWASP sobre seguridad de servicios REST: secciones sobre HTTPS, API keys, JWT y qué no debe ir en una URL."
+  }
+ ],
+ "videos": [
+  {
+   "q": "API keys vs bearer tokens vs HMAC signatures explained",
+   "por_que": "Para ver a otra persona comparar los tres mecanismos y contrastar sus ejemplos con lo que mediste hoy en el laboratorio."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "API key",
+   "d": "Cadena larga y aleatoria que un proveedor entrega a un cliente para identificarlo en cada pedido. Identifica a un cliente o proyecto, no a una persona, y no vence sola: quien la copia la usa hasta que se revoca."
+  },
+  {
+   "t": "bearer token",
+   "d": "Credencial que vale para cualquiera que la porte. Se manda en `Authorization: Bearer <token>`, suele vencer en minutos u horas y puede llevar un alcance limitado. Su seguridad depende de que viva poco y viaje por TLS."
+  },
+  {
+   "t": "firma HMAC",
+   "d": "Código calculado con una función hash y un secreto compartido sobre el contenido del pedido. Prueba que quien lo armó conoce el secreto y que el mensaje no cambió, sin mandar el secreto. Con marca de tiempo y registro de firmas vistas frena la repetición."
+  },
+  {
+   "t": "tiempo constante",
+   "d": "Comparación de dos valores que tarda lo mismo aunque difieran en la primera o en la última posición. Se usa al verificar firmas para no filtrar, por el tiempo de respuesta, cuántos caracteres coinciden."
+  },
+  {
+   "t": "ataque de repetición",
+   "d": "Capturar un pedido legítimo y reenviarlo tal cual para que el servidor lo ejecute de nuevo. Se frena con una marca de tiempo dentro de la firma, un registro de lo ya visto o un valor único por pedido."
+  },
+  {
+   "t": "alcance",
+   "d": "Lo que una credencial puede hacer: leer, escribir, administrar. El mínimo necesario para cada cliente limita el daño de una filtración y deja revocar una credencial sin afectar al resto."
+  }
+ ],
+ "siguiente": "OAuth 2.0 y OpenID Connect: cómo una app puede actuar en tu nombre en otro servicio sin conocer tu contraseña, y cómo funciona el botón «Entrar con Google».",
+ "fuentes_nuevas": [
+  {
+   "id": "api0805-rfc6750",
+   "t": "RFC 6750: The OAuth 2.0 Authorization Framework: Bearer Token Usage",
+   "a": "Jones, Hardt (IETF)",
+   "tipo": "rfc",
+   "anio": 2012,
+   "url": "https://www.rfc-editor.org/rfc/rfc6750"
+  },
+  {
+   "id": "api0805-rfc9421",
+   "t": "RFC 9421: HTTP Message Signatures",
+   "a": "Backman, Richer, Sporny (IETF)",
+   "tipo": "rfc",
+   "anio": 2024,
+   "url": "https://www.rfc-editor.org/rfc/rfc9421"
+  },
+  {
+   "id": "api0805-stripe-webhooks",
+   "t": "Receive Stripe events in your webhook endpoint (documentación de Stripe)",
+   "a": "Stripe",
+   "tipo": "doc",
+   "url": "https://docs.stripe.com/webhooks"
+  },
+  {
+   "id": "api0805-owasp-rest",
+   "t": "REST Security Cheat Sheet",
+   "a": "OWASP",
+   "tipo": "doc",
+   "url": "https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html"
+  }
+ ]
+}

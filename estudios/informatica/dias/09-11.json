@@ -1,0 +1,840 @@
+{
+ "id": "09-11",
+ "titulo": "SQL VI: agregaciones, GROUP BY y HAVING",
+ "bajada": "Aprendés a convertir 20.000 filas de bultos en un reporte de doce renglones, y a detectar los cinco errores que dan números falsos sin avisar.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué hace una función de agregación y cómo trata los NULL (`COUNT(*)` contra `COUNT(columna)`).",
+  "Escribir consultas con `GROUP BY` por una o varias columnas y leer el error «must appear in the GROUP BY clause».",
+  "Elegir entre `WHERE` y `HAVING` razonando el orden lógico de la consulta.",
+  "Calcular porcentajes por grupo con `FILTER`, y subtotales con `ROLLUP`.",
+  "Reconocer cuatro errores que devuelven números plausibles pero falsos: `COUNT(*)` tras un `LEFT JOIN`, `SUM` tras un `JOIN` que repite filas, promedio de promedios y división de enteros."
+ ],
+ "venis_de": "Con [@09-09] y [@09-10] aprendiste a unir tablas y a filtrar con [[WHERE]]. Hasta ahora cada fila de salida era una fila de entrada. Hoy el resultado resume: muchas filas entran, pocas salen. Mañana vas a ver cómo meter una consulta adentro de otra.",
+ "se_apoya_en": [
+  "09-03",
+  "09-04",
+  "09-09",
+  "09-10"
+ ],
+ "gancho": [
+  "Al final del turno, en la pared de un depósito hay un pizarrón con cuatro renglones: Norte 41, Sur 38, Oeste 52, Centro 47. Nadie copió en el pizarrón las 178 filas de la planilla de despacho. Alguien las miró, las contó por zona y dejó cuatro números. Esa operación, muchas filas adentro y pocas afuera, es la que hay detrás de casi todos los reportes que existen: ventas por mes, entregas por chofer, incidentes por ruta.",
+  "En SQL eso se hace con unas pocas palabras (`COUNT`, `SUM`, `GROUP BY`, `HAVING`) y es donde más errores silenciosos se cometen. Hoy vas a sacar un reporte de 20.000 bultos inventados, y vas a ver cómo una consulta correcta en apariencia puede devolver el doble de kilos que los reales, o un depósito con un bulto que no existe. Aprender a desconfiar de un número es parte del oficio."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El material de hoy: tres tablas inventadas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Armá estas tres tablas para ver en tu pantalla lo mismo que ves acá. Son datos **inventados** de un operador de logística ficticio: 20.000 bultos despachados entre el 1 de julio y el 30 de septiembre de 2026 desde cuatro depósitos (un quinto, «Dock Nuevo», todavía no despachó nada) y 40.001 intentos de entrega. La semilla es fija: lo corrí dos veces en bases separadas y un hash `md5` de todos los estados, pesos y fechas dio `8729434112b34a488bdd19ea58a86533` las dos veces.",
+    "Mirá un detalle del esquema: `peso_kg` admite [[NULL]]. En la realidad pasa: el bulto se escaneó, pero nadie lo puso en la balanza. Esos 1.552 bultos sin peso nos van a dar más de una sorpresa."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table depositos (\n  id     int  primary key,\n  nombre text not null,\n  zona   text not null\n);\ncreate table bultos (\n  id           int  primary key,\n  deposito_id  int  not null references depositos (id),\n  zona_destino text not null,\n  estado       text not null check (estado in ('entregado','en camino','devuelto','perdido')),\n  peso_kg      numeric(6,2),            -- puede ser NULL: algunos bultos no se pesaron\n  creado       date not null\n);\ncreate table intentos (\n  id        int  primary key,\n  bulto_id  int  not null references bultos (id),\n  fecha     date not null,\n  resultado text not null check (resultado in ('entregado','ausente','rechazado'))\n);\n\ninsert into depositos values\n  (1,'Pompeya','Sur'), (2,'Barracas','Sur'), (3,'Villa Lugano','Oeste'),\n  (4,'Colegiales','Norte'), (5,'Dock Nuevo','Centro');\n\nselect setseed(0.2026);                   -- semilla fija: todos obtienen los mismos datos\ninsert into bultos\nselect i,\n       1 + floor(random()*4)::int,        -- el depósito 5 todavía no despachó nada\n       (array['Norte','Sur','Oeste','Centro'])[1 + floor(random()*4)::int],\n       case when r < 0.72 then 'entregado'\n            when r < 0.88 then 'en camino'\n            when r < 0.97 then 'devuelto'\n            else 'perdido' end,\n       case when random() < 0.08 then null\n            else round((0.3 + random()*random()*40)::numeric, 2) end,\n       date '2026-07-01' + floor(random()*92)::int\nfrom (select i, random() as r from generate_series(1, 20000) i) t;\n\n-- cada bulto tiene de 1 a 3 intentos de entrega\ninsert into intentos (id, bulto_id, fecha, resultado)\nselect row_number() over (order by b.id, n), b.id, b.creado + n,\n       case when n = k.ult and b.estado = 'entregado' then 'entregado'\n            when n % 2 = 0 then 'rechazado' else 'ausente' end\nfrom bultos b\ncross join lateral (select 1 + (b.id % 3) as ult) k\ncross join lateral generate_series(1, k.ult) n;",
+   "cap": "Armado de la base de hoy. Corrido en PostgreSQL 16.15 (paquete de Ubuntu 24.04) dentro de una base llamada logi."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select (select count(*) from depositos) as depositos, (select count(*) from bultos) as bultos, (select count(*) from intentos) as intentos;",
+     "s": " depositos | bultos | intentos \n-----------+--------+----------\n         5 |  20000 |    40001\n(1 row)"
+    }
+   ],
+   "cap": "Control de que la carga salió bien."
+  },
+  {
+   "t": "h",
+   "x": "Muchas filas adentro, una fila afuera"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta ahora, cada fila de salida de tus consultas era una fila de entrada: filtrabas con [[WHERE]], ordenabas con [[ORDER BY]], unías con [[INNER JOIN]]. Un reporte de verdad **resume**. «¿Cuántos bultos salieron?» no es una fila de `bultos`; es un número que sale de mirarlas todas.",
+    "Eso lo hace una [[función de agregación]]: recibe los valores de una columna a lo largo de muchas filas y los resume en uno. Las cinco de uso diario son `COUNT` (cuántos), `SUM` (la suma), `AVG` (el promedio), `MIN` (el menor) y `MAX` (el mayor)."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select count(*), sum(peso_kg), avg(peso_kg), min(peso_kg), max(peso_kg) from bultos;",
+     "s": " count |    sum    |         avg         | min  |  max  \n-------+-----------+---------------------+------+-------\n 20000 | 190024.56 | 10.3005507372072853 | 0.30 | 39.75\n(1 row)"
+    }
+   ],
+   "cap": "Cinco agregaciones sobre toda la tabla. Entran 20.000 filas y sale una."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Sin ninguna otra instrucción, SQL trata a la tabla entera como **un único grupo** y devuelve una sola fila. Esa fila existe incluso si la tabla está vacía, y ahí aparece una trampa."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Qué hacen las agregaciones con el NULL"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las funciones de agregación **ignoran los NULL**: `SUM` suma los valores no nulos, `AVG` promedia los no nulos, `MIN` y `MAX` los saltean [#bd1111-pg-funciones-agregadas]. La excepción es `COUNT(*)`, que no mira ninguna columna y cuenta **filas**. `COUNT(peso_kg)`, en cambio, cuenta las filas con `peso_kg` distinto de NULL. Es coherente con la [[lógica de tres valores]]: el NULL significa «no sé», y la agregación no inventa nada con lo que no sabe."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select count(*) as filas, count(peso_kg) as con_peso, count(distinct deposito_id) as depositos from bultos;",
+     "s": " filas | con_peso | depositos \n-------+----------+-----------\n 20000 |    18448 |         4\n(1 row)"
+    },
+    {
+     "c": "logi=> select sum(peso_kg)/count(*) as suma_sobre_filas, sum(peso_kg)/count(peso_kg) as suma_sobre_pesados, avg(peso_kg) as avg from bultos;",
+     "s": "  suma_sobre_filas  | suma_sobre_pesados  |         avg         \n--------------------+---------------------+---------------------\n 9.5012280000000000 | 10.3005507372072853 | 10.3005507372072853\n(1 row)"
+    }
+   ],
+   "cap": "COUNT(*), COUNT(columna) y COUNT(DISTINCT columna) responden tres preguntas distintas. Y AVG equivale a dividir entre los que tienen valor, no entre todas las filas."
+  },
+  {
+   "t": "pensa",
+   "x": "Alguien arma el «peso promedio por bulto» así: `SUM(peso_kg) / COUNT(*)`. Hay 1.552 bultos sin peso. ¿El resultado queda por encima, por debajo o igual que `AVG(peso_kg)`? ¿Y cuál de los dos refleja mejor lo que pesa un bulto típico?",
+   "resp": "Queda por debajo: 9,50 contra 10,30. Dividir entre las 20.000 filas trata a los 1.552 bultos sin balanza como si pesaran cero. `AVG` divide entre los 18.448 que tienen peso y responde «¿cuánto pesa un bulto de los que se pesaron?». «Sin pesar» no es «pesa cero», así que `AVG` es la lectura más honesta, salvo que sepas que los no pesados son livianos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Por eso `COUNT(DISTINCT deposito_id)` (valores distintos no nulos) da 4 aunque `depositos` tenga 5 filas: «Dock Nuevo» no aparece en ningún bulto. Cuando te digan «contá los envíos», lo primero es preguntar qué fila cuenta como uno."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "La tabla vacía: SUM da NULL, no cero"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si ninguna fila pasa el filtro, `COUNT` da 0, pero `SUM`, `AVG`, `MIN` y `MAX` dan NULL: la documentación aclara que la suma de cero filas es nula, no cero [#bd1111-pg-funciones-agregadas]. Un NULL que llega a una cuenta contagia el resultado. La herramienta habitual es `COALESCE(SUM(x), 0)`."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select count(*), sum(peso_kg), coalesce(sum(peso_kg), 0) as sum_o_cero from bultos where estado = 'inexistente';",
+     "s": " count | sum | sum_o_cero \n-------+-----+------------\n     0 |     |          0\n(1 row)"
+    }
+   ],
+   "cap": "Ningún bulto cumple el filtro. Sigue habiendo una fila de resultado; el NULL se ve como un casillero vacío."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Un promedio es un resumen, no la realidad",
+   "x": "El promedio de peso es 10,30 kg, pero la mediana (el valor del medio si ordenaras los pesos) es 7,81 kg; PostgreSQL la calcula con `percentile_cont(0.5) within group (order by peso_kg)`. Unos pocos bultos muy pesados tiran el promedio hacia arriba. Para dimensionar un camión, esa diferencia importa."
+  },
+  {
+   "t": "h",
+   "x": "GROUP BY: un resumen por cada grupo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un número para toda la tabla sirve poco. Lo que se pide es bultos **por zona**, kilos **por depósito**, devoluciones **por mes**. Para eso existe [[GROUP BY]]: reparte las filas en grupos, uno por cada valor distinto de la columna que nombres, y aplica las agregaciones **a cada grupo por separado**."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La mesa de clasificación",
+   "x": "En un centro de distribución, los bultos llegan mezclados y los operarios los reparten en cuatro pallets según la zona. Después alguien cuenta cada pallet y anota una línea por pallet. `GROUP BY` es el reparto y `COUNT` es el conteo. La analogía deja de valer en que en SQL nada se mueve: las filas siguen en su tabla y el motor solo calcula como si las hubiera repartido."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select zona_destino, count(*) from bultos group by zona_destino order by zona_destino;",
+     "s": " zona_destino | count \n--------------+-------\n Centro       |  5067\n Norte        |  4927\n Oeste        |  5002\n Sur          |  5004\n(4 rows)"
+    }
+   ],
+   "cap": "Entran 20.000 filas, salen 4: una por cada zona distinta."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "20.000 filas de bultos",
+       "s": "una por bulto, mezcladas",
+       "k": "datos"
+      },
+      {
+       "t": "Se reparten por zona_destino",
+       "s": "4 grupos: Norte, Sur, Oeste, Centro",
+       "k": "red",
+       "e": "GROUP BY"
+      },
+      {
+       "t": "Cada grupo se resume",
+       "s": "COUNT(*), AVG(peso_kg)…",
+       "k": "servidor",
+       "e": "agregaciones"
+      },
+      {
+       "t": "4 filas de resultado",
+       "s": "una por grupo",
+       "k": "ok",
+       "e": "SELECT"
+      }
+     ]
+    }
+   ],
+   "cap": "Lo que hace el motor, conceptualmente. Los grupos solo existen mientras dura la consulta."
+  },
+  {
+   "t": "h3",
+   "x": "La regla que genera el error más famoso"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando agrupás, cada fila del resultado representa **un grupo entero**. En el `SELECT`, cada columna tiene que ser una por la que agrupaste (un único valor por grupo) o una agregación (que resume el grupo). Si pedís `estado` con `GROUP BY zona_destino`, ¿cuál de los 5.000 estados de la zona Sur querés ver?"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select zona_destino, estado from bultos group by zona_destino;",
+     "s": "ERROR:  column \"bultos.estado\" must appear in the GROUP BY clause or be used in an aggregate function\nLINE 1: select zona_destino, estado from bultos group by zona_destino;\n                             ^"
+    }
+   ],
+   "cap": "El error real de PostgreSQL 16.15. El mensaje ya contiene las dos salidas posibles: agrupar también por estado, o agregar la columna."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay dos arreglos legítimos. Si querés un renglón por cada combinación de zona y estado, agregás `estado` al `GROUP BY`. Si querés uno por zona, decidís qué resumen de los estados te sirve (por ejemplo, `COUNT(DISTINCT estado)`). Lo que no corresponde es meter `MIN(estado)` solo para que compile: devuelve un valor arbitrario con apariencia de dato."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Agrupar por más de una columna: el reporte por zona y mes"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con dos columnas, el grupo es la **combinación**: «Norte en julio» es un grupo y «Norte en agosto» es otro. Para agrupar por mes, `date_trunc('month', creado)` corta cada fecha al primer día de su mes. Este es el reporte del pizarrón, pero completo."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select to_char(date_trunc('month', creado), 'YYYY-MM') as mes, zona_destino as zona, count(*) as bultos, round(sum(peso_kg)) as kg\nfrom bultos\ngroup by date_trunc('month', creado), zona_destino\norder by mes, zona;",
+     "s": "   mes   |  zona  | bultos |  kg   \n---------+--------+--------+-------\n 2026-07 | Centro |   1672 | 15661\n 2026-07 | Norte  |   1659 | 16067\n 2026-07 | Oeste  |   1711 | 16606\n 2026-07 | Sur    |   1683 | 15855\n 2026-08 | Centro |   1700 | 16184\n 2026-08 | Norte  |   1684 | 15689\n 2026-08 | Oeste  |   1677 | 15733\n 2026-08 | Sur    |   1691 | 16251\n 2026-09 | Centro |   1695 | 16444\n 2026-09 | Norte  |   1584 | 15115\n 2026-09 | Oeste  |   1614 | 15166\n 2026-09 | Sur    |   1630 | 15252\n(12 rows)"
+    }
+   ],
+   "cap": "Doce filas: 3 meses por 4 zonas. A mano, en una planilla, sería media hora de filtrar y sumar; acá es una consulta."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Sin ORDER BY, el orden de los grupos no es una promesa",
+   "x": "En mi corrida, `group by zona_destino` sin `ORDER BY` devolvió Norte, Oeste, Sur y Centro: no es alfabético. El motor arma los grupos como le conviene (con una tabla hash, lo vas a ver al final) y con otra versión o configuración puede entregar otro orden. Si necesitás un orden, pedilo con `ORDER BY`."
+  },
+  {
+   "t": "h3",
+   "x": "El NULL también forma un grupo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las agregaciones ignoran los NULL, pero `GROUP BY` los junta **en un mismo grupo**, como si fueran iguales entre sí (en el `WHERE`, `NULL = NULL` no da verdadero). Hay 3.279 pesos distintos; si agrupás por `peso_kg`, salen 3.280 grupos: los 3.279 más el de los NULL. Y podés agrupar por una expresión, como la pregunta «¿falta el peso?»."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select peso_kg is null as sin_peso, count(*) from bultos group by peso_kg is null;",
+     "s": " sin_peso | count \n----------+-------\n f        | 18448\n t        |  1552\n(2 rows)"
+    },
+    {
+     "c": "logi=> select count(*) from (select peso_kg from bultos group by peso_kg) t;",
+     "s": " count \n-------\n  3280\n(1 row)"
+    }
+   ],
+   "cap": "Agrupar por una expresión, y el grupo de los NULL. La segunda consulta usa una consulta dentro de otra; mañana la ves en detalle."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Escribí una consulta que devuelva, **por depósito**, cuántos bultos hay en estado `'devuelto'` o `'perdido'` y cuántos kilos suman (redondeados). Mostrá el nombre del depósito y ordená de mayor a menor cantidad.",
+   "pista": "Necesitás unir `bultos` con `depositos` para traer el nombre. El filtro por estado habla de filas, así que se aplica antes de agrupar. Para ordenar de mayor a menor, `order by bultos desc`.",
+   "solucion": [
+    "Una posible solución: `select d.nombre, count(*) as bultos, round(sum(b.peso_kg)) as kg from bultos b join depositos d on d.id = b.deposito_id where b.estado in ('devuelto', 'perdido') group by d.nombre order by bultos desc;`",
+    "Da cuatro filas: Pompeya 582 bultos (5.189 kg), Barracas 581 (5.446), Colegiales 579 (5.546) y Villa Lugano 556 (5.064). «Dock Nuevo» no aparece: con `JOIN`, los depósitos sin bultos quedan afuera."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "WHERE filtra filas, HAVING filtra grupos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora querés solo las zonas con más de 5.000 bultos. El instinto es escribir la condición en el `WHERE`. Probalo."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select zona_destino, count(*) from bultos where count(*) > 5000 group by zona_destino;",
+     "s": "ERROR:  aggregate functions are not allowed in WHERE\nLINE 1: select zona_destino, count(*) from bultos where count(*) > 5...\n                                                        ^"
+    }
+   ],
+   "cap": "El mensaje es literal: el WHERE no admite agregaciones."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La razón es el **orden en que SQL piensa** una consulta. El `WHERE` actúa cuando todavía no hay grupos: mira una fila a la vez. Un conteo por zona no existe en ese momento. Para filtrar **después** de agrupar está [[HAVING]]: recibe los grupos armados y se queda con los que cumplen."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "FROM",
+       "s": "de qué tablas salen las filas (y los JOIN)",
+       "k": "datos"
+      },
+      {
+       "t": "WHERE",
+       "s": "descarta filas sueltas",
+       "k": "red",
+       "e": "20.000 filas"
+      },
+      {
+       "t": "GROUP BY",
+       "s": "arma los grupos",
+       "k": "servidor",
+       "e": "filas que quedaron"
+      },
+      {
+       "t": "HAVING",
+       "s": "descarta grupos enteros",
+       "k": "alerta",
+       "e": "grupos"
+      }
+     ],
+     "baja": "con los grupos que sobrevivieron:"
+    },
+    {
+     "nodos": [
+      {
+       "t": "SELECT",
+       "s": "calcula las columnas y les pone alias",
+       "k": "ok"
+      },
+      {
+       "t": "ORDER BY",
+       "s": "ordena el resultado",
+       "k": "neutro"
+      },
+      {
+       "t": "LIMIT",
+       "s": "se queda con las primeras filas",
+       "k": "neutro"
+      }
+     ]
+    }
+   ],
+   "cap": "El orden lógico de una consulta SELECT con agregaciones, según la documentación de PostgreSQL [#bd1111-pg-group-having]. Es el orden en que hay que razonarla; el motor puede calcular en otro, siempre que el resultado sea el mismo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con el diagrama se entienden tres errores de un golpe. El `WHERE` no admite agregaciones porque no hay grupos. El `HAVING` no puede usar un alias del `SELECT` porque el `SELECT` corre después. Y el `ORDER BY` **sí** puede, porque corre después del `SELECT`."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select zona_destino, count(*) as n from bultos group by zona_destino having n > 5000;",
+     "s": "ERROR:  column \"n\" does not exist\nLINE 1: ...nt(*) as n from bultos group by zona_destino having n > 5000;\n                                                             ^"
+    },
+    {
+     "c": "logi=> select zona_destino, count(*) from bultos group by zona_destino having count(*) > 5000 order by zona_destino;",
+     "s": " zona_destino | count \n--------------+-------\n Centro       |  5067\n Oeste        |  5002\n Sur          |  5004\n(3 rows)"
+    }
+   ],
+   "cap": "El alias n todavía no existe cuando corre el HAVING: hay que repetir la expresión. Norte, con 4.927, quedó afuera."
+  },
+  {
+   "t": "h3",
+   "x": "Cuándo va cada una: la regla práctica"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una regla práctica: si la condición habla de **una fila** («este bulto está devuelto»), va en `WHERE`. Si habla de **un grupo** («esta zona tiene más de 5.000 bultos»), va en `HAVING`. Pueden convivir: el `WHERE` descarta filas, se agrupa y el `HAVING` descarta grupos."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Querés saber qué zonas recibieron **más de 430 bultos devueltos**. ¿Qué condición va en el `WHERE` y cuál en el `HAVING`?",
+   "resp": "`estado = 'devuelto'` va en el `WHERE`, porque se decide mirando una fila. `count(*) > 430` va en el `HAVING`, porque se decide sobre el conjunto de cada zona. Devuelve Norte con 444 y Sur con 433. Con `estado` en el `HAVING` habría error: no es columna agrupada ni agregación."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select zona_destino, count(*) from bultos where estado = 'devuelto' group by zona_destino having count(*) > 430 order by 1;",
+     "s": " zona_destino | count \n--------------+-------\n Norte        |   444\n Sur          |   433\n(2 rows)"
+    }
+   ],
+   "cap": "Las dos cláusulas trabajando juntas."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Se puede poner una condición de fila en HAVING, pero no conviene",
+   "x": "`having zona_destino <> 'Sur'` es legal, porque `zona_destino` es una columna agrupada. El `EXPLAIN` en PostgreSQL 16.15 muestra un `Filter: (zona_destino <> 'Sur'::text)` aplicado al leer la tabla, antes de agrupar, como si fuera un `WHERE`. No lo tomes como regla de todos los motores: escribí en `WHERE` lo que habla de filas, que es más claro y no depende del optimizador."
+  },
+  {
+   "t": "h",
+   "x": "Contar con una condición adentro: FILTER y CASE"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un reporte de logística pide el total de bultos de la zona **y** cuántos se entregaron **y** qué porcentaje es. Con `WHERE estado = 'entregado'` perderías el total. Para contar solo algunas filas del grupo está `FILTER`: `COUNT(*) FILTER (WHERE condición)` cuenta únicamente las que cumplen la condición [#bd1111-pg-sintaxis-agregados]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select zona_destino as zona, count(*) as total,\n       count(*) filter (where estado = 'entregado') as entregados,\n       round(100.0 * count(*) filter (where estado = 'entregado') / count(*), 1) as pct\nfrom bultos group by zona_destino order by zona;",
+     "s": "  zona  | total | entregados | pct  \n--------+-------+------------+------\n Centro |  5067 |       3665 | 72.3\n Norte  |  4927 |       3541 | 71.9\n Oeste  |  5002 |       3666 | 73.3\n Sur    |  5004 |       3624 | 72.4\n(4 rows)"
+    }
+   ],
+   "cap": "Total, entregados y porcentaje, todo en un solo recorrido de la tabla."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Antes se usaba un `CASE` adentro de la agregación (abajo). Da lo mismo y funciona en cualquier motor, así que lo vas a ver en código viejo. PostgreSQL incorporó `FILTER` en la versión 9.4 [#bd1111-pg-9-4-notas] y SQLite también lo acepta [#bd1111-sqlite-agregadas]. Si podés elegir, `FILTER` se lee mejor."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "-- Las tres formas de contar los entregados dan lo mismo (3.665 en la zona Centro)\ncount(*) filter (where estado = 'entregado')\nsum(case when estado = 'entregado' then 1 else 0 end)\ncount(case when estado = 'entregado' then 1 end)   -- el CASE sin ELSE da NULL, y COUNT ignora los NULL",
+   "cap": "Equivalencias. La tercera funciona porque COUNT(columna) no cuenta los NULL."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La división de enteros",
+   "x": "Si escribís `count(*) filter (where estado = 'entregado') / count(*)` sin más, da **0** (lo probé). Los dos operandos son enteros y la división entera descarta los decimales: 3.665 / 5.067 es 0. Multiplicar antes por `100.0` convierte la cuenta en decimal y da 72,48 sobre toda la tabla. El SQL corre sin quejarse y el reporte sale con ceros."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Para cada **mes**, mostrá cuántos bultos se crearon, cuántos terminaron `'perdido'` y qué porcentaje es, con dos decimales. Usá `FILTER`.",
+   "pista": "Agrupá por `date_trunc('month', creado)`, contá los perdidos con `count(*) filter (where ...)`, multiplicá por `100.0` antes de dividir y redondeá con `round(..., 2)`.",
+   "solucion": [
+    "Una posible solución: `select to_char(date_trunc('month', creado), 'YYYY-MM') as mes, count(*) as bultos, count(*) filter (where estado = 'perdido') as perdidos, round(100.0 * count(*) filter (where estado = 'perdido') / count(*), 2) as pct_perdidos from bultos group by date_trunc('month', creado) order by mes;`",
+    "Resultado: julio, 6.725 bultos y 164 perdidos (2,44 %); agosto, 6.752 y 225 (3,33 %); septiembre, 6.523 y 194 (2,97 %). Con tres meses no hay tendencia que valga."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Subtotales y totales: ROLLUP y GROUPING SETS"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los reportes de gestión traen, junto al detalle, un subtotal por zona y un total general. En vez de pegar tres consultas, `GROUP BY ROLLUP (zona_destino, estado)` calcula el detalle por zona y estado, **más** el subtotal de cada zona, **más** el total, en un solo recorrido de la tabla. PostgreSQL incorporó `GROUPING SETS`, `CUBE` y `ROLLUP` en la 9.5, publicada el 7 de enero de 2016 [#back13-pg-9-5-notas]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select zona_destino, estado, count(*) from bultos\nwhere zona_destino in ('Norte','Sur') and estado in ('devuelto','perdido')\ngroup by rollup (zona_destino, estado) order by zona_destino, estado;",
+     "s": " zona_destino |  estado  | count \n--------------+----------+-------\n Norte        | devuelto |   444\n Norte        | perdido  |   152\n Norte        |          |   596\n Sur          | devuelto |   433\n Sur          | perdido  |   136\n Sur          |          |   569\n              |          |  1165\n(7 rows)"
+    }
+   ],
+   "cap": "Detalle (4 filas), subtotal por zona (2 filas con estado vacío) y total general (1 fila con todo vacío). Recorté el filtro a dos zonas y dos estados para que se lea."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los casilleros vacíos son NULL: así dice el resultado «este renglón sumó todos los estados». El problema es que ese NULL se ve igual que uno de un dato real. Para distinguirlos existe `GROUPING(columna)`: da 1 cuando la columna fue «sumada» por el subtotal y 0 cuando es un valor de verdad. Con dos columnas codifica ambas: 0 es detalle, 1 es subtotal por zona, 3 es el total."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select zona_destino, estado, count(*), grouping(zona_destino, estado) as g from bultos\nwhere zona_destino in ('Norte','Sur') and estado in ('devuelto','perdido')\ngroup by rollup (zona_destino, estado) order by g, zona_destino, estado;",
+     "s": " zona_destino |  estado  | count | g \n--------------+----------+-------+---\n Norte        | devuelto |   444 | 0\n Norte        | perdido  |   152 | 0\n Sur          | devuelto |   433 | 0\n Sur          | perdido  |   136 | 0\n Norte        |          |   596 | 1\n Sur          |          |   569 | 1\n              |          |  1165 | 3\n(7 rows)"
+    }
+   ],
+   "cap": "GROUPING distingue el NULL del subtotal de un NULL de los datos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "`GROUPING SETS` es la versión general: listás las agrupaciones que querés. `ROLLUP (a, b)` equivale a `GROUPING SETS ((a, b), (a), ())`. Para subtotales por zona **y** por estado, sin el cruce, escribís `GROUPING SETS ((zona_destino), (estado), ())`. Alcanza con saber que existen. En el plan de un `ROLLUP`, PostgreSQL muestra un solo nodo `MixedAggregate` que mantiene varias tablas de grupos a la vez."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El truco de COALESCE sobre los NULL del subtotal",
+   "x": "Es común rotular el total con `coalesce(zona_destino, 'TODAS')`. Si algún día hay una zona NULL real, quedará rotulada «TODAS» y nadie lo notará. Para un listado que lee una persona alcanza; para un número que alimenta otro cálculo, usá `GROUPING`."
+  },
+  {
+   "t": "h",
+   "x": "Tres errores que dan números plausibles y falsos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los errores que rompen la consulta son los fáciles: te avisan. Los peligrosos **corren sin error y devuelven un número razonable**. Estos tres los vas a ver en la vida real."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "1. Contar con LEFT JOIN: la fila que no existe"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Querés todos los depósitos con su cantidad de bultos, incluidos los que no despacharon nada. Usás un [[LEFT JOIN]] desde `depositos`, que rellena con NULL las columnas de `bultos` cuando no hay coincidencia. Escribís `COUNT(*)` por costumbre y «Dock Nuevo» aparece con **1 bulto**."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select d.nombre, count(*) as con_star, count(b.id) as bultos\nfrom depositos d left join bultos b on b.deposito_id = d.id\ngroup by d.nombre order by d.nombre;",
+     "s": "    nombre    | con_star | bultos \n--------------+----------+--------\n Barracas     |     5031 |   5031\n Colegiales   |     4951 |   4951\n Dock Nuevo   |        1 |      0\n Pompeya      |     4970 |   4970\n Villa Lugano |     5048 |   5048\n(5 rows)"
+    }
+   ],
+   "cap": "COUNT(*) cuenta la fila que el LEFT JOIN fabricó para el depósito sin bultos. COUNT(b.id) cuenta los bultos de verdad."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El `LEFT JOIN` fabricó una fila para «Dock Nuevo» con `bultos` en NULL. `COUNT(*)` la cuenta; `COUNT(b.id)` no, porque `b.id` es NULL ahí. **Regla práctica**: después de un `LEFT JOIN`, contá una columna del lado que puede faltar, no `COUNT(*)`."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "2. Unir antes de agregar: los kilos que se duplican"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Querés los kilos por zona de los bultos que tuvieron intentos de entrega. Unís `bultos` con `intentos`, agrupás y sumás `peso_kg`. Un [[INNER JOIN]] devuelve **una fila por cada par**: un bulto con tres intentos aparece tres veces, con su peso repetido. La suma da casi el doble."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select sum(peso_kg) as kg_reales from bultos;",
+     "s": " kg_reales \n-----------\n 190024.56\n(1 row)"
+    },
+    {
+     "c": "logi=> select sum(b.peso_kg) as kg_con_join, count(*) as filas from bultos b join intentos i on i.bulto_id = b.id;",
+     "s": " kg_con_join | filas \n-------------+-------\n   381435.38 | 40001\n(1 row)"
+    }
+   ],
+   "cap": "Con el JOIN, las filas pasan de 20.000 a 40.001 y los kilos de 190.024 a 381.435: 2,007 veces el real."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La sintaxis es correcta y el reporte lo leería alguien en una reunión. La solución general es **agregar cada tabla por separado y recién después juntar los resultados**. Abajo lo hice con dos consultas dentro del `FROM`; mañana las vemos en detalle. El principio: antes de sumar después de un `JOIN`, preguntate si la tabla de la derecha repite filas de la izquierda."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select z.zona, z.kg, i.intentos\nfrom (select zona_destino as zona, round(sum(peso_kg)) as kg from bultos group by zona_destino) z\njoin (select b.zona_destino as zona, count(*) as intentos\n      from bultos b join intentos i on i.bulto_id = b.id group by b.zona_destino) i using (zona)\norder by zona;",
+     "s": "  zona  |  kg   | intentos \n--------+-------+----------\n Centro | 48289 |    10162\n Norte  | 46872 |     9899\n Oeste  | 47505 |    10021\n Sur    | 47359 |     9919\n(4 rows)"
+    }
+   ],
+   "cap": "Cada tabla se resume en su propio grano. Los kilos suman 190.025 (con el redondeo) y los intentos 40.001."
+  },
+  {
+   "t": "h3",
+   "x": "3. El promedio de promedios"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tenés el peso promedio de cada depósito y promediás los promedios. Solo da bien si todos tienen **la misma cantidad** de bultos. Si el depósito A despachó 100 bultos con promedio de 5 kg y el B, 10 con promedio de 25 kg, el promedio de los promedios es 15. Pero el peso total es 500 + 250 = 750 kg entre 110 bultos: 6,82 kg."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select round(avg(prom), 2) as promedio_de_promedios, round(sum(prom * n) / sum(n), 2) as promedio_real\nfrom (values (5.0, 100), (25.0, 10)) as t(prom, n);",
+     "s": " promedio_de_promedios | promedio_real \n-----------------------+---------------\n                 15.00 |          6.82\n(1 row)"
+    }
+   ],
+   "cap": "El promedio real es ponderado: cada grupo vale por su cantidad. La forma segura es guardar suma y cantidad, y dividir al final."
+  },
+  {
+   "t": "h",
+   "x": "Qué cuesta agrupar, y cómo lo resuelve Senda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para agrupar, el motor tiene que **leer todas las filas** que sobrevivieron al `WHERE`. Este es el plan real de bultos por zona, con `EXPLAIN (ANALYZE)`, que ejecuta la consulta y muestra qué hizo [#be28-postgres-explain]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> explain (analyze, costs off, timing off) select zona_destino, count(*) from bultos group by zona_destino;",
+     "s": "                      QUERY PLAN                      \n------------------------------------------------------\n HashAggregate (actual rows=4 loops=1)\n   Group Key: zona_destino\n   Batches: 1  Memory Usage: 24kB\n   ->  Seq Scan on bultos (actual rows=20000 loops=1)\n Planning Time: 0.242 ms\n Execution Time: 2.719 ms\n(6 rows)"
+    }
+   ],
+   "cap": "Medido en esta VM compartida (4 CPU, una sola corrida, sin repetir): 2,7 ms. Los tiempos varían de una corrida a otra; lo que importa es la forma del plan."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El plan se lee de abajo hacia arriba. Un `Seq Scan` lee toda la tabla (20.000 filas). Un `HashAggregate` mantiene en memoria un casillero por grupo (acá, 4 casilleros y 24 kB) y suma cada fila en el de su zona. La alternativa, `GroupAggregate`, trabaja sobre filas ya ordenadas por la columna del grupo. Cuál elige el optimizador es tema de [@09-22]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con 20.000 filas el costo es una anécdota. Con 200 millones, cada vez que alguien abre el tablero el motor leería 200 millones de filas para devolver cuatro números. Cuando una agregación se pide seguido sobre una tabla que solo crece, una práctica habitual es **no recalcularla**: guardar el resumen y actualizarlo con cada fila nueva. Es lo que hizo Senda con la salud de cada pregunta."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Una agregación que se pasó a un resumen que se suma al insertar",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. Cada respuesta del Espadeo (la trivia de Senda) se guarda en `respuestas`, con `acierto` y `segundos` (que puede ser NULL). La migración `20261026000000_inicio.sql` creó una vista `salud_preguntas` con `group by pregunta`, `count(*)`, `avg(acierto::int)` (el booleano pasa a 0 o 1, así que el promedio es la proporción de aciertos) y `avg(segundos)`. Una vista común **recalcula la agregación cada vez que alguien la lee**.",
+    "La migración siguiente, `20261027000000_escala.sql`, la reemplazó: una tabla `salud_resumen` con una fila por pregunta (`respuestas`, `aciertos`, `segundos_total`, `segundos_n`), un disparador (*trigger*, que verás en [@09-18]) que suma a esa fila cada vez que entra una respuesta, y la vista leyendo del resumen. Según `docs/ESCALA.md`, leer cuesta lo mismo con 100 o con 100 millones de respuestas.",
+    "Un detalle de hoy: como `AVG` ignora los NULL, el resumen guarda `segundos_total` y `segundos_n` (cuenta solo las respuestas con `segundos`, con `count(segundos)`), y la vista divide una por otra. Es la receta del promedio ponderado, y el promedio resultante es el que daría `AVG`. Con los votos del Pulso se hizo lo mismo: de `count(*) ... group by pulso, opcion` a una tabla `pulso_conteo`."
+   ],
+   "archivos": [
+    "supabase/migrations/20261026000000_inicio.sql",
+    "supabase/migrations/20261027000000_escala.sql",
+    "docs/ESCALA.md"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y qué se verificó (13-11-2026)",
+   "x": "Todo el SQL de hoy corrió en PostgreSQL 16.15, la que trae Ubuntu 24.04. Según la página de versiones del proyecto, al 13-11-2026 la rama más nueva es la 18 (18.7, publicada el 12-11-2026 junto con 16.16), y la 16 recibe correcciones hasta el 9-11-2028 [#postgresql-versioning]. `GROUP BY`, `HAVING`, `FILTER` y `ROLLUP` existen desde la 9.4 y la 9.5, así que lo de hoy vale en cualquier versión soportada. Los tiempos son de una sola corrida en una VM compartida."
+  }
+ ],
+ "recap": [
+  "Una **función de agregación** resume muchas filas en un valor: `COUNT`, `SUM`, `AVG`, `MIN`, `MAX`. Sin `GROUP BY`, la tabla entera es un único grupo y sale una sola fila, incluso si la tabla está vacía.",
+  "Las agregaciones **ignoran los NULL**, salvo `COUNT(*)`, que cuenta filas. `COUNT(columna)` cuenta no nulos, `SUM` de nada da NULL (no 0) y `AVG` divide entre los valores presentes.",
+  "**`GROUP BY`** reparte las filas en grupos y agrega cada uno por separado. Cada columna del `SELECT` tiene que estar en el `GROUP BY` o dentro de una agregación. Los NULL forman su propio grupo y el orden de los grupos solo se garantiza con `ORDER BY`.",
+  "**`WHERE` filtra filas antes de agrupar; `HAVING` filtra grupos después.** Las agregaciones solo caben en `HAVING`, y los alias del `SELECT` todavía no existen ahí.",
+  "`FILTER (WHERE …)` cuenta o suma solo las filas que cumplen una condición dentro de cada grupo. `ROLLUP` y `GROUPING SETS` agregan subtotales y totales, y `GROUPING()` los distingue de los NULL reales.",
+  "Los errores peligrosos corren sin quejarse: `COUNT(*)` tras un `LEFT JOIN`, sumar después de un `JOIN` que repite filas, promediar promedios sin ponderar y dividir enteros.",
+  "Agrupar obliga a leer todas las filas del grupo. Cuando una agregación se pide mucho sobre datos que solo crecen, se puede guardar el resumen y sumarlo al insertar, como hace Senda con la salud de las preguntas."
+ ],
+ "repaso": [
+  {
+   "p": "Ejecutás `select zona_destino, estado, count(*) from bultos group by zona_destino` y PostgreSQL devuelve un error. ¿Cuál es la causa?",
+   "o": [
+    "La columna estado no tiene un único valor por cada zona, y no está agrupada ni agregada",
+    "PostgreSQL no permite contar filas y listar columnas dentro de una misma consulta SQL",
+    "Hace falta un ORDER BY previo para que el motor pueda armar los grupos de cada zona",
+    "La columna estado es de texto, y GROUP BY solo funciona con columnas de tipo numérico"
+   ],
+   "c": 0,
+   "e": "Cada fila del resultado representa un grupo entero. Dentro de la zona Sur hay bultos entregados, devueltos, en camino y perdidos, así que `estado` no tiene un valor único para mostrar: hay que agruparla o agregarla. Contar y listar columnas sí se puede combinar, `ORDER BY` no es requisito de ningún `GROUP BY`, y se puede agrupar por columnas de texto sin problema."
+  },
+  {
+   "p": "Una tabla tiene 1.000 filas y `peso_kg` es NULL en 200 de ellas. `SUM(peso_kg)` da 8.000. ¿Qué dan `AVG(peso_kg)` y `SUM(peso_kg) / COUNT(*)`?",
+   "o": [
+    "AVG da 8 y la división también da 8, porque ambos usan la misma suma",
+    "AVG da 10 y la división da 8, porque AVG solo divide entre los no nulos",
+    "AVG da 10 y la división también da 10, porque el NULL cuenta como un cero",
+    "AVG da 8 y la división da 10, porque COUNT(*) ignora las filas con NULL"
+   ],
+   "c": 1,
+   "e": "`AVG` promedia únicamente las 800 filas con peso: 8.000 / 800 = 10. La división usa `COUNT(*)`, que cuenta las 1.000 filas, incluidas las 200 sin peso: 8.000 / 1.000 = 8. Las otras opciones suponen que el NULL vale cero para `AVG` (no es así) o que `COUNT(*)` ignora filas con NULL (cuenta filas, sin mirar valores)."
+  },
+  {
+   "p": "Querés las zonas con más de 430 bultos devueltos. ¿Cómo se reparten las dos condiciones?",
+   "o": [
+    "Las dos van en WHERE, porque ambas son filtros y el WHERE filtra todo",
+    "`estado = 'devuelto'` va en WHERE y `count(*) > 430` va en HAVING",
+    "Las dos van en HAVING, porque ambas se calculan después de agrupar",
+    "`count(*) > 430` va en WHERE y `estado = 'devuelto'` va en HAVING"
+   ],
+   "c": 1,
+   "e": "El estado se decide mirando una fila, así que se filtra antes de agrupar (WHERE). El conteo solo existe una vez armados los grupos, así que va en HAVING. Con las dos en WHERE falla (no hay agregaciones ahí). Con `estado` en HAVING falla (no es columna agrupada), y con el conteo en WHERE falla por la misma razón."
+  },
+  {
+   "p": "Un depósito nuevo no tiene bultos. Lo listás con un LEFT JOIN desde depositos hacia bultos y agrupás por depósito. ¿Qué devuelven `COUNT(*)` y `COUNT(b.id)` para ese depósito?",
+   "o": [
+    "COUNT(*) da 0 y COUNT(b.id) da 0, porque no hay ningún bulto en el depósito",
+    "COUNT(*) da 1 y COUNT(b.id) da 1, porque el depósito sí existe en la tabla",
+    "COUNT(*) da 1 y COUNT(b.id) da 0, porque la fila existe pero el bulto no",
+    "COUNT(*) da 0 y COUNT(b.id) da 1, porque el JOIN agrega el id del depósito"
+   ],
+   "c": 2,
+   "e": "El `LEFT JOIN` conserva el depósito creando una fila con todas las columnas de `bultos` en NULL. `COUNT(*)` cuenta esa fila (1). `COUNT(b.id)` mira `b.id`, que es NULL en la fila rellenada, así que no la cuenta (0). Por eso, después de un `LEFT JOIN`, se cuenta una columna del lado que puede faltar."
+  },
+  {
+   "p": "Unís bultos con intentos (cada bulto tiene de 1 a 3 intentos) y sumás `peso_kg` por zona. El total da casi el doble que sumar los pesos directamente en bultos. ¿Por qué?",
+   "o": [
+    "GROUP BY duplica cada grupo cuando se lo combina con una unión entre tablas",
+    "La unión repite la fila de cada bulto una vez por intento, y su peso se suma de nuevo",
+    "El JOIN convierte los kilos en gramos y SUM los vuelve a pasar a kilos con error",
+    "SUM trata el NULL de peso como un cero y por eso suma dos veces cada valor"
+   ],
+   "c": 1,
+   "e": "Un `INNER JOIN` devuelve una fila por cada par bulto-intento, así que un bulto con tres intentos aparece tres veces con el mismo peso. Pasan de 20.000 a 40.001 filas y los kilos de 190.024 a 381.435. La unidad no cambia, `GROUP BY` no duplica grupos y `SUM` ignora los NULL en lugar de tratarlos como cero."
+  },
+  {
+   "p": "El depósito A despachó 100 bultos con peso promedio de 5 kg y el depósito B, 10 bultos con promedio de 25 kg. ¿Cuál es el promedio de los 110 bultos?",
+   "o": [
+    "15 kg, el promedio simple de 5 y 25, porque ambos depósitos son iguales",
+    "30 kg, la suma de los dos promedios, ya que se juntan en un solo grupo",
+    "Cerca de 6,8 kg, porque cada promedio pesa según los bultos de su grupo",
+    "10 kg, el promedio de las cantidades de bultos de cada uno de los depósitos"
+   ],
+   "c": 2,
+   "e": "El peso total es 100 × 5 + 10 × 25 = 750 kg, y 750 / 110 = 6,82 kg. El promedio simple de los promedios (15) ignora que A tiene diez veces más bultos que B. Sumar promedios (30) o promediar cantidades (10) no responde a la pregunta."
+  },
+  {
+   "p": "En un resultado con `ROLLUP`, aparece una fila con zona y estado en NULL y un conteo de 1.165. ¿Cómo distinguís si ese NULL es un subtotal o un dato real sin zona?",
+   "o": [
+    "Mirando que sea la última fila, porque el total general siempre viene al final",
+    "Con la función GROUPING, que devuelve 1 si la columna fue sumada por el subtotal",
+    "Con COALESCE, que reemplaza el NULL por un texto y deja ver de dónde viene",
+    "Agregando DISTINCT al conteo, que descarta las filas con los valores repetidos"
+   ],
+   "c": 1,
+   "e": "`GROUPING(columna)` es 1 cuando el NULL lo puso el subtotal y 0 cuando la columna tiene un valor real (que podría ser NULL de verdad). El orden de las filas no está garantizado sin `ORDER BY`. `COALESCE` rotula ambos casos igual, así que no los distingue, y `DISTINCT` no tiene que ver con los subtotales."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística que no sabe SQL cómo se arma el reporte «bultos y kilos por zona y mes» a partir de una lista de bultos sueltos, y por qué una condición como «más de 5.000 bultos» no se puede escribir en el mismo lugar que «estado devuelto». Usá una analogía propia, distinta de la mesa de clasificación, y explicá qué haría falta controlar para confiar en el número que sale.",
+ "para_profundizar": [
+  {
+   "fuente": "bd1111-pg-group-having",
+   "nota": "El capítulo de PostgreSQL sobre `GROUP BY`, `HAVING`, `GROUPING SETS`, `CUBE` y `ROLLUP`. Leé las secciones 7.2.3 y 7.2.4 para ver más ejemplos del orden de evaluación y de los subtotales."
+  },
+  {
+   "fuente": "bd1111-pg-funciones-agregadas",
+   "nota": "La lista oficial de funciones de agregación, con la advertencia de que, salvo `count`, devuelven NULL si no hay filas. Sirve para ver todas las que existen más allá de las cinco de hoy (por ejemplo `string_agg` y `array_agg`)."
+  },
+  {
+   "fuente": "bd1111-pg-sintaxis-agregados",
+   "nota": "La sintaxis exacta de una agregación, con `DISTINCT`, `ORDER BY` y `FILTER`. Es la fuente para repetir el ejercicio de porcentajes con otras combinaciones."
+  },
+  {
+   "fuente": "be28-postgres-explain",
+   "nota": "Cómo leer el resultado de `EXPLAIN`. Con eso podés repetir la medición del final del día y ver `HashAggregate` y `GroupAggregate` en tus propias tablas."
+  }
+ ],
+ "videos": [
+  {
+   "q": "SQL GROUP BY HAVING explained with examples WHERE vs HAVING",
+   "por_que": "Para ver el orden de evaluación explicado por otra persona y con otros datos."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "función de agregación",
+   "d": "Función que recibe los valores de una columna a lo largo de muchas filas y los resume en uno solo. Las clásicas son `COUNT`, `SUM`, `AVG`, `MIN` y `MAX`. Ignoran los NULL, salvo `COUNT(*)`, que cuenta filas."
+  },
+  {
+   "t": "GROUP BY",
+   "d": "Cláusula que reparte las filas en grupos, uno por cada combinación distinta de las columnas indicadas, y hace que las agregaciones se calculen por grupo. Cada columna del SELECT tiene que estar agrupada o estar dentro de una agregación."
+  },
+  {
+   "t": "HAVING",
+   "d": "Cláusula que filtra grupos ya armados, después del GROUP BY. Es la única que admite condiciones sobre agregaciones, como `HAVING COUNT(*) > 5000`. Las condiciones sobre filas sueltas van en WHERE."
+  },
+  {
+   "t": "FILTER",
+   "d": "Cláusula que se agrega a una agregación para que solo cuente las filas del grupo que cumplen una condición: `COUNT(*) FILTER (WHERE estado = 'entregado')`. Existe en PostgreSQL desde la versión 9.4."
+  },
+  {
+   "t": "ROLLUP",
+   "d": "Modificador de GROUP BY que, además del detalle, calcula subtotales de cada nivel y un total general en una sola consulta. `GROUPING(columna)` indica si un NULL viene del subtotal."
+  },
+  {
+   "t": "COUNT(*) frente a COUNT(columna)",
+   "d": "`COUNT(*)` cuenta filas, sin mirar valores. `COUNT(columna)` cuenta solo las filas donde la columna no es NULL. `COUNT(DISTINCT columna)` cuenta valores distintos no nulos."
+  }
+ ],
+ "siguiente": "una consulta adentro de otra: subconsultas, `EXISTS` y la cláusula `WITH`, para resolver con claridad las preguntas que hoy tuvimos que armar a los saltos.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd1111-pg-funciones-agregadas",
+   "t": "PostgreSQL 16: Aggregate Functions",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/functions-aggregate.html"
+  },
+  {
+   "id": "bd1111-pg-group-having",
+   "t": "PostgreSQL 16: Table Expressions (WHERE, GROUP BY, HAVING, GROUPING SETS)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/queries-table-expressions.html"
+  },
+  {
+   "id": "bd1111-pg-sintaxis-agregados",
+   "t": "PostgreSQL 16: Aggregate Expressions (DISTINCT, ORDER BY y FILTER)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/sql-expressions.html"
+  },
+  {
+   "id": "bd1111-pg-9-4-notas",
+   "t": "PostgreSQL 9.4: notas de la versión",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2014,
+   "url": "https://www.postgresql.org/docs/9.4/release-9-4.html"
+  },
+  {
+   "id": "bd1111-sqlite-agregadas",
+   "t": "SQLite: Built-in Aggregate Functions",
+   "a": "SQLite",
+   "tipo": "doc",
+   "url": "https://www.sqlite.org/lang_aggfunc.html"
+  }
+ ]
+}

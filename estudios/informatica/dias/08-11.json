@@ -1,0 +1,762 @@
+{
+ "id": "08-11",
+ "titulo": "Tiempo real: WebSockets, SSE y push",
+ "bajada": "Qué tiene que prometer una API que empuja eventos: números para no perder nada, salas, difusión entre varios servidores y push para la app cerrada, todo corrido en esta VM.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar por qué un canal en vivo necesita un contrato (identificador, orden, memoria y reinicio) y no alcanza con «abrir la conexión».",
+  "Leer y escribir un servidor de eventos enviados por servidor con `Last-Event-ID`, historial acotado y evento de reinicio.",
+  "Describir salas y difusión, y estimar cuánto trabajo genera un evento cuando hay miles de conexiones.",
+  "Explicar por qué con dos servidores un evento puede no llegar y cómo lo resuelve un bus de publicación-suscripción, con LISTEN/NOTIFY de PostgreSQL como ejemplo.",
+  "Elegir entre stream, polling y push móvil según la app esté abierta o cerrada, y leer cómo Senda arma sus avisos."
+ ],
+ "venis_de": "En [@05-26] abriste los cuatro canales (polling, long polling, SSE y WebSocket) y mediste lo que cuesta mantenerlos abiertos. Hoy subís un piso: qué le promete una API a quien escucha, qué pasa con lo que se perdió durante un corte, cómo se reparte un evento entre salas y servidores, y qué hacer cuando la app ni siquiera está abierta.",
+ "se_apoya_en": [
+  "05-26",
+  "05-25",
+  "07-14",
+  "07-12",
+  "08-10"
+ ],
+ "gancho": [
+  "En la pantalla de un despachante hay un punto que se mueve: el camión 7 sale del depósito y avanza por la autopista. A los 40 kilómetros entra a un túnel y la señal del celular del chofer se corta cuatro segundos. Cuando vuelve, ¿qué ve el despachante? ¿Los cuatro puntos que se perdió, el camión saltando de golpe al kilómetro 80, o el camión congelado en el 40 para siempre?",
+  "Cualquiera de las tres respuestas es posible, y cuál ocurre no lo decide el canal sino el **contrato** que alguien escribió encima. Hoy construís ese contrato con código real. Vas a numerar los eventos, a hacer que el servidor guarde un historial corto, a repartirlos por salas, a cruzar la barrera de tener dos servidores y, al final, a ver qué se hace cuando la app está cerrada y no hay ninguna conexión que mantener."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un canal abierto no es un contrato"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En una API de pedido y respuesta ([@08-02]) cada respuesta nace de una pregunta; si la perdiste, volvés a preguntar y obtenés el estado de ahora. En un canal en vivo el servidor habla cuando quiere, y si no escuchabas, **lo dicho se perdió**. Por eso un [[evento enviado por servidor]] debe ser algo más que una línea de texto: es un mensaje con nombre, con forma conocida (un esquema, como el de [@08-04]) y, sobre todo, con una respuesta escrita a estas preguntas:",
+    "Qué dice cada evento, en qué orden llega, cómo sé cuál fue el último que vi, cuánto guarda el servidor y qué hago si lo que me perdí ya no está. Un stream sin esas respuestas funciona hasta el primer túnel."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Evento o estado",
+   "x": "Hay dos formas de contarle al despachante que el camión avanzó. Como **evento relativo**: «avanzó 10 kilómetros». O como **estado**: «está en el kilómetro 40». Si se pierde un mensaje relativo, la pantalla queda mal para siempre: sumó de menos y nadie se entera. Si se pierde un mensaje de estado, el siguiente la corrige sola. Un mensaje de estado además se puede recibir dos veces sin daño: es [[idempotencia]] aplicada a los eventos, la misma idea de [@07-12] con otra cara. Cuando podés elegir, diseñá eventos que digan cómo están las cosas y no cuánto cambiaron."
+  },
+  {
+   "t": "pensa",
+   "x": "Un sistema manda cada 5 segundos «temperatura: 4,1 °C» y otro manda «subió 0,1 °C». En los dos se pierde el mensaje número 12. ¿Cuál de las dos pantallas muestra después un valor equivocado y por cuánto tiempo?",
+   "resp": "La del cambio relativo: queda 0,1 °C corrida y seguirá así hasta que algo la reinicie, porque cada mensaje siguiente se suma sobre un total ya equivocado. La del valor absoluto se corrige con el mensaje 13, 5 segundos después."
+  },
+  {
+   "t": "h",
+   "x": "Numerar cada evento y reponer lo perdido"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los [[Server-Sent Events]] que viste en [@05-26] traen la mitad del trabajo hecha. Cada evento es un bloque de líneas de texto que termina en una línea vacía, con los campos `id`, `event`, `data` y `retry`. El navegador, a través de `EventSource`, se acuerda del último `id` que vio y, al reconectar, lo manda en el encabezado `Last-Event-ID` [#redws-whatwg-sse]. Esa es la mitad. La otra mitad es del servidor: el estándar dice lo que hace el cliente, y lo que **hace el servidor con ese número es cosa tuya**.",
+    "Armé un servidor de laboratorio (Node 22) con tres decisiones: cada sala lleva su contador, cada evento viaja con su `id` y el servidor guarda en memoria los últimos `BUF` eventos de cada sala. El núcleo, recortado:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Servidor de eventos (extracto): una sala = un contador y un historial acotado\nconst e = { id: ++s.seq, tipo, datos };\ns.historial.push(e);\nif (s.historial.length > BUF) s.historial.shift();   // solo se guardan los últimos BUF\nfor (const res of s.conexiones) res.write(trama(e));  // difusión a la sala\n\n// Al conectarse un cliente:\nconst ultimo = req.headers['last-event-id'];          // lo manda el navegador al reconectar\nif (ultimo !== undefined) {\n  const n = +ultimo;\n  const masViejo = s.historial.length ? s.historial[0].id : s.seq + 1;\n  if (n < s.seq && n + 1 < masViejo) {\n    // faltan eventos que ya no guardamos: no se puede reponer\n    res.write(`id: ${s.seq}\\nevent: reinicio\\ndata: {...}\\n\\n`);\n  } else {\n    for (const e of s.historial) if (e.id > n) res.write(trama(e));\n  }\n}",
+   "cap": "Extracto del servidor de laboratorio de hoy. La sala es un contador, un historial acotado y el conjunto de conexiones abiertas."
+  },
+  {
+   "t": "p",
+   "x": "Lo probé con un cliente que usa el `EventSource` que trae Node 22 (todavía experimental: se activa con `--experimental-eventsource`). El cliente escucha la sala `camion7`, recibe dos eventos, y yo le corto la conexión de golpe. Mientras está caído se publican cuatro eventos más. El `retry: 300` que manda el servidor le dice al cliente que espere 300 milisegundos antes de volver."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Pantalla",
+     "k": "cliente"
+    },
+    {
+     "n": "Servidor",
+     "k": "servidor"
+    },
+    {
+     "n": "Historial",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET /salas/camion7/eventos",
+     "d": "La pantalla abre el canal. Todavía no tiene ningún número de evento, así que no manda Last-Event-ID."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "id 1, id 2 (en vivo)",
+     "resp": true,
+     "d": "El servidor manda los eventos a medida que ocurren. El navegador anota el último id que vio: 2."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "guarda 3, 4, 5, 6",
+     "d": "La pantalla está caída. El servidor sigue publicando y guarda cada evento en el historial."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET con Last-Event-ID: 2",
+     "d": "Pasan 300 ms (el retry). El navegador reconecta solo y dice cuál fue lo último que vio."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "dame lo posterior al 2",
+     "d": "El servidor busca en el historial todo lo que tenga id mayor que 2."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "id 3, 4, 5, 6",
+     "resp": true,
+     "d": "La pantalla recibe lo perdido, en orden, y sigue en vivo. Nadie tuvo que pedirlo a mano."
+    }
+   ],
+   "cap": "Reconexión con reposición: el navegador pone el último id y el servidor completa."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node servidor.js 20851 &   # BUF=50 por defecto\nnode --experimental-eventsource demo1.js 20851",
+     "s": "  38 ms conectado\n 248 ms recibe id=1 tipo=novedad datos={\"km\":10}\n 252 ms recibe id=2 tipo=novedad datos={\"km\":20}\n 354 ms --- se corta la conexión ---\n 370 ms conexión caída; el navegador reintenta solo\n 371 ms se publica id=3 con 0 receptores\n 374 ms se publica id=4 con 0 receptores\n 376 ms se publica id=5 con 0 receptores\n 378 ms se publica id=6 con 0 receptores\n 673 ms conectado\n 674 ms recibe id=3 tipo=novedad datos={\"km\":30}\n 674 ms recibe id=4 tipo=novedad datos={\"km\":40}\n 674 ms recibe id=5 tipo=novedad datos={\"km\":50}\n 674 ms recibe id=6 tipo=novedad datos={\"km\":60}\n1582 ms recibe id=7 tipo=novedad datos={\"km\":999}\nrecibidos: 1:novedad 2:novedad 3:novedad 4:novedad 5:novedad 6:novedad 7:novedad"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026 (Node 22.23.4), una corrida. Los 300 ms entre la caída y la reconexión (370 a 673) son el `retry` del servidor. La lista final no tiene huecos."
+  },
+  {
+   "t": "p",
+   "x": "Los cuatro eventos publicados con **cero receptores** llegaron igual, juntos, en el instante de la reconexión, y el cliente no escribió una línea para pedirlos. Pero ese servidor guardaba 50. ¿Y si guarda menos de los que te perdiste? Repetí con `BUF=2`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "BUF=2 node servidor.js 20851 &\nnode --experimental-eventsource demo1.js 20851",
+     "s": " 645 ms conectado\n 645 ms recibe id=6 tipo=reinicio datos={\"motivo\":\"historial_insuficiente\",\"pediste_desde\":3,\"mas_viejo_guardado\":5,\"ultimo_id\":6}\n1555 ms recibe id=7 tipo=novedad datos={\"km\":999}\nrecibidos: 1:novedad 2:novedad 6:reinicio 7:novedad"
+    }
+   ],
+   "cap": "Mismo experimento con historial de 2 eventos, una corrida el 13-11-2026. Se perdieron los ids 3 y 4: el servidor no puede devolverlos y lo dice."
+  },
+  {
+   "t": "p",
+   "x": "El cliente pidió desde el 3 y el servidor solo tenía el 5 y el 6. Reponer «lo que haya» en silencio hubiera sido mentir: la pantalla creería que está al día con un hueco adentro. En cambio el servidor manda un evento propio, `reinicio`, que significa «no puedo completarte; volvé a pedir el estado completo». El cliente entonces hace un pedido común (un `GET /salas/camion7/estado`, por ejemplo) y sigue escuchando. Esta es la regla de diseño más útil de todo el día: **un canal de eventos siempre viene acompañado de un endpoint que devuelve el estado actual**, para el arranque y para el día en que la reposición no alcanza."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Lo que manda el cliente no es de confiar",
+   "x": [
+    "`Last-Event-ID` lo escribe el cliente: puede venir con letras o con un número del futuro. Mi servidor de laboratorio lo convierte con `+ultimo` y, si no es número, compara contra `NaN` y no manda nada: falla en silencio. Uno real lo valida como cualquier dato de entrada ([@07-08]). Cuidado con responder un error HTTP: según el estándar, un estado distinto de 200 hace que el navegador abandone la conexión sin reintentar [#redws-whatwg-sse].",
+    "Otra limitación práctica: el constructor de `EventSource` no ofrece forma de poner un encabezado propio como `Authorization` (en el ejemplo de MDN la única opción es `withCredentials`) [#redws-mdn-sse]. Para autenticar un stream se usa una cookie ([@07-10]) o una biblioteca que implemente SSE encima de `fetch`."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Con WebSocket no se pierde nada»",
+   "x": "TCP entrega en orden mientras la conexión vive; cuando se corta, lo que iba en camino se pierde. El RFC 6455 define tramas, cierre y ping, pero no numeración de mensajes ni reposición (busqué en el texto y no aparecen) [#rfc6455]. Lo de `id` y `Last-Event-ID` hay que construirlo igual sobre un WebSocket."
+  },
+  {
+   "t": "h",
+   "x": "Salas y difusión"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá una sala era un nombre. Una [[sala]] es un grupo de conexiones que reciben los mismos eventos. En código es lo más simple del mundo: un mapa de nombre de sala a conjunto de conexiones abiertas. Publicar en una sala es recorrer ese conjunto y escribir en cada una; a eso se le llama [[difusión]]. Quien está en `norte` no ve nada de `sur`.",
+    "La sala es también un límite de permisos: la decisión de quién puede entrar se toma **al abrir la conexión**, como cualquier otra autorización de [@07-09], y no cada vez que se manda un evento. Probé tres personas en `norte` y dos en `sur`, y publiqué un solo evento en `norte`:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node demo2.js 20851 salas",
+     "s": "publicado en norte -> {\"nodo\":\"A\",\"id\":1,\"receptores\":3}\nrecibieron: norte = 3  sur = 0\ntrama que llega (JSON de los bytes): \"id: 1\\nevent: novedad\\ndata: {\\\"msg\\\":\\\"camión 12 en la puerta 3\\\"}\\n\\n\" = 64 bytes"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026. Un evento de 64 bytes (incluye el id, el tipo y el mensaje) sale una vez por cada conexión de la sala."
+  },
+  {
+   "t": "p",
+   "x": "Simple no es barato: un evento entra una vez y sale **N veces**. Medí cuánto tarda en llegar a todas las conexiones de una sala con 1.000 y con 5.000 clientes SSE, tres corridas de cada una:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Conexiones en la sala",
+    "El último en enterarse",
+    "El del medio"
+   ],
+   "filas": [
+    [
+     "1.000",
+     "38 a 63 ms",
+     "26 a 41 ms"
+    ],
+    [
+     "5.000",
+     "93 a 122 ms",
+     "68 a 86 ms"
+    ]
+   ],
+   "cap": "Medido en esta VM el 13-11-2026, tres corridas de cada una. Servidor y clientes comparten la máquina, así que la cifra sirve como orden de magnitud: el costo crece más o menos en proporción al número de conexiones."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El problema aparece cuando **todos** hablan. En una sala de 2.000 personas donde cada una escribe un mensaje cada 10 segundos entran 200 mensajes por segundo, pero como cada uno se difunde a las 2.000 conexiones, salen 400.000 tramas por segundo. La entrada crece con el número de personas y la salida con su **cuadrado**. Por eso los chats de salas enormes agrupan mensajes, muestrean o directamente limitan cuánto puede hablar cada uno, un tema que retoma [@08-12]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Una sala es un canal de radio del depósito",
+   "x": "Si un supervisor habla, 50 choferes escuchan sin problema; si los 50 hablan a la vez, nadie se entiende. La analogía falla en esto: en la radio, quien entra a un túnel se pierde lo dicho; en un canal bien diseñado, al salir el servidor le cuenta lo que faltó."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Una sala emite 5 eventos por segundo y cada trama pesa 64 bytes. Querés que un cliente que se corta hasta 20 segundos se ponga al día sin necesidad de reinicio. ¿Cuántos eventos tiene que guardar el historial de esa sala? ¿Cuántos bytes de datos son si hay 2.000 salas activas, guardando el doble por seguridad?",
+   "pista": "Eventos = ritmo × tiempo de corte. Después multiplicá por 2, por 64 bytes y por 2.000 salas.",
+   "solucion": "5 eventos/s × 20 s = 100 eventos como mínimo; con el doble por seguridad, 200. Cada uno 64 bytes: 200 × 64 = 12.800 bytes por sala. Para 2.000 salas: 25,6 millones de bytes, unos 25 MB de datos puros. La memoria real es mayor (objetos, referencias), pero el orden de magnitud dice que guardar 20 segundos de historia es barato; guardar horas ya no lo sería, y para eso hace falta una tabla en disco, como vas a ver enseguida."
+  },
+  {
+   "t": "h",
+   "x": "Cuando hay más de un servidor"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Todo lo anterior vive en la memoria de un proceso. Pero una conexión SSE queda atada al servidor que la aceptó, y un [[balanceador de carga]] ([@05-25]) reparte conexiones entre varios. Veamos qué pasa con dos nodos, `A` y `B`, ambos con su sala `dock` en memoria. El cliente quedó conectado a `A`. Un publicador manda un evento y el balanceador lo manda a `B`:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -N -m 2 http://127.0.0.1:20851/salas/dock/eventos > salida_A.txt &      # el cliente queda en el nodo A",
+     "s": ""
+    },
+    {
+     "c": "curl -s -XPOST -d '{\"msg\":\"salio el camion\"}' http://127.0.0.1:20852/salas/dock/publicar     # el evento entra por B",
+     "s": "{\"nodo\":\"B\",\"id\":1,\"receptores\":0}"
+    },
+    {
+     "c": "curl -s -XPOST -d '{\"msg\":\"otro\"}' http://127.0.0.1:20851/salas/dock/publicar               # este entra por A",
+     "s": "{\"nodo\":\"A\",\"id\":1,\"receptores\":1}"
+    },
+    {
+     "c": "cat salida_A.txt",
+     "s": "retry: 300\n\nid: 1\nevent: novedad\ndata: {\"msg\":\"otro\"}"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026. «salio el camion» se perdió: B no tenía a nadie escuchando. Y los dos eventos tienen id 1, porque cada nodo lleva su propio contador."
+  },
+  {
+   "t": "p",
+   "x": "Son dos fallas distintas. La primera: **cada nodo solo conoce sus propias conexiones**, así que el evento que entra por B nunca llega al cliente de A. La segunda, más sutil: los contadores en memoria chocan, y un `Last-Event-ID: 1` significa cosas distintas según el nodo. La cura para las dos es la misma: sacar el estado compartido de la memoria de cada proceso."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Publicador",
+       "s": "POST /publicar",
+       "k": "cliente"
+      }
+     ]
+    },
+    {
+     "nodos": [
+      {
+       "t": "Nodo A",
+       "s": "tiene a Ana y a Beto conectados",
+       "k": "servidor",
+       "e": "reparte el balanceador"
+      },
+      {
+       "t": "Nodo B",
+       "s": "tiene a Carla conectada",
+       "k": "servidor",
+       "e": "reparte el balanceador"
+      }
+     ],
+     "baja": "cada nodo escribe el evento en la tabla y escucha el aviso"
+    },
+    {
+     "nodos": [
+      {
+       "t": "PostgreSQL",
+       "s": "tabla eventos (memoria) + NOTIFY (timbre)",
+       "k": "datos"
+      }
+     ]
+    }
+   ],
+   "cap": "El estado compartido vive afuera de los nodos. La tabla recuerda; el aviso hace sonar el timbre en todos los nodos conectados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Redis, NATS, Kafka o la propia base de datos sirven de [[broker]] para la [[publicación-suscripción]] de [@07-14]: los nodos se suscriben a un canal y el broker reparte cada mensaje a todos. Probé con **PostgreSQL**, la base de Senda, que trae `LISTEN` y `NOTIFY`: un nodo hace `LISTEN eventos` y recibe cada `NOTIFY` que cualquier sesión emita. Las reglas que importan, según su documentación [#rt0811-pg-notify]:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "El texto del aviso, en la configuración por defecto, tiene que ser **más corto que 8.000 bytes**.",
+    "Si el `NOTIFY` se ejecuta dentro de una transacción, **no se entrega hasta el commit**: nadie se entera de algo que después se deshizo.",
+    "En una misma transacción, avisos idénticos al mismo canal llegan una sola vez; con textos distintos llegan todos.",
+    "La cola interna es grande (8 GB en una instalación estándar)."
+   ],
+   "ord": false
+  },
+  {
+   "t": "p",
+   "x": "El diseño: los eventos se insertan en una tabla con un `id` único y global, y un trigger dispara el aviso. Si el evento es grande, el aviso lleva solo la dirección y cada nodo lee la fila."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table eventos (\n  id    bigserial primary key,\n  sala  text  not null,\n  tipo  text  not null default 'novedad',\n  datos jsonb not null\n);\ncreate index on eventos (sala, id);\n\ncreate function avisar_evento() returns trigger language plpgsql as $$\ndeclare p text := row_to_json(new)::text;\nbegin\n  -- si el evento no entra holgado en el aviso, va solo la dirección (sala e id)\n  if length(p) > 7000 then p := json_build_object('sala', new.sala, 'id', new.id)::text; end if;\n  perform pg_notify('eventos', p);\n  return new;\nend $$;\ncreate trigger eventos_avisan after insert on eventos\n  for each row execute function avisar_evento();",
+   "cap": "El timbre (NOTIFY) lo dispara un trigger al insertar en la tabla; la tabla es la memoria."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// En cada nodo, al arrancar:\nawait oyente.query('LISTEN eventos');\noyente.on('notification', async (n) => {\n  let e = JSON.parse(n.payload);\n  if (e.tipo === undefined) {   // aviso reducido: se lee la fila completa\n    e = (await pool.query('select id, sala, tipo, datos from eventos where id = $1', [e.id])).rows[0];\n  }\n  for (const res of conexiones.get(e.sala) ?? []) res.write(trama(e));   // difusión local\n});\n\n// Al reconectar un cliente (cualquier nodo):\nselect id, sala, tipo, datos from eventos where sala = $1 and id > $2 order by id limit 1000",
+   "cap": "Lo que hace cada nodo: escuchar el timbre y difundir a sus conexiones locales; y, al reconectar un cliente, reponer desde la tabla."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -N -m 3 http://127.0.0.1:20853/salas/dock/eventos > salida_A.txt &    # cliente en el nodo A (puerto 20853)",
+     "s": ""
+    },
+    {
+     "c": "curl -s -XPOST -d '{\"msg\":\"salio el camion\"}' http://127.0.0.1:20854/salas/dock/publicar     # entra por el nodo B",
+     "s": "{\"nodo\":\"B\",\"id\":1,\"escuchan_aca\":0}"
+    },
+    {
+     "c": "curl -s -XPOST --data @grande.json http://127.0.0.1:20854/salas/dock/publicar     # 9.000 bytes: no entra en un aviso",
+     "s": "{\"nodo\":\"B\",\"id\":2,\"escuchan_aca\":0}"
+    },
+    {
+     "c": "cut -c1-80 salida_A.txt",
+     "s": "retry: 300\n\nid: 1\nevent: novedad\ndata: {\"msg\":\"salio el camion\"}\n\nid: 2\nevent: novedad\ndata: {\"relleno\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    },
+    {
+     "c": "psql rt0811 -c \"select pg_notify('x', repeat('a', 8000))\"",
+     "s": "ERROR:  payload string too long"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026 con PostgreSQL 16.15 propio en el puerto 20811. El evento entró por B y llegó al cliente de A. El de 9.000 bytes llegó por el camino de la fila; mandar 8.000 bytes directo al aviso es un error."
+  },
+  {
+   "t": "p",
+   "x": "Ahora el caso que más duele. El nodo A se cae con el cliente conectado. Se publican dos eventos más. El cliente reconecta, esta vez al nodo B, y dice que lo último que vio fue el 2:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "kill $PID_A      # el nodo A desaparece, y se publican dos eventos por B",
+     "s": ""
+    },
+    {
+     "c": "curl -s -N -m 1 -H 'Last-Event-ID: 2' http://127.0.0.1:20854/salas/dock/eventos | cut -c1-80",
+     "s": "retry: 300\n\nid: 3\nevent: novedad\ndata: {\"msg\":\"con A caido 1\"}\n\nid: 4\nevent: novedad\ndata: {\"msg\":\"con A caido 2\"}"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026. La reposición salió de la tabla, y por eso sirve en cualquier nodo y sobrevive a un reinicio."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El aviso es un timbre, no un buzón",
+   "x": [
+    "`NOTIFY` solo llega a las sesiones que **ya están escuchando**. Lo comprobé: emití un aviso, abrí después otra conexión, hizo `LISTEN` y recibió **0** avisos. Quien se conecta tarde, o estaba caído, no se entera. Por eso la tabla es la memoria y el aviso apenas dispara la difusión; con solo `NOTIFY` no habría reposición posible.",
+    "Una advertencia que no reproduje hoy, de oficio: un `id` de `bigserial` se asigna al insertar, no al confirmar, así que dos transacciones pueden confirmar en orden inverso y una reposición «todo lo posterior al id N» podría saltearse una fila tardía. Para una sala de trivia no es un drama; para un libro contable sí."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cuando la app está cerrada: push móvil"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Todo lo anterior supone que hay alguien del otro lado de una conexión. Pero un teléfono con la pantalla apagada o con la app cerrada no mantiene tu conexión SSE ni tu WebSocket. Para ese caso existe el **push móvil**: tu servidor no le habla al teléfono, le habla a un intermediario que sí puede llegar a él. Según la documentación de Firebase Cloud Messaging (FCM), el recorrido es este [#rt0811-fcm-architecture]: tu servidor manda el pedido al backend de FCM; este lo pasa a la capa de transporte de la plataforma (en Android, la de Google Play Services; en Apple, el servicio APNs; en la web, el protocolo web push); y la plataforma lo entrega al SDK que corre dentro de la app. Para que eso ocurra, cada instalación de la app obtiene un **token de registro** que la identifica, y tu servidor lo guarda."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "App",
+       "s": "pide permiso y recibe un token",
+       "k": "cliente"
+      },
+      {
+       "t": "Tu servidor",
+       "s": "guarda el token junto al usuario",
+       "k": "servidor",
+       "e": "registra el token"
+      }
+     ]
+    },
+    {
+     "nodos": [
+      {
+       "t": "Tu servidor",
+       "s": "ocurre un evento",
+       "k": "servidor"
+      },
+      {
+       "t": "Servicio de push",
+       "s": "FCM, APNs o Expo",
+       "k": "red",
+       "e": "token + mensaje"
+      }
+     ],
+     "baja": "el servicio decide cuándo y cómo llega"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Plataforma",
+       "s": "Android o iOS",
+       "k": "os",
+       "e": "transporte propio"
+      },
+      {
+       "t": "App",
+       "s": "muestra el aviso o se abre",
+       "k": "cliente",
+       "e": "entrega"
+      }
+     ]
+    }
+   ],
+   "cap": "El push tiene dos viajes: uno para registrar el token y otro, cada vez que hay algo que contar."
+  },
+  {
+   "t": "p",
+   "x": "Lo que más cambia respecto de un stream es lo que **no** te promete. Según la documentación de FCM [#rt0811-fcm-lifespan]:"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "El identificador que devuelve FCM al aceptar un mensaje solo significa que **FCM lo aceptó**, no que llegó al dispositivo.",
+    "Si el teléfono está apagado o sin conexión, FCM guarda el mensaje hasta que reconecte. Sin indicación, lo guarda hasta cuatro semanas; ese es también el máximo (2.419.200 segundos) en Android y web. En iOS el equivalente es un encabezado de APNs, `apns-expiration`.",
+    "Con TTL 0 (vida cero) el mensaje se descarta si no se puede entregar al instante.",
+    "Si hay una **clave de colapso**, se guarda un solo mensaje pendiente por clave y por token: el nuevo reemplaza al viejo. Sin clave, se guardan todos.",
+    "Si la app se desinstaló, el token queda invalidado y los envíos siguientes devuelven un error `NotRegistered`."
+   ],
+   "ord": false
+  },
+  {
+   "t": "p",
+   "x": "La clave de colapso es la idea de evento de estado hecha push: si el teléfono estuvo apagado una semana, no hace falta entregar cuarenta «tu rival respondió»; alcanza con el último."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay otra capa muy usada en apps hechas con Expo, como Senda: el servicio de **Expo Push**, que recibe tus pedidos y los reenvía a FCM y APNs. Su documentación fija, al 13-11-2026, estos números [#rt0811-expo-push]: hasta **100 notificaciones por pedido**, un límite de **600 notificaciones por segundo por proyecto**, un tope de **4.096 bytes** de contenido total, y la recomendación de revisar los **recibos** unos 15 minutos después de enviar, porque ahí aparece el error `DeviceNotRegistered`, que indica que hay que dejar de mandarle a ese token."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Lo que cambia con el tiempo",
+   "x": "Cifras de las páginas oficiales de Expo y de Firebase leídas el 13-11-2026; cambian con las versiones del servicio. No pude leer la documentación de APNs de Apple (la página carga con JavaScript y mi lector no la procesa): lo de iOS viene de lo que dicen FCM y Expo, no de Apple. Antes de depender de un límite, releé la página oficial."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«El push es tiempo real»",
+   "x": "El push es **mejor esfuerzo**: puede llegar en un segundo o en una hora, colapsarse o expirar, y FCM avisa que los mensajes de baja prioridad pueden demorarse con el teléfono en modo Doze. Si algo es crítico, el push solo avisa: la verdad vive en tu servidor y la app la pide al abrirse."
+  },
+  {
+   "t": "pensa",
+   "x": "Un duelo entre dos jugadores manda un push «te toca jugar». El teléfono de ella estuvo apagado y el push llegó dos días tarde, pero ella ya había abierto la app el día anterior y jugado. ¿Qué tiene que hacer el aviso, y qué tiene que hacer la app al recibirlo, para que no pase nada raro?",
+   "resp": "El aviso debería ser solo un timbre, sin datos que decidan nada, y la app tiene que volver a pedir el estado real del duelo al servidor cuando llega o se toca. Así un aviso tardío o repetido no cambia nada: la app ve que ya no le toca y no muestra una pantalla equivocada."
+  },
+  {
+   "t": "h",
+   "x": "Elegir según el caso"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Situación",
+    "Mecanismo que conviene",
+    "Qué hay que tener resuelto"
+   ],
+   "filas": [
+    [
+     "App abierta, cambios cada medio minuto o más, una demora de segundos no duele",
+     "Polling del estado",
+     "Un endpoint de estado y un intervalo razonable"
+    ],
+    [
+     "App abierta, el servidor avisa y el cliente solo escucha",
+     "SSE",
+     "Ids, historial, reinicio y un endpoint de estado"
+    ],
+    [
+     "App abierta, los dos lados conversan con baja demora",
+     "WebSocket",
+     "Lo mismo que SSE, más reconexión con espera al azar"
+    ],
+    [
+     "Varios servidores detrás de un balanceador",
+     "Cualquiera de los anteriores más un bus",
+     "Memoria compartida (tabla, Redis) para reposición y ids"
+    ],
+    [
+     "App cerrada o teléfono bloqueado",
+     "Push móvil",
+     "Tokens guardados, errores de token inválido y estado pedido al abrir"
+    ]
+   ],
+   "cap": "Una regla práctica y criterio mío: lo normal es combinarlos. Push para despertar, endpoint de estado para ponerse al día, stream mientras la app está a la vista."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda pregunta el estado cada dos segundos, y por eso no pierde eventos",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. En [@05-26] viste que las salas en vivo de Senda son polling y no WebSocket. Hoy podés ver la consecuencia de diseño. `src/util/salas.ts` define `CADA_MS = 2000`, y la función `verSala` lee la fila de la sala y, junto con ella, la lista de participantes (hasta 200, ordenados por puntos). Lo que viaja no es «pasó esto»: es **cómo está la sala ahora**. Un corte de señal no deja ningún hueco que reponer, porque la lectura siguiente trae la foto completa.",
+    "Es el diseño de estado del principio, con su precio: muchos pedidos que dicen «sin cambios». La migración `20261101000000_juntos.sql` agrega tres tablas a la publicación `supabase_realtime`, pero ningún código del teléfono se suscribe. Si se activa, la parte difícil será la de hoy: ids, reposición y reinicio."
+   ],
+   "archivos": [
+    "src/util/salas.ts",
+    "src/pantallas/Sala.tsx",
+    "supabase/migrations/20261101000000_juntos.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Los avisos de Senda: difusión por tandas y el push como timbre",
+   "x": [
+    "Cuando algo ocurre (un desafío, un evento de grupo), una función SQL inserta una fila en la tabla `avisos`. Una tarea de `pg_cron` llamada `senda_enviar_avisos` corre cada minuto y ejecuta `enviar_avisos()`, que toma hasta 3.000 avisos pendientes, **agrupa los que son idénticos** (mismo título, texto y datos, por un hash `md5`) y los manda a Expo en pedidos de a 100 tokens, con `net.http_post` de la extensión `pg_net` [#back13-supabase-pgnet]. Es difusión: un evento para un grupo grande no genera un pedido por persona.",
+    "Copié la consulta de agrupación (sin el bloqueo de filas) y la corrí en mi PostgreSQL con datos inventados: 250 personas con el mismo aviso de grupo y tres con avisos de duelo. Salieron **6 pedidos en vez de 253**: 100, 100 y 50 tokens para el grupo, y uno por duelo (los dos «Te toca jugar» llevan datos de partida distintos y no se juntan). Cuenta mía, sin medir: un evento para 10.000 personas son 10.000 avisos, cuatro corridas de 3.000. Y 3.000 de golpe son 30 pedidos; si Expo mide 600 por segundo, son cinco segundos de cupo. No sé cómo reparte `pg_net` los pedidos ni qué hace Expo con el exceso.",
+    "Del lado del teléfono, `src/App.tsx` registra `escucharLlegadas` y, cuando llega un aviso con la app abierta, vuelve a pedir las novedades al servidor (`cargarNovedades(true)`), y lo mismo al tocarlo. Es el patrón de hoy: el push es el timbre y la verdad la trae un pedido de estado. Hallazgo verificado con `grep`: el código no lee los recibos de Expo, así que los tokens inválidos no se limpian."
+   ],
+   "archivos": [
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "src/util/avisos.ts",
+    "src/util/juntos.ts",
+    "src/App.tsx"
+   ]
+  }
+ ],
+ "recap": [
+  "Un canal en vivo necesita contrato: qué dice cada evento, cómo se numera, cuánto historial se guarda y qué se hace si lo perdido ya no está.",
+  "SSE trae `id` y `Last-Event-ID`, pero la reposición la programa el servidor; si no puede completar, manda un evento de reinicio y el cliente pide el estado actual.",
+  "Siempre conviene un endpoint de estado al lado del stream, y los eventos que dicen cómo están las cosas se recuperan mejor que los que dicen cuánto cambiaron.",
+  "Una sala es un conjunto de conexiones; difundir cuesta una escritura por conexión, y si todos hablan la salida crece con el cuadrado del número de personas.",
+  "Con más de un servidor, cada nodo solo conoce sus conexiones: hace falta un bus. LISTEN/NOTIFY de PostgreSQL es un timbre sin memoria, y la tabla es la memoria.",
+  "El push móvil llega a la app cerrada a través de FCM, APNs o Expo, sin garantías: el identificador solo dice que lo aceptaron, y puede expirar o colapsarse.",
+  "Lo común es combinar: push para despertar, estado para ponerse al día y stream (o polling) mientras la app está a la vista; Senda hoy usa polling de estado y push como timbre."
+ ],
+ "repaso": [
+  {
+   "p": "Una pantalla de seguimiento pierde un mensaje de una serie. ¿Qué diseño de mensajes se recupera solo con el mensaje siguiente?",
+   "o": [
+    "Mensajes comprimidos para que el cliente los procese más rápido",
+    "Mensajes que dicen «la posición actual es el kilómetro 40»",
+    "Mensajes que dicen «sumá 10 kilómetros a la posición anterior»",
+    "Mensajes enviados por WebSocket en lugar de SSE"
+   ],
+   "c": 1,
+   "e": "Un mensaje de estado pisa el valor equivocado y se corrige con el siguiente. El relativo deja un error acumulado que nadie corrige. Comprimir no cambia lo que se pierde, y WebSocket tampoco numera ni repone mensajes por sí mismo."
+  },
+  {
+   "p": "Un cliente reconecta con `Last-Event-ID: 2`, pero el servidor solo guarda desde el evento 5 en adelante. ¿Qué debería hacer?",
+   "o": [
+    "Mandar desde el 5 sin avisar, que es lo más cercano que tiene",
+    "Responder con error 500 para que el navegador reintente",
+    "Avisar con un evento de reinicio para que el cliente pida el estado",
+    "Cerrar la conexión con 200 y un cuerpo vacío"
+   ],
+   "c": 2,
+   "e": "Mandar desde el 5 en silencio oculta el hueco de los eventos 3 y 4. Un error hace que el navegador abandone la conexión: el estándar manda no reintentar con un estado distinto de 200. Un 200 vacío tampoco informa. El evento de reinicio le dice al cliente que se ponga al día con el estado."
+  },
+  {
+   "p": "Con dos servidores en memoria, un evento publicado en el servidor B no llega a un cliente conectado al servidor A. ¿Cuál es la causa?",
+   "o": [
+    "SSE no admite más de un servidor detrás del mismo nombre",
+    "Cada servidor solo conoce las conexiones que él mismo aceptó",
+    "TCP perdió el paquete porque dos servidores comparten un puerto",
+    "Los contadores de eventos chocaron y el cliente descartó el mensaje"
+   ],
+   "c": 1,
+   "e": "La sala es un conjunto de conexiones en la memoria de un solo proceso, y B no sabe que A tiene un cliente en esa sala. Los ids que chocan son un problema real pero distinto: no explican que el evento no haya llegado. SSE sí funciona con varios servidores si hay un bus."
+  },
+  {
+   "p": "¿Por qué una tabla de eventos acompaña al `NOTIFY` de PostgreSQL y no alcanza con el `NOTIFY` solo?",
+   "o": [
+    "Porque NOTIFY no puede mandar más de unos pocos bytes",
+    "Porque NOTIFY solo funciona dentro de una misma sesión",
+    "Porque la tabla hace que el aviso llegue más rápido",
+    "Porque NOTIFY solo llega a quien ya escucha y no guarda nada"
+   ],
+   "c": 3,
+   "e": "Una sesión que hace LISTEN después de un NOTIFY recibe 0 avisos: no hay buzón. El límite de 8.000 bytes existe pero se resuelve mandando solo la dirección. NOTIFY funciona entre sesiones distintas, y la tabla no acelera nada: da memoria para reponer."
+  },
+  {
+   "p": "FCM acepta un mensaje y devuelve su identificador. ¿Qué garantiza eso?",
+   "o": [
+    "Que FCM lo recibió y lo aceptó, sin garantía de que llegara",
+    "Que el teléfono ya lo recibió y mostró el aviso al usuario",
+    "Que el mensaje llegará antes de que venza el TTL",
+    "Que el usuario tiene instalada la app"
+   ],
+   "c": 0,
+   "e": "La documentación de FCM aclara que el id no significa que el mensaje se haya entregado al dispositivo. Si la app se desinstaló, el error aparece recién en envíos posteriores (NotRegistered); y el TTL solo fija cuánto lo guarda FCM, no promete llegada."
+  },
+  {
+   "p": "250 personas de un grupo reciben el mismo aviso y cada una tiene un token. Con el esquema de Senda (pedidos de 100 tokens, avisos idénticos agrupados), ¿cuántos pedidos a Expo salen?",
+   "o": [
+    "250, uno por persona",
+    "2, porque 250 se redondea hacia abajo",
+    "1, porque el aviso es el mismo para todos",
+    "3, de 100, 100 y 50 tokens"
+   ],
+   "c": 3,
+   "e": "250 tokens en tandas de 100 son dos tandas completas y una de 50. Lo comprobé corriendo la consulta de agrupación con datos inventados. Un pedido por persona es lo que se evita, y el resto nunca se pierde: se manda en una tanda más chica."
+  },
+  {
+   "p": "Una sala de 2.000 personas donde cada una manda un mensaje cada 10 segundos y todos se difunden a todos. ¿Cuántas tramas salen por segundo, aproximadamente?",
+   "o": [
+    "200",
+    "2.000",
+    "400.000",
+    "20.000"
+   ],
+   "c": 2,
+   "e": "Entran 2.000 ÷ 10 = 200 mensajes por segundo y cada uno sale a 2.000 conexiones: 200 × 2.000 = 400.000. Quien responde 200 cuenta solo las entradas, y quien responde 2.000 olvida el factor de difusión."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística qué le promete y qué no le promete una pantalla de seguimiento en vivo cuando el celular del chofer pierde señal, y qué cambia si en lugar de eso la app del chofer está cerrada. Usá una analogía propia que no sea la radio ni el timbre.",
+ "para_profundizar": [
+  {
+   "fuente": "redws-whatwg-sse",
+   "nota": "La sección 9.2 del estándar describe cómo reconecta el navegador, qué es el last event ID y cuándo deja de reintentar. Es corta y es la fuente de lo que el servidor debe esperar."
+  },
+  {
+   "fuente": "rt0811-pg-notify",
+   "nota": "La página de NOTIFY de PostgreSQL: el límite de payload, la entrega al hacer commit y el plegado de avisos idénticos. Sirve para decidir si la base puede ser tu bus."
+  },
+  {
+   "fuente": "rt0811-fcm-lifespan",
+   "nota": "Cómo FCM guarda, colapsa y descarta mensajes cuando el teléfono no está. Leé qué pasa con TTL 0 y con la clave de colapso."
+  },
+  {
+   "fuente": "rt0811-expo-push",
+   "nota": "La guía de envío de Expo Push: límites por pedido y por segundo, tickets y recibos, y qué hacer con DeviceNotRegistered."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Server-Sent Events Last-Event-ID reconnect explained",
+   "por_que": "Para ver la reconexión con reposición dibujada por otra persona y comparar con la corrida de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "evento enviado por servidor",
+   "d": "Mensaje de un stream SSE: un bloque de líneas de texto (`id`, `event`, `data`, `retry`) que termina en una línea vacía. El navegador lo entrega a la página y recuerda el último `id` para pedir lo perdido al reconectar."
+  },
+  {
+   "t": "sala",
+   "d": "Grupo de conexiones abiertas que reciben los mismos eventos. En el servidor es un nombre asociado a un conjunto de conexiones; también es el límite natural de permisos: quién puede entrar se decide al abrir la conexión."
+  },
+  {
+   "t": "difusión",
+   "d": "Enviar un mismo evento a todas las conexiones de una sala. Un evento que entra una vez sale tantas veces como conexiones haya, por lo que el costo crece con el tamaño de la sala."
+  },
+  {
+   "t": "Last-Event-ID",
+   "d": "Encabezado que el navegador manda al reconectar un stream SSE con el último `id` de evento que recibió. Permite al servidor reponer lo perdido, siempre que lo haya guardado."
+  },
+  {
+   "t": "historial acotado",
+   "d": "Memoria de los últimos N eventos de una sala, que el servidor conserva para reponer a quien se cortó. Si el cliente pide algo más viejo que lo guardado, el servidor responde con un reinicio en lugar de inventar."
+  },
+  {
+   "t": "evento de reinicio",
+   "d": "Evento propio de un protocolo que avisa que el servidor no puede completar lo perdido. El cliente descarta lo que sabía y pide el estado actual con un pedido común."
+  },
+  {
+   "t": "LISTEN y NOTIFY",
+   "d": "Mecanismo de PostgreSQL para avisos entre sesiones: una sesión se suscribe a un canal con `LISTEN` y otra emite con `NOTIFY`. Llega solo a las sesiones que ya escuchaban; no guarda nada para quien se conecta después."
+  },
+  {
+   "t": "push móvil",
+   "d": "Entrega de un aviso a un teléfono con la app cerrada, a través de un intermediario (FCM de Google, APNs de Apple o un servicio como Expo Push). Es de mejor esfuerzo: puede tardar, colapsarse o expirar."
+  },
+  {
+   "t": "token de registro",
+   "d": "Identificador que el servicio de push da a cada instalación de una app. El servidor lo guarda junto al usuario y se lo manda al servicio para que entregue el aviso. Se invalida si la app se desinstala."
+  },
+  {
+   "t": "clave de colapso",
+   "d": "Etiqueta que se pone a un push para que, si hay varios pendientes con la misma clave para el mismo dispositivo, se guarde solo el último. Evita entregar diez avisos iguales a un teléfono que estuvo apagado."
+  }
+ ],
+ "siguiente": "Límites de uso, cuotas y abuso: hoy viste que un evento se multiplica por las conexiones de una sala; mañana, cómo una API se protege de quien pide demasiado (rate limiting, token bucket, cuotas y el error 429).",
+ "fuentes_nuevas": [
+  {
+   "id": "rt0811-pg-notify",
+   "t": "PostgreSQL 16: NOTIFY",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/sql-notify.html"
+  },
+  {
+   "id": "rt0811-fcm-architecture",
+   "t": "Arquitectura de FCM",
+   "a": "Google (Firebase)",
+   "tipo": "doc",
+   "url": "https://firebase.google.com/docs/cloud-messaging/fcm-architecture"
+  },
+  {
+   "id": "rt0811-fcm-lifespan",
+   "t": "Configurar la vida útil de un mensaje (FCM)",
+   "a": "Google (Firebase)",
+   "tipo": "doc",
+   "url": "https://firebase.google.com/docs/cloud-messaging/customize-messages/setting-message-lifespan"
+  },
+  {
+   "id": "rt0811-expo-push",
+   "t": "Send notifications with the Expo Push Service",
+   "a": "Expo",
+   "tipo": "doc",
+   "url": "https://docs.expo.dev/push-notifications/sending-notifications/"
+  }
+ ]
+}

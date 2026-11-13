@@ -1,0 +1,742 @@
+{
+ "id": "09-13",
+ "titulo": "SQL VIII: funciones de ventana",
+ "bajada": "Calcular rankings, acumulados, variaciones y promedios móviles sin perder ninguna fila, y entender por qué a veces una consulta tarda 60 milisegundos y su equivalente casera tarda 10 segundos.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar en qué se diferencia una función de ventana de una agregación con `GROUP BY` y por qué no se puede filtrar con `WHERE`.",
+  "Escribir con `OVER`, `PARTITION BY` y `ORDER BY` un total por zona, un puesto y una comparación con el día anterior.",
+  "Elegir entre `row_number`, `rank` y `dense_rank` según lo que deba pasar cuando hay empates.",
+  "Calcular un acumulado y una media móvil de 7 días, y distinguir un marco de filas (`ROWS`) de uno por valores (`RANGE`).",
+  "Armar un top-N por grupo y medir su costo contra la versión con subconsulta correlacionada."
+ ],
+ "venis_de": "En [@09-11] aprendiste a agrupar con `GROUP BY` y en [@09-12] a armar consultas por etapas con subconsultas y CTE. Hoy se junta lo que ambos dejaron pendiente: calcular sobre un grupo sin perder el detalle de las filas.",
+ "se_apoya_en": [
+  "09-03",
+  "09-04",
+  "09-09",
+  "09-11",
+  "09-12"
+ ],
+ "gancho": [
+  "El lunes a la mañana la coordinadora de reparto te pide tres cosas en una sola planilla: los dos choferes con más entregas de cada zona, cuánto pesa cada uno dentro de su zona, y cómo vienen respecto del día anterior. Cada pedido por separado se resuelve con lo que ya sabés. Juntos chocan con una regla de [[GROUP BY]]: agrupar *junta* las filas, y para ver a cada chofer necesitás que sigan separadas.",
+  "Las funciones de ventana resuelven justo eso: calculan con un grupo de filas a la vista y devuelven una fila por cada fila de entrada. Casi todo lo que sigue lo corrí en esta máquina, con PostgreSQL 16.15 y datos inventados que se generan con aritmética, sin azar: podés reproducirlos. Los tiempos son de una sola máquina virtual compartida."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Los datos de hoy y lo que GROUP BY no puede hacer"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Trabajamos con doce choferes en tres zonas y 24 jornadas cada uno (lunes a sábado, del 5 al 31 de octubre de 2026). Cada fila de `jornadas` dice cuántas entregas hizo un chofer ese día. Todo es inventado, y los números salen de una cuenta entera: el script produce siempre lo mismo."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table choferes (\n  id     int primary key,\n  nombre text not null,\n  zona   text not null\n);\ninsert into choferes values\n (1,'Ana','Norte'),(2,'Beto','Norte'),(3,'Carla','Norte'),(4,'Dario','Norte'),\n (5,'Eli','Sur'),(6,'Fabi','Sur'),(7,'Gus','Sur'),(8,'Hugo','Sur'),\n (9,'Ines','Oeste'),(10,'Juan','Oeste'),(11,'Kari','Oeste'),(12,'Lalo','Oeste');\n\ncreate table jornadas (\n  chofer_id int  not null references choferes(id),\n  dia       date not null,\n  entregas  int  not null check (entregas >= 0),\n  primary key (chofer_id, dia)\n);\n-- 28 días desde el lunes 2026-10-05; los domingos no se trabaja\ninsert into jornadas\nselect c.id, d::date,\n       8 + ((c.id * 37 + extract(day from d)::int * 17\n             + (c.id * extract(day from d)::int) % 11) % 23)\nfrom choferes c, generate_series(date '2026-10-05', date '2026-11-01', interval '1 day') d\nwhere extract(dow from d) <> 0;\n\n-- el total del mes por chofer, guardado para consultarlo cómodo\ncreate table totales_mes as\nselect c.nombre, c.zona, sum(j.entregas)::int as total\nfrom jornadas j join choferes c on c.id = j.chofer_id\ngroup by c.nombre, c.zona;",
+   "cap": "Script de datos. `create table … as select` crea una tabla con el resultado de una consulta. Los nombres no llevan tildes a propósito, para que las columnas de la salida queden alineadas."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select count(*) as jornadas, count(distinct chofer_id) as choferes, min(dia), max(dia) from jornadas;",
+     "s": " jornadas | choferes |    min     |    max\n----------+----------+------------+------------\n      288 |       12 | 2026-10-05 | 2026-10-31"
+    },
+    {
+     "c": "select zona, count(*) as choferes, sum(total) as entregas from totales_mes group by zona order by zona;",
+     "s": " zona  | choferes | entregas\n-------+----------+----------\n Norte |        4 |     1956\n Oeste |        4 |     1786\n Sur   |        4 |     1782"
+    }
+   ],
+   "cap": "La segunda consulta es la agregación de siempre: doce filas de chofer se pliegan en tres de zona. El nombre del chofer ya no existe en el resultado."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ese es el límite. Con `GROUP BY zona` tenés el total de cada zona, pero perdés a los choferes. Si querés a cada chofer **y** el total de su zona en la misma fila, la salida clásica es calcular los totales aparte y volver a unirlos con un `JOIN`:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "select m.nombre, m.zona, m.total, z.total_zona\nfrom totales_mes m\njoin (select zona, sum(total) as total_zona\n      from totales_mes group by zona) z on z.zona = m.zona;",
+   "cap": "La forma de antes: una subconsulta que agrega, más un JOIN para pegar el resultado a cada fila."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Funciona, pero cada comparación nueva pide otra subconsulta y otro `JOIN`. Con el porcentaje, el puesto y la diferencia con el mejor, la consulta se vuelve un andamio. Las ventanas lo sacan."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "La idea: calcular mirando a las filas vecinas, sin juntarlas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una **[[función de ventana]]** calcula un valor para cada fila usando un conjunto de filas relacionadas con ella, y no las colapsa: la consulta devuelve tantas filas como entraron. Se reconoce porque lleva la palabra `OVER` a continuación. Así la describe la documentación de PostgreSQL [#bd1314-pg-tutorial-window].",
+    "Cualquier función de agregación (`sum`, `avg`, `count`) pasa a ser de ventana si le agregás `OVER`. Con los paréntesis vacíos, la ventana es la tabla entera:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select nombre, total, sum(total) over () as total_general from totales_mes order by nombre limit 4;",
+     "s": " nombre | total | total_general\n--------+-------+---------------\n Ana    |   463 |          5524\n Beto   |   446 |          5524\n Carla  |   567 |          5524\n Dario  |   480 |          5524"
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada chofer conserva su fila y suma una columna con el total general: 5.524 entregas en el mes. Ahora la parte que le da potencia. Dentro del `OVER` podés poner **[[PARTITION BY]]**, que parte las filas en grupos (particiones) y calcula la función dentro de cada uno. Divide como `GROUP BY`, pero sin plegar: el resultado vuelve a cada fila del grupo."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select nombre, zona, total,\n       sum(total) over (partition by zona) as total_zona,\n       round(100.0 * total / sum(total) over (partition by zona), 1) as pct_zona\nfrom totales_mes\norder by zona, total desc;",
+     "s": " nombre | zona  | total | total_zona | pct_zona\n--------+-------+-------+------------+----------\n Carla  | Norte |   567 |       1956 |     29.0\n Dario  | Norte |   480 |       1956 |     24.5\n Ana    | Norte |   463 |       1956 |     23.7\n Beto   | Norte |   446 |       1956 |     22.8\n Ines   | Oeste |   474 |       1786 |     26.5\n Kari   | Oeste |   468 |       1786 |     26.2\n Juan   | Oeste |   434 |       1786 |     24.3\n Lalo   | Oeste |   410 |       1786 |     23.0\n Fabi   | Sur   |   503 |       1782 |     28.2\n Eli    | Sur   |   440 |       1782 |     24.7\n Hugo   | Sur   |   422 |       1782 |     23.7\n Gus    | Sur   |   417 |       1782 |     23.4"
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "La columna `total_zona` repite el mismo valor en las cuatro filas de Norte, porque es la suma de esa partición, y `pct_zona` es lo que aporta cada chofer. Con el esquema viejo habría hecho falta una subconsulta con su `JOIN`."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: la planilla de picking con subtotales al margen",
+   "x": "Imaginá una planilla de picking impresa, con una línea por bulto, y en el margen de cada línea el subtotal de bultos de su pasillo. Ninguna línea desapareció: cada una conserva su detalle y además lleva un número que se calculó mirando a las demás del mismo pasillo. `PARTITION BY` elige el pasillo. La analogía se queda corta porque una ventana también puede ordenarse y moverse, cosa que un subtotal de pasillo fijo no hace."
+  },
+  {
+   "t": "pensa",
+   "x": "`sum(total) over (partition by zona)` y `group by zona` con `sum(total)` calculan los mismos tres números (1.956, 1.786 y 1.782). ¿Qué cambia en lo que devuelve cada uno?",
+   "resp": "El `GROUP BY` devuelve 3 filas, una por zona, y solo puede mostrar la zona y valores agregados. La ventana devuelve las 12 filas, una por chofer, cada una con el total de su zona repetido al lado. La primera elimina el detalle; la segunda lo conserva. Por eso con ventanas podés sacar un porcentaje por chofer en la misma consulta."
+  },
+  {
+   "t": "h",
+   "x": "Cuándo se calcula una ventana (y por qué no va en el WHERE)"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay una regla que explica casi todos los errores con ventanas. Las funciones de ventana se calculan **después** de que el motor armó las filas con `FROM` y `JOIN`, las filtró con `WHERE`, las agrupó con `GROUP BY` y filtró los grupos con `HAVING`. Según la documentación, la ventana ve las filas de la tabla virtual que producen `FROM`, `WHERE`, `GROUP BY` y `HAVING` [#bd1314-pg-tutorial-window]: una fila que el `WHERE` descartó nunca llega a ella."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "FROM y JOIN",
+       "s": "arma las filas de entrada",
+       "k": "datos"
+      },
+      {
+       "t": "WHERE",
+       "s": "descarta filas",
+       "k": "cliente",
+       "e": "filas armadas"
+      },
+      {
+       "t": "GROUP BY y HAVING",
+       "s": "agrupa y filtra grupos",
+       "k": "cliente"
+      },
+      {
+       "t": "Ventanas",
+       "s": "calculan sin colapsar",
+       "k": "ok"
+      }
+     ],
+     "baja": "después de las ventanas:"
+    },
+    {
+     "nodos": [
+      {
+       "t": "SELECT",
+       "s": "la lista de columnas final",
+       "k": "servidor"
+      },
+      {
+       "t": "ORDER BY",
+       "s": "orden del resultado",
+       "k": "servidor"
+      },
+      {
+       "t": "LIMIT",
+       "s": "corta las primeras N",
+       "k": "servidor"
+      }
+     ]
+    }
+   ],
+   "cap": "Orden lógico de una consulta con ventanas. El resultado de la ventana es una columna más: recién existe cuando el `WHERE` ya pasó."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Consecuencia: no podés usar una ventana en el `WHERE`, porque en ese momento todavía no existe. Es un error que vas a cometer más de una vez:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select nombre, rank() over (order by total desc) as puesto\nfrom totales_mes\nwhere rank() over (order by total desc) <= 3;",
+     "s": "ERROR:  window functions are not allowed in WHERE\nLINE 3: where rank() over (order by total desc) <= 3;\n              ^"
+    }
+   ],
+   "cap": "PostgreSQL rechaza la consulta: las ventanas no se admiten en `WHERE`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La salida es la de [@09-12]: calcular primero y filtrar después, con una subconsulta o un [[CTE]]. El CTE hace el cálculo y la consulta de afuera filtra por la columna ya calculada. Vas a escribir este patrón muchas veces, y más abajo lo ves en Senda."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Ranking: quién va primero y qué pasa con los empates"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un **[[ranking]]** asigna a cada fila un puesto según un orden. En SQL se hace con tres funciones que parecen iguales y se separan justo cuando hay empates. Todas necesitan un `ORDER BY` dentro del `OVER`, porque sin orden no hay puestos. Veamos el 5 de octubre, cuando varios choferes terminaron con la misma cantidad de entregas:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select c.nombre, j.entregas,\n       row_number() over (order by j.entregas desc) as rn,\n       rank()       over (order by j.entregas desc) as rk,\n       dense_rank() over (order by j.entregas desc) as dr\nfrom jornadas j join choferes c on c.id = j.chofer_id\nwhere j.dia = '2026-10-05'\norder by j.entregas desc, c.nombre;",
+     "s": " nombre | entregas | rn | rk | dr\n--------+----------+----+----+----\n Eli    |       28 |  2 |  1 |  1\n Hugo   |       28 |  1 |  1 |  1\n Carla  |       24 |  4 |  3 |  2\n Fabi   |       24 |  3 |  3 |  2\n Ana    |       20 |  6 |  5 |  3\n Dario  |       20 |  5 |  5 |  3\n Kari   |       17 |  7 |  7 |  4\n Beto   |       16 |  8 |  8 |  5\n Ines   |       13 |  9 |  9 |  6\n Lalo   |       13 | 10 |  9 |  6\n Gus    |        9 | 12 | 11 |  7\n Juan   |        9 | 11 | 11 |  7"
+    }
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Función",
+    "Qué hace con los empatados",
+    "Qué puesto sigue después",
+    "Para qué sirve"
+   ],
+   "filas": [
+    [
+     "`row_number()`",
+     "Les da números distintos y consecutivos; el desempate entre iguales lo decide el motor",
+     "Nunca hay saltos ni repetidos",
+     "Elegir exactamente una fila por grupo; numerar para paginar"
+    ],
+    [
+     "`rank()`",
+     "Les da el mismo puesto",
+     "Salta: tras dos primeros, el siguiente es el 3º",
+     "Posiciones al estilo de una competencia"
+    ],
+    [
+     "`dense_rank()`",
+     "Les da el mismo puesto",
+     "No salta: tras dos primeros, el siguiente es el 2º",
+     "Niveles o escalones de valor, sin huecos"
+    ]
+   ],
+   "cap": "Comportamiento definido en la documentación de PostgreSQL para las funciones de ranking [#bd1314-pg-funciones-ventana]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "En la salida de arriba, Eli y Hugo hicieron 28. Con `rank` los dos son primeros y Carla, que viene después, es 3ª; con `dense_rank` también son primeros pero Carla es 2ª. Con `row_number`, en cambio, uno es 1º y el otro 2º, y **qué chofer queda primero lo decidió el motor**: en mi corrida Hugo salió antes que Eli, pero nada en la consulta lo garantiza."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "row_number con empates: el desempate hay que escribirlo",
+   "x": "Si usás `row_number` para elegir *una* fila por grupo, agregá al `ORDER BY` una columna que desempate (`order by entregas desc, dia`). Sin eso, dos corridas pueden devolver filas distintas y nadie lo nota, porque ninguna consulta falla."
+  },
+  {
+   "t": "pensa",
+   "x": "Cinco choferes terminan con 30, 30, 30, 25 y 20 entregas. ¿Qué puesto le toca al de 25 con `rank` y cuál con `dense_rank`?",
+   "resp": "Con `rank` le toca el 4º, porque hay tres choferes por delante. Con `dense_rank` le toca el 2º, porque solo hay un valor distinto por encima (el 30). Lo comprobé con esos cinco valores: `rank` da 1, 1, 1, 4, 5 y `dense_rank` da 1, 1, 1, 2, 3."
+  },
+  {
+   "t": "h3",
+   "x": "El top-N por grupo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Volvamos al pedido de la coordinadora: los dos mejores de cada zona. Es un ranking con `PARTITION BY zona`: el puesto se cuenta de nuevo en cada partición. Después, como una ventana no se puede filtrar con `WHERE`, el filtro `puesto <= 2` va afuera, en una consulta que lee el CTE:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "with r as (\n  select nombre, zona, total,\n         rank() over (partition by zona order by total desc) as puesto\n  from totales_mes\n)\nselect zona, puesto, nombre, total\nfrom r\nwhere puesto <= 2\norder by zona, puesto;",
+     "s": " zona  | puesto | nombre | total\n-------+--------+--------+-------\n Norte |      1 | Carla  |   567\n Norte |      2 | Dario  |   480\n Oeste |      1 | Ines   |   474\n Oeste |      2 | Kari   |   468\n Sur   |      1 | Fabi   |   503\n Sur   |      2 | Eli    |   440"
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "La elección de función importa. Con `rank`, si dos choferes empatan en el 2º puesto aparecen **tres** filas para esa zona; con `row_number` aparecen dos, y uno de los empatados queda afuera por tu criterio de desempate. Es una regla de negocio: ¿el premio es para los dos primeros puestos o para dos personas? Preguntalo antes de escribir."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 1: el mejor día de cada chofer.** Devolvé una fila por chofer con su mejor jornada (el día con más entregas). Si un chofer tiene dos días con el mismo máximo, quedate con el más temprano.",
+   "pista": "Es un top-1 por grupo: `row_number()` con `PARTITION BY chofer_id`, y dos criterios en el `ORDER BY` de la ventana (entregas descendente y fecha ascendente). El filtro `n = 1` va afuera.",
+   "solucion": [
+    "Una solución:",
+    "`select nombre, dia, entregas from ( select c.nombre, j.dia, j.entregas, row_number() over (partition by j.chofer_id order by j.entregas desc, j.dia) as n from jornadas j join choferes c on c.id = j.chofer_id ) t where n = 1 order by entregas desc, nombre;`",
+    "Devuelve 12 filas: nueve choferes con un máximo de 30 y tres con 29, 29 y 27.",
+    "El desempate por fecha asegura una sola fila por chofer aunque repita su máximo."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Mirar al vecino: LAG y LEAD"
+  },
+  {
+   "t": "p",
+   "x": [
+    "A veces no hace falta un grupo entero: alcanza con la fila de ayer o la de mañana. `lag(columna)` devuelve el valor de la fila **anterior** según el orden de la ventana, y `lead(columna)` el de la **siguiente**. Sirven para comparar con el período anterior, que es el tercer pedido de la coordinadora. Acá, la jornada de Ana:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select dia, entregas,\n       lag(entregas)  over (order by dia) as ayer,\n       entregas - lag(entregas) over (order by dia) as cambio,\n       lead(entregas) over (order by dia) as manana\nfrom jornadas\nwhere chofer_id = 1\norder by dia\nlimit 7;",
+     "s": "    dia     | entregas | ayer | cambio | manana\n------------+----------+------+--------+--------\n 2026-10-05 |       20 |      |        |     15\n 2026-10-06 |       15 |   20 |     -5 |     10\n 2026-10-07 |       10 |   15 |     -5 |     28\n 2026-10-08 |       28 |   10 |     18 |     23\n 2026-10-09 |       23 |   28 |     -5 |     18\n 2026-10-10 |       18 |   23 |     -5 |     20\n 2026-10-12 |       20 |   18 |      2 |     15"
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "El primer día no tiene «ayer», así que `lag` devuelve [[NULL]] y la resta también. Con `lag(entregas, 1, 0)` mirás una fila atrás y usás 0 si no existe. Cuidado: con 0, el primer día parecería una mejora enorme; muchas veces lo correcto es dejar el NULL como «sin dato».",
+    "Dos cosas para fijar. Lo que define «ayer» es el `ORDER BY` **dentro** del `OVER`, no el del final de la consulta. Y con varios choferes hace falta `PARTITION BY chofer_id`, o el «ayer» del primer día de Beto sería el último día de Ana."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Acumulados y media móvil: el marco de la ventana"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando la ventana tiene `ORDER BY`, hay una idea más: para cada fila existe un **marco** (en inglés *frame*), el subconjunto de la partición que la función realmente usa. Si no escribís nada, el marco por defecto va desde el inicio de la partición hasta la fila actual, incluyendo también las filas siguientes que empaten con ella en el orden [#bd1314-pg-sintaxis-ventana]. Con eso ya sale un **acumulado**: `sum(entregas) over (order by dia)` suma desde el primer día hasta el de cada fila.",
+    "El marco se puede escribir a mano. `rows between 2 preceding and current row` significa «esta fila y las dos de antes». Es la base de una **[[media móvil]]**: el promedio de las últimas N observaciones, recalculado en cada fila. Alisa el ruido de los números diarios y deja ver la tendencia."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select dia, entregas,\n       sum(entregas) over (order by dia) as acumulado,\n       round(avg(entregas) over (order by dia rows between 2 preceding and current row), 1) as media_3\nfrom jornadas\nwhere chofer_id = 1\norder by dia\nlimit 7;",
+     "s": "    dia     | entregas | acumulado | media_3\n------------+----------+-----------+---------\n 2026-10-05 |       20 |        20 |    20.0\n 2026-10-06 |       15 |        35 |    17.5\n 2026-10-07 |       10 |        45 |    15.0\n 2026-10-08 |       28 |        73 |    17.7\n 2026-10-09 |       23 |        96 |    20.3\n 2026-10-10 |       18 |       114 |    23.0\n 2026-10-12 |       20 |       134 |    20.3"
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los dos primeros valores de `media_3` usan una y dos filas, porque todavía no hay tres: PostgreSQL promedia las que existen. Los primeros puntos son menos confiables, y conviene saberlo si la media se grafica o dispara alertas."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el promedio de la última semana de un kiosco",
+   "x": "Cada noche el dueño de un kiosco anota el promedio de ventas de los últimos siete días: entra el día nuevo, sale el más viejo. Eso es una media móvil de 7. La analogía deja de valer en que el kiosco cuenta *días* y la ventana de SQL, según cómo la escribas, cuenta *filas*. Esa diferencia pega enseguida."
+  },
+  {
+   "t": "h3",
+   "x": "Siete filas no son siete días"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mi tabla no tiene domingos. Entonces `rows between 6 preceding and current row` mira siete filas, que a veces abarcan **ocho** días calendario. El modo `range` con un intervalo mira por **valor** de la columna del orden: `range between interval '6 days' preceding and current row` toma todas las filas con fecha entre seis días antes y la fecha de la fila. Este último modo con fechas está disponible desde PostgreSQL 11 [#bd1314-pg-release-11]. Mirá la diferencia:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select dia, entregas,\n  round(avg(entregas) over (order by dia rows  between 6 preceding and current row), 2) as por_filas,\n  count(*)            over (order by dia rows  between 6 preceding and current row)    as n_filas,\n  round(avg(entregas) over (order by dia range between interval '6 days' preceding and current row), 2) as por_dias,\n  count(*)            over (order by dia range between interval '6 days' preceding and current row)    as n_dias\nfrom jornadas\nwhere chofer_id = 1 and dia between '2026-10-05' and '2026-10-20'\norder by dia;",
+     "s": "    dia     | entregas | por_filas | n_filas | por_dias | n_dias\n------------+----------+-----------+---------+----------+--------\n 2026-10-05 |       20 |     20.00 |       1 |    20.00 |      1\n 2026-10-06 |       15 |     17.50 |       2 |    17.50 |      2\n 2026-10-07 |       10 |     15.00 |       3 |    15.00 |      3\n 2026-10-08 |       28 |     18.25 |       4 |    18.25 |      4\n 2026-10-09 |       23 |     19.20 |       5 |    19.20 |      5\n 2026-10-10 |       18 |     19.00 |       6 |    19.00 |      6\n 2026-10-12 |       20 |     19.14 |       7 |    19.00 |      6\n 2026-10-13 |       15 |     18.43 |       7 |    19.00 |      6\n 2026-10-14 |       10 |     17.71 |       7 |    19.00 |      6\n 2026-10-15 |       28 |     20.29 |       7 |    19.00 |      6\n 2026-10-16 |       23 |     19.57 |       7 |    19.00 |      6\n 2026-10-17 |       18 |     18.86 |       7 |    19.00 |      6\n 2026-10-19 |        8 |     17.43 |       7 |    17.00 |      6\n 2026-10-20 |       26 |     18.29 |       7 |    18.83 |      6"
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Desde el 12 de octubre, `n_filas` vale 7 pero `n_dias` vale 6: en esos siete días calendario hay un domingo sin fila. La ventana por filas arrastra entonces un día de más, y ese día cuenta dos veces dentro de la misma semana. Por eso la media por filas se mueve entre 17,43 y 20,29, mientras que la de siete días calendario siempre incluye cada día de la semana una sola vez, y es comparable de una fila a la otra (con estos datos inventados da 19,00 del 12 al 17 de octubre y 17,00 el 19)."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Con la media por días, ¿por qué el 6 de octubre `n_dias` vale 2 y no 7?",
+   "resp": "No es un error: solo existen dos filas en los últimos seis días, el 5 y el 6, porque antes no hay datos. Toda media móvil tiene un arranque con la ventana incompleta. Si preferís NULL a promediar pocos datos, ponelo vos con un `case when n_dias < 6 then null end`."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El marco por defecto agrupa a los empatados",
+   "x": [
+    "Si la ventana tiene `ORDER BY` y no escribís marco, vale `range … current row`, y `range` trata como una sola cosa a todos los empatados en el orden. En `acum_defecto`, Eli y Hugo (empatados con 28) muestran el mismo acumulado, 56; con `rows` el acumulado crece de a una fila.",
+    "Esto también explica una trampa clásica: `last_value(x) over (order by y)` sin marco explícito devuelve el valor de la fila actual (o de sus empatados), no el último de la partición. Para eso hay que escribir `rows between unbounded preceding and unbounded following`. Lo probé con las doce filas del 5 de octubre: sin marco devolvió «Hugo» para la segunda fila y con el marco completo, «Juan», el último."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select c.nombre, j.entregas,\n       sum(j.entregas) over (order by j.entregas desc) as acum_defecto,\n       sum(j.entregas) over (order by j.entregas desc\n                             rows between unbounded preceding and current row) as acum_filas\nfrom jornadas j join choferes c on c.id = j.chofer_id\nwhere j.dia = '2026-10-05'\norder by j.entregas desc, c.nombre\nlimit 6;",
+     "s": " nombre | entregas | acum_defecto | acum_filas\n--------+----------+--------------+------------\n Eli    |       28 |           56 |         56\n Hugo   |       28 |           56 |         28\n Carla  |       24 |          104 |        104\n Fabi   |       24 |          104 |         80\n Ana    |       20 |          144 |        144\n Dario  |       20 |          144 |        124"
+    }
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 2: la media de siete días de cada chofer.** Para cada chofer, calculá la media móvil de entregas de los últimos 7 días calendario (la fila de hoy y los 6 anteriores) y mostrá solo la del 31 de octubre, ordenada de mayor a menor.",
+   "pista": "Hay que usar `partition by chofer_id`, `order by dia` y un marco `range` con `interval '6 days'`. Como filtrar por fecha es filtrar una ventana, hacelo con una subconsulta: si ponés `dia = …` en el `WHERE` de la misma consulta, la ventana solo vería esa fila.",
+   "solucion": [
+    "Una solución:",
+    "`select nombre, promedio_7 from ( select c.nombre, j.dia, round(avg(j.entregas) over (partition by j.chofer_id order by j.dia range between interval '6 days' preceding and current row), 2) as promedio_7 from jornadas j join choferes c on c.id = j.chofer_id ) t where dia = '2026-10-31' order by promedio_7 desc, nombre;`",
+    "En esta VM, el primero es Beto con 24,00 y el último Eli con 15,50.",
+    "Con `where dia = …` en la misma consulta, el promedio saldría de una sola fila: se calcula primero y se filtra después."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cuánto cuesta: un top-1 por grupo de tres maneras"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay otra forma de pedir «el mejor día de cada chofer» sin ventanas: una [[consulta correlacionada]] que, para cada fila, va a buscar el máximo de su grupo. Se lee fácil. Probé tres versiones sobre una tabla más grande, `jornadas_g`: 600 choferes por 365 días, 219.000 filas. Las medí con `EXPLAIN (ANALYZE)`, que muestra el plan de ejecución real (el camino que eligió el motor, que vamos a estudiar en [@09-22])."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Versión",
+    "Tiempo (3 corridas)",
+    "Qué hace el motor"
+   ],
+   "filas": [
+    [
+     "`row_number() … = 1` (ventana)",
+     "56 a 80 ms",
+     "Ordena una vez por chofer y numera; corta apenas pasa del puesto 1"
+    ],
+    [
+     "`distinct on (chofer_id)` (específico de PostgreSQL)",
+     "49 a 87 ms",
+     "Ordena igual y se queda con la primera fila de cada chofer"
+    ],
+    [
+     "Subconsulta correlacionada",
+     "9.391 a 10.357 ms",
+     "Repite una búsqueda con orden por **cada una** de las 219.000 filas"
+    ]
+   ],
+   "cap": "Medido en esta VM (4 CPU compartidos), PostgreSQL 16.15, el 13-11-2026, con el índice de la clave primaria y sin otros. Son los «Execution Time» de `EXPLAIN (ANALYZE, TIMING OFF)` en tres corridas seguidas."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- la versión con ventana, con EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF)",
+     "s": " Subquery Scan on t (actual rows=600 loops=1)\n   Filter: (t.n = 1)\n   ->  WindowAgg (actual rows=600 loops=1)\n         Run Condition: (row_number() OVER (?) <= 1)\n         ->  Incremental Sort (actual rows=219000 loops=1)\n               Sort Key: j.chofer_id, j.entregas DESC, j.dia\n               Presorted Key: j.chofer_id\n               Full-sort Groups: 600  Sort Method: quicksort  Average Memory: 27kB  Peak Memory: 27kB\n               Pre-sorted Groups: 600  Sort Method: quicksort  Average Memory: 39kB  Peak Memory: 39kB\n               ->  Index Scan using jornadas_g_pkey on jornadas_g j (actual rows=219000 loops=1)\n Planning Time: 0.278 ms\n Execution Time: 50.493 ms"
+    },
+    {
+     "c": "-- la versión con subconsulta correlacionada",
+     "s": " Seq Scan on jornadas_g j (actual rows=600 loops=1)\n   Filter: (dia = (SubPlan 1))\n   Rows Removed by Filter: 218400\n   SubPlan 1\n     ->  Limit (actual rows=1 loops=219000)\n           ->  Sort (actual rows=1 loops=219000)\n                 Sort Key: j2.entregas DESC, j2.dia\n                 Sort Method: top-N heapsort  Memory: 25kB\n                 ->  Index Scan using jornadas_g_pkey on jornadas_g j2 (actual rows=365 loops=219000)\n                       Index Cond: (chofer_id = j.chofer_id)\n Planning Time: 0.250 ms\n Execution Time: 9374.643 ms"
+    }
+   ],
+   "cap": "Planes reales de esta VM. En el segundo, `loops=219000` dice que la subconsulta se ejecutó una vez por fila, leyendo 365 filas cada vez."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La diferencia es de unas 150 veces. La subconsulta no es «mala» en general: le pedimos, para cada una de las 219.000 filas, leer las 365 de su chofer y ordenarlas, unas 80 millones de lecturas. La ventana recorre la tabla una sola vez y numera. Fijate también en la línea `Run Condition: (row_number() OVER (?) <= 1)` del primer plan: el planificador entendió que solo hacen falta los puestos 1 y dejó de numerar al pasar de ahí. Las notas de PostgreSQL 15 anuncian mejoras para `row_number`, `rank`, `dense_rank` y `count` en ventanas [#bd1314-pg-release-15]; asocio esa línea con esa mejora, pero es inferencia mía."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 13-11-2026",
+   "x": "Las ventanas existen en PostgreSQL desde la 8.4, de julio de 2009 [#bd1314-pg-release-84] [#postgresql-versioning]. `range` con distancia (como `interval '6 days' preceding`), `groups` y la exclusión de filas llegaron en la 11 [#bd1314-pg-release-11]. Hoy, según la página oficial de versiones, las actuales son 18.7, 17.12, 16.16, 15.20 y 14.25 (del 12-11-2026), con la 19 en candidata de lanzamiento. Acá corrí la 16.15. Los planes y los tiempos cambian con la versión y la configuración: no los copies como constantes."
+  },
+  {
+   "t": "h",
+   "x": "En Senda: el puesto de la copa es una ventana"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda guarda los resultados de cada copa en la tabla `copas_resultados` y arma la tabla de posiciones dentro de la base, en una función que la app llama por RPC. Usa lo que viste hoy, con la forma de la consulta de arriba: un CTE que numera con `row_number()` y una consulta de afuera que filtra por esa columna. Un `grep` sobre las 42 migraciones muestra ventanas en cinco archivos, siempre `row_number()`: no hay `rank`, `dense_rank`, `lag` ni marcos."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "tabla_copa: el CTE que numera y el filtro de afuera",
+   "x": [
+    "La función `tabla_copa` calcula el puesto de cada participante con `row_number() over (order by puntos desc, aciertos desc, ms asc)` y luego devuelve `where puesto <= 50 or usuario = auth.uid()`: los cincuenta primeros más la fila de quien consulta, aunque esté en el puesto 4.000. Es exactamente el patrón de hoy: la ventana se calcula dentro del CTE `filas` porque no podría filtrarse en el `WHERE` de la misma consulta. Esto corresponde al commit 25e08fa (8-11-2026); el código cambia, la forma permanece. La versión vigente está en `20261127000000_seguridad.sql` y reemplaza a la de `20261101000000_juntos.sql`; esos nombres llevan fechas posteriores al commit.",
+    "Hay un índice `copas_tabla` sobre `(copa, puntos desc, aciertos desc, ms asc)`, el mismo orden que usa la ventana."
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261101000000_juntos.sql"
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos hallazgos, verificados con una réplica de las dos tablas en mi PostgreSQL (copiadas de la migración, sin RLS ni `auth.users`, con 100.000 participantes inventados en una copa). Son observaciones sobre la forma de la consulta, no pedidos de cambio: a la escala de una app que empieza, ninguna importa.",
+    "**El `or usuario = auth.uid()` tiene un precio.** Ese `or` obliga a numerar a todos antes de filtrar. En mi réplica el plan numera las 100.000 filas, con un ordenamiento que se va a disco (4 MB): unos 90 ms. Con solo `puesto <= 50`, el plan muestra `Run Condition` y lee el índice hasta la fila 51: unos 0,28 ms, unas 300 veces menos. Una alternativa sería pedir el top 50 y aparte el puesto de la persona con un `count(*)`; no la probé, y no hace falta hasta que una copa tenga decenas de miles de participantes.",
+    "**`row_number` no reconoce empates.** Con los mismos puntos, aciertos y milisegundos, da puestos 1 y 2 y el motor decide cuál va primero; con `rank` los dos serían 1. Lo comprobé con dos filas idénticas. Empatar en milisegundos es muy improbable, así que parece una decisión razonable; conviene tenerla anotada."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Dos usos más: desempatar alias repetidos y armar tandas de 100",
+   "x": [
+    "En `novedades.sql`, para hacer único el alias, una migración numera los perfiles con `row_number() over (partition by lower(apodo) order by creado)`, renombra a los que tienen número mayor que 1 y recién después crea el índice único: `PARTITION BY` encuentra los duplicados y `ORDER BY creado` protege al más antiguo.",
+    "En `grupos_grandes.sql`, el envío de avisos arma tandas con `(row_number() over (partition by clave order by id, token) - 1) / 100`: la división entera da 0 para los primeros 100 destinatarios de un mensaje, 1 para los siguientes, y así. Después agrupa por tanda y manda un pedido por cada una. Supongo que el 100 responde a un límite del servicio de envío; no lo verifiqué."
+   ],
+   "archivos": [
+    "supabase/migrations/20261111000000_novedades.sql",
+    "supabase/migrations/20261130000005_grupos_grandes.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Lo que se confunde y lo que te llevás"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**`PARTITION BY` olvidado:** el ranking, el `lag` o el acumulado cruzan de un grupo al siguiente y la consulta sigue pareciendo correcta.",
+    "**`GROUP BY` contra ventana:** se pueden combinar (el `GROUP BY` corre primero), pero la ventana no reemplaza al `GROUP BY` cuando querés una sola fila por grupo.",
+    "**Marco por defecto:** con `ORDER BY` incluye a los empatados; para un acumulado estricto escribí `rows between unbounded preceding and current row`."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con esto, el pedido de la coordinadora cabe en una consulta: partición por zona, `rank` para los dos primeros, porcentaje con `sum(…) over (partition by zona)` y comparación con `lag`. Mañana ([@09-14]) cambiamos de ángulo: en vez de consultar tablas que existen, las diseñamos."
+   ]
+  }
+ ],
+ "recap": [
+  "Una función de ventana (`OVER`) calcula mirando un grupo de filas y devuelve una fila por cada fila de entrada; `GROUP BY` pliega, la ventana no.",
+  "`PARTITION BY` parte en grupos, el `ORDER BY` del `OVER` fija el orden y el marco (`rows` o `range`) fija qué filas cuentan. Las ventanas se calculan después de `WHERE`, `GROUP BY` y `HAVING`: el filtro por puesto va afuera, en una subconsulta o un CTE.",
+  "`row_number` numera sin repetir (y desempata el motor si no lo hacés vos), `rank` repite el puesto y salta, `dense_rank` repite y no salta.",
+  "`lag` y `lead` leen la fila anterior y la siguiente; un acumulado y una media móvil son una función de agregación con un marco. Siete filas no son siete días cuando faltan fechas.",
+  "En esta VM, un top-1 por chofer sobre 219.000 filas tardó entre 56 y 80 ms con ventana y unos 10 segundos con subconsulta correlacionada. Senda usa solo `row_number()`, en cinco migraciones."
+ ],
+ "repaso": [
+  {
+   "p": "Escribís `select nombre, rank() over (order by total desc) as puesto from totales_mes where rank() over (order by total desc) <= 3;`. ¿Qué ocurre?",
+   "o": [
+    "PostgreSQL devuelve un error, porque las ventanas se calculan después del WHERE y ahí todavía no existen",
+    "Devuelve las tres primeras filas, porque el WHERE filtra y después se calcula el ranking sobre esas tres",
+    "Devuelve todas las filas, porque el WHERE ignora las funciones de ventana y solo mira las columnas",
+    "Devuelve las tres primeras filas, porque el WHERE hace lo mismo que LIMIT 3 sobre el ranking"
+   ],
+   "c": 0,
+   "e": "La documentación indica que las ventanas ven las filas ya filtradas por FROM, WHERE, GROUP BY y HAVING, así que no pueden usarse dentro del WHERE: el motor rechaza la consulta. Las otras tres respuestas suponen que el WHERE puede mirar el resultado de la ventana, que es justo el error. La salida correcta es calcular el ranking en una subconsulta o un CTE y filtrar afuera."
+  },
+  {
+   "p": "Cuatro choferes terminan con 30, 30, 28 y 25 entregas. ¿Qué devuelve `dense_rank() over (order by entregas desc)` para el de 25?",
+   "o": [
+    "El 4º puesto, porque hay tres choferes por delante y se cuenta una posición por cada uno",
+    "El 3º puesto, porque hay tres valores distintos (30, 28 y 25) y no se salta ningún número",
+    "El 2º puesto, porque los dos de 30 cuentan como uno y el de 28 como el segundo escalón",
+    "El 1º puesto, porque dense_rank siempre da 1 a quien tenga la cantidad más chica"
+   ],
+   "c": 1,
+   "e": "dense_rank numera valores distintos sin saltos: 30 es el 1º, 28 el 2º y 25 el 3º. El 4º puesto sería el resultado de rank, que sí salta (dos primeros y después el 3º, 4º). La opción del 2º ignora el de 28 como escalón propio, y la del 1º inventa una regla que no existe."
+  },
+  {
+   "p": "Una tabla tiene filas con fechas, pero faltan los domingos. Querés el promedio de los últimos 7 días calendario y escribís `rows between 6 preceding and current row`. ¿Qué pasa?",
+   "o": [
+    "Promedia siempre siete días calendario, porque rows detecta las fechas del ORDER BY y salta los vacíos",
+    "Da un error, porque rows no se puede usar con una columna de tipo fecha en el ORDER BY de la ventana",
+    "Promedia siete filas, que cada tanto abarcan ocho días calendario y cuentan dos veces el mismo día de la semana",
+    "Promedia seis filas, porque la fila actual no entra en el marco cuando se usa la palabra preceding"
+   ],
+   "c": 2,
+   "e": "rows cuenta filas, no fechas. Con un domingo sin fila, siete filas abarcan ocho días y un día de la semana pesa doble. Para siete días calendario hay que usar range con `interval '6 days' preceding`. El marco incluye la fila actual (current row), así que no son seis. Y rows funciona con cualquier orden, incluidas las fechas."
+  },
+  {
+   "p": "Un `sum(x) over (order by y)` sin marco explícito, ¿qué muestra en dos filas que empatan exactamente en y?",
+   "o": [
+    "Un acumulado mayor en la segunda fila, porque suma una fila por vez en el orden en que aparecen",
+    "El mismo acumulado en las dos, porque el marco por defecto incluye a todos los empatados en el orden",
+    "Un error por ambigüedad, porque la ventana exige un orden estricto sin valores repetidos en y",
+    "El acumulado sin ninguna de las dos, porque los empatados se excluyen hasta que se desempaten"
+   ],
+   "c": 1,
+   "e": "El marco por defecto es range entre el inicio y la fila actual, y range trata como una sola unidad a todas las filas con el mismo valor de orden. Por eso ambas muestran el mismo acumulado. Si querés que crezca fila por fila, hay que escribir rows. No hay error por empates y los empatados no se excluyen: se incluyen todos."
+  },
+  {
+   "p": "Querés el mejor día de cada chofer. Una versión usa `row_number() … = 1` y otra una subconsulta correlacionada que busca el máximo de cada chofer para cada fila. Sobre 219.000 filas, la segunda tardó unos 10 segundos y la primera unos 60 ms. ¿Cuál es la explicación principal?",
+   "o": [
+    "La subconsulta devuelve más columnas que la ventana, y eso encarece cada fila que lee el motor",
+    "La ventana usa varios procesadores en paralelo y la subconsulta siempre corre en uno solo y lento",
+    "La subconsulta se ejecuta una vez por cada fila de entrada y repite la lectura de todo el grupo",
+    "La ventana guarda los resultados en una caché del navegador, y la subconsulta no puede usarla"
+   ],
+   "c": 2,
+   "e": "El plan mostró `loops=219000`: la subconsulta se corrió 219.000 veces, leyendo las 365 filas del chofer cada vez. La ventana recorre la tabla una vez y numera. En la medición desactivé el paralelismo, así que no es eso, ni una caché del navegador (una base de datos no usa una), ni la cantidad de columnas."
+  },
+  {
+   "p": "Una tabla de posiciones tiene dos jugadores con exactamente los mismos puntos y el mismo tiempo. El reglamento dice que ambos comparten el puesto 1. ¿Qué función de ventana corresponde?",
+   "o": [
+    "`row_number()`, porque les da los puestos 1 y 2 y la tabla queda numerada sin repetir nada",
+    "`lag()`, porque compara cada jugador con el anterior y marca los que tienen el mismo valor",
+    "`rank()`, porque asigna el mismo puesto a los empatados y salta el número para el siguiente",
+    "`sum() over ()`, porque con los paréntesis vacíos agrupa a los empatados en una sola fila"
+   ],
+   "c": 2,
+   "e": "rank da el mismo puesto a los empatados (los dos son 1º) y salta el siguiente. row_number rompe el empate y los pone 1º y 2º, que contradice el reglamento: es lo que hace tabla_copa de Senda, y es una decisión razonable solo si empatar es casi imposible. lag y sum no calculan puestos."
+  },
+  {
+   "p": "`sum(total) over (partition by zona)` y `select zona, sum(total) from … group by zona`, ¿en qué se diferencian?",
+   "o": [
+    "Los dos devuelven una fila por zona, pero la ventana es más rápida cuando hay pocos datos",
+    "La ventana devuelve una fila por cada fila de entrada con el total de su zona; el GROUP BY, una por zona",
+    "El GROUP BY conserva todas las filas y la ventana las pliega, por eso sirve para un top-N",
+    "No se diferencian: son dos formas de escribir lo mismo y el motor siempre las trata igual"
+   ],
+   "c": 1,
+   "e": "La ventana conserva cada fila y repite el total de su partición; el GROUP BY devuelve una sola fila por grupo y pierde el detalle. La opción que invierte los papeles confunde cuál pliega. Y no son equivalentes: sirven para cosas distintas, aunque calculen la misma suma."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística, sin decir «OVER» ni «partición», cómo harías en una planilla para que al lado de cada chofer aparezcan su puesto dentro de la zona y la diferencia con su día anterior, sin que desaparezca ninguna fila. Después contá qué cambia si dos choferes empatan y por qué una versión de la tabla puede darle puestos 1 y 2 a los empatados y otra, 1 y 1.",
+ "para_profundizar": [
+  {
+   "fuente": "bd1314-pg-tutorial-window",
+   "nota": "El tutorial oficial de PostgreSQL sobre ventanas, corto y con ejemplos. Leelo entero para ver `OVER`, `PARTITION BY`, el marco por defecto y la cláusula `WINDOW` que permite nombrar una ventana."
+  },
+  {
+   "fuente": "bd1314-pg-funciones-ventana",
+   "nota": "La lista oficial de funciones de ventana (`row_number`, `rank`, `lag`, `lead`, `first_value`, `ntile` y más), con una línea sobre qué hace cada una. Sirve para saber qué existe cuando una consulta lo pida."
+  },
+  {
+   "fuente": "bd1314-pg-sintaxis-ventana",
+   "nota": "La sección de sintaxis completa de las llamadas a ventana, con las reglas del marco (`rows`, `range`, `groups`) y la exclusión de filas. Leé la parte de «frame clause» para el ejercicio 3."
+  }
+ ],
+ "videos": [
+  {
+   "q": "SQL window functions explained row_number rank dense_rank lag lead PARTITION BY",
+   "por_que": "Para ver las mismas funciones explicadas con otros datos y comparar con cómo las resolviste hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "función de ventana",
+   "d": "Función SQL que calcula un valor para cada fila mirando un conjunto de filas relacionadas, sin juntarlas en una sola: devuelve tantas filas como entraron. Se reconoce por la cláusula `OVER`."
+  },
+  {
+   "t": "PARTITION BY",
+   "d": "Parte dentro de `OVER` que divide las filas en grupos (particiones) y hace que la función de ventana se calcule por separado en cada uno. Como un `GROUP BY` que no pliega las filas."
+  },
+  {
+   "t": "ranking",
+   "d": "Puesto que se asigna a cada fila según un orden. En SQL se calcula con `row_number`, `rank` y `dense_rank`, que se diferencian en cómo tratan los empates."
+  },
+  {
+   "t": "media móvil",
+   "d": "Promedio de las últimas N observaciones, recalculado fila por fila a medida que la ventana avanza. Alisa las variaciones diarias y deja ver la tendencia."
+  },
+  {
+   "t": "marco de la ventana",
+   "d": "Subconjunto de la partición que usa realmente una función de ventana para cada fila, definido con `ROWS`, `RANGE` o `GROUPS`. Si no se escribe, con `ORDER BY` va desde el inicio hasta la fila actual incluyendo a sus empatados."
+  },
+  {
+   "t": "LAG y LEAD",
+   "d": "Funciones de ventana que devuelven el valor de la fila anterior (`lag`) o de la siguiente (`lead`) según el orden de la ventana. Sirven para comparar con el período previo."
+  },
+  {
+   "t": "top-N por grupo",
+   "d": "Consulta que devuelve las primeras N filas de cada grupo (por ejemplo, los dos mejores choferes de cada zona). Se resuelve numerando con una función de ranking con `PARTITION BY` y filtrando por puesto en una consulta de afuera."
+  }
+ ],
+ "siguiente": "Hasta acá consultaste tablas que ya existían. Mañana la pregunta cambia: dado un problema escrito en palabras, ¿qué tablas hacen falta y cómo se relacionan?",
+ "fuentes_nuevas": [
+  {
+   "id": "bd1314-pg-tutorial-window",
+   "t": "PostgreSQL 16: Window Functions (tutorial)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/tutorial-window.html"
+  },
+  {
+   "id": "bd1314-pg-funciones-ventana",
+   "t": "PostgreSQL 16: Window Functions (funciones incorporadas)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/functions-window.html"
+  },
+  {
+   "id": "bd1314-pg-sintaxis-ventana",
+   "t": "PostgreSQL 16: Value Expressions, Window Function Calls",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/sql-expressions.html"
+  },
+  {
+   "id": "bd1314-pg-release-84",
+   "t": "PostgreSQL 8.4: Release Notes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2009,
+   "url": "https://www.postgresql.org/docs/release/8.4.0/"
+  },
+  {
+   "id": "bd1314-pg-release-11",
+   "t": "PostgreSQL 11: Release Notes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2018,
+   "url": "https://www.postgresql.org/docs/release/11.0/"
+  },
+  {
+   "id": "bd1314-pg-release-15",
+   "t": "PostgreSQL 15: Release Notes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2022,
+   "url": "https://www.postgresql.org/docs/release/15.0/"
+  }
+ ]
+}
