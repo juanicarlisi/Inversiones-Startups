@@ -81,3 +81,27 @@ retirada) y que no quedaran dos enunciados iguales (esp-41141, Marcos, repetía 
 - **La Biblia de la app:** errata «las mandamientos» en 1 Corintios 7:19, corregida en `scripts/biblia_arreglos.py`.
 - **Resultado:** 0 preguntas marcadas sin leer; traducciones de lo que cambió en la capa a mano (portugués 5.281 preguntas, inglés
   5.256); validador: todo en orden. Commit efd5c89.
+
+### 2.6 Las lecciones retraducidas (pedido 4)
+
+Los 294 campos por idioma que se corrigieron en español en las pruebas 43 a 46 y habían quedado viejos (pendiente desde el capítulo
+74, cuando se frenaron los lotes) se escribieron en la sesión, uno por uno: **portugués 276** campos en 201 lecciones e **inglés 281**
+en 210; el resto ya decía lo mismo o la corrección era solo de la RV1909. Las citas entre «» son textuales de la Bíblia Livre y de la
+BSB; donde no se podía citar textual se parafraseó con la referencia. `scripts/autor/rutas_lotes/retraducir.json` queda vacío.
+Commit 6773f97.
+
+### 2.7 El APK 53
+
+Compilado en GitHub con el validador, la prueba de arranque y la prueba de lo social en verde:
+https://github.com/juanicarlisi/senda-app/releases/tag/prueba-53 (trae todo lo anterior). El sitio público ya muestra el responsable
+(Cloudflare Pages lo toma solo de GitHub).
+
+## 3. Próximos
+
+1. Que el fundador pruebe el APK 53 (pendiente «probar53» en la Consola).
+2. La auditoría de textos sobre las 5.000 preguntas de la trivia (`scripts/auditoria/textos.cjs --solo espadeo`) tarda más de 15
+   minutos: terminarla y corregir lo que encuentre en la próxima APK.
+3. Google Play: crear la app, subir el AAB a la prueba cerrada y arrancar los 14 días con 12 testers antes del 02-12.
+4. La sesión legal exclusiva (DEC-2026-11-10-5) antes de que la ficha de Play sea pública; ahí sale la leyenda «para revisión de un
+   abogado».
+5. Pagar las marcas del INPI antes del 30-11; la clave de App Store Connect para el iPhone.
