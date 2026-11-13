@@ -100,6 +100,21 @@ versículos): arreglado en `scripts/biblia_arreglos.py` con la numeración de ho
 DEC-2026-10-21-2). Visuales que conviene dibujar: el mapa de los imperios y de los reinos helenísticos, el plano de Jerusalén del
 siglo I, la casa con terrado y la sinagoga, los hallazgos arqueológicos, la línea de la Biblia en español, los géneros y los pactos.
 
+### 2.7 Tres logos nuevos (pedido del 13-11 a la noche)
+
+«El logo está buenísimo… pero la actual en cierto sentido la siento "muy IA"… 3 versiones más como opciones… con fuerte identidad de
+marca, y como un buen logo para app». Lo que hace ver «IA» al actual es el degradé violeta a naranja con resplandor. Las tres
+opciones son planas, con los colores de la app y sin brillos, y se probaron a 29 px y en círculo:
+
+1. **La S de camino**: la S es una ruta maciza con su línea del medio que lleva a la cruz (separada), sobre ámbar.
+2. **El libro y el alba**: la Biblia abierta, el sol que sale y la senda que entra en la luz (el lema dibujado), sobre noche.
+3. **Lany**: la cara de la mascota como ícono, sobre índigo.
+
+Se descartaron al mirarlas en chico: una lámpara de aceite (se leía como la de Aladino y después como una sartén), la puerta en
+arco con la cruz (se leía como una lápida) y el libro con colinas (la senda parecía una cúpula). Lienzo con las tres:
+https://claude.ai/artifact/RziKMpKvPd5PRsjjHZLY78; archivos en `marcas/logo_2026-11b/finales/` (fuente: `logos.py`). Recomendación:
+la S de camino. Si se cambia, decidirlo antes de pagar el INPI: las marcas mixtas SENDA BIBLIA Y JUEGOS llevan el dibujo.
+
 ## 3. Próximos
 
 (se completa al cerrar)
