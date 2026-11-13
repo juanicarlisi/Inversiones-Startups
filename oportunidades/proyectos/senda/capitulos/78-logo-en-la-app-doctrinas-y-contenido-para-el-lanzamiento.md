@@ -99,8 +99,8 @@ https://github.com/juanicarlisi/senda-app/releases/tag/prueba-53 (trae todo lo a
 ## 3. Próximos
 
 1. Que el fundador pruebe el APK 53 (pendiente «probar53» en la Consola).
-2. La auditoría de textos sobre las 5.000 preguntas de la trivia (`scripts/auditoria/textos.cjs --solo espadeo`) tarda más de 15
-   minutos: terminarla y corregir lo que encuentre en la próxima APK.
+2. Hecho: la auditoría de textos sobre las 5.529 preguntas de la trivia (`scripts/auditoria/textos.cjs --solo espadeo`, más de
+   15 minutos) terminó con 0 textos cortados o pisados.
 3. Google Play: crear la app, subir el AAB a la prueba cerrada y arrancar los 14 días con 12 testers antes del 02-12.
 4. La sesión legal exclusiva (DEC-2026-11-10-5) antes de que la ficha de Play sea pública; ahí sale la leyenda «para revisión de un
    abogado».
