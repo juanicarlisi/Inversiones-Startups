@@ -1,0 +1,669 @@
+{
+ "id": "09-26",
+ "titulo": "Locks, deadlocks y bloqueo optimista",
+ "bajada": "Reproducís con dos sesiones qué pasa cuando dos transacciones quieren escribir la misma fila, provocás un deadlock, medís lo que cuesta y elegís entre bloquear antes o verificar después.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es un lock de fila, cuándo lo toma PostgreSQL solo y cómo se pide a propósito con `SELECT … FOR UPDATE`.",
+  "Reproducir un deadlock de base de datos con dos sesiones, leerlo en el mensaje de error y evitarlo tomando los locks siempre en el mismo orden.",
+  "Usar `NOWAIT`, `SKIP LOCKED` y `pg_advisory_xact_lock` y decir para qué problema sirve cada uno.",
+  "Implementar un bloqueo optimista con una columna de versión y relacionarlo con `If-Match` de HTTP.",
+  "Elegir, para un caso concreto, entre un `UPDATE` condicional, un lock pesimista, un candado de aplicación y una versión."
+ ],
+ "venis_de": "Ayer, en [@09-25], viste cómo las fotos de MVCC dejan leer sin molestar a nadie y cómo `repeatable read` y `serializable` cancelan a quien choca. Quedó afuera lo central de escribir: cuando dos transacciones quieren cambiar **la misma** fila no hay foto que alcance, y alguien tiene que esperar o fracasar. Hoy son las herramientas para eso. El `SKIP LOCKED` y el `If-Match` ya los cruzaste en [@07-13] y [@08-03]; ahora los ves desde adentro de la base.",
+ "se_apoya_en": [
+  "02-22",
+  "07-13",
+  "08-03",
+  "09-24",
+  "09-25"
+ ],
+ "gancho": [
+  "Son las 10:02. En la app de los choferes aparece un envío a Salta con el estado «libre». Ana y Beto tocan «Tomar» con 80 milisegundos de diferencia. Si la respuesta a «¿quién se lo queda?» es «los dos», un chofer va a manejar hasta Salta para encontrarse con que el envío ya tiene dueño, y la base va a mostrar a ambos como responsables.",
+  "Hay un segundo problema, peor, que no se ve en el caso simple: dos operaciones que se esperan mutuamente y no pueden avanzar nunca. Hoy vas a provocar los dos con dos terminales abiertas, ver exactamente qué dice PostgreSQL y aprender las tres respuestas clásicas: esperar con un lock, fracasar a propósito con un número de versión y poner un candado a una regla que no es una fila."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Dos quieren escribir lo mismo: la carrera de «Tomar»"
+  },
+  {
+   "t": "p",
+   "x": "Hay una [[condición de carrera]] cuando el resultado depende de quién llega primero a un punto compartido ([@02-22]). Acá el punto compartido es el estado de un envío. Para probarlo armé cuatro envíos de juguete, libres, con una columna `chofer_id` vacía. El programa de cada chofer hace lo que haría cualquiera: leer el estado y, si está libre, tomarlo."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table choferes (id int primary key, nombre text not null);\ninsert into choferes values (1, 'Ana'), (2, 'Beto');\n\ncreate table envios (\n  id        int primary key,\n  destino   text not null,\n  chofer_id int references choferes(id),\n  estado    text not null default 'libre',\n  version   int not null default 1\n);\ninsert into envios (id, destino) values (1,'Salta'), (2,'Rosario'), (3,'Mendoza'), (4,'Tucumán');",
+   "cap": "Datos de ejemplo inventados. Corrí todo en PostgreSQL 16.15, en `read committed` (el nivel por defecto), con dos sesiones `psql` llamadas A y B. Las líneas con `A>` o `B>` se escribieron en esa terminal, en ese orden."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> begin; select estado from envios where id = 3;",
+     "s": " estado \n--------\n libre"
+    },
+    {
+     "c": "B> begin; select estado from envios where id = 3;",
+     "s": " estado \n--------\n libre"
+    },
+    {
+     "c": "A> update envios set estado = 'tomado', chofer_id = 1 where id = 3; commit;",
+     "s": ""
+    },
+    {
+     "c": "B> update envios set estado = 'tomado', chofer_id = 2 where id = 3; commit;",
+     "s": ""
+    },
+    {
+     "c": "A> select id, estado, chofer_id from envios where id = 3;",
+     "s": " id | estado | chofer_id \n----+--------+-----------\n  3 | tomado |         2"
+    }
+   ],
+   "cap": "Los dos vieron «libre» y los dos escribieron. Ganó el último (Beto), y Ana cree que el envío es suyo: su `commit` funcionó sin ningún error."
+  },
+  {
+   "t": "p",
+   "x": "Nadie hizo nada raro. Cada transacción fue correcta sola: el problema está en el hueco entre **leer** y **escribir**, donde la información que usaste para decidir ya puede ser falsa. La solución más barata es no dejar ese hueco: que la decisión y la escritura sean **una sola sentencia**."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> begin; update envios set estado = 'tomado', chofer_id = 1 where id = 3 and estado = 'libre' returning id;",
+     "s": " id \n----\n  3\n(1 row)"
+    },
+    {
+     "c": "B> update envios set estado = 'tomado', chofer_id = 2 where id = 3 and estado = 'libre' returning id;",
+     "s": "(B queda esperando)"
+    },
+    {
+     "c": "A> commit;",
+     "s": ""
+    },
+    {
+     "c": "B> (termina)",
+     "s": " id \n----\n(0 rows)"
+    }
+   ],
+   "cap": "El `and estado = 'libre'` convierte la pregunta y la escritura en un solo paso. A recibe una fila: ganó. B recibe cero filas: perdió, y el programa lo sabe."
+  },
+  {
+   "t": "p",
+   "x": "Contar las filas afectadas es la señal: una fila quiere decir «es tuyo», cero quiere decir «alguien se adelantó». Es el mismo patrón que `where version = …` más abajo, y es la forma más simple y más rápida de resolver un «el que llega primero gana»."
+  },
+  {
+   "t": "pensa",
+   "x": "En `read committed`, ¿por qué el `and estado = 'libre'` alcanza para que B no pise a A, si B empezó su `UPDATE` cuando el envío todavía figuraba libre?",
+   "resp": "Porque un UPDATE que encuentra la fila ocupada por otra transacción espera a que ésta termine y, si confirmó, **vuelve a evaluar el WHERE sobre la versión nueva** de la fila. La versión nueva tiene estado «tomado», así que la condición ya no se cumple y no actualiza nada. Es lo que describe la documentación para este nivel [#bd0925-pg-iso]."
+  },
+  {
+   "t": "h",
+   "x": "Lock de fila: bloquear lo que vas a modificar"
+  },
+  {
+   "t": "p",
+   "x": "Un [[lock de fila]] es una marca que una transacción pone sobre una fila para que otras no la modifiquen hasta que ella termine. No hace falta pedirlo: cada `UPDATE` y cada `DELETE` lo toman solos sobre las filas que tocan. Se libera al terminar la transacción, con `commit` o `rollback`, y nunca antes. Lo que sí se puede pedir a propósito es bloquear una fila **sin modificarla todavía**: es `SELECT … FOR UPDATE`, que significa «leo esta fila porque voy a cambiarla; que nadie la toque mientras decido» [#postgres-select-bloqueo-filas]. Es el bloqueo pesimista, de pesimismo: suponer que habrá choque y evitarlo de antemano."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> select pg_backend_pid();",
+     "s": " pg_backend_pid \n----------------\n           4305"
+    },
+    {
+     "c": "A> begin; select id from envios where id = 2 for update;",
+     "s": " id \n----\n  2"
+    },
+    {
+     "c": "B> update envios set destino = 'Jujuy' where id = 2;",
+     "s": "(B queda esperando)"
+    },
+    {
+     "c": "A> select pid, pg_blocking_pids(pid) as espera_a, wait_event_type, wait_event from pg_stat_activity where state = 'active' and query like 'update envios%';",
+     "s": "  pid  | espera_a | wait_event_type |  wait_event   \n------+----------+-----------------+---------------\n 4306 | {4305}   | Lock            | transactionid"
+    },
+    {
+     "c": "A> rollback;",
+     "s": "(B termina de inmediato)"
+    }
+   ],
+   "cap": "El proceso 4306 (B) espera al 4305 (A). Es una espera por una **transacción**: B sigue esperando hasta que A haga commit o rollback, aunque A no haya cambiado ni un byte."
+  },
+  {
+   "t": "p",
+   "x": "Una curiosidad que conecta con ayer: ¿dónde recuerda PostgreSQL ese lock? En la propia fila, en su `xmax`. Después de un `select … for update`, la versión de la fila mostró `xmin = 734` y `xmax = 735`, con 735 siendo la transacción que la bloqueó, sin haber borrado nada. Por eso la documentación avisa que bloquear una fila **escribe en disco**, aunque solo la hayas leído [#back18-pg-explicit-locking]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Locks y personas no se mezclan",
+   "x": "Los locks de fila duran hasta el final de la transacción, y quien espera lo hace sin límite si no se configura un tiempo máximo. La documentación lo dice con todas las letras: es mala idea que una aplicación mantenga transacciones abiertas mucho tiempo, por ejemplo mientras espera que una persona escriba algo [#back18-pg-explicit-locking]. Un `FOR UPDATE` seguido de un formulario abierto en una pantalla es la receta para que todo un equipo quede esperando a quien fue a tomar un café."
+  },
+  {
+   "t": "p",
+   "x": "`FOR UPDATE` es el más fuerte de cuatro modos. Los demás existen porque una clave foránea ([@09-07]) también toma locks: insertar un envío con `chofer_id = 1` pone un lock muy débil sobre la fila del chofer 1 (para que no se borre ni cambie su clave a mitad de camino). Esa es la razón de los cuatro:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Si ya hay…",
+    "…choca con"
+   ],
+   "filas": [
+    [
+     "FOR KEY SHARE (lo toma una clave foránea al insertar el hijo)",
+     "Solo con FOR UPDATE"
+    ],
+    [
+     "FOR SHARE",
+     "FOR NO KEY UPDATE y FOR UPDATE"
+    ],
+    [
+     "FOR NO KEY UPDATE (lo toma un UPDATE común)",
+     "FOR SHARE, FOR NO KEY UPDATE y FOR UPDATE"
+    ],
+    [
+     "FOR UPDATE (lo toma un DELETE o un UPDATE que cambia una clave única)",
+     "Los otros tres y él mismo"
+    ]
+   ],
+   "cap": "Resumen de la tabla de conflictos de la documentación de PostgreSQL 16 [#back18-pg-explicit-locking]. «Choca» quiere decir que el segundo pedido espera."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> begin; select id from choferes where id = 1 for no key update;",
+     "s": " id \n----\n  1"
+    },
+    {
+     "c": "B> insert into envios (id, destino, chofer_id) values (10, 'Neuquén', 1) returning id;",
+     "s": " id \n----\n 10   (entra al instante)"
+    },
+    {
+     "c": "A> rollback; begin; select id from choferes where id = 1 for update;",
+     "s": " id \n----\n  1"
+    },
+    {
+     "c": "B> insert into envios (id, destino, chofer_id) values (11, 'Neuquén', 1) returning id;",
+     "s": "(B queda esperando hasta que A haga commit)"
+    }
+   ],
+   "cap": "Con FOR NO KEY UPDATE el chofer 1 sigue admitiendo envíos nuevos; con FOR UPDATE, no. Regla práctica: si no vas a cambiar la clave de la fila, pedí NO KEY UPDATE y frenás menos gente."
+  },
+  {
+   "t": "h",
+   "x": "No esperar: NOWAIT y SKIP LOCKED"
+  },
+  {
+   "t": "p",
+   "x": "Esperar no siempre es lo que querés. Dos variantes de `FOR UPDATE` cambian la actitud frente a una fila ocupada. `NOWAIT` falla de inmediato en vez de esperar. `SKIP LOCKED` salta las filas ocupadas y devuelve las libres. Ya viste el segundo como motor de una cola de trabajos en [@07-13]; acá se ve por dentro, con A reteniendo los envíos 1 y 2:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> begin; select id from envios where id in (1, 2) for update;",
+     "s": " id \n----\n  1\n  2"
+    },
+    {
+     "c": "B> select id from envios where id in (1, 2) for update nowait;",
+     "s": "ERROR:  could not obtain lock on row in relation \"envios\""
+    },
+    {
+     "c": "B> select id from envios where estado = 'libre' order by id for update skip locked limit 2;",
+     "s": " id \n----\n  3\n  4"
+    }
+   ],
+   "cap": "NOWAIT avisa con un error. SKIP LOCKED se salta el 1 y el 2 (retenidos por A) y entrega el 3 y el 4: dos workers nunca reciben la misma fila."
+  },
+  {
+   "t": "p",
+   "x": "`SKIP LOCKED` existe desde PostgreSQL 9.5 [#back13-pg-9-5-notas]. Sirve para repartir trabajo entre varios consumidores, pero no para reglas donde necesitás ver **todas** las filas, porque el resultado depende de quién estaba ocupado en ese milisegundo y es, por diseño, una vista incompleta."
+  },
+  {
+   "t": "h",
+   "x": "Deadlock: cuando dos se esperan para siempre"
+  },
+  {
+   "t": "p",
+   "x": "Con locks aparece un problema nuevo. Un [[deadlock de base de datos]] es una espera circular entre transacciones: A tiene un lock que B necesita, y B tiene uno que A necesita. Es el mismo deadlock del sistema operativo que viste en [@02-22], pero con filas y transacciones en lugar de hilos y [[mutex]]."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Dos autoelevadores en un pasillo de un carril",
+   "x": "Se encuentran de frente y cada uno espera que el otro retroceda: nadie avanza nunca. La analogía falla en algo importante: en una base, alguien tiene que decidir quién retrocede, y lo decide la propia base, cancelando una de las transacciones."
+  },
+  {
+   "t": "p",
+   "x": "Se provoca con dos transacciones que tocan las mismas dos filas en **orden contrario**:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> begin; update envios set destino = 'Salta (A)' where id = 1;",
+     "s": ""
+    },
+    {
+     "c": "B> begin; update envios set destino = 'Rosario (B)' where id = 2;",
+     "s": ""
+    },
+    {
+     "c": "A> update envios set destino = 'Rosario (A)' where id = 2;",
+     "s": "(A queda esperando a B)"
+    },
+    {
+     "c": "B> update envios set destino = 'Salta (B)' where id = 1;",
+     "s": "(B queda esperando a A: ahora nadie puede avanzar)"
+    },
+    {
+     "c": "(un segundo después, en la terminal de A)",
+     "s": "ERROR:  deadlock detected\nDETAIL:  Process 4753 waits for ShareLock on transaction 760; blocked by process 4754.\nProcess 4754 waits for ShareLock on transaction 759; blocked by process 4753.\nHINT:  See server log for query details.\nCONTEXT:  while updating tuple (0,22) in relation \"envios\""
+    }
+   ],
+   "cap": "PostgreSQL cortó la espera circular cancelando a A. La transacción de B siguió y terminó. El mensaje es un mapa: quién espera a quién, por qué transacción."
+  },
+  {
+   "t": "p",
+   "x": "La base no detecta el deadlock en el instante: las esperas son comunes y revisar el grafo de esperas es relativamente caro. Espera `deadlock_timeout` (por defecto **un segundo**) y recién entonces busca ciclos [#postgres-deadlock-timeout]. En el log del servidor de mi prueba quedó escrito: `process 4753 detected deadlock while waiting for ShareLock on transaction 760 after 1000.305 ms`. La documentación aclara que cuál de las dos transacciones se cancela es difícil de prever y no se debe confiar en eso [#back18-pg-explicit-locking]."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Un error que se repite, no se arregla",
+   "x": "El error de un deadlock tiene el código `40P01` (`deadlock_detected`), de la misma familia que el `40001` de ayer. La documentación recomienda repetir las transacciones canceladas por deadlock [#bd0925-pg-serializacion]. Repetir alcanza como parche, pero no como solución, porque cada deadlock cuesta como mínimo ese segundo de espera."
+  },
+  {
+   "t": "p",
+   "x": "¿Cuánto cuesta en la práctica? Armé ocho conexiones que mueven un bulto entre dos depósitos elegidos al azar entre cuatro (cinco traslados cada una, 40 en total) y reintentan si reciben `40P01`. La única diferencia entre las dos versiones es que la segunda **toma los dos locks en orden de id** antes de tocar nada."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "async function traslado(a, b) {            // mover 1 bulto del depósito a al depósito b\n  for (;;) {\n    const c = await pool.connect();\n    try {\n      await c.query('begin');\n      if (ordenado)                         // la defensa: bloquear SIEMPRE en el mismo orden\n        await c.query('select id from dep where id in ($1, $2) order by id for update', [a, b]);\n      await c.query('update dep set bultos = bultos - 1 where id = $1', [a]);\n      await new Promise(r => setTimeout(r, 5));   // trabajo entre las dos escrituras\n      await c.query('update dep set bultos = bultos + 1 where id = $1', [b]);\n      await c.query('commit'); return;\n    } catch (e) {\n      await c.query('rollback').catch(() => {});\n      if (e.code === '40P01') continue;     // deadlock: se repite la transacción entera\n      throw e;\n    } finally { c.release(); }\n  }\n}",
+   "cap": "Fragmento del script. Sin la línea del `order by id for update`, dos traslados en sentidos opuestos (1 a 2 y 2 a 1) toman los locks en orden contrario."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Versión",
+    "Traslados completados",
+    "Deadlocks reintentados",
+    "Tiempo total"
+   ],
+   "filas": [
+    [
+     "Orden libre (el de cada operación)",
+     "40",
+     "27 y 43 (dos corridas)",
+     "20 y 23 segundos"
+    ],
+    [
+     "Orden fijo por id",
+     "40",
+     "0 y 0",
+     "0,28 y 0,24 segundos"
+    ]
+   ],
+   "cap": "Medido en esta VM, PostgreSQL 16.15, `deadlock_timeout` = 1 s (el valor por defecto). Dos corridas de cada una; el total de bultos dio 4.000 en todas, es decir, ningún traslado se perdió."
+  },
+  {
+   "t": "p",
+   "x": "Cada deadlock reintentado costó alrededor de un segundo de espera inútil, y con orden libre eso suma casi 100 veces el tiempo total. Con orden fijo no hay ciclo posible, porque si todos piden los locks en la misma secuencia, el primero en llegar a la primera fila obliga a los demás a esperar ahí, y el resto no se cruza. Es la defensa que recomienda la documentación: adquirir los locks de varios objetos siempre en un orden consistente [#back18-pg-explicit-locking]."
+  },
+  {
+   "t": "pensa",
+   "x": "Dos transacciones hacen: A actualiza la fila 1 y luego la 2. B actualiza la fila 1 y luego la 2. ¿Pueden entrar en deadlock? ¿Y si B va primero a la 2 y luego a la 1?",
+   "resp": "En el primer caso no: las dos piden en el mismo orden, así que la que llega segunda espera en la fila 1 y no sostiene nada que la otra necesite. En el segundo caso sí: A tiene la 1 y quiere la 2, B tiene la 2 y quiere la 1. El deadlock requiere un ciclo, y un orden común lo rompe."
+  },
+  {
+   "t": "h",
+   "x": "Advisory locks: un candado para algo que no es una fila"
+  },
+  {
+   "t": "p",
+   "x": "Todo lo anterior bloquea filas que **existen**. Pero muchas reglas hablan de un conjunto: «a cada usuario se le cobran como máximo 2 trivias», «una persona está en como mucho 30 grupos». No hay una fila que bloquear, porque lo que se quiere impedir es una fila nueva. `FOR UPDATE` sobre las filas que ya contaste no frena a quien inserta la siguiente."
+  },
+  {
+   "t": "p",
+   "x": "Para eso existe el [[advisory lock]] (candado «de aviso»): un lock sobre un **número** que elige la aplicación. La base no sabe qué protege; solo hace esperar a quien pide el mismo número. Se llama así porque su uso es voluntario: el sistema no lo hace cumplir, depende de que todos los caminos que importan lo pidan [#back18-pg-explicit-locking]. La versión `pg_advisory_xact_lock` se libera sola al terminar la transacción. Lo probé con una función que reclama una trivia solo si el usuario tiene menos de 2, con y sin candado, y ocho pedidos simultáneos:"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create function reclamar_con_candado(u text) returns boolean language plpgsql as $$\nbegin\n  perform pg_advisory_xact_lock(hashtext('trivia:' || u));   -- un candado por usuario\n  if (select count(*) from cobradas where usuario = u) >= 2 then return false; end if;\n  insert into cobradas (usuario) values (u);\n  return true;\nend $$;",
+   "cap": "La versión sin candado es idéntica sin la línea del `perform`. `hashtext` convierte el texto en un entero de 32 bits, que es el «número» del candado. Dos usuarios distintos pueden coincidir en el número y esperarse sin necesidad: no se corrompe nada, solo se serializa de más."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Variante (8 pedidos a la vez, tope 2)",
+    "Filas cobradas, en cada corrida"
+   ],
+   "filas": [
+    [
+     "Sin candado, con 10 ms de trabajo entre contar e insertar",
+     "8, 8 y 8"
+    ],
+    [
+     "Sin candado y sin pausa (30 corridas)",
+     "Entre 2 y 8; solo 1 de las 30 quedó en 2"
+    ],
+    [
+     "Con `pg_advisory_xact_lock`",
+     "2, 2 y 2"
+    ]
+   ],
+   "cap": "Medido en esta VM con `pgbench` (8 clientes, un pedido cada uno). La pausa de 10 ms (`pg_sleep`) agranda la ventana a propósito. Sin ella, igual casi siempre pasa el tope: contar e insertar son dos pasos, y ocho clientes arrancan a la vez."
+  },
+  {
+   "t": "senda",
+   "titulo": "El candado de Senda para no gastar sin techo la API de Claude",
+   "x": [
+    "Esto corresponde al commit 25e08fa. La función `reclamar_trivia` usa exactamente esta técnica, y el comentario del código dice que es para que «un solo pedido gane». Antes de pedirle nada a Claude, la función toma `pg_advisory_xact_lock(hashtext('trivia:' || auth.uid()::text))`: un candado por persona. Después verifica que le queden trivias, marca la trivia del sermón como «generando» y escribe una fila en `trivias_cobradas`. Si dos pedidos de la misma persona llegan juntos, el segundo espera al primero y ve el estado ya cambiado: la plata de la API se cobra una vez.",
+    "Es la elección correcta para ese caso: lo que se limita es una cantidad que depende de **otras** filas (cuántas ya se cobraron), el tipo de regla donde un `FOR UPDATE` no alcanza."
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Hallazgo: `unirse_grupo` cuenta y después escribe, sin candado",
+   "x": [
+    "La función de Senda que mete a una persona en un grupo hace tres controles con `count(*)` y `exists` y recién después inserta en `miembros`. El tope de 30 grupos por persona es de ese tipo. Para probarlo copié la función tal cual (sin modificarla) a una base mía con las tablas mínimas y un reemplazo propio de `auth.uid()` que lee el id desde una variable de sesión, y lancé 8 pedidos simultáneos de la misma persona, que ya estaba en 29 grupos, a 8 grupos distintos.",
+    "Diez corridas de ocho pedidos terminaron con **entre 31 y 37** membresías, siempre por encima del tope de 30. Con una sola línea agregada al comienzo, `perform pg_advisory_xact_lock(hashtext('unirse:' || auth.uid()::text))`, las diez corridas terminaron en 30 exactos y los pedidos sobrantes recibieron `demasiados_grupos`.",
+    "Es un hallazgo de severidad baja: hace falta mandar los pedidos en paralelo (un script, no una persona tocando botones) y el efecto es pasarse del tope, no corromper datos. No modifiqué nada en el repositorio de Senda; es una base de prueba mía, y no sé si la base real tiene otra protección que no vi."
+   ],
+   "archivos": [
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "supabase/migrations/20261101000000_juntos.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Bloqueo optimista: no bloquear, verificar al final"
+  },
+  {
+   "t": "p",
+   "x": "Hay un caso donde ningún lock sirve: una persona abre la pantalla de edición de un envío, se va diez minutos y recién después aprieta «Guardar». Bloquear la fila durante esos diez minutos (con una transacción abierta) sería la receta del desastre que viste arriba. La alternativa es el [[bloqueo optimista]]: no bloquear nada al leer, y al escribir verificar que nadie haya cambiado la fila mientras tanto. Se llama «optimista» porque supone que casi nunca habrá choque, y paga el costo solo cuando lo hay."
+  },
+  {
+   "t": "p",
+   "x": "La herramienta es una columna de **versión** que sube en cada cambio. La lectura trae la versión; la escritura la devuelve como condición:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> select id, destino, version from envios where id = 4;",
+     "s": " id | destino | version \n----+---------+---------\n  4 | Tucumán |       1"
+    },
+    {
+     "c": "B> select id, destino, version from envios where id = 4;",
+     "s": " id | destino | version \n----+---------+---------\n  4 | Tucumán |       1"
+    },
+    {
+     "c": "A> update envios set destino = 'Tucumán Sur', version = version + 1 where id = 4 and version = 1 returning version;",
+     "s": " version \n---------\n       2"
+    },
+    {
+     "c": "B> update envios set destino = 'Tucumán Norte', version = version + 1 where id = 4 and version = 1 returning version;",
+     "s": " version \n---------\n(0 rows)"
+    },
+    {
+     "c": "B> select id, destino, version from envios where id = 4;",
+     "s": " id |   destino   | version \n----+-------------+---------\n  4 | Tucumán Sur |       2"
+    }
+   ],
+   "cap": "A y B leyeron la versión 1. A guardó primero. B recibió cero filas: alguien cambió el envío mientras ella editaba. El programa de B tiene que mostrar el cambio de A y dejar que la persona decida."
+  },
+  {
+   "t": "p",
+   "x": "Es el mismo mecanismo que `If-Match` de [@08-03]. Allá, el `ETag` es esta versión, la condición viaja en un encabezado y el servidor responde `412 Precondition Failed` cuando la condición no se cumple [#rfc9110]. Acá se ve el otro extremo: la línea de SQL que lo hace posible es el `where version = 1`. Fijate que ya lo habías visto en pequeño ayer: `repeatable read` es un bloqueo optimista que hace la propia base (compara la fila contra tu foto y cancela con `40001`), sin que escribas la columna de versión."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Pesimista (FOR UPDATE)",
+    "Optimista (columna de versión)"
+   ],
+   "filas": [
+    [
+     "Cuándo choca",
+     "Antes: el segundo espera",
+     "Después: el segundo recibe cero filas"
+    ],
+    [
+     "Cuesta cuando…",
+     "hay mucha gente tocando las mismas filas y los locks se acumulan",
+     "hay choques frecuentes y se repite trabajo"
+    ],
+    [
+     "Sirve si la edición…",
+     "dura milisegundos, dentro de una transacción corta",
+     "dura minutos o pasa por una persona, un navegador y la red"
+    ],
+    [
+     "Riesgo",
+     "esperas largas y deadlocks",
+     "una pantalla que muestra «cambió, reintentá» y puede enojar"
+    ]
+   ],
+   "cap": "Criterio práctico mío, no una norma: depende de cuánto choquen tus transacciones y de cuánto dura cada una."
+  },
+  {
+   "t": "pensa",
+   "x": "Una persona de la central abre un envío para editarlo y lo deja abierto 10 minutos en el celular. ¿Usarías FOR UPDATE o una columna de versión?",
+   "resp": "Una columna de versión. FOR UPDATE obliga a mantener una transacción abierta con la fila bloqueada durante los 10 minutos (o más, si la persona se olvida), y cualquiera que quiera tocar ese envío espera. Con versión no se bloquea nada al leer; si alguien cambió el envío en el medio, el guardado devuelve cero filas y la pantalla le avisa."
+  },
+  {
+   "t": "senda",
+   "titulo": "`jugar_turno`: el lock pesimista de un duelo",
+   "x": [
+    "Esto corresponde al commit 25e08fa. Senda no tiene `ETag` ni `If-Match` en ningún lado. En los duelos por turnos, el choque posible es que la misma persona mande dos veces su turno (por ejemplo, por una mala conexión). La última versión de `jugar_turno` empieza con `select * into p from public.partidas where id = p_partida for update`, que bloquea la fila de la partida hasta terminar. Después revisa: si ya se vio el `cliente_id` de esa jugada devuelve la partida sin repetir nada (la idempotencia de [@07-12]), y si no es tu turno levanta `no_es_tu_turno`.",
+    "Reproduje la forma de esa lógica con una tabla de juguete de una fila (`turno_de = 1`, `ronda = 3`). Sin `for update`, dos pedidos que leyeron «te toca» jugaron los dos: la partida terminó en ronda 5 con dos turnos jugados y el turno pasó dos veces. Con `for update`, el segundo pedido esperó, y al despertar vio `turno_de = 2`, es decir que ya no era su turno: en la función real, ese es el momento en que levanta el error."
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261101000000_juntos.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué herramienta para qué problema"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Problema",
+    "Herramienta",
+    "Costo o cuidado"
+   ],
+   "filas": [
+    [
+     "El primero que llega se queda con un recurso libre",
+     "`UPDATE … WHERE estado = 'libre'` y contar filas",
+     "Casi nada; es lo primero que hay que intentar"
+    ],
+    [
+     "Leer una fila, decidir con lógica del programa y escribir esa fila",
+     "`SELECT … FOR UPDATE` en una transacción corta",
+     "Bloquea a otros; si toca varias filas, siempre en el mismo orden"
+    ],
+    [
+     "Repartir trabajo entre varios consumidores",
+     "`FOR UPDATE SKIP LOCKED`",
+     "Vista incompleta a propósito"
+    ],
+    [
+     "Una regla sobre un conjunto («como máximo N»)",
+     "Advisory lock, o `serializable` con reintento ([@09-25])",
+     "Todos los caminos tienen que usarlo"
+    ],
+    [
+     "Una edición que pasa por una persona",
+     "Columna de versión (bloqueo optimista)",
+     "La pantalla tiene que explicar el choque"
+    ],
+    [
+     "Una transacción que cambia varias filas",
+     "Mismo orden de locks y reintento ante `40P01`",
+     "Cada deadlock cuesta ≥ `deadlock_timeout`"
+    ]
+   ],
+   "cap": "El orden de la tabla es el orden en que conviene probar: de lo más barato a lo más pesado."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y qué puede cambiar",
+   "x": "Verificado el 13-11-2026: PostgreSQL 18.7 es la versión vigente (publicada el 12-11-2026) y la 16.16 la última de la serie 16 [#postgresql-versioning]. Corrí todo en la 16.15 y leí los modos de lock, el `deadlock_timeout` y las reglas de espera en la documentación de la 16. Los tiempos y los conteos son de mi máquina virtual, y los nombres de funciones y modos pueden ganar variantes en versiones nuevas; lo que perdura es el modelo: esperar con un lock, fracasar con una versión, evitar ciclos con un orden común."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Dos transacciones: A hace `update stock set bultos = bultos - 5 where deposito = 'Norte'` y después `update stock set bultos = bultos + 5 where deposito = 'Sur'`. B hace lo mismo pero en el sentido contrario (suma 5 a Norte y resta 5 a Sur, en ese orden). Se ejecutan a la vez, varias veces por minuto. (a) ¿Qué problema aparece y cuánto tarda, como mínimo, en notarse? (b) Reescribí cómo tendría que arrancar cada transacción para evitarlo.",
+   "pista": "Mirá qué fila toca primero cada una. Y recordá el valor por defecto de `deadlock_timeout`.",
+   "solucion": "(a) A toma Norte y quiere Sur; B toma Sur y quiere Norte: deadlock. La base lo detecta recién después de `deadlock_timeout` (un segundo por defecto), cancela a una con el error 40P01 y la otra termina. (b) Que las dos empiecen con `select … where deposito in ('Norte', 'Sur') order by deposito for update`, de modo que toman los locks en el mismo orden, y recién después hagan las dos actualizaciones. Además, el programa debe repetir la transacción si igual recibe 40P01."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Para cada caso, elegí una herramienta de la tabla de arriba: (1) un sistema de turnos para el muelle de carga donde cada turno se reserva con «reservar» y solo uno puede quedarse con el horario; (2) cuatro workers que toman pedidos de una tabla `pedidos_pendientes`; (3) una pantalla de edición de un contrato de transporte que un administrativo puede dejar abierta una hora.",
+   "pista": "Para cada uno, preguntate si hay una fila existente que pelear, si importa ver todas las filas y cuánto dura la edición.",
+   "solucion": "(1) UPDATE condicional (`where reservado_por is null`) mirando cuántas filas afectó: es el «tomar el envío» de hoy. (2) `FOR UPDATE SKIP LOCKED`, así dos workers nunca reciben el mismo pedido. (3) Columna de versión: una hora de transacción abierta con lock sería inaceptable; se guarda con `where version = …` y si da cero filas se muestra el cambio ajeno."
+  }
+ ],
+ "recap": [
+  "El hueco entre leer y escribir es donde nacen las carreras: se cierra haciendo la decisión y la escritura en una sola sentencia (`UPDATE … WHERE condición`) y mirando cuántas filas afectó.",
+  "Un lock de fila lo toman solos `UPDATE` y `DELETE`, y se pide a propósito con `SELECT … FOR UPDATE`. Dura hasta el final de la transacción: no se debe mantener abierto mientras una persona decide.",
+  "`NOWAIT` falla en vez de esperar y `SKIP LOCKED` se salta lo ocupado; el segundo es la base de las colas de trabajo.",
+  "Un deadlock es una espera circular. La base lo corta después de `deadlock_timeout` (1 s por defecto) con el error `40P01`. La defensa es tomar los locks siempre en el mismo orden: en mi prueba, 0 deadlocks en vez de 27 a 43.",
+  "Una regla sobre un conjunto, como un tope o un conteo, no tiene fila que bloquear: se usa un advisory lock (`pg_advisory_xact_lock`), como hace `reclamar_trivia` en Senda, o `serializable`.",
+  "El bloqueo optimista no bloquea: guarda una versión al leer y la verifica al escribir (`where version = …`). Es el `If-Match` de HTTP visto desde la base."
+ ],
+ "repaso": [
+  {
+   "p": "Dos choferes leen que un envío está «libre» y cada uno ejecuta `update envios set chofer_id = <el suyo>, estado = 'tomado' where id = 3`, sin condición sobre el estado. ¿Qué pasa en `read committed`?",
+   "o": [
+    "El segundo update falla con error, porque la fila ya había cambiado desde que se leyó",
+    "Los dos se aplican uno tras otro, quedan los datos del último y el primero cree haber ganado",
+    "Se aplica solo el primero, porque la base ignora el update del que llegó segundo",
+    "La base detecta un deadlock entre los dos y cancela uno de ellos, que debe repetirse"
+   ],
+   "c": 1,
+   "e": "En read committed el segundo update espera a que el primero confirme y se aplica sobre la versión nueva: no hay error ni se ignora nada. El primer chofer cree que ganó pero el valor final es el del segundo. Un deadlock requiere dos filas en orden contrario. Para que el segundo perdiera haría falta una condición en el WHERE (`and estado = 'libre'`)."
+  },
+  {
+   "p": "Un `UPDATE … WHERE id = 3 AND estado = 'libre'` devuelve 0 filas afectadas. ¿Qué indica?",
+   "o": [
+    "Que el envío 3 no existe, porque el UPDATE siempre devuelve al menos una fila",
+    "Que la base se cayó antes de aplicar el cambio y hay que reiniciar la sesión",
+    "Que algún otro pedido se adelantó y el envío ya no estaba libre, así que el programa perdió la carrera",
+    "Que el estado se cambió igual, pero la base no informa cuántas filas toca ningún UPDATE"
+   ],
+   "c": 2,
+   "e": "Cero filas significa que ninguna fila cumplía la condición en el momento de escribir: el envío ya fue tomado, o no existe. Un UPDATE sí informa cuántas filas tocó. No es una caída: el comando terminó bien, simplemente no había nada para cambiar. Por eso se puede usar como señal de que alguien llegó antes."
+  },
+  {
+   "p": "Una transacción A actualiza la fila 1 y luego la fila 2. Otra transacción B actualiza la fila 2 y luego la fila 1, en el mismo momento. ¿Qué ocurre?",
+   "o": [
+    "Las dos terminan bien: PostgreSQL se las arregla sin cancelar ninguna",
+    "Se produce un deadlock; tras `deadlock_timeout` la base cancela una con el código 40P01",
+    "B espera a A y después termina, porque siempre gana la que empezó primero",
+    "Las dos quedan esperando para siempre, porque PostgreSQL no detecta los deadlocks"
+   ],
+   "c": 1,
+   "e": "Cada una toma una fila y pide la que tiene la otra: es una espera circular. PostgreSQL la detecta (después de `deadlock_timeout`, por defecto un segundo) y cancela una con 40P01; cuál de las dos no es previsible. No se cuelgan para siempre, y tampoco existe una regla que haga ganar a la más antigua."
+  },
+  {
+   "p": "Una aplicación recibe `ERROR: deadlock detected` en una transacción que mueve bultos entre dos depósitos. ¿Qué cambio de diseño ataca la causa y no el síntoma?",
+   "o": [
+    "Subir `deadlock_timeout` a un minuto para que la base espere más antes de cancelar",
+    "Tomar siempre los locks de los dos depósitos en el mismo orden, por ejemplo por id ascendente",
+    "Pasar todas las transacciones al nivel serializable, que no admite ningún tipo de espera",
+    "Hacer commit después de cada sentencia, así ninguna transacción retiene locks nunca"
+   ],
+   "c": 1,
+   "e": "El deadlock existe porque dos transacciones piden las mismas filas en orden contrario; con un orden común no hay ciclo posible. Subir el timeout solo demora el aviso. Serializable no elimina los deadlocks por locks de fila. Y confirmar cada sentencia rompe la atomicidad del traslado: podrían quedar bultos descontados y no sumados."
+  },
+  {
+   "p": "Una regla dice «cada usuario puede tener como máximo 2 trivias cobradas» y se implementa con `count(*)` seguido de `insert`. Ocho pedidos del mismo usuario llegan a la vez. ¿Qué herramienta resuelve el problema sin cambiar el nivel de aislamiento?",
+   "o": [
+    "`SELECT … FOR UPDATE` sobre las filas que ya cuentan, porque bloquea también las filas futuras",
+    "Una columna de versión en la tabla de cobradas que se compara al insertar cada fila nueva",
+    "Un advisory lock por usuario (`pg_advisory_xact_lock`) al empezar, para que los pedidos hagan fila",
+    "Un `SKIP LOCKED` en el conteo, para que cada pedido ignore los que están ocupados"
+   ],
+   "c": 2,
+   "e": "El problema es una regla sobre un conjunto: no hay una fila existente para bloquear, y un FOR UPDATE no frena la inserción de otra nueva. El advisory lock por usuario hace fila a sus pedidos. La versión sirve para una fila concreta; SKIP LOCKED daría un conteo incompleto y empeoraría el tope."
+  },
+  {
+   "p": "Una persona abre la edición de un envío y la deja abierta diez minutos antes de guardar. ¿Qué estrategia es razonable?",
+   "o": [
+    "Abrir una transacción con `FOR UPDATE` al mostrar la pantalla y cerrarla al guardar",
+    "Guardar con `where version = <la leída>` y avisar si no actualizó ninguna fila",
+    "No controlar nada, porque `read committed` evita que dos personas se pisen siempre",
+    "Subir `deadlock_timeout` para que el lock de la pantalla abierta no cause cancelaciones"
+   ],
+   "c": 1,
+   "e": "Mantener un lock diez minutos hace esperar a todos los demás. Con la columna de versión no se retiene nada y, si otra persona cambió el envío, el guardado afecta cero filas y se avisa. Read committed no evita pisadas entre lectura y escritura. Y el `deadlock_timeout` no tiene nada que ver con esperas largas sin ciclo."
+  }
+ ],
+ "feynman": "Explicale a una persona de logística, sin jerga, la diferencia entre dos maneras de evitar que dos choferes tomen el mismo envío: avisar «ocupado» a quien llega segundo (esperar con un lock) y dejar que los dos intenten y que se entere el que perdió (una versión). Después, con una analogía propia, por qué dos operaciones pueden quedar esperándose para siempre y qué regla simple lo evita.",
+ "para_profundizar": [
+  {
+   "fuente": "back18-pg-explicit-locking",
+   "nota": "El capítulo de bloqueo explícito de la documentación de PostgreSQL 16. Leé las secciones de bloqueos a nivel de fila (la tabla de conflictos), de deadlocks (con el ejemplo de las cuentas) y de advisory locks."
+  },
+  {
+   "fuente": "postgres-select-bloqueo-filas",
+   "nota": "La referencia de SELECT. Leé la parte «The Locking Clause»: es donde se definen FOR UPDATE, NOWAIT y SKIP LOCKED con sus reglas exactas."
+  },
+  {
+   "fuente": "postgres-deadlock-timeout",
+   "nota": "La página de configuración de locks, para ver `deadlock_timeout` y `lock_timeout` y saber qué se puede ajustar antes de tocar el código."
+  },
+  {
+   "fuente": "rfc9110",
+   "nota": "El estándar de HTTP: la sección de `If-Match` y la de `412 Precondition Failed`, que son el bloqueo optimista del lado de la API."
+  }
+ ],
+ "videos": [
+  {
+   "q": "PostgreSQL row locks FOR UPDATE SKIP LOCKED deadlock explained",
+   "por_que": "Para ver animados los esperas entre transacciones y el ciclo de un deadlock, que acá se leyeron en el texto de un error."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "lock de fila",
+   "d": "Marca que una transacción pone sobre una fila para que otras no la modifiquen hasta que ella termine. `UPDATE` y `DELETE` la toman solos, y `SELECT … FOR UPDATE` la toma sin modificar. Se libera al hacer commit o rollback."
+  },
+  {
+   "t": "deadlock de base de datos",
+   "d": "Espera circular entre transacciones: cada una tiene un lock que la otra necesita. PostgreSQL lo detecta después de `deadlock_timeout` (1 s por defecto) y cancela una con el código `40P01`."
+  },
+  {
+   "t": "bloqueo optimista",
+   "d": "Estrategia que no bloquea al leer: guarda una versión de la fila y, al escribir, verifica que siga igual (`where version = …`). Si no, la escritura afecta cero filas y el programa avisa del choque."
+  },
+  {
+   "t": "bloqueo pesimista",
+   "d": "Estrategia contraria: suponer que habrá choque y bloquear la fila antes de decidir, por ejemplo con `SELECT … FOR UPDATE`. Evita el choque a costa de hacer esperar a los demás."
+  },
+  {
+   "t": "advisory lock",
+   "d": "Lock sobre un número elegido por la aplicación, que la base no relaciona con ninguna fila. Sirve para proteger reglas sobre conjuntos. `pg_advisory_xact_lock` se libera al terminar la transacción."
+  }
+ ],
+ "siguiente": "Mañana: ¿qué pasa si el servidor se corta justo en medio de un commit? El registro de escritura anticipada y cómo la base promete que lo confirmado no se pierde.",
+ "fuentes_nuevas": []
+}
