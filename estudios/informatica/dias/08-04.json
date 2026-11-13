@@ -1,0 +1,811 @@
+{
+ "id": "08-04",
+ "titulo": "JSON, XML, Protobuf y otros formatos",
+ "bajada": "Medís el mismo despacho en JSON, XML, MessagePack, CBOR y Protobuf, validás un esquema contra datos reales y ves cómo agregar un campo puede romper o no a quien lee.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es serializar y comparar formatos de texto y binarios por tamaño, legibilidad y esquema.",
+  "Detectar los problemas de JSON con números grandes y con decimales, y elegir una salida.",
+  "Escribir y ejecutar un JSON Schema contra datos reales, e interpretar sus errores.",
+  "Leer los bytes de un mensaje Protobuf y calcular su tamaño a mano.",
+  "Evolucionar un esquema agregando campos sin romper a los lectores viejos, y elegir Content-Type y Accept."
+ ],
+ "venis_de": "En [@08-03] armaste una API que contesta con el código correcto y entrega listas en pedazos, pero todo viajó como JSON sin preguntarnos por qué. Hoy abrís esa caja: qué otros formatos hay, qué se gana y qué se pierde con cada uno, y qué hay que cuidar para que un cambio no rompa a nadie.",
+ "se_apoya_en": [
+  "01-14",
+  "01-15",
+  "03-13",
+  "05-19",
+  "08-03"
+ ],
+ "gancho": [
+  "El despacho número 300 de mi API puede escribirse como `{\"id\":300,\"destino\":\"Salta\",\"peso_kg\":84.2}`, y son 43 bytes. Escrito con otro formato, el mismo contenido ocupa 19 bytes. Quien lo lea del otro lado entiende lo mismo. ¿Por qué entonces no se usa siempre el más corto? Porque el formato es un acuerdo entre dos programas, y el más corto exige más acuerdos previos.",
+  "Hoy medís ese acuerdo. El mismo lote de 1.000 despachos en cinco formatos, un esquema que se ejecuta contra las 5.483 preguntas reales de Senda, un cambio de esquema que no rompe nada y otro que rompe sin avisar. Y un hallazgo en Senda: la Biblia de la app llega como XML de 11 MB y se guarda como un JSON de 4 MB."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Serializar: de un objeto en memoria a bytes"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un programa guarda un despacho como un objeto en memoria ([@03-13]): campos que apuntan a textos y números repartidos en distintas direcciones. Eso no se puede mandar por un cable ni guardar en un archivo, porque lo que sale tiene que ser una **secuencia lineal de bytes** y porque el programa del otro lado puede estar en otro lenguaje, con otra forma de ordenar su memoria. La [[serialización]] es esa conversión de objeto a bytes, y la inversa se llama deserialización.",
+    "Los formatos se distinguen por dos decisiones. **Texto o binario:** los de texto se pueden leer con un editor y los binarios no. **Con o sin esquema:** algunos llevan los nombres de los campos en cada mensaje y se explican solos (*autodescriptivos*); otros mandan solo números y dependen de que los dos lados tengan una definición común. Cada formato de hoy cae en un casillero distinto."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Objeto en memoria",
+       "s": "campos y punteros",
+       "k": "cliente"
+      },
+      {
+       "t": "Serializar",
+       "s": "JSON, XML, Protobuf…",
+       "k": "red",
+       "e": "se convierte"
+      },
+      {
+       "t": "Bytes",
+       "s": "red o archivo",
+       "k": "datos",
+       "e": "viajan"
+      }
+     ],
+     "baja": "en la otra punta, en otro lenguaje si hace falta"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Bytes",
+       "s": "recibidos",
+       "k": "datos"
+      },
+      {
+       "t": "Deserializar",
+       "s": "con el mismo formato",
+       "k": "red",
+       "e": "se leen"
+      },
+      {
+       "t": "Objeto",
+       "s": "en la memoria del otro programa",
+       "k": "servidor"
+      }
+     ]
+    }
+   ],
+   "cap": "Los dos programas no comparten memoria: solo comparten el formato."
+  },
+  {
+   "t": "h",
+   "x": "JSON: lo que dice el estándar y lo que no"
+  },
+  {
+   "t": "p",
+   "x": "[[JSON]] está definido en el RFC 8259 (diciembre de 2017) [#rfc8259] con seis tipos: objeto, arreglo, texto, número, `true`/`false` y `null`. Lo que el estándar exige es poco y conviene saberlo: el texto que circula entre sistemas **debe** estar en [[UTF-8]] ([@01-15]); no se debe agregar la marca de orden de bytes (BOM) al principio; y el tipo de medio es `application/json`. Lo que JSON no tiene también cuenta: comentarios, fechas (viajan como texto, como el `creado` de mi API), datos binarios (se pasan a base64, que convierte cada 3 bytes en 4 caracteres: un 33 % más) y un tipo de número preciso."
+  },
+  {
+   "t": "p",
+   "x": "Ese último punto es el que más rompe cosas. La gramática de JSON permite números de cualquier tamaño, pero el RFC avisa que solo se puede contar con lo que representa un número de doble precisión ([[coma flotante]], [@01-14]): los enteros entre -(2⁵³)+1 y 2⁵³-1 son interoperables [#rfc8259]. Más allá, cada lenguaje hace lo suyo:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node -e \"const j = JSON.parse('{\\\"id\\\":9007199254740993}'); console.log(j.id, Number.isSafeInteger(j.id), Number.MAX_SAFE_INTEGER)\"",
+     "s": "9007199254740992 false 9007199254740991"
+    },
+    {
+     "c": "python3 -c \"import json; print(json.loads('{\\\"id\\\":9007199254740993}')['id'])\"",
+     "s": "9007199254740993"
+    },
+    {
+     "c": "node -e \"const j = JSON.parse('{\\\"id\\\":9007199254740993}', (k, v, ctx) => k === 'id' ? BigInt(ctx.source) : v); console.log(j.id, typeof j.id)\"",
+     "s": "9007199254740993n bigint"
+    }
+   ],
+   "cap": "El mismo texto JSON da un id distinto en JavaScript y en Python. El tercer comando recupera el valor exacto leyendo el texto original (context.source)."
+  },
+  {
+   "t": "p",
+   "x": "JavaScript guardó 9007199254740993 como ...992 sin ningún aviso. Python, que tiene enteros de tamaño libre, lo leyó bien. Un id de `bigint` en la base y una app web en JavaScript es la receta del bug. El driver `pg` de Node ya lo sabe: según su documentación entrega los `int8` (`bigint`) como texto, porque JavaScript no los puede representar sin riesgo [#rest0804-pg-types]; en mi prueba, un `numeric` también llegó como texto. Hay tres salidas: mandar los ids como texto (lo más común), leer el JSON conservando el texto original con un *reviver* que usa `context.source` (la propiedad existe en el `JSON.parse` de Node 22 y está en MDN [#rest0804-mdn-json-parse]) o usar números enteros chicos. Con el dinero pasa algo parecido: `0,1 + 0,2` da `0.30000000000000004`, así que los importes viajan en centavos enteros o como texto decimal."
+  },
+  {
+   "t": "pensa",
+   "x": "Una API devuelve `{\"id\": 9007199254740993}` y la app web, en JavaScript, muestra el pedido 9007199254740992. ¿Dónde está el error: en el servidor, en el estándar o en la app?",
+   "resp": "En ninguno de los tres por separado: el servidor mandó un JSON válido y el estándar lo permite, pero avisa que más allá de 2⁵³ no hay interoperabilidad. El problema es el acuerdo que faltaba: ese id debía viajar como texto."
+  },
+  {
+   "t": "h",
+   "x": "JSON Schema: un contrato que se puede ejecutar"
+  },
+  {
+   "t": "p",
+   "x": "Un [[JSON Schema]] es un documento JSON que describe cómo tiene que ser otro JSON: qué campos hay, de qué tipo, cuáles son obligatorios, qué valores admiten. Se publica en json-schema.org y su versión vigente es la 2020-12 [#rest0804-json-schema]. A diferencia de un papel con reglas, un validador lo ejecuta. Escribí uno para las preguntas del Espadeo de Senda, mirando su archivo `contenido/espadeo.json` (5.483 preguntas):"
+  },
+  {
+   "t": "codigo",
+   "lang": "json",
+   "x": "{\n  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"title\": \"Pregunta del Espadeo\",\n  \"type\": \"object\",\n  \"required\": [\"id\", \"cat\", \"enunciado\", \"opciones\", \"correcta\", \"cita\", \"ref\", \"estado\", \"dificultad\"],\n  \"properties\": {\n    \"id\": {\"type\": \"string\", \"pattern\": \"^[a-z]+-[0-9]+$\"},\n    \"cat\": {\"enum\": [\"escudo\", \"espada\", \"casco\", \"botas\", \"coraza\", \"cinturon\"]},\n    \"enunciado\": {\"type\": \"string\", \"minLength\": 5},\n    \"opciones\": {\"type\": \"array\", \"items\": {\"type\": \"string\", \"minLength\": 1}, \"minItems\": 4, \"maxItems\": 4, \"uniqueItems\": true},\n    \"correcta\": {\"type\": \"integer\", \"minimum\": 0, \"maximum\": 3},\n    \"cita\": {\"type\": \"string\"},\n    \"ref\": {\"type\": \"string\", \"pattern\": \"^[A-Z0-9]{3}\\\\.[0-9]+\\\\.[0-9]+$\"},\n    \"clave\": {\"type\": \"string\"},\n    \"estado\": {\"enum\": [\"borrador\", \"en_revision\", \"aprobada\", \"publicada\", \"retirada\"]},\n    \"origen\": {\"type\": \"string\"},\n    \"dificultad\": {\"type\": \"integer\", \"minimum\": 1, \"maximum\": 5},\n    \"dato\": {\"type\": \"string\"},\n    \"detalle\": {\"type\": \"boolean\"}\n  }\n}",
+   "cap": "pregunta.schema.json: nueve campos obligatorios y cuatro opcionales con sus restricciones."
+  },
+  {
+   "t": "p",
+   "x": "Lo corrí con ajv 8.20.0 [#rest0804-ajv], un validador de Node. Primero, igual que lo haría alguien prolijo, con `additionalProperties: false`, que prohíbe cualquier campo que el esquema no nombre. Después, sin esa línea:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node esquema2.js   # ajv 8.20.0 con pregunta.schema.json, sobre contenido/espadeo.json de Senda",
+     "s": "Con additionalProperties:false: 4226 válidas, 1257 inválidas\n  ejemplo: esp-101 -> must NOT have additional properties (retirada)\nSin additionalProperties:false : 5483 válidas, 0 inválidas\ndocumento roto a propósito: false\n  /opciones → must NOT have fewer than 4 items\n  /opciones → must NOT have duplicate items (items ## 2 and 0 are identical)\n  /correcta → must be <= 3\n  /estado → must be equal to one of the allowed values\n  /dificultad → must be integer"
+    }
+   ],
+   "cap": "El mismo esquema de arriba con y sin additionalProperties:false, contra las 5.483 preguntas reales; después, un documento roto a propósito."
+  },
+  {
+   "t": "p",
+   "x": "La versión «cerrada» rechazó 1.257 de 5.483 preguntas que funcionan perfecto en la app. La causa es que el archivo creció con los meses: mientras tanto se sumaron los campos opcionales `tipo`, `visual`, `dificultad_escrita` y `retirada`, y entre las 5.483 preguntas hay 23 combinaciones distintas de campos. Un esquema que prohíbe lo desconocido rompe cada vez que quien produce los datos agrega algo. La regla del *lector tolerante* dice lo contrario: exigí lo que necesitás y ignorá el resto. Además, mi primera versión del esquema decía que `detalle` era un texto; los datos reales mostraron que es un booleano (1.186 preguntas lo contradecían). Validar contra datos reales corrige las suposiciones."
+  },
+  {
+   "t": "senda",
+   "titulo": "Cómo valida Senda sus datos",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. En el repositorio de la app no hay JSON Schema ni `ajv`: busqué `$schema`, `jsonschema` y `ajv` y no aparece nada. El contenido (`contenido/*.json`) lo revisa `scripts/validar_contenido.py`, un programa escrito a mano que controla, entre otras cosas, que cada cita y palabra clave aparezcan en el versículo. Y lo que llega del servidor se valida en la propia app con **zod**, una biblioteca de TypeScript que cumple el rol de un esquema ([@06-24]): en `src/util/juntos.ts`, un comentario dice que una fila rara se descarta para que no rompa Inicio.",
+    "El archivo del Espadeo pesa 2.936.153 bytes con sangría y 2.441.730 compacto (17 % menos); comprimido con gzip, 656.234 y 625.956 bytes, solo 4,6 % de diferencia. La sangría cuesta en disco y casi nada comprimida. No verifiqué cómo empaqueta esos archivos el sistema de compilación de la app."
+   ],
+   "archivos": [
+    "contenido/espadeo.json",
+    "scripts/validar_contenido.py",
+    "src/util/juntos.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "XML: el formato anterior que sigue vivo"
+  },
+  {
+   "t": "p",
+   "x": "[[XML]] es un lenguaje de marcas del W3C: el texto lleva etiquetas de apertura y de cierre, puede tener atributos y los elementos se anidan. Su especificación 1.0, quinta edición, es de noviembre de 2008 [#rest0804-xml-w3c]. Entre sus objetivos de diseño figura uno que explica su peso:"
+  },
+  {
+   "t": "cita",
+   "x": "Terseness in XML markup is of minimal importance.",
+   "autor": "W3C, «Extensible Markup Language (XML) 1.0 (Fifth Edition)»",
+   "fuente": "rest0804-xml-w3c"
+  },
+  {
+   "t": "p",
+   "x": "La brevedad no importaba, y se nota: en mi lote de 1.000 despachos, el XML pesó 201.796 bytes contra 138.774 del JSON compacto (45 % más), porque cada nombre de campo se escribe dos veces, al abrir y al cerrar. A cambio, XML hace bien una cosa que JSON hace mal: **texto con marcas en el medio**, como una oración con partes anotadas. Por eso es habitual en los textos bíblicos. El repositorio open-bibles, de donde Senda baja sus Biblias libres, guarda sus textos «en algunos formatos XML estándar» (USFX, OSIS, Zefania) [#rest0804-open-bibles], y en el USFX de la RV1909 cada frase lleva etiquetas como `<w s=\"H7225\">EN el principio</w>` que enlazan palabras con el original hebreo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 -I biblia.py",
+     "s": "USFX (XML):  11.293.720 bytes   gzip 2.343.781   parsear  368.1 ms\n.bib (JSON):  3.976.743 bytes   gzip 1.230.255   parsear    8.7 ms\netiquetas <w s=\"…\"> con número de Strong en el XML: 390.758\nversículos en el .bib: 31.102"
+    }
+   ],
+   "cap": "La RV1909 en el USFX de open-bibles y en el .bib de Senda. Parsear: ElementTree contra json.loads, bibliotecas distintas. El XML lleva información que el .bib no tiene."
+  },
+  {
+   "t": "senda",
+   "titulo": "La Biblia de Senda: de XML a JSON",
+   "x": [
+    "Esto corresponde al commit 25e08fa. `scripts/biblias.py` baja cada Biblia en USFX (de open-bibles o de eBible) y `scripts/convertir_biblia.py` la convierte al formato `.bib`: un JSON compacto con la lista de libros, cada uno con sus capítulos y los versículos como textos. La documentación del script dice que se quitan los números de Strong, las notas al pie y las referencias cruzadas, y que la extensión `.bib` existe para que el empaquetador (Metro) lo trate como recurso y no como módulo de código.",
+    "Lo medido arriba pide honestidad: de 11,3 MB a 4,0 MB no ganó el formato, ganó lo que se descartó (390.758 etiquetas de Strong, entre otras cosas). El teléfono necesita el texto de cada versículo y nada más. Que se parsee 40 veces más rápido sí es del formato, aunque las dos bibliotecas medidas son distintas."
+   ],
+   "archivos": [
+    "scripts/convertir_biblia.py",
+    "scripts/biblias.py",
+    "assets/biblia/rv1909.bib"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Formatos binarios: MessagePack, CBOR y Protobuf"
+  },
+  {
+   "t": "p",
+   "x": "MessagePack y CBOR son «JSON en binario»: guardan los mismos tipos (objetos, arreglos, textos, números) con una codificación más compacta, y siguen escribiendo el nombre de cada campo en cada registro. Su especificación lo define como una serialización de objetos «como JSON» [#rest0804-msgpack] y CBOR (RFC 8949) busca código pequeño, mensajes bastante chicos y extensibilidad sin negociar versiones [#rest0804-rfc8949]. [[Protobuf]] (Protocol Buffers, de Google, abierto en 2008 según el RFC 9996) va por otro lado: el esquema se escribe aparte, en un archivo `.proto`, y en cada mensaje los campos viajan **numerados, sin nombre**."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El telegrama y la planilla preimpresa",
+   "x": "JSON es un telegrama que repite «DESTINO: Salta, PESO: 84,2» en cada envío. Protobuf es una planilla preimpresa donde las casillas están numeradas y las dos oficinas tienen la misma planilla: en cada envío solo se escribe «2: Salta, 3: 84,2». Se ahorran palabras, pero si las planillas de las oficinas no coinciden, el mensaje se lee mal sin aviso."
+  },
+  {
+   "t": "p",
+   "x": "Los bytes de un mensaje Protobuf se pueden leer a mano. Con este esquema, que llamé `v1.proto`:"
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "syntax = \"proto3\";\nmessage Despacho {\n  int32 id = 1;\n  string destino = 2;\n  double peso_kg = 3;\n}",
+   "cap": "v1.proto. Cada campo tiene un nombre para nosotros y un número para el cable."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "echo 'id: 300 destino: \"Salta\" peso_kg: 84.2' | protoc --encode=Despacho v1.proto | od -An -tx1",
+     "s": " 08 ac 02 12 05 53 61 6c 74 61 19 cd cc cc cc cc\n 0c 55 40"
+    },
+    {
+     "c": "echo 'id: 300 destino: \"Salta\" peso_kg: 84.2' | protoc --encode=Despacho v1.proto | protoc --decode_raw",
+     "s": "1: 300\n2: \"Salta\"\n3: 0x40550ccccccccccd"
+    },
+    {
+     "c": "echo -n '{\"id\":300,\"destino\":\"Salta\",\"peso_kg\":84.2}' | wc -c",
+     "s": "43"
+    }
+   ],
+   "cap": "protoc 3.21.12 codifica el mensaje de v1.proto: 19 bytes, contra 43 del JSON equivalente. --decode_raw lo lee sin conocer el esquema, y por eso no puede poner nombres."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Los 19 bytes, uno por uno",
+   "pasos": [
+    {
+     "t": "`08 ac 02`: el campo 1, el id",
+     "x": "El primer byte es la etiqueta: (número de campo << 3) | tipo de dato [#rest0804-protobuf-encoding]. Campo 1 con tipo 0 (entero de longitud variable) da `08`. El 300 se escribe en 7 bits por byte, con el bit más alto indicando «sigue»: 300 son `ac 02`. Un número chico entra en 1 byte y uno grande en más."
+    },
+    {
+     "t": "`12 05 53 61 6c 74 61`: el campo 2, el destino",
+     "x": "Etiqueta `12` = (2 << 3) | 2, tipo 2 (con largo). Sigue el largo, 5, y los 5 bytes de «Salta» en UTF-8."
+    },
+    {
+     "t": "`19 cd cc cc cc cc 0c 55 40`: el campo 3, el peso",
+     "x": "Etiqueta `19` = (3 << 3) | 1, tipo 1 (8 bytes fijos), y el 84,2 como número de doble precisión. Por eso `--decode_raw` lo muestra como `0x40550ccccccccccd`: sin el esquema no sabe que era un double."
+    }
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "Campo 1 · id",
+     "celdas": [
+      {
+       "t": "08",
+       "k": "red",
+       "s": "etiqueta"
+      },
+      {
+       "t": "ac",
+       "k": "datos",
+       "s": "300"
+      },
+      {
+       "t": "02",
+       "k": "datos",
+       "s": "(sigue)"
+      }
+     ],
+     "nota": "3 bytes"
+    },
+    {
+     "e": "Campo 2 · destino",
+     "celdas": [
+      {
+       "t": "12",
+       "k": "red",
+       "s": "etiqueta"
+      },
+      {
+       "t": "05",
+       "k": "os",
+       "s": "largo"
+      },
+      {
+       "t": "53",
+       "k": "datos",
+       "s": "S"
+      },
+      {
+       "t": "61",
+       "k": "datos",
+       "s": "a"
+      },
+      {
+       "t": "6c",
+       "k": "datos",
+       "s": "l"
+      },
+      {
+       "t": "74",
+       "k": "datos",
+       "s": "t"
+      },
+      {
+       "t": "61",
+       "k": "datos",
+       "s": "a"
+      }
+     ],
+     "nota": "7 bytes"
+    },
+    {
+     "e": "Campo 3 · peso_kg",
+     "celdas": [
+      {
+       "t": "19",
+       "k": "red",
+       "s": "etiqueta"
+      },
+      {
+       "t": "cd",
+       "k": "datos",
+       "s": "84,2"
+      },
+      {
+       "t": "cc",
+       "k": "datos",
+       "s": ""
+      },
+      {
+       "t": "cc",
+       "k": "datos",
+       "s": ""
+      },
+      {
+       "t": "cc",
+       "k": "datos",
+       "s": ""
+      },
+      {
+       "t": "cc",
+       "k": "datos",
+       "s": ""
+      },
+      {
+       "t": "0c",
+       "k": "datos",
+       "s": ""
+      },
+      {
+       "t": "55",
+       "k": "datos",
+       "s": ""
+      },
+      {
+       "t": "40",
+       "k": "datos",
+       "s": "double"
+      }
+     ],
+     "nota": "9 bytes"
+    }
+   ],
+   "cap": "Los 19 bytes por campo: la etiqueta (ámbar), el largo (gris) y el valor (violeta). Los 8 bytes del double van del menos significativo al más significativo."
+  },
+  {
+   "t": "p",
+   "x": "Esos son 19 bytes contra 43 del JSON equivalente, y por eso el nombre importa menos que el número: una vez que las dos puntas comparten el esquema, nada del nombre viaja. Ahora, el lote completo de 1.000 despachos de mi base (los mismos 7 campos en todos los formatos):"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Formato",
+    "Bytes",
+    "Con gzip",
+    "Un solo despacho"
+   ],
+   "filas": [
+    [
+     "JSON compacto",
+     "138.774",
+     "12.892",
+     "133"
+    ],
+    [
+     "JSON con sangría",
+     "186.775",
+     "13.710",
+     "-"
+    ],
+    [
+     "XML",
+     "201.796",
+     "13.834",
+     "197"
+    ],
+    [
+     "MessagePack",
+     "116.240",
+     "13.659",
+     "112"
+    ],
+    [
+     "CBOR",
+     "118.363",
+     "13.702",
+     "114"
+    ],
+    [
+     "Protobuf",
+     "53.498",
+     "7.329",
+     "47"
+    ],
+    [
+     "Protobuf, fecha como número",
+     "31.498",
+     "4.938",
+     "-"
+    ]
+   ],
+   "cap": "Los mismos 1.000 despachos inventados de la base de [@08-03]. Node 22.23.4 con protobufjs 8.8.1, @msgpack/msgpack 3.1.3, cbor-x 1.6.9 y fast-xml-parser 5.12.1. Compresión gzip por defecto de Node. El estado va como número en Protobuf y como texto en los demás."
+  },
+  {
+   "t": "p",
+   "x": "Tres lecturas. Una: MessagePack y CBOR ahorran apenas alrededor de 15 %, porque los nombres siguen viajando. Dos: Protobuf baja a menos de la mitad, y cuando además guarda la fecha como número (en vez de `\"2026-01-01T03:01:30Z\"`), a menos de un cuarto. Tres, y la más importante: **con gzip la diferencia se encoge**. Todos los formatos con nombres quedan en unos 13 KB, porque los nombres repetidos son lo que mejor se comprime. Protobuf sigue ganando (7,3 KB, 43 % menos que el JSON comprimido), pero el 61 % de ventaja se volvió 43 %. Los tiempos de serializar y parsear dieron entre 0,2 y 0,9 ms por lote en todos menos el XML (3 y unos 19 ms); como dependen más de la biblioteca que del formato, no los doy como veredicto: `JSON.parse` viene dentro de V8 y es muy rápido."
+  },
+  {
+   "t": "pensa",
+   "x": "Un equipo cambia una API de JSON a Protobuf para «ahorrar ancho de banda», pero los clientes ya reciben la respuesta con gzip. ¿Qué esperarías encontrar?",
+   "resp": "Una mejora menor a la que prometen los números sin comprimir: en la tabla, de 12,9 KB a 7,3 KB y no de 138 KB a 53 KB. Puede seguir valiendo la pena por el tiempo de proceso o por el esquema compartido, pero hay que medirlo con la compresión puesta."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Lo que se pierde con un formato binario",
+   "x": "No se lee con un editor (`od` muestra los bytes, no los campos), hace falta el archivo `.proto` para interpretarlo y depurar cuesta más. Y un detalle de las guías de Protobuf: la serialización no es estable entre binarios ni entre compilaciones, así que nunca se usa para armar claves de caché ni para comparar mensajes byte a byte [#rest0804-protobuf-dosdonts]."
+  },
+  {
+   "t": "h3",
+   "x": "Otros dos que te vas a cruzar: CSV y YAML"
+  },
+  {
+   "t": "p",
+   "x": "**CSV** son filas con valores separados por comas. El RFC 4180 (2005) lo documentó cuando ya estaba en uso y aclara que no es un estándar de Internet [#rest0804-rfc4180]: no tiene tipos (todo es texto) y cada programa resuelve a su manera una coma dentro de un valor. **YAML** está pensado para que lo escriban personas: configuraciones, no tráfico de red. Su versión 1.2 (2009) busca ser un superconjunto de JSON, y la revisión vigente es la 1.2.2 de 2021 [#rest0804-yaml]. La sangría es parte de la sintaxis, así que un espacio de más cambia el significado. Los flujos de GitHub Actions de Senda (`.github/workflows/apk.yml` y sus hermanos) están escritos en YAML."
+  },
+  {
+   "t": "h",
+   "x": "Cambiar el esquema sin romper a nadie"
+  },
+  {
+   "t": "p",
+   "x": "Los dos lados casi nunca se actualizan al mismo tiempo: la app vieja vive en teléfonos que no se actualizan, y el servidor cambia el martes. Por eso lo que importa de un formato es qué pasa cuando los dos lados tienen versiones distintas. Con Protobuf lo probé: agregué un campo `prioridad = 4` en `v2.proto` y leí los datos cruzados."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "echo 'id: 300 destino: \"Salta\" peso_kg: 84.2 prioridad: \"alta\"' | protoc --encode=Despacho v2.proto > v2.bin; od -An -tx1 v2.bin",
+     "s": " 08 ac 02 12 05 53 61 6c 74 61 19 cd cc cc cc cc\n 0c 55 40 22 04 61 6c 74 61"
+    },
+    {
+     "c": "protoc --decode=Despacho v1.proto < v2.bin",
+     "s": "id: 300\ndestino: \"Salta\"\npeso_kg: 84.2\n4: \"alta\""
+    },
+    {
+     "c": "echo 'id: 300 destino: \"Salta\" peso_kg: 84.2' | protoc --encode=Despacho v1.proto | protoc --decode=Despacho v2.proto",
+     "s": "id: 300\ndestino: \"Salta\"\npeso_kg: 84.2"
+    },
+    {
+     "c": "echo 'id: 300 destino: \"Salta\" peso_kg: 84.2' | protoc --encode=Despacho v1.proto | protoc --decode=Despacho v1mal.proto",
+     "s": "id: 300\npeso_kg: 84.2\n2: \"Salta\""
+    }
+   ],
+   "cap": "Datos de v2 leídos con v1 (el campo nuevo queda como «4») y datos de v1 leídos con v2 (sin error). Abajo, v1mal reusó el número 2 con otro tipo: no hay error y «Salta» pasa a ser un campo desconocido."
+  },
+  {
+   "t": "p",
+   "x": "Dos resultados buenos y uno peligroso. El lector viejo (v1) recibió datos de v2 y los leyó sin queja: el campo desconocido quedó como «4: alta», conservado y sin interpretar. El lector nuevo (v2) leyó datos viejos sin error y dejó `prioridad` en su valor por defecto. Las guías lo confirman: agregar campos es seguro, siempre que el campo nuevo tenga un número que nadie usó [#rest0804-protobuf-proto3]. El tercero es el peligroso. `v1mal.proto` reutilizó el número 2 con otro tipo (de texto a entero) y no hubo error: el destino «Salta» apareció como un campo desconocido, y el campo `zona` quedó vacío. El dato se perdió en silencio. De ahí las reglas: nunca reusar ni renumerar un campo, no cambiar su tipo y, si se elimina uno, `reserved` con su número para que nadie lo vuelva a usar [#rest0804-protobuf-dosdonts]."
+  },
+  {
+   "t": "p",
+   "x": "En JSON la misma historia tiene otros nombres. Agregar un campo es seguro si el lector lo ignora (el *lector tolerante* de hoy: tu validador acaba de mostrar que no hacerlo rompe 1.257 preguntas). Renombrar un campo, en cambio, rompe en silencio: el lector viejo busca `peso` y recibe `undefined`. Cómo versionar una API entera, con direcciones `/v1`, encabezados y fechas de retiro, es el tema de [@08-13]."
+  },
+  {
+   "t": "h",
+   "x": "Content-Type y Accept: quién dice qué formato es"
+  },
+  {
+   "t": "p",
+   "x": "El [[encabezado HTTP]] `Content-Type` dice en qué formato está el cuerpo que se envía, y `Accept` dice qué formatos está dispuesto a recibir el cliente. Con el segundo, un mismo recurso puede ofrecerse en varias representaciones, y el cliente elige. El RFC 9110 lo llama negociación proactiva [#rfc9110]. Probé un servidor que ofrece el despacho 1 en cuatro formatos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "S=http://127.0.0.1:20844",
+     "s": ""
+    },
+    {
+     "c": "h() { curl -si \"$@\" | grep -v -E '^(Date|Connection|Keep-Alive|Content-Length):' | tr -d '\\r'; }",
+     "s": ""
+    },
+    {
+     "c": "h -H 'Accept: application/json' $S/despachos/1",
+     "s": "HTTP/1.1 200 OK\nContent-Type: application/json\nVary: Accept\n\n{\"id\":1,\"destino\":\"Salta\",\"peso_kg\":493.9}"
+    },
+    {
+     "c": "h -H 'Accept: application/xml' $S/despachos/1",
+     "s": "HTTP/1.1 200 OK\nContent-Type: application/xml\nVary: Accept\n\n<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<despacho>\n  <id>1</id>\n  <destino>Salta</destino>\n  <peso_kg>493.9</peso_kg>\n</despacho>"
+    },
+    {
+     "c": "curl -s -D - -o /dev/null -H 'Accept: application/protobuf' $S/despachos/1 | grep -i '^content-type'",
+     "s": "Content-Type: application/protobuf"
+    },
+    {
+     "c": "curl -s -H 'Accept: application/protobuf' $S/despachos/1 | od -An -tx1",
+     "s": " 08 01 12 05 53 61 6c 74 61 19 66 66 66 66 66 de\n 7e 40"
+    },
+    {
+     "c": "h -H 'Accept: image/png' $S/despachos/1",
+     "s": "HTTP/1.1 406 Not Acceptable\nContent-Type: text/plain; charset=utf-8\nVary: Accept\n\nFormatos disponibles: application/json, application/xml, application/cbor, application/protobuf"
+    },
+    {
+     "c": "h -X POST -H 'Content-Type: text/plain' -d 'hola' $S/despachos",
+     "s": "HTTP/1.1 415 Unsupported Media Type\nContent-Type: text/plain; charset=utf-8\nVary: Accept\n\nEste recurso solo acepta application/json"
+    }
+   ],
+   "cap": "Un servidor mío (127.0.0.1:20844) que entrega el despacho 1 en el formato que pide Accept. Sin formato posible, 406; cuerpo que no sabe leer, 415."
+  },
+  {
+   "t": "p",
+   "x": "Cuatro cosas para mirar. La respuesta lleva `Vary: Accept`, para que una caché intermedia no entregue el XML a quien pidió JSON. El 406 y el 415 son los códigos de cada lado: el primero dice «no tengo lo que pedís» y el segundo, «no sé leer lo que me mandás» [#rfc9110]. El servidor puede, en vez de 406, mandar un formato por defecto (el 406 del RFC aclara «si el servidor no quiere dar uno por defecto»). Y el tipo de Protobuf es nuevo: el RFC 9996, de julio de 2026, lo registró y dio por desactivados los nombres que se usaban antes, como `application/x-protobuf`."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Tipos de medio de los formatos de hoy (IANA y RFC, al 13-11-2026)",
+   "x": "El registro de la IANA lista `application/json` (RFC 8259), `application/xml` (RFC 7303), `application/cbor` (RFC 8949) y `application/problem+json` (RFC 9457). MessagePack está registrado en el árbol de proveedores como `application/vnd.msgpack`. Para Protobuf, el RFC 9996 (julio de 2026, informativo) registró `application/protobuf` y `application/protobuf+json`, y declaró desactivados los alias `application/x-protobuf`, `application/x-protobuffer` y `application/x-protobuf+json` [#rest0804-rfc9996] [#rest0804-iana-media]."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un cliente móvil recibe de tu API una lista de 5.000 envíos, con `id` bigint, un `importe` decimal y una `fecha`. Elegí cómo mandar esos tres campos en JSON para que no se pierda nada, y decí qué le agregarías a la API para poder sumar un campo nuevo el mes que viene sin romper a las apps instaladas.",
+   "pista": "Pensá en lo que pasa con 9007199254740993, con 0,1 + 0,2 y con una app que no sabe qué es un campo nuevo.",
+   "solucion": "El id como texto (`\"id\":\"9007199254740993\"`); el importe en centavos enteros (`\"importe_centavos\":1250`) o como texto decimal; la fecha en ISO 8601 con zona (`\"2026-11-13T20:30:00Z\"`). Para evolucionar: pedirle a las apps que ignoren los campos desconocidos (lector tolerante), no renombrar ni cambiar el tipo de ninguno existente, y publicar un esquema que lo describa."
+  }
+ ],
+ "recap": [
+  "Serializar es convertir un objeto en una secuencia de bytes para mandarlo o guardarlo. Los formatos difieren en ser de texto o binarios y en llevar o no los nombres de los campos.",
+  "JSON es simple y universal, pero no tiene fechas ni binarios y solo es seguro con enteros de hasta 2⁵³-1. Los ids grandes y los importes van como texto o en enteros chicos.",
+  "Un JSON Schema describe y valida la forma de un JSON. Un esquema cerrado rompe cuando el productor agrega campos: mejor un lector tolerante que exija lo necesario e ignore el resto.",
+  "XML es más pesado pero maneja bien el texto con marcas y sigue vivo; Senda convierte sus Biblias de XML a JSON quitando lo que no necesita.",
+  "MessagePack y CBOR son JSON binario. Protobuf manda campos numerados sin nombre: 19 bytes contra 43. Con gzip la ventaja baja, y el formato binario cuesta legibilidad.",
+  "Agregar un campo con número nuevo es seguro; reusar un número o cambiar un tipo pierde datos sin error. `Accept` y `Content-Type` dicen qué formato se pide y cuál se manda, y 406 y 415 avisan cuando no coinciden."
+ ],
+ "repaso": [
+  {
+   "p": "Un servidor en Java manda `{\"id\": 9007199254740993}` y la app web en JavaScript muestra ...992. ¿Cuál es la mejor corrección?",
+   "o": [
+    "Mandar el id como texto, así ningún lenguaje lo redondea",
+    "Cambiar el servidor a XML, que sí admite enteros enormes",
+    "Pedirle a la app web que use un navegador más moderno",
+    "Agregar más ceros al final para que el id sea más claro"
+   ],
+   "c": 0,
+   "e": "El JSON es válido, pero JavaScript lee todos los números como double y a partir de 2⁵³ pierde dígitos. Mandar el id como texto evita la conversión. XML no ayuda (tampoco tiene un tipo de número preciso), el navegador no es el problema y alterar el id cambia el dato."
+  },
+  {
+   "p": "Un esquema JSON usa `additionalProperties: false` y el productor de datos empieza a mandar un campo opcional nuevo. ¿Qué pasa con la validación?",
+   "o": [
+    "Los documentos nuevos pasan porque el campo es opcional",
+    "Los documentos nuevos fallan, aunque el campo sea válido",
+    "El validador actualiza solo el esquema para aceptarlo",
+    "Solo falla el primer documento y los demás pasan"
+   ],
+   "c": 1,
+   "e": "additionalProperties: false rechaza todo campo que el esquema no nombra, sea opcional o no: lo vimos con las 1.257 preguntas de Senda. El validador no modifica el esquema, y la falla se repite en cada documento con el campo nuevo."
+  },
+  {
+   "p": "En el mensaje Protobuf de la lección, `12 05 53 61 6c 74 61` es el campo 2. ¿Qué dice cada parte?",
+   "o": [
+    "`12` es el largo y `05` el número de campo",
+    "`12` es la etiqueta (campo 2, tipo con largo), `05` el largo y el resto el texto",
+    "`12` y `05` son el id del despacho en dos bytes",
+    "`12` es el tipo de dato y el campo se deduce del orden"
+   ],
+   "c": 1,
+   "e": "La etiqueta es (campo << 3) | tipo: (2 << 3) | 2 = 0x12. Después viene el largo (5) y los cinco bytes de «Salta». Las otras opciones confunden el orden etiqueta-largo-contenido o creen que el campo se deduce del orden, cuando viaja el número en la etiqueta."
+  },
+  {
+   "p": "Un equipo reemplaza el campo 2 de un `.proto` (texto) por otro campo 2 de tipo entero, y los datos viejos se leen sin errores. ¿Qué pasó con el dato original?",
+   "o": [
+    "Se convirtió solo al nuevo tipo entero",
+    "Se perdió: apareció como campo desconocido, sin avisar",
+    "El lector falló y dejó un mensaje claro",
+    "Se guardó en un campo con el número siguiente"
+   ],
+   "c": 1,
+   "e": "El número 2 ya no coincide con el tipo en el cable, así que el lector trata ese dato como campo desconocido y lo ignora. No hay conversión ni error, que es lo peligroso: por eso se reserva el número de un campo eliminado."
+  },
+  {
+   "p": "Una API cambia de JSON a Protobuf y mide la mejora sin compresión: 61 % menos. En producción todas las respuestas viajan con gzip. ¿Qué diferencia esperás?",
+   "o": [
+    "Igual de grande, porque gzip trata a los dos formatos igual",
+    "Menor, porque gzip ya comprime los nombres repetidos del JSON",
+    "Mayor, porque gzip rinde más con datos binarios",
+    "Ninguna, porque Protobuf ya viene comprimido"
+   ],
+   "c": 1,
+   "e": "Con gzip, el JSON de la lección bajó de 138 KB a 12,9 KB porque los nombres repetidos se comprimen muy bien, y Protobuf pasó de 53 KB a 7,3 KB. La ventaja sigue existiendo pero se achicó de 61 % a 43 %. Protobuf no trae compresión propia (solo codificación compacta)."
+  },
+  {
+   "p": "Un cliente manda `Accept: image/png` a una API que solo ofrece JSON y XML, y el servidor no quiere mandar un formato por defecto. ¿Qué código corresponde?",
+   "o": [
+    "415: no puede leer lo que le mandaron",
+    "404: el recurso no existe",
+    "406: no tiene una representación aceptable",
+    "400: el pedido está mal formado"
+   ],
+   "c": 2,
+   "e": "El 406 dice que el recurso existe pero no hay una representación que el cliente acepte. El 415 es el espejo, para cuando el cliente manda un cuerpo en un formato que el servidor no entiende; el 404 y el 400 hablan de otra cosa."
+  }
+ ],
+ "feynman": "Explicale a alguien que no programa por qué un mismo dato puede mandarse como un texto de 43 caracteres o como 19 bytes, qué se gana y qué se arriesga con la versión corta, y por qué agregar un campo nuevo al mensaje es seguro pero reusar el número de uno viejo no lo es. Usá una analogía tuya que no sea la del telegrama.",
+ "para_profundizar": [
+  {
+   "fuente": "rfc8259",
+   "nota": "El estándar de JSON son 10 páginas: leé la sección 6 (números) y la 8 (codificación) para ver lo que se puede esperar y lo que no."
+  },
+  {
+   "fuente": "rest0804-protobuf-encoding",
+   "nota": "La guía oficial de la codificación de Protobuf, con ejemplos como el 300 de hoy. Leé las secciones de varints y de registros con largo."
+  },
+  {
+   "fuente": "rest0804-protobuf-dosdonts",
+   "nota": "Lista corta de cosas que nunca hay que hacer al evolucionar un `.proto`: renumerar, reusar números, cambiar tipos."
+  },
+  {
+   "fuente": "rest0804-json-schema",
+   "nota": "La página de la especificación de JSON Schema: núcleo y validación. Empezá por la guía y no por el texto formal."
+  }
+ ],
+ "videos": [
+  {
+   "q": "protobuf wire format explained varint tag field number",
+   "por_que": "Para ver a otra persona decodificar a mano un mensaje Protobuf, como hiciste hoy con los 19 bytes."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "JSON Schema",
+   "d": "Un documento JSON que describe la forma que debe tener otro JSON: campos, tipos, obligatorios, rangos y patrones. Un validador lo ejecuta contra los datos y devuelve los errores. La versión vigente es la 2020-12."
+  },
+  {
+   "t": "XML",
+   "d": "Extensible Markup Language: un formato de texto con etiquetas de apertura y cierre, atributos y anidamiento, estandarizado por el W3C. Es más pesado que JSON pero maneja bien el texto con marcas. Sigue en uso, por ejemplo, en los textos bíblicos USFX."
+  },
+  {
+   "t": "Protobuf",
+   "d": "Protocol Buffers: un formato binario con esquema, creado por Google, donde el esquema se escribe en un archivo .proto y los campos viajan numerados y sin nombre. Es compacto y rápido, pero necesita que las dos puntas compartan el esquema."
+  },
+  {
+   "t": "serialización",
+   "d": "La conversión de un objeto en memoria a una secuencia de bytes que se puede mandar por la red o guardar en un archivo, y su inversa, la deserialización. JSON, XML, MessagePack, CBOR y Protobuf son formatos de serialización."
+  },
+  {
+   "t": "lector tolerante",
+   "d": "Una regla de diseño: quien recibe un mensaje exige solo los campos que necesita e ignora los desconocidos. Permite que el productor agregue campos sin romper a los lectores viejos."
+  }
+ ],
+ "siguiente": "Autenticación de APIs: claves, bearer y firmas. Hasta acá cualquiera con la dirección podía pedir datos; mañana ves cómo una API sabe quién llama, dónde viaja esa prueba y qué protege cada mecanismo.",
+ "fuentes_nuevas": [
+  {
+   "id": "rest0804-rfc8949",
+   "t": "RFC 8949: Concise Binary Object Representation (CBOR)",
+   "a": "Bormann y Hoffman (IETF)",
+   "tipo": "rfc",
+   "anio": 2020,
+   "url": "https://www.rfc-editor.org/rfc/rfc8949"
+  },
+  {
+   "id": "rest0804-msgpack",
+   "t": "MessagePack specification",
+   "a": "MessagePack",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/msgpack/msgpack/master/spec.md"
+  },
+  {
+   "id": "rest0804-protobuf-encoding",
+   "t": "Protocol Buffers: Encoding",
+   "a": "Google (protobuf.dev)",
+   "tipo": "doc",
+   "url": "https://protobuf.dev/programming-guides/encoding/"
+  },
+  {
+   "id": "rest0804-protobuf-proto3",
+   "t": "Protocol Buffers Language Guide (proto3)",
+   "a": "Google (protobuf.dev)",
+   "tipo": "doc",
+   "url": "https://protobuf.dev/programming-guides/proto3/"
+  },
+  {
+   "id": "rest0804-protobuf-dosdonts",
+   "t": "Proto Best Practices",
+   "a": "Google (protobuf.dev)",
+   "tipo": "doc",
+   "url": "https://protobuf.dev/best-practices/dos-donts/"
+  },
+  {
+   "id": "rest0804-rfc9996",
+   "t": "RFC 9996: Media Types for Protocol Buffers",
+   "a": "Kucherawy, Kumari y Sloan (IETF)",
+   "tipo": "rfc",
+   "anio": 2026,
+   "url": "https://www.rfc-editor.org/rfc/rfc9996"
+  },
+  {
+   "id": "rest0804-iana-media",
+   "t": "Media Types (registro de la IANA)",
+   "a": "IANA",
+   "tipo": "doc",
+   "url": "https://www.iana.org/assignments/media-types/media-types.xhtml"
+  },
+  {
+   "id": "rest0804-json-schema",
+   "t": "JSON Schema: Specification",
+   "a": "JSON Schema Organization",
+   "tipo": "doc",
+   "url": "https://json-schema.org/specification"
+  },
+  {
+   "id": "rest0804-ajv",
+   "t": "Ajv JSON schema validator",
+   "a": "Evgeny Poberezkin y colaboradores",
+   "tipo": "doc",
+   "url": "https://ajv.js.org/"
+  },
+  {
+   "id": "rest0804-xml-w3c",
+   "t": "Extensible Markup Language (XML) 1.0 (Fifth Edition)",
+   "a": "W3C",
+   "tipo": "doc",
+   "anio": 2008,
+   "url": "https://www.w3.org/TR/xml/"
+  },
+  {
+   "id": "rest0804-rfc4180",
+   "t": "RFC 4180: Common Format and MIME Type for Comma-Separated Values (CSV) Files",
+   "a": "Y. Shafranovich (IETF)",
+   "tipo": "rfc",
+   "anio": 2005,
+   "url": "https://www.rfc-editor.org/rfc/rfc4180"
+  },
+  {
+   "id": "rest0804-yaml",
+   "t": "YAML Ain’t Markup Language revision 1.2.2",
+   "a": "YAML Language Development Team",
+   "tipo": "doc",
+   "anio": 2021,
+   "url": "https://yaml.org/spec/1.2.2/"
+  },
+  {
+   "id": "rest0804-pg-types",
+   "t": "pg-types (README, parte de node-postgres)",
+   "a": "Brian Carlson y colaboradores",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/brianc/node-pg-types/master/README.md"
+  },
+  {
+   "id": "rest0804-open-bibles",
+   "t": "Open Bibles (README del repositorio)",
+   "a": "seven1m (GitHub)",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/seven1m/open-bibles/master/README.md"
+  },
+  {
+   "id": "rest0804-mdn-json-parse",
+   "t": "JSON.parse() (MDN)",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/JSON/parse"
+  }
+ ]
+}

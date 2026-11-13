@@ -1,0 +1,1085 @@
+{
+ "id": "09-21",
+ "titulo": "Índices II: el B-tree por dentro y otros tipos",
+ "bajada": "Seguimos una búsqueda página por página dentro de un B-tree real y vemos qué cambian las columnas compuestas y los otros cuatro tipos de índice.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Describir cómo está armado un B-tree (raíz, páginas internas, hojas, TID) y seguir una búsqueda por clave nivel por nivel.",
+  "Explicar por qué un B-tree de dos millones de claves tiene tres niveles y qué lo hace crecer.",
+  "Elegir el orden de las columnas de un índice compuesto a partir de las condiciones de la consulta.",
+  "Distinguir un índice parcial, de expresión y de cobertura, y decir cuándo conviene cada uno.",
+  "Elegir entre hash, GIN, GiST y BRIN según la forma del dato y de la consulta."
+ ],
+ "venis_de": "En el [@09-19] viste que una tabla se guarda en páginas de 8 kB dentro de un heap file, y en el [@09-20] que un índice evita leer toda la tabla cuando la consulta es selectiva. Faltaba abrirlo: cómo está hecho por dentro, qué cambia con varias columnas y qué otros tipos hay.",
+ "se_apoya_en": [
+  "09-19",
+  "09-20",
+  "03-28",
+  "03-32"
+ ],
+ "gancho": [
+  "Tenés una tabla `bultos` con dos millones de filas y pedís uno solo por su `id`. Sin índice, PostgreSQL revisa las dos millones de filas: 32.787 páginas de 8 kB, de 0,1 a 0,2 segundos en la máquina donde corrí esto. Con el índice de la [[clave primaria]] lee **4 páginas** y tarda unos 20 microsegundos. La diferencia entre 32.787 y 4 no se arregla con un servidor más grande.",
+  "En el [@09-20] viste que un [[índice]] sirve para no leer todo. Hoy lo abrimos y lo miramos página por página: cómo está armado el árbol, por qué casi nunca pasa de tres o cuatro niveles, qué cambia si le ponés dos columnas y qué otros tipos de índice existen para los casos en que un árbol ordenado no alcanza. Todo lo que sigue lo corrí en PostgreSQL 16.15 con datos inventados que se generan con aritmética; los tiempos son de una sola VM compartida, así que sirven para comparar entre sí, no como cifras universales."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El experimento: 32.787 páginas contra 4"
+  },
+  {
+   "t": "p",
+   "x": "Para tener algo concreto sobre qué mirar, esta es la tabla que usamos todo el día. Son dos millones de bultos inventados, generados con aritmética (sin azar), así que podés reproducirlos. La clave primaria `id` ya tiene su índice, que PostgreSQL creó solo al declarar la `primary key` ([@09-07])."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table bultos (\n  id          bigint    primary key,\n  deposito_id int       not null,\n  estado      text      not null,\n  creado      timestamp not null,\n  codigo      text      not null,\n  detalle     jsonb     not null\n);\n-- 2.000.000 de bultos inventados, sin azar: todo sale de aritmética sobre g\ninsert into bultos\nselect g,\n       1 + (g * 7919) % 40,                                   -- 40 depósitos\n       (array['en_deposito','en_ruta','entregado','entregado',\n              'entregado','entregado','devuelto'])[1 + (g * 31) % 7],\n       timestamp '2026-01-01' + g * interval '15 seconds',    -- un bulto cada 15 s\n       'BU-' || lpad(((g * 104729) % 9999991)::text, 7, '0'),\n       jsonb_build_object('peso_kg', 1 + g % 50,\n                          'frio', g % 20 = 0,\n                          'etiquetas', case when g % 100 = 0 then jsonb_build_array('fragil','urgente')\n                                            when g % 10  = 0 then jsonb_build_array('fragil')\n                                            else jsonb_build_array() end)\nfrom generate_series(1::bigint, 2000000) g;\nvacuum analyze bultos;",
+   "cap": "Script de datos. La tabla pesa 256 MB (32.787 páginas de 8 kB, como las del [@09-19]). Los números de cada medición salen de PostgreSQL 16.15 en esta VM."
+  },
+  {
+   "t": "p",
+   "x": "Ahora el mismo pedido de un bulto por `id`, primero obligando al motor a leer toda la tabla ([[escaneo secuencial]]) y después dejándolo usar el índice. `EXPLAIN` es el comando que muestra qué plan eligió PostgreSQL y, con `ANALYZE`, lo ejecuta y cuenta; el [@09-22] lo explica entero. Hoy solo miramos dos líneas: el método que usó y `Buffers`, que cuenta **páginas de 8 kB leídas**."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "set enable_indexscan = off; set enable_bitmapscan = off; set max_parallel_workers_per_gather = 0;\nexplain (analyze, buffers, costs off) select * from bultos where id = 1234567;",
+     "s": " Seq Scan on bultos (actual time=96.824..160.764 rows=1 loops=1)\n   Filter: (id = 1234567)\n   Rows Removed by Filter: 1999999\n   Buffers: shared hit=27088 read=5699\n Execution Time: 160.789 ms"
+    },
+    {
+     "c": "reset enable_indexscan; reset enable_bitmapscan;\nexplain (analyze, buffers, costs off) select * from bultos where id = 1234567;",
+     "s": " Index Scan using bultos_pkey on bultos (actual rows=1 loops=1)\n   Index Cond: (id = 1234567)\n   Buffers: shared hit=4\n Execution Time: 0.024 ms"
+    }
+   ],
+   "cap": "Medido en esta VM, con la tabla ya en memoria. 27.088 + 5.699 son las 32.787 páginas de la tabla. La primera vez que corrés la consulta con índice en una sesión nueva, `Buffers` marcó 7 en mi caso; las tres de más no las identifiqué (sospecho la metapágina y el catálogo del sistema) y desde la segunda vez son 4."
+  },
+  {
+   "t": "p",
+   "x": "Cuatro páginas contra 32.787. Esa diferencia no se arregla con un servidor más grande: viene de la forma en que está armado el índice. Y ese «cuatro» tiene explicación: son tres páginas de índice y una de la tabla. Vamos a verlas una por una."
+  },
+  {
+   "t": "h",
+   "x": "Dentro del B-tree: raíz, páginas internas y hojas"
+  },
+  {
+   "t": "p",
+   "x": "Un [[índice]] de PostgreSQL es un archivo aparte, hecho de [[página de disco|páginas]] de 8 kB como las de la tabla. El tipo que se crea si no pedís otro es el [[B-tree]], un árbol de búsqueda con una particularidad: cada nodo no es una cajita con dos hijos, es una **página entera con cientos de entradas**. Hay tres clases de páginas, y las tres las vas a ver en un momento con datos reales."
+  },
+  {
+   "t": "lista",
+   "ord": false,
+   "items": [
+    "**Hojas** (el nivel más bajo): cada entrada es una clave más un [[TID]], la dirección del [[heap file]] donde está la fila: número de página y posición dentro de esa página. Las hojas están enlazadas entre sí con un puntero a la anterior y otro a la siguiente.",
+    "**Páginas internas**: cada entrada es una clave de corte y el número de la página hija que cubre las claves desde ese corte hasta el siguiente. No guardan filas, solo orientan.",
+    "**La raíz**: la página interna de más arriba, donde empieza toda búsqueda. Más una **metapágina** fija que dice dónde está la raíz y cuántos niveles hay."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Todas las hojas están a la misma profundidad: ese árbol siempre queda balanceado, así que cualquier búsqueda hace el mismo número de pasos. La documentación de PostgreSQL lo describe así [#bd2122-pg-btree-impl]. Para mirarlo existe `pageinspect`, una extensión que viene con PostgreSQL y que devuelve el contenido crudo de una página. Primero un ayudante chiquito para leer las claves, que `pageinspect` devuelve en bytes."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create extension pageinspect;          -- viene con PostgreSQL (paquete contrib)\n\n-- pageinspect muestra las claves en bytes; esta función las lee como número\ncreate function clave(d text) returns bigint language sql immutable as $$\n  select case when d is null or d = '' then null else\n    (select sum(get_byte(b, i)::bigint << (8 * i))\n       from (select decode(replace(d, ' ', ''), 'hex') b) x, generate_series(0, 7) i) end $$;",
+   "cap": "La función `clave` es mía y solo existe para esta demostración: arma el número a partir de los 8 bytes de un `bigint` (que se guardan con el byte menos significativo primero)."
+  },
+  {
+   "t": "p",
+   "x": "Con eso seguimos la búsqueda del bulto `1234567` como lo haría el motor. Primero la metapágina y la raíz."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select root, level from bt_metap('bultos_pkey');",
+     "s": " root | level\n------+-------\n  412 |     2"
+    },
+    {
+     "c": "select itemoffset, ctid, clave(data) from bt_page_items('bultos_pkey', 412) limit 4;",
+     "s": " itemoffset |   ctid   |  clave\n------------+----------+---------\n          1 | (3,0)    |\n          2 | (411,1)  |  104311\n          3 | (698,1)  |  208621\n          4 | (984,1)  |  312931"
+    },
+    {
+     "c": "select itemoffset, ctid, clave(data) from bt_page_items('bultos_pkey', 3272) where itemoffset in (240, 241);",
+     "s": " itemoffset |   ctid   |  clave\n------------+----------+---------\n        240 | (3387,1) | 1234519\n        241 | (3388,1) | 1234885"
+    },
+    {
+     "c": "select itemoffset, ctid, clave(data) from bt_page_items('bultos_pkey', 3387) where clave(data) between 1234566 and 1234568;",
+     "s": " itemoffset |    ctid    |  clave\n------------+------------+---------\n         49 | (20238,48) | 1234566\n         50 | (20238,49) | 1234567\n         51 | (20238,50) | 1234568"
+    },
+    {
+     "c": "select ctid, id from bultos where id = 1234567;",
+     "s": "    ctid    |   id\n------------+---------\n (20238,49) | 1234567"
+    }
+   ],
+   "cap": "Salidas recortadas a las filas que importan (en las páginas internas, la fila 1 es una clave tope y la 2 usa clave vacía, «menos infinito»). En las páginas internas el `ctid` es (página hija, 1); en las hojas es el TID de la fila."
+  },
+  {
+   "t": "p",
+   "x": "Leelo como un recorrido. **Nivel 2, raíz (página 412):** hay 19 hijos. El `1234567` cae entre el corte 1.147.411 (que lleva a la página 3.272) y el siguiente, así que bajás a la 3.272. **Nivel 1 (página 3.272):** tiene 285 hijos. Entre las claves 1.234.519 y 1.234.885 hay que seguir por la hoja 3.387. **Nivel 0, hoja (página 3.387):** ahí está la entrada `1234567`, y su TID dice «página 20.238, posición 49» de la tabla. Esa es la cuarta página, la del [[heap file]]."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "arbol",
+   "raiz": {
+    "t": "Raíz · página 412",
+    "s": "19 hijos; cortes en 104.311, 208.621 … 1.877.581",
+    "k": "servidor",
+    "h": [
+     {
+      "t": "Interna · página 3272",
+      "s": "285 hijos; ids de 1.147.411 a 1.251.720",
+      "k": "red",
+      "h": [
+       {
+        "t": "Hoja · página 3387",
+        "s": "366 ids, de 1.234.519 a 1.234.884",
+        "k": "datos",
+        "h": [
+         {
+          "t": "id 1.234.567",
+          "s": "TID (20238, 49): página 20.238 de la tabla",
+          "k": "ok"
+         }
+        ]
+       },
+       {
+        "t": "… 284 hojas más",
+        "s": "otros tramos de ids",
+        "k": "neutro"
+       }
+      ]
+     },
+     {
+      "t": "… 18 hijos más",
+      "s": "otros tramos de la tabla",
+      "k": "neutro"
+     }
+    ]
+   },
+   "cap": "El camino real de `id = 1234567` en esta VM: tres páginas de índice y una de tabla. Los números de página cambian en cada instalación; la forma del árbol, no."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: los carteles de un depósito grande",
+   "x": "Entrás a un depósito enorme a buscar un bulto. En la puerta, un cartel dice «bultos 1 a 1.000.000: nave A». En la nave, otro: «1.100.000 a 1.250.000: pasillo 14». Al final del pasillo, una planilla lista cada bulto de ese tramo con su ubicación exacta (pasillo y estante). Tres carteles y una caminata hasta el estante. Los carteles son las páginas internas, la planilla es la hoja y «pasillo y estante» es el TID. La analogía deja de valer en que estos carteles se reorganizan solos cuando entran bultos nuevos, y en que un árbol de verdad nunca te manda a una nave vacía."
+  },
+  {
+   "t": "pensa",
+   "x": "Una hoja guarda 366 ids y una página interna tiene 285 hijos (lo medimos arriba). Con raíz, un nivel interno y hojas, ¿cuántas filas puede indexar este árbol si la raíz está llena? ¿Y con un nivel interno más?",
+   "resp": "Con tres niveles: 285 × 285 × 366 ≈ 29,7 millones de entradas. Con cuatro: 285 × 285 × 285 × 366 ≈ 8.470 millones. Es una estimación que supone páginas llenas como las que medí; con claves más largas caben menos por página. La conclusión práctica: pasar de 2 millones a 30 millones de filas no agrega ni un nivel, y pasar de 30 millones a miles de millones agrega uno solo."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "«B» no quiere decir «binario»",
+   "x": [
+    "Un árbol binario de búsqueda ([@03-28]) parte en dos en cada paso: para dos millones de claves necesitaría unos 21 niveles (log₂ de 2.000.000 ≈ 20,9, la [[O(log n)]] del [@03-32] con base 2). Si cada nivel es una lectura de disco, 21 lecturas son muchísimas. El B-tree usa la misma idea pero parte en **cientos** en cada paso, y por eso necesita 3. La estructura la publicaron Rudolf Bayer y Edward McCreight en 1972 [#bd2122-bayer-1972]; lo que cambió desde entonces son los detalles, no la idea."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Insertar: cuando una página se llena, se parte"
+  },
+  {
+   "t": "p",
+   "x": "Ya viste cómo se busca. Insertar es buscar y además escribir: el motor baja hasta la hoja donde le toca la clave nueva y la mete ahí, en su lugar ordenado. Si la hoja está llena, se hace una **[[división de página]]**: se crea una hoja nueva, se reparten las entradas entre las dos y se agrega a la página de arriba un corte nuevo que apunta a la hoja nueva. Si la de arriba también estaba llena, se parte a su vez, y así hacia arriba [#bd2122-pg-btree-impl]. Cuando se parte la raíz, el árbol gana un nivel: así crece un B-tree, por arriba y de a poco, sin reconstruirse."
+  },
+  {
+   "t": "p",
+   "x": "Hay un detalle que cambia el tamaño final. Cuando las claves nuevas son siempre las más grandes (un `id` que sube), PostgreSQL llena las hojas hasta el 90 % (el `fillfactor` por defecto de los B-tree [#postgres-create-index]) y sigue de largo. Cuando las claves entran en cualquier lugar, cada hoja se llena, se parte a la mitad y queda a medias. Lo medí con las mismas dos millones de claves en tres índices."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Índice sobre 2.000.000 de claves",
+    "Tamaño",
+    "Páginas hoja",
+    "Hojas llenas en promedio"
+   ],
+   "filas": [
+    [
+     "`bigint` que sube (1, 2, 3 …)",
+     "43 MB",
+     "5.465",
+     "90,1 %"
+    ],
+    [
+     "`bigint` en cualquier orden",
+     "58 MB",
+     "7.408",
+     "66,5 %"
+    ],
+    [
+     "`uuid` al azar (versión 4)",
+     "76 MB",
+     "9.650",
+     "71,6 %"
+    ]
+   ],
+   "cap": "Medido en esta VM con `pgstatindex` (extensión `pgstattuple`) [#bd2122-pg-pgstattuple]. Carga de las 2.000.000 de claves: 2,6 s las ordenadas y 8,5 s las `uuid` al azar. El `uuid` ocupa 16 bytes y el `bigint` 8, por eso el `uuid` es más grande aun con mejor llenado."
+  },
+  {
+   "t": "p",
+   "x": "Que un índice de claves al azar pese un 35 % más y se cargue más lento no lo vuelve un error: es el precio de que cada clave caiga en cualquier hoja. Importa más cuando el índice no entra en memoria, porque entonces cada inserción puede tocar una página que hay que leer del disco. Con tablas chicas no se nota."
+  },
+  {
+   "t": "senda",
+   "titulo": "En Senda: un índice único sobre un identificador al azar",
+   "x": [
+    "Cada respuesta que el teléfono manda lleva un `cliente_id`, que genera la función `nuevoId()` de `src/util/metricas.ts`: un `uuid` versión 4 armado con `Math.random()`. En la base, la migración de escala crea sobre `respuestas.cliente_id` un **índice único**, y el cliente reintenta con `on_conflict=cliente_id` para que un reintento no duplique nada (`src/util/nube.ts`). Es exactamente el caso de la tabla de arriba: claves al azar, entradas repartidas en todo el árbol. Con el volumen actual de Senda no hay nada que arreglar, y no medí su tamaño real porque no tengo acceso a la base de producción. Es el tipo de decisión que conviene conocer: PostgreSQL 18 agregó la función `uuidv7()`, que arma identificadores que suben con el tiempo [#bd2122-pg-notas-18], y con ellos las inserciones volverían a caer siempre en la última hoja. Cambiarlo en una tabla en uso es una migración con costo, no un retoque.",
+    "Esto corresponde al commit `25e08fa` (9 de noviembre de 2026); el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/metricas.ts",
+    "src/util/nube.ts",
+    "supabase/migrations/20261027000000_escala.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Para qué sirve que esté ordenado"
+  },
+  {
+   "t": "p",
+   "x": "Un índice hash o un diccionario encuentran un valor exacto. El B-tree, además, **conoce el orden**, y eso abre tres usos más. Los tres salen de la misma propiedad: las entradas de las hojas están en orden de clave y cada hoja apunta a la siguiente."
+  },
+  {
+   "t": "lista",
+   "ord": false,
+   "items": [
+    "**Rangos:** `between`, `>`, `<`. Se baja una vez hasta el primer valor del rango y después se recorre hacia la derecha por los enlaces entre hojas, sin volver a subir. Pedir 1.000 ids seguidos (`between 1000000 and 1000999`) leyó 31 páginas en total, tabla incluida.",
+    "**Ordenar gratis:** `order by id limit 5` devolvió las cinco filas leyendo 4 páginas y sin ningún paso de ordenamiento, porque el índice ya entrega las claves en orden.",
+    "**Prefijos:** `codigo like 'BU-04%'` puede usar el índice, porque todo lo que empieza igual queda junto. `like '%729'` no puede: no hay dónde empezar a buscar. Si la base no usa la ordenación «C» hace falta crear el índice con una clase de operadores especial [#bd2122-pg-tipos-indice]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, buffers, costs off, timing off) select id from bultos order by id limit 5;",
+     "s": " Limit (actual rows=5 loops=1)\n   ->  Index Only Scan using bultos_pkey on bultos (actual rows=5 loops=1)\n         Heap Fetches: 0\n         Buffers: shared hit=4"
+    }
+   ],
+   "cap": "Sin nodo `Sort`: las filas salen en el orden del índice. «Index Only Scan» es el truco de cobertura que se explica más abajo."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si hay un índice, la consulta lo usa»",
+   "x": "Lo decide el planificador, comparando costos. Con una condición poco selectiva ([[selectividad]], [@09-20]) leer todo el índice y después saltar por la tabla fila por fila puede costar más que el [[escaneo secuencial]]. Y hay consultas que ningún B-tree puede ayudar: `like '%729'`, o una función aplicada a la columna (ahí, el índice de expresión que viene más abajo). Tener un índice y que se use son dos cosas separadas; la forma de comprobarlo es mirar el plan."
+  },
+  {
+   "t": "pensa",
+   "x": "Un amigo dice: «para encontrar todos los bultos cuyo código termina en 729, creo un índice sobre `codigo` y listo». ¿Por qué no alcanza?",
+   "resp": "Porque las entradas están ordenadas por el principio del código. Los que terminan en 729 están repartidos por todo el árbol, sin un lugar donde empezar. Habría que recorrer todas las hojas, que no ahorra nada frente a leer la tabla. Una salida es otro índice, sobre el código al revés (una expresión), y buscar por el prefijo del código invertido."
+  },
+  {
+   "t": "h",
+   "x": "Índices compuestos: el orden de las columnas manda"
+  },
+  {
+   "t": "p",
+   "x": "Un [[índice compuesto]] tiene más de una columna: `create index on bultos (deposito_id, creado)`. Las entradas se ordenan por la primera columna y, dentro de cada valor igual de la primera, por la segunda. Es como ordenar una planilla por depósito y, dentro de cada depósito, por fecha. Mirá cómo quedan dos órdenes distintos con las mismas entradas."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "Índice (deposito_id, creado)",
+     "celdas": [
+      {
+       "t": "7",
+       "s": "1-mar",
+       "k": "ok"
+      },
+      {
+       "t": "7",
+       "s": "2-mar",
+       "k": "ok"
+      },
+      {
+       "t": "7",
+       "s": "3-mar",
+       "k": "ok"
+      },
+      {
+       "t": "8",
+       "s": "1-mar",
+       "k": "neutro"
+      },
+      {
+       "t": "8",
+       "s": "2-mar",
+       "k": "neutro"
+      },
+      {
+       "t": "9",
+       "s": "1-mar",
+       "k": "neutro"
+      }
+     ],
+     "nota": "Los bultos del depósito 7 de esa semana están todos juntos: se lee un tramo corto."
+    },
+    {
+     "e": "Índice (creado, deposito_id)",
+     "celdas": [
+      {
+       "t": "1-mar",
+       "s": "dep. 7",
+       "k": "ok"
+      },
+      {
+       "t": "1-mar",
+       "s": "dep. 8",
+       "k": "neutro"
+      },
+      {
+       "t": "1-mar",
+       "s": "dep. 9",
+       "k": "neutro"
+      },
+      {
+       "t": "2-mar",
+       "s": "dep. 7",
+       "k": "ok"
+      },
+      {
+       "t": "2-mar",
+       "s": "dep. 8",
+       "k": "neutro"
+      },
+      {
+       "t": "2-mar",
+       "s": "dep. 9",
+       "k": "neutro"
+      }
+     ],
+     "nota": "Los del depósito 7 están salteados entre los de todos los demás depósitos."
+    }
+   ],
+   "cap": "Las mismas entradas ordenadas de dos maneras (versión reducida: en la tabla real hay 40 depósitos). En verde, las que sirven para «depósito 7, primera semana de marzo»."
+  },
+  {
+   "t": "p",
+   "x": "Con los dos millones de bultos corrí la misma consulta («depósito 7, entre el 2 y el 9 de marzo», 1.008 filas) con cada orden de columnas. Pedí solo el conteo para que el resultado salga del índice y `Buffers` mida únicamente el índice."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create index bultos_a on bultos (deposito_id, creado);\nexplain (analyze, buffers, costs off, timing off) select count(*) from bultos\n  where deposito_id = 7 and creado >= '2026-03-02' and creado < '2026-03-09';",
+     "s": " Index Only Scan using bultos_a on bultos (actual rows=1008 loops=1)\n   Index Cond: ((deposito_id = 7) AND (creado >= '2026-03-02') AND (creado < '2026-03-09'))\n   Buffers: shared hit=8"
+    },
+    {
+     "c": "drop index bultos_a;  create index bultos_b on bultos (creado, deposito_id);\n-- la misma consulta, ahora con las columnas al revés",
+     "s": " Index Only Scan using bultos_b on bultos (actual rows=1008 loops=1)\n   Index Cond: ((creado >= '2026-03-02') AND (creado < '2026-03-09') AND (deposito_id = 7))\n   Buffers: shared hit=158"
+    }
+   ],
+   "cap": "Las condiciones del plan están acortadas para que entren en pantalla. Mismo resultado, mismo tamaño de índice (60 MB): 8 páginas contra 158. Con el orden de las columnas «creado, deposito_id» el motor lee toda la semana de todos los depósitos (40.320 entradas) y descarta los otros 39 depósitos mientras camina."
+  },
+  {
+   "t": "p",
+   "x": "De ahí sale la regla que explica la [documentación oficial](https://www.postgresql.org/docs/16/indexes-multicolumn.html) [#bd2122-pg-multicolumna-16]: el índice limita la zona que recorre con las **igualdades sobre las primeras columnas y, como mucho, un rango sobre la primera columna que no tiene igualdad**. Lo que viene después se chequea dentro del índice, pero no achica la zona. Una regla práctica que se desprende: las columnas con `=` primero, la columna del rango (fechas, por ejemplo) al final."
+  },
+  {
+   "t": "p",
+   "x": "La otra mitad de la regla es el **prefijo izquierdo**. El índice `(deposito_id, creado)` sirve para consultas por `deposito_id` solo, y por las dos columnas. Pero no para consultas que solo filtran por `creado`. Lo comprobé buscando 10 minutos de bultos (40 filas) con ese índice."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, buffers, costs off, timing off) select count(*) from bultos\n  where creado >= '2026-03-02 00:00' and creado < '2026-03-02 00:10';",
+     "s": " Index Only Scan using bultos_a on bultos (actual rows=40 loops=1)\n   Index Cond: ((creado >= '2026-03-02') AND (creado < '2026-03-02 00:10'))\n   Buffers: shared hit=7666\n Execution Time: 26.026 ms"
+    }
+   ],
+   "cap": "Para 40 filas, recorrió el índice entero: 7.666 páginas, casi las 7.680 de sus 60 MB. Seguía siendo mejor que leer la tabla, pero es una búsqueda con una sola igualdad en la columna equivocada."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "PostgreSQL 18 suma «skip scan» (13-11-2026)",
+   "x": "La versión 18 (septiembre de 2025) incorporó el *skip scan*: si la primera columna del índice tiene pocos valores distintos, el motor puede repetir la búsqueda para cada valor de esa columna y así aprovechar el índice aunque la consulta no la mencione. Lo dicen las notas de la versión [#bd2122-pg-notas-18] y la documentación de índices multicolumna [#bd2122-pg-multicolumna-18]. Lo que mostré arriba es PostgreSQL 16: **no corrí esto en la 18**, así que no sé cómo se habría comportado con esos 40 depósitos. La regla del prefijo izquierdo sigue siendo la mejor forma de diseñar, porque el skip scan solo conviene si la primera columna tiene pocos valores y el planificador estima que paga."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Tu consulta más frecuente es: «los 20 bultos más recientes del depósito 7 que están `en_ruta`», o sea `where deposito_id = 7 and estado = 'en_ruta' order by creado desc limit 20`. Elegí el orden de columnas de un índice compuesto y justificá.",
+   "pista": "Pensá qué columnas tienen igualdad y cuál tiene el orden que pedís. ¿Qué pasaría si `creado` fuera primera?",
+   "solucion": "`(deposito_id, estado, creado)`. Las dos igualdades van primero, en cualquier orden entre ellas, y `creado` al final: dentro de cada combinación depósito + estado las entradas ya están por fecha, así que el motor entra por el final de ese tramo, recorre 20 entradas hacia atrás y termina, sin ordenar nada. Con `creado` primera tendría que caminar entradas de todos los depósitos y estados para juntar 20 que cumplan."
+  },
+  {
+   "t": "senda",
+   "titulo": "En Senda: la tabla de posiciones de una copa",
+   "x": [
+    "En la migración de «Juntos» hay un índice compuesto que copia exactamente el orden del ranking: `copas_tabla` sobre `copas_resultados (copa, puntos desc, aciertos desc, ms asc)`. Primero la igualdad (`copa`), después el criterio de orden, con sentido por columna, y la función `tabla_copa` ordena con `order by r.puntos desc, r.aciertos desc, r.ms asc` dentro de un `row_number()`. Otro caso es `partidas_a (jugador_a, estado)` y su gemelo `partidas_b` (columna `jugador_b`): como una persona puede ocupar cualquiera de los dos lugares de la partida, hay un índice para cada uno (es mi lectura del esquema; no revisé qué consultas los usan).",
+    "No tengo la base de Senda a mano, así que probé la forma del índice con una tabla inventada de 300.000 filas (100.000 personas en 3 copas): sin índice, el «top 50» leía 2.206 páginas y ordenaba 100.000 filas; con el índice de la misma forma leyó 53 (50 de ellas, una por cada fila del top, de la tabla). Lo que **no** verifiqué es qué plan elige la base real para `tabla_copa`, que además hace un `join` con los perfiles y un filtro por grupo. Esto corresponde al commit `25e08fa`."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Parcial, de expresión y de cobertura: tres retoques del mismo árbol"
+  },
+  {
+   "t": "p",
+   "x": "Con las mismas hojas y páginas, PostgreSQL permite tres variantes que no son tipos nuevos, sino formas de decidir **qué entra** al árbol. Las tres aparecen en el esquema de Senda, salvo una."
+  },
+  {
+   "t": "h3",
+   "x": "Índice parcial: solo las filas que importan"
+  },
+  {
+   "t": "p",
+   "x": "Un [[índice parcial]] lleva una condición (`where …`) y guarda únicamente las filas que la cumplen [#bd2122-pg-parcial]. Sirve cuando una consulta mira siempre un pedacito chico de una tabla grande. Pensá en una cola de avisos para enviar: millones de avisos ya enviados y unos pocos pendientes. Armé una tabla `avisos` inventada con 1.000.000 de filas y 500 sin enviar, con la forma de la de Senda."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create index avisos_todos      on avisos (enviar_desde);\ncreate index avisos_pendientes on avisos (enviar_desde) where enviado is null;\nselect relname, pg_size_pretty(pg_relation_size(oid)) from pg_class where relname like 'avisos_%' and relkind = 'i' order by 1;",
+     "s": "      relname       | pg_size_pretty\n-------------------+----------------\n avisos_pendientes | 32 kB\n avisos_todos      | 21 MB"
+    },
+    {
+     "c": "-- solo existe avisos_todos:\nexplain (analyze, buffers, costs off, timing off) select id from avisos\n  where enviado is null and enviar_desde <= '2026-12-01' order by enviar_desde limit 100;",
+     "s": " Index Scan using avisos_todos on avisos (actual rows=100 loops=1)\n   Filter: (enviado IS NULL)\n   Rows Removed by Filter: 999500\n   Buffers: shared hit=9101\n Execution Time: 102.808 ms"
+    },
+    {
+     "c": "-- solo existe avisos_pendientes:  (la misma consulta)",
+     "s": " Index Scan using avisos_pendientes on avisos (actual rows=100 loops=1)\n   Buffers: shared hit=3\n Execution Time: 0.037 ms"
+    }
+   ],
+   "cap": "El índice completo recorre las filas ya enviadas, de la más vieja hacia adelante, hasta encontrar las 100 pendientes: descarta 999.500. El parcial tiene 500 entradas y las ve de una. Medido en esta VM; el tiempo con `timing` activado incluye algo de sobrecarga de medición."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La consulta tiene que «probar» la condición",
+   "x": "El planificador usa el índice parcial solo si puede demostrar que la condición de la consulta implica la del índice. Con `where enviado is null` en la consulta, sí. Si la consulta no menciona `enviado` (por ejemplo, `where enviar_desde <= now()`), no hay forma de saber que las filas que pide caen dentro del índice, y no lo usa. Muchos «mi índice parcial no se usa» son esto."
+  },
+  {
+   "t": "h3",
+   "x": "Índice de expresión: indexar el resultado de una cuenta"
+  },
+  {
+   "t": "p",
+   "x": "Si una consulta compara `lower(apodo) = 'ana500000'`, un índice sobre `apodo` no sirve: el árbol está ordenado por `apodo` tal cual, no por su versión en minúsculas. La solución es un [[índice de expresión]], que guarda el valor ya calculado [#bd2122-pg-expresiones]. Con 500.000 perfiles inventados:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create index perfiles_apodo on perfiles (apodo);\nexplain (analyze, buffers, costs off, timing off) select id from perfiles where lower(apodo) = 'ana500000';",
+     "s": " Seq Scan on perfiles (actual rows=1 loops=1)\n   Filter: (lower(apodo) = 'ana500000'::text)\n   Buffers: shared hit=2703\n Execution Time: 143.280 ms"
+    },
+    {
+     "c": "create unique index perfiles_apodo_unico on perfiles (lower(apodo));\n-- la misma consulta:",
+     "s": " Index Scan using perfiles_apodo_unico on perfiles (actual rows=1 loops=1)\n   Index Cond: (lower(apodo) = 'ana500000'::text)\n   Buffers: shared hit=1 read=3\n Execution Time: 0.026 ms"
+    },
+    {
+     "c": "insert into perfiles values (500001, 'ANA500000');   -- ya existe 'Ana500000'",
+     "s": "ERROR:  duplicate key value violates unique constraint \"perfiles_apodo_unico\"\nDETAIL:  Key (lower(apodo))=(ana500000) already exists."
+    }
+   ],
+   "cap": "El mismo índice cumple dos papeles: acelera la búsqueda sin distinguir mayúsculas y **hace cumplir** que no haya dos alias iguales aunque cambien las mayúsculas."
+  },
+  {
+   "t": "senda",
+   "titulo": "En Senda: dos de estos tres retoques existen",
+   "x": [
+    "En `20261111000000_novedades.sql`, la migración que hizo único el alias, hay `create unique index perfiles_apodo_unico on public.perfiles (lower(apodo))`: es el mismo índice de expresión de arriba, con el mismo nombre (lo tomé de ahí). En `20261101000000_juntos.sql`, `avisos_pendientes on public.avisos (enviar_desde) where enviado is null` es el parcial, y la función `enviar_avisos()` corre cada minuto con `pg_cron` (no revisé qué consulta usa ese índice, pero tiene la forma de la cola de arriba). Hay más parciales: `partidas_vencen (vence_en) where estado = 'en_juego'` y `partidas_azar`, que parecen pensados para el proceso que cierra duelos vencidos.",
+    "Y hay una pieza más para mirar: `buscar_personas` (`20261124000000_buscar_por_alias.sql`) busca con `lower(p.apodo) like t || '%'`, o sea por el principio del alias y sobre la misma expresión que indexa `perfiles_apodo_unico`. Si ese `like` usa el índice depende de la ordenación («collation») de la base, que no verifiqué: con una distinta de «C» hace falta crear el índice con la clase `text_pattern_ops` [#bd2122-pg-tipos-indice], y el de la migración no la declara. Los índices de cobertura (`include`) **no existen** en las 42 migraciones: no hay ningún `include (` en ellas. Esto corresponde al commit `25e08fa`."
+   ],
+   "archivos": [
+    "supabase/migrations/20261111000000_novedades.sql",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261124000000_buscar_por_alias.sql"
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Índice de cobertura: que la tabla ni se toque"
+  },
+  {
+   "t": "p",
+   "x": "Un [[índice de cobertura]] es uno que contiene todas las columnas que la consulta pide, así que la respuesta sale solo del índice, sin visitar la tabla: lo que PostgreSQL llama *Index Only Scan* o [[escaneo solo de índice]]. Con `include` se suman columnas que no forman parte del orden, pero viajan en la hoja [#postgres-create-index]. Sobre la tabla de copas inventada, el top 50 pide `usuario`, `puntos`, `aciertos` y `ms`. El índice de la forma de `copas_tabla` cubre tres de las cuatro y falta `usuario`, así que el motor igual visita la tabla 50 veces, una por fila. Sumándole `include (usuario)`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create index copas_cubre on copas (copa, puntos desc, aciertos desc, ms asc) include (usuario);\nvacuum copas;\nexplain (analyze, buffers, costs off, timing off) select usuario, puntos, aciertos, ms from copas\n  where copa = 'pascua-2027' order by puntos desc, aciertos desc, ms asc limit 50;",
+     "s": " Limit (actual rows=50 loops=1)\n   ->  Index Only Scan using copas_cubre on copas (actual rows=50 loops=1)\n         Heap Fetches: 0\n         Buffers: shared hit=4"
+    },
+    {
+     "c": "-- cambio el `ms` de las 50 filas del top y vuelvo a consultar, sin VACUUM de por medio\nupdate copas set ms = ms + 1 where copa = 'pascua-2027' and usuario in (select usuario from copas where copa = 'pascua-2027' order by puntos desc, aciertos desc, ms asc limit 50);",
+     "s": " Index Only Scan using copas_cubre on copas (actual rows=50 loops=1)\n   Heap Fetches: 100\n   Buffers: shared hit=105"
+    },
+    {
+     "c": "vacuum copas;   -- y de nuevo la misma consulta",
+     "s": " Index Only Scan using copas_cubre on copas (actual rows=50 loops=1)\n   Heap Fetches: 0\n   Buffers: shared hit=5"
+    }
+   ],
+   "cap": "De 53 páginas a 4 al cubrir la consulta. El índice con `include` pesó 14 MB contra 13 MB sin él. `Heap Fetches` cuenta las veces que igual hubo que mirar la tabla."
+  },
+  {
+   "t": "p",
+   "x": "Esa segunda corrida enseña el tropiezo clásico. Un escaneo solo de índice igual necesita saber si cada fila es **visible** para la transacción que consulta, y esa información vive en la tabla, no en el índice. Para no mirar la tabla cada vez, PostgreSQL mantiene un [[mapa de visibilidad]]: un bit por página de la tabla que dice «todas las filas de esta página son visibles para todos». `VACUUM` lo actualiza [#bd2122-pg-index-only]. Si acabás de modificar filas, esas páginas dejan de estar marcadas y el motor vuelve a visitarlas, tal como pasó con los 100 `Heap Fetches` (cada fila cambiada dejó dos entradas en el índice, la vieja y la nueva). Por eso los índices de cobertura rinden más en tablas que cambian poco."
+  },
+  {
+   "t": "h",
+   "x": "Los otros cuatro: hash, GIN, GiST y BRIN"
+  },
+  {
+   "t": "p",
+   "x": "Un B-tree supone que los valores se pueden poner en fila y comparar con «menor» y «mayor». Cuando el dato no es así (un documento con muchas etiquetas, un intervalo de tiempo, un punto en un mapa) o cuando la tabla es tan grande que ni un B-tree entra en memoria, PostgreSQL ofrece otros métodos de acceso. Se eligen escribiendo `using …` al crear el índice [#bd2122-pg-tipos-indice]. Vamos de lo más simple a lo más raro, siempre con la misma tabla."
+  },
+  {
+   "t": "h3",
+   "x": "Hash: solo igualdad"
+  },
+  {
+   "t": "p",
+   "x": "Un índice hash guarda un número calculado a partir de cada valor (una [[función hash]], [@03-27]) y sirve únicamente para `=`. No ordena, así que no hace rangos ni `order by`. Lo probé sobre `codigo`, el texto de 10 caracteres de cada bulto."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create index bultos_codigo_bt   on bultos (codigo);\ncreate index bultos_codigo_hash on bultos using hash (codigo);\n-- tamaños: B-tree 60 MB, hash 64 MB",
+     "s": "-- consulta: select id from bultos where codigo = 'BU-0472909';\nhash:   Index Scan using bultos_codigo_hash   Buffers: shared hit=2\nB-tree: Index Scan using bultos_codigo_bt     Buffers: shared hit=4"
+    },
+    {
+     "c": "-- con solo el hash, un rango por código:\nexplain (costs off) select id from bultos where codigo > 'BU-0472909' and codigo < 'BU-0472999';",
+     "s": " Seq Scan on bultos\n   Filter: ((codigo > 'BU-0472909') AND (codigo < 'BU-0472999'))"
+    }
+   ],
+   "cap": "Las dos primeras líneas están resumidas de los planes completos. El hash ahorra dos páginas por búsqueda, a cambio de más espacio y de no servir para nada más que `=`."
+  },
+  {
+   "t": "p",
+   "x": "Dos páginas en vez de cuatro no cambia la vida de nadie, y por eso casi nadie crea índices hash: el B-tree hace lo mismo y además rangos y orden. Existe, y conviene saber que existe."
+  },
+  {
+   "t": "h3",
+   "x": "GIN: el índice invertido para valores con muchas partes"
+  },
+  {
+   "t": "p",
+   "x": "Un [[GIN]] (*Generalized Inverted Index*) funciona como el índice alfabético del final de un libro: en vez de «página → palabras», guarda «palabra → páginas donde aparece». Es un [[índice invertido]]: para cada **componente** de un valor (cada elemento de un arreglo, cada clave o valor de un `jsonb`, cada palabra de un texto) guarda la lista de TID de las filas que lo contienen [#bd2122-pg-gin]. Por eso sirve para preguntas del tipo «¿qué filas contienen esto?». En `bultos`, la columna `detalle` es un `jsonb` con etiquetas. Marqué 199 bultos como `peligroso` y busqué esos."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, buffers, costs off, timing off) select count(*) from bultos where detalle @> '{\"etiquetas\":[\"peligroso\"]}';   -- sin índice",
+     "s": " Seq Scan on bultos (actual rows=199 loops=1)\n   Filter: (detalle @> '{\"etiquetas\": [\"peligroso\"]}'::jsonb)\n   Rows Removed by Filter: 1999801\n   Buffers: shared hit=20213 read=12578\n Execution Time: 744.829 ms"
+    },
+    {
+     "c": "create index bultos_gin_pp on bultos using gin (detalle jsonb_path_ops);   -- misma consulta",
+     "s": " Bitmap Heap Scan on bultos (actual rows=199 loops=1)\n   ->  Bitmap Index Scan on bultos_gin_pp (actual rows=199 loops=1)\n         Buffers: shared hit=2\n Buffers: shared hit=7\n Execution Time: 0.124 ms"
+    },
+    {
+     "c": "explain (costs off) select count(*) from bultos where detalle->>'peso_kg' = '7';",
+     "s": " Seq Scan on bultos\n   Filter: ((detalle ->> 'peso_kg'::text) = '7'::text)"
+    }
+   ],
+   "cap": "De 32.791 páginas y 0,5 a 0,75 s (varió entre corridas) a 7 páginas. Más abajo, la última consulta: pregunta lo mismo con otro operador y el GIN no la ayuda. «Bitmap» es un paso intermedio: el índice arma un mapa de qué páginas visitar y después la tabla se lee en orden."
+  },
+  {
+   "t": "p",
+   "x": "Hay un detalle que decide qué GIN crear. El `jsonb_ops` por defecto indexa claves y valores por separado y pesó 13 MB; el `jsonb_path_ops` indexa caminos completos, soporta menos operadores pero pesó 6,9 MB (de una tabla de 256 MB). Y la última consulta muestra el tropiezo de siempre: un GIN sobre `detalle` acelera operadores como `@>`, pero **no** una comparación `detalle->>'peso_kg' = '7'`. Para eso haría falta un índice de expresión sobre esa extracción. El índice tiene que estar pensado para el operador que usa la consulta."
+  },
+  {
+   "t": "p",
+   "x": "Escribir también cuesta más: insertar 300.000 bultos a una tabla sin índices tardó de 0,40 a 0,45 s; con el GIN `jsonb_path_ops`, 0,95 a 1,04 s, algo más del doble. Cada fila nueva toca varias listas (una por componente), y por eso GIN junta los cambios en una lista pendiente que vuelca de a tandas."
+  },
+  {
+   "t": "h3",
+   "x": "GiST: un árbol que sirve para «dónde cae esto»"
+  },
+  {
+   "t": "p",
+   "x": "[[GiST]] (*Generalized Search Tree*) es un marco para armar árboles balanceados sobre datos que no tienen un orden lineal: puntos en un mapa, rectángulos, rangos de fechas. En cada nivel, una entrada guarda una **región que contiene a todo lo que está debajo** (para rangos de tiempo, el intervalo que cubre a los hijos). La diferencia clave con el B-tree: esas regiones pueden solaparse, así que buscar puede obligar a bajar por **más de una rama** [#bd2122-pg-gist]."
+  },
+  {
+   "t": "p",
+   "x": "Una aplicación muy de logística: los turnos de un muelle de carga. Dos camiones no pueden usar el mismo muelle en horarios que se pisan. Con GiST se declara eso como regla de la base, una **restricción de exclusión** [#bd2122-pg-exclusion], y el índice es lo que la hace cumplir y cuidar rápido."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create extension btree_gist;   -- para usar `=` sobre enteros dentro de un índice GiST\ncreate table reservas (\n  id     bigint generated always as identity primary key,\n  muelle int not null,\n  tramo  tsrange not null,\n  exclude using gist (muelle with =, tramo with &&)   -- mismo muelle y tramos que se pisan: prohibido\n);\n-- 500.000 turnos de 25 min cada 30 min, en 10 muelles (inventados)",
+     "s": "INSERT 0 500000   (34 s en esta VM, índice GiST de 42 MB)"
+    },
+    {
+     "c": "insert into reservas (muelle, tramo) values (3, tsrange('2026-02-01 10:10', '2026-02-01 10:40'));",
+     "s": "ERROR:  conflicting key value violates exclusion constraint \"reservas_muelle_tramo_excl\"\nDETAIL:  Key (muelle, tramo)=(3, [\"2026-02-01 10:10:00\",\"2026-02-01 10:40:00\")) conflicts with existing key (muelle, tramo)=(3, [\"2026-02-01 10:00:00\",\"2026-02-01 10:25:00\"))."
+    },
+    {
+     "c": "explain (analyze, buffers, costs off, timing off) select * from reservas\n  where muelle = 3 and tramo && tsrange('2026-02-01 10:10', '2026-02-01 10:40');",
+     "s": " Index Scan using reservas_muelle_tramo_excl on reservas (actual rows=2 loops=1)\n   Buffers: shared hit=50\n Execution Time: 0.922 ms      -- sin índice: Seq Scan, 4.167 páginas, 90,8 ms"
+    }
+   ],
+   "cap": "`&&` quiere decir «se solapan». Notá las 50 páginas contra las 4 de un B-tree: la búsqueda en un GiST no sigue un único camino. La carga de 34 s incluye chequear la restricción en cada fila; no medí la misma carga sin ella."
+  },
+  {
+   "t": "h3",
+   "x": "BRIN: un resumen por bloques de páginas"
+  },
+  {
+   "t": "p",
+   "x": "[[BRIN]] (*Block Range Index*) cambia de estrategia: en vez de una entrada por fila, guarda **un resumen por cada grupo de páginas de la tabla**. Para un número o una fecha, el resumen es el mínimo y el máximo de ese grupo. Por defecto cada grupo son 128 páginas [#bd2122-pg-brin] (lo confirmé con `brin_metapage_info`). Para buscar, mira los resúmenes y se queda con los grupos donde el valor podría estar. Funciona **solo si el valor crece con la posición física de la fila**, o sea si los datos entraron más o menos en orden: una tabla de eventos que solo se agregan al final con su fecha."
+  },
+  {
+   "t": "p",
+   "x": "En `bultos`, `creado` sube con el `id`, y la estadística lo confirma: `pg_stats` da correlación 0,999 entre el orden de `creado` y el orden físico. `deposito_id`, en cambio, está repartido al azar: correlación 0,028."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Para buscar una semana en `creado`",
+    "Tamaño del índice",
+    "Páginas leídas (índice + tabla)"
+   ],
+   "filas": [
+    [
+     "B-tree sobre `creado`",
+     "43 MB",
+     "126, todas de índice"
+    ],
+    [
+     "BRIN sobre `creado`",
+     "24 kB",
+     "2 de índice + 791 de tabla"
+    ]
+   ],
+   "cap": "Medido en esta VM: 40.320 filas. El B-tree tardó 2,8 ms y el BRIN 5,2 ms. El B-tree tuvo 240 «Heap Fetches» (las filas que actualicé antes). El BRIN dejó más filas de tabla para revisar (descartó 7.874), pero ocupa unas 1.800 veces menos."
+  },
+  {
+   "t": "p",
+   "x": "El BRIN no es un B-tree barato: es una herramienta para tablas gigantes cuyo orden físico coincide con el de una columna, donde una página de índice resume cientos de páginas de tabla y casi no cuesta mantenerlo. Si lo ponés sobre una columna sin correlación, como `deposito_id`, cada grupo de 128 páginas contiene todos los depósitos, ningún grupo se descarta y el planificador lo ignora: con solo el BRIN de `deposito_id` creado, `deposito_id = 7` eligió un `Seq Scan`."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tipo",
+    "Guarda",
+    "Sirve para",
+    "No sirve para",
+    "Ejemplo de logística"
+   ],
+   "filas": [
+    [
+     "B-tree",
+     "Claves ordenadas",
+     "`=`, rangos, orden, prefijos",
+     "`%texto`, funciones sobre la columna",
+     "Bulto por id, entregas por fecha"
+    ],
+    [
+     "Hash",
+     "Un número por valor",
+     "Solo `=`",
+     "Rangos y orden",
+     "Casi nunca: el B-tree lo cubre"
+    ],
+    [
+     "GIN",
+     "Componente → lista de filas",
+     "Contiene, tiene alguna etiqueta, texto",
+     "Operadores que no sean los suyos",
+     "Bultos con la etiqueta `frio` en un `jsonb`"
+    ],
+    [
+     "GiST",
+     "Regiones que contienen a los hijos",
+     "Solape, cercanía, exclusión",
+     "Rangos simples de números",
+     "Turnos de muelle que no se pisen"
+    ],
+    [
+     "BRIN",
+     "Mínimo y máximo por grupo de páginas",
+     "Tablas enormes con orden físico",
+     "Columnas sin correlación",
+     "Registro de eventos con fecha"
+    ]
+   ],
+   "cap": "Hay más (SP-GiST y la extensión `bloom`), que no vemos en este curso."
+  },
+  {
+   "t": "senda",
+   "titulo": "En Senda: solo B-tree",
+   "x": [
+    "En las 42 migraciones de `supabase/migrations/`, las sentencias `create index` crean 24 índices con nombre propio, y **ninguno** usa `using gin`, `gist`, `brin` ni `hash`: todos son B-tree, que es lo que se crea sin aclarar nada. Las claves primarias y las restricciones `unique` crean además sus propios B-tree. Esto no es una carencia: la app no guarda intervalos que se pisen y el contenido (preguntas, lecciones) vive en archivos JSON del repositorio (`contenido/`), no en tablas de la base. La única búsqueda por «un pedazo del medio» que encontré es la de miembros de un grupo, `apodo_de(m.usuario) ilike '%' || … || '%'` en `20261130000005_grupos_grandes.sql`, que ningún B-tree puede ayudar; como se aplica dentro de un solo grupo, el volumen es chico. Si esa búsqueda se hiciera sobre todos los perfiles, sería el momento de mirar un GIN con trigramas (la extensión `pg_trgm`).",
+    "Es un hecho del código en el commit `25e08fa`; para el estado de la base en producción habría que consultar `pg_indexes` ahí."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261027000000_escala.sql",
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "contenido/espadeo.json"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Todo índice se paga"
+  },
+  {
+   "t": "p",
+   "x": "Cada índice es una copia de parte de los datos, ordenada de otra manera, que hay que mantener al día. Este es el inventario de lo que armé sobre `bultos` (tabla: 256 MB) a lo largo del día."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Índice",
+    "Tamaño"
+   ],
+   "filas": [
+    [
+     "B-tree de `id` (clave primaria)",
+     "43 MB"
+    ],
+    [
+     "B-tree compuesto `(deposito_id, creado)`",
+     "60 MB"
+    ],
+    [
+     "B-tree de `codigo`",
+     "60 MB"
+    ],
+    [
+     "Hash de `codigo`",
+     "64 MB"
+    ],
+    [
+     "GIN `jsonb_ops` de `detalle`",
+     "13 MB"
+    ],
+    [
+     "GIN `jsonb_path_ops` de `detalle`",
+     "6,9 MB"
+    ],
+    [
+     "BRIN de `creado`",
+     "24 kB"
+    ]
+   ],
+   "cap": "Medido en esta VM. Tres índices de los de arriba superan en tamaño a la mitad de la tabla."
+  },
+  {
+   "t": "p",
+   "x": "Tres costos para tener presentes. **Espacio**, que es disco y también memoria, porque un índice que no entra en la caché de PostgreSQL deja de ser rápido. **Escritura**: cada `insert` y cada `update` de una columna indexada toca todos los índices que la incluyen (el GIN de arriba lo duplicó, la restricción GiST sumó unos 69 µs por fila). Y **mantenimiento**: las páginas se parten, quedan a medias y se llenan de entradas viejas, que `VACUUM` limpia."
+  },
+  {
+   "t": "p",
+   "x": "Una regla práctica, que es criterio y no ley: se crea un índice **para una consulta concreta que ya viste lenta**, se confirma en el plan que se usa y se mide cuánto cuesta en escritura. El [@09-23] retoma esto con casos de consultas lentas y por qué «un índice en cada columna» es de lo peor que se puede hacer."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones de PostgreSQL al 13-11-2026",
+   "x": "Según la página oficial de versiones [#bd2122-pg-versioning], la rama estable más nueva es la 18 (18.7), y ayer, 12-11-2026, salieron las actualizaciones 18.7, 17.12, 16.16, 15.20 y 14.25, junto con la segunda candidata de la 19. Ese mismo día termina el soporte de la 14. Yo usé la 16.15, que es la que tiene instalada esta VM (la 16.16 salió ayer): para lo que muestra el día no cambia nada. El skip scan y `uuidv7()` que mencioné son de la 18 y no los probé. La versión de PostgreSQL del proyecto de Supabase de Senda no figura en el repositorio."
+  }
+ ],
+ "recap": [
+  "Un B-tree es un árbol de páginas de 8 kB con tres clases: raíz, internas y hojas. Las hojas guardan clave + TID (página y posición en la tabla) y están enlazadas. Todas están a la misma profundidad.",
+  "Cada página tiene cientos de entradas, así que 3 niveles alcanzan para ~30 millones de claves y 4 para miles de millones. Buscar por clave en 2 millones de filas leyó 4 páginas, contra 32.787 del escaneo secuencial.",
+  "Insertar puede partir una página; el árbol crece por arriba. Claves siempre crecientes llenan las hojas al 90 %, claves al azar las dejan en ~70 % y el índice pesa más.",
+  "Estar ordenado permite rangos, `order by` sin ordenar y prefijos. No permite `like '%x'` ni funciones sobre la columna (para eso, índice de expresión).",
+  "En un índice compuesto manda el orden: igualdades primero, el rango al final, y solo sirve para consultas que usan un prefijo izquierdo (en PostgreSQL 16; la 18 suma skip scan).",
+  "Parcial (solo las filas que importan), de expresión (el valor calculado) y de cobertura (`include`, escaneo solo de índice, depende del mapa de visibilidad y de `VACUUM`).",
+  "Hash (solo `=`), GIN (invertido, para contiene), GiST (regiones, solapes, exclusión) y BRIN (resumen por bloques, para tablas enormes ordenadas) resuelven lo que el B-tree no. Cada índice cuesta espacio y escritura."
+ ],
+ "repaso": [
+  {
+   "p": "Un índice B-tree sobre la clave primaria de una tabla tiene hoy 3 niveles y 2 millones de filas. La tabla crece a 6 millones de filas. ¿Qué pasa con la altura del árbol?",
+   "o": [
+    "Pasa a 4 niveles, porque cada vez que la tabla se triplica se suma un nivel",
+    "Se parte en tres árboles de 3 niveles, uno por cada 2 millones de filas",
+    "Sigue en 3 niveles, porque cada nivel multiplica la capacidad por cientos de claves",
+    "Pasa a 6 niveles, porque la altura crece en proporción al número de filas"
+   ],
+   "c": 2,
+   "e": "Cada página interna tiene cientos de hijos (285 en lo medido), así que tres niveles con hojas de 366 entradas caben unos 30 millones de claves. Triplicar de 2 a 6 millones no agrega ningún nivel. Las otras opciones tratan al B-tree como si creciera como una lista o como un árbol binario."
+  },
+  {
+   "p": "Existe un índice sobre `(deposito_id, creado)`. ¿Para cuál de estas consultas aprovecha menos ese índice?",
+   "o": [
+    "Bultos de un depósito, sin filtrar por ninguna fecha",
+    "Bultos creados en una semana, sin filtrar por depósito",
+    "Bultos de un depósito creados en una semana dada",
+    "Los diez bultos más nuevos de un depósito concreto"
+   ],
+   "c": 1,
+   "e": "Sin la condición sobre la primera columna, el motor no puede acotar la zona del índice y, en PostgreSQL 16, recorre casi todo (en lo medido, 7.666 de ~7.680 páginas para 40 filas). Las otras tres usan el prefijo izquierdo: la tercera es el caso ideal y la cuarta además entrega el orden por fecha sin ordenar."
+  },
+  {
+   "p": "Hay un índice parcial `on avisos (enviar_desde) where enviado is null`. Una consulta pide `where enviar_desde <= now() order by enviar_desde limit 100`, sin mencionar `enviado`. ¿Qué pasa?",
+   "o": [
+    "Falla con error, porque la consulta no repite la condición del índice parcial",
+    "Lo usa igual y devuelve las 100 más viejas, porque la columna indexada es la misma",
+    "El planificador no lo usa, porque no puede probar que las filas pedidas están en el índice",
+    "Lo usa y devuelve solo las pendientes, ya que el índice filtra por su propia condición"
+   ],
+   "c": 2,
+   "e": "El índice solo contiene filas con `enviado is null`; si la consulta no lo exige, podría haber filas pedidas que no están en el índice, y usarlo daría resultados incompletos. Por eso el planificador lo descarta sin error. Lo que no cambia es la consulta: devuelve lo mismo, solo que por otro camino."
+  },
+  {
+   "p": "Una columna `jsonb` tiene un índice GIN. ¿Cuál de estas condiciones puede aprovecharlo?",
+   "o": [
+    "`detalle->>'peso_kg' = '7'`, que compara un valor extraído del documento",
+    "`detalle->>'peso_kg' > '7'`, que pide un rango sobre el valor extraído",
+    "`length(detalle::text) > 100`, que mide el largo del documento como texto",
+    "`detalle @> '{\"frio\": true}'`, que pregunta si el documento contiene ese par"
+   ],
+   "c": 3,
+   "e": "El GIN por defecto está hecho para operadores como `@>` (contiene). Las otras tres condiciones aplican una función u otro operador a la columna: el GIN no sabe responderlas, y para esas haría falta un índice de expresión específico (o un B-tree sobre la extracción)."
+  },
+  {
+   "p": "Un BRIN sobre `deposito_id` (valores repartidos al azar por toda la tabla) ocupa 24 kB, pero el planificador lo ignora al buscar `deposito_id = 7`. ¿Por qué?",
+   "o": [
+    "Porque `deposito_id` es un entero y el BRIN solo funciona sobre columnas de fecha",
+    "Porque un BRIN no soporta la igualdad, solo rangos de valores mayores o menores",
+    "Porque 24 kB es demasiado chico y el motor exige índices de al menos un megabyte",
+    "Cada grupo de 128 páginas contiene todos los depósitos, así que ningún grupo se puede descartar"
+   ],
+   "c": 3,
+   "e": "El BRIN guarda mínimo y máximo por grupo de páginas; con datos al azar, cada grupo tiene de 1 a 40 y el resumen no descarta nada. La correlación medida fue 0,028. Soporta igualdad y funciona con enteros; el tamaño no es un criterio. Lo que decide es que el valor siga el orden físico."
+  },
+  {
+   "p": "Corrés un `Index Only Scan` que antes mostraba `Heap Fetches: 0`. Después de actualizar las filas que devuelve, muestra `Heap Fetches: 100`. ¿Qué explica el cambio?",
+   "o": [
+    "El índice se corrompió con el update y el motor volvió a leer la tabla para repararlo",
+    "El update cambió el tipo de las columnas del índice, que obliga a visitar la tabla",
+    "El planificador decidió pasar a un escaneo secuencial, que cuenta cada fila como un fetch",
+    "Las páginas modificadas ya no figuran como todo-visible en el mapa, hasta el próximo VACUUM"
+   ],
+   "c": 3,
+   "e": "Un escaneo solo de índice confirma la visibilidad con el mapa de visibilidad; cuando una fila cambia, su página deja de estar marcada y hay que mirar la tabla hasta que `VACUUM` la marque de nuevo. El plan seguía siendo `Index Only Scan` y el índice estaba bien."
+  },
+  {
+   "p": "Existe `create unique index on perfiles (lower(apodo))` y ya hay un perfil con apodo `Ana500000`. ¿Qué ocurre al insertar `ANA500000`?",
+   "o": [
+    "Error de clave duplicada, porque el índice guarda la versión en minúsculas de ambos",
+    "Se inserta sin problema, porque `Ana500000` y `ANA500000` son textos distintos",
+    "Se inserta, pero la próxima consulta por `lower(apodo)` devuelve dos filas",
+    "Error solo si además coincide el `id`, ya que el índice único mira la fila entera"
+   ],
+   "c": 0,
+   "e": "El índice está ordenado y es único sobre `lower(apodo)`: las dos filas generan la misma clave, `ana500000`. Esa es la razón de ser del índice de expresión único. Que los textos originales sean distintos no importa: el índice compara lo que guarda."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística, sin decir «árbol» ni «TID», por qué encontrar un bulto por su código en un índice lee 4 páginas y no 32.000. Después contale qué cambiaría si el índice estuviera ordenado por (fecha, depósito) en lugar de (depósito, fecha) para la consulta «depósito 7, esta semana».",
+ "para_profundizar": [
+  {
+   "fuente": "bd2122-pg-btree-impl",
+   "nota": "La descripción oficial de cómo PostgreSQL implementa el B-tree: metapágina, divisiones, deduplicación y borrado de entradas viejas. Leé las secciones «Structure» y «Deduplication» para ver lo que hoy mostramos con `pageinspect`."
+  },
+  {
+   "fuente": "bd2122-pg-multicolumna-18",
+   "nota": "La regla de los índices multicolumna con la explicación completa del skip scan de la 18. Sirve para decidir el orden de columnas con la versión que usás."
+  },
+  {
+   "fuente": "estructuras-index-luke-arbol",
+   "nota": "El capítulo de Use The Index, Luke sobre el árbol de búsqueda: la misma idea explicada con dibujos y sin depender de un motor concreto. Complementa el recorrido de hoy."
+  },
+  {
+   "fuente": "bd2122-pg-tipos-indice",
+   "nota": "El resumen oficial de los tipos de índice y qué operadores soporta cada uno. Es la tabla de consulta cuando dudes entre GIN, GiST y BRIN."
+  }
+ ],
+ "videos": [
+  {
+   "q": "PostgreSQL B-tree index internals pageinspect explained",
+   "por_que": "Para ver otra explicación visual de las páginas internas y hojas y comparar con lo que mostró `pageinspect` hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "B-tree",
+   "d": "Árbol de búsqueda balanceado en el que cada nodo es una página con cientos de entradas ordenadas; es el tipo de índice por defecto de PostgreSQL. Cualquier búsqueda baja del nivel de la raíz al de las hojas en el mismo número de pasos."
+  },
+  {
+   "t": "índice compuesto",
+   "d": "Índice sobre más de una columna: las entradas se ordenan por la primera y, dentro de cada valor igual, por la segunda. Solo limita bien la zona que recorre con igualdades sobre las primeras columnas y un rango sobre la siguiente."
+  },
+  {
+   "t": "GIN",
+   "d": "Índice invertido generalizado: para cada componente de un valor (elemento de un arreglo, clave de un jsonb, palabra de un texto) guarda la lista de filas que lo contienen. Sirve para consultas «contiene»."
+  },
+  {
+   "t": "GiST",
+   "d": "Marco para índices de tipo árbol sobre datos sin orden lineal (puntos, rectángulos, rangos). Cada entrada guarda una región que abarca a sus hijos y las regiones pueden solaparse. Permite consultas de solape y restricciones de exclusión."
+  },
+  {
+   "t": "BRIN",
+   "d": "Índice de rangos de bloques: guarda un resumen (por ejemplo mínimo y máximo) por cada grupo de páginas de la tabla. Es diminuto y sirve cuando los valores siguen el orden físico de la tabla."
+  },
+  {
+   "t": "TID",
+   "d": "Identificador de tupla: la dirección física de una fila en el heap file, formada por el número de página y la posición dentro de ella, como (20238, 49). Las hojas de un índice guardan una clave y un TID."
+  },
+  {
+   "t": "división de página",
+   "d": "Operación del B-tree cuando una página está llena y debe recibir una entrada más: se crea una página nueva, se reparten las entradas y se agrega un corte en la página de arriba, que puede partirse a su vez."
+  },
+  {
+   "t": "índice parcial",
+   "d": "Índice que incluye solo las filas que cumplen una condición (`where …` al crearlo). Es mucho más chico y lo usa una consulta solo si puede demostrar que su condición implica la del índice."
+  },
+  {
+   "t": "índice de expresión",
+   "d": "Índice sobre el resultado de una expresión, como `lower(apodo)`, en vez de sobre una columna tal cual. La consulta debe usar la misma expresión para aprovecharlo. Puede ser único."
+  },
+  {
+   "t": "índice de cobertura",
+   "d": "Índice que contiene todas las columnas que pide una consulta, a veces sumando columnas con `include`, de modo que la respuesta sale sin visitar la tabla. Depende de que las páginas estén marcadas como visibles."
+  },
+  {
+   "t": "escaneo solo de índice",
+   "d": "Index Only Scan: plan que responde una consulta leyendo únicamente el índice. Necesita que el índice contenga las columnas pedidas y consulta el mapa de visibilidad para evitar visitar la tabla."
+  },
+  {
+   "t": "mapa de visibilidad",
+   "d": "Estructura que guarda un bit por página de la tabla indicando si todas sus filas son visibles para todas las transacciones. La actualiza VACUUM y permite que un escaneo solo de índice no visite la tabla."
+  },
+  {
+   "t": "índice invertido",
+   "d": "Índice que va del contenido a las filas («esta palabra aparece en estas filas»), al revés de la tabla, que va de la fila a su contenido. GIN es el tipo de PostgreSQL que lo implementa."
+  }
+ ],
+ "siguiente": "Hoy viste qué índices pueden existir; mañana, cómo decide el motor cuál usar: el recorrido de una consulta desde el texto SQL hasta el plan de ejecución.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd2122-pg-btree-impl",
+   "t": "PostgreSQL 16: B-Tree Implementation",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/btree-implementation.html"
+  },
+  {
+   "id": "bd2122-pg-tipos-indice",
+   "t": "PostgreSQL 16: Index Types",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/indexes-types.html"
+  },
+  {
+   "id": "bd2122-pg-multicolumna-16",
+   "t": "PostgreSQL 16: Multicolumn Indexes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/indexes-multicolumn.html"
+  },
+  {
+   "id": "bd2122-pg-multicolumna-18",
+   "t": "PostgreSQL 18: Multicolumn Indexes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/18/indexes-multicolumn.html"
+  },
+  {
+   "id": "bd2122-pg-parcial",
+   "t": "PostgreSQL 16: Partial Indexes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/indexes-partial.html"
+  },
+  {
+   "id": "bd2122-pg-expresiones",
+   "t": "PostgreSQL 16: Indexes on Expressions",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/indexes-expressional.html"
+  },
+  {
+   "id": "bd2122-pg-index-only",
+   "t": "PostgreSQL 16: Index-Only Scans and Covering Indexes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/indexes-index-only-scans.html"
+  },
+  {
+   "id": "bd2122-pg-gin",
+   "t": "PostgreSQL 16: GIN Indexes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/gin.html"
+  },
+  {
+   "id": "bd2122-pg-gist",
+   "t": "PostgreSQL 16: GiST Indexes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/gist.html"
+  },
+  {
+   "id": "bd2122-pg-brin",
+   "t": "PostgreSQL 16: BRIN Indexes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/brin.html"
+  },
+  {
+   "id": "bd2122-pg-exclusion",
+   "t": "PostgreSQL 16: Constraints (Exclusion Constraints)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/ddl-constraints.html"
+  },
+  {
+   "id": "bd2122-pg-pgstattuple",
+   "t": "PostgreSQL 16: pgstattuple (incluye pgstatindex)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/pgstattuple.html"
+  },
+  {
+   "id": "bd2122-pg-notas-18",
+   "t": "PostgreSQL 18.0 release notes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2025,
+   "url": "https://www.postgresql.org/docs/release/18.0/"
+  },
+  {
+   "id": "bd2122-pg-versioning",
+   "t": "PostgreSQL: Versioning Policy y versiones soportadas",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/support/versioning/"
+  },
+  {
+   "id": "bd2122-bayer-1972",
+   "t": "Organization and maintenance of large ordered indexes",
+   "a": "R. Bayer y E. McCreight",
+   "tipo": "paper",
+   "anio": 1972,
+   "url": "https://doi.org/10.1007/BF00288683"
+  }
+ ]
+}

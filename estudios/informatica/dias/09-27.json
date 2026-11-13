@@ -1,0 +1,778 @@
+{
+ "id": "09-27",
+ "titulo": "WAL, durabilidad y recuperación ante caídas",
+ "bajada": "Matás un servidor de base de datos a la fuerza, lo ves levantarse solo y entendés qué anotó antes de caerse para no perder nada de lo confirmado.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar por qué una base de datos anota los cambios en un log antes de modificar las páginas definitivas, y qué espera exactamente un COMMIT.",
+  "Leer un registro de WAL con `pg_waldump`, interpretar un LSN y calcular cuántos bytes de log generó una operación.",
+  "Describir qué hace un checkpoint, qué es el punto de redo y por qué un checkpoint frecuente agrega escrituras (`full_page_writes`).",
+  "Reconstruir la recuperación tras una caída a partir del log del servidor y explicar por qué una transacción sin commit queda invisible.",
+  "Distinguir `synchronous_commit = off` de `fsync = off` y decir qué riesgo corre cada una."
+ ],
+ "venis_de": "Hasta ayer viste que una transacción cumple las propiedades ACID ([@09-24]), cómo se aísla de otras con MVCC ([@09-25]) y cómo se protegen los datos con locks ([@09-26]). La D de ACID, la durabilidad, quedó como promesa: «lo confirmado no se pierde». Hoy ves con qué mecanismo se cumple.",
+ "se_apoya_en": [
+  "02-11",
+  "09-19",
+  "09-24",
+  "09-25"
+ ],
+ "gancho": [
+  "Una persona del depósito de Pompeya confirma en el sistema que ingresaron 40 bultos. La pantalla dice «guardado». Tres segundos después, un corte de luz apaga el servidor. Cuando vuelve la luz, ¿están los 40 bultos? La promesa de la base es que sí, y lo notable es cómo la cumple: no escribe todo lo que cambió, escribe un renglón en un cuaderno y espera a que ese renglón esté a salvo.",
+  "Hoy abrís ese cuaderno. Lo leés con una herramienta que trae PostgreSQL, medís cuánto cuesta esperar a que llegue al disco y matás un servidor a la fuerza para mirar, línea por línea, lo que dice el log cuando se levanta."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El problema: un corte a mitad de camino"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un depósito de Pompeya registra que ingresaron 40 bultos. Para la base son varios cambios: agregar una fila en la página de la tabla y la entrada correspondiente en cada índice. Después contesta «listo». (Los datos de este día son inventados; los comandos y salidas los corrí en un PostgreSQL propio, en esta máquina.)",
+    "Ahora se corta la luz. La memoria se borra y queda solo lo que ya bajó al disco. Pueden pasar tres cosas, y cada una rompe una promesa que viste en [@09-24]:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Qué alcanzó a llegar al disco",
+    "Qué ve la persona al volver la luz",
+    "Promesa rota"
+   ],
+   "filas": [
+    [
+     "Nada",
+     "Le habían dicho «listo» y el bulto no está",
+     "[[durabilidad]]: lo confirmado se pierde"
+    ],
+    [
+     "La fila de la tabla, pero no la entrada del índice",
+     "Un bulto que existe pero que las búsquedas por índice no encuentran",
+     "[[atomicidad]]: el cambio quedó a medias"
+    ],
+    [
+     "Una página escrita solo en parte",
+     "Una página mezcla de la versión vieja y de la nueva, imposible de leer",
+     "Integridad física de los datos"
+    ]
+   ],
+   "cap": "Los tres daños que puede dejar un corte. El tercero es el más incómodo: no hay versión vieja ni nueva a la cual volver, hay una mezcla."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La salida ingenua es escribir en disco, antes de contestar, todas las páginas que tocó la transacción. Es lenta, porque están desparramadas y cada una espera su confirmación. Y no arregla el tercer caso: una página de 8 KB es mucho más grande que lo que el disco promete escribir de una vez. PostgreSQL funcionaba así hasta la versión 7.1, de 2001:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "With WAL, only one log file must be flushed to disk, greatly improving performance.",
+   "autor": "Notas de la versión 7.1 de PostgreSQL (13-04-2001)",
+   "fuente": "bd2927-pg-release-7-1"
+  },
+  {
+   "t": "p",
+   "x": "Esa frase resume el día. Vas a ver qué es ese log, qué es un checkpoint y qué hace Postgres al arrancar después de una caída, con comandos reales."
+  },
+  {
+   "t": "h",
+   "x": "La idea: anotar antes de hacer"
+  },
+  {
+   "t": "p",
+   "x": "El [[write-ahead log]] (WAL, «registro de escritura anticipada») es un archivo donde la base solo agrega al final, y donde anota qué va a cambiar *antes* de cambiarlo en su lugar definitivo. La documentación de PostgreSQL lo dice como regla central:"
+  },
+  {
+   "t": "cita",
+   "x": "WAL's central concept is that changes to data files (where tables and indexes reside) must be written only after those changes have been logged.",
+   "autor": "Documentación de PostgreSQL 16, «Reliability and the Write-Ahead Log»",
+   "fuente": "bd2927-pg-wal-intro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cambia el momento de verdad del commit: antes era escribir muchas páginas dispersas; ahora es agregar unos pocos bytes al final de un único archivo y esperar a que el disco confirme. Las páginas de tablas e índices se cambian en memoria y bajan más tarde, cuando conviene. Si se corta la luz antes, el WAL tiene la receta para rehacer cada cambio.",
+    "El journaling de ext4 ([@02-11]) usa el mismo truco para que el sistema de archivos no quede a medias. La diferencia es de qué se ocupa: ext4, por defecto, pasa por el diario solo los metadatos y deja sin garantía el contenido de tus archivos. Una base lleva su propio diario con los cambios de sus tablas e índices, y los dos conviven."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El libro de novedades del depósito",
+   "x": [
+    "Un encargado que mueve pallets anota cada movimiento en un libro de novedades antes de ejecutarlo: «pallet 14, de A3 a B1». Si se corta la luz con el autoelevador a mitad de camino, al volver lee el libro y sabe qué estaba hecho y qué faltaba. El libro se escribe de corrido, renglón tras renglón.",
+    "Dónde deja de valer: el encargado interpreta con criterio. La recuperación del WAL no: cada registro es un cambio físico y exacto (qué página, qué posición, qué bytes) y se ejecuta sin preguntarse nada."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Mirando el WAL de cerca"
+  },
+  {
+   "t": "p",
+   "x": "El WAL no guarda la sentencia SQL: guarda el efecto físico. Armé un clúster de PostgreSQL 16.15 en un directorio propio, con una tabla chica de bultos. Este es el script para reproducirlo:"
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "# 1) clúster nuevo (el servidor no arranca como root, por eso runuser)\nrunuser -u postgres -- initdb -D /var/tmp/bd2927/data -A trust\n# 2) configuración: socket propio y log de checkpoints\nprintf \"port = 21927\\nlisten_addresses = ''\\nunix_socket_directories = '/var/tmp/bd2927'\\nlog_checkpoints = on\\n\" >> /var/tmp/bd2927/data/postgresql.conf\nrunuser -u postgres -- pg_ctl -D /var/tmp/bd2927/data -l /var/tmp/bd2927/log.txt -w start\n# 3) base y tabla de ejemplo\npsql -h /var/tmp/bd2927 -p 21927 -c \"create database logistica\" postgres\npsql -h /var/tmp/bd2927 -p 21927 logistica -c \"create table bultos (id int generated always as identity primary key, deposito text not null, estado text not null, peso_kg numeric(6,2) not null)\" ",
+   "cap": "Preparación del laboratorio. Las rutas y el puerto son los míos; cambialos por los tuyos."
+  },
+  {
+   "t": "p",
+   "x": "Dos preguntas al servidor: en qué posición del WAL estamos y cuánto WAL generó una inserción. La posición se llama [[LSN]] (número de secuencia del log) y es un conteo de bytes desde el comienzo del WAL, escrito en hexadecimal como `0/191EE58`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select pg_current_wal_lsn(), pg_walfile_name(pg_current_wal_lsn());",
+     "s": " pg_current_wal_lsn |     pg_walfile_name\n--------------------+--------------------------\n 0/191EE58          | 000000010000000000000001"
+    },
+    {
+     "c": "insert into bultos (deposito, estado, peso_kg) values ('Pompeya','recibido',3.20);",
+     "s": "INSERT 0 1"
+    },
+    {
+     "c": "select pg_current_wal_lsn();   -- y la diferencia con la anterior",
+     "s": " 0/191EF18\n\n0x191EF18 - 0x191EE58 = 192 bytes de WAL"
+    },
+    {
+     "c": "pg_waldump -s 0/191EE58 000000010000000000000001",
+     "s": "rmgr: Heap        len (rec/tot): 83/83, tx: 733, lsn: 0/0191EE58, desc: INSERT off: 2, blkref #0: rel 1663/16384/16386 blk 0\nrmgr: Btree       len (rec/tot): 64/64, tx: 733, lsn: 0/0191EEB0, desc: INSERT_LEAF off: 2, blkref #0: rel 1663/16384/16391 blk 1\nrmgr: Transaction len (rec/tot): 34/34, tx: 733, lsn: 0/0191EEF0, desc: COMMIT 2026-11-13 20:25:53.972024 UTC"
+    }
+   ],
+   "cap": "Salida real, recortada. El segundo insert de la tabla: un archivo de WAL, un conteo de bytes y las tres piezas del cambio. `pg_waldump` es la herramienta de PostgreSQL para leer el WAL en forma legible [#bd2927-pg-waldump]."
+  },
+  {
+   "t": "p",
+   "x": "Los tres registros pertenecen a la transacción 733:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Registro",
+    "Qué describe",
+    "Bytes",
+    "LSN de inicio"
+   ],
+   "filas": [
+    [
+     "Heap INSERT",
+     "Poner la fila nueva en la posición 2 de la página 0 de la tabla",
+     "83",
+     "0/191EE58"
+    ],
+    [
+     "Btree INSERT_LEAF",
+     "Agregar la entrada de la clave primaria en el índice",
+     "64",
+     "0/191EEB0"
+    ],
+    [
+     "Transaction COMMIT",
+     "Marcar la transacción como confirmada, con su hora",
+     "34",
+     "0/191EEF0"
+    ]
+   ],
+   "cap": "83 + 64 + 34 = 181 bytes de contenido. Los 192 del LSN son los mismos registros con relleno: cada uno empieza en un múltiplo de 8 bytes (83 ocupa 88, 64 ocupa 64 y 34 ocupa 40, como muestran las diferencias entre los LSN)."
+  },
+  {
+   "t": "p",
+   "x": "Sin WAL, ese mismo cambio habría exigido escribir la página de la tabla y la del índice: 16 KB en dos lugares. Con WAL son 192 bytes juntos. Dos datos más: el archivo se corta en **segmentos** de 16 MB (mi clúster muestra `wal_segment_size = 16MB`), y cada registro lleva una CRC-32C, una suma de verificación con la que el servidor detecta un registro dañado o cortado [#bd2927-pg-wal-reliability]."
+  },
+  {
+   "t": "h",
+   "x": "El commit es esperar a un solo fsync"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para entender qué espera un commit hay que separar dos cosas. Cuando un programa escribe un archivo, el [[kernel]] suele guardar los datos en su [[caché]] de memoria y contestar «listo»; el disco los recibe más tarde, y un corte de luz los borraría. La llamada que cierra esa brecha es [[fsync]]: pide al sistema que mande los datos al dispositivo y espera la confirmación. En Linux, Postgres usa por defecto la variante `fdatasync` [#bd2927-pg-runtime-config-wal].",
+    "El camino de un commit queda así:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Cliente",
+     "k": "cliente"
+    },
+    {
+     "n": "Proceso del servidor",
+     "k": "servidor"
+    },
+    {
+     "n": "Memoria compartida",
+     "k": "hw"
+    },
+    {
+     "n": "Archivo de WAL",
+     "k": "datos"
+    },
+    {
+     "n": "Archivos de datos",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "INSERT + COMMIT",
+     "d": "La persona pide guardar el bulto y confirmar."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "cambia la página (solo en RAM)",
+     "d": "Las páginas de la tabla y del índice se modifican en memoria. Quedan «sucias»: más nuevas que lo que hay en el disco."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "arma registros de WAL",
+     "d": "Los registros (insertar fila, insertar en índice, commit) se juntan en un búfer de memoria."
+    },
+    {
+     "de": 1,
+     "a": 3,
+     "t": "escribe + fsync del WAL",
+     "d": "Único momento caro: el WAL va al disco y se espera la confirmación. Hasta acá, un corte pierde la transacción, y es correcto: nadie la dio por hecha."
+    },
+    {
+     "de": 3,
+     "a": 1,
+     "t": "el disco confirma",
+     "d": "Desde este instante la transacción es durable: el disco tiene la receta completa para rehacerla.",
+     "resp": true
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "COMMIT",
+     "d": "Recién ahora el cliente recibe la confirmación.",
+     "resp": true
+    },
+    {
+     "de": 2,
+     "a": 4,
+     "t": "más tarde: páginas sucias a disco",
+     "d": "Procesos de fondo y checkpoints bajan las páginas modificadas cuando conviene, sin que nadie las espere."
+    }
+   ],
+   "cap": "El orden es todo. El cliente espera un fsync de unos pocos bytes; las páginas llegan después."
+  },
+  {
+   "t": "p",
+   "x": "Los números. Con `pgbench`, la herramienta de carga de PostgreSQL, corrí un script de una línea (`insert into bultos ... values ('Pompeya','recibido', 5);`), un cliente y cada insert en su propia transacción: cada commit paga un fsync. Esta VM comparte el disco con otras tareas, así que los números varían mucho entre corridas:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Configuración",
+    "Transacciones por segundo (varias corridas)",
+    "Qué cambia"
+   ],
+   "filas": [
+    [
+     "Por defecto (`fsync = on`, `synchronous_commit = on`)",
+     "entre 860 y 3.550",
+     "Cada commit espera su fsync"
+    ],
+    [
+     "`synchronous_commit = off`",
+     "17.600 (una corrida)",
+     "El commit no espera el fsync; un proceso lo hace en segundo plano"
+    ],
+    [
+     "`fsync = off`",
+     "entre 20.600 y 24.700",
+     "No hay fsync en ningún lado: se pierde la garantía"
+    ]
+   ],
+   "cap": "Medido en esta VM de 4 CPU, con un cliente, el 13-11-2026. Las cifras de `fsync = on` varían 4 a 1 entre corridas. Lo estable es el orden de magnitud: unas pocas miles contra más de veinte mil."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "¿Y si hay mucha gente confirmando a la vez?",
+   "x": [
+    "Medí con la vista `pg_stat_wal`, que cuenta cuántas veces el servidor sincronizó el WAL. Con 1 cliente: 13.819 transacciones y 13.820 sincronizaciones, una por commit (2.302 transacciones por segundo). Con 32 clientes: 66.064 transacciones y solo 7.559 sincronizaciones (11.075 por segundo), unos 8,7 commits por fsync.",
+    "Mientras un fsync espera al disco, los commits de los otros clientes se apilan y el siguiente fsync los cubre a todos juntos. Se lo conoce como commit en grupo: un camión que sale con todos los remitos acumulados, en lugar de un viaje por remito (acá nadie espera a que se llene; sale apenas puede). El mecanismo es mi interpretación de los contadores; no instrumenté el servidor por dentro."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Una persona carga 1.000 bultos, cada uno con su INSERT y su COMMIT. Otra carga los mismos 1.000 dentro de una sola transacción. ¿Cuál termina antes y qué tiene que ver el WAL?",
+   "resp": "La de una sola transacción, porque paga un fsync en lugar de mil. El WAL que se escribe es casi el mismo, pero cada commit suelto obliga a esperar al disco. En esta VM, un fsync ronda entre 0,3 y 1 ms según la corrida: mil commits sueltos agregan entre 0,3 y 1 segundo de espera pura."
+  },
+  {
+   "t": "h",
+   "x": "Checkpoint: «hasta acá, todo está en su lugar»"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si el WAL solo creciera, ocuparía todo el disco y, tras una caída, habría que rehacer *todos* los cambios desde el origen. El [[checkpoint]] resuelve las dos cosas. Es un punto en el que está garantizado que los archivos de tablas e índices tienen toda la información anterior: se bajan todas las páginas sucias y se anota un registro especial en el WAL [#bd2927-pg-wal-config]. Los segmentos anteriores al «punto de redo» se reciclan o se borran (con archivado de WAL, antes se archivan: [@09-28]).",
+    "Un checkpoint empieza cada `checkpoint_timeout` (5 minutos por defecto) o cuando el WAL está por superar `max_wal_size` (1 GB por defecto), lo que pase primero [#bd2927-pg-wal-config]. Con `log_checkpoints = on` el servidor cuenta lo que hace. Esto salió de mi clúster, después de cargar algo más de un millón de filas:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "checkpoint;",
+     "s": "CHECKPOINT"
+    },
+    {
+     "c": "tail log.txt",
+     "s": "LOG:  checkpoint starting: immediate force wait\nLOG:  checkpoint complete: wrote 11598 buffers (70.8%); 0 WAL file(s) added, 0 removed, 13 recycled; write=0.051 s, sync=0.053 s, total=0.200 s; sync files=10, longest=0.049 s, average=0.006 s; distance=205171 kB, estimate=205171 kB; lsn=0/E1808B8, redo lsn=0/E180880"
+    },
+    {
+     "c": "pg_controldata data | grep -E \"cluster state|REDO location|Time of latest\"",
+     "s": "Database cluster state:               in production\nLatest checkpoint's REDO location:    0/E180880\nTime of latest checkpoint:            Fri Nov 13 20:28:18 2026"
+    }
+   ],
+   "cap": "Salida real. «wrote 11598 buffers» son páginas sucias que bajaron al disco (70,8 % de los búfers del clúster). `redo lsn` es el punto de redo; el archivo `pg_control` lo guarda aparte y `pg_controldata` lo muestra."
+  },
+  {
+   "t": "p",
+   "x": "El **punto de redo** es la posición del WAL desde la cual hay que rehacer cambios si el servidor se cae. Todo lo anterior ya está en los archivos de datos: si ahora se corta la luz, la recuperación empieza en `0/E180880`, no en el principio del WAL."
+  },
+  {
+   "t": "h3",
+   "x": "Por qué no conviene hacer checkpoints muy seguido"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Parece que cuanto más seguido, mejor: menos WAL para rehacer. El precio está en `full_page_writes` (activa por defecto): la primera vez que se modifica una página después de un checkpoint, el servidor escribe la página entera en el WAL [#bd2927-pg-runtime-config-wal]. Sirve para el tercer daño de la primera tabla: si un corte deja una página a medias, el WAL tiene una copia completa para reemplazarla.",
+    "Lo medí. Cargué 124 filas en una tabla de una sola página, forcé un checkpoint y modifiqué una fila, y después otra de la misma página:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "checkpoint;  -- y después: update bultos set estado='en ruta' where id=5;",
+     "s": "WAL generado por el primer UPDATE tras el checkpoint: 7.656 bytes"
+    },
+    {
+     "c": "update bultos set estado='en ruta' where id=6;",
+     "s": "WAL generado por el segundo UPDATE, misma página: 184 bytes"
+    },
+    {
+     "c": "pg_waldump --stats=record -s 0/1923C78 000000010000000000000001",
+     "s": "Heap/HOT_UPDATE   2 registros   143 bytes de registro   7524 bytes de imagen de página (FPI)\nTotal             5 registros   270 bytes de registro   7524 bytes de FPI  (96,54 % del total)"
+    }
+   ],
+   "cap": "Medido en mi clúster. Con `pg_waldump` sin `--stats`, el primer registro aparece marcado `FPW` (full page write)."
+  },
+  {
+   "t": "p",
+   "x": "El primer cambio costó 7.656 bytes de WAL; el siguiente, 184. La imagen de página ocupa 7.524 bytes y no 8.192; la diferencia de 668 bytes coincide con el espacio libre del medio de la página, que no hace falta guardar (esa explicación es mía, no la medí). Con checkpoints frecuentes esto ocurre más veces, así que un intervalo corto «parcialmente anula el objetivo» de achicar la recuperación, como dice la documentación [#bd2927-pg-wal-config]. Apagar `full_page_writes` evita ese costo, pero la documentación advierte que puede traer corrupción de datos irrecuperable o silenciosa tras una falla del sistema [#bd2927-pg-runtime-config-wal]."
+  },
+  {
+   "t": "h",
+   "x": "La caída y la recuperación"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La [[recuperación tras caída]] corre sola cuando el servidor arranca y descubre que la vez anterior no se apagó bien. Busca en `pg_control` el último checkpoint, de ahí saca el punto de redo y relee el WAL hacia adelante aplicando cada cambio a las páginas, hasta el final del WAL válido [#bd2927-pg-wal-config]. Se le llama *roll-forward* o REDO [#bd2927-pg-wal-intro].",
+    "Quise verla funcionar. El experimento, en mi clúster:"
+   ]
+  },
+  {
+   "t": "pasos",
+   "titulo": "La caída simulada",
+   "pasos": [
+    {
+     "t": "Preparo el escenario",
+     "x": "Fuerzo un checkpoint (punto de redo en `0/E180880`), genero unos segundos de inserciones con `pgbench` y confirmo una fila marcada `MARCA-COMMIT`."
+    },
+    {
+     "t": "Dejo una transacción abierta",
+     "x": "Desde otra sesión hago `begin; insert ... 'MARCA-SIN-COMMIT'; select pg_sleep(120);` y la dejo sin commit. Desde una tercera sesión solo veo la fila confirmada."
+    },
+    {
+     "t": "Mato al servidor",
+     "x": "Leo el PID del `postmaster` de **mi** clúster en `postmaster.pid` y le mando `kill -9`: sin apagado ordenado ni checkpoint final. Compruebo que no queda ningún proceso hijo y que `pg_controldata` sigue diciendo `in production`, la huella de una caída."
+    },
+    {
+     "t": "Arranco de nuevo y leo el log",
+     "x": "`pg_ctl start` y miro qué cuenta el servidor mientras se recupera."
+    }
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "kill -9 15915    # PID del postmaster de mi clúster",
+     "s": ""
+    },
+    {
+     "c": "pg_ctl -D data -l log.txt -w start && tail log.txt",
+     "s": "LOG:  database system was interrupted; last known up at 2026-11-13 20:28:18 UTC\nLOG:  database system was not properly shut down; automatic recovery in progress\nLOG:  redo starts at 0/E180880\nLOG:  invalid record length at 0/E400B78: expected at least 24, got 0\nLOG:  redo done at 0/E400AD0 system usage: CPU: user: 0.01 s, system: 0.00 s, elapsed: 0.01 s\nLOG:  checkpoint starting: end-of-recovery immediate wait\nLOG:  checkpoint complete: wrote 165 buffers (1.0%)\nLOG:  database system is ready to accept connections"
+    },
+    {
+     "c": "select deposito, count(*) from bultos where deposito like 'MARCA%' group by 1;",
+     "s": "   deposito   | count\n--------------+-------\n MARCA-COMMIT |     1"
+    }
+   ],
+   "cap": "Salida real, recortada. La hora de «last known up» es la del último checkpoint, no la de la caída."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Línea por línea: «not properly shut down» es el diagnóstico; «redo starts at» es el punto de redo; «invalid record length… got 0» es lo que pasa cuando el servidor lee más allá de lo escrito y encuentra ceros, así sabe que llegó al final del WAL (acá no es un error); «redo done at» marca el fin. Entre las dos posiciones hay 2.622.032 bytes (unos 2,5 MiB) y rehacerlos tomó 0,01 segundos. Después viene un checkpoint de fin de recuperación y recién ahí se aceptan conexiones.",
+    "Con más WAL pendiente la cuenta escala: la segunda caída que provoqué (más abajo) dejó 47,9 MiB por rehacer y tardó 0,43 segundos, unos 110 MiB por segundo, con los archivos de datos calientes en la caché del kernel. Con el disco frío será más lento. Lo que importa es la relación: la recuperación crece con el WAL acumulado desde el último checkpoint."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El cliente de la transacción 754825 recibió «COMMIT» y un milisegundo después se cortó la luz, antes de que las páginas de la tabla bajaran al disco. ¿Dónde está la información que hace que el bulto exista al volver?",
+   "resp": "En el WAL, en el disco. El servidor lo mandó con fsync y esperó la confirmación antes de contestar «COMMIT». Las páginas pueden estar desactualizadas, pero el registro «insertar esta fila» y el registro COMMIT ya estaban a salvo, y la recuperación vuelve a ejecutarlos."
+  },
+  {
+   "t": "h3",
+   "x": "Qué pasó con la transacción que quedó abierta"
+  },
+  {
+   "t": "p",
+   "x": "La fila `MARCA-SIN-COMMIT` no apareció en la consulta. Con la extensión `pageinspect` leí la página cruda, y la fila está escrita ahí:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select lp, t_xmin, t_xmax, encode(substring(t_data from 1 for 40),'escape') from heap_page_items(get_raw_page('bultos', 8486));",
+     "s": " lp  | t_xmin | t_xmax | inicio_datos\n 113 | 754825 |      0 | ...MARCA-COMMIT...recibido...\n 114 | 754826 |      0 | ...MARCA-SIN-COMMIT...recibido..."
+    },
+    {
+     "c": "select pg_xact_status('754825'::xid8) as con_commit, pg_xact_status('754826'::xid8) as sin_commit;",
+     "s": " con_commit | sin_commit\n------------+------------\n committed  | aborted"
+    }
+   ],
+   "cap": "Salida real. `t_xmin` es la transacción que creó cada versión de fila. La página 8486 es la última de la tabla en mi clúster."
+  },
+  {
+   "t": "p",
+   "x": "La recuperación rehizo los dos inserts porque el WAL tenía los dos registros. Pero la transacción 754826 nunca escribió un COMMIT y su estado es «abortada». Con [[MVCC]] ([@09-25]), cada versión de fila guarda qué transacción la creó, y las consultas ignoran las creadas por transacciones no confirmadas. La fila sigue ocupando lugar, pero nadie la ve. Eso simplifica la recuperación de Postgres: rehace todo el WAL y deja que la visibilidad resuelva lo que no se confirmó. (Esa combinación es mi explicación; lo que medí es el resultado: la fila en la página y la transacción abortada.)"
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Rehacer dos veces no rompe nada",
+   "x": [
+    "Si el servidor se cae durante la recuperación, hay que empezar de nuevo con páginas ya rehechas a medias. Postgres lo resuelve con una comparación: cada página lleva en su cabecera el LSN del último registro que la modificó (la página 0 de mi tabla dice `0/5839338`), y un registro solo se aplica si su LSN es mayor que el de la página. Las imágenes de página completa son la excepción: reemplazan la página sin mirar el LSN [#bd2927-interdb-recuperacion]. Por eso se dice que el REDO es idempotente: repetirlo da el mismo resultado."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Un WAL de juguete para tocar"
+  },
+  {
+   "t": "p",
+   "x": "El código de abajo es una simulación de unas treinta líneas: dos páginas con bultos en dos depósitos (A y B), un WAL, un checkpoint, un corte de luz y una recuperación. No es PostgreSQL, es la idea pelada. Corrélo con el botón."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Simulación mínima de WAL: «disco» = lo que sobrevive a un corte; «memoria» = lo que se pierde.\nconst disco = { paginas: { A: 10, B: 20 }, wal: [], redo: 0 }; // A y B: bultos en dos depósitos\nlet mem = null, walMem = [], lsn = 0;\n\nfunction arrancar() { mem = { ...disco.paginas }; walMem = []; }\n\nfunction transaccion(id, cambios, { commit = true } = {}) {\n  for (const [pag, delta] of cambios) {\n    mem[pag] += delta;                                       // cambia la página SOLO en memoria\n    walMem.push({ lsn: ++lsn, tx: id, pag, delta });         // y anota qué hizo\n  }\n  if (commit) {\n    walMem.push({ lsn: ++lsn, tx: id, commit: true });\n    disco.wal.push(...walMem); walMem = [];                  // «fsync» del WAL: recién ahora vale el COMMIT\n    console.log(`tx ${id}: COMMIT confirmado (WAL en disco: ${disco.wal.length} registros)`);\n  }\n}\n\nfunction checkpoint() { disco.paginas = { ...mem }; disco.redo = lsn; console.log(\"checkpoint: páginas a disco\", JSON.stringify(disco.paginas)); }\n\nfunction corte() { console.log(\"--- corte de luz: se pierde la memoria ---\"); mem = null; walMem = []; }\n\nfunction recuperar() {\n  const desde = disco.redo;                                   // el checkpoint dice dónde empezar\n  mem = { ...disco.paginas };\n  const confirmadas = new Set(disco.wal.filter(r => r.commit).map(r => r.tx));\n  let rehechos = 0;\n  for (const r of disco.wal) {\n    if (r.lsn <= desde || r.commit) continue;\n    if (!confirmadas.has(r.tx)) continue;                    // sin COMMIT: se ignora\n    mem[r.pag] += r.delta; rehechos++;\n  }\n  console.log(`recuperación: ${rehechos} cambios rehechos ->`, JSON.stringify(mem));\n}\n\narrancar();\ntransaccion(1, [[\"A\", -3], [\"B\", +3]]);                      // mover 3 bultos de A a B\ncheckpoint();                                                 // páginas a disco; hasta acá el WAL ya no hace falta\ntransaccion(2, [[\"A\", -2], [\"B\", +2]]);                      // otro traslado, confirmado\ntransaccion(3, [[\"A\", -5]], { commit: false });              // este nunca llega a confirmarse\ncorte();\nrecuperar();",
+   "cap": "Simulación didáctica de un WAL. «disco» es lo que sobrevive al corte y «mem» lo que se pierde. Corre en tu navegador."
+  },
+  {
+   "t": "p",
+   "x": "`transaccion` cambia la página solo en memoria y anota en el WAL; en el commit «baja» el WAL al disco, el equivalente del fsync. `checkpoint` guarda las páginas y apunta hasta dónde llegó. `recuperar` parte de las páginas del checkpoint y rehace solo los cambios con commit."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Cambiá la transacción 3 para que termine con commit (sacá `{ commit: false }`) y corré de nuevo. Antes de mirar la salida, calculá cómo deberían quedar A y B después de la recuperación.",
+   "pista": "Con el checkpoint, las páginas valen A=7 y B=23. Rehacé encima la transacción 2 y la 3.",
+   "solucion": "A = 7 − 2 − 5 = 0 y B = 23 + 2 = 25. La recuperación rehace las transacciones 2 y 3 y salta la 1, que el checkpoint ya había bajado a las páginas."
+  },
+  {
+   "t": "ejercicio",
+   "x": "En `recuperar`, reemplazá `const desde = disco.redo;` por `const desde = 0;` (rehacer desde el principio del WAL) y corré el código original. ¿Qué pasa con los totales y qué mecanismo de PostgreSQL evita ese resultado?",
+   "pista": "La transacción 1 ya estaba aplicada en las páginas del checkpoint. ¿Qué ocurre si se aplica de nuevo?",
+   "solucion": "La transacción 1 se aplica dos veces: A termina en 2 y B en 28, en lugar de 5 y 25. PostgreSQL lo evita comparando el LSN de cada registro con el LSN guardado en la página y saltando lo que la página ya tiene. Esta simulación no guarda ese LSN por página, y por eso se rompe."
+  },
+  {
+   "t": "h",
+   "x": "Las perillas que apagan la protección"
+  },
+  {
+   "t": "p",
+   "x": "Dos configuraciones famosas se confunden con facilidad. Las dos aceleran el commit, pero una pierde un poco y la otra puede perderlo todo."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Perilla",
+    "Qué hace",
+    "Qué se arriesga",
+    "Según la documentación"
+   ],
+   "filas": [
+    [
+     "`synchronous_commit = off`",
+     "El servidor contesta COMMIT sin esperar el fsync del WAL; un proceso lo sincroniza después",
+     "Perder las últimas transacciones confirmadas ante una caída; la demora máxima es 3 veces `wal_writer_delay` (200 ms por defecto)",
+     "No genera riesgo de inconsistencia de la base"
+    ],
+    [
+     "`fsync = off`",
+     "El servidor deja de pedir que se baje nada al disco",
+     "Corrupción irrecuperable ante un corte de luz o una caída del sistema",
+     "Se pierde la garantía de recuperación"
+    ]
+   ],
+   "cap": "Resumen de la documentación de PostgreSQL 16 [#bd2927-pg-runtime-config-wal] y de lo que medí."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Con fsync apagado, matar el servidor pierde datos»",
+   "x": [
+    "Lo probé: apagué `fsync`, confirmé una fila `MARCA-FSYNC-OFF` y le mandé `kill -9`. Al arrancar hubo recuperación (con 47,9 MiB de WAL) y la fila estaba. Matar un proceso no apaga la máquina: el sistema operativo sigue vivo con su caché intacta, y todo lo que el servidor «escribió» está ahí. El peligro de `fsync = off` aparece cuando cae el sistema operativo o la máquina entera. No pude simular un corte de luz en esta VM, así que ese caso no lo medí; me apoyo en la documentación."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un fsync honesto necesita un disco honesto",
+   "x": "Que el servidor reciba «listo» de `fsync` solo prueba que el sistema operativo contestó. La documentación advierte que muchos discos tienen cachés de escritura volátiles, que muchos SSD no respetan por defecto las órdenes de vaciado y que asegurar la integridad de todos los componentes de almacenamiento es responsabilidad del administrador [#bd2927-pg-wal-reliability]. En una nube o una VM parte de esa cadena no se ve: esta VM no dice si el host baja a un medio persistente."
+  },
+  {
+   "t": "h",
+   "x": "Lo que el WAL no te da"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**No protege de borrar por error.** Un `DELETE` sin `WHERE`, confirmado, está en el WAL como cualquier otro cambio, y la recuperación lo rehace con fidelidad. Para volver atrás hacen falta respaldos: [@09-28].",
+    "**No protege de perder el disco.** Si fallan juntos el disco de datos y el del WAL, no hay receta ni dónde rehacer. Eso lo cubren las réplicas y los respaldos fuera de la máquina.",
+    "**No detecta que una página se pudrió con el tiempo.** Según la documentación, las páginas de datos no llevan suma de verificación por defecto (en mi clúster, `data_checksums` está en `off`); los registros del WAL sí [#bd2927-pg-wal-reliability]."
+   ],
+   "ord": false
+  },
+  {
+   "t": "senda",
+   "titulo": "La base de Senda es Postgres, pero su WAL no es asunto de la app",
+   "x": [
+    "Según el mapa técnico (commit `25e08fa`), Senda no tiene servidor propio: su «backend» es Supabase, o sea PostgreSQL con otras piezas. El repositorio no toca `fsync`, `synchronous_commit` ni `wal_level`: esas decisiones las toma el proveedor.",
+    "La misma idea aparece en el teléfono. La cola de respuestas del Espadeo (`src/util/nube.ts`) guarda cada respuesta en el almacenamiento local *antes* de intentar mandarla, las envía en lotes y tolera reintentos, porque cada fila lleva un `cliente_id` único que el servidor usa para ignorar repetidas. Es el patrón «anotar primero, aplicar después, y que repetir no rompa nada». Es una analogía de diseño: la cola no tiene recuperación formal, y `guardarCola` guarda sin esperar el resultado, así que un cierre brusco justo después de sumar una fila podría perderla.",
+    "Además, la prueba de la base (`pruebas/nube/correr.sh`) levanta un PostgreSQL local descartable, como el de hoy, antes de tocar la base real. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/nube.ts",
+    "pruebas/nube/correr.sh"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 13-11-2026",
+   "x": "La página oficial de versiones de PostgreSQL ([postgresql.org/support/versioning](https://www.postgresql.org/support/versioning/)), consultada el 13-11-2026, muestra la 18 como versión actual (publicada el 25-09-2025, con soporte hasta el 14-11-2030) y 18.7 como última menor. La 16, que usé acá, tiene soporte hasta el 09-11-2028 y su última menor es la 16.16; mi clúster usa la 16.15. Los conceptos de hoy son estables entre versiones, pero los nombres de algunas vistas y parámetros cambian: antes de usar uno en producción, buscalo en la documentación de la versión que tengas."
+  }
+ ],
+ "recap": [
+  "El [[write-ahead log]] permite confirmar y recuperar sin escribir cada página: se anota el cambio en un log, se espera a que llegue al disco y las páginas se actualizan después.",
+  "Un registro de WAL describe un cambio físico. Un insert con índice generó 3 registros y 192 bytes de WAL en mi medición, contra 16 KB de páginas sin WAL.",
+  "Un COMMIT espera un `fsync` del WAL. Con muchos clientes, varios commits comparten un fsync (8,7 por fsync con 32 clientes en mi prueba).",
+  "El checkpoint baja las páginas sucias y fija el punto de redo. Tras cada uno, la primera modificación de una página escribe la página entera en el WAL (7.656 bytes contra 184).",
+  "La recuperación parte del punto de redo, rehace el WAL hasta su final válido y deja invisibles las transacciones sin commit: 2,5 MiB en 0,01 s y 47,9 MiB en 0,43 s en mi prueba.",
+  "`synchronous_commit = off` puede perder las últimas transacciones sin corromper; `fsync = off` puede corromper ante un corte de luz. `kill -9` no prueba eso, porque la caché del sistema sobrevive.",
+  "El WAL no protege de errores humanos, de perder el disco ni de páginas degradadas: para eso están los respaldos, las réplicas y los checksums."
+ ],
+ "repaso": [
+  {
+   "p": "Un cliente de una base con WAL recibe «COMMIT» y una décima de segundo después se corta la luz del servidor. ¿Qué garantiza que su cambio exista al volver, aunque las páginas de la tabla no se hayan escrito?",
+   "o": [
+    "Que el WAL con su cambio ya estaba en el disco, porque el servidor esperó el fsync antes de contestar",
+    "Que el sistema de archivos siempre completa lo que quedó pendiente en la memoria cuando vuelve la luz",
+    "Que la base escribe las páginas de la tabla en disco antes de contestar «COMMIT» a cualquier cliente",
+    "Que los discos modernos guardan por sí solos lo que había en memoria cuando se corta la luz"
+   ],
+   "c": 0,
+   "e": "El orden del commit es: escribir el WAL, esperar el fsync y recién entonces contestar. Si contestó, el WAL con la receta ya estaba en el disco y la recuperación rehace el cambio. Las otras opciones son errores comunes: la memoria se pierde con el corte, y la base de datos no escribe las páginas en el commit (justamente se evita, porque es lento)."
+  },
+  {
+   "p": "En una prueba con 32 clientes que hacen un INSERT con COMMIT cada uno se midieron 66.064 transacciones y 7.559 sincronizaciones del WAL. ¿Qué conclusión sostienen esos números?",
+   "o": [
+    "Que el servidor perdió la mayoría de los commits porque hizo menos fsync que transacciones",
+    "Que cada fsync cubrió en promedio unas 8,7 transacciones que se confirmaron juntas",
+    "Que con más de un cliente el servidor deja de escribir WAL para las transacciones repetidas",
+    "Que los commits se guardaron en memoria y bajaron al disco al apagar la base, al final"
+   ],
+   "c": 1,
+   "e": "Mientras un fsync espera al disco, los commits de otros clientes se acumulan y el siguiente fsync cubre a varios a la vez. 66.064 / 7.559 ≈ 8,7. No se perdió nada: cada commit sigue esperando que su registro esté sincronizado. Las otras respuestas inventan pérdidas o diferimientos que el WAL no hace con `synchronous_commit = on`."
+  },
+  {
+   "p": "Alguien apaga `fsync`, confirma una fila y mata al servidor con `kill -9`. Al arrancar, la fila está. ¿Qué se puede concluir sobre `fsync = off`?",
+   "o": [
+    "Que apagar fsync es seguro, porque la prueba demuestra que la recuperación funciona igual",
+    "Que el WAL se escribe de otra forma cuando fsync está apagado y por eso sobrevivió el dato",
+    "Que la prueba no mide el riesgo real, porque matar un proceso no borra la caché del sistema operativo",
+    "Que kill -9 es una orden amable que deja al servidor terminar de escribir antes de morir"
+   ],
+   "c": 2,
+   "e": "El riesgo de `fsync = off` aparece ante un corte de luz o una caída del sistema operativo, que sí borran la caché del kernel. Matar el proceso deja viva esa caché, y por eso la fila estaba. Concluir que apagar fsync es seguro confunde ausencia de síntoma con seguridad, y `kill -9` no le da ninguna oportunidad al proceso de terminar nada."
+  },
+  {
+   "p": "Una aplicación registra eventos de seguimiento, y perder los últimos segundos tras una caída es aceptable, pero no se tolera que la base quede inconsistente. ¿Qué perilla encaja, y por qué?",
+   "o": [
+    "`fsync = off`, porque es la que más acelera y la documentación dice que es segura",
+    "`full_page_writes = off`, porque evita escribir páginas enteras y no tiene riesgos",
+    "`checkpoint_timeout` en cero, porque así no hace falta recuperar nada tras una caída",
+    "`synchronous_commit = off`, porque puede perder las últimas confirmaciones pero no corrompe"
+   ],
+   "c": 3,
+   "e": "Con `synchronous_commit = off` el servidor contesta antes del fsync, así que una caída puede perder las últimas transacciones (hasta 3 veces `wal_writer_delay`), pero la documentación aclara que no genera riesgo de inconsistencia. `fsync = off` y `full_page_writes = off` pueden dejar corrupción, y poner el intervalo de checkpoints en un valor absurdo no evita la recuperación."
+  },
+  {
+   "p": "Un equipo reduce `checkpoint_timeout` de 5 minutos a 30 segundos para que la recuperación sea más corta. ¿Qué efecto secundario tiene que esperar?",
+   "o": [
+    "Que el WAL crezca más, porque tras cada checkpoint la primera modificación de cada página escribe la página entera",
+    "Que el WAL se reduzca, porque con menos tiempo entre checkpoints se registran menos cambios",
+    "Que las transacciones dejen de ser durables, porque el checkpoint reemplaza al fsync del commit",
+    "Que desaparezcan las páginas sucias de la memoria y no haga falta nunca más rehacer cambios"
+   ],
+   "c": 0,
+   "e": "Con `full_page_writes` activo, la primera modificación de cada página tras un checkpoint escribe la imagen completa (7.656 bytes contra 184 en mi medición), y con checkpoints más frecuentes eso ocurre más veces. Además hay más I/O por bajar páginas. Un checkpoint no reemplaza al fsync del commit ni evita el REDO de lo posterior."
+  },
+  {
+   "p": "Después de una caída, la recuperación rehace la inserción de una fila de una transacción que nunca hizo COMMIT. ¿Por qué esa fila no aparece en las consultas?",
+   "o": [
+    "Porque la recuperación borra del disco todas las filas sin commit antes de abrir la base",
+    "Porque el WAL no registra los inserts hasta que llega el COMMIT de su transacción",
+    "Porque el estado de esa transacción es «abortada» y las consultas ignoran las versiones creadas por ella",
+    "Porque las filas sin commit quedan solo en memoria y siempre se pierden con la caída"
+   ],
+   "c": 2,
+   "e": "El WAL tenía el registro del insert, así que la fila se reescribe en la página. Pero la transacción no tiene registro COMMIT y su estado es «abortada»; con MVCC, cada versión de fila guarda quién la creó y se ignoran las de transacciones no confirmadas. En mi prueba, `pageinspect` mostró la fila en la página y `pg_xact_status` la transacción como `aborted`."
+  },
+  {
+   "p": "El WAL de un servidor registra un `DELETE FROM bultos` sin `WHERE`, confirmado por error a las 10:00. A las 10:05 el servidor se cae y se recupera solo. ¿Qué queda en la tabla?",
+   "o": [
+    "Todas las filas, porque la recuperación restaura el estado anterior a la última transacción",
+    "La tabla vacía, porque el WAL reproduce con fidelidad también el borrado ya confirmado",
+    "Todas las filas, porque los checkpoints guardan una copia de seguridad de cada tabla",
+    "Una mezcla: las filas de las páginas que ya bajaron al disco antes del borrado"
+   ],
+   "c": 1,
+   "e": "El WAL no distingue entre un cambio acertado y un error humano: el borrado estaba confirmado y la recuperación lo rehace. Para volver atrás hace falta un respaldo y poder recuperar hasta un punto anterior (el tema de [@09-28]). Un checkpoint no es un respaldo; es un punto de consistencia que sirve para acotar el REDO."
+  }
+ ],
+ "feynman": "Explicale a alguien que administra un depósito, sin usar la palabra «WAL», por qué una base de datos puede contestar «guardado» sin haber actualizado todavía las tablas, y qué hace al arrancar después de un corte de luz para que no se pierda nada de lo confirmado.",
+ "para_profundizar": [
+  {
+   "fuente": "bd2927-pg-wal-config",
+   "nota": "La página oficial de configuración del WAL: checkpoints, cada cuánto ocurren, qué se recicla y por qué existe `full_page_writes`. Es la fuente de las cifras por defecto que usé hoy."
+  },
+  {
+   "fuente": "bd2927-interdb-recuperacion",
+   "nota": "Capítulo 9.8 de «The Internals of PostgreSQL»: el REDO paso a paso, con la comparación de LSN que hace idempotente la recuperación. Leelo cuando quieras ver el mecanismo por dentro."
+  },
+  {
+   "fuente": "bd2927-pg-waldump",
+   "nota": "La referencia de `pg_waldump`, con las opciones `-s`, `-n` y `--stats` que usé para mirar el log."
+  }
+ ],
+ "videos": [
+  {
+   "q": "PostgreSQL write ahead log explicado checkpoint recuperación",
+   "por_que": "Para ver animado el recorrido de un commit y de la recuperación, que acá viste en texto y salida de consola."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "write-ahead log",
+   "d": "Archivo donde la base anota cada cambio antes de aplicarlo a las páginas definitivas. Un commit solo espera que sus registros estén en el disco, y tras una caída se usa para rehacer lo que faltó. También se lo llama WAL."
+  },
+  {
+   "t": "checkpoint",
+   "d": "Punto en el que la base baja al disco todas las páginas modificadas y anota un registro especial en el log. A partir de ahí, la recuperación solo tiene que rehacer lo posterior y el log anterior se puede reciclar."
+  },
+  {
+   "t": "recuperación tras caída",
+   "d": "Procedimiento automático que corre al arrancar un servidor que no se apagó bien: parte del último checkpoint y rehace en orden los registros del log hasta su final válido. Se le llama también REDO."
+  },
+  {
+   "t": "LSN",
+   "d": "Número de secuencia del log: la posición, en bytes y escrita en hexadecimal, de un registro dentro del WAL. Permite medir cuánto log se generó y saber qué cambios ya tiene cada página."
+  },
+  {
+   "t": "fsync",
+   "d": "Llamada que pide al sistema operativo bajar al dispositivo lo que tiene en su caché y esperar la confirmación. Es lo que hace durable una escritura y lo que cuesta tiempo en cada commit."
+  }
+ ],
+ "siguiente": "los respaldos: cómo se guarda una copia de la base, cómo se vuelve a un minuto exacto con ayuda del WAL archivado y cuánto se puede perder o tardar.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd2927-pg-wal-intro",
+   "t": "PostgreSQL 16: Reliability and the Write-Ahead Log (WAL intro)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/wal-intro.html"
+  },
+  {
+   "id": "bd2927-pg-wal-config",
+   "t": "PostgreSQL 16: WAL Configuration (checkpoints, full-page writes)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/wal-configuration.html"
+  },
+  {
+   "id": "bd2927-pg-runtime-config-wal",
+   "t": "PostgreSQL 16: Write Ahead Log (parámetros fsync, synchronous_commit, full_page_writes)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/runtime-config-wal.html"
+  },
+  {
+   "id": "bd2927-pg-wal-reliability",
+   "t": "PostgreSQL 16: Reliability (cachés de disco, checksums, CRC del WAL)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/wal-reliability.html"
+  },
+  {
+   "id": "bd2927-pg-waldump",
+   "t": "PostgreSQL 16: pg_waldump",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/pgwaldump.html"
+  },
+  {
+   "id": "bd2927-pg-release-7-1",
+   "t": "PostgreSQL 7.1: notas de la versión (Write-ahead Log)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2001,
+   "url": "https://www.postgresql.org/docs/release/7.1/"
+  },
+  {
+   "id": "bd2927-interdb-recuperacion",
+   "t": "The Internals of PostgreSQL, cap. 9.8: Database recovery processing",
+   "a": "Hironobu Suzuki",
+   "tipo": "libro",
+   "url": "https://www.interdb.jp/pg/pgsql09/08.html"
+  }
+ ]
+}

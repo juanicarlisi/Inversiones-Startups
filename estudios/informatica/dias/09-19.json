@@ -1,0 +1,890 @@
+{
+ "id": "09-19",
+ "titulo": "Cómo se guarda una tabla en disco",
+ "bajada": "Abrís el archivo de una tabla de un millón de filas, leés una página byte por byte y ves por qué un UPDATE escribe una fila nueva, un DELETE no achica nada y una suma sobre una columna lee toda la tabla.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar que una tabla es un archivo de páginas de 8 KiB y calcular cuántas páginas ocupa a partir de su tamaño.",
+  "Leer la cabecera, los punteros de línea y las filas de una página real con pageinspect, y calcular el tamaño de una fila.",
+  "Describir qué hace un UPDATE, un DELETE y un VACUUM en el archivo, y por qué el archivo puede no achicarse.",
+  "Decidir cuándo un valor grande va a TOAST y qué consultas pagan ese costo.",
+  "Comparar el almacenamiento por filas con el columnar para una suma sobre una columna, con números medidos."
+ ],
+ "venis_de": "Ya sabés crear tablas, insertar, actualizar y borrar ([@09-05]), qué es una clave primaria ([@09-07]) y cómo el sistema operativo guarda archivos en bloques ([@02-11]). Faltaba saber qué pasa debajo del SQL, en el disco.",
+ "se_apoya_en": [
+  "01-10",
+  "01-27",
+  "02-11",
+  "01-29",
+  "09-02",
+  "09-05",
+  "09-07"
+ ],
+ "gancho": [
+  "Hasta ahora una tabla fue una grilla: filas y columnas, como una planilla. En el disco no hay grilla. Hay un archivo, y adentro, bytes. Cuando pedís `select * from bultos where id = 500000`, alguien tiene que saber en qué byte de qué archivo está esa fila, y eso depende de cómo se acomodó cuando se guardó.",
+  "Hoy abrimos ese archivo. Cargué un millón de bultos inventados en una PostgreSQL 16 propia de esta máquina virtual y la miramos por dentro con herramientas que trae la propia base. Vas a ver una página real, byte por byte; por qué un `UPDATE` no cambia una fila sino que escribe otra; y por qué una tabla a la que le borrás la mitad de las filas pesa lo mismo. Todo lo que aparece en las salidas lo corrí acá, los tiempos son de una sola máquina virtual compartida y los datos son inventados."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Una tabla es un archivo cortado en páginas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Empecemos por lo más material: dónde está la tabla. En PostgreSQL cada tabla vive en uno o varios archivos dentro de la carpeta de datos del servidor. Cargué `bultos`, una tabla inventada de un millón de filas (el script está más abajo) y le pedí a la base el camino de su archivo. Después le pedí al sistema operativo que lo listara."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select pg_relation_filepath('bultos') as archivo, pg_relation_size('bultos') as bytes, pg_relation_size('bultos') / 8192 as paginas, round(1000000.0 / (pg_relation_size('bultos') / 8192), 1) as filas_por_pagina;",
+     "s": "     archivo      |  bytes   | paginas | filas_por_pagina \n------------------+----------+---------+------------------\n base/16762/16818 | 59801600 |    7300 |            137.0\n(1 row)"
+    },
+    {
+     "c": "ls -l base/16762/16818*   # dentro de la carpeta de datos",
+     "s": "-rw------- 1 postgres postgres 59801600 Nov 13 20:30 base/16762/16818\n-rw------- 1 postgres postgres    32768 Nov 13 20:30 base/16762/16818_fsm\n-rw------- 1 postgres postgres     8192 Nov 13 20:30 base/16762/16818_vm"
+    },
+    {
+     "c": "stat -f -c 'tipo=%T bloque=%S' .",
+     "s": "tipo=ext2/ext3 bloque=4096"
+    }
+   ],
+   "cap": "Medido en esta VM, con PostgreSQL 16.15. El archivo no se llama `bultos`: se llama como un número interno, y la base lo traduce."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El tamaño del archivo es 59.801.600 bytes: exactamente 7.300 × 8.192. No es casualidad. El archivo es una sucesión de **[[páginas|página de disco]]** de 8.192 bytes (8 KiB), la unidad en que PostgreSQL lee y escribe una tabla. No lee filas sueltas: lee páginas, y cada una guarda unas 137 filas de esta tabla.",
+    "Debajo trabaja el sistema de archivos de [@02-11], con bloques de 4 KiB (es lo que informa `stat` acá): una página de la base ocupa dos bloques consecutivos. Junto al archivo aparecen `_fsm`, que anota cuánto espacio libre tiene cada página, y `_vm`, que marca qué páginas no tienen versiones viejas de filas. Pasado 1 GB, la tabla se parte en segmentos de 1 GB (`16818`, `16818.1`…) [#bd1919-pg-file-layout].",
+    "El archivo principal es el **[[heap file]]**. *Heap* es montón: las filas están donde cupieron, sin orden por ninguna columna. Que acá los `id` aparezcan en orden es un accidente de la carga."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La página es un pallet",
+   "x": "En un depósito el autoelevador mueve pallets, no cajas sueltas: para despachar una caja trae el pallet entero y recién ahí la saca. La base hace lo mismo: para devolver una fila de 50 bytes trae una página de 8.192. La analogía falla en que el contenido de una página lo decide el motor, no vos, y las filas no se reordenan solas."
+  },
+  {
+   "t": "h",
+   "x": "Una página por dentro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Abrí la página 0 de la tabla con `pageinspect`, una extensión que trae PostgreSQL justamente para mirar el interior de los archivos. Una página tiene cuatro partes, y las dos del medio crecen una hacia la otra [#bd1919-pg-page-layout]:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "Cabecera de página · 24 bytes",
+     "d": "Datos de control: dónde empieza y termina el espacio libre (`lower` y `upper`), el tamaño de página y un campo para una suma de verificación opcional.",
+     "k": "os"
+    },
+    {
+     "n": "Punteros de línea · 4 bytes por fila, hacia abajo",
+     "d": "Una lista numerada: el elemento 1 dice «mi fila está en tal desplazamiento y mide tanto». Se agregan al principio del espacio libre.",
+     "k": "datos"
+    },
+    {
+     "n": "Espacio libre",
+     "d": "Lo que queda entre los punteros y las filas. Cuando no alcanza para una fila más (y su puntero), la página está llena.",
+     "k": "neutro"
+    },
+    {
+     "n": "Filas (tuplas) · se apilan desde el final hacia arriba",
+     "d": "La primera fila que entra queda pegada al final de los 8.192 bytes; la siguiente, un poco antes.",
+     "k": "servidor"
+    }
+   ],
+   "cap": "Esquema de una página de tabla. Los punteros crecen hacia abajo y las filas hacia arriba hasta que se encuentran. Las tablas comunes no usan el «espacio especial» del final; los índices sí."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select lower, upper, special, pagesize, checksum from page_header(get_raw_page('bultos', 0));",
+     "s": " lower | upper | special | pagesize | checksum \n-------+-------+---------+----------+----------\n   572 |   616 |    8192 |     8192 |        0\n(1 row)"
+    },
+    {
+     "c": "select lp, lp_off, lp_len, t_xmin, t_xmax, t_ctid, t_hoff from heap_page_items(get_raw_page('bultos', 0)) where lp <= 4 or lp >= 136;",
+     "s": " lp  | lp_off | lp_len | t_xmin | t_xmax | t_ctid  | t_hoff \n-----+--------+--------+--------+--------+---------+--------\n   1 |   8144 |     48 | 102843 |      0 | (0,1)   |     24\n   2 |   8088 |     54 | 102843 |      0 | (0,2)   |     24\n   3 |   8032 |     54 | 102843 |      0 | (0,3)   |     24\n   4 |   7976 |     52 | 102843 |      0 | (0,4)   |     24\n 136 |    672 |     52 | 102843 |      0 | (0,136) |     24\n 137 |    616 |     50 | 102843 |      0 | (0,137) |     24\n(6 rows)"
+    },
+    {
+     "c": "select count(*) as filas_en_la_pagina_0, 24 + 4 * count(*) as cabecera_mas_punteros from heap_page_items(get_raw_page('bultos', 0));",
+     "s": " filas_en_la_pagina_0 | cabecera_mas_punteros \n----------------------+-----------------------\n                  137 |                   572\n(1 row)"
+    }
+   ],
+   "cap": "`lp` es el número de puntero de línea, `lp_off` el desplazamiento de la fila desde el inicio de la página y `lp_len` su largo en bytes. `checksum` vale 0 porque este clúster se creó sin sumas de verificación (más abajo, en la nota de vigencia, está lo que cambió en PostgreSQL 18)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las cuentas cierran. La página tiene 137 filas: 24 de cabecera más 137 punteros de 4 bytes dan 572, que es `lower`. Las filas empiezan en `upper`, 616. Entre las dos quedan 44 bytes, y una fila nueva necesita unos 50 más su puntero: la página está llena. La fila 1 está en el desplazamiento 8.144, que es 8.192 − 48, porque se apila desde el final.",
+    "¿Para qué el paso intermedio? Un **[[puntero de línea]]** es un número fijo (1, 2, 3…) que apunta a donde la fila esté hoy dentro de la página. Si la página se reacomoda y la fila cambia de desplazamiento, el número no cambia. Es como «estante 3, posición 7»: el bulto puede correrse dentro del estante y la dirección sigue valiendo.",
+    "Esa dirección tiene nombre. El **[[ctid]]** de una fila es el par (número de página, número de puntero). La página cuenta desde 0 y el puntero desde 1: `(0,1)` es la primera fila de la primera página."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select ctid, id, zona, peso_g, estado from bultos where id in (1, 2, 137, 138, 500000, 1000000) order by id;",
+     "s": "   ctid    |   id    | zona  | peso_g |  estado   \n-----------+---------+-------+--------+-----------\n (0,1)     |       1 | Sur   |    537 | en_ruta\n (0,2)     |       2 | Oeste |    574 | entregado\n (0,137)   |     137 | Sur   |   5569 | entregado\n (1,1)     |     138 | Oeste |   5606 | pendiente\n (3649,87) |  500000 | Norte |  20500 | entregado\n (7299,37) | 1000000 | Norte |  10500 | en_ruta\n(6 rows)"
+    },
+    {
+     "c": "explain (analyze, buffers, costs off, timing off, summary off) select * from bultos where ctid = '(3649,87)';",
+     "s": "                 QUERY PLAN                 \n--------------------------------------------\n Tid Scan on bultos (actual rows=1 loops=1)\n   TID Cond: (ctid = '(3649,87)'::tid)\n   Buffers: shared hit=1\n Planning:\n   Buffers: shared hit=71\n(5 rows)"
+    }
+   ],
+   "cap": "El bulto 500.000 está en la página 3.649, puntero 87: a mitad de camino de las 7.300. `Buffers: shared hit=1` cuenta cuántas páginas tocó el motor: una sola."
+  },
+  {
+   "t": "pensa",
+   "x": "El motor sabe que el bulto 500.000 está en `(3649,87)`. ¿Cuánto lee del archivo para traer esa fila: unos 60 bytes, 4.096 o 8.192?",
+   "resp": "Una página entera: 8.192 bytes (el plan muestra una sola página tocada). Lo caro de una consulta se cuenta en páginas, no en filas."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El ctid no es la identidad de una fila",
+   "x": "Es solo su domicilio actual. Más abajo vas a ver una fila que cambia de `ctid` al actualizarse y una dirección que, tras un `VACUUM`, la ocupa otra fila distinta. La identidad de un bulto es su clave primaria ([@09-07]), nunca su `ctid`."
+  },
+  {
+   "t": "h",
+   "x": "Una fila por dentro: cabecera, datos y relleno"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Veamos los bytes de la fila 2 (zona `Oeste`, 574 gramos, `entregado`). Cada fila empieza con una cabecera de 23 bytes, redondeada a 24 (`t_hoff`). Guarda, entre otras cosas, `t_xmin` (el número de la transacción que creó esa versión; qué es una transacción se explica en [@09-24]), `t_xmax` (la que la reemplazó o borró, 0 si nadie) y el `ctid`. Después vienen las columnas, en el orden declarado. Con `t_data` se ven los bytes en hexadecimal ([@01-10]):"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select lp, t_data from heap_page_items(get_raw_page('bultos', 0)) where lp in (1, 2, 3);",
+     "s": " lp |                             t_data                             \n----+----------------------------------------------------------------\n  1 | \\x01000000f01e0000095375721902000011656e5f72757461\n  2 | \\x02000000df3d00000d4f6573746500003e02000015656e7472656761646f\n  3 | \\x03000000ae0e00000f43656e74726f00630200001570656e6469656e7465\n(3 rows)"
+    }
+   ],
+   "cap": "Cada par de cifras hexadecimales es un byte. Los enteros están en orden little-endian ([@01-27]): `df3d0000` es 0x00003ddf = 15.839."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "Cabecera",
+     "celdas": [
+      {
+       "t": "23 bytes + 1 de relleno",
+       "s": "t_xmin, t_xmax, ctid, banderas, t_hoff",
+       "k": "os"
+      }
+     ]
+    },
+    {
+     "e": "id",
+     "celdas": [
+      {
+       "t": "02 00 00 00",
+       "s": "= 2",
+       "k": "datos"
+      }
+     ]
+    },
+    {
+     "e": "cliente",
+     "celdas": [
+      {
+       "t": "df 3d 00 00",
+       "s": "= 15.839",
+       "k": "datos"
+      }
+     ]
+    },
+    {
+     "e": "zona",
+     "celdas": [
+      {
+       "t": "0d",
+       "s": "largo",
+       "k": "red"
+      },
+      {
+       "t": "4f 65 73 74 65",
+       "s": "Oeste",
+       "k": "servidor"
+      },
+      {
+       "t": "00 00",
+       "s": "relleno",
+       "k": "alerta"
+      }
+     ]
+    },
+    {
+     "e": "peso_g",
+     "celdas": [
+      {
+       "t": "3e 02 00 00",
+       "s": "= 574",
+       "k": "datos"
+      }
+     ]
+    },
+    {
+     "e": "estado",
+     "celdas": [
+      {
+       "t": "15",
+       "s": "largo",
+       "k": "red"
+      },
+      {
+       "t": "65 6e 74 72 65 67 61 64 6f",
+       "s": "entregado",
+       "k": "servidor"
+      }
+     ],
+     "nota": "total: 24 + 4 + 4 + 6 + 2 + 4 + 10 = 54 bytes"
+    }
+   ],
+   "cap": "La fila 2 por dentro. El texto lleva un byte de largo delante (`0d` = 13 = 6 × 2 + 1: seis bytes contando el propio byte de largo; `15` = 21 = 10 × 2 + 1) y no tiene separadores ni nombres de columna: los nombres viven en el catálogo, no en cada fila."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá el relleno de dos bytes entre `Oeste` y el peso. Un entero de 4 bytes tiene que empezar en un múltiplo de 4, y después del texto el desplazamiento era 14: el motor agrega **[[relleno de alineación]]** para que el procesador lea sin penalidad. La fila mide 54 bytes pero la página reserva 56, porque cada fila empieza en múltiplo de 8 (`lp_off` de las filas 2 y 3: 8.088 y 8.032).",
+    "El relleno depende del orden de las columnas. Armé dos tablas con las mismas cinco columnas y los mismos 100.000 valores:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table orden_malo  (a smallint, b bigint, c smallint, d bigint, e smallint);\ncreate table orden_bueno (b bigint, d bigint, a smallint, c smallint, e smallint);\ninsert into orden_malo   select 1, 2, 3, 4, 5 from generate_series(1, 100000);\ninsert into orden_bueno  select 2, 4, 1, 3, 5 from generate_series(1, 100000);",
+   "cap": "Los mismos valores, en otro orden de columnas."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select 'orden_malo' as tabla, (select lp_len from heap_page_items(get_raw_page('orden_malo', 0)) limit 1) as bytes_por_fila, pg_relation_size('orden_malo') / 8192 as paginas union all select 'orden_bueno', (select lp_len from heap_page_items(get_raw_page('orden_bueno', 0)) limit 1), pg_relation_size('orden_bueno') / 8192;",
+     "s": "    tabla    | bytes_por_fila | paginas \n-------------+----------------+---------\n orden_malo  |             58 |     834\n orden_bueno |             46 |     637\n(2 rows)"
+    }
+   ],
+   "cap": "Cada `bigint` tiene que empezar en un múltiplo de 8: intercalarlo con `smallint` obliga a rellenar."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La tabla con orden malo ocupa 834 páginas y la buena 637: 24 % menos, sin perder un dato. Una regla práctica (criterio mío): en tablas que van a ser enormes, columnas anchas de ancho fijo primero, y las chicas y de texto al final."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 1: la fila 3.** El bulto 3 es `(3, 3758, 'Centro', 611, 'pendiente')`. Con las reglas de arriba, calculá cuántos bytes mide la fila y comprobalo con el `lp_len` de la salida.",
+   "pista": "Sumá en orden desde 24 y fijate si el peso cae en un múltiplo de 4.",
+   "solucion": "24 + 4 + 4 = 32; `Centro` ocupa 1 + 6 = 7 (39) y el peso necesita un múltiplo de 4: 1 byte de relleno (40) y 4 de peso (44); `pendiente` ocupa 1 + 9 = 10 (54). Total: 54 bytes, igual al `lp_len` de la salida."
+  },
+  {
+   "t": "h",
+   "x": "UPDATE no modifica una fila: escribe otra"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá todo era lectura. Ahora cambiemos algo y veamos qué le pasa a la página. Para que se vea bien usé una tabla de tres filas, `envio`, con una sola página y el autovacuum apagado (enseguida te cuento qué es):"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table envio (id int primary key, estado text not null) with (autovacuum_enabled = false);\ninsert into envio values (1, 'pendiente'), (2, 'pendiente'), (3, 'pendiente');\nupdate envio set estado = 'en_ruta' where id = 2;",
+   "cap": "Tres envíos y una actualización."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select lp, lp_flags, t_xmin, t_xmax, t_ctid, (heap_tuple_infomask_flags(t_infomask, t_infomask2)).raw_flags from heap_page_items(get_raw_page('envio', 0));",
+     "s": " lp | lp_flags | t_xmin | t_xmax | t_ctid |                             raw_flags                             \n----+----------+--------+--------+--------+-------------------------------------------------------------------\n  1 |        1 | 102846 |      0 | (0,1)  | {HEAP_HASVARWIDTH,HEAP_XMAX_INVALID}\n  2 |        1 | 102846 | 102847 | (0,4)  | {HEAP_HASVARWIDTH,HEAP_XMIN_COMMITTED,HEAP_HOT_UPDATED}\n  3 |        1 | 102846 |      0 | (0,3)  | {HEAP_HASVARWIDTH,HEAP_XMAX_INVALID}\n  4 |        1 | 102847 |      0 | (0,4)  | {HEAP_HASVARWIDTH,HEAP_XMAX_INVALID,HEAP_UPDATED,HEAP_ONLY_TUPLE}\n(4 rows)"
+    },
+    {
+     "c": "select ctid, id, estado from envio order by id;",
+     "s": " ctid  | id |  estado   \n-------+----+-----------\n (0,1) |  1 | pendiente\n (0,4) |  2 | en_ruta\n (0,3) |  3 | pendiente\n(3 rows)"
+    }
+   ],
+   "cap": "Hay cuatro filas físicas en la página, pero la tabla muestra tres."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El `update` no tocó la fila 2. Escribió una fila nueva, la 4, con `en_ruta`, y en la vieja anotó en `t_xmax` el número de la transacción que la reemplazó y en `t_ctid` la dirección de la nueva, `(0,4)`. Cada una de esas filas físicas es una **[[versión de fila]]**. La vieja sigue ahí; la consulta devuelve solo la vigente, por eso `select` muestra tres filas.",
+    "¿Por qué tanto trabajo? Porque mucha gente usa la base a la vez. Si alguien lee el envío 2 mientras otro lo actualiza, el lector tiene que seguir viendo el valor anterior hasta que el cambio se confirme. Conservar las dos versiones lo permite sin hacer esperar a nadie. Es la idea llamada MVCC, que ves entera en [@09-25]. Hoy nos quedamos con su consecuencia física: **cada UPDATE agrega una versión y deja una vieja**.",
+    "Las banderas de la fila 2 incluyen `HEAP_HOT_UPDATED` y las de la 4, `HEAP_ONLY_TUPLE`: es la optimización HOT. Los índices ([@09-20]) guardan la dirección de las filas. Si el `update` no cambia ninguna columna indexada y la página tiene lugar, la versión nueva se queda en la misma página y el índice no se entera: sigue apuntando al puntero 2, y desde ahí se llega a la 4 [#bd1919-pg-hot]. Sin lugar en la página no hay HOT."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora a escala. Con `bultos` (1.000.000 de filas, páginas llenas) actualicé una columna de todas las filas. Para poder mostrarte cada paso apagué el autovacuum de esta tabla: lo normal es que esté prendido."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select pg_size_pretty(pg_relation_size('bultos')) as tabla, pg_size_pretty(pg_relation_size('bultos_pkey')) as indice_pk, pg_relation_size('bultos') / 8192 as paginas;",
+     "s": " tabla | indice_pk | paginas \n-------+-----------+---------\n 57 MB | 21 MB     |    7300\n(1 row)"
+    },
+    {
+     "c": "update bultos set estado = 'entregado';",
+     "s": "UPDATE 1000000"
+    },
+    {
+     "c": "select pg_size_pretty(pg_relation_size('bultos')) as tabla, pg_size_pretty(pg_relation_size('bultos_pkey')) as indice_pk, pg_relation_size('bultos') / 8192 as paginas;",
+     "s": " tabla  | indice_pk | paginas \n--------+-----------+---------\n 114 MB | 43 MB     |   14653\n(1 row)"
+    },
+    {
+     "c": "select n_tup_upd, n_tup_hot_upd, n_dead_tup from pg_stat_user_tables where relname = 'bultos';",
+     "s": " n_tup_upd | n_tup_hot_upd | n_dead_tup \n-----------+---------------+------------\n   1000000 |             0 |    1000000\n(1 row)"
+    }
+   ],
+   "cap": "Un UPDATE de un millón de filas duplicó el archivo (7.300 a 14.653 páginas). El índice de la clave primaria también se duplicó: sin lugar en las páginas no hubo ningún HOT y cada versión nueva necesitó su entrada de índice. En esta salida, `MB` quiere decir MiB (1.048.576 bytes)."
+  },
+  {
+   "t": "pensa",
+   "x": "Con ese millón de versiones viejas, corrés `VACUUM`. ¿El archivo vuelve a 57 MB? Y si después hacés otro `UPDATE` de toda la tabla, ¿se duplica de nuevo?",
+   "resp": "No vuelve: sigue en 114 MB. El espacio de las versiones muertas queda disponible, y el segundo UPDATE lo reutiliza (115 MB). Lo ves en la próxima sección."
+  },
+  {
+   "t": "h",
+   "x": "DELETE, VACUUM y el archivo que no se achica"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un `delete` tampoco borra nada del archivo: marca la versión con el número de la transacción que la eliminó en `t_xmax`. El espacio recién se recupera cuando corre **[[VACUUM]]**, el proceso de mantenimiento que recorre la tabla, identifica las versiones que ninguna transacción puede volver a necesitar y libera su lugar para reutilizarlo [#bd1919-pg-vacuum]. Volvamos a `envio` y borremos el envío 3:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "delete from envio where id = 3;\nselect lp, lp_flags, lp_off, lp_len, t_xmin, t_xmax, t_ctid from heap_page_items(get_raw_page('envio', 0));",
+     "s": "DELETE 1\n lp | lp_flags | lp_off | lp_len | t_xmin | t_xmax | t_ctid \n----+----------+--------+--------+--------+--------+--------\n  1 |        1 |   8152 |     38 | 102846 |      0 | (0,1)\n  2 |        1 |   8112 |     38 | 102846 | 102847 | (0,4)\n  3 |        1 |   8072 |     38 | 102846 | 102848 | (0,3)\n  4 |        1 |   8032 |     36 | 102847 |      0 | (0,4)\n(4 rows)"
+    },
+    {
+     "c": "vacuum envio;\nselect lp, lp_flags, lp_off, lp_len, t_xmin, t_xmax, t_ctid from heap_page_items(get_raw_page('envio', 0));",
+     "s": "VACUUM\n lp | lp_flags | lp_off | lp_len | t_xmin | t_xmax | t_ctid \n----+----------+--------+--------+--------+--------+--------\n  1 |        1 |   8152 |     38 | 102846 |      0 | (0,1)\n  2 |        2 |      4 |      0 |        |        | \n  3 |        0 |      0 |      0 |        |        | \n  4 |        1 |   8112 |     36 | 102847 |      0 | (0,4)\n(4 rows)"
+    },
+    {
+     "c": "insert into envio values (4, 'pendiente');\nselect ctid, id, estado from envio order by id;",
+     "s": "INSERT 0 1\n ctid  | id |  estado   \n-------+----+-----------\n (0,1) |  1 | pendiente\n (0,4) |  2 | en_ruta\n (0,3) |  4 | pendiente\n(3 rows)"
+    }
+   ],
+   "cap": "Antes del `vacuum`, el puntero 3 tiene `t_xmax` puesto (borrada, pero presente). Después, el puntero 3 queda libre y la fila nueva lo ocupa."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá `lp_flags`, que dice qué es cada puntero. Según el código fuente de PostgreSQL, 0 es libre, 1 normal, 2 redirección HOT y 3 muerto [#bd1919-pg-itemid]. Tras el `vacuum`, el puntero 2 (la versión vieja) quedó como redirección al 4, y el puntero 3 (la fila borrada) quedó libre. La fila 4 se movió dentro de la página para juntar el espacio, y nadie lo notó: su número de puntero no cambió.",
+    "Y la advertencia prometida sobre el `ctid`: el envío 4 nació en `(0,3)`, la dirección que tuvo el envío 3. Misma dirección, otra fila. Un `ctid` anotado ayer puede apuntar hoy a otra cosa.",
+    "Con la tabla grande, tras el segundo `UPDATE` general y de borrar la mitad de las filas (las de `id` par):"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "vacuum bultos;\nselect pg_size_pretty(pg_relation_size('bultos')) as tabla, pg_size_pretty(pg_relation_size('bultos_pkey')) as indice_pk, pg_relation_size('bultos') / 8192 as paginas;",
+     "s": "VACUUM\n tabla  | indice_pk | paginas \n--------+-----------+---------\n 114 MB | 43 MB     |   14653\n(1 row)"
+    },
+    {
+     "c": "select tuple_count, dead_tuple_count, round(free_percent::numeric, 1) as libre_pct from pgstattuple('bultos');",
+     "s": " tuple_count | dead_tuple_count | libre_pct \n-------------+------------------+-----------\n     1000000 |                0 |      49.7\n(1 row)"
+    },
+    {
+     "c": "update bultos set estado = 'pendiente';\nselect pg_size_pretty(pg_relation_size('bultos')) as tabla, pg_relation_size('bultos') / 8192 as paginas;",
+     "s": "UPDATE 1000000\n tabla  | indice_pk | paginas \n--------+-----------+---------\n 115 MB | 43 MB     |   14706\n(1 row)"
+    },
+    {
+     "c": "delete from bultos where id % 2 = 0;\nvacuum bultos;\nselect pg_size_pretty(pg_relation_size('bultos')) as tabla, pg_relation_size('bultos') / 8192 as paginas;",
+     "s": "DELETE 500000\nVACUUM\n tabla  | indice_pk | paginas \n--------+-----------+---------\n 115 MB | 43 MB     |   14706\n(1 row)"
+    },
+    {
+     "c": "select tuple_count, round(free_percent::numeric, 1) as libre_pct from pgstattuple('bultos');",
+     "s": " tuple_count | libre_pct \n-------------+-----------\n      500000 |      73.1\n(1 row)"
+    },
+    {
+     "c": "vacuum full bultos;\nselect pg_size_pretty(pg_relation_size('bultos')) as tabla, pg_size_pretty(pg_relation_size('bultos_pkey')) as indice_pk, pg_relation_size('bultos') / 8192 as paginas, pg_relation_filepath('bultos') as archivo;",
+     "s": "VACUUM\n tabla | indice_pk | paginas \n-------+-----------+---------\n 29 MB | 11 MB     |    3677\n(1 row)\n(archivo antes: base/16762/16818; después: base/16762/16832)"
+    }
+   ],
+   "cap": "Medido en esta VM. `pgstattuple` es otra extensión de PostgreSQL: mide cuánto de cada página es fila viva, fila muerta y espacio libre."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo que mostró la serie: tras el primer `vacuum` el archivo siguió en 114 MB, pero casi la mitad (49,7 %) quedó como espacio reutilizable, y por eso el segundo `UPDATE` general terminó en 115 MB y no en 171. Al borrar 500.000 filas, el `vacuum` común no achicó nada: las filas vivas quedaron repartidas por todas las páginas y el archivo solo se acorta por el final si las últimas páginas quedan vacías. El 73 % de la tabla era aire. Recién `VACUUM FULL` la achicó, a 29 MB y 3.677 páginas, porque escribe una copia compacta en un archivo nuevo (cambió el número) y descarta el viejo. A cambio, bloquea la tabla entera: ninguna otra sesión puede ni leerla [#bd1919-pg-vacuum]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si borro filas, la tabla ocupa menos»",
+   "x": "No en el disco. Borrar libera lugar para filas futuras de esa misma tabla, no para otras tablas ni para el sistema de archivos. Si una base parece no bajar nunca de tamaño aunque se borre mucho, es esto, y `pgstattuple` mide cuánto es aire."
+  },
+  {
+   "t": "p",
+   "x": [
+    "En la práctica nadie corre `VACUUM` a mano cada hora: lo hace el **[[autovacuum]]**, un proceso en segundo plano que mira cuántas filas se actualizaron o borraron en cada tabla y lanza un `VACUUM` cuando pasan un umbral [#bd1919-pg-vacuum]. Está prendido por defecto. Yo lo apagué en `bultos` y `envio` solo para poder mostrarte cada estado sin que se interponga."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Los valores grandes: TOAST"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una fila no puede ocupar más de una página de 8 KiB. ¿Qué pasa con un texto de 10.000 caracteres, una nota larga de un chofer? PostgreSQL usa **[[TOAST]]** (*The Oversized-Attribute Storage Technique*). Cuando una fila supera unos 2 KiB, intenta comprimir sus valores grandes y, si sigue grande, los saca a otra tabla invisible, en trozos de unos 2.000 bytes, y deja en la fila un puntero de 18 bytes [#bd1919-pg-toast].",
+    "Armé tres notas: una corta, una de 10.000 `a` (muy compresible) y una de 10.016 caracteres hexadecimales casi al azar (casi incomprimible):"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select id, length(texto) as caracteres, pg_column_size(texto) as bytes_guardados, pg_column_compression(texto) as compresion from nota order by id;",
+     "s": " id | caracteres | bytes_guardados | compresion \n----+------------+-----------------+------------\n  1 |         19 |              20 | \n  2 |      10000 |             125 | pglz\n  3 |      10016 |           10016 | \n(3 rows)"
+    },
+    {
+     "c": "select lp, lp_len from heap_page_items(get_raw_page('nota', 0));",
+     "s": " lp | lp_len \n----+--------\n  1 |     48\n  2 |    153\n  3 |     46\n(3 rows)"
+    },
+    {
+     "c": "select count(*) as trozos, max(length(chunk_data)) as max_trozo, sum(length(chunk_data)) as total from pg_toast.pg_toast_16838;",
+     "s": " trozos | max_trozo | total \n--------+-----------+-------\n      6 |      1996 | 10016\n(1 row)"
+    }
+   ],
+   "cap": "La nota 2 se comprimió a 125 bytes y quedó dentro de la fila. La nota 3 no se comprimió, se partió en 6 trozos de hasta 1.996 bytes en la tabla TOAST, y su fila principal pesa solo 46 bytes."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Consecuencia: un `select id from nota` no toca la tabla TOAST; un `select *` sí, y busca los seis trozos. Las columnas grandes no engordan las páginas principales, y traer solo las columnas necesarias importa más de lo que parece."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Por filas o por columnas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Todo lo de hoy es una forma de acomodar los datos: cada página guarda **filas completas**. Eso es el **[[almacenamiento por filas]]**, el de PostgreSQL, MySQL, SQL Server y SQLite. Es ideal para «traeme todo sobre el bulto 500.000» o «cambiá el estado de este envío». Ahora la pregunta contraria: «¿cuántos gramos suman todos los bultos?». Usa una sola columna, pero está desperdigada en las 7.300 páginas, y hay que leerlas todas:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "set max_parallel_workers_per_gather = 0;\nexplain (analyze, buffers, costs off, summary off) select sum(peso_g) from bultos;",
+     "s": "SET\n                                QUERY PLAN                                 \n---------------------------------------------------------------------------\n Aggregate (actual time=114.402..114.402 rows=1 loops=1)\n   Buffers: shared hit=7300\n   ->  Seq Scan on bultos (actual time=0.005..54.411 rows=1000000 loops=1)\n         Buffers: shared hit=7300\n Planning:\n   Buffers: shared hit=54\n(6 rows)"
+    }
+   ],
+   "cap": "7.300 páginas leídas (todas, ya en memoria) para usar 4 de unos 60 bytes de cada fila. El cronómetro por nodo de EXPLAIN agrega costo propio, así que los tiempos que comparo abajo vienen de 11 corridas con `timing off`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La alternativa es el **[[almacenamiento columnar]]**: juntar los valores de cada columna. Para probarlo exporté la tabla original a CSV y la cargué en DuckDB 2.0.0 (una base columnar, `pip install duckdb`) y en un archivo Parquet, un formato abierto que guarda los datos en bloques por columna [#bd1919-parquet-formato]:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dónde está",
+    "Tamaño total",
+    "Lo que hay que leer para sumar peso_g",
+    "Tiempo de sum(peso_g) (mediana de 11)"
+   ],
+   "filas": [
+    [
+     "PostgreSQL, tabla `bultos`",
+     "59.801.600 bytes (7.300 páginas)",
+     "Las 7.300 páginas: 59,8 millones de bytes",
+     "51 ms con un proceso; 33 ms con 2 trabajadores"
+    ],
+    [
+     "DuckDB, archivo propio",
+     "5.517.312 bytes",
+     "Solo el tramo de la columna `peso_g`",
+     "1.4 ms con 1 hilo"
+    ],
+    [
+     "Parquet",
+     "10.849.275 bytes",
+     "La columna `peso_g`: 4.000.432 bytes",
+     "2.6 ms con 1 hilo"
+    ],
+    [
+     "CSV (texto)",
+     "33.083.446 bytes",
+     "Todo el archivo, leyendo y convirtiendo texto",
+     "No lo medí"
+    ]
+   ],
+   "cap": "Medido en esta VM compartida, con todo ya en memoria, así que se compara el trabajo de leer y sumar, no el disco. La suma dio 15.496.800.000 en PostgreSQL con la tabla original y en DuckDB."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos lecturas. Primero, `peso_g` sola ocupa unos 4,0 millones de bytes (4 por valor × 1.000.000 de filas, el piso, porque estos pesos casi no se comprimen), contra casi 60 de la tabla completa. Segundo, `zona` y `estado` tienen cuatro y tres valores distintos: en Parquet ocupan unos 12.600 bytes cada una, porque guardar juntos valores parecidos se comprime muy bien.",
+    "La suma tardó unas 37 veces menos en DuckDB que en PostgreSQL con un proceso. Cuidado: DuckDB está hecho para esa pregunta, PostgreSQL puede ayudarse con un índice ([@09-20]), y medí una consulta en una máquina.",
+    "El precio aparece en la pregunta de antes: para armar el bulto 500.000 hay que juntar cinco lugares, y cambiar un estado es más trabajo. Por eso las bases que atienden a una app suelen ser por filas, y las de reportes y métricas, columnares. Lo ves en [@09-37]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Carpetas de legajos contra listas por tema",
+   "x": "Un legajo por chofer (todo lo de Ana en una carpeta) o una lista de patentes, otra de zonas y otra de teléfonos. Para armar el legajo de Ana gana la carpeta; para contar choferes de la zona Sur, la lista de zonas. La analogía falla en que una lista de oficina no se comprime ni se lee por tramos, y en que las listas tendrían que mantenerse alineadas a mano."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 13-11-2026",
+   "x": "La página oficial de versiones de PostgreSQL, consultada el 13-11-2026, lista como última versión mayor la 18 (18.7); la 16, que usé, está en 16.16 y recibe correcciones hasta el 9-11-2028 [#postgresql-versioning]. Mi clúster corrió 16.15 (paquete de Ubuntu 24.04). El diseño de página de 8 KiB, los punteros de línea y TOAST no cambian entre estas versiones; sí cambió un valor por defecto: PostgreSQL 18 activa las sumas de verificación en `initdb` [#bd1919-pg-release-18], y este clúster de la 16 las tenía desactivadas. La configuración de un servicio gestionado como Supabase la decide el proveedor: no la verifiqué."
+  },
+  {
+   "t": "h",
+   "x": "En Senda: una fila que se actualiza cien mil veces"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda usa PostgreSQL (el de Supabase) y tiene una tabla que encarna lo de hoy: `salud_resumen`. Guarda una fila por pregunta de trivia con cuántas veces se respondió, cuántas se acertó y los segundos. Un trigger ([@09-18]) la actualiza con cada respuesta que llega: no se inserta una fila nueva, se pisan cuatro números de una fila existente. Según lo que viste, cada una de esas actualizaciones escribe una versión nueva de la fila. ¿Cuánto bloat genera?"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "El resumen que se actualiza en cada respuesta y el lote de 50",
+   "x": [
+    "Implementado en el código (commit 25e08fa): la migración `20261027000000_escala.sql` crea `salud_resumen` y el trigger `respuestas_salud`, que por cada fila insertada en `respuestas` hace `insert … on conflict (pregunta) do update` y suma a los contadores. El teléfono manda las respuestas en lotes de hasta 50 (`LOTE = 50` en `nube.ts`).",
+    "Lo que sigue es **mi réplica**, no la base real: copié la tabla y la función del trigger, creé una `respuestas` mínima y cargué 5.371 filas en `salud_resumen` (las preguntas vivas que declara el proyecto). Supongo que cada lote de 50 entra como un solo `INSERT` en una transacción; no lo verifiqué en el servidor."
+   ],
+   "archivos": [
+    "supabase/migrations/20261027000000_escala.sql",
+    "src/util/nube.ts"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "# lote.pgb: un lote de 50 respuestas a preguntas al azar, en una transacción\n\\set base random(1, 5371)\ninsert into public.respuestas (anonimo, pregunta, nivel, acierto, segundos)\nselect gen_random_uuid(), 'P' || (1 + (:base + g * 7919) % 5371), 1 + g % 5, (g % 3) > 0, 2 + g % 38\nfrom generate_series(1, 50) g;\n\n# 2.000 lotes = 100.000 respuestas, con 4 clientes en paralelo\npgbench -n -f lote.pgb -c 4 -j 2 -t 500 sendarep19",
+   "cap": "`pgbench` es la herramienta de carga que trae PostgreSQL. Cada ejecución elige preguntas distintas: los tamaños varían un poco entre corridas."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cómo llegan las 100.000 respuestas",
+    "Páginas de salud_resumen",
+    "Actualizaciones HOT",
+    "Versiones muertas al final"
+   ],
+   "filas": [
+    [
+     "Antes de empezar (5.371 filas)",
+     "45 (360 kB)",
+     "-",
+     "-"
+    ],
+    [
+     "2.000 lotes de 50, cada uno su transacción",
+     "60 (480 kB)",
+     "98.639 de 100.000",
+     "2.001"
+    ],
+    [
+     "Un solo INSERT de 100.000 filas (una transacción)",
+     "879 (7.032 kB)",
+     "0",
+     "100.000"
+    ]
+   ],
+   "cap": "Medido en esta VM, con el autovacuum de la tabla apagado para ver solo el efecto de las páginas. Repetí los lotes de 50 tres veces: la tabla terminó entre 53 y 94 páginas según la corrida (el azar de `pgbench` cambia qué páginas se tocan)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con lotes de 50 la tabla casi no crece (45 a 60 páginas tras cien mil actualizaciones, casi todas HOT): al terminar cada transacción, las versiones viejas se pueden limpiar mientras PostgreSQL trabaja con la página, sin esperar a un `VACUUM` [#bd1919-pg-hot]. Con las mismas cien mil actualizaciones en **una** sentencia, la tabla se multiplicó casi 20 veces y no hubo ninguna HOT. Según entiendo el mecanismo, esas versiones no se pueden descartar mientras la transacción siga abierta. El índice de la clave primaria también creció, hasta 952 kB.",
+    "La lección de criterio: la forma de escribir importa para el bloat tanto como la cantidad de filas. Los lotes chicos del teléfono caen del lado favorable; una carga masiva o un `update` general sobre una tabla así (una migración, por ejemplo) cae del otro, y conviene dejar correr un `VACUUM` después."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "La limpieza diaria deja huecos, no achica el archivo",
+   "x": [
+    "Implementado: `limpiar_viejo()` borra respuestas de más de 30 días en tandas de hasta 50.000 filas y `pg_cron` la corre todos los días a las 7:17 UTC. Por lo que mostró la prueba de hoy, esos borrados dejan versiones muertas que el autovacuum convierte en espacio reutilizable, pero el archivo no encoge. No verifiqué cómo está configurado el autovacuum del proyecto real ni cuánto pesa hoy esa tabla: se mira con `pgstattuple` o `pg_stat_user_tables` en la base viva."
+   ],
+   "archivos": [
+    "supabase/migrations/20261109000000_limpieza.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Lo que se confunde y lo que te llevás"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**«Una tabla es una grilla en el disco»:** es un archivo de páginas de 8 KiB con filas sin orden; a una fila se llega por su dirección (página, puntero).",
+    "**«UPDATE cambia la fila»:** escribe una versión nueva y deja la vieja.",
+    "**«VACUUM achica el archivo»:** deja espacio para reutilizar; solo `VACUUM FULL`, con bloqueo, compacta.",
+    "**«Todo se guarda por filas»:** es lo habitual en las bases transaccionales; las analíticas suelen usar columnas."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con esto tenés el cuadro físico: una tabla son páginas, una página tiene punteros y versiones de filas, y leer una fila cuesta una página. Queda un problema: si para encontrar al bulto 500.000 el motor tuviera que recorrer las 7.300 páginas una por una, una app de verdad no aguantaría. Mañana ([@09-20]) vemos cómo se evita."
+   ]
+  }
+ ],
+ "recap": [
+  "Una tabla es un archivo (heap file) de páginas de 8 KiB; el motor lee y escribe páginas enteras.",
+  "Cada página tiene cabecera de 24 bytes, punteros de línea hacia abajo y filas desde el final; la dirección de una fila es su ctid, un domicilio actual y no una identidad.",
+  "Cada fila lleva cabecera y relleno de alineación: el orden de las columnas puede cambiar el tamaño de una tabla enorme en un cuarto.",
+  "UPDATE y DELETE dejan versiones muertas; VACUUM las vuelve espacio reutilizable sin achicar el archivo, y VACUUM FULL lo compacta bloqueando la tabla.",
+  "Los valores grandes van comprimidos o a una tabla TOAST; la fila guarda un puntero de 18 bytes.",
+  "El almacenamiento por filas favorece traer o cambiar una fila; el columnar favorece sumar una columna sobre millones de filas y comprime mejor."
+ ],
+ "repaso": [
+  {
+   "p": "Una tabla tiene todas sus páginas llenas. Hacés un `UPDATE` de una columna de todas las filas, sin tocar nada indexado. ¿Qué pasa con el archivo de la tabla?",
+   "o": [
+    "Queda igual, porque el UPDATE reescribe cada fila en el mismo lugar donde estaba guardada",
+    "Se achica, porque PostgreSQL compacta las páginas al terminar de actualizar todas las filas",
+    "Casi se duplica: cada fila nueva es otra versión y en páginas llenas no hay lugar para HOT",
+    "Crece solo el índice de la clave primaria, mientras que el archivo de la tabla sigue igual"
+   ],
+   "c": 2,
+   "e": "Un UPDATE agrega una versión nueva y deja la vieja. Con las páginas llenas no hay espacio para HOT, así que se ocupan páginas nuevas, y el índice también crece. Quedar igual (escribir en el lugar) ignora el modelo de versiones; achicarse nunca pasa solo; y que crezca solo el índice no es lo que se midió: el archivo de la tabla pasó de 7.300 a 14.653 páginas."
+  },
+  {
+   "p": "En una tabla de 1.000.000 de filas borrás la mitad (las de `id` par, repartidas por todas las páginas) y corrés `VACUUM`. ¿Qué tamaño ocupa el archivo?",
+   "o": [
+    "Casi el mismo: el espacio queda libre para filas nuevas pero el archivo no se acorta",
+    "Aproximadamente la mitad, porque VACUUM devuelve las páginas vacías al sistema operativo",
+    "Aproximadamente la mitad, pero solo si antes se corre un ANALYZE para actualizar las estadísticas",
+    "Un poco más, porque VACUUM agrega páginas nuevas para registrar las filas eliminadas"
+   ],
+   "c": 0,
+   "e": "VACUUM marca el espacio como reutilizable, pero el archivo solo se acorta por el final si las últimas páginas quedan totalmente vacías, y con borrados repartidos eso no ocurre. En la prueba el archivo siguió en 115 MB con 73 % libre. Solo VACUUM FULL, que reescribe la tabla, bajó a 29 MB. ANALYZE actualiza estadísticas y no tiene que ver con el espacio."
+  },
+  {
+   "p": "Una tabla tiene 1.000.000 de filas de unos 60 bytes y 7.300 páginas. Ejecutás `select sum(peso_g) from bultos` sin índices. ¿Cuántas páginas debería leer el motor?",
+   "o": [
+    "Unas 500, porque `peso_g` son 4 de los 60 bytes de cada fila",
+    "Una sola, porque la suma se guarda en la cabecera de la tabla",
+    "Unas 3.650, porque el motor lee solo la mitad con el índice de la clave primaria",
+    "Las 7.300, porque la columna está repartida dentro de todas las filas"
+   ],
+   "c": 3,
+   "e": "En el almacenamiento por filas, cada página tiene filas completas, así que para tener todos los pesos hay que leer todas las páginas. El plan mostró `Buffers: shared hit=7300`. Leer solo 550 páginas sería posible con almacenamiento columnar, no por filas. Ni la cabecera guarda sumas ni el índice de la clave primaria contiene el peso."
+  },
+  {
+   "p": "Alguien guarda el `ctid` de una fila en otra tabla para encontrarla rápido después. ¿Cuál es el problema?",
+   "o": [
+    "El ctid se calcula en cada consulta y por eso no se puede guardar en una columna normal",
+    "El ctid cambia al actualizar o compactar, y su dirección puede pasar a otra fila",
+    "El ctid solo existe para filas con TOAST, así que las demás filas no tienen dirección",
+    "El ctid es el mismo para todas las filas de una página, por lo que no las distingue"
+   ],
+   "c": 1,
+   "e": "El ctid es el domicilio físico actual: un UPDATE crea la versión nueva en otro puntero y, tras un VACUUM, un puntero libre puede reutilizarse para otra fila (el envío 4 nació en el `(0,3)` del envío 3). Sí se puede guardar, solo que no sirve como identidad. Todas las filas tienen ctid, y cada una tiene el suyo."
+  },
+  {
+   "p": "Dos tablas tienen las mismas columnas y los mismos datos, pero una declara primero los `smallint` y los `bigint` intercalados, y la otra los `bigint` primero. ¿Por qué la segunda pesa menos?",
+   "o": [
+    "Los `bigint` agrupados se comprimen automáticamente en disco y los intercalados no",
+    "El motor ordena las filas por tamaño de columna y así entran más filas por página",
+    "Cada `bigint` empieza en múltiplo de 8 bytes y intercalar columnas chicas obliga a rellenar",
+    "Los `smallint` al final no necesitan cabecera, mientras que los del medio sí"
+   ],
+   "c": 2,
+   "e": "Es el relleno de alineación: cada tipo debe empezar en una posición múltiplo de su alineación, y si un entero chico precede a uno grande se pierden bytes. En la prueba, 58 contra 46 bytes por fila. No hay compresión por agrupar, no se reordenan filas, y la cabecera de cada fila es la misma para todas."
+  },
+  {
+   "p": "Una fila tiene `id` y una nota de 10.000 caracteres casi incomprimibles, guardada con TOAST. ¿Qué lee `select id from tabla where id = 3`?",
+   "o": [
+    "La página de la tabla con la fila principal, sin ir a buscar los trozos de la nota",
+    "Los seis trozos de la nota, porque la fila no existe completa sin ellos",
+    "Solo el índice, porque el valor de `id` nunca está en la tabla",
+    "Nada del disco, porque las filas con TOAST viven siempre en memoria"
+   ],
+   "c": 0,
+   "e": "La fila principal guarda un puntero de 18 bytes a la nota, no la nota. Si la consulta no pide esa columna, el motor no sigue el puntero. Con `select *` sí iría a buscar los trozos. El `id` sí está en la tabla, y las filas con TOAST se guardan en disco como todas."
+  },
+  {
+   "p": "En una réplica de la tabla `salud_resumen` de Senda, 100.000 actualizaciones dentro de una sola transacción dejaron la tabla en 879 páginas, y las mismas 100.000 repartidas en lotes de 50 la dejaron en 60. ¿Cuál es la mejor explicación?",
+   "o": [
+    "Los lotes de 50 se comprimen y por eso ocupan menos páginas que una sola transacción",
+    "El autovacuum corre después de cada lote y devuelve el espacio al sistema operativo",
+    "Una sola sentencia obliga a PostgreSQL a duplicar cada fila antes de escribirla",
+    "En una transacción abierta las versiones viejas no se descartan y no hay lugar para HOT"
+   ],
+   "c": 3,
+   "e": "Una versión vieja solo puede descartarse cuando se sabe que nadie va a necesitarla, y eso exige que la transacción que la reemplazó haya terminado. Con 100.000 actualizaciones en una sola, todas quedaron como muertas a la vez. En el experimento el autovacuum estaba apagado, así que no fue él; y no hay compresión ni duplicación involucradas."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística, sin decir «tupla» ni «ctid», cómo se guarda una tabla en el disco y qué pasa en el archivo cuando se actualiza una fila, cuando se borra y cuando se pide una sola columna de un millón de filas. Usá la imagen del depósito si te ayuda y decí dónde esa imagen deja de valer.",
+ "para_profundizar": [
+  {
+   "fuente": "bd1919-pg-page-layout",
+   "nota": "La documentación oficial de la página de 8 KiB y de la cabecera de fila: las dos tablas de campos son lo que decodificaste hoy en `pageinspect`."
+  },
+  {
+   "fuente": "internals-postgres",
+   "nota": "El libro libre «The Internals of PostgreSQL» explica con dibujos la estructura del archivo de una tabla y cómo se escriben y leen las filas; sirve para ver lo de hoy en formato de capítulo."
+  },
+  {
+   "fuente": "bd1919-pg-toast",
+   "nota": "La explicación oficial de TOAST, con las cuatro estrategias de almacenamiento y los umbrales que usé para hoy."
+  },
+  {
+   "fuente": "bd1919-pg-vacuum",
+   "nota": "El capítulo de mantenimiento: qué hace el VACUUM, cuándo conviene el FULL y cómo se ajusta el autovacuum."
+  }
+ ],
+ "videos": [
+  {
+   "q": "PostgreSQL page layout heap tuple ctid line pointer explained",
+   "por_que": "Para ver dibujada la misma página que hoy leíste con pageinspect y comparar el vocabulario."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "página de disco",
+   "d": "Bloque de tamaño fijo, 8 KiB en PostgreSQL, en que se divide el archivo de una tabla o de un índice. Es la unidad mínima que la base lee y escribe: para traer una fila hay que leer su página entera."
+  },
+  {
+   "t": "heap file",
+   "d": "Archivo principal de una tabla: una sucesión de páginas donde las filas están donde cupieron, sin orden por ninguna columna. «Heap» significa montón."
+  },
+  {
+   "t": "almacenamiento por filas",
+   "d": "Forma de guardar una tabla en que cada página contiene filas completas, una al lado de otra. Favorece leer o cambiar una fila entera y es lo normal en PostgreSQL, MySQL, SQL Server y SQLite."
+  },
+  {
+   "t": "almacenamiento columnar",
+   "d": "Forma de guardar una tabla en que se juntan todos los valores de una misma columna. Permite leer solo las columnas que pide una consulta y comprimir mejor; cuesta más reunir o cambiar una fila entera."
+  },
+  {
+   "t": "puntero de línea",
+   "d": "Entrada de 4 bytes en la cabecera de una página que dice en qué desplazamiento está una fila y cuánto mide. Su número es estable aunque la fila se mueva dentro de la página."
+  },
+  {
+   "t": "ctid",
+   "d": "Dirección física de una versión de fila en PostgreSQL: el par (número de página, número de puntero de línea). Es un domicilio actual, no una identidad: cambia al actualizar y puede reutilizarse."
+  },
+  {
+   "t": "relleno de alineación",
+   "d": "Bytes sin datos que el motor agrega entre columnas para que cada valor empiece en una posición múltiplo de su alineación (4 u 8 bytes). Cambiar el orden de las columnas puede reducirlo."
+  },
+  {
+   "t": "versión de fila",
+   "d": "Cada copia física de una fila que existe en una página. Un UPDATE crea una versión nueva y deja la vieja hasta que VACUUM la elimina, para que los lectores que empezaron antes sigan viendo el valor anterior."
+  },
+  {
+   "t": "VACUUM",
+   "d": "Comando de mantenimiento de PostgreSQL que recorre una tabla, encuentra las versiones de filas que nadie puede volver a necesitar y las deja como espacio reutilizable. No devuelve espacio al sistema operativo, salvo VACUUM FULL."
+  },
+  {
+   "t": "autovacuum",
+   "d": "Proceso en segundo plano de PostgreSQL que lanza VACUUM y ANALYZE por su cuenta cuando una tabla acumula suficientes filas actualizadas o borradas."
+  },
+  {
+   "t": "TOAST",
+   "d": "Mecanismo de PostgreSQL para valores grandes: si una fila supera unos 2 KiB, comprime sus campos grandes o los mueve a una tabla aparte, en trozos de unos 2.000 bytes, y deja en la fila un puntero de 18 bytes."
+  }
+ ],
+ "siguiente": "Ya sabés que para traer una fila la base lee una página, y que sin ayuda tendría que revisar las 7.300. Mañana: el índice, la estructura que le dice en qué página mirar.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd1919-pg-page-layout",
+   "t": "PostgreSQL 16: Database Page Layout",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/storage-page-layout.html"
+  },
+  {
+   "id": "bd1919-pg-file-layout",
+   "t": "PostgreSQL 16: Database File Layout",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/storage-file-layout.html"
+  },
+  {
+   "id": "bd1919-pg-toast",
+   "t": "PostgreSQL 16: TOAST",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/storage-toast.html"
+  },
+  {
+   "id": "bd1919-pg-hot",
+   "t": "PostgreSQL 16: Heap-Only Tuples (HOT)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/storage-hot.html"
+  },
+  {
+   "id": "bd1919-pg-vacuum",
+   "t": "PostgreSQL 16: Routine Vacuuming",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/routine-vacuuming.html"
+  },
+  {
+   "id": "bd1919-pg-release-18",
+   "t": "PostgreSQL 18: Release Notes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/18/release-18.html"
+  },
+  {
+   "id": "bd1919-pg-itemid",
+   "t": "PostgreSQL 16, código fuente: src/include/storage/itemid.h",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://raw.githubusercontent.com/postgres/postgres/REL_16_STABLE/src/include/storage/itemid.h"
+  },
+  {
+   "id": "bd1919-parquet-formato",
+   "t": "Apache Parquet: File Format",
+   "a": "Apache Software Foundation",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://parquet.apache.org/docs/file-format/"
+  }
+ ]
+}

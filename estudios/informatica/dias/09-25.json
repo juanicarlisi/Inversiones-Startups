@@ -1,0 +1,976 @@
+{
+ "id": "09-25",
+ "titulo": "Concurrencia: aislamiento, anomalías y MVCC",
+ "bajada": "Reproducís con dos sesiones cada anomalía de concurrencia, ves cómo PostgreSQL arma la ilusión de ir de a uno con versiones de cada fila y aprendés qué nivel de aislamiento elegir.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es un nivel de aislamiento y qué fenómenos (lectura sucia, lectura no repetible, fantasma, write skew) permite o prohíbe cada uno en PostgreSQL.",
+  "Reproducir con dos sesiones abiertas una lectura no repetible, un fantasma y un error de serialización, y predecir qué ve cada sesión.",
+  "Leer las columnas xmin y xmax de una fila y describir con ellas cómo funciona MVCC y por qué un UPDATE deja versiones viejas.",
+  "Explicar para qué sirve VACUUM y por qué una transacción abierta mucho tiempo frena la limpieza.",
+  "Elegir un nivel de aislamiento para un caso concreto y escribir el reintento que exigen repeatable read y serializable."
+ ],
+ "venis_de": "Ayer, en [@09-24], viste que una transacción promete cuatro cosas (ACID) y que una de ellas es el aislamiento: que otras transacciones no se metan en el medio. Faltaba decir cuánto se cumple esa promesa cuando hay muchas a la vez, qué errores concretos aparecen cuando se cumple a medias y cómo lo hace el motor por dentro. De [@09-19] te sirve la idea de que una tabla vive en páginas de disco, porque hoy vas a ver dos versiones de una misma fila en la misma página.",
+ "se_apoya_en": [
+  "09-19",
+  "09-24",
+  "08-03"
+ ],
+ "gancho": [
+  "Son las 9:40 y en un depósito inventado pasan dos cosas a la vez. Una persona de administración corre el informe «¿cuántos bultos tenemos en total?». El informe lee primero el depósito Norte, que tiene 100 bultos, y unos milisegundos después lee el depósito Sur. En ese intervalo, el sistema de movimientos pasa 40 bultos de Norte a Sur y confirma el traslado. El informe vio Norte antes del traslado y Sur después. Suma 100 + 60 = 160. El total real nunca dejó de ser 120.",
+  "Ninguna de las dos operaciones tiene un error: cada una, sola, anda perfecta. El problema aparece solo cuando se cruzan en el tiempo, y por eso es de los más difíciles de encontrar: ocurre una vez cada miles de veces y deja un dato raro que nadie sabe explicar. Hoy miramos la «I» de ACID: cuánto aislamiento recibís cuando hay otras transacciones al lado, qué errores aparecen cuando recibís menos y cómo PostgreSQL arma la ilusión por dentro."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "La promesa ideal y lo que cuesta cumplirla"
+  },
+  {
+   "t": "p",
+   "x": "El ideal tiene nombre: ser **serializable**. Quiere decir que el resultado de correr muchas transacciones a la vez es el mismo que si las hubieras corrido de a una, en algún orden. Si en el depósito hubiera una sola puerta y entrara una persona por vez, el informe de arriba jamás saldría mal. El precio es la fila frente a esa puerta: con mil pedidos por segundo, cada uno espera a todos los demás."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El depósito con una sola puerta",
+   "x": "Una transacción es una persona que entra al depósito, hace todo lo que tiene que hacer y sale. Con una sola puerta nadie ve a medio hacer lo de otro. Dónde deja de valer: una base real no hace fila para todo. Deja trabajar a muchas personas a la vez y vigila solo los cruces peligrosos. La puerta única es la definición de «correcto», no la forma de lograrlo."
+  },
+  {
+   "t": "p",
+   "x": "Por eso las bases ofrecen un dial. El [[nivel de aislamiento]] de una transacción es cuánto de esa ilusión de ir de a una se le garantiza, a cambio de menos coordinación y de más casos que el programa tiene que contemplar. Los niveles no se definen explicando cómo funcionan por dentro. El estándar de SQL (ISO/IEC 9075) los define por lo que **no** pueden mostrarte: una lista de fenómenos prohibidos. Según un artículo clásico de 1995 [#bd0925-berenson-1995], el estándar de 1992 usaba tres: lectura sucia, lectura no repetible y fantasma. La documentación de PostgreSQL suma una cuarta columna, la anomalía de serialización, que vas a ver al final."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Nivel",
+    "Lectura sucia",
+    "No repetible",
+    "Fantasma",
+    "Anomalía de serialización"
+   ],
+   "filas": [
+    [
+     "read uncommitted",
+     "El estándar lo permite; PostgreSQL no",
+     "Posible",
+     "Posible",
+     "Posible"
+    ],
+    [
+     "read committed",
+     "Imposible",
+     "Posible",
+     "Posible",
+     "Posible"
+    ],
+    [
+     "repeatable read",
+     "Imposible",
+     "Imposible",
+     "El estándar lo permite; PostgreSQL no",
+     "Posible"
+    ],
+    [
+     "serializable",
+     "Imposible",
+     "Imposible",
+     "Imposible",
+     "Imposible"
+    ]
+   ],
+   "cap": "Tabla 13.1 de la documentación de PostgreSQL 16, traducida [#bd0925-pg-iso]. Cada fenómeno lo explico más abajo con una demostración."
+  },
+  {
+   "t": "pensa",
+   "x": "Si serializable es el nivel más seguro, ¿por qué no usar siempre ese y olvidarse del tema?",
+   "resp": "Porque asegurar un orden equivalente cuesta. Hay dos maneras de pagar: hacer esperar a quienes podrían chocar, o dejarlos correr y cancelar a alguno cuando se detecta un riesgo, para que el programa lo repita. PostgreSQL elige la segunda. Al final del día lo medimos."
+  },
+  {
+   "t": "h",
+   "x": "El depósito de juguete: tablas y sesiones"
+  },
+  {
+   "t": "p",
+   "x": "Todo lo que sigue lo corrí con PostgreSQL 16.15 propio, dos terminales de `psql` abiertas a la vez y datos inventados. Llamo **A** y **B** a las sesiones: las líneas con `A>` o `B>` se escribieron en esa terminal, en el orden en que aparecen. Hay dos tablas: el stock por depósito y una guardia de choferes para más adelante."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table stock (\n  deposito text primary key,\n  bultos   int  not null check (bultos >= 0)\n);\ninsert into stock values ('Norte', 100), ('Sur', 20);\n\ncreate table guardia (\n  chofer     text primary key,\n  de_guardia boolean not null\n);\ninsert into guardia values ('Ana', true), ('Beto', true);",
+   "cap": "Datos de ejemplo, todos inventados. Total de bultos: 120. Cada demostración arranca desde estos valores."
+  },
+  {
+   "t": "p",
+   "x": "Los números de más abajo son de una sola máquina virtual compartida, con `fsync` activado y la configuración por defecto: sirven para ver órdenes de magnitud, no como medición de producción."
+  },
+  {
+   "t": "h",
+   "x": "Lectura sucia: ver lo que otro todavía no confirmó"
+  },
+  {
+   "t": "p",
+   "x": "Una [[lectura sucia]] es leer datos que otra transacción escribió pero todavía no confirmó. Si esa transacción se cancela con `rollback`, quien leyó actuó sobre datos que nunca existieron. Ejemplo inventado: alguien marca «entregado» un bulto, administración avisa al cliente y dos segundos después se cancela el cambio. El aviso ya salió."
+  },
+  {
+   "t": "p",
+   "x": "Pedimos a propósito `read uncommitted`, el nivel más permisivo del estándar. B baja Norte en 40 pero no confirma. A lee:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> begin transaction isolation level read uncommitted;",
+     "s": ""
+    },
+    {
+     "c": "B> begin; update stock set bultos = bultos - 40 where deposito = 'Norte';",
+     "s": ""
+    },
+    {
+     "c": "A> select deposito, bultos from stock order by 1;",
+     "s": " deposito | bultos \n----------+--------\n Norte    |    100\n Sur      |     20\n(2 rows)"
+    },
+    {
+     "c": "A> show transaction_isolation;",
+     "s": " transaction_isolation \n-----------------------\n read uncommitted\n(1 row)"
+    },
+    {
+     "c": "B> rollback;",
+     "s": ""
+    }
+   ],
+   "cap": "A pidió read uncommitted y vio 100, no 60. PostgreSQL acepta el nombre del nivel pero no deja ver lo no confirmado."
+  },
+  {
+   "t": "p",
+   "x": "PostgreSQL acepta el nombre, pero trata `read uncommitted` como `read committed`. Su documentación lo explica así: es la única manera sensata de mapear los cuatro niveles del estándar a su arquitectura multiversión [#bd0925-pg-iso]. En PostgreSQL, entonces, la lectura sucia no existe ni pidiéndola."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Otros motores, otras reglas",
+   "x": "La documentación de MySQL con InnoDB dice que en `READ UNCOMMITTED` los `SELECT` no son consistentes (una lectura sucia) y que su nivel por defecto es `REPEATABLE READ` [#bd0925-mysql-iso]. En PostgreSQL el default es `read committed`. Un mismo nombre de nivel no garantiza lo mismo en todos los motores: se lee la documentación del que usás."
+  },
+  {
+   "t": "h",
+   "x": "Read committed: cada sentencia ve lo confirmado hasta que empezó"
+  },
+  {
+   "t": "p",
+   "x": "`read committed` es el nivel por defecto de PostgreSQL. La regla: cada sentencia ve una **foto** (en inglés, *snapshot*) de los datos confirmados hasta el instante en que esa sentencia empezó. Nunca ve lo no confirmado ni lo que se confirma mientras ella corre. Pero la foto se toma sentencia por sentencia, no transacción por transacción: dos `SELECT` seguidos dentro de la misma transacción pueden ver datos distintos si otra transacción confirmó entre uno y otro [#bd0925-pg-iso]."
+  },
+  {
+   "t": "p",
+   "x": "Eso es una [[lectura no repetible]]: leer dos veces la misma fila dentro de una transacción y obtener valores distintos, porque otra transacción confirmó un cambio en el medio."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> begin;",
+     "s": ""
+    },
+    {
+     "c": "A> select bultos from stock where deposito = 'Norte';",
+     "s": " bultos \n--------\n    100\n(1 row)"
+    },
+    {
+     "c": "B> update stock set bultos = bultos - 40 where deposito = 'Norte';",
+     "s": ""
+    },
+    {
+     "c": "A> select bultos from stock where deposito = 'Norte';",
+     "s": " bultos \n--------\n     60\n(1 row)"
+    },
+    {
+     "c": "A> commit;",
+     "s": ""
+    }
+   ],
+   "cap": "Misma fila, misma transacción de A, dos valores. B corrió con autocommit, así que su cambio quedó confirmado al terminar."
+  },
+  {
+   "t": "p",
+   "x": "Ahora el informe del gancho. A lee Norte, B hace el traslado completo en una transacción y confirma, y A lee Sur:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> begin;",
+     "s": ""
+    },
+    {
+     "c": "A> select bultos from stock where deposito = 'Norte';",
+     "s": " bultos \n--------\n    100\n(1 row)"
+    },
+    {
+     "c": "B> begin; update stock set bultos = bultos - 40 where deposito = 'Norte'; update stock set bultos = bultos + 40 where deposito = 'Sur'; commit;",
+     "s": ""
+    },
+    {
+     "c": "A> select bultos from stock where deposito = 'Sur';",
+     "s": " bultos \n--------\n     60\n(1 row)"
+    },
+    {
+     "c": "A> select sum(bultos) from stock;",
+     "s": " sum \n-----\n 120\n(1 row)"
+    }
+   ],
+   "cap": "Si la aplicación suma lo que leyó en cada paso, da 100 + 60 = 160. Una sola sentencia `sum` da 120."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "No es un bug de la base",
+   "x": "En `read committed`, ese 160 es lo que el nivel promete: cada sentencia vio una foto coherente, pero de momentos distintos. Un `select sum(bultos) from stock` en **una** sola sentencia da 120, porque mira una única foto. Un informe armado con varios `SELECT` sueltos no tiene vista coherente a menos que pidas un nivel más alto."
+  },
+  {
+   "t": "p",
+   "x": "Algo distinto pasa con las escrituras. Si dos transacciones quieren cambiar la misma fila, la segunda **espera** a que la primera confirme o se cancele, y después aplica su cambio sobre la versión nueva. Lo probé: A resta 10 a Norte (100 pasa a 90) sin confirmar, B pide restar 40 y se queda esperando. Cuando A confirma, B termina:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> begin; update stock set bultos = bultos - 10 where deposito = 'Norte';",
+     "s": ""
+    },
+    {
+     "c": "B> update stock set bultos = bultos - 40 where deposito = 'Norte' returning bultos;",
+     "s": "(B queda esperando)"
+    },
+    {
+     "c": "A> commit;",
+     "s": ""
+    },
+    {
+     "c": "B> (termina)",
+     "s": " bultos \n--------\n     50\n(1 row)"
+    }
+   ],
+   "cap": "100 - 10 - 40 = 50: ningún cambio se perdió, porque `bultos - 40` se calculó sobre el valor ya actualizado."
+  },
+  {
+   "t": "p",
+   "x": "Por eso, para contadores y saldos, `set bultos = bultos - 40` en una sola sentencia es seguro en `read committed`. Lo inseguro es leer el valor, calcularlo en la aplicación y escribir el resultado (`set bultos = 60`): ese es el problema de la actualización perdida que viste con `If-Match` en [@08-03]. Mismo problema, ahora del lado de la base."
+  },
+  {
+   "t": "pensa",
+   "x": "El informe de la app hace dos `SELECT` separados, uno por depósito, y los suma en el código. ¿Qué cambio mínimo lo vuelve correcto?",
+   "resp": "Una sola sentencia (`select sum(bultos) from stock`), que mira una única foto. Si tienen que ser varias, abrir la transacción en `repeatable read`, que es lo que sigue."
+  },
+  {
+   "t": "h",
+   "x": "Repeatable read: una foto para toda la transacción"
+  },
+  {
+   "t": "p",
+   "x": "En `repeatable read` la foto se toma **una vez**, cuando empieza la primera sentencia de la transacción, y se usa para todas las demás. Es el mismo informe, pero ahora A pide el nivel antes de leer:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> begin transaction isolation level repeatable read;",
+     "s": ""
+    },
+    {
+     "c": "A> select bultos from stock where deposito = 'Norte';",
+     "s": " bultos \n--------\n    100\n(1 row)"
+    },
+    {
+     "c": "B> begin; update stock set bultos = bultos - 40 where deposito = 'Norte'; update stock set bultos = bultos + 40 where deposito = 'Sur'; commit;",
+     "s": ""
+    },
+    {
+     "c": "A> select bultos from stock where deposito = 'Sur';",
+     "s": " bultos \n--------\n     20\n(1 row)"
+    }
+   ],
+   "cap": "A ve Sur con 20, el valor de antes del traslado: 100 + 20 = 120. La suma da el total real, aunque B ya confirmó."
+  },
+  {
+   "t": "p",
+   "x": "Con foto fija, un informe es coherente aunque tarde varios segundos y mientras el depósito se mueve. El estándar permite que en este nivel aparezcan **fantasmas** ([[lectura fantasma]]: repetir una consulta con condición y encontrar filas nuevas que antes no estaban). PostgreSQL no los deja, porque la foto fija también cubre las filas que aparecen:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> begin isolation level repeatable read; select count(*) from stock;",
+     "s": " count \n-------\n     2\n(1 row)"
+    },
+    {
+     "c": "B> insert into stock values ('Este', 5);",
+     "s": ""
+    },
+    {
+     "c": "A> select count(*) from stock;",
+     "s": " count \n-------\n     2\n(1 row)"
+    },
+    {
+     "c": "A> commit; select count(*) from stock;",
+     "s": " count \n-------\n     3\n(1 row)"
+    }
+   ],
+   "cap": "Dentro de la transacción de A hay 2 depósitos, aunque B ya insertó el tercero. Al abrir una transacción nueva, A lo ve."
+  },
+  {
+   "t": "p",
+   "x": "Hay un precio. Si A intenta modificar una fila que otra transacción cambió y confirmó después de su foto, la base no puede aplicar el cambio sobre la versión nueva (rompería la foto) ni sobre la vieja (pisaría el cambio ajeno). Cancela a A:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> begin isolation level repeatable read; select bultos from stock where deposito = 'Norte';",
+     "s": " bultos \n--------\n    100\n(1 row)"
+    },
+    {
+     "c": "B> update stock set bultos = bultos - 40 where deposito = 'Norte';",
+     "s": ""
+    },
+    {
+     "c": "A> update stock set bultos = bultos - 10 where deposito = 'Norte';",
+     "s": "ERROR:  could not serialize access due to concurrent update"
+    },
+    {
+     "c": "A> select bultos from stock where deposito = 'Norte';",
+     "s": "ERROR:  current transaction is aborted, commands ignored until end of transaction block"
+    },
+    {
+     "c": "A> rollback; begin isolation level repeatable read; update stock set bultos = bultos - 10 where deposito = 'Norte' returning bultos;",
+     "s": " bultos \n--------\n     50\n(1 row)"
+    }
+   ],
+   "cap": "El primer intento falla. Después de `rollback`, la transacción repetida arranca con una foto nueva que ya incluye el cambio de B, y funciona: 100 - 40 - 10 = 50."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un error de serialización no es un error de tu programa",
+   "x": "Es el [[error de serialización]]: una señal de la base de que cancelar y repetir es lo correcto. Siempre trae el código `40001`. La documentación pide repetir la **transacción entera**, incluida la lógica que decidió qué escribir, porque esa decisión se tomó con datos que ya no valen [#bd0925-pg-serializacion]. Quien usa `repeatable read` o `serializable` sin reintento deja fallar pedidos que se podían salvar. Las transacciones de solo lectura en `repeatable read` nunca tienen estos conflictos [#bd0925-pg-iso]."
+  },
+  {
+   "t": "pensa",
+   "x": "A abrió una transacción en `repeatable read` y leyó Norte = 100. B bajó Norte a 60 y confirmó. A ejecuta `update stock set bultos = bultos - 10 where deposito = 'Norte'`. ¿Qué pasa y qué tiene que hacer el programa de A?",
+   "resp": "Falla con `could not serialize access due to concurrent update` (40001), porque A modificaría una fila que cambió después de su foto. Tiene que hacer `rollback` y repetir la transacción entera. En el segundo intento la foto ya trae el 60 y el resultado es 50."
+  },
+  {
+   "t": "h",
+   "x": "MVCC: cómo se hace una foto sin copiar la base"
+  },
+  {
+   "t": "p",
+   "x": "¿Cómo se toman tantas fotos sin duplicar la base cada vez? La respuesta se llama [[MVCC]] (*multiversion concurrency control*, control de concurrencia multiversión): en vez de pisar un dato, la base guarda **varias versiones** de cada fila y le muestra a cada transacción la que le corresponde. La ventaja la resume la documentación así:"
+  },
+  {
+   "t": "cita",
+   "x": "reading never blocks writing and writing never blocks reading",
+   "autor": "Documentación de PostgreSQL 16, capítulo 13",
+   "fuente": "bd0925-pg-mvcc"
+  },
+  {
+   "t": "p",
+   "x": "Un `UPDATE` no modifica la fila en su lugar. Crea una **versión de fila** nueva y marca la vieja como reemplazada. Cada versión lleva dos columnas del sistema que `SELECT *` no muestra pero que podés pedir por nombre: `xmin`, el número de la transacción que la creó, y `xmax`, el de la que la borró o reemplazó (0 si sigue vigente) [#bd0925-pg-columnas]. Los números de transacción son enteros que crecen: cada transacción que escribe recibe uno. Veámoslo con una fila de envíos y `pageinspect`, una extensión que viene con PostgreSQL y permite mirar la página de disco por dentro (la página que viste en [@09-19])."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> select xmin, xmax, ctid, * from envio;",
+     "s": " xmin | xmax | ctid  | id |  estado   | bultos \n------+------+-------+----+-----------+--------\n  769 |    0 | (0,1) |  1 | pendiente |    100\n(1 row)"
+    },
+    {
+     "c": "A> begin; select txid_current();",
+     "s": " txid_current \n--------------\n          770\n(1 row)"
+    },
+    {
+     "c": "A> update envio set estado = 'en_ruta' where id = 1;",
+     "s": ""
+    },
+    {
+     "c": "A> select xmin, xmax, ctid, * from envio;",
+     "s": " xmin | xmax | ctid  | id | estado  | bultos \n------+------+-------+----+---------+--------\n  770 |    0 | (0,2) |  1 | en_ruta |    100"
+    },
+    {
+     "c": "B> select xmin, xmax, ctid, * from envio;",
+     "s": " xmin | xmax | ctid  | id |  estado   | bultos \n------+------+-------+----+-----------+--------\n  769 |  770 | (0,1) |  1 | pendiente |    100"
+    },
+    {
+     "c": "B> select lp, t_xmin, t_xmax, t_ctid from heap_page_items(get_raw_page('envio', 0));",
+     "s": " lp | t_xmin | t_xmax | t_ctid \n----+--------+--------+--------\n  1 |    769 |    770 | (0,2)\n  2 |    770 |      0 | (0,2)"
+    }
+   ],
+   "cap": "`ctid` es la dirección física de la versión: (página, casilla). Una fila lógica, dos versiones físicas en la misma página. A, que hizo el cambio, ve la nueva; B, que no puede ver lo no confirmado de A, sigue viendo la vieja, que ya trae xmax = 770."
+  },
+  {
+   "t": "p",
+   "x": "Fijate en lo que muestra B: la versión vieja tiene `xmax = 770` y sin embargo B la ve. La documentación lo aclara: un `xmax` distinto de cero en una versión visible suele indicar que quien la borró todavía no confirmó [#bd0925-pg-columnas]. Esa es toda la gracia del sistema: A trabaja sobre su versión nueva, B sigue leyendo la vieja, y ninguno espera al otro."
+  },
+  {
+   "t": "pasos",
+   "titulo": "La regla de visibilidad, en versión simplificada",
+   "pasos": [
+    {
+     "t": "Se toma una foto",
+     "x": "Al empezar (la sentencia en `read committed`, la transacción en `repeatable read`), la base anota qué transacciones están confirmadas."
+    },
+    {
+     "t": "Se mira el xmin de cada versión",
+     "x": "Cuenta si quien la creó está confirmado en la foto, o es la propia transacción."
+    },
+    {
+     "t": "Se mira el xmax",
+     "x": "Sigue contando si nadie la reemplazó, o si quien lo hizo no está confirmado en la foto o se canceló."
+    },
+    {
+     "t": "Queda una sola",
+     "x": "Para cada fila lógica, como mucho una versión cumple las dos condiciones: esa es la que se ve."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Es una simplificación: el motor tiene más casos (subtransacciones, bloqueos de fila que también usan `xmax`). Cuando A confirma, la versión nueva pasa a verse para las fotos nuevas y la vieja deja de verse, pero sigue ocupando lugar en la página."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "MySQL guarda las versiones en otro lado",
+   "x": "InnoDB, el motor por defecto de MySQL, también es multiversión, pero guarda las versiones viejas en un segmento de deshacer (*undo*) aparte y arma la versión anterior cuando una lectura la necesita [#bd0925-mysql-mvcc]. Misma idea, distinta mecánica y distinto costo de limpieza."
+  },
+  {
+   "t": "h",
+   "x": "La basura que deja el sistema: VACUUM"
+  },
+  {
+   "t": "p",
+   "x": "Las versiones viejas que ninguna transacción puede necesitar son basura. [[VACUUM]] es el comando que las recupera para reutilizar el espacio, y lo corre solo un proceso de fondo llamado autovacuum. La documentación le da cuatro funciones: recuperar el espacio de filas actualizadas o borradas, actualizar las estadísticas del planificador, actualizar el mapa de visibilidad y proteger contra el agotamiento de los números de transacción [#bd0925-pg-vacuum]. Sigamos con la tabla `envio`, después de confirmar A y de correr `vacuum`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "B> select lp, lp_flags, t_xmin, t_xmax, t_ctid from heap_page_items(get_raw_page('envio', 0));",
+     "s": " lp | lp_flags | t_xmin | t_xmax | t_ctid \n----+----------+--------+--------+--------\n  1 |        1 |    769 |    770 | (0,2)\n  2 |        1 |    770 |      0 | (0,2)"
+    },
+    {
+     "c": "B> vacuum envio;",
+     "s": ""
+    },
+    {
+     "c": "B> select lp, lp_flags, t_xmin, t_xmax, t_ctid from heap_page_items(get_raw_page('envio', 0));",
+     "s": " lp | lp_flags | t_xmin | t_xmax | t_ctid \n----+----------+--------+--------+--------\n  1 |        2 |        |        | \n  2 |        1 |    770 |      0 | (0,2)"
+    }
+   ],
+   "cap": "Antes del `vacuum`, las dos versiones ocupan casilla. Después, la casilla 1 ya no guarda datos: es una redirección (`lp_flags = 2`) a la 2, y el espacio de la versión vieja se puede reutilizar."
+  },
+  {
+   "t": "p",
+   "x": "Los códigos de `lp_flags` salen del código fuente de PostgreSQL: 0 sin usar, 1 en uso, 2 redirección, 3 muerta [#bd0925-pg-itemid]."
+  },
+  {
+   "t": "p",
+   "x": "Ahora, por qué esto importa. Una tabla de un solo renglón, un contador, con 10.000 `UPDATE` seguidos, cada uno confirmado por su cuenta. Lo hice dos veces: sin nadie más conectado, y con una transacción `repeatable read` abierta desde antes (B leyó el contador y quedó esperando, como un informe lento o una sesión de `psql` olvidada)."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Situación",
+    "Tamaño de la tabla tras 10.000 UPDATE",
+    "Qué dijo VACUUM VERBOSE"
+   ],
+   "filas": [
+    [
+     "Sin transacciones viejas",
+     "8 kB (una página)",
+     "No hizo falta: PostgreSQL ya había descartado versiones viejas mientras actualizaba (la página tenía 205 casillas, no 10.001)"
+    ],
+    [
+     "Con una transacción abierta desde antes",
+     "360 kB (45 páginas)",
+     "tuples: 0 removed, 10001 remain, 10000 are dead but not yet removable"
+    ],
+    [
+     "Después de cerrar esa transacción y correr VACUUM",
+     "360 kB (igual)",
+     "tuples: 10000 removed, 1 remain; el espacio queda reutilizable"
+    ]
+   ],
+   "cap": "Medido en esta VM, PostgreSQL 16.15, con autovacuum apagado para esa tabla a fin de que no interfiera. Los 10.000 UPDATE tardaron unos 3 segundos."
+  },
+  {
+   "t": "p",
+   "x": "Una versión vieja solo se puede descartar cuando **ninguna** transacción abierta podría necesitarla. B tiene una foto anterior a todos los UPDATE, así que cualquier versión posterior le sigue pareciendo posible: 45 páginas para una fila de unos pocos bytes. Cuando B cerró y corrió `vacuum`, el espacio quedó reutilizable, pero el archivo no se achicó: un `VACUUM` común no devuelve espacio al sistema operativo (para eso existe `VACUUM FULL`, más lento [#bd0925-pg-vacuum]). La regla general es que la limpieza no avanza más allá de la transacción más vieja que sigue abierta."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Una transacción abierta de más sale cara",
+   "x": "Una transacción abierta sin hacer nada, o un informe de una hora en `repeatable read`, no bloquea a nadie pero frena la limpieza y hace crecer tablas e índices. La señal en `VACUUM VERBOSE` es la frase «dead but not yet removable»: hay basura que no se puede tirar porque alguien todavía podría mirarla."
+  },
+  {
+   "t": "h",
+   "x": "Write skew: cuando la foto no alcanza"
+  },
+  {
+   "t": "p",
+   "x": "Las fotos protegen a las lecturas, pero queda un fallo más sutil. Dos transacciones leen lo mismo, cada una decide por su cuenta y escriben filas **distintas**. No hay conflicto de escritura (nadie tocó la misma fila) y cada una validó la regla sobre una foto perfectamente coherente. Aun así, juntas rompen la regla."
+  },
+  {
+   "t": "p",
+   "x": "El caso, inventado: en la central tiene que haber **al menos un chofer de guardia**. Ana y Beto están de guardia. Cada uno ejecuta la misma lógica: «cuento los que están de guardia; si hay dos o más, me saco yo». Cada uno cuenta 2, así que cada uno se saca. Con `repeatable read`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> begin isolation level repeatable read;  B> begin isolation level repeatable read;",
+     "s": ""
+    },
+    {
+     "c": "A> select count(*) from guardia where de_guardia;",
+     "s": " count \n-------\n     2"
+    },
+    {
+     "c": "B> select count(*) from guardia where de_guardia;",
+     "s": " count \n-------\n     2"
+    },
+    {
+     "c": "A> update guardia set de_guardia = false where chofer = 'Ana';",
+     "s": ""
+    },
+    {
+     "c": "B> update guardia set de_guardia = false where chofer = 'Beto';",
+     "s": ""
+    },
+    {
+     "c": "A> commit;   B> commit;",
+     "s": ""
+    },
+    {
+     "c": "A> select * from guardia order by chofer;",
+     "s": " chofer | de_guardia \n--------+------------\n Ana    | f\n Beto   | f"
+    }
+   ],
+   "cap": "Los dos commits funcionan y nadie queda de guardia. Corrí lo mismo en `read committed` y el resultado es igual."
+  },
+  {
+   "t": "p",
+   "x": "Se llama [[write skew]] (en castellano, «escritura sesgada»). Es el caso típico de anomalía de serialización: el resultado no coincide con ningún orden de a una, porque si Ana hubiera ido primero, Beto habría contado 1 y se habría quedado. El artículo de 1995 ya lo describe como un fenómeno que el estándar no cubría [#bd0925-berenson-1995], y la documentación de PostgreSQL avisa que hacer cumplir reglas de negocio en `repeatable read` probablemente no funcione sin bloqueos explícitos [#bd0925-pg-iso]."
+  },
+  {
+   "t": "p",
+   "x": "Con el nivel `serializable` pasa otra cosa:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "A> begin isolation level serializable;  B> begin isolation level serializable;",
+     "s": ""
+    },
+    {
+     "c": "A> select count(*) from guardia where de_guardia;   B> (lo mismo)",
+     "s": " count \n-------\n     2"
+    },
+    {
+     "c": "A> update guardia set de_guardia = false where chofer = 'Ana';",
+     "s": ""
+    },
+    {
+     "c": "B> update guardia set de_guardia = false where chofer = 'Beto';",
+     "s": ""
+    },
+    {
+     "c": "A> commit;",
+     "s": ""
+    },
+    {
+     "c": "B> commit;",
+     "s": "ERROR:  could not serialize access due to read/write dependencies among transactions\nDETAIL:  Reason code: Canceled on identification as a pivot, during commit attempt.\nHINT:  The transaction might succeed if retried."
+    },
+    {
+     "c": "B> begin isolation level serializable; select count(*) from guardia where de_guardia;",
+     "s": " count \n-------\n     1"
+    }
+   ],
+   "cap": "A confirma, B es cancelada (código 40001). Al repetir, B cuenta 1 y su lógica ya no la deja salir."
+  },
+  {
+   "t": "p",
+   "x": "PostgreSQL logra esto desde la versión 9.1 con una técnica llamada *Serializable Snapshot Isolation* (SSI): corre como `repeatable read`, pero además vigila las dependencias entre lecturas y escrituras de las transacciones concurrentes, usando bloqueos de predicado (`SIReadLock`) que no hacen esperar a nadie. Cuando detecta una combinación que no se podría ordenar de a una, cancela una [#bd0925-pg-iso]. El diseño completo está en el artículo de sus autores [#bd0925-ssi-2012]."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Serializable» no es «todos esperan»",
+   "x": "Es fácil imaginar que serializable hace esperar a todos. En PostgreSQL no espera más que `repeatable read`: cancela. La documentación dice que el monitoreo no introduce bloqueos adicionales, aunque tiene algo de costo y dispara fallos de serialización [#bd0925-pg-iso]. El costo se paga en reintentos, y por eso hace falta código que repita."
+  },
+  {
+   "t": "p",
+   "x": "El reintento tiene siempre el mismo esquema: un bucle que repite la transacción entera mientras el error sea `40001`, con tope de intentos. Diez choferes piden salir de guardia a la vez y la regla es que **queden al menos 3**. Es Node con el cliente `pg` (no corre en el navegador de este estudio):"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "async function salirDeGuardia(chofer) {\n  let intentos = 0;\n  for (;;) {\n    intentos++;\n    const c = await pool.connect();\n    try {\n      await c.query(`begin isolation level ${nivel}`);\n      const { rows } = await c.query('select count(*)::int as n from guardia where de_guardia');\n      await new Promise(r => setTimeout(r, 50));   // el tiempo en que «la persona piensa»\n      if (rows[0].n <= 3) { await c.query('rollback'); return { chofer, salio: false, intentos }; }\n      await c.query('update guardia set de_guardia = false where chofer = $1', [chofer]);\n      await c.query('commit');\n      return { chofer, salio: true, intentos };\n    } catch (e) {\n      await c.query('rollback').catch(() => {});\n      if (e.code === '40001' && intentos < 20) continue;  // se repite TODA la transacción\n      throw e;\n    } finally { c.release(); }\n  }\n}",
+   "cap": "El corazón del reintento: el `continue` vuelve a empezar desde el `begin`, así que el conteo se hace de nuevo con datos frescos. El script completo creaba diez choferes y lanzaba las diez llamadas a la vez."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "$ node guardia.mjs 'read committed'",
+     "s": "read committed: salieron 10, rechazados 0, intentos totales 10, quedan de guardia 0"
+    },
+    {
+     "c": "$ node guardia.mjs 'repeatable read'",
+     "s": "repeatable read: salieron 10, rechazados 0, intentos totales 10, quedan de guardia 0"
+    },
+    {
+     "c": "$ node guardia.mjs serializable",
+     "s": "serializable: salieron 7, rechazados 3, intentos totales 54, quedan de guardia 3"
+    }
+   ],
+   "cap": "Una corrida de cada una. Con serializable corrí cuatro veces más y dio siempre 7 y 3, con 52 a 56 intentos totales para 10 pedidos."
+  },
+  {
+   "t": "p",
+   "x": "Con `read committed` y `repeatable read` salen los diez y la guardia queda vacía. Con `serializable` sale la cantidad justa y la regla se cumple, a cambio de unos 5 intentos por pedido, porque los diez chocan a la vez. Con un pedido por vez no habría reintentos: cuánto cuesta depende de cuánto chocan tus transacciones."
+  },
+  {
+   "t": "h",
+   "x": "Cuánto cuesta cada nivel y cuál elegir"
+  },
+  {
+   "t": "p",
+   "x": "Para ponerle números usé `pgbench`, la herramienta de pruebas que trae PostgreSQL. Su transacción por defecto es de tipo banco; a escala 1, la tabla `pgbench_branches` tiene **una** sola fila que todas las conexiones modifican [#bd0925-pgbench]: un peor caso de choque, a propósito. Ocho conexiones, 8 a 10 segundos por corrida, hasta 50 intentos por transacción."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Nivel",
+    "Escala 1: transacciones repetidas / tps",
+    "Escala 10 (tres corridas): repetidas / tps"
+   ],
+   "filas": [
+    [
+     "read committed",
+     "0 % / 2.091",
+     "0 % / 1.694 a 3.594"
+    ],
+    [
+     "repeatable read",
+     "32 % / 1.463",
+     "38 a 39 % / 2.053 a 3.209"
+    ],
+    [
+     "serializable",
+     "53 % / 1.100",
+     "48 a 71 % / 473 a 1.006"
+    ]
+   ],
+   "cap": "Medido en esta VM, PostgreSQL 16.15, con carga de otros procesos (promedio de carga 9 en 4 CPU): por eso los tps se solapan y varían entre corridas. Lo estable es el porcentaje repetido. Algunas corridas de los niveles altos tuvieron transacciones que no terminaron ni en 50 intentos."
+  },
+  {
+   "t": "p",
+   "x": "Es un peor caso: casi todas las transacciones tocan las mismas filas, y si cada una toca filas distintas los conflictos son mucho más raros. Lo que sí se ve es que los niveles altos obligan a repetir un porcentaje grande de transacciones cuando hay choques, y que `serializable` fue el más lento en mis corridas. El costo es trabajo repetido, no bloqueos."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Situación",
+    "Una regla práctica razonable"
+   ],
+   "filas": [
+    [
+     "Operaciones de una sentencia: sumar un contador, insertar un registro, cambiar un estado",
+     "`read committed`, el nivel por defecto"
+    ],
+    [
+     "Informe o exportación que lee varias tablas o sentencias y necesita una vista coherente",
+     "`repeatable read` en modo de solo lectura (no falla por conflictos)"
+    ],
+    [
+     "Una regla que mira varias filas y escribe otras: cupos, topes, guardias, «no más de N»",
+     "`serializable` con reintento, o un bloqueo explícito (mañana)"
+    ]
+   ],
+   "cap": "Es criterio mío, no una norma: depende de cuánto choquen tus transacciones y de si tu programa sabe repetir."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no toca el nivel de aislamiento",
+   "x": [
+    "Esto corresponde al commit 25e08fa. Busqué en migraciones, `src`, pruebas y scripts las palabras `isolation`, `serializable`, `repeatable read` y el código `40001`: no aparece ninguna. Senda no pide un nivel especial, así que sus funciones corren en el de la base, que por la documentación de PostgreSQL es `read committed` (no verifiqué si la configuración de Supabase lo cambia).",
+    "Donde dos pedidos no deben pisarse, Senda usa otras herramientas, que vemos mañana: `jugar_turno` empieza con `select … for update` y `reclamar_trivia` toma un candado con `pg_advisory_xact_lock`. En cambio, `unirse_grupo` cuenta con `count(*)` si la persona ya está en 30 grupos y recién después inserta. Esa forma, «contar y después escribir», es la de la guardia de hoy; mañana la pruebo."
+   ],
+   "archivos": [
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261101000000_juntos.sql"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y qué puede cambiar",
+   "x": "Verificado el 13-11-2026 en la página de versiones de PostgreSQL: la vigente es la 18 (18.7, del 12-11-2026), la 19 está en candidata a lanzamiento (RC 2) y la última de la serie 16 es la 16.16 [#postgresql-versioning]. Yo corrí la 16.15 y leí los comportamientos de hoy en la documentación de la 16 [#bd0925-pg-iso]. Los números de `pgbench`, los id de transacción y los tamaños son de mi máquina. Lo que no cambia es el principio: foto por sentencia o por transacción, versiones de filas y reintento ante `40001`."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Para cada caso, elegí el nivel de aislamiento mínimo razonable y justificalo en una frase. (a) El botón «sumar un bulto» incrementa el contador de una ruta con `set cantidad = cantidad + 1`. (b) El cierre de mes suma el stock de 12 depósitos con una sentencia por depósito y arma un total en el código. (c) Una regla del negocio dice «máximo 5 bultos frágiles por camión»; el programa cuenta los frágiles y, si hay menos de 5, inserta uno más.",
+   "pista": "Preguntate: ¿la operación es una sola sentencia sobre una fila? ¿necesita mirar varias sentencias con la misma foto? ¿decide mirando filas y escribe otras?",
+   "solucion": "(a) `read committed`: una sola sentencia sobre una fila; si dos botones se pisan, el segundo espera y suma sobre el valor nuevo. (b) `repeatable read` en solo lectura: las 12 lecturas comparten foto y el total es coherente, sin posibilidad de error por conflicto. (c) `serializable` con reintento (o un bloqueo explícito): es la misma forma que la guardia, porque dos inserciones concurrentes ven 4 frágiles y las dos insertan, y quedan 6."
+  }
+ ],
+ "recap": [
+  "El nivel de aislamiento es un dial entre «cada transacción cree estar sola» y «menos coordinación». El estándar lo define por los fenómenos que prohíbe, y el mismo nombre no significa lo mismo en todos los motores.",
+  "En PostgreSQL el nivel por defecto es `read committed`: cada sentencia ve su propia foto, así que hay lecturas no repetibles. `read uncommitted` equivale a `read committed`: la lectura sucia no existe.",
+  "`repeatable read` toma una foto por transacción. Modificar una fila que otro cambió después de la foto da el error `40001`, y hay que repetir la transacción entera.",
+  "MVCC guarda varias versiones de cada fila: un UPDATE crea una nueva y marca la vieja con su `xmax`. Por eso leer no bloquea escribir ni al revés, y por eso hace falta VACUUM, que no puede limpiar lo que una transacción abierta todavía podría ver.",
+  "El write skew rompe reglas aunque cada transacción sea correcta. `serializable` lo evita cancelando una transacción, y el programa tiene que estar listo para reintentar."
+ ],
+ "repaso": [
+  {
+   "p": "En PostgreSQL, una transacción abre con `begin transaction isolation level read uncommitted` y otra, en paralelo, modifica una fila sin confirmar. ¿Qué ve la primera al leer esa fila?",
+   "o": [
+    "El valor nuevo sin confirmar, porque el nivel pedido permite lecturas sucias en cualquier motor",
+    "El valor anterior confirmado, porque PostgreSQL trata ese nivel igual que read committed",
+    "Nada: la lectura queda esperando hasta que la otra transacción confirme o se cancele",
+    "Un error, porque PostgreSQL no admite pedir el nivel read uncommitted en ninguna sentencia"
+   ],
+   "c": 1,
+   "e": "PostgreSQL acepta el nombre pero lo ejecuta como read committed: no ve lo no confirmado. No espera, porque en MVCC leer no bloquea. Tampoco da error. Y que otros motores, como MySQL con InnoDB, sí permitan lecturas sucias en ese nivel no cambia lo que hace PostgreSQL."
+  },
+  {
+   "p": "En `read committed`, una transacción hace `select bultos from stock where deposito='Norte'` y obtiene 100. Otra confirma que Norte pasa a 60. La primera repite exactamente el mismo `select`. ¿Qué obtiene y cómo se llama el fenómeno?",
+   "o": [
+    "Obtiene 100 de nuevo, porque dentro de una transacción la foto nunca cambia en ningún nivel",
+    "Obtiene 60, y es una lectura sucia, porque el valor viene de otra transacción",
+    "Obtiene 60, y es una lectura no repetible, porque cada sentencia toma una foto nueva",
+    "Obtiene 60, y es una lectura fantasma, porque aparece un valor que antes no existía"
+   ],
+   "c": 2,
+   "e": "En read committed cada sentencia toma su propia foto, así que ve el cambio ya confirmado: eso es una lectura no repetible. No es sucia, porque B ya había confirmado. No es fantasma, porque no apareció ni desapareció ninguna fila; cambió el valor de una que ya estaba. Y la foto fija es de repeatable read, no de este nivel."
+  },
+  {
+   "p": "Una transacción en `repeatable read` leyó una fila y otra transacción la modificó y confirmó. Ahora la primera intenta modificar esa misma fila. ¿Qué pasa?",
+   "o": [
+    "Se aplica el cambio sobre la versión nueva, igual que en read committed, y todo sigue",
+    "La base falla con el código 40001 y el programa debe repetir la transacción entera",
+    "La transacción espera para siempre, porque las dos modifican la misma fila a la vez",
+    "Se aplica el cambio sobre la versión vieja y el cambio de la otra transacción se pierde"
+   ],
+   "c": 1,
+   "e": "Aplicar el cambio sobre la versión nueva rompería la foto fija, y sobre la vieja pisaría un cambio ajeno, así que la base cancela con could not serialize access (40001). No espera para siempre: la otra ya confirmó. Y repetir la transacción desde el principio toma una foto nueva donde el cambio de la otra ya está incluido."
+  },
+  {
+   "p": "En la tabla `envio`, una versión de fila tiene `xmin = 769` y `xmax = 770`. La transacción 770 todavía no confirmó. ¿Qué ve una sesión que lee esa fila ahora?",
+   "o": [
+    "Ninguna versión, porque la fila quedó marcada como borrada y no hay versión vigente",
+    "La versión con xmax = 770, porque la transacción 770 no está confirmada para esa sesión",
+    "La versión nueva creada por 770, porque las versiones más recientes tienen prioridad",
+    "Un error de lectura, porque una versión con xmax distinto de cero está inconsistente"
+   ],
+   "c": 1,
+   "e": "Un xmax distinto de cero solo cuenta como «reemplazada» para quien ve confirmada la transacción 770. Para el resto, la versión sigue vigente, y esa es la gracia de MVCC: la nueva no se ve hasta que 770 confirme. No hay error ni ausencia de versión, y la prioridad no la da la antigüedad sino la foto."
+  },
+  {
+   "p": "Una tabla recibe 10.000 `UPDATE` sobre una sola fila y termina ocupando 45 páginas, aunque la fila sea diminuta; `VACUUM VERBOSE` dice «10000 are dead but not yet removable». ¿Cuál es la explicación más probable?",
+   "o": [
+    "VACUUM está roto o desactivado, porque sin él nunca se descarta ninguna versión vieja",
+    "Cada UPDATE agranda la fila original, y por eso hay que correr VACUUM FULL cada vez",
+    "Hay una transacción abierta desde antes que todavía podría ver esas versiones viejas",
+    "La tabla no tiene índice, y sin él PostgreSQL no puede borrar las versiones viejas"
+   ],
+   "c": 2,
+   "e": "El mensaje dice que VACUUM corrió y encontró versiones muertas que no podía quitar porque alguna transacción antigua todavía puede verlas. VACUUM funcionaba bien. Los UPDATE no agrandan la fila original: crean versiones nuevas. Y el índice no interviene en esta decisión."
+  },
+  {
+   "p": "Dos choferes ejecutan la misma lógica: «cuento los de guardia; si hay 2 o más, salgo yo». Cada uno actualiza su propia fila. En `repeatable read` ambos confirman y no queda nadie de guardia. ¿Por qué ocurrió?",
+   "o": [
+    "Porque repeatable read permite lecturas sucias, y cada uno vio el cambio del otro",
+    "Porque el UPDATE de cada uno pisó el de su compañero y se perdió una de las salidas",
+    "Porque las dos modificaciones tocaron filas distintas: no chocaron como escrituras y ambos decidieron con una foto vieja",
+    "Porque repeatable read ignora las reglas del negocio, y la base no valida nunca ninguna condición"
+   ],
+   "c": 2,
+   "e": "Es write skew: cada transacción leyó una foto coherente (2 de guardia) y escribió una fila distinta, así que la base no vio conflicto. No hubo lectura sucia ni actualización pisada, porque las filas eran distintas. Serializable detecta la dependencia entre lectura y escritura y cancela a una."
+  },
+  {
+   "p": "Un programa usa `serializable` y recibe `ERROR: could not serialize access due to read/write dependencies among transactions`. ¿Qué tiene que hacer?",
+   "o": [
+    "Ignorar el error: la base ya deshizo la transacción y el resultado queda correcto igual",
+    "Volver a ejecutar solo la última sentencia, con los datos que ya se habían leído antes",
+    "Hacer rollback, repetir la transacción entera con lecturas nuevas y limitar la cantidad de intentos",
+    "Cambiar al nivel read committed para esa operación y avisar que la base está dañada"
+   ],
+   "c": 2,
+   "e": "El error indica que cancelar y repetir es lo correcto. Hay que repetir toda la transacción, incluida la lógica que decide qué escribir, porque las lecturas anteriores ya no valen, y con tope de intentos para no entrar en un bucle. Ignorarlo pierde el pedido. Repetir solo la última sentencia reutiliza datos viejos. Y la base no está dañada: funciona como se diseñó."
+  }
+ ],
+ "feynman": "Explicale a una persona de logística, sin jerga, por qué un informe que suma el stock de dos depósitos puede dar un total equivocado aunque ningún movimiento esté mal hecho, y cómo lo arregla pedir «una foto fija» de los datos. Después, con tus palabras, qué le pasa a quien usa esa foto fija y quiere modificar algo que otro cambió en el medio, y por qué la base le pide que vuelva a empezar.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0925-pg-iso",
+   "nota": "El capítulo 13.2 de la documentación de PostgreSQL: la tabla de fenómenos y la descripción de cada nivel con los ejemplos del website y de los saldos. Leé la parte de Serializable para ver el ejemplo de suma por clases, parecido a la guardia de hoy."
+  },
+  {
+   "fuente": "bd0925-berenson-1995",
+   "nota": "El artículo «A Critique of ANSI SQL Isolation Levels» (Berenson y otros, 1995): por qué las definiciones del estándar por fenómenos eran ambiguas y dónde aparece el aislamiento por snapshot. Es el origen académico del vocabulario de hoy; la primera mitad se lee sin mucha matemática."
+  },
+  {
+   "fuente": "bd0925-ssi-2012",
+   "nota": "El artículo que describe cómo PostgreSQL implementó serializable con SSI. Leé la introducción y la sección de ejemplos para ver por qué detectar dependencias entre lecturas y escrituras evita los bloqueos."
+  },
+  {
+   "fuente": "bd0925-pg-vacuum",
+   "nota": "La sección de mantenimiento rutinario de la documentación: explica con más detalle las cuatro razones de VACUUM y el autovacuum, que es lo que evita a diario las hinchazones que viste en la tabla de los 10.000 UPDATE."
+  }
+ ],
+ "videos": [
+  {
+   "q": "PostgreSQL MVCC xmin xmax explained visually",
+   "por_que": "Para ver animadas las versiones de fila y la regla de visibilidad que hoy leíste en la salida de pageinspect."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "lectura sucia",
+   "d": "Leer datos que otra transacción escribió pero todavía no confirmó. Si esa transacción se cancela, quien leyó actuó sobre datos que nunca existieron. PostgreSQL no la permite en ningún nivel."
+  },
+  {
+   "t": "lectura no repetible",
+   "d": "Leer dos veces la misma fila dentro de una transacción y obtener valores distintos, porque otra transacción confirmó un cambio en el medio. Pasa en read committed y no en repeatable read."
+  },
+  {
+   "t": "MVCC",
+   "d": "Control de concurrencia multiversión: la base guarda varias versiones de cada fila y le muestra a cada transacción la que le corresponde según su foto. Por eso leer no bloquea escribir ni al revés."
+  },
+  {
+   "t": "nivel de aislamiento",
+   "d": "Cuánto de la ilusión de que cada transacción corre sola le garantiza la base a una transacción. Se define por los fenómenos que prohíbe; en PostgreSQL hay tres niveles reales: read committed, repeatable read y serializable."
+  },
+  {
+   "t": "lectura fantasma",
+   "d": "Repetir una consulta con condición y encontrar filas nuevas que antes no estaban, porque otra transacción las insertó y confirmó. El estándar la permite en repeatable read; PostgreSQL no."
+  },
+  {
+   "t": "write skew",
+   "d": "Dos transacciones leen lo mismo, deciden cada una por su cuenta y escriben filas distintas, y juntas rompen una regla que ninguna rompía sola. Repeatable read no lo evita; serializable sí."
+  },
+  {
+   "t": "error de serialización",
+   "d": "Error con código 40001 con que la base cancela una transacción para evitar una anomalía. No es un fallo del programa: la respuesta correcta es repetir la transacción entera."
+  },
+  {
+   "t": "versión de fila",
+   "d": "Cada estado de una fila lógica guardado en la tabla. Un UPDATE no cambia la versión vieja: crea una nueva y marca la anterior con su xmax."
+  },
+  {
+   "t": "VACUUM",
+   "d": "Comando que recupera el espacio de las versiones de fila que ninguna transacción puede necesitar. No puede quitar lo que una transacción abierta todavía podría ver."
+  },
+  {
+   "t": "snapshot",
+   "d": "Foto de los datos confirmados en un instante. En read committed se toma por sentencia; en repeatable read y serializable, una sola vez por transacción."
+  }
+ ],
+ "siguiente": "Mañana: cuando dos transacciones quieren escribir la misma fila, alguien tiene que esperar. Locks de fila, deadlocks y una columna de versión para no bloquear a nadie.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0925-pg-iso",
+   "t": "PostgreSQL 16: Transaction Isolation",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/transaction-iso.html"
+  },
+  {
+   "id": "bd0925-pg-mvcc",
+   "t": "PostgreSQL 16: Concurrency Control, Introduction",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/mvcc-intro.html"
+  },
+  {
+   "id": "bd0925-pg-serializacion",
+   "t": "PostgreSQL 16: Serialization Failure Handling",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/mvcc-serialization-failure-handling.html"
+  },
+  {
+   "id": "bd0925-pg-columnas",
+   "t": "PostgreSQL 16: System Columns",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/ddl-system-columns.html"
+  },
+  {
+   "id": "bd0925-pg-vacuum",
+   "t": "PostgreSQL 16: Routine Vacuuming",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/routine-vacuuming.html"
+  },
+  {
+   "id": "bd0925-pg-itemid",
+   "t": "PostgreSQL 16: storage/itemid.h (códigos de lp_flags)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://raw.githubusercontent.com/postgres/postgres/REL_16_STABLE/src/include/storage/itemid.h"
+  },
+  {
+   "id": "bd0925-pgbench",
+   "t": "PostgreSQL 16: pgbench",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/pgbench.html"
+  },
+  {
+   "id": "bd0925-mysql-iso",
+   "t": "MySQL 8.4: InnoDB Transaction Isolation Levels",
+   "a": "Oracle",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://dev.mysql.com/doc/refman/8.4/en/innodb-transaction-isolation-levels.html"
+  },
+  {
+   "id": "bd0925-mysql-mvcc",
+   "t": "MySQL 8.4: InnoDB Multi-Versioning",
+   "a": "Oracle",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://dev.mysql.com/doc/refman/8.4/en/innodb-multi-versioning.html"
+  },
+  {
+   "id": "bd0925-berenson-1995",
+   "t": "A Critique of ANSI SQL Isolation Levels",
+   "a": "Berenson, Bernstein, Gray, Melton, O'Neil, O'Neil",
+   "tipo": "paper",
+   "anio": 1995,
+   "url": "https://arxiv.org/abs/cs/0701157"
+  },
+  {
+   "id": "bd0925-ssi-2012",
+   "t": "Serializable Snapshot Isolation in PostgreSQL",
+   "a": "Ports y Grittner",
+   "tipo": "paper",
+   "anio": 2012,
+   "url": "https://vldb.org/pvldb/vol5/p1850_dansrp_vldb2012.pdf"
+  }
+ ]
+}

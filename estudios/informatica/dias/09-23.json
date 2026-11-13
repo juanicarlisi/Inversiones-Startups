@@ -1,0 +1,781 @@
+{
+ "id": "09-23",
+ "titulo": "Optimización de consultas",
+ "bajada": "Una consulta que lee 65 MB para devolver 47 filas se arregla de tres maneras distintas, con los tiempos medidos de cada una y con las trampas que hacen que un índice no sirva.",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Leer un plan de `EXPLAIN (ANALYZE, BUFFERS)` y separar lo estimado de lo real, las filas descartadas y las páginas tocadas.",
+  "Explicar cómo las estadísticas de tabla guían al planificador y qué pasa cuando quedan viejas.",
+  "Elegir entre un índice simple, uno compuesto y uno parcial para una consulta concreta, con su costo de tamaño y de escritura.",
+  "Reconocer una consulta N+1 y una condición que esconde la columna del índice, y reescribirlas.",
+  "Usar `pg_stat_statements` para decidir qué consulta vale la pena optimizar antes de tocar nada."
+ ],
+ "venis_de": "Ya sabés cómo se guarda una tabla en páginas ([@09-19]), qué es un índice y por qué un B-tree acelera ([@09-20], [@09-21]) y cómo el motor convierte el SQL en un plan ([@09-22]). Hoy se usa todo eso para una tarea concreta: encontrar por qué una consulta tarda y arreglarla sin adivinar.",
+ "se_apoya_en": [
+  "08-08",
+  "09-04",
+  "09-09",
+  "09-19",
+  "09-20",
+  "09-21",
+  "09-22"
+ ],
+ "gancho": [
+  "Un panel de «bultos demorados» tarda 55 milisegundos en abrirse. Nadie se queja de 55 milisegundos. Ahora imaginá que a las 8:40, cuando entran los despachantes de la central, lo abren doscientas personas casi a la vez, y que cada apertura obliga a la base a leer la tabla completa de bultos para devolver 47 filas. Lo que era imperceptible para una persona se vuelve una cola para todas.",
+  "Optimizar consultas es el oficio de encontrar ese desperdicio y quitarlo. Tiene mala fama de arte oscuro, pero el método es corto: medir, leer el plan, cambiar **una** cosa y volver a medir. Hoy lo hacés sobre una tabla de un millón de bultos inventados en PostgreSQL, y vas a ver el mismo problema resuelto de tres maneras, con la cuenta de lo que cuesta cada una."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Primero se mide: cómo leer EXPLAIN ANALYZE"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La regla número uno es no adivinar. Antes de crear un índice o reescribir nada, le preguntás a la base qué está haciendo. Esa pregunta se llama [[EXPLAIN ANALYZE|EXPLAIN ANALYZE]]. `EXPLAIN` a secas muestra el [[plan de ejecución]] que eligió el [[planificador de consultas]], con costos estimados. Agregando `ANALYZE`, la consulta **se ejecuta de verdad** y el plan viene con los tiempos y las filas reales [#bd0923-pg16-sql-explain]. La opción `BUFFERS` suma cuántas [[páginas de 8 KB|página de disco]] tocó cada paso, que es lo que viste en el [@09-19].",
+    "Todo lo de hoy corre sobre datos inventados: una central logística ficticia con 1.000.000 de bultos, 211 clientes y 12 depósitos. La tabla se genera con fórmulas deterministas, sin azar, así que quien ejecute el script obtiene la misma tabla. Es PostgreSQL 16.15 en esta VM, con los procesos paralelos apagados (`set max_parallel_workers_per_gather = 0`) para que los planes se lean simples."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table depositos (deposito_id int primary key, nombre text not null, zona text not null);\ninsert into depositos\nselect g, 'Depósito ' || g, (array['Norte','Sur','Oeste','Centro'])[1 + g % 4] from generate_series(1,12) g;\n\ncreate table clientes (cliente_id int primary key, nombre text not null);\ninsert into clientes select g, 'Cliente ' || lpad(g::text, 3, '0') from generate_series(1, 211) g;\n\ncreate table bultos (\n  bulto_id    int primary key,\n  cliente_id  int not null,\n  deposito_id int not null references depositos,\n  fecha_alta  timestamptz not null,\n  estado      text not null,\n  peso_g      int not null\n);\n\ninsert into bultos\nselect i,\n       1 + (i * 7919::bigint) % 211,\n       1 + (i * 31) % 12,\n       timestamptz '2026-01-01 00:00+00' + ((i * 7919::bigint) % 26784000) * interval '1 second',\n       case when i % 100 < 85 then 'entregado'\n            when i % 100 < 95 then 'en_ruta'\n            when i % 100 < 99 then 'pendiente'\n            else 'demorado' end,\n       200 + (i * 37) % 24000\nfrom generate_series(1, 1000000) i;\n\nvacuum analyze;",
+   "cap": "Datos de la demo. Los bultos pesan 65 MiB en 8.334 páginas. El 85 % está entregado, el 1 % demorado (10.000 bultos)."
+  },
+  {
+   "t": "p",
+   "x": "La consulta es la del panel: los 20 bultos demorados más recientes de un cliente, con el nombre de su depósito."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "select b.bulto_id, b.fecha_alta, d.nombre\nfrom bultos b join depositos d using (deposito_id)\nwhere b.cliente_id = 77 and b.estado = 'demorado'\norder by b.fecha_alta desc limit 20;"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, buffers) <la consulta de arriba>;",
+     "s": "Limit  (cost=23344.04..23344.09 rows=20 width=24) (actual time=55.067..55.072 rows=20 loops=1)\n  Buffers: shared hit=8338\n  ->  Sort  (cost=23344.04..23344.16 rows=46 width=24) (actual time=55.066..55.069 rows=20 loops=1)\n        Sort Key: b.fecha_alta DESC\n        Sort Method: top-N heapsort  Memory: 27kB\n        ->  Nested Loop  (cost=0.00..23342.82 rows=46 width=24) (actual time=0.715..54.995 rows=47 loops=1)\n              Join Filter: (d.deposito_id = b.deposito_id)\n              ->  Seq Scan on bultos b  (cost=0.00..23334.00 rows=46 width=16) (actual time=0.703..54.851 rows=47 loops=1)\n                    Filter: ((cliente_id = 77) AND (estado = 'demorado'::text))\n                    Rows Removed by Filter: 999953\n                    Buffers: shared hit=8334\n              ->  Materialize  (cost=0.00..1.18 rows=12 width=16) (actual time=0.000..0.001 rows=6 loops=47)\n                    ->  Seq Scan on depositos d  (cost=0.00..1.12 rows=12 width=16)\nPlanning Time: 0.081 ms\nExecution Time: 55.089 ms"
+    }
+   ],
+   "cap": "Medido en esta VM (PostgreSQL 16.15, una corrida con la tabla ya en memoria). Recortado: se quitaron líneas de `Buffers` y los tiempos del nodo del depósito. Lo que queda es salida original."
+  },
+  {
+   "t": "p",
+   "x": "Un plan es un árbol que se lee de adentro hacia afuera: los nodos más sangrados trabajan primero y le pasan filas al de arriba. Acá todo el trabajo está en `Seq Scan on bultos`. Estos son los datos que importan:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dato del plan",
+    "Qué dice",
+    "En esta consulta"
+   ],
+   "filas": [
+    [
+     "`Seq Scan`",
+     "Recorrió la tabla completa, página por página",
+     "Sí: no había ningún índice útil"
+    ],
+    [
+     "`cost=0.00..23334.00`",
+     "Estimación del planificador, en unidades arbitrarias: costo de empezar y costo total",
+     "El número solo sirve para comparar planes entre sí"
+    ],
+    [
+     "`rows=46` contra `actual rows=47`",
+     "Filas estimadas contra filas reales",
+     "Casi iguales: las estadísticas están bien"
+    ],
+    [
+     "`Rows Removed by Filter: 999953`",
+     "Filas leídas y descartadas por no cumplir la condición",
+     "Este es el síntoma: leyó un millón para quedarse con 47"
+    ],
+    [
+     "`Buffers: shared hit=8334`",
+     "Páginas leídas desde la memoria compartida de la base",
+     "8.334 × 8 KB = la tabla entera"
+    ],
+    [
+     "`Execution Time`",
+     "Tiempo real, sin contar planificar",
+     "55 ms (el planificar es aparte: 0,08 ms)"
+    ]
+   ],
+   "cap": "Cómo leer lo esencial de un plan. `hit` es una página que ya estaba en memoria; `read` es una que hubo que traer del sistema operativo o del disco."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Ahora lo ves: el costo sale de una cuenta que podés rehacer",
+   "x": "Con los valores por defecto, PostgreSQL cobra 1,0 por cada página leída de corrido, 0,01 por cada fila procesada y 0,0025 por cada operador que evalúa [#bd0923-pg16-planner-config]. La tabla tiene 8.334 páginas y 1.000.000 de filas, y el filtro evalúa dos condiciones por fila: 8.334 + 10.000 + 5.000 = 23.334, el costo que muestra el `Seq Scan`. El planificador no tiene magia: suma pasos de un modelo de costos y elige el plan más barato."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "EXPLAIN ANALYZE ejecuta la sentencia",
+   "x": "Si le ponés `EXPLAIN ANALYZE` a un `DELETE` o a un `UPDATE`, borra o modifica de verdad. La documentación recomienda envolverlo: `BEGIN; EXPLAIN ANALYZE ...; ROLLBACK;` [#bd0923-pg16-sql-explain]. Con un `SELECT` no hay riesgo, pero la consulta sí se ejecuta entera y puede tardar lo mismo que en producción."
+  },
+  {
+   "t": "pensa",
+   "x": "El plan dice `Rows Removed by Filter: 999953` y la consulta devuelve 20 filas. Sin mirar nada más, ¿qué te sugiere ese par de números sobre cómo arreglarla?",
+   "resp": "Que la base trabaja casi toda para nada: lee y tira un millón de filas para quedarse con 47. Eso es lo que un índice bien elegido evita, porque le permite ir directo a las filas que cumplen la condición. Si en cambio la consulta tirara pocas filas, un índice no ayudaría."
+  },
+  {
+   "t": "h",
+   "x": "El planificador adivina con un resumen: las estadísticas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate que el plan estimó 46 filas y hubo 47. El planificador no cuenta las filas de antemano: eso costaría tanto como ejecutar la consulta. Consulta un resumen que la base guarda de cada columna, la [[estadística de tabla]]: cuántos valores distintos hay, cuáles son los más comunes y con qué frecuencia, cuántas filas tiene la tabla. Se calcula mirando una muestra aleatoria con el comando `ANALYZE`, y siempre es aproximada [#bd0923-pg16-planner-stats]. Se lee en la vista `pg_stats`."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El despachante y el censo",
+   "x": "Es como un despachante que arma las rutas con el último censo de cada depósito. Si ayer entró un camión con 300.000 bultos que el censo no registra, reparte como si el depósito estuviera casi vacío. La analogía deja de valer en un punto: el despachante ve el camión por la ventana y la base no; solo se entera cuando alguien repite el censo."
+  },
+  {
+   "t": "p",
+   "x": "Quién hace ese censo es el autovacuum. Vuelve a analizar una tabla cuando cambiaron más de 50 filas más el 10 % de su tamaño, y revisa cada minuto [#bd0923-pg16-autovacuum-config]. Eso deja una ventana en la que la estadística está vieja, justo después de una carga masiva. Lo reproduzco con una tabla nueva, `novedades`, con el autovacuum apagado solo para que el resultado no dependa del reloj."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table novedades (\n  novedad_id int primary key,\n  cliente_id int not null,\n  estado     text not null\n) with (autovacuum_enabled = false);          -- solo para que la demo no dependa del reloj\ncreate index novedades_estado_idx on novedades (estado);\n\ninsert into novedades\nselect i, 1 + (i * 7919::bigint) % 211, 'pendiente' from generate_series(1, 100000) i;\nanalyze novedades;\n\n-- carga masiva: 300.000 filas con un estado que la tabla nunca tuvo\ninsert into novedades\nselect 100000 + i, 1 + (i * 7919::bigint) % 211, 'demorado' from generate_series(1, 300000) i;",
+   "cap": "Una tabla con 100.000 filas en estado «pendiente», analizada, y después 300.000 filas de un estado que la estadística nunca vio."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select attname, n_distinct, most_common_vals, most_common_freqs from pg_stats where tablename = 'novedades' and attname = 'estado';",
+     "s": " attname | n_distinct | most_common_vals | most_common_freqs\n---------+------------+------------------+-------------------\n estado  |          1 | {pendiente}      | {1}"
+    },
+    {
+     "c": "explain (analyze, buffers) <consulta de clientes con demorados>;   -- ANTES de analizar",
+     "s": "Hash Join  (cost=4.45..9.36 rows=1 width=12) (actual time=154.688..206.142 rows=300000 loops=1)\n  ->  Index Scan using novedades_estado_idx on novedades n  (cost=0.42..4.44 rows=1 width=4) (actual time=0.010..76.853 rows=300000 loops=1)\n        Index Cond: (estado = 'demorado'::text)\nSort Method: external merge  Disk: 4712kB\nExecution Time: 311.252 ms"
+    },
+    {
+     "c": "analyze novedades;",
+     "s": "ANALYZE"
+    },
+    {
+     "c": "select attname, n_distinct, most_common_vals, most_common_freqs from pg_stats where tablename = 'novedades' and attname = 'estado';",
+     "s": " attname | n_distinct |   most_common_vals   |   most_common_freqs\n---------+------------+----------------------+------------------------\n estado  |          2 | {demorado,pendiente} | {0.7453667,0.25463334}"
+    },
+    {
+     "c": "explain (analyze, buffers) <la misma consulta>;   -- DESPUÉS de analizar",
+     "s": "HashAggregate  (cost=9847.31..9849.42 rows=211 width=20) (actual time=153.546..153.563 rows=211 loops=1)\n  ->  Hash Join  (cost=6.75..8354.31 rows=298600 width=12) (actual time=8.855..87.766 rows=300000 loops=1)\n        ->  Seq Scan on novedades n  (cost=0.00..7548.00 rows=298600 width=4) (actual time=8.805..36.497 rows=300000 loops=1)\n              Filter: (estado = 'demorado'::text)\nExecution Time: 153.632 ms"
+    }
+   ],
+   "cap": "Medido en esta VM, una corrida de cada una; los tiempos varían de una corrida a otra, pero la diferencia de estimación no. Recortado. La consulta es la de clientes con más demorados: `join clientes` y `group by`, con `limit 5`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá los dos números que se contradicen en el primer plan: `rows=1` estimado y `rows=300000` reales. La estadística decía que la tabla entera era «pendiente»; para un valor que no conocía, supuso que casi no habría filas. Con esa creencia armó un plan pensado para una sola fila: una tabla hash chica, que se desbordó a disco (`external merge Disk: 4712kB`), y un `Index Scan` que visita 300.000 entradas. Después de `ANALYZE` la estimación fue 298.600 (real: 300.000), el planificador eligió leer la tabla entera, agrupó en memoria y la consulta bajó de 311 a 154 ms.",
+    "La regla práctica: **cuando el estimado y el real difieren por órdenes de magnitud, el problema no es la consulta sino lo que el planificador cree**. Mirá la estadística antes de tocar nada."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si hay un índice, la base lo usa»",
+   "x": "El planificador usa el índice cuando calcula que es más barato. En el primer plan lo usó por error (creyó que traía una fila). En el segundo lo descartó con razón: el 75 % de la tabla es «demorado» y leer casi todo en secuencia es más barato que saltar por el índice 300.000 veces. Un `Seq Scan` no es una falla: es lo correcto cuando la consulta necesita una parte grande de la tabla."
+  },
+  {
+   "t": "h",
+   "x": "Un caso, tres arreglos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Volvemos al panel de demorados. Al plan le falta una forma de ir directo a las filas del cliente 77. El camino es un [[escaneo de índice]]: recorrer un índice para ubicar las filas sin leer la tabla entera. En un plan aparece de tres maneras que conviene distinguir. `Index Scan` camina el índice y, por cada entrada que cumple, va a buscar la fila a la tabla. `Index Only Scan` responde sin tocar la tabla, cuando el índice ya tiene todas las columnas que hacen falta y las filas son visibles para todos. `Bitmap Index Scan` seguido de `Bitmap Heap Scan` junta primero las páginas de la tabla que hay que visitar y las lee una sola vez cada una, en orden físico [#bd0923-pg16-indexes-bitmap].",
+    "Pruebo tres índices sobre la misma consulta, uno por vez (borro cada uno antes de crear el siguiente), y mido el plan del cliente 77 y las consultas por segundo con cuatro clientes a la vez (`pgbench`, cliente al azar entre los 211, 8 segundos)."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Arreglo A: el índice obvio, por cliente"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create index bultos_cliente_idx on bultos (cliente_id);",
+   "cap": "Pesa 6.800 kB."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, buffers) <la consulta>;",
+     "s": "Bitmap Heap Scan on bultos b  (cost=55.84..7509.53 rows=43 width=16) (actual time=1.819..13.224 rows=47 loops=1)\n  Recheck Cond: (cliente_id = 77)\n  Filter: (estado = 'demorado'::text)\n  Rows Removed by Filter: 4692\n  Heap Blocks: exact=4739\n  ->  Bitmap Index Scan on bultos_cliente_idx  (cost=0.00..55.83 rows=4721 width=0) (actual time=0.870..0.871 rows=4739 loops=1)\n        Index Cond: (cliente_id = 77)\nExecution Time: 13.576 ms"
+    }
+   ],
+   "cap": "Medido en esta VM, una corrida. Recortado."
+  },
+  {
+   "t": "p",
+   "x": "Mejoró casi cuatro veces: de 55 a 13,6 ms. Pero mirá lo que sigue haciendo. El índice por cliente encuentra las 4.739 filas de ese cliente, y para filtrar por estado tiene que ir a la tabla a leer cada una: `Heap Blocks: exact=4739`, una página por fila, porque los bultos de un cliente están desparramados por toda la tabla. Después descarta 4.692. Pasó de leer 8.334 páginas a leer unas 4.700, y lo único que hizo fue cambiar de lugar el desperdicio."
+  },
+  {
+   "t": "h3",
+   "x": "Arreglo B: un índice compuesto que sigue la forma de la consulta"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create index bultos_cli_est_fecha_idx on bultos (cliente_id, estado, fecha_alta desc);",
+   "cap": "Pesa 39 MB."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, buffers) <la consulta>;",
+     "s": "Limit  (cost=0.57..85.30 rows=20 width=24) (actual time=0.044..0.154 rows=20 loops=1)\n  Buffers: shared hit=26 read=3\n  ->  Nested Loop  (cost=0.57..195.46 rows=46 width=24) (actual time=0.043..0.152 rows=20 loops=1)\n        ->  Index Scan using bultos_cli_est_fecha_idx on bultos b  (cost=0.42..189.34 rows=46 width=16) (actual time=0.031..0.132 rows=20 loops=1)\n              Index Cond: ((cliente_id = 77) AND (estado = 'demorado'::text))\n        ->  Memoize  [recortado: busca el depósito de cada bulto, con caché]\nExecution Time: 0.181 ms"
+    }
+   ],
+   "cap": "Medido en esta VM, una corrida. Recortado."
+  },
+  {
+   "t": "p",
+   "x": "Ahora la consulta tarda 0,18 ms y toca 29 páginas en total. El orden de las columnas es la clave de todo. Un [[índice compuesto]] guarda las entradas ordenadas por la primera columna, y dentro de cada valor por la segunda, y así. Con `cliente_id` y `estado` por igualdad y `fecha_alta desc` al final, las entradas del cliente 77 demorado están **juntas y ya ordenadas por fecha, de la más nueva a la más vieja**. El plan no necesita `Sort`: lee las primeras 20 entradas y se detiene (`Limit ... actual rows=20`). Una regla práctica para armar estos índices: primero las columnas que se comparan por igualdad, después la que ordena [#bd0923-pg16-indexes-multicolumn]."
+  },
+  {
+   "t": "h3",
+   "x": "Arreglo C: un índice parcial, solo con lo que importa"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create index bultos_demorados_idx on bultos (cliente_id, fecha_alta desc) where estado = 'demorado';",
+   "cap": "Pesa 328 kB."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, buffers) <la consulta>;",
+     "s": "Limit  (cost=0.43..85.34 rows=20 width=24) (actual time=0.046..0.201 rows=20 loops=1)\n  Buffers: shared hit=26 read=2\n  ->  Nested Loop  (cost=0.43..187.24 rows=44 width=24) (actual time=0.045..0.199 rows=20 loops=1)\n        ->  Index Scan using bultos_demorados_idx on bultos b  (cost=0.29..181.05 rows=44 width=16) (actual time=0.031..0.175 rows=20 loops=1)\n              Index Cond: (cliente_id = 77)\n        ->  Memoize  [recortado: busca el depósito de cada bulto, con caché]\nExecution Time: 0.353 ms"
+    }
+   ],
+   "cap": "Medido en esta VM, una corrida. Recortado."
+  },
+  {
+   "t": "p",
+   "x": "Mismo resultado, 0,35 ms, 28 páginas, y un índice de 328 kB en lugar de 39 MB. Un índice parcial solo incluye las filas que cumplen su condición, acá el 1 % de la tabla [#bd0923-pg16-indexes-partial]. Es cien veces más chico, y un `INSERT` de un bulto entregado ni lo toca. Su límite es evidente: solo sirve para consultas que incluyen `estado = 'demorado'`. Si mañana alguien pide el panel de «en ruta», no ayuda."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Variante",
+    "Nodo principal",
+    "Tiempo (cliente 77)",
+    "Páginas",
+    "Tamaño del índice",
+    "Consultas por segundo"
+   ],
+   "filas": [
+    [
+     "Sin índice",
+     "Seq Scan",
+     "55 ms",
+     "8.338",
+     "—",
+     "62"
+    ],
+    [
+     "A: por cliente",
+     "Bitmap Heap Scan",
+     "13,6 ms",
+     "4.746",
+     "6.800 kB",
+     "655 y 786 (dos corridas)"
+    ],
+    [
+     "B: compuesto",
+     "Index Scan",
+     "0,18 ms",
+     "29",
+     "39 MB",
+     "14.577"
+    ],
+    [
+     "C: parcial",
+     "Index Scan",
+     "0,35 ms",
+     "28",
+     "328 kB",
+     "20.719"
+    ]
+   ],
+   "cap": "Medido en esta VM compartida de 4 CPU, con 4 clientes simultáneos, datos en memoria. La diferencia entre B y C (40 %) cae dentro del ruido de una VM compartida; lo robusto es que ambas rinden entre 200 y 330 veces más que sin índice."
+  },
+  {
+   "t": "pensa",
+   "x": "Los arreglos A y B tienen un índice que empieza por `cliente_id`. ¿Por qué uno mejora 4 veces y el otro más de 200?",
+   "resp": "Porque A solo resuelve la condición de cliente; el estado y el orden se resuelven después, leyendo cada fila de la tabla. B guarda en el propio índice el estado y la fecha, así que las 20 filas que se piden son las primeras 20 entradas, ya ordenadas. La diferencia no está en tener un índice, sino en qué condiciones del WHERE y del ORDER BY puede resolver el índice por sí solo."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Verificá a mano el costo del `Seq Scan` de la consulta con la fórmula de arriba, pero para una tabla de 2.000 páginas, 150.000 filas y una sola condición en el filtro.",
+   "pista": "Páginas × 1,0, más filas × 0,01, más filas × (cantidad de condiciones) × 0,0025.",
+   "solucion": "2.000 × 1,0 = 2.000; 150.000 × 0,01 = 1.500; 150.000 × 1 × 0,0025 = 375. Total: 3.875. El número solo sirve para comparar planes, pero así de simple es el modelo."
+  },
+  {
+   "t": "h",
+   "x": "Cuando el índice existe y no se usa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay una trampa clásica, y sale en reportes de logística todo el tiempo: «los bultos de ayer». Alguien escribe la condición aplicando una función a la columna. Acá, los bultos dados de alta el 15 de octubre en hora de Buenos Aires (recordá del [@09-04] que `timestamptz` guarda un instante y que el día depende de la zona), escritos de dos formas. Para probar creé un índice común sobre `fecha_alta`."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select count(*) from bultos where date(fecha_alta at time zone 'America/Argentina/Buenos_Aires') = date '2026-10-15';",
+     "s": "Aggregate  (cost=25846.50..25846.51 rows=1 width=8) (actual time=238.664..238.665 rows=1 loops=1)\n  ->  Seq Scan on bultos  (cost=0.00..25834.00 rows=5000 width=0) (actual time=0.722..238.354 rows=3218 loops=1)\n        Filter: (date((fecha_alta AT TIME ZONE 'America/Argentina/Buenos_Aires'::text)) = '2026-10-15'::date)\n        Rows Removed by Filter: 996782\nExecution Time: 238.683 ms"
+    },
+    {
+     "c": "select count(*) from bultos where fecha_alta >= timestamptz '2026-10-15 00:00 America/Argentina/Buenos_Aires' and fecha_alta < timestamptz '2026-10-16 00:00 America/Argentina/Buenos_Aires';",
+     "s": "Aggregate  (cost=103.29..103.30 rows=1 width=8) (actual time=0.436..0.436 rows=1 loops=1)\n  ->  Index Only Scan using bultos_fecha_idx on bultos  (cost=0.42..95.86 rows=2972 width=0) (actual time=0.032..0.307 rows=3218 loops=1)\n        Index Cond: ((fecha_alta >= '2026-10-15 03:00:00+00'::timestamp with time zone) AND (fecha_alta < '2026-10-16 03:00:00+00'::timestamp with time zone))\n        Heap Fetches: 0\nExecution Time: 0.455 ms"
+    }
+   ],
+   "cap": "Medido en esta VM, una corrida de cada una; ambas devuelven 3.218 (se comprobó). Recortado."
+  },
+  {
+   "t": "p",
+   "x": [
+    "238 ms contra 0,45 ms: unas 500 veces, con el mismo resultado. El índice ordena los bultos por `fecha_alta`. La primera condición pregunta por el resultado de una función aplicada a esa columna, y la base no tiene forma de saltar a una fecha en un orden que es por otra cosa: tiene que calcular la función para cada una de las 1.000.000 de filas. De paso el estimado cayó en un valor genérico (5.000 filas, contra 3.218 reales).",
+    "La solución es **dejar la columna sola de un lado de la comparación** y mover el cálculo al otro. Para un día, se expresa como un rango: desde la medianoche de Buenos Aires hasta la medianoche siguiente. El plan lo convirtió a UTC por su cuenta (`03:00:00+00`). El patrón se repite en `lower(nombre) = 'x'`, `fecha + 1 > hoy` o `coalesce(col, 0) = 5`: la columna del índice queda envuelta."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Muchas consultas chicas: el N+1"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá cada consulta, sola, era lenta. Hay otro tipo de problema donde ninguna lo es. Una pantalla muestra 30 clientes con su cantidad de bultos demorados. El código trae los 30 clientes con una consulta y después, dentro de un bucle, pregunta por cada uno cuántos demorados tiene: 1 consulta más 30. Es una [[consulta N+1]]. Ya lo viste del lado de las APIs ([@08-08], el [[problema N+1]]); acá es el mismo error en la capa de la base.",
+    "Lo medí con los dos programas, 31 consultas sueltas contra una sola consulta con `join` y `group by`, con el índice B creado:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Forma",
+    "Consultas",
+    "Latencia por pantalla",
+    "Pantallas por segundo"
+   ],
+   "filas": [
+    [
+     "Bucle: 1 + 30",
+     "31",
+     "1,48 ms",
+     "677"
+    ],
+    [
+     "Una consulta con `join` y `group by`",
+     "1",
+     "0,52 ms",
+     "1.926"
+    ]
+   ],
+   "cap": "Medido en esta VM con `pgbench` (un cliente, 6 segundos) por socket Unix, sin red de por medio. Cada consulta tarda microsegundos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dentro de la VM la diferencia es de unas tres veces, y no impresiona. Lo importante es lo que esa tabla **no** muestra: cada consulta del bucle es un viaje de ida y vuelta al servidor. Senda, por ejemplo, le habla a su base por HTTP con `fetch` (sección 6.1 de `senda/mapa-tecnico.md`), así que cada consulta suelta de un bucle sería un pedido HTTP completo. Una ESTIMACIÓN con un supuesto mío: si cada viaje desde un teléfono costara 40 ms, serían 31 × 40 ms = 1,24 segundos contra 40 ms. Lo que cuesta no es la consulta sino el viaje, y la ruta de logística lo explica: es la diferencia entre mandar 30 camiones con un bulto cada uno y uno con los 30.",
+    "El arreglo es traer todo junto. A veces se hace con un `join`, a veces con `where cliente_id = any(...)`, a veces con una función de base de datos que devuelva el resultado ya armado, como las RPC que viste en el [@07-29]."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Un N+1 escondido dentro de una sola sentencia",
+   "x": [
+    "La tabla de posiciones de una copa de Senda es la función `tabla_copa` (`20261127000000_seguridad.sql`). Para cada fila arma el puesto con `row_number() over (order by puntos desc, aciertos desc, ms asc)` y, en la misma consulta, llama a `public.apodo_de(r.usuario)`, que hace un `select` a `perfiles` por usuario (`20261111000000_novedades.sql`). Recién después se queda con los puestos hasta 50 y el de quien pregunta.",
+    "Sospeché que `apodo_de` se ejecutaba para todas las filas y no solo para las 50 que se muestran, y lo medí en una réplica reducida (las definiciones de `tabla_copa`, sin la rama de grupo, y de `apodo_de`) con **100.000 marcas inventadas** en una copa; no sé cuántas tiene la base real de Senda. Con `track_functions = 'all'`, `apodo_de` se llamó **100.000 veces** para devolver 51 filas: entre 363 y 464 ms en tres corridas y 402.062 páginas. Armando primero el puesto y llamando a `apodo_de` después, son 2.266 páginas y entre 58 y 62 ms, con las mismas 51 filas (comprobado con `except` en ambos sentidos).",
+    "Es un N+1 dentro del motor, sin red de por medio, y se ve más en `Buffers` que en el tiempo. Es una **INFERENCIA** medida en una réplica, no una afirmación sobre el rendimiento actual de Senda. Corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261111000000_novedades.sql",
+    "supabase/migrations/20261101000000_juntos.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Decidir qué optimizar: pg_stat_statements"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En una base real no sabés qué consulta mirar. `pg_stat_statements` es una extensión que acumula, por cada consulta normalizada (con los valores reemplazados por `$1`, `$2`), cuántas veces se ejecutó, cuánto tardó en total y cuántas páginas tocó [#bd0923-pg16-pgstatstatements]. Hay que cargarla al arrancar el servidor (`shared_preload_libraries`, con reinicio) y después crearla con `create extension`. En Supabase se activa desde el panel o con `create extension pg_stat_statements with schema extensions;` [#bd0923-supabase-pgstatstatements]; no tengo acceso al proyecto de Senda, así que no sé si está activa ahí.",
+    "Le hice correr, en una corrida de prueba, el bucle de 30 consultas (con el índice B, 3 segundos) y el panel lento (sin índice, 3 segundos), y consulté la extensión:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select left(regexp_replace(query, '\\s+', ' ', 'g'), 110) as query, calls, round(total_exec_time::numeric,1) as total_ms, round(mean_exec_time::numeric,3) as mean_ms, shared_blks_hit+shared_blks_read as bloques from pg_stat_statements where query ~ 'bultos' order by total_exec_time desc limit 2;",
+     "s": "-[ RECORD 1 ]------------------------------------------------------------------------------------------------------------\nquery    | select b.bulto_id, b.fecha_alta, d.nombre from bultos b join depositos d using (deposito_id) where b.cliente_i\ncalls    | 125\ntotal_ms | 5935.1\nmean_ms  | 47.481\nbloques  | 1068125\n-[ RECORD 2 ]------------------------------------------------------------------------------------------------------------\nquery    | select count(*) from bultos where cliente_id = $1 and estado = $2\ncalls    | 79980\ntotal_ms | 500.2\nmean_ms  | 0.006\nbloques  | 335916"
+    }
+   ],
+   "cap": "Medido en esta VM. El tercer resultado de la consulta original (un `drop index`) se quitó. El texto de la primera consulta se cortó a 110 caracteres a propósito."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Se leen dos historias distintas con dos órdenes distintos. Ordenada por `mean_exec_time`, la primera es **la consulta lenta**: 47 ms por llamada. Ordenada por `calls`, la segunda es **la sospechosa de N+1**: casi 80.000 llamadas de 6 microsegundos cada una. Por tiempo total la lenta ganó acá (5,9 s contra 0,5 s), pero eso depende de cuánto se ejecutó cada una. Una consulta rápida repetida millones de veces también puede dominar la carga. Se mira por total, por promedio y por cantidad de llamadas, y se empieza por la que más recursos consume, no por la que más ofende."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué NO hacer"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Poner un índice en cada columna.** Parece prudente y es caro. Cada `INSERT` tiene que escribir la fila y una entrada en cada índice. Lo medí con dos copias vacías de `bultos`: una con solo la clave primaria y otra con seis índices más (uno por columna y el compuesto), insertando 300.000 filas con `insert ... select`:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tabla",
+    "Tamaño de la tabla",
+    "Tamaño de los índices",
+    "Insertar 300.000 filas (dos corridas)"
+   ],
+   "filas": [
+    [
+     "Solo clave primaria",
+     "20 MB",
+     "6.600 kB",
+     "0,65 s y 0,83 s"
+    ],
+    [
+     "Clave primaria + 6 índices",
+     "20 MB",
+     "42 MB",
+     "5,7 s y 3,4 s"
+    ]
+   ],
+   "cap": "Medido en esta VM compartida, `\\timing` de psql. La carga con seis índices fue entre 4 y 9 veces más lenta, y los índices pesan el doble que los datos."
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Forzar el plan a ciegas.** `set enable_seqscan = off` y los otros `enable_*` existen, pero la documentación los describe como un método «crude» (tosco, en mi traducción) y los propone como arreglo temporal; recomienda mejorar estadísticas, índices y costos antes [#bd0923-pg16-planner-config]. Sirven para diagnosticar («¿sería más rápido con índice?»), no como configuración. Hasta donde revisé, el SQL de PostgreSQL no trae sintaxis de pistas (hints); hay extensiones de terceros, como `pg_hint_plan`, que no probé.",
+    "**Medir una sola vez o cambiar varias cosas a la vez.** La primera corrida puede traer páginas del disco (`read`) y las siguientes las encuentran en memoria (`hit`); repetí y mirá `Buffers`, que no depende del reloj. Y si creás un índice, corrés `ANALYZE` y reescribís juntos, no sabés cuál funcionó.",
+    "**Optimizar lo que nadie ejecuta.** Una consulta de 2 segundos que corre una vez por semana importa menos que una de 5 ms que corre 10 veces por segundo. Para eso existe `pg_stat_statements`."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Índices de Senda: parciales y a la medida del ORDER BY",
+   "x": [
+    "Las migraciones de Senda usan las dos ideas de hoy. `avisos_pendientes` es un índice parcial: `create index ... on public.avisos (enviar_desde) where enviado is null`, y la función `enviar_avisos` busca justamente `where a.enviado is null and a.enviar_desde <= now()` (condición idéntica a la del índice, igual que el arreglo C). A medida que los avisos se envían, salen del índice. `partidas_vencen` y `torneos_abiertos` siguen el mismo patrón.",
+    "`copas_tabla` es el compuesto de la tabla de posiciones: `(copa, puntos desc, aciertos desc, ms asc)`, igual al orden del puesto. Para ver si sirve, en la réplica repartí las 100.000 marcas en 10 copas y pedí las 50 mejores de una: el plan usó `Index Scan using copas_tabla`, sin `Sort`, y tocó 53 páginas en 0,08 ms (consulta simplificada, no la función real). Con una sola copa que ocupa toda la tabla, en cambio, el planificador prefirió leer todo y ordenar, lo cual es razonable. No pude verificar qué plan usa la base real de Senda. Commit 25e08fa."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261130000001_torneos_para_todos.sql",
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261130000005_grupos_grandes.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Un orden de trabajo para llevarte"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "1. Medir",
+       "s": "pg_stat_statements: ¿cuál consume más?",
+       "k": "cliente"
+      },
+      {
+       "t": "2. Leer el plan",
+       "s": "EXPLAIN (ANALYZE, BUFFERS)",
+       "k": "red",
+       "e": "una consulta elegida"
+      },
+      {
+       "t": "3. ¿Estimado ≠ real?",
+       "s": "por órdenes de magnitud",
+       "k": "alerta",
+       "e": "mirar las filas"
+      }
+     ],
+     "baja": "según lo que muestre el plan"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Estadística vieja",
+       "s": "ANALYZE, revisar pg_stats",
+       "k": "datos"
+      },
+      {
+       "t": "Seq Scan que tira casi todo",
+       "s": "índice compuesto o parcial",
+       "k": "servidor"
+      },
+      {
+       "t": "Columna envuelta o N+1",
+       "s": "reescribir, traer todo junto",
+       "k": "os"
+      }
+     ],
+     "baja": "un cambio por vez"
+    },
+    {
+     "nodos": [
+      {
+       "t": "4. Volver a medir",
+       "s": "plan, Buffers y consultas por segundo",
+       "k": "ok"
+      }
+     ]
+    }
+   ],
+   "cap": "El método, de corrido. Si el paso 4 no mejora lo que esperabas, el cambio se deshace."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y cambios que conviene saber (13-11-2026)",
+   "x": [
+    "Todo lo medido hoy es de PostgreSQL 16.15. En la página oficial de versiones, la 18 figura con 18.7 como versión menor vigente, la 17 con 17.12 y la 16 con 16.16 (soportada hasta el 9-11-2028) [#postgresql-versioning]; la 19 estaba en su segunda candidata a lanzamiento al 12-11-2026.",
+    "Dos cambios de la 18 que tocan lo de hoy, según sus notas de versión [#bd0923-pg18-release-notes]: `EXPLAIN ANALYZE` incluye la salida de `BUFFERS` automáticamente, y los índices B-tree compuestos admiten «skip scan», o sea que pueden usarse en más casos aunque la condición no mencione la primera columna. No probé ninguno de los dos; mi motor es el 16. Los tiempos de este día son de una sola VM compartida y no se extrapolan a otro entorno."
+   ]
+  }
+ ],
+ "recap": [
+  "Se optimiza midiendo: `EXPLAIN (ANALYZE, BUFFERS)` muestra el plan real, las filas estimadas contra las reales, las filas descartadas y las páginas tocadas. `ANALYZE` ejecuta la consulta, así que en un `UPDATE` o `DELETE` se envuelve en `BEGIN` y `ROLLBACK`.",
+  "El planificador decide con la estadística de tabla (`pg_stats`, actualizada por `ANALYZE` y el autovacuum). Un estimado que difiere del real por órdenes de magnitud apunta a estadística vieja, no a la consulta.",
+  "Un `Seq Scan` que descarta casi todas las filas pide un índice, pero uno simple por una columna solo mueve el desperdicio. El compuesto, con las igualdades primero y el orden al final, resuelve condición y `ORDER BY ... LIMIT` desde el propio índice. El parcial hace lo mismo con una fracción del tamaño y sirve solo para su condición.",
+  "Una función aplicada a la columna indexada impide usar el índice: se reescribe dejando la columna sola, por ejemplo con un rango de fechas. Medido: 238 ms contra 0,45 ms.",
+  "Una consulta N+1 son muchas consultas chicas donde bastaba una. Se ve en `pg_stat_statements` como muchas llamadas baratas, y el costo real está en los viajes de red y, a veces, dentro del motor.",
+  "Los índices no son gratis: seis índices de más hicieron la carga de 300.000 filas entre 4 y 9 veces más lenta. Y forzar planes con `enable_seqscan` es un diagnóstico, no una solución."
+ ],
+ "repaso": [
+  {
+   "p": "Un plan muestra, en el nodo de una tabla, `rows=1` estimado y `actual rows=300000`, justo después de una carga masiva. ¿Cuál es el primer paso razonable?",
+   "o": [
+    "Correr `ANALYZE` sobre la tabla y volver a mirar el plan con la estadística al día",
+    "Borrar el índice de esa columna y recrearlo, porque el estimado errado lo corrompió",
+    "Agregar `LIMIT` a la consulta para que el planificador estime menos filas devueltas",
+    "Subir la memoria de la base hasta que el número estimado coincida con el real"
+   ],
+   "c": 0,
+   "e": "El estimado sale de las estadísticas, y tras una carga masiva quedaron viejas. `ANALYZE` las recalcula. El índice no se corrompe por una estadística vieja, `LIMIT` cambia la consulta y no la creencia del planificador, y la memoria no afecta cuántas filas cree que hay."
+  },
+  {
+   "p": "Alguien quiere ver cuánto tarda un `DELETE` pesado y escribe `EXPLAIN ANALYZE DELETE ...` en producción. ¿Qué pasa?",
+   "o": [
+    "Solo muestra el plan estimado, sin borrar nada, porque `EXPLAIN` es una consulta de lectura",
+    "Borra las filas de verdad; para medir sin efecto hay que envolverlo en `BEGIN` y `ROLLBACK`",
+    "Borra solo la mitad de las filas, porque `ANALYZE` trabaja sobre una muestra aleatoria",
+    "Falla con un error, porque `EXPLAIN` no acepta sentencias que modifican datos"
+   ],
+   "c": 1,
+   "e": "Con `ANALYZE`, la sentencia se ejecuta completa y sus efectos ocurren. Lo que se descarta es la salida de un `SELECT`, no los cambios. La muestra aleatoria es de `ANALYZE` como comando de estadísticas, otra cosa. Y `EXPLAIN` sí acepta `DELETE`."
+  },
+  {
+   "p": "Hay un índice sobre `fecha_alta`, pero `where date(fecha_alta at time zone 'America/Argentina/Buenos_Aires') = date '2026-10-15'` hace un `Seq Scan`. ¿Por qué?",
+   "o": [
+    "Porque los índices no funcionan con columnas de tipo `timestamptz`, solo con enteros",
+    "Porque para una sola fecha el planificador siempre prefiere leer la tabla entera",
+    "Porque el índice guarda `fecha_alta`, no el resultado de la función aplicada a esa columna",
+    "Porque falta correr `VACUUM FULL`, que reconstruye el índice con la zona horaria"
+   ],
+   "c": 2,
+   "e": "El índice está ordenado por la columna tal cual. Una condición sobre el resultado de una función obliga a calcularla fila por fila. Se arregla con un rango sobre la columna. Los `timestamptz` se indexan sin problema, el planificador sí usó el índice con el rango, y `VACUUM FULL` no cambia lo que el índice contiene."
+  },
+  {
+   "p": "Para `where cliente_id = ? and estado = ? order by fecha_alta desc limit 20`, ¿qué índice permite leer solo 20 entradas, ya ordenadas?",
+   "o": [
+    "Uno sobre `(fecha_alta)`, porque el orden final es lo más caro de la consulta",
+    "Uno sobre `(estado)`, porque filtra más filas que cualquier otra condición suelta",
+    "Dos índices separados, uno por `cliente_id` y otro por `estado`, combinados",
+    "Uno sobre `(cliente_id, estado, fecha_alta desc)`, con las igualdades antes del orden"
+   ],
+   "c": 3,
+   "e": "En un compuesto, las entradas con el mismo `cliente_id` y `estado` quedan juntas y ordenadas por fecha: las primeras 20 son las pedidas. Con solo `fecha_alta` habría que recorrer entradas de todos los clientes y descartar la mayoría. Con dos índices separados se combinan en memoria y sigue sin haber orden por fecha."
+  },
+  {
+   "p": "En `pg_stat_statements`, la consulta A tiene 125 llamadas y 47 ms de promedio; la B, 79.980 llamadas y 0,006 ms. ¿Qué lectura es correcta?",
+   "o": [
+    "La B es la peor, porque tiene más llamadas y por eso hay que optimizarla primero",
+    "La A es lenta por llamada; la B es barata por llamada y sospechosa de N+1 por su cantidad",
+    "Ambas están sanas: ninguna supera un segundo y por eso no hay nada que revisar",
+    "La A es la única con problema, porque el promedio de B es demasiado chico para importar"
+   ],
+   "c": 1,
+   "e": "Son dos síntomas distintos. A se arregla con un índice o una reescritura. B se arregla pidiendo todo en una sola consulta. Ni la cantidad de llamadas ni el promedio, solos, deciden: hay que mirar el total y la causa. Que nada pase de un segundo no prueba que no haya desperdicio."
+  },
+  {
+   "p": "Una tabla muy escrita tiene un índice por cada columna «por las dudas». ¿Qué efecto principal esperás?",
+   "o": [
+    "Las lecturas mejoran y las escrituras no cambian, porque los índices se actualizan después",
+    "Las escrituras se vuelven más lentas y la base ocupa más espacio, sin garantía de mejora",
+    "Nada relevante, porque PostgreSQL elimina solo los índices que ninguna consulta usa",
+    "Las lecturas empeoran siempre, porque el planificador se confunde con tantas opciones"
+   ],
+   "c": 1,
+   "e": "Cada `INSERT` escribe una entrada en cada índice; con seis extra, la carga medida fue entre 4 y 9 veces más lenta y los índices pesaron el doble que los datos. PostgreSQL no borra índices por su cuenta, y más opciones no empeoran las lecturas «siempre»."
+  },
+  {
+   "p": "Después de `ANALYZE`, el plan de una consulta que necesita el 75 % de la tabla pasó de `Index Scan` a `Seq Scan` y fue más rápido. ¿Cómo se interpreta?",
+   "o": [
+    "El `Seq Scan` es un error del planificador, y habría que forzar el índice para mejorarlo",
+    "El índice quedó dañado por el `ANALYZE`, así que hay que reconstruirlo con `REINDEX`",
+    "Cuando la consulta necesita gran parte de la tabla, leerla en secuencia es más barato",
+    "El planificador solo usa `Seq Scan` cuando el índice no cubre ninguna de las columnas"
+   ],
+   "c": 2,
+   "e": "Un índice ahorra cuando se necesita una fracción chica de la tabla. Con el 75 %, saltar por el índice 300.000 veces cuesta más que recorrer las páginas de corrido, y la estadística nueva permitió verlo. Forzar el índice habría empeorado el tiempo, y `ANALYZE` no daña índices."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística por qué una consulta que devuelve 47 filas puede ser lenta, y cómo la arreglarías sin adivinar. Usá estos elementos: filas descartadas contra filas devueltas, estimado contra real, el orden de las columnas en un índice compuesto y por qué agregar índices por las dudas sale caro. Si te trabás, volvé a la tabla de resultados de los tres arreglos.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0923-pg16-sql-explain",
+   "nota": "La página de `EXPLAIN` explica cada opción (`ANALYZE`, `BUFFERS`, `FORMAT`) y la advertencia sobre sentencias que modifican datos; es la referencia para el día."
+  },
+  {
+   "fuente": "be28-postgres-explain",
+   "nota": "El capítulo «Using EXPLAIN» de la documentación recorre planes de ejemplo nodo por nodo, incluidos los de índices y uniones; leé la primera mitad para afianzar la lectura de costos y filas."
+  },
+  {
+   "fuente": "use-the-index-luke",
+   "nota": "Libro en línea sobre cómo escribir SQL que aproveche los índices; los capítulos sobre el `WHERE` y sobre «funciones» cubren la condición envuelta de hoy y el orden de las columnas de un compuesto."
+  },
+  {
+   "fuente": "bd0923-pg16-pgstatstatements",
+   "nota": "Documentación del módulo con las columnas de la vista y un ejemplo de uso con `pgbench`; sirve para armar tu propia consulta de «las 10 más caras»."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "EXPLAIN ANALYZE",
+   "d": "Variante de `EXPLAIN` que ejecuta la consulta y muestra el plan con tiempos y filas reales junto a las estimaciones. Con la opción `BUFFERS` suma las páginas tocadas por cada nodo. Como ejecuta la sentencia, en un `UPDATE` o `DELETE` se envuelve en una transacción que se revierte."
+  },
+  {
+   "t": "estadística de tabla",
+   "d": "Resumen aproximado que la base guarda de cada columna (valores distintos, valores más comunes y sus frecuencias, cantidad de filas) a partir de una muestra. El planificador lo usa para estimar cuántas filas devuelve cada paso. Lo actualizan `ANALYZE` y el autovacuum."
+  },
+  {
+   "t": "consulta N+1",
+   "d": "Patrón en que una consulta trae N elementos y después se hace una consulta más por cada uno, N + 1 en total, cuando una sola alcanzaba. Cada consulta es barata; el costo está en la cantidad de viajes al servidor."
+  },
+  {
+   "t": "escaneo de índice",
+   "d": "Forma de leer una tabla recorriendo un índice para ubicar las filas, en lugar de leer la tabla entera. En los planes de PostgreSQL aparece como `Index Scan`, `Index Only Scan` o `Bitmap Index Scan` seguido de `Bitmap Heap Scan`."
+  }
+ ],
+ "siguiente": "Transacciones y ACID: qué garantiza la base cuando varias cosas tienen que pasar juntas o no pasar, con una transferencia de stock entre depósitos que se corta a la mitad.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0923-pg16-sql-explain",
+   "t": "PostgreSQL 16: EXPLAIN",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/sql-explain.html"
+  },
+  {
+   "id": "bd0923-pg16-planner-stats",
+   "t": "PostgreSQL 16: Statistics Used by the Planner",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/planner-stats.html"
+  },
+  {
+   "id": "bd0923-pg16-planner-config",
+   "t": "PostgreSQL 16: Query Planning (parámetros de costo y enable_*)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/runtime-config-query.html"
+  },
+  {
+   "id": "bd0923-pg16-autovacuum-config",
+   "t": "PostgreSQL 16: Automatic Vacuuming (parámetros de autovacuum)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/runtime-config-autovacuum.html"
+  },
+  {
+   "id": "bd0923-pg16-pgstatstatements",
+   "t": "PostgreSQL 16: pg_stat_statements",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/pgstatstatements.html"
+  },
+  {
+   "id": "bd0923-pg16-indexes-bitmap",
+   "t": "PostgreSQL 16: Combining Multiple Indexes (bitmap scans)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/indexes-bitmap-scans.html"
+  },
+  {
+   "id": "bd0923-pg16-indexes-multicolumn",
+   "t": "PostgreSQL 16: Multicolumn Indexes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/indexes-multicolumn.html"
+  },
+  {
+   "id": "bd0923-pg16-indexes-partial",
+   "t": "PostgreSQL 16: Partial Indexes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/indexes-partial.html"
+  },
+  {
+   "id": "bd0923-pg18-release-notes",
+   "t": "PostgreSQL 18: Release 18 (notas de la versión)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2025,
+   "url": "https://www.postgresql.org/docs/18/release-18.html"
+  },
+  {
+   "id": "bd0923-supabase-pgstatstatements",
+   "t": "Supabase: pg_stat_statements (documentación de la extensión)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/database/extensions/pg_stat_statements"
+  }
+ ]
+}
