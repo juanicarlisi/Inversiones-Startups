@@ -1,0 +1,799 @@
+{
+ "id": "05-16",
+ "titulo": "TCP I: conexiones confiables",
+ "bajada": "Capturás un saludo de tres vías real, seguís los números de secuencia y los ACK byte por byte y forzás pérdidas para ver cuándo TCP reenvía.",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué garantías da TCP y por qué las paga con una conexión previa y con estado en los dos extremos.",
+  "Leer la cabecera TCP de un paquete real: puertos, números de secuencia y ACK, banderas y opciones.",
+  "Seguir un saludo de tres vías y un intercambio de datos mirando los números de secuencia y los ACK.",
+  "Explicar cuándo y cómo retransmite TCP, con tiempos medidos de un SYN y de un segmento perdidos.",
+  "Leer los estados de una conexión con `ss` y decir qué indica cada uno al cerrar."
+ ],
+ "venis_de": "En [@05-15] viste UDP: mensajes sueltos, sin aviso de recibo, sin orden y sin reenvío. Hoy ves lo que se construye encima de IP cuando una aplicación necesita lo contrario: que todo llegue, completo y en orden, aunque la red falle.",
+ "se_apoya_en": [
+  "05-15",
+  "05-14",
+  "05-08",
+  "01-10"
+ ],
+ "gancho": [
+  "Una distribuidora (ejemplo inventado) despacha 1.000 cajas a un cliente de Córdoba en 20 camiones que salen por rutas distintas. Algunos llegan tarde, uno se pincha y no llega. Para que el cliente termine con las 1.000 cajas, completas y en orden, hacen falta cuatro cosas. Las dos partes acuerdan que van a hacer un despacho. Cada caja lleva un número. El cliente avisa hasta qué número recibió sin huecos. Y el depósito reenvía lo que el cliente no confirmó.",
+  "Esas cuatro ideas son, casi una por una, lo que hace TCP. Hoy las ves funcionando sobre paquetes reales de esta máquina: un saludo capturado con `tcpdump`, los números de una conversación contados byte por byte y dos paquetes que provoqué perder a propósito para medir cuánto tarda en reenviarlos."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Lo que UDP no daba, y quién lo da"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[TCP]] (Transmission Control Protocol) es el protocolo de transporte que da lo que UDP deja afuera. Su definición original es el RFC 793, de septiembre de 1981 [#tcp1-rfc793]. Hoy el estándar vigente es el RFC 9293, de agosto de 2022, que lo reemplaza y reúne cuatro décadas de correcciones [#rfc9293]. Ese documento lo resume en una línea: un servicio de **flujo de bytes, confiable y en orden**.",
+    "Cada palabra cuesta algo. «Confiable» y «en orden» significan que el protocolo tiene que numerar lo que manda, esperar confirmaciones y reenviar. Eso exige guardar **estado** en las dos puntas: qué se mandó, qué se confirmó, qué falta. Por eso TCP necesita una conexión: un acuerdo previo para empezar a llevar esa cuenta."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "UDP ([@05-15])",
+    "TCP"
+   ],
+   "filas": [
+    [
+     "Unidad",
+     "Datagrama: un mensaje con límites",
+     "Flujo de bytes: sin límites entre envíos"
+    ],
+    [
+     "Antes de hablar",
+     "Nada: se manda y listo",
+     "Saludo de tres vías para armar la conexión"
+    ],
+    [
+     "Entrega",
+     "Sin garantía",
+     "Todo llega o la conexión da error"
+    ],
+    [
+     "Orden",
+     "Cualquiera",
+     "El mismo en que se mandó"
+    ],
+    [
+     "Cuando algo se pierde",
+     "Se perdió",
+     "El emisor reenvía"
+    ],
+    [
+     "Cabecera mínima",
+     "8 bytes",
+     "20 bytes"
+    ]
+   ],
+   "cap": "TCP según RFC 9293 [#rfc9293]; UDP según RFC 768 [#rfc768]."
+  },
+  {
+   "t": "p",
+   "x": "La fila «unidad» es la que más sorprende. Con UDP, cada `sendto` era un mensaje que el receptor leía de a uno. Con TCP no. Probé mandar `uno`, `dos` y `tres` en tres envíos separados y leer del otro lado con una sola lectura:"
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import socket, threading, time\nPORT = 31417\nsrv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\nsrv.bind((\"127.0.0.1\", PORT)); srv.listen()\n\ndef servidor():\n    c, _ = srv.accept()\n    time.sleep(0.3)                 # dejamos que lleguen los tres envíos antes de leer\n    print(\"una sola lectura devuelve:\", c.recv(100))\n    c.close()\nthreading.Thread(target=servidor).start()\n\ncli = socket.socket()\ncli.connect((\"127.0.0.1\", PORT))\nfor mensaje in (b\"uno\", b\"dos\", b\"tres\"):\n    cli.sendall(mensaje)            # tres envíos separados\ntime.sleep(0.5)\ncli.close()",
+   "cap": "El servidor espera 0,3 segundos antes de leer."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 flujo.py",
+     "s": "una sola lectura devuelve: b'unodostres'"
+    }
+   ],
+   "cap": "Salida real en esta VM, en loopback."
+  },
+  {
+   "t": "p",
+   "x": "Los tres mensajes llegaron pegados. Para TCP no existen «mensajes»: existe una cinta de bytes, y quien lee decide cuánto toma de cada vez. Un protocolo que viaje sobre TCP (HTTP, por ejemplo, en [@05-18]) tiene que decir por sí mismo dónde termina cada mensaje, con un largo o con un delimitador."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Una cinta transportadora contra un buzón",
+   "x": "UDP era un buzón: cada carta es una unidad y las cartas se leen de a una. TCP es una cinta transportadora: los bultos entran por un lado y salen por el otro, en orden, pero la cinta no sabe dónde termina un pedido y empieza el siguiente. Dónde falla: la cinta de un depósito no se corta sola ni pierde bultos; en TCP, si la red falla, el protocolo corrige de a trozos con reenvíos, y eso se nota en la velocidad."
+  },
+  {
+   "t": "pensa",
+   "x": "Un programa manda por TCP un archivo de 10.000 bytes con un solo `sendall`. ¿Cuántas lecturas de `recv(100)` hacen falta del otro lado, y cuántos «mensajes» ve el receptor?",
+   "resp": "Hacen falta 100 lecturas de 100 bytes (o menos lecturas si pide más por vez), y el receptor no ve «mensajes»: ve una secuencia de bytes que él mismo tiene que partir. TCP puede haber enviado ese archivo en varios paquetes de red, pero eso no se le muestra al programa."
+  },
+  {
+   "t": "h",
+   "x": "La cabecera de 20 bytes, con un SYN real"
+  },
+  {
+   "t": "p",
+   "x": "La cabecera TCP es más grande que la de UDP porque lleva la cuenta de la conversación. Estos son sus campos fijos, 20 bytes en total, y después puede haber opciones:"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "Bytes 0 a 3",
+     "celdas": [
+      {
+       "t": "Puerto de origen",
+       "s": "16 bits",
+       "k": "cliente"
+      },
+      {
+       "t": "Puerto de destino",
+       "s": "16 bits",
+       "k": "servidor"
+      }
+     ]
+    },
+    {
+     "e": "Bytes 4 a 7",
+     "celdas": [
+      {
+       "t": "Número de secuencia",
+       "s": "32 bits: posición del primer byte que lleva",
+       "k": "red"
+      }
+     ]
+    },
+    {
+     "e": "Bytes 8 a 11",
+     "celdas": [
+      {
+       "t": "Número de ACK",
+       "s": "32 bits: el próximo byte que espero",
+       "k": "red"
+      }
+     ]
+    },
+    {
+     "e": "Bytes 12 a 15",
+     "celdas": [
+      {
+       "t": "Largo de cabecera",
+       "s": "4 bits",
+       "k": "neutro"
+      },
+      {
+       "t": "Banderas",
+       "s": "SYN, ACK, FIN, RST…",
+       "k": "alerta"
+      },
+      {
+       "t": "Ventana",
+       "s": "16 bits",
+       "k": "datos"
+      }
+     ]
+    },
+    {
+     "e": "Bytes 16 a 19",
+     "celdas": [
+      {
+       "t": "Checksum",
+       "s": "16 bits",
+       "k": "datos"
+      },
+      {
+       "t": "Puntero urgente",
+       "s": "16 bits",
+       "k": "neutro"
+      }
+     ]
+    },
+    {
+     "e": "Desde el byte 20",
+     "celdas": [
+      {
+       "t": "Opciones (si hay) y datos",
+       "s": "el largo de cabecera dice dónde terminan las opciones",
+       "k": "neutro"
+      }
+     ]
+    }
+   ],
+   "cap": "Cabecera TCP según el RFC 9293 [#rfc9293]. Los puertos y el checksum funcionan como en UDP (el checksum usa la misma pseudo-cabecera)."
+  },
+  {
+   "t": "p",
+   "x": "Captué el primer paquete de una conexión, el que abre la conversación, y separé sus campos con `struct`, como hiciste con UDP ayer. Los 40 bytes de abajo salen de la captura (20 de campos fijos y 20 de opciones; el cliente usó el puerto 48690 y el servidor escuchaba en el 31416):"
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import struct\n\n# Cabecera TCP del primer paquete (SYN) de la captura: 40 bytes, sin el encabezado IP\nsyn = bytes.fromhex(\n    \"be32 7ab8 42efeb99 00000000 a002 ffd7 fe30 0000\"   # los 20 bytes fijos\n    \"0204ffd7 0402 080a 0795fc59 00000000 01 03030a\"     # las opciones (20 bytes)\n)\norigen, destino, seq, ack, off_flags, ventana, checksum, urgente = struct.unpack(\"!HHIIHHHH\", syn[:20])\nlargo_cab = (off_flags >> 12) * 4            # el campo cuenta en palabras de 4 bytes\nflags = off_flags & 0x1FF\nnombres = [(\"CWR\", 0x80), (\"ECE\", 0x40), (\"URG\", 0x20), (\"ACK\", 0x10), (\"PSH\", 0x08), (\"RST\", 0x04), (\"SYN\", 0x02), (\"FIN\", 0x01)]\nprint(\"puerto de origen  :\", origen)\nprint(\"puerto de destino :\", destino)\nprint(\"número de secuencia:\", seq)\nprint(\"número de ACK      :\", ack)\nprint(\"largo de cabecera  :\", largo_cab, \"bytes\")\nprint(\"banderas activas   :\", [n for n, bit in nombres if flags & bit])\nprint(\"ventana            :\", ventana)\n\n# Opciones: cada una es [tipo][largo][datos]; los tipos 0 y 1 son de un solo byte\ni = 20\nwhile i < largo_cab:\n    tipo = syn[i]\n    if tipo == 1:\n        print(\"opción NOP (relleno)\"); i += 1; continue\n    largo = syn[i + 1]\n    datos = syn[i + 2:i + largo]\n    if tipo == 2:   print(\"opción MSS         :\", int.from_bytes(datos, \"big\"), \"bytes\")\n    elif tipo == 4: print(\"opción SACK permitido\")\n    elif tipo == 8: print(\"opción marcas de tiempo: val =\", int.from_bytes(datos[:4], \"big\"), \"ecr =\", int.from_bytes(datos[4:], \"big\"))\n    elif tipo == 3: print(\"opción escala de ventana: desplazar\", datos[0], \"bits\")\n    i += largo",
+   "cap": "El campo «largo de cabecera» cuenta en palabras de 4 bytes: `a` hexadecimal es 10, o sea 40 bytes."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 cabecera_tcp.py",
+     "s": "puerto de origen  : 48690\npuerto de destino : 31416\nnúmero de secuencia: 1123019673\nnúmero de ACK      : 0\nlargo de cabecera  : 40 bytes\nbanderas activas   : ['SYN']\nventana            : 65495\nopción MSS         : 65495 bytes\nopción SACK permitido\nopción marcas de tiempo: val = 127269977 ecr = 0\nopción NOP (relleno)\nopción escala de ventana: desplazar 10 bits"
+    }
+   ],
+   "cap": "Salida real. Ese paquete, el primero, trae solo la bandera SYN: pide abrir una conversación y propone un número inicial."
+  },
+  {
+   "t": "p",
+   "x": "Tres cosas para notar. El número de ACK es cero porque todavía no hay nada que confirmar. El largo de cabecera es 40, el doble del mínimo, por las opciones. Y esas opciones, que el cliente ofrece al abrir, son: el tamaño máximo de datos por segmento (65.495 bytes, el que admite esta interfaz local; en una red Ethernet común rondaría los 1.460), la autorización para confirmaciones selectivas, marcas de tiempo, y un factor para agrandar la ventana. Las dos últimas se explican mañana, en [@05-17]."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Bandera",
+    "Significado",
+    "Cuándo aparece"
+   ],
+   "filas": [
+    [
+     "SYN",
+     "Sincronizar: propone un número de secuencia inicial",
+     "Primer y segundo paquete de una conexión"
+    ],
+    [
+     "ACK",
+     "El campo de confirmación es válido",
+     "Todos los paquetes salvo el primero"
+    ],
+    [
+     "FIN",
+     "No voy a mandar más datos",
+     "Al cerrar, una vez por cada lado"
+    ],
+    [
+     "RST",
+     "Reiniciar: esta conexión no existe o se abortó",
+     "Cuando llega un paquete a un puerto sin nadie o a una conexión desconocida"
+    ],
+    [
+     "PSH",
+     "Entregá esto a la aplicación sin esperar más",
+     "Con datos que el programa mandó"
+    ]
+   ],
+   "cap": "Las banderas más usadas. Hay otras que se ven en el RFC 9293 [#rfc9293]."
+  },
+  {
+   "t": "h",
+   "x": "El saludo de tres vías, capturado"
+  },
+  {
+   "t": "p",
+   "x": "Armé una conversación mínima en esta máquina: un servidor que espera un mensaje, contesta `recibido: ` más lo que llegó, y espera que el cliente cierre. El cliente manda `hola`, lee la respuesta y cierra. Mientras tanto, `tcpdump` miraba la interfaz local."
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import socket, threading, time\nPORT = 31430\nsrv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\nsrv.bind((\"127.0.0.1\", PORT)); srv.listen()\n\ndef servidor():\n    c, _ = srv.accept()\n    datos = c.recv(100)          # espera \"hola\"\n    c.sendall(b\"recibido: \" + datos)\n    c.recv(100)                  # devuelve b\"\" cuando el cliente cierra\n    c.close()\nthreading.Thread(target=servidor).start()\n\ncli = socket.socket(); cli.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\ncli.connect((\"127.0.0.1\", PORT))\ncli.sendall(b\"hola\")\nprint(cli.recv(100))\ncli.close()\ntime.sleep(0.2)",
+   "cap": "Servidor y cliente en el mismo programa, para que se vea todo junto."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "tcpdump -i lo -n -c 10 'tcp port 31430'",
+     "s": "17:53:35.285278 IP 127.0.0.1.42846 > 127.0.0.1.31430: Flags [S], seq 2920161643, win 65495, length 0\n17:53:35.285286 IP 127.0.0.1.31430 > 127.0.0.1.42846: Flags [S.], seq 2689611837, ack 2920161644, win 65483, length 0\n17:53:35.285294 IP 127.0.0.1.42846 > 127.0.0.1.31430: Flags [.], ack 1, win 64, length 0\n17:53:35.285315 IP 127.0.0.1.42846 > 127.0.0.1.31430: Flags [P.], seq 1:5, ack 1, win 64, length 4\n17:53:35.285317 IP 127.0.0.1.31430 > 127.0.0.1.42846: Flags [.], ack 5, win 64, length 0\n17:53:35.285373 IP 127.0.0.1.31430 > 127.0.0.1.42846: Flags [P.], seq 1:15, ack 5, win 64, length 14\n17:53:35.285386 IP 127.0.0.1.42846 > 127.0.0.1.31430: Flags [.], ack 15, win 64, length 0\n17:53:35.285437 IP 127.0.0.1.42846 > 127.0.0.1.31430: Flags [F.], seq 5, ack 15, win 64, length 0\n17:53:35.285473 IP 127.0.0.1.31430 > 127.0.0.1.42846: Flags [F.], seq 15, ack 6, win 64, length 0\n17:53:35.285483 IP 127.0.0.1.42846 > 127.0.0.1.31430: Flags [.], ack 16, win 64, length 0"
+    }
+   ],
+   "cap": "Salida real en esta VM (tcpdump 4.99.4), sin las opciones de cada línea para que entre. `[S]` es SYN, `[S.]` es SYN más ACK, `[.]` es solo ACK, `[P.]` es datos con ACK y `[F.]` es FIN con ACK. `tcpdump` muestra el número inicial de secuencia tal cual en los SYN, y desde ahí números relativos (`seq 1:5` es «los bytes 1 a 4»)."
+  },
+  {
+   "t": "p",
+   "x": "Las tres primeras líneas son el **saludo de tres vías**:"
+  },
+  {
+   "t": "pasos",
+   "pasos": [
+    {
+     "t": "1. SYN del cliente",
+     "x": "«Quiero abrir una conversación y empiezo a contar mis bytes desde 2.920.161.643.» Ese número no es cero: cada lado elige un **número de secuencia** inicial. El RFC 9293 pide que salga de un reloj que avanza cada pocos microsegundos, más una función pseudoaleatoria de las direcciones y los puertos, para que no se pueda adivinar [#rfc9293]."
+    },
+    {
+     "t": "2. SYN-ACK del servidor",
+     "x": "«Entendido, te confirmo, y yo empiezo a contar desde 2.689.611.837.» Dos cosas en un paquete: su propio SYN y un **ACK** del SYN del cliente. Fijate que el ACK vale 2.920.161.644, uno más que el número del cliente."
+    },
+    {
+     "t": "3. ACK del cliente",
+     "x": "«Recibí tu número inicial.» Con eso, los dos lados saben que el otro está vivo y con qué número empieza. La conexión queda establecida y el cliente ya puede mandar datos (en la captura, 21 microsegundos más tarde)."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "¿Por qué el ACK vale uno más? Porque el SYN **ocupa un número de secuencia** aunque no lleve datos, para poder confirmarse y retransmitirse como cualquier byte [#rfc9293]. El FIN, al cerrar, hace lo mismo. Un ACK solo, en cambio, no ocupa ninguno: si lo hiciera, habría que confirmar las confirmaciones.",
+    "¿Y por qué tres mensajes y no dos? Cada lado necesita anunciar su número inicial y que el otro confirme haberlo recibido. Son cuatro mensajes, pero el servidor junta su confirmación con su propio SYN, y quedan tres. El RFC 9293 da otra razón de fondo: evitar que un SYN viejo, duplicado y retrasado en la red, cree una conexión que nadie quiere [#rfc9293]. Con tres pasos, el servidor espera la confirmación del cliente antes de darla por abierta."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Cliente",
+     "k": "cliente"
+    },
+    {
+     "n": "Servidor",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "SYN, seq = X",
+     "d": "El cliente propone empezar a contar desde X. Pasa a SYN-SENT."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "SYN-ACK, seq = Y, ack = X+1",
+     "d": "El servidor propone Y y confirma el SYN. Pasa a SYN-RECEIVED.",
+     "resp": true
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "ACK, ack = Y+1",
+     "d": "El cliente confirma el SYN del servidor. Los dos pasan a ESTABLISHED."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "datos «hola», seq = X+1 (4 bytes)",
+     "d": "Primer byte de datos: el número siguiente al SYN."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "ACK, ack = X+5",
+     "d": "El servidor confirma que recibió hasta el byte X+4 y espera el X+5.",
+     "resp": true
+    }
+   ],
+   "cap": "El saludo y el primer envío, con las variables de la captura: X = 2.920.161.643 e Y = 2.689.611.837."
+  },
+  {
+   "t": "pensa",
+   "x": "En la captura, el SYN-ACK del servidor trae `ack 2920161644` y el cliente había usado el número inicial 2.920.161.643. ¿Por qué el servidor no confirma exactamente 2.920.161.643?",
+   "resp": "Porque el ACK dice «el próximo número que espero», no «el último que recibí». El SYN ocupó el número 2.920.161.643; lo que sigue es 2.920.161.644. Cada ACK en esta conexión se lee igual: es la posición del primer byte que todavía falta."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Cuánto cuesta el saludo",
+   "x": "En loopback, los tres paquetes ocurrieron en 16 microsegundos. En una red real, el cliente no puede mandar datos útiles hasta que vuelve el SYN-ACK: el costo es **un viaje de ida y vuelta**. Una cuenta ilustrativa: con 100 milisegundos de ida y vuelta (no medí ninguno real), cada conexión nueva gasta 100 milisegundos antes de enviar el primer byte. Por eso reusar conexiones ya abiertas importa; se retoma en [@05-19] y [@05-20]."
+  },
+  {
+   "t": "h",
+   "x": "Números de secuencia y ACK: contar bytes"
+  },
+  {
+   "t": "p",
+   "x": "Después del saludo, los números cuentan **bytes**, no paquetes. En la captura, el cliente mandó `hola`: cuatro bytes. La línea decía `seq 1:5` (los bytes numerados 1, 2, 3 y 4 de su conversación; el 5 es el siguiente que mandaría). El servidor respondió `ack 5`: «recibí hasta el 4, mandame desde el 5». Luego el servidor mandó 14 bytes (`recibido: hola`), `seq 1:15`, y el cliente contestó `ack 15`."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Quién",
+    "Qué manda",
+    "Qué significa"
+   ],
+   "filas": [
+    [
+     "Cliente",
+     "`seq 1:5`, 4 bytes",
+     "Estos son los bytes 1 a 4 de mi flujo"
+    ],
+    [
+     "Servidor",
+     "`ack 5`",
+     "Recibí hasta el 4. Espero el 5"
+    ],
+    [
+     "Servidor",
+     "`seq 1:15`, 14 bytes",
+     "Estos son los bytes 1 a 14 del mío"
+    ],
+    [
+     "Cliente",
+     "`ack 15`",
+     "Recibí hasta el 14. Espero el 15"
+    ]
+   ],
+   "cap": "Cada dirección de la conversación tiene su propia cuenta de bytes y su propio número inicial."
+  },
+  {
+   "t": "p",
+   "x": "Dos reglas explican casi todo. Primera: cada dirección tiene su propia numeración, independiente de la otra. Segunda: el ACK es **acumulativo**: dice «tengo todo hasta acá sin huecos». Si llegan bytes de más adelante pero falta uno en el medio, el receptor sigue pidiendo el que falta. El programa de abajo es una **simulación**, no una red: manda 5 segmentos de 1.000 bytes, pierde el tercero y lo recibe recién al final, cuando el emisor lo reenvía."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// SIMULACIÓN (no es una red): un emisor manda 5 segmentos de 1.000 bytes y el 3.º se pierde.\n// Las posiciones cuentan bytes desde 1, como en la captura relativa de tcpdump.\nconst segmentos = [];\nfor (let i = 0; i < 5; i++) segmentos.push({ seq: 1 + i * 1000, largo: 1000 });\n\nconst llegadas = segmentos.filter((s, i) => i !== 2);   // el 3.º se pierde...\nllegadas.push(segmentos[2]);                            // ...y llega recién cuando el emisor lo reenvía\n\nlet esperado = 1;                // el próximo byte que el receptor necesita\nconst guardados = new Map();     // segmentos que llegaron \"adelantados\"\nfor (const s of llegadas) {\n  guardados.set(s.seq, s.largo);\n  const antes = esperado;\n  while (guardados.has(esperado)) {          // avanza mientras no haya huecos\n    const largo = guardados.get(esperado);\n    guardados.delete(esperado);\n    esperado += largo;\n  }\n  const nota = esperado === antes ? \"(hay un hueco: repite el mismo ACK)\" : \"\";\n  console.log(`llegan los bytes ${s.seq} a ${s.seq + s.largo - 1} -> ACK ${esperado} ${nota}`);\n}",
+   "cap": "Simulación determinista; podés cambiar qué segmento se pierde."
+  },
+  {
+   "t": "p",
+   "x": "Mirá la tercera y la cuarta línea: el receptor repite `ACK 2001`. Eso le avisa al emisor que hay un hueco en el byte 2001. Cuando por fin llega ese segmento, el ACK salta a 5001 de golpe, porque ya tenía los siguientes guardados. Es la misma idea que el número escrito adentro de los datagramas de [@05-15], pero ahora la implementa el protocolo y no la aplicación."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un emisor manda tres segmentos de 500 bytes seguidos, el primero con `seq` 1001. Llegan el primero y el tercero, pero no el segundo. ¿Qué `seq` tiene cada segmento? ¿Qué ACK responde el receptor al primero y al tercero?",
+   "pista": "Cada segmento empieza donde terminó el anterior. El ACK es el próximo byte que falta, no el último que llegó.",
+   "solucion": "Los segmentos empiezan en 1001, 1501 y 2001. Al primero el receptor responde ACK 1501. Al tercero, que llega adelantado, responde otra vez ACK 1501: sigue faltando el byte 1501, el primero del segmento perdido."
+  },
+  {
+   "t": "h",
+   "x": "Cuando algo se pierde: la retransmisión"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El emisor guarda cada segmento hasta que se confirma y dispara un temporizador al mandarlo. Si el temporizador vence sin ACK, reenvía. A ese temporizador se lo llama RTO (retransmission timeout), y cada vez que vence sin respuesta, el protocolo lo **duplica**: así lo dice el RFC 6298 [#tcp1-rfc6298]. La idea es no agravar una red que ya está saturada.",
+    "En loopback no se pierde nada solo, así que provoqué las pérdidas. Con `iptables` (el firewall de Linux) puse una regla en mi propia máquina que descarta el primer paquete que cumple una condición, solo sobre puertos propios de pruebas. Dos casos: que se pierda el primer SYN de una conexión, y que se pierda el primer paquete de datos. Después saqué las reglas."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import socket, subprocess, threading, time\n\ndef regla(accion, puerto, filtro):\n    # Firewall local: descarta el primer paquete que cumple el filtro (uno de cada dos). Solo puertos propios.\n    subprocess.run([\"iptables\", accion, \"INPUT\", \"-i\", \"lo\", \"-p\", \"tcp\", \"--dport\", str(puerto)] + filtro +\n                   [\"-m\", \"statistic\", \"--mode\", \"nth\", \"--every\", \"2\", \"--packet\", \"0\", \"-j\", \"DROP\"], check=True)\n\ndef servidor(puerto, recibido):\n    s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\n    s.bind((\"127.0.0.1\", puerto)); s.listen()\n    def atender():\n        c, _ = s.accept()\n        recibido[\"bytes\"] = len(c.recv(1000)); recibido[\"t\"] = time.time()\n    threading.Thread(target=atender, daemon=True).start()\n\n# Caso 1: se pierde el primer SYN\nfiltro = [\"--tcp-flags\", \"SYN,ACK\", \"SYN\"]\nregla(\"-A\", 31420, filtro); servidor(31420, {})\ntry:\n    t0 = time.time(); socket.create_connection((\"127.0.0.1\", 31420))\n    print(\"caso 1: connect() tardó %.2f s\" % (time.time() - t0))\nfinally:\n    regla(\"-D\", 31420, filtro)\n\n# Caso 2: se pierde el primer paquete con datos (los de 100 bytes o más de largo total)\nfiltro = [\"-m\", \"length\", \"--length\", \"100:\"]\nr = {}\nregla(\"-A\", 31421, filtro); servidor(31421, r)\ntry:\n    c = socket.create_connection((\"127.0.0.1\", 31421))\n    t0 = time.time(); c.sendall(b\"x\" * 100)\n    while \"t\" not in r: time.sleep(0.001)\n    print(\"caso 2: el servidor recibió %d bytes %.2f s después de enviarlos\" % (r[\"bytes\"], r[\"t\"] - t0))\nfinally:\n    regla(\"-D\", 31421, filtro)",
+   "cap": "Reglas de firewall locales, solo contra puertos propios de prueba (31420 y 31421), eliminadas al terminar."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 retrans.py",
+     "s": "caso 1: connect() tardó 1.03 s\ncaso 2: el servidor recibió 100 bytes 0.20 s después de enviarlos"
+    }
+   ],
+   "cap": "Salida real en esta VM. Los tiempos son de una sola VM y no representan una red real."
+  },
+  {
+   "t": "p",
+   "x": "Los tiempos coinciden con las constantes del kernel de Linux, que leí en su código fuente: el primer temporizador de un SYN es de 1 segundo, el valor inicial que recomienda el RFC 6298, y el mínimo del temporizador de datos es de 200 milisegundos [#tcp1-linux-tcph]. Esta es la captura del segundo caso, con los tiempos entre paquetes:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "tcpdump -i lo -n -ttt -c 6 'tcp port 31421'  # con la regla puesta",
+     "s": "00:00:00.000000 IP 127.0.0.1.44360 > 127.0.0.1.31421: Flags [S], seq 3118129561, win 65495, length 0\n00:00:00.000011 IP 127.0.0.1.31421 > 127.0.0.1.44360: Flags [S.], seq 2686186128, ack 3118129562, win 65483, length 0\n00:00:00.000008 IP 127.0.0.1.44360 > 127.0.0.1.31421: Flags [.], ack 1, win 64, length 0\n00:00:00.000027 IP 127.0.0.1.44360 > 127.0.0.1.31421: Flags [P.], seq 1:101, ack 1, win 64, length 100\n00:00:00.201531 IP 127.0.0.1.44360 > 127.0.0.1.31421: Flags [P.], seq 1:101, ack 1, win 64, length 100\n00:00:00.000014 IP 127.0.0.1.31421 > 127.0.0.1.44360: Flags [.], ack 101, win 64, length 0"
+    }
+   ],
+   "cap": "Salida real, sin las opciones. `tcpdump` captura antes de que actúe la regla: por eso se ve el primer envío del paquete con datos que el servidor no recibió. El mismo `seq 1:101` se repite 201 milisegundos después (el primer número de cada línea es el tiempo desde el paquete anterior), y recién entonces llega el ACK 101."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá la línea del `seq 1:101`: sale, nadie la confirma, y 201 milisegundos más tarde sale **idéntica**. Es la retransmisión. TCP no preguntó si había una falla: simplemente, no recibió el ACK a tiempo.",
+    "¿Y cuánto insiste? Con los SYN, hasta 6 reintentos con tiempos que se duplican (1, 2, 4, 8, 16, 32 y 64 segundos), unos 127 segundos en total, según la documentación de Linux [#tcp1-man7-tcp7]. Con una conexión establecida, hasta 15 reintentos: entre 13 y 30 minutos según el temporizador. Después, el programa recibe un error y la conexión se da por perdida."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Los tiempos son decisiones de cada sistema",
+   "x": "El RFC 6298 recomienda un mínimo de 1 segundo para el temporizador; Linux usa 200 milisegundos, y otros sistemas usan otros valores. Los 6 reintentos de SYN y los 15 de datos son valores por defecto de Linux (tcp(7), leído el 13-11-2026), que se pueden cambiar. Lo permanente es la idea: temporizador, duplicación en cada vencimiento y tope de reintentos."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un reenvío no es un segmento nuevo",
+   "x": "El segmento reenviado lleva el mismo `seq` y los mismos datos. Si el original solo estaba demorado y llega después, el receptor ve el mismo rango dos veces y descarta el duplicado: la numeración le permite reconocerlo. En UDP, ese mismo duplicado llegaría a la aplicación."
+  },
+  {
+   "t": "h",
+   "x": "Cerrar bien: FIN, estados y RST"
+  },
+  {
+   "t": "p",
+   "x": "Cerrar una conexión TCP también se negocia, y cada dirección se cierra por separado. En la captura, el cliente manda `[F.]` con `seq 5` («no mando más; mi flujo terminó en el byte 4»). El servidor lo confirma con `ack 6` (el FIN ocupa un número, igual que el SYN) y, como ya no tenía nada que decir, manda su propio `[F.]` en el mismo paquete. El cliente confirma con `ack 16`. Fueron tres paquetes; si el servidor hubiera seguido mandando datos, habrían sido cuatro, porque cada lado confirma y cierra por separado."
+  },
+  {
+   "t": "p",
+   "x": "Durante todo este baile, cada extremo cambia de **estado**. `ss -tan` lista las conexiones TCP con su estado. Armé una conexión local y la miré en cuatro momentos: el servidor escuchando, la conexión abierta, el cliente cerrado con el servidor sin cerrar todavía, y los dos cerrados."
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import socket, subprocess, time\nPORT = 31418\ndef ss(titulo):\n    print(\"--\", titulo)\n    print(subprocess.run([\"ss\", \"-tan\", f\"( sport = :{PORT} or dport = :{PORT} )\"], capture_output=True, text=True).stdout.rstrip())\n\nsrv = socket.socket(); srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\nsrv.bind((\"127.0.0.1\", PORT)); srv.listen()\nss(\"1. el servidor escucha\")\ncli = socket.socket(); cli.connect((\"127.0.0.1\", PORT))\nconn, _ = srv.accept()\nss(\"2. conexión establecida\")\ncli.close()                                  # el cliente cierra primero\ntime.sleep(0.2)\nss(\"3. el cliente cerró; el servidor todavía no\")\nconn.close()                                 # ahora cierra el servidor\ntime.sleep(0.2)\nss(\"4. cerraron los dos\")",
+   "cap": "`ss` se llama con un filtro para ver solo el puerto 31418."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 estados.py",
+     "s": "-- 1. el servidor escucha\nState  Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess\nLISTEN 0      128        127.0.0.1:31418      0.0.0.0:*\n-- 2. conexión establecida\nState  Recv-Q Send-Q Local Address:Port  Peer Address:Port Process\nLISTEN 0      128        127.0.0.1:31418      0.0.0.0:*           \nESTAB  0      0          127.0.0.1:55872    127.0.0.1:31418       \nESTAB  0      0          127.0.0.1:31418    127.0.0.1:55872\n-- 3. el cliente cerró; el servidor todavía no\nState      Recv-Q Send-Q Local Address:Port  Peer Address:Port Process\nLISTEN     0      128        127.0.0.1:31418      0.0.0.0:*           \nFIN-WAIT-2 0      0          127.0.0.1:55872    127.0.0.1:31418       \nCLOSE-WAIT 1      0          127.0.0.1:31418    127.0.0.1:55872\n-- 4. cerraron los dos\nState     Recv-Q Send-Q Local Address:Port  Peer Address:Port Process\nLISTEN    0      128        127.0.0.1:31418      0.0.0.0:*           \nTIME-WAIT 0      0          127.0.0.1:55872    127.0.0.1:31418"
+    }
+   ],
+   "cap": "Salida real en esta VM. En el paso 3, el 1 de `Recv-Q` en CLOSE-WAIT no son datos (no mandé ninguno): es el aviso de que el otro lado cerró, que el programa todavía no leyó."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Estado",
+    "Qué significa",
+    "Quién lo ve"
+   ],
+   "filas": [
+    [
+     "LISTEN",
+     "Esperando que alguien se conecte",
+     "Un servidor, sin conexiones todavía"
+    ],
+    [
+     "ESTAB",
+     "Conexión abierta, datos en ambas direcciones",
+     "Los dos extremos"
+    ],
+    [
+     "FIN-WAIT-2",
+     "Yo cerré mi lado; espero que el otro cierre el suyo",
+     "El que cerró primero"
+    ],
+    [
+     "CLOSE-WAIT",
+     "El otro cerró; mi programa todavía no cerró",
+     "El que recibió el FIN"
+    ],
+    [
+     "TIME-WAIT",
+     "Terminó todo; espero un rato por si llegan paquetes viejos",
+     "El que cerró primero, ya al final"
+    ]
+   ],
+   "cap": "Los estados vistos en la salida, según el RFC 9293 [#rfc9293]. El RFC define 11 estados en total."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**TIME-WAIT** es el que más confunde. El que cierra primero se queda un rato en ese estado, sin usar el puerto de la conexión, para que si algún paquete viejo anda dando vueltas por la red no se confunda con una conexión nueva entre las mismas direcciones y puertos. El RFC 9293 lo fija en dos veces la vida máxima de un segmento, y toma esa vida como 2 minutos [#rfc9293]; Linux usa 60 segundos [#tcp1-linux-tcph].",
+    "Y un hallazgo práctico: muchas conexiones en **CLOSE-WAIT** durante mucho tiempo suelen indicar que el programa se olvidó de cerrar sus sockets al recibir el FIN. Es una regla práctica, no una ley: lo que muestra `ss` es el síntoma, y hay que mirar el programa."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Falta el caso opuesto al de ayer. Con UDP, un mensaje a un puerto sin nadie se perdía en silencio salvo un ICMP tardío. Con TCP, el SYN a un puerto sin servicio recibe de inmediato un paquete con la bandera RST:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 cerrado.py",
+     "s": "falló en 0.0046 s: [Errno 111] Connection refused"
+    },
+    {
+     "c": "tcpdump -i lo -n -c 2 'tcp port 31419'",
+     "s": "17:52:10.032379 IP 127.0.0.1.39842 > 127.0.0.1.31419: Flags [S], seq 2551447115, win 65495, length 0\n17:52:10.032393 IP 127.0.0.1.31419 > 127.0.0.1.39842: Flags [R.], seq 0, ack 2551447116, win 0, length 0"
+    }
+   ],
+   "cap": "Salida real, sin las opciones del SYN. El RST sale 14 microsegundos después, de la misma máquina: el programa recibe el error enseguida, en 4,6 milisegundos."
+  },
+  {
+   "t": "p",
+   "x": "El `[R.]` dice «aquí no hay nadie en ese puerto». Es el equivalente inmediato y confiable del aviso tardío de ICMP, y por eso en TCP un puerto cerrado se nota de una vez. Si en cambio un firewall descarta el SYN sin responder, el cliente queda esperando y reintentando (el caso del SYN perdido de recién, pero sin final feliz): ahí el síntoma es un `connect` que se cuelga, no un rechazo."
+  },
+  {
+   "t": "pensa",
+   "x": "Un servidor muestra con `ss` miles de conexiones en CLOSE-WAIT y ninguna en TIME-WAIT. ¿Qué extremo dejó de cerrar y qué lado cerró primero?",
+   "resp": "Los clientes cerraron primero (por eso el servidor recibió los FIN y quedó en CLOSE-WAIT), y el programa del servidor no cerró sus sockets después. El estado TIME-WAIT aparecería en quien cierra primero, es decir, del lado de los clientes."
+  },
+  {
+   "t": "senda",
+   "titulo": "En Senda, TCP trabaja sin que el código lo vea",
+   "x": [
+    "Senda no abre sockets: no hay ni una línea de TCP propia. Cada pedido a la base es un `fetch` HTTPS (por ejemplo, `peticion` en `src/util/cuenta.ts`) y la conexión TCP la gestiona la biblioteca de red de Android. Hechos verificados (commit 25e08fa, 2026-11-09; el código cambia, la forma permanece):",
+    "- La sala en vivo sondea cada 2 segundos (`CADA_MS = 2000` en `src/util/salas.ts`, `setInterval` en `src/pantallas/Sala.tsx`).",
+    "- Si cada sondeo abriera una conexión nueva, pagaría un saludo de tres vías por cada uno. Lo normal en HTTPS es reusar conexiones abiertas (se ve en [@05-19]), pero si Senda las reusa o no lo decide la biblioteca del sistema, y no lo verifiqué.",
+    "Es un ejemplo de por qué el costo de abrir una conexión importa, aunque el programador no escriba una línea de red."
+   ],
+   "archivos": [
+    "src/util/salas.ts",
+    "src/pantallas/Sala.tsx",
+    "src/util/cuenta.ts",
+    "package.json"
+   ]
+  }
+ ],
+ "recap": [
+  "TCP da un flujo de bytes confiable y en orden. Lo paga con una conexión previa, estado en los dos extremos y una cabecera de 20 bytes o más. Su estándar vigente es el RFC 9293 (2022), que reemplazó al RFC 793 (1981).",
+  "El saludo de tres vías (SYN, SYN-ACK, ACK) acuerda un número de secuencia inicial para cada dirección. Cuesta un viaje de ida y vuelta antes del primer dato.",
+  "Los números de secuencia cuentan bytes. El ACK es acumulativo e indica el próximo byte que falta, no el último recibido. SYN y FIN ocupan un número; un ACK solo, no.",
+  "Si no llega el ACK a tiempo, el emisor retransmite el mismo rango con el mismo número, y duplica el temporizador en cada vencimiento. En Linux, 1 segundo para un SYN y 200 milisegundos como mínimo para datos (medidos aquí: 1,03 s y 0,20 s).",
+  "Cada dirección se cierra con un FIN, y los estados (ESTAB, FIN-WAIT-2, CLOSE-WAIT, TIME-WAIT) se leen con `ss -tan`. TIME-WAIT protege de paquetes viejos; muchos CLOSE-WAIT suelen indicar un programa que no cierra.",
+  "TCP no conserva los límites de los envíos: los protocolos de arriba tienen que marcar dónde termina cada mensaje."
+ ],
+ "repaso": [
+  {
+   "p": "Un cliente TCP manda tres envíos seguidos de 100 bytes cada uno. ¿Qué puede ver el servidor con una lectura grande?",
+   "o": [
+    "Siempre tres lecturas separadas de 100 bytes, una por cada envío del cliente",
+    "Los 300 bytes juntos, sin ninguna marca de dónde termina cada envío",
+    "Solo el primer envío, porque TCP descarta los que llegan sin esperar el ACK",
+    "Los tres envíos mezclados en un orden cualquiera, igual que con UDP"
+   ],
+   "c": 1,
+   "e": "TCP entrega un flujo de bytes: los límites de los envíos no se conservan, así que una lectura grande puede devolver todo junto. La opción de tres lecturas describe UDP, no TCP. TCP no descarta envíos por esperar un ACK y, a diferencia de UDP, mantiene el orden."
+  },
+  {
+   "p": "En una captura, el cliente manda un SYN con número 5000. ¿Qué ACK trae el SYN-ACK del servidor y por qué?",
+   "o": [
+    "ACK 5000, porque confirma exactamente el número que mandó el cliente",
+    "ACK 5004, porque el servidor suma los 4 bytes de cabecera de la bandera SYN",
+    "ACK 5001, porque el SYN ocupa un número de secuencia y el ACK indica el próximo esperado",
+    "ACK 0, porque el servidor todavía no recibió ningún dato de la conexión"
+   ],
+   "c": 2,
+   "e": "El ACK dice cuál es el próximo número esperado. Como el SYN ocupó el 5000, lo siguiente es el 5001. Confirmar 5000 sería decir «todavía espero el SYN». Los otros valores no corresponden a ninguna regla de TCP: el SYN ocupa un solo número, y el ACK de un SYN-ACK no es cero."
+  },
+  {
+   "p": "Un receptor tiene los bytes 1 a 2000 y le llegan los bytes 3001 a 4000, con un hueco en el medio. ¿Qué ACK manda?",
+   "o": [
+    "ACK 2001, porque el ACK acumulativo indica el próximo byte que falta",
+    "ACK 4001, porque confirma el último byte que recibió",
+    "ACK 3001, porque confirma el segmento que acaba de llegar",
+    "No manda ningún ACK hasta que el hueco se rellene por completo"
+   ],
+   "c": 0,
+   "e": "El ACK es acumulativo: solo confirma lo que está completo desde el principio. Con el hueco, el receptor repite el ACK 2001, lo que le avisa al emisor qué falta. Confirmar el último recibido o el segmento nuevo haría creer que no hay hueco; no mandar nada dejaría al emisor sin pistas."
+  },
+  {
+   "p": "Un segmento de datos se pierde en una conexión TCP establecida. ¿Qué hace el emisor?",
+   "o": [
+    "Avisa a la aplicación de inmediato y le pide que decida si vuelve a mandarlo",
+    "Reenvía el segmento con un número de secuencia nuevo para distinguirlo del perdido",
+    "Corta la conexión con un RST, porque TCP no admite pérdidas de datos",
+    "Espera un tiempo; si no llega el ACK, reenvía el mismo rango y duplica el temporizador"
+   ],
+   "c": 3,
+   "e": "El emisor guarda el segmento y, si no recibe el ACK antes de que venza el temporizador, lo reenvía con el mismo número de secuencia y duplica el temporizador. La aplicación no se entera salvo que fallen todos los reintentos. Un número nuevo rompería la cuenta de bytes; el RST se usa para otra cosa."
+  },
+  {
+   "p": "En `ss -tan` ves muchas conexiones de tu servidor en CLOSE-WAIT que no desaparecen. ¿Qué indica con más probabilidad?",
+   "o": [
+    "Que el servidor cerró primero y espera un rato por paquetes viejos",
+    "Que los clientes cerraron y el programa del servidor no cerró sus sockets",
+    "Que la red perdió el último ACK y el cliente sigue reenviando el FIN",
+    "Que el servidor está saturado de conexiones nuevas que no terminaron el saludo"
+   ],
+   "c": 1,
+   "e": "CLOSE-WAIT es el estado de quien recibió el FIN pero todavía no cerró su propio lado: lo que falta es que el programa llame a `close`. La espera por paquetes viejos es TIME-WAIT, y el saludo a medias da otro estado (SYN-RECEIVED). Es una regla práctica, no una prueba definitiva."
+  },
+  {
+   "p": "¿Por qué el saludo de TCP usa tres mensajes y no dos?",
+   "o": [
+    "Para que la conexión se abra con una capa extra de cifrado entre los dos extremos",
+    "Porque el cliente necesita tiempo para calcular el checksum antes de mandar datos",
+    "Cada lado necesita que el otro confirme su número inicial, y se evitan conexiones fantasma por un SYN viejo",
+    "Para que los routers del camino reserven espacio en sus colas para esa conexión"
+   ],
+   "c": 2,
+   "e": "Con dos mensajes, el servidor daría por abierta una conexión sin saber si el cliente recibió su número, y un SYN viejo y retrasado podría abrir una conexión que nadie pidió (el RFC 9293 lo explica). TCP no cifra nada, el checksum no demora el saludo y los routers no reservan nada por conexión."
+  },
+  {
+   "p": "Un cliente se conecta a un puerto donde no hay ningún servicio escuchando, en la misma máquina. ¿Qué ocurre?",
+   "o": [
+    "Recibe de inmediato un RST y el programa obtiene un error de conexión rechazada",
+    "El SYN se pierde en silencio y el cliente lo reintenta durante más de un minuto",
+    "El SYN-ACK llega vacío y el cliente descubre más tarde que nadie atiende",
+    "Llega un mensaje ICMP tardío que solo ve un socket con `connect`"
+   ],
+   "c": 0,
+   "e": "Si el sistema recibe un SYN para un puerto cerrado, responde con RST, y el error se ve enseguida (en este laboratorio, en 4,6 ms). El silencio con reintentos ocurre cuando un firewall descarta el SYN. El ICMP tardío era el comportamiento con UDP, no con TCP."
+  }
+ ],
+ "feynman": "Explicale a alguien que sabe hacer un pedido por una app qué pasa, entre dos computadoras, para que un archivo grande llegue completo y en orden aunque la red pierda paquetes. Usá la analogía de tu elección (la de las cajas y los camiones vale como punto de partida, pero cambiala), y contá qué es el saludo, qué es un ACK y cuándo se reenvía algo.",
+ "para_profundizar": [
+  {
+   "fuente": "rfc9293",
+   "nota": "El estándar vigente. Leé la sección 3.5 (cómo se abre una conexión, con diagramas de casos raros como el SYN viejo) y la 3.6 (cómo se cierra), que son las dos que usamos hoy."
+  },
+  {
+   "fuente": "tcp1-man7-tcp7",
+   "nota": "La página de manual tcp(7) de Linux: los parámetros reales del kernel (reintentos, tiempos de espera) que vimos hoy en acción."
+  },
+  {
+   "fuente": "tcp1-rfc6298",
+   "nota": "Cómo se calcula el temporizador de retransmisión y por qué se duplica; es la base de lo que se completa mañana."
+  },
+  {
+   "fuente": "kurose-ross",
+   "nota": "El capítulo de capa de transporte, sobre transferencia confiable de datos y TCP: arma paso a paso el protocolo desde cero, con el mismo orden de ideas que hoy."
+  }
+ ],
+ "videos": [
+  {
+   "q": "TCP three way handshake explained Wireshark capture sequence numbers",
+   "por_que": "Para ver el mismo saludo capturado y anotado en Wireshark, con los campos separados."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "TCP",
+   "d": "Transmission Control Protocol. Protocolo de transporte que da un flujo de bytes confiable y en orden sobre IP: abre una conexión con un saludo, numera los bytes, espera confirmaciones y reenvía lo que se pierde. Se define en el RFC 9293 (2022), que reemplazó al RFC 793 (1981)."
+  },
+  {
+   "t": "saludo de tres vías",
+   "d": "El intercambio de tres paquetes con el que TCP abre una conexión: SYN del cliente, SYN-ACK del servidor y ACK del cliente. Cada lado anuncia su número de secuencia inicial y el otro lo confirma."
+  },
+  {
+   "t": "número de secuencia",
+   "d": "Un número de 32 bits en cada segmento TCP que indica la posición, dentro del flujo de bytes de esa dirección, del primer byte que lleva. Empieza en un valor inicial elegido en el saludo; el SYN y el FIN ocupan un número cada uno."
+  },
+  {
+   "t": "ACK",
+   "d": "Confirmación (acknowledgment). En TCP, el número de ACK indica el próximo byte que el receptor espera; es acumulativo: dice que todo lo anterior llegó sin huecos. Un segmento con solo ACK no ocupa número de secuencia."
+  },
+  {
+   "t": "SYN",
+   "d": "Bandera de TCP que significa «sincronizar»: se usa solo en los dos primeros paquetes de una conexión para proponer el número de secuencia inicial. Ocupa un número de secuencia."
+  },
+  {
+   "t": "FIN",
+   "d": "Bandera de TCP que indica «no voy a mandar más datos». Cada dirección de una conexión se cierra con su propio FIN, que ocupa un número de secuencia y se confirma con un ACK."
+  },
+  {
+   "t": "RST",
+   "d": "Bandera de TCP que significa «reiniciar»: indica que el paquete recibido no corresponde a ninguna conexión o que se aborta la existente. Es lo que recibe quien intenta conectarse a un puerto sin servicio."
+  },
+  {
+   "t": "TIME-WAIT",
+   "d": "Estado final de quien cierra primero una conexión TCP: espera un tiempo (60 segundos en Linux; el RFC 9293 toma 2 minutos de vida máxima de segmento y dos veces eso) para que paquetes viejos no se confundan con los de una conexión nueva."
+  },
+  {
+   "t": "retransmisión",
+   "d": "Reenvío de un segmento TCP que no fue confirmado antes de que venza un temporizador. Lleva el mismo número de secuencia y los mismos datos. En cada vencimiento sin respuesta, el temporizador se duplica."
+  }
+ ],
+ "siguiente": "cuánto puede mandar TCP antes de esperar confirmaciones (la ventana), y cómo adivina la capacidad de una red que nadie le informa: control de flujo, control de congestión, slow start y RTT.",
+ "fuentes_nuevas": [
+  {
+   "id": "tcp1-rfc793",
+   "t": "RFC 793: Transmission Control Protocol",
+   "a": "J. Postel (DARPA)",
+   "tipo": "rfc",
+   "anio": 1981,
+   "url": "https://www.rfc-editor.org/rfc/rfc793"
+  },
+  {
+   "id": "tcp1-rfc6298",
+   "t": "RFC 6298: Computing TCP's Retransmission Timer",
+   "a": "V. Paxson, M. Allman, J. Chu y M. Sargent (IETF)",
+   "tipo": "rfc",
+   "anio": 2011,
+   "url": "https://www.rfc-editor.org/rfc/rfc6298"
+  },
+  {
+   "id": "tcp1-man7-tcp7",
+   "t": "tcp(7): TCP protocol",
+   "a": "Linux man-pages (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man7/tcp.7.html"
+  },
+  {
+   "id": "tcp1-linux-tcph",
+   "t": "Linux kernel: include/net/tcp.h (constantes TCP_RTO_MIN, TCP_TIMEOUT_INIT, TCP_TIMEWAIT_LEN)",
+   "a": "Proyecto del kernel Linux",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/torvalds/linux/master/include/net/tcp.h"
+  }
+ ]
+}
