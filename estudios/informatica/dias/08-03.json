@@ -1,0 +1,1071 @@
+{
+ "id": "08-03",
+ "titulo": "REST II: códigos de estado, paginación y filtros",
+ "bajada": "Hacés que una API de despachos conteste con el código correcto, entregue 300.000 filas en pedazos sin corrimientos ni lentitud y no deje que dos personas se pisen.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Elegir el código de estado adecuado para un pedido y distinguir 400 de 422, 401 de 403 y 409 de 412.",
+  "Explicar por qué un OFFSET grande es lento y por qué repite o saltea filas cuando la tabla cambia, y leerlo en un plan de ejecución.",
+  "Diseñar paginación por cursor con un orden total y entender qué se gana y qué se pierde frente al offset.",
+  "Definir filtros y ordenamientos que no se rompan con valores raros ni con tablas grandes.",
+  "Evitar la actualización perdida con ETag e If-Match, y explicar qué es y qué no es HATEOAS."
+ ],
+ "venis_de": "En [@08-01] viste qué es una API como contrato y en [@08-02] cómo se diseñan los recursos, las direcciones y los métodos. Hoy completás esa API con lo que decide si se puede usar en serio: qué número devuelve cuando algo sale mal, cómo entrega listas enormes, cómo acepta filtros y cómo evita que dos personas se pisen.",
+ "se_apoya_en": [
+  "05-18",
+  "05-19",
+  "07-12",
+  "08-02"
+ ],
+ "gancho": [
+  "Imaginá la pantalla de un depósito: una lista de despachos con el más nuevo arriba. El servicio ya tiene 300.000 cargados y la app pide «los despachos». Del otro lado, el servidor tiene que resolver tres cosas que en la pantalla no se ven. Cómo avisar qué pasó con cada pedido, con un número que cualquier otro programa entienda. Cómo entregar esa lista sin mandar unos 45 MB al teléfono. Y qué hacer cuando dos personas editan el mismo despacho al mismo tiempo.",
+  "Hoy lo ves funcionando. Armé en esta VM una API de despachos con datos inventados y tokens falsos, que escucha solo en `127.0.0.1` y guarda en un PostgreSQL con 300.000 filas. Le pegué con `curl` hasta que se portó mal: medí cuánto cuesta pedir una página del final de la lista, vi cómo una lista repite una fila cuando entra un despacho nuevo y reproduje cómo dos ediciones se pisan. Al final, mirás qué hace Senda con todo esto. Spoiler: casi no pagina, y tiene buenas razones."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El código de estado es una decisión de diseño"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@05-18] viste que el primer dígito del [[código de estado]] da la familia: 2xx salió bien, 4xx se equivocó el cliente, 5xx falló el servidor. Hoy subís un escalón. Cada código le dice al programa que llama **quién tiene que actuar y con qué**. Un cliente bien escrito decide con ese número, sin leer el cuerpo: con un 401 renueva el token, con un 429 espera, con un 503 reintenta más tarde, con un 422 le muestra al usuario qué campo corregir. Un código mal elegido hace que el cliente haga lo incorrecto con total seguridad.",
+    "La tabla junta los que una API de despachos usa todos los días. La última columna dice qué puede hacer el programa que recibe la respuesta."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Código",
+    "Se usa cuando",
+    "Qué hace el cliente"
+   ],
+   "filas": [
+    [
+     "200 OK",
+     "Se leyó o se modificó algo y hay un cuerpo para devolver",
+     "Usa el cuerpo"
+    ],
+    [
+     "201 Created",
+     "Se creó un recurso nuevo",
+     "Guarda la dirección de `Location`"
+    ],
+    [
+     "204 No Content",
+     "Se hizo lo pedido y no queda nada para devolver",
+     "No espera cuerpo"
+    ],
+    [
+     "304 Not Modified",
+     "Lo que el cliente ya tiene sigue vigente",
+     "Usa su copia guardada"
+    ],
+    [
+     "400 Bad Request",
+     "El pedido no se pudo ni interpretar: JSON cortado, parámetro mal formado",
+     "Corrige el pedido; mandarlo igual no sirve"
+    ],
+    [
+     "401 Unauthorized",
+     "No hay credenciales válidas",
+     "Se autentica o renueva el token"
+    ],
+    [
+     "403 Forbidden",
+     "Sé quién sos y no te corresponde",
+     "No repite con las mismas credenciales"
+    ],
+    [
+     "404 Not Found",
+     "No hay nada en esa dirección",
+     "Deja de buscar ahí"
+    ],
+    [
+     "409 Conflict",
+     "El pedido es válido pero choca con el estado actual",
+     "Cambia el pedido o resuelve el choque"
+    ],
+    [
+     "412 Precondition Failed",
+     "Una condición que mandó el cliente ya no se cumple",
+     "Vuelve a leer y reintenta"
+    ],
+    [
+     "422 Unprocessable Content",
+     "El JSON se entiende pero los datos no cumplen las reglas",
+     "Muestra qué campos corregir"
+    ],
+    [
+     "428 Precondition Required",
+     "El servidor exige que el pedido sea condicional",
+     "Agrega la condición y reenvía"
+    ],
+    [
+     "429 Too Many Requests",
+     "Demasiados pedidos en poco tiempo",
+     "Espera lo que diga `Retry-After`"
+    ],
+    [
+     "5xx",
+     "Falló el servidor",
+     "Reintenta con espera; el pedido estaba bien"
+    ]
+   ],
+   "cap": "Los significados vienen del RFC 9110 (sección 15) [#rfc9110]; el 428 y el 429 se definieron en el RFC 6585 [#srv0703-rfc6585]. La lista oficial de números y nombres la mantiene la IANA [#rest0803-iana-status]."
+  },
+  {
+   "t": "p",
+   "x": "Los fui provocando uno por uno contra la API de despachos: un programa de Node de 164 líneas que escucha solo en `127.0.0.1`, con 300.000 despachos inventados en PostgreSQL y tres tokens falsos con forma obvia (administrador, lector y lector limitado). Nada sale de la máquina. Primero, crear un despacho y romper el pedido de tres maneras distintas."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "S=http://127.0.0.1:20833; A=\"Authorization: Bearer token-falso-admin-0803\"; L=\"Authorization: Bearer token-falso-lector-0803\"; J='Content-Type: application/json'",
+     "s": ""
+    },
+    {
+     "c": "h() { curl -si \"$@\" | grep -v -E '^(Date|Connection|Keep-Alive|Content-Length):' | tr -d '\\r'; }",
+     "s": ""
+    },
+    {
+     "c": "h -H \"$A\" -H \"$J\" -d '{\"referencia\":\"DSP-910001\",\"destino\":\"Mendoza\",\"peso_kg\":84.2}' $S/despachos | grep -v '^{'",
+     "s": "HTTP/1.1 201 Created\nContent-Type: application/json; charset=utf-8\nLocation: /despachos/300001\nETag: \"1\""
+    },
+    {
+     "c": "h -H \"$A\" -H \"$J\" -d '{\"referencia\":\"DSP-910001\",\"destino\":\"Mendoza\",\"peso_kg\":84.2}' $S/despachos",
+     "s": "HTTP/1.1 409 Conflict\nContent-Type: application/problem+json; charset=utf-8\n\n{\"type\":\"about:blank\",\"title\":\"Conflict\",\"status\":409,\"detail\":\"Ya existe un despacho con la referencia DSP-910001.\"}"
+    },
+    {
+     "c": "h -H \"$A\" -H \"$J\" -d '{\"referencia\":\"DSP-910002\",\"destino\":\"\",\"peso_kg\":-5}' $S/despachos",
+     "s": "HTTP/1.1 422 Unprocessable Entity\nContent-Type: application/problem+json; charset=utf-8\n\n{\"type\":\"about:blank\",\"title\":\"Unprocessable Content\",\"status\":422,\"detail\":\"El JSON es válido pero los datos no cumplen las reglas.\",\"errores\":[\"destino es obligatorio\",\"peso_kg debe ser un número entre 0 y 25000\"]}"
+    },
+    {
+     "c": "h -H \"$A\" -H \"$J\" -d '{\"referencia\":\"DSP-910002\",' $S/despachos",
+     "s": "HTTP/1.1 400 Bad Request\nContent-Type: application/problem+json; charset=utf-8\n\n{\"type\":\"about:blank\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"El cuerpo no es JSON válido.\"}"
+    }
+   ],
+   "cap": "Mi API de despachos, en 127.0.0.1:20833. Se creó el despacho 300001 con 201; repetir la referencia dio 409; los datos sin sentido, 422; el JSON cortado, 400. Las dos primeras líneas definen variables y una función para acortar los comandos."
+  },
+  {
+   "t": "p",
+   "x": "Los cuerpos de error siguen el formato `application/problem+json` del RFC 9457, que ya conocés de [@07-12] [#be1112-rfc9457]. Fijate en el renglón del 422: dice `Unprocessable Entity`, y el campo `title` del cuerpo dice `Unprocessable Content`. Es el mismo código con dos nombres. El RFC 9110, de 2022, renombró el 422 a «Unprocessable Content», la lista de la IANA ya lo nombra así, y la versión de Node de esta VM (22.23.4) todavía imprime el nombre viejo en la línea de estado. La frase del renglón es decoración para humanos. Lo único que un programa tiene que mirar es el número."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "Devolver siempre 200 y poner el error adentro del JSON",
+   "x": [
+    "Se escucha en equipos que quieren «simplificar»: la API contesta 200 a todo y el cuerpo trae `{\"ok\": false}`. Parece inofensivo y no lo es. Todo lo que está entre el cliente y el servidor decide con el número: las cachés (el RFC 9110 marca a las respuestas 200 como candidatas a guardarse), los balanceadores, los paneles que cuentan errores, las bibliotecas que reintentan. Con un error disfrazado de 200, el panel de fallas muestra cero, la caché puede guardar el error y la biblioteca de reintentos no se entera de que algo salió mal."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Las cuatro parejas que más se confunden"
+  },
+  {
+   "t": "lista",
+   "ord": false,
+   "items": [
+    "**400 y 422.** Con 400 el servidor dice «no pude leer tu pedido» (JSON cortado, `limit=abc`). Con 422 dice «lo leí perfecto y no tiene sentido» (un peso negativo). La norma no obliga a separarlos y muchas APIs usan 400 para todo. Una regla práctica es elegir una división, escribirla en la documentación y cumplirla siempre.",
+    "**401 y 403.** El 401 significa «no hay credenciales válidas», y el RFC pide que lleve un encabezado `WWW-Authenticate` que diga cómo autenticarse. El 403 significa «te conozco y no te alcanza». Cambia lo que hace el cliente: ante un 401 puede renovar el token y repetir; ante un 403 repetir con el mismo token es perder tiempo.",
+    "**403 y 404.** El RFC deja que un servidor conteste 404 en lugar de 403 para no revelar que algo existe. Cuando la existencia misma es un dato sensible, por ejemplo el despacho de otra empresa, conviene esa discreción.",
+    "**409 y 412.** El 409 dice «tu pedido es válido, pero choca con cómo está el recurso ahora» (crear una referencia que ya existe, cancelar un despacho entregado). El 412 dice «pusiste una condición explícita en el pedido y ya no se cumple». Los dos se vuelven a ver al final del día."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "h $S/despachos",
+     "s": "HTTP/1.1 401 Unauthorized\nContent-Type: application/problem+json; charset=utf-8\nWWW-Authenticate: Bearer realm=\"despachos\"\n\n{\"type\":\"about:blank\",\"title\":\"Unauthorized\",\"status\":401,\"detail\":\"Falta el token o no es válido.\"}"
+    },
+    {
+     "c": "h -X DELETE -H \"$L\" $S/despachos/300001",
+     "s": "HTTP/1.1 403 Forbidden\nContent-Type: application/problem+json; charset=utf-8\n\n{\"type\":\"about:blank\",\"title\":\"Forbidden\",\"status\":403,\"detail\":\"Tu rol no permite borrar despachos.\"}"
+    },
+    {
+     "c": "h -H \"$L\" $S/despachos/99999999",
+     "s": "HTTP/1.1 404 Not Found\nContent-Type: application/problem+json; charset=utf-8\n\n{\"type\":\"about:blank\",\"title\":\"Not Found\",\"status\":404,\"detail\":\"No existe el despacho 99999999.\"}"
+    },
+    {
+     "c": "h -X DELETE -H \"$A\" $S/despachos/300001",
+     "s": "HTTP/1.1 204 No Content"
+    },
+    {
+     "c": "h -X DELETE -H \"$A\" $S/despachos/300001",
+     "s": "HTTP/1.1 404 Not Found\nContent-Type: application/problem+json; charset=utf-8"
+    }
+   ],
+   "cap": "Mismas variables que arriba. Sin token: 401 con WWW-Authenticate. Token de lector que intenta borrar: 403. Despacho inexistente: 404. El primer DELETE de un administrador da 204; el segundo, 404."
+  },
+  {
+   "t": "p",
+   "x": "El borrado repetido dio 204 y después 404, y eso no rompe la [[idempotencia]] de DELETE que viste en [@07-12]. El RFC 9110 define idempotente por el **efecto buscado** sobre el servidor, que es el mismo después de uno o de diez DELETE (el despacho no existe), y aclara que la respuesta puede ser distinta [#rfc9110]."
+  },
+  {
+   "t": "pensa",
+   "x": "Un lector, con un token válido, intenta borrar un despacho y la API contesta 401. ¿Qué problema le crea eso a la app que llamó?",
+   "resp": "La app va a creer que el token venció, lo va a renovar y va a repetir el pedido, que va a fallar otra vez. En el mejor caso pierde tiempo y en el peor entra en un bucle. Lo correcto es 403: el token sirve, lo que falta es el permiso."
+  },
+  {
+   "t": "senda",
+   "titulo": "Qué códigos se ven en el código de Senda",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. Senda no tiene servidor propio: su app le habla a la base de Supabase, que expone las tablas con PostgREST, y los códigos que recibe son los que decide esa herramienta. La documentación de PostgREST lo dice así: un error de violación de unicidad de PostgreSQL (código `23505`) sale como 409, y una función de base que lanza `RAISE EXCEPTION` sale como 400 con el texto del error en `message` [#be1112-postgrest-errores].",
+    "El cliente de Senda aprovecha las dos cosas. En `src/util/nube.ts`, `enviarPropuestaNube` devuelve verdadero si la respuesta es exitosa **o** si es 409: una propuesta repetida cuenta como «ya había llegado». En `src/util/cuenta.ts`, la función `peticion` lee el `message` del error y, si es una palabra corta en minúsculas con guiones bajos, la usa como código propio. Las migraciones de la base tienen unas 205 líneas de la forma `raise exception 'no_es_tu_turno'`, y cada una llega a la app como un 400 con ese texto. Y en `llamarAuth`, un 429 de la autenticación se convierte en el error `demasiado`."
+   ],
+   "archivos": [
+    "src/util/nube.ts",
+    "src/util/cuenta.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Paginación: entregar una lista grande en pedazos"
+  },
+  {
+   "t": "p",
+   "x": "Un `GET /despachos` sin límites es una trampa. Una página real de mi API, con 100 despachos, ocupa unos 15 KB: unos 149 bytes por despacho en JSON. A 300.000 despachos son unos 45 MB (149 × 300.000), que el servidor tendría que leer, armar y mandar para que la pantalla muestre 20. La [[paginación]] resuelve eso: la lista se entrega en pedazos y cada pedido trae uno. Hay dos maneras de decir «qué pedazo quiero»."
+  },
+  {
+   "t": "h3",
+   "x": "Por offset: «salteá 40 y dame 20»"
+  },
+  {
+   "t": "p",
+   "x": "La [[paginación por offset]] manda cuántas filas saltear: `?limit=20&offset=40`. Calza con el SQL (`LIMIT 20 OFFSET 40`), permite ir directo a la página 87 y es fácil de dibujar con botones numerados. Tiene dos problemas, y los dos se ven mejor midiendo."
+  },
+  {
+   "t": "p",
+   "x": "**Primero, el costo.** Para devolver las filas 100.001 a 100.020, la base no puede ir directo a la 100.001: no hay manera de saber cuál es sin contar desde el principio. Tiene que recorrer las 100.000 anteriores y tirarlas. La documentación de PostgreSQL lo dice así: las filas salteadas por OFFSET igual se calculan dentro del servidor, y por eso un offset grande puede ser ineficiente [#rest0803-pg-limit]. La tabla `despachos` tiene un índice sobre fecha e id: una lista auxiliar ordenada que permite leer en ese orden sin ordenar toda la tabla, como el índice alfabético de un libro (la Parte 9 los estudia a fondo). Aun así, mirá qué hace la base cuando le pido la página 5.001 de 20:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -h 127.0.0.1 -p 20803 -U postgres -d despachos_0803 -X -tA -c \"EXPLAIN (ANALYZE, BUFFERS, TIMING OFF) SELECT id, referencia, creado FROM despachos ORDER BY creado DESC, id DESC LIMIT 20 OFFSET 100000\"",
+     "s": "Limit  (cost=6946.42..6947.81 rows=20 width=27) (actual rows=20 loops=1)\n  Buffers: shared hit=1852\n  ->  Index Scan using despachos_creado_id on despachos  (cost=0.42..20838.42 rows=300000 width=27) (actual rows=100020 loops=1)\n        Buffers: shared hit=1852\nExecution Time: 9.289 ms"
+    },
+    {
+     "c": "psql -h 127.0.0.1 -p 20803 -U postgres -d despachos_0803 -X -tA -c \"EXPLAIN (ANALYZE, BUFFERS, TIMING OFF) SELECT id, referencia, creado FROM despachos WHERE (creado, id) < ('2026-07-28 11:01:30+00', 200001) ORDER BY creado DESC, id DESC LIMIT 20\"",
+     "s": "Limit  (cost=0.42..2.07 rows=20 width=27) (actual rows=20 loops=1)\n  Buffers: shared hit=4\n  ->  Index Scan using despachos_creado_id on despachos  (cost=0.42..16421.06 rows=199851 width=27) (actual rows=20 loops=1)\n        Index Cond: (ROW(creado, id) < ROW('2026-07-28 11:01:30+00'::timestamp with time zone, 200001))\n        Buffers: shared hit=4\nExecution Time: 0.062 ms"
+    }
+   ],
+   "cap": "Planes de ejecución reales (PostgreSQL 16.15, 300.000 filas; se quitaron las líneas de planificación). Los dos devuelven 20 filas. El primero leyó 100.020 del índice y tocó 1.852 bloques; el segundo leyó 20 y tocó 4. El «Execution Time» es de una corrida suelta; abajo está la tabla con medianas."
+  },
+  {
+   "t": "p",
+   "x": "Lo que importa son dos números. El nodo `Index Scan` entregó `actual rows=100020` filas para producir 20: se descartaron 100.000. Y tocó 1.852 bloques de memoria contra 4 de la consulta de abajo, que usa un cursor y que vas a entender en un momento. Midiendo muchas veces, el costo crece en línea recta con lo que se saltea:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Posición de la página",
+    "Con OFFSET (mediana)",
+    "Con cursor (mediana)",
+    "Filas que lee el índice con OFFSET"
+   ],
+   "filas": [
+    [
+     "Primera (offset 0)",
+     "0,43 ms",
+     "no aplica",
+     "20"
+    ],
+    [
+     "Fila 1.000",
+     "0,49 ms",
+     "0,53 ms",
+     "1.020"
+    ],
+    [
+     "Fila 10.000",
+     "1,30 ms",
+     "0,23 ms",
+     "10.020"
+    ],
+    [
+     "Fila 100.000",
+     "7,70 ms",
+     "0,22 ms",
+     "100.020"
+    ],
+    [
+     "Fila 200.000",
+     "17,89 ms",
+     "0,26 ms",
+     "200.020"
+    ],
+    [
+     "Última (fila 299.980)",
+     "22,06 ms",
+     "0,25 ms",
+     "300.000"
+    ]
+   ],
+   "cap": "Tiempo de una consulta de 20 filas, medido desde un cliente Node en la misma VM contra PostgreSQL 16.15 con 300.000 filas, orden por fecha y id descendentes, índice en esas dos columnas, tabla en memoria. Mediana de 31 corridas por celda. Es una sola VM compartida con otros procesos: el patrón vale, los milisegundos exactos no."
+  },
+  {
+   "t": "p",
+   "x": "En esta VM el offset cuesta unos 0,07 a 0,09 ms por cada mil filas salteadas. Extrapolando en línea recta (una ESTIMACIÓN, no medida), con 10 millones de filas una página del final tardaría cerca de un segundo, y eso con todo en memoria; con disco de por medio sería peor. Para ser justo: hasta el offset 1.000 la diferencia es de décimas de milisegundo (en la tabla hasta salió empatado). Si tu pantalla casi nunca pasa de la página 5, el offset alcanza y es mucho más simple. El problema es la página profunda, y un cliente automático (una app que baja todo, un programa que copia el catálogo) la va a pedir tarde o temprano."
+  },
+  {
+   "t": "p",
+   "x": "**Segundo, el corrimiento.** El offset cuenta posiciones, y las posiciones se mueven cuando la tabla cambia. Si mientras alguien lee entra un despacho nuevo arriba de todo, todo lo que seguía se corre un lugar hacia abajo:"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "Antes",
+     "celdas": [
+      {
+       "t": "300",
+       "k": "cliente",
+       "s": "pos 1"
+      },
+      {
+       "t": "299",
+       "k": "cliente",
+       "s": "pos 2"
+      },
+      {
+       "t": "298",
+       "k": "cliente",
+       "s": "pos 3"
+      },
+      {
+       "t": "297",
+       "k": "neutro",
+       "s": "pos 4"
+      },
+      {
+       "t": "296",
+       "k": "neutro",
+       "s": "pos 5"
+      },
+      {
+       "t": "295",
+       "k": "neutro",
+       "s": "pos 6"
+      }
+     ],
+     "nota": "La página 1 (offset 0, limit 3) mostró 300, 299 y 298."
+    },
+    {
+     "e": "Entra uno nuevo",
+     "celdas": [
+      {
+       "t": "NUEVO",
+       "k": "servidor",
+       "s": "pos 1"
+      },
+      {
+       "t": "300",
+       "k": "neutro",
+       "s": "pos 2"
+      },
+      {
+       "t": "299",
+       "k": "neutro",
+       "s": "pos 3"
+      },
+      {
+       "t": "298",
+       "k": "alerta",
+       "s": "pos 4"
+      },
+      {
+       "t": "297",
+       "k": "neutro",
+       "s": "pos 5"
+      },
+      {
+       "t": "296",
+       "k": "neutro",
+       "s": "pos 6"
+      }
+     ],
+     "nota": "La página 2 (offset 3) toma las posiciones 4 a 6: 298, 297 y 296. El 298 ya estaba en la página 1."
+    }
+   ],
+   "cap": "Todo se corrió un lugar hacia abajo, y el offset sigue contando posiciones."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "refs() { python3 -c \"import sys,json; print(' '.join(d['referencia'] for d in json.load(sys.stdin)['datos']))\"; }",
+     "s": ""
+    },
+    {
+     "c": "refs < <(curl -s -H \"$A\" \"$S/despachos?limit=3&offset=0\")",
+     "s": "DSP-300000 DSP-299999 DSP-299998"
+    },
+    {
+     "c": "curl -s -o /dev/null -w \"POST %{http_code}\\n\" -H \"$A\" -H \"$J\" -d '{\"referencia\":\"DSP-910003\",\"destino\":\"Salta\",\"peso_kg\":120.5}' $S/despachos",
+     "s": "POST 201"
+    },
+    {
+     "c": "refs < <(curl -s -H \"$A\" \"$S/despachos?limit=3&offset=3\")",
+     "s": "DSP-299998 DSP-299997 DSP-299996"
+    }
+   ],
+   "cap": "Página 1 con offset, un despacho nuevo y página 2 con offset. DSP-299998 aparece en las dos páginas. Los despachos van del más nuevo al más viejo."
+  },
+  {
+   "t": "p",
+   "x": "La página 2 repitió el despacho 298 del final de la página 1. Si en cambio lo que se borra es una fila de las ya vistas, pasa lo inverso: todo sube un lugar y una fila se saltea para siempre, sin que nadie lo note. Es un problema del método y no de la base de datos: con solo «saltá N» no hay manera de saber qué filas ya viste [#rest0803-no-offset]."
+  },
+  {
+   "t": "pensa",
+   "x": "Una persona lee la página 1 (20 despachos, más nuevo primero). Antes de pasar a la 2 entran 5 despachos nuevos. Si la app usa offset, ¿cuántas filas de la página 2 ya había visto?",
+   "resp": "Cinco. Las filas se corren 5 lugares hacia abajo, así que las últimas 5 de la página 1 reaparecen al principio de la página 2. Con k despachos nuevos se repiten k filas (mientras k no pase del tamaño de página)."
+  },
+  {
+   "t": "h3",
+   "x": "Por cursor: «dame las 20 que siguen a esta»"
+  },
+  {
+   "t": "p",
+   "x": "La [[paginación por cursor]] (en inglés *keyset* o *seek*) cambia la pregunta. En vez de «salteá 40» dice «dame las que vienen después de esta fila». El cliente devuelve una marca de dónde terminó la página anterior, el cursor, y la base filtra con una condición en lugar de contar:"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "SELECT id, referencia, creado\nFROM despachos\nWHERE (creado, id) < ($1, $2)   -- los valores de la última fila de la página anterior\nORDER BY creado DESC, id DESC\nLIMIT 20;",
+   "cap": "Los dos signos de pregunta con número ($1, $2) son valores que el driver manda aparte del texto de la consulta."
+  },
+  {
+   "t": "p",
+   "x": "La condición compara filas de dos valores de izquierda a derecha, como se ordenan las palabras en un diccionario: primero por `creado` y, si empatan, por `id` [#rest0803-pg-filas]. Como el índice está armado justo sobre esas dos columnas en ese orden, PostgreSQL entra directo a la posición de la marca y lee 20 filas. El segundo plan de arriba lo muestra: `actual rows=20` y 4 bloques tocados, esté la marca al principio o al final de la tabla. En la tabla de medianas, la columna del cursor se queda en 0,2 a 0,5 ms en todas las posiciones."
+  },
+  {
+   "t": "p",
+   "x": "Mi API devuelve la dirección de la página siguiente ya armada, en el cuerpo (`pagina.siguiente`) y en un encabezado `Link` con `rel=\"next\"`, el mismo mecanismo que define el RFC 8288 y que usa GitHub [#rest0803-rfc8288]. El cursor viaja dentro, codificado en base64:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -D - -o /dev/null -H \"$L\" \"$S/despachos?limit=2&estado=pendiente\" | grep -E '^(HTTP|Link)'",
+     "s": "HTTP/1.1 200 OK\nLink: </despachos?limit=2&estado=pendiente&cursor=eyJzIjoiLWNyZWFkbyIsInYiOiIyMDI2LTExLTEzIDIwOjE5OjIzLjczMzQyKzAwIiwiaSI6MzAwMDAzfQ>; rel=\"next\""
+    },
+    {
+     "c": "echo eyJzIjoiLWNyZWFkbyIsInYiOiIyMDI2LTExLTEzIDIwOjE5OjIzLjczMzQyKzAwIiwiaSI6MzAwMDAzfQ | base64 -d",
+     "s": "{\"s\":\"-creado\",\"v\":\"2026-11-13 20:19:23.73342+00\",\"i\":300003}"
+    }
+   ],
+   "cap": "El encabezado Link trae la dirección de la página siguiente. El cursor es el orden elegido, el valor de fecha de la última fila y su id, en base64. El cliente no lo arma ni lo interpreta: lo copia."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un cursor opaco no es un cursor secreto",
+   "x": "Que el cliente no tenga que entenderlo no quiere decir que no se pueda leer: lo acabás de decodificar con una línea. Mientras el cursor sea solo una posición no pasa nada, pero no pongas adentro nada sensible, y el servidor tiene que validarlo igual que cualquier otra entrada (el mío rechaza con 400 un cursor armado para otro orden). Si un cursor llevara permisos, habría que firmarlo."
+  },
+  {
+   "t": "p",
+   "x": "Un detalle práctico: para saber si hay una página siguiente, mi servidor pide `limit + 1` filas y devuelve solo `limit`. Si llegó una de más, hay más páginas, y esa fila sobrante no se muestra. Es más barato que contar todo el contenido de la tabla, y sirve para el campo `hay_mas`."
+  },
+  {
+   "t": "p",
+   "x": "El cursor no es gratis. Tiene costos concretos:"
+  },
+  {
+   "t": "lista",
+   "ord": false,
+   "items": [
+    "**No se puede saltar a la página N.** Solo hay «siguiente» (y «anterior», si el servidor la implementa). Para una app de scroll infinito es perfecto; para una grilla con números de página, no.",
+    "**Necesita un orden total.** Si ordenás solo por `peso_kg` y hay 40 despachos de 120 kg, un cursor «peso menor que 120» saltea los que no llegaste a mostrar, y uno «menor o igual» repite los que ya mostraste. Por eso el cursor lleva el peso **y** el `id`, que desempata. PostgreSQL avisa lo mismo: sin un orden que ubique cada fila en un único lugar, el subconjunto que devuelve LIMIT es impredecible [#rest0803-pg-limit].",
+    "**Está atado al orden y a los filtros.** Un cursor armado para `-creado` no sirve para `peso_kg`.",
+    "**El total cuesta aparte.** Para mostrar «página 3 de 15.000» hay que contar, y contar los 300.000 despachos tardó unos 10 ms en esta VM, que crece con la tabla. La documentación de PostgREST advierte lo mismo y ofrece conteos estimados para tablas grandes [#rest0803-postgrest-pag]."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un cliente tiene el cursor de la página 1 y, antes de pedir la 2, alguien borra justo la última fila de esa página 1. ¿Qué devuelve la página 2?",
+   "resp": "La misma que habría devuelto sin el borrado. El cursor no apunta a una fila sino que lleva los valores (fecha e id) de donde terminó, y la condición «menor que» sigue funcionando aunque esa fila ya no exista. Lo probé: borré la fila ancla y la página siguiente salió igual."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Ninguno es «el bueno»",
+   "x": "Una pantalla de administración con 5.000 filas y botones de página funciona mejor con offset: es más simple y el costo no se nota. Un historial que crece sin parar y se recorre hacia abajo, o una API que baja robots, necesita cursor. Elegí por cómo se usa la lista, y no por cuál suena más profesional."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Cómo paginan dos APIs públicas (documentación al 13-11-2026)",
+   "x": [
+    "GitHub usa páginas numeradas (`?page=2`) con el parámetro `per_page`, y avisa las demás con un encabezado `Link` que trae `rel=\"next\"`, `\"prev\"`, `\"first\"` y `\"last\"`. En la mayoría de los endpoints el máximo de `per_page` es 100; si pedís más, no da error: baja al máximo en silencio [#rest0803-github-pag].",
+    "Stripe usa cursores: `starting_after` y `ending_before` reciben el id de un objeto, `limit` va de 1 a 100 (10 por defecto) y la respuesta trae `has_more` [#rest0803-stripe-pag]. Las convenciones cambian con las versiones; la idea de fondo, no."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Los dos fijan un máximo de 100 por página, y hacen bien: si el cliente puede pedir `limit=1000000`, el límite es de mentira. Mi API hace lo mismo y, a diferencia de GitHub, agrega un campo `aviso` cuando recorta, para que quien llama no se pregunte por qué recibió menos de lo que pidió. Eso es una preferencia de diseño mía: avisar cuesta una línea."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Escribí la consulta de la página siguiente para el orden `peso_kg` **ascendente**, con desempate por `id` ascendente, 20 filas, partiendo de una fila ancla con peso 120 e id 5000 (usá los marcadores `$1` y `$2` para los valores del ancla).",
+   "pista": "Si el orden es ascendente, «lo que viene después» es lo mayor. Compará el par `(peso_kg, id)` entero, no cada columna por separado.",
+   "solucion": "SELECT id, referencia, peso_kg FROM despachos WHERE (peso_kg, id) > ($1, $2) ORDER BY peso_kg ASC, id ASC LIMIT 20, con $1 = 120 y $2 = 5000. El signo es «mayor que» porque el orden es ascendente, y el par completo garantiza que los despachos de 120 kg con id mayor a 5000 sigan apareciendo. Para que sea rápida hace falta un índice sobre (peso_kg, id)."
+  },
+  {
+   "t": "h",
+   "x": "Filtros y ordenamiento"
+  },
+  {
+   "t": "p",
+   "x": "Un [[filtro]] reduce el conjunto antes de paginarlo, y el [[ordenamiento]] decide en qué orden se recorre. Los dos viajan en la consulta de la URL, lo que sigue al `?` ([@05-18]), y se aplican **antes** de paginar: primero se filtra, después se ordena y recién entonces se corta el pedazo. Mi API acepta `estado`, `destino`, `desde` y `hasta` como filtros, y `sort=creado`, `sort=-creado`, `sort=peso_kg` o `sort=-peso_kg` (el guion adelante significa descendente)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -H \"$L\" \"$S/despachos?estado=en_ruta&destino=Salta&desde=2026-11-01&sort=-peso_kg&limit=3\" | python3 -c \"import sys,json; j=json.load(sys.stdin); [print(d['referencia'], d['creado'][:10], d['estado'], d['destino'], d['peso_kg']) for d in j['datos']]; print('hay_mas:', j['pagina']['hay_mas'])\"",
+     "s": "DSP-296537 2026-11-06 en_ruta Salta 499.3\nDSP-298337 2026-11-07 en_ruta Salta 497.3\nDSP-292529 2026-11-01 en_ruta Salta 497.1\nhay_mas: True"
+    },
+    {
+     "c": "h -H \"$L\" \"$S/despachos?estado=volando&sort=creado;drop%20table%20despachos&limit=abc\"",
+     "s": "HTTP/1.1 400 Bad Request\nContent-Type: application/problem+json; charset=utf-8\n\n{\"type\":\"about:blank\",\"title\":\"Bad Request\",\"status\":400,\"detail\":\"Hay parámetros de consulta inválidos.\",\"errores\":[\"limit debe ser un entero positivo\",\"sort admite: creado, -creado, peso_kg, -peso_kg\",\"estado admite: pendiente, en_ruta, entregado, cancelado\"]}"
+    }
+   ],
+   "cap": "Filtros por estado, destino y fecha, ordenados por peso descendente. Abajo, tres parámetros malos juntos: la API los rechaza con 400 y nombra cada uno."
+  },
+  {
+   "t": "h3",
+   "x": "Cuatro reglas para que no se rompa"
+  },
+  {
+   "t": "pasos",
+   "pasos": [
+    {
+     "t": "Validar lo que llega",
+     "x": "Un `estado=volando` no existe, y un `limit=abc` tampoco es un número. La API contesta 400 y nombra cada problema, como se ve arriba. Callarse y devolver una lista vacía esconde el error del cliente y lo deja convencido de que no hay despachos."
+    },
+    {
+     "t": "El nombre de la columna para ordenar nunca se pega tal cual",
+     "x": "SQL deja mandar **valores** como parámetros aparte del texto de la consulta, y eso impide que un valor se confunda con código. Pero el nombre de una columna en `ORDER BY` no puede ser un parámetro. Si el servidor pegara el texto de `sort` en la consulta, `sort=creado;drop table despachos` sería una inyección de SQL. La solución es una lista blanca: un diccionario con los órdenes permitidos y su columna real, y todo lo que no esté ahí es un 400. El tercer error del terminal de arriba es exactamente eso, probado contra mi servidor local con datos inventados."
+    },
+    {
+     "t": "Ordenar siempre con desempate",
+     "x": "Ordenar solo por fecha deja empates, y con empates la paginación se vuelve impredecible. Agregá siempre una columna única al final (el `id`). Senda lo hace en la lista de una sala: `order=puntos.desc,unido.asc`, primero por puntos y, si empatan, por quién se unió antes."
+    },
+    {
+     "t": "Cada filtro y cada orden ofrecidos es una promesa de rendimiento",
+     "x": "Medí qué pasa al ordenar por `peso_kg`, una columna sin índice: la primera página tardó unos 25 ms y la del offset 100.000, unos 137 ms, contra 0,43 y 7,7 ms ordenando por fecha con índice. Cada combinación que la API permite necesita un índice que la sostenga, o la API promete algo que no puede cumplir cuando la tabla crezca. Por eso muchas APIs ofrecen pocos filtros y pocos órdenes, a propósito."
+    }
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda lee «las últimas N», no páginas",
+   "x": [
+    "Esto corresponde al commit 25e08fa. Las lecturas de listas del cliente pasan por `leer`, en `src/util/cuenta.ts` (o, en un caso, por `peticion` directo), que arma `GET /rest/v1/<tabla>?<consulta>`. La consulta usa la sintaxis de PostgREST: filtros con operador en el valor (`inicio=gte.2026-…`, `estado=neq.archivada`), `order=` y `limit=`. Busqué en `src` el uso de `offset=`, del encabezado `Range` y de `Prefer: count`, las tres vías que PostgREST ofrece para paginar y contar [#rest0803-postgrest-pag], y no aparece ninguna. Senda no pagina: pide «las últimas N». Hay siete lecturas con `limit`, de 3 a 200 (3 encuestas, 12 trivias del sermón, 20 torneos, 60 eventos de un grupo, 60 partidas, 200 eventos y 200 participantes de una sala), siempre con un `order` que pone arriba lo más nuevo o lo mejor.",
+    "Es una decisión razonable para lo que la app muestra: una lista de pocos elementos por pantalla no necesita paginar, y el tope en `limit` acota el trabajo de la base. Un detalle honesto: la lectura de amistades (`src/util/juntos.ts`) ordena pero no pone `limit`. Con la cantidad de amigos que se espera no es un problema, pero es una consulta sin tope del lado del cliente; si existe un máximo del lado del servidor, no lo verifiqué."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/util/salas.ts",
+    "src/util/eventosNube.ts",
+    "src/util/encuestas.ts",
+    "src/util/grupos.ts",
+    "src/util/juntos.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "HATEOAS: la respuesta que dice qué se puede hacer después"
+  },
+  {
+   "t": "p",
+   "x": "Mirá lo que devuelve mi API al pedir un despacho pendiente y, después de despacharlo, el mismo despacho en ruta:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -H \"$L\" $S/despachos/300005 | python3 -c \"import sys,json; d=json.load(sys.stdin); print('estado:', d['estado']); [print(' ', k, v['metodo'], v['href'], v.get('cambia','')) for k,v in d['acciones'].items()]\"",
+     "s": "estado: pendiente\n  self GET /despachos/300005 \n  despachar PUT /despachos/300005 {'estado': 'en_ruta'}\n  cancelar PUT /despachos/300005 {'estado': 'cancelado'}"
+    },
+    {
+     "c": "# (se despacha el 300005 con PUT) y se vuelve a leer",
+     "s": "estado: en_ruta\n  self GET /despachos/300005 \n  entregar PUT /despachos/300005 {'estado': 'entregado'}"
+    }
+   ],
+   "cap": "Las acciones que ofrece el servidor dependen del estado del despacho. El despacho 300005 estaba pendiente (despachar o cancelar) y, ya en ruta, solo ofrece entregar."
+  },
+  {
+   "t": "p",
+   "x": "El servidor no entrega solo los datos: también dice qué se puede hacer ahora. Un despacho pendiente se puede despachar o cancelar; uno en ruta, solo entregar; y la opción de cancelar desaparece sin que el cliente tenga que saber la regla. Esa idea tiene nombre: [[HATEOAS]], siglas en inglés de «hipermedia como motor del estado de la aplicación». En la web de siempre funciona así. Una página HTML no te dice que existe `/carrito/pagar`: te muestra un botón, y el navegador, que no conoce tu tienda, lo sigue. Si el carrito está vacío, el servidor directamente no pone el botón. HATEOAS propone que una API se comporte igual: el cliente arranca en una dirección y avanza siguiendo los enlaces que vienen en las respuestas, sin armar direcciones por su cuenta."
+  },
+  {
+   "t": "cita",
+   "x": "if the engine of application state (and hence the API) is not being driven by hypertext, then it cannot be RESTful and cannot be a REST API.",
+   "autor": "Roy T. Fielding, «REST APIs must be hypertext-driven», 2008",
+   "fuente": "rest0803-fielding-2008"
+  },
+  {
+   "t": "p",
+   "x": "Fielding, que describió REST en su tesis doctoral, escribió eso en una nota de 2008 porque le molestaba que cualquier interfaz que usara HTTP se llamara REST [#rest0803-fielding-2008]. Es la razón más fuerte detrás de lo que viste en [@08-02] sobre qué es y qué no es REST: casi todas las APIs «REST» de la práctica reparten recursos y métodos, pero no son hipermedia. Casi nadie implementa HATEOAS completo. Mis motivos, que son criterio y no norma: en la mayoría de los casos el cliente es una app del mismo equipo, que ya conoce las direcciones y no gana nada con seguirlas; para las APIs de JSON no hay un cliente genérico dominante, como sí lo es el navegador con HTML; y cada respuesta pesa más y exige que el servidor calcule qué acciones ofrecer."
+  },
+  {
+   "t": "p",
+   "x": "Donde sí aparece, con otro nombre, es en la paginación. El cliente no arma la página 2: sigue el `siguiente` o el `Link rel=\"next\"`. Eso deja al servidor libre de cambiar de offset a cursor, o de cambiar el formato del cursor, sin que ningún cliente se entere. Es la parte barata y útil de la idea."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Ofrecer una acción no es validarla",
+   "x": "Que la respuesta no incluya «cancelar» para un despacho entregado no impide que alguien mande el PUT igual, con curl o con una app vieja. El servidor tiene que rechazarlo por su cuenta. Más abajo ves que el mío contesta 409."
+  },
+  {
+   "t": "h",
+   "x": "Que dos personas no se pisen: ETag e If-Match"
+  },
+  {
+   "t": "p",
+   "x": "Dos despachantes abren el despacho 300006 (destino Salta, 100 kg). Una cambia el destino a Tucumán. Otra, que lo había abierto antes, corrige el peso a 150 y guarda. Como PUT reemplaza la representación entera, el pedido de la segunda lleva el destino viejo. Esto es lo que pasa en una copia de mi API que no controla versiones:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "N=http://127.0.0.1:20834   # la misma API, pero esta copia NO exige If-Match",
+     "s": ""
+    },
+    {
+     "c": "# A y B leen el despacho 300006 (Salta, 100 kg). Después:",
+     "s": ""
+    },
+    {
+     "c": "curl -s -o /dev/null -w \"%{http_code}\\n\" -X PUT -H \"$A\" -H \"$J\" -d '{\"estado\":\"pendiente\",\"destino\":\"Tucumán\",\"peso_kg\":100}' $N/despachos/300006",
+     "s": "200"
+    },
+    {
+     "c": "curl -s -o /dev/null -w \"%{http_code}\\n\" -X PUT -H \"$A\" -H \"$J\" -d '{\"estado\":\"pendiente\",\"destino\":\"Salta\",\"peso_kg\":150}' $N/despachos/300006",
+     "s": "200"
+    },
+    {
+     "c": "curl -s -H \"$A\" $N/despachos/300006 | python3 -c \"import sys,json;d=json.load(sys.stdin);print('quedó:',d['destino'],d['peso_kg'])\"",
+     "s": "quedó: Salta 150"
+    }
+   ],
+   "cap": "Sin control de versión: A cambió el destino a Tucumán (200), B cambió el peso a 150 con el destino viejo (200), y el cambio de A desapareció sin ningún aviso."
+  },
+  {
+   "t": "p",
+   "x": "Los dos pedidos recibieron 200 y el cambio de la primera persona desapareció, sin error y sin que nadie se enterara. Es la [[actualización perdida]]: una [[condición de carrera]] ([@02-22]) a escala humana, donde lo que compite son dos ediciones basadas en la misma lectura."
+  },
+  {
+   "t": "p",
+   "x": "La salida habitual en una API es la [[concurrencia optimista]]: no se bloquea nada, se supone que los choques son raros y se detectan cuando ocurren. Se arma con el [[ETag]] que ya conocés de [@05-19] como validador de caché. Acá cumple una segunda función:"
+  },
+  {
+   "t": "pasos",
+   "pasos": [
+    {
+     "t": "La lectura trae una versión",
+     "x": "El `GET` devuelve el despacho con un encabezado `ETag: \"1\"`. El ETag es una etiqueta opaca de la versión actual: mi API usa el contador de versión, pero podría ser un hash. El cliente no debe interpretarla, solo guardarla."
+    },
+    {
+     "t": "La escritura la devuelve como condición",
+     "x": "El `PUT` incluye `If-Match: \"1\"`, que significa «aplicá esto solo si el despacho sigue en la versión 1». El RFC 9110 define este encabezado justamente para evitar el problema de la actualización perdida [#rfc9110]."
+    },
+    {
+     "t": "La base aplica la condición",
+     "x": "El servidor ejecuta `UPDATE despachos SET …, version = version + 1 WHERE id = $1 AND version = $5`. Si no tocó ninguna fila, alguien se adelantó (o el despacho no existe)."
+    },
+    {
+     "t": "Si falló, 412",
+     "x": "La respuesta es `412 Precondition Failed` y el cliente tiene que volver a leer, ver el cambio ajeno, reaplicar el suyo si sigue teniendo sentido y reintentar con el ETag nuevo."
+    }
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# otro despacho (300007, ETag \"1\"). A cambia el destino con If-Match:",
+     "s": ""
+    },
+    {
+     "c": "curl -s -o /dev/null -w \"%{http_code}\\n\" -X PUT -H \"$A\" -H \"$J\" -H 'If-Match: \"1\"' -d '{\"estado\":\"pendiente\",\"destino\":\"Tucumán\",\"peso_kg\":100}' $S/despachos/300007",
+     "s": "200"
+    },
+    {
+     "c": "h -X PUT -H \"$A\" -H \"$J\" -H 'If-Match: \"1\"' -d '{\"estado\":\"pendiente\",\"destino\":\"Salta\",\"peso_kg\":150}' $S/despachos/300007",
+     "s": "HTTP/1.1 412 Precondition Failed\nContent-Type: application/problem+json; charset=utf-8\n\n{\"type\":\"about:blank\",\"title\":\"Precondition Failed\",\"status\":412,\"detail\":\"Alguien modificó el despacho después de que lo leíste. Volvé a leerlo y reintentá.\"}"
+    },
+    {
+     "c": "curl -s -H \"$A\" $S/despachos/300007 | python3 -c \"import sys,json;d=json.load(sys.stdin);print('quedó:',d['destino'],d['peso_kg'])\"",
+     "s": "quedó: Tucumán 100"
+    },
+    {
+     "c": "h -X PUT -H \"$A\" -H \"$J\" -d '{\"estado\":\"pendiente\",\"destino\":\"Salta\",\"peso_kg\":150}' $S/despachos/300007",
+     "s": "HTTP/1.1 428 Precondition Required\nContent-Type: application/problem+json; charset=utf-8\n\n{\"type\":\"about:blank\",\"title\":\"Precondition Required\",\"status\":428,\"detail\":\"Mandá If-Match con el ETag que leíste.\"}"
+    }
+   ],
+   "cap": "Con If-Match: A pasa (200) y B recibe 412, así que el destino de A queda a salvo. Si el pedido ni siquiera trae If-Match, el servidor lo corta con 428."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La comprobación y la escritura son una sola operación",
+   "x": "Si el servidor leyera la versión, la comparara en JavaScript y después escribiera, entre una cosa y otra podría colarse otra escritura: el mismo problema, una capa más abajo. Por eso la condición `AND version = $5` va dentro del `UPDATE`: la base la evalúa y escribe de forma atómica sobre esa fila."
+  },
+  {
+   "t": "p",
+   "x": "Dos detalles más. El pedido sin `If-Match` terminó en `428 Precondition Required`: mi servidor exige la condición, y el RFC 6585 creó ese código para esto [#srv0703-rfc6585]. Y el mismo ETag sirve para lo que viste en [@05-19], porque con `If-None-Match` la lectura se vuelve condicional en el otro sentido:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "h -H \"$L\" $S/despachos/300005 | grep -E '^(HTTP|ETag)'",
+     "s": "HTTP/1.1 200 OK\nETag: \"2\""
+    },
+    {
+     "c": "h -H \"$L\" -H 'If-None-Match: \"2\"' $S/despachos/300005",
+     "s": "HTTP/1.1 304 Not Modified\nETag: \"2\""
+    }
+   ],
+   "cap": "Lectura normal con su ETag, y la misma lectura con If-None-Match: el servidor contesta 304 sin cuerpo porque la copia del cliente sigue vigente."
+  },
+  {
+   "t": "p",
+   "x": "Con `If-None-Match` el servidor contesta 304 sin cuerpo cuando la copia del cliente sigue vigente, y se ahorra mandar el despacho entero. Una etiqueta, dos usos: ahorrar bytes en las lecturas y no pisar cambios en las escrituras. El RFC pide una comparación fuerte para `If-Match`, porque la intención es frenar cualquier cambio de la representación [#rfc9110]."
+  },
+  {
+   "t": "p",
+   "x": "Falta cerrar la pareja que dejamos abierta, 409 y 412. Acá la versión es correcta (el `If-Match` coincide) pero el estado del despacho no permite el cambio:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# 300007 ya está en la versión 2; se pasa a en_ruta (If-Match 2) y a entregado (If-Match 3), y se intenta cancelar:",
+     "s": ""
+    },
+    {
+     "c": "h -X PUT -H \"$A\" -H \"$J\" -H 'If-Match: \"4\"' -d '{\"estado\":\"cancelado\",\"destino\":\"Tucumán\",\"peso_kg\":100}' $S/despachos/300007",
+     "s": "HTTP/1.1 409 Conflict\nContent-Type: application/problem+json; charset=utf-8\n\n{\"type\":\"about:blank\",\"title\":\"Conflict\",\"status\":409,\"detail\":\"Un despacho entregado no puede pasar a cancelado.\"}"
+    }
+   ],
+   "cap": "Un despacho entregado no puede cancelarse: la versión es la correcta (If-Match coincide), pero el estado del recurso no lo permite. Eso es 409, no 412."
+  },
+  {
+   "t": "p",
+   "x": "Un 412 dice «tu información está vieja»; un 409 dice «aunque tu información sea la actual, esto no se puede hacer». Se arreglan de maneras distintas: con el 412 el cliente relee y reintenta; con el 409 hay que cambiar de intención."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La otra salida: bloquear",
+   "x": "La alternativa es la concurrencia pesimista: bloquear el registro mientras alguien lo edita. Garantiza que no haya choques, a costa de que otros esperen y de bloqueos que quedan colgados si el cliente se desconecta. En pantallas donde una persona tarda minutos en editar, lo optimista casi siempre gana. En una operación que dura milisegundos dentro de la base, bloquear no cuesta casi nada, y es lo que elige Senda."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa ETag: bloquea dentro de la base",
+   "x": [
+    "Esto corresponde al commit 25e08fa. Busqué en `src` el uso de `ETag`, `If-Match` e `If-None-Match` y no aparece ninguno. Donde Senda tiene el riesgo de que dos pedidos choquen es en los duelos por turnos, y lo resuelve con una función de la base. En la última definición de `jugar_turno` (`supabase/migrations/20261127000000_seguridad.sql`), lo primero que hace es `select * … for update`, que bloquea la fila de la partida hasta terminar la operación. Después comprueba el estado con reglas del juego: si no es tu turno, `raise exception 'no_es_tu_turno'`; si la partida terminó, `partida_cerrada`.",
+    "Y antes de eso mira si ya existe una jugada con el mismo `cliente_id`: si existe, devuelve la partida como está, sin repetir nada. Así, un reintento de la app (tema de [@07-12]) no cuenta dos veces. Es el equivalente de las tres cosas de hoy: el bloqueo reemplaza al `If-Match`, el rechazo por turno hace de 409, y el identificador de cliente hace que reintentar sea seguro. Para el cliente, todo eso llega como un 400 con el texto del error, como viste antes."
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "src/util/juntos.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El mapa de decisiones y un límite que viene"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Situación",
+    "Qué conviene",
+    "Qué cuesta"
+   ],
+   "filas": [
+    [
+     "La lista es chica y siempre alcanza con «las últimas N»",
+     "`limit` y `order`, sin paginar",
+     "Nada: es lo que hace Senda"
+    ],
+    [
+     "Pantalla de administración con números de página y pocas miles de filas",
+     "Offset con tope de `limit`",
+     "Más lento hacia el final; puede repetir filas"
+    ],
+    [
+     "Historial que crece, scroll infinito o robots que bajan todo",
+     "Cursor con orden total (campo + id)",
+     "No salta a la página N; el total se cuenta aparte"
+    ],
+    [
+     "Hay que ordenar o filtrar por varias columnas",
+     "Lista blanca y un índice para cada combinación",
+     "Menos libertad para el cliente"
+    ],
+    [
+     "Dos personas pueden editar lo mismo",
+     "ETag con If-Match; 412 si cambió",
+     "El cliente debe releer y reintentar"
+    ],
+    [
+     "Una operación corta dentro de la base",
+     "Bloqueo de la fila (`for update`) y reglas de estado",
+     "Espera de quien llega segundo"
+    ]
+   ],
+   "cap": "Un resumen de criterio, no una norma: las situaciones reales mezclan varias filas."
+  },
+  {
+   "t": "p",
+   "x": "Quedó un código de la tabla sin explicar del todo: el 429. Ya lo viste una vez, en la API de práctica, con un token que admite 5 pedidos cada 2 segundos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "for i in 1 2 3 4 5 6 7; do curl -s -o /dev/null -D - -H \"Authorization: Bearer token-falso-limitado-0803\" \"$S/despachos?limit=1\" | grep -E '^(HTTP|Retry-After)' | tr '\\r\\n' '  '; echo; done",
+     "s": "HTTP/1.1 200 OK  \nHTTP/1.1 200 OK  \nHTTP/1.1 200 OK  \nHTTP/1.1 200 OK  \nHTTP/1.1 200 OK  \nHTTP/1.1 429 Too Many Requests  Retry-After: 2  \nHTTP/1.1 429 Too Many Requests  Retry-After: 2  "
+    }
+   ],
+   "cap": "El token limitado admite 5 pedidos cada 2 segundos. El sexto y el séptimo reciben 429 con Retry-After: 2. Es un contador de juguete: los algoritmos de verdad vienen en [@08-12]."
+  },
+  {
+   "t": "p",
+   "x": "El 429 le dice al cliente cuánto esperar (`Retry-After`), y por eso importa que un cliente lo respete en vez de insistir [#srv0703-rfc6585]. Cómo se decide cuántos pedidos permitir y cómo se cuentan es el tema de [@08-12]. Mañana, en [@08-04], mirás con qué formato viajan todos estos datos."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Para cada situación elegí el código de estado y decí qué debería hacer el cliente. (a) Un cliente manda `POST /despachos` con `peso_kg: \"mucho\"`. (b) Un token vencido pide la lista. (c) Un lector intenta cancelar un despacho. (d) Dos choferes marcan «entregado» el mismo despacho; el segundo pedido llega con un `If-Match` viejo. (e) Se pide `GET /despachos?limit=0`.",
+   "pista": "Preguntate por cada caso: ¿el servidor pudo leer el pedido? ¿sabe quién es? ¿tiene permiso? ¿hay una condición explícita en el pedido?",
+   "solucion": "(a) 422 si el cuerpo es JSON válido y el dato no cumple la regla (400 si tu convención usa 400 para todo): el cliente muestra qué corregir. (b) 401: renovar el token y repetir. (c) 403: no repetir, el token sirve pero no el permiso. (d) 412: el cliente vuelve a leer, ve que ya está entregado y no repite. (e) 400: el parámetro está mal formado o fuera de rango y el cliente lo corrige."
+  }
+ ],
+ "recap": [
+  "El código de estado le dice al cliente quién tiene que actuar: 400 y 422 piden corregir el pedido, 401 pide autenticarse, 403 no se arregla repitiendo, 409 es un choque con el estado y 412 es una condición del cliente que ya no se cumple.",
+  "Devolver 200 con el error adentro engaña a las cachés, a los paneles y a los reintentos. El nombre del renglón es decoración; el número es lo que cuenta.",
+  "La paginación por offset es simple pero cuesta más cuanto más profunda es la página (en esta VM, 0,4 ms al principio y 22 ms al final de 300.000 filas) y repite o saltea filas cuando la tabla cambia.",
+  "La paginación por cursor filtra con «después de esta fila» en vez de contar, mantiene el costo casi constante y no se corre, pero no salta a una página cualquiera y exige un orden total, con un campo único de desempate.",
+  "Los filtros se validan, el nombre de la columna para ordenar sale de una lista blanca y cada combinación permitida necesita un índice que la sostenga.",
+  "HATEOAS es que la respuesta diga qué se puede hacer después; casi nadie lo implementa completo, pero el `siguiente` de la paginación es su versión barata. Ofrecer una acción no reemplaza validarla.",
+  "ETag con If-Match evita la actualización perdida: si la versión cambió, el servidor contesta 412 y el cliente relee. La comprobación tiene que ser atómica, dentro del mismo UPDATE."
+ ],
+ "repaso": [
+  {
+   "p": "Un cliente manda `POST /despachos` con un JSON bien formado, pero con `peso_kg` igual a -5. ¿Qué código describe mejor el problema, si la API separa errores de lectura de errores de reglas?",
+   "o": [
+    "422: el servidor entendió el pedido pero los datos no cumplen las reglas",
+    "400: el pedido no se pudo leer y hay que reescribirlo desde cero",
+    "409: el pedido choca con un despacho que ya existe en el sistema",
+    "404: el servidor no encontró ningún recurso para ese pedido"
+   ],
+   "c": 0,
+   "e": "El JSON se leyó bien, así que no es un problema de sintaxis (400 sería para JSON cortado o parámetros mal formados). Tampoco hay un choque con el estado de un recurso (409) ni una dirección inexistente (404). Un valor sin sentido en un cuerpo bien formado es el caso típico de 422."
+  },
+  {
+   "p": "Una app usa offset con 20 filas por página, del más nuevo al más viejo. La persona termina de leer la página 1 y, antes de pedir la 2, entran 3 despachos nuevos. ¿Qué ve en la página 2?",
+   "o": [
+    "Las 3 últimas filas de la página 1 repetidas, arriba de las 17 siguientes",
+    "Las 20 filas siguientes, porque la base recuerda hasta dónde llegó",
+    "Un error 409, porque la lista cambió mientras la persona leía",
+    "Las 3 filas nuevas arriba de todo, sin ninguna repetida"
+   ],
+   "c": 0,
+   "e": "El offset cuenta posiciones y los 3 nuevos desplazan todo tres lugares hacia abajo, así que las últimas 3 de la página 1 caen al principio de la 2. La base no recuerda nada entre pedidos (de ahí el error de creer que sigue donde quedó), y no hay motivo para un 409: el pedido es válido, solo que las posiciones cambiaron."
+  },
+  {
+   "p": "En una tabla de 300.000 filas con un buen índice, `LIMIT 20 OFFSET 250000` es mucho más lento que `LIMIT 20 OFFSET 0`. ¿Por qué?",
+   "o": [
+    "La base recorre y descarta las 250.000 filas anteriores antes de devolver las 20",
+    "La red tarda más porque viajan las 250.000 filas hasta el cliente",
+    "Falta un índice, así que la base ordena toda la tabla en cada pedido",
+    "LIMIT se aplica después de armar la respuesta completa en el servidor"
+   ],
+   "c": 0,
+   "e": "Con el índice, la base lee en orden pero igual tiene que contar 250.000 filas para saber cuál es la primera de la página: lo mostró el plan con `actual rows=100020` para el offset 100.000. A la red solo llegan las 20 filas. Y el índice existe: lo que cuesta es el recorrido, no un ordenamiento total."
+  },
+  {
+   "p": "Una API pagina por cursor y ordena solo por `peso_kg`; 40 despachos pesan exactamente 120 kg y el cursor guarda solo el peso de la última fila. ¿Qué problema aparece?",
+   "o": [
+    "Al cortar entre esos 40, la página siguiente saltea o repite despachos de 120 kg",
+    "La base rechaza la consulta porque `peso_kg` no puede usarse para ordenar",
+    "El cursor deja de ser opaco y el cliente puede leer el peso de todos los despachos",
+    "Aparece un 412, porque el peso cambia la versión del despacho en cada página"
+   ],
+   "c": 0,
+   "e": "Con empates, «peso menor que 120» salta los despachos de 120 kg que no se mostraron, y «menor o igual» repite los ya mostrados. La solución es un orden total: el cursor lleva (peso_kg, id). El resto de las opciones inventa problemas: se puede ordenar por peso, el cursor no expone los datos de los otros despachos y el 412 no tiene que ver con la paginación."
+  },
+  {
+   "p": "Una API deja pasar el valor de `sort` directo al `ORDER BY` de la consulta. ¿Cuál es el riesgo y la defensa adecuada?",
+   "o": [
+    "Inyección de SQL; hay que aceptar solo órdenes de una lista blanca fija",
+    "Lentitud; hay que paginar siempre con cursor para evitar ordenar mucho",
+    "Resultados repetidos; hay que sumar siempre el `id` al final del orden",
+    "Ninguno, porque los parámetros del driver ya escapan cualquier texto"
+   ],
+   "c": 0,
+   "e": "El driver separa los **valores** del texto de la consulta, pero el nombre de una columna en ORDER BY no puede ir como parámetro: si se pega el texto de `sort` en la consulta, entra como código. Por eso se traduce desde una lista blanca. Las otras opciones describen problemas reales pero distintos (rendimiento, desempate) o directamente un error de concepto."
+  },
+  {
+   "p": "Dos usuarios leen el despacho con `ETag: \"1\"`. El primero guarda con `If-Match: \"1\"` y recibe 200. El segundo guarda después con el mismo `If-Match: \"1\"`. ¿Qué pasa y qué debería hacer su app?",
+   "o": [
+    "Recibe 412; su app debe releer el despacho, reaplicar su cambio y reintentar",
+    "Recibe 409; su app debe descartar el cambio porque el estado no lo permite",
+    "Recibe 200; el servidor combina los dos cambios de forma automática",
+    "Recibe 401; su app debe renovar el token y repetir el mismo pedido"
+   ],
+   "c": 0,
+   "e": "La versión ya es \"2\", así que la condición del segundo pedido es falsa y corresponde 412. El 409 sería para un choque con las reglas de estado y no con la versión. El servidor no fusiona nada por su cuenta, y el 401 habla de credenciales: acá el token sirve."
+  },
+  {
+   "p": "La respuesta de un despacho entregado no incluye la acción «cancelar». Un cliente viejo manda igual un PUT que lo pasa a cancelado, con el `If-Match` correcto. ¿Qué debe hacer el servidor?",
+   "o": [
+    "Rechazarlo con 409, porque las acciones ofrecidas no reemplazan la validación",
+    "Aceptarlo, porque el cliente presentó la versión correcta del despacho",
+    "Rechazarlo con 412, porque la versión del despacho ya no coincide",
+    "Aceptarlo y volver a incluir «cancelar» en la respuesta siguiente"
+   ],
+   "c": 0,
+   "e": "La versión coincide (no hay 412) pero la transición entregado a cancelado no está permitida, y eso es un choque con el estado del recurso: 409. El HATEOAS informa lo que se puede hacer, nunca lo impone: la regla se valida del lado del servidor siempre."
+  }
+ ],
+ "feynman": "Explicale a un amigo que maneja un depósito, sin usar la palabra «offset», por qué una lista de 300.000 despachos «se corre» cuando alguien entra uno nuevo mientras la estás leyendo, y cómo hace un servidor para que dos personas que editan el mismo despacho no se pisen. Usá una analogía tuya que no sea la de las páginas de un libro.",
+ "para_profundizar": [
+  {
+   "fuente": "rfc9110",
+   "nota": "La sección 15 define cada código de estado (leé 15.5.10, 15.5.13 y 15.5.21 para 409, 412 y 422) y la 13.1.1, el encabezado If-Match con el problema de la actualización perdida."
+  },
+  {
+   "fuente": "rest0803-no-offset",
+   "nota": "Explicación clara y con dibujos de por qué el offset repite filas y de cómo se arma la paginación por cursor en SQL, con ejemplos para varias bases de datos."
+  },
+  {
+   "fuente": "rest0803-fielding-2008",
+   "nota": "La nota original de Fielding sobre hipermedia. Leela entera para ver sus reglas y comparar con lo que hoy llaman «API REST»."
+  },
+  {
+   "fuente": "rest0803-postgrest-pag",
+   "nota": "Cómo pagina y cuenta PostgREST, la herramienta que usa Supabase (y Senda): Range, offset, límites y los tres tipos de conteo con sus costos."
+  }
+ ],
+ "videos": [
+  {
+   "q": "keyset pagination vs offset pagination postgres explained",
+   "por_que": "Para ver a otra persona comparar los dos métodos con un plan de ejecución, igual que hiciste hoy con los números."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "paginación",
+   "d": "Entregar una lista larga en pedazos, uno por pedido, en lugar de todo junto. Se hace por offset (saltar N filas) o por cursor (seguir desde una marca). Evita mandar megabytes que nadie va a mirar."
+  },
+  {
+   "t": "filtro",
+   "d": "Un parámetro del pedido (en la URL, por ejemplo `?estado=en_ruta`) que reduce el conjunto de resultados antes de ordenarlo y paginarlo. Un buen filtro se valida y se apoya en un índice."
+  },
+  {
+   "t": "ordenamiento",
+   "d": "El criterio con que el servidor ordena una lista antes de cortarla en páginas, por ejemplo `sort=-creado`. Para paginar bien tiene que ser un orden total, con una columna única de desempate."
+  },
+  {
+   "t": "HATEOAS",
+   "d": "Hypermedia As The Engine Of Application State: una idea de REST en la que las respuestas traen los enlaces y acciones posibles, y el cliente avanza siguiéndolos sin armar direcciones por su cuenta. Es la parte de REST que casi nadie implementa completa."
+  },
+  {
+   "t": "paginación por offset",
+   "d": "Paginar diciendo cuántas filas saltear (`LIMIT 20 OFFSET 40`). Permite ir a cualquier página, pero la base recorre y descarta lo salteado, y las filas se repiten o se pierden si la tabla cambia entre pedidos."
+  },
+  {
+   "t": "paginación por cursor",
+   "d": "Paginar con una marca de dónde terminó la página anterior y una condición «después de esta fila» (también llamada keyset). El costo no crece con la profundidad y no se corre, pero no permite saltar a una página cualquiera y exige un orden total."
+  },
+  {
+   "t": "actualización perdida",
+   "d": "Un error de concurrencia en el que dos personas leen el mismo registro, cada una lo modifica y la segunda en guardar pisa el cambio de la primera sin enterarse. Es una condición de carrera entre escrituras."
+  },
+  {
+   "t": "concurrencia optimista",
+   "d": "Una estrategia que no bloquea el registro al leerlo: supone que los choques son raros y los detecta al escribir, comparando una versión. En HTTP se hace con ETag e If-Match, y el choque se informa con 412."
+  }
+ ],
+ "siguiente": "JSON, XML, Protobuf y otros formatos. Hasta ahora todo viajó como JSON sin preguntar por qué; mañana lo medís contra otros formatos, ves qué dice un esquema y qué pasa con los números grandes.",
+ "fuentes_nuevas": [
+  {
+   "id": "rest0803-iana-status",
+   "t": "Hypertext Transfer Protocol (HTTP) Status Code Registry",
+   "a": "IANA",
+   "tipo": "doc",
+   "url": "https://www.iana.org/assignments/http-status-codes/http-status-codes.xhtml"
+  },
+  {
+   "id": "rest0803-pg-limit",
+   "t": "PostgreSQL 16: LIMIT and OFFSET",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/queries-limit.html"
+  },
+  {
+   "id": "rest0803-pg-filas",
+   "t": "PostgreSQL 16: Row and Array Comparisons (comparación de constructores de fila)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/functions-comparisons.html"
+  },
+  {
+   "id": "rest0803-no-offset",
+   "t": "We need tool support for keyset pagination",
+   "a": "Markus Winand (Use The Index, Luke)",
+   "tipo": "articulo",
+   "url": "https://use-the-index-luke.com/no-offset"
+  },
+  {
+   "id": "rest0803-postgrest-pag",
+   "t": "Pagination and Count (documentación de PostgREST, texto fuente en su repositorio)",
+   "a": "PostgREST",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/PostgREST/postgrest/main/docs/references/api/pagination_count.rst"
+  },
+  {
+   "id": "rest0803-github-pag",
+   "t": "Using pagination in the REST API (GitHub Docs)",
+   "a": "GitHub",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/rest/using-the-rest-api/using-pagination-in-the-rest-api"
+  },
+  {
+   "id": "rest0803-stripe-pag",
+   "t": "Pagination (Stripe API Reference)",
+   "a": "Stripe",
+   "tipo": "doc",
+   "url": "https://docs.stripe.com/api/pagination"
+  },
+  {
+   "id": "rest0803-rfc8288",
+   "t": "RFC 8288: Web Linking",
+   "a": "Mark Nottingham (IETF)",
+   "tipo": "rfc",
+   "anio": 2017,
+   "url": "https://www.rfc-editor.org/rfc/rfc8288"
+  },
+  {
+   "id": "rest0803-fielding-2008",
+   "t": "REST APIs must be hypertext-driven",
+   "a": "Roy T. Fielding",
+   "tipo": "articulo",
+   "anio": 2008,
+   "url": "https://roy.gbiv.com/untangled/2008/rest-apis-must-be-hypertext-driven"
+  }
+ ]
+}

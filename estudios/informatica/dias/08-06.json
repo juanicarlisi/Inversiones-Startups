@@ -1,0 +1,697 @@
+{
+ "id": "08-06",
+ "titulo": "OAuth 2.0 y OpenID Connect",
+ "bajada": "Recorrés el flujo de código de autorización con PKCE en un servidor de juguete, lo atacás a propósito y entendés qué hace Senda cuando guarda tu cuenta con Google.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Nombrar los cuatro roles de OAuth 2.0 y ubicar en un ejemplo quién autentica, quién autoriza y quién guarda los datos.",
+  "Seguir paso a paso el flujo de código de autorización con PKCE, distinguiendo lo que viaja por el navegador de lo que viaja directo.",
+  "Calcular un code_challenge S256 a mano y explicar por qué un código robado no sirve sin el verificador.",
+  "Explicar por qué el flujo implícito se abandonó y qué agrega OpenID Connect (el ID token) sobre OAuth.",
+  "Reconocer en el código de Senda qué parte del flujo existe y cuál depende de una configuración que está fuera del repositorio."
+ ],
+ "venis_de": "En [@08-05] viste tres formas de probar quién llama a una API, y que lo que va dentro de una app instalada no es secreto. Hoy se resuelve otro problema: cómo una app puede actuar en nombre de una persona sin conocer su contraseña.",
+ "se_apoya_en": [
+  "08-05",
+  "07-10",
+  "07-09",
+  "05-18",
+  "05-22",
+  "05-21"
+ ],
+ "gancho": [
+  "Ana dirige una pyme de transporte. El depósito de su cliente en Zárate guarda sus envíos en un sistema web, y ella quiere que una app de despacho de un tercero los lea para armar las rutas del día. La salida más fácil es darle a la app su usuario y su contraseña del depósito. Con eso la app lee, pero también puede borrar, cambiar datos y ver todo lo demás. Y Ana no puede quitarle el permiso sin cambiar una contraseña que usan otras cinco personas. (Escena inventada.)",
+  "OAuth 2.0 resuelve ese problema con una idea parecida a una autorización de retiro: Ana le dice al depósito «dejá que esta app haga estas cosas», el depósito le entrega a la app un permiso limitado y revocable, y la contraseña nunca sale de Ana. Hoy lo armás: un servidor de autorización de juguete, una app cliente y una API en tu máquina, con el flujo completo, tres ataques y lo que hace Senda cuando tocás «Guardar mi cuenta con Google»."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Delegar sin prestar la contraseña"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Darle tu contraseña a una app para que actúe en tu nombre tiene cinco problemas. La app recibe acceso total. Nadie puede limitarle el alcance. Para revocarla hay que cambiar la contraseña, y eso corta a todos los demás que la usan. La app tiene que guardar la contraseña, y si la roban se llevan la cuenta entera. Y cada app nueva es una más a la que le tenés que creer.",
+    "[[OAuth 2.0]] (RFC 6749, octubre de 2012) es un marco de **autorización delegada**: la persona le permite a una app acceder a algo suyo, y la app recibe un token de acceso en lugar de la contraseña [#rfc6749]. El estándar define cuatro roles:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Rol",
+    "Qué hace",
+    "En el laboratorio de hoy"
+   ],
+   "filas": [
+    [
+     "Dueño del recurso",
+     "Quien puede conceder acceso a lo suyo",
+     "Ana"
+    ],
+    [
+     "Cliente",
+     "La app que pide acceso en nombre del dueño",
+     "La app de despacho"
+    ],
+    [
+     "Servidor de autorización",
+     "Autentica al dueño, pregunta qué permite y emite tokens",
+     "Un servidor de juguete en el puerto 20806"
+    ],
+    [
+     "Servidor de recursos",
+     "Guarda los datos y acepta los tokens",
+     "La API de envíos, puerto 20826"
+    ]
+   ],
+   "cap": "Los cuatro roles de RFC 6749, sección 1.1. «Cliente» no dice dónde corre la app: puede ser un servidor, un teléfono o una página."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El estándar distingue dos tipos de cliente según su capacidad de guardar un secreto: los **confidenciales** (un servidor propio con acceso restringido) y los **públicos** (una app instalada en el teléfono, una página en el navegador) [#rfc6749]. Esa diferencia decide casi todo lo que sigue, porque, como viste en [@08-05], lo que viaja dentro de una app instalada no es secreto.",
+    "Tres palabras más. Un [[proveedor de identidad]] es el servicio que autentica a la persona y responde por quién es: Google, Apple, Microsoft, o el Keycloak de una empresa. Muchas veces es también el servidor de autorización, y en esta clase uso los dos nombres para la misma máquina. Un [[scope]] es el nombre de un permiso que la app pide, como `leer_envios`; el servidor decide cuáles concede y el token los lleva. Y *redirect URI* es la dirección a la que el servidor devuelve a la persona cuando termina."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Ana revoca el permiso de la app de despacho. Si la app hubiera usado la contraseña, ¿qué habría tenido que hacer Ana? ¿Y con OAuth?",
+   "resp": "Con la contraseña, cambiarla, y eso corta también a quienes la comparten. Con OAuth, el servidor de autorización invalida solo el token de esa app y nadie más se entera: la contraseña de Ana nunca salió de ella."
+  },
+  {
+   "t": "h",
+   "x": "El flujo de código de autorización, paso a paso"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Es el flujo que importa hoy. Hay dos canales. El **canal frontal** es todo lo que pasa por el navegador de Ana, que queda a la vista en direcciones, historial y logs. El **canal trasero** es la conversación directa entre la app y el servidor. La idea central: por el frontal solo viaja un **código** corto y de un solo uso. El token, que es lo que vale de verdad, viaja por el trasero."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Ana y su navegador",
+     "k": "cliente"
+    },
+    {
+     "n": "App de despacho",
+     "k": "servidor"
+    },
+    {
+     "n": "Servidor de autorización",
+     "k": "datos"
+    },
+    {
+     "n": "Servidor de recursos",
+     "k": "red"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 1,
+     "a": 0,
+     "t": "Abrí esta dirección de /authorize",
+     "d": "La app genera un verificador al azar, calcula su desafío (hash) y arma la dirección con client_id, redirect_uri, scope, state y code_challenge. Abre el navegador del sistema."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "GET /authorize con code_challenge",
+     "d": "Frontal. El servidor comprueba que client_id y redirect_uri estén registrados, con comparación exacta."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "Login y pantalla de consentimiento",
+     "resp": true,
+     "d": "El servidor autentica a Ana y le muestra lo que pide la app. En el laboratorio esto se simula con una cookie que dice que Ana ya entró y aprobó."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "Redirección a redirect_uri?code=…&state=…",
+     "d": "Frontal. La app recibe un código de un solo uso y comprueba que el state sea el que mandó. Todavía no tiene ningún token."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "POST /token con code y code_verifier",
+     "d": "Trasero: la app habla directo con el servidor. El verificador demuestra que es la misma app que inició el pedido."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "access_token (y id_token)",
+     "resp": true,
+     "d": "El servidor calcula el hash del verificador, lo compara con el desafío guardado y recién entonces emite los tokens."
+    },
+    {
+     "de": 1,
+     "a": 3,
+     "t": "GET /api/envios con Bearer",
+     "d": "La app usa el token como un bearer de [@08-05]."
+    },
+    {
+     "de": 3,
+     "a": 1,
+     "t": "200 con los envíos de Ana",
+     "resp": true,
+     "d": "El servidor de recursos mira el token y el scope concedido, nunca la contraseña de Ana."
+    }
+   ],
+   "cap": "El flujo de código de autorización con PKCE. Los pasos 2 y 4 pasan por el navegador; el 5 y el 6 no."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo armé en Node 22, con dos servidores locales de juguete (puertos 20806 y 20826, todo inventado). Primero, una ficha pública. Los proveedores que soportan OpenID Connect publican en `/.well-known/openid-configuration` un documento con sus direcciones [#api0806-oidc-discovery], así que la app no tiene que tenerlas escritas a mano:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "AS=http://127.0.0.1:20806; RS=http://127.0.0.1:20826; CB=http%3A%2F%2F127.0.0.1%3A20807%2Fcallback; RU=http://127.0.0.1:20807/callback",
+     "s": ""
+    },
+    {
+     "c": "curl -s $AS/.well-known/openid-configuration | python3 -m json.tool | sed -n 2,5p",
+     "s": "    \"issuer\": \"http://127.0.0.1:20806\",\n    \"authorization_endpoint\": \"http://127.0.0.1:20806/authorize\",\n    \"token_endpoint\": \"http://127.0.0.1:20806/token\",\n    \"jwks_uri\": \"http://127.0.0.1:20806/jwks.json\","
+    }
+   ],
+   "cap": "Servidor de juguete propio. Un proveedor real publica el mismo documento con muchas más líneas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora el primer paso de la app: inventar un **verificador** (una cadena al azar, nueva en cada intento) y calcular su **desafío**, el hash SHA-256 del verificador escrito en base64url. Después, la dirección de `/authorize`:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "pkce() { V=$(openssl rand -base64 48 | tr '+/' '-_' | tr -d '=\\n' | cut -c1-64); C=$(printf '%s' \"$V\" | openssl dgst -sha256 -binary | openssl base64 -A | tr '+/' '-_' | tr -d '='); }",
+     "s": ""
+    },
+    {
+     "c": "pkce; echo \"V=$V\"; echo \"C=$C\"",
+     "s": "V=0BJSu_oh9w1QujFoOXXhEcyDwQ9d8qxQcg4q6mRLToHcaTTD9yImM8uFu0EDmeDJ\nC=H6N0LvG2EA6wSQnySmrX3_Ba1a18bdOd4tgJknvOdF0"
+    },
+    {
+     "c": "autorizar() { LOC=$(curl -s -o /dev/null -D - -b 'as_sesion=ana-demo' \"$AS/authorize?response_type=code&client_id=app-despacho&redirect_uri=$CB&scope=$1&state=e41f9c&nonce=n7d2b8&code_challenge=$C&code_challenge_method=S256\" | tr -d '\\r' | sed -n 's/^[Ll]ocation: //p'); CODE=${LOC#*code=}; CODE=${CODE%%&*}; }",
+     "s": ""
+    },
+    {
+     "c": "autorizar 'openid%20leer_envios'; echo \"$LOC\"",
+     "s": "http://127.0.0.1:20807/callback?code=demo_code_xedAz73xID9p&state=e41f9c"
+    }
+   ],
+   "cap": "Los valores cambian en cada corrida. `autorizar` hace el GET a /authorize con la cookie que simula la sesión de Ana y se queda con el código de la redirección. Dos corridas de `pkce` dan resultados distintos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El servidor devolvió una **redirección 302** hacia `redirect_uri` con dos cosas: el `code` y el `state` que la app había mandado. La app compara el `state` con el suyo. Si no coincide, alguien le está mandando una respuesta que ella no pidió, y tiene que descartarla: es la defensa contra el *cross-site request forgery* de [@06-38]. Hasta acá no hay ningún token. Recién ahora viene el canal trasero:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -X POST $AS/token -d grant_type=authorization_code -d \"code=$CODE\" -d \"redirect_uri=$RU\" -d client_id=app-despacho -d \"code_verifier=$V\" > tok.json; python3 -m json.tool tok.json | cut -c1-100",
+     "s": "{\n    \"access_token\": \"demo_at_Jru9xWJw1Y75hFMC\",\n    \"token_type\": \"Bearer\",\n    \"expires_in\": 600,\n    \"scope\": \"openid leer_envios\",\n    \"id_token\": \"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRlbW8tMSJ9.eyJpc3MiOiJodHRwOi8vMTI3Lj\n}"
+    },
+    {
+     "c": "AT=$(python3 -c \"import json;print(json.load(open('tok.json'))['access_token'])\"); curl -s -w ' [%{http_code}]\\n' $RS/api/envios -H \"Authorization: Bearer $AT\"",
+     "s": "{\"de\":\"usr-ana-001\",\"envios\":[\"E-3001\",\"E-3002\"]} [200]"
+    },
+    {
+     "c": "curl -si -X POST $RS/api/envios -H \"Authorization: Bearer $AT\" | tr -d '\\r' | sed -n '1p;/^WWW/p'",
+     "s": "HTTP/1.1 403 Forbidden\nWWW-Authenticate: Bearer realm=\"envios\", error=\"insufficient_scope\", scope=\"escribir_envios\""
+    }
+   ],
+   "cap": "La respuesta del /token sigue el formato de RFC 6749 (sección 5.1). El `id_token` está recortado a 100 caracteres. La última llamada intenta escribir con un token que solo tiene `leer_envios`: el servidor de recursos responde 403 con el error `insufficient_scope` que define el RFC 6750."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en lo que pasó con el permiso. La app pidió `openid leer_envios` y eso fue lo que recibió; cuando intentó **escribir**, el servidor de recursos la frenó con 403 y le dijo exactamente qué scope le faltaba [#api0805-rfc6750]. El scope es el mismo principio de alcance mínimo de [@08-05], pero ahora lo concede la persona y puede ser distinto en cada app. Un servidor también puede conceder menos de lo que se le pidió."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "PKCE: por qué el código solo no alcanza"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Queda una pregunta incómoda. El código viaja por el canal frontal. ¿Qué pasa si alguien lo ve? El RFC 7636 describe el ataque para los clientes públicos: en un teléfono, la redirección vuelve a la app mediante un esquema de dirección propio de la app (algo como `miapp://auth`), y **una app maliciosa puede registrarse como manejadora del mismo esquema** e interceptar el código [#rfc7636]. Con el código, el atacante pide el token y entra como Ana. Como la app es pública, no hay secreto con el cual probar que el que pide el token es la app verdadera.",
+    "[[PKCE]] (*Proof Key for Code Exchange*, se pronuncia «pixi», RFC 7636, septiembre de 2015) soluciona esto sin guardar ningún secreto permanente. Para **cada** intento, la app inventa un secreto descartable, el *code verifier*, y manda en el paso 1 solo su hash, el *code challenge*. Cuando vuelve con el código, presenta el verificador. El servidor lo hashea, compara con el desafío guardado y recién entonces emite el token [#rfc7636]. Quien interceptó el código vio el desafío, pero un hash SHA-256 no se puede invertir, y sin el verificador el código no sirve."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": [
+    "El verificador es una cadena de 43 a 128 caracteres elegida con un generador aleatorio. El desafío se calcula como `BASE64URL(SHA256(verificador))`, y el RFC exige usar el método `S256` siempre que el cliente pueda; el método `plain` (el desafío es el propio verificador) existe solo por compatibilidad [#rfc7636]. El RFC trae un ejemplo con resultado fijo, que podés correr acá:"
+   ],
+   "titulo": "La cuenta de PKCE"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "const b64u = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\nasync function desafio(verificador) {\n  const h = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verificador));\n  return b64u(h);\n}\n// Vector de prueba del propio RFC 7636 (apéndice B)\nconst verificador = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk';\nconst esperado = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM';\nconsole.log('challenge  :', await desafio(verificador));\nconsole.log('coincide   :', (await desafio(verificador)) === esperado);\n\n// Y un verificador como el de Senda: 32 bytes al azar escritos en hexadecimal (64 caracteres)\nconst azar = Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) => b.toString(16).padStart(2, '0')).join('');\nconsole.log('largo      :', azar.length, '(el RFC pide entre 43 y 128)');\nconsole.log('challenge  :', await desafio(azar), '(43 caracteres)');\n",
+   "cap": "El primer par es el vector de prueba del apéndice B de RFC 7636: si tu código calcula ese resultado, el cálculo es correcto. El segundo verificador es al azar, así que cambia en cada corrida."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Probé qué pasa cuando un ladrón obtiene el código. Primero, sin el verificador. Después, con uno inventado. Y por último, qué le pasa a la app verdadera si el ladrón llegó antes:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "pkce; autorizar leer_envios; curl -s -w ' [%{http_code}]\\n' -X POST $AS/token -d grant_type=authorization_code -d \"code=$CODE\" -d \"redirect_uri=$RU\" -d client_id=app-despacho",
+     "s": "{\"error\":\"invalid_grant\",\"error_description\":\"falta code_verifier\"} [400]"
+    },
+    {
+     "c": "pkce; autorizar leer_envios; curl -s -w ' [%{http_code}]\\n' -X POST $AS/token -d grant_type=authorization_code -d \"code=$CODE\" -d \"redirect_uri=$RU\" -d client_id=app-despacho -d \"code_verifier=$(openssl rand -hex 32)\"",
+     "s": "{\"error\":\"invalid_grant\",\"error_description\":\"code_verifier no corresponde al code_challenge\"} [400]"
+    },
+    {
+     "c": "curl -s -w ' [%{http_code}]\\n' -X POST $AS/token -d grant_type=authorization_code -d \"code=$CODE\" -d \"redirect_uri=$RU\" -d client_id=app-despacho -d \"code_verifier=$V\"    # la app verdadera, con su verificador",
+     "s": "{\"error\":\"invalid_grant\",\"error_description\":\"codigo ya usado (se revocan los tokens que dio)\"} [400]"
+    }
+   ],
+   "cap": "Cada línea con `pkce; autorizar` representa un intento nuevo de la app, interceptado por un ladrón. La tercera usa el código de la segunda."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El ladrón no consiguió ningún token, que era lo importante. Pero la tercera línea muestra una consecuencia: **un código se puede usar una sola vez** y el servidor lo da por quemado apenas se presenta, aunque la presentación falle. El RFC 6749 lo exige y pide revocar los tokens emitidos con un código usado dos veces [#rfc6749]. La app verdadera tiene que arrancar de nuevo. Es una molestia, no un robo. Lo comprobé también con un código usado legítimamente y después reusado: el servidor lo rechazó y el token que había dado dejó de funcionar (401).",
+    "El RFC 9700, de enero de 2025, es la guía vigente de seguridad de OAuth. Dice que los clientes públicos **deben** usar PKCE, que para los confidenciales es recomendable, y que el servidor debe exigir el verificador cuando hubo desafío. También prefiere `S256`, porque `plain` expone el verificador en el primer pedido [#api0806-rfc9700]. Por eso el servidor del laboratorio rechaza un pedido sin PKCE."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un atacante lee en la redirección `?code=demo_code_xedAz73xID9p&state=e41f9c`, y en la dirección anterior vio también el `code_challenge`. ¿Puede calcular el verificador a partir del desafío?",
+   "resp": "No. El desafío es el SHA-256 del verificador, y esa función no se puede invertir; además el verificador tiene 256 bits al azar, así que probar valores tampoco sirve. Para obtener el token necesitaría el verificador, que nunca salió de la app."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": [
+    "PKCE protege el **código** durante la redirección. No protege contra un teléfono ya comprometido, ni evita que un token robado después de emitido se use: eso sigue siendo un bearer ([@08-05]). Tampoco reemplaza al parámetro `state`, aunque el RFC 9700 señala que PKCE también frena el ataque de falsificación de petición cuando se usa bien [#api0806-rfc9700]."
+   ],
+   "titulo": "Lo que PKCE no hace"
+  },
+  {
+   "t": "h",
+   "x": "Por qué el flujo implícito quedó atrás"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En OAuth 2.0 existía un segundo flujo, el **implícito** (`response_type=token`), que devolvía el access token directamente en la redirección, sin código ni paso trasero. Hoy está desaconsejado. El RFC 9700 lo explica: un token en la redirección puede filtrarse por el historial del navegador y los logs, puede reutilizarse si alguien lo captura, y no hay forma estándar de atarlo a un cliente concreto. La recomendación es que los clientes **no** lo usen y pasen al flujo de código con PKCE [#api0806-rfc9700].",
+    "El servidor del laboratorio ya sigue esa regla: ante `response_type=token` no emite nada y vuelve con un error. Lo mismo hace con un `redirect_uri` que no está registrado, y la diferencia importa. Si el servidor redirigiera igual a una dirección ajena, enviaría el código a un atacante, así que en ese caso **no redirige**, muestra el error y se detiene. Se exige coincidencia exacta de cadena [#api0806-rfc9700]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -w ' [%{http_code}]\\n' -b 'as_sesion=ana-demo' \"$AS/authorize?response_type=code&client_id=app-despacho&redirect_uri=http%3A%2F%2F127.0.0.1%3A9999%2Frobo&code_challenge=$C&code_challenge_method=S256\"",
+     "s": "{\"error\":\"invalid_request\",\"error_description\":\"client_id o redirect_uri no registrados\"} [400]"
+    },
+    {
+     "c": "curl -s -o /dev/null -D - -b 'as_sesion=ana-demo' \"$AS/authorize?response_type=token&client_id=app-despacho&redirect_uri=$CB&state=x2&code_challenge=$C&code_challenge_method=S256\" | tr -d '\\r' | sed -n 's/^[Ll]ocation: //p'",
+     "s": "http://127.0.0.1:20807/callback?error=unsupported_response_type&error_description=este+servidor+no+emite+tokens+en+la+redireccion+%28sin+flujo+implicito%29&state=x2"
+    },
+    {
+     "c": "curl -s -o /dev/null -D - -b 'as_sesion=ana-demo' \"$AS/authorize?response_type=code&client_id=app-despacho&redirect_uri=$CB&state=x3\" | tr -d '\\r' | sed -n 's/^[Ll]ocation: //p'",
+     "s": "http://127.0.0.1:20807/callback?error=invalid_request&error_description=se+exige+PKCE+con+S256&state=x3"
+    }
+   ],
+   "cap": "Tres pedidos mal armados: redirect_uri ajeno, flujo implícito y falta de PKCE. Los mensajes de error son del laboratorio."
+  },
+  {
+   "t": "h",
+   "x": "OpenID Connect: de «qué puede hacer» a «quién es»"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay un detalle que se pasa por alto. OAuth 2.0 habla de **permisos**, no de **identidad**. El access token es para la API: la app no debería abrirlo ni suponer que dice quién es la persona. Antes de OpenID Connect, cada proveedor inventaba su propio punto de acceso para «dame los datos del usuario», y cada app tenía que escribir una integración distinta para cada uno.",
+    "OpenID Connect (OIDC) es una capa estándar encima de OAuth 2.0 que agrega la pregunta que faltaba: quién se autenticó. Se activa pidiendo el scope `openid`, y con eso el servidor devuelve, junto al access token, un **ID token**. Es una credencial para la app, no para la API, y es un JWT: un formato de token firmado que se estudia en [@08-07] y que por hoy alcanza con leer como «tres partes separadas por puntos, la del medio con datos». Esos datos se llaman *claims*, y el estándar exige estos [#api0806-oidc-core]:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Claim",
+    "Qué dice",
+    "Qué tiene que comprobar la app"
+   ],
+   "filas": [
+    [
+     "`iss`",
+     "Quién emitió el token (una URL https)",
+     "Que sea el proveedor que esperaba"
+    ],
+    [
+     "`sub`",
+     "Identificador estable de la persona, único dentro de ese emisor",
+     "Es la clave para reconocerla; no uses el correo para eso"
+    ],
+    [
+     "`aud`",
+     "Para quién es: tiene que incluir el `client_id` de la app",
+     "Que sea su propio `client_id`"
+    ],
+    [
+     "`exp` e `iat`",
+     "Cuándo vence y cuándo se emitió",
+     "Que no esté vencido (con un margen chico)"
+    ],
+    [
+     "`nonce`",
+     "Valor que la app mandó en el pedido, devuelto sin cambios",
+     "Que coincida con el suyo: ata el token a este intento"
+    ]
+   ],
+   "cap": "Claims obligatorios del ID token según OpenID Connect Core 1.0; `nonce` va si la app lo mandó."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La app verifica la **firma** con las claves públicas del proveedor, que encuentra en el `jwks_uri` de la ficha que viste antes, y recién después mira los claims. Probalo con un ID token real emitido por el servidor del laboratorio y su clave pública:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "const idToken = \"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImRlbW8tMSJ9.eyJpc3MiOiJodHRwOi8vMTI3LjAuMC4xOjIwODA2Iiwic3ViIjoidXNyLWFuYS0wMDEiLCJhdWQiOiJhcHAtZGVzcGFjaG8iLCJpYXQiOjE3OTQ2MDExNzMsImV4cCI6MTc5NDYwMTQ3Mywibm9uY2UiOiIzNWVjMjFlMzQyNTUzOGUxIn0.SzS1hHw0SI-K01TYN7QMu0dvhlumHIhUB2asjcfZW9KxYqxp17zSMAUTyglwqOPT-ooAL4OSF5IOJ_NLr_Ktbdoocb522iX8erzv4qSKHANoZcWIOMFMevuHKOjMdbuxGFKpLGmrLm09zPq8fh75n_51k5Q9vfYQKq2cjx0DfHXcuPYR9EtHnm7MNtZexwg_e4k--a4OdqnhS6FYT4bp9IP5Myi2F_5RIHel-mnai39D2DZA0EdK_W6qK941I312pEVXQ-SdDMiULceSf9LTGGb7SPvrlxccuUtJnYtsma87hNImKv96TTzEofS1ZhaxlpZDNk8VoM9aQmDoOTejTg\";\nconst jwk = {\"kty\": \"RSA\", \"n\": \"tgHU79YWYVIDdJHGv-mFGI7RlG91ZerjHmw90faR6jeAWpozhFmpQ6RYr05Mcr3OckE2ZtIWO7qmkizk4CKzxlIBYYJIpX_tQ9EJWx2QZxvX0RxMDa06vUstTezlBaREd4LeJE2opoD5DCrf5gNcP4DpM59AmZMWmd4Bv6JkpcETgpb5dMJmnabLMM6aDjsPgbly2T6d_6w-j6ghAk6pVCHGJ869zlC7ub80Z6pTnubmpck_4nTIMpdDWzAFzkXE4l9xzWLeDT-o2imH2pS2uFObDuJTTha0LA3k8GBkDwiJEZW7D76w0_joj1AketemaG7hRcN1OY9SrUypNubCyQ\", \"e\": \"AQAB\", \"kid\": \"demo-1\", \"use\": \"sig\", \"alg\": \"RS256\"};\nconst dec = (s) => JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0))));\nconst [h, p, f] = idToken.split('.');\nconst clave = await crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);\nconst firma = Uint8Array.from(atob(f.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));\nconst firmaOk = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', clave, firma, new TextEncoder().encode(h + '.' + p));\nconst c = dec(p);\nconsole.log('firma válida :', firmaOk);\nconsole.log('emisor (iss) :', c.iss);\nconsole.log('para quién   :', c.aud);\nconsole.log('quién es     :', c.sub);\nconsole.log('emitido      :', new Date(c.iat * 1000).toISOString());\nconsole.log('vence        :', new Date(c.exp * 1000).toISOString());\n// Un verificador real también compara iss y aud con lo que espera, el nonce con el que mandó, y exp con la hora de ahora.\n// Este token fue emitido por el servidor de laboratorio y ya venció: la firma sigue siendo válida, la vigencia no.\nconsole.log('¿sigue vigente?', Date.now() / 1000 < c.exp);\n",
+   "cap": "El token se emitió con el servidor del laboratorio el 13-11-2026. La firma es válida; cuando lo corras, la última línea muestra que ya está vencido, y una app real lo rechazaría."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": [
+    "Un error frecuente es **usar un token para lo que no es**. El ID token dice quién se autenticó y es para la app: no se le manda a una API. El access token es para la API: la app no lo interpreta. Otro, usar el correo como identificador de la persona: el que no se repite nunca es `sub`, y el correo puede cambiar o pasar a otra persona."
+   ],
+   "titulo": "Dos tokens, dos destinatarios"
+  },
+  {
+   "t": "p",
+   "x": [
+    "«Entrar con Google» o «Continuar con Apple» es OIDC: la app te manda al proveedor, te autenticás ahí (la app nunca ve tu contraseña), y vuelve con un ID token que dice quién sos y, si lo pidió, un access token para leer más datos. Como el proveedor de identidad ya conoce a la persona, la app no necesita ni guardar contraseñas ([@07-09]) ni mandar correos de verificación."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": [
+    "Lo que enseña esta clase salió de los estándares y de la documentación al 13-11-2026: RFC 6749 (2012), RFC 7636 (2015), RFC 8252 sobre apps nativas (2017) y RFC 9700 sobre seguridad (enero de 2025) [#rfc6749] [#rfc7636] [#api0806-rfc8252] [#api0806-rfc9700], más OpenID Connect Core 1.0 [#api0806-oidc-core]. Los proveedores concretos cambian pantallas, nombres y límites: la forma del flujo se mantiene."
+   ],
+   "titulo": "Fuentes y fecha"
+  },
+  {
+   "t": "h",
+   "x": "Senda: PKCE contra Supabase, y Supabase contra Google"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda usa este flujo para un caso concreto: guardar el progreso con Google. La cuenta es anónima y la persona puede **vincularla** a Google sin cambiar de identidad, para recuperarla en otro teléfono. Mirá cómo se reparten los roles, porque son **dos** relaciones OAuth encadenadas."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "La app como cliente público de Supabase, con PKCE",
+   "x": [
+    "En `src/util/cuenta.ts`, la función `pkce()` genera el verificador con 32 bytes al azar escritos en hexadecimal (64 caracteres, dentro del rango de 43 a 128 que pide el RFC 7636) y calcula el desafío como el SHA-256 en base64, pasado a base64url sin relleno, exactamente la cuenta de la sección anterior. `vincularGoogle()` pide la dirección de autorización a Supabase (`GET /auth/v1/user/identities/authorize` con `code_challenge_method=s256` y `skip_http_redirect=true`, que hace que Supabase devuelva la dirección en vez de redirigir). Abre esa dirección en el navegador del sistema con `WebBrowser.openAuthSessionAsync` y espera la vuelta a `senda://auth`. Después canjea con `POST /auth/v1/token?grant_type=pkce`, mandando `auth_code` y `code_verifier`.",
+    "Varias cosas coinciden con lo que viste: cliente público, PKCE con S256, navegador externo (es lo que el RFC 8252 pide a las apps nativas [#api0806-rfc8252]) y una redirección a un esquema propio, `senda://auth`, declarado en `app.json`. Es justo el escenario del ataque que PKCE evita. Hay diferencias de nombre, porque el protocolo de Supabase no es el del RFC al pie de la letra: el parámetro se llama `auth_code` y no `code`, y el método se escribe en minúsculas. El servidor de Supabase compara el método sin distinguir mayúsculas (`strings.ToLower` en `flow_state.go`, rama `master` leída el 13-11-2026) [#api0806-supabase-flowstate], y el comentario de Senda dice que replica los pedidos de la biblioteca oficial.",
+    "Esto corresponde al commit `25e08fa` (9 de noviembre de 2026); el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/componentes/guardarProgreso.tsx",
+    "app.json"
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Segunda relación: Supabase es, a su vez, **cliente** de Google. Según la documentación de Supabase, para el inicio de sesión web con Google se crea un cliente OAuth en la consola de Google, con la dirección de retorno de Supabase como redirect URI autorizada, y se cargan el *client ID* y el *client secret* en el panel de Supabase [#api0806-supabase-google]. Supabase es entonces un cliente **confidencial**: guarda el secreto en su servidor. Y la app de Senda ni ve ni necesita el client ID ni el secreto de Google. Una búsqueda en `src` no encontró ningún `client_id`, `id_token` ni `nonce`: la app solo conversa con Supabase."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "App Senda",
+       "s": "cliente público",
+       "k": "cliente"
+      },
+      {
+       "t": "Supabase Auth",
+       "s": "servidor de autorización de la app y cliente de Google",
+       "k": "servidor",
+       "e": "PKCE (auth_code)"
+      },
+      {
+       "t": "Google",
+       "s": "proveedor de identidad",
+       "k": "datos",
+       "e": "código de autorización"
+      }
+     ],
+     "baja": "La persona se autentica en Google. A la app solo vuelve un código de Supabase, nunca nada de Google."
+    }
+   ],
+   "cap": "Las dos relaciones OAuth encadenadas. App ↔ Supabase usa PKCE porque la app es pública; Supabase ↔ Google usa un client ID y un secreto guardados en Supabase."
+  },
+  {
+   "t": "senda",
+   "titulo": "Qué está implementado y qué depende de afuera",
+   "x": [
+    "Está implementado en el código: `vincularGoogle()`, `entrarConGoogle()` (para recuperar una cuenta en otro teléfono) y los botones en `guardarProgreso.tsx`, con mensajes para los errores `google_ya_usada` y `google_no_disponible`. Una vez vinculada, Supabase mantiene el mismo `user.id` ([[autenticación]] de la cuenta anónima a una permanente), así que alias, amigos y grupos siguen. Eso es lo que Supabase llama *manual linking* y se activa con un ajuste del proyecto [#api0806-supabase-linking].",
+    "**Lo que no puedo comprobar desde el código** es si el proveedor Google, el *manual linking* y la dirección `senda://auth` están configurados en el panel de Supabase. El mapa técnico y la documentación de la app dicen que eso queda a cargo del fundador, y si falta, la app lo muestra como «no disponible». Tampoco verifiqué con la cuenta real el recorrido completo, porque no hay credenciales en este entorno. Lo que se puede afirmar es la mitad del cliente: está escrita y sigue el patrón correcto.",
+    "Y hay cosas que Senda **no** hace: no manda su propio `state` ni `nonce` (los maneja Supabase del lado de Google), no recibe ni verifica ID tokens, y no usa el flujo implícito. Ver quién se autenticó se hace después con `GET /auth/v1/user`, que devuelve las identidades vinculadas y el correo."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/componentes/guardarProgreso.tsx"
+   ]
+  }
+ ],
+ "recap": [
+  "OAuth 2.0 permite que una app actúe en nombre de una persona con un token limitado y revocable, sin conocer su contraseña. Tiene cuatro roles: dueño del recurso, cliente, servidor de autorización y servidor de recursos.",
+  "En el flujo de código, por el navegador solo viaja un código corto de un solo uso; el token se pide por un canal directo. El `state` ata la respuesta al pedido y el `redirect_uri` se compara de forma exacta.",
+  "PKCE hace que un código interceptado no sirva: la app manda el hash de un secreto descartable y lo prueba al canjear. Es obligatorio para clientes públicos y se usa con S256.",
+  "El flujo implícito entregaba el token en la redirección y está desaconsejado. Se usa código más PKCE.",
+  "OpenID Connect agrega identidad: scope `openid` y un ID token con `iss`, `sub`, `aud`, `exp` y `nonce` que la app tiene que verificar. El ID token es para la app y el access token es para la API.",
+  "En Senda, la app es un cliente público de Supabase con PKCE S256 y Supabase es cliente de Google. El código del cliente está; la configuración del proveedor en Supabase no se puede verificar desde el repositorio."
+ ],
+ "repaso": [
+  {
+   "p": "Una app instalada en el teléfono recibe en la redirección `?code=…`. Un atacante tiene otra app instalada que se registró para el mismo esquema de dirección y copia ese código. ¿Qué le impide obtener el token?",
+   "o": [
+    "El código vence en pocos segundos y siempre es demasiado tarde",
+    "El servidor exige el verificador de PKCE, que el atacante no conoce",
+    "El código viaja cifrado y el atacante no puede leerlo",
+    "El token solo se emite si el atacante conoce la contraseña de Ana"
+   ],
+   "c": 1,
+   "e": "El servidor guardó el hash del verificador y solo emite el token a quien lo presente; el atacante vio el código pero no el verificador. Un vencimiento corto ayuda, pero no es lo que frena este ataque. El código no viaja cifrado de aplicación a aplicación, y la contraseña de Ana nunca interviene en el canje."
+  },
+  {
+   "p": "¿Qué diferencia hay entre el access token y el ID token de OpenID Connect?",
+   "o": [
+    "Son lo mismo con dos nombres, y se pueden mandar a cualquier API",
+    "El access token es para la API; el ID token es para la app e informa quién se autenticó",
+    "El ID token da permisos y el access token dice quién es la persona",
+    "El access token siempre es un JWT y el ID token siempre es opaco"
+   ],
+   "c": 1,
+   "e": "El access token lo consume la API y expresa permisos. El ID token es para la app, que lo verifica para saber quién se autenticó. Mandar el ID token a una API o interpretar el access token son errores típicos. Que el access token sea o no un JWT depende del proveedor, no es una regla."
+  },
+  {
+   "p": "Un servidor de autorización recibe una petición con un `redirect_uri` que no está registrado para ese cliente. ¿Qué debe hacer?",
+   "o": [
+    "Redirigir igual y agregar el parámetro error al final",
+    "Responder con un error y no redirigir a esa dirección",
+    "Redirigir a la primera dirección registrada del cliente",
+    "Aceptarla si empieza igual que una registrada"
+   ],
+   "c": 1,
+   "e": "Redirigir a una dirección no confiable le entregaría el código a un tercero, así que se muestra el error y no se redirige. Elegir otra dirección o aceptar coincidencias parciales abre justo el hueco que la comparación exacta cierra."
+  },
+  {
+   "p": "El equipo móvil decide que, como su app es pública, va a guardar un `client_secret` dentro de la app para demostrar que es la app verdadera. ¿Qué problema tiene?",
+   "o": [
+    "El secreto dentro de la app se puede extraer, así que no prueba nada",
+    "OAuth no permite clientes con secreto",
+    "El secreto hace que el flujo sea más lento",
+    "El servidor rechaza clientes que tengan secreto"
+   ],
+   "c": 0,
+   "e": "Lo que está dentro de un paquete instalado se puede extraer, como viste en [@08-05]. Un secreto en el cliente público no identifica a nadie y ese es el motivo de existir de PKCE. OAuth sí admite clientes confidenciales con secreto, pero en un servidor, y el secreto no hace más lento el flujo."
+  },
+  {
+   "p": "Una página de la web usa el flujo implícito y el access token vuelve en la dirección de la redirección. ¿Cuál es el riesgo principal que señala el RFC 9700?",
+   "o": [
+    "El token puede quedar en el historial o en logs y reusarse si se filtra",
+    "El navegador no puede mostrar direcciones tan largas",
+    "El servidor no puede verificar el scope del token",
+    "El token no tendría vencimiento"
+   ],
+   "c": 0,
+   "e": "Un token en la URL puede filtrarse por el historial, los logs o los referers, y quien lo capture puede usarlo. No hay un mecanismo estándar para atarlo al cliente. El largo de la dirección no es el problema y los tokens del implícito sí pueden vencer."
+  },
+  {
+   "p": "Una app recibe un ID token válido (firma correcta) cuyo `aud` es el `client_id` de otra app. ¿Qué debe hacer?",
+   "o": [
+    "Aceptarlo, porque la firma es correcta",
+    "Rechazarlo, porque no fue emitido para ella",
+    "Aceptarlo solo si el `sub` es conocido",
+    "Aceptarlo y guardar el `aud` para después"
+   ],
+   "c": 1,
+   "e": "Una firma válida solo prueba que lo emitió el proveedor, no que sea para esta app. El `aud` debe incluir su propio `client_id`; si no, alguien podría reusar un token emitido a otra aplicación para entrar a la suya. El `sub` conocido no cambia eso."
+  },
+  {
+   "p": "Senda vincula una cuenta anónima con Google. ¿Qué parte del flujo hace la app de Senda y cuál Supabase?",
+   "o": [
+    "La app habla directo con Google y Supabase solo guarda el resultado",
+    "La app usa PKCE con Supabase, y Supabase usa su client ID y secreto con Google",
+    "La app guarda el client secret de Google y se lo pasa a Supabase",
+    "Supabase hace PKCE con Google y la app recibe el ID token de Google"
+   ],
+   "c": 1,
+   "e": "El código de la app no tiene ningún `client_id` ni secreto de Google: solo habla con Supabase, con PKCE. Supabase actúa como cliente confidencial de Google. Por eso la app no recibe tokens de Google ni los verifica."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó por qué «Entrar con Google» no le da su contraseña a la app, y qué papel juega el código corto y de un solo uso. Después contale qué le pasaría a un ladrón que se quede con ese código, usando el ejemplo de la autorización de retiro del depósito.",
+ "para_profundizar": [
+  {
+   "fuente": "rfc6749",
+   "nota": "El estándar de OAuth 2.0. Leé la sección 1 (roles y flujo), la 4.1 (código de autorización) y la 10.12 (protección contra falsificación de petición con `state`)."
+  },
+  {
+   "fuente": "rfc7636",
+   "nota": "PKCE en 30 páginas. La introducción describe el ataque de interceptación del código; el apéndice B trae el vector de prueba que corriste hoy."
+  },
+  {
+   "fuente": "api0806-rfc9700",
+   "nota": "La guía de seguridad vigente (enero de 2025). Leé la sección 2.1 sobre los flujos y los apartados de ataques contra la redirección."
+  },
+  {
+   "fuente": "api0806-oidc-core",
+   "nota": "OpenID Connect Core 1.0: la sección 2 define el ID token y sus claims, y la 3.1 el flujo de código."
+  }
+ ],
+ "videos": [
+  {
+   "q": "OAuth 2.0 authorization code flow with PKCE explained",
+   "por_que": "Para ver el mismo flujo dibujado por otra persona y comparar sus nombres de parámetros con los que usaste en el laboratorio."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "OAuth 2.0",
+   "d": "Marco estándar de autorización delegada: una persona permite que una app acceda a algo suyo, y la app recibe un token limitado y revocable en lugar de la contraseña. Define cuatro roles: dueño del recurso, cliente, servidor de autorización y servidor de recursos."
+  },
+  {
+   "t": "PKCE",
+   "d": "Proof Key for Code Exchange. Extensión de OAuth por la que la app inventa en cada intento un secreto descartable (verificador), manda su hash (desafío) al pedir el código y presenta el verificador al canjearlo. Un código interceptado no sirve sin él."
+  },
+  {
+   "t": "proveedor de identidad",
+   "d": "Servicio que autentica a las personas y responde por quién son, como Google, Apple o el Keycloak de una empresa. Con OpenID Connect entrega a las apps un ID token con esa información."
+  },
+  {
+   "t": "scope",
+   "d": "Nombre de un permiso que una app pide en OAuth, por ejemplo `leer_envios`. El servidor decide cuáles concede y el token los lleva; si la API recibe un pedido que necesita otro, responde 403 con `insufficient_scope`."
+  },
+  {
+   "t": "ID token",
+   "d": "Credencial de OpenID Connect dirigida a la app (no a la API) que dice quién se autenticó. Es un JWT con claims como `iss`, `sub`, `aud`, `exp` y `nonce`, que la app debe verificar."
+  },
+  {
+   "t": "flujo de código de autorización",
+   "d": "Flujo de OAuth en el que por el navegador viaja solo un código de un solo uso, que la app canjea por tokens en una llamada directa al servidor. Con PKCE, es el recomendado para apps públicas."
+  },
+  {
+   "t": "cliente público",
+   "d": "App que no puede guardar un secreto porque corre en el dispositivo de la persona: una app instalada o una página web. Por eso necesita PKCE en lugar de un client secret."
+  }
+ ],
+ "siguiente": "JWT por dentro: el formato de token que apareció hoy en el ID token, qué hay en cada una de sus tres partes, cómo se firma y qué se rompe cuando alguien lo verifica mal.",
+ "fuentes_nuevas": [
+  {
+   "id": "api0806-rfc9700",
+   "t": "RFC 9700: Best Current Practice for OAuth 2.0 Security (BCP 240)",
+   "a": "Lodderstedt, Bradley, Labunets, Fett (IETF)",
+   "tipo": "rfc",
+   "anio": 2025,
+   "url": "https://www.rfc-editor.org/rfc/rfc9700"
+  },
+  {
+   "id": "api0806-rfc8252",
+   "t": "RFC 8252: OAuth 2.0 for Native Apps (BCP 212)",
+   "a": "Denniss, Bradley (IETF)",
+   "tipo": "rfc",
+   "anio": 2017,
+   "url": "https://www.rfc-editor.org/rfc/rfc8252"
+  },
+  {
+   "id": "api0806-oidc-core",
+   "t": "OpenID Connect Core 1.0",
+   "a": "Sakimura, Bradley, Jones, de Medeiros, Mortimore (OpenID Foundation)",
+   "tipo": "doc",
+   "url": "https://openid.net/specs/openid-connect-core-1_0.html"
+  },
+  {
+   "id": "api0806-oidc-discovery",
+   "t": "OpenID Connect Discovery 1.0",
+   "a": "Sakimura, Bradley, Jones, Jay (OpenID Foundation)",
+   "tipo": "doc",
+   "url": "https://openid.net/specs/openid-connect-discovery-1_0.html"
+  },
+  {
+   "id": "api0806-supabase-google",
+   "t": "Login with Google (documentación de Supabase Auth)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/auth/social-login/auth-google"
+  },
+  {
+   "id": "api0806-supabase-linking",
+   "t": "Identity Linking (documentación de Supabase Auth)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/auth/auth-identity-linking"
+  },
+  {
+   "id": "api0806-supabase-flowstate",
+   "t": "supabase/auth: internal/models/flow_state.go (rama master)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/supabase/auth/master/internal/models/flow_state.go"
+  }
+ ]
+}
