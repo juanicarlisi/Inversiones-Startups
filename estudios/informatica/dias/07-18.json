@@ -1,0 +1,615 @@
+{
+ "id": "07-18",
+ "titulo": "Tareas programadas y procesos de fondo",
+ "bajada": "Dejás correr un cron de verdad y lo ves pisarse a sí mismo; después lo corregís con un candado de PostgreSQL y con un trabajo que se recupera solo de las corridas perdidas.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Leer y escribir expresiones cron de cinco campos, incluida la regla que suma el día del mes y el de la semana.",
+  "Explicar por qué un cron en zona con horario de verano tiene horas que no existen y horas que ocurren dos veces, y elegir cómo programar.",
+  "Distinguir una corrida solapada de una doble y elegir el candado adecuado (archivo, advisory lock, arriendo) más la idempotencia.",
+  "Diseñar una tarea programada por nivel y no por ventana para que se recupere de caídas.",
+  "Leer los trabajos programados de Senda y decir cuáles garantías están en el código y cuáles hay que verificar en la base viva."
+ ],
+ "venis_de": "En [@07-13] y [@07-17] viste trabajos que arrancan por un job o un pedido, con reintentos, y qué hacer cuando la otra punta no contesta. Hoy el que arranca el trabajo es el reloj, y aparecen tres preguntas nuevas: qué pasa si dos copias lo corren, si una corrida pisa a la anterior o si nadie lo corre.",
+ "se_apoya_en": [
+  "07-05",
+  "07-12",
+  "07-13",
+  "07-14",
+  "07-17"
+ ],
+ "gancho": [
+  "Todos los días a las 4:17 de la mañana de Buenos Aires, cuando nadie está mirando, la base de datos de Senda borra las respuestas del Espadeo que tienen más de 30 días y cierra las salas en vivo que quedaron abiertas. Nadie tocó nada. No llegó ningún pedido de ninguna app. Lo disparó el reloj.",
+  "Esa tarea tiene tres preguntas escondidas. ¿Quién despierta al reloj? ¿Qué pasa si una noche tarda más de lo normal y la siguiente ya empezó? ¿Y si esa noche el servidor estaba apagado, o dos servidores se despertaron a la vez? Hoy armás las respuestas con un programador de tareas de verdad, un candado de PostgreSQL y un trabajo que se pisa a sí mismo a propósito."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Cuando el que llama es el reloj"
+  },
+  {
+   "t": "p",
+   "x": "Hasta ahora, todo lo que hizo tu servidor empezaba porque alguien se lo pidió: un pedido HTTP ([@07-05]), un job en la cola ([@07-13]), un mensaje del broker ([@07-14]). Hay trabajo que no tiene a nadie que lo pida: cerrar el despacho del día a las 18:00, recalcular el stock cada noche, borrar lo vencido, mandar el resumen de la semana. Ese trabajo arranca por la hora, y se lo llama [[tarea programada]]: código que corre en un momento o con una frecuencia fijados de antemano, sin que nadie lo invoque."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Qué lo hace arrancar",
+    "Ejemplo",
+    "Quién decide cuándo"
+   ],
+   "filas": [
+    [
+     "Un pedido",
+     "`GET /pedidos/42`",
+     "El cliente"
+    ],
+    [
+     "Un mensaje en una cola",
+     "Un job de «mandar aviso»",
+     "Quien lo encoló"
+    ],
+    [
+     "La hora",
+     "Borrar respuestas viejas a las 4:17",
+     "Un reloj (tarea programada)"
+    ],
+    [
+     "Nada: está siempre encendido",
+     "Un worker que escucha la cola o un servicio que reintenta conexiones",
+     "Es un proceso de fondo permanente"
+    ]
+   ],
+   "cap": "Cuatro maneras de que el código corra. Un «proceso de fondo» es cualquier programa que trabaja sin atender un pedido directo; puede estar prendido todo el tiempo o despertarse por la hora."
+  },
+  {
+   "t": "p",
+   "x": "La diferencia con una cola importa para lo que sigue. Un job de cola nace cuando pasa algo y se hace una vez. Una tarea programada nace del calendario, y el calendario no sabe si la corrida anterior terminó, si el servidor existía a esa hora o si hay otra copia del programa que también miró el reloj. Todo el día de hoy es sobre esas tres cosas."
+  },
+  {
+   "t": "h",
+   "x": "Cron: cinco campos y un reloj que mira cada minuto"
+  },
+  {
+   "t": "p",
+   "x": "El programador más viejo y más copiado se llama [[cron]]. Es un programa de Unix que, una vez por minuto, mira una tabla de líneas (el *crontab*) y lanza los comandos cuya hora coincide con la actual. Cada línea tiene cinco campos de tiempo y después el comando. La versión que usé hoy es la de Debian y Ubuntu (paquete `cron` 3.0pl1-184ubuntu2), con la página de manual firmada por Paul Vixie [#back18-man-crontab]."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Campo",
+    "Valores",
+    "Ejemplo en `17 7 * * 1`"
+   ],
+   "filas": [
+    [
+     "minuto",
+     "0 a 59",
+     "17"
+    ],
+    [
+     "hora",
+     "0 a 23",
+     "7"
+    ],
+    [
+     "día del mes",
+     "1 a 31",
+     "cualquiera (`*`)"
+    ],
+    [
+     "mes",
+     "1 a 12",
+     "cualquiera (`*`)"
+    ],
+    [
+     "día de la semana",
+     "0 a 7 (0 y 7 son domingo)",
+     "1 = lunes"
+    ]
+   ],
+   "cap": "Rangos de uso común. Esa línea corre los lunes a las 07:17 según el reloj del servidor (en Senda, UTC)."
+  },
+  {
+   "t": "p",
+   "x": "Cuatro símbolos alcanzan: `*` (cualquiera), `,` (lista, como `1,15`), `-` (rango, como `9-17`) y `/` (paso, como `*/15`: cada 15). `*/15 * * * *` corre en los minutos 0, 15, 30 y 45 de cada hora; `* * * * *` corre cada minuto. Con esas cinco líneas armás casi cualquier calendario:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Expresión",
+    "Cuándo corre"
+   ],
+   "filas": [
+    [
+     "`* * * * *`",
+     "Todos los minutos"
+    ],
+    [
+     "`*/15 * * * *`",
+     "Cada 15 minutos, en punto"
+    ],
+    [
+     "`17 7 * * *`",
+     "Todos los días a las 07:17"
+    ],
+    [
+     "`0 18 * * 1-5`",
+     "De lunes a viernes a las 18:00"
+    ],
+    [
+     "`30 4 1,15 * *`",
+     "A las 04:30 del 1 y del 15 de cada mes"
+    ]
+   ],
+   "cap": "Cinco ejemplos de lectura rápida."
+  },
+  {
+   "t": "p",
+   "x": "Hay dos trampas que cualquiera pisa, y las probé con herramientas reales."
+  },
+  {
+   "t": "p",
+   "x": "**Primera trampa: el día del mes y el día de la semana se suman.** Si escribís `0 9 13 * 5` pensando en «los viernes 13 a las 9», la intuición dice que hace falta que sea 13 *y* viernes. El manual de Vixie dice otra cosa: cuando los dos campos tienen valores, el comando corre si coincide *cualquiera* de los dos [#back18-man-crontab]. Le pedí a `croniter` 7.0.0 (una biblioteca de Python que implementa esa sintaxis) las próximas ocho fechas desde el 1 de diciembre de 2026:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 or.py   # croniter('0 9 13 * 5', desde 2026-12-01)",
+     "s": "Fri 04-12-2026 09:00 \nFri 11-12-2026 09:00 \nSun 13-12-2026 09:00 <- día 13\nFri 18-12-2026 09:00 \nFri 25-12-2026 09:00 \nFri 01-01-2027 09:00 \nFri 08-01-2027 09:00 \nWed 13-01-2027 09:00 <- día 13"
+    }
+   ],
+   "cap": "Corre todos los viernes y además todos los 13. Salida real, Python 3.13. La documentación de pg_cron aclara que su analizador sale del código de cron de Paul Vixie, así que la regla vale ahí también [#back18-pgcron-readme]."
+  },
+  {
+   "t": "p",
+   "x": "**Segunda trampa: el `%`.** En un crontab, el signo `%` sin escapar se convierte en un salto de línea y todo lo que sigue se manda como entrada del comando [#back18-man-crontab]. Es fácil caer en eso al usar `date +%T`. Lo vas a ver corriendo en un minuto: puse una línea con `%` sin escapar y otra con `\\%`."
+  },
+  {
+   "t": "h",
+   "x": "Zonas horarias y horario de verano"
+  },
+  {
+   "t": "p",
+   "x": "Un cron dispara según el reloj de la máquina donde corre. En Debian y Ubuntu, el manual es explícito: no hay zonas por usuario, todas las tareas corren con la zona configurada en el sistema, y poner `TZ` en el crontab solo afecta a los comandos, no a cuándo se disparan [#back18-man-crontab]. Los programadores en la nube suelen resolverlo con otra regla: GitHub Actions corre sus `schedule` en UTC por defecto [#back18-gha-events] y pg_cron usa GMT salvo que se configure `cron.timezone` [#back18-pgcron-readme]. Una regla práctica (criterio mío) es programar todo en UTC y convertir a mano, en un comentario, la hora local que te importa."
+  },
+  {
+   "t": "p",
+   "x": "El problema aparece con el horario de verano. Recorrí con Node 22.23.4 (base de zonas horarias 2026e) los instantes UTC cercanos a los dos cambios de 2026 en Nueva York y miré qué hora marcaba el reloj local:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node dst.js",
+     "s": "8-3-2026, se adelanta el reloj:\n  06:00Z -> 01:00 GMT-5\n  06:30Z -> 01:30 GMT-5\n  07:00Z -> 03:00 GMT-4\n  07:30Z -> 03:30 GMT-4\n  08:00Z -> 04:00 GMT-4\n1-11-2026, se atrasa el reloj:\n  05:00Z -> 01:00 GMT-4\n  05:30Z -> 01:30 GMT-4\n  06:00Z -> 01:00 GMT-5\n  06:30Z -> 01:30 GMT-5\n  07:00Z -> 02:00 GMT-5\nBuenos Aires, el día 15 de cada mes de 2026: GMT-3"
+    }
+   ],
+   "cap": "Salida real. El 8 de marzo la hora 02:xx no existe: se salta de 01:30 a 03:00. El 1 de noviembre la hora 01:30 ocurre dos veces. Buenos Aires se queda en GMT-3 todo 2026 según esa base."
+  },
+  {
+   "t": "p",
+   "x": "Una tarea de las `02:30` en hora de Nueva York no tiene dónde correr el 8 de marzo, y una de las `01:30` tiene dos lugares el 1 de noviembre. Qué hace cada programador es decisión suya: el cron de Vixie, según su manual, ejecuta pronto lo que cayó en la hora salteada y no repite lo que cae en la hora repetida, pero solo para las tareas con hora fija, no para las de comodín como `*/15` [#back18-man-cron]; GitHub, ahora que acepta una clave `timezone`, la adelanta a las 3:00 en los saltos [#back18-gha-events]. Moraleja: elegí horas fuera de las 00:00 a 04:00 locales si programás con zona con horario de verano, o programá en UTC. Con Senda hay un detalle de vigencia: Argentina no tiene horario de verano hoy, y por eso `07:17` UTC es `04:17` todo el año; si la regla cambiara, la tarea se correría una hora sin avisar."
+  },
+  {
+   "t": "pensa",
+   "x": "Un cron de servidor con zona de Nueva York tiene `30 2 * * *`. ¿Qué pasa el 8 de marzo de 2026?",
+   "resp": "Las 02:30 no existen ese día porque el reloj salta de 01:59 a 03:00. Según el manual de Vixie, la tarea se ejecuta poco después del cambio. Otros programadores la saltean o la adelantan, así que con horas fijas en una zona con horario de verano el comportamiento depende del programa."
+  },
+  {
+   "t": "h",
+   "x": "Que no corran dos a la vez: la ejecución única"
+  },
+  {
+   "t": "p",
+   "x": "Primera pregunta del principio: ¿qué pasa si el trabajo tarda más que el intervalo? Para verlo dejé corriendo un `cron` de verdad. No lo instalé en el sistema: lo extraje del paquete y lo corrí dentro de un espacio de nombres propio de Linux con su propia carpeta de crontabs, así no toca la VM compartida. Tres líneas, todas de `* * * * *`:"
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "* * * * * /ruta/trabajo.sh A-sin-proteccion >> /ruta/A.log 2>&1\n* * * * * flock -n /ruta/trabajo.lock /ruta/trabajo.sh B-con-flock >> /ruta/B.log 2>&1 || echo \"$(date +\\%T) B-con-flock salteada: ya hay una corriendo\" >> /ruta/B.log\n* * * * * echo \"C: hora $(date +%T)\" >> /ruta/C.log",
+   "cap": "El crontab de la prueba, con las rutas acortadas. `trabajo.sh` imprime la hora, duerme 90 segundos y vuelve a imprimir la hora."
+  },
+  {
+   "t": "lista",
+   "ord": false,
+   "items": [
+    "**A**: corre `trabajo.sh`, un script que tarda 90 segundos. Sin ninguna protección.",
+    "**B**: el mismo script, pero envuelto en `flock -n archivo`, que toma un candado sobre un archivo y, si ya está tomado, falla en lugar de esperar.",
+    "**C**: una línea que usa `date +%T` con el `%` sin escapar."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat A.log",
+     "s": "19:37:01 A-sin-proteccion inicia   (pid 15)\n19:38:01 A-sin-proteccion inicia   (pid 29)\n19:38:31 A-sin-proteccion termina  (pid 15)\n19:39:01 A-sin-proteccion inicia   (pid 52)\n19:39:31 A-sin-proteccion termina  (pid 29)\n19:40:01 A-sin-proteccion inicia   (pid 87)\n19:40:31 A-sin-proteccion termina  (pid 52)\n19:41:01 A-sin-proteccion inicia   (pid 101)"
+    },
+    {
+     "c": "cat B.log",
+     "s": "19:37:01 B-con-flock inicia   (pid 18)\n19:38:01 B-con-flock salteada: ya hay una corriendo\n19:38:31 B-con-flock termina  (pid 18)\n19:39:01 B-con-flock inicia   (pid 54)\n19:40:01 B-con-flock salteada: ya hay una corriendo\n19:40:31 B-con-flock termina  (pid 54)\n19:41:01 B-con-flock inicia   (pid 103)"
+    },
+    {
+     "c": "ls C.log",
+     "s": "ls: cannot access 'C.log': No such file or directory"
+    }
+   ],
+   "cap": "Salida real del cron 3.0pl1-184ubuntu2 en la VM del curso, primeros 4 minutos de cada registro. Cada minuto cron lanza A y B; el script dura 90 s. Las horas son del reloj de la VM."
+  },
+  {
+   "t": "p",
+   "x": "Mirá A. La primera copia (pid 15) arranca a las 19:37:01 y termina a las 19:38:31, pero la segunda (pid 29) ya había arrancado a las 19:38:01: durante 30 segundos hubo dos copias a la vez, y de ahí en adelante siempre hay una o dos corriendo. Si el trabajo escribiera en una tabla, las dos podrían procesar las mismas filas. En B, a las 19:38:01 `flock -n` falla y se imprime «salteada»; cuando la primera termina (19:38:31) el candado queda libre, y el siguiente disparo, el de las 19:39:01, entra. B corre una vez cada dos minutos, nunca superpuesta, y renuncia a algunos disparos a propósito: «si ya hay una corriendo, no hace falta otra». Eso es la [[ejecución única]] en su forma más simple."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "C nunca escribió nada: el `%` partió la línea y el comando quedó incompleto, sin ningún error a la vista. Es la falla típica de las tareas programadas: ocurre cuando nadie mira la pantalla y no deja rastro, salvo que vos lo busques.",
+   "titulo": "El error que nadie ve"
+  },
+  {
+   "t": "p",
+   "x": "`flock` resuelve el problema en **una sola máquina**, porque el candado es un archivo local. Si hay dos servidores que despiertan a la misma hora (el caso típico cuando escalás de uno a dos), cada uno tiene su archivo y los dos corren. Hace falta un candado en un lugar que vean todos. Una base de datos compartida sirve, y PostgreSQL trae uno hecho: el *advisory lock* (candado consultivo). Se llama así porque el motor no bloquea nada por sí solo: es un candado con un número que elegís vos, y funciona solo si todos los que corren el trabajo piden el mismo número [#back18-pg-explicit-locking]."
+  },
+  {
+   "t": "pensa",
+   "x": "Tenés dos servidores iguales, cada uno con su cron y el trabajo envuelto en `flock -n /tmp/trabajo.lock`. A las 04:17 despiertan los dos. ¿Corre una sola copia?",
+   "resp": "No: cada servidor tiene su propio archivo `/tmp/trabajo.lock`, así que cada `flock` ve su candado libre y los dos corren. Un candado de archivo solo sirve dentro de una máquina."
+  },
+  {
+   "t": "p",
+   "x": "Levanté un PostgreSQL 16.15 propio y probé dos instancias del mismo programador que despiertan a la vez. `pg_try_advisory_lock` no espera: devuelve verdadero si tomó el candado y falso si ya estaba tomado."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./locks1.sh",
+     "s": "A|t\nB|f\nB ve en pg_locks:|20650|advisory|7001|t\nA: termina y se desconecta\nB reintenta:|t"
+    }
+   ],
+   "cap": "Salida real, PostgreSQL 16.15 en la VM, dos sesiones de `psql`. A toma el candado 7001 y duerme 4 s; B lo intenta 1 s después y no puede; cuando A se desconecta, B lo consigue. El `20650` es el pid del proceso del servidor que atiende a A."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Un advisory lock es como la llave del pañol de herramientas del depósito: quien la tiene, entra, y los demás esperan. Pero nada impide que alguien entre por otra puerta sin pedir la llave: por eso se llama consultivo, y solo funciona si todos la piden. La analogía falla en que una llave física no vuelve sola si su dueño se desmaya, mientras que el servidor sí libera el candado de sesión cuando la conexión muere (con la demora que vas a ver)."
+  },
+  {
+   "t": "p",
+   "x": "Hay dos tipos. El de **sesión** dura hasta que lo soltás o hasta que la conexión se cierra. El de **transacción** (`pg_advisory_xact_lock`) se libera solo al terminar la transacción, y es el que sirve con un *pool* de conexiones: PgBouncer en modo de pool por transacción, que reparte las conexiones entre clientes, directamente no admite los candados de sesión [#back18-pgbouncer-features]. Para el de transacción, la regla de PostgreSQL es que se libera sola al terminar [#back18-pg-explicit-locking]. Y el de sesión tiene un detalle que probé: si el programa dueño del candado muere de golpe, el candado lo libera el servidor, pero solo cuando se da cuenta de que la conexión murió."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./locks2.sh   # kill -9 a quien tiene el candado, mientras su sesión ejecuta una consulta larga",
+     "s": "mato a A con kill -9\nB (1 s después)|f\nB (7 s después)|f"
+    },
+    {
+     "c": "./locks3.sh   # igual, pero A hizo SET client_connection_check_interval = '1s'",
+     "s": "mato a A con kill -9\nB (1 s después)|t"
+    }
+   ],
+   "cap": "Salida real. Con la configuración por defecto, a los 7 segundos el candado seguía tomado porque el servidor sigue ocupado en la consulta de A y no mira si el cliente se murió. Con la verificación activada cada 1 segundo, se libera en cuanto la nota. Es un parámetro de PostgreSQL 16, apagado por defecto, que solo mira mientras corre una consulta; contra un corte de red real, la documentación agrega que hay que ajustar también los keepalive de TCP [#back18-pg-conn-check]."
+  },
+  {
+   "t": "p",
+   "x": "Cuando el candado no vive en una base sino con vencimiento (por ejemplo, una clave en Redis que expira), se llama *lease* o arriendo: si el dueño se cuelga, el arriendo vence y otro lo toma. Eso arregla el candado huérfano pero abre otro problema. Martin Kleppmann lo explica con un caso: el dueño se pausa (una recolección de basura, por ejemplo) más tiempo que el arriendo, el arriendo vence, otro lo toma, y el primero despierta creyendo que sigue siendo el dueño y escribe [#back18-kleppmann-locking]. Su remedio es un número que sube con cada arriendo (*fencing token*) y que el almacenamiento usa para rechazar al que llega con un número viejo. Si no podés hacer eso, queda la salida de todos los días: que el trabajo sea seguro aunque corra dos veces, es decir, idempotente ([@07-12])."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": "La **ejecución única** no se consigue con un truco: se consigue con dos defensas juntas. Un candado que evita la mayoría de las corridas dobles, y un trabajo idempotente que no se rompe en las pocas que se escapen. El candado ahorra trabajo; la idempotencia protege los datos.",
+   "titulo": "Dos defensas, no una"
+  },
+  {
+   "t": "p",
+   "x": "¿Y si lo único que necesitás es que dos pedidos simultáneos no pasen los dos por una verificación? Es la misma herramienta usada en otro lugar. En Senda, la función `reclamar_trivia` (en la base) toma un candado de transacción con el identificador de la persona antes de mirar si le quedan cupos. Lo reproduje en chiquito: una tabla con un cupo por persona y una función que mira si hay cupo, trabaja un segundo y anota. Dos pedidos de la misma persona llegan con 0,3 segundos de diferencia:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./carrera.sh",
+     "s": "pedido 1: reclamado\npedido 2: reclamado\ncon candado = false -> filas en cupo para ana: 2\npedido 1: reclamado\npedido 2: sin_cupo\ncon candado = true -> filas en cupo para ana: 1"
+    }
+   ],
+   "cap": "Salida real, PostgreSQL 16.15. Sin candado, los dos pedidos miran antes de que el otro anote y se cuelan los dos. Con `pg_advisory_xact_lock(hashtext('trivia:' || persona))`, el segundo espera, ve que el cupo ya está y recibe `sin_cupo`. Es mi versión simplificada del patrón; la de Senda tiene más condiciones."
+  },
+  {
+   "t": "h",
+   "x": "Tareas perdidas: cuando nadie despierta"
+  },
+  {
+   "t": "p",
+   "x": "La tercera pregunta del principio: ¿y si a la hora marcada no había nadie? La máquina estaba apagada, el programa se estaba redeplegando, la base estaba pausada, el proveedor llegó tarde. Cron examina su tabla una vez por minuto, según su manual, y no tiene ninguna función para recuperar lo que no corrió. Por eso en los sistemas que se apagan existe `anacron` (el crontab de ejemplo del manual de Debian delega las tareas diarias en él cuando está instalado [#back18-man-crontab]), y los temporizadores de systemd tienen la opción `Persistent=`: guardan en disco la última vez que corrieron y, al volver, disparan enseguida lo que se perdieron [#back18-systemd-timer]."
+  },
+  {
+   "t": "p",
+   "x": "En la nube pasa algo parecido, y está documentado. La página de eventos de GitHub Actions avisa que un `schedule` puede demorarse en horas de mucha carga, que esas horas incluyen el comienzo de cada hora, que con suficiente carga algunos trabajos en cola pueden descartarse, y que en un repositorio público los workflows programados se desactivan solos tras 60 días sin actividad [#back18-gha-events]. Con esas advertencias, GitHub recomienda un minuto que no sea el de la hora en punto. Brooker, de Amazon, cuenta lo mismo desde el lado del servidor: los trabajos periódicos que arrancan todos al segundo cero de cada minuto o de cada medianoche generan picos de carga, y por eso agregan jitter a los trabajos programados [#red31-aws-backoff-jitter]."
+  },
+  {
+   "t": "p",
+   "x": "La defensa más barata es de diseño, y se puede medir. Hay dos maneras de escribir el trabajo que manda avisos programados. La de **ventana** mira «lo que vencía en el último minuto». La de **estado** mira «todo lo que venció y todavía no mandé». Armé una tabla de 12 avisos con hora de envío entre el minuto 0 y el 9, un enviador que corre cada minuto y una caída de cinco minutos (3 al 7):"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./perdidas.sh",
+     "s": "por ventana (borde): 6 de 12 enviados | por estado (nivel): 12 de 12 enviados"
+    }
+   ],
+   "cap": "Salida real, PostgreSQL 16.15, con reloj simulado. La versión por ventana pierde para siempre lo que vencía mientras estuvo caída; la versión por estado lo recupera en la siguiente corrida."
+  },
+  {
+   "t": "p",
+   "x": "Los electrónicos llaman *por flanco* a lo primero (reacciona al instante en que algo cambia) y *por nivel* a lo segundo (mira cómo está ahora). Para tareas programadas casi siempre conviene el nivel: la corrida no depende de que no se haya perdido ninguna anterior. Y sirve igual para el otro problema, el del doble disparo: si todo lo que venció se marca como hecho, una segunda corrida inmediata no encuentra nada que hacer, que es idempotencia sin esfuerzo."
+  },
+  {
+   "t": "p",
+   "x": "Falta saber que algo se perdió. Un trabajo que falla en silencio es peor que uno que falla fuerte. pg_cron guarda cada corrida en la tabla `cron.job_run_details` (con la salida y si falló) salvo que se apague `cron.log_run` [#back18-pgcron-readme]; Supabase recomienda no más de 8 trabajos corriendo a la vez y que cada uno dure menos de 10 minutos [#back18-supabase-cron]. En lo demás, una práctica habitual es avisar cuando *no* llega la señal esperada (un «dead man’s switch»). Es criterio, no norma: no hay un estándar que la defina."
+  },
+  {
+   "t": "h",
+   "x": "Senda: tres relojes, ninguno confirmado desde el código"
+  },
+  {
+   "t": "p",
+   "x": "En Senda no hay servidor propio con cron; los relojes viven en la base y en GitHub, así que son dos mundos. Recordá el commit `25e08fa` del 9 de noviembre de 2026."
+  },
+  {
+   "t": "senda",
+   "titulo": "pg_cron: tres trabajos dentro de la base",
+   "x": [
+    "El esquema de `20261101000000_juntos.sql` crea la extensión `pg_cron` y programa `senda_cerrar_vencidas` cada 15 minutos (`*/15 * * * *`, que cierra los duelos vencidos); la migración `20261130000005_grupos_grandes.sql` reprograma `senda_enviar_avisos` de cada 5 a cada minuto (`* * * * *`), y `20261109000000_limpieza.sql` agrega `senda_limpiar_viejo` a las `17 7 * * *`, que según el comentario de la migración son las 4:17 de Buenos Aires. Corresponde al commit `25e08fa`: el código cambia, la forma permanece.",
+    "Tres cosas están bien resueltas. Primero, `enviar_avisos()` es **por nivel**: toma los avisos con `enviado is null and enviar_desde <= now()`, así que una pausa de la base se recupera sola en la corrida siguiente; además usa `for update skip locked` ([@07-13]), por si dos corridas se cruzan. Segundo, `limpiar_viejo()` es idempotente (borra por edad, así que repetir no daña) y trabaja en tandas de 50.000 filas para no bloquear la base. Tercero, pg_cron ya aporta una parte de la ejecución única: solo corre una instancia de cada trabajo a la vez y encola la siguiente [#back18-pgcron-readme]. `reclamar_trivia` usa el candado de transacción de la sección anterior.",
+    "Lo que el código no permite afirmar: todas las llamadas a `cron.schedule` están dentro de bloques `do $$ begin … exception when others then raise notice 'cron: … (programar a mano cuando pg_cron esté activa)'`. Si la extensión no estuviera activa, la migración se aplica igual, con un aviso, y los trabajos no existen. Si `senda_limpiar_viejo` corre de verdad se ve en la base viva con `select * from cron.job` y `cron.job_run_details`; no hay credenciales para mirarlo. Tampoco puedo confirmar que la zona de pg_cron en Supabase sea UTC: el README dice que por defecto es GMT, y el comentario de Senda lo da por hecho."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261109000000_limpieza.sql",
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "El cron de GitHub: limpieza semanal de PDF",
+   "x": [
+    "`.github/workflows/limpieza.yml` corre con `cron: \"17 7 * * 1\"` (lunes 07:17 UTC; el comentario dice 04:17 de Argentina) y tiene `workflow_dispatch` con una opción `probar` que solo lista. El minuto 17, y no el 0, coincide con el consejo de la documentación de GitHub de evitar el comienzo de la hora. Llama a `scripts/limpiar_sermones.sh`, que borra del almacén los PDF cuya trivia ya no existe: es idempotente (repetir no encuentra nada nuevo) y trabaja en tandas de hasta 1.000 archivos. El workflow tiene `timeout-minutes: 10` y no tiene clave `concurrency`, así que dos corridas casi simultáneas (por ejemplo, una manual sobre la programada) no se frenarían entre sí; para un borrado idempotente es un riesgo bajo.",
+    "Un detalle que sirve de criterio: si faltan las credenciales (`SUPABASE_ACCESS_TOKEN` o `SUPABASE_PROJECT_ID`), el script imprime «Sin credenciales de Supabase: nada que hacer» y sale con código 0. La corrida aparece en verde aunque no haya limpiado nada. Es útil para probar y peligroso para un trabajo de privacidad que promete borrar en una semana, porque la falla es silenciosa. No sé si el repositorio es público; si lo fuera, valdría la regla de los 60 días sin actividad."
+   ],
+   "archivos": [
+    ".github/workflows/limpieza.yml",
+    "scripts/limpiar_sermones.sh"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Lo medido lo corrí el 13-11-2026 en la VM del curso: cron 3.0pl1-184ubuntu2 (dentro de un espacio de nombres propio), PostgreSQL 16.15, Node 22.23.4 con zonas horarias 2026e, croniter 7.0.0. Lo que cambia: la documentación de GitHub Actions, que hoy acepta una clave `timezone` en `schedule` (por defecto sigue siendo UTC [#back18-gha-events]), y los límites de Supabase Cron (8 trabajos a la vez y 10 minutos por trabajo, en su página de hoy [#back18-supabase-cron]). Las reglas de cada programador sobre el horario de verano también cambian por versión. Lo que no cambia: cinco campos, la regla OR del día del mes y de la semana, el candado más la idempotencia y el diseño por nivel.",
+   "titulo": "Lo que cambia con el tiempo en este día"
+  }
+ ],
+ "recap": [
+  "Una tarea programada arranca por la hora y no por un pedido; el calendario no sabe si la corrida anterior terminó ni si hay otra copia del programa.",
+  "Cron mira su tabla cada minuto. La sintaxis son cinco campos (minuto, hora, día del mes, mes, día de la semana), y cuando el día del mes y el de la semana tienen valores, corre si coincide cualquiera de los dos.",
+  "El signo `%` sin escapar rompe la línea de un crontab en silencio. Las tareas programadas fallan sin que nadie mire.",
+  "Los programadores corren en la zona de la máquina o en UTC. El horario de verano crea horas que no existen y horas que ocurren dos veces: programá en UTC o fuera de las horas del cambio.",
+  "Si el trabajo tarda más que el intervalo o hay dos copias, corren juntas. `flock` sirve en una máquina; entre varias, un candado en un lugar compartido, como un advisory lock de PostgreSQL, y siempre con un trabajo idempotente.",
+  "Un candado con vencimiento puede estar en dos manos a la vez si el dueño se pausa; el remedio es un número creciente (fencing token) o la idempotencia.",
+  "Diseñá por nivel («todo lo vencido sin hacer») y no por ventana («lo del último minuto»): se recupera de las caídas y tolera los dobles disparos."
+ ],
+ "repaso": [
+  {
+   "p": "Un crontab tiene la línea `0 9 13 * 5`. Un compañero cree que corre solo los viernes 13. ¿Cuál es la lectura correcta de esa línea en el cron de Vixie?",
+   "o": [
+    "Corre todos los viernes y además todos los días 13, a las 9:00",
+    "Corre únicamente los viernes que caen en día 13, a las 9:00",
+    "Corre el día 13 de cada mes, y el 5 solo marca el mes de mayo",
+    "No es válida porque no se pueden usar los dos campos de día"
+   ],
+   "c": 0,
+   "e": "Cuando el día del mes y el día de la semana están restringidos, el comando corre si coincide cualquiera de los dos. La consulta a croniter lo mostró: viernes sueltos y un 13 que caía domingo. Leerlo como «y» (el compañero) es el error típico; el 5 es el día de la semana (viernes), no el mes."
+  },
+  {
+   "p": "Un trabajo programado cada minuto tarda 90 segundos en terminar y no tiene ninguna protección. Con cron, ¿qué se observa en el segundo minuto?",
+   "o": [
+    "Cron espera a que termine la corrida anterior antes de lanzar otra",
+    "Cron cancela la corrida anterior y empieza de nuevo la nueva",
+    "Cron lanza otra copia y las dos corren superpuestas durante 30 segundos",
+    "Cron saltea esa vez y la retoma en el minuto siguiente a su fin"
+   ],
+   "c": 2,
+   "e": "Cron mira el reloj y no el estado de las corridas anteriores: cada minuto lanza el comando. En el registro, A inició en :01 y otra vez en :01 del minuto siguiente, antes de que la primera terminara. Esperar, cancelar o saltear es lo que hace un candado como flock -n, o lo que hace pg_cron con las corridas de un mismo trabajo."
+  },
+  {
+   "p": "Dos servidores idénticos tienen el mismo programador y ambos despiertan a las 04:17. Quiero que solo uno haga la limpieza. ¿Qué solución alcanza?",
+   "o": [
+    "flock sobre un archivo en el disco de cada servidor",
+    "Un sleep al azar al principio, para que no coincidan nunca",
+    "Subir el intervalo a cada 2 minutos en los dos servidores",
+    "Un candado en un lugar que ambos vean, como un advisory lock en la base"
+   ],
+   "c": 3,
+   "e": "Un candado de archivo es local: cada servidor tiene el suyo y los dos corren. El sleep al azar solo reduce la probabilidad de superposición, y cambiar el intervalo no impide que los dos corran. Un advisory lock en la base compartida sirve porque ambos piden el mismo número. Aun así conviene que la limpieza sea idempotente."
+  },
+  {
+   "p": "En PostgreSQL, ¿para qué conviene usar `pg_advisory_xact_lock` en lugar de `pg_advisory_lock` cuando hay un pool de conexiones que reparte sesiones?",
+   "o": [
+    "Porque se libera solo al terminar la transacción y no queda atado a la sesión",
+    "Porque dura más y no se suelta si falla la transacción",
+    "Porque bloquea la tabla entera y evita cualquier otra escritura",
+    "Porque no necesita que todos usen el mismo número de candado"
+   ],
+   "c": 0,
+   "e": "El candado de transacción se libera al hacer commit o rollback, así que no puede quedar colgado en una conexión que después reutiliza otro cliente. El de sesión dura hasta que se suelta o termina la sesión. Ninguno bloquea tablas: son candados cooperativos, que solo funcionan si todos piden el mismo número."
+  },
+  {
+   "p": "Un trabajo `senda_enviar_avisos` falla durante 5 minutos por una pausa de la base. ¿Qué diseño del trabajo se recupera mejor cuando vuelve?",
+   "o": [
+    "El que busca los avisos cuya hora de envío cayó en el último minuto",
+    "El que busca todos los avisos vencidos que todavía no se marcaron como enviados",
+    "El que se ejecuta el doble de seguido para compensar lo perdido",
+    "El que guarda en memoria cuántas corridas se perdió"
+   ],
+   "c": 1,
+   "e": "El diseño por nivel (todo lo vencido y pendiente) recupera lo perdido en la siguiente corrida, como en la medición: 12 de 12 contra 6 de 12 de la versión por ventana. Duplicar la frecuencia no recupera lo vencido antes si el filtro sigue mirando solo el último minuto, y la memoria del proceso se pierde si el proceso se reinicia."
+  },
+  {
+   "p": "Programás un trabajo diario a las `02:30` en hora de Nueva York. El 8 de marzo el reloj salta de 01:59 a 03:00. ¿Qué es cierto?",
+   "o": [
+    "La hora 02:30 corre dos veces ese día, porque el reloj la repite",
+    "Esa hora no existe ese día y cada programador decide qué hacer",
+    "La tarea corre igual a las 02:30 UTC sin importar la zona",
+    "Es seguro: el sistema operativo ajusta el cron automáticamente"
+   ],
+   "c": 1,
+   "e": "En el salto de primavera la 02:xx local no existe; en el de otoño la 01:xx se repite, que es el caso de las dos veces. El cron de Vixie, según su manual, ejecuta pronto lo que cayó en el hueco, pero otros programadores la adelantan o la saltean. Por eso conviene programar en UTC."
+  },
+  {
+   "p": "Un workflow de GitHub Actions con `schedule` en un repositorio público no tiene commits desde hace 70 días. ¿Qué dice la documentación de GitHub que pasa?",
+   "o": [
+    "Se ejecuta igual, pero con una demora de varias horas",
+    "Se pausa hasta que alguien lo ejecute a mano una vez",
+    "Se desactiva solo y hay que volver a habilitarlo",
+    "Se transfiere al repositorio de organización más cercano"
+   ],
+   "c": 2,
+   "e": "La página de eventos dice que en repositorios públicos los workflows programados se desactivan automáticamente tras 60 días sin actividad y hay que reactivarlos. Es una fuente de tareas perdidas silenciosas. La demora de horas es otra advertencia, la de los momentos de mucha carga."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística por qué un cierre de despacho que corre «todos los días a las 18:00» puede correr dos veces, no correr o correr a otra hora, y qué dos cosas hacés para que igual salga bien. Usá una de las tres pruebas de hoy (cron solapado, candado de PostgreSQL, corrida perdida) como ejemplo.",
+ "para_profundizar": [
+  {
+   "fuente": "back18-man-crontab",
+   "nota": "Leé la nota sobre el día del mes y el día de la semana y la sección sobre el `%`: son las dos trampas de hoy escritas por la fuente."
+  },
+  {
+   "fuente": "back18-pg-explicit-locking",
+   "nota": "La sección «Advisory Locks» describe los candados de sesión y de transacción y por qué conviene el segundo en trabajos cortos."
+  },
+  {
+   "fuente": "back18-kleppmann-locking",
+   "nota": "El artículo de Kleppmann sobre candados distribuidos: el caso de la pausa que vence el arriendo y el fencing token. Tiene también una crítica a Redlock, que hoy no vimos."
+  },
+  {
+   "fuente": "back18-gha-events",
+   "nota": "La sección del evento `schedule`: demoras, trabajos descartados, desactivación a los 60 días y la clave `timezone`."
+  }
+ ],
+ "videos": [],
+ "terminos": [
+  {
+   "t": "cron",
+   "d": "Programa de Unix que cada minuto mira una tabla de tareas (el crontab) y lanza los comandos cuyo horario coincide con el actual. Cada línea tiene cinco campos (minuto, hora, día del mes, mes y día de la semana) y el comando. Su nombre se usa también para esa sintaxis."
+  },
+  {
+   "t": "tarea programada",
+   "d": "Trabajo que arranca por la hora o por una frecuencia fijada de antemano, y no porque alguien lo pida. Por ejemplo, limpiar datos viejos todas las noches. El calendario no sabe si la corrida anterior terminó ni si hay otra copia corriendo."
+  },
+  {
+   "t": "ejecución única",
+   "d": "Garantía deseada de que, aunque haya varias copias de un programa o corridas superpuestas, una tarea corra una sola vez a la vez. Se consigue con candados y, como respaldo, con trabajos idempotentes que toleran repetirse."
+  },
+  {
+   "t": "advisory lock",
+   "d": "Candado cooperativo de PostgreSQL identificado por un número que elige quien lo usa. El motor no bloquea nada por sí mismo: solo impide que otro pida el mismo número. Puede ser de sesión (dura hasta soltarlo o cerrar la conexión) o de transacción (se libera al terminar)."
+  },
+  {
+   "t": "lease",
+   "d": "Candado con vencimiento: si el dueño no lo renueva, caduca y otro puede tomarlo. Evita candados huérfanos, pero un dueño que se pausa puede seguir creyéndose dueño después del vencimiento; el remedio es un fencing token."
+  },
+  {
+   "t": "fencing token",
+   "d": "Número que aumenta cada vez que alguien toma un candado con vencimiento y que viaja con cada escritura. El almacenamiento rechaza las escrituras que traen un número menor al último visto, para frenar a un dueño que ya perdió el candado."
+  },
+  {
+   "t": "ejecución solapada",
+   "d": "Cuando una corrida de una tarea programada empieza antes de que termine la anterior, porque tarda más que el intervalo, y las dos trabajan a la vez."
+  },
+  {
+   "t": "diseño por nivel",
+   "d": "Escribir una tarea programada para que mire el estado actual («todo lo vencido que falta hacer») en lugar de una ventana de tiempo («lo que venció en el último minuto»). Se recupera sola de corridas perdidas y tolera disparos dobles."
+  }
+ ],
+ "siguiente": "Configuración y entornos del servidor. Los trabajos de hoy usaron credenciales, URLs y horarios puestos a mano; mañana, cómo se separa lo que cambia entre tu máquina, las pruebas y producción, cómo se guardan los secretos y cómo se prende una función sin volver a desplegar.",
+ "fuentes_nuevas": [
+  {
+   "id": "back18-man-crontab",
+   "t": "crontab(5): página de manual del paquete cron (Debian)",
+   "a": "Paul Vixie y mantenedores de Debian",
+   "tipo": "doc",
+   "url": "https://manpages.debian.org/unstable/cron/crontab.5.en.html"
+  },
+  {
+   "id": "back18-man-cron",
+   "t": "cron(8): página de manual del paquete cron (Debian)",
+   "a": "Paul Vixie y mantenedores de Debian",
+   "tipo": "doc",
+   "url": "https://manpages.debian.org/unstable/cron/cron.8.en.html"
+  },
+  {
+   "id": "back18-pgcron-readme",
+   "t": "pg_cron: job scheduler for PostgreSQL (README)",
+   "a": "Citus Data",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/citusdata/pg_cron/main/README.md"
+  },
+  {
+   "id": "back18-supabase-cron",
+   "t": "Supabase Cron",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/cron"
+  },
+  {
+   "id": "back18-gha-events",
+   "t": "Events that trigger workflows: schedule (GitHub Actions)",
+   "a": "GitHub",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows"
+  },
+  {
+   "id": "back18-systemd-timer",
+   "t": "systemd.timer (Persistent=)",
+   "a": "systemd",
+   "tipo": "doc",
+   "url": "https://www.freedesktop.org/software/systemd/man/latest/systemd.timer.html"
+  },
+  {
+   "id": "back18-pg-explicit-locking",
+   "t": "PostgreSQL 16: Explicit Locking (advisory locks)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/explicit-locking.html"
+  },
+  {
+   "id": "back18-pgbouncer-features",
+   "t": "PgBouncer: Features (pool de sesión y de transacción)",
+   "a": "PgBouncer",
+   "tipo": "doc",
+   "url": "https://www.pgbouncer.org/features.html"
+  },
+  {
+   "id": "back18-pg-conn-check",
+   "t": "PostgreSQL 16: Connection Settings (client_connection_check_interval)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/runtime-config-connection.html"
+  },
+  {
+   "id": "back18-kleppmann-locking",
+   "t": "How to do distributed locking",
+   "a": "Martin Kleppmann",
+   "tipo": "articulo",
+   "anio": 2016,
+   "url": "https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html"
+  }
+ ]
+}

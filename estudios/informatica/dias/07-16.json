@@ -1,0 +1,778 @@
+{
+ "id": "07-16",
+ "titulo": "Archivos: subidas, almacenamiento de objetos y streaming",
+ "bajada": "Armás un servidor que recibe archivos y no se deja engañar por el nombre, los guarda como objetos, reparte enlaces que vencen y sirve un archivo grande por pedazos.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Leer el cuerpo crudo de una subida multipart/form-data e identificar el borde, las partes y el filename.",
+  "Validar una subida con un tope que corta en el camino, el tipo real por los primeros bytes y un nombre generado por el servidor.",
+  "Explicar qué es un almacenamiento de objetos y por qué sus «carpetas» son prefijos de clave.",
+  "Firmar y verificar una URL con HMAC y explicar por qué una URL firmada es una llave al portador.",
+  "Servir y reanudar una descarga con Range y 206, y medir por qué conviene el streaming a leer el archivo entero."
+ ],
+ "venis_de": "En [@07-15] guardaste respuestas en memoria para no repetir trabajo. Hasta ahora el servidor manejó texto y números; hoy llegan los archivos pesados, que no se pueden tratar igual. Retomás el flujo de bytes de [@07-04], los encabezados de [@05-19] y la validación de entrada de [@07-07].",
+ "se_apoya_en": [
+  "01-10",
+  "05-18",
+  "05-19",
+  "07-01",
+  "07-04",
+  "07-07",
+  "07-11",
+  "07-15"
+ ],
+ "gancho": [
+  "Un repartidor entrega un paquete, le saca una foto al remito firmado con el celular y toca «enviar». Ese archivo de unos 3 MB sale por una red móvil con una señal de una sola raya y tiene que llegar a algún lugar de donde después lo vea alguien de la oficina.",
+  "Con diez mil entregas por día (un número inventado), son 30 GB diarios. Hoy vas a ver qué es lo que viaja de verdad, por qué el servidor no tiene que creerle ni al nombre ni al tipo que declara el archivo, dónde se guardan tantos archivos y cómo se entregan sin tumbar la memoria. Todo con un servidor propio, en esta VM, con archivos inventados."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Cómo viaja un archivo hasta tu servidor"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un cuerpo HTTP es una tira de [[bytes|byte]] ([@01-10]). Si lo único que mandás es un JSON, alcanza con decir `Content-Type: application/json`. Pero un formulario que lleva un nombre, una zona y una foto tiene tres cosas distintas, una de ellas binaria, y hay que meterlas en **un solo cuerpo** de modo que el servidor sepa dónde termina cada una.",
+    "Para eso existe `multipart/form-data`, definido en el RFC 7578 de 2015 [#arch716-rfc7578]. La idea: el cliente elige una cadena larga que llama **borde** (*boundary*) y la declara en el `Content-Type`. Cada parte empieza con `--` y el borde, trae sus propias líneas de encabezado, una línea vacía y el contenido. La última lleva `--` también al final. Esto es lo que recibió un servidor mío cuando le mandé un campo y un archivo de texto con `curl -F`:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "printf 'hola' > corto.txt\ncurl -s -F 'zona=Z07' -F 'nota=@corto.txt;type=text/plain' http://127.0.0.1:19761/eco",
+     "s": "content-type: multipart/form-data; boundary=------------------------WW0RHxkhleaNOiKFX0hqA5\ncontent-length: 305\n--- cuerpo (305 bytes) ---\n--------------------------WW0RHxkhleaNOiKFX0hqA5\\r\\n\nContent-Disposition: form-data; name=\"zona\"\\r\\n\n\\r\\n\nZ07\\r\\n\n--------------------------WW0RHxkhleaNOiKFX0hqA5\\r\\n\nContent-Disposition: form-data; name=\"nota\"; filename=\"corto.txt\"\\r\\n\nContent-Type: text/plain\\r\\n\n\\r\\n\nhola\\r\\n\n--------------------------WW0RHxkhleaNOiKFX0hqA5--\\r\\n"
+    }
+   ],
+   "cap": "Salida real de mi servidor de práctica (solo escucha en 127.0.0.1), que imprime el cuerpo con `\\r\\n` visibles. Es la misma estructura de líneas de campo y línea vacía que viste en [@05-18], aplicada a cada parte."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Una caja con divisores de cartón",
+   "x": [
+    "Pensá en una caja con varios bultos separados por divisores de cartón. Cada compartimento lleva una etiqueta (nombre del campo, nombre del archivo, tipo) y el divisor tiene que ser algo que no aparezca dentro de ningún bulto, porque si no, no se sabe dónde termina uno y empieza el otro.",
+    "Dónde deja de valer: en la caja, las etiquetas las pega alguien de confianza. Acá las pega **el cliente**, y puede escribir cualquier cosa. Ese es el hilo de toda la lección."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Probalo vos. Este código arma un cuerpo multipart y lo parte, con JavaScript puro. La segunda parte muestra qué pasa si el borde es corto y aparece dentro del contenido:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Armamos un cuerpo multipart/form-data a mano y lo volvemos a partir, como hace un servidor.\nfunction armar(partes, borde) {\n  let cuerpo = \"\";\n  for (const p of partes) {\n    cuerpo += `--${borde}\\r\\nContent-Disposition: form-data; name=\"${p.campo}\"` + (p.archivo ? `; filename=\"${p.archivo}\"` : \"\") + \"\\r\\n\";\n    if (p.tipo) cuerpo += `Content-Type: ${p.tipo}\\r\\n`;\n    cuerpo += `\\r\\n${p.contenido}\\r\\n`;\n  }\n  return cuerpo + `--${borde}--\\r\\n`;\n}\nfunction partir(cuerpo, borde) {\n  const trozos = cuerpo.split(`--${borde}`).slice(1, -1); // lo que hay entre separadores\n  return trozos.map((t) => {\n    const [cabecera, ...resto] = t.slice(2).split(\"\\r\\n\\r\\n\");\n    return { cabecera: cabecera.replace(/\\r\\n/g, \" | \"), contenido: resto.join(\"\\r\\n\\r\\n\").replace(/\\r\\n$/, \"\") };\n  });\n}\n\nconst partes = [\n  { campo: \"zona\", contenido: \"Z07\" },\n  { campo: \"nota\", archivo: \"entrega.txt\", tipo: \"text/plain\", contenido: \"Recibió Marta, 14:30\" },\n];\nconst bueno = armar(partes, \"Xq81mZ0pLw93aTn2\");\nconsole.log(\"con borde largo y al azar:\");\nconsole.log(partir(bueno, \"Xq81mZ0pLw93aTn2\"));\n\n// Si el borde es corto y aparece dentro de un archivo, el cuerpo se parte mal.\nconst malo = armar([{ campo: \"nota\", archivo: \"x.txt\", contenido: \"ticket --AB cerrado\" }], \"AB\");\nconsole.log(\"con borde «AB» y un archivo que contiene --AB:\");\nconsole.log(partir(malo, \"AB\").length, \"partes en vez de 1\");",
+   "cap": "Armar y partir un multipart a mano. El borde largo y al azar funciona; el borde «AB» con un contenido que lo incluye rompe el cuerpo en dos partes. Cambiá el borde y mirá."
+  },
+  {
+   "t": "pensa",
+   "x": "¿Por qué los clientes eligen un borde largo y aleatorio (como `WW0RHxkhleaNOiKFX0hqA5`) en vez de uno fijo y corto?",
+   "resp": "Porque el borde no puede aparecer dentro del contenido de ninguna parte, y un archivo binario puede contener cualquier secuencia de bytes. Con una cadena larga y al azar, la probabilidad de que justo aparezca en la foto es despreciable. El RFC exige que el borde no aparezca dentro de las partes."
+  },
+  {
+   "t": "h3",
+   "x": "Tres maneras de mandar el mismo archivo"
+  },
+  {
+   "t": "p",
+   "x": "No es la única forma. Mandé un archivo de 1.000.000 de bytes de las tres maneras y conté lo que viajó:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cómo",
+    "Bytes que viajan",
+    "Costo extra"
+   ],
+   "filas": [
+    [
+     "`multipart/form-data` (curl -F)",
+     "1.000.208",
+     "208 bytes de bordes y encabezados"
+    ],
+    [
+     "Cuerpo crudo (`--data-binary`)",
+     "1.000.000",
+     "ninguno"
+    ],
+    [
+     "JSON con el archivo en base64",
+     "1.333.397",
+     "alrededor de un tercio más"
+    ]
+   ],
+   "cap": "Medido en esta VM con `curl -w '%{size_upload}'` y un archivo de bytes al azar. Base64 escribe cada 3 bytes con 4 caracteres, por eso suma un tercio, más las llaves y claves del JSON. Multipart conviene cuando hay campos de texto junto al archivo; el cuerpo crudo, cuando solo viaja el archivo."
+  },
+  {
+   "t": "h",
+   "x": "Recibirlo sin romper nada"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Todo lo que llega en una parte lo declara el cliente: el nombre del campo, el nombre del archivo, el tipo y, por supuesto, el contenido. Es la [[frontera de confianza]] de [@07-01] con un archivo adentro, y la [[validación de entrada]] de [@07-07] ahora tiene cuatro reglas concretas.",
+    "Armé un endpoint `/subir` con **busboy** 1.6.0, una librería de Node que parte multipart como un [[stream]] ([@07-04]): el archivo se escribe a disco mientras llega, sin cargarse entero en memoria. Parsear multipart a mano es un buen ejercicio (el de arriba), pero en un servidor real conviene una librería mantenida. El corazón, resumido:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const bb = Busboy({ headers: req.headers, limits: { fileSize: 1024 * 1024, files: 1 } });\n\nbb.on(\"file\", (campo, flujo, info) => {\n  const destino = path.join(SUBIDAS, crypto.randomUUID() + \".parte\"); // nombre nuestro, no el del cliente\n  flujo.on(\"data\", (d) => { primeros ??= d.subarray(0, 16); bytes += d.length; hash.update(d); });\n  flujo.on(\"limit\", () => { truncado = true; });                      // pasó el tope: se corta y se descarta\n  flujo.pipe(fs.createWriteStream(destino));                          // a disco mientras llega, sin cargarlo entero\n});\n\n// al terminar: ¿qué es de verdad?\nconst FIRMAS = [\n  { tipo: \"image/png\",       bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] },\n  { tipo: \"image/jpeg\",      bytes: [0xff, 0xd8, 0xff] },\n  { tipo: \"application/pdf\", bytes: [0x25, 0x50, 0x44, 0x46, 0x2d] },   // «%PDF-»\n];\nconst tipoReal = (buf) => FIRMAS.find((f) => f.bytes.every((b, i) => buf[i] === b));",
+   "cap": "Resumen del endpoint de práctica: tope de 1 MiB, nombre generado por el servidor y detección del tipo real por los primeros bytes. Corrió con Node 22."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Las cuatro reglas",
+   "pasos": [
+    {
+     "t": "Un tope de tamaño que se corta en el camino",
+     "x": "Si el límite se revisa después de guardar, ya pagaste el disco y el ancho de banda. busboy avisa (`limit`) al pasar el tope, y el servidor descarta y responde `413`."
+    },
+    {
+     "t": "El tipo real, no el declarado",
+     "x": "Se miran los primeros bytes del contenido contra las firmas de cada formato. Un PNG empieza siempre con `89 50 4E 47 0D 0A 1A 0A` [#arch716-png-spec]."
+    },
+    {
+     "t": "Un nombre que ponés vos",
+     "x": "El `filename` del cliente es entrada no confiable. Se genera un nombre propio, por ejemplo un UUID, con la extensión que corresponde al tipo real."
+    },
+    {
+     "t": "Un destino que no se pueda pisar",
+     "x": "Guardar fuera de la carpeta que sirve archivos y sin que el cliente decida la ruta."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Probé cinco casos con `curl`. Los dos primeros son archivos reales; el tercero es un texto con el nombre `falsa.png` y tipo declarado `image/png`; el cuarto pesa 2.000.000 de bytes contra un tope de 1.048.576; el quinto no trae archivo:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -w ' [%{http_code}]' -F 'foto=@foto.png;type=image/png' $S/subir",
+     "s": "{\"guardado_como\":\"c1eed59b….png\",\"bytes\":7858,\"tipo_real\":\"image/png\",\"tipo_declarado\":\"image/png\",\"nombre_original_ignorado\":\"foto.png\"} [201]"
+    },
+    {
+     "c": "curl -s -w ' [%{http_code}]' -F 'doc=@informe.pdf;type=application/pdf' $S/subir",
+     "s": "{\"guardado_como\":\"3d580a3f….pdf\",\"bytes\":378946,\"tipo_real\":\"application/pdf\", …} [201]"
+    },
+    {
+     "c": "curl -s -w ' [%{http_code}]' -F 'foto=@falsa.png;type=image/png' $S/subir",
+     "s": "{\"error\":\"el contenido no es PNG, JPEG ni PDF\",\"declarado\":\"image/png\",\"nombre_recibido\":\"falsa.png\",\"primeros_bytes\":\"6573746f20657320756e20746578746f\"} [415]"
+    },
+    {
+     "c": "curl -s -w ' [%{http_code}]' -F 'foto=@grande.bin;type=image/png' $S/subir",
+     "s": "{\"error\":\"el archivo supera el tope de 1048576 bytes\"} [413]"
+    },
+    {
+     "c": "curl -s -w ' [%{http_code}]' -F 'pedido=42' $S/subir",
+     "s": "{\"error\":\"no vino ningún archivo\"} [400]"
+    }
+   ],
+   "cap": "Salida real (recorté los UUID y el resto del segundo JSON). `$S` es `http://127.0.0.1:19761`. Los primeros bytes del impostor, `65 73 74 6f…`, son las letras «esto…» en ASCII ([@01-15]): un texto, no un PNG."
+  },
+  {
+   "t": "p",
+   "x": "El `415` es la lección central: el servidor no se dejó engañar por el nombre ni por el `Content-Type`, que son lo que **dijo** el cliente, y miró lo único que podía comprobar. Aun así, la hoja de OWASP sobre subidas es clara: mirar la firma del formato sirve, pero **nunca como único control**, porque se puede eludir [#arch716-owasp-subidas]. Un archivo puede empezar como PNG y llevar otra cosa más adelante."
+  },
+  {
+   "t": "p",
+   "x": "Sobre el nombre, el cuerpo crudo de una subida maliciosa muestra el peligro. Mandé la misma foto declarando un nombre con subidas de directorio:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -F 'foto=@foto.png;type=image/png;filename=../../etc/cron.d/x.png' $S/eco | grep -a Content-Disposition",
+     "s": "Content-Disposition: form-data; name=\"foto\"; filename=\"../../etc/cron.d/x.png\"\\r\\n"
+    },
+    {
+     "c": "python3 -c \"import os; print(os.path.normpath(os.path.join('/srv/app/subidas', '../../etc/cron.d/x.png')))\"",
+     "s": "/srv/etc/cron.d/x.png"
+    }
+   ],
+   "cap": "El primer comando es real (contra mi servidor); el segundo calcula, sin escribir nada, adónde iría el archivo si alguien une la carpeta con el nombre a ciegas. `/srv/app/subidas` es una ruta inventada."
+  },
+  {
+   "t": "p",
+   "x": "El archivo habría caído **fuera** de su carpeta. busboy ya recorta la parte de directorios por defecto (su opción `preservePath` vale `false`) y su documentación advierte que casi nunca se debe usar el `filename` tal cual [#arch716-busboy-readme]. Por eso mi servidor lo ignora y guarda con un UUID. El RFC 7578 dice lo mismo desde el lado del protocolo: no usar el nombre a ciegas ni la información de directorios que traiga [#arch716-rfc7578]."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Antivirus: la idea, no la demo",
+   "x": "Para archivos que otras personas van a abrir, la guía de OWASP recomienda pasarlos por un antivirus o un sandbox, y para formatos como PDF o DOCX, además reconstruirlos sin contenido activo (CDR) [#arch716-owasp-subidas]. No lo armé. La forma habitual: el archivo llega a una zona de cuarentena, un [[worker]] ([@07-13]) lo analiza como [[job]], y recién entonces se mueve a donde los demás pueden verlo."
+  },
+  {
+   "t": "pensa",
+   "x": "Alguien sube `recibo.png` con `Content-Type: image/png` y es en realidad un programa ejecutable. De los tres datos que mandó (nombre, extensión y tipo), ¿cuál podés comprobar y cómo?",
+   "resp": "Ninguno de los tres es comprobable: los declaró el cliente. Lo que sí podés mirar es el contenido, empezando por los primeros bytes: un PNG real arranca con `89 50 4E 47 0D 0A 1A 0A`. Y aun eso es solo un control más, no una garantía."
+  },
+  {
+   "t": "h",
+   "x": "Dónde guardarlo: objetos, no archivos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Supongamos 10.000 entregas por día, cada una con una foto de 3 MB (números inventados). Son 30 GB por día y unos 900 GB por mes. Si las guardás en el disco de tu servidor, se llena; si el servidor se pierde, se pierden las fotos; y si tenés dos instancias, cada una ve solo las suyas. Y meterlas en la base de datos como columnas binarias engorda cada copia de seguridad (es una regla práctica, no la medí).",
+    "Para esto existe el **almacenamiento de objetos**: un servicio que guarda archivos (*objetos*) dentro de contenedores llamados *buckets*, cada uno identificado por una **clave** única dentro de su bucket y acompañado de metadatos (el `Content-Type`, la fecha). Se usa con HTTP: `PUT` para guardar, `GET` para leer, `DELETE` para borrar. Lo popularizó Amazon S3, que salió el 14 de marzo de 2006; en su aniversario de 2026, AWS contó que su durabilidad está diseñada para «11 nueves» (99,999999999 %) y que el tamaño máximo de un objeto pasó de 5 GB a 50 TB [#aws-s3-20]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Sistema de archivos",
+    "Almacén de objetos"
+   ],
+   "filas": [
+    [
+     "Estructura",
+     "Árbol de carpetas ([@02-11])",
+     "Un mapa plano: bucket + clave lleva a un objeto"
+    ],
+    [
+     "Cambiar un objeto",
+     "Se edita en el lugar",
+     "Se reemplaza entero con otro `PUT`"
+    ],
+    [
+     "Cómo se accede",
+     "Llamadas del sistema operativo",
+     "Peticiones HTTP, con su autenticación"
+    ],
+    [
+     "Escala",
+     "Un disco o volumen",
+     "Un servicio distribuido que crece"
+    ]
+   ],
+   "cap": "En la documentación de S3, la clave `photos/puppy.jpg` es el identificador completo del objeto, y se contrapone a los buckets de directorio, que sí organizan en carpetas «en lugar de la estructura plana» de los buckets comunes [#arch716-aws-s3-intro]. Consistencia: S3 garantiza que, tras un `PUT` exitoso, cualquier lectura posterior devuelve lo escrito [#arch716-aws-s3-intro]."
+  },
+  {
+   "t": "p",
+   "x": "Lo de las «carpetas» confunde, así que construí un almacén de juguete para mirarlo. Guardé cuatro claves con `PUT` y pedí la lista de tres maneras. El parámetro `prefix` filtra por comienzo y `delimiter` agrupa lo que sigue después del primer `/`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s \"$S/lista\"",
+     "s": "{\"claves\":[\"logo.png\",\"pedidos/42/entrega.png\",\"pedidos/42/firma.png\",\"pedidos/43/entrega.png\",\"pedidos/44/entrega.png\"]}"
+    },
+    {
+     "c": "curl -s \"$S/lista?delimiter=/\"",
+     "s": "{\"claves\":[\"logo.png\"],\"prefijos_comunes\":[\"pedidos/\"]}"
+    },
+    {
+     "c": "curl -s \"$S/lista?prefix=pedidos/&delimiter=/\"",
+     "s": "{\"claves\":[],\"prefijos_comunes\":[\"pedidos/42/\",\"pedidos/43/\",\"pedidos/44/\"]}"
+    },
+    {
+     "c": "curl -s \"$S/lista?prefix=pedidos/42/&delimiter=/\"",
+     "s": "{\"claves\":[\"pedidos/42/entrega.png\",\"pedidos/42/firma.png\"],\"prefijos_comunes\":[]}"
+    }
+   ],
+   "cap": "Salida real de mi almacén de juguete (en la lista aparece una quinta clave que guardé más tarde). La lista y los prefijos comunes imitan, de forma simplificada, el comportamiento de listado con `prefix` y `delimiter` que usan los almacenes de objetos."
+  },
+  {
+   "t": "p",
+   "x": "En ningún momento existió una carpeta `pedidos/`. Hay claves que **empiezan igual**, y las herramientas dibujan «carpetas» agrupando por prefijo. La consecuencia práctica: «borrar la carpeta» es en realidad borrar todos los objetos que empiezan con ese prefijo, uno por uno."
+  },
+  {
+   "t": "ejercicio",
+   "x": "En un bucket están estas claves: `rutas/A/lunes.csv`, `rutas/A/martes.csv`, `rutas/B/lunes.csv` y `resumen.csv`. ¿Qué devuelve listar con `prefix=rutas/` y `delimiter=/`? ¿Y con `prefix=rutas/A/` y el mismo delimitador?",
+   "pista": "Después de sacar el prefijo, mirá si queda alguna `/` en lo que resta de cada clave.",
+   "solucion": "Con `prefix=rutas/` queda `A/lunes.csv`, `A/martes.csv` y `B/lunes.csv`; todos tienen una `/`, así que no hay claves sueltas y los prefijos comunes son `rutas/A/` y `rutas/B/` (y `resumen.csv` no entra porque no empieza con `rutas/`). Con `prefix=rutas/A/` quedan `lunes.csv` y `martes.csv`, sin `/`, así que son claves y no hay prefijos comunes."
+  },
+  {
+   "t": "h",
+   "x": "Subir y bajar sin pasar por tu servidor: la URL firmada"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si cada foto pasa por tu servidor para llegar al almacén, tu servidor hace de cañería: gasta ancho de banda, memoria y tiempo esperando a un teléfono con mala señal. La alternativa es que el cliente hable **directo** con el almacén. Pero el almacén tiene que saber que esa persona puede hacerlo.",
+    "La solución es la **URL firmada**: un enlace que lleva incrustado un permiso limitado en el tiempo y en el alcance (este método, esta clave, hasta tal hora), calculado con un secreto que solo conocen tu servidor y el almacén. Quien tiene la URL no necesita ninguna cuenta. El flujo:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "App móvil",
+     "k": "cliente"
+    },
+    {
+     "n": "Tu servidor",
+     "k": "servidor"
+    },
+    {
+     "n": "Almacén",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "Quiero subir la foto del pedido 42",
+     "d": "La app pide permiso a tu servidor, con su sesión o su token de siempre."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "URL firmada: PUT, clave, vence en 5 min",
+     "resp": true,
+     "d": "Primero aplica la autorización ([@07-11]): decide si este repartidor puede subir a ese pedido. Si puede, devuelve un enlace con el permiso y la firma. No tocó ningún archivo."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "PUT al enlace, con los bytes de la foto",
+     "d": "La foto va directo al almacén. Tu servidor no gasta ancho de banda. El almacén recalcula la firma con el secreto y mira el vencimiento."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "200: guardado",
+     "resp": true,
+     "d": "Si la firma coincide y no venció, guarda el objeto."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "Listo, ya subí la foto",
+     "d": "La app avisa. Tu servidor verifica que el objeto exista y qué contiene, porque nadie lo revisó en el camino."
+    }
+   ],
+   "cap": "Subida directa con URL firmada. El permiso lo decide tu servidor; la firma la verifica el almacén."
+  },
+  {
+   "t": "p",
+   "x": "¿Cómo se firma? Con un **HMAC**: una función que mezcla un secreto con un mensaje y devuelve un resumen de largo fijo (RFC 2104 [#rfc2104]). Sin el secreto no se puede producir el resumen correcto, y si cambia un solo carácter del mensaje, cambia todo el resumen. En mi juguete el mensaje es `método`, `ruta` y `vencimiento` separados por saltos de línea. El secreto es de práctica, con un nombre que lo dice:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const firmar = (metodo, ruta, expira) =>\n  crypto.createHmac(\"sha256\", SECRETO).update(`${metodo}\\n${ruta}\\n${expira}`).digest(\"hex\");\n\nfunction verificarFirma(metodo, url) {\n  const expira = Number(url.searchParams.get(\"expira\"));\n  const firma = url.searchParams.get(\"firma\") || \"\";\n  const a = Buffer.from(firma, \"hex\");\n  const b = Buffer.from(firmar(metodo, url.pathname, expira), \"hex\");\n  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return \"firma inválida\";\n  if (Date.now() / 1000 > expira) return \"firma vencida\";\n  return null; // todo en orden\n}",
+   "cap": "Firma y verificación con `node:crypto` [#cripto-node-crypto]. `timingSafeEqual` compara en tiempo constante, para que la demora de la comparación no revele cuántos caracteres de la firma eran correctos."
+  },
+  {
+   "t": "p",
+   "x": "Pedí una URL para guardar `pedidos/44/entrega.png` y probé abusar de ella de seis formas. Los resultados vienen en dos tandas; primero, intentos que la firma tiene que frenar:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -w ' [%{http_code}]' \"$S/almacen/fotos/pedidos/42/firma.png\"",
+     "s": "{\"error\":\"falta la firma\"} [403]"
+    },
+    {
+     "c": "curl -s -o /dev/null -w '[%{http_code}] %{size_download} bytes' \"$U\"   # la URL firmada, tal cual",
+     "s": "[200] 7858 bytes"
+    },
+    {
+     "c": "curl -s -w ' [%{http_code}]' \"${U/42\\/firma/43\\/entrega}\"   # cambio la clave",
+     "s": "{\"error\":\"firma inválida\"} [403]"
+    },
+    {
+     "c": "curl -s -w ' [%{http_code}]' \"${U/expira=$E/expira=$((E+86400))}\"   # sumo un día al vencimiento",
+     "s": "{\"error\":\"firma inválida\"} [403]"
+    },
+    {
+     "c": "curl -s -w ' [%{http_code}]' -X DELETE \"$U\"   # uso la URL de lectura para borrar",
+     "s": "{\"error\":\"firma inválida\"} [403]"
+    },
+    {
+     "c": "sleep 4; curl -s -w ' [%{http_code}]' \"$U\"   # la URL se firmó con 3 segundos de vida",
+     "s": "{\"error\":\"firma vencida\"} [403]"
+    }
+   ],
+   "cap": "Salida real. `$U` es una URL firmada de lectura con 3 segundos de vida. La firma ata método, ruta y vencimiento: cambiar cualquiera de los tres la invalida, porque quien no tiene el secreto no puede recalcularla."
+  },
+  {
+   "t": "p",
+   "x": "Ahora lo que la firma **no** frena. Pedí una URL de subida con 60 segundos de vida y la usé dos veces con archivos distintos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -w ' [%{http_code}]' -X PUT --data-binary @foto.png \"$P\"",
+     "s": "{\"guardado\":\"pedidos/44/entrega.png\",\"bytes\":7858} [200]"
+    },
+    {
+     "c": "curl -s -w ' [%{http_code}]' -X PUT --data-binary @nota.txt \"$P\"",
+     "s": "{\"guardado\":\"pedidos/44/entrega.png\",\"bytes\":32} [200]"
+    }
+   ],
+   "cap": "Salida real. La misma URL sirvió dos veces y la segunda reemplazó la foto por un texto de 32 bytes. Mi juguete no mira el contenido; el de S3 tampoco lo hace por sí solo."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Una URL firmada es una llave al portador",
+   "x": [
+    "La documentación de S3 lo dice sin vueltas: las URL prefirmadas son *bearer tokens*, dan acceso a quien las posea; se pueden usar varias veces hasta que vencen, y una de subida reemplaza el objeto si la clave ya existe [#arch716-aws-presigned]. Dos consecuencias. Primera: con una URL de subida, **tu servidor no ve el contenido**, así que lo que subió el cliente se valida después (tamaño, primeros bytes, análisis), como en el último paso del diagrama. Segunda: la firma viaja en la URL, y las URL terminan en registros; si las escribís completas en los logs ([@07-12]), estás guardando permisos vigentes."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "En S3 de verdad, el SDK de AWS hace este trabajo con un esquema más elaborado (Signature Version 4). Generé una URL de subida **sin red y con las credenciales de ejemplo de la documentación**, que son falsas, para ver cómo se ve por fuera:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node presign.mjs",
+     "s": "https://demo-despachos.s3.sa-east-1.amazonaws.com/pedidos/42/entrega.png\n  X-Amz-Algorithm = AWS4-HMAC-SHA256\n  X-Amz-Content-Sha256 = UNSIGNED-PAYLOAD\n  X-Amz-Credential = AKIAIOSFODNN7EXAMPLE/20261113/sa-east-1/s3/aws4_request\n  X-Amz-Date = 20261113T193748Z\n  X-Amz-Expires = 900\n  X-Amz-Signature = 110c9e25d0a39ebb… (64 caracteres)\n  X-Amz-SignedHeaders = host\n  x-amz-checksum-crc32 = AAAAAA==\n  x-amz-sdk-checksum-algorithm = CRC32\n  x-id = PutObject\n¿misma firma para GET que para PUT?  false"
+    }
+   ],
+   "cap": "Salida real con `@aws-sdk/client-s3` y `@aws-sdk/s3-request-presigner` 3.1168.0. Usé el paquete solo para firmar localmente: no hice ninguna petición a AWS ni creé cuentas. Los nombres de bucket y de clave son inventados."
+  },
+  {
+   "t": "p",
+   "x": "Se reconoce la misma lógica que en el juguete: un vencimiento (`X-Amz-Expires`, en segundos), una firma de 64 caracteres hexadecimales y el algoritmo declarado, `AWS4-HMAC-SHA256`, es decir, un HMAC con SHA-256. La credencial incluye fecha, región y servicio, y la firma de PUT es distinta a la de GET. No reimplementé ni verifiqué el algoritmo completo contra la especificación; lo que sé es lo que muestra la salida y lo que dice la documentación sobre vencimientos: hasta 7 días con credenciales de un usuario IAM, y menos si las credenciales son temporales, porque la URL muere con ellas [#arch716-aws-presigned]."
+  },
+  {
+   "t": "pensa",
+   "x": "¿Por qué el juguete incluye el método (`GET`, `PUT`) dentro del mensaje que firma?",
+   "resp": "Para que un permiso concedido para leer no sirva para escribir ni borrar. Si la firma solo cubriera la ruta, quien recibió un enlace de lectura podría usarlo con `PUT` o `DELETE`. Con el método dentro del mensaje, la prueba 4 de la terminal dio 403."
+  },
+  {
+   "t": "h",
+   "x": "Servir un archivo grande: streaming y rangos"
+  },
+  {
+   "t": "p",
+   "x": "Bajar un archivo tiene su propia trampa, la que viste en [@07-04]. Serví un archivo de 300.000.000 de bytes de dos maneras: leyéndolo **entero** a memoria con `readFile` antes de responder, y como **flujo** (`createReadStream` enviado a la respuesta), y medí la memoria residente del proceso (RSS):"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "MODO=entero node memoria.mjs  # y un curl al archivo de 300 MB",
+     "s": "modo=entero base=53 MB pico=342 MB"
+    },
+    {
+     "c": "MODO=flujo node memoria.mjs   # el mismo curl",
+     "s": "modo=flujo base=53 MB pico=97 MB"
+    }
+   ],
+   "cap": "Una corrida de cada modo, en esta VM, sin repetirla. «Base» es la memoria con el servidor ocioso. Con `readFile`, una sola descarga hizo crecer el proceso en unos 290 MB, casi el tamaño del archivo; con el flujo, unos 44 MB."
+  },
+  {
+   "t": "p",
+   "x": "Con diez descargas a la vez, `readFile` mantiene diez copias enteras: del orden de 3 GB (ESTIMACIÓN: 10 × unos 290 MB; no lo medí). El flujo solo tiene en memoria el trozo que va en camino, y gracias al *backpressure* de [@07-04] no lee más rápido de lo que el cliente consume."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Falta un problema: la descarga se corta a los 2 MB de 5. ¿Empezar de cero? HTTP tiene la solución, descrita en la sección 14 del RFC 9110 [#rfc9110]: el cliente pide **solo un rango de bytes** con el encabezado `Range`, y el servidor, si lo soporta, contesta `206 Partial Content` con un `Content-Range` que dice qué parte manda y de cuántos bytes totales. Se anuncia con `Accept-Ranges: bytes`. El mismo mecanismo es el que usan los reproductores de video para saltar a otro minuto sin bajar todo [#front03-mdn-range].",
+    "Subí al almacén de juguete un archivo de 5.000.000 de bytes y probé:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -sI \"$G\"",
+     "s": "HTTP/1.1 200 OK\naccept-ranges: bytes\ncontent-type: application/octet-stream\ncontent-length: 5000000"
+    },
+    {
+     "c": "curl -s -D - -o trozo.bin -H 'Range: bytes=1000000-1000099' \"$G\"",
+     "s": "HTTP/1.1 206 Partial Content\naccept-ranges: bytes\ncontent-type: application/octet-stream\ncontent-range: bytes 1000000-1000099/5000000\ncontent-length: 100"
+    },
+    {
+     "c": "curl -s -D - -o /dev/null -H 'Range: bytes=-50' \"$G\" | head -4",
+     "s": "HTTP/1.1 206 Partial Content\naccept-ranges: bytes\ncontent-type: application/octet-stream\ncontent-range: bytes 4999950-4999999/5000000"
+    },
+    {
+     "c": "curl -s -D - -o /dev/null -H 'Range: bytes=9000000-' \"$G\"",
+     "s": "HTTP/1.1 416 Range Not Satisfiable\ncontent-range: bytes */5000000"
+    }
+   ],
+   "cap": "Salida real (omití las líneas `Date` y `Connection`). `$G` es una URL firmada de lectura. Los 100 bytes de `trozo.bin` coinciden con los mismos bytes del archivo original (lo comprobé con `cmp`). El `416` responde que se pidió más allá del final y, en `Content-Range: bytes */5000000`, informa el tamaño real."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const r = /^bytes=(\\d*)-(\\d*)$/.exec(req.headers[\"range\"] || \"\");\nif (r) {\n  if (r[1] === \"\") inicio = Math.max(0, total - Number(r[2]));           // bytes=-50: los últimos 50\n  else { inicio = Number(r[1]); if (r[2] !== \"\") fin = Math.min(Number(r[2]), total - 1); }\n  if (inicio > fin || inicio >= total) {                                  // pide más allá del final\n    res.writeHead(416, { \"content-range\": `bytes */${total}` }); return res.end();\n  }\n  estado = 206; cab[\"content-range\"] = `bytes ${inicio}-${fin}/${total}`;\n}\nres.writeHead(estado, { ...cab, \"content-length\": fin - inicio + 1 });\nfs.createReadStream(archivo, { start: inicio, end: fin }).pipe(res);",
+   "cap": "El manejo de `Range` de mi servidor, simplificado: solo un rango por pedido, sin `If-Range`, sin rangos múltiples. Un servidor completo cubre más casos; los almacenes de objetos y las CDN ya lo resuelven por vos."
+  },
+  {
+   "t": "p",
+   "x": "Y la descarga cortada, reanudada con la opción `-C -` de curl, que calcula sola desde dónde seguir:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -r 0-1999999 -o parcial.bin \"$G\"   # simula el corte a los 2 MB",
+     "s": ""
+    },
+    {
+     "c": "curl -sv -C - -o parcial.bin \"$G\" 2>&1 | grep -E '^(> Range|< HTTP|< content-range)'",
+     "s": "> Range: bytes=2000000-\n< HTTP/1.1 206 Partial Content\n< content-range: bytes 2000000-4999999/5000000"
+    },
+    {
+     "c": "sha256sum cinco.bin parcial.bin | cut -c1-16",
+     "s": "ae5d7f85af8c36c7\nae5d7f85af8c36c7"
+    }
+   ],
+   "cap": "Salida real. El cliente pidió desde el byte 2.000.000 hasta el final y el archivo armado en dos pasos tiene el mismo hash (los primeros 16 caracteres del SHA-256 coinciden) que el original."
+  },
+  {
+   "t": "h",
+   "x": "En Senda: un PDF por tres caminos"
+  },
+  {
+   "t": "p",
+   "x": "Esto corresponde al commit `25e08fa` de Senda; el código cambia, la forma permanece. En Senda hay un solo tipo de archivo que sube la gente: el PDF de un sermón, que usa el líder de un grupo para generar preguntas. No hay `multipart` en ese código: elige otros caminos."
+  },
+  {
+   "t": "senda",
+   "titulo": "Un archivo, dos formas de viajar",
+   "x": [
+    "El PDF viaja **una vez como base64 dentro de un JSON** hacia la función `trivia-sermon` (`JSON.stringify({ trivia, pdf })`). Si el líder además lo comparte con su grupo, viaja **otra vez como cuerpo crudo** hacia el almacén: en el teléfono, con `FS.uploadAsync(... BINARY_CONTENT ...)`; en la web, con los bytes del selector. Son dos de las tres formas de la tabla de arriba, y la diferencia de peso es la que mediste: base64 pesa un tercio más.",
+    "El tope también aparece dos veces. El cliente rechaza lo que supere `6 * 1024 * 1024` bytes (6 MiB, 6.291.456 bytes) y el bucket tiene `file_size_limit` en 6.291.456. La función, en cambio, corta cuando la cadena base64 pasa de `8_000_000` caracteres."
+   ],
+   "archivos": [
+    "src/util/sermon.ts",
+    "src/componentes/sermonGrupo.tsx",
+    "supabase/functions/trivia-sermon/index.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Hallazgo menor, por cálculo",
+   "x": "Ocho millones de caracteres base64 equivalen a 6.000.000 de bytes (cada 3 bytes ocupan 4 caracteres: 6.000.000 de bytes dan 8.000.000 de caracteres; 6.000.001 dan 8.000.004). Un PDF de entre 6.000.001 y 6.291.456 bytes pasa la revisión del cliente (que usa 6 MiB) y entra al bucket, pero la función lo rechazaría con `413`. Es una diferencia entre megabytes decimales y binarios. Lo deduje del código y la aritmética; **no lo probé contra la función en vivo**."
+  },
+  {
+   "t": "senda",
+   "titulo": "Un bucket privado, enlaces de una hora y permisos por rol",
+   "x": [
+    "El bucket `sermones` es privado y solo admite `application/pdf`. La ruta del objeto es `<id del grupo>/<id de la trivia>.pdf`, y las políticas de Postgres miran esa ruta: solo el líder del grupo sube, reemplaza o borra, y los miembros descargan solo si la trivia está `lista` y el líder prendió `pdf_publico`. Es [[autorización]] por fila ([@07-11]) aplicada a archivos. La descarga usa una URL firmada de **3600 segundos** que pide `enlacePdf` (`POST /storage/v1/object/sign/…` con `expiresIn: 3600`); la función equivalente en el SDK de Supabase se documenta como un enlace para compartir un archivo por un tiempo fijo [#arch716-supabase-signed-url].",
+    "Además, como un bucket no se limpia desde SQL, un flujo semanal (`limpiar_sermones.sh`) borra los PDF cuya trivia ya no existe, quedó archivada o con error. Es el equivalente de «borrar la carpeta»: borrar objetos por clave."
+   ],
+   "archivos": [
+    "supabase/migrations/20261120000000_sermon_pdf.sql",
+    "scripts/limpiar_sermones.sh"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Una última observación, que cuento como criterio y no como crítica. El selector de la app pide `type: \"application/pdf\"` y `base64: true` (`sermonGrupo.tsx`): es un filtro del teléfono, no una verificación, y trae el PDF entero a memoria, razonable con un tope de 6 MB y un problema con archivos grandes, como el de `readFile`. Busqué en `sermon.ts` y en la función una comprobación de que el contenido empiece con `%PDF-` y no la encontré; lo que hay es un `try/catch` en `textoDelPdf`, que sigue por otro camino si el archivo no se lee como PDF. El bucket restringe el tipo a `application/pdf` y la app declara ese tipo en la cabecera; no verifiqué si Supabase Storage además mira el contenido. Con lo que viste hoy, ya sabés qué agregarías."
+  }
+ ],
+ "recap": [
+  "Un archivo viaja en un cuerpo multipart/form-data, separado por un borde largo y al azar; el nombre, el tipo y la extensión los declara el cliente y no son de fiar.",
+  "Subir con seguridad: tope de tamaño que corta en el camino, tipo real por los primeros bytes (nunca como único control), nombre generado por el servidor y destino que el cliente no decida.",
+  "Un almacén de objetos guarda objetos por bucket y clave, plano y con reemplazo entero; las «carpetas» son prefijos que agrupa la lista.",
+  "Una URL firmada ata método, ruta y vencimiento con un HMAC. Es una llave al portador: quien la tenga la usa hasta que venza, y el servidor no ve lo que se sube por ella.",
+  "Para archivos grandes, el flujo evita cargarlos enteros: en mi prueba, 300 MB subieron el proceso de 53 a 342 MB con `readFile` y a 97 MB con flujo.",
+  "Con `Range` el cliente pide parte de un archivo y recibe `206` con `Content-Range`; sirve para reanudar y para saltar en un video; un rango imposible da `416`."
+ ],
+ "repaso": [
+  {
+   "p": "En una subida multipart, ¿por qué el cliente elige un borde largo y al azar para separar las partes?",
+   "o": [
+    "Porque el RFC pide que sea secreto para poder firmar el cuerpo",
+    "Porque ese borde no puede aparecer dentro del contenido de ninguna parte",
+    "Porque el servidor lo usa después como nombre del archivo guardado",
+    "Porque un borde más corto impediría subir archivos de más de 1 MB"
+   ],
+   "c": 1,
+   "e": "El borde delimita las partes, así que no puede coincidir con ninguna secuencia del contenido, y un archivo binario puede contener cualquiera. Por eso es largo y aleatorio. No es un secreto ni sirve para firmar, no se usa como nombre y no limita el tamaño."
+  },
+  {
+   "p": "Alguien sube `recibo.png` con `Content-Type: image/png`. ¿Cuál de estas comprobaciones es la más confiable para decidir si es un PNG?",
+   "o": [
+    "Que el nombre termine en `.png`, porque el sistema lo exige",
+    "Que el `Content-Type` de la parte diga `image/png` y no otra cosa",
+    "Que el contenido empiece con los 8 bytes `89 50 4E 47 0D 0A 1A 0A`",
+    "Que el campo del formulario se llame `foto` y no `archivo`"
+   ],
+   "c": 2,
+   "e": "Nombre, extensión y `Content-Type` los pone el cliente y se falsifican con una línea de curl, como mostró el 415. Los primeros bytes son lo que sí se puede mirar, aunque ni siquiera eso alcanza como único control: OWASP recomienda sumar análisis del archivo. El nombre del campo no dice nada del contenido."
+  },
+  {
+   "p": "Un endpoint de subidas tiene un tope de 1 MiB. ¿Cuándo conviene hacerlo cumplir?",
+   "o": [
+    "Después de guardar el archivo entero, midiendo su tamaño final",
+    "Mientras llega, contando bytes y cortando al pasar el tope",
+    "Solo en la app del cliente, antes de enviar el archivo",
+    "Cuando el administrador revisa las subidas del día"
+   ],
+   "c": 1,
+   "e": "Si se mide al final, el servidor ya gastó disco, ancho de banda y tiempo con un archivo que iba a rechazar. Cortar en el camino lo evita (busboy avisa con `limit`). Un control solo en el cliente se saltea con curl, y una revisión diaria llega tarde."
+  },
+  {
+   "p": "Un bucket tiene las claves `pedidos/42/foto.png` y `pedidos/43/foto.png`. ¿Qué devuelve listar con `prefix=pedidos/` y `delimiter=/`?",
+   "o": [
+    "Los prefijos comunes `pedidos/42/` y `pedidos/43/`, sin claves sueltas",
+    "Las dos claves completas, porque la «carpeta» pedidos/ las contiene",
+    "Un error, porque la carpeta pedidos/ no fue creada antes de subir",
+    "Un solo prefijo, `pedidos/`, que agrupa a todas las claves"
+   ],
+   "c": 0,
+   "e": "No existen carpetas: son claves que empiezan igual. Con delimitador, lo que queda después del prefijo se agrupa hasta la primera `/`, y eso da `42/` y `43/`. No hay error por falta de carpeta ni se agrupa en `pedidos/`, porque ese es justamente el prefijo pedido."
+  },
+  {
+   "p": "En la URL firmada de juguete, alguien edita el parámetro `expira` para sumarle un día y la manda al servidor. ¿Qué pasa y por qué?",
+   "o": [
+    "Se acepta, porque el servidor solo compara el vencimiento con la hora actual",
+    "Se rechaza, porque el servidor guarda una lista de todas las URL emitidas",
+    "Se acepta hasta el vencimiento original y después deja de funcionar",
+    "Se rechaza, porque la firma se calculó con el vencimiento original"
+   ],
+   "c": 3,
+   "e": "La firma cubre método, ruta y vencimiento. Al cambiar `expira`, el servidor recalcula con el nuevo valor y no coincide, y el atacante no puede producir la firma correcta sin el secreto. El servidor no necesita recordar las URL emitidas: por eso este esquema escala."
+  },
+  {
+   "p": "Un servidor entrega archivos de 300 MB con `readFile`. En la medición, una descarga subió el proceso de 53 a 342 MB. ¿Qué esperás con diez descargas simultáneas?",
+   "o": [
+    "Casi lo mismo, porque Node comparte un solo buffer entre pedidos",
+    "Unos 400 MB, porque la memoria base solo se paga una vez",
+    "Del orden de varios GB, porque cada descarga tiene su copia entera",
+    "Menos memoria, porque el sistema operativo comprime los buffers"
+   ],
+   "c": 2,
+   "e": "Cada `readFile` crea su propio buffer con el archivo completo, así que diez descargas mantienen diez copias a la vez: del orden de 3 GB (estimación, no lo medí). No se comparte un buffer ni se comprime. Con un flujo, la memoria depende del trozo en camino y no del tamaño del archivo."
+  },
+  {
+   "p": "Una descarga de 5.000.000 de bytes se cortó a los 2.000.000. ¿Qué pide el cliente para seguir y cómo contesta un servidor que lo soporta?",
+   "o": [
+    "Pide `Range: bytes=2000000-` y recibe `200 OK` con el archivo completo",
+    "Pide `Range: bytes=2000000-` y recibe `206 Partial Content` con `Content-Range`",
+    "Pide `If-Modified-Since` y recibe `304 Not Modified` con el resto",
+    "Pide `Range: bytes=0-2000000` y recibe `416` porque ya tenía esos bytes"
+   ],
+   "c": 1,
+   "e": "El cliente pide desde el byte donde quedó y el servidor contesta 206 con el `Content-Range` del trozo y el total. Un `200` con todo el archivo sería ignorar el rango. `304` es para validar caché, no para reanudar, y `416` es para rangos fuera del archivo, no para bytes ya descargados."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó qué le pasa a una foto desde que tocás «enviar» hasta que queda guardada: qué viaja, qué cosas del archivo no hay que creerle a quien lo manda, y para qué sirve un enlace que vence. Usá una analogía tuya, no la de la caja con divisores.",
+ "para_profundizar": [
+  {
+   "fuente": "arch716-rfc7578",
+   "nota": "El formato multipart/form-data. Leé las secciones 4.1 (boundary), 4.2 (Content-Disposition con name y filename) y 4.4 (Content-Type de cada parte); el resto es repaso."
+  },
+  {
+   "fuente": "arch716-owasp-subidas",
+   "nota": "La lista práctica de defensas para subidas de archivos: extensiones, tipo real, nombre generado, tamaño, ubicación y análisis. Sirve de checklist para cualquier endpoint que reciba archivos."
+  },
+  {
+   "fuente": "arch716-aws-presigned",
+   "nota": "Cómo funcionan las URL prefirmadas de S3: quién las puede crear, cuánto duran y cómo limitarlas. Leé «Who can create a presigned URL» y «Limiting presigned URL capabilities»."
+  },
+  {
+   "fuente": "rfc9110",
+   "nota": "La sección 14 define Range, Content-Range, Accept-Ranges y los códigos 206 y 416 con ejemplos. Es corta y se lee de corrido."
+  }
+ ],
+ "videos": [
+  {
+   "q": "presigned URL upload direct to S3 explained",
+   "por_que": "Para ver el flujo de subida directa con URL firmada dibujado por otra persona y compararlo con el diagrama de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "subida de archivos",
+   "d": "Proceso por el que un cliente manda un archivo a un servidor en el cuerpo de una petición HTTP, normalmente como multipart/form-data. Todo lo que declara el cliente sobre el archivo (nombre, tipo) es entrada no confiable."
+  },
+  {
+   "t": "almacenamiento de objetos",
+   "d": "Servicio que guarda archivos como objetos dentro de buckets, cada uno con una clave única y metadatos, y se usa por HTTP (PUT, GET, DELETE). No hay carpetas reales: las claves son planas y un objeto se reemplaza entero."
+  },
+  {
+   "t": "URL firmada",
+   "d": "Enlace que lleva incrustado un permiso limitado (método, clave, vencimiento) y una firma calculada con un secreto. Quien la posea puede usarla sin cuenta hasta que venza: funciona como una llave al portador."
+  },
+  {
+   "t": "multipart/form-data",
+   "d": "Formato de cuerpo HTTP (RFC 7578) para mandar varios campos, incluso archivos, en una sola petición. Las partes se separan con un borde declarado en el Content-Type y cada una trae sus propios encabezados."
+  },
+  {
+   "t": "firma de formato",
+   "d": "Los primeros bytes que identifican el formato de un archivo, por ejemplo 89 50 4E 47 0D 0A 1A 0A en un PNG o %PDF- en un PDF. Sirven para comprobar el tipo real, aunque no deben ser el único control."
+  },
+  {
+   "t": "HMAC",
+   "d": "Función que combina un secreto con un mensaje y produce un resumen de largo fijo (RFC 2104). Sin el secreto no se puede generar el resumen correcto, por eso se usa para firmar URL y mensajes."
+  },
+  {
+   "t": "bucket",
+   "d": "Contenedor de nivel superior de un almacén de objetos. Los objetos viven dentro de un bucket y se identifican por su clave dentro de él."
+  },
+  {
+   "t": "solicitud de rango",
+   "d": "Petición HTTP con el encabezado Range que pide solo una parte de un recurso. El servidor responde 206 Partial Content con Content-Range, o 416 si el rango queda fuera del archivo."
+  }
+ ],
+ "siguiente": "Comunicación entre servicios. Hasta hoy tu servidor habló con clientes, una base y un almacén; mañana, qué pasa cuando un servicio le pide algo a otro, cuánto esperar, cuándo reintentar y cómo evitar que la falla de uno arrastre a los demás.",
+ "fuentes_nuevas": [
+  {
+   "id": "arch716-rfc7578",
+   "t": "RFC 7578: Returning Values from Forms: multipart/form-data",
+   "a": "L. Masinter (IETF)",
+   "tipo": "rfc",
+   "anio": 2015,
+   "url": "https://www.rfc-editor.org/rfc/rfc7578"
+  },
+  {
+   "id": "arch716-owasp-subidas",
+   "t": "File Upload Cheat Sheet",
+   "a": "OWASP",
+   "tipo": "doc",
+   "url": "https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html"
+  },
+  {
+   "id": "arch716-aws-s3-intro",
+   "t": "What is Amazon S3? (guía del usuario)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/Welcome.html"
+  },
+  {
+   "id": "arch716-aws-presigned",
+   "t": "Download and upload objects with presigned URLs",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/AmazonS3/latest/userguide/using-presigned-url.html"
+  },
+  {
+   "id": "arch716-png-spec",
+   "t": "Portable Network Graphics (PNG) Specification (Third Edition)",
+   "a": "W3C",
+   "tipo": "doc",
+   "url": "https://www.w3.org/TR/png-3/"
+  },
+  {
+   "id": "arch716-supabase-signed-url",
+   "t": "JavaScript: createSignedUrl",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/reference/javascript/storage-from-createsignedurl"
+  },
+  {
+   "id": "arch716-busboy-readme",
+   "t": "busboy: README",
+   "a": "Brian White (mscdex)",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/mscdex/busboy/master/README.md"
+  }
+ ]
+}

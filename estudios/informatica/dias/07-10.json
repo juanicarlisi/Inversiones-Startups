@@ -1,0 +1,673 @@
+{
+ "id": "07-10",
+ "titulo": "Autenticación II: sesiones contra tokens",
+ "bajada": "Implementás las dos formas de que un servidor te reconozca después de entrar, ves con un navegador real qué roba un script malicioso de cada una, y revisás cómo Senda guarda su sesión.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué problema resuelven las sesiones y los tokens y por qué ese problema existe en HTTP.",
+  "Seguir paso a paso el ciclo de una sesión de servidor y el de un par token de acceso y refresh token.",
+  "Armar y verificar a mano un token firmado, y mostrar por qué cambiar su contenido invalida la firma.",
+  "Comparar sesión y token en revocación, estado en el servidor, escalado y exposición a ataques.",
+  "Decidir dónde se guarda una credencial en web y en móvil, y evaluar la decisión de Senda."
+ ],
+ "venis_de": "En [@07-09] el servidor comprobó quién sos con una contraseña guardada como hash. Hoy responde la pregunta que sigue: ya sabe quién sos, pero HTTP no se acuerda de nada ([@05-19]), ¿cómo te reconoce en el pedido siguiente sin pedirte la contraseña otra vez?",
+ "se_apoya_en": [
+  "07-09",
+  "05-19",
+  "06-38",
+  "06-37",
+  "05-18"
+ ],
+ "gancho": [
+  "Marta acaba de entrar a una app con su contraseña. Dos segundos después toca «Mis pedidos». Para el servidor, ese segundo pedido es el de un desconocido: HTTP no guarda memoria entre un pedido y el siguiente. Pedirle la contraseña de nuevo en cada toque sería insoportable, y además la expondría cientos de veces por día.",
+  "La salida es siempre la misma idea: a cambio de la contraseña, el servidor le da a Marta una credencial de vida corta, y de ahí en adelante ella muestra esa credencial en vez de la contraseña. Lo que cambia de un diseño a otro es qué es esa credencial. Hoy implementás las dos versiones en un servidor propio, las atacás con un navegador real y mirás cuál de las dos eligió Senda."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Dos respuestas a la misma pregunta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay dos maneras de armar esa credencial. En la primera, la credencial es una **referencia**: un número al azar que no significa nada por sí solo, y el servidor guarda en una tabla qué hay detrás de ese número. En la segunda, la credencial es un **valor**: lleva escrito adentro quién sos y hasta cuándo vale, con una firma que solo el servidor sabe producir, y el servidor no guarda nada.",
+    "Pensalo con la logística. La referencia es el ticket de cola de una ventanilla de despacho: un número sin significado, y la ventanilla tiene la lista que dice a quién corresponde. El valor es un remito sellado: el chofer lleva en la mano todo lo que el portón necesita saber (quién retira, qué retira, hasta cuándo vale) y el guardia lo valida mirando el sello, sin llamar a nadie."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Ticket y remito sellado",
+   "x": "El ticket se puede anular en el acto: la ventanilla lo tacha de su lista y ese número deja de valer. El remito no: ya está en la mano del chofer, el sello sigue siendo auténtico, y el guardia lo aceptará hasta que venza, salvo que además consulte una lista de remitos anulados, con lo cual volvió a depender de una lista. Esa es la diferencia central de todo el día. La analogía falla en otra cosa: un remito de papel no se copia sin que se note, y un token digital copiado funciona igual en cualquier mano."
+  },
+  {
+   "t": "h",
+   "x": "Sesión de servidor: el servidor se acuerda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[sesión de servidor]] es el registro que el servidor guarda sobre una persona ya autenticada: quién es, desde cuándo, hasta cuándo vale. Se llega a ese registro con un identificador al azar que el cliente manda en cada pedido, casi siempre dentro de una cookie ([@05-19], [@06-38]). El ciclo completo, en un servidor que escribí para esto:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Navegador",
+     "k": "cliente"
+    },
+    {
+     "n": "Servidor",
+     "k": "servidor"
+    },
+    {
+     "n": "Almacén de sesiones",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "POST /s/login: usuario y clave",
+     "d": "La contraseña se verifica contra el hash guardado, como en [@07-09]."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "Crea sesión: id al azar y marta",
+     "d": "El id son 16 bytes de un generador criptográfico: 128 bits. En mi servidor el almacén es un `Map` en memoria; en producción suele ser una base de datos o un almacén en memoria compartido."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "200 + Set-Cookie: sid=…; HttpOnly",
+     "resp": true,
+     "d": "El navegador guarda la cookie y la va a devolver sola en los pedidos siguientes al mismo sitio."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET /s/perfil + Cookie: sid=…",
+     "d": "Ningún dato de Marta viaja: solo el número."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "¿Quién es este id?",
+     "d": "Una búsqueda por clave en cada pedido: es el costo de esta forma."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "marta, vigente",
+     "resp": true,
+     "d": "Si el id no existe o venció, el servidor contesta 401."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "200 con los datos de Marta",
+     "resp": true,
+     "d": "El servidor ahora sabe quién pregunta."
+    }
+   ],
+   "cap": "Ciclo de una sesión de servidor. El estado vive en el servidor; el cliente solo lleva un número."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -i -c jar.txt -XPOST $S/s/login -H \"$J\" -d '{\"usuario\":\"marta\",\"clave\":\"tango2020\"}' | grep -iE '^HTTP|^Set-Cookie'",
+     "s": "HTTP/1.1 200 OK\nSet-Cookie: sid=3f72aa2b5e7dbda3d6856d82c4cc59a8; HttpOnly; SameSite=Lax; Path=/; Max-Age=600"
+    },
+    {
+     "c": "curl -s -b jar.txt $S/s/perfil ; curl -s $S/s/perfil ; curl -s $S/s/estado",
+     "s": "{\"usuario\":\"marta\",\"via\":\"sesion\"}\n{\"error\":\"sin_sesion\"}\n{\"sesiones_guardadas_en_el_servidor\":1}"
+    },
+    {
+     "c": "curl -s $S/s/revocar-a-marta ; curl -s -b jar.txt $S/s/perfil",
+     "s": "{\"activas\":0}\n{\"error\":\"sin_sesion\"}"
+    }
+   ],
+   "cap": "Salida real, 13 de noviembre de 2026. `$S` es `http://127.0.0.1:19710`, un servidor propio con datos inventados. Con `-b jar.txt` curl manda la cookie; sin él, no. La última línea es lo importante: el servidor borró la sesión y la cookie, que el cliente todavía tiene, dejó de servir al instante."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Esa última línea es la gran virtud de las sesiones: **revocar es inmediato**. Si Marta pierde el teléfono, si se detecta un abuso, si hay que cerrar la sesión de todo el mundo, alcanza con borrar filas. El precio es que cada pedido hace una búsqueda en el almacén, y que todos los servidores que atiendan a Marta tienen que ver el mismo almacén.",
+    "OWASP pide para el identificador al menos 64 bits de entropía generados con un generador criptográficamente seguro, y renovarlo cada vez que cambia el nivel de privilegio, sobre todo al iniciar sesión, para evitar que un atacante que plantó un id antes del ingreso lo herede [#auth09-owasp-session-management]. El mío usa 128 bits."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "La cookie, atributo por atributo"
+  },
+  {
+   "t": "p",
+   "x": "La cookie es el vehículo habitual del identificador, y sus atributos deciden quién puede leerla y cuándo viaja. La [[cookie HttpOnly]] es la que lleva el atributo `HttpOnly`: el navegador la manda en los pedidos, pero el JavaScript de la página no la puede leer. Estos son los atributos que importan para una sesión, con lo que evitan y, tan importante, lo que no:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Atributo",
+    "Qué hace",
+    "Qué no evita"
+   ],
+   "filas": [
+    [
+     "`HttpOnly`",
+     "El script de la página no la lee con `document.cookie`",
+     "Un script malicioso igual puede hacer pedidos que llevan la cookie"
+    ],
+    [
+     "`Secure`",
+     "Solo viaja por HTTPS",
+     "No impide que un script la lea si falta `HttpOnly`"
+    ],
+    [
+     "`SameSite=Lax` o `Strict`",
+     "No viaja en pedidos disparados desde otro sitio (`Lax` deja pasar clics en enlaces)",
+     "No reemplaza un token anti-CSRF: OWASP lo trata como defensa adicional"
+    ],
+    [
+     "`Max-Age`",
+     "Cuánto dura en el navegador",
+     "Un vencimiento largo en la cookie no alarga la sesión del servidor, y al revés"
+    ],
+    [
+     "Prefijo `__Host-`",
+     "Obliga `Secure`, `Path=/` y ninguna `Domain`: la cookie queda atada a ese host",
+     "Solo se acepta desde una página HTTPS"
+    ]
+   ],
+   "cap": "Según MDN y la Session Management Cheat Sheet de OWASP, consultadas el 13-11-2026 [#http19-mdn-set-cookie] [#auth09-owasp-session-management]."
+  },
+  {
+   "t": "p",
+   "x": "Lo de `HttpOnly` se puede comprobar, no hace falta creerlo. Serví una página desde mi servidor, la abrí en un Chromium real (Playwright) y ejecuté en ella lo mismo que ejecutaría un script malicioso que alguien logró inyectar. La página guardó el identificador de sesión en una cookie `HttpOnly`, una cookie común (`tema`) para comparar, y el token de la otra forma, que vemos enseguida, en `localStorage`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "NODE_PATH=/opt/node22/lib/node_modules node navegador.cjs",
+     "s": "{\n \"robado\": {\n  \"document.cookie\": \"tema=oscuro\",\n  \"localStorage.access\": \"eyJhbGciOiJIUzI1NiIsInR5…\"\n },\n \"actua\": {\n  \"usuario\": \"marta\",\n  \"via\": \"sesion\"\n }\n}\ncookies que ve el navegador: sid httpOnly=true sameSite=Lax | tema httpOnly=false sameSite=Lax"
+    }
+   ],
+   "cap": "Salida real de Chromium con Playwright 1.63 contra mi servidor local. «robado» es lo que el script lee: la cookie común aparece, `sid` no; el token de `localStorage` aparece completo (recortado acá). «actua» es un `fetch` hecho desde el script: la cookie `HttpOnly` viaja igual y el pedido sale a nombre de Marta."
+  },
+  {
+   "t": "p",
+   "x": "Mirá las dos mitades. Al script malicioso no le sirve para llevarse el identificador de sesión: `document.cookie` no lo muestra. Pero **puede usar la sesión mientras la página está abierta**: el `fetch` salió con la cookie y el servidor contestó como si fuera Marta. `HttpOnly` evita el robo y no evita el abuso. Es una defensa por capas, no una muralla, y por eso OWASP la recomienda junto con las demás y no en lugar de ellas."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Probar `Secure` en localhost no prueba nada",
+   "x": "Hice que el servidor mande la cookie con `Secure` y le pedí a curl 8.5.0 que la devolviera por `http://127.0.0.1`: la mandó. MDN lo explica: las exigencias de `https:` se ignoran en `localhost` [#http19-mdn-set-cookie]. Si querés comprobar que una cookie `Secure` no viaja por HTTP, probalo contra un nombre de host que no sea loopback. En producción, con HTTPS ([@05-22]), sí se cumple."
+  },
+  {
+   "t": "pensa",
+   "x": "Un sitio guarda el identificador de sesión en una cookie sin `HttpOnly` y tiene una vulnerabilidad que deja correr scripts ajenos en sus páginas. ¿Qué gana el atacante que no ganaría si la cookie fuera `HttpOnly`?",
+   "resp": "Puede leer el identificador con `document.cookie`, enviarlo a su propio servidor y usarlo desde su propia máquina, incluso con la página de la víctima ya cerrada. Con `HttpOnly` solo puede actuar mientras esa página está abierta. Es la diferencia entre llevarse la llave y usar la cerradura mientras el dueño está en casa."
+  },
+  {
+   "t": "h",
+   "x": "Token de acceso: la credencial lleva todo adentro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[token de acceso]] es una credencial de vida corta que el cliente manda en cada pedido y que el servidor puede verificar sin consultar ningún registro, porque contiene la información y una firma. El formato más difundido se llama JWT, de *JSON Web Token*, y lo define el RFC 7519 [#rfc7519]; hay más de él en la Parte 8. Son tres partes separadas por puntos: una cabecera (qué algoritmo firma), una carga (los datos, llamados claims) y la firma. Las dos primeras son JSON codificado en base64url, que es una forma de escribir bytes como texto; la tercera es el resultado de firmar las otras dos con un secreto.",
+    "Armemos uno con las manos, con un secreto de práctica. Este código corre en tu navegador, y también en Node 22 (lo probé ahí):"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Un JWT firmado con HMAC-SHA256, armado y verificado a mano. Secreto y datos inventados.\nconst enc = new TextEncoder();\nconst b64u = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');\nconst deb64u = (s) => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)));\nconst clave = await crypto.subtle.importKey('raw', enc.encode('secreto-de-practica-NO-REAL'), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);\nconst firmar = async (texto) => b64u(await crypto.subtle.sign('HMAC', clave, enc.encode(texto)));\n\nconst cab = b64u(enc.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })));\nconst carga = b64u(enc.encode(JSON.stringify({ sub: 'marta', rol: 'miembro', exp: 1900000000 })));\nconst token = `${cab}.${carga}.${await firmar(cab + '.' + carga)}`;\nconsole.log('token:', token);\nconsole.log('cabecera:', deb64u(cab));\nconsole.log('carga   :', deb64u(carga), '(cualquiera la puede leer: no está cifrada)');\n\nasync function verificar(t) {\n  const [c, p, f] = t.split('.');\n  // (en un servidor real, la comparación va en tiempo constante)\n  return (await firmar(c + '.' + p)) === f ? 'firma válida' : 'FIRMA INVÁLIDA';\n}\nconsole.log('\\ntal cual            ->', await verificar(token));\n// Un atacante cambia el rol en la carga, pero no conoce el secreto y deja la firma vieja.\nconst cargaFalsa = b64u(enc.encode(JSON.stringify({ sub: 'marta', rol: 'admin', exp: 1900000000 })));\nconsole.log('rol cambiado a admin ->', await verificar(`${cab}.${cargaFalsa}.${token.split('.')[2]}`));\n// Si cambia la cabecera a alg:none y borra la firma, un verificador correcto igual exige firma.\nconst cabNone = b64u(enc.encode(JSON.stringify({ alg: 'none', typ: 'JWT' })));\nconsole.log('alg:none sin firma   ->', await verificar(`${cabNone}.${cargaFalsa}.`));\n",
+   "ejecutable": true,
+   "cap": "Un JWT firmado con HMAC-SHA256, con `crypto.subtle` (WebCrypto). El secreto y los datos son inventados. Probá cambiar `rol` o el secreto y volver a ejecutar."
+  },
+  {
+   "t": "p",
+   "x": "Tres lecciones salen de ahí. Primera: **la carga no está cifrada**, solo codificada. Cualquiera que tenga el token ve el rol, el usuario y el vencimiento, por eso no se pone nada confidencial adentro. Segunda: la firma no esconde nada, **prueba que nadie tocó la carga**: al cambiar `miembro` por `admin`, la firma deja de coincidir, y para fabricar una nueva haría falta el secreto. Tercera: la cabecera dice con qué algoritmo se firmó, y eso abrió una familia de ataques. El RFC 8725, la guía de buenas prácticas para JWT, documenta que un atacante puede cambiar el algoritmo a `none` y que algunas bibliotecas aceptaban eso como «válido» sin firma [#auth10-rfc8725]. La defensa es que el servidor decida qué algoritmo acepta y no le crea a la cabecera."
+  },
+  {
+   "t": "p",
+   "x": "Ahora el ciclo completo en mi servidor. Hace dos cosas con Marta: al ingresar le da un token de acceso que dura 3 segundos (en serio durarían minutos; lo acorto para verlo vencer) y otra credencial más, el refresh token, que viene enseguida. Mirá qué guarda el servidor y qué no:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "P=$(curl -s -XPOST $S/t/login -H \"$J\" -d '{\"usuario\":\"marta\",\"clave\":\"tango2020\"}')   # access y refresh en $P",
+     "s": "access  : eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJtY…(147 caracteres)\nrefresh : QUnhZx4q89FXXEDCKFsp…(43 caracteres)"
+    },
+    {
+     "c": "curl -s -H \"Authorization: Bearer $A\" $S/t/perfil ; curl -s $S/t/estado",
+     "s": "{\"usuario\":\"marta\",\"via\":\"token\"}\n{\"refresh_guardados_en_el_servidor\":1}"
+    }
+   ],
+   "cap": "Salida real. `$A` y `$R` son el access y el refresh sacados de `$P`. El pedido va con el encabezado `Authorization: Bearer <token>`. El servidor verificó la firma y el vencimiento sin buscar nada. Lo único que tiene guardado es el refresh token."
+  },
+  {
+   "t": "h",
+   "x": "Refresh token: por qué hay dos credenciales"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si el token de acceso se puede usar hasta que vence y el servidor no lo puede anular, lo prudente es que dure poco. Pero si dura 5 minutos y la persona usa la app una hora, habría que pedirle la contraseña doce veces. La solución es una segunda credencial: el [[refresh token]], de vida larga, que sirve **solo** para pedir un token de acceso nuevo. Se guarda en el servidor, así que sí se puede revocar, y se usa una sola vez: cada renovación entrega un par nuevo e invalida el refresh anterior. Se llama rotación.",
+    "Veamos qué pasa cuando Marta cierra sesión con el token todavía vigente, y después de que vence:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -XPOST $S/t/logout -H \"$J\" -d \"{\\\"refresh\\\":\\\"$R\\\"}\" ; curl -s -H \"Authorization: Bearer $A\" $S/t/perfil",
+     "s": "{\"ok\":true}\n{\"usuario\":\"marta\",\"via\":\"token\"}"
+    },
+    {
+     "c": "sleep 4 ; curl -s -H \"Authorization: Bearer $A\" $S/t/perfil ; curl -s -XPOST $S/t/refresh -H \"$J\" -d \"{\\\"refresh\\\":\\\"$R\\\"}\"",
+     "s": "{\"error\":\"token_vencido\"}\n{\"error\":\"refresh_invalido\"}"
+    },
+    {
+     "c": "# rotación: el mismo refresh usado dos veces",
+     "s": ""
+    },
+    {
+     "c": "curl -s -XPOST $S/t/refresh -H \"$J\" -d \"{\\\"refresh\\\":\\\"$R1\\\"}\" ; curl -s -XPOST $S/t/refresh -H \"$J\" -d \"{\\\"refresh\\\":\\\"$R1\\\"}\"",
+     "s": "{\"access\":\"eyJhbGciOiJIUzI1NiI…\n{\"error\":\"refresh_invalido\"}"
+    }
+   ],
+   "cap": "Salida real (el primer par de comandos usa el login anterior, el último un login nuevo; `$A` es el access, `$R` y `$R1` son refresh). Después del cierre de sesión, el token de acceso siguió sirviendo hasta que venció, 3 segundos más tarde. El refresh, en cambio, murió al cerrar."
+  },
+  {
+   "t": "p",
+   "x": "Ahí está el costo del valor firmado, a la vista: **cerrar sesión no anuló el token de acceso**. Siguió funcionando hasta vencer, porque nadie lo consulta. Con 3 segundos es un detalle; con 1 hora, es una hora de ventana. Supabase Auth, que es lo que usa Senda, lo dice en su documentación: cerrar sesión borra la sesión de su base, pero el JWT sigue siendo válido hasta que vence, salvo que el servicio verifique además que el `session_id` del token todavía exista, algo que recomiendan reservar para las acciones más sensibles [#auth10-supabase-sessions]."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "App",
+     "k": "cliente"
+    },
+    {
+     "n": "API",
+     "k": "servidor"
+    },
+    {
+     "n": "Autenticación",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 2,
+     "t": "Login: usuario y clave",
+     "d": "Única vez que viaja la contraseña."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "Access (corto) + refresh (largo)",
+     "resp": true,
+     "d": "El refresh queda guardado del lado del servidor de autenticación."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET /perfil + Bearer access",
+     "d": "La API verifica la firma y el vencimiento. No consulta a nadie."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "200",
+     "resp": true,
+     "d": "Mientras el access vive, el servidor de autenticación ni se entera."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET /perfil con el access vencido",
+     "d": "Pasaron los minutos de vida del access."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "401 token_vencido",
+     "resp": true,
+     "d": "El cliente sabe que no es un error de contraseña sino de vencimiento."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "POST /refresh con el refresh",
+     "d": "Se cambia el refresh por un par nuevo, sin pedir la contraseña."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "Access nuevo + refresh nuevo",
+     "resp": true,
+     "d": "El refresh anterior ya no vale: rotación."
+    }
+   ],
+   "cap": "Renovación con rotación. En mi servidor de práctica la API y la autenticación son el mismo programa; en la vida real suelen estar separadas."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Qué hace Supabase Auth con el refresh token",
+   "x": "Según su documentación, los tokens de acceso duran entre 5 minutos y 1 hora, los refresh tokens no vencen pero solo se pueden usar una vez, y si se reutiliza uno fuera de un intervalo de gracia (10 segundos por defecto) toda la sesión se considera comprometida y se revocan todos sus refresh tokens [#auth10-supabase-sessions]. Es una versión más fina de mi rotación: detecta que alguien copió un refresh token porque ahora hay dos usándolo."
+  },
+  {
+   "t": "pensa",
+   "x": "Marta cierra sesión en su teléfono. El token de acceso de 1 hora sigue sirviendo. Nombrá dos formas de arreglarlo y qué se pierde con cada una.",
+   "resp": "Una: acortar la vida del token de acceso (por ejemplo, 5 minutos): la ventana baja, a cambio de más renovaciones y más carga sobre el servidor de autenticación. Dos: verificar en cada pedido, contra una lista o una tabla, que la sesión siga viva: la revocación pasa a ser inmediata, pero se perdió la ventaja de verificar sin consultar nada, y se volvió a una sesión de servidor con otro nombre."
+  },
+  {
+   "t": "h",
+   "x": "Cara a cara"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Sesión de servidor",
+    "Token de acceso firmado (con refresh)"
+   ],
+   "filas": [
+    [
+     "Qué lleva el cliente",
+     "Un número sin significado",
+     "Los datos y una firma"
+    ],
+    [
+     "Dónde está el estado",
+     "En el servidor, en una tabla",
+     "En el token; en el servidor solo los refresh"
+    ],
+    [
+     "Revocar",
+     "Inmediato: se borra la fila",
+     "Recién cuando vence el access, salvo que se consulte una lista"
+    ],
+    [
+     "Costo por pedido",
+     "Una búsqueda en el almacén",
+     "Verificar una firma, sin búsqueda"
+    ],
+    [
+     "Varios servidores",
+     "Tienen que compartir el almacén",
+     "Basta con compartir la clave de verificación"
+    ],
+    [
+     "Cómo viaja",
+     "Cookie: el navegador la manda solo",
+     "Encabezado: lo manda el código de la app"
+    ],
+    [
+     "Riesgo típico en web",
+     "CSRF, porque el navegador manda la cookie solo ([@06-38])",
+     "Robo si se guarda donde un script lo lee"
+    ],
+    [
+     "Encaja mejor en",
+     "Sitios web clásicos con un solo backend",
+     "Apps móviles, APIs, varios servicios distintos"
+    ]
+   ],
+   "cap": "Ninguna columna gana en todo. La fila «Encaja mejor en» es una regla práctica, es criterio y no norma."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Los JWT son más modernos, así que son más seguros»",
+   "x": [
+    "No hay una forma más segura en general: cada una cambia dónde está el riesgo. Con sesiones de servidor, tu riesgo es el almacén y el robo de la cookie. Con tokens, es la ventana de uso tras un robo y la custodia del secreto de firma.",
+    "Tampoco es cierto que «sin estado» escale mejor en la práctica. Una búsqueda por clave en un almacén en memoria cuesta una fracción de lo que cuesta hacer el trabajo del pedido, y casi ningún sistema tiene ahí su cuello de botella. El token pesa de verdad cuando hay muchos servicios independientes que necesitan verificar quién sos sin llamar al mismo lugar. Es mi criterio; medí tu caso antes de decidir."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Los servicios de autenticación como Supabase usan un diseño mixto, y por eso es el que viste hoy: un token de acceso corto y verificable sin consultas, más un refresh token guardado del lado del servidor que sí se puede revocar. Es una forma de tener la mayor parte de las ventajas de cada uno."
+  },
+  {
+   "t": "h",
+   "x": "Dónde guardar la credencial"
+  },
+  {
+   "t": "p",
+   "x": "Una credencial es valiosa por lo que permite, así que dónde vive en el cliente importa tanto como el servidor. En la web hay dos opciones. La cookie `HttpOnly` con `Secure` y `SameSite`: el script no la lee, que es lo que acabás de ver. Y `localStorage` o `sessionStorage`: cualquier script del origen los lee con una línea ([@06-37]). La Session Management Cheat Sheet de OWASP es tajante: no guardar tokens, identificadores de sesión ni refresh tokens en `localStorage` ni `sessionStorage`, porque una sola vulnerabilidad de scripts entrega todos [#auth09-owasp-session-management]."
+  },
+  {
+   "t": "p",
+   "x": "En una app móvil no hay `document.cookie` ni XSS en el mismo sentido, pero la pregunta se repite con otros nombres. La documentación oficial de React Native separa los datos según su sensibilidad: `AsyncStorage` es un almacén **sin cifrar**, y en su lista de cosas para las que no usarlo figuran expresamente el almacenamiento de tokens y los secretos [#auth10-rn-security]. La alternativa es el almacén del sistema: el Keychain en iOS y el Keystore en Android. En el ecosistema Expo es `expo-secure-store`, que según su documentación guarda los valores en el Keychain de iOS y, en Android, en `SharedPreferences` cifradas con el sistema Keystore [#auth10-expo-securestore]."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Estado al 13 de noviembre de 2026",
+   "x": [
+    "La documentación de Expo muestra `expo-secure-store` con versión recomendada `~58.0.3`; Senda está en el SDK 57 y no tiene esta biblioteca instalada [#auth10-expo-securestore]. Versiones y recomendaciones cambian con cada SDK.",
+    "Hay un detalle de esa documentación que explica por qué guardar bien no es gratis: en Android el Auto Backup tiene que excluir lo de `expo-secure-store`, porque esas entradas no se pueden descifrar al restaurar la copia en otro teléfono. Es decir, lo que se guarda en el almacén seguro **no se muda solo** al cambiar de teléfono. En iOS pasa lo contrario: puede sobrevivir a desinstalar y reinstalar la app."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Senda: una sesión de Supabase en AsyncStorage"
+  },
+  {
+   "t": "senda",
+   "titulo": "El par de tokens, línea por línea",
+   "x": [
+    "Senda no tiene servidor propio: la sesión es la de Supabase Auth, y el diseño es el mixto de hoy. Tras el alta anónima de [@07-09], `aSesion()` arma `{access_token, refresh_token, expires_at, usuario}` y `guardarSesion()` lo escribe como JSON en `AsyncStorage` bajo la clave `senda-sesion`. Si Supabase no manda vencimiento, la app asume una hora (`expires_in ?? 3600`).",
+    "Cada pedido lleva dos encabezados: `apikey`, la clave pública del proyecto (va dentro de la app a propósito, no es secreta) y `Authorization: Bearer <access_token>`. Antes de cada llamada, `asegurarCuenta()` renueva con `grant_type=refresh_token` si faltan menos de 60 segundos para vencer, y si aun así llega un `401`, `peticion()` renueva y reintenta **una sola vez**. Del otro lado, la base valida la firma del token y el valor de `auth.uid()` queda disponible para las políticas de seguridad; las funciones de borde (`borrar-cuenta`, `trivia-sermon`) reenvían el `Authorization` a Supabase y llaman a `auth.getUser()`.",
+    "Un caso límite que sale de la regla «un refresh solo se usa una vez»: si la renovación falla porque el refresh ya no sirve (usado, revocado o la cuenta no existe más), `renovar()` descarta la sesión con `guardarSesion(null)` y la próxima vez se crea una cuenta anónima nueva. El código lo comenta: la cuenta vieja queda en la base sin forma de entrar. Eso explica por qué Senda ofrece vincular Google.",
+    "Esto corresponde al commit `25e08fa` (9 de noviembre de 2026); el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "supabase/functions/borrar-cuenta/index.ts",
+    "supabase/functions/trivia-sermon/index.ts",
+    "src/util/respaldo.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Un hallazgo conocido: el token sin cifrar, y por qué es a propósito",
+   "x": [
+    "La sesión vive en `AsyncStorage`, dentro de la carpeta privada de la app, sin cifrar. `package.json` no tiene `expo-secure-store` (busqué en `package.json` y `app.json`: sin resultados). El propio `docs/SEGURIDAD.md` lo lista como pendiente y da el motivo: Android copia esa carpeta en su respaldo, y **a propósito** es hoy la única forma de no perder la cuenta anónima al cambiar de teléfono. Pasar a `expo-secure-store` rompería justo eso, por lo que contaba la documentación de Expo hace un momento (la conexión es inferencia mía).",
+    "Es un intercambio razonable, y conviene ver los dos lados. A favor de cambiarlo: la documentación de React Native desaconseja `AsyncStorage` para tokens [#auth10-rn-security], y el código para guardar la cuenta con Google (`vincularGoogle`) ya está en este commit, que era la condición que el documento ponía para migrar. A favor de dejarlo: para quien no vinculó Google, el almacén seguro significaría perder la cuenta al restaurar en otro teléfono, y robar el token exige acceso a la carpeta privada del teléfono (root, o una copia de respaldo extraída), no un script ajeno; esa es mi lectura del riesgo. Además, el token da acceso a una cuenta social sin pagos: la función `compras` no se invoca desde la app. Si eso cambia, la ecuación cambia. Para el respaldo de Android, ver [@02-31]: el manifest generado trae `allowBackup=\"true\"`, y que la sesión efectivamente viaje en la copia es algo que no verifiqué con un teléfono.",
+    "Esto corresponde al commit `25e08fa` (9 de noviembre de 2026)."
+   ],
+   "archivos": [
+    "docs/SEGURIDAD.md",
+    "package.json",
+    "app.json",
+    "src/util/cuenta.ts"
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Con el código del JWT de arriba, agregá una función `vigente(token)` que devuelva `false` si el campo `exp` de la carga ya pasó (comparalo con `Date.now() / 1000`) y cambiá `exp` a `1000000000`. Después respondé: ¿por qué un atacante que quiera «extender» ese token cambiando `exp` en la carga no lo logra, y en qué momento debería llamarse a `vigente`: antes o después de verificar la firma?",
+   "pista": "Decodificá la carga con `deb64u`, leé `exp` y compará. Para lo segundo, pensá qué pasa si confiás en un `exp` que alguien pudo haber cambiado.",
+   "solucion": "`const vigente = (t) => JSON.parse(deb64u(t.split('.')[1])).exp > Date.now() / 1000;` Con `exp` en 1000000000 (año 2001) devuelve `false`. Un atacante que cambia `exp` en la carga invalida la firma, y la verificación falla antes de llegar al vencimiento. Primero se verifica la firma y recién después se lee `exp`: leer los datos antes de saber que son auténticos es confiar en algo que cualquiera pudo escribir."
+  },
+  {
+   "t": "p",
+   "x": "Con esto cerrás el tramo de identidad: probaste quién sos ([@07-09]) y el servidor te reconoce en cada pedido. Falta decidir qué te toca hacer una vez reconocido, que no es lo mismo. Eso es lo que sigue."
+  }
+ ],
+ "recap": [
+  "HTTP no guarda memoria, así que tras probar quién sos, el servidor te da una credencial de vida corta: una referencia (sesión de servidor) o un valor firmado (token de acceso).",
+  "En la sesión de servidor el cliente lleva un número al azar y el servidor guarda lo que hay detrás: revocar es inmediato, a costa de una búsqueda por pedido y de un almacén compartido.",
+  "Un token de acceso lleva los datos y una firma; el servidor verifica sin buscar nada, pero la carga no está cifrada y no se puede anular antes de que venza. En mi servidor, cerrar sesión no frenó el token de 3 segundos.",
+  "El refresh token es de vida larga, se guarda en el servidor y sirve una sola vez para pedir un access nuevo, lo que permite que el access dure minutos y que la sesión se pueda revocar.",
+  "Una cookie `HttpOnly` evita que un script robe el identificador (medido en Chromium), pero no que haga pedidos mientras la página está abierta; el token en `localStorage` se lee completo.",
+  "Senda usa el diseño mixto de Supabase y guarda `senda-sesion` en AsyncStorage sin cifrar, a propósito para no perder la cuenta al cambiar de teléfono; `expo-secure-store` no está instalado."
+ ],
+ "repaso": [
+  {
+   "p": "Un servidor guarda sesiones en una tabla y entrega a cada persona un número al azar en una cookie. Se descubre que el teléfono de Marta fue robado. ¿Qué puede hacer el servidor para cortar el acceso en ese instante?",
+   "o": [
+    "Esperar a que venza la cookie en el navegador del teléfono robado",
+    "Borrar la fila de la sesión: el número deja de corresponder a alguien",
+    "Cambiar el secreto con el que firma todos los identificadores de sesión",
+    "Pedirle al navegador que borre la cookie desde el servidor"
+   ],
+   "c": 1,
+   "e": "La sesión vive en el servidor: borrar la fila alcanza y el número queda sin significado, aunque el cliente conserve la cookie. Esperar el vencimiento deja una ventana abierta. Los identificadores de sesión no se firman con un secreto compartido, y el servidor no puede ordenarle al navegador robado que borre nada."
+  },
+  {
+   "p": "Un servicio usa tokens de acceso firmados de 1 hora y no guarda nada de las personas. Marta cierra sesión. ¿Qué pasa con el token de acceso que tenía?",
+   "o": [
+    "Deja de servir en el acto, porque cerrar sesión lo marca como inválido",
+    "Sigue sirviendo hasta que venza, porque el servidor solo mira firma y vencimiento",
+    "Sirve una única vez más y después queda anulado por el servidor",
+    "Deja de servir porque el navegador borra los tokens al cerrar sesión"
+   ],
+   "c": 1,
+   "e": "Un token firmado se verifica sin consultar ningún registro, así que el servidor no tiene dónde enterarse del cierre. Es la ventana de uso que el diseño acepta a cambio de no hacer búsquedas. Se acorta con vidas cortas o se cierra consultando una lista, y en ese caso se pierde parte de la ventaja."
+  },
+  {
+   "p": "Alguien cambia el campo `rol` de la carga de un JWT de «miembro» a «admin» y deja la cabecera y la firma como estaban. ¿Qué pasa al verificarlo?",
+   "o": [
+    "La firma deja de coincidir con la carga y el servidor lo rechaza",
+    "Se acepta, porque la firma solo protege la cabecera y no la carga",
+    "Se acepta si el token todavía no venció según el campo exp",
+    "Se rechaza porque el rol «admin» no existe en la base de datos"
+   ],
+   "c": 0,
+   "e": "La firma se calcula sobre cabecera y carga juntas: cualquier cambio en una la invalida, como mostró el código. Que el token no haya vencido no importa si la firma ya no coincide. No hace falta consultar la base: el rechazo sale solo de la firma."
+  },
+  {
+   "p": "Un script malicioso corre en la página de un sitio cuyo identificador de sesión está en una cookie `HttpOnly`. ¿Qué puede hacer y qué no?",
+   "o": [
+    "Leer la cookie con document.cookie, pero no usarla en pedidos",
+    "No leerla, pero sí hacer pedidos que la llevan mientras la página esté abierta",
+    "No leerla ni hacer pedidos, porque HttpOnly bloquea todo acceso a la sesión",
+    "Leerla y usarla, porque HttpOnly solo protege contra ataques de red"
+   ],
+   "c": 1,
+   "e": "El experimento lo mostró: `document.cookie` no incluyó `sid`, pero un `fetch` desde el script viajó con la cookie y salió a nombre de Marta. HttpOnly protege la confidencialidad de la cookie, no impide el abuso mientras el script corre. Y su objetivo no es la red: eso lo hace `Secure`."
+  },
+  {
+   "p": "¿Por qué los sistemas con tokens suelen entregar un token de acceso de minutos y además un refresh token?",
+   "o": [
+    "Para que el access sea corto y limite el daño de un robo, sin pedir la contraseña cada pocos minutos",
+    "Para que el refresh token pueda reemplazar a la contraseña en cualquier pedido al servidor",
+    "Para que el access token no necesite firma, porque la seguridad la da el refresh token",
+    "Para que el servidor no tenga que guardar nada, ni siquiera el refresh token"
+   ],
+   "c": 0,
+   "e": "El access corto acota la ventana de uso de uno robado, y el refresh, guardado en el servidor, permite renovar sin contraseña y revocar. El refresh no se manda en cada pedido ni reemplaza la firma del access, y justamente es lo único que el servidor sí guarda."
+  },
+  {
+   "p": "Una app móvil guarda su token de sesión con AsyncStorage. La documentación de React Native y la de Expo aconsejan otra cosa. ¿Qué dice esa documentación, y qué costo trae seguirla en Android?",
+   "o": [
+    "Que AsyncStorage no está cifrado y conviene usar el Keystore del sistema, que no pasa solo a otro teléfono",
+    "Que AsyncStorage es seguro si el token es corto, y el Keystore no tiene ningún costo",
+    "Que conviene guardar el token en un archivo de texto, que el respaldo copia siempre",
+    "Que el Keystore cifra mejor, pero hace imposible renovar el token con el refresh"
+   ],
+   "c": 0,
+   "e": "React Native describe AsyncStorage como almacén sin cifrar y lo desaconseja para tokens; Expo SecureStore usa el Keystore en Android. El costo es que esas entradas se excluyen del Auto Backup porque no se pueden descifrar al restaurar: no se mudan solas. Sí se puede renovar con el refresh, y un archivo de texto es peor."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó la diferencia entre el ticket de cola de una ventanilla y un remito sellado, y por qué eso cambia lo que pasa cuando querés anular uno. Después decí cuál elegirías para una app de celular y qué dudas te quedarían.",
+ "para_profundizar": [
+  {
+   "fuente": "auth09-owasp-session-management",
+   "nota": "La hoja de OWASP sobre sesiones: entropía y generación del identificador, atributos de cookie, vencimientos y por qué no usar localStorage. Leé «Session ID Properties» y «Cookies»."
+  },
+  {
+   "fuente": "auth10-supabase-sessions",
+   "nota": "Cómo funcionan de verdad las sesiones en el servicio que usa Senda: vida del token de acceso, refresh tokens de un solo uso y qué hacer para invalidar un JWT tras cerrar sesión."
+  },
+  {
+   "fuente": "rfc7519",
+   "nota": "El estándar de JWT. La sección 4 define las claims `sub`, `iat` y `exp` que usé en la carga; sirve para ver que no hay magia."
+  },
+  {
+   "fuente": "auth10-rfc8725",
+   "nota": "Buenas prácticas para JWT: los ataques con `alg: none` y con confusión de algoritmos, y las defensas. La sección 2.1 describe los dos ataques principales."
+  }
+ ],
+ "videos": [
+  {
+   "q": "session cookies vs JWT access refresh token explained",
+   "por_que": "Para ver a otra persona comparar las dos formas y confrontar sus argumentos con lo que midiste hoy, sobre todo en revocación."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "sesión de servidor",
+   "d": "Registro que el servidor guarda de una persona ya autenticada (quién es y hasta cuándo vale), al que se llega con un identificador al azar que el cliente manda en cada pedido, normalmente en una cookie."
+  },
+  {
+   "t": "token de acceso",
+   "d": "Credencial de vida corta que el cliente manda en cada pedido. Suele llevar adentro quién es la persona y hasta cuándo vale, con una firma, de modo que el servidor la verifica sin consultar un registro."
+  },
+  {
+   "t": "refresh token",
+   "d": "Credencial de vida larga que sirve solo para pedir un token de acceso nuevo. El servidor la guarda, por lo que se puede revocar, y en muchos sistemas se usa una sola vez (rotación)."
+  },
+  {
+   "t": "cookie HttpOnly",
+   "d": "Cookie con el atributo HttpOnly: el navegador la manda en los pedidos, pero el JavaScript de la página no la puede leer con document.cookie. Un script inyectado no puede llevársela, aunque sí hacer pedidos que la usen."
+  }
+ ],
+ "siguiente": "Autorización: qué podés hacer. Ya sabés quién es cada pedido; ahora, cómo decide el servidor qué le toca a esa persona, con roles, atributos y políticas, y por qué confundirlo con la autenticación abre agujeros.",
+ "fuentes_nuevas": [
+  {
+   "id": "auth09-owasp-session-management",
+   "t": "Session Management Cheat Sheet",
+   "a": "OWASP",
+   "tipo": "doc",
+   "url": "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html"
+  },
+  {
+   "id": "auth10-rfc8725",
+   "t": "RFC 8725: JSON Web Token Best Current Practices (BCP 225)",
+   "a": "Sheffer, Hardt, Jones (IETF)",
+   "tipo": "rfc",
+   "anio": 2020,
+   "url": "https://www.rfc-editor.org/rfc/rfc8725"
+  },
+  {
+   "id": "auth10-supabase-sessions",
+   "t": "User sessions (Supabase Auth)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/auth/sessions"
+  },
+  {
+   "id": "auth10-expo-securestore",
+   "t": "SecureStore (Expo SDK)",
+   "a": "Expo",
+   "tipo": "doc",
+   "url": "https://docs.expo.dev/versions/latest/sdk/securestore/"
+  },
+  {
+   "id": "auth10-rn-security",
+   "t": "Security (React Native)",
+   "a": "Meta Platforms",
+   "tipo": "doc",
+   "url": "https://reactnative.dev/docs/security"
+  }
+ ]
+}
