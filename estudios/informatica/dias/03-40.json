@@ -1,0 +1,801 @@
+{
+ "id": "03-40",
+ "titulo": "Concurrencia y paralelismo",
+ "bajada": "Separás dos ideas que casi todos confunden, medís cuánto acelera de verdad repartir 10.000 envíos entre hilos, y entendés por qué el GIL de Python y la ley de Amdahl ponen techos distintos.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir concurrencia (varias tareas en curso) de paralelismo (varias ejecutándose a la vez) con un ejemplo de cada una.",
+  "Explicar por qué una condición de carrera puede ocurrir sin paralelismo y cómo la evitan los candados y el paso de mensajes.",
+  "Comparar los modelos de hilos de Java, bucle de eventos de JavaScript, actores de Erlang y goroutines de Go.",
+  "Describir qué hace el GIL de Python y el estado de la variante sin GIL (PEP 703) a noviembre de 2026.",
+  "Calcular el techo de aceleración con la ley de Amdahl y leer una medición de paralelismo."
+ ],
+ "venis_de": "Ya sabés por qué dos hilos que tocan el mismo dato pueden pisarse (las carreras, los mutex y los deadlocks del [@02-22]) y qué es un núcleo (el [@01-31]). Hoy lo subís al nivel del lenguaje: cómo se piensan y se miden las tareas simultáneas cuando las escribís vos.",
+ "se_apoya_en": [
+  "01-31",
+  "02-05",
+  "02-06",
+  "02-22",
+  "03-39"
+ ],
+ "gancho": [
+  "Lunes a la mañana. El depósito tiene 10.000 envíos para procesar. Un operario solo los hace uno por uno. Si sumás tres operarios más, ¿terminan cuatro veces antes? Depende. Si el trabajo es calcular rutas, probablemente casi. Si el trabajo es esperar que 10.000 clientes confirmen una dirección, cuatro operarios son un desperdicio, porque con uno solo, atento, ya alcanza.",
+  "Esa diferencia, entre **manejar muchas cosas a la vez** y **hacer muchas cosas a la vez**, es el tema de hoy, y se mide. En una VM de 4 núcleos, repartir los 10.000 envíos entre 4 Workers de JavaScript los bajó de 2,9 a 0,77 segundos. En Python común, con 2.000 envíos, 4 hilos tardaron 5,4 segundos contra 4,9 de la versión sin hilos: más lento. Entender por qué es lo que separa a quien usa hilos por costumbre de quien los usa con criterio."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Dos palabras que se pisan"
+  },
+  {
+   "t": "p",
+   "x": "Hay dos preguntas distintas que suenan casi igual. La primera: ¿cuántas cosas tengo **en curso** al mismo tiempo? La segunda: ¿cuántas cosas estoy **ejecutando en este instante**? La primera es [[concurrencia]]. La segunda es [[paralelismo]]. Un programa puede tener mucha de la primera y nada de la segunda, y al revés."
+  },
+  {
+   "t": "cita",
+   "x": "Concurrency is about dealing with lots of things at once. Parallelism is about doing lots of things at once.",
+   "autor": "Andrew Gerrand, blog de Go (16-01-2013), resumiendo la charla de Rob Pike",
+   "fuente": "concurrencia-go-blog-waza"
+  },
+  {
+   "t": "p",
+   "x": "La frase viene de la charla «Concurrency is not parallelism», que Rob Pike, uno de los creadores de Go, dio en la conferencia Waza de Heroku (sus diapositivas son de 2012) [#concurrencia-go-blog-waza]. La traducción práctica: concurrencia es **cómo organizás** el programa, como partes que pueden avanzar de forma independiente. Paralelismo es **cómo se ejecuta**: partes que de verdad corren a la vez, en núcleos distintos. El paralelismo en el hardware ya lo viste en el [@01-31], con [[núcleo]]s e [[hilos de hardware|hilo de hardware]]."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Un cocinero con tres ollas. Pone el agua a hervir, mientras tanto corta las verduras, vuelve a revolver la salsa. Hay tres cosas en curso y una sola persona: concurrencia sin paralelismo. Si contratás dos cocineros más, y cada uno se ocupa de una olla, ahora hay paralelismo.",
+    "Donde la analogía deja de valer: un cocinero decide cuándo cambiar de olla. En un programa, quien decide cuándo pasa cada tarea es un [[planificador]] (el del sistema operativo o el del lenguaje), y puede interrumpir una tarea en el momento menos pensado."
+   ],
+   "titulo": "Pensalo así: la cocina"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Un solo núcleo",
+    "Varios núcleos"
+   ],
+   "filas": [
+    [
+     "Una sola tarea",
+     "se ejecuta sin más: ni concurrencia ni paralelismo",
+     "no se acelera, salvo que la partas en pedazos independientes"
+    ],
+    [
+     "Varias tareas en curso",
+     "**concurrencia sin paralelismo**: se turnan, una por vez (JavaScript en el navegador)",
+     "**concurrencia con paralelismo**: algunas corren a la vez de verdad"
+    ]
+   ],
+   "cap": "Las dos ideas son independientes. Lo que cambia entre columnas es el hardware; lo que cambia entre filas es cómo está organizado el programa."
+  },
+  {
+   "t": "p",
+   "x": "Para ver la concurrencia sin paralelismo hace falta un solo hilo y un turnero. Este programa corre en tu navegador, que ejecuta tu código en un único hilo. Usa una función especial de JavaScript, `function*`, que puede **pausarse** con `yield` y retomarse después. El planificador es un bucle que le da el turno a cada camión, de a uno."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Tres camiones, un solo hilo: un planificador les va dando el turno de a uno.\nfunction* camion(nombre, entregas) {\n  for (let i = 1; i <= entregas; i++) {\n    console.log(`${nombre}: entrega ${i} de ${entregas}`);\n    yield; // cede el turno: «seguí vos»\n  }\n  console.log(`${nombre}: terminó`);\n}\n\nfunction correr(tareas) {\n  const fila = [...tareas];\n  while (fila.length > 0) {\n    const t = fila.shift();\n    const r = t.next();        // corre hasta el próximo yield\n    if (!r.done) fila.push(t); // si falta trabajo, vuelve al final de la fila\n  }\n}\n\ncorrer([camion(\"A\", 3), camion(\"B\", 2), camion(\"C\", 3)]);",
+   "cap": "Corrí esto en node 22 y da el mismo orden que vas a ver acá: A1, B1, C1, A2, B2, C2, A3, B termina... Las tareas avanzan intercaladas, pero nunca dos a la vez.",
+   "ejecutable": true
+  },
+  {
+   "t": "pensa",
+   "x": "Tu celular tiene 8 núcleos y a la vez reproducís música, bajás un archivo y chateás. ¿Eso es concurrencia, paralelismo o las dos?",
+   "resp": "Las dos pueden estar presentes. Hay tres tareas en curso (concurrencia) y, con 8 núcleos, el sistema puede ponerlas a correr a la vez (paralelismo). Aun con un solo núcleo habría concurrencia: el [@02-06] mostró cómo el planificador reparte turnos. La concurrencia es la estructura; el paralelismo es lo que el hardware permite sobre esa estructura."
+  },
+  {
+   "t": "h",
+   "x": "Hilos del lenguaje y estado compartido"
+  },
+  {
+   "t": "p",
+   "x": "En el [@02-05] viste el [[hilo]] como camino de ejecución dentro de un proceso. Cada lenguaje te ofrece su propia versión, un **[[hilo del lenguaje]]**: la unidad de ejecución concurrente que podés crear desde el código. A veces es un hilo del sistema operativo con otro nombre: según la documentación de Java, un hilo «de plataforma» es un envoltorio fino sobre un hilo del sistema operativo [#concurrencia-jep-444]. Otras veces es algo más liviano que administra el propio lenguaje: las goroutines de Go, los hilos virtuales de Java 21 o los procesos de Erlang. Más abajo medimos cuántos caben."
+  },
+  {
+   "t": "p",
+   "x": "Cuando dos tareas ven y modifican el mismo dato, están **[[compartiendo estado|compartir estado]]**. Es lo que hace fácil cooperar y lo que produce las [[condiciones de carrera|condición de carrera]] del [@02-22]. Y hay una idea que conviene tener clara desde ya: **una carrera no necesita paralelismo**. Alcanza con que las tareas se intercalen en un mal momento. El mismo planificador de arriba lo demuestra: dos camiones leen el stock del depósito, ceden el turno en el medio, y escriben después."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "let stock = 10; // unidades en el depósito\n\nfunction correr(tareas) {\n  const fila = [...tareas];\n  while (fila.length > 0) {\n    const t = fila.shift();\n    if (!t.next().done) fila.push(t);\n  }\n}\n\n// Con un hueco: lee el stock, cede el turno, y recién después escribe.\nfunction* despacharConHueco(nombre, cantidad) {\n  const leido = stock;       // 1) leo\n  yield;                     // 2) acá puede entrar otra tarea\n  stock = leido - cantidad;  // 3) escribo con un dato que quedó viejo\n  console.log(`${nombre} despachó ${cantidad}: stock ${stock}`);\n}\ncorrer([despacharConHueco(\"A\", 3), despacharConHueco(\"B\", 4)]);\nconsole.log(\"con hueco, stock final:\", stock, \"(tendría que ser 3)\\n\");\n\n// Sin hueco: leer y escribir en un solo turno.\nstock = 10;\nfunction* despacharSinHueco(nombre, cantidad) {\n  stock = stock - cantidad;  // leer y escribir sin ceder el turno en el medio\n  console.log(`${nombre} despachó ${cantidad}: stock ${stock}`);\n  yield;\n}\ncorrer([despacharSinHueco(\"A\", 3), despacharSinHueco(\"B\", 4)]);\nconsole.log(\"sin hueco, stock final:\", stock);",
+   "cap": "Un solo hilo, ningún paralelismo, y el stock final es 6 en vez de 3. Sin hueco entre leer y escribir, da 3. Es la sección crítica del [@02-22] sin hilos.",
+   "ejecutable": true
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": "Para que haya una condición de carrera hacen falta dos cosas: **estado compartido que se modifica** y **tareas que se intercalan** en medio de una operación que no es atómica. Si quitás cualquiera de las dos, no hay carrera. Todo el resto del día (candados, mensajes, actores) son maneras de quitar una de las dos."
+  },
+  {
+   "t": "h",
+   "x": "Dos maneras de no pisarse: candados o mensajes"
+  },
+  {
+   "t": "p",
+   "x": "Tenés dos caminos. El primero es **proteger** el dato compartido con un [[mutex]], como en el [@02-22]: solo una tarea a la vez entra a la sección crítica. Es lo que usan los hilos de Java o de Python. El segundo es **no compartir**: cada dato tiene un solo dueño, y las demás tareas le piden cosas mandándole mensajes. Esa técnica se llama [[paso de mensajes]]."
+  },
+  {
+   "t": "cita",
+   "x": "Do not communicate by sharing memory; instead, share memory by communicating.",
+   "autor": "Effective Go, el lema del lenguaje Go",
+   "fuente": "go-docs-effective-go"
+  },
+  {
+   "t": "p",
+   "x": "Es un lema, y la misma guía de Go le pone un límite: dice que la idea puede llevarse demasiado lejos y que, por ejemplo, un contador de referencias puede resolverse mejor con un mutex alrededor de un entero [#go-docs-effective-go]. Los dos caminos existen y la mejor opción depende del caso."
+  },
+  {
+   "t": "p",
+   "x": "Este es el mismo depósito, ahora con un dueño único del stock. Nadie más lo toca; los camiones mandan mensajes y el dueño los atiende de a uno, en el orden en que llegaron."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Un «actor» mínimo: el stock tiene un solo dueño y los demás le mandan mensajes.\nfunction crearDeposito(stockInicial) {\n  let stock = stockInicial;       // privado: nadie más lo toca\n  const buzon = [];\n  return {\n    enviar(msg) { buzon.push(msg); },\n    procesar() {\n      while (buzon.length > 0) {\n        const msg = buzon.shift(); // un mensaje por vez, en orden de llegada\n        if (msg.tipo === \"despachar\") {\n          stock -= msg.cantidad;\n          console.log(`${msg.de} despachó ${msg.cantidad}: stock ${stock}`);\n        }\n      }\n    },\n  };\n}\n\nconst deposito = crearDeposito(10);\ndeposito.enviar({ tipo: \"despachar\", de: \"A\", cantidad: 3 });\ndeposito.enviar({ tipo: \"despachar\", de: \"B\", cantidad: 4 });\ndeposito.procesar();",
+   "cap": "Una idea de actor en 20 líneas de JavaScript. No es Erlang ni tiene concurrencia real: solo muestra que, con un único dueño que atiende un mensaje por vez, no hay hueco entre leer y escribir.",
+   "ejecutable": true
+  },
+  {
+   "t": "p",
+   "x": "El lenguaje que llevó esta idea más lejos es Erlang. Según su documentación, cada hilo de ejecución es un proceso que no comparte datos con los demás, y toda comunicación son señales asíncronas, de las cuales la más común es el mensaje, que se manda con `!` y el receptor toma de su buzón con `receive` [#concurrencia-erlang-conc-prog][#concurrencia-erlang-processes]. Esos procesos son livianos y rápidos de crear. Instalé Erlang (versión OTP 25, la que trae Ubuntu 24.04) y escribí el mismo depósito:"
+  },
+  {
+   "t": "codigo",
+   "lang": "erlang",
+   "x": "-module(deposito).\n-export([main/0]).\n\n%% Un actor: un proceso con su stock privado, que atiende un mensaje por vez.\nbucle(Stock) ->\n    receive\n        {despachar, De, Cantidad} ->\n            Nuevo = Stock - Cantidad,\n            io:format(\"~s despacha ~p: stock ~p~n\", [De, Cantidad, Nuevo]),\n            bucle(Nuevo);\n        {consultar, Quien} ->\n            Quien ! {stock, Stock},\n            bucle(Stock)\n    end.\n\nmain() ->\n    Deposito = spawn(fun() -> bucle(10) end),\n    Yo = self(),\n    spawn(fun() -> Deposito ! {despachar, \"A\", 3}, Yo ! listo end),\n    spawn(fun() -> Deposito ! {despachar, \"B\", 4}, Yo ! listo end),\n    receive listo -> ok end,\n    receive listo -> ok end,\n    Deposito ! {consultar, Yo},\n    receive {stock, S} -> io:format(\"stock final: ~p~n\", [S]) end.",
+   "cap": "El mismo depósito en Erlang. Lo compilé con `erlc` y lo corrí con `erl`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "erlc deposito.erl && erl -noshell -s deposito main -s init stop",
+     "s": "A despacha 3: stock 7\nB despacha 4: stock 3\nstock final: 3"
+    }
+   ],
+   "cap": "Salida real. Los dos camiones se ejecutan concurrentemente, pero el stock siempre termina en 3 porque solo el proceso dueño lo toca (el orden en que se atienden A y B puede cambiar entre corridas)."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Memoria compartida + candados",
+    "Paso de mensajes"
+   ],
+   "filas": [
+    [
+     "Quién toca el dato",
+     "cualquiera, de a uno por vez (con mutex)",
+     "su dueño; los demás piden por mensaje"
+    ],
+    [
+     "Qué sale mal",
+     "carreras si falta un candado; deadlock si hay demasiados",
+     "buzones que crecen, mensajes que se copian, pensar el programa de otra forma"
+    ],
+    [
+     "Dónde se ve",
+     "Java, C, Python con threading",
+     "Erlang, Go con canales, JavaScript con Workers"
+    ]
+   ],
+   "cap": "Ninguna es gratis: cambian los errores posibles, no la necesidad de pensar. En la práctica los lenguajes mezclan las dos."
+  },
+  {
+   "t": "h",
+   "x": "Los modelos que vas a encontrar"
+  },
+  {
+   "t": "p",
+   "x": "Cada lenguaje apostó por una combinación distinta. Esta tabla las resume, y después las medimos."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Modelo",
+    "Dónde",
+    "Cómo se comunican",
+    "Qué hace bien"
+   ],
+   "filas": [
+    [
+     "Hilos del sistema con memoria compartida",
+     "Java (hilos de plataforma), C, Python (`threading`)",
+     "memoria compartida y candados",
+     "usar varios núcleos dentro de un mismo proceso"
+    ],
+    [
+     "Bucle de eventos",
+     "JavaScript en el navegador y en Node",
+     "un solo hilo que atiende eventos por turno (lo ves en el [@03-41])",
+     "miles de esperas de red o de disco con poca memoria"
+    ],
+    [
+     "Hilos virtuales",
+     "Java 21",
+     "igual que un hilo común",
+     "miles de tareas que pasan casi todo el tiempo esperando"
+    ],
+    [
+     "Actores",
+     "Erlang",
+     "mensajes asíncronos a un buzón",
+     "muchísimos procesos livianos y aislados de las fallas ajenas"
+    ],
+    [
+     "Goroutines y canales",
+     "Go",
+     "canales (y también memoria compartida con candados)",
+     "decenas de miles de tareas livianas (medí 100.000) sobre pocos hilos del sistema"
+    ]
+   ],
+   "cap": "JavaScript además ofrece Workers (hilos reales con memoria separada) para lo que sí es cálculo pesado: lo vas a ver en la medición."
+  },
+  {
+   "t": "p",
+   "x": "Mido tres cosas, todas en la misma máquina virtual (4 CPU), así que las proporciones valen y las cifras absolutas no. Primero, **cuántas tareas livianas caben**:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Qué",
+    "Resultado medido"
+   ],
+   "filas": [
+    [
+     "Go: 100.000 goroutines esperando",
+     "creadas en unos 158 ms; unos 2.049 bytes de pila cada una; el proceso usó 6 hilos del sistema operativo en total"
+    ],
+    [
+     "Erlang (OTP 25): 100.000 procesos esperando un mensaje",
+     "creados en unos 240 ms; unos 2.700 bytes de memoria por proceso"
+    ],
+    [
+     "Java 21: 10.000 tareas que «esperan 1 segundo», con un grupo de 200 hilos de plataforma",
+     "50 segundos (200 tareas a la vez, 50 tandas)"
+    ],
+    [
+     "Java 21: las mismas 10.000 tareas, un hilo virtual por tarea",
+     "1,1 segundos; con 100.000 tareas, 1,2 segundos"
+    ],
+    [
+     "Node 22: 10.000 esperas de 1 segundo en un solo hilo",
+     "1,01 segundos"
+    ],
+    [
+     "Python 3.14 (con GIL): 200 hilos que esperan 1 segundo",
+     "1,03 segundos"
+    ]
+   ],
+   "cap": "Medición propia. En los hilos de plataforma el límite es cuántos hilos del sistema soportás; en los otros, cuánta memoria cabe. Ninguna de estas tareas usa la CPU mientras espera, por eso no hace falta paralelismo."
+  },
+  {
+   "t": "p",
+   "x": "Fijate en lo que mide: **esperar** no consume CPU, y por eso todos estos modelos, aun los que tienen un solo hilo, resuelven diez mil esperas en un segundo. Es concurrencia pura. Cuando lo que se hace es calcular, la cuenta cambia, y por eso Java aclara que sus hilos virtuales sirven para escalar y no para acelerar:"
+  },
+  {
+   "t": "cita",
+   "x": "Virtual threads are not faster threads — they do not run code any faster than platform threads.",
+   "autor": "JEP 444, Virtual Threads (Java 21)",
+   "fuente": "concurrencia-jep-444"
+  },
+  {
+   "t": "h",
+   "x": "El GIL de Python y el estado de PEP 703"
+  },
+  {
+   "t": "p",
+   "x": "Python guarda un candado enorme alrededor del intérprete: el **[[GIL]]** (*global interpreter lock*). Su definición oficial: el mecanismo que usa CPython para asegurar que **un solo hilo ejecute bytecode de Python a la vez** [#concurrencia-python-glosario]. La documentación agrega que el GIL siempre se libera al hacer entrada y salida y que algunos módulos de extensión lo sueltan en cálculos pesados como compresión o hash. Consecuencia: con hilos de Python, las esperas se superponen (los 200 hilos de la tabla de arriba), pero el cálculo en Python puro no corre en paralelo."
+  },
+  {
+   "t": "p",
+   "x": "Lo medí con la tarea de los envíos que se detalla más abajo (2.000 envíos, Python 3.14.6, mediana de 3 corridas). Las tres primeras filas son el intérprete de siempre, con GIL; las últimas dos, la variante sin GIL, que se llama *free-threaded*:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Python 3.14.6",
+    "Tiempo",
+    "Respecto de la versión secuencial de su propio intérprete"
+   ],
+   "filas": [
+    [
+     "Con GIL, secuencial",
+     "4.929 ms",
+     "1,00×"
+    ],
+    [
+     "Con GIL, 4 hilos",
+     "5.432 ms",
+     "0,91× (más lento que no usar hilos)"
+    ],
+    [
+     "Con GIL, 4 procesos",
+     "1.451 ms",
+     "3,40×"
+    ],
+    [
+     "Sin GIL, secuencial",
+     "5.561 ms",
+     "1,00× (13 % más lento que el secuencial con GIL)"
+    ],
+    [
+     "Sin GIL, 4 hilos",
+     "1.586 ms",
+     "3,51×"
+    ],
+    [
+     "Sin GIL, 4 procesos",
+     "2.089 ms",
+     "2,66×"
+    ]
+   ],
+   "cap": "Medición propia: los cuatro programas (JavaScript, Go y Python en sus variantes) dan la misma suma de control, 509.922.530 con 2.000 envíos. VM compartida: un orden de magnitud, no una cifra exacta."
+  },
+  {
+   "t": "p",
+   "x": "Con GIL, los 4 hilos tardan más que uno solo: se turnan el candado y pagan el cambio de turno. Con procesos, cada uno tiene su propio intérprete y su propio GIL, y la tarea baja a una cuarta parte (cuesta crear los procesos y pasar los datos). Sin GIL, los hilos sí corren en paralelo. La documentación de Python informa que el intérprete sin GIL gasta más al ejecutar código: entre el 1 % (macOS en ARM) y el 8 % (Linux x86-64) de promedio en su batería de pruebas [#concurrencia-python-free-threading]. En mi tarea, una sola corrida por tipo, salió 13 % más lento: dentro del ruido de una VM compartida o no, no lo investigué."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": [
+    "Estado verificado el 13-11-2026 en las fuentes oficiales [#concurrencia-pep-703][#concurrencia-pep-779][#concurrencia-python-whatsnew-314]:",
+    "PEP 703 («Making the Global Interpreter Lock Optional in CPython») figura como *Final*, con resolución del 24-10-2023. Python 3.13 trajo la variante sin GIL como experimental. El PEP 779, resuelto el 16-06-2025, definió los criterios para pasar a la fase II, y Python 3.14 (octubre de 2025) declaró la variante sin GIL «soportada oficialmente pero todavía opcional». Python 3.15.0 salió el 09-10-2026 y su documentación (3.15.2) la sigue tratando como una compilación aparte que se instala: los instaladores oficiales de macOS ahora la incluyen por defecto y hay una ABI estable para extensiones sin GIL. Las extensiones que no declaran soportarla hacen que el intérprete vuelva a activar el GIL al importarlas [#concurrencia-python-free-threading].",
+    "En las páginas que revisé no hay ninguna decisión de volverla la compilación por defecto (la «fase III»). Si dependés de esto, mirá el estado de tus bibliotecas en el sitio de seguimiento que enlaza la documentación."
+   ],
+   "titulo": "El GIL hoy: estado a noviembre de 2026"
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«El GIL hace que mi código con hilos sea seguro.» Protege las estructuras internas del intérprete, no la lógica de tu programa. La propia documentación de Python lista operaciones que no son atómicas, como `i = i + 1` o `D[x] = D[x] + 1`, y cierra con una recomendación: «When in doubt, use a mutex!» [#python-faq-hilos-atomicos]. La carrera del depósito de arriba existe también en Python con GIL.",
+   "titulo": "Mito: el GIL me protege de las carreras"
+  },
+  {
+   "t": "h",
+   "x": "La ley de Amdahl: el límite de la paralelización"
+  },
+  {
+   "t": "p",
+   "x": "Si paralelizás una tarea, ¿cuánto se acelera? Gene Amdahl lo planteó en 1967: la parte que no se puede paralelizar marca un techo [#wikipedia-amdahl]. Si **p** es la fracción del tiempo que sí se puede repartir y repartís entre **s** núcleos, el factor de aceleración es 1 ÷ ((1 − p) + p ÷ s). Si el 95 % se puede repartir, el techo es 20 veces, aunque tengas un millón de núcleos. Hoy es un adelanto: la ley de Amdahl vuelve en el [@16-03], cuando busques cuellos de botella."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Ley de Amdahl: aceleración = 1 / ((1 - p) + p / s)\n// p = fracción que se puede paralelizar; s = cuántas veces más recursos.\nconst speedup = (p, s) => 1 / ((1 - p) + p / s);\nconst fracciones = [0.5, 0.9, 0.95, 0.99];\nconst recursos = [2, 4, 8, 16, 64, Infinity];\n\nconsole.log(\"p \\\\ s    \" + recursos.map(s => String(s).padStart(6)).join(\" \"));\nfor (const p of fracciones) {\n  console.log(String(p).padEnd(8) + \" \" + recursos.map(s => speedup(p, s).toFixed(2).padStart(6)).join(\" \"));\n}\n\n// Al revés: si con 4 núcleos medí 3,5 veces, ¿qué fracción paralela implica?\nconst medido = 3.5, nucleos = 4;\nconst p = (1 - 1 / medido) / (1 - 1 / nucleos);\nconsole.log(`aceleración ${medido} con ${nucleos} núcleos implica p = ${p.toFixed(3)}`);",
+   "cap": "Corrí esto en node 22. Cambiá p y s: con p = 0,5 nunca pasás de 2×, aunque agregues núcleos sin fin.",
+   "ejecutable": true
+  },
+  {
+   "t": "p",
+   "x": "Mirá la fila de p = 0,5: con la mitad del trabajo en serie, ni sumando mil núcleos pasás de 2×. Mirá la de 0,95: 4 núcleos te dan 3,5 veces; 16, apenas 9,1. Cada núcleo extra rinde menos que el anterior."
+  },
+  {
+   "t": "pensa",
+   "x": "Un programa tarda 100 segundos, de los cuales 20 son una lectura inicial de datos que no se puede repartir. ¿Cuál es el techo de aceleración, con los núcleos que quieras?",
+   "resp": "El 20 % es serie (p = 0,8). Con infinitos núcleos, el tiempo no baja de esos 20 segundos: el techo es 1 ÷ 0,2 = 5 veces. Con 4 núcleos serían 1 ÷ (0,2 + 0,8 ÷ 4) = 2,5 veces."
+  },
+  {
+   "t": "h",
+   "x": "Medición: 10.000 envíos en cuatro lenguajes"
+  },
+  {
+   "t": "p",
+   "x": "Ahora el experimento. Por cada envío, el programa busca el mejor orden para visitar 7 paradas y volver al depósito, probando las 5.040 combinaciones posibles (7!). Es un cálculo puro: no espera ni a la red ni al disco, y cada envío es independiente de los otros. Las coordenadas salen del número de envío, así que cualquier hilo puede procesar cualquier trozo y el resultado total es una suma de enteros que da lo mismo en cualquier orden. Así puedo comprobar que todas las versiones hacen el mismo trabajo."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// envios.mjs: procesar envíos en secuencia o con worker_threads (node 22)\nimport { Worker, isMainThread, parentPort, workerData } from \"node:worker_threads\";\nimport { fileURLToPath } from \"node:url\";\n\nconst PARADAS = 7;\n\nfunction paradasDe(id) {            // las paradas salen del número de envío\n  let s = (id * 2654435761) >>> 0;\n  const sig = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return (s >>> 8) % 10000 / 100; };\n  const pts = [[50, 50]];           // el depósito\n  for (let i = 0; i < PARADAS; i++) pts.push([sig(), sig()]);\n  return pts;\n}\n\nfunction mejorRuta(id) {            // prueba todos los órdenes posibles\n  const p = paradasDe(id), n = p.length;\n  const d = p.map(a => p.map(b => Math.hypot(a[0] - b[0], a[1] - b[1])));\n  const usado = new Array(n).fill(false);\n  let mejor = Infinity;\n  function visitar(actual, cuantas, largo) {\n    if (cuantas === n) { const total = largo + d[actual][0]; if (total < mejor) mejor = total; return; }\n    for (let j = 1; j < n; j++) {\n      if (!usado[j]) { usado[j] = true; visitar(j, cuantas + 1, largo + d[actual][j]); usado[j] = false; }\n    }\n  }\n  visitar(0, 1, 0);\n  return mejor;\n}\n\nfunction procesar(desde, hasta) {   // suma de enteros: no depende del orden\n  let suma = 0;\n  for (let id = desde; id < hasta; id++) suma += Math.round(mejorRuta(id) * 1000);\n  return suma;\n}\n\nif (isMainThread) {\n  const TOTAL = Number(process.argv[2] ?? 10000), W = Number(process.argv[3] ?? 0);\n  const t0 = performance.now();\n  if (W === 0) {\n    console.log(`secuencial: ${procesar(0, TOTAL)} en ${(performance.now() - t0).toFixed(0)} ms`);\n  } else {\n    const trozo = Math.ceil(TOTAL / W);\n    const promesas = [];\n    for (let w = 0; w < W; w++) {\n      promesas.push(new Promise((ok, mal) => {\n        const h = new Worker(fileURLToPath(import.meta.url), { workerData: { desde: w * trozo, hasta: Math.min(TOTAL, (w + 1) * trozo) } });\n        h.once(\"message\", ok); h.once(\"error\", mal);\n      }));\n    }\n    const sumas = await Promise.all(promesas);\n    console.log(`${W} workers: ${sumas.reduce((a, b) => a + b, 0)} en ${(performance.now() - t0).toFixed(0)} ms`);\n  }\n} else {\n  parentPort.postMessage(procesar(workerData.desde, workerData.hasta));  // el resultado vuelve como mensaje\n}",
+   "cap": "Cada Worker es un hilo con su propio motor de JavaScript y sus propias variables: no comparten nada, y el resultado vuelve como mensaje. La documentación de Node recomienda Workers para cálculo pesado y avisa que no ayudan mucho con entrada y salida [#concurrencia-node-worker-threads]."
+  },
+  {
+   "t": "codigo",
+   "lang": "go",
+   "x": "// El mismo reparto en Go: una goroutine por trozo y un canal con los resultados.\ntrozo := (total + g - 1) / g\nvar wg sync.WaitGroup\nresultados := make(chan int64, g)\nfor w := 0; w < g; w++ {\n    wg.Add(1)\n    go func(desde, hasta int) {\n        defer wg.Done()\n        resultados <- procesar(desde, hasta)\n    }(w*trozo, min((w+1)*trozo, total))\n}\nwg.Wait()\nclose(resultados)\nfor r := range resultados {\n    suma += r\n}",
+   "cap": "Fragmento del programa de Go (go 1.24.7). Con `go` se lanza una goroutine; el canal `resultados` es el buzón por donde vuelven las sumas."
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "# En Python el reparto es el mismo y solo cambia una línea: hilos o procesos.\nfrom concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor\nPool = ThreadPoolExecutor if modo == \"hilos\" else ProcessPoolExecutor\nwith Pool(max_workers=w) as ex:\n    suma = sum(ex.map(procesar, rangos))",
+   "cap": "Fragmento del programa de Python (3.14.6). Con hilos los trozos corren en un mismo proceso, con el GIL; con procesos, cada uno en un intérprete separado."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node envios.mjs 10000 0",
+     "s": "secuencial: 2540073995 en 2948 ms"
+    },
+    {
+     "c": "node envios.mjs 10000 4",
+     "s": "4 workers: 2540073995 en 772 ms"
+    },
+    {
+     "c": "./envios_go 10000 0",
+     "s": "goroutines=0 (GOMAXPROCS=4): 2540073995 en 661 ms"
+    },
+    {
+     "c": "./envios_go 10000 4",
+     "s": "goroutines=4 (GOMAXPROCS=4): 2540073995 en 189 ms"
+    },
+    {
+     "c": "python3.14 envios.py 2000 hilos 4",
+     "s": "python 3.14.6 (con GIL) hilos x4: 509922530 en 5432 ms"
+    },
+    {
+     "c": "python3.14 envios.py 2000 procesos 4",
+     "s": "python 3.14.6 (con GIL) procesos x4: 509922530 en 1451 ms"
+    }
+   ],
+   "cap": "Una corrida de cada tipo (la que corresponde a la mediana de la serie). Las sumas coinciden: 2.540.073.995 con 10.000 envíos, 509.922.530 con 2.000."
+  },
+  {
+   "t": "p",
+   "x": "Mediana de 5 corridas, 10.000 envíos, en una VM de 4 núcleos que **no estaba libre**: el promedio de carga del sistema rondaba 3,5 mientras medía, porque otros procesos usaban la misma máquina. Las proporciones sirven; los milisegundos exactos, menos."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Trabajadores",
+    "JavaScript (worker_threads)",
+    "Aceleración",
+    "Go (goroutines)",
+    "Aceleración"
+   ],
+   "filas": [
+    [
+     "secuencial",
+     "2.948 ms",
+     "1,00×",
+     "661 ms",
+     "1,00×"
+    ],
+    [
+     "1",
+     "2.640 ms",
+     "1,12×",
+     "681 ms",
+     "0,97×"
+    ],
+    [
+     "2",
+     "1.385 ms",
+     "2,13×",
+     "331 ms",
+     "2,00×"
+    ],
+    [
+     "4",
+     "772 ms",
+     "3,82×",
+     "189 ms",
+     "3,50×"
+    ],
+    [
+     "8",
+     "905 ms",
+     "3,26×",
+     "184 ms",
+     "3,59×"
+    ]
+   ],
+   "cap": "Medición propia: node 22.23 y go 1.24.7 en la misma VM (4 CPU, Intel Xeon a 2,3 GHz). Los 2.948 ms de JavaScript y los 661 de Go corresponden a la misma tarea: es el costo de este código en cada lenguaje, no una comparación general entre lenguajes."
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Escala casi lineal hasta 4.** Con 2 trabajadores, la mitad del tiempo; con 4, algo más de una cuarta parte. Hay 4 núcleos y la tarea se reparte bien.",
+    "**Más trabajadores que núcleos no ayudan.** Con 8 (en 4 núcleos), JavaScript empeoró (905 contra 772 ms) y Go quedó igual. Los núcleos son el límite, no la cantidad de hilos.",
+    "**La ley de Amdahl se ve en los números.** 3,50 veces con 4 núcleos implica una fracción paralelizable cercana a 0,95 (Go); 3,82 implica 0,98 (JavaScript). Lo que no se paraleliza incluye crear los hilos, repartir y juntar, y el ruido de los otros procesos de la VM (inferencia mía).",
+    "**Cada lenguaje tiene su costo base.** Para 1.000 envíos: Go unos 66 ms, JavaScript unos 295 y Python (con GIL, secuencial) unos 2.465. Es lo que cuesta este programa concreto, escrito de la misma manera simple en los tres."
+   ],
+   "ord": false
+  },
+  {
+   "t": "h",
+   "x": "Cuándo usar qué"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Situación",
+    "Lo que conviene",
+    "Por qué"
+   ],
+   "filas": [
+    [
+     "Mucha espera de red, disco o base de datos (miles de pedidos a la vez)",
+     "concurrencia liviana: bucle de eventos, goroutines, hilos virtuales",
+     "esperar no usa CPU; 10.000 esperas caben en un segundo"
+    ],
+    [
+     "Cálculo pesado que se puede dividir (rutas, imágenes, reportes)",
+     "paralelismo: procesos, Workers o goroutines, hasta el número de núcleos",
+     "3,5 a 3,8 veces con 4 núcleos; más allá no rinde"
+    ],
+    [
+     "Mucho dato compartido que cambia",
+     "dárselo a un dueño (actor o canal) o proteger con candados cortos",
+     "es donde nacen las carreras y los deadlocks"
+    ],
+    [
+     "Aislar fallas (que una tarea no tire abajo a las demás)",
+     "procesos separados o actores",
+     "no comparten memoria"
+    ],
+    [
+     "Cálculo pesado en Python",
+     "procesos, o la variante sin GIL si tus bibliotecas la soportan",
+     "con GIL, los hilos no aceleran: 0,91×"
+    ],
+    [
+     "Una interfaz que tiene que seguir fluida",
+     "el trabajo pesado fuera del hilo que dibuja la pantalla",
+     "si ese hilo se ocupa, se traba todo lo que se ve"
+    ]
+   ],
+   "cap": "Una guía de partida: antes de paralelizar, medí que el cuello de botella sea de verdad el cálculo."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": [
+    "**«Más hilos, más rápido.»** Con 8 workers en 4 núcleos no se ganó nada, y cada hilo cuesta memoria y cambios de contexto.",
+    "**«Asíncrono es lo mismo que paralelo.»** No: el bucle de eventos de JavaScript superpone esperas con un solo hilo. Cuando la tarea es calcular, ese único hilo se ocupa y se frena todo lo demás. Mañana, en el [@03-41], ves por qué.",
+    "**«Node es de un solo hilo.»** Tu código JavaScript corre en uno, sí. Pero Node tiene `worker_threads` justamente para el cálculo pesado, como en la medición.",
+    "**«Paralelizar es siempre más rápido.»** Hay que repartir y juntar, y siempre queda una parte serial. En una tarea corta, crear los hilos puede costar más que el cálculo."
+   ],
+   "titulo": "Errores comunes"
+  },
+  {
+   "t": "senda",
+   "titulo": "Dos hilos que no comparten memoria: JavaScript y la interfaz",
+   "x": [
+    "Senda tiene un caso real de dos hilos que se comunican sin compartir variables. Su documento de arquitectura registra que la vuelta de hoja del lector corre en el hilo nativo con `react-native-reanimated` y `react-native-worklets` (versiones `4.5.1` y `0.10.1` en `package.json`). El comentario de cabecera de `src/lector/Libro.tsx` explica el motivo: antes, el dedo y la animación pasaban por el hilo de JavaScript, y cada redibujado demoraba la hoja. Ahora el gesto y la animación corren en el hilo nativo, «la hoja sigue al dedo aunque JavaScript esté ocupado».",
+    "En el código se ven los dos lados. Las funciones marcadas con `\"worklet\"` se ejecutan del lado de la interfaz, y los `useSharedValue` (como `pliegue` y `dir`) son los valores que ese lado lee y escribe. Cuando hay que avisarle al otro lado, el gesto llama a `scheduleOnRN(onSonido)` o `scheduleOnRN(onPaso, ...)`: un pedido para que esa función se ejecute en el entorno de React Native, el del hilo de JavaScript. La documentación de worklets dice que el entorno de la interfaz no comparte memoria con el de React Native y se comunica con él mediante APIs específicas [#concurrencia-worklets-runtimes], y la de React Native, que el hilo de la interfaz es el único que puede manipular las vistas y que el de JavaScript ejecuta el renderizado de React [#rn-threading-model]. Es exactamente la idea de hoy: separar los hilos y pasar mensajes.",
+    "Esto corresponde al commit `25e08fa` (el código cambia, la forma permanece). Verifiqué los comentarios y las llamadas del código; no medí cómo se reparten los hilos en un teléfono."
+   ],
+   "archivos": [
+    "src/lector/Libro.tsx",
+    "package.json"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "En logística pasa lo mismo: un depósito que recibe diez mil confirmaciones de entrega por hora tiene un problema de **concurrencia** (muchas esperas y pocos recursos), mientras que calcular las rutas del día para todos los repartos es un problema de **paralelismo**. Se resuelven con herramientas distintas, y confundirlos es el error caro."
+  }
+ ],
+ "recap": [
+  "**Concurrencia** es tener varias tareas en curso; **paralelismo** es ejecutar varias a la vez en núcleos distintos. Son independientes: JavaScript en un hilo es concurrente sin ser paralelo.",
+  "Una **condición de carrera** no necesita paralelismo: alcanza con que las tareas se intercalen en medio de una operación no atómica sobre estado compartido.",
+  "Hay dos salidas: **proteger** el dato con un candado o **no compartirlo** y pasar mensajes (actores de Erlang, canales de Go, Workers de Node). Ninguna es gratis.",
+  "Esperar no usa CPU: 10.000 esperas de un segundo caben en un segundo con un solo hilo, con hilos virtuales o con goroutines. Calcular sí usa CPU, y ahí hace falta paralelismo.",
+  "En Python con GIL, los hilos no aceleran el cálculo (medí 0,91×); los procesos sí (3,4×). La variante sin GIL es oficialmente soportada desde Python 3.14, pero sigue siendo opcional (estado a noviembre de 2026).",
+  "La **ley de Amdahl** pone un techo: con 95 % paralelizable, 20× como máximo. Medí 3,5 a 3,8× con 4 núcleos, y más trabajadores que núcleos no ayudan."
+ ],
+ "repaso": [
+  {
+   "p": "Un programa corre en un solo núcleo e intercala tres tareas, dando un turno breve a cada una. ¿Qué describe mejor esa situación?",
+   "o": [
+    "Paralelismo, porque hay tres tareas avanzando",
+    "Concurrencia sin paralelismo, porque se turnan",
+    "Ni concurrencia ni paralelismo, porque hay un solo núcleo",
+    "Paralelismo con concurrencia, porque son tres tareas"
+   ],
+   "c": 1,
+   "e": "Hay varias tareas en curso (concurrencia), pero solo una se ejecuta en cada instante porque hay un solo núcleo (sin paralelismo). Contar tareas no es paralelismo, y tener un solo núcleo no impide la concurrencia: el planificador reparte turnos."
+  },
+  {
+   "p": "Dos funciones corren en un solo hilo, intercaladas. Cada una lee el stock, cede el turno y después escribe stock − cantidad. El stock inicial es 10; despachan 3 y 4. ¿Qué pasa?",
+   "o": [
+    "Siempre queda 3, porque con un solo hilo no hay carreras",
+    "Queda 6 o 7, según quién escriba último: se perdió una resta",
+    "Queda 3 o 6, según el orden de los turnos",
+    "El programa se traba por un deadlock entre las dos"
+   ],
+   "c": 1,
+   "e": "Las dos leen 10; una escribe 7 y la otra 6, y la que escribe último pisa a la otra. Es una carrera sin paralelismo: alcanza con el intercalado. No hay deadlock (nadie espera a nadie) ni garantía de 3 porque los pasos no son atómicos."
+  },
+  {
+   "p": "Medí que una tarea de cálculo puro tarda 3 s en un núcleo y 0,8 s con 4 hilos en 4 núcleos. ¿Qué pasa si probás con 8 hilos en esos mismos 4 núcleos?",
+   "o": [
+    "Tarda cerca de 0,4 s, por el doble de hilos",
+    "Tarda cerca de 0,8 s o algo más, sin ganar nada",
+    "Tarda 3 s otra vez, porque se pasa de los núcleos",
+    "Tarda más de 3 s, porque 8 hilos se bloquean entre sí"
+   ],
+   "c": 1,
+   "e": "En cálculo puro el límite son los núcleos: con 8 hilos en 4 núcleos se turnan, y se suma algo de costo de cambio de contexto. No vuelve a 3 s ni se duplica la velocidad, y no hay bloqueo porque los hilos no compiten por un candado."
+  },
+  {
+   "p": "Un servicio escrito en Python con hilos hace 500 pedidos a una API externa, y cada respuesta tarda 1 segundo. ¿Cuánto tarda, aproximadamente, con 500 hilos?",
+   "o": [
+    "Cerca de 500 segundos, porque el GIL permite un hilo a la vez",
+    "Cerca de 1 segundo, porque el GIL se libera al esperar entrada y salida",
+    "Cerca de 4 segundos, uno por cada núcleo de la máquina",
+    "Cerca de 125 segundos, por el cambio de turno entre hilos"
+   ],
+   "c": 1,
+   "e": "El GIL se libera al hacer entrada y salida, y esperar una respuesta es eso, así que las esperas se superponen (200 hilos de 1 s tardaron 1,03 s en la medición). El GIL frena el cálculo en Python puro, no las esperas."
+  },
+  {
+   "p": "Con el 90 % de un programa paralelizable, ¿cuál es el techo de aceleración según Amdahl, sin importar cuántos núcleos uses?",
+   "o": [
+    "10 veces, porque el 10 % serial no se acelera",
+    "9 veces, porque se paraleliza el 90 %",
+    "Sin techo: más núcleos siempre ayudan",
+    "90 veces, porque el programa es 90 % paralelo"
+   ],
+   "c": 0,
+   "e": "Con p = 0,9 y núcleos infinitos, el tiempo nunca baja del 10 % serial: 1 ÷ 0,1 = 10. Confundir la fracción con la aceleración da 9 o 90, y creer que no hay techo ignora lo que no se puede repartir."
+  },
+  {
+   "p": "Tu equipo duda entre darle el stock a un único proceso que reciba mensajes, o dejar que varios hilos lo modifiquen con un mutex. ¿Qué afirmación es correcta?",
+   "o": [
+    "Los mensajes eliminan toda necesidad de pensar la concurrencia",
+    "El mutex es obligatorio: ningún lenguaje evita compartir memoria",
+    "Con mensajes no hay carreras sobre el stock, pero hay otros problemas",
+    "Con un mutex nunca puede haber un deadlock en el programa"
+   ],
+   "c": 2,
+   "e": "Si solo el dueño toca el stock, no hay carrera sobre ese dato, pero aparecen otros riesgos (buzones que crecen, orden de mensajes). El mutex puede dar deadlock si se usan varios, y lenguajes como Erlang y Go sí evitan compartir memoria."
+  },
+  {
+   "p": "Un compañero propone resolver el cálculo de rutas de 10.000 envíos lanzando 10.000 hilos de plataforma, uno por envío, en una máquina de 4 núcleos. ¿Cuál es el problema principal?",
+   "o": [
+    "Los hilos no pueden calcular, solo esperar entrada y salida",
+    "Es una tarea de CPU: no rinde más que 4 y los hilos cuestan memoria",
+    "Con tantos hilos, el GIL se activa en cualquier lenguaje",
+    "Se necesita un mutex por hilo y eso produce un deadlock seguro"
+   ],
+   "c": 1,
+   "e": "Es cálculo puro: más allá de 4 hilos en 4 núcleos no se gana nada y cada hilo cuesta memoria y cambios de contexto. Lo razonable es un grupo de pocos trabajadores y un reparto en trozos. El GIL es cosa de CPython, y un mutex por hilo no es necesario ni causa un deadlock seguro."
+  }
+ ],
+ "feynman": "Explicale a alguien de operaciones la diferencia entre concurrencia y paralelismo con un ejemplo de tu depósito, y decile por qué 4 operarios más no siempre terminan 4 veces antes.",
+ "para_profundizar": [
+  {
+   "fuente": "concurrencia-go-blog-waza",
+   "nota": "La nota del blog de Go que resume la charla de Pike; son tres párrafos, y las diapositivas que enlaza muestran la idea con un ejemplo de gophers cargando libros."
+  },
+  {
+   "fuente": "ostep-concurrencia-bugs",
+   "nota": "El capítulo de OSTEP sobre problemas comunes de concurrencia, con un estudio de errores reales en programas conocidos: sirve para ver cuáles son los más frecuentes."
+  },
+  {
+   "fuente": "sutter-free-lunch",
+   "nota": "El artículo de 2005 que anunció que el software tenía que volverse concurrente para seguir aprovechando el hardware: es el origen de por qué hoy esto importa."
+  },
+  {
+   "fuente": "concurrencia-python-free-threading",
+   "nota": "La guía oficial de Python sobre la variante sin GIL: instalación, limitaciones conocidas y cómo comprobar si tu intérprete la tiene activa."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Rob Pike Concurrency is not parallelism Waza",
+   "por_que": "La charla original: Pike explica con un ejemplo de gophers y libros por qué concurrencia no es paralelismo."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "concurrencia",
+   "d": "Tener varias tareas en curso al mismo tiempo, avanzando de forma independiente aunque se turnen en un solo núcleo. Es una forma de organizar el programa, no una garantía de que corran simultáneamente."
+  },
+  {
+   "t": "paralelismo",
+   "d": "Ejecutar varias cosas de verdad al mismo tiempo, con hardware que trabaja a la vez (varios núcleos o varias máquinas). Se puede tener concurrencia sin paralelismo y paralelismo sin mucha concurrencia."
+  },
+  {
+   "t": "hilo del lenguaje",
+   "d": "La unidad de ejecución concurrente que un lenguaje te deja crear desde el código: a veces un hilo del sistema operativo con otro nombre (Java, Python) y a veces una tarea liviana que administra el propio lenguaje (goroutines de Go, hilos virtuales de Java 21)."
+  },
+  {
+   "t": "compartir estado",
+   "d": "Que dos o más tareas lean y modifiquen el mismo dato en memoria. Facilita la cooperación y es la fuente de las condiciones de carrera: se resuelve con candados o dándole el dato a un solo dueño."
+  },
+  {
+   "t": "paso de mensajes",
+   "d": "Modelo en que las tareas no comparten datos: cada una tiene los suyos y se comunican mandándose mensajes, que el receptor atiende de a uno. Lo usan Erlang, los canales de Go y los Workers de JavaScript."
+  },
+  {
+   "t": "GIL",
+   "d": "Candado global del intérprete de CPython: asegura que un solo hilo ejecute bytecode de Python a la vez. Se libera al hacer entrada y salida; desde Python 3.13 existe una variante de compilación sin GIL."
+  }
+ ],
+ "siguiente": "asincronía: cómo JavaScript atiende miles de esperas con un solo hilo usando callbacks, promesas, async/await y el bucle de eventos que hoy apenas mencionamos.",
+ "fuentes_nuevas": [
+  {
+   "id": "concurrencia-go-blog-waza",
+   "t": "Concurrency is not parallelism",
+   "a": "Andrew Gerrand (blog de Go), sobre una charla de Rob Pike",
+   "tipo": "articulo",
+   "anio": 2013,
+   "url": "https://go.dev/blog/waza-talk"
+  },
+  {
+   "id": "concurrencia-jep-444",
+   "t": "JEP 444: Virtual Threads",
+   "a": "Ron Pressler y Alan Bateman (OpenJDK)",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://openjdk.org/jeps/444"
+  },
+  {
+   "id": "concurrencia-erlang-conc-prog",
+   "t": "Concurrent Programming (Getting Started)",
+   "a": "Erlang/OTP",
+   "tipo": "doc",
+   "url": "https://www.erlang.org/doc/system/conc_prog.html"
+  },
+  {
+   "id": "concurrencia-erlang-processes",
+   "t": "Processes (Reference Manual)",
+   "a": "Erlang/OTP",
+   "tipo": "doc",
+   "url": "https://www.erlang.org/doc/system/ref_man_processes.html"
+  },
+  {
+   "id": "concurrencia-python-glosario",
+   "t": "Glosario de Python: global interpreter lock",
+   "a": "Python Software Foundation",
+   "tipo": "doc",
+   "url": "https://docs.python.org/3/glossary.html"
+  },
+  {
+   "id": "concurrencia-python-free-threading",
+   "t": "Python support for free threading",
+   "a": "Python Software Foundation",
+   "tipo": "doc",
+   "url": "https://docs.python.org/3/howto/free-threading-python.html"
+  },
+  {
+   "id": "concurrencia-pep-703",
+   "t": "PEP 703: Making the Global Interpreter Lock Optional in CPython",
+   "a": "Sam Gross",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://peps.python.org/pep-0703/"
+  },
+  {
+   "id": "concurrencia-pep-779",
+   "t": "PEP 779: Criteria for supported status for free-threaded Python",
+   "a": "Thomas Wouters, Matt Page y Sam Gross",
+   "tipo": "doc",
+   "anio": 2025,
+   "url": "https://peps.python.org/pep-0779/"
+  },
+  {
+   "id": "concurrencia-python-whatsnew-314",
+   "t": "What's new in Python 3.14",
+   "a": "Python Software Foundation",
+   "tipo": "doc",
+   "anio": 2025,
+   "url": "https://docs.python.org/3/whatsnew/3.14.html"
+  },
+  {
+   "id": "concurrencia-node-worker-threads",
+   "t": "Worker threads (Node.js)",
+   "a": "OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://nodejs.org/api/worker_threads.html"
+  },
+  {
+   "id": "concurrencia-worklets-runtimes",
+   "t": "Runtime kinds (React Native Worklets)",
+   "a": "Software Mansion",
+   "tipo": "doc",
+   "url": "https://docs.swmansion.com/react-native-worklets/docs/fundamentals/runtimeKinds/"
+  }
+ ]
+}
