@@ -1,0 +1,1202 @@
+{
+ "id": "09-33",
+ "titulo": "MySQL, SQL Server, Oracle y SQLite",
+ "bajada": "Qué tienen en común y en qué se separan los cuatro motores que vas a encontrar en una empresa, con el mismo script corrido en tres de ellos y resultados distintos sin un solo error.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar por qué el mismo SQL puede dar errores o resultados distintos en motores distintos, nombrando el estándar y los dialectos.",
+  "Describir qué es cada uno de los cuatro motores, cómo se licencia y qué límites tiene su edición gratuita, con las versiones vigentes al 13-11-2026.",
+  "Demostrar con una corrida que SQLite es una biblioteca y un archivo, y predecir qué pasa con dos escritores y con el modo WAL.",
+  "Reconocer cinco trampas de portabilidad (collations, tipos, GROUP BY, claves foráneas, DDL dentro de transacciones) y qué las produce.",
+  "Elegir un motor con cinco preguntas y estimar el costo de migrar a partir de las funciones propias que usa una aplicación real."
+ ],
+ "venis_de": "Terminaste PostgreSQL a fondo ([@09-32]) y antes viste MVCC ([@09-25]), el registro de escritura previa ([@09-27]) y la replicación ([@09-29]). Hasta acá, «una base de datos» fue casi siempre PostgreSQL. Hoy conocés a los otros tres de la lista que vas a encontrar en una empresa, y mirás qué cambia cuando el SQL que ya sabés cruza de un motor a otro.",
+ "se_apoya_en": [
+  "06-37",
+  "09-03",
+  "09-04",
+  "09-05",
+  "09-07",
+  "09-11",
+  "09-19",
+  "09-24",
+  "09-25",
+  "09-26",
+  "09-27",
+  "09-28",
+  "09-31",
+  "09-32"
+ ],
+ "gancho": [
+  "Una distribuidora inventada, de las que hay por docenas en el conurbano, tiene cuatro sistemas. El programa de facturación del contador corre sobre SQL Server. El software de depósito que le vendió un proveedor usa Oracle. La tienda en línea, armada con WordPress, guarda todo en MySQL. Y la aplicación de los choferes anota cada entrega en un archivo SQLite dentro del celular. Cuatro fabricantes, cuatro bases, y las cuatro hablan SQL.",
+  "El dueño pide algo razonable: cuántos bultos entregó cada chofer, cruzado con lo facturado. Un analista copia la consulta del sistema de depósito, la pega en la tienda y recibe un error de sintaxis. La arregla, la corre, y los números no cierran por un detalle de mayúsculas. Hoy ves por qué pasa, con el mismo script corrido en esta máquina sobre tres de esos motores: qué tienen en común, en qué se separan y cuánto cuesta mudarse de uno a otro."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un idioma con estándar y cuatro dialectos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "SQL tiene un estándar internacional, el ISO/IEC 9075, con una última edición de 2023. La documentación de PostgreSQL aclara lo importante: el estándar define un conjunto «núcleo» que todo motor conforme tiene que ofrecer, y el resto es opcional [#bd0933-pg-conformidad]. Además, cada fabricante agrega lo suyo. Resultado: **dialectos**. El mismo pedido se escribe distinto, o se escribe igual y significa otra cosa.",
+    "El ejemplo más simple es pedir «las dos filas más pesadas». `LIMIT 2` no es del estándar: PostgreSQL lo describe como sintaxis propia que también usa MySQL [#bd0933-pg-select]. La forma estándar, desde 2008, es `FETCH FIRST 2 ROWS ONLY`. SQL Server tiene `TOP 2` y desde su versión 2012 también `OFFSET … FETCH` [#bd0933-mssql-top][#bd0933-mssql-orderby]. Oracle usa `FETCH FIRST` [#bd0933-oracle-select]. Lo corrí donde pude:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql> select id, peso_kg from bultos order by peso_kg desc limit 2;",
+     "s": " id | peso_kg \n----+---------\n  1 |   12.50\n  4 |    9.25\n(2 rows)"
+    },
+    {
+     "c": "psql> select id, peso_kg from bultos order by peso_kg desc fetch first 2 rows only;",
+     "s": " id | peso_kg \n----+---------\n  1 |   12.50\n  4 |    9.25\n(2 rows)"
+    },
+    {
+     "c": "sqlite> select id, peso_kg from bultos order by peso_kg desc limit 2;",
+     "s": "id  peso_kg\n--  -------\n1   12.5   \n4   9.25"
+    },
+    {
+     "c": "mysql> select id, peso_kg from bultos order by peso_kg desc limit 2;",
+     "s": "+----+---------+\n| id | peso_kg |\n+----+---------+\n|  1 |   12.50 |\n|  4 |    9.25 |\n+----+---------+"
+    },
+    {
+     "c": "mysql> select id, peso_kg from bultos order by peso_kg desc fetch first 2 rows only;",
+     "s": "ERROR 1064 (42000) at line 1: You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'fetch first 2 rows only' at line 1"
+    }
+   ],
+   "cap": "PostgreSQL 16.15, SQLite y MySQL 8.0.46 de esta máquina. MySQL rechaza la forma estándar. SQL Server y Oracle no los corrí (no hay cuentas ni instaladores livianos acá): para ellos, solo documentación oficial."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Dialectos, con su límite",
+   "x": "Es como el español de Argentina, México y España: casi todo se entiende, y una palabra suelta puede ser inocente en un país y un problema en otro. La analogía falla en algo: un dialecto humano se nota y preguntás. Acá hay diferencias que no avisan, como vas a ver."
+  },
+  {
+   "t": "h",
+   "x": "Los cuatro motores en una ficha"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta ayer trabajaste con PostgreSQL ([@09-32]). Los cuatro de hoy se parecen en lo esencial: guardan tablas, hablan SQL, ofrecen transacciones y tienen versión gratuita. Cambia quién los hace, cómo se licencian y dónde corren.",
+    "**MySQL** es de código abierto y hoy lo mantiene Oracle, con licencia doble: el servidor es GPLv2, y quien lo quiera meter en un producto propietario sin liberar su código firma un acuerdo comercial [#bd0933-mysql-licencia]. **MariaDB** es una bifurcación que arrancó en 2009, también GPLv2 [#bd0933-mariadb-about]. **SQL Server** es de Microsoft, comercial, con ediciones: la Express es gratis pero con topes. **Oracle** es comercial, y desde la versión 26ai se llama Oracle AI Database; su edición Free también tiene topes. **SQLite** es de dominio público [#bd0933-sqlite-copyright]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Motor",
+    "Licencia",
+    "Gratis y sus límites",
+    "Versión vista el 13-11-2026"
+   ],
+   "filas": [
+    [
+     "MySQL",
+     "GPLv2 o comercial",
+     "La edición Community es gratuita",
+     "9.7.4 LTS y 8.4.13 LTS; la 8.0 terminó en abril de 2026"
+    ],
+    [
+     "MariaDB",
+     "GPLv2",
+     "Gratis",
+     "12.3 (LTS)"
+    ],
+    [
+     "SQL Server",
+     "Comercial",
+     "Express: 50 GB por base, 1 socket o 4 núcleos, 1.410 MB de memoria",
+     "SQL Server 2025 (17.x)"
+    ],
+    [
+     "Oracle",
+     "Comercial",
+     "Free: 2 núcleos, 2 GB de RAM, 12 GB de datos",
+     "Oracle AI Database 26ai"
+    ],
+    [
+     "SQLite",
+     "Dominio público",
+     "Sin límites de licencia",
+     "3.54.1 (16-10-2026)"
+    ]
+   ],
+   "cap": "Fuentes: [#bd0933-mysql-relnotes-97], [#bd0933-mysql-eol], [#bd0933-mariadb-releases], [#bd0933-mssql-ediciones], [#bd0933-oracle-free], [#bd0933-sqlite-index]. Al pasar los 12 GB, Oracle Free responde con el error ORA-12954."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y límites al 13-11-2026",
+   "x": "Las versiones salen de las páginas oficiales leídas hoy. Para los experimentos usé lo que trae Ubuntu 24.04: MySQL 8.0.46 (la última de una serie ya fuera de soporte), SQLite 3.45.1 en la línea de comandos y 3.53.1 dentro de Python, y PostgreSQL 16.15. Lo que muestro de MySQL lo contrasté con la documentación 8.4 y coincide. No verifiqué precios de licencias: dependen del contrato y cambian. Antes de decidir con plata de por medio, leé la página del fabricante, no esta."
+  },
+  {
+   "t": "h",
+   "x": "Quién usa qué: lo que mide una encuesta y lo que no"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En la encuesta de Stack Overflow de 2026 respondieron 12.061 personas, y podían marcar varias bases con las que hubieran hecho desarrollo extenso en el último año [#bd0933-so-2026]. Entre los motores de hoy: PostgreSQL 57,9 %, SQLite 42,1 %, MySQL 35,1 %, SQL Server 27,1 %, MariaDB 20,3 % y Oracle 9,4 %.",
+    "Hay que leerla con cuidado. Mide qué usan **los desarrolladores que contestan**, no cuánto dinero mueve cada motor ni cuántos sistemas críticos de bancos corren sobre él. Un 9,4 % para Oracle no lo vuelve irrelevante en empresas grandes. Tampoco prueba calidad: un motor puede ser popular por moda, por precio o porque lo exige un paquete. El ranking de DB-Engines, otra fuente habitual, no respondió desde esta máquina; no lo cito."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Los seis porcentajes suman mucho más de 100. ¿Por qué no es un error?",
+   "resp": "Porque cada persona podía marcar todas las bases que usó. Quien usó PostgreSQL y SQLite cuenta en las dos filas. Es «qué parte de las personas usó este motor», no un reparto de una torta."
+  },
+  {
+   "t": "h",
+   "x": "SQLite: una base de datos que es una biblioteca"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los otros tres son **servidores**: un programa que arranca solo, escucha en un puerto, y al que tu aplicación se conecta para mandarle SQL. [[SQLite embebida]] es distinto: el motor es una **biblioteca** que tu programa lleva adentro, y la base de datos es **un archivo común**. No hay proceso aparte, ni usuarios, ni nada que instalar o apagar."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "comparar",
+   "izq": {
+    "t": "Motor con servidor",
+    "k": "servidor",
+    "items": [
+     "Un proceso aparte que escucha en un puerto o un socket",
+     "La aplicación se conecta y le manda SQL",
+     "Muchos clientes a la vez, de varias máquinas",
+     "Usuarios, permisos y administración propios"
+    ]
+   },
+   "der": {
+    "t": "Motor embebido (SQLite)",
+    "k": "datos",
+    "items": [
+     "Una biblioteca dentro de la aplicación",
+     "La aplicación llama funciones, sin red de por medio",
+     "Un solo escritor a la vez, lectores sin tope",
+     "Sin usuarios ni administración: es un archivo"
+    ]
+   },
+   "cap": "Dos arquitecturas para el mismo lenguaje SQL."
+  },
+  {
+   "t": "cita",
+   "x": "SQLite does not compete with client/server databases. SQLite competes with fopen().",
+   "autor": "Documentación de SQLite, «Appropriate Uses For SQLite»",
+   "fuente": "bd0933-sqlite-whentouse"
+  },
+  {
+   "t": "p",
+   "x": [
+    "`fopen()` abre un archivo en C. La frase dice: si tu alternativa era guardar datos en un JSON o un CSV propio, SQLite te da consultas, transacciones y protección contra cortes de luz sin armar un servidor. Veámoslo corrido:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import sqlite3, os, subprocess\nruta = \"/var/tmp/d0933/lab/envios.db\"\nif os.path.exists(ruta): os.remove(ruta)\ncon = sqlite3.connect(ruta)          # abre (o crea) un archivo; no hay servidor al que conectarse\ncon.execute(\"create table envios (id integer primary key, destino text, bultos integer)\")\ncon.executemany(\"insert into envios (destino, bultos) values (?, ?)\", [(\"Avellaneda\", 3), (\"Lanús\", 5), (\"Quilmes\", 2)])\ncon.commit()\nprint(\"version de la biblioteca:\", sqlite3.sqlite_version)\nprint(\"procesos hijos de este programa:\", subprocess.run([\"pgrep\",\"-P\",str(os.getpid())],capture_output=True,text=True).stdout.split() or \"ninguno\")\nprint(\"tamaño del archivo:\", os.path.getsize(ruta), \"bytes\")\nprint(\"page_size:\", con.execute(\"pragma page_size\").fetchone()[0], \"| page_count:\", con.execute(\"pragma page_count\").fetchone()[0])\nprint(\"journal_mode:\", con.execute(\"pragma journal_mode\").fetchone()[0], \"| synchronous:\", con.execute(\"pragma synchronous\").fetchone()[0])",
+   "cap": "biblioteca.py. `sqlite3.connect` no se conecta a ningún servidor: abre un archivo, y si no existe lo crea."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 -I biblioteca.py",
+     "s": "version de la biblioteca: 3.53.1\nprocesos hijos de este programa: ninguno\ntamaño del archivo: 8192 bytes\npage_size: 4096 | page_count: 2\njournal_mode: delete | synchronous: 2"
+    },
+    {
+     "c": "head -c 16 envios.db | od -c",
+     "s": "0000000   S   Q   L   i   t   e       f   o   r   m   a   t       3  \\0"
+    },
+    {
+     "c": "ldd $(which sqlite3) | grep -i sqlite",
+     "s": "libsqlite3.so.0 => /lib/x86_64-linux-gnu/libsqlite3.so.0 (0x00007f76a6b2c000)"
+    }
+   ],
+   "cap": "Corrido en esta VM. Dos páginas de 4.096 bytes dan 8.192. Los primeros 16 bytes del archivo son el texto «SQLite format 3» y un byte en cero."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres cosas para notar. El programa no tiene procesos hijos: la base corre **adentro** del proceso de Python. La base entera es un archivo de 8 KB que podés copiar, mandar por mail o borrar. Y las páginas de tamaño fijo son la misma idea de [@09-19], solo que en un único archivo (las de PostgreSQL miden 8.192 bytes; lo comprobé con `show block_size`).",
+    "El sitio de SQLite estima que hay más de un billón de bases SQLite en uso, partiendo de más de 4.000 millones de teléfonos con cientos de archivos cada uno. Es una estimación de los propios autores, que advierten que los números exactos son imposibles de obtener [#bd0933-sqlite-mostdeployed]. Sirve como orden de magnitud: casi nunca lo ves, porque vive dentro de otras aplicaciones."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "El límite: un escritor a la vez"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Sin servidor no hay quien ordene los pedidos: dos programas que abren el mismo archivo coordinan con bloqueos del sistema de archivos. Puede haber lectores sin tope y **un escritor a la vez**; si la aplicación configura un tiempo de espera, los escritores hacen cola, y si no, reciben un error [#bd0933-sqlite-whentouse]. Es el bloqueo de [@09-26] aplicado a todo el archivo en lugar de a una fila.",
+    "El modo clásico (*rollback journal*) tiene otra consecuencia: quien quiere confirmar necesita que nadie esté leyendo en ese instante. El modo **WAL**, el de [@09-27], escribe los cambios primero en un registro aparte, y ahí quien lee no bloquea a quien escribe [#bd0933-sqlite-wal]. Lo comprobé con dos conexiones al mismo archivo: una lectora deja su lectura abierta y una escritora trata de confirmar."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import sqlite3, os\nruta = \"/var/tmp/d0933/lab/dos.db\"\nfor f in (ruta, ruta+\"-wal\", ruta+\"-shm\", ruta+\"-journal\"):\n    if os.path.exists(f): os.remove(f)\ndef abrir(): return sqlite3.connect(ruta, timeout=0, isolation_level=None)   # timeout=0: no esperar el candado\ndef correr(modo):\n    a, b = abrir(), abrir()\n    a.execute(f\"pragma journal_mode = {modo}\")\n    a.execute(\"create table if not exists envios (id integer primary key, bultos integer)\")\n    a.execute(\"delete from envios\"); a.execute(\"insert into envios (bultos) values (1)\")\n    print(f\"--- journal_mode = {a.execute('pragma journal_mode').fetchone()[0]}\")\n    b.execute(\"begin\"); n = b.execute(\"select count(*) from envios\").fetchone()[0]\n    print(f\"  B abre una lectura y ve {n} fila (la deja abierta)\")\n    a.execute(\"begin immediate\"); a.execute(\"insert into envios (bultos) values (2)\")\n    print(\"  A inserta una segunda fila y trata de confirmar...\")\n    try:\n        a.execute(\"commit\"); print(\"  A confirmó\")\n    except sqlite3.OperationalError as e:\n        print(\"  A -> ERROR:\", e); a.execute(\"rollback\")\n    print(\"  B, todavía en su lectura, ve\", b.execute(\"select count(*) from envios\").fetchone()[0], \"fila(s)\")\n    b.execute(\"commit\")\n    print(\"  B cierra su lectura y vuelve a mirar:\", b.execute(\"select count(*) from envios\").fetchone()[0], \"fila(s)\")\n    a.close(); b.close()\ncorrer(\"delete\")\ncorrer(\"wal\")\n# dos escritores a la vez\na, b = abrir(), abrir()\na.execute(\"begin immediate\")\ntry: b.execute(\"begin immediate\")\nexcept sqlite3.OperationalError as e: print(\"--- dos escritores: el segundo recibe ->\", e)\na.execute(\"rollback\")",
+   "cap": "escritores.py. `timeout=0` hace que una conexión falle en el acto en vez de esperar el candado."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 -I escritores.py",
+     "s": "--- journal_mode = delete\n  B abre una lectura y ve 1 fila (la deja abierta)\n  A inserta una segunda fila y trata de confirmar...\n  A -> ERROR: database is locked\n  B, todavía en su lectura, ve 1 fila(s)\n  B cierra su lectura y vuelve a mirar: 1 fila(s)\n--- journal_mode = wal\n  B abre una lectura y ve 1 fila (la deja abierta)\n  A inserta una segunda fila y trata de confirmar...\n  A confirmó\n  B, todavía en su lectura, ve 1 fila(s)\n  B cierra su lectura y vuelve a mirar: 2 fila(s)\n--- dos escritores: el segundo recibe -> database is locked"
+    }
+   ],
+   "cap": "Corrido en esta VM. Con el diario clásico, la lectora abierta impide confirmar. Con WAL, la escritora confirma y la lectora conserva su foto hasta cerrar. Un segundo escritor recibe el error en los dos modos."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Lo que WAL no arregla",
+   "x": [
+    "Sigue habiendo un solo escritor. Y exige que todos los procesos estén en la misma computadora, porque comparten memoria: no funciona sobre un sistema de archivos de red [#bd0933-sqlite-wal].",
+    "Además, con `synchronous=NORMAL` una transacción confirmada puede perderse si se corta la luz, aunque la base no se corrompe [#bd0933-sqlite-pragma]. Es parecido a bajar `synchronous_commit` en PostgreSQL."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Cuánto cuesta confirmar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Medí cuánto tarda insertar 5.000 filas de varias formas. Son cifras de **una sola VM compartida de 4 CPU**, con `fsync` activo en los dos motores, en dos corridas:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "5.000 inserciones",
+    "Tiempo",
+    "Por segundo"
+   ],
+   "filas": [
+    [
+     "SQLite, diario clásico, `synchronous=FULL`, una confirmación por fila",
+     "4,2 a 4,8 s",
+     "≈ 1.050 a 1.190"
+    ],
+    [
+     "SQLite, diario clásico, todo en una transacción",
+     "≈ 0,005 s",
+     "cerca de 1.000.000"
+    ],
+    [
+     "SQLite, WAL, `FULL`, una confirmación por fila",
+     "0,8 a 0,9 s",
+     "≈ 5.400 a 6.300"
+    ],
+    [
+     "SQLite, WAL, `NORMAL`, una confirmación por fila",
+     "≈ 0,06 s",
+     "≈ 80.000"
+    ],
+    [
+     "PostgreSQL 16.15 (`psql`), una confirmación por fila",
+     "1,16 a 1,29 s",
+     "≈ 3.900 a 4.300"
+    ],
+    [
+     "PostgreSQL 16.15 (`psql`), todo en una transacción",
+     "0,29 a 0,33 s",
+     "≈ 15.000 a 17.000"
+    ]
+   ],
+   "cap": "Medido en esta VM, con `fsync=on` y `synchronous_commit=on` en PostgreSQL. Las filas de PostgreSQL incluyen que `psql` lea 5.000 líneas, así que no son comparables de igual a igual con las de SQLite, que corren dentro del programa. Lo comparable es la forma de la curva."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La tabla no dice «SQLite es rápido» ni «es lento». Insertar una fila cuesta microsegundos. Lo que cuesta es **confirmar al disco**, esperar a que los bytes estén a salvo ([@09-27]). Con una confirmación por fila, mandás cuántas veces por segundo podés esperar al disco; con una sola transacción esperás una vez. WAL hace menos esperas por confirmación que el diario clásico, según su documentación [#bd0933-sqlite-wal]. La regla vale en todos los motores: agrupá las escrituras en transacciones."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda tiene SQLite, pero no lo eligió: viene dentro de AsyncStorage",
+   "x": [
+    "El mapa técnico verificó que el código de Senda no usa ninguna base local propia: busca `sqlite`, `realm` y `mmkv` en `package.json` y `src/`, sin resultados. Pero AsyncStorage, en Android, **guarda sus datos en SQLite**: en la versión 2.2.0 del `package.json`, la clase que arma la base extiende `SQLiteOpenHelper`, y la base se llama `RKStorage` con una tabla `catalystLocalStorage` [#bd0933-asyncstorage-supplier]. Lo viste desde la app en [@06-37]. El teléfono tiene entonces un SQLite que es un archivo, y la nube de Supabase tiene un PostgreSQL. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "package.json",
+    "src/util/almacen.ts",
+    "src/util/nube.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El mismo script en tres motores"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora lo central. Escribí el SQL más aburrido que existe: una tabla de bultos, cuatro filas y cinco consultas, sin funciones raras."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table bultos (\n  id       integer primary key,\n  cliente  varchar(30) not null,\n  peso_kg  numeric(6,2) not null,\n  estado   varchar(12) not null\n);\ninsert into bultos values\n  (1, 'Casa Pérez', 12.5, 'en_ruta'),\n  (2, 'casa pérez',  3,   'entregado'),\n  (3, 'Kiosco Sur',  7,   'pendiente'),\n  (4, 'Kiosco Sur',  9.25,'en_ruta');\nselect estado, count(*) as n, sum(peso_kg) as kg from bultos group by estado order by estado;\nselect cliente, count(*) as n from bultos group by cliente order by cliente;\nselect id from bultos where cliente = 'CASA PÉREZ';\nselect 7 / 2 as division;\nselect 'a' || 'b' as pegado;",
+   "cap": "comun.sql. Datos inventados. Lo corrí sin cambiar una coma en PostgreSQL 16.15 (base creada con collation `C.UTF-8`), SQLite y MySQL 8.0.46."
+  },
+  {
+   "t": "pensa",
+   "x": "Antes de mirar: ¿qué devuelven las tres últimas consultas (`where cliente = 'CASA PÉREZ'`, `7 / 2` y `'a' || 'b'`)? ¿Iguales en los tres motores?",
+   "resp": "No. El `where` trae 0 filas en PostgreSQL y SQLite, y 2 en MySQL. `7 / 2` da 3 en los dos primeros y 3,5000 en MySQL. `'a' || 'b'` da «ab» en PostgreSQL y SQLite, y 0 en MySQL."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql> select estado, count(*) as n, sum(peso_kg) as kg from bultos group by estado order by estado;",
+     "s": "  estado   | n |  kg   \n-----------+---+-------\n en_ruta   | 2 | 21.75\n entregado | 1 |  3.00\n pendiente | 1 |  7.00\n(3 rows)"
+    },
+    {
+     "c": "sqlite> (la misma consulta)",
+     "s": "estado     n  kg   \n---------  -  -----\nen_ruta    2  21.75\nentregado  1  3    \npendiente  1  7"
+    },
+    {
+     "c": "mysql> (la misma consulta)",
+     "s": "+-----------+---+-------+\n| estado    | n | kg    |\n+-----------+---+-------+\n| en_ruta   | 2 | 21.75 |\n| entregado | 1 |  3.00 |\n| pendiente | 1 |  7.00 |\n+-----------+---+-------+"
+    },
+    {
+     "c": "psql> select cliente, count(*) as n from bultos group by cliente order by cliente;",
+     "s": "  cliente   | n \n------------+---\n Casa Pérez | 1\n Kiosco Sur | 2\n casa pérez | 1\n(3 rows)"
+    },
+    {
+     "c": "sqlite> (la misma consulta)",
+     "s": "cliente     n\n----------  -\nCasa Pérez  1\nKiosco Sur  2\ncasa pérez  1"
+    },
+    {
+     "c": "mysql> (la misma consulta)",
+     "s": "+-------------+---+\n| cliente     | n |\n+-------------+---+\n| Casa Pérez  | 2 |\n| Kiosco Sur  | 2 |\n+-------------+---+"
+    }
+   ],
+   "cap": "Consultas 1 y 2. Los conteos coinciden, pero SQLite muestra 3 y 7 donde los otros muestran 3.00 y 7.00, y MySQL junta «Casa Pérez» y «casa pérez» en un solo cliente."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql> select id from bultos where cliente = 'CASA PÉREZ';",
+     "s": " id \n----\n(0 rows)"
+    },
+    {
+     "c": "sqlite> (la misma consulta)",
+     "s": "(sin filas)"
+    },
+    {
+     "c": "mysql> (la misma consulta)",
+     "s": "+----+\n| id |\n+----+\n|  1 |\n|  2 |\n+----+"
+    },
+    {
+     "c": "psql> select 7 / 2 as division;",
+     "s": " division \n----------\n        3\n(1 row)"
+    },
+    {
+     "c": "sqlite> (la misma consulta)",
+     "s": "division\n--------\n3"
+    },
+    {
+     "c": "mysql> (la misma consulta)",
+     "s": "+----------+\n| division |\n+----------+\n|   3.5000 |\n+----------+"
+    },
+    {
+     "c": "psql> select 'a' || 'b' as pegado;",
+     "s": " pegado \n--------\n ab\n(1 row)"
+    },
+    {
+     "c": "sqlite> (la misma consulta)",
+     "s": "pegado\n------\nab"
+    },
+    {
+     "c": "mysql> select 'a' || 'b' as pegado; show warnings;",
+     "s": "+--------+\n| pegado |\n+--------+\n|      0 |\n+--------+\n+---------+------+-------------------------------------------------------------------------------------------------------+\n| Level   | Code | Message                                                                                               |\n+---------+------+-------------------------------------------------------------------------------------------------------+\n| Warning | 1287 | '|| as a synonym for OR' is deprecated and will be removed in a future release. Please use OR instead |\n| Warning | 1292 | Truncated incorrect DOUBLE value: 'a'                                                                 |\n| Warning | 1292 | Truncated incorrect DOUBLE value: 'b'                                                                 |\n+---------+------+-------------------------------------------------------------------------------------------------------+"
+    }
+   ],
+   "cap": "Consultas 3, 4 y 5. MySQL entendió `||` como el operador «O» y lo avisó con una advertencia, no con un error."
+  },
+  {
+   "t": "lista",
+   "ord": false,
+   "items": [
+    "**Tildes y mayúsculas.** MySQL compara textos con una *collation* (las reglas de comparación y orden de un idioma) llamada por defecto `utf8mb4_0900_ai_ci` [#bd0933-mysql-charset]: «ai» ignora los acentos y «ci» ignora las mayúsculas. Por eso `'CASA PÉREZ'` es igual a las otras dos. PostgreSQL, en la base que creé con `C.UTF-8`, compara byte por byte. No es una regla fija: la collation se elige al crear la base y cambia de un motor a otro por defecto.",
+    "**División.** `7 / 2` entre enteros da 3 en PostgreSQL y SQLite, y 3,5000 en MySQL: cada motor decide el tipo del resultado.",
+    "**El símbolo `||`.** En el estándar pega textos. En MySQL, por defecto, es un «O» lógico salvo que se active `PIPES_AS_CONCAT` [#bd0933-mysql-sqlmode][#bd0933-mysql-logicos]. Convirtió `'a'` y `'b'` en números (cero) y calculó `0 O 0`.",
+    "**Los números de SQLite.** Declaré `numeric(6,2)` y le da igual: decide por el valor, no por la columna. Guardó el 3 como entero, por eso muestra `3` y no `3.00` [#bd0933-sqlite-tipos]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Qué no prueba esto",
+   "x": "No prueba que un motor sea mejor: cada uno cumple una regla suya, documentada. Prueba algo más molesto: un script puede correr sin un solo error en tres motores y dar respuestas distintas, y solo te enterás mirando los resultados."
+  },
+  {
+   "t": "h",
+   "x": "Cinco trampas al cambiar de motor"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las que siguen cambian lo que el motor **deja pasar** sin avisar. Cuatro están corridas; la quinta, solo documentada."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "1. Tipos: quién te frena y quién te deja"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un texto `'abc'` en una columna entera. PostgreSQL lo rechaza. MySQL también en su modo estricto actual, pero sin él guarda 0 con una advertencia. SQLite, por defecto, lo **acepta**: sus tipos son una «afinidad», intenta convertir y, si no puede, guarda el texto. Su sitio defiende esto como «tipado flexible», una decisión de diseño [#bd0933-sqlite-quirks]. Desde la versión 3.37, `STRICT` pide el comportamiento de los otros [#bd0933-sqlite-strict]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql> create table t1 (n integer); insert into t1 values ('abc');",
+     "s": "ERROR:  invalid input syntax for type integer: \"abc\"\nLINE 1: insert into t1 values ('abc')\n                               ^"
+    },
+    {
+     "c": "mysql> create table t1 (n int); insert into t1 values ('abc');",
+     "s": "ERROR 1366 (HY000) at line 1: Incorrect integer value: 'abc' for column 'n' at row 1"
+    },
+    {
+     "c": "mysql> set sql_mode=''; … insert into t3 values ('abc'); select n from t3;",
+     "s": "+------+\n| n    |\n+------+\n|    0 |\n+------+"
+    },
+    {
+     "c": "sqlite> … insert 'abc', '42' y 7.5 en una columna integer; select n, typeof(n);",
+     "s": "n    tipo   \n---  -------\nabc  text   \n42   integer\n7.5  real"
+    },
+    {
+     "c": "sqlite> create table t2 (n integer) strict; insert into t2 values ('abc');",
+     "s": "Error: stepping, cannot store TEXT value in INTEGER column t2.n (19)"
+    }
+   ],
+   "cap": "Corrido. En SQLite, la misma columna guarda un texto, un entero y un decimal."
+  },
+  {
+   "t": "h3",
+   "x": "2. GROUP BY con una columna suelta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Agrupar por `estado` y pedir también `cliente`: ¿de qué fila sale? PostgreSQL y MySQL 8 rechazan la consulta. SQLite devuelve **alguna fila cualquiera** del grupo, y su documentación dice que el resultado es arbitrario [#bd0933-sqlite-quirks]. Lo traicionero es que no falla: devuelve algo que parece razonable."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql> select estado, cliente, count(*) from bultos group by estado;",
+     "s": "ERROR:  column \"bultos.cliente\" must appear in the GROUP BY clause or be used in an aggregate function\nLINE 1: select estado, cliente, count(*) from bultos group by estado\n                       ^"
+    },
+    {
+     "c": "mysql> (la misma consulta)",
+     "s": "ERROR 1055 (42000) at line 1: Expression #2 of SELECT list is not in GROUP BY clause and contains nonaggregated column 'lab.bultos.cliente' which is not functionally dependent on columns in GROUP BY clause; this is incompatible with sql_mode=only_full_group_by"
+    },
+    {
+     "c": "sqlite> (la misma consulta)",
+     "s": "estado     cliente     n\n---------  ----------  -\nen_ruta    Casa Pérez  2\nentregado  casa pérez  1\npendiente  Kiosco Sur  1"
+    }
+   ],
+   "cap": "Corrido."
+  },
+  {
+   "t": "h3",
+   "x": "3. Las claves foráneas que no están"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una tabla de rutas con una [[clave foránea]] a choferes, y una ruta del chofer 99, que no existe. PostgreSQL rechaza la fila. SQLite la **acepta**: por compatibilidad hacia atrás las claves foráneas vienen apagadas y se activan en cada conexión con `PRAGMA foreign_keys = ON` [#bd0933-sqlite-foreignkeys]. MySQL tiene el caso más sutil: si escribís la referencia **en la misma línea de la columna**, la analiza y la **ignora** sin avisar. Solo respeta `FOREIGN KEY (...)` en una cláusula separada [#bd0933-mysql-createtable]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql> create table rutas (…, chofer_id integer not null references choferes(id)); insert into rutas values (1, 99);",
+     "s": "ERROR:  insert or update on table \"rutas\" violates foreign key constraint \"rutas_chofer_id_fkey\"\nDETAIL:  Key (chofer_id)=(99) is not present in table \"choferes\"."
+    },
+    {
+     "c": "sqlite> (el mismo script)",
+     "s": "rutas_huerfanas\n---------------\n1"
+    },
+    {
+     "c": "sqlite> pragma foreign_keys = on; (el mismo script)",
+     "s": "Runtime error near line 2: FOREIGN KEY constraint failed (19)"
+    },
+    {
+     "c": "mysql> (el mismo script, referencia en la línea de la columna)",
+     "s": "+-----------------+\n| rutas_huerfanas |\n+-----------------+\n|               1 |\n+-----------------+\n*************************** 1. row ***************************\n       Table: rutas\nCreate Table: CREATE TABLE `rutas` (\n  `id` int NOT NULL,\n  `chofer_id` int NOT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci"
+    },
+    {
+     "c": "mysql> … chofer_id integer not null, foreign key (chofer_id) references choferes(id) …",
+     "s": "ERROR 1452 (23000) at line 1: Cannot add or update a child row: a foreign key constraint fails (`lab`.`rutas`, CONSTRAINT `rutas_ibfk_1` FOREIGN KEY (`chofer_id`) REFERENCES `choferes` (`id`))"
+    }
+   ],
+   "cap": "Corrido. La tabla de MySQL quedó sin ninguna clave foránea: `show create table` lo muestra."
+  },
+  {
+   "t": "h3",
+   "x": "4. Estructuras dentro de una transacción"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Empezás una transacción, creás una tabla y hacés `ROLLBACK`. ¿La tabla existe? En PostgreSQL y SQLite no: el DDL se deshace. En MySQL sí: la documentación lista las sentencias que definen estructuras como las que **confirman solas** la transacción en curso [#bd0933-mysql-implicito]. Oracle hace lo mismo antes y después de cada DDL [#bd0933-oracle-transacciones]. De SQL Server no encontré una página que lo diga con claridad, y no afirmo nada."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql> begin; create table prueba_ddl (id int); rollback; (contar tablas prueba_ddl)",
+     "s": "0"
+    },
+    {
+     "c": "sqlite> (lo mismo)",
+     "s": "0"
+    },
+    {
+     "c": "mysql> (lo mismo)",
+     "s": "1"
+    }
+   ],
+   "cap": "Corrido: cantidad de tablas `prueba_ddl` después del rollback. Una migración que falla a la mitad en MySQL deja la mitad hecha ([@09-31])."
+  },
+  {
+   "t": "h3",
+   "x": "5. El texto vacío que es NULL"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Esta no la corrí (no hay Oracle acá), pero está en su documentación: la base **trata un texto de largo cero como nulo** [#bd0933-oracle-nulls]. En PostgreSQL, MySQL y SQLite, `''` y [[NULL]] son distintos. En Oracle, iguales: `where telefono = ''` nunca encuentra nada, porque comparar con NULL no da verdadero ([@09-04]). Oracle advierte que podría cambiar y recomienda no depender de ello."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "Dos creencias que conviene soltar",
+   "x": [
+    "**«SQLite no es una base de datos de verdad».** Tiene transacciones, índices y un planificador que explica sus planes [#sql-sqlite-eqp]. No tiene servidor ni varios escritores. Su sitio lo recomienda para dispositivos, formatos de archivo y sitios web de tráfico bajo a medio (cifra conservadora: unas 100.000 visitas por día), y lo desaconseja con mucha escritura o varios servidores [#bd0933-sqlite-whentouse]. Un archivo puede llegar a unos 281 TB [#bd0933-sqlite-limits].",
+    "**«MySQL no tiene transacciones».** Su motor por defecto en 8.4, InnoDB, las tiene, con confirmación, reversión y recuperación ante caídas [#bd0933-mysql-innodb]. En mi instalación, `@@default_storage_engine` dice InnoDB. Esa fama es vieja."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Concurrencia: cinco respuestas a la misma pregunta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[MVCC]] ([@09-25]) deja que quien lee no bloquee a quien escribe guardando varias versiones de cada fila. La idea es común, pero cada motor guarda las versiones viejas en un lugar distinto y arranca con otro aislamiento:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Motor",
+    "Versiones viejas",
+    "Aislamiento por defecto"
+   ],
+   "filas": [
+    [
+     "PostgreSQL",
+     "En la propia tabla; VACUUM las retira cuando nadie las necesita",
+     "READ COMMITTED [#bd0933-pg-aislamiento]"
+    ],
+    [
+     "MySQL (InnoDB)",
+     "En un segmento de reversión aparte (*undo*) [#bd0933-mysql-mvcc]",
+     "REPEATABLE READ [#bd0933-mysql-aislamiento]"
+    ],
+    [
+     "Oracle",
+     "En segmentos de deshacer [#bd0933-oracle-concurrencia]",
+     "READ COMMITTED [#bd0933-oracle-concurrencia]"
+    ],
+    [
+     "SQL Server",
+     "Por defecto no guarda versiones: lee con candados. Con `READ_COMMITTED_SNAPSHOT` las guarda en un almacén de versiones, en `tempdb` salvo recuperación acelerada [#bd0933-mssql-versiones]",
+     "READ COMMITTED con candados [#bd0933-mssql-aislamiento]"
+    ],
+    [
+     "SQLite",
+     "En WAL, la foto de quien lee la sostiene el registro [#bd0933-sqlite-isolation]",
+     "SERIALIZABLE entre conexiones"
+    ]
+   ],
+   "cap": "Cada celda sale de la página citada."
+  },
+  {
+   "t": "pensa",
+   "x": "Mudás una aplicación de PostgreSQL (READ COMMITTED) a MySQL (REPEATABLE READ), sin tocar el código. Una tarea larga abre una transacción y cada tanto mira un campo `habilitado` que otro proceso cambia. ¿Qué cambia?",
+   "resp": "En PostgreSQL la tarea ve el cambio apenas se confirma. En MySQL se queda con la foto de su primera lectura y no lo ve hasta que termina y empieza otra transacción. Mismo SQL, otro comportamiento, ningún error."
+  },
+  {
+   "t": "h",
+   "x": "Qué hace caro cambiar de motor"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mudar una base cuesta en cuatro lugares. La **sintaxis**: el script no corre y te das cuenta. La **semántica**: corre y da otra cosa, como con las collations o el `||`. Las **herramientas**: copias de seguridad, monitoreo y extensiones son propias de cada motor ([@09-28]). Y las **personas**: quien afina Oracle no sabe, por eso, afinar SQL Server. Para medir la sintaxis tomé tres construcciones que Senda usa y las corrí contra MySQL:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql> insert into bultos (id, cliente, peso_kg, estado) values (3, 'Kiosco Sur', 8, 'en_ruta') on conflict (id) do update set peso_kg = excluded.peso_kg returning id, peso_kg;",
+     "s": " id | peso_kg \n----+---------\n  3 |    8.00\n(1 row)"
+    },
+    {
+     "c": "mysql> (la misma sentencia)",
+     "s": "ERROR 1064 (42000) at line 1: You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'conflict (id) do update set peso_kg = ex...' at line 1"
+    },
+    {
+     "c": "mysql> select peso_kg::int as kg from bultos where id = 1;",
+     "s": "ERROR 1064 (42000) at line 1: You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '::int as kg from bultos...' at line 1"
+    },
+    {
+     "c": "mysql> alter table bultos enable row level security;",
+     "s": "ERROR 1064 (42000) at line 1: You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'row level security...' at line 1"
+    }
+   ],
+   "cap": "Corrido. MySQL 8.0.46 no entiende `ON CONFLICT`, `RETURNING`, `::` ni la seguridad por fila. Su manual 8.4 tiene `INSERT … ON DUPLICATE KEY UPDATE` [#bd0933-mysql-upsert], y su página de `INSERT` no menciona `RETURNING`. El insertar-o-actualizar y `RETURNING` son de [@09-05]."
+  },
+  {
+   "t": "senda",
+   "titulo": "Cuánto PostgreSQL hay en las migraciones de Senda",
+   "x": [
+    "Conté las **ocurrencias de cada palabra** en los 42 archivos de `supabase/migrations/` (es búsqueda de texto: incluye comentarios): `jsonb` 245, `security definer` 114, `create policy` 76 (la seguridad por fila de [@07-11]), `on conflict` 58, `returning` 38, `cron.schedule` 4 y `skip locked` 4. No es una crítica: Senda eligió PostgreSQL con Supabase y usa a fondo lo que ofrece. Pero mudarse a MySQL no sería cambiar de motor sino **reescribir** parte de su lógica, que vive adentro de la base. Esto corresponde al commit 25e08fa."
+   ],
+   "archivos": [
+    "supabase/migrations/20261027000000_escala.sql",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "pruebas/nube/correr.sh"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cómo elegir, y cuándo no elegir"
+  },
+  {
+   "t": "p",
+   "x": [
+    "«¿Cuál es el mejor motor?» está mal planteada. La mayoría de las veces el caso ya trae restricciones. Estas son las preguntas que yo me haría, en orden:"
+   ]
+  },
+  {
+   "t": "pasos",
+   "titulo": "Cinco preguntas antes de elegir",
+   "pasos": [
+    {
+     "t": "¿Servidor o archivo?",
+     "x": "Si los datos viven en el dispositivo de una persona o hay un solo escritor, SQLite probablemente alcanza. Si escriben varios programas o máquinas, hace falta un servidor."
+    },
+    {
+     "t": "¿Algo ya lo decidió?",
+     "x": "Muchos paquetes declaran su motor. WordPress pide MariaDB 10.11 o superior, o MySQL 8.4 o superior [#bd0933-wordpress-requisitos]. Leé el documento de requisitos antes de la reunión."
+    },
+    {
+     "t": "¿Quién lo opera?",
+     "x": "Una base que nadie sabe respaldar ni restaurar ([@09-28]) pesa más que cualquier diferencia técnica."
+    },
+    {
+     "t": "¿Cuánto cuesta de verdad?",
+     "x": "No solo la licencia: soporte, tiempo de personas y topes de las ediciones gratuitas, como los 12 GB de Oracle Free o los 50 GB de SQL Server Express."
+    },
+    {
+     "t": "¿Qué funciones propias vas a usar?",
+     "x": "Cada una (JSONB, seguridad por fila, tareas programadas) es una cuota de dependencia del proveedor. Conviene tomarla sabiendo cuánto cuesta salir."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una regla práctica mía, que es criterio y no dato: para un servicio nuevo sin restricciones, PostgreSQL es el punto de partida más defendible. Es el más marcado en la encuesta de 2026 [#bd0933-so-2026], tiene licencia permisiva y casi todos los servicios gestionados lo ofrecen. SQLite gana cuando no hay servidor, y SQL Server u Oracle cuando la empresa ya los tiene licenciados y con gente que los conoce."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un colega pasó una tabla de MySQL a PostgreSQL. Antes, `select id from bultos where cliente = 'casa perez'` traía «Casa Pérez» y «casa pérez». Ahora trae cero. ¿Por qué, y cómo lo arreglarías?",
+   "pista": "Releé qué significa `ai_ci` y qué hace PostgreSQL con una base creada con `C.UTF-8`. Una solución usa la extensión `unaccent` y `lower()`.",
+   "solucion": "MySQL compara con una collation que ignora mayúsculas y tildes; PostgreSQL, en una base con `C.UTF-8`, compara bytes. Un arreglo: normalizar los dos lados, `where unaccent(lower(cliente)) = unaccent(lower('CASA PEREZ'))`, con `create extension unaccent` (viene con PostgreSQL). Lo corrí y trae las filas 1 y 2. Otro: una collation no determinista que ignore mayúsculas y tildes (PostgreSQL 12 o más); esa no la probé, confirmala en tu versión. Salida real sin arreglo:\n id \n----\n(0 rows)\nCon `unaccent(lower(...))`:\n id \n----\n  1\n  2\n(2 rows)"
+  },
+  {
+   "t": "ejercicio",
+   "x": "Dos choferes editan el mismo envío en sus celulares, sin señal, cada uno en su SQLite local. Vuelve la conexión y los dos mandan su versión al servidor. ¿Quién resuelve el conflicto: SQLite, PostgreSQL o la aplicación?",
+   "pista": "SQLite solo conoce su propio archivo. PostgreSQL solo ve lo que le llega. ¿Quién conoce la regla de negocio?",
+   "solucion": "La aplicación. SQLite ignora que existe otra copia, y PostgreSQL recibe dos escrituras y las aplica en el orden de llegada. Hay que definir una regla: gana la última, se combinan campos o se le pregunta a una persona. Senda resuelve la parte fácil, no duplicar un envío reintentado, con un identificador generado en el teléfono; el conflicto entre dos personas es el tema de [@09-34]."
+  }
+ ],
+ "recap": [
+  "SQL es un estándar (ISO/IEC 9075) con un núcleo común y mucho opcional; cada motor tiene su dialecto, y las diferencias más peligrosas son las que no dan error y cambian el resultado.",
+  "MySQL (y su bifurcación MariaDB), SQL Server y Oracle son servidores con licencias distintas: GPL o comercial, ediciones con topes y ediciones gratuitas con límites escritos por el fabricante.",
+  "SQLite es una biblioteca dentro de tu programa y la base es un archivo: no hay servidor que administrar, y a cambio solo admite un escritor a la vez. El modo WAL deja leer mientras se escribe.",
+  "Un mismo script en tres motores dio cuatro resultados distintos sin errores: collation que ignora tildes y mayúsculas en MySQL, división entera, el símbolo `||` y los números de SQLite.",
+  "Los motores difieren en lo que permiten sin avisar: tipos flexibles en SQLite, claves foráneas apagadas o ignoradas, estructuras que confirman solas en MySQL y Oracle, y el texto vacío igual a NULL en Oracle.",
+  "Cambiar de motor cuesta en sintaxis, en semántica, en herramientas y en personas. Cuanto más usás las funciones propias de uno, como hace Senda con PostgreSQL, más cuesta salir."
+ ],
+ "repaso": [
+  {
+   "p": "Un colega pega en MySQL, sin tocarla, una consulta de PostgreSQL con `select 'Hola, ' || nombre from choferes`. Con la configuración por defecto de MySQL, ¿qué recibe?",
+   "o": [
+    "Un número, normalmente 0, y una advertencia, porque `||` significa «O» lógico",
+    "El texto pegado, porque `||` es la concatenación que define el estándar SQL",
+    "Un error de sintaxis, porque MySQL no reconoce el símbolo `||` en ninguna posición",
+    "Una columna vacía, porque MySQL descarta las cadenas que mezclan texto y columnas"
+   ],
+   "c": 0,
+   "e": "En MySQL, el `||` es un sinónimo de OR salvo que se active `PIPES_AS_CONCAT`. Los textos se convierten a número y el resultado es 0, con una advertencia y sin error, como se vio corrido. El estándar sí define `||` como concatenación, y por eso PostgreSQL y SQLite devuelven el texto pegado. No hay error de sintaxis ni columna vacía."
+  },
+  {
+   "p": "En SQLite, con la configuración por defecto, `create table t (n integer); insert into t values ('abc');`. ¿Qué pasa?",
+   "o": [
+    "Se rechaza la fila, porque una columna declarada integer solo acepta enteros",
+    "Se guarda un 0 y una advertencia, igual que MySQL con el modo estricto apagado",
+    "Se guarda el texto «abc» en la columna, porque los tipos de SQLite son una afinidad",
+    "Se guarda NULL, porque el valor no se pudo convertir al tipo de la columna"
+   ],
+   "c": 2,
+   "e": "El tipo de la columna en SQLite es una preferencia («afinidad»): intenta convertir, y si no puede, guarda el valor como vino. Lo vimos con `typeof(n)` dando `text`. Para que rechace, hay que declarar la tabla con `STRICT`. El 0 con advertencia es el comportamiento de MySQL sin modo estricto y el NULL no es el comportamiento de ninguno de los dos."
+  },
+  {
+   "p": "Dos programas distintos usan el mismo archivo SQLite en modo WAL. Uno empezó una escritura y no la cerró. El otro quiere escribir. ¿Qué ocurre?",
+   "o": [
+    "Escriben en paralelo, porque WAL admite varios escritores a la vez sobre el archivo",
+    "Se mezclan sus cambios, porque ambos escriben sobre las mismas páginas del archivo",
+    "Se pone en cola solo, porque SQLite tiene un servidor interno que ordena los pedidos",
+    "El segundo recibe «database is locked», o espera si tiene un tiempo de espera configurado"
+   ],
+   "c": 3,
+   "e": "SQLite admite un único escritor a la vez, también en WAL: lo que WAL mejora es que leer y escribir no se bloqueen entre sí. El segundo escritor falla con SQLITE_BUSY, o espera si se configuró un tiempo de espera. No hay servidor que encole, y los cambios no se mezclan porque el candado de escritura lo impide."
+  },
+  {
+   "p": "Una tabla de MySQL se creó con `chofer_id int not null references choferes(id)` en la línea de la columna. ¿Qué garantía da esa referencia hoy?",
+   "o": [
+    "Ninguna: MySQL la acepta pero la ignora; hace falta una cláusula `FOREIGN KEY` aparte",
+    "Total: la base rechaza cualquier ruta con un chofer inexistente, como PostgreSQL",
+    "Parcial: rechaza los inserts pero deja pasar los updates y los deletes sobre choferes",
+    "Solo si se activa `PRAGMA foreign_keys = ON` en la conexión, igual que en SQLite"
+   ],
+   "c": 0,
+   "e": "Según la documentación de MySQL, las referencias escritas en la definición de la columna se analizan y se ignoran; solo cuenta la forma con `FOREIGN KEY` separado. Lo comprobamos: la ruta huérfana entró y `show create table` no mostraba ninguna clave foránea. El PRAGMA es de SQLite, no de MySQL."
+  },
+  {
+   "p": "Corrés `begin; create table x (id int); rollback;`. Según lo corrido y la documentación citada, ¿en cuáles de estos motores la tabla x sigue existiendo?",
+   "o": [
+    "En PostgreSQL y SQLite, porque el rollback no alcanza a las estructuras de tablas",
+    "En MySQL y en Oracle, porque confirman solos antes y después de cada DDL",
+    "En los cuatro, porque crear una tabla nunca puede formar parte de una transacción",
+    "En ninguno, porque `rollback` siempre deshace todo lo hecho desde el `begin`"
+   ],
+   "c": 1,
+   "e": "MySQL y Oracle confirman implícitamente antes y después de las sentencias que definen estructuras, así que el rollback no encuentra nada que deshacer. En PostgreSQL y SQLite el DDL es transaccional y la tabla desaparece, como se corrió. SQL Server no lo afirmamos porque no hallamos una página clara."
+  },
+  {
+   "p": "Una app de choferes guarda entregas en el teléfono y las sube después. ¿Por qué SQLite y no un servidor de base de datos en el teléfono?",
+   "o": [
+    "Porque SQLite es siempre más rápido que cualquier servidor, sea cual sea la carga",
+    "Porque Android e iOS no permiten ningún proceso que escuche conexiones en el teléfono",
+    "Porque es una biblioteca dentro de la app y guarda un archivo, sin proceso ni administración",
+    "Porque SQLite es el único motor que acepta el estándar SQL en sus partes principales"
+   ],
+   "c": 2,
+   "e": "El valor de SQLite en un dispositivo es que no hay nada que instalar, administrar ni mantener encendido: la base es un archivo manejado por una biblioteca que la app lleva adentro. «Siempre más rápido» es falso: depende de la carga, y lo que domina es confirmar al disco. Los otros motores también entienden SQL estándar, y la cuestión de los procesos no es el motivo."
+  },
+  {
+   "p": "En la encuesta de Stack Overflow de 2026, PostgreSQL tiene 57,9 % y SQLite 42,1 %, y todos los motores suman más de 100 %. ¿Qué conclusión es correcta?",
+   "o": [
+    "Hubo un error de suma: los porcentajes tendrían que repartirse en un total de 100",
+    "Cada persona podía marcar varios motores, así que se cuenta en más de una fila",
+    "SQLite mueve casi tanto dinero como PostgreSQL, porque está en el 42 % de los casos",
+    "Oracle es irrelevante en las empresas, porque solo el 9,4 % lo marcó"
+   ],
+   "c": 1,
+   "e": "La pregunta admitía varias respuestas: quien usó PostgreSQL y SQLite aparece en las dos filas, por eso la suma pasa de 100. Que un motor sea muy marcado en la encuesta no dice cuánto dinero mueve, y que uno sea poco marcado no lo vuelve irrelevante: la encuesta mide desarrolladores que respondieron, no el parque instalado de las empresas."
+  }
+ ],
+ "feynman": "Explicale a alguien que sabe usar una planilla por qué «SQL es un idioma» pero «un script que anda en un motor puede dar otro resultado en otro». Contá una diferencia que no da error (la de las tildes en MySQL o la de los tipos de SQLite) y una que sí (el `LIMIT` contra el `TOP`). Después explicá qué significa que SQLite sea «una biblioteca y un archivo» y por qué eso lo hace ideal para un celular y malo para un depósito con diez terminales. Si te trabás, volvé a los resultados de la sección «El mismo script en tres motores».",
+ "para_profundizar": [
+  {
+   "fuente": "bd0933-sqlite-whentouse",
+   "nota": "La página oficial de SQLite sobre cuándo usarlo y cuándo no. Leé las dos listas («Situations Where SQLite Works Well» y «Situations Where A Client/Server RDBMS May Work Better»): es la guía de decisión más honesta que hay, escrita por quienes lo hacen."
+  },
+  {
+   "fuente": "bd0933-sqlite-quirks",
+   "nota": "«Quirks, Caveats, and Gotchas In SQLite»: la lista oficial de las rarezas que aparecieron hoy (tipado flexible, claves foráneas apagadas, GROUP BY permisivo) y varias más. Útil cuando alguien dice que migrar de SQLite a un servidor es trivial."
+  },
+  {
+   "fuente": "bd0933-mysql-createtable",
+   "nota": "La página de `CREATE TABLE` de MySQL 8.4. Buscá el párrafo sobre las referencias en línea para verlo en la fuente: es una de esas cosas que cuesta creer hasta que se lee."
+  },
+  {
+   "fuente": "bd0933-pg-conformidad",
+   "nota": "Apéndice D de la documentación de PostgreSQL: qué parte del estándar SQL cumple y cómo se divide el estándar en partes. Sirve para entender qué quiere decir «estándar» en la práctica."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "MySQL",
+   "d": "Motor de base de datos relacional de código abierto, hoy mantenido por Oracle. Se publica con licencia doble: GPLv2 y licencia comercial. Es la base de buena parte de la web tradicional (por ejemplo WordPress, que lo pide o pide MariaDB). Su motor de almacenamiento por defecto es InnoDB, que tiene transacciones."
+  },
+  {
+   "t": "SQL Server",
+   "d": "Motor de base de datos relacional de Microsoft, de licencia comercial. Tiene ediciones (Enterprise, Standard, Express gratuita con topes), corre en Windows y en Linux y usa su propio dialecto de SQL, llamado Transact-SQL, con cosas como `TOP`."
+  },
+  {
+   "t": "Oracle",
+   "d": "Motor de base de datos relacional de Oracle Corporation, de licencia comercial, muy usado en grandes empresas. Desde la versión 26ai se llama Oracle AI Database. Tiene una edición gratuita con límites (2 núcleos, 2 GB de RAM, 12 GB de datos) y rarezas propias, como tratar el texto vacío como NULL."
+  },
+  {
+   "t": "SQLite embebida",
+   "d": "Motor de base de datos que no es un servidor sino una biblioteca de código que el programa lleva adentro; la base es un único archivo. Sin administración ni usuarios, con un solo escritor a la vez. Está en teléfonos, navegadores y muchos programas."
+  },
+  {
+   "t": "dialecto SQL",
+   "d": "Variante del lenguaje SQL propia de cada motor: la misma intención se escribe distinto (`LIMIT`, `TOP`, `FETCH FIRST`) o la misma frase significa otra cosa (`||`). Es lo que complica pasar un script de un motor a otro."
+  },
+  {
+   "t": "MariaDB",
+   "d": "Bifurcación (fork) de MySQL que se inició en 2009. Mantiene compatibilidad amplia con MySQL en lo básico y se publica con GPLv2. Con el tiempo los dos se fueron separando en funciones."
+  },
+  {
+   "t": "collation",
+   "d": "Conjunto de reglas con que un motor compara y ordena textos: si distingue mayúsculas de minúsculas, si ignora tildes, cómo ordena la «ñ». Cada motor tiene una por defecto y cambia los resultados de `=`, `ORDER BY` y `GROUP BY`."
+  },
+  {
+   "t": "afinidad de tipo",
+   "d": "En SQLite, preferencia de conversión de una columna: intenta convertir los valores que entran al tipo declarado, pero si no puede los guarda tal cual. El tipo está en el valor y no en la columna, salvo en las tablas `STRICT`."
+  },
+  {
+   "t": "modo WAL de SQLite",
+   "d": "Modo de funcionamiento de SQLite en el que los cambios se anotan primero en un archivo de registro aparte. Permite que quien lee y quien escribe no se bloqueen entre sí, pero sigue habiendo un solo escritor a la vez y no funciona sobre sistemas de archivos de red."
+  }
+ ],
+ "siguiente": "Mañana salís del mundo relacional: NoSQL, por qué nació, qué familias hay y qué dice de verdad el teorema CAP.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0933-so-2026",
+   "t": "2026 Stack Overflow Developer Survey: Databases",
+   "a": "Stack Overflow",
+   "tipo": "articulo",
+   "anio": 2026,
+   "url": "https://survey.stackoverflow.co/2026/technology/data/databases"
+  },
+  {
+   "id": "bd0933-pg-conformidad",
+   "t": "PostgreSQL 16: Appendix D. SQL Conformance",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/features.html"
+  },
+  {
+   "id": "bd0933-pg-select",
+   "t": "PostgreSQL 16: SELECT (cláusulas LIMIT, OFFSET y FETCH)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/sql-select.html"
+  },
+  {
+   "id": "bd0933-pg-aislamiento",
+   "t": "PostgreSQL 16: Transaction Isolation",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/transaction-iso.html"
+  },
+  {
+   "id": "bd0933-mssql-top",
+   "t": "SELECT - TOP (Transact-SQL)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/sql/t-sql/queries/top-transact-sql?view=sql-server-ver17"
+  },
+  {
+   "id": "bd0933-mssql-orderby",
+   "t": "SELECT - ORDER BY Clause (Transact-SQL), con OFFSET y FETCH",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/sql/t-sql/queries/select-order-by-clause-transact-sql?view=sql-server-ver17"
+  },
+  {
+   "id": "bd0933-mssql-ediciones",
+   "t": "Editions and Supported Features of SQL Server 2025",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://learn.microsoft.com/en-us/sql/sql-server/editions-and-components-of-sql-server-2025?view=sql-server-ver17"
+  },
+  {
+   "id": "bd0933-mssql-aislamiento",
+   "t": "SET TRANSACTION ISOLATION LEVEL (Transact-SQL)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/sql/t-sql/statements/set-transaction-isolation-level-transact-sql?view=sql-server-ver17"
+  },
+  {
+   "id": "bd0933-mssql-versiones",
+   "t": "Transaction locking and row versioning guide",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/sql/relational-databases/sql-server-transaction-locking-and-row-versioning-guide?view=sql-server-ver17"
+  },
+  {
+   "id": "bd0933-oracle-select",
+   "t": "Oracle AI Database SQL Language Reference: SELECT (row_limiting_clause)",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/SELECT.html"
+  },
+  {
+   "id": "bd0933-oracle-nulls",
+   "t": "Oracle AI Database SQL Language Reference: Nulls",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://docs.oracle.com/en/database/oracle/oracle-database/26/sqlrf/Nulls.html"
+  },
+  {
+   "id": "bd0933-oracle-free",
+   "t": "Oracle AI Database Licensing Information User Manual: Licensing Restrictions (Oracle AI Database Free)",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://docs.oracle.com/en/database/oracle/oracle-database/26/xeinw/licensing-restrictions.html"
+  },
+  {
+   "id": "bd0933-oracle-transacciones",
+   "t": "Oracle AI Database Concepts: Transactions",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://docs.oracle.com/en/database/oracle/oracle-database/26/cncpt/transactions.html"
+  },
+  {
+   "id": "bd0933-oracle-concurrencia",
+   "t": "Oracle AI Database Concepts: Data Concurrency and Consistency",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://docs.oracle.com/en/database/oracle/oracle-database/26/cncpt/data-concurrency-and-consistency.html"
+  },
+  {
+   "id": "bd0933-mysql-relnotes-97",
+   "t": "MySQL 9.7 Release Notes",
+   "a": "Oracle",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://dev.mysql.com/doc/relnotes/mysql/9.7/en/"
+  },
+  {
+   "id": "bd0933-mysql-eol",
+   "t": "MySQL End of Life Notices",
+   "a": "Oracle",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.mysql.com/support/eol-notice.html"
+  },
+  {
+   "id": "bd0933-mysql-licencia",
+   "t": "MySQL: licencias OEM (GPL y licencia comercial)",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://www.mysql.com/about/legal/licensing/oem/"
+  },
+  {
+   "id": "bd0933-mysql-createtable",
+   "t": "MySQL 8.4 Reference Manual: CREATE TABLE Statement",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://dev.mysql.com/doc/refman/8.4/en/create-table.html"
+  },
+  {
+   "id": "bd0933-mysql-implicito",
+   "t": "MySQL 8.4 Reference Manual: Statements That Cause an Implicit Commit",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://dev.mysql.com/doc/refman/8.4/en/implicit-commit.html"
+  },
+  {
+   "id": "bd0933-mysql-sqlmode",
+   "t": "MySQL 8.4 Reference Manual: Server SQL Modes",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://dev.mysql.com/doc/refman/8.4/en/sql-mode.html"
+  },
+  {
+   "id": "bd0933-mysql-logicos",
+   "t": "MySQL 8.4 Reference Manual: Logical Operators",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://dev.mysql.com/doc/refman/8.4/en/logical-operators.html"
+  },
+  {
+   "id": "bd0933-mysql-charset",
+   "t": "MySQL 8.4 Reference Manual: Character Sets and Collations in MySQL",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://dev.mysql.com/doc/refman/8.4/en/charset-mysql.html"
+  },
+  {
+   "id": "bd0933-mysql-innodb",
+   "t": "MySQL 8.4 Reference Manual: Introduction to InnoDB",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://dev.mysql.com/doc/refman/8.4/en/innodb-introduction.html"
+  },
+  {
+   "id": "bd0933-mysql-mvcc",
+   "t": "MySQL 8.4 Reference Manual: InnoDB Multi-Versioning",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://dev.mysql.com/doc/refman/8.4/en/innodb-multi-versioning.html"
+  },
+  {
+   "id": "bd0933-mysql-aislamiento",
+   "t": "MySQL 8.4 Reference Manual: Transaction Isolation Levels",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://dev.mysql.com/doc/refman/8.4/en/innodb-transaction-isolation-levels.html"
+  },
+  {
+   "id": "bd0933-mysql-upsert",
+   "t": "MySQL 8.4 Reference Manual: INSERT ... ON DUPLICATE KEY UPDATE",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://dev.mysql.com/doc/refman/8.4/en/insert-on-duplicate.html"
+  },
+  {
+   "id": "bd0933-mariadb-about",
+   "t": "About MariaDB Server",
+   "a": "MariaDB Foundation",
+   "tipo": "doc",
+   "url": "https://mariadb.org/about/"
+  },
+  {
+   "id": "bd0933-mariadb-releases",
+   "t": "MariaDB Server release notes and release dates",
+   "a": "MariaDB",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://mariadb.com/kb/en/mariadb-server-release-dates/"
+  },
+  {
+   "id": "bd0933-sqlite-index",
+   "t": "SQLite Home Page",
+   "a": "SQLite",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.sqlite.org/index.html"
+  },
+  {
+   "id": "bd0933-sqlite-copyright",
+   "t": "SQLite Copyright",
+   "a": "SQLite",
+   "tipo": "doc",
+   "url": "https://www.sqlite.org/copyright.html"
+  },
+  {
+   "id": "bd0933-sqlite-whentouse",
+   "t": "Appropriate Uses For SQLite",
+   "a": "SQLite",
+   "tipo": "doc",
+   "url": "https://www.sqlite.org/whentouse.html"
+  },
+  {
+   "id": "bd0933-sqlite-mostdeployed",
+   "t": "Most Widely Deployed and Used Database Engine",
+   "a": "SQLite",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.sqlite.org/mostdeployed.html"
+  },
+  {
+   "id": "bd0933-sqlite-wal",
+   "t": "Write-Ahead Logging",
+   "a": "SQLite",
+   "tipo": "doc",
+   "url": "https://www.sqlite.org/wal.html"
+  },
+  {
+   "id": "bd0933-sqlite-pragma",
+   "t": "PRAGMA Statements (synchronous, journal_mode)",
+   "a": "SQLite",
+   "tipo": "doc",
+   "url": "https://www.sqlite.org/pragma.html"
+  },
+  {
+   "id": "bd0933-sqlite-quirks",
+   "t": "Quirks, Caveats, and Gotchas In SQLite",
+   "a": "SQLite",
+   "tipo": "doc",
+   "url": "https://www.sqlite.org/quirks.html"
+  },
+  {
+   "id": "bd0933-sqlite-strict",
+   "t": "STRICT Tables",
+   "a": "SQLite",
+   "tipo": "doc",
+   "url": "https://www.sqlite.org/stricttables.html"
+  },
+  {
+   "id": "bd0933-sqlite-tipos",
+   "t": "Datatypes In SQLite",
+   "a": "SQLite",
+   "tipo": "doc",
+   "url": "https://www.sqlite.org/datatype3.html"
+  },
+  {
+   "id": "bd0933-sqlite-foreignkeys",
+   "t": "SQLite Foreign Key Support",
+   "a": "SQLite",
+   "tipo": "doc",
+   "url": "https://www.sqlite.org/foreignkeys.html"
+  },
+  {
+   "id": "bd0933-sqlite-isolation",
+   "t": "Isolation In SQLite",
+   "a": "SQLite",
+   "tipo": "doc",
+   "url": "https://www.sqlite.org/isolation.html"
+  },
+  {
+   "id": "bd0933-sqlite-limits",
+   "t": "Limits In SQLite",
+   "a": "SQLite",
+   "tipo": "doc",
+   "url": "https://www.sqlite.org/limits.html"
+  },
+  {
+   "id": "bd0933-asyncstorage-supplier",
+   "t": "async-storage 2.2.0: ReactDatabaseSupplier.java (Android)",
+   "a": "react-native-async-storage",
+   "tipo": "doc",
+   "url": "https://unpkg.com/@react-native-async-storage/async-storage@2.2.0/android/src/main/java/com/reactnativecommunity/asyncstorage/ReactDatabaseSupplier.java"
+  },
+  {
+   "id": "bd0933-wordpress-requisitos",
+   "t": "WordPress: requirements",
+   "a": "WordPress.org",
+   "tipo": "doc",
+   "url": "https://wordpress.org/about/requirements/"
+  }
+ ]
+}

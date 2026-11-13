@@ -1,0 +1,924 @@
+{
+ "id": "09-31",
+ "titulo": "Migraciones de esquema sin caídas",
+ "bajada": "Por qué agregar una columna puede frenar toda una app aunque tarde menos de un milisegundo, qué cambios duelen de verdad y cómo se cambia una tabla en cuatro pasos sin dejar a pie a la versión vieja de la app.",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es una migración versionada y por qué se aplica una sola vez, en orden y sin editarla después.",
+  "Predecir qué lock toma cada tipo de ALTER TABLE y cuáles reescriben la tabla, y leer la cola de locks en pg_stat_activity.",
+  "Reescribir un cambio riesgoso (NOT NULL, clave foránea, índice, cambio de tipo) en una secuencia que no frena la escritura.",
+  "Aplicar expand-contract a un cambio de nombre de columna y decir, para cada estado del esquema, qué versiones de la app funcionan.",
+  "Leer las migraciones de Senda y distinguir lo que ya es compatible con APKs viejos de lo que habría que verificar."
+ ],
+ "venis_de": "Ya sabés qué es una transacción ([@09-24]), cómo MVCC deja leer sin esperar a quien escribe ([@09-25]) y cómo se esperan los locks de fila ([@09-26]). Hoy aparece el lock de tabla, que es mucho más grande, y con él el problema de cambiar la forma de la base mientras la app sigue funcionando.",
+ "se_apoya_en": [
+  "09-06",
+  "09-07",
+  "09-18",
+  "09-20",
+  "09-24",
+  "09-25",
+  "09-26",
+  "08-13",
+  "04-21"
+ ],
+ "gancho": [
+  "Martes, 10:05. En el equipo de una app de seguimiento de bultos alguien corre en producción la migración más inocente del mundo: agregar una columna `nota` a la tabla de bultos. Medida en una tabla de 2 millones de filas, la operación tarda siete centésimas de milisegundo. Un minuto después, la app no responde ni para leer un bulto. (La escena es inventada; los números que siguen, medidos.)",
+  "Nada falló. La migración era correcta y rápida. Lo que la hizo peligrosa fue **cuánto esperó** para empezar y todo lo que se quedó esperando detrás. Hoy ves ese mecanismo en PostgreSQL, qué cambios de esquema duelen y cuáles no, y el patrón que usan los equipos para cambiar algo que otros todavía usan: expandir, migrar y contraer."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Una migración es un cambio de forma, con número de orden"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La forma de la base vive en la base, no en el código. Si cada persona del equipo agrega columnas a su copia, hay tres bases con tres formas y nadie sabe cuál es la de producción. Una **[[migración|migración]]** lo resuelve: es un archivo con los comandos SQL de **un** cambio de forma (crear una tabla, agregar una columna, reemplazar una función) y un nombre que fija su orden. Una herramienta anota en una tabla de historial cuáles se aplicaron en cada base y corre solo las que faltan.",
+    "Supabase, la plataforma de Senda, lo hace así: su guía explica que anota lo aplicado en `supabase_migrations.schema_migrations` y que `supabase db push` compara la carpeta local contra esa tabla y corre lo que falta, en orden [#bd0931-supabase-migraciones]. Los archivos se llaman `<fecha-hora>_<descripción>.sql`, y esa fecha **es** el orden."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El plano de las obras del depósito",
+   "x": "Las remodelaciones de un depósito tienen fecha, se hacen una vez y parten del estado en que dejó la anterior. Reescribir el plano de una obra ya hecha deja el papel y el depósito en desacuerdo. Pero un depósito no se puede reconstruir desde cero para probar los planos, y una base sí: con todas las migraciones se arma una base vacía idéntica a la de producción."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo medí. Apliqué las 42 migraciones de Senda, en orden y una por una con `psql`, sobre una base de PostgreSQL 16 vacía con los roles mínimos de Supabase que usa la propia prueba de Senda. Tardaron **2,6 segundos** en total (medido en esta VM) y dejaron 41 tablas en el esquema `public`."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Una migración aplicada no se edita",
+   "x": "Si te equivocaste, escribís otra migración que lo corrija. Editar la vieja deja bases que corrieron la versión anterior y bases que corren la nueva, con el mismo número de orden. Senda sigue el hábito: la lista de miembros de un grupo (`miembros_de`) se redefine al menos tres veces, en archivos nuevos cada vez."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Una fecha anterior no se aplica sola",
+   "x": "Por defecto, una migración con fecha anterior a la última ya aplicada no se corre. En Senda pasó: el flujo `supabase.yml` agrega `--include-all` (que la CLI describe como incluir las migraciones que no figuran en el historial [#bd0931-supabase-cli-push]) y un comentario cuenta el motivo: la migración de propuestas, del 11-10, había quedado sin aplicar porque su nombre va antes que las del 26 y 27-10."
+  },
+  {
+   "t": "pensa",
+   "x": "Alguien corrige un error de tipeo directamente en una migración que ya corrió en producción. ¿Qué le deja al equipo?",
+   "resp": "Producción conserva la versión con el error, porque la herramienta ya la anotó como aplicada, y las bases nuevas se crean con la corregida: dos formas con el mismo número y sin ningún aviso. Lo correcto es una migración nueva."
+  },
+  {
+   "t": "h",
+   "x": "Lo que bloquea un ALTER TABLE"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada comando toma un **lock de tabla**, un candado sobre la tabla entera que impide que otro la borre o la cambie mientras la usa (distinto de los locks de fila de [@09-26]). Hay ocho modos. Un `select` toma el más débil, `ACCESS SHARE`; un `insert` o `update`, `ROW EXCLUSIVE`; y la mayoría de las formas de `alter table`, **`ACCESS EXCLUSIVE`**, que según la documentación entra en conflicto con los ocho modos [#back18-pg-explicit-locking]: mientras alguien lo tiene, ni un `select` puede entrar.",
+    "Para medir, armé esta tabla de 2 millones de bultos inventados (130 MB, más 56 MB de índices). Todo el día lo corrí en PostgreSQL 16.15 con la configuración por defecto, en una VM de 4 núcleos compartidos: son datos de una máquina, no una regla."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table bultos (\n  id          integer primary key,\n  cliente_id  integer      not null,\n  deposito_id smallint     not null,\n  estado      text         not null,\n  peso        numeric(6,2) not null,\n  creado      timestamptz  not null\n);\nselect setseed(0.31);\ninsert into bultos\nselect g,\n       1 + (random()*4999)::int,\n       1 + (random()*4)::int,\n       (array['entregado','entregado','entregado','en_camino','devuelto'])[1+(random()*4)::int],\n       round((0.5 + random()*30)::numeric, 2),\n       timestamptz '2026-01-01' + random()*300 * interval '1 day'\nfrom generate_series(1, 2000000) g;\ncreate index bultos_cliente on bultos (cliente_id);\nanalyze bultos;",
+   "cap": "Tabla de práctica con datos inventados y semilla fija. Con 300000 en lugar de 2000000 sirve para una máquina chica."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada cambio se corrió dentro de una transacción, se miró en `pg_locks` qué candados quedaron tomados y se hizo `rollback`."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cambio sobre `bultos`",
+    "Lock sobre la tabla",
+    "¿Reescribe?",
+    "Tiempo con el lock"
+   ],
+   "filas": [
+    [
+     "`add column nota text`",
+     "ACCESS EXCLUSIVE",
+     "No",
+     "0,07 ms"
+    ],
+    [
+     "`add column ... not null default 'pendiente'`",
+     "ACCESS EXCLUSIVE",
+     "No",
+     "0,3 ms"
+    ],
+    [
+     "`add column ... default random()`",
+     "ACCESS EXCLUSIVE",
+     "Sí",
+     "2.903 ms"
+    ],
+    [
+     "`cliente_id` de `integer` a `bigint`",
+     "ACCESS EXCLUSIVE",
+     "Sí",
+     "4.395 ms"
+    ],
+    [
+     "`set not null` con datos",
+     "ACCESS EXCLUSIVE",
+     "No, lee todo",
+     "250 ms"
+    ],
+    [
+     "Agregar una clave foránea",
+     "SHARE ROW EXCLUSIVE",
+     "No, lee todo",
+     "367 ms"
+    ],
+    [
+     "`create index` común",
+     "SHARE (no deja escribir)",
+     "No",
+     "1.314 ms"
+    ],
+    [
+     "`drop column peso`",
+     "ACCESS EXCLUSIVE",
+     "No",
+     "0,36 ms"
+    ]
+   ],
+   "cap": "Medido el 13-11-2026 en esta VM con 2.000.000 de filas, una corrida por fila. La documentación coincide: un valor por defecto no volátil no reescribe, y uno volátil o un cambio de tipo sí [#bd0931-pg16-altertable]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres lecciones. **Una**: las operaciones de metadatos (valor por defecto constante, borrar una columna) son instantáneas aunque la tabla pese gigas; desde PostgreSQL 11 el valor por defecto no volátil se guarda una vez en el catálogo [#bd0931-pg11-notas]. **Dos**: lo que reescribe o lee toda la tabla (un valor por defecto volátil, un cambio de tipo, un `set not null`) retiene el candado todo ese tiempo y escala con el tamaño: con 200 millones de filas serían minutos (ESTIMACIÓN lineal). **Tres**, la más traicionera, viene ahora."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "La cola de locks: por qué lo instantáneo también frena"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres sesiones contra la misma tabla. A es un informe largo: una transacción que leyó la tabla y quedó abierta seis segundos. Un segundo después, B corre el `alter table ... add column`. Otro segundo más tarde, C, un `select` de la app."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "A: informe largo",
+     "k": "datos"
+    },
+    {
+     "n": "B: migración",
+     "k": "alerta"
+    },
+    {
+     "n": "C: la app",
+     "k": "cliente"
+    },
+    {
+     "n": "Tabla bultos",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 3,
+     "t": "select + transacción abierta",
+     "d": "A toma ACCESS SHARE y no termina: seguirá seis segundos."
+    },
+    {
+     "de": 1,
+     "a": 3,
+     "t": "alter table: pide ACCESS EXCLUSIVE",
+     "d": "B choca con A y espera. Todavía no hizo nada, pero ya está en la cola."
+    },
+    {
+     "de": 2,
+     "a": 3,
+     "t": "select de un bulto (id = 5)",
+     "d": "El ACCESS SHARE de C sería compatible con el de A, pero hay un pedido más fuerte esperando delante: C se pone en la cola detrás de B."
+    },
+    {
+     "de": 0,
+     "a": 3,
+     "t": "commit",
+     "resp": true,
+     "d": "A termina y suelta su lock."
+    },
+    {
+     "de": 1,
+     "a": 3,
+     "t": "alter table se ejecuta (0,07 ms)",
+     "d": "B consigue el lock, cambia el catálogo y lo suelta al instante."
+    },
+    {
+     "de": 2,
+     "a": 3,
+     "t": "select se ejecuta",
+     "resp": true,
+     "d": "Recién ahora C pasa: esperó 4,1 segundos por algo que dura menos de un milisegundo."
+    }
+   ],
+   "cap": "C no choca con A: choca con B, que espera a A."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- sesión B, a 1 s del inicio, con \\timing\nalter table bultos add column nota text;",
+     "s": "Time: 5151.056 ms (00:05.151)"
+    },
+    {
+     "c": "-- sesión C, a 2 s del inicio\nselect id, estado from bultos where id = 5;",
+     "s": "5|entregado\nTime: 4131.337 ms (00:04.131)"
+    },
+    {
+     "c": "-- observador, a 3,5 s\nselect pid, state, wait_event_type as espera, wait_event as evento, pg_blocking_pids(pid) as bloqueado_por, left(query, 44) as consulta\nfrom pg_stat_activity where datname = 'logistica' and pid <> pg_backend_pid() order by backend_start;",
+     "s": "  pid  | state  | espera  |  evento  | bloqueado_por |                  consulta\n-------+--------+---------+----------+---------------+---------------------------------------------\n 23381 | active | Timeout | PgSleep  | {}            | select pg_sleep(6);\n 23410 | active | Lock    | relation | {23381}       | alter table bultos add column nota text;\n 23426 | active | Lock    | relation | {23410}       | select id, estado from bultos where id = 5;"
+    }
+   ],
+   "cap": "Corrida del 13-11-2026. La app espera a la migración y la migración al informe (`pg_sleep` simula una transacción larga cualquiera)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La migración, con 0,07 ms de trabajo, cuesta **5,1 segundos** de espera, y la app pierde 4,1 en un `select` trivial. Con 40 pedidos por segundo habría unos 160 apilados detrás (ESTIMACIÓN: 40 por 4,1), cada uno con su conexión ocupada. Así se tira abajo una app con una migración «instantánea».",
+    "La defensa es acotar cuánto espera la migración. `lock_timeout` cancela toda sentencia que espere un lock más de lo indicado [#bd0931-pg16-config-cliente]. Repetí con `set lock_timeout = '1s'` en B y con C llegando medio segundo después:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "set lock_timeout = '1s';\nalter table bultos add column nota text;",
+     "s": "ERROR:  canceling statement due to lock timeout\nTime: 1000.415 ms (00:01.000)"
+    },
+    {
+     "c": "-- sesión C, que había llegado a los 1,5 s\nselect id, estado from bultos where id = 5;",
+     "s": "5|entregado\nTime: 506.772 ms"
+    }
+   ],
+   "cap": "La migración fracasa a propósito y deja pasar a la app: medio segundo de espera en lugar de cuatro."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El daño máximo pasa a ser el `lock_timeout`, y el costo es reintentar. En la práctica se pone `set lock_timeout = '2s'` al empezar el archivo y se vuelve a correr si falla, de preferencia fuera de la hora pico. La guía de Supabase menciona el caso: ante un error por lock timeout en una migración, dice, se puede considerar subir el valor [#bd0931-supabase-migraciones]. Para mí, primero conviene averiguar qué transacción bloquea; subir el límite sin mirar solo posterga el problema."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Modelo de juguete de la cola: A tiene el lock hasta el segundo 6,\n// B (ACCESS EXCLUSIVE) llega en 1 y C (un select) llega en cLlega.\nfunction simular({ cLlega, lockTimeout }) {\n  const aSale = 6.0, bLlega = 1.0, bDur = 0.0001;\n  const bEmpieza = Math.max(bLlega, aSale);\n  let bAborta = null;\n  if (lockTimeout !== null && bLlega + lockTimeout < aSale) bAborta = bLlega + lockTimeout;\n  // C queda detrás de B mientras B esté esperando\n  const cEmpieza = bAborta !== null ? Math.max(cLlega, bAborta) : Math.max(cLlega, bEmpieza + bDur);\n  return {\n    b: bAborta !== null ? `cancelada tras ${(bAborta - bLlega).toFixed(1)} s` : `espera ${(bEmpieza - bLlega).toFixed(1)} s`,\n    c: `espera ${(cEmpieza - cLlega).toFixed(1)} s`\n  };\n}\nconsole.log('sin lock_timeout    ', simular({ cLlega: 2.0, lockTimeout: null }));\nconsole.log('lock_timeout de 1 s ', simular({ cLlega: 1.5, lockTimeout: 1 }));\nconsole.log('lock_timeout de 10 s', simular({ cLlega: 2.0, lockTimeout: 10 }));",
+   "cap": "No es PostgreSQL: es un modelo que reproduce las esperas de la corrida (4,0 y 0,5 s contra 4,1 y 0,5 medidos). Probá otros valores."
+  },
+  {
+   "t": "pensa",
+   "x": "Un proceso nocturno abre una transacción, lee la tabla de bultos y se queda esperando una API externa antes del `commit`. Nunca escribe. ¿Por qué puede arruinar una migración?",
+   "resp": "Porque el ACCESS SHARE de una lectura dura hasta el fin de la transacción, no de la lectura. Mientras siga abierta, cualquier ALTER TABLE espera y detrás se arma la cola. Se corrige no dejando transacciones abiertas mientras se espera algo externo, y revisando `pg_stat_activity` por sesiones `idle in transaction` antes de migrar."
+  },
+  {
+   "t": "h",
+   "x": "Las versiones seguras de cada cambio"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los cambios que duelen tienen una versión que parte el trabajo: un paso instantáneo con lock fuerte y otro largo con lock débil. Lo lento se hace donde no molesta."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "NOT NULL y claves foráneas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El `set not null` directo leyó 2 millones de filas con el lock más fuerte (250 ms). La alternativa usa un `CHECK` creado `NOT VALID`: se aplica a las filas nuevas sin revisar las viejas. Después se **valida** aparte, con un lock que deja escribir, y recién entonces `set not null` reconoce la restricción válida y no relee la tabla (lo describe la documentación [#bd0931-pg16-altertable] y las notas de la versión 12 lo anunciaron como mejora [#bd0931-pg12-notas])."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "alter table bultos add constraint deposito_nn check (deposito_id is not null) not valid;",
+     "s": "ALTER TABLE\nTime: 0.132 ms            -- ACCESS EXCLUSIVE, pero instantáneo"
+    },
+    {
+     "c": "alter table bultos validate constraint deposito_nn;",
+     "s": "ALTER TABLE\nTime: 156.520 ms          -- SHARE UPDATE EXCLUSIVE: se puede escribir"
+    },
+    {
+     "c": "alter table bultos alter column deposito_id set not null;",
+     "s": "ALTER TABLE\nTime: 0.189 ms            -- ya no escanea"
+    },
+    {
+     "c": "alter table bultos drop constraint deposito_nn;",
+     "s": "ALTER TABLE"
+    }
+   ],
+   "cap": "Tres pasos que suman lo mismo que el `set not null` directo, con el lock fuerte tomado décimas de milisegundo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con una clave foránea ([@09-07]) pasa igual: agregarla tomó 367 ms con `SHARE ROW EXCLUSIVE` sobre las dos tablas. Con `not valid` cuesta 0,3 ms, y `validate constraint` (412 ms) toma solo `SHARE UPDATE EXCLUSIVE`."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Índices sin frenar las escrituras"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El `create index` común toma `SHARE`: deja leer pero no escribir. `create index concurrently` arma el índice sin ese lock, a costa de leer la tabla dos veces y esperar a las transacciones que podrían usar el índice [#postgres-create-index]. Con `pgbench`, cuatro clientes insertaban bultos sin parar y a los 3 segundos creé un índice de tres columnas sobre unas 2,1 millones de filas:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create index bultos_creado on bultos (estado, creado, peso);   -- común",
+     "s": "Time: 1809.850 ms\n\nsegundo : transacciones / latencia máxima (ms)\n 2: 10552 / 23    3: 4 / 58    4: 1861 / 1810    5: 10694 / 4\nlatencia máxima: 1810 ms"
+    },
+    {
+     "c": "create index concurrently bultos_creado on bultos (estado, creado, peso);",
+     "s": "Time: 4451.242 ms\n\nsegundo : transacciones / latencia máxima (ms)\n 5: 1945 / 24    6: 744 / 145    7: 911 / 109    8: 1027 / 18\nlatencia máxima: 145 ms"
+    }
+   ],
+   "cap": "Corridas del 13-11-2026 en esta VM, recortadas. Con el índice común las escrituras se detienen casi 2 s (en el segundo 3 pasaron 4 transacciones). Con `concurrently` el índice tarda 2,5 veces más y el ritmo baja, pero no se detiene: peor espera, unos 145 ms. El ritmo base difiere entre corridas porque otros procesos usaban la VM; la latencia máxima es la comparación válida."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos trampas. **Una**: `concurrently` no corre dentro de una transacción, y muchas herramientas envuelven cada archivo en una:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "begin;\ncreate index concurrently bultos_estado on bultos (estado);",
+     "s": "ERROR:  CREATE INDEX CONCURRENTLY cannot run inside a transaction block"
+    },
+    {
+     "c": "psql -1 -c \"create index concurrently bultos_x on bultos(creado)\"   # -1: todo en una transacción",
+     "s": "ERROR:  CREATE INDEX CONCURRENTLY cannot run inside a transaction block"
+    },
+    {
+     "c": "psql -f migracion.sql   # un archivo con una sola sentencia, sin envolver",
+     "s": "CREATE INDEX"
+    }
+   ],
+   "cap": "Funciona solo si la herramienta no envuelve la sentencia. No verifiqué cómo ejecuta cada archivo la CLI de Supabase ni encontré el dato en su guía: probalo en tu base local."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Dos**: si falla a medias deja un índice **inválido**. Lo provoqué pidiendo un índice único sobre una columna repetida:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create unique index concurrently bultos_estado_unico on bultos (estado);",
+     "s": "ERROR:  could not create unique index \"bultos_estado_unico\"\nDETAIL:  Key (estado)=(entregado) is duplicated."
+    },
+    {
+     "c": "select indexrelid::regclass as indice, indisvalid as valido, indisready as listo from pg_index where indrelid = 'bultos'::regclass order by 1;",
+     "s": "       indice        | valido | listo\n---------------------+--------+-------\n bultos_pkey         | t      | t\n bultos_cliente      | t      | t\n bultos_estado       | t      | t\n bultos_estado_unico | f      | f"
+    },
+    {
+     "c": "drop index bultos_estado_unico;",
+     "s": "DROP INDEX"
+    }
+   ],
+   "cap": "El índice fallido queda en el catálogo, las consultas lo ignoran y las escrituras lo siguen manteniendo hasta que lo borrás."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Tres errores comunes",
+   "x": [
+    "**Creer que «instantáneo» es «seguro».** `add column` tardó 0,07 ms y aun así armó la cola. Importa lo que espera, no lo que dura.",
+    "**Validar en la misma transacción que agregó la restricción.** El truco de `NOT VALID` funciona porque son dos transacciones; juntas, el lock fuerte dura toda la validación.",
+    "**Probar solo en la base chica.** Con 300 filas todo tarda cero milisegundos. Los problemas aparecen con volumen y transacciones largas."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Compatibilidad de esquema: dos versiones conviven"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá, el problema fue el lock. El otro es: **¿qué pasa con la aplicación que ya está corriendo cuando cambia la forma de la base?** En un despliegue de servidor conviven por un rato instancias viejas y nuevas contra la misma base ([@04-21] vio cómo se despliega una versión). Con una app de teléfono es peor: nadie controla cuándo se actualiza cada persona, y la versión vieja puede seguir viva meses.",
+    "La **[[compatibilidad de esquema|compatibilidad de esquema]]** es que cada versión de la app en uso funcione contra el esquema que hay en ese momento. Tiene dos direcciones: la app **vieja** con el esquema **nuevo** (la compatibilidad hacia atrás de [@08-13] aplicada a la base) y la app **nueva** con el esquema **viejo**, que importa si se despliega la app antes que la migración o si se revierte. Romper cualquiera de las dos es un cambio incompatible, igual que en una API."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "El caso más tentador es el más chico: renombrar una columna porque alguien confundió gramos con kilos, `peso` a `peso_kg`. `rename column` es un cambio de metadatos y tarda una fracción de milisegundo. Y rompe todo lo que use el nombre viejo:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "begin;\nalter table bultos rename column peso to peso_kg;\n-- la app vieja, que todavía escribe «peso»:\ninsert into bultos (id, cliente_id, deposito_id, estado, peso, creado)\nvalues (9000001, 1, 1, 'en_camino', 7.25, now());",
+     "s": "ALTER TABLE\nERROR:  column \"peso\" of relation \"bultos\" does not exist\nLINE 1: ...into bultos (id, cliente_id, deposito_id, estado, peso, crea..."
+    }
+   ],
+   "cap": "Rápido, sin lock prolongado y totalmente incompatible con la versión vieja."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si es rápido, es seguro»",
+   "x": "Velocidad y compatibilidad son independientes. El `rename` es de los cambios más veloces y de los más destructivos para quien usa el nombre viejo; reescribir una tabla es lento y puede ser compatible. Se miran por separado."
+  },
+  {
+   "t": "h",
+   "x": "Expandir, migrar y contraer"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La forma estándar de hacer un cambio incompatible sin romper a nadie es **[[expand-contract|expand-contract]]**. Martin Fowler la describe, con el nombre de *parallel change*, en tres fases: expandir (admitir lo viejo y lo nuevo a la vez), migrar (los clientes pasan a lo nuevo) y contraer (quitar lo viejo cuando nadie lo usa) [#bd0931-fowler-parallel-change]. Para `peso` y `peso_kg`:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "1. Expandir",
+       "s": "agregar peso_kg y un trigger que copia en las dos direcciones",
+       "k": "servidor"
+      },
+      {
+       "t": "2. Migrar datos",
+       "s": "rellenar peso_kg en tandas chicas",
+       "k": "datos"
+      }
+     ],
+     "baja": "las dos columnas valen lo mismo; las dos versiones funcionan"
+    },
+    {
+     "nodos": [
+      {
+       "t": "3. Migrar la app",
+       "s": "desplegar la versión que usa peso_kg",
+       "k": "cliente"
+      },
+      {
+       "t": "4. Contraer",
+       "s": "sin versiones viejas: sacar trigger y columna peso",
+       "k": "alerta"
+      }
+     ]
+    }
+   ],
+   "cap": "Cada paso es una migración o un despliegue distinto, y entre uno y otro puede pasar el tiempo que haga falta."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El paso 1, con una copia de 300.000 filas. El trigger ([@09-18]) hace que cada escritura de la app vieja llene también `peso_kg`, y cada escritura de la nueva llene `peso`:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "-- migración 1: expandir (instantánea)\nalter table bultos add column peso_kg numeric(6,2);\n\ncreate function sincronizar_peso() returns trigger language plpgsql as $$\nbegin\n  if tg_op = 'INSERT' then\n    new.peso_kg := coalesce(new.peso_kg, new.peso);\n    new.peso    := coalesce(new.peso, new.peso_kg);\n  elsif new.peso_kg is distinct from old.peso_kg then\n    new.peso := new.peso_kg;\n  elsif new.peso is distinct from old.peso then\n    new.peso_kg := new.peso;\n  end if;\n  return new;\nend $$;\n\ncreate trigger bultos_sincronizar_peso before insert or update on bultos\n  for each row execute function sincronizar_peso();",
+   "cap": "El trigger corre antes de la verificación de NOT NULL de `peso`: por eso la app nueva puede insertar sin mandar `peso`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "insert into bultos (id, cliente_id, deposito_id, estado, peso,    creado) values (9000001, 1, 1, 'en_camino', 7.25, now());  -- app vieja\ninsert into bultos (id, cliente_id, deposito_id, estado, peso_kg, creado) values (9000002, 1, 1, 'en_camino', 8.50, now());  -- app nueva\nupdate bultos set peso    = 9.00 where id = 9000001;\nupdate bultos set peso_kg = 9.75 where id = 9000002;\nselect id, peso, peso_kg from bultos where id >= 9000001 order by id;",
+     "s": "   id    | peso | peso_kg\n---------+------+---------\n 9000001 | 9.00 |    9.00\n 9000002 | 9.75 |    9.75"
+    },
+    {
+     "c": "-- migración 2: rellenar lo que ya existía, de 50.000 en 50.000\nselect format('update bultos set peso_kg = peso where id >= %s and id < %s and peso_kg is null', g, g + 50000)\nfrom generate_series(1, 300000, 50000) g \\gexec",
+     "s": "UPDATE 50000   Time: 1210.631 ms\nUPDATE 50000   Time: 907.709 ms\nUPDATE 50000   Time: 711.086 ms\nUPDATE 50000   Time: 709.174 ms\nUPDATE 50000   Time: 645.021 ms\nUPDATE 50000   Time: 542.507 ms"
+    },
+    {
+     "c": "select count(*) filter (where peso_kg is null) as sin_copiar, count(*) filter (where peso_kg is distinct from peso) as distintos from bultos;",
+     "s": " sin_copiar | distintos\n------------+-----------\n           0 |         0"
+    }
+   ],
+   "cap": "Las dos versiones escriben en paralelo y el trigger las mantiene iguales. El relleno va en tandas, cada una con su commit; ninguna duró más de 1,3 s."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El relleno va **en tandas** porque un solo `update` sobre toda la tabla dejaría una transacción larga abierta, justo lo que arruinó la migración de la sección anterior, y cada fila actualizada deja una versión muerta que el motor limpia después ([@09-25]). Con los datos iguales se endurece `peso_kg` (con el truco de `NOT VALID`), se despliega la app nueva y, cuando ya no hay APKs viejos, se contrae:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "drop trigger bultos_sincronizar_peso on bultos;\ndrop function sincronizar_peso();\nalter table bultos drop column peso;",
+     "s": "DROP TRIGGER   Time: 0.570 ms\nDROP FUNCTION  Time: 0.282 ms\nALTER TABLE    Time: 0.360 ms"
+    },
+    {
+     "c": "insert into bultos (id, cliente_id, deposito_id, estado, peso_kg, creado) values (9000003, 1, 1, 'en_camino', 6.00, now());   -- app nueva\ninsert into bultos (id, cliente_id, deposito_id, estado, peso,    creado) values (9000004, 1, 1, 'en_camino', 6.00, now());   -- app vieja",
+     "s": "INSERT 0 1\nERROR:  column \"peso\" of relation \"bultos\" does not exist"
+    }
+   ],
+   "cap": "Después de contraer, la app vieja deja de funcionar: por eso el contraer va al final."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Estado del esquema",
+    "App vieja (`peso`)",
+    "App nueva (`peso_kg`)"
+   ],
+   "filas": [
+    [
+     "A. Solo `peso` (antes de empezar)",
+     "Funciona",
+     "Falla: no existe `peso_kg`"
+    ],
+    [
+     "B. Ambas con trigger (expandido)",
+     "Funciona",
+     "Funciona"
+    ],
+    [
+     "C. Solo `peso_kg` (contraído)",
+     "Falla: no existe `peso`",
+     "Funciona"
+    ]
+   ],
+   "cap": "El orden seguro es A, B, C, y de B a C se pasa cuando la columna de la app vieja ya no tiene usuarios."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El costo es real: cuatro cambios en lugar de uno, un trigger temporal que hay que acordarse de sacar y, en una tabla grande, un relleno de horas. A cambio, cada paso se revierte sin perder datos y nadie tiene que cambiar a la vez. Es una regla práctica: para una tabla chica y un equipo que controla todos los clientes, un cambio directo en una ventana de mantenimiento puede ser la decisión correcta."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cómo se ve en una app real: Senda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Esto sale de leer `supabase/migrations/` en el repositorio de Senda (una sola confirmación, `25e08fa`; el código cambia, la forma permanece) y de aplicarlas en mi PostgreSQL local. No vi la base de producción: no sé qué tamaño tienen hoy sus tablas ni qué versión de PostgreSQL usa el proyecto."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Cómo se aplican las 42 migraciones",
+   "x": [
+    "Van desde `20261011000000_propuestas.sql` hasta `20261130000008_torneos_enlace.sql`. Las fechas del nombre están **adelantadas** respecto del día en que se escribió cada una (el encabezado de `20261101000000_juntos.sql` dice 24-10-2026): es una convención para que las nuevas queden al final del orden.",
+    "El flujo `supabase.yml` tiene dos trabajos. `probar` levanta un PostgreSQL de prueba, aplica **todas** las migraciones y corre el recorrido de lo que conecta a las personas. `migrar` corre solo si el anterior pasó: instala la CLI de Supabase 3.0.0, enlaza el proyecto y ejecuta `supabase db push --remote --include-all --yes`. Se dispara con un `push` a `main` que toque las migraciones o las funciones, y si todavía no hay cuenta de Supabase, avisa y no hace nada. Probar antes en una base descartable es el hábito que más problemas evita."
+   ],
+   "archivos": [
+    ".github/workflows/supabase.yml",
+    "supabase/migrations/20261011000000_propuestas.sql",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "pruebas/nube/correr.sh",
+    "pruebas/nube/supabase_minimo.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda, hasta ahora, solo suma",
+   "x": [
+    "En las 42 migraciones conté **41** `create table` (34 con `if not exists`), **126** `create or replace function`, **23** `add column if not exists`, y **cero** `drop column`, `rename` y `drop table`. Ninguna usa `concurrently` (hay 23 `create index`; no revisé cuántas filas tenía cada tabla al crear su índice). La cabecera de `20261027000000_escala.sql` lo dice: «Cambios que suman, sin romper lo que ya manda la prueba 5».",
+    "Un caso de *expandir*: esa migración agrega a `respuestas` la columna `cliente_id uuid` **sin `not null`** y un índice único. Las filas viejas quedan en `NULL`, y un índice único admite cualquier cantidad de `NULL`, así que los envíos de un APK que no conoce la columna siguen entrando. El teléfono nuevo manda `cliente_id` y usa `on_conflict=cliente_id` para que un reintento no duplique (`src/util/nube.ts`).",
+    "Un riesgo de *contraer* que ya está en el código: el teléfono guarda las respuestas en una cola local (`guardarCola`) y las manda en lotes (`enviarRespuestas`). Sin conexión, una respuesta espera ahí y puede salir mucho después de armada. Aunque todos actualicen la app, la base puede recibir un envío con la forma vieja."
+   ],
+   "archivos": [
+    "supabase/migrations/20261027000000_escala.sql",
+    "supabase/migrations/20261026000000_inicio.sql",
+    "src/util/nube.ts"
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Firmas de funciones.** El cliente de Senda llama a la base con PostgREST: cada función SQL se invoca con un pedido a `/rest/v1/rpc/<nombre>` y un JSON cuyas claves son los nombres de los parámetros, y los que tienen valor por defecto pueden omitirse [#bd0931-postgrest-funciones]. Tres funciones cambiaron de firma (`miembros_de`, `abrir_sala`, `organizar_torneo`) con un `drop function` de la anterior y un `create` de la nueva, y el mapa técnico lo anota como riesgo para APKs viejos. Lo probé: con las 42 migraciones aplicadas, llamé a cada una con los argumentos de un APK viejo."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "set role authenticated;\nselect * from public.miembros_de(p_grupo := gen_random_uuid());   -- firma vieja: un argumento",
+     "s": " usuario | apodo | pais | nivel | rol | desde | titulo | avatar\n---------+-------+------+-------+-----+-------+--------+--------\n(0 rows)      -- resuelve; un cliente viejo ignora las columnas nuevas"
+    },
+    {
+     "c": "select public.abrir_sala(p_apodo := 'Ana', p_grupo := null, p_trivia := null, p_preguntas := 10::smallint);   -- sin p_ids",
+     "s": "ERROR:  sin_cuenta     -- error propio de la función: la llamada ya se resolvió"
+    },
+    {
+     "c": "select public.organizar_torneo(p_nombre := 'x', p_juego := 'trivia', p_grupo := null, p_invitados := '{}', p_desde := now(), p_hasta := now() + interval '1 day', p_preguntas := 5::smallint, p_propias := null, p_trivia := null);",
+     "s": "ERROR:  sin_cuenta     -- también resuelve sin el parámetro p_enlace"
+    }
+   ],
+   "cap": "Probado el 13-11-2026 en PostgreSQL 16.15 con las migraciones de Senda y los roles mínimos de su prueba. Sin sesión, la función corta con su propio error, pero ya fue encontrada."
+  },
+  {
+   "t": "p",
+   "x": [
+    "En las tres, el parámetro agregado tiene valor por defecto, así que la llamada vieja resuelve. Esto corrige a medias el riesgo del mapa: **la firma no rompe**; lo que no probé es si el comportamiento sigue igual (por ejemplo, qué preguntas recibe una sala abierta sin `p_ids`). ¿Y por qué cada migración borra la firma anterior en lugar de dejar las dos? Porque PostgreSQL no elige entre dos funciones que aceptan la misma llamada:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create function pr_f(a int, b int) returns text language sql as $$ select 'vieja' $$;\ncreate function pr_f(a int, b int, c int default null) returns text language sql as $$ select 'nueva' $$;\nselect pr_f(a := 1, b := 2);",
+     "s": "ERROR:  function pr_f(a => integer, b => integer) is not unique\nHINT:  Could not choose a best candidate function. You might need to add explicit type casts."
+    }
+   ],
+   "cap": "Dejar las dos firmas es peor que borrar la vieja: la llamada de siempre empezaría a fallar."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones de PostgreSQL al 13-11-2026",
+   "x": "Los mecanismos de hoy (locks de tabla, `NOT VALID`, `create index concurrently`, valor por defecto sin reescritura) valen en todas las versiones con soporte. Corrí todo en PostgreSQL 16.15, el paquete de Ubuntu 24.04. Según la política de versiones del proyecto, consultada el 13-11-2026, la publicación del 12-11-2026 trajo las menores 18.7, 17.12, 16.16, 15.20 y 14.25, y la rama 14 tuvo ahí su última publicación [#postgresql-versioning]. La versión del servidor de Senda la elige Supabase y no la verifiqué. La CLI de Supabase cambia seguido (Senda la fija en la 3.0.0 por un tropiezo que ya tuvo): releé la referencia vigente antes de apoyarte en un indicador."
+  },
+  {
+   "t": "h",
+   "x": "Receta para una migración sin caídas"
+  },
+  {
+   "t": "pasos",
+   "titulo": "Antes de apretar el botón",
+   "pasos": [
+    {
+     "t": "Mirá qué lock toma y cuánto lo retiene",
+     "x": "Probalo en una transacción con `rollback` y consultá `pg_locks`, como hoy."
+    },
+    {
+     "t": "Poné un `lock_timeout` al principio",
+     "x": "Dos o tres segundos: mejor que falle y se reintente a que arme una cola."
+    },
+    {
+     "t": "Buscá transacciones largas",
+     "x": "Sesiones `idle in transaction` o con `xact_start` viejo en `pg_stat_activity`."
+    },
+    {
+     "t": "Partí lo lento",
+     "x": "`NOT VALID` más `VALIDATE`, `concurrently` fuera de una transacción, rellenos en tandas."
+    },
+    {
+     "t": "Armá la tabla de compatibilidad",
+     "x": "Si alguna casilla falla, expand-contract."
+    },
+    {
+     "t": "Probala con volumen real y desde cero",
+     "x": "Con 300 filas todo parece inofensivo."
+    }
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Ejercicios"
+  },
+  {
+   "t": "ejercicio",
+   "x": "Hay que renombrar `bultos.estado` a `bultos.estado_envio`. Escribí los pasos en orden para hacerlo sin romper a la app vieja y decí cuál es el único que la rompe.",
+   "pista": "Seguí el recorrido de `peso` y `peso_kg`. Pensá también en los índices de `estado`.",
+   "solucion": "1) `add column estado_envio text` más un trigger que copie en las dos direcciones. 2) Rellenar en tandas con commit propio; si `estado` tenía índice, crear el equivalente con `create index concurrently`, fuera de una transacción. 3) Exigir `not null` con `check ... not valid`, `validate` y `set not null`. 4) Desplegar la app nueva. 5) Cuando ninguna app vieja escriba `estado`: `drop trigger`, `drop function`, `drop column estado`. Solo el paso 5 rompe a la app vieja, por eso va al final."
+  },
+  {
+   "t": "ejercicio",
+   "x": "En producción, `bultos` tiene 150 millones de filas y recibe 40 pedidos por segundo. Con la medición de hoy (250 ms para 2 millones de filas), estimá cuánto bloquearía un `set not null` directo y cuántos pedidos quedarían esperando. Después, cómo lo harías sin bloqueo.",
+   "pista": "Tiempo = 150 / 2 por 250 ms, suponiendo escala lineal. Pedidos = segundos por 40.",
+   "solucion": "75 veces más filas por 0,25 s son unos 19 segundos de ACCESS EXCLUSIVE (ESTIMACIÓN lineal con todo en memoria; con disco, peor): unos 750 pedidos esperando, más lo que sume una cola de locks si hay una transacción larga. Sin bloqueo: `check (columna is not null) not valid` (instantáneo), `validate constraint` (largo, pero deja escribir) y `set not null`, que usa la restricción ya validada. Todo con `lock_timeout` corto."
+  }
+ ],
+ "recap": [
+  "Una migración es un archivo con un cambio de forma y un número de orden, que se aplica una vez por base y no se edita. Con todas se reconstruye la base desde cero (las 42 de Senda: 2,6 s).",
+  "La mayoría de los `alter table` toman ACCESS EXCLUSIVE, que bloquea hasta los `select`. Importa cuánto espera el cambio, no solo cuánto dura: un lock fuerte en cola frena a todos los que llegan después.",
+  "`lock_timeout` acota la espera, y conviene buscar transacciones largas antes de migrar. Lo lento se parte: `NOT VALID` y `VALIDATE`, `create index concurrently` (fuera de transacción, con riesgo de índice inválido) y rellenos en tandas.",
+  "Una migración rápida puede ser incompatible: el `rename` rompe a quien usa el nombre viejo. La compatibilidad de esquema se mira en las dos direcciones.",
+  "Expand-contract hace un cambio incompatible en pasos reversibles: expandir, migrar datos, migrar la app y contraer cuando la versión vieja ya no tiene usuarios (en una app móvil, esa espera puede ser larga).",
+  "Senda hasta ahora solo suma (cero `drop column` y cero `rename`), y sus tres funciones con firma cambiada aceptan la llamada vieja porque los parámetros nuevos tienen valor por defecto."
+ ],
+ "repaso": [
+  {
+   "p": "Una migración corre `alter table bultos add column nota text` mientras hay una transacción de lectura abierta hace diez segundos. El cambio necesita 0,1 ms de trabajo. ¿Qué es lo más probable que vean los usuarios de la app?",
+   "o": [
+    "Nada, porque agregar una columna sin valor por defecto es una operación de metadatos y no choca con lecturas",
+    "Lecturas nuevas que esperan: el ALTER espera a la transacción abierta y las lecturas hacen cola detrás de él",
+    "Solo las escrituras frenadas, porque las lecturas con MVCC no esperan nunca por los locks de tabla en PostgreSQL",
+    "Un error inmediato de conflicto, porque la migración falla sin esperar a que termine la transacción abierta de lectura"
+   ],
+   "c": 1,
+   "e": "El ALTER pide ACCESS EXCLUSIVE, que choca con el ACCESS SHARE de la transacción abierta, así que espera, y los pedidos que llegan después se forman detrás de él, incluso los de lectura. Pensar que solo importa la duración del cambio ignora la espera; creer que MVCC evita los locks de tabla o que hay un error inmediato describe comportamientos que no existen con lock_timeout en cero, el valor por defecto."
+  },
+  {
+   "p": "¿Qué cambia exactamente al poner `set lock_timeout = '2s'` antes de un `alter table` en una migración?",
+   "o": [
+    "La migración se ejecuta en dos segundos como máximo, porque el parámetro limita la duración total de la sentencia",
+    "Los demás clientes pueden leer la tabla mientras corre la migración, aunque ya tenga tomado el lock más fuerte",
+    "La migración se cancela si espera más de dos segundos por el lock y deja pasar a los que esperaban",
+    "El lock se libera solo a los dos segundos y la migración sigue sin lock hasta terminar todo su trabajo pendiente"
+   ],
+   "c": 2,
+   "e": "lock_timeout limita solo la espera para obtener el lock, no el trabajo posterior (eso es statement_timeout). Si vence, la sentencia falla y los pedidos de atrás siguen. Un lock ya tomado no se libera por tiempo: dura hasta el commit o el rollback."
+  },
+  {
+   "p": "Querés exigir `not null` en una columna con 200 millones de filas sin bloquear escrituras durante minutos. ¿Cuál es la secuencia correcta?",
+   "o": [
+    "`set not null` directo, porque PostgreSQL lo resuelve consultando un índice sin tener que leer toda la tabla",
+    "Un check `not valid`, luego `validate constraint`, luego `set not null` y por último borrar el check",
+    "Un check común sobre `columna is not null`, que verifica todas las filas en el mismo comando con un lock liviano",
+    "Crear una columna nueva con `not null` y borrar la vieja, porque reescribir la tabla es la vía más corta y simple"
+   ],
+   "c": 1,
+   "e": "La restricción no validada se agrega al instante, `validate` lee la tabla con un lock que permite escribir y `set not null` reconoce la restricción válida y no relee. El `set not null` directo y el check común leen toda la tabla con el lock fuerte tomado."
+  },
+  {
+   "p": "`create index concurrently` terminó con error y quedó un índice marcado INVALID. ¿Qué afirmación es correcta?",
+   "o": [
+    "Se ignora en las consultas pero cada escritura lo sigue manteniendo, así que hay que borrarlo y crearlo de nuevo",
+    "Funciona con normalidad pero solo cubre las filas anteriores al error, así que conviene dejarlo como está ahí",
+    "Desaparece solo al terminar la sesión que lo estaba creando, por lo que no hace falta ninguna limpieza manual",
+    "Bloquea las lecturas de la tabla entera hasta que alguien lo valide con el comando `validate constraint`"
+   ],
+   "c": 0,
+   "e": "Un índice inválido figura en el catálogo, el planificador lo ignora porque puede estar incompleto y las escrituras lo siguen actualizando. No se borra solo ni se valida con VALIDATE CONSTRAINT, que es para restricciones: la salida documentada es borrarlo y reintentar."
+  },
+  {
+   "p": "Una app móvil cambia `peso` por `peso_kg` y los teléfonos se actualizan con semanas de atraso. ¿Cuándo es seguro ejecutar `drop column peso`?",
+   "o": [
+    "Cuando ya no hay versiones de la app que lean o escriban `peso`, algo que hay que medir y no suponer",
+    "Apenas se publica la versión nueva en la tienda, porque casi todos se actualizan el primer día",
+    "Apenas se rellena `peso_kg`, porque con los datos copiados la columna vieja ya no cumple ninguna función",
+    "En la misma migración que agrega `peso_kg`, para no dejar dos columnas con el mismo dato en la tabla"
+   ],
+   "c": 0,
+   "e": "Mientras exista un solo teléfono con la versión vieja, ese drop rompe cada una de sus inserciones. El contraer depende de cuándo desaparece la versión vieja, no de cuándo se copiaron los datos; las demás respuestas suponen un control sobre los clientes que una app móvil no tiene."
+  },
+  {
+   "p": "En la tabla de compatibilidad de `peso` y `peso_kg`, ¿qué estado del esquema permite que funcionen a la vez la app vieja y la nueva?",
+   "o": [
+    "Solo `peso`, porque la app nueva puede tolerar sin problemas que falte `peso_kg`",
+    "Solo `peso_kg`, porque la app vieja se adapta sola al nombre nuevo sin hacer ningún cambio",
+    "Ninguno: dos versiones distintas de la app necesitan bases separadas para no pisarse entre sí",
+    "Ambas columnas con un trigger que las mantiene iguales: el paso de expansión"
+   ],
+   "c": 3,
+   "e": "Con ambas columnas sincronizadas, cada versión lee y escribe la que conoce. Con una sola columna falla la versión que usa la otra, y no hace falta una base por versión: eso es lo que resuelve el patrón."
+  },
+  {
+   "p": "En Senda, la migración de `abrir_sala` borró la firma de 4 parámetros y creó una de 5, con `p_ids` por defecto en null. Un APK viejo llama con 4 argumentos. Según la prueba de hoy, ¿qué ocurre?",
+   "o": [
+    "Falla con «function does not exist», porque la firma anterior ya no existe en la base de datos",
+    "Falla con «not unique», porque quedaron las dos versiones de la función y no puede elegir una",
+    "Se resuelve contra la función nueva, porque el parámetro agregado tiene valor por defecto",
+    "Funciona como antes, porque `drop function` no tiene efecto hasta el próximo reinicio del servidor"
+   ],
+   "c": 2,
+   "e": "El parámetro nuevo tiene default null, así que una llamada con cuatro argumentos con nombre encuentra la función nueva. El error «not unique» aparecería si las dos firmas siguieran existiendo, y por eso la migración borra la vieja. `drop function` actúa al hacer commit, sin reinicio."
+  }
+ ],
+ "feynman": "Explicale a alguien que administra un depósito por qué agregar un casillero a la estantería (un cambio que lleva un segundo) puede frenar a todo el personal, y qué hacés para que una remodelación grande no pare la operación. Usá el ejemplo de la cola de locks (el informe largo, la migración y la app) y el de renombrar una columna en cuatro pasos. Si te trabás, volvé a la tabla de compatibilidad.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0931-pg16-altertable",
+   "nota": "La referencia oficial de ALTER TABLE. La sección de notas explica qué formas reescriben la tabla, cuáles solo la escanean y el uso de NOT VALID con VALIDATE CONSTRAINT: es el texto base de las secciones 2 y 4."
+  },
+  {
+   "fuente": "back18-pg-explicit-locking",
+   "nota": "Los ocho modos de lock de tabla y la tabla de conflictos. Mirá qué modos choca ACCESS EXCLUSIVE y qué modo toma CREATE INDEX CONCURRENTLY."
+  },
+  {
+   "fuente": "bd0931-fowler-parallel-change",
+   "nota": "La descripción corta de Fowler del patrón expandir, migrar y contraer, con un ejemplo en código de objetos. Sirve para ver que la idea no es exclusiva de bases de datos."
+  },
+  {
+   "fuente": "bd0931-supabase-migraciones",
+   "nota": "La guía de Supabase para escribir y desplegar migraciones: el flujo de equipo y la tabla de historial. Leé la parte de errores de sincronización para entender qué pasa cuando alguien cambia la base a mano."
+  }
+ ],
+ "videos": [
+  {
+   "q": "PostgreSQL zero downtime migrations lock queue ALTER TABLE",
+   "por_que": "Charlas de ingeniería que muestran la cola de locks con ejemplos de equipos que migraron tablas grandes; sirven para ver el mismo problema en otros contextos."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "migración",
+   "d": "Archivo con los comandos SQL de un único cambio en la forma de la base (crear una tabla, agregar una columna, reemplazar una función), con un nombre que fija su orden. Una herramienta anota cuáles ya se aplicaron en cada base y corre solo las que faltan."
+  },
+  {
+   "t": "expand-contract",
+   "d": "Patrón para hacer un cambio incompatible en pasos seguros: expandir (soportar lo viejo y lo nuevo a la vez), migrar (pasar a los clientes y los datos a lo nuevo) y contraer (borrar lo viejo cuando nadie lo usa). También se llama parallel change."
+  },
+  {
+   "t": "compatibilidad de esquema",
+   "d": "Propiedad de que cada versión de la aplicación que sigue en uso funcione bien contra el esquema actual de la base. Incluye que la app vieja funcione con el esquema nuevo y que la app nueva funcione con el esquema viejo."
+  },
+  {
+   "t": "lock de tabla",
+   "d": "Candado que un comando toma sobre una tabla entera, en uno de ocho modos. ACCESS EXCLUSIVE, el más fuerte, lo toman la mayoría de las formas de ALTER TABLE y bloquea hasta los select."
+  },
+  {
+   "t": "lock_timeout",
+   "d": "Parámetro de PostgreSQL que cancela una sentencia si espera más del tiempo indicado para conseguir un lock. Limita la espera, no el trabajo una vez obtenido el lock."
+  },
+  {
+   "t": "NOT VALID",
+   "d": "Opción de las restricciones CHECK y de clave foránea: se aplican a las filas nuevas sin revisar las viejas. Después, VALIDATE CONSTRAINT las revisa con un lock que permite seguir escribiendo."
+  },
+  {
+   "t": "índice inválido",
+   "d": "Índice que quedó a medias porque un create index concurrently falló. Las consultas lo ignoran pero las escrituras lo siguen manteniendo; hay que borrarlo y recrearlo."
+  }
+ ],
+ "siguiente": "PostgreSQL a fondo: las extensiones, los tipos como JSONB, los esquemas y roles, y por qué este motor terminó siendo el estándar de hecho.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0931-pg16-altertable",
+   "t": "PostgreSQL 16: ALTER TABLE",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/sql-altertable.html"
+  },
+  {
+   "id": "bd0931-pg16-config-cliente",
+   "t": "PostgreSQL 16: Client Connection Defaults (lock_timeout)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/runtime-config-client.html"
+  },
+  {
+   "id": "bd0931-pg12-notas",
+   "t": "PostgreSQL 12: notas de la versión",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2019,
+   "url": "https://www.postgresql.org/docs/12/release-12.html"
+  },
+  {
+   "id": "bd0931-pg11-notas",
+   "t": "PostgreSQL 11: notas de la versión",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2018,
+   "url": "https://www.postgresql.org/docs/11/release-11.html"
+  },
+  {
+   "id": "bd0931-supabase-migraciones",
+   "t": "Database migrations (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/deployment/database-migrations"
+  },
+  {
+   "id": "bd0931-supabase-cli-push",
+   "t": "supabase db push (referencia de la CLI)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/reference/cli/supabase-db-push"
+  },
+  {
+   "id": "bd0931-fowler-parallel-change",
+   "t": "Parallel Change",
+   "a": "Danilo Sato (en el sitio de Martin Fowler)",
+   "tipo": "articulo",
+   "anio": 2014,
+   "url": "https://martinfowler.com/bliki/ParallelChange.html"
+  },
+  {
+   "id": "bd0931-postgrest-funciones",
+   "t": "Functions as RPC (documentación de PostgREST, texto fuente en su repositorio)",
+   "a": "PostgREST",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/PostgREST/postgrest/main/docs/references/api/functions.rst"
+  }
+ ]
+}

@@ -1,0 +1,765 @@
+{
+ "id": "09-39",
+ "titulo": "Búsqueda de texto: índices invertidos",
+ "bajada": "Cómo un buscador encuentra «cadena de frío» entre 300.000 notas en menos de un milisegundo, y por qué el orden de los resultados es un cálculo y no una opinión.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar por qué una búsqueda con LIKE y comodín al principio recorre toda la tabla y qué estructura de datos lo evita.",
+  "Construir un índice invertido a mano, buscar con él por intersección de listas y ordenar los resultados con BM25.",
+  "Describir qué hacen la tokenización, la normalización y la raíz de palabra, y qué errores producen.",
+  "Usar tsvector, tsquery y un índice GIN en PostgreSQL y leer en el plan cuánto se gana en cada caso.",
+  "Decidir cuándo alcanza PostgreSQL y cuándo conviene un motor aparte como Elasticsearch, y reconocer qué hace la búsqueda de la Biblia en Senda."
+ ],
+ "venis_de": "Ya conocés los índices [[B-tree]] y GIN ([@09-20], [@09-21]), sabés leer un plan con EXPLAIN ANALYZE ([@09-22]) y viste que una base puede buscar por parecido entre vectores ([@09-38]). Hoy se busca por palabras: qué estructura lo hace rápido, cómo se decide qué resultado va primero y dónde está el límite de lo que hace PostgreSQL solo.",
+ "se_apoya_en": [
+  "09-20",
+  "09-21",
+  "09-22",
+  "09-38"
+ ],
+ "gancho": [
+  "Alguien de la oficina escribe «cadena de frío» en el buscador de notas de entrega y espera ver, enseguida, las notas de los choferes que avisaron de una cámara cortada. La tabla tiene 300.000 notas inventadas. PostgreSQL, sin ayuda, las lee de a una: tarda 43 milisegundos. Parece poco, y lo es, hasta que la tabla crece. Con cien veces más notas, el recorrido tardaría unos 4 segundos (ESTIMACIÓN: un recorrido completo crece parejo con la cantidad de filas).",
+  "A esa cuenta le faltan tres cosas que cualquiera espera de un buscador: que «entregó» encuentre «entregaron», que «frio» sin tilde encuentre «frío», y que lo más relevante salga primero. Hoy ves la estructura que resuelve las cuatro a la vez, la de Elasticsearch, Lucene y el buscador de texto de PostgreSQL. La armás a mano, la usás con 300.000 filas y medís cuánto cambia. Al final mirás la búsqueda de la Biblia de Senda, que no usa nada de esto, y vas a ver por qué está bien."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Por qué LIKE no alcanza"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@09-21] viste que un [[B-tree]] guarda los valores completos de una columna en orden, como una guía telefónica ordenada por apellido. Sirve para encontrar «Gómez», o todos los apellidos que *empiezan* con «Gó». No sirve para encontrar los que *contienen* «óm» en el medio, porque la guía no está ordenada por lo que hay adentro. Con `LIKE '%cadena de frío%'` pasa lo mismo: el patrón arranca con un comodín, el índice no tiene por dónde entrar, y PostgreSQL hace un [[escaneo secuencial]]: lee la tabla entera, fila por fila, y se queda con las que cumplen.",
+    "Para medirlo armé 300.000 notas de entrega inventadas, con semilla fija para que cualquiera obtenga las mismas filas. Cada nota combina al azar una acción, un bulto, un lugar y una observación, y unas pocas llevan «cadena de frío cortada» o «mercadería con zapallos»."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create extension if not exists pg_trgm;\ncreate table notas (id int generated always as identity primary key, texto text not null);\nselect setseed(0.39);                                  -- semilla fija: mismos datos cada vez\ninsert into notas (texto)\nselect\n  (array['entregó','entregaron','entregando','entrega','entregas','retiró','retiraron',\n         'retirando','devolvió','devolvieron','rechazó','reprogramó'])[1+floor(random()*12)::int]\n  || ' ' || (array['el paquete','los paquetes','la caja','las cajas','el pallet','los pallets',\n                   'el bulto','los bultos'])[1+floor(random()*8)::int]\n  || ' en ' || (array['el depósito de Avellaneda','la sucursal de Quilmes','el local de Palermo',\n        'la puerta del edificio','la recepción de Caballito','el muelle 3','la oficina de Belgrano',\n        'el portón de Lanús','el kiosco de la esquina','la guardia de Pilar'])[1+floor(random()*10)::int]\n  || ', ' || (array['sin novedades','con la caja golpeada','con el remito firmado','faltó el sello',\n        'el cliente no estaba','llovía fuerte','el portero recibió','todo conforme',\n        'el sello estaba borroso','demora por tránsito'])[1+floor(random()*10)::int]\n  || case when random() < 0.0004 then ', cadena de frío cortada' else '' end\n  || case when random() < 0.0001 then ', mercadería con zapallos' else '' end\nfrom generate_series(1, 300000);",
+   "cap": "Generador de las notas (PostgreSQL 16.15, un clúster propio en esta VM). Las listas de palabras son inventadas; la mezcla es aleatoria pero reproducible."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select count(*), pg_size_pretty(pg_total_relation_size('notas')) from notas;",
+     "s": " count  | pg_size_pretty \n--------+----------------\n 300000 | 36 MB"
+    },
+    {
+     "c": "select texto from notas order by id limit 3;",
+     "s": "                              texto                              \n-----------------------------------------------------------------\n devolvió el paquete en el portón de Lanús, llovía fuerte\n devolvió los paquetes en la sucursal de Quilmes, todo conforme\n retiraron los pallets en el kiosco de la esquina, todo conforme"
+    },
+    {
+     "c": "explain (analyze, buffers, costs off) select id, texto from notas where texto like '%cadena de frío%';",
+     "s": " Seq Scan on notas (actual time=0.069..43.393 rows=111 loops=1)\n   Filter: (texto ~~ '%cadena de frío%'::text)\n   Rows Removed by Filter: 299889\n   Buffers: shared hit=3718\n Execution Time: 43.418 ms"
+    }
+   ],
+   "cap": "Medido en esta VM, con la tabla ya en memoria y sin paralelismo (max_parallel_workers_per_gather = 0): para encontrar 111 notas, el motor descartó 299.889. «Buffers: shared hit=3718» son las páginas de 8 KB que leyó."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay un segundo problema que no es de velocidad: `LIKE` busca letras, no palabras. `LIKE '%entrega%'` encontró 99.864 notas y `LIKE '%entregó%'` solo 24.935, aunque para una persona es la misma acción. `LIKE '%frio%'`, sin tilde, encontró cero, y hay 111 notas con «frío». Y `LIKE` no ordena por importancia. Una búsqueda decente tiene que resolver el tiempo, las formas de las palabras y el orden."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "La idea: el índice de atrás de un libro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Al final de un libro de texto hay un índice alfabético: «cadena de frío, 14, 87, 203». Para encontrar un tema no leés el libro entero; vas a la palabra y te da las páginas. Un [[índice invertido]] es lo mismo hecho por una máquina para todas las palabras de todos los documentos. Se llama *invertido* porque lo natural es que cada documento tenga una lista de palabras, y el índice da vuelta la relación: cada palabra tiene una lista de documentos.",
+    "Tiene dos partes. El **diccionario** es la lista ordenada de las palabras distintas. Cada palabra apunta a su **lista de apariciones** (*posting list*): los números de los documentos donde está, ordenados, y casi siempre cuántas veces aparece en cada uno. Buscar «cadena y frío» es traer dos listas y quedarse con los números que están en ambas. Como están ordenadas, se recorren a la vez hasta que coinciden, y el costo depende del largo de esas listas, no de cuántos documentos tiene la colección."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El índice del libro y sus límites",
+   "x": "El índice de un libro lo arma una persona que elige qué temas merecen entrada. El invertido lo arma un programa que anota todas las palabras, y por eso hay que limpiarlas antes. Además, el libro no cambia después de impreso, pero una tabla recibe notas todo el día: el índice se actualiza con cada alta y cada baja, y eso cuesta."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo armamos con seis notas inventadas. El código construye el índice (para cada palabra, en qué notas y cuántas veces), busca por intersección y ordena con una fórmula de relevancia que se explica más abajo. Dentro de las listas las notas se numeran desde 0; al mostrar los resultados, desde 1."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const notas = [\n  \"Entregaron las cajas en el depósito de Avellaneda. Cadena de frío cortada.\",\n  \"El cliente no estaba. Se reprogramó la entrega de las cajas.\",\n  \"Cajas golpeadas en la recepción. El remito quedó sin firma.\",\n  \"Entrega conforme: pallet con frío y cadena de custodia al día.\",\n  \"Llovía fuerte y la entrega se hizo en la puerta, con las cajas tapadas.\",\n  \"Cadena de frío cortada, cadena de frío rota: se cortó la cadena en el camión.\",\n];\nconst vacias = new Set([\"de\",\"el\",\"la\",\"las\",\"en\",\"se\",\"y\",\"con\",\"no\",\"al\",\"sin\",\"del\",\"los\",\"un\",\"una\",\"que\"]);\nconst sufijos = [\"aron\",\"as\",\"es\",\"a\",\"s\",\"o\"];            // un «stemmer» de juguete, NO es Snowball\nconst raiz = (p) => { for (const s of sufijos) if (p.endsWith(s) && p.length - s.length >= 3) return p.slice(0, -s.length); return p; };\nfunction tokenizar(texto) {\n  return texto.toLowerCase().normalize(\"NFD\").replace(/[̀-ͯ]/g, \"\")  // sin tildes\n    .split(/[^a-zñ0-9]+/).filter((p) => p && !vacias.has(p)).map(raiz);\n}\n// 1) construir el índice invertido: término -> lista de [documento, veces]\nconst indice = new Map(); const largo = [];\nnotas.forEach((n, d) => {\n  const ts = tokenizar(n); largo[d] = ts.length;\n  const cuenta = new Map(); ts.forEach((t) => cuenta.set(t, (cuenta.get(t) || 0) + 1));\n  for (const [t, f] of cuenta) { if (!indice.has(t)) indice.set(t, []); indice.get(t).push([d, f]); }\n});\nconsole.log(\"términos en el índice:\", indice.size);\nfor (const t of [\"caden\", \"fri\", \"entreg\", \"caj\"]) console.log(t.padEnd(7), JSON.stringify(indice.get(t)));\n// 2) buscar «cadena Y frío»: intersección de dos listas ordenadas\nfunction interseccion(a, b) { const r = []; let i = 0, j = 0;\n  while (i < a.length && j < b.length) { if (a[i][0] === b[j][0]) { r.push(a[i][0]); i++; j++; } else if (a[i][0] < b[j][0]) i++; else j++; }\n  return r; }\nconsole.log(\"cadena Y frío ->\", interseccion(indice.get(\"caden\"), indice.get(\"fri\")).map((d) => d + 1));\n// 3) ordenar por BM25 (k1 = 1,2; b = 0,75; idf como en Lucene)\nconst N = notas.length, prom = largo.reduce((a, b) => a + b) / N, k1 = 1.2, b = 0.75;\nconst idf = (n) => Math.log(1 + (N - n + 0.5) / (n + 0.5));\nfunction bm25(consulta) {\n  const punt = new Map();\n  for (const t of tokenizar(consulta)) {\n    const lista = indice.get(t) || [];\n    for (const [d, f] of lista) punt.set(d, (punt.get(d) || 0) + idf(lista.length) * f / (f + k1 * (1 - b + b * largo[d] / prom)));\n  }\n  return [...punt].sort((x, y) => y[1] - x[1]);\n}\nconsole.log(\"largo promedio:\", prom.toFixed(2), \"| largos:\", largo.join(\",\"));\nfor (const [d, p] of bm25(\"cadena frío\")) console.log(\"nota\", d + 1, p.toFixed(3));\nconsole.log(\"idf(caden)=\", idf(indice.get(\"caden\").length).toFixed(3), \" idf(fri)=\", idf(indice.get(\"fri\").length).toFixed(3));",
+   "ejecutable": true,
+   "cap": "Índice invertido en JavaScript puro. El «stemmer» de juguete solo corta terminaciones: sirve para ver la idea y no se usa en serio (PostgreSQL usa el de Snowball)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá la lista de `caden` (la raíz de «cadena»): `[[0,1],[3,1],[5,3]]` significa que está en la nota 0 una vez, en la 3 una vez y en la 5 tres veces. La lista de `fri` es parecida. Para «cadena y frío», el programa recorre esas dos listas y responde las notas 1, 4 y 6. La nota 2, que no tiene ninguna de las dos palabras, no se lee nunca."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Con este índice, ¿qué trabajo hace el programa si la colección pasa de 6 a 6 millones de notas pero «zapallo» sigue apareciendo en 27 de ellas?",
+   "resp": "Casi el mismo: trae la lista de «zapall», que tiene 27 números. El trabajo depende de cuántos documentos contienen la palabra, no de cuántos hay. Por eso una palabra rara es barata de buscar y una muy común es cara."
+  },
+  {
+   "t": "h",
+   "x": "Tokenización y normalización: qué cuenta como una palabra"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Antes de armar las listas hay que decidir qué es una palabra. La [[tokenización]] corta un texto en piezas llamadas *tokens*, y parece trivial hasta que mirás los casos: «frío.» con el punto pegado, «11-4096-3352» (¿uno o tres?), una URL. En chino y japonés ni siquiera hay espacios. El estándar Unicode tiene un anexo entero con las reglas para cortar palabras [#unicode-uax29].",
+    "Después viene la **normalización**, que busca que la misma palabra escrita de formas distintas termine igual: pasar a minúsculas, sacar las tildes, descartar las palabras vacías (*stopwords*: «de», «la», «los», que están en casi todos los textos y no informan) y reducir cada palabra a su raíz. Esto último, el *stemming*, convierte «entregaron», «entrega» y «entregando» en `entreg`. PostgreSQL trae un reductor por idioma que sigue las reglas del proyecto Snowball [#bd0939-snowball-es]. Lo corrí sobre una frase."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Nota",
+       "s": "«Entregaron las cajas…»",
+       "k": "datos"
+      },
+      {
+       "t": "Tokenización",
+       "s": "cortar en piezas",
+       "k": "red",
+       "e": "al guardar"
+      },
+      {
+       "t": "Normalización",
+       "s": "minúsculas, sin tildes, sin palabras vacías, raíz",
+       "k": "red"
+      },
+      {
+       "t": "Índice invertido",
+       "s": "palabra → lista de notas",
+       "k": "servidor"
+      }
+     ],
+     "baja": "y cuando alguien busca, la consulta pasa por los mismos pasos:"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Consulta",
+       "s": "«cadena de frío»",
+       "k": "cliente"
+      },
+      {
+       "t": "Tokenización y normalización",
+       "s": "los mismos pasos, la misma configuración",
+       "k": "red",
+       "e": "al buscar"
+      },
+      {
+       "t": "Listas e intersección",
+       "s": "traer y cruzar",
+       "k": "servidor"
+      },
+      {
+       "t": "Orden por relevancia",
+       "s": "puntaje por nota",
+       "k": "ok"
+      }
+     ]
+    }
+   ],
+   "cap": "Los documentos y la consulta tienen que pasar por la misma limpieza. Si no, la palabra que se busca y la que se guardó nunca se parecen."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select to_tsvector('spanish', 'Entregaron los paquetes; entregando la caja, entrega del lunes. Cadena de frío cortada');",
+     "s": "                              to_tsvector                               \n-------------------------------------------------------------------------\n 'caden':10 'caj':6 'cort':13 'entreg':1,4,7 'fri':12 'lun':9 'paquet':3"
+    },
+    {
+     "c": "select to_tsvector('simple', 'Entregaron los paquetes; entregando la caja, entrega del lunes. Cadena de frío cortada');",
+     "s": " 'cadena':10 'caja':6 'cortada':13 'de':11 'del':8 'entrega':7 'entregando':4 'entregaron':1 'frío':12 'la':5 'los':2 'lunes':9 'paquetes':3"
+    },
+    {
+     "c": "select websearch_to_tsquery('spanish', 'cadena de frío') as q1, websearch_to_tsquery('spanish', '\"cadena de frío\" -cortada') as q2;",
+     "s": "       q1        |             q2              \n-----------------+-----------------------------\n 'caden' & 'fri' | 'caden' <2> 'fri' & !'cort'"
+    }
+   ],
+   "cap": "Con la configuración «spanish» las palabras vacías desaparecen («los», «la», «de», «del»), las tildes también y cada palabra queda en su raíz, con los números de posición donde aparecía (`entreg` estaba en las posiciones 1, 4 y 7). Con «simple» solo se pasa a minúsculas. El operador `<2>` de la última consulta significa «a dos posiciones de distancia»: «de» ocupaba un lugar aunque se descartó."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«El stemming entiende lo que significa la palabra»",
+   "x": [
+    "No entiende nada: aplica reglas de terminaciones, y cuando falla lo hace en las dos direcciones. En PostgreSQL, `universidad` y `universo` quedaron en la misma raíz (`univers`) aunque significan cosas distintas, y `universal` quedó aparte.",
+    "Por eso un buscador serio permite cambiar la limpieza por campo: nombres de personas o códigos de producto no deberían pasar por un reductor de raíces."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La misma limpieza para guardar y para buscar",
+   "x": "Si guardás con «spanish» y consultás con «simple», la consulta busca `entregaron` en un índice donde solo existen raíces como `entreg`. Lo comprobé: `to_tsvector('spanish','entregaron') @@ to_tsquery('simple','entregaron')` da falso. Es un error silencioso: la consulta no falla, simplemente no encuentra nada."
+  },
+  {
+   "t": "h",
+   "x": "Relevancia: no todas las coincidencias valen lo mismo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Casi nadie pasa de la primera pantalla de resultados. La [[relevancia]] es qué tan bien responde un documento a una consulta. No hay una medida objetiva, así que los motores la aproximan con señales calculables. Tres aparecen en casi todos los sistemas.",
+    "La primera es la **frecuencia del término** (TF): cuántas veces aparece la palabra en el documento. Una nota que dice tres veces «cadena de frío» parece más relacionada que otra que lo dice una vez, pero con rendimientos decrecientes: la tercera mención suma menos que la segunda. La segunda es la **rareza en toda la colección** (IDF, *inverse document frequency*): una palabra que está en casi todas las notas casi no informa, y una que está en 27 entre 300.000 identifica mucho. Es la lógica de un código de remito, que apunta a una sola entrega, frente a la palabra «paquete», que apunta a todas. La tercera es el **largo del documento**: encontrar tu palabra en una nota de cinco palabras dice más que encontrarla en una página.",
+    "Combinadas, son la base de BM25, el puntaje que usan Lucene y Elasticsearch por defecto. Para cada palabra de la consulta se calcula `IDF × f / (f + k1 × (1 − b + b × L / Lprom))` y se suman los resultados. Acá `f` es cuántas veces aparece la palabra en el documento, `L` el largo del documento en palabras y `Lprom` el largo promedio de la colección. Los parámetros `k1` y `b` regulan cuánto satura la frecuencia y cuánto pesa el largo, y por defecto valen 1,2 y 0,75 [#bd0939-lucene-bm25] [#bd0939-es-similarity]. El IDF de Lucene es `ln(1 + (N − n + 0,5) / (n + 0,5))`, con `N` documentos en total y `n` los que contienen la palabra. La fórmula viene de un trabajo de 1994 de Robertson y colegas, y un artículo de 2009 cuenta su historia [#bd0939-robertson-bm25]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con las seis notas se puede hacer la cuenta a mano. «Cadena» está en 3 de las 6, así que su IDF es `ln(1 + 3,5 / 3,5) = 0,693`, y el de «frío» es igual. Para la nota 1, con `f = 1`, largo 7 y promedio 6,83, cada palabra aporta `0,693 × 1 / (1 + 1,2 × (0,25 + 0,75 × 7 / 6,83)) = 0,312`, y las dos suman 0,624. En la nota 6, con largo 9, `cadena` (3 veces) aporta 0,464 y `frío` (2 veces) 0,398: 0,861."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Nota",
+    "Veces cadena / frío",
+    "Largo",
+    "BM25 (código de arriba)",
+    "ts_rank (PostgreSQL)"
+   ],
+   "filas": [
+    [
+     "6",
+     "3 / 2",
+     "9",
+     "0,861",
+     "0,4227"
+    ],
+    [
+     "1",
+     "1 / 1",
+     "7",
+     "0,624",
+     "0,0985"
+    ],
+    [
+     "4",
+     "1 / 1",
+     "7",
+     "0,624",
+     "0,0985"
+    ]
+   ],
+   "cap": "Las seis notas de arriba, buscadas con «cadena frío». Las escalas de los dos puntajes no se pueden comparar entre sí; lo que importa es el orden y la forma en que crece cada uno. Corrido en esta VM."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La nota 6 repite las palabras tres y dos veces, pero BM25 le da apenas 1,38 veces el puntaje de las notas con una mención (0,861 contra 0,624): es la saturación. En `ts_rank` de PostgreSQL la diferencia es de 4,3 veces. No es que uno esté bien: son fórmulas con criterios distintos."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Una consulta tiene «paquete» (en el 90 % de las notas) y «zapallo» (en 27 de 300.000). Si una nota tiene las dos, ¿cuál aporta más al puntaje BM25 y por qué?",
+   "resp": "«Zapallo». Aparece en muy pocas notas, así que encontrarla identifica el documento. «Paquete» está en casi todas y no distingue una de otra. Con N = 300.000 y n = 270.000, el IDF de Lucene da 0,105. Con n = 27, unos 9,3."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "ts_rank no sabe qué palabra es rara",
+   "x": "La documentación de PostgreSQL aclara que sus funciones de ranking no usan información global y que son solo ejemplos [#bd0939-pg16-textsearch-controls]. Lo comprobé: busqué `cadena or zapallo` (111 notas con la primera palabra, 27 con la segunda) y las 138 recibieron el mismo puntaje, 0,0304. La palabra rara no pesó más que la común. Si querés que la rareza cuente, hay que armar el puntaje a mano o usar un motor con BM25."
+  },
+  {
+   "t": "ejercicio",
+   "x": "En el código de arriba, agregá una séptima nota después de la sexta: `\"Cadena de frío.\"`. Corrélo y mirá el orden para «cadena frío». Después cambiá `b = 0.75` por `b = 0` y corrélo otra vez. Explicá qué pasa con la nota 7 en cada caso.",
+   "pista": "Contá cuántas palabras le quedan a la nota 7 después de limpiar. `b` controla cuánto pesa el largo.",
+   "solucion": "Con `b = 0,75` la nota 7 queda primera (0,722 contra 0,692 de la nota 6): es cortísima y sus dos palabras son las buscadas. Con `b = 0` el largo deja de importar: la nota 6 sube a 0,771 y la 7 empata con las notas 1 y 4 en 0,523. `b` decide cuánto se favorece a los documentos cortos."
+  },
+  {
+   "t": "h",
+   "x": "En PostgreSQL: tsvector, tsquery y un índice GIN"
+  },
+  {
+   "t": "p",
+   "x": [
+    "PostgreSQL trae todo esto incorporado. Un `tsvector` es un documento ya limpio: las raíces con sus posiciones, como el resultado que viste arriba. Un `tsquery` es la consulta ya limpia, con operadores: `&` (y), `|` (o), `!` (no) y `<->` (una palabra pegada a la otra). El operador `@@` pregunta si el documento cumple la consulta. Para escribir como en un buscador web existe `websearch_to_tsquery`, que entiende comillas, `or` y el guion que excluye, y no falla por errores de sintaxis.",
+    "El índice es un [[GIN]], que ya conocés de [@09-21]. La documentación lo describe como el tipo preferido para texto: *«como índices invertidos, contienen una entrada por cada palabra (lexema), con una lista comprimida de las posiciones donde aparece»* [#bd0939-pg16-textsearch-indexes]. Es, literalmente, la estructura que armaste arriba. La receta es guardar el `tsvector` en una columna generada, para que se calcule una sola vez al escribir, y crear el índice sobre esa columna."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "alter table notas add column tsv tsvector generated always as (to_tsvector('spanish', texto)) stored;\ncreate index notas_tsv_gin on notas using gin (tsv);",
+     "s": "ALTER TABLE   -- 2.058 ms para calcular 300.000 tsvector\nCREATE INDEX  -- 325 ms"
+    },
+    {
+     "c": "select tsv from notas where id = 1;",
+     "s": "                              tsv                               \n----------------------------------------------------------------\n 'devolv':1 'fuert':10 'lanus':8 'llov':9 'paquet':3 'porton':6"
+    },
+    {
+     "c": "explain (analyze, buffers, costs off) select id, texto from notas where tsv @@ websearch_to_tsquery('spanish', 'cadena de frío');",
+     "s": " Bitmap Heap Scan on notas (actual time=0.032..0.264 rows=111 loops=1)\n   Recheck Cond: (tsv @@ '''caden'' & ''fri'''::tsquery)\n   ->  Bitmap Index Scan on notas_tsv_gin (actual time=0.017..0.018 rows=111 loops=1)\n         Index Cond: (tsv @@ '''caden'' & ''fri'''::tsquery)\n Execution Time: 0.281 ms"
+    }
+   ],
+   "cap": "El tsvector de la nota 1 muestra que «Lanús» quedó como `lanus` y «portón» como `porton`: la raíz del español de Snowball también saca las tildes. Medido en esta VM, sin paralelismo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las 111 notas que el recorrido completo encontró en 43 ms, el índice las trae en 0,28 ms: unas 150 veces menos. Y `websearch_to_tsquery('spanish', 'frio cadena')`, sin tilde y con las palabras en otro orden, encuentra las mismas 111, donde `LIKE '%frio%'` daba cero."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Búsqueda",
+    "Resultados",
+    "Recorrido completo",
+    "Con índice GIN"
+   ],
+   "filas": [
+    [
+     "«cadena de frío» (rara)",
+     "111",
+     "41 ms",
+     "0,28 ms"
+    ],
+    [
+     "«zapallo» (muy rara)",
+     "27",
+     "44 ms",
+     "0,02 ms"
+    ],
+    [
+     "«entregaron paquetes» (común)",
+     "31.011 (10 % de la tabla)",
+     "53 ms",
+     "25,5 ms"
+    ]
+   ],
+   "cap": "Una sola corrida por celda, tabla en memoria, una VM con otros procesos: tomalo como orden de magnitud. «Recorrido completo» es el escaneo secuencial sobre la columna `tsv`, con el índice desactivado."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La última fila enseña algo importante. Cuando la palabra está en el 10 % de la tabla, el índice solo duplica la velocidad: tiene que visitar 6.827 de las 6.912 páginas de la tabla, casi las mismas que el recorrido completo. Es la [[selectividad]] de [@09-20] aplicada a palabras: un índice ayuda mucho cuando filtra casi todo y poco cuando filtra casi nada. También tiene costo: la columna `tsv` hizo crecer la tabla de 30 MB a 54 MB, y el índice GIN suma 2,5 MB (chico porque mis notas usan unas 80 palabras distintas; con texto real el diccionario es enorme y el índice pesa mucho más). Y cada alta o baja de una nota actualiza las listas de todas sus palabras."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Errores de tipeo y pedazos de palabra: pg_trgm"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La búsqueda por raíz no ayuda con una consulta mal escrita: «zapalos» no comparte raíz con «zapall». Para eso existe la [[extensión]] `pg_trgm`, que trabaja con *trigramas*: las secuencias de tres letras consecutivas de un texto. «entrega» contiene `ent`, `ntr`, `tre`, `reg` y `ega`, más tres con espacios en los bordes. Dos textos parecidos comparten muchos trigramas, y esa fracción mide el parecido [#bd0939-pg16-pgtrgm]. Un error de tipeo cambia dos o tres trigramas, no todos.",
+    "Con un índice GIN sobre los trigramas, `ILIKE '%zapallo%'` también deja de ser un recorrido completo. Y se puede preguntar por parecido, no por igualdad."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select similarity('entrega','entrgea') as tipeo, similarity('entrega','entregas') as plural, similarity('entrega','retiro') as otra;",
+     "s": "    tipeo    | plural | otra \n-------------+--------+------\n  0.33333334 |    0.7 |    0"
+    },
+    {
+     "c": "explain (analyze, costs off) select count(*) from notas where texto ilike '%zapallo%';  -- sin índice",
+     "s": "   ->  Seq Scan on notas (actual time=11.634..205.010 rows=27 loops=1)\n Execution Time: 205.098 ms"
+    },
+    {
+     "c": "create index notas_trgm on notas using gin (texto gin_trgm_ops);  -- 3,5 s y 22 MB\nexplain (analyze, costs off) select count(*) from notas where texto ilike '%zapallo%';",
+     "s": "   ->  Bitmap Index Scan on notas_trgm (actual time=0.639..0.639 rows=27 loops=1)\n Execution Time: 0.771 ms"
+    },
+    {
+     "c": "select count(*) from notas where 'zapalos' <% texto;  -- mal escrito a propósito",
+     "s": " count \n-------\n    27"
+    }
+   ],
+   "cap": "Con el índice de trigramas, `ILIKE` pasó de 205 ms a 0,77 ms, y la consulta con error de tipeo («zapalos») encontró las 27 notas con «zapallos» en 1 ms. El operador `<%` pregunta si la palabra se parece a alguna parte del texto."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Los trigramas no arreglan patrones cortos",
+   "x": "Con `ILIKE '%ent%'`, el índice de trigramas devolvió 142.296 filas (casi la mitad de la tabla) y la consulta tardó 128 ms: un patrón corto aparece en muchísimos textos y el índice no filtra casi nada. Además, `pg_trgm` no ordena por relevancia ni conoce el idioma: mide parecido de cadenas, no es un buscador completo."
+  },
+  {
+   "t": "h",
+   "x": "Cuando PostgreSQL no alcanza: Elasticsearch y sus parientes"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[Elasticsearch]] es un servidor de búsqueda construido sobre Lucene, una biblioteca de Java para indexar y buscar texto [#bd0939-es-nrt]. Lucene guarda el índice en *segmentos*, y cada segmento es, a grandes rasgos, un índice invertido que ya no se modifica. Un documento nuevo va a un segmento nuevo y se vuelve buscable en el siguiente *refresh*, que por defecto ocurre cada segundo: por eso se habla de búsqueda casi en tiempo real [#bd0939-es-nrt]. Usa BM25 por defecto [#bd0939-es-similarity], permite armar la limpieza del texto pieza por pieza para cada campo (tokenizador, filtros, sinónimos) y reparte el índice en varios servidores, la razón principal para elegirlo cuando los datos no entran en uno solo.",
+    "Alrededor hay una familia. **OpenSearch** tiene licencia Apache 2.0 y, según su README, incluye código de Elasticsearch con esa licencia [#bd0939-opensearch-readme]. **Meilisearch** está escrito en Rust y tolera errores de tipeo de fábrica [#bd0939-meili-readme]. En el fondo todos son un índice invertido con alguna fórmula de relevancia; cambian en cómo escalan, qué licencia tienen y cuánto trabajo piden para configurarlos."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pregunta",
+    "PostgreSQL con tsvector y GIN",
+    "Motor aparte"
+   ],
+   "filas": [
+    [
+     "¿Dónde viven los datos?",
+     "En la misma tabla, con una sola fuente de verdad",
+     "En un segundo sistema: hay que copiar cada alta, cambio y baja, y vigilar que no se desincronicen"
+    ],
+    [
+     "¿Cuándo se ve un cambio?",
+     "Dentro de la misma transacción",
+     "Casi en tiempo real: en Elasticsearch, hasta un segundo después por defecto"
+    ],
+    [
+     "¿Qué puntaje usa?",
+     "`ts_rank`, sin rareza global; el BM25 hay que armarlo a mano",
+     "BM25 de fábrica, ajustable"
+    ],
+    [
+     "¿Cómo escala y cuánto cuesta operarlo?",
+     "Hacia arriba, con réplicas de lectura; nada extra si ya tenés la base",
+     "Hacia los costados, repartiendo el índice; un servicio más para actualizar y pagar"
+    ]
+   ],
+   "cap": "Comparación de criterio, no de benchmark. Una regla práctica: arrancá con PostgreSQL y pasá a un motor aparte cuando el volumen o las funciones de búsqueda lo justifiquen con una medición."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y licencias al 13-11-2026",
+   "x": "Según los metadatos de Maven Central leídos el 13-11-2026, la última versión de Lucene es la 10.6.0 [#bd0939-maven-lucene], la de Elasticsearch la 9.5.6, del 10-11-2026 [#bd0939-maven-es], y la de OpenSearch la 3.9.0, del 28-10-2026 [#bd0939-maven-opensearch]. PostgreSQL 18.7 es la versión más nueva según su política de versiones [#postgresql-versioning]; hoy corrí todo en la 16.15 de Ubuntu 24.04. Sobre licencias: Elastic anunció el 29-08-2024 que sumaría AGPL junto a ELv2 y SSPL [#bd0939-elastic-agpl], y no verifiqué cuál rige hoy para cada versión. Meilisearch es MIT en su edición comunitaria y tiene una Enterprise bajo BUSL 1.1, según su README [#bd0939-meili-readme]. Confirmá todo esto antes de decidir."
+  },
+  {
+   "t": "h",
+   "x": "En Senda: la búsqueda de la Biblia no usa ningún índice"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda tiene un buscador de versículos en la pantalla `Buscar`, y su función `buscar()` no usa índice invertido ni base de datos. La primera vez que se busca en una versión, arma un arreglo con cada versículo y una copia ya normalizada (minúsculas, sin tildes). Después, cada búsqueda recorre el arreglo entero y se queda con los versículos que contienen todas las palabras. Las de tres letras o menos se buscan enteras y las más largas como comienzo de palabra, de modo que «tem» encuentra «temas»."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Un recorrido completo, y bien hecho",
+   "x": [
+    "La función `buscar` vive en `src/datos/biblia.ts` y la usa `src/pantallas/Buscar.tsx`, que espera 280 ms después de la última tecla. Está **implementado en el código**: no hay ranking, devuelve los primeros 60 versículos **en el orden de la Biblia** y cuenta el total.",
+    "Copié esa lógica a un script de Node, en solo lectura, sobre `assets/biblia/rv1909.bib` (31.102 versículos, 3,87 MB). Es una réplica del algoritmo, no la app corriendo: un teléfono con el motor Hermes será más lento y eso no lo medí.",
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/datos/biblia.ts",
+    "src/pantallas/Buscar.tsx"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Lo que hace buscar() de src/datos/biblia.ts, sobre la RV1909 de assets/biblia/, en solo lectura\nconst fs = require(\"fs\");\nconst plegar = (s) => s.normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").replace(/ñ/g, \"n\");\nconst normalizar = (s) => plegar(s.toLowerCase()).replace(/[^a-z0-9ñ ]/g, \" \");\nconst b = JSON.parse(fs.readFileSync(\".../senda-app/assets/biblia/rv1909.bib\", \"utf8\"));\nconst idx = [];                                        // un registro por versículo, con su texto ya normalizado\nfor (const l of b.libros) l.caps.forEach((c, ci) => c.forEach((v, vi) => {\n  if (v) idx.push({ libro: l.id, cap: ci + 1, vers: vi + 1, texto: v, norm: ` ${normalizar(v)} ` });\n}));\nfunction buscar(consulta, max = 60) {\n  const palabras = normalizar(consulta).split(/\\s+/).filter((w) => w.length > 1);\n  const claves = palabras.map((w) => (w.length <= 3 ? ` ${w} ` : ` ${w}`));   // cortas: palabra entera; largas: prefijo\n  let total = 0; const lista = [];\n  for (const v of idx) if (claves.every((w) => v.norm.includes(w))) { total++; if (lista.length < max) lista.push(v); }\n  return { total, lista };\n}",
+   "cap": "Resumen del script de medición (el original lee el archivo completo y repite cada búsqueda 20 veces). La copia del texto normalizado es lo que evita normalizar en cada búsqueda."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node medir_busqueda.js",
+     "s": "leer y parsear el archivo: 20.0 ms, 3.87 MB\nversículos: 31102 | armar el arreglo normalizado: 79.2 ms\n\"paz\"                resultados:   287 | por búsqueda: 9.31 ms\n\"temor de jehova\"    resultados:    52 | por búsqueda: 8.90 ms\n\"amor\"               resultados:   260 | por búsqueda: 8.09 ms\n\"en el principio\"    resultados:    45 | por búsqueda: 9.85 ms\narmar el índice invertido: 133.4 ms, palabras distintas: 27164\n\"paz\"                resultados:   287 | por búsqueda: 0.009 ms\n\"amor\"               resultados:   160 | por búsqueda: 0.001 ms"
+    }
+   ],
+   "cap": "Node 22 en esta VM, una corrida, promedio de 20 repeticiones por búsqueda. El índice invertido de comparación lo armé para esta medición y solo encuentra palabras enteras; por eso «amor» da 160 resultados en vez de 260 (no encuentra «amores» ni «amorreos»)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El recorrido completo tarda unos 9 ms por búsqueda y la pantalla espera 280 ms antes de empezar: la diferencia entre 9 ms y 0,009 ms no la ve nadie. El índice invertido costaría 133 ms para armarse, más memoria, y obligaría a resolver aparte la búsqueda por comienzo de palabra (un diccionario ordenado). Ahorrar tiempo que nadie percibe es ingeniería sin retorno. La decisión de Senda es correcta **para 31.000 versículos**. Cambiaría con tres millones de documentos, o con una búsqueda por cada tecla en un servidor compartido por miles de personas.",
+    "La segunda búsqueda de Senda sí vive en PostgreSQL: encontrar personas por alias. `buscar_personas` (`supabase/migrations/20261124000000_buscar_por_alias.sql`) pide al menos 3 letras, busca con `lower(p.apodo) like t || '%'` (solo el comienzo) y devuelve como máximo 10. Sobre `lower(apodo)` hay un índice único B-tree (`20261111000000_novedades.sql`). Que sirva también para el `LIKE` de prefijo depende de la *collation* de la base, que no figura en el repositorio. En mi clúster (`C.UTF-8`) el planificador **no** lo usó: recorrió 100.000 filas, y recién usó un índice con `text_pattern_ops`. Con pocos perfiles no importa; conviene mirar el plan con EXPLAIN antes de que la tabla crezca."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Dos búsquedas, dos decisiones",
+   "x": [
+    "La búsqueda de la Biblia corre en el teléfono, sin conexión, y recorre todo porque 31.102 versículos son pocos. La de personas corre en la base, con tope de 10 resultados y mínimo de 3 letras. Un `grep` de `tsvector`, `to_tsquery`, `pg_trgm` y `using gin` en `supabase/migrations/` no devolvió nada: Senda **no** tiene búsqueda de texto completo ni motor aparte. La única otra búsqueda por texto es un `ilike '%…%'` para filtrar miembros dentro de un grupo.",
+    "Es un hallazgo, no una omisión: hoy no la necesita. Si algún día se buscara dentro de notas, comentarios o sermones, sería el momento de un `tsvector` con índice GIN."
+   ],
+   "archivos": [
+    "supabase/migrations/20261124000000_buscar_por_alias.sql",
+    "supabase/migrations/20261111000000_novedades.sql",
+    "supabase/migrations/20261130000005_grupos_grandes.sql"
+   ]
+  }
+ ],
+ "recap": [
+  "`LIKE` con comodín al principio recorre toda la tabla y busca letras, no palabras: 43 ms para encontrar 111 notas entre 300.000.",
+  "Un índice invertido va de palabra a lista de documentos. Buscar varias palabras es intersectar listas ordenadas, y el costo depende de cuántos documentos las contienen, no de cuántos hay.",
+  "Documentos y consulta pasan por la misma tokenización y normalización (minúsculas, tildes, palabras vacías, raíz). La raíz se equivoca en las dos direcciones.",
+  "La relevancia combina frecuencia con saturación, rareza en la colección y largo del documento (BM25). `ts_rank` de PostgreSQL no usa la rareza global.",
+  "En PostgreSQL, `tsvector` + `tsquery` + índice GIN bajó la búsqueda de 43 ms a 0,28 ms; con una palabra en el 10 % de la tabla, solo la duplicó. `pg_trgm` agrega parecido y tolerancia a errores de tipeo.",
+  "Elasticsearch, OpenSearch y Meilisearch son índices invertidos con más funciones, a cambio de un segundo sistema que mantener sincronizado. Senda recorre 31.102 versículos en unos 9 ms y no necesita índice."
+ ],
+ "repaso": [
+  {
+   "p": "Una tabla tiene un índice B-tree sobre la columna `texto`. ¿Por qué ese índice no acelera `WHERE texto LIKE '%frío%'`?",
+   "o": [
+    "El B-tree ordena los valores completos, y un patrón que empieza con comodín no se puede ubicar en ese orden",
+    "El B-tree solo funciona con números y fechas, y las columnas de texto nunca se pueden indexar",
+    "PostgreSQL ignora los índices cuando la consulta usa `LIKE`, sin importar cómo esté escrito el patrón",
+    "El índice se usaría, pero solo si antes se pasa la columna a mayúsculas con la función `upper`"
+   ],
+   "c": 0,
+   "e": "Un B-tree ordena los valores enteros, así que sirve para igualdades y prefijos como `LIKE 'frí%'`. Con comodín al principio no hay por dónde entrar y se lee toda la tabla. Sí se pueden indexar columnas de texto; y `LIKE` con prefijo puede usar un índice, según la collation."
+  },
+  {
+   "p": "Un índice invertido guarda, para cada palabra, la lista ordenada de documentos que la contienen. Para buscar «cadena» y «frío» juntas, ¿qué hace el motor con las dos listas?",
+   "o": [
+    "Une las dos listas y devuelve todos los documentos que aparecen en alguna de las dos",
+    "Recorre las dos listas a la vez y se queda con los documentos que están en ambas",
+    "Lee todos los documentos de la tabla y comprueba en cada uno si tiene las dos palabras",
+    "Elige la lista más corta y devuelve sus documentos sin mirar la otra palabra"
+   ],
+   "c": 1,
+   "e": "Como están ordenadas, se recorren en paralelo y se avanzan hasta que coinciden: eso es una intersección. Unir sería una búsqueda con «o». Leer todo es lo que el índice evita, y quedarse con una lista descartaría la condición de la segunda palabra."
+  },
+  {
+   "p": "Guardaste un campo con `to_tsvector('spanish', …)` y un usuario busca con `to_tsquery('simple', 'entregaron')`. Los documentos dicen «entregaron». ¿Qué pasa?",
+   "o": [
+    "Los encuentra, porque la palabra del documento y la de la consulta son iguales",
+    "No los encuentra, porque el índice tiene la raíz `entreg` y la consulta busca `entregaron`",
+    "Da un error de sintaxis, porque no se pueden mezclar configuraciones en la misma base",
+    "Los encuentra pero con puntaje cero, porque «simple» no calcula relevancia"
+   ],
+   "c": 1,
+   "e": "La configuración «spanish» guardó la raíz y la consulta «simple» busca la palabra tal cual: nunca coinciden. No hay error ni aviso, que es lo peligroso. Quien piense que se encontrarían por tener la misma palabra visible olvida que lo indexado es la versión limpia."
+  },
+  {
+   "p": "En una colección de 300.000 notas, «zapallo» aparece en 27 y «paquete» en 270.000. Para BM25, ¿qué ocurre con el peso de cada palabra?",
+   "o": [
+    "«Paquete» pesa más porque aparece más veces y eso muestra que es importante",
+    "Pesan igual, porque BM25 mide solo cuántas veces aparece la palabra en cada nota",
+    "«Zapallo» pesa mucho más, porque una palabra rara distingue mejor un documento",
+    "«Zapallo» pesa menos, porque con tan pocas notas el cálculo no es confiable"
+   ],
+   "c": 2,
+   "e": "Es el IDF: cuanto menos documentos contienen la palabra, más informa. «Paquete» está en el 90 % de las notas y casi no distingue ninguna. BM25 sí mide la frecuencia dentro de cada nota, pero junto con la rareza y el largo, no en lugar de ellas."
+  },
+  {
+   "p": "Con la tabla de 300.000 notas, buscar una palabra que está en el 10 % de las filas con un índice GIN fue solo unas dos veces más rápido que el recorrido completo. ¿Cuál es la explicación?",
+   "o": [
+    "El índice GIN falla con palabras comunes y PostgreSQL termina usando el recorrido completo",
+    "Con una palabra tan común hay que visitar casi todas las páginas igual, así que el índice ahorra poco",
+    "Los índices GIN solo aceleran palabras de más de cinco letras, y «entregaron» es de las cortas",
+    "El 10 % de la tabla no entra en memoria, y por eso el índice se vuelve más lento que el recorrido"
+   ],
+   "c": 1,
+   "e": "El índice dice dónde están las filas, pero si son el 10 % repartidas por toda la tabla, igual hay que leer casi todas las páginas. Es el efecto de la selectividad. No es un fallo del GIN (de hecho lo usó), ni depende del largo de la palabra, ni de la memoria."
+  },
+  {
+   "p": "Un equipo agrega Elasticsearch a una app que ya tiene PostgreSQL, y copia cada pedido nuevo al buscador. ¿Qué problema nuevo trae esa decisión que antes no existía?",
+   "o": [
+    "Los pedidos dejan de poder guardarse en PostgreSQL, porque ahora viven en el buscador",
+    "Las búsquedas no pueden ordenarse por relevancia, porque Elasticsearch no la calcula",
+    "Un pedido modificado puede quedar distinto en los dos sistemas, y el buscador mostraría datos viejos",
+    "La base de datos necesita reiniciarse cada vez que el buscador reconstruye su índice"
+   ],
+   "c": 2,
+   "e": "Es el costo de tener dos sistemas: hay que mantener una copia al día y puede desincronizarse (además, en Elasticsearch un cambio tarda hasta un segundo en verse por defecto). PostgreSQL sigue guardando los pedidos, Elasticsearch calcula BM25 de fábrica y no hace falta reiniciar nada."
+  },
+  {
+   "p": "Senda recorre 31.102 versículos en unos 9 ms por búsqueda (medido en Node) y espera 280 ms desde la última tecla. ¿Qué conclusión de ingeniería es razonable?",
+   "o": [
+    "Conviene armar ya un índice invertido, porque 9 ms es lento para cualquier buscador",
+    "Alcanza con el recorrido completo, porque la diferencia con un índice no se percibiría y el índice costaría memoria y complejidad",
+    "Hay que mover la búsqueda a un servidor, porque 9 ms en el teléfono gastaría la batería",
+    "Hay que subir la espera de 280 ms a 2 segundos para que el recorrido no se note"
+   ],
+   "c": 1,
+   "e": "La decisión depende de lo que el usuario percibe y de lo que cuesta mantener la estructura. Con 31.000 versículos el recorrido pasa desapercibido. Mover la búsqueda a un servidor la haría depender de la red; y subir la espera empeoraría la experiencia sin resolver nada. El 9 ms es de una VM, y en un teléfono sería más: hay que medirlo."
+  }
+ ],
+ "feynman": "Explicale a alguien que usa el buscador de su correo por qué es tan rápido y por qué, a veces, el resultado que querés no es el primero. Usá la idea del índice de atrás de un libro, nombrá los tres pasos de limpieza del texto y decí con tus palabras qué significa que una palabra sea «rara» para el puntaje.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0939-pg16-textsearch-controls",
+   "nota": "El capítulo de PostgreSQL sobre búsqueda de texto: cómo se crean `tsvector` y `tsquery`, qué hacen `ts_rank` y `ts_headline`, y la aclaración de que el ranking no usa información global. Leé la sección de ranking para repetir la comparación de hoy."
+  },
+  {
+   "fuente": "bd0939-pg16-pgtrgm",
+   "nota": "La documentación de `pg_trgm`: qué es un trigrama, las funciones `similarity` y `word_similarity`, y cómo se usan los índices GIN y GiST para `LIKE`, `ILIKE` y parecido."
+  },
+  {
+   "fuente": "bd0939-robertson-bm25",
+   "nota": "El artículo de Robertson y Zaragoza sobre BM25. La introducción y la sección 3 explican de dónde sale cada parte de la fórmula; es más técnico que el día de hoy, pero la primera parte se entiende sin matemática."
+  },
+  {
+   "fuente": "bd0939-es-nrt",
+   "nota": "La página de Elastic sobre búsqueda casi en tiempo real: cómo se agrupan los documentos en segmentos y qué hace un refresh. Sirve para entender por qué un cambio no se ve al instante."
+  }
+ ],
+ "videos": [
+  {
+   "q": "inverted index explained search engine how it works",
+   "por_que": "Para ver animada la construcción del diccionario y las listas de apariciones y la intersección de dos listas."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "índice invertido",
+   "d": "Estructura que guarda, para cada palabra, la lista ordenada de documentos donde aparece (y a veces cuántas veces y en qué posiciones). Responder «¿qué documentos contienen esta palabra?» pasa a ser una consulta directa, en lugar de leer todo."
+  },
+  {
+   "t": "tokenización",
+   "d": "Paso que corta un texto en piezas llamadas tokens (palabras, números, símbolos) antes de indexarlo o de buscarlo. Parece trivial, pero hay que decidir qué hacer con puntuación, guiones, URLs e idiomas sin espacios."
+  },
+  {
+   "t": "relevancia",
+   "d": "Qué tan bien responde un documento a una consulta. No hay una medida objetiva: los motores la aproximan con señales como la frecuencia de la palabra, su rareza en la colección y el largo del documento, y ordenan los resultados por ese puntaje."
+  },
+  {
+   "t": "Elasticsearch",
+   "d": "Servidor de búsqueda y análisis construido sobre la biblioteca Lucene. Guarda índices invertidos repartidos en varios servidores, se consulta por HTTP y ordena con BM25 por defecto. Los cambios se ven en búsquedas en cerca de un segundo."
+  },
+  {
+   "t": "palabra vacía",
+   "d": "Palabra muy frecuente que se descarta al indexar porque casi no informa («de», «la», «los»). En inglés se llaman stopwords."
+  },
+  {
+   "t": "raíz de palabra",
+   "d": "Lo que queda de una palabra cuando un algoritmo (stemmer) le quita las terminaciones: «entregaron», «entrega» y «entregando» quedan en `entreg`. Se equivoca en las dos direcciones: junta palabras distintas y separa parecidas."
+  },
+  {
+   "t": "lista de apariciones",
+   "d": "En un índice invertido, la lista asociada a una palabra: los documentos que la contienen, ordenados, con datos como cuántas veces aparece. En inglés, posting list."
+  },
+  {
+   "t": "BM25",
+   "d": "Fórmula de relevancia que combina frecuencia de la palabra con saturación, rareza en la colección (IDF) y largo del documento. Es el puntaje por defecto de Lucene y de Elasticsearch, con k1 = 1,2 y b = 0,75."
+  },
+  {
+   "t": "tsvector",
+   "d": "Tipo de PostgreSQL que guarda un documento ya limpio: las raíces de sus palabras con sus posiciones. Se consulta con un tsquery y el operador `@@`."
+  },
+  {
+   "t": "trigrama",
+   "d": "Secuencia de tres caracteres consecutivos de un texto. La extensión pg_trgm compara textos por los trigramas que comparten, lo que permite búsqueda por parecido y tolerancia a errores de tipeo."
+  },
+  {
+   "t": "Lucene",
+   "d": "Biblioteca de código abierto de la Apache Software Foundation para indexar y buscar texto, escrita en Java. Elasticsearch y OpenSearch están construidos sobre ella."
+  }
+ ],
+ "siguiente": "Archivos, imágenes y videos: por qué un archivo grande conviene guardarlo fuera de la tabla, con una medición en PostgreSQL de lo que cuesta guardarlo adentro.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0939-pg16-textsearch-controls",
+   "t": "PostgreSQL 16: Controlling Text Search (ranking y resaltado)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/textsearch-controls.html"
+  },
+  {
+   "id": "bd0939-pg16-textsearch-indexes",
+   "t": "PostgreSQL 16: Preferred Index Types for Text Search (GIN)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/textsearch-indexes.html"
+  },
+  {
+   "id": "bd0939-pg16-pgtrgm",
+   "t": "PostgreSQL 16: pg_trgm, comparación de texto por trigramas",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/pgtrgm.html"
+  },
+  {
+   "id": "bd0939-lucene-bm25",
+   "t": "Apache Lucene 10: BM25Similarity (javadoc)",
+   "a": "Apache Software Foundation",
+   "tipo": "doc",
+   "url": "https://lucene.apache.org/core/10_0_0/core/org/apache/lucene/search/similarities/BM25Similarity.html"
+  },
+  {
+   "id": "bd0939-es-similarity",
+   "t": "Elasticsearch: Similarity settings (BM25 por defecto)",
+   "a": "Elastic",
+   "tipo": "doc",
+   "url": "https://www.elastic.co/docs/reference/elasticsearch/index-settings/similarity"
+  },
+  {
+   "id": "bd0939-es-nrt",
+   "t": "Elasticsearch: Near real-time search",
+   "a": "Elastic",
+   "tipo": "doc",
+   "url": "https://www.elastic.co/docs/manage-data/data-store/near-real-time-search"
+  },
+  {
+   "id": "bd0939-robertson-bm25",
+   "t": "The Probabilistic Relevance Framework: BM25 and Beyond",
+   "a": "Stephen Robertson y Hugo Zaragoza",
+   "tipo": "paper",
+   "url": "https://www.staff.city.ac.uk/~sbrp622/papers/foundations_bm25_review.pdf",
+   "anio": 2009
+  },
+  {
+   "id": "bd0939-snowball-es",
+   "t": "Spanish stemming algorithm (Snowball)",
+   "a": "Snowball",
+   "tipo": "doc",
+   "url": "https://snowballstem.org/algorithms/spanish/stemmer.html"
+  },
+  {
+   "id": "bd0939-elastic-agpl",
+   "t": "Elasticsearch Is Open Source. Again!",
+   "a": "Shay Banon (Elastic)",
+   "tipo": "articulo",
+   "url": "https://www.elastic.co/blog/elasticsearch-is-open-source-again",
+   "anio": 2024
+  },
+  {
+   "id": "bd0939-meili-readme",
+   "t": "Meilisearch: README del repositorio (ediciones y licencias)",
+   "a": "Meilisearch",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/meilisearch/meilisearch/main/README.md"
+  },
+  {
+   "id": "bd0939-opensearch-readme",
+   "t": "OpenSearch: README del repositorio (licencia)",
+   "a": "OpenSearch Project",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/opensearch-project/OpenSearch/main/README.md"
+  },
+  {
+   "id": "bd0939-maven-lucene",
+   "t": "Maven Central: metadatos de lucene-core",
+   "a": "Apache Software Foundation",
+   "tipo": "doc",
+   "url": "https://repo1.maven.org/maven2/org/apache/lucene/lucene-core/maven-metadata.xml"
+  },
+  {
+   "id": "bd0939-maven-es",
+   "t": "Maven Central: metadatos de elasticsearch",
+   "a": "Elastic",
+   "tipo": "doc",
+   "url": "https://repo1.maven.org/maven2/org/elasticsearch/elasticsearch/maven-metadata.xml"
+  },
+  {
+   "id": "bd0939-maven-opensearch",
+   "t": "Maven Central: metadatos de opensearch",
+   "a": "OpenSearch Project",
+   "tipo": "doc",
+   "url": "https://repo1.maven.org/maven2/org/opensearch/opensearch/maven-metadata.xml"
+  }
+ ]
+}

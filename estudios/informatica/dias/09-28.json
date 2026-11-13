@@ -1,0 +1,583 @@
+{
+ "id": "09-28",
+ "titulo": "Backups, recuperación a un punto en el tiempo, RPO y RTO",
+ "bajada": "Borrás 76.250 bultos por error, volvés a un segundo antes del desastre con una copia y el WAL archivado, y medís cuánto perdiste y cuánto tardaste.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir las fallas que cubre la recuperación tras una caída de las que exigen un backup.",
+  "Comparar una copia lógica (`pg_dump`) con una física (`pg_basebackup`) en contenido, tamaño, restauración y límites.",
+  "Explicar cómo el WAL archivado más una copia base permiten volver a un instante, y ejecutar esa recuperación.",
+  "Calcular el RPO real de un esquema de archivado y estimar un RTO a partir del tamaño de la base.",
+  "Explicar por qué un backup sin prueba de restauración no existe y qué se ensaya."
+ ],
+ "venis_de": "Ayer viste el WAL, los checkpoints y la recuperación tras una caída ([@09-27]), y cerramos con una limitación: el WAL rehace con fidelidad hasta un error humano confirmado. Antes viste las transacciones ([@09-24]) y MVCC ([@09-25]), que explican por qué una copia lógica puede ser consistente. Hoy completás la protección con copias guardadas aparte.",
+ "se_apoya_en": [
+  "09-24",
+  "09-25",
+  "09-27"
+ ],
+ "gancho": [
+  "Un viernes a las 20:38, en producción, alguien corre un `DELETE` al que le falta una condición. La base contesta «DELETE 76250» y confirma. A las 20:39 se da cuenta. No hay corte de luz ni disco roto: todo está sano, y por eso mismo el WAL lo rehace igual si el servidor se reinicia.",
+  "Hoy ves cómo se vuelve de eso. Vas a volver a un segundo antes del borrado con una copia y un archivo de WAL, a medir cuánto perdés en cada estrategia y a descubrir por qué las personas que operan bases dicen que un backup que nunca se restauró no es un backup."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un borrado confirmado: qué te salva"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un viernes a las 20:38, alguien del equipo corre `delete from bultos where deposito_id = 1` en la base de producción. Quería borrar los bultos de prueba y se olvidó una condición: se fueron los 76.250 bultos del depósito de Pompeya. La base contesta «DELETE 76250» y confirma. (Todo es inventado; los comandos y salidas los corrí en un PostgreSQL propio, con datos generados.)",
+    "Ayer viste lo que hace el [[write-ahead log]]: si ahora se corta la luz, la recuperación rehace el borrado con total fidelidad, porque el borrado fue una transacción confirmada como cualquier otra. El WAL protege de caídas, no de errores. Para volver atrás hace falta algo de *antes*: un [[backup]], una copia de los datos en otro lugar y en otro momento, con la que se puede reconstruir lo perdido. Hoy ves las tres formas de hacerla, cómo se llega a un instante exacto y cómo se decide cuánto perder y cuánto tardar."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tipo de falla",
+    "Ejemplo",
+    "¿Lo cubre el WAL con recuperación?",
+    "¿Hace falta backup?"
+   ],
+   "filas": [
+    [
+     "Caída del servidor",
+     "Corte de luz, `kill -9`, reinicio de la VM",
+     "Sí, es su trabajo ([@09-27])",
+     "No"
+    ],
+    [
+     "Error lógico",
+     "`DELETE` sin condición, una migración que borra una columna, un bug que pisa datos",
+     "No: lo rehace tal cual",
+     "Sí"
+    ],
+    [
+     "Pérdida del disco o de la máquina",
+     "Disco roto, instancia eliminada, centro de datos caído",
+     "No: el WAL estaba en el mismo disco",
+     "Sí, guardado en otro lugar"
+    ]
+   ],
+   "cap": "El backup sirve para lo que la recuperación tras una caída no puede arreglar. Las réplicas, que ves mañana, cubren parte de la tercera fila y ninguna de la segunda."
+  },
+  {
+   "t": "h",
+   "x": "Primera forma: la copia lógica con pg_dump"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[copia lógica]] no copia archivos: le pregunta a la base qué contiene y lo escribe como instrucciones para volver a armarlo (`CREATE TABLE…`, `COPY…`, `CREATE INDEX…`). La herramienta de PostgreSQL es `pg_dump`. Según su documentación, hace copias consistentes aunque la base se esté usando y no bloquea a quienes leen o escriben [#bd2928-pg-dump]. La consistencia viene de lo que viste en [@09-25]: `pg_dump` trabaja sobre una foto (un snapshot) del instante en que empieza y no ve lo que se confirme después.",
+    "Armé la base de práctica con un script que no usa azar, así que da lo mismo en cualquier máquina: 4 depósitos y 300.000 bultos generados con `generate_series`."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table depositos (id int primary key, nombre text not null);\ninsert into depositos values (1,'Pompeya'),(2,'Barracas'),(3,'Avellaneda'),(4,'Pilar');\ncreate table bultos (\n  id int generated always as identity primary key,\n  deposito_id int not null references depositos(id),\n  estado text not null, peso_kg numeric(6,2) not null,\n  creado timestamptz not null default now());\ninsert into bultos (deposito_id, estado, peso_kg)\nselect 1 + (g % 4), (array['recibido','en ruta','entregado'])[1 + (g % 3)], 1 + (g % 400) / 10.0\nfrom generate_series(1, 300000) g;\ncreate index on bultos (deposito_id);",
+   "cap": "La base de práctica. El clúster tiene `archive_mode = on` desde el principio; ya lo vas a necesitar."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select count(*), sum(peso_kg) from bultos;  -- y el tamaño de la base",
+     "s": " 300000 | 6285000.00      (la base ocupa 34 MB)"
+    },
+    {
+     "c": "time pg_dump -Fp -f logistica.plain logistica",
+     "s": "0,19 s  ->  16.024.236 bytes (texto SQL)"
+    },
+    {
+     "c": "time pg_dump -Fc -f logistica.custom logistica",
+     "s": "0,24 s  ->  1.622.369 bytes (formato «custom», comprimido)"
+    },
+    {
+     "c": "grep -v '^--' logistica.plain | grep -v '^$' | sed -n 13,19p",
+     "s": "CREATE TABLE public.bultos (\n    id integer NOT NULL,\n    deposito_id integer NOT NULL,\n    estado text NOT NULL,\n    peso_kg numeric(6,2) NOT NULL,\n    creado timestamp with time zone DEFAULT now() NOT NULL\n);"
+    },
+    {
+     "c": "grep -A2 '^COPY public.bultos' logistica.plain",
+     "s": "COPY public.bultos (id, deposito_id, estado, peso_kg, creado) FROM stdin;\n1\t2\ten ruta\t1.10\t2026-11-13 20:37:44.919486+00\n2\t3\tentregado\t1.20\t2026-11-13 20:37:44.919486+00"
+    },
+    {
+     "c": "createdb restaurada && time pg_restore -d restaurada logistica.custom",
+     "s": "0,45 s;  count = 300000, sum = 6285000.00 y los dos índices (bultos_pkey, bultos_deposito_id_idx) recreados"
+    }
+   ],
+   "cap": "Salida real, recortada, en una VM de 4 CPU compartida (el 13-11-2026). Restaurar el archivo de texto con `psql -f` tardó 0,48 s. Con una base de 34 MB los tiempos no dicen nada sobre una base grande; sirven para ver la forma de la salida."
+  },
+  {
+   "t": "pensa",
+   "x": "La base ocupa 34 MB, pero el dump comprimido ocupa 1,6 MB y el de texto 16 MB. ¿Dónde se fueron los bytes que faltan?",
+   "resp": "En tres lugares. El dump no guarda el índice, solo la instrucción para reconstruirlo (`CREATE INDEX`); no guarda el espacio libre ni la estructura de las páginas, solo las filas en texto; y el formato custom además comprime. Esto explica por qué restaurar un dump es más lento de lo que parece: la base tiene que volver a cargar las filas y reconstruir cada índice."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las fortalezas del dump: es chico, se puede restaurar una sola tabla (`pg_restore -l` lista el contenido y permite elegir) y la documentación lo describe como portable: los scripts sirven en otras máquinas y arquitecturas, y su salida se puede cargar en versiones del servidor más nuevas que el `pg_dump` que lo generó [#bd2928-pg-dump]. Por eso es la herramienta para migrar de versión o cambiar de proveedor.",
+    "Sus límites: es una foto de un solo instante, así que todo lo ocurrido después se pierde; restaurar implica volver a cargar filas y reconstruir índices, y eso crece con el tamaño; y `pg_dump` vuelca una sola base de datos, sin roles ni tablespaces (para eso existe `pg_dumpall`) [#bd2928-pg-dump]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Segunda forma: la copia física con pg_basebackup"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[copia física]] copia los archivos de datos del clúster tal cual están en el disco. `pg_basebackup` lo hace con el servidor funcionando y sin afectar a los demás clientes [#bd2928-pg-basebackup]. Plantea un problema: mientras copia, los archivos cambian. Lo que queda es una mezcla de páginas de momentos distintos, inconsistente por sí sola.",
+    "La solución es la que ya conocés: el WAL. Con `-X stream`, la herramienta abre una segunda conexión y copia el WAL que se genera durante la copia. Al restaurar, el servidor rehace ese WAL hasta el final de la copia y recién ahí los archivos son consistentes. Se ve en el log del arranque, más abajo: «completed backup recovery with redo LSN 0/8000028 and end LSN 0/8000100», seguido de «consistent recovery state reached»."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "time pg_basebackup -D base1 -Fp -X stream -c fast",
+     "s": "0,35 s  ->  73 MB (los datos del clúster más el WAL transmitido durante la copia)"
+    },
+    {
+     "c": "head -4 base1/backup_label",
+     "s": "START WAL LOCATION: 0/8000028 (file 000000010000000000000008)\nCHECKPOINT LOCATION: 0/8000060\nBACKUP METHOD: streamed\nBACKUP FROM: primary"
+    },
+    {
+     "c": "pg_verifybackup base1",
+     "s": "backup successfully verified"
+    }
+   ],
+   "cap": "Salida real. `backup_label` anota dónde empieza el WAL que hace falta; `backup_manifest` lista cada archivo con su tamaño y su suma de verificación, y `pg_verifybackup` compara la copia con esa lista [#bd2928-pg-basebackup]."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El inventario y el kardex",
+   "x": [
+    "En un depósito, un inventario general del lunes es la copia física: una foto de lo que había. El registro de movimientos de la semana (ingresos, egresos, traslados) es el WAL. Con los dos se puede reconstruir el stock de cualquier momento: el inventario del lunes más los movimientos hasta el jueves a las 10:15. Con solo el inventario, se sabe cómo estaba el lunes y nada más.",
+    "Dónde deja de valer: un inventario se hace con el depósito parado. La copia física se hace con la base en marcha, y por eso necesita sí o sí los movimientos registrados durante la copia para ser coherente."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Archivar el WAL y volver a un instante: PITR"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si además de la copia física se guarda, de forma continua, cada segmento de WAL que se va completando, se puede reconstruir la base en cualquier momento posterior a la copia. Eso es el [[PITR]] (point-in-time recovery, recuperación a un punto en el tiempo). La documentación lo resume así: se restaura la copia de archivos y se reproduce el WAL guardado hasta el punto que se quiere [#bd2928-pg-continuous-archiving].",
+    "Las piezas: `archive_mode = on` y un `archive_command` que copia cada segmento terminado a un lugar seguro. Dos reglas de la documentación: el comando debe devolver éxito solo si de verdad copió, y debe negarse a pisar un archivo ya archivado. Además hace falta una secuencia continua de WAL archivado desde el inicio de la copia, y conviene probar el archivado *antes* de hacer la primera copia [#bd2928-pg-continuous-archiving]. Mi clúster usó esto:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "# postgresql.conf del servidor de producción\narchive_mode = on\narchive_command = 'test ! -f /var/tmp/bd2928/arch/%f && cp %p /var/tmp/bd2928/arch/%f'\n\n# Una copia física base (el WAL de después lo guarda archive_command)\npg_basebackup -D base1 -Fp -X stream -c fast",
+   "cap": "`%p` es la ruta del segmento y `%f` su nombre. El destino real de producción sería otra máquina o un almacenamiento externo; acá es una carpeta, porque la VM es un laboratorio."
+  },
+  {
+   "t": "h3",
+   "x": "El error, paso a paso"
+  },
+  {
+   "t": "p",
+   "x": "Después de la copia hice lo que haría el equipo en un día normal: 5.000 bultos nuevos, anotando la hora justo al terminar; tres segundos después, el borrado equivocado."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "insert into bultos ... 5000 filas;  select clock_timestamp(), count(*), count(*) filter (where deposito_id=1) from bultos;",
+     "s": "T1 = 2026-11-13 20:38:21.22496+00   filas = 305000   pompeya = 76250"
+    },
+    {
+     "c": "delete from bultos where deposito_id = 1;   -- tres segundos después",
+     "s": "DELETE 76250       (confirmado a las 20:38:24.299)"
+    },
+    {
+     "c": "select count(*), count(*) filter (where deposito_id=1) from bultos;",
+     "s": "filas = 228750   pompeya = 0"
+    },
+    {
+     "c": "select pg_current_wal_lsn(), last_archived_wal from pg_stat_archiver;",
+     "s": "0/A732CE0   |   000000010000000000000009"
+    }
+   ],
+   "cap": "Salida real. El último segmento archivado es el 9; el borrado vive en el A, que todavía no se cerró."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Esa última línea muestra algo que se suele ignorar. El archivado trabaja con **segmentos completos** de 16 MB. En ese momento el servidor estaba en la posición `0/A732CE0` y el último segmento archivado terminaba en `0/A000000`: faltaban 7.548.128 bytes (7,2 MiB) de WAL, que si el disco se rompía en ese instante se perdían, borrado incluido. Esa distancia es el RPO real del archivado. Se puede acotar con `archive_timeout`, que fuerza el cierre de un segmento tras cierto tiempo, pero la documentación advierte que los segmentos cerrados antes de tiempo ocupan lo mismo que uno lleno (16 MB), así que un valor muy corto infla el espacio de archivo [#bd2927-pg-runtime-config-wal]. Lo verifiqué: tras un `pg_switch_wal()`, el segmento A quedó en el archivo con exactamente 16.777.216 bytes.",
+    "Fijé el objetivo en las 20:38:22,5, entre el insert y el borrado, y restauré en un directorio aparte, sin tocar la producción:"
+   ]
+  },
+  {
+   "t": "pasos",
+   "titulo": "La recuperación a un punto en el tiempo",
+   "pasos": [
+    {
+     "t": "Copiar la base física a un directorio nuevo",
+     "x": "`cp -a base1 pitr`. Es la copia de antes del error."
+    },
+    {
+     "t": "Decirle a Postgres de dónde sacar el WAL y hasta cuándo",
+     "x": "En `postgresql.auto.conf` del directorio nuevo: `restore_command = 'cp /var/tmp/bd2928/arch/%f %p'`, `recovery_target_time = '2026-11-13 20:38:22.5+00'` y `recovery_target_action = 'promote'` (por defecto pausa al llegar). También apagué `archive_mode` en la copia, para que no escriba en el archivo de producción, y le di otro puerto."
+    },
+    {
+     "t": "Marcar el directorio como «en recuperación»",
+     "x": "Se crea un archivo vacío, `recovery.signal`. Es lo que le indica al servidor que debe arrancar en modo recuperación dirigida [#bd2927-pg-runtime-config-wal]."
+    },
+    {
+     "t": "Arrancar y mirar el log",
+     "x": "El servidor pide los segmentos al archivo, los rehace uno por uno y se detiene en el objetivo."
+    }
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "pg_ctl -D pitr -l pitr.log -w start && cat pitr.log",
+     "s": "LOG:  starting point-in-time recovery to 2026-11-13 20:38:22.5+00\nLOG:  starting backup recovery with redo LSN 0/8000028, checkpoint LSN 0/8000060, on timeline ID 1\nLOG:  restored log file \"000000010000000000000008\" from archive\nLOG:  redo starts at 0/8000028\nLOG:  restored log file \"000000010000000000000009\" from archive\nLOG:  completed backup recovery with redo LSN 0/8000028 and end LSN 0/8000100\nLOG:  consistent recovery state reached at 0/8000100\nLOG:  restored log file \"00000001000000000000000A\" from archive\nLOG:  recovery stopping before commit of transaction 808, time 2026-11-13 20:38:24.299028+00\nLOG:  redo done at 0/A732CB8\nLOG:  last completed transaction was at log time 2026-11-13 20:38:21.196927+00\nLOG:  selected new timeline ID: 2\nLOG:  archive recovery complete\nLOG:  database system is ready to accept connections"
+    },
+    {
+     "c": "select count(*), count(*) filter (where deposito_id=1) from bultos;   -- en la instancia restaurada",
+     "s": "filas = 305000   pompeya = 76250"
+    }
+   ],
+   "cap": "Salida real, sin los prefijos de hora. Todo el proceso (copiar, arrancar, rehacer y quedar listo) tomó 0,59 s en esta VM: copia de 73 MB y menos de tres segmentos de WAL."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo que se ve, línea por línea: arranca desde la copia (`redo starts at 0/8000028`), pasa por el estado consistente, sigue rehaciendo WAL del archivo y se detiene *antes* del commit de la transacción 808, que es el DELETE. Las 76.250 filas están. El mensaje «cp: cannot stat '00000002.history'» que también aparece en el log es normal: el servidor le pide al `restore_command` archivos que pueden no existir, y la documentación indica que el comando debe devolver un error en ese caso [#bd2927-pg-runtime-config-wal].",
+    "Falta un detalle: «selected new timeline ID: 2». Cuando una recuperación termina, el servidor abre una **línea de tiempo** nueva para distinguir el WAL generado de ahí en adelante, y deja un archivo con la historia de dónde se bifurcó [#bd2928-pg-continuous-archiving]. Es lo que evita que el WAL de la historia original (donde el borrado ocurrió) se mezcle con el de la historia nueva (donde no)."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Entre las 20:38:22,5 (el objetivo) y las 20:38:24,3 (el borrado) alguien podría haber confirmado otros bultos en la base de producción. Si restaurás la copia a las 20:38:22,5 y la usás como nueva producción, ¿qué pasa con ellos?",
+   "resp": "Se pierden: la copia restaurada termina en el objetivo y no los tiene. Por eso conviene restaurar en una instancia aparte y rescatar solo lo que hace falta (las filas borradas), en lugar de reemplazar la producción. Si se reemplaza, hay que asumir como pérdida todo lo confirmado entre el objetivo y el momento del cambio."
+  },
+  {
+   "t": "p",
+   "x": "Eso fue lo que hice: copié a un archivo las filas del depósito 1 desde la instancia restaurada y las cargué en la base viva, que seguía en marcha con todo lo demás."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql (restaurada) -c \"\\copy (select * from bultos where deposito_id = 1) to 'rescate.csv' csv\"",
+     "s": "COPY 76250"
+    },
+    {
+     "c": "psql (producción): create temp table rescate (like bultos); \\copy rescate from 'rescate.csv' csv; insert into bultos overriding system value select * from rescate;",
+     "s": ""
+    },
+    {
+     "c": "select count(*), count(*) filter (where deposito_id=1) from bultos;   -- producción",
+     "s": "filas = 305000   pompeya = 76250"
+    }
+   ],
+   "cap": "Salida real. `overriding system value` permite insertar los `id` originales en una columna que Postgres genera sola."
+  },
+  {
+   "t": "h",
+   "x": "RPO y RTO: cuánto se puede perder y cuánto se puede tardar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos números ordenan todo lo anterior. El [[RPO]] (recovery point objective, objetivo de punto de recuperación) es cuánto dato se acepta perder, medido en tiempo: un RPO de 5 minutos significa que, ante una falla, se pierde como máximo lo ocurrido en los últimos 5 minutos. El [[RTO]] (recovery time objective, objetivo de tiempo de recuperación) es cuánto se acepta estar caído hasta volver a funcionar.",
+    "Son decisiones de negocio, no de técnica. La pregunta al área es concreta: ¿qué cuesta una hora sin sistema?, ¿qué cuesta perder una hora de movimientos? Una regla práctica: cada vez que se baja un número, el costo sube. Pasar de un RPO de un día a uno de dos minutos exige archivado continuo, almacenamiento extra y más cuidado operativo."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Estrategia",
+    "RPO (cuánto se pierde)",
+    "RTO (cuánto se tarda)",
+    "Qué medí o dice la fuente"
+   ],
+   "filas": [
+    [
+     "`pg_dump` una vez por día",
+     "Hasta 24 horas",
+     "Cargar filas y reconstruir índices; crece con el tamaño",
+     "0,45 s para 34 MB; no extrapolable de forma lineal"
+    ],
+    [
+     "Copia física + WAL archivado por segmento completo",
+     "Lo no archivado: hasta casi 16 MB de WAL, de minutos a horas según la actividad",
+     "Copiar la base + rehacer el WAL hasta el objetivo",
+     "7,2 MiB sin archivar al momento del error; 0,59 s de restauración total"
+    ],
+    [
+     "Lo mismo con `archive_timeout` corto",
+     "Lo escrito desde el último cierre forzado, de segundos a un minuto",
+     "Igual que la fila anterior",
+     "Cada cierre forzado ocupa 16 MB en el archivo"
+    ],
+    [
+     "Servicio gestionado con PITR (Supabase)",
+     "2 minutos en el peor caso, según su documentación",
+     "Depende del tamaño; el proyecto queda inaccesible mientras restaura",
+     "Ver el bloque de Senda, más abajo"
+    ]
+   ],
+   "cap": "Los RPO y RTO de las dos primeras filas dependen de la carga y del hardware; lo único medido es lo que figura en la última columna."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Una cuenta de ejemplo, inventada",
+   "x": [
+    "Supongamos una base de 100 GB y un disco que entrega 200 MB/s. Solo traer la copia física lleva 100.000 MB ÷ 200 MB/s = 500 s, unos 8 minutos. Si hay que rehacer 10 GB de WAL y la recuperación avanza a unos 110 MiB/s (lo que medí en [@09-27], con datos calientes en caché), son 10.240 MiB ÷ 110 = 93 s. Total, ESTIMACIÓN: algo más de 10 minutos, antes de sumar verificar y redirigir la aplicación. Si el contrato dice «RTO de 5 minutos», esta arquitectura no lo cumple, y conviene saberlo antes del incidente y no durante."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Un backup sin prueba de restauración no existe"
+  },
+  {
+   "t": "p",
+   "x": "La frase es de uso corriente entre quienes operan bases de datos, y cabe en un ejemplo que me salió sin buscarlo. Hice otra copia física, esta vez con `-X none` (sin WAL incluido). La herramienta terminó sin errores. Después intenté usarla:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "pg_basebackup -D base_sinwal -Fp -X none -c fast; echo $?",
+     "s": "NOTICE:  all required WAL segments have been archived\n0"
+    },
+    {
+     "c": "pg_verifybackup base_sinwal",
+     "s": "pg_waldump: error: could not find any WAL file\npg_verifybackup: error: WAL parsing failed for timeline 1"
+    },
+    {
+     "c": "pg_ctl -D base_sinwal start",
+     "s": "FATAL:  could not locate required checkpoint record\nHINT:  If you are restoring from a backup, touch \".../recovery.signal\" and add required recovery options."
+    }
+   ],
+   "cap": "Salida real. La copia no está rota: el WAL que necesita está en el archivo. Pero sin `restore_command` configurado, esa copia sola no arranca. Quien nunca ensayó el procedimiento lo descubre durante la emergencia."
+  },
+  {
+   "t": "p",
+   "x": "El código de salida fue 0 y el mensaje decía que todo estaba archivado. Pero la copia, tal como estaba, no sirve para arrancar. Lo que prueba que un backup existe es restaurarlo. Una lista corta de lo que hace falta ensayar:"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Restaurar de verdad, con cronómetro**, en una máquina aparte y cada cierto tiempo. El resultado es tu RTO medido, no el supuesto.",
+    "**Verificar el contenido**, no solo que el servidor arranque: contar filas, comparar totales de negocio, probar una consulta que el negocio use.",
+    "**Vigilar el archivado.** `pg_stat_archiver` cuenta los segmentos archivados y los fallidos; un `failed_count` que sube significa que el RPO se está agrandando sin que nadie lo vea. En mi clúster terminó en 0 fallas.",
+    "**Guardar la copia lejos de lo que protege.** Un backup en el mismo disco que la base muere con ella.",
+    "**Anotar el procedimiento** en un documento que alguien pueda seguir de madrugada, con los comandos y las rutas reales."
+   ],
+   "ord": false
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Una réplica no es un backup",
+   "x": "Un borrado confirmado en la base principal se copia a la réplica casi enseguida: la réplica reproduce el WAL, y el WAL incluye el `DELETE`. Mañana ves cómo funciona la replicación; la regla ya vale: la réplica protege de la falla de una máquina, y el backup, del error y del tiempo."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no tiene respaldo propio de su base",
+   "x": [
+    "Según el mapa técnico (commit `25e08fa`), el «backend» de Senda es un único proyecto de Supabase, sin staging ni réplica de lectura. Busqué en todo el repositorio de la app (menos `node_modules`) las cadenas `pg_dump`, `pg_basebackup`, `pitr`, `point-in-time`, `wal-g` y `db dump`: no aparece ninguna. **No existe en el código ninguna rutina de respaldo de la base.** Tiene sentido: la base la administra el proveedor, y la protección sería la del plan.",
+    "Lo que la documentación de Supabase dice hoy (consultada el 13-11-2026): los proyectos Pro, Team y Enterprise tienen copias diarias automáticas, con los últimos 7, 14 y 30 días respectivamente. PITR es un complemento de pago: usa copias físicas y archivado de WAL con WAL-G, sube los segmentos «a intervalos de dos minutos» y logra un RPO de dos minutos en el peor caso. Activarlo desactiva las copias diarias. La página no menciona copias diarias para el plan gratis y recomienda exportar los datos con la CLI. Las copias no incluyen los archivos de Storage ni las contraseñas de roles personalizados, y mientras se restaura el proyecto no está disponible [#bd2928-supabase-backups]. El mapa anota que el plan gratis se pausa tras unos 7 días con poca actividad y que para lanzar hay que estar en Pro. El repositorio no dice qué plan tiene hoy el proyecto real.",
+    "Qué se perdería si la base se perdiera: lo que solo vive en ella, es decir cuentas y alias, amigos, grupos, partidas, copas y la copia del progreso de quienes vincularon Google (`guardar_progreso`). Lo demás no depende de la base: las preguntas y travesías son JSON dentro del repositorio, el progreso de lectura y los ajustes viven en el teléfono, y el esquema se puede rearmar con las 42 migraciones de `supabase/migrations/`. Eso baja el costo de perder datos, pero no lo anula: perder los grupos de una iglesia es un daño real.",
+    "Una sugerencia de criterio (opinión mía, no un hecho del repositorio): antes del lanzamiento, fijar un RPO que el proyecto pueda sostener, probar una restauración de una copia diaria en un proyecto aparte y exportar periódicamente un dump lógico fuera de Supabase. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261011000000_propuestas.sql",
+    "src/util/respaldo.ts",
+    ".github/workflows/supabase.yml",
+    "scripts/supabase_despertar.sh"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué puede cambiar",
+   "x": "Los precios, plazos y comportamientos de Supabase (copias de 7 a 30 días, PITR con RPO de dos minutos, su costo mensual) son del 13-11-2026 y los define el proveedor; volvé a leer su página de copias antes de decidir [#bd2928-supabase-backups]. En PostgreSQL, los comandos de hoy existen desde hace años, pero cambian detalles entre versiones: mi clúster es 16.15, mientras la versión actual es la 18 según la página de soporte de PostgreSQL ([@09-27] la cita), consultada el 13-11-2026. Un detalle que vas a ver si abrís un dump de texto: empieza con una línea `\\restrict` y una clave al azar. Según la documentación de `pg_dump`, es una protección: un servidor malicioso que conociera la clave de antemano podría inyectar código que se ejecutaría en la máquina que carga el archivo con `psql` [#bd2928-pg-dump]. Por eso conviene no fijarla a mano salvo para pruebas."
+  }
+ ],
+ "recap": [
+  "El WAL protege de caídas pero no de errores: un `DELETE` confirmado se rehace con fidelidad. Para errores lógicos y pérdidas de máquina hace falta un [[backup]] guardado aparte.",
+  "La copia lógica (`pg_dump`) escribe instrucciones SQL: es chica, portable y selectiva, pero es una foto de un instante y restaurarla reconstruye índices (0,45 s para 34 MB en mi prueba).",
+  "La copia física (`pg_basebackup`) copia archivos con la base en marcha; es inconsistente por sí sola y el WAL de la copia la vuelve coherente. `pg_verifybackup` la compara con su manifiesto.",
+  "Con copia física más WAL archivado se hace [[PITR]]: se restaura la copia y se rehace el WAL hasta un instante. En mi prueba, restauré hasta antes del borrado y rescaté las 76.250 filas en 0,59 s.",
+  "El archivado va por segmentos de 16 MB: lo que está en el segmento abierto se pierde si cae el disco (7,2 MiB en mi caso). `archive_timeout` lo acota, a costa de espacio.",
+  "El [[RPO]] es cuánto dato se acepta perder y el [[RTO]] cuánto tiempo se acepta estar caído. Se fijan por negocio, y bajarlos cuesta cada vez más.",
+  "Un backup sin prueba de restauración no existe: una copia que terminó con código 0 puede no arrancar. Una réplica tampoco es backup."
+ ],
+ "repaso": [
+  {
+   "p": "Un equipo confirma por error un `DELETE` sin condición en la tabla principal. El servidor funciona bien y el WAL está sano. ¿Qué lo puede resolver?",
+   "o": [
+    "Una copia anterior al error, junto con el WAL archivado para llegar a un instante previo al borrado",
+    "La recuperación tras una caída, que rehace el WAL y deja la tabla como estaba antes del borrado",
+    "Apagar y prender el servidor, para que revise los checkpoints y descarte la transacción equivocada",
+    "El WAL de la propia base, que guarda la versión anterior de cada fila y la restaura al reiniciar"
+   ],
+   "c": 0,
+   "e": "El borrado es una transacción confirmada; el WAL lo rehace con fidelidad y un reinicio no lo deshace. Hace falta algo de antes del error: una copia base y el WAL archivado hasta un punto previo. Las otras opciones confunden «proteger de caídas» con «proteger de errores»."
+  },
+  {
+   "p": "Dos copias de la misma base: una con `pg_dump` y otra con `pg_basebackup`. ¿Cuál afirmación sobre su restauración es correcta?",
+   "o": [
+    "Las dos se restauran copiando los archivos al directorio de datos y arrancando el servidor",
+    "El dump contiene las filas y las instrucciones para recrear los índices, y restaurarlo los reconstruye",
+    "La copia física se restaura ejecutando un script de texto con `psql` sobre un servidor vacío",
+    "El dump guarda los índices ya armados, por eso restaurar es siempre más rápido que reconstruirlos"
+   ],
+   "c": 1,
+   "e": "Un dump es una lista de instrucciones y datos: al restaurarlo, la base carga filas y recrea índices. La copia física son archivos de datos y se restaura copiándolos y rehaciendo WAL. Ni el dump guarda índices armados (por eso pesa mucho menos que la base) ni la copia física se restaura con un script SQL."
+  },
+  {
+   "p": "Una copia con `pg_basebackup` tarda varios minutos mientras la base recibe escrituras. ¿Por qué los archivos copiados no son consistentes sin más, y qué los arregla?",
+   "o": [
+    "Porque `pg_basebackup` copia solo la mitad de las páginas, y la otra mitad se obtiene de un dump",
+    "Porque los archivos cambian durante la copia; el WAL generado en ese lapso se rehace al restaurar",
+    "Porque el servidor se apaga durante la copia y se vuelve a prender, con lo que pierde páginas",
+    "Porque la copia se hace a nivel lógico y hay que volver a ordenar las filas al restaurar"
+   ],
+   "c": 1,
+   "e": "Mientras se copia, los archivos siguen cambiando, así que la copia mezcla páginas de momentos distintos. Con el WAL de ese período, al restaurar, el servidor rehace hasta el final de la copia y recién ahí es coherente (en el log: «consistent recovery state reached»). No hay apagado ni mezcla con dumps."
+  },
+  {
+   "p": "Una empresa tiene copia base semanal y WAL archivado por segmento completo de 16 MB. El disco de producción se rompe y se pierde el segmento abierto. ¿Qué se perdió y por qué es un límite del RPO?",
+   "o": [
+    "Nada: el WAL se archiva transacción por transacción, apenas se confirma cada una",
+    "Toda la semana, porque sin el WAL abierto la copia base no se puede usar para nada",
+    "Solo los índices, que se reconstruyen con la copia base y no necesitan WAL archivado",
+    "Lo escrito desde que se cerró el último segmento, porque el archivado solo envía los completos"
+   ],
+   "c": 3,
+   "e": "El archivado trabaja con segmentos terminados. Lo que está en el segmento abierto no se envió y se pierde con el disco: en mi prueba eran 7,2 MiB. Se acota con `archive_timeout` o replicando el WAL en continuo. Lo anterior se recupera con la copia base y los segmentos ya archivados."
+  },
+  {
+   "p": "Se restaura una copia con PITR al instante 20:38:22,5, antes del error, y se la pone como nueva producción. Entre ese instante y el error hubo transacciones legítimas en la base original. ¿Qué pasa con ellas?",
+   "o": [
+    "Siguen en la nueva producción, porque el WAL de la base original se fusiona con el restaurado",
+    "Se guardan en la copia base, que se actualiza automáticamente al terminar la recuperación",
+    "Se reaplican solas, porque Postgres compara las dos líneas de tiempo y completa lo que falta",
+    "Se pierden en la restaurada; por eso conviene restaurar aparte y rescatar solo las filas borradas"
+   ],
+   "c": 3,
+   "e": "La instancia restaurada termina en el objetivo y no tiene nada de lo posterior. Por eso se restaura aparte y se extrae lo necesario (como las 76.250 filas). El WAL de la historia original y el de la nueva, que tiene otra línea de tiempo, no se fusionan."
+  },
+  {
+   "p": "Un servicio acuerda un RPO de 5 minutos y un RTO de 30 minutos. El último ensayo de restauración tardó 50 minutos. ¿Cuál es la conclusión correcta?",
+   "o": [
+    "Se cumple el objetivo, porque el RPO es el que manda y el RTO es solo orientativo",
+    "Se cumple, porque 50 minutos es cercano a 30 y la diferencia se compensa con el RPO",
+    "No se cumple el RTO: hay que bajar el tiempo de restauración o renegociar el compromiso",
+    "No se puede saber, porque el RTO solo se puede medir en una caída real de producción"
+   ],
+   "c": 2,
+   "e": "El RTO es el tiempo máximo aceptado hasta volver a funcionar, y el ensayo mide el tiempo real: 50 minutos contra 30 acordados. Es justamente para eso que se ensaya, para enterarse antes. RPO y RTO son independientes, y uno no compensa al otro."
+  },
+  {
+   "p": "Una copia termina con código de salida 0 pero nunca se probó restaurarla. ¿Qué se puede afirmar con seguridad?",
+   "o": [
+    "Que la herramienta no encontró errores al copiar, y nada más; no se sabe si arranca ni si es la base correcta",
+    "Que la copia es válida, porque el código 0 significa que el servidor la verificó al terminar",
+    "Que se puede restaurar en cualquier momento, porque `pg_basebackup` siempre guarda el WAL necesario",
+    "Que no tiene ningún riesgo, porque una copia física es idéntica byte por byte a la base original"
+   ],
+   "c": 0,
+   "e": "Un código 0 dice que el comando no falló, no que el resultado sirva. En mi prueba, una copia hecha con `-X none` salió con 0 y no arrancaba sin la configuración de recuperación. Solo una restauración con verificación del contenido demuestra que existe un backup."
+  }
+ ],
+ "feynman": "Explicale a la persona que dirige un depósito la diferencia entre «tener una copia de seguridad» y «poder volver a las 10:37 de ayer», y por qué hace falta guardar, además de la copia, el registro de lo que pasó después.",
+ "para_profundizar": [
+  {
+   "fuente": "bd2928-pg-continuous-archiving",
+   "nota": "El capítulo oficial de archivado continuo y PITR: la secuencia de pasos, las líneas de tiempo y las reglas del `archive_command`. Es la base de todo lo que hice hoy."
+  },
+  {
+   "fuente": "bd2928-pg-dump",
+   "nota": "La referencia de `pg_dump`: los cuatro formatos, la consistencia con la base en uso y qué no incluye (roles y tablespaces)."
+  },
+  {
+   "fuente": "bd2928-supabase-backups",
+   "nota": "La página de Supabase sobre copias diarias y PITR: retención por plan, RPO, y qué no incluyen. Es lo que decide la protección de Senda."
+  }
+ ],
+ "videos": [
+  {
+   "q": "PostgreSQL point in time recovery PITR tutorial pg_basebackup archive_command",
+   "por_que": "Para ver el procedimiento completo de restauración en vivo, con los mismos archivos que usamos hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "backup",
+   "d": "Copia de los datos guardada en otro lugar y en otro momento, con la que se puede reconstruir la información perdida por un error, una falla física o un ataque. Solo vale si se probó restaurarla."
+  },
+  {
+   "t": "PITR",
+   "d": "Recuperación a un punto en el tiempo: se restaura una copia base y se rehace el WAL archivado hasta el instante elegido, por ejemplo un segundo antes de un borrado accidental."
+  },
+  {
+   "t": "RPO",
+   "d": "Objetivo de punto de recuperación: cuánto dato se acepta perder ante una falla, medido en tiempo. Un RPO de 5 minutos significa perder, como máximo, lo ocurrido en los últimos 5 minutos."
+  },
+  {
+   "t": "RTO",
+   "d": "Objetivo de tiempo de recuperación: cuánto tiempo se acepta estar fuera de servicio hasta restaurar. Se mide con un ensayo de restauración y no se supone."
+  },
+  {
+   "t": "copia lógica",
+   "d": "Copia hecha como instrucciones y datos que la base entiende (SQL), como la de `pg_dump`. Es portable y chica, pero es una foto de un instante y restaurarla reconstruye los índices."
+  },
+  {
+   "t": "copia física",
+   "d": "Copia de los archivos de datos del clúster, como la de `pg_basebackup`. Se restaura rápido y sirve de base para PITR, pero necesita el WAL de la copia para ser consistente."
+  }
+ ],
+ "siguiente": "la replicación: cómo mantener una segunda base al día en otra máquina para seguir funcionando si una cae, y por qué una réplica no reemplaza al backup.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd2928-pg-dump",
+   "t": "PostgreSQL 16: pg_dump",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/app-pgdump.html"
+  },
+  {
+   "id": "bd2928-pg-basebackup",
+   "t": "PostgreSQL 16: pg_basebackup",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/app-pgbasebackup.html"
+  },
+  {
+   "id": "bd2928-pg-continuous-archiving",
+   "t": "PostgreSQL 16: Continuous Archiving and Point-in-Time Recovery (PITR)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/continuous-archiving.html"
+  },
+  {
+   "id": "bd2928-supabase-backups",
+   "t": "Database Backups (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://supabase.com/docs/guides/platform/backups"
+  }
+ ]
+}

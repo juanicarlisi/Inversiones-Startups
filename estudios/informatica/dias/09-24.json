@@ -1,0 +1,621 @@
+{
+ "id": "09-24",
+ "titulo": "Transacciones y ACID",
+ "bajada": "Qué pasa con 200 cajas cuando el segundo de dos pasos falla, y cómo las cuatro garantías de una transacción lo evitan, con las demostraciones corridas en PostgreSQL.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es una transacción y reproducir con `BEGIN`, `COMMIT` y `ROLLBACK` una transferencia de stock que no puede quedar a medias.",
+  "Distinguir las cuatro garantías de ACID con un ejemplo concreto de cada una y decir quién las asegura: la base o la aplicación.",
+  "Predecir qué filas quedan después de un error en medio de una transacción, con y sin savepoints.",
+  "Leer una función de Senda y encontrar qué parte del trabajo pasa en una sola transacción y qué hace el reintento seguro.",
+  "Reconocer el costo de una transacción abierta de más."
+ ],
+ "venis_de": "Ya sabés crear tablas con restricciones ([@09-06]), modificar datos ([@09-05]) y cómo la base ejecuta una consulta ([@09-22]). Hoy aparece la pregunta que sigue: qué pasa cuando hay que cambiar varias cosas que solo tienen sentido juntas.",
+ "se_apoya_en": [
+  "07-12",
+  "07-29",
+  "09-05",
+  "09-06",
+  "09-07"
+ ],
+ "gancho": [
+  "Un martes se decide mover 200 tornillos del Depósito Norte al Depósito Sur. El sistema hace dos pasos: restar 200 en Norte y sumar 200 en Sur. El primero sale bien. El segundo falla porque Sur no tiene lugar para tantos. Nadie se entera. A fin de mes, el inventario dice que faltan 200 tornillos y no hay ningún ladrón: las cajas existen en el sistema solo por una de las dos mitades de la operación.",
+  "Ese error no se arregla con más cuidado al programar. Se arregla con una idea que tiene más de cuarenta años y sigue siendo un pilar de las bases de datos: agrupar los pasos en una **transacción**, que sale entera o no sale. Hoy la reproducís en PostgreSQL con dos depósitos, ves cada garantía por separado y comprobás qué parte cumple la base y qué parte no puede cumplir sola."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Dos pasos que son uno"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La demostración usa una tabla chica de datos inventados: el stock de un artículo por depósito. Tiene reglas que la propia base hace cumplir ([@09-06]): la cantidad no puede ser negativa y no puede superar la capacidad del depósito.",
+    "Ahora la transferencia, ejecutada como la haría un programa descuidado: dos sentencias sueltas."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table stock (\n  deposito  text not null,\n  sku       text not null,\n  cantidad  int  not null check (cantidad >= 0),\n  capacidad int  not null,\n  primary key (deposito, sku),\n  check (cantidad <= capacidad)\n);\ninsert into stock values ('Norte', 'TORN-01', 500, 1000), ('Sur', 'TORN-01', 900, 1000);",
+   "cap": "Total del artículo TORN-01: 500 + 900 = 1.400 unidades. Sur tiene capacidad para 1.000."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select sum(cantidad) as total from stock;\nupdate stock set cantidad = cantidad - 200 where deposito = 'Norte' and sku = 'TORN-01';\nupdate stock set cantidad = cantidad + 200 where deposito = 'Sur'   and sku = 'TORN-01';\nselect deposito, cantidad from stock order by deposito;\nselect sum(cantidad) as total from stock;",
+     "s": " total\n-------\n  1400\n\nUPDATE 1\nERROR:  new row for relation \"stock\" violates check constraint \"stock_check\"\nDETAIL:  Failing row contains (Sur, TORN-01, 1100, 1000).\n\n deposito | cantidad\n----------+----------\n Norte    |      300\n Sur      |      900\n\n total\n-------\n  1200"
+    }
+   ],
+   "cap": "Medido en esta VM (PostgreSQL 16.15, psql, una corrida). Salida original, sin las líneas en blanco entre los resultados."
+  },
+  {
+   "t": "p",
+   "x": "El primer `UPDATE` se aplicó y la base lo confirmó. El segundo chocó con la regla de capacidad (500 + 200 haría 1.100 en un depósito de 1.000) y fue rechazado. El total pasó de 1.400 a 1.200: 200 tornillos desaparecieron. Observá que la base hizo todo bien: aplicó una operación válida y rechazó una inválida. El problema es que no sabe que las dos sentencias eran una sola decisión de negocio."
+  },
+  {
+   "t": "pensa",
+   "x": "El total bajó de 1.400 a 1.200. ¿Dónde están esos 200 tornillos en la base? ¿Y por qué la base no puede darse cuenta sola de que algo salió mal?",
+   "resp": "No están en ninguna parte: la resta de Norte quedó confirmada y la suma de Sur nunca ocurrió. La base no puede darse cuenta porque cada sentencia, mirada sola, fue correcta. «Estas dos operaciones van juntas» es una regla del negocio, y alguien tiene que decírselo."
+  },
+  {
+   "t": "h",
+   "x": "BEGIN, COMMIT y ROLLBACK"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[transacción]] es un grupo de operaciones que la base trata como una unidad indivisible: o se aplican todas o no se aplica ninguna, y mientras dura nadie ve el resultado a medias. Se abre con `BEGIN`, se confirma con `COMMIT` y se deshace con `ROLLBACK`.",
+    "Aunque no escribas `BEGIN`, ya estás usando transacciones. En PostgreSQL, cada sentencia suelta corre dentro de su propia transacción, con un `BEGIN` y un `COMMIT` implícitos (modo «autocommit») [#bd0924-pg16-tutorial-transactions]. Por eso el primer `UPDATE` de arriba quedó confirmado apenas terminó. Probemos la misma transferencia, esta vez dentro de una transacción."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "begin;\nupdate stock set cantidad = cantidad - 200 where deposito = 'Norte' and sku = 'TORN-01';\nupdate stock set cantidad = cantidad + 200 where deposito = 'Sur'   and sku = 'TORN-01';\nselect deposito, cantidad from stock order by deposito;\ncommit;\nselect deposito, cantidad from stock order by deposito;\nselect sum(cantidad) as total from stock;",
+     "s": "BEGIN\nUPDATE 1\nERROR:  new row for relation \"stock\" violates check constraint \"stock_check\"\nDETAIL:  Failing row contains (Sur, TORN-01, 1100, 1000).\nERROR:  current transaction is aborted, commands ignored until end of transaction block\nROLLBACK\n deposito | cantidad\n----------+----------\n Norte    |      500\n Sur      |      900\n\n total\n-------\n  1400"
+    }
+   ],
+   "cap": "Medido en esta VM, una corrida, partiendo de 500 y 900. El `ROLLBACK` que aparece es la respuesta al `commit` del script."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres cosas para mirar. Primero, el total volvió a 1.400: el `UPDATE` de Norte, que se había ejecutado sin error, fue deshecho junto con la sentencia que falló. Segundo, después del error la transacción quedó en **estado abortado**: la base rechaza todo lo que le pidas hasta que termines la transacción (`current transaction is aborted, commands ignored until end of transaction block`). Tercero, el `commit` no confirmó nada, y la base lo dijo respondiendo `ROLLBACK`: confirmar una transacción abortada la deshace.",
+    "Eso es lo que el programa descuidado de antes necesitaba. Con una transacción, un error en cualquiera de los dos pasos deja el inventario como estaba. En una app real, el código abre la transacción, ejecuta los pasos y confirma solo si todos salieron bien; ante cualquier error, deshace."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El remito con doble firma",
+   "x": "Pensalo como un remito de transferencia entre depósitos con dos hojas: una de salida y otra de recepción. Vale solo si se firman las dos. Si el depósito de destino no puede recibir, la hoja de salida se anula también. `BEGIN` es abrir el remito, `COMMIT` es firmarlo y `ROLLBACK` es anularlo. La analogía deja de valer en que el remito de papel se anula a mano; la base lo hace sola, incluso si el servidor se corta en el medio."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "En PostgreSQL hasta el cambio de estructura es transaccional",
+   "x": "También se puede deshacer una sentencia de estructura. Lo probé: `begin; alter table stock add column nota text; ... rollback;` y después la columna `nota` no existe (0 columnas con ese nombre). Esto vale para PostgreSQL; no lo verifiqué en las otras bases, y en algunas puede no ser así. Lo vas a usar en las migraciones de esquema ([@09-31])."
+  },
+  {
+   "t": "h",
+   "x": "Las cuatro garantías: ACID"
+  },
+  {
+   "t": "p",
+   "x": "Lo que se espera de una transacción se resume en cuatro palabras que forman la sigla ACID. Jim Gray caracterizó la transacción en 1981 con atomicidad, consistencia y durabilidad [#bd0924-gray-1981]. La sigla, con el aislamiento como cuarta pieza, la acuñaron Theo Härder y Andreas Reuter en 1983, según la reseña de Wikipedia (no leí el artículo original: ACM bloquea las descargas automáticas) [#bd0924-wikipedia-acid]. Vamos una por una, con la demostración de cada una."
+  },
+  {
+   "t": "h3",
+   "x": "A de atomicidad: todo o nada"
+  },
+  {
+   "t": "p",
+   "x": "La [[atomicidad]] es la garantía que acabás de ver: las operaciones de una transacción se aplican todas o no se aplica ninguna. Ante un error, un corte de conexión o un `ROLLBACK`, los cambios parciales no quedan. Es la garantía que arregla el problema del gancho. Un detalle de PostgreSQL que sorprende al principio: un error en cualquier sentencia aborta **toda** la transacción, no solo esa sentencia. Si querés tolerar un error y seguir, hacen falta savepoints (más abajo)."
+  },
+  {
+   "t": "h3",
+   "x": "C de consistencia: las reglas se cumplen"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La [[consistencia]] dice que una transacción lleva la base de un estado válido a otro estado válido, donde «válido» significa que se cumplen las reglas que la base conoce: `CHECK`, `NOT NULL`, claves únicas y foráneas ([@09-06], [@09-07]). La regla de capacidad de Sur fue la que rechazó el segundo `UPDATE`. Eso es consistencia en acción, y es la parte que la base sabe hacer sola.",
+    "Pero hay reglas que la base no conoce. Probemos la misma transferencia con un error de tipeo: se resta 200 en Norte y se suma 100 en Sur."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "begin;\nupdate stock set cantidad = cantidad - 200 where deposito = 'Norte' and sku = 'TORN-01';\nupdate stock set cantidad = cantidad + 100 where deposito = 'Sur'   and sku = 'TORN-01';   -- error de tipeo: 100 en vez de 200\ncommit;\nselect sum(cantidad) as total from stock;",
+     "s": "BEGIN\nUPDATE 1\nUPDATE 1\nCOMMIT\n total\n-------\n  1300"
+    }
+   ],
+   "cap": "Medido en esta VM, una corrida, partiendo de 500 y 900 (después se restauraron esos valores)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La base confirmó sin quejarse: las dos cantidades cumplen todas las restricciones. Pero el total pasó de 1.400 a 1.300, y «una transferencia conserva el total» es una regla del negocio que ninguna restricción de esta tabla expresa. De ahí la discusión conocida: Martin Kleppmann señala en *Designing Data-Intensive Applications* (capítulo 7) que la C de ACID, a diferencia de las otras tres, depende de la aplicación y no solo de la base: la aplicación define qué es un estado válido y se apoya en la atomicidad y el aislamiento para lograrlo [#ddia]. Lo cito de memoria, sin el libro delante.",
+    "Dicho de forma práctica: la base garantiza las reglas que le declaraste; todo lo demás, incluido el contenido de lo que escribís, es responsabilidad de tu código."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Garantía",
+    "Qué asegura",
+    "Quién la asegura"
+   ],
+   "filas": [
+    [
+     "Atomicidad",
+     "Todo o nada",
+     "La base, con una transacción bien delimitada por la aplicación"
+    ],
+    [
+     "Consistencia",
+     "De un estado válido a otro válido",
+     "La base para las reglas declaradas; la aplicación para el resto"
+    ],
+    [
+     "Aislamiento",
+     "Una transacción no ve las otras a medias",
+     "La base (hay varios niveles: [@09-25])"
+    ],
+    [
+     "Durabilidad",
+     "Lo confirmado sobrevive a una caída",
+     "La base y el hardware (mecanismo: [@09-27])"
+    ]
+   ],
+   "cap": "Reparto de responsabilidades. La delimitación de qué va dentro de la transacción es siempre decisión de quien escribe el código."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si la base es ACID, mis datos son correctos»",
+   "x": "ACID asegura que lo que la base **acepta** se aplica entero, ordenado y sin perderse. No asegura que lo que le pidas sea lo correcto: la transferencia con el error de tipeo cumplió las cuatro garantías y dejó el inventario mal. Tampoco cubre lo que pasa fuera de la base, como un correo ya enviado o un pago ya hecho en otro sistema, que un `ROLLBACK` no puede traer de vuelta."
+  },
+  {
+   "t": "h3",
+   "x": "I de aislamiento: nadie ve a medias"
+  },
+  {
+   "t": "p",
+   "x": "El [[aislamiento]] garantiza que las transacciones concurrentes no se pisen: cada una trabaja como si estuviera sola, o casi. Se ve con dos sesiones. La sesión A resta 100 de Norte y deja su transacción abierta 4 segundos. Un segundo después, la sesión B lee Norte, y después intenta restar 50 del mismo depósito."
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "# Sesión A (en segundo plano): descuenta 100 y deja la transacción abierta 4 segundos\npsql -c \"begin; update stock set cantidad = cantidad - 100 where deposito='Norte'; select pg_sleep(4); commit;\" &\nsleep 1\n# Sesión B, un segundo después\npsql -c \"select cantidad from stock where deposito='Norte'\"                     # ¿qué ve?\npsql -c \"update stock set cantidad = cantidad - 50 where deposito='Norte'\"     # ¿cuánto espera?\npsql -c \"select cantidad from stock where deposito='Norte'\"\nwait",
+   "cap": "El guion de la prueba, resumido: cada `psql` es una sesión distinta. Norte arranca en 500."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./iso.sh",
+     "s": "  1.0 s  B: lee Norte ->  500   (A todavía no confirmó)\n  1.1 s  B: intenta descontar 50 de Norte (queda esperando a A...)\n  4.0 s  A: COMMIT hecho\n  4.0 s  B: su UPDATE terminó\n  4.0 s  B: lee Norte ->  350"
+    }
+   ],
+   "cap": "Medido en esta VM, una corrida. El primer tiempo es contado desde que arranca A; al leer 500, B ve el valor de antes de A."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Sesión A",
+     "k": "cliente"
+    },
+    {
+     "n": "Base",
+     "k": "datos"
+    },
+    {
+     "n": "Sesión B",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "begin; update Norte -100",
+     "d": "A abre una transacción y cambia la fila de Norte. Todavía no confirma."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "select Norte",
+     "d": "B lee en el segundo 1."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "500 (el valor viejo)",
+     "resp": true,
+     "d": "La base le muestra a B el valor confirmado. El cambio de A, sin confirmar, no existe para B."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "update Norte -50",
+     "d": "B quiere cambiar la misma fila que A está modificando."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "commit (segundo 4)",
+     "d": "A confirma. Recién ahí se libera la fila."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "update aplicado: 350",
+     "resp": true,
+     "d": "El UPDATE de B esperó unos 3 segundos y se aplicó sobre el valor ya confirmado por A: 500 - 100 - 50 = 350."
+    }
+   ],
+   "cap": "Lo que pasó en la prueba, paso a paso."
+  },
+  {
+   "t": "p",
+   "x": "Dos cosas. **Leer no bloqueó:** B vio 500 al instante, como si A no existiera. **Escribir sobre la misma fila sí esperó:** el `UPDATE` de B se quedó parado hasta que A confirmó. Cómo logra PostgreSQL que B lea sin esperar (guardando varias versiones de cada fila) y qué anomalías pueden aparecer según el nivel de aislamiento que elijas es el tema de los próximos dos días. Por defecto usa el nivel `read committed` (`show default_transaction_isolation`)."
+  },
+  {
+   "t": "pensa",
+   "x": "El `UPDATE` de B esperó unos 3 segundos solo porque A tardó en confirmar. Imaginá que la sesión A es una app que abre la transacción, le muestra una pantalla de confirmación a una persona y espera su toque para confirmar. ¿Qué podría pasar?",
+   "resp": "Todas las sesiones que quieran modificar esa fila quedarían esperando hasta que la persona decida, que puede tardar minutos o no volver nunca. Por eso la regla práctica es mantener las transacciones cortas: se abren, hacen sus cambios y confirman, sin esperar a personas ni a servicios externos en el medio."
+  },
+  {
+   "t": "h3",
+   "x": "D de durabilidad: lo confirmado queda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La [[durabilidad]] promete que, una vez que la base responde `COMMIT` con éxito, el cambio sobrevive aunque el servidor se caiga un instante después. Como no tengo cómo cortar la luz de esta VM, hice lo más parecido que ofrece PostgreSQL: una parada inmediata, que no hace el apagado ordenado y obliga al motor a recuperarse al arrancar [#bd0924-pg16-pgctl]. Antes de la caída hice dos cosas: confirmé un `INSERT` (el bulto 1) y dejé otra sesión con un `INSERT` (el bulto 2) sin confirmar."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "insert into entregas values (1, 'Rubén', 'entregado');   -- se confirma (autocommit)",
+     "s": "INSERT 0 1"
+    },
+    {
+     "c": "-- otra sesión: begin; insert into entregas values (2, 'Marcela', 'entregado'); y se queda esperando, sin commit",
+     "s": ""
+    },
+    {
+     "c": "pg_ctl -D DATOS -m immediate stop     # parada inmediata: sin apagado ordenado, como un corte de luz",
+     "s": "server stopped"
+    },
+    {
+     "c": "pg_ctl -D DATOS start",
+     "s": "server started"
+    },
+    {
+     "c": "select * from entregas order by bulto_id;",
+     "s": " bulto_id | chofer | estado\n----------+--------+-----------\n        1 | Rubén  | entregado\n(1 row)"
+    },
+    {
+     "c": "grep -E 'not properly shut down|redo' LOG",
+     "s": "LOG:  database system was not properly shut down; automatic recovery in progress\nLOG:  redo starts at 0/14EF3D0\nLOG:  redo done at 0/19232E0 system usage: CPU: user: 0.00 s, system: 0.00 s, elapsed: 0.00 s"
+    }
+   ],
+   "cap": "Medido en esta VM (PostgreSQL 16.15, con `fsync = on` y `synchronous_commit = on`, los valores por defecto). Los directorios reales se reemplazaron por DATOS y LOG."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El bulto 1, confirmado, sobrevivió. El bulto 2, sin confirmar, no existe: la transacción que no llegó a `COMMIT` se deshizo, que es la atomicidad otra vez. El registro del servidor muestra que al arrancar encontró un cierre sucio y rehizo el trabajo pendiente (`automatic recovery`, `redo`). Cómo lo hace, con un registro previo a cada cambio, es el [@09-27].",
+    "Hay que ser honesto con los límites de esta prueba. Una parada inmediata simula una caída del programa, no un corte de energía real, donde importa que el disco no mienta cuando dice que ya escribió. Y la durabilidad se puede relajar a propósito: con `synchronous_commit = off`, la base responde éxito antes de que el cambio llegue al disco, y si hay una caída se pierden las últimas transacciones, aunque sin corromper los datos [#bd0924-pg16-asynccommit]. Es un intercambio válido para ciertos datos y no para otros."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Savepoints: deshacer solo un pedazo"
+  },
+  {
+   "t": "p",
+   "x": "Cuando una transacción es larga, a veces querés tolerar el error de un paso y conservar el resto. Un `SAVEPOINT` marca un punto dentro de la transacción al que se puede volver con `ROLLBACK TO` sin abandonar la transacción entera [#bd0924-pg16-savepoint]. Ejemplo: se cargan tres entregas y la del medio tiene un estado inválido."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "begin;\ninsert into entregas values (101, 'Rubén', 'entregado');\nsavepoint s1;\ninsert into entregas values (102, 'Rubén', 'perdido');      -- estado inválido: viola el CHECK\nrollback to savepoint s1;                                    -- deshace solo desde s1\ninsert into entregas values (103, 'Rubén', 'rechazado');\ncommit;\nselect * from entregas order by bulto_id;",
+     "s": "BEGIN\nINSERT 0 1\nSAVEPOINT\nERROR:  new row for relation \"entregas\" violates check constraint \"entregas_estado_check\"\nDETAIL:  Failing row contains (102, Rubén, perdido).\nROLLBACK\nINSERT 0 1\nCOMMIT\n bulto_id | chofer | estado\n----------+--------+-----------\n        1 | Rubén  | entregado\n      101 | Rubén  | entregado\n      103 | Rubén  | rechazado"
+    }
+   ],
+   "cap": "Medido en esta VM, una corrida. El bulto 1 ya estaba de la prueba anterior."
+  },
+  {
+   "t": "p",
+   "x": "Quedaron la entrega 101 y la 103; la 102 se descartó sin tirar abajo todo. Sin el `savepoint`, el error habría abortado la transacción completa, como en el ejemplo de los depósitos. Los savepoints tienen costo: en el lenguaje de funciones de PostgreSQL, un bloque con cláusula `EXCEPTION` crea uno por dentro, y la documentación advierte que es notablemente más caro que un bloque sin ella [#bd0924-pg16-plpgsql-control]. Se usan cuando hacen falta, no por costumbre."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Predecí qué filas quedan en `prueba_ej(n, estado)` (el `estado` solo admite `'ok'`) después de este script:\n\nbegin;\ninsert into prueba_ej values (1, 'ok');\nsavepoint x;\ninsert into prueba_ej values (2, 'ok');\nsavepoint y;\ninsert into prueba_ej values (3, 'mal');\nrollback to x;\ninsert into prueba_ej values (4, 'ok');\ncommit;",
+   "pista": "`rollback to x` deshace todo lo hecho después del savepoint `x`, incluido lo que quedó bajo el savepoint `y`.",
+   "solucion": "Quedan las filas 1 y 4 (lo corrí). El `ROLLBACK TO x` descartó el insert de 2 y el fallido de 3, porque ambos vinieron después de `x`; el insert de 1 fue anterior. La transacción siguió viva y confirmó el 4."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Mismo `prueba_ej`, ahora sin savepoints: `begin; insert (1,'ok'); insert (2,'mal'); insert (3,'ok'); commit;`. ¿Cuántas filas quedan y qué respondió la base al `commit`?",
+   "pista": "Acordate del estado abortado y de lo que hace `commit` sobre una transacción abortada.",
+   "solucion": "Cero filas (lo corrí). El error en el segundo insert abortó la transacción; el tercer insert fue ignorado con el mensaje «current transaction is aborted…», y el `commit` respondió `ROLLBACK`."
+  },
+  {
+   "t": "h",
+   "x": "Una transacción abierta de más"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En la prueba de aislamiento, B esperó casi tres segundos solo porque A tardó en confirmar. Es el costo general de una transacción que se deja abierta: mientras dura, retiene las filas que modificó, y quien quiera tocarlas espera. También ocupa una conexión, un recurso limitado, y más adelante vas a ver que retrasa la limpieza de versiones viejas de filas.",
+    "PostgreSQL permite ver esas transacciones olvidadas. Dejé una sesión con `BEGIN` y un `UPDATE` sin cerrar y consulté `pg_stat_activity`:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select state, now() - xact_start as abierta_hace, left(query, 60) as ultima_sentencia from pg_stat_activity where datname = 'logi' and pid <> pg_backend_pid();",
+     "s": "        state        |  abierta_hace   |                       ultima_sentencia\n---------------------+-----------------+--------------------------------------------------------------\n idle in transaction | 00:00:03.997119 | update stock set cantidad = cantidad - 1 where deposito = 'N"
+    }
+   ],
+   "cap": "Medido en esta VM, una corrida; la última sentencia se corta a 60 caracteres."
+  },
+  {
+   "t": "p",
+   "x": "El estado `idle in transaction` significa que la sesión abrió una transacción y ahora no hace nada, con sus cambios sin confirmar. Es el síntoma típico de un programa que abre una transacción y se queda esperando algo: una respuesta de otro servicio, una pantalla, un error sin tratar que olvidó cerrar. Una regla práctica: abrí la transacción lo más tarde posible, hacé adentro solo trabajo de base de datos y cerrala enseguida."
+  },
+  {
+   "t": "senda",
+   "titulo": "jugar_turno: el turno de un duelo, en una sola transacción",
+   "x": [
+    "En Senda, jugar un turno del Espadeo es la función `jugar_turno` de la base, en su versión actual de `supabase/migrations/20261127000000_seguridad.sql`. Dentro de una sola llamada hace varias escrituras: inserta en `jugadas` una fila por respuesta, marca el fin del turno con una fila especial (`'__turno__'`), actualiza la fila de `partidas` (cambia el turno, suma la ronda, fija el vencimiento a 72 horas) y, si hay rival, inserta un aviso en `avisos` («Te toca jugar»). Si en cualquier punto falla, **todo se deshace**: no puede quedar un turno jugado sin que cambie de manos la partida, ni un aviso sin turno.",
+    "¿Por qué es una sola transacción? Porque la app llama a la función por HTTP (`POST /rest/v1/rpc/jugar_turno`, sección 6.1 de `senda/mapa-tecnico.md`) y, según la documentación de PostgREST, cada pedido a un recurso corre dentro de una transacción que termina cuando la función devuelve [#bd0924-postgrest-transactions]. Es la razón por la que Senda mete la lógica en una función de base de datos (RPC, [@07-29]) y no en varias llamadas sueltas desde el teléfono: así el reparto de responsabilidades que viste arriba queda del lado de la base.",
+    "Otra pieza es el reintento seguro. La función empieza con `select ... from partidas ... for update`, que bloquea la fila de la partida mientras dura la transacción (el mecanismo de espera de la prueba de aislamiento; los locks, en [@09-26]). Después revisa si ya existe una jugada con el mismo `cliente_id` y, si existe, devuelve la partida sin tocar nada. Es una [[idempotencia]] por clave ([@07-12]): si el teléfono manda el turno, la respuesta se pierde y reintenta, el turno no se aplica dos veces. El reintento existe en el cliente: `src/util/juntos.ts` vuelve a llamar a `jugar_turno` con el mismo `cliente_id` guardado.",
+    "Para comprobar el comportamiento armé una **réplica reducida con tablas inventadas** (no es el código de Senda, solo su patrón): una función que bloquea la partida, revisa el reintento, valida de quién es el turno, inserta filas, actualiza la partida y escribe un aviso. La probé con cuatro llamadas:"
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "src/util/cuenta.ts",
+    "src/util/juntos.ts"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create function jugar_mini(p_partida int, p_cliente int, yo text, preguntas text[]) returns partidas\nlanguage plpgsql as $$\ndeclare p partidas%rowtype; q text;\nbegin\n  select * into p from partidas where id = p_partida for update;                  -- bloquea la fila de la partida\n  if exists (select 1 from jugadas where cliente_id = p_cliente) then return p; end if;   -- reintento: ya estaba guardado\n  if p.turno_de is distinct from yo then raise exception 'no_es_tu_turno'; end if;\n  foreach q in array preguntas loop\n    insert into jugadas values (p_cliente * 100 + array_position(preguntas, q), p_partida, yo, q);\n  end loop;\n  insert into jugadas values (p_cliente, p_partida, yo, '__turno__');\n  update partidas set turno_de = 'beto', ronda = ronda + 1 where id = p_partida returning * into p;\n  insert into avisos (usuario, cuerpo) values ('beto', 'Te toca jugar');\n  return p;\nend $$;",
+   "cap": "Réplica reducida del patrón de `jugar_turno`, con tablas inventadas (`partidas`, `jugadas`, `avisos`). No es el código de Senda."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- las cuatro llamadas de la prueba (un resultado por llamada)",
+     "s": "-- 1) Llama la persona equivocada (no es su turno):\nERROR:  no_es_tu_turno\n-- 2) Es su turno, pero la tercera pregunta viene en null: falla DESPUÉS de haber insertado dos filas\nERROR:  null value in column \"pregunta\" of relation \"jugadas\" violates not-null constraint\n jugadas | ronda | avisos\n---------+-------+--------\n       0 |     1 |      0        <- las dos filas ya insertadas desaparecieron\n-- 3) Llamada correcta:\n jugadas | ronda | avisos\n---------+-------+--------\n       3 |     2 |      1\n-- 4) Reintento con el mismo cliente_id (la respuesta se perdió por la red):\n jugadas | ronda | avisos\n---------+-------+--------\n       3 |     2 |      1        <- no se duplicó nada"
+    }
+   ],
+   "cap": "Medido en esta VM, una corrida. Los comentarios con «--» son míos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el segundo caso, la función alcanzó a insertar dos jugadas antes de fallar en la tercera, y al terminar no había ninguna: atomicidad dentro de una función. En el cuarto, el reintento no duplicó nada. Todo esto corresponde al commit 25e08fa; el código cambia, la forma permanece. Lo que no verifiqué es cómo se comporta la función real con dos jugadores a la vez: eso necesita los niveles de aislamiento del día siguiente."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué cambia con el tiempo (13-11-2026)",
+   "x": "Las garantías de ACID son principios que no envejecen, pero lo medido es de PostgreSQL 16.15, y los valores por defecto de `fsync`, `synchronous_commit` y del nivel de aislamiento son de la 16. La página oficial de versiones lista la 18 como la más reciente con soporte (18.7) y la 16 soportada hasta el 9-11-2028 [#postgresql-versioning]. Lo que dice cada servicio gestionado sobre su durabilidad (réplicas, copias) se verifica en su documentación del día: acá no abrí ninguna cuenta ni probé Supabase."
+  }
+ ],
+ "recap": [
+  "Una transacción agrupa operaciones que solo tienen sentido juntas. Sin ella, un error a mitad deja la base a medio hacer: 200 tornillos desaparecieron en la demostración. En PostgreSQL cada sentencia suelta ya es una transacción (autocommit); `BEGIN` agrupa varias.",
+  "Después de un error dentro de una transacción, PostgreSQL la deja en estado abortado y solo acepta `ROLLBACK`; un `COMMIT` en ese estado deshace. Un `SAVEPOINT` permite descartar solo un tramo y seguir.",
+  "Atomicidad: todo o nada. Aislamiento: nadie ve a medias (en la prueba, la lectura no esperó y la escritura sobre la misma fila sí). Durabilidad: lo confirmado sobrevive a una caída; lo no confirmado se descarta.",
+  "Consistencia: la base garantiza las reglas que le declaraste (`CHECK`, claves). Una regla como «una transferencia conserva el total» no la conoce, y la confirmó mal escrita. Esa parte es de la aplicación.",
+  "Mantené las transacciones cortas: una abierta de más retiene filas y hace esperar a otras sesiones. No esperes a una persona ni a un servicio externo dentro de una.",
+  "En Senda, `jugar_turno` hace varias escrituras en una sola llamada transaccional, bloquea la partida con `for update` y es idempotente por `cliente_id`, así que el reintento no duplica el turno."
+ ],
+ "repaso": [
+  {
+   "p": "Una app descuenta 200 unidades del depósito A y, en una sentencia aparte sin transacción, las suma en B, que falla por una restricción. ¿Cómo queda el stock total?",
+   "o": [
+    "Igual que al principio, porque la base deshace sola el primer `UPDATE` al ver el error",
+    "Con 200 unidades menos, porque la primera sentencia ya se confirmó sola en autocommit",
+    "Igual que al principio, porque el error en la segunda frena también la lectura posterior",
+    "Con 200 unidades menos hasta que alguien ejecute `ROLLBACK` sobre la primera sentencia"
+   ],
+   "c": 1,
+   "e": "Sin `BEGIN`, cada sentencia es su propia transacción y se confirma al terminar. El primer `UPDATE` ya era definitivo cuando falló el segundo. La base no deshace sentencias anteriores ya confirmadas, y un `ROLLBACK` posterior no tiene nada que deshacer."
+  },
+  {
+   "p": "Dentro de una transacción, la tercera de cuatro sentencias falla por una restricción. Sin savepoints, ¿qué responde PostgreSQL a la cuarta sentencia?",
+   "o": [
+    "Ejecuta la cuarta con normalidad y recién el `COMMIT` final decide si confirma lo anterior",
+    "Rechaza la cuarta con «current transaction is aborted» hasta que la transacción termine",
+    "Ejecuta la cuarta pero deshace automáticamente solo la tercera, que fue la que falló",
+    "Cierra la conexión y borra los cambios de las tres primeras sentencias de inmediato"
+   ],
+   "c": 1,
+   "e": "En PostgreSQL, un error deja la transacción en estado abortado y todo lo que sigue se ignora hasta el `ROLLBACK` o el `COMMIT` (que en ese estado deshace). Deshacer solo la sentencia fallida es lo que hace un `ROLLBACK TO` a un savepoint, que acá no existe."
+  },
+  {
+   "p": "Una transferencia resta 200 de un depósito y suma 100 en otro por un error de tipeo; el `COMMIT` pasa sin quejas. ¿Qué garantía de ACID NO puede detectar el problema por sí sola?",
+   "o": [
+    "La atomicidad, porque ambas sentencias se aplicaron juntas y por eso falta una de ellas",
+    "El aislamiento, porque la otra sesión leyó el valor de antes y quedó desactualizada",
+    "La durabilidad, porque los datos confirmados mal se pierden en cuanto cae el servidor",
+    "La consistencia, porque la base solo conoce las reglas declaradas y esta no lo estaba"
+   ],
+   "c": 3,
+   "e": "Las dos cantidades cumplían todas las restricciones, así que la base no tenía nada que objetar: la regla «el total se conserva» vive en la aplicación. La atomicidad se cumplió (ambas se aplicaron), el aislamiento no interviene con una sola sesión y la durabilidad conservaría el error tal cual."
+  },
+  {
+   "p": "La sesión A modificó una fila y no confirmó. La sesión B hace un `SELECT` de esa fila. En la prueba de hoy, ¿qué pasó?",
+   "o": [
+    "B quedó esperando hasta que A confirmó, porque nadie puede leer una fila en modificación",
+    "B vio el valor nuevo de A al instante, aunque A todavía no hubiera confirmado nada",
+    "B recibió un error indicando que la fila estaba bloqueada por otra transacción abierta",
+    "B vio el valor viejo, ya confirmado, de inmediato, sin esperar a que A terminara"
+   ],
+   "c": 3,
+   "e": "Con el nivel por defecto, B lee la última versión confirmada y no espera. Lo que sí espera es una escritura sobre la misma fila. Ver el valor de A sin confirmar sería una lectura sucia, que el nivel por defecto no permite."
+  },
+  {
+   "p": "Un programa carga 300 entregas en una sola transacción y una falla por un dato inválido. Se quiere descartar solo esa entrega y confirmar las otras 299. ¿Qué herramienta corresponde?",
+   "o": [
+    "Un `COMMIT` después de cada sentencia, así cada entrega es independiente de las demás",
+    "Subir el nivel de aislamiento, porque el error se debe a que otra sesión interfiere",
+    "Un `SAVEPOINT` antes de cada entrega y `ROLLBACK TO` solo cuando una falle",
+    "Desactivar las restricciones de la tabla para que ningún dato sea rechazado"
+   ],
+   "c": 2,
+   "e": "Un savepoint por entrega permite descartar un tramo y seguir dentro de la misma transacción. El `COMMIT` en cada paso rompe la atomicidad del conjunto, el aislamiento no tiene que ver con un dato inválido, y quitar restricciones deja entrar datos incorrectos."
+  },
+  {
+   "p": "Un servidor se cae justo después de que la base respondió `COMMIT` con éxito a una entrega. Al volver a arrancar, ¿qué esperás encontrar si la base está configurada con sus valores por defecto?",
+   "o": [
+    "La entrega confirmada sigue ahí y las transacciones sin confirmar de ese momento no están",
+    "La entrega confirmada desaparece, porque solo un apagado ordenado guarda los cambios",
+    "Todas las transacciones que estaban en curso aparecen, confirmadas a medias",
+    "La base no arranca hasta que un administrador restaure una copia de seguridad"
+   ],
+   "c": 0,
+   "e": "Eso es la durabilidad: lo confirmado se conserva y el motor recupera el estado al arrancar. Lo que no se confirmó se descarta por atomicidad. No hace falta restaurar copias para una caída simple, y un apagado ordenado no es requisito."
+  },
+  {
+   "p": "Una función de base de datos que llama una app inserta en tres tablas y falla en la tercera inserción por un dato nulo. ¿Qué queda en las dos primeras tablas?",
+   "o": [
+    "Nada: el error deshace todo lo que la función escribió dentro de esa llamada transaccional",
+    "Las filas insertadas, porque cada `INSERT` dentro de una función se confirma por separado",
+    "Las filas insertadas hasta que alguien las borre, porque una función no puede deshacer",
+    "Solo la primera tabla, porque la función guarda un savepoint después del primer paso"
+   ],
+   "c": 0,
+   "e": "La función corre dentro de la transacción del pedido; un error no capturado la aborta y se deshacen todos sus cambios (lo comprobé con la réplica de `jugar_turno`). Los `INSERT` de una función no se confirman por separado, y ningún savepoint se crea solo salvo que haya un bloque `EXCEPTION`."
+  }
+ ],
+ "feynman": "Explicale a alguien de depósito, sin usar la palabra «ACID», qué pasa cuando se mueve mercadería entre dos depósitos y el sistema se cae a la mitad. Cubrí las cuatro garantías con tus palabras: que no quede a medias, que se cumplan las reglas, que nadie vea la mitad y que lo firmado no se pierda. Y decí cuál de las cuatro no puede asegurar la base por sí sola. Si te trabás, volvé a la tabla de quién asegura qué.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0924-pg16-tutorial-transactions",
+   "nota": "El tutorial oficial de PostgreSQL sobre transacciones, con el ejemplo del banco y el comportamiento de autocommit: lectura corta para fijar `BEGIN`, `COMMIT` y `ROLLBACK`."
+  },
+  {
+   "fuente": "bd0924-gray-1981",
+   "nota": "El artículo de Jim Gray de 1981: leé la introducción y el apartado «A general model of transactions»; muestra que el concepto nació del derecho de contratos y de la necesidad de que una operación sea atómica y durable."
+  },
+  {
+   "fuente": "ddia",
+   "nota": "El capítulo 7 del libro de Kleppmann, «Transactions», cubre ACID con cuidado y discute por qué la C de ACID es distinta de las otras tres; es la lectura que sigue a este día y al próximo."
+  },
+  {
+   "fuente": "bd0924-pg16-savepoint",
+   "nota": "La referencia de `SAVEPOINT` incluye `ROLLBACK TO` y `RELEASE`, con ejemplos de reutilizar un nombre; útil para el patrón de cargar lotes tolerando errores."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "transacción",
+   "d": "Grupo de operaciones que la base trata como una unidad: se aplican todas o ninguna, y mientras dura no se ve el resultado a medias. Se abre con `BEGIN`, se confirma con `COMMIT` y se deshace con `ROLLBACK`."
+  },
+  {
+   "t": "atomicidad",
+   "d": "Garantía de que las operaciones de una transacción se aplican todas o no se aplica ninguna. Ante un error o una caída, los cambios parciales no quedan."
+  },
+  {
+   "t": "consistencia",
+   "d": "Garantía de que una transacción lleva la base de un estado válido a otro válido. La base hace cumplir las reglas que se le declararon (`CHECK`, claves, `NOT NULL`); las reglas del negocio que no se declaran las debe cuidar la aplicación."
+  },
+  {
+   "t": "aislamiento",
+   "d": "Garantía de que las transacciones que corren a la vez no se interfieren: cada una se comporta como si estuviera sola, con distintos niveles de rigor. En PostgreSQL, por defecto una lectura ve solo lo confirmado y una escritura sobre la misma fila espera a la otra."
+  },
+  {
+   "t": "durabilidad",
+   "d": "Garantía de que lo confirmado con `COMMIT` sobrevive a una caída del servidor, porque antes de responder éxito la base lo deja en un registro persistente. Se puede relajar a propósito para ganar velocidad."
+  }
+ ],
+ "siguiente": "Concurrencia: aislamiento, anomalías y MVCC: qué ve cada sesión cuando otras escriben a la vez, y las lecturas raras que aparecen según el nivel de aislamiento.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0924-pg16-tutorial-transactions",
+   "t": "PostgreSQL 16: Transactions (tutorial)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/tutorial-transactions.html"
+  },
+  {
+   "id": "bd0924-pg16-savepoint",
+   "t": "PostgreSQL 16: SAVEPOINT",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/sql-savepoint.html"
+  },
+  {
+   "id": "bd0924-pg16-asynccommit",
+   "t": "PostgreSQL 16: Asynchronous Commit",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/wal-async-commit.html"
+  },
+  {
+   "id": "bd0924-pg16-pgctl",
+   "t": "PostgreSQL 16: pg_ctl (modos de apagado)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/app-pg-ctl.html"
+  },
+  {
+   "id": "bd0924-pg16-plpgsql-control",
+   "t": "PostgreSQL 16: PL/pgSQL Control Structures (bloques con EXCEPTION)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/plpgsql-control-structures.html"
+  },
+  {
+   "id": "bd0924-gray-1981",
+   "t": "The Transaction Concept: Virtues and Limitations",
+   "a": "Jim Gray",
+   "tipo": "paper",
+   "anio": 1981,
+   "url": "https://jimgray.azurewebsites.net/papers/thetransactionconcept.pdf"
+  },
+  {
+   "id": "bd0924-wikipedia-acid",
+   "t": "ACID (Wikipedia)",
+   "a": "Wikipedia",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/ACID"
+  },
+  {
+   "id": "bd0924-postgrest-transactions",
+   "t": "Transactions (documentación de PostgREST, texto fuente en su repositorio)",
+   "a": "PostgREST",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/PostgREST/postgrest/main/docs/references/transactions.rst"
+  }
+ ]
+}
