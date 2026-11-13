@@ -1,0 +1,588 @@
+{
+ "id": "06-20",
+ "titulo": "React IV: virtual DOM, reconciliación y keys",
+ "bajada": "Medís qué hace React cuando algo cambia, desmontás el mito del DOM virtual «más rápido» y entendés por qué una mala key hace que el estado salte de una fila a otra.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir renderizar (ejecutar componentes) de confirmar (tocar el DOM) y explicar por qué mil renders pueden tocar un solo nodo.",
+  "Explicar qué es el DOM virtual y por qué no es «más rápido que el DOM», apoyándote en una medición.",
+  "Aplicar las dos reglas de la reconciliación para predecir cuándo React conserva el estado de un componente y cuándo lo pierde.",
+  "Elegir la key de una lista y diagnosticar un estado que salta de fila por una mala key.",
+  "Describir a nivel de idea qué es una fibra y qué permite hacer a React."
+ ],
+ "venis_de": "En [@06-18] viste que un cambio de estado provoca un re-render, y en [@06-19] cómo un componente se sincroniza con el mundo de afuera. Hoy mirás qué hace React para decidir qué parte de la pantalla cambia, y cómo la `key` interviene en esa decisión.",
+ "se_apoya_en": [
+  "06-11",
+  "06-14",
+  "06-17",
+  "06-18",
+  "06-19"
+ ],
+ "gancho": [
+  "Un tablero de depósito muestra cuatro pedidos, A, B, C y D, y cada fila tiene un contador de «revisados». El operador toca dos veces el de la fila A. Entra un pedido nuevo, el Z, y la pantalla lo pone arriba de todo. Mirá bien lo que pasa: el pedido Z aparece con «2 revisados», y el A, que era el que se había revisado, vuelve a 0. Los nombres están bien y el orden también. Lo que se movió, sin avisar, fue el estado de una fila a otra.",
+  "Es uno de los bugs que más desconciertan en React y se arregla con una sola palabra, `key`. Para entender por qué existe hay que mirar debajo del capó: qué es el «DOM virtual», cómo decide React qué parte de la pantalla tocar y qué es Fiber. Todo con mediciones de esta VM: Chromium manejado por Playwright, React 19.3.1 y un tablero armado para la ocasión."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Renderizar no es tocar la pantalla"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@06-18] viste que un cambio de estado provoca un re-render. Por dentro son tres pasos: React recibe la orden de actualizar, **renderiza** (llama a tus componentes para saber qué hay que mostrar) y **confirma** (aplica al DOM real lo que haya cambiado) [#react-i-render-commit]. El segundo paso es puro cálculo en JavaScript. Solo el tercero toca un [[nodo DOM]] de [@06-11]. Y la propia documentación dice que React solo cambia los nodos del DOM si hay diferencias entre un render y el siguiente.",
+    "Para ver la distancia entre los dos pasos armé una tabla de 1.000 pedidos, con un componente `Fila` por pedido, y puse un contador en cada ejecución de `Fila` y un observador (`MutationObserver`, una Web API del navegador) que cuenta los nodos del DOM que realmente cambian:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Qué hice",
+    "Veces que React ejecutó `Fila`",
+    "Nodos del DOM tocados"
+   ],
+   "filas": [
+    [
+     "Cambiar el estado de 1 pedido de los 1.000",
+     "1.000",
+     "1 (un texto)"
+    ],
+    [
+     "Reemplazar los 1.000 objetos por copias idénticas",
+     "1.000",
+     "0"
+    ]
+   ],
+   "cap": "Medido en esta VM, 13-11-2026: Chromium vía Playwright, React 19.3.1. Los pedidos son datos inventados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ejecutó mil componentes y tocó, como mucho, un nodo. En el segundo caso no cambió ni uno. Hay dos razones. Primero, React normalmente vuelve a renderizar un componente cada vez que su padre se renderiza [#react-iv-memo]; hay una forma de saltearlo y se ve en [@06-21]. Segundo, el paso de confirmar compara y cambia solo lo distinto. Por eso «renderizó» no quiere decir «actualizó la pantalla».",
+    "Lo que los componentes devuelven en cada render es un árbol de objetos de JavaScript muy livianos, los elementos de [@06-17] con su `type`, sus `props` y su `key`. Ese árbol describe cómo debería verse la pantalla y se llama [[DOM virtual]]. React guarda el anterior, arma el nuevo, los compara y manda al DOM real solo las diferencias. La documentación vieja de React aclara que es un patrón y no una tecnología concreta, y que en el mundo React el término se asocia sobre todo a los elementos [#react-iv-legacy-faq]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Es como la lista de preparación de un depósito. Cada mañana llega la lista completa del día, pero el operador no desarma y rearma toda la góndola: compara con la de ayer y mueve solo los bultos que difieren. La lista es el DOM virtual, la góndola es el DOM real y la comparación es lo que sigue. Dónde deja de valer: en React la lista se genera completa en cada render (los 1.000 `Fila` de arriba), y la comparación usa atajos que a veces mueven más de lo necesario.",
+   "titulo": "La lista de preparación y la góndola"
+  },
+  {
+   "t": "h",
+   "x": "El mito: «el DOM virtual es más rápido que el DOM»"
+  },
+  {
+   "t": "p",
+   "x": "Se escucha mucho, y la medición no lo respalda. Con la misma tabla de 1.000 filas actualicé una sola de cuatro maneras y medí cuánto tardó cada una:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cómo actualizo 1 fila de 1.000",
+    "Tiempo por actualización"
+   ],
+   "filas": [
+    [
+     "Asignar el texto directamente al nodo del DOM",
+     "0,001 ms (promedio de 20.000 asignaciones)"
+    ],
+    [
+     "React 19.3.1, build de producción",
+     "0,7 ms (mediana de 201 actualizaciones)"
+    ],
+    [
+     "Reconstruir las 1.000 filas con `innerHTML`",
+     "2,3 ms (mediana de 51 reconstrucciones)"
+    ],
+    [
+     "React 19.3.1, build de desarrollo",
+     "8,9 ms (mediana de 201 actualizaciones)"
+    ]
+   ],
+   "cap": "Medido en esta VM, 13-11-2026, Chromium vía Playwright. No incluye cálculo de layout ni pintado. Es una sola máquina: los números sirven para comparar entre sí, no como cifras generales."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Leé la tabla de abajo hacia arriba, de peor a mejor. Asignar el texto a mano es cientos de veces más rápido que React, porque no hay nada que comparar: sabés qué nodo cambió. React gana por tres a tirar todo y reconstruirlo, que es la alternativa ingenua. Y la versión de desarrollo, con todas sus verificaciones, tarda más de diez veces que la de producción: nunca midas rendimiento sobre ella.",
+    "Entonces el DOM virtual no hace magia. Lo que ofrece es que **no tenés que saber qué nodo tocar**: describís cómo debería quedar todo y el algoritmo calcula la diferencia, mucho mejor que la peor estrategia. Rich Harris, autor de Svelte, lo resumió en 2018 en una nota muy citada: el DOM virtual suele ser «lo bastante rápido», pero comparar árboles es trabajo extra sobre el DOM real [#react-iv-svelte-vdom]. Es la opinión de quien eligió otro camino, y se debate: otros frameworks esquivan el DOM virtual compilando las actualizaciones ([@06-30])."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "No es lo que React promete. Su promesa es declarativa: vos describís el resultado y React se ocupa de llegar. Que sea «más rápido que el DOM» es un malentendido que circuló mucho; a lo sumo es «suficientemente rápido, y mucho mejor que reconstruir todo».",
+   "titulo": "«Más rápido que el DOM»"
+  },
+  {
+   "t": "pensa",
+   "x": "React ejecutó 1.000 veces el componente `Fila` y tocó un solo nodo del DOM. ¿En qué se gastó el trabajo de esa actualización?",
+   "resp": "Casi todo se gastó en JavaScript: ejecutar los componentes, crear los elementos nuevos y compararlos con los anteriores. El DOM real recibió un único cambio. Por eso la versión de desarrollo, que agrega verificaciones a ese trabajo, es tantas veces más lenta que la de producción."
+  },
+  {
+   "t": "h",
+   "x": "Reconciliación: dos reglas para comparar sin explotar"
+  },
+  {
+   "t": "p",
+   "x": "Comparar el árbol anterior con el nuevo para decidir qué cambiar se llama [[reconciliación]]. Hacerlo de forma óptima es caro: la documentación vieja de React cuenta que los algoritmos generales para transformar un árbol en otro costaban del orden de n al cubo, con lo cual 1.000 elementos pedirían del orden de mil millones de comparaciones [#react-iv-legacy-reconciliation]. React cambia exactitud por velocidad con una heurística de orden n, que descansa en dos suposiciones:"
+  },
+  {
+   "t": "lista",
+   "ord": true,
+   "items": [
+    "**Dos elementos de distinto tipo producen árboles distintos.** Si en el mismo lugar había un `div` y ahora hay un `section`, React no se pone a comparar lo de adentro: tira el subárbol viejo y construye uno nuevo.",
+    "**El programador puede indicar con `key` qué hijos de una lista son los mismos entre renders.** Sin esa pista, React compara por posición."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "La primera regla se puede comprobar. Armé un `div` con un componente adentro que cuenta bultos revisados (estado propio), toqué el botón tres veces y después hice dos cambios en el mismo lugar:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Qué cambia en esa posición",
+    "¿Sigue siendo el mismo nodo del DOM?",
+    "Contador (valía 3)",
+    "Nodos del DOM tocados"
+   ],
+   "filas": [
+    [
+     "Solo la clase del `div`: de «a» a «b»",
+     "Sí",
+     "3",
+     "1 (un atributo)"
+    ],
+    [
+     "La etiqueta: de `div` a `section`",
+     "No",
+     "0",
+     "2 (uno entra y otro sale)"
+    ]
+   ],
+   "cap": "Medido en esta VM, 13-11-2026, React 19.3.1. «Mismo nodo» se comprobó guardando una referencia al elemento antes y comparándola después."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con la misma etiqueta, React conserva el nodo, actualiza solo el atributo que cambió y el estado de los componentes de adentro sigue ahí. Con otra etiqueta, destruye el subárbol: se pierden los nodos y también el estado de cada componente que había adentro. La regla de fondo, según la documentación, es que **React ata el estado a la posición en el árbol**: el mismo componente en la misma posición conserva su estado; uno distinto en esa posición lo pierde [#react-iv-preserving-state].",
+    "Esa regla explica un bug clásico. Probé un campo de texto dentro de un componente definido **adentro** de otro componente. Tipeé «pallet 17» y provoqué un re-render del padre. El texto desapareció y el elemento `input` era otro. Con el mismo campo definido afuera, el texto siguió ahí. La razón es que cada render del padre crea una función nueva, y para React una función nueva es un tipo de componente nuevo: aplica la primera regla y reconstruye todo. La documentación pide declarar siempre los componentes en el nivel superior del archivo [#react-iv-preserving-state]."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un `if` muestra `<Aviso />` o `<Alerta />` en el mismo lugar de la pantalla según un estado. Cada uno tiene un campo de texto con su propio estado. Al alternar, ¿qué pasa con lo que la persona había escrito?",
+   "resp": "Se pierde. Son componentes de tipos distintos en la misma posición, así que React descarta el viejo con todo su estado y crea el nuevo desde cero. Si fuera el mismo componente con props distintas, lo escrito se conservaría, y a veces eso es justo el problema que viene ahora."
+  },
+  {
+   "t": "h",
+   "x": "Las listas y la key"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando un componente devuelve una lista de hijos, React necesita saber cuál es cuál de un render al siguiente. Sin ayuda, usa la posición: el primer hijo de ahora es «el mismo» que el primer hijo de antes. Cuando el orden no cambia funciona, pero la documentación vieja ya muestra qué pasa si se inserta algo al principio: React termina modificando cada hijo en lugar de reconocer que los demás solo se corrieron [#react-iv-legacy-reconciliation].",
+    "La [[key]] es el valor que identifica a cada elemento de una lista entre sus hermanos. React la usa para emparejar «este hijo del render nuevo es aquel del render anterior», aunque se haya movido. Si no ponés ninguna, React usa el índice del arreglo [#react-iv-rendering-lists]. Y como viste en [@06-17], la `key` no llega al componente como prop: es una pista para React y nada más."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Armé el tablero del gancho con cuatro pedidos y un contador de «revisados» por fila (estado de cada `Fila`). Toqué dos veces el contador del pedido A y después hice entrar el pedido Z arriba de todo. Repetí el experimento con tres formas de elegir la `key`:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "La key es…",
+    "Dónde quedó «2 revisados»",
+    "Nodos del DOM tocados",
+    "Filas que siguen siendo el mismo nodo"
+   ],
+   "filas": [
+    [
+     "La posición: `key={i}`",
+     "En el pedido Z, que es nuevo (mal)",
+     "5 (4 textos que cambian y 1 fila nueva)",
+     "4"
+    ],
+    [
+     "El id del pedido: `key={p.id}`",
+     "En el pedido A (bien)",
+     "1 (la fila nueva)",
+     "4"
+    ],
+    [
+     "Un número al azar: `key={Math.random()}`",
+     "En ninguno: se perdió",
+     "9 (5 filas entran y 4 salen)",
+     "0"
+    ]
+   ],
+   "cap": "Medido en esta VM, 13-11-2026, React 19.3.1. Cuatro pedidos de ejemplo inventados; el estado de cada fila es un contador local."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Por qué el estado «salta» con la posición como key",
+   "pasos": [
+    {
+     "t": "Antes",
+     "x": "Hay cuatro filas con las keys 0, 1, 2 y 3. La fila con key 0 es el pedido A y tiene su contador en 2."
+    },
+    {
+     "t": "El render nuevo",
+     "x": "Trae cinco filas, con las keys 0 a 4. La key 0 ahora corresponde al pedido Z."
+    },
+    {
+     "t": "El emparejamiento",
+     "x": "React ve que la key 0 ya existía, así que la actualiza: conserva su estado (el 2) y solo cambia el texto de «A» a «Z». La key 4 es nueva y se crea desde cero."
+    },
+    {
+     "t": "Resultado",
+     "x": "El 2 se quedó en la posición 0 mientras el pedido de esa posición cambiaba. Con el id como key, el pedido A conserva su key y su estado aunque ahora esté en la posición 1."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "El segundo costo es de DOM. Con una lista de 1.000 pedidos y un pedido nuevo arriba (build de producción), `key={i}` produjo 1.000 cambios de texto más una fila nueva, y `key={p.id}` produjo solo la fila nueva. En tiempo fue una diferencia chica en esta VM (9,3 ms contra 7,4 ms, una sola corrida cada una), así que el problema serio de la posición no es la velocidad: es el estado. La misma lógica de emparejamiento se puede ver sin React, con un modelo mínimo:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Modelo simplificado de cómo se emparejan los hijos de una lista. NO es el código de React.\nfunction emparejar(viejos, nuevos, claveDe) {\n  const porClave = new Map(viejos.map((p, i) => [claveDe(p, i), p]));\n  let reusados = 0, textosQueCambian = 0, filasNuevas = 0;\n  nuevos.forEach((p, i) => {\n    const v = porClave.get(claveDe(p, i));\n    if (!v) filasNuevas++;\n    else { reusados++; if (v.nombre !== p.nombre) textosQueCambian++; }\n  });\n  return { reusados, textosQueCambian, filasNuevas, filasQuitadas: viejos.length - reusados };\n}\n\nconst viejos = Array.from({ length: 1000 }, (_, i) => ({ id: \"p\" + i, nombre: \"pedido \" + i }));\nconst nuevos = [{ id: \"z0\", nombre: \"pedido nuevo\" }, ...viejos]; // entra uno arriba\n\nconsole.log(\"key = posición:\", JSON.stringify(emparejar(viejos, nuevos, (p, i) => i)));\nconsole.log(\"key = id      :\", JSON.stringify(emparejar(viejos, nuevos, (p) => p.id)));",
+   "cap": "Modelo simplificado de cómo se emparejan los hijos según la key. No es el código de React, pero reproduce las cifras medidas: con la posición, los 1.000 textos «cambian»; con el id, ninguno."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": [
+    "Las reglas de la `key`, según la documentación [#react-iv-rendering-lists]: tiene que ser **única entre hermanos** (no hace falta que sea única en toda la app), **estable** (el mismo dato siempre tiene la misma key) y **sacada de los datos**, por ejemplo el id de la base. Nunca generada al renderizar: `Math.random()` hace que las keys no coincidan jamás y que se destruya y se cree todo cada vez, con pérdida de lo que la persona haya escrito.",
+    "El índice sirve cuando la lista es fija: no se reordena, no se filtra, no recibe elementos en el medio y los ítems no tienen estado propio. La documentación vieja lo admite como último recurso para listas que nunca se reordenan."
+   ],
+   "titulo": "Cómo elegir la key"
+  },
+  {
+   "t": "senda",
+   "titulo": "Keys en Senda",
+   "x": [
+    "En `src/` hay 282 líneas con `key={` repartidas en 77 archivos, y 29 de ellas usan `key={i}` (15 archivos), contadas con `grep` en el commit 25e08fa. No son todas iguales. La lista de libros de `src/pantallas/Biblia.tsx` usa `<Fragment key={l.id}>` (línea 157): un id estable. En cambio, `src/pantallas/Historias.tsx` (línea 224) pinta los segmentos de la barra de progreso de una misión con `key={i}`: son tantos como pasos tiene la historia, no se reordenan y no guardan estado propio, es el caso en que el índice es seguro. Y `src/lector/texto.tsx` (línea 83) usa `key={i}` en los trozos de un versículo que se calculan al vuelo para marcar las palabras del glosario.",
+    "No audité las 29: la pregunta para hacerlo es si esa lista puede reordenarse, filtrarse o recibir ítems en el medio y si cada ítem tiene estado. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/pantallas/Biblia.tsx",
+    "src/pantallas/Historias.tsx",
+    "src/lector/texto.tsx"
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Tu componente `Fila` recibe `key={p.id}` desde el padre. Dentro de `Fila`, ¿podés leer ese id con `props.key`? Si lo necesitás adentro, ¿qué hacés?",
+   "resp": "No: la key no llega al componente, la usa React. Si `Fila` necesita el id, se lo pasás aparte como otra prop, por ejemplo `<Fila key={p.id} id={p.id} />`."
+  },
+  {
+   "t": "h3",
+   "x": "La key también sirve para reiniciar un componente"
+  },
+  {
+   "t": "p",
+   "x": "La `key` no es solo para listas. Si cambiás la `key` de un componente, React lo trata como otro distinto y arranca de cero. Probé un formulario de mensaje que recibe un `usuario` por props. Escribí «hola, ¿llegó el pallet?» para Ana y cambié a Beto. Sin `key`, el mensaje de Ana seguía en el campo de Beto: es el mismo componente en la misma posición, solo cambió una prop. Con `key={usuario}`, el campo quedó vacío. La documentación recomienda este recurso en lugar de un efecto que pone el estado en cero [#react-iv-preserving-state], lo que anticipé en [@06-19]."
+  },
+  {
+   "t": "h",
+   "x": "Fiber: la estructura por dentro, a nivel de idea"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El reconciliador de React se reescribió para la versión 16 y esa reescritura se llama [[Fiber]]. Según la documentación vieja, su objetivo principal fue permitir el renderizado incremental del DOM virtual [#react-iv-legacy-faq]. El problema que resolvía: renderizar era una cadena de llamadas anidadas que, una vez empezada, no se podía interrumpir. Si el árbol era grande, esa cadena ocupaba el [[hilo principal]] ([@06-14]) más tiempo del que cabe en un cuadro y la pantalla se trababa.",
+    "La idea de Fiber, según unas notas no oficiales publicadas en el repositorio `acdlite/react-fiber-architecture` (el propio texto aclara que no es documentación oficial), es convertir cada pedazo de trabajo en un objeto, una especie de «cuadro de pila virtual». Así React puede pausar el trabajo y retomarlo después, darle prioridades distintas, reusar trabajo ya hecho o abandonarlo si llegó una actualización que lo vuelve inútil [#react-iv-fiber-arch]. Cómo usa React esa capacidad (renderizado concurrente) es el tema de [@06-21]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Una fibra no es abstracta: es un objeto que se puede inspeccionar. React deja en cada nodo del DOM una referencia a su fibra, en una propiedad cuyo nombre empieza con `__reactFiber$`. Con Playwright tomé el elemento `<li>` de un componente `Hijo` dentro de `Padre`, y caminé por el campo `return`, que apunta al padre de cada fibra:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node fibra.js   # Playwright: parte del <li> y sigue el campo «return» de cada fibra",
+     "s": "li        (elemento del DOM, tag 5)\nHijo      (componente de función, tag 0)\nul        (elemento del DOM, tag 5)\nPadre     (componente de función, tag 0)\nsection   (elemento del DOM, tag 5)\nD         (componente de función, tag 0)\nraíz      (tag 3)"
+    },
+    {
+     "c": "# después de una actualización de estado, mismo <li>",
+     "s": "fibras por nodo: 2 (la fibra y su `alternate`)\nprops de una fibra: «valor 0»   props de la otra: «valor 1»   mismo nodo del DOM: sí"
+    }
+   ],
+   "cap": "Medido en esta VM, 13-11-2026, React 19.3.1 en desarrollo. Cada fibra tiene, entre otros, estos campos: `tag`, `key`, `type`, `stateNode`, `return`, `child`, `sibling`, `memoizedProps`, `memoizedState`, `alternate`, `lanes`, `flags`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay una fibra por cada elemento del DOM y por cada componente, enlazadas como un árbol (`child`, `sibling` y `return`). Y aparece una sorpresa: después de actualizar, el mismo `<li>` tiene **dos** fibras, una con las props viejas y otra con las nuevas. Es el campo `alternate`: React mantiene la fibra «actual», la que se confirmó en pantalla, y una copia de trabajo donde calcula el render siguiente, y las intercambia al confirmar [#react-iv-fiber-arch]. Por eso puede preparar una actualización entera sin tocar la pantalla hasta que esté lista.",
+    "Todo esto es interno. Los nombres, los números de `tag` y los campos son detalles de implementación que cambian entre versiones, y las propias notas lo advierten. Sirve para entender, no para usar en el código de una app."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "La explicación más detallada del algoritmo de comparación sigue en la documentación vieja de React (v18.2, que dice «no se actualiza más») y en notas no oficiales de Fiber, porque la documentación actual en react.dev explica el comportamiento (estado atado a la posición, keys) y no el algoritmo. Las notas de Fiber dicen que las dos reglas centrales se mantuvieron con la reescritura, y las mediciones de hoy en React 19.3.1 (versión publicada más reciente en npm al 13-11-2026) las confirman en lo que se puede observar. El detalle interno, como la cifra de n al cubo, es lo que dicen esas fuentes y no lo verifiqué yo.",
+   "titulo": "Dónde está documentado el algoritmo, 13-11-2026"
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no tiene DOM, pero tiene el mismo reconciliador",
+   "x": [
+    "`package.json` (commit 25e08fa) declara `react` 19.2.3 y `react-native` 0.86.3. En el teléfono no hay DOM: según la documentación de React Native, después de renderizar y confirmar viene un tercer paso, el montaje, que convierte el árbol en vistas nativas del sistema (por ejemplo un `ViewGroup` y un `TextView` en Android) [#react-iv-rn-render-pipeline]. Los dos primeros pasos son los de hoy: elementos, comparación, keys. Lo que cambia es el destino final, que en la web es el DOM y en el teléfono son vistas nativas.",
+    "Para la vista previa web, Senda declara además `react-dom` 19.2.3 y `react-native-web` `~0.21.0`, según `senda/mapa-tecnico.md`. El paquete de npm `react-reconciler` existe justamente para armar renderizadores a medida: su descripción en npm es «React package for creating custom renderers»."
+   ],
+   "archivos": [
+    "package.json",
+    "src/pantallas/Biblia.tsx"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Síntomas y causas: una tabla para el día a día"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Síntoma",
+    "Causa probable",
+    "Qué hacer"
+   ],
+   "filas": [
+    [
+     "Al insertar, borrar u ordenar, el texto o el contador de una fila aparece en otra",
+     "`key` por posición en una lista que cambia",
+     "Usar un id estable de los datos como `key`"
+    ],
+    [
+     "Lo que la persona tipea desaparece cada vez que algo se actualiza",
+     "Un componente definido adentro de otro, una `key` al azar o un cambio de etiqueta en el mismo lugar",
+     "Declarar los componentes afuera, usar keys estables y revisar los condicionales"
+    ],
+    [
+     "Al cambiar de usuario o de pedido quedan datos del anterior en un formulario",
+     "Mismo componente en la misma posición: React conserva el estado",
+     "`key={usuario}` en el componente"
+    ],
+    [
+     "«Se ejecuta mil veces y casi no cambia nada»",
+     "Los hijos se renderizan siempre que se renderiza el padre",
+     "Es normal; si molesta, `memo` ([@06-21]) y no antes de medir"
+    ]
+   ],
+   "cap": "Cuatro síntomas habituales de la reconciliación."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "x": "Los números de este día son de una sola VM, con tablas chicas, datos inventados y una sola corrida por caso, salvo los tiempos de actualización, que son medianas. Muestran el **comportamiento**: lo que no cambia con la máquina es qué se conserva, qué se reconstruye y cuántos nodos se tocan.",
+   "titulo": "Qué se puede concluir de las mediciones"
+  }
+ ],
+ "recap": [
+  "Renderizar es ejecutar tus componentes y confirmar es aplicar cambios al DOM. Un cambio de estado puede ejecutar mil componentes y tocar un solo nodo, o ninguno.",
+  "El DOM virtual es el árbol de elementos que devuelven los componentes. React lo compara con el anterior y aplica al DOM real solo las diferencias; es un patrón, no una tecnología puntual.",
+  "No es más rápido que el DOM: asignar el texto a mano fue cientos de veces más rápido que React, y React fue unas tres veces más rápido que reconstruir todo. Su valor es que no hace falta saber qué nodo tocar.",
+  "La reconciliación compara con una heurística: dos elementos de distinto tipo en el mismo lugar producen árboles distintos, y la `key` indica qué hijos son los mismos.",
+  "React ata el estado a la posición en el árbol: el mismo componente en la misma posición lo conserva y uno distinto lo pierde. Por eso un componente definido adentro de otro pierde el estado en cada render.",
+  "La `key` tiene que ser única entre hermanos, estable y sacada de los datos. Con la posición, el estado salta de fila al insertar; con un número al azar, todo se reconstruye.",
+  "Fiber es la reescritura del reconciliador de React 16: cada pieza de trabajo es un objeto, lo que permite pausar, priorizar y descartar renders. Es un detalle interno que sirve para entender, no para usar."
+ ],
+ "repaso": [
+  {
+   "p": "En un tablero de 1.000 filas, un cambio en una sola fila hizo que React ejecutara el componente `Fila` 1.000 veces y tocara un nodo del DOM. ¿Qué describe mejor lo ocurrido?",
+   "o": [
+    "El render calculó todo de nuevo y la confirmación aplicó solo la diferencia",
+    "React falló al detectar qué fila cambió y reconstruyó el tablero entero",
+    "El DOM virtual toca los mil nodos y el navegador descarta los que no cambiaron",
+    "Cada ejecución de `Fila` modificó el DOM, pero el navegador unió los mil cambios"
+   ],
+   "c": 0,
+   "e": "Renderizar es ejecutar los componentes (un cálculo en JavaScript) y confirmar es aplicar al DOM las diferencias: se ejecutaron mil componentes y el observador contó un solo nodo tocado. No hubo reconstrucción total, el DOM virtual no toca nodos, y las mil ejecuciones no generaron mil cambios que el navegador uniera."
+  },
+  {
+   "p": "¿Qué afirmación sobre el DOM virtual es correcta, según lo medido y lo que dice la documentación?",
+   "o": [
+    "Es una copia del DOM del navegador que hace que cualquier actualización sea más rápida que a mano",
+    "Es un árbol de objetos que React compara con el anterior, y no vence a una actualización manual del DOM",
+    "Es una tecnología propia de React que reemplaza al DOM real en la pantalla del navegador",
+    "Es lo mismo que el Shadow DOM del navegador, usado por React para aislar estilos"
+   ],
+   "c": 1,
+   "e": "El DOM virtual es el árbol de elementos de JavaScript que React compara render a render; en la medición, asignar el texto a mano fue cientos de veces más rápido. No reemplaza al DOM real, no es más rápido que tocarlo directamente cuando sabés qué nodo cambió, y no es el Shadow DOM, que es otra cosa del navegador."
+  },
+  {
+   "p": "Un `div` contiene un componente `Contador` con su estado. Un cambio hace que, en ese mismo lugar, el `div` pase a ser un `section` con el mismo `Contador` adentro. ¿Qué pasa con el estado del contador?",
+   "o": [
+    "Se conserva, porque el `Contador` sigue siendo el mismo componente en su archivo",
+    "Se conserva, porque React compara siempre los hijos antes que sus contenedores",
+    "Se pierde, porque al cambiar la etiqueta React destruye el subárbol y crea uno nuevo",
+    "Se pierde solo si el `Contador` guarda el estado en un ref y no en un `useState`"
+   ],
+   "c": 2,
+   "e": "Con una etiqueta de otro tipo en la misma posición, React tira el subárbol viejo y construye uno nuevo, y el estado de los componentes de adentro se pierde. En la medición, el contador pasó de 3 a 0. El estado depende de la posición en el árbol, no de dónde esté escrito el componente."
+  },
+  {
+   "p": "Una lista de pedidos usa `key={i}` (el índice). Un pedido nuevo entra al principio, y el contador de «revisados» del pedido A aparece ahora en el pedido nuevo. ¿Por qué?",
+   "o": [
+    "React copia el estado del primer pedido a todos los que se agregan por delante",
+    "El pedido nuevo hereda el contador porque se renderiza antes que los demás pedidos",
+    "Los contadores se guardan por nombre y el nombre del pedido nuevo coincidió con A",
+    "React conserva el estado de la key 0 y la key 0 ahora corresponde al pedido nuevo"
+   ],
+   "c": 3,
+   "e": "Con la posición como key, el estado queda atado a la posición: la key 0 ya existía, así que React conserva su estado (el 2) y solo cambia el texto. React no copia estados ni los guarda por nombre, y el orden de render no los reparte. La solución es una key estable, como el id del pedido."
+  },
+  {
+   "p": "Tenés una lista de pedidos que viene de la base con un `id` único y que la persona puede ordenar. ¿Qué conviene usar como `key`?",
+   "o": [
+    "El `id` del pedido, porque identifica al mismo pedido aunque cambie de lugar",
+    "El índice de cada pedido, porque la lista ya viene ordenada desde la base",
+    "Un valor aleatorio generado en cada render, para que nunca se repita",
+    "El nombre del cliente, aunque varios pedidos tengan el mismo nombre"
+   ],
+   "c": 0,
+   "e": "La key tiene que ser estable, única entre hermanos y sacada de los datos: el id cumple las tres. El índice cambia al ordenar y manda el estado a otra fila; el valor aleatorio no coincide nunca y reconstruye todo; el nombre del cliente puede repetirse, y una key repetida entre hermanos confunde el emparejamiento."
+  },
+  {
+   "p": "Una pantalla de perfil tiene un campo de mensaje con estado. Al elegir otro usuario quedan los datos del anterior en el campo. ¿Qué conviene hacer?",
+   "o": [
+    "Escribir un efecto que ponga el campo en blanco cada vez que cambie la prop",
+    "Cambiar el tipo del contenedor para que React reconstruya el campo siempre",
+    "Guardar el mensaje en una variable fuera del componente para que no se pise",
+    "Pasar `key={usuario}` al componente para que React lo trate como uno nuevo"
+   ],
+   "c": 3,
+   "e": "Es el mismo componente en la misma posición y solo cambió una prop, por eso React conserva el estado. Una key distinta lo hace nuevo y vacía el campo, como se midió. El efecto que reinicia el estado dibuja primero con el valor viejo; cambiar el contenedor es un truco frágil; y una variable externa no resuelve nada."
+  },
+  {
+   "p": "¿Qué idea explica por qué Fiber hace posible pausar y retomar un render largo sin trabar la pantalla?",
+   "o": [
+    "React acelera el render al compilarlo a un lenguaje más rápido que JavaScript",
+    "Cada pieza de trabajo es un objeto, así que React puede detenerse entre una y otra",
+    "El navegador se encarga de pausar el render cuando detecta una animación en curso",
+    "React renderiza en un hilo aparte del navegador y vuelca el resultado al terminar"
+   ],
+   "c": 1,
+   "e": "Fiber convierte cada pedazo de trabajo en un objeto (una especie de cuadro de pila virtual), de modo que React puede cortar entre piezas, retomar después, priorizar o descartar. No cambia de lenguaje, no depende de que el navegador pause nada y el render sigue corriendo en el hilo principal, pero en pedazos."
+  }
+ ],
+ "feynman": "Explicale a alguien que sabe programar pero nunca usó React qué es el DOM virtual, por qué no es «más rápido que el DOM» y qué problema resuelve la key en una lista. Usá un ejemplo propio de una lista que cambia y que no sea el tablero de pedidos.",
+ "para_profundizar": [
+  {
+   "fuente": "react-iv-preserving-state",
+   "nota": "«Preserving and Resetting State»: la documentación actual sobre estado atado a la posición, componentes del mismo tipo y cómo reiniciar con `key`. Es la mejor lectura para el segundo tercio del día."
+  },
+  {
+   "fuente": "react-iv-rendering-lists",
+   "nota": "«Rendering Lists»: las reglas de las keys, de dónde sacarlas y qué pasa si usás el índice o un valor al azar."
+  },
+  {
+   "fuente": "react-iv-legacy-reconciliation",
+   "nota": "La explicación del algoritmo de comparación con los ejemplos de insertar al principio de una lista. Es documentación vieja (v18.2), pero sigue siendo la más clara."
+  },
+  {
+   "fuente": "react-iv-fiber-arch",
+   "nota": "Notas no oficiales sobre Fiber: qué es una fibra, el campo `alternate` y la idea de unidad de trabajo. Leé «What is a fiber?» y no te frustres si no cierra todo."
+  }
+ ],
+ "videos": [
+  {
+   "q": "React reconciliation keys virtual DOM explained index as key bug",
+   "por_que": "Para ver otra explicación del bug de la key por índice y comparar con el tablero de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "DOM virtual",
+   "d": "El árbol de elementos de JavaScript (con `type`, `props` y `key`) que devuelven los componentes en cada render y que describe cómo debería verse la pantalla. React lo compara con el anterior y aplica al DOM real solo las diferencias."
+  },
+  {
+   "t": "reconciliación",
+   "d": "El proceso con que React compara el árbol de elementos anterior con el nuevo para decidir qué nodos del DOM crear, actualizar o quitar. Usa una heurística con dos reglas: el tipo distinto produce un árbol distinto y la `key` identifica a los hijos."
+  },
+  {
+   "t": "key",
+   "d": "El valor que identifica a cada elemento de una lista entre sus hermanos y que React usa para emparejar los hijos entre renders. Tiene que ser única entre hermanos, estable y salir de los datos; no llega al componente como prop."
+  },
+  {
+   "t": "Fiber",
+   "d": "La reescritura del reconciliador de React que llegó con la versión 16. Representa cada pieza de trabajo como un objeto, la fibra, lo que permite pausar, retomar, priorizar y descartar el renderizado."
+  }
+ ],
+ "siguiente": "React V: contexto, rendimiento y hooks avanzados. Cómo pasar datos a muchos componentes sin repetir props, cuándo vale la pena evitar un render y cómo React puede interrumpir uno largo para atender antes una interacción.",
+ "fuentes_nuevas": [
+  {
+   "id": "react-i-render-commit",
+   "t": "Render and Commit (React)",
+   "a": "Meta (React)",
+   "tipo": "doc",
+   "url": "https://react.dev/learn/render-and-commit"
+  },
+  {
+   "id": "react-iv-memo",
+   "t": "memo (referencia de React)",
+   "a": "Meta (React)",
+   "tipo": "doc",
+   "url": "https://react.dev/reference/react/memo"
+  },
+  {
+   "id": "react-iv-preserving-state",
+   "t": "Preserving and Resetting State",
+   "a": "Meta (React)",
+   "tipo": "doc",
+   "url": "https://react.dev/learn/preserving-and-resetting-state"
+  },
+  {
+   "id": "react-iv-rendering-lists",
+   "t": "Rendering Lists",
+   "a": "Meta (React)",
+   "tipo": "doc",
+   "url": "https://react.dev/learn/rendering-lists"
+  },
+  {
+   "id": "react-iv-legacy-reconciliation",
+   "t": "Reconciliation (documentación anterior de React, v18.2)",
+   "a": "Meta (React)",
+   "tipo": "doc",
+   "url": "https://legacy.reactjs.org/docs/reconciliation.html"
+  },
+  {
+   "id": "react-iv-legacy-faq",
+   "t": "Virtual DOM and Internals (documentación anterior de React, v18.2)",
+   "a": "Meta (React)",
+   "tipo": "doc",
+   "url": "https://legacy.reactjs.org/docs/faq-internals.html"
+  },
+  {
+   "id": "react-iv-fiber-arch",
+   "t": "React Fiber Architecture (notas no oficiales)",
+   "a": "acdlite (GitHub)",
+   "tipo": "articulo",
+   "url": "https://raw.githubusercontent.com/acdlite/react-fiber-architecture/master/README.md"
+  },
+  {
+   "id": "react-iv-svelte-vdom",
+   "t": "Virtual DOM is pure overhead",
+   "a": "Rich Harris (blog de Svelte)",
+   "tipo": "articulo",
+   "anio": 2018,
+   "url": "https://svelte.dev/blog/virtual-dom-is-pure-overhead"
+  },
+  {
+   "id": "react-iv-rn-render-pipeline",
+   "t": "Render, Commit and Mount (arquitectura de React Native)",
+   "a": "React Native",
+   "tipo": "doc",
+   "url": "https://reactnative.dev/architecture/render-pipeline"
+  }
+ ]
+}
