@@ -1,0 +1,757 @@
+{
+ "id": "03-41",
+ "titulo": "Asincronía: callbacks, promesas, async/await y el event loop",
+ "bajada": "Entendés por qué un programa de un solo hilo puede esperar la red sin congelarse, y aprendés a predecir en qué orden corre cada callback, promesa y timer.",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar por qué esperar una respuesta de red con el hilo bloqueado congela todo el programa, y cómo lo evita la asincronía.",
+  "Reescribir una secuencia de tres pasos dependientes con callbacks, con promesas y con async/await, y decir qué mejora en cada salto.",
+  "Predecir el orden de salida de un programa que mezcla código sincrónico, microtareas y tareas de timers.",
+  "Elegir entre Promise.all, allSettled, race y any según lo que pase cuando una de varias consultas falla.",
+  "Manejar errores en código asíncrono sin perder rechazos, y reconocer esos patrones en el código de Senda."
+ ],
+ "venis_de": "En el [@03-40] viste que concurrencia no es paralelismo y que JavaScript ejecuta tu código en un único hilo. Hoy viene el problema práctico que eso plantea: cómo ese único hilo espera una respuesta de la red sin dejar a la app congelada.",
+ "se_apoya_en": [
+  "03-40",
+  "03-16",
+  "03-11",
+  "03-10"
+ ],
+ "gancho": [
+  "Imaginá el mostrador de un depósito en Pilar. Atiende una sola persona: recibe pedidos, llama por radio a las camionetas y anota las respuestas. Llega un pedido urgente, llama a la camioneta de Marta y se queda con la radio pegada a la oreja hasta que conteste. Mientras tanto la fila crece, suenan otros teléfonos y nadie los atiende. Nada está roto: la persona hace lo que se le pidió, esperar. Pero el depósito entero quedó clavado por una espera.",
+  "Un programa en JavaScript es ese mostrador. Tiene una sola persona (un único hilo) y vive esperando cosas: la respuesta de un servidor, que termine de leerse un archivo, que pase un segundo. Un pedido a un servidor lejano tarda del orden de 100 ms (ESTIMACIÓN: depende de la red), y en ese lapso un procesador de 3 GHz podría ejecutar unos 300 millones de ciclos. Si el programa se queda mirando la radio, además de desperdiciar eso congela la pantalla: a 60 cuadros por segundo, cada cuadro se prepara en 1000 ÷ 60 ≈ 16,7 ms. Hoy vas a ver cómo se evita: dejar anotado «avisame cuando conteste» y seguir atendiendo. La idea tiene tres generaciones de sintaxis (callbacks, promesas y async/await), un mecanismo que las sostiene (el event loop) y varias trampas."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Esperar sin quedarse parado"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Casi todo lo lento que hace una app es esperar: la red, el disco, un temporizador, un toque del usuario. Mientras se espera, el procesador no tiene nada para hacer *con tu programa*. Hay dos maneras de atravesar una espera. La primera es **bloquear**: el hilo se queda en esa línea hasta que llega la respuesta y no ejecuta nada más. La segunda es **dejar un aviso**: le decís al entorno «cuando llegue la respuesta, ejecutá esta función» y el hilo sigue con lo que viene. A la segunda manera se le dice programación asincrónica.",
+    "El código de abajo mide la diferencia con un «latido»: un temporizador que cuenta una vez cada 50 ms, como el pulso de una pantalla viva. Primero espera 300 ms bloqueando (un bucle que da vueltas hasta que pasa el tiempo) y después otros 300 ms con una promesa. Ejecutalo."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Dos formas de esperar 300 ms. Un «latido» de la app cuenta cada 50 ms si el hilo está libre.\nlet latidos = 0;\nconst reloj = setInterval(() => latidos++, 50);\n\nfunction esperarBloqueando(ms) {            // el hilo se queda dando vueltas: nadie más corre\n  const fin = performance.now() + ms;\n  while (performance.now() < fin) { /* ocupado */ }\n}\nconst esperarLibre = ms => new Promise(resolver => setTimeout(resolver, ms)); // deja un aviso y suelta el hilo\n\nesperarBloqueando(300);\nconsole.log(\"Bloqueando 300 ms → latidos que hubo:\", latidos);\n\nlatidos = 0;\nawait esperarLibre(300);\nconsole.log(\"Con promesa 300 ms → latidos que hubo:\", latidos);\nclearInterval(reloj);",
+   "cap": "Lo corrí en Node 22 y en un Worker de Chromium. Con bloqueo hubo 0 latidos en las dos. Con promesa hubo 6 en Node y 7 en Chromium; el número varía un poco en cada corrida (datos de una sola máquina virtual)."
+  },
+  {
+   "t": "p",
+   "x": "Con el bloqueo no hubo ningún latido: durante 300 ms la app no pudo ni contar. Con la promesa hubo entre 5 y 7, porque el hilo quedó libre. En una app real, esos latidos son toques, animaciones y respuestas de otros pedidos."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El despachante y la radio",
+   "x": [
+    "El despachante que espera con la radio pegada a la oreja hasta que conteste la camioneta es el **bloqueo**. El que anota «cuando llame Marta, avisame» y sigue atendiendo el mostrador es la **asincronía**.",
+    "Donde la analogía deja de valer: en JavaScript el que atiende el aviso es el mismo despachante. Si cuando Marta llama está en otra tarea larga, el aviso espera."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "En el [@03-40] viste la diferencia entre [[concurrencia]] (varias tareas en curso, intercaladas) y [[paralelismo]] (varias ejecutándose en el mismo instante). La asincronía de JavaScript es concurrencia sin paralelismo: con un único [[hilo del lenguaje]] nunca corren dos funciones tuyas a la vez, pero puede haber cien esperas en curso. Lo que espera de verdad (red, disco, reloj) lo hace el entorno (navegador, Node, sistema operativo), no tu JavaScript, que se reanuda cuando hay algo para él."
+  },
+  {
+   "t": "h",
+   "x": "Callbacks: dejar una función para que te llamen"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[callback]] es una función que le pasás a otra para que la llame más tarde, cuando se cumpla algo. No todos son asincrónicos: el que le pasás a `map` se ejecuta enseguida. Los que importan hoy son los que corren después de una espera: el de `setTimeout`, el de un clic, el de la lectura de un archivo.",
+    "Como la respuesta llega «después», una función asincrónica no puede devolverla con `return`: cuando termina, el resultado todavía no existe. Lo entrega **a través del callback**. En Node se volvió costumbre la convención «error primero»: el primer parámetro es el error (o `null` si salió bien) y el segundo, el resultado [#asincronia-node-callbacks].",
+    "Probemos con un caso de logística. Para saber las paradas de una camioneta hay tres pasos que dependen uno del otro: buscar la camioneta, con eso buscar su ruta y con eso buscar las paradas. Cada paso es una consulta que tarda (acá las simulo con `setTimeout` de 20 ms)."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Tres pasos que dependen uno del otro, con callbacks «error primero» (error, resultado)\nfunction buscarCamioneta(id, cb) {\n  setTimeout(() => (id === \"AB123CD\" ? cb(null, { id, chofer: \"Marta\" }) : cb(new Error(\"camioneta inexistente\"))), 20);\n}\nfunction buscarRuta(camioneta, cb) {\n  setTimeout(() => cb(null, { ruta: \"Ruta 5\", chofer: camioneta.chofer }), 20);\n}\nfunction buscarParadas(ruta, cb) {\n  setTimeout(() => cb(null, [\"Luján\", \"Mercedes\", \"Chivilcoy\"]), 20);\n}\n\nfunction paradasDe(id, cb) {\n  buscarCamioneta(id, (e1, camioneta) => {\n    if (e1) return cb(e1);\n    buscarRuta(camioneta, (e2, ruta) => {\n      if (e2) return cb(e2);\n      buscarParadas(ruta, (e3, paradas) => {\n        if (e3) return cb(e3);\n        cb(null, `${ruta.chofer} hace ${ruta.ruta}: ${paradas.join(\" → \")}`);\n      });\n    });\n  });\n}\n\nparadasDe(\"AB123CD\", (error, texto) => console.log(error ? \"falló: \" + error.message : texto));\nparadasDe(\"XX000XX\", (error, texto) => console.log(error ? \"falló: \" + error.message : texto));\nawait new Promise(r => setTimeout(r, 200)); // damos tiempo a que terminen",
+   "cap": "Corrido: el pedido que falla (XX000XX) termina primero, porque se cae en el primer paso y el otro necesita tres. El orden de las respuestas no es el de los pedidos."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El «infierno de callbacks»",
+   "x": [
+    "En `paradasDe`, cada paso abre una función dentro de la anterior y el código se corre hacia la derecha. Esa pirámide es el problema menor. **Uno:** el manejo de errores se repite en cada nivel (tres `if (e) return cb(e)`). **Dos:** el orden de lectura no se parece al de ejecución. **Tres:** le entregás el control a código ajeno: confiás en que quien recibe tu callback lo llame una vez, ni cero ni dos."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En el código de callbacks de arriba, ¿qué pasaría si `buscarRuta` tuviera un defecto y llamara a su callback dos veces?",
+   "resp": "Todo lo que sigue se ejecutaría dos veces y el resultado final llegaría duplicado. Si ese final fuera «cobrar el envío», se cobraría dos veces. Con callbacks nada lo impide. Con promesas sí: una promesa se asienta una sola vez."
+  },
+  {
+   "t": "h",
+   "x": "Promesas: un valor que todavía no llegó"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[promesa]] es un objeto que representa un resultado que todavía no llegó. En vez de pasarle un callback a la función, la función te **devuelve** la promesa y vos le colgás lo que querés que pase cuando llegue. Una promesa está siempre en uno de tres estados [#asincronia-mdn-promesas]:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Estado",
+    "Qué significa",
+    "Qué puede pasar después"
+   ],
+   "filas": [
+    [
+     "Pendiente (pending)",
+     "La operación sigue en curso",
+     "Pasa a cumplida o a rechazada, una sola vez"
+    ],
+    [
+     "Cumplida (fulfilled)",
+     "Terminó bien y tiene un valor",
+     "Queda así para siempre"
+    ],
+    [
+     "Rechazada (rejected)",
+     "Falló y tiene un motivo, casi siempre un error",
+     "Queda así para siempre"
+    ]
+   ],
+   "cap": "Según MDN. «Asentada» (settled) es la que ya no está pendiente."
+  },
+  {
+   "t": "p",
+   "x": "Tres propiedades las vuelven más seguras que los callbacks. Se asientan **una sola vez**: después de cumplida o rechazada no cambian. Si le colgás un `then` a una promesa que ya se asentó, el `then` se ejecuta igual, así que no hay carrera entre «llegó la respuesta» y «me suscribí». Y `then` devuelve **otra promesa**, por eso se pueden encadenar. Los mismos tres pasos, con promesas:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Los mismos tres pasos, ahora devolviendo promesas\nconst esperar = ms => new Promise(r => setTimeout(r, ms));\nconst buscarCamioneta = async id => { await esperar(20); if (id !== \"AB123CD\") throw new Error(\"camioneta inexistente\"); return { id, chofer: \"Marta\" }; };\nconst buscarRuta = camioneta => esperar(20).then(() => ({ ruta: \"Ruta 5\", chofer: camioneta.chofer }));\nconst buscarParadas = ruta => esperar(20).then(() => [\"Luján\", \"Mercedes\", \"Chivilcoy\"]);\n\nfunction paradasDe(id) {\n  return buscarCamioneta(id)\n    .then(camioneta => buscarRuta(camioneta))              // devolver la promesa: la cadena espera\n    .then(ruta => buscarParadas(ruta).then(p => `${ruta.chofer} hace ${ruta.ruta}: ${p.join(\" → \")}`));\n}\n\nconst a = paradasDe(\"AB123CD\").then(console.log).catch(e => console.log(\"falló: \" + e.message));\nconst b = paradasDe(\"XX000XX\").then(console.log).catch(e => console.log(\"falló: \" + e.message));\nconsole.log(\"las dos promesas ya existen; ninguna terminó todavía\");\nawait Promise.all([a, b]);",
+   "cap": "Corrido: «las dos promesas ya existen» sale primero. Crear una promesa no espera nada."
+  },
+  {
+   "t": "p",
+   "x": "Cuatro reglas gobiernan una cadena."
+  },
+  {
+   "t": "lista",
+   "ord": true,
+   "items": [
+    "Un `then` que devuelve un valor común hace que la promesa siguiente se cumpla con él.",
+    "Si devuelve una promesa, la cadena espera a que se asiente. Por eso `.then(c => buscarRuta(c))` espera la ruta.",
+    "Si lanza un error, la cadena salta los `then` que siguen hasta el primer `catch`.",
+    "Lo que devuelve un `catch` es un valor normal: la cadena sigue cumplida."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El `return` que se olvida",
+   "x": "Es el error más común con cadenas: escribir `.then(x => { buscarRuta(x); })` con llaves y sin `return`. La función devuelve `undefined`, la cadena no espera a `buscarRuta` y el paso siguiente corre antes, con un valor vacío (lo corrí: `Promise.resolve(1).then(x => { x + 1; }).then(console.log)` muestra `undefined`). Con flecha sin llaves el `return` es implícito."
+  },
+  {
+   "t": "h",
+   "x": "async/await: la misma promesa, escrita de arriba hacia abajo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las promesas arreglaron los errores, pero el flujo sigue leyéndose como cadena de `then`. [[async/await]] permite escribirlo de arriba hacia abajo con dos palabras. `async` delante de una función hace que siempre devuelva una promesa: lo que devolvés con `return` queda envuelto en una promesa cumplida, y un error que nadie atrapa la deja rechazada [#asincronia-mdn-async]. `await` delante de una promesa **pausa esa función** hasta que se asienta, y entrega su valor o lanza su error."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Los mismos tres pasos con async/await: se lee de arriba hacia abajo\nconst esperar = ms => new Promise(r => setTimeout(r, ms));\nasync function buscarCamioneta(id) { await esperar(20); if (id !== \"AB123CD\") throw new Error(\"camioneta inexistente\"); return { id, chofer: \"Marta\" }; }\nasync function buscarRuta(camioneta) { await esperar(20); return { ruta: \"Ruta 5\", chofer: camioneta.chofer }; }\nasync function buscarParadas(ruta) { await esperar(20); return [\"Luján\", \"Mercedes\", \"Chivilcoy\"]; }\n\nasync function paradasDe(id) {\n  const camioneta = await buscarCamioneta(id);\n  const ruta = await buscarRuta(camioneta);\n  const paradas = await buscarParadas(ruta);\n  return `${ruta.chofer} hace ${ruta.ruta}: ${paradas.join(\" → \")}`;\n}\n\nfor (const id of [\"AB123CD\", \"XX000XX\"]) {\n  try {\n    console.log(await paradasDe(id));\n  } catch (error) {                       // un solo catch para los tres pasos\n    console.log(\"falló: \" + error.message);\n  }\n}",
+   "cap": "Los mismos tres pasos. El bucle pide una camioneta y después la otra, en fila."
+  },
+  {
+   "t": "p",
+   "x": "Es el mismo programa. Lo que queda debajo de un `await` es, en la práctica, lo que iría dentro de un `then`: `const x = await p; resto` equivale en esencia a `p.then(x => { resto })`. Por eso se dice que async/await es azúcar sintáctica sobre las promesas: no agrega un mecanismo nuevo, cambia cómo se escribe. Lo que cambia mucho es el manejo de errores. El `catch` de arriba atrapa una falla de cualquiera de los tres pasos, como un `try/catch` común de los que viste en el [@03-16]."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«await detiene el programa»",
+   "x": "Falso: detiene la función que lo usa, no el hilo. En la primera corrida del día los latidos siguieron contando mientras el código esperaba con `await`: el hilo quedó libre y la función se reanudó cuando la promesa se asentó."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "`await` adentro de un `forEach`",
+   "x": "`forEach` ignora lo que devuelve su callback, así que no espera ninguna promesa: lo corrí con un callback async y «el forEach ya terminó» salió antes que cualquier «terminó el pedido». Para esperar en fila usá `for...of` con `await`; para esperar juntas, `Promise.all(lista.map(...))`."
+  },
+  {
+   "t": "h",
+   "x": "El event loop: quién decide qué corre ahora"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Falta explicar quién ejecuta esos avisos, y en qué orden. Es el trabajo del [[event loop]] (bucle de eventos), un ciclo que repite siempre lo mismo. Alcanzan tres piezas: la **pila de llamadas** ([@03-11]), donde corre tu código ahora; una **cola de tareas**, donde esperan los avisos de timers, clics y respuestas de red; y una **cola de microtareas**, con prioridad, donde entran las reacciones de las promesas.",
+    "Una [[microtarea]] es un trabajo corto que agenda una promesa (un `then`, un `catch`, lo que sigue después de un `await`) o la función `queueMicrotask`. Una [[tarea]] la agenda el entorno: un timer que se cumplió, un clic, un mensaje. La regla del ciclo, según la especificación de HTML [#asincronia-html-event-loops] y la guía de MDN [#asincronia-mdn-microtask-guide], es esta:"
+   ]
+  },
+  {
+   "t": "pasos",
+   "pasos": [
+    {
+     "t": "Tomar la tarea más vieja y ejecutarla entera",
+     "x": "Corre hasta terminar y nadie la interrumpe («ejecutar hasta completar» [#asincronia-mdn-event-loop]). Tu script es la primera tarea."
+    },
+    {
+     "t": "Vaciar todas las microtareas",
+     "x": "Con la pila vacía, se ejecutan las microtareas una por una, también las que se agreguen mientras tanto. Recién cuando no queda ninguna se sigue."
+    },
+    {
+     "t": "Dibujar, si es un navegador",
+     "x": "Es el momento en que el navegador puede actualizar la pantalla."
+    },
+    {
+     "t": "Volver al paso 1",
+     "x": "Se toma la próxima tarea. Si no hay ninguna, el ciclo espera a que llegue una."
+    }
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Una tarea",
+       "s": "corre hasta terminar",
+       "k": "cliente"
+      },
+      {
+       "t": "Microtareas",
+       "s": "se vacía la cola entera",
+       "k": "datos",
+       "e": "pila vacía"
+      },
+      {
+       "t": "Dibujar",
+       "s": "solo en un navegador",
+       "k": "servidor",
+       "e": "sin microtareas"
+      },
+      {
+       "t": "Próxima tarea",
+       "s": "timer, clic, respuesta",
+       "k": "red",
+       "e": "y otra vuelta"
+      }
+     ]
+    }
+   ],
+   "cap": "El ciclo de un navegador, simplificado. Entre una tarea y la siguiente siempre se vacían las microtareas."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Lo que lo dispara",
+    "Cola donde entra"
+   ],
+   "filas": [
+    [
+     "`setTimeout` o `setInterval`, cuando se cumple el tiempo",
+     "Tareas"
+    ],
+    [
+     "Un clic, un toque, un mensaje, la llegada de datos de la red",
+     "Tareas"
+    ],
+    [
+     "`then`, `catch`, `finally`, lo que sigue a un `await`, `queueMicrotask`",
+     "Microtareas"
+    ]
+   ],
+   "cap": "En un navegador puede haber varias colas de tareas y el motor elige entre ellas; dentro de una, se respeta el orden de llegada."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Y en Node",
+   "x": "Node tiene su propio ciclo, con fases y una cola aparte para `process.nextTick` [#asincronia-node-event-loop]. El principio es el mismo: una cosa corre a la vez y lo agendado espera su turno."
+  },
+  {
+   "t": "p",
+   "x": "Ahora un ejemplo corrido. Cada línea lleva el número del orden en que sale, para que lo compares con la regla."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "console.log(\"1 script: empieza\");\nsetTimeout(() => console.log(\"5 tarea: setTimeout con 0 ms\"), 0);\nPromise.resolve().then(() => console.log(\"3 microtarea: then de una promesa\"));\nqueueMicrotask(() => console.log(\"4 microtarea: queueMicrotask\"));\nconsole.log(\"2 script: termina\");\nawait new Promise(r => setTimeout(r, 50)); // esperamos para que se vea todo (lo explica el texto)",
+   "cap": "Corrido en Node 22 y en Chromium con el mismo resultado. La última línea solo espera 50 ms para que el corredor de la página alcance a recoger lo que imprimen los timers."
+  },
+  {
+   "t": "p",
+   "x": "El script entero es una tarea y corre hasta el final: salen la 1 y la 2, aunque el `setTimeout` y el `then` estaban escritos antes. Con la pila vacía se vacían las microtareas, en el orden en que se agendaron: la 3 y la 4. Recién entonces el ciclo toma la próxima tarea, el timer: la 5. Por eso `setTimeout(f, 0)` no significa «ahora»: significa «en una tarea futura, cuando termine lo que está en marcha»."
+  },
+  {
+   "t": "p",
+   "x": "Ahora con `await` en el medio."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "async function a() {\n  console.log(\"a: antes del await\");\n  await b();\n  console.log(\"a: después del await\");\n}\nasync function b() {\n  console.log(\"b: corre completa, de forma síncrona\");\n}\nconsole.log(\"script: empieza\");\na();\nPromise.resolve().then(() => console.log(\"then suelto\"));\nconsole.log(\"script: termina\");\nawait new Promise(r => setTimeout(r, 50));",
+   "cap": "Corrido en Node 22 y en Chromium. La continuación de `a` salió antes que el `then` suelto."
+  },
+  {
+   "t": "p",
+   "x": "`a()` corre de forma sincrónica hasta su `await`. `b()` corre completa y devuelve una promesa ya cumplida. El `await` agenda lo que sigue como microtarea y el control vuelve al script, que imprime «termina». Después salen las microtareas en el orden en que se agendaron: la continuación de `a` y luego el `then` suelto. El orden exacto entre esas dos cosas lo fija la especificación [#ecma-262]; en mis corridas fue el de arriba. Si tu programa depende de ese detalle, está frágil."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "console.log(\"A\");\nsetTimeout(() => console.log(\"B\"), 0);\nPromise.resolve().then(() => console.log(\"C\"));\n(async () => {\n  console.log(\"D\");\n  await null;\n  console.log(\"E\");\n})();\nconsole.log(\"F\");\nawait new Promise(r => setTimeout(r, 50));",
+   "cap": "Primer ejercicio de orden."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Sin ejecutar el código de arriba, escribí en qué orden salen las letras A, B, C, D, E y F. Después corrélo para comprobar.",
+   "pista": "La función async corre de forma sincrónica hasta su primer `await`. Después, microtareas antes que timers.",
+   "solucion": "A, D, F, C, E, B. A, D y F son sincrónicas (la función async corre hasta su primer `await`, por eso D sale antes que F). Después, las microtareas en el orden en que se agendaron: C y E. Por último, la tarea del timer: B."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "setTimeout(() => {\n  console.log(\"T1\");\n  Promise.resolve().then(() => console.log(\"M1\"));\n}, 0);\nsetTimeout(() => console.log(\"T2\"), 0);\nPromise.resolve().then(() => {\n  console.log(\"M2\");\n  setTimeout(() => console.log(\"T3\"), 0);\n});\nawait new Promise(r => setTimeout(r, 50));",
+   "cap": "Segundo ejercicio: microtareas que agendan timers y timers que agendan microtareas."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Sin ejecutar el código de arriba, escribí el orden de las cinco etiquetas: M1, M2, T1, T2 y T3. Después corrélo.",
+   "pista": "Entre una tarea y la siguiente se vacían las microtareas. Un timer agendado más tarde queda detrás de los que ya estaban.",
+   "solucion": "M2, T1, M1, T2, T3. Al terminar el script corre la microtarea M2, que agenda el timer T3 detrás de T1 y T2. Corre la tarea T1 y, antes de pasar a la siguiente, se vacían las microtareas: M1 sale entre T1 y T2. Después T2 y por último T3."
+  },
+  {
+   "t": "p",
+   "x": "El paso 2 tiene un efecto que sorprende: las microtareas se vacían por completo aunque se sigan agregando. Lo corrí con una cadena de mil microtareas y un timer de 0 ms: el timer esperó a las mil. Una microtarea que se agendara a sí misma para siempre congelaría la página, porque nunca se llegaría a la próxima tarea, ni al dibujo, ni a un clic [#asincronia-mdn-microtask-guide]."
+  },
+  {
+   "t": "h",
+   "x": "No bloquear el hilo: lo que ninguna promesa perdona"
+  },
+  {
+   "t": "p",
+   "x": "Todo lo anterior desemboca en la regla que más pesa en la práctica. Una tarea se ejecuta hasta el final y nadie la interrumpe, así que **mientras tu código corre, no corre nada más**: ni el timer que ya se cumplió, ni el toque en la pantalla, ni el dibujo. En el [@06-14] lo vas a ver con el navegador y con medidas de fluidez; hoy alcanza el principio."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Un timer de 10 ms que llega tarde porque el hilo está ocupado\nconst pedido = performance.now();\nsetTimeout(() => {\n  const demora = Math.round((performance.now() - pedido) / 50) * 50; // redondeo a 50 ms para que el número sea legible\n  console.log(`pedí 10 ms; llegó después de unos ${demora} ms`);\n}, 10);\n\nconst fin = performance.now() + 300;\nwhile (performance.now() < fin) { /* trabajo pesado simulado: 300 ms de CPU */ }\nconsole.log(\"terminé el trabajo pesado; recién ahora puede correr el timer\");\n\nawait new Promise(r => setTimeout(r, 100));",
+   "cap": "Corrido: el timer pedido a 10 ms llegó a los 300. Esperó en la cola mientras la tarea larga ocupaba el hilo (datos de una sola máquina virtual)."
+  },
+  {
+   "t": "p",
+   "x": "El timer no se atrasó: estuvo esperando en la cola. Con una tarea de 300 ms, una pantalla de 60 cuadros por segundo se saltea 300 ÷ 16,7 ≈ 18 cuadros, y la persona lo percibe como un congelamiento. Un ejemplo hipotético: un tablero recibe la posición de 500 camionetas que reportan cada 10 segundos, como en el [@01-11], o sea 50 reportes por segundo. Si procesar cada uno ocupara el hilo 30 ms (cifra inventada para mostrar la cuenta), serían 50 × 30 ms = 1.500 ms de trabajo por segundo y la pantalla quedaría clavada. El método sirve igual: eventos por segundo × milisegundos por evento debe dar bastante menos que 1.000."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si lo escribo con async, corre en paralelo»",
+   "x": "`async` no mueve trabajo a otro hilo. Una función async corre de forma sincrónica hasta su primer `await`, y un `await` solo ayuda cuando lo que se espera lo hace el entorno (red, disco, timer). Un cálculo pesado dentro de una función async bloquea igual. Las salidas son partirlo en trozos chicos que le dejen turno al resto, moverlo a otro hilo (un Web Worker, en el [@06-14]) o llevarlo a un servidor."
+  },
+  {
+   "t": "h",
+   "x": "Varias esperas a la vez: all, allSettled, race y any"
+  },
+  {
+   "t": "p",
+   "x": "Los tres pasos de antes dependían uno del otro, así que iban en fila. Muchas veces las consultas son independientes: el estado de tres camionetas, por ejemplo. Pedirlas una detrás de otra suma los tiempos; pedirlas juntas, no. `Promise` trae cuatro métodos para esperar un grupo [#asincronia-mdn-promise-ref]:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Método",
+    "Se cumple cuando…",
+    "Se rechaza cuando…",
+    "Uso típico"
+   ],
+   "filas": [
+    [
+     "`Promise.all`",
+     "todas se cumplen (entrega la lista de valores)",
+     "se rechaza la primera que falle",
+     "todo o nada, como armar una pantalla con tres datos"
+    ],
+    [
+     "`Promise.allSettled`",
+     "todas se asientan (entrega el estado de cada una)",
+     "nunca",
+     "un reporte parcial: «estas respondieron, estas fallaron»"
+    ],
+    [
+     "`Promise.race`",
+     "la primera en asentarse se cumple",
+     "la primera en asentarse se rechaza",
+     "ponerle un tiempo máximo a una espera"
+    ],
+    [
+     "`Promise.any`",
+     "la primera en cumplirse",
+     "todas se rechazan",
+     "pedir lo mismo a dos servidores y usar el más rápido"
+    ]
+   ],
+   "cap": "Resumen de la referencia de MDN, verificado el 13-11-2026."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Consultar el estado de tres camionetas «a la vez»\nconst esperar = ms => new Promise(r => setTimeout(r, ms));\nconst estado = (patente, ms, falla = false) =>\n  esperar(ms).then(() => { if (falla) throw new Error(patente + \" sin señal\"); return patente + \" OK\"; });\nconst pedidos = () => [estado(\"AB123CD\", 100), estado(\"EF456GH\", 200, true), estado(\"IJ789KL\", 300)];\nconst redondeo = t => Math.round(t / 50) * 50;                    // a múltiplos de 50 ms\nlet t0;\nconst reloj = () => redondeo(performance.now() - t0) + \" ms\";\n\nt0 = performance.now();\ntry { await Promise.all(pedidos()); }\ncatch (e) { console.log(`all → rechaza con «${e.message}» a los ${reloj()}`); }\n\nt0 = performance.now();\nconst todos = await Promise.allSettled(pedidos());\nconsole.log(`allSettled → espera a todas (${reloj()}):`);\nfor (const r of todos) console.log(\"  \", r.status, r.value ?? r.reason.message);\n\nt0 = performance.now();\nconsole.log(`race → ${await Promise.race(pedidos())} a los ${reloj()}`);\n\nt0 = performance.now();\nconsole.log(`any → ${await Promise.any(pedidos())} a los ${reloj()}`);\n\n// Tres pedidos uno detrás de otro (con await en un for): los tiempos se suman\nt0 = performance.now();\nfor (const ms of [100, 100, 100]) await esperar(ms);\nconsole.log(`en fila: ${reloj()}`);\nt0 = performance.now();\nawait Promise.all([100, 100, 100].map(esperar));\nconsole.log(`juntos: ${reloj()}`);",
+   "cap": "Corrido: tres consultas de 100, 200 y 300 ms; la del medio falla. Tiempos redondeados a 50 ms, de una sola máquina virtual; tarda en total algo más de un segundo."
+  },
+  {
+   "t": "p",
+   "x": "`all` se rechazó a los 200 ms, apenas falló la del medio, sin esperar a la de 300. `allSettled` esperó a todas y entregó el estado de cada una. `race` y `any` devolvieron la primera, a los 100 ms. Y lo más útil: tres esperas de 100 ms en fila suman 300 ms, y juntas toman 100."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Rechazar rápido no es cancelar",
+   "x": "Cuando `Promise.all` se rechaza, las otras consultas siguen en vuelo y su resultado se descarta: las promesas no se cancelan. Para cortar una operación de verdad hay que darle una señal de cancelación (`AbortController`), como recomienda MDN [#asincronia-mdn-promise-ref]. Lo mismo vale para un tiempo máximo hecho con `race`: la espera que pierde sigue corriendo."
+  },
+  {
+   "t": "pensa",
+   "x": "Querés mostrar el estado de 50 camionetas aunque algunas no respondan. ¿Usás `Promise.all` o `Promise.allSettled`? ¿Por qué?",
+   "resp": "`Promise.allSettled`. Con `all`, el primer fallo rechaza todo y perdés los resultados de las que respondieron. `allSettled` entrega el estado de cada una: mostrás las que llegaron y marcás las que fallaron."
+  },
+  {
+   "t": "h",
+   "x": "Errores en el código asíncrono"
+  },
+  {
+   "t": "p",
+   "x": "En el [@03-16] viste que un `try/catch` atrapa las [[excepciones|excepción]] lanzadas mientras su bloque está en la pila de llamadas. Con asincronía eso es una trampa: el callback corre después, con la pila vacía y el `try` terminado hace rato. Mirá este programa y lo que pasó en Node 22:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "try {\n  setTimeout(() => { throw new Error(\"falló dentro del callback\"); }, 10);\n  console.log(\"el try terminó sin errores\");\n} catch (e) {\n  console.log(\"esto no se imprime nunca\");\n}",
+   "cap": "No es ejecutable en la página: el error cortaría el corredor. Lo corrí en Node 22."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node callback_throw.js",
+     "s": "el try terminó sin errores\n/ruta/callback_throw.js:2\n  setTimeout(() => { throw new Error(\"falló dentro del callback\"); }, 10);\n                     ^\n\nError: falló dentro del callback\n    at Timeout._onTimeout (/ruta/callback_throw.js:2:28)\n    at listOnTimeout (node:internal/timers:585:17)\n    at process.processTimers (node:internal/timers:521:7)\n\nNode.js v22.23.4"
+    },
+    {
+     "c": "echo $?",
+     "s": "1"
+    }
+   ],
+   "cap": "Salida real, con rutas recortadas. El error se produjo 10 ms después, como tarea nueva, y Node terminó con código de salida 1."
+  },
+  {
+   "t": "p",
+   "x": "El error no pasó por el `catch`. Con promesas el rechazo sí se puede atrapar, pero alguien tiene que esperar la promesa. Tres casos:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "const esperar = ms => new Promise(r => setTimeout(r, ms));\nasync function consultar(patente) {\n  await esperar(10);\n  throw new Error(patente + \": sin señal\");\n}\n\n// 1) Sin await: el try/catch termina antes de que la promesa falle\nlet promesa;\ntry {\n  promesa = consultar(\"AB123CD\");              // devuelve una promesa pendiente; no lanza nada todavía\n  console.log(\"1) el try terminó sin ver ningún error\");\n} catch (e) {\n  console.log(\"1) esto no se imprime nunca\");\n}\nawait promesa.catch(e => console.log(\"1) el error llegó por la promesa: \" + e.message));\n\n// 2) Con await: el rechazo vuelve a ser una excepción y el catch la atrapa\ntry {\n  await consultar(\"EF456GH\");\n} catch (e) {\n  console.log(\"2) con await, el catch atrapa: \" + e.message);\n}\n\n// 3) Con .then(...).catch(...) el rechazo queda atendido y la cadena sigue con un valor de reemplazo\nconst resultado = await consultar(\"IJ789KL\")\n  .then(() => \"bien\")\n  .catch(e => \"valor de reemplazo (\" + e.message + \")\");\nconsole.log(\"3) \" + resultado);",
+   "cap": "Corrido: 1) sin `await`, el `try` no ve nada; el error aparece por la promesa. 2) con `await`, el `catch` funciona. 3) con `.catch` en la cadena, el rechazo queda atendido."
+  },
+  {
+   "t": "p",
+   "x": "¿Y si nadie atiende un rechazo? En Node, desde la versión 15 el modo por defecto es `throw`: un rechazo sin manejar se trata como excepción no atrapada y termina el proceso [#asincronia-node-cli]:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node rechazo.js",
+     "s": "la línea siguiente sí se ejecuta\n/ruta/rechazo.js:1\nasync function consultar() { throw new Error(\"sin señal\"); }\n                                   ^\n\nError: sin señal\n    at consultar (/ruta/rechazo.js:1:36)\n    at Object.<anonymous> (/ruta/rechazo.js:2:1)\n    ... (otras líneas internas de Node)\n\nNode.js v22.23.4"
+    },
+    {
+     "c": "echo $?",
+     "s": "1"
+    }
+   ],
+   "cap": "Salida real, con rutas recortadas. Nadie esperó la promesa y el proceso terminó."
+  },
+  {
+   "t": "p",
+   "x": "En un navegador se dispara el evento `unhandledrejection` en el ámbito global, también en un Worker [#asincronia-mdn-unhandledrejection], y el error suele verse en la consola."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué hace cada entorno con un rechazo sin manejar (verificado el 13-11-2026)",
+   "x": "Lo decide el entorno y cambia con las versiones. Verificado: Node 15 o posterior usa `throw` por defecto y los navegadores disparan `unhandledrejection`, según sus documentaciones. Qué hace el motor de la app de celular no lo verifiqué."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Tres hábitos",
+   "x": [
+    "**1.** Si hacés `await` de algo que puede fallar (toda llamada de red), decidí quién atrapa el error: un `try/catch` ahí o la función que te llamó.",
+    "**2.** No dejes promesas flotando. Si no vas a esperar una, que maneje sus errores adentro, y marcá la intención con `void`.",
+    "**3.** Un `.catch(() => {})` vacío pierde el error. A veces es correcto (un guardado no crítico), pero que sea a propósito."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cómo lo usa Senda de verdad"
+  },
+  {
+   "t": "p",
+   "x": "Esto corresponde al commit 25e08fa (9 de noviembre de 2026): el código cambia, la forma permanece. Un conteo con `grep` sobre `src` da más de 400 líneas con `await`, unas 80 con `.then(`, 10 con `Promise.all`, una con `Promise.race` y ninguna con `allSettled` ni `any`."
+  },
+  {
+   "t": "senda",
+   "titulo": "Una promesa compartida y un reintento",
+   "x": [
+    "`peticion()` de `src/util/cuenta.ts` es `async` y arma el patrón completo: `await asegurarCuenta()`, un `fetch` dentro de un `try/catch` que convierte cualquier falla de red en un error propio (`ErrorCuenta(\"sin_senal\")`) y, si el servidor contesta 401 (la credencial venció), una renovación y un reintento. `rpc()` se apoya en ella con `await peticion(...)`.",
+    "Más fino es `creando`, una variable que guarda la **promesa** de una cuenta en creación: `if (!creando) { creando = (async () => { ... })(); } return creando;`. Si cinco pantallas piden la cuenta a la vez, las cinco reciben la misma promesa y se hace una sola alta; el `finally` la vuelve a `null` para poder reintentar. `src/util/interruptores.ts` usa la misma idea con `leyendo` y le suma 5 segundos de tiempo máximo con `AbortController`, que corta el `fetch` de verdad.",
+    "La guardia de fallos (`src/util/guardia.ts`) instala un manejador global (`ErrorUtils.setGlobalHandler`) para que un error sin atrapar no cierre la app en silencio. Qué hace con un rechazo sin manejar no lo verifiqué."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/util/interruptores.ts",
+    "src/util/guardia.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Reintentos con espera, tiempo máximo y consultas en grupo",
+   "x": [
+    "`enviarRespuestas()` de `src/util/nube.ts` es `async` con `try/catch/finally`. Si el envío falla, calcula el próximo intento con `5000 * 2 ** (fallos - 1)` ms por un azar entre 0,5 y 1,5: unos 5 s, 10, 20, 40, y así, para que miles de teléfonos no vuelvan a golpear a la vez. Hallazgo menor: `fallos` se frena en 7, así que la espera máxima es 5.000 × 2⁶ = 320 s, y con el azar 480 s. El tope de 600.000 ms que figura en el código no se alcanza nunca.",
+    "`src/widget/tarea.tsx` tiene `conTiempo(p, ms)`, un `Promise.race` entre la promesa y otra que se rechaza a los `ms`. El widget del versículo espera así, como máximo 6 segundos, la carga de la Biblia. Como vimos, el `race` no cancela la carga: solo deja de esperarla.",
+    "En `src/pantallas/Torneos.tsx` hay un `Promise.all` de tres consultas independientes, y la tercera (`torneosParaTodos`) lleva su propio `.catch(() => [])`: si esa consulta opcional falla, las otras dos igual llegan. Y en `nube.ts`, `void Promise.all([...]).then(...)` marca con `void` que no se espera a propósito."
+   ],
+   "archivos": [
+    "src/util/nube.ts",
+    "src/widget/tarea.tsx",
+    "src/pantallas/Torneos.tsx"
+   ]
+  }
+ ],
+ "recap": [
+  "Esperar **bloqueando** congela todo lo demás; esperar **dejando un aviso** libera el hilo. Eso es la asincronía: concurrencia sin paralelismo, con un hilo y muchas esperas en curso.",
+  "Un **callback** es una función que se llama cuando algo termina. Funciona, pero anida, repite el manejo de errores y obliga a confiar en quien lo recibe.",
+  "Una **promesa** es un valor que llegará: se asienta una sola vez (cumplida o rechazada), se encadena con `then` y concentra los errores en un `catch`.",
+  "**async/await** es una forma de escribir promesas de arriba hacia abajo. `await` pausa la función, no el hilo, y permite usar `try/catch`.",
+  "El **event loop** ejecuta una tarea entera, vacía las microtareas (promesas) y recién después toma la próxima tarea (timers, clics). `setTimeout(f, 0)` es «en una tarea futura».",
+  "Una tarea larga bloquea todo aunque use async. Para esperas independientes hay `all`, `allSettled`, `race` y `any`; y no se dejan rechazos sin atender."
+ ],
+ "repaso": [
+  {
+   "p": "¿En qué orden salen las letras de este programa? `console.log(\"a\"); setTimeout(() => console.log(\"b\"), 0); Promise.resolve().then(() => console.log(\"c\")); console.log(\"d\");`",
+   "o": [
+    "a, b, c, d",
+    "a, d, b, c",
+    "a, d, c, b",
+    "a, c, d, b"
+   ],
+   "c": 2,
+   "e": "El script corre entero (a, d). Después se vacían las microtareas (c, de la promesa) y recién después llega la tarea del timer (b). Quien pone b antes que c supone que un timer de 0 ms es «inmediato»."
+  },
+  {
+   "p": "Una función `async` hace un cálculo de 400 ms sin ningún `await`. Mientras corre, la persona toca un botón. ¿Qué pasa con el toque?",
+   "o": [
+    "Se atiende enseguida, porque una función async corre en paralelo con la pantalla",
+    "Espera hasta que el cálculo termine, porque async no mueve el trabajo a otro hilo",
+    "Se atiende enseguida, porque los toques pasan antes que cualquier microtarea",
+    "Se pierde para siempre, porque el hilo no guarda eventos mientras está ocupado"
+   ],
+   "c": 1,
+   "e": "Una función async corre de forma sincrónica hasta su primer `await`, así que el hilo está ocupado los 400 ms. El toque queda en la cola y se atiende después. No se pierde, y tampoco pasa por delante de lo que ya está corriendo."
+  },
+  {
+   "p": "Querés mostrar el estado de 50 camionetas y que se vean las que respondieron aunque otras fallen. ¿Qué método de `Promise` conviene?",
+   "o": [
+    "`Promise.all`, porque entrega los valores de las que respondieron",
+    "`Promise.race`, porque se queda con las más rápidas de todas",
+    "`Promise.any`, porque ignora a las que fallan sin avisar",
+    "`Promise.allSettled`, porque entrega el resultado o el error de cada una"
+   ],
+   "c": 3,
+   "e": "`allSettled` espera a todas y devuelve el estado de cada una, cumplida o rechazada. `all` se rechaza apenas falla una y pierde las demás. `race` y `any` devuelven una sola, no el conjunto."
+  },
+  {
+   "p": "Alguien escribe `.then(ruta => { buscarParadas(ruta); }).then(mostrar)` y `mostrar` recibe `undefined`. ¿Cuál es la causa?",
+   "o": [
+    "`buscarParadas` falló y la cadena siguió con un valor vacío",
+    "Las llaves del primer `then` obligan a escribir `return`; sin él devuelve `undefined`",
+    "`then` solo puede encadenarse una vez por cada promesa creada",
+    "`mostrar` corre como microtarea antes de que exista la promesa"
+   ],
+   "c": 1,
+   "e": "Con llaves, la flecha no devuelve nada salvo que escribas `return`, y la cadena no espera a `buscarParadas`. El problema no es que haya fallado: si fallara, la cadena saltaría al `catch`."
+  },
+  {
+   "p": "`consultar()` es una función `async` que termina rechazada. Se la llama así: `try { consultar(); } catch (e) { avisar(e); }`. ¿Qué pasa?",
+   "o": [
+    "`avisar` se ejecuta, porque el `try` envuelve la llamada",
+    "El programa se detiene en la llamada hasta que la promesa se asienta",
+    "No se ejecuta `avisar`: el `try` termina antes y el rechazo queda sin atender",
+    "La promesa se cumple con `undefined` porque nadie la esperó"
+   ],
+   "c": 2,
+   "e": "Sin `await`, la llamada devuelve una promesa pendiente y el `try` termina enseguida. El rechazo ocurre después, fuera del `try`. Hace falta `await consultar()` o un `.catch` sobre la promesa."
+  },
+  {
+   "p": "¿Qué significa en la práctica `setTimeout(f, 0)`?",
+   "o": [
+    "Ejecutar `f` en el mismo instante, antes de la línea siguiente",
+    "Ejecutar `f` antes que cualquier promesa, porque el tiempo es cero",
+    "Agendar `f` como tarea: corre cuando termine lo que está en marcha",
+    "Ejecutar `f` en otro hilo para que no moleste al principal"
+   ],
+   "c": 2,
+   "e": "El timer entra a la cola de tareas y espera: antes se termina el script actual y se vacían las microtareas. No corre «ya», no pasa delante de las promesas y no usa otro hilo."
+  }
+ ],
+ "feynman": "Explicale a alguien del depósito, sin usar la palabra «promesa», por qué un programa con un solo hilo puede esperar la respuesta de tres servidores sin congelarse, y por qué un cálculo largo sí lo congela aunque esté escrito con async/await.",
+ "para_profundizar": [
+  {
+   "fuente": "asincronia-mdn-promesas",
+   "nota": "La guía de MDN sobre promesas: encadenado, errores y orden de ejecución con ejemplos. Es la referencia para repasar las reglas de la cadena que viste hoy."
+  },
+  {
+   "fuente": "asincronia-mdn-event-loop",
+   "nota": "Resumen de MDN del modelo de ejecución: pila, cola, ejecutar hasta completar y por qué JavaScript nunca bloquea mientras la plataforma sea asíncrona."
+  },
+  {
+   "fuente": "asincronia-html-event-loops",
+   "nota": "La especificación del bucle de eventos del navegador. Para ver el algoritmo exacto: tarea, punto de control de microtareas y actualización de pantalla; busca «Processing model»."
+  },
+  {
+   "fuente": "asincronia-node-event-loop",
+   "nota": "Cómo es el ciclo en Node, con sus fases y `process.nextTick`, para cuando el código corra en un servidor."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Jake Archibald In The Loop JSConf.Asia event loop",
+   "por_que": "Una charla conocida que muestra con animaciones el orden entre tareas, microtareas y dibujo en el navegador."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "callback",
+   "d": "Función que se le pasa a otra para que la llame más tarde, cuando se cumpla algo (una espera, un evento). Puede ser sincrónico, como el de `map`, o asincrónico, como el de `setTimeout`."
+  },
+  {
+   "t": "promesa",
+   "d": "Objeto que representa un resultado que todavía no llegó. Está pendiente, cumplida o rechazada, se asienta una sola vez y permite encadenar lo que sigue con `then` y `catch`."
+  },
+  {
+   "t": "async/await",
+   "d": "Sintaxis para escribir código con promesas de arriba hacia abajo: `async` hace que una función devuelva una promesa y `await` pausa esa función hasta que otra promesa se asienta."
+  },
+  {
+   "t": "event loop",
+   "d": "Ciclo del entorno de ejecución que toma una tarea de la cola, la ejecuta entera, vacía las microtareas y repite. Decide el orden en que corren los avisos de timers, clics y promesas."
+  },
+  {
+   "t": "microtarea",
+   "d": "Trabajo corto agendado por una promesa o por `queueMicrotask`. Tiene prioridad: se vacían todas las microtareas antes de pasar a la próxima tarea."
+  },
+  {
+   "t": "tarea",
+   "d": "Trabajo agendado por el entorno (un timer cumplido, un clic, un mensaje) que espera en la cola de tareas. El ciclo ejecuta una por vuelta, entera y sin interrumpirla."
+  },
+  {
+   "t": "infierno de callbacks",
+   "d": "Código con callbacks anidados uno dentro de otro para encadenar pasos que dependen entre sí: se corre hacia la derecha, repite el manejo de errores y se lee en un orden distinto del de ejecución."
+  }
+ ],
+ "siguiente": "cómo un texto se vuelve acción. Vas a construir un mini intérprete de expresiones y a ver el árbol de sintaxis que arma un analizador de JavaScript de verdad.",
+ "fuentes_nuevas": [
+  {
+   "id": "asincronia-mdn-promesas",
+   "t": "Using promises",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Guide/Using_promises"
+  },
+  {
+   "id": "asincronia-mdn-promise-ref",
+   "t": "Promise",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Promise"
+  },
+  {
+   "id": "asincronia-mdn-async",
+   "t": "async function",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Statements/async_function"
+  },
+  {
+   "id": "asincronia-mdn-event-loop",
+   "t": "The JavaScript execution model (event loop)",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Event_loop"
+  },
+  {
+   "id": "asincronia-mdn-microtask-guide",
+   "t": "Using microtasks in JavaScript with queueMicrotask()",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/HTML_DOM_API/Microtask_guide"
+  },
+  {
+   "id": "asincronia-mdn-unhandledrejection",
+   "t": "Window: unhandledrejection event",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/Window/unhandledrejection_event"
+  },
+  {
+   "id": "asincronia-node-callbacks",
+   "t": "JavaScript Asynchronous Programming and Callbacks",
+   "a": "OpenJS Foundation (Node.js)",
+   "tipo": "doc",
+   "url": "https://nodejs.org/en/learn/asynchronous-work/javascript-asynchronous-programming-and-callbacks"
+  },
+  {
+   "id": "asincronia-node-cli",
+   "t": "Node.js command-line options (--unhandled-rejections)",
+   "a": "OpenJS Foundation (Node.js)",
+   "tipo": "doc",
+   "url": "https://nodejs.org/api/cli.html"
+  },
+  {
+   "id": "asincronia-node-event-loop",
+   "t": "The Node.js Event Loop",
+   "a": "OpenJS Foundation (Node.js)",
+   "tipo": "doc",
+   "url": "https://nodejs.org/en/learn/asynchronous-work/event-loop-timers-and-nexttick"
+  },
+  {
+   "id": "asincronia-html-event-loops",
+   "t": "HTML Standard: Event loops",
+   "a": "WHATWG",
+   "tipo": "doc",
+   "url": "https://html.spec.whatwg.org/multipage/webappapis.html#event-loops"
+  }
+ ]
+}
