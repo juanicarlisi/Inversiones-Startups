@@ -1,0 +1,853 @@
+{
+ "id": "02-15",
+ "titulo": "Servicios y procesos en segundo plano",
+ "bajada": "Entendés quién trabaja en tu computadora y en tu servidor cuando nadie mira (daemons, servicios, systemd), y por qué en un teléfono esa libertad está recortada a propósito.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es un daemon o servicio y en qué se diferencia de una app que abrís vos.",
+  "Leer una unidad de systemd real (un servicio y un timer) y decir qué hace cada línea.",
+  "Comparar cómo Linux, Windows y macOS arrancan, vigilan y reinician servicios.",
+  "Explicar por qué Android e iOS limitan los procesos en segundo plano y qué consecuencia tiene para avisos y sincronización.",
+  "Elegir el mecanismo correcto (servicio, tarea programada, push o servicio en primer plano) para cuatro necesidades de una operación logística."
+ ],
+ "venis_de": "Ya sabés qué es un proceso ([@02-04]), cómo el sistema operativo reparte la CPU entre muchos ([@02-06]), quién es el proceso número 1 al arrancar ([@02-03]) y cómo los usuarios y los permisos limitan lo que cada uno puede hacer ([@02-13]). Hoy mirás los procesos que nadie abrió con las manos: los que trabajan solos, de noche, sin ventana.",
+ "se_apoya_en": [
+  "02-03",
+  "02-04",
+  "02-06",
+  "02-13"
+ ],
+ "gancho": [
+  "Son las tres de la mañana en un centro de distribución. El galpón está vacío y nadie mira una pantalla. Y sin embargo el sistema recibe los pedidos de la tienda online, recalcula las rutas de mañana y manda por mail el resumen del día. Ningún empleado apretó «abrir programa». Algo trabajó toda la noche.",
+  "Ahora el mismo misterio en tu bolsillo. Cerrás una app, bloqueás el celular y diez minutos después te llega un aviso de esa app. ¿Quién la vigilaba? Y el caso inverso: un chofer bloquea el teléfono a mitad de ruta y la app que informaba su posición se queda muda. Hoy aprendés quién trabaja cuando nadie mira y por qué en los teléfonos esa libertad está recortada a propósito."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Programas que trabajan sin que los abras"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá viste procesos como programas que alguien lanza: abrís el navegador y aparece un proceso. Pero muchos no tienen ventana ni una persona delante. Un [[proceso en segundo plano]] es un proceso que corre sin interfaz y sin que alguien lo maneje: hace su trabajo y listo.",
+    "Dentro de ese grupo hay una especie que te interesa más: el [[daemon]]. Es un proceso de larga vida que arranca con el sistema (o cuando hace falta), **espera** que pase algo (llega un pedido, llega la hora, aparece un archivo) y presta un servicio a otros programas o a otras computadoras. [[Servicio]] es casi lo mismo mirado desde el otro lado: la función que ofrece. Unix y Linux dicen daemon, Windows dice servicio, y en la práctica se usan como sinónimos."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Ejemplo",
+    "Qué espera",
+    "Qué hace cuando llega"
+   ],
+   "filas": [
+    [
+     "Servidor web (nginx, Apache)",
+     "Un pedido HTTP en un puerto",
+     "Arma la respuesta y la devuelve"
+    ],
+    [
+     "Servidor de acceso remoto (sshd)",
+     "Alguien que quiere entrar",
+     "Pide credenciales y abre una sesión"
+    ],
+    [
+     "Base de datos (PostgreSQL)",
+     "Consultas de otros programas",
+     "Las ejecuta y devuelve resultados"
+    ],
+    [
+     "Sincronizador de hora (NTP)",
+     "El paso del tiempo",
+     "Compara con un servidor y corrige el reloj"
+    ]
+   ],
+   "cap": "Ejemplos típicos; el detalle exacto depende del producto. Nadie los «abre»: están esperando."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Los nombres se mezclan según el sistema y la época. La guía de Apple sobre este tema avisa que «servicio» y «daemon» tienen varios significados, y en su documento usa «servicio» para un proceso de fondo que acompaña a una app con ventanas y «daemon» para el resto [#apple-launchd-daemons-guide]. Acá: **proceso en segundo plano** es el paraguas, y **daemon** o **servicio** es el que vive esperando eventos.",
+   "titulo": "Una palabra, varias definiciones"
+  },
+  {
+   "t": "nota",
+   "k": "historia",
+   "x": "Según el Jargon File, un glosario informal de la cultura hacker, «daemon» viene del «demonio de Maxwell», un duende de la física que trabaja sin parar. Lo habría introducido la gente del sistema CTSS del MIT, con un programa DAEMON que hacía copias de seguridad en cinta. Tomalo como la versión que se cuenta, no como un dato verificado.",
+   "titulo": "De dónde sale el nombre"
+  },
+  {
+   "t": "h",
+   "x": "Cómo se ve un daemon por dentro"
+  },
+  {
+   "t": "p",
+   "x": "Todos los comandos de hoy los corrí en un Linux dentro de un contenedor (Ubuntu 24.04). Un comando es una orden escrita que el sistema ejecuta; mañana ([@02-16]) estudiás dónde se escriben. Por ahora alcanza con leer cada línea con su explicación."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "(nohup sleep 600 > /dev/null 2>&1 &)",
+     "s": ""
+    },
+    {
+     "c": "ps -o pid,ppid,tty,stat,user,cmd -C sleep",
+     "s": "  PID  PPID TT       STAT USER     CMD\n  467     1 ?        S    root     sleep 600"
+    },
+    {
+     "c": "ps -o pid,comm -p 1",
+     "s": "  PID COMMAND\n    1 process_api"
+    }
+   ],
+   "cap": "Salida real, 13-11-2026, en el entorno de trabajo. El PID cambia en cada corrida."
+  },
+  {
+   "t": "p",
+   "x": [
+    "`sleep 600` es un programa que no hace nada durante 600 segundos. `nohup` evita que muera si se cierra la ventana donde se lo lanzó, el `&` lo manda al fondo y los paréntesis lo lanzan desde un intermediario que termina enseguida. Resultado: `sleep` quedó **huérfano** y el sistema lo adoptó.",
+    "Mirá la columna PPID, el PID del proceso padre: vale **1**. El primer proceso del sistema, el del [@02-03], adoptó al huérfano. Es una huella típica de un daemon: no cuelga de ninguna ventana ni de nadie sentado frente a la máquina. (El `?` bajo TT indica que no tiene terminal asignada; en este entorno lo tienen todos, porque mis comandos tampoco corren en una ventana real. En tu terminal verías algo como `pts/0`.) Ese `sleep` no es un daemon de verdad, solo imita la forma. La segunda salida muestra que acá el proceso 1 no es systemd sino un agente del sandbox, dato que usamos más abajo."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Antes de los gestores modernos, cada programa tenía que convertirse a sí mismo en daemon. La guía `daemon(7)` de systemd describe esa receta clásica [#systemd-man-daemon], y explica el PPID 1 de arriba:"
+  },
+  {
+   "t": "pasos",
+   "pasos": [
+    {
+     "t": "Bifurcarse y soltar al padre",
+     "x": "Se duplica con la llamada `fork` y el original termina. El hijo queda huérfano y el proceso 1 lo adopta."
+    },
+    {
+     "t": "Abrir su propia sesión",
+     "x": "Con `setsid` se desprende de cualquier terminal; una segunda bifurcación evita que la recupere."
+    },
+    {
+     "t": "Cortar lazos con la pantalla",
+     "x": "Conecta sus entradas y salidas a `/dev/null` (lo que se escribe ahí desaparece)."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "La misma guía dice que los daemons «de estilo nuevo» no necesitan nada de eso: el gestor de servicios los lanza en un contexto limpio, con la entrada en `/dev/null` y la salida enviada al registro del sistema [#systemd-man-daemon]. El trámite de «volverse daemon» pasó de cada programa al sistema operativo. Esa es la razón de ser de systemd."
+  },
+  {
+   "t": "pensa",
+   "x": "Un daemon pasa casi todo el tiempo esperando. ¿Por qué eso no le roba CPU a los programas que sí trabajan?",
+   "resp": "Porque un proceso que espera un evento queda en estado de espera ([@02-04]) y el planificador no le da CPU hasta que el evento llega ([@02-06]). Lo que sí retiene es memoria RAM, salvo que el sistema lo mande a swap ([@02-10])."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ps -e -o stat= | cut -c1 | sort | uniq -c",
+     "s": "     48 I\n      2 R\n     36 S"
+    },
+    {
+     "c": "ps -e | wc -l",
+     "s": "85"
+    }
+   ],
+   "cap": "Salida real, 13-11-2026. I: hilo inactivo del núcleo. S: proceso durmiendo. R: corriendo. El segundo número incluye la línea de encabezado, y entre los 2 corriendo está el propio comando."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Cuantos más procesos, más lenta la máquina.» De unos 85 procesos, **solo 2 corrían** en el instante de la medición; el resto estaba inactivo o esperando. Lo que sí pesa de un proceso dormido es su memoria. La lentitud aparece cuando muchos quieren CPU a la vez o cuando falta memoria.",
+   "titulo": "Muchos procesos no significa máquina lenta"
+  },
+  {
+   "t": "h",
+   "x": "Tres maneras de despertar a un proceso"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Modelo",
+    "Cómo se despierta",
+    "Ejemplo en logística"
+   ],
+   "filas": [
+    [
+     "Escuchando siempre",
+     "Vive bloqueado esperando una conexión o un mensaje",
+     "Receptor que recibe la posición de 500 camionetas, de día y de noche"
+    ],
+    [
+     "Por reloj",
+     "Algo lo lanza a una hora o intervalo; corre y termina",
+     "Cierre de todas las entregas del día, a las 23:00"
+    ],
+    [
+     "Por evento o a demanda",
+     "No existe hasta que llega el primer pedido; entonces se lo lanza",
+     "Programa que arma una etiqueta solo cuando se escanea un pallet"
+    ]
+   ],
+   "cap": "Casi todos los sistemas combinan los tres modelos."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "La seguridad de un depósito. El **guardia de garita** está siempre en la puerta, atento (escuchando siempre). El **sereno** recorre el predio a las 22, a las 2 y a las 5 (por reloj). El **timbre del portón** llama a quien esté de turno solo cuando alguien lo toca (a demanda).",
+    "Dónde deja de valer: un guardia dormido cobra igual que uno despierto, y un daemon que espera casi no gasta procesador. Pero cada uno ocupa su lugar, como cada daemon retiene su memoria."
+   ],
+   "titulo": "Pensalo así: el turno de noche del depósito"
+  },
+  {
+   "t": "p",
+   "x": "Lo que cambia entre sistemas no es esa idea sino **quién** arranca los daemons, los vigila y los reinicia si se caen. Empecemos por Linux."
+  },
+  {
+   "t": "h",
+   "x": "systemd: el jefe de turno de Linux"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Al arrancar, el núcleo lanza un primer proceso, el número 1 ([[proceso init]], [@02-03]), y todo lo demás cuelga de él. En la mayoría de las distribuciones grandes de Linux ese proceso es [[systemd]]. Debian lo usa por defecto desde la versión 8 (2015), según su wiki [#debian-wiki-systemd]; Ubuntu, Fedora y Red Hat también, según mi conocimiento general, sin fuente citada acá. Su manual lo define como un administrador de sistema y servicios que, como proceso 1, «levanta y mantiene los servicios del espacio de usuario» [#systemd-man-systemd].",
+    "Tiene tres trabajos: **arrancar** servicios en orden y en paralelo, **vigilarlos** (si uno se cae, decide si lo reinicia) y **registrar** lo que escriben en un diario central. Todo se declara en archivos de texto llamados **unidades**: un servicio, un temporizador, un punto de montaje, entre 11 tipos [#systemd-man-systemd]. Este entorno tiene 272 archivos de unidad, de los que 138 son servicios y 13 temporizadores. Mirá dos reales, los que usa Ubuntu para consultar actualizaciones dos veces por día:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ls /usr/lib/systemd/system | wc -l",
+     "s": "272"
+    },
+    {
+     "c": "ls /usr/lib/systemd/system/*.service | wc -l",
+     "s": "138"
+    },
+    {
+     "c": "ls /usr/lib/systemd/system/*.timer | wc -l",
+     "s": "13"
+    },
+    {
+     "c": "cat /usr/lib/systemd/system/apt-daily.timer",
+     "s": "[Unit]\nDescription=Daily apt download activities\n\n[Timer]\nOnCalendar=*-*-* 6,18:00\nRandomizedDelaySec=12h\nPersistent=true\n\n[Install]\nWantedBy=timers.target"
+    },
+    {
+     "c": "cat /usr/lib/systemd/system/apt-daily.service",
+     "s": "[Unit]\nDescription=Daily apt download activities\nDocumentation=man:apt(8)\nConditionACPower=true\nAfter=network.target network-online.target systemd-networkd.service NetworkManager.service connman.service\n\n[Service]\nType=oneshot\nExecStartPre=-/usr/lib/apt/apt-helper wait-online\nExecStart=/usr/lib/apt/apt.systemd.daily update"
+    }
+   ],
+   "cap": "Salida real, 13-11-2026, Ubuntu 24.04 con systemd 255. Los conteos son de este contenedor y variarán en otra instalación."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Leyendo las dos unidades",
+   "pasos": [
+    {
+     "t": "El temporizador dice cuándo",
+     "x": "`OnCalendar=*-*-* 6,18:00` es «cualquier año, mes y día, a las 6:00 y las 18:00». El temporizador solo activa el servicio del mismo nombre."
+    },
+    {
+     "t": "El retardo reparte la carga",
+     "x": "`RandomizedDelaySec=12h` atrasa cada disparo entre 0 y 12 horas al azar, para evitar picos de carga [#systemd-man-timer]. Millones de máquinas no consultan al servidor a las 6:00 clavadas."
+    },
+    {
+     "t": "Persistent recupera lo perdido",
+     "x": "Si la máquina estaba apagada en el horario, corre apenas se activa el temporizador [#systemd-man-timer]."
+    },
+    {
+     "t": "El servicio dice qué hace",
+     "x": "`Type=oneshot`: el comando corre, termina y listo. **No todo servicio de systemd es un daemon de larga vida.** `ConditionACPower=true` pide que solo corra enchufado."
+    }
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": [
+    "Un servicio de systemd es una definición, no necesariamente un proceso vivo: los `oneshot` corren y se apagan. Antes de decir «está caído», preguntá de qué tipo es.",
+    "Y separá principio de herramienta. El principio (un administrador que arranca, vigila y reinicia) vale en todos lados; systemd es la implementación dominante en Linux, no la única: Alpine usa OpenRC [#alpine-wiki-openrc]. Los contenedores suelen correr sin systemd, como este entorno ([@02-24])."
+   ],
+   "titulo": "Servicio no significa «siempre corriendo»"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Núcleo",
+     "k": "os"
+    },
+    {
+     "n": "systemd (PID 1)",
+     "k": "servidor"
+    },
+    {
+     "n": "Servicio",
+     "k": "cliente"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "Lanza el primer proceso (PID 1)",
+     "d": "Al terminar de arrancar, el núcleo ejecuta un único programa. En un Linux con systemd, es systemd."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "Arranca el servicio según su unidad",
+     "d": "systemd lee la unidad, prepara un entorno limpio y ejecuta el comando de ExecStart."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "El proceso termina con error",
+     "resp": true,
+     "d": "El servicio se cae con un código de salida distinto de cero. Como es el padre, systemd se entera enseguida."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "Lo reinicia según Restart=",
+     "d": "Con Restart=on-failure, systemd espera el tiempo indicado y lo lanza de nuevo. Nadie tocó nada."
+    }
+   ],
+   "cap": "Ciclo de vida de un servicio bajo systemd, simplificado."
+  },
+  {
+   "t": "p",
+   "x": "Ahora una unidad propia: un ejemplo mío, que no existe en ningún sistema real. Es el receptor de posiciones de la flota que dimensionaste en el [@01-11]. `systemd-analyze verify` revisa la sintaxis y funciona aunque systemd no sea el proceso 1:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat reporte-flota.service",
+     "s": "[Unit]\nDescription=Receptor de posiciones de la flota (ejemplo)\nAfter=network-online.target\nWants=network-online.target\n\n[Service]\nType=simple\nUser=flota\nExecStart=/usr/bin/python3 /opt/flota/receptor.py\nRestart=on-failure\nRestartSec=5\n\n[Install]\nWantedBy=multi-user.target"
+    },
+    {
+     "c": "systemd-analyze verify reporte-flota.service",
+     "s": ""
+    },
+    {
+     "c": "systemd-analyze verify roto.service",
+     "s": "…/roto.service:10: Failed to parse service restart specifier, ignoring: siempre\nroto.service: Command receptor.py is not executable: No such file or directory"
+    }
+   ],
+   "cap": "Salida real. `roto.service` es una copia con dos errores a propósito (`Restart=siempre`; `ExecStart=receptor.py` sin ruta). Recorté el directorio de la primera línea. El verificador revisa sintaxis, no que el programa funcione."
+  },
+  {
+   "t": "p",
+   "x": "`User=flota` lo hace correr como usuario común y no como administrador: privilegios mínimos, como en el [@02-13]. `Type=simple` deja el programa en primer plano, sin la doble bifurcación; el manual lo recomienda siempre que se pueda [#systemd-man-service]. `Restart=on-failure` con `RestartSec=5` es el vigilante: si el receptor muere con error, a los cinco segundos arranca de nuevo. `WantedBy=multi-user.target` lo hace arrancar en cada inicio normal, una vez activada la unidad."
+  },
+  {
+   "t": "p",
+   "x": "Para operar servicios reales se usan pocos comandos. **No los corrí acá**, porque systemd no es el proceso 1; salen del manual de systemd:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "systemctl --version | head -1",
+     "s": "systemd 255 (255.4-1ubuntu8.18)"
+    },
+    {
+     "c": "systemctl status",
+     "s": "System has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to bus: Host is down"
+    }
+   ],
+   "cap": "Salida real, 13-11-2026. El programa está instalado, pero se niega a operar sin el sistema que lo sostiene."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Comando",
+    "Qué hace",
+    "Cuidado"
+   ],
+   "filas": [
+    [
+     "`systemctl status nombre`",
+     "Muestra si corre, desde cuándo y sus últimas líneas de registro",
+     "Solo lee"
+    ],
+    [
+     "`journalctl -u nombre`",
+     "Muestra el registro que ese servicio escribió",
+     "Solo lee"
+    ],
+    [
+     "`systemctl restart nombre`",
+     "Lo detiene y lo vuelve a lanzar",
+     "En un servidor real corta las conexiones en curso: a conciencia y, si podés, en horario de baja carga"
+    ],
+    [
+     "`systemctl stop nombre`",
+     "Lo detiene",
+     "Si otros dependen de él (una base de datos), dejan de funcionar"
+    ]
+   ],
+   "cap": "Suelen requerir permisos de administrador (`sudo`, [@02-13]): razón de más para entender lo que tocás."
+  },
+  {
+   "t": "h",
+   "x": "Windows, macOS y cron: la misma idea con otro disfraz"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Windows** tiene el Administrador de control de servicios (SCM). Según Microsoft, arranca con el sistema, mantiene la base de datos de servicios instalados, los inicia al arrancar o a pedido, lleva su estado y les transmite órdenes [#ms-scm-referencia]. Un servicio puede ejecutarse sin usuarios conectados y corre con la identidad de una cuenta, que determina qué puede tocar [#ms-win32-services-overview]. Se configura para arrancar de forma automática, a demanda o nunca [#ms-sc-config-referencia]. No pude correr Windows acá: esto sale de la documentación, no de una prueba mía.",
+    "**macOS** usa [[launchd]], su proceso 1. Según la guía de Apple (de 2016, archivada), apareció con OS X v10.4 y distingue **daemons** del sistema de **agentes** por usuario, definidos en archivos de propiedades dentro de carpetas como `/Library/LaunchDaemons` [#apple-launchd-creating-jobs]. Su filosofía es el **arranque a demanda**: registra primero los puertos de comunicación de todos los daemons y después los lanza. Si alguien le habla a uno que no corre, la petición espera mientras se lo arranca, así que el orden entre daemons no importa [#apple-launchd-creating-jobs]. Para detalles actuales, `man launchd.plist` en un Mac."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Linux (systemd)",
+    "Windows",
+    "macOS"
+   ],
+   "filas": [
+    [
+     "Quién arranca y vigila",
+     "systemd, proceso 1",
+     "Administrador de control de servicios",
+     "launchd, proceso 1"
+    ],
+    [
+     "Dónde se declara",
+     "Unidades `.service` y `.timer`",
+     "Base de datos de servicios",
+     "Archivos `.plist` de LaunchDaemons y LaunchAgents"
+    ],
+    [
+     "Cuándo arranca",
+     "Al arrancar, por temporizador o a pedido",
+     "Automático, a demanda, deshabilitado o diferido",
+     "Siempre vivo, por horario o, preferido, a demanda"
+    ]
+   ],
+   "cap": "Resumen de la documentación de cada fabricante, consultada el 13-11-2026."
+  },
+  {
+   "t": "p",
+   "x": "Falta el reloj despertador clásico de Unix: **cron**, un daemon que cada minuto mira una tabla de tareas y lanza las que tocan. Lo estudiás en el [@14-03]. Una entrada real de este entorno:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat /etc/cron.d/e2scrub_all",
+     "s": "30 3 * * 0 root test -e /run/systemd/system || SERVICE_MODE=1 /usr/lib/x86_64-linux-gnu/e2fsprogs/e2scrub_all_cron\n10 3 * * * root test -e /run/systemd/system || SERVICE_MODE=1 /sbin/e2scrub_all -A -r"
+    }
+   ],
+   "cap": "Salida real, 13-11-2026. Cinco campos (minuto, hora, día del mes, mes, día de la semana; 0 es domingo), el usuario y el comando. Un asterisco es «cualquiera»."
+  },
+  {
+   "t": "p",
+   "x": "La primera línea dice: a las 03:30 de los domingos, como `root`, verificá los discos. El comando empieza con `test -e /run/systemd/system ||`, que significa «si systemd está corriendo, no hagas nada; si no, hacelo vos» (la sintaxis, en el [@02-17]). El paquete trae un temporizador de systemd (`e2scrub_all.timer`) y esta entrada de cron, y corre la que corresponda: así conviven la herramienta vieja y la nueva."
+  },
+  {
+   "t": "pensa",
+   "x": "Con `OnCalendar=*-*-* 6,18:00` y `RandomizedDelaySec=12h` juntos, ¿a qué hora exacta corre el servicio?",
+   "resp": "No se sabe de antemano: el horario base es 6:00 y 18:00, pero cada disparo se atrasa al azar hasta 12 horas, así que cae en cualquier momento de esa ventana. Es deliberado, para repartir la carga de los servidores."
+  },
+  {
+   "t": "h",
+   "x": "El caso móvil: acá las reglas son otras"
+  },
+  {
+   "t": "p",
+   "x": "En una notebook enchufada o en un servidor, un daemon dormido casi no cuesta. En un teléfono, cada despertar gasta batería, y nadie quiere que sus 40 apps trabajen a escondidas. Por eso los sistemas móviles toman una decisión que no existe en el escritorio: **el sistema operativo decide quién corre cuando nadie mira**, y por defecto la respuesta es «casi nadie»."
+  },
+  {
+   "t": "h3",
+   "x": "Android"
+  },
+  {
+   "t": "p",
+   "x": "Según la documentación, desde Android 8.0 (nivel de API 26), cuando una app pasa a segundo plano tiene una ventana de varios minutos en la que aún puede usar servicios; al terminar, el sistema la considera inactiva y **detiene sus servicios en segundo plano** [#android-oreo-background-limits]. Rige para apps que apuntan a esa versión o posteriores, y la persona puede activar las restricciones para apps más viejas desde Ajustes."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Las salidas que Android ofrece",
+   "pasos": [
+    {
+     "t": "Tareas programadas",
+     "x": "La app le pide al sistema un trabajo para cuando convenga (con red, con batería). La guía oficial dice que, en la mayoría de los casos, la mejor opción es **WorkManager** [#android-background-tasks-overview]. El momento exacto lo decide el sistema."
+    },
+    {
+     "t": "Servicio en primer plano",
+     "x": "Para algo que la persona nota (música, un recorrido grabándose), la app usa un [[servicio en primer plano]], con una **notificación visible** todo el tiempo [#android-fgs-background-start]."
+    },
+    {
+     "t": "Arranque restringido",
+     "x": "Desde Android 12, una app en segundo plano no puede iniciar un servicio en primer plano, salvo excepciones como recibir un mensaje de alta prioridad de Firebase Cloud Messaging o completarse el arranque del equipo [#android-fgs-background-start]."
+    },
+    {
+     "t": "Modo Doze",
+     "x": "Con el teléfono quieto, sin enchufar y con la pantalla apagada, el sistema suspende la red y posterga trabajos y alarmas hasta una ventana de mantenimiento cada vez más espaciada [#android-doze-app-standby]."
+    }
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Verificado el 13-11-2026 en developer.android.com. Última actualización que figura en cada guía: límites de Android 8.0, 03-03-2026 [#android-oreo-background-limits]; servicios en primer plano, 28-10-2026 [#android-fgs-background-start]; Doze, 22-10-2026 [#android-doze-app-standby]; tareas en segundo plano, 06-11-2026 [#android-background-tasks-overview]. Las reglas cambian casi con cada versión: lo estable es el principio, y los detalles hay que consultarlos en la versión vigente.",
+   "titulo": "Verificado en la documentación de Android"
+  },
+  {
+   "t": "h3",
+   "x": "iOS"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Apple documenta que, en iOS, iPadOS y watchOS, el sistema **suspende la mayoría de las apps poco después de que pasan a segundo plano**: una app suspendida no corre, y el sistema acumula lo que le llegaría para entregárselo al volver [#apple-location-background]. Al pasar a segundo plano la app tiene unos cinco segundos para terminar lo urgente, y puede pedir tiempo extra para algo crítico, como guardar datos en un servidor [#apple-extend-background-execution].",
+    "Para lo demás está [[BGTaskScheduler]]: la app registra una tarea (refrescar contenido, hacer mantenimiento) y **el sistema decide el mejor momento para lanzarla**. Apple describe refrescos de hasta unos 30 segundos y tareas de procesamiento de minutos, pensadas para momentos de poca actividad, como de noche con el teléfono cargando [#apple-choosing-background-strategies]. La app pide, el sistema dispone. También hay *pushes en segundo plano*, un mensaje silencioso que despierta la app unos 30 segundos y tiene límites si pasan de tres por hora [#apple-choosing-background-strategies]. La gran excepción es la ubicación: se permite con una capacidad declarada y permiso de la persona, para quien la necesita en tiempo real [#apple-location-background]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Necesidad",
+    "Android",
+    "iOS"
+   ],
+   "filas": [
+    [
+     "Trabajo que puede esperar",
+     "WorkManager y tareas programadas",
+     "Tareas de procesamiento de BGTaskScheduler"
+    ],
+    [
+     "Refrescar contenido cada tanto",
+     "Tareas programadas, sin hora exacta",
+     "Tarea de refresco (unos 30 segundos)"
+    ],
+    [
+     "Algo que la persona ve y espera que siga",
+     "Servicio en primer plano con notificación",
+     "Capacidades declaradas (audio, ubicación)"
+    ],
+    [
+     "Despertar la app por algo del servidor",
+     "Mensaje FCM de alta prioridad",
+     "Push en segundo plano, con límites"
+    ]
+   ],
+   "cap": "Resumen propio a partir de las guías oficiales citadas, 13-11-2026. Los detalles cambian con cada versión del sistema."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Quien viene del escritorio suele programar una app móvil como un daemon: un temporizador que revisa cada 10 segundos si hay novedades. Con la pantalla apagada puede no correr, o el sistema mata la app. En un teléfono, lo periódico se delega al sistema y lo que debe estar siempre despierto vive en un servidor.",
+   "titulo": "El temporizador que se duerme"
+  },
+  {
+   "t": "h",
+   "x": "Por qué esto condiciona los avisos y la sincronización"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Como una app no puede quedarse escuchando, **la escucha se corre de lugar**. Un servidor (con daemons siempre vivos y tareas por reloj) detecta que pasó algo y se lo cuenta al sistema del teléfono por un canal de la plataforma: Firebase Cloud Messaging en Android y el servicio de notificaciones de Apple en iOS. El sistema despierta a la app o muestra el aviso él mismo. Eso es una notificación push ([@10-18]). Para lo periódico, el sistema ofrece ventanas controladas ([@10-20]).",
+    "Tomá un turno nocturno de reparto. Cada chofer lleva una app que informa su posición cada 10 segundos (la flota del [@01-11]). Si bloquea el celular, la app necesita permiso para seguir: en Android, un servicio en primer plano de ubicación con su notificación; en iOS, la capacidad de ubicación en segundo plano. El receptor, en cambio, es un daemon clásico, vivo las 24 horas bajo systemd. Al servidor se le exige que no pare; al teléfono, que moleste poco."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda: ningún servicio propio en el teléfono y un «turno de noche» en el servidor",
+   "x": [
+    "Esto corresponde al commit 25e08fa (el código cambia, la forma permanece). Senda **no declara ningún servicio propio en segundo plano**: es un hallazgo de diseño, no una carencia. `package.json` no incluye `expo-task-manager` ni paquetes de tareas en segundo plano, y en `app.json` están apagadas la ubicación en segundo plano (`isAndroidBackgroundLocationEnabled`), el servicio en primer plano (`isAndroidForegroundServiceEnabled`) y el audio en segundo plano de iOS (`iosBackgroundMode`).",
+    "Los avisos llegan por tres caminos, ninguno es un daemon del teléfono. (1) **Locales:** la app le encarga al sistema, con `scheduleNotificationAsync`, entregar una notificación en una fecha, y la entrega el sistema con la app cerrada (`src/util/avisos.ts`). (2) **Push remoto:** una tarea de `pg_cron` ejecuta cada minuto `enviar_avisos()` en la base, que le pide a Expo entregar los avisos por FCM; el horario `* * * * *` tiene el mismo formato de cinco campos que viste en cron (`supabase/migrations/20261130000005_grupos_grandes.sql`). El turno de noche existe, pero está en el servidor. (3) **Widget de Android:** según el comentario del código, Android despierta su tarea al agregarlo, cada media hora y al tocarlo (`src/widget/tarea.tsx`).",
+    "En `src/App.tsx`, la copia del progreso se sube al pasar a segundo plano y cada 10 minutos con un `setInterval`, solo con cuenta guardada con Google. Como también sube al pasar a segundo plano, no depende de que el temporizador siga andando con la pantalla apagada (conclusión mía; no la probé en un teléfono)."
+   ],
+   "archivos": [
+    "app.json",
+    "package.json",
+    "src/util/avisos.ts",
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "src/widget/tarea.tsx",
+    "src/App.tsx"
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Elegí el mecanismo más razonable para cada necesidad de una operación logística: (A) servicio que escucha siempre, (B) tarea por reloj, (C) push desde un servidor, (D) servicio en primer plano o capacidad de segundo plano en el teléfono. Necesidades: (1) recibir las posiciones de 500 camionetas; (2) emitir el reporte del día a las 23:00; (3) avisarle a un chofer que le asignaron una ruta nueva, con su app cerrada; (4) que la app del chofer siga informando su posición con la pantalla bloqueada.",
+   "pista": "Preguntate de quién es el trabajo (¿del servidor o del teléfono?) y qué lo despierta: estar siempre atento, la hora o un evento.",
+   "solucion": "(1) A: un receptor siempre vivo en el servidor. (2) B: cron o un temporizador de systemd, porque corre una vez y termina. (3) C: el servidor detecta el evento y manda un push, porque la app cerrada no puede escuchar. (4) D: servicio en primer plano de ubicación en Android (con notificación visible) o capacidad de ubicación en segundo plano en iOS, porque la persona tiene que ver y autorizar ese consumo. Lo que exige disponibilidad permanente se concentra en el servidor; al teléfono solo le toca lo que la persona nota."
+  }
+ ],
+ "recap": [
+  "Un **proceso en segundo plano** corre sin interfaz ni persona delante. Un **daemon** o **servicio** vive mucho tiempo esperando eventos (un pedido, una hora, un archivo) para ofrecer una función a otros programas.",
+  "Un proceso que espera no gasta CPU, porque el planificador no lo ejecuta hasta que llega el evento, pero sí retiene su memoria. Casi todos los procesos están durmiendo en un instante dado.",
+  "En Linux manda **systemd**, el proceso 1: lee unidades (archivos de texto), arranca servicios, los vigila y los reinicia con `Restart=`. Un servicio puede ser de larga vida o un `oneshot` que corre y termina; los temporizadores y cron lo lanzan por reloj.",
+  "Windows tiene el Administrador de control de servicios y macOS usa **launchd**, con arranque a demanda: la misma función con otro nombre.",
+  "En Android e iOS el sistema decide quién corre en segundo plano: Android detiene los servicios de apps inactivas y exige notificación visible a los de primer plano; iOS suspende casi todo y programa las tareas cuando le conviene.",
+  "Por eso las apps móviles delegan la escucha en un servidor y reciben avisos por un canal del sistema. Senda, según el código, no declara servicios propios en segundo plano: usa avisos locales, `pg_cron` en la base y un widget que Android despierta."
+ ],
+ "repaso": [
+  {
+   "p": "Un proceso arranca con el sistema, no tiene ventana, pasa casi todo el tiempo bloqueado esperando conexiones de red y atiende cada una cuando llega. ¿Cómo se lo llama?",
+   "o": [
+    "Daemon o servicio",
+    "Un hilo del planificador",
+    "Una aplicación en primer plano",
+    "Un controlador de dispositivo"
+   ],
+   "c": 0,
+   "e": "Esa descripción corresponde a un daemon o servicio: larga vida, sin interfaz, esperando eventos. Un hilo es un camino de ejecución dentro de un proceso, una app en primer plano tiene interfaz y quien la maneja, y un controlador de dispositivo es código del sistema que habla con hardware."
+  },
+  {
+   "p": "Mirás una máquina con 85 procesos y notás que solo 2 están en estado «corriendo» (R) y el resto en espera. ¿Qué conclusión es correcta?",
+   "o": [
+    "El procesador está casi inactivo y la memoria libre",
+    "Los procesos en espera no gastan procesador, pero sí memoria",
+    "Los procesos en espera consumen CPU a escondidas",
+    "Los procesos en espera se descargaron de la RAM"
+   ],
+   "c": 1,
+   "e": "Un proceso que espera no recibe CPU del planificador, pero mantiene su memoria mientras no se lo mande a swap. Creer que el procesador está inactivo ignora a los 2 que corren, y suponer que los dormidos consumen CPU o salen de la RAM confunde espera con trabajo o con desalojo."
+  },
+  {
+   "p": "Un temporizador de systemd tiene `OnCalendar=*-*-* 6,18:00` y `RandomizedDelaySec=12h`. ¿Qué comportamiento esperás?",
+   "o": [
+    "Corre a las 6:00 y a las 18:00 exactas, todos los días",
+    "Corre una vez por día, en cualquier momento al azar",
+    "Corre solo si la máquina estuvo encendida las 12 horas previas",
+    "Corre dos veces por día, cada una con un atraso aleatorio de hasta 12 horas"
+   ],
+   "c": 3,
+   "e": "El horario base son las 6:00 y las 18:00, y cada disparo se retrasa al azar entre 0 y 12 horas para repartir la carga. No corre a la hora exacta, y tampoco una sola vez por día. La condición de las 12 horas encendida no existe en ningún parámetro del temporizador."
+  },
+  {
+   "p": "Un servicio de systemd tiene `Type=oneshot` y hoy figura «inactivo» después de correr bien a las 6 de la mañana. ¿Cómo se interpreta?",
+   "o": [
+    "Está caído y hay que reiniciarlo ya mismo",
+    "Falló, porque debería estar siempre activo",
+    "Terminó su trabajo, como se espera de un oneshot",
+    "Fue bloqueado por el sistema por consumir mucha CPU"
+   ],
+   "c": 2,
+   "e": "Un servicio oneshot corre, termina y queda inactivo: es lo previsto, no una falla. Reiniciarlo sin entender sería una acción innecesaria, y tampoco hay indicios de bloqueo por consumo. El error de fondo es creer que todo servicio es un daemon de larga vida."
+  },
+  {
+   "p": "Querés que una app de choferes avise «te asignaron una ruta nueva» aunque la app esté cerrada. ¿Qué diseño respeta las reglas de Android e iOS?",
+   "o": [
+    "El servidor detecta el cambio y manda un push por el canal del sistema",
+    "La app consulta al servidor cada 5 segundos con un temporizador interno",
+    "La app arranca un servicio propio oculto que escucha permanentemente",
+    "El teléfono le pide al servidor, en cada arranque del sistema, todas las rutas"
+   ],
+   "c": 0,
+   "e": "En un teléfono la escucha vive en el servidor, y el aviso llega por FCM o por el servicio de Apple, que despiertan a la app o muestran la notificación. Un temporizador interno o un servicio oculto chocan con los límites de segundo plano de ambos sistemas, y consultar solo al arrancar no avisa a tiempo."
+  },
+  {
+   "p": "En Senda, según el código revisado, ¿qué hace posible que el recordatorio diario salga con la app cerrada?",
+   "o": [
+    "Un servicio en primer plano de Android que nunca se detiene",
+    "Una tarea de pg_cron que le escribe cada minuto al teléfono",
+    "El sistema operativo entrega una notificación local que la app programó antes",
+    "El widget, que mantiene viva la app para poder avisar"
+   ],
+   "c": 2,
+   "e": "La app programa con `scheduleNotificationAsync` una notificación local y el sistema la entrega a su hora. Senda tiene apagado el servicio en primer plano. El `pg_cron` solo manda los push de duelos, amigos y grupos desde la base, y el widget no mantiene viva la app."
+  }
+ ],
+ "feynman": "Explicale a un amigo que nunca programó por qué una app de reparto puede avisarte de un pedido nuevo con el teléfono bloqueado, aunque Android e iOS prohíben casi todo lo que corre en segundo plano. Usá el turno de noche de un depósito como ejemplo y decí quién espera y quién despierta a quién.",
+ "para_profundizar": [
+  {
+   "fuente": "systemd-man-daemon",
+   "nota": "La guía daemon(7) de systemd: la receta clásica para volverse daemon y por qué un servicio moderno no la necesita. Es la lectura que mejor conecta lo de hoy con el proceso 1."
+  },
+  {
+   "fuente": "android-oreo-background-limits",
+   "nota": "La página oficial de Android sobre los límites de ejecución en segundo plano desde Android 8.0, con las reglas, las excepciones y los reemplazos recomendados."
+  },
+  {
+   "fuente": "apple-choosing-background-strategies",
+   "nota": "Cómo elige Apple entre tareas de refresco, de procesamiento y pushes en segundo plano, con los tiempos y límites que menciona el día de hoy."
+  },
+  {
+   "fuente": "ostep",
+   "nota": "Los capítulos sobre abstracción de proceso y planificación del libro abierto OSTEP, para repasar por qué un proceso dormido no consume procesador."
+  }
+ ],
+ "videos": [
+  {
+   "q": "systemd explicado unidades service timer systemctl",
+   "por_que": "Para ver a alguien escribir y activar una unidad de servicio desde cero, algo que acá solo pudimos verificar en sintaxis."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "daemon",
+   "d": "Proceso de larga vida, sin interfaz, que arranca con el sistema o a demanda, espera eventos (un pedido, una hora) y presta un servicio a otros programas."
+  },
+  {
+   "t": "servicio",
+   "d": "Función que un proceso de fondo ofrece de manera continua. En Windows es el nombre oficial del daemon, y en Linux se usa también para las unidades de systemd."
+  },
+  {
+   "t": "systemd",
+   "d": "Administrador de sistema y servicios de Linux: corre como proceso 1, arranca los servicios según archivos de unidad, los vigila, los reinicia y registra su salida."
+  },
+  {
+   "t": "proceso en segundo plano",
+   "d": "Proceso que corre sin interfaz visible y sin que una persona lo maneje de forma directa. Incluye a los daemons, pero también a trabajos breves."
+  },
+  {
+   "t": "unidad de systemd",
+   "d": "Archivo de texto que describe algo que systemd administra: un servicio, un temporizador, un punto de montaje u otro tipo de recurso."
+  },
+  {
+   "t": "launchd",
+   "d": "El proceso 1 de macOS: arranca y mantiene los daemons del sistema y los agentes de cada usuario, de preferencia a demanda."
+  },
+  {
+   "t": "servicio en primer plano",
+   "d": "En Android, servicio que sigue corriendo en segundo plano pero muestra una notificación permanente para que la persona sepa que consume recursos."
+  },
+  {
+   "t": "BGTaskScheduler",
+   "d": "Marco de iOS con el que una app registra tareas de refresco o procesamiento; el sistema decide cuándo lanzarlas, sin garantía de hora exacta."
+  }
+ ],
+ "siguiente": "la terminal y el shell: dónde se escriben esos comandos que hoy usamos sin explicar y por qué los desarrolladores viven ahí.",
+ "fuentes_nuevas": [
+  {
+   "id": "systemd-man-systemd",
+   "t": "systemd(1): system and service manager",
+   "a": "Proyecto systemd",
+   "tipo": "doc",
+   "url": "https://www.freedesktop.org/software/systemd/man/latest/systemd.html"
+  },
+  {
+   "id": "systemd-man-service",
+   "t": "systemd.service(5): Service unit configuration",
+   "a": "Proyecto systemd",
+   "tipo": "doc",
+   "url": "https://www.freedesktop.org/software/systemd/man/latest/systemd.service.html"
+  },
+  {
+   "id": "systemd-man-timer",
+   "t": "systemd.timer(5): Timer unit configuration",
+   "a": "Proyecto systemd",
+   "tipo": "doc",
+   "url": "https://www.freedesktop.org/software/systemd/man/latest/systemd.timer.html"
+  },
+  {
+   "id": "systemd-man-daemon",
+   "t": "daemon(7): Writing and packaging system daemons",
+   "a": "Proyecto systemd",
+   "tipo": "doc",
+   "url": "https://www.freedesktop.org/software/systemd/man/latest/daemon.html"
+  },
+  {
+   "id": "debian-wiki-systemd",
+   "t": "systemd (Debian Wiki)",
+   "a": "Proyecto Debian",
+   "tipo": "doc",
+   "url": "https://wiki.debian.org/systemd"
+  },
+  {
+   "id": "alpine-wiki-openrc",
+   "t": "OpenRC (Alpine Linux Wiki)",
+   "a": "Proyecto Alpine Linux",
+   "tipo": "doc",
+   "url": "https://wiki.alpinelinux.org/wiki/OpenRC"
+  },
+  {
+   "id": "ms-win32-services-overview",
+   "t": "Services (Windows)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/services/services"
+  },
+  {
+   "id": "ms-scm-referencia",
+   "t": "Service control manager",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/services/service-control-manager"
+  },
+  {
+   "id": "ms-sc-config-referencia",
+   "t": "sc.exe config",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/sc-config"
+  },
+  {
+   "id": "apple-launchd-daemons-guide",
+   "t": "Daemons and Services Programming Guide: About Daemons and Services",
+   "a": "Apple",
+   "tipo": "doc",
+   "anio": "2016",
+   "url": "https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/Introduction.html"
+  },
+  {
+   "id": "apple-launchd-creating-jobs",
+   "t": "Daemons and Services Programming Guide: Creating Launch Daemons and Agents",
+   "a": "Apple",
+   "tipo": "doc",
+   "anio": "2016",
+   "url": "https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html"
+  },
+  {
+   "id": "android-oreo-background-limits",
+   "t": "Background Execution Limits (Android 8.0)",
+   "a": "Android Developers (Google)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/about/versions/oreo/background"
+  },
+  {
+   "id": "android-fgs-background-start",
+   "t": "Restrictions on starting a foreground service from the background",
+   "a": "Android Developers (Google)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/develop/background-work/services/fgs/restrictions-bg-start"
+  },
+  {
+   "id": "android-doze-app-standby",
+   "t": "Optimize for Doze and App Standby",
+   "a": "Android Developers (Google)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/training/monitoring-device-state/doze-standby"
+  },
+  {
+   "id": "android-background-tasks-overview",
+   "t": "Background tasks overview",
+   "a": "Android Developers (Google)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/develop/background-work/background-tasks"
+  },
+  {
+   "id": "apple-choosing-background-strategies",
+   "t": "Choosing background strategies for your app",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/documentation/backgroundtasks/choosing-background-strategies-for-your-app"
+  },
+  {
+   "id": "apple-extend-background-execution",
+   "t": "Extending your app's background execution time",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/documentation/uikit/extending-your-app-s-background-execution-time"
+  },
+  {
+   "id": "apple-location-background",
+   "t": "Handling location updates in the background",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/documentation/corelocation/handling-location-updates-in-the-background"
+  }
+ ]
+}

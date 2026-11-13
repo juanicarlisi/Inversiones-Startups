@@ -1,9 +1,9 @@
-# Registro de verificación (Partes 0 y 1, 09-11-2026)
+# Registro de verificación (Partes 0 a 2; Partes 0 y 1 al 09-11-2026, Parte 2 al 13-11-2026)
 
-Qué se verificó y qué no. Los 42 días pasan el validador (estructura, términos, largo, preguntas, fuentes, rutas de Senda), pero eso **no** prueba que cada dato sea cierto: lo declarado por los redactores sobre sus propias fuentes está acá, para una segunda pasada.
+Qué se verificó y qué no. Los 74 días escritos pasan el validador (estructura, términos, largo, preguntas, fuentes, rutas de Senda), pero eso **no** prueba que cada dato sea cierto: lo declarado por los redactores sobre sus propias fuentes está acá, para una segunda pasada.
 
 ## Enlaces
-- 340 fuentes registradas; **313 de 339 responden 200** al verificador. Los otros 26 son 403 de sitios que bloquean robots (ACM, W3C, Intel, GAO, cppreference, MySQL, TSMC, Joel on Software, Science Museum) o un certificado que este entorno no valida (csapp.cs.cmu.edu, gaia.cs.umass.edu). Comprobados a mano con navegador: ourworldindata y support.google.com (200). **Ninguno se encontró roto.**
+- 720 fuentes registradas; **659 de 685 enlaces responden 200** al verificador (fuentes y enlaces dentro de los textos). Los otros 26 son 403 de sitios que bloquean robots (ACM, W3C, Intel, GAO, cppreference, MySQL, TSMC, Joel on Software, Science Museum) o un certificado que este entorno no valida (csapp.cs.cmu.edu, gaia.cs.umass.edu). Comprobados a mano con navegador: ourworldindata y support.google.com (200). **Ninguno se encontró roto.**
 - `moore-1965` apunta a `http://` (copia de Stanford; con https reseteaba la conexión).
 
 ## Datos de fuente secundaria o de memoria (revisar si importan)
@@ -41,3 +41,39 @@ Código ejecutable de los días corrido en Node; programas del widget `microcpu`
 
 ## Para la app
 - Hecho en esta sesión: notas visibles en móvil; clase CSS repetida que ponía las notas «Ojo» en mayúsculas; widget `contraste`.
+
+## Parte 2 (Sistemas operativos, 13-11-2026): qué se midió y qué no
+**Medido en este entorno** (Ubuntu 24.04, kernel 6.18.44, VM KVM de 4 vCPU; son datos de una sola máquina, no cifras generales): costo de una llamada al sistema (~85 ns), crear 10.000 hilos vs procesos, cambio de contexto, ticks del temporizador (HZ=250), OOM killer con registro de `dmesg` y salida 137, tope de CPU por cgroup (1 s de trabajo en 4,9 s), overlayfs, un contenedor con `runc`, un `.exe` real (PE) inspeccionado, ASLR con y sin `setarch -R`, `fork` con marcos físicos distintos, `readelf`/`ldd`/`strace`, `stat`/`df -i`/`debugfs` (tras `rm`, los bytes siguen en el bloque), contador con y sin mutex, interbloqueo reproducido y ThreadSanitizer.
+**Hallazgos del entorno que se contaron como tales:** el PID 1 es `process_api` (indicio de Firecracker, no prueba), no systemd; el kernel se compiló sin módulos (`CONFIG_MODULES` apagado); no hay `/dev/kvm` ni `vmx`; no hay páginas de `man` ni PowerShell. En Python 3.13 la condición de carrera no se reprodujo (se dejó como lección, no se forzó).
+**Solo documentación (nada corrido):** todo Windows, macOS, Android e iOS (Microsoft Learn, Apple Platform Security, source.android.com), con fechas del 13-11-2026 (macOS 27.2.1; Rosetta hasta macOS 27; Android 17/API 37; fin de soporte de Windows 10 y ESU de consumidores al 12-10-2027).
+| Día | No verificado en fuente primaria |
+|---|---|
+| 02-01 / 02-02 | GM-NAA I/O, CTSS y Linux 1991 (Wikipedia); que Linux manda SIGSEGV ante un #GP (interpretación del `si_code` de strace); cadena de capas de Senda (inferencia); EL0/EL1 de ARM (Wikipedia). |
+| 02-03 / 02-04 | Tramo entre Smss y Winlogon; que el Zygote cree `system_server` (la doc no lo dice); `loginuid` 4294967295 como «sin asignar» (inferencia); columna «dónde lo ves» de `task_struct` (propia). |
+| 02-05 / 02-06 | Fecha de EEVDF (KernelNewbies 29-10-2023 vs docs del kernel «2024»: se usó la primera); base de EEVDF tomada del comentario del código; una cola de listos por núcleo (OSTEP y lectura parcial de `fair.c`). Descartado un experimento SCHED_RR/FIFO cuyos números no se explicaron. |
+| 02-07 / 02-08 | Ticks en núcleos ociosos de la VM (hipótesis); paginación de 5 niveles no expuesta (inferencia); «Memoria virtual» en Windows; ancho virtual de teléfonos ARM; `[vvar]`. |
+| 02-09 / 02-10 | Tamaño de TLB (solo orden de magnitud); fallo de TLB ~10 ns y fallo mayor 40–117 µs (propios); corte de overcommit 15/20 GiB (observación); «sin swap» de iOS (guía archivada 2003–2013); swap de Android y aviso previo (no verificado). |
+| 02-11 / 02-12 | Origen de las letras de unidad de Windows; papelera = mover a carpeta («en general»); bloque de 4 KiB en el teléfono (estimación). |
+| 02-13 / 02-14 | iPhone (el artículo de Apple solo cubre iPad con chip M); citas traducidas por el redactor; los 8,5 millones de equipos de CrowdStrike son dato de Microsoft sin método explicado. |
+| 02-15 / 02-16 | Ubuntu/Fedora/RHEL con systemd por defecto («conocimiento general»); origen de «daemon» (Jargon File, sin URL estable); `systemctl` no corrido (no hay systemd). |
+| 02-17 / 02-18 | Coma decimal en `sort -n` (manual de coreutils, sin prueba); PowerShell, `setx`, `%PATH%`, `CreateProcess` no ejecutados; macOS solo hedgeado. |
+| 02-19 / 02-20 | Mach-O (solo docs de Apple; la guía figura «retirada»); «MZ» de PE (observación del archivo, no de la especificación); tabla j00ru sin mapear versiones; `arm64-v8a` «cubre casi todos» (comentario de `apk.yml`). |
+| 02-21 / 02-22 | Bloqueo de fila entre dos teléfonos de un duelo (la doc de PostgreSQL no lo dice explícito); 126/127 como convención de bash; `CreateProcess` en un paso; Zygote por COW (inferencia). |
+| 02-23 / 02-24 | Historia (Popek–Goldberg, VT-x/AMD-V, VMware, chroot/LXC/Docker) de Wikipedia; Firecracker como indicio; si el emulador de Senda usa KVM (no se confirmó). |
+| 02-25 / 02-26 | Historia de NT (Cutler 1988…2001) y `ntdll.dll` (Wikipedia); cita de Torvalds 1991 y fecha de la GPL (Wikipedia); openSUSE con zypper/RPM (no verificado). |
+| 02-27 / 02-28 | Expansión de TCC; «macOS se parece más a monolítico» (criterio propio); celdas de Linux de la tabla; launchd «bajo demanda» (guía archivada); `spctl` copiado de la doc sin ejecutar. |
+| 02-29 / 02-30 | Hermes y la restricción de memoria W^X de iOS (inferencia propia); «sin swap en iOS»; carpetas del contenedor de iOS (doc archivada); firma en Windows/Linux y regiones fuera de la UE (celdas sin cita). |
+| 02-31 / 02-32 | UID real, tamaño de `RKStorage`, manifiesto final fusionado y comportamiento por fabricante (no hay teléfono); lo demás se leyó en el manifiesto generado con `expo prebuild` sobre una copia del commit. |
+
+## Hallazgos nuevos sobre Senda (commit 25e08fa, a confirmar en un teléfono o con el fundador)
+- **Copia de seguridad automática de Android:** el manifiesto trae `allowBackup="true"` sin exclusiones; por la documentación de Android, el Auto Backup podría copiar el almacenamiento local (`RKStorage`), sesión incluida. El mapa técnico no lo menciona.
+- **Avisos con demora:** no declara `SCHEDULE_EXACT_ALARM`, así que en Android 12 o superior los avisos locales pueden llegar con minutos de demora.
+- **Escrituras fallidas en silencio:** `src/util/almacen.ts` escribe con `.catch(() => {})` vacío y AsyncStorage tiene un tope de 6 MB por defecto.
+- **Permiso heredado:** `SYSTEM_ALERT_WINDOW` viene de la plantilla de Expo y nada en `src/` lo pide.
+- **Reintento de red:** se corta a 320 s (no 10 min); con la cola llena se descartan las respuestas más viejas (ya anotado antes).
+- **Contenedores:** no hay Dockerfile, compose ni devcontainer; el Postgres de la prueba de base es el del sistema.
+- **Pruebas de humo:** la corrida n.º 10 (1-nov-2026) terminó bien en ~42 min; el flag `-gpu swiftshader_indirect` figura como obsoleto en la doc de Android y la virtualización anidada no está oficialmente soportada en GitHub.
+- **.gitignore:** no hay `.env` versionado, pero tampoco regla para ese nombre.
+
+## Para la app (pendiente)
+- Widget de terminal interactivo (lo pidieron varios redactores; muy útil para las Partes 2, 4 y 14); visor de Rss/Pss de procesos que comparten memoria.

@@ -1,0 +1,886 @@
+{
+ "id": "02-09",
+ "titulo": "Memoria virtual II: páginas, TLB y fallos de página",
+ "bajada": "Seguís una dirección virtual real por cuatro niveles de tablas hasta el byte en la RAM, medís qué cuesta un fallo de TLB y un fallo de página, y aprendés qué dice un `MINFL` en un `ps`.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar cómo se parte una dirección virtual en número de página y desplazamiento, y qué guarda una entrada de la tabla de páginas.",
+  "Calcular por qué una tabla plana de 48 bits ocuparía 512 GiB y cómo la tabla de cuatro niveles de x86-64 evita ese gasto.",
+  "Traducir a mano una dirección virtual concreta, partiéndola en cuatro índices de 9 bits y un desplazamiento de 12.",
+  "Distinguir un fallo de TLB de un fallo de página, y un fallo menor de uno mayor, con costos medidos.",
+  "Estimar el alcance de una TLB y el efecto de usar páginas de 2 MiB."
+ ],
+ "venis_de": "En el [@02-08] viste que cada proceso cree tener todas las direcciones para él y que la MMU traduce las direcciones virtuales. Hoy abrimos esa caja: qué estructura guarda la traducción, cómo se hace rápido y qué pasa cuando la traducción falla.",
+ "se_apoya_en": [
+  "02-04",
+  "02-07",
+  "02-08"
+ ],
+ "gancho": [
+  "Un programa pide 100 MiB y el sistema operativo contesta «listo» al instante, con un rango de direcciones continuo de la primera a la última. En la RAM real esos 100 MiB no están juntos: son 25.600 trozos de 4 KiB repartidos por todo el módulo, y casi ninguno existe todavía. Para que lo veas con datos propios, corrí en el entorno de este estudio un script que le pregunta al kernel dónde están tres páginas seguidas del programa. La respuesta: en los marcos físicos 0x1ecbed, 0x1ecbf1 y 0x1ecc1f. No son vecinos ni están en orden.",
+  "Hoy aprendés cómo se guarda y se consulta ese desorden sin gastar más memoria de la que traduce, por qué casi todos los accesos lo evitan con una caché diminuta, y qué ocurre cuando la traducción dice «esa página no está». Eso último se llama **fallo de página**: suena a avería, pero es la maquinaria normal con la que arranca cualquier programa."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Traducir por páginas y no por bytes"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La traducción más simple sería una libreta con una línea por dirección: «la virtual 5.000 vive en la física 912.340». Con 16 GiB de RAM habría más de diecisiete mil millones de líneas, y la libreta sería más grande que la memoria que describe. Un depósito no anota cada tornillo: anota por pallet.",
+    "El espacio de direcciones se corta en bloques iguales. Cada bloque virtual es una [[página]]; cada bloque de la RAM, del mismo tamaño, es un [[marco de página]]. La traducción va de página a marco y los bytes conservan su orden dentro del bloque. En x86-64 el tamaño básico de página es de 4 KiB, o sea 4.096 bytes [#intel-sdm]:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "getconf PAGESIZE",
+     "s": "4096"
+    }
+   ],
+   "cap": "Ejecutado en el entorno donde se escribió este día (Linux 6.18.44, procesador Intel Xeon, máquina virtual)."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Un depósito con ubicaciones lógicas: el cliente guarda en «rack 14, posición 3», y una planilla dice en qué lugar físico cae cada rack. Si reubicás un pallet, corregís la planilla y la etiqueta del cliente sigue igual.",
+    "La analogía falla en que la planilla del depósito la lee una persona de vez en cuando, y la de la memoria la consulta el hardware en cada acceso, miles de millones de veces por segundo."
+   ],
+   "titulo": "Pensalo así: la planilla de ubicaciones"
+  },
+  {
+   "t": "p",
+   "x": "Una dirección virtual se parte en dos. Los bits de arriba son el **número de página**. Los 12 de abajo son el **desplazamiento**, el byte dentro de la página (12 porque 2¹² = 4.096). La [[MMU]] cambia el número de página por el de marco y el desplazamiento pasa intacto. Tocá los interruptores: cambiar el desplazamiento nunca te saca de la página."
+  },
+  {
+   "t": "widget",
+   "n": "bits",
+   "titulo": "Los 12 bits de abajo: el desplazamiento",
+   "cfg": {
+    "bits": 12,
+    "inicial": 420
+   },
+   "cap": "420 es 0x1A4, el desplazamiento que usamos más abajo. Con 12 bits hay 4.096 valores, uno por byte de la página."
+  },
+  {
+   "t": "pensa",
+   "x": "Si una dirección virtual tiene 48 bits y el desplazamiento usa 12, ¿cuántas páginas distintas se pueden nombrar?",
+   "resp": "Quedan 36 bits para el número de página: 2³⁶ = 68.719.476.736 páginas. Ese número importa enseguida."
+  },
+  {
+   "t": "h",
+   "x": "La tabla de páginas: una libreta por proceso"
+  },
+  {
+   "t": "p",
+   "x": "La [[tabla de páginas]] es esa planilla. La arma el sistema operativo, hay una por [[proceso]] y la consulta la MMU en cada acceso. Cada entrada de 8 bytes describe una página. Estos son los campos más útiles, según el manual de Intel [#intel-sdm]:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Bit",
+    "Nombre",
+    "Qué dice de la página"
+   ],
+   "filas": [
+    [
+     "0",
+     "P (presente)",
+     "1 si tiene marco asignado; 0 si no hay traducción"
+    ],
+    [
+     "1",
+     "R/W",
+     "si es 0, no se puede escribir"
+    ],
+    [
+     "2",
+     "U/S",
+     "si es 0, el modo usuario no puede tocarla"
+    ],
+    [
+     "5 y 6",
+     "A y D",
+     "el procesador marca si la página fue usada (A) o escrita (D)"
+    ],
+    [
+     "12 en adelante",
+     "marco",
+     "dónde está en la RAM física"
+    ],
+    [
+     "63",
+     "XD",
+     "si es 1, no se puede ejecutar código desde ahí"
+    ]
+   ],
+   "cap": "Entrada que mapea una página de 4 KiB, tabla «Format of a Page-Table Entry that Maps a 4-KByte Page» del manual (edición de septiembre de 2026). Faltan campos secundarios."
+  },
+  {
+   "t": "p",
+   "x": "Mirá cuánto trabajo hacen esos bits. El U/S sostiene la barrera entre modo usuario y modo kernel del [@02-02]: impide que un programa lea la memoria del kernel. R/W y XD evitan que un programa escriba sobre su código o ejecute datos. Y A y D le sirven al sistema operativo para saber qué páginas nadie usa hace rato."
+  },
+  {
+   "t": "h",
+   "x": "Una tabla plana no entra: el truco de los niveles"
+  },
+  {
+   "t": "p",
+   "x": "Con una lista simple, una entrada por página posible, serían 2³⁶ entradas de 8 bytes: 2³⁹ bytes, **512 GiB de tabla por proceso**, aunque el programa use tres páginas. Hace falta un árbol."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Una dirección postal tiene niveles: provincia, ciudad, calle, número. Nadie lleva una lista de todas las casas del país: hay un directorio de provincias, y solo las que tienen casas apuntan a un directorio de ciudades. Si una provincia no tiene casas, no existe su directorio.",
+    "Donde falla: las provincias son fijas, y los directorios de la memoria los crea y los borra el kernel mientras el programa pide y suelta memoria."
+   ],
+   "titulo": "Pensalo así: dirección postal"
+  },
+  {
+   "t": "p",
+   "x": "x86-64 usa cuatro niveles. Cada tabla ocupa una página de 4 KiB y tiene 512 entradas de 8 bytes. Como 512 = 2⁹, cada nivel consume **9 bits**: 4 × 9 + 12 = 48. El manual los llama, de arriba abajo, PML4, directorio de punteros de página (PDPT), directorio de páginas (PD) y tabla de páginas (PT) [#intel-sdm]. Un registro, el CR3, guarda la dirección física de la PML4. Al hacer un [[cambio de contexto]] ([@02-06]) el kernel cambia el CR3 al del proceso que entra."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "campo",
+     "celdas": [
+      {
+       "t": "PML4",
+       "s": "índice",
+       "k": "cliente"
+      },
+      {
+       "t": "PDPT",
+       "s": "índice",
+       "k": "red"
+      },
+      {
+       "t": "PD",
+       "s": "índice",
+       "k": "servidor"
+      },
+      {
+       "t": "PT",
+       "s": "índice",
+       "k": "datos"
+      },
+      {
+       "t": "desplaz.",
+       "s": "en la página",
+       "k": "os"
+      }
+     ]
+    },
+    {
+     "e": "bits",
+     "celdas": [
+      {
+       "t": "47–39",
+       "s": "9 bits",
+       "k": "cliente"
+      },
+      {
+       "t": "38–30",
+       "s": "9 bits",
+       "k": "red"
+      },
+      {
+       "t": "29–21",
+       "s": "9 bits",
+       "k": "servidor"
+      },
+      {
+       "t": "20–12",
+       "s": "9 bits",
+       "k": "datos"
+      },
+      {
+       "t": "11–0",
+       "s": "12 bits",
+       "k": "os"
+      }
+     ],
+     "nota": "= 48 bits"
+    }
+   ],
+   "cap": "Reparto de una dirección virtual de 48 bits con páginas de 4 KiB. Cada índice elige una de las 512 entradas de una tabla."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "CR3",
+       "s": "dirección de la raíz",
+       "k": "hw"
+      },
+      {
+       "t": "Tabla PML4",
+       "s": "entrada: bits 47–39",
+       "k": "cliente",
+       "e": "1.ª lectura"
+      },
+      {
+       "t": "Tabla PDPT",
+       "s": "entrada: bits 38–30",
+       "k": "red",
+       "e": "2.ª lectura"
+      },
+      {
+       "t": "Tabla PD",
+       "s": "entrada: bits 29–21",
+       "k": "servidor",
+       "e": "3.ª lectura"
+      }
+     ],
+     "baja": "la entrada de la PD apunta a la tabla PT"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Tabla PT",
+       "s": "entrada: bits 20–12",
+       "k": "datos",
+       "e": "4.ª lectura"
+      },
+      {
+       "t": "Número de marco",
+       "s": "dentro de esa entrada",
+       "k": "ok"
+      },
+      {
+       "t": "+ desplazamiento",
+       "s": "bits 11–0, intactos",
+       "k": "os",
+       "e": "+"
+      },
+      {
+       "t": "Dirección física",
+       "s": "el byte en la RAM",
+       "k": "ok",
+       "e": "="
+      }
+     ]
+    }
+   ],
+   "cap": "La caminata: cuatro lecturas de tablas para traducir una dirección, y recién después se lee el dato."
+  },
+  {
+   "t": "p",
+   "x": "Lo valioso es que **los huecos no cuestan nada**. Si una entrada de la PML4 no está presente, no existe nada debajo y ese tramo de 512 GiB no ocupa ni un byte. Un programa usa unos pocos rangos (código, pila, montículo, bibliotecas), cada uno con su propio camino. El código de abajo parte una dirección en sus cinco campos (con `BigInt`, porque 48 bits no entran en los 32 con los que JavaScript opera bits) y calcula cuántas tablas necesita un bloque contiguo. Apretá «Ejecutar» y cambiá los números."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Partir una dirección virtual de x86-64 (4 niveles) en sus cinco campos\nconst va = 0x00007f3e0721a1a4n;           // la dirección que vimos en el script de Python\n\nconst offset = va & 0xFFFn;               // bits 11..0\nconst pt     = (va >> 12n) & 0x1FFn;      // bits 20..12\nconst pd     = (va >> 21n) & 0x1FFn;      // bits 29..21\nconst pdpt   = (va >> 30n) & 0x1FFn;      // bits 38..30\nconst pml4   = (va >> 39n) & 0x1FFn;      // bits 47..39\n\nconsole.log(\"dirección:\", \"0x\" + va.toString(16));\nconsole.log(\"binario  :\", va.toString(2).padStart(48, \"0\").replace(/^(.{9})(.{9})(.{9})(.{9})(.{12})$/, \"$1 $2 $3 $4 $5\"));\nconsole.log(\"PML4 =\", Number(pml4), \"| PDPT =\", Number(pdpt), \"| PD =\", Number(pd), \"| PT =\", Number(pt), \"| desplazamiento = 0x\" + offset.toString(16));\n\n// El marco que el kernel le asignó a esa página, según /proc/self/pagemap\nconst marco = 0x1ecbedn;\nconst fisica = marco * 4096n + offset;    // número de marco × 4096 + desplazamiento\nconsole.log(\"dirección física: 0x\" + fisica.toString(16));\n\n// ¿Cuánto ocuparían las tablas de páginas?\nconst bitsNumeroPagina = 48 - 12;                       // 36 bits\nconst entradas = 2 ** bitsNumeroPagina;                 // una tabla plana: una entrada por página posible\nconsole.log(\"tabla plana:\", entradas.toLocaleString(\"es-AR\"), \"entradas ×  8 B =\", (entradas * 8 / 2 ** 30), \"GiB\");\n\nfunction tablasMultinivel(mib) {                        // memoria contigua alineada, en MiB\n  const paginas = mib * 256;                            // 1 MiB = 256 páginas de 4 KiB\n  const pts = Math.ceil(paginas / 512);                 // cada tabla PT cubre 512 páginas (2 MiB)\n  const pds = Math.ceil(pts / 512);\n  const pdpts = Math.ceil(pds / 512);\n  const total = pts + pds + pdpts + 1;                  // +1 por la raíz (PML4)\n  return { paginas, total, kib: total * 4 };\n}\nfor (const mib of [2, 100, 1024]) {\n  const r = tablasMultinivel(mib);\n  console.log(`${mib} MiB: ${r.paginas.toLocaleString(\"es-AR\")} páginas -> ${r.total} tablas = ${r.kib.toLocaleString(\"es-AR\")} KiB`);\n}",
+   "cap": "Ejecutado en Node 22 en este entorno. La dirección y el marco salen del ejemplo real de abajo; los tamaños de tablas son cálculo propio para memoria contigua y alineada."
+  },
+  {
+   "t": "p",
+   "x": "Resultado: 100 MiB son 25.600 páginas y necesitan 53 tablas de 4 KiB, unos **212 KiB** (0,2 % de lo que traducen). Un gibibyte necesita 515 tablas, unos **2 MiB**. Contra 512 GiB, son cinco órdenes de magnitud menos. Es el mejor caso: con accesos muy dispersos, cada página puede necesitar su propia PT y el gasto sube."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": [
+    "**Cuatro y cinco niveles (verificado el 13-11-2026).** Según el manual de Intel, el modo de 4 niveles traduce direcciones de 48 bits (256 TiB de espacio lineal como máximo) y existe un modo de 5 niveles, con el bit LA57 del registro CR4, para 57 bits [#intel-sdm]. Linux lo soporta, pero por defecto no entrega direcciones sobre los 47 bits salvo que el programa lo pida [#kernel-x86-5level].",
+    "Acá, `/proc/cpuinfo` declara 57 bits virtuales pero sus `flags` no incluyen `la57`: mi inferencia es que corre el modo de 4 niveles (no lo confirmé de otra forma)."
+   ],
+   "titulo": "Vigencia"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "grep -m1 'address sizes' /proc/cpuinfo",
+     "s": "address sizes\t: 52 bits physical, 57 bits virtual"
+    }
+   ],
+   "cap": "Salida real en este entorno."
+  },
+  {
+   "t": "h",
+   "x": "Un ejemplo completo: de una dirección virtual al byte en la RAM"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora pedimos la traducción real. Linux publica `/proc/self/pagemap`, donde informa en qué marco está cada página virtual de un proceso [#man7-pagemap]. El script pide tres páginas, las toca para que existan, calcula los índices como el código anterior y lee el marco.",
+    "Advertencia de seguridad: el número de marco ayuda a ciertos ataques, así que el kernel solo lo muestra a root. Lo corrí como root; con un usuario común el mismo script mostró `marco=0x0`."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import ctypes, mmap, os, struct\n\nm = mmap.mmap(-1, 3 * 4096)                       # tres páginas anónimas\nfor i in range(3):\n    m[i * 4096] = 1                               # tocarlas, para que existan en RAM\nbase = ctypes.addressof(ctypes.c_char.from_buffer(m))\n\nwith open(\"/proc/self/pagemap\", \"rb\") as f:\n    for i in range(3):\n        va = base + i * 4096 + 0x1A4                       # una dirección con desplazamiento 0x1A4\n        f.seek((va >> 12) * 8)                             # 8 bytes por página en pagemap\n        entrada = struct.unpack(\"<Q\", f.read(8))[0]\n        presente, marco = entrada >> 63, entrada & ((1 << 55) - 1)\n        pml4, pdpt, pd, pt, off = (va >> 39) & 511, (va >> 30) & 511, (va >> 21) & 511, (va >> 12) & 511, va & 4095\n        print(f\"virtual {va:#018x} -> índices {pml4}/{pdpt}/{pd}/{pt} + {off:#x} | presente={presente} marco={marco:#x} -> física {marco * 4096 + off:#x}\")",
+   "cap": "Ejecutado como root en este entorno. En pagemap, el bit 63 indica «presente» y los bits 54–0 el número de marco."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 traducir.py",
+     "s": "virtual 0x00007f3e0721a1a4 -> índices 254/248/57/26 + 0x1a4 | presente=1 marco=0x1ecbed -> física 0x1ecbed1a4\nvirtual 0x00007f3e0721b1a4 -> índices 254/248/57/27 + 0x1a4 | presente=1 marco=0x1ecbf1 -> física 0x1ecbf11a4\nvirtual 0x00007f3e0721c1a4 -> índices 254/248/57/28 + 0x1a4 | presente=1 marco=0x1ecc1f -> física 0x1ecc1f1a4"
+    }
+   ],
+   "cap": "Salida real. Las direcciones cambian en cada corrida (el sistema las baraja a propósito)."
+  },
+  {
+   "t": "pasos",
+   "titulo": "La primera línea, como la haría la MMU",
+   "pasos": [
+    {
+     "t": "Partir la dirección",
+     "x": "0x00007f3e0721a1a4 en 48 bits es `011111110 011111000 000111001 000011010 000110100100`: índices 254, 248, 57 y 26, y desplazamiento 0x1a4."
+    },
+    {
+     "t": "Bajar por el árbol",
+     "x": "Con el CR3 llega a la PML4 y lee su entrada 254; ahí está la PDPT, donde lee la 248; luego la PD, entrada 57; luego la PT, entrada 26."
+    },
+    {
+     "t": "Leer el marco",
+     "x": "La entrada 26 de la PT contiene el número de marco, 0x1ecbed, y los permisos que la MMU controla contra el acceso."
+    },
+    {
+     "t": "Armar la dirección física",
+     "x": "0x1ecbed × 4096 + 0x1a4 = **0x1ecbed1a4**, unos 7,7 GiB desde el inicio de la RAM."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Mirá las tres líneas juntas. Para el programa las páginas son vecinas (índices 26, 27 y 28). Pero sus marcos, 0x1ecbed, 0x1ecbf1 y 0x1ecc1f, no están uno al lado del otro. El programa cree tener un bloque continuo y la RAM guarda piezas sueltas: ese es el desorden que la tabla esconde. Una precisión: esta «física» es la que ve el kernel invitado de una máquina virtual; el hipervisor agrega otra traducción debajo ([@02-23])."
+  },
+  {
+   "t": "pensa",
+   "x": "Dos procesos imprimen la misma dirección virtual. ¿Tienen que apuntar al mismo byte de la RAM?",
+   "resp": "No. Cada uno tiene su árbol (su CR3), y la misma dirección virtual puede caer en marcos distintos: es el aislamiento. Solo coinciden si el sistema los mapeó a propósito al mismo marco, como con la [[memoria compartida]]."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Partí la dirección 0x00007ffd12345678 en los cuatro índices y el desplazamiento.",
+   "pista": "Pasala a binario de 48 bits (cada dígito hexadecimal son 4 bits) y cortá en 9, 9, 9, 9 y 12 desde la izquierda.",
+   "solucion": "En binario: `011111111 111110100 010010001 101000101 011001111000`. PML4 = 255, PDPT = 500, PD = 145, PT = 325 y desplazamiento 0x678 (1.656). Verificado con el código de arriba."
+  },
+  {
+   "t": "h",
+   "x": "La TLB: recordar las traducciones"
+  },
+  {
+   "t": "p",
+   "x": "La caminata cuesta cuatro lecturas de tablas más la del dato: si cada acceso necesitara cinco, la computadora andaría cinco veces más lenta. La receta de siempre es una copia chica y rápida de lo que se usa. La [[TLB]] (*translation lookaside buffer*) es una caché dentro del procesador que guarda las traducciones recientes: página, marco y permisos [#intel-sdm]."
+  },
+  {
+   "t": "p",
+   "x": "Antes de recorrer el árbol, la MMU mira la TLB. Si la traducción está, es un **acierto** y el resultado sale al instante. Si no, es un **fallo de TLB**: el hardware hace la caminata completa y guarda el resultado. Ni el programa ni el kernel lo notan; el único síntoma es el tiempo. Funciona por la [[localidad]]: tras tocar una página, lo normal es volver a tocarla enseguida."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Anotás en un papel pegado al escritorio las diez posiciones que usás todo el día y solo vas a la planilla maestra por las raras.",
+    "Donde falla: el papel tiene tamaño fijo y una traducción nueva desaloja a otra, con reglas del hardware y no tuyas."
+   ],
+   "titulo": "Pensalo así: el papel en el escritorio"
+  },
+  {
+   "t": "p",
+   "x": "Las TLB son chicas (de decenas a unos pocos miles de entradas según el modelo) y suelen ser varias: Linux documenta que datos e instrucciones tienen TLB separadas, igual que cada tamaño de página [#kernel-x86-tlb]. Lo que cuenta es el **alcance**: entradas × tamaño de página. Con 64 entradas de 4 KiB, 256 KiB. Un programa que salta por muchos megabytes la desborda."
+  },
+  {
+   "t": "p",
+   "x": "En vez de repetir cifras de otros procesadores, medí el costo acá. El programa arma una cadena de punteros con una celda por página y la recorre en orden aleatorio: cada acceso depende del anterior y toca otra página. Lo corrí con páginas de 4 KiB y con páginas de 2 MiB (que ves más abajo)."
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "/* fragmento de tlb.c (el programa entero tiene unas 45 líneas) */\nint grandes = argc > 1;                          /* con un argumento: pedir páginas de 2 MiB */\nchar *m = mmap(NULL, 64 MiB + 2 MiB, ..., MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);\n/* ... se alinea m a 2 MiB ... */\nif (grandes) madvise(m, 64 MiB, MADV_HUGEPAGE);  /* \"si podés, usá páginas de 2 MiB\" */\nfor (size_t i = 0; i < 64 MiB; i += 4096) m[i] = 1;   /* tocar todo para que exista */\n\n/* Para cada n (16, 64, 256, ..., 16384 páginas): una cadena de punteros, una celda por página,\n   en orden aleatorio. Cada celda guarda la dirección de la siguiente. */\nvoid **p = CELDA(orden[0]);\ndouble t0 = ahora();\nfor (int i = 0; i < 20000000; i++) p = *p;      /* un acceso depende del anterior: no hay trampa posible */\ndouble t1 = ahora();\nprintf(\"%6zu páginas: %5.1f ns por acceso\\n\", n, (t1 - t0) / 20000000 * 1e9);",
+   "cap": "Fragmento del programa que compilé con `gcc -O2` y ejecuté en este entorno. Las celdas caen en líneas de cache al azar para que la cache de datos no tape el efecto de la TLB."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./tlb",
+     "s": "páginas de 4 KiB\n    16 páginas:   1.3 ns por acceso\n    64 páginas:   1.3 ns por acceso\n   256 páginas:   3.1 ns por acceso\n  1024 páginas:   5.6 ns por acceso\n  4096 páginas:  12.8 ns por acceso\n 16384 páginas:  16.1 ns por acceso"
+    },
+    {
+     "c": "./tlb grandes",
+     "s": "páginas de 2 MiB\n    16 páginas:   1.3 ns por acceso\n    64 páginas:   1.4 ns por acceso\n   256 páginas:   1.4 ns por acceso\n  1024 páginas:   4.4 ns por acceso\n  4096 páginas:   4.7 ns por acceso\n 16384 páginas:   5.3 ns por acceso"
+    }
+   ],
+   "cap": "Salida real de una corrida. En otras dos, con 16.384 páginas de 4 KiB dio 17,8 y 22,2 ns, y con páginas de 2 MiB 4,9 y 5,0 ns. Una sola máquina virtual: tomalo como orden de magnitud."
+  },
+  {
+   "t": "p",
+   "x": "Hasta 64 páginas cada acceso cuesta 1,3 ns. Con 4.096 y 16.384 páginas, el acceso con páginas de 4 KiB cuesta 13 a 16 ns, contra unos 5 ns con páginas de 2 MiB. Los datos y la cache son los mismos; solo cambia cuántas traducciones hay que recordar. La diferencia, **del orden de 10 ns por acceso**, es el precio del fallo de TLB en este equipo con las tablas a mano en la cache del procesador."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "x": "Es el caso favorable. Si las tablas tampoco están en cache, cada nivel puede ir a la RAM, unos 100 ns por lectura [#latency-numbers]: cuatro niveles serían del orden de **400 ns** (ESTIMACIÓN mía, 4 × 100 ns, no una medición). Drepper describe el recorrido de tablas tras un fallo de TLB como una operación que puede ser bastante costosa [#drepper-memory]. Y en una máquina virtual la caminata es más larga, así que mi medición probablemente sobreestima lo que verías en un equipo físico.",
+   "titulo": "El peor caso es bastante peor"
+  },
+  {
+   "t": "p",
+   "x": "Una última pieza: al cambiar de proceso, las traducciones guardadas no sirven. Se puede vaciar la TLB, rápido pero con daño colateral [#kernel-x86-tlb], o etiquetar cada entrada con un identificador de contexto (PCID) para que convivan [#intel-sdm]. Es parte del costo oculto del cambio de contexto del [@02-05]."
+  },
+  {
+   "t": "h",
+   "x": "Fallo de página: cuando la tabla dice «no»"
+  },
+  {
+   "t": "p",
+   "x": [
+    "¿Y si la entrada tiene P en 0, o el programa escribe en una página de solo lectura? Según el manual de Intel, un acceso provoca un fallo de página por dos razones: no hay traducción, o la hay pero sus permisos no permiten el acceso [#intel-sdm]. El [[fallo de página]] es una [[excepción]] (la número 14): el procesador anota la dirección en el registro CR2 y salta al manejador del kernel, como en el [@02-07].",
+    "El kernel pregunta si esa dirección pertenece a algo que el proceso puede usar. Si sí, consigue o carga la página, completa la entrada y reanuda la **misma instrucción**, que ahora funciona: el programa no se entera. Si no, le manda la señal de violación de segmento, que en la consola ves como *Segmentation fault*."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": [
+    "«Fallo» suena a avería y casi nunca lo es. Motivos legítimos:",
+    "**Primer toque de memoria pedida.** Pedir promete, tocar entrega.\n**Contenido de archivo no cargado.** Los programas se leen por páginas, a medida que se usan.\n**Página enviada a disco** por falta de RAM (mañana).\n**Copia al escribir.** Al duplicarse un proceso en Unix, padre e hijo comparten los marcos como solo lectura y se copia la página recién cuando alguien escribe."
+   ],
+   "titulo": "Fallo no es error"
+  },
+  {
+   "t": "p",
+   "x": "Probemos el primero. El programa pide 100 MiB con `malloc`, toca un byte por página y cuenta los fallos menores con `getrusage`, la fuente de la que lee la herramienta `time` de GNU [#man7-getrusage]. (Acá esa herramienta no está instalada, usé la llamada directa.)"
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <stdio.h>\n#include <stdlib.h>\n#include <time.h>\n#include <sys/resource.h>\n\nstatic long menores(void) { struct rusage r; getrusage(RUSAGE_SELF, &r); return r.ru_minflt; }\nstatic double ahora(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec + t.tv_nsec / 1e9; }\n\nint main(void) {\n    size_t n = 100 * 1024 * 1024;                 /* 100 MiB = 25.600 páginas de 4 KiB */\n    long a = menores();\n    char *p = malloc(n);                          /* pedir memoria */\n    long b = menores();\n    double t0 = ahora();\n    for (size_t i = 0; i < n; i += 4096) p[i] = 1;   /* tocar un byte por página */\n    double t1 = ahora();\n    long c = menores();\n    printf(\"después de malloc: %ld fallos menores nuevos\\n\", b - a);\n    printf(\"después de tocar:  %ld fallos menores nuevos (%.0f ns cada uno)\\n\", c - b, (t1 - t0) / (c - b) * 1e9);\n    free(p);\n    return 0;\n}",
+   "cap": "Compilado con `gcc -O1` y ejecutado en este entorno."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./faltas",
+     "s": "después de malloc: 3 fallos menores nuevos\ndespués de tocar:  25602 fallos menores nuevos (1519 ns cada uno)"
+    }
+   ],
+   "cap": "Salida real de una corrida (otras dos: 1.316 y 1.617 ns por fallo). Las 25.600 páginas más unos pocos fallos del propio programa suman 25.602."
+  },
+  {
+   "t": "p",
+   "x": "Pedir 100 MiB generó 3 fallos: `malloc` solo reservó un rango de direcciones. Al tocar las 25.600 páginas aparecieron 25.600 fallos, de unos **1,5 µs** cada uno en este equipo (un microsegundo es una millonésima de segundo; incluye buscar un marco libre y llenarlo de ceros). Por eso un programa puede reservar 8 GiB y arrancar al instante en una computadora con menos RAM: hasta que no toca las páginas, no gasta marcos. Es la **memoria por demanda**."
+  },
+  {
+   "t": "p",
+   "x": "Lo mismo se ve desde afuera con `ps`, que muestra `MINFL` y `MAJFL`. Un Python se mide antes y después de crear 200 MiB:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 -c \"import os,subprocess as s; ps=lambda: s.run(['ps','-o','pid,min_flt,maj_flt,rss,vsz,comm','-p',str(os.getpid())]); ps(); b=bytearray(200*1024*1024); ps()\"",
+     "s": "  PID  MINFL  MAJFL   RSS    VSZ COMMAND\n 8626   1446      2 13036  38272 python3\n  PID  MINFL  MAJFL   RSS    VSZ COMMAND\n 8626  52647      2 217840 243076 python3"
+    }
+   ],
+   "cap": "Salida real. RSS y VSZ en KiB. MINFL y MAJFL: fallos menores y mayores. RSS: memoria física que el proceso ocupa ahora. VSZ: tamaño de su espacio de direcciones virtual."
+  },
+  {
+   "t": "p",
+   "x": "Los fallos menores subieron 51.201, las 51.200 páginas de 200 MiB más una, y el RSS pasó de unos 13 MiB a unos 213 MiB. El VSZ es otra cosa: es lo reservado, no lo consumido; un VSZ enorme con RSS chico es memoria por demanda, no un problema. El 2 de `MAJFL` no es casualidad: antes yo había vaciado la caché de archivos del sistema y `python3` tuvo que releerse del disco."
+  },
+  {
+   "t": "h",
+   "x": "Fallo menor y fallo mayor"
+  },
+  {
+   "t": "p",
+   "x": "Linux los distingue con una pregunta: ¿hubo entrada o salida de disco? Un **fallo menor** se resuelve sin I/O: el contenido ya está en memoria o se inventa (una página de ceros). Un **fallo mayor** obliga a leer el almacenamiento: `getrusage` lo define como un fallo cuya atención requirió actividad de entrada y salida [#man7-getrusage]."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tipo",
+    "Qué hay que hacer",
+    "Tiempo medido acá",
+    "Ejemplo"
+   ],
+   "filas": [
+    [
+     "Menor",
+     "conseguir un marco y completar la entrada",
+     "≈ 1,5 µs",
+     "primer toque de memoria nueva; archivo ya en la caché de disco"
+    ],
+    [
+     "Mayor",
+     "leer la página del almacenamiento a un marco",
+     "40 a 117 µs",
+     "abrir un programa que no estaba en memoria"
+    ],
+    [
+     "Inválido",
+     "nada: la dirección no es del proceso",
+     "señal al proceso",
+     "puntero nulo"
+    ]
+   ],
+   "cap": "Mediciones de este entorno (máquina virtual con disco virtual); en tu equipo serán otras. No lo confundas con el fallo de TLB, que resuelve el hardware en decenas de nanosegundos."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": [
+    "**Advertencia: el comando siguiente es de administrador.** `sync && echo 3 > /proc/sys/vm/drop_caches` (necesita root) hace que el kernel tire las copias de archivos que guarda en memoria. No borra datos, porque el `sync` baja antes lo pendiente, pero el sistema se vuelve lento un rato porque todo se relee del disco. No lo uses en un servidor en producción ni en una máquina ajena. Yo lo corrí en este entorno desechable antes de cada medición «en frío»."
+   ],
+   "titulo": "Comando con efectos"
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "/* fragmento de mayor.c */\nunsigned char *m = mmap(NULL, n, PROT_READ, MAP_PRIVATE, fd, 0);   /* el archivo aparece como memoria */\nif (argc > 2) madvise(m, n, MADV_RANDOM);       /* \"voy a leer en desorden: no leas por adelantado\" */\ngetrusage(RUSAGE_SELF, &antes);\nfor (size_t i = 0; i < n; i += 4096) suma += m[i];   /* tocar una página tras otra */\ngetrusage(RUSAGE_SELF, &despues);\n/* se imprime despues.ru_majflt - antes.ru_majflt y lo mismo con ru_minflt */",
+   "cap": "Fragmento de lo que compilé con `gcc -O1`. `dato.bin` son 200 MiB aleatorios creados con `dd if=/dev/urandom of=dato.bin bs=1M count=200` (51.200 páginas)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "sync && echo 3 > /proc/sys/vm/drop_caches && ./mayor dato.bin",
+     "s": "páginas: 51200 | fallos mayores: 1 | fallos menores: 1607 | 0.086 s"
+    },
+    {
+     "c": "./mayor dato.bin",
+     "s": "páginas: 51200 | fallos mayores: 0 | fallos menores: 1607 | 0.004 s"
+    },
+    {
+     "c": "sync && echo 3 > /proc/sys/vm/drop_caches && ./mayor dato.bin aleatorio",
+     "s": "páginas: 51200 | fallos mayores: 51200 | fallos menores: 3 | 2.061 s"
+    },
+    {
+     "c": "./mayor dato.bin aleatorio",
+     "s": "páginas: 51200 | fallos mayores: 0 | fallos menores: 3203 | 0.011 s"
+    }
+   ],
+   "cap": "Salida real. En otras dos corridas del caso «aleatorio, en frío» tardó 6,0 y 4,9 s, siempre con 51.200 fallos mayores."
+  },
+  {
+   "t": "p",
+   "x": "Tres lecturas. **Primera**: la lectura en frío y en orden tuvo 1 fallo mayor y 1.607 menores en 0,086 s; el kernel notó que leías páginas seguidas y leyó por adelantado en tramos grandes (explicación mía, compatible con lo que dice `madvise` sobre la lectura anticipada [#man7-madvise]). **Segunda**: con `MADV_RANDOM` avisé que iba a leer en desorden; cada una de las 51.200 páginas fue un fallo mayor y tardó entre 2,1 y 6 s, o sea de 40 a 117 µs por fallo. **Tercera**: con el archivo en memoria, 0 fallos mayores y 0,004 s."
+  },
+  {
+   "t": "p",
+   "x": "La misma lectura de 200 MiB tardó entre 0,004 s y 6 s, mil quinientas veces más, según dónde estuvieran los datos. En un disco rotativo la búsqueda del cabezal ronda los 10 ms según cifras clásicas de referencia [#latency-numbers] (históricas, solo orden de magnitud): casi 7.000 veces un fallo menor medido acá. Los fallos mayores son los que se sienten como «la computadora se trabó»."
+  },
+  {
+   "t": "h",
+   "x": "Páginas grandes: menos traducciones, otro intercambio"
+  },
+  {
+   "t": "p",
+   "x": "Con 4 KiB, un programa de gigabytes consume cientos de miles de entradas de tabla y de TLB. x86-64 también permite páginas de 2 MiB y de 1 GiB [#intel-sdm]. La entrada del nivel PD lleva un bit PS en 1 y, en vez de apuntar a una tabla inferior, apunta directo a la página: desaparece el nivel PT y el desplazamiento se alarga a 21 bits."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "4 KiB",
+     "celdas": [
+      {
+       "t": "PML4",
+       "s": "9 bits",
+       "k": "cliente"
+      },
+      {
+       "t": "PDPT",
+       "s": "9 bits",
+       "k": "red"
+      },
+      {
+       "t": "PD",
+       "s": "9 bits",
+       "k": "servidor"
+      },
+      {
+       "t": "PT",
+       "s": "9 bits",
+       "k": "datos"
+      },
+      {
+       "t": "desplaz.",
+       "s": "12 bits",
+       "k": "os"
+      }
+     ],
+     "nota": "4 lecturas"
+    },
+    {
+     "e": "2 MiB",
+     "celdas": [
+      {
+       "t": "PML4",
+       "s": "9 bits",
+       "k": "cliente"
+      },
+      {
+       "t": "PDPT",
+       "s": "9 bits",
+       "k": "red"
+      },
+      {
+       "t": "PD",
+       "s": "9 bits (PS = 1)",
+       "k": "servidor"
+      },
+      {
+       "t": "desplazamiento",
+       "s": "21 bits",
+       "k": "os"
+      }
+     ],
+     "nota": "3 lecturas"
+    }
+   ],
+   "cap": "Con una página de 2 MiB se salta un nivel: 9 + 9 + 9 + 21 = 48 bits."
+  },
+  {
+   "t": "p",
+   "x": "Ventajas: una entrada de TLB cubre 512 veces más (la TLB de 64 entradas pasa de 256 KiB a 128 MiB), la caminata es más corta y un gibibyte pasa de 262.144 entradas de tabla a 512. En el experimento, con `madvise(MADV_HUGEPAGE)` el kernel entregó páginas de 2 MiB (el contador `AnonHugePages` marcó 65.536 kB, los 64 MiB del bloque, y sin esa llamada marcó 0) y el acceso cayó de 16 a 5 ns. Drepper midió mejoras de 38 % a 57 % en un caso parecido [#drepper-memory]."
+  },
+  {
+   "t": "p",
+   "x": "El precio: una página de 2 MiB exige 2 MiB de RAM física **contigua y alineada**, difícil de hallar cuando la memoria se fragmenta; reserva los 2 MiB enteros aunque se use un pedazo; y los permisos valen para toda la página. Por eso se usan en casos puntuales, como bases de datos o programas con bloques enormes."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": [
+    "**Páginas grandes en Linux (verificado el 13-11-2026, kernel 6.18.44).** Linux las llama *transparent huge pages* (THP) y se controlan con un archivo de configuración y con `madvise` [#kernel-admin-transhuge]. Acá el modo es `madvise`: solo se usan donde el programa lo pide (la opción entre corchetes es la activa).",
+    "El valor por defecto cambia según distribución y versión, y Windows, macOS, Android e iOS tienen sus propias reglas ([@02-25], [@02-27], [@02-28], [@02-29]). Lo que no envejece es el principio: páginas más grandes, menos traducciones, menos flexibilidad."
+   ],
+   "titulo": "Vigencia"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat /sys/kernel/mm/transparent_hugepage/enabled",
+     "s": "always [madvise] never"
+    },
+    {
+     "c": "grep -E 'Hugepagesize|AnonHugePages' /proc/meminfo",
+     "s": "AnonHugePages:         0 kB\nHugepagesize:       2048 kB"
+    }
+   ],
+   "cap": "Salida real, sin ningún programa usando páginas grandes en ese momento. Hugepagesize: 2.048 kB = 2 MiB."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Una TLB tiene 64 entradas. ¿Cuánta memoria cubre con páginas de 4 KiB y con páginas de 2 MiB? Si un programa recorre 32 MiB una y otra vez, ¿qué tamaño evita los fallos de TLB?",
+   "pista": "Alcance = entradas × tamaño de página; compará 32 MiB con cada alcance.",
+   "solucion": "64 × 4 KiB = 256 KiB y 64 × 2 MiB = 128 MiB. Los 32 MiB superan el primer alcance (son 8.192 páginas para 64 entradas, fallos constantes) y caben en el segundo (16 entradas). Número de entradas hipotético: las reales dependen del procesador."
+  },
+  {
+   "t": "h",
+   "x": "Lo que te llevás para decidir"
+  },
+  {
+   "t": "p",
+   "x": "Cuatro frases. **Una dirección virtual no es memoria**: el tamaño reservado (VSZ) no es lo consumido (RSS). **Un fallo menor es normal**; los mayores delatan lecturas de disco y por eso se siente lento. **La localidad manda**: repartir los accesos en muchas páginas paga más TLB que trabajar sobre un bloque compacto. **Las páginas grandes son un compromiso** para casos puntuales. Mañana, qué pasa cuando el depósito se queda sin espacio."
+  }
+ ],
+ "recap": [
+  "La memoria se traduce en bloques: **páginas** virtuales de 4 KiB que se mapean a **marcos** físicos. Una dirección es número de página más desplazamiento de 12 bits, que pasa sin cambios.",
+  "La **tabla de páginas** guarda el marco y los permisos de cada página. Una tabla plana de 48 bits ocuparía 512 GiB; x86-64 usa **cuatro niveles de 9 bits** y los huecos no gastan nada.",
+  "Traducir exige cuatro lecturas de tablas. La **TLB** guarda las traducciones recientes; un fallo de TLB lo resuelve el hardware y acá costó del orden de 10 ns por acceso.",
+  "Un **fallo de página** es una excepción por falta de traducción válida o de permiso. El kernel lo resuelve y reintenta la instrucción; si la dirección es ilegal, el proceso recibe *Segmentation fault*.",
+  "**Menor** es sin I/O (≈ 1,5 µs medido acá) y **mayor** es con lectura del almacenamiento (decenas de µs o más). Pedir memoria casi no cuesta; tocarla genera los fallos.",
+  "Las **páginas de 2 MiB** saltan un nivel de tablas y multiplican por 512 el alcance de cada entrada de TLB, a cambio de RAM contigua y menos granularidad."
+ ],
+ "repaso": [
+  {
+   "p": "En x86-64 con páginas de 4 KiB, ¿qué parte de una dirección virtual llega sin cambios a la dirección física?",
+   "o": [
+    "Los 9 bits de arriba, que eligen la entrada de la tabla raíz",
+    "Los 12 bits de abajo, el desplazamiento dentro de la página",
+    "Los 36 bits del número de página virtual completo",
+    "Ninguno: la MMU cambia la dirección entera de una vez"
+   ],
+   "c": 1,
+   "e": "La MMU reemplaza solo el número de página por el número de marco; el desplazamiento (12 bits) pasa igual porque la página y el marco tienen el mismo tamaño y orden interno. Quien cree que se traduce la dirección entera olvida que el bloque conserva su orden."
+  },
+  {
+   "p": "Un proceso usa solo tres páginas dispersas. ¿Por qué la tabla multinivel gasta unos pocos KiB y una tabla plana gastaría 512 GiB?",
+   "o": [
+    "Porque comprime cada entrada a un solo bit por página",
+    "Porque guarda las tablas en el disco y las trae si se piden",
+    "Porque solo existen las tablas de los caminos que se usan",
+    "Porque usa páginas de 2 MiB y hacen falta menos entradas"
+   ],
+   "c": 2,
+   "e": "En el árbol, una entrada no presente no tiene nada debajo, así que los rangos sin usar no gastan tablas. No hay compresión a un bit (cada entrada sigue ocupando 8 bytes), y el uso de páginas de 2 MiB es otra técnica distinta."
+  },
+  {
+   "p": "¿Qué es un fallo de TLB?",
+   "o": [
+    "La traducción no estaba guardada y el hardware recorre las tablas de páginas",
+    "La página no está en la RAM y el kernel debe leerla desde el disco",
+    "El proceso usó una dirección ilegal y recibe la señal de violación de segmento",
+    "La TLB se llenó y el sistema detiene el proceso hasta vaciarla"
+   ],
+   "c": 0,
+   "e": "El fallo de TLB es solo un «no está en la caché de traducciones»: lo resuelve el hardware sin que nadie se entere. La segunda opción describe un fallo mayor, la tercera un fallo de página inválido y la cuarta no existe: la TLB desaloja entradas viejas por su cuenta."
+  },
+  {
+   "p": "Un programa pide 40 MiB con malloc y toca un byte en cada página de 4 KiB. ¿Cuántos fallos menores esperás, aproximadamente?",
+   "o": [
+    "Unos 40, uno por cada megabyte que se pidió",
+    "Casi ninguno: malloc ya dejó todas las páginas cargadas",
+    "Unos 163.840, uno por cada 256 bytes del bloque",
+    "Unos 10.240, uno por cada página que se toca"
+   ],
+   "c": 3,
+   "e": "40 MiB son 40 × 256 = 10.240 páginas y cada primer toque es un fallo menor. La opción de «casi ninguno» confunde reservar con cargar, y con la memoria por demanda es al revés: malloc solo reserva direcciones."
+  },
+  {
+   "p": "En un equipo con poca RAM, un monitor muestra cientos de fallos mayores por segundo. ¿Qué indica?",
+   "o": [
+    "Que la TLB es demasiado chica y conviene agrandarla",
+    "Que hay programas con punteros nulos a punto de cerrarse",
+    "Que el procesador se calentó y está bajando la frecuencia",
+    "Que se está leyendo del almacenamiento lo que no entra en RAM"
+   ],
+   "c": 3,
+   "e": "Un fallo mayor implica leer desde el almacenamiento, lo que se paga en decenas de microsegundos o más. Las otras opciones mezclan cosas: la TLB produce fallos de TLB (no mayores), los punteros nulos dan fallos inválidos y la temperatura no se mide con fallos de página."
+  },
+  {
+   "p": "¿Qué costo tiene usar páginas de 2 MiB en vez de 4 KiB?",
+   "o": [
+    "Se pierde el aislamiento entre procesos que comparten una tabla",
+    "Cada traducción necesita un nivel más de tablas para funcionar",
+    "Hace falta RAM contigua y se puede reservar de más al usar poco",
+    "La TLB deja de guardar traducciones y cada acceso hace caminata"
+   ],
+   "c": 2,
+   "e": "Las páginas grandes exigen un bloque contiguo y alineado de 2 MiB de RAM física y reservan todo aunque se use un pedazo. Mantienen el aislamiento, saltan un nivel de tablas (no suman uno) y la TLB sigue funcionando; de hecho, cada entrada cubre más."
+  },
+  {
+   "p": "La TLB de un procesador tiene 64 entradas. ¿Qué memoria cubre con páginas de 4 KiB y cuánto con páginas de 2 MiB?",
+   "o": [
+    "64 KiB con páginas chicas y 64 MiB con páginas grandes",
+    "256 KiB con páginas chicas y 128 MiB con páginas grandes",
+    "4 MiB con páginas chicas y 128 MiB con páginas grandes",
+    "256 KiB con páginas chicas y 256 KiB con páginas grandes"
+   ],
+   "c": 1,
+   "e": "El alcance es entradas × tamaño de página: 64 × 4 KiB = 256 KiB y 64 × 2 MiB = 128 MiB. Las demás opciones salen de confundir el tamaño de página con el de la entrada o de olvidar que el tamaño de la página grande es 512 veces el de la chica."
+  }
+ ],
+ "feynman": "Explicale a alguien que solo usa Excel por qué un programa puede «pedir» 8 GB y arrancar al instante en una computadora que no los tiene, qué pasa la primera vez que usa cada pedacito de esa memoria y por qué eso no es un error.",
+ "para_profundizar": [
+  {
+   "fuente": "intel-sdm",
+   "nota": "El volumen 3A, capítulo «Paging», describe exactamente la caminata de cuatro y cinco niveles que viste (sección 4-level paging and 5-level paging en la edición de septiembre de 2026), el formato de cada entrada y los fallos de página. Es denso: leelo con las figuras de traducción al lado."
+  },
+  {
+   "fuente": "ostep",
+   "nota": "Los capítulos 18 (Paging: Introduction), 19 (Paging: Faster Translations, TLBs) y 20 (Paging: Smaller Tables) cuentan lo mismo de hoy con más ejemplos numéricos y de forma muy amigable; son gratis."
+  },
+  {
+   "fuente": "drepper-memory",
+   "nota": "El apartado 4 («Virtual Memory», con 4.3 sobre cómo optimizar el acceso a las tablas de páginas) y el análisis de páginas grandes muestran mediciones de TLB con el rigor de un autor del kernel y de la biblioteca de C."
+  },
+  {
+   "fuente": "kernel-admin-transhuge",
+   "nota": "La documentación oficial de las páginas grandes transparentes de Linux: qué opciones hay, cómo se activan y cuándo conviene."
+  }
+ ],
+ "videos": [
+  {
+   "q": "memoria virtual paginación tabla de páginas TLB explicado paso a paso",
+   "por_que": "Para ver animado el recorrido de una dirección por los niveles de la tabla y el papel de la TLB."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "página",
+   "d": "Bloque de tamaño fijo (4 KiB en x86-64) en el que se corta el espacio de direcciones virtual; la unidad con la que el sistema asigna, protege y mueve memoria."
+  },
+  {
+   "t": "tabla de páginas",
+   "d": "Estructura que arma el sistema operativo para cada proceso y que la MMU consulta: dice, página por página, en qué marco de la RAM está y con qué permisos."
+  },
+  {
+   "t": "TLB",
+   "d": "Translation lookaside buffer: caché pequeña y veloz dentro del procesador que guarda las traducciones de página recientes para no recorrer la tabla de páginas en cada acceso."
+  },
+  {
+   "t": "fallo de página",
+   "d": "Excepción que lanza el procesador cuando no puede completar una traducción (la página no está presente o el permiso no alcanza); el kernel decide si la resuelve y reintenta o termina el proceso."
+  },
+  {
+   "t": "marco de página",
+   "d": "El equivalente de una página en la RAM física: un bloque del mismo tamaño (4 KiB) donde puede vivir el contenido de una página virtual."
+  },
+  {
+   "t": "fallo menor",
+   "d": "Fallo de página que el kernel resuelve sin leer almacenamiento: el contenido ya está en memoria o se crea (por ejemplo, una página de ceros)."
+  },
+  {
+   "t": "fallo mayor",
+   "d": "Fallo de página que obliga a leer el contenido desde el almacenamiento (un archivo o el swap); es miles de veces más lento que uno menor."
+  },
+  {
+   "t": "página grande",
+   "d": "Página de 2 MiB o 1 GiB en x86-64: la entrada de tabla la mapea directamente, con un nivel menos, y una sola entrada de TLB cubre mucha más memoria."
+  }
+ ],
+ "siguiente": "qué pasa cuando la RAM se llena: el swap y el thrashing, el OOM killer de Linux, la pila y el montículo con direcciones reales, y por qué Android e iOS pueden matar una app en segundo plano sin avisar.",
+ "fuentes_nuevas": [
+  {
+   "id": "man7-getrusage",
+   "t": "getrusage(2) - Linux manual page",
+   "a": "Michael Kerrisk (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man2/getrusage.2.html"
+  },
+  {
+   "id": "man7-pagemap",
+   "t": "/proc/pid/pagemap - Linux manual page",
+   "a": "Michael Kerrisk (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man5/proc_pid_pagemap.5.html"
+  },
+  {
+   "id": "man7-madvise",
+   "t": "madvise(2) - Linux manual page",
+   "a": "Michael Kerrisk (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man2/madvise.2.html"
+  },
+  {
+   "id": "kernel-admin-transhuge",
+   "t": "Transparent Hugepage Support",
+   "a": "The Linux Kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/admin-guide/mm/transhuge.html"
+  },
+  {
+   "id": "kernel-x86-tlb",
+   "t": "The TLB (x86)",
+   "a": "The Linux Kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/arch/x86/tlb.html"
+  }
+ ]
+}

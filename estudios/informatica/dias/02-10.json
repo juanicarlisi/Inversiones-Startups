@@ -1,0 +1,715 @@
+{
+ "id": "02-10",
+ "titulo": "Memoria virtual III: swap, falta de RAM, pila y montículo",
+ "bajada": "Ves ahogarse a un programa real por falta de RAM, ves al OOM killer matarlo con su registro del kernel, y aprendés dónde viven la pila y el montículo con direcciones reales.",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Leer `free -h` y `/proc/meminfo`, y explicar por qué available importa más que free.",
+  "Explicar qué es el swap, qué páginas puede usar y por qué un programa se vuelve miles de veces más lento cuando hay thrashing.",
+  "Describir qué hace el OOM killer de Linux y reconocer sus señales (código 137, registro del kernel).",
+  "Distinguir la pila del montículo en un programa real y explicar el desbordamiento de pila.",
+  "Comparar cómo resuelven la falta de memoria Linux, Android (lmkd) e iOS (jetsam)."
+ ],
+ "venis_de": "En el [@02-09] viste cómo una dirección virtual se traduce con tablas de páginas y la TLB, y qué es un fallo de página menor o mayor. Hoy cierra la memoria virtual con lo más incómodo: qué pasa cuando los marcos se acaban.",
+ "se_apoya_en": [
+  "02-05",
+  "02-08",
+  "02-09"
+ ],
+ "gancho": [
+  "Abrís cuarenta pestañas, el editor, el correo y un juego. La computadora se arrastra, la luz del disco no se apaga y de pronto una pestaña se cierra sola, o un programa desaparece sin mensaje de error. En un teléfono es peor: la app que dejaste un rato en segundo plano vuelve a empezar de cero, como si no hubieras estado nunca ahí. No hay un bug en ninguno de los casos. Es el sistema operativo resolviendo, a su manera, que se acabó la memoria.",
+  "Hoy cierra la memoria virtual. Para verlo con datos propios hice algo que no te recomendaría hacer en tu computadora: en una máquina desechable le puse un tope de 100 MiB a un programa que necesita 300 y miré cómo se ahogaba, cómo se volvía unas 2.400 veces más lento y cómo, al final, el kernel lo mataba y lo dejaba anotado. Después abrimos el programa por dentro: dónde viven la pila y el montículo."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Leer la memoria: free, available y la caché"
+  },
+  {
+   "t": "p",
+   "x": "Antes de las crisis conviene saber leer el estado normal. Abajo, `free -m` (en mebibytes) en este entorno, antes y después de leer un archivo de 200 MiB con `cat`. **Advertencia:** `echo 3 > /proc/sys/vm/drop_caches` es un comando de administrador que tira la caché de archivos. No borra datos (el `sync` previo baja lo pendiente), pero el sistema queda lento un rato. No lo uses en un servidor en producción."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "sync && echo 3 > /proc/sys/vm/drop_caches && free -m",
+     "s": "               total        used        free      shared  buff/cache   available\nMem:           16086        1037       14878          16         405       15048\nSwap:              0           0           0"
+    },
+    {
+     "c": "cat dato.bin > /dev/null && free -m",
+     "s": "               total        used        free      shared  buff/cache   available\nMem:           16086        1040       14672          16         605       15045\nSwap:              0           0           0"
+    }
+   ],
+   "cap": "Salida real en este entorno (Linux 6.18.44, 15,7 GiB de RAM, sin swap en este momento). `dato.bin` es el archivo de 200 MiB del [@02-09]."
+  },
+  {
+   "t": "p",
+   "x": "Las columnas, según el manual de `free` [#man7-free]: **total** es la memoria utilizable; **free** es la que no usa nadie; **shared** es la de los sistemas de archivos en memoria (tmpfs); **buff/cache** es la caché de archivos y de bloques de disco; **available** es una estimación de cuánta memoria hay para arrancar programas nuevos sin recurrir al swap; y **used** se calcula como total − available (lo comprobé con los números crudos de este equipo, y coincidió)."
+  },
+  {
+   "t": "p",
+   "x": "Fijate qué pasó al leer el archivo: buff/cache subió unos 200 MiB, free bajó unos 206 y available casi no se movió (de 15.048 a 15.045). El kernel usó memoria sin uso para guardar una copia del archivo y, si un programa la necesita, la suelta al instante."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Linux se comió toda mi RAM.» Una `free` baja con una `buff/cache` alta es normal y sana: un depósito con estanterías vacías desperdicia espacio, y el kernel las llena con copias que puede devolver cuando se pide lugar. La cifra que importa para saber si falta memoria es **available**. La analogía falla en que la caché del kernel no se ordena por cliente: se rige solo por uso reciente.",
+   "titulo": "«Se me llenó la RAM»"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "grep -E '^(MemTotal|MemFree|MemAvailable|Buffers|Cached|SwapTotal|SwapFree|AnonPages|Shmem):' /proc/meminfo",
+     "s": "MemTotal:       16472076 kB\nMemFree:        15024624 kB\nMemAvailable:   15406044 kB\nBuffers:            4756 kB\nCached:           606484 kB\nSwapTotal:             0 kB\nSwapFree:              0 kB\nAnonPages:        754316 kB\nShmem:             16760 kB"
+    }
+   ],
+   "cap": "Salida real, tomada un poco después. `free` lee estos mismos números de `/proc/meminfo`; los valores vienen en kibibytes."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Campo",
+    "Qué cuenta",
+    "¿Se puede liberar sin riesgo?"
+   ],
+   "filas": [
+    [
+     "MemFree",
+     "memoria que nadie usa",
+     "ya está libre"
+    ],
+    [
+     "Buffers y Cached",
+     "copias en memoria de archivos y bloques del disco",
+     "sí: se descartan y se vuelven a leer"
+    ],
+    [
+     "AnonPages",
+     "datos de programas sin archivo detrás: montículo, pila",
+     "no: hay que guardarlos (swap) o matar al programa"
+    ],
+    [
+     "MemAvailable",
+     "estimación de lo que se puede dar a programas nuevos sin swap",
+     "es la cifra para decidir"
+    ],
+    [
+     "SwapTotal, SwapFree",
+     "tamaño del swap y lo que queda libre",
+     "acá, 0: no había swap"
+    ]
+   ],
+   "cap": "Definiciones según la página de manual de /proc/meminfo [#man7-proc-meminfo]. «Anónima» quiere decir sin archivo de respaldo; es la distinción clave de hoy."
+  },
+  {
+   "t": "h",
+   "x": "Swap: el depósito de afuera"
+  },
+  {
+   "t": "p",
+   "x": "Cuando faltan marcos, el kernel solo puede liberar páginas de dos tipos [#kernel-mm-concepts]. Las de la caché de archivos se descartan, porque su contenido sigue estando en el archivo. Las **anónimas** (los datos del programa, sin archivo detrás) no tienen otra copia: si las sacara de la RAM sin guardarlas, el programa perdería sus datos. El [[swap]] es el área de disco, una partición o un archivo, donde el kernel las guarda para poder reutilizar el marco. Cuando el programa vuelve a tocar la página ocurre un fallo mayor (el [@02-09]): el kernel la trae de vuelta, y para eso puede mandar otra al swap."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Un depósito alquilado a 30 kilómetros. Lo que hace meses nadie toca viaja ahí y libera estantería en el principal. Si un cliente lo pide, traerlo lleva medio día.",
+    "Donde falla: el kernel, no vos, decide qué viaja, y lo hace mirando uso reciente (los bits A y D de la tabla de páginas del [@02-09])."
+   ],
+   "titulo": "Pensalo así: el depósito de afuera"
+  },
+  {
+   "t": "p",
+   "x": "Este entorno no tenía swap (la fila «Swap» de `free` decía 0), así que creé uno de 512 MiB para las pruebas. **Advertencia:** `mkswap` formatea lo que le indiques y destruye su contenido; apuntalo siempre a un archivo nuevo, nunca a un disco o partición con datos, y en un equipo que no sea desechable pensalo dos veces antes de activar swap sobre un disco lento."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "dd if=/dev/zero of=swap.img bs=1M count=512 status=none && chmod 600 swap.img && mkswap swap.img",
+     "s": "Setting up swapspace version 1, size = 512 MiB (536866816 bytes)\nno label, UUID=43344daa-3dbc-4ac8-badc-facec7fe1fa6"
+    },
+    {
+     "c": "swapon swap.img && swapon --show",
+     "s": "NAME           TYPE SIZE USED PRIO\n/root/swap.img file 512M   0B   -2"
+    },
+    {
+     "c": "free -h",
+     "s": "               total        used        free      shared  buff/cache   available\nMem:            15Gi       750Mi        14Gi        16Mi       1.1Gi        14Gi\nSwap:          511Mi          0B       511Mi"
+    }
+   ],
+   "cap": "Salida real, como root, en /root. El permiso 600 es para que solo root pueda leer el archivo: lo que va al swap son datos de los programas, contraseñas incluidas. `swapon` activa el área [#man7-swapon]."
+  },
+  {
+   "t": "pensa",
+   "x": "¿Por qué las páginas de la caché de archivos no necesitan swap para ser desalojadas?",
+   "resp": "Porque su contenido ya existe en el archivo del disco: se descartan y, si se vuelven a necesitar, se releen de ahí. Las páginas anónimas no tienen otra copia, y por eso son las únicas que usan el swap."
+  },
+  {
+   "t": "h",
+   "x": "Thrashing: cuando el sistema solo mueve páginas"
+  },
+  {
+   "t": "p",
+   "x": "Un programa casi nunca usa toda su memoria a la vez: en cada instante toca un subconjunto. Si ese subconjunto entra en la RAM, el swap casi no se nota. Si no entra, cada acceso pide una página que está afuera, el kernel la trae y, para tener lugar, expulsa otra que se va a necesitar enseguida. El sistema pasa el tiempo moviendo páginas y casi no trabaja: eso es el [[thrashing]] [#ostep]."
+  },
+  {
+   "t": "p",
+   "x": "Para provocarlo sin ahogar el entorno entero, limité la memoria de un solo programa con un *cgroup*, un mecanismo del kernel que pone topes a un grupo de procesos (lo ves en el [@02-24]). El programa reserva 300 MiB, toca todos y después lee y escribe páginas al azar durante 4 segundos, contando cuántos accesos logra. Solo cambio el tope de memoria. **Advertencia:** escribir en `/sys/fs/cgroup` requiere root, y un tope muy bajo puede hacer que el kernel mate procesos; hacelo solo en un entorno desechable. Usé la versión 1 de los cgroup, la que ofrece este entorno [#kernel-cgroup-v1-memory]."
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "#!/bin/sh\n# uso: corre.sh LIMITE_MIB DATOS_MIB SEGUNDOS\nG=/sys/fs/cgroup/memory/demo10\necho $(( $1 * 1024 * 1024 )) > $G/memory.limit_in_bytes\necho $$ > $G/cgroup.procs\nexec ./hundir $2 $3",
+   "cap": "corre.sh: fija el tope de memoria del grupo, se mete en él y reemplaza el proceso por el programa de prueba."
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "/* fragmento de hundir.c: se ejecuta con \"hundir MiB SEGUNDOS\" */\nunsigned char *m = malloc(mib << 20);              /* reservar 300 MiB */\nfor (size_t i = 0; i < paginas; i++) m[i * 4096] = i;   /* tocar cada página: que existan */\n\nwhile (ahora() - t0 < segundos) {\n    for (int k = 0; k < 1000; k++) {                   /* mil toques en páginas al azar */\n        x = x * 1664525u + 1013904223u;                /* generador de números pseudoaleatorios */\n        m[(size_t)(x % paginas) * 4096] += 1;          /* leer y escribir una página cualquiera */\n    }\n    ops += 1000;\n}\n/* al final imprime accesos por segundo y, leyendo getrusage y /proc/vmstat,\n   los fallos mayores y las páginas que entraron y salieron del swap */",
+   "cap": "Fragmento del programa que compilé con `gcc -O2`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./corre.sh 400 300 4",
+     "s": "300 MiB de datos: 66977685 accesos/s | fallos mayores: 0 | páginas leídas del swap: 0 | escritas al swap: 0"
+    },
+    {
+     "c": "./corre.sh 200 300 4",
+     "s": "300 MiB de datos: 52699 accesos/s | fallos mayores: 70761 | páginas leídas del swap: 71293 | escritas al swap: 72225"
+    },
+    {
+     "c": "./corre.sh 100 300 4",
+     "s": "300 MiB de datos: 28375 accesos/s | fallos mayores: 76306 | páginas leídas del swap: 76055 | escritas al swap: 75879"
+    }
+   ],
+   "cap": "Salida real (tope en MiB, datos en MiB, segundos). En otras corridas con 200 MiB dio 64.320 accesos/s, y con 100 MiB, 26.139 y 29.095: el disco virtual varía."
+  },
+  {
+   "t": "p",
+   "x": "Con un tope de 400 MiB, que alcanza, el programa logró casi 67 millones de accesos por segundo y ningún fallo mayor. Con 200 MiB, 52.699 por segundo, unas **1.270 veces menos**, con 70.761 fallos mayores en 4 segundos. Con 100 MiB, 28.375, unas **2.360 veces menos**. El programa hizo exactamente lo mismo; solo le faltó RAM. Y la caída no es gradual: en cuanto lo que se usa activamente no entra, cada acceso depende del disco."
+  },
+  {
+   "t": "p",
+   "x": "Desde afuera, `vmstat` muestra la firma del thrashing. Lo corrí mientras el programa trabajaba con el tope de 100 MiB:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "vmstat 1 7",
+     "s": "procs -----------memory---------- ---swap-- -----io---- -system-- -------cpu-------\n r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st gu\n 1  0 203896 15063420  14580 712304 1910 2971  5696  5452 5130   24 11  4 83  1  0  0\n 0  1 210012 15092876  14580 712412 77540 84168 77552 84184 33881 40957  5 18 64 13  0  0\n 0  1 208416 15096416  14580 712424 72096 71344 72096 71344 32900 37767  1 16 69 14  0  0\n 0  1 207632 15100352  14580 712424 81960 81864 81960 81864 33044 42959  1 16 69 14  0  0\n 0  1 208464 15091320  16152 720760 72752 74076 81624 74088 37306 40381  4 20 62 14  0  0\n 0  1 207324 15089808  16152 720760 71012 70736 71012 70736 37980 37430  0 16 68 15  0  0\n 1  0 207360 15090908  16152 720760 75560 76352 75560 76388 39989 39893  1 17 67 15  0  0"
+    }
+   ],
+   "cap": "Salida real, en una corrida aparte de la anterior. La primera línea es un promedio desde el arranque [#man7-vmstat]. swpd: swap usado; si y so: lo traído desde el swap y llevado al swap, en KiB por segundo; bi y bo: lectura y escritura de disco; wa: tiempo esperando disco."
+  },
+  {
+   "t": "p",
+   "x": "Mirá las columnas `si` y `so`: unos 70.000 a 80.000 KiB por segundo, en cada sentido y sostenido, con `swpd` en torno a 205.000 KiB (unos 200 MiB: los 300 menos los 100 que entran). La CPU no está saturada (`id` entre 62 % y 69 %), porque el único programa pasa el tiempo esperando al disco. Esa combinación de mucho swap entrando y saliendo, mucho disco y poco trabajo útil es el diagnóstico clásico."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "El swap no es el culpable del thrashing; es lo que evita algo peor. El problema es que el conjunto de páginas en uso supera la RAM. Sin swap, las páginas anónimas no tendrían adónde ir y el kernel pasaría directo a la medida de abajo. Las salidas reales son más RAM, menos programas a la vez o que el programa mantenga menos datos activos.",
+   "titulo": "El swap no es el villano"
+  },
+  {
+   "t": "h",
+   "x": "Cuando ya no queda nada: el OOM killer"
+  },
+  {
+   "t": "p",
+   "x": "Si no hay swap, o se llenó, el kernel no puede liberar marcos. Entonces activa el **OOM killer** (*out of memory*): elige un proceso y lo mata para que el resto siga viviendo [#kernel-mm-concepts]. La elección usa un puntaje de «maldad» de 0 a 1000, proporcional a cuánta memoria y swap usa el proceso respecto de lo permitido, que un administrador puede inclinar con `oom_score_adj` [#kernel-proc-fs]. Tiende a elegir al que más pesa, no al último que pidió memoria."
+  },
+  {
+   "t": "p",
+   "x": "Repetí la prueba con el tope de 100 MiB aplicado a memoria más swap (`memory.memsw.limit_in_bytes`), así que no había adónde mandar páginas, y miré el registro del kernel con `dmesg` (que como root se puede leer)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./oom.sh; echo \"código de salida: $?\"",
+     "s": "código de salida: 137"
+    },
+    {
+     "c": "dmesg | grep 'Memory cgroup out of memory'",
+     "s": "[ 1345.138124] Memory cgroup out of memory: Killed process 18629 (hundir) total-vm:309904kB, anon-rss:102016kB, file-rss:1248kB, shmem-rss:0kB, UID:0 pgtables:252kB oom_score_adj:0"
+    }
+   ],
+   "cap": "Salida real. La shell, además, imprime «Killed». oom.sh es igual a corre.sh pero con `memory.memsw.limit_in_bytes` igual al tope."
+  },
+  {
+   "t": "p",
+   "x": "Leé el mensaje. `total-vm` (309.904 kB, unos 303 MiB) es el tamaño virtual. `anon-rss` (102.016 kB, unos 99,6 MiB) es la memoria anónima que realmente tenía en RAM: justo bajo el tope de 100 MiB. Y el 137 es 128 + 9: la convención de las shells para «murió por la señal 9» (SIGKILL), que un programa no puede atrapar. No tuvo ocasión de guardar nada."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "x": "Con swap disponible y topes entre 240 y 300 MiB, en cuatro corridas preliminares el programa murió tres veces por OOM y en una sobrevivió (a 4,3 millones de accesos por segundo). No hay un umbral limpio. Mi inferencia, no verificada: el kernel no siempre consigue vaciar páginas al swap tan rápido como el programa las pide.",
+   "titulo": "Un hallazgo incómodo"
+  },
+  {
+   "t": "p",
+   "x": "Queda una pieza: ¿por qué `malloc` no avisa antes? Ayer viste que pedir promete y tocar entrega. El kernel decide cuánto prometer con la política de *overcommit* (sobreasignación). En el modo 0, el de esta máquina, rechaza los pedidos «obviamente excesivos» [#kernel-overcommit]:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./pedir 1 8 14 15 20 50 100 1000",
+     "s": "malloc(  1 GiB) -> concedido\nmalloc(  8 GiB) -> concedido\nmalloc( 14 GiB) -> concedido\nmalloc( 15 GiB) -> concedido\nmalloc( 20 GiB) -> NULL (negado)\nmalloc( 50 GiB) -> NULL (negado)\nmalloc(100 GiB) -> NULL (negado)\nmalloc(1000 GiB) -> NULL (negado)"
+    },
+    {
+     "c": "cat /proc/sys/vm/overcommit_memory",
+     "s": "0"
+    }
+   ],
+   "cap": "Salida real: `pedir` hace `malloc` de esa cantidad de GiB sin tocarla. La máquina tiene 15,7 GiB de RAM más 0,5 GiB de swap."
+  },
+  {
+   "t": "p",
+   "x": "Se concedieron 15 GiB y se negaron 20. El corte exacto que aplica el kernel no lo verifiqué en su código: en la documentación solo dice que los excesos obvios se rechazan. Pero que un pedido sea aceptado no garantiza nada: si después el programa toca todo, vuelve el OOM killer. Existe un modo 2 que no promete de más, y entonces `malloc` devuelve error en lugar de matar procesos más tarde, a costa de rechazar pedidos que habrían funcionado."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«El OOM killer mata al programa que pidió la memoria que faltaba.» No necesariamente: mata al que su puntaje indica, normalmente el que más memoria ocupa. Un programa chico y bien portado puede sufrir las consecuencias de otro con una fuga de memoria."
+  },
+  {
+   "t": "h",
+   "x": "Pila y montículo: dónde viven tus variables"
+  },
+  {
+   "t": "p",
+   "x": "Hasta acá hablamos de marcos y páginas, la mirada del sistema. Ahora la del programa: su espacio de direcciones está dividido en regiones. Dos de ellas se manejan de manera muy distinta. La **pila** guarda las variables locales y las direcciones de retorno de cada llamada a función, y es la que viste con los hilos en el [@02-05]. El **montículo** guarda lo que el programa pide a mano durante la ejecución, con `malloc` en C, `new` en otros lenguajes o al crear objetos. El programa de abajo imprime dónde cae cada cosa y consulta `/proc/self/maps` [#man7] para nombrar la región."
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "/* fragmento de donde.c; region(dir) busca dir en /proc/self/maps y devuelve el nombre de la región */\nint global = 7;\n\nstatic void llamada(int nivel) {\n    int local = nivel;                       /* una variable local por cada llamada */\n    mostrar(\"local, llamada nivel\", &local);\n    if (nivel < 3) llamada(nivel + 1);\n}\n\nint main(void) {\n    int local = 1;\n    mostrar(\"código (main)\", (void *)main);\n    mostrar(\"variable global\", &global);\n    mostrar(\"local en main\", &local);\n    llamada(1);\n    mostrar(\"malloc(100)\", malloc(100));\n    mostrar(\"malloc(100) otra vez\", malloc(100));\n    mostrar(\"malloc(1 MiB)\", malloc(1 << 20));\n}",
+   "cap": "Fragmento del programa que compilé con `gcc -O0` y ejecuté en este entorno."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./donde",
+     "s": "código (main)           0x560d2f62a51f  /root/donde\nvariable global          0x560d2f62d010  /root/donde\nlocal en main            0x7fff400be9d4  [stack]\nlocal, llamada nivel 1   0x7fff400be97c  [stack]\nlocal, llamada nivel 2   0x7fff400be90c  [stack]\nlocal, llamada nivel 3   0x7fff400be89c  [stack]\nmalloc(100)              0x560d3b67f8a0  [heap]\nmalloc(100) otra vez     0x560d3b67f910  [heap]\nmalloc(1 MiB)            0x7f0662304010  (mapeo anónimo)"
+    }
+   ],
+   "cap": "Salida real. Las direcciones cambian en cada corrida porque el sistema las baraja a propósito, pero las regiones y los saltos entre ellas se repiten."
+  },
+  {
+   "t": "p",
+   "x": "Qué se ve. **Las locales caen en `[stack]`**, direcciones altas (0x7fff…). Cada llamada anidada queda 0x70 = 112 bytes más abajo que la anterior: la pila crece hacia las direcciones menores en x86-64. **`malloc(100)` cae en `[heap]`**, y la segunda llamada queda 112 bytes después: el montículo crece hacia arriba. **`malloc` de 1 MiB cae en un mapeo aparte**: la biblioteca de C le pide al kernel un bloque propio para los pedidos grandes (el umbral inicial es de 128 KiB y se ajusta solo [#man7-mallopt]). El código y las variables globales viven en el propio ejecutable."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Pila",
+    "Montículo"
+   ],
+   "filas": [
+    [
+     "Qué guarda",
+     "locales y direcciones de retorno",
+     "lo que el programa pide con malloc o al crear objetos"
+    ],
+    [
+     "Quién la maneja",
+     "se reserva y se libera sola al llamar y volver",
+     "el programa pide y debe soltar (o lo hace un recolector de basura)"
+    ],
+    [
+     "Cuántas hay",
+     "una por hilo",
+     "una compartida por todos los hilos del proceso"
+    ],
+    [
+     "Tamaño",
+     "fijo y chico: 8 MiB por defecto en Linux",
+     "crece con lo que se pide, hasta donde alcance la memoria"
+    ],
+    [
+     "Error típico",
+     "desbordamiento de pila (recursión sin corte)",
+     "fuga de memoria: se pide y nunca se suelta"
+    ]
+   ],
+   "cap": "El valor de 8 MiB es el límite por defecto que muestra `ulimit -s` (8192 KiB) en este entorno; se puede cambiar."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "La pila es una pila de bandejas en el comedor: la última que apoyás es la primera que sacás, y nadie decide dónde va cada una. El montículo es un depósito donde pedís ubicaciones a medida que hacen falta y tenés que devolverlas.",
+    "Donde falla: las bandejas de una pila de comedor no se pierden solas, y en el montículo, si olvidás devolver una ubicación, queda ocupada hasta que el programa termina."
+   ],
+   "titulo": "Pensalo así: bandejas y depósito"
+  },
+  {
+   "t": "pensa",
+   "x": "Una función recursiva sin caso de corte termina en *Segmentation fault*, pero un `while (1) {}` vacío puede correr para siempre sin romperse. ¿Por qué?",
+   "resp": "Cada llamada recursiva agrega un marco a la pila (variables locales y dirección de retorno), y la pila tiene un tope fijo. El bucle vacío no agrega nada: reutiliza el mismo lugar. Al superar el tope, el acceso cae en una página no mapeada: un fallo de página inválido del [@02-09], y el kernel manda SIGSEGV."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ulimit -s && ./desborda; echo \"código de salida: $?\"",
+     "s": "8192\nnivel      0: local en 0x7ffdefa3fcd0\nnivel  25000: local en 0x7ffdef794350\nnivel  50000: local en 0x7ffdef4e89d0\ncódigo de salida: 139"
+    }
+   ],
+   "cap": "Salida real: el programa se llama a sí mismo sin parar, con 112 bytes por llamada, y avisa cada 25.000 niveles. La shell imprime «Segmentation fault»; 139 = 128 + 11 (SIGSEGV). Documentado: al alcanzar el límite de la pila se genera SIGSEGV [#man7-getrlimit]."
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <stdio.h>\n\nstatic void bajar(long nivel) {\n    char relleno[64];                              /* algo de espacio en cada llamada */\n    relleno[0] = (char)nivel;\n    if (nivel % 25000 == 0) fprintf(stderr, \"nivel %6ld: local en %p\\n\", nivel, (void *)relleno);\n    bajar(nivel + 1);                              /* sin condición de corte: recursión infinita */\n    relleno[1] = relleno[0];                       /* impide que el compilador lo convierta en un bucle */\n}\n\nint main(void) { bajar(0); return 0; }",
+   "cap": "desborda.c completo, compilado con `gcc -O0` (sin optimizar, para que cada llamada reserve su marco)."
+  },
+  {
+   "t": "ejercicio",
+   "x": "La pila de este entorno tiene 8 MiB y cada llamada de `desborda` usa 112 bytes. ¿Cuántas llamadas anidadas aguanta, aproximadamente? ¿Y si cada llamada usara 1 KiB?",
+   "pista": "8 MiB = 8.388.608 bytes; dividí por el tamaño de cada marco.",
+   "solucion": "8.388.608 ÷ 112 ≈ 74.898 llamadas (coincide con la corrida: llegó a imprimir el nivel 50.000 y cayó antes del 75.000). Con 1 KiB por llamada: 8.388.608 ÷ 1.024 = 8.192 llamadas. Por eso una función con arreglos grandes locales se queda sin pila mucho antes."
+  },
+  {
+   "t": "p",
+   "x": "En el montículo el riesgo es el contrario: hay mucho lugar y nadie lo cuida. Un programa que pide y no suelta ve crecer su memoria residente hasta que lo alcanza el OOM killer o, en un teléfono, el sistema. Los lenguajes con recolector de basura (como JavaScript) liberan por vos lo que ya nadie usa, pero siguen teniendo montículo y pueden acumular objetos que mantenés sin darte cuenta."
+  },
+  {
+   "t": "h",
+   "x": "En el teléfono: quién mata a quién"
+  },
+  {
+   "t": "p",
+   "x": "El teléfono es el caso más exigente: poca RAM, muchas apps y nadie dispuesto a esperar. Android e iOS llegan a la misma idea: no se le pide a las apps que se sacrifiquen, el sistema elige víctimas por su cuenta, y la app en segundo plano es la víctima más barata porque nadie la está mirando."
+  },
+  {
+   "t": "p",
+   "x": "**Android.** Cada app corre en su propio proceso de Linux, y su vida no la controla la app: la determina el sistema, que lo mantiene mientras puede y lo elimina cuando necesita la memoria [#android-process-lifecycle]. La tarea de matar la hace el *low memory killer daemon* (`lmkd`), un proceso que vigila la presión de memoria y, cuando es alta, mata los procesos menos esenciales. Desde Android 10 detecta la presión con la *pressure stall information* del kernel, que mide cuánto tiempo pierden las tareas esperando memoria, y es el modo por defecto [#android-lmkd]. Es el mismo principio de hoy, pero en lugar de matar al más grande, mata al menos importante."
+  },
+  {
+   "t": "p",
+   "x": "**iOS.** Según la documentación de Apple, cuando la memoria se agota el sistema avisa a las apps con una notificación de poca memoria; si la presión sigue, termina aplicaciones para recuperar su memoria. A ese evento le llama *jetsam* [#apple-jetsam-reports]. Y si la app que cae estaba a la vista, el usuario lo vive como un cierre inesperado. Para las apps de fondo, la guía de ciclo de vida es explícita: el sistema termina las apps de fondo cuando hace falta [#apple-uikit-background]. La documentación archivada de Apple agrega que iOS no tiene área de respaldo: nunca escribe páginas modificadas en disco, solo descarta lo que puede releer [#apple-memory-archive]."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Linux (servidor o PC)",
+    "Android",
+    "iOS"
+   ],
+   "filas": [
+    [
+     "Quién elige la víctima",
+     "OOM killer del kernel, por puntaje de memoria",
+     "lmkd, un proceso aparte, por importancia y presión",
+     "el sistema (jetsam), tras avisar a las apps"
+    ],
+    [
+     "¿Hay aviso previo?",
+     "no: SIGKILL",
+     "no documentado en las páginas que revisé",
+     "sí: notificación de poca memoria"
+    ],
+    [
+     "Swap a disco",
+     "sí, si se configuró",
+     "no verificado",
+     "no, según la documentación archivada"
+    ]
+   ],
+   "cap": "Resumen de las fuentes citadas, consultadas el 13-11-2026. «No documentado en las páginas que revisé» y «no verificado» significan eso: no afirmo que no exista."
+  },
+  {
+   "t": "p",
+   "x": "La consecuencia práctica, que retomás en el [@10-07], es que una app en segundo plano puede morir sin avisar. Cuando el sistema la termina no corre código tuyo, así que lo importante hay que guardarlo antes de irse al fondo y restaurarlo al volver. El usuario no distingue entre un cierre por falta de memoria y un error: ambos le parecen un fallo de la app."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": [
+    "**Detalles de cada sistema (verificado el 13-11-2026).** Android: la página de `lmkd` indica que el modo con *pressure stall information* es el predeterminado desde Android 10 y que el controlador de matar procesos que vivía en el kernel se quitó del kernel principal a partir de la 4.12 [#android-lmkd]. iOS: lo del área de respaldo viene de una guía de Apple archivada, con copyright de 2003 a 2013; no verifiqué si versiones recientes cambiaron algo, así que tomalo como un principio histórico y mirá la documentación actual antes de decidir. Esa misma guía dice que en los sistemas con chip A9 las páginas son de 16 KiB (no cubre los chips posteriores).",
+    "Los umbrales y puntajes concretos varían entre versiones y fabricantes. Lo que no envejece es el patrón: avisar si se puede, y matar al de menor valor."
+   ],
+   "titulo": "Vigencia"
+  },
+  {
+   "t": "h",
+   "x": "Lo que te llevás para decidir"
+  },
+  {
+   "t": "p",
+   "x": "Tres reglas. Para saber si falta memoria, mirá **available** y los fallos mayores, no **free**. Cuando un programa se vuelve miles de veces más lento y el disco no para, probablemente es thrashing: la causa es RAM insuficiente para lo que usa activamente. Y en cualquier sistema, un proceso puede ser terminado sin aviso por falta de memoria: lo que no esté guardado se pierde. Es la lección que cierra la memoria virtual; desde mañana, el disco."
+  }
+ ],
+ "recap": [
+  "`free` es memoria que nadie usa; **available** es lo que se puede dar a programas nuevos sin swap. Una buff/cache alta es normal: es caché de archivos que se suelta al instante.",
+  "El **swap** es un área de disco para las páginas anónimas (sin archivo detrás). Traerlas de vuelta es un fallo mayor.",
+  "El **thrashing** aparece cuando lo que se usa activamente no entra en la RAM: acá, de 67 millones de accesos por segundo a unos 28 mil, con `si` y `so` altos en `vmstat`.",
+  "Sin swap o con swap lleno, el **OOM killer** mata un proceso con SIGKILL, normalmente el que más memoria ocupa. El código de salida 137 es 128 + 9.",
+  "La **pila** guarda locales y direcciones de retorno, se maneja sola, es chica (8 MiB) y crece hacia abajo; el **montículo** guarda lo que se pide a mano y exige liberar.",
+  "En Android lo hace `lmkd` y en iOS el jetsam: matan apps de fondo sin correr código de la app. Hay que guardar el estado antes de irse al fondo."
+ ],
+ "repaso": [
+  {
+   "p": "Un servidor de 16 GiB muestra free = 500 MiB y available = 9 GiB. ¿Qué conclusión es razonable?",
+   "o": [
+    "Hay poca memoria para programas nuevos y conviene reiniciarlo",
+    "Faltan liberar 9 GiB para que free suba y el sistema responda",
+    "El swap está lleno y por eso la memoria libre es tan baja",
+    "Buena parte de la memoria es caché recuperable: hay lugar para programas"
+   ],
+   "c": 3,
+   "e": "Available estima cuánta memoria se puede dar a programas nuevos sin swap, e incluye la caché de archivos que el kernel suelta al instante. Que free sea bajo con available alto es normal. Las otras opciones leen free como si fuera lo único que cuenta."
+  },
+  {
+   "p": "¿Por qué el kernel puede descartar una página de la caché de archivos pero no una página anónima sin guardarla antes?",
+   "o": [
+    "Porque la anónima es siempre más grande que una página de caché",
+    "Porque la caché tiene su contenido en el archivo y la anónima no tiene otra copia",
+    "Porque la caché no tiene bits de permisos en la tabla de páginas",
+    "Porque la anónima pertenece al kernel y la de caché a los programas"
+   ],
+   "c": 1,
+   "e": "Una página de caché se puede releer del archivo; una anónima (montículo, pila) solo existe en la RAM, así que hay que escribirla en el swap o perderla. El tamaño y los permisos son iguales, y la memoria anónima es del programa, no del kernel."
+  },
+  {
+   "p": "Un programa necesita activamente 300 MiB, pero solo dispone de 100 MiB de RAM y tiene swap. ¿Qué esperás que pase?",
+   "o": [
+    "Funciona igual, porque el swap equivale a tener más RAM",
+    "Se cierra enseguida con un Segmentation fault",
+    "Se vuelve miles de veces más lento, porque cada acceso depende del disco",
+    "Va un poco más lento, en proporción a lo que falta de RAM"
+   ],
+   "c": 2,
+   "e": "Es thrashing: lo que se usa activamente no entra, y cada acceso paga un fallo mayor. En la prueba la velocidad cayó de 67 millones a unos 28 mil accesos por segundo. No es proporcional ni equivale a RAM, y tampoco hay Segmentation fault, porque las direcciones son válidas."
+  },
+  {
+   "p": "Un proceso en un contenedor termina con código de salida 137. ¿Qué es lo más probable que haya pasado?",
+   "o": [
+    "Lo mataron con la señal 9, por ejemplo el OOM killer",
+    "Terminó bien: 137 es el código de salida normal de Linux",
+    "Tuvo un acceso inválido y recibió la señal de violación de segmento",
+    "Se quedó sin espacio en la pila por recursión infinita"
+   ],
+   "c": 0,
+   "e": "Por convención, 128 + N indica que murió por la señal N: 137 = 128 + 9 (SIGKILL), la que usa el OOM killer. Una violación de segmento o un desbordamiento de pila darían 139 (128 + 11), y un fin normal es 0."
+  },
+  {
+   "p": "¿Por qué una función recursiva sin caso base termina en Segmentation fault pero un `while (1) {}` vacío no?",
+   "o": [
+    "Porque cada llamada agrega un marco a la pila, que tiene un tope",
+    "Porque el bucle vacío usa memoria del montículo, que es infinito",
+    "Porque la recursión pide memoria al kernel con malloc en cada vuelta",
+    "Porque el compilador siempre detecta la recursión y la bloquea"
+   ],
+   "c": 0,
+   "e": "Cada llamada reserva un marco en la pila (112 bytes en la prueba) y la pila tiene un tope de 8 MiB; al pasarlo, el acceso cae fuera de lo permitido y llega SIGSEGV. El bucle vacío no reserva nada. La recursión no usa malloc ni el montículo."
+  },
+  {
+   "p": "¿Cuál de estos datos vive en el montículo?",
+   "o": [
+    "Una variable local entera declarada dentro de una función",
+    "La dirección de retorno que se guarda al llamar a una función",
+    "Un parámetro pasado por valor a una función recursiva",
+    "Un bloque de 1.000 bytes obtenido con malloc y aún sin liberar"
+   ],
+   "c": 3,
+   "e": "El montículo guarda lo que el programa pide a mano (malloc, new, objetos). Las variables locales, los parámetros y las direcciones de retorno van en la pila, y se liberan solos al volver de la función."
+  },
+  {
+   "p": "Una app de iOS queda en segundo plano y el sistema se queda sin memoria. ¿Qué es lo más probable según la documentación?",
+   "o": [
+    "Se la pasa al swap en disco y se la reanuda al volver",
+    "Se la congela sin tocarla hasta que otra app libere memoria",
+    "Se avisa a las apps de poca memoria y, si no alcanza, se la termina",
+    "Se la avisa de que será cerrada para que guarde todo"
+   ],
+   "c": 2,
+   "e": "Apple documenta una notificación de poca memoria y, si la presión sigue, la terminación de apps (jetsam), con las de fondo como primeras candidatas. No describe swap en disco y tampoco garantiza un aviso individual previo al cierre, por eso hay que guardar el estado antes."
+  }
+ ],
+ "feynman": "Explicale a alguien que usa Excel por qué su compu se arrastra con muchos programas abiertos y el disco no para, y por qué el celular a veces «reinicia» una app que dejó en segundo plano sin que nadie le haya avisado.",
+ "para_profundizar": [
+  {
+   "fuente": "ostep",
+   "nota": "Los capítulos 21 (Beyond Physical Memory: Mechanisms) y 22 (Policies) explican el swap, cómo se elige qué página sacar y el thrashing, con claridad y sin dar nada por sabido."
+  },
+  {
+   "fuente": "kernel-mm-concepts",
+   "nota": "La guía conceptual de memoria del kernel de Linux: páginas recuperables, caché, memoria anónima, recuperación (reclaim) y el OOM killer en pocos párrafos oficiales."
+  },
+  {
+   "fuente": "android-lmkd",
+   "nota": "La página oficial de Android sobre el demonio que mata procesos por presión de memoria; sirve para ver qué se configura y por qué cambió desde el controlador del kernel."
+  },
+  {
+   "fuente": "apple-jetsam-reports",
+   "nota": "La documentación de Apple sobre los eventos jetsam: qué los dispara, cómo se leen los reportes y qué distingue una terminación por memoria de un cierre por error."
+  }
+ ],
+ "videos": [
+  {
+   "q": "memory swap thrashing OOM killer Linux explained",
+   "por_que": "Para ver animado el movimiento de páginas entre RAM y disco y el momento en que el kernel elige una víctima."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "swap",
+   "d": "Área de disco (partición o archivo) donde el kernel guarda páginas anónimas poco usadas para liberar marcos de RAM; recuperarlas provoca un fallo mayor."
+  },
+  {
+   "t": "thrashing",
+   "d": "Estado en que lo que los programas usan activamente no entra en la RAM y el sistema pasa el tiempo moviendo páginas entre memoria y disco, con muy poco trabajo útil."
+  },
+  {
+   "t": "pila",
+   "d": "Región de memoria de cada hilo para variables locales y direcciones de retorno; se maneja sola con cada llamada y retorno, es de tamaño limitado y crece hacia direcciones menores en x86-64."
+  },
+  {
+   "t": "montículo",
+   "d": "Región de memoria donde el programa reserva bloques a pedido (malloc, new, objetos) y que comparten todos los hilos del proceso; hay que liberarla a mano o con un recolector."
+  },
+  {
+   "t": "OOM killer",
+   "d": "Mecanismo del kernel de Linux que, cuando no puede liberar memoria, elige un proceso por un puntaje de memoria y lo mata con SIGKILL para salvar al sistema."
+  },
+  {
+   "t": "memoria anónima",
+   "d": "Memoria de un programa sin archivo de respaldo, como el montículo y la pila; solo puede salir de la RAM escribiéndola en el swap."
+  },
+  {
+   "t": "overcommit",
+   "d": "Política del kernel de prometer más memoria que la disponible, confiando en que los programas no tocarán todo lo pedido; en Linux se configura con vm.overcommit_memory."
+  },
+  {
+   "t": "lmkd",
+   "d": "Low memory killer daemon: proceso de Android que vigila la presión de memoria y mata los procesos menos esenciales cuando es alta."
+  },
+  {
+   "t": "jetsam",
+   "d": "Mecanismo de iOS que termina aplicaciones cuando la presión de memoria persiste tras avisarles; los reportes jetsam describen qué proceso se terminó y por qué."
+  }
+ ],
+ "siguiente": "los archivos y los sistemas de archivos: qué es de verdad un archivo, cómo el disco lo organiza en bloques y qué es un inodo.",
+ "fuentes_nuevas": [
+  {
+   "id": "man7-free",
+   "t": "free(1) - Linux manual page",
+   "a": "procps-ng (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man1/free.1.html"
+  },
+  {
+   "id": "man7-proc-meminfo",
+   "t": "/proc/meminfo - Linux manual page",
+   "a": "Michael Kerrisk (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man5/proc_meminfo.5.html"
+  },
+  {
+   "id": "man7-swapon",
+   "t": "swapon(8) - Linux manual page",
+   "a": "util-linux (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man8/swapon.8.html"
+  },
+  {
+   "id": "man7-getrlimit",
+   "t": "getrlimit(2) - Linux manual page",
+   "a": "Michael Kerrisk (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man2/getrlimit.2.html"
+  },
+  {
+   "id": "man7-mallopt",
+   "t": "mallopt(3) - Linux manual page",
+   "a": "Michael Kerrisk (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man3/mallopt.3.html"
+  },
+  {
+   "id": "man7-vmstat",
+   "t": "vmstat(8) - Linux manual page",
+   "a": "procps-ng (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man8/vmstat.8.html"
+  },
+  {
+   "id": "kernel-mm-concepts",
+   "t": "Concepts overview (administrador de memoria)",
+   "a": "The Linux Kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/admin-guide/mm/concepts.html"
+  },
+  {
+   "id": "kernel-proc-fs",
+   "t": "The /proc filesystem",
+   "a": "The Linux Kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/filesystems/proc.html"
+  },
+  {
+   "id": "kernel-overcommit",
+   "t": "Overcommit Accounting",
+   "a": "The Linux Kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/mm/overcommit-accounting.html"
+  },
+  {
+   "id": "kernel-cgroup-v1-memory",
+   "t": "Memory Resource Controller (cgroup v1)",
+   "a": "The Linux Kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/admin-guide/cgroup-v1/memory.html"
+  },
+  {
+   "id": "android-lmkd",
+   "t": "Low memory killer daemon",
+   "a": "Android Open Source Project",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/core/perf/lmkd"
+  },
+  {
+   "id": "android-process-lifecycle",
+   "t": "Processes and app lifecycle",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/guide/components/activities/process-lifecycle"
+  },
+  {
+   "id": "apple-jetsam-reports",
+   "t": "Identifying high-memory use with jetsam event reports",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/documentation/xcode/identifying-high-memory-use-with-jetsam-event-reports"
+  },
+  {
+   "id": "apple-memory-archive",
+   "t": "About the Virtual Memory System (Memory Usage Performance Guidelines, archivada)",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/library/archive/documentation/Performance/Conceptual/ManagingMemory/Articles/AboutMemory.html"
+  },
+  {
+   "id": "apple-uikit-background",
+   "t": "Preparing your UI to run in the background",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/documentation/uikit/preparing-your-ui-to-run-in-the-background"
+  }
+ ]
+}

@@ -1,0 +1,977 @@
+{
+ "id": "02-25",
+ "titulo": "Windows por dentro",
+ "bajada": "Recorrés Windows por dentro (kernel NT, registro, servicios, API Win32, NTFS, WSL y seguridad) y lo comparás con Linux concepto por concepto.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Ubicar las piezas del kernel NT (HAL, kernel, ejecutivo y drivers) y decir qué corre en modo usuario y qué en modo kernel.",
+  "Explicar cómo una aplicación le pide algo a Windows a través de la API Win32, las DLL y las llamadas al sistema, y por qué crear un proceso allí no es un fork.",
+  "Describir para qué sirve el registro de Windows y cómo se relaciona con los servicios y su administrador.",
+  "Explicar qué es WSL 2 y por qué corre un kernel Linux real dentro de una máquina virtual liviana.",
+  "Describir tokens de acceso, UAC y AppContainer, y comparar Windows con Linux en procesos, archivos, permisos y servicios."
+ ],
+ "venis_de": "Ya sabés qué hace un sistema operativo, cómo se reparten la CPU los procesos y los hilos, qué son los archivos, los permisos y los servicios, y cómo la virtualización y los contenedores aíslan programas. Hasta acá usamos ejemplos sueltos. Hoy abrís uno entero, Windows, y vemos cómo resuelve cada una de esas ideas.",
+ "se_apoya_en": [
+  "02-02",
+  "02-04",
+  "02-11",
+  "02-13",
+  "02-15",
+  "02-20",
+  "02-23"
+ ],
+ "gancho": [
+  "Imaginá dos depósitos con el mismo inventario, los mismos camiones y el mismo personal. En uno, las reglas del montacargas están escritas en un tablero central, con un formato rígido. En el otro, cada sector guarda las suyas en cuadernos sueltos. Los dos funcionan, pero cuando llega alguien nuevo y pregunta «¿dónde está la configuración del montacargas?», la respuesta depende del depósito.",
+  "Con Windows y Linux pasa algo parecido. Proceso, archivo, permiso y servicio existen en los dos, y cada sistema los resolvió con piezas y nombres propios. Hoy entrás al depósito de Windows: de dónde viene su núcleo, cómo está armado, qué es el registro, cómo arranca un servicio, por qué puede correr un Linux adentro y cómo decide quién puede hacer qué.",
+  "Una aclaración de método: en el entorno donde se escribe este estudio no hay Windows, así que no te muestro salidas de terminal de Windows. Lo que cuento de Windows sale de la documentación oficial de Microsoft (cito cuál en cada caso) y de fuentes de historia. Los comandos de Linux que aparecen sí los corrí yo."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "De dónde viene el kernel NT"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta principios de los años 2000 convivieron dos líneas de Windows: una basada en DOS, pensada para las PC de casa, y otra llamada Windows NT, pensada para estaciones de trabajo y servidores. Según la historia de NT que recoge Wikipedia a partir de libros y entrevistas del propio equipo, Microsoft decidió en octubre de 1988 crear un sistema operativo portable, compatible con OS/2 y POSIX y capaz de usar varios procesadores, y contrató para hacerlo a un grupo de ingenieros de Digital Equipment Corporation liderado por Dave Cutler [#msl-wiki-windows-nt]. Windows NT 3.1 salió el 27 de julio de 1993. La línea de consumo pasó a NT recién con Windows XP, en 2001.",
+    "Lo que hoy se llama [[kernel NT]] es ese diseño de principios de los noventa, remodelado muchas veces: el núcleo de la línea actual de Windows, de escritorio y de servidor. Dos ideas originales siguen a la vista. La portabilidad: NT corrió en varios procesadores (Wikipedia lista IA-32, MIPS, Alpha, PowerPC, Itanium, x86-64 y ARM) y hoy se mantiene en x86-64 y ARM64, gracias a que lo que depende de la máquina quedó aislado en una capa chica que vemos enseguida. Y la separación del sistema en piezas con responsabilidades propias."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "linea-tiempo",
+   "eventos": [
+    {
+     "a": "1988",
+     "t": "Se decide el sistema portable",
+     "d": "En octubre, Microsoft resuelve crear un sistema operativo portable, compatible con OS/2 y POSIX."
+    },
+    {
+     "a": "1989",
+     "t": "Arranca el desarrollo",
+     "d": "En noviembre empieza el trabajo, todavía con el nombre «OS/2 3.0». El primer procesador de destino fue un RISC de Intel, el i860; después, MIPS R3000 y, en 1990, Intel i386."
+    },
+    {
+     "a": "1993",
+     "t": "Windows NT 3.1",
+     "d": "Sale el 27 de julio, para estaciones de trabajo y servidores."
+    },
+    {
+     "a": "2000",
+     "t": "Windows 2000",
+     "d": "Se abandona el soporte de MIPS, Alpha y PowerPC."
+    },
+    {
+     "a": "2001",
+     "t": "Windows XP",
+     "d": "Primera versión de consumo construida sobre NT: las dos líneas se unen."
+    }
+   ],
+   "cap": "Fechas según la historia de Windows NT en Wikipedia [#msl-wiki-windows-nt]. Es una fuente secundaria: para algo que decida dinero, buscá la primaria."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "Que Windows 11 «corre sobre DOS». La línea basada en DOS y la línea NT fueron proyectos distintos desarrollados en paralelo [#msl-wiki-windows-nt]. La ventana de `cmd` de hoy no es DOS: es un programa de Windows con una forma de trabajo parecida a la consola vieja. Y sobre el nombre: Wikipedia cuenta que unos dicen que NT es «New Technology» y dos desarrolladores originales, que viene de «N10», el apodo del procesador i860. Las fuentes no coinciden, y no es un dato para memorizar.",
+   "titulo": "Mito: «Windows corre sobre DOS»"
+  },
+  {
+   "t": "h",
+   "x": "Las capas del kernel NT"
+  },
+  {
+   "t": "p",
+   "x": "Recordá el [@02-02]: el procesador tiene un [[modo kernel]] para el código del sistema y un [[modo usuario]] para las aplicaciones. Microsoft lo describe así para Windows [#msl-user-kernel-mode]. Cada aplicación corre en un [[proceso]] con un espacio de direcciones privado y su propia tabla de handles (los números con los que un proceso se refiere a objetos del sistema, como un archivo abierto), de modo que si se cuelga no arrastra a las demás. En cambio, todo el código de modo kernel comparte un único espacio de direcciones: un driver que escribe en la dirección equivocada puede dañar datos del sistema o de otro driver, y si se cae, se cae todo el sistema operativo."
+  },
+  {
+   "t": "pensa",
+   "x": "Una aplicación con un error escribe en una dirección que no le corresponde. Un driver de modo kernel comete el mismo error. ¿Por qué el resultado es tan distinto?",
+   "resp": "La aplicación tiene un espacio de direcciones privado: lo que rompe es lo suyo y, como mucho, se cierra su proceso. Los drivers comparten con el kernel un único espacio de direcciones, sin paredes entre ellos, así que el error puede pisar datos del sistema y tirar abajo la máquina (la pantalla azul). Por eso conviene tener pocos drivers y bien probados."
+  },
+  {
+   "t": "p",
+   "x": "Dentro del modo kernel, NT se organiza en cuatro piezas:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pieza",
+    "Qué hace",
+    "Dato concreto"
+   ],
+   "filas": [
+    [
+     "[[HAL]]",
+     "Capa que esconde los detalles de bajo nivel del hardware a los drivers y al resto del sistema [#msl-hal].",
+     "Vive en hal.dll; desde Windows 10 versión 2004 se enlazó dentro de ntoskrnl.exe [#msl-wiki-arquitectura-nt]."
+    ],
+    [
+     "Kernel",
+     "Sincroniza procesadores, despacha hilos e interrupciones y atiende excepciones [#msl-wiki-arquitectura-nt].",
+     "Está entre el HAL y el ejecutivo."
+    ],
+    [
+     "Ejecutivo",
+     "Servicios de alto nivel del modo kernel: gestor de E/S, de memoria, de objetos, de procesos y monitor de seguridad [#msl-wiki-arquitectura-nt].",
+     "Está en ntoskrnl.exe, el archivo central del sistema."
+    ],
+    [
+     "Drivers",
+     "Código de modo kernel que habla con los dispositivos (visto en el [@02-14]).",
+     "Archivos con extensión .SYS [#msl-scm-base]."
+    ]
+   ],
+   "cap": "Las cuatro piezas conviven en modo kernel: sus llamadas son llamadas a funciones dentro del mismo espacio de direcciones."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "Aplicaciones (modo usuario)",
+     "d": "Tu navegador, tu programa de contabilidad, una herramienta de línea de comandos.",
+     "k": "cliente"
+    },
+    {
+     "n": "DLL de la API Windows y subsistema (modo usuario)",
+     "d": "Bibliotecas como Kernel32.dll y un proceso de apoyo, csrss.exe.",
+     "k": "red"
+    },
+    {
+     "n": "ntdll.dll (modo usuario)",
+     "d": "Última escala: prepara la llamada al sistema y entra al modo kernel.",
+     "k": "datos"
+    },
+    {
+     "n": "Ejecutivo (modo kernel)",
+     "d": "Gestores de E/S, memoria, objetos, procesos y seguridad.",
+     "k": "os"
+    },
+    {
+     "n": "Kernel y drivers (modo kernel)",
+     "d": "Despacho de hilos e interrupciones; código que maneja cada dispositivo.",
+     "k": "os"
+    },
+    {
+     "n": "HAL (modo kernel)",
+     "d": "Esconde las diferencias entre placas, chipsets y controladores de interrupciones.",
+     "k": "hw"
+    },
+    {
+     "n": "Hardware",
+     "d": "CPU, memoria, discos, red.",
+     "k": "neutro"
+    }
+   ],
+   "cap": "Dibujo simplificado a partir de la documentación de Microsoft y de Wikipedia. En la práctica, kernel y drivers se llaman entre sí en el mismo espacio de direcciones."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "El HAL se parece al encargado de muelles de una empresa con sucursales de muelles distintos: el resto del personal pide «cargar el camión 7» con el mismo formulario en todas, y el encargado lo traduce a lo que ese muelle necesita. La analogía falla en que el HAL no decide nada: es código de modo kernel que se invoca como una función.",
+   "titulo": "Pensalo así: el encargado de muelles"
+  },
+  {
+   "t": "h",
+   "x": "Cómo una aplicación le pide algo a Windows"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un programa para Windows casi nunca llama directo al kernel. Se escribe contra la [[API Win32]], el conjunto documentado de funciones para crear ventanas, abrir archivos o lanzar procesos. Microsoft aclara que hoy la llama «Windows API», porque el nombre viejo no refleja sus orígenes en Windows de 16 bits ni que funciona también en 64 bits [#msl-windows-api]. Acá seguimos diciendo API Win32, que es lo que vas a oír en las reuniones.",
+    "Esa API está implementada como un conjunto de [[DLL]], las [[bibliotecas compartidas|biblioteca compartida]] de Windows que viste en el [@02-20]. Según Microsoft, todo proceso que usa la API usa [[enlace dinámico]], y las DLL ahorran memoria porque varias aplicaciones comparten el código de la misma (cada una recibe su propia copia de los datos) [#msl-dll]. La función que crea procesos, por ejemplo, vive en Kernel32.dll [#msl-createprocess]. Por debajo, Wikipedia describe un camino que Microsoft no documenta para las aplicaciones:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Tu programa",
+     "k": "cliente"
+    },
+    {
+     "n": "Kernel32.dll",
+     "k": "red"
+    },
+    {
+     "n": "ntdll.dll",
+     "k": "datos"
+    },
+    {
+     "n": "Ejecutivo (kernel)",
+     "k": "os"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "CreateProcess(...)",
+     "d": "Una función documentada de la API Win32, que vive en Kernel32.dll."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "pasa el pedido a la capa nativa",
+     "d": "Según Wikipedia, las DLL de la API llaman a ntdll.dll, la biblioteca de ejecución de NT."
+    },
+    {
+     "de": 2,
+     "a": 3,
+     "t": "llamada al sistema: salto a modo kernel",
+     "d": "ntdll.dll hace la llamada al sistema del [@02-02]; el ejecutivo se encarga del pedido."
+    },
+    {
+     "de": 3,
+     "a": 2,
+     "t": "resultado",
+     "d": "El ejecutivo devuelve el control a modo usuario.",
+     "resp": true
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "resultado",
+     "d": "ntdll.dll se lo pasa a la DLL de la API.",
+     "resp": true
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "éxito o error, y datos del proceso",
+     "d": "La función informa el resultado y llena una estructura con la identificación del proceso nuevo [#msl-createprocess].",
+     "resp": true
+    }
+   ],
+   "cap": "Los pasos por ntdll.dll son la descripción de Wikipedia [#msl-wiki-arquitectura-nt], no de la documentación de Microsoft."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "x": "Según Wikipedia, las aplicaciones se escriben contra la API Win32 y no contra la API nativa de NT, que Microsoft no documenta (salvo las rutinas para drivers) [#msl-wiki-arquitectura-nt]. Esa libertad le permite cambiar lo de abajo sin romper lo de arriba.",
+   "titulo": "La puerta nativa no está documentada"
+  },
+  {
+   "t": "h",
+   "x": "Procesos e hilos en Windows"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los conceptos del [@02-04], el [@02-05] y el [@02-06] valen igual. Según Microsoft, cada proceso reúne los recursos para ejecutar un programa: espacio de direcciones virtual, código, handles, un contexto de seguridad, un identificador único, variables de entorno y al menos un hilo. Arranca con un hilo principal y puede crear más; los hilos comparten el espacio de direcciones, y cada uno tiene su prioridad y su contexto guardado. Windows hace multitarea apropiativa [#msl-procesos-hilos].",
+    "La diferencia visible está en cómo nace un proceso. En Linux son dos pasos: [[fork]] copia al proceso actual y [[exec]] cambia el programa de la copia (el [@02-21]). En Windows hay una sola función, `CreateProcess`, que recibe qué programa lanzar y crea el proceso con su hilo principal. El nuevo corre con el contexto de seguridad de quien lo creó [#msl-createprocess]. No hay clon del padre."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En Linux, crear un proceso es fork más exec. En Windows, `CreateProcess` hace todo junto. ¿Qué parte del trabajo desaparece?",
+   "resp": "Desaparece la copia del proceso que llama: CreateProcess no clona al padre, recibe el programa a ejecutar y arma el proceso ya con él. Fork y exec separados le dan a Linux un margen para preparar cosas entre un paso y otro (por ejemplo redirigir entradas y salidas); en Windows eso se pide con parámetros de la misma llamada."
+  },
+  {
+   "t": "h",
+   "x": "El registro de Windows"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[registro de Windows]] es una base de datos jerárquica donde el sistema y las aplicaciones guardan su configuración [#msl-registro-estructura]. Es un árbol: cada nodo es una *clave*, y cada clave puede tener subclaves y *valores* (pares nombre-dato con distintos tipos). Es un solo árbol lógico guardado en archivos separados llamados *hives*, grupos de claves que se cargan en memoria al arrancar el sistema o al iniciar sesión un usuario. La mayoría está en la carpeta `%SystemRoot%\\System32\\Config`, y el de cada usuario en un archivo llamado Ntuser.dat [#msl-registro-hives]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "arbol",
+   "raiz": {
+    "t": "Registro",
+    "s": "un árbol lógico, guardado en varios hives",
+    "k": "datos",
+    "h": [
+     {
+      "t": "HKEY_LOCAL_MACHINE",
+      "s": "configuración de la máquina",
+      "k": "servidor",
+      "h": [
+       {
+        "t": "HARDWARE",
+        "k": "neutro"
+       },
+       {
+        "t": "SAM y SECURITY",
+        "s": "cuentas y política de seguridad",
+        "k": "neutro"
+       },
+       {
+        "t": "SOFTWARE",
+        "k": "neutro"
+       },
+       {
+        "t": "SYSTEM",
+        "k": "os",
+        "h": [
+         {
+          "t": "CurrentControlSet",
+          "k": "os",
+          "h": [
+           {
+            "t": "Services",
+            "s": "una subclave por servicio y por driver",
+            "k": "alerta"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "t": "HKEY_USERS",
+      "s": "un hive por usuario con perfil",
+      "k": "cliente"
+     },
+     {
+      "t": "HKEY_CURRENT_USER",
+      "s": "el hive del usuario actual (Ntuser.dat)",
+      "k": "cliente"
+     }
+    ]
+   },
+   "cap": "Parte del árbol, según la documentación de Microsoft [#msl-registro-estructura][#msl-registro-hives][#msl-scm-base]. Hay más claves que las del ejemplo."
+  },
+  {
+   "t": "p",
+   "x": "Los programas lo leen y lo escriben con funciones de la API, y los administradores con herramientas como el Editor del Registro o el comando `reg query`, cuya sintaxis documenta Microsoft [#msl-reg-query] (no lo corrí: acá no hay Windows)."
+  },
+  {
+   "t": "p",
+   "x": "Compará con Linux: en el entorno donde escribo, `/etc` tiene 159 entradas, casi todas archivos de texto que se leen con `cat` (el [@02-12]). Para mí, el criterio es este: un registro central da un único lugar estructurado donde buscar, y los archivos de texto se pueden copiar, versionar y buscar con herramientas comunes, pero cada programa inventa su formato."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Microsoft advierte que no hay que editar datos del registro que no sean de tu aplicación salvo que sea imprescindible: un error puede dejar el sistema funcionando mal [#msl-registro]. Antes de tocar una clave, hacé una copia de ella, y no sigas instrucciones de internet sin entender qué cambian.",
+   "titulo": "Cuidado: modificar el registro puede romper el sistema"
+  },
+  {
+   "t": "h",
+   "x": "Servicios: procesos que arrancan sin que nadie inicie sesión"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los [[servicios|servicio]] de Windows son el equivalente de los [[daemons|daemon]] del [@02-15]: procesos en segundo plano que no necesitan a una persona frente a la pantalla. Siguen las reglas del Administrador de control de servicios (SCM). Pueden arrancar con el sistema, por pedido de un usuario desde el panel de servicios o por una aplicación, y correr aunque no haya nadie conectado [#msl-servicios].",
+    "El SCM se inicia con el arranque y mantiene la base de datos de servicios instalados en el registro, en `HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services`, con una subclave por servicio y por driver [#msl-scm-base]. Cada entrada guarda, entre otras cosas:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "el *tipo*: si corre en su propio proceso o comparte uno con otros;",
+    "el *tipo de inicio*: automático al arrancar, a pedido o deshabilitado;",
+    "la ruta del ejecutable, con extensión .EXE para los servicios y .SYS para los drivers;",
+    "las dependencias, o sea qué debe estar en marcha antes (la [[dependencia]] del [@02-19]);",
+    "la cuenta con la que corre; si no se indica ninguna, LocalSystem [#msl-scm-base]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Microsoft indica que hay que usar las funciones del SCM y no modificar esa base a mano [#msl-scm-base], y documenta `sc query` para listar servicios y su estado [#msl-sc-query] (tampoco lo corrí). En Linux lo hace [[systemd]], con archivos de texto: en el entorno donde escribo, `/usr/lib/systemd/system` tiene 274 entradas de Ubuntu. Aunque, ojo, en este entorno el proceso 1 no es systemd, detalle que retomamos en el [@02-26]. La idea no cambia: un supervisor arranca procesos en orden, respetando dependencias."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un servicio de tu sistema de gestión no arranca al prender el servidor Windows. (1) ¿Dónde está guardado cómo debe arrancar? (2) ¿Qué tres cosas revisarías? (3) ¿Qué comando documentado listaría los servicios y su estado?",
+   "pista": "Pensá en la base de datos del SCM y en los campos que guarda por servicio.",
+   "solucion": "(1) En la base del SCM, en el registro, bajo HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services, en la subclave del servicio. (2) El tipo de inicio (que sea automático), las dependencias (que no falte algo que debía estar antes) y la cuenta con la que corre (que tenga permisos sobre lo que necesita). (3) `sc query`."
+  },
+  {
+   "t": "h",
+   "x": "NTFS: el sistema de archivos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[NTFS]] es el sistema de archivos por defecto de Windows. Según Microsoft ofrece listas de control de acceso (ACL) para dar permisos detallados, integración con el cifrado de disco BitLocker y un registro de transacciones que usa tras una falla para restaurar su consistencia [#msl-ntfs]. Es la idea de *journal* del [@02-11]; ext4, el sistema de archivos del entorno donde escribo (lo comprobé con `df -T /`), también lo tiene [#msl-linux-ext4]. Los tamaños máximos salen de multiplicar la cantidad de clústeres que NTFS puede direccionar (hasta 2³² − 1) por el tamaño de cada clúster. Microsoft lista 16 TB con clústeres de 4 KB y 256 TB con los de 64 KB [#msl-ntfs]."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Con 2³² clústeres, calculá el volumen máximo para clústeres de 4 KiB y de 64 KiB. ¿Coincide con los 16 TB y 256 TB de Microsoft? ¿Qué unidad usa en realidad?",
+   "pista": "2³² × 4 KiB = 2³² × 2¹² bytes. Un tebibyte (TiB) es 2⁴⁰ bytes. Recordá el [@01-11].",
+   "solucion": "Con 4 KiB: 2³² × 2¹² = 2⁴⁴ bytes = 16 TiB. Con 64 KiB: 2³² × 2¹⁶ = 2⁴⁸ bytes = 256 TiB. Coinciden numéricamente con los «TB» de Microsoft, así que esos «TB» son en rigor tebibytes: el mismo rotulado flojo de «GB» por «GiB» de los discos. (Microsoft usa 2³² − 1 clústeres, un clúster menos.)"
+  },
+  {
+   "t": "p",
+   "x": "Dos diferencias más con Linux. Las rutas: Windows nombra volúmenes con letras de unidad y separa carpetas con barra invertida (`C:\\Documentos\\Informe.pdf`) [#msl-rutas], mientras que Linux tiene un solo árbol desde `/` (el [@02-12]). Y las mayúsculas: Windows no las distingue en los nombres de archivo por defecto y Linux sí [#msl-wsl-archivos]. Lo comprobé acá: creé `Foo.txt` y `foo.txt` en la misma carpeta y `ls` mostró dos archivos. En un Windows con la configuración por defecto, el segundo habría sido el primero."
+  },
+  {
+   "t": "h",
+   "x": "Seguridad: tokens de acceso, UAC y AppContainer"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el [@02-13] viste que Linux identifica a cada proceso con un usuario y un grupo y decide con los permisos rwx de cada archivo. Windows usa otra estructura. Al iniciar sesión, el sistema crea un [[token de acceso]]: un objeto que describe el contexto de seguridad de un proceso o hilo. Según Microsoft contiene el identificador de seguridad (SID) de la cuenta, los SID de sus grupos y la lista de privilegios, y cada proceso del usuario lleva una copia [#msl-token]. Cuando un proceso toca un recurso, el sistema compara el token con la ACL del recurso, hecha de entradas con SID y operaciones permitidas, denegadas o auditadas [#msl-wiki-arquitectura-nt].",
+    "[[UAC]] (*User Account Control*) es el mecanismo detrás del cartel que pide permiso antes de instalar algo. Microsoft lo describe con este recorrido [#msl-uac]:"
+   ]
+  },
+  {
+   "t": "pasos",
+   "pasos": [
+    {
+     "t": "Un administrador inicia sesión",
+     "x": "Se crean dos tokens: uno completo y otro estándar, sin los privilegios ni SID de administrador."
+    },
+    {
+     "t": "El escritorio arranca con el estándar",
+     "x": "explorer.exe corre con el token estándar y todo lo que el usuario lanza desde ahí lo hereda. Navegar o leer el correo ocurre con permisos comunes."
+    },
+    {
+     "t": "Una aplicación pide más",
+     "x": "Windows muestra una ventana de elevación: un administrador ve una pantalla de consentimiento; un usuario estándar tiene que escribir las credenciales de un administrador."
+    },
+    {
+     "t": "El cartel aparece en un escritorio aparte",
+     "x": "Por defecto, el escritorio normal se oscurece y solo procesos de Windows acceden a esa pantalla, para que un programa malicioso no responda por el usuario."
+    }
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un administrador navega con el navegador. ¿Con qué token corre y por qué eso reduce el daño si la página tuviera código malicioso?",
+   "resp": "Con el token estándar, porque lo que lanza el usuario hereda el de explorer.exe. El atacante hereda permisos de usuario común y no puede instalar software de sistema sin que aparezca la ventana de elevación."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "UAC se parece a `sudo` en el objetivo y se diferencia en el mecanismo. En Linux, [[sudo]] ejecuta un comando puntual como [[root]] si la configuración lo permite. En Windows el administrador tiene dos tokens desde el inicio de sesión y se «eleva» un proceso entero con confirmación en pantalla.",
+   "titulo": "UAC no es el sudo de Windows"
+  },
+  {
+   "t": "p",
+   "x": "Además hay una capa para aislar aplicaciones y no solo usuarios: [[AppContainer]]. Según Microsoft, su objetivo principal es el aislamiento, y aun si se explota una vulnerabilidad de la app, no accede a más recursos que los concedidos [#msl-appcontainer]. Aísla credenciales, dispositivos (cámara, micrófono y GPS vienen bloqueados por defecto), archivos y claves del registro, red, procesos y ventanas. Es la misma lógica del [@02-24] aplicada a una aplicación de escritorio, y la retomamos en el [@02-30], cuando se comparen los cinco modelos de seguridad."
+  },
+  {
+   "t": "h",
+   "x": "WSL: un Linux de verdad dentro de Windows"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[WSL]] (*Windows Subsystem for Linux*) permite correr un entorno Linux sobre Windows sin una máquina virtual aparte ni arranque dual, e instalar distribuciones como Ubuntu o Debian, con herramientas como grep, scripts de bash y servicios como PostgreSQL [#msl-wsl-about].",
+    "Hubo dos arquitecturas. WSL 1 traducía las llamadas al sistema de Linux a llamadas de Windows. WSL 2, hoy la versión por defecto, usa un kernel Linux de verdad, compilado por Microsoft desde la rama estable de kernel.org y mantenido por ella, dentro de una máquina virtual liviana que administra el sistema (la [[máquina virtual]] y el [[hipervisor]] del [@02-23]). Las distribuciones corren como contenedores aislados dentro de esa máquina [#msl-wsl-compare]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Hardware",
+       "s": "CPU, RAM, disco",
+       "k": "hw"
+      },
+      {
+       "t": "Hipervisor",
+       "s": "debajo de Windows",
+       "k": "os",
+       "e": "corre sobre"
+      }
+     ]
+    },
+    {
+     "nodos": [
+      {
+       "t": "Windows (anfitrión)",
+       "s": "kernel NT, tus programas",
+       "k": "cliente"
+      },
+      {
+       "t": "Máquina virtual liviana",
+       "s": "administrada por Windows",
+       "k": "datos",
+       "e": "la crea y la apaga"
+      }
+     ],
+     "baja": "Dentro de la máquina virtual"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Kernel Linux",
+       "s": "compilado por Microsoft",
+       "k": "servidor"
+      },
+      {
+       "t": "Tu distribución",
+       "s": "Ubuntu, Debian, etc.",
+       "k": "ok",
+       "e": "corre sobre"
+      }
+     ]
+    }
+   ],
+   "cap": "Esquema simplificado de WSL 2 según la documentación de Microsoft [#msl-wsl-compare]; el detalle interno no figura ahí."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Característica",
+    "WSL 1",
+    "WSL 2"
+   ],
+   "filas": [
+    [
+     "Kernel Linux completo",
+     "No",
+     "Sí"
+    ],
+    [
+     "Compatibilidad total de llamadas al sistema",
+     "No",
+     "Sí"
+    ],
+    [
+     "Máquina virtual administrada",
+     "No",
+     "Sí"
+    ],
+    [
+     "Soporte de systemd",
+     "No",
+     "Sí"
+    ],
+    [
+     "Rapidez para acceder a archivos de Windows desde Linux",
+     "Mejor",
+     "Peor"
+    ]
+   ],
+   "cap": "Resumen de la tabla de Microsoft [#msl-wsl-compare]."
+  },
+  {
+   "t": "p",
+   "x": "Esto sirve porque muchas herramientas de desarrollo (Docker, por ejemplo, que usa funciones del kernel Linux) esperan un Linux: Docker documenta que su backend por defecto en Windows es WSL 2 [#msl-docker-wsl]. Un costo que Microsoft recomienda tener presente: si trabajás con comandos de Linux, guardá los proyectos dentro del sistema de archivos de Linux y no en `/mnt/c` (el disco C de Windows visto desde Linux), porque cruzar de uno a otro es lento [#msl-wsl-archivos]."
+  },
+  {
+   "t": "h",
+   "x": "Windows y Linux, concepto por concepto"
+  },
+  {
+   "t": "p",
+   "x": "La columna de Windows sale de la documentación citada; la de Linux muestra lo que corrí en este entorno cuando lo indico."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Concepto",
+    "Windows",
+    "Linux"
+   ],
+   "filas": [
+    [
+     "Crear un proceso ([@02-04], [@02-21])",
+     "`CreateProcess` crea el proceso y su hilo principal con el programa indicado.",
+     "`fork` copia al proceso y `exec` cambia el programa."
+    ],
+    [
+     "Sistema de archivos ([@02-11])",
+     "NTFS por defecto, con ACL y registro de transacciones.",
+     "Cada distribución elige uno; en este entorno, ext4 con journal."
+    ],
+    [
+     "Rutas ([@02-12])",
+     "Letras de unidad (`C:\\`), barra invertida, mayúsculas sin distinguir por defecto.",
+     "Un árbol desde `/`; mayúsculas distinguidas (`Foo.txt` y `foo.txt` conviven)."
+    ],
+    [
+     "Permisos ([@02-13])",
+     "Token con SID, grupos y privilegios; ACL en cada recurso.",
+     "UID, GID y permisos rwx de usuario, grupo y otros."
+    ],
+    [
+     "Elevar privilegios ([@02-13])",
+     "UAC: dos tokens y una ventana de elevación en un escritorio seguro.",
+     "`sudo`: un comando puntual con privilegios de root."
+    ],
+    [
+     "Servicios ([@02-15])",
+     "Administrador de servicios; su base está en el registro.",
+     "Un supervisor como systemd, con archivos de texto."
+    ],
+    [
+     "Configuración",
+     "El registro: un árbol central de claves y valores.",
+     "Archivos de texto en `/etc` y en la carpeta de cada usuario."
+    ],
+    [
+     "Ejecutables ([@02-20])",
+     "Formato PE: archivos .exe y .dll.",
+     "Formato ELF: `ldd /bin/ls` mostró `libc.so.6` y el cargador `ld-linux-x86-64.so.2`."
+    ],
+    [
+     "Drivers ([@02-14])",
+     "Código de modo kernel, instalado como servicio de tipo driver (.SYS).",
+     "Módulos o código dentro del kernel; mañana lo vemos."
+    ]
+   ],
+   "cap": "Windows: documentación de Microsoft Learn citada en el día. Linux: comandos corridos en el entorno de trabajo (Ubuntu 24.04) el 13-11-2026."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": "Cuando un técnico diga «eso se guarda en el registro», «es un servicio que corre como LocalSystem» o «hay que ejecutarlo como administrador», ya sabés de qué piezas habla y qué preguntar: ¿con qué cuenta corre y con qué privilegios?, ¿dónde queda su configuración?, ¿qué pasa si se cae? Lo que se concrete en tu caso depende de cómo lo hayan instalado, no de una regla.",
+   "titulo": "Lo que te llevás para decidir"
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Verificado el 13-11-2026 en documentación oficial de Microsoft. Windows 10 llegó al fin de soporte el 14-10-2025 y 22H2 fue su última versión [#msl-lifecycle-win10]. Para equipos que no pueden pasar a Windows 11, la página de soporte de Microsoft indica que el programa ESU (actualizaciones extendidas de seguridad) para consumidores los protege hasta el 12-10-2027 [#msl-win10-fin-soporte]. Windows 11 Home y Pro: la versión 26H2 salió el 29-09-2026 con soporte hasta el 10-10-2028, la 25H2 hasta el 13-10-2027 y la 24H2 tuvo soporte hasta octubre de 2026 [#msl-lifecycle-win11]. Son decisiones de producto que Microsoft puede cambiar: antes de decidir sobre una flota de equipos, revisá esas páginas. Lo que no envejece: modo usuario y modo kernel, las capas de NT y los conceptos de token, servicio y registro.",
+   "titulo": "Ciclos de soporte y versiones (13-11-2026)"
+  }
+ ],
+ "recap": [
+  "El **kernel NT** nace de una decisión de 1988; Windows NT 3.1 salió en 1993 y desde XP (2001) es la base de todo Windows. Sus piezas en modo kernel son HAL, kernel, ejecutivo y drivers.",
+  "Las aplicaciones usan la **API Win32**, implementada en DLL (Kernel32.dll, por ejemplo), y ntdll.dll hace el salto al kernel. Crear un proceso es una sola llamada, `CreateProcess`, no un fork más un exec.",
+  "El **registro de Windows** es un árbol de claves y valores guardado en hives; ahí vive, por ejemplo, la base de datos del administrador de servicios en `HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services`.",
+  "**NTFS** es el sistema de archivos por defecto: tiene ACL, un registro de transacciones y volúmenes enormes (la cuenta da 16 TiB con clústeres de 4 KiB, que Microsoft rotula «TB»).",
+  "La seguridad se apoya en el **token de acceso** (SID, grupos y privilegios). **UAC** da dos tokens a un administrador y pide consentimiento para elevar; **AppContainer** aísla aplicaciones.",
+  "**WSL 2** corre un kernel Linux real en una VM liviana administrada por Windows; WSL 1 traducía llamadas. Windows y Linux resuelven los mismos conceptos con piezas distintas, y la tabla comparativa sirve de mapa."
+ ],
+ "repaso": [
+  {
+   "p": "Un driver de modo kernel de Windows escribe por error en una dirección que no le corresponde. ¿Qué es lo más probable que pase?",
+   "o": [
+    "Se cierra solo ese driver y el sistema sigue",
+    "Windows lo aísla en un espacio privado y el resto sigue",
+    "Puede dañar datos del sistema y caerse toda la máquina",
+    "El error queda en un registro y el sistema no lo nota"
+   ],
+   "c": 2,
+   "e": "En modo kernel todo comparte un único espacio de direcciones, así que no hay paredes entre drivers y sistema. La opción del espacio privado describe a las aplicaciones de modo usuario, no a los drivers."
+  },
+  {
+   "p": "¿Qué cambia entre crear un proceso con `CreateProcess` en Windows y hacerlo con `fork` más `exec` en Linux?",
+   "o": [
+    "En Windows se copia al padre y luego se cambia su programa",
+    "En Windows no hay clon del padre: se indica el programa a lanzar",
+    "En Linux el proceso nuevo nace sin ningún programa asignado",
+    "En Windows se necesita un permiso especial para crear procesos"
+   ],
+   "c": 1,
+   "e": "CreateProcess crea el proceso y su hilo principal ya con el programa indicado, sin copiar al padre. La copia seguida del cambio de programa es justo lo que hacen fork y exec en Linux."
+  },
+  {
+   "p": "Querés saber con qué tipo de inicio está configurado un servicio de Windows. ¿Dónde guarda esa información el administrador de servicios?",
+   "o": [
+    "En un archivo de texto dentro de la carpeta C:\\Windows\\Services",
+    "En el registro, bajo HKEY_LOCAL_MACHINE\\SYSTEM\\CurrentControlSet\\Services",
+    "En el token de acceso del usuario que inició el servicio",
+    "En el archivo ntdll.dll, junto con las llamadas al sistema"
+   ],
+   "c": 1,
+   "e": "El SCM mantiene su base de datos en el registro, con una subclave por servicio y por driver. No es un archivo de texto como los unit files de systemd, y el token y ntdll.dll no guardan configuración de servicios."
+  },
+  {
+   "p": "Un administrador inicia sesión en Windows con UAC activado y abre el navegador. ¿Con qué token corre el navegador?",
+   "o": [
+    "Con el token de administrador completo, porque es administrador",
+    "Con ninguno: los navegadores no usan tokens de acceso",
+    "Con un token nuevo que se crea cada vez que abre una pestaña",
+    "Con el token de usuario estándar, que hereda de explorer.exe"
+   ],
+   "c": 3,
+   "e": "Cuando inicia sesión un administrador se crean dos tokens y el escritorio arranca con el estándar, que heredan los programas que lanza. Solo se usa el completo si el usuario aprueba una elevación."
+  },
+  {
+   "p": "Mirás un disco NTFS formateado con clústeres de 4 KiB y un máximo de 2³² clústeres. ¿Qué tamaño máximo de volumen sale de esa cuenta?",
+   "o": [
+    "16 TiB, porque 2³² × 4 KiB = 2⁴⁴ bytes",
+    "4 TiB, porque 2³² × 1 KiB = 2⁴² bytes",
+    "64 TiB, porque 2³² × 16 KiB = 2⁴⁶ bytes",
+    "256 TiB, porque 2³² × 64 KiB = 2⁴⁸ bytes"
+   ],
+   "c": 0,
+   "e": "Con clústeres de 4 KiB (2¹² bytes), 2³² × 2¹² = 2⁴⁴ bytes, que son 16 TiB. Los 256 TiB corresponden a clústeres de 64 KiB, y las otras opciones usan tamaños de clúster que no son los del enunciado."
+  },
+  {
+   "p": "¿Qué describe mejor a WSL 2, según la documentación de Microsoft?",
+   "o": [
+    "Una capa que traduce llamadas de Linux a llamadas de Windows",
+    "Un emulador que interpreta binarios de Linux instrucción por instrucción",
+    "Un kernel Linux real dentro de una VM liviana administrada por Windows",
+    "Una carpeta de Windows con programas de Linux recompilados"
+   ],
+   "c": 2,
+   "e": "WSL 2 incluye un kernel Linux compilado por Microsoft que corre en una máquina virtual liviana. La traducción de llamadas describe a WSL 1, y ni emuladores ni recompilación aparecen en su arquitectura."
+  }
+ ],
+ "feynman": "Explicale a alguien de tu equipo, sin mirar este texto, cómo una aplicación de Windows termina pidiéndole algo al kernel (API Win32, DLL, ntdll, modo kernel), y en qué dos conceptos de Windows (por ejemplo el registro y los servicios, o el token y sudo) se nota más la diferencia con Linux.",
+ "para_profundizar": [
+  {
+   "fuente": "msl-user-kernel-mode",
+   "nota": "La página corta de Microsoft sobre modo usuario y modo kernel en Windows: el punto de partida de todo el día, con la explicación de por qué un driver puede tirar abajo el sistema."
+  },
+  {
+   "fuente": "msl-wsl-compare",
+   "nota": "Comparación oficial de WSL 1 y WSL 2, con la tabla de características y los casos en que conviene cada una."
+  },
+  {
+   "fuente": "msl-uac",
+   "nota": "Cómo funciona UAC: tokens, niveles de integridad y el escritorio seguro, con las capturas de los carteles de elevación."
+  },
+  {
+   "fuente": "ostep",
+   "nota": "Libro abierto de sistemas operativos: los capítulos sobre procesos, memoria virtual y archivos dan el marco conceptual común a Windows y a Linux."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Windows NT architecture user mode kernel mode HAL executive explained",
+   "por_que": "Para ver animado el recorrido de un pedido desde la aplicación hasta el kernel y las piezas del ejecutivo."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "kernel NT",
+   "d": "El núcleo de Windows desde 1993, diseñado como portable y con un HAL, un kernel, un ejecutivo y drivers que corren en modo kernel. Es la base de Windows de escritorio y de servidor."
+  },
+  {
+   "t": "registro de Windows",
+   "d": "Base de datos jerárquica de claves y valores donde el sistema y las aplicaciones guardan configuración. Se guarda en archivos llamados hives."
+  },
+  {
+   "t": "API Win32",
+   "d": "Conjunto documentado de funciones con el que las aplicaciones usan Windows (ventanas, archivos, procesos). Microsoft hoy la llama Windows API; está implementada en DLL."
+  },
+  {
+   "t": "WSL",
+   "d": "Windows Subsystem for Linux: permite correr distribuciones de Linux sobre Windows. WSL 2 usa un kernel Linux real dentro de una máquina virtual liviana."
+  },
+  {
+   "t": "HAL",
+   "d": "Hardware abstraction layer: capa del modo kernel que esconde los detalles de bajo nivel del hardware a los drivers y al resto del sistema operativo."
+  },
+  {
+   "t": "DLL",
+   "d": "Dynamic-link library: biblioteca de funciones y datos que varias aplicaciones de Windows usan a la vez, compartiendo el código en memoria. La API de Windows está hecha de DLL."
+  },
+  {
+   "t": "NTFS",
+   "d": "New Technology File System: sistema de archivos por defecto de Windows, con listas de control de acceso, un registro de transacciones y volúmenes de gran tamaño."
+  },
+  {
+   "t": "token de acceso",
+   "d": "Objeto que describe el contexto de seguridad de un proceso o un hilo: el SID del usuario, los de sus grupos y sus privilegios. Cada proceso lleva una copia."
+  },
+  {
+   "t": "UAC",
+   "d": "User Account Control: mecanismo de Windows que le da a un administrador un token estándar y otro completo, y pide consentimiento para elevar un proceso."
+  },
+  {
+   "t": "AppContainer",
+   "d": "Entorno de ejecución de Windows que aísla una aplicación de credenciales, dispositivos, archivos, red, procesos y ventanas que no necesita."
+  }
+ ],
+ "siguiente": "Linux y sus distribuciones: qué es el kernel y qué agrega una distribución alrededor, y por qué Ubuntu, Fedora, Arch y Alpine son tan distintas siendo todas «Linux».",
+ "fuentes_nuevas": [
+  {
+   "id": "msl-wiki-windows-nt",
+   "t": "Windows NT",
+   "a": "Wikipedia",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/Windows_NT"
+  },
+  {
+   "id": "msl-wiki-arquitectura-nt",
+   "t": "Architecture of Windows NT",
+   "a": "Wikipedia",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/Architecture_of_Windows_NT"
+  },
+  {
+   "id": "msl-user-kernel-mode",
+   "t": "User mode and kernel mode",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows-hardware/drivers/gettingstarted/user-mode-and-kernel-mode"
+  },
+  {
+   "id": "msl-hal",
+   "t": "Windows kernel-mode HAL library",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows-hardware/drivers/kernel/windows-kernel-mode-hal-library"
+  },
+  {
+   "id": "msl-windows-api",
+   "t": "Windows API index",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/apiindex/windows-api-list"
+  },
+  {
+   "id": "msl-dll",
+   "t": "Dynamic-Link Libraries",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/dlls/dynamic-link-libraries"
+  },
+  {
+   "id": "msl-createprocess",
+   "t": "CreateProcessA function (processthreadsapi.h)",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-createprocessa"
+  },
+  {
+   "id": "msl-procesos-hilos",
+   "t": "About processes and threads",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/procthread/about-processes-and-threads"
+  },
+  {
+   "id": "msl-registro",
+   "t": "Registry",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry"
+  },
+  {
+   "id": "msl-registro-estructura",
+   "t": "Structure of the registry",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/sysinfo/structure-of-the-registry"
+  },
+  {
+   "id": "msl-registro-hives",
+   "t": "Registry hives",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/sysinfo/registry-hives"
+  },
+  {
+   "id": "msl-reg-query",
+   "t": "reg query",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/reg-query"
+  },
+  {
+   "id": "msl-servicios",
+   "t": "Services",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/services/services"
+  },
+  {
+   "id": "msl-scm-base",
+   "t": "Database of installed services",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/services/database-of-installed-services"
+  },
+  {
+   "id": "msl-sc-query",
+   "t": "Sc.exe query",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows-server/administration/windows-commands/sc-query"
+  },
+  {
+   "id": "msl-ntfs",
+   "t": "NTFS overview",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows-server/storage/file-server/ntfs-overview"
+  },
+  {
+   "id": "msl-rutas",
+   "t": "File path formats on Windows systems",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/dotnet/standard/io/file-path-formats"
+  },
+  {
+   "id": "msl-token",
+   "t": "Access tokens",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/secauthz/access-tokens"
+  },
+  {
+   "id": "msl-uac",
+   "t": "How User Account Control works",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/security/application-security/application-control/user-account-control/how-it-works"
+  },
+  {
+   "id": "msl-appcontainer",
+   "t": "AppContainer isolation",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/secauthz/appcontainer-isolation"
+  },
+  {
+   "id": "msl-wsl-about",
+   "t": "What is Windows Subsystem for Linux",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/wsl/about"
+  },
+  {
+   "id": "msl-wsl-compare",
+   "t": "Comparing WSL 1 and WSL 2",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/wsl/compare-versions"
+  },
+  {
+   "id": "msl-wsl-archivos",
+   "t": "Working across file systems (WSL)",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/wsl/filesystems"
+  },
+  {
+   "id": "msl-docker-wsl",
+   "t": "Docker Desktop WSL 2 backend on Windows",
+   "a": "Docker",
+   "tipo": "doc",
+   "url": "https://docs.docker.com/desktop/features/wsl/"
+  },
+  {
+   "id": "msl-lifecycle-win10",
+   "t": "Windows 10 Home and Pro lifecycle",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/lifecycle/products/windows-10-home-and-pro"
+  },
+  {
+   "id": "msl-lifecycle-win11",
+   "t": "Windows 11 Home and Pro lifecycle",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/lifecycle/products/windows-11-home-and-pro"
+  },
+  {
+   "id": "msl-win10-fin-soporte",
+   "t": "Windows 10 support has ended on October 14, 2025",
+   "a": "Microsoft Support",
+   "tipo": "doc",
+   "url": "https://support.microsoft.com/en-us/windows/windows-10-support-has-ended-on-october-14-2025-2ca8b313-1946-43d3-b55c-2b95b107f281"
+  },
+  {
+   "id": "msl-linux-ext4",
+   "t": "ext4 Journal (jbd2)",
+   "a": "kernel.org",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/filesystems/ext4/journal.html"
+  }
+ ]
+}

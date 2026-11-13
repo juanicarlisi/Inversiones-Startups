@@ -1,0 +1,824 @@
+{
+ "id": "02-20",
+ "titulo": "Qué es un ejecutable: ELF, PE y Mach-O",
+ "bajada": "Abrís por dentro un ejecutable real, ves cómo el cargador lo pone en memoria y entendés por qué un .exe de Windows no corre en Linux.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué información contiene un formato ejecutable y nombrar los tres más usados.",
+  "Leer el encabezado y las secciones de un ELF real con `file`, `readelf` y `size`.",
+  "Comparar enlace estático y dinámico por tamaño, dependencias y mantenimiento.",
+  "Describir el trabajo del cargador y del enlazador dinámico al arrancar un programa.",
+  "Justificar con tres desajustes por qué un ejecutable de Windows no corre en Linux, y qué hacen Wine y WSL."
+ ],
+ "venis_de": "Sabés que un ejecutable es un archivo que el sistema puede correr, que se encuentra con el PATH y que se instala desde paquetes con dependencias. Todavía no sabés qué hay adentro del archivo. Hoy lo abrís. Mañana seguís con lo que hace el sistema cuando lo lanzás.",
+ "se_apoya_en": [
+  "01-10",
+  "01-25",
+  "01-33",
+  "02-02",
+  "02-08",
+  "02-18",
+  "02-19"
+ ],
+ "gancho": [
+  "Un colega te manda por mail una herramienta, `reporte.exe`. La copiás a tu notebook con Linux, le das permiso de ejecución y la corrés. El sistema contesta: «cannot execute binary file: Exec format error». El procesador es el mismo que el de la computadora de tu colega, el archivo está completo y los permisos son correctos. Algo adentro no es lo que Linux espera.",
+  "Hoy abrimos ese archivo: qué trae en los primeros bytes, cómo se organiza el código y los datos, qué es lo que falta cuando un programa se queja de una biblioteca y quién, en el sistema operativo, convierte un archivo del disco en un programa en marcha. Vas a compilar un «hola mundo» de dos maneras, mirar su interior con herramientas reales y ver por qué los formatos de Linux, Windows y macOS no son intercambiables."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El archivo que el sistema sabe cargar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un procesador solo sabe ejecutar instrucciones que están en la memoria. Un programa, en cambio, vive en un archivo del disco. Alguien tiene que hacer el puente: leer el archivo, decidir qué trozo va a qué parte de la memoria, con qué permisos (solo lectura, escritura, ejecución) y por dónde empezar. Esa información no puede estar en el [[código máquina]], que son instrucciones puras; tiene que estar en el archivo, en un encabezado que lo describe.",
+    "Un **[[formato ejecutable]]** es la convención que fija cómo se organiza ese archivo: qué va al principio, dónde está el código, dónde los datos, qué bibliotecas hacen falta y cuál es la primera instrucción. Cada familia de sistemas operativos eligió el suyo:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Formato",
+    "Dónde se usa",
+    "Cómo se reconoce",
+    "Su biblioteca compartida"
+   ],
+   "filas": [
+    [
+     "ELF (Executable and Linking Format)",
+     "Linux, Android [#android-ndk-abis] y la familia BSD",
+     "los 4 primeros bytes: `7f 45 4c 46`, o sea el byte 0x7f y las letras «ELF» [#man7-elf5]",
+     "`.so`"
+    ],
+    [
+     "PE (Portable Executable)",
+     "Windows",
+     "empieza con un programita heredado de MS-DOS (en el ejemplo de abajo, los bytes «MZ»); más adelante, la firma «PE» seguida de dos bytes nulos [#ms-pe-format]",
+     "`.dll`"
+    ],
+    [
+     "Mach-O",
+     "macOS y iOS",
+     "un número mágico al principio: `0xfeedfacf` en 64 bits [#apple-xnu-macho-loader], y `0xcafebabe` para los archivos «universales», que traen varias versiones adentro [#apple-xnu-fat-h]",
+     "`.dylib`"
+    ]
+   ],
+   "cap": "Las extensiones de la última columna son la costumbre de cada sistema. Lo que cuenta para el cargador es el contenido del archivo."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La extensión no hace al formato",
+   "x": "Un archivo que termina en `.exe` es solo un nombre. Lo que lo vuelve ejecutable de Windows es el contenido: las letras «MZ» y la estructura PE que siguen. Linux casi nunca mira la extensión; mira los bytes del principio, y el comando `file` hace lo mismo para decirte qué es cada cosa. Si renombrás un `.exe` a `.txt`, sigue siendo el mismo ejecutable de Windows, y si le ponés `.exe` a una foto, sigue siendo una foto."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el manifiesto de un contenedor",
+   "x": [
+    "En logística, un contenedor viaja con un manifiesto: qué mercadería lleva, cuánto pesa, en qué orden se descarga, cuáles son frágiles, a qué terminal va. Sin manifiesto, la mercadería es una caja cerrada. El código máquina es la mercadería, y el encabezado del ejecutable es el manifiesto.",
+    "Donde la analogía deja de valer: el manifiesto lo lee una persona con criterio, que puede improvisar. El cargador es un programa y no improvisa: si el manifiesto está escrito en un formato que no conoce, rechaza todo el contenedor, aunque la mercadería sea perfecta."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Laboratorio: un hola mundo, por fuera"
+  },
+  {
+   "t": "p",
+   "x": "Armamos el programa más chico posible en C, lo compilamos de dos formas y lo miramos. Todo lo que sigue lo corrí yo en un Ubuntu 24.04 (un Linux dentro de un contenedor, con GCC 13.3) y las salidas son reales. La opción `-static` de la segunda forma tiene su explicación más abajo. Este es el programa:"
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <stdio.h>\n\nint main(void) {\n    printf(\"Hola, mundo\\n\");\n    return 0;\n}",
+   "cap": "Archivo hola.c. No contiene la función que imprime: solo la llama."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc hola.c -o hola_dinamico",
+     "s": ""
+    },
+    {
+     "c": "gcc -static hola.c -o hola_estatico",
+     "s": ""
+    },
+    {
+     "c": "./hola_dinamico && ./hola_estatico",
+     "s": "Hola, mundo\nHola, mundo"
+    },
+    {
+     "c": "ls -l hola_dinamico hola_estatico",
+     "s": "-rwxr-xr-x 1 root root  15960 Nov 13 16:07 hola_dinamico\n-rwxr-xr-x 1 root root 785384 Nov 13 16:07 hola_estatico"
+    },
+    {
+     "c": "file hola_dinamico hola_estatico",
+     "s": "hola_dinamico: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, BuildID[sha1]=258acb807f5a07c279df808fb48d8ac5d4d9bac3, for GNU/Linux 3.2.0, not stripped\nhola_estatico: ELF 64-bit LSB executable, x86-64, version 1 (GNU/Linux), statically linked, BuildID[sha1]=1beb7eee33431f23e4e81b02820eba0c9a04e580, for GNU/Linux 3.2.0, not stripped"
+    }
+   ],
+   "cap": "Mismo código fuente, dos ejecutables. El segundo pesa unas 49 veces más: 785.384 bytes contra 15.960 (cálculo propio: 785.384 ÷ 15.960 ≈ 49,2)."
+  },
+  {
+   "t": "p",
+   "x": "Lo que dice `file` es una lectura del encabezado. «ELF 64-bit LSB» quiere decir formato ELF, direcciones de 64 bits, bytes en orden little endian. «x86-64» es el procesador para el que se compiló. «pie executable» (PIE) indica que el programa puede cargarse en cualquier dirección de memoria y no en una fija. Y el dato que explica la diferencia de tamaño: uno figura como «dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2» y el otro como «statically linked». Es el tema de la mitad del día."
+  },
+  {
+   "t": "p",
+   "x": "Si miramos los bytes del archivo con `od` (un volcado en hexadecimal, como el del [@01-10]), aparece lo que decía la tabla:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "od -A x -t x1z -N 16 hola_dinamico",
+     "s": "000000 7f 45 4c 46 02 01 01 00 00 00 00 00 00 00 00 00  >.ELF............<\n000010"
+    }
+   ],
+   "cap": "Los primeros 16 bytes, en hexadecimal, con su lectura como texto a la derecha. `7f 45 4c 46` es la «magia» de ELF. Después vienen 02 (64 bits) y 01 (little endian)."
+  },
+  {
+   "t": "p",
+   "x": "Y `readelf -h` imprime ese encabezado ya interpretado:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "readelf -h hola_dinamico",
+     "s": "ELF Header:\n  Magic:   7f 45 4c 46 02 01 01 00 00 00 00 00 00 00 00 00 \n  Class:                             ELF64\n  Data:                              2's complement, little endian\n  Version:                           1 (current)\n  OS/ABI:                            UNIX - System V\n  ABI Version:                       0\n  Type:                              DYN (Position-Independent Executable file)\n  Machine:                           Advanced Micro Devices X86-64\n  Version:                           0x1\n  Entry point address:               0x1060\n  Start of program headers:          64 (bytes into file)\n  Start of section headers:          13976 (bytes into file)\n  Flags:                             0x0\n  Size of this header:               64 (bytes)\n  Size of program headers:           56 (bytes)\n  Number of program headers:         13\n  Size of section headers:           64 (bytes)\n  Number of section headers:         31\n  Section header string table index: 30"
+    }
+   ],
+   "cap": "Los campos que importan hoy: `Type` (DYN en un PIE: puede cargarse donde sea), `Machine` (el procesador), `Entry point address` (la primera instrucción, como desplazamiento) y los datos de dónde están las dos tablas que describen el resto del archivo (programa y secciones)."
+  },
+  {
+   "t": "h",
+   "x": "Por dentro: secciones y segmentos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un ELF tiene dos tablas, y vale la pena distinguirlas. Las **secciones** son la vista del que arma el programa: porciones con nombre y contenido parecido. Los **segmentos** son la vista del que lo carga: trozos del archivo que hay que copiar a la memoria, cada uno con sus permisos. Empecemos por las secciones que casi todo programa tiene:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**`.text`**: el código máquina, las instrucciones. Se carga como lectura y ejecución, nunca escritura.",
+    "**`.rodata`**: datos de solo lectura, como los textos fijos del programa («read-only data»).",
+    "**`.data`**: variables globales que arrancan con un valor distinto de cero.",
+    "**`.bss`**: variables globales que arrancan en cero. En el archivo casi no ocupan: solo se anota cuánto hay que reservar."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "readelf -S -W hola_dinamico | grep -E ' \\.(interp|text|rodata|data|bss) '",
+     "s": "  [ 1] .interp           PROGBITS        0000000000000318 000318 00001c 00   A  0   0  1\n  [16] .text             PROGBITS        0000000000001060 001060 000107 00  AX  0   0 16\n  [18] .rodata           PROGBITS        0000000000002000 002000 000010 00   A  0   0  4\n  [25] .data             PROGBITS        0000000000004000 003000 000010 00  WA  0   0  8\n  [26] .bss              NOBITS          0000000000004010 003010 000008 00  WA  0   0  1"
+    },
+    {
+     "c": "size hola_dinamico hola_estatico",
+     "s": "   text\t   data\t    bss\t    dec\t    hex\tfilename\n   1374\t    600\t      8\t   1982\t    7be\thola_dinamico\n 668305\t  23376\t  22472\t 714153\t  ae5a9\thola_estatico"
+    }
+   ],
+   "cap": "Cada fila de `readelf -S` muestra nombre, tipo, dirección, posición en el archivo, tamaño (en hexadecimal) y permisos: `AX` es «ocupa memoria y se ejecuta»; `WA`, «se escribe». `.bss` es de tipo NOBITS: ocupa memoria pero no ocupa lugar en el archivo. `size` agrega por categoría: `text` incluye código y datos de solo lectura."
+  },
+  {
+   "t": "pensa",
+   "x": "En `hola_dinamico`, `.bss` tiene 8 bytes y el archivo no los incluye. Si un programa declara un arreglo global de 1 GB sin valor inicial, ¿cuánto pesa su ejecutable por culpa de ese arreglo?",
+   "resp": "Casi nada. Como el arreglo arranca en cero, el archivo solo anota «reservá 1 GB, en cero» dentro de `.bss`, y el cargador lo hace al cargar. Si ocupara lugar en el archivo, el ejecutable pesaría 1 GB para guardar un montón de ceros."
+  },
+  {
+   "t": "p",
+   "x": "Ahora buscamos nuestro programa dentro de esas secciones. El texto «Hola, mundo» está en `.rodata`, y la función `main`, en `.text`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "objdump -s -j .rodata hola_dinamico",
+     "s": "\nhola_dinamico:     file format elf64-x86-64\n\nContents of section .rodata:\n 2000 01000200 486f6c61 2c206d75 6e646f00  ....Hola, mundo."
+    },
+    {
+     "c": "objdump -d -M intel --disassemble=main hola_dinamico | tail -n +12",
+     "s": "\nDisassembly of section .text:\n\n0000000000001149 <main>:\n    1149:\tf3 0f 1e fa          \tendbr64\n    114d:\t55                   \tpush   rbp\n    114e:\t48 89 e5             \tmov    rbp,rsp\n    1151:\t48 8d 05 ac 0e 00 00 \tlea    rax,[rip+0xeac]        # 2004 <_IO_stdin_used+0x4>\n    1158:\t48 89 c7             \tmov    rdi,rax\n    115b:\te8 f0 fe ff ff       \tcall   1050 <puts@plt>\n    1160:\tb8 00 00 00 00       \tmov    eax,0x0\n    1165:\t5d                   \tpop    rbp\n    1166:\tc3                   \tret\n\nDisassembly of section .fini:"
+    }
+   ],
+   "cap": "En `.rodata` se lee el texto con su cero final (el volcado empieza con `01 00 02 00`, que es otra cosa de la biblioteca de C). `main` empieza en la dirección 0x1149, dentro de `.text`; la instrucción `lea` carga la dirección 0x2004, el texto, y `call puts@plt` llama a la función de imprimir. El compilador reemplazó `printf` por `puts` porque el texto no tiene formato. Desensamblar así es lo que hacías en el [@01-25]."
+  },
+  {
+   "t": "p",
+   "x": "Fijate en esa última llamada: `puts@plt`. El programa no tiene el código de `puts`. Tiene una **entrada de salto** que apunta a una tabla de direcciones, y en esa tabla alguien tiene que escribir dónde quedó `puts` en memoria. Ese alguien es el cargador, y lo vemos en un momento. Primero, los segmentos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "readelf -l -W hola_dinamico | grep -E 'Type|LOAD|INTERP'",
+     "s": "  Type           Offset   VirtAddr           PhysAddr           FileSiz  MemSiz   Flg Align\n  INTERP         0x000318 0x0000000000000318 0x0000000000000318 0x00001c 0x00001c R   0x1\n  LOAD           0x000000 0x0000000000000000 0x0000000000000000 0x000628 0x000628 R   0x1000\n  LOAD           0x001000 0x0000000000001000 0x0000000000001000 0x000175 0x000175 R E 0x1000\n  LOAD           0x002000 0x0000000000002000 0x0000000000002000 0x0000f4 0x0000f4 R   0x1000\n  LOAD           0x002db8 0x0000000000003db8 0x0000000000003db8 0x000258 0x000260 RW  0x1000"
+    }
+   ],
+   "cap": "Cada fila `LOAD` es un trozo del archivo que se copia (o se mapea) a la memoria. `Flg` son los permisos: `R` lectura, `E` ejecución, `W` escritura. Uno de solo lectura con el encabezado, uno de lectura y ejecución (el código), otro de solo lectura (los datos fijos) y uno de lectura y escritura (las variables)."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Por qué los permisos van separados",
+   "x": "El código es de lectura y ejecución, y los datos son de lectura y escritura, pero ninguno es las dos cosas a la vez. Con la memoria virtual del [@02-08], el sistema marca cada página con sus permisos, y el procesador avisa si un programa intenta escribir en su propio código o ejecutar datos. Tantas fallas de seguridad empiezan por ahí que esa separación es una defensa de fábrica, y sale del formato mismo."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "Encabezado ELF",
+     "d": "Magia, 64 bits, procesador, punto de entrada, dónde están las tablas.",
+     "k": "os"
+    },
+    {
+     "n": "Tabla de segmentos",
+     "d": "Lo que el cargador copia a la memoria y con qué permisos.",
+     "k": "red"
+    },
+    {
+     "n": ".interp",
+     "d": "El nombre del cargador de bibliotecas: /lib64/ld-linux-x86-64.so.2.",
+     "k": "datos"
+    },
+    {
+     "n": ".text",
+     "d": "El código máquina (main, y las entradas de salto como puts@plt).",
+     "k": "servidor"
+    },
+    {
+     "n": ".rodata y .data",
+     "d": "Textos y valores fijos; variables con valor inicial.",
+     "k": "cliente"
+    },
+    {
+     "n": ".bss",
+     "d": "No ocupa lugar en el archivo: solo se anota cuánto reservar en memoria.",
+     "k": "neutro"
+    },
+    {
+     "n": "Tabla de secciones",
+     "d": "La vista con nombres, para quien arma y depura el programa.",
+     "k": "hw"
+    }
+   ],
+   "cap": "Orden aproximado de un ELF, de arriba hacia abajo. No es a escala: en el ejemplo, `.text` ocupa 263 bytes de un archivo de casi 16 KB."
+  },
+  {
+   "t": "h",
+   "x": "Enlace estático y enlace dinámico"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Falta responder la pregunta que dejó el ejemplo: ¿dónde está `puts`? No en `hola.c`. Vive en la biblioteca estándar de C (`libc`), que casi todos los programas de Linux usan. Al construir el ejecutable, el programa que une las piezas (el *enlazador*) tiene dos opciones.",
+    "En el **enlace estático** copia dentro del ejecutable las partes de `libc` que el programa usa. El resultado es un archivo autosuficiente, y por eso el de 785.384 bytes: lleva adentro su propia `libc`. En el **[[enlace dinámico]]**, el ejecutable solo anota «necesito `libc.so.6`» y deja el símbolo `puts` sin resolver; la biblioteca queda afuera, en un archivo aparte, y alguien la busca al arrancar. Una **[[biblioteca compartida]]** es justamente ese archivo, hecho para ser usado por muchos programas a la vez (`.so` en Linux, `.dll` en Windows, `.dylib` en macOS)."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ldd hola_dinamico",
+     "s": "\tlinux-vdso.so.1 (0x00007f3388868000)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007f3388600000)\n\t/lib64/ld-linux-x86-64.so.2 (0x00007f338886a000)"
+    },
+    {
+     "c": "ldd hola_estatico",
+     "s": "\tnot a dynamic executable"
+    },
+    {
+     "c": "readelf -d hola_dinamico | grep NEEDED",
+     "s": " 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]"
+    },
+    {
+     "c": "nm -D hola_dinamico | grep ' U '",
+     "s": "                 U __libc_start_main@GLIBC_2.34\n                 U puts@GLIBC_2.2.5"
+    },
+    {
+     "c": "nm hola_estatico | grep -w puts",
+     "s": "0000000000404d30 W puts"
+    },
+    {
+     "c": "ls -l /lib/x86_64-linux-gnu/libc.so.6",
+     "s": "-rwxr-xr-x 1 root root 2129424 Sep  3 14:15 /lib/x86_64-linux-gnu/libc.so.6"
+    }
+   ],
+   "cap": "`ldd` lista de qué bibliotecas depende un ejecutable (los números entre paréntesis son direcciones de memoria y cambian en cada corrida). `NEEDED` es lo que el ejecutable declara necesitar. En `nm`, la `U` marca un símbolo sin resolver, y la `W` del estático, uno que ya está adentro. La `libc.so.6` pesa 2.129.424 bytes y es una sola copia para todos los programas dinámicos."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Estático",
+    "Dinámico"
+   ],
+   "filas": [
+    [
+     "Tamaño del ejecutable",
+     "grande: lleva la biblioteca adentro (785.384 bytes en el ejemplo)",
+     "chico: solo la referencia (15.960 bytes)"
+    ],
+    [
+     "Qué necesita el sistema donde corre",
+     "casi nada: un kernel compatible",
+     "las bibliotecas correctas, en una versión compatible"
+    ],
+    [
+     "Si hay un arreglo de seguridad en la biblioteca",
+     "hay que recompilar y reenviar cada programa",
+     "se actualiza la biblioteca una vez y todos la usan"
+    ],
+    [
+     "Memoria",
+     "cada programa trae su copia",
+     "los segmentos de solo lectura de la biblioteca pueden compartirse entre procesos"
+    ],
+    [
+     "Riesgo típico",
+     "programas viejos con bibliotecas viejas que nadie actualizó",
+     "«infierno de dependencias»: falta una versión o no coincide (el [@02-19])"
+    ]
+   ],
+   "cap": "Ninguno es mejor en todo. Es el mismo trade-off de siempre: independencia contra mantenimiento."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Estático es más seguro porque no depende de nada»",
+   "x": "Depende de qué entendés por seguro. No depende de que la biblioteca esté en el sistema, y eso lo hace más portátil. Pero cualquier falla que se descubra en la biblioteca que quedó adentro hay que corregirla recompilando el programa, y nadie lo hace por vos. En un sistema con cien programas, el enlace dinámico convierte cien arreglos en uno. Por eso las distribuciones de Linux prefieren lo dinámico, y por eso, en el [@02-19], vimos que `libmagic1t64` se actualiza como un paquete aparte."
+  },
+  {
+   "t": "pensa",
+   "x": "Un programa dinámico funciona perfecto en tu máquina y falla en la de un cliente con el mensaje «error while loading shared libraries». ¿Qué pasó, según lo que viste?",
+   "resp": "El ejecutable declara qué bibliotecas necesita (NEEDED) y en la máquina del cliente falta alguna, o está en una versión incompatible. Copiar solo el ejecutable es repetir la tarea 1 del instalador del [@02-19] y dejar sin hacer la de dependencias. Dos arreglos posibles: instalar lo que falta, o distribuir el programa enlazado de forma estática."
+  },
+  {
+   "t": "h",
+   "x": "El cargador: quién pone todo en memoria"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El **[[cargador]]** es la parte del sistema que convierte un archivo en un programa listo para correr: lee el encabezado, comprueba que el formato y el procesador le sirven, mapea cada segmento en el [[espacio de direcciones]] del [[proceso]] con sus permisos y salta a la primera instrucción. Si el ejecutable es dinámico, esa tarea tiene un segundo actor: el **enlazador dinámico**, que en Linux es el programa `ld.so`, nombrado dentro del ejecutable (el «interpreter» que viste en `file` y en `.interp`) [#man7-ld-so].",
+    "Hay una forma de verlo trabajar sin leer una línea de código: `strace`, que imprime cada llamada al sistema que hace un programa (las del [@02-02]). Pedí solo las que importan: `execve` (arrancar un programa), `openat` (abrir un archivo) y `write` (escribir)."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "strace -e trace=execve,openat,write ./hola_dinamico 2>&1",
+     "s": "execve(\"./hola_dinamico\", [\"./hola_dinamico\"], 0x7ffc3bebfdf0 /* 173 vars */) = 0\nopenat(AT_FDCWD, \"/etc/ld.so.cache\", O_RDONLY|O_CLOEXEC) = 3\nopenat(AT_FDCWD, \"/lib/x86_64-linux-gnu/libc.so.6\", O_RDONLY|O_CLOEXEC) = 3\nwrite(1, \"Hola, mundo\\n\", 12Hola, mundo\n)           = 12\n+++ exited with 0 +++"
+    },
+    {
+     "c": "strace -e trace=execve,openat,write ./hola_estatico 2>&1",
+     "s": "execve(\"./hola_estatico\", [\"./hola_estatico\"], 0x7ffe29939d90 /* 173 vars */) = 0\nwrite(1, \"Hola, mundo\\n\", 12Hola, mundo\n)           = 12\n+++ exited with 0 +++"
+    }
+   ],
+   "cap": "El dinámico abre dos archivos antes de imprimir: `/etc/ld.so.cache`, un índice de bibliotecas, y la `libc.so.6` que encuentra allí. El estático no abre ninguno: ya tiene todo. El «Hola, mundo» sale mezclado con la línea de `write` porque el programa y `strace` comparten la pantalla."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Lo que pasa, en orden (visión general)",
+   "pasos": [
+    {
+     "t": "El kernel lee el encabezado",
+     "x": "Comprueba la «magia», que el procesador sea el correcto y que el archivo tenga permiso de ejecución. Si no reconoce el formato, falla con «Exec format error», que vas a ver en breve [#man7-execve]."
+    },
+    {
+     "t": "Mapea los segmentos con sus permisos",
+     "x": "Cada `LOAD` va a una zona del espacio de direcciones, con lectura, escritura o ejecución según su indicador."
+    },
+    {
+     "t": "Si hay `.interp`, arranca primero ese programa",
+     "x": "Para un ELF dinámico, el kernel pone a correr el enlazador dinámico indicado en el ejecutable, y es este el que se encarga del resto [#man7-execve]."
+    },
+    {
+     "t": "El enlazador carga las bibliotecas",
+     "x": "Busca cada `NEEDED` (con ayuda de `/etc/ld.so.cache`), las mapea en memoria y completa la tabla de direcciones que usa `puts@plt`, para que la llamada llegue a la función real."
+    },
+    {
+     "t": "Salta al punto de entrada",
+     "x": "Es el `Entry point address` del encabezado. Desde ahí corre el código de arranque y, por último, `main`."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Cómo el kernel arma un proceso nuevo a partir de esto es el tema del [@02-21]. Hoy alcanza con que quede claro el reparto: **el compilador y el enlazador arman el archivo, y el cargador lo convierte en un programa en marcha**."
+  },
+  {
+   "t": "h",
+   "x": "Cuando el archivo es texto: scripts y shebang"
+  },
+  {
+   "t": "p",
+   "x": "No todo lo ejecutable es un ELF. Un script es un archivo de texto. Pero lo ejecutás igual: `./saluda.sh`. ¿Quién lo carga, si no tiene encabezado ELF? La respuesta es la línea de arriba: si los dos primeros bytes son `#!` (llamado *shebang*), el kernel entiende que el resto de la línea nombra un programa y lo ejecuta, pasándole el script como argumento [#man7-execve]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat saluda.sh",
+     "s": "#!/bin/sh\necho \"Hola desde un script\""
+    },
+    {
+     "c": "./saluda.sh",
+     "s": "Hola desde un script"
+    },
+    {
+     "c": "od -A d -t x1z -N 12 saluda.sh",
+     "s": "0000000 23 21 2f 62 69 6e 2f 73 68 0a 65 63              >#!/bin/sh.ec<\n0000012"
+    },
+    {
+     "c": "file saluda.sh",
+     "s": "saluda.sh: POSIX shell script, ASCII text executable"
+    },
+    {
+     "c": "file -L /bin/sh | cut -c1-100",
+     "s": "/bin/sh: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /l"
+    },
+    {
+     "c": "head -1 $(which pip3)",
+     "s": "#!/usr/local/bin/python3.13"
+    }
+   ],
+   "cap": "Los dos primeros bytes son `23 21`: las letras `#!`. Lo que de verdad se ejecuta es `/bin/sh` (acá es el programa `dash`, un ELF); el script es solo su entrada. `pip3` es otro script: su primera línea apunta al intérprete de Python."
+  },
+  {
+   "t": "p",
+   "x": "Moraleja: **un script no es un programa que el procesador entienda, es un texto que otro programa lee.** Ese otro programa (`sh`, `python3`, `node`) sí es un ejecutable en el formato del sistema. Que cada línea del script se traduzca primero o se lea sobre la marcha es la diferencia entre compilar e interpretar, que ves en el [@03-42]. Y lo que hace Senda con su JavaScript es un caso intermedio, que está en el recuadro de abajo."
+  },
+  {
+   "t": "senda",
+   "titulo": "Código nativo y código que lee un motor, en Senda",
+   "x": [
+    "Esto corresponde al commit 25e08fa (el código cambia, la forma permanece). Según el documento de peso del proyecto, el APK de prueba medido el 23-10-2026 pesaba 89,1 MB y se repartía así: 35,9 MB de bibliotecas nativas (`lib/`), 9,8 MB de JavaScript en formato Hermes (un formato intermedio que un motor lee en el teléfono), 15,3 MB de código Java o Kotlin compilado y el resto, recursos y otras cosas. Hermes, el motor que lee ese JavaScript, figura como una pieza nativa de 2,5 MB.",
+    "En el flujo de compilación hay una decisión que toca lo de hoy: el APK de prueba se arma solo para `arm64-v8a`, que según el comentario del propio flujo cubre casi todos los teléfonos actuales, y con la opción `emulador` suma `x86_64`. Android usa siempre ELF [#android-ndk-abis]: esas bibliotecas nativas son archivos ELF compilados para un procesador, y un procesador que no figure en esa lista no tendría bibliotecas para instalar."
+   ],
+   "archivos": [
+    "docs/PESO.md",
+    ".github/workflows/apk.yml"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Por qué un .exe de Windows no corre en Linux"
+  },
+  {
+   "t": "p",
+   "x": "Volvamos a la escena del principio. En este mismo Linux hay archivos `.exe` de verdad: Python trae, dentro de una de sus bibliotecas (`distlib`), pequeños lanzadores para Windows. Tomé uno (`w64.exe`, 101.888 bytes, de 64 bits) y lo miré por dentro, igual que al ELF:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "file w64.exe",
+     "s": "w64.exe: PE32+ executable (GUI) x86-64, for MS Windows, 6 sections"
+    },
+    {
+     "c": "od -A d -t x1z -N 16 w64.exe",
+     "s": "0000000 4d 5a 90 00 03 00 00 00 04 00 00 00 ff ff 00 00  >MZ..............<\n0000016"
+    },
+    {
+     "c": "od -A d -t x1 -j 60 -N 4 w64.exe",
+     "s": "0000060 f0 00 00 00\n0000064"
+    },
+    {
+     "c": "od -A d -t x1z -j 240 -N 8 w64.exe",
+     "s": "0000240 50 45 00 00 64 86 06 00                          >PE..d...<\n0000248"
+    },
+    {
+     "c": "objdump -h w64.exe | grep -E '^ +[0-9]'",
+     "s": "  0 .text         0000d7b9  0000000140001000  0000000140001000  00000400  2**4\n  1 .rdata        00003982  000000014000f000  000000014000f000  0000dc00  2**4\n  2 .data         00001400  0000000140013000  0000000140013000  00011600  2**4\n  3 .pdata        00000b04  0000000140018000  0000000140018000  00012a00  2**2\n  4 .rsrc         000053f4  0000000140019000  0000000140019000  00013600  2**2\n  5 .reloc        0000034a  000000014001f000  000000014001f000  00018a00  2**2"
+    },
+    {
+     "c": "objdump -p w64.exe | grep 'DLL Name'",
+     "s": "\tDLL Name: KERNEL32.dll\n\tDLL Name: USER32.dll\n\tDLL Name: SHLWAPI.dll"
+    }
+   ],
+   "cap": "Los dos primeros bytes, `4d 5a`, son las letras «MZ». En la posición 60 (0x3c) hay un número, 0xf0 = 240, que es la posición de la firma PE: a esa altura, `50 45 00 00` («PE» y dos ceros). Los dos bytes siguientes, `64 86`, son 0x8664: el código de procesador x64 de la especificación [#ms-pe-format]. Las secciones se llaman `.text`, `.rdata`, `.data`, `.rsrc` y otras, y al final están las bibliotecas que necesita: `KERNEL32.dll`, `USER32.dll` y `SHLWAPI.dll`."
+  },
+  {
+   "t": "p",
+   "x": "Lo familiar salta a la vista: un PE tiene código en `.text`, datos de solo lectura en `.rdata`, datos en `.data` y una lista de bibliotecas compartidas (las DLL, el equivalente de los `.so`). La idea es la misma que en ELF, y en Mach-O también: Apple documenta que su formato se organiza en segmentos como `__TEXT` (código y datos constantes, de solo lectura) y `__DATA`, con secciones adentro, como `__text` [#apple-macho-overview]. **Pero los detalles de cada encabezado son distintos**, así que un cargador de Linux ve las letras «MZ» donde esperaba `7f 45 4c 46` y se rinde:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "bash -c './prueba.exe'",
+     "s": "bash: line 1: ./prueba.exe: cannot execute binary file: Exec format error"
+    }
+   ],
+   "cap": "`prueba.exe` es una copia de `w64.exe` con permiso de ejecución. Linux lo intenta y contesta «Exec format error»: el archivo tiene permisos, pero el formato no es uno que el kernel reconozca. `bash -c` agrega el prefijo «line 1»."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si el problema fuera solo el encabezado, alguien podría escribir un programa que reacomode los bytes de PE a ELF. No alcanza, porque para que algo corra tienen que coincidir tres cosas: el procesador, el formato del archivo y los servicios del sistema. El formato ya lo viste fallar. Falta el más profundo, el tercero.",
+    "Un programa pide cosas al kernel con llamadas al sistema (el [@02-02]). En Linux x86-64, `write` es la llamada número 1 y `execve`, la 59, y esos números no cambian de versión en versión [#linux-syscall-tbl], porque el kernel tiene como primera regla no romper programas que ya funcionaban [#linux-no-regressions]. Windows hace otra cosa: los programas no llaman al kernel directamente, llaman funciones de DLL del sistema (`KERNEL32.dll`, como viste), y esas DLL usan llamadas internas cuyos números cambian entre versiones. En la tabla que mantiene el investigador j00ru, la llamada NtWriteFile figura con cuatro números distintos (0x05, 0x06, 0x07 y 0x08) entre Windows XP y Windows 11 [#j00ru-nt-syscalls]. Es otra interfaz, con otro vocabulario."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Lo que tiene que coincidir",
+    "Qué se mira",
+    "Cómo falla"
+   ],
+   "filas": [
+    [
+     "El procesador",
+     "el conjunto de instrucciones (x86-64, ARM64) que guarda el campo `Machine`",
+     "un programa para ARM no corre en un x86-64 sin traductor (el [@01-33])"
+    ],
+    [
+     "El formato del archivo",
+     "ELF, PE o Mach-O, según los primeros bytes",
+     "«Exec format error», como arriba"
+    ],
+    [
+     "Los servicios del sistema",
+     "las llamadas al sistema y las bibliotecas de cada SO",
+     "el programa carga, pero pide cosas que el sistema no ofrece de esa forma"
+    ]
+   ],
+   "cap": "Sobre el campo Machine: en ELF lo imprime `readelf -h`; en PE aparece justo después de la firma, y en Mach-O está en el encabezado."
+  },
+  {
+   "t": "pensa",
+   "x": "Dos computadoras tienen el mismo procesador x86-64. Una corre Linux y la otra Windows. Si copiás el mismo `.exe` a las dos, ¿en cuál corre y por qué?",
+   "resp": "Solo en Windows. El procesador coincide, pero en Linux fallan los otros dos desajustes: el kernel no reconoce el formato PE y, aunque lo hiciera, el programa pediría servicios (funciones de las DLL de Windows) que Linux no ofrece. Compartir procesador es la condición mínima, no la suficiente."
+  },
+  {
+   "t": "h3",
+   "x": "Qué hacen Wine y WSL"
+  },
+  {
+   "t": "p",
+   "x": "Los dos nombres aparecen siempre que alguien quiere mezclar mundos, y resuelven problemas distintos."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Herramienta",
+    "Qué corre y dónde",
+    "Cómo lo resuelve"
+   ],
+   "filas": [
+    [
+     "Wine",
+     "programas de Windows en Linux, macOS y otros sistemas tipo Unix",
+     "es un cargador que abre el binario de Windows y una biblioteca que reimplementa las llamadas de la API de Windows con equivalentes del sistema anfitrión [#wine-readme]. No necesita Windows."
+    ],
+    [
+     "WSL 1",
+     "programas de Linux en Windows",
+     "una capa de traducción, escrita por el equipo de WSL, que convierte las llamadas al sistema de Linux en llamadas de Windows [#ms-wsl-compare]"
+    ],
+    [
+     "WSL 2 (el predeterminado hoy)",
+     "programas de Linux en Windows",
+     "corre un kernel de Linux real dentro de una máquina virtual liviana, con compatibilidad total de llamadas al sistema [#ms-wsl-compare]"
+    ]
+   ],
+   "cap": "Fijate en la dirección. Wine lleva Windows a otros sistemas; WSL lleva Linux a Windows. Las máquinas virtuales las vemos en el [@02-23]."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Lo que dice cada proyecto hoy (verificado el 13-11-2026)",
+   "x": "Descripción de Wine tomada de su README oficial, y de WSL, de la documentación de Microsoft, donde WSL 2 figura como la versión por omisión. Son proyectos activos que cambian: antes de apoyarte en uno para algo importante, mirá su documentación actual."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Lo que te llevás para decidir",
+   "x": "Cuando alguien diga «eso no corre en tal sistema», hacé las tres preguntas: **¿mismo procesador?**, **¿mismo formato de archivo?**, **¿mismos servicios del sistema?** Y cuando un programa «no encuentra una biblioteca», preguntá si fue enlazado de forma estática o dinámica. Con eso resolvés la mitad de los problemas de compatibilidad antes de abrir un manual."
+  }
+ ],
+ "recap": [
+  "Un **formato ejecutable** es el manifiesto que le dice al sistema qué bytes son código, cuáles son datos, con qué permisos cargarlos y por dónde empezar. ELF (Linux y Android), PE (Windows) y Mach-O (macOS e iOS) son tres de esos manifiestos.",
+  "Un ELF tiene secciones (`.text` código, `.rodata` datos fijos, `.data` variables con valor, `.bss` variables en cero que no ocupan lugar en el archivo) y segmentos que el cargador copia a memoria con permisos de lectura, escritura o ejecución.",
+  "En el **enlace estático** la biblioteca se copia adentro del ejecutable (en el ejemplo, 785.384 bytes contra 15.960); en el **dinámico** el ejecutable solo la nombra y se busca al arrancar. Lo dinámico se actualiza de a una biblioteca, pero depende de que esté la versión correcta.",
+  "El **cargador** mapea los segmentos, arranca el enlazador dinámico si hay `.interp`, carga las bibliotecas y salta al punto de entrada. Con `strace` se ve cuántos archivos abre cada variante.",
+  "Un script no es código máquina: sus dos primeros bytes, `#!`, le dicen al kernel qué intérprete ejecutar, y ese intérprete sí es un ejecutable del formato del sistema.",
+  "Un `.exe` no corre en Linux por tres desajustes posibles: el procesador, el formato y los servicios del sistema. Wine reimplementa la API de Windows sobre otros sistemas; WSL 2 corre un kernel Linux real dentro de Windows."
+ ],
+ "repaso": [
+  {
+   "p": "Renombrás `foto.jpg` como `programa.exe`. ¿Qué pasa en Windows al abrirlo?",
+   "o": [
+    "Se ejecuta, porque Windows decide por la extensión",
+    "Es una imagen que no tiene encabezado PE, así que no se ejecuta como programa",
+    "Se convierte sola a ejecutable al detectar la extensión",
+    "Se ejecuta pero con permisos reducidos por seguridad"
+   ],
+   "c": 1,
+   "e": "El formato lo define el contenido, no el nombre. Un JPEG no empieza con «MZ» ni tiene la estructura PE, así que el sistema no puede cargarlo como programa. La extensión es una pista para el usuario y para algunas herramientas, no el criterio del cargador."
+  },
+  {
+   "p": "En un ELF, ¿por qué una variable global sin valor inicial que ocupa 1 GB en memoria casi no agranda el archivo?",
+   "o": [
+    "Porque `.bss` solo anota cuánto reservar y el cargador la llena de ceros",
+    "Porque el sistema operativo comprime las variables al guardarlas en disco",
+    "Porque esa variable se guarda en la sección `.text` con el código",
+    "Porque los datos sin valor inicial se descartan al compilar"
+   ],
+   "c": 0,
+   "e": "`.bss` es de tipo NOBITS: no tiene contenido en el archivo, solo un tamaño. El cargador reserva esa memoria en cero al cargar. Compresión y `.text` no intervienen, y descartarla cambiaría el programa: la variable sigue existiendo."
+  },
+  {
+   "p": "Una empresa entrega su programa a mil clientes con Linux y descubre un fallo de seguridad en `libc`. ¿Qué diferencia hay entre haberlo enlazado de forma estática o dinámica?",
+   "o": [
+    "No hay diferencia: `libc` se actualiza sola en ambos casos",
+    "Con enlace estático, actualizar la biblioteca del sistema alcanza",
+    "Con enlace dinámico hay que recompilar y reenviar el programa",
+    "Con enlace dinámico alcanza con actualizar la biblioteca del sistema"
+   ],
+   "c": 3,
+   "e": "En el dinámico, el programa usa la `libc` instalada en el sistema, así que actualizarla arregla a todos. En el estático, la copia vieja quedó adentro del ejecutable y hay que recompilarlo y reenviarlo, aunque el sistema ya tenga la versión corregida."
+  },
+  {
+   "p": "Ejecutás `./programa` y el sistema responde «Exec format error». ¿Cuál es la explicación más probable?",
+   "o": [
+    "Falta una biblioteca compartida en el sistema",
+    "El archivo no tiene permiso de ejecución",
+    "El programa está en un formato que el kernel no reconoce o es para otro procesador",
+    "El script tiene un error de sintaxis en la primera línea"
+   ],
+   "c": 2,
+   "e": "«Exec format error» significa que el kernel no pudo interpretar el archivo como ejecutable: otro formato (un PE en Linux) u otro procesador. Una biblioteca faltante da otro mensaje (error al cargar bibliotecas), y la falta de permiso da «Permission denied»."
+  },
+  {
+   "p": "Un script empieza con `#!/usr/bin/env python3`. ¿Qué carga realmente el kernel cuando lo ejecutás?",
+   "o": [
+    "El texto del script, que el procesador entiende directamente",
+    "Un ejecutable propio del script, que se genera al guardarlo",
+    "El programa que nombra la línea, al que le pasa el script",
+    "Nada: los scripts solo los ejecuta la terminal, no el kernel"
+   ],
+   "c": 2,
+   "e": "Los primeros bytes `#!` le indican al kernel que el resto de la línea nombra un intérprete: lo ejecuta y le pasa el script como argumento. Ese intérprete sí es un ejecutable ELF. El texto no es código máquina, y no hace falta pasar por la terminal."
+  },
+  {
+   "p": "Dos computadoras con el mismo procesador x86-64, una con Linux y otra con Windows. ¿Por qué un mismo `.exe` corre solo en una?",
+   "o": [
+    "Linux tiene un procesador distinto, aunque el chip sea el mismo",
+    "Windows ejecuta cualquier archivo, y Linux solo los que tienen extensión .sh",
+    "En Linux solo corren programas escritos en C",
+    "El procesador coincide, pero en Linux no coinciden el formato ni los servicios del sistema"
+   ],
+   "c": 3,
+   "e": "Con igual procesador, el kernel de Linux no reconoce el formato PE y, aunque lo hiciera, el programa pediría servicios de las DLL de Windows que Linux no ofrece. Las otras opciones son falsas: no es un tema de lenguaje, de extensión ni de chip distinto."
+  }
+ ],
+ "feynman": "Explicale a alguien que usa Windows por qué su programa «portable» no corre en una notebook Linux aunque tenga el mismo procesador. Contale qué hay en los primeros bytes del archivo y qué más tiene que coincidir.",
+ "para_profundizar": [
+  {
+   "fuente": "man7-elf5",
+   "nota": "La página de manual de Linux sobre el formato ELF: cada campo del encabezado y cada tipo de sección y segmento. Es el mapa para leer la salida de `readelf`."
+  },
+  {
+   "fuente": "ms-pe-format",
+   "nota": "La especificación oficial de Microsoft del formato PE, con el encabezado MS-DOS, la firma, las secciones y la tabla de importaciones que viste en `w64.exe`."
+  },
+  {
+   "fuente": "csapp",
+   "nota": "El capítulo 7, sobre enlace (linking): cubre el enlace estático y dinámico, las bibliotecas compartidas y la carga de ejecutables con mucho más detalle que hoy."
+  },
+  {
+   "fuente": "man7-ld-so",
+   "nota": "Cómo busca y carga bibliotecas el enlazador dinámico de Linux, con las variables de entorno que lo controlan."
+  }
+ ],
+ "videos": [
+  {
+   "q": "ELF executable format explained sections segments readelf",
+   "por_que": "Para ver la estructura de un ELF dibujada paso a paso, con la salida de `readelf` en pantalla."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "formato ejecutable",
+   "d": "Convención que define cómo se organiza el archivo de un programa: encabezado, dónde está el código y los datos, qué bibliotecas necesita y por dónde empieza. Los más usados son ELF, PE y Mach-O."
+  },
+  {
+   "t": "enlace dinámico",
+   "d": "Forma de armar un programa en la que el ejecutable solo nombra las bibliotecas que necesita; se buscan y se cargan al arrancar. El ejecutable es chico y la biblioteca se comparte."
+  },
+  {
+   "t": "biblioteca compartida",
+   "d": "Archivo con funciones que muchos programas pueden usar a la vez, sin copiarse en cada uno. Se llama .so en Linux, .dll en Windows y .dylib en macOS."
+  },
+  {
+   "t": "cargador",
+   "d": "Parte del sistema operativo que lee un ejecutable, lo mapea en memoria con los permisos de cada segmento, carga sus bibliotecas y salta a la primera instrucción."
+  },
+  {
+   "t": "enlace estático",
+   "d": "Forma de armar un programa en la que el enlazador copia dentro del ejecutable las partes de las bibliotecas que usa. El archivo pesa más, pero no depende de bibliotecas externas."
+  },
+  {
+   "t": "ELF",
+   "d": "Formato ejecutable de Linux, Android y la familia BSD. Empieza con los bytes 7f 45 4c 46, el byte 0x7f y las letras «ELF»."
+  }
+ ],
+ "siguiente": "qué pasa cuando abrís un programa, paso a paso: cómo el sistema crea un proceso nuevo con las llamadas fork y exec, y cómo le pasa argumentos y recibe su código de salida.",
+ "fuentes_nuevas": [
+  {
+   "id": "man7-elf5",
+   "t": "elf(5): format of Executable and Linking Format (ELF) files",
+   "a": "Linux man-pages project",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man5/elf.5.html"
+  },
+  {
+   "id": "man7-ld-so",
+   "t": "ld.so(8): dynamic linker/loader",
+   "a": "Linux man-pages project",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man8/ld.so.8.html"
+  },
+  {
+   "id": "man7-execve",
+   "t": "execve(2): execute program",
+   "a": "Linux man-pages project",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man2/execve.2.html"
+  },
+  {
+   "id": "ms-pe-format",
+   "t": "PE format",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/debug/pe-format"
+  },
+  {
+   "id": "apple-xnu-macho-loader",
+   "t": "mach-o/loader.h (código fuente de XNU)",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/EXTERNAL_HEADERS/mach-o/loader.h"
+  },
+  {
+   "id": "apple-macho-overview",
+   "t": "Overview of the Mach-O Executable Format (archivo de documentación, retirado)",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://developer.apple.com/library/archive/documentation/Performance/Conceptual/CodeFootprint/Articles/MachOOverview.html"
+  },
+  {
+   "id": "wine-readme",
+   "t": "README de Wine",
+   "a": "Proyecto Wine",
+   "tipo": "doc",
+   "url": "https://gitlab.winehq.org/wine/wine/-/raw/master/README.md"
+  },
+  {
+   "id": "ms-wsl-compare",
+   "t": "Comparing WSL 1 and WSL 2",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/wsl/compare-versions"
+  },
+  {
+   "id": "apple-xnu-fat-h",
+   "t": "mach-o/fat.h (código fuente de XNU)",
+   "a": "Apple",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/apple-oss-distributions/xnu/main/EXTERNAL_HEADERS/mach-o/fat.h"
+  },
+  {
+   "id": "linux-syscall-tbl",
+   "t": "syscall_64.tbl: tabla de llamadas al sistema de x86-64",
+   "a": "Linux kernel",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/torvalds/linux/master/arch/x86/entry/syscalls/syscall_64.tbl"
+  },
+  {
+   "id": "linux-no-regressions",
+   "t": "Reporting regressions (la regla de «no regresiones»)",
+   "a": "Linux kernel",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/admin-guide/reporting-regressions.html"
+  },
+  {
+   "id": "j00ru-nt-syscalls",
+   "t": "Windows X86-64 System Call Table (XP a 11)",
+   "a": "Mateusz Jurczyk (j00ru)",
+   "tipo": "articulo",
+   "url": "https://j00ru.vexillium.org/syscalls/nt/64/"
+  }
+ ]
+}

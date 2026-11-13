@@ -1,0 +1,790 @@
+{
+ "id": "02-23",
+ "titulo": "Virtualización: máquinas virtuales e hipervisores",
+ "bajada": "Entendés cómo un sistema operativo entero corre adentro de otro sin saberlo, y comprobás en una máquina real si estás dentro de una.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Definir máquina virtual, hipervisor, anfitrión y huésped, y ubicar cada uno en un esquema de capas.",
+  "Explicar cómo un hipervisor retiene el control del hardware aunque el kernel del huésped crea que es el único dueño.",
+  "Describir qué agregan Intel VT-x y AMD-V, y qué es una salida de VM.",
+  "Distinguir hipervisor tipo 1 de tipo 2, y emulación de virtualización, con un ejemplo de cada uno.",
+  "Leer en /proc/cpuinfo, lscpu y dmesg si una máquina Linux es huésped de otra."
+ ],
+ "venis_de": "Ya sabés que el kernel manda: es el único que corre en modo kernel, maneja la memoria virtual, atiende interrupciones y habla con los drivers. Hoy se rompe una suposición que venías dando por hecha: que hay un solo kernel por computadora.",
+ "se_apoya_en": [
+  "02-02",
+  "02-07",
+  "02-08",
+  "02-14"
+ ],
+ "gancho": [
+  "Imaginá un parque logístico con diez galpones. Cada empresa alquila uno entero, aunque use la décima parte de la superficie. El alquiler se paga igual, la luz también y el guardia también. Ahora imaginá que el dueño del predio levanta un solo galpón enorme y lo divide en diez cuartos con cerradura propia. Cada empresa cree que tiene su galpón, nadie ve la mercadería del vecino y el dueño paga un solo techo.",
+  "En computación esa idea se llama virtualización, y tiene un obstáculo que el depósito no tiene: un sistema operativo no sabe compartir. Windows y Linux arrancan convencidos de que la máquina es toda suya, y el [[kernel]] actúa en consecuencia. Hoy vas a ver cómo se engaña a un kernel entero para que crea que tiene una computadora propia, y cómo comprobar desde adentro si la computadora donde estás es real o simulada. La que se usó para preparar este día es simulada, y lo vas a ver."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Una computadora que es un programa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una **[[máquina virtual]]** (VM, por *virtual machine*) es una computadora completa simulada por software: tiene su CPU virtual, su RAM, su disco y su placa de red, y adentro corre un sistema operativo común. Desde afuera, la VM es un conjunto de procesos que consume CPU y memoria como cualquier otro, y su disco es un archivo grande.",
+    "El software que crea y vigila las VM es el **[[hipervisor]]**: reparte los recursos reales entre varias VM y se asegura de que ninguna pise a otra. El nombre tiene historia. «Supervisor» era el término clásico para el kernel de un sistema operativo, y el hipervisor es el supervisor de los supervisores [#virt-wikipedia-hypervisor]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Quedan dos palabras. El **[[anfitrión]]** (*host*) es la máquina real donde corre el hipervisor. El **[[huésped]]** (*guest*) es el sistema operativo que corre adentro de la VM. El manual de VirtualBox usa esas mismas definiciones [#virt-virtualbox-manual]."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Término",
+    "Qué es",
+    "Un ejemplo concreto"
+   ],
+   "filas": [
+    [
+     "Máquina virtual",
+     "Computadora completa simulada por software",
+     "Un Ubuntu Server de 2 CPU y 4 GB de RAM, que es un archivo de disco y un proceso"
+    ],
+    [
+     "Hipervisor",
+     "El programa que crea las VM y reparte el hardware",
+     "KVM con QEMU en Linux, Hyper-V en Windows"
+    ],
+    [
+     "Anfitrión",
+     "La máquina real que aloja las VM",
+     "Un servidor físico de un centro de datos"
+    ],
+    [
+     "Huésped",
+     "El sistema operativo que corre dentro de una VM",
+     "El Windows 11 que instalaste en VirtualBox"
+    ]
+   ],
+   "cap": "Cuatro palabras que se usan siempre juntas. Un anfitrión aloja muchos huéspedes a la vez."
+  },
+  {
+   "t": "nota",
+   "k": "historia",
+   "x": "No es un invento de la nube. El sistema CP-40 de IBM empezó a usarse en producción en enero de 1967, en Cambridge (Massachusetts), sobre una System/360 modelo 40 modificada. Su sucesor, CP-67, corrió en la System/360 modelo 67, la primera computadora de producción capaz de virtualización completa [#virt-wikipedia-hypervisor]. El motivo, según OSTEP: los clientes tenían aplicaciones escritas para sistemas operativos distintos, y la solución fue sumar un nivel más de indirección [#ostep].",
+   "titulo": "Una idea de 1967"
+  },
+  {
+   "t": "h",
+   "x": "El problema: dos reyes en un trono"
+  },
+  {
+   "t": "p",
+   "x": "Repasá lo del [@02-02]. Solo el kernel corre en [[modo kernel]], y con ese privilegio cambia las tablas de la [[MMU]], apaga y prende las [[interrupciones|interrupción]] y habla directo con los dispositivos. Todo sistema operativo está escrito suponiendo que eso es suyo. Con dos kernels en la misma máquina, los dos van a querer reprogramar la MMU y atender el mismo teclado. Se pisan en el primer segundo."
+  },
+  {
+   "t": "p",
+   "x": "La salida es que haya un solo dueño real del modo privilegiado, el hipervisor, y que a cada kernel huésped se le dé la sensación de ser el dueño. El hipervisor **intercepta** cada intento de hacer algo reservado y lo hace él, sin afectar a los demás. Es el truco de la [[memoria virtual]] (cada programa cree que tiene toda la memoria) un piso más abajo: ahora el engañado es un kernel entero."
+  },
+  {
+   "t": "pensa",
+   "x": "Un kernel huésped quiere mandar un paquete. En una máquina normal escribiría en un registro de la placa de red y la placa haría el resto. En una VM esa placa no existe. ¿Qué tiene que pasar para que el kernel no note la diferencia?",
+   "resp": "Alguien intercepta la escritura, hace de cuenta que la placa existe y ejecuta el efecto real (por ejemplo, enviar el paquete por la placa física del anfitrión). Ese alguien es el hipervisor, y el kernel recibe la respuesta que habría dado una placa verdadera."
+  },
+  {
+   "t": "h",
+   "x": "Atrapar y emular"
+  },
+  {
+   "t": "p",
+   "x": "La técnica clásica se llama **atrapar y emular** (*trap and emulate*). El kernel huésped corre con menos privilegios que el real. Cuando ejecuta una instrucción reservada, la CPU lo frena y le da el control al hipervisor. Este mira qué se quiso hacer, lo hace sobre una copia virtual del estado del huésped y lo devuelve al punto exacto donde estaba. Las instrucciones normales (sumar, comparar, copiar memoria) no frenan a nadie y corren directo en la CPU, a velocidad completa."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Kernel huésped",
+     "k": "os"
+    },
+    {
+     "n": "CPU",
+     "k": "hw"
+    },
+    {
+     "n": "KVM (en el kernel anfitrión)",
+     "k": "servidor"
+    },
+    {
+     "n": "QEMU (programa común)",
+     "k": "cliente"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "Escribe en un puerto de la placa de red",
+     "d": "El driver del huésped le avisa a su placa virtual que mande un paquete, con una instrucción de entrada/salida (`out`). Para el huésped es un driver como los del [@02-14]."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "Salida de VM: la CPU frena al huésped",
+     "d": "El hipervisor configuró la CPU para que esta clase de instrucción no se ejecute en el huésped. La CPU guarda el estado del huésped y salta a código del anfitrión. Eso es una **salida de VM** (*VM exit*)."
+    },
+    {
+     "de": 2,
+     "a": 3,
+     "t": "KVM_RUN vuelve con KVM_EXIT_IO",
+     "d": "KVM, un módulo del kernel de Linux, no sabe cómo es esa placa. Termina la llamada `KVM_RUN` que había hecho QEMU y le informa qué pasó: un acceso a un puerto, su número y los datos [#virt-kvm-api]."
+    },
+    {
+     "de": 3,
+     "a": 3,
+     "t": "QEMU emula la placa y envía el paquete",
+     "d": "QEMU es un programa común. Tiene un modelo en software de la placa: interpreta la escritura, arma el paquete y lo manda por la red real."
+    },
+    {
+     "de": 3,
+     "a": 2,
+     "t": "Vuelve a llamar a KVM_RUN",
+     "d": "QEMU responde con otro `KVM_RUN`: «seguí con el huésped». Todo es un bucle: correr, salir, atender, volver."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "Entrada de VM: el huésped sigue",
+     "d": "La CPU restaura el estado y el huésped continúa en la instrucción siguiente. Solo nota que esa instrucción tardó mucho más de lo normal."
+    }
+   ],
+   "cap": "Una operación de entrada/salida en un huésped con QEMU y KVM. Cada vuelta del bucle cuesta tiempo, por eso conviene que haya pocas."
+  },
+  {
+   "t": "p",
+   "x": "Fijate en el reparto, que se repite en casi todos los hipervisores. Una parte chica y delicada corre con privilegios (KVM, dentro del kernel). Otra grande, que imita dispositivos, corre como un programa más (QEMU). Lo que tiene privilegios es difícil de proteger y conviene que sea lo menos posible."
+  },
+  {
+   "t": "h",
+   "x": "Lo que le faltaba a x86"
+  },
+  {
+   "t": "p",
+   "x": "En 1974, Gerald Popek y Robert Goldberg publicaron las condiciones para virtualizar con atrapar y emular. La central: toda instrucción *sensible* (la que toca recursos globales) tiene que ser también *privilegiada*, o sea, generar una trampa si se la ejecuta sin privilegios. Así el hipervisor nunca se pierde nada [#virt-wikipedia-popek-goldberg]. La System/370 de IBM lo cumplía."
+  },
+  {
+   "t": "p",
+   "x": "El x86 de las PC no. En 2000, John Scott Robin y Cynthia Irvine revisaron el Pentium y hallaron diecisiete instrucciones sensibles que, sin privilegios, no generan ninguna trampa [#virt-robin-irvine-2000]. Un ejemplo es `POPF`, que carga el registro de banderas: en modo kernel puede cambiar la bandera que habilita las interrupciones, y en modo usuario esa parte se ignora sin avisar. Con un kernel huésped degradado, `POPF` «funciona» pero no hace lo esperado y el hipervisor ni se entera."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hubo tres salidas, y las tres siguen vivas.",
+    "**Traducción binaria.** VMware (fundada en 1998) lanzó Workstation el 15 de mayo de 1999 [#virt-wikipedia-vmware-workstation]. Lee el código del kernel huésped antes de correrlo y reescribe al vuelo las instrucciones problemáticas para que caigan en una trampa. Es trabajo pesado, pero no exige cambiar el huésped.",
+    "**Paravirtualización.** Xen, de la Universidad de Cambridge (primera versión pública en 2003), modifica el sistema huésped para que le pida las cosas al hipervisor con llamadas explícitas, parecidas a las llamadas al sistema [#virt-xen-sosp-2003]. El huésped sabe que está virtualizado y coopera.",
+    "**Ayuda de hardware.** Intel lanzó en noviembre de 2005 dos Pentium 4 (modelos 662 y 672) con VT-x, y AMD lanzó en mayo de 2006 procesadores con AMD-V [#virt-wikipedia-x86-virtualization]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "linea-tiempo",
+   "eventos": [
+    {
+     "a": "1967",
+     "t": "CP-40 y CP-67 (IBM)",
+     "d": "Primeros sistemas de producción con varias máquinas virtuales, en mainframes System/360."
+    },
+    {
+     "a": "1974",
+     "t": "Popek y Goldberg",
+     "d": "Condiciones formales para virtualizar una arquitectura con atrapar y emular."
+    },
+    {
+     "a": "1999",
+     "t": "VMware Workstation",
+     "d": "Virtualización completa en PC x86 con traducción binaria."
+    },
+    {
+     "a": "2003",
+     "t": "Xen",
+     "d": "Paravirtualización: el huésped coopera con el hipervisor."
+    },
+    {
+     "a": "2005-06",
+     "t": "Intel VT-x y AMD-V",
+     "d": "La CPU incorpora un modo propio para huéspedes."
+    },
+    {
+     "a": "2007",
+     "t": "KVM entra en Linux 2.6.20",
+     "d": "El kernel de Linux se vuelve hipervisor con un módulo (versión del 5 de febrero de 2007)."
+    },
+    {
+     "a": "2018",
+     "t": "Firecracker (AWS)",
+     "d": "MicroVM mínima sobre KVM, en producción en AWS Lambda desde ese año."
+    }
+   ],
+   "cap": "Fechas tomadas de las fuentes citadas en el texto; la de KVM, de las notas de la versión 2.6.20 del kernel [#virt-kernelnewbies-2-6-20]."
+  },
+  {
+   "t": "h",
+   "x": "VT-x y AMD-V: un modo hecho para huéspedes"
+  },
+  {
+   "t": "p",
+   "x": "Intel agregó a la CPU dos formas de operar: «raíz» y «no raíz» de VMX (*Virtual Machine Extensions*). El hipervisor corre en modo raíz y los huéspedes en no raíz. En no raíz la CPU se comporta casi normal, salvo que ciertas instrucciones y eventos provocan una salida de VM hacia el hipervisor. Según el manual de Intel, esa restricción es lo que permite al hipervisor retener el control [#intel-sdm]. Como aplica incluso al código que corre con el máximo privilegio (el anillo 0, el del kernel), el kernel huésped puede correr en su nivel original sin ser degradado, y el problema de `POPF` desaparece. Cuáles instrucciones salen lo decide el hipervisor con una estructura en memoria por cada CPU virtual, la VMCS, donde también se guarda el estado del huésped en cada salida."
+  },
+  {
+   "t": "p",
+   "x": "Es hardware que se puede consultar. El software detecta VMX con un bit de CPUID (`CPUID.01H:ECX.VMX[5]`), que Linux muestra como el flag `vmx` en `/proc/cpuinfo`. AMD llama a su tecnología SVM y el flag es `svm`. En Linux, la puerta de entrada al hipervisor es `/dev/kvm`, un archivo especial que un programa como QEMU abre para pedirle máquinas virtuales al kernel [#virt-kvm-api]."
+  },
+  {
+   "t": "p",
+   "x": "La memoria también se virtualiza, y acá se conecta con el [@02-08]. Un programa del huésped usa direcciones virtuales; el kernel huésped las traduce, con sus tablas de páginas, a lo que él cree que es memoria física. Pero esa «memoria física» es, en realidad, memoria virtual del anfitrión. Las tablas anidadas (EPT en Intel, RVI en AMD) dejan que la CPU haga las dos traducciones en cadena, sin intervención del hipervisor en cada acceso. El costo es que un fallo de [[TLB]] se encarece, porque hay que recorrer dos juegos de tablas [#virt-wikipedia-x86-virtualization]."
+  },
+  {
+   "t": "h",
+   "x": "Mirá una VM desde adentro"
+  },
+  {
+   "t": "p",
+   "x": "Todo esto se puede comprobar. Corrí estos comandos el 13 de noviembre de 2026 en la máquina Linux donde se preparó este día: una Ubuntu 24.04 con 4 CPU y 16 GB de RAM, que parece una computadora común."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ls -l /dev/kvm",
+     "s": "ls: cannot access '/dev/kvm': No such file or directory"
+    },
+    {
+     "c": "grep -c -E 'vmx|svm' /proc/cpuinfo",
+     "s": "0"
+    },
+    {
+     "c": "grep -o -w hypervisor /proc/cpuinfo | sort | uniq -c",
+     "s": "      4 hypervisor"
+    },
+    {
+     "c": "lscpu | grep -E 'Hypervisor vendor|Virtualization type'",
+     "s": "Hypervisor vendor:                       KVM\nVirtualization type:                     full"
+    },
+    {
+     "c": "dmesg | grep -i 'hypervisor detected'",
+     "s": "[    0.000000] Hypervisor detected: KVM"
+    },
+    {
+     "c": "tr '\\0' ' ' < /proc/1/cmdline | cut -c1-60",
+     "s": "/process_api --firecracker-init --addr 0.0.0.0:2024 --max-ws"
+    }
+   ],
+   "cap": "Salidas reales de esta máquina el 13-11-2026; cambian de una máquina a otra. El segundo comando cuenta cero líneas y termina con código de salida 1."
+  },
+  {
+   "t": "p",
+   "x": "Línea por línea. No existe `/dev/kvm`: esta máquina no puede alojar VM aceleradas por hardware. No hay `vmx` ni `svm`: la CPU que ve este sistema no ofrece VT-x. Sí aparece el flag `hypervisor`, una vez por CPU virtual (son cuatro). Sale de otro bit de CPUID, el 31 de `CPUID.01H:ECX`, que según el manual de Intel las CPU de Intel siempre devuelven en cero y que queda reservado para software de emulación [#intel-sdm]. Un procesador de verdad lo deja en 0, y un hipervisor lo pone en 1 para avisar «estás en una VM». `lscpu` y `dmesg` lo confirman: el hipervisor se identifica como KVM."
+  },
+  {
+   "t": "p",
+   "x": "La última línea es un indicio, no una prueba: el primer proceso de la máquina (el PID 1, del [@02-03]) lleva en su línea de comando una opción que menciona Firecracker, el hipervisor mínimo de AWS que vas a conocer en un rato. Infiero que esta máquina es una microVM de ese tipo, sin otra confirmación."
+  },
+  {
+   "t": "pensa",
+   "x": "Si esta máquina es un huésped, ¿por qué no aparece `vmx`? ¿Quiere decir que el procesador físico no soporta VT-x?",
+   "resp": "No. Una VM ve solo lo que el hipervisor decide mostrarle. Casi seguro el procesador físico tiene VT-x, porque el anfitrión lo usa para correr esta VM, pero no se lo ofrece al huésped. Ofrecerlo se llama virtualización anidada: es posible en muchos hipervisores, no viene encendida por defecto y suma costo."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Que aparezca `hypervisor` indica casi seguro una VM, pero que **no** aparezca no demuestra lo contrario: un hipervisor puede ocultar ese bit. Las herramientas que detectan virtualización, como `systemd-detect-virt`, combinan varias pistas y a veces se contradicen. Conviene mirar más de una señal."
+  },
+  {
+   "t": "h",
+   "x": "Tipo 1, tipo 2 y la discusión de las etiquetas"
+  },
+  {
+   "t": "p",
+   "x": "En su tesis de 1973, Robert Goldberg clasificó los hipervisores en dos familias [#virt-wikipedia-hypervisor]. Los de **tipo 1** («nativos» o *bare metal*) corren directamente sobre el hardware. Los de **tipo 2** («alojados») corren como un programa sobre un sistema operativo anfitrión, que sigue mandando sobre el hardware."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "comparar",
+   "izq": {
+    "t": "Tipo 1 (nativo)",
+    "k": "servidor",
+    "items": [
+     "Hardware",
+     "Hipervisor, el único con privilegios",
+     "VM 1, VM 2, VM 3…",
+     "Ejemplos: Xen, VMware ESXi, Hyper-V"
+    ]
+   },
+   "der": {
+    "t": "Tipo 2 (alojado)",
+    "k": "cliente",
+    "items": [
+     "Hardware",
+     "Sistema operativo anfitrión",
+     "Hipervisor, un programa más",
+     "VM 1, VM 2… como ventanas",
+     "Ejemplos: VirtualBox, VMware Workstation"
+    ]
+   },
+   "cap": "Los de tipo 2 son los de una notebook; los de tipo 1, los del centro de datos."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": [
+    "«Tipo 1 es más rápido y tipo 2 es de juguete.» Lo que cambia es dónde está el hipervisor, no la calidad. VMware Workstation y VirtualBox usan VT-x igual que ESXi, y el rendimiento depende de la carga y la configuración.",
+    "Las etiquetas, además, se desdibujan. KVM es un módulo que convierte al kernel de Linux en hipervisor, así que no es claramente de un tipo ni del otro. Con Hyper-V encendido, Windows pasa a correr como «partición raíz» sobre el hipervisor de Microsoft, que se describe como de tipo 1 [#virt-hyperv-arquitectura]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Emulación no es virtualización"
+  },
+  {
+   "t": "p",
+   "x": "Se mezclan y conviene separarlas. En la **virtualización**, el huésped usa la misma arquitectura de CPU que el anfitrión y su código corre directo en la CPU real. En la **emulación**, un programa imita instrucción por instrucción a una CPU distinta (una [[ARM]] sobre una PC Intel, por ejemplo) y traduce cada bloque de código. Sirve para cualquier combinación, pero es mucho más lenta."
+  },
+  {
+   "t": "p",
+   "x": "QEMU hace las dos. Tiene un modo de traducción dinámica para imitar muchas CPU y, para virtualizar por hardware, usa aceleradores: KVM en Linux y equivalentes en macOS y Windows. Si no elegís uno, el modo por defecto es la emulación pura [#virt-qemu-intro]. Android lo advierte igual: sin hipervisor, el emulador traduce el código «bloque por bloque», con un proceso bastante lento, y una imagen ARM sobre una CPU Intel o AMD no puede usar la aceleración [#virt-android-emulator-accel]."
+  },
+  {
+   "t": "h",
+   "x": "Un caso real: el emulador de Android de Senda"
+  },
+  {
+   "t": "p",
+   "x": "Senda usa todo esto, y se lee en su código. El flujo `humo.yml` es su «prueba de humo»: compila la app, la instala en un emulador de Android, la abre, recorre las cinco pestañas y falla si se cierra. Cuatro cosas ahí ya las sabés leer."
+  },
+  {
+   "t": "lista",
+   "ord": false,
+   "items": [
+    "**Pide aceleración.** Hay un paso «Habilitar KVM» que deja `/dev/kvm` accesible, y después lanza un Android 34 de arquitectura `x86_64`, con 4 núcleos y 4096 MB de RAM.",
+    "**Compila para la arquitectura del emulador.** Un comentario del flujo lo dice: se compila para x86_64, «la arquitectura del emulador». Los teléfonos usan ARM, y `apk.yml` compila por defecto solo `arm64-v8a` y suma `x86_64` si se lo piden. Es el caso de manual: para virtualizar, el huésped tiene que coincidir con la CPU del anfitrión; con un Android ARM habría que emular.",
+    "**La pantalla es de software.** Usa `-no-window` y `-gpu swiftshader_indirect`, que dibuja por software. La documentación de Android hoy marca ese modo como obsoleto desde la versión 36.4.9 del emulador; no sé qué versión instala el flujo.",
+    "**El anfitrión ya es una VM.** Corre en un «runner» de GitHub, que según su documentación es una VM nueva en cada trabajo. GitHub aclara que la virtualización anidada es técnicamente posible pero no está soportada oficialmente [#virt-github-hosted-runners]. Android, por su lado, dice que un emulador acelerado no puede correr dentro de otra VM como las de VirtualBox, VMware o Docker. El diseño depende de algo que sus proveedores no garantizan."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Lo que puedo afirmar con evidencia: según la API de GitHub Actions, la corrida número 10 del flujo (1 de noviembre de 2026) terminó bien y duró unos 42 minutos, de los cuales unos 27 fueron de compilar y unos 10 de emulador. Lo que no puedo afirmar es que el emulador usara KVM: el flujo no ejecuta `emulator -accel-check` y no leí el registro del emulador. Si la prueba se vuelve lenta o inestable, esa es la primera pregunta."
+  },
+  {
+   "t": "senda",
+   "titulo": "Dónde está esto en el código",
+   "x": [
+    "El flujo es `.github/workflows/humo.yml` (pasos «Instalar el emulador de Android», «Habilitar KVM» y «Abrir la app en el emulador y recorrerla»); el recorrido dentro del emulador está en `scripts/humo_emulador.sh`, y la decisión de compilar `arm64-v8a` y sumar `x86_64` a pedido, en `.github/workflows/apk.yml`.",
+    "Corresponde al código leído el 13-11-2026. El código de Senda cambia seguido, pero la forma (un huésped x86_64 acelerado sobre un anfitrión que ya es virtual) es lo duradero."
+   ],
+   "archivos": [
+    ".github/workflows/humo.yml",
+    "scripts/humo_emulador.sh",
+    ".github/workflows/apk.yml"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Una VM es un archivo: snapshots"
+  },
+  {
+   "t": "p",
+   "x": "Como el huésped es un conjunto de procesos y un disco que es un archivo, su estado completo se puede congelar: la RAM del huésped, los registros de sus CPU virtuales, el estado de los dispositivos y el disco. Ese conjunto es un **snapshot** (instantánea), y se puede volver a ese punto como en un videojuego. VirtualBox lo describe así, incluso como un árbol de instantáneas para ir y volver en el tiempo de la máquina [#virt-virtualbox-manual]."
+  },
+  {
+   "t": "p",
+   "x": "El disco no se copia entero: después del snapshot, las escrituras van a una capa nueva y la anterior queda congelada (*copy-on-write*), una idea que vas a ver mañana en los contenedores. El costo está en la memoria: incluirla obliga a volcarla a disco."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Una VM tiene 8 GiB de RAM en uso y tu SSD escribe a unos 500 MB/s sostenidos. (1) ¿Cuántos bytes son 8 GiB? (2) ¿Cuánto tarda, como mínimo, el volcado de la RAM para un snapshot?",
+   "pista": "Un GiB son 2³⁰ bytes (lo viste en el [@01-11]). Dividí los bytes por la velocidad, en las mismas unidades.",
+   "solucion": "(1) 8 × 1.073.741.824 = 8.589.934.592 bytes, unos 8,6 GB. (2) 8.589.934.592 ÷ 500.000.000 ≈ 17 segundos, como piso, sin contar compresión ni otros usos del disco."
+  },
+  {
+   "t": "h",
+   "x": "Para qué existe: aprovechar, aislar, alquilar"
+  },
+  {
+   "t": "p",
+   "x": "**Aprovechar el hardware (consolidar).** Un servidor dedicado a un servicio pasa casi todo el tiempo ocioso. Un artículo clásico de Google, midiendo sus propios servidores, observó que rara vez están ociosos del todo y rara vez a pleno: trabajan casi siempre entre el 10 y el 50 % de su capacidad [#virt-barroso-holzle-2007]. En una pyme con servidores sueltos es de esperar menos, aunque eso es una impresión mía y no una medición. Si diez servicios usan el 10 % cada uno, caben en una máquina con diez VM."
+  },
+  {
+   "t": "p",
+   "x": "**Aislar.** Cada VM tiene su propio kernel. Si una se cuelga o se infecta, las otras siguen. Lo que las separa es una frontera chica y bien definida, mucho más estrecha que el conjunto de llamadas al sistema de un kernel compartido. Mañana vas a ver qué pasa cuando se renuncia a esa frontera para ganar velocidad."
+  },
+  {
+   "t": "p",
+   "x": "**Alquilar.** Si una VM es un archivo y un proceso, se crea en segundos, se apaga y se cobra por hora. El 25 de agosto de 2006, Amazon anunció la beta de EC2: una «CPU virtual» equivalente a un Xeon de 1,7 GHz, con 1,75 GB de RAM y 160 GB de disco, a 10 centavos de dólar por hora, construida sobre Xen [#aws-ec2-beta]. Con otros precios y tamaños, el mecanismo sigue igual. Lo estudiás como producto en el [@13-05]."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Volvé al parque logístico: los cuartos son las VM, el guardia que decide quién entra a cuál es el hipervisor y el techo único es el hardware compartido. El dueño ahorra porque paga un galpón en lugar de diez.",
+    "La analogía se rompe en que los cuartos casi no se interfieren, y los huéspedes de una máquina se disputan la CPU, la caché y el ancho de banda de memoria y disco. Un vecino que consume mucho puede lentificarte aunque su VM esté bien aislada. Se lo llama «vecino ruidoso» (*noisy neighbor*)."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cuánto cuesta virtualizar"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Recurso",
+    "Qué se paga",
+    "Orden de magnitud y su estado"
+   ],
+   "filas": [
+    [
+     "CPU, cálculo",
+     "Casi nada: el código corre directo en la CPU",
+     "ESTIMACIÓN: unos pocos puntos porcentuales. Xen reportó a lo sumo unos pocos por ciento en 2003 [#virt-xen-sosp-2003]. En esta máquina no puedo medirlo: ya es una VM"
+    ],
+    [
+     "CPU, entrada/salida",
+     "Cada acceso a un dispositivo emulado es una salida de VM",
+     "Mayor que en cálculo; por eso existen los dispositivos paravirtuales (virtio) [#virt-firecracker-nsdi20]"
+    ],
+    [
+     "RAM",
+     "Cada huésped carga su propio kernel y servicios",
+     "En esta máquina sin carga, unos 700 a 800 MB de 16 GB (medido con `free -m`). Una microVM Firecracker suma menos de 5 MiB propios [#virt-firecracker-nsdi20]"
+    ],
+    [
+     "Disco",
+     "Cada huésped trae un sistema operativo completo",
+     "Aquí, unos 12 GB usados (medido con `df -h /`)"
+    ],
+    [
+     "Arranque",
+     "Hay que arrancar un sistema entero",
+     "Una VM completa, del orden de decenas de segundos (ESTIMACIÓN). Firecracker declara menos de 125 ms [#virt-firecracker-nsdi20]"
+    ]
+   ],
+   "cap": "Las cifras de Firecracker son las que declara su paper de 2020, en sus condiciones. Las licencias cambian con frecuencia: verificalas antes de decidir."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Verificado el 13-11-2026. La documentación de Android informa que el driver de hipervisor propio de su emulador para Windows (AEHD) se discontinúa el 31 de diciembre de 2026 y recomienda la Plataforma de Hipervisor de Windows [#virt-android-emulator-accel]. Las ideas de hoy no envejecen; los productos, versiones y licencias sí.",
+   "titulo": "Qué puede cambiar"
+  },
+  {
+   "t": "h",
+   "x": "Los nombres que vas a escuchar"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Producto",
+    "Familia",
+    "Datos verificados"
+   ],
+   "filas": [
+    [
+     "VMware Workstation",
+     "Tipo 2",
+     "Primera versión: 15 de mayo de 1999 [#virt-wikipedia-vmware-workstation]"
+    ],
+    [
+     "VirtualBox",
+     "Tipo 2",
+     "De InnoTek; versión abierta en enero de 2007; Sun la compró en 2008 y Oracle a Sun en 2010 [#virt-wikipedia-virtualbox]"
+    ],
+    [
+     "Xen",
+     "Tipo 1",
+     "Universidad de Cambridge, 2003; EC2 nació sobre Xen [#aws-ec2-beta]"
+    ],
+    [
+     "KVM",
+     "Módulo de Linux",
+     "En Linux desde la 2.6.20 (2007); usa VT-x o AMD-V [#virt-kernelnewbies-2-6-20]"
+    ],
+    [
+     "Hyper-V",
+     "Tipo 1, de Microsoft",
+     "Windows corre como partición raíz [#virt-hyperv-arquitectura]"
+    ],
+    [
+     "Firecracker",
+     "MicroVM sobre KVM, de AWS",
+     "Emula pocos dispositivos (QEMU, más de 40) y arranca en menos de 125 ms; en Lambda desde 2018 [#virt-firecracker-nsdi20]"
+    ]
+   ],
+   "cap": "Firecracker reaparece en la Parte 13, cuando estudies cómo AWS corre funciones y contenedores."
+  }
+ ],
+ "recap": [
+  "Una **máquina virtual** es una computadora completa simulada por software. El **hipervisor** la crea y reparte el hardware. El **anfitrión** es la máquina real y el **huésped** es el sistema operativo de adentro.",
+  "El hipervisor es el único dueño del modo privilegiado. Si el huésped intenta algo reservado, la CPU lo frena (**salida de VM**), el hipervisor lo emula y devuelve el control. Lo común corre directo.",
+  "x86 incumplía las condiciones de Popek y Goldberg (diecisiete instrucciones sensibles sin trampa). Se resolvió con traducción binaria (VMware), paravirtualización (Xen) y hardware (VT-x y AMD-V, 2005 y 2006).",
+  "**Tipo 1** corre sobre el hardware y **tipo 2** como programa sobre un sistema operativo; con KVM y Hyper-V la línea se desdibuja.",
+  "**Virtualizar** es correr código de la misma arquitectura casi directo en la CPU; **emular** es traducir otra arquitectura, mucho más lento. Por eso el emulador de Android de Senda se compila para x86_64.",
+  "Una VM es un archivo y un proceso: se congela (**snapshot**), se copia y se alquila por hora, la base de la nube.",
+  "Desde adentro, el flag `hypervisor` y `lscpu` delatan a un huésped; que falte `vmx` solo indica que no hay virtualización anidada."
+ ],
+ "repaso": [
+  {
+   "p": "Dentro de una VM con VT-x, el kernel del huésped ejecuta una instrucción de entrada/salida dirigida a la placa de red virtual. ¿Qué ocurre?",
+   "o": [
+    "La CPU la ejecuta sobre la placa de red física, porque el huésped es dueño del hardware.",
+    "La CPU frena al huésped, guarda su estado y le da el control al hipervisor, que emula la placa.",
+    "El kernel huésped hace una llamada al sistema y el anfitrión la reenvía a la placa de red.",
+    "El huésped queda bloqueado hasta que un administrador del anfitrión autorice el acceso."
+   ],
+   "c": 1,
+   "e": "Es una salida de VM: el hipervisor configuró la CPU para que esa instrucción no se ejecute en el huésped. La primera opción confunde virtualizar con acceso directo al hardware; la tercera inventa una llamada al sistema que no interviene; la última imagina una autorización humana que no existe."
+  },
+  {
+   "p": "En un servidor Linux ves el flag `hypervisor` y no ves `vmx` en /proc/cpuinfo. ¿Qué lectura es la más razonable?",
+   "o": [
+    "La CPU física no soporta VT-x, porque si no el flag vmx aparecería siempre.",
+    "El kernel tiene un error que esconde algunos flags de virtualización de la CPU.",
+    "Se usa emulación pura, sin ningún hipervisor, porque falta el flag vmx.",
+    "Corre como huésped y el hipervisor no le ofrece virtualización anidada."
+   ],
+   "c": 3,
+   "e": "Una VM ve solo lo que el hipervisor decide mostrarle. El flag hypervisor avisa que hay uno, y la ausencia de vmx es lo habitual sin virtualización anidada. La CPU física casi seguro tiene VT-x, porque el anfitrión lo usa para correr esa misma VM."
+  },
+  {
+   "p": "¿Cuál es la diferencia correcta entre un hipervisor tipo 1 y uno tipo 2?",
+   "o": [
+    "El tipo 1 corre sobre el hardware; el tipo 2 corre como programa sobre un sistema operativo anfitrión.",
+    "El tipo 1 siempre rinde más porque usa VT-x, y el tipo 2 no necesita ninguna ayuda del hardware.",
+    "El tipo 1 solo sirve en servidores y el tipo 2 solo en notebooks, por una cuestión de licencias.",
+    "El tipo 1 emula la CPU del huésped y el tipo 2 la virtualiza, sin traducir instrucciones."
+   ],
+   "c": 0,
+   "e": "La clasificación de Goldberg dice dónde está el hipervisor, no cuánto rinde ni qué licencia tiene. Ambos pueden usar VT-x. Emulación y virtualización son otra distinción, y la última opción las describe al revés."
+  },
+  {
+   "p": "Querés probar tu app en una imagen de Android para ARM desde una PC con CPU Intel x86-64. ¿Qué pasa con la aceleración por hardware?",
+   "o": [
+    "Se usa VT-x igual, porque la CPU Intel soporta virtualización y eso alcanza.",
+    "Se usa VT-x solo si la imagen pesa menos de 4 GB y el emulador tiene 4 núcleos.",
+    "No se puede usar: el huésped es de otra arquitectura, así que hay que traducir y es más lento.",
+    "Se usa una GPU virtual que traduce ARM a x86 por hardware, sin pérdida de velocidad."
+   ],
+   "c": 2,
+   "e": "La virtualización por hardware exige que el huésped use la misma arquitectura que el anfitrión. Con ARM sobre x86-64 hay que emular. Por eso la prueba de humo de Senda compila una versión x86_64 para su emulador."
+  },
+  {
+   "p": "Una VM tiene 8 GiB de RAM en uso y un SSD escribe a 500 MB/s. ¿Cuánto tarda, como mínimo, un snapshot que incluya la memoria?",
+   "o": [
+    "Unos 2 segundos, porque la RAM es mucho más rápida que el disco.",
+    "Unos 17 segundos: 8 GiB son unos 8,6 GB y 8,6 ÷ 0,5 da casi 17.",
+    "Unos 2 minutos, porque el hipervisor debe pausar cada CPU virtual.",
+    "Unos 4 segundos, porque solo se guarda la parte de la RAM modificada."
+   ],
+   "c": 1,
+   "e": "El límite es la escritura al disco: bytes ÷ velocidad. 8.589.934.592 ÷ 500.000.000 da unos 17 segundos. La opción de 2 segundos mide la velocidad de la RAM, que no es el límite, y la de 4 supone un snapshot incremental de memoria que no es el caso."
+  },
+  {
+   "p": "¿Por qué el x86 de las PC no se podía virtualizar de forma clásica, con atrapar y emular, antes de VT-x?",
+   "o": [
+    "Porque tenía muy poca memoria y no alcanzaba para varios sistemas operativos a la vez.",
+    "Porque ninguna CPU de PC tenía modo kernel y sin él no se podía proteger nada.",
+    "Porque los sistemas de PC no usaban memoria virtual y no se podía separar huéspedes.",
+    "Porque tenía instrucciones sensibles que sin privilegios no daban trampa y el hipervisor no se enteraba."
+   ],
+   "c": 3,
+   "e": "Robin e Irvine hallaron diecisiete instrucciones así en el Pentium, como POPF. Las otras opciones son falsas: las PC tenían modo kernel y memoria virtual, y la cantidad de memoria no era el obstáculo central."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística, con la analogía del depósito dividido en cuartos, cómo un sistema operativo puede correr adentro de otro sin saberlo. Incluí qué hace el hipervisor cuando el huésped intenta algo que solo el dueño puede hacer, y decí dónde falla la analogía.",
+ "para_profundizar": [
+  {
+   "fuente": "ostep",
+   "nota": "El apéndice «Virtual Machine Monitors» de OSTEP explica con diagramas cómo el hipervisor engaña a un kernel y virtualiza CPU y memoria; sirve para repasar atrapar y emular con otro enfoque."
+  },
+  {
+   "fuente": "intel-sdm",
+   "nota": "El volumen 3C describe VMX. En la edición de septiembre de 2026, el capítulo 26 («Introduction to Virtual Machine Extensions») cubre modo raíz y no raíz, entradas y salidas de VM y la VMCS, y se lee bien."
+  },
+  {
+   "fuente": "virt-kvm-api",
+   "nota": "La documentación del kernel sobre la API de KVM muestra qué le pide QEMU al kernel: abrir /dev/kvm, crear la VM y las CPU virtuales y llamar a KVM_RUN. Mirá la estructura de las salidas de entrada/salida."
+  },
+  {
+   "fuente": "virt-firecracker-nsdi20",
+   "nota": "El paper de Firecracker (NSDI 2020) explica por qué AWS escribió un hipervisor mínimo sobre KVM para funciones y contenedores, con mediciones de arranque y memoria."
+  }
+ ],
+ "videos": [
+  {
+   "q": "cómo funciona la virtualización hipervisor tipo 1 tipo 2 explicación",
+   "por_que": "Para ver animados los dos tipos de hipervisor y el reparto de la CPU entre varias máquinas virtuales."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "máquina virtual",
+   "d": "Computadora completa simulada por software, con CPU, memoria, disco y red virtuales, dentro de la cual corre un sistema operativo común. Desde afuera es un conjunto de procesos y archivos."
+  },
+  {
+   "t": "hipervisor",
+   "d": "Software que crea y administra máquinas virtuales y reparte entre ellas el hardware real; es el único con privilegio total y evita que un huésped pise a otro. También se llama monitor de máquinas virtuales."
+  },
+  {
+   "t": "anfitrión",
+   "d": "La máquina real (y, si lo hay, su sistema operativo) donde corre el hipervisor y que aloja a las máquinas virtuales. En inglés, host."
+  },
+  {
+   "t": "huésped",
+   "d": "El sistema operativo que corre dentro de una máquina virtual, junto con sus programas. Cree tener una computadora propia. En inglés, guest."
+  },
+  {
+   "t": "salida de VM",
+   "d": "Momento en que la CPU frena al huésped por una instrucción o evento reservado y salta al hipervisor, que lo atiende y luego devuelve el control con una entrada de VM. En inglés, VM exit."
+  },
+  {
+   "t": "hipervisor tipo 1",
+   "d": "Hipervisor que corre directamente sobre el hardware, sin sistema operativo en el medio; también se lo llama nativo o bare metal. Ejemplos: Xen, VMware ESXi, Hyper-V."
+  },
+  {
+   "t": "hipervisor tipo 2",
+   "d": "Hipervisor que corre como un programa común sobre un sistema operativo anfitrión. Ejemplos: VirtualBox y VMware Workstation."
+  },
+  {
+   "t": "VT-x y AMD-V",
+   "d": "Extensiones de las CPU de Intel y de AMD que agregan un modo de operación para huéspedes y permiten virtualizar x86 sin traducción binaria. En Linux aparecen como los flags vmx y svm."
+  },
+  {
+   "t": "snapshot",
+   "d": "Foto del estado de una máquina virtual (disco y, opcionalmente, memoria y registros) en un momento, a la que se puede volver después."
+  },
+  {
+   "t": "emulación",
+   "d": "Imitar por software una CPU o un dispositivo distinto del real, traduciendo cada instrucción; sirve con cualquier arquitectura, pero es mucho más lenta que virtualizar."
+  }
+ ],
+ "siguiente": "contenedores: aislar programas sin máquina virtual, compartiendo el kernel del anfitrión, y por qué eso los vuelve livianos y a la vez más frágiles.",
+ "fuentes_nuevas": [
+  {
+   "id": "virt-wikipedia-hypervisor",
+   "t": "Hypervisor",
+   "a": "Wikipedia",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/Hypervisor"
+  },
+  {
+   "id": "virt-virtualbox-manual",
+   "t": "Oracle VM VirtualBox User Manual, Chapter 1: First Steps",
+   "a": "Oracle",
+   "tipo": "doc",
+   "url": "https://www.virtualbox.org/manual/ch01.html"
+  },
+  {
+   "id": "virt-kvm-api",
+   "t": "The Definitive KVM (Kernel-based Virtual Machine) API Documentation",
+   "a": "kernel.org",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/virt/kvm/api.html"
+  },
+  {
+   "id": "virt-wikipedia-popek-goldberg",
+   "t": "Popek and Goldberg virtualization requirements",
+   "a": "Wikipedia",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/Popek_and_Goldberg_virtualization_requirements"
+  },
+  {
+   "id": "virt-robin-irvine-2000",
+   "t": "Analysis of the Intel Pentium's Ability to Support a Secure Virtual Machine Monitor",
+   "a": "John Scott Robin y Cynthia E. Irvine (USENIX Security 2000)",
+   "tipo": "paper",
+   "anio": "2000",
+   "url": "https://www.usenix.org/legacy/publications/library/proceedings/sec2000/full_papers/robin/robin.pdf"
+  },
+  {
+   "id": "virt-wikipedia-vmware-workstation",
+   "t": "VMware Workstation",
+   "a": "Wikipedia",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/VMware_Workstation"
+  },
+  {
+   "id": "virt-xen-sosp-2003",
+   "t": "Xen and the Art of Virtualization",
+   "a": "Paul Barham et al. (SOSP 2003)",
+   "tipo": "paper",
+   "anio": "2003",
+   "url": "https://www.cl.cam.ac.uk/research/srg/netos/papers/2003-xensosp.pdf"
+  },
+  {
+   "id": "virt-wikipedia-x86-virtualization",
+   "t": "x86 virtualization",
+   "a": "Wikipedia",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/X86_virtualization"
+  },
+  {
+   "id": "virt-kernelnewbies-2-6-20",
+   "t": "Linux 2.6.20",
+   "a": "KernelNewbies",
+   "tipo": "articulo",
+   "url": "https://kernelnewbies.org/Linux_2_6_20"
+  },
+  {
+   "id": "virt-hyperv-arquitectura",
+   "t": "Hyper-V architecture",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/virtualization/hyper-v-on-windows/reference/hyper-v-architecture"
+  },
+  {
+   "id": "virt-qemu-intro",
+   "t": "QEMU system emulation: Introduction",
+   "a": "QEMU project",
+   "tipo": "doc",
+   "url": "https://www.qemu.org/docs/master/system/introduction.html"
+  },
+  {
+   "id": "virt-android-emulator-accel",
+   "t": "Configure hardware acceleration for the Android Emulator",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/studio/run/emulator-acceleration"
+  },
+  {
+   "id": "virt-github-hosted-runners",
+   "t": "GitHub-hosted runners",
+   "a": "GitHub Docs",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/actions/concepts/runners/github-hosted-runners"
+  },
+  {
+   "id": "virt-barroso-holzle-2007",
+   "t": "The Case for Energy-Proportional Computing",
+   "a": "Luiz André Barroso y Urs Hölzle (IEEE Computer, 2007)",
+   "tipo": "paper",
+   "anio": "2007",
+   "url": "https://research.google/pubs/the-case-for-energy-proportional-computing/"
+  },
+  {
+   "id": "virt-wikipedia-virtualbox",
+   "t": "VirtualBox",
+   "a": "Wikipedia",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/VirtualBox"
+  },
+  {
+   "id": "virt-firecracker-nsdi20",
+   "t": "Firecracker: Lightweight Virtualization for Serverless Applications",
+   "a": "Alexandru Agache et al. (NSDI 2020)",
+   "tipo": "paper",
+   "anio": "2020",
+   "url": "https://www.usenix.org/conference/nsdi20/presentation/agache"
+  }
+ ]
+}

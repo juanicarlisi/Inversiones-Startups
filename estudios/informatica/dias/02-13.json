@@ -1,0 +1,1037 @@
+{
+ "id": "02-13",
+ "titulo": "Usuarios, grupos y permisos",
+ "bajada": "Entendés cómo el sistema decide quién puede leer, escribir o ejecutar cada archivo, y lo comprobás provocando un «Permission denied» y arreglándolo.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar que el kernel identifica a cada persona y a cada programa por un número (UID y GID) y no por su nombre.",
+  "Leer una línea de `ls -l` completa y predecir quién puede leer, escribir o entrar, incluido el caso en que el dueño queda afuera.",
+  "Cambiar permisos con `chmod` (octal y simbólico), `chown` y `umask`, y distinguir un «Permission denied» de un «Operation not permitted».",
+  "Describir qué hacen root, sudo y el bit setuid, y por qué un programa con setuid es un punto delicado.",
+  "Comparar el modelo de Linux con el de Windows (ACL y UAC) y con el de Android, donde cada app corre como un usuario distinto."
+ ],
+ "venis_de": "En el [@02-11] y el [@02-12] viste que un archivo es un nombre que apunta a un inodo y que las carpetas forman un árbol. En el [@01-12] leíste los permisos como nueve bits, el famoso 755. Hoy ese número deja de ser una curiosidad: es la regla con la que el sistema decide quién puede tocar cada cosa.",
+ "se_apoya_en": [
+  "01-12",
+  "02-04",
+  "02-11",
+  "02-12"
+ ],
+ "gancho": [
+  "Son las nueve de la mañana en un depósito. Ana, del área de pedidos, dejó en la computadora compartida un archivo `pedidos.txt` con el conteo del día. Carla, de otra área, lo abre y lo puede leer. Intenta agregarle una línea y la pantalla responde `Permission denied`. Nadie le pidió una contraseña en ese momento ni le preguntó quién era: el sistema ya lo sabía desde que Carla inició sesión, y comparó ese dato contra los permisos del archivo.",
+  "Hoy vas a ver cómo sabe quién sos y cómo decide. Es un día de laboratorio. Armé un Linux de prueba (Ubuntu 24.04 dentro de un contenedor) con tres personas, ana, beto y carla, y todas las salidas de terminal que vas a ver las corrí ahí el 13-11-2026. Al final vas a poder provocar un «Permission denied» a propósito, entender por qué ocurre y arreglarlo sin abrirle la puerta a todo el mundo."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Para el kernel, vos sos un número"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando iniciás sesión, el sistema te asocia a una cuenta de [[usuario]]. Por dentro es un número entero, el **UID**. Tu nombre, «ana», existe para los humanos: cuando el [[kernel]] decide si algo está permitido, compara números. Los procesos ([@02-04]) heredan el UID de quien los lanzó, y cada cosa que intentan, como abrir un archivo, se chequea contra ese UID.",
+    "Un [[grupo]] es un conjunto de usuarios con un número propio, el **GID**. Cada usuario tiene un grupo principal y puede pertenecer a otros. Sirven para no repetir reglas: en vez de «Ana y Beto pueden leer esto», decís «el grupo depósito puede leer esto»."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Los datos de cuentas y grupos viven en `/etc/passwd` y `/etc/group`, texto plano. Para el laboratorio los creé como administrador:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "useradd -m -u 1001 -s /bin/bash ana",
+     "s": ""
+    },
+    {
+     "c": "useradd -m -u 1002 -s /bin/bash beto",
+     "s": ""
+    },
+    {
+     "c": "useradd -m -u 1003 -s /bin/bash carla",
+     "s": ""
+    },
+    {
+     "c": "groupadd -g 2001 depo",
+     "s": ""
+    },
+    {
+     "c": "usermod -aG depo ana && usermod -aG depo beto",
+     "s": ""
+    },
+    {
+     "c": "runuser -u ana -- id",
+     "s": "uid=1001(ana) gid=1001(ana) groups=1001(ana),2001(depo)"
+    },
+    {
+     "c": "getent passwd ana",
+     "s": "ana:x:1001:1001::/home/ana:/bin/bash"
+    },
+    {
+     "c": "getent group depo",
+     "s": "depo:x:2001:ana,beto"
+    },
+    {
+     "c": "getent passwd root",
+     "s": "root:x:0:0:root:/root:/bin/bash"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026 en Ubuntu 24.04 (contenedor). `runuser -u ana -- comando` ejecuta un comando como ana y solo lo puede hacer el administrador; lo uso para simular tres personas."
+  },
+  {
+   "t": "p",
+   "x": "Cada línea de `/etc/passwd` tiene siete campos separados por dos puntos: nombre, una `x` (la contraseña no se guarda acá), UID, GID principal, un comentario, la carpeta personal y el programa de inicio. Ana pertenece a dos grupos: el suyo (1001) y `depo` (2001). Y **root tiene UID 0**: ese cero es lo que el kernel trata como especial, no el nombre."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Cuentas que no son personas",
+   "x": "También hay cuentas que no son personas, como `nobody` (UID 65534) con el programa `/usr/sbin/nologin`, que significa «no abre sesión». Los servicios suelen correr con una cuenta así ([@02-15]): si uno se compromete, el daño queda limitado a lo que esa cuenta toca."
+  },
+  {
+   "t": "h",
+   "x": "Dueño, grupo y otros: la lectura completa de ls -l"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada archivo guarda en su inodo ([@02-11]) el UID de su **dueño**, el GID de su **grupo** y los bits de **modo**, los [[permisos rwx]] que viste como números en el [@01-12]. Eso define tres clases frente a cada archivo: el dueño, los miembros del grupo y los demás («otros»), cada una con tres interruptores: leer (*r*), escribir (*w*) y ejecutar (*x*).",
+    "Una línea de `ls -l` se lee como una ficha. Tomá esta del laboratorio: `-rw-rw---- 1 ana depo 21 Nov 13 15:52 pedidos.txt`."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Parte",
+    "Valor en el ejemplo",
+    "Qué significa"
+   ],
+   "filas": [
+    [
+     "1.er carácter",
+     "-",
+     "tipo: `-` archivo común, `d` directorio, `l` enlace simbólico ([@02-12]); `c` y `b`, dispositivos (mañana)"
+    ],
+    [
+     "2 a 4",
+     "rw-",
+     "dueño: leer y escribir"
+    ],
+    [
+     "5 a 7",
+     "rw-",
+     "grupo: leer y escribir"
+    ],
+    [
+     "8 a 10",
+     "---",
+     "otros: nada"
+    ],
+    [
+     "resto",
+     "1 ana depo 21 ...",
+     "enlaces duros, dueña, grupo, tamaño, fecha y nombre"
+    ]
+   ],
+   "cap": "En octal: 660."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "Modo",
+     "celdas": [
+      {
+       "t": "-",
+       "k": "neutro",
+       "s": "tipo"
+      },
+      {
+       "t": "rw-",
+       "k": "ok",
+       "s": "dueño: ana"
+      },
+      {
+       "t": "rw-",
+       "k": "cliente",
+       "s": "grupo: depo"
+      },
+      {
+       "t": "---",
+       "k": "alerta",
+       "s": "otros"
+      }
+     ]
+    },
+    {
+     "e": "Octal",
+     "celdas": [
+      {
+       "t": "6",
+       "k": "ok",
+       "s": "4 + 2"
+      },
+      {
+       "t": "6",
+       "k": "cliente",
+       "s": "4 + 2"
+      },
+      {
+       "t": "0",
+       "k": "alerta",
+       "s": "nada"
+      }
+     ],
+     "nota": "= 660"
+    }
+   ],
+   "cap": "Las tres clases del archivo `pedidos.txt` y su lectura en octal."
+  },
+  {
+   "t": "h3",
+   "x": "El kernel elige una sola clase"
+  },
+  {
+   "t": "p",
+   "x": "Acá hay una regla que casi todos dan por sentada y es falsa: las clases no se suman. El kernel mira primero si el UID del proceso es el del dueño; si lo es, usa **solo** los permisos del dueño. Si no, mira si algún grupo del proceso es el del archivo y usa solo los del grupo. Si ninguna se cumple, usa los de otros [#man7-path-resolution]. Probalo con un caso raro: modo 070 en un archivo de Ana, que además es miembro de ese grupo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "chmod 070 /srv/lab13b/pedidos.txt",
+     "s": ""
+    },
+    {
+     "c": "ls -l /srv/lab13b/pedidos.txt",
+     "s": "----rwx--- 1 ana depo 21 Nov 13 15:52 /srv/lab13b/pedidos.txt"
+    },
+    {
+     "c": "runuser -u ana -- cat /srv/lab13b/pedidos.txt",
+     "s": "cat: /srv/lab13b/pedidos.txt: Permission denied"
+    },
+    {
+     "c": "runuser -u beto -- cat /srv/lab13b/pedidos.txt",
+     "s": "pedidos del dia: 120"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. Ana es la dueña y está en `depo`, pero el kernel la ubica en «dueño» y ahí no tiene nada. Beto, que solo es del grupo, lee."
+  },
+  {
+   "t": "p",
+   "x": "Este código implementa la regla en pocas líneas. Cambiá el modo o el usuario y comprobá tus predicciones."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Simulador de la regla de Linux: se elige UNA sola clase (dueño, grupo u otros).\nconst usuarios = {\n  ana:   { uid: 1001, grupos: [1001, 2001] },\n  beto:  { uid: 1002, grupos: [1002, 2001] },\n  carla: { uid: 1003, grupos: [1003] },\n  root:  { uid: 0,    grupos: [0] },\n};\nconst R = 4, W = 2, X = 1;\n\nfunction puede(quien, archivo, quiere) {\n  const u = usuarios[quien];\n  if (u.uid === 0) return true;                       // root se salta la regla\n  const digitos = [(archivo.modo >> 6) & 7, (archivo.modo >> 3) & 7, archivo.modo & 7];\n  let clase;\n  if (u.uid === archivo.uid) clase = digitos[0];      // 1) dueño\n  else if (u.grupos.includes(archivo.gid)) clase = digitos[1];  // 2) grupo\n  else clase = digitos[2];                            // 3) otros\n  return (clase & quiere) === quiere;\n}\n\nconst pedidos = { uid: 1001, gid: 2001, modo: 0o660 };\nfor (const q of [\"ana\", \"beto\", \"carla\", \"root\"]) {\n  console.log(q.padEnd(6), \"leer:\", puede(q, pedidos, R), \" escribir:\", puede(q, pedidos, W));\n}\nconst raro = { uid: 1001, gid: 2001, modo: 0o070 };   // el caso del dueño bloqueado\nconsole.log(\"con 070 -> ana leer:\", puede(\"ana\", raro, R), \" beto leer:\", puede(\"beto\", raro, R));\n// Salida al correrlo en Node 22 (13-11-2026):\n// ana    leer: true  escribir: true\n// beto   leer: true  escribir: true\n// carla  leer: false  escribir: false\n// root   leer: true  escribir: true\n// con 070 -> ana leer: false  beto leer: true",
+   "cap": "Un modelo simplificado: no incluye ACL, capacidades ni otras restricciones, pero la regla de las tres clases es la real."
+  },
+  {
+   "t": "pensa",
+   "x": "Un archivo tiene modo 604 y pertenece a Ana. Beto es miembro del grupo del archivo. ¿Puede Beto leerlo? ¿Y Carla, que no es de ningún grupo relevante?",
+   "resp": "Beto no puede y Carla sí. 604 es 6 (rw-) para el dueño, 0 (---) para el grupo y 4 (r--) para los otros. Beto pertenece al grupo, así que el kernel usa la clase «grupo» y ahí no hay nada. Carla cae en «otros», que tiene lectura. Un archivo así es raro, pero muestra que pertenecer al grupo no te da lo que tienen los otros."
+  },
+  {
+   "t": "h",
+   "x": "Carpetas: la x es «poder pasar»"
+  },
+  {
+   "t": "p",
+   "x": "Los tres interruptores significan otra cosa en un directorio ([@02-11]): una carpeta es una lista de nombres, y cada permiso gobierna una operación sobre esa lista:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Permiso",
+    "En un archivo",
+    "En un directorio"
+   ],
+   "filas": [
+    [
+     "r",
+     "leer el contenido",
+     "listar los nombres que contiene"
+    ],
+    [
+     "w",
+     "modificar el contenido",
+     "crear, borrar o renombrar entradas (junto con x)"
+    ],
+    [
+     "x",
+     "ejecutarlo como programa",
+     "atravesarlo: usarlo como parte de una ruta"
+    ]
+   ],
+   "cap": "La documentación de Linux llama a la x de un directorio «permiso de búsqueda» [#man7-path-resolution]."
+  },
+  {
+   "t": "p",
+   "x": "Para abrir `/srv/lab13b/carpeta/nota.txt` hace falta poder pasar por cada carpeta de la ruta. Ana, dueña de la carpeta, le cambia el modo y Carla intenta listarla y leer el archivo de adentro (legible por todos):"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "chmod 755 /srv/lab13b/carpeta   # drwxr-xr-x",
+     "s": ""
+    },
+    {
+     "c": "runuser -u carla -- ls /srv/lab13b/carpeta",
+     "s": "nota.txt"
+    },
+    {
+     "c": "runuser -u carla -- cat /srv/lab13b/carpeta/nota.txt",
+     "s": "dato"
+    },
+    {
+     "c": "chmod 644 /srv/lab13b/carpeta   # drw-r--r--",
+     "s": ""
+    },
+    {
+     "c": "runuser -u carla -- ls /srv/lab13b/carpeta",
+     "s": "nota.txt"
+    },
+    {
+     "c": "runuser -u carla -- cat /srv/lab13b/carpeta/nota.txt",
+     "s": "cat: /srv/lab13b/carpeta/nota.txt: Permission denied"
+    },
+    {
+     "c": "chmod 711 /srv/lab13b/carpeta   # drwx--x--x",
+     "s": ""
+    },
+    {
+     "c": "runuser -u carla -- ls /srv/lab13b/carpeta",
+     "s": "ls: cannot open directory '/srv/lab13b/carpeta': Permission denied"
+    },
+    {
+     "c": "runuser -u carla -- cat /srv/lab13b/carpeta/nota.txt",
+     "s": "dato"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. Con 644 se ven los nombres pero no se llega al contenido; con 711 no se puede listar, pero quien sabe el nombre llega al archivo."
+  },
+  {
+   "t": "p",
+   "x": "El caso 711 es como un casillero sin vista: quien sabe el número abre el suyo. Y hay una consecuencia sorprendente: **borrar un archivo depende del permiso de la carpeta, no del archivo**, porque borrar es quitar un nombre de la lista. Lo medí:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ls -ld dd dd/f.txt",
+     "s": "drwxr-xr-x 2 ana   ana   4096 Nov 13 15:53 dd\n-rw-rw-rw- 1 carla carla    0 Nov 13 15:53 dd/f.txt"
+    },
+    {
+     "c": "runuser -u carla -- rm /srv/lab13b/dd/f.txt",
+     "s": "rm: cannot remove '/srv/lab13b/dd/f.txt': Permission denied"
+    },
+    {
+     "c": "chmod 777 dd; chmod 000 dd/f.txt; ls -ld dd dd/f.txt",
+     "s": "drwxrwxrwx 2 ana   ana   4096 Nov 13 15:53 dd\n---------- 1 carla carla    0 Nov 13 15:53 dd/f.txt"
+    },
+    {
+     "c": "runuser -u carla -- rm /srv/lab13b/dd/f.txt && ls dd",
+     "s": ""
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. Carla no borra su propio archivo (666) en la carpeta de Ana; en una carpeta 777 sí borra uno de modo 000."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "La carpeta con candado: el bit pegajoso",
+   "x": "Con esto, una carpeta compartida 777 dejaría a cualquiera borrar lo de cualquiera. Para eso existe el **bit pegajoso** (*sticky*): solo el dueño del archivo o de la carpeta puede borrar. Se ve como una `t` (`/tmp` es `drwxrwxrwt`). En una carpeta 1777, Carla intentó borrar un archivo de Ana y recibió `Operation not permitted`; Ana sí pudo."
+  },
+  {
+   "t": "h",
+   "x": "Laboratorio: provocar un Permission denied y arreglarlo"
+  },
+  {
+   "t": "p",
+   "x": "Reproduzcamos el gancho. Ana crea el archivo; Carla y Beto intentan usarlo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "runuser -u ana -- sh -c 'echo \"pedidos del dia: 120\" > /srv/lab13b/pedidos.txt'",
+     "s": ""
+    },
+    {
+     "c": "ls -l /srv/lab13b/pedidos.txt",
+     "s": "-rw-r--r-- 1 ana ana 21 Nov 13 15:52 /srv/lab13b/pedidos.txt"
+    },
+    {
+     "c": "runuser -u carla -- cat /srv/lab13b/pedidos.txt",
+     "s": "pedidos del dia: 120"
+    },
+    {
+     "c": "runuser -u carla -- sh -c 'echo hackeo >> /srv/lab13b/pedidos.txt'",
+     "s": "sh: 1: cannot create /srv/lab13b/pedidos.txt: Permission denied"
+    }
+   ],
+   "cap": "Paso 1: el archivo nace 644. Carla cae en «otros»: lee, pero no escribe."
+  },
+  {
+   "t": "p",
+   "x": "Ana decide cerrar el archivo a su equipo del depósito. Hace lo directo, `chmod 600`, y Beto, que está en `depo`, también queda afuera:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "runuser -u ana -- chmod 600 /srv/lab13b/pedidos.txt",
+     "s": ""
+    },
+    {
+     "c": "runuser -u beto -- cat /srv/lab13b/pedidos.txt",
+     "s": "cat: /srv/lab13b/pedidos.txt: Permission denied"
+    },
+    {
+     "c": "runuser -u beto -- id",
+     "s": "uid=1002(beto) gid=1002(beto) groups=1002(beto),2001(depo)"
+    }
+   ],
+   "cap": "Paso 2: con 600 el grupo no tiene nada, y el grupo del archivo sigue siendo `ana`."
+  },
+  {
+   "t": "p",
+   "x": "El diagnóstico usa dos comandos: `ls -l` para ver dueño, grupo y modo, e `id` para ver los grupos de quien falla. Hay dos problemas: el **grupo del archivo** es el equivocado (`ana`) y el **modo** no da nada al grupo. Se cambian ambos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "chgrp depo /srv/lab13b/pedidos.txt",
+     "s": ""
+    },
+    {
+     "c": "chmod 660 /srv/lab13b/pedidos.txt",
+     "s": ""
+    },
+    {
+     "c": "ls -l /srv/lab13b/pedidos.txt",
+     "s": "-rw-rw---- 1 ana depo 21 Nov 13 15:52 /srv/lab13b/pedidos.txt"
+    },
+    {
+     "c": "runuser -u beto -- cat /srv/lab13b/pedidos.txt",
+     "s": "pedidos del dia: 120"
+    },
+    {
+     "c": "runuser -u carla -- cat /srv/lab13b/pedidos.txt",
+     "s": "cat: /srv/lab13b/pedidos.txt: Permission denied"
+    }
+   ],
+   "cap": "Paso 3: Beto lee y Carla sigue afuera, que era lo buscado. Corrido el 13-11-2026."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si no anda, chmod 777»",
+   "x": "`chmod 777` hace desaparecer el error porque le da a **todos** los usuarios todos los permisos, incluidos programas con cuentas de servicio y cualquiera que entre al sistema. Resuelve el síntoma y destruye la regla. En el laboratorio bastaron un grupo que representa al equipo y el modo mínimo (660). La pregunta que corrige el reflejo: ¿quién necesita qué sobre este archivo?"
+  },
+  {
+   "t": "pensa",
+   "x": "Sumás a Carla al grupo `depo` con `usermod -aG depo carla`, pero ella sigue sin poder leer `pedidos.txt` en su terminal ya abierta. ¿Por qué podría pasar?",
+   "resp": "Los grupos de un proceso se fijan al iniciar la sesión, y los procesos ya abiertos los conservan. Carla tiene que cerrar sesión y volver a entrar; con `id` en la terminal vieja seguirías viendo la lista anterior."
+  },
+  {
+   "t": "h",
+   "x": "Cambiar y fijar permisos: chmod, chown y umask"
+  },
+  {
+   "t": "p",
+   "x": "`chmod` acepta dos escrituras. La **octal** (644, 755) fija los nueve bits de una vez. La **simbólica** modifica solo lo que nombrás: quién (`u` dueño, `g` grupo, `o` otros, `a` todos), una operación (`+` agregar, `-` quitar, `=` fijar) y los permisos. Conviene para tocar un interruptor sin recordar el resto."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "touch s.sh; ls -l s.sh",
+     "s": "-rw-r--r-- 1 ana ana 0 Nov 13 15:52 s.sh"
+    },
+    {
+     "c": "chmod u+x s.sh; ls -l s.sh",
+     "s": "-rwxr--r-- 1 ana ana 0 Nov 13 15:52 s.sh"
+    },
+    {
+     "c": "chmod g+w,o-r s.sh; ls -l s.sh",
+     "s": "-rwxrw---- 1 ana ana 0 Nov 13 15:52 s.sh"
+    },
+    {
+     "c": "chmod a=r s.sh; ls -l s.sh",
+     "s": "-r--r--r-- 1 ana ana 0 Nov 13 15:52 s.sh"
+    },
+    {
+     "c": "chmod 640 s.sh; ls -l s.sh",
+     "s": "-rw-r----- 1 ana ana 0 Nov 13 15:52 s.sh"
+    }
+   ],
+   "cap": "Ana en `/srv/lab13b`, 13-11-2026. Cada línea parte del resultado anterior."
+  },
+  {
+   "t": "p",
+   "x": "También hay reglas sobre quién puede cambiar qué. **Solo el dueño (o root) puede hacer `chmod`**; **solo root puede hacer `chown`**; el dueño puede hacer `chgrp`, pero solo a un grupo al que pertenece. Lo medí con `pedidos.txt`, de Ana:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "runuser -u beto -- chmod 777 /srv/lab13b/pedidos.txt",
+     "s": "chmod: changing permissions of '/srv/lab13b/pedidos.txt': Operation not permitted"
+    },
+    {
+     "c": "runuser -u ana -- chown beto /srv/lab13b/pedidos.txt",
+     "s": "chown: changing ownership of '/srv/lab13b/pedidos.txt': Operation not permitted"
+    },
+    {
+     "c": "runuser -u ana -- chgrp carla /srv/lab13b/pedidos.txt",
+     "s": "chgrp: changing group of '/srv/lab13b/pedidos.txt': Operation not permitted"
+    },
+    {
+     "c": "runuser -u ana -- chgrp depo /srv/lab13b/pedidos.txt",
+     "s": ""
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. Beto no es dueño; Ana no puede regalar su archivo ni usar el grupo `carla`; `depo` sí es suyo."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Dos mensajes, dos significados",
+   "x": "`Permission denied`: no tenés permiso para **esta acción sobre este objeto**; se arregla con permisos, dueño o grupo. `Operation not permitted`: esa **operación** está reservada a otro rol (el dueño o root) y ningún modo la destraba."
+  },
+  {
+   "t": "h3",
+   "x": "umask: los permisos con los que nace todo"
+  },
+  {
+   "t": "p",
+   "x": "¿Por qué el archivo de Ana nació 644 y no 666? Los programas piden un modo base (666 archivos, 777 carpetas) y el sistema **apaga** los bits que dice una [[máscara]] llamada **[[umask]]** [#man7-umask]: modo base AND NOT umask, igual que en el [@01-12]. Con 022, la habitual, 666 pasa a 644 y 777 a 755. Con 077, a 600 y 700."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "runuser -u ana -- sh -c 'umask; touch /srv/lab13b/u1.txt; umask 077; touch /srv/lab13b/u2.txt; mkdir /srv/lab13b/d2; ls -ld /srv/lab13b/u1.txt /srv/lab13b/u2.txt /srv/lab13b/d2'",
+     "s": "0022\ndrwx------ 2 ana ana 4096 Nov 13 15:52 /srv/lab13b/d2\n-rw-r--r-- 1 ana ana    0 Nov 13 15:52 /srv/lab13b/u1.txt\n-rw------- 1 ana ana    0 Nov 13 15:52 /srv/lab13b/u2.txt"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Estás en un sistema con umask 027. (1) ¿Con qué modo nace un archivo nuevo si el programa pide 666? (2) ¿Y una carpeta si pide 777? (3) ¿Quién puede leer el archivo nuevo?",
+   "pista": "027 en binario por clase es 000 010 111: apaga nada al dueño, escritura al grupo y todo a los otros. Restá bit a bit sobre 666 y 777.",
+   "solucion": "(1) 666 con 027 apagado: dueño 6 (rw-), grupo 4 (r--), otros 0. Queda 640. (2) 777 igual: 750. (3) El dueño y los miembros del grupo; los otros no."
+  },
+  {
+   "t": "h",
+   "x": "root y sudo: el llavero maestro y las llaves prestadas"
+  },
+  {
+   "t": "p",
+   "x": "[[root]] es la cuenta con UID 0. El kernel no le aplica las comprobaciones de dueño, grupo y modo: en Linux lo implementa la capacidad `CAP_DAC_OVERRIDE`, que anula esa verificación y tiene todo proceso con UID de archivos 0 [#man7-path-resolution]. Mirá un archivo de modo 000:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "chmod 000 /srv/lab13b/pedidos.txt",
+     "s": ""
+    },
+    {
+     "c": "ls -l /srv/lab13b/pedidos.txt",
+     "s": "---------- 1 ana depo 21 Nov 13 15:52 /srv/lab13b/pedidos.txt"
+    },
+    {
+     "c": "cat /srv/lab13b/pedidos.txt",
+     "s": "pedidos del dia: 120"
+    },
+    {
+     "c": "runuser -u ana -- cat /srv/lab13b/pedidos.txt",
+     "s": "cat: /srv/lab13b/pedidos.txt: Permission denied"
+    }
+   ],
+   "cap": "Corrido como root el 13-11-2026. Root lee lo que ni su dueña puede abrir (después restauré 660)."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El llavero maestro",
+   "x": "Trabajar como root todo el día es pasearte con el llavero maestro del depósito colgado: la próxima distracción (un `rm` de más, un comando pegado de un foro) o el próximo programa malicioso actúa con permiso total. Con una cuenta común, el mismo error queda acotado a lo que esa cuenta toca. Donde la analogía deja de valer: un llavero perdido se nota, y el abuso de root puede pasar desapercibido."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Como root no hay red de contención",
+   "x": "Un comando destructivo (por ejemplo `rm -rf` sobre una ruta mal armada) corrido como root puede borrar el sistema sin advertencia, porque ningún permiso lo frena. Leé el comando completo, mirá las rutas y las variables vacías, y probá antes en una carpeta de prueba."
+  },
+  {
+   "t": "p",
+   "x": "La alternativa es [[sudo]]: ejecuta **un comando** como otro usuario, típicamente root, **si la política lo permite** [#sudo-ws-manual]. La política está en `/etc/sudoers` y `/etc/sudoers.d/` y se edita con `visudo`, que verifica la sintaxis (un error ahí puede dejar a todos sin sudo). Para el laboratorio escribí una regla mínima para Ana; `NOPASSWD` solo sirve para correr sin terminal interactiva:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat /etc/sudoers.d/lab13",
+     "s": "ana ALL=(root) NOPASSWD: /usr/bin/id, /usr/bin/ls /root"
+    },
+    {
+     "c": "visudo -c -f /etc/sudoers.d/lab13",
+     "s": "/etc/sudoers.d/lab13: parsed OK"
+    },
+    {
+     "c": "runuser -u ana -- ls /root",
+     "s": "ls: cannot open directory '/root': Permission denied"
+    },
+    {
+     "c": "runuser -u ana -- sudo -n ls /root",
+     "s": "leeme.txt"
+    },
+    {
+     "c": "runuser -u ana -- sudo -n id",
+     "s": "uid=0(root) gid=0(root) groups=0(root)"
+    },
+    {
+     "c": "runuser -u ana -- sudo -n cat /etc/shadow",
+     "s": "sudo: a password is required"
+    },
+    {
+     "c": "runuser -u carla -- sudo -n id",
+     "s": "sudo: a password is required"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026 (creé antes `/root/leeme.txt`). La opción `-n` evita preguntar: los dos últimos casos, en una terminal normal, pedirían una contraseña."
+  },
+  {
+   "t": "p",
+   "x": "Ana puede listar `/root` y correr `id` como root **solo con esos dos comandos exactos**; para cualquier otro, o para Carla, sudo corta. Es una llave prestada y acotada. Además, la política y los complementos de auditoría pueden registrar los intentos exitosos y fallidos [#sudo-ws-manual]: como firmar un remito cada vez que alguien retira algo del depósito. Si pide tu contraseña, la de root o ninguna depende de la política."
+  },
+  {
+   "t": "h",
+   "x": "El bit setuid: un permiso prestado y delicado"
+  },
+  {
+   "t": "p",
+   "x": "Hay un problema que tres clases no resuelven. Cualquiera cambia su contraseña con `passwd`, pero las contraseñas (cifradas) viven en `/etc/shadow`, que solo root y el grupo `shadow` pueden leer. ¿Cómo escribe Ana en un archivo que ni puede abrir?"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ls -l /etc/shadow",
+     "s": "-rw-r----- 1 root shadow 1517 Nov 13 15:51 /etc/shadow"
+    },
+    {
+     "c": "runuser -u ana -- cat /etc/shadow",
+     "s": "cat: /etc/shadow: Permission denied"
+    },
+    {
+     "c": "ls -l /usr/bin/passwd /usr/bin/sudo",
+     "s": "-rwsr-xr-x 1 root root  64152 May 30  2024 /usr/bin/passwd\n-rwsr-xr-x 1 root root 282032 Oct  6 13:51 /usr/bin/sudo"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. Fijate la `s` donde iría la `x` del dueño: es el bit setuid."
+  },
+  {
+   "t": "p",
+   "x": "La solución es el bit **[[setuid]]**: al ejecutar el archivo, el proceso adopta el UID del **dueño del archivo** (root) y no el de quien lo lanzó. Cada proceso tiene entonces un UID **real** (quién lo lanzó) y uno **efectivo** (con quién actúa) [#man7-credentials]; para los archivos Linux usa un tercero, casi siempre igual al efectivo. `/proc/self/status` muestra cuatro números en `Uid:` (real, efectivo, guardado y de archivos). Para verlo, copié el comando `id`, lo hice de root y le puse el bit:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cp /usr/bin/id /srv/lab13b/id_copia; chown root:root /srv/lab13b/id_copia",
+     "s": ""
+    },
+    {
+     "c": "chmod u+s /srv/lab13b/id_copia; ls -l /srv/lab13b/id_copia",
+     "s": "-rwsr-xr-x 1 root root 39432 Nov 13 15:52 /srv/lab13b/id_copia"
+    },
+    {
+     "c": "runuser -u ana -- /srv/lab13b/id_copia",
+     "s": "uid=1001(ana) gid=1001(ana) euid=0(root) groups=1001(ana),2001(depo)"
+    },
+    {
+     "c": "runuser -u ana -- grep -E '^Uid' /proc/self/status",
+     "s": "Uid:\t1001\t1001\t1001\t1001"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. Ana sigue siendo uid=1001 pero el proceso actúa con euid=0. Borré la copia. La última línea es de un `grep` común: sus cuatro números coinciden."
+  },
+  {
+   "t": "p",
+   "x": "Eso hace `passwd`: arranca con poder de root, modifica solo la línea de Ana en `/etc/shadow` y termina. El problema es que un programa setuid procesa con poder de root entradas de una persona sin privilegios. **Cualquier error en él puede volverse una escalada de privilegios.** Por eso son pocos, chicos y revisados con lupa. En este Ubuntu encontré nueve en `/usr/bin` y `/usr/sbin`: `chfn`, `chsh`, `gpasswd`, `mount`, `newgrp`, `passwd`, `su`, `sudo` y `umount`."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Reglas para no hacerte una puerta trasera",
+   "x": [
+    "Nunca le pongas setuid de root a un programa que deje al usuario ejecutar otros comandos o abrir archivos a elección (un intérprete, un editor, `find`): sería regalar root.",
+    "Linux ignora el bit en scripts: con un script de dos líneas, dueño root y modo 4755, Ana vio `uid=1001` sin `euid=0`. Lo documenta el manual de `execve`, que además dice que no se aplica en sistemas de archivos montados con `nosuid` [#man7-execve]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Su primo, setgid",
+   "x": "El mismo mecanismo existe para el grupo (`setgid`). En una carpeta hace que lo creado adentro herede el **grupo de la carpeta**: con una carpeta `ana:depo` de modo 2775, Beto creó `nuevo.txt` y salió `-rw-r--r-- 1 beto depo`. Así un equipo comparte archivos sin pelearse con `chgrp`."
+  },
+  {
+   "t": "h",
+   "x": "ACL: cuando tres clases no alcanzan"
+  },
+  {
+   "t": "p",
+   "x": "El modelo de tres clases es sencillo pero rígido. Si Ana quiere que Carla lea `informe.txt` sin cambiar el grupo ni abrirlo a todos, no hay una clase para «una persona puntual». Las [[ACL]] (listas de control de acceso) agregan reglas con nombre propio, como «el usuario carla puede leer» [#man7-acl]. Para probarlo instalé el paquete `acl` (`apt-get install acl`, versión 2.3.2), que no venía en este entorno:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ls -l informe.txt",
+     "s": "-rw-r----- 1 ana ana 8 Nov 13 15:52 informe.txt"
+    },
+    {
+     "c": "runuser -u carla -- cat /srv/lab13b/informe.txt",
+     "s": "cat: /srv/lab13b/informe.txt: Permission denied"
+    },
+    {
+     "c": "setfacl -m u:carla:r /srv/lab13b/informe.txt",
+     "s": ""
+    },
+    {
+     "c": "ls -l informe.txt",
+     "s": "-rw-r-----+ 1 ana ana 8 Nov 13 15:52 informe.txt"
+    },
+    {
+     "c": "getfacl informe.txt",
+     "s": "# file: informe.txt\n# owner: ana\n# group: ana\nuser::rw-\nuser:carla:r--\ngroup::r--\nmask::r--\nother::---"
+    },
+    {
+     "c": "runuser -u carla -- cat /srv/lab13b/informe.txt",
+     "s": "informe"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. El `+` al final del modo avisa que hay una ACL; `user:carla:r--` es la regla nueva."
+  },
+  {
+   "t": "p",
+   "x": "El `+` de `ls -l` es la única pista de que hay reglas que el modo no muestra, y ahí está el costo: para saber quién puede leer algo ya no alcanza `ls -l`, hay que recordar `getfacl`. Mi criterio: grupos para equipos estables, ACL para excepciones puntuales y anotadas."
+  },
+  {
+   "t": "h",
+   "x": "Windows: el mismo problema con otro modelo"
+  },
+  {
+   "t": "p",
+   "x": "Windows resuelve lo mismo con otras piezas. Según Microsoft Learn, usuarios y grupos son «principales de seguridad» con un identificador único, el **SID** (el equivalente del UID). Los recursos (archivos, carpetas, impresoras, claves del registro) llevan una **ACL** con reglas para cada principal, y cada recurso tiene un dueño que siempre puede cambiar sus permisos [#ms-access-control]. En Windows la ACL no es un agregado: es el mecanismo central."
+  },
+  {
+   "t": "p",
+   "x": "Tres ideas más: las carpetas pasan sus permisos a lo que contienen (**herencia**); se recomienda asignar permisos a grupos y no a personas sueltas, como en el laboratorio; y los **derechos de usuario** (iniciar sesión, hacer respaldos) se asignan a cuentas, no a objetos [#ms-access-control]."
+  },
+  {
+   "t": "h3",
+   "x": "UAC: el administrador que anda de usuario común"
+  },
+  {
+   "t": "p",
+   "x": "El **Control de cuentas de usuario** (UAC) automatizó algo parecido a sudo. Cuando entra alguien del grupo Administradores, el sistema le crea **dos** credenciales de acceso (*access tokens*): una completa y otra estándar, sin los privilegios administrativos. Con la estándar arranca el escritorio (`explorer.exe`) y, por herencia, casi todas las aplicaciones. Cuando un programa necesita la completa, Windows muestra un cartel de elevación que pide consentimiento (o las credenciales de un administrador, si quien la usa es estándar), por defecto en un «escritorio seguro» al que solo acceden procesos de Windows [#ms-uac-how-it-works]."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pregunta",
+    "Linux",
+    "Windows"
+   ],
+   "filas": [
+    [
+     "¿Cómo se identifica a alguien?",
+     "UID y GID",
+     "SID (usuarios y grupos)"
+    ],
+    [
+     "¿Dónde está la regla de acceso?",
+     "modo de 9 bits en el inodo; ACL opcional",
+     "ACL en cada objeto (central)"
+    ],
+    [
+     "¿Cuántas reglas por archivo?",
+     "3 clases fijas; más con ACL",
+     "una lista con tantas entradas como haga falta"
+    ],
+    [
+     "¿Quién tiene poder total?",
+     "root (UID 0)",
+     "cuenta con privilegios de administrador"
+    ],
+    [
+     "¿Cómo se sube de privilegio?",
+     "`sudo` o setuid, por comando",
+     "UAC: cartel de elevación, con consentimiento"
+    ]
+   ],
+   "cap": "Una comparación de criterios, no de calidad: los dos modelos resuelven el mismo problema con piezas distintas."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Windows: verificado el 13-11-2026",
+   "x": "Sale de dos páginas de Microsoft Learn, «Access Control Overview» (fecha de la página: 27-05-2026) y «How User Account Control works» (23-04-2026), leídas el 13-11-2026 [#ms-access-control][#ms-uac-how-it-works]. Los nombres de las políticas y el aspecto de los carteles cambian entre versiones: para un detalle concreto, buscá en la documentación de tu versión."
+  },
+  {
+   "t": "h",
+   "x": "Mínimo privilegio y por qué cada app de Android es un usuario"
+  },
+  {
+   "t": "p",
+   "x": "Todo lo de hoy responde a un principio de diseño: el **[[mínimo privilegio]]**. Cada persona, programa o servicio recibe solo lo que necesita para su tarea. En un depósito es obvio: el chofer tiene la llave del camión, no la del recinto fiscal. En el sistema, las cuentas de servicio sin sesión, el grupo `depo` con 660, la regla de sudo de dos comandos y los pocos setuid son ese mismo principio."
+  },
+  {
+   "t": "p",
+   "x": "Android lo aplica a escala. Su documentación oficial explica que se apoya en la protección por usuarios de Linux y **le asigna a cada app un UID único**, en su propio proceso. Con ese UID el kernel arma un «sandbox»: por defecto las apps no interactúan entre sí, y si la app A intenta leer los datos de la B sin permiso, el kernel lo impide porque no tiene los privilegios de usuario adecuados [#android-app-sandbox]. La doc lo describe como un esquema «simple, auditable», de separación de procesos y permisos de archivos al estilo UNIX."
+  },
+  {
+   "t": "p",
+   "x": "Tu teléfono usa **la misma máquina que acabás de explorar**: los datos de cada app son archivos de su UID, con un modo que no deja entrar a los demás. Android sumó capas: desde Android 5.0, SELinux agrega un control obligatorio entre sistema y apps, y desde Android 9 las apps con `targetSdkVersion >= 28` corren en sandboxes SELinux individuales [#android-app-sandbox]. Lo ves en el [@02-28], y el [@02-30] compara los cinco modelos de seguridad."
+  },
+  {
+   "t": "senda",
+   "titulo": "El mismo principio, aplicado a los datos de la app",
+   "x": [
+    "Senda, como app de Android, corre con un UID propio de su teléfono (la regla general de arriba, no algo de su código). Lo que sí está en su código es el mismo principio aplicado a la nube: en la migración inicial de su base en Supabase, «cada uno ve su progreso» se escribe `auth.uid() = usuario`: una fila solo es visible para la persona dueña. El mapa técnico cuenta 41 tablas, todas con esa seguridad por fila, y aclara que varias políticas se reemplazan después. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261026000000_inicio.sql"
+   ]
+  }
+ ],
+ "recap": [
+  "El kernel identifica por **números**: UID para cada usuario y GID para cada grupo. Root es el UID 0.",
+  "Frente a cada archivo hay tres clases (dueño, grupo, otros) y el kernel elige **una sola**: primero dueño, después grupo, después otros. Un dueño con modo 070 queda afuera.",
+  "En un directorio, `r` es listar, `w` es crear o borrar nombres y `x` es poder pasar. Borrar depende de la carpeta, no del archivo; el bit pegajoso (`t`) limita el borrado al dueño.",
+  "`chmod` cambia modos (octal o simbólico), `chown` solo lo hace root, `umask` apaga bits en los modos con los que nace todo. `Permission denied` y `Operation not permitted` no significan lo mismo.",
+  "root se salta los permisos; sudo presta ese poder comando por comando; el bit setuid lo presta a un programa y por eso es delicado. Las ACL agregan reglas por persona.",
+  "Windows usa SID y ACL en cada objeto y UAC (credencial dividida y cartel de elevación); Android le da a cada app un UID propio. Todos aplican el mismo principio: mínimo privilegio."
+ ],
+ "repaso": [
+  {
+   "p": "Un archivo es de Ana, está en el grupo `depo` y tiene modo 070. Ana también pertenece a `depo`. ¿Puede Ana leerlo?",
+   "o": [
+    "Sí, porque pertenece al grupo y el grupo tiene permisos",
+    "No, el kernel la ubica como dueña y esa clase no permite",
+    "Sí, porque es la dueña y los dueños siempre pueden leer",
+    "Depende de que root lo haya autorizado antes en sudo"
+   ],
+   "c": 1,
+   "e": "El kernel elige una sola clase y revisa primero la de dueño: Ana lo es, así que se aplica `---` y se acabó. Quien cree que se suman clases o que el dueño siempre puede leer ignora esa regla. Sí puede, en cambio, arreglarlo con chmod."
+  },
+  {
+   "p": "Una carpeta tiene modo 711 (drwx--x--x) y pertenece a Ana. Carla sabe que adentro hay un archivo `nota.txt` legible por todos. ¿Qué logra Carla?",
+   "o": [
+    "Listar la carpeta y leer el archivo",
+    "Listar la carpeta, pero no leer el archivo",
+    "Ni listar la carpeta ni leer el archivo",
+    "Leer el archivo si escribe su nombre exacto"
+   ],
+   "c": 3,
+   "e": "Los otros tienen `--x`: pueden pasar por la carpeta pero no listarla. Quien conoce el nombre llega al archivo, y el archivo es legible. En el laboratorio, `ls` falló y `cat` funcionó con este modo."
+  },
+  {
+   "p": "Carla es dueña de un archivo con modo 666 dentro de una carpeta de Ana con modo 755. Carla intenta borrar el archivo. ¿Qué pasa y por qué?",
+   "o": [
+    "Lo borra, porque el archivo es suyo y tiene modo 666",
+    "Lo borra solo si primero le cambia el grupo con chgrp",
+    "Falla: borrar es modificar la carpeta y la carpeta es de Ana",
+    "Falla, porque los archivos de modo 666 no se pueden borrar"
+   ],
+   "c": 2,
+   "e": "Borrar quita un nombre de la lista de la carpeta, y eso requiere permiso de escritura en la carpeta (755 se lo da solo a Ana). El modo del archivo no interviene. Lo medí: `Permission denied`."
+  },
+  {
+   "p": "Corrés `chown beto archivo` siendo la dueña, Ana, sin ser root, y aparece `Operation not permitted`. ¿Cómo se interpreta?",
+   "o": [
+    "Ana necesita agregar permiso de escritura con chmod",
+    "El archivo está en un sistema de archivos dañado",
+    "Esa acción solo la puede hacer root, no hay que tocar el modo",
+    "Beto tiene que aceptar antes el archivo con otro comando"
+   ],
+   "c": 2,
+   "e": "`Operation not permitted` indica que la operación está reservada (acá, a root) y ningún modo la habilita. Es distinto de `Permission denied`, que sí se arregla con permisos. Las otras opciones inventan causas."
+  },
+  {
+   "p": "El programa `passwd` tiene el bit setuid y dueño root. Ana lo ejecuta para cambiar su contraseña. ¿Con qué UID efectivo actúa el proceso?",
+   "o": [
+    "Con el UID de Ana, porque ella lo lanzó",
+    "Con el UID de root, el dueño del archivo del programa",
+    "Con el UID del grupo shadow, que es el del archivo",
+    "Con ninguno; el kernel elimina el UID durante el cambio"
+   ],
+   "c": 1,
+   "e": "Con setuid, el proceso adopta el UID del dueño del archivo ejecutable: root. El UID real sigue siendo el de Ana, pero el efectivo es 0. Lo mostró `id` con `euid=0(root)`. Un GID no es un UID, y no existe «sin UID»."
+  },
+  {
+   "p": "Ana quiere que solo Carla, y nadie más fuera de su grupo, pueda leer su archivo. No quiere cambiar grupos ni abrirlo a todos. ¿Qué herramienta encaja mejor?",
+   "o": [
+    "chmod 644, que da lectura a todos",
+    "chown carla, que le regala el archivo",
+    "chmod 777, que deja todo habilitado",
+    "setfacl, con una regla de lectura para carla"
+   ],
+   "c": 3,
+   "e": "Una ACL permite nombrar a una persona puntual sin tocar el modo base. `chmod 644` y `777` abren a todos y `chown` solo lo hace root y le quita el archivo a Ana. Con el `+` de `ls -l` se ve que existe la ACL."
+  },
+  {
+   "p": "Android le asigna un UID distinto a cada app instalada. ¿Qué logra principalmente con eso?",
+   "o": [
+    "Que las apps se ejecuten más rápido en el procesador",
+    "Que el kernel aísle los datos de cada app con permisos de archivos",
+    "Que cada app pueda actuar como root sin riesgo",
+    "Que las apps compartan sus datos sin pedir permiso"
+   ],
+   "c": 1,
+   "e": "Con un UID por app, los archivos de cada una pertenecen a su usuario y el kernel impide que otra app los lea, usando la misma regla de dueño y modo de Linux. Ni acelera nada, ni da root, ni comparte por defecto: es lo contrario."
+  }
+ ],
+ "feynman": "Explicale a alguien de tu equipo de logística, sin usar siglas, por qué Carla puede leer el archivo de Ana pero no modificarlo, qué tres cosas mira el sistema para decidirlo, y cómo le darías acceso a Beto sin abrirle el archivo a toda la empresa.",
+ "para_profundizar": [
+  {
+   "fuente": "man7-credentials",
+   "nota": "Describe con precisión los UID y GID reales, efectivos y guardados de un proceso, y los grupos suplementarios: el vocabulario exacto detrás de `id` y setuid."
+  },
+  {
+   "fuente": "man7-path-resolution",
+   "nota": "Define cómo el kernel elige la clase de permisos y qué significa la x en un directorio; la sección sobre permisos es la fuente de la regla de las tres clases."
+  },
+  {
+   "fuente": "ostep",
+   "nota": "Los capítulos sobre persistencia y archivos explican por qué el sistema guarda el dueño y el modo en el inodo; lo retomás cuando veas sistemas de archivos en detalle."
+  },
+  {
+   "fuente": "ms-uac-how-it-works",
+   "nota": "La explicación oficial del Control de cuentas de usuario, con el proceso de inicio de sesión, los dos tokens y el escritorio seguro."
+  }
+ ],
+ "videos": [
+  {
+   "q": "linux file permissions chmod chown explicados owner group others",
+   "por_que": "Para ver animada la lectura de rwxr-xr-x y el efecto de chmod en octal y simbólico."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "usuario",
+   "d": "Cuenta con la que alguien (o un servicio) usa el sistema; el kernel la identifica con un número, el UID, y todo lo que hacen sus procesos se chequea contra él."
+  },
+  {
+   "t": "grupo",
+   "d": "Conjunto de usuarios con un número propio (GID), usado para dar permisos a un equipo sin repetir reglas persona por persona."
+  },
+  {
+   "t": "permisos rwx",
+   "d": "Tres interruptores (leer, escribir, ejecutar) para cada una de las tres clases (dueño, grupo y otros) de un archivo; en un directorio significan listar, crear o borrar nombres, y poder pasar."
+  },
+  {
+   "t": "root",
+   "d": "Cuenta con UID 0, el administrador de un sistema tipo UNIX; el kernel no le aplica los permisos de archivos, por eso se usa solo para tareas que lo exigen."
+  },
+  {
+   "t": "sudo",
+   "d": "Programa que ejecuta un comando como otro usuario, normalmente root, si la política del sistema lo permite; presta el privilegio comando por comando en vez de trabajar como root."
+  },
+  {
+   "t": "setuid",
+   "d": "Bit de modo que hace que un programa se ejecute con el UID de su dueño y no con el de quien lo lanza; permite tareas como cambiar la contraseña, pero es delicado porque cualquier fallo del programa da privilegios."
+  },
+  {
+   "t": "ACL",
+   "d": "Lista de control de acceso: reglas adicionales de un archivo que nombran personas o grupos puntuales (por ejemplo, «carla puede leer») más allá de las tres clases dueño, grupo y otros."
+  },
+  {
+   "t": "umask",
+   "d": "Máscara que el sistema aplica al crear archivos y carpetas: apaga los bits de permisos que indica, de modo que los modos base 666 y 777 quedan, con la habitual 022, en 644 y 755."
+  },
+  {
+   "t": "mínimo privilegio",
+   "d": "Principio de diseño de seguridad: cada persona, programa o servicio recibe solo los permisos que necesita para su tarea, durante el tiempo que los necesita."
+  }
+ ],
+ "siguiente": "los drivers: cómo el sistema operativo le habla a cada pieza de hardware, qué son los archivos de /dev y por qué un solo driver mal escrito puede tirar abajo una computadora entera.",
+ "fuentes_nuevas": [
+  {
+   "id": "ms-access-control",
+   "t": "Access Control Overview",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/security/identity-protection/access-control/access-control"
+  },
+  {
+   "id": "ms-uac-how-it-works",
+   "t": "How User Account Control works",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/security/application-security/application-control/user-account-control/how-it-works"
+  },
+  {
+   "id": "android-app-sandbox",
+   "t": "Application Sandbox",
+   "a": "Android Open Source Project",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/security/app-sandbox"
+  },
+  {
+   "id": "man7-credentials",
+   "t": "credentials(7): process identifiers",
+   "a": "Linux man-pages",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man7/credentials.7.html"
+  },
+  {
+   "id": "man7-path-resolution",
+   "t": "path_resolution(7): how a pathname is resolved to a file",
+   "a": "Linux man-pages",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man7/path_resolution.7.html"
+  },
+  {
+   "id": "man7-execve",
+   "t": "execve(2): execute program",
+   "a": "Linux man-pages",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man2/execve.2.html"
+  },
+  {
+   "id": "man7-acl",
+   "t": "acl(5): Access Control Lists",
+   "a": "Linux man-pages",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man5/acl.5.html"
+  },
+  {
+   "id": "man7-umask",
+   "t": "umask(2): set file mode creation mask",
+   "a": "Linux man-pages",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man2/umask.2.html"
+  },
+  {
+   "id": "sudo-ws-manual",
+   "t": "sudo(8): execute a command as another user",
+   "a": "Todd C. Miller (sudo.ws)",
+   "tipo": "doc",
+   "url": "https://www.sudo.ws/docs/man/sudo.man/"
+  }
+ ]
+}

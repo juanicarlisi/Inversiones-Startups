@@ -1,0 +1,802 @@
+{
+ "id": "02-03",
+ "titulo": "Del botón de encendido al login",
+ "bajada": "Seguís el arranque desde que el kernel llega a la memoria hasta que escribís tu contraseña, con salidas reales de una máquina Linux, y lo comparás con Windows y Android.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Ordenar la cadena completa del arranque después del cargador de arranque: kernel, initramfs, proceso init, servicios, gestor de inicio de sesión y sesión de usuario.",
+  "Explicar por qué existe el initramfs y qué problema circular resuelve al montar el sistema de archivos raíz.",
+  "Leer en una máquina real el primer proceso (PID 1), la línea de comandos del kernel y los mensajes de arranque de `dmesg`.",
+  "Distinguir el final del arranque (servicios en marcha) del inicio de sesión de una persona, y definir qué es una sesión de usuario.",
+  "Comparar la cadena de Linux con la de Windows y la de Android, nombrando el equivalente de cada eslabón."
+ ],
+ "venis_de": "En el [@01-34] seguiste el arranque desde la señal de reset hasta que el cargador de arranque encuentra el kernel y lo copia a la memoria. Ahí quedaste. Hoy empieza el trabajo del sistema operativo: de ese kernel en la RAM hasta una persona frente a su escritorio.",
+ "se_apoya_en": [
+  "01-34",
+  "02-01",
+  "02-02"
+ ],
+ "gancho": [
+  "Apretás el botón de encendido de la notebook. Treinta segundos después estás escribiendo tu contraseña frente a una pantalla de inicio de sesión, y un rato más tarde tenés el escritorio con tus programas abiertos. Entre una cosa y la otra pasa una cadena de traspasos que nadie ve. Cada eslabón es un programa distinto y cada uno deja el terreno listo para el siguiente. Si uno falla, los que siguen no ocurren. Es como abrir un depósito a la mañana: el camión no sale si el portón no abrió, y el portón no abre si no hay luz.",
+  "Esta vez no vas a leer solo teoría. La máquina donde se escribió este día es una computadora Linux real (una máquina virtual), y todos los comandos y salidas que vas a ver los corrí ahí el 13-11-2026. Un aviso honesto desde el principio: ese entorno arranca de una forma más simple que tu notebook, y la diferencia enseña tanto como lo que tienen en común."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Dónde nos quedamos: el kernel está en la memoria"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando el [[cargador de arranque]] termina, deja tres cosas en la [[RAM]]. La **imagen del kernel**, el archivo con el [[kernel]] del sistema operativo (en Linux suele llamarse `vmlinuz`). Un paquete de arranque temporal, el **initramfs**, que vemos en un rato. Y la **línea de comandos del kernel**, un texto corto con opciones: de qué disco arrancar, qué programa lanzar primero, adónde mandar los mensajes. Después salta a la primera instrucción del kernel y ya no vuelve a mandar.",
+    "Ese traspaso está especificado. En Linux sobre x86, el protocolo de arranque documenta cómo el cargador le pasa al kernel la línea de comandos y la ubicación del initrd [#kernel-x86-boot-doc]. La misma documentación aclara que el contenido del kernel puede venir comprimido (gzip, bzip2, LZMA, XZ, LZ4 o ZSTD): en ese caso, lo primero que ocurre es que el código se descomprime a sí mismo en memoria."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "uname -r",
+     "s": "6.18.44-fc-v445"
+    },
+    {
+     "c": "cat /proc/cmdline",
+     "s": "mitigations=auto,no_guest_host,no_guest_guest console=ttyS0 quiet reboot=k panic=1 nomodule random.trust_cpu=1 swiotlb=noforce psi=1 nvproxy.enable=1 page_reporting.page_reporting_order=11 deferred_init=lazy ipv6.disable=1 dhash_entries=131072 ihash_entries=65536 rdinit=/process_api -- --firecracker-init --addr 0.0.0.0:2024 --max-ws-buffer-size 32768 --block-local-connections --log-vsock-port 5002 --control-vsock-port 5001 --listen-vsock-port 2024 --tcp-readiness-only"
+    }
+   ],
+   "cap": "Salida real, corrida el 13-11-2026 en el entorno donde se escribió este día. `uname -r` imprime la versión del kernel; `/proc/cmdline` es la línea de comandos con la que arrancó."
+  },
+  {
+   "t": "p",
+   "x": [
+    "No necesitás memorizar ese texto. Tres opciones sí valen la pena. `console=ttyS0` le dice al kernel adónde escribir sus mensajes (un puerto serie, no una pantalla), y `quiet` apaga la mayoría de ellos [#kernel-parametros-doc]. Y `rdinit=/process_api` indica **qué programa lanzar primero**: la documentación lo define como el binario que se ejecuta en lugar del `/init` que se busca por defecto dentro del initramfs. Lo que viene después de los dos guiones (`--`) no es para el kernel: se le entrega como argumentos a ese primer programa [#kernel-parametros-doc].",
+    "Fijate también en lo que *no* hay. En este entorno el directorio `/boot`, donde una instalación típica de Linux guarda el kernel y el initramfs, está vacío, y no existe `/sys/firmware/efi`, donde Linux publica la información de UEFI cuando arrancó con ese firmware. El kernel le llega de afuera, de la máquina anfitriona que simula este equipo. Por el nombre del kernel y de los argumentos, mi lectura (INFERENCIA, no verificada en documentación del proveedor) es que se trata de una máquina virtual de tipo Firecracker, donde el programa que crea la máquina cumple el papel de cargador de arranque. Cómo funcionan esas máquinas lo ves en el [@02-23]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El kernel se despierta"
+  },
+  {
+   "t": "p",
+   "x": "El kernel arranca en [[modo kernel]], el modo con permiso total sobre el hardware que viste en el [@02-02]. Lo primero que hace no se parece a ejecutar programas: se prepara a sí mismo."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Lo que hace el kernel antes de lanzar nada",
+   "pasos": [
+    {
+     "t": "Descomprimirse y ubicarse",
+     "x": "Si la imagen venía comprimida, se expande y salta a su código real. Imprime su versión: es la primera línea de su registro."
+    },
+    {
+     "t": "Reconocer la máquina",
+     "x": "Detecta cuánta memoria hay, cuántos [[núcleos|núcleo]] de [[CPU]] tiene el equipo y qué relojes puede usar. Acá lo dice así: `smp: Brought up 1 node, 4 CPUs`."
+    },
+    {
+     "t": "Armar sus estructuras",
+     "x": "Prepara las listas internas con las que va a administrar la memoria y repartir la CPU. Todavía no hay programas, pero la maquinaria tiene que estar lista."
+    },
+    {
+     "t": "Activar los controladores",
+     "x": "Inicializa los [[controladores|controlador]] de los dispositivos que ve: disco, red, teclado. Sin ellos no puede leer nada de afuera de la RAM."
+    },
+    {
+     "t": "Desempaquetar el initramfs",
+     "x": "Extrae el paquete de arranque temporal a un sistema de archivos en memoria. Es el tema de la próxima sección."
+    },
+    {
+     "t": "Lanzar el primer programa",
+     "x": "Ejecuta un programa en [[modo usuario]]. Desde ahí el kernel deja de ser protagonista y pasa a atender las [[llamadas al sistema|llamada al sistema]] de los programas."
+    }
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "dmesg | grep -E \"Linux version|Booting paravirtualized|Brought up|Unpacking initramfs|Freeing initrd|Run /|EXT4-fs\" | head -n 10",
+     "s": "[    0.000000] Linux version 6.18.44-fc-v445 (builder@sandboxing) (gcc (GCC) 15.3.0, GNU ld (GNU Binutils) 2.46) #1 SMP PREEMPT_DYNAMIC @0\n[    0.173312] Booting paravirtualized kernel on KVM\n[    0.281366] smp: Brought up 1 node, 4 CPUs\n[    0.436288] Unpacking initramfs...\n[    0.549817] Freeing initrd memory: 16768K\n[    0.582167] Run /process_api as init process\n[    1.224039] EXT4-fs (vda): warning: mounting unchecked fs, running e2fsck is recommended\n[    1.224894] EXT4-fs (vda): mounted filesystem a6f989fe-84f5-4572-bf10-04eb3ddae433 r/w without journal. Quota mode: none.\n[    1.295873] EXT4-fs (vdc): mounted filesystem 00000000-0000-4000-8000-000000000000 ro without journal. Quota mode: none.\n[    1.296342] EXT4-fs (vdd): mounted filesystem 00000000-0000-4000-8000-000000000000 ro without journal. Quota mode: none."
+    }
+   ],
+   "cap": "Salida real de `dmesg` (el registro de mensajes del kernel), filtrada con `grep` para quedarnos con las líneas clave. Corrida el 13-11-2026 como administrador (root)."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "linea-tiempo",
+   "eventos": [
+    {
+     "a": "0,000 s",
+     "t": "El kernel empieza",
+     "d": "Imprime su versión. El reloj del registro arranca en cero acá."
+    },
+    {
+     "a": "0,173 s",
+     "t": "Se reconoce como invitado",
+     "d": "`Booting paravirtualized kernel on KVM`: detecta que corre sobre una máquina virtual."
+    },
+    {
+     "a": "0,281 s",
+     "t": "Despiertan las CPU",
+     "d": "`Brought up 1 node, 4 CPUs`: los cuatro núcleos quedan activos."
+    },
+    {
+     "a": "0,436 s",
+     "t": "Se desempaqueta el initramfs",
+     "d": "`Unpacking initramfs...`"
+    },
+    {
+     "a": "0,549 s",
+     "t": "Se libera la copia comprimida",
+     "d": "`Freeing initrd memory: 16768K`, unos 16,4 MiB que vuelven a estar disponibles."
+    },
+    {
+     "a": "0,582 s",
+     "t": "Nace el primer programa",
+     "d": "`Run /process_api as init process`."
+    },
+    {
+     "a": "1,224 s",
+     "t": "Se monta el disco principal",
+     "d": "`EXT4-fs (vda): mounted filesystem ... r/w`: el disco virtual queda listo para leer y escribir."
+    }
+   ],
+   "cap": "El arranque de este entorno visto desde el kernel: en poco más de un segundo ya hay primer programa y disco montado. Tiempos copiados de la salida real de `dmesg`."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": [
+    "Los tiempos de `dmesg` cuentan desde que el kernel empezó, no desde que apretaste el botón. Antes de esa línea de 0,000 s ya pasaron el firmware y el cargador de arranque. Por eso conviene medir por etapas: la documentación de `systemd-analyze` muestra, como ejemplo de una máquina real, un total de 1 min 9,6 s repartido en 2,584 s de kernel, 19,176 s de initrd y 47,847 s de espacio de usuario [#systemd-analyze-man]. Un arranque lento tiene un eslabón lento, y primero hay que saber cuál."
+   ],
+   "titulo": "Ojo con de dónde cuenta el reloj"
+  },
+  {
+   "t": "h",
+   "x": "El huevo y la gallina: el initramfs y la raíz"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Llegó el momento de montar el **sistema de archivos raíz**: el árbol de carpetas desde el que cuelga todo lo demás (`/`, `/usr`, `/home`...). Ahí hay un problema circular. Para leer el disco, el kernel necesita el controlador de ese disco y el que entiende el formato de sus archivos. A veces esos controladores no están dentro del kernel sino en archivos sueltos, y esos archivos están guardados... en el disco. Es una llave dentro de la caja fuerte que abre.",
+    "La solución clásica de Linux es el **initramfs**: un archivo comprimido, en formato cpio, con un mini sistema de archivos adentro (pocos programas, controladores y configuraciones). El kernel lo extrae a un sistema de archivos en memoria y, si encuentra ahí un programa llamado `init`, lo ejecuta como primer programa. Según la documentación del kernel, ese programa es el responsable de llevar el sistema el resto del camino, incluso ubicar y montar el dispositivo raíz real [#kernel-initramfs-doc]. El manual de arranque de systemd lo resume igual [#systemd-bootup-man]. Con la raíz real montada, el programa del initramfs le entrega el control al `init` del sistema instalado y la copia en memoria se descarta."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "El initramfs es el **kit de herramientas de la camioneta de mantenimiento**. Llegás a un depósito cerrado y la llave está adentro: sin una copia, no podés entrar a buscarla. El kit trae justo lo necesario para abrir y, una vez adentro, lo dejás y trabajás con las herramientas del depósito.",
+    "Donde la analogía deja de valer: el kit viaja en la RAM, y no se guarda para el próximo viaje. En cada arranque se vuelve a extraer del archivo del disco."
+   ],
+   "titulo": "Pensalo así: la llave dentro de la caja fuerte"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "comparar",
+   "izq": {
+    "t": "En una PC con Linux (lo habitual)",
+    "k": "servidor",
+    "items": [
+     "El cargador copia kernel e initramfs a la RAM",
+     "El kernel extrae el initramfs y ejecuta su `/init`",
+     "Ese programa carga lo necesario y monta la raíz real",
+     "Pasa el control al `init` del sistema instalado (en muchas distribuciones, systemd)"
+    ]
+   },
+   "der": {
+    "t": "En este entorno (lo medido)",
+    "k": "os",
+    "items": [
+     "El anfitrión entrega el kernel: no hay `/boot`",
+     "`rdinit=/process_api` elige el programa del initramfs que corre primero",
+     "El disco `vda` se monta a 1,224 s, después de que ese programa ya arrancó",
+     "`/proc/mounts` lo muestra como raíz: `/dev/vda / ext4`"
+    ]
+   },
+   "cap": "Lo de la izquierda viene de la documentación del kernel y de systemd; lo de la derecha, de los comandos corridos en este entorno."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una lectura de esos datos, que marco como INFERENCIA porque el registro no dice quién hizo cada cosa: el disco se monta unos 0,64 s *después* de que arrancó el primer programa, y la línea de comandos no trae ninguna opción `root=`. Eso sugiere que el kernel no montó el disco por su cuenta antes de lanzar el primer programa, sino que lo hizo un programa de espacio de usuario. Es una variante distinta a la de una PC, y sirve para ver que el esquema general (primero un entorno mínimo en memoria, después la raíz real) admite formas muy diferentes."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El registro tiene dos líneas seguidas: `Unpacking initramfs...` a 0,436 s y `Freeing initrd memory: 16768K` a 0,549 s. ¿Qué creés que pasó entre una y otra?",
+   "resp": "Es una lectura razonable, no una certeza: el kernel extrajo el archivo comprimido a un sistema de archivos en memoria. Una vez copiado su contenido, el buffer original (la copia comprimida que había dejado el anfitrión) ya no hace falta, y esos unos 16,4 MiB vuelven a la memoria libre."
+  },
+  {
+   "t": "h",
+   "x": "El primer proceso: el que lanza a todos los demás"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con el sistema de archivos listo, el kernel hace algo sencillo: busca un programa y lo ejecuta. Es el **primer proceso** de espacio de usuario. Un proceso es, por ahora, un programa en ejecución con su propio número de identificación, el PID; mañana lo estudiás a fondo en el [@02-04]. El primero recibe siempre el PID 1 y se lo llama **proceso init**, por el nombre tradicional del programa.",
+    "¿Cuál es ese programa? Lo define la configuración: por defecto se busca `/init` dentro del initramfs, `rdinit=` permite elegir otro y, en un sistema sin initramfs, `init=` reemplaza al `/sbin/init` tradicional [#kernel-parametros-doc]. Si el kernel no logra ejecutar ninguno, el arranque se detiene: la documentación dedica una página a ese cuelgue, que aparece con el mensaje «No working init found» [#kernel-init-doc].",
+    "Tiene dos responsabilidades que nadie más tiene. Es el ancestro de todos los programas de usuario, porque todo lo que corra después nace, directa o indirectamente, de él. Y es quien lleva el sistema hasta un estado útil."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ps -p 1 -o pid,ppid,comm",
+     "s": "  PID  PPID COMMAND\n    1     0 process_api"
+    },
+    {
+     "c": "ps -p 2 -o pid,ppid,comm",
+     "s": "  PID  PPID COMMAND\n    2     0 kthreadd"
+    },
+    {
+     "c": "ps -eo pid,ppid,comm | head -n 6",
+     "s": "  PID  PPID COMMAND\n    1     0 process_api\n    2     0 kthreadd\n    3     2 pool_workqueue_release\n    4     2 kworker/R-rcu_gp\n    5     2 kworker/R-sync_wq"
+    },
+    {
+     "c": "ls -l /sbin/init",
+     "s": "lrwxrwxrwx 1 root root 22 Oct 12 07:36 /sbin/init -> ../lib/systemd/systemd"
+    },
+    {
+     "c": "systemd-analyze",
+     "s": "System has not been booted with systemd as init system (PID 1). Can't operate.\nFailed to connect to bus: Host is down"
+    }
+   ],
+   "cap": "Salida real, 13-11-2026. `ps` lista procesos; `-o` elige las columnas (PID, PID del padre y nombre del programa)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Estas salidas cuentan una historia. El PID 1 de este entorno se llama `process_api`, tal como pedía `rdinit=`. El PID 2, `kthreadd`, es el padre de decenas de tareas internas del propio kernel (`kworker`, `rcu`, `migration`...), que `ps` muestra entre corchetes cuando lista los comandos completos. Y la cuarta línea trae algo curioso: es una Ubuntu 24.04, donde `/sbin/init` apunta a systemd, pero **systemd no es el PID 1 acá**, y por eso `systemd-analyze` se niega a trabajar."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": [
+    "Es común leer «el primer proceso de Linux es systemd». Vale para muchas distribuciones, y no es una ley: el primer programa es el que el kernel haya sido configurado para lanzar. En este entorno es uno a medida, y Android usa uno propio. Cuando alguien diga «el PID 1», preguntale de qué sistema habla."
+   ],
+   "titulo": "El PID 1 no siempre es systemd"
+  },
+  {
+   "t": "h",
+   "x": "El proceso init arma el sistema por etapas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En una PC con systemd, el proceso init no se limita a «arrancar programas». Lee descripciones de cada pieza del sistema y las arranca respetando **dependencias**: la red necesita su controlador, la base de datos necesita el disco montado, el servidor web necesita la red. Lo que no depende de algo pendiente arranca a la vez que lo demás. Su manual lo dice así: el arranque está muy paralelizado, y por eso el orden exacto en que se alcanzan ciertas etapas no es determinista, aunque respeta una estructura mínima de orden [#systemd-bootup-man].",
+    "Esas etapas se llaman *targets* y funcionan como hitos. Primero uno de inicialización (`sysinit.target`: montajes y servicios de bajo nivel, como el que detecta dispositivos). Luego uno básico (`basic.target`: sockets, temporizadores, rutas vigiladas). Después uno donde corren los servicios normales (`multi-user.target`). Y, si hay entorno gráfico, un hito final (`graphical.target`) que además pone en marcha el gestor de inicio de sesión [#systemd-bootup-man]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "sysinit.target",
+       "s": "montajes y servicios de bajo nivel",
+       "k": "os"
+      },
+      {
+       "t": "basic.target",
+       "s": "sockets, temporizadores, rutas",
+       "k": "servidor",
+       "e": "después"
+      },
+      {
+       "t": "multi-user.target",
+       "s": "servicios del sistema: red, registros",
+       "k": "datos",
+       "e": "después"
+      },
+      {
+       "t": "graphical.target",
+       "s": "suma el gestor de inicio de sesión",
+       "k": "cliente",
+       "e": "si hay pantalla"
+      }
+     ]
+    }
+   ],
+   "cap": "Versión simplificada de los hitos de systemd según su manual de arranque. En la realidad hay más unidades y muchas arrancan en paralelo."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "El proceso init es el **encargado que abre el depósito**. No carga los camiones él mismo: enciende la luz, abre los portones, llama a cada cuadrilla y cuida el orden de las que dependen de otras (los autoelevadores necesitan el piso despejado, la balanza necesita energía). Las cuadrillas que no se estorban trabajan a la vez, y él vigila que ninguna se caiga.",
+    "Donde la analogía deja de valer: las «cuadrillas» de un sistema son programas que nacen y mueren en milisegundos, y a cientos a la vez."
+   ],
+   "titulo": "Pensalo así: el encargado del depósito"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Esas piezas se llaman **servicios**: programas que quedan corriendo de fondo para ofrecer una función, como mantener la red, guardar registros o atender pedidos de otros equipos. A ellos y a systemd les dedicás el [@02-15]. Lo que importa retener hoy es el orden: **los servicios se levantan antes de que aparezca la pantalla de inicio de sesión**."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El login y la sesión de usuario"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con los servicios en marcha, el sistema ya está «arriba», pero todavía no sabe quién sos. En una consola de texto, el proceso init arranca un programa llamado `agetty`, que según su manual abre un puerto de terminal, pide el nombre de usuario e invoca el comando `login` [#man7-agetty]. El manual de `login` lo describe como el programa para «comenzar una sesión en el sistema», que pide nombre y contraseña [#man7-login].",
+    "En un equipo con escritorio, el papel lo cumple un **gestor de inicio de sesión** (*display manager*): un servicio que dibuja la pantalla donde elegís usuario e ingresás la contraseña. En el esquema de systemd figura como `display-manager.service`, pieza del hito gráfico [#systemd-bootup-man]. GDM es un ejemplo conocido; el manual de `pam_loginuid` lo nombra junto con `login` y `sshd` entre los programas de entrada, donde alguien se autentica [#man7-pam-loginuid].",
+    "Verificar la contraseña es el primer paso. Cuando sale bien, el sistema crea una **sesión de usuario**: el conjunto de procesos que pertenecen a una persona identificada, mientras dure su permanencia en el equipo. Armarla implica cuatro cosas:"
+   ]
+  },
+  {
+   "t": "lista",
+   "ord": false,
+   "items": [
+    "**Una identidad.** Los procesos corren con tu número de usuario (UID), no como administrador. Es lo que permite que el sistema te impida tocar los archivos de otro; los permisos los ves en el [@02-13].",
+    "**Un entorno.** Variables como la carpeta personal (`HOME`) y la lista de lugares donde buscar programas (lo ves en el [@02-18]).",
+    "**Un primer programa propio.** El escritorio o, en una consola, el intérprete de comandos (la *shell*, que usás desde el [@02-16]). Todo lo que abras después nace de ahí y hereda tu identidad.",
+    "**Un final.** Al cerrar la sesión, los programas de ese usuario se terminan, salvo los que dejaste configurados para seguir."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "systemd lo refleja: según su manual, inicia una unidad `user@UID.service` por cada usuario, que lanza una instancia separada y sin privilegios de systemd para esa persona. Y cuando entrás a una sesión gráfica, el gestor de inicio de sesión activa `graphical-session.target`, con lo que necesita el escritorio [#systemd-bootup-man]. Lo importante es el concepto: **la sesión ata los programas de una persona a su identidad.**"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "id",
+     "s": "uid=0(root) gid=0(root) groups=0(root)"
+    },
+    {
+     "c": "cat /proc/self/loginuid",
+     "s": "4294967295"
+    },
+    {
+     "c": "who",
+     "s": ""
+    },
+    {
+     "c": "ls /var/run/utmp",
+     "s": "ls: cannot access '/var/run/utmp': No such file or directory"
+    }
+   ],
+   "cap": "Salida real, 13-11-2026. `id` muestra el usuario con el que corre el comando; `/proc/self/loginuid` es el identificador de «con quién se inició sesión» que el kernel guarda para el proceso; `who` lista las sesiones abiertas y acá no devuelve nada."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Es lo contrario de una sesión normal: el comando corre como administrador (root), `who` no lista a nadie y `/var/run/utmp`, el registro de sesiones, ni existe. El `loginuid` vale 4294967295, es decir 2³² − 1, una forma habitual de escribir «sin valor». Mi lectura (INFERENCIA: el manual de `pam_loginuid` dice que ese módulo completa el dato para el proceso que se autenticó [#man7-pam-loginuid], pero no verifiqué en documentación el valor exacto de «sin asignar») es que este shell no pasó por ningún login. Así corren muchos programas en un servidor."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": [
+    "«Cuando aparece la pantalla de login, la computadora terminó de arrancar» es natural, porque desde afuera esa pantalla es lo último que se ve antes de trabajar. Pero los servicios se levantan **antes** del login. En un servidor en la nube nadie mira una pantalla de inicio de sesión, y aun así el equipo arranca, sus servicios atienden pedidos y, si alguien necesita administrarlo, entra por la red.",
+    "En tu notebook pasa algo parecido: servicios como el de red suelen arrancar antes de que escribas la contraseña. El login es el final del arranque *para vos*."
+   ],
+   "titulo": "«Login = el sistema terminó de arrancar»"
+  },
+  {
+   "t": "pensa",
+   "x": "Un servidor de una empresa de logística lleva 90 días encendido y nadie inició sesión en él. ¿Puede estar atendiendo los pedidos de los clientes? ¿Por qué?",
+   "resp": "Sí. Los servicios los lanza el proceso init durante el arranque, sin depender de ninguna sesión. Una sesión solo hace falta para que una persona use el equipo de forma interactiva. Cada servicio corre con la identidad que se le configuró, no con la de alguien «logueado»."
+  },
+  {
+   "t": "h",
+   "x": "La misma cadena en Windows y en Android"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los eslabones cambian de nombre, pero la lógica es la misma: cada uno prepara el siguiente y el último le entrega el equipo a una persona. Esto dice la documentación oficial.",
+    "En **Windows**, la guía de Microsoft sobre problemas de inicio divide el arranque en cuatro fases: PreBoot (el firmware hace el autodiagnóstico y busca el disco), Windows Boot Manager, Windows OS Loader y el kernel de Windows NT [#ms-windows-startup-fases]. Con UEFI, esos programas son `bootmgfw.efi`, `winload.efi` y `ntoskrnl.exe`; con BIOS, `bootmgr`, `winload.exe` y `ntoskrnl.exe`. El OS Loader carga los controladores que el kernel necesita para arrancar y lo lanza. El kernel carga el registro del sistema y los controladores marcados `BOOT_START`, y le pasa el control al administrador de sesiones, `Smss.exe`, que inicializa la sesión del sistema y arranca el resto de los dispositivos y controladores [#ms-windows-startup-fases]. El inicio de sesión interactivo lo controla, según Microsoft, un componente llamado Winlogon [#ms-winlogon-gina]. Entre `Smss.exe` y Winlogon intervienen otros procesos que esas páginas no detallan, y no los enumero porque no los verifiqué en una fuente primaria.",
+    "En **Android**, el kernel es Linux: la documentación lo describe como basado en una versión LTS del kernel Linux, con parches propios [#aosp-kernel-overview]. El primer programa es un `init` propio, que lee archivos `.rc` escritos en un lenguaje específico de Android. Su README detalla un *first stage init* (monta lo mínimo: `/dev`, `/proc` y las particiones del sistema) y una secuencia de etapas: `early-fs`, `fs`, `post-fs-data`, `zygote-start`, `early-boot` y `boot` [#aosp-init-readme]. La etapa `zygote-start` lanza el **Zygote**, descripto como la raíz de todos los procesos del sistema y de las apps: cuando abrís una aplicación, su proceso se crea duplicando al Zygote. Quien pide ese proceso nuevo es `system_server`, uno de los servicios centrales de Android [#aosp-zygote][#android-arch]. Android lo retomás en el [@02-28]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Eslabón",
+    "Linux (típico)",
+    "Windows (según Microsoft)",
+    "Android (según AOSP)"
+   ],
+   "filas": [
+    [
+     "Firmware",
+     "UEFI o BIOS",
+     "PreBoot: firmware y autodiagnóstico",
+     "Código de arranque con verificación (ver [@01-34])"
+    ],
+    [
+     "Cargador",
+     "GRUB o systemd-boot",
+     "Boot Manager y luego OS Loader (winload)",
+     "Bootloader del fabricante"
+    ],
+    [
+     "Kernel",
+     "Linux",
+     "Windows NT (`ntoskrnl.exe`)",
+     "Linux con parches de Android"
+    ],
+    [
+     "Primer programa en modo usuario",
+     "init (en muchas distribuciones, systemd)",
+     "Administrador de sesiones (`Smss.exe`)",
+     "`init` propio, lee `init.rc`"
+    ],
+    [
+     "Servicios",
+     "Hitos de systemd hasta `multi-user.target`",
+     "Lo que arranca `Smss.exe` y lo que la fuente no detalla",
+     "Etapas `early-fs`... `boot`; arranca el Zygote"
+    ],
+    [
+     "Entrada de la persona",
+     "Gestor de inicio de sesión o `login`",
+     "Winlogon",
+     "Se retoma en [@02-28]"
+    ]
+   ],
+   "cap": "Mapa comparado. Las celdas de Windows y Android vienen de las páginas oficiales citadas; GRUB y systemd-boot aparecen como ejemplos de cargador en el manual de arranque de systemd."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Verificado el 13-11-2026. La guía de Microsoft con las cuatro fases figura como actualizada el 12-02-2026 [#ms-windows-startup-fases]; la página del Zygote de Android, el 09-10-2026 [#aosp-zygote]; la descripción de `init` es la del README del código fuente de Android (rama principal) a esa fecha [#aosp-init-readme]. Son comportamientos de productos: nombres de archivos, etapas y orden pueden cambiar con cada versión. Lo permanente es la cadena: hardware, cargador, kernel, primer programa, servicios, entrada de la persona.",
+   "titulo": "Qué puede cambiar y qué no"
+  },
+  {
+   "t": "h",
+   "x": "El mapa completo"
+  },
+  {
+   "t": "p",
+   "x": "Juntá lo de hoy con lo del [@01-34] en una sola línea del arranque de una PC con Linux. Cada caja es un programa distinto, y cada flecha, un traspaso de control:"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Botón de encendido",
+       "s": "llega la energía",
+       "k": "hw"
+      },
+      {
+       "t": "Firmware",
+       "s": "UEFI o BIOS: autodiagnóstico",
+       "k": "hw",
+       "e": "reset"
+      },
+      {
+       "t": "Cargador de arranque",
+       "s": "ubica kernel e initramfs",
+       "k": "red",
+       "e": "busca el sistema"
+      },
+      {
+       "t": "Kernel",
+       "s": "se prepara en modo kernel",
+       "k": "os",
+       "e": "salta al kernel"
+      }
+     ],
+     "baja": "El kernel descomprime, reconoce la máquina y activa controladores"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Initramfs",
+       "s": "mini sistema en memoria",
+       "k": "datos",
+       "e": "se extrae"
+      },
+      {
+       "t": "Raíz real",
+       "s": "el disco montado en /",
+       "k": "servidor",
+       "e": "monta"
+      },
+      {
+       "t": "Proceso init (PID 1)",
+       "s": "primer programa en modo usuario",
+       "k": "os",
+       "e": "lanza"
+      },
+      {
+       "t": "Servicios",
+       "s": "red, registros, base de datos...",
+       "k": "servidor",
+       "e": "arranca"
+      }
+     ],
+     "baja": "Los servicios ya funcionan: todavía no hay nadie con sesión"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Gestor de inicio de sesión",
+       "s": "pide usuario y contraseña",
+       "k": "cliente",
+       "e": "levanta"
+      },
+      {
+       "t": "Autenticación",
+       "s": "el sistema verifica quién sos",
+       "k": "alerta",
+       "e": "valida"
+      },
+      {
+       "t": "Sesión de usuario",
+       "s": "tus procesos, con tu identidad",
+       "k": "ok",
+       "e": "crea"
+      },
+      {
+       "t": "Escritorio o shell",
+       "s": "lo que ves y usás",
+       "k": "cliente",
+       "e": "arranca"
+      }
+     ]
+    }
+   ],
+   "cap": "La cadena completa del arranque en Linux, desde el botón hasta tu sesión. El kernel recibe el control del cargador al final de la primera fila y le cede el protagonismo al proceso init en la segunda."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Ordená estos ocho eventos de un arranque de Linux y marcá cuál es el último antes de que una persona pueda empezar a trabajar: A. El proceso init lanza los servicios. B. El kernel extrae el initramfs. C. Se crea la sesión de usuario. D. El cargador deja el kernel y el initramfs en la RAM. E. El gestor de inicio de sesión pide la contraseña. F. El kernel ejecuta el primer programa de espacio de usuario. G. El initramfs monta la raíz real. H. El firmware hace el autodiagnóstico.",
+   "pista": "Preguntate qué necesita cada paso para existir. No se puede pedir una contraseña si no hay sistema de archivos, ni lanzar servicios sin un primer programa.",
+   "solucion": "H, D, B, F, G, A, E, C. Tras el autodiagnóstico (H), el cargador deja kernel e initramfs en la RAM (D). El kernel extrae el initramfs (B) y ejecuta el primer programa (F), que monta la raíz real (G). El proceso init lanza los servicios (A), entre ellos el gestor de inicio de sesión, que pide la contraseña (E). Recién ahí se crea la sesión (C), el último eslabón. El orden de F y G puede variar: en este entorno el disco se montó después de lanzar el primer programa."
+  }
+ ],
+ "recap": [
+  "Después del cargador de arranque, la cadena sigue así: el **kernel** se descomprime y reconoce la máquina, extrae el **initramfs**, lanza el **proceso init (PID 1)**, que levanta los **servicios**, hasta que aparece el **gestor de inicio de sesión** y se crea la **sesión de usuario**.",
+  "El **initramfs** resuelve un problema circular: el kernel necesita un controlador para leer el disco, pero ese controlador está guardado en el disco. Es un mini sistema de archivos en memoria con lo justo para montar la raíz real.",
+  "El **proceso init** es el primero en modo usuario, tiene PID 1 y es el ancestro de los demás programas. En muchas distribuciones es systemd, pero no siempre: en el entorno donde se escribió este día es `process_api`.",
+  "Los **servicios se levantan antes del login**. La pantalla de inicio de sesión no marca el final del arranque del sistema, sino el momento en que una persona se incorpora.",
+  "Una **sesión de usuario** ata un conjunto de procesos a una identidad (UID), un entorno y un primer programa propio.",
+  "Windows (Boot Manager, OS Loader, kernel NT, Smss, Winlogon) y Android (kernel Linux, `init`, Zygote) siguen la misma lógica de traspasos con otros nombres."
+ ],
+ "repaso": [
+  {
+   "p": "Después de que el cargador de arranque deja el kernel y el initramfs en la RAM, ¿qué orden describe un arranque típico de Linux?",
+   "o": [
+    "Kernel, initramfs, proceso init, servicios, gestor de inicio de sesión, sesión de usuario",
+    "Kernel, gestor de inicio de sesión, servicios, proceso init, sesión de usuario, initramfs",
+    "Proceso init, kernel, initramfs, gestor de inicio de sesión, servicios, sesión de usuario",
+    "Initramfs, sesión de usuario, kernel, servicios, proceso init, gestor de inicio de sesión"
+   ],
+   "c": 0,
+   "e": "El kernel arranca primero y extrae el initramfs, que lanza el proceso init; este levanta los servicios, entre ellos el gestor de inicio de sesión, y al autenticarte se crea la sesión. Las otras opciones ponen al proceso init antes que el kernel o la sesión antes que los servicios, algo imposible."
+  },
+  {
+   "p": "¿Qué problema resuelve el initramfs al montar el sistema de archivos raíz?",
+   "o": [
+    "Acelera el arranque dejando ya cargados en memoria los programas del usuario",
+    "Guarda las contraseñas de los usuarios para cuando inicien sesión en el equipo",
+    "Trae los controladores y programas para leer el disco donde están guardados",
+    "Reemplaza al kernel cuando su archivo está dañado o quedó desactualizado"
+   ],
+   "c": 2,
+   "e": "El kernel necesita un controlador para leer el disco, pero a veces ese controlador está en un archivo del propio disco. El initramfs lo trae en memoria, rompe esa dependencia circular, monta la raíz real y se descarta. No acelera nada ni guarda contraseñas ni sustituye al kernel."
+  },
+  {
+   "p": "En la línea de comandos de un kernel aparece `rdinit=/process_api`. ¿Qué indica?",
+   "o": [
+    "Que el disco principal del equipo se llama process_api",
+    "Que el primer programa a ejecutar es /process_api, no el /init por defecto",
+    "Que el kernel se carga desde un archivo llamado process_api",
+    "Que el usuario con el que se inicia sesión es process_api"
+   ],
+   "c": 1,
+   "e": "La documentación de los parámetros del kernel define `rdinit=` como el binario que se ejecuta en lugar del `/init` del initramfs, es decir, elige cuál será el proceso 1. No tiene que ver con discos, con el archivo del kernel ni con usuarios."
+  },
+  {
+   "p": "Corrés `ps -p 1` en un servidor Linux y ves que el PID 1 no es systemd. ¿Qué conclusión es más razonable?",
+   "o": [
+    "El kernel arrancó mal y el sistema funciona gracias a un error",
+    "El equipo no es Linux, porque Linux siempre arranca con systemd",
+    "Un virus reemplazó el proceso 1 y se hace pasar por systemd",
+    "La configuración define el primer programa: systemd es común, no obligatorio"
+   ],
+   "c": 3,
+   "e": "El kernel ejecuta el programa que se le indique (con `init=` o `rdinit=`, o el `/sbin/init` por defecto). En este entorno el PID 1 es `process_api` y en Android es un `init` propio. Usar systemd es habitual pero no obligatorio: ver otro nombre no indica una falla ni un ataque."
+  },
+  {
+   "p": "Un servidor en la nube lleva semanas encendido sin que nadie abra una sesión en él. ¿Qué es lo más probable que pase con sus servicios?",
+   "o": [
+    "Están detenidos hasta que alguien inicie sesión y los active",
+    "Se detuvieron cuando se cerró la última sesión, así que no corre ninguno",
+    "Siguen funcionando, porque los lanzó el proceso init durante el arranque",
+    "Funcionan solo si el administrador dejó una sesión abierta en pantalla"
+   ],
+   "c": 2,
+   "e": "Los servicios los levanta el proceso init en el arranque, antes del login y sin depender de él. Una sesión solo hace falta para que una persona use el equipo de forma interactiva. Creer que sin sesión no corre nada es confundir el login con el final del arranque."
+  },
+  {
+   "p": "En un arranque de Windows con UEFI, según la documentación de Microsoft, ¿qué componente carga y lanza el kernel `ntoskrnl.exe`?",
+   "o": [
+    "El Windows OS Loader (`winload.efi`)",
+    "El administrador de sesiones (`Smss.exe`)",
+    "El componente de inicio de sesión (Winlogon)",
+    "El Windows Boot Manager (`bootmgfw.efi`)"
+   ],
+   "c": 0,
+   "e": "El Boot Manager encuentra y lanza al OS Loader, y este carga los controladores que el kernel necesita y lo lanza. `Smss.exe` actúa después del kernel y Winlogon maneja el inicio de sesión. El Boot Manager es una fase anterior y no carga el kernel directamente."
+  },
+  {
+   "p": "En Android, ¿qué papel cumple el Zygote según la documentación oficial?",
+   "o": [
+    "Verifica la firma del kernel antes de ejecutarlo",
+    "Es la raíz de los procesos del sistema y de las apps, que nacen duplicándolo",
+    "Muestra la pantalla de bloqueo y valida el PIN del usuario",
+    "Es el primer proceso que lanza el kernel y recibe el PID 1"
+   ],
+   "c": 1,
+   "e": "El `init` de Android lanza el Zygote, y la documentación lo describe como la raíz de los procesos del sistema y de las aplicaciones: los nuevos se crean duplicándolo. El PID 1 es el `init`, no el Zygote, y la verificación del kernel es tarea del arranque verificado."
+  }
+ ],
+ "feynman": "Explicale a alguien que solo usa la computadora, sin tecnicismos, qué pasa entre el botón de encendido y su escritorio, como una cadena de traspasos. Incluí por qué ver la pantalla de login no significa que el sistema terminó de arrancar.",
+ "para_profundizar": [
+  {
+   "fuente": "systemd-bootup-man",
+   "nota": "La página oficial de systemd sobre el arranque: dibuja los hitos desde el firmware hasta el hito gráfico y explica el initramfs. Es la fuente más clara para la sección del proceso init."
+  },
+  {
+   "fuente": "kernel-initramfs-doc",
+   "nota": "La documentación del kernel sobre rootfs e initramfs: qué contiene el paquete, cómo se extrae y cómo se pasa a la raíz real."
+  },
+  {
+   "fuente": "ms-windows-startup-fases",
+   "nota": "La guía de Microsoft sobre problemas de inicio: describe las cuatro fases del arranque de Windows con el nombre de cada archivo, útil para comparar con Linux."
+  },
+  {
+   "fuente": "aosp-init-readme",
+   "nota": "El README del `init` de Android: explica el first stage init, el orden de las etapas (`early-fs`... `boot`) y cuándo se lanza el Zygote."
+  }
+ ],
+ "videos": [
+  {
+   "q": "cómo arranca Linux boot process initramfs systemd explicado",
+   "por_que": "Para ver animada la cadena kernel, initramfs, init y servicios que armaste hoy con texto."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "secuencia de arranque",
+   "d": "Cadena ordenada de programas que se pasan el control desde el botón de encendido hasta que hay una sesión lista: firmware, cargador de arranque, kernel, primer proceso, servicios y gestor de inicio de sesión."
+  },
+  {
+   "t": "proceso init",
+   "d": "El primer programa que el kernel ejecuta en modo usuario. Tiene el PID 1, es el ancestro del resto de los programas y lleva el sistema hasta un estado utilizable. En muchas distribuciones Linux es systemd."
+  },
+  {
+   "t": "sesión de usuario",
+   "d": "El conjunto de procesos que pertenecen a una persona que se autenticó, con su identidad (UID), su entorno y su primer programa propio, desde que inicia sesión hasta que la cierra."
+  },
+  {
+   "t": "initramfs",
+   "d": "Paquete comprimido con un mini sistema de archivos que el kernel extrae en memoria al arrancar. Trae lo necesario (programas, controladores) para encontrar y montar el sistema de archivos raíz real."
+  },
+  {
+   "t": "gestor de inicio de sesión",
+   "d": "Servicio que muestra la pantalla donde se elige el usuario y se ingresa la contraseña, y que crea la sesión cuando la autenticación sale bien. En inglés, display manager."
+  }
+ ],
+ "siguiente": "qué es un proceso: la diferencia entre un programa (un archivo) y un proceso (ese programa en ejecución), qué anota el kernel de cada uno y cómo mirarlos en vivo con `ps` y el directorio `/proc`.",
+ "fuentes_nuevas": [
+  {
+   "id": "kernel-x86-boot-doc",
+   "t": "The Linux/x86 Boot Protocol",
+   "a": "kernel.org",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/arch/x86/boot.html"
+  },
+  {
+   "id": "kernel-parametros-doc",
+   "t": "The kernel's command-line parameters",
+   "a": "kernel.org",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/admin-guide/kernel-parameters.html"
+  },
+  {
+   "id": "kernel-initramfs-doc",
+   "t": "Ramfs, rootfs and initramfs",
+   "a": "kernel.org",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/filesystems/ramfs-rootfs-initramfs.html"
+  },
+  {
+   "id": "kernel-init-doc",
+   "t": "Explaining the \"No working init found.\" boot hang message",
+   "a": "kernel.org",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/admin-guide/init.html"
+  },
+  {
+   "id": "systemd-bootup-man",
+   "t": "bootup: System bootup process",
+   "a": "systemd (freedesktop.org)",
+   "tipo": "doc",
+   "url": "https://www.freedesktop.org/software/systemd/man/latest/bootup.html"
+  },
+  {
+   "id": "systemd-analyze-man",
+   "t": "systemd-analyze",
+   "a": "systemd (freedesktop.org)",
+   "tipo": "doc",
+   "url": "https://www.freedesktop.org/software/systemd/man/latest/systemd-analyze.html"
+  },
+  {
+   "id": "man7-agetty",
+   "t": "agetty(8): alternative Linux getty",
+   "a": "man7.org (util-linux)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man8/agetty.8.html"
+  },
+  {
+   "id": "man7-login",
+   "t": "login(1): begin session on the system",
+   "a": "man7.org (util-linux)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man1/login.1.html"
+  },
+  {
+   "id": "man7-pam-loginuid",
+   "t": "pam_loginuid(8): record user's login uid to the process attribute",
+   "a": "man7.org (Linux-PAM)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man8/pam_loginuid.8.html"
+  },
+  {
+   "id": "ms-windows-startup-fases",
+   "t": "Advanced troubleshooting for Windows startup issues",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/troubleshoot/windows-client/performance/windows-boot-issues-troubleshooting"
+  },
+  {
+   "id": "ms-winlogon-gina",
+   "t": "Winlogon and GINA",
+   "a": "Microsoft Learn",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/secauthn/winlogon-and-gina"
+  },
+  {
+   "id": "aosp-kernel-overview",
+   "t": "Kernel overview",
+   "a": "Android Open Source Project",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/core/architecture/kernel"
+  },
+  {
+   "id": "aosp-init-readme",
+   "t": "Android Init Language (README de init)",
+   "a": "Android Open Source Project",
+   "tipo": "doc",
+   "url": "https://android.googlesource.com/platform/system/core/+/refs/heads/main/init/README.md"
+  },
+  {
+   "id": "aosp-zygote",
+   "t": "About the Zygote processes",
+   "a": "Android Open Source Project",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/core/runtime/zygote"
+  }
+ ]
+}

@@ -1,0 +1,743 @@
+{
+ "id": "02-31",
+ "titulo": "Senda en tu teléfono: procesos, almacenamiento y permisos",
+ "bajada": "Qué hace Android con Senda: le da un usuario propio, una carpeta privada, un proceso que puede morir y una lista de permisos, con evidencia del código y con lo que quedó sin verificar.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué crea Android al instalar Senda: paquete, UID propio, directorio privado y un proceso aparte.",
+  "Leer el manifest de Senda y separar los permisos que declara la app de los que suman las librerías y de los que exigen un diálogo.",
+  "Ubicar en una tabla dónde vive cada dato de Senda, con la ruta o la clave real, y quién puede leerlo.",
+  "Predecir qué pasa con el progreso cuando la app pasa a segundo plano y cuando Android mata su proceso.",
+  "Distinguir lo verificado en código y documentación de lo que habría que medir en un teléfono real."
+ ],
+ "venis_de": "Ya sabés qué es un proceso ([@02-04]), cómo se reparten usuarios y permisos ([@02-13]), que Android da un UID a cada app ([@02-28]) y que un proceso puede ser terminado cuando falta memoria ([@02-10]). Hoy se aplica todo a una app real.",
+ "se_apoya_en": [
+  "02-04",
+  "02-10",
+  "02-11",
+  "02-13",
+  "02-15",
+  "02-28",
+  "02-30"
+ ],
+ "gancho": [
+  "Descargás un APK de Senda y lo abrís. En un segundo, Android hizo bastante más que copiar archivos: creó un usuario que no existía, una carpeta que nadie más puede abrir, y la anotó en una lista de permisos que alguien, en algún lado, escribió a mano o heredó de una librería. Y cuando cierres la app, el sistema decidirá solo cuánto tiempo la deja viva.",
+  "Hoy vas a mirar eso con evidencia. Un aviso antes de empezar: este día se escribió sin un teléfono delante. Leí el código y la configuración de Senda, armé el manifest como lo arma la compilación, bajé las librerías para ver qué permisos traen y cité la documentación oficial de Android. Lo que habría que ver en un aparato real, como el tamaño de su base de datos, está marcado como no verificado."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué hace Android cuando instalás Senda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para Android, Senda no es «una app». Es un **paquete** con un nombre único: `com.sendaapp.biblia`, declarado en `app.json` (campo `android.package`). Es el nombre con el que Google Play, los ajustes del teléfono y el sistema de archivos reconocen todo lo que le pertenece.",
+    "Al instalarla, el sistema hace tres cosas que ya viste por separado en el [@02-28] y en el [@02-13]. Según la documentación de Android [#aosp-application-sandbox]: le asigna un [[UID por app|UID por app]] (un número de usuario de Linux que ninguna otra app comparte), le crea un directorio privado en el almacenamiento interno y, cuando la app arranca, la corre en su propio [[proceso]]. Las tres cosas juntas forman el sandbox: el [[kernel]] mira ese número en cada acceso a un archivo y corta lo que no corresponde. Es la [[separación de privilegios|separación de privilegios]] del [@02-30], aplicada a cada app."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el depósito de un operador logístico",
+   "x": "Imaginá un depósito con mercadería de veinte clientes. Cada cliente tiene su sector enrejado y cada operario lleva una tarjeta con un número que abre solo las rejas que le tocan. El guardia mira la tarjeta en cada puerta. Acá el guardia es el kernel, la tarjeta es el UID y cada reja es un directorio. La analogía deja de valer en que este guardia revisa **cada** acceso, sin cansarse, con los bits de permisos del [@02-13] y no con una lista que alguien llena a mano."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "La identidad es el nombre más la firma",
+   "x": "Android reconoce una app por su nombre de paquete **y** por la clave con la que está firmada ([[firma de código]]); si cambia alguna, el sistema rechaza la actualización (regla general de Android). Eso explica algo que dice la documentación de Senda: todos los APK de prueba salen con la misma clave de depuración, así que cada uno se instala encima del anterior y conserva los datos (`senda/mapa-tecnico.md`, sección 11.3). Lo leí en los documentos; no lo probé en un teléfono."
+  },
+  {
+   "t": "pensa",
+   "x": "Un amigo desinstala Senda, la vuelve a instalar y empieza de cero. ¿Dónde estaba su progreso y por qué desapareció?",
+   "resp": "Estaba en el directorio privado de la app, y la documentación de Android dice que los archivos de ese almacenamiento se borran al desinstalar [#android-app-specific-storage]. Por eso no hay que guardar ahí nada que la persona espere conservar sin la app. Hay dos salvedades que aparecen más abajo: la copia opcional con Google que ofrece Senda y el Auto Backup de Android."
+  },
+  {
+   "t": "h",
+   "x": "Un solo proceso, varias puertas de entrada"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando alguien abre Senda, Android crea el [[proceso de la app|proceso de la app]]: el proceso de Linux, con el UID de Senda, donde corren todos sus componentes. Según la documentación, por defecto todos los componentes de una app comparten un proceso y un hilo principal, y una app puede pedir procesos separados con un atributo `android:process` en el manifest [#android-processes-threads]. Busqué ese atributo en el manifest de Senda, en los de las librerías del proyecto y en los de Firebase Messaging y del SDK de anuncios, y no aparece (no revisé las dependencias más profundas, como las de AndroidX). Mi conclusión, a confirmar en un teléfono, es que Senda corre en **un solo proceso**.",
+    "Adentro hay varios [[hilos|hilo]]. React Native, sobre el que está hecha Senda, usa como mínimo dos: el hilo de la interfaz, el único que puede tocar las pantallas nativas, y el hilo de JavaScript, donde corre la lógica de la app [#rn-threading-model]. Se suman hilos de apoyo: AsyncStorage, por ejemplo, ejecuta sus lecturas y escrituras de SQLite en un grupo de hilos aparte, así que guardar no frena ni la pantalla ni el JavaScript."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "arbol",
+   "raiz": {
+    "t": "Proceso com.sendaapp.biblia",
+    "s": "UID propio, una sola memoria virtual",
+    "k": "os",
+    "h": [
+     {
+      "t": "Hilo de la interfaz",
+      "s": "dibuja y recibe los toques",
+      "k": "cliente"
+     },
+     {
+      "t": "Hilo de JavaScript",
+      "s": "la lógica de Senda (motor Hermes)",
+      "k": "servidor"
+     },
+     {
+      "t": "Hilos de apoyo",
+      "s": "SQLite, red, audio",
+      "k": "datos"
+     },
+     {
+      "t": "Puertas que el sistema abre",
+      "s": "componentes declarados en el manifest",
+      "k": "alerta",
+      "h": [
+       {
+        "t": "Pantalla principal",
+        "s": "MainActivity: el ícono del lanzador",
+        "k": "cliente"
+       },
+       {
+        "t": "Widget Versiculo",
+        "s": "recibe la orden de actualizar",
+        "k": "red"
+       },
+       {
+        "t": "Alarmas de avisos",
+        "s": "receptor de expo-notifications",
+        "k": "red"
+       },
+       {
+        "t": "Push de Firebase",
+        "s": "servicio de mensajes",
+        "k": "red"
+       }
+      ]
+     }
+    ]
+   },
+   "cap": "Un proceso, muchos hilos, y varias puertas por las que Android puede entrar sin que nadie toque el ícono. Armado a partir del manifest generado y de los manifests de las librerías."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La última rama del dibujo es la que más sorprende: tocar el ícono es una sola de las formas de poner en marcha el proceso. Si Senda no está corriendo y el sistema necesita entregarle algo, crea el proceso para eso [#android-processes-threads]. En Senda hay tres casos, y los tres están en el manifest:",
+    "**El widget del versículo del día.** El receptor `Versiculo` atiende la orden de actualizar, y `app.json` la pide cada 30 minutos (`updatePeriodMillis` de 1.800.000 ms), el mínimo que Android admite [#android-widget-update-period]. La librería `react-native-android-widget` encola un trabajo con WorkManager que, si el motor de JavaScript no está corriendo, lo arranca para ejecutar `tareaWidget` (lo leí en el código del paquete). Esa tarea carga la Biblia, unos 4 MB, con un tope de 6 segundos. Es una decisión razonable, porque reutiliza todo el código, pero cuesta batería y memoria; no medí cuánto en un teléfono real.",
+    "**Los avisos locales.** El propio teléfono programa los recordatorios con una alarma del sistema, y cuando suena, un receptor nativo de `expo-notifications` los muestra. No interviene ningún servidor.",
+    "**Los push remotos.** Cuando un rival termina su turno, el servidor manda un mensaje por Firebase y Android despierta el servicio de mensajes que `expo-notifications` agrega al manifest de Senda."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Dónde está esto en el código",
+   "x": [
+    "El paquete y el widget están en `app.json` (`android.package` y el plugin `react-native-android-widget`). El widget se registra en `index.ts` con `registerWidgetTaskHandler(tareaWidget)` y su tarea vive en `src/widget/tarea.tsx`. El arranque normal, con la espera de fuentes y de datos guardados, está en `src/App.tsx`.",
+    "Esto corresponde al commit `25e08fa` (9 de noviembre de 2026). El manifest completo no está en el repositorio: se genera en cada compilación con `npx expo prebuild`, el mismo comando de `.github/workflows/apk.yml`. Lo corrí sobre una copia del código y de ahí leí los componentes."
+   ],
+   "archivos": [
+    "app.json",
+    "index.ts",
+    "src/widget/tarea.tsx",
+    "src/App.tsx",
+    ".github/workflows/apk.yml"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Permisos: lo que se declara, lo que se concede y lo que nadie pidió"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los [[permisos declarados|permisos declarados]] son la lista que una app escribe en su manifest (`AndroidManifest.xml`, el archivo donde Android lee qué componentes y permisos tiene el paquete). Declarar no es tener. Según el nivel de protección que Android define para cada permiso [#android-manifest-permission-ref], algunos se conceden solos al instalar (los «normales»), otros exigen que la persona acepte un diálogo mientras usa la app (los «peligrosos», o de tiempo de ejecución) y unos pocos son «especiales»: se activan a mano en los ajustes del sistema.",
+    "Un detalle que sorprende al principio: la lista final **no la escribe una sola persona**. La app declara los suyos, cada librería suma los propios y la compilación los fusiona. Por eso la lista que termina en el APK depende de todas las dependencias, no solo del código de Senda."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Permiso",
+    "Quién lo declara",
+    "Nivel",
+    "Para qué lo usa Senda"
+   ],
+   "filas": [
+    [
+     "INTERNET",
+     "manifest de la app; varias librerías",
+     "normal",
+     "Hablar con Supabase, las métricas y los anuncios"
+    ],
+    [
+     "ACCESS_NETWORK_STATE, WAKE_LOCK",
+     "SDK de anuncios, Firebase Messaging, expo-image",
+     "normal",
+     "Que esas librerías sepan si hay red y se mantengan despiertas un instante"
+    ],
+    [
+     "VIBRATE, MODIFY_AUDIO_SETTINGS",
+     "manifest de la app; expo-haptics, expo-audio",
+     "normal",
+     "Vibración de los toques y ajustes de audio"
+    ],
+    [
+     "RECEIVE_BOOT_COMPLETED",
+     "expo-notifications",
+     "normal",
+     "Volver a armar los avisos cuando el teléfono se reinicia"
+    ],
+    [
+     "POST_NOTIFICATIONS",
+     "expo-notifications; Firebase Messaging",
+     "peligroso (Android 13 o más)",
+     "Mostrar recordatorios y avisos de duelos"
+    ],
+    [
+     "ACCESS_FINE_LOCATION, ACCESS_COARSE_LOCATION",
+     "plugin expo-location de app.json",
+     "peligroso",
+     "Solo el botón «Ubicar en el mapa» de un evento"
+    ],
+    [
+     "READ / WRITE_EXTERNAL_STORAGE (hasta Android 12L)",
+     "expo-file-system, expo-image-picker, expo-image",
+     "heredado; sin efecto desde Android 13",
+     "Elegir una foto para la portada de un evento"
+    ],
+    [
+     "SYSTEM_ALERT_WINDOW",
+     "plantilla de Expo (manifest de la app)",
+     "especial",
+     "Ninguno que yo haya encontrado en el código"
+    ],
+    [
+     "AD_ID y tres ACCESS_ADSERVICES_*",
+     "SDK de anuncios (play-services-ads-api 25.5.0)",
+     "no verifiqué el nivel",
+     "Identificador de publicidad y funciones de anuncios"
+    ],
+    [
+     "c2dm.permission.RECEIVE",
+     "Firebase Messaging 25.0.1",
+     "no verifiqué el nivel",
+     "Compatibilidad con versiones viejas de Google Play services (según el comentario de su manifest)"
+    ]
+   ],
+   "cap": "Permisos de Senda según el commit 25e08fa. Los del manifest de la app salen de correr expo prebuild; los de librerías, de leer los manifests de cada paquete en su versión fijada y los AAR de Firebase Messaging y del SDK de anuncios."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Esto cambia con cada versión",
+   "x": "La tabla describe el commit `25e08fa` (9-11-2026) con Expo SDK 57, expo-notifications 57.0.21, react-native-google-mobile-ads 17.4.0 y Firebase Messaging 25.0.1. Cada librería puede cambiar sus permisos en una versión nueva, y Google cambia las reglas con cada Android. Los niveles salen de la referencia oficial [#android-manifest-permission-ref]. Lo que **no** generé es el manifest final fusionado de un APK: hace falta Gradle y el SDK de Android."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tan instructivo como lo que se pide es lo que se saca. La librería de fotos trae por defecto el permiso de cámara; Senda configura `cameraPermission: false` y el manifest generado lo elimina con `tools:node=\"remove\"`. Con el micrófono pasa igual: `app.json` lista `android.permission.RECORD_AUDIO` en `blockedPermissions`. Es la regla de pedir menos: una app de lectura y juegos no necesita ver ni oír a nadie, y cada permiso que no se declara es un diálogo menos.",
+    "Hay además una ausencia con consecuencias. Android 12 o más solo deja programar alarmas exactas a las apps que declaran `SCHEDULE_EXACT_ALARM` [#android-alarmas-docs]. Senda no lo declara en ningún manifest que leí, y `expo-notifications` chequea justamente eso: usa la alarma exacta si puede y, si no, la aproximada. Mi inferencia, sin probar en un teléfono, es que en Android 12 o más los recordatorios de Senda usan la aproximada y pueden llegar con minutos de demora. Para un recordatorio de lectura da igual; para el aviso de un evento a una hora precisa, quizá no."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Senda declara POST_NOTIFICATIONS. Una persona con Android 12 instala la app y programa un recordatorio. ¿Ve el diálogo de permiso?",
+   "resp": "No. Ese permiso de tiempo de ejecución existe desde Android 13; antes, las apps mostraban notificaciones sin pedir nada [#android-notificaciones-13]. Con Android 13 o más, el diálogo aparece cuando el código lo pide: en Senda lo hace `pedirPermiso` de `src/util/avisos.ts`, al crear un evento o al entrar a la parte social."
+  },
+  {
+   "t": "senda",
+   "titulo": "Cómo se pide cada permiso de verdad",
+   "x": [
+    "Un permiso peligroso necesita dos cosas: estar declarado y que el código lo pida en el momento oportuno. En `src/util/avisos.ts`, `pedirPermiso` consulta si ya está concedido y si se puede volver a preguntar, y recién después abre el diálogo. La ubicación se pide solo al tocar «Ubicar en el mapa» (`src/util/lugares.ts`) y la galería se abre desde `src/pantallas/Evento.tsx`. Ante una negativa o un fallo, cada función devuelve «no se pudo» y la app sigue funcionando."
+   ],
+   "archivos": [
+    "src/util/avisos.ts",
+    "src/util/lugares.ts",
+    "src/pantallas/Evento.tsx",
+    "app.json"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Dos cosas que yo revisaría (criterio, no verdad)",
+   "x": [
+    "**SYSTEM_ALERT_WINDOW** viene en el manifest que genera Expo y ningún archivo de `src/` lo pide. Es un permiso especial que el usuario tendría que activar a mano, así que hoy no hace nada; una regla práctica es quitar lo que no se usa.",
+    "**Ubicación para buscar una dirección.** El código pide ubicación y luego convierte un texto en coordenadas con `geocodeAsync`, lo que no necesita saber dónde está la persona. No verifiqué si en Android el módulo igual la exige; si no la exige, es un permiso peligroso evitable."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Dónde vive cada dato de Senda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los [[datos de aplicación|datos de aplicación]] son todo lo que la app escribe mientras corre: bases de datos, archivos, preferencias, cachés. Se distinguen del código (el APK, de solo lectura) y viven en el directorio privado que el sistema creó al instalar: otras apps no pueden acceder a esos archivos y el sistema los borra al desinstalar [#android-app-specific-storage]. Es lo que viste de archivos en el [@02-11] y de permisos en el [@02-13].",
+    "En Senda casi todo lo que la persona genera pasa por **AsyncStorage**, una librería de pares clave-valor. En Android, la versión 2.2.0 que usa Senda los guarda en una base SQLite llamada `RKStorage`, con una tabla `catalystLocalStorage` de dos columnas de texto, `key` y `value` (lo leí en el código del paquete). Cada store de Senda se guarda como un JSON bajo una clave `senda-…`, y los valores no se cifran por su cuenta: el paquete se define como «unencrypted». La protección es el sandbox, no un cifrado propio."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dato",
+    "Dónde vive",
+    "Ruta o clave real",
+    "Quién puede leerlo"
+   ],
+   "filas": [
+    [
+     "Progreso: talentos, racha, lecciones, notas",
+     "Base SQLite del directorio privado",
+     "`databases/RKStorage`, clave `senda-usuario`",
+     "Solo Senda (su UID)"
+    ],
+    [
+     "Ajustes: tema, idioma, sonido",
+     "La misma base",
+     "Clave `senda-ajustes`",
+     "Solo Senda"
+    ],
+    [
+     "Sesión con el servidor (tokens)",
+     "La misma base, sin cifrado propio",
+     "Clave `senda-sesion` (`src/util/cuenta.ts`)",
+     "Solo Senda; nunca se copia a la nube"
+    ],
+    [
+     "Turnos de duelo sin enviar; último fallo",
+     "La misma base",
+     "`senda-turnos-pendientes`, `senda-ultimo-fallo`",
+     "Solo Senda"
+    ],
+    [
+     "Foto de portada de un evento",
+     "Archivo en el directorio de archivos",
+     "Carpeta `agenda` dentro de `Paths.document`",
+     "Solo Senda"
+    ],
+    [
+     "Avisos programados",
+     "Preferencias de expo-notifications y alarmas del sistema",
+     "`expo.modules.notifications.SharedPreferencesNotificationsStore`",
+     "Solo Senda; las alarmas las guarda Android"
+    ],
+    [
+     "Biblias, sonidos y código",
+     "Dentro del APK, de solo lectura",
+     "`assets/biblia/*.bib` (unos 32 MB)",
+     "El sistema y la app"
+    ],
+    [
+     "Anuncios mostrados hoy",
+     "Variables en la memoria del proceso",
+     "`pausaAnuncio.ts`, sin clave en disco",
+     "Nadie: muere con el proceso"
+    ],
+    [
+     "Amigos, duelos, grupos y copia con Google",
+     "En la nube, en Supabase",
+     "Tablas de Postgres",
+     "Las reglas de la base"
+    ]
+   ],
+   "cap": "Fuentes: mapa técnico (secciones 3.8, 5.4 y 10), código de almacen.ts, cuenta.ts, Evento.tsx y pausaAnuncio.ts, y el código de AsyncStorage 2.2.0, expo-file-system 57.0.7 y expo-notifications 57.0.21. No miré ninguna de estas rutas en un teléfono."
+  },
+  {
+   "t": "p",
+   "x": "La tabla separa tres destinos con consecuencias distintas: lo que está en RAM (el contador de anuncios) muere con el proceso, lo que está en la base del teléfono sobrevive a un cierre pero no a una desinstalación, y lo que está en la nube sobrevive a todo. Los duelos y los amigos no están en el teléfono; ya lo viste en el [@00-02]."
+  },
+  {
+   "t": "senda",
+   "titulo": "Un almacén hecho a medida",
+   "x": [
+    "Senda no llama a AsyncStorage desde cada pantalla. Cada store de zustand usa `almacen()` de `src/util/almacen.ts`, que guarda los cambios en un mapa en memoria y los escribe juntos 400 ms después del primero. El motivo está en su comentario de cabecera: marcar un versículo era lento porque cada cambio convertía todo el progreso a texto y lo escribía en el acto.",
+    "La sesión se lee directo con AsyncStorage en `src/util/cuenta.ts` (`CLAVE_SESION`), y `src/util/respaldo.ts` define qué claves **nunca** viajan a la nube al guardar el progreso con Google (la lista `SOLO_ESTE_TELEFONO`)."
+   ],
+   "archivos": [
+    "src/util/almacen.ts",
+    "src/util/cuenta.ts",
+    "src/util/respaldo.ts",
+    "package.json"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El tope de 6 MB y los errores que se tragan",
+   "x": "Por defecto, AsyncStorage limita toda la base a 6 MB (`config.gradle` del paquete; el `gradle.properties` generado para Senda no lo cambia). Y `almacen.ts` escribe con `AsyncStorage.multiSet(lote).catch(() => {})`: si una escritura fallara, nadie se enteraría. No hay indicios de que hoy se llegue al tope (el código de la copia con Google dice que nada de lo guardado se acerca al límite por clave), pero **nadie midió el tamaño real de `RKStorage` en un teléfono**. Es una medición pendiente, no un problema probado."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Una pregunta que el mapa no contesta: Auto Backup",
+   "x": "El manifest generado trae `android:allowBackup=\"true\"` y no define exclusiones. Según la documentación de Android, con ese valor el sistema copia a Google Drive de la persona (hasta 25 MB por app) las preferencias, los archivos privados y las bases de datos, salvo las cachés [#android-autobackup-docs]. Si es así, `RKStorage`, sesión incluida, podría viajar por ese camino además de la copia opcional de la propia app. No lo probé ni figura en el mapa técnico: queda como pregunta para quien decida si se quiere ese comportamiento."
+  },
+  {
+   "t": "h",
+   "x": "Segundo plano, memoria y la muerte del proceso"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora juntá las dos ideas: un proceso con memoria propia y un disco que solo se toca de a ratos. Android decide qué procesos mantiene vivos según una jerarquía de importancia: primero lo que la persona usa, después lo visible y, al final, los procesos en caché, que no hacen falta y el sistema puede matar cuando necesita memoria [#android-process-lifecycle]. Recordá la falta de RAM del [@02-10] y los procesos en segundo plano del [@02-15].",
+    "La regla de oro para la app: **todo lo que importe tiene que estar en disco antes de que el proceso pueda morir**. Senda la cumple de dos maneras. Con la pantalla abierta, escribe cada 400 ms como mucho. Y apenas el estado de la app deja de ser «activa», `src/util/almacen.ts` llama a `guardarYa()` y vuelca lo pendiente. En `src/App.tsx`, además, al pasar a segundo plano se sube el progreso a la nube, pero solo si la persona lo vinculó con Google."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Primer plano",
+       "s": "la persona usa la app",
+       "k": "cliente"
+      },
+      {
+       "t": "Segundo plano",
+       "s": "guardarYa() escribe lo pendiente",
+       "k": "datos",
+       "e": "sale de la app"
+      },
+      {
+       "t": "Proceso en caché",
+       "s": "sigue en RAM, sin CPU",
+       "k": "neutro",
+       "e": "pasa el tiempo"
+      },
+      {
+       "t": "Proceso muerto",
+       "s": "la RAM se libera",
+       "k": "alerta",
+       "e": "falta memoria"
+      }
+     ],
+     "baja": "al volver a tocar el ícono: arranque en frío"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Proceso nuevo",
+       "s": "memoria vacía, mismo UID",
+       "k": "os"
+      },
+      {
+       "t": "Hidratación",
+       "s": "lee las claves senda-* de RKStorage",
+       "k": "datos",
+       "e": "lee el disco"
+      },
+      {
+       "t": "Inicio",
+       "s": "se dibuja con el estado recuperado",
+       "k": "ok",
+       "e": "listo"
+      }
+     ]
+    }
+   ],
+   "cap": "El ciclo de vida de un proceso de app. Los estados del medio son los de la documentación de Android; lo que hace Senda en cada paso sale de almacen.ts y App.tsx."
+  },
+  {
+   "t": "p",
+   "x": "«Hidratación» aparece en el código (`useHidratado` en `src/App.tsx`) y quiere decir justamente eso: llenar de nuevo los stores en memoria con lo que había en disco antes de dibujar. Mientras no termina, la app mantiene la pantalla de arranque, para no mostrar un tema o un progreso equivocados."
+  },
+  {
+   "t": "p",
+   "x": "El código de abajo no es el de Senda, sino una simulación mínima con reloj virtual de la misma regla: juntar los cambios y escribirlos a los 400 ms, o en el acto al pasar a segundo plano. Corrélo, mirá qué queda en disco en cada escenario y cambiá `ESPERA`."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Modelo simplificado de almacen.ts (reloj virtual, sin timers reales).\n// Regla: los cambios se juntan y se escriben 400 ms después del primero, o en el acto al pasar a segundo plano.\nconst ESPERA = 400;\nfunction escenario(nombre, eventos) {\n  let pendientes = {};\n  let vence = null;\n  const disco = {};\n  const escribir = (t, por) => {\n    const claves = Object.keys(pendientes);\n    if (!claves.length) return;\n    claves.forEach((k) => (disco[k] = pendientes[k]));\n    console.log('t=' + t + ' ms: se escriben ' + claves.length + ' cambio(s) (' + por + ')');\n    pendientes = {};\n    vence = null;\n  };\n  console.log('--- ' + nombre);\n  for (const e of eventos) {\n    if (vence !== null && e.t >= vence) escribir(vence, 'pasaron 400 ms');\n    if (e.que === 'cambio') {\n      pendientes[e.clave] = e.valor;\n      if (vence === null) vence = e.t + ESPERA;\n      console.log('t=' + e.t + ' ms: cambio ' + e.clave + '=' + e.valor + ' (queda en memoria)');\n    } else if (e.que === 'segundo plano') {\n      escribir(e.t, 'la app pasó a segundo plano');\n    } else if (e.que === 'muerte') {\n      console.log('t=' + e.t + ' ms: el proceso muere con ' + Object.keys(pendientes).length + ' cambio(s) sin escribir');\n      pendientes = {};\n      vence = null;\n    }\n  }\n  if (vence !== null) escribir(vence, 'pasaron 400 ms');\n  console.log('en disco: ' + JSON.stringify(disco));\n}\nescenario('A: tres cambios seguidos y nada más', [\n  { t: 0, que: 'cambio', clave: 'talentos', valor: 10 },\n  { t: 100, que: 'cambio', clave: 'racha', valor: 4 },\n  { t: 250, que: 'cambio', clave: 'leccion', valor: 'ok' },\n]);\nescenario('B: un cambio y el proceso muere a los 200 ms', [\n  { t: 0, que: 'cambio', clave: 'talentos', valor: 25 },\n  { t: 200, que: 'muerte' },\n]);\nescenario('C: un cambio y la persona sale de la app a los 200 ms', [\n  { t: 0, que: 'cambio', clave: 'talentos', valor: 25 },\n  { t: 200, que: 'segundo plano' },\n  { t: 5000, que: 'muerte' },\n]);\n",
+   "ejecutable": true,
+   "cap": "Tres escenarios sobre la regla de escritura diferida. En el B, un cambio que seguía en memoria se pierde si el proceso muere antes de los 400 ms."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El escenario B es el costo del diseño: si el proceso muere de golpe antes de los 400 ms y sin pasar por segundo plano, por ejemplo por un fallo nativo, se pierde el último cambio. Por lo que leí del código, esa ventana es de menos de medio segundo; no verifiqué cuán seguido pasa. A cambio se ganó la velocidad de los toques, que era el problema original.",
+    "Otra consecuencia: los **contadores en memoria** vuelven a cero cuando el proceso muere. El que decide cuándo toca un anuncio (`src/util/pausaAnuncio.ts`) lo dice en su cabecera: «se guarda en memoria: al reabrir la app vuelve a contar». Es una decisión consciente, porque equivocarse solo significa mostrar un anuncio algo antes.",
+    "Y un límite de la guardia de fallos de Senda: atrapa los errores de JavaScript, mostrando una pantalla con el detalle, pero no los del código nativo, donde el sistema termina el proceso y no hay nada que mostrar. Cuando alguien dice «la app se cierra», depende de qué capa falló."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Una amiga te cuenta: «Instalé Senda en un teléfono nuevo y no tengo mi progreso, pero en el viejo lo sigo viendo». Usando solo lo que viste hoy, escribí tres posibles causas, qué dato tendrías que mirar para confirmar cada una y quién tendría la copia.",
+   "pista": "Pensá en tres niveles: el directorio privado del teléfono viejo, la copia opcional con Google y el Auto Backup de Android.",
+   "solucion": "1) El progreso vive en `RKStorage`, dentro del directorio privado del teléfono viejo, y no viaja solo: habría que ver si ella lo había guardado con Google (esa copia está en la nube y se recupera con «Entrar con Google»). 2) Si no, la copia podría estar en el Auto Backup de Android: depende de que estuviera activado y de que el sistema restaurara la app, algo para confirmar con un teléfono y no para afirmar. 3) Los duelos y los amigos están en la nube, atados a la sesión, que vive en el teléfono viejo; sin ella, la cuenta nueva sería otra."
+  },
+  {
+   "t": "h",
+   "x": "Cuánto pesa Senda en el teléfono"
+  },
+  {
+   "t": "p",
+   "x": "El APK es un archivo comprimido que Android guarda e instala, y a eso se suman los datos de aplicación que la app crea con el uso. `docs/PESO.md` de Senda midió el APK de la prueba 33 (23 de octubre de 2026, solo arm64): **89,1 MB**, con 35,9 MB de bibliotecas nativas, 25,4 de recursos (Biblias, sonidos e imágenes; 51,7 sin comprimir), 15,3 de código Java/Kotlin y 9,8 de JavaScript. Con el recorte de código R8, el de la prueba 37 pesó 87,1 MB. Son números de esa fecha, y no son lo que ocupa la app: falta lo que el uso guarda en `RKStorage` y en `agenda`, que no medí."
+  },
+  {
+   "t": "h",
+   "x": "Lo que no pude verificar (y cómo se verificaría)"
+  },
+  {
+   "t": "p",
+   "x": "Este día lo escribí sin un teléfono delante. Eso cambia qué puedo afirmar, y conviene separarlo con claridad en vez de dejarlo implícito:"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "comparar",
+   "izq": {
+    "t": "Verificado con código y documentación",
+    "k": "ok",
+    "items": [
+     "Paquete `com.sendaapp.biblia` y componentes del manifest (corrí expo prebuild)",
+     "Permisos del manifest de la app y de las librerías en sus versiones fijadas",
+     "AsyncStorage con SQLite `RKStorage` y tope de 6 MB",
+     "Escritura diferida de 400 ms y al pasar a segundo plano",
+     "Widget y avisos apoyados en WorkManager y alarmas"
+    ]
+   },
+   "der": {
+    "t": "No verificado: haría falta un teléfono o un APK",
+    "k": "alerta",
+    "items": [
+     "El UID real y la ruta exacta del directorio privado",
+     "Contenido y tamaño de `RKStorage` tras usar la app",
+     "El manifest final fusionado del APK",
+     "Cuándo mata Android a Senda y cuánto tarda en arrancar",
+     "Si el Auto Backup copia datos de Senda",
+     "El comportamiento de cada fabricante"
+    ]
+   },
+   "cap": "La columna de la izquierda se apoya en archivos que cualquiera puede abrir. La de la derecha son preguntas abiertas, no afirmaciones."
+  },
+  {
+   "t": "p",
+   "x": "Con un teléfono y el APK a mano, las comprobaciones serían de este tipo: volcar permisos y componentes del paquete instalado (por ejemplo con `adb shell dumpsys package com.sendaapp.biblia` o con `aapt2 dump badging` sobre el archivo) y ver el UID asignado. No las corrí, así que no muestro salidas: una salida inventada parecería una medición."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si los datos están en el teléfono, están seguros»",
+   "x": "El sandbox protege los datos de otras apps, no de todo. Quien tenga el teléfono desbloqueado puede usar la app, quien tenga acceso de administrador (root) puede leer cualquier directorio y, como viste, un backup puede sacarlos del aparato. Una decisión de seguridad concreta de Senda es **qué** guarda: «tu camino con Dios» y las dudas de la bienvenida no salen del teléfono ni viajan en las métricas (`senda/mapa-tecnico.md`, sección 3.8)."
+  }
+ ],
+ "recap": [
+  "Android identifica a Senda por el paquete `com.sendaapp.biblia` más su firma, y le asigna al instalarla un UID propio, un directorio privado y un proceso propio: el sandbox.",
+  "El **proceso de la app** es uno solo, con varios hilos (interfaz, JavaScript, apoyo), y el sistema puede arrancarlo sin que nadie toque el ícono: por el widget, por una alarma de aviso o por un push.",
+  "Los **permisos declarados** salen de fusionar el manifest de la app con los de cada librería; declararlos no es tenerlos, y Senda además saca a propósito cámara y micrófono.",
+  "Los **datos de aplicación** de Senda viven en una base SQLite (`RKStorage`) de su directorio privado, más algún archivo, y se borran al desinstalar; lo social vive en la nube.",
+  "La escritura diferida de 400 ms, más el volcado al pasar a segundo plano, es un compromiso entre velocidad de los toques y riesgo de perder un cambio si el proceso muere de golpe.",
+  "Todo lo dicho sobre Senda corresponde al commit 25e08fa y se apoya en código y documentación; lo que habría que medir en un teléfono real quedó marcado como no verificado."
+ ],
+ "repaso": [
+  {
+   "p": "¿Qué impide, en Android, que otra app lea directamente la base RKStorage de Senda?",
+   "o": [
+    "El UID propio de Senda y los permisos de su directorio privado",
+    "El cifrado que AsyncStorage aplica a cada valor que guarda",
+    "Que el nombre de la base es difícil de adivinar para otra app",
+    "Que Google Play revisa cada lectura de archivos de la app"
+   ],
+   "c": 0,
+   "e": "La barrera es el sandbox: el kernel compara el UID de quien pide con el dueño del directorio. AsyncStorage no cifra (se define como «unencrypted»), el nombre de la base no es un secreto y Google Play no interviene en cada lectura."
+  },
+  {
+   "p": "Una persona con Android 12 instala Senda y programa un recordatorio. ¿Ve el diálogo de permiso de notificaciones?",
+   "o": [
+    "Sí, porque Senda declara POST_NOTIFICATIONS en su manifest",
+    "Sí, porque todo permiso peligroso muestra un diálogo siempre",
+    "No, porque ese permiso de tiempo de ejecución es de Android 13",
+    "No, porque las apps con widget no necesitan ese permiso nunca"
+   ],
+   "c": 2,
+   "e": "El permiso de notificaciones en tiempo de ejecución existe desde Android 13. Declararlo en un teléfono anterior no produce diálogo. Que haya widget no tiene relación con las notificaciones."
+  },
+  {
+   "p": "Senda declara ACCESS_FINE_LOCATION en su manifest. ¿Qué significa exactamente?",
+   "o": [
+    "Que Senda ya puede leer la ubicación de la persona",
+    "Que Senda puede pedirlo, pero no lo tiene hasta que se acepte",
+    "Que Android muestra el diálogo apenas se abre la app",
+    "Que el permiso queda concedido al instalar desde Google Play"
+   ],
+   "c": 1,
+   "e": "Declarar es solo anotar el permiso en el manifest. Al ser un permiso peligroso, además hay que pedirlo desde el código y la persona tiene que aceptarlo. Senda lo pide solo al tocar «Ubicar en el mapa»."
+  },
+  {
+   "p": "La persona resalta un versículo y 100 ms después se cierra el proceso por un fallo nativo, sin pasar por segundo plano. ¿Qué pasa con ese resaltado?",
+   "o": [
+    "Se guarda igual, porque AsyncStorage escribe en cada cambio",
+    "Se guarda igual, porque Android completa las escrituras pendientes",
+    "Se guarda en la nube, porque Senda lo sube antes de cerrar",
+    "Se pierde, porque seguía en memoria esperando los 400 ms"
+   ],
+   "c": 3,
+   "e": "almacen.ts junta los cambios y los escribe 400 ms después del primero, o en el acto al pasar a segundo plano. Si el proceso muere antes, lo que estaba en memoria desaparece. La nube solo recibe progreso si hay vinculación con Google."
+  },
+  {
+   "p": "El contador que decide cuándo toca un anuncio vuelve a cero cuando Android mata el proceso. ¿Por qué ocurre?",
+   "o": [
+    "Porque está en variables de memoria del proceso y no en disco",
+    "Porque AsyncStorage borra sus claves al cerrar la app",
+    "Porque el servidor reinicia el contador cada vez que cambia",
+    "Porque Android limpia todos los datos al matar un proceso"
+   ],
+   "c": 0,
+   "e": "pausaAnuncio.ts guarda el estado en variables del módulo, que viven en la RAM del proceso y mueren con él. Las claves de AsyncStorage sí sobreviven, y Android no borra datos de disco al matar un proceso."
+  },
+  {
+   "p": "Alguien dice «el APK pesa 89 MB, entonces Senda ocupa 89 MB». ¿Qué le falta a esa cuenta?",
+   "o": [
+    "Nada: el tamaño del instalador es lo único que ocupa la app",
+    "La RAM que usa, que se suma al espacio de almacenamiento",
+    "Los datos de aplicación que genera con el uso y se suman al APK",
+    "El peso de las Biblias, que no están incluidas en esos 89 MB"
+   ],
+   "c": 2,
+   "e": "El APK es el paquete instalado; con el uso se agregan datos de aplicación (base, fotos). La RAM es otro recurso, no almacenamiento. Y las Biblias sí están dentro de los 89,1 MB que midió el proyecto."
+  },
+  {
+   "p": "En app.json el widget tiene updatePeriodMillis de 1.800.000 ms. ¿Cómo se relaciona con los límites de Android?",
+   "o": [
+    "Es más rápido que lo permitido, por eso Android lo ignora",
+    "Es justo el mínimo permitido: 30 minutos entre actualizaciones",
+    "Es el máximo permitido: más de eso se desactiva el widget",
+    "No tiene relación: Android no limita la frecuencia de widgets"
+   ],
+   "c": 1,
+   "e": "1.800.000 ms son 30 minutos y la documentación de Android indica que no admite valores menores. Pedir menos no tendría efecto; es el piso, no el techo."
+  }
+ ],
+ "feynman": "Explicale a alguien que no sabe de tecnología qué hace Android con una app desde que la instalás hasta que la cerrás: qué le da, qué guarda y qué pasa con lo que quedó sin guardar si el sistema la mata. Usá una analogía propia, que no sea la del depósito.",
+ "para_profundizar": [
+  {
+   "fuente": "aosp-application-sandbox",
+   "nota": "La página oficial de AOSP sobre el sandbox de aplicaciones: UID por app, aislamiento en el kernel y qué lo refuerza (SELinux y otros). Sirve para ver el modelo completo detrás de lo de hoy."
+  },
+  {
+   "fuente": "android-app-specific-storage",
+   "nota": "La guía de Android sobre el almacenamiento interno y externo propio de una app: qué es el directorio privado, qué se borra al desinstalar y cuándo se necesita un permiso."
+  },
+  {
+   "fuente": "android-processes-threads",
+   "nota": "Cómo crea Android el proceso de una app, qué es el hilo principal y cuándo conviene separar procesos. Está en inglés y es corto."
+  },
+  {
+   "fuente": "android-manifest-permission-ref",
+   "nota": "La referencia de todos los permisos de Android con su nivel de protección. Sirve para consultar cualquier fila de la tabla de hoy."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Android application sandbox UID explicado permisos app",
+   "por_que": "Para ver el aislamiento por UID explicado de otra manera y con diagramas."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "datos de aplicación",
+   "d": "Todo lo que una app escribe mientras corre (bases de datos, archivos, preferencias, cachés). Viven en su directorio privado, aparte del código, y el sistema los borra cuando se desinstala la app."
+  },
+  {
+   "t": "proceso de la app",
+   "d": "El proceso de Linux, con el UID de la app, en el que corren por defecto todos sus componentes. Android lo crea cuando hace falta y puede terminarlo cuando necesita memoria."
+  },
+  {
+   "t": "permisos declarados",
+   "d": "La lista de permisos que una app escribe en su manifest. Declarar no concede: según su nivel, el permiso se otorga solo al instalar, al aceptar un diálogo o desde los ajustes del sistema."
+  },
+  {
+   "t": "manifest de Android",
+   "d": "El archivo AndroidManifest.xml: describe el paquete de una app, sus componentes (pantallas, servicios, receptores) y los permisos que pide. En una compilación se fusionan el de la app y los de cada librería."
+  },
+  {
+   "t": "AsyncStorage",
+   "d": "Librería de React Native que guarda pares clave-valor de texto. En Android usa una base SQLite en el directorio privado de la app y no cifra los valores por su cuenta."
+  },
+  {
+   "t": "Auto Backup",
+   "d": "Función de Android que copia a la cuenta de Google de la persona los datos de una app (preferencias, archivos privados, bases de datos) para restaurarlos al reinstalar o cambiar de teléfono."
+  },
+  {
+   "t": "permiso de tiempo de ejecución",
+   "d": "Permiso que, además de estar declarado, obliga a la app a pedirlo en pantalla y a la persona a aceptarlo. Son los de nivel «peligroso», como ubicación o, desde Android 13, notificaciones."
+  }
+ ],
+ "siguiente": "cierre de la Parte 2: seguís un solo caso, tocar el ícono de Senda y llegar a Inicio, que une lanzador, proceso, memoria, archivos, permisos y ciclo de vida en una sola página.",
+ "fuentes_nuevas": [
+  {
+   "id": "aosp-application-sandbox",
+   "t": "Application Sandbox",
+   "a": "Android Open Source Project",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/security/app-sandbox"
+  },
+  {
+   "id": "android-app-specific-storage",
+   "t": "Access app-specific files",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/training/data-storage/app-specific"
+  },
+  {
+   "id": "android-processes-threads",
+   "t": "Processes and threads overview",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/guide/components/processes-and-threads"
+  },
+  {
+   "id": "android-process-lifecycle",
+   "t": "Processes and app lifecycle",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/guide/components/activities/process-lifecycle"
+  },
+  {
+   "id": "android-manifest-permission-ref",
+   "t": "Manifest.permission (referencia)",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/reference/android/Manifest.permission"
+  },
+  {
+   "id": "android-notificaciones-13",
+   "t": "Notification runtime permission",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/develop/ui/views/notifications/notification-permission"
+  },
+  {
+   "id": "android-autobackup-docs",
+   "t": "Auto Backup for Apps",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/identity/data/autobackup"
+  },
+  {
+   "id": "rn-threading-model",
+   "t": "Threading Model (New Architecture)",
+   "a": "React Native",
+   "tipo": "doc",
+   "url": "https://reactnative.dev/architecture/threading-model"
+  },
+  {
+   "id": "android-widget-update-period",
+   "t": "Advanced widget topics: update a widget",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/develop/ui/views/appwidgets/advanced"
+  },
+  {
+   "id": "android-alarmas-docs",
+   "t": "Schedule alarms",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/develop/background-work/services/alarms"
+  }
+ ]
+}

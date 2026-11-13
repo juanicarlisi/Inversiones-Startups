@@ -1,0 +1,596 @@
+{
+ "id": "02-08",
+ "titulo": "Memoria virtual I: cada programa cree que está solo",
+ "bajada": "Vas a ver, con un programa real, que dos procesos usan la misma dirección de memoria con valores distintos, y a entender el truco de hardware que lo permite.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es una dirección virtual, qué es una dirección física y qué hace la MMU entre las dos.",
+  "Demostrar con un programa real que una misma dirección virtual puede guardar valores distintos en dos procesos.",
+  "Leer /proc/self/maps e identificar el código, los datos, el montículo, las bibliotecas y la pila de un proceso.",
+  "Explicar qué es ASLR y comprobar en una máquina real que las direcciones cambian en cada ejecución.",
+  "Calcular cuántas direcciones ofrece x86-64 con 48 bits y por qué eso supera por mucho a la RAM instalada."
+ ],
+ "venis_de": "En el [@02-04] viste que cada proceso tiene su propio espacio de direcciones y en el [@02-07] cómo el kernel recupera la CPU con interrupciones y atiende fallas. Hoy aparece la pregunta de fondo: si dos procesos usan las mismas direcciones, ¿qué significa realmente una dirección?",
+ "se_apoya_en": [
+  "02-04",
+  "02-05",
+  "02-07"
+ ],
+ "gancho": [
+  "Abrís dos copias del mismo programa. Las dos guardan el puntaje en una variable cuya dirección de memoria es la misma, por ejemplo 0x564f633f5010. Una copia escribe 42. La otra sigue viendo 7. Misma dirección, dos valores, y ninguna pisa a la otra. Si esa dirección fuera un lugar físico de la RAM, sería imposible: en un mismo casillero no caben dos valores.",
+  "Lo que cambia es el significado de «dirección». Las que ve un programa son una ficción que arma el sistema operativo con ayuda de la CPU, y entre esa ficción y la RAM real hay un traductor. Hoy lo vas a ver en una máquina real: un programa que se duplica con fork, direcciones que cambian en cada ejecución, el mapa completo de un proceso y la cuenta de cuántas direcciones existen."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El problema: una sola memoria y muchos programas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La RAM física es una larga tira de bytes numerados desde 0. Si cada programa usara directamente esos números, aparecerían tres problemas. Los tres objetivos clásicos de la memoria virtual (que sea transparente para el programa, eficiente y protegida) los plantea con claridad el libro de Arpaci-Dusseau [#ostep]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Problema",
+    "Qué pasaría sin memoria virtual",
+    "Parecido logístico"
+   ],
+   "filas": [
+    [
+     "Protección",
+     "Un programa con un error, o mal intencionado, escribe sobre la memoria de otro o del kernel",
+     "Un cliente deja su mercadería en el estante de otro cliente"
+    ],
+    [
+     "Relocación",
+     "Cada programa se arma suponiendo ciertas direcciones; si otro ya las ocupa, hay que reescribirlas al cargarlo",
+     "Dos clientes con la etiqueta «estante 5»: alguien tiene que renumerar"
+    ],
+    [
+     "Fragmentación",
+     "El programa necesita un bloque continuo, pero la memoria libre queda en trozos sueltos que no alcanzan",
+     "Huecos de un pallet donde no entra un pedido de diez"
+    ]
+   ],
+   "cap": "Tres problemas de compartir una sola memoria física."
+  },
+  {
+   "t": "pensa",
+   "x": "Dos programas se armaron para guardar su variable más importante en la dirección 1000 y se ejecutan a la vez. Si ambos usan las direcciones de la RAM tal cual, ¿qué pasa? ¿Y si cada uno pudiera tener su propia versión de la dirección 1000?",
+   "resp": "Se pisan: los dos escriben en el mismo byte y cada uno corrompe los datos del otro. La salida sin hardware especial es reescribir las direcciones de uno al cargarlo, un trabajo frágil. Si cada programa tiene su propia «dirección 1000» y algo las traduce a posiciones reales distintas, el conflicto desaparece sin tocar los programas. Esa es la idea de hoy."
+  },
+  {
+   "t": "h",
+   "x": "Dirección virtual, dirección física y la MMU"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La **[[memoria virtual]]** es el arreglo con el que el sistema operativo y la CPU le dan a cada proceso un espacio de direcciones propio, separado de la RAM real. Una **[[dirección virtual]]** es la que usa el programa: la que imprime un puntero en C o la que aparece dentro de una instrucción. La **dirección física** es la posición real en los chips de RAM. Entre las dos trabaja la **[[MMU]]** (*Memory Management Unit*, unidad de gestión de memoria): una parte de la CPU que traduce cada dirección virtual a física en cada acceso a memoria, tanto cuando busca una instrucción como cuando lee o escribe un dato.",
+    "Las reglas de traducción están en tablas que arma y mantiene el kernel. Cómo son esas tablas se ve en el [@02-09]. Cada proceso tiene las suyas, y cuando el kernel cambia de proceso (el cambio de contexto del [@02-05]) le indica a la MMU cuál usar. De ahí sale el **[[aislamiento de procesos]]**: cada proceso solo puede nombrar la memoria que su traducción incluye. No es que le prohíban mirar la del vecino: no existe ninguna dirección que lleve hasta ahí."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "Programa",
+     "d": "Usa direcciones virtuales: punteros, instrucciones, la pila",
+     "k": "cliente"
+    },
+    {
+     "n": "MMU",
+     "d": "Hardware dentro de la CPU: traduce cada acceso virtual a físico",
+     "k": "hw"
+    },
+    {
+     "n": "Tablas de traducción",
+     "d": "Las arma el kernel, un juego por proceso",
+     "k": "os"
+    },
+    {
+     "n": "RAM física",
+     "d": "Los chips reales, con direcciones físicas que el programa nunca ve",
+     "k": "datos"
+    }
+   ],
+   "cap": "El camino de cada acceso a memoria: el programa pide en virtual, la MMU traduce con las tablas del kernel y la RAM responde en físico."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el remito y la planilla del depósito",
+   "x": [
+    "Un cliente escribe en su remito «estante 5-B». La recepción del depósito tiene la planilla de ese cliente y sabe en qué galpón y estante real está. Otro cliente usa también «5-B», con su propia planilla, y termina en otro lugar. Ninguno sabe dónde está realmente su mercadería, y no lo necesita.",
+    "Donde la analogía deja de valer: la recepción es una persona lenta. La MMU traduce en el hardware, en cada acceso, ayudada por una memoria rápida que recuerda las traducciones recientes (la vas a ver en el [@02-09])."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "¿Y si el programa usa una dirección que no tiene traducción, por ejemplo un puntero mal calculado? La MMU no puede completar el acceso y lanza una excepción, el fallo de página (vector 14, el que viste en el [@02-07]). El kernel mira qué pasó: si el acceso era legítimo, lo arregla y la CPU repite la instrucción; si no, termina al proceso con la señal SIGSEGV. El «Segmentation fault» que ves cuando un programa en C usa un puntero roto es la MMU diciendo que esa dirección no existe para ese proceso."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "En el manual de Intel se llama «dirección lineal»",
+   "x": "El manual de Intel dice que la paginación traduce «direcciones lineales» de 48 bits a direcciones físicas de hasta 52 bits [#intel-sdm]. «Lineal» es el nombre que la arquitectura x86 le da al paso previo a la traducción. En los sistemas de 64 bits de hoy, a los fines de estudio, es lo mismo que «virtual»; es la palabra que usan los sistemas operativos y la que vamos a usar acá."
+  },
+  {
+   "t": "h",
+   "x": "Demostración: la misma dirección, dos valores"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Escribí un programa en C que crea un proceso hijo con `fork`. Según el manual de Linux, `fork` duplica al proceso que lo llama: padre e hijo corren en espacios de memoria separados que al principio tienen el mismo contenido, y las escrituras de uno no afectan al otro [#man7-fork]. El programa guarda una variable global `contador` con el valor 7, y en cuatro momentos imprime su dirección virtual, su valor y algo más: el **marco físico**, que es el número del trozo de RAM de 4096 bytes donde esa variable está de verdad. Multiplicado por 4096 da la dirección física; el detalle de esos trozos es del [@02-09].",
+    "El marco lo leo de /proc/self/pagemap, un archivo del kernel que dice a qué marco físico corresponde cada trozo de memoria virtual. Desde Linux 4.2, solo un usuario con privilegios (`CAP_SYS_ADMIN`) recibe el número verdadero; los demás reciben 0 [#kernel-pagemap]. Acá lo corrí como administrador, en el entorno de trabajo."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#define _GNU_SOURCE\n#include <fcntl.h>\n#include <stdint.h>\n#include <stdio.h>\n#include <sys/wait.h>\n#include <unistd.h>\n\nint contador = 7;                       /* variable global: vive en el espacio de direcciones */\n\n/* Numero de marco fisico (PFN) de la pagina donde esta p, leido de /proc/self/pagemap.\n   Solo lo muestra root: sin privilegios el kernel devuelve 0. */\nstatic uint64_t marco(void *p) {\n    int fd = open(\"/proc/self/pagemap\", O_RDONLY);\n    uint64_t e = 0;\n    pread(fd, &e, sizeof e, ((uintptr_t)p / 4096) * 8);\n    close(fd);\n    return (e >> 63) ? (e & ((1ULL << 55) - 1)) : 0;\n}\n\nstatic void mostrar(const char *quien) {\n    printf(\"%-42s &contador=%p  valor=%-2d  marco fisico=0x%lx\\n\",\n           quien, (void *)&contador, contador, (unsigned long)marco(&contador));\n    fflush(stdout);\n}\n\nint main(void) {\n    mostrar(\"padre, antes del fork:\");\n    pid_t hijo = fork();\n    if (hijo == 0) {\n        mostrar(\"hijo, recien nacido:\");\n        contador = 42;                  /* el hijo escribe */\n        mostrar(\"hijo, despues de escribir 42:\");\n        _exit(0);\n    }\n    waitpid(hijo, NULL, 0);\n    mostrar(\"padre, despues de que escribio el hijo:\");\n    return 0;\n}",
+   "cap": "fork_demo.c: la misma variable, vista desde el padre y desde el hijo, con su marco físico. Lo escribí, lo compilé con gcc y lo corrí en este entorno."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -O0 -o fork_demo fork_demo.c && ./fork_demo",
+     "s": "padre, antes del fork:                     &contador=0x564f633f5010  valor=7   marco fisico=0x195b69\nhijo, recien nacido:                       &contador=0x564f633f5010  valor=7   marco fisico=0x195b69\nhijo, despues de escribir 42:              &contador=0x564f633f5010  valor=42  marco fisico=0x17c88b\npadre, despues de que escribio el hijo:    &contador=0x564f633f5010  valor=7   marco fisico=0x195b69"
+    }
+   ],
+   "cap": "Ejecutado en este entorno. La dirección es idéntica en las cuatro líneas; el valor y el marco cambian."
+  },
+  {
+   "t": "lista",
+   "ord": true,
+   "items": [
+    "**Padre, antes del fork.** La variable vale 7 y vive en el marco 0x195b69.",
+    "**Hijo, recién nacido.** Misma dirección, mismo valor y *el mismo marco*. Nadie copió nada. Linux implementa `fork` con copia al escribir: padre e hijo comparten los marcos y cada uno cree tener los suyos [#man7-fork].",
+    "**Hijo, después de escribir 42.** Misma dirección virtual, valor 42 y un marco distinto (0x17c88b). Por dentro (explicación general, la detallamos mañana): el marco estaba compartido y protegido contra escritura, el intento de escribir provocó una falla, el kernel copió el trozo, cambió la traducción del hijo para que apunte a la copia y la CPU repitió la escritura.",
+    "**Padre, al final.** Sigue valiendo 7 y sigue en su marco original. El hijo nunca lo tocó."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Una misma dirección virtual terminó apuntando a lugares físicos distintos según el proceso. Y se puede mostrar lo contrario: lugares físicos iguales con direcciones virtuales distintas. Un segundo programa imprime la dirección de la función `printf` de la biblioteca de C y su marco físico. Lo lancé tres veces, tres procesos independientes:"
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#define _GNU_SOURCE\n#include <fcntl.h>\n#include <stdint.h>\n#include <stdio.h>\n#include <unistd.h>\nstatic uint64_t marco(void *p) {\n    int fd = open(\"/proc/self/pagemap\", O_RDONLY);\n    uint64_t e = 0;\n    pread(fd, &e, sizeof e, ((uintptr_t)p / 4096) * 8);\n    close(fd);\n    return (e >> 63) ? (e & ((1ULL << 55) - 1)) : 0;\n}\nint main(void) {\n    volatile char toque = *(volatile char *)printf;   /* leer un byte para que la pagina exista en este proceso */\n    (void)toque;\n    printf(\"printf (libc) en %p  marco fisico=0x%lx   pid=%d\\n\", (void *)printf, (unsigned long)marco((void *)printf), getpid());\n    return 0;\n}",
+   "cap": "pfnlibc.c: imprime la dirección virtual de printf y su marco físico. Lo compilé y corrí en este entorno."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./pfnlibc; ./pfnlibc; ./pfnlibc",
+     "s": "printf (libc) en 0x7f29d1e60100  marco fisico=0x103ed8   pid=15505\nprintf (libc) en 0x7f1dee860100  marco fisico=0x103ed8   pid=15506\nprintf (libc) en 0x7fcb9fa60100  marco fisico=0x103ed8   pid=15507"
+    }
+   ],
+   "cap": "Ejecutado en este entorno. Tres procesos, tres direcciones virtuales, un solo marco físico."
+  },
+  {
+   "t": "p",
+   "x": "Las tres direcciones virtuales son distintas (por qué, en unos minutos), pero el marco físico es el mismo. El código de la biblioteca de C es de solo lectura, así que el kernel mantiene una sola copia en RAM y la muestra en el espacio de todos los procesos que la usan. Con cientos de procesos corriendo, esa copia única ahorra muchísima memoria. Las dos demostraciones juntas dicen lo central: **la dirección virtual no identifica un lugar físico; es una etiqueta válida solo dentro de un proceso.**"
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Una dirección de memoria es un lugar de la RAM»",
+   "x": "Una dirección virtual no significa nada sin decir de qué proceso es. Si un informe de error dice «falló en 0x564f633f5010», esa dirección solo sirve dentro de aquel proceso. Y en esta máquina, la dirección «física» tampoco es del todo física: lo que el kernel llama así es la memoria que el hipervisor le presenta a la máquina virtual, que puede traducirla una vez más por debajo. Ese detalle excede el día."
+  },
+  {
+   "t": "h",
+   "x": "El mapa de un proceso: /proc/self/maps línea por línea"
+  },
+  {
+   "t": "p",
+   "x": "Linux muestra el espacio de direcciones de cada proceso en /proc/PID/maps; con «self» se ve el del proceso que lee el archivo, que acá es el comando `cat`. Cada línea es una región: el rango de direcciones, los permisos (r leer, w escribir, x ejecutar, p privada con copia al escribir), el desplazamiento dentro del archivo, el dispositivo, el inodo y el nombre [#man7-proc-pid-maps]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat /proc/self/maps",
+     "s": "55c3ff480000-55c3ff482000 r--p 00000000 fe:00 208997                     /usr/bin/cat\n55c3ff482000-55c3ff487000 r-xp 00002000 fe:00 208997                     /usr/bin/cat\n55c3ff487000-55c3ff489000 r--p 00007000 fe:00 208997                     /usr/bin/cat\n55c3ff489000-55c3ff48a000 r--p 00008000 fe:00 208997                     /usr/bin/cat\n55c3ff48a000-55c3ff48b000 rw-p 00009000 fe:00 208997                     /usr/bin/cat\n55c40a41a000-55c40a43b000 rw-p 00000000 00:00 0                          [heap]\n7fc75d000000-7fc75d028000 r--p 00000000 fe:00 209637                     /usr/lib/x86_64-linux-gnu/libc.so.6\n7fc75d028000-7fc75d1b1000 r-xp 00028000 fe:00 209637                     /usr/lib/x86_64-linux-gnu/libc.so.6\n7fc75d1b1000-7fc75d200000 r--p 001b1000 fe:00 209637                     /usr/lib/x86_64-linux-gnu/libc.so.6\n7fc75d200000-7fc75d204000 r--p 001ff000 fe:00 209637                     /usr/lib/x86_64-linux-gnu/libc.so.6\n7fc75d204000-7fc75d206000 rw-p 00203000 fe:00 209637                     /usr/lib/x86_64-linux-gnu/libc.so.6\n7fc75d206000-7fc75d213000 rw-p 00000000 00:00 0 \n7fc75d372000-7fc75d397000 rw-p 00000000 00:00 0 \n7fc75d3a3000-7fc75d3a5000 rw-p 00000000 00:00 0 \n7fc75d3a5000-7fc75d3a9000 r--p 00000000 00:00 0                          [vvar]\n7fc75d3a9000-7fc75d3ab000 r--p 00000000 00:00 0                          [vvar_vclock]\n7fc75d3ab000-7fc75d3ad000 r-xp 00000000 00:00 0                          [vdso]\n7fc75d3ad000-7fc75d3ae000 r--p 00000000 fe:00 209617                     /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2\n7fc75d3ae000-7fc75d3d9000 r-xp 00001000 fe:00 209617                     /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2\n7fc75d3d9000-7fc75d3e3000 r--p 0002c000 fe:00 209617                     /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2\n7fc75d3e3000-7fc75d3e5000 r--p 00036000 fe:00 209617                     /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2\n7fc75d3e5000-7fc75d3e7000 rw-p 00038000 fe:00 209617                     /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2\n7ffe2ea3e000-7ffe2ea61000 rw-p 00000000 00:00 0                          [stack]\nffffffffff600000-ffffffffff601000 --xp 00000000 00:00 0                  [vsyscall]"
+    }
+   ],
+   "cap": "Ejecutado en este entorno: las 24 regiones del proceso cat. Las direcciones son hexadecimales y las de tu máquina serán otras."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Líneas",
+    "Nombre",
+    "Qué es"
+   ],
+   "filas": [
+    [
+     "1 a 5",
+     "/usr/bin/cat",
+     "Cinco tramos del mismo archivo ejecutable, cada uno con sus permisos. El de 20 KiB con r-x es el código (las instrucciones); el rw- de 4 KiB son las variables globales; el resto son datos de solo lectura. El formato del ejecutable se estudia en el [@02-20]."
+    ],
+    [
+     "6",
+     "[heap]",
+     "El montículo: la memoria que el programa pide mientras corre (con malloc, en C). Son 132 KiB. Lo retomamos en el [@02-10]."
+    ],
+    [
+     "7 a 11",
+     "libc.so.6",
+     "La biblioteca estándar de C, que casi todos los programas usan. Su código ocupa 1.572 KiB y es el que viste compartido en la demostración anterior."
+    ],
+    [
+     "12 a 14",
+     "(sin nombre)",
+     "Memoria anónima: pedida con mmap, sin archivo detrás."
+    ],
+    [
+     "15 a 17",
+     "[vvar], [vvar_vclock], [vdso]",
+     "El vdso es una pequeña biblioteca que el kernel mapea en todos los procesos para llamadas muy frecuentes, como leer la hora, sin entrar al kernel [#man7-vdso]. [vvar] son datos del kernel que ese código lee (lo deduzco por el nombre)."
+    ],
+    [
+     "18 a 22",
+     "ld-linux-x86-64.so.2",
+     "El cargador dinámico: el programa que arma las bibliotecas cuando cat arranca."
+    ],
+    [
+     "23",
+     "[stack]",
+     "La pila del hilo principal, con 140 KiB."
+    ],
+    [
+     "24",
+     "[vsyscall]",
+     "Una página fija en el tope de todo el espacio, en la mitad alta que pertenece al kernel. La documentación del kernel la lista como «legacy vsyscall ABI», una interfaz heredada [#kernel-x86-mm]."
+    ]
+   ],
+   "cap": "Cada línea del mapa de arriba, agrupada por lo que representa."
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Dos zonas de direcciones.** Abajo, las que empiezan con 0x55 (el ejecutable y el montículo); arriba, las que empiezan con 0x7f (bibliotecas y pila). Todas quedan por debajo de 0x00007fffffffffff, el techo del espacio de usuario.",
+    "**Nada es a la vez escribible y ejecutable.** Cada región es r-x (código) o rw- (datos), nunca rwx. En este mapa se ve esa práctica de seguridad habitual: lo que se puede escribir no se ejecuta.",
+    "**Hay huecos.** Entre una región y otra hay direcciones sin mapear. Tocar una produce una falla y el kernel responde con SIGSEGV: el espacio que no se usa, simplemente no existe."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En el mapa, la región [stack] va de 7ffe2ea3e000 a 7ffe2ea61000. ¿Cuántos bytes mide? ¿Cuántos trozos de 4096 bytes caben?",
+   "resp": "La resta, en hexadecimal, es 0x23000. En decimal 0x23000 = 143.360 bytes, o sea 140 KiB. Dividido por 4096 (0x1000) da 35 trozos."
+  },
+  {
+   "t": "h",
+   "x": "ASLR: por qué las direcciones cambian en cada ejecución"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si ejecutás dos veces el mismo programa, sus direcciones no son las mismas. Se llama **ASLR** (*Address Space Layout Randomization*, aleatorización de la disposición del espacio de direcciones): el kernel elige direcciones base distintas para el ejecutable, el montículo, las bibliotecas y la pila cada vez que arranca un proceso. En Linux se controla con `kernel.randomize_va_space`: con 0 no hay aleatorización, con 1 se aleatorizan el mapa de memoria, la pila y el vdso, y con 2 también el montículo [#kernel-sysctl-admin]. En este entorno vale 2.",
+    "¿Para qué? Un ataque típico necesita saber a qué dirección saltar (la de una función de una biblioteca, por ejemplo). Si cambia cada vez, hay que adivinarla. Es una dificultad extra, no una muralla: si el programa filtra una dirección, el atacante recupera el mapa. Lo veo como una capa de defensa entre varias (criterio mío)."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <stdio.h>\n#include <stdlib.h>\n\nint global = 1;\n\nint main(void) {\n    int local = 2;\n    void *monton = malloc(16);\n    printf(\"codigo=%p  global=%p  monton=%p  libc(printf)=%p  pila=%p\\n\",\n           (void *)main, (void *)&global, monton, (void *)printf, (void *)&local);\n    return 0;\n}",
+   "cap": "aslr.c: imprime dónde están el código, una global, el montículo, una función de libc y la pila. Lo compilé y corrí en este entorno."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "for i in 1 2 3; do ./aslr; done",
+     "s": "codigo=0x564ea8cef179  global=0x564ea8cf2010  monton=0x564ee720c2a0  libc(printf)=0x7f37ca060100  pila=0x7fffbc7ef14c\ncodigo=0x55c108ea6179  global=0x55c108ea9010  monton=0x55c1269ae2a0  libc(printf)=0x7ffb53a60100  pila=0x7ffdb7c2db5c\ncodigo=0x55cca2f6e179  global=0x55cca2f71010  monton=0x55ccdd4072a0  libc(printf)=0x7f36d2260100  pila=0x7ffcf1028e5c"
+    },
+    {
+     "c": "for i in 1 2 3; do setarch -R ./aslr; done",
+     "s": "codigo=0x555555555179  global=0x555555558010  monton=0x5555555592a0  libc(printf)=0x7ffff7c60100  pila=0x7fffffffc38c\ncodigo=0x555555555179  global=0x555555558010  monton=0x5555555592a0  libc(printf)=0x7ffff7c60100  pila=0x7fffffffc38c\ncodigo=0x555555555179  global=0x555555558010  monton=0x5555555592a0  libc(printf)=0x7ffff7c60100  pila=0x7fffffffc38c"
+    }
+   ],
+   "cap": "Ejecutado en este entorno. Arriba, con ASLR; abajo, con `setarch -R`, que la desactiva solo para ese comando."
+  },
+  {
+   "t": "p",
+   "x": "Con ASLR, cada ejecución cae en direcciones distintas. Pero mirá el final de las direcciones del código, la global, el montículo y la biblioteca: 179, 010, 2a0, 100. No cambian nunca. Lo que se mueve son los dígitos de la izquierda, siempre en múltiplos de 0x1000 (4096): los trozos de memoria de mañana. La pila es la excepción, porque sus últimas cifras también varían (no investigué por qué). Con `setarch -R`, que apaga la aleatorización para ese comando [#man7-setarch], las tres corridas son idénticas, y las direcciones son las de siempre de un depurador (0x555555555179)."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Apagar ASLR para toda la máquina",
+   "x": "`setarch -R` solo afecta al comando que lo lleva, y sirve para depurar. Cambiar `kernel.randomize_va_space` a 0 afecta a todos los procesos del sistema y le saca una defensa a todo lo que corre. No lo hagas en una computadora que uses para otras cosas."
+  },
+  {
+   "t": "h",
+   "x": "Cuántas direcciones hay: 48 bits y la cuenta contra la RAM"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un puntero en x86-64 tiene 64 bits, pero los procesadores actuales no usan los 64. Según el manual de Intel, la arquitectura ofrece direcciones lineales de 48 bits: los bits 63 a 48 deben ser copias del bit 47 («forma canónica»), y una dirección que no lo cumple provoca una excepción [#intel-sdm]. Con 48 bits hay 2^48 direcciones, y cada una nombra un byte: 2^48 bytes son 256 TiB (cálculo propio: 2^48 ÷ 2^40 = 256).",
+    "Linux reparte ese espacio en dos mitades. La baja, de 0 a 0x00007fffffffffff, son unos 128 TiB para el programa; la alta, para el kernel, que comparte esa parte entre todos los procesos [#kernel-x86-mm]. Existe también la paginación de cinco niveles, con direcciones de 57 bits (128 PiB): el kernel avisa que por defecto no entrega a los programas direcciones por encima de 47 bits, salvo que las pidan explícitamente [#kernel-x86-5level]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Modo",
+    "Bits de dirección",
+    "Espacio total",
+    "Para el programa en Linux"
+   ],
+   "filas": [
+    [
+     "4 niveles (el habitual)",
+     "48",
+     "256 TiB",
+     "unos 128 TiB (47 bits)"
+    ],
+    [
+     "5 niveles (si el sistema lo habilita)",
+     "57",
+     "128 PiB",
+     "hasta 64 PiB (56 bits), pero solo si el programa lo pide"
+    ]
+   ],
+   "cap": "Fuentes: manual de Intel, volumen 3A, sección 5.5, y documentación del kernel de Linux sobre paginación de cinco niveles."
+  },
+  {
+   "t": "p",
+   "x": "Ahora la cuenta contra la RAM. Un teléfono con 4 GiB de RAM tiene 2^32 bytes. El espacio de usuario de x86-64 son 2^47 bytes. La proporción es 2^47 ÷ 2^32 = 2^15 = 32.768: un programa puede nombrar 32.768 veces más direcciones que bytes de RAM tiene la máquina. (Las cuentas son de x86-64; los procesadores ARM de 64 bits de los teléfonos también tienen espacios enormes, pero con otro ancho, que no verifiqué hoy.) Ese «puede nombrar» es la clave: ver una dirección no es usarla. Lo comprobé pidiéndole al kernel un terabyte:"
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#define _GNU_SOURCE\n#include <stdio.h>\n#include <string.h>\n#include <sys/mman.h>\n\nstatic void tamanos(const char *titulo) {\n    char l[160];\n    FILE *f = fopen(\"/proc/self/status\", \"r\");\n    printf(\"%s\\n\", titulo);\n    while (fgets(l, sizeof l, f))\n        if (!strncmp(l, \"VmSize\", 6) || !strncmp(l, \"VmRSS\", 5)) printf(\"  %s\", l);\n    fclose(f);\n}\n\nint main(void) {\n    size_t tib = 1UL << 40;                                   /* 1 TiB */\n    tamanos(\"Al empezar:\");\n\n    /* 1) pedir 1 TiB de memoria escribible: el kernel lo rechaza */\n    void *a = mmap(NULL, tib, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);\n    printf(\"1 TiB escribible: %s\\n\", a == MAP_FAILED ? \"rechazado\" : \"aceptado\");\n\n    /* 2) reservar 1 TiB de direcciones sin permiso de uso: lo acepta */\n    void *p = mmap(NULL, tib, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);\n    printf(\"1 TiB reservado (PROT_NONE) en %p\\n\", p);\n    tamanos(\"Con 1 TiB reservado:\");\n\n    /* 3) pedir una direccion por encima de los 47 bits (128 TiB) */\n    void *pedida = (void *)(1UL << 48);\n    void *q = mmap(pedida, 1 << 20, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);\n    printf(\"pedi %p y el kernel dio %p\\n\", pedida, q);\n    return 0;\n}",
+   "cap": "espacio.c: pide 1 TiB de dos maneras y una dirección por encima de los 47 bits. Lo corrí en este entorno."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -o espacio espacio.c && ./espacio",
+     "s": "Al empezar:\n  VmSize:\t    2700 kB\n  VmRSS:\t    1428 kB\n1 TiB escribible: rechazado\n1 TiB reservado (PROT_NONE) en 0x7e9d1f800000\nCon 1 TiB reservado:\n  VmSize:\t1073744524 kB\n  VmRSS:\t    1684 kB\npedi 0x1000000000000 y el kernel dio 0x7e9d1f700000"
+    },
+    {
+     "c": "grep -m1 'address sizes' /proc/cpuinfo",
+     "s": "address sizes\t: 52 bits physical, 57 bits virtual"
+    }
+   ],
+   "cap": "Ejecutado en este entorno. VmSize es el espacio de direcciones reservado; VmRSS, la RAM que realmente usa."
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Escribible: rechazado.** Un pedido normal de 1 TiB de memoria escribible falló. El modo de sobreasignación de esta máquina es el 0, el de «cálculo heurístico», donde el kernel rechaza los pedidos claramente excesivos [#kernel-overcommit].",
+    "**Reservado: aceptado.** Con `PROT_NONE` (sin permiso de uso) y `MAP_NORESERVE`, el kernel dio 1 TiB de direcciones. El proceso pasó de 2.700 kB a 1.073.744.524 kB de **VmSize** (casi 1 TiB), pero la RAM que usa (**VmRSS**) apenas cambió: 1.428 kB antes, 1.684 kB después.",
+    "**Más allá de 47 bits: ignorado.** Pedí una dirección con 2^48 y el kernel entregó otra, de las de siempre. Según la documentación, así responde un sistema que no usa cinco niveles [#kernel-x86-5level]. Que `/proc/cpuinfo` diga «57 bits virtual» muestra lo que el procesador sabe hacer, no lo que este sistema usa. Mi inferencia, sin verificar la causa: la máquina virtual no expone la capacidad de cinco niveles al kernel (en `/proc/cpuinfo` no aparece la bandera la57)."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Memoria virtual es usar el disco como si fuera RAM»",
+   "x": "Es una confusión común, porque en la configuración de Windows el cuadro del archivo de paginación se llama «Memoria virtual». Usar el disco como respaldo es una consecuencia posible (el [@02-10]), no la definición. La memoria virtual es, antes que nada, traducción y aislamiento: pasa en cada acceso, incluso en una máquina con RAM de sobra y sin disco de respaldo."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué puede cambiar (verificado el 13-11-2026)",
+   "x": "Lo permanente: direcciones virtuales por proceso, traducción por hardware y aislamiento. Lo que cambia: el ancho de dirección (48 bits hoy, 57 con cinco niveles, que depende del procesador, el kernel y el hipervisor), el comportamiento de ASLR por sistema y versión, y el formato de /proc/PID/maps. Lo medido es de un Linux 6.18 en una máquina virtual; las cifras del manual de Intel son de la edición de septiembre de 2026."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Esta máquina tiene unos 16 GiB de RAM. (1) ¿Cuántas veces cabe esa RAM en el espacio de usuario de 128 TiB? (2) El programa espacio.c reservó 1 TiB: ¿qué fracción es de ese espacio de usuario? (3) Si dos procesos reservan 1 TiB cada uno, ¿compiten por el mismo espacio de direcciones?",
+   "pista": "128 TiB = 2^47 bytes y 16 GiB = 2^34 bytes. Para (3), recordá de quién es cada espacio de direcciones.",
+   "solucion": "(1) 2^47 ÷ 2^34 = 2^13 = 8.192 veces. (2) 1 TiB ÷ 128 TiB = 1/128, menos del 1 %. (3) No: cada proceso tiene su propio espacio de direcciones, así que ambos pueden reservar el mismo rango sin molestarse, y en la RAM real no ocupan casi nada porque no lo usaron."
+  }
+ ],
+ "recap": [
+  "Una **dirección virtual** es válida solo dentro de un proceso; la **dirección física** es la posición real en la RAM. La **MMU**, en la CPU, traduce cada acceso con las tablas que arma el kernel.",
+  "El **aislamiento** nace de que cada proceso tiene su traducción: solo puede nombrar lo que su traducción incluye, y una dirección sin traducción provoca una falla (SIGSEGV).",
+  "Con `fork`, la misma dirección virtual del padre y del hijo apunta al mismo marco hasta que alguien escribe; entonces el kernel copia y cada uno queda con el suyo. Y un mismo marco (la libc) puede aparecer a direcciones distintas en varios procesos.",
+  "/proc/PID/maps muestra las regiones: código (r-x), datos (rw-), montículo, bibliotecas, la pila y los huecos. **ASLR** mueve esas bases en cada ejecución, siempre en múltiplos de 4096.",
+  "x86-64 usa 48 bits: 256 TiB en total y unos 128 TiB para el programa. Pedir direcciones no consume RAM: VmSize no es VmRSS, y por eso una app con 4 GiB de RAM puede «ver» 32.768 veces más."
+ ],
+ "repaso": [
+  {
+   "p": "Dos procesos imprimen la dirección de una variable global y ambos muestran 0x564f633f5010, pero uno ve el valor 7 y el otro el 42. ¿Cómo es posible?",
+   "o": [
+    "Las direcciones coinciden por casualidad, pero en realidad cada proceso guarda la variable en lugares distintos de la RAM",
+    "Cada proceso tiene su espacio de direcciones y la MMU traduce la misma dirección virtual a marcos físicos distintos",
+    "El kernel reescribe el valor de la variable cada vez que cambia de un proceso a otro, para que parezca única y consistente",
+    "La variable se guarda en el disco y cada proceso lee su versión desde un archivo temporal propio y separado del otro"
+   ],
+   "c": 1,
+   "e": "La dirección virtual solo tiene sentido dentro del proceso: cada uno tiene su traducción, y la misma etiqueta termina en marcos distintos. No es casualidad (la coincidencia se da a propósito tras un fork), el kernel no copia valores en cada cambio y la variable no está en disco."
+  },
+  {
+   "p": "Un programa en C usa un puntero que no apunta a ninguna región de su espacio de direcciones. ¿Qué ocurre?",
+   "o": [
+    "La CPU lee ceros de la RAM, porque cualquier dirección existe aunque no tenga datos",
+    "La MMU no halla traducción, lanza un fallo y el kernel termina al proceso con SIGSEGV si el acceso es ilegítimo",
+    "El kernel le asigna memoria nueva en esa dirección de forma automática y el programa sigue sin ningún aviso ni error",
+    "El sistema operativo se detiene y reinicia la computadora, porque no sabe cómo seguir"
+   ],
+   "c": 1,
+   "e": "Una dirección sin traducción hace que la MMU lance una excepción (fallo de página). Si el acceso no corresponde a nada legítimo, el kernel mata al proceso con SIGSEGV. No se leen ceros, no se asigna memoria sola en cualquier acceso y el resto del sistema sigue andando."
+  },
+  {
+   "p": "Después de un `fork`, el hijo escribe en una variable global del programa. ¿Qué pasa con el valor que ve el padre?",
+   "o": [
+    "Cambia también, porque padre e hijo comparten siempre la misma memoria física",
+    "Queda en cero, porque el kernel borra la variable del padre cuando otro la modifica",
+    "No cambia: el kernel copia el trozo antes de que el hijo escriba y cada uno queda con su propia copia",
+    "Cambia solo si el padre vuelve a leer la variable, porque la escritura del hijo se aplica con demora al padre"
+   ],
+   "c": 2,
+   "e": "Con la copia al escribir, el trozo se comparte solo hasta que alguien escribe: en ese momento el kernel hace una copia para el que escribe. Por eso las escrituras de uno no afectan al otro, como indica el manual de fork."
+  },
+  {
+   "p": "El mismo programa se ejecuta tres veces y la dirección de su variable global es distinta cada vez, aunque los tres últimos dígitos hexadecimales no cambian. ¿Qué explica esto?",
+   "o": [
+    "El programa tiene un error que lo hace elegir direcciones al azar para sus variables en cada ejecución nueva",
+    "El disco entrega los datos en un orden distinto cada vez y eso desplaza la pila entera",
+    "El kernel aplica ASLR: mueve las bases en múltiplos de 4096, así que el final de cada dirección no cambia",
+    "La MMU cambia de fabricante de traducción cada vez que el procesador se calienta"
+   ],
+   "c": 2,
+   "e": "ASLR elige bases distintas en cada ejecución, desplazando las regiones en múltiplos de 0x1000 (4096). Por eso solo cambian los dígitos de la izquierda. No es un error del programa ni un efecto del disco, y la MMU no depende de la temperatura."
+  },
+  {
+   "p": "Una app tiene 4 GiB de RAM disponibles y reserva 1 TiB de direcciones con mmap sin permiso de uso. ¿Cuánta RAM ocupa esa reserva?",
+   "o": [
+    "1 TiB completo, porque reservar direcciones es lo mismo que reservar memoria",
+    "Casi nada: reservar direcciones no consume RAM hasta que se usan, y por eso VmRSS apenas cambia",
+    "4 GiB, porque el kernel limita la reserva al tamaño de la RAM y la ocupa entera",
+    "La mitad de la RAM, porque el kernel divide a medias entre la reserva y el resto del sistema"
+   ],
+   "c": 1,
+   "e": "VmSize cuenta direcciones reservadas; VmRSS, la RAM efectivamente usada. En el experimento VmSize saltó a casi 1 TiB y VmRSS pasó de 1.428 a 1.684 kB. Las otras opciones confunden espacio de direcciones con consumo."
+  },
+  {
+   "p": "¿Cuántas direcciones distintas puede nombrar un puntero de 48 bits, y qué cantidad de memoria representa si cada una es un byte?",
+   "o": [
+    "2^48 direcciones: 256 TiB",
+    "2^64 direcciones: 16 EiB",
+    "2^32 direcciones: 4 GiB",
+    "2^47 direcciones: 256 TiB"
+   ],
+   "c": 0,
+   "e": "Con 48 bits hay 2^48 direcciones, es decir 2^48 bytes = 256 TiB en total (128 TiB para el programa y 128 TiB para el kernel). 2^64 es el ancho del puntero, no lo que se usa; 2^32 es el caso de 32 bits, y 2^47 es solo la mitad baja."
+  },
+  {
+   "p": "¿Qué describe mejor a la «memoria virtual», según lo visto hoy?",
+   "o": [
+    "Usar el disco como si fuera RAM para correr programas más grandes que la memoria",
+    "Una zona especial de la RAM reservada al kernel para guardar copias de seguridad",
+    "Un espacio de direcciones propio para cada proceso, traducido por la MMU a la RAM real",
+    "La memoria de la tarjeta de video, que se parece a la RAM pero va aparte"
+   ],
+   "c": 2,
+   "e": "La memoria virtual es traducción y aislamiento: cada proceso ve sus propias direcciones y la MMU las convierte en físicas. Usar el disco como respaldo es una consecuencia posible, que se verá más adelante, y no tiene nada que ver con una zona reservada ni con la memoria de video."
+  }
+ ],
+ "feynman": "Explicale a alguien que programa por primera vez por qué dos programas pueden usar «la misma dirección de memoria» sin pisarse, usando una analogía propia que no sea la del depósito, y qué prueba concreta podrías mostrarle en una terminal.",
+ "para_profundizar": [
+  {
+   "fuente": "ostep",
+   "nota": "Los capítulos «The Abstraction: Address Spaces» y los que siguen sobre traducción de direcciones plantean los mismos objetivos (transparencia, eficiencia y protección) con ejemplos simples. Son la lectura natural después de hoy."
+  },
+  {
+   "fuente": "man7-proc-pid-maps",
+   "nota": "La página oficial del formato de /proc/PID/maps, con la explicación de cada columna y de las regiones con nombre entre corchetes."
+  },
+  {
+   "fuente": "kernel-x86-mm",
+   "nota": "El mapa completo de la memoria virtual de x86-64 en Linux: dónde empieza y termina el espacio de usuario, el del kernel y los huecos no canónicos."
+  },
+  {
+   "fuente": "csapp",
+   "nota": "El capítulo 9, «Virtual Memory», es la referencia clásica para programadores: cómo se traducen las direcciones y qué ve realmente un programa."
+  }
+ ],
+ "videos": [
+  {
+   "q": "memoria virtual explicación dirección virtual física MMU sistema operativo",
+   "por_que": "Para ver animada la traducción de una dirección virtual a una física."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "memoria virtual",
+   "d": "Arreglo del sistema operativo y la CPU por el cual cada proceso recibe un espacio de direcciones propio, traducido a la RAM real y aislado del resto."
+  },
+  {
+   "t": "dirección virtual",
+   "d": "Dirección que usa un programa en sus punteros e instrucciones; solo tiene sentido dentro de su proceso y la MMU la traduce a una dirección física."
+  },
+  {
+   "t": "MMU",
+   "d": "Unidad de gestión de memoria: parte de la CPU que traduce cada dirección virtual a física en cada acceso, usando las tablas que arma el kernel."
+  },
+  {
+   "t": "aislamiento de procesos",
+   "d": "Propiedad por la cual un proceso solo puede acceder a la memoria que su propia traducción incluye, y por lo tanto no puede leer ni escribir la de otro."
+  },
+  {
+   "t": "dirección física",
+   "d": "Posición real de un byte en los chips de RAM; el programa nunca la ve, la elige el kernel al armar las tablas de traducción."
+  },
+  {
+   "t": "ASLR",
+   "d": "Aleatorización de la disposición del espacio de direcciones: el kernel elige bases distintas para código, montículo, bibliotecas y pila en cada ejecución, para dificultar ataques."
+  }
+ ],
+ "siguiente": "cómo se hace la traducción por dentro: la memoria se divide en páginas de 4096 bytes, el kernel arma tablas para encontrarlas, y una memoria rápida llamada TLB evita pagar el costo en cada acceso.",
+ "fuentes_nuevas": [
+  {
+   "id": "man7-fork",
+   "t": "fork(2)",
+   "a": "Linux man-pages (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man2/fork.2.html"
+  },
+  {
+   "id": "kernel-pagemap",
+   "t": "Examining Process Page Tables (pagemap)",
+   "a": "The Linux Kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/admin-guide/mm/pagemap.html"
+  },
+  {
+   "id": "man7-proc-pid-maps",
+   "t": "proc_pid_maps(5)",
+   "a": "Linux man-pages (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man5/proc_pid_maps.5.html"
+  },
+  {
+   "id": "man7-vdso",
+   "t": "vdso(7)",
+   "a": "Linux man-pages (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man7/vdso.7.html"
+  },
+  {
+   "id": "kernel-x86-mm",
+   "t": "Memory Management (x86_64)",
+   "a": "The Linux Kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/arch/x86/x86_64/mm.html"
+  },
+  {
+   "id": "man7-setarch",
+   "t": "setarch(8)",
+   "a": "Linux man-pages (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man8/setarch.8.html"
+  },
+  {
+   "id": "kernel-sysctl-admin",
+   "t": "Documentation for /proc/sys/kernel/",
+   "a": "The Linux Kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/admin-guide/sysctl/kernel.html"
+  },
+  {
+   "id": "kernel-overcommit",
+   "t": "Overcommit Accounting",
+   "a": "The Linux Kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/mm/overcommit-accounting.html"
+  }
+ ]
+}

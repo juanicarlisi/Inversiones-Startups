@@ -1,0 +1,783 @@
+{
+ "id": "02-07",
+ "titulo": "Interrupciones y cómo el SO retoma el control",
+ "bajada": "Descubrís cómo una pieza de hardware le saca la CPU a cualquier programa, la devuelve en el mismo punto y evita que un bucle infinito cuelgue la máquina.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir una interrupción de hardware, una excepción y una llamada al sistema, y decir qué comparten y qué las separa.",
+  "Seguir paso a paso lo que hace la CPU desde que llega una interrupción hasta que el programa interrumpido continúa.",
+  "Leer /proc/interrupts y /proc/softirqs de una máquina real e identificar el temporizador, el disco y la red.",
+  "Explicar cómo el temporizador hace posible la expropiación del planificador y calcular cuántas veces por segundo interviene.",
+  "Justificar por qué un bucle infinito en modo usuario no cuelga la máquina y reconocer los casos en que sí hay un cuelgue."
+ ],
+ "venis_de": "En el [@02-02] viste que los programas corren en modo usuario y piden ayuda al kernel con llamadas al sistema, y en el [@02-06] que el planificador puede quitarle la CPU a un proceso que ya gastó su turno. Quedó una pregunta sin contestar: si el programa tiene la CPU, ¿cómo vuelve a ejecutarse el kernel sin que el programa lo permita?",
+ "se_apoya_en": [
+  "02-02",
+  "02-05",
+  "02-06"
+ ],
+ "gancho": [
+  "Imaginate un depósito con un solo operario en el sector de carga. Está armando un pedido enorme y nadie puede tocarlo: solo él decide cuándo levantar la vista. Si se concentra demasiado, el camión que llegó al portón espera horas y el supervisor no logra pasarle la orden de cambiar de tarea. Todo depende de que el operario se acuerde de mirar.",
+  "Una CPU tiene exactamente ese problema. Mientras un programa corre, el kernel no está corriendo: la CPU ejecuta una instrucción tras otra del programa y nada más. Entonces, ¿cómo se entera el sistema de que apretaste una tecla, de que llegó un paquete o de que a un programa se le acabó el tiempo? Si dependiera de que el programa levante la vista por su cuenta, uno solo mal escrito congelaría todo.",
+  "La respuesta es un mecanismo del hardware que obliga a la CPU a soltar lo que hace, atender un asunto y volver al punto exacto donde estaba. Hoy lo desarmás pieza por pieza y lo mirás funcionando en una máquina real."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El problema: nadie vigila mientras la CPU trabaja"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay dos maneras de enterarse de que algo pasó fuera de la CPU. La primera es preguntar una y otra vez: el programa mira cada tanto si llegó una tecla, si el disco terminó, si apareció un paquete. Se llama **sondeo** (en inglés, *polling*). La segunda es que el propio dispositivo avise. Eso es una [[interrupción]]: una señal que fuerza a la CPU a suspender lo que hace para atender un asunto y que después le permite continuar donde había quedado.",
+    "El costo del sondeo se ve con una cuenta. Una persona que tipea muy rápido produce del orden de 10 teclas por segundo (ESTIMACIÓN). Si un programa consultara el teclado una vez por microsegundo, haría un millón de consultas por segundo, y 99.999 de cada 100.000 volverían vacías. Con interrupciones, la CPU trabaja en lo suyo y el teclado la llama solo esas 10 veces."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el chofer y el timbre",
+   "x": [
+    "Un chofer espera un camión. Puede ir cada dos minutos hasta el portón a ver si llegó (sondeo) o hacer otras tareas hasta que suene un timbre (interrupción).",
+    "Dónde la analogía deja de valer: el chofer puede ignorar el timbre. La CPU no: lo atiende apenas termina la instrucción en curso, salvo que el kernel la haya bloqueado a propósito por un instante. Y nadie le pide permiso al programa que estaba corriendo."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Cuando el sondeo vuelve a ser buena idea",
+   "x": "Con redes muy rápidas llegan tantos paquetes que una interrupción por cada uno saturaría a la CPU. Linux usa un mecanismo llamado NAPI: la primera interrupción avisa que hay trabajo y después el kernel consulta al dispositivo por tandas, con un presupuesto de paquetes. También existe un modo de sondeo puro [#kernel-napi]. Los dos métodos se combinan."
+  },
+  {
+   "t": "pensa",
+   "x": "El kernel necesita recuperar la CPU de un programa que nunca la suelta. ¿Por qué no alcanza con que «ponga una alarma» por software para acordarse de volver?",
+   "resp": "Porque mientras el programa corre no corre código del kernel: no hay nadie que mire el reloj ni que dispare la alarma. Hace falta algo que actúe desde afuera del flujo de instrucciones del programa, y eso solo puede ser hardware: un temporizador que interrumpa a la CPU. Es el tema de la segunda mitad de hoy."
+  },
+  {
+   "t": "h",
+   "x": "Tres formas de interrumpir y un vocabulario que confunde"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El manual de Intel, referencia de la arquitectura x86-64 (la de la mayoría de las notebooks y servidores), separa dos familias. Las interrupciones llegan en momentos que el programa no controla, como respuesta a señales del hardware. Las [[excepciones|excepción]] ocurren cuando el procesador detecta un problema mientras ejecuta una instrucción, como una división por cero [#intel-sdm]. Los libros de sistemas operativos suman una tercera: la **llamada al sistema** del [@02-02], con la que un programa pide un servicio al kernel a propósito.",
+    "Las tres terminan igual: la CPU deja el programa, pasa a modo kernel y salta a código del kernel. Cambia quién las provoca y cuándo. Un evento es **sincrónico** si es consecuencia directa de la instrucción que se acaba de ejecutar, y **asincrónico** si viene de afuera y puede caer entre cualquier par de instrucciones."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tipo",
+    "Quién lo provoca",
+    "Cuándo",
+    "Ejemplo",
+    "Después del manejador"
+   ],
+   "filas": [
+    [
+     "Interrupción de hardware",
+     "Un dispositivo o el temporizador",
+     "Asincrónica",
+     "Llegó un paquete; pasaron 4 ms",
+     "Sigue con la instrucción siguiente a la interrumpida"
+    ],
+    [
+     "Excepción (falla)",
+     "La propia instrucción",
+     "Sincrónica",
+     "Dividir por cero; leer memoria prohibida",
+     "Repite la instrucción si se arregló, o termina el proceso"
+    ],
+    [
+     "Llamada al sistema",
+     "El programa, a propósito",
+     "Sincrónica",
+     "Pedir leer un archivo",
+     "Sigue con la instrucción siguiente a la llamada"
+    ]
+   ],
+   "cap": "Tres puertas de entrada al kernel con el mismo mecanismo de fondo."
+  },
+  {
+   "t": "p",
+   "x": "Con las palabras hay que tener cuidado. En el manual de Intel, una *trampa* (*trap*) no es una llamada al sistema: es un tipo de excepción que se informa justo después de ejecutar la instrucción, así que el programa sigue con la siguiente. La *falla* (*fault*) se informa antes de completarla: la dirección de retorno apunta a la instrucción que falló, de modo que, corregida la causa, la CPU la repite [#intel-sdm]. El caso más importante es el fallo de página, que el SO resuelve y la CPU reintenta: lo ves en el [@02-09]. Muchos textos de SO usan «trampa» en sentido más amplio, como cualquier entrada al kernel; fijate qué quiere decir cada autor."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La instrucción syscall no usa la tabla de vectores",
+   "x": "En x86-64 moderno el programa entra al kernel con la instrucción `syscall`. Según el manual de Intel, carga la dirección del manejador desde un registro especial (IA32_LSTAR) en lugar de buscarla en la tabla de vectores que viene ahora [#intel-sdm]. Para el programa el resultado es el mismo, pero es un camino más corto, hecho a medida de la puerta que más se usa."
+  },
+  {
+   "t": "h",
+   "x": "Qué hace la CPU cuando llega una interrupción"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada fuente de eventos tiene un número, el **vector**, de 0 a 255. La CPU lo usa como índice en una tabla que el kernel armó al arrancar, la tabla de descriptores de interrupciones (IDT). Cada entrada guarda la dirección del [[manejador de interrupción|manejador de interrupción]]: el código del kernel que atiende ese evento. Intel reserva los vectores 0 a 31 para las excepciones de la arquitectura y deja los 32 a 255 para dispositivos [#intel-sdm].",
+    "Entre el dispositivo y la CPU hay un intermediario, el controlador de interrupciones, que en los x86 de hoy se llama APIC. Recibe las señales, decide qué vector corresponde y a qué núcleo se lo entrega [#intel-sdm]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Vector",
+    "Nombre",
+    "Tipo",
+    "Qué lo provoca"
+   ],
+   "filas": [
+    [
+     "0",
+     "Error de división (#DE)",
+     "Falla",
+     "Instrucciones de división"
+    ],
+    [
+     "3",
+     "Punto de interrupción (#BP)",
+     "Trampa",
+     "La instrucción INT3 de los depuradores"
+    ],
+    [
+     "6",
+     "Código de operación inválido (#UD)",
+     "Falla",
+     "Una instrucción inexistente o reservada"
+    ],
+    [
+     "13",
+     "Protección general (#GP)",
+     "Falla",
+     "Un acceso o instrucción que viola una regla de protección"
+    ],
+    [
+     "14",
+     "Fallo de página (#PF)",
+     "Falla",
+     "Cualquier acceso a memoria"
+    ],
+    [
+     "32 a 255",
+     "Definidos por el sistema",
+     "Interrupción",
+     "Dispositivos externos o la instrucción INT n"
+    ]
+   ],
+   "cap": "Extracto de la tabla 7-1 del volumen 3A del manual de Intel (edición de septiembre de 2026, nº 253668-093)."
+  },
+  {
+   "t": "pasos",
+   "titulo": "El recorrido de una interrupción, paso a paso",
+   "pasos": [
+    {
+     "t": "El dispositivo levanta la señal",
+     "x": "Un disco terminó de leer o venció el temporizador. La señal llega al controlador de interrupciones, que la traduce a un vector y se la entrega a un núcleo."
+    },
+    {
+     "t": "La CPU termina la instrucción en curso",
+     "x": "Las interrupciones se atienden entre instrucciones, nunca a la mitad. Intel lo garantiza para que el programa pueda continuar sin perder nada [#intel-sdm]."
+    },
+    {
+     "t": "Guarda lo mínimo para volver y pasa a modo kernel",
+     "x": "El hardware apila en la pila del kernel el contador de programa, las banderas y el puntero de pila del programa interrumpido: la ficha para volver al punto exacto. Después sube el nivel de privilegio."
+    },
+    {
+     "t": "Busca el manejador en la tabla",
+     "x": "Usa el vector como índice en la IDT y salta a esa dirección. Mientras arranca el manejador, la CPU bloquea las demás interrupciones enmascarables [#intel-sdm]."
+    },
+    {
+     "t": "Corre el manejador",
+     "x": "Es código del kernel. Guarda por software los registros que va a usar, atiende al dispositivo y deja anotado el trabajo largo para después."
+    },
+    {
+     "t": "Vuelve con IRET",
+     "x": "La instrucción IRET restaura el contador de programa, las banderas y el puntero de pila. El programa sigue como si nada, sin enterarse de que alguien usó la CPU en el medio [#intel-sdm]."
+    }
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Dispositivo",
+       "s": "disco, red, teclado, temporizador",
+       "k": "hw"
+      },
+      {
+       "t": "Controlador",
+       "s": "APIC: elige vector y núcleo",
+       "k": "hw",
+       "e": "señal"
+      },
+      {
+       "t": "CPU",
+       "s": "termina la instrucción y guarda el estado",
+       "k": "cliente",
+       "e": "vector n"
+      }
+     ],
+     "baja": "con el vector n, la CPU consulta la tabla IDT"
+    },
+    {
+     "nodos": [
+      {
+       "t": "IDT",
+       "s": "entrada n: dirección del manejador",
+       "k": "datos"
+      },
+      {
+       "t": "Manejador",
+       "s": "código del kernel, en modo kernel",
+       "k": "os",
+       "e": "salta"
+      },
+      {
+       "t": "IRET",
+       "s": "el programa sigue donde estaba",
+       "k": "ok",
+       "e": "vuelve"
+      }
+     ]
+    }
+   ],
+   "cap": "El camino de una interrupción. Casi todo es hardware; el único software es el manejador."
+  },
+  {
+   "t": "pensa",
+   "x": "¿Por qué la CPU espera a terminar la instrucción en vez de cortarla a la mitad para atender antes?",
+   "resp": "Porque tiene que poder retomar el programa sin ambigüedad. Con una instrucción a medias, con una escritura hecha y otra no, el estado guardado no sería ni «antes» ni «después». Terminarla deja al programa en un punto limpio. Las fallas son el caso especial: la CPU deshace el efecto de la instrucción que falló para poder repetirla."
+  },
+  {
+   "t": "h",
+   "x": "El manejador tiene que ser corto: mitad de arriba y mitad de abajo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mientras el manejador corre, los demás eventos de ese núcleo esperan. Uno lento retrasa el teclado, la red y todo lo demás. Por eso rige una regla de diseño: hacer lo urgente y dejar el resto para después. Lo urgente es avisarle al dispositivo que ya lo atendiste, copiar los datos que no pueden esperar y anotar que queda trabajo pendiente. El trabajo largo se hace después, con las interrupciones otra vez habilitadas.",
+    "La guía del kernel describe la jerarquía en Linux: una CPU puede estar atendiendo una interrupción de hardware, una interrupción de software diferida (*softirq*), código del kernel en nombre de un proceso o un proceso en modo usuario, y cada nivel solo puede ser interrumpido por los de arriba. Una interrupción de hardware puede interrumpir a una softirq; una softirq no interrumpe a otra [#kernel-hacking]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el portón y la playa de descarga",
+   "x": [
+    "Llega un camión. El portero firma el remito y le indica dónde dejar los pallets: es la mitad de arriba, rápida, porque atrás espera otro camión. El acomodo en los estantes lo hace otro equipo, con calma: la mitad de abajo.",
+    "Dónde falla: el portero puede pedir ayuda a un colega. Una CPU no puede acelerar su manejador; solo puede lograr que haga menos."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Linux publica todo esto en archivos de /proc. Lo que sigue lo corrí yo en este entorno (un Linux dentro de una máquina virtual, kernel 6.18). Los contadores son «desde el arranque», así que tus números serán otros."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "uname -srm; nproc",
+     "s": "Linux 6.18.44-fc-v445 x86_64\n4"
+    },
+    {
+     "c": "head -n 1 /proc/interrupts; grep -E 'ttyS0|virtio1-req|virtio3-req|virtio7' /proc/interrupts",
+     "s": "           CPU0       CPU1       CPU2       CPU3       \n 26:          0          0          6          0  IO-APIC   4-edge      ttyS0\n 36:          0          0          0     190544 PCI-MSIX-0000:00:02.0   1-edge      virtio1-req.0\n 40:          0       1758          0          0 PCI-MSIX-0000:00:04.0   1-edge      virtio3-req.0\n 47:          0          0          0          0 PCI-MSIX-0000:00:08.0   0-edge      virtio7-config\n 48:     105406          0          0          0 PCI-MSIX-0000:00:08.0   1-edge      virtio7-input.0\n 49:          0     100459          0          0 PCI-MSIX-0000:00:08.0   2-edge      virtio7-output.0"
+    }
+   ],
+   "cap": "Ejecutado en este entorno: la cabecera (una columna por núcleo) y algunas líneas de dispositivos."
+  },
+  {
+   "t": "p",
+   "x": "Cada línea se lee de izquierda a derecha: número de la fuente; contador de interrupciones por núcleo desde el arranque; controlador por el que llega; número de línea y modo («edge» significa que se activa con el cambio de la señal); nombre del dispositivo. IO-APIC es el camino clásico, con cables. PCI-MSIX es otro: el dispositivo avisa escribiendo un mensaje en una dirección especial, sin cable propio [#kernel-msi-howto]. Mirá estas tres:"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**ttyS0** es un puerto serie usado como consola: solo 6 interrupciones, todas en el núcleo 2.",
+    "**virtio1-req.0**, con 190.544 interrupciones en el núcleo 3, es, por lo que se ve más abajo, un dispositivo de almacenamiento. Los nombres con *virtio* son dispositivos virtuales; en una computadora física verías otros, como nvme (disco) o xhci_hcd (USB).",
+    "**virtio7-input.0** y **virtio7-output.0** son la entrada y la salida de la placa de red, cada una casi entera en un solo núcleo."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "grep -E '^ *(NMI|LOC|RES|CAL|TLB):' /proc/interrupts",
+     "s": "NMI:          0          0          0          0   Non-maskable interrupts\nLOC:      92907      91149      91038      85726   Local timer interrupts\nRES:      50525      52403      57641      47102   Rescheduling interrupts\nCAL:     625245     662361     643545     538368   Function call interrupts\nTLB:       7327       8857       8212       7488   TLB shootdowns"
+    },
+    {
+     "c": "cat /proc/softirqs",
+     "s": "                    CPU0       CPU1       CPU2       CPU3       \n          HI:          0          0          0          0\n       TIMER:      26062      13767      17849      12455\n      NET_TX:          4         10          1          3\n      NET_RX:     119077     112809      11090      13011\n       BLOCK:        145       1985        157     190702\n    IRQ_POLL:          0          0          0          0\n     TASKLET:         50        284          0          1\n       SCHED:      52502      47800      43988      38821\n     HRTIMER:         82         39         21         41\n         RCU:      46742      50752      50479      48895"
+    }
+   ],
+   "cap": "Arriba, las interrupciones internas del sistema; abajo, las softirqs, el trabajo de la «mitad de abajo». Ejecutado en este entorno."
+  },
+  {
+   "t": "p",
+   "x": "Las siglas son interrupciones que no vienen de un dispositivo. Según la página de manual del kernel, **LOC** es la interrupción del temporizador local, **RES** la de replanificación, **CAL** la llamada de función remota y **TLB** el vaciado de una memoria rápida de traducción (tema del [@02-09]) [#man7-proc-interrupts]. **NMI**, la que la CPU no puede bloquear, tiene cero acá. LOC es la protagonista de la próxima sección."
+  },
+  {
+   "t": "p",
+   "x": "En /proc/softirqs se ve la mitad de abajo. **BLOCK** tiene 190.702 en el núcleo 3, casi igual a las 190.544 interrupciones de virtio1-req.0: cada aviso del disco dejó un trabajo para después (leí los dos archivos uno tras otro, por eso difieren un poco). **NET_RX** y **NET_TX** son red; **TIMER** y **HRTIMER**, temporizadores vencidos; **SCHED**, tareas del planificador. El significado exacto de cada una está en el código del kernel; acá me guío por los nombres."
+  },
+  {
+   "t": "h",
+   "x": "El temporizador: el corazón del sistema operativo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Todo lo anterior es reactivo: la CPU interrumpe cuando un dispositivo habla. Pero para repartir la CPU hace falta un evento que ocurra aunque nadie diga nada. Esa es la tarea del [[temporizador|temporizador]]: un componente de hardware que cuenta tiempo y dispara una interrupción cuando llega a cero. El kernel lo programa para que suene a intervalos regulares. Ya lo viste: es LOC, con una columna por núcleo porque cada uno tiene el suyo.",
+    "Cada disparo se llama *tick*. En el código del kernel, la rutina que atiende al temporizador le carga un tick de tiempo al proceso en ejecución y llama a la función del planificador que revisa su turno [#linux-timer-c]. Si el proceso agotó el [[quantum|quantum]] del [@02-06], el planificador marca que hay que cambiarlo y, al terminar la interrupción, el kernel pasa la CPU a otro. Esa es la [[expropiación|expropiación]]: el programa nunca decidió soltar la CPU, se la sacaron."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "¿Cada cuánto suena? Depende de cómo se compiló el kernel. La configuración del de este entorno está disponible:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "zcat /proc/config.gz | grep -E '^CONFIG_HZ(_[0-9]+)?=|^CONFIG_NO_HZ_(IDLE|FULL)=|^CONFIG_HIGH_RES_TIMERS='",
+     "s": "CONFIG_NO_HZ_IDLE=y\nCONFIG_HIGH_RES_TIMERS=y\nCONFIG_HZ_250=y\nCONFIG_HZ=250"
+    }
+   ],
+   "cap": "Configuración del kernel de este entorno. HZ son los ticks por segundo."
+  },
+  {
+   "t": "p",
+   "x": "HZ = 250 significa 250 ticks por segundo, uno cada 4 milisegundos. Es una decisión de compilación (este kernel ofrece 100, 250, 300 y 1000): más ticks reaccionan más rápido pero gastan más tiempo en interrupciones. NO_HZ_IDLE indica que un núcleo ocioso no recibe ticks: la documentación del kernel dice que un equipo a batería con ticks periódicos podría gastarla entre 2 y 3 veces más rápido [#kernel-no-hz]. HIGH_RES_TIMERS permite temporizadores más finos que el tick, de ahí la fila HRTIMER."
+  },
+  {
+   "t": "p",
+   "x": "Ahora la prueba. Un script lee la fila LOC dos veces y calcula cuántas interrupciones por segundo recibió cada núcleo. Lo corrí con todo tranquilo y con un bucle infinito fijado al núcleo 1."
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import sys, time\n\ndef leer_loc():\n    \"\"\"Devuelve cuántas interrupciones del temporizador local lleva cada CPU.\"\"\"\n    for linea in open('/proc/interrupts'):\n        if linea.lstrip().startswith('LOC:'):\n            return [int(x) for x in linea.split()[1:5]]    # las 4 columnas de CPU\n\nespera = float(sys.argv[1])                                  # segundos a observar\nantes = leer_loc()\nt0 = time.time()\ntime.sleep(espera)\ndespues = leer_loc()\ndt = time.time() - t0\npor_segundo = [(b - a) / dt for a, b in zip(antes, despues)]\nprint(' '.join(f'CPU{i}: {v:6.1f}/s' for i, v in enumerate(por_segundo)), f'(ventana {dt:.1f} s)')",
+   "cap": "loc.py: mide las interrupciones del temporizador local por segundo en cada uno de los 4 núcleos. Lo escribí y lo corrí en este entorno."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un bucle infinito de verdad, con red de seguridad",
+   "x": "El comando de abajo es un bucle que no termina nunca. Lleva `timeout`, que lo mata a los 11 segundos, y `taskset -c 1`, que lo fija a un solo núcleo. Si probás un bucle infinito propio, ponele siempre un límite y tené a mano Ctrl+C. En una computadora ajena o compartida, no lo corras."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 loc.py 10",
+     "s": "CPU0:  179.7/s CPU1:  190.9/s CPU2:  186.6/s CPU3:  170.9/s (ventana 10.0 s)"
+    },
+    {
+     "c": "(taskset -c 1 timeout 11 sh -c 'while :; do :; done' &); sleep 0.5; python3 loc.py 10",
+     "s": "CPU0:  132.2/s CPU1:  250.3/s CPU2:  166.4/s CPU3:  166.6/s (ventana 10.0 s)"
+    }
+   ],
+   "cap": "Ejecutado en este entorno. El núcleo 1, con el bucle girando, recibe 250 interrupciones por segundo, igual que HZ."
+  },
+  {
+   "t": "p",
+   "x": "Dos resultados. El núcleo 1, ocupado al 100 %, recibió 250,3 interrupciones por segundo: el HZ de la configuración. La sorpresa: los núcleos sin bucle no bajaron a cero, quedaron entre 130 y 190 por segundo, aunque la documentación dice que un núcleo ocioso en NO_HZ no recibe ticks. No investigué la causa; una hipótesis es que, en una máquina virtual con otras actividades, otros temporizadores despiertan a los núcleos. Lo que importa queda claro: el núcleo ocupado recibe el tick a ritmo fijo."
+  },
+  {
+   "t": "h",
+   "x": "Por qué un bucle infinito no cuelga la máquina"
+  },
+  {
+   "t": "p",
+   "x": "Con las piezas ya se puede contestar la pregunta del principio. Un programa en bucle infinito gasta todo su turno, pero a los 4 ms suena el temporizador, la CPU salta al manejador, el planificador ve que se agotó el quantum y le da la CPU a otro. El programa no puede evitarlo. Tampoco puede apagar el temporizador: para bloquear las interrupciones tendría que ejecutar la instrucción CLI, y según Intel esa instrucción provoca una falla de protección si la ejecuta código sin privilegio [#intel-sdm]. Lo comprobé con un proceso hijo, para que el padre informe qué pasó:"
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <stdio.h>\n#include <string.h>\n#include <sys/wait.h>\n#include <unistd.h>\n\nint main(void) {\n    pid_t hijo = fork();\n    if (hijo == 0) {\n        __asm__ volatile(\"cli\");        /* intenta apagar las interrupciones desde modo usuario */\n        printf(\"cli ejecutada sin problema\\n\");\n        return 0;\n    }\n    int estado;\n    waitpid(hijo, &estado, 0);\n    if (WIFSIGNALED(estado))\n        printf(\"el hijo murio por la senal %d (%s)\\n\", WTERMSIG(estado), strsignal(WTERMSIG(estado)));\n    else\n        printf(\"el hijo termino normalmente\\n\");\n    return 0;\n}",
+   "cap": "cli.c: un proceso hijo intenta apagar las interrupciones desde modo usuario. Lo compilé y lo corrí en este entorno."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -o cli cli.c && ./cli",
+     "s": "el hijo murio por la senal 11 (Segmentation fault)"
+    }
+   ],
+   "cap": "Ejecutado en este entorno. La falla de protección (vector 13) llega al kernel, que la convierte en la señal SIGSEGV y termina al hijo."
+  },
+  {
+   "t": "p",
+   "x": "Es lo que prometía el [@02-02]: el modo usuario no toca las interrupciones. El intento fue una excepción; el kernel la atendió y terminó al culpable con una señal. El resto del sistema ni se enteró."
+  },
+  {
+   "t": "p",
+   "x": "Falta ver el reparto en acción. El programa spin.c gira 3 segundos de reloj sin ninguna llamada que bloquee y al final informa cuánta CPU recibió y cuántas veces el kernel se la quitó de manera involuntaria (el contador *nonvoluntary_ctxt_switches* de /proc/self/status). Lancé dos copias fijadas al mismo núcleo, para que tuvieran que compartirlo."
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <stdio.h>\n#include <string.h>\n#include <time.h>\n#include <unistd.h>\n\nstatic double now(clockid_t c) {\n    struct timespec t;\n    clock_gettime(c, &t);\n    return t.tv_sec + t.tv_nsec / 1e9;\n}\n\nint main(int argc, char **argv) {\n    double fin = now(CLOCK_MONOTONIC) + 3.0;   /* gira 3 segundos de reloj */\n    volatile unsigned long vueltas = 0;\n    while (now(CLOCK_MONOTONIC) < fin)\n        vueltas++;                              /* bucle sin llamadas que bloqueen */\n    char linea[128];\n    FILE *f = fopen(\"/proc/self/status\", \"r\");\n    long invol = -1;\n    while (fgets(linea, sizeof linea, f))\n        if (sscanf(linea, \"nonvoluntary_ctxt_switches: %ld\", &invol) == 1) break;\n    fclose(f);\n    printf(\"%s: CPU usada %.2f s de 3.00 s de reloj, expropiado %ld veces\\n\",\n           argv[1], now(CLOCK_PROCESS_CPUTIME_ID), invol);\n    return 0;\n}",
+   "cap": "spin.c: un bucle ocupado de 3 segundos que informa su tiempo de CPU y sus expropiaciones. Lo corrí en este entorno."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -O1 -o spin spin.c && (taskset -c 3 ./spin A & taskset -c 3 ./spin B & wait)",
+     "s": "B: CPU usada 1.50 s de 3.00 s de reloj, expropiado 377 veces\nA: CPU usada 1.50 s de 3.00 s de reloj, expropiado 375 veces"
+    }
+   ],
+   "cap": "Ejecutado en este entorno. Dos bucles que no sueltan jamás la CPU, compartiendo un solo núcleo."
+  },
+  {
+   "t": "p",
+   "x": "Cada programa recibió 1,50 s de los 3,00 que pasaron: el planificador los repartió en partes iguales. Entre los dos, el kernel los expropió unas 750 veces en 3 segundos, alrededor de 250 por segundo, el ritmo del tick. Es consistente con la explicación de hoy, aunque esta medición sola no descarta otras causas. Lo que sí demuestra es que dos bucles que no cooperan igual comparten la máquina."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si un programa se cuelga, se cuelga la computadora»",
+   "x": "Un programa colgado en modo usuario deja de responder él, no la máquina. El sistema sigue repartiendo la CPU, y por eso podés abrir el administrador de tareas y cerrarlo. El mito viene de sistemas en los que el SO dependía de que cada programa cediera la CPU, y de la sensación de que todo está trabado cuando se congela una ventana."
+  },
+  {
+   "t": "p",
+   "x": [
+    "¿Entonces una máquina nunca se cuelga por software? Se cuelga, pero por otras razones. Un bucle infinito dentro del **kernel** (un error en un driver) con las interrupciones apagadas no puede ser interrumpido por nadie: ese núcleo queda tomado. Por eso Linux incluye vigilantes de núcleos atascados; en su documentación de parámetros aparecen *watchdog* y *softlockup_panic* [#kernel-sysctl-admin].",
+    "En el teléfono, la versión cotidiana es el cartel «la app no responde». Según Android, el sistema lo muestra cuando una app no contesta a un evento de entrada (una tecla o un toque) en 5 segundos [#android-anr]. Lo trabado es la app; el teléfono y su planificador siguen funcionando, tanto que pueden mostrarte el cartel."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El recorrido de una tecla o un toque hasta tu programa"
+  },
+  {
+   "t": "p",
+   "x": "Juntemos las piezas en un caso concreto: un toque en la pantalla de un teléfono Android. Los pasos de entrada al sistema y la entrega a la app están documentados por Android [#android-input]. En un teléfono con procesador ARM cambian los nombres de algunas piezas (el controlador de interrupciones, la tabla de vectores), pero la estructura es la misma. Avanzá paso a paso."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Tu dedo",
+     "k": "neutro"
+    },
+    {
+     "n": "Chip táctil",
+     "k": "hw"
+    },
+    {
+     "n": "CPU y kernel",
+     "k": "os"
+    },
+    {
+     "n": "Sistema de entrada",
+     "k": "datos"
+    },
+    {
+     "n": "Tu app",
+     "k": "cliente"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "Tocás la pantalla",
+     "d": "El chip del panel mide el cambio eléctrico que produce tu dedo y calcula en qué punto fue. Todavía no intervino ningún programa."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "Levanta la señal de interrupción",
+     "d": "La CPU termina la instrucción en curso (de cualquier programa que estuviera corriendo), guarda su estado, pasa a modo kernel y salta al manejador por la tabla de vectores."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "El driver pregunta qué pasó",
+     "d": "El manejador forma parte del driver del chip. Le pide los datos por el bus que los une; Android menciona un bus I2C como ejemplo típico de pantallas táctiles."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "Devuelve la posición del toque",
+     "resp": true,
+     "d": "Llegan las coordenadas. Hasta acá todo es específico del chip."
+    },
+    {
+     "de": 2,
+     "a": 2,
+     "t": "Lo traduce a un evento estándar",
+     "d": "El driver convierte los datos al formato del protocolo de entrada de Linux, para que lo de arriba no necesite conocer cada chip. El manejador termina, la CPU vuelve con IRET y el programa interrumpido sigue."
+    },
+    {
+     "de": 2,
+     "a": 3,
+     "t": "Publica el evento para que alguien lo lea",
+     "d": "En Android, un componente llamado EventHub lee los eventos del kernel y otro, InputReader, los decodifica y los convierte en eventos de Android."
+    },
+    {
+     "de": 3,
+     "a": 4,
+     "t": "Reparte el evento a la ventana correcta",
+     "d": "El InputDispatcher de Android elige qué ventana recibe el toque y se lo envía. Desde acá estás en el terreno de la app."
+    },
+    {
+     "de": 4,
+     "a": 4,
+     "t": "Tu app reacciona y redibuja",
+     "d": "El código de la app corre en su hilo principal. Si tarda más de 5 segundos en contestar el evento, el sistema muestra el cartel de «no responde»."
+    },
+    {
+     "de": 4,
+     "a": 0,
+     "t": "Ves el cambio en pantalla",
+     "resp": true,
+     "d": "Entre el toque y el cambio hubo una interrupción, un driver, un sistema de entrada y tu app."
+    }
+   ],
+   "cap": "Un toque en un teléfono Android, de la interrupción a tu app. Las líneas punteadas son respuestas."
+  },
+  {
+   "t": "senda",
+   "titulo": "El mismo patrón, en otra capa: los relojes de Senda",
+   "x": [
+    "Senda no programa interrupciones de hardware, pero usa la misma idea un nivel más arriba: un reloj externo despierta código a intervalos fijos sin que nadie vigile el tiempo. En su base de datos hay tres tareas con la extensión pg_cron. Según el código, `senda_enviar_avisos` corre cada minuto (entrega los avisos «Te toca jugar» del [@00-02]), `senda_cerrar_vencidas` cada 15 minutos y `senda_limpiar_viejo` una vez por día.",
+    "La diferencia con el tick es de escala: el reloj de Senda actúa cada 60 segundos o más y lo hace la aplicación; el tick actúa cada 4 milisegundos y lo hace el hardware. Por eso el aviso al rival llega en menos de un minuto y no al instante. Verificado en el código el 13-11-2026; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "supabase/migrations/20261109000000_limpieza.sql"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué puede cambiar (verificado el 13-11-2026)",
+   "x": "Lo permanente: las interrupciones fuerzan a la CPU a entrar al kernel y el temporizador permite expropiar. Lo que cambia: el valor de HZ (250 en este kernel, se elige al compilar; no verifiqué el de los teléfonos), la entrada al kernel (Intel agregó un mecanismo nuevo, FRED, que según el volumen 3A reemplaza la tabla de vectores en los procesadores que lo soportan) y las capas de entrada de Android. Lo de /proc corresponde a un kernel Linux 6.18."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un kernel con HZ = 250 corre en 4 núcleos trabajando al 100 %. (1) ¿Cuántos ticks recibe cada núcleo en un minuto, y la máquina entera? (2) ¿Y con HZ = 1000, cada cuántos milisegundos? (3) La fila LOC de un núcleo marca 41.000 y diez segundos después 42.700: ¿cuántos ticks por segundo? ¿Coincide con HZ = 250? ¿Qué lo explica?",
+   "pista": "El período es 1000 ms dividido por HZ. En (3), restá los contadores y dividí por 10.",
+   "solucion": "(1) 250 × 60 = 15.000 por núcleo y por minuto; entre los 4, 60.000. (2) Con HZ = 1000, un tick cada 1 ms (cuatro veces más interrupciones). (3) 42.700 − 41.000 = 1.700 en 10 s: 170 por segundo. No llega a 250 porque el núcleo no estuvo ocupado todo el tiempo: con NO_HZ_IDLE un núcleo ocioso saltea ticks (algo parecido, aunque menos marcado, pasó en la medición de hoy)."
+  }
+ ],
+ "recap": [
+  "Una **interrupción** es una señal de hardware que obliga a la CPU a dejar lo que hace, atender un asunto en el kernel y volver al mismo punto. Evita gastar CPU en preguntar (sondeo).",
+  "Interrupciones (vienen de afuera), excepciones (nacen de la instrucción) y llamadas al sistema (las pide el programa) son tres puertas al kernel. Una falla repite la instrucción; una trampa sigue con la siguiente.",
+  "La CPU termina la instrucción, guarda el estado, usa el vector como índice en la IDT, salta al manejador y vuelve con IRET. El manejador es corto: el trabajo largo se difiere.",
+  "El **temporizador** interrumpe a cada núcleo a ritmo fijo (HZ = 250 en este kernel: un tick cada 4 ms) y le permite al planificador expropiar la CPU.",
+  "Un bucle infinito en modo usuario no cuelga la máquina: no puede apagar las interrupciones (CLI da una falla de protección) y el tick lo interrumpe igual. Un error en el kernel con interrupciones apagadas sí cuelga un núcleo."
+ ],
+ "repaso": [
+  {
+   "p": "¿Qué diferencia a una interrupción de hardware de una excepción?",
+   "o": [
+    "La interrupción viene de afuera y puede llegar en cualquier momento; la excepción nace de la instrucción que se está ejecutando",
+    "La interrupción siempre termina al programa; la excepción siempre deja que el programa siga como si no hubiera pasado nada",
+    "La interrupción la usan solo los discos y la excepción solo el teclado y el mouse, porque cada dispositivo usa la suya",
+    "No hay diferencia: son dos nombres para la misma señal eléctrica y el kernel las trata exactamente igual"
+   ],
+   "c": 0,
+   "e": "La interrupción es asincrónica y externa; la excepción es sincrónica y la causa la propia instrucción (una división por cero, un acceso prohibido). La segunda opción exagera: ninguna termina siempre al programa. La tercera y la cuarta confunden el origen con el dispositivo o niegan la diferencia."
+  },
+  {
+   "p": "Llega una interrupción cuando la CPU está a mitad de una instrucción de un programa. ¿Qué hace primero la CPU?",
+   "o": [
+    "Descarta la instrucción a medias, atiende la interrupción y la repite después desde cero siempre",
+    "Termina la instrucción en curso, guarda el estado del programa y salta al manejador que indica la tabla",
+    "Pone en pausa a todos los demás núcleos hasta que el programa interrumpido llame al kernel",
+    "Espera a que el programa haga una llamada al sistema para aprovechar que ya está en modo kernel"
+   ],
+   "c": 1,
+   "e": "Las interrupciones se atienden entre instrucciones, y para poder volver sin ambigüedad se guarda el estado y se salta al manejador de la IDT. Descartar la instrucción es el caso de las fallas, no de las interrupciones; no se pausan otros núcleos ni se espera al programa."
+  },
+  {
+   "p": "Un kernel está configurado con HZ = 250 y un núcleo está ocupado al 100 %. ¿Cuántas interrupciones del temporizador recibe ese núcleo, y cada cuánto?",
+   "o": [
+    "250 por segundo, una cada 25 milisegundos",
+    "4 por segundo, una cada 250 milisegundos",
+    "1.000 por segundo, una cada 1 milisegundo",
+    "250 por segundo, una cada 4 milisegundos"
+   ],
+   "c": 3,
+   "e": "HZ indica ticks por segundo: 250 ticks se reparten en 1000 ms, uno cada 4 ms. Los 25 ms salen de dividir mal; los 250 ms de confundir el HZ con el período; los 1000 por segundo corresponden a HZ = 1000."
+  },
+  {
+   "p": "Un programa en modo usuario entra en un bucle infinito. ¿Por qué el resto del sistema sigue respondiendo?",
+   "o": [
+    "Porque la CPU detecta que el bucle no avanza y lo detiene sola después de unos segundos",
+    "Porque el temporizador interrumpe a la CPU cada pocos milisegundos y el planificador puede darle el turno a otro proceso",
+    "Porque el sistema operativo reserva siempre un núcleo exclusivo para los programas que no terminan",
+    "Porque el bucle corre en una zona de memoria que el planificador no tiene permiso para ver"
+   ],
+   "c": 1,
+   "e": "El tick del temporizador devuelve el control al kernel sin permiso del programa, y el planificador reparte la CPU. La CPU no detecta bucles, no existe un núcleo reservado para ellos y el planificador no necesita ver la memoria del programa para quitarle la CPU."
+  },
+  {
+   "p": "Un programa común intenta ejecutar la instrucción CLI para apagar las interrupciones y así no ser expropiado. ¿Qué ocurre?",
+   "o": [
+    "Funciona durante un quantum y después el planificador lo revierte automáticamente",
+    "Se ignora en silencio y el programa sigue como si la instrucción no existiera",
+    "Funciona, y desde ese momento el programa es el único que usa la CPU",
+    "La CPU genera una falla de protección y el kernel termina al programa con una señal"
+   ],
+   "c": 3,
+   "e": "En modo usuario, CLI provoca una falla de protección (#GP); en Linux el kernel la convierte en SIGSEGV y termina al proceso, como se vio en el experimento. Ni se ignora ni funciona: apagar interrupciones es una operación reservada al kernel."
+  },
+  {
+   "p": "¿Por qué un manejador de interrupción hace solo lo urgente y deja el resto del trabajo para después?",
+   "o": [
+    "Porque los manejadores tienen prohibido escribir en memoria y deben pedirle a otro componente que lo haga",
+    "Porque mientras corre, los demás eventos de ese núcleo esperan, y un manejador largo retrasaría al teclado, la red y todo lo demás",
+    "Porque el hardware corta automáticamente cualquier manejador que dure más de diez instrucciones",
+    "Porque el trabajo diferido corre en modo usuario, que es más seguro que el modo kernel"
+   ],
+   "c": 1,
+   "e": "Un manejador lento demora a todos los eventos que esperan detrás. Los manejadores sí pueden escribir en memoria, no hay un corte a las diez instrucciones, y el trabajo diferido (softirq) también corre en modo kernel."
+  },
+  {
+   "p": "Una app de Android no contesta a un toque durante más de 5 segundos y el teléfono muestra el cartel «la app no responde». ¿Qué describe mejor la situación?",
+   "o": [
+    "El kernel se colgó y el cartel lo dibuja un circuito de emergencia",
+    "El hilo principal de la app está bloqueado; el sistema operativo sigue funcionando y por eso puede mostrar el cartel",
+    "La interrupción del toque se perdió en el camino y el kernel no la entregó a ninguna app",
+    "El temporizador del kernel dejó de funcionar, así que el planificador ya no puede quitarle la CPU a la app"
+   ],
+   "c": 1,
+   "e": "El cartel lo muestra el propio sistema, que sigue vivo: lo bloqueado es la app, que no atiende su evento a tiempo. Un kernel colgado no podría dibujar nada, el toque sí llegó (si no, no habría un evento sin responder) y con el temporizador roto todo el teléfono estaría trabado."
+  }
+ ],
+ "feynman": "Explicale a alguien que escribió un programa con un bucle infinito por error por qué su computadora sigue funcionando y qué pieza de hardware le permite al sistema recuperar la CPU, sin usar la palabra «interrupción» más de una vez.",
+ "para_profundizar": [
+  {
+   "fuente": "intel-sdm",
+   "nota": "El volumen 3A, capítulo 7 («Interrupt and Exception Handling»), es la fuente primaria de los vectores, las fallas y trampas, la IDT y el comportamiento de IRET que usaste hoy."
+  },
+  {
+   "fuente": "ostep",
+   "nota": "El capítulo «Mechanism: Limited Direct Execution» cuenta el mismo problema, cómo el SO recupera la CPU con una interrupción de temporizador. Es la lectura natural después de hoy."
+  },
+  {
+   "fuente": "kernel-no-hz",
+   "nota": "La documentación del kernel sobre NO_HZ explica por qué un núcleo ocioso no debería recibir ticks y cómo se configura; complementa la sección del temporizador."
+  },
+  {
+   "fuente": "android-input",
+   "nota": "El resumen oficial de Android sobre cómo un evento de entrada sube del hardware a la app, con los nombres EventHub, InputReader e InputDispatcher del diagrama de secuencia."
+  }
+ ],
+ "videos": [
+  {
+   "q": "interrupciones de hardware explicación vector de interrupciones IDT sistema operativo",
+   "por_que": "Para ver animado el recorrido de la señal hasta el manejador y la vuelta con IRET."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "interrupción",
+   "d": "Señal de hardware que obliga a la CPU a suspender lo que hace, ejecutar un manejador del kernel y luego continuar donde había quedado el programa interrumpido."
+  },
+  {
+   "t": "manejador de interrupción",
+   "d": "Código del kernel que atiende una interrupción o excepción: la CPU lo localiza por el número de vector en la IDT, lo corre en modo kernel y vuelve con IRET."
+  },
+  {
+   "t": "excepción",
+   "d": "Evento que la CPU detecta mientras ejecuta una instrucción (división por cero, acceso prohibido, fallo de página) y que transfiere el control al kernel; puede ser una falla, una trampa o un aborto."
+  },
+  {
+   "t": "temporizador",
+   "d": "Componente de hardware que cuenta tiempo y dispara una interrupción periódica; el kernel lo usa para que el planificador pueda quitarle la CPU a un programa que no la suelta."
+  },
+  {
+   "t": "vector de interrupción",
+   "d": "Número de 0 a 255 que identifica la causa de una interrupción o excepción y sirve de índice en la tabla IDT para encontrar su manejador."
+  },
+  {
+   "t": "tick",
+   "d": "Cada disparo periódico del temporizador del kernel; HZ indica cuántos ocurren por segundo (250 en el kernel de este entorno, uno cada 4 ms)."
+  },
+  {
+   "t": "sondeo",
+   "d": "Técnica en la que el programa pregunta una y otra vez si un dispositivo tiene algo para informar, en lugar de esperar a que el dispositivo interrumpa."
+  }
+ ],
+ "siguiente": "la memoria virtual: cómo cada programa cree que tiene toda la memoria para él solo, y qué piezas del hardware y del kernel fabrican esa ilusión.",
+ "fuentes_nuevas": [
+  {
+   "id": "kernel-no-hz",
+   "t": "NO_HZ: Reducing Scheduling-Clock Ticks",
+   "a": "The Linux Kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/timers/no_hz.html"
+  },
+  {
+   "id": "kernel-hacking",
+   "t": "Unreliable Guide To Hacking The Linux Kernel",
+   "a": "The Linux Kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/kernel-hacking/hacking.html"
+  },
+  {
+   "id": "kernel-msi-howto",
+   "t": "The MSI Driver Guide HOWTO",
+   "a": "The Linux Kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/PCI/msi-howto.html"
+  },
+  {
+   "id": "man7-proc-interrupts",
+   "t": "proc_interrupts(5)",
+   "a": "Linux man-pages (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man5/proc_interrupts.5.html"
+  },
+  {
+   "id": "android-input",
+   "t": "Input (subsistema de entrada de Android)",
+   "a": "Android Open Source Project",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/core/interaction/input"
+  },
+  {
+   "id": "android-anr",
+   "t": "ANR (La aplicación no responde)",
+   "a": "Android Developers",
+   "tipo": "doc",
+   "url": "https://developer.android.com/topic/performance/vitals/anr"
+  },
+  {
+   "id": "kernel-napi",
+   "t": "NAPI",
+   "a": "The Linux Kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/networking/napi.html"
+  },
+  {
+   "id": "linux-timer-c",
+   "t": "kernel/time/timer.c (código fuente del kernel de Linux)",
+   "a": "kernel.org",
+   "tipo": "doc",
+   "url": "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/time/timer.c"
+  },
+  {
+   "id": "kernel-sysctl-admin",
+   "t": "Documentation for /proc/sys/kernel/",
+   "a": "The Linux Kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/admin-guide/sysctl/kernel.html"
+  }
+ ]
+}

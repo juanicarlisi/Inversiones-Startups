@@ -1,0 +1,630 @@
+{
+ "id": "02-22",
+ "titulo": "Concurrencia en el SO: carreras, mutex y deadlocks",
+ "bajada": "Reproducís un contador que pierde cuentas, lo arreglás con un mutex y colgás un programa a propósito para entender por qué se traba y cómo se evita.",
+ "minutos": 30,
+ "vigencia": "principio",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es una condición de carrera y por qué un incremento tan simple como contador++ puede perder cuentas.",
+  "Identificar la sección crítica de un programa y protegerla con un mutex, sabiendo qué cuesta y qué no resuelve.",
+  "Enumerar las cuatro condiciones del deadlock y reconocerlas en un caso de dos operarios y dos pallets.",
+  "Aplicar al menos una estrategia de prevención (orden fijo de candados) y distinguir deadlock de inanición.",
+  "Usar una simulación sin hilos para ver todos los resultados posibles de una intercalación."
+ ],
+ "venis_de": "Ya sabés que un proceso puede tener varios hilos que comparten memoria ([@02-05]) y que el planificador los alterna y los puede interrumpir en cualquier momento ([@02-06], [@02-07]). Hoy aparece el costo de compartir: qué se rompe cuando dos hilos tocan el mismo dato.",
+ "se_apoya_en": [
+  "02-05",
+  "02-06",
+  "02-07"
+ ],
+ "gancho": [
+  "En un depósito, la ficha de stock de un producto dice 10 unidades. Dos operarios la consultan casi a la vez. Uno despacha 3 y escribe «7». El otro, que había leído «10» antes de que el primero escribiera, despacha 2 y escribe «8». Se vendieron 5 unidades y la ficha dice 8: faltan tres en los papeles. Nadie se equivocó en la cuenta. El error está en el orden en que se cruzaron las lecturas y las escrituras.",
+  "Eso mismo les pasa a los programas. Hoy lo vas a reproducir con un programa real: dos hilos suman 1.000.000 de veces cada uno a un mismo contador, y el resultado debería ser 2.000.000. En la máquina donde lo corrí dio cerca de 1.000.000, y distinto cada vez. Después lo arreglás, lo colgás a propósito y aprendés a reconocer los dos fallos más clásicos de la concurrencia en el sistema operativo."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Dos operarios, una ficha"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá la ficha de stock con calma, porque tiene la anatomía de todo el problema. Actualizar el stock son **tres pasos**: leer el valor, calcular el nuevo y escribirlo. Cada operario hace los tres, pero si los pasos de uno se mezclan con los del otro, el resultado depende del orden. Cuando eso ocurre se llama [[condición de carrera|condición de carrera]]: el resultado de un programa depende del orden relativo en que se ejecutan las operaciones de varios flujos que tocan el mismo dato, y al menos uno de ellos lo modifica.",
+    "El nombre viene de que los flujos «corren una carrera» y el orden de llegada decide el resultado. La palabra clave es **compartido**: si cada hilo trabajara con sus propios datos no habría nada que cruzar. Y la palabra que más se subestima es **al menos uno modifica**: si todos solo leen, no pasa nada."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "La ficha dice 10. El operario A despacha 3 y el B despacha 2, cada uno con el ciclo leer-calcular-escribir. ¿Qué valores finales puede mostrar la ficha según cómo se crucen?",
+   "resp": "Puede quedar en 5 (si uno termina antes de que el otro lea, que es lo correcto), en 7 (si A escribe último, después de que B leyó el 10) o en 8 (si B escribe último). Los tres son posibles; solo uno es correcto."
+  },
+  {
+   "t": "h",
+   "x": "Reproducirlo con un programa real"
+  },
+  {
+   "t": "p",
+   "x": "Este programa en C crea dos hilos con la biblioteca `pthread` (la interfaz estándar de hilos en Linux). Cada hilo suma 1 al mismo contador un millón de veces. Primero sin protección, tres veces; después con un candado, tres veces."
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <stdio.h>\n#include <pthread.h>\n\n#define VUELTAS 1000000\n\nvolatile long contador = 0;          /* compartido por los dos hilos */\npthread_mutex_t cerrojo = PTHREAD_MUTEX_INITIALIZER;\n\nvoid *sin_proteccion(void *arg) {\n    for (int i = 0; i < VUELTAS; i++)\n        contador++;                  /* leer, sumar 1, escribir: tres pasos */\n    return NULL;\n}\n\nvoid *con_mutex(void *arg) {\n    for (int i = 0; i < VUELTAS; i++) {\n        pthread_mutex_lock(&cerrojo);    /* entra uno solo */\n        contador++;\n        pthread_mutex_unlock(&cerrojo);  /* sale y deja pasar al otro */\n    }\n    return NULL;\n}\n\nvoid correr(const char *nombre, void *(*f)(void *)) {\n    pthread_t a, b;\n    contador = 0;\n    pthread_create(&a, NULL, f, NULL);\n    pthread_create(&b, NULL, f, NULL);\n    pthread_join(a, NULL);\n    pthread_join(b, NULL);\n    printf(\"%-14s esperado=%d obtenido=%ld\\n\", nombre, 2 * VUELTAS, contador);\n}\n\nint main(void) {\n    for (int k = 0; k < 3; k++) correr(\"sin protección\", sin_proteccion);\n    for (int k = 0; k < 3; k++) correr(\"con mutex\", con_mutex);\n    return 0;\n}\n",
+   "cap": "carrera.c, compilado con `gcc -O1 -Wall -pthread -o carrera carrera.c`. El `volatile` solo le pide al compilador que no guarde el contador en un registro; no protege nada de la concurrencia."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./carrera",
+     "s": "sin protección esperado=2000000 obtenido=1000000\nsin protección esperado=2000000 obtenido=1018770\nsin protección esperado=2000000 obtenido=1003694\ncon mutex      esperado=2000000 obtenido=2000000\ncon mutex      esperado=2000000 obtenido=2000000\ncon mutex      esperado=2000000 obtenido=2000000"
+    }
+   ],
+   "cap": "Salida real, en un contenedor Linux con 4 núcleos. Los números de la parte sin protección cambian en cada corrida: en otra corrida obtuve 1033190, 998329 y 1100539."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Se perdió casi la mitad de las cuentas, y el resultado cambia en cada ejecución. Eso es típico de una carrera: no es un error fijo, es un error que depende del momento. Dos aclaraciones sobre esta máquina: el número exacto depende del procesador y del compilador, y que el contador perdiera tanto es particular de este experimento, con dos hilos que no hacen otra cosa que pelear por la misma variable. En un programa real el error suele ser más raro y por eso más difícil de encontrar.",
+    "¿Por qué pasa? Porque `contador++` parece un solo paso y no lo es. Desensamblé el programa compilado (`objdump -d`) y el bucle del hilo quedó así:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "objdump -d carrera --no-show-raw-insn   # solo el bucle de sin_proteccion",
+     "s": "11f2:\tmov    0x2e6f(%rip),%rax        # leer contador en un registro\n11f9:\tadd    $0x1,%rax                # sumarle 1 en el registro\n11fd:\tmov    %rax,0x2e64(%rip)        # escribir el registro en contador\n1204:\tsub    $0x1,%edx                # (bucle) una vuelta menos\n1207:\tjne    11f2 <sin_proteccion+0x9>  # (bucle) volver al principio"
+    }
+   ],
+   "cap": "Salida real, recortada y con comentarios agregados por mí a la derecha. Son las mismas tres instrucciones de leer, sumar y escribir de la ficha de stock."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Son los tres pasos de la ficha de stock, ahora como [[instrucciones|instrucción]] de la CPU, y no hay nada que haga que las tres se ejecuten sin que otra cosa se cuele en el medio. En un procesador con varios núcleos, dos hilos ejecutan sus instrucciones **literalmente al mismo tiempo**. Y aunque hubiera un solo núcleo, el [[planificador]] puede sacarle la CPU a un hilo entre dos instrucciones cualquiera, por una [[interrupción]] del temporizador ([@02-07]). Si el hilo 1 lee un 41, lo cortan, el hilo 2 lee el mismo 41, y los dos escriben un 42, falta una suma.",
+    "Un detalle que confunde: si en el código sacás el `volatile`, el compilador mantiene el contador en un registro durante todo el bucle y escribe una sola vez al final. Lo probé: el resultado pasa a ser 1.000.000 en las tres corridas, por una razón distinta (cada hilo termina pisando al otro con su valor final). Moraleja: un resultado incorrecto no siempre se ve igual, y «el compilador lo hizo distinto» no es una solución."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Que no falle no prueba que esté bien",
+   "x": [
+    "Hice el mismo experimento en Python 3.13 con `threading`, un millón de `contador += 1` en cada uno de dos hilos. Las tres veces dio 2.000.000, y lo repetí bajando el intervalo de cambio de hilo con `sys.setswitchinterval(1e-6)`: también dio exacto. Sin embargo, la documentación oficial de Python lista `i = i+1` entre las operaciones que **no** son atómicas [#python-faq-hilos-atomicos]. Y el desensamblado del bytecode muestra que la suma son cuatro instrucciones separadas (`LOAD_GLOBAL`, `LOAD_CONST`, `BINARY_OP`, `STORE_GLOBAL`).",
+    "La explicación probable es que esta versión de CPython tiene un candado global (el GIL) y solo ofrece cambiar de hilo en ciertos puntos, y ninguno cayó justo ahí en mis pruebas. Es una explicación, no una garantía: el error sigue siendo posible en teoría, y cambia de versión en versión. Un programa con carrera que «anda» es peor que uno que falla, porque falla más tarde y en producción. De cómo cada lenguaje maneja esto hablamos en [@03-40]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Verla sin hilos: una intercalación mala a la vista"
+  },
+  {
+   "t": "p",
+   "x": "Para ver la carrera sin depender de la suerte, este programa la simula: cada hilo es una lista de tres pasos (leer, sumar, escribir) y un «orden» decide qué hilo avanza un paso en cada turno. Primero corre un orden concreto y malo. Después enumera **todos** los órdenes posibles para 1, 2 y 3 incrementos por hilo y cuenta qué resultados salen. Al final repite la cuenta como si cada incremento fuera indivisible, que es lo que logra un candado. Apretá «ejecutar» y mirá la salida."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Cada incremento del contador son tres pasos: leer, sumar, escribir.\n// Un \"orden\" es la lista de qué hilo (0 o 1) avanza un paso en cada turno.\nfunction ejecutar(orden) {\n  let contador = 0;\n  const reg = [0, 0];            // el registro privado de cada hilo\n  const pasoDe = [0, 0];         // cuántos pasos dio cada hilo\n  const traza = [];\n  for (const h of orden) {\n    const paso = pasoDe[h] % 3;\n    if (paso === 0) { reg[h] = contador; traza.push(`H${h + 1} lee ${reg[h]}`); }\n    else if (paso === 1) { reg[h] = reg[h] + 1; traza.push(`H${h + 1} suma: ${reg[h]}`); }\n    else { contador = reg[h]; traza.push(`H${h + 1} escribe ${contador}`); }\n    pasoDe[h]++;\n  }\n  return { contador, traza };\n}\n\n// 1) Un orden concreto y malo: los dos leen antes de que alguno escriba.\nconst malo = ejecutar([0, 1, 0, 1, 0, 1]);\nconsole.log(malo.traza.join(\" | \"));\nconsole.log(\"resultado:\", malo.contador, \"(esperado 2)\\n\");\n\n// 2) Todos los órdenes posibles. \"unidad\" = cuántos pasos seguidos no se pueden cortar.\nfunction contarOrdenes(n, unidad) {\n  const pasos = (3 * n) / unidad;          // turnos que le tocan a cada hilo\n  const resultados = {};\n  let total = 0;\n  function rec(orden, a, b) {\n    if (a === pasos && b === pasos) {\n      const r = ejecutar(orden.flatMap(h => Array(unidad).fill(h))).contador;\n      resultados[r] = (resultados[r] || 0) + 1;\n      total++;\n      return;\n    }\n    if (a < pasos) rec([...orden, 0], a + 1, b);\n    if (b < pasos) rec([...orden, 1], a, b + 1);\n  }\n  rec([], 0, 0);\n  return { total, resultados };\n}\n\nconsole.log(\"SIN candado (cualquier paso puede intercalarse):\");\nfor (const n of [1, 2, 3]) {\n  const { total, resultados } = contarOrdenes(n, 1);\n  const partes = Object.keys(resultados).sort((x, y) => x - y)\n    .map(k => `${k}: ${resultados[k]}`).join(\" · \");\n  console.log(`  ${n} por hilo, ${total} órdenes posibles -> resultado: cantidad de órdenes -> ${partes}`);\n}\nconsole.log(\"CON candado (los tres pasos de cada incremento van juntos):\");\nfor (const n of [1, 2, 3]) {\n  const { total, resultados } = contarOrdenes(n, 3);\n  const partes = Object.keys(resultados).map(k => `${k}: ${resultados[k]}`).join(\" · \");\n  console.log(`  ${n} por hilo, ${total} órdenes posibles -> resultado: cantidad de órdenes -> ${partes}`);\n}\n",
+   "cap": "Simulación de la carrera, en JavaScript puro. No usa hilos de verdad: elige el orden a mano para que el error se vea siempre."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node sim.js   # la misma simulación",
+     "s": "H1 lee 0 | H2 lee 0 | H1 suma: 1 | H2 suma: 1 | H1 escribe 1 | H2 escribe 1\nresultado: 1 (esperado 2)\n\nSIN candado (cualquier paso puede intercalarse):\n  1 por hilo, 20 órdenes posibles -> resultado: cantidad de órdenes -> 1: 18 · 2: 2\n  2 por hilo, 924 órdenes posibles -> resultado: cantidad de órdenes -> 2: 702 · 3: 216 · 4: 6\n  3 por hilo, 48620 órdenes posibles -> resultado: cantidad de órdenes -> 2: 648 · 3: 30780 · 4: 15714 · 5: 1458 · 6: 20\nCON candado (los tres pasos de cada incremento van juntos):\n  1 por hilo, 2 órdenes posibles -> resultado: cantidad de órdenes -> 2: 2\n  2 por hilo, 6 órdenes posibles -> resultado: cantidad de órdenes -> 4: 6\n  3 por hilo, 20 órdenes posibles -> resultado: cantidad de órdenes -> 6: 20"
+    }
+   ],
+   "cap": "Salida real al correrla en Node 22."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en las primeras dos líneas: los dos hilos leen 0 antes de que alguno escriba, y los dos escriben 1. Con **un** incremento por hilo hay 20 órdenes posibles y solo 2 dan el resultado correcto, los dos en los que un hilo termina por completo antes de que el otro empiece. Con 3 incrementos por hilo hay 48.620 órdenes y solo 20 dan 6. Y hay una curiosidad: con 2 incrementos el resultado puede ser **2**, no 3. Un hilo puede borrar casi todo el trabajo del otro.",
+    "Una cautela de lectura: esos porcentajes cuentan órdenes, no probabilidades reales. Un planificador de verdad no elige cada paso al azar; deja correr un hilo en ráfagas. Su frecuencia real depende de la máquina, como se vio en el programa en C. Lo importante acá es la lista de resultados posibles. Y la última sección muestra la solución: cuando los tres pasos van juntos, **todos** los órdenes dan el resultado correcto."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Sección crítica y mutex"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El trecho de código que toca el dato compartido y que no puede ser ejecutado por dos hilos a la vez se llama [[sección crítica|sección crítica]]. En el programa de arriba es el `contador++`. La herramienta estándar para protegerla es el [[mutex|mutex]], abreviatura de *mutual exclusion*, exclusión mutua. Es un candado con dos operaciones: `lock` (tomar) y `unlock` (soltar). Si el candado está libre, quien llama lo toma y sigue. Si ya lo tiene otro, quien llama **espera** hasta que lo suelte. El resultado es que como mucho un hilo está dentro de la sección crítica en cada momento.",
+    "En el programa, `con_mutex` rodea el `contador++` con `pthread_mutex_lock` y `pthread_mutex_unlock`. Las tres corridas dieron 2.000.000 exacto, como mostró la salida de arriba."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: un muelle de carga y dos camiones",
+   "x": [
+    "Un muelle tiene una sola dársena. El camión que llega y la encuentra libre, entra y cuelga el cartel de «ocupado». El segundo camión espera afuera hasta que el primero salga y descuelgue el cartel. Dentro de la dársena, uno solo carga: eso es la sección crítica. El cartel es el mutex.",
+    "Donde la analogía deja de valer: en un muelle real el segundo camión **ve** al primero y no puede entrar físicamente. Un mutex, en cambio, es un acuerdo. Nada impide que un hilo toque el dato sin pedir el candado; si un solo hilo se salta la regla, la protección se cae para todos. Es como una dársena sin barrera donde los choferes se comprometen a respetar el cartel."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un hilo protege su `contador++` con un mutex y el otro, por descuido, incrementa sin pedirlo. ¿La carrera desaparece?",
+   "resp": "No. El mutex solo excluye a quienes lo piden. El hilo que no lo toma puede meterse en medio de la sección crítica del otro y se vuelve a perder cuentas. La protección vale solo si todos los accesos al dato compartido respetan el mismo candado."
+  },
+  {
+   "t": "p",
+   "x": "Lo que pasa cuando dos hilos piden el mismo mutex, paso a paso:"
+  },
+  {
+   "t": "pasos",
+   "pasos": [
+    {
+     "t": "El hilo 1 hace lock y el candado estaba libre",
+     "x": "Lo toma sin ayuda del kernel, con una instrucción atómica de la CPU: una operación que el hardware garantiza que se ejecuta entera, sin que nada se cuele en el medio. Entra a la sección crítica."
+    },
+    {
+     "t": "El hilo 2 hace lock y el candado está ocupado",
+     "x": "No avanza. Podría dar vueltas preguntando una y otra vez si ya se liberó, lo cual gasta CPU en vano. En Linux, la biblioteca suele pedirle al kernel que lo duerma con la llamada `futex`, que está pensada justamente para esperar hasta que se cumpla una condición en memoria compartida sin quemar CPU [#man7-futex-2]."
+    },
+    {
+     "t": "El hilo 1 sale y hace unlock",
+     "x": "Suelta el candado. Como hay alguien esperando, avisa al kernel para que despierte al hilo 2."
+    },
+    {
+     "t": "El hilo 2 despierta y toma el candado",
+     "x": "Vuelve a intentar: si logra tomarlo, entra a la sección crítica. Si otro hilo se le adelantó, vuelve a dormir."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Notá la división de trabajo. La parte rápida (tomar un candado libre) pasa en el espacio de usuario; solo cuando hay que esperar interviene el sistema operativo, que sabe dormir y despertar hilos ([@02-06]). Según la página de manual de `futex`, la mayoría de las operaciones de sincronización se hacen en espacio de usuario y la llamada al kernel se usa solo cuando probablemente haya que bloquear por un tiempo [#man7-futex-2].",
+    "Y se paga: medí el mismo contador con tres variantes en la misma máquina, tres corridas cada una."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./tiempos   # variante de carrera.c que mide con clock_gettime",
+     "s": "sin proteger 0.002 s  valor=1064090\nmutex        0.105 s  valor=2000000\natomica      0.037 s  valor=2000000\nsin proteger 0.002 s  valor=1056507\nmutex        0.142 s  valor=2000000\natomica      0.072 s  valor=2000000\nsin proteger 0.002 s  valor=1018848\nmutex        0.244 s  valor=2000000\natomica      0.067 s  valor=2000000"
+    }
+   ],
+   "cap": "Salida real, 2 hilos y 1.000.000 de vueltas cada uno, 4 núcleos. «atomica» usa `atomic_fetch_add` de C11, una suma atómica de una instrucción en lugar de un candado. Son tiempos de este experimento y esta máquina; la proporción puede variar."
+  },
+  {
+   "t": "p",
+   "x": "La versión sin proteger es entre 50 y 120 veces más rápida, pero da la respuesta equivocada: no vale. El mutex, en esta medición, tardó entre 0,10 y 0,24 segundos para el mismo trabajo, y la suma atómica entre 0,04 y 0,07. La lección de ingeniería es que la corrección tiene un costo medible y que la tarea es reducirlo (secciones críticas cortas, menos datos compartidos), no eliminarlo saltándose la protección."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Semáforos: cuando hay más de una dársena",
+   "x": [
+    "Un [[semáforo|semáforo]] es la generalización del mutex: un contador de permisos con dos operaciones. Pedir un permiso (`sem_wait`) resta 1, y si el contador ya es 0, espera. Devolverlo (`sem_post`) suma 1 y despierta a quien espere. Un muelle con 3 dársenas es un semáforo con valor inicial 3: entran tres camiones y el cuarto espera. Un semáforo con valor inicial 1 se comporta como un mutex [#ostep-semaforos].",
+    "Las operaciones fueron propuestas por Edsger Dijkstra, que las llamaba P y V; OSTEP lo cuenta con el detalle de los nombres [#ostep-semaforos]. Lo usan los sistemas operativos para limitar cuántos procesos acceden a un recurso, por ejemplo a un pool de conexiones."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Un candado por partida en Senda",
+   "x": [
+    "En el viaje del toque de [@00-02], la base de datos ejecutaba `jugar_turno` «como una sola operación indivisible». Ahora podés ver cómo se logra. Lo primero que hace la función `jugar_turno`, en `supabase/migrations/20261127000000_seguridad.sql`, es `select * into p from public.partidas where id = p_partida for update;`. El `for update` bloquea el registro de esa partida: según la documentación de PostgreSQL, el `SELECT` bloquea las filas elegidas contra actualizaciones concurrentes [#postgres-select-bloqueo-filas]. Si dos teléfonos tocan el mismo duelo a la vez, el segundo tiene que esperar a que el primero termine (así funcionan los bloqueos de fila de PostgreSQL), y recién entonces mira de quién es el turno. Es un mutex, uno por partida.",
+    "Otro caso: para emparejar a dos desconocidos, el código usa `for update skip locked` en `supabase/migrations/20261101000000_juntos.sql` y en `20261103000000_azar_primero.sql`. La documentación dice que con `SKIP LOCKED` las filas que no se pueden bloquear de inmediato se saltean [#postgres-select-bloqueo-filas]: si otra persona ya está tomando esa partida en espera, se pasa a la siguiente en lugar de esperar. Es la idea del «intentar el candado y, si está ocupado, seguir con otra cosa». Lo leí en el código el 13-11-2026; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261103000000_azar_primero.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Deadlock: dos operarios, dos pallets"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El candado resuelve la carrera, pero crea un problema nuevo. Imaginá que para cerrar un pedido cada operario necesita **dos** pallets, el A y el B, y los toma de a uno. El operario 1 toma A y después va por B. El operario 2 toma B y después va por A. Si los dos tomaron su primer pallet, el 1 espera el B que tiene el 2, y el 2 espera el A que tiene el 1. Ninguno suelta lo suyo mientras espera, así que no se mueve nadie, nunca. Eso es un [[deadlock|deadlock]] (en español, a veces «bloqueo mutuo» o «interbloqueo»): un grupo de hilos donde cada uno espera algo que tiene otro del grupo.",
+    "Lo reproduje en C: cada operario es un hilo y cada pallet, un mutex."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <stdio.h>\n#include <pthread.h>\n#include <unistd.h>\n\npthread_mutex_t pallet_a = PTHREAD_MUTEX_INITIALIZER;\npthread_mutex_t pallet_b = PTHREAD_MUTEX_INITIALIZER;\n\n#ifdef ORDENADO\n#define PRIMERO_DE_2 pallet_a      /* los dos toman primero el A, después el B */\n#define SEGUNDO_DE_2 pallet_b\n#else\n#define PRIMERO_DE_2 pallet_b      /* el operario 2 los toma al revés */\n#define SEGUNDO_DE_2 pallet_a\n#endif\n\nvoid *operario1(void *arg) {\n    pthread_mutex_lock(&pallet_a);\n    printf(\"operario 1: tengo el pallet A, voy por el B\\n\"); fflush(stdout);\n    usleep(100000);                         /* pausa: el otro agarra su pallet */\n    pthread_mutex_lock(&pallet_b);\n    printf(\"operario 1: tengo A y B, trabajo y suelto\\n\");\n    pthread_mutex_unlock(&pallet_b);\n    pthread_mutex_unlock(&pallet_a);\n    return NULL;\n}\n\nvoid *operario2(void *arg) {\n    pthread_mutex_lock(&PRIMERO_DE_2);\n    printf(\"operario 2: tengo mi primer pallet, voy por el otro\\n\"); fflush(stdout);\n    usleep(100000);\n    pthread_mutex_lock(&SEGUNDO_DE_2);\n    printf(\"operario 2: tengo los dos, trabajo y suelto\\n\");\n    pthread_mutex_unlock(&SEGUNDO_DE_2);\n    pthread_mutex_unlock(&PRIMERO_DE_2);\n    return NULL;\n}\n\nint main(void) {\n    pthread_t t1, t2;\n    pthread_create(&t1, NULL, operario1, NULL);\n    pthread_create(&t2, NULL, operario2, NULL);\n    pthread_join(t1, NULL);\n    pthread_join(t2, NULL);\n    printf(\"terminaron los dos\\n\");\n    return 0;\n}\n",
+   "cap": "deadlock.c. El `usleep` hace que el cruce ocurra siempre (en la práctica, el deadlock suele ser un error que aparece de vez en cuando). Compilado con `gcc -Wall -pthread -o deadlock deadlock.c`; con `-DORDENADO` los dos toman primero el A."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "timeout 3 ./deadlock; echo \"código de salida: $?\"",
+     "s": "operario 1: tengo el pallet A, voy por el B\noperario 2: tengo mi primer pallet, voy por el otro\ncódigo de salida: 124"
+    },
+    {
+     "c": "./deadlock & sleep 1; ps -L -o pid,tid,stat,pcpu,wchan:14,comm -p $!; kill $!",
+     "s": "  PID   TID STAT %CPU WCHAN          COMMAND\n11108 11108 Sl    0.0 futex_do_wait  deadlock\n11108 11110 Sl    0.0 futex_do_wait  deadlock\n11108 11111 Sl    0.0 futex_do_wait  deadlock"
+    }
+   ],
+   "cap": "Salida real. `timeout` mató al programa a los 3 segundos (por eso el 124, que es la convención de `timeout`). El segundo comando listó los hilos del proceso colgado; el `kill` final lo termina (matar un proceso propio es seguro, pero no lo hagas con uno ajeno)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá lo que **no** pasó: no hubo ningún error ni ningún aviso. El programa imprimió dos líneas y se quedó. Y `ps` muestra los tres hilos (el principal y los dos operarios) dormidos, esperando en `futex`, con 0,0 % de CPU. No es un bucle infinito (eso gastaría CPU): es un programa que espera para siempre. Con `strace -f` vi a cada operario bloqueado en un `FUTEX_WAIT` sobre una dirección de memoria distinta. Son dos direcciones cercanas dentro del propio programa, es decir, los dos mutex. Si lo corrés con `-DORDENADO`, los dos toman primero el A y después el B, y termina bien: la última salida de abajo."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./ordenado; echo \"código de salida: $?\"",
+     "s": "operario 1: tengo el pallet A, voy por el B\noperario 1: tengo A y B, trabajo y suelto\noperario 2: tengo mi primer pallet, voy por el otro\noperario 2: tengo los dos, trabajo y suelto\nterminaron los dos\ncódigo de salida: 0"
+    }
+   ],
+   "cap": "Salida real de la versión compilada con -DORDENADO."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "grafo",
+   "alto": 300,
+   "nodos": [
+    {
+     "id": "o1",
+     "x": 12,
+     "y": 18,
+     "t": "Operario 1",
+     "k": "cliente"
+    },
+    {
+     "id": "o2",
+     "x": 88,
+     "y": 82,
+     "t": "Operario 2",
+     "k": "cliente"
+    },
+    {
+     "id": "a",
+     "x": 88,
+     "y": 18,
+     "t": "Pallet A",
+     "k": "datos"
+    },
+    {
+     "id": "b",
+     "x": 12,
+     "y": 82,
+     "t": "Pallet B",
+     "k": "datos"
+    }
+   ],
+   "aristas": [
+    {
+     "de": "a",
+     "a": "o1",
+     "t": "lo tiene",
+     "dir": true
+    },
+    {
+     "de": "b",
+     "a": "o2",
+     "t": "lo tiene",
+     "dir": true
+    },
+    {
+     "de": "o1",
+     "a": "b",
+     "t": "espera",
+     "dir": true,
+     "dash": true
+    },
+    {
+     "de": "o2",
+     "a": "a",
+     "t": "espera",
+     "dir": true,
+     "dash": true
+    }
+   ],
+   "cap": "El ciclo del deadlock: 1 espera lo que tiene 2, y 2 espera lo que tiene 1. Las líneas punteadas son esperas; las llenas, posesión."
+  },
+  {
+   "t": "h",
+   "x": "Las cuatro condiciones y cómo se previene"
+  },
+  {
+   "t": "p",
+   "x": "Para que haya un deadlock tienen que cumplirse **cuatro condiciones a la vez**. El capítulo sobre problemas comunes de concurrencia de OSTEP las toma de un trabajo de Coffman, Elphick y Shoshani de 1971 [#ostep-concurrencia-bugs]. Si falta una, el deadlock no puede ocurrir, y eso convierte a cada condición en una palanca de prevención."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Condición",
+    "En los operarios y los pallets",
+    "Cómo se rompe"
+   ],
+   "filas": [
+    [
+     "Exclusión mutua: el recurso lo usa uno solo",
+     "Un pallet lo tiene un operario a la vez",
+     "A veces no se puede; se evita con estructuras que no usan candados"
+    ],
+    [
+     "Retener y esperar: tiene uno y pide otro",
+     "El operario 1 retiene A mientras pide B",
+     "Pedir todos los recursos juntos, o soltar antes de pedir el siguiente"
+    ],
+    [
+     "Sin expropiación: nadie se lo puede quitar",
+     "Nadie le saca el pallet al operario",
+     "Intentar tomar (`trylock`) y, si falla, soltar lo que se tiene y reintentar"
+    ],
+    [
+     "Espera circular: la cadena se cierra",
+     "1 espera lo de 2 y 2 espera lo de 1",
+     "Un orden fijo: todos toman primero A y después B"
+    ]
+   ],
+   "cap": "Las cuatro condiciones según OSTEP, con el caso de hoy. Las estrategias de prevención son las que plantea el mismo capítulo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La que más se usa en la práctica es la última: **un orden total de candados**. Si todos los hilos que necesiten varios candados los toman en el mismo orden (siempre el A antes que el B), no puede formarse un ciclo. Es lo que hizo la versión `-DORDENADO`, que terminó bien. Es barato y no necesita ninguna ayuda del sistema, pero exige disciplina: el orden tiene que estar escrito en algún lado y respetarse en todo el programa.",
+    "La opción del `trylock` tiene su propia trampa. Si los dos hilos intentan, fallan, sueltan y reintentan en el mismo ritmo, pueden repetir el cruce una y otra vez, y gastar CPU sin avanzar. Eso se llama *livelock*, y OSTEP lo menciona junto con maneras de atenuarlo, como esperar un tiempo al azar antes de reintentar [#ostep-concurrencia-bugs]. Es como dos personas que se cruzan en un pasillo y las dos se corren al mismo lado, una y otra vez."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Si cada operario soltara el pallet que tiene antes de pedir el otro (tomar A, trabajar, soltar A, recién entonces tomar B), ¿podría haber deadlock?",
+   "resp": "No: se rompe la condición de retener y esperar, porque nadie espera con un recurso en la mano. El problema es que ya no se puede trabajar con los dos pallets a la vez, así que solo sirve si la tarea admite hacerse en partes."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Tres pallets, A, B y C, y tres operarios. El operario 1 necesita A y C; el 2 necesita C y B; el 3 necesita B y A. Cada uno toma el primero que nombré y después el segundo. ¿Puede haber deadlock? Si puede, proponé un orden fijo que lo impida y explicá por qué funciona.",
+   "pista": "Dibujá quién espera a quién. Probá numerar los pallets A=1, B=2, C=3 y fijate qué pasa si todos toman primero el de número menor.",
+   "solucion": "Sí puede: si cada uno toma su primer pallet (1 toma A, 2 toma C, 3 toma B), el 1 espera C (que tiene el 2), el 2 espera B (que tiene el 3) y el 3 espera A (que tiene el 1): ciclo. Con el orden A, B, C y la regla «siempre tomar primero el de menor letra», el 1 toma A y C, el 2 toma B y C, y el 3 toma A y B. Como toda espera es hacia un pallet de letra mayor que el que ya se tiene, nunca puede cerrarse un ciclo: se rompe la espera circular."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Quién detecta los deadlocks",
+   "x": "En el programa de hoy el sistema operativo no avisó nada: para él, dos hilos dormidos esperando un candado son hilos que esperan, y nada más. Otros sistemas sí tienen un detector. El motor PostgreSQL, que usa Senda, espera un tiempo configurable al esperar un bloqueo (`deadlock_timeout`, por defecto 1 segundo) y después comprueba si hay un deadlock [#postgres-deadlock-timeout]. Cómo se resuelve ese caso lo vemos con las bases de datos."
+  },
+  {
+   "t": "h",
+   "x": "Inanición y cómo vivir con esto"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La [[inanición|inanición]] (*starvation*) es otro fallo, distinto del deadlock: un hilo no consigue nunca el recurso, pero el sistema **sí** avanza, porque otros hilos le ganan cada vez. En el deadlock no se mueve nadie; en la inanición se mueven todos menos uno. OSTEP lo plantea con los candados de espera activa: no garantizan equidad, y un hilo que gira esperando puede girar para siempre [#ostep-locks]. En el muelle: un camión chico que siempre llega justo cuando se le adelanta otro. Se atenúa con candados justos, como los de ticket que presenta el mismo capítulo, que atienden en orden de llegada [#ostep-locks].",
+    "En resumen, dos fallos de concurrencia en el SO: la **carrera** (dos hilos hacen algo mal juntos) y el **deadlock** (dos hilos esperan para siempre). Y una consecuencia práctica: conviene no confiar en que «anda». Hay herramientas para esto. GCC y Clang traen el *ThreadSanitizer*, que se activa con `-fsanitize=thread` y avisa de accesos compartidos sin protección [#gcc-instrumentation-tsan]. Lo probé con `carrera.c`:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -fsanitize=thread -g -O1 -pthread -o carrera_tsan carrera.c && ./carrera_tsan 2>&1 | head -6",
+     "s": "==================\nWARNING: ThreadSanitizer: data race (pid=11824)\n  Read of size 8 at 0x561f7aa7c068 by thread T2:\n    #0 sin_proteccion carrera.c:11 (carrera_tsan+0x12ae)\n\n  Previous write of size 8 at 0x561f7aa7c068 by thread T1:"
+    }
+   ],
+   "cap": "Salida real, recortada (acorté las rutas). El informe completo marcó dos carreras, ambas en la línea 11 (`contador++`, en la versión sin protección) y ninguna en la versión con mutex."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Reglas prácticas (criterio mío)",
+   "x": [
+    "Compartí lo menos posible: lo que no se comparte no necesita candado. Mantené las secciones críticas cortas y sin esperas largas adentro (nada de pedir datos a la red con el candado tomado). Si necesitás varios candados, tomalos siempre en el mismo orden. Y probá con una herramienta de detección en lugar de confiar en una corrida que salió bien.",
+    "Esto es lo que ofrece el sistema operativo: hilos, un planificador, candados y semáforos que se apoyan en llamadas como `futex`. Los lenguajes agregan sus propias herramientas encima (hilos del lenguaje, tareas asíncronas, canales), y eso es el tema de [@03-40]."
+   ]
+  }
+ ],
+ "recap": [
+  "Una **condición de carrera** ocurre cuando varios hilos tocan un dato compartido y el resultado depende del orden en que se intercalan; `contador++` son tres pasos (leer, sumar, escribir) y puede perder cuentas.",
+  "Un resultado incorrecto puede ser raro y distinto en cada corrida; que una prueba salga bien no demuestra que el programa sea correcto.",
+  "La **sección crítica** es el trecho que toca el dato compartido, y un **mutex** hace que como mucho un hilo esté adentro. Cuesta tiempo, y solo protege si todos lo respetan.",
+  "Un **semáforo** es un contador de permisos; con valor 1 se comporta como un mutex.",
+  "Un **deadlock** necesita cuatro condiciones a la vez: exclusión mutua, retener y esperar, sin expropiación y espera circular. Quitar una lo evita; la más usada es el orden fijo de candados.",
+  "La **inanición** es un hilo que nunca consigue el recurso aunque el sistema avance, y el deadlock es un grupo que no avanza nunca. Se detectan con herramientas como ThreadSanitizer, no a ojo."
+ ],
+ "repaso": [
+  {
+   "p": "Dos hilos hacen `contador++` sobre el mismo contador, sin ninguna protección. ¿Cuál es una explicación correcta de que se pierdan cuentas?",
+   "o": [
+    "El contador++ son tres pasos y los de un hilo se mezclan con los del otro",
+    "La CPU no sabe sumar bien cuando hay más de un hilo funcionando",
+    "El sistema operativo borra al azar parte de la memoria compartida",
+    "Los hilos escriben tan rápido que el disco no alcanza a guardar"
+   ],
+   "c": 0,
+   "e": "Leer, sumar y escribir son pasos separados, y si dos hilos leen el mismo valor antes de que alguno escriba, uno de los aumentos se pisa. La CPU y la memoria funcionan bien, y el disco no interviene. El fallo está en el orden de las operaciones."
+  },
+  {
+   "p": "Un hilo protege su `contador++` con un mutex y otro hilo incrementa el mismo contador sin pedirlo. ¿Qué pasa?",
+   "o": [
+    "No hay problema, porque el mutex bloquea todo el programa",
+    "El segundo hilo queda esperando para siempre sin avanzar",
+    "El sistema operativo obliga al segundo hilo a pedir el mutex",
+    "La carrera sigue, porque el mutex solo excluye a quien lo pide"
+   ],
+   "c": 3,
+   "e": "Un mutex es un acuerdo: solo excluye a los que lo piden. El hilo que lo ignora puede entrar en medio de la sección crítica, y se vuelve a perder cuentas. Nada lo detiene, como en la dársena sin barrera de la analogía."
+  },
+  {
+   "p": "Dos hilos hacen un solo `contador++` cada uno, sin protección, empezando en 0. ¿Qué valores finales son posibles?",
+   "o": [
+    "Solo 1 o 2, según cómo se crucen los pasos",
+    "Solo 2, porque cada hilo suma una vez",
+    "0, 1, 2 o 3, según el cruce",
+    "Solo 1, porque uno siempre pisa al otro"
+   ],
+   "c": 0,
+   "e": "Si los dos leen 0 antes de escribir, el resultado es 1. Si uno termina antes de que el otro lea, es 2. No puede ser 0 (alguien escribe al menos un 1) ni 3 (cada hilo suma uno solo). La simulación enumeró los 20 órdenes y solo aparecieron 1 y 2."
+  },
+  {
+   "p": "Un programa tiene un orden fijo para tomar sus candados: siempre el A antes que el B. ¿Qué condición del deadlock rompe?",
+   "o": [
+    "La exclusión mutua, porque los candados ya no son exclusivos",
+    "Retener y esperar, porque nadie espera con un candado en la mano",
+    "La espera circular, porque no puede formarse una cadena cerrada",
+    "La falta de expropiación, porque ahora se pueden quitar candados"
+   ],
+   "c": 2,
+   "e": "Con un orden total, toda espera es hacia un candado «mayor» que los que ya se tienen, y eso hace imposible cerrar un ciclo. Los candados siguen siendo exclusivos, se sigue reteniendo mientras se pide el siguiente y nadie los expropia: solo cambia la espera circular."
+  },
+  {
+   "p": "Un programa lleva diez minutos sin responder. `ps` muestra todos sus hilos dormidos en `futex_wait` con 0 % de CPU. ¿Qué es lo más probable?",
+   "o": [
+    "Un bucle infinito que gasta mucha CPU, pero no se ve",
+    "Un deadlock o una espera que nadie va a liberar",
+    "Una carrera que está corrompiendo la memoria sin parar",
+    "Un fallo del disco, que impide que los hilos avancen"
+   ],
+   "c": 1,
+   "e": "Hilos dormidos sin consumir CPU, esperando un candado, son el síntoma típico de un deadlock. Un bucle infinito mostraría CPU alta, y una carrera no los deja dormidos esperando. Es lo que mostró `ps` con el programa de los operarios."
+  },
+  {
+   "p": "Un muelle tiene 3 dársenas y se lo modela con un semáforo. ¿Cuál es el valor inicial y qué pasa con el cuarto camión?",
+   "o": [
+    "Valor inicial 1, y el cuarto camión entra igual",
+    "Valor inicial 4, y el cuarto camión entra primero",
+    "Valor inicial 0, y los tres primeros esperan",
+    "Valor inicial 3, y el cuarto espera hasta que salga uno"
+   ],
+   "c": 3,
+   "e": "Un semáforo cuenta permisos: con valor inicial 3 entran tres y el cuarto queda esperando hasta que alguno devuelva su permiso. Con valor 1 sería un mutex, y con valor 0 nadie podría entrar hasta que alguien suelte uno."
+  },
+  {
+   "p": "Un contador con dos hilos en Python 3.13 dio 2.000.000 las tres veces sin usar ningún Lock. ¿Qué conclusión es la correcta?",
+   "o": [
+    "Que `i = i + 1` es atómico en Python y no hace falta ningún Lock",
+    "Que Python resuelve la concurrencia automáticamente en todos los casos",
+    "Que no probó nada: la documentación dice que esa operación no es atómica",
+    "Que el programa tiene un error y por eso no se cumplió la carrera"
+   ],
+   "c": 2,
+   "e": "Que una prueba no falle no demuestra que el programa sea correcto: la documentación de Python lista `i = i+1` como no atómica. Lo observado se explica por el funcionamiento de esta versión del intérprete, pero no es una garantía y no cubre otros casos."
+  }
+ ],
+ "feynman": "Explicale a alguien que trabaja en un depósito por qué dos programas que actualizan la misma ficha de stock pueden dejarla mal, y cómo se arregla con un cartel de «ocupado». Después explicá por qué ese mismo cartel puede dejar a dos operarios esperándose para siempre, y qué regla simple lo evita.",
+ "para_profundizar": [
+  {
+   "fuente": "ostep-concurrencia-bugs",
+   "nota": "El capítulo «Common Concurrency Problems» de OSTEP desarrolla las cuatro condiciones del deadlock, las estrategias de prevención y el livelock. Es la fuente de la tabla de hoy."
+  },
+  {
+   "fuente": "ostep-semaforos",
+   "nota": "El capítulo de semáforos de OSTEP explica los semáforos binarios (candados) y los de conteo, con ejemplos en C y su relación con los mutex."
+  },
+  {
+   "fuente": "man7-futex-2",
+   "nota": "La página de manual de `futex(2)`: la base sobre la que Linux construye los candados que duermen a los hilos que esperan. Útil para ver por qué casi todo ocurre en espacio de usuario."
+  },
+  {
+   "fuente": "python-faq-hilos-atomicos",
+   "nota": "El apartado de la FAQ de Python sobre qué operaciones son atómicas: la prueba oficial de que `i = i+1` necesita un candado."
+  }
+ ],
+ "videos": [
+  {
+   "q": "race condition deadlock explicado mutex semáforo sistemas operativos",
+   "por_que": "Para ver animados el cruce de hilos y el ciclo de espera de un deadlock."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "condición de carrera",
+   "d": "Situación en que el resultado de un programa depende del orden relativo en que se ejecutan las operaciones de varios hilos que comparten un dato, y al menos uno lo modifica."
+  },
+  {
+   "t": "mutex",
+   "d": "Candado de exclusión mutua: solo un hilo a la vez puede tomarlo con lock; los demás esperan hasta que quien lo tiene haga unlock."
+  },
+  {
+   "t": "deadlock",
+   "d": "Estado en que un grupo de hilos espera cada uno algo que tiene otro del grupo, y por eso ninguno puede avanzar nunca."
+  },
+  {
+   "t": "sección crítica",
+   "d": "Trecho de código que accede a un dato compartido y que no puede ser ejecutado por dos hilos a la vez sin riesgo de carrera."
+  },
+  {
+   "t": "semáforo",
+   "d": "Contador de permisos con dos operaciones (pedir, que resta 1 y espera si está en 0, y devolver, que suma 1); con valor inicial 1 se comporta como un mutex."
+  },
+  {
+   "t": "inanición",
+   "d": "Situación en que un hilo no logra nunca el recurso que necesita porque otros siempre se le adelantan, aunque el sistema en conjunto siga avanzando."
+  },
+  {
+   "t": "operación atómica",
+   "d": "Operación que el hardware garantiza que se ejecuta entera, sin que otra se cuele en el medio; es la base sobre la que se construyen los candados."
+  }
+ ],
+ "siguiente": "la virtualización: cómo una sola máquina física puede hacerse pasar por varias computadoras completas, cada una con su propio sistema operativo.",
+ "fuentes_nuevas": [
+  {
+   "id": "ostep-concurrencia-bugs",
+   "t": "Common Concurrency Problems (cap. 32)",
+   "a": "Remzi y Andrea Arpaci-Dusseau",
+   "tipo": "libro",
+   "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-bugs.pdf"
+  },
+  {
+   "id": "ostep-locks",
+   "t": "Locks (cap. 28)",
+   "a": "Remzi y Andrea Arpaci-Dusseau",
+   "tipo": "libro",
+   "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-locks.pdf"
+  },
+  {
+   "id": "ostep-semaforos",
+   "t": "Semaphores (cap. 31)",
+   "a": "Remzi y Andrea Arpaci-Dusseau",
+   "tipo": "libro",
+   "url": "https://pages.cs.wisc.edu/~remzi/OSTEP/threads-sema.pdf"
+  },
+  {
+   "id": "man7-futex-2",
+   "t": "futex(2): Linux manual page",
+   "a": "Michael Kerrisk",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man2/futex.2.html"
+  },
+  {
+   "id": "python-faq-hilos-atomicos",
+   "t": "Library and Extension FAQ: What kinds of global value mutation are thread-safe?",
+   "a": "Python Software Foundation",
+   "tipo": "doc",
+   "url": "https://docs.python.org/3/faq/library.html"
+  },
+  {
+   "id": "postgres-select-bloqueo-filas",
+   "t": "PostgreSQL: SELECT (cláusula de bloqueo FOR UPDATE y SKIP LOCKED)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/current/sql-select.html"
+  },
+  {
+   "id": "postgres-deadlock-timeout",
+   "t": "PostgreSQL: Lock Management (deadlock_timeout)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/current/runtime-config-locks.html"
+  },
+  {
+   "id": "gcc-instrumentation-tsan",
+   "t": "GCC: Program Instrumentation Options (-fsanitize=thread)",
+   "a": "GNU Project",
+   "tipo": "doc",
+   "url": "https://gcc.gnu.org/onlinedocs/gcc/Instrumentation-Options.html"
+  }
+ ]
+}

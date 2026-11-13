@@ -1,0 +1,759 @@
+{
+ "id": "02-02",
+ "titulo": "Modo usuario, modo kernel y llamadas al sistema",
+ "bajada": "Ves cómo el procesador frena a una aplicación que toca el hardware, entrás al kernel por la única puerta permitida y medís cuánto cuesta cruzarla.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar por qué una aplicación común no puede ejecutar instrucciones privilegiadas y qué hace el procesador cuando lo intenta.",
+  "Distinguir modo usuario y modo kernel, y relacionarlos con los anillos de protección del x86 (ring 0 y ring 3).",
+  "Describir paso a paso una llamada al sistema en x86-64: instrucción, registros y cambio de modo.",
+  "Leer una traza de strace e identificar qué llamadas hace un programa y cuántas.",
+  "Estimar el costo de una llamada al sistema con una medición propia y sacar la consecuencia de diseño (agrupar llamadas)."
+ ],
+ "venis_de": "En el día anterior viste qué hace un sistema operativo (repartir, abstraer y proteger) y un programa de 512 bytes que tocaba el hardware sin que nadie lo frenara. Falta la pieza que hace posible la protección: cómo impide el procesador que un programa común haga lo mismo.",
+ "se_apoya_en": [
+  "02-01",
+  "01-34",
+  "01-33",
+  "01-31"
+ ],
+ "gancho": [
+  "En el [@02-01] corriste un programa de 512 bytes que le hablaba directo al hardware: mandaba bytes al puerto serie con la instrucción `out` y nadie lo frenaba. Probá lo mismo desde un programa común, de los que corrés todos los días. Escribí uno de pocas líneas que ejecuta `hlt`, la instrucción que detiene el procesador, y lo corrí como root, el usuario con más poder del sistema. Resultado: «Segmentation fault» y código de salida 139.",
+  "El procesador se negó a ejecutar la orden, y no fue por un permiso de archivos ni por una regla del sistema operativo. Hoy vas a ver cómo se da cuenta el procesador de que ese programa no tiene derecho, por qué ni siquiera root puede ejecutarla, y por cuál puerta sí puede pedirle ese programa al kernel que haga cosas en su nombre. Vas a escribir un programa que usa esa puerta sin ninguna biblioteca, vas a espiarlo con `strace` y vas a medir cuánto cuesta cruzarla."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un programa común contra el procesador"
+  },
+  {
+   "t": "p",
+   "x": "Este es el programa del gancho. Recibe por parámetro qué instrucción probar: `hlt` (detener el procesador), `cli` (apagar las interrupciones, una forma de ignorar al mundo exterior) o la lectura del registro de control `cr3`, que el kernel usa para administrar la memoria."
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <stdio.h>\n#include <string.h>\n\nint main(int argc, char **argv) {\n    printf(\"voy a ejecutar: %s\\n\", argv[1]);\n    fflush(stdout);                                  /* que el mensaje salga antes del posible choque */\n    if (strcmp(argv[1], \"hlt\") == 0)\n        __asm__ volatile(\"hlt\");                     /* detener el procesador */\n    else if (strcmp(argv[1], \"cli\") == 0)\n        __asm__ volatile(\"cli\");                     /* apagar las interrupciones */\n    else {\n        unsigned long v;\n        __asm__ volatile(\"mov %%cr3, %0\" : \"=r\"(v)); /* leer un registro de control */\n    }\n    printf(\"sigo vivo\\n\");\n    return 0;\n}",
+   "cap": "priv.c: intenta ejecutar tres instrucciones que normalmente solo puede ejecutar el kernel. El texto entre /* y */ es comentario."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -o priv priv.c",
+     "s": ""
+    },
+    {
+     "c": "id -un",
+     "s": "root"
+    },
+    {
+     "c": "for i in hlt cli cr3; do ./priv $i; echo \"código de salida: $?\"; done 2>&1 | grep -v '^/bin/bash'",
+     "s": "voy a ejecutar: hlt\ncódigo de salida: 139\nvoy a ejecutar: cli\ncódigo de salida: 139\nvoy a ejecutar: cr3\ncódigo de salida: 139"
+    },
+    {
+     "c": "strace ./priv hlt 2>&1 | tail -3",
+     "s": "write(1, \"voy a ejecutar: hlt\\n\", 20voy a ejecutar: hlt\n)   = 20\n--- SIGSEGV {si_signo=SIGSEGV, si_code=SI_KERNEL, si_addr=NULL} ---\n+++ killed by SIGSEGV +++"
+    }
+   ],
+   "cap": "Corrido por mí como root, en un Linux con kernel 6.18.44, GCC 13.3 y strace 6.8. Aparte de lo que se ve, bash imprime una línea «Segmentation fault» que filtré con grep. El 139 es 128 más el número de la señal, 11 (SIGSEGV)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las tres instrucciones terminaron igual: el programa murió y el sistema informó una violación de segmento. Lo interesante es lo que muestra `strace`, una herramienta que lista cada pedido que un programa le hace al kernel. Hay una señal SIGSEGV que **mandó el kernel** (por eso `SI_KERNEL`) y no trae ninguna dirección de memoria (`si_addr=NULL`). Mi interpretación: no fue un acceso a memoria inválido, que es lo que suele significar «segmentation fault», sino una instrucción prohibida. El nombre del error es engañoso, y vale la pena saberlo.",
+    "La secuencia es esta, y es el corazón del día:"
+   ]
+  },
+  {
+   "t": "pasos",
+   "pasos": [
+    {
+     "t": "El procesador va a ejecutar `hlt`",
+     "x": "Antes de ejecutar, comprueba en qué nivel de privilegio está corriendo el programa. Es un dato que el propio procesador mantiene."
+    },
+    {
+     "t": "El nivel no alcanza",
+     "x": "El manual de Intel incluye `hlt` entre las instrucciones que solo se ejecutan con el nivel 0, el más privilegiado. El programa corre en el nivel 3, el menos privilegiado."
+    },
+    {
+     "t": "El procesador lanza una excepción",
+     "x": "No ejecuta la instrucción. En su lugar levanta una excepción de protección general (#GP) y salta a un código que el kernel dejó preparado para estos casos."
+    },
+    {
+     "t": "El kernel decide qué hacer",
+     "x": "En Linux, ve que un programa común intentó algo prohibido y le manda la señal SIGSEGV. Por defecto, esa señal termina el programa."
+    },
+    {
+     "t": "El shell lo informa",
+     "x": "El programa murió por una señal y el shell avisa con «Segmentation fault» y el código 128 + 11 = 139."
+    }
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Ser root no es estar en modo kernel",
+   "x": "El programa corrió como root y fue frenado igual. Root es una identidad dentro del sistema operativo (el usuario 0): sirve para decidir qué archivos y qué operaciones le permite el kernel a un programa. El modo del procesador es otra cosa y se decide por hardware. Un programa de root corre en el mismo modo restringido que el de cualquier usuario, y para hacer algo privilegiado también tiene que pedírselo al kernel, que está en el modo con todos los derechos."
+  },
+  {
+   "t": "h",
+   "x": "Dos modos y los anillos que los ordenan"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo que acabás de ver tiene nombre. El procesador funciona en al menos dos modos. En **[[modo usuario]]**, el hardware restringe lo que el programa puede hacer: no puede tocar dispositivos, ni acceder a cualquier zona de memoria, ni ejecutar las instrucciones que controlan la máquina. En **[[modo kernel]]**, que usa el kernel, no hay esas restricciones. OSTEP lo describe así: un programa en modo usuario no puede, por ejemplo, iniciar un pedido de entrada y salida al disco ni acceder a cualquier página de memoria física, y el kernel tiene acceso completo al hardware [#ostep].",
+    "En los procesadores x86 el mecanismo es más fino que un interruptor de dos posiciones. El manual de Intel define **cuatro niveles de privilegio, numerados de 0 a 3, donde un número mayor significa menos privilegio**, y propone verlos como anillos concéntricos [#intel-sdm]. Eso es un [[anillo de protección]]. El nivel con el que corre el código en este instante se llama CPL y vive en los dos bits más bajos de un registro del procesador, el de segmento de código (CS)."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "svg",
+   "x": "<svg viewBox=\"0 0 360 250\" role=\"img\" aria-label=\"Anillos de protección del x86: el anillo 0 en el centro y el anillo 3 afuera\"><circle cx=\"180\" cy=\"125\" r=\"118\" fill=\"none\" stroke=\"var(--senal)\" stroke-width=\"2\"/><circle cx=\"180\" cy=\"125\" r=\"88\" fill=\"none\" stroke=\"var(--line)\" stroke-width=\"1.5\" stroke-dasharray=\"5 4\"/><circle cx=\"180\" cy=\"125\" r=\"58\" fill=\"none\" stroke=\"var(--line)\" stroke-width=\"1.5\" stroke-dasharray=\"5 4\"/><circle cx=\"180\" cy=\"125\" r=\"30\" fill=\"var(--surface)\" stroke=\"var(--circ)\" stroke-width=\"2\"/><text x=\"180\" y=\"22\" text-anchor=\"middle\" font-size=\"12\" fill=\"var(--ink)\">Anillo 3: aplicaciones (modo usuario)</text><text x=\"180\" y=\"52\" text-anchor=\"middle\" font-size=\"11\" fill=\"var(--ink)\">Anillo 2 (casi sin uso)</text><text x=\"180\" y=\"82\" text-anchor=\"middle\" font-size=\"11\" fill=\"var(--ink)\">Anillo 1 (casi sin uso)</text><text x=\"180\" y=\"122\" text-anchor=\"middle\" font-size=\"12\" fill=\"var(--ink)\">Anillo 0</text><text x=\"180\" y=\"137\" text-anchor=\"middle\" font-size=\"11\" fill=\"var(--ink)\">kernel</text></svg>",
+   "cap": "Los cuatro anillos del x86. Los sistemas de uso general usan en la práctica solo los extremos: el 0 para el kernel y el 3 para las aplicaciones [#wikipedia-protection-ring]."
+  },
+  {
+   "t": "p",
+   "x": "Lo puedo comprobar con un programa que lee su propio registro CS. Leerlo no está prohibido: un programa puede mirar en qué nivel está, pero no puede cambiarlo."
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <stdio.h>\nint main(void) {\n    unsigned short cs;\n    __asm__ volatile(\"mov %%cs, %0\" : \"=r\"(cs));   /* leer el registro de segmento de código */\n    printf(\"CS = 0x%x, los dos bits bajos valen %u\\n\", cs, cs & 3);\n    return 0;\n}",
+   "cap": "cs.c: lee el registro de segmento de código (CS) y muestra sus dos bits bajos."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -o cs cs.c && ./cs",
+     "s": "CS = 0x33, los dos bits bajos valen 3"
+    }
+   ],
+   "cap": "Corrido por mí en x86-64. Los dos bits bajos valen 3: el programa corre en el anillo 3. El kernel corre en el 0, y entre un nivel y otro hay una puerta, que es el tema de la próxima sección."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Modo usuario",
+    "Modo kernel"
+   ],
+   "filas": [
+    [
+     "En x86",
+     "anillo 3",
+     "anillo 0"
+    ],
+    [
+     "En ARM de 64 bits",
+     "nivel EL0 (aplicaciones)",
+     "nivel EL1 (sistema operativo)"
+    ],
+    [
+     "Quién corre ahí",
+     "aplicaciones, bibliotecas, tu navegador",
+     "el kernel y, en la mayoría de los sistemas, los drivers"
+    ],
+    [
+     "Qué puede hacer",
+     "calcular y usar su propia memoria",
+     "todo: dispositivos, memoria de cualquiera, instrucciones privilegiadas"
+    ],
+    [
+     "Si intenta algo prohibido",
+     "el procesador lanza una excepción",
+     "no aplica: no hay nadie con más privilegio"
+    ]
+   ],
+   "cap": "Los niveles de ARM de 64 bits son EL0 (aplicación), EL1 (sistema operativo), EL2 (hipervisor) y EL3 (monitor seguro), según Wikipedia [#wikipedia-protection-ring]; la documentación del kernel de Linux confirma que el modelo de excepciones de AArch64 va de EL0 a EL3 [#kernel-docs-arm64-booting]. Windows también distingue dos modos, usuario y kernel, según Microsoft [#ms-docs-user-kernel-mode]."
+  },
+  {
+   "t": "p",
+   "x": "Las instrucciones que el procesador solo ejecuta en el nivel 0 se llaman **instrucciones privilegiadas**. El manual de Intel trae la lista completa; entre ellas están las que cargan los registros que describen la memoria (`LGDT`, `LIDT`), las que leen y escriben registros de control (como `cr3`), `HLT`, `INVLPG`, y `WRMSR`, que escribe registros internos del procesador. Si se ejecutan con CPL distinto de 0, el procesador genera la excepción #GP [#intel-sdm]. La instrucción `cli` depende de un campo de permisos de entrada y salida (IOPL): en un sistema normal ese campo no permite que las aplicaciones la usen, y el choque de arriba lo confirmó."
+  },
+  {
+   "t": "pensa",
+   "x": "El kernel necesita que los programas puedan entrar a él. ¿Por qué no alcanza con una instrucción común, «pasar a modo kernel y saltar a la dirección que yo elija», que cualquier programa pueda ejecutar?",
+   "resp": "Porque cualquiera podría saltar al medio de una función del kernel, saltándose las comprobaciones que hace al principio, o a código propio ejecutándose con todos los privilegios. Para que la protección valga, la entrada al kernel tiene que ser una puerta fija, que el kernel dejó configurada de antemano, y no un salto libre."
+  },
+  {
+   "t": "h",
+   "x": "La llamada al sistema: la puerta con ventanilla"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un programa de modo usuario no puede leer un archivo, abrir una conexión ni reservar memoria por sí mismo. Entonces se lo pide al kernel, con un mecanismo formal. Una [[llamada al sistema]] (en inglés *system call* o *syscall*) es un pedido de un programa al kernel para que haga, con sus privilegios, algo que el programa no puede hacer solo. Según OSTEP, la idea se estrenó en el sistema Atlas, y la diferencia con una llamada común a función es que esta transfiere el control al sistema operativo y a la vez sube el nivel de privilegio [#ostep]."
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "a system call transfers control (i.e., jumps) into the OS while simultaneously raising the hardware privilege level.",
+   "autor": "Remzi y Andrea Arpaci-Dusseau, Operating Systems: Three Easy Pieces (cap. 2)",
+   "fuente": "ostep"
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: la ventanilla de la aduana",
+   "x": [
+    "En la terminal portuaria no entrás al sector de contenedores a buscar lo tuyo. Vas a una ventanilla, llenás un formulario (qué trámite, con qué datos), un empleado lo verifica, hace el trabajo adentro y te devuelve el resultado. Nunca pasás del mostrador. Con la llamada al sistema pasa igual: el programa deja el pedido en unos registros, el kernel lo comprueba, lo hace y devuelve un resultado.",
+    "Dónde la analogía deja de valer: en la ventanilla hay un empleado distinto de vos. Acá es el mismo procesador, que durante un instante cambia de modo y ejecuta el código del kernel con otro nivel de privilegio, y después vuelve al tuyo."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Cómo se hace en x86-64"
+  },
+  {
+   "t": "p",
+   "x": "En Linux sobre x86-64, el formulario es una convención de registros. El manual de Linux (la página `syscall(2)`) fija que la instrucción que cruza se llama `syscall`, que el número de la llamada va en el registro `rax`, que los argumentos van en `rdi`, `rsi`, `rdx`, `r10`, `r8` y `r9`, y que el resultado vuelve en `rax` [#man7]."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Arquitectura (ABI de Linux)",
+    "Instrucción que cruza",
+    "Número de la llamada en",
+    "Resultado en"
+   ],
+   "filas": [
+    [
+     "x86-64",
+     "syscall",
+     "rax",
+     "rax"
+    ],
+    [
+     "ARM de 64 bits (arm64)",
+     "svc #0",
+     "w8",
+     "x0"
+    ],
+    [
+     "x86 de 32 bits (histórico)",
+     "int $0x80",
+     "eax",
+     "eax"
+    ]
+   ],
+   "cap": "Fuente: syscall(2) del manual de Linux, versión 6.19 de las man-pages [#man7]. Cada arquitectura tiene su convención. Los números de las llamadas también cambian de una a otra."
+  },
+  {
+   "t": "p",
+   "x": [
+    "¿Qué hace el procesador con `syscall`? El manual de Intel lo describe: guarda en `rcx` la dirección de la instrucción siguiente, guarda las banderas en `r11`, carga el contador de programa desde un registro especial llamado `IA32_LSTAR`, y pasa a nivel de privilegio 0 [#intel-sdm]. Esa es la clave de la seguridad: **la dirección de entrada no la elige el programa**. La fija el sistema operativo antes de que corra ningún programa, escribiendo ese registro con `WRMSR`, una de las instrucciones privilegiadas de arriba. Para volver, el kernel ejecuta `sysret`, que recupera la dirección de `rcx` y las banderas de `r11` y baja otra vez al nivel 3.",
+    "Los números también son parte del contrato. En los encabezados de Linux de esta máquina (versión 6.8, definen 373 números de llamada) `write` es la 1, `getpid` la 39, `exit` la 60 y `exit_group` la 231. Los compilé para verlo en vez de confiar en la memoria."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Un programa sin biblioteca"
+  },
+  {
+   "t": "p",
+   "x": "El programa que sigue es un «Hola» sin ninguna biblioteca. Carga el número 1 (`write`) y tres argumentos en los registros de la tabla, ejecuta `syscall`, y después hace lo mismo con `exit`."
+  },
+  {
+   "t": "codigo",
+   "lang": "asm",
+   "x": "; hola.asm: escribir un texto y terminar, hablando directo con el kernel (x86-64, Linux)\nglobal _start\nsection .data\nmsg: db \"Hola, kernel\", 10          ; 10 = salto de línea\nlen: equ $ - msg                    ; largo del texto: 13 bytes\nsection .text\n_start:\n    mov rax, 1                      ; número de la llamada: write\n    mov rdi, 1                      ; arg 1: descriptor 1 (la salida estándar)\n    mov rsi, msg                    ; arg 2: dirección del texto\n    mov rdx, len                    ; arg 3: cuántos bytes\n    syscall                         ; cruzar al kernel\n    mov rax, 60                     ; número de la llamada: exit\n    xor rdi, rdi                    ; arg 1: código de salida 0\n    syscall",
+   "cap": "hola.asm: dos llamadas al sistema escritas a mano, sin biblioteca."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "nasm -f elf64 hola.asm -o hola.o && ld hola.o -o hola",
+     "s": ""
+    },
+    {
+     "c": "./hola; echo \"salida: $?\"",
+     "s": "Hola, kernel\nsalida: 0"
+    },
+    {
+     "c": "strace ./hola 2>&1",
+     "s": "execve(\"./hola\", [\"./hola\"], 0x7fffbe0b3620 /* 172 vars */) = 0\nwrite(1, \"Hola, kernel\\n\", 13Hola, kernel\n)          = 13\nexit(0)                                 = ?\n+++ exited with 0 +++"
+    }
+   ],
+   "cap": "Corrido por mí con NASM 2.16.01 y el enlazador GNU ld 2.42. `strace` ve exactamente las dos llamadas que escribí, más el `execve` con el que el sistema arrancó el programa."
+  },
+  {
+   "t": "p",
+   "x": "Ahora, el mismo «Hola» en C, el lenguaje de siempre, con `printf`. Corrí `strace` sobre él:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "strace ./holac 2>&1 | tail -3",
+     "s": "write(1, \"Hola desde C\\n\", 13Hola desde C\n)          = 13\nexit_group(0)                           = ?\n+++ exited with 0 +++"
+    },
+    {
+     "c": "strace -c ./holac 2>&1 | tail -3",
+     "s": "------ ----------- ----------- --------- --------- ----------------\n100.00    0.000288           8        34         1 total"
+    }
+   ],
+   "cap": "Corrido por mí. `holac.c` es un `main` con un único `printf(\"Hola desde C\\n\");`. El primer resultado muestra la llamada final `write`; el segundo, el total de llamadas de todo el programa."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos hallazgos. Primero: debajo de `printf` está la misma llamada `write(1, ..., 13)` que escribí a mano, con el descriptor 1, que es la salida estándar. La biblioteca de C, que ya viste en el [@02-01] como parte del sistema operativo como producto, da formato al texto y se ocupa de cruzar la puerta por vos. Segundo: el programa hizo **34 llamadas al sistema** para imprimir una línea. Casi todas pertenecen al arranque (cargar la biblioteca, reservar memoria): cómo se arma eso lo ves en el [@02-21].",
+    "Ese cruce, de punta a punta, se ve así:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Aplicación",
+     "k": "cliente"
+    },
+    {
+     "n": "Biblioteca C",
+     "k": "datos"
+    },
+    {
+     "n": "Kernel",
+     "k": "os"
+    },
+    {
+     "n": "Driver",
+     "k": "os"
+    },
+    {
+     "n": "Hardware",
+     "k": "hw"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "printf(\"Hola desde C\\n\")",
+     "d": "El programa llama a una función común de la biblioteca. Todavía no hay cruce: es una llamada normal, en modo usuario."
+    },
+    {
+     "de": 1,
+     "a": 1,
+     "t": "Arma el texto en un buffer",
+     "d": "printf da formato y guarda el resultado en memoria. Cuando decide vaciar el buffer, prepara los registros: rax = 1 (write), rdi = 1, rsi = dirección del texto, rdx = 13."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "syscall: write(1, texto, 13)",
+     "d": "Acá cruza la puerta. El procesador guarda la dirección de retorno, salta a la entrada que fijó el kernel y pasa al nivel 0 (modo kernel)."
+    },
+    {
+     "de": 2,
+     "a": 2,
+     "t": "Valida el pedido",
+     "d": "El kernel comprueba que el descriptor 1 existe y que el texto está en memoria del programa. Nada de lo que llega desde modo usuario se da por bueno."
+    },
+    {
+     "de": 2,
+     "a": 3,
+     "t": "Entrega los bytes al dispositivo",
+     "d": "Averigua qué hay detrás del descriptor 1 (una terminal, un archivo o una tubería) y llama al código que lo maneja. Cuando es un dispositivo de hardware, ese código es un driver, tema del [@02-14]."
+    },
+    {
+     "de": 3,
+     "a": 4,
+     "t": "Escribe en el dispositivo",
+     "d": "El driver habla con el hardware, con el mismo tipo de órdenes que el programa de 512 bytes del día anterior, pero ahora con los privilegios que corresponden."
+    },
+    {
+     "de": 4,
+     "a": 3,
+     "t": "Confirma",
+     "resp": true,
+     "d": "El dispositivo avisa que recibió los datos."
+    },
+    {
+     "de": 3,
+     "a": 2,
+     "t": "13 bytes escritos",
+     "resp": true,
+     "d": "El driver informa cuántos bytes se escribieron."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "sysret: vuelve a modo usuario",
+     "resp": true,
+     "d": "El kernel deja el resultado (13) en rax y ejecuta sysret: el procesador baja al nivel 3 y continúa justo después de la instrucción syscall."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "printf devuelve",
+     "resp": true,
+     "d": "La biblioteca devuelve el control al programa, que sigue como si nada. Desde su lado, solo llamó a una función."
+    }
+   ],
+   "cap": "El camino de un printf hasta el hardware. Las líneas punteadas son respuestas. El detalle del tramo «Driver» y «Hardware» cambia según adónde apunte el descriptor 1."
+  },
+  {
+   "t": "h",
+   "x": "El kernel no confía en lo que le llega"
+  },
+  {
+   "t": "p",
+   "x": "Cada dato que cruza la puerta viene de un programa que el kernel no controla, así que se trata como entrada no confiable. Para verlo, le pedí al kernel algo absurdo: que escriba cinco bytes leyéndolos desde la dirección de memoria 1, que no pertenece al programa."
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#define _GNU_SOURCE\n#include <stdio.h>\n#include <errno.h>\n#include <string.h>\n#include <unistd.h>\n#include <sys/syscall.h>\n\nint main(void) {\n    /* Le pido al kernel que escriba 5 bytes desde la dirección 1, que no es mía. */\n    long r = syscall(SYS_write, 1, (void *)1, 5);\n    printf(\"write devolvió %ld, errno = %d (%s)\\n\", r, errno, strerror(errno));\n    return 0;\n}",
+   "cap": "efault.c: una llamada al sistema con un puntero inválido."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -o efault efault.c && ./efault",
+     "s": "write devolvió -1, errno = 14 (Bad address)"
+    },
+    {
+     "c": "strace ./efault 2>&1 | grep 'write(1, 0x1'",
+     "s": "write(1, 0x1, 5)                        = -1 EFAULT (Bad address)"
+    }
+   ],
+   "cap": "Corrido por mí. El kernel devuelve el error EFAULT («dirección inválida») y el programa sigue vivo."
+  },
+  {
+   "t": "p",
+   "x": "El kernel no explotó ni leyó basura: comprobó que la dirección no era del programa y devolvió un error. Con una función común, ese mismo puntero habría producido una lectura de memoria que no corresponde. Es el patrón de toda la seguridad del sistema operativo: el modo usuario puede pedir lo que quiera, y el kernel decide si lo hace. Una comprobación olvidada en esa puerta es una vulnerabilidad, y por eso se programa con mucho cuidado."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Un error de segmentación siempre es un error de memoria»",
+   "x": "El programa de hoy murió con SIGSEGV sin haber tocado la memoria: `hlt` es una instrucción privilegiada y `strace` mostró una señal sin dirección asociada. Más adelante, al estudiar memoria virtual, vas a ver la otra causa, la más común, que sí es un acceso a memoria inválido. El mensaje es el mismo y la causa cambia, así que conviene mirar el detalle antes de adivinar."
+  },
+  {
+   "t": "h",
+   "x": "Cuánto cuesta cruzar la puerta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si cruzar al kernel fuera gratis, nadie lo evitaría. Para medir el costo escribí un programa que repite diez millones de veces tres cosas: una función común que suma uno, la llamada al sistema `getpid` (una de las más baratas, porque casi no hace trabajo) y `clock_gettime`, la función que lee el reloj. Dividí el tiempo total por la cantidad de repeticiones.",
+    "El método importa: cada versión se repite 10 millones de veces para que el ruido se promedie, llamo a `syscall(SYS_getpid)` en lugar de `getpid()` para asegurarme de que el cruce ocurra en cada vuelta, y corrí el programa seis veces."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#define _GNU_SOURCE\n#include <stdio.h>\n#include <time.h>\n#include <sys/syscall.h>\n#include <unistd.h>\n\n#define N 10000000L\n\nstatic double ahora(void) {\n    struct timespec t;\n    clock_gettime(CLOCK_MONOTONIC, &t);\n    return t.tv_sec + t.tv_nsec / 1e9;\n}\n\n__attribute__((noinline)) long suma_uno(long x) {   /* una función común: no cruza al kernel */\n    __asm__ volatile(\"\" : \"+r\"(x));\n    return x + 1;\n}\n\nint main(void) {\n    volatile long sink = 0;\n    struct timespec ts;\n    double t0;\n\n    t0 = ahora();\n    for (long i = 0; i < N; i++) sink += suma_uno(i);\n    printf(\"función común:        %5.1f ns por llamada\\n\", (ahora() - t0) / N * 1e9);\n\n    t0 = ahora();\n    for (long i = 0; i < N; i++) sink += syscall(SYS_getpid);\n    printf(\"syscall(SYS_getpid):  %5.1f ns por llamada\\n\", (ahora() - t0) / N * 1e9);\n\n    t0 = ahora();\n    for (long i = 0; i < N; i++) { clock_gettime(CLOCK_MONOTONIC, &ts); sink += ts.tv_nsec; }\n    printf(\"clock_gettime:        %5.1f ns por llamada\\n\", (ahora() - t0) / N * 1e9);\n    return 0;\n}",
+   "cap": "costo.c: mide el costo medio de una función común, de una llamada al sistema y de un caso intermedio."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Qué se mide",
+    "Rango en 6 corridas",
+    "Lo que representa"
+   ],
+   "filas": [
+    [
+     "Función común (sin cruzar)",
+     "2,0 a 2,2 ns",
+     "el costo de una llamada normal, con el bucle incluido"
+    ],
+    [
+     "syscall(SYS_getpid)",
+     "84,5 a 90,2 ns",
+     "el cruce al kernel y la vuelta, sin trabajo de verdad"
+    ],
+    [
+     "clock_gettime",
+     "21,3 a 25,8 ns",
+     "una función que casi nunca cruza (ver abajo)"
+    ]
+   ],
+   "cap": "Medición propia en una máquina virtual KVM con un Intel Xeon a 2,30 GHz, kernel 6.18.44. Es una ESTIMACIÓN de orden de magnitud para esta máquina: en otra, la cifra será distinta."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La llamada al sistema más barata cuesta unos 85 ns, unas 40 veces lo que una llamada común. Con un reloj de 2,3 GHz son del orden de 200 ciclos (cálculo mío: 85 ns por 2,3 ciclos por ns). Para ubicarte: es parecido a una lectura de la memoria principal, 100 ns según la lista que usaste en el [@02-01] [#latency-numbers]. Y es lo mínimo: una llamada que lee de un disco o de la red cuesta mucho más, porque además hace ese trabajo.",
+    "Dos advertencias sobre el número. La primera: en procesadores afectados por la vulnerabilidad Meltdown, Linux mantiene dos juegos de mapas de memoria y cambia de uno a otro en cada entrada y salida del kernel [#kernel-docs-pti], y eso encarece el cruce. En esta máquina el archivo `/sys/devices/system/cpu/vulnerabilities/meltdown` dice «Not affected»: no paga ese extra. En otras, el número puede ser mayor (inferencia mía). La segunda: es una máquina virtual, y eso también puede afectar las cifras."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "El caso intermedio: la llamada que no cruza"
+  },
+  {
+   "t": "p",
+   "x": "`clock_gettime` costó 22 ns, cuatro veces menos que `getpid`. No es casualidad. Según el manual de Linux, el kernel mapea en cada programa una pequeña biblioteca, el vDSO, que permite resolver sin cruzar al kernel las llamadas que se usan con tanta frecuencia que el costo del cruce dominaría el tiempo total [#man7]. Es un diseño inteligente: la API parece una llamada al sistema, pero muchas veces se resuelve en modo usuario."
+  },
+  {
+   "t": "h3",
+   "x": "La consecuencia de diseño: agrupar"
+  },
+  {
+   "t": "p",
+   "x": "Si cada cruce cuesta, conviene hacer menos cruces. Lo medí con otro programa: escribir 200.000 bytes en `/dev/null` (un destino que descarta todo, así se mide solo el costo de cruzar), una vez llamando a `write` por cada byte y otra con `fwrite`, que deja que la biblioteca junte los bytes en memoria."
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <stdio.h>\n#include <string.h>\n#include <time.h>\n#include <unistd.h>\n\n#define N 200000\n\nint main(int argc, char **argv) {\n    int directo = argc > 1 && strcmp(argv[1], \"directo\") == 0;\n    FILE *f = fopen(\"/dev/null\", \"w\");       /* un destino que descarta todo: mide solo el costo de cruzar */\n    struct timespec a, b;\n    clock_gettime(CLOCK_MONOTONIC, &a);\n    for (int i = 0; i < N; i++) {\n        if (directo) { if (write(fileno(f), \"x\", 1) < 0) return 1; }   /* una llamada al sistema por byte */\n        else fwrite(\"x\", 1, 1, f);                                      /* la biblioteca acumula en memoria */\n    }\n    fflush(f);\n    clock_gettime(CLOCK_MONOTONIC, &b);\n    double ms = (b.tv_sec - a.tv_sec) * 1e3 + (b.tv_nsec - a.tv_nsec) / 1e6;\n    fprintf(stderr, \"%s: %d bytes en %.1f ms\\n\", directo ? \"write directo\" : \"fwrite con buffer\", N, ms);\n    return 0;\n}",
+   "cap": "buf.c: 200.000 escrituras de un byte, directas o con buffer. El argumento «directo» elige la variante."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./buf directo; ./buf",
+     "s": "write directo: 200000 bytes en 19.3 ms\nfwrite con buffer: 200000 bytes en 2.7 ms"
+    },
+    {
+     "c": "strace -c -e trace=write ./buf directo 2>&1 | grep total",
+     "s": "100.00    1.835136           9    200001           total"
+    },
+    {
+     "c": "strace -c -e trace=write ./buf 2>&1 | grep total",
+     "s": "100.00    0.000000           0        50           total"
+    }
+   ],
+   "cap": "Corrido por mí. En tres pares de corridas, `write` directo tardó entre 18,4 y 19,3 ms y `fwrite`, entre 1,5 y 2,7 ms. Los totales de `strace` incluyen la llamada que usa el programa para imprimir su propio resultado. Bajo `strace`, la versión directa tardó 9,6 segundos: la herramienta frena cada llamada para mostrarla, así que sirve para mirar y no para medir tiempos."
+  },
+  {
+   "t": "p",
+   "x": "Mismo resultado en el archivo, 200.001 llamadas contra 50, y una diferencia de entre 7 y 12 veces en tiempo. La biblioteca acumuló los bytes y los entregó en trozos, del orden de 4 KB cada uno (200.000 dividido 49 da unos 4.000; es una deducción mía). Cuando veas que un programa lento escribe línea por línea, esta es la primera sospecha."
+  },
+  {
+   "t": "pensa",
+   "x": "Un programa escribe 100.000 líneas de log una por una con `write` directo y va lento. Agrupar las escrituras lo acelera mucho. ¿Qué podés perder a cambio?",
+   "resp": "Si el programa se cae o lo matan antes de que el buffer se vacíe, las últimas líneas escritas en memoria se pierden y el log no muestra justo lo que pasó antes del fallo. Es un trade-off: velocidad contra seguridad de que cada dato llegó. Por eso los programas que no pueden perder datos fuerzan el vaciado en los momentos clave."
+  },
+  {
+   "t": "h",
+   "x": "Android, iOS y el resto: la misma idea"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Todo lo que viste vale en lo esencial para un celular, con otros nombres. El procesador ARM tiene sus propios niveles de privilegio (EL0 para aplicaciones y EL1 para el sistema operativo) y su propia instrucción de cruce, `svc`, que la tabla de arriba muestra para Linux sobre arm64 [#man7]. Android usa un kernel basado en Linux [#aosp-kernel], y su documentación de arquitectura indica que las bibliotecas nativas del sistema, entre ellas la `libc`, interactúan directamente con el kernel [#android-arch]. iOS y macOS tienen sus propios kernels y sus propias llamadas al sistema; el ciclo de modo usuario, cruce y modo kernel es el mismo, y los detalles de cada uno los vas a ver en el [@02-27] y el [@02-29].",
+    "Lo que te importa de este adelanto es esto: sea cual sea la marca, una app de modo usuario nunca toca el hardware, siempre pide por la puerta, y por eso el sistema puede cerrar esa puerta a una app que no tiene permiso (cámara, ubicación, archivos). Cómo se aplican esos permisos es tema del [@02-30]."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Dónde cruza Senda",
+   "x": [
+    "Esto corresponde al commit 25e08fa (el código cambia, la forma permanece). Senda está escrita en TypeScript y se empaqueta como bytecode de Hermes, el motor de JavaScript que usa React Native; así lo registran `docs/PESO.md` y el mapa técnico del proyecto. Ese código nunca ejecuta `syscall`. Cuando `src/util/almacen.ts` guarda el progreso con AsyncStorage, el pedido baja por capas: la biblioteca nativa de AsyncStorage, el código de Android, la `libc` y recién ahí el kernel.",
+    "Es una inferencia razonable a partir de la arquitectura de Android, y no una traza: no corrí `strace` sobre la app. Si algún día lo hacés sobre un teléfono de prueba, buscá las llamadas de escritura que acompañan cada guardado."
+   ],
+   "archivos": [
+    "src/util/almacen.ts",
+    "package.json",
+    "docs/PESO.md"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Lo que verifiqué el 13-11-2026",
+   "x": "Manual de Intel: SDM, número de orden 325462-093US, de septiembre de 2026 (anillos y CPL, lista de instrucciones privilegiadas, instrucciones SYSCALL y SYSRET). Manual de Linux: man-pages 6.19 (`syscall(2)`, `vdso(7)`). Los números de llamada (`write` = 1 y demás) son los de Linux sobre x86-64 y no valen en otra arquitectura. Las cifras de tiempo son mediciones propias de este entorno, no propiedades universales."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Modificá `hola.asm` para que escriba tu nombre en lugar de «Hola, kernel» y termine con código de salida 7. Ensamblalo, corrélo, confirmá el código con `echo $?` y mirá las dos llamadas con `strace`.",
+   "pista": "El largo del texto lo calcula la línea `len: equ $ - msg`, así que solo cambia el texto. El código de salida es el primer argumento de `exit`, o sea `rdi`.",
+   "solucion": "Cambiá `db \"Hola, kernel\", 10` por `db \"Juan\", 10` (o tu nombre) y reemplazá `xor rdi, rdi` por `mov rdi, 7`. Lo probé: la salida fue «Juan» y `echo $?` mostró 7. Con `strace` ves `write(1, \"Juan\\n\", 5) = 5` y `exit(7)`."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Con lo medido hoy (85 ns por `getpid`, 19,3 ms para 200.000 `write` de un byte): (1) ¿cuánto tardarían un millón de llamadas `getpid`? (2) ¿Cuánto cuesta en promedio cada `write` de la prueba, en nanosegundos? (3) ¿Por qué da más que `getpid`?",
+   "pista": "Tiempo total dividido cantidad de llamadas. 1 ms = 1.000.000 ns.",
+   "solucion": "(1) 1.000.000 por 85 ns = 85.000.000 ns = 85 ms. (2) 19,3 ms = 19.300.000 ns; dividido 200.000 da unos 97 ns por llamada. (3) Porque `write` hace trabajo además de cruzar (comprueba el descriptor y entrega los datos al destino), aunque sea `/dev/null`, que descarta todo. `getpid` casi no hace nada."
+  }
+ ],
+ "recap": [
+  "Un programa común corre en **modo usuario** y el procesador le prohíbe las **instrucciones privilegiadas** (`hlt`, leer `cr3`, escribir registros especiales). Si las intenta, lanza una excepción y el kernel lo mata. Pasa incluso con root.",
+  "En x86 hay cuatro **anillos de protección**, del 0 (el más privilegiado) al 3. El kernel corre en el 0 y las aplicaciones en el 3. Los dos bits bajos del registro CS dicen en cuál estás: medí 3. Los anillos 1 y 2 casi no se usan. Root es una identidad del sistema operativo, no un modo del procesador.",
+  "Una **llamada al sistema** es la puerta controlada para pedirle algo al kernel. En x86-64 se hace con la instrucción `syscall`: número en `rax`, argumentos en `rdi`, `rsi`, `rdx`, `r10`, `r8` y `r9`, resultado en `rax`. La dirección de entrada la fija el kernel, no el programa.",
+  "El kernel valida todo lo que llega por la puerta. Un puntero inválido en `write` devolvió EFAULT y no rompió nada.",
+  "Cruzar al kernel cuesta unos 85 ns en la máquina medida (ESTIMACIÓN de orden de magnitud), unas 40 veces una llamada común. Por eso las bibliotecas agrupan escrituras en buffers (50 llamadas en vez de 200.001) y existe el vDSO para casos como `clock_gettime`.",
+  "ARM tiene niveles EL0 a EL3 y la instrucción `svc`. Android e iOS usan la misma idea (modo usuario, cruce, modo kernel) con otros nombres."
+ ],
+ "repaso": [
+  {
+   "p": "Un programa corriendo como root ejecuta la instrucción `hlt`. ¿Qué ocurre y por qué?",
+   "o": [
+    "Se detiene el procesador, porque root puede todo",
+    "El procesador lanza una excepción: el programa corre en modo usuario",
+    "Se ignora la instrucción porque root no es administrador",
+    "Funciona si el programa lo pide con un permiso especial"
+   ],
+   "c": 1,
+   "e": "Root es una identidad del sistema operativo. El procesador no sabe quién es root: solo mira el nivel de privilegio (CPL). Un programa de root corre en el anillo 3 y la instrucción es privilegiada, así que se lanza la excepción."
+  },
+  {
+   "p": "En x86-64 con Linux, un programa quiere llamar a `write`. ¿Dónde pone el número de la llamada antes de ejecutar `syscall`?",
+   "o": [
+    "En el registro rdi, que es el primer argumento",
+    "En el registro rax",
+    "En el registro rcx, donde se guarda el retorno",
+    "En la pila, por convención"
+   ],
+   "c": 1,
+   "e": "El número de la llamada va en rax. rdi es el primer argumento de la llamada, y rcx lo usa el procesador para guardar la dirección de retorno. Con la pila se pasan argumentos en las llamadas normales a funciones, no el número de syscall."
+  },
+  {
+   "p": "Un programa le pasa a `write` un puntero a memoria que no es suya. ¿Qué hace el kernel?",
+   "o": [
+    "Lee esa memoria de todas formas y escribe lo que encuentra",
+    "Mata el programa en el acto sin dar aviso",
+    "Reinicia la computadora para evitar daños",
+    "Devuelve un error (EFAULT) y el programa sigue vivo"
+   ],
+   "c": 3,
+   "e": "El kernel comprueba cada puntero que llega desde modo usuario. Si no pertenece al programa, devuelve un error y no hace la operación. Leer sin comprobar sería una vulnerabilidad, y matar o reiniciar sería desproporcionado."
+  },
+  {
+   "p": "Un programa escribe 100.000 líneas en un archivo llamando a `write` una por una, y es muy lento. ¿Qué cambio ataca la causa más probable?",
+   "o": [
+    "Cambiar el procesador por uno de más gigahertz",
+    "Cerrar el archivo después de cada línea para liberar memoria",
+    "Acumular las líneas en un buffer y escribir por bloques",
+    "Escribir cada línea en mayúsculas para que ocupe menos"
+   ],
+   "c": 2,
+   "e": "El costo dominante es cruzar al kernel una vez por línea. Agrupar reduce la cantidad de cruces, como pasó de 200.001 a 50 llamadas. Cerrar y reabrir cruza todavía más veces, y un procesador más rápido no cambia el costo por cruce."
+  },
+  {
+   "p": "`clock_gettime` costó unos 22 ns y `getpid` unos 85 ns. ¿Qué explica la diferencia?",
+   "o": [
+    "La biblioteca puede leer el reloj sin cruzar al kernel, usando el vDSO",
+    "El reloj del sistema está en una zona de memoria que no se puede proteger",
+    "`getpid` usa un núcleo del procesador más lento",
+    "`clock_gettime` no necesita ejecutar ninguna instrucción"
+   ],
+   "c": 0,
+   "e": "El kernel deja en cada programa un pequeño código y datos del reloj que se leen en modo usuario, así que muchas veces no hay cruce. Todo lo demás es falso: toda función ejecuta instrucciones, y un núcleo lento no explicaría la proporción."
+  },
+  {
+   "p": "Un programa que corre como root intenta leer el registro `cr3`. ¿Qué está ocurriendo, en términos de modos?",
+   "o": [
+    "Corre en modo kernel y por eso puede leerlo",
+    "El procesador lo bloquea porque la app corre en el anillo 3",
+    "El sistema operativo le niega el archivo correspondiente",
+    "Funciona, pero solo si el usuario es administrador"
+   ],
+   "c": 1,
+   "e": "Leer cr3 es una instrucción privilegiada, y el programa corre en el anillo 3 aunque su usuario sea root. El bloqueo lo hace el procesador, no un permiso de archivos del sistema operativo."
+  },
+  {
+   "p": "¿Qué cambia entre un celular ARM y una PC x86-64 respecto de la idea de modo usuario, modo kernel y llamadas al sistema?",
+   "o": [
+    "En ARM las apps corren con privilegios totales",
+    "En un celular las apps llaman al hardware directo",
+    "Los nombres de los niveles y la instrucción, no la idea",
+    "En ARM no existen las llamadas al sistema"
+   ],
+   "c": 2,
+   "e": "ARM usa niveles EL0 a EL3 y la instrucción svc, pero conserva la misma estructura: la app corre restringida y cruza por una puerta controlada. Las otras opciones contradicen el diseño de protección de cualquier sistema operativo de uso general."
+  }
+ ],
+ "feynman": "Explicale a alguien que no sabe de computadoras por qué un programa, aunque lo corra el administrador, no puede apagar el procesador de un golpe, y cómo hace entonces para pedir que le lean un archivo. Usá una analogía tuya distinta de la ventanilla de la aduana.",
+ "para_profundizar": [
+  {
+   "fuente": "intel-sdm",
+   "nota": "Volumen 3A, capítulo 6 (Protección), sección «Privileged Instructions»; volumen 2B, entrada de SYSCALL. Es el manual del fabricante: denso, pero las secciones citadas se leen bien con lo de hoy."
+  },
+  {
+   "fuente": "ostep",
+   "nota": "Los capítulos sobre ejecución directa limitada explican modo usuario, modo kernel y llamadas al sistema con una construcción paso a paso. Es gratis en línea y está en inglés."
+  },
+  {
+   "fuente": "man7",
+   "nota": "Las páginas `syscall(2)` (tabla de convenciones por arquitectura) y `vdso(7)` (por qué algunas llamadas no cruzan). Son el mismo material que usé para las tablas."
+  },
+  {
+   "fuente": "csapp",
+   "nota": "En el capítulo 8, «Exceptional Control Flow», aparecen las llamadas al sistema y las excepciones desde el punto de vista de quien programa."
+  }
+ ],
+ "videos": [
+  {
+   "q": "user mode vs kernel mode system call explicación animada",
+   "por_que": "Para ver animado el cambio de modo y el cruce a una llamada al sistema, con otra voz."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "modo usuario",
+   "d": "El modo restringido del procesador en el que corren las aplicaciones: no pueden tocar dispositivos ni ejecutar instrucciones privilegiadas. En x86 corresponde al anillo 3."
+  },
+  {
+   "t": "modo kernel",
+   "d": "El modo del procesador con todos los privilegios, en el que corre el kernel: puede acceder a cualquier dispositivo y memoria. En x86 corresponde al anillo 0."
+  },
+  {
+   "t": "llamada al sistema",
+   "d": "Pedido formal de un programa al kernel para que haga con sus privilegios algo que el programa no puede hacer solo. Cruza de modo usuario a modo kernel por una puerta fija."
+  },
+  {
+   "t": "anillo de protección",
+   "d": "Cada uno de los niveles de privilegio del procesador, dibujados como círculos concéntricos. En x86 van del 0 (el más privilegiado, el kernel) al 3 (el menos, las aplicaciones)."
+  },
+  {
+   "t": "instrucción privilegiada",
+   "d": "Instrucción que el procesador solo ejecuta en el nivel de privilegio 0, como detener el procesador o cambiar los registros de control. Si un programa común la intenta, se lanza una excepción."
+  },
+  {
+   "t": "vDSO",
+   "d": "Pequeña biblioteca que el kernel de Linux mapea en cada programa para resolver sin cruzar al kernel las llamadas muy frecuentes, como leer la hora."
+  }
+ ],
+ "siguiente": "del botón de encendido al login: qué pasa desde que el firmware le cede el control al kernel hasta que aparece tu sesión, y cuál es el primer programa que arranca.",
+ "fuentes_nuevas": [
+  {
+   "id": "wikipedia-protection-ring",
+   "t": "Protection ring",
+   "a": "Wikipedia",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/Protection_ring"
+  },
+  {
+   "id": "kernel-docs-arm64-booting",
+   "t": "Booting AArch64 Linux",
+   "a": "Documentación del kernel de Linux",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/arch/arm64/booting.html"
+  },
+  {
+   "id": "ms-docs-user-kernel-mode",
+   "t": "User mode and kernel mode",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows-hardware/drivers/gettingstarted/user-mode-and-kernel-mode"
+  },
+  {
+   "id": "kernel-docs-pti",
+   "t": "Page Table Isolation (PTI)",
+   "a": "Documentación del kernel de Linux",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/arch/x86/pti.html"
+  },
+  {
+   "id": "aosp-kernel",
+   "t": "Android kernel overview",
+   "a": "Android Open Source Project",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/core/architecture/kernel"
+  }
+ ]
+}

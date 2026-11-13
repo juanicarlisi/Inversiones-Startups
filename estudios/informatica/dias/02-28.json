@@ -1,0 +1,978 @@
+{
+ "id": "02-28",
+ "titulo": "Android por dentro",
+ "bajada": "Seguís un toque en el ícono de una app desde el kernel hasta su proceso: Binder, Zygote, ART, un usuario de Linux por app y permisos en dos niveles.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué agrega Android a un kernel Linux (Binder, entre otros) y cómo se reparten el trabajo el kernel, el HAL, el runtime, los servicios y el framework.",
+  "Describir qué hace ART con el código de una app: bytecode DEX, interpretación, compilación JIT y compilación anticipada guiada por un perfil.",
+  "Seguir, paso a paso, cómo nace el proceso de una app: system_server, Zygote y fork.",
+  "Explicar por qué cada app es un usuario de Linux distinto, cómo lo refuerza SELinux y en qué se diferencian los permisos del manifiesto y los de tiempo de ejecución.",
+  "Leer un número de nivel de API y distinguirlo del número de versión de Android."
+ ],
+ "venis_de": "Ayer viste macOS: un kernel propio, un volumen firmado y varios controles que revisan cada app. Hoy toca Android, que tomó el kernel Linux que ya conocés y armó encima otro mundo, donde cada app es, para el kernel, un usuario más.",
+ "se_apoya_en": [
+  "02-02",
+  "02-13",
+  "02-20",
+  "02-21",
+  "02-26",
+  "02-27"
+ ],
+ "gancho": [
+  "Tocás el ícono de una app en tu teléfono Android y, menos de un segundo después, aparece su pantalla. Si la app no estaba abierta, pasó algo que no se ve: nació un proceso nuevo, que ya traía cargada una gran cantidad de clases del sistema que nadie le cargó, y que corre como un usuario de Linux creado cuando instalaste la app. Esos tres trucos (un proceso precalentado, un runtime propio y un usuario por app) son la mitad de la arquitectura de Android.",
+  "En [@02-26] viste que Linux es un kernel y que las distribuciones se arman alrededor. Android es el caso más raro de esa familia: comparte el kernel, pero casi todo lo que está arriba es suyo. Hoy lo recorrés de abajo hacia arriba, con las preguntas de siempre: ¿qué pasa en el kernel?, ¿cómo se crea un proceso?, ¿quién puede tocar qué?"
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un kernel Linux con agregados"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Según la documentación de Android, su kernel parte de un kernel de Linux de soporte largo (LTS) al que Google le suma parches específicos de Android; el resultado se llama *Android Common Kernel* [#aosp-kernel-overview]. Desde la versión 5.10, esos kernels se separan en dos partes: un núcleo genérico, igual en todos los equipos, y módulos que aporta cada fabricante de chips para su hardware. El proyecto que lo ordena busca resolver la «fragmentación del kernel», es decir, que cada teléfono tuviera un kernel distinto y difícil de actualizar [#aosp-kernel-overview].",
+    "Una pista para leer nombres: `android15-6.6` es el kernel de Android 15 con la versión 6.6 de Linux [#aosp-kernel-overview]. Entre los parches propios, el más importante para entender el resto del día es [[Binder]], un mecanismo de comunicación entre procesos que vive en el kernel. Binder ya figura en el Linux estándar: la documentación del kernel incluye una guía de *binderfs*, su sistema de archivos [#kernel-binderfs-doc]. Que figure ahí no significa que venga activado en todos lados:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "zcat /proc/config.gz | grep -i binder",
+     "s": "# CONFIG_ANDROID_BINDER_IPC is not set"
+    }
+   ],
+   "cap": "Corrido por mí el 13-11-2026 en el contenedor Linux del estudio. Este kernel (Linux 6.18) se compiló sin soporte de Binder; en Android esa opción va activada. La salida es de este contenedor, no de un teléfono."
+  },
+  {
+   "t": "p",
+   "x": "Por qué hace falta Binder: cada proceso vive en su propio espacio de direcciones y no puede leer la memoria de otro (lo viste en [@02-08]). Pero una app necesita pedirle cosas a servicios que están en otros procesos. Binder resuelve eso: según Android, el cliente le habla a un *proxy*, que arma una transacción con el identificador del servicio, el del método y una copia de los argumentos; el driver del kernel la copia al espacio del proceso destino, busca un hilo libre de ese proceso y le entrega el pedido; la respuesta vuelve por el mismo camino [#aosp-binder-overview]."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Proceso A (cliente)",
+     "k": "cliente"
+    },
+    {
+     "n": "Driver Binder (kernel)",
+     "k": "os"
+    },
+    {
+     "n": "Proceso B (servicio)",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "transacción: servicio, método, argumentos",
+     "d": "El proxy en el proceso A arma un paquete con el identificador del servicio, el del método y una copia de los argumentos, y lo entrega al driver."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "copia el paquete y despierta un hilo",
+     "d": "El kernel copia toda la transacción al espacio de direcciones del proceso B y elige un hilo de B que la atienda."
+    },
+    {
+     "de": 2,
+     "a": 2,
+     "t": "ejecuta el método",
+     "d": "El servicio abre el paquete, lee el método y los argumentos y ejecuta el código como si lo hubieran llamado localmente."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "respuesta con el resultado",
+     "resp": true,
+     "d": "El resultado viaja como otra transacción de vuelta hacia el driver."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "entrega el resultado",
+     "resp": true,
+     "d": "El proxy devuelve el valor a quien llamó, que no notó que el trabajo se hizo en otro proceso."
+    }
+   ],
+   "cap": "Una llamada Binder, resumida de la documentación de Android [#aosp-binder-overview]."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: un operador logístico",
+   "x": [
+    "Dos depósitos de empresas distintas no se prestan las llaves. Cuando uno necesita algo del otro, entrega un pedido escrito al operador logístico; el operador lo copia en la planilla del destinatario, le avisa a un empleado libre y devuelve la respuesta por el mismo camino. Ninguno entra al depósito del otro.",
+    "Donde la analogía falla: el operador de Binder anota en la transacción quién la mandó, y eso permite decidir si corresponde atenderla. Más abajo vas a ver cuánto pesa ese dato."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Las capas de Android"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "Apps",
+     "d": "Cada app es un APK instalado; corre en su propio proceso",
+     "k": "cliente"
+    },
+    {
+     "n": "Framework de Android",
+     "d": "Clases en Java y Kotlin sobre las que se arman las apps; corre dentro del proceso de cada app",
+     "k": "red"
+    },
+    {
+     "n": "Servicios del sistema",
+     "d": "system_server, SurfaceFlinger, MediaService: atienden por Binder lo que pide el framework",
+     "k": "servidor"
+    },
+    {
+     "n": "ART y bibliotecas nativas",
+     "d": "El runtime que ejecuta el código de las apps, más daemons como init y bibliotecas como libc o libbinder",
+     "k": "datos"
+    },
+    {
+     "n": "HAL",
+     "d": "Interfaz estándar que implementa el fabricante de cada pieza de hardware (cámara, sensores)",
+     "k": "os"
+    },
+    {
+     "n": "Kernel Linux",
+     "d": "El núcleo con los agregados de Android (Binder) y los módulos del fabricante del chip",
+     "k": "hw"
+    }
+   ],
+   "cap": "Capas de Android según la arquitectura de AOSP, el Android Open Source Project [#android-arch]. Los fabricantes pueden agregar apps y capas propias."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres de estas piezas merecen una frase cada una. El [[framework de Android]] es un conjunto de clases, interfaces y código precompilado sobre el que se construyen las apps, y corre dentro del proceso de cada app [#android-arch]. Los servicios del sistema son componentes aparte; el más importante, [[system_server]], vive en un proceso propio. Y la [[HAL]] (capa de abstracción de hardware) es una interfaz estándar para que el fabricante implemente el acceso a su hardware sin que cambie nada por encima [#aosp-hal-overview]. Desde Android 8, las HAL nuevas corren como procesos separados y se hablan con el resto por Binder [#aosp-hal-overview].",
+    "Un ejemplo de la documentación: una app de cámara usa Binder para hablar con el servidor de cámara, que está en otro proceso, y este usa Binder para hablar con la HAL de cámara, en otro proceso más [#aosp-binder-overview]. Tres procesos para sacar una foto."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Si el framework de Android corre dentro del proceso de cada app, ¿por qué una app no puede, simplemente, hablarle a la cámara sin permiso?",
+   "resp": "Porque el framework solo manda pedidos por Binder a un servicio que está en otro proceso, y ese servicio decide si los atiende. El código del framework dentro de tu proceso no tiene poderes extra: el límite lo pone el sistema desde afuera, con el UID de la app y los permisos."
+  },
+  {
+   "t": "h",
+   "x": "ART: del código de la app a instrucciones del chip"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las apps de Android se escriben, sobre todo, en Kotlin o Java. Una herramienta de compilación, D8, convierte el bytecode Java en bytecode [[DEX]] (*Dalvik Executable*), un formato pensado para dispositivos con poca memoria, que queda empaquetado dentro del APK, el archivo de instalación [#android-d8-tool]. Ese bytecode no es de ningún chip en particular: el mismo DEX corre en un procesador ARM o en uno x86, igual que viste con el código portable en [@01-33]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Quien lo ejecuta es [[ART]], el *Android Runtime*: el entorno que usan las apps y algunos servicios del sistema, sucesor de otro llamado Dalvik, y que traduce el bytecode de la app a instrucciones del procesador del equipo [#aosp-art-runtime] [#android-arch]. Según su documentación, ART trae compilación anticipada (AOT, *ahead-of-time*): al instalar, compila el DEX con una herramienta del propio teléfono, `dex2oat` [#aosp-art-runtime]. Y trae además un compilador JIT con perfiles, que compila durante la ejecución y complementa al anterior [#aosp-art-jit]."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Kotlin / Java",
+       "s": "código fuente de la app",
+       "k": "cliente"
+      },
+      {
+       "t": "Bytecode Java",
+       "s": "archivos .class",
+       "k": "datos",
+       "e": "compila"
+      },
+      {
+       "t": "Bytecode DEX",
+       "s": "classes.dex dentro del APK",
+       "k": "red",
+       "e": "D8 convierte"
+      }
+     ],
+     "baja": "En el teléfono, la primera vez que corre la app"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Interpreta",
+       "s": "ART lee el DEX método a método",
+       "k": "os"
+      },
+      {
+       "t": "JIT + perfil",
+       "s": "compila lo que más se usa y lo anota",
+       "k": "alerta",
+       "e": "mide"
+      },
+      {
+       "t": "dex2oat",
+       "s": "usa el perfil para compilar por adelantado",
+       "k": "servidor",
+       "e": "más tarde"
+      }
+     ],
+     "baja": "La próxima vez, ART usa el código ya compilado si existe"
+    }
+   ],
+   "cap": "Del código fuente al chip, según la documentación de Android sobre ART y su compilador JIT [#aosp-art-jit] [#android-d8-tool]."
+  },
+  {
+   "t": "p",
+   "x": "El detalle del perfil importa. Según Android, cada método de una app puede estar en tres estados: interpretado (se lee el DEX), compilado por JIT o compilado por adelantado; si existen las dos versiones compiladas, se prefiere la del JIT. El JIT guarda los datos de uso en un archivo dentro de un directorio al que solo accede la propia app, y el daemon de compilación lo lee para decidir qué compilar [#aosp-art-jit]. Es el criterio de un depósito: no se acomoda todo el stock por adelantado, se ordena primero lo que más rota."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "ART no ejecuta archivos .class de Java",
+   "x": "Se dice que las apps de Android «corren en una máquina virtual de Java», y es una verdad a medias. El lenguaje puede ser Java, pero lo que se ejecuta es DEX, un bytecode distinto del de la máquina virtual de Java, y el runtime es ART, desarrollado para Android [#aosp-art-runtime]. Por eso existe D8: es el puente entre los dos formatos. Las apps también pueden traer código nativo en C o C++, compilado ya para cada ABI, algo que viste en [@01-33]."
+  },
+  {
+   "t": "h",
+   "x": "Zygote: el proceso precalentado"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora la pregunta central del día. Arrancar un proceso de app desde cero implicaría iniciar ART, cargar las clases del framework y los recursos del sistema, cada vez y para cada app. Es lento y desperdicia memoria. La solución de Android es hacer ese trabajo una sola vez, en un proceso especial llamado [[Zygote]], y crear cada app a partir de él con [[fork]] (lo viste en [@02-21]).",
+    "La documentación de Android lo define como la raíz de todos los procesos de sistema y de apps con la misma ABI; el daemon `init` lo arranca cuando inicia Android [#aosp-zygote-doc]. El código de arranque de Zygote (`ZygoteInit.java`, en el código público de Android) describe su trabajo así: preinicializa algunas clases, espera comandos en un socket de dominio Unix y, según esos comandos, crea procesos hijos que heredan el estado inicial de la máquina virtual [#aosp-src-zygote-init]. Lo que precarga incluye una lista de clases, recursos, bibliotecas compartidas y el driver gráfico [#aosp-src-zygote-init]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "¿Cómo ahorra memoria un `fork`? Con *copy-on-write*, la misma idea que viste en el disco de macOS en [@02-27]: el proceso hijo empieza compartiendo las páginas de memoria del padre, y el sistema solo hace una copia privada cuando alguien modifica una. Podés comprobarlo en cualquier Linux. El siguiente programa carga 100 MB (el «Zygote»), crea tres hijos (las «apps») y cada uno mide su memoria con dos números: `Rss` es lo que el proceso tiene en RAM, contando lo compartido entero, y `Pss` reparte cada página compartida entre los procesos que la comparten [#kernel-proc-fs-doc]."
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import os, time\n\ndef kb(campo):\n    with open('/proc/self/smaps_rollup') as f:\n        for linea in f:\n            if linea.startswith(campo + ':'):\n                return int(linea.split()[1]) // 1024\n\n# El \"zygote\": carga una vez lo caro (100 MB) y recién después se bifurca.\nprecarga = bytearray(b'\\x01' * (100 * 1024 * 1024))\nprint(f'zygote   pid={os.getpid()}  Rss={kb(\"Rss\")} MB  Pss={kb(\"Pss\")} MB')\n\nr, w = os.pipe()\nhijos = []\nfor n in range(1, 4):\n    pid = os.fork()\n    if pid == 0:                       # proceso hijo = «una app»\n        time.sleep(1)                  # esperar a que los tres hermanos existan\n        antes = kb('Pss')\n        for i in range(0, 10 * 1024 * 1024, 4096):   # la app modifica 10 MB\n            precarga[i] = 2\n        os.write(w, f'app {n}    pid={os.getpid()}  Rss={kb(\"Rss\")} MB  Pss antes={antes} MB  Pss despues={kb(\"Pss\")} MB\\n'.encode())\n        time.sleep(1)\n        os._exit(0)\n    hijos.append(pid)\nfor p in hijos: os.waitpid(p, 0)\nos.close(w)\nprint(os.read(r, 4096).decode(), end='')",
+   "cap": "Simula la idea de Zygote en Linux con `os.fork`. Lo corrí yo el 13-11-2026 en el contenedor Linux del estudio; no es código de Android."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 zygote_demo.py",
+     "s": "zygote   pid=13493  Rss=110 MB  Pss=109 MB\napp 1    pid=13494  Rss=106 MB  Pss antes=27 MB  Pss despues=34 MB\napp 3    pid=13496  Rss=106 MB  Pss antes=26 MB  Pss despues=34 MB\napp 2    pid=13495  Rss=106 MB  Pss antes=26 MB  Pss despues=34 MB"
+    }
+   ],
+   "cap": "Salida real de esa corrida. Los números exactos y el orden de las apps cambian en cada ejecución. En Android el reparto real es más complejo; esto solo muestra el principio."
+  },
+  {
+   "t": "p",
+   "x": "Lectura: cuatro procesos tienen 106 a 110 MB en RAM, pero el `Pss` de cada uno es de unos 26 o 27 MB, porque comparten casi todo. Sumando los cuatro, el costo real ronda los 108 MB (4 × 27, una cuenta aproximada), no los 440. Al modificar 10 MB, cada hijo tuvo que copiar esas páginas, y su `Pss` subió a 34 MB. Es una cuenta que vale la pena recordar: lo que Zygote precarga se paga una vez y se hereda gratis, y cada app paga solo lo que cambia."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: operarios ya capacitados",
+   "x": [
+    "En vez de capacitar de cero a cada operario nuevo (cargar ART, el framework, los recursos), clonás a uno ya capacitado y le asignás su legajo propio. Eso es lo que hace Zygote con cada app.",
+    "La analogía falla en el costo: clonar a una persona sería carísimo, y un `fork` casi no cuesta memoria porque se comparte hasta que algo cambia."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Launcher (pantalla de inicio)",
+     "k": "cliente"
+    },
+    {
+     "n": "system_server",
+     "k": "os"
+    },
+    {
+     "n": "Zygote",
+     "k": "datos"
+    },
+    {
+     "n": "Proceso de la app",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "pide abrir la app (por Binder)",
+     "d": "El launcher es una app más. Al tocar el ícono, le pide a system_server, por Binder, que abra esa app."
+    },
+    {
+     "de": 1,
+     "a": 1,
+     "t": "¿ya hay un proceso de esa app?",
+     "d": "El administrador de actividades, un servicio dentro de system_server, mira si ya existe un proceso vivo para esa app. Si existe, lo reutiliza y se salta los pasos siguientes."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "pide un proceso (socket Unix)",
+     "d": "Si no hay proceso, system_server manda un comando por un socket de dominio Unix al Zygote que corresponde."
+    },
+    {
+     "de": 2,
+     "a": 3,
+     "t": "fork: nace el proceso de la app",
+     "d": "Zygote hace fork. El hijo cambia su PID, su cgroup y su identidad, y adopta el UID propio de la app."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "devuelve el PID",
+     "resp": true,
+     "d": "Zygote le informa a system_server el PID del proceso nuevo."
+    },
+    {
+     "de": 3,
+     "a": 1,
+     "t": "se presenta (attachApplication)",
+     "d": "El proceso nuevo ejecuta el punto de entrada de la app y se registra ante system_server por Binder."
+    },
+    {
+     "de": 1,
+     "a": 3,
+     "t": "ordena crear la pantalla",
+     "d": "Con la app registrada, system_server le pide que cree su primera pantalla. Ahí aparece lo que ves."
+    }
+   ],
+   "cap": "El nacimiento de un proceso de app. Los pasos del 3 al 5 salen de la documentación de Zygote [#aosp-zygote-doc]; el 6 y el 7, del código de Android (`ProcessList.java` y `ActivityThread.java`) [#aosp-src-process-list] [#aosp-src-activity-thread]."
+  },
+  {
+   "t": "p",
+   "x": "Un dato más sobre [[system_server]]. No es un servicio: es un proceso que reúne muchos. En el código público de Android se ve cómo arranca y registra, entre otros, el administrador de actividades (`ActivityManagerService`) y el de paquetes (`PackageManagerService`) [#aosp-src-system-server]. Y también nace de Zygote: `ZygoteInit` lo crea con un `fork` y le pone el UID 1000 [#aosp-src-zygote-init]. Todo lo que pasa en el teléfono, incluida la apertura de tu app, pasa por ahí."
+  },
+  {
+   "t": "pensa",
+   "x": "Si Zygote hace fork de un proceso con 100 MB cargados, ¿por qué esos 100 MB no se multiplican por cada app que se abre?",
+   "resp": "Porque el hijo comparte con el padre las páginas de memoria y solo copia las que modifica (copy-on-write). Lo que precargó Zygote cuesta memoria una sola vez; cada app suma únicamente sus cambios."
+  },
+  {
+   "t": "h",
+   "x": "Cada app es un usuario de Linux"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora la tercera pieza. En una notebook con Linux, todos tus programas corren con tu usuario, y por eso cualquiera puede leer los archivos de los demás. Android hace lo contrario. Según su documentación, le asigna a cada app un identificador de usuario ([[UID por app|UID por app]]) único y la ejecuta en su propio proceso; el kernel usa ese UID para armar el *Application Sandbox*, aplicando entre apps los mismos permisos de usuario y de archivo que viste en [@02-13] [#aosp-app-sandbox-doc].",
+    "Un detalle valioso: como la separación está en el kernel, vale para todo el software por encima, tanto el código interpretado como el nativo. No hay una restricción de lenguaje que haga falta para que sea segura [#aosp-app-sandbox-doc]. Y según la misma página, romper el sandbox en un equipo bien configurado exige comprometer el kernel de Linux [#aosp-app-sandbox-doc]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "UID",
+    "Quién es",
+    "Fuente"
+   ],
+   "filas": [
+    [
+     "0",
+     "root, el superusuario tradicional de Unix",
+     "Archivo de definiciones de Android [#aosp-src-filesystem-config]"
+    ],
+    [
+     "1000",
+     "El usuario del system_server",
+     "Ídem"
+    ],
+    [
+     "2000",
+     "El shell de adb y de depuración",
+     "Ídem"
+    ],
+    [
+     "10000 a 19999",
+     "Una app instalada, un UID por cada una",
+     "Ídem"
+    ],
+    [
+     "+100000 por usuario",
+     "El desfase para sumar usuarios físicos distintos en el mismo equipo",
+     "Ídem"
+    ]
+   ],
+   "cap": "Valores de `android_filesystem_config.h` en la rama principal de Android al 13-11-2026."
+  },
+  {
+   "t": "p",
+   "x": "Podés ver el mecanismo en cualquier Linux sin tocar Android. Creé como root un directorio de prueba con el estilo de una app (dueño con UID 10000, permisos 700) y un archivo adentro con permisos 600. Después lancé dos procesos con `setpriv`, uno con el UID 10000 y otro con el 10001."
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "mkdir -p /var/tmp/demo/app_10000\necho \"datos privados de la app A\" > /var/tmp/demo/app_10000/notas.txt\nchown -R 10000:10000 /var/tmp/demo/app_10000\nchmod 700 /var/tmp/demo/app_10000\nchmod 600 /var/tmp/demo/app_10000/notas.txt\nchmod 755 /var/tmp/demo",
+   "cap": "Preparación que corrí como root en el contenedor Linux del estudio. Todo ocurre dentro de `/var/tmp/demo`. Advertencia: `chown` y `chmod` con `-R` sobre una ruta equivocada pueden dejarte el sistema inservible; revisá siempre la ruta antes de ejecutarlos."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ls -ln /var/tmp/demo/app_10000",
+     "s": "total 4\n-rw------- 1 10000 10000 27 Nov 13 16:01 notas.txt"
+    },
+    {
+     "c": "setpriv --reuid=10000 --regid=10000 --clear-groups sh -c 'id; cat /var/tmp/demo/app_10000/notas.txt'",
+     "s": "uid=10000 gid=10000 groups=10000\ndatos privados de la app A"
+    },
+    {
+     "c": "setpriv --reuid=10001 --regid=10001 --clear-groups sh -c 'id; cat /var/tmp/demo/app_10000/notas.txt'",
+     "s": "uid=10001 gid=10001 groups=10001\ncat: /var/tmp/demo/app_10000/notas.txt: Permission denied"
+    }
+   ],
+   "cap": "Salida real, 13-11-2026. Los UID 10000 y 10001 imitan a dos apps; es la misma regla `rwx` de siempre, no el código de Android. Después borré `/var/tmp/demo` con `rm -r`."
+  },
+  {
+   "t": "p",
+   "x": "Eso es el *sandbox* de Android en miniatura: la app B, con otro UID, no puede leer los archivos de la app A, y es el kernel quien lo impide, sin ayuda de la app. Cada app tiene además un directorio de datos privado; según la documentación, para las apps con `targetSdkVersion` 24 o más, el permiso predeterminado de ese directorio pasó de 751 a 700 [#aosp-app-sandbox-doc]."
+  },
+  {
+   "t": "pensa",
+   "x": "Si en Android todas las apps corrieran con un mismo usuario, como los programas de tu notebook con Linux, ¿qué pasaría con los datos de una app de mensajería?",
+   "resp": "Cualquier otra app instalada podría leerlos, porque los permisos de archivo ya no las separarían. El UID distinto por app convierte los permisos de usuario de Linux en un muro entre apps."
+  },
+  {
+   "t": "h",
+   "x": "SELinux: un segundo candado"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los UID son un control *discrecional*: cada dueño decide sobre sus archivos. Android le suma [[SELinux]], un control *obligatorio*, con reglas globales que no dependen de quién es el dueño. Su principio es la denegación por defecto: todo lo que no esté permitido explícitamente, se niega, y vale incluso para procesos que corren como root [#aosp-selinux-doc].",
+    "El sandbox fue creciendo por capas. Esta es la historia resumida en la propia documentación de Android:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Versión de Android",
+    "Qué sumó al aislamiento de apps"
+   ],
+   "filas": [
+    [
+     "5.0",
+     "SELinux separa el sistema de las apps; todas las apps de terceros comparten un mismo contexto SELinux, así que entre ellas separa el UID"
+    ],
+    [
+     "6.0",
+     "El SELinux se extiende para aislar apps de distintos usuarios físicos del equipo"
+    ],
+    [
+     "8.0",
+     "Todas las apps corren con un filtro seccomp-bpf que limita las llamadas al sistema permitidas"
+    ],
+    [
+     "9",
+     "Cada app no privilegiada con targetSdkVersion 28 o más corre en su propio sandbox SELinux"
+    ],
+    [
+     "10",
+     "Las apps ven una vista limitada del sistema de archivos, sin acceso directo a rutas como /sdcard/DCIM"
+    ]
+   ],
+   "cap": "Resumen de la sección «Protections» de la página sobre el sandbox de aplicaciones de AOSP [#aosp-app-sandbox-doc]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Esto se parece a macOS, pero apunta a otro lado",
+   "x": "En [@02-27] viste SIP, App Sandbox y los permisos de privacidad. En Android no hay un SIP con ese nombre, pero sí una idea común: no confiar en que el usuario ni la app sean buenos, y dejar que el kernel haga cumplir las reglas. La diferencia está en la unidad: en macOS la protección se organiza alrededor de la app firmada; en Android, de un UID por app más una política SELinux que cubre a todos los procesos del sistema. Para compararlos en limpio hay un día de cierre, [@02-30]."
+  },
+  {
+   "t": "h",
+   "x": "Permisos en dos niveles"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Que una app no pueda tocar lo de otra no alcanza: también tiene que poder pedir cosas legítimas, como la cámara o tu ubicación. Para eso Android usa permisos en dos niveles. El **primer nivel** es declarar: la app lista en su archivo `AndroidManifest.xml` los permisos que podría necesitar. Ese manifiesto es una especie de ficha de la app que el sistema lee para conocerla: componentes, permisos y requisitos de hardware [#android-manifest-intro].",
+    "Algunos permisos se otorgan solos en ese momento (los de instalación, como los *normales* y los de *firma*, que exigen que la app esté firmada con el mismo certificado que quien definió el permiso). Otros, los *de tiempo de ejecución* o «peligrosos», dan acceso a datos privados, como la ubicación y los contactos, y requieren un **segundo nivel**: que la app los pida en el momento de usarlos y que vos aceptes en un aviso del sistema [#android-permissions-overview]. Desde Android 6.0 (API 23) es así; si el usuario los rechaza o los revoca, la app tiene que seguir funcionando sin esa función [#android-permissions-runtime]."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "html",
+   "x": "<uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\" />",
+   "cap": "Línea de ejemplo que aparece en la documentación de Android: así se declara en el manifiesto el permiso de ubicación aproximada [#android-permissions-runtime]. No la ejecuté, porque es solo una declaración dentro de un archivo de configuración."
+  },
+  {
+   "t": "p",
+   "x": "¿Cómo sabe el sistema quién pide? Acá se cierra el círculo con Binder. Cuando llega una transacción, el servicio puede consultar el UID del proceso que la envió (`Binder.getCallingUid()`), y la documentación aclara que ese UID sirve «para determinar su identidad y verificar permisos» [#android-binder-api]. El kernel anota quién llama; el servicio decide. Los permisos se retoman en [@10-17] como tema móvil."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tipo",
+    "Cuándo se otorga",
+    "Ejemplo"
+   ],
+   "filas": [
+    [
+     "Normal (de instalación)",
+     "Automáticamente, al instalar",
+     "Permisos con poco riesgo para tu privacidad"
+    ],
+    [
+     "De firma (de instalación)",
+     "Solo si la app está firmada con el mismo certificado que lo define",
+     "Servicios privilegiados, como autocompletado o VPN"
+    ],
+    [
+     "De tiempo de ejecución",
+     "Cuando la app lo pide y el usuario acepta",
+     "Ubicación, contactos, cámara, micrófono"
+    ]
+   ],
+   "cap": "Clasificación de la página de permisos de Android Developers [#android-permissions-overview]. Hay también «permisos especiales», que se omiten acá."
+  },
+  {
+   "t": "h",
+   "x": "El proceso de una app: cuándo vive y cuándo muere"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un adelanto de [@10-07]. Una rareza de Android es que la app no controla cuánto vive su proceso. Según la documentación, lo decide el sistema, combinando qué componentes de la app están activos, qué tan importantes son para el usuario y cuánta memoria hay en total [#android-process-lifecycle]. Para decidir a quién matar cuando falta memoria, ordena los procesos en una jerarquía de importancia:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tipo de proceso",
+    "Qué lo define",
+    "Cuándo se mata"
+   ],
+   "filas": [
+    [
+     "En primer plano",
+     "Tiene la pantalla con la que el usuario interactúa",
+     "Último recurso, cuando falla todo lo demás"
+    ],
+    [
+     "Visible",
+     "Es visible, aunque no esté en primer plano (por ejemplo, detrás de un diálogo)",
+     "Solo si hace falta para no matar los de primer plano"
+    ],
+    [
+     "De servicio",
+     "Tiene un servicio iniciado, como una descarga en segundo plano",
+     "Si no alcanza la memoria para los anteriores"
+    ],
+    [
+     "En caché",
+     "No se necesita ahora; guarda pantallas que no se ven",
+     "Primero, cuando falta memoria, y sin avisar"
+    ]
+   ],
+   "cap": "Jerarquía de importancia de procesos, de la guía de Android sobre el ciclo de vida del proceso [#android-process-lifecycle]."
+  },
+  {
+   "t": "p",
+   "x": "Los procesos en caché sirven para cambiar de app rápido, porque su costo de nacimiento (el trabajo de Zygote y de ART) ya se pagó. La documentación avisa que `onDestroy()` no está garantizado cuando el sistema mata un proceso y que, desde Android 13, un proceso en caché puede recibir poco tiempo de ejecución o ninguno [#android-process-lifecycle]. Por eso una app tiene que guardar su estado antes de pasar a segundo plano y restaurarlo si su proceso renace."
+  },
+  {
+   "t": "h",
+   "x": "Versiones y niveles de API"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un último adelanto, de [@10-30]. Android tiene un número comercial (Android 16) y otro técnico, el *nivel de API*, un entero que identifica qué funciones del sistema existen. Según la documentación, no se puede deducir el nivel a partir del número de versión [#android-uses-sdk]. En el manifiesto una app declara `minSdkVersion`, el nivel mínimo: si el equipo tiene un nivel menor, el sistema impide instalarla; y `targetSdkVersion`, el nivel con el que fue probada, que decide qué comportamientos de compatibilidad activa el sistema para ella [#android-uses-sdk]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Versión de Android",
+    "Nivel de API"
+   ],
+   "filas": [
+    [
+     "12",
+     "31 (y 32 en 12L)"
+    ],
+    [
+     "13",
+     "33"
+    ],
+    [
+     "14",
+     "34"
+    ],
+    [
+     "15",
+     "35"
+    ],
+    [
+     "16",
+     "36"
+    ],
+    [
+     "17",
+     "37"
+    ]
+   ],
+   "cap": "Fuentes: lista de plataformas de Android Developers [#android-platform-releases] y constantes de `Build.VERSION_CODES` para el nivel 37 [#android-version-codes]. Al 13-11-2026."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y reglas de Android (verificado el 13-11-2026)",
+   "x": [
+    "La documentación de Android Developers lista Android 17 con el nivel de API 37 y menciona versiones menores del SDK, 37.1 y 37.2 [#android-17-page]. La página de `uses-sdk` aclara que no se puede declarar en el manifiesto que una app requiera o apunte a una versión menor del SDK [#android-uses-sdk].",
+    "Google Play pide, desde el 31 de agosto de 2026, que las apps nuevas y las actualizaciones apunten a Android 16 (nivel 36) o más; las apps existentes, a Android 15 (nivel 35) o más para seguir visibles a usuarios nuevos en equipos con un Android más reciente, con posibilidad de una prórroga hasta el 1 de noviembre de 2026 [#android-play-target-sdk]. AOSP publica el código fuente en el segundo y cuarto trimestre de 2026 [#android-arch].",
+    "Lo que no envejece: el kernel Linux debajo, Binder como correo entre procesos, el fork desde un proceso precalentado, un UID por app y la separación entre declarar un permiso y pedirlo. Los números de versión y las reglas de Play cambian cada año; revisá la página oficial antes de decidir."
+   ]
+  }
+ ],
+ "recap": [
+  "El kernel de Android es Linux más parches de Google (Android Common Kernel). El agregado clave es Binder: una comunicación entre procesos donde el kernel copia cada transacción al proceso destino.",
+  "Android se organiza en capas: kernel, HAL, ART y bibliotecas nativas, servicios del sistema (system_server) y framework, que corre dentro de cada app.",
+  "ART ejecuta bytecode DEX: interpreta, compila con JIT lo más usado, guarda un perfil y `dex2oat` compila por adelantado lo que el perfil marca.",
+  "Zygote es un proceso precalentado. Cada app nace de él por `fork`, comparte memoria por copy-on-write y adopta su propio UID.",
+  "Cada app es un usuario de Linux distinto (UID), con SELinux por encima. Los permisos son de dos niveles: se declaran en el manifiesto y los peligrosos se piden en tiempo de ejecución.",
+  "El sistema decide cuándo mata el proceso de una app, según su importancia. El nivel de API es un entero que no coincide con el número de versión de Android."
+ ],
+ "repaso": [
+  {
+   "p": "Un proceso A llama a un método de un servicio que vive en el proceso B. ¿Qué hace el driver de Binder en el kernel?",
+   "o": [
+    "Copia la transacción al espacio de B y despierta un hilo suyo",
+    "Le da a B acceso directo a la memoria del proceso A",
+    "Mueve el código del servicio al proceso A y lo ejecuta",
+    "Envía el pedido por la red interna del teléfono"
+   ],
+   "c": 0,
+   "e": "Según la documentación de Android, el driver copia la transacción entera al espacio de direcciones del proceso destino y pasa el pedido a uno de sus hilos. Compartir la memoria de A rompería el aislamiento entre procesos, y mover el código o usar la red no es lo que hace Binder."
+  },
+  {
+   "p": "ART guarda un perfil mientras la app corre. ¿Para qué sirve ese perfil?",
+   "o": [
+    "Para que Zygote precargue esas clases en cada app",
+    "Para decidir qué permisos revocarle a la app",
+    "Para que dex2oat sepa qué métodos compilar por adelantado",
+    "Para convertir el DEX de nuevo en archivos .class"
+   ],
+   "c": 2,
+   "e": "El compilador JIT anota qué métodos se usan y el daemon dex2oat lee ese perfil para guiar su compilación anticipada. Zygote precarga una lista fija de clases del sistema, no de cada app; los permisos y la conversión de formatos no dependen del perfil."
+  },
+  {
+   "p": "Se abren diez apps y todas nacen de un Zygote que precargó unos 100 MB. ¿Por qué el consumo real no es de 1.000 MB?",
+   "o": [
+    "Android comprime la memoria precargada de cada app",
+    "El hijo comparte las páginas del padre y solo copia las que modifica",
+    "Cada app carga solo 10 MB y el resto lo descarta",
+    "ART libera la memoria de Zygote después de cada fork"
+   ],
+   "c": 1,
+   "e": "Con copy-on-write, un proceso creado por fork comparte las páginas con el padre y solo hace una copia privada al modificarlas. Por eso el Pss de cada hijo es una fracción del Rss. Las otras opciones inventan mecanismos que no explican lo que se midió en el ejemplo."
+  },
+  {
+   "p": "En Android, ¿qué impide que la app A lea los archivos privados de la app B?",
+   "o": [
+    "El framework revisa cada lectura dentro de la app",
+    "Binder bloquea el acceso al disco entre apps",
+    "Cada directorio está cifrado con una clave que genera Zygote",
+    "Cada app corre con otro UID y el kernel aplica los permisos de archivo"
+   ],
+   "c": 3,
+   "e": "El Application Sandbox se basa en que cada app tiene un UID distinto y el kernel aplica los permisos de usuario y de archivo, con SELinux por encima. El framework corre dentro de la propia app y no podría imponer el límite, y Binder sirve para comunicar procesos, no para controlar el disco."
+  },
+  {
+   "p": "Una app declara en su manifiesto un permiso de tiempo de ejecución (peligroso) y se instala en un teléfono con Android 14. ¿Qué ocurre?",
+   "o": [
+    "Se otorga al instalar, como los permisos normales",
+    "La app tiene que pedirlo al usarlo, y vos podés negarlo",
+    "Se otorga solo si la app está firmada por Google",
+    "Con declararlo en el manifiesto no hace falta pedir nada"
+   ],
+   "c": 1,
+   "e": "Desde Android 6.0, los permisos de tiempo de ejecución se declaran en el manifiesto y además la app debe pedirlos cuando los necesita; el usuario puede rechazarlos o revocarlos. El otorgamiento automático corresponde a los permisos normales y de firma, y el manifiesto por sí solo no basta."
+  },
+  {
+   "p": "Salís de una app, queda en segundo plano y el teléfono se queda corto de memoria. ¿Cuál de estos procesos es el primero en ser candidato a morir?",
+   "o": [
+    "El de la app que usás ahora",
+    "Uno visible detrás de un diálogo",
+    "El de una app que sube un archivo con un servicio",
+    "El de la app que dejaste, que ya no se necesita"
+   ],
+   "c": 3,
+   "e": "El proceso en caché no se necesita en este momento y el sistema puede matarlo cuando haga falta memoria; es el primero en la jerarquía. Los de primer plano y visibles se protegen, y uno con un servicio activo, como una subida, tiene prioridad mayor."
+  },
+  {
+   "p": "Una app declara minSdkVersion 29 y se intenta instalar en un teléfono con nivel de API 28. ¿Qué hace el sistema?",
+   "o": [
+    "La instala y desactiva las funciones nuevas",
+    "La instala pero pide la actualización después",
+    "La instala y la ejecuta sobre un emulador interno",
+    "Impide la instalación"
+   ],
+   "c": 3,
+   "e": "minSdkVersion es el nivel mínimo requerido: si el sistema tiene uno menor, impide instalar la app. Las funciones nuevas no se desactivan solas, y nada de eso se parece a un emulador. En cambio, targetSdkVersion es lo que activa compatibilidades."
+  }
+ ],
+ "feynman": "Explicale a alguien que quiere programar apps por qué abrir una app en Android es tan rápido, por qué una app no puede leer los datos de otra aunque corran en el mismo teléfono y cuál es la diferencia entre declarar un permiso y pedirlo.",
+ "para_profundizar": [
+  {
+   "fuente": "aosp-zygote-doc",
+   "nota": "La página oficial de AOSP sobre Zygote: cuenta cómo nacen los procesos de apps, el socket Unix y el pool de procesos sin especializar (USAP), con el comando para activarlo."
+  },
+  {
+   "fuente": "aosp-app-sandbox-doc",
+   "nota": "La explicación de Android sobre el Application Sandbox, con la historia de qué sumó cada versión (SELinux, seccomp, vista limitada de archivos). Es la base de lo que viste sobre UID y SELinux."
+  },
+  {
+   "fuente": "aosp-art-jit",
+   "nota": "El detalle del compilador JIT de ART y de la compilación guiada por perfiles, con los comandos adb para forzar compilaciones; sirve para ver que los tres estados de un método son reales."
+  },
+  {
+   "fuente": "android-process-lifecycle",
+   "nota": "La guía oficial del ciclo de vida del proceso: la jerarquía de importancia completa y los errores típicos al dejar trabajo en un proceso que el sistema puede matar. Prepara el terreno para [@10-07]."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Android Zygote process explained fork app startup",
+   "por_que": "Para ver animado cómo se crea el proceso de una app a partir de Zygote."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "ART",
+   "d": "Android Runtime: el entorno que ejecuta el bytecode DEX de las apps de Android; combina interpretación, compilación JIT y compilación anticipada guiada por perfiles."
+  },
+  {
+   "t": "Zygote",
+   "d": "Proceso de Android que arranca con ART y las clases del framework ya cargadas, y del que nace por fork cada proceso de app y el system_server."
+  },
+  {
+   "t": "UID por app",
+   "d": "Cada app de Android recibe un identificador de usuario de Linux propio, y el kernel usa los permisos de archivo para aislarla de las demás."
+  },
+  {
+   "t": "framework de Android",
+   "d": "Conjunto de clases, interfaces y código precompilado sobre el que se construyen las apps; corre dentro del proceso de cada app y le pide cosas a los servicios del sistema por Binder."
+  },
+  {
+   "t": "Binder",
+   "d": "Mecanismo de comunicación entre procesos de Android, con un driver en el kernel que copia cada transacción al proceso que ofrece el servicio."
+  },
+  {
+   "t": "HAL",
+   "d": "Capa de abstracción de hardware: interfaz estándar que el fabricante implementa para que Android acceda a su hardware sin cambiar las capas superiores."
+  },
+  {
+   "t": "DEX",
+   "d": "Dalvik Executable: formato de bytecode que ejecuta ART; se genera a partir del bytecode Java y viaja dentro del APK."
+  },
+  {
+   "t": "system_server",
+   "d": "Proceso de Android, creado por Zygote con el UID 1000, que reúne servicios centrales como el administrador de actividades y el de paquetes."
+  },
+  {
+   "t": "SELinux",
+   "d": "Control de acceso obligatorio en el kernel de Linux; Android lo usa con denegación por defecto para limitar a todos los procesos, incluso a root."
+  }
+ ],
+ "siguiente": "iOS por dentro: la misma idea de fondo (apps aisladas), pero con la firma de código y la App Store como puerta única de entrada.",
+ "fuentes_nuevas": [
+  {
+   "id": "aosp-kernel-overview",
+   "t": "Kernel overview (Android Open Source Project)",
+   "a": "Google (Android Open Source Project)",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/core/architecture/kernel"
+  },
+  {
+   "id": "aosp-binder-overview",
+   "t": "Binder overview (Android Open Source Project)",
+   "a": "Google (Android Open Source Project)",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/core/architecture/ipc/binder-overview"
+  },
+  {
+   "id": "aosp-hal-overview",
+   "t": "HAL overview (Android Open Source Project)",
+   "a": "Google (Android Open Source Project)",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/core/architecture/hal"
+  },
+  {
+   "id": "aosp-art-runtime",
+   "t": "Android runtime and Dalvik",
+   "a": "Google (Android Open Source Project)",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/core/runtime"
+  },
+  {
+   "id": "aosp-art-jit",
+   "t": "Implement ART just-in-time compiler",
+   "a": "Google (Android Open Source Project)",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/core/runtime/jit-compiler"
+  },
+  {
+   "id": "aosp-zygote-doc",
+   "t": "About the Zygote processes",
+   "a": "Google (Android Open Source Project)",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/core/runtime/zygote"
+  },
+  {
+   "id": "aosp-app-sandbox-doc",
+   "t": "Application Sandbox",
+   "a": "Google (Android Open Source Project)",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/security/app-sandbox"
+  },
+  {
+   "id": "aosp-selinux-doc",
+   "t": "Security-Enhanced Linux in Android",
+   "a": "Google (Android Open Source Project)",
+   "tipo": "doc",
+   "url": "https://source.android.com/docs/security/features/selinux"
+  },
+  {
+   "id": "aosp-src-zygote-init",
+   "t": "ZygoteInit.java (código fuente de Android, rama main)",
+   "a": "Google (Android Open Source Project)",
+   "tipo": "doc",
+   "url": "https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/core/java/com/android/internal/os/ZygoteInit.java"
+  },
+  {
+   "id": "aosp-src-process-list",
+   "t": "ProcessList.java (código fuente de Android, rama main)",
+   "a": "Google (Android Open Source Project)",
+   "tipo": "doc",
+   "url": "https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/services/core/java/com/android/server/am/ProcessList.java"
+  },
+  {
+   "id": "aosp-src-activity-thread",
+   "t": "ActivityThread.java (código fuente de Android, rama main)",
+   "a": "Google (Android Open Source Project)",
+   "tipo": "doc",
+   "url": "https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/core/java/android/app/ActivityThread.java"
+  },
+  {
+   "id": "aosp-src-system-server",
+   "t": "SystemServer.java (código fuente de Android, rama main)",
+   "a": "Google (Android Open Source Project)",
+   "tipo": "doc",
+   "url": "https://android.googlesource.com/platform/frameworks/base/+/refs/heads/main/services/java/com/android/server/SystemServer.java"
+  },
+  {
+   "id": "aosp-src-filesystem-config",
+   "t": "android_filesystem_config.h (código fuente de Android, rama main)",
+   "a": "Google (Android Open Source Project)",
+   "tipo": "doc",
+   "url": "https://android.googlesource.com/platform/system/core/+/refs/heads/main/libcutils/include/private/android_filesystem_config.h"
+  },
+  {
+   "id": "android-d8-tool",
+   "t": "d8 (Android Developers)",
+   "a": "Google (Android Developers)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/tools/d8"
+  },
+  {
+   "id": "android-process-lifecycle",
+   "t": "Processes and app lifecycle (Android Developers)",
+   "a": "Google (Android Developers)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/guide/components/activities/process-lifecycle"
+  },
+  {
+   "id": "android-permissions-overview",
+   "t": "Permissions on Android (Android Developers)",
+   "a": "Google (Android Developers)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/guide/topics/permissions/overview"
+  },
+  {
+   "id": "android-permissions-runtime",
+   "t": "Request runtime permissions (Android Developers)",
+   "a": "Google (Android Developers)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/training/permissions/requesting"
+  },
+  {
+   "id": "android-manifest-intro",
+   "t": "App manifest overview (Android Developers)",
+   "a": "Google (Android Developers)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/guide/topics/manifest/manifest-intro"
+  },
+  {
+   "id": "android-uses-sdk",
+   "t": "<uses-sdk> (Android Developers)",
+   "a": "Google (Android Developers)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/guide/topics/manifest/uses-sdk-element"
+  },
+  {
+   "id": "android-platform-releases",
+   "t": "SDK Platform release notes (Android Developers)",
+   "a": "Google (Android Developers)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/tools/releases/platforms"
+  },
+  {
+   "id": "android-version-codes",
+   "t": "Build.VERSION_CODES (Android Developers)",
+   "a": "Google (Android Developers)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/reference/android/os/Build.VERSION_CODES"
+  },
+  {
+   "id": "android-17-page",
+   "t": "Android 17 (Android Developers)",
+   "a": "Google (Android Developers)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/about/versions/17"
+  },
+  {
+   "id": "android-play-target-sdk",
+   "t": "Meet Google Play's target API level requirement",
+   "a": "Google (Android Developers)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/google/play/requirements/target-sdk"
+  },
+  {
+   "id": "android-binder-api",
+   "t": "Binder (referencia de la API de Android)",
+   "a": "Google (Android Developers)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/reference/android/os/Binder"
+  },
+  {
+   "id": "kernel-binderfs-doc",
+   "t": "The Android binderfs Filesystem (documentación del kernel de Linux)",
+   "a": "Linux kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/admin-guide/binderfs.html"
+  },
+  {
+   "id": "kernel-proc-fs-doc",
+   "t": "The /proc Filesystem (documentación del kernel de Linux)",
+   "a": "Linux kernel documentation",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/filesystems/proc.html"
+  }
+ ]
+}

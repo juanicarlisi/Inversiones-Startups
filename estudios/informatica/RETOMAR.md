@@ -4,7 +4,7 @@ Estudio integral de informática, software y sistemas para el fundador (no ingen
 Un solo HTML (`informatica-desde-cero.html`) con progreso, repaso espaciado, buscador, glosario, diagramas y widgets. Pedido original del 09-11-2026.
 
 ## Estado (09-11-2026)
-**42 de 631 días escritos** (Parte 0 completa, 6 días; Parte 1 completa, 36 días). Los 42 pasan el validador y el QA en navegador (40 bloques de código ejecutados sin error). Artefacto privado: https://claude.ai/artifact/2ZMuUPpsBUr5fguB5oTphY (publicar con la misma ruta para actualizarlo). Lo no verificado en fuente primaria está en `VERIFICACION.md`. Siguiente: Parte 2 (Sistemas operativos, 32 días), en lotes de dos días por redactor; costo de la primera tanda: ~45 redactores-día, unos 250.000 tokens por par de días.
+**74 de 631 días escritos** (Parte 0: 6; Parte 1: 36; Parte 2: 32; las tres completas). Los 74 pasan el validador y el QA en navegador (45 bloques de código ejecutados sin error); 720 fuentes registradas. Artefacto privado: https://claude.ai/artifact/2ZMuUPpsBUr5fguB5oTphY (para actualizarlo: Artifact con `url` de este enlace; el archivo fuente sale de `python3 construir.py <ruta> --artefacto`). Lo no verificado en fuente primaria está en `VERIFICACION.md`. Siguiente: Parte 3 (Programación y ciencias de la computación, 59 días: ~30 redactores de dos días). Costo observado: entre 250.000 y 420.000 tokens por par de días (la Parte 2, con comandos reales, salió más cara que la Parte 1); cada tanda de 16 redactores tarda unos 25 minutos.
 
 `python3 scripts/estado.py` imprime días escritos por parte y el próximo pendiente. El plan completo (los 631 días con título y términos que presenta) ya está fijado en `plan/curriculo-*.txt`.
 
@@ -35,3 +35,9 @@ Un solo HTML (`informatica-desde-cero.html`) con progreso, repaso espaciado, bus
 - Escribir los días restantes (ver `estado.py`). El orden pedagógico ya está fijado.
 - Widgets futuros: SQL en el navegador (sql.js, para la Parte 9), terminal simulada, simulador de DNS/HTTP, visor de pila de llamadas.
 - Hallazgos de Senda a conversar (detalle en `senda/mapa-tecnico.md` §17): clave de respuestas `preguntas_clave` desincronizada de `contenido/espadeo.json`; «plan» Premium/Max como interruptor local sin compras conectadas; workflow AAB sin validadores; sin reporte remoto de fallos.
+
+## Lecciones de las tandas (para el prompt de los próximos redactores)
+- Referencias a otros días siempre con `[@id]` (el validador avisa si escriben «día N»). Ids de fuentes específicos y únicos (`aosp-zygote-proceso`, no `android`): `consolidar_fuentes.py` avisa de choques y hay que renombrar en el día nuevo.
+- Que corran y muestren salidas REALES (Linux de este entorno: Ubuntu 24.04, kernel 6.18, VM sin systemd ni módulos) y que rotulen lo que es inferencia o «según X» funcionó muy bien; es lo que alimenta `VERIFICACION.md`.
+- No pasarle `--help` a los scripts de `scripts/` (no parsean argumentos y reescriben archivos derivados: ya pasó dos veces con `verificar_enlaces.py` y `consolidar_fuentes.py`).
+- Varios redactores trabajan en la misma VM: pedirles que usen nombres únicos en cgroups y directorios temporales y que limpien lo que crean.

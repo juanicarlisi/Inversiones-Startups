@@ -1,0 +1,635 @@
+{
+ "id": "02-06",
+ "titulo": "El planificador: cómo se reparte la CPU",
+ "bajada": "Entendés cómo el sistema operativo decide a quién le toca la CPU, simulás un reparto round robin y ves en una máquina real qué hace cada nivel de nice.",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Definir planificador, cola de listos, quantum, expropiación y prioridad, y ubicar cada uno en la vida de un hilo.",
+  "Calcular tiempo de espera, de respuesta y de retorno de un conjunto de procesos con FIFO y con round robin, y dibujar el diagrama de Gantt.",
+  "Explicar por qué el quantum es un trade-off entre tiempo de respuesta y rendimiento.",
+  "Describir cómo reparte la CPU Linux hoy (EEVDF, nice, tiempo real) y cómo se organizan las prioridades de Windows.",
+  "Leer la salida de `nice`, `chrt` y `ps` y predecir cuánta CPU recibe cada proceso."
+ ],
+ "venis_de": "En el [@02-05] viste que un proceso tiene uno o varios hilos y que casi siempre hay más hilos que núcleos, así que el SO los alterna con cambios de contexto. Hoy el tema es quién decide el orden y la duración de cada turno. Cómo logra el SO retomar el control cuando un hilo no quiere soltar la CPU queda para el [@02-07].",
+ "se_apoya_en": [
+  "02-05",
+  "02-04",
+  "00-04"
+ ],
+ "gancho": [
+  "Un playón de camiones con un solo muelle de descarga. A las 0 llega el camión A con 8 horas de descarga. A la 1, el B, con 2 horas. A las 2, el C, con 3. Si el encargado atiende por orden de llegada, el B espera 7 horas para una tarea de 2, y el C espera 8 para una de 3. La espera promedio es de 5 horas. Mismo muelle, mismas 13 horas de trabajo: si el encargado interrumpe al A cada 2 horas y le da un turno al que sigue, la espera promedio baja a 3,3 horas y el B empieza a descargar a las 2.",
+  "Esa decisión (a quién le toca, y por cuánto tiempo) la toma en una computadora una parte del kernel que se llama planificador. Se ejecuta miles de veces por segundo, decide con información incompleta y, aunque casi nadie la ve, es lo que hace que tu teléfono pueda reproducir música, descargar una actualización y atender un toque a la vez con unos pocos núcleos. Hoy la desarmás: qué decide, con qué criterios y qué cuesta cada criterio."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Quién decide a quién le toca"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el [@02-04] viste los [[estados|estado de proceso]] de un proceso, y en el [@02-05] que lo que el kernel realmente reparte son hilos. Tres estados alcanzan para hoy: **corriendo** (está usando un núcleo ahora), **listo** (podría correr pero no hay núcleo libre) y **bloqueado** (espera algo, como un dato del disco, y no puede correr aunque haya núcleo). El [[planificador]] es la parte del kernel que, cada vez que un núcleo queda libre, elige cuál de los hilos listos pasa a correr.",
+    "Los hilos listos esperan en la [[cola de listos]]. Es una lista, no un lugar físico: una estructura de datos del kernel donde cada hilo listo espera su turno. El planificador mira esa cola, elige uno, el kernel hace el cambio de contexto del [@02-05] y el elegido corre. Eso se repite cada vez que ocurre alguno de estos cuatro hechos: el hilo que corría **se bloquea** (pidió algo que tarda), **termina**, **se le acaba el turno**, o un hilo bloqueado **se despierta** (llegó el dato) y compite por la CPU."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Cola de listos",
+       "s": "esperan su turno",
+       "k": "datos"
+      },
+      {
+       "t": "Corriendo",
+       "s": "usa un núcleo",
+       "k": "servidor",
+       "e": "el planificador elige uno"
+      },
+      {
+       "t": "Terminó",
+       "s": "sale del sistema",
+       "k": "neutro",
+       "e": "termina"
+      }
+     ],
+     "baja": "Si pide algo que tarda, pasa a «bloqueado» y vuelve a la cola cuando llega lo que esperaba. Si se le acaba el turno, vuelve a la cola directamente."
+    },
+    {
+     "nodos": [
+      {
+       "t": "Bloqueado",
+       "s": "espera disco, red, teclado…",
+       "k": "red"
+      }
+     ]
+    }
+   ],
+   "cap": "Los hilos pasan entre estas situaciones. El planificador interviene cada vez que un núcleo queda libre."
+  },
+  {
+   "t": "p",
+   "x": "Hay una distinción que ordena el resto del día. Un planificador **sin expropiación** (o cooperativo) solo actúa cuando el hilo que corre suelta la CPU por su cuenta: se bloquea, termina o la cede. Uno **con expropiación** puede sacarle la CPU a un hilo que todavía quería seguir. [[Expropiación]] es eso: quitarle la CPU a un hilo que podía continuar. Linux y Windows son expropiativos (sched(7) dice que en Linux todo el scheduling es expropiativo, y Microsoft Learn habla de multitarea expropiativa en Windows) [#man7] [#ms-learn-processes-threads]. No es un detalle: con un planificador cooperativo, un programa que se queda en un bucle sin soltar la CPU congela todo. Cómo hace el kernel para recuperar el control a la fuerza es el tema del [@02-07]."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El encargado del playón",
+   "x": [
+    "El **muelle** es un núcleo. Cada **camión** es un hilo. El orden en que esperan en el playón es la cola de listos, y el **encargado** que decide qué camión entra es el planificador. Un camión que hace trámites en la oficina (papeles, un faltante) está bloqueado: no ocupa el muelle y vuelve a la fila cuando termina. Y si el encargado le dice a un camión «descargá dos horas, salí y dejá pasar al que sigue», eso es un turno limitado, o sea, un quantum.",
+    "Donde la analogía se rompe: sacar un camión de un muelle a la mitad cuesta maniobras largas y deja carga en el aire, así que ningún encargado lo haría cada dos minutos. Una CPU sí lo hace, porque guardar y retomar un hilo cuesta del orden de un microsegundo (viste una medición en el [@02-05]). Y el encargado sabe cuánto trae cada camión; el planificador **no sabe** cuánto va a tardar cada hilo, y tiene que decidir sin ese dato."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué se quiere optimizar: respuesta, espera y rendimiento"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Antes de mirar algoritmos hay que decidir qué se mide. Hay cuatro números, y los tres primeros se calculan por proceso:",
+    "El **tiempo de espera** es todo el tiempo que un proceso estuvo listo sin correr. El **tiempo de respuesta** es lo que pasa desde que llega hasta que corre por **primera** vez: es lo que sentís como «la app tardó en reaccionar». El **tiempo de retorno** es lo que pasa desde que llega hasta que termina; en este modelo simple, sin bloqueos, es la espera más lo que necesitaba de CPU. El cuarto es global: el **rendimiento** ([[throughput]]), cuántos procesos terminan por unidad de tiempo. OSTEP define así el retorno y la respuesta, y los usa para comparar los algoritmos clásicos [#ostep]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Esto es el [[trade-off]] del [@00-04] aplicado a la CPU. Un planificador que prioriza el rendimiento deja correr a cada hilo hasta que termina, sin interrupciones, que es lo que menos tiempo pierde en cambios de contexto. Uno que prioriza la respuesta interrumpe seguido para que todos arranquen pronto, y paga con más cambios. No hay un planificador mejor en todo: el de una computadora que procesa lotes de cálculo toda la noche y el de un teléfono en tu mano tienen que querer cosas distintas."
+  },
+  {
+   "t": "pensa",
+   "x": "Los tres camiones (8, 2 y 3 horas de descarga) ya están en el playón a las 0, y el encargado sabe cuánto trae cada uno. Si atiende sin interrumpir a nadie, ¿qué orden minimiza la espera promedio y cuánto da, comparado con el orden A, B, C?",
+   "resp": "Primero el que menos trae: B (2 h), después C (3 h) y al final A (8 h). Esperan 0, 2 y 5 horas: promedio 2,33. En el orden A, B, C esperan 0, 8 y 10: promedio 6. Es la idea del algoritmo «el más corto primero», y necesita saber la duración de antemano."
+  },
+  {
+   "t": "h",
+   "x": "Los algoritmos clásicos, con un mismo caso"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**FIFO** (primero en llegar, primero en ser atendido) es lo más simple: una cola, se atiende en orden y cada uno corre hasta terminar. Tiene un problema conocido, el *efecto convoy*: un trabajo largo adelante hace esperar a los cortos de atrás, como el camión A del playón. OSTEP lo muestra con la misma idea [#ostep].",
+    "**El más corto primero** (SJF) arregla ese convoy: se atiende siempre al que menos CPU necesita, y minimiza la espera promedio si se conocen las duraciones. Como el SO no las conoce, no se puede aplicar tal cual. Los planificadores reales lo aproximan observando el pasado: un hilo que usó la CPU poco antes de bloquearse probablemente haga lo mismo (una idea que OSTEP desarrolla en el capítulo de colas multinivel con retroalimentación [#ostep]).",
+    "**Round robin** (turnos rotativos) es la forma más simple de evitar el convoy sin conocer las duraciones. Cada hilo corre como máximo un tiempo fijo, el [[quantum]] (o rebanada de tiempo). Si no terminó, el planificador lo expropia y lo manda al final de la cola de listos. El de adelante pasa al muelle y se repite. Con un quantum infinito, round robin es FIFO. Con uno que tiende a cero, la CPU se pasa todo el tiempo cambiando de hilo y no trabaja."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "FIFO",
+     "celdas": [
+      {
+       "t": "A",
+       "k": "cliente",
+       "s": "0-8"
+      },
+      {
+       "t": "B",
+       "k": "red",
+       "s": "8-10"
+      },
+      {
+       "t": "C",
+       "k": "datos",
+       "s": "10-13"
+      }
+     ],
+     "nota": "B espera 7 h y C espera 8 h"
+    },
+    {
+     "e": "RR q=2",
+     "celdas": [
+      {
+       "t": "A",
+       "k": "cliente",
+       "s": "0-2"
+      },
+      {
+       "t": "B",
+       "k": "red",
+       "s": "2-4"
+      },
+      {
+       "t": "C",
+       "k": "datos",
+       "s": "4-6"
+      },
+      {
+       "t": "A",
+       "k": "cliente",
+       "s": "6-8"
+      },
+      {
+       "t": "C",
+       "k": "datos",
+       "s": "8-9"
+      },
+      {
+       "t": "A",
+       "k": "cliente",
+       "s": "9-11"
+      },
+      {
+       "t": "A",
+       "k": "cliente",
+       "s": "11-13"
+      }
+     ],
+     "nota": "B espera 1 h, C espera 4 h y A espera 5 h"
+    }
+   ],
+   "cap": "El caso del playón, un casillero por turno (la letra es el camión y el número, de qué hora a qué hora ocupa el muelle). Arriba, por orden de llegada: A termina a las 8, B a las 10 y C a las 13. Abajo, con quantum 2: B arranca a las 2 y C a las 4, y todos terminan a las 13."
+  },
+  {
+   "t": "p",
+   "x": "Mirá el diagrama de arriba (se llama **diagrama de Gantt**: una fila por política y un tramo por cada turno en el muelle). El trabajo total es el mismo, 13 unidades, y todo termina a las 13. Lo que cambia es **cuándo** arranca cada uno. Ahora lo simulamos con código para ver los números y variar el quantum. Es JavaScript puro que corre acá mismo: el planificador de arriba convertido en una función. Corrélo y mirá la salida."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Simulador de planificación. Cada proceso: nombre, llegada y ráfaga (unidades de tiempo de CPU).\nfunction simular(procesos, quantum, costo = 0, detalle = true) {\n  const n = procesos.length;\n  const resto = procesos.map(p => p.rafaga);\n  const primera = Array(n).fill(null), fin = Array(n).fill(null);\n  const orden = [...procesos.keys()].sort((a, b) => procesos[a].llegada - procesos[b].llegada);\n  const cola = [];\n  let t = 0, sig = 0, ultimo = -1, cambios = 0, gantt = '';\n  const admitir = () => { while (sig < n && procesos[orden[sig]].llegada <= t) cola.push(orden[sig++]); };\n  admitir();\n  while (cola.length || sig < n) {\n    if (!cola.length) { t = procesos[orden[sig]].llegada; admitir(); continue; }\n    const i = cola.shift();\n    if (ultimo !== -1 && ultimo !== i) { cambios++; t += costo; }   // cambio de contexto\n    if (primera[i] === null) primera[i] = t;\n    const corre = Math.min(quantum, resto[i]);\n    gantt += `[${procesos[i].nombre} ${t}-${t + corre}]`;\n    t += corre; resto[i] -= corre; ultimo = i;\n    admitir();                      // los que llegaron mientras corría entran antes que el que vuelve\n    if (resto[i] > 0) cola.push(i); else fin[i] = t;\n  }\n  const espera = procesos.map((p, i) => fin[i] - p.llegada - p.rafaga);\n  const respuesta = procesos.map((p, i) => primera[i] - p.llegada);\n  const prom = v => (v.reduce((a, b) => a + b, 0) / v.length).toFixed(2);\n  const nombre = quantum === Infinity ? 'FIFO      ' : 'Quantum ' + quantum + '  ';\n  if (detalle) console.log(nombre + gantt);\n  console.log(nombre + '| espera prom. ' + prom(espera) + ' | respuesta prom. ' + prom(respuesta) +\n              ' | cambios ' + cambios + ' | termina en t=' + t);\n}\n\nconst camiones = [\n  { nombre: 'A', llegada: 0, rafaga: 8 },\n  { nombre: 'B', llegada: 1, rafaga: 2 },\n  { nombre: 'C', llegada: 2, rafaga: 3 },\n];\nconsole.log('--- cambiar de contexto sin costo ---');\nfor (const q of [Infinity, 4, 2, 1]) simular(camiones, q);\nconsole.log('--- cada cambio de contexto cuesta 0,5 ---');\nfor (const q of [Infinity, 4, 2, 1]) simular(camiones, q, 0.5, false);",
+   "ejecutable": true,
+   "cap": "Un simulador de round robin con llegadas y costo opcional de cambio de contexto. «Espera» es el tiempo listo sin correr; «respuesta», lo que pasa hasta la primera vez que corre. Las unidades son abstractas (pueden ser horas de muelle o milisegundos de CPU)."
+  },
+  {
+   "t": "pensa",
+   "x": "Antes de mirar los resultados: si achicás el quantum hasta 1 (el mínimo posible), ¿qué esperás que pase con la espera promedio, con el tiempo de respuesta y con el momento en que termina todo, si cada cambio de contexto cuesta algo?",
+   "resp": "La respuesta mejora (todos arrancan casi enseguida), pero hay más cambios de contexto: cada uno suma tiempo perdido, así que todo termina más tarde y la espera promedio deja de bajar, o sube. Achicar el quantum no es gratis."
+  },
+  {
+   "t": "p",
+   "x": "Esto es lo que mostró cuando lo corrí (Node 22, 13-11-2026), resumido en una tabla:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Política",
+    "Espera promedio",
+    "Respuesta promedio",
+    "Cambios de contexto",
+    "Termina en"
+   ],
+   "filas": [
+    [
+     "FIFO",
+     "5,00",
+     "5,00",
+     "2",
+     "13"
+    ],
+    [
+     "Quantum 4",
+     "4,00",
+     "2,33",
+     "3",
+     "13"
+    ],
+    [
+     "Quantum 2",
+     "3,33",
+     "1,00",
+     "5",
+     "13"
+    ],
+    [
+     "Quantum 1",
+     "3,67",
+     "0,33",
+     "9",
+     "13"
+    ],
+    [
+     "FIFO con costo 0,5 por cambio",
+     "5,50",
+     "5,50",
+     "2",
+     "14"
+    ],
+    [
+     "Quantum 4 con costo 0,5",
+     "5,00",
+     "2,83",
+     "3",
+     "14,5"
+    ],
+    [
+     "Quantum 2 con costo 0,5",
+     "5,00",
+     "1,50",
+     "5",
+     "15,5"
+    ],
+    [
+     "Quantum 1 con costo 0,5",
+     "7,17",
+     "1,00",
+     "9",
+     "17,5"
+    ]
+   ],
+   "cap": "Resultados del simulador con A (llegada 0, ráfaga 8), B (1, 2) y C (2, 3). Las filas con costo suman 0,5 de tiempo cada vez que se pasa de un proceso a otro."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuatro lecciones de esa tabla. **Una:** el quantum 2 baja la espera promedio de 5 a 3,33 y la respuesta de 5 a 1. **Dos:** achicar de más tampoco es mejor. Con quantum 1 la respuesta baja a 0,33, pero la espera sube a 3,67 sin costo y a 7,17 con costo, porque se pierde tiempo en 9 cambios. **Tres:** el **rendimiento** cae a medida que sube el costo: con cambios que cuestan 0,5, el quantum 1 termina las 13 unidades de trabajo a las 17,5, y FIFO a las 14. **Cuatro:** el quantum es una perilla de trade-off y el mejor valor depende de cuánto cuesta un cambio y de cuánto te importa la respuesta.",
+    "Una regla práctica es elegir el quantum bastante más largo que el costo de un cambio de contexto (que viste que es del orden de un microsegundo) pero más corto que lo que tarda una persona en notar un retraso. Los valores reales se ajustan con experimentos, y más abajo vas a ver el de Linux."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Round robin no minimiza la espera",
+   "x": "Es una confusión común pensar que repartir turnos hace que todos esperen menos. Round robin mejora el tiempo de **respuesta** (todos arrancan pronto), pero la espera promedio puede quedar peor que con FIFO. En el ejercicio de más abajo vas a ver un caso donde pasa exactamente eso."
+  },
+  {
+   "t": "h",
+   "x": "Prioridades"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá todos los hilos valían lo mismo. En la práctica no: el hilo que dibuja la pantalla tiene que ganarle a una copia de seguridad que corre de fondo. La [[prioridad]] es un número que el SO le asigna a cada hilo (o proceso) para decidir a cuál le da la CPU cuando varios compiten: a mayor prioridad, atención antes o más seguido.",
+    "Hay dos maneras de usarla. Con **prioridades estrictas**, el planificador siempre elige entre los hilos listos de mayor prioridad, y los de menor solo corren cuando no hay ninguno por encima. Es simple y previsible, pero trae un riesgo: la **inanición** (*starvation*). Si siempre hay un hilo de prioridad alta listo, uno de prioridad baja puede quedarse sin CPU indefinidamente. Con **prioridades como pesos**, la prioridad no excluye: dice qué proporción de la CPU recibe cada uno. Los de baja prioridad reciben poco, pero reciben algo."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Cómo lo hace Linux: tres mundos"
+  },
+  {
+   "t": "p",
+   "x": "Linux tiene varias «políticas» de planificación, y cada hilo pertenece a una. La página `sched(7)` del manual describe las principales [#man7]:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Política",
+    "Prioridad",
+    "Cómo reparte",
+    "Para qué se usa"
+   ],
+   "filas": [
+    [
+     "SCHED_OTHER (la normal)",
+     "No usa prioridad estricta: tiene valor «nice» de −20 a 19",
+     "Reparto proporcional a pesos que salen de nice",
+     "Casi todo: navegador, editor, tus apps"
+    ],
+    [
+     "SCHED_FIFO (tiempo real)",
+     "1 a 99 (99 es la más alta)",
+     "Corre hasta bloquearse, ser expropiado por una de mayor prioridad o ceder",
+     "Control de hardware con límites de tiempo muy estrictos"
+    ],
+    [
+     "SCHED_RR (tiempo real)",
+     "1 a 99",
+     "Como FIFO, pero cada hilo corre como máximo un quantum entre los de igual prioridad",
+     "Lo mismo, con turnos entre iguales"
+    ]
+   ],
+   "cap": "Según sched(7) [#man7]. Los hilos de tiempo real tienen siempre prioridad sobre los normales. Hay más políticas (SCHED_BATCH, SCHED_IDLE, SCHED_DEADLINE) que no vemos hoy."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate que hay dos números con direcciones opuestas: en **nice**, un número **más alto** significa que el proceso es más «amable» y cede, o sea **menos** prioridad (de −20, la más alta, a 19, la más baja). En tiempo real, un número **más alto** significa **más** prioridad. En Windows, como vas a ver, también más alto es más prioridad. Es una de las confusiones más repetidas del tema.",
+    "Para los hilos normales, sched(7) explica que cada unidad de diferencia de nice entre dos procesos da un factor de 1,25 en cuánto favorece el planificador al más prioritario [#man7]. El código fuente del kernel guarda esa escala como una tabla de pesos: nice 0 vale 1.024, nice 5 vale 335 y nice 19 vale 15 [#linux-sched-core-c]. La fracción de CPU que recibe cada uno, cuando compiten, es su peso dividido la suma de los pesos."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Se puede comprobar. Escribí un programa de C que hace cálculo puro durante 10 segundos y al final imprime cuánta CPU usó, y lo corrí de a dos **fijados al mismo núcleo** con `taskset -c 0` (si cada uno tuviera su núcleo, no competirían). Máquina virtual de 4 núcleos, Ubuntu 24.04, kernel 6.18, 13-11-2026."
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <stdio.h>\n#include <stdlib.h>\n#include <time.h>\n#include <unistd.h>\n\nstatic double t(clockid_t c) { struct timespec s; clock_gettime(c, &s); return s.tv_sec + s.tv_nsec / 1e9; }\n\nint main(int argc, char **argv) {\n  double seg = atof(argv[1]); const char *nombre = argv[2];\n  double fin = t(CLOCK_MONOTONIC) + seg; volatile unsigned long x = 0;\n  while (t(CLOCK_MONOTONIC) < fin) { for (int i = 0; i < 100000; i++) x += i; }   // cálculo puro\n  printf(\"%-10s nice=%2d  CPU usada: %.2f s de %.0f s\\n\", nombre, nice(0), t(CLOCK_PROCESS_CPUTIME_ID), seg);\n  return 0;\n}",
+   "cap": "quema.c: cálculo puro durante N segundos; imprime su nice y la CPU que usó. Se compila con gcc -O2 quema.c -o quema."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "taskset -c 0 ./quema 10 A & taskset -c 0 ./quema 10 B & wait",
+     "s": "A          nice= 0  CPU usada: 4.95 s de 10 s\nB          nice= 0  CPU usada: 4.96 s de 10 s"
+    },
+    {
+     "c": "taskset -c 0 nice -n 0 ./quema 10 normal & taskset -c 0 nice -n 5 ./quema 10 amable & wait",
+     "s": "normal     nice= 0  CPU usada: 7.51 s de 10 s\namable     nice= 5  CPU usada: 2.46 s de 10 s"
+    },
+    {
+     "c": "taskset -c 0 nice -n 0 ./quema 10 normal & taskset -c 0 nice -n 19 ./quema 10 amable & wait",
+     "s": "normal     nice= 0  CPU usada: 9.80 s de 10 s\namable     nice=19  CPU usada: 0.15 s de 10 s"
+    }
+   ],
+   "cap": "Salidas reales, una corrida de cada una. Iguales: mitad y mitad. Nice 5: 7,51 contra 2,46, una proporción de 3,05, y 1.024 ÷ 335 = 3,06. Nice 19: el «amable» recibe un 1,5 %, y 15 ÷ (1.024 + 15) es 1,4 %."
+  },
+  {
+   "t": "p",
+   "x": "Los pesos predijeron el resultado: con dos procesos iguales cada uno recibe la mitad, con nice 5 el «amable» recibe un cuarto, y con nice 19 casi nada, pero no cero. Es una prioridad como **peso**: no hay inanición total, porque el de nice 19 sigue corriendo un 1,5 % del tiempo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "chrt -m",
+     "s": "SCHED_OTHER min/max priority\t: 0/0\nSCHED_FIFO min/max priority\t: 1/99\nSCHED_RR min/max priority\t: 1/99\nSCHED_BATCH min/max priority\t: 0/0\nSCHED_IDLE min/max priority\t: 0/0\nSCHED_DEADLINE min/max priority\t: 0/0"
+    },
+    {
+     "c": "chrt -p $$",
+     "s": "pid 17142's current scheduling policy: SCHED_OTHER\npid 17142's current scheduling priority: 0"
+    },
+    {
+     "c": "ps -o pid,ni,cls,comm -p $$",
+     "s": "  PID  NI CLS COMMAND\n17142   0  TS bash"
+    }
+   ],
+   "cap": "`chrt` consulta y cambia la política y la prioridad de tiempo real; `$$` es el PID de la terminal. `TS` significa «time-sharing», o sea SCHED_OTHER; las políticas de tiempo real se ven como `FF` (FIFO) y `RR`."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Tiempo real sin red: probalo en una máquina descartable",
+   "x": "`chrt -f` o `chrt -r` con una prioridad alta sobre un programa que no suelta la CPU puede dejar a la máquina sin responder, porque un hilo de tiempo real siempre le gana a los normales. Linux se cubre con un límite por defecto: según la documentación del kernel, `sched_rt_runtime_us` vale 950000 de un período de 1.000.000 [#linux-kernel-docs], o sea que el tiempo real puede usar el 95 % y deja el 5 % para lo demás, para que un hilo desbocado no trabe la máquina del todo y se pueda recuperar. En esta máquina esos dos archivos de `/proc/sys/kernel/` valen exactamente eso. Usá `timeout` y una máquina virtual que puedas perder."
+  },
+  {
+   "t": "h3",
+   "x": "EEVDF: el planificador normal de Linux desde la 6.6"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta 2023, el planificador de los hilos normales se llamaba CFS (*Completely Fair Scheduler*) y estaba en Linux desde la versión 2.6.23, según sched(7) [#man7]. KernelNewbies registra que Linux 6.6, lanzado el 29-10-2023, lo reemplazó por uno nuevo llamado **EEVDF** [#kernelnewbies-linux-66]. La documentación del kernel agrega que EEVDF salió de un artículo científico de 1995, y que busca repartir la CPU en partes iguales entre las tareas de igual prioridad [#linux-kernel-docs]. Esa misma documentación es mi fuente de la descripción que sigue (la consulté el 13-11-2026).",
+    "La idea, sin fórmulas: el kernel lleva la cuenta de cuánta CPU **le corresponde** a cada tarea y cuánta recibió. A la que recibió menos de lo justo se le «debe» tiempo. Entre las tareas a las que no se les pasó la mano, el kernel elige la que tiene la **fecha límite virtual** más cercana. Las tareas que piden rebanadas de tiempo más cortas tienen fechas más próximas, y por eso se atienden antes: es la forma de dar buena respuesta a las que lo necesitan, como una app interactiva, sin quitarle a las demás su parte. Y una tarea con una fecha más próxima puede expropiar a la que corre."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Datos de planificación de Linux, consultados el 13-11-2026",
+   "x": [
+    "Fuentes: documentación del kernel (EEVDF Scheduler), KernelNewbies (Linux 6.6) y el código fuente `kernel/sched/fair.c` en la rama principal [#linux-sched-fair-c]. La documentación del kernel dice que la transición a EEVDF empezó en la versión 6.6; el año que ella escribe («2024») no coincide con la fecha de lanzamiento de 6.6 que da KernelNewbies, así que la fecha que uso es la de KernelNewbies.",
+    "El comentario del código fuente dice que la rebanada base por defecto para las tareas normales es de 0,70 ms multiplicada por (1 + log₂ de la cantidad de núcleos, contando hasta 8). Para 4 núcleos serían 2,1 ms. En Linux 6.6 el valor base era 0,75 ms con la misma fórmula. Es una constante que los desarrolladores ajustan, y **no pude leer su valor en esta máquina** porque el sistema de depuración del kernel no estaba montado. La rebanada de SCHED_RR es otra cosa: en esta máquina `/proc/sys/kernel/sched_rr_timeslice_ms` vale 100 ms."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Varios núcleos y el caso de Windows"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con más de un núcleo, el planificador tiene que decidir también **en cuál** corre cada hilo. OSTEP explica que hay dos grandes diseños: una sola cola de listos para todos los núcleos, o una cola por núcleo [#ostep]. En el código del planificador de Linux cada núcleo tiene su cola (aparece como `cpu_rq`) y hay funciones aparte (con nombres como `sched_balance_*`) para equilibrar la carga entre ellas [#linux-sched-fair-c]; no lo revisé línea por línea. Un hilo también puede pedir quedarse en ciertos núcleos, lo que se llama **afinidad**; `taskset` es la herramienta que usé arriba para forzar que dos procesos compitieran por el mismo.",
+    "Windows resuelve lo mismo con otra escala. Según Microsoft Learn, cada hilo tiene una prioridad de 0 (la más baja) a 31 (la más alta) y el sistema reparte turnos en round robin entre todos los hilos de la prioridad más alta que estén listos; si ninguno está listo, pasa a la siguiente [#ms-learn-scheduling-priorities]. Si aparece un hilo de mayor prioridad, el sistema deja de ejecutar al de menor prioridad aunque no haya terminado su turno y le da un turno completo al nuevo. Es el modelo de prioridades estrictas con round robin entre iguales."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Clase de prioridad del proceso",
+    "Prioridad base de un hilo en nivel «normal»"
+   ],
+   "filas": [
+    [
+     "IDLE_PRIORITY_CLASS",
+     "4"
+    ],
+    [
+     "BELOW_NORMAL_PRIORITY_CLASS",
+     "6"
+    ],
+    [
+     "NORMAL_PRIORITY_CLASS (la de casi todo)",
+     "8"
+    ]
+   ],
+   "cap": "Fragmento de la tabla de «Scheduling Priorities» de Microsoft Learn, consultada el 13-11-2026 [#ms-learn-scheduling-priorities]. La tabla completa tiene seis clases y siete niveles por clase, y la prioridad real puede subir temporalmente (la página remite a «Priority Boosts»). No lo probé en Windows."
+  },
+  {
+   "t": "p",
+   "x": "Dos consejos de esa documentación se parecen a lo de Linux: usar la clase de mayor prioridad solo para hilos que tienen que responder a eventos críticos y por poco tiempo, porque si un hilo de máxima prioridad corre mucho, los demás no reciben CPU; y casi nunca usar la clase de tiempo real, porque interrumpe a los hilos del sistema que atienden el mouse, el teclado y la escritura en disco [#ms-learn-scheduling-priorities]. Es el mismo principio que la nota de tiempo real de Linux: la prioridad estricta es un arma que hay que usar poco."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Dibujá a mano el diagrama de Gantt de **round robin con quantum 2** para estos cuatro procesos, y calculá el tiempo de espera de cada uno y el promedio: P1 (llega a 0, necesita 5), P2 (llega a 1, necesita 3), P3 (llega a 2, necesita 1) y P4 (llega a 3, necesita 2). Regla de desempate: si un proceso llega justo cuando a otro se le acaba el quantum, el que llega entra a la cola **antes** que el que vuelve. Después compará con FIFO: ¿qué espera promedio y qué respuesta promedio da cada uno?",
+   "pista": "Armá la cola de listos paso a paso. A cada turno anotá quién corre, hasta cuándo, qué falta, y quién llegó mientras tanto. Espera = momento en que termina − llegada − lo que necesitaba de CPU.",
+   "solucion": "Gantt de round robin: P1 de 0 a 2, P2 de 2 a 4, P3 de 4 a 5, P1 de 5 a 7, P4 de 7 a 9, P2 de 9 a 10 y P1 de 10 a 11. Terminan en 11 (P1), 10 (P2), 5 (P3) y 9 (P4). Esperas: P1 = 11 − 0 − 5 = 6, P2 = 10 − 1 − 3 = 6, P3 = 5 − 2 − 1 = 2 y P4 = 9 − 3 − 2 = 4. Promedio de espera: 4,5. Respuestas (primera vez que corre − llegada): 0, 1, 2 y 4, promedio 1,75. Con FIFO: P1 de 0 a 5, P2 de 5 a 8, P3 de 8 a 9 y P4 de 9 a 11. Esperas 0, 4, 6 y 6, promedio **4,0**, y respuestas iguales a las esperas, promedio 4,0. O sea que round robin mejoró la respuesta (1,75 contra 4,0) pero empeoró la espera promedio (4,5 contra 4,0). Lo verifiqué con el simulador de arriba."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Más prioridad hace que mi programa vaya más rápido»",
+   "x": "Subir la prioridad no agrega CPU: la reparte distinto. Si el programa está esperando red o disco, la prioridad no cambia nada, porque está bloqueado y no compite. Si está solo en la máquina, tampoco: ya recibe todo. Solo importa cuando hay competencia por los núcleos, y ahí lo que gana uno lo pierde otro."
+  }
+ ],
+ "recap": [
+  "El **planificador** es la parte del kernel que elige qué hilo de la **cola de listos** corre en cada núcleo, y lo hace cada vez que un hilo se bloquea, termina, se despierta o se le acaba el turno.",
+  "**Expropiación** es quitarle la CPU a un hilo que podía seguir; con ella, un bucle infinito no congela el sistema. Linux y Windows la usan.",
+  "Se mide con espera, respuesta, retorno y rendimiento. El **quantum** es un trade-off: más chico mejora la respuesta pero suma cambios de contexto y baja el rendimiento. En el caso simulado, quantum 2 dio espera 3,33 y respuesta 1,00 contra 5,00 y 5,00 de FIFO.",
+  "Round robin mejora la respuesta, no necesariamente la espera: en el ejercicio, la espera promedio dio 4,5 contra 4,0 de FIFO, pero la respuesta, 1,75 contra 4,0.",
+  "La **prioridad** puede ser estricta (riesgo de inanición) o por pesos. En Linux, cada paso de nice cambia el reparto en un factor 1,25: medido, nice 5 contra 0 dio 2,46 s contra 7,51 s y nice 19 recibió un 1,5 %.",
+  "Linux usa EEVDF para los hilos normales desde la versión 6.6 (29-10-2023, según KernelNewbies), con tiempo real aparte (SCHED_FIFO y SCHED_RR, 1 a 99). Windows usa prioridades de 0 a 31 con round robin entre iguales. En nice, más alto es menos prioridad; en tiempo real y en Windows, más alto es más prioridad."
+ ],
+ "repaso": [
+  {
+   "p": "Un sistema usa round robin con un quantum enorme, mayor que lo que tarda cualquier proceso en terminar. ¿A qué se parece su comportamiento?",
+   "o": [
+    "A FIFO, porque cada proceso termina antes de que se le acabe el turno",
+    "A «el más corto primero», porque los cortos terminan antes que los largos",
+    "A un sistema sin expropiación, porque ya no se le saca la CPU a nadie",
+    "A un sistema de prioridades, porque el quantum fija el orden de atención"
+   ],
+   "c": 0,
+   "e": "Si ningún proceso agota su quantum, nadie es expropiado y se atiende en orden de llegada, que es FIFO. La opción del más corto primero y la del sistema sin expropiación confunden el orden con el mecanismo, y la última es lo opuesto: un quantum enorme casi no produce cambios."
+  },
+  {
+   "p": "Un jefe de equipo quiere que la interfaz de una app responda lo antes posible a cada toque, aunque eso haga que el total de trabajo de fondo termine un poco más tarde. ¿Qué ajuste del planificador va en esa dirección?",
+   "o": [
+    "Agrandar el quantum, para que cada hilo corra más seguido sin cambios",
+    "Achicar el quantum y dar mayor prioridad al hilo de la interfaz",
+    "Pasar todos los hilos a prioridad estricta de tiempo real, sin quantum",
+    "Sacar la expropiación, para que el hilo de la interfaz no sea interrumpido"
+   ],
+   "c": 1,
+   "e": "Un quantum más chico y más prioridad para el hilo de la interfaz mejoran el tiempo de respuesta a costa de más cambios de contexto. Agrandar el quantum o sacar la expropiación empeoran la respuesta; poner todo en tiempo real es un riesgo (inanición del resto, como pasa con SCHED_FIFO)."
+  },
+  {
+   "p": "Dos procesos de cálculo puro compiten por un solo núcleo en Linux, uno con nice 0 y otro con nice 5. ¿Cuánta CPU recibe aproximadamente el de nice 5?",
+   "o": [
+    "Casi nada, menos del 2 %, porque nice 5 es prioridad baja",
+    "La mitad, porque nice solo desempata y no cambia el reparto",
+    "Alrededor de un cuarto, porque los pesos son 1.024 y 335",
+    "Un décimo, porque cada nivel de nice resta un 2 % de CPU"
+   ],
+   "c": 2,
+   "e": "Con pesos 1.024 y 335, al de nice 5 le toca 335 ÷ 1.359, cerca del 25 %, y así se midió (2,46 s de 10). Menos del 2 % es lo que pasa con nice 19, y «la mitad» sería el caso de nice iguales. El «2 % por nivel» no existe: es un factor multiplicativo de 1,25."
+  },
+  {
+   "p": "Un hilo con SCHED_FIFO y prioridad 50 entra en un bucle infinito de cálculo en un núcleo. ¿Qué pasa con los hilos normales que están en ese mismo núcleo?",
+   "o": [
+    "Siguen corriendo normalmente, porque el SO les reparte tiempo a todos",
+    "Reciben solo la parte que deja el límite del 95 % para tiempo real",
+    "No reciben nada nunca, porque el tiempo real no tiene ningún límite",
+    "Reciben la mitad del tiempo, porque FIFO reparte por igual a todos"
+   ],
+   "c": 1,
+   "e": "Un hilo de tiempo real le gana siempre a los normales, así que sin límite los dejaría sin CPU. Linux reserva por defecto un 5 % (sched_rt_runtime_us en 950000 de 1.000.000) para que el resto pueda recuperar la máquina. «Nada nunca» ignora ese límite; «la mitad» describe un SCHED_OTHER."
+  },
+  {
+   "p": "En un ejercicio, round robin con quantum 2 da una espera promedio de 4,5 y FIFO de 4,0, pero la respuesta promedio es 1,75 contra 4,0. ¿Qué conclusión es correcta?",
+   "o": [
+    "Hay un error en el cálculo, porque round robin siempre da menos espera",
+    "FIFO es mejor siempre, porque su espera promedio fue la más baja",
+    "Round robin cambia espera por respuesta, y cuál conviene depende del uso",
+    "Round robin es mejor siempre, porque su respuesta promedio fue la más baja"
+   ],
+   "c": 2,
+   "e": "Los resultados son correctos: round robin reparte la espera para que todos arranquen pronto, a costa de que la espera total crezca un poco. Cuál conviene depende de si importa más la respuesta (interactivo) o el rendimiento (lotes). «Siempre» en cualquier dirección es el error."
+  },
+  {
+   "p": "¿Cuál de estas afirmaciones sobre números de prioridad es correcta?",
+   "o": [
+    "En nice y en Windows, un número más alto significa más prioridad",
+    "En nice, más alto es menos prioridad; en Windows, más alto es más prioridad",
+    "En nice y en Windows, un número más alto significa menos prioridad",
+    "En nice, más alto es más prioridad; en Windows, más alto es menos"
+   ],
+   "c": 1,
+   "e": "Nice mide cuán «amable» es el proceso: un número alto (hasta 19) cede y tiene menos prioridad. Windows va de 0 a 31 y un número más alto es más prioridad. Es fácil confundirlos, y las otras tres opciones repiten esa confusión de distintas maneras."
+  }
+ ],
+ "feynman": "Explicale a alguien que no sabe de informática, con el ejemplo del playón y un solo muelle, por qué interrumpir a un camión que todavía no terminó puede hacer que todos esperen menos o que todos esperen más, según la duración del turno.",
+ "para_profundizar": [
+  {
+   "fuente": "ostep",
+   "nota": "Los capítulos «Scheduling: Introduction» y «Scheduling: The Multi-Level Feedback Queue» desarrollan FIFO, el más corto primero, round robin y cómo se aprende el comportamiento de un hilo; son la mejor continuación de hoy."
+  },
+  {
+   "fuente": "man7",
+   "nota": "La página sched(7) enumera las políticas de planificación de Linux, explica nice y la prioridad de tiempo real, y es el texto de referencia para chrt y nice."
+  },
+  {
+   "fuente": "ms-learn-scheduling-priorities",
+   "nota": "La página oficial de Windows con las seis clases de prioridad, los siete niveles por clase y la tabla completa de prioridades base."
+  },
+  {
+   "fuente": "linux-kernel-docs",
+   "nota": "La página «EEVDF Scheduler» de la documentación del kernel (sección Scheduler) resume el algoritmo actual en pocos párrafos."
+  }
+ ],
+ "videos": [
+  {
+   "q": "CPU scheduling round robin FIFO explained Gantt chart",
+   "por_que": "Para ver cómo se arma un diagrama de Gantt paso a paso con colas y quantum, que es el ejercicio de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "planificador",
+   "d": "Parte del kernel que decide qué hilo listo corre en cada núcleo y por cuánto tiempo. Se ejecuta cada vez que un hilo se bloquea, termina, se despierta o agota su turno."
+  },
+  {
+   "t": "quantum",
+   "d": "Tiempo máximo que un hilo puede usar la CPU de corrido antes de que el planificador pueda quitársela y darle el turno a otro. También se llama rebanada de tiempo."
+  },
+  {
+   "t": "expropiación",
+   "d": "Acción del planificador de quitarle la CPU a un hilo que podía seguir corriendo, por agotar su quantum o porque apareció uno de mayor prioridad. Evita que un hilo monopolice el núcleo."
+  },
+  {
+   "t": "prioridad",
+   "d": "Número que el SO asigna a un hilo o proceso para decidir a quién le da la CPU cuando varios compiten. Puede ser estricta (el de mayor prioridad siempre gana) o funcionar como un peso proporcional."
+  },
+  {
+   "t": "cola de listos",
+   "d": "Estructura del kernel que reúne los hilos que podrían correr pero esperan un núcleo libre. El planificador elige de ahí al próximo hilo."
+  }
+ ],
+ "siguiente": "las interrupciones: cómo se las arregla el SO para recuperar el control de un núcleo cuando un hilo no suelta la CPU, y cómo se entera de que llegó un dato o se tocó la pantalla.",
+ "fuentes_nuevas": [
+  {
+   "id": "ms-learn-scheduling-priorities",
+   "t": "Scheduling Priorities",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/procthread/scheduling-priorities"
+  },
+  {
+   "id": "ms-learn-processes-threads",
+   "t": "About Processes and Threads",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/windows/win32/procthread/about-processes-and-threads"
+  },
+  {
+   "id": "kernelnewbies-linux-66",
+   "t": "Linux 6.6 - Linux Kernel Newbies",
+   "a": "KernelNewbies",
+   "tipo": "articulo",
+   "anio": "2023",
+   "url": "https://kernelnewbies.org/Linux_6.6"
+  },
+  {
+   "id": "linux-sched-fair-c",
+   "t": "kernel/sched/fair.c (código fuente del planificador normal de Linux)",
+   "a": "Linux kernel (repositorio de Linus Torvalds)",
+   "tipo": "doc",
+   "url": "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/sched/fair.c"
+  },
+  {
+   "id": "linux-sched-core-c",
+   "t": "kernel/sched/core.c (código fuente: tabla de pesos de nice)",
+   "a": "Linux kernel (repositorio de Linus Torvalds)",
+   "tipo": "doc",
+   "url": "https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/kernel/sched/core.c"
+  }
+ ]
+}
