@@ -62,7 +62,8 @@ def verificar(id_, d, tot_fuentes):
         elif isinstance(x, list): [_cadenas(i, out) for i in x]
         elif isinstance(x, dict): [_cadenas(i, out) for i in x.values()]
         return out
-    alltxt = '\n'.join(_cadenas({k: v for k, v in d.items() if k != 'fuentes_nuevas'}, []))
+    _sin_codigo = {k: ([({'t': b['t']} if b.get('t') in ('codigo', 'terminal', 'svg', 'widget') else b) for b in v] if k == 'bloques' else v) for k, v in d.items() if k != 'fuentes_nuevas'}
+    alltxt = '\n'.join(_cadenas(_sin_codigo, []))   # sin código: ahí `[[ ]]` es sintaxis legítima
     for m in re.finditer(r'\[\[([^\]|]+)(?:\|([^\]]+))?\]\]', alltxt):
         k = norm(m.group(2) or m.group(1))
         if k not in intro and k not in propios: e(f'[[{m.group(0)[2:-2]}]] se usa antes de presentarse (no está en el plan hasta este día)')

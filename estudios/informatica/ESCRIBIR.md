@@ -73,7 +73,7 @@ Marcado en línea dentro de cualquier texto: `**negrita**`, `*cursiva*`, `` `có
 - `{"t":"pensa","x":"pregunta","resp":"respuesta posible"}` (la respuesta queda oculta hasta que el lector la pide)
 - `{"t":"ejercicio","x":"consigna","pista":"…","solucion":"…"}`
 - `{"t":"tabla","cab":["A","B"],"filas":[["…","…"]],"cap":"pie opcional"}`
-- `{"t":"codigo","lang":"js|ts|py|sql|bash|c|go|rust|java|kotlin|swift|json|html|css|asm","x":"código","cap":"…","ejecutable":true}` (con `ejecutable` solo JavaScript puro que no use el DOM: corre en un Worker y muestra `console.log`)
+- `{"t":"codigo","lang":"js|ts|py|sql|bash|c|go|rust|java|kotlin|swift|json|html|css|asm","x":"código","cap":"…","ejecutable":true}` (con `ejecutable` solo JavaScript puro que no use el DOM: corre en un Worker y muestra `console.log`; el código se ejecuta dentro de una función `async` y la salida se captura cuando esa función termina: si usás temporizadores, terminá con un `await` que espere su resultado, o la salida de los `setTimeout` se pierde)
 - `{"t":"terminal","lineas":[{"c":"ls -l","s":"salida"}],"cap":"…"}`
 - `{"t":"cita","x":"≤30 palabras textuales","autor":"…","fuente":"id-fuente"}`
 - `{"t":"pasos","titulo":"opcional","pasos":[{"t":"Título del paso","x":"explicación"}]}`
