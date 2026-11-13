@@ -451,8 +451,8 @@
   {
    "t": "p",
    "x": [
-    "El **retraso de réplica** es la distancia entre lo que la primaria ya confirmó y lo que la réplica ya muestra. Se puede medir de dos maneras: en **bytes de WAL** que faltan aplicar, o en **tiempo** transcurrido. PostgreSQL ofrece las dos en `pg_stat_replication`: restar las posiciones da bytes, y las columnas `write_lag`, `flush_lag` y `replay_lag` dan tiempo [#bdrep29-pg-monitoring].",
-    "Para ver el retraso a propósito frené la aplicación del WAL en la réplica con `pg_wal_replay_pause()` (el WAL sigue llegando, pero no se aplica), inserté 20.000 bultos en la primaria y consulté los dos lados:"
+    "El **retraso de réplica** es la distancia entre lo que la primaria ya confirmó y lo que la réplica ya muestra. Se mide en **bytes de WAL** pendientes (restando posiciones) o en **tiempo** (las columnas `write_lag`, `flush_lag` y `replay_lag`) [#bdrep29-pg-monitoring].",
+    "Para verlo a propósito frené la aplicación del WAL en la réplica con `pg_wal_replay_pause()` (el WAL sigue llegando, pero no se aplica) e inserté 20.000 bultos en la primaria:"
    ]
   },
   {
@@ -487,29 +487,29 @@
   },
   {
    "t": "p",
-   "x": "Esa es una **lectura obsoleta**: la réplica contesta bien, pero con datos de un momento anterior. Fijate en la trampa de la última columna: con la réplica frenada, `replay_lag` mostraba 41 milisegundos, como si no pasara nada, mientras faltaban aplicar 3.242 kB. Esa columna mide cuánto tardaron los últimos cambios *que sí se aplicaron*, no cuánto lleva atascada la réplica. Recién después de reanudar marcó 3,57 segundos. Cuando sospechás que algo está trabado, los bytes dicen la verdad y el tiempo puede mentir."
+   "x": "Eso es una **lectura obsoleta**: la réplica contesta bien, pero con datos de antes. Y fijate en la trampa de la última columna: con la réplica frenada, `replay_lag` mostraba 41 milisegundos mientras faltaban aplicar 3.242 kB. Esa columna mide lo que tardaron los últimos cambios *que sí se aplicaron*, no cuánto lleva atascada la réplica; recién al reanudar marcó 3,57 segundos. Si sospechás un atasco, los bytes dicen la verdad y el tiempo puede mentir."
   },
   {
    "t": "p",
-   "x": "Sin frenar nada, el retraso también aparece con carga. Hice tres `update` seguidos que reescribían las 120.001 filas (en una corrida igual, sin observar, generaron unos 95 MiB de WAL y tardaron 2,2 segundos en la primaria; la observada tardó 1,7) mientras otra sesión medía cada 0,05 segundos cuántos bytes le faltaban a la réplica. En el pico le faltaban **13.963.112 bytes (13,3 MiB)**, el `replay_lag` llegó a **226 ms**, y en 34 de las 97 muestras la réplica no estaba al día. Cuando terminó la carga, el retraso volvió a cero. Una réplica sana no está siempre al día: está siempre *alcanzando*."
+   "x": "Sin frenar nada, el retraso también aparece con carga. Hice tres `update` seguidos que reescribían las 120.001 filas (una corrida igual, sin observar, generó unos 95 MiB de WAL en 2,2 segundos) mientras otra sesión medía cada 0,05 segundos cuántos bytes le faltaban a la réplica. En el pico faltaban **13.963.112 bytes (13,3 MiB)**, el `replay_lag` llegó a **226 ms**, y en 34 de las 97 muestras no estaba al día. Al terminar la carga, volvió a cero. Una réplica sana no está siempre al día: está siempre *alcanzando*."
   },
   {
    "t": "nota",
    "k": "ojo",
    "titulo": "Un cálculo de retraso que miente",
-   "x": "Es común calcular el retraso como `now() - pg_last_xact_replay_timestamp()` en la réplica. Ese valor es la edad de la última transacción aplicada. Si la primaria no recibe escrituras durante un minuto, la resta marca un minuto de «retraso» aunque la réplica esté perfectamente al día. Antes de alarmarte, comparalo con la posición del WAL: si la primaria y la réplica están en el mismo punto, no hay nada que alcanzar."
+   "x": "Se suele calcular el retraso como `now() - pg_last_xact_replay_timestamp()` en la réplica. Ese valor es la edad de la última transacción aplicada: si la primaria no recibe escrituras durante un minuto, la resta marca un minuto de «retraso» aunque la réplica esté al día. Antes de alarmarte, compará las posiciones del WAL."
   },
   {
    "t": "p",
    "x": [
-    "Las lecturas obsoletas rompen cosas concretas. Un operario marca un bulto como «entregado», la escritura va a la primaria y la pantalla que lista sus bultos lee de la réplica: durante una fracción de segundo la lista todavía lo muestra «en ruta» y el operario, desconfiado, lo marca de nuevo. Hay tres salidas, de menor a mayor costo. La primera, **leer de la primaria justo después de escribir** (por un rato, o solo en esa pantalla). La segunda, aceptar la obsolescencia donde no importa: un tablero que se mira cada minuto no sufre por tres segundos de retraso. La tercera, pedir `remote_apply` solo en las transacciones que lo necesitan: `begin; set local synchronous_commit = remote_apply; …; commit;`, que espera a que la réplica *ya muestre* el cambio, y deja el resto del sistema en modo rápido [#bdrep29-pg-sync-commit]."
+    "Las lecturas obsoletas rompen cosas concretas. Un operario marca un bulto «entregado», la escritura va a la primaria y la pantalla que lista sus bultos lee de la réplica: durante una fracción de segundo todavía lo muestra «en ruta» y el operario lo marca de nuevo. Hay tres salidas. **Leer de la primaria justo después de escribir**, solo en esa pantalla. **Aceptar la obsolescencia** donde no importa: un tablero que se mira cada minuto no sufre tres segundos de retraso. O pedir `remote_apply` solo en las transacciones que lo necesitan (`begin; set local synchronous_commit = remote_apply; …; commit;`), que esperan a que la réplica *ya muestre* el cambio y dejan el resto en modo rápido [#bdrep29-pg-sync-commit]."
    ]
   },
   {
    "t": "ejercicio",
-   "x": "Tres UPDATE seguidos generaron unos 100 millones de bytes de WAL en 2 segundos, es decir, unos 50 millones de bytes por segundo. (1) ¿A cuántos megabits por segundo equivale eso? (2) Si tu réplica está conectada por un enlace de 200 Mbit/s, ¿qué pasa con el retraso durante una carga así, y qué pasa cuando la carga termina?",
-   "pista": "Un byte son 8 bits ([@01-11]). Compará lo que necesita la carga con lo que da el enlace y pensá qué se acumula mientras la carga dura.",
-   "solucion": "(1) 50 millones de bytes por segundo × 8 = 400 millones de bits por segundo, es decir unos 400 Mbit/s. (2) El enlace solo lleva 200 Mbit/s, la mitad de lo que se genera, así que durante la carga el WAL se acumula en la primaria a un ritmo de unos 200 Mbit/s (25 millones de bytes por segundo). En 2 segundos se acumulan unos 50 millones de bytes sin enviar. Cuando la carga termina, el enlace sigue trabajando a su ritmo y el retraso baja de a poco hasta cero. Un retraso grande pero que vuelve a cero no es una falla de la réplica: es un enlace más chico que el pico de escritura."
+   "x": "Tres UPDATE seguidos generaron unos 100 millones de bytes de WAL en 2 segundos. (1) ¿A cuántos megabits por segundo equivale? (2) Si la réplica está conectada por un enlace de 200 Mbit/s, ¿qué pasa con el retraso durante esa carga y cuando termina?",
+   "pista": "Un byte son 8 bits ([@01-11]). Compará lo que genera la carga con lo que lleva el enlace.",
+   "solucion": "(1) 50 millones de bytes por segundo × 8 = 400 Mbit/s. (2) El enlace lleva la mitad (25 millones de bytes por segundo), así que en los 2 segundos de carga se acumulan unos 50 millones de bytes sin enviar. Al terminar la carga el enlace sigue a su ritmo y el retraso baja hasta cero. Un retraso grande que vuelve a cero no es una falla de la réplica: es un enlace más chico que el pico de escritura."
   },
   {
    "t": "h",
@@ -518,8 +518,8 @@
   {
    "t": "p",
    "x": [
-    "Hay dos problemas más que aparecen en cualquier réplica real, y los dos vienen de lo mismo: la primaria y la réplica tienen que ponerse de acuerdo sobre qué se puede borrar.",
-    "El primero es el **conflicto con la recuperación**. Recordá cómo funciona MVCC ([@09-25]): cuando se borra o actualiza una fila, la versión vieja queda en la tabla hasta que `VACUUM` la limpia, y solo la limpia si nadie la necesita. En la primaria, `VACUUM` sabe quién la necesita. Pero una consulta larga corriendo **en la réplica** es invisible para la primaria. Si la primaria limpia una versión que esa consulta todavía quiere ver, el WAL de esa limpieza llega a la réplica, y la réplica no puede negarse a aplicarlo: ya ocurrió. Tiene que elegir entre frenar la aplicación del WAL o cancelar la consulta [#bdrep29-pg-hot-standby]."
+    "Dos problemas más aparecen en cualquier réplica real, y los dos vienen de lo mismo: primaria y réplica deben ponerse de acuerdo sobre qué se puede borrar.",
+    "El primero es el **conflicto con la recuperación**. Con MVCC ([@09-25]), la versión vieja de una fila queda en la tabla hasta que `VACUUM` la limpia, y solo si nadie la necesita. La primaria no ve las consultas largas que corren **en la réplica**. Si limpia una versión que una de ellas todavía quiere ver, el WAL de esa limpieza llega a la réplica, que no puede negarse a aplicarlo. Tiene que elegir entre frenar la aplicación del WAL o cancelar la consulta [#bdrep29-pg-hot-standby]."
    ]
   },
   {
@@ -538,7 +538,7 @@
      "s": "delete from bultos where deposito='Lugano'; vacuum bultos;"
     }
    ],
-   "cap": "Para provocarlo de forma repetible puse `max_standby_streaming_delay = 2s` en la réplica y desactivé el autovacuum de esa tabla. El valor por defecto es 30 segundos. Medido en esta VM."
+   "cap": "Para provocarlo puse `max_standby_streaming_delay = 2s` en la réplica (por defecto son 30 s) y desactivé el autovacuum de la tabla. Medido en esta VM."
   },
   {
    "t": "tabla",
@@ -564,11 +564,11 @@
      "Las tablas de la primaria acumulan filas muertas (bloat)"
     ]
    ],
-   "cap": "Resumen de los valores y compromisos de la documentación de PostgreSQL 16 [#bdrep29-pg-config-replication] [#bdrep29-pg-hot-standby]. No hay ajuste gratis: o se paga con consultas canceladas, o con retraso, o con espacio en la primaria."
+   "cap": "Según la documentación de PostgreSQL 16 [#bdrep29-pg-config-replication]. Ningún ajuste es gratis: se paga con consultas canceladas, con retraso o con espacio."
   },
   {
    "t": "p",
-   "x": "El segundo problema son los **slots de replicación**. Si la réplica se apaga unas horas, la primaria podría reciclar WAL que la réplica todavía necesita, y al volver no habría de dónde recuperarse (habría que rehacerla con otro `pg_basebackup`). Un slot es una libreta donde la primaria anota hasta dónde leyó la réplica y se compromete a **no borrar nada posterior** [#bdrep29-pg-warm-standby]. Es una garantía muy útil con un costo escondido: si la réplica no vuelve, el WAL se acumula sin límite hasta llenar el disco."
+   "x": "El segundo problema son los **slots de replicación**. Si la réplica se apaga unas horas, la primaria podría reciclar WAL que todavía le hace falta, y habría que rehacerla con otro `pg_basebackup`. Un slot es una libreta donde la primaria anota hasta dónde leyó la réplica y se compromete a **no borrar nada posterior** [#bdrep29-pg-warm-standby]. Tiene un costo escondido: si la réplica no vuelve, el WAL se acumula hasta llenar el disco."
   },
   {
    "t": "terminal",
@@ -590,13 +590,13 @@
      "s": "-1"
     }
    ],
-   "cap": "Con la réplica caída, la primaria guardó 68 MB de WAL que de otra forma habría reciclado. `max_slot_wal_keep_size = -1` significa sin tope: un slot huérfano puede llenar el disco de la primaria [#bdrep29-pg-config-replication]. Medido en esta VM."
+   "cap": "Con la réplica caída, la primaria retuvo 68 MB de WAL. `max_slot_wal_keep_size = -1` significa sin tope [#bdrep29-pg-config-replication]. Medido en esta VM."
   },
   {
    "t": "nota",
    "k": "ojo",
    "titulo": "El slot que se olvidó",
-   "x": "Si dejás de usar una réplica, borrá su slot (`pg_drop_replication_slot`). Un slot que nadie usa sigue reteniendo WAL para siempre, y el síntoma, un disco que se llena sin que se haya cargado un solo dato nuevo, es de los más confusos de diagnosticar. La alarma útil es la del tamaño de WAL retenido por slot inactivo."
+   "x": "Si dejás de usar una réplica, borrá su slot (`pg_drop_replication_slot`). Un slot huérfano retiene WAL para siempre, y el síntoma (un disco que se llena sin datos nuevos) confunde. Conviene una alarma sobre el WAL retenido por slots inactivos."
   },
   {
    "t": "h",
@@ -605,8 +605,7 @@
   {
    "t": "p",
    "x": [
-    "La **conmutación por error** (en inglés, *failover*) es el procedimiento por el cual la réplica pasa a ser la nueva primaria cuando la primaria falla. Tiene cuatro pasos, y PostgreSQL solo hace uno por sí mismo.",
-    "Un dato clave de la documentación: PostgreSQL **no trae** el software para detectar que la primaria falló y avisarle a la réplica [#bdrep29-pg-failover]. Eso lo hace algo externo: una persona de guardia, o una herramienta de alta disponibilidad (existen varias, como Patroni o repmgr, que no probé hoy), o el servicio gestionado de un proveedor de nube."
+    "La **conmutación por error** (*failover*) es el procedimiento por el cual la réplica pasa a ser la nueva primaria cuando la primaria falla. Tiene cuatro pasos, y PostgreSQL hace solo uno. La documentación aclara que **no trae** el software para detectar la falla y avisarle a la réplica [#bdrep29-pg-failover]: lo hace una persona de guardia, una herramienta de alta disponibilidad (existen Patroni o repmgr, que no probé hoy) o el servicio gestionado de un proveedor."
    ]
   },
   {
@@ -615,19 +614,19 @@
    "pasos": [
     {
      "t": "Detectar la caída",
-     "x": "Alguien (o algo) decide que la primaria murió. Es más difícil de lo que parece: si la red entre las dos máquinas se corta pero la primaria sigue viva, una de las dos decisiones es un error."
+     "x": "Alguien decide que la primaria murió. Es difícil: si solo se cortó la red entre las dos máquinas, la primaria sigue viva."
     },
     {
-     "t": "Elegir y promover una réplica",
-     "x": "Con `pg_ctl promote` o la función `pg_promote()`, la réplica sale del modo recuperación y empieza a aceptar escrituras."
+     "t": "Promover una réplica",
+     "x": "Con `pg_ctl promote` o `pg_promote()`, la réplica sale del modo recuperación y acepta escrituras."
     },
     {
      "t": "Redirigir a los clientes",
-     "x": "Las aplicaciones tienen que conectarse a la nueva primaria: con un cambio de DNS, una dirección IP flotante o un proxy. Mientras no lo hagan, siguen golpeando una puerta cerrada."
+     "x": "Un cambio de DNS, una IP flotante o un proxy. Mientras no se haga, las aplicaciones golpean una puerta cerrada."
     },
     {
      "t": "Reconstruir la copia",
-     "x": "Con una sola máquina viva, el sistema quedó sin respaldo. La documentación lo llama estado degenerado: hay que recrear una réplica, en la máquina vieja si vuelve, o en una nueva [#bdrep29-pg-failover]."
+     "x": "Con una sola máquina viva no hay respaldo (la documentación lo llama estado degenerado): hay que recrear una réplica [#bdrep29-pg-failover]."
     }
    ]
   },
@@ -659,7 +658,7 @@
   },
   {
    "t": "p",
-   "x": "Ahora lo importante. Con la nueva primaria andando, le mandé dos bultos nuevos y volví a levantar la primaria vieja, como si el disco hubiera resultado no estar roto y alguien la hubiera reiniciado. Esto es lo que vio cada una:"
+   "x": "Con la nueva primaria andando, le mandé dos bultos nuevos y volví a levantar la vieja, como si alguien la hubiera reiniciado. Esto vio cada una:"
   },
   {
    "t": "tabla",
@@ -704,11 +703,11 @@
   },
   {
    "t": "p",
-   "x": "Esa tabla es lo que se llama un **cerebro dividido** (*split brain*): dos servidores que creen ser la primaria y aceptan escrituras distintas. Si algunos clientes escriben en uno y otros en el otro, no hay forma automática de juntar las dos historias: habría que decidir a mano qué cambios sobreviven. La documentación de PostgreSQL pide un mecanismo para informarle a la primaria vieja que ya no lo es, y lo llama por su sigla en broma, STONITH (*Shoot The Other Node In The Head*, «dispará al otro nodo en la cabeza»): apagarla por la fuerza antes de seguir [#bdrep29-pg-failover]."
+   "x": "Esa tabla es un **cerebro dividido** (*split brain*): dos servidores creen ser la primaria y aceptan escrituras distintas. No hay forma automática de juntar las dos historias: habría que decidir a mano qué sobrevive. La documentación pide un mecanismo para avisarle a la primaria vieja que ya no lo es, y lo llama STONITH (*Shoot The Other Node In The Head*): apagarla por la fuerza [#bdrep29-pg-failover]."
   },
   {
    "t": "p",
-   "x": "Para volver a tener una réplica, la primaria vieja tiene que descartar lo que escribió después del punto de bifurcación y seguir a la nueva. PostgreSQL trae la herramienta `pg_rewind`, que lo hace copiando solo los bloques que cambiaron, mucho más rápido que un `pg_basebackup` completo en bases grandes [#bdrep29-pg-rewind]. La probé en modo de simulación:"
+   "x": "Para volver a ser réplica, la primaria vieja debe descartar lo que escribió tras la bifurcación. `pg_rewind` lo hace copiando solo los bloques que cambiaron, más rápido que un `pg_basebackup` completo en bases grandes [#bdrep29-pg-rewind]. La probé en simulación:"
   },
   {
    "t": "terminal",
@@ -724,11 +723,11 @@
    "t": "nota",
    "k": "ojo",
    "titulo": "Una decisión de hoy que condiciona el failover de mañana",
-   "x": "La documentación de `pg_rewind` explica que exige `wal_log_hints = on` o sumas de verificación de datos activadas al crear el clúster, y que ninguna de las dos viene por defecto [#bdrep29-pg-rewind]. Mi clúster no las tenía, así que la única salida era rehacer la primaria vieja desde cero con `pg_basebackup`, que es lo que hice. En una base grande eso puede significar horas. Es el tipo de ajuste que conviene decidir al armar la base, no durante la emergencia."
+   "x": "`pg_rewind` exige `wal_log_hints = on` o sumas de verificación activadas al crear el clúster, y ninguna viene por defecto [#bdrep29-pg-rewind]. Mi clúster no las tenía, así que rehice la primaria vieja con `pg_basebackup`. En una base grande eso son horas. Esto se decide al armar la base, no durante la emergencia."
   },
   {
    "t": "p",
-   "x": "Resumiendo la relación con lo del día anterior ([@09-28]): la **réplica** acorta el RTO (no hay que restaurar, solo promover), el **backup con PITR** protege de los errores humanos, y entre las dos configuraciones se decide el RPO: asíncrona acepta perder los últimos instantes a cambio de velocidad, síncrona pide cero pérdida y paga con latencia y con el riesgo de quedarse sin escritura."
+   "x": "Con lo de ayer ([@09-28]): la **réplica** acorta el RTO (solo hay que promover), el **backup con PITR** protege de los errores humanos, y el RPO se decide entre asíncrona (velocidad, pérdida posible) y síncrona (cero pérdida, latencia y riesgo de quedarse sin escritura)."
   },
   {
    "t": "h",
@@ -736,20 +735,20 @@
   },
   {
    "t": "p",
-   "x": "Los servicios gestionados ofrecen la misma idea con el trabajo operativo hecho. Según la documentación de Supabase, su función de réplicas de lectura es **asíncrona** («para que las transacciones de la primaria no se bloqueen»), cada réplica es solo de lectura, y un balanceador de carga envía las consultas `GET` de la API REST a la base más cercana, mientras que todo lo que no sea `GET` y todo lo de autenticación va a la primaria [#bdrep29-supabase-read-replicas]. Es exactamente el patrón que viste hoy: lecturas al lado, escrituras a la primaria, y retraso entre las dos."
+   "x": "Los servicios gestionados ofrecen la misma idea con el trabajo operativo hecho. Según la documentación de Supabase, sus réplicas de lectura son **asíncronas** (para no bloquear las transacciones de la primaria) y de solo lectura, y un balanceador de carga envía los `GET` de la API REST a la base más cercana, mientras todo lo demás y la autenticación van a la primaria [#bdrep29-supabase-read-replicas]. Es el patrón de hoy: lecturas a un lado, escrituras a la primaria, retraso entre las dos."
   },
   {
    "t": "nota",
    "k": "vigencia",
    "titulo": "Versiones y servicios al 13-11-2026",
-   "x": "En el sitio de PostgreSQL, el 13-11-2026 la última versión de cada rama soportada es la 18.7, la 17.12, la 16.16, la 15.20 y la 14.25, publicadas todas el 12-11-2026 [#postgresql-versioning]. Mi laboratorio usó 16.15, el paquete de Ubuntu 24.04, que va un punto atrás de la 16.16: lo importante de este día (streaming, slots, `synchronous_commit`, timelines) no cambió entre esas versiones, y los enlaces a la documentación apuntan a la versión 16. La página de réplicas de lectura de Supabase se leyó el mismo día. No revisé qué planes la incluyen ni cuánto cuesta una réplica: eso se mira en la página de precios del proveedor, y cambia."
+   "x": "Según el sitio de PostgreSQL, el 13-11-2026 las últimas versiones son la 18.7, 17.12, 16.16, 15.20 y 14.25, todas del 12-11-2026 [#postgresql-versioning]. Mi laboratorio usó la 16.15 (paquete de Ubuntu 24.04), un punto atrás: lo de hoy (streaming, slots, `synchronous_commit`, líneas de tiempo) existe igual en 18, pero los enlaces apuntan a la documentación de la 16 y no revisé las diferencias. La página de Supabase se leyó el mismo día; no verifiqué qué planes incluyen réplicas ni su precio, que cambian."
   },
   {
    "t": "senda",
    "titulo": "Senda hoy: ninguna réplica, y una prevista",
    "x": [
-    "Según el mapa técnico de Senda (commit 25e08fa, 09-11-2026) y los documentos del repositorio, hoy Senda corre con **un solo proyecto de Supabase, en una sola región, sin réplica de lectura**. Es un hecho del código y de la configuración documentada, no una estimación.",
-    "Lo que existe es un **plan**: el documento de escalabilidad lista, para la etapa 2 (entre 100 mil y un millón de personas activas por mes), una «réplica de lectura para la Consola», es decir, para que los tableros del fundador no compitan con la app por la misma base. Es una intención escrita, no algo implementado. Una Consola que se mira de a ratos soporta bien unos segundos de retraso, así que es un candidato razonable (esto último es una inferencia de este estudio). El código cambia; la forma de la decisión permanece."
+    "Según el mapa técnico de Senda (commit 25e08fa, 09-11-2026), hoy corre con **un solo proyecto de Supabase, en una sola región, sin réplica de lectura**.",
+    "Lo que existe es un **plan**: el documento de escalabilidad prevé para la etapa 2 (de 100 mil a un millón de personas activas por mes) una «réplica de lectura para la Consola», para que los tableros no compitan con la app por la misma base. Es una intención escrita, no algo implementado. Una Consola que se mira de a ratos tolera unos segundos de retraso (inferencia de este estudio). El código cambia; la forma de la decisión permanece."
    ],
    "archivos": [
     "docs/ESCALA.md",
@@ -758,12 +757,12 @@
   }
  ],
  "recap": [
-  "Una réplica es una copia que aplica el WAL de la primaria en vivo. Sirve para seguir funcionando, para repartir lecturas y para tener una copia lejos. No reemplaza al backup: también copia los errores.",
-  "En la replicación en streaming de PostgreSQL, un proceso de la primaria envía el WAL y uno de la réplica lo recibe, lo escribe y lo aplica. Es una copia física de todo el clúster, de solo lectura mientras es réplica.",
-  "Asíncrona: la primaria responde sin esperar y puede perder los últimos cambios si muere (medí tres bultos confirmados que desaparecieron). Síncrona: espera a la réplica, no pierde, pero cuesta latencia y, si la réplica cae, las escrituras se cuelgan.",
-  "El retraso de réplica se mide en bytes o en tiempo. En esta VM, con carga, llegó a 13,3 MiB y 226 ms. Con la réplica frenada, `replay_lag` marcó 41 ms mientras faltaban 3,2 MB: los bytes dicen la verdad.",
-  "Una lectura obsoleta devuelve datos de un momento anterior. Una consulta larga en la réplica puede cancelarse por conflicto con la recuperación, y un slot de una réplica caída retiene WAL sin tope por defecto.",
-  "Un failover tiene cuatro pasos: detectar, promover, redirigir, reconstruir. PostgreSQL solo hace el segundo. Sin cuidado, aparecen dos primarias con historias distintas, y `pg_rewind` exige haber activado `wal_log_hints` o las sumas de verificación de antemano."
+  "Una réplica aplica en vivo el WAL de la primaria. Sirve para seguir funcionando, repartir lecturas y tener una copia lejos. No reemplaza al backup: también copia los errores.",
+  "Es una copia física de todo el clúster: un proceso de la primaria envía el WAL, la réplica lo recibe, lo escribe y lo aplica, y mientras tanto solo lee.",
+  "Asíncrona: la primaria responde sin esperar y puede perder lo último si muere (medí tres bultos confirmados que desaparecieron). Síncrona: no pierde, pero suma latencia y, si la réplica cae, las escrituras se cuelgan.",
+  "El retraso se mide en bytes o en tiempo. Con carga llegó a 13,3 MiB y 226 ms; con la réplica frenada, `replay_lag` marcó 41 ms mientras faltaban 3,2 MB: los bytes no mienten.",
+  "Una consulta larga en la réplica puede cancelarse por conflicto con la recuperación, y el slot de una réplica caída retiene WAL sin tope por defecto.",
+  "Un failover son cuatro pasos (detectar, promover, redirigir, reconstruir) y PostgreSQL solo hace el segundo. Sin cuidado hay dos primarias con historias distintas, y `pg_rewind` exige haber activado `wal_log_hints` o las sumas de verificación de antemano."
  ],
  "repaso": [
   {
