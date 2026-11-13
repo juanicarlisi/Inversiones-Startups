@@ -1,0 +1,811 @@
+{
+ "id": "05-20",
+ "titulo": "HTTP/1.1, HTTP/2 y HTTP/3",
+ "bajada": "Medís treinta recursos con una, seis y treinta conexiones, mirás los cuadros binarios de HTTP/2 pasar por la red y entendés qué problema de TCP obligó a inventar HTTP/3 sobre QUIC.",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar por qué HTTP/1.1 usa varias conexiones y qué es el bloqueo de cabeza de fila.",
+  "Describir cómo HTTP/2 multiplexa flujos en una conexión con cuadros binarios y comprime encabezados con HPACK.",
+  "Calcular el tiempo de carga de una página con N recursos bajo HTTP/1.1 con seis conexiones y bajo HTTP/2.",
+  "Explicar qué bloqueo de cabeza de fila sobrevive en HTTP/2 y cómo QUIC lo evita en HTTP/3.",
+  "Reconocer cómo se negocia cada versión (ALPN y Alt-Svc) y leer una tabla comparada de las tres."
+ ],
+ "venis_de": "En [@05-18] y [@05-19] viste qué dice un mensaje HTTP: métodos, códigos, encabezados, cookies y caché. Hoy cambia la pregunta: no qué dicen los mensajes sino cómo viajan, y por qué la web tuvo que cambiar la forma de mandarlos sobre TCP, y después abandonar TCP.",
+ "se_apoya_en": [
+  "05-18",
+  "05-19",
+  "05-16",
+  "05-15",
+  "05-17"
+ ],
+ "gancho": [
+  "Una pantalla de inicio necesita treinta recursos: el HTML, estilos, scripts, íconos, imágenes. En [@05-18] viste que HTTP/1.1 manda una solicitud y espera su respuesta. Si lo hiciera treinta veces seguidas por una sola conexión, la pantalla tardaría una eternidad. Entonces, ¿cómo se carga en un segundo?",
+  "Medí lo mismo de cuatro maneras en esta VM: treinta recursos que tardan 200 ms cada uno, contra un servidor mío en `localhost`. Con una conexión HTTP/1.1 tardó 6,0 segundos. Con seis conexiones, que es lo que hace un navegador, 1,0. Con treinta conexiones, 0,23. Con **una sola** conexión HTTP/2, 0,21.",
+  "Hoy aprendés por qué salen esos números, qué le cambió HTTP/2 a la forma de mandar los mensajes sin tocar su significado, y qué problema nuevo apareció que obligó a inventar HTTP/3 sobre un transporte distinto de TCP."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "HTTP/1.1: una conexión atiende de a un pedido"
+  },
+  {
+   "t": "p",
+   "x": "En una conexión HTTP/1.1 el cliente manda una solicitud, espera la respuesta completa y recién entonces manda la siguiente. Existe una variante, el *pipelining*, que permite mandar varias solicitudes seguidas sin esperar, pero las respuestas igual vuelven en orden, y por la cantidad de intermediarios que la implementan mal los navegadores modernos no la activan por defecto [#http20-mdn-conexiones]. El RFC 9113 resume el problema: HTTP/1.1 sigue sufriendo bloqueo de cabeza de fila en la capa de aplicación, y por eso los clientes abren varias conexiones para hacer pedidos en paralelo [#rfc9113]."
+  },
+  {
+   "t": "p",
+   "x": "El **bloqueo de cabeza de fila** (*head-of-line blocking*) es lo que pasa en una cola de una sola caja: quien está adelante frena a todos los que esperan detrás, aunque los de atrás estén listos. En una conexión HTTP/1.1, una respuesta lenta al frente demora a todas las demás."
+  },
+  {
+   "t": "p",
+   "x": "La salida práctica fue abrir varias conexiones TCP al mismo servidor. Según MDN, los navegadores abren hoy unas seis por origen [#http20-mdn-conexiones]; el estándar de HTTP/1.1 no fija un tope y solo recomienda ser conservador [#rfc9112]. Algunos sitios iban más lejos con *domain sharding*: repartían los recursos entre `www1`, `www2` y `www3` para que el navegador abriera seis conexiones a cada uno."
+  },
+  {
+   "t": "p",
+   "x": "Cada conexión cuesta. Hay que hacer el [[saludo de tres vías]] (un [[RTT]] de espera), después viene el cifrado y la conexión recién nacida arranca con el [[slow start]] de [@05-17], con una ventana chica. Seis conexiones son seis arranques lentos que compiten por el mismo ancho de banda. El RFC 9113 lo dice sin vueltas: con menos conexiones TCP hay menos competencia entre flujos, y las conexiones largas aprovechan mejor la red [#rfc9113]."
+  },
+  {
+   "t": "h",
+   "x": "Medirlo: treinta recursos, cuatro estrategias"
+  },
+  {
+   "t": "p",
+   "x": "Armé un servidor en Node con TLS (certificado autofirmado, válido solo para esta VM) que habla HTTP/1.1 y HTTP/2 en el mismo puerto. Cada recurso `/r/N` tarda 200 ms en responder y pesa 2 KB. Un script llama a `curl` para pedir los treinta de cuatro maneras y le pregunta al servidor cuántas conexiones distintas usó:"
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import subprocess, time, json\nB = 'https://127.0.0.1:38520'\n\ndef stats(reset=False):\n    return json.loads(subprocess.check_output(['curl', '-sk', B + '/stats' + ('?reset' if reset else '')]))\n\ndef correr(args):\n    stats(True)                       # el servidor pone sus contadores en cero\n    t0 = time.perf_counter()\n    subprocess.run(['curl', '-sk'] + args, check=True)\n    dt = time.perf_counter() - t0\n    return dt, stats()['conexiones']  # y dice cuántas conexiones distintas usó curl\n\nU = B + '/r/[1-30]'                   # curl expande el rango: 30 URLs, cada una tarda 200 ms\ncasos = [\n    ('HTTP/1.1, 1 conexión, de a uno', ['--http1.1', '-o', '/dev/null', U]),\n    ('HTTP/1.1, hasta 6 conexiones',   ['--http1.1', '-Z', '--parallel-max', '6',  '-o', '/dev/null', U]),\n    ('HTTP/1.1, hasta 30 conexiones',  ['--http1.1', '-Z', '--parallel-max', '30', '-o', '/dev/null', U]),\n    ('HTTP/2, una sola conexión',      ['--http2',   '-Z', '-o', '/dev/null', U]),\n]\nfor nombre, args in casos:\n    dt, n = correr(args)\n    print(f'{nombre:<34} {dt:5.2f} s   {n:>2} conexiones')",
+   "cap": "`medir20.py`, escrito para este día. `-Z` pide a curl que haga transferencias en paralelo y `--parallel-max` limita cuántas a la vez."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 medir20.py",
+     "s": "HTTP/1.1, 1 conexión, de a uno      6.03 s    1 conexiones\nHTTP/1.1, hasta 6 conexiones        1.01 s    6 conexiones\nHTTP/1.1, hasta 30 conexiones       0.23 s   30 conexiones\nHTTP/2, una sola conexión           0.21 s    1 conexiones"
+    }
+   ],
+   "cap": "Salida real, medida en esta VM contra `localhost`. Las tres últimas corridas las repetí tres veces y dieron tiempos casi idénticos (1,01 a 1,02 s; 0,22 a 0,23 s; 0,21 s)."
+  },
+  {
+   "t": "pensa",
+   "x": "Con seis conexiones HTTP/1.1 los treinta recursos tardaron 1,0 segundo. ¿Por qué ese número exacto, y por qué HTTP/2 con una sola conexión llegó casi a los 0,2 segundos de un único recurso?",
+   "resp": "Seis conexiones atienden seis recursos a la vez: 30 recursos son 5 tandas de 200 ms, o sea 1,0 s. HTTP/2 manda los treinta pedidos juntos por la misma conexión y el servidor los atiende a la vez, así que el total se acerca a lo que tarda uno solo."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Lo que esta prueba no mide",
+   "x": "En `localhost` no hay distancia: abrir una conexión es casi gratis y no hay pérdida de paquetes. En una red real cada conexión nueva paga el saludo de TCP y el de TLS, así que las seis conexiones de HTTP/1.1 pierden más de lo que muestra la tabla. Los números sirven para ver la estructura (cuántas rondas hacen falta), no como tiempos de Internet."
+  },
+  {
+   "t": "p",
+   "x": "Falta la prueba más importante. El caso que duele en HTTP/1.1 es un recurso lento al frente de la fila. Pedí cinco recursos por **una sola** conexión: `/lento` primero (1 segundo) y después cuatro rápidos (50 ms). Este script anota a qué hora termina cada transferencia:"
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import subprocess, time\nB = 'https://127.0.0.1:38520'\npaths = ['lento', 'rapido/1', 'rapido/2', 'rapido/3', 'rapido/4']\ndef correr(extra):\n    args = ['curl', '-sk', '-Z'] + extra + ['-w', '%{stderr}%{url_effective}\\n']\n    for p in paths: args += ['-o', '/dev/null', f'{B}/{p}']\n    t0 = time.perf_counter()\n    pr = subprocess.Popen(args, stderr=subprocess.PIPE, text=True)\n    out = []\n    for linea in pr.stderr:\n        out.append((time.perf_counter() - t0, linea.strip().replace(B, '')))\n    pr.wait()\n    return out\nfor nombre, extra in [('HTTP/1.1, una conexion', ['--http1.1', '--parallel-max', '1']), ('HTTP/2, una conexion', ['--http2'])]:\n    print(nombre)\n    for t, u in correr(extra): print(f'  {t:5.2f} s  {u}')",
+   "cap": "`hol20.py`. `%{stderr}` hace que curl escriba la URL de cada transferencia al terminar, sin esperar al final del programa."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 hol20.py",
+     "s": "HTTP/1.1, una conexion\n   1.01 s  /lento\n   1.06 s  /rapido/1\n   1.11 s  /rapido/2\n   1.16 s  /rapido/3\n   1.21 s  /rapido/4\nHTTP/2, una conexion\n   0.06 s  /rapido/1\n   0.06 s  /rapido/2\n   0.06 s  /rapido/3\n   0.06 s  /rapido/4\n   1.01 s  /lento"
+    }
+   ],
+   "cap": "Salida real, medida en esta VM. Una sola conexión en los dos casos."
+  },
+  {
+   "t": "p",
+   "x": "En HTTP/1.1 los cuatro rápidos esperan a que termine el lento y salen al segundo (1,06; 1,11; 1,16; 1,21). En HTTP/2 terminan a los 0,06 segundos y el lento a 1,01. Es el bloqueo de cabeza de fila de la aplicación, visto con números: el orden de llegada cambió, y es lo que HTTP/2 arregla."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Un camión de consolidado",
+   "x": [
+    "HTTP/1.1 es mandar un camión por pedido, y para ir más rápido, seis camiones. HTTP/2 es un camión de consolidado: lleva cajas de muchos clientes, cada una con la etiqueta de su pedido, y en destino se reparten según la etiqueta.",
+    "Dónde falla: el camión de HTTP/2 es uno solo. Si se frena, se frenan todos los pedidos que lleva. Es justo el problema que queda y que vemos más abajo."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "HTTP/2: la misma conversación, otra forma de mandar los bytes"
+  },
+  {
+   "t": "p",
+   "x": "HTTP/2 nace de SPDY, un protocolo experimental que Google presentó en noviembre de 2009 [#http20-chromium-spdy]. Se estandarizó como RFC 7540 en mayo de 2015 [#http20-rfc7540] y hoy lo define el RFC 9113 (junio de 2022), que lo reemplaza [#rfc9113]. Lo importante es que **no cambia qué significan los mensajes**: los métodos, los códigos de estado, los encabezados y las cookies de [@05-18] y [@05-19] son los mismos. Cambia cómo viajan los bytes."
+  },
+  {
+   "t": "p",
+   "x": "En HTTP/1.1 un mensaje es texto y el receptor lo corta buscando saltos de línea. En [[HTTP/2]] todo viaja en **cuadros** (*frames*) binarios. Cada cuadro empieza con 9 bytes fijos: el largo del contenido (3 bytes), el tipo (1), banderas (1) y el número de flujo (4, de los cuales 31 bits son el número) [#rfc9113]. Los tipos más usados son `HEADERS` (los encabezados de una solicitud o respuesta), `DATA` (el cuerpo), `SETTINGS` (parámetros de la conexión) y `WINDOW_UPDATE` (control de flujo)."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "Un cuadro HTTP/2",
+     "celdas": [
+      {
+       "t": "Largo",
+       "k": "cliente",
+       "s": "3 bytes"
+      },
+      {
+       "t": "Tipo",
+       "k": "red",
+       "s": "1 byte"
+      },
+      {
+       "t": "Banderas",
+       "k": "red",
+       "s": "1 byte"
+      },
+      {
+       "t": "Flujo",
+       "k": "datos",
+       "s": "4 bytes (31 bits de número)"
+      },
+      {
+       "t": "Contenido",
+       "k": "servidor",
+       "s": "tantos bytes como dice «Largo»"
+      }
+     ],
+     "nota": "Los primeros 9 bytes son siempre iguales; después viene el contenido."
+    }
+   ],
+   "cap": "Estructura de un cuadro HTTP/2 según el RFC 9113, sección 4.1."
+  },
+  {
+   "t": "p",
+   "x": "Cada intercambio de solicitud y respuesta es un **flujo** (*stream*) con su número. Los que abre el cliente llevan números impares: 1, 3, 5… [#rfc9113]. Y acá está la idea central: los cuadros de distintos flujos se pueden **intercalar** en la misma conexión TCP. Eso es la [[multiplexación]]: varias conversaciones lógicas comparten un único canal, cada pieza lleva la etiqueta de su flujo y el receptor las separa."
+  },
+  {
+   "t": "p",
+   "x": "¿Cómo acuerdan cliente y servidor hablar HTTP/2? Con una extensión del cifrado llamada [[ALPN]]: el cliente ofrece una lista de protocolos y el servidor elige uno, dentro del mismo saludo de TLS (que vemos en [@05-22]) [#rfc9113]. Lo mostré con mi servidor, forzando cada versión con `curl`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -sk -v --http2 -o /dev/null https://127.0.0.1:38520/r/1 2>&1 | grep -E 'ALPN|using HTTP|^> GET|^< HTTP'",
+     "s": "* ALPN: curl offers h2,http/1.1\n* ALPN: server accepted h2\n* using HTTP/2\n> GET /r/1 HTTP/2\n< HTTP/2 200"
+    },
+    {
+     "c": "curl -sk -v --http1.1 -o /dev/null https://127.0.0.1:38520/r/1 2>&1 | grep -E 'ALPN|using HTTP|^> GET|^< HTTP'",
+     "s": "* ALPN: curl offers http/1.1\n* ALPN: server accepted http/1.1\n* using HTTP/1.x\n> GET /r/1 HTTP/1.1\n< HTTP/1.1 200 OK"
+    }
+   ],
+   "cap": "Salida real. La línea `GET /r/1 HTTP/2` la dibuja curl por comodidad: en la red, HTTP/2 no tiene línea de texto, todo eso va dentro de un cuadro HEADERS."
+  },
+  {
+   "t": "h",
+   "x": "Mirar los cuadros en la red"
+  },
+  {
+   "t": "p",
+   "x": "Para ver los cuadros armé un proxy en Python de unas sesenta líneas que se pone entre `curl` y mi servidor (HTTP/2 sin cifrar, para poder leer los bytes), reenvía todo y anota cada cuadro que pasa; los encabezados los decodifica la biblioteca `hpack`. Le pedí tres recursos por la misma conexión con una cookie de 112 bytes, parecida a las de [@05-19]:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s --http2-prior-knowledge -H \"Cookie: $COOKIE\" -o /dev/null http://127.0.0.1:38523/r/1 -o /dev/null …/r/2 -o /dev/null …/r/3",
+     "s": "C->S  PREFACIO      stream 0    24 bytes  \nC->S  SETTINGS      stream 0    18 bytes  \nC->S  WINDOW_UPDATE stream 0     4 bytes  \nC->S  HEADERS       stream 1   115 bytes  :method=GET :scheme=http :authority=127.0.0.1:38523 :path=/r/1 user-agent=curl/8.5.0 accept=*/* cookie=<112 caracteres>\nS->C  SETTINGS      stream 0     0 bytes  \nS->C  SETTINGS      stream 0     0 bytes  \nC->S  SETTINGS      stream 0     0 bytes  \nS->C  HEADERS       stream 1    40 bytes  :status=200 content-type=text/plain content-length=2048\nS->C  DATA          stream 1  2048 bytes  \nS->C  DATA          stream 1     0 bytes  \nC->S  RST_STREAM    stream 1     4 bytes  \nC->S  HEADERS       stream 3    11 bytes  :method=GET :scheme=http :authority=127.0.0.1:38523 :path=/r/2 user-agent=curl/8.5.0 accept=*/* cookie=<112 caracteres>\nS->C  HEADERS       stream 3     9 bytes  :status=200 content-type=text/plain content-length=2048\nS->C  DATA          stream 3  2048 bytes  \nS->C  DATA          stream 3     0 bytes  \nC->S  RST_STREAM    stream 3     4 bytes  \nC->S  HEADERS       stream 5    11 bytes  :method=GET :scheme=http :authority=127.0.0.1:38523 :path=/r/3 user-agent=curl/8.5.0 accept=*/* cookie=<112 caracteres>\nS->C  HEADERS       stream 5     9 bytes  :status=200 content-type=text/plain content-length=2048\nS->C  DATA          stream 5  2048 bytes  \nS->C  DATA          stream 5     0 bytes  "
+    }
+   ],
+   "cap": "Salida real del proxy (el valor de la cookie y la fecha de la respuesta están abreviados). `C->S` es de curl al servidor y `S->C` al revés. El `RST_STREAM` de 4 bytes lo manda curl al cerrar cada flujo."
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Un saludo fijo y ajustes.** La conexión empieza con 24 bytes de prefacio y cuadros `SETTINGS`. El flujo 0 es el de los cuadros que hablan de la conexión entera y no de una solicitud.",
+    "**Flujos 1, 3 y 5** en la misma conexión TCP: tres pedidos, ningún saludo nuevo.",
+    "**El tamaño de los `HEADERS`:** 115 bytes el primero y apenas 11 el segundo y el tercero. Decodificados dicen lo mismo, incluida la cookie de 112 bytes. La respuesta pasó de 40 a 9 bytes."
+   ],
+   "ord": false
+  },
+  {
+   "t": "p",
+   "x": "Eso es [[HPACK]], el formato de compresión de encabezados de HTTP/2 [#http20-rfc7541]. Cliente y servidor mantienen, durante toda la conexión, una **tabla** idéntica de encabezados ya enviados, más una tabla fija de 61 entradas muy comunes (`:method GET`, `content-type`…). Lo que ya está en la tabla se manda como un número de entrada. El primer pedido paga la cookie completa; los siguientes solo la referencian."
+  },
+  {
+   "t": "p",
+   "x": "Para compararlo con HTTP/1.1 capturé con `nc` la misma solicitud, sin cambiar nada más:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "nc -l -p 38525 > req_h1.txt &",
+     "s": ""
+    },
+    {
+     "c": "curl -s --http1.1 -m 1 -H \"Cookie: $COOKIE\" -o /dev/null http://127.0.0.1:38525/r/1",
+     "s": ""
+    },
+    {
+     "c": "wc -c req_h1.txt",
+     "s": "203 req_h1.txt"
+    }
+   ],
+   "cap": "Salida real. 203 bytes de texto, con `Host`, `User-Agent`, `Accept` y la cookie."
+  },
+  {
+   "t": "p",
+   "x": "En HTTP/1.1 cada solicitud repite ese texto entero, así que tres pedidos son unos 609 bytes (cambia solo un dígito de la ruta). HTTP/2 mandó 115 + 11 + 11 = 137 bytes de contenido de `HEADERS`, más 9 bytes de cabecera por cuadro. Esto conecta con [@05-19]: HPACK abarata mandar la cookie en cada pedido, pero no cambia el hecho de que viaje. Los riesgos de seguridad de una cookie son los mismos."
+  },
+  {
+   "t": "nota",
+   "k": "historia",
+   "titulo": "El «server push» que casi nadie usó",
+   "x": "HTTP/2 permite que el servidor mande recursos que el cliente todavía no pidió (cuadro `PUSH_PROMISE`). En la práctica se adoptó poco: Chrome lo desactivó por defecto desde la versión 106 y otros navegadores basados en Chromium lo siguieron [#http20-chrome-push]. Es un ejemplo de que un estándar puede traer funciones que el uso real termina descartando."
+  },
+  {
+   "t": "h",
+   "x": "El problema que HTTP/2 no resuelve: TCP"
+  },
+  {
+   "t": "p",
+   "x": "HTTP/2 puso todo en una sola conexión TCP. Pero TCP, como viste en [@05-16], entrega los bytes **en orden**: si se pierde un paquete, el receptor no puede entregar nada de lo que llegó después hasta que aparezca la retransmisión, aunque esos bytes ya estén en memoria. Para TCP hay un solo flujo de bytes; no sabe que adentro viajan treinta respuestas independientes. El RFC 9113 lo admite: este protocolo no resuelve el bloqueo de cabeza de fila de TCP [#rfc9113]. Con seis conexiones, una pérdida frenaba a una parte de los recursos; con una sola, puede frenarlos a todos."
+  },
+  {
+   "t": "pensa",
+   "x": "Una conexión HTTP/2 lleva treinta respuestas intercaladas. Se pierde un solo paquete, que tenía datos de una respuesta. ¿Cuáles esperan la retransmisión: solo esa respuesta, o más?",
+   "resp": "Más. TCP entrega en orden, así que se frenan todas las respuestas que tengan datos **después** del hueco, aunque nada de lo perdido les pertenezca. Las que ya terminaron antes del hueco no se afectan."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«HTTP/2 eliminó el bloqueo de cabeza de fila»",
+   "x": "Eliminó el de la **aplicación** (una respuesta lenta ya no frena a las demás, como viste en la prueba). El de **TCP** sigue: se nota cuando hay pérdidas de paquetes, que en una red doméstica o de celular son parte de la vida normal."
+  },
+  {
+   "t": "h",
+   "x": "HTTP/3: cambiar el transporte"
+  },
+  {
+   "t": "p",
+   "x": "Si el problema es TCP, hay que cambiar TCP. Lo que quedó fue QUIC, un protocolo de transporte que viaja dentro de datagramas UDP, según el RFC «para facilitar el despliegue en los sistemas y redes existentes» [#rfc9000]. Recordá de [@05-15] que UDP casi no hace nada: sin orden ni retransmisión. [[QUIC]] reconstruye encima esas funciones (confiabilidad, control de congestión) y suma otras: cifrado obligatorio con TLS 1.3 integrado, conexiones con identificador propio y flujos independientes. Lo definen el RFC 9000 (mayo de 2021) y el 9001 [#rfc9000] [#http20-rfc9001]. [[HTTP/3]] es HTTP sobre QUIC (RFC 9114, junio de 2022) con los mismos métodos, estados y encabezados de siempre [#rfc9114]; comprime encabezados con QPACK, una variante de HPACK pensada para no reintroducir el bloqueo [#http20-rfc9204]."
+  },
+  {
+   "t": "cita",
+   "x": "When a packet loss occurs, only streams with data in that packet are blocked waiting for a retransmission to be received, while other streams can continue making progress.",
+   "autor": "RFC 9000, sección 13",
+   "fuente": "rfc9000"
+  },
+  {
+   "t": "p",
+   "x": "Esa es la diferencia con TCP, en una frase del RFC: QUIC exige orden **por flujo**, no para toda la conexión. Para verlo con números armé un modelo de juguete (no una medición de red). Tres respuestas, A, B y C, intercaladas en una conexión, cuatro paquetes cada una; se pierde un paquete de B y su retransmisión llega un RTT más tarde. Corrélo:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Modelo de juguete: 3 respuestas (A, B, C) intercaladas en una misma conexión.\n// Cada respuesta son 4 paquetes; los paquetes salen uno por milisegundo en rueda (A1 B1 C1 A2 B2 C2 ...).\n// Latencia de ida: 20 ms. Se pierde un paquete (el 2.º de B) y su retransmisión llega 40 ms después (un RTT más).\nconst LAT = 20, RTT = 40, POR_FLUJO = 4;\nconst flujos = ['A', 'B', 'C'];\nconst paquetes = [];\nfor (let i = 1; i <= POR_FLUJO; i++) for (const f of flujos) paquetes.push({ f, i });\npaquetes.forEach((p, k) => {\n  p.llegada = k + LAT;                         // sin pérdidas, llega a los 20 ms de salir\n  if (p.f === 'B' && p.i === 2) p.llegada += RTT; // el perdido llega tarde (retransmisión)\n});\n\n// TCP: entrega ordenada de TODO el flujo de bytes. Un paquete no se entrega hasta que llegaron todos los anteriores.\nlet maxLlegada = 0;\nconst entregaTCP = paquetes.map((p) => (maxLlegada = Math.max(maxLlegada, p.llegada)));\n// QUIC: el orden se exige por flujo. Un paquete espera solo a los anteriores de su mismo flujo.\nconst entregaQUIC = paquetes.map((p, k) => Math.max(...paquetes.filter((q) => q.f === p.f && q.i <= p.i).map((q) => q.llegada)));\n\nfunction termina(entrega) {\n  const r = {};\n  paquetes.forEach((p, k) => { r[p.f] = Math.max(r[p.f] || 0, entrega[k]); });\n  return r;\n}\nconsole.log('Sin pérdidas, cada respuesta termina cerca de los', LAT + 9 + ' a ' + (LAT + 11), 'ms');\nconsole.log('Con TCP  (HTTP/2):', JSON.stringify(termina(entregaTCP)));\nconsole.log('Con QUIC (HTTP/3):', JSON.stringify(termina(entregaQUIC)));",
+   "cap": "Modelo mío, sin red de verdad: solo cuenta cuándo puede entregarse cada paquete bajo la regla de orden de TCP (todo el flujo) y la de QUIC (cada flujo por separado). En esta VM con Node 22, las dos últimas líneas de salida son: TCP {\"A\":64,\"B\":64,\"C\":64}; QUIC {\"A\":29,\"B\":64,\"C\":31}."
+  },
+  {
+   "t": "p",
+   "x": "Con la regla de TCP las tres respuestas terminan a los 64 ms. Con la de QUIC, A y C terminan a los 29 y 31 ms y solo B espera. Un matiz del propio RFC: si un mismo paquete lleva datos de varios flujos, perderlo frena a todos ellos; por eso se recomienda poner pocos flujos por paquete [#rfc9000]."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "Paquetes que salen",
+     "celdas": [
+      {
+       "t": "A1",
+       "k": "cliente"
+      },
+      {
+       "t": "B1",
+       "k": "servidor"
+      },
+      {
+       "t": "C1",
+       "k": "datos"
+      },
+      {
+       "t": "A2",
+       "k": "cliente"
+      },
+      {
+       "t": "B2",
+       "k": "alerta",
+       "s": "se pierde"
+      },
+      {
+       "t": "C2",
+       "k": "datos"
+      },
+      {
+       "t": "A3",
+       "k": "cliente"
+      },
+      {
+       "t": "B3",
+       "k": "servidor"
+      },
+      {
+       "t": "C3",
+       "k": "datos"
+      }
+     ]
+    },
+    {
+     "e": "TCP entrega",
+     "celdas": [
+      {
+       "t": "A1",
+       "k": "ok"
+      },
+      {
+       "t": "B1",
+       "k": "ok"
+      },
+      {
+       "t": "C1",
+       "k": "ok"
+      },
+      {
+       "t": "A2",
+       "k": "ok"
+      },
+      {
+       "t": "B2",
+       "k": "alerta",
+       "s": "llega tarde"
+      },
+      {
+       "t": "C2",
+       "k": "alerta",
+       "s": "espera"
+      },
+      {
+       "t": "A3",
+       "k": "alerta",
+       "s": "espera"
+      },
+      {
+       "t": "B3",
+       "k": "alerta",
+       "s": "espera"
+      },
+      {
+       "t": "C3",
+       "k": "alerta",
+       "s": "espera"
+      }
+     ],
+     "nota": "Todo lo que está detrás del hueco espera."
+    },
+    {
+     "e": "QUIC entrega",
+     "celdas": [
+      {
+       "t": "A1",
+       "k": "ok"
+      },
+      {
+       "t": "B1",
+       "k": "ok"
+      },
+      {
+       "t": "C1",
+       "k": "ok"
+      },
+      {
+       "t": "A2",
+       "k": "ok"
+      },
+      {
+       "t": "B2",
+       "k": "alerta",
+       "s": "llega tarde"
+      },
+      {
+       "t": "C2",
+       "k": "ok"
+      },
+      {
+       "t": "A3",
+       "k": "ok"
+      },
+      {
+       "t": "B3",
+       "k": "alerta",
+       "s": "espera a B2"
+      },
+      {
+       "t": "C3",
+       "k": "ok"
+      }
+     ],
+     "nota": "Solo espera lo que depende del paquete perdido."
+    }
+   ],
+   "cap": "El mismo paquete perdido (B2) bajo las dos reglas de orden. La letra es el flujo y el número, el orden dentro de ese flujo. Es el esquema del modelo anterior."
+  },
+  {
+   "t": "h3",
+   "x": "Más cosas que cambia QUIC"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Un solo saludo en vez de dos.** Con TCP más TLS 1.3 el cliente espera dos idas y vueltas antes de poder pedir: una para TCP y otra para TLS. QUIC integra el saludo de TLS con el del transporte y permite mandar datos después de una sola ida y vuelta [#http20-rfc9001]. Cuenta de ejemplo: con un RTT de 100 ms, 200 ms contra 100 ms antes del primer pedido. Si el cliente ya habló con ese servidor puede incluso mandar datos en el primer vuelo (0-RTT), con límites de seguridad.",
+    "**La conexión sobrevive al cambio de red.** Una conexión TCP se identifica por las dos direcciones IP y los dos puertos. Si tu teléfono pasa del Wi-Fi al celular, la IP cambia y esa conexión muere. QUIC identifica la conexión con un número propio, y el RFC prevé que un cliente la migre a otra ruta [#rfc9000]. Es como identificar un bulto por su número de seguimiento y no por la patente del camión.",
+    "**Todo va cifrado y por UDP.** Los equipos del camino no pueden mirar ni retocar lo que va adentro, y algunas redes bloquean o limitan UDP. Por eso HTTP/3 nunca viaja solo: el RFC indica que, si no se puede establecer la conexión QUIC, el cliente intente con las versiones de HTTP sobre TCP [#rfc9114]."
+   ],
+   "ord": false
+  },
+  {
+   "t": "h3",
+   "x": "¿Cómo sabe un navegador que un sitio habla HTTP/3?"
+  },
+  {
+   "t": "p",
+   "x": "No lo sabe de antemano. La primera visita suele ir por TCP (HTTP/2 o HTTP/1.1) y la respuesta trae un encabezado [[Alt-Svc]] (*alternative service*, RFC 7838): «también me encontrás en otra ubicación y protocolo». Si dice `h3`, la próxima vez el cliente intenta QUIC [#rfc9114] [#http20-rfc7838]. Lo medí con un sitio real:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -sI https://example.com | grep -i '^alt-svc'",
+     "s": "alt-svc: h3=\":443\"; ma=86400"
+    },
+    {
+     "c": "curl --http3 -sI https://example.com",
+     "s": "curl: option --http3: the installed libcurl version doesn't support this\ncurl: try 'curl --help' or 'curl --manual' for more information"
+    }
+   ],
+   "cap": "Salida real, 13-11-2026, detrás del proxy de esta VM. `h3=\":443\"` dice «HTTP/3 en el puerto UDP 443» y `ma=86400` que el aviso vale 86.400 segundos, un día."
+  },
+  {
+   "t": "p",
+   "x": "La segunda línea es una confesión: **no pude hablar HTTP/3 desde esta VM**. Su `curl` no lo trae compilado y, además, su salida a Internet pasa por un proxy HTTPS, que va sobre TCP. Por eso lo de HTTP/3 en este día viene de los RFC, del modelo de juguete y de un encabezado real, no de un intercambio capturado."
+  },
+  {
+   "t": "h",
+   "x": "Las tres versiones, una al lado de otra"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "HTTP/1.1",
+    "HTTP/2",
+    "HTTP/3"
+   ],
+   "filas": [
+    [
+     "Estándar vigente",
+     "RFC 9112",
+     "RFC 9113",
+     "RFC 9114 sobre QUIC (RFC 9000)"
+    ],
+    [
+     "Transporte",
+     "TCP",
+     "TCP",
+     "QUIC sobre UDP"
+    ],
+    [
+     "Formato en la red",
+     "Texto",
+     "Cuadros binarios",
+     "Cuadros binarios en flujos QUIC"
+    ],
+    [
+     "Pedidos en paralelo",
+     "Una conexión por pedido en curso (navegadores: unas 6 por origen)",
+     "Muchos flujos en una conexión",
+     "Muchos flujos en una conexión"
+    ],
+    [
+     "Bloqueo en la aplicación",
+     "Sí",
+     "No",
+     "No"
+    ],
+    [
+     "Bloqueo por pérdida de paquetes",
+     "Solo la conexión afectada",
+     "Toda la conexión",
+     "Solo los flujos con datos en el paquete perdido"
+    ],
+    [
+     "Compresión de encabezados",
+     "Ninguna",
+     "HPACK",
+     "QPACK"
+    ],
+    [
+     "Cifrado",
+     "Opcional (HTTPS)",
+     "Opcional en el estándar, habitual en la web",
+     "Obligatorio (TLS 1.3 dentro de QUIC)"
+    ]
+   ],
+   "cap": "Las dos filas de bloqueo son la clave de la historia: HTTP/2 arregló la primera y HTTP/3, la segunda."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Adopción al 13-11-2026",
+   "x": [
+    "W3Techs, consultado el 13-11-2026, informa que HTTP/2 lo usa el 35,2 % de los sitios web y HTTP/3 el 40,8 %; sus informes se actualizan a diario [#http20-w3techs-http2] [#http20-w3techs-http3]. Son porcentajes de **sitios** en el recuento de W3Techs, no de tráfico.",
+    "Que HTTP/2 figure por debajo de HTTP/3 sugiere (inferencia mía, la página no lo aclara) que cada sitio se cuenta una sola vez, bajo la versión más nueva que ofrece. Con esa lectura, cerca de tres de cada cuatro sitios ofrecen HTTP/2 o algo más nuevo. Las cifras cambian; antes de citarlas, volvé a consultar la fuente."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Una pantalla pide 45 recursos y cada uno tarda 150 ms en el servidor. Estimá cuánto tarda con HTTP/1.1 y seis conexiones, y cuánto con HTTP/2 en una sola. Después decí qué cambiaría el resultado si cada recurso fuera una imagen de 3 MB.",
+   "pista": "Dividí 45 por 6 y redondeá hacia arriba, porque la última tanda aunque sea chica también tarda. Para HTTP/2 pensá cuántas rondas de espera hay si todo sale junto.",
+   "solucion": "HTTP/1.1: 45 / 6 = 7,5, o sea 8 tandas de 150 ms: 1,2 s. HTTP/2: los 45 pedidos salen juntos, así que se acerca a 0,15 s. Con imágenes de 3 MB deja de mandar la espera del servidor y manda el **ancho de banda**: 45 × 3 MB = 135 MB tienen que pasar por el mismo enlace, y ahí tener una o seis conexiones cambia poco. Ese es un límite honesto de HTTP/2: reparte mejor, pero no agranda el caño."
+  },
+  {
+   "t": "h",
+   "x": "Qué hacer con esto cuando tengas que decidir"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Casi nunca se elige a mano.** La versión se negocia entre el cliente y el servidor, y la mayoría de los proveedores y servidores web modernos ya ofrecen HTTP/2. Para saber qué se usó, mirá la columna «Protocol» de la pestaña Network de las herramientas del navegador (`h2`, `h3`, `http/1.1`) o corré `curl -sI --http2 URL`.",
+    "**Los trucos de HTTP/1.1 envejecen.** El domain sharding y juntar todo en un solo archivo existían para esquivar el límite de conexiones. Con HTTP/2 muchos archivos chicos cuestan menos que antes, pero no son gratis: cada pedido sigue teniendo costo en el servidor. Mi criterio: no deshacer a ciegas un [[bundler]] que funciona; medir primero.",
+    "**Los pedidos repetitivos se abaratan.** Una app que consulta al servidor cada pocos segundos repite los mismos encabezados en cada pedido, y HPACK está hecho exactamente para eso."
+   ],
+   "ord": false
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda pregunta cada 2 segundos, con dos pedidos a la vez",
+   "x": [
+    "En Senda las salas en vivo no usan WebSockets: son **sondeo**. `CADA_MS = 2000` en `src/util/salas.ts` y un `setInterval(leer, CADA_MS)` en `src/pantallas/Sala.tsx` hacen que la pantalla de la sala pregunte al servidor cada 2 segundos mientras está abierta. Cuando hace falta la tabla de posiciones, `verSala()` lanza **dos pedidos a la vez** con `Promise.all` (la fila de la sala y los participantes). Y cada pedido lleva `apikey` y `Authorization: Bearer …`, como viste en [@05-19].",
+    "Ese patrón (pedidos paralelos y cortos, con los mismos encabezados una y otra vez) es el que HTTP/2 abarata. Una cuenta de ejemplo: una sala abierta 10 minutos son 300 sondeos; si los encabezados repetidos pesaran 1 KB por pedido (estimación mía, no medida), serían unos 300 KB solo en encabezados bajo HTTP/1.1. Qué versión negocia la app con su servidor **no lo verifiqué**: no lo decide el código de la app sino la pila de red del sistema y el servidor. Esto corresponde al commit `25e08fa`; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/salas.ts",
+    "src/pantallas/Sala.tsx",
+    "src/util/cuenta.ts"
+   ]
+  }
+ ],
+ "recap": [
+  "HTTP/1.1 atiende un pedido por vez en cada conexión; el bloqueo de cabeza de fila hace que una respuesta lenta frene a las demás. Los navegadores lo sortean con unas seis conexiones por origen, que cuestan saludos y arranques lentos.",
+  "HTTP/2 (RFC 9113) conserva los significados de HTTP y cambia el formato: cuadros binarios, flujos con número y multiplexación en una sola conexión. HPACK comprime los encabezados repetidos (115 bytes el primer pedido, 11 los siguientes en la medición).",
+  "Medido: 30 recursos de 200 ms tardaron 6,0 s con una conexión HTTP/1.1, 1,0 s con seis, 0,23 s con treinta y 0,21 s con una conexión HTTP/2.",
+  "HTTP/2 elimina el bloqueo de la aplicación pero no el de TCP: un paquete perdido frena a todos los flujos que tengan datos detrás.",
+  "HTTP/3 (RFC 9114) es HTTP sobre QUIC (RFC 9000), que corre sobre UDP, cifra todo, exige orden solo por flujo, usa un saludo menos y permite migrar la conexión de red.",
+  "Los navegadores negocian HTTP/2 con ALPN durante el saludo TLS y descubren HTTP/3 con el encabezado Alt-Svc; si UDP falla, vuelven a TCP."
+ ],
+ "repaso": [
+  {
+   "p": "Una página pide 30 recursos que tardan 200 ms cada uno en el servidor. Con HTTP/1.1 y seis conexiones paralelas, ¿cuánto tarda aproximadamente (sin contar latencia de red)?",
+   "o": [
+    "Unos 6,0 s, porque cada recurso se atiende de a uno",
+    "Unos 0,2 s, porque los treinta salen en el mismo instante",
+    "Unos 1,2 s, porque hacen falta seis tandas de 200 ms",
+    "Unos 1,0 s, porque hacen falta cinco tandas de 200 ms"
+   ],
+   "c": 3,
+   "e": "Seis conexiones atienden seis recursos a la vez: 30 / 6 = 5 tandas de 200 ms, o sea 1,0 s. Con una conexión serían 6,0 s; con treinta o con HTTP/2, cerca de 0,2 s; y 1,2 s resultaría de contar 6 tandas, que sería con 36 recursos."
+  },
+  {
+   "p": "En HTTP/2, ¿qué distingue a una solicitud de otra dentro de la misma conexión TCP?",
+   "o": [
+    "Cada cuadro lleva el número del flujo al que pertenece",
+    "Cada solicitud usa un puerto de destino distinto",
+    "Cada solicitud abre una conexión TCP secundaria",
+    "El servidor reconoce la URL repetida en cada cuadro"
+   ],
+   "c": 0,
+   "e": "La multiplexación depende de que cada cuadro lleve el número de flujo en sus 9 bytes fijos, y el receptor reconstruye cada conversación con esa etiqueta. Los puertos y las conexiones extra son lo que HTTP/2 se ahorra, y los cuadros de datos ni siquiera llevan la URL."
+  },
+  {
+   "p": "Una conexión HTTP/2 lleva muchas respuestas intercaladas y se pierde un paquete de red. ¿Qué pasa?",
+   "o": [
+    "Solo espera la respuesta dueña del paquete perdido, y las demás siguen",
+    "Se reinicia la conexión y todas las respuestas empiezan de cero",
+    "Esperan las respuestas con datos tras el hueco, porque TCP ordena",
+    "HTTP/2 detecta la pérdida y entrega igual las demás respuestas"
+   ],
+   "c": 2,
+   "e": "TCP solo ve un flujo de bytes y no entrega nada posterior al hueco hasta recibir la retransmisión, aunque pertenezca a otras respuestas. Que solo espere la dueña del paquete es el comportamiento de QUIC, y HTTP/2 no tiene forma de saltearse la entrega ordenada de TCP."
+  },
+  {
+   "p": "¿Qué hace QUIC distinto de TCP para evitar el bloqueo entre respuestas?",
+   "o": [
+    "Elimina las retransmisiones y acepta datos perdidos",
+    "Reemplaza a UDP con un protocolo nuevo a nivel IP",
+    "Usa una conexión por cada recurso para no mezclar datos",
+    "Garantiza el orden de cada flujo y no de toda la conexión"
+   ],
+   "c": 3,
+   "e": "QUIC retransmite igual que TCP, pero lleva la cuenta del orden dentro de cada flujo, así que un paquete perdido frena solo a los flujos que tenían datos en él. No elimina las retransmisiones, viaja sobre UDP y no usa una conexión por recurso: multiplexa flujos en una sola."
+  },
+  {
+   "p": "Un navegador no sabe de antemano si un sitio ofrece HTTP/3. ¿Cómo suele enterarse?",
+   "o": [
+    "Prueba UDP en cada visita y recién después prueba TCP",
+    "La respuesta anterior trae el encabezado Alt-Svc",
+    "El DNS lo informa en el registro A de su dominio",
+    "El método de la solicitud HTTP lo deja indicado"
+   ],
+   "c": 1,
+   "e": "Un encabezado Alt-Svc con h3 en una respuesta anterior avisa que hay HTTP/3 en cierto puerto UDP, durante cierto tiempo. El registro A solo guarda una dirección IP y el método HTTP no tiene nada que ver con la versión del protocolo; probar UDP primero no es lo que describe el estándar."
+  },
+  {
+   "p": "En la medición de HPACK, el primer HEADERS pesó 115 bytes y los siguientes 11, con la misma cookie de 112 bytes. ¿Por qué?",
+   "o": [
+    "El cliente deja de mandar la cookie después del primer pedido",
+    "Las dos puntas guardan una tabla y repiten lo conocido por referencia",
+    "El servidor recuerda la cookie y el cliente no necesita enviarla",
+    "Se comprime el cuerpo con gzip, no los encabezados"
+   ],
+   "c": 1,
+   "e": "HPACK mantiene en las dos puntas una tabla dinámica y manda lo ya conocido como un número de entrada. La cookie sigue viajando, referenciada. Si el servidor la recordara sin recibirla se perdería el sentido de HTTP sin estado, y gzip se aplica al cuerpo, que es otra cosa."
+  },
+  {
+   "p": "Una pantalla pide 45 imágenes de 3 MB cada una. ¿Qué limita más el tiempo de carga con HTTP/2?",
+   "o": [
+    "El ancho de banda de todo el enlace",
+    "La cantidad de conexiones TCP abiertas",
+    "El tamaño de los encabezados repetidos",
+    "El orden en que salen los pedidos"
+   ],
+   "c": 0,
+   "e": "Con archivos grandes manda el volumen de datos: 45 × 3 MB son 135 MB que tienen que pasar por el mismo enlace. HTTP/2 mejora la espera por pedidos pero no agranda el enlace; las conexiones y los encabezados son detalles chicos frente a 135 MB."
+  }
+ ],
+ "feynman": "Explicale a un amigo que tiene una tienda online por qué su página carga mejor en HTTP/2 que en HTTP/1.1, qué problema sigue existiendo y qué hizo HTTP/3 al respecto. Usá la analogía del camión de consolidado y decí dónde falla.",
+ "para_profundizar": [
+  {
+   "fuente": "rfc9113",
+   "nota": "RFC 9113, secciones 4 y 5: el formato de los cuadros y el modelo de flujos que viste en el proxy. Para repasar cada tipo de cuadro con su definición exacta."
+  },
+  {
+   "fuente": "http20-rfc7541",
+   "nota": "RFC 7541 (HPACK): la tabla estática de 61 entradas y cómo funciona la tabla dinámica; los ejemplos del apéndice C permiten repetir a mano lo que hoy midió el proxy."
+  },
+  {
+   "fuente": "rfc9000",
+   "nota": "RFC 9000, secciones 1 y 13: la visión general de QUIC (flujos, saludo integrado, migración) y la explicación de por qué un paquete perdido solo frena a algunos flujos."
+  },
+  {
+   "fuente": "http20-mdn-conexiones",
+   "nota": "Guía de MDN sobre la gestión de conexiones en HTTP/1.x: conexiones cortas y persistentes, pipelining y domain sharding, con el contexto histórico de lo que HTTP/2 vino a resolver."
+  }
+ ],
+ "videos": [
+  {
+   "q": "HTTP/1.1 vs HTTP/2 vs HTTP/3 head-of-line blocking QUIC explained",
+   "por_que": "Para ver animado cómo se intercalan los flujos en una conexión y qué pasa cuando se pierde un paquete en TCP y en QUIC."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "multiplexación",
+   "d": "Enviar varias conversaciones lógicas (los flujos de HTTP/2 y HTTP/3) por una misma conexión, intercalando sus piezas y etiquetando cada una con su flujo para que el receptor las separe."
+  },
+  {
+   "t": "QUIC",
+   "d": "Protocolo de transporte moderno (RFC 9000) que viaja en datagramas UDP y reconstruye por su cuenta confiabilidad, control de congestión, flujos independientes y cifrado con TLS 1.3 integrado; es la base de HTTP/3."
+  },
+  {
+   "t": "HTTP/2",
+   "d": "Segunda versión mayor de HTTP (RFC 9113). Conserva los métodos, estados y encabezados de HTTP/1.1 pero manda los mensajes en cuadros binarios, multiplexa flujos en una conexión TCP y comprime los encabezados con HPACK."
+  },
+  {
+   "t": "HTTP/3",
+   "d": "Tercera versión mayor de HTTP (RFC 9114): mismos significados que las anteriores, pero sobre QUIC y UDP en lugar de TCP. Evita que un paquete perdido frene a todos los flujos de la conexión."
+  },
+  {
+   "t": "HPACK",
+   "d": "Formato de compresión de encabezados de HTTP/2 (RFC 7541). Cliente y servidor mantienen una tabla estática de 61 entradas y una tabla dinámica idéntica; lo ya enviado se repite como número de entrada."
+  },
+  {
+   "t": "bloqueo de cabeza de fila",
+   "d": "Situación en que el elemento que va primero en una fila frena a todos los de atrás aunque estén listos. En HTTP/1.1 ocurre con las respuestas en una conexión; en TCP, con los bytes tras un paquete perdido (head-of-line blocking)."
+  },
+  {
+   "t": "ALPN",
+   "d": "Extensión del saludo TLS en la que el cliente ofrece una lista de protocolos de aplicación (por ejemplo h2 y http/1.1) y el servidor elige uno. Así se acuerda HTTP/2 sin viajes extra."
+  },
+  {
+   "t": "Alt-Svc",
+   "d": "Encabezado de respuesta (RFC 7838) con el que un servidor avisa que el mismo contenido está disponible en otro protocolo o puerto, por ejemplo h3=\":443\". Es la forma habitual de anunciar HTTP/3."
+  }
+ ],
+ "siguiente": "cómo se cifra todo esto: la criptografía simétrica y la de clave pública, dos herramientas que se combinan para que nadie en el camino pueda leer ni alterar tus mensajes.",
+ "fuentes_nuevas": [
+  {
+   "id": "http20-mdn-conexiones",
+   "a": "MDN Web Docs",
+   "t": "Connection management in HTTP/1.x",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Connection_management_in_HTTP_1.x"
+  },
+  {
+   "id": "http20-chromium-spdy",
+   "a": "Mike Belshe y Roberto Peon (Chromium Blog)",
+   "t": "A 2x Faster Web",
+   "tipo": "articulo",
+   "anio": 2009,
+   "url": "https://blog.chromium.org/2009/11/2x-faster-web.html"
+  },
+  {
+   "id": "http20-rfc7540",
+   "a": "M. Belshe, R. Peon, M. Thomson (IETF)",
+   "t": "RFC 7540: Hypertext Transfer Protocol Version 2 (HTTP/2)",
+   "tipo": "rfc",
+   "anio": 2015,
+   "url": "https://www.rfc-editor.org/rfc/rfc7540"
+  },
+  {
+   "id": "http20-rfc7541",
+   "a": "R. Peon, H. Ruellan (IETF)",
+   "t": "RFC 7541: HPACK: Header Compression for HTTP/2",
+   "tipo": "rfc",
+   "anio": 2015,
+   "url": "https://www.rfc-editor.org/rfc/rfc7541"
+  },
+  {
+   "id": "http20-rfc7838",
+   "a": "M. Nottingham, P. McManus, J. Reschke (IETF)",
+   "t": "RFC 7838: HTTP Alternative Services",
+   "tipo": "rfc",
+   "anio": 2016,
+   "url": "https://www.rfc-editor.org/rfc/rfc7838"
+  },
+  {
+   "id": "http20-rfc9001",
+   "a": "M. Thomson, S. Turner (IETF)",
+   "t": "RFC 9001: Using TLS to Secure QUIC",
+   "tipo": "rfc",
+   "anio": 2021,
+   "url": "https://www.rfc-editor.org/rfc/rfc9001"
+  },
+  {
+   "id": "http20-rfc9204",
+   "a": "C. Krasic, M. Bishop, A. Frindell (IETF)",
+   "t": "RFC 9204: QPACK: Field Compression for HTTP/3",
+   "tipo": "rfc",
+   "anio": 2022,
+   "url": "https://www.rfc-editor.org/rfc/rfc9204"
+  },
+  {
+   "id": "http20-chrome-push",
+   "a": "Barry Pollard (Chrome for Developers)",
+   "t": "Remove HTTP/2 Server Push from Chrome",
+   "tipo": "articulo",
+   "anio": 2022,
+   "url": "https://developer.chrome.com/blog/removing-push"
+  },
+  {
+   "id": "http20-w3techs-http2",
+   "a": "W3Techs",
+   "t": "Usage statistics of HTTP/2 for websites",
+   "tipo": "doc",
+   "url": "https://w3techs.com/technologies/details/ce-http2"
+  },
+  {
+   "id": "http20-w3techs-http3",
+   "a": "W3Techs",
+   "t": "Usage statistics of HTTP/3 for websites",
+   "tipo": "doc",
+   "url": "https://w3techs.com/technologies/details/ce-http3"
+  }
+ ]
+}

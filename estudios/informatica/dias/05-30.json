@@ -1,0 +1,699 @@
+{
+ "id": "05-30",
+ "titulo": "Qué pasa cuando escribís una URL y apretás Enter",
+ "bajada": "Seguís los seis pasos que da un navegador entre el Enter y la página, con una línea de tiempo medida en milisegundos y la capa de red que explica cada uno.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Ordenar los pasos que ocurren desde el Enter hasta ver la página: caché, DNS, TCP, TLS, HTTP y renderizado.",
+  "Decir qué capa de red y qué protocolo resuelve cada paso y cuántas idas y vueltas cuesta.",
+  "Leer una línea de tiempo medida de una carga real y ubicar en ella cada paso.",
+  "Predecir cuánto tarda la primera carga y la siguiente dadas una latencia y un tiempo de servidor.",
+  "Reconocer en qué paso falló una solicitud a partir del mensaje de error."
+ ],
+ "venis_de": "Hasta [@05-28] viste las piezas una por una (DNS, TCP, TLS, HTTP, caché). En [@05-29] las mediste con instrumentos sobre un servidor propio. Hoy las ordenás en un solo relato, el de la pregunta de entrevista más repetida de la informática.",
+ "se_apoya_en": [
+  "05-29",
+  "05-12",
+  "05-13",
+  "05-16",
+  "05-18",
+  "05-19",
+  "05-22",
+  "05-27"
+ ],
+ "gancho": [
+  "Existe una pregunta que se hace en entrevistas técnicas de todos los niveles: «¿qué pasa cuando escribís una dirección en el navegador y apretás Enter?». Se la hacen a un estudiante y a un arquitecto, y las dos respuestas pueden ser buenas, porque la pregunta no tiene fondo. Cada palabra de la respuesta esconde un tema entero.",
+  "Vos ya recorriste esos temas en esta parte. Lo que falta es el hilo que los une y, sobre todo, **cuánto cuesta cada paso**. Hoy armás ese hilo con números reales, tomados de una carga de página que medí en un navegador de verdad. Pensalo como el recorrido de un pedido en un depósito: antes de que la mercadería salga hay que ubicar la dirección, abrir el portón, identificar a quién entrega y recién después se arma el pedido. Cada etapa tiene su demora, y casi siempre se discute la que no es."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "La URL, desarmada"
+  },
+  {
+   "t": "p",
+   "x": "Todo empieza con lo que escribís. Tomá esta [[URL]] de ejemplo (inventada, apunta al servidor de laboratorio de [@05-29]): `https://deposito.localhost:18531/api/rutas?dia=lunes#tabla`. Tiene cinco partes, y cada una le sirve a un paso distinto [#rfc3986]:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Parte",
+    "En el ejemplo",
+    "Quién la usa",
+    "Se explicó en"
+   ],
+   "filas": [
+    [
+     "Esquema",
+     "`https`",
+     "El navegador: decide el protocolo y el puerto por defecto (443)",
+     "[@05-22]"
+    ],
+    [
+     "Host",
+     "`deposito.localhost`",
+     "DNS: lo traduce a una dirección IP. También viaja en el handshake TLS",
+     "[@05-12], [@05-13]"
+    ],
+    [
+     "Puerto",
+     "`18531`",
+     "TCP: a qué servicio de esa máquina llamar",
+     "[@05-14]"
+    ],
+    [
+     "Ruta y consulta",
+     "`/api/rutas?dia=lunes`",
+     "HTTP: qué recurso pide el cliente al servidor",
+     "[@05-18]"
+    ],
+    [
+     "Fragmento",
+     "`#tabla`",
+     "Solo el navegador: no se envía al servidor",
+     "[@05-18]"
+    ]
+   ],
+   "cap": "El fragmento no sale de tu máquina: RFC 9110 aclara que el URI de destino de un pedido lo excluye porque los fragmentos están reservados para el procesamiento del lado del cliente [#rfc9110]."
+  },
+  {
+   "t": "p",
+   "x": "Esa tabla ya adelanta el recorrido: el esquema decide *cómo*, el host decide *a quién*, el puerto decide *a qué puerta* y la ruta decide *qué se pide*. Lo único que no cambia de máquina es el fragmento, que el navegador usa para saltar a un punto de la página una vez que llegó."
+  },
+  {
+   "t": "h",
+   "x": "El mapa completo, antes de entrar en detalle"
+  },
+  {
+   "t": "p",
+   "x": "El [[recorrido completo de una solicitud]] tiene seis pasos. Cada uno se apoya en el anterior, y cada uno puede fallar de una manera propia, como vas a ver al final."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "1. Mirar en casa",
+       "s": "caché y lista HSTS",
+       "k": "cliente"
+      },
+      {
+       "t": "2. DNS",
+       "s": "nombre a dirección IP",
+       "k": "red",
+       "e": "si no está en casa"
+      },
+      {
+       "t": "3. TCP",
+       "s": "abrir la conexión",
+       "k": "red",
+       "e": "con la IP"
+      }
+     ],
+     "baja": "con la conexión abierta"
+    },
+    {
+     "nodos": [
+      {
+       "t": "4. TLS",
+       "s": "cifrar y verificar",
+       "k": "servidor"
+      },
+      {
+       "t": "5. HTTP",
+       "s": "pedir y recibir",
+       "k": "servidor",
+       "e": "sobre el canal cifrado"
+      },
+      {
+       "t": "6. Renderizar",
+       "s": "armar la página",
+       "k": "cliente",
+       "e": "con el HTML recibido"
+      }
+     ]
+    }
+   ],
+   "cap": "Los seis pasos en orden. Los pasos 2 a 5 son red; el 1 y el 6 ocurren dentro del navegador."
+  },
+  {
+   "t": "p",
+   "x": "Un detalle de lectura: no es una línea recta. Si el navegador ya tiene la respuesta, el recorrido termina en el paso 1. Si ya tiene la dirección IP o una conexión abierta, se saltea los pasos 2 a 4. Y el paso 6 dispara nuevos recorridos (pedir el CSS, el script, las imágenes) que reutilizan lo ya construido. Por eso la primera carga y la siguiente son tan distintas."
+  },
+  {
+   "t": "h",
+   "x": "Paso 1: el navegador mira en casa antes de salir"
+  },
+  {
+   "t": "p",
+   "x": "Lo primero que hace el navegador no es salir a la red. Primero decide si lo que escribiste es una dirección o una búsqueda. Después revisa si ya sabe algo útil. Hay dos cosas que consulta. La primera es la lista de sitios que pidieron **HSTS**: un dominio puede decirle al navegador, con un encabezado, «a mí visitame siempre por HTTPS». Si escribís `http://` hacia uno de esos dominios, el navegador reescribe la dirección a `https://` **antes de enviar un solo byte** [#url530-rfc6797]. La segunda es la [[caché HTTP]] de [@05-19]: si ya tiene guardada una copia de ese recurso y todavía está fresca, la usa y el recorrido termina acá, sin red."
+  },
+  {
+   "t": "p",
+   "x": "En el laboratorio de [@05-29] viste las dos caras. En la primera visita, el navegador tardó 1,9 ms entre que decidió pedir la página y que empezó a abrir la conexión: ese tiempo incluye mirar en casa y no encontrar nada. En la segunda visita, el CSS, el script y el logo salieron de la caché en un milisegundo cada uno, sin tocar el cable. En ese mismo tramo, el navegador también reúne lo que va a mandar en el pedido: las [[cookie|cookies]] guardadas para ese dominio, el idioma, los formatos que acepta."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Apretar Enter manda el pedido al servidor.» No siempre. Si la respuesta está en caché fresca, o si el sitio fue reescrito a HTTPS por HSTS, o si el navegador ya tiene la dirección o una conexión abierta, parte del recorrido (o todo) se saltea. El Enter solo inicia el recorrido; cuánto de él se recorre depende de lo que el navegador ya sabe.",
+   "titulo": "Mito"
+  },
+  {
+   "t": "h",
+   "x": "Paso 2: DNS, de nombre a dirección"
+  },
+  {
+   "t": "p",
+   "x": "Los paquetes viajan hacia direcciones IP, no hacia nombres. Para traducir `deposito.localhost` o `example.com` a una IP, el navegador pregunta por el [[registro A]] (direcciones IPv4) y, casi siempre en paralelo, por el AAAA (direcciones [[IPv6]]). La pregunta pasa por capas de caché, de la más cercana a la más lejana: la del propio navegador, la del sistema operativo y la del [[resolvedor recursivo]] (el de tu proveedor o uno público). Cada una la guarda hasta que se vence el [[TTL]]. Solo si ninguna sabe, el resolvedor sale a preguntar a los [[servidor raíz|servidores raíz]], después al del dominio de primer nivel y después al del propio dominio, como viste en [@05-13]."
+  },
+  {
+   "t": "p",
+   "x": "Lo medí con `dig`, que pregunta directo a un resolvedor y muestra cuánto tardó. Un nombre que nadie había pedido en esta VM, dos veces seguidas:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "dig +noall +answer +stats debian.org A",
+     "s": "debian.org.\t\t271\tIN\tA\t151.101.2.132\ndebian.org.\t\t271\tIN\tA\t151.101.194.132\ndebian.org.\t\t271\tIN\tA\t151.101.66.132\ndebian.org.\t\t271\tIN\tA\t151.101.130.132\n;; Query time: 4 msec\n;; SERVER: 8.8.8.8#53(8.8.8.8) (UDP)"
+    },
+    {
+     "c": "dig +noall +answer +stats debian.org A | grep 'Query time'  # dos segundos después",
+     "s": ";; Query time: 0 msec"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026. Fijate en las cuatro direcciones: un mismo nombre puede traer varias. El resolvedor de este entorno parece responder desde caché o desde muy cerca (el TTL de 271 no bajó entre consultas): no es lo que verías en un teléfono con datos."
+  },
+  {
+   "t": "p",
+   "x": "En esta VM, para nombres sin consultar antes, `dig` informó entre 4 y 20 ms, y repetidos, 0 ms. En un teléfono con datos móviles y un resolvedor lejano, una consulta en frío puede costar varias decenas de milisegundos y se paga por cada dominio distinto que use la página. Una página con imágenes en un dominio, tipografías en otro y estadísticas en un tercero hace tres recorridos de DNS. Hay un detalle más fino: si el AAAA y el A llegan con distinta rapidez, el estándar de «ojos felices» recomienda esperar hasta 50 ms por la respuesta IPv6 antes de seguir con IPv4, y si una conexión no avanza, intentar la siguiente a los 250 ms [#url530-rfc8305]."
+  },
+  {
+   "t": "pensa",
+   "x": "Una página usa recursos de 5 dominios distintos y tu DNS en frío tarda 30 ms por dominio, sin caché. ¿Cuánto suma DNS si el navegador los resuelve uno tras otro? ¿Y qué cambia si la próxima visita ocurre antes de que venza el TTL?",
+   "resp": "En serie serían 150 ms (5 × 30), aunque los navegadores suelen resolverlos en paralelo, y entonces el costo se acerca al del más lento. En la próxima visita, dentro del TTL, las consultas salen de la caché del navegador o del sistema y cuestan casi nada. Por eso el TTL es una decisión de diseño: un TTL largo ahorra consultas; uno corto permite cambiar de servidor rápido."
+  },
+  {
+   "t": "h",
+   "x": "Paso 3: TCP, abrir la conexión"
+  },
+  {
+   "t": "p",
+   "x": "Con la dirección IP en la mano, el navegador abre un [[socket]] y hace el [[saludo de tres vías]] ([@05-16]) contra el puerto 443, o el que indique la URL. El saludo cuesta **una ida y vuelta**: el SYN viaja, el SYN+ACK vuelve, y recién entonces el cliente puede hablar. Con un servidor a 50 ms de RTT son 50 ms antes de enviar el primer byte útil, y no hay forma de comprimirlos con un servidor más rápido, porque el tiempo no depende del servidor sino de la distancia (la velocidad de la luz de [@05-27])."
+  },
+  {
+   "t": "p",
+   "x": "En el laboratorio de [@05-29] viste algo curioso: el TCP daba 0,3 ms aunque el relé simulaba 50 ms de RTT, porque el saludo TCP lo contesta el kernel de la misma máquina. En una red real no hay trampa: el TCP de una conexión HTTPS nueva a un servidor a 50 ms cuesta 50 ms. Y como el navegador mantiene las conexiones abiertas para reutilizarlas, ese costo se paga una vez por servidor, no por archivo."
+  },
+  {
+   "t": "h",
+   "x": "Paso 4: TLS, cifrar y comprobar con quién hablás"
+  },
+  {
+   "t": "p",
+   "x": "Con el canal TCP abierto empieza el [[handshake TLS]] ([@05-22]). El navegador manda un primer mensaje, el *ClientHello*, que dice qué versiones y algoritmos entiende, genera su parte del [[intercambio de claves]] y suma dos datos prácticos. Uno es el nombre del sitio (SNI), para que un servidor con muchos sitios sepa qué certificado mostrar. El otro es una lista de protocolos de aplicación que sabe hablar, `h2` y `http/1.1`, para negociar [[HTTP/2]] sin una ida y vuelta extra (el mecanismo se llama ALPN). En la captura de [@05-29] ese primer mensaje de curl pesaba 517 bytes y mostraba las dos cosas en claro."
+  },
+  {
+   "t": "p",
+   "x": "El servidor responde con su parte del intercambio de claves y su [[certificado X.509]]. El navegador verifica la [[cadena de confianza]] ([@05-23]) **sin salir a la red**, contra la lista de [[autoridad certificadora|autoridades certificadoras]] que ya trae instalada, y comprueba que el nombre del certificado coincida con el del sitio. Con TLS 1.3 el handshake completo cuesta **una ida y vuelta** [#rfc8446]; en el laboratorio dio 52,5 ms con un RTT de 50. Un dato de peso: el certificado de mi laboratorio ocupa 454 bytes, pero el mensaje `Certificate` de `example.com`, con su cadena de cuatro certificados, ocupa 3.686 bytes según `curl -v`. Más bytes en el primer vuelo, más paquetes y, si no entran en la ventana inicial, más viajes."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "El candado (o su equivalente en cada navegador) dice que la conexión está cifrada y que el certificado corresponde al nombre que escribiste. No dice que el sitio sea honesto ni que sea el sitio que querías visitar: `dep0sito.example` puede tener un certificado perfectamente válido para `dep0sito.example`. Es el límite de lo que verifica TLS: identidad del nombre, no intención.",
+   "titulo": "Qué verifica el candado"
+  },
+  {
+   "t": "h",
+   "x": "Paso 5: HTTP, el pedido y la respuesta"
+  },
+  {
+   "t": "p",
+   "x": "Ahora sí, con el canal cifrado, el navegador manda el pedido real. Con HTTP/2 ([@05-20]) ya no es texto plano sino una secuencia de tramas binarias dentro de una sola conexión, pero el contenido es el mismo de [@05-18]: un [[método HTTP]] (`GET`), una ruta, [[encabezado HTTP|encabezados]] como las cookies, y como respuesta un [[código de estado]], encabezados y un cuerpo. Es la parte donde el servidor trabaja: en el laboratorio, 30 ms que puse yo con un `setTimeout`. En un sitio real ese tiempo incluye al balanceador, a la aplicación y a la base de datos, que vas a ver en las Partes 7 y 8."
+  },
+  {
+   "t": "p",
+   "x": "El primer byte de la página llegó 81 ms después de enviar el pedido: 50 ms de RTT del relé más 30 ms del servidor, y un poco de ruido. Es el tercer y último viaje obligatorio del recorrido para una conexión nueva. Y casi nunca es el último pedido: el HTML es solo el primero de una cadena."
+  },
+  {
+   "t": "h",
+   "x": "Paso 6: renderizar (solo la puerta de entrada)"
+  },
+  {
+   "t": "p",
+   "x": "Con el HTML en la mano, el navegador empieza a leerlo mientras todavía está bajando. Apenas ve una etiqueta que necesita otro archivo (una hoja de estilos, un script, una imagen) lanza un pedido nuevo por la **misma conexión**, en paralelo ([[multiplexación]] de [@05-20]), y sin repetir DNS, TCP ni TLS. En el laboratorio, esos tres pedidos salieron unos 11 ms después de terminar de bajar el HTML y volvieron entre los 207 y los 211 ms. Después construye la página y la pinta; el primer pintado cayó entre los 224 y los 236 ms en tres corridas."
+  },
+  {
+   "t": "p",
+   "x": "Cómo lee el HTML, cómo aplica el CSS y cómo ejecuta el JavaScript es el tema de la Parte 6 (arranca con [@06-01]). Hoy alcanza con quedarte con esto: **la red no termina cuando llega la página**. El script que se ejecutó al final pidió `/api/rutas`, y esa respuesta llegó a los 391 ms, mucho después del primer pintado."
+  },
+  {
+   "t": "h",
+   "x": "La línea de tiempo medida"
+  },
+  {
+   "t": "p",
+   "x": "Estos son los tiempos de la primera visita a `https://deposito.localhost:18531/`, en un Chrome real manejado con Playwright, contra el servidor de [@05-29] con 50 ms de RTT agregados por el relé. Es una corrida representativa de siete (el primer byte de la página cayó entre 135 y 137 ms en todas) y cada tiempo está medido desde que el navegador decide pedir la página."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "linea-tiempo",
+   "eventos": [
+    {
+     "a": "0,2 ms",
+     "t": "El navegador decide pedir la página",
+     "d": "Fin del paso 1 en la práctica: no hay nada en caché."
+    },
+    {
+     "a": "1,9 ms",
+     "t": "Empieza a abrir la conexión",
+     "d": "El DNS no cuenta: `.localhost` se resuelve sin consultar a nadie."
+    },
+    {
+     "a": "2,2 ms",
+     "t": "TCP listo",
+     "d": "0,3 ms, por el truco del kernel local. En una red real: una ida y vuelta."
+    },
+    {
+     "a": "54,7 ms",
+     "t": "TLS listo",
+     "d": "52,5 ms: una ida y vuelta de 50 ms más el cómputo criptográfico."
+    },
+    {
+     "a": "135,8 ms",
+     "t": "Llega el primer byte del HTML",
+     "d": "81 ms de espera: 50 de ida y vuelta más 30 del servidor."
+    },
+    {
+     "a": "137,2 ms",
+     "t": "HTML completo",
+     "d": "Eran 292 bytes."
+    },
+    {
+     "a": "148,7 ms",
+     "t": "Salen CSS, script y logo, en paralelo",
+     "d": "Descubiertos al leer el HTML, por la misma conexión."
+    },
+    {
+     "a": "~224 ms",
+     "t": "Primer pintado",
+     "d": "Medido en otras corridas: entre 224 y 236 ms. Ya se puede leer la página."
+    },
+    {
+     "a": "217 ms",
+     "t": "El script pide los datos de las rutas",
+     "d": "Un nuevo pedido, ya sobre una conexión caliente."
+    },
+    {
+     "a": "391 ms",
+     "t": "Llegan los datos",
+     "d": "172 ms de espera: 50 de RTT más 120 del servidor."
+    }
+   ],
+   "cap": "Primera visita, medida el 13-11-2026 en esta VM (Chromium 153, relé de 25 ms por sentido, HTTP/2). El «primer pintado» viene de otras corridas del mismo montaje."
+  },
+  {
+   "t": "p",
+   "x": "Dos cosas saltan a la vista. La primera es que dos tercios del camino hasta el primer byte (TLS y espera) son una **ida y vuelta cada uno**: se pagan por distancia y no se reducen con un servidor más veloz. La segunda es que el trabajo útil de verdad, el HTML de 292 bytes, tardó 1,4 ms en bajar. Casi todo lo que esperaste fue el protocolo preparando el terreno."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Navegador",
+     "k": "cliente"
+    },
+    {
+     "n": "Resolvedor DNS",
+     "k": "red"
+    },
+    {
+     "n": "Servidor",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "¿IP de deposito...? (A y AAAA)",
+     "d": "Paso 2. Solo si no está en la caché del navegador ni del sistema. En el laboratorio se salteó porque `.localhost` se resuelve sin preguntar."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "Direcciones + TTL",
+     "resp": true,
+     "d": "Una o varias IP, con el tiempo que se pueden guardar. Una ida y vuelta al resolvedor."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "SYN",
+     "d": "Paso 3. Abre la conexión TCP al puerto 443."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "SYN+ACK",
+     "resp": true,
+     "d": "Una ida y vuelta. Recién ahora el cliente puede enviar datos."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "ACK + ClientHello (SNI, ALPN)",
+     "d": "Paso 4. El ACK cierra el saludo y el ClientHello abre TLS en el mismo viaje. Mediste 517 bytes en [@05-29]."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "ServerHello + certificado + Finished",
+     "resp": true,
+     "d": "Una ida y vuelta de TLS 1.3. El navegador verifica la cadena en su máquina."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "Finished + GET / (HTTP/2)",
+     "d": "Paso 5. El cliente confirma el handshake y manda el pedido en el mismo vuelo."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "200 OK + HTML",
+     "resp": true,
+     "d": "Una ida y vuelta más el trabajo del servidor: 81 ms en el laboratorio."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "GET /estilo.css, /app.js, /logo.svg",
+     "d": "Paso 6 dispara más pedidos, por la misma conexión y en paralelo."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "200 OK ×3",
+     "resp": true,
+     "d": "Vuelven casi juntos, unos 60 ms después. Sin DNS, TCP ni TLS nuevos."
+    }
+   ],
+   "cap": "El mismo recorrido como conversación entre tres actores. Para una conexión nueva a un servidor lejano, cada flecha de ida con su respuesta es una ida y vuelta de red."
+  },
+  {
+   "t": "p",
+   "x": "La secuencia deja ver otra optimización que hacen TLS 1.3 y los navegadores: no esperan. El ClientHello viaja pegado al último ACK del saludo TCP, y el `Finished` del cliente viaja pegado al primer pedido. Por eso el total es tres idas y vuelta de red (TCP, TLS, pedido) y no cuatro."
+  },
+  {
+   "t": "h",
+   "x": "Con y sin red de verdad: la cuenta completa"
+  },
+  {
+   "t": "p",
+   "x": "El laboratorio no pudo medir dos pasos: el DNS en frío y el TCP lejano. Como se miden por ida y vuelta, los puedo **calcular** con la misma regla. En la tabla, lo medido sale de la corrida de arriba y lo calculado suma 20 ms de DNS en frío (ESTIMACIÓN, en el rango que midió `dig` en esta VM) y 50 ms por el TCP:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Paso",
+    "Medido (sin DNS ni TCP reales)",
+    "Con red completa y RTT de 50 ms (calculado)"
+   ],
+   "filas": [
+    [
+     "1. Mirar en casa",
+     "1,9 ms",
+     "1,9 ms"
+    ],
+    [
+     "2. DNS en frío",
+     "0 ms (`.localhost`)",
+     "+20 ms (estimación)"
+    ],
+    [
+     "3. TCP",
+     "0,3 ms",
+     "50 ms"
+    ],
+    [
+     "4. TLS 1.3",
+     "52,5 ms",
+     "52,5 ms"
+    ],
+    [
+     "5. Pedido hasta el primer byte",
+     "81 ms",
+     "81 ms"
+    ],
+    [
+     "Primer byte del HTML",
+     "135,8 ms",
+     "≈ 206 ms"
+    ],
+    [
+     "Primer pintado (aprox.)",
+     "224 ms",
+     "≈ 294 ms"
+    ]
+   ],
+   "cap": "El primer byte pasa de 136 a unos 206 ms: la diferencia son los dos pasos que el laboratorio no podía medir. Es un cálculo con las mismas reglas, no una medición."
+  },
+  {
+   "t": "p",
+   "x": "El mismo cálculo explica por qué un sitio se siente rápido o lento según dónde estés. Con un RTT de 150 ms, el mismo recorrido hasta el primer byte tendría 150 ms de TCP, 150 de TLS y 150 más el cómputo del servidor, más de medio segundo antes de ver un solo byte de HTML. Es el motivo por el que existen las [[CDN]] ([@05-25]): ponen el servidor a pocos milisegundos del usuario, y entonces cada ida y vuelta cuesta poco."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un sitio está a 80 ms de RTT y su servidor tarda 40 ms en armar la respuesta. Calculá hasta el primer byte del HTML: (a) primera visita, con DNS en frío de 30 ms y TLS 1.3; (b) segunda visita, con la conexión todavía abierta y la IP en caché; (c) primera visita si el navegador ya sabe, por una visita anterior, que el sitio habla HTTP/3 y usa QUIC, que junta la conexión y TLS en una sola ida y vuelta.",
+   "pista": "Cada fase de red cuesta un RTT: TCP, TLS y el pedido. DNS se suma aparte. En (c), conexión y TLS se pagan juntas.",
+   "solucion": "(a) DNS 30 + TCP 80 + TLS 80 + pedido (80 + 40) = 310 ms. (b) La conexión y la IP ya existen: solo el pedido, 80 + 40 = 120 ms. (c) DNS 30 + conexión y TLS juntas 80 + pedido 120 = 230 ms: QUIC ahorra una ida y vuelta [#rfc9000]. Fijate que lo que más ahorra es reutilizar (310 contra 120), y que el servidor, con sus 40 ms, es la parte chica de la cuenta."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Al 13-11-2026: `example.com` anuncia en sus respuestas `alt-svc: h3=\":443\"; ma=86400`, o sea que ofrece HTTP/3 durante 24 horas; el navegador usa esa pista en visitas posteriores, no en la primera (RFC 9114, sección 3.1.1) [#rfc9114]. Que un navegador use QUIC, cuándo cae a TCP, qué tan largo es el tiempo de «ojos felices» y cómo maneja HSTS son decisiones de cada versión de cada navegador y cambian. Lo que no cambia es la cuenta: cada fase de red cuesta tantas idas y vueltas como mensajes en serie necesita.",
+   "titulo": "Qué cambia con el tiempo"
+  },
+  {
+   "t": "h",
+   "x": "Dónde falla cada paso"
+  },
+  {
+   "t": "p",
+   "x": "Cada paso tiene una forma típica de fallar, y el mensaje de error dice cuál fue si sabés leerlo. Los cuatro que siguen los provoqué contra mi propio laboratorio, uno por paso:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl --noproxy '*' -sS https://nombre-que-no-existe-0530.invalid/",
+     "s": "curl: (6) Could not resolve host: nombre-que-no-existe-0530.invalid"
+    },
+    {
+     "c": "curl --noproxy '*' -sS http://127.0.0.1:18599/",
+     "s": "curl: (7) Failed to connect to 127.0.0.1 port 18599 after 0 ms: Couldn't connect to server"
+    },
+    {
+     "c": "curl --noproxy '*' -sS https://deposito.localhost:18530/hola",
+     "s": "curl: (60) SSL certificate problem: self-signed certificate\nMore details here: https://curl.se/docs/sslcerts.html"
+    },
+    {
+     "c": "curl --noproxy '*' -sS -i http://127.0.0.1:18529/noexiste | head -1",
+     "s": "HTTP/1.1 404 Not Found"
+    }
+   ],
+   "cap": "Salidas reales de curl 8.5.0 en esta VM. `.invalid` es un sufijo reservado que nunca existe (RFC 6761); el puerto 18599 no tenía ningún servicio escuchando."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Para cada una de las cuatro salidas de arriba, decí en qué paso del recorrido falló y qué día de esta parte explica la causa.",
+   "pista": "Mirá el código de error de curl entre paréntesis y el mensaje: nombre, conexión, certificado o respuesta.",
+   "solucion": "(6) «Could not resolve host»: paso 2, DNS; el nombre no existe o no se pudo traducir ([@05-12], [@05-13]). (7) «Failed to connect»: paso 3, TCP; no hay un [[servicio escuchando]] en ese puerto, o hay un firewall en el medio ([@05-14], [@05-24]). (60) «SSL certificate problem»: paso 4, TLS; el certificado no tiene una cadena de confianza conocida ([@05-23]). 404: paso 5, HTTP; la conexión y el cifrado funcionaron, el servidor respondió y dijo que esa ruta no existe ([@05-18]). Cuanto más abajo falla, más pasos anteriores salieron bien."
+  },
+  {
+   "t": "p",
+   "x": "Esta lectura de abajo hacia arriba es la mejor herramienta de diagnóstico del día. Si ves un 404, descartaste DNS, TCP y TLS de un solo golpe. Si ves un error de certificado, el nombre se resolvió y el puerto contestó. Y como cada paso es una capa del modelo de [@05-02], el error te dice qué capa mirar primero."
+  },
+  {
+   "t": "h",
+   "x": "Qué cambia en la vida real"
+  },
+  {
+   "t": "p",
+   "x": "Lo que armé es el recorrido más limpio posible. Un sitio real le agrega tres capas intermedias que ya conocés. Primero, una [[CDN]]: el DNS no devuelve la IP de tu servidor sino la de un [[nodo de borde]] cercano a vos, que contesta TCP y TLS a pocos milisegundos y a veces responde el HTML desde su caché ([@05-25]). Segundo, un [[balanceador de carga]] reparte los pedidos entre varias copias de la aplicación. Y tercero, un [[proxy]] o un [[firewall]] puede interponerse, como en esta VM, donde todas las conexiones al exterior pasan por un proxy que abre un [[túnel]] ([@05-24]). Por eso las mediciones contra `example.com` de [@05-29] dieron TLS a los 88 ms y primer byte a los 129 ms (medianas de 8 corridas) sin poder separar quién hizo qué."
+  },
+  {
+   "t": "pensa",
+   "x": "Un compañero dice: «la web es lenta porque Internet es lenta, no hay nada que hacer del lado nuestro». Con lo que viste hoy, ¿qué tres cosas concretas le proponés para que la primera carga sea más rápida sin cambiar la distancia al usuario?",
+   "resp": "Reutilizar conexiones para no pagar TCP y TLS en cada archivo (HTTP/2 y mantenerlas abiertas); poner el contenido estático en una CDN para acortar el RTT y cachear; y reducir la cadena de pedidos para que no dependan uno del otro (pedir los datos al mismo tiempo que la página, no después de ejecutar el script). Otra: bajar la cantidad de dominios distintos, que ahorra DNS, TCP y TLS por cada uno."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El recorrido como un pedido de reparto",
+   "x": [
+    "Es como un pedido a un depósito que no conocés. Primero buscás su dirección en la guía (DNS). Después llamás a la puerta y te abren (TCP). Después te identificás con una credencial que el portero verifica y acordás un código para hablar sin que nadie escuche (TLS). Recién ahí hacés el pedido (HTTP), y cuando te lo entregan lo desempacás y armás (renderizar). Si ya fuiste ayer, te saltás la guía y la puerta ya está abierta.",
+    "Donde falla la analogía: en la red, la «guía» responde desde copias que se vencen (TTL), y la «puerta» se abre una sola vez para muchos pedidos en paralelo, algo que en un depósito físico sería imposible."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cierre: el hilo completo"
+  },
+  {
+   "t": "p",
+   "x": "La respuesta de entrevista, ahora con respaldo, sale en seis frases. El navegador decide si es URL y mira en casa (HSTS, caché). Resuelve el nombre con DNS, que pasa por varias cachés antes de salir. Abre una conexión TCP, que cuesta una ida y vuelta. Negocia TLS, que con la versión 1.3 cuesta otra. Manda el pedido HTTP y espera la respuesta, que cuesta otra más el trabajo del servidor. Y arma la página, lanzando pedidos nuevos que reutilizan todo lo anterior. Lo que más importa de esa lista: la mayor parte del tiempo, en una primera carga, es **espera por distancia**, no trabajo. En [@05-31] ves el mismo recorrido, pero con una app tuya: lo que hace Senda cuando toca la red."
+  }
+ ],
+ "recap": [
+  "El recorrido de una solicitud tiene seis pasos: mirar en casa (HSTS y caché), DNS, TCP, TLS, HTTP y renderizado. Cada uno se apoya en el anterior y puede saltearse si el navegador ya sabe algo.",
+  "Una URL tiene esquema, host, puerto, ruta y fragmento, y cada parte la usa un paso distinto. El fragmento no sale de tu máquina.",
+  "Una conexión HTTPS nueva cuesta tres idas y vueltas de red (TCP, TLS 1.3 y pedido), más el DNS en frío. TLS y el pedido viajan pegados al mensaje anterior para no pagar una cuarta.",
+  "En la carga medida, el primer byte llegó a los 136 ms; el TCP y el DNS no se pudieron medir con distancia y se calcularon (≈ 206 ms con red completa de 50 ms de RTT).",
+  "Reutilizar conexiones, usar una CDN y evitar cadenas de pedidos reducen más tiempo que acelerar el servidor, porque casi todo es espera por distancia.",
+  "El mensaje de error indica el paso que falló: «no se pudo resolver» es DNS, «conexión rechazada» es TCP, «problema de certificado» es TLS y un 404 o 503 es HTTP. Cuanto más abajo falla, más pasos anteriores salieron bien."
+ ],
+ "repaso": [
+  {
+   "p": "Escribís `http://sitio.example` hacia un dominio que ya le pidió HSTS a tu navegador. ¿Qué hace el navegador?",
+   "o": [
+    "Envía el pedido en HTTP y espera que el servidor lo redirija",
+    "Reescribe la dirección a HTTPS antes de enviar un solo byte",
+    "Pregunta al DNS si el sitio acepta HTTP antes de decidir",
+    "Abre dos conexiones, una HTTP y otra HTTPS, y usa la que gane"
+   ],
+   "c": 1,
+   "e": "Con HSTS, el navegador convierte la dirección a HTTPS localmente, sin tocar la red, según RFC 6797. La primera opción describe el comportamiento sin HSTS, que deja una ventana insegura en el primer pedido. El DNS no decide el protocolo, y abrir dos conexiones competidoras es otro mecanismo (el de «ojos felices» para IPv4 e IPv6)."
+  },
+  {
+   "p": "Un servidor está a 100 ms de RTT. Abrís una conexión HTTPS nueva con TLS 1.3 y la IP ya estaba en caché. ¿Cuánto esperás aproximadamente hasta el primer byte del HTML, si el servidor tarda 20 ms en responder?",
+   "o": [
+    "120 ms, porque TLS y TCP se pagan juntos con el pedido",
+    "220 ms, una ida y vuelta para TLS y otra para el pedido",
+    "320 ms, tres idas y vueltas de red más 20 ms de servidor",
+    "420 ms, porque cada paso suma además un tiempo del servidor"
+   ],
+   "c": 2,
+   "e": "TCP cuesta un RTT (100), TLS 1.3 otro (100) y el pedido otro (100) más los 20 ms del servidor: 320 ms. Los 220 ms olvidan el saludo TCP. Los 120 ms son lo que cuesta el pedido con la conexión ya abierta. Los 420 ms suman el servidor a cada fase, pero solo trabaja en la última."
+  },
+  {
+   "p": "El navegador ya tiene guardada una copia fresca de `estilo.css` (`Cache-Control: max-age=3600`). Pedís la página de nuevo antes de que pase una hora. ¿Qué pasos del recorrido se hacen para ese archivo?",
+   "o": [
+    "Los seis, porque el navegador igual verifica con el servidor",
+    "Los pasos 2 a 5, pero sin descargar el cuerpo del archivo",
+    "Solo el paso 1: la respuesta sale de la caché sin tocar la red",
+    "Solo el 5, porque DNS, TCP y TLS ya se hicieron para la página"
+   ],
+   "c": 2,
+   "e": "Mientras la copia esté fresca, el navegador la usa sin consultar al servidor, y el recorrido termina en el primer paso (RFC 9111). Esto se vio en el laboratorio: wait −1 y transferSize 0. Verificar con el servidor solo ocurre si la copia venció o si dice no-cache."
+  },
+  {
+   "p": "Una carga de página muestra DNS rápido, TCP rápido, TLS rápido, y un primer byte que llega 900 ms después de enviar el pedido. El RTT al servidor es de 30 ms. ¿Dónde está el problema?",
+   "o": [
+    "En la distancia: 900 ms implican un servidor en otro continente",
+    "En el DNS, que está cacheado de forma incorrecta",
+    "En el servidor: la espera es muy superior al RTT, no a la red",
+    "En el certificado, que es demasiado grande para transmitirse"
+   ],
+   "c": 2,
+   "e": "Con un RTT de 30 ms, la red explica unos 30 ms de los 900: el resto es el servidor armando la respuesta. DNS, TCP y TLS ya aparecen como rápidos, así que el certificado y la caché de nombres no pesan. La distancia ya está medida en el RTT."
+  },
+  {
+   "p": "Al abrir un sitio, tu navegador muestra un error de certificado (autoridad no reconocida). ¿En qué paso del recorrido falló y qué descartás con eso?",
+   "o": [
+    "En TLS; se resolvió el nombre y el puerto contestó",
+    "En DNS; todavía no se sabe a qué servidor ir",
+    "En HTTP; el servidor respondió con un error del lado cliente",
+    "En TCP; el servidor rechazó la conexión por seguridad"
+   ],
+   "c": 0,
+   "e": "El certificado se presenta durante el handshake TLS (paso 4), después de resolver el nombre (2) y abrir TCP (3). Si llegó un certificado, esos dos pasos funcionaron. Un error HTTP ocurre en el paso 5, cuando el canal cifrado ya está armado; el rechazo de TCP ocurre antes de cualquier certificado."
+  },
+  {
+   "p": "Una página usa imágenes de un segundo dominio. Comparada con una página que sirve todo desde un solo dominio, ¿qué costo extra paga en la primera carga?",
+   "o": [
+    "Solo la descarga de las imágenes, que ocupan lo mismo",
+    "Otro DNS, otra conexión TCP y otro TLS para ese dominio",
+    "Un TLS más largo en el dominio principal, con otro certificado",
+    "Nada: el navegador comparte la conexión entre dominios distintos"
+   ],
+   "c": 1,
+   "e": "Una conexión, y su caché de nombres, es por servidor. Un dominio distinto (que no comparta IP ni certificado) obliga a repetir DNS, TCP y TLS: tres pasos más que se pagan una vez. Por eso los sitios sirven lo crítico desde pocos dominios. Compartir conexión entre dominios solo puede ocurrir en casos especiales de HTTP/2."
+  }
+ ],
+ "feynman": "Contale a alguien que no es técnico qué pasa desde que escribe una dirección hasta que ve la página, usando la analogía de un pedido de reparto (o una tuya). Tenés que decir en qué paso se pierde más tiempo en la primera visita y por qué la segunda es mucho más rápida.",
+ "para_profundizar": [
+  {
+   "fuente": "rfc8446",
+   "nota": "RFC 8446, sección 1.2 (Major Differences from TLS 1.2): por qué TLS 1.3 completa el handshake en una ida y vuelta y qué es el modo 0-RTT."
+  },
+  {
+   "fuente": "rfc9114",
+   "nota": "RFC 9114, sección 3.1: cómo un navegador descubre que un sitio habla HTTP/3 (Alt-Svc) y qué hace si UDP está bloqueado."
+  },
+  {
+   "fuente": "url530-rfc8305",
+   "nota": "RFC 8305 (Happy Eyeballs v2): cómo un cliente elige entre IPv6 e IPv4 sin esperar de más; explica los 50 y 250 ms de la sección de DNS."
+  },
+  {
+   "fuente": "url530-resource-timing",
+   "nota": "Resource Timing del W3C: de dónde salen `domainLookupStart`, `connectStart`, `requestStart` y el resto de los tiempos que el navegador expone, para armar tu propia línea de tiempo."
+  }
+ ],
+ "videos": [
+  {
+   "q": "what happens when you type a URL into your browser step by step DNS TCP TLS HTTP",
+   "por_que": "Para ver la misma secuencia animada por otra persona, y comparar cuántos pasos de los que viste hoy menciona."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "recorrido completo de una solicitud",
+   "d": "La secuencia de pasos desde que apretás Enter hasta ver la página: mirar en casa (HSTS y caché), resolver el nombre con DNS, abrir la conexión TCP, negociar TLS, enviar el pedido HTTP, recibir la respuesta y renderizar. Cada paso puede saltearse si el navegador ya sabe algo."
+  },
+  {
+   "t": "HSTS",
+   "d": "Una política que un sitio le comunica al navegador con el encabezado Strict-Transport-Security: durante un tiempo, ese dominio solo debe visitarse por HTTPS. El navegador reescribe las direcciones `http://` a `https://` localmente, antes de enviar nada."
+  },
+  {
+   "t": "SNI",
+   "d": "Campo del primer mensaje de TLS que indica el nombre del sitio al que se quiere llegar, para que un servidor con muchos sitios elija el certificado correcto. Viaja sin cifrar."
+  },
+  {
+   "t": "ALPN",
+   "d": "Extensión de TLS con la que cliente y servidor acuerdan, durante el handshake, qué protocolo hablarán encima (por ejemplo h2 o http/1.1), sin gastar una ida y vuelta extra."
+  }
+ ],
+ "siguiente": "aplicás todo este recorrido a un caso real: qué ocurre en la red cuando un toque en Senda llega a Supabase, con archivos del código para comprobarlo.",
+ "fuentes_nuevas": [
+  {
+   "id": "url530-rfc8305",
+   "t": "RFC 8305: Happy Eyeballs Version 2: Better Connectivity Using Concurrency",
+   "a": "IETF (Schinazi y Pauly)",
+   "tipo": "rfc",
+   "anio": 2017,
+   "url": "https://www.rfc-editor.org/rfc/rfc8305"
+  },
+  {
+   "id": "url530-rfc6797",
+   "t": "RFC 6797: HTTP Strict Transport Security (HSTS)",
+   "a": "IETF (Hodges, Jackson y Barth)",
+   "tipo": "rfc",
+   "anio": 2012,
+   "url": "https://www.rfc-editor.org/rfc/rfc6797"
+  },
+  {
+   "id": "url530-resource-timing",
+   "t": "Resource Timing",
+   "a": "W3C",
+   "tipo": "doc",
+   "url": "https://www.w3.org/TR/resource-timing/"
+  }
+ ]
+}
