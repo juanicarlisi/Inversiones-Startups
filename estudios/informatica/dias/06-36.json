@@ -1,0 +1,651 @@
+{
+ "id": "06-36",
+ "titulo": "Animaciones y movimiento",
+ "bajada": "Medís cuántos cuadros produce un navegador al animar con y sin carga, por qué transform y opacity no se traban y cómo respetar a quien pide menos movimiento.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Escribir una transición CSS y leer su ciclo de eventos (run, start, end y cancel), incluyendo qué pasa si se interrumpe a mitad.",
+  "Calcular el presupuesto de un cuadro a 60 y a 120 Hz y estimar cuántos cuadros se cayeron a partir del intervalo entre dos fotogramas.",
+  "Explicar por qué animar transform y opacity no trabaja con el layout y animar left sí, interpretando una traza y un conteo de cuadros medidos.",
+  "Elegir una curva de aceleración y una duración razonables para una entrada, una salida y un indicador continuo.",
+  "Respetar la preferencia de movimiento reducido en CSS y en JavaScript, reemplazando el desplazamiento por algo más suave."
+ ],
+ "venis_de": "En [@06-10] viste las etapas con las que el navegador dibuja una página y qué invalida cada una, y en [@06-14] por qué el hilo principal no puede estar ocupado. Mañana empieza la parte de almacenamiento. Hoy aplicás las dos cosas: qué se anima, a qué costo y cuándo conviene no animar.",
+ "se_apoya_en": [
+  "06-10",
+  "06-12",
+  "06-14",
+  "06-35"
+ ],
+ "gancho": [
+  "Imaginá un tablero de seguimiento de envíos (escena inventada) que recibe una alerta nueva. La fila aparece arriba de golpe, toda la tabla baja una posición y justo en ese instante tu dedo estaba por tocar «Reasignar» en otra fila. Tocás la fila equivocada. Nada falló en el programa: la pantalla cambió sin avisar qué cambió ni hacia dónde.",
+  "Un movimiento bien elegido hace de aviso: la fila nueva se desliza desde arriba y las demás bajan acompañándola, en un cuarto de segundo, y se entiende lo ocurrido. Mal hecho, hace lo contrario: tarda un segundo, se traba o le provoca mareo a quien tiene sensibilidad al movimiento. Hoy vas a ver cómo se hace, con qué propiedades conviene animar, y vas a medir en el navegador la diferencia entre una animación que corre fluida y una que se traba."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Para qué se mueve una interfaz"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El movimiento en una pantalla sirve para tres cosas. **Explicar un cambio**: un elemento que entra desde un borde dice de dónde vino y un menú que se despliega dice a qué pertenece. **Confirmar una acción**: el botón que se hunde es la retroalimentación de [@06-35] hecha con movimiento. **Dirigir la atención**: el ojo se va hacia lo que se mueve, para bien o para mal.",
+    "La duración importa más de lo que parece. Nielsen Norman Group recomienda que la mayoría de las animaciones de interfaz duren entre 100 y 500 milisegundos, con unos 100 ms para una respuesta simple como marcar una casilla, de 200 a 300 ms para un cambio grande de pantalla como un modal que entra, y un techo de unos 400 ms para movimientos amplios; a partir de 500 ms, dice el artículo, empiezan a sentirse como un freno [#ux36-nng-duration]. También señala que las animaciones suelen pecar de largas, no de cortas."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Más animación es más pulido»",
+   "x": "Una interfaz con todo en movimiento cansa, tapa lo importante y hace esperar. La regla práctica es la contraria: la animación más corta que no resulte brusca. Si un movimiento no explica un cambio, no confirma una acción ni guía la vista, es decoración, y la decoración se paga en tiempo de espera y en batería."
+  },
+  {
+   "t": "h",
+   "x": "Una transición CSS"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[transición CSS]] es la forma más simple de animar: se declara qué propiedad cambia, cuánto dura y con qué curva, y cuando esa propiedad cambia de valor el navegador no salta: dibuja los valores intermedios [#ux36-mdn-transitions]. No hay que escribir un bucle ni calcular cuadros."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "css",
+   "x": ".caja {\n  transform: translateX(0);\n  transition: transform 300ms ease;   /* qué propiedad, cuánto dura, con qué curva */\n}\n.caja.on {\n  transform: translateX(200px);       /* basta con cambiar el estado: el navegador anima la diferencia */\n}",
+   "cap": "Una transición. La caja de la prueba mide 80 × 80 px y se desplaza 200 px al agregar la clase `on`."
+  },
+  {
+   "t": "p",
+   "x": "Armé esa caja y le puse oyentes de [[evento]] para ver el ciclo de vida de la transición, con Chromium 153 controlado por Playwright. El resultado, abajo, muestra que el navegador la crea como un objeto de animación (de tipo `CSSTransition`), la arranca en el mismo instante y avisa cuando termina a los 300 ms. Después probé algo que pasa seguido en la vida real: dar la orden de volver a los 150 ms, con la caja a mitad de camino."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node a.cjs   # modo normal",
+     "s": "CSSTransition prop=transform dur=300 easing=ease\ntransitionrun   @14 ms (transform)\ntransitionstart @14 ms (transform)\ntransitionend   @314 ms (transform)"
+    },
+    {
+     "c": "node g.cjs   # se invierte a los 150 ms",
+     "s": "25 ms  transitionrun\n25 ms  transitionstart\n175 ms transitioncancel\n175 ms transitionrun       (la vuelta dura 241 ms, no 300)\n175 ms transitionstart\n409 ms transitionend"
+    }
+   ],
+   "cap": "Medido en esta VM (Chromium 153 sin ventana). Los 14 y 25 ms hasta `transitionrun` son lo que tarda el navegador en procesar el cambio de clase en el cuadro siguiente."
+  },
+  {
+   "t": "p",
+   "x": "Dos cosas para fijar. Primera: una transición **empieza sola** cuando cambia el valor, y avisa con eventos: `transitionrun` (fue creada), `transitionstart` (empezó a avanzar), `transitionend` (terminó) y `transitioncancel` (la interrumpieron). Segunda: al invertir en el medio, el navegador no esperó los 300 ms ni volvió de golpe. Canceló la primera y creó una nueva de 241 ms, porque la caja ya había recorrido parte del camino. La especificación lo llama «reversing shortening factor» [#ux36-w3c-transitions]; lo que importa es que no hay saltos aunque la persona cambie de idea."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Transición CSS",
+    "Animación con @keyframes",
+    "Web Animations API"
+   ],
+   "filas": [
+    [
+     "Cómo se dispara",
+     "Cambia el valor de una propiedad",
+     "Se aplica la regla `animation`",
+     "Se llama a `elemento.animate()` desde JavaScript"
+    ],
+    [
+     "Pasos intermedios",
+     "Solo de un valor al otro",
+     "Todos los que definas",
+     "Todos los que definas"
+    ],
+    [
+     "Puede repetirse o ir sola",
+     "No",
+     "Sí (`infinite`)",
+     "Sí"
+    ],
+    [
+     "Control (pausar, invertir)",
+     "Poco",
+     "Poco",
+     "Mucho: `pause()`, `reverse()`, `finished`"
+    ],
+    [
+     "Uso típico",
+     "Hover, abrir un panel, cambiar de estado",
+     "Un spinner, un efecto de entrada",
+     "Secuencias que dependen del código"
+    ]
+   ],
+   "cap": "Las tres usan el mismo motor del navegador. Elegí la más simple que alcance."
+  },
+  {
+   "t": "pensa",
+   "x": "Una lista de pedidos agrega una fila nueva. ¿La animarías con una transición CSS? ¿Qué cambio de valor la dispararía?",
+   "resp": "Depende. Una transición necesita una propiedad que cambie de un valor a otro en un elemento que ya está en la página. Una fila recién creada no tiene valor anterior, así que no se anima sola. Se resuelve creándola ya con la clase de «estado inicial» y quitándola en el siguiente cuadro, o con una animación de @keyframes de entrada, que sí corre apenas el elemento aparece."
+  },
+  {
+   "t": "h",
+   "x": "Cuadros: qué significa «60 fps»"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una animación es una sucesión de imágenes fijas. Cada una es un [[fotograma]] (en pantallas se suele decir «cuadro»). Si se muestran suficientes por segundo, el ojo percibe movimiento continuo. La cifra de referencia es [[60 fps]]: sesenta cuadros por segundo, que corresponde a una pantalla que se refresca a 60 Hz. Un cuadro dura **1000 / 60 ≈ 16,67 ms**.",
+    "Y esos 16,67 ms no son solo para tu código. En ese tiempo el navegador tiene que calcular estilos, hacer el layout, pintar y componer, las etapas que viste en [@06-10]. Con las pantallas de 120 Hz que existen en algunos teléfonos, el presupuesto baja a 8,33 ms. Cuando el trabajo de un cuadro tarda más que su presupuesto, el cuadro siguiente llega tarde y el movimiento se ve entrecortado: es un **cuadro caído**."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Medir cuadros caídos con requestAnimationFrame (corre en el navegador; acá va el esqueleto).\nconst FRAME_MS = 1000 / 60;             // 16,67 ms por cuadro a 60 Hz\nfunction medirCuadros(deltas) {         // deltas: tiempo entre cuadros consecutivos, en ms\n  let caidos = 0, peor = 0;\n  for (const d of deltas) {\n    peor = Math.max(peor, d);\n    caidos += Math.max(0, Math.round(d / FRAME_MS) - 1);   // un salto de 100 ms equivale a ~5 cuadros que no se dibujaron\n  }\n  return { cuadros: deltas.length, caidos, peor: +peor.toFixed(1) };\n}\n// Ejemplo con datos armados a mano: 30 cuadros parejos y uno de 117 ms\nconst deltas = [...Array(30).fill(16.7), 117, ...Array(30).fill(16.7)];\nconsole.log(medirCuadros(deltas));\nconsole.log(\"A 120 Hz un cuadro dura\", (1000 / 120).toFixed(2), \"ms; a 30 Hz,\", (1000 / 30).toFixed(2), \"ms\");",
+   "ejecutable": true,
+   "cap": "Cuántos cuadros se perdieron, a partir de los intervalos entre cuadros. Los intervalos de ejemplo están armados a mano."
+  },
+  {
+   "t": "p",
+   "x": "Lo comprobé en el navegador. Escribí un bucle con `requestAnimationFrame` (la función de [@06-14] que el navegador llama justo antes de dibujar cada cuadro) que anima una caja moviendo `left` a mano y anota el intervalo entre llamadas. En el cuadro 60 metí una tarea de 120 ms que ocupa el [[hilo principal]]. El intervalo normal fue de 16,67 ms. El del cuadro afectado, de 116,7 ms: siete cuadros de tiempo, de los cuales se perdieron seis. La API de «cuadros largos de animación» (`long-animation-frame`) también lo registró."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node f.cjs   # 150 cuadros con una tarea de 120 ms en el cuadro 60",
+     "s": "cuadros medidos: 149 | intervalo medio de los normales: 16.67 ms | el peor: 116.7 ms | cuadros caídos estimados: 6\nLoAF: [{\"dur\":137,\"bloq\":70}]"
+    }
+   ],
+   "cap": "Medido en esta VM. «dur» es la duración total del cuadro largo y «bloq» su blockingDuration: MDN lo calcula a partir de cuánto supera cada tarea larga los 50 ms (aquí 120 − 50 = 70) [#ux36-mdn-loaf]. Esa API está marcada como experimental, con disponibilidad limitada."
+  },
+  {
+   "t": "pensa",
+   "x": "Una animación corre en un teléfono de 120 Hz y tu código de cada cuadro tarda 10 ms. ¿Alcanza?",
+   "resp": "No. El presupuesto a 120 Hz es de 8,33 ms y encima el navegador necesita su propio tiempo para dibujar. Con 10 ms de código cada cuadro llegaría tarde. Si la animación está pensada para correr a 60 Hz, 10 ms de código sí entra en 16,67 ms, aunque deja poco margen para el trabajo del navegador."
+  },
+  {
+   "t": "h",
+   "x": "Qué propiedad se anima: transform y opacity"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@06-10] viste que cambiar algunas propiedades obliga a rehacer el layout y otras no. Hoy se ve en números por qué importa. Según web.dev, los cambios de `transform` y de `opacity` son los únicos que no pasan ni por layout ni por pintura: los resuelve el compositor, que es una etapa aparte del navegador [#ux36-webdev-compositor]. En cambio, animar `left`, `width` o `top` fuerza un layout en cada cuadro.",
+    "Para medirlo armé una página con 4.000 elementos de relleno y una caja que se mueve 300 px en un segundo, en bucle: una versión con `@keyframes` sobre `left` y otra sobre `transform: translateX`. Grabé dos segundos con una traza de Chromium y conté los eventos. Después repetí con el hilo principal ocupado: un bucle que lo bloquea 90 ms de cada 100. Y conté los cuadros que el navegador entrega en tres segundos (con `Page.startScreencast`, que reporta cada cuadro nuevo que se produce)."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node c.cjs   # traza de 2 s, caja animada por left o por transform",
+     "s": "left: Layout 124 | Paint 242 | Commit 121\ntransform: sin eventos de Layout, Paint ni Commit"
+    },
+    {
+     "c": "node d2.cjs  # cuadros entregados en 3 s, 3 corridas",
+     "s": "hilo ocupado: false | por left      | 180, 180, 181\nhilo ocupado: false | por transform | 180, 180, 179\nhilo ocupado: true  | por left      | 69, 69, 63\nhilo ocupado: true  | por transform | 180, 180, 180"
+    }
+   ],
+   "cap": "Medido en esta VM, Chromium 153 en modo sin ventana, en una VM sin GPU. En un teléfono los valores absolutos cambian; la comparación entre las dos animaciones es el dato."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Animar left",
+    "Animar transform"
+   ],
+   "filas": [
+    [
+     "Eventos de layout en 2 s",
+     "124",
+     "0"
+    ],
+    [
+     "Eventos de pintura en 2 s",
+     "242",
+     "0"
+    ],
+    [
+     "Cuadros en 3 s, hilo libre",
+     "180",
+     "180"
+    ],
+    [
+     "Cuadros en 3 s, hilo ocupado 90 %",
+     "63 a 69",
+     "180"
+    ]
+   ],
+   "cap": "Con el hilo principal libre las dos animaciones son indistinguibles. La diferencia aparece cuando el hilo se ocupa, que es lo que pasa en una app real."
+  },
+  {
+   "t": "p",
+   "x": "La diferencia es la que predice la teoría: con `left`, cada cuadro necesita del hilo principal, así que si se ocupa, el movimiento se traba (de 180 cuadros bajamos a unos 65). Con `transform`, el compositor ya tiene la capa dibujada y solo la desplaza, así que el hilo principal puede estar atareado y la caja sigue deslizándose a 60 cuadros por segundo. Las 124 tareas de layout de `left` son casi las 120 que esperaría de 2 segundos a 60 Hz: uno por cuadro."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: mover un pallet armado",
+   "x": "Mover un pallet ya armado de un lado al otro del depósito lo hace un solo operario con un autoelevador: nadie reabre las cajas. Cambiar el tamaño o el orden de lo que lleva obliga a desarmarlo y rearmarlo entero, y eso lo hace el equipo principal cada vez. `transform` se parece a lo primero: el compositor mueve una capa ya dibujada. `left` se parece a lo segundo. La analogía deja de valer en que las capas tienen un costo de memoria que un pallet no tiene."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Estilos",
+       "s": "qué reglas aplican",
+       "k": "cliente"
+      },
+      {
+       "t": "Layout",
+       "s": "tamaño y posición",
+       "k": "alerta"
+      },
+      {
+       "t": "Pintura",
+       "s": "dibujar píxeles",
+       "k": "alerta"
+      },
+      {
+       "t": "Composición",
+       "s": "apilar capas en la GPU",
+       "k": "ok"
+      }
+     ],
+     "baja": "Animar left o width recorre las cuatro etapas en cada cuadro. Animar transform u opacity usa solo la última."
+    }
+   ],
+   "cap": "Las etapas son las de [@06-10]. Rojo: etapas que corren en el hilo principal en cada cuadro de una animación de `left`."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "will-change no es gratis",
+   "x": "Pedirle al navegador que promueva un elemento a su propia capa con `will-change: transform` puede ayudar a que se anime sin trabas, pero cada capa consume memoria y hay que administrarla. web.dev advierte contra usar la promoción de capas en exceso [#ux36-webdev-compositor]. Ponelo solo en los elementos que de verdad se van a mover, y por poco tiempo."
+  },
+  {
+   "t": "h",
+   "x": "Web Animations API: animar desde JavaScript"
+  },
+  {
+   "t": "p",
+   "x": "Cuando la animación depende del código (que arranque tras una respuesta del servidor, que se pueda pausar o revertir), CSS se queda corto. La Web Animations API (WAAPI) es el mismo motor del navegador manejado con JavaScript [#ux36-mdn-waapi]. El método `elemento.animate(keyframes, opciones)` devuelve un objeto `Animation` con un estado y una promesa que avisa cuándo terminó."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const anim = caja.animate(\n  [{ transform: \"translateX(0)\", opacity: 1 },\n   { transform: \"translateX(200px)\", opacity: 0.4 }],\n  { duration: 400, easing: \"ease-out\", fill: \"forwards\" }\n);\nanim.pause();                 // detener a mitad de camino\nanim.play();                  // seguir\nawait anim.finished;          // una promesa que se resuelve cuando termina\nanim.playbackRate = -1;       // la misma animación, hacia atrás\nanim.play();",
+   "cap": "Una animación de 400 ms con la curva ease-out; se pausa, se retoma y se revierte. Necesita el DOM, así que no corre en el panel del armador: la corrí en Chromium con Playwright."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node waapi.cjs",
+     "s": "0 ms    playState=running  animaciones en el elemento=1\n101 ms  pausada: playState=paused  currentTime=100 ms\n416 ms  finished resuelta: playState=finished  opacity calculada=0.4\n832 ms  en reversa: currentTime=0 ms"
+    }
+   ],
+   "cap": "Medido en esta VM. La animación se pausó a los 100 ms, siguió, terminó a los 416 ms (400 ms más un cuadro) y volvió en 416 ms más."
+  },
+  {
+   "t": "p",
+   "x": "Una animación de WAAPI sobre `transform` también la resuelve el compositor: repetí la prueba del hilo ocupado con `animate()` y dio 180, 180 y 180 cuadros en 3 s para `transform`, contra 70, 71 y 64 para `left`. En cambio, una animación hecha a mano con `requestAnimationFrame` cambiando `left` en cada cuadro corre en el hilo principal: es lo que usé arriba para provocar la tarea larga, y es la que sufre si algo lo ocupa."
+  },
+  {
+   "t": "h",
+   "x": "Curvas de aceleración y duración"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las cosas reales no se mueven a velocidad constante: arrancan y frenan. En CSS esa forma es la **curva de aceleración** (*easing*). Se define con una curva de Bézier de cuatro números, `cubic-bezier(x1, y1, x2, y2)`, y existen atajos con nombre: `ease`, `ease-in`, `ease-out`, `ease-in-out` y `linear` [#ux36-w3c-easing]. La curva responde a una pregunta: pasado un cierto porcentaje del tiempo, ¿qué porcentaje del recorrido se hizo?",
+    "Escribí el cálculo para ver los números. Es una búsqueda binaria: dado el tiempo, hay que encontrar en qué punto de la curva estamos y leer el progreso."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Una curva cubic-bezier(x1, y1, x2, y2) de CSS: la forma va de (0,0) a (1,1) con dos puntos de control.\n// Dado el tiempo transcurrido t (0 a 1), hay que encontrar el parámetro s de la curva donde x(s) = t y devolver y(s).\nfunction cubicBezier(x1, y1, x2, y2) {\n  const punto = (a, b, s) => 3 * (1 - s) * (1 - s) * s * a + 3 * (1 - s) * s * s * b + s * s * s;\n  return (t) => {\n    let lo = 0, hi = 1;\n    for (let i = 0; i < 40; i++) {            // búsqueda binaria: x(s) crece con s\n      const s = (lo + hi) / 2;\n      if (punto(x1, x2, s) < t) lo = s; else hi = s;\n    }\n    return punto(y1, y2, (lo + hi) / 2);\n  };\n}\nconst curvas = {\n  \"linear\":      (t) => t,\n  \"ease\":        cubicBezier(0.25, 0.1, 0.25, 1),\n  \"ease-in\":     cubicBezier(0.42, 0, 1, 1),\n  \"ease-out\":    cubicBezier(0, 0, 0.58, 1),\n  \"ease-in-out\": cubicBezier(0.42, 0, 0.58, 1),\n};\nconsole.log(\"curva\".padEnd(12), \"t=0.25\", \"t=0.50\", \"t=0.75\");\nfor (const [nombre, f] of Object.entries(curvas)) {\n  console.log(nombre.padEnd(12), [0.25, 0.5, 0.75].map((t) => f(t).toFixed(3).padStart(6)).join(\" \"));\n}\n// Con 300 ms y un recorrido de 200 px: dónde está la caja a los 75 ms (t = 0.25)\nconsole.log(\"A los 75 ms, con ease-out:\", (200 * curvas[\"ease-out\"](0.25)).toFixed(1), \"px de 200\");\nconsole.log(\"A los 75 ms, con ease-in: \", (200 * curvas[\"ease-in\"](0.25)).toFixed(1), \"px de 200\");",
+   "ejecutable": true,
+   "cap": "Progreso del recorrido en tres instantes, calculado desde la fórmula de la curva de Bézier."
+  },
+  {
+   "t": "p",
+   "x": "Para no fiarme de mi propia cuenta, pedí al navegador los mismos valores: puse una animación de WAAPI en pausa, la llevé a 250, 500 y 750 ms de 1.000 y leí la posición calculada. Coinciden en los tres decimales."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node e.cjs   # lo mismo, leído del navegador con WAAPI en pausa",
+     "s": "linear       0.250 0.500 0.750\nease         0.409 0.802 0.960\nease-in      0.093 0.315 0.622\nease-out     0.378 0.685 0.907\nease-in-out  0.129 0.500 0.871"
+    }
+   ],
+   "cap": "Medido en esta VM. Cada fila es la fracción del recorrido a un cuarto, la mitad y tres cuartos del tiempo."
+  },
+  {
+   "t": "p",
+   "x": "Con `ease-out`, a un cuarto del tiempo ya se recorrió el 38 % del camino (75,6 px de 200 en una transición de 300 ms), mientras que con `ease-in` apenas el 9 % (18,7 px). Eso tiene una consecuencia práctica ligada a los 100 ms de [@06-35]: lo que entra a la pantalla en respuesta a un toque conviene que arranque rápido, para que el cambio se note de inmediato y frene suave. Una regla práctica que usan muchos equipos (criterio de diseño, no norma): **entrada con `ease-out`, salida con `ease-in`, movimientos dentro de la pantalla con `ease-in-out`, y `linear` para lo que no tiene principio ni fin, como un indicador de carga**."
+  },
+  {
+   "t": "h",
+   "x": "Preferencia de movimiento reducido"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para algunas personas, el movimiento en pantalla no es neutro. MDN explica que las animaciones pueden provocar molestias a quienes tienen trastornos vestibulares (del oído interno, que regula el equilibrio), y que escalar o desplazar objetos grandes son disparadores típicos [#ux36-mdn-reduced-motion]. Por eso los sistemas operativos tienen un ajuste para pedir menos movimiento, y el navegador lo expone a las páginas como la [[preferencia de movimiento reducido]]: la media query `prefers-reduced-motion`, con valores `no-preference` y `reduce`. Según MDN, está disponible en todos los navegadores desde enero de 2020 (estado «Baseline: ampliamente disponible» [#ux36-mdn-reduced-motion])."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "css",
+   "x": ".panel {\n  transition: transform 250ms ease-out, opacity 250ms ease-out;\n}\n@media (prefers-reduced-motion: reduce) {\n  .panel {\n    transition: opacity 150ms linear;  /* sin desplazamiento: solo aparece */\n  }\n}",
+   "cap": "Con la preferencia activada, el panel no se desplaza: solo aparece, y más rápido."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const mq = matchMedia(\"(prefers-reduced-motion: reduce)\");\nlet quieto = mq.matches;                       // true si la persona pidió menos movimiento\nmq.addEventListener(\"change\", (e) => { quieto = e.matches; });   // cambia en vivo si lo activa en el sistema",
+   "cap": "Lo mismo desde JavaScript, para las animaciones que no pasan por CSS."
+  },
+  {
+   "t": "p",
+   "x": "Lo probé de la forma más directa: Playwright puede emular la preferencia al abrir la página. En el modo normal, la caja corría su transición de 300 ms. Con la preferencia en `reduce`, `matchMedia` devolvió `true`, la duración calculada de la transición fue de 0 segundos, no se creó ninguna animación y la caja igual llegó a los 200 px: el estado final se alcanzó, sin recorrido."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node a.cjs   # emulando prefers-reduced-motion: reduce",
+     "s": "matchMedia(\"(prefers-reduced-motion: reduce)\").matches = true\ntransition-duration calculada: 0s\nanimaciones en el elemento: 0\neventos de transición: ninguno\nposición final: 200 px (llegó igual)"
+    }
+   ],
+   "cap": "Medido en esta VM, con la página de la caja y la regla `@media (prefers-reduced-motion: reduce) { .caja { transition: none } }`."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Reducir no es apagar todo",
+   "x": "El ejemplo de MDN cambia una animación de escala por un fundido de opacidad, que no es disparador de síntomas [#ux36-mdn-reduced-motion]. El criterio: quitar el **desplazamiento y el zoom**, y conservar el aviso de que algo cambió (un color, una opacidad). Un cambio de estado sin ninguna señal es peor para todos, y rompería lo de [@06-35]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La media query no alcanza",
+   "x": "`prefers-reduced-motion` en CSS solo gobierna lo que está en CSS. Una animación hecha con `requestAnimationFrame` o con WAAPI sigue corriendo si el código no consulta `matchMedia`. Y en una app nativa, el ajuste se pregunta por la API del sistema, no por una media query."
+  },
+  {
+   "t": "p",
+   "x": "El criterio de accesibilidad que más se cita es de WCAG 2.2: «Animación a partir de interacciones» (2.3.3, nivel AAA) pide que la animación de movimiento disparada por una interacción pueda desactivarse, salvo que sea esencial [#ux36-wcag-animacion]. Otro criterio, 2.2.2 (nivel A), exige poder pausar, detener u ocultar lo que se mueve solo, dura más de cinco segundos y está junto a otro contenido [#ux36-wcag-pausa]."
+  },
+  {
+   "t": "h",
+   "x": "Cómo lo hace Senda"
+  },
+  {
+   "t": "senda",
+   "titulo": "Movimiento en una app de React Native",
+   "x": [
+    "Senda no es una página web: no tiene CSS ni `requestAnimationFrame` de navegador en sus pantallas. Las ideas de hoy aparecen igual con otros nombres. React Native trae su propia API de animación, `Animated`, y su documentación advierte la misma limitación que viste en Chromium: con el controlador nativo (`useNativeDriver: true`) solo se pueden animar propiedades que no son de layout, como `transform` y `opacity` [#ux36-rn-animations].",
+    "En el código de Senda, al commit 25e08fa, la cuenta de líneas con `useNativeDriver: true` es de 163 y con `useNativeDriver: false` es de 11. Las 11 son casos como la barra de tiempo de `Jugar.tsx`, que anima su **ancho** en porcentaje, o sea una propiedad de layout. Es la misma regla que medimos con `left`. Es un conteo de líneas, no de pantallas ni de cuadros por segundo; no medí la fluidez en un teléfono.",
+    "El botón principal (`Boton`, en `src/componentes/base.tsx`) se hunde con un resorte de `Animated` sobre `translateY` con controlador nativo: transform, no layout. Y la vuelta de hoja del lector (`src/lector/Libro.tsx`) usa Reanimated 4.5.1 con Worklets 0.10.1, que mueve la animación al hilo de la interfaz. La mascota Lany se anima con Rive, un motor aparte (`@rive-app/react-native` 0.5.4)."
+   ],
+   "archivos": [
+    "src/componentes/base.tsx",
+    "src/pantallas/Jugar.tsx",
+    "src/lector/Libro.tsx",
+    "package.json"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "La preferencia de movimiento reducido, en el código",
+   "x": [
+    "En `src/estado/ajustes.ts`, la función `reducirMovimiento()` combina dos cosas: un ajuste propio de la app (`reducirMovimiento`, que puede ser verdadero, falso o `null`) y, si es `null`, lo que informe el teléfono con `AccessibilityInfo.isReduceMotionEnabled()` de React Native, que se actualiza cuando la persona lo cambia. Esa función se consulta antes de lanzar los efectos de festejo (`src/componentes/momentos.tsx`), en la vista inicial (`src/pantallas/Inicio.tsx`) y en el lector, donde, con movimiento reducido, la hoja «cambia en el acto» sin animación (comentario en `Libro.tsx`). En `src/arte/Arte.tsx`, si pide menos movimiento, Lany se muestra como imagen de su pose.",
+    "La regla R18 del marco de UX de Senda (`docs/MARCO_UX.md`) lo resume: las animaciones corren en el hilo nativo y, si algo no anda fluido en un teléfono de gama baja, se saca. Es una regla del proyecto: este día no verificó cómo anda en ese teléfono. Todo corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/estado/ajustes.ts",
+    "src/componentes/momentos.tsx",
+    "src/arte/Arte.tsx",
+    "docs/MARCO_UX.md"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Dos ejercicios"
+  },
+  {
+   "t": "ejercicio",
+   "x": "Escribí el CSS de un panel de ayuda que entra desde la derecha. Reglas: entra en 250 ms con la curva que corresponde a una entrada; con movimiento reducido no se desplaza, solo hace un fundido de 150 ms. El panel parte de `transform: translateX(100%)` y `opacity: 0`, y al agregar la clase `abierto` pasa a `translateX(0)` y `opacity: 1`.",
+   "pista": "Una entrada usa `ease-out`. Para reducir el movimiento, dentro de la media query dejá de transicionar `transform` y que el panel esté siempre en `translateX(0)`.",
+   "solucion": ".panel { transform: translateX(100%); opacity: 0; transition: transform 250ms ease-out, opacity 250ms ease-out; }\n.panel.abierto { transform: translateX(0); opacity: 1; }\n@media (prefers-reduced-motion: reduce) {\n  .panel { transform: translateX(0); transition: opacity 150ms linear; }\n}\nEn la versión reducida el panel siempre está en su lugar y solo cambia la opacidad. Si lo dejaras con translateX(100%), seguiría apareciendo desde el costado aunque no se animara."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Una pantalla de 120 Hz muestra una animación de 300 ms. ¿Cuántos cuadros hay en total y cuánto dura cada uno? Si un cálculo de tu código ocupa el hilo principal durante 50 ms en medio de la animación, ¿cuántos cuadros aproximadamente se pierden, suponiendo que la animación depende del hilo principal?",
+   "pista": "Cuadros = duración × frecuencia. Cuadros perdidos ≈ tiempo ocupado / duración de un cuadro.",
+   "solucion": "300 ms × 120 Hz = 36 cuadros, de 8,33 ms cada uno. Con 50 ms ocupados se pierden unos 50 / 8,33 ≈ 6 cuadros. Si la animación fuera de transform u opacity resuelta en el compositor, ese bloqueo no la afectaría, como en la tabla de arriba."
+  }
+ ],
+ "recap": [
+  "El movimiento sirve para explicar un cambio, confirmar una acción y dirigir la atención. La mayoría de las animaciones de interfaz duran entre 100 y 500 ms.",
+  "Una transición CSS arranca sola al cambiar un valor y emite transitionrun, transitionstart, transitionend o transitioncancel. Si se invierte a mitad, el navegador la acorta (en la prueba, 241 ms en lugar de 300).",
+  "A 60 fps un cuadro dura 16,67 ms; a 120 Hz, 8,33 ms. En ese tiempo el navegador debe hacer estilos, layout, pintura y composición. Una tarea de 120 ms en el hilo principal se llevó unos seis cuadros.",
+  "Animar transform y opacity evita layout y pintura y sigue fluida con el hilo principal ocupado (180 cuadros en 3 s); animar left depende del hilo principal y cayó a 63 a 69.",
+  "La curva de aceleración cambia cómo se siente: ease-out arranca rápido y frena suave (en general, para entradas); ease-in, al revés; linear para lo continuo. Los valores de mi cálculo coinciden con los del navegador.",
+  "prefers-reduced-motion pide menos movimiento: se reemplaza el desplazamiento por un fundido, no se quita todo. En JavaScript hay que consultar matchMedia, porque la media query solo gobierna el CSS.",
+  "En Senda, 163 líneas usan el controlador nativo y 11 no; la barra de tiempo anima un ancho (layout) y por eso no puede usarlo. La preferencia se respeta con `reducirMovimiento()`."
+ ],
+ "repaso": [
+  {
+   "p": "Una caja se anima 300 px con `left` en una página y con `transform: translateX` en otra. En las dos el hilo principal está ocupado casi todo el tiempo. ¿Qué esperás ver?",
+   "o": [
+    "Las dos se traban igual, porque toda animación depende siempre del hilo principal",
+    "La de `left` se traba; la de `transform` sigue fluida porque la resuelve el compositor",
+    "La de `transform` se traba más, porque cada cuadro tiene que recalcular el layout",
+    "Ninguna se traba, porque el hilo principal no interviene en las animaciones de CSS"
+   ],
+   "c": 1,
+   "e": "`left` obliga a recalcular el layout en cada cuadro en el hilo principal, y si está ocupado el movimiento se entrecorta. `transform` lo resuelve el compositor sobre la capa ya dibujada. En las mediciones de la lección, 180 cuadros contra 63 a 69 en tres segundos."
+  },
+  {
+   "p": "Una pantalla de 120 Hz tiene un presupuesto por cuadro de:",
+   "o": [
+    "16,67 ms",
+    "8,33 ms",
+    "33,33 ms",
+    "1 ms"
+   ],
+   "c": 1,
+   "e": "1000 ms / 120 = 8,33 ms. Los 16,67 ms son de 60 Hz y los 33,33 ms de 30 Hz. El navegador gasta parte de ese presupuesto en estilos, layout, pintura y composición, así que tu código dispone de menos."
+  },
+  {
+   "p": "En una transición de 300 ms con `ease-out` frente a otra con `ease-in`, ¿qué pasa a los 75 ms (un cuarto del tiempo)?",
+   "o": [
+    "Con ease-in ya recorrió más camino que con ease-out, porque arranca antes",
+    "Las dos recorrieron el mismo camino, porque la duración total es igual",
+    "Con ease-out recorrió bastante más: 38 % contra 9 % en la medición",
+    "Ninguna empezó todavía, porque las curvas retrasan siempre el inicio"
+   ],
+   "c": 2,
+   "e": "ease-out arranca rápido y frena; ease-in arranca lento. A un cuarto del tiempo, la primera lleva alrededor del 38 % del recorrido y la segunda alrededor del 9 %. La duración total es la misma; lo que cambia es cómo se reparte el avance."
+  },
+  {
+   "p": "Tu CSS tiene `@media (prefers-reduced-motion: reduce) { .menu { transition: none } }`. Además, una animación de `requestAnimationFrame` mueve un carrusel. Una persona activó «reducir movimiento». ¿Qué pasa?",
+   "o": [
+    "El menú no se anima y el carrusel sigue, porque la media query solo gobierna el CSS",
+    "Se detiene todo, porque el navegador pausa por su cuenta cualquier animación",
+    "El menú se anima más lento y el carrusel se detiene por completo en ese momento",
+    "Nada cambia, porque la preferencia solo se aplica a los videos incrustados"
+   ],
+   "c": 0,
+   "e": "La media query actúa sobre las reglas CSS. Una animación que mueve un valor desde JavaScript no se entera sola: el código debe consultar `matchMedia` y reaccionar. Las otras opciones suponen que el navegador interviene por su cuenta, y no lo hace."
+  },
+  {
+   "p": "Una transición de 300 ms está a mitad de camino y se invierte la orden. ¿Qué hace el navegador según lo que midiste?",
+   "o": [
+    "Termina primero la ida completa y recién después empieza la vuelta",
+    "Salta al valor inicial de golpe y se queda detenido ahí",
+    "Cancela la primera y crea una nueva, acortada, desde donde estaba",
+    "Ignora la orden nueva hasta que la transición en curso termina"
+   ],
+   "c": 2,
+   "e": "Se emitió `transitioncancel` y una nueva `transitionrun`, con una duración de 241 ms en lugar de 300. Evita saltos y esperas. Las otras opciones son conductas que la especificación no pide."
+  },
+  {
+   "p": "Un equipo agrega `will-change: transform` a todos los elementos de la página «por las dudas». ¿Qué riesgo corre?",
+   "o": [
+    "Que las animaciones dejen de ser compositor-only",
+    "Que cada elemento ocupe una capa propia y la memoria crezca sin necesidad",
+    "Que el navegador deje de respetar prefers-reduced-motion",
+    "Que transform deje de funcionar en CSS"
+   ],
+   "c": 1,
+   "e": "web.dev advierte que las capas consumen memoria y deben administrarse. `will-change` ayuda en los elementos que de verdad se mueven; usarlo en todo anula el beneficio. No afecta ni a la preferencia de movimiento ni a que transform funcione."
+  }
+ ],
+ "feynman": "Explicale a alguien del equipo de operaciones por qué un botón que «se desliza» en una app puede verse fluido o entrecortado según una propiedad que ni se nota en el diseño, y por qué conviene que la app tenga un modo con menos movimiento. Usá lo que mediste hoy: los cuadros por segundo y qué pasa cuando el hilo principal está ocupado.",
+ "para_profundizar": [
+  {
+   "fuente": "ux36-nng-duration",
+   "nota": "Artículo de NN/g con rangos de duración por tipo de animación. Sirve para elegir cuántos milisegundos poner y para justificarlo en una revisión."
+  },
+  {
+   "fuente": "ux36-webdev-compositor",
+   "nota": "El texto de web.dev sobre propiedades que se resuelven en el compositor y el costo de las capas. Complementa las mediciones de hoy."
+  },
+  {
+   "fuente": "ux36-mdn-reduced-motion",
+   "nota": "La referencia de MDN de la media query, con un ejemplo de qué reemplazar y cuándo. Leé el ejemplo del final."
+  },
+  {
+   "fuente": "ux36-w3c-easing",
+   "nota": "La especificación de las funciones de aceleración: define cubic-bezier y los atajos con nombre. Sirve para entender de dónde sale cada valor del cálculo de hoy."
+  }
+ ],
+ "videos": [
+  {
+   "q": "CSS transitions vs animations vs Web Animations API performance compositor",
+   "por_que": "Para ver en una demostración cómo se comportan las tres con el panel de rendimiento de Chrome abierto, y comparar con las trazas de la lección."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "transición CSS",
+   "d": "Mecanismo de CSS para animar el cambio de una propiedad: se declara qué propiedad, cuánto dura y con qué curva, y cuando el valor cambia el navegador dibuja los pasos intermedios. Emite los eventos transitionrun, transitionstart, transitionend y transitioncancel."
+  },
+  {
+   "t": "fotograma",
+   "d": "Cada imagen fija de una animación. En pantallas se suele decir «cuadro»: un cuadro se dibuja cada 16,67 ms a 60 Hz. Si el trabajo de un cuadro tarda más que su presupuesto, el cuadro siguiente llega tarde."
+  },
+  {
+   "t": "60 fps",
+   "d": "Sesenta cuadros por segundo, la referencia para que un movimiento se perciba continuo en una pantalla de 60 Hz. Cada cuadro dispone de unos 16,67 ms para que el navegador calcule estilos, layout, pintura y composición."
+  },
+  {
+   "t": "preferencia de movimiento reducido",
+   "d": "Ajuste del sistema operativo con el que una persona pide menos movimiento en pantalla, que el navegador expone a las páginas como la media query prefers-reduced-motion (valores no-preference y reduce). Existe porque ciertos movimientos pueden provocar malestar en personas con trastornos vestibulares."
+  },
+  {
+   "t": "curva de aceleración",
+   "d": "La función que dice cuánto del recorrido se hizo en cada instante de una animación. En CSS se define con cubic-bezier o con nombres como ease, ease-in, ease-out y linear. También se llama easing."
+  },
+  {
+   "t": "cuadro caído",
+   "d": "Un cuadro que debía dibujarse y no se dibujó a tiempo porque el trabajo tardó más que el presupuesto. Se estima dividiendo el intervalo entre dos cuadros por la duración de un cuadro y restando uno."
+  },
+  {
+   "t": "Web Animations API",
+   "d": "Interfaz de JavaScript (elemento.animate) que maneja el mismo motor de animación que CSS pero permite pausar, revertir y esperar el final con una promesa."
+  }
+ ],
+ "siguiente": "Almacenamiento en el navegador. Ya sabés cómo se dibuja y cómo se mueve la página; mañana, qué puede guardar el navegador entre una visita y la otra: localStorage, IndexedDB y cuánto espacio te dan.",
+ "fuentes_nuevas": [
+  {
+   "id": "ux36-webdev-compositor",
+   "t": "Stick to compositor-only properties and manage layer count",
+   "a": "web.dev",
+   "tipo": "articulo",
+   "url": "https://web.dev/articles/stick-to-compositor-only-properties-and-manage-layer-count"
+  },
+  {
+   "id": "ux36-nng-duration",
+   "t": "Executing UX Animations: Duration and Motion Characteristics",
+   "a": "Page Laubheimer (Nielsen Norman Group)",
+   "tipo": "articulo",
+   "anio": 2020,
+   "url": "https://www.nngroup.com/articles/animation-duration/"
+  },
+  {
+   "id": "ux36-mdn-transitions",
+   "t": "Using CSS transitions",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/CSS/CSS_transitions/Using_CSS_transitions"
+  },
+  {
+   "id": "ux36-w3c-transitions",
+   "t": "CSS Transitions Module Level 1",
+   "a": "W3C",
+   "tipo": "doc",
+   "url": "https://www.w3.org/TR/css-transitions-1/"
+  },
+  {
+   "id": "ux36-mdn-waapi",
+   "t": "Using the Web Animations API",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/Web_Animations_API/Using_the_Web_Animations_API"
+  },
+  {
+   "id": "ux36-w3c-easing",
+   "t": "CSS Easing Functions Level 1",
+   "a": "W3C",
+   "tipo": "doc",
+   "url": "https://www.w3.org/TR/css-easing-1/"
+  },
+  {
+   "id": "ux36-mdn-reduced-motion",
+   "t": "prefers-reduced-motion",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/CSS/@media/prefers-reduced-motion"
+  },
+  {
+   "id": "ux36-mdn-loaf",
+   "t": "PerformanceLongAnimationFrameTiming",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/PerformanceLongAnimationFrameTiming"
+  },
+  {
+   "id": "ux36-rn-animations",
+   "t": "Animations (React Native)",
+   "a": "Meta Platforms",
+   "tipo": "doc",
+   "url": "https://reactnative.dev/docs/animations"
+  },
+  {
+   "id": "ux36-wcag-animacion",
+   "t": "Understanding SC 2.3.3: Animation from Interactions",
+   "a": "W3C",
+   "tipo": "doc",
+   "anio": 2024,
+   "url": "https://www.w3.org/WAI/WCAG22/Understanding/animation-from-interactions.html"
+  },
+  {
+   "id": "ux36-wcag-pausa",
+   "t": "Understanding SC 2.2.2: Pause, Stop, Hide",
+   "a": "W3C",
+   "tipo": "doc",
+   "anio": 2024,
+   "url": "https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html"
+  }
+ ]
+}
