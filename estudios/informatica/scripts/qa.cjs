@@ -4,8 +4,8 @@ const { chromium } = require('playwright');
 (async () => {
   const b = await chromium.launch(); const p = await (await b.newContext({ viewport: { width: 1280, height: 900 } })).newPage();
   const errs = []; p.on('pageerror', e => errs.push('pageerror: ' + e.message));
-  await p.goto('file://' + process.argv[2]); await p.waitForTimeout(500);
-  const ids = await p.evaluate(() => ORDEN.filter(i => DATOS.dias[i]));
+  await p.goto('file://' + process.argv[2]); await p.waitForFunction(() => window.DATOS && document.querySelector('#main') && document.querySelector('#main').innerText.length > 50, null, { timeout: 15000 }); await p.waitForTimeout(300);
+  const ids = await p.evaluate(() => DATOS.orden.filter(i => DATOS.dias[i]));
   let runs = 0, bad = [];
   for (const id of ids) {
     await p.evaluate(h => { location.hash = '#dia-' + h; }, id); await p.waitForTimeout(250);
