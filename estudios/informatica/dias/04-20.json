@@ -1,0 +1,773 @@
+{
+ "id": "04-20",
+ "titulo": "Integración continua",
+ "bajada": "Qué problema resuelve la integración continua, cómo se arma y se valida un workflow de GitHub Actions, dónde corre y qué verifican (y qué no) los diez workflows de Senda.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué problema resuelve la integración continua y qué prácticas del equipo exige, más allá de la herramienta que se use.",
+  "Leer línea por línea un workflow de GitHub Actions: disparadores, trabajos, pasos, matriz, caché y artefactos.",
+  "Validar un workflow en local con actionlint e interpretar sus mensajes de error.",
+  "Distinguir un runner alojado de uno propio y estimar el costo de una corrida a partir de la tarifa publicada.",
+  "Clasificar los diez workflows de Senda por disparador y por lo que verifican, e identificar qué verificaciones no corren."
+ ],
+ "venis_de": "Ya sabés abrir un [[pull request]] y pedir revisión ([@04-11], [@04-12]), escribir pruebas de distintos niveles ([@04-14] a [@04-16]), pasar un linter ([@04-18]) y armar el build ([@04-19]). Todo eso lo hacía una persona, con su compu, cuando se acordaba. Hoy se lo entregás a una máquina que no se olvida.",
+ "se_apoya_en": [
+  "04-03",
+  "04-05",
+  "04-06",
+  "04-11",
+  "04-12",
+  "04-14",
+  "04-16",
+  "04-18",
+  "04-19"
+ ],
+ "gancho": [
+  "Viernes, 17:50. Ana arregló el cálculo de pallets y sus tres pruebas pasan en su compu. Beto cambió el módulo de fletes y las suyas también pasan en la de él. El lunes mezclan los dos cambios y la app ni compila: Beto renombró una función que Ana usa. Cada uno hizo bien su trabajo, y el error vive en el espacio entre los dos. (Ejemplo inventado, pero cualquiera que haya trabajado en equipo lo reconoce.)",
+  "La [[integración continua]] existe para que ese espacio no crezca. Es una máquina que, cada vez que alguien sube un cambio, hace lo que cada persona debería haber hecho a mano: bajar el código, instalar, compilar, probar y avisar. Hoy armás una con GitHub Actions, la validás sin salir de este entorno y después mirás los diez workflows de Senda con una pregunta incómoda: ¿hacen integración continua o solo tienen automatización?"
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Integrar tarde duele"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Integrar** es juntar en una misma línea de código (la rama principal, `main`) lo que hicieron varias personas por separado. Cuanto más tiempo vive un cambio aislado, más se aleja de lo que hicieron los demás. Ya viste el costo en el [@04-10]: más conflictos al mezclar. Hay otro costo peor: cuando algo no anda, no sabés si falló el cambio de Ana, el de Beto o la mezcla, y buscar ahí es como encontrar una caja perdida entre tres depósitos.",
+    "La práctica que lo evita tiene nombre y autor. Martin Fowler, que la describió en 2000 y la reescribió en 2023, la define así:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "Continuous Integration is a software development practice where each member of a team merges their changes into a codebase together with their colleagues changes at least daily.",
+   "autor": "Martin Fowler",
+   "fuente": "ci-fowler-continuous-integration"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La definición sigue con la segunda mitad: cada una de esas integraciones se verifica con un build automático, incluidas las pruebas, para detectar los errores de integración lo antes posible [#ci-fowler-continuous-integration]. Fijate que la definición habla de **personas que integran seguido** y de una **verificación automática**. La máquina es la mitad del asunto; la otra mitad es el hábito del equipo. De esa página salen las prácticas que importan:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "Todo el código vive en un repositorio con una línea principal.",
+    "El build se automatiza y se prueba a sí mismo: compilar y verificar con un solo comando.",
+    "Todos suben sus cambios a la línea principal al menos una vez por día.",
+    "Cada subida a la principal dispara un build.",
+    "Un build roto se arregla enseguida, antes de seguir con otra cosa.",
+    "El build es rápido. Fowler menciona como guía razonable el build de diez minutos de Extreme Programming."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "Tener un servidor de CI no es hacer CI",
+   "x": "Mucha gente cree que usar GitHub Actions o Jenkins es hacer integración continua. Fowler dice otra cosa: un build automático sobre ramas de feature es útil, pero es «semi-integración», porque la regla es que todos suban a la principal todos los días. Llega a decir que esas herramientas deberían llamarse servicios de build continuo [#ci-fowler-continuous-integration]. Se puede tener la máquina sin la práctica; más abajo vas a ver un caso real."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo como la recepción de mercadería",
+   "x": "Un depósito serio controla cada pallet cuando entra: cuenta, revisa el estado y lo rechaza si no cumple. No espera a fin de mes para descubrir que la mitad llegó rota. La integración continua es esa recepción para los cambios de código. La analogía deja de valer en un punto: en la recepción el pallet defectuoso se queda en el andén, y en el código, si no protegés la rama, el cambio ya entró cuando la verificación avisa que falló. Eso lo resolvés más abajo."
+  },
+  {
+   "t": "h",
+   "x": "Anatomía de un pipeline"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[pipeline]] es la secuencia automática de etapas por la que pasa un cambio, desde que alguien lo sube hasta que queda verificado: bajar el código, instalar dependencias, compilar, probar, guardar resultados. Cada herramienta le pone su vocabulario. El de GitHub Actions, que vas a usar hoy, es este [#ci-gha-workflows-concepts]:",
+    "Un **workflow** es un proceso automático definido en un archivo YAML dentro de `.github/workflows/` del repositorio. Arranca cuando ocurre un **evento** (alguien sube código, se abre un pull request, llega una hora programada) o a mano. Contiene uno o más **trabajos** (*jobs*), que corren en paralelo salvo que uno declare que necesita a otro con `needs`. Cada trabajo se ejecuta en un [[runner]], que es la máquina que hace el trabajo, y se compone de **pasos** (*steps*): un comando de shell o una **acción**, un paquete reutilizable de pasos que alguien publicó."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "arbol",
+   "raiz": {
+    "t": "Workflow «CI»",
+    "s": "archivo .github/workflows/ci.yml",
+    "k": "os",
+    "h": [
+     {
+      "t": "Eventos",
+      "s": "qué lo dispara",
+      "k": "red",
+      "h": [
+       {
+        "t": "push a main",
+        "s": "tras mezclar",
+        "k": "red"
+       },
+       {
+        "t": "pull_request",
+        "s": "al proponer un cambio",
+        "k": "red"
+       }
+      ]
+     },
+     {
+      "t": "Trabajo «verificar»",
+      "s": "una matriz lo repite: Node 20 y Node 22",
+      "k": "servidor",
+      "h": [
+       {
+        "t": "Runner A",
+        "s": "máquina virtual nueva, Node 20",
+        "k": "hw"
+       },
+       {
+        "t": "Runner B",
+        "s": "máquina virtual nueva, Node 22",
+        "k": "hw",
+        "h": [
+         {
+          "t": "Pasos en orden",
+          "s": "checkout, Node, npm ci, npm test, build",
+          "k": "datos"
+         },
+         {
+          "t": "Artefacto «dist»",
+          "s": "lo que queda guardado al final",
+          "k": "ok"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "cap": "El workflow de hoy, de arriba hacia abajo. Los dos runners hacen los mismos pasos; solo el de Node 22 guarda el artefacto."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un **runner** es la máquina que ejecuta un trabajo. Según la documentación de GitHub, cada runner alojado por GitHub es una máquina virtual nueva (salvo los de un solo CPU, que son contenedores) [#ci-gha-hosted-runners-ref]. Eso tiene una consecuencia fuerte: **arranca vacío**. No tiene tu código, ni tus dependencias, ni lo que dejó la corrida anterior. Todo lo que el trabajo necesita lo tiene que traer él mismo, paso por paso, y por eso la corrida es reproducible: no hay un «en mi máquina andaba».",
+    "Lo que un trabajo produce y querés conservar se llama **artefacto**: un archivo o conjunto de archivos generados durante la corrida, que se guardan para usarlos después o compartirlos con otro trabajo [#ci-gha-artifacts]. Puede ser el APK, un informe de pruebas o la carpeta `dist` de un build."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Un workflow real, línea por línea"
+  },
+  {
+   "t": "p",
+   "x": "Este es el workflow de un proyecto mío de práctica (una función de pallets con tres pruebas). Está escrito como lo escribiría un equipo y lo validé con la herramienta que ves más abajo. Leelo primero entero y después seguí la explicación."
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "name: CI\non:\n  push:\n    branches: [main]\n  pull_request:\npermissions:\n  contents: read\nconcurrency:\n  group: ci-${{ github.ref }}\n  cancel-in-progress: true\njobs:\n  verificar:\n    runs-on: ubuntu-latest\n    timeout-minutes: 10\n    strategy:\n      matrix:\n        node: [20, 22]\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: ${{ matrix.node }}\n          cache: npm\n      - run: npm ci\n      - run: npm test\n      - run: npm run build\n      - uses: actions/upload-artifact@v4\n        if: matrix.node == 22\n        with:\n          name: dist\n          path: dist/",
+   "cap": ".github/workflows/ci.yml del proyecto de práctica. Es YAML; el resaltado es el de shell, que solo sirve para distinguir texto."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Qué hace cada bloque",
+   "pasos": [
+    {
+     "t": "on: cuándo corre",
+     "x": "Dos eventos: un `push` a `main` y cualquier `pull_request`. Así se verifica el cambio **antes** de mezclarlo (el pull request) y también la línea principal **después** de mezclar (el push)."
+    },
+    {
+     "t": "permissions: lo mínimo",
+     "x": "El token que GitHub le da a la corrida queda con permiso de solo lectura sobre el contenido. La documentación recomienda dar el acceso mínimo necesario [#ci-gha-workflow-syntax]."
+    },
+    {
+     "t": "concurrency: no verificar lo viejo",
+     "x": "Si llega un cambio nuevo a la misma rama mientras corre uno anterior, `cancel-in-progress` cancela el viejo. Es plata y tiempo que no se gastan en verificar algo ya reemplazado."
+    },
+    {
+     "t": "runs-on y timeout-minutes",
+     "x": "`ubuntu-latest` es la etiqueta que elige el tipo de runner. El tope de 10 minutos evita que un trabajo colgado consuma una hora; sin él, el límite es de 360 minutos [#ci-gha-workflow-syntax]."
+    },
+    {
+     "t": "strategy.matrix: repetir con variantes",
+     "x": "Con `node: [20, 22]` GitHub crea **dos trabajos**, cada uno en su propio runner, con `${{ matrix.node }}` valiendo 20 en uno y 22 en el otro. Si una variante falla, por defecto se cancelan las demás de la matriz (`fail-fast` vale `true` por defecto) [#ci-gha-workflow-syntax]."
+    },
+    {
+     "t": "checkout y setup-node",
+     "x": "`actions/checkout` baja el código (recordá que el runner arranca vacío). `actions/setup-node` instala la versión de Node pedida y, con `cache: npm`, guarda y recupera la caché de dependencias entre corridas."
+    },
+    {
+     "t": "npm ci, npm test, npm run build",
+     "x": "Tres comandos de shell. Cada uno devuelve un [[código de retorno]]: si es distinto de cero, el paso falla y, salvo que se pida lo contrario, el trabajo se detiene ahí. Ese número es todo el contrato entre tu script y el pipeline."
+    },
+    {
+     "t": "upload-artifact con if",
+     "x": "Guarda la carpeta `dist` como artefacto, pero solo en la variante de Node 22 (`if: matrix.node == 22`), para no guardar dos copias iguales."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "No puedo ejecutar GitHub Actions desde este entorno: no hay cuenta ni acceso a sus runners. Lo que sí hice fue correr a mano cada comando de los pasos, y validar el archivo con una herramienta de análisis estático. Los runners reales no los probé."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "npm ci",
+     "s": "\nup to date, audited 1 package in 184ms\n\nfound 0 vulnerabilities"
+    },
+    {
+     "c": "npm test 2>&1 | grep -E \"^# (tests|pass|fail)\"",
+     "s": "# tests 3\n# pass 3\n# fail 0"
+    },
+    {
+     "c": "npm run build; echo \"código de salida: $?\"",
+     "s": "\n> deposito-demo@1.0.0 build\n> node scripts/build.mjs\n\nbuild listo: dist/pallets.js\ncódigo de salida: 0"
+    }
+   ],
+   "cap": "Cada paso `run` del workflow, corrido a mano en esta máquina con Node 22. El proyecto es mío e inventado: una función de pallets y tres pruebas. No pude probar Node 20 porque acá solo hay Node 22."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "npm test > /dev/null 2>&1; echo \"código de salida: $?\"",
+     "s": "código de salida: 1"
+    }
+   ],
+   "cap": "La misma prueba con un resultado esperado equivocado a propósito (28 pallets en lugar de 27). El comando termina con código 1, y eso es lo único que el runner necesita para marcar el paso, y con él el trabajo, como fallido."
+  },
+  {
+   "t": "pensa",
+   "x": "En la matriz de Node 20 y 22, la prueba falla en la variante 22 pero pasa en la 20. ¿Qué ve el equipo en GitHub y qué le pasa a la variante que todavía estaba corriendo?",
+   "resp": "El trabajo de la variante 22 queda en rojo, y por tanto el workflow entero. Como `fail-fast` vale `true` por defecto, GitHub cancela las variantes de la matriz que seguían en curso o en cola. Si el equipo quiere ver el resultado de todas aunque una falle (por ejemplo, para saber si el problema es solo de una versión), pone `fail-fast: false`."
+  },
+  {
+   "t": "h",
+   "x": "Validar un workflow sin ejecutarlo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Probar un workflow subiéndolo y esperando es lento y gasta minutos. Para los errores de forma existe [[actionlint]], un analizador estático de workflows de GitHub Actions. Revisa que las claves existan, que las expresiones `${{ }}` apunten a datos reales, que los `needs` nombren trabajos que existen, y le pasa shellcheck a los scripts de los pasos [#ci-actionlint-readme]. Es la misma idea del linter del [@04-18], pero para el pipeline."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "actionlint -version | head -n 1",
+     "s": "v1.7.12"
+    },
+    {
+     "c": "actionlint .github/workflows/ci.yml; echo \"código de salida: $?\"",
+     "s": "código de salida: 0"
+    }
+   ],
+   "cap": "actionlint v1.7.12, instalado con `go install` desde su repositorio oficial, sobre el workflow de arriba. Sin salida y código 0: no encontró nada."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat ci.yml",
+     "s": "name: CI\non:\n  pushh:\n    branches: [main]\njobs:\n  verificar:\n    steps:\n      - uses: actions/checkout\n      - run: npm ci\n  publicar:\n    needs: verifcar\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo \"listo\""
+    },
+    {
+     "c": "actionlint ci.yml; echo \"código de salida: $?\"",
+     "s": "ci.yml:3:3: unknown Webhook event \"pushh\". see https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#webhook-events for list of all Webhook event names [events]\n  |\n3 |   pushh:\n  |   ^~~~~~\nci.yml:6:3: \"runs-on\" section is missing in job \"verificar\" [syntax-check]\n  |\n6 |   verificar:\n  |   ^~~~~~~~~~\nci.yml:8:15: specifying action \"actions/checkout\" in invalid format because ref is missing. available formats are \"{owner}/{repo}@{ref}\" or \"{owner}/{repo}/{path}@{ref}\" [action]\n  |\n8 |       - uses: actions/checkout\n  |               ^~~~~~~~~~~~~~~~\nci.yml:10:3: job \"publicar\" needs job \"verifcar\" which does not exist in this workflow [job-needs]\n   |\n10 |   publicar:\n   |   ^~~~~~~~~\ncódigo de salida: 1"
+    }
+   ],
+   "cap": "Un workflow roto a propósito. actionlint lo analiza sin ejecutarlo y señala cuatro errores con su línea, columna y una flecha al lugar exacto."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los cuatro errores son del tipo que cuesta un ciclo entero de subir y esperar: un evento mal escrito (`pushh`), un trabajo sin `runs-on`, una acción sin versión y un `needs` con una errata (`verifcar`). actionlint los encuentra en milisegundos. Lo que **no** encuentra es que una prueba falle o que un comando no exista en el runner: eso solo se ve ejecutando."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Quién se entera, cuánto tarda y qué bloquea"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un pipeline sirve si el resultado le llega a alguien a tiempo y con consecuencias. Hay tres piezas. **Feedback rápido**: Fowler menciona como guía razonable un build de diez minutos, y recuerda que cada minuto que le sacás al build es un minuto ahorrado a cada persona en cada subida [#ci-fowler-continuous-integration]. Un equipo de cinco que sube seis veces por día y espera doce minutos por build pierde, en una cuenta inventada, seis horas diarias; con seis minutos, tres. Una forma de bajarlo es partir el build en etapas: primero lo rápido (compilar y pruebas unitarias), y después lo lento (integración, E2E) en una segunda etapa.",
+    "**Visibilidad**: en un pull request, el resultado aparece como una verificación (*check*) verde o roja al lado del cambio. **Consecuencia**: eso solo bloquea si la rama está protegida. En el [@04-11] viste la [[protección de rama]]; una de sus reglas es «requerir verificaciones de estado antes de mezclar» [#ci-gh-protected-branches]. Sin esa regla, un rojo es una sugerencia."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Las pruebas inestables matan la confianza",
+   "x": "Si el pipeline falla a veces sin que nada haya cambiado, la gente aprende a darle «volver a correr» y a ignorar el rojo. Una [[prueba inestable]] (la viste en el [@04-16]) es más peligrosa en un pipeline que en una compu: convierte la única señal compartida en ruido. La regla práctica de Fowler es arreglar un build roto enseguida; con pruebas inestables, esa regla deja de poder cumplirse."
+  },
+  {
+   "t": "pensa",
+   "x": "Un compañero dice: «mi pull request tiene el check en rojo, pero GitHub me deja mezclarlo igual, así que el pipeline no sirve». ¿Qué le contestás?",
+   "resp": "Que el pipeline cumple su parte: avisó. Lo que falta es una regla de la rama, no del pipeline: marcar esa verificación como obligatoria en la protección de `main`. Sin eso, la decisión de mezclar con rojo queda en manos de quien aprieta el botón, a veces con razón (un check roto por un servicio externo) y a veces por apuro."
+  },
+  {
+   "t": "h",
+   "x": "Runners: dónde corre y cuánto cuesta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay dos tipos. Los **alojados** los pone GitHub: una máquina virtual nueva por trabajo. Los **propios** (*self-hosted*) son máquinas tuyas con el programa de GitHub instalado. En la documentación de GitHub, a 13-11-2026, los alojados tienen estas características estándar [#ci-gha-hosted-runners-ref]:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Alojado, repo público",
+    "Alojado, repo privado",
+    "Propio"
+   ],
+   "filas": [
+    [
+     "Máquina (`ubuntu-latest`)",
+     "4 CPU, 16 GB de RAM, 14 GB de disco",
+     "2 CPU, 8 GB de RAM, 14 GB de disco",
+     "La que pongas vos"
+    ],
+    [
+     "Costo por minuto",
+     "Gratis e ilimitado",
+     "Sale de un crédito mensual incluido; después, 0,006 USD por minuto en Linux de 2 CPU",
+     "No se cobran minutos; pagás y mantenés la máquina"
+    ],
+    [
+     "Estado entre corridas",
+     "Máquina nueva y limpia",
+     "Máquina nueva y limpia",
+     "Puede conservar basura o algo malicioso de una corrida anterior"
+    ]
+   ],
+   "cap": "Fuentes: documentación de runners y de facturación de GitHub Actions, 13-11-2026. El crédito mensual incluido del plan GitHub Free figura como 12 USD [#ci-gha-billing]. Las cifras cambian: releé las páginas antes de decidir."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La documentación de seguridad de GitHub tiene una advertencia clara sobre los propios: no garantizan máquinas efímeras y limpias y pueden quedar comprometidos de forma persistente por código no confiable de un workflow, por lo que casi nunca deben usarse en repositorios públicos, donde cualquiera puede abrir un pull request [#ci-gha-secure-use]. Un pull request **ejecuta código**, y ese código corre en tu runner.",
+    "Con la tarifa publicada podés estimar. Un trabajo de 60 minutos en Linux de 2 CPU, en un repositorio privado, cuesta 60 × 0,006 = 0,36 USD, y con 12 USD de crédito entran unas 33 corridas de esa duración. Es una estimación: sin saber cuánto dura de verdad cada corrida de Senda, ni si su repositorio es privado y su plan es Free, uso el tope de 60 minutos que declara su `apk.yml` como techo."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Artefactos y cachés: guardar lo que importa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Como el runner arranca vacío, lo que no guardás se pierde. Hay tres cosas distintas para guardar y conviene no mezclarlas. El **artefacto** es un resultado: el APK, el informe de pruebas. Se conserva por un plazo (el `aab.yml` de Senda lo fija en 30 días con `retention-days: 30`) y alguien lo va a usar. La **caché** es un acelerador: dependencias descargadas que la próxima corrida puede reutilizar para no bajarlas otra vez. Si se pierde, todo sigue funcionando, solo más lento. Y el **registro** (*log*) es el texto de cada paso, que ves en la página de la corrida y sirve para entender por qué falló.",
+    "La diferencia importa al diseñar: un artefacto es una salida que otra persona o etapa va a consumir; una caché es una optimización que nunca debería cambiar el resultado. Mañana el artefacto pasa a ser el protagonista: es lo que viaja hacia los usuarios."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Los diez workflows de Senda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda tiene diez archivos en `.github/workflows/`. Los clasifiqué leyéndolos: dos se disparan solos y ocho solo a mano. Los demás siguen el mismo esqueleto que el de hoy: `runs-on: ubuntu-latest` en todos los trabajos, `timeout-minutes` en casi todos y `concurrency` donde una corrida nueva debe pisar a la anterior."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Workflow",
+    "Cuándo corre",
+    "Qué verifica antes de producir",
+    "Qué produce"
+   ],
+   "filas": [
+    [
+     "`apk.yml`",
+     "A mano",
+     "Validador de contenido, prueba de arranque (10 pruebas en Jest) y prueba de la base (unas 188 comprobaciones sobre un Postgres local)",
+     "Versión de prueba con el APK en GitHub Releases"
+    ],
+    [
+     "`aab.yml`",
+     "A mano",
+     "Nada: no corre validadores ni pruebas",
+     "AAB como artefacto, 30 días"
+    ],
+    [
+     "`firma.yml`",
+     "A mano",
+     "No aplica",
+     "Almacén de claves, 7 días"
+    ],
+    [
+     "`supabase.yml`",
+     "Al subir a `main` cambios en migraciones o funciones, y a mano",
+     "Trabajo `probar` (la base completa en un Postgres local); `migrar` lo espera con `needs`",
+     "Base y funciones actualizadas"
+    ],
+    [
+     "`supabase-despertar.yml`",
+     "A mano",
+     "No aplica",
+     "Reactiva el proyecto pausado"
+    ],
+    [
+     "`limpieza.yml`",
+     "Lunes 07:17 UTC, y a mano",
+     "No aplica",
+     "Borra PDF de sermones sin trivia"
+    ],
+    [
+     "`humo.yml`",
+     "A mano",
+     "Abre la app en un emulador y falla si se cierra, muestra la pantalla de fallo o el registro trae un error fatal",
+     "Capturas y registro como artefacto"
+    ],
+    [
+     "`lotes.yml`",
+     "A mano",
+     "Nada en el flujo; el validador actúa cuando el contenido se incorpora",
+     "Borradores en la rama `lotes`"
+    ],
+    [
+     "`biblias.yml`",
+     "A mano",
+     "No aplica",
+     "Commit y push con Biblias nuevas"
+    ],
+    [
+     "`candidatos.yml`",
+     "A mano",
+     "No aplica",
+     "Rama `candidatos`"
+    ]
+   ],
+   "cap": "Armada leyendo cada archivo y contrastada con el mapa técnico (sección 11.2). Commit 25e08fa del 13-11-2026; el código cambia, la forma permanece."
+  },
+  {
+   "t": "senda",
+   "titulo": "Qué verifica el pipeline de Senda y qué no",
+   "x": [
+    "Lo que sí hay es bastante: el flujo del APK corre el validador de contenido, la prueba de arranque (carga toda la app en Node y dibuja Inicio con un estado guardado) y la prueba de la base (unas 188 comprobaciones) **antes** de compilar; si fallan, no hay APK. El de la base de datos tiene además un trabajo `probar` que debe pasar antes de que `migrar` toque la base real, y el de humo prueba la app en un emulador.",
+    "Lo que no hay: (1) **ningún workflow llama a `tsc`**. `package.json` tiene el script `typecheck`, y las reglas del repositorio dicen que es obligatorio antes de cada commit, pero esa obligación vive en un documento y no en una máquina. La prueba de arranque usa Babel, que borra los tipos sin verificarlos, y Metro tampoco los verifica: un APK puede compilar con un error de tipos. (2) **No hay linter**: no encontré configuración de ESLint. (3) **Ningún workflow se dispara con `pull_request`**, así que nada verifica un cambio antes de mezclarlo. (4) `aab.yml`, el que arma lo que va a Google Play, no corre ni validadores ni pruebas por sí mismo.",
+    "Si Senda hace integración continua en el sentido de Fowler, la respuesta honesta es que **todavía no**: tiene automatización valiosa y verificaciones sólidas que corren cuando alguien aprieta un botón, no con cada cambio. La excepción es `supabase.yml`, que sí se dispara solo con un push a `main` y verifica antes de actuar. No pude comprobar si la rama principal tiene verificaciones obligatorias, porque esa configuración vive en GitHub y no en el repositorio."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    ".github/workflows/aab.yml",
+    ".github/workflows/supabase.yml",
+    ".github/workflows/humo.yml",
+    "package.json",
+    "pruebas/arranque/jest.config.js"
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mi lectura, que es criterio y no un hecho: con una sola persona dirigiendo a una IA, el costo de integrar tarde es bajo, y lanzar el APK a mano cuando algo está listo tiene sentido. El riesgo cambia cuando suman gente o cuando el apuro hace que alguien se salte el paso que «era obligatorio». Una verificación que depende de acordarse falla justo el día en que hay prisa."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Pasé también actionlint sobre los diez workflows, lo único que corrí sobre el repositorio de Senda, y solo de lectura:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ls .github/workflows | wc -l",
+     "s": "10"
+    },
+    {
+     "c": "actionlint .github/workflows/*.yml; echo \"código de salida: $?\"",
+     "s": ".github/workflows/lotes.yml:60:9: shellcheck reported issue in this script: SC2086:info:7:39: Double quote to prevent globbing and word splitting [shellcheck]\n   |\n60 |         run: |\n   |         ^~~~\ncódigo de salida: 1"
+    }
+   ],
+   "cap": "actionlint sobre los diez workflows de Senda (solo lectura; shellcheck 0.9.0 instalado, así que también revisa los scripts de los pasos `run`). Corrida del 13-11-2026 sobre el commit 25e08fa. El único aviso es de nivel «info»."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Nueve de diez limpios, y un aviso en `lotes.yml` línea 60: shellcheck marca `$ARGS` sin comillas. Ahí es a propósito, porque el script necesita que el shell separe las palabras. Ese mismo paso trae una cosa que actionlint no marcó y que conviene que veas, porque es un patrón clásico."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Escribir `${{ inputs.x }}` dentro de un script",
+   "x": [
+    "En `lotes.yml`, y en una línea de `aab.yml` (`echo \"Nota: ${{ inputs.nota }}\"`), el valor de un campo que llenó una persona se inserta directamente en el texto del script. GitHub reemplaza la expresión antes de que el shell lea nada, así que lo que se escriba en el campo pasa a ser parte del programa. GitHub lo llama inyección de scripts, y su guía de seguridad recomienda pasar el valor por una variable de entorno intermedia, que no interviene en la generación del script [#ci-gha-secure-use]. El mismo repositorio ya lo hace bien en `apk.yml` (`NOTA: ${{ inputs.nota }}` dentro de `env:`).",
+    "El riesgo real acá es bajo: esos flujos son manuales y solo los dispara quien tiene permiso de escritura. Pasaría a ser serio si el valor viniera de algo que controla un tercero, como el título de un pull request. Lo demuestro sobre un archivo mío, no sobre Senda:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat paso.tpl",
+     "s": "echo \"Nota: __NOTA__\""
+    },
+    {
+     "c": "sed 's|__NOTA__|APK 50, con R8|' paso.tpl > a.sh; cat a.sh; bash a.sh",
+     "s": "echo \"Nota: APK 50, con R8\"\nNota: APK 50, con R8"
+    },
+    {
+     "c": "sed 's|__NOTA__|x\"; echo \"esto lo escribió quien llenó el campo|' paso.tpl > b.sh; cat b.sh; bash b.sh",
+     "s": "echo \"Nota: x\"; echo \"esto lo escribió quien llenó el campo\"\nNota: x\nesto lo escribió quien llenó el campo"
+    },
+    {
+     "c": "NOTA='x\"; echo \"esto lo escribió quien llenó el campo' bash -c 'echo \"Nota: $NOTA\"'",
+     "s": "Nota: x\"; echo \"esto lo escribió quien llenó el campo"
+    }
+   ],
+   "cap": "GitHub reemplaza `${{ … }}` por su valor **antes** de que el shell lea el script. Acá lo imito con `sed` sobre un archivo mío: en el segundo caso, el texto de la nota se convirtió en un comando. En el tercero, el valor viaja en una variable de entorno y se imprime como texto."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones de las acciones, a 13-11-2026",
+   "x": [
+    "Los workflows de Senda usan `actions/checkout@v4`, `setup-node@v4` y `upload-artifact@v4`. Al consultar las etiquetas públicas de esos repositorios el 13-11-2026 encontré versiones mayores hasta la v7. El aviso oficial de GitHub fijó el 16-06-2026 para que los runners usen Node 24 por defecto y el 23-09-2026 para quitar Node 20 (fechas corridas varias veces; no verifiqué que se cumplieran) [#ci-gha-node20-changelog]. No probé si las v4 corren sin problemas ni tengo registros de corridas de Senda: se mira en la pestaña Actions antes de la próxima compilación. Separado de eso, la guía de seguridad de GitHub recomienda fijar las acciones a un commit completo (SHA) en lugar de una etiqueta móvil, o usar su mecanismo de lockfile para workflows [#ci-gha-secure-use]."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Diseñá, sin cambiar nada de Senda, un workflow nuevo de unas veinte líneas que le dé integración continua básica: que se dispare al proponer un cambio y al subir a `main`, y que corra lo que el repositorio ya sabe verificar. Escribí qué comandos incluirías y qué dejarías afuera (por lenta o por cara).",
+   "pista": "Mirá el `package.json` (scripts), el paso de validación de `apk.yml` y lo que no se verifica en la lista de arriba. Lo caro, como compilar el APK o el emulador, queda fuera de esta primera etapa.",
+   "solucion": "Una propuesta es `verificar.yml`: eventos `push` a `main` y `pull_request`, un trabajo con `npm ci`, `npm run typecheck`, `python3 scripts/validar_contenido.py` y `npm run prueba:arranque`. Deja afuera la compilación del APK, la prueba de humo y la de la base por lentas; la de la base ya corre sola en `supabase.yml`. Lo validé con actionlint (sin errores), pero no lo ejecuté contra Senda: no corrí `typecheck` ni sé cuánto tardaría, y la vara de Fowler es de diez minutos. El archivo propuesto está a continuación."
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "name: Verificar\non:\n  push:\n    branches: [main]\n  pull_request:\npermissions:\n  contents: read\nconcurrency:\n  group: verificar-${{ github.ref }}\n  cancel-in-progress: true\njobs:\n  verificar:\n    runs-on: ubuntu-latest\n    timeout-minutes: 15\n    steps:\n      - uses: actions/checkout@v4\n      - uses: actions/setup-node@v4\n        with:\n          node-version: 22\n          cache: npm\n      - run: npm ci\n      - run: npm run typecheck\n      - run: python3 scripts/validar_contenido.py\n      - run: npm run prueba:arranque",
+   "cap": "Propuesta mía, no aplicada a Senda. Solo reúne comandos que ya existen en el repositorio. Para que bloquee de verdad falta marcarla como obligatoria en la protección de `main`."
+  }
+ ],
+ "recap": [
+  "La integración continua es una práctica (subir a la línea principal al menos una vez por día) más una verificación automática de cada integración. La herramienta sola es solo la mitad.",
+  "En GitHub Actions, un workflow reacciona a eventos, tiene trabajos que corren en paralelo salvo que se ordenen con `needs`, y cada trabajo tiene pasos en un runner que arranca vacío.",
+  "Un paso falla cuando su comando devuelve un código distinto de cero. Una matriz repite un trabajo con variantes y, por defecto, cancela las demás si una falla.",
+  "actionlint valida un workflow sin ejecutarlo: encontró cuatro errores de forma al instante, pero no detecta que una prueba falle.",
+  "Un artefacto es el resultado que se conserva (el APK); la caché acelera y no debe cambiar el resultado. Los runners alojados son limpios por trabajo; los propios exigen cuidado con el código no confiable.",
+  "Senda tiene verificaciones sólidas (validador, arranque, base, humo) pero se disparan a mano, sin `tsc`, sin linter y sin `pull_request`. Es automatización; la integración continua completa todavía no."
+ ],
+ "repaso": [
+  {
+   "p": "Un equipo corre pruebas automáticas en cada rama de feature, pero las ramas viven tres semanas antes de mezclarse con `main`. Según la definición que viste hoy, ¿hacen integración continua?",
+   "o": [
+    "No del todo: falta integrar a la línea principal al menos una vez al día",
+    "Sí, porque cada cambio de cada rama dispara un build automático con pruebas",
+    "Sí, mientras el servidor de integración esté configurado correctamente",
+    "No, porque la integración continua exige más de un runner para ser válida"
+   ],
+   "c": 0,
+   "e": "La práctica incluye integrar seguido a la línea principal; un servidor que prueba ramas aisladas es «semi-integración». Tener la máquina no alcanza, y el número de runners no define la práctica."
+  },
+  {
+   "p": "Un workflow tiene los trabajos `compilar` y `probar`, sin `needs`. `compilar` genera una carpeta `dist` y `probar` la necesita. ¿Qué pasa?",
+   "o": [
+    "Corren uno tras otro en el orden en que aparecen en el archivo, compartiendo carpeta",
+    "Corren en paralelo en runners distintos, y `probar` no ve la carpeta de `compilar`",
+    "Corren en el mismo runner y comparten los archivos que cada trabajo vaya creando",
+    "GitHub detecta la dependencia y ordena los trabajos por su cuenta sin pedirlo"
+   ],
+   "c": 1,
+   "e": "Los trabajos son paralelos por defecto y cada uno tiene su propio runner, que arranca vacío. Para ordenarlos hace falta `needs`, y para pasar archivos, un artefacto o un trabajo único."
+  },
+  {
+   "p": "Un workflow define `strategy.matrix` con `node: [18, 20, 22]` y el trabajo tiene seis pasos. ¿Cuántos trabajos se crean?",
+   "o": [
+    "Uno solo, que repite los seis pasos tres veces seguidas",
+    "Dieciocho, uno por cada combinación de versión y paso",
+    "Tres, uno por versión, cada uno con sus seis pasos",
+    "Seis, uno por paso, y cada uno prueba las tres versiones"
+   ],
+   "c": 2,
+   "e": "La matriz multiplica el trabajo entero, no sus pasos: tres variantes, tres runners en paralelo, cada uno con todos sus pasos. Los pasos son la secuencia dentro de cada trabajo."
+  },
+  {
+   "p": "Un pull request tiene el check de CI en rojo y aun así se puede mezclar. ¿Cuál es la causa más probable?",
+   "o": [
+    "El pipeline está mal escrito y no consigue informar su resultado a GitHub",
+    "La verificación no está marcada como obligatoria en la protección de la rama",
+    "GitHub solo bloquea mezclas cuando el check tarda más de diez minutos",
+    "Los checks en rojo se vuelven verdes solos al pasar unas horas sin cambios"
+   ],
+   "c": 1,
+   "e": "El pipeline informó el resultado, pero bloquear la mezcla es una regla de la protección de rama (verificaciones de estado obligatorias). No depende del tiempo ni se corrige solo."
+  },
+  {
+   "p": "Querés que el servidor de CI no baje las mismas dependencias en cada corrida, y que el resultado final no cambie si esa copia guardada desaparece. ¿Qué usás?",
+   "o": [
+    "Un artefacto de dependencias, porque se conserva el tiempo que se configure",
+    "Un runner propio, porque así nunca hay que descargar nada de internet",
+    "Un trabajo adicional que suba las dependencias al repositorio principal",
+    "Una caché de dependencias, porque solo acelera y se puede perder sin consecuencias"
+   ],
+   "c": 3,
+   "e": "La caché es una optimización: si falta, se descarga de nuevo y todo funciona. El artefacto sirve para resultados que alguien consumirá. El runner propio no evita las descargas y subir dependencias al repositorio es mala práctica."
+  },
+  {
+   "p": "Un build de CI tarda 25 minutos y el equipo evita subir cambios chicos. ¿Qué medida va en la dirección de lo que recomienda Fowler?",
+   "o": [
+    "Partir en etapas: pruebas rápidas primero y las lentas después, en una segunda etapa",
+    "Correr el build solo una vez por semana para que nadie espere durante el día",
+    "Sumar más pruebas lentas al principio para detectar fallos de integración antes",
+    "Pedir que cada persona corra el build completo en su compu antes de subir"
+   ],
+   "c": 0,
+   "e": "La guía es mantener el ciclo principal cerca de diez minutos, y una forma es dividir en etapas. Correrlo menos veces o sumar lentitud al principio va contra el feedback rápido, y pedir lo mismo en cada compu duplica el esfuerzo sin dar una señal compartida."
+  },
+  {
+   "p": "Se compiló un APK de Senda con un error de tipos de TypeScript y el flujo no lo frenó. ¿Qué dato de lo que viste explica mejor por qué?",
+   "o": [
+    "Los workflows de Senda corren en runners propios que ignoran los errores de tipos",
+    "GitHub Actions no puede ejecutar comandos de TypeScript en `ubuntu-latest`",
+    "Ningún workflow ejecuta `tsc`, y ni Babel ni Metro verifican los tipos",
+    "El validador de contenido revisa los tipos al mismo tiempo que las citas bíblicas"
+   ],
+   "c": 2,
+   "e": "El script `typecheck` existe en `package.json` pero ningún workflow lo llama, y las herramientas que sí corren eliminan los tipos sin comprobarlos. Todos los trabajos usan runners alojados, `tsc` corre sin problema en Ubuntu, y el validador revisa contenido, no código."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística qué diferencia hay entre «tener un servidor de integración continua» y «hacer integración continua». Usá un ejemplo propio, que no sea la recepción de mercadería, y contá en dos frases qué le pasa a un equipo que tiene lo primero sin lo segundo.",
+ "para_profundizar": [
+  {
+   "fuente": "ci-fowler-continuous-integration",
+   "nota": "El artículo de Martin Fowler sobre integración continua, reescrito en 2023. Leé las secciones sobre las prácticas y sobre la «semi-integración»: son el criterio con el que se juzga cualquier pipeline."
+  },
+  {
+   "fuente": "ci-gha-workflows-concepts",
+   "nota": "La explicación oficial de qué es un workflow en GitHub Actions: eventos, trabajos, pasos y runners. Sirve para tener claro el vocabulario antes de abrir la referencia de sintaxis."
+  },
+  {
+   "fuente": "ci-gha-workflow-syntax",
+   "nota": "La referencia completa de la sintaxis de los workflows. No es para leer entera: buscá `strategy`, `concurrency`, `permissions` y `timeout-minutes` cuando necesites cambiar uno."
+  },
+  {
+   "fuente": "ci-gha-secure-use",
+   "nota": "La guía de seguridad de GitHub Actions: permisos mínimos, inyección de scripts, fijar versiones de acciones y runners propios. Es la lectura que más se posterga y más cara sale ignorar."
+  }
+ ],
+ "videos": [
+  {
+   "q": "GitHub Actions tutorial workflow jobs steps matrix explicado desde cero",
+   "por_que": "Para ver en pantalla cómo se crea un workflow, se dispara y se mira su resultado en la pestaña Actions de un repositorio, lo que acá solo pudiste ver en la terminal."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "integración continua",
+   "d": "Práctica de equipo en la que cada persona integra sus cambios a la línea principal al menos una vez por día, y cada integración se verifica con un build automático que incluye pruebas."
+  },
+  {
+   "t": "pipeline",
+   "d": "Secuencia automática de etapas por la que pasa un cambio de software: bajar el código, instalar, compilar, probar y guardar resultados. En GitHub Actions lo forman los trabajos de un workflow."
+  },
+  {
+   "t": "runner",
+   "d": "Máquina que ejecuta los trabajos de un pipeline. Los alojados por GitHub son máquinas virtuales nuevas por trabajo; los propios son máquinas tuyas con el programa de GitHub instalado."
+  },
+  {
+   "t": "artefacto",
+   "d": "Archivo o conjunto de archivos generados por una corrida del pipeline (un APK, un informe de pruebas, una carpeta de build) y guardados para usarlos después o compartirlos con otro trabajo."
+  },
+  {
+   "t": "workflow",
+   "d": "En GitHub Actions, proceso automático definido en un archivo YAML dentro de `.github/workflows/`. Se dispara por eventos o a mano y contiene uno o más trabajos."
+  },
+  {
+   "t": "disparador",
+   "d": "Evento que pone en marcha un workflow: un push, un pull request, una hora programada con cron o una orden manual (`workflow_dispatch`)."
+  },
+  {
+   "t": "matriz de compilación",
+   "d": "Opción que repite un mismo trabajo con distintas variantes (versiones de Node, sistemas operativos), creando un trabajo y un runner por combinación."
+  },
+  {
+   "t": "actionlint",
+   "d": "Analizador estático de archivos de workflows de GitHub Actions: revisa claves, expresiones, dependencias entre trabajos y los scripts de los pasos, sin ejecutar nada."
+  }
+ ],
+ "siguiente": "Ya tenés una máquina que verifica cada cambio y deja un artefacto. Mañana, qué hacer con ese artefacto: la entrega y el despliegue continuos, las puertas de calidad y por qué una app móvil no se arregla con un enlace.",
+ "fuentes_nuevas": [
+  {
+   "id": "ci-fowler-continuous-integration",
+   "t": "Continuous Integration",
+   "a": "Martin Fowler",
+   "tipo": "articulo",
+   "anio": "2024",
+   "url": "https://martinfowler.com/articles/continuousIntegration.html"
+  },
+  {
+   "id": "ci-gha-workflows-concepts",
+   "t": "Workflows (GitHub Actions)",
+   "a": "GitHub Docs",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/actions/concepts/workflows-and-actions/workflows"
+  },
+  {
+   "id": "ci-gha-workflow-syntax",
+   "t": "Workflow syntax for GitHub Actions",
+   "a": "GitHub Docs",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax"
+  },
+  {
+   "id": "ci-gha-hosted-runners-ref",
+   "t": "GitHub-hosted runners reference",
+   "a": "GitHub Docs",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/actions/reference/runners/github-hosted-runners"
+  },
+  {
+   "id": "ci-gha-billing",
+   "t": "GitHub Actions billing",
+   "a": "GitHub Docs",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/billing/concepts/product-billing/github-actions"
+  },
+  {
+   "id": "ci-gha-artifacts",
+   "t": "Workflow artifacts",
+   "a": "GitHub Docs",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/actions/concepts/workflows-and-actions/workflow-artifacts"
+  },
+  {
+   "id": "ci-gha-secure-use",
+   "t": "Secure use reference (GitHub Actions)",
+   "a": "GitHub Docs",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/actions/reference/security/secure-use"
+  },
+  {
+   "id": "ci-gh-protected-branches",
+   "t": "About protected branches",
+   "a": "GitHub Docs",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches"
+  },
+  {
+   "id": "ci-gha-node20-changelog",
+   "t": "Deprecation of Node 20 on GitHub Actions runners",
+   "a": "GitHub Changelog",
+   "tipo": "articulo",
+   "anio": "2025",
+   "url": "https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/"
+  },
+  {
+   "id": "ci-actionlint-readme",
+   "t": "actionlint: static checker for GitHub Actions workflow files (README)",
+   "a": "rhysd",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/rhysd/actionlint/main/README.md"
+  }
+ ]
+}

@@ -1,0 +1,725 @@
+{
+ "id": "04-16",
+ "titulo": "Testing III: integración, E2E, TDD y cobertura",
+ "bajada": "Ves qué atrapan las pruebas que usan una base de verdad y un navegador de verdad, practicás TDD, y medís cuánto engaña un número de cobertura.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué atrapa una prueba de integración que una prueba unitaria con doble no puede atrapar, con un caso reproducido.",
+  "Leer una prueba E2E con Playwright y decir por qué esperar una señal es más estable que esperar un tiempo.",
+  "Practicar el ciclo rojo, verde, refactor de TDD sobre una función chica.",
+  "Mostrar con un experimento por qué una cobertura de 100 % no garantiza nada, y qué hacer con las pruebas inestables.",
+  "Ubicar en el repositorio de Senda su prueba de integración con una base y decir qué cubre y qué no."
+ ],
+ "venis_de": "En [@04-15] escribiste pruebas unitarias con dobles y viste que la cobertura mide qué código corrió, no qué se comprobó. Hoy subís un escalón en la pirámide: pruebas donde las piezas de verdad se tocan.",
+ "se_apoya_en": [
+  "04-14",
+  "04-15",
+  "03-16",
+  "03-41"
+ ],
+ "gancho": [
+  "Todas las pruebas unitarias de ayer estaban en verde. Si ahora le pedís a esa función que registre un envío de 3,5 kilos en una base de datos, el programa se cae con un mensaje que ninguna prueba unitaria podía anticipar. La función estaba bien. La base también. Lo que fallaba era el **encuentro**: un lado habla en medios kilos y el otro solo entiende enteros.",
+  "Hoy reproducís ese fallo y otros dos del mismo tipo, con un Postgres de verdad corriendo en esta máquina y un navegador de verdad abriendo una página. Después practicás el método que invierte el orden (primero la prueba, después el código), medís cuánto vale un porcentaje de cobertura y cómo se vive con una prueba que a veces falla sin que nadie haya tocado nada."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Cuando las piezas se tocan: pruebas de integración"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[prueba de integración]] verifica que **varias piezas reales funcionen juntas**: tu código con una base de datos, con el sistema de archivos o con otro servicio, sin dobles de por medio. En la [[pirámide de pruebas]] del [@04-14] son el piso del medio: menos numerosas que las unitarias, más lentas, y capaces de ver cosas que aquellas no pueden.",
+    "El caso es el mismo módulo de logística de ayer, ahora con una capa que guarda envíos en Postgres. La función `registrarEnvio` calcula el peso cobrable y el costo (las funciones ya probadas) y los inserta. Primero su prueba **unitaria**, con la base reemplazada por un doble que anota lo que le piden:"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: la rampa del depósito",
+   "x": "Cada sector de un depósito controla lo suyo: recepción cuenta, picking arma, despacho carga. Todo puede estar en orden y aun así los pallets se rompen en la rampa donde un sector le entrega al otro. Las pruebas de integración miran las rampas. La analogía deja de valer en que una rampa física falla de forma visible; un desacuerdo de tipos entre dos sistemas puede pasar semanas sin que nadie lo vea."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "E2E (hoy)",
+     "d": "Una persona, un navegador, la página y el servidor juntos",
+     "k": "alerta"
+    },
+    {
+     "n": "Integración (hoy)",
+     "d": "Tu código con una base real, un archivo o un servicio",
+     "k": "datos"
+    },
+    {
+     "n": "Unitarias (ayer)",
+     "d": "Una función sola, con dobles para lo que toca el mundo",
+     "k": "ok"
+    }
+   ],
+   "cap": "La pirámide de [@04-14] con las capas que se tocan hoy. Cuanto más arriba, más piezas reales, más lenta y más frágil la prueba."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { pesoCobrable, calcularFlete } from './flete.mjs';\n\n// `db` es cualquier objeto con query(sql, params): en producción, una conexión a Postgres.\nexport async function registrarEnvio(db, { id, zona, pesoKg, medidas }) {\n  const kg = pesoCobrable(pesoKg, ...medidas);\n  const costo = calcularFlete(zona, kg);\n  await db.query('insert into envios (id, zona, kg, costo) values ($1, $2, $3, $4)', [id, zona, kg, costo]);\n  return { id, zona, kg, costo };\n}\n\nexport async function envioPorId(db, id) {\n  const r = await db.query('select id, zona, kg::float8 as kg, costo from envios where id = $1', [id]);\n  return r.rows[0] ?? null;\n}\n\nexport async function totalesPorZona(db) {\n  const r = await db.query(\n    'select zona, count(*)::int as envios, sum(costo)::int as total from envios group by zona order by zona');\n  return r.rows;\n}",
+   "cap": "repo.mjs. `db` es cualquier objeto con un método `query`; en producción, una conexión a Postgres (paquete `pg` 8.23.1). La versión que ves ya incluye el arreglo del final de este apartado (`kg::float8`)."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { test, mock } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { registrarEnvio } from './repo.mjs';\n\n// Prueba UNITARIA: la base es un doble. Verifica qué se le pide, no qué hace una base de verdad.\ntest('registrarEnvio: calcula kg y costo y los manda al insert', async () => {\n  const db = { query: mock.fn(async () => ({ rows: [] })) };\n  const r = await registrarEnvio(db, { id: 'A-1', zona: 'GBA', pesoKg: 3.1, medidas: [10, 10, 10] });\n  assert.deepEqual(r, { id: 'A-1', zona: 'GBA', kg: 3.5, costo: 3500 + 550 * 3.5 });\n  assert.equal(db.query.mock.callCount(), 1);\n  assert.deepEqual(db.query.mock.calls[0].arguments[1], ['A-1', 'GBA', 3.5, 5425]);\n});",
+   "cap": "repo.unit.test.mjs: la base es un doble. Verifica qué consulta se manda y con qué datos."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node --test --test-reporter=spec repo.unit.test.mjs",
+     "s": "✔ registrarEnvio: calcula kg y costo y los manda al insert (1.641857ms)\nℹ pass 1\nℹ fail 0\nℹ duration_ms 59.705837"
+    }
+   ],
+   "cap": "Salida real. Verde, y lo seguiría estando aunque la tabla no existiera: el doble acepta cualquier cosa."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora la prueba de integración. Tiene tres diferencias con la de ayer. Usa una **base de verdad**: PostgreSQL 16.15, levantado en esta máquina solo para este día. Crea esa base de cero en cada corrida y le aplica el esquema (el archivo `esquema.sql`). Y aísla cada prueba envolviéndola en una **transacción** que se deshace al terminar, para que ningún dato de una prueba contamine la siguiente, que es el problema de orden que viste ayer."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table envios (\n  id    text primary key,\n  zona  text not null check (zona in ('CABA', 'GBA', 'INTERIOR')),\n  kg    numeric(6,1) not null check (kg > 0),\n  costo integer not null check (costo >= 0)\n);",
+   "cap": "esquema.sql, versión final. Las tablas se definen con restricciones (`primary key`, `check`) que la propia base hace cumplir."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { test, before, after, beforeEach, afterEach } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { readFileSync } from 'node:fs';\nimport pg from 'pg';\nimport { registrarEnvio, envioPorId, totalesPorZona } from './repo.mjs';\n\nconst BASE = 'prueba_envios';\nconst conf = { host: process.env.PGHOST, port: Number(process.env.PGPORT), user: 'postgres' };\nlet pool, cliente;\n\nbefore(async () => {\n  // Una base de verdad, creada de cero para esta corrida\n  const admin = new pg.Client({ ...conf, database: 'postgres' });\n  await admin.connect();\n  await admin.query(`drop database if exists ${BASE}`);\n  await admin.query(`create database ${BASE}`);\n  await admin.end();\n  pool = new pg.Pool({ ...conf, database: BASE, max: 1 });\n  await pool.query(readFileSync(process.env.ESQUEMA ?? 'esquema.sql', 'utf8'));\n});\nafter(async () => { await pool.end(); });\n\n// Cada prueba trabaja dentro de una transacción que se deshace: no deja rastros para la siguiente.\nbeforeEach(async () => { cliente = await pool.connect(); await cliente.query('begin'); });\nafterEach(async () => { await cliente.query('rollback'); cliente.release(); });\n\ntest('un envío guardado se lee igual que como se guardó', async () => {\n  await registrarEnvio(cliente, { id: 'A-1', zona: 'GBA', pesoKg: 3.1, medidas: [10, 10, 10] });\n  const leido = await envioPorId(cliente, 'A-1');\n  assert.deepEqual(leido, { id: 'A-1', zona: 'GBA', kg: 3.5, costo: 5425 });\n});\n\ntest('la base rechaza dos envíos con el mismo id', async () => {\n  await registrarEnvio(cliente, { id: 'A-2', zona: 'CABA', pesoKg: 2, medidas: [10, 10, 10] });\n  await assert.rejects(\n    registrarEnvio(cliente, { id: 'A-2', zona: 'CABA', pesoKg: 2, medidas: [10, 10, 10] }),\n    (e) => e.code === '23505'); // unique_violation\n});\n\ntest('totalesPorZona suma por zona y deja afuera las zonas sin envíos', async () => {\n  await registrarEnvio(cliente, { id: 'B-1', zona: 'CABA', pesoKg: 2, medidas: [10, 10, 10] });\n  await registrarEnvio(cliente, { id: 'B-2', zona: 'CABA', pesoKg: 4, medidas: [10, 10, 10] });\n  await registrarEnvio(cliente, { id: 'B-3', zona: 'INTERIOR', pesoKg: 1, medidas: [10, 10, 10] });\n  const t = await totalesPorZona(cliente);\n  assert.deepEqual(t, [\n    { zona: 'CABA', envios: 2, total: (2500 + 400 * 2) + (2500 + 400 * 4) },\n    { zona: 'INTERIOR', envios: 1, total: 6000 + 900 * 1 },\n  ]);\n});",
+   "cap": "repo.integracion.test.mjs: tres pruebas contra la base real. `before` la crea; `beforeEach` abre una transacción y `afterEach` la deshace."
+  },
+  {
+   "t": "p",
+   "x": "Mi primera versión del esquema tenía la columna `kg` como `integer`, porque «los kilos son números enteros». Con esa versión, esto es lo que ve la prueba de integración:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ESQUEMA=esquema_v1.sql node --test --test-reporter=spec repo.integracion.test.mjs",
+     "s": "✖ un envío guardado se lee igual que como se guardó (41.643408ms)\n✔ la base rechaza dos envíos con el mismo id (3.358362ms)\n✔ totalesPorZona suma por zona y deja afuera las zonas sin envíos (5.07078ms)\nℹ pass 2\nℹ fail 1\n\n✖ failing tests:\n\ntest at repo.integracion.test.mjs:27:1\n✖ un envío guardado se lee igual que como se guardó (41.643408ms)\n  error: invalid input syntax for type integer: \"3.5\""
+    }
+   ],
+   "cap": "Salida real, recortada. Dos de las tres pruebas pasan porque usan pesos enteros: el error solo aparece con medios kilos."
+  },
+  {
+   "t": "p",
+   "x": "Se arregla la columna a `numeric(6,1)` (un decimal) y la misma prueba falla de otra manera, porque el paquete de Postgres para Node entrega los `numeric` como texto. Coincide con la regla general que describe su documentación: sin un conversor registrado para un tipo, el paquete entrega texto [#node-postgres-types]; lo comprobé con `numeric`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node --test --test-reporter=spec repo.integracion.test.mjs   # con numeric(6,1)",
+     "s": "✖ un envío guardado se lee igual que como se guardó (46.376816ms)\n✔ la base rechaza dos envíos con el mismo id (4.273389ms)\n✔ totalesPorZona suma por zona y deja afuera las zonas sin envíos (2.966399ms)\nℹ pass 2\nℹ fail 1\n\n✖ failing tests:\n\ntest at repo.integracion.test.mjs:27:1\n✖ un envío guardado se lee igual que como se guardó (46.376816ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n\n    {\n      costo: 5425,\n      id: 'A-1',\n  +   kg: '3.5',\n  -   kg: 3.5,"
+    }
+   ],
+   "cap": "Salida real, recortada. Esperaba el número 3.5 y la base devolvió el texto '3.5'."
+  },
+  {
+   "t": "p",
+   "x": "Se arregla leyendo la columna como `float8` en la consulta (`kg::float8 as kg`), que es la versión de `repo.mjs` que ves arriba, y ahora sí:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node --test --test-reporter=spec repo.integracion.test.mjs",
+     "s": "✔ un envío guardado se lee igual que como se guardó (44.689329ms)\n✔ la base rechaza dos envíos con el mismo id (2.325295ms)\n✔ totalesPorZona suma por zona y deja afuera las zonas sin envíos (2.76764ms)\nℹ pass 3\nℹ fail 0\nℹ duration_ms 116.405396"
+    }
+   ],
+   "cap": "Salida real. Los tiempos son de una sola VM; la primera prueba incluye abrir la conexión."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate qué pasó: **dos errores reales, ninguno visible para una prueba unitaria**. Ni la función de costo ni la de peso estaban mal; el problema era el contrato de tipos entre dos sistemas. Esa clase de errores vive en las juntas: tipos, restricciones, codificación de texto, zonas horarias. Un doble no los ve porque acepta lo que le des.",
+    "La base también hizo algo útil sin que lo pidieras: la segunda prueba verifica que repetir un `id` se **rechaza** (código `23505`, violación de unicidad). Esa regla está en la base y nadie escribió una línea de JavaScript para hacerla cumplir. Con un doble, ese comportamiento ni existe."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El doble de `db` de la prueba unitaria acepta cualquier `query`. ¿Entonces la prueba unitaria de `registrarEnvio` no sirve para nada?",
+   "resp": "Sirve para lo que dice: que la función calcula bien el peso y el costo y los entrega a la base en el orden correcto, rápido y sin infraestructura. Lo que no puede decir es si la base los acepta. Cada nivel responde una pregunta distinta, y por eso la pirámide tiene varios."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones de hoy",
+   "x": "Corrí PostgreSQL 16.15 (el paquete de Ubuntu 24.04 de esta VM) con `pg` 8.23.1 y Playwright 1.63.0 (la última en npm hoy es la 1.65.0). En su página de versiones, el proyecto lista la 16 como soportada hasta el 9 de noviembre de 2028, con la 16.16 como versión menor actual al 13-11-2026, y la 18 como mayor más reciente [#postgresql-versioning]. La regla de fondo no depende de la versión: probá contra el mismo motor que usás en producción. Probar contra otro (por ejemplo, SQLite en lugar de Postgres) es más cómodo y puede ocultar diferencias, como los tipos."
+  },
+  {
+   "t": "h",
+   "x": "Como lo haría una persona: pruebas E2E"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[prueba E2E]] (de *end to end*, de punta a punta) maneja la aplicación **como lo haría una persona**: abre el navegador, escribe en un formulario, aprieta un botón y mira lo que aparece. No se mete en el código: usa el sistema entero, con su página, su servidor y su lógica, desde afuera.",
+    "Para el ejercicio armé un cotizador de fletes mínimo: una página con un formulario y un servidor local que usa las mismas funciones de ayer. La prueba usa **Playwright**, la herramienta de automatización de navegadores que viene instalada en esta máquina (versión 1.63.0, con un Chromium incluido), y abre una instancia real del navegador."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { test, before, after } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { createRequire } from 'node:module';\nimport { crearServidor } from './servidor.mjs';\nconst { chromium } = createRequire(import.meta.url)('/opt/node22/lib/node_modules/playwright');\n\nlet servidor, url, navegador;\nbefore(async () => {\n  servidor = crearServidor({ demoraMax: 0 });\n  await new Promise((ok) => servidor.listen(0, '127.0.0.1', ok));\n  url = 'http://127.0.0.1:' + servidor.address().port + '/';\n  navegador = await chromium.launch();\n});\nafter(async () => { await navegador.close(); servidor.close(); });\n\ntest('E2E: una persona completa el formulario y ve el flete', async () => {\n  const page = await navegador.newPage();\n  await page.goto(url);\n  await page.selectOption('#zona', 'GBA');\n  await page.fill('#peso', '4');\n  await page.click('#cotizar');\n  await page.locator('#resultado').filter({ hasText: 'Flete' }).waitFor();   // espera a que aparezca, no a que pase un tiempo\n  assert.equal(await page.textContent('#resultado'), 'Flete: $5700 (4 kg cobrables)');\n  await page.close();\n});\n\ntest('E2E: con un peso inválido la persona ve el error, no una pantalla en blanco', async () => {\n  const page = await navegador.newPage();\n  await page.goto(url);\n  await page.fill('#peso', '-3');\n  await page.click('#cotizar');\n  await page.locator('#resultado').filter({ hasText: 'Error' }).waitFor();\n  assert.match(await page.textContent('#resultado'), /Error: peso y medidas deben ser números positivos/);\n  await page.close();\n});",
+   "cap": "e2e.test.mjs. El servidor (servidor.mjs) sirve la página y el endpoint /api/flete; no lo muestro entero porque no es lo importante. La primera prueba espera a que aparezca el texto, no a que pase un rato."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node --test --test-reporter=spec e2e.test.mjs",
+     "s": "✔ E2E: una persona completa el formulario y ve el flete (293.440209ms)\n✔ E2E: con un peso inválido la persona ve el error, no una pantalla en blanco (162.651862ms)\nℹ pass 2\nℹ fail 0\nℹ duration_ms 837.194695"
+    }
+   ],
+   "cap": "Salida real. La suite entera tarda unos 0,7 s, de los cuales gran parte es abrir el navegador."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Qué atrapa una E2E que nada más atrapa: que el botón realmente llame a la dirección correcta, que el campo de la respuesta se llame como lo espera la página, que el error del servidor llegue hasta la pantalla. Es el pegamento de todo lo anterior. Si cambiás `costo` por `precio` en el servidor y no en la página, las pruebas unitarias del servidor siguen verdes y esta prueba falla.",
+    "Playwright recomienda probar lo que la persona ve, mantener cada prueba aislada de las demás, esperar con sus localizadores (que reintentan solos hasta que el elemento esté listo) y no probar sitios que no controlás [#playwright-best-practices]. El costo del nivel también se ve en la tabla de abajo: cada prueba tarda cientos de veces más que una unitaria, y cualquier cambio en el HTML puede romperlas."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Pruebas inestables: cuando falla y nadie tocó nada"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[prueba inestable]] (en inglés *flaky*) es la que a veces pasa y a veces falla **con el mismo código y el mismo entorno**. Martin Fowler las llama pruebas no deterministas y señala el daño principal: la gente aprende a ignorar el rojo, y esa costumbre se contagia a las pruebas sanas [#fowler-non-determinism]. Son más comunes en E2E y en integración, y casi siempre vienen de lo mismo: esperar un **tiempo** en lugar de una **señal**.",
+    "Lo reproduje. Hice que el servidor tarde entre 0 y 200 ms al azar, como pasa con uno real cargado, y escribí la misma comprobación de dos maneras: una que **duerme 100 ms** y después lee la pantalla, y otra que **espera a que aparezca** el resultado. Corrí cada una 40 veces."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const fija = (page) => page.waitForTimeout(100);                                                       // «dormir» 100 ms\nconst hastaQueAparezca = (page) => page.locator('#resultado').filter({ hasText: 'Flete' }).waitFor(); // esperar la señal\n\n// en cada intento: abrir la página, apretar «Cotizar», esperar con una de las dos, y leer #resultado",
+   "cap": "Extracto de flaky.mjs. Todo lo demás (abrir, apretar, leer) es idéntico en las dos variantes."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node flaky.mjs   # 40 corridas de cada variante; servidor con demora de 0 a 200 ms",
+     "s": "espera fija de 100 ms: 16 fallas en 40 corridas (211 ms por corrida)\nespera hasta que aparezca: 0 fallas en 40 corridas (240 ms por corrida)"
+    }
+   ],
+   "cap": "Salida real de una corrida. En otras dos corridas seguidas la espera fija falló 18 y 20 veces de 40: cerca de la mitad, como pide la cuenta (la demora supera los 100 ms la mitad de las veces). Es azar, así que los números cambian."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La espera fija falla cuando el servidor tarda más de lo que dormiste; la espera por señal no falló en ninguna de las 120 corridas (tres series de 40) y tarda unos 30 a 40 ms más por corrida. El tiempo en una prueba es una apuesta sobre la velocidad de la máquina, y las máquinas de integración continua suelen ser más lentas que la tuya.",
+    "Un ejemplo con números muestra por qué un 1 % de inestabilidad es grave. Si una suite tiene 50 pruebas y cada una falla al azar el 1 % de las veces, la probabilidad de que **todas** pasen es 0,99 elevado a 50, o sea 60,5 %. Casi 4 de cada 10 corridas salen rojas sin que nadie haya roto nada (es una cuenta, no una medición). Con 200 pruebas, 87 de cada 100."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "¿Qué se hace? Primero, arreglar la causa. Fowler lista las de siempre: pruebas que comparten estado, esperas asincrónicas con tiempos fijos, servicios remotos, el reloj, fugas de recursos [#fowler-non-determinism]; ya las viste ayer y hoy. Mientras la arreglás, **la cuarentena**: sacás la prueba del camino de las que bloquean un cambio, pero la dejás visible, con un responsable y un plazo. Fowler recomienda además limitar cuánto puede estar una prueba en cuarentena. En `node:test` se marca con `todo`:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\n\n// Una prueba inestable de juguete: falla cerca de la mitad de las veces.\nconst lanzarMoneda = () => Math.random() < 0.5;\n\ntest('estable: la suma sigue sumando', () => {\n  assert.equal(2 + 2, 4);\n});\n\ntest('cotización con el servidor lento (INESTABLE)', { todo: 'FLAKY-12: espera fija de 100 ms; dueño: logística; arreglar o borrar antes del 30-11' }, () => {\n  assert.equal(lanzarMoneda(), true);\n});",
+   "cap": "cuarentena.test.mjs. La segunda prueba falla al azar a propósito; `todo` lleva el ticket y el plazo en el texto."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node --test --test-reporter=spec cuarentena.test.mjs   # una corrida en la que sale rojo",
+     "s": "✔ estable: la suma sigue sumando (1.22489ms)\n✖ cotización con el servidor lento (INESTABLE) (1.118514ms) # FLAKY-12 (…)\nℹ pass 1\nℹ fail 0\nℹ todo 1\n✖ failing tests:\n✖ cotización con el servidor lento (INESTABLE) (1.118514ms) # FLAKY-12 (…)\nexit=0"
+    },
+    {
+     "c": "node --test --test-skip-pattern=\"INESTABLE\" --test-reporter=spec cuarentena.test.mjs",
+     "s": "✔ estable: la suma sigue sumando (1.058994ms)\nℹ pass 1\nℹ fail 0"
+    }
+   ],
+   "cap": "Salida real (la prueba es aleatoria: busqué una corrida en la que falla). Con `todo`, el reporte sigue mostrando el fallo, pero el código de salida es 0: no frena el despliegue. Con `--test-skip-pattern` la prueba ni se ejecuta."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "«Volvé a correrla y listo»",
+   "x": "Reintentar hasta que pase es tentador y sirve de parche mientras se arregla la causa. Como política es peligroso: un bug real que solo aparece a veces queda tapado por el reintento. Cuarentena con dueño y fecha, o se arregla, o se borra."
+  },
+  {
+   "t": "h",
+   "x": "TDD: la prueba primero"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[TDD]] (*test-driven development*, desarrollo guiado por pruebas) es un método de trabajo que invierte el orden de ayer: **escribís la prueba antes que el código**. Lo formalizó Kent Beck en *Test-Driven Development: By Example* (2002) y lo resumió en diciembre de 2023 en un texto breve que llamó «Canon TDD». Sus pasos, tal como él los enumera: hacer una lista de los escenarios a cubrir; convertir **uno solo** en una prueba concreta y ejecutable; hacer que esa prueba (y las anteriores) pasen; refactorizar si conviene; y repetir hasta vaciar la lista [#beck-canon-tdd].",
+    "En el vocabulario habitual son tres colores: **rojo** (la prueba nueva falla), **verde** (se escribe lo mínimo para que pase) y **refactor** (se limpia el código con la red de seguridad de las pruebas en verde). Refactorizar quiere decir cambiar la estructura del código sin cambiar lo que hace; el [@04-17] lo trata en detalle."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Lo practiqué con una regla inventada de logística: el descuento por volumen de cajas (menos de 10, nada; desde 10, 5 %; desde 50, 10 %; desde 100, 15 %; cantidades negativas o con decimales son un error). Cinco ciclos y un refactor. Esto muestra cada paso, con la salida real de cada corrida:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# ciclo 1, rojo (la función existe pero no devuelve nada)",
+     "s": "✖ menos de 10 cajas no tienen descuento\n✖ menos de 10 cajas no tienen descuento\n    pass 0, fail 1"
+    },
+    {
+     "c": "# ciclo 1, verde (devolver 0 a secas)",
+     "s": "    pass 1, fail 0"
+    },
+    {
+     "c": "# ciclo 2, rojo",
+     "s": "✖ desde 10 cajas hay 5 % de descuento\n✖ desde 10 cajas hay 5 % de descuento\n    0 !== 0.05\n    pass 1, fail 1"
+    },
+    {
+     "c": "# ciclo 2, verde",
+     "s": "    pass 2, fail 0"
+    },
+    {
+     "c": "# ciclo 3, rojo",
+     "s": "✖ desde 50 cajas hay 10 % de descuento\n✖ desde 50 cajas hay 10 % de descuento\n    0.05 !== 0.1\n    pass 2, fail 1"
+    },
+    {
+     "c": "# ciclo 3, verde",
+     "s": "    pass 3, fail 0"
+    },
+    {
+     "c": "# ciclo 4, rojo",
+     "s": "✖ desde 100 cajas hay 15 % de descuento\n✖ desde 100 cajas hay 15 % de descuento\n    0.1 !== 0.15\n    pass 3, fail 1"
+    },
+    {
+     "c": "# ciclo 4, verde",
+     "s": "    pass 4, fail 0"
+    },
+    {
+     "c": "# ciclo 5, rojo",
+     "s": "✖ una cantidad negativa o con decimales es un error\n✖ una cantidad negativa o con decimales es un error\n    pass 4, fail 1"
+    },
+    {
+     "c": "# ciclo 5, verde",
+     "s": "    pass 5, fail 0"
+    },
+    {
+     "c": "# refactor: se cambia el código, las pruebas quedan igual",
+     "s": "    pass 5, fail 0"
+    }
+   ],
+   "cap": "Un ciclo por regla. El «verde» del primer ciclo es a propósito tramposo (devolver un 0 fijo): es lo que Beck llama «Fake It» en su libro: escribir lo más simple que hace pasar la prueba, y la siguiente prueba lo obliga a ser real."
+  },
+  {
+   "t": "pensa",
+   "x": "En el ciclo 1 se hizo pasar la prueba devolviendo un 0 fijo. ¿No era más rápido escribir ya los cuatro tramos?",
+   "resp": "Más rápido para escribirlo, sí; más riesgoso para acertarlo. Cada regla entra con su propia prueba que falla antes y pasa después, así que un error siempre se localiza en el último cambio. Con los cuatro tramos de golpe, un rojo podría venir de cualquiera."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { test } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { descuentoPorVolumen } from './descuento.mjs';\n\ntest('menos de 10 cajas no tienen descuento', () => {\n  assert.equal(descuentoPorVolumen(5), 0);\n});\n\ntest('desde 10 cajas hay 5 % de descuento', () => {\n  assert.equal(descuentoPorVolumen(10), 0.05);\n});\n\ntest('desde 50 cajas hay 10 % de descuento', () => {\n  assert.equal(descuentoPorVolumen(50), 0.10);\n});\n\ntest('desde 100 cajas hay 15 % de descuento', () => {\n  assert.equal(descuentoPorVolumen(100), 0.15);\n});\n\ntest('una cantidad negativa o con decimales es un error', () => {\n  assert.throws(() => descuentoPorVolumen(-1), RangeError);\n  assert.throws(() => descuentoPorVolumen(2.5), RangeError);\n});",
+   "cap": "descuento.test.mjs al final de los cinco ciclos."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const ESCALONES = [ // de mayor a menor: el primero que alcanza gana\n  { desde: 100, descuento: 0.15 },\n  { desde: 50, descuento: 0.10 },\n  { desde: 10, descuento: 0.05 },\n];\n\nexport function descuentoPorVolumen(cajas) {\n  if (!Number.isInteger(cajas) || cajas < 0) throw new RangeError('cajas inválidas');\n  return ESCALONES.find((e) => cajas >= e.desde)?.descuento ?? 0;\n}",
+   "cap": "descuento.mjs después del refactor. Pasó de cuatro `if` a una tabla de escalones, y las cinco pruebas siguieron en verde sin tocarse."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El refactor fue seguro porque había una red: si al reemplazar los `if` por la tabla me hubiera equivocado en un límite, alguna de las pruebas de tramos habría fallado en el acto.",
+    "TDD no significa «escribir todas las pruebas primero» (Beck lo marca como error: las primeras decisiones pueden invalidar las siguientes), ni «tener 100 % de cobertura», ni lo practica todo el mundo. Una opinión mía, a manera de criterio: rinde más cuando la regla es clara y las entradas y salidas se pueden listar (cálculos, reglas de negocio) y menos cuando todavía estás explorando cómo debería ser algo."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Agregá a la regla un cuarto escalón: desde 200 cajas, 20 %. Hacelo en orden TDD: escribí primero la prueba, correla y fijate que falla por la razón correcta (devuelve 0,15 y esperabas 0,2), y recién después cambiá el código. ¿Qué línea tocás en `descuento.mjs`?",
+   "pista": "Con la tabla de escalones del refactor, agregar una regla es agregar una fila.",
+   "solucion": "La prueba nueva: `assert.equal(descuentoPorVolumen(200), 0.20)`. Falla con `0.15 !== 0.2`. Para hacerla pasar se agrega `{ desde: 200, descuento: 0.20 }` al principio de la tabla (el arreglo va de mayor a menor, porque `find` devuelve el primero que alcanza). Las otras cinco pruebas siguen en verde. Si hubieras agregado la fila al final, la prueba seguiría roja: el orden del arreglo es parte de la lógica."
+  },
+  {
+   "t": "h",
+   "x": "La cobertura engaña si la convertís en objetivo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ayer viste la [[cobertura]]: el porcentaje del código que se ejecutó durante las pruebas (de líneas, de ramas, de funciones). Hoy, qué pasa cuando se la persigue. Escribí una prueba que llama a todas las funciones del módulo de logística con entradas que recorren todas las ramas, **y no verifica ninguna**: no tiene ni un `assert`."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { test } from 'node:test';\nimport { pesoCobrable, paletsNecesarios, calcularFlete, fechaPrometida } from './flete.mjs';\n\n// Recorre todas las ramas y no verifica nada: sirve para «llegar al número».\ntest('recorre todo', () => {\n  pesoCobrable(12, 30, 20, 10);\n  pesoCobrable(2, 50, 40, 30);\n  try { pesoCobrable(0, 1, 1, 1); } catch {}\n  paletsNecesarios(97, 48);\n  try { paletsNecesarios(-1, 48); } catch {}\n  try { paletsNecesarios(5, 0); } catch {}\n  calcularFlete('CABA', 2);\n  try { calcularFlete('LUNA', 1); } catch {}\n  fechaPrometida('2026-11-13', 1, ['2026-11-16']);\n  fechaPrometida('2026-11-13', 1);\n});",
+   "cap": "cubrir.test.mjs: ejecuta todo y no comprueba nada."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node --experimental-test-coverage --test-reporter=spec cubrir.test.mjs   # el código correcto",
+     "s": "✔ recorre todo (1.080951ms)\npass 1\nfail 0\nflete.mjs       | 100.00 |   100.00 |  100.00 |"
+    },
+    {
+     "c": "node --experimental-test-coverage --test-reporter=spec cubrir.test.mjs   # con dos bugs sembrados",
+     "s": "✔ recorre todo (1.825639ms)\npass 1\nfail 0\nflete.mjs       | 100.00 |    94.44 |  100.00 |"
+    }
+   ],
+   "cap": "Salida real. Columnas: líneas, ramas, funciones. Los dos bugs son un error por uno en los palets y un signo cambiado (resta en vez de sumar) en la tarifa. La prueba sigue en verde y el reporte sigue casi perfecto."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una sola prueba sin verificaciones logra **100 % en las tres columnas**. Y con dos bugs graves sembrados, sigue en verde y con cobertura de ramas de 94,44 %. La cobertura no miente: mide lo que mide (qué código corrió). El engaño aparece cuando se le pide más.",
+    "Eso es la **ley de Goodhart**, que lleva el nombre del economista Charles Goodhart (1975, sobre política monetaria) y se popularizó en la versión de Marilyn Strathern de 1997: cuando una medida se convierte en objetivo, deja de ser una buena medida [#goodhart-wikipedia]. Martin Fowler lo aplica a esto: la cobertura sirve para **encontrar partes sin probar**, no como cifra de calidad; desconfía de un 100 % y menciona que un equipo con pruebas cuidadas puede quedar razonablemente en el rango de los 80 altos a los 90 [#fowler-test-coverage]. Mejores señales, según él: que pocos errores escapen a producción y que nadie dude en tocar código por miedo."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Una pregunta mejor que «¿cuánto cubrimos?»",
+   "x": "«Si rompo esta línea, ¿alguna prueba se queja?» Es lo que hiciste ayer y hoy sembrando bugs. Una técnica que lo automatiza se llama *pruebas de mutación*; no la corrí hoy."
+  },
+  {
+   "t": "h",
+   "x": "Contratos entre sistemas (un adelanto)"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el apartado de integración el contrato de tipos entre la base y el código se rompió sin que nadie lo notara. Entre dos sistemas que cambian por separado (una app y un servidor) pasa lo mismo, y ni una unitaria ni una E2E lo atrapan con facilidad. Una **prueba de contrato** fija por escrito qué necesita el consumidor de la respuesta y verifica que el proveedor lo cumpla. Es el tema del [@08-14]; hoy, solo la idea, con una versión mínima hecha a mano. Herramientas como Pact generan estos contratos desde el lado del consumidor [#pact-docs]."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// El contrato: lo que la app (consumidora) necesita de la respuesta del servidor (proveedor).\nexport const CONTRATO_COTIZACION = { kg: 'number', costo: 'number' };\n\n// Devuelve la lista de incumplimientos (vacía = cumple).\nexport function incumplimientos(respuesta, contrato) {\n  return Object.entries(contrato)\n    .filter(([campo, tipo]) => typeof respuesta[campo] !== tipo)\n    .map(([campo, tipo]) => `${campo}: esperaba ${tipo}, llegó ${typeof respuesta[campo]}`);\n}\n\n// ---- contrato.test.mjs ----\nimport { test, before, after } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { CONTRATO_COTIZACION, incumplimientos } from './contrato.mjs';\nimport { crearServidor } from './servidor.mjs';\n\nlet servidor, base;\nbefore(async () => {\n  servidor = crearServidor();\n  await new Promise((ok) => servidor.listen(0, '127.0.0.1', ok));\n  base = 'http://127.0.0.1:' + servidor.address().port;\n});\nafter(() => servidor.close());\n\n// Lado del proveedor: el servidor real cumple lo que la app necesita.\ntest('contrato: la respuesta de /api/flete trae kg y costo como números', async () => {\n  const r = await fetch(base + '/api/flete?zona=GBA&peso=4&l=10&a=10&h=10');\n  assert.deepEqual(incumplimientos(await r.json(), CONTRATO_COTIZACION), []);\n});\n\n// Lado del consumidor: la app, con una respuesta de ejemplo del mismo contrato, la sabe leer.\ntest('contrato: una respuesta que cambió costo a texto se detecta', () => {\n  assert.deepEqual(\n    incumplimientos({ kg: 4, costo: '5700' }, CONTRATO_COTIZACION),\n    ['costo: esperaba number, llegó string']);\n});",
+   "cap": "Un contrato mínimo hecho a mano: la app necesita `kg` y `costo` como números. Un test comprueba al servidor real; el otro, que un cambio a texto se detecta."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node --test --test-reporter=spec contrato.test.mjs",
+     "s": "✔ contrato: la respuesta de /api/flete trae kg y costo como números (25.28919ms)\n✔ contrato: una respuesta que cambió costo a texto se detecta (0.315227ms)\nℹ pass 2\nℹ fail 0"
+    },
+    {
+     "c": "node --test --test-reporter=spec contrato.test.mjs   # el servidor cambia costo a texto",
+     "s": "✖ contrato: la respuesta de /api/flete trae kg y costo como números (32.560516ms)\n✔ contrato: una respuesta que cambió costo a texto se detecta (1.432799ms)\nℹ pass 1\nℹ fail 1\n✖ failing tests:\n✖ contrato: la respuesta de /api/flete trae kg y costo como números (32.560516ms)\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  + actual - expected\n  + [\n  +   'costo: esperaba number, llegó string'\n  + ]\n  - []"
+    }
+   ],
+   "cap": "Salida real, recortada. En la segunda corrida el proveedor empezó a devolver `\"5700\"` en lugar de `5700`: el contrato lo ve antes de que la app muestre algo raro."
+  },
+  {
+   "t": "h",
+   "x": "Cuánto cuesta cada nivel"
+  },
+  {
+   "t": "p",
+   "x": "Todas las pruebas son código que hay que mantener, y no cuestan lo mismo. Estos son los tiempos que midió el propio corredor en esta VM, con las suites de estos dos días. Son datos de una sola máquina: sirven para el orden de magnitud, no para comparar herramientas."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Nivel",
+    "Por prueba (medido)",
+    "Qué necesita",
+    "Qué atrapa"
+   ],
+   "filas": [
+    [
+     "Unitaria (ayer, 10 pruebas)",
+     "0,07 a 0,8 ms",
+     "Nada: solo el código",
+     "Errores de lógica y de bordes"
+    ],
+    [
+     "Integración (hoy, 3 pruebas)",
+     "3 a 52 ms; la primera abre la conexión",
+     "Un Postgres corriendo y un esquema",
+     "Tipos, restricciones, consultas SQL"
+    ],
+    [
+     "E2E (hoy, 2 pruebas)",
+     "137 a 250 ms, más unos 0,5 s de abrir el navegador",
+     "Navegador, servidor y página",
+     "Cableado entre las piezas, flujos de uso"
+    ],
+    [
+     "La base completa de Senda (261 pasos)",
+     "3,9 s en total, con 42 migraciones",
+     "Postgres 16 y Python con psycopg2",
+     "Permisos, reglas y ataques en la base"
+    ]
+   ],
+   "cap": "Medido el 13-11-2026 en una VM Firecracker sin carga especial. Los números de Senda salen de correr su propio script contra un Postgres local."
+  },
+  {
+   "t": "p",
+   "x": "Esa diferencia de órdenes de magnitud es la razón de ser de la pirámide. Una regla práctica, que es criterio y no ley: escribí la prueba en el **nivel más bajo que pueda atrapar el error**. Un error de cálculo, con una unitaria; uno de tipos con la base, con una de integración; que el botón esté conectado, con una E2E, y pocas. Cada prueba es además código que se rompe con cada cambio legítimo que la toque."
+  },
+  {
+   "t": "h",
+   "x": "Cómo prueba Senda su base de datos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La prueba de integración más grande de Senda vive en `pruebas/nube/`. Sigue la idea de hoy, a escala: una **base de verdad** (Postgres 16, el mismo motor de Supabase), el esquema **real** (las 42 migraciones aplicadas en orden) y un recorrido por todo lo que conecta a las personas. Esto corresponde al commit `25e08fa` (9 de noviembre de 2026).",
+    "El detalle más inteligente está en cómo habla con la base. Cada paso del recorrido corre «como la app»: la función `como(persona, sql)` fija el rol `authenticated` y el identificador de esa persona en el token antes de ejecutar la consulta. Así se prueban de verdad las reglas de permisos de la base (las políticas de acceso por fila): Beto no puede leer el perfil de Ana, Caro no ve partidas ajenas. La función `rechaza(...)` hace lo opuesto: ejecuta algo que **debe fallar** (los 14 ataques de la auditoría de seguridad) y verifica el motivo."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "pruebas/nube: la base de Senda, probada por dentro",
+   "x": [
+    "`correr.sh` arma una base nueva (`createdb`), aplica `supabase_minimo.sql` (34 líneas), aplica las migraciones y ejecuta `recorrido.py`. El mínimo de Supabase es una **réplica parcial**: crea los roles `anon`, `authenticated` y `service_role`, la tabla `auth.users` y la función `auth.uid()`, y reemplaza `net.http_post` (el que manda avisos por HTTP) por una tabla que anota los pedidos: un *fake* en el sentido de ayer.",
+    "Lo corrí contra mi Postgres local (sin escribir nada en el repositorio): terminó en **3,9 segundos** con el resultado «261 de 261 pasos bien». El mapa técnico habla de unas 188 comprobaciones porque cuenta las llamadas escritas; algunas están dentro de bucles y se ejecutan varias veces. Tres líneas del script marcan `paso(..., True)`: las leí y son puntos de control, porque si la operación anterior fallara lanzaría una excepción y el paso nunca se alcanzaría (en un caso, dentro de un `try` cuyo `except` registra la falla)."
+   ],
+   "archivos": [
+    "pruebas/nube/correr.sh",
+    "pruebas/nube/recorrido.py",
+    "pruebas/nube/supabase_minimo.sql",
+    ".github/workflows/supabase.yml",
+    ".github/workflows/apk.yml"
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el repositorio, esa prueba es un **portero**: corre en `apk.yml` antes de compilar el APK y en `supabase.yml`, donde el trabajo `migrar` declara `needs: probar`. Es decir, si el recorrido falla, las migraciones no llegan a la base real. Ya vas a ver esta idea con nombre propio en el [@04-21]. Lo comprobé leyendo ambos flujos.",
+    "Lo que **no** cubre, según la propia documentación de Senda: las funciones de borde (se prueban «con la base viva»), las push, las compras y los anuncios reales, ni teléfonos físicos. Tampoco hay prueba de carga. Lo más parecido a una E2E del producto es la prueba de humo (`scripts/humo_emulador.sh`, en `.github/workflows/humo.yml`): instala el APK en un emulador, entra, recorre las cinco pestañas y falla si la app se cierra o aparece la pantalla de fallo. Es una E2E de humo: comprueba que no se rompa, no que cada flujo dé el resultado correcto. Playwright aparece en Senda para otra cosa: `scripts/auditoria/textos.cjs` busca textos que se pisen en la vista previa web."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "La foto completa de pruebas en Senda",
+   "x": "En ese commit: 10 pruebas de Jest, un recorrido de la base con 261 pasos, una prueba de humo en el emulador y validadores de contenido en Python. Ninguna ejercita las reglas del juego del teléfono (repaso, puntaje) ni un flujo de usuario con aserciones. Es material de criterio y no un defecto: la red está puesta donde un error sale más caro, la base compartida."
+  }
+ ],
+ "recap": [
+  "Una **prueba de integración** usa piezas reales juntas (una base, un archivo, otro servicio). Atrapa errores de las juntas: tipos, restricciones, consultas. Hoy encontró dos que una unitaria con doble no podía ver.",
+  "Cada prueba de integración debe aislarse: base nueva por corrida y una transacción que se deshace por prueba.",
+  "Una **prueba E2E** maneja el sistema como una persona. Es lenta y frágil, así que se escriben pocas, y esperan una señal en vez de un tiempo.",
+  "Una **prueba inestable** pasa y falla sin cambios. La espera fija falló cerca de la mitad de las veces; se arregla la causa y mientras tanto va a cuarentena, con dueño y plazo.",
+  "**TDD** es rojo, verde, refactor, de a una regla por ciclo: la prueba primero, lo mínimo para que pase, y limpiar con la red puesta.",
+  "La **cobertura** sirve para encontrar código sin probar, no para medir calidad: una prueba sin verificaciones da 100 % con bugs adentro (ley de Goodhart).",
+  "Senda prueba su base con `pruebas/nube` (261 pasos reales contra Postgres 16) y su app con una prueba de humo en un emulador; lo que no cubre está documentado."
+ ],
+ "repaso": [
+  {
+   "p": "Una prueba unitaria de `registrarEnvio` con la base reemplazada por un doble pasa. Con la base real, falla porque la columna es `integer` y el peso vale 3,5. ¿Qué lección es la más sensata?",
+   "o": [
+    "El doble de la base estaba mal programado en la prueba",
+    "Los dobles no ven los contratos reales de la base",
+    "Un peso de 3,5 kg es un dato inválido para el sistema",
+    "Las pruebas unitarias no sirven si hay una base de datos"
+   ],
+   "c": 1,
+   "e": "El doble acepta cualquier consulta, así que no puede detectar que la columna no admite decimales. Ese es el tipo de error que ve una prueba de integración. La unitaria sigue siendo útil para lo suyo; el 3,5 es un peso válido (se cobra por medio kilo)."
+  },
+  {
+   "p": "Para que una prueba de integración no deje rastros que afecten a la siguiente, ¿qué técnica se usó hoy?",
+   "o": [
+    "Correr cada prueba en un orden alfabético fijo",
+    "Borrar a mano los datos al terminar cada suite entera",
+    "Usar siempre el mismo id para pisar el registro anterior",
+    "Envolver cada prueba en una transacción que se deshace"
+   ],
+   "c": 3,
+   "e": "Una transacción con rollback deja la base como estaba, prueba por prueba, y no depende del orden. Un orden fijo o un borrado a mano al final no impiden que una prueba contamine a la siguiente en el medio."
+  },
+  {
+   "p": "Una prueba E2E hace clic en «Cotizar», espera 100 ms y lee el resultado. Falla casi la mitad de las veces. ¿Qué cambio la estabiliza?",
+   "o": [
+    "Esperar 1.000 ms en lugar de 100 ms en todos los casos",
+    "Correrla dos veces y dar por buena la segunda corrida",
+    "Esperar a que el resultado aparezca, con tope de tiempo",
+    "Quitar el assert para que no falle por una lectura vacía"
+   ],
+   "c": 2,
+   "e": "Esperar una señal (el elemento visible) tarda lo que haga falta y ni un milisegundo más. Un tiempo fijo más largo reduce el problema pero lo deja y vuelve lenta la suite; reintentar tapa el síntoma y quitar el assert deja la prueba sin valor."
+  },
+  {
+   "p": "Una suite de 50 pruebas, cada una con 1 % de probabilidad de fallar al azar. ¿Cuál es la probabilidad aproximada de que una corrida salga completamente verde?",
+   "o": [
+    "Cerca del 61 %, porque es 0,99 elevado a 50",
+    "Cerca del 99 %, porque cada una casi siempre pasa",
+    "Cerca del 50 %, porque la mitad suele fallar",
+    "Cerca del 1 %, porque basta que una falle"
+   ],
+   "c": 0,
+   "e": "Para que todas pasen, cada una tiene que pasar: 0,99 multiplicado 50 veces da alrededor de 0,605. Un 1 % individual parece poco, pero se acumula. No es 99 % (eso valdría para una sola) ni 1 %."
+  },
+  {
+   "p": "En el ciclo de TDD, ¿cuándo se escribe el código de producción?",
+   "o": [
+    "Antes de las pruebas, y luego se agregan todas juntas al final",
+    "Cuando todas las pruebas de la lista ya están escritas y rojas",
+    "Solo en el refactor, porque antes alcanza con las pruebas",
+    "Después de ver fallar una prueba, y solo lo mínimo para pasarla"
+   ],
+   "c": 3,
+   "e": "El ciclo es rojo (una prueba nueva falla), verde (lo mínimo para pasarla) y refactor. Escribir todas las pruebas de antemano es un error que Beck advierte, porque las primeras decisiones pueden invalidar las siguientes."
+  },
+  {
+   "p": "Una prueba sin ningún assert que ejecuta todo el módulo da 100 % de cobertura. ¿Qué enseña esto?",
+   "o": [
+    "Que Node calcula mal la cobertura de ramas y líneas",
+    "Que la cobertura mide qué corrió, no qué se comprobó",
+    "Que con 100 % queda garantizado que no hay errores",
+    "Que un assert siempre baja el porcentaje de cobertura"
+   ],
+   "c": 1,
+   "e": "La cobertura registra qué código se ejecutó. Una prueba sin verificaciones lo ejecuta y no comprueba nada, así que deja pasar bugs. La herramienta no calcula mal, y agregar asserts no cambia el porcentaje."
+  },
+  {
+   "p": "Una prueba inestable bloquea los cambios del equipo y nadie puede arreglarla esta semana. ¿Qué política es mejor?",
+   "o": [
+    "Borrarla ya y no volver a escribir pruebas de ese tipo",
+    "Reintentarla hasta que pase y seguir sin investigar nada",
+    "Cuarentena con dueño y plazo, arreglarla o borrarla",
+    "Dejarla bloqueando: el equipo aprenderá a esquivarla solo"
+   ],
+   "c": 2,
+   "e": "La cuarentena la saca del camino crítico sin esconderla, y el plazo evita que se pudra. Borrar sin pensar pierde cobertura real; reintentar tapa bugs reales; dejarla bloqueando enseña a ignorar el rojo, que es el peor efecto."
+  }
+ ],
+ "feynman": "Explicale a alguien que maneja un depósito por qué no alcanza con probar cada máquina por separado y cuándo conviene una prueba «de punta a punta». Usá una analogía de tu operación (recepción, picking, despacho) y mencioná un problema que solo aparece cuando dos sectores se pasan la mercadería.",
+ "para_profundizar": [
+  {
+   "fuente": "beck-canon-tdd",
+   "nota": "El texto de Kent Beck con los cinco pasos de TDD y los errores típicos. Corto y en inglés; leelo después de haber hecho los ciclos de hoy."
+  },
+  {
+   "fuente": "fowler-non-determinism",
+   "nota": "El artículo de Martin Fowler sobre pruebas no deterministas: causas, cuarentena y qué hacer con cada una. Es el que fundamenta lo de inestables de hoy."
+  },
+  {
+   "fuente": "playwright-best-practices",
+   "nota": "Recomendaciones oficiales de Playwright: probar lo que ve la persona, aislar pruebas, esperas automáticas. Sirve de lista de chequeo antes de escribir una E2E."
+  },
+  {
+   "fuente": "fowler-test-coverage",
+   "nota": "Fowler sobre qué sirve y qué no de la cobertura. Es breve y de ahí sale el criterio de usarla para buscar huecos."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Playwright end to end testing tutorial auto-waiting",
+   "por_que": "Para ver una prueba E2E corriendo con un navegador real y cómo se escriben los localizadores."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "prueba de integración",
+   "d": "Prueba que verifica que varias piezas reales funcionen juntas (tu código con una base de datos, un archivo o un servicio), sin dobles de por medio. Atrapa errores de las juntas, como tipos y restricciones."
+  },
+  {
+   "t": "prueba E2E",
+   "d": "Prueba de punta a punta: maneja el sistema completo como lo haría una persona (un navegador real, una página, un servidor). Es la más lenta y la más frágil, así que se escriben pocas."
+  },
+  {
+   "t": "TDD",
+   "d": "Desarrollo guiado por pruebas: se escribe una prueba que falla (rojo), el código mínimo para que pase (verde) y se limpia el código con las pruebas como red (refactor), de a una regla por ciclo."
+  },
+  {
+   "t": "cobertura",
+   "d": "Porcentaje del código que se ejecutó mientras corrían las pruebas (líneas, ramas, funciones). Sirve para encontrar código sin probar, pero no mide si lo ejecutado se verificó."
+  },
+  {
+   "t": "prueba inestable",
+   "d": "Prueba que a veces pasa y a veces falla con el mismo código y el mismo entorno, por ejemplo por esperar un tiempo fijo o compartir estado. Se arregla la causa y mientras tanto se la pone en cuarentena."
+  },
+  {
+   "t": "cuarentena de pruebas",
+   "d": "Práctica de sacar una prueba inestable del camino que bloquea los cambios, pero dejándola visible, con un responsable y un plazo para arreglarla o borrarla."
+  },
+  {
+   "t": "ley de Goodhart",
+   "d": "Cuando una medida se convierte en objetivo, deja de ser una buena medida. Aplicada a las pruebas: perseguir un porcentaje de cobertura lleva a escribir pruebas que suman número sin verificar nada."
+  }
+ ],
+ "siguiente": "refactorización y deuda técnica: cómo se cambia la estructura de un código que ya anda sin romperlo, y qué es lo que el equipo «debe» cuando elige rápido ahora y arregla después.",
+ "fuentes_nuevas": [
+  {
+   "id": "beck-canon-tdd",
+   "t": "Canon TDD",
+   "a": "Kent Beck",
+   "tipo": "articulo",
+   "anio": "2023",
+   "url": "https://newsletter.kentbeck.com/p/canon-tdd"
+  },
+  {
+   "id": "fowler-non-determinism",
+   "t": "Eradicating Non-Determinism in Tests",
+   "a": "Martin Fowler",
+   "tipo": "articulo",
+   "anio": "2011",
+   "url": "https://martinfowler.com/articles/nonDeterminism.html"
+  },
+  {
+   "id": "fowler-test-coverage",
+   "t": "Test Coverage",
+   "a": "Martin Fowler",
+   "tipo": "articulo",
+   "anio": "2012",
+   "url": "https://martinfowler.com/bliki/TestCoverage.html"
+  },
+  {
+   "id": "playwright-best-practices",
+   "t": "Best Practices (Playwright)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://playwright.dev/docs/best-practices"
+  },
+  {
+   "id": "pact-docs",
+   "t": "Pact Docs: consumer-driven contract testing",
+   "a": "Pact Foundation",
+   "tipo": "doc",
+   "url": "https://docs.pact.io/"
+  },
+  {
+   "id": "node-postgres-types",
+   "t": "Data types (node-postgres)",
+   "a": "node-postgres",
+   "tipo": "doc",
+   "url": "https://node-postgres.com/features/types"
+  },
+  {
+   "id": "postgresql-versioning",
+   "t": "Versioning Policy (PostgreSQL)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/support/versioning/"
+  },
+  {
+   "id": "goodhart-wikipedia",
+   "t": "Goodhart's law",
+   "a": "Wikipedia",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/Goodhart%27s_law"
+  }
+ ]
+}

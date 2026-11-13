@@ -1,0 +1,862 @@
+{
+ "id": "04-10",
+ "titulo": "Git IV: ramas, merges y conflictos",
+ "bajada": "Qué es una rama por dentro (41 bytes), cómo Git junta dos historias, qué hacés cuando no puede decidir solo y cómo encontrar el commit que rompió algo, todo corrido en un repositorio de práctica.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar por qué crear una rama no copia archivos y qué pasa en tu carpeta cuando cambiás de rama.",
+  "Distinguir una fusión adelantada de una fusión de tres vías y reconocer cada una en el historial de `git log --graph`.",
+  "Resolver un conflicto leyendo los marcadores `<<<<<<<`, `=======` y `>>>>>>>`, y comprobar con la prueba antes de confirmar la resolución.",
+  "Comparar `merge` y `rebase` por lo que dejan en el historial, y enunciar la regla de no reescribir historia compartida.",
+  "Elegir entre trabajo sobre una rama principal con ramas cortas y un modelo de ramas largas, y usar `git bisect run` para ubicar un commit roto."
+ ],
+ "venis_de": "Ayer, en el [@04-09], aprendiste a mover y deshacer cambios en una línea recta de commits. Hoy esa línea se bifurca: en el [@04-08] viste que una rama es una referencia, y ahora la usás para trabajar en paralelo y volver a juntar.",
+ "se_apoya_en": [
+  "03-15",
+  "03-33",
+  "04-03",
+  "04-07",
+  "04-08",
+  "04-09"
+ ],
+ "gancho": [
+  "Ana cambia el costo por bulto de un envío de 250 a 280 pesos. El mismo día, Beto cambia esa misma línea a 300. Los dos commitean bien, en sus copias, sin saber del otro. Cuando alguien intente juntar los dos trabajos, Git va a hacer algo muy sensato: no va a elegir.",
+  "Hoy vas a provocar ese choque a propósito, y también el caso feliz en que Git junta todo solo. Antes hace falta entender qué es una rama, porque casi todo lo que parece magia sale de ahí. Trabajás en un repositorio nuevo, `tarifas`, con una función que calcula el costo de envío (valores inventados) y una prueba que la controla. Todo lo que ves lo corrí con Git 2.43.0 y Node 22."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Una rama es un archivo de 41 bytes"
+  },
+  {
+   "t": "p",
+   "x": "Para el repositorio de práctica creé dos archivos. `tarifas.js` calcula el costo de envío con un precio base, un precio por bulto y un recargo según la zona. `prueba.js` llama a la función con tres casos y sale con código de retorno 1 si algún resultado no coincide, como viste en el [@04-03]. Los dos commits iniciales son «Costo de envio y prueba» y «Documentar zonas»."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// tarifas.js\n// Costo de envio en pesos (valores inventados)\nconst BASE = 1000;\nconst POR_BULTO = 250;\n\nfunction costoEnvio(bultos, zona) {\n  const recargo = zona === 'interior' ? 1.5 : 1;\n  return (BASE + POR_BULTO * bultos) * recargo;\n}\n\nmodule.exports = { costoEnvio };\n\n// prueba.js\nconst { costoEnvio } = require('./tarifas');\nconst casos = [[1, 'amba', 1250], [10, 'amba', 3500], [4, 'interior', 3000]];\nlet fallas = 0;\nfor (const [bultos, zona, esperado] of casos) {\n  const r = costoEnvio(bultos, zona);\n  if (r !== esperado) { console.log(`FALLA costoEnvio(${bultos}, ${zona}) = ${r}, esperado ${esperado}`); fallas++; }\n}\nif (fallas) process.exit(1);\nconsole.log('OK');",
+   "cap": "Los dos archivos del laboratorio (el segundo se guarda aparte, como `prueba.js`). Con la versión inicial, `node prueba.js` imprime `OK`."
+  },
+  {
+   "t": "p",
+   "x": "En el [@04-08] viste que una [[referencia]] es un archivo con un hash adentro. Una [[rama]] es exactamente eso: un nombre que apunta a un commit y que se corre solo cada vez que hacés un commit estando parado en ella. Mirá los archivos reales antes y después de crear una:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git log --oneline",
+     "s": "8c2c6b3 Documentar zonas\n3884d57 Costo de envio y prueba"
+    },
+    {
+     "c": "cat .git/HEAD",
+     "s": "ref: refs/heads/main"
+    },
+    {
+     "c": "cat .git/refs/heads/main",
+     "s": "8c2c6b34fddffaead50638e0c207cb64ac148106"
+    },
+    {
+     "c": "wc -c < .git/refs/heads/main",
+     "s": "41"
+    },
+    {
+     "c": "find .git/objects -type f | wc -l",
+     "s": "8"
+    },
+    {
+     "c": "git branch patagonia",
+     "s": ""
+    },
+    {
+     "c": "cat .git/refs/heads/patagonia",
+     "s": "8c2c6b34fddffaead50638e0c207cb64ac148106"
+    },
+    {
+     "c": "find .git/objects -type f | wc -l",
+     "s": "8"
+    },
+    {
+     "c": "git branch",
+     "s": "* main\n  patagonia"
+    }
+   ],
+   "cap": "Crear la rama escribió un archivo de 41 bytes (40 caracteres del hash y un salto de línea) y no agregó ningún objeto: los 8 de antes siguen siendo 8. El asterisco marca la rama donde está HEAD."
+  },
+  {
+   "t": "p",
+   "x": "La documentación oficial de Git lo dice igual: crear una rama es tan barato como escribir 41 bytes en un archivo, y por eso el proyecto anima a crearlas seguido [#git-lab-progit-branches]. En sistemas de control de versiones más antiguos, ramificar significaba copiar todos los archivos a otra carpeta. Acá no se copia nada: lo que se bifurca es el puntero."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Una rama se parece a un marcapáginas en el libro mayor: dice «sigo desde esta página». Podés tener varios, y escribir en una página nueva mueve el marcapáginas que tenías puesto. La analogía deja de valer en que el marcapáginas no sabe nada del libro, mientras que cada commit sabe quién es su padre, y de ahí sale toda la historia."
+  },
+  {
+   "t": "p",
+   "x": "Cambiar de rama es otra cosa: `git switch` mueve HEAD a otra referencia y **reescribe tu carpeta de trabajo** para que coincida con ese commit. Lo ves en el archivo que cambia:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git switch patagonia",
+     "s": "Switched to branch 'patagonia'"
+    },
+    {
+     "c": "cat .git/HEAD",
+     "s": "ref: refs/heads/patagonia"
+    },
+    {
+     "c": "# agrego el recargo de la zona patagonia a tarifas.js y commiteo",
+     "s": ""
+    },
+    {
+     "c": "git commit -qam \"Agregar zona patagonia\"",
+     "s": ""
+    },
+    {
+     "c": "git log --oneline --graph --all --decorate",
+     "s": "* 39bdb7e (HEAD -> patagonia) Agregar zona patagonia\n* 8c2c6b3 (tag: v1.0, main) Documentar zonas\n* 3884d57 Costo de envio y prueba"
+    },
+    {
+     "c": "grep -c patagonia tarifas.js",
+     "s": "1"
+    },
+    {
+     "c": "git switch main",
+     "s": "Switched to branch 'main'"
+    },
+    {
+     "c": "grep -c patagonia tarifas.js",
+     "s": "0"
+    }
+   ],
+   "cap": "El commit nuevo movió solo la rama `patagonia`; `main` quedó en `8c2c6b3`. Al volver a `main`, el texto «patagonia» desapareció de `tarifas.js`: Git reescribió el archivo."
+  },
+  {
+   "t": "p",
+   "x": "Dos atajos que vas a usar todo el tiempo: `git switch -c nombre` crea la rama y se para en ella en un solo paso, y `git branch -d nombre` la borra, pero solo si sus commits ya están integrados. Si no lo están (por ejemplo, `experimento`, que aparece más abajo), Git responde `error: the branch 'experimento' is not fully merged` y ofrece `-D` para forzar. Borrar una rama borra el puntero, no los commits, que siguen en `.git` hasta que la limpieza automática los descarte."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Antes de cambiar de rama, Git se niega si tenés cambios sin commitear que pisarían archivos de la otra. No es un capricho: es la protección contra perder trabajo. La salida honesta es commitear, o guardar el trabajo con `git stash` como viste en el [@04-09].",
+   "titulo": "Git te frena por tu bien"
+  },
+  {
+   "t": "h",
+   "x": "Merge: juntar dos historias"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[merge]] (fusión) integra los cambios de una rama en otra. Hay dos situaciones, y Git las resuelve distinto.",
+    "La primera es la más simple. Si `main` **no se movió** desde que creaste la rama, la rama está «por delante» en línea recta, y fusionar es solo correr el puntero de `main` hasta ahí. Se llama *fast-forward* (avance rápido) y no crea ningún commit nuevo:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git merge patagonia",
+     "s": "Updating 8c2c6b3..39bdb7e\nFast-forward\n tarifas.js | 2 +-\n 1 file changed, 1 insertion(+), 1 deletion(-)"
+    },
+    {
+     "c": "git log --oneline --graph --decorate",
+     "s": "* 39bdb7e (HEAD -> main, patagonia) Agregar zona patagonia\n* 8c2c6b3 (tag: v1.0) Documentar zonas\n* 3884d57 Costo de envio y prueba"
+    }
+   ],
+   "cap": "No hubo commit de fusión: las dos referencias apuntan al mismo commit. Después borré la rama con `git branch -d patagonia`."
+  },
+  {
+   "t": "p",
+   "x": "La segunda situación es la habitual en un equipo: las dos ramas avanzaron. Creé la rama `descuento` (descuento del 10% desde 20 bultos) y, mientras tanto, Beto commiteó en `main` un cambio al `LEEME.txt`. Ahora ninguna está «por delante»: divergieron."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git log --oneline --graph --all --decorate",
+     "s": "* 0843d75 (HEAD -> main) Documentar la prueba\n| * 2079b6d (descuento) Descuento por volumen\n|/  \n* 39bdb7e Agregar zona patagonia\n* 8c2c6b3 (tag: v1.0) Documentar zonas\n* 3884d57 Costo de envio y prueba"
+    },
+    {
+     "c": "git merge-base main descuento",
+     "s": "39bdb7efd1a1855ae8b28912563beaf313da3d05"
+    },
+    {
+     "c": "git merge descuento -m \"Fusionar descuento\"",
+     "s": "Merge made by the 'ort' strategy.\n tarifas.js | 3 ++-\n 1 file changed, 2 insertions(+), 1 deletion(-)"
+    },
+    {
+     "c": "git log --oneline --graph --decorate",
+     "s": "*   fe42ac8 (HEAD -> main) Fusionar descuento\n|\\  \n| * 2079b6d (descuento) Descuento por volumen\n* | 0843d75 Documentar la prueba\n|/  \n* 39bdb7e Agregar zona patagonia\n* 8c2c6b3 (tag: v1.0) Documentar zonas\n* 3884d57 Costo de envio y prueba"
+    },
+    {
+     "c": "git cat-file -p HEAD",
+     "s": "tree d4927bbd58dcc15bbec4cbedb445b8f65fb3328f\nparent 0843d755a0394353da15a9c555c41c199e87b3f9\nparent 2079b6d9ae15c070a71d376626e81baa4b773655\nauthor Ana <ana@example.com> 1794128400 +0000\ncommitter Ana <ana@example.com> 1794128400 +0000\n\nFusionar descuento"
+    }
+   ],
+   "cap": "`merge-base` encuentra el último ancestro común. El commit de fusión (`fe42ac8`) tiene **dos** líneas `parent`: es el primer commit con dos padres que ves."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "grafo",
+   "alto": 300,
+   "nodos": [
+    {
+     "id": "a",
+     "x": 4,
+     "y": 50,
+     "t": "Costo de envio",
+     "k": "neutro"
+    },
+    {
+     "id": "b",
+     "x": 22,
+     "y": 50,
+     "t": "Documentar zonas",
+     "k": "neutro"
+    },
+    {
+     "id": "c",
+     "x": 42,
+     "y": 50,
+     "t": "Zona patagonia",
+     "k": "neutro"
+    },
+    {
+     "id": "d",
+     "x": 64,
+     "y": 20,
+     "t": "Documentar la prueba (main)",
+     "k": "cliente"
+    },
+    {
+     "id": "e",
+     "x": 64,
+     "y": 80,
+     "t": "Descuento (rama descuento)",
+     "k": "servidor"
+    },
+    {
+     "id": "m",
+     "x": 90,
+     "y": 50,
+     "t": "Fusionar descuento",
+     "k": "ok"
+    }
+   ],
+   "aristas": [
+    {
+     "de": "b",
+     "a": "a",
+     "dir": true
+    },
+    {
+     "de": "c",
+     "a": "b",
+     "dir": true
+    },
+    {
+     "de": "d",
+     "a": "c",
+     "dir": true
+    },
+    {
+     "de": "e",
+     "a": "c",
+     "dir": true
+    },
+    {
+     "de": "m",
+     "a": "d",
+     "dir": true
+    },
+    {
+     "de": "m",
+     "a": "e",
+     "dir": true
+    }
+   ],
+   "cap": "El mismo historial que imprimió `git log --graph`, como grafo. Las flechas van del hijo al padre, como en el [@04-08]: el commit de fusión apunta a los dos."
+  },
+  {
+   "t": "p",
+   "x": "Esta es la **fusión de tres vías**. Git mira tres versiones del proyecto: el ancestro común (`39bdb7e`), la punta de `main` y la punta de `descuento`. Compara cada punta contra el ancestro: si solo una cambió una línea, esa gana; si las dos cambiaron cosas distintas, junta las dos. Como `descuento` tocó `tarifas.js` y `main` tocó `LEEME.txt`, no hubo nada que decidir y el commit salió solo. Si querés forzar un commit de fusión aun cuando alcanzaría el avance rápido, existe `--no-ff`; y `--ff-only` falla en vez de crear una fusión."
+  },
+  {
+   "t": "pensa",
+   "x": "Una rama nació de `main` con 3 commits, y `main` también avanzó 2 commits. ¿Qué tipo de fusión va a ser y cuántos padres tendrá el commit resultante?",
+   "resp": "Va a ser de tres vías, porque las dos puntas divergieron y el avance rápido solo sirve cuando `main` no se movió. El commit de fusión tiene dos padres: la punta de `main` y la punta de la rama."
+  },
+  {
+   "t": "h",
+   "x": "Conflicto: cuando Git no puede decidir"
+  },
+  {
+   "t": "p",
+   "x": "Volvamos a Ana y Beto. Cada uno cambió **la misma línea** del mismo archivo. Un [[conflicto]] aparece cuando las dos ramas cambiaron el mismo fragmento de manera distinta y Git no tiene criterio para elegir cuál vale. Lo provoqué a propósito: la rama `tarifa-nueva` pone `POR_BULTO = 300` y `main` lo puso en 280."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git merge tarifa-nueva",
+     "s": "Auto-merging tarifas.js\nCONFLICT (content): Merge conflict in tarifas.js\nAutomatic merge failed; fix conflicts and then commit the result."
+    },
+    {
+     "c": "git status -s",
+     "s": "UU tarifas.js"
+    },
+    {
+     "c": "git status | head -9",
+     "s": "On branch main\nYou have unmerged paths.\n  (fix conflicts and run \"git commit\")\n  (use \"git merge --abort\" to abort the merge)\n\nUnmerged paths:\n  (use \"git add <file>...\" to mark resolution)\n\tboth modified:   tarifas.js"
+    },
+    {
+     "c": "head -9 tarifas.js",
+     "s": "// Costo de envio en pesos (valores inventados)\nconst BASE = 1000;\n<<<<<<< HEAD\nconst POR_BULTO = 280;\n=======\nconst POR_BULTO = 300;\n>>>>>>> tarifa-nueva\n\nfunction costoEnvio(bultos, zona) {"
+    }
+   ],
+   "cap": "`UU` quiere decir «modificado por los dos lados, sin resolver». Git dejó el archivo con marcadores: lo que hay entre `<<<<<<<` y `=======` es la versión de tu rama actual (`HEAD`), y lo que sigue hasta `>>>>>>>` es la de la rama que traés."
+  },
+  {
+   "t": "p",
+   "x": "La fusión quedó a medio hacer. Git no se rompió: te devolvió el control. El resto del archivo (todo lo que no chocó) ya está fusionado. Solo la zona entre marcadores espera tu decisión, que es **humana**: ¿280, 300, o un valor nuevo? Git puede mostrarte también la versión original, la del ancestro común, que muchas veces explica el choque. Es el estilo `diff3`, y se configura con `merge.conflictStyle` [#git-lab-config-doc]:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git restore --conflict=diff3 tarifas.js && head -9 tarifas.js",
+     "s": "// Costo de envio en pesos (valores inventados)\nconst BASE = 1000;\n<<<<<<< ours\nconst POR_BULTO = 280;\n||||||| base\nconst POR_BULTO = 250;\n=======\nconst POR_BULTO = 300;\n>>>>>>> theirs\n\nfunction costoEnvio(bultos, zona) {"
+    },
+    {
+     "c": "git merge --abort",
+     "s": ""
+    },
+    {
+     "c": "git status -s",
+     "s": ""
+    }
+   ],
+   "cap": "Con la versión «base» se ve que Ana subió de 250 a 280 y Beto de 250 a 300. `git merge --abort` deshace el intento y deja todo como antes de fusionar; después volví a lanzar la fusión."
+  },
+  {
+   "t": "p",
+   "x": "La resolución es editar el archivo, dejar la línea que corresponda y **borrar los tres marcadores** (si queda uno, el código ya no compila). Acordaron 300. Ahora viene el paso que más se olvida: antes de confirmar, correr la prueba."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "head -4 tarifas.js",
+     "s": "// Costo de envio en pesos (valores inventados)\nconst BASE = 1000;\nconst POR_BULTO = 300;\n"
+    },
+    {
+     "c": "node prueba.js",
+     "s": "FALLA costoEnvio(1, amba) = 1300, esperado 1250\nFALLA costoEnvio(10, amba) = 4000, esperado 3500\nFALLA costoEnvio(4, interior) = 3300, esperado 3000"
+    },
+    {
+     "c": "# actualizo en prueba.js los tres esperados a 1300, 4000 y 3300",
+     "s": ""
+    },
+    {
+     "c": "node prueba.js",
+     "s": "OK"
+    },
+    {
+     "c": "git add tarifas.js prueba.js && git status -s",
+     "s": "M  prueba.js\nM  tarifas.js"
+    },
+    {
+     "c": "git commit --no-edit",
+     "s": ""
+    },
+    {
+     "c": "git log --oneline --graph --decorate | head -5",
+     "s": "*   335b1a8 (HEAD -> main) Merge branch 'tarifa-nueva'\n|\\  \n| * 86fe789 (tarifa-nueva) Subir tarifa por bulto a 300\n* | efe7a8d Subir tarifa por bulto a 280\n|/  "
+    }
+   ],
+   "cap": "`git add` es lo que le dice a Git «este archivo ya está resuelto». `git commit --no-edit` usa el mensaje que Git preparó. Los tres `FALLA` no son un error de la fusión: la prueba todavía esperaba los valores de la tarifa de 250."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Resolver un conflicto **no** es lo mismo que dejar el código correcto. Acá el texto quedó impecable y, aun así, la prueba falló, porque la tarifa nueva cambia todos los resultados. Si no hubiera existido esa prueba, el error habría llegado a producción con un merge «limpio». Por eso la regla de oficio: después de resolver, correr las pruebas, y recién ahí confirmar.",
+   "titulo": "Sin conflicto de texto, con conflicto de lógica"
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Un conflicto significa que alguien se equivocó». Falso: significa que dos personas hicieron cambios razonables sobre lo mismo y falta una decisión. Los conflictos son más frecuentes y más grandes cuanto más tiempo viven las ramas sin integrarse, y esa es la mejor razón para integrar seguido, como vas a ver en las estrategias de ramas.",
+   "titulo": "Mito"
+  },
+  {
+   "t": "h",
+   "x": "Rebase: reescribir para que parezca una línea"
+  },
+  {
+   "t": "p",
+   "x": "Hay otra forma de juntar trabajo. El [[rebase]] toma los commits de tu rama y los **vuelve a aplicar, uno por uno, sobre la punta de otra**, como si hubieras empezado a trabajar más tarde. Armé este estado: `main` avanzó con un commit de Beto («Agregar contacto») y la rama `etiquetas` tiene dos commits propios. Copié la carpeta para probar los dos caminos desde el mismo punto."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git merge etiquetas -m \"Fusionar etiquetas\"",
+     "s": "Merge made by the 'ort' strategy.\n ETIQUETAS.txt | 2 ++\n 1 file changed, 2 insertions(+)"
+    },
+    {
+     "c": "git log --oneline --graph --decorate | head -6",
+     "s": "*   54d2a6b (HEAD -> main) Fusionar etiquetas\n|\\  \n| * abe5f66 (etiquetas) Documentar formato de etiquetas\n| * 5137155 Agregar ETIQUETAS\n* | 779e7e0 Agregar contacto\n|/  "
+    }
+   ],
+   "cap": "Camino 1, merge (en una copia del repositorio): queda la bifurcación a la vista, con un commit de fusión."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git switch etiquetas && git rebase main",
+     "s": "Successfully rebased and updated refs/heads/etiquetas."
+    },
+    {
+     "c": "git rev-parse --short ORIG_HEAD",
+     "s": "abe5f66"
+    },
+    {
+     "c": "git log --oneline --graph --decorate | head -4",
+     "s": "* f718cc0 (HEAD -> etiquetas) Documentar formato de etiquetas\n* 932bdc4 Agregar ETIQUETAS\n* 779e7e0 (main) Agregar contacto\n*   335b1a8 (tag: v1.1) Merge branch 'tarifa-nueva'"
+    },
+    {
+     "c": "git switch main && git merge etiquetas",
+     "s": "Updating 779e7e0..f718cc0\nFast-forward\n ETIQUETAS.txt | 2 ++"
+    }
+   ],
+   "cap": "Camino 2, rebase (en la otra copia). Quedó una línea recta, sin commit de fusión. Pero mirá los hashes: los commits de `etiquetas` eran `5137155` y `abe5f66`, y ahora son `932bdc4` y `f718cc0`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Eso es lo que hay que entender del rebase: **no mueve** los commits, **crea commits nuevos** con el mismo cambio pero otro padre y, por lo tanto, otro hash. Los viejos quedan sin rama que los apunte (`ORIG_HEAD` recuerda dónde estaba la punta, y el reflog del [@04-09] los conserva por un tiempo). Resultado: un historial lineal, fácil de leer, a costa de reescribir.",
+    "Ahí está el riesgo, y Pro Git lo resume en una línea: no hagas rebase de commits que existen fuera de tu repositorio y sobre los que otra gente pudo haber trabajado [#git-lab-progit-rebasing]. Si alguien ya bajó los commits viejos y vos publicás los nuevos con otros hashes, sus historias dejan de coincidir. Dejo el repositorio remoto para el [@04-11]; por ahora la regla práctica es: rebase para ordenar **tu** trabajo local antes de compartirlo, y merge para lo que ya es de todos."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Merge",
+    "Rebase"
+   ],
+   "filas": [
+    [
+     "Qué hace con tus commits",
+     "Los deja como están y suma un commit de fusión",
+     "Los reemplaza por copias con otro padre y otro hash"
+    ],
+    [
+     "Forma del historial",
+     "Con bifurcaciones a la vista",
+     "Una línea recta"
+    ],
+    [
+     "Si hay conflictos",
+     "Se resuelven una vez, en el commit de fusión",
+     "Se resuelven commit por commit, con `git rebase --continue`"
+    ],
+    [
+     "Seguro sobre historia compartida",
+     "Sí: no cambia ningún commit existente",
+     "No: reescribe commits que otros pueden tener"
+    ]
+   ],
+   "cap": "Ninguna de las dos es «la correcta»: cambian lo que queda escrito en el historial. Varios equipos mezclan las dos: rebase local, merge al integrar."
+  },
+  {
+   "t": "pensa",
+   "x": "Tu compañera bajó tu rama, que tiene 3 commits, y trabajó encima. Vos hacés rebase de esa rama y publicás los commits nuevos. ¿Qué problema le creaste?",
+   "resp": "Sus 3 commits viejos y tus 3 commits nuevos tienen el mismo cambio y hashes distintos, así que las dos historias dejaron de coincidir. Cuando ella intente integrar, Git va a ver commits «distintos» con el mismo contenido, y puede haber conflictos y duplicados que vos no tendrías si hubieras fusionado."
+  },
+  {
+   "t": "h",
+   "x": "Cherry-pick: llevarse un solo commit"
+  },
+  {
+   "t": "p",
+   "x": "A veces no querés toda una rama, solo un commit. La rama `experimento` tiene una tarifa por peso a medio hacer y, en medio, un commit útil que aclara la moneda en el `LEEME.txt`. `git cherry-pick` copia ese cambio a donde estás parado, y con `-x` deja anotado de dónde vino."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git cherry-pick -x eaff5e8",
+     "s": "[main 6d598fa] Aclarar moneda en el LEEME\n Date: Thu Nov 19 09:00:00 2026 +0000\n 1 file changed, 1 insertion(+), 1 deletion(-)"
+    },
+    {
+     "c": "git show eaff5e8 | git patch-id",
+     "s": "39f6c2d0b67dc5be751c977d9768c3e4c3073753 eaff5e8dd3c0761f365c7b25d5d06632b34bfa20"
+    },
+    {
+     "c": "git show HEAD | git patch-id",
+     "s": "39f6c2d0b67dc5be751c977d9768c3e4c3073753 6d598fa7f695b1a6636792e29f51f5d1401e9f05"
+    },
+    {
+     "c": "git log -1 --format=%B",
+     "s": "Aclarar moneda en el LEEME\n\n(cherry picked from commit eaff5e8dd3c0761f365c7b25d5d06632b34bfa20)"
+    }
+   ],
+   "cap": "Dos commits distintos (`eaff5e8` y `6d598fa`) con el mismo `patch-id`, la huella del cambio en sí: el mismo diff, otro padre, otro hash. Es el mismo mecanismo que el rebase, aplicado a un solo commit."
+  },
+  {
+   "t": "p",
+   "x": "Sirve sobre todo para llevar una corrección urgente a una versión ya publicada sin arrastrar el resto. Tiene un costo: el cambio queda duplicado con dos hashes, y si después fusionás las dos ramas, Git tiene que reconocer que es el mismo cambio. Usalo con medida."
+  },
+  {
+   "t": "h",
+   "x": "Estrategias de ramas: cuánto tiempo vive una rama"
+  },
+  {
+   "t": "p",
+   "x": "Todo lo anterior son herramientas. Falta la pregunta de equipo: **¿cuántas ramas, y por cuánto tiempo?** Hay dos extremos conocidos. El primero es el *trunk-based development* (desarrollo sobre el tronco): todos integran a una rama principal con cambios chicos, al menos una vez al día, y las ramas, si existen, viven horas o pocos días [#git-lab-trunk-based]. Para esconder lo que todavía no está listo se usan *feature flags*, interruptores en el código. El segundo es el modelo que Vincent Driessen publicó en 2010 como *git flow*: dos ramas permanentes (`master` y `develop`) y ramas de funcionalidad, de versión y de arreglo urgente [#git-lab-gitflow]."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "comparar",
+   "izq": {
+    "t": "Tronco con ramas cortas",
+    "k": "servidor",
+    "items": [
+     "Una rama principal y ramas que viven horas o pocos días",
+     "Integrar al menos una vez al día",
+     "Lo incompleto se esconde detrás de un interruptor, no en una rama larga",
+     "Exige pruebas automáticas rápidas y revisiones ágiles"
+    ]
+   },
+   "der": {
+    "t": "git flow (ramas largas)",
+    "k": "red",
+    "items": [
+     "Dos ramas permanentes más ramas de versión y de arreglo",
+     "Cada funcionalidad se integra al terminar, a veces semanas después",
+     "Pensado para software con versiones numeradas que conviven",
+     "Más trabajo de fusión y más conflictos acumulados"
+    ]
+   },
+   "cap": "Resumen de las dos fuentes citadas. No hay un ganador absoluto: depende del tipo de producto."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Al 13-11-2026, las tres fuentes que revisé dicen lo siguiente. DORA, el programa de investigación de Google Cloud sobre entrega de software, asocia mejor desempeño con tener tres o menos ramas activas, integrar a la principal al menos una vez al día y no tener congelamientos de código [#git-lab-dora-tbd]. Y el propio autor de git flow agregó en marzo de 2020 una nota: si tu equipo entrega de forma continua, recomienda un flujo mucho más simple, y deja git flow para software con versiones explícitas que conviven [#git-lab-gitflow]. Martin Fowler compara ramas de funcionalidad con integración continua en su catálogo de patrones [#fowler-site]. Son criterios de la industria con fecha, no leyes.",
+   "titulo": "Qué dicen las fuentes hoy"
+  },
+  {
+   "t": "senda",
+   "titulo": "Dos ramas en el repositorio de Senda",
+   "x": [
+    "En el clon de Senda (commit `25e08fa`), `git branch -a` lista solo `main` y `origin/main`, porque el clon es superficial: no sé qué otras ramas existen en GitHub. Pero un flujo de trabajo, `candidatos.yml`, usa una rama de un modo curioso. Si la rama `candidatos` ya existe, la baja; si no, la crea con `git checkout --orphan candidatos`, una rama sin padre, sin ancestro común con `main`, para guardar muestras de sonido y de voz **fuera** del historial de la app.",
+    "Es una buena ilustración de que una rama es solo un puntero: nada obliga a que descienda de `main`. Otro flujo, `supabase.yml`, se dispara con un `push` a `main` cuando cambian archivos de `supabase/migrations/` o `supabase/functions/`. Lo que ahí está escrito es el disparador; cómo se trabaja en equipo no se puede deducir del código."
+   ],
+   "archivos": [
+    ".github/workflows/candidatos.yml",
+    ".github/workflows/supabase.yml"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "git bisect: encontrar el commit que rompió algo"
+  },
+  {
+   "t": "p",
+   "x": "En el [@03-15] viste la idea de bisección y en el [@03-33], la búsqueda binaria: si algo anduvo ayer y hoy no, y entre los dos hay muchos commits, probás el del medio y descartás la mitad. Git lo automatiza con `git bisect`, un comando que el [@04-13] va a retomar con más calma. Para probarlo agregué cinco commits a `main`. En uno de ellos, «Extraer recargoPorZona», un refactor se olvidó de la zona `interior`. La prueba de siempre lo detecta:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git log --oneline | head -7",
+     "s": "08e5f22 Ajustar comentario\na8de758 Actualizar LEEME\na992ef3 Extraer recargoPorZona\ned478f7 Agregar zona cuyo\n389c22b Comentar constantes\n6d598fa Aclarar moneda en el LEEME\n779e7e0 Agregar contacto"
+    },
+    {
+     "c": "node prueba.js; echo \"salida: $?\"",
+     "s": "FALLA costoEnvio(4, interior) = 2200, esperado 3300\nsalida: 1"
+    },
+    {
+     "c": "git switch --detach v1.1 && node prueba.js; echo \"salida: $?\"",
+     "s": "HEAD is now at 335b1a8 Merge branch 'tarifa-nueva'\nOK\nsalida: 0"
+    },
+    {
+     "c": "git switch main",
+     "s": "Previous HEAD position was 335b1a8 Merge branch 'tarifa-nueva'\nSwitched to branch 'main'"
+    }
+   ],
+   "cap": "La versión etiquetada `v1.1` pasa la prueba y la punta no. Ese par (una buena conocida y una mala) es lo único que `bisect` necesita."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Ir a una etiqueta con `--detach` deja a HEAD apuntando **directo a un commit**, sin rama (en `.git/HEAD` hay un hash en vez de `ref: …`): el estado *detached HEAD*. Mirar es seguro. Si commiteás ahí y cambiás de rama, Git avisa `you are leaving 1 commit behind, not connected to any of your branches` y sugiere `git branch <nombre> <hash>`. Lo probé: el commit no se perdió, pero sin rama solo lo salva el reflog del [@04-09].",
+   "titulo": "HEAD separado"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git bisect start",
+     "s": "status: waiting for both good and bad commits"
+    },
+    {
+     "c": "git bisect bad",
+     "s": "status: waiting for good commit(s), bad commit known"
+    },
+    {
+     "c": "git bisect good v1.1",
+     "s": "Bisecting: 3 revisions left to test after this (roughly 2 steps)\n[389c22b468112d95ff3845155bfe6d5ede47a191] Comentar constantes"
+    },
+    {
+     "c": "node prueba.js",
+     "s": "OK"
+    },
+    {
+     "c": "git bisect good",
+     "s": "Bisecting: 1 revision left to test after this (roughly 1 step)\n[a992ef3da2812bfce4cbf39f98d569b92a83c6a7] Extraer recargoPorZona"
+    },
+    {
+     "c": "git bisect run node prueba.js",
+     "s": "running 'node' 'prueba.js'\nFALLA costoEnvio(4, interior) = 2200, esperado 3300\nBisecting: 0 revisions left to test after this (roughly 0 steps)\n[ed478f7d058ebfdaa7f6f112537627ad30c7f505] Agregar zona cuyo\nrunning 'node' 'prueba.js'\nOK\na992ef3da2812bfce4cbf39f98d569b92a83c6a7 is the first bad commit\ncommit a992ef3da2812bfce4cbf39f98d569b92a83c6a7\nAuthor: Ana <ana@example.com>\nDate:   Mon Nov 23 09:00:00 2026 +0000\n\n    Extraer recargoPorZona\n\n tarifas.js | 8 +++++++-\n 1 file changed, 7 insertions(+), 1 deletion(-)\nbisect found first bad commit"
+    },
+    {
+     "c": "git bisect reset",
+     "s": "Previous HEAD position was ed478f7 Agregar zona cuyo\nSwitched to branch 'main'"
+    }
+   ],
+   "cap": "Entre `v1.1` y la punta había 8 commits: en 3 pruebas encontró el culpable. En el primer paso probé a mano y, en los otros, `git bisect run` corrió la prueba solo. Al final, `git bisect reset` te devuelve a la rama donde estabas."
+  },
+  {
+   "t": "p",
+   "x": "`git bisect run` usa el [[código de retorno]] de tu comando: 0 significa «bueno», 1 a 127 (salvo 125) significa «malo», y 125 significa «no puedo probar este commit», que lo saltea [#git-lab-bisect-doc]. Funciona sólo si la prueba es **confiable** y **sirve en todo el rango**: si `prueba.js` hubiera cambiado a mitad del historial, el resultado no valdría. Y hay una moraleja de equipo: bisect es tan útil como pequeños los commits. Si el commit culpable toca 40 archivos, la respuesta existe pero no te ayuda."
+  },
+  {
+   "t": "h",
+   "x": "Tres ejercicios con solución"
+  },
+  {
+   "t": "p",
+   "x": "Seguí en `tarifas`, con la rama `main` en la punta. Cada ejercicio arma su propio estado con los comandos que se dan."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Predecí la fusión.** Corré `git switch -c docs; echo \"Autor: logistica\" >> LEEME.txt; git commit -qam \"Agregar autor\"; git switch main`. Antes de ejecutar `git merge docs`, anotá si será de avance rápido o de tres vías. Después, deshacé el merge con `git reset --hard HEAD~1`, hacé un commit nuevo en `main` (`echo \"// nota\" >> tarifas.js; git commit -qam \"Nota\"`) y probá `git merge --ff-only docs`. ¿Qué pasa, y cómo hacés para fusionar igual?",
+   "pista": "Preguntate si `main` se movió desde que nació `docs`.",
+   "solucion": "La primera vez es de **avance rápido**: `main` no se movió, y Git imprime `Fast-forward`. Tras el reset y el commit nuevo, las dos ramas divergieron: `git merge --ff-only docs` falla con `fatal: Not possible to fast-forward, aborting.` Para fusionar igual: `git merge docs -m \"Fusionar docs\"` (tres vías, con un commit de dos padres) o `git merge --no-ff`. `--ff-only` sirve como seguro cuando querés que Git te avise en lugar de crear fusiones sin querer."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Resolvé un conflicto en un rebase.** Creá la rama `ajuste` con `git switch -c ajuste; sed -i 's/const BASE = 1000;/const BASE = 1100;/' tarifas.js; git commit -qam \"Subir base a 1100\"`. Volvé a `main` y hacé lo mismo con 1200. Después, desde `ajuste`, corré `git rebase main`. Resolvelo dejando 1100, ajustá `prueba.js` si hace falta para que pase, y terminá el rebase.",
+   "pista": "Durante un rebase la resolución se confirma con `git add` y se sigue con `git rebase --continue`, no con `git commit`.",
+   "solucion": "`git rebase main` frena con `CONFLICT (content)` y `Could not apply … Subir base a 1100`; `git status` dice `interactive rebase in progress`. Editás `tarifas.js`, borrás los marcadores y dejás `const BASE = 1100;`. Corrés `node prueba.js`, que va a fallar si todavía espera los valores con 1000: actualizás los esperados. Luego `git add tarifas.js prueba.js` y `git rebase --continue`. Mi resultado: `Successfully rebased and updated refs/heads/ajuste` y un historial lineal con «Subir base a 1100» encima de «Subir base a 1200». Si te perdés, `git rebase --abort` vuelve al principio."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Deshacé un merge.** Creá `equivocada` con un commit que agregue `// experimento` a `tarifas.js`, volvé a `main`, hacé un commit propio y fusioná con `git merge equivocada -m \"Fusionar equivocada\"`. (a) Deshacelo como si nunca hubiera pasado, porque todavía no lo compartiste. (b) Volvé a fusionar y deshacelo ahora con un commit nuevo, como si ya fuera historia compartida.",
+   "pista": "Para (a), `reset` registra dónde estaba la rama antes. Para (b), `revert` de un merge necesita decir qué padre conservar.",
+   "solucion": "(a) Tras la fusión, `git rev-parse --short ORIG_HEAD` muestra la punta de `main` de antes (en mi corrida, `c2eb4aa`), y `git reset --hard ORIG_HEAD` vuelve ahí. (b) `git merge equivocada -m \"Fusionar equivocada\"` y después `git revert -m 1 --no-edit HEAD`: `-m 1` le dice a Git que el padre 1 (la rama principal) es la línea que se conserva. El historial crece con un commit `Revert \"Fusionar equivocada\"`. Ojo con lo que pasa después: si volvés a ejecutar `git merge equivocada`, Git responde `Already up to date.` porque considera la rama ya integrada, así que para reincorporarla hay que revertir el revert."
+  }
+ ],
+ "recap": [
+  "Una rama es un archivo de 41 bytes con el hash de un commit: crearla no copia nada, y `git switch` reescribe tu carpeta para que coincida con el commit al que apunta.",
+  "Si la rama de origen no se movió, `merge` solo avanza el puntero (fast-forward). Si las dos divergieron, hace una fusión de tres vías y crea un commit con dos padres.",
+  "Un conflicto aparece cuando dos ramas cambiaron el mismo fragmento. Se resuelve a mano entre los marcadores, se corre la prueba, y recién ahí `git add` y `git commit`. Se puede abortar con `git merge --abort`.",
+  "`rebase` reaplica tus commits sobre otra punta y crea commits nuevos con otros hashes: historial lineal, pero reescrito. No se hace sobre historia que otros ya tienen.",
+  "`cherry-pick` copia un solo commit a otra rama, con otro hash y el mismo cambio.",
+  "`git bisect run` encuentra por búsqueda binaria el primer commit malo, siempre que la prueba sea confiable y valga en todo el rango."
+ ],
+ "repaso": [
+  {
+   "p": "Corrés `git branch pruebas` en un repositorio con 5.000 commits y 300 MB de archivos. ¿Qué cambia en `.git`?",
+   "o": [
+    "Se escribe un archivo chico con el hash del commit actual, sin copiar nada",
+    "Se copia la carpeta de trabajo completa para que la rama tenga sus propios archivos",
+    "Se duplican los objetos de los 5.000 commits para que no dependan de `main`",
+    "Se crea un commit nuevo vacío que marca el punto donde empieza la rama nueva"
+   ],
+   "c": 0,
+   "e": "Una rama es una referencia: un archivo de 41 bytes con el hash de un commit. No se copian archivos ni objetos, y por eso es instantáneo sin importar el tamaño del proyecto. La rama nueva no tiene ningún commit propio hasta que commitees."
+  },
+  {
+   "p": "`main` no avanzó desde que creaste `feature` y le hiciste 2 commits. Corrés `git merge feature` parado en `main`. ¿Qué pasa?",
+   "o": [
+    "Git crea un commit de fusión con dos padres que junta las puntas",
+    "Git avanza el puntero de `main` hasta la punta de `feature`, sin commit nuevo",
+    "Git muestra un conflicto porque las dos ramas tienen commits distintos",
+    "Git rechaza la fusión hasta que hagas `rebase` de `feature` sobre `main`"
+   ],
+   "c": 1,
+   "e": "Como `main` está en un ancestro directo de `feature`, alcanza con correr el puntero: fast-forward. El commit de dos padres aparece solo cuando las ramas divergen o cuando forzás `--no-ff`. Un conflicto requiere que las dos hayan cambiado las mismas líneas."
+  },
+  {
+   "p": "Después de un merge con conflicto, `tarifas.js` tiene líneas con `<<<<<<<`, `=======` y `>>>>>>>`. ¿Qué tenés que hacer antes de `git commit`?",
+   "o": [
+    "Dejar el contenido correcto, borrar los marcadores y marcar el archivo con `git add`",
+    "Dejar los marcadores como están porque Git los ignora al confirmar el commit",
+    "Correr `git merge --continue` para que Git elija solo la versión más reciente",
+    "Borrar el archivo y volver a crearlo, porque Git no puede confirmar un conflicto"
+   ],
+   "c": 0,
+   "e": "Los marcadores son texto que Git escribió en el archivo: si quedan, se commitean y rompen el código. La resolución se declara con `git add archivo`. Git no elige «la más reciente»: justamente se detuvo porque no puede decidir."
+  },
+  {
+   "p": "Resolviste un conflicto, el archivo quedó sin marcadores y el texto se ve prolijo. ¿Qué conviene hacer antes de confirmar?",
+   "o": [
+    "Confirmar enseguida, porque un archivo sin marcadores ya está correcto",
+    "Correr las pruebas, porque la lógica puede romperse sin conflicto de texto",
+    "Hacer `rebase` de la rama para que el historial quede completamente lineal",
+    "Volver a hacer `merge` de la rama hasta que Git no muestre ningún aviso"
+   ],
+   "c": 1,
+   "e": "Que el texto esté limpio no garantiza que el programa funcione: en el laboratorio, la tarifa nueva hacía fallar la prueba que esperaba los valores viejos. Correr las pruebas antes del commit de la fusión detecta ese tipo de error."
+  },
+  {
+   "p": "Rebaseaste tu rama local sobre `main` y los commits cambiaron de hash. ¿Por qué?",
+   "o": [
+    "Porque Git comprime los commits al moverlos y eso cambia el hash",
+    "Porque el rebase fusiona todos los commits en uno solo con otro nombre",
+    "Porque cada commit nuevo tiene otro padre, y el padre forma parte del hash",
+    "Porque el hash depende de la rama y la rama cambió de nombre"
+   ],
+   "c": 2,
+   "e": "El hash de un commit se calcula con su contenido, su autor, su mensaje y el hash de su padre. Con otro padre, el hash es distinto aunque el cambio sea idéntico. Por eso el rebase crea commits nuevos y por eso no conviene sobre historia que otros ya bajaron."
+  },
+  {
+   "p": "Tu equipo entrega a producción varias veces por día y las ramas viven semanas. Un colega propone ramas de vida corta y integrar a diario. ¿Qué ventaja principal tiene eso?",
+   "o": [
+    "Evita tener que escribir pruebas, porque el tronco siempre está probado",
+    "Elimina los conflictos, porque cada persona edita siempre archivos distintos",
+    "Acumula menos diferencias entre ramas, así que los conflictos son más chicos",
+    "Permite usar `rebase` sobre historia compartida sin que nadie se entere"
+   ],
+   "c": 2,
+   "e": "Cuanto menos tiempo vive una rama, menos cambios se acumulan del otro lado y más chicos son los conflictos. No los elimina, no reemplaza las pruebas (las exige) y no cambia la regla de no reescribir historia compartida."
+  },
+  {
+   "p": "Un commit rompió una prueba y hay 1.000 commits entre la última versión buena y hoy. ¿Cuántas pruebas hace falta correr, aproximadamente, con `git bisect`?",
+   "o": [
+    "Unas 10, porque cada prueba descarta la mitad de los commits que quedan",
+    "Unas 100, porque bisect prueba uno de cada diez commits en el rango",
+    "Unas 500, porque en promedio hay que probar la mitad de los commits",
+    "Las 1.000, porque cada commit debe probarse al menos una vez"
+   ],
+   "c": 0,
+   "e": "Es búsqueda binaria: 2 elevado a 10 es 1.024, así que alcanzan unas 10 pruebas para ubicar un commit entre mil. En el laboratorio, 8 commits se resolvieron en 3 pruebas. La cuenta vale si la prueba es confiable y sirve en todo el rango."
+  }
+ ],
+ "feynman": "Explicale a una persona de tu equipo de logística por qué crear una rama en Git es instantáneo, qué diferencia hay entre juntar el trabajo con merge y con rebase, y qué le dirías antes de que haga un rebase de algo que ya compartió.",
+ "para_profundizar": [
+  {
+   "fuente": "git-lab-progit-branches",
+   "nota": "El capítulo «Branches in a Nutshell» de Pro Git muestra, con dibujos, que una rama es un puntero y qué hace HEAD al cambiar de rama; es la versión ilustrada de la primera mitad de hoy."
+  },
+  {
+   "fuente": "git-lab-progit-rebasing",
+   "nota": "El capítulo «Rebasing» explica el rebase con diagramas y termina con la sección «The Perils of Rebasing», que es la regla de oro de no reescribir historia compartida."
+  },
+  {
+   "fuente": "git-lab-trunk-based",
+   "nota": "Trunkbaseddevelopment.com describe el desarrollo sobre el tronco para equipos chicos y grandes, con las ramas cortas y los interruptores de funcionalidad."
+  },
+  {
+   "fuente": "git-lab-bisect-doc",
+   "nota": "La documentación de `git bisect` detalla `run`, el código 125 y cómo saltear commits que no se pueden probar; leela antes del [@04-13]."
+  }
+ ],
+ "videos": [
+  {
+   "q": "git merge vs rebase explicado con diagramas",
+   "por_que": "Para ver animadas las dos formas de integrar; fijate que el rebase crea commits nuevos y compará con los hashes de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "rama",
+   "d": "Nombre que apunta a un commit y avanza solo cuando commiteás parado en ella; en Git es un archivo de 41 bytes dentro de `.git/refs/heads`, no una copia de los archivos."
+  },
+  {
+   "t": "merge",
+   "d": "Fusión: integra en la rama actual los cambios de otra; es de avance rápido si solo hay que correr el puntero, o de tres vías, con un commit de dos padres, si las ramas divergieron."
+  },
+  {
+   "t": "conflicto",
+   "d": "Situación en que dos ramas cambiaron el mismo fragmento de manera distinta y Git no puede elegir; deja marcadores en el archivo y espera una decisión humana."
+  },
+  {
+   "t": "rebase",
+   "d": "Reaplica, uno por uno, los commits de una rama sobre la punta de otra, creando commits nuevos con otros hashes; deja un historial lineal, pero reescrito."
+  },
+  {
+   "t": "fast-forward",
+   "d": "Fusión que solo corre el puntero de una rama hacia adelante cuando la otra no se movió, sin crear commit de fusión."
+  },
+  {
+   "t": "cherry-pick",
+   "d": "Comando que copia el cambio de un commit de otra rama al lugar donde estás parado, creando un commit nuevo con otro hash."
+  }
+ ],
+ "siguiente": "GitHub: hasta ahora todo pasó en una sola máquina; mañana aparece una copia remota y otras personas, y con ellas los pull requests, los forks y la forma en que un equipo se pone de acuerdo.",
+ "fuentes_nuevas": [
+  {
+   "id": "git-lab-progit-branches",
+   "t": "Pro Git: Git Branching, Branches in a Nutshell",
+   "a": "Scott Chacon y Ben Straub",
+   "tipo": "libro",
+   "url": "https://git-scm.com/book/en/v2/Git-Branching-Branches-in-a-Nutshell"
+  },
+  {
+   "id": "git-lab-progit-rebasing",
+   "t": "Pro Git: Git Branching, Rebasing",
+   "a": "Scott Chacon y Ben Straub",
+   "tipo": "libro",
+   "url": "https://git-scm.com/book/en/v2/Git-Branching-Rebasing"
+  },
+  {
+   "id": "git-lab-trunk-based",
+   "t": "Trunk Based Development",
+   "a": "Paul Hammant y colaboradores",
+   "tipo": "articulo",
+   "url": "https://trunkbaseddevelopment.com/"
+  },
+  {
+   "id": "git-lab-gitflow",
+   "t": "A successful Git branching model (con la nota de reflexión de 2020)",
+   "a": "Vincent Driessen",
+   "tipo": "articulo",
+   "anio": "2010",
+   "url": "https://nvie.com/posts/a-successful-git-branching-model/"
+  },
+  {
+   "id": "git-lab-dora-tbd",
+   "t": "DORA: Trunk-based development",
+   "a": "DORA (Google Cloud)",
+   "tipo": "doc",
+   "url": "https://dora.dev/capabilities/trunk-based-development/"
+  },
+  {
+   "id": "git-lab-config-doc",
+   "t": "git-config: documentación oficial (merge.conflictStyle y gc.reflogExpire)",
+   "a": "Proyecto Git",
+   "tipo": "doc",
+   "url": "https://git-scm.com/docs/git-config"
+  },
+  {
+   "id": "git-lab-bisect-doc",
+   "t": "git-bisect: documentación oficial",
+   "a": "Proyecto Git",
+   "tipo": "doc",
+   "url": "https://git-scm.com/docs/git-bisect"
+  }
+ ]
+}
