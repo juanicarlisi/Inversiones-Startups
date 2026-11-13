@@ -1,0 +1,786 @@
+{
+ "id": "05-29",
+ "titulo": "Laboratorio: seguir una solicitud real",
+ "bajada": "Levantás un servidor propio, le pedís una página con curl, mirás los paquetes pasar con tcpdump y leés el cronograma de un navegador real, todo con números medidos.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Leer la salida de curl -v y ubicar en ella la resolución del nombre, la conexión, el pedido y la respuesta.",
+  "Convertir los tiempos acumulados de curl -w en la duración de cada fase y saber cuántas idas y vueltas explican cada número.",
+  "Capturar una conexión con tcpdump y reconocer el saludo de tres vías, el pedido, la respuesta y el cierre.",
+  "Leer un cronograma de red (HAR) de un navegador real, incluida la trampa de que ssl está dentro de connect.",
+  "Decidir, con tres números, si una lentitud viene de la distancia, del servidor o del ancho de banda."
+ ],
+ "venis_de": "En [@05-28] conociste las herramientas una por una: ping, traceroute, curl, dig y las DevTools de red. Hoy las usás juntas sobre un mismo pedido, y de paso verificás en vivo lo que explicaron los días de DNS, TCP, TLS y HTTP.",
+ "se_apoya_en": [
+  "05-28",
+  "05-22",
+  "05-18",
+  "05-16",
+  "05-27",
+  "05-20",
+  "05-19"
+ ],
+ "gancho": [
+  "Hasta acá estudiaste cada pieza por separado: la dirección IP, el nombre que se traduce con DNS, la conexión TCP, el candado de TLS, el pedido HTTP. Todo eso ocurre cada vez que tocás un enlace y dura menos que un parpadeo, así que nunca lo ves. Hoy lo ponés sobre una mesa de trabajo donde sí se ve.",
+  "El laboratorio tiene un solo tema: seguir una solicitud real de punta a punta con instrumentos. Si trabajás en logística, la imagen es un lector de código de barras en cada puerta del depósito. En vez de preguntar «¿dónde está mi pedido?» mirás a qué hora pasó cada caja por cada puerta. Con las horas a la vista se termina la discusión de opiniones y empieza la medición."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué vas a armar y con qué"
+  },
+  {
+   "t": "p",
+   "x": "El escenario es una distribuidora inventada para el ejemplo. Su «sitio» es una página que lista rutas de reparto, servida por un programa de Node de 36 líneas que escucha en `127.0.0.1` (la dirección de tu propia máquina) en el [[puerto]] 18529. Responde siete rutas distintas y a cada una le puse una **demora fija elegida por mí**. Es la clave del laboratorio: cuando midas, ya sabés qué número esperar, y eso te permite distinguir un error de medición de una lentitud verdadera."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Ruta",
+    "Qué devuelve",
+    "Demora puesta en el servidor"
+   ],
+   "filas": [
+    [
+     "`/`",
+     "La página HTML, con `Cache-Control: no-cache`",
+     "30 ms"
+    ],
+    [
+     "`/estilo.css`, `/app.js`",
+     "Hoja de estilos y script, cacheables una hora",
+     "10 ms cada uno"
+    ],
+    [
+     "`/logo.svg`",
+     "Una imagen chica, cacheable una hora",
+     "5 ms"
+    ],
+    [
+     "`/api/rutas`",
+     "Datos en JSON, con `Cache-Control: no-store`",
+     "120 ms"
+    ],
+    [
+     "`/hola`",
+     "Una línea de texto",
+     "ninguna"
+    ],
+    [
+     "`/lento`",
+     "Una línea de texto, a propósito tarde",
+     "300 ms"
+    ],
+    [
+     "`/grande`",
+     "2 MiB de bytes repetidos (2.097.152)",
+     "ninguna"
+    ]
+   ],
+   "cap": "Las demoras las agrega el servidor con `setTimeout`. Todo lo que midas por encima de estos números es red, navegador o ruido."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const http = require('http');\nconst pagina = '<!doctype html><html lang=\"es\"><head><meta charset=\"utf-8\">' +\n  '<link rel=\"stylesheet\" href=\"/estilo.css\"></head><body><h1>Rutas de hoy</h1>' +\n  '<img src=\"/logo.svg\" width=\"64\" height=\"64\" alt=\"logo\"><ul id=\"rutas\"></ul>' +\n  '<script src=\"/app.js\"></script></body></html>';\n\nconst manejador = (req, res) => {\n  const enviar = (tipo, cuerpo, extra = {}, demora = 0) => setTimeout(() => {\n    res.writeHead(200, { 'Content-Type': tipo, 'Content-Length': Buffer.byteLength(cuerpo), ...extra });\n    res.end(cuerpo);\n  }, demora);\n  const ruta = req.url.split('?')[0];\n  if (ruta === '/')            return enviar('text/html; charset=utf-8', pagina, { 'Cache-Control': 'no-cache' }, 30);\n  if (ruta === '/estilo.css')  return enviar('text/css', 'body{margin:2rem}', { 'Cache-Control': 'max-age=3600' }, 10);\n  if (ruta === '/api/rutas')   return enviar('application/json', '[\"Barracas-Córdoba\"]', { 'Cache-Control': 'no-store' }, 120);\n  if (ruta === '/lento')       return enviar('text/plain', 'respuesta tardía\\n', {}, 300);\n  if (ruta === '/hola')        return enviar('text/plain; charset=utf-8', 'hola desde el laboratorio\\n');\n  res.writeHead(404); res.end('no existe\\n');\n};\nhttp.createServer(manejador).listen(18529, '127.0.0.1');",
+   "cap": "Extracto del servidor de laboratorio (el archivo completo tiene 36 líneas y también sirve `/logo.svg` y `/grande`). Lo corrí con `node servidor.js`."
+  },
+  {
+   "t": "p",
+   "x": "Los instrumentos son los de [@05-28], con las versiones que había en esta VM el 13-11-2026: `curl` 8.5.0, `tcpdump` 4.99.4 (lo instalé con `apt`), Node 22 y un Chrome for Testing 153.0.8010.12 manejado con Playwright. Para HTTPS armé un certificado autofirmado para `deposito.localhost`, que sirve el mismo programa con [[HTTP/2]]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Todo lo que sigue está **medido en esta VM**, sin una red real en el medio. Entre `curl` y el servidor hay cero kilómetros, así que el [[RTT]] es de unas décimas de milisegundo. Por eso más adelante agrego un «relé» que le suma distancia a propósito. Ningún número de hoy representa tu conexión de casa ni la de un teléfono: sirven para entender la forma, no para comparar con tu Wi-Fi.",
+   "titulo": "Qué representan estos números"
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Un servidor de juguete con demoras conocidas es como un depósito de prueba donde sabés que la puerta 3 tarda diez minutos en abrirse. Si el lector marca diez minutos, el instrumento anda. Donde falla: en un depósito real la demora no es fija ni la conocés de antemano, y por eso en producción medís mucho más tiempo y mirás percentiles, no un solo número."
+  },
+  {
+   "t": "h",
+   "x": "Paso 1: curl -v, la conversación en texto"
+  },
+  {
+   "t": "p",
+   "x": "[[curl -v]] imprime lo que curl hace y lo que dice, línea por línea (la opción es `--verbose`). Tiene tres prefijos que conviene memorizar: `*` son comentarios de curl sobre sí mismo (qué dirección probó, si se conectó), `>` es lo que **envía** y `<` es lo que **recibe**. Hacé el pedido más simple del laboratorio:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl --noproxy '*' -sS -v http://deposito.localhost:18529/hola",
+     "s": "* Host deposito.localhost:18529 was resolved.\n* IPv6: ::1\n* IPv4: 127.0.0.1\n*   Trying 127.0.0.1:18529...\n* Connected to deposito.localhost (127.0.0.1) port 18529\n> GET /hola HTTP/1.1\n> Host: deposito.localhost:18529\n> User-Agent: curl/8.5.0\n> Accept: */*\n> \n< HTTP/1.1 200 OK\n< Content-Type: text/plain; charset=utf-8\n< Content-Length: 26\n< Date: Fri, 13 Nov 2026 17:45:08 GMT\n< Connection: keep-alive\n< Keep-Alive: timeout=5\n< \n{ [26 bytes data]\n* Connection #0 to host deposito.localhost left intact\nhola desde el laboratorio"
+    }
+   ],
+   "cap": "Salida real. `-sS` apaga la barra de progreso pero deja los errores; `--noproxy '*'` evita el proxy que tiene esta VM, como vas a ver en el paso 6."
+  },
+  {
+   "t": "p",
+   "x": "Leelo de arriba hacia abajo como una película. Las primeras tres líneas son la resolución del nombre: `deposito.localhost` tiene dos direcciones, la IPv6 `::1` y la IPv4 `127.0.0.1`. Los nombres terminados en `.localhost` están reservados para apuntar a tu propia máquina (RFC 6761, sección 6.3) [#lab529-rfc6761], por eso la resolución no tuvo que preguntarle a nadie; más abajo vas a ver que tardó 15 microsegundos. Después viene `Trying 127.0.0.1:18529` y `Connected`: ese es el [[saludo de tres vías]] de [@05-16], resumido en dos líneas. Lo que sigue es el pedido en texto plano, con el [[método HTTP]] `GET`, la ruta, y tres [[encabezado HTTP|encabezados]]. Lo último es la respuesta: el [[código de estado]] `200`, el tipo de contenido, el largo en bytes y `Connection: keep-alive`, que es el servidor diciendo que no va a cerrar la conexión por su cuenta (lo de [@05-19] y [@05-20])."
+  },
+  {
+   "t": "ejercicio",
+   "x": "En la salida de arriba, encontrá tres cosas: (1) la dirección IP y el puerto a los que se conectó curl; (2) cuántos bytes dice el servidor que tiene el cuerpo; (3) qué línea te dice que curl **no** cerró la conexión por su cuenta.",
+   "pista": "Buscá las líneas que empiezan con `*` para la conexión, y los encabezados que empiezan con `<` para el largo. La última línea con `*` habla de la conexión.",
+   "solucion": "(1) `Connected to deposito.localhost (127.0.0.1) port 18529`: IP 127.0.0.1, puerto 18529. (2) `Content-Length: 26`: son 26 bytes, y la última línea de la salida, `hola desde el laboratorio`, los tiene: 25 caracteres más el salto de línea. (3) `Connection #0 to host deposito.localhost left intact`: curl dejó la conexión abierta al terminar. Como es un programa de una sola ejecución, el sistema la cierra recién cuando el proceso termina; en el paso 4 vas a ver ese cierre en los paquetes."
+  },
+  {
+   "t": "pensa",
+   "x": "El pedido que viste son cuatro líneas de texto. ¿Cuántos bytes crees que ocupa en el cable, contando los saltos de línea y la línea vacía del final?",
+   "resp": "Unos 80 (con otro nombre en `Host` dan 82, como vas a ver en el paso 4). Cada línea termina con dos bytes (retorno de carro y salto de línea) y una línea vacía marca el fin de los encabezados. Es poco: un pedido HTTP sin cookies pesa menos que este párrafo."
+  },
+  {
+   "t": "h",
+   "x": "Paso 2: ponerle cronómetro con -w"
+  },
+  {
+   "t": "p",
+   "x": "`curl -v` te dice *qué* pasó pero no *cuánto tardó cada cosa*. Para eso está `-w` (`--write-out`), que imprime variables al terminar el pedido [#lab529-curl-man]. Las que importan hoy son cinco, y todas tienen la misma trampa: **son acumuladas desde el inicio del pedido**, no duraciones sueltas."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Variable de curl",
+    "Cuándo se cumple (desde el inicio)",
+    "Fase que cierra"
+   ],
+   "filas": [
+    [
+     "`time_namelookup`",
+     "terminó de resolver el nombre",
+     "DNS"
+    ],
+    [
+     "`time_connect`",
+     "terminó la conexión TCP con el servidor (o con el proxy)",
+     "saludo de tres vías"
+    ],
+    [
+     "`time_appconnect`",
+     "terminó el handshake TLS (0 si no hay TLS)",
+     "TLS"
+    ],
+    [
+     "`time_starttransfer`",
+     "llegó el primer byte de la respuesta",
+     "espera del servidor"
+    ],
+    [
+     "`time_total`",
+     "llegó el último byte",
+     "descarga"
+    ]
+   ],
+   "cap": "Para saber cuánto duró una fase restás la variable de la fase anterior. Si no hay TLS, la espera se cuenta desde `time_connect`."
+  },
+  {
+   "t": "p",
+   "x": "Probalo contra el relé HTTPS que armo en el paso 3 (ahí te explico qué es). Por ahora mirá el formato del pedido y la forma de los números:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl --noproxy '*' -sS -o /dev/null --cacert lab.crt -w 'conexión %{time_connect}\\ntls %{time_appconnect}\\nprimer_byte %{time_starttransfer}\\ntotal %{time_total}\\n' https://deposito.localhost:18531/hola",
+     "s": "conexión 0.000089\ntls 0.053602\nprimer_byte 0.105612\ntotal 0.105671"
+    }
+   ],
+   "cap": "Medido en esta VM con 25 ms de demora por sentido en el relé. `-o /dev/null` tira el cuerpo; `--cacert lab.crt` le dice a curl que confíe en el certificado autofirmado del laboratorio."
+  },
+  {
+   "t": "p",
+   "x": "Restá. TLS duró 0,053602 − 0,000089 = 0,0535 segundos, o sea 53,5 ms. Desde que terminó TLS hasta el primer byte pasaron 0,105612 − 0,053602 = 52,0 ms. Y la descarga fue 0,105671 − 0,105612 = 0,06 ms: la respuesta cabía en un solo paquete. Fijate que la conexión TCP, que según [@05-16] cuesta un viaje de ida y vuelta, aparece como 0,089 ms. Eso es un hallazgo y no un error, y lo explico enseguida."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un compañero te pasa esta corrida de `curl -w` contra un servidor HTTPS: `time_namelookup` 0,018; `time_connect` 0,060; `time_appconnect` 0,125; `time_starttransfer` 0,610; `time_total` 0,640 (todo en segundos). Calculá cuánto duró cada fase y decí cuál es el sospechoso principal.",
+   "pista": "Restá cada variable de la anterior en el orden de la tabla. DNS es la primera tal cual.",
+   "solucion": "DNS: 18 ms. TCP: 60 − 18 = 42 ms. TLS: 125 − 60 = 65 ms. Espera hasta el primer byte: 610 − 125 = 485 ms. Descarga: 640 − 610 = 30 ms. El sospechoso es la espera de 485 ms: más del 75 % del total (485 de 640). TCP en 42 ms y TLS en 65 ms sugieren que la distancia a ese servidor es de unas decenas de milisegundos de ida y vuelta, así que 485 ms de espera no se explican por viajar: el servidor tardó en armar la respuesta. Los números son inventados para el ejercicio."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Si restás mal, los resultados salen absurdos. El error más común es leer `time_appconnect` como «lo que tardó TLS». No lo es: es el momento en que TLS terminó, contado desde el principio, e incluye DNS y TCP. Ese número solo equivale a la duración de TLS si DNS y TCP duraron cero, que es casi lo que pasa en este laboratorio y casi nunca en la vida real.",
+   "titulo": "La trampa de los acumulados"
+  },
+  {
+   "t": "h",
+   "x": "Paso 3: ponerle distancia con un relé"
+  },
+  {
+   "t": "p",
+   "x": "Con servidor y cliente en la misma máquina, el [[latencia de red|viaje de ida y vuelta]] es de décimas de milisegundo y no se ve nada interesante. Mi primera idea fue simular distancia con la herramienta del kernel para eso (`tc netem`), pero el kernel de esta VM no la trae: la opción de compilación `NET_SCH_NETEM` está desactivada. Entonces armé un «relé»: un programa de 14 líneas que escucha en otro puerto, le reenvía los bytes al servidor real y **demora cada fragmento 25 ms en cada sentido**. Son 50 ms de ida y vuelta, lo que corresponde aproximadamente a un servidor en otra provincia (es una elección mía, no una medición)."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const net = require('net');\nconst [escucha, destino, demora] = process.argv.slice(2).map(Number);\nnet.createServer((cliente) => {\n  const servidor = net.connect(destino, '127.0.0.1');\n  const pasar = (de, a) => de.on('data', (trozo) => setTimeout(() => a.write(trozo), demora));\n  pasar(cliente, servidor);\n  pasar(servidor, cliente);\n}).listen(escucha, '127.0.0.1');",
+   "cap": "El relé, sin manejo de errores ni cierre ordenado (en el archivo completo están). Escucha en 18531 y reenvía a 18530 (HTTPS) con 25 ms de demora; otra copia escucha en 18532 y reenvía al 18529 (HTTP plano)."
+  },
+  {
+   "t": "p",
+   "x": "Ahora medí cuatro combinaciones, 15 corridas cada una, y quedate con la mediana (el valor del medio: ignora corridas raras):"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Escenario",
+    "time_connect",
+    "time_appconnect",
+    "time_starttransfer",
+    "time_total"
+   ],
+   "filas": [
+    [
+     "HTTP directo",
+     "0,08 ms",
+     "—",
+     "1,65 ms",
+     "1,67 ms"
+    ],
+    [
+     "HTTP por el relé (RTT 50 ms)",
+     "0,10 ms",
+     "—",
+     "52,34 ms",
+     "52,39 ms"
+    ],
+    [
+     "HTTPS directo",
+     "0,10 ms",
+     "2,22 ms",
+     "3,81 ms",
+     "3,84 ms"
+    ],
+    [
+     "HTTPS por el relé (RTT 50 ms)",
+     "0,10 ms",
+     "54,10 ms",
+     "106,87 ms",
+     "106,96 ms"
+    ]
+   ],
+   "cap": "Mediana de 15 corridas, medido en esta VM el 13-11-2026. Los números de la fila directa incluyen ~1,6 ms de cómputo del servidor de laboratorio."
+  },
+  {
+   "t": "p",
+   "x": "Los números cuentan tres cosas. Primero: sin TLS, el primer byte llega después de **una** ida y vuelta (52 ms ≈ 50 + 2): el pedido viaja, el servidor responde, la respuesta vuelve. Segundo: con TLS 1.3 hay **una ida y vuelta más** antes del pedido, por el handshake (54 ms), y después la ida y vuelta del pedido (106 ms en total). Tercero, y es lo que más desorienta: `time_connect` no creció nada. Sigue en 0,10 ms aunque pusimos 50 ms de RTT."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "La conexión TCP se completa entre `curl` y el **kernel de la misma VM**: el saludo de tres vías lo contesta el sistema operativo del relé sin que el programa lo toque, y esa respuesta no pasa por mi demora (que solo afecta a los bytes que el programa reenvía). Con un servidor lejano de verdad, `time_connect` sería de unos 50 ms. Entonces una conexión HTTPS nueva, sin contar DNS, cuesta **tres** idas y vueltas antes del primer byte: TCP, TLS y pedido. En el laboratorio ves dos porque el relé no puede demorar la primera.",
+   "titulo": "Por qué time_connect no crece"
+  },
+  {
+   "t": "pensa",
+   "x": "Con un servidor a 50 ms de RTT, HTTPS nuevo, sin contar DNS ni el cómputo del servidor: ¿cuánto esperás hasta el primer byte? ¿Y si la conexión ya estaba abierta de un pedido anterior?",
+   "resp": "Con conexión nueva, unas tres idas y vueltas: 150 ms (TCP 50, TLS 1.3 50, pedido 50). Con la conexión ya abierta, una sola: 50 ms. Eso es lo que ganan HTTP/2 y la reutilización de conexiones de [@05-20], y por eso los navegadores abren la conexión por adelantado cuando pueden."
+  },
+  {
+   "t": "h",
+   "x": "Paso 4: mirar los paquetes con tcpdump"
+  },
+  {
+   "t": "p",
+   "x": "Hasta acá viste los números que informan los programas. El [[análisis de tráfico]] va un nivel más abajo: en vez de confiar en lo que dice curl, mirás los paquetes que pasan por la interfaz de red. `tcpdump` es el instrumento de línea de comandos para eso [#lab529-tcpdump-man]. Necesita permisos de administrador, porque leer la placa de red de otros procesos no es algo que cualquiera pueda hacer. Capturá en la interfaz `lo` (la de loopback) solo lo que va al puerto del servidor, guardá en un archivo y leelo después:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "tcpdump -i lo -nn -w hola.pcap 'tcp port 18529' &",
+     "s": ""
+    },
+    {
+     "c": "curl --noproxy '*' -sS -o /dev/null http://127.0.0.1:18529/hola",
+     "s": ""
+    },
+    {
+     "c": "tcpdump -r hola.pcap -nn -ttt | sed -E 's/ IP 127.0.0.1\\./ /; s/ > 127.0.0.1\\./ > /; s/options \\[[^]]*\\], //; s/win [0-9]+, //'",
+     "s": " 00:00:00.000000 56606 > 18529: Flags [S], seq 4138415633, length 0\n 00:00:00.000010 18529 > 56606: Flags [S.], seq 588804617, ack 4138415634, length 0\n 00:00:00.000011 56606 > 18529: Flags [.], ack 1, length 0\n 00:00:00.000048 56606 > 18529: Flags [P.], seq 1:83, ack 1, length 82\n 00:00:00.000002 18529 > 56606: Flags [.], ack 83, length 0\n 00:00:00.001691 18529 > 56606: Flags [P.], seq 1:191, ack 83, length 190\n 00:00:00.000019 56606 > 18529: Flags [.], ack 191, length 0\n 00:00:00.000146 56606 > 18529: Flags [F.], seq 83, ack 191, length 0\n 00:00:00.000073 18529 > 56606: Flags [F.], seq 191, ack 84, length 0\n 00:00:00.000014 56606 > 18529: Flags [.], ack 192, length 0"
+    }
+   ],
+   "cap": "Salida real. `-nn` no traduce nombres ni puertos; `-ttt` muestra el tiempo desde el paquete anterior, en microsegundos; el `sed` solo acorta las líneas (saca las opciones TCP). El puerto 56606 es el que el sistema le asignó a curl para esta conexión."
+  },
+  {
+   "t": "p",
+   "x": "Cada línea es un paquete. Entre corchetes van las banderas de TCP: `S` es SYN (abrir), `.` es un ACK solo, `P` es PUSH (hay datos para entregar ya) y `F` es FIN (cerrar). Combinadas, `S.` es SYN+ACK. Las tres primeras líneas son el saludo de tres vías de [@05-16], con los números de secuencia iniciales de cada lado. La cuarta es el pedido HTTP: 82 bytes de datos, con los números de secuencia 1 a 83. Después un ACK, y la respuesta de 190 bytes (164 de encabezados más los 26 del cuerpo). Las últimas cuatro líneas son el cierre: curl manda `F`, el servidor contesta con su propio `F` y se confirman."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "curl",
+     "k": "cliente"
+    },
+    {
+     "n": "Servidor (puerto 18529)",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "SYN (t = 0)",
+     "d": "Primer paquete de la conexión. Lleva el número de secuencia inicial del cliente."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "SYN+ACK (+0,010 ms)",
+     "resp": true,
+     "d": "El servidor acepta y manda su propio número inicial. Lo contesta el kernel, no el programa de Node."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "ACK (+0,021 ms)",
+     "d": "Cierra el saludo de tres vías. Desde acá la conexión está abierta."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET /hola: 82 bytes (+0,069 ms)",
+     "d": "El pedido HTTP en texto plano, en un solo paquete."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "200 OK: 190 bytes (+1,762 ms)",
+     "resp": true,
+     "d": "Tarda 1,7 ms desde el pedido: es el cómputo de Node, sin demora puesta."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "FIN (+1,927 ms)",
+     "d": "curl terminó y cierra su lado."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "FIN (+2,000 ms)",
+     "resp": true,
+     "d": "El servidor cierra el suyo. Un ACK final confirma (+2,014 ms)."
+    }
+   ],
+   "cap": "La conexión completa de `/hola`, con los tiempos reales de la captura (acumulados desde el primer paquete). Todo dura 2 ms porque cliente y servidor están en la misma máquina."
+  },
+  {
+   "t": "p",
+   "x": "Ahora la misma captura con HTTPS, para ver qué ve alguien que mira el cable. Capturé el puerto 18530 mientras curl pedía `/hola` por TLS, y busqué dos textos en los bytes: el nombre del sitio y el pedido."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "tcpdump -r tls.pcap -nn -A | grep -a -o 'deposito.localhost'",
+     "s": "deposito.localhost"
+    },
+    {
+     "c": "tcpdump -r tls.pcap -nn -A | grep -a -c 'GET /hola'",
+     "s": "0"
+    }
+   ],
+   "cap": "Medido en esta VM. `-A` muestra los bytes como texto ASCII; `grep -a` trata la entrada como texto aunque tenga bytes raros. El nombre aparece una vez; el pedido, ninguna."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": "El nombre del sitio viaja **sin cifrar** en el primer mensaje del handshake TLS (el campo se llama SNI y existe para que un servidor con muchos sitios sepa cuál certificado mostrar [#rfc8446]). El pedido, en cambio, va cifrado. Así que quien mire el cable sabe **a qué sitio** vas, pero no qué ruta pedís ni qué respondió. Existe una extensión para esconder también el nombre, llamada Encrypted Client Hello; no la verifiqué en el laboratorio, así que tomalo como un dato a confirmar en [@05-22].",
+   "titulo": "Qué se ve y qué no se ve en HTTPS"
+  },
+  {
+   "t": "ejercicio",
+   "x": "Repetí la captura pasando por el relé HTTP (puerto 18532, con 25 ms de demora por sentido). Los tiempos de los primeros paquetes son: SYN en 0,000 ms, SYN+ACK en 0,011 ms, ACK en 0,023 ms, pedido de 82 bytes en 0,076 ms, y respuesta de 190 bytes en 52,727 ms. (a) ¿Cuánto tarda la respuesta desde el pedido? (b) ¿Por qué el SYN+ACK volvió casi instantáneo si el relé está «a 50 ms»?",
+   "pista": "Restá el momento del pedido del momento de la respuesta. Para (b) pensá quién contesta un SYN: ¿el programa o el kernel?",
+   "solucion": "(a) 52,727 − 0,076 = 52,65 ms: una ida y vuelta de 50 ms más unos 2,6 ms de cómputo del servidor y del relé. (b) Porque el SYN+ACK lo contesta el kernel de la VM, que escucha en ese puerto por cuenta del programa; el relé recién entra en juego con los **datos**. El relé simula distancia en los bytes, no en el saludo TCP. En una red real el SYN+ACK también tardaría una ida y vuelta."
+  },
+  {
+   "t": "h",
+   "x": "Paso 5: el cronograma de red de un navegador real"
+  },
+  {
+   "t": "p",
+   "x": "Un navegador hace mucho más que un pedido: baja la página, descubre que necesita más archivos y los pide casi todos a la vez. Lo que registra esa actividad se llama [[cronograma de red]] (en inglés, *waterfall*: cascada), y es lo que viste en la pestaña de red de las [[DevTools de red]] de [@05-28]. Lo podés exportar a un archivo estándar, el HAR (HTTP Archive), que es un JSON con una entrada por pedido y siete tiempos por entrada [#lab529-har12]. Yo lo generé con Playwright manejando un Chrome real:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const { chromium } = require('playwright');\nconst navegador = await chromium.launch({ args: ['--ignore-certificate-errors-spki-list=' + HUELLA] });\nconst contexto = await navegador.newContext({ recordHar: { path: 'visita.har', content: 'omit' } });\nconst pagina = await contexto.newPage();\nawait pagina.goto('https://deposito.localhost:18531/', { waitUntil: 'networkidle' });\nawait contexto.close();   // al cerrar, Playwright escribe el HAR",
+   "cap": "Resumen del script (el completo también guarda los tiempos de la API `performance` del navegador). `HUELLA` es el hash de la clave pública del certificado de laboratorio. `content: 'omit'` evita guardar los cuerpos."
+  },
+  {
+   "t": "p",
+   "x": "El navegador cargó `https://deposito.localhost:18531/` (el relé HTTPS con RTT de 50 ms). Estos son los tiempos del HAR de una corrida representativa de la primera visita. En las siete corridas, el primer byte de la página llegó entre 135 y 137 ms después de empezar, así que el ruido es de un par de milisegundos:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pedido",
+    "connect",
+    "ssl",
+    "wait",
+    "receive",
+    "Total"
+   ],
+   "filas": [
+    [
+     "`/` (HTML)",
+     "52,8 ms",
+     "52,6 ms",
+     "81,0 ms",
+     "2,3 ms",
+     "188,7 ms"
+    ],
+    [
+     "`/estilo.css`",
+     "—",
+     "—",
+     "61,8 ms",
+     "5,9 ms",
+     "67,8 ms"
+    ],
+    [
+     "`/logo.svg`",
+     "—",
+     "—",
+     "57,8 ms",
+     "6,7 ms",
+     "64,4 ms"
+    ],
+    [
+     "`/app.js`",
+     "—",
+     "—",
+     "62,1 ms",
+     "6,4 ms",
+     "68,5 ms"
+    ],
+    [
+     "`/api/rutas`",
+     "—",
+     "—",
+     "172,4 ms",
+     "1,6 ms",
+     "173,9 ms"
+    ]
+   ],
+   "cap": "HAR de la primera visita (Chromium 153 vía Playwright; relé de 25 ms por sentido; HTTP/2). Los guiones son valores `-1` del HAR: la conexión ya existía."
+  },
+  {
+   "t": "p",
+   "x": "Fijate en la fila de la página: `connect` vale 52,8 y `ssl` vale 52,6. Parece que sumaste 105 ms, pero **no se suman**. La especificación del HAR dice que si el campo `ssl` está presente, ese tiempo **ya está incluido en `connect`** [#lab529-har12]. Entonces el TCP duró 52,8 − 52,6 = 0,2 ms y el TLS 52,6 ms. Es la misma trampa de los acumulados de `curl -w`, con otra forma, y hay herramientas que la cometen al dibujar el gráfico."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "svg",
+   "x": "<svg viewBox=\"0 0 640 262\" role=\"img\" aria-label=\"Cascada de tiempos de la primera visita: la página, tres archivos en paralelo y una consulta de datos\" xmlns=\"http://www.w3.org/2000/svg\" style=\"width:100%;height:auto\" font-family=\"sans-serif\"><line x1=\"118.0\" y1=\"30\" x2=\"118.0\" y2=\"214\" stroke=\"var(--line)\" stroke-width=\"1\"/><text x=\"118.0\" y=\"226\" font-size=\"11\" text-anchor=\"middle\" fill=\"var(--ink)\">0 ms</text><line x1=\"243.0\" y1=\"30\" x2=\"243.0\" y2=\"214\" stroke=\"var(--line)\" stroke-width=\"1\"/><text x=\"243.0\" y=\"226\" font-size=\"11\" text-anchor=\"middle\" fill=\"var(--ink)\">100 ms</text><line x1=\"368.0\" y1=\"30\" x2=\"368.0\" y2=\"214\" stroke=\"var(--line)\" stroke-width=\"1\"/><text x=\"368.0\" y=\"226\" font-size=\"11\" text-anchor=\"middle\" fill=\"var(--ink)\">200 ms</text><line x1=\"493.0\" y1=\"30\" x2=\"493.0\" y2=\"214\" stroke=\"var(--line)\" stroke-width=\"1\"/><text x=\"493.0\" y=\"226\" font-size=\"11\" text-anchor=\"middle\" fill=\"var(--ink)\">300 ms</text><line x1=\"618.0\" y1=\"30\" x2=\"618.0\" y2=\"214\" stroke=\"var(--line)\" stroke-width=\"1\"/><text x=\"618.0\" y=\"226\" font-size=\"11\" text-anchor=\"middle\" fill=\"var(--ink)\">400 ms</text><text x=\"110\" y=\"57\" font-size=\"12\" text-anchor=\"end\" fill=\"var(--ink)\">/</text><rect x=\"120.4\" y=\"44\" width=\"66.0\" height=\"18\" fill=\"var(--muted)\" rx=\"2\"/><rect x=\"186.6\" y=\"44\" width=\"101.1\" height=\"18\" fill=\"var(--senal)\" rx=\"2\"/><rect x=\"287.7\" y=\"44\" width=\"2.0\" height=\"18\" fill=\"var(--circ)\" rx=\"2\"/><text x=\"295.5\" y=\"57\" font-size=\"11\" fill=\"var(--ink)\">137 ms</text><text x=\"110\" y=\"91\" font-size=\"12\" text-anchor=\"end\" fill=\"var(--ink)\">/estilo.css</text><rect x=\"303.9\" y=\"78\" width=\"77.2\" height=\"18\" fill=\"var(--senal)\" rx=\"2\"/><rect x=\"381.1\" y=\"78\" width=\"2.0\" height=\"18\" fill=\"var(--circ)\" rx=\"2\"/><text x=\"388.1\" y=\"91\" font-size=\"11\" fill=\"var(--ink)\">211 ms</text><text x=\"110\" y=\"125\" font-size=\"12\" text-anchor=\"end\" fill=\"var(--ink)\">/logo.svg</text><rect x=\"303.9\" y=\"112\" width=\"72.1\" height=\"18\" fill=\"var(--senal)\" rx=\"2\"/><rect x=\"376.0\" y=\"112\" width=\"2.0\" height=\"18\" fill=\"var(--circ)\" rx=\"2\"/><text x=\"383.9\" y=\"125\" font-size=\"11\" fill=\"var(--ink)\">208 ms</text><text x=\"110\" y=\"159\" font-size=\"12\" text-anchor=\"end\" fill=\"var(--ink)\">/app.js</text><rect x=\"304.0\" y=\"146\" width=\"77.6\" height=\"18\" fill=\"var(--senal)\" rx=\"2\"/><rect x=\"381.6\" y=\"146\" width=\"2.0\" height=\"18\" fill=\"var(--circ)\" rx=\"2\"/><text x=\"388.5\" y=\"159\" font-size=\"11\" fill=\"var(--ink)\">212 ms</text><text x=\"110\" y=\"193\" font-size=\"12\" text-anchor=\"end\" fill=\"var(--ink)\">/api/rutas</text><rect x=\"390.6\" y=\"180\" width=\"215.4\" height=\"18\" fill=\"var(--senal)\" rx=\"2\"/><rect x=\"606.0\" y=\"180\" width=\"2.0\" height=\"18\" fill=\"var(--circ)\" rx=\"2\"/><text x=\"613.0\" y=\"193\" font-size=\"11\" fill=\"var(--ink)\">391 ms</text><line x1=\"398.0\" y1=\"30\" x2=\"398.0\" y2=\"214\" stroke=\"var(--alerta)\" stroke-width=\"1.5\" stroke-dasharray=\"4 3\"/><text x=\"402.0\" y=\"40\" font-size=\"11\" fill=\"var(--alerta)\">primer pintado: 224 ms (otra corrida)</text><rect x=\"118\" y=\"240\" width=\"12\" height=\"10\" fill=\"var(--muted)\"/><text x=\"134\" y=\"249\" font-size=\"11\" fill=\"var(--ink)\">TCP + TLS</text><rect x=\"214\" y=\"240\" width=\"12\" height=\"10\" fill=\"var(--senal)\"/><text x=\"230\" y=\"249\" font-size=\"11\" fill=\"var(--ink)\">espera (red + servidor)</text><rect x=\"388\" y=\"240\" width=\"12\" height=\"10\" fill=\"var(--circ)\"/><text x=\"404\" y=\"249\" font-size=\"11\" fill=\"var(--ink)\">descarga</text></svg>",
+   "cap": "Cascada de la primera visita (datos de una corrida; el «primer pintado» es de otra corrida del mismo laboratorio). Los tres archivos de abajo salen juntos por la misma conexión HTTP/2 (multiplexación de [@05-20]) y vuelven casi al mismo tiempo."
+  },
+  {
+   "t": "p",
+   "x": "Leé el gráfico de izquierda a derecha. La conexión y TLS (gris) ocupan los primeros 55 ms: es el costo de entrar. La página (ámbar) tarda 81 ms en responder: 50 de ida y vuelta más 30 que puse en el servidor, y el resto es ruido. Recién cuando el navegador lee el HTML descubre que necesita el CSS, el script y el logo, y los pide **en paralelo**, a los 148 ms. Vuelven a los 207-211. El script, ya ejecutado, pide `/api/rutas`: otra espera de 172 ms (50 de RTT más 120 de servidor) que termina en 391 ms, cuando la página ya se había pintado hacia los 224 ms. Esa cadena, HTML, luego script, luego datos, es el motivo por el que los sitios lentos lo son: cada eslabón espera al anterior."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Mi primer intento de este experimento mostraba **57 ms de más antes de abrir la conexión**, en las cuatro corridas. Lo investigué con `tcpdump`: Chrome abría una primera conexión TLS, la cerraba al recibir la respuesta del servidor y abría una segunda. La causa era la opción `ignoreHTTPSErrors` de Playwright, que se usa para aceptar el certificado autofirmado; cambiándola por la bandera de Chrome `--ignore-certificate-errors-spki-list` (que confía solo en la clave del laboratorio), el desvío desapareció y la conexión empezó a los 1-2 ms. No averigüé el mecanismo interno exacto, pero la medición con y sin la opción es consistente. La moraleja es la del día: si un número te sorprende, mirá los paquetes antes de explicarlo.",
+   "titulo": "Cuando el instrumento miente"
+  },
+  {
+   "t": "p",
+   "x": "La segunda visita, con el navegador ya con caché y la conexión abierta, cuenta otra historia. Los tres archivos estáticos (`/estilo.css`, `/app.js`, `/logo.svg`) tienen `wait: -1` y apenas 1 ms de `receive`: no salieron a la red, porque el servidor los marcó con `Cache-Control: max-age=3600` y el navegador sabe que le sirven una hora (las reglas de [@05-19] y RFC 9111). La página en cambio sí fue a la red, 81 ms, porque dijo `no-cache` (que no significa «no guardar» sino «preguntá antes de usar»). Y `/api/rutas` fue otra vez al servidor, 172 ms, porque tiene `no-store`."
+  },
+  {
+   "t": "ejercicio",
+   "x": "La entrada HAR de la página muestra `dns` 0,0; `connect` 52,8; `ssl` 52,6; `send` 0; `wait` 81,0; `receive` 2,3. (a) ¿Cuánto tardó el TCP solo? (b) Si sumás todos los campos y sumás `ssl` aparte, ¿en cuánto te equivocás? (c) ¿Cuánto es el tiempo real de preparar la conexión antes de enviar el pedido?",
+   "pista": "El campo `connect` ya incluye al `ssl`. El tiempo de preparación es `dns` más `connect`.",
+   "solucion": "(a) 52,8 − 52,6 = 0,2 ms. (b) Sumar `ssl` otra vez cuenta dos veces 52,6 ms: te equivocás en esa cantidad y el total te da unos 52 ms de más. (c) Antes del pedido pasaron `dns` + `connect` = 0 + 52,8 = 52,8 ms. El total que reporta el HAR para la entrada (188,7 ms) es mayor que la suma de esos campos, porque incluye tiempo de cola del navegador, del orden de 40 ms entre estos campos; no lo desglosé."
+  },
+  {
+   "t": "ejercicio",
+   "x": "En la segunda visita el CSS tenía `transferSize` 0, pero `/api/rutas` pesó 359 bytes y tardó 172 ms. Explicá la diferencia usando los encabezados que puso el servidor (`max-age=3600`, `no-store`) y decí qué haría falta cambiar para que `/api/rutas` también se sirva desde la caché del navegador.",
+   "pista": "`max-age` dice cuánto tiempo se puede reusar una respuesta sin preguntar; `no-store` prohíbe guardarla.",
+   "solucion": "El CSS dice `max-age=3600`: el navegador lo reutiliza durante una hora sin preguntar, así que no hay red (`transferSize` 0). La API dice `no-store`: el navegador no la guarda, y cada visita paga la ida y vuelta más el cómputo del servidor. Para cachearla habría que cambiar el encabezado, por ejemplo a `max-age=60`, **si** los datos pueden estar atrasados un minuto. Es una decisión de producto, no solo técnica: unas rutas de reparto pueden aceptarlo; un saldo bancario, no."
+  },
+  {
+   "t": "h",
+   "x": "Paso 6: lo mismo contra un sitio real, con un proxy en el medio"
+  },
+  {
+   "t": "p",
+   "x": "Hasta acá todo fue local. Probá ahora un pedido a un sitio público. Primero una advertencia sobre esta VM: **sale a Internet a través de un proxy** [[proxy]] configurado por variables de entorno, así que curl no se conecta al sitio sino al proxy, que abre un [[túnel]] hacia el sitio."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -sS -o /dev/null -w 'dns %{time_namelookup}  conexión %{time_connect}  tls %{time_appconnect}  primer_byte %{time_starttransfer}  remoto %{remote_ip}:%{remote_port}\\n' https://example.com/",
+     "s": "dns 0.000028  conexión 0.000125  tls 0.093814  primer_byte 0.130182  remoto 127.0.0.1:38195"
+    }
+   ],
+   "cap": "Una corrida contra `example.com` (13-11-2026, desde esta VM). Con `-v` se ve el pedido `CONNECT example.com:443` al proxy antes del handshake TLS."
+  },
+  {
+   "t": "p",
+   "x": "Mirá `remoto`: la IP es `127.0.0.1` y el puerto 38195, es decir, el proxy local. `time_connect` de 0,1 ms es el tiempo de conectarse **al proxy**, no al sitio, y por eso DNS también da casi cero (la documentación de curl lo dice: `time_connect` mide la conexión «al servidor remoto (o al proxy)») [#lab529-curl-man]. El proxy resuelve el nombre y abre la conexión por su cuenta, y esos tiempos se esconden dentro del `tls`. En ocho corridas de este pedido, TLS dio entre 81 y 112 ms (mediana 88) y el primer byte entre 121 y 150 ms (mediana 129). Otra corrida suelta, que no entró en esas ocho, dio 290 ms de TLS: los números de Internet tienen cola larga."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Con la corrida de `example.com` de arriba, un colega dice: «DNS y la conexión TCP tardaron menos de un décimo de milisegundo, qué rápido es Internet». ¿Qué le respondés?",
+   "pista": "Mirá la IP y el puerto de `remoto`, y cuánto tardó el TLS.",
+   "solucion": "Que esos tiempos son los de hablar con el proxy local, que está en la misma máquina (`127.0.0.1:38195`), no con el servidor. El trabajo real de resolver el nombre, abrir la conexión al sitio y hacer el handshake quedó dentro de `time_appconnect` (94 ms en esa corrida). Para medir el DNS de verdad habría que usar `dig` (de [@05-28]); para el TCP real, una conexión sin proxy. Moraleja: antes de leer una medición, comprobá contra qué máquina se hizo."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Versiones y estado al 13-11-2026, medidos en esta VM: curl 8.5.0, tcpdump 4.99.4, Node 22, Chrome for Testing 153.0.8010.12, Playwright 1.63.0, Ubuntu 24.04. La página de manual actual de curl documenta `time_posttransfer`, agregada en la 8.10.0, que mi curl 8.5.0 no tiene: si tu versión es anterior, esa variable no existe [#lab529-curl-man]. El formato HAR tiene una especificación 1.2 sin actualizar desde hace años [#lab529-har12] y los navegadores le agregan campos propios. Los nombres de las opciones de Playwright y de las banderas de Chrome pueden cambiar entre versiones.",
+   "titulo": "Qué cambia con el tiempo"
+  },
+  {
+   "t": "h",
+   "x": "Diagnóstico: de dónde viene la espera"
+  },
+  {
+   "t": "p",
+   "x": "Todo lo anterior sirve para contestar la pregunta que hace un jefe cuando dice «está lento»: **¿dónde está el tiempo?** Hay cinco lugares posibles y cada uno tiene su instrumento y su síntoma."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dónde está el tiempo",
+    "Síntoma en los números",
+    "Instrumento"
+   ],
+   "filas": [
+    [
+     "Resolver el nombre",
+     "`time_namelookup` alto; el resto normal",
+     "`dig`, `curl -w`"
+    ],
+    [
+     "Abrir la conexión",
+     "`time_connect` alto: servidor lejos o caído",
+     "`ping`, `traceroute`, `tcpdump` (SYN sin respuesta)"
+    ],
+    [
+     "Negociar TLS",
+     "`time_appconnect` − `time_connect` alto: certificado, cadena larga o muchas idas y vueltas",
+     "`curl -v`, `openssl s_client`"
+    ],
+    [
+     "Esperar al servidor",
+     "`time_starttransfer` − `time_appconnect` alto: la distancia o el cómputo",
+     "comparar contra el RTT de `ping`"
+    ],
+    [
+     "Bajar el contenido",
+     "`time_total` − `time_starttransfer` alto: poco ancho de banda o cuerpo grande",
+     "tamaño en `-w %{size_download}`"
+    ]
+   ],
+   "cap": "Regla práctica del laboratorio: la espera se compara siempre contra el RTT. Si la espera es mucho mayor que un RTT, no es la red."
+  },
+  {
+   "t": "p",
+   "x": "El programa siguiente hace esa resta por vos y señala la fase dominante. Lo podés ejecutar acá mismo: corre en tu navegador, y los cuatro casos son corridas reales del laboratorio (`/lento` con 300 ms puestos, el relé HTTP, una descarga limitada con `--limit-rate 1M` y el relé HTTPS)."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Convierte los tiempos ACUMULADOS que imprime curl -w (en segundos) en lo que tardó cada fase (en milisegundos).\nfunction fases(t) {\n  const ms = (x) => Math.round(x * 10000) / 10;\n  const hayTls = t.appconnect > 0;\n  const antesDelPedido = hayTls ? t.appconnect : t.connect;\n  return {\n    dns: ms(t.namelookup),\n    tcp: ms(t.connect - t.namelookup),\n    tls: hayTls ? ms(t.appconnect - t.connect) : 0,\n    espera: ms(t.starttransfer - antesDelPedido),\n    descarga: ms(t.total - t.starttransfer),\n  };\n}\n\nfunction veredicto(f) {\n  const mayor = Object.entries(f).sort((a, b) => b[1] - a[1])[0];\n  const lectura = { dns: 'resolver el nombre', tcp: 'abrir la conexión', tls: 'negociar TLS',\n    espera: 'esperar al servidor (distancia o cómputo)', descarga: 'bajar el cuerpo (ancho de banda)' };\n  return `${mayor[0]} = ${mayor[1]} ms → lo que más pesa es ${lectura[mayor[0]]}`;\n}\n\n// Cuatro corridas reales del laboratorio (medidas en esta VM, 13-11-2026) y una de un sitio público a través del proxy.\nconst casos = {\n  'A /lento, servidor con 300 ms puestos': { namelookup: 0.000021, connect: 0.000133, appconnect: 0, starttransfer: 0.300941, total: 0.300996 },\n  'B relé de 25 ms por sentido, HTTP': { namelookup: 0.000015, connect: 0.000091, appconnect: 0, starttransfer: 0.052782, total: 0.052835 },\n  'C /grande con --limit-rate 1M': { namelookup: 0.000018, connect: 0.000123, appconnect: 0, starttransfer: 0.001747, total: 1.195821 },\n  'D relé de 25 ms por sentido, HTTPS': { namelookup: 0.000015, connect: 0.000092, appconnect: 0.053252, starttransfer: 0.106767, total: 0.106812 },\n};\nfor (const [nombre, t] of Object.entries(casos)) {\n  const f = fases(t);\n  console.log(nombre);\n  console.log('  ', JSON.stringify(f));\n  console.log('  ', veredicto(f));\n}\n",
+   "cap": "Corridas reales del 13-11-2026 en esta VM. `--limit-rate 1M` es un tope de curl y la velocidad medida salió de 1,75 MB/s porque curl deja pasar una ráfaga inicial. Probalo con tus propios números: pegá los de un `curl -w` tuyo en un caso nuevo."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Mirá la salida del programa. (a) Para el caso B, ¿cuánto de la espera es distancia y cuánto es servidor? (b) En el caso C, ¿qué velocidad de descarga implica, en megabits por segundo, bajar 2 MiB en 1,194 s? (c) En el caso D, ¿por qué `tls` y `espera` valen casi lo mismo?",
+   "pista": "(a) El relé suma 50 ms de RTT. (b) 2 MiB = 2.097.152 bytes; un byte son 8 bits. (c) Pensá cuántas idas y vueltas hay en cada fase.",
+   "solucion": "(a) 52,7 ms de espera menos 50 ms de RTT del relé dejan unos 2,7 ms para el servidor y el relé: casi todo es distancia. (b) 2.097.152 B ÷ 1,194 s ≈ 1,76 MB/s, que son unos 14 Mbit/s. (c) Porque cada fase cuesta una ida y vuelta de 50 ms: TLS 1.3 necesita una para el handshake y el pedido necesita otra. La diferencia (53,2 contra 53,5 ms) es ruido y el cómputo de 2 a 3 ms."
+  },
+  {
+   "t": "h",
+   "x": "Qué te llevás del laboratorio"
+  },
+  {
+   "t": "p",
+   "x": "Tres hábitos. **Uno:** poné demoras conocidas y verificá que el instrumento las devuelva antes de confiar en él con algo que no conocés. **Dos:** cuando dos herramientas muestran lo mismo desde puntos distintos (los paquetes de `tcpdump`, los tiempos de `curl`, el HAR del navegador), esa coincidencia es tu mejor evidencia. **Tres:** desconfiá del primer número raro; el mío fue de 57 ms y resultó ser el instrumento. Mañana, en [@05-30], vas a unir todas las piezas del recorrido de una URL con los tiempos que acabás de medir."
+  }
+ ],
+ "recap": [
+  "`curl -v` muestra la conversación: `*` es curl, `>` lo que envía, `<` lo que recibe. `curl -w` agrega cronómetros, pero **acumulados desde el inicio**: la duración de una fase es la resta de dos variables.",
+  "Con servidor y cliente en la misma máquina el RTT es casi cero; un relé que demora los bytes permite simular distancia, aunque no demora el saludo TCP (`time_connect` queda en ~0).",
+  "Una conexión HTTPS nueva cuesta unas tres idas y vueltas antes del primer byte (TCP, TLS 1.3 y pedido), más DNS; con la conexión abierta, una.",
+  "`tcpdump` muestra los paquetes: `S`, `S.` y `.` son el saludo de tres vías; `P.` lleva datos; `F` cierra. En HTTPS el nombre del sitio se ve en el primer mensaje, pero el pedido va cifrado.",
+  "En un HAR, `ssl` está incluido en `connect`: no se suman. El cronograma de un navegador muestra qué se pide en paralelo y qué espera a qué.",
+  "Un proxy en el camino cambia lo que miden las herramientas: `time_connect` es el tiempo hasta el proxy. Antes de leer un número, comprobá contra qué máquina se midió.",
+  "Para diagnosticar «está lento»: restá las fases, compará la espera contra el RTT y decidí si el problema es la distancia, el servidor o el ancho de banda."
+ ],
+ "repaso": [
+  {
+   "p": "Una corrida de `curl -w` da `time_connect` 0,0001; `time_appconnect` 0,0541; `time_starttransfer` 0,1069 (en segundos). ¿Cuánto duró el handshake TLS?",
+   "o": [
+    "54,1 ms, porque es el valor de `time_appconnect`",
+    "54,0 ms, resultado de restarle `time_connect`",
+    "106,8 ms, que es el primer byte menos el inicio",
+    "52,8 ms, que es el primer byte menos TLS"
+   ],
+   "c": 1,
+   "e": "Las variables de curl son acumuladas desde el inicio. El handshake TLS es `time_appconnect` menos `time_connect`: 0,0541 − 0,0001 = 0,054 s. La primera opción lee el acumulado como duración; la tercera mezcla TLS con la espera del servidor; la cuarta resta mal los tramos."
+  },
+  {
+   "p": "Un servidor está a 50 ms de ida y vuelta. Abrís una conexión HTTPS nueva con TLS 1.3 y pedís una página. Sin contar DNS ni el tiempo de cómputo del servidor, ¿cuánto esperás aproximadamente hasta el primer byte?",
+   "o": [
+    "50 ms: un solo viaje de ida y vuelta alcanza",
+    "100 ms: TLS y el pedido, porque TCP es gratis",
+    "150 ms: TCP, TLS 1.3 y el pedido, uno cada uno",
+    "200 ms: dos viajes por cada fase, de ida y de vuelta"
+   ],
+   "c": 2,
+   "e": "Cada fase cuesta una ida y vuelta: TCP (saludo de tres vías), TLS 1.3 (un viaje para el handshake) y el pedido con su respuesta. Son tres, unos 150 ms. La segunda opción es lo que ve el laboratorio por el relé, que no demora el saludo TCP, y no lo que pasaría en una red real."
+  },
+  {
+   "p": "Capturás con `tcpdump` una conexión HTTPS y buscás en los bytes el nombre del sitio y el texto del pedido (`GET /ruta`). ¿Qué encontrás?",
+   "o": [
+    "El pedido completo y el nombre, porque `tcpdump` descifra el tráfico",
+    "Ninguno de los dos, porque TLS cifra todo desde el primer paquete",
+    "El nombre del sitio, pero no el pedido, que viaja cifrado",
+    "El pedido, pero no el nombre, que se manda por separado por DNS"
+   ],
+   "c": 2,
+   "e": "El nombre va en claro en el primer mensaje del handshake TLS (SNI), y el pedido se envía después, ya cifrado. `tcpdump` captura bytes, no descifra. Que el nombre se consulte por DNS aparte es cierto, pero eso es otra conversación y no lo que contiene la conexión HTTPS."
+  },
+  {
+   "p": "Una entrada de HAR muestra `connect: 40` y `ssl: 35`. ¿Cuánto tardó la conexión TCP sola?",
+   "o": [
+    "40 ms, que es el valor de `connect`",
+    "75 ms, que es la suma de ambos campos",
+    "5 ms, que es `connect` menos `ssl`",
+    "35 ms, que es solamente el valor de `ssl`"
+   ],
+   "c": 2,
+   "e": "En HAR 1.2, `ssl` está incluido dentro de `connect`. Entonces el TCP es 40 − 35 = 5 ms. Sumar los dos campos (75 ms) cuenta dos veces el TLS, y tomar `connect` solo incluye el TLS dentro del TCP."
+  },
+  {
+   "p": "Una corrida de curl contra un servidor de tu empresa da: `time_connect` 0,0001 s; `time_starttransfer` 0,3012 s; `time_total` 0,3013 s. El ping al servidor da 0,3 ms de RTT. ¿Dónde está el problema?",
+   "o": [
+    "En la red: la distancia explica los 300 ms",
+    "En el servidor: tarda 300 ms en armar la respuesta",
+    "En el ancho de banda: la descarga es muy lenta",
+    "En el DNS: resolver el nombre se llevó el tiempo"
+   ],
+   "c": 1,
+   "e": "El primer byte llega 300 ms después de conectar, con un RTT de 0,3 ms: la espera es mil veces el RTT, así que no es distancia. La descarga dura 0,1 ms (total menos primer byte) y la conexión también es instantánea. Lo que falta es el cómputo del servidor."
+  },
+  {
+   "p": "Corrés `curl` hacia un sitio de Internet desde un entorno con proxy y obtenés `time_connect` de 0,1 ms con `remote_ip` 127.0.0.1. ¿Cuál es la lectura correcta?",
+   "o": [
+    "El servidor está en tu propia máquina",
+    "La conexión al sitio real se hizo en 0,1 ms",
+    "curl reutilizó la conexión de un pedido anterior",
+    "Es la conexión al proxy local, no al sitio remoto"
+   ],
+   "c": 3,
+   "e": "La documentación de curl dice que `time_connect` mide la conexión al servidor remoto o al proxy. Con un proxy en el medio, `remote_ip` es la del proxy y los costos de DNS y TCP hacia el sitio quedan escondidos en tiempos posteriores. Tampoco hay reutilización: curl abre una conexión nueva por ejecución."
+  },
+  {
+   "p": "En la segunda visita a una página, el navegador no hace pedido de red por `estilo.css` pero sí por `/api/rutas`. El servidor envía `Cache-Control: max-age=3600` para el CSS. ¿Qué explica que la API no se cachee?",
+   "o": [
+    "La API pesa menos, y lo liviano no se cachea",
+    "El navegador no puede cachear respuestas JSON",
+    "El servidor dice `no-store` para la API en ese encabezado",
+    "La API usa HTTP/2 y el CSS usa HTTP/1.1"
+   ],
+   "c": 2,
+   "e": "`no-store` le pide al navegador que no guarde la respuesta. Los datos JSON se pueden cachear si el servidor lo permite; el tamaño y la versión de HTTP no deciden si algo entra en caché. La decisión sobre qué se guarda la toma el servidor con sus encabezados."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística cómo mediste, con tres instrumentos distintos (curl -w, tcpdump y el cronograma de un navegador), dónde se va el tiempo de una solicitud. Usá una analogía propia (por ejemplo, el lector de código de barras en cada puerta del depósito) y contá qué te hizo desconfiar de un número.",
+ "para_profundizar": [
+  {
+   "fuente": "lab529-curl-man",
+   "nota": "La página de manual de curl, sección `--write-out`: la lista completa de variables de tiempo, para armar tus propios cronómetros."
+  },
+  {
+   "fuente": "lab529-tcpdump-man",
+   "nota": "Manual de tcpdump: cómo se escriben los filtros (`tcp port 18529`) y qué significa cada bandera de la salida."
+  },
+  {
+   "fuente": "lab529-har12",
+   "nota": "La especificación del formato HAR 1.2: los siete tiempos de cada entrada y la regla de que `ssl` va dentro de `connect`."
+  },
+  {
+   "fuente": "lab529-resource-timing",
+   "nota": "Resource Timing del W3C: los tiempos que el navegador expone a la página (`connectStart`, `requestStart`, `responseStart`) y su orden."
+  }
+ ],
+ "videos": [
+  {
+   "q": "curl timing breakdown time_namelookup time_connect time_starttransfer explained",
+   "por_que": "Para ver a otra persona leer un `curl -w` y separar las fases, con ejemplos distintos a los del laboratorio."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "curl -v",
+   "d": "La opción `--verbose` de curl: imprime la conversación completa del pedido. Las líneas con `*` son comentarios de curl, con `>` lo que envía y con `<` lo que recibe, incluidos los encabezados y el handshake TLS."
+  },
+  {
+   "t": "análisis de tráfico",
+   "d": "Capturar y leer los paquetes que pasan por una interfaz de red con herramientas como tcpdump o Wireshark, para ver qué ocurre realmente en el cable en vez de confiar en lo que informa cada programa."
+  },
+  {
+   "t": "cronograma de red",
+   "d": "El registro, pedido por pedido, de cuándo empezó y cuánto duró cada fase (cola, DNS, conexión, TLS, espera, descarga). Se ve como una cascada en las DevTools y se exporta en formato HAR."
+  }
+ ],
+ "siguiente": "juntás todas las piezas de la Parte 5 en una sola línea de tiempo: qué ocurre, y en qué orden, desde que escribís una URL hasta que ves la página.",
+ "fuentes_nuevas": [
+  {
+   "id": "lab529-curl-man",
+   "t": "curl: página de manual (opciones y variables de --write-out)",
+   "a": "Proyecto curl",
+   "tipo": "doc",
+   "url": "https://curl.se/docs/manpage.html"
+  },
+  {
+   "id": "lab529-tcpdump-man",
+   "t": "tcpdump(1): manual",
+   "a": "The Tcpdump Group",
+   "tipo": "doc",
+   "url": "https://www.tcpdump.org/manpages/tcpdump.1.html"
+  },
+  {
+   "id": "lab529-har12",
+   "t": "HTTP Archive (HAR) format (1.2)",
+   "a": "W3C Web Performance Working Group (borrador)",
+   "tipo": "doc",
+   "url": "https://w3c.github.io/web-performance/specs/HAR/Overview.html"
+  },
+  {
+   "id": "lab529-resource-timing",
+   "t": "Resource Timing",
+   "a": "W3C",
+   "tipo": "doc",
+   "url": "https://www.w3.org/TR/resource-timing/"
+  },
+  {
+   "id": "lab529-rfc6761",
+   "t": "RFC 6761: Special-Use Domain Names",
+   "a": "IETF (Cheshire y Krochmal)",
+   "tipo": "rfc",
+   "anio": 2013,
+   "url": "https://www.rfc-editor.org/rfc/rfc6761"
+  }
+ ]
+}

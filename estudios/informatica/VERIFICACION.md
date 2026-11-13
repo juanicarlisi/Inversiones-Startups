@@ -1,4 +1,4 @@
-# Registro de verificación (Partes 0 a 2; Partes 0 y 1 al 09-11-2026, Parte 2 al 13-11-2026)
+# Registro de verificación (Partes 0 a 4; Partes 0 y 1 al 09-11-2026, Partes 2 a 4 al 13-11-2026)
 
 Qué se verificó y qué no. Los 74 días escritos pasan el validador (estructura, términos, largo, preguntas, fuentes, rutas de Senda), pero eso **no** prueba que cada dato sea cierto: lo declarado por los redactores sobre sus propias fuentes está acá, para una segunda pasada.
 
@@ -74,6 +74,36 @@ Código ejecutable de los días corrido en Node; programas del widget `microcpu`
 - **Contenedores:** no hay Dockerfile, compose ni devcontainer; el Postgres de la prueba de base es el del sistema.
 - **Pruebas de humo:** la corrida n.º 10 (1-nov-2026) terminó bien en ~42 min; el flag `-gpu swiftshader_indirect` figura como obsoleto en la doc de Android y la virtualización anidada no está oficialmente soportada en GitHub.
 - **.gitignore:** no hay `.env` versionado, pero tampoco regla para ese nombre.
+
+## Partes 3 y 4 (13-11-2026): qué no se verificó en fuente primaria
+Lo demás de cada día se corrió en la VM (Node 22, Python 3.13, Go, Rust, GHC, Git 2.43, PostgreSQL 16, gitleaks, ESLint, actionlint, etc.); los tiempos son de una sola VM y están rotulados.
+| Días | No verificado o de segunda mano |
+|---|---|
+| 03-39 / 03-40 | Costos de lista enlazada y grafo (de la definición); Pike como creador de Go; estado del Python sin GIL (3.15.2 lo deja opcional según lo leído); hilos de `Libro.tsx` no medidos en un teléfono. |
+| 03-47 / 03-48 | Reuters 2017 sobre COBOL (segunda mano); ISO/IEC 1989:2023 (fecha de listados); fechas de Prolog, Smalltalk, Python, Java, Node, npm, V8 y Deno (Wikipedia); 6,3 M de paquetes de npm (Libraries.io); 40.000 programas COBOL (página de IBM, vendedor interesado). TypeScript 7.0 salió el 8-07-2026; la `tsc` local es la 6.0.2. |
+| 03-59 | Hermes/JS tomado de 03-42 y 03-43; orden de recorrido de Go y Rust citado de su documentación. |
+| 04-01 / 04-02 | Royce 1970 (reseñas, PDF dio 403); Glass 40–80 % de mantenimiento (reseña del libro); origen del LSP (nota de prensa de Red Hat); VS Code de escritorio no corrido (doc oficial); `tsc --lsp --stdio` de TypeScript 7 es observación propia. |
+| 04-03 / 04-04 | PowerShell solo por doc; `~/.bashrc` en terminales interactivas (memoria); CocoaPods no corrido (necesita macOS; cierre de trunk el 2-12-2026 según su blog); Maven Central sin conteo oficial; 4,6 M de npm es orden de magnitud. |
+| 04-05 / 04-06 | NVD no legible (CVE-2024-3094 vía oss-security); Dependabot, Renovate, push protection y trufflehog solo por doc; que `~` de Expo siga la serie del SDK es observación propia. |
+| 04-07 / 04-08 | Años de RCS, CVS, Subversion y fechas de Hamano (Wikipedia); 93,9 % de Git en Stack Overflow 2022 (orden de magnitud); firma `gpgsig` de Senda no verificada. |
+| 04-09 / 04-10 | Artículo completo de Fowler sobre ramas (solo índice); capítulo `reset` de Pro Git citado sin leerlo; fecha exacta de Git 2.23. |
+| 04-11 / 04-12 | Bitbucket (rotulado); páginas de docs.github.com leídas por resumen; Bacchelli–Bird y Sadowski sí leídos enteros. |
+| 04-13 / 04-14 | Dijkstra EWD249 (PDF caído, vía Hillel Wayne); libro de Bossavit no abierto; datos de Google 80/15/5 leídos en página. |
+| 04-15 / 04-16 | «Fake It» de Beck de memoria (Canon TDD sí leído); Goodhart/Strathern (Wikipedia); Wake 2001 vs artículo de 2011. |
+| 04-17 / 04-18 | Cunningham 2009 (transcripción de terceros); NIST SP 500-235 vía mccabe.com; CodeQL y extensión ESLint de VS Code no probados; `--strict` por defecto en TS 6 sale de `tsc --help --all`. |
+| 04-19 / 04-20 | Gradle y npm con caché (memoria); `setup-node` con `cache: npm`; ningún APK real de Senda abierto; `verificar.yml` solo validado con actionlint. |
+| 04-21 / 04-22 | Royce (Wikipedia); Buehler et al. 1994 solo por Crossref; kanban «cartel» y rol de Scrum Master de memoria; métricas DORA: no se verificó en qué informe se sumó la quinta; precios de Jira/Linear no leídos. |
+| 04-23 / 04-24 | Diátaxis solo en su página de inicio; notas de vigencia de GitHub (13-11-2026); «prueba desarrollo» en un AAB de `aab.yml` es inferencia; el ADR de Senda es una reconstrucción rotulada. |
+| 04-25 | Versiones de acciones `@v4` no corridas en Actions. |
+
+## Hallazgos sobre Senda de las Partes 3 y 4 (commit 25e08fa)
+- **Integración continua:** ningún flujo corre `tsc`, ESLint ni Prettier ni escucha `pull_request`; de 10 flujos solo `supabase.yml` (push a `main`) y `limpieza.yml` (cron) corren solos; `aab.yml` no corre validadores ni pruebas; `versionCode` fijo en 41; no hay `expo-updates`. 0 PR, 0 issues, 4 ramas, 189 corridas de Actions (144 manuales), 8 de los últimos 100 commits son merges sin PR; no hay CODEOWNERS, plantillas ni Dependabot.
+- **Calidad estática:** 159 comentarios `eslint-disable` en 49 archivos sin ESLint instalado (con una configuración de prueba: 214 mensajes, 171 de `no-require-imports`); 166 funciones con complejidad > 10 (`Leccion` 165, `QuienEs` 125, `Jugar` 112, `Lector` 99); `reprogramarAvisos` (30–31) sin prueba; Prettier reescribiría 195 de 204 archivos.
+- **Dependencias:** 849 paquetes para 55 directas; `npm audit` sobre copia del lock: 20 avisos (3 altos, 9 moderados, 8 bajos), uno moderado directo en `@dicebear/core` 9.4.2; `expo-constants` es dependencia fantasma (importada en `src/util/juntos.ts`); `three ^0.186.1` no admite 0.187.0; `typescript ~6.0.3` deja afuera la 7.0; gitleaks marca solo `google-services.json` (clave de Firebase, no secreta según su doc).
+- **Red:** el reintento de `nube.ts` llega a 480 s (no 10 min como dicen el comentario y el mapa); `enviarTurnosPendientes` descarta el turno ante cualquier error que no sea `sin_senal`; solo `interruptores.ts` y `lugares.ts` fijan tiempo máximo; `cuenta.ts` manda `Authorization: Bearer <clave pública>` siempre, `nube.ts` solo si empieza con `eyJ`; `respuestas` tiene `with check (true)` sin tope por emisor; alta anónima sin captcha.
+- **Pruebas:** `pruebas/nube/correr.sh` dio 261 de 261 pasos (el mapa decía ~188, contaba llamadas); 10 pruebas Jest; ninguna toca `repaso.ts`, habilidad ni misiones; la prueba de humo es lo más parecido a una E2E.
+- **Discrepancias de documentación:** `CLAUDE.md` dice 3 vidas y 1 por hora, `src/tema.ts` dice 5 y 30 min; `docs/LANZAMIENTO.md` cita `expo-secure-store` que no está en `package.json`; `docs/PESO.md` dice 405 lecciones (hoy 482 y 5.402 preguntas vivas); `version_app` de métricas fijo en «0.13»; comentario de `glosarioBiblia.ts` dice formas de dos palabras pero el código busca de tres; `apk.yml` instalación del NDK: `yes | sdkmanager … && break` puede terminar en verde si fallan los reintentos; `lotes.yml` y `aab.yml` insertan `${{ inputs.* }}` dentro de `run`.
+- **Otros:** 8 líneas de `console.*` y ningún reporte remoto de fallos; Senda no usa WebSocket propio ni supabase-js; Hermes por defecto y JS sin minificar por Metro (inferencia con medición de bytecode).
 
 ## Para la app (pendiente)
 - Widget de terminal interactivo (lo pidieron varios redactores; muy útil para las Partes 2, 4 y 14); visor de Rss/Pss de procesos que comparten memoria.

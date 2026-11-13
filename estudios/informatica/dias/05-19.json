@@ -1,0 +1,875 @@
+{
+ "id": "05-19",
+ "titulo": "HTTP II: encabezados, cookies y caché",
+ "bajada": "Mirás las líneas que hay entre el método y el cuerpo de un mensaje HTTP, seguís una cookie de ida y vuelta y ves a un servidor contestar «304» para no reenviarte lo que ya tenés.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Leer los encabezados de una solicitud y una respuesta HTTP e interpretar Host, Content-Type, Content-Length, User-Agent, Accept y Authorization.",
+  "Explicar por qué HTTP no recuerda nada entre dos solicitudes y cómo Set-Cookie y Cookie arman una sesión.",
+  "Describir qué controlan Max-Age, Secure, HttpOnly y SameSite en una cookie y qué ataque frena cada uno.",
+  "Decidir qué Cache-Control, ETag y solicitudes condicionales conviene usar para un recurso, y predecir si la respuesta será 200 o 304.",
+  "Distinguir no-cache de no-store y explicar por qué los archivos estáticos llevan la versión en el nombre."
+ ],
+ "venis_de": "En [@05-18] viste el formato de un mensaje HTTP (línea inicial, líneas de metadatos, línea en blanco y cuerpo), los métodos y los códigos de estado. Hoy abrís la parte que quedó sin explicar: esas líneas de metadatos, que resuelven tres problemas de la web real.",
+ "se_apoya_en": [
+  "05-18",
+  "05-12",
+  "05-16"
+ ],
+ "gancho": [
+  "En [@05-18] armaste una solicitud HTTP a mano y viste que tiene una línea de pedido, una pila de líneas con el formato `Nombre: valor`, una línea en blanco y, a veces, un cuerpo. Al lado del método y la URL, esa pila del medio parece decoración. Es donde pasa casi todo lo interesante.",
+  "Pensá en un remito de transporte. Lo que importa no es la mercadería sino lo que está arriba: quién despacha, quién recibe, cuántos bultos, qué peso, si es frágil. Con esos renglones el depósito decide cómo manejar la carga sin abrir una sola caja. Los encabezados HTTP son esos renglones: le dicen al otro lado cómo tratar el mensaje.",
+  "Hoy resolvemos tres problemas. Un servidor con una sola IP aloja cientos de sitios: ¿cómo sabe cuál le pediste? HTTP no recuerda nada entre un pedido y el siguiente: ¿cómo sabe quién sos cuando entrás a tu cuenta? Y un catálogo de 225.000 bytes que no cambió desde ayer: ¿cómo evitás bajarlo mil veces? Los tres se resuelven con encabezados. Todo lo que vas a ver corrió en esta VM contra un servidor mío de unas cien líneas, escrito en Node y escuchando en `localhost`."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un encabezado es una línea «Nombre: valor»"
+  },
+  {
+   "t": "p",
+   "x": "Un [[encabezado HTTP]] es una línea de texto con un nombre, dos puntos y un valor, que viaja antes del cuerpo y describe el mensaje o a quien lo manda. Hay en las solicitudes y en las respuestas. Los nombres no distinguen mayúsculas de minúsculas: `Host`, `host` y `HOST` son lo mismo [#rfc9110]. Después del último encabezado viene una línea vacía, y recién ahí el cuerpo, si hay."
+  },
+  {
+   "t": "p",
+   "x": "Para verlos sin adivinar levanté un servidor propio con un recurso `/eco`, que devuelve los encabezados que le llegaron. Pedile algo con `curl -v`, que marca con `>` lo que manda y con `<` lo que recibe:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -sv http://127.0.0.1:38519/eco 2>&1 | grep -v -e '^\\*' -e '^{ \\['",
+     "s": "> GET /eco HTTP/1.1\n> Host: 127.0.0.1:38519\n> User-Agent: curl/8.5.0\n> Accept: */*\n> \n< HTTP/1.1 200 OK\n< Content-Type: text/plain; charset=utf-8\n< Content-Length: 57\n< Date: Fri, 13 Nov 2026 17:40:36 GMT\n< Connection: keep-alive\n< Keep-Alive: timeout=5\n< \nhost: 127.0.0.1:38519\nuser-agent: curl/8.5.0\naccept: */*"
+    }
+   ],
+   "cap": "Salida real en esta VM (curl 8.5.0, servidor propio en Node 22). Las líneas `*` de curl, que cuentan la conexión, están filtradas."
+  },
+  {
+   "t": "p",
+   "x": "Tres cosas para mirar. Vos no escribiste ningún encabezado y la solicitud llevó tres: `curl` los agregó solo. La respuesta trae `Content-Type`, `Content-Length` y `Date`, armados por el servidor. Y el servidor imprimió los nombres en minúscula porque Node los normaliza, algo válido justamente porque no distinguen mayúsculas."
+  },
+  {
+   "t": "h",
+   "x": "Los que tenés que reconocer a primera vista"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Encabezado",
+    "Lo manda",
+    "Qué dice",
+    "Ejemplo"
+   ],
+   "filas": [
+    [
+     "`Host`",
+     "Cliente",
+     "A qué sitio va el pedido (nombre y, si no es el estándar, puerto)",
+     "`Host: tienda.local`"
+    ],
+    [
+     "`Content-Type`",
+     "Los dos",
+     "Qué formato tiene el cuerpo y, si es texto, cómo está codificado",
+     "`application/json; charset=utf-8`"
+    ],
+    [
+     "`Content-Length`",
+     "Los dos",
+     "Cuántos bytes tiene el cuerpo",
+     "`Content-Length: 29`"
+    ],
+    [
+     "`User-Agent`",
+     "Cliente",
+     "Qué programa hace el pedido",
+     "`curl/8.5.0`"
+    ],
+    [
+     "`Accept`",
+     "Cliente",
+     "Qué formatos de respuesta acepta",
+     "`Accept: */*`"
+    ],
+    [
+     "`Accept-Encoding` y `Content-Encoding`",
+     "Cliente y servidor",
+     "Qué compresiones acepta el cliente y cuál usó el servidor",
+     "`gzip`"
+    ],
+    [
+     "`Authorization`",
+     "Cliente",
+     "Credencial para entrar a algo protegido",
+     "`Bearer <token>`"
+    ]
+   ],
+   "cap": "Hay muchos más: IANA mantiene un registro de nombres de encabezados. Estos siete cubren casi todo lo que vas a leer en el día a día."
+  },
+  {
+   "t": "pensa",
+   "x": "Un mismo servidor, con una sola dirección IP, aloja `tienda.com` y `blog.com`. Llega una solicitud a esa IP. El paquete IP solo trae la dirección de la máquina. ¿Qué parte del mensaje HTTP dice a cuál de los dos sitios va?",
+   "resp": "El encabezado `Host`. La IP te lleva hasta la máquina; `Host` elige el sitio dentro de ella. Sin ese dato el servidor no podría distinguir los dos sitios. Por eso HTTP/1.1 lo exige en cada solicitud y manda contestar 400 si falta [#rfc9112]."
+  },
+  {
+   "t": "p",
+   "x": "Se puede comprobar. Mi servidor tiene un recurso `/sitio` que mira el `Host` y contesta distinto según el nombre. Le pedí tres veces lo mismo, a la misma IP y al mismo puerto, y cambié solo ese encabezado:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -H 'Host: tienda.local' http://127.0.0.1:38519/sitio",
+     "s": "Bienvenido a la TIENDA"
+    },
+    {
+     "c": "curl -s -H 'Host: blog.local' http://127.0.0.1:38519/sitio",
+     "s": "Bienvenido al BLOG"
+    },
+    {
+     "c": "curl -s http://127.0.0.1:38519/sitio",
+     "s": "Sitio por defecto"
+    }
+   ],
+   "cap": "Salida real. `tienda.local` y `blog.local` no existen en ningún DNS: el servidor solo compara el texto del encabezado."
+  },
+  {
+   "t": "p",
+   "x": "Así funciona el alojamiento compartido: miles de sitios detrás de una misma IP y un servidor web que reparte según `Host`. En [@05-12] viste que el DNS convierte el nombre en una IP; `Host` lleva hasta el servidor el nombre que escribiste, que de otro modo se perdería. En HTTP/2 y HTTP/3 viaja como `:authority` con la misma función [#rfc9110]."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La IP es el edificio; Host es la oficina",
+   "x": [
+    "El camión llega a la dirección del edificio (la IP). Si el remito no dice piso y oficina (`Host`), el portero no sabe a quién entregarle la carga.",
+    "Dónde falla: ante una oficina que no existe, mi servidor contestó «sitio por defecto» y otros devuelven un error. Qué hacer lo decide el servidor, no el protocolo."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Content-Length: dónde termina el mensaje"
+  },
+  {
+   "t": "p",
+   "x": "`Content-Length` dice cuántos **bytes** (no caracteres) tiene el cuerpo; en UTF-8 la «ñ» ocupa dos. Hace falta porque TCP entrega un flujo de bytes y no marca dónde termina un mensaje y empieza el siguiente, y HTTP/1.1 suele reutilizar la conexión para varios pedidos seguidos. El receptor lee los encabezados, mira ese número y sabe cuántos bytes más son del cuerpo [#rfc9112]."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Vas a mandar `{\"cliente\":\"Peña\",\"cant\":12}` en un `POST` con `Content-Type: application/json`. ¿Qué valor tiene que llevar `Content-Length`?",
+   "pista": "Contá cada carácter (llaves, comillas, dos puntos y coma incluidos) y sumá un byte extra por cada letra que en UTF-8 ocupe dos, como la «ñ».",
+   "solucion": "Son 28 caracteres y la «ñ» ocupa 2 bytes: **29 bytes**. Lo comprobé en esta VM: con `curl -d` y ese cuerpo, `curl -v` mostró `Content-Length: 29` y el servidor contestó «recibi 29 bytes». Con 28 declarados habría leído 28 bytes y la llave de cierre habría quedado afuera."
+  },
+  {
+   "t": "p",
+   "x": "¿Qué pasa cuando el número miente? Lo probé con `nc`, que manda bytes crudos. Primero declaré 4 bytes y mandé 10 (`hola mundo`). Después declaré 4 y mandé `hola` pegado a una segunda solicitud completa:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "printf 'POST /pedido HTTP/1.1\\r\\nHost: x\\r\\nContent-Type: text/plain\\r\\nContent-Length: 4\\r\\n\\r\\nhola mundo' | nc 127.0.0.1 38519",
+     "s": "HTTP/1.1 400 Bad Request\nConnection: close"
+    },
+    {
+     "c": "printf 'POST /pedido HTTP/1.1\\r\\nHost: x\\r\\nContent-Type: text/plain\\r\\nContent-Length: 4\\r\\n\\r\\nholaGET /eco HTTP/1.1\\r\\nHost: x\\r\\n\\r\\n' | nc 127.0.0.1 38519",
+     "s": "HTTP/1.1 201 Created\nContent-Type: text/plain\nContent-Length: 38\n\nrecibi 4 bytes, tipo text/plain: hola\nHTTP/1.1 200 OK\nContent-Type: text/plain; charset=utf-8\nContent-Length: 8\n\nhost: x"
+    }
+   ],
+   "cap": "Salida real contra mi servidor (Date, Connection y Keep-Alive recortados). Otro servidor podría reaccionar distinto: el comportamiento ante un mensaje mal formado no es uniforme."
+  },
+  {
+   "t": "p",
+   "x": "En el primer caso el servidor leyó `hola` como cuerpo y tomó los seis bytes sobrantes (` mundo`) como el comienzo de otra solicitud, que no es válida: respondió 400 y cerró. En el segundo, el sobrante **sí** era una solicitud válida y contestó las dos. Esa confusión sobre dónde termina un mensaje está detrás del *request smuggling*: un intermediario y un servidor que no coinciden en el largo de un mensaje dejan pasar una solicitud escondida [#rfc9112]. No vemos cómo se explota; basta ver que `Content-Length` no es un dato menor."
+  },
+  {
+   "t": "p",
+   "x": "Un último detalle de formato: si un encabezado se repite, el receptor puede unir las líneas con comas y el orden importa [#rfc9110]. En mi prueba con `nc`, `X-Pedido: 77` y `x-pedido: 78` llegaron como `x-pedido: 77, 78`. La excepción es `Set-Cookie`, que puede repetirse en una respuesta pero no se puede unir con comas, porque el valor de una cookie puede llevarlas (en una fecha, por ejemplo). El estándar la reconoce como caso especial [#rfc9110]."
+  },
+  {
+   "t": "h",
+   "x": "HTTP no recuerda nada, y las cookies lo remedian"
+  },
+  {
+   "t": "p",
+   "x": "HTTP está definido como un protocolo [[sin estado]]: cada solicitud se entiende por sí sola, sin depender de las anteriores [#rfc9110]. El servidor contesta y se olvida. Es una decisión de diseño con una ventaja enorme: si cualquier pedido se puede atender sin contexto, cualquier máquina de un grupo de servidores puede atenderlo, y escalar se reduce a repartir pedidos."
+  },
+  {
+   "t": "p",
+   "x": "El costo lo conocés de la vida diaria. Entrás a tu cuenta, pasás de una pantalla a otra y el sitio sigue sabiendo quién sos. Si HTTP no recuerda, ¿cómo lo hace? Mirá qué pasa cuando le pedís a mi servidor el recurso `/panel`, que solo atiende a quien «entró» antes:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -si http://127.0.0.1:38519/panel | head -1",
+     "s": "HTTP/1.1 401 Unauthorized"
+    }
+   ],
+   "cap": "Salida real: sin nada que me identifique, el servidor no sabe quién soy y contesta 401."
+  },
+  {
+   "t": "p",
+   "x": "Aunque hayas entrado hace un minuto, este pedido llega sin ninguna marca. El parche se llama [[cookie]]: un dato corto que el servidor le pide al cliente que guarde y que el cliente devuelve en cada solicitud posterior al mismo sitio. Se arma con dos encabezados: `Set-Cookie` en la respuesta («guardá esto») y `Cookie` en las solicitudes siguientes («te devuelvo lo que me diste»). Está definido en el RFC 6265, de 2011 [#http19-rfc6265]. `curl -c` guarda las cookies en un archivo y `curl -b` las manda de vuelta, que es lo que hace el navegador solo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -si -c jar.txt http://127.0.0.1:38519/entrar",
+     "s": "HTTP/1.1 200 OK\nSet-Cookie: sid=7c1795a8fa59f152; HttpOnly; SameSite=Lax; Path=/; Max-Age=3600\nContent-Type: text/plain\nContent-Length: 7\n\nEntró"
+    },
+    {
+     "c": "curl -s -b jar.txt http://127.0.0.1:38519/panel",
+     "s": "Hola de nuevo, es tu visita 1"
+    },
+    {
+     "c": "curl -s -b jar.txt http://127.0.0.1:38519/panel",
+     "s": "Hola de nuevo, es tu visita 2"
+    },
+    {
+     "c": "curl -s http://127.0.0.1:38519/panel",
+     "s": "No te conozco"
+    },
+    {
+     "c": "curl -sv -b jar.txt http://127.0.0.1:38519/panel 2>&1 | grep -E '^> (GET|Host|Cookie)|^< HTTP'",
+     "s": "> GET /panel HTTP/1.1\n> Host: 127.0.0.1:38519\n> Cookie: sid=7c1795a8fa59f152\n< HTTP/1.1 200 OK"
+    }
+   ],
+   "cap": "Salida real. Los dos primeros `/panel` llevan la cookie y el contador sube; el tercero no la lleva y no te conocen. El último comando es la tercera visita con la cookie, vista por dentro. El identificador `sid` lo sortea el servidor en cada corrida."
+  },
+  {
+   "t": "p",
+   "x": "Fijate en la última línea: la solicitud lleva `Cookie: sid=…`. Nadie lo escribió a mano; `curl -b` lo leyó del archivo. Y fijate en qué guarda la cookie: no tu nombre ni tu número de visitas, sino un **identificador al azar**. El contador vive en una tabla que mantiene el servidor, indexada por ese identificador. La cookie es la llave, no el cuarto."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Navegador",
+     "k": "cliente"
+    },
+    {
+     "n": "Servidor",
+     "k": "servidor"
+    },
+    {
+     "n": "Tabla de sesiones",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET /entrar",
+     "d": "Primer pedido: sin cookie. El servidor todavía no sabe quién sos."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "crear ficha sid=7c17… (visitas 0)",
+     "d": "El servidor sortea un identificador y anota una ficha nueva."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "200 OK + Set-Cookie: sid=7c17…",
+     "resp": true,
+     "d": "La respuesta le pide al navegador que guarde la cookie."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET /panel + Cookie: sid=7c17…",
+     "d": "Desde ahora el navegador la agrega solo."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "buscar sid=7c17…",
+     "d": "El identificador es la clave para encontrar la ficha."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "visitas = 1",
+     "resp": true,
+     "d": "La ficha existe y se actualiza."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "200 OK: «tu visita 1»",
+     "resp": true,
+     "d": "Respuesta personalizada sin que HTTP recuerde nada: la memoria está en la tabla."
+    }
+   ],
+   "cap": "La cookie de sesión, de punta a punta: el estado lo guarda el servidor y la cookie es la clave."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La cookie es un número de seguimiento",
+   "x": [
+    "Un bulto despachado tiene un número de seguimiento. El número no es el bulto: es la clave para que el depósito lo encuentre en su sistema. `sid=7c17…` funciona igual: no contiene tus datos, es la clave para hallar tu ficha.",
+    "Dónde falla: el número lo mostrás vos cuando querés; la cookie la manda el navegador solo, a cualquier pedido a ese sitio, aunque lo dispare otra página. De esa diferencia salen casi todos los problemas de seguridad de las cookies."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Como las cookies viajan en **cada** solicitud, pesan en todas. El RFC 6265 pide a los navegadores aceptar como mínimo 4.096 bytes por cookie y 50 por dominio, y a los servidores usar «tan pocas y tan pequeñas como sea posible» por el ancho de banda [#http19-rfc6265]. Una cuenta de ejemplo: 100 pedidos de una página con 4 KB de cookies son del orden de 400 KB subidos."
+  },
+  {
+   "t": "h",
+   "x": "Los atributos: cuánto vive una cookie y adónde viaja"
+  },
+  {
+   "t": "p",
+   "x": "Después del par `nombre=valor`, `Set-Cookie` admite atributos separados por punto y coma. Mi servidor mandó `Set-Cookie: sid=…; HttpOnly; SameSite=Lax; Path=/; Max-Age=3600`. Cada atributo cierra una puerta [#http19-mdn-set-cookie]:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Atributo",
+    "Qué controla",
+    "Si lo omitís"
+   ],
+   "filas": [
+    [
+     "`Max-Age` o `Expires`",
+     "Cuánto vive: segundos desde ahora, o una fecha",
+     "Cookie de sesión: se borra al cerrar el navegador (muchos restauran las pestañas y la conservan)"
+    ],
+    [
+     "`Domain`",
+     "A qué dominio se manda; si lo ponés, incluye los subdominios",
+     "Solo al host exacto que la creó"
+    ],
+    [
+     "`Path`",
+     "Prefijo de ruta que debe tener la URL para que viaje",
+     "Usa la ruta de la URL que la creó"
+    ],
+    [
+     "`Secure`",
+     "Solo viaja por HTTPS (lo vemos en [@05-22])",
+     "Viaja también por HTTP sin cifrar"
+    ],
+    [
+     "`HttpOnly`",
+     "El JavaScript de la página no puede leerla con `document.cookie`",
+     "Cualquier script de la página puede leerla"
+    ],
+    [
+     "`SameSite`",
+     "Si viaja en pedidos disparados desde otro sitio: `Strict`, `Lax` o `None`",
+     "Depende del navegador; algunos aplican `Lax` por defecto"
+    ]
+   ],
+   "cap": "Los atributos que más se ven. Hay más (`Partitioned`, prefijos `__Host-` y `__Secure-`) que dejamos para Seguridad."
+  },
+  {
+   "t": "pensa",
+   "x": "Un atacante inyecta un script malicioso en una página de tu sitio. Tu cookie de sesión tiene `HttpOnly`. El script ejecuta `document.cookie` para robar la sesión. ¿Qué obtiene? ¿Y qué otra cosa puede hacer?",
+   "resp": "No ve la cookie: `HttpOnly` la oculta de `document.cookie`. Pero el script puede llamar a `fetch(\"/transferir\", …)` y el navegador adjunta la cookie por su cuenta, porque `HttpOnly` no impide que se envíe. No se lleva la sesión, pero actúa dentro de ella mientras la página esté abierta: `HttpOnly` reduce el daño de un XSS y no lo elimina [#http19-mdn-set-cookie]."
+  },
+  {
+   "t": "p",
+   "x": "`SameSite` frena un problema viejo. El navegador manda tu cookie de sesión a **cualquier** pedido que vaya al banco, sin importar desde qué página se disparó. Una página maliciosa podría armar un formulario que haga un `POST` al banco: el navegador adjuntaría la cookie y el banco vería una sesión válida. Ese ataque se llama CSRF. Con `SameSite=Lax` la cookie no viaja en pedidos disparados desde otro sitio, salvo en navegaciones normales, como un clic en un enlace; `Strict` ni en esas; `None` viaja siempre y exige `Secure` [#http19-mdn-set-cookie]."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Estado de las cookies al 13-11-2026",
+   "x": [
+    "El RFC 6265 (abril de 2011) sigue siendo el estándar de cookies publicado. Su revisión, `draft-ietf-httpbis-rfc6265bis`, que incorpora `SameSite` y los prefijos `__Host-` y `__Secure-`, figura en el datatracker del IETF en la cola del RFC Editor, con estado «Final Approval Pending» (consultado el 13-11-2026) [#http19-rfc6265bis-estado].",
+    "Qué hace cada navegador con `SameSite` si no lo declarás varía: MDN dice que algunos usan `Lax` por defecto [#http19-mdn-set-cookie]. Conviene declararlo siempre."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Las cookies son programas espía»",
+   "x": "Una cookie es texto: nombre, valor y atributos. No se ejecuta ni lee tu disco. Lo que puede pasar es que un servicio incrustado en muchos sitios la use como identificador para reconocerte entre páginas. El problema es ese uso, no el formato; qué se permite hoy lo deciden los navegadores y las leyes de privacidad, y cambia seguido."
+  },
+  {
+   "t": "h",
+   "x": "Caché: no volver a pedir lo que ya tenés"
+  },
+  {
+   "t": "p",
+   "x": "Un depósito que recibe cada día la misma planilla de reposición no manda un camión con el listado si no cambió: pregunta «¿sigue vigente el del lunes?» y, si es así, no manda nada. La [[caché HTTP]] es esa idea: una copia guardada de una respuesta para reutilizarla. Puede estar en el navegador (privada, de una persona) o en intermediarios que verás en [@05-24] y [@05-25] (compartida). Las reglas están en el RFC 9111 [#rfc9111]."
+  },
+  {
+   "t": "p",
+   "x": "¿Cuánto vale? Mi recurso `/grande` pesa 225.000 bytes. Mil visitas que lo bajen completo son 225 MB (225.000 por 1.000), aunque no haya cambiado. La caché responde dos preguntas:"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Frescura:** ¿puedo usar mi copia sin preguntarle nada al servidor? Lo decide `Cache-Control: max-age=60`: durante 60 segundos la copia es fresca y no hay ningún pedido de red, ni bytes ni espera.",
+    "**Validación:** si la copia venció, ¿sigue siendo la versión vigente? Lo decide una pregunta barata al servidor con una etiqueta."
+   ],
+   "ord": false
+  },
+  {
+   "t": "p",
+   "x": "Esa etiqueta es la [[ETag]] (*entity tag*): un identificador que el servidor le pone a cada versión de un recurso. Puede ser un hash del contenido, como en mi servidor (8 caracteres de un SHA-1), o un número de versión; al cliente le da igual: la guarda y la devuelve. Cuando la copia venció, pregunta con `If-None-Match: <etiqueta que tengo>`. Si coincide, el servidor contesta `304 Not Modified` **sin cuerpo**: «tu copia sigue buena». Si cambió, contesta 200 con la versión nueva y su etiqueta [#rfc9110]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -si http://127.0.0.1:38519/catalogo",
+     "s": "HTTP/1.1 200 OK\nETag: \"0d7a9bcb\"\nCache-Control: max-age=60\nContent-Type: text/plain\nContent-Length: 50\n\ncatalogo v1: manzanas 120, peras 80, naranjas 200"
+    },
+    {
+     "c": "curl -si -H 'If-None-Match: \"0d7a9bcb\"' http://127.0.0.1:38519/catalogo",
+     "s": "HTTP/1.1 304 Not Modified\nETag: \"0d7a9bcb\"\nCache-Control: max-age=60"
+    },
+    {
+     "c": "curl -s http://127.0.0.1:38519/publicar   # el catálogo cambia",
+     "s": "ok"
+    },
+    {
+     "c": "curl -si -H 'If-None-Match: \"0d7a9bcb\"' http://127.0.0.1:38519/catalogo",
+     "s": "HTTP/1.1 200 OK\nETag: \"9d01b271\"\nCache-Control: max-age=60\nContent-Type: text/plain\nContent-Length: 50\n\ncatalogo v2: manzanas 120, peras 80, naranjas 200"
+    }
+   ],
+   "cap": "Salida real (Date, Connection y Keep-Alive recortados). El 304 no trae `Content-Length` ni cuerpo: el cliente reutiliza los 50 bytes que ya tenía. Después de `/publicar` la misma pregunta recibe un 200 con una etiqueta nueva."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Necesito /catalogo",
+       "s": "el navegador busca en su caché",
+       "k": "cliente"
+      },
+      {
+       "t": "¿Copia fresca?",
+       "s": "edad menor que max-age",
+       "k": "red",
+       "e": "tiene copia"
+      },
+      {
+       "t": "Usa la copia",
+       "s": "cero tráfico de red",
+       "k": "ok",
+       "e": "sí"
+      }
+     ],
+     "baja": "si la copia venció o no hay ninguna:"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Pregunta al servidor",
+       "s": "If-None-Match con la etiqueta que tiene",
+       "k": "cliente"
+      },
+      {
+       "t": "304 Not Modified",
+       "s": "sin cuerpo: reutiliza la copia",
+       "k": "ok",
+       "e": "misma etiqueta"
+      },
+      {
+       "t": "200 con cuerpo",
+       "s": "versión nueva y etiqueta nueva",
+       "k": "servidor",
+       "e": "otra etiqueta"
+      }
+     ]
+    }
+   ],
+   "cap": "La decisión de una caché de navegador, simplificada. Si no hay copia, directamente pide el recurso completo."
+  },
+  {
+   "t": "p",
+   "x": "Esto mismo se puede medir con el recurso grande. Pedí `/grande` de tres maneras: sin nada, con la etiqueta que ya tenías y aceptando `gzip`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -o /dev/null -w 'código %{http_code}, cuerpo %{size_download} bytes\\n' http://127.0.0.1:38519/grande",
+     "s": "código 200, cuerpo 225000 bytes"
+    },
+    {
+     "c": "curl -s -o /dev/null -w 'código %{http_code}, cuerpo %{size_download} bytes\\n' -H 'If-None-Match: \"dd311ad0\"' http://127.0.0.1:38519/grande",
+     "s": "código 304, cuerpo 0 bytes"
+    },
+    {
+     "c": "curl -s -o /dev/null -w 'código %{http_code}, cuerpo %{size_download} bytes\\n' -H 'Accept-Encoding: gzip' http://127.0.0.1:38519/grande",
+     "s": "código 200, cuerpo 733 bytes"
+    },
+    {
+     "c": "curl -s -H 'Accept-Encoding: gzip' -o /dev/null -D - http://127.0.0.1:38519/grande",
+     "s": "HTTP/1.1 200 OK\nETag: \"dd311ad0\"\nCache-Control: max-age=60\nVary: Accept-Encoding\nContent-Type: text/plain\nContent-Encoding: gzip\nContent-Length: 733"
+    }
+   ],
+   "cap": "Salida real, localhost (sirve para comparar tamaños, no tiempos). `-w` hace que curl imprima el código de estado y los bytes del cuerpo descargado; `dd311ad0` es la ETag que devolvió `/grande` en esta corrida. La última línea de comandos muestra los encabezados de la respuesta comprimida (Date, Connection y Keep-Alive recortados)."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pedido",
+    "Código",
+    "Cuerpo que viaja"
+   ],
+   "filas": [
+    [
+     "Sin nada",
+     "200",
+     "225.000 bytes"
+    ],
+    [
+     "Con `If-None-Match` (misma etiqueta)",
+     "304",
+     "0 bytes"
+    ],
+    [
+     "Con `Accept-Encoding: gzip`",
+     "200",
+     "733 bytes"
+    ]
+   ],
+   "cap": "El 304 ahorra el cuerpo pero no el viaje de ida y vuelta (los encabezados siguen viajando). Evitar el viaje es trabajo de `max-age`. El texto de prueba es muy repetitivo, por eso comprime tanto: un caso extremo elegido a propósito; en textos reales la compresión suele ser bastante menor."
+  },
+  {
+   "t": "p",
+   "x": "Fijate en `Vary: Accept-Encoding`. La misma URL ahora tiene dos versiones, comprimida y sin comprimir. `Vary` le avisa a la caché que la respuesta depende de ese encabezado de la solicitud, así que no puede entregarle la versión comprimida a un cliente que no la entiende [#rfc9111]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Mi servidor de juguete hace trampa con la ETag",
+   "x": "Usé la misma etiqueta para la versión comprimida y la que no lo está. Un servidor real no debería: son dos representaciones distintas. Por eso muchos agregan un sufijo o usan una etiqueta débil (`W/\"…\"`) al comprimir al vuelo [#rfc9110]."
+  },
+  {
+   "t": "h",
+   "x": "Cache-Control: las directivas que más se usan"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Directiva",
+    "Qué le dice a la caché",
+    "Cuándo conviene"
+   ],
+   "filas": [
+    [
+     "`max-age=N`",
+     "La copia es fresca durante N segundos",
+     "Recursos que pueden estar un poco atrasados"
+    ],
+    [
+     "`no-cache`",
+     "Podés guardarla, pero validá con el servidor antes de cada uso",
+     "Contenido siempre al día, con ETag para no reenviarlo"
+    ],
+    [
+     "`no-store`",
+     "No la guardes en ningún lado",
+     "Pantallas sensibles, como un saldo"
+    ],
+    [
+     "`private`",
+     "Solo la caché del navegador de esa persona",
+     "Respuestas personalizadas"
+    ],
+    [
+     "`public` y `s-maxage=N`",
+     "Las cachés compartidas también pueden guardarla; `s-maxage` fija su plazo",
+     "Contenido igual para todos"
+    ]
+   ],
+   "cap": "Resumen del RFC 9111, sección 5.2 [#rfc9111]. Se pueden combinar: `Cache-Control: private, max-age=60`."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«no-cache» significa «no se guarda»",
+   "x": "Es la confusión más común. `no-cache` dice que la copia **no se puede usar sin validarla** con el servidor; guardarse, se guarda. Lo que prohíbe guardar es `no-store` [#rfc9111], y ni siquiera ese es una garantía de seguridad: el RFC aclara que no es un mecanismo confiable ni suficiente para proteger información sensible."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Elegí `Cache-Control` para tres respuestas de una tienda: (1) `app.7f3a9c.js`, cuyo nombre cambia con cada versión; (2) `/precios`, 40 KB que se actualizan varias veces por día y tienen ETag; (3) `/mi-cuenta`, con los datos personales de cada cliente.",
+   "pista": "Preguntate dos cosas por recurso: ¿puede cambiar el contenido sin que cambie la URL? y ¿la respuesta es igual para todos o personal?",
+   "solucion": "(1) `public, max-age=31536000, immutable`: si cambia el contenido cambia el nombre. (2) `no-cache` con ETag, o un `max-age` corto: casi siempre recibe un 304 en vez de 40 KB. (3) `private, no-store`: es personal y sensible. Son criterios; con otras restricciones podrían ser otros."
+  },
+  {
+   "t": "h",
+   "x": "Versionar el nombre: la regla de los archivos estáticos"
+  },
+  {
+   "t": "p",
+   "x": "Tengo un caso real para mostrar. Es un archivo de React alojado en `cdnjs`, un servicio público de bibliotecas; le pedí solo los encabezados:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -sSI https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js | grep -i -E '^(HTTP/|cache-control|last-modified|age|vary)'",
+     "s": "HTTP/1.1 200 Connection Established\nHTTP/2 200 \nage: 4340720\ncache-control: no-transform, public, s-maxage=30672000, max-age=30672000, immutable\nlast-modified: Fri, 26 Apr 2024 17:01:18 GMT\nvary: Accept-Encoding"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026, detrás de un proxy: la primera línea (`200 Connection Established`) es del proxy del entorno y no del servidor. Lo demás es lo que declaró el servidor ese día; puede cambiar."
+  },
+  {
+   "t": "p",
+   "x": "`max-age=30672000` son 355 días. `immutable` agrega que el contenido nunca va a cambiar, así que ni siquiera hace falta revalidar al recargar [#http19-mdn-caching]. `s-maxage` es lo mismo pero para cachés compartidas, y `Age: 4340720` dice que esa copia lleva unos 50 días guardada en el servicio intermedio [#rfc9111]. ¿Cómo se corrige un error en un archivo guardado así en millones de navegadores? No se corrige: el servidor no puede alcanzar copias que ya no le piden nada. La solución es que el archivo nuevo tenga **otro nombre**. Por eso `18.3.1` va dentro de la URL."
+  },
+  {
+   "t": "p",
+   "x": "Es la razón de los nombres raros que genera un [[bundler]], como `app.7f3a9c.js`, donde `7f3a9c` sale del contenido: cada despliegue produce nombres nuevos, que se cachean para siempre. Lo único sin hash es el HTML de entrada, que apunta a esos nombres y se sirve con `no-cache` para que cada visita se entere de la versión vigente."
+  },
+  {
+   "t": "h",
+   "x": "Un caso real que junta las tres ideas"
+  },
+  {
+   "t": "p",
+   "x": "La portada de Wikipedia mezcla cookies, ETag y reglas de caché. Filtré las líneas que importan:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -sSI https://www.wikipedia.org/ | grep -i -E '^(HTTP/|cache-control|etag|last-modified|age|set-cookie: WMF-Last-Access=)'",
+     "s": "HTTP/1.1 200 Connection Established\nHTTP/2 200 \ncache-control: s-maxage=86400, must-revalidate, max-age=3600\netag: W/\"1de8a-65fe76abb2e40\"\nlast-modified: Tue, 10 Nov 2026 07:56:33 GMT\nage: 41666\nset-cookie: WMF-Last-Access=13-Nov-2026;Path=/;HttpOnly;secure;Expires=Tue, 15 Dec 2026 12:00:00 GMT"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026, detrás de un proxy (la primera línea es del proxy). Lo que declaró el servidor ese día; puede cambiar."
+  },
+  {
+   "t": "lista",
+   "items": [
+    "`max-age=3600` vale para el navegador (1 hora) y `s-maxage=86400` para las cachés compartidas (1 día). `Age: 41666` dice que la copia llevaba unas 11,6 horas guardada, lo que encaja con ese `s-maxage`.",
+    "`ETag: W/\"…\"`: la `W/` marca una etiqueta **débil**, que dice «equivalente en la práctica» y no «idéntico byte a byte» [#rfc9110].",
+    "`Set-Cookie: WMF-Last-Access=…`: una cookie que vence en un mes y guarda una fecha, no un identificador."
+   ],
+   "ord": false
+  },
+  {
+   "t": "h",
+   "x": "Adelanto: dos formas de decirle al servidor quién sos"
+  },
+  {
+   "t": "p",
+   "x": "La cookie de sesión es una. La otra es el encabezado `Authorization`: el cliente adjunta la credencial a mano en cada solicitud. Es el camino habitual de las apps móviles y las APIs. Mi servidor tiene un recurso `/privado` que acepta un token de ejemplo, inventado para esta demo:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -si http://127.0.0.1:38519/privado",
+     "s": "HTTP/1.1 401 Unauthorized\nWWW-Authenticate: Bearer\nContent-Length: 0\n"
+    },
+    {
+     "c": "curl -si -H 'Authorization: Bearer token-de-ejemplo' http://127.0.0.1:38519/privado",
+     "s": "HTTP/1.1 200 OK\nContent-Type: text/plain\nContent-Length: 13\n\nhola Claudia"
+    }
+   ],
+   "cap": "Salida real. El primer pedido recibe 401 y un `WWW-Authenticate` que dice qué tipo de credencial espera; el segundo la manda y entra. El nombre «Unauthorized» es engañoso: según el estándar, 401 significa que **faltan credenciales válidas** [#rfc9110]."
+  },
+  {
+   "t": "p",
+   "x": "La cookie viaja sola, y por eso necesita `SameSite` para que otra página no la aproveche. El encabezado `Authorization` solo se manda si el código de la app lo agrega, así que un sitio ajeno no puede provocarlo. Cómo se crean, firman y vencen esos tokens viene en Backend y Seguridad; hoy importa ver dónde viajan."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa cookies: manda un Authorization en cada pedido",
+   "x": [
+    "En el código de Senda (commit `25e08fa`) las cuentas usan el segundo camino. `cabeceras()` en `src/util/cuenta.ts` arma en cada pedido a la nube un `apikey`, un `Content-Type: application/json` y un `Authorization: Bearer <token de la persona>`. La sesión (token de acceso, de renovación y vencimiento) se guarda en el almacenamiento del teléfono bajo la clave `senda-sesion`.",
+    "Busqué en todo `src/` las palabras `cookie`, `ETag` e `If-None-Match`: **cero apariciones el 13-11-2026**. La identidad la lleva el token. La `apikey` es pública a propósito y va dentro de la app, según el mapa técnico. Esto corresponde al commit `25e08fa`; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/util/nube.ts"
+   ]
+  }
+ ],
+ "recap": [
+  "Un encabezado HTTP es una línea `Nombre: valor` antes del cuerpo. `Host` elige el sitio dentro de una IP compartida y `Content-Length` dice cuántos bytes tiene el cuerpo (bytes, no caracteres); si miente, el receptor confunde dónde termina el mensaje.",
+  "HTTP no tiene estado. Las cookies lo parchan: el servidor manda `Set-Cookie` con un identificador al azar, el navegador lo devuelve en `Cookie` y la memoria vive en el servidor.",
+  "`HttpOnly` oculta la cookie al JavaScript, `Secure` la limita a HTTPS y `SameSite` evita que viaje en pedidos disparados desde otro sitio.",
+  "La caché responde dos preguntas: frescura (`max-age`, cero tráfico) y validación (`ETag` más `If-None-Match`, que da un 304 sin cuerpo). El 304 ahorra el cuerpo pero no el viaje.",
+  "`no-cache` es «validá antes de usar»; `no-store` es «no guardes». Los archivos estáticos llevan la versión en el nombre porque una copia guardada con plazo largo no se puede reemplazar desde el servidor.",
+  "La alternativa a la cookie es el encabezado `Authorization`. Senda usa esa vía y no usa cookies."
+ ],
+ "repaso": [
+  {
+   "p": "Un servidor aloja `tienda.com` y `blog.com` con la misma IP y el mismo puerto. ¿Qué dato de la solicitud HTTP le permite elegir a cuál sitio corresponde?",
+   "o": [
+    "El encabezado Host que viaja en la solicitud",
+    "El puerto de destino del segmento TCP",
+    "El encabezado User-Agent del navegador",
+    "La dirección MAC de quien hizo el pedido"
+   ],
+   "c": 0,
+   "e": "El Host lleva el nombre del sitio hasta el servidor, que lo usa para repartir. El puerto es el mismo para los dos sitios, el User-Agent solo dice qué programa pide y la dirección MAC no atraviesa routers, así que ni siquiera llega al servidor."
+  },
+  {
+   "p": "Vas a mandar el cuerpo `{\"nombre\":\"Íñigo\"}` en un POST. Tiene 18 caracteres, dos de ellos con tilde o eñe (`Í` y `ñ`), que en UTF-8 ocupan 2 bytes cada una. ¿Qué valor corresponde en Content-Length?",
+   "o": [
+    "18, porque se cuenta un valor por carácter",
+    "19, porque se suma un byte por la tilde",
+    "20, porque cada letra especial ocupa 2 bytes",
+    "16, porque no se cuentan las comillas"
+   ],
+   "c": 2,
+   "e": "Content-Length cuenta bytes: 18 caracteres más 2 bytes extras (uno por cada letra de dos bytes) son 20. Contar caracteres da 18 y el receptor leería 2 bytes de menos; sumar un solo extra olvida que hay dos letras así; las comillas son parte del cuerpo y se cuentan."
+  },
+  {
+   "p": "Una cookie de sesión tiene `HttpOnly`. Un script malicioso inyectado en la página ejecuta `document.cookie`. ¿Qué logra con eso?",
+   "o": [
+    "Lee el valor de la cookie y se lo manda al atacante",
+    "No puede leerla, pero el navegador la sigue enviando en sus pedidos",
+    "Nada: el navegador no manda la cookie a ese script",
+    "Borra la cookie para cerrar la sesión de la víctima"
+   ],
+   "c": 1,
+   "e": "HttpOnly impide la lectura desde JavaScript, pero no que el navegador adjunte la cookie a los pedidos que ese script dispara; por eso el atacante actúa dentro de la sesión sin ver la cookie. Quien cree que lee el valor ignora HttpOnly, y quien cree que el envío se bloquea lo confunde con SameSite."
+  },
+  {
+   "p": "Una respuesta lleva `Cache-Control: no-cache` y una ETag. ¿Qué hace el navegador la próxima vez que necesita ese recurso?",
+   "o": [
+    "Lo vuelve a pedir completo porque no lo guardó",
+    "Lo usa un día entero sin consultar al servidor",
+    "Lo guarda y lo valida con If-None-Match antes de usarlo",
+    "Lo guarda y lo usa hasta que se borre el historial"
+   ],
+   "c": 2,
+   "e": "no-cache permite guardar la respuesta pero obliga a validarla antes de cada uso; con ETag la validación suele terminar en un 304 corto. Pedirlo completo cada vez es lo que haría no-store, y usarlo un día o hasta borrar el historial supone un plazo de frescura que la respuesta no declaró."
+  },
+  {
+   "p": "¿Qué ahorra una respuesta 304 Not Modified, y qué no?",
+   "o": [
+    "Ahorra el cuerpo, pero no el viaje de ida y vuelta al servidor",
+    "Ahorra el viaje de ida y vuelta, pero no el cuerpo",
+    "Ahorra el cuerpo y también el viaje de ida y vuelta",
+    "No ahorra nada porque el servidor reenvía el recurso"
+   ],
+   "c": 0,
+   "e": "El cliente igual le pregunta al servidor (hay un viaje y encabezados), pero la respuesta no trae cuerpo. Solo una copia fresca según max-age evita el viaje entero, y por eso las otras opciones atribuyen al 304 algo que le corresponde a otra cosa."
+  },
+  {
+   "p": "Un archivo `app.js` se sirvió con `max-age` de un año y ya está guardado en millones de navegadores. Subís una versión nueva con el mismo nombre. ¿Qué ocurre?",
+   "o": [
+    "Cada navegador detecta el cambio por la ETag y baja la nueva",
+    "El servidor avisa a cada navegador para que borre la vieja",
+    "Los navegadores revalidan en cada visita porque es JavaScript",
+    "Los navegadores siguen usando la copia vieja hasta que venza"
+   ],
+   "c": 3,
+   "e": "Mientras la copia está fresca el navegador no consulta al servidor, así que no hay ETag que comparar ni forma de avisar. Por eso los archivos estáticos con plazos largos llevan un nombre nuevo en cada versión."
+  },
+  {
+   "p": "Se dice que HTTP es «sin estado». ¿Qué ventaja concreta tiene ese diseño?",
+   "o": [
+    "Permite que cualquier servidor de un grupo atienda cualquier pedido sin conocer los anteriores",
+    "Evita que el servidor guarde datos de las personas en su base",
+    "Hace que las cookies no hagan falta para identificar a nadie",
+    "Garantiza que dos pedidos seguidos lleguen siempre a la misma máquina"
+   ],
+   "c": 0,
+   "e": "Como cada solicitud trae todo lo necesario, repartirlas entre máquinas es simple. No impide que el servidor guarde datos (las sesiones lo hacen), no elimina las cookies (las hace necesarias) y no asegura que un pedido llegue a la misma máquina."
+  }
+ ],
+ "feynman": "Explicale a alguien que entra a su home banking por qué el sitio «sabe» quién es en cada pantalla si HTTP no recuerda nada entre un pedido y el siguiente. Usá la cookie de sesión, contá qué hace HttpOnly y decí por qué conviene que la caché del navegador no guarde la pantalla del saldo.",
+ "para_profundizar": [
+  {
+   "fuente": "rfc9111",
+   "nota": "RFC 9111, sección 5.2: la lista oficial de directivas de Cache-Control (max-age, no-cache, no-store, private, s-maxage). Para consultar el significado exacto de una directiva antes de usarla."
+  },
+  {
+   "fuente": "http19-mdn-caching",
+   "nota": "Guía de MDN sobre caché HTTP: frescura, validación, versionado de archivos y casos típicos, con ejemplos de encabezados. Es la mejor lectura práctica para repetir los pedidos condicionales del día."
+  },
+  {
+   "fuente": "http19-mdn-set-cookie",
+   "nota": "Referencia de MDN del encabezado Set-Cookie: cada atributo, los prefijos y qué hace cada valor de SameSite."
+  },
+  {
+   "fuente": "http19-rfc6265bis-estado",
+   "nota": "Página del datatracker del IETF con el estado de la revisión del estándar de cookies; sirve para ver si ya se publicó el RFC que reemplaza al 6265."
+  }
+ ],
+ "videos": [
+  {
+   "q": "HTTP caching explained Cache-Control ETag If-None-Match 304",
+   "por_que": "Para ver dibujada la decisión entre usar la copia, validarla o bajarla de nuevo, con los mismos encabezados de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "encabezado HTTP",
+   "d": "Línea de un mensaje HTTP con el formato «Nombre: valor» que viaja antes del cuerpo y lleva metadatos: a qué sitio va el pedido, qué formato tiene el cuerpo, cuánto mide, qué caché aplica. Los nombres no distinguen mayúsculas de minúsculas."
+  },
+  {
+   "t": "cookie",
+   "d": "Dato corto que un servidor le pide al navegador que guarde (encabezado Set-Cookie) y que el navegador devuelve en cada solicitud posterior al mismo sitio (encabezado Cookie). Se usa para reconocer una sesión, porque HTTP no recuerda nada entre pedidos."
+  },
+  {
+   "t": "caché HTTP",
+   "d": "Copia guardada de una respuesta HTTP para reutilizarla en pedidos futuros sin volver a pedirla completa. Puede ser privada (en el navegador de una persona) o compartida (en un intermediario) y se gobierna con Cache-Control, ETag y otros encabezados."
+  },
+  {
+   "t": "ETag",
+   "d": "Etiqueta (entity tag) con la que un servidor identifica una versión concreta de un recurso, por ejemplo un hash del contenido. El cliente la devuelve en If-None-Match y, si no cambió, el servidor responde 304 sin cuerpo."
+  },
+  {
+   "t": "sin estado",
+   "d": "Propiedad de HTTP: cada solicitud se entiende por sí sola, sin depender de las anteriores. Permite repartir pedidos entre muchos servidores, pero obliga a usar cookies u otros datos en cada pedido para reconocer a una persona."
+  },
+  {
+   "t": "Cache-Control",
+   "d": "Encabezado que da las reglas de caché de una respuesta o de una solicitud: cuánto es fresca (max-age), si debe validarse antes de usarla (no-cache), si no debe guardarse (no-store) y quién puede guardarla (private, public)."
+  },
+  {
+   "t": "SameSite",
+   "d": "Atributo de una cookie que decide si el navegador la manda en pedidos disparados desde otro sitio: Strict (nunca), Lax (solo en navegaciones normales como un clic en un enlace) o None (siempre, con Secure). Frena los ataques CSRF."
+  }
+ ],
+ "siguiente": "por qué HTTP/1.1 se queda esperando respuestas en fila y cómo HTTP/2 y HTTP/3 reparten varios pedidos por una misma conexión, medido con un servidor propio.",
+ "fuentes_nuevas": [
+  {
+   "id": "http19-rfc6265",
+   "a": "A. Barth (IETF)",
+   "t": "RFC 6265: HTTP State Management Mechanism",
+   "tipo": "rfc",
+   "anio": 2011,
+   "url": "https://www.rfc-editor.org/rfc/rfc6265"
+  },
+  {
+   "id": "http19-rfc6265bis-estado",
+   "a": "IETF (datatracker)",
+   "t": "draft-ietf-httpbis-rfc6265bis: Cookies, HTTP State Management Mechanism (estado)",
+   "tipo": "doc",
+   "url": "https://datatracker.ietf.org/doc/draft-ietf-httpbis-rfc6265bis/"
+  },
+  {
+   "id": "http19-mdn-set-cookie",
+   "a": "MDN Web Docs",
+   "t": "Set-Cookie (encabezado HTTP)",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie"
+  },
+  {
+   "id": "http19-mdn-caching",
+   "a": "MDN Web Docs",
+   "t": "HTTP caching",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching"
+  }
+ ]
+}

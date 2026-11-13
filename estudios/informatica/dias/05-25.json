@@ -1,0 +1,856 @@
+{
+ "id": "05-25",
+ "titulo": "CDN y balanceadores de carga",
+ "bajada": "Una tienda lejana y un viernes de ofertas: cómo una CDN acerca las copias, cómo un balanceador reparte el trabajo y cómo se ve cada uno funcionando en una máquina de verdad.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir qué problema resuelve una CDN (distancia y repetición) y cuál un balanceador de carga (volumen y caídas).",
+  "Explicar paso a paso qué hace un nodo de borde ante un acierto (HIT) y un fallo (MISS) de caché, y qué es una estampida de caché.",
+  "Comparar round robin, menos conexiones y hash, y decir cuándo conviene cada uno.",
+  "Diferenciar un balanceador de capa 4 de uno de capa 7 y un health check activo de uno pasivo.",
+  "Explicar por qué las sesiones pegajosas son un parche y qué diseño las vuelve innecesarias."
+ ],
+ "venis_de": "En [@05-24] viste el firewall, el proxy y el proxy inverso: un intermediario que atiende en nombre de un servidor. Hoy ese intermediario aparece en dos versiones con trabajos distintos: una que acerca copias a la gente y otra que reparte pedidos entre varios servidores iguales.",
+ "se_apoya_en": [
+  "05-19",
+  "05-22",
+  "05-24",
+  "05-08",
+  "05-12"
+ ],
+ "gancho": [
+  "Una tienda inventada de repuestos para bicicletas tiene un solo servidor, alquilado en Virginia, Estados Unidos. Una clienta en Buenos Aires abre la página de un producto. Entre su teléfono y ese servidor hay unos 8.400 kilómetros en línea recta. La luz, dentro de una fibra óptica, viaja a unos 200.000 km/s, así que solo la ida tarda unos 42 milisegundos y la vuelta otros 42. Aunque todo funcione perfecto, la respuesta no puede llegar en menos de unos 84 ms. Es un piso físico (cálculo mío: distancia de círculo máximo entre Buenos Aires y Ashburn, Virginia, y luz a 200.000 km/s). En la práctica es más, porque los cables no van en línea recta y cada router agrega su tiempo.",
+  "Ahora el viernes de ofertas. A las 10:00 entran 20.000 personas en un minuto (cifra inventada para el ejemplo), unas 333 por segundo. Ese servidor sabe atender cómodamente 200 por segundo. A los pocos segundos la cola crece, las páginas tardan y algunas no cargan.",
+  "Son dos problemas distintos: la **distancia** y el **volumen**. La industria tiene una herramienta para cada uno. La primera acerca el contenido a la gente; la segunda reparte el trabajo entre varias máquinas. Las dos se ponen delante de tus servidores, se confunden seguido y están en casi toda aplicación que usás todos los días."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Dos problemas, dos herramientas"
+  },
+  {
+   "t": "p",
+   "x": "Del [@05-24] te quedó la idea de [[proxy inverso]]: una máquina que atiende en nombre de otras. Hoy hay dos variantes de esa idea. Se parecen por fuera, porque las dos están entre la gente y tus servidores, y son muy distintas por dentro."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "CDN",
+    "Balanceador de carga"
+   ],
+   "filas": [
+    [
+     "Problema que ataca",
+     "Distancia y repetición: mucha gente lejos pide lo mismo",
+     "Volumen y caídas: un servidor no alcanza o se cae"
+    ],
+    [
+     "Qué hace",
+     "Guarda copias y responde desde un lugar cercano",
+     "Reparte los pedidos entre varios servidores iguales"
+    ],
+    [
+     "Dónde vive",
+     "En muchas ciudades, cerca de la gente",
+     "Casi siempre junto a los servidores, en un mismo centro de datos"
+    ],
+    [
+     "Si algo falla",
+     "Puede entregar una copia vieja",
+     "Deja de mandar tráfico al servidor que falla"
+    ]
+   ],
+   "cap": "Se usan juntas todo el tiempo: la CDN absorbe lo repetido y el balanceador reparte lo que llega al origen."
+  },
+  {
+   "t": "h",
+   "x": "CDN: la mercadería ya está cerca"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[CDN]] (red de distribución de contenido) es un grupo de servidores repartidos en muchos lugares que guardan copias de datos para atender a cada persona desde el más cercano; MDN la define casi igual [#redcdn-mdn-cdn]. Cada lugar donde la CDN tiene servidores se llama [[nodo de borde]]: está en el borde de la red del proveedor, cerca de los usuarios y lejos del servidor original, al que se le dice **origen**.",
+    "Lo que hace un nodo de borde ya lo conocés: es una [[caché HTTP]] ([@05-19]). La diferencia es que no hay una sola sino cientos, repartidas por el mundo. Cuando llega un pedido pasa esto."
+   ]
+  },
+  {
+   "t": "pasos",
+   "pasos": [
+    {
+     "t": "El pedido llega al nodo más cercano",
+     "x": "Cómo llega ahí se ve más abajo, con anycast."
+    },
+    {
+     "t": "Si tiene una copia fresca, responde él (HIT)",
+     "x": "El origen ni se entera de que alguien pidió algo."
+    },
+    {
+     "t": "Si no la tiene (MISS), viaja al origen",
+     "x": "Pide el contenido, se guarda una copia por el tiempo que diga `Cache-Control` ([@05-19]) y recién entonces responde."
+    },
+    {
+     "t": "Los pedidos siguientes de la zona son HIT",
+     "x": "El viaje largo se paga una vez y lo reparten todos los que vienen detrás."
+    }
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Cliente",
+     "k": "cliente"
+    },
+    {
+     "n": "Nodo de borde",
+     "k": "red"
+    },
+    {
+     "n": "Origen",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET /producto/42",
+     "d": "Primer pedido de la zona. El nodo no tiene copia: es un MISS."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "GET /producto/42",
+     "d": "El nodo viaja hasta el origen. Este es el tramo lento y caro."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "200 + Cache-Control: max-age=30",
+     "resp": true,
+     "d": "El origen responde e indica por cuánto tiempo se puede reutilizar."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "200 (el nodo guardó una copia)",
+     "resp": true,
+     "d": "El cliente recibe la respuesta, con el costo del viaje completo."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET /producto/42 (5 s después)",
+     "d": "Otra persona de la misma zona pide lo mismo."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "200 (HIT, sin tocar el origen)",
+     "resp": true,
+     "d": "Responde desde su copia. El origen no recibió nada."
+    }
+   ],
+   "cap": "Un MISS y un HIT. El origen solo participa en el primero."
+  },
+  {
+   "t": "p",
+   "x": "Armé una maqueta en esta VM: un origen en Node que tarda 120 ms en contestar (lo puse yo con un temporizador, para imitar un origen lejano) y un nginx adelante con caché, que hace de nodo de borde. Los dos están en la misma máquina, así que lo que se ve es el efecto de la caché y no el de la distancia."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -o /dev/null -D - -w 'tiempo_total=%{time_total}s\\n' http://127.0.0.1:38251/producto/42 | grep -E -i 'x-cache|tiempo|cache-control'",
+     "s": "Cache-Control: public, max-age=30\nX-Cache: MISS\ntiempo_total=0.123552s"
+    },
+    {
+     "c": "(el mismo comando, segunda vez)",
+     "s": "Cache-Control: public, max-age=30\nX-Cache: HIT\ntiempo_total=0.000289s"
+    },
+    {
+     "c": "curl -s localhost:38250/conteo",
+     "s": "{\"servidor\":\"origen\",\"pedidos\":1}"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026 (nginx 1.24.0 y Node 22), con el nodo de borde y el origen en la misma máquina. La demora de 120 ms del origen es artificial. `X-Cache` lo agrega mi configuración de nginx con `$upstream_cache_status`; no es un encabezado estándar."
+  },
+  {
+   "t": "p",
+   "x": "El primer pedido tardó 124 ms y el segundo 0,3 ms: más de 400 veces menos. El origen contó **un solo** pedido. En una CDN real, un HIT también paga el viaje hasta el nodo, pero ese nodo está cerca (unos pocos milisegundos) en vez de a 8.400 kilómetros."
+  },
+  {
+   "t": "h",
+   "x": "Qué se puede guardar y qué no"
+  },
+  {
+   "t": "p",
+   "x": "Todo depende de los encabezados que manda el origen ([@05-19]) y de una pregunta simple: ¿la respuesta es igual para todos? Una imagen de producto sí. El contenido de «mi carrito» no, porque es distinto para cada persona, y guardarlo en un nodo compartido le mostraría a una clienta el carrito de otra. Para eso existen `private` y `no-store`. Lo que sí se guarda bien: imágenes, CSS, JavaScript y fuentes (días o meses, con la versión en el nombre) y páginas iguales para todos que cambian seguido, como un precio (segundos o minutos, o con una purga cuando cambia)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -sI https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js | grep -i -E 'cf-cache-status|^age|cache-control|cf-ray'",
+     "s": "cf-cache-status: HIT\nage: 1252048\ncache-control: no-transform, public, s-maxage=30672000, max-age=30672000, immutable\ncf-ray: a59f8e2edf82d7aa-IAD"
+    },
+    {
+     "c": "curl -s https://www.cloudflare.com/cdn-cgi/trace | grep -E '^(colo|loc)='",
+     "s": "colo=IAD\nloc=US"
+    }
+   ],
+   "cap": "Respuesta real de una CDN pública, medida el 13-11-2026. Mi salida a Internet pasa por un proxy del entorno, así que el nodo que me atendió depende de dónde está ese proxy, no de dónde estás vos."
+  },
+  {
+   "t": "p",
+   "x": "Es un archivo de jQuery servido por Cloudflare. `cf-cache-status: HIT` quiere decir, según la documentación de Cloudflare, que «el recurso fue encontrado en la caché» [#redcdn-cf-cache]. `age` cuenta los segundos que la copia lleva guardada: 1.252.048 son unos 14,5 días. Y `max-age=30672000` son 355 días, con `immutable`, que le dice al navegador que ese contenido nunca va a cambiar. Se anima a cachear casi un año porque el nombre incluye la versión (`3.7.1`): si sale otra, cambia la URL y nadie tiene que avisarle a ningún nodo. Es la técnica estándar: versión o hash del contenido en el nombre (`app.3f9c1a.js`)."
+  },
+  {
+   "t": "p",
+   "x": "El sufijo del `cf-ray` (`IAD`) corresponde, según Cloudflare, a la ubicación del centro de datos [#redcdn-cf-headers]. `IAD` es el código del aeropuerto de Washington Dulles: que sea la zona de Washington es inferencia mía, y coincide con `colo=IAD`."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Una CDN es solo para imágenes»",
+   "x": "También guarda páginas y respuestas de API que sean iguales para todos. Y suele hacer otras cosas: como termina la conexión [[TLS]] en el nodo cercano, los viajes de ida y vuelta del [[handshake TLS]] ([@05-22]) son cortos en vez de transoceánicos."
+  },
+  {
+   "t": "pensa",
+   "x": "En el borde hay una copia de la página de un producto con `max-age=30`. A los 10 segundos cambiás el precio en el origen. ¿Qué precio ve una persona que lo pide a los 20 segundos? ¿Cómo lo evitarías sin renunciar a la CDN?",
+   "resp": "Ve el precio viejo: el nodo tiene una copia que considera fresca y no consulta al origen. Opciones: bajar el `max-age`, purgar esa URL cuando cambia el precio o no cachearla. Es un intercambio entre frescura y carga, no un error."
+  },
+  {
+   "t": "h",
+   "x": "Cuando el borde se vuelve un escudo"
+  },
+  {
+   "t": "p",
+   "x": "Una CDN también protege al origen. Si el 95 % de los pedidos son HIT (cifra de ejemplo), de los 20.000 por minuto del viernes de ofertas al origen llegan 1.000. Pero hay un hueco conocido: una oferta nueva que nadie pidió todavía, con 100 pedidos juntos. Probé dos configuraciones en la maqueta con 100 pedidos simultáneos a una URL nueva."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "seq 100 | xargs -P100 -I{} curl -s -o /dev/null -w '%header{x-cache}\\n' http://127.0.0.1:38252/oferta/1 | sort | uniq -c",
+     "s": "     38 HIT\n     62 MISS"
+    },
+    {
+     "c": "curl -s localhost:38250/conteo     # borde sin protección",
+     "s": "{\"servidor\":\"origen\",\"pedidos\":62}"
+    },
+    {
+     "c": "seq 100 | xargs -P100 -I{} curl -s -o /dev/null -w '%header{x-cache}\\n' http://127.0.0.1:38251/oferta/2 | sort | uniq -c",
+     "s": "     99 HIT\n      1 MISS"
+    },
+    {
+     "c": "curl -s localhost:38250/conteo     # borde con proxy_cache_lock on (el contador es acumulado: 62 + 1)",
+     "s": "{\"servidor\":\"origen\",\"pedidos\":63}"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026. Los 62 variarían de una corrida a otra; la diferencia entre 62 y 1 no."
+  },
+  {
+   "t": "p",
+   "x": "Sin protección, 62 de los 100 pedidos encontraron la caché vacía (llegaron durante los 120 ms de la primera respuesta) y viajaron al origen. Es la **estampida de caché**: cuando algo se vuelve popular o una copia vence, el origen recibe una ráfaga. Con `proxy_cache_lock on`, nginx deja pasar un solo pedido y hace esperar a los demás [#redcdn-nginx-proxy]."
+  },
+  {
+   "t": "p",
+   "x": "El segundo escudo es para cuando el origen se cae: con un contenido de `max-age=2`, apagué el origen y pedí de nuevo a los 3 segundos."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -o /dev/null -w '%{http_code} x-cache=%header{x-cache}\\n' http://127.0.0.1:38251/breve/1",
+     "s": "200 x-cache=MISS"
+    },
+    {
+     "c": "# apago el origen y espero 3 segundos: el max-age=2 ya venció",
+     "s": ""
+    },
+    {
+     "c": "curl ... http://127.0.0.1:38251/breve/1   # borde con proxy_cache_use_stale error timeout updating",
+     "s": "200 x-cache=STALE"
+    },
+    {
+     "c": "curl ... http://127.0.0.1:38252/breve/1   # borde sin esa opción",
+     "s": "502 x-cache="
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026."
+  },
+  {
+   "t": "p",
+   "x": "El primer borde entregó la copia vencida (`STALE`) porque no pudo conseguir una fresca [#redcdn-nginx-proxy]; el segundo devolvió 502. Entre un precio de hace unos segundos y un error, muchas veces conviene lo primero: es una decisión de negocio que se traduce en una línea de configuración."
+  },
+  {
+   "t": "h",
+   "x": "Anycast: cómo llegás al nodo más cercano"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si el proveedor tiene cientos de nodos, ¿cómo llega tu teléfono a uno cercano? Hay dos mecanismos. El [[DNS]] ([@05-12]) puede resolver el mismo nombre a una IP distinta según quién pregunte. El otro es **anycast**: la **misma** dirección IP se anuncia desde muchos lugares a la vez. El RFC 4786 lo define como «la práctica de hacer que una dirección de servicio esté disponible en múltiples ubicaciones discretas y autónomas» (traducción mía) [#redcdn-rfc4786].",
+    "Funciona con lo que viste en [@05-08]: cada sitio le avisa a Internet por [[BGP]] que esa dirección está ahí, y cada [[router]] manda tu paquete por la ruta que considera mejor. Tu paquete llega a uno de los sitios; el de otra persona, a otro. Si un sitio se cae, deja de anunciar la dirección y los mismos paquetes empiezan a llegar a otro. El `colo=IAD` de arriba fue el sitio que respondió a *esta* VM."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "«Más cerca» no siempre es más cerca",
+   "x": "BGP elige rutas por políticas entre proveedores, no mide kilómetros ni milisegundos. Cloudflare lo admite en su documentación: el proveedor de Internet de la persona decide qué centro de datos recibe el pedido, según sus políticas, y no siempre favorecen al geográficamente más cercano [#redcdn-cf-geo]. Una persona puede terminar en un nodo lejano, causa conocida de «a mí me anda lento y a los demás no»."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Tamaño de una CDN grande, consultado el 13-11-2026",
+   "x": "Cloudflare dice en su página de red que opera en «cientos de ciudades en más de 100 países» y que el 95 % de la población conectada está a menos de 50 ms de uno de sus centros de datos [#redcdn-cf-network]. Son cifras del propio proveedor y cambian: leelas como orden de magnitud."
+  },
+  {
+   "t": "h",
+   "x": "Balanceador de carga: la playa de despacho"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[balanceador de carga]] es un intermediario que recibe las conexiones o los pedidos de la gente y los reparte entre varios servidores que hacen lo mismo. Para el cliente existe una sola dirección. Detrás hay dos, diez o mil máquinas. Sirve para tres cosas: **capacidad** (sumás máquinas y el total que se atiende crece), **disponibilidad** (si una cae, las otras siguen) y **actualizaciones sin corte** (sacás un servidor de la rotación, lo actualizás y lo devolvés).",
+    "Es un proxy inverso ([@05-24]) con varios destinos posibles y una regla para elegir. Esa regla es el algoritmo de balanceo."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Clientes",
+       "s": "una sola dirección",
+       "k": "cliente"
+      },
+      {
+       "t": "Balanceador",
+       "s": "elige un servidor para cada pedido",
+       "k": "red",
+       "e": "pedidos"
+      }
+     ]
+    },
+    {
+     "baja": "cada pedido va a uno solo",
+     "nodos": [
+      {
+       "t": "Servidor A",
+       "s": "sano",
+       "k": "servidor"
+      },
+      {
+       "t": "Servidor B",
+       "s": "sano",
+       "k": "servidor"
+      },
+      {
+       "t": "Servidor C",
+       "s": "caído: no recibe tráfico",
+       "k": "alerta"
+      }
+     ]
+    }
+   ],
+   "cap": "El balanceador conoce el estado de cada servidor y evita al que no responde."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Algoritmo",
+    "Cómo elige",
+    "Conviene cuando",
+    "Cuidado con"
+   ],
+   "filas": [
+    [
+     "Round robin",
+     "El siguiente de la lista, por turnos (es el método por defecto de nginx) [#redcdn-nginx-upstream]",
+     "Pedidos parecidos y servidores iguales",
+     "Ignora cuánto trabajo ya tiene cada servidor"
+    ],
+    [
+     "Round robin con pesos",
+     "Por turnos, pero un servidor con peso 3 recibe tres veces más",
+     "Servidores de distinta potencia",
+     "Los pesos los fijás a mano"
+    ],
+    [
+     "Menos conexiones",
+     "El servidor con menos conexiones activas, considerando los pesos [#redcdn-nginx-upstream]",
+     "Pedidos de duración muy distinta",
+     "Cuenta conexiones, no el costo de cada pedido"
+    ],
+    [
+     "Hash",
+     "Un número calculado a partir de la IP del cliente o de una cookie, siempre al mismo servidor [#redcdn-nginx-upstream]",
+     "Querés que la misma persona vuelva al mismo servidor",
+     "Si cambia la cantidad de servidores se reparte distinto, salvo con hash consistente"
+    ]
+   ],
+   "cap": "Son los métodos de nginx de código abierto, con la documentación oficial consultada el 13-11-2026. Otros balanceadores usan nombres parecidos."
+  },
+  {
+   "t": "p",
+   "x": "Armé en la VM dos servidores Node iguales, `a` y `b`, con un nginx adelante. Con 20 pedidos seguidos, round robin los reparte 10 y 10. Ahora el caso incómodo: `a` responde en 20 ms y un servidor `lenta` en 200 ms (la demora la fijé yo). Mandé 200 pedidos, 20 a la vez, con cada algoritmo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# round robin entre a (20 ms) y lenta (200 ms): 200 pedidos, 20 a la vez",
+     "s": "    100 \"servidor\":\"a\"\n    100 \"servidor\":\"lenta\"\ntiempo total: 1.309 s"
+    },
+    {
+     "c": "# least_conn entre los mismos dos servidores",
+     "s": "    172 \"servidor\":\"a\"\n     28 \"servidor\":\"lenta\"\ntiempo total: .752 s"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026, tiempos de pared con curl lanzados desde `xargs -P20` (incluyen el arranque de cada curl). Una sola corrida: el orden de magnitud importa, no los decimales."
+  },
+  {
+   "t": "p",
+   "x": "Con round robin la mitad de los pedidos iba al servidor lento, que se llenó de cola. Con `least_conn`, el rápido cerraba antes sus conexiones, aparecía como «el que tiene menos» y recibía más: casi la mitad de tiempo total. Para ver la lógica sin el ruido del sistema operativo, un modelo simplificado donde cada servidor atiende de a un pedido y hace cola."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Modelo simplificado: cada servidor atiende de a un pedido por vez y hace cola.\nconst servicio = { A: 20, B: 200 };          // milisegundos por pedido\nconst N = 100, cadaMs = 10;                  // 100 pedidos, uno cada 10 ms (100 por segundo)\n\nfunction simular(nombre, elegir) {\n  const libre = { A: 0, B: 0 };              // instante en que cada servidor termina lo que tiene\n  const termina = { A: [], B: [] };          // fin de cada pedido aceptado\n  const cuenta = { A: 0, B: 0 };\n  let esperaMax = 0, finUltimo = 0;\n  for (let i = 0; i < N; i++) {\n    const t = i * cadaMs;\n    const enCurso = (s) => termina[s].filter((f) => f > t).length;\n    const s = elegir(i, enCurso);\n    const inicio = Math.max(t, libre[s]);\n    libre[s] = inicio + servicio[s];\n    termina[s].push(libre[s]);\n    cuenta[s]++;\n    esperaMax = Math.max(esperaMax, libre[s] - t);\n    finUltimo = Math.max(finUltimo, libre[s]);\n  }\n  console.log(nombre.padEnd(18), 'A:', String(cuenta.A).padStart(3), ' B:', String(cuenta.B).padStart(3),\n    ' peor respuesta:', esperaMax, 'ms  termina a los', finUltimo, 'ms');\n}\nsimular('round robin', (i) => (i % 2 === 0 ? 'A' : 'B'));\nsimular('menos conexiones', (i, enCurso) => (enCurso('A') <= enCurso('B') ? 'A' : 'B'));",
+   "cap": "Modelo, no medición: dos servidores con cola, llegan 100 pedidos, uno cada 10 ms. Ambos algoritmos están sobrecargados a propósito; lo que cambia es cuánto."
+  },
+  {
+   "t": "p",
+   "x": "Mismo mensaje que la medición: round robin reparte parejo aunque los servidores no lo sean (peor espera de 9 segundos); menos conexiones se adapta y la baja a la mitad."
+  },
+  {
+   "t": "pensa",
+   "x": "Con servidores idénticos y pedidos que cuestan todos lo mismo, ¿gana algo `least_conn` sobre round robin? ¿Y si algunos pedidos tardan un milisegundo y otros diez segundos?",
+   "resp": "Con todo igual, casi nada: ambos reparten parejo y round robin es más simple. Con pedidos muy dispares, round robin puede mandar varios de diez segundos al mismo servidor por mala suerte del turno, y `least_conn` lo evita porque ve que ya está ocupado."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La playa de despacho de un depósito",
+   "x": [
+    "El **balanceador** se parece a la playa de despacho de un centro de distribución: llegan camiones (pedidos), alguien decide a qué muelle (servidor) va cada uno y si un muelle está fuera de servicio, lo saltea. La **CDN** se parece a los depósitos regionales con stock de lo que más se vende: se retira cerca y solo se viaja a la planta central por lo que falta.",
+    "Dónde falla: la mercadería física se agota y la copia digital no, y la copia puede quedar desactualizada sin que nadie lo note. El cross-docking, que mueve mercadería sin almacenarla, se parece más a un balanceador que a una CDN."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Capa 4 y capa 7: cuánto mira el balanceador"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un balanceador puede mirar poco o mucho. Uno de **capa 4** (la de transporte, [[TCP]] en [@05-16]) mira solo direcciones y puertos: recibe una conexión y la reenvía a un servidor, sin leer lo que viaja adentro. Uno de **capa 7** (la de aplicación, donde vive [[HTTP]]) lee cada pedido (método, ruta, encabezados, cookies) y decide con eso. Lo comprobé con nginx, que puede hacer las dos cosas: un bloque `stream` (capa 4) y un bloque `http` (capa 7).",
+    "El registro de capa 4 solo sabe cuántos bytes pasaron. El de capa 7 sabe qué pedía cada uno y puede mandar `/api/` a unos servidores y `/estaticos/` a otros."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat l4.log     # balanceador de capa 4, puerto 38280",
+     "s": "TCP 127.0.0.1 -> 127.0.0.1:38261 bytes_subidos=88 bytes_bajados=262\nTCP 127.0.0.1 -> 127.0.0.1:38262 bytes_subidos=88 bytes_bajados=261\nTCP 127.0.0.1 -> 127.0.0.1:38261 bytes_subidos=88 bytes_bajados=262\nTCP 127.0.0.1 -> 127.0.0.1:38262 bytes_subidos=88 bytes_bajados=261"
+    },
+    {
+     "c": "cat l7.log     # balanceador de capa 7, puerto 38281, con rutas",
+     "s": "GET /api/ventas HTTP/1.1 -> 127.0.0.1:38261\nGET /estaticos/logo.png HTTP/1.1 -> 127.0.0.1:38262\nGET /api/stock HTTP/1.1 -> 127.0.0.1:38261\nGET /estaticos/app.css HTTP/1.1 -> 127.0.0.1:38262"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026 con nginx 1.24.0. El de capa 4 turna conexiones sin ver rutas; el de capa 7 las usa."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "comparar",
+   "izq": {
+    "t": "Capa 4 (transporte)",
+    "k": "red",
+    "items": [
+     "Ve IP, puerto y bytes",
+     "Reenvía conexiones TCP (o UDP)",
+     "No necesita el certificado: el contenido puede pasar cifrado",
+     "Muy rápido y simple",
+     "No puede enrutar por ruta ni por cookie"
+    ]
+   },
+   "der": {
+    "t": "Capa 7 (aplicación)",
+    "k": "servidor",
+    "items": [
+     "Lee método, ruta, encabezados y cookies",
+     "Mantiene una conexión con el cliente y otra con el servidor",
+     "Para leer HTTPS tiene que descifrarlo: lleva el certificado ([@05-23])",
+     "Enruta por ruta, por dominio o por encabezado",
+     "Puede cachear, reescribir y registrar cada pedido"
+    ]
+   },
+   "cap": "No hay uno mejor: se elige según qué decisiones necesitás tomar."
+  },
+  {
+   "t": "p",
+   "x": "Los proveedores de nube separan las dos cosas. El Network Load Balancer de AWS funciona en la cuarta capa del modelo OSI y elige destino con un hash de la conexión; cada conexión TCP va a un solo destino durante toda su vida [#redcdn-aws-nlb]. El Application Load Balancer tiene reglas por solicitud y mantiene dos conexiones: una con el cliente y otra con el destino [#redcdn-aws-alb]. Que una conexión quede atada a un destino toda su vida importa mañana, con las conexiones que no se cierran."
+  },
+  {
+   "t": "h",
+   "x": "Health checks: cómo se entera el balanceador de que algo se cayó"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Repartir sirve de poco si algunos destinos no responden. Un [[health check]] (chequeo de salud) es la forma en que el balanceador decide si un servidor puede recibir tráfico. Hay dos estilos. El **activo**: cada pocos segundos el balanceador le pide a cada servidor una ruta de control, por ejemplo `/salud`, y espera un 200. El **pasivo**: no pregunta nada; mira qué les pasa a los pedidos reales, y si un servidor falla, lo marca como caído por un tiempo.",
+    "El nginx de código abierto solo hace chequeos pasivos: los periódicos (`health_check`) son de la suscripción comercial NGINX Plus [#redcdn-nginx-hc]. Los pasivos se configuran con `max_fails` (1 por defecto) y `fail_timeout` (10 s por defecto: el período en que cuentan los fallos y por cuánto el servidor queda caído) [#redcdn-nginx-upstream]. En la maqueta los puse en 1 y 5 s y apagué el servidor `b`."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cut -d' ' -f2- access.log | sed -n '1,14p'     # puerto de cada destino y código de respuesta",
+     "s": "127.0.0.1:38261 200\n127.0.0.1:38262 200\n127.0.0.1:38261 200\n127.0.0.1:38262 200\n127.0.0.1:38261 200\n127.0.0.1:38262, 127.0.0.1:38261 200\n127.0.0.1:38261 200\n127.0.0.1:38261 200\n127.0.0.1:38261 200\n127.0.0.1:38261 200\n127.0.0.1:38261 200\n127.0.0.1:38261 200\n127.0.0.1:38262 200\n127.0.0.1:38261 200"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026. Filas 1 a 4: ambos vivos. Antes de la 5 apagué `b`; antes de la 7 lo volví a encender; antes de la 11 esperé 5,5 s."
+  },
+  {
+   "t": "p",
+   "x": "En la fila 6 el pedido fue primero al puerto 38262, apagado, y nginx lo reintentó con el 38261 sin que el cliente se enterara (200). Por defecto `proxy_next_upstream` reintenta ante error de conexión o timeout [#redcdn-nginx-proxy]. Después `b` quedó marcado como caído y **no recibió tráfico en las filas 7 a 10 aunque ya estaba encendido**: un chequeo pasivo tarda en notar las recuperaciones, porque solo vuelve a probar cuando pasa el `fail_timeout`. Recién aparece en la fila 13."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un health check que dice «ok» sin que lo esté",
+   "x": "Un `/salud` que devuelve 200 siempre miente si la base está caída. El otro extremo también duele: si consulta la base y esta se pone lenta, puede marcar **todos** los servidores como caídos a la vez. Una regla práctica (criterio mío): que verifique lo que ese servidor necesita para atender y sea barato."
+  },
+  {
+   "t": "h",
+   "x": "Sesiones pegajosas: cuando el servidor se acuerda de vos"
+  },
+  {
+   "t": "p",
+   "x": "¿Qué pasa si un servidor guarda algo de la persona en su memoria, como el carrito? Lo simulé con un servidor que cuenta cuántas visitas vio de cada cookie `sid`. Primero con round robin."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "for i in 1 2 3 4; do curl -s -H 'Cookie: sid=ana' http://127.0.0.1:38270/sesion; done     # round robin",
+     "s": "{\"servidor\":\"a\",\"sid\":\"ana\",\"visitas_vistas_por_este_servidor\":1}\n{\"servidor\":\"b\",\"sid\":\"ana\",\"visitas_vistas_por_este_servidor\":1}\n{\"servidor\":\"a\",\"sid\":\"ana\",\"visitas_vistas_por_este_servidor\":2}\n{\"servidor\":\"b\",\"sid\":\"ana\",\"visitas_vistas_por_este_servidor\":2}"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026. Cada servidor guarda su propio contador en memoria."
+  },
+  {
+   "t": "p",
+   "x": "Ana hizo cuatro visitas y cada servidor vio solo dos. Si el contador fuera su carrito, lo vería aparecer y desaparecer según el turno. La salida rápida es una **sesión pegajosa**: mandar siempre a la misma persona al mismo servidor, por ejemplo con `hash $cookie_sid consistent`. El `consistent` hace que, si un servidor se suma o se va, se reasignen pocas claves y no casi todas [#redcdn-nginx-upstream]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "for i in 1 2 3 4; do curl -s -H 'Cookie: sid=luz' http://127.0.0.1:38273/sesion; done     # hash por cookie",
+     "s": "{\"servidor\":\"b\",\"sid\":\"luz\",\"visitas_vistas_por_este_servidor\":1}\n{\"servidor\":\"b\",\"sid\":\"luz\",\"visitas_vistas_por_este_servidor\":2}\n{\"servidor\":\"b\",\"sid\":\"luz\",\"visitas_vistas_por_este_servidor\":3}\n{\"servidor\":\"b\",\"sid\":\"luz\",\"visitas_vistas_por_este_servidor\":4}"
+    },
+    {
+     "c": "# apago b, el servidor que atendía a luz, y repito",
+     "s": "{\"servidor\":\"a\",\"sid\":\"luz\",\"visitas_vistas_por_este_servidor\":1}\n{\"servidor\":\"a\",\"sid\":\"luz\",\"visitas_vistas_por_este_servidor\":2}"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026."
+  },
+  {
+   "t": "p",
+   "x": "Todas las visitas de Luz van a `b` y el contador sube bien. Pero cuando `b` se apaga, Luz pasa a `a`, que no sabe nada de ella, y la cuenta vuelve a 1. La sesión pegajosa **no protege el estado, solo posterga el problema**: si el servidor muere, su memoria muere con él."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Mejor que pegar: no guardar estado en el servidor",
+   "x": "El diseño más robusto saca el estado de los servidores y lo deja afuera: en una base de datos, en un almacén compartido o en un token firmado que viaja con cada pedido. Así cualquier servidor atiende a cualquiera y el balanceador usa el algoritmo más simple. Es lo que más facilita agregar y quitar máquinas."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué trae cada producto, consultado el 13-11-2026",
+   "x": [
+    "**nginx:** según su documentación, la directiva `sticky` fue solo comercial antes de la versión 1.29.6 y `health_check` sigue siendo de NGINX Plus [#redcdn-nginx-upstream] [#redcdn-nginx-hc]. Esta VM usa nginx 1.24.0, por eso usé `hash` sobre la cookie.",
+    "**AWS:** ofrece Application, Network y Gateway Load Balancer; el Classic es la generación anterior y recomienda migrar [#redcdn-aws-elb]. El Network Load Balancer trabaja con TCP, UDP, TLS y QUIC [#redcdn-aws-nlb]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Y si el balanceador se cae"
+  },
+  {
+   "t": "p",
+   "x": "Si todo el tráfico pasa por el balanceador, ¿no es él el nuevo punto único de falla? Sí, si es una sola máquina. Las salidas habituales: **dos balanceadores** que se reemplazan entre sí, **varias direcciones por DNS** ([@05-12]) o **anycast**. Los de nube lo resuelven por vos: en un Application Load Balancer de AWS hay un nodo por cada zona de disponibilidad habilitada y el nombre DNS se resuelve a las direcciones de esos nodos [#redcdn-aws-alb]. El costo es que no ves lo que hay adentro."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no tiene CDN ni balanceador propios hoy: el contenido va adentro de la app",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. Las preguntas y lecciones no se piden al servidor: `src/datos/espadeo.ts` importa `contenido/espadeo.json` y Metro lo empaqueta dentro de la app. Las ocho Biblias libres son archivos `.bib` en `assets/biblia/` (32 MB) y el APK de prueba pesa 89,1 MB según `docs/PESO.md` (compilación del 23-10-2026). Se descarga una vez y se lee en el teléfono: no hay un pedido por pregunta, así que no hay nada que una CDN pueda acercar.",
+    "El sitio público (`web/`) lo genera `scripts/sitio_web.py`, pero según `docs/TIENDAS.md` falta publicarlo; el plan es Cloudflare Pages. Qué hay entre la app y Supabase no aparece en el código de Senda y no lo investigué."
+   ],
+   "archivos": [
+    "src/datos/espadeo.ts",
+    "metro.config.js",
+    "docs/PESO.md",
+    "docs/TIENDAS.md",
+    "scripts/sitio_web.py"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "La CDN es una etapa planificada, no implementada",
+   "x": "`docs/ESCALA.md` prevé una etapa 2, de 100.000 a un millón de personas, con «paquetes de contenido detrás de una CDN»: un paquete de 2 MB descargado un millón de veces son 2 TB de tráfico al mes (2 MB × 1.000.000), que no deberían pasar por la base. Hoy esa pieza no existe en el cliente: la tabla `paquetes` está en la base, pero `grep \"paquetes\" src` solo devuelve comentarios (mapa técnico, §3.6). El documento aclara que se activa con datos, no antes: una CDN resuelve un problema de volumen que Senda todavía no tiene.",
+   "archivos": [
+    "docs/ESCALA.md",
+    "docs/CAPACIDAD.md"
+   ]
+  }
+ ],
+ "recap": [
+  "Una CDN ataca la distancia y la repetición: guarda copias en nodos de borde cercanos y responde sin tocar el origen cuando tiene una copia fresca (HIT).",
+  "Qué se cachea depende de los encabezados del origen y de si la respuesta es igual para todos; el nombre con versión permite cachear casi un año sin riesgo.",
+  "Una estampida de caché ocurre cuando muchos pedidos encuentran la caché vacía a la vez; un bloqueo por contenido nuevo y la opción de servir copias vencidas protegen al origen.",
+  "Anycast anuncia la misma IP desde muchos sitios y deja que BGP decida a cuál llegás, que no siempre es el geográficamente más cercano.",
+  "Un balanceador reparte pedidos entre servidores iguales. Round robin ignora la carga; menos conexiones se adapta; hash fija a quién atiende a cada persona.",
+  "Capa 4 reenvía conexiones sin leerlas; capa 7 lee HTTP y puede enrutar por ruta o cookie, pero necesita descifrar si el tráfico es HTTPS.",
+  "Los health checks pueden ser activos o pasivos; los pasivos reintentan en vivo pero tardan en notar que un servidor volvió. Las sesiones pegajosas son un parche: el estado debería vivir afuera de los servidores."
+ ],
+ "repaso": [
+  {
+   "p": "Una tienda tiene un solo servidor lejos de sus clientes y sus imágenes tardan en cargar. ¿Qué herramienta ataca ese problema y por qué?",
+   "o": [
+    "Un balanceador, porque acorta la distancia entre el cliente y el servidor",
+    "Una CDN, porque guarda copias de las imágenes en nodos más cercanos",
+    "Un health check, porque detecta qué imágenes tardan en cargarse",
+    "Un balanceador, porque reparte las imágenes entre varios servidores"
+   ],
+   "c": 1,
+   "e": "El problema es la distancia y la repetición de lo mismo: eso lo resuelve la copia cercana de una CDN. El balanceador reparte carga entre servidores iguales pero no acerca nada si todos están lejos; el health check solo decide quién puede recibir tráfico y no mueve contenido."
+  },
+  {
+   "p": "Un producto en oferta nunca fue pedido y el nodo de borde no tiene copia. Llegan 100 pedidos casi simultáneos. En una caché sin protección, ¿qué ocurre?",
+   "o": [
+    "Solo el primero viaja al origen y los demás esperan la copia",
+    "Muchos viajan al origen, porque la copia recién existe cuando vuelve la primera respuesta",
+    "Ninguno viaja: el nodo devuelve un error hasta tener la copia",
+    "El nodo arma la copia con el primer pedido y responde a todos"
+   ],
+   "c": 1,
+   "e": "Sin un bloqueo, cada pedido que llega mientras la copia no existe es un MISS y va al origen: en la maqueta fueron 62 de 100. Que solo viaje el primero es lo que logra `proxy_cache_lock on`, o sea la protección, no el comportamiento por defecto; devolver errores o inventar la copia no lo hace ninguna caché normal."
+  },
+  {
+   "p": "Un servidor responde en 20 ms y otro en 200 ms, y llegan pedidos sin parar. ¿Qué diferencia esperás entre round robin y menos conexiones?",
+   "o": [
+    "Menos conexiones manda más pedidos al rápido, que termina antes y libera conexiones",
+    "Round robin manda más pedidos al rápido, porque lo detecta como más veloz",
+    "Ambos reparten igual, porque cada algoritmo cuenta pedidos y no tiempos",
+    "Menos conexiones manda más pedidos al lento, para equilibrar la carga"
+   ],
+   "c": 0,
+   "e": "El rápido cierra sus conexiones antes y aparece con menos activas, así que recibe más; en la maqueta, 172 contra 28. Round robin ignora la velocidad y turna parejo, por eso el lento se llena de cola. No equilibra a favor del lento: lo contrario."
+  },
+  {
+   "p": "Usás nginx de código abierto con `max_fails=1` y `fail_timeout=5s`. El servidor B se apaga y a un usuario le toca B. ¿Qué recibe?",
+   "o": [
+    "Un error 502, y recién el pedido siguiente va al servidor A",
+    "Espera 5 segundos hasta que B se declare caído y luego responde",
+    "Una copia guardada de B, porque nginx cachea todo por defecto",
+    "La respuesta de A: nginx reintenta en otro servidor sin que se note"
+   ],
+   "c": 3,
+   "e": "Ante un error de conexión, nginx reintenta con el otro servidor (`proxy_next_upstream error timeout` es el valor por defecto) y marca a B como caído; el usuario ve un 200. La espera de 5 segundos es el tiempo que B queda marcado, no una demora para el pedido. Y el caché no está activo salvo que se configure."
+  },
+  {
+   "p": "El carrito de compras vive en la memoria del servidor A y el balanceador usa sesiones pegajosas por cookie. A se apaga. ¿Qué pasa con ese carrito?",
+   "o": [
+    "Se conserva en el navegador, porque la cookie guarda el carrito completo",
+    "Pasa a B solo, porque el balanceador copia la memoria de A",
+    "Se espera: el balanceador retiene a la persona hasta que A vuelva",
+    "Se pierde: la persona va a B, que no tiene ese estado"
+   ],
+   "c": 3,
+   "e": "La sesión pegajosa asegura que la persona vuelva al mismo servidor mientras exista, pero no replica su memoria: al caer A, B no sabe nada. La cookie suele guardar solo un identificador, y el balanceador no retiene a nadie. La solución de fondo es sacar el estado de los servidores."
+  },
+  {
+   "p": "Querés mandar `/api/*` a unos servidores y `/estaticos/*` a otros, con un solo nombre y un solo puerto. ¿Qué balanceador necesitás?",
+   "o": [
+    "De capa 4, porque la ruta viaja en el encabezado TCP",
+    "De capa 4, porque con el puerto de destino alcanza",
+    "De capa 7, porque tiene que leer la ruta de cada pedido HTTP",
+    "Ninguno: la ruta se resuelve en el DNS antes del pedido"
+   ],
+   "c": 2,
+   "e": "La ruta es parte del pedido HTTP, que es de la capa de aplicación; solo un balanceador de capa 7 lo lee, y si el tráfico es HTTPS tiene que descifrarlo antes. El encabezado TCP no tiene rutas, el puerto es el mismo para ambos grupos y el DNS resuelve nombres, no rutas."
+  },
+  {
+   "p": "Dos personas, una en Buenos Aires y otra en Madrid, abren la misma dirección IP anycast de una CDN. ¿Qué es lo más probable?",
+   "o": [
+    "Les responde la misma máquina, porque una IP identifica un solo servidor",
+    "Les responde la misma máquina, porque el DNS elige el servidor de cada uno",
+    "Les responden nodos distintos, según la ruta que BGP elija desde cada lugar",
+    "Les responde un nodo en Virginia, el origen de todo el contenido"
+   ],
+   "c": 2,
+   "e": "Anycast anuncia la misma IP desde varios sitios; cada router manda el paquete por la ruta que considera mejor, y desde cada ciudad suele terminar en un sitio distinto. Una IP anycast no identifica a una sola máquina, el DNS no participa en esa elección y el origen puede estar en cualquier parte."
+  }
+ ],
+ "feynman": "Explicale a alguien de tu depósito por qué una tienda online necesita a veces una CDN, a veces un balanceador y a veces las dos, y por qué no son lo mismo. Usá una analogía de logística y decí dónde falla.",
+ "para_profundizar": [
+  {
+   "fuente": "redcdn-nginx-upstream",
+   "nota": "La documentación oficial de los métodos de balanceo de nginx (round robin, menos conexiones, hash) y de `max_fails` y `fail_timeout`: es lo que usamos en la maqueta, con los valores por defecto."
+  },
+  {
+   "fuente": "redcdn-nginx-proxy",
+   "nota": "Las directivas de caché de nginx usadas hoy (`proxy_cache_lock`, `proxy_cache_use_stale`) y los reintentos entre servidores. Para repetir la estampida en tu máquina."
+  },
+  {
+   "fuente": "redcdn-cf-geo",
+   "nota": "Una página corta de Cloudflare que explica por qué a veces el tráfico no llega al centro de datos geográficamente más cercano. Es anycast vista desde un proveedor."
+  },
+  {
+   "fuente": "redcdn-aws-nlb",
+   "nota": "La introducción al Network Load Balancer de AWS: cómo elige destino con un hash de la conexión y qué significa ser de capa 4 en un producto real."
+  }
+ ],
+ "videos": [
+  {
+   "q": "load balancer explained layer 4 vs layer 7 round robin least connections",
+   "por_que": "Para ver dibujados los mismos algoritmos y la diferencia entre capa 4 y capa 7, con otra voz y otro ejemplo."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "CDN",
+   "d": "Red de distribución de contenido: un grupo de servidores repartidos en muchos lugares que guardan copias de datos y responden a cada persona desde el más cercano. Acorta la distancia y le saca trabajo al servidor de origen."
+  },
+  {
+   "t": "nodo de borde",
+   "d": "Cada ubicación de una CDN que guarda copias y atiende a la gente de su zona. Está cerca de los usuarios y lejos del origen. Funciona como una caché HTTP compartida."
+  },
+  {
+   "t": "balanceador de carga",
+   "d": "Intermediario que recibe las conexiones o los pedidos y los reparte entre varios servidores que hacen lo mismo. Da capacidad, tolera la caída de un servidor y permite actualizar sin cortar el servicio."
+  },
+  {
+   "t": "health check",
+   "d": "Chequeo de salud: la forma en que un balanceador decide si un servidor puede recibir tráfico. Es activo si consulta una ruta de control cada tanto y pasivo si observa los fallos de los pedidos reales."
+  },
+  {
+   "t": "anycast",
+   "d": "Técnica por la que la misma dirección IP se anuncia desde muchos sitios a la vez. Cada router manda el paquete por la ruta que considera mejor, así que cada persona llega a un sitio distinto, no siempre el geográficamente más cercano."
+  },
+  {
+   "t": "round robin",
+   "d": "Algoritmo de balanceo que reparte los pedidos por turnos, uno a cada servidor de la lista. Es simple y funciona bien con servidores iguales y pedidos parecidos, pero no mira cuánta carga tiene cada uno."
+  },
+  {
+   "t": "sesión pegajosa",
+   "d": "Configuración del balanceador para que una misma persona sea atendida siempre por el mismo servidor. Resuelve el estado guardado en memoria, pero si ese servidor cae la información se pierde."
+  }
+ ],
+ "siguiente": "WebSockets y conexiones de larga vida: qué hacés cuando el servidor tiene que avisarte algo sin que preguntes, y qué le cuesta mantener miles de conexiones abiertas.",
+ "fuentes_nuevas": [
+  {
+   "id": "redcdn-mdn-cdn",
+   "t": "CDN (Content Delivery Network): glosario",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Glossary/CDN"
+  },
+  {
+   "id": "redcdn-cf-cache",
+   "t": "Cloudflare: estados de caché (cf-cache-status)",
+   "a": "Cloudflare",
+   "tipo": "doc",
+   "url": "https://developers.cloudflare.com/cache/concepts/cache-responses/"
+  },
+  {
+   "id": "redcdn-cf-headers",
+   "t": "Cloudflare: encabezados HTTP (CF-Ray)",
+   "a": "Cloudflare",
+   "tipo": "doc",
+   "url": "https://developers.cloudflare.com/fundamentals/reference/http-headers/"
+  },
+  {
+   "id": "redcdn-cf-network",
+   "t": "Red global de Cloudflare",
+   "a": "Cloudflare",
+   "tipo": "doc",
+   "url": "https://www.cloudflare.com/network/"
+  },
+  {
+   "id": "redcdn-cf-geo",
+   "t": "Cloudflare: por qué el tráfico no siempre va al centro de datos más cercano",
+   "a": "Cloudflare",
+   "tipo": "doc",
+   "url": "https://developers.cloudflare.com/support/troubleshooting/general-troubleshooting/geographic-traffic-routing/"
+  },
+  {
+   "id": "redcdn-rfc4786",
+   "t": "RFC 4786: Operation of Anycast Services (BCP 126)",
+   "a": "J. Abley y K. Lindqvist",
+   "tipo": "rfc",
+   "anio": "2006",
+   "url": "https://www.rfc-editor.org/rfc/rfc4786"
+  },
+  {
+   "id": "redcdn-nginx-upstream",
+   "t": "nginx: módulo ngx_http_upstream_module",
+   "a": "nginx.org",
+   "tipo": "doc",
+   "url": "https://nginx.org/en/docs/http/ngx_http_upstream_module.html"
+  },
+  {
+   "id": "redcdn-nginx-proxy",
+   "t": "nginx: módulo ngx_http_proxy_module",
+   "a": "nginx.org",
+   "tipo": "doc",
+   "url": "https://nginx.org/en/docs/http/ngx_http_proxy_module.html"
+  },
+  {
+   "id": "redcdn-nginx-hc",
+   "t": "nginx: módulo ngx_http_upstream_hc_module (health_check)",
+   "a": "nginx.org",
+   "tipo": "doc",
+   "url": "https://nginx.org/en/docs/http/ngx_http_upstream_hc_module.html"
+  },
+  {
+   "id": "redcdn-aws-elb",
+   "t": "AWS: ¿Qué es Elastic Load Balancing?",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/elasticloadbalancing/latest/userguide/what-is-load-balancing.html"
+  },
+  {
+   "id": "redcdn-aws-nlb",
+   "t": "AWS: Network Load Balancer, introducción",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/elasticloadbalancing/latest/network/introduction.html"
+  },
+  {
+   "id": "redcdn-aws-alb",
+   "t": "AWS: Application Load Balancers",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/elasticloadbalancing/latest/application/application-load-balancers.html"
+  }
+ ]
+}

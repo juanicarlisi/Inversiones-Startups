@@ -1,0 +1,657 @@
+{
+ "id": "05-31",
+ "titulo": "Senda habla con Supabase: la red real de un toque",
+ "bajada": "Una llamada real de Senda a su base de datos, seguida desde la dirección hasta los reintentos: qué cabeceras lleva, qué abre la clave pública y qué pasa cuando se corta la señal.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Armar la dirección de un pedido a Supabase (base, ruta y método) y decir qué significa cada parte.",
+  "Explicar qué es la clave anónima, por qué viaja dentro de la app y qué la limita de verdad.",
+  "Distinguir un pedido que solo lleva la clave de la app de una solicitud autenticada y decir con qué rol de base se ejecuta cada uno.",
+  "Calcular la espera de reintento de la bandeja de salida de Senda y detectar que nunca llega a los 10 minutos del comentario.",
+  "Nombrar qué errores de red de Senda están leídos en el código, cuáles corridos y cuáles quedan sin probar."
+ ],
+ "venis_de": "En esta parte viste cada capa por separado: direcciones, DNS, TCP, HTTP, TLS, certificados, latencia y el recorrido de una URL ([@05-30]). En [@00-02] viste el viaje de un toque a vuelo de pájaro. Hoy bajás a una sola llamada real y miras qué lleva por dentro.",
+ "se_apoya_en": [
+  "00-02",
+  "04-06",
+  "05-12",
+  "05-16",
+  "05-18",
+  "05-19",
+  "05-22",
+  "05-23",
+  "05-28",
+  "05-30"
+ ],
+ "gancho": [
+  "Contestás una pregunta del Espadeo en el subte, sin señal. La app no se queja: anota la respuesta en el teléfono y sigue. Veinte minutos después, ya con Wi-Fi, sale hacia internet un pedido que nadie te pidió y que lleva, como mucho, 50 respuestas en unos 8 kilobytes. ¿A dónde va, con qué papeles y qué pasa si se corta a mitad de camino?",
+  "Hoy juntás todo lo de esta parte sobre una llamada real. Lo que pude correr, lo corrí: armé un servidor de juguete en mi máquina que imita la forma de las rutas de Supabase (es inventado, no es Supabase ni PostgREST) y le mandé pedidos con `curl`. No llamé al Supabase real y no copio ninguna clave. Lo que leí en el código de Senda corresponde al commit `25e08fa` (9 de noviembre de 2026); el código cambia, la forma permanece."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "La dirección: qué es un endpoint REST de Supabase"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda no tiene un servidor propio programado por ella. Del otro lado de la red hay un proyecto de Supabase: una base Postgres, un sistema de cuentas, un almacén de archivos y algunas funciones. Y el teléfono no usa la biblioteca oficial de Supabase: en `package.json` no está. Todo sale con `fetch`, la función de JavaScript que arma pedidos [[HTTP]] ([@06-13]). Para estudiar es una ventaja: cada pedido está a la vista.",
+    "Una dirección tiene dos partes. La **base** es `https://ID-DEL-PROYECTO.supabase.co`, que el flujo de compilación inyecta como variable de entorno pública ([@04-06]); no copio el valor. La **ruta** cambia según lo que se quiera hacer:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Ruta",
+    "Para qué la usa Senda",
+    "Ejemplo del código"
+   ],
+   "filas": [
+    [
+     "`/auth/v1/…`",
+     "Crear y renovar la cuenta anónima",
+     "`POST /auth/v1/signup`"
+    ],
+    [
+     "`/rest/v1/TABLA`",
+     "Leer, agregar o modificar filas",
+     "`POST /rest/v1/respuestas`"
+    ],
+    [
+     "`/rest/v1/rpc/FUNCIÓN`",
+     "Llamar a una función guardada en la base",
+     "`POST /rest/v1/rpc/jugar_turno`"
+    ],
+    [
+     "`/functions/v1/…`",
+     "Funciones de borde",
+     "`borrar-cuenta`, `trivia-sermon`"
+    ],
+    [
+     "`/storage/v1/…`",
+     "Subir archivos, como el PDF de un sermón",
+     "`/storage/v1/object/sermones/…`"
+    ]
+   ],
+   "cap": "Las familias de rutas que usa Senda, según `src/util/cuenta.ts` y `src/util/nube.ts` (commit 25e08fa)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[endpoint REST de Supabase]] es cualquier dirección bajo `/rest/v1/`: la interfaz que la plataforma genera sola desde las tablas y funciones del proyecto. Según su documentación, la genera PostgREST, que traduce un pedido HTTP a una consulta SQL, y delante hay una puerta que exige una clave en cada pedido [#red31-supabase-data-api]. REST como estilo se estudia en [@08-02]. Hoy alcanza esto: la **ruta nombra la cosa** y el **método HTTP dice qué hacer con ella** ([@05-18]).",
+    "Hay una consecuencia que conviene ver ya: apenas existe una tabla expuesta, existe su dirección, y la puede probar cualquiera que conozca el nombre del proyecto. La seguridad no puede depender de esconderla. Depende de la clave que viaja y de las reglas de la base."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Una llamada real, de punta a punta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Sigamos una sola: **mandar las respuestas del Espadeo (la trivia) que quedaron guardadas**, en `enviarRespuestas()` de `src/util/nube.ts`. Es de las más repetidas de la app, no necesita cuenta y se lee entera en una veintena de líneas.",
+    "Antes del primer byte pasa lo de esta parte: el teléfono resuelve el nombre con [[DNS]] ([@05-13]), abre una conexión [[TCP]] ([@05-16]), la cifra con un [[handshake TLS]] donde verifica el [[certificado X.509]] del servidor ([@05-22], [@05-23]) y recién ahí manda el pedido. Es el recorrido de [@05-30] con un cliente que no es un navegador."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Teléfono (Senda)",
+     "k": "cliente"
+    },
+    {
+     "n": "DNS",
+     "k": "red"
+    },
+    {
+     "n": "Puerta de Supabase",
+     "k": "servidor"
+    },
+    {
+     "n": "Postgres",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "¿IP de mi-proyecto.supabase.co?",
+     "d": "Lo hace el sistema operativo; el código solo escribe la URL."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "Esta IP",
+     "resp": true,
+     "d": "Puede venir de una caché ([@05-13])."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "TCP + TLS (handshake)",
+     "d": "Se abre la conexión y se cifra, comprobando el certificado."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "POST /rest/v1/respuestas + apikey",
+     "d": "Ya cifrado, sale el pedido con cuerpo JSON y la clave anónima en la cabecera apikey."
+    },
+    {
+     "de": 2,
+     "a": 3,
+     "t": "Clave válida: INSERT con el rol anon",
+     "d": "Según la documentación, la puerta exige una clave válida y PostgREST ejecuta el pedido con el rol de base que corresponde a la clave; con la anónima, anon."
+    },
+    {
+     "de": 3,
+     "a": 2,
+     "t": "Las reglas de la tabla dicen que sí",
+     "resp": true,
+     "d": "Una política de seguridad por fila decide si anon puede agregar. En esta tabla de Senda, sí."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "201 Created, cuerpo vacío",
+     "resp": true,
+     "d": "El teléfono borra de su cola lo enviado. Si no llega este mensaje, lo conserva y reintenta."
+    }
+   ],
+   "cap": "Una llamada de Senda a Supabase. Los pasos 5 y 6 salen de la documentación y de las migraciones; no los observé desde afuera."
+  },
+  {
+   "t": "p",
+   "x": "Este es el código real que arma el pedido, recortado:"
+  },
+  {
+   "t": "codigo",
+   "lang": "ts",
+   "x": "// src/util/nube.ts (recortado)\nconst r = await fetch(`${URL_NUBE}/rest/v1/respuestas?on_conflict=cliente_id`, {\n  method: \"POST\",\n  headers: cabeceras({ Prefer: \"return=minimal,resolution=ignore-duplicates\" }),\n  body: JSON.stringify(lote),   // hasta 50 respuestas\n});\nif (!r.ok) throw new Error(String(r.status));",
+   "cap": "`cabeceras()` agrega `apikey` y `Content-Type: application/json`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para verlo en la red armé un **servidor de juguete inventado** (Node, certificado autofirmado) que imita la *forma* de la ruta: exige `apikey`, recibe un arreglo JSON y cuenta filas nuevas. No es Supabase ni PostgREST y la clave es inventada. Con [[curl]] ([@05-28]) le mandé el pedido que arma Senda, con dos respuestas de ejemplo:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -sv --cacert c.pem -X POST \"https://localhost:18443/rest/v1/respuestas?on_conflict=cliente_id\" -H \"apikey: clave-publica-inventada-123\" -H \"Content-Type: application/json\" -H \"Prefer: return=minimal,resolution=ignore-duplicates\" --data @lote.json 2>&1 | grep -E '^(\\* SSL connection|> |< HTTP)'",
+     "s": "* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384 / X25519 / RSASSA-PSS\n> POST /rest/v1/respuestas?on_conflict=cliente_id HTTP/1.1\n> Host: localhost:18443\n> User-Agent: curl/8.5.0\n> Accept: */*\n> apikey: clave-publica-inventada-123\n> Content-Type: application/json\n> Prefer: return=minimal,resolution=ignore-duplicates\n> Content-Length: 330\n< HTTP/1.1 201 Created"
+    },
+    {
+     "c": "# el mismo pedido otra vez, como un reintento (lo que anota el servidor de juguete)",
+     "s": "[srv] filas recibidas=2 nuevas=2 ya vistas=0\n[srv] filas recibidas=2 nuevas=0 ya vistas=2"
+    },
+    {
+     "c": "curl -s --cacert c.pem -w ' estado=%{http_code}\\n' -X POST https://localhost:18443/rest/v1/respuestas --data @lote.json   # sin apikey",
+     "s": "{\"message\":\"falta o no coincide la apikey (juguete)\"} estado=401"
+    },
+    {
+     "c": "curl -s -o /dev/null -w 'estado=%{http_code}\\n' https://localhost:18443/rest/v1/respuestas; echo \"exit=$?\"   # sin confiar en el certificado",
+     "s": "estado=000\nexit=60"
+    }
+   ],
+   "cap": "Servidor de juguete inventado en localhost, corrido el 13-11-2026 en esta VM; no se llamó a Supabase. En el último comando curl no confía en el certificado autofirmado y no manda nada."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá el pedido: una **línea de solicitud**, tres [[cabeceras|encabezado HTTP]] que importan (`apikey`, `Content-Type`, `Prefer`) y un **cuerpo** de 330 bytes con dos respuestas. Con 50 filas de ejemplo del mismo formato medí **8.151 bytes**. La respuesta es un `201` sin cuerpo porque `Prefer: return=minimal` pide que el servidor no devuelva lo guardado: menos bytes en una conexión móvil.",
+    "`Prefer` y `on_conflict` los lee PostgREST. Su significado lo tomo del comentario del código de Senda y de cómo se comporta mi imitación: **no lo verifiqué en la documentación de PostgREST**, cuyo sitio me devolvió el error 429 desde este entorno. Y cada fila lleva un `cliente_id`, un identificador al azar que genera el teléfono. Su función se ve cuando la red falla."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En el segundo pedido de la terminal el servidor recibió dos filas y no sumó ninguna. ¿Por qué un teléfono real mandaría dos veces las mismas respuestas?",
+   "resp": "Porque no puede saber si la primera vez llegó. Si el servidor guardó las filas pero el 201 se perdió al volver, el teléfono ve un fallo y reintenta. Con un identificador único por fila, el servidor ignora las repetidas. Esa propiedad, que repetir un pedido no cambie el resultado, es la idempotencia ([@12-26])."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Es el número de un remito. Si el camión llega dos veces con el mismo remito, recepción no suma dos veces la mercadería. El `cliente_id` hace de número, y lo escribe quien envía. La analogía se queda corta en que un remito lo sella alguien de confianza, mientras que el servidor no puede saber si el teléfono es honesto.",
+   "titulo": "Pensalo así: el remito"
+  },
+  {
+   "t": "h",
+   "x": "La clave anónima: qué abre y qué no"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La cabecera `apikey` lleva la [[clave anónima]]: una cadena que identifica al proyecto ante la puerta de la API. La app la trae adentro del APK, en la variable `EXPO_PUBLIC_SUPABASE_ANON_KEY` que escribe el flujo de compilación. Parece raro, y es a propósito: la documentación de Supabase dice que lo que se distribuye (una app, una página) usa la clave pública porque cualquiera puede leerla, y por eso solo alcanza lo que permiten las reglas de seguridad por fila [#red31-supabase-api-keys]. También enumera lo que esa clave **no** protege: el análisis del código, el inspector de red del navegador y los ataques de intermediario [#red31-supabase-api-keys]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Si la clave viaja en la app, hay un agujero.» La clave pública no es un secreto: identifica a la aplicación y lo que puede hacer lo decide la base. El agujero sería meter ahí la clave secreta, que se saltea esas reglas; la documentación dice que nunca va en una app instalada, un navegador o un repositorio [#red31-supabase-api-keys]. Senda no la usa en el teléfono: el flujo de compilación pide solo la clave pública (con un token personal de Supabase, tema de [@04-24]) y las claves de las funciones de borde viven en el panel de Supabase.",
+   "titulo": "Mito: la clave anónima es un descuido"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La clave funciona como **pase de visitante**: dice «este pedido viene de una app de este proyecto» y la base lo ejecuta con un rol limitado, `anon`. Qué puede hacer ese rol lo decide cada tabla. Senda lo escribió en SQL:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "-- supabase/migrations/20261026000000_inicio.sql\nalter table public.respuestas enable row level security;\ncreate policy \"la app agrega respuestas\" on public.respuestas\n  for insert to anon, authenticated with check (true);",
+   "cap": "Pueden agregar filas `anon` y `authenticated`. No hay regla de lectura."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La primera línea prende la seguridad por fila ([@07-29], [@09-45]): lo que ninguna regla permite queda prohibido. La política permite **agregar**; como no hay regla para leer, nadie lee esa tabla con la clave pública, y el comentario de la migración lo dice: «lo anónimo solo puede agregar, nunca leer lo de otros».",
+    "Y hay un límite que un ingeniero marcaría. `with check (true)` significa que la regla no examina la fila: pasa cualquiera que cumpla las restricciones de la tabla (nivel de 1 a 5, segundos de 0 a 600, pregunta de hasta 80 caracteres). En las migraciones que leí no hay tope por emisor. Quien tenga la clave podría llenar la tabla de respuestas falsas y torcer la estadística de dificultad. Es razonable para datos de poco valor, que una tarea programada barre a los 30 días, pero esos números hay que leerlos como aproximados. Que alguien pueda hacerlo es inferencia mía; no lo probé contra la base real."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "El canal anónimo y su tabla",
+   "x": [
+    "`src/util/nube.ts` es el canal sin cuenta: respuestas del Espadeo, voto del Pulso y propuestas. Su identidad es la clave pública y un identificador al azar del teléfono. `20261026000000_inicio.sql` crea la tabla y la política, y `20261027000000_escala.sql` agrega el `cliente_id` único y un trigger que suma las respuestas en una tabla de resúmenes, para no recorrer millones de filas. Commit `25e08fa` (9 de noviembre de 2026): el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/nube.ts",
+    "supabase/migrations/20261026000000_inicio.sql",
+    "supabase/migrations/20261027000000_escala.sql"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Según la documentación de Supabase consultada el 13-11-2026 [#red31-supabase-api-keys], las claves antiguas (`anon` y `service_role`, JWT largos que empiezan con `eyJ`) se retiran hacia fines de 2026 a favor de `sb_publishable_…` y `sb_secret_…`, cadenas cortas que no son JWT y se mandan en la cabecera `apikey`, no en `Authorization: Bearer`. El flujo de Senda (`apk.yml`) toma la nueva si existe y, si no, la antigua. `nube.ts` pone `Authorization` solo si la clave empieza con `eyJ`; `cuenta.ts`, en cambio, manda siempre `Bearer` con la clave cuando no hay token. No sé cuál de las dos lleva el APK ni si eso tiene efecto: lo señalo porque son tres módulos con tres criterios y el retiro de las claves antiguas los va a tocar a todos.",
+   "titulo": "Claves de Supabase: lo que cambia en 2026"
+  },
+  {
+   "t": "h",
+   "x": "La solicitud autenticada: cuando el servidor tiene que saber quién sos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La clave anónima identifica a la app, no a la persona. Un duelo necesita más: la base tiene que saber **quién** juega para validar su turno. Una [[solicitud autenticada]] lleva, además de la clave del proyecto, una credencial de la persona: en Senda, un **token de acceso**, una cadena firmada por el sistema de cuentas que dice «este pedido viene del usuario tal» y dura una hora. Es un JWT, formato estándar ([#rfc7519]) que ves en [@08-07]; hoy basta saber que la firma permite al servidor comprobar que el token es auténtico.",
+    "Lo curioso es de dónde sale. **No hay registro con correo ni contraseña.** La primera vez que la persona toca algo social, la app manda `POST /auth/v1/signup` con el cuerpo `{ \"data\": {} }` y Supabase crea una **cuenta anónima**, sin datos personales, y devuelve un token de acceso, uno de renovación y un identificador de usuario [#red31-supabase-anon-auth]. La app los guarda en el teléfono. Desde ahí, la función `cabeceras()` de `src/util/cuenta.ts` arma dos cabeceras: `apikey` (la app) y `Authorization: Bearer TOKEN` (la persona). *Bearer* significa «portador»: quien presenta el token es tratado como su dueño, como con una entrada al portador. La cabecera la define el estándar HTTP [#rfc9110]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Respuestas del Espadeo",
+    "Un turno de duelo"
+   ],
+   "filas": [
+    [
+     "Ruta",
+     "`POST /rest/v1/respuestas`",
+     "`POST /rest/v1/rpc/jugar_turno`"
+    ],
+    [
+     "Credenciales",
+     "Solo `apikey`",
+     "`apikey` y token de usuario"
+    ],
+    [
+     "Rol en la base",
+     "`anon`",
+     "`authenticated`"
+    ],
+    [
+     "Quién es «yo»",
+     "Nadie: un id al azar del teléfono",
+     "El usuario del token (`auth.uid()`)"
+    ],
+    [
+     "Si falla la red",
+     "Bandeja con espera creciente",
+     "Bandeja de turnos, se manda al abrir la app"
+    ]
+   ],
+   "cap": "Los dos niveles de identidad de Senda (commit 25e08fa)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el servidor, la base verifica la firma y deja el identificador del usuario disponible para las reglas y funciones. `jugar_turno` empieza con `yo uuid := auth.uid()` y rechaza el turno si no es de ese jugador (`supabase/migrations/20261127000000_seguridad.sql`). Es el mecanismo de [@00-02] visto desde las cabeceras: la autorización de verdad ocurre **dentro de la base**. Si el teléfono mintiera, la regla igual lo frena. En el servidor de juguete, con y sin la credencial de la persona (argumentos en el cuerpo JSON, como hace `rpc()`):"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# apikey correcta, pero en Authorization va la clave pública en vez del token de la persona",
+     "s": "{\"message\":\"JWT inválido (juguete)\"} estado=401"
+    },
+    {
+     "c": "# apikey y token de la persona; después, el mismo pedido otra vez con el mismo p_cliente_id",
+     "s": "{\"id\":\"bbbbbbbb-0000-4000-8000-00000000000a\",\"estado\":\"en_juego\",\"ronda\":2,\"turno_de\":\"rival-inventado\"} estado=200\n(igual respuesta) estado=200\n[srv] jugar_turno jugadas=2 reintento=false\n[srv] jugar_turno jugadas=2 reintento=true"
+    }
+   ],
+   "cap": "Servidor de juguete (tokens y partida inventados), 13-11-2026. Como en la función real, un reintento con el mismo identificador no repite el turno."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El token dura una hora. `asegurarCuenta()` lo renueva con el token de renovación (`POST /auth/v1/token?grant_type=refresh_token`) cuando faltan menos de 60 segundos, y si un pedido recibe un `401`, `peticion()` renueva **una vez** y reintenta. Si el token de renovación ya no sirve, la app descarta la sesión y la próxima vez crea **una cuenta nueva**: la vieja queda en la base, sin forma de entrar. Por eso importa guardar la cuenta con Google, que según el comentario inicial de `cuenta.ts` conserva el mismo identificador."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Tres pedidos a Supabase. (a) `GET /rest/v1/pulso_resultados` con solo `apikey`. (b) `POST /rest/v1/rpc/jugar_turno` con solo `apikey`. (c) `POST /rest/v1/respuestas` con `apikey` y `Authorization: Bearer` con el token de la persona. Para cada uno: ¿es una solicitud autenticada y con qué rol lo ejecuta la base?",
+   "pista": "Mirá qué credencial aporta cada pedido: solo la de la app, o también la de la persona.",
+   "solucion": "(a) No: solo identifica a la app, rol `anon`. Funciona porque la vista de resultados del Pulso tiene `grant select` para `anon`. (b) No. La función se apoya en `auth.uid()`, que sin token no identifica a nadie, y su permiso de ejecución se concede a `authenticated`: no esperes que funcione. (c) Sí: lleva la credencial de la persona y la base lo ejecuta como `authenticated`. La tabla acepta ese rol, así que la fila entra igual; la diferencia es que el servidor sabe quién la mandó."
+  },
+  {
+   "t": "h",
+   "x": "Cuando la red falla: la bandeja de salida"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Volvamos al subte. La respuesta sin señal no se pierde porque Senda no manda cada una al instante: la anota en una cola que vive en el teléfono (`senda-cola-nube`). Las reglas, leídas en `src/util/nube.ts`:"
+   ]
+  },
+  {
+   "t": "lista",
+   "ord": false,
+   "items": [
+    "**Persistente.** La cola está en el almacenamiento del teléfono; tiene un tope de 500 filas y descarta las más viejas.",
+    "**En lotes de hasta 50**, que se intentan con 10 anotadas, a los 8 a 15 segundos de abrir la app, cada 45 a 55 segundos y al pasar a segundo plano.",
+    "**Idempotente**, por el `cliente_id` de cada fila.",
+    "**Con espera creciente y azar** después de cada fallo seguido."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Eso último es la **espera exponencial con azar** ([@12-27]): tras el primer fallo, unos 5 segundos; tras el segundo, 10; después 20, 40, 80… Sirve para no martillar a un servidor que ya está mal. El azar (el código multiplica cada espera por un número entre 0,5 y 1,5) sirve para que un millón de teléfonos que perdieron señal en el mismo corte no vuelvan a intentarlo en el mismo segundo. Amazon lo dice así: el azar reparte los reintentos en el tiempo [#red31-aws-backoff-jitter]. Es como dar turnos en un muelle de descarga: si todos los camiones demorados por una tormenta llegan a las 8:00, se traba la playa. La diferencia es que los teléfonos no se ven entre sí: cada uno decide solo, con una moneda al aire.",
+    "Esta es la cuenta del código, con un azar fijo para que la salida no cambie (la corrí en Node antes de ponerla acá):"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// La misma cuenta que src/util/nube.ts, con un azar fijo para que no cambie la salida.\nlet semilla = 7;\nconst azar = () => { semilla = (semilla * 1103515245 + 12345) % 2147483648; return semilla / 2147483648; };\nlet fallos = 0;\nlet reloj = 0; // segundos desde el primer intento\nconsole.log('intento | fallos | espera (s) | se vuelve a probar en (s)');\nfor (let intento = 1; intento <= 9; intento++) {\n  fallos = Math.min(fallos + 1, 7);               // el contador se detiene en 7\n  const base = Math.min(600_000, 5000 * 2 ** (fallos - 1)); // milisegundos\n  const espera = (base * (0.5 + azar())) / 1000;\n  reloj += espera;\n  console.log(`${String(intento).padStart(7)} | ${String(fallos).padStart(6)} | ${espera.toFixed(1).padStart(10)} | ${reloj.toFixed(0).padStart(6)}   (rango ${base * 0.5 / 1000}-${base * 1.5 / 1000})`);\n}\nconsole.log('Base máxima alcanzable:', Math.min(600_000, 5000 * 2 ** 6) / 1000, 's; con azar hasta', (Math.min(600_000, 5000 * 2 ** 6) * 1.5) / 1000, 's');",
+   "cap": "Reconstrucción de la fórmula, no el código de Senda corriendo. Cambiá la semilla o `intento <= 9` y mirá cómo se mueven las esperas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá la última línea. El comentario del código dice que la espera crece «hasta 10 min», y la constante `600_000` ms lo confirma a primera vista. Pero el contador de fallos se detiene en 7, y con 7 la base es `5000 × 2⁶ = 320.000` ms, 320 segundos: **la constante de 10 minutos nunca llega a usarse**. Con el azar, lo más largo posible es 480 segundos. No es grave para una estadística, pero pasa cuando un comentario y un número viven en lugares distintos y nadie los compara. El mapa técnico de Senda también dice «10 min». Una regla práctica: desconfiá del comentario y mirá la constante que manda."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un lote de 50 respuestas incluye una fila que la base rechaza siempre (viola una restricción) y contesta 400 cada vez. Mirando `enviarRespuestas`, ¿qué crees que pasa con ese lote?",
+   "resp": "El código trata cualquier respuesta no 2xx como falla de red: cuenta el fallo, alarga la espera y deja el lote en la cola. Si la base rechaza el lote entero por una fila mala, saldría una y otra vez y las respuestas de atrás no pasarían, hasta que el tope de 500 descarte las viejas. Es inferencia del código; el teléfono acota sus valores (por ejemplo, los segundos entre 0 y 600) y no vi un caso real. Distinguir un error que se arregla esperando (5xx, 429, sin señal) de uno que no (un 4xx por datos malos) es una decisión de diseño de toda cola con reintentos."
+  },
+  {
+   "t": "h",
+   "x": "Dos bandejas más y lo que el código no mira"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda tiene **tres** bandejas y no son iguales. Los turnos de duelo (`src/util/juntos.ts`) se guardan en `senda-turnos-pendientes` y se mandan al abrir la app y al entrar a Duelos, sin reloj de espera. Las marcas de copas y torneos (`src/util/grupos.ts`) se mandan al abrir. Lo demás (unirse a un grupo, aceptar un amigo) no tiene bandeja: falla con un mensaje y la persona repite.",
+    "En los turnos hay un detalle. La primera vez, un turno se guarda si falla por `sin_senal` o `error_nube` (un error del servidor). Al reintentarlo, `enviarTurnosPendientes` distingue solo `sin_senal`, que corta y espera; **cualquier otro error, incluido un 5xx pasajero, descarta el turno**, con el comentario «una regla lo rechazó». Un fallo transitorio queda tratado como un rechazo definitivo. Es lo que leí, no lo probé con un servidor que falle. Una corrección posible sería tratar `error_nube` como `sin_senal` en esa rama, con el mismo identificador, que el servidor ya sabe reconocer.",
+    "Tampoco aparece el **tiempo máximo de un pedido**. Buscando `AbortController` y `signal` en `src/util/`, solo `interruptores.ts` (5 segundos) y `lugares.ts` lo fijan; `nube.ts` y `cuenta.ts` no. Qué hace entonces la plataforma con una conexión colgada no lo medí. Amazon recomienda poner un límite a cualquier llamada remota [#red31-aws-backoff-jitter], y mientras un pedido no vuelve, la bandera `enviando` de `nube.ts` impide que salga otro lote.",
+    "Por último, Senda **no usa [[WebSocket]]** ([@05-26]): la única mención en `src/` es un comentario de `salas.ts` sobre un futuro Realtime. Lo «en vivo» es sondeo: Inicio pide novedades al entrar y cada 45 segundos mientras se mira (como máximo unos 80 pedidos por hora, mi cuenta: 3.600 ÷ 45), y la sala en vivo cada 2 segundos. Funciona con cualquier red, al precio de preguntar aunque no haya nada nuevo."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "La llamada autenticada y sus reintentos",
+   "x": [
+    "`jugarTurno()` y `enviarTurnosPendientes()` en `src/util/juntos.ts` llaman a `rpc(\"jugar_turno\", …)` de `src/util/cuenta.ts`, junto a `peticion()`, que agrega las dos cabeceras, renueva el token y traduce los errores. La pantalla que arma el turno es `src/pantallas/Jugar.tsx` (`enviarTurno`) y la regla que lo valida es la función `jugar_turno` de `20261127000000_seguridad.sql`. Commit `25e08fa` (9 de noviembre de 2026)."
+   ],
+   "archivos": [
+    "src/util/juntos.ts",
+    "src/util/cuenta.ts",
+    "src/pantallas/Jugar.tsx",
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "src/util/interruptores.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué te llevás para pensar como ingeniero"
+  },
+  {
+   "t": "p",
+   "x": "Distinguir lo que **corrí**, lo que **leí** y lo que **deduzco** es tan importante como el hallazgo."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Observación",
+    "Cómo lo sé"
+   ],
+   "filas": [
+    [
+     "Todo es `fetch` directo, sin la biblioteca de Supabase",
+     "Leído: `package.json` y `src/util/`"
+    ],
+    [
+     "La clave pública viaja en la app a propósito",
+     "Documentación de Supabase, 13-11-2026"
+    ],
+    [
+     "`respuestas` acepta filas de cualquiera con la clave",
+     "Leído: política con `check (true)`"
+    ],
+    [
+     "La espera máxima de reintento es 480 s, no 10 minutos",
+     "Corrido: la fórmula, en Node"
+    ],
+    [
+     "Un 5xx al reintentar un turno lo descarta",
+     "Leído, no probado"
+    ],
+    [
+     "Los pedidos a Supabase no fijan tiempo máximo",
+     "Leído: búsqueda de `signal`"
+    ],
+    [
+     "El alta anónima no manda captcha",
+     "Leído: el cuerpo del `signup`"
+    ]
+   ],
+   "cap": "Hallazgos del día. «Leído» es código o documento; «corrido» es algo que ejecuté en esta VM."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El último renglón: la documentación de Supabase dice que los inicios de sesión anónimos llenan la base de usuarios, recomienda un captcha invisible o Cloudflare Turnstile y pone por defecto un límite de 30 pedidos por hora y por IP [#red31-supabase-anon-auth]. Senda manda `{ \"data\": {} }` y nada más; `docs/SEGURIDAD.md` deja como tarea del fundador bajar ese límite desde el panel. Un captcha delante de la primera acción social sería fricción para una app que quiere ser fluida: es una decisión, y hace falta saber que esa puerta está abierta y mirar su uso."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": "Dos identidades en una red pública: una clave que todos conocen, limitada por reglas del servidor, y una credencial por persona, con vencimiento. Casi toda API para teléfonos usa esa dupla. Lo que decide si es segura son los detalles: las reglas de cada tabla, los topes, los reintentos y qué se hace con un error.",
+   "titulo": "El patrón que se repite"
+  },
+  {
+   "t": "p",
+   "x": "Todo corresponde al commit `25e08fa` (9 de noviembre de 2026): el código cambia, la forma permanece. En [@05-32] cerrás la parte con un mapa de las capas por las que pasó cada pedido de hoy."
+  }
+ ],
+ "recap": [
+  "Senda habla con Supabase con `fetch` directo: base + ruta + método. Las rutas bajo `/rest/v1/` son los endpoints REST que la plataforma genera sola desde las tablas y funciones.",
+  "La clave anónima viaja dentro de la app a propósito: identifica a la aplicación y alcanza lo que las reglas de seguridad por fila permiten. Lo que protege es la base, no esconder la clave.",
+  "En Senda, `respuestas` solo permite agregar (rol `anon`) y no tiene regla de lectura. `with check (true)` significa que la regla no examina la fila: los datos anónimos son aproximados.",
+  "Una solicitud autenticada lleva además `Authorization: Bearer <token>`, un JWT de una hora que Senda obtiene de una cuenta anónima. La base la ejecuta con el rol `authenticated` y conoce al usuario con `auth.uid()`.",
+  "La bandeja de salida es persistente, idempotente (cada fila con `cliente_id`) y con espera exponencial con azar. Corrida la cuenta, la espera máxima es de 480 s, no de 10 minutos como dice el comentario.",
+  "Hallazgos leídos y no probados: un 5xx al reintentar un turno lo descarta; los pedidos no fijan tiempo máximo; el alta anónima no manda captcha."
+ ],
+ "repaso": [
+  {
+   "p": "La clave anónima de Senda está dentro del APK y cualquiera puede leerla. ¿Qué impide que, con ella, alguien lea los datos de otras personas?",
+   "o": [
+    "Que el APK está ofuscado y nadie logra abrirlo",
+    "Que las reglas de cada tabla no le dan lectura al rol anon",
+    "Que Supabase cambia la clave cada vez que alguien la usa",
+    "Que TLS cifra la conexión y la clave no se ve en la red"
+   ],
+   "c": 1,
+   "e": "El control real son las reglas de cada tabla: sin política de lectura para anon, no se lee. La ofuscación no es barrera, la clave no rota con cada uso y TLS protege el viaje, pero no a quien tiene la app en la mano."
+  },
+  {
+   "p": "¿Qué distingue a una solicitud autenticada de un pedido que solo lleva la clave de la app?",
+   "o": [
+    "Usa HTTPS, mientras que el otro pedido viaja sin cifrar",
+    "Va a otro servidor distinto del que guarda las tablas",
+    "Es siempre un POST, mientras que el otro es un GET",
+    "Lleva también una credencial de la persona, que la identifica"
+   ],
+   "c": 3,
+   "e": "La diferencia es la segunda credencial, el token de usuario. Los dos pedidos usan HTTPS y el mismo servidor, y cualquiera puede ser GET o POST. Con ese token la base conoce al jugador mediante auth.uid()."
+  },
+  {
+   "p": "Una tabla tiene `create policy … for insert to anon, authenticated with check (true)` y ninguna otra política. ¿Qué puede hacer un teléfono con la clave pública?",
+   "o": [
+    "Agregar filas y leer solo las que agregó él",
+    "Leer todas las filas, pero no agregar ninguna",
+    "Agregar filas, sin poder leer ninguna de la tabla",
+    "Nada, porque el rol anon no existe en Supabase"
+   ],
+   "c": 2,
+   "e": "Con la seguridad por fila prendida, lo que no tiene regla queda prohibido: sin política de lectura no se lee ni lo propio. El rol anon existe (es el de la clave pública) y la política le permite insertar."
+  },
+  {
+   "p": "Un teléfono manda un lote, el servidor lo guarda, pero la respuesta se pierde y la app lo manda otra vez. ¿Qué evita las filas duplicadas en Senda?",
+   "o": [
+    "Que la app espere unos segundos antes de reintentar el lote",
+    "Que cada fila lleve un cliente_id único y se ignoren los repetidos",
+    "Que el servidor corte la conexión ante un lote repetido",
+    "Que Postgres borre las filas viejas cada 30 días a la noche"
+   ],
+   "c": 1,
+   "e": "El identificador único por fila hace seguro el reintento (idempotencia). Esperar no evita duplicados, cortar la conexión no impide guardar y el borrado a los 30 días limpia espacio, no deduplica."
+  },
+  {
+   "p": "El contador de fallos se detiene en 7 y la espera es min(600000, 5000 × 2^(fallos−1)) ms por un azar de 0,5 a 1,5. ¿Cuál es la espera más larga posible?",
+   "o": [
+    "600 s, el tope escrito en el código",
+    "320 s, la base del séptimo fallo sin azar",
+    "480 s, la base de 320 s con el azar al máximo",
+    "960 s, el doble de esa base de 480 s"
+   ],
+   "c": 2,
+   "e": "Con 7 fallos la base es 5 s × 2⁶ = 320 s, menor que el tope de 600 s, que nunca rige. El azar la multiplica hasta 1,5: 480 s. Las otras cifras salen de ignorar el contador, el azar o de una cuenta que el código no hace."
+  },
+  {
+   "p": "¿Para qué sirve el azar en la espera de un reintento, además de que la espera crezca?",
+   "o": [
+    "Para que el servidor reconozca a cada teléfono por su patrón",
+    "Para ahorrar batería esperando menos de lo calculado",
+    "Para que los reintentos viajen más rápido por la red",
+    "Para que quienes fallaron juntos no vuelvan todos a la vez"
+   ],
+   "c": 3,
+   "e": "Sin azar, todos los que fallaron a la vez reintentan juntos y repiten el pico. El azar los reparte en el tiempo. No identifica teléfonos, no acorta la espera (la mitad de las veces la alarga) ni acelera paquetes."
+  },
+  {
+   "p": "Según lo leído, un turno de duelo guardado se reintenta con `enviarTurnosPendientes` y el servidor contesta 503. ¿Qué pasa con ese turno?",
+   "o": [
+    "Se descarta, porque solo `sin_senal` lo conserva para después",
+    "Queda guardado y se reintenta con espera creciente",
+    "La app bloquea todas las partidas hasta que haya red",
+    "El servidor lo guarda por su cuenta y lo aplica luego"
+   ],
+   "c": 0,
+   "e": "El código conserva el turno solo ante `sin_senal`; cualquier otro error lo trata como rechazo definitivo. Esta bandeja no tiene espera creciente y el servidor no guarda nada por su cuenta. Es una lectura, no una prueba."
+  }
+ ],
+ "feynman": "Explicale a alguien que no programa por qué una app puede llevar adentro una clave que cualquiera puede ver y aun así ser segura. Usá un ejemplo propio, que no sea el del pase de visitante, y decí dónde tu ejemplo deja de valer.",
+ "para_profundizar": [
+  {
+   "fuente": "red31-supabase-api-keys",
+   "nota": "La página oficial sobre claves: qué clave va en cada lugar, qué protege y qué no la clave pública, y qué cambia con las claves nuevas. Leé las secciones de claves públicas y de límites."
+  },
+  {
+   "fuente": "red31-supabase-data-api",
+   "nota": "Cómo la plataforma genera la API REST a partir de las tablas, para ver el endpoint desde el lado del servidor."
+  },
+  {
+   "fuente": "red31-supabase-anon-auth",
+   "nota": "La función de inicios de sesión anónimos que usa Senda, con el apartado de prevención de abuso y límites."
+  },
+  {
+   "fuente": "red31-aws-backoff-jitter",
+   "nota": "El artículo de Amazon sobre tiempos máximos, reintentos y espera con azar: la base teórica de la bandeja de salida."
+  }
+ ],
+ "videos": [
+  {
+   "q": "exponential backoff and jitter explicado",
+   "por_que": "Para ver con dibujos cómo se reparte la carga cuando miles de clientes reintentan a la vez."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "endpoint REST de Supabase",
+   "d": "Dirección bajo `/rest/v1/` del proyecto que Supabase genera sola a partir de las tablas y funciones de la base. La ruta nombra la tabla o función y el método HTTP dice qué hacer con ella."
+  },
+  {
+   "t": "clave anónima",
+   "d": "Clave pública del proyecto que una app lleva adentro para identificarse ante la API. No es secreta: lo que puede hacer quien la tenga lo deciden las reglas de seguridad de cada tabla para el rol anon."
+  },
+  {
+   "t": "solicitud autenticada",
+   "d": "Pedido que lleva, además de la clave de la app, una credencial de la persona (en Senda, un token de acceso en `Authorization: Bearer`). Permite a la base saber quién lo manda y ejecutarlo con el rol authenticated."
+  },
+  {
+   "t": "bandeja de salida",
+   "d": "Cola guardada en el teléfono que retiene lo pendiente de enviar y lo manda cuando hay red, con reintentos. Si cada elemento es idempotente, reintentar no duplica nada."
+  },
+  {
+   "t": "espera exponencial con azar",
+   "d": "Estrategia de reintentos en la que cada fallo duplica la espera y se le suma una variación al azar, para no sobrecargar un servidor ni que muchos clientes vuelvan a la vez."
+  }
+ ],
+ "siguiente": "cierre de la Parte 5: seguís un caso completo por todas las capas y juntás lo de la parte en un mapa de una página.",
+ "fuentes_nuevas": [
+  {
+   "id": "red31-supabase-api-keys",
+   "t": "Understanding API keys",
+   "a": "Supabase Docs",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/api/api-keys"
+  },
+  {
+   "id": "red31-supabase-data-api",
+   "t": "Data REST API",
+   "a": "Supabase Docs",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/api"
+  },
+  {
+   "id": "red31-supabase-anon-auth",
+   "t": "Anonymous Sign-Ins",
+   "a": "Supabase Docs",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/auth/auth-anonymous"
+  },
+  {
+   "id": "red31-aws-backoff-jitter",
+   "t": "Timeouts, retries, and backoff with jitter",
+   "a": "Amazon Builders' Library",
+   "tipo": "articulo",
+   "anio": 2019,
+   "url": "https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/"
+  }
+ ]
+}
