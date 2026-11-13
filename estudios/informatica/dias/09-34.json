@@ -1,0 +1,728 @@
+{
+ "id": "09-34",
+ "titulo": "NoSQL: por qué existe y qué familias hay",
+ "bajada": "Qué problemas reales dieron origen a NoSQL, qué dice el teorema CAP con precisión y cuánta consistencia se paga por velocidad, con una réplica y un benchmark medidos en esta máquina.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué agrupa la etiqueta NoSQL, qué problemas concretos la originaron y por qué no significa «más rápido».",
+  "Nombrar las familias de bases NoSQL, qué pregunta contesta bien cada una y qué se resigna a cambio.",
+  "Enunciar el teorema CAP con las definiciones de Gilbert y Lynch, y reconocer cuatro malentendidos comunes.",
+  "Medir y explicar la ventana de consistencia eventual de una réplica asíncrona y calcular cuándo un quórum R + W > N garantiza leer lo último.",
+  "Aplicar cinco preguntas para evaluar un pedido de «necesitamos NoSQL» con números, no con impresiones."
+ ],
+ "venis_de": "Ayer saliste de PostgreSQL para ver MySQL, SQL Server, Oracle y SQLite ([@09-33]); todos relacionales. Antes viste la replicación ([@09-29]), el reparto de datos ([@09-30]) y las transacciones ([@09-24]). Hoy se rompe el supuesto de que una base son tablas con SQL, y se ve a qué precio.",
+ "se_apoya_en": [
+  "06-37",
+  "09-01",
+  "09-06",
+  "09-24",
+  "09-28",
+  "09-29",
+  "09-30",
+  "09-32",
+  "09-33"
+ ],
+ "gancho": [
+  "En una reunión, un consultor dice la frase que vas a escuchar tarde o temprano: «SQL no escala, para esto necesitás NoSQL». El cliente, un operador logístico inventado con 2.000 camiones que mandan su posición cada cinco segundos, se asusta y empieza a pedir presupuestos para migrar todo.",
+  "Hoy aprendés a hacer las preguntas que esa frase se saltea. Qué problema concreto dio origen a esta familia de bases, qué ofrece cada tipo y qué se resigna a cambio, y qué dice de verdad el teorema que todos citan y pocos leyeron. Lo medí en esta máquina: una réplica de PostgreSQL que se atrasa, una lectura por clave contra Redis y un modelo chico de lo que pasa cuando la red se parte."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué quiere decir NoSQL, y qué no"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[NoSQL]] es una etiqueta, no una tecnología. Agrupa a las bases de datos que se apartan del modelo de tablas relacionales o que no usan SQL como interfaz principal. Es un cajón de sastre: una base que guarda documentos y otra que guarda grafos no se parecen en nada salvo en eso. Se la suele leer como «no solo SQL» o como «no relacional»; las dos lecturas conviven [#bd0934-wikipedia-nosql].",
+    "La historia del nombre tiene un giro. Según Wikipedia, Carlo Strozzi lo usó en 1998 para una base **relacional** liviana que, justamente, no ofrecía SQL. Y Johan Oskarsson, entonces desarrollador de Last.fm, lo reintrodujo a principios de 2009 para rotular una reunión sobre bases de datos distribuidas y no relacionales de código abierto [#bd0934-wikipedia-nosql]. Leí eso en Wikipedia y no abrí las fuentes que cita, así que tomalo como una referencia, no como un dato verificado. Lo que importa es que el rótulo nació como etiqueta de reunión y no como definición técnica.",
+    "Hay otro malentendido para sacarse de encima ahora: NoSQL no es lo opuesto a «serio». Ni «moderno» ni «viejo»: Codd propuso el modelo relacional en 1970, y los sistemas jerárquicos y de red que lo precedieron ([@09-01]) también eran «no relacionales». Lo que cambió, a mediados de los 2000, fue que dos empresas con problemas inusuales publicaron cómo los resolvieron."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Los motivos reales"
+  },
+  {
+   "t": "h3",
+   "x": "1. Escalar hacia los costados"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay dos formas de que una base aguante más trabajo. **Escalar hacia arriba** es comprar una máquina más grande. **Escalar hacia los costados** es repartir los datos entre varias máquinas comunes; a eso se le llama [[escalado horizontal de datos]]. La primera tiene techo (no existe una máquina infinita) y se encarece más que proporcionalmente. La segunda no tiene techo en teoría, pero obliga a resolver todo lo que viste en [@09-29] y [@09-30]: repartir los datos con una [[clave de shard]], copiarlos con [[réplica|réplicas]] y mover datos al sumar nodos.",
+    "Los dos sistemas que dieron origen a la ola NoSQL se escribieron para eso. Bigtable, de Google, se describe en su propio resumen como un sistema para «petabytes de datos a través de miles de servidores comunes» (traducción mía); aclara que no soporta un modelo relacional completo [#bigtable]. Dynamo, de Amazon, parte de una observación: muchos servicios de su plataforma, como el carrito de compras o la gestión de sesiones, solo necesitan acceso por clave primaria, y para ellos el patrón habitual de usar una base relacional «llevaría a ineficiencias y limitaría la escala y la disponibilidad» (traducción mía) [#dynamo]. Fijate que el argumento no dice «SQL es lento»: dice que ese uso concreto no necesitaba lo que SQL ofrece, y que pagar por eso tenía un costo."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "2. Esquema flexible"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una tabla exige que todas las filas tengan las mismas columnas. Un envío común tiene destinatario, bultos y estado; uno refrigerado necesita además una temperatura máxima; uno entregado tiene una firma. Con tablas, o agregás columnas casi vacías, o partís en más tablas. Las bases de documentos aceptan que cada registro tenga su propia forma. Para ver las dos caras, lo hice en PostgreSQL con una columna JSONB ([@09-32]), que guarda documentos sin esquema fijo [#bd0934-pg-json]:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql> (docs.sql: tabla envios_doc con una columna doc de tipo jsonb)",
+     "s": " id |  destinatario  | bultos | frio \n----+----------------+--------+------\n  1 | Kiosco Sur     | 3      | \n  2 | Casa Pérez     | 1      | \n  3 | Depósito Norte | 40     | true\n(3 rows)\n\n entregados \n------------\n          1\n(1 row)\n\n con_typo \n----------\n        0\n(1 row)"
+    },
+    {
+     "c": "psql> (rel.sql: la misma idea con columnas)",
+     "s": "psql:/var/tmp/d0934/lab/rel.sql:2: ERROR:  column \"estdo\" does not exist\nLINE 1: select count(*) from envios_rel where estdo = 'entregado';\n                                              ^\nHINT:  Perhaps you meant to reference the column \"envios_rel.estado\".\npsql:/var/tmp/d0934/lab/rel.sql:3: ERROR:  new row for relation \"envios_rel\" violates check constraint \"envios_rel_bultos_check\"\nDETAIL:  Failing row contains (1, Kiosco Sur, -3, en_ruta)."
+    },
+    {
+     "c": "psql> insert into envios_doc … 'bultos': -3",
+     "s": "filas en envios_doc: 4"
+    }
+   ],
+   "cap": "Corrido en PostgreSQL 16.15. Los tres documentos tienen formas distintas y conviven en la misma tabla. A cambio, un error de tipeo en el nombre de un campo (`estdo`) no da error: da cero filas. Y un valor imposible (-3 bultos) entra sin chistar, porque la regla `check` de la tabla relacional no existe en el documento."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La flexibilidad no desaparece las reglas: las **muda** a la aplicación. Antes las vigilaba la base ([@09-06]); ahora las vigila tu código, o las vigila nadie. Es una elección razonable cuando la forma de los datos cambia seguido o es impredecible. Es un riesgo cuando los datos son estables y las reglas importan, como el dinero."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "3. Latencia y 4. Modelos de datos que encajan"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos motivos más, más acotados. **Latencia**: algunas bases guardan todo en memoria para responder en una fracción de milisegundo; es el caso de Redis, que ves en [@09-36]. **Modelo de datos**: si lo que importa son las conexiones entre cosas (quién conoce a quién, qué ruta une qué depósitos) o mediciones que llegan con la hora (la posición de un camión cada cinco segundos), existen bases pensadas para eso. Las ves en [@09-37]. Y una quinta razón, la **disponibilidad entre regiones**, es la que desemboca en el teorema de más abajo."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Las familias"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada familia guarda los datos con una forma distinta, y esa forma decide qué preguntas contestan bien. Esta es la lista corta; cada una tiene su día más adelante."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Familia",
+    "Cómo guarda",
+    "Ejemplos",
+    "Contesta bien",
+    "Cuesta"
+   ],
+   "filas": [
+    [
+     "Documentos",
+     "Un registro con forma propia, anidado, parecido a un JSON",
+     "MongoDB, Firestore",
+     "Traer una entidad entera con sus partes en una sola lectura",
+     "Cruzar entidades distintas, y reglas entre campos"
+    ],
+    [
+     "Clave-valor",
+     "Un valor opaco y su clave",
+     "Redis, DynamoDB",
+     "Buscar por clave exacta, muy rápido",
+     "Cualquier consulta que no sea por la clave"
+    ],
+    [
+     "Columnas anchas",
+     "Filas con muchas columnas, repartidas por clave",
+     "Cassandra, Bigtable, HBase",
+     "Escribir mucho y repartir entre muchas máquinas",
+     "Consultas distintas de las previstas al diseñar"
+    ],
+    [
+     "Grafos",
+     "Nodos y relaciones como objetos de primera clase",
+     "Neo4j",
+     "Recorrer conexiones: «amigos de amigos», rutas",
+     "Operaciones masivas sobre todos los datos"
+    ],
+    [
+     "Series de tiempo",
+     "Mediciones ordenadas por hora",
+     "InfluxDB, TimescaleDB",
+     "Agrupar por ventanas de tiempo, retener y resumir",
+     "Actualizar registros viejos"
+    ],
+    [
+     "Vectoriales",
+     "Listas de números que representan significado",
+     "pgvector, Pinecone",
+     "Buscar «lo más parecido a esto»",
+     "Coincidencia exacta y reglas de negocio"
+    ],
+    [
+     "Búsqueda de texto",
+     "Un índice de palabras hacia documentos",
+     "Elasticsearch",
+     "Buscar texto con relevancia",
+     "Ser la copia única y confiable de los datos"
+    ]
+   ],
+   "cap": "Resumen conceptual, sin números. Es una guía de lectura, no una clasificación estricta: PostgreSQL con extensiones cubre varias de estas formas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Entre los desarrolladores que respondieron la encuesta de Stack Overflow de 2026 (12.061 personas, varias respuestas por persona), Redis lo usó el 28,3 %, MongoDB el 19,0 %, Elasticsearch el 14,8 % y DynamoDB el 9,3 % [#bd0934-so-2026]. Mismo cuidado que ayer: es una encuesta de desarrolladores, no un censo de empresas."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "«NoSQL no es más rápido»: lo medí"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La frase más repetida y menos comprobada es que NoSQL es más rápido. Medí la operación más simple, la que una clave-valor hace mejor: traer **un valor por su clave** de un conjunto de 100.000 elementos de unos 100 bytes cada uno. De un lado, un `SELECT` por clave primaria en PostgreSQL con sentencias preparadas [#bd0934-pgbench]. Del otro, un `GET` en Redis, con la herramienta que trae [#bd0934-redis-benchmark]. Misma máquina, conexiones por socket local, todo cabe en memoria."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "\\set id random(1, 100000)\nselect v from kv where k = :id;",
+   "cap": "La consulta de PostgreSQL (script de pgbench): una clave al azar entre 1 y 100.000, sobre una tabla `kv(k int primary key, v text)` con 100.000 filas."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 bench.py  (pgbench y redis-benchmark, tres repeticiones de 5 s o 300.000 pedidos)",
+     "s": "clientes | PostgreSQL 16.15 (SELECT por clave primaria) | Redis 7.0.15 (GET)\n       1 |    23,911 a    45,271 por segundo |    22,365 a    74,184 por segundo\n       4 |    63,273 a    90,178 por segundo |   101,488 a   141,576 por segundo\n      16 |    76,207 a   145,160 por segundo |   140,318 a   144,928 por segundo"
+    }
+   ],
+   "cap": "Medido en esta VM (4 CPU compartidos con otros trabajos, de ahí el rango tan ancho). Solo lecturas. No mide escrituras ni durabilidad."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con un cliente, los rangos se pisan: no se puede decir cuál gana. Con cuatro clientes en paralelo, Redis queda más arriba, en el orden de una vez y media. Con dieciséis, los rangos vuelven a tocarse. En ningún caso hay una diferencia de diez veces. Hay tres razones por las que esto no contradice a quienes eligen Redis. Primero, esta medición es de lectura por clave, el mejor caso para una base de este tipo, y aun así PostgreSQL le sigue de cerca. Segundo, una operación sobre un socket local tarda decenas de microsegundos; en una red real, el viaje de ida y vuelta (milisegundos) domina y borra casi cualquier diferencia entre motores. Tercero, Redis guarda por defecto en memoria y PostgreSQL confirmó cada escritura a disco: no se están comparando las mismas garantías.",
+    "La conclusión útil es otra: cada familia no es más rápida en general, es más rápida **en lo suyo y a cambio de renunciar a algo**. Una clave-valor responde por clave, y si querés «todos los envíos de hoy de este chofer», o lo previste en el diseño de la clave o no se puede."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Alguien te muestra que Redis resolvió 150.000 lecturas por segundo y concluye que hay que migrar toda la base de PostgreSQL. ¿Qué tres preguntas le harías antes de aceptar la conclusión?",
+   "resp": "Primero: ¿cuántas lecturas por segundo necesita realmente la aplicación, hoy y en dos años? Si son 400, ya sobra capacidad. Segundo: ¿las lecturas son todas por clave o hay consultas con filtros y cruces que hoy hace SQL? Tercero: ¿qué garantías de durabilidad y de consistencia necesita cada dato? Una medición de velocidad en un solo tipo de operación no responde ninguna de las tres."
+  },
+  {
+   "t": "h",
+   "x": "El teorema CAP, con precisión"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Eric Brewer presentó la idea en el simposio PODC de 2000 (circulaba desde 1998) y Seth Gilbert y Nancy Lynch la demostraron en 2002 [#cap-twelve-years][#bd0934-gilbert-lynch]. En 2012, ellos mismos la volvieron a explicar con cuidado. Estas son sus tres palabras, tal como las definen:"
+   ]
+  },
+  {
+   "t": "lista",
+   "ord": false,
+   "items": [
+    "**Consistencia** (la C): el servicio se comporta como si hubiera una sola copia de los datos y cada operación ocurriera en un instante entre su pedido y su respuesta. Los autores la llaman «atómica»; hoy se la conoce también como linealizable. Ojo: no es la «C» de ACID ([@09-24]), que habla de que se cumplan las reglas de los datos [#bd0934-gilbert-lynch].",
+    "**Disponibilidad** (la A): cada pedido a un nodo que funciona recibe, tarde o temprano, una respuesta. Aunque sea lenta: para el teorema alcanza con que no se quede esperando para siempre [#bd0934-gilbert-lynch].",
+    "**Tolerancia a particiones** (la P): la red puede perder o demorar mensajes entre los nodos, tanto como quiera. Es una propiedad del entorno, no una cualidad que el sistema elige [#bd0934-gilbert-lynch]."
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "In a network subject to communication failures, it is impossible for any web service to implement an atomic read/write shared memory that guarantees a response to every request.",
+   "autor": "Gilbert y Lynch, «Perspectives on the CAP Theorem», IEEE Computer, 2012",
+   "fuente": "bd0934-gilbert-lynch"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La prueba es corta. Partí la red en dos grupos. Alguien escribe en uno, y otro cliente lee en el otro. El nodo que recibe la lectura no puede distinguir entre «la escritura ya ocurrió» y «no ocurrió», porque los mensajes del otro lado no llegan. Tiene dos caminos: contestar con lo que sabe y arriesgarse a devolver un dato viejo (pierde la C), o no contestar (pierde la A). No hay un tercer camino [#bd0934-gilbert-lynch]. Hice una versión en miniatura con el último bulto de un producto y tres réplicas, y los dos caminos:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Tres réplicas (A, B, C) guardan las ventas de un producto del que queda 1 solo bulto.\n// La red se parte: {A, B} de un lado y {C} del otro. Marcela le pide el bulto a A; Rubén, a C.\nconst STOCK = 1;\nconst vistos = { A: [\"A\", \"B\"], B: [\"A\", \"B\"], C: [\"C\"] };       // a qué nodos llega cada nodo durante la partición\n\nfunction dia(politica) {\n  const ventas = { A: [], B: [], C: [] };                         // ventas que conoce cada réplica\n  const pedir = (nodo, cliente) => {\n    const alcanza = vistos[nodo];\n    if (politica === \"CP\" && alcanza.length < 2)                  // CP: sin mayoría no se confirma nada\n      return `${cliente} -> ${nodo}: RECHAZADO (ve ${alcanza.length} de 3 nodos, no hay mayoría)`;\n    if (ventas[nodo].length >= STOCK) return `${cliente} -> ${nodo}: RECHAZADO (sin stock)`;\n    alcanza.forEach(n => ventas[n].push(cliente));                // AP y CP: se anota en los nodos que se alcanzan\n    return `${cliente} -> ${nodo}: ACEPTADO`;\n  };\n  console.log(`--- ${politica}`);\n  console.log(\"  \" + pedir(\"A\", \"Marcela\"));\n  console.log(\"  \" + pedir(\"C\", \"Rubén\"));\n  // la red se arregla: dos formas de juntar lo que sabe cada réplica\n  const unidas = [...new Set(Object.values(ventas).flat())];\n  console.log(`  al sanar, juntando todas las ventas: ${unidas.join(\" + \") || \"ninguna\"} (${unidas.length} vendidas, había ${STOCK})`);\n  if (unidas.length > STOCK) {\n    const ultima = unidas[unidas.length - 1];\n    console.log(`  si en cambio gana «la última escritura»: queda solo ${ultima}, y la venta de ${unidas[0]} se pierde sin avisar`);\n  }\n}\ndia(\"CP\");\ndia(\"AP\");",
+   "cap": "cap.js. Modelo de juguete, hecho para ver la decisión; no es un sistema real. Se puede correr acá mismo.",
+   "ejecutable": true
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node cap.js",
+     "s": "--- CP\n  Marcela -> A: ACEPTADO\n  Rubén -> C: RECHAZADO (ve 1 de 3 nodos, no hay mayoría)\n  al sanar, juntando todas las ventas: Marcela (1 vendidas, había 1)\n--- AP\n  Marcela -> A: ACEPTADO\n  Rubén -> C: ACEPTADO\n  al sanar, juntando todas las ventas: Marcela + Rubén (2 vendidas, había 1)\n  si en cambio gana «la última escritura»: queda solo Rubén, y la venta de Marcela se pierde sin avisar"
+    }
+   ],
+   "cap": "Corrido en node 22. Con la política que prioriza la consistencia (CP), Rubén recibe un rechazo y no se vende de más. Con la que prioriza la disponibilidad (AP), los dos compradores reciben un sí, y alguien después tiene que arreglar el enredo: pedir disculpas, o perder una venta sin darse cuenta si el conflicto se resuelve mal."
+  },
+  {
+   "t": "h3",
+   "x": "Lo que el teorema no dice"
+  },
+  {
+   "t": "lista",
+   "ord": false,
+   "items": [
+    "**«Elegí dos de tres».** El propio Brewer escribió doce años después que la fórmula «2 de 3» siempre indujo a error, porque simplifica de más: el teorema prohíbe solo una parte pequeña del espacio de diseño, la disponibilidad y la consistencia perfectas **durante** una partición, que son raras [#cap-twelve-years].",
+    "**«Un sistema puede ser CA».** Para un sistema distribuido, la partición no es opcional: la red falla cuando quiere. «CA» describe en la práctica una base en un solo nodo, donde no hay partición posible. Gilbert y Lynch señalan incluso que con una red asíncrona puede darse la misma incertidumbre aunque no se pierda ningún mensaje [#bd0934-gilbert-lynch].",
+    "**«El teorema habla de cómo anda el sistema siempre».** Solo habla de lo que pasa **durante una falla de la red**. Con la red sana, no restringe nada [#bd0934-abadi-pacelc].",
+    "**«Hay sistemas CP y AP, y listo».** Martin Kleppmann mostró en 2015 que las definiciones de CAP son ambiguas, que muchas etiquetas de productos no se sostienen y que la teoría deja de ser útil como herramienta de diseño sin más precisión [#bd0934-kleppmann-cap]."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "PACELC: lo que pasa cuando no hay falla"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Daniel Abadi propuso completar a CAP con lo que pasa el 99 % del tiempo, con la red sana. Su fórmula, que se pronuncia «pass-elk», dice: si hay una partición (P), ¿el sistema prefiere disponibilidad (A) o consistencia (C)?; si no (E, *else*), ¿prefiere latencia (L) o consistencia (C)? [#bd0934-abadi-pacelc]. La segunda mitad importa porque **toda réplica asíncrona cuesta consistencia a cambio de velocidad aunque no haya fallas**. Según el artículo, las versiones por defecto de Dynamo, Cassandra y Riak son PA/EL: ceden consistencia tanto ante particiones como en operación normal para ganar disponibilidad y baja latencia [#bd0934-abadi-pacelc]."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un sistema de reservas de asientos para un viaje largo queda partido en dos regiones por una falla de red. ¿Preferirías CP o AP? ¿Y para el contador de «me gusta» de una publicación?",
+   "resp": "Depende de lo que cueste un error. Con los asientos, vender el mismo asiento dos veces es un problema grave: conviene rechazar pedidos del lado sin mayoría (CP), aunque algunas personas vean un error. Con los «me gusta», un contador atrasado unos segundos no daña a nadie: conviene seguir aceptando (AP) y juntar después. No hay respuesta correcta en abstracto: es una decisión de negocio."
+  },
+  {
+   "t": "h",
+   "x": "Consistencia eventual, medida"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La [[consistencia eventual]] es la promesa de que, si se dejan de hacer cambios, todas las réplicas terminan viendo el mismo valor. No dice cuándo. Dynamo la adoptó a propósito: se diseñó como un almacén «eventualmente consistente», donde todas las actualizaciones llegan a todas las réplicas con el tiempo, a cambio de que el carrito de compras siempre acepte escrituras [#dynamo]. DynamoDB, su descendiente comercial, explica en su documentación que las lecturas son eventualmente consistentes por defecto y que una lectura hecha justo después de una escritura **puede no reflejarla** [#bd0934-ddb-consistencia].",
+    "No hace falta irse a un producto NoSQL para verlo: todo sistema con una réplica asíncrona ([@09-29]) lo tiene. Armé un primario y una réplica de PostgreSQL 16.15 en esta máquina. Un programa escribe un envío en el primario y lee la réplica después de esperar un tiempo variable. Contó cuántas de las 500 lecturas de cada fila vieron el dato viejo:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import subprocess, time\nD = \"/var/tmp/d0934\"\ndef abrir(puerto):\n    return subprocess.Popen([\"runuser\", \"-u\", \"postgres\", \"--\", \"psql\", \"-X\", \"-At\", \"-q\", \"-h\", D, \"-p\", str(puerto), \"-d\", \"lab\"],\n                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True, bufsize=1)\ndef q(p, sql):\n    p.stdin.write(sql + \";\\n\\\\echo fin\\n\"); p.stdin.flush()\n    filas = []\n    while True:\n        l = p.stdout.readline().rstrip(\"\\n\")\n        if l == \"fin\": return filas\n        filas.append(l)\npri, rep = abrir(21935), abrir(21936)\nq(pri, \"drop table if exists envios\"); q(pri, \"create table envios (id int primary key, estado text)\")\ntime.sleep(0.5)\nn = 0\nprint(\"espera entre escribir y leer | lecturas viejas en la réplica (de 500)\")\nfor espera_ms in (0, 1, 2, 5, 10, 20, 50):\n    viejas = 0\n    for _ in range(500):\n        n += 1\n        q(pri, f\"insert into envios values ({n}, 'pendiente')\")\n        if espera_ms: time.sleep(espera_ms / 1000)\n        if q(rep, f\"select count(*) from envios where id = {n}\")[0] == \"0\": viejas += 1\n    print(f\"{espera_ms:>3} ms                        | {viejas:>3}  ({100*viejas/500:.1f} %)\")",
+   "cap": "ventana.py. Dos sesiones de psql abiertas, una al primario y otra a la réplica (como un pool de conexiones)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 -I ventana.py",
+     "s": "espera entre escribir y leer | lecturas viejas en la réplica (de 500)\n  0 ms                        | 483  (96.6 %)\n  1 ms                        |   0  (0.0 %)\n  2 ms                        |   0  (0.0 %)\n  5 ms                        |   0  (0.0 %)\n 10 ms                        |   0  (0.0 %)\n 20 ms                        |   0  (0.0 %)\n 50 ms                        |   0  (0.0 %)"
+    }
+   ],
+   "cap": "Medido en esta VM, por socket local y sin carga. La ventana de inconsistencia en este montaje es menor a un milisegundo: con 0 ms de espera, casi todas las lecturas ven el dato viejo; con 1 ms, casi ninguna. Entre regiones distintas, o con carga, sería de varios órdenes de magnitud más."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El resultado es raro la primera vez: **la réplica está casi siempre atrás cuando la leés enseguida**, aunque la diferencia sea mínima. Si tu código escribe y lee de inmediato desde otro nodo, ese «casi siempre» es un error esperando para pasar. Para ver la ventana a ojo, forcé una demora de 3 segundos en la réplica con el parámetro `recovery_min_apply_delay` [#bd0934-pg-replicacion]:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 -I demora.py",
+     "s": "t=0.0 s  primario: insert del envío 1 confirmado\nt=0.0 s  réplica: ve 0 filas con id 1\nt=0.8 s  réplica: ve 0 filas con id 1\nt=1.5 s  réplica: ve 0 filas con id 1\nt=2.3 s  réplica: ve 0 filas con id 1\nt=3.0 s  réplica: ya ve el envío 1"
+    }
+   ],
+   "cap": "Corrido en esta VM con la demora de 3 segundos inducida a propósito en la réplica. En un sistema real, la demora no se elige: se sufre."
+  },
+  {
+   "t": "h3",
+   "x": "Quórum: elegir cuánta consistencia pagar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dynamo ofrece una perilla. Cada dato tiene N copias; una escritura espera a W copias y una lectura consulta a R copias. Si R + W > N, toda lectura se cruza con al menos una copia que tiene la última escritura, y se obtiene algo parecido a un quórum [#dynamo]. Cuanto mayores R y W, más consistencia y más latencia, y más nodos que tienen que estar vivos. Para N = 3:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "W (escribe en)",
+    "R (lee de)",
+    "R + W",
+    "¿Garantiza leer lo último?",
+    "Qué se siente"
+   ],
+   "filas": [
+    [
+     "1",
+     "1",
+     "2",
+     "No",
+     "Muy rápido; se lee viejo con frecuencia"
+    ],
+    [
+     "2",
+     "2",
+     "4",
+     "Sí",
+     "Punto medio; aguanta que caiga un nodo"
+    ],
+    [
+     "3",
+     "1",
+     "4",
+     "Sí",
+     "Lecturas rápidas; una escritura falla si cae un nodo"
+    ],
+    [
+     "1",
+     "3",
+     "4",
+     "Sí",
+     "Escrituras rápidas; una lectura falla si cae un nodo"
+    ],
+    [
+     "2",
+     "1",
+     "3",
+     "No",
+     "Parece seguro, pero 3 no es mayor que 3"
+    ]
+   ],
+   "cap": "Cuentas con N = 3. El cruce garantizado exige R + W > N. Los sistemas reales suman más detalles (por ejemplo, el «quórum flojo» de Dynamo) [#dynamo]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Leer lo que acabo de escribir",
+   "x": "El fallo más común de la consistencia eventual no es teórico: guardás un cambio, la pantalla se recarga leyendo de una réplica y no aparece. Se arregla de formas conocidas: leer del primario justo después de escribir, mantener a la persona pegada al mismo nodo durante un rato, o esperar hasta que la réplica alcance la posición de tu escritura. Todas cuestan algo. Ninguna es gratis."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa una base NoSQL, pero vive de sus ideas",
+   "x": [
+    "El mapa técnico verificó que el código no usa Redis, Firestore ni nada parecido; el servidor es un PostgreSQL de Supabase, al que la app llega por un único punto de entrada. Pero tres rasgos son los mismos que viste hoy. Uno: lo que se guarda en el teléfono es un almacén clave-valor (AsyncStorage, que por debajo es SQLite, [@06-37]), y las 11 tiendas de estado guardan textos JSON, un esquema flexible que valida el propio código. Dos: «lo que pasa ahora» llega con un retraso aceptado a propósito: las novedades de Inicio se piden cada 45 segundos y la sala en vivo cada 2 segundos, por sondeo; la migración agrega tablas a la publicación `supabase_realtime`, pero ningún código del cliente se suscribe. Tres: los envíos al servidor tienen una cola en el teléfono, con reintentos y un identificador por fila (`cliente_id`), para que reintentar nunca duplique: es la misma defensa que usa cualquier sistema con consistencia eventual. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/nube.ts",
+    "src/pantallas/Inicio.tsx",
+    "src/util/salas.ts",
+    "supabase/migrations/20261101000000_juntos.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Un cuadro comparativo honesto"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Criterio",
+    "Relacional (por ejemplo PostgreSQL)",
+    "NoSQL típico"
+   ],
+   "filas": [
+    [
+     "Forma de los datos",
+     "Tablas con esquema fijo, validado por la base",
+     "Flexible: la validación pasa a la aplicación"
+    ],
+    [
+     "Consultas nuevas",
+     "Cualquier combinación con SQL y JOIN, aunque no se haya previsto",
+     "Las previstas al diseñar; otras son difíciles o imposibles"
+    ],
+    [
+     "Transacciones entre varios registros",
+     "Estándar y completas ([@09-24])",
+     "Varía mucho: limitadas o por pedido; revisalo en cada producto"
+    ],
+    [
+     "Crecer",
+     "Hacia arriba es simple; hacia los costados, con trabajo extra",
+     "Pensado para crecer hacia los costados desde el diseño"
+    ],
+    [
+     "Consistencia por defecto",
+     "Fuerte en un solo nodo",
+     "A menudo eventual entre réplicas"
+    ],
+    [
+     "Velocidad de una lectura por clave",
+     "Del mismo orden, según lo medido hoy",
+     "Del mismo orden; más en memoria"
+    ],
+    [
+     "Madurez y herramientas",
+     "Décadas de herramientas, formación y soporte",
+     "Más joven y desigual entre familias"
+    ]
+   ],
+   "cap": "Generalizaciones, con excepciones: Spanner, por ejemplo, es una base distribuida a escala global con transacciones [#spanner], y PostgreSQL guarda documentos con JSONB."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La tabla no tiene un ganador a propósito. La pregunta correcta no es «¿relacional o NoSQL?» sino «¿qué necesita este dato?». Muchas aplicaciones usan las dos cosas: PostgreSQL para el dinero y las reglas, y una clave-valor para sesiones o caché."
+   ]
+  },
+  {
+   "t": "pasos",
+   "titulo": "Antes de aceptar «necesitamos NoSQL», cinco preguntas",
+   "pasos": [
+    {
+     "t": "¿Qué números?",
+     "x": "Operaciones por segundo, tamaño de datos y crecimiento esperado, con fecha. Una cuenta de 400 posiciones por segundo no justifica nada exótico."
+    },
+    {
+     "t": "¿Qué consulta no puedo hacer hoy?",
+     "x": "Una necesidad concreta («recorrer relaciones de cinco saltos») pesa más que una impresión («SQL no escala»)."
+    },
+    {
+     "t": "¿Qué consistencia necesita cada dato?",
+     "x": "El saldo de una cuenta y el contador de visitas no merecen la misma garantía."
+    },
+    {
+     "t": "¿Ya lo cubre lo que tengo?",
+     "x": "JSONB, extensiones o una réplica de lectura resuelven más casos de los que parece ([@09-32])."
+    },
+    {
+     "t": "¿Quién lo opera?",
+     "x": "Un sistema distribuido nuevo es otra guardia de noche, otros respaldos ([@09-28]) y otros errores."
+    }
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un operador logístico (datos inventados) tiene 2.000 camiones. Cada uno manda su posición cada 5 segundos. Calculá cuántas escrituras por segundo recibe la base. Después compará con lo medido ayer en esta máquina: 3.900 a 4.300 inserciones por segundo con una confirmación por fila en PostgreSQL ([@09-33]). ¿Alcanza una sola base relacional? ¿Qué más preguntarías?",
+   "pista": "2.000 camiones divididos por 5 segundos. Después pensá en el tamaño de los datos en un año y en qué consultas se harán.",
+   "solucion": "2.000 / 5 = 400 escrituras por segundo, unas diez veces menos que lo medido (en otra máquina y con otros datos podría ser distinto, así que no es una garantía). Para una base en un solo nodo alcanza con holgura. Lo que habría que mirar es el volumen en el tiempo: 400 por segundo son unos 34,5 millones de filas por día y unos 12.600 millones por año (400 × 86.400 × 365). Ahí aparece una pregunta real: cuántos meses de detalle hay que guardar, y si conviene resumir o particionar por fecha ([@09-30]) o usar una base de series de tiempo ([@09-37]). La frase «no escala» era imprecisa. El volumen anual, en cambio, es un dato a discutir."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Tenés N = 5 copias de cada dato. Si escribís en W = 3, ¿cuál es el menor R que garantiza leer lo último? ¿Y si W = 1? ¿Qué pasa con la disponibilidad en el segundo caso?",
+   "pista": "Pedí R + W > 5.",
+   "solucion": "Con W = 3, hace falta R ≥ 3 (3 + 3 = 6 > 5). Con W = 1, hace falta R = 5 (1 + 5 = 6 > 5): hay que leer de todas las copias, así que si un nodo está caído, la lectura falla o se tiene que contentar con menos y deja de garantizar lo último. Es el mismo compromiso del teorema CAP, visto con una perilla: más garantía de lectura, menos tolerancia a que caigan nodos."
+  }
+ ],
+ "recap": [
+  "NoSQL es una etiqueta para bases que se apartan de las tablas con SQL; agrupa familias muy distintas (documentos, clave-valor, columnas anchas, grafos, series de tiempo, vectoriales, búsqueda de texto).",
+  "Los motivos reales fueron escalar repartiendo los datos entre muchas máquinas (Bigtable y Dynamo), esquema flexible, baja latencia y modelos de datos que encajan mejor; no «SQL es lento».",
+  "Medido hoy, leer por clave en Redis y en PostgreSQL da resultados del mismo orden de magnitud. Cada familia es más rápida en lo suyo y renuncia a otras cosas.",
+  "El teorema CAP dice que, con una red que puede fallar, no se puede garantizar a la vez que cada pedido reciba respuesta y que el servicio se comporte como una sola copia. No dice «elegí dos de tres», y solo habla de lo que pasa durante una falla.",
+  "PACELC agrega lo de siempre: sin fallas, el sistema también elige entre latencia y consistencia. Toda réplica asíncrona tiene una ventana en la que se lee dato viejo; aquí fue menor a un milisegundo.",
+  "Con N copias, R + W > N garantiza que toda lectura se cruce con la última escritura. Cada perilla cambia latencia y tolerancia a fallas, y la decisión depende de lo que cueste un error."
+ ],
+ "repaso": [
+  {
+   "p": "Un colega resume el teorema CAP como «hay que elegir dos de tres». ¿Qué es lo más preciso para responderle?",
+   "o": [
+    "Es correcto: todo sistema distribuido elige dos de las tres propiedades para siempre",
+    "Es falso: el teorema solo vale para bases de datos que usan SQL como interfaz principal",
+    "Es una simplificación: solo restringe lo que pasa durante una falla de la red",
+    "Es inexacto: el teorema prohíbe elegir las tres, pero permite cualquier par sin costo"
+   ],
+   "c": 2,
+   "e": "El teorema dice que, ante una red que falla, no se puede garantizar a la vez respuesta a todos los pedidos y una sola copia lógica de los datos. Con la red sana no restringe nada, y Brewer mismo dijo que «2 de 3» induce a error. No es exclusivo de SQL, y los pares no salen gratis: cada uno cede algo en las fallas."
+  },
+  {
+   "p": "Un proveedor dice que su base es «CA: consistente y disponible, sin tolerar particiones». Para un sistema distribuido en varias máquinas, ¿qué conclusión es la más razonable?",
+   "o": [
+    "Que es el mejor diseño posible, porque reúne dos propiedades sin ceder nada",
+    "Que sirve solo mientras la red no falle, y ahí no está claro qué ocurre",
+    "Que la tercera propiedad es una opción que se activa o desactiva por configuración",
+    "Que es lo mismo que CP, porque el nombre solo cambia la letra de la tercera"
+   ],
+   "c": 1,
+   "e": "La partición no es una propiedad que el sistema elija: es lo que hace la red. Una etiqueta «CA» en un sistema distribuido deja sin responder qué pasa cuando la red falla, que es la pregunta del teorema. En un solo nodo, la discusión no aplica. No es lo mismo que CP: CP elige cómo comportarse durante la partición."
+  },
+  {
+   "p": "Escribís un envío en el primario de una réplica asíncrona y lo leés de inmediato en la réplica. Según la medición de hoy, ¿qué esperarías en la gran mayoría de las veces?",
+   "o": [
+    "Ver el dato nuevo, porque la réplica se actualiza antes de que termine la escritura",
+    "Un error de conexión, porque la réplica rechaza lecturas durante la replicación",
+    "Ver el dato nuevo, porque PostgreSQL bloquea la lectura hasta que la réplica alcance",
+    "Ver el dato viejo, porque la réplica recibe el cambio una fracción de tiempo después"
+   ],
+   "c": 3,
+   "e": "En la medición, con 0 ms de espera entre escribir y leer, entre el 94 y el 96 % de las lecturas vieron el dato viejo; con 1 ms, casi ninguna. La réplica asíncrona se actualiza después de que el primario confirma, y no bloquea lecturas. Por eso un «guardé y no aparece» es el error típico de la consistencia eventual."
+  },
+  {
+   "p": "Con N = 3 copias, escribís esperando a W = 2 y leés de R = 1. ¿Está garantizado leer siempre la última escritura?",
+   "o": [
+    "Sí, porque escribir en la mayoría de las copias alcanza para cualquier lectura",
+    "No, porque R + W = 3 no es mayor que N = 3, y la lectura puede caer en una copia vieja",
+    "Sí, porque con R = 1 se lee del nodo que coordinó la última escritura",
+    "No, porque con N = 3 ninguna combinación puede garantizar la lectura de lo último"
+   ],
+   "c": 1,
+   "e": "La garantía exige R + W > N. Con W = 2 y R = 1 la suma es 3, igual a N: la lectura puede caer en la única copia que no recibió la escritura. Con R = 2 sí se cruzan siempre. No es cierto que ninguna combinación sirva: (2, 2) o (3, 1) lo logran."
+  },
+  {
+   "p": "Medimos leer por clave en PostgreSQL y en Redis con un cliente, por socket local. ¿Qué mostraron las mediciones?",
+   "o": [
+    "Que Redis es una decena de veces más rápido, porque trabaja en memoria",
+    "Que PostgreSQL es más rápido, porque usa sentencias preparadas y un índice",
+    "Que los rangos se solapan, así que no hay diferencia demostrable con un cliente",
+    "Que las dos bases son equivalentes, así que da lo mismo elegir cualquiera"
+   ],
+   "c": 2,
+   "e": "Con un cliente los rangos medidos se pisaron: no se puede afirmar cuál gana, y menos una diferencia de diez veces. No prueba que sean equivalentes en todo: difieren en durabilidad, en qué consultas permiten y en cómo escalan, y las mediciones eran solo de lectura en una VM compartida."
+  },
+  {
+   "p": "En la tabla `envios_doc`, `where doc->>'estdo' = 'entregado'` devolvió cero filas sin error. ¿Qué enseña eso sobre el esquema flexible?",
+   "o": [
+    "Que PostgreSQL ignora los errores de tipeo cuando el tipo de columna es JSONB",
+    "Que el esquema flexible mueve las reglas a la aplicación, que debe vigilarlas",
+    "Que los campos de un documento se deben declarar antes de poder consultarlos",
+    "Que JSONB es menos seguro porque guarda los datos como texto sin estructura"
+   ],
+   "c": 1,
+   "e": "Un documento no declara sus campos: `estdo` es simplemente un campo que ninguna fila tiene. La base no puede saber que era un error, a diferencia de una columna inexistente, que sí da error. La validación pasa a la aplicación. JSONB guarda datos en un formato binario estructurado, no como texto plano, y no exige declarar campos."
+  },
+  {
+   "p": "PACELC agrega algo a CAP. ¿Qué es?",
+   "o": [
+    "Una cuarta propiedad, la durabilidad, que se suma a las tres del teorema",
+    "Una regla para elegir sistemas, según el tamaño de datos y la cantidad de nodos",
+    "Una versión más estricta del teorema, que también prohíbe las réplicas asíncronas",
+    "Una pregunta para el tiempo sin fallas: entre latencia y consistencia, ¿qué se prefiere?"
+   ],
+   "c": 3,
+   "e": "PACELC se lee: si hay partición (P), disponibilidad o consistencia (A, C); si no (E, else), latencia o consistencia (L, C). La parte «else» cubre el funcionamiento normal, que CAP deja sin decir. No agrega durabilidad ni prohíbe réplicas asíncronas: justamente describe su costo."
+  }
+ ],
+ "feynman": "Explicale a un amigo que escuchó «NoSQL es más rápido y escala más» cuándo esa frase es cierta y cuándo no. Usá una cosa que mediste hoy (la lectura por clave o la ventana de réplica) y contá el teorema CAP con el ejemplo del último bulto: qué hace cada política cuando la red se parte y qué se pierde en cada caso. Si te trabás, volvé a la sección «El teorema CAP, con precisión».",
+ "para_profundizar": [
+  {
+   "fuente": "bd0934-gilbert-lynch",
+   "nota": "El artículo de 2012 de Gilbert y Lynch (7 páginas): define con cuidado consistencia, disponibilidad y partición, da la prueba en un párrafo y explica cómo se esquiva el teorema en la práctica. Es la lectura más clara que hay sobre CAP."
+  },
+  {
+   "fuente": "cap-twelve-years",
+   "nota": "Brewer, doce años después: por qué «2 de 3» induce a error y qué hacer en lugar de resignarse. Buscá la sección sobre cómo manejar una partición (detectar, operar, recuperar)."
+  },
+  {
+   "fuente": "bd0934-abadi-pacelc",
+   "nota": "Abadi, 2012: PACELC con una clasificación de sistemas reales. Leé la tabla de clasificación para ver cómo se ubican Dynamo, Cassandra, MongoDB y otros."
+  },
+  {
+   "fuente": "dynamo",
+   "nota": "El artículo de Dynamo (2007). Los apartados 2 y 4 explican el carrito de compras que siempre acepta escrituras y el quórum con R + W > N; el 6 muestra las perillas con números reales de Amazon."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "NoSQL",
+   "d": "Etiqueta para las bases de datos que se apartan del modelo de tablas relacionales o que no usan SQL como interfaz principal. Agrupa familias muy distintas: documentos, clave-valor, columnas anchas, grafos, series de tiempo, vectoriales. Nació como rótulo de una reunión en 2009, no como definición técnica."
+  },
+  {
+   "t": "teorema CAP",
+   "d": "Resultado de Brewer y de Gilbert y Lynch: en una red que puede fallar, un servicio no puede garantizar a la vez que cada pedido reciba respuesta (disponibilidad) y que se comporte como una sola copia de los datos (consistencia). Solo habla de lo que pasa durante una partición de la red."
+  },
+  {
+   "t": "escalado horizontal de datos",
+   "d": "Hacer que una base aguante más trabajo repartiendo los datos entre varias máquinas comunes, en lugar de comprar una más grande. Exige repartir con una clave, copiar con réplicas y mover datos al sumar nodos."
+  },
+  {
+   "t": "consistencia eventual",
+   "d": "Promesa débil: si dejan de hacerse cambios, todas las réplicas terminan viendo el mismo valor, pero sin decir cuándo. Mientras tanto, una lectura puede devolver un dato viejo. Es el costo de aceptar escrituras en réplicas sin esperar a las demás."
+  },
+  {
+   "t": "PACELC",
+   "d": "Extensión de CAP propuesta por Abadi: si hay partición, ¿disponibilidad o consistencia?; si no hay, ¿latencia o consistencia? Describe también el costo de las réplicas asíncronas con la red sana."
+  },
+  {
+   "t": "quórum",
+   "d": "Mínimo de copias que tienen que participar en una lectura (R) o en una escritura (W). Con N copias, R + W > N garantiza que toda lectura se cruce con la última escritura. Cuanto más grandes, más consistencia, más latencia y menos tolerancia a nodos caídos."
+  },
+  {
+   "t": "esquema flexible",
+   "d": "Característica de las bases de documentos: cada registro puede tener sus propios campos, sin declararlos antes. Cambia el lugar donde se vigilan las reglas, de la base a la aplicación."
+  },
+  {
+   "t": "partición de red",
+   "d": "Falla de la red que deja a un grupo de nodos sin poder comunicarse con otro, aunque cada nodo siga funcionando. En el teorema CAP, los mensajes entre grupos se pierden o se demoran sin límite."
+  }
+ ],
+ "siguiente": "Documentos: MongoDB y Firestore, cómo se guarda y se consulta un registro con forma propia, y qué cambia cuando los datos viajan anidados.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0934-gilbert-lynch",
+   "t": "Perspectives on the CAP Theorem",
+   "a": "Seth Gilbert y Nancy Lynch",
+   "tipo": "paper",
+   "anio": 2012,
+   "url": "https://groups.csail.mit.edu/tds/papers/Gilbert/Brewer2.pdf"
+  },
+  {
+   "id": "bd0934-abadi-pacelc",
+   "t": "Consistency Tradeoffs in Modern Distributed Database System Design",
+   "a": "Daniel J. Abadi",
+   "tipo": "paper",
+   "anio": 2012,
+   "url": "https://www.cs.umd.edu/~abadi/papers/abadi-pacelc.pdf"
+  },
+  {
+   "id": "bd0934-kleppmann-cap",
+   "t": "A Critique of the CAP Theorem",
+   "a": "Martin Kleppmann",
+   "tipo": "paper",
+   "anio": 2015,
+   "url": "https://arxiv.org/abs/1509.05393"
+  },
+  {
+   "id": "bd0934-wikipedia-nosql",
+   "t": "NoSQL (Wikipedia)",
+   "a": "Wikipedia",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/NoSQL"
+  },
+  {
+   "id": "bd0934-ddb-consistencia",
+   "t": "DynamoDB read consistency (Amazon DynamoDB Developer Guide)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/HowItWorks.ReadConsistency.html"
+  },
+  {
+   "id": "bd0934-so-2026",
+   "t": "2026 Stack Overflow Developer Survey: Databases",
+   "a": "Stack Overflow",
+   "tipo": "articulo",
+   "anio": 2026,
+   "url": "https://survey.stackoverflow.co/2026/technology/data/databases"
+  },
+  {
+   "id": "bd0934-pgbench",
+   "t": "PostgreSQL 16: pgbench",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/pgbench.html"
+  },
+  {
+   "id": "bd0934-redis-benchmark",
+   "t": "Redis benchmark (Redis documentation)",
+   "a": "Redis",
+   "tipo": "doc",
+   "url": "https://redis.io/docs/latest/operate/oss_and_stack/management/optimization/benchmarks/"
+  },
+  {
+   "id": "bd0934-pg-json",
+   "t": "PostgreSQL 16: JSON Types",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/datatype-json.html"
+  },
+  {
+   "id": "bd0934-pg-replicacion",
+   "t": "PostgreSQL 16: Replication configuration (recovery_min_apply_delay)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/runtime-config-replication.html"
+  }
+ ]
+}

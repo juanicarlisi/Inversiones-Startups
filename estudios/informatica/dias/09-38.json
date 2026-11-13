@@ -1,0 +1,597 @@
+{
+ "id": "09-38",
+ "titulo": "Bases vectoriales y búsqueda por similitud",
+ "bajada": "Buscar «lo más parecido a esto» en lugar de «lo igual a esto»: vectores, dos formas de medir el parecido y lo que cuesta, medido, buscar exacto o aproximado con pgvector.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es un vector y por qué una lista de números puede representar de qué trata un texto, una foto o un reclamo.",
+  "Calcular a mano la distancia euclídea y la similitud coseno de dos vectores, y decir cuándo conviene cada una.",
+  "Guardar vectores en PostgreSQL con pgvector y encontrar los vecinos más cercanos de una consulta con búsqueda exacta.",
+  "Explicar cómo IVFFlat y HNSW evitan mirar todo y leer, con números, qué se gana en tiempo y qué se pierde en aciertos.",
+  "Reconocer tres trampas: filtros que devuelven menos filas de las pedidas, índices que envejecen y dimensiones que no se pueden cambiar."
+ ],
+ "venis_de": "Hasta ayer, buscar era comparar por igualdad o por rango: un id, un estado, una fecha, como en [@09-20] y [@09-37]. Hoy la pregunta cambia a «¿qué se parece a esto?». Te sirven los índices ([@09-21]), cómo se lee un plan ([@09-22]) y las extensiones de PostgreSQL ([@09-32]).",
+ "se_apoya_en": [
+  "09-20",
+  "09-21",
+  "09-22",
+  "09-32",
+  "09-34"
+ ],
+ "gancho": [
+  "Alguien escribe a soporte: «el paquete llegó con la caja mojada». Tenés 100.000 reclamos anteriores y querés ver los que se le parecen. `where texto = '…'` no encuentra nada. Un `like '%mojada%'` encuentra ese, pero no «llegó empapado» ni «humedad en el cartón», que son el mismo problema dicho con otras palabras. Las bases que viste hasta ahora comparan letras y números; no saben de qué trata un texto.",
+  "La idea de hoy es convertir cada texto en una **lista de números** de modo que los textos parecidos queden cerca, y buscar por cercanía. Vas a ver la matemática mínima (se hace a mano), cuánto cuesta buscar entre 100.000 vectores (medido) y cómo los índices aproximados lo bajan unas 20 veces a cambio de equivocarse un poco. Una aclaración: los vectores de los experimentos son **fabricados**, no los produce ningún modelo de IA; cómo los produce un modelo se ve en la Parte 17."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "De un texto a una lista de números"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[vector]] es una lista ordenada de números; cada posición es una **dimensión**. Con dos números, un vector es un punto en un plano; con tres, un punto en el espacio; con 128 o 1.536 ya no se puede dibujar, pero las cuentas son las mismas. Lo que importa es la **distancia** entre dos puntos: si dos vectores están cerca, lo que representan se parece.",
+    "¿Cómo puede una lista de números querer decir algo? Un ejemplo de juguete, con ejes que invento yo: agua, golpes y demora. Cada reclamo recibe un número de 0 a 1 por eje."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Reclamo",
+    "Agua",
+    "Golpes",
+    "Demora"
+   ],
+   "filas": [
+    [
+     "«la caja llegó mojada»",
+     "0,9",
+     "0,1",
+     "0,0"
+    ],
+    [
+     "«se cayó del camión y se abolló»",
+     "0,0",
+     "0,9",
+     "0,1"
+    ],
+    [
+     "«llegó tres días tarde»",
+     "0,0",
+     "0,1",
+     "0,9"
+    ],
+    [
+     "«paquete empapado» (consulta)",
+     "0,95",
+     "0,05",
+     "0,0"
+    ]
+   ],
+   "cap": "Valores inventados. Cada fila es un vector de tres dimensiones."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "grafo",
+   "alto": 280,
+   "nodos": [
+    {
+     "id": "a1",
+     "x": 12,
+     "y": 20,
+     "t": "caja mojada",
+     "k": "cliente"
+    },
+    {
+     "id": "a2",
+     "x": 24,
+     "y": 32,
+     "t": "llegó empapado",
+     "k": "cliente"
+    },
+    {
+     "id": "a3",
+     "x": 8,
+     "y": 40,
+     "t": "cartón húmedo",
+     "k": "cliente"
+    },
+    {
+     "id": "g1",
+     "x": 74,
+     "y": 18,
+     "t": "se cayó del camión",
+     "k": "alerta"
+    },
+    {
+     "id": "g2",
+     "x": 84,
+     "y": 34,
+     "t": "caja aplastada",
+     "k": "alerta"
+    },
+    {
+     "id": "d1",
+     "x": 40,
+     "y": 82,
+     "t": "llegó tarde",
+     "k": "red"
+    },
+    {
+     "id": "d2",
+     "x": 60,
+     "y": 90,
+     "t": "tres días de atraso",
+     "k": "red"
+    },
+    {
+     "id": "q",
+     "x": 18,
+     "y": 12,
+     "t": "consulta: paquete empapado",
+     "k": "servidor"
+    }
+   ],
+   "aristas": [
+    {
+     "de": "q",
+     "a": "a1",
+     "t": "",
+     "dir": false,
+     "dash": true
+    },
+    {
+     "de": "q",
+     "a": "a2",
+     "t": "",
+     "dir": false,
+     "dash": true
+    },
+    {
+     "de": "q",
+     "a": "a3",
+     "t": "",
+     "dir": false,
+     "dash": true
+    }
+   ],
+   "cap": "El mismo juego en un plano: los reclamos sobre agua (azul), golpes (rojo) y demora (ámbar) forman grupos. La consulta (verde) cae cerca del primero. Dibujo de juguete en dos dimensiones."
+  },
+  {
+   "t": "p",
+   "x": [
+    "En un caso real, **nadie elige los ejes**. Un modelo de IA entrenado para eso (un modelo de embeddings, tema de la Parte 17) recibe un texto y devuelve una lista de, por ejemplo, 384 números. Ninguna posición tiene nombre: el número 17 no quiere decir «agua». Lo único que tiene sentido es la distancia entre vectores. Y hay una regla práctica que cuesta caro olvidar: **el texto guardado y la consulta tienen que pasar por el mismo modelo**, porque cada modelo define su propio espacio y su propia cantidad de dimensiones. La documentación de Supabase declara la columna con esa cantidad fija, por ejemplo `vector(384)` [#bd0938-supabase-pgvector]."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un modelo devuelve para un reclamo la lista [0,31; -0,02; 0,77; …] de 128 números. ¿Qué significa la posición 3?",
+   "resp": "Nada por sí sola. Las dimensiones de un embedding real no tienen nombre ni significado individual: el modelo las fijó al entrenarse. Solo cuenta la distancia entre dos vectores del mismo modelo."
+  },
+  {
+   "t": "h",
+   "x": "Medir el parecido: dos reglas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La **distancia euclídea** (o L2) es la línea recta entre dos puntos: se restan las coordenadas, se elevan al cuadrado, se suman y se saca la raíz. Entre (0, 0) y (3, 4) es 5, el triángulo 3-4-5 de la escuela. Mide cuánto separa a dos puntos, tomando en cuenta el largo de cada vector.",
+    "La **similitud coseno** compara solo la **dirección** de las dos flechas que salen del origen: es el coseno del ángulo entre ellas, `producto escalar / (largo de a × largo de b)`. Da 1 si apuntan igual, 0 si son perpendiculares. Ignora el largo, y por eso es la preferida para texto: un reclamo repetido tres veces tiene un vector tres veces más largo, pero habla de lo mismo."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Probalo con conteos de palabras inventados. A = [1, 1, 1, 0] es «chofer entrega bulto». B = [3, 3, 3, 0] es la misma frase tres veces. C = [0, 0, 1, 5] habla de otra cosa. A mano, para A y C: el producto escalar es 1×0 + 1×0 + 1×1 + 0×5 = 1; los largos son √3 ≈ 1,732 y √26 ≈ 5,099; el coseno es 1 / 8,832 ≈ 0,113, o sea una distancia coseno de 0,887. Ahora que lo pida PostgreSQL con pgvector, la extensión de PostgreSQL para guardar vectores y buscar por cercanía:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select 'A-B' par, round(('[1,1,1,0]'::vector <-> '[3,3,3,0]')::numeric, 3) distancia_l2,\n       round(('[1,1,1,0]'::vector <=> '[3,3,3,0]')::numeric, 3) distancia_coseno\nunion all\nselect 'A-C', round(('[1,1,1,0]'::vector <-> '[0,0,1,5]')::numeric, 3),\n       round(('[1,1,1,0]'::vector <=> '[0,0,1,5]')::numeric, 3);",
+     "s": " par | distancia_l2 | distancia_coseno \n-----+--------------+------------------\n A-B |        3.464 |            0.000\n A-C |        5.196 |            0.887"
+    },
+    {
+     "c": "select '[3,4]'::vector <-> '[0,0]'::vector as l2,\n       '[3,4]'::vector <#> '[1,2]'::vector as menos_producto_interno;",
+     "s": " l2 | menos_producto_interno \n----+------------------------\n  5 |                    -11"
+    }
+   ],
+   "cap": "Corrido en PostgreSQL 16.15 con pgvector 0.6.0. `<->` es L2, `<=>` es la distancia coseno (1 menos la similitud) y `<#>` es el producto interno multiplicado por −1 (3×1 + 4×2 = 11, de ahí el −11); `<+>` es la distancia L1 [#bd0938-pgvector-readme]."
+  },
+  {
+   "t": "p",
+   "x": "La euclídea dice que A está más lejos de B (3,46) que de C… no: mirá, está **más cerca** de B que de C (3,46 contra 5,20), pero igual lejos de una copia exacta de sí misma. El coseno la ve igual: distancia 0,000. Con esta señal, la elección es simple. Si el largo del vector significa algo (una cantidad), usá L2. Si solo importa de qué trata, usá coseno."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Un atajo que conviene saber",
+   "x": "Si todos los vectores se normalizan a largo 1, la distancia coseno, la euclídea y el producto interno ordenan los resultados **igual**: para vectores de largo 1, la distancia euclídea al cuadrado vale 2 menos 2 veces el coseno. Por eso los modelos de embeddings suelen entregar vectores normalizados y da lo mismo cuál operador uses para ordenar. Los vectores de los experimentos de hoy están normalizados."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Siempre hay un vecino más cercano",
+   "x": "Un buscador por similitud **siempre devuelve algo**: los k vectores menos lejanos, aunque ninguno se parezca. Si preguntás por «pizza» en una base de reclamos de logística, te va a devolver los 10 reclamos menos lejanos de «pizza». Para evitarlo se pone un límite a la distancia, y ese límite se calibra con ejemplos, no se adivina."
+  },
+  {
+   "t": "h",
+   "x": "El vecino más cercano, de forma exacta"
+  },
+  {
+   "t": "p",
+   "x": "El problema se llama de **vecino más cercano** (*nearest neighbor*): dada una consulta, encontrar los k vectores más cercanos. La forma exacta es calcular la distancia contra todos y quedarse con los k menores. Es lo que hace pgvector por defecto: realiza búsqueda exacta, «lo que da recall perfecto» [#bd0938-pgvector-readme]. Fabriqué 100.000 vectores de 128 dimensiones, normalizados, con este script de semilla fija:"
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import numpy as np\nrng = np.random.default_rng(938)\nn, dim, temas = 100_000, 128, 200\ncentros = rng.normal(0, 1, (temas, dim)).astype(np.float32)\ndef muestra(k):\n    t = rng.integers(0, temas, k)\n    v = centros[t] + rng.normal(0, 0.8, (k, dim)).astype(np.float32)\n    return v / np.linalg.norm(v, axis=1, keepdims=True)\ndatos, consultas = muestra(n), muestra(100)",
+   "cap": "Cada vector es el centro de uno de 200 «temas» más ruido, y se normaliza a largo 1. Es un reemplazo barato de embeddings reales: tiene grupos, pero los reales son más desordenados."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create extension vector;\ncreate table items (\n  id    int primary key,\n  grupo smallint not null,\n  emb   vector(128) not null);\n-- los 10 más parecidos a una consulta, por distancia coseno:\nselect id from items order by emb <=> '[0.012,-0.093, …128 valores…]' limit 10;",
+   "cap": "El tipo `vector(128)` guarda 128 números de 4 bytes. La tabla de 100.000 filas pesa 56 MB."
+  },
+  {
+   "t": "p",
+   "x": "Con las 100 consultas de prueba, la búsqueda exacta tardó en promedio (mediana) **26,4 ms** con un proceso y **15,4 ms** con dos workers. El plan lo muestra: lee la tabla entera y ordena.  Es lo correcto para 100.000 vectores. El problema es el crecimiento: el costo es proporcional a la cantidad de vectores y de dimensiones. Si crece de forma lineal (ESTIMACIÓN: lo extrapolo, no lo medí), 10 millones de vectores de 128 dimensiones serían unos 2,6 segundos por consulta y 5 GB de datos para recorrer."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, costs off, timing off, summary off, buffers)\nselect id from items order by emb <=> (select emb from items where id = 1) limit 10;",
+     "s": " Limit (actual rows=10 loops=1)\n   Buffers: shared hit=7203\n   ->  Gather Merge (actual rows=10 loops=1)\n         Workers Planned: 2\n         ->  Sort (actual rows=9 loops=3)\n               Sort Method: top-N heapsort  Memory: 25kB\n               ->  Parallel Seq Scan on items (actual rows=33333 loops=3)"
+    }
+   ],
+   "cap": "Recortado. Tres procesos reparten las 100.000 filas, cada uno guarda sus 10 mejores y se juntan: 7.203 páginas leídas para devolver 10 filas."
+  },
+  {
+   "t": "pensa",
+   "x": "Si duplicás la cantidad de vectores y también la de dimensiones, ¿cuánto más tarda aproximadamente la búsqueda exacta?",
+   "resp": "Unas 4 veces más. El trabajo es calcular una distancia por vector, y cada distancia recorre todas las dimensiones: n por d. Duplicar las dos duplica por duplicar."
+  },
+  {
+   "t": "h",
+   "x": "Aproximar: no mirar todo"
+  },
+  {
+   "t": "p",
+   "x": "Para ir más rápido hay que renunciar a algo: dejar de mirar todo y aceptar que, a veces, el resultado no sea exactamente el mejor. Eso es la búsqueda **aproximada** de vecinos. Se la agrega con un índice y, según el README de pgvector, «cambia algo de recall por velocidad» [#bd0938-pgvector-readme]. **Recall@10** es la medida de cuánto se pierde: de los 10 vecinos verdaderos, cuántos devolvió el índice. Recall 0,9 es 9 de 10. pgvector ofrece dos tipos de índice."
+  },
+  {
+   "t": "h3",
+   "x": "IVFFlat: dividir en zonas y mirar las más probables"
+  },
+  {
+   "t": "p",
+   "x": "Un índice IVFFlat «divide los vectores en listas y busca en un subconjunto de ellas» [#bd0938-pgvector-readme]: agrupa los vectores en zonas alrededor de centros, y al consultar solo recorre las `probes` zonas cuyos centros están más cerca de la consulta. Es como un reparto por zonas: para buscar un bulto no recorrés el país, vas a las tres zonas más probables. La analogía se queda corta en un punto: si el bulto está justo en el borde de dos zonas y solo mirás una, lo perdés. Por eso el README pide crear el índice **después** de cargar datos: los centros se calculan con lo que hay en la tabla."
+  },
+  {
+   "t": "h3",
+   "x": "HNSW: una autopista, una avenida, una calle"
+  },
+  {
+   "t": "p",
+   "x": "HNSW (*Hierarchical Navigable Small World*, de Malkov y Yashunin, 2016 [#bd0938-hnsw-paper]) arma un grafo de proximidad en varias capas. La de arriba tiene pocos vectores con saltos largos; la de abajo, todos, con conexiones cortas. Para buscar, entrás por arriba y avanzás siempre hacia el vecino más cercano a la consulta; al bajar de capa, ajustás el recorrido. Es el recorrido de grafos de [@09-37], aplicado a distancias. Tres parámetros: `m` (conexiones por vector, 16 por defecto), `ef_construction` (64, cuánto se esfuerza al construir) y `ef_search` (40, cuántos candidatos mantiene al buscar) [#bd0938-pgvector-readme]. La analogía: autopista, avenida y calle, de lo grueso a lo fino."
+  },
+  {
+   "t": "h3",
+   "x": "Lo medido"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Búsqueda",
+    "Tiempo (mediana)",
+    "Recall@10"
+   ],
+   "filas": [
+    [
+     "Exacta, sin índice (1 proceso)",
+     "26,4 ms",
+     "1,000"
+    ],
+    [
+     "HNSW, `ef_search` = 10",
+     "0,73 ms",
+     "0,821"
+    ],
+    [
+     "HNSW, `ef_search` = 40 (el valor por defecto)",
+     "1,22 ms",
+     "0,996"
+    ],
+    [
+     "HNSW, `ef_search` = 100",
+     "1,29 ms",
+     "0,997"
+    ],
+    [
+     "HNSW, `ef_search` = 200",
+     "1,80 ms",
+     "0,997"
+    ],
+    [
+     "IVFFlat, `lists` = 100, `probes` = 1",
+     "0,51 ms",
+     "0,999"
+    ],
+    [
+     "IVFFlat, `lists` = 100, `probes` = 10",
+     "2,24 ms",
+     "1,000"
+    ],
+    [
+     "IVFFlat, `lists` = 316, `probes` = 1",
+     "0,26 ms",
+     "0,873"
+    ],
+    [
+     "IVFFlat, `lists` = 316, `probes` = 5",
+     "0,57 ms",
+     "1,000"
+    ]
+   ],
+   "cap": "100 consultas sobre 100.000 vectores de 128 dimensiones (los fabricados), en esta VM, con un proceso. El recall se calculó contra el top 10 exacto hecho con numpy. HNSW (m=16, ef_construction=64): 16,2 s de construcción, 79 MB de índice. IVFFlat con 100 listas: 0,6 s y 52 MB; con 316, 1,3 s y 53 MB. La tabla pesa 56 MB."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con `ef_search` = 40, HNSW contesta en 1,2 ms con casi todos los aciertos: unas 20 veces más rápido que la exacta. Subir a 200 casi no mejora el recall y cuesta más tiempo; bajar a 10 es más rápido pero pierde casi 2 de cada 10 vecinos. Con IVFFlat, el resultado depende de cómo se combinan `lists` y `probes`: con 316 listas y una sola zona, el recall fue 0,873; con 100 listas, 0,999. Los datos que fabriqué tienen 200 temas, y la cantidad de listas que se acomode mejor a esa estructura cambia el resultado.",
+    "Una cautela importante: estos datos están fabricados con grupos marcados, que es la situación fácil. Los embeddings reales suelen ser más desordenados y el recall para los mismos parámetros puede ser peor. Estos números muestran el **mecanismo y la forma del compromiso**, no lo que vas a obtener con tus datos: eso se mide con tus datos."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- la consulta 0, con hnsw.ef_search = 10: vecinos aproximados contra exactos (id, distancia coseno)",
+     "s": "aprox : 6984 .2177, 24305 .2337, 4127 .2404, 73994 .2413, 5053 .2434, 289 .2453,\n        15561 .2519, 38274 .2600, 66867 .2603, 96049 .2611\nexacto: 6984 .2177, 24305 .2337, 4127 .2404, 73994 .2413, 5053 .2434, 289 .2453,\n        15561 .2519, 91234 .2557, 38274 .2600, 66867 .2603"
+    }
+   ],
+   "cap": "El índice se saltó el vecino 91234, que era el octavo (distancia 0,2557), y devolvió en su lugar el 96049, que era el undécimo (0,2611). Recall de esta consulta: 0,9. Resultado de mi corrida, con datos fabricados."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create index items_hnsw on items using hnsw (emb vector_cosine_ops);\nexplain (analyze, costs off, timing off, summary off)\nselect id from items order by emb <=> (select emb from items where id = 1) limit 10;",
+     "s": " Limit (actual rows=10 loops=1)\n   ->  Index Scan using items_hnsw on items (actual rows=10 loops=1)\n         Order By: (emb <=> $0)"
+    }
+   ],
+   "cap": "Recortado. Con el índice, el plan ya no recorre la tabla: usa el índice para ordenar. `vector_cosine_ops` le dice qué distancia usar, y la consulta tiene que usar el mismo operador (`<=>`) para que el índice sirva."
+  },
+  {
+   "t": "pensa",
+   "x": "Creás un índice IVFFlat sobre una tabla vacía y después cargás un millón de vectores. ¿Qué problema esperás?",
+   "resp": "Los centros de las zonas se calcularon sin datos, así que no representan la distribución real y las zonas quedan mal armadas: hay que borrar el índice y crearlo de nuevo cuando la tabla ya tenga datos. Es la advertencia del README. HNSW no tiene ese problema porque va armando su grafo a medida que entran los vectores."
+  },
+  {
+   "t": "h",
+   "x": "Tres trampas"
+  },
+  {
+   "t": "p",
+   "x": "**Primera: los filtros.** La consulta «los 10 más parecidos, pero solo del grupo 7» parece inocente. Con un índice aproximado, el README avisa: «el filtro se aplica después de recorrer el índice» [#bd0938-pgvector-readme]. El índice trae alrededor de 40 candidatos por cercanía, y recién ahí se descartan los que no son del grupo 7. Si ese grupo es el 2 % de la tabla, de 40 candidatos sobreviven cerca de 1. Lo medí:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- HNSW con ef_search = 40; 20 consultas distintas\nselect count(*) from (select id from items where grupo = 7 order by emb <=> :q limit 10) t;",
+     "s": "filas devueltas por cada consulta: 0, 3, 2, 2, 0, 0, 2, 0, 2, 1, 0, 0, 1, 0, 1, 0, 1, 0, 1, 2"
+    },
+    {
+     "c": "-- la misma consulta sin índice (búsqueda exacta)",
+     "s": "filas devueltas por cada consulta: 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10"
+    }
+   ],
+   "cap": "Se pidieron 10 filas. Con HNSW, ninguna consulta devolvió más de 3. Sin error ni aviso: el resultado queda corto en silencio."
+  },
+  {
+   "t": "p",
+   "x": "Las salidas: subir `ef_search` (más candidatos, más tiempo), armar un índice parcial o una tabla por cada grupo cuando los grupos son pocos y grandes, o usar las **búsquedas iterativas** que pgvector sumó en la versión 0.8.0, que siguen pidiendo candidatos hasta completar [#bd0938-pgvector-changelog]. Yo corrí la 0.6.0 (la del paquete de Ubuntu), así que lo iterativo no lo probé. La documentación de Supabase menciona la misma trampa y recomienda la búsqueda iterativa [#bd0938-supabase-pgvector]."
+  },
+  {
+   "t": "p",
+   "x": "**Segunda: lo que cambia.** HNSW incorpora vectores nuevos al grafo a medida que entran; IVFFlat fija los centros al crearse. Como consecuencia (inferencia mía, a partir de cómo funciona), si la distribución de los datos se corre con el tiempo, el recall de un IVFFlat puede ir cayendo y conviene recrearlo. **Tercera: el tamaño.** Un `vector` guarda 4 bytes por dimensión más un pequeño encabezado: con 128 dimensiones, la tabla midió unos 560 bytes por fila. Con 1.536 dimensiones serían unos 6 KB por vector, o unos 6 GB por millón de vectores sin contar el índice (ESTIMACIÓN: 4 bytes × 1.536 × 1.000.000). Según el README, el tipo admite hasta 16.000 dimensiones, pero un índice solo hasta 2.000 [#bd0938-pgvector-readme]."
+  },
+  {
+   "t": "h",
+   "x": "pgvector o una base vectorial aparte"
+  },
+  {
+   "t": "p",
+   "x": "**pgvector** es una extensión de PostgreSQL ([@09-32]): los vectores viven en la misma tabla que el resto de los datos, con las mismas transacciones, los mismos `JOIN`, los mismos permisos y el mismo backup. Existen productos dedicados solo a vectores; no probé ni verifiqué ninguno. Una regla práctica (criterio mío): si ya usás PostgreSQL y tus vectores se cuentan en cientos de miles o pocos millones, empezá por pgvector: un sistema menos que operar y que sincronizar. Considerá un producto aparte cuando la medición con tus datos muestre que PostgreSQL no llega, no antes. Los embeddings, el índice vectorial y la búsqueda semántica completa vuelven en la Parte 17."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 13-11-2026",
+   "x": [
+    "Según el registro de cambios de pgvector, la última versión fechada es la 0.8.7 (publicada el 01-10-2026); la 0.9.0 figura sin publicar [#bd0938-pgvector-changelog]. El README dice que admite PostgreSQL 13 o posterior [#bd0938-pgvector-readme]. El índice HNSW llegó con la 0.5.0 (28-08-2023), su construcción en paralelo con la 0.6.0 (29-01-2024) y las búsquedas iterativas con la 0.8.0 (30-10-2024). Yo usé la 0.6.0 del paquete de Ubuntu 24.04 con PostgreSQL 16.15.",
+    "Las versiones estables de PostgreSQL al 12-11-2026 son 18.7, 17.12, 16.16, 15.20 y 14.25, y la 19 está en candidata de lanzamiento [#postgresql-versioning]. En Supabase se habilita con `create extension vector with schema extensions` [#bd0938-supabase-pgvector]. Los nombres de los operadores y de los parámetros (`hnsw.ef_search`, `ivfflat.probes`) son los de la versión que corrí; verificalos antes de copiar el código a otra."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa vectores: busca letras, no sentido",
+   "x": [
+    "Las migraciones de Senda declaran solo dos extensiones, `pg_cron` y `pg_net` (en `20261101000000_juntos.sql`); no hay ninguna columna de tipo `vector`, ni `pgvector`, ni nada parecido en `supabase/migrations/`, `src/`, `scripts/` ni `docs/` del repositorio. La búsqueda en la Biblia, en `src/datos/biblia.ts`, es léxica y corre en el teléfono: normaliza el texto y exige que cada palabra buscada esté contenida en el versículo. Y la búsqueda de personas (`20261124000000_buscar_por_alias.sql`) compara el comienzo del alias con `like`, desde 3 letras. Las tres son búsquedas por igualdad o por prefijo, no por parecido.",
+    "Eso es coherente con una regla del proyecto: «sin IA para los usuarios», con la API de Claude solo por detrás para producir contenido (regla 5 de `CLAUDE.md`). Un «versículos parecidos a este» requeriría un modelo de embeddings, guardar un vector por versículo y una columna `vector`; Supabase ya ofrece la extensión. No lo encontré planificado en los documentos que revisé. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/datos/biblia.ts",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261124000000_buscar_por_alias.sql",
+    "CLAUDE.md"
+   ]
+  }
+ ],
+ "recap": [
+  "Un vector es una lista de números; en un embedding real las posiciones no tienen nombre y solo importa la distancia entre vectores del mismo modelo.",
+  "La distancia euclídea mide la recta entre puntos y depende del largo; la similitud coseno compara solo la dirección. Con vectores de largo 1 ordenan igual. Un buscador siempre devuelve algo, aunque no se parezca.",
+  "La búsqueda exacta recorre todos los vectores (26 ms con 100.000 de 128 dimensiones, y crece de forma lineal). Los índices aproximados la bajan a poco más de 1 ms con recall de 0,996, a cambio de fallar a veces.",
+  "IVFFlat reparte en zonas y mira solo las más probables (`lists`, `probes`); HNSW navega un grafo por capas (`m`, `ef_construction`, `ef_search`). El recall depende de los parámetros y de los datos, y se mide con los tuyos.",
+  "Trampas: un filtro con índice aproximado puede devolver menos filas de las pedidas, sin avisar; IVFFlat se crea con datos y puede envejecer; el tamaño crece con las dimensiones. Senda no usa vectores: busca por letras y prefijos."
+ ],
+ "repaso": [
+  {
+   "p": "A = [2, 2, 0] y B = [6, 6, 0] son los conteos de palabras de un reclamo corto y del mismo texto repetido tres veces. ¿Qué dicen la distancia euclídea y la coseno?",
+   "o": [
+    "La euclídea los ve distintos (los separa una distancia grande) y la coseno los ve idénticos, porque solo mira la dirección",
+    "Las dos los ven idénticos, porque tienen los mismos ceros y las mismas proporciones entre sus números",
+    "La euclídea los ve idénticos, porque solo mira la dirección, y la coseno los ve muy distintos por el largo de cada uno",
+    "Las dos los ven distintos, porque un vector es tres veces más largo que el otro y ambas medidas lo penalizan"
+   ],
+   "c": 0,
+   "e": "El segundo vector es el primero multiplicado por 3: apunta en la misma dirección, así que el coseno da similitud 1 (distancia 0). La euclídea mide la recta entre los puntos y, como uno está más lejos del origen, da una distancia grande (unos 5,66). Quien responde que ambas los ven iguales o que la euclídea mira solo la dirección confunde las dos reglas."
+  },
+  {
+   "p": "Un equipo normaliza todos sus vectores a largo 1 y duda entre ordenar por `<->` (euclídea), `<=>` (coseno) o `<#>` (producto interno). ¿Qué pasa con el orden de los vecinos?",
+   "o": [
+    "Cambia mucho: con `<#>` los resultados salen en orden inverso al de `<=>` porque el operador devuelve el producto con signo negativo",
+    "Cambia según la cantidad de dimensiones: con más de 100, cada operador ordena los vecinos de una manera distinta",
+    "Cambia según el índice: con HNSW dan órdenes distintos entre sí, y con IVFFlat los tres dan el mismo orden de vecinos",
+    "Es el mismo, porque para vectores de largo 1 la euclídea al cuadrado vale 2 menos 2 veces el coseno y el producto interno es el coseno"
+   ],
+   "c": 3,
+   "e": "Con largo 1, las tres medidas son transformaciones que no alteran el orden: más cercano en coseno es más cercano en L2 y tiene mayor producto interno. El `<#>` devuelve el producto con signo negativo justamente para que ordenar de menor a mayor siga dando los más parecidos primero, y no invierte nada."
+  },
+  {
+   "p": "Con 100.000 vectores, HNSW con `ef_search` = 10 tardó 0,73 ms y acertó 0,821 de los vecinos; con `ef_search` = 40, tardó 1,22 ms y acertó 0,996. ¿Qué conclusión sale de eso?",
+   "o": [
+    "`ef_search` baja el recall sin cambiar el tiempo, porque es un parámetro del índice que se fija una sola vez al crearlo",
+    "El recall depende de los datos y no de los parámetros, así que cambiar `ef_search` no debería alterar los aciertos del índice",
+    "Con 40 el índice recorre menos candidatos y por eso acierta más, aunque le toma un poco más de tiempo responder",
+    "Con 40 el índice examina más candidatos: gana casi 18 puntos de recall a costa de 0,5 ms más por consulta"
+   ],
+   "c": 3,
+   "e": "`ef_search` es cuántos candidatos mantiene la búsqueda: más candidatos, más aciertos y más tiempo. Se ajusta en cada sesión con `set hnsw.ef_search`, no al crear el índice, y los datos también influyen, pero el parámetro movió el recall de 0,82 a 0,996. Decir que con 40 recorre menos candidatos es lo contrario de lo que pasa."
+  },
+  {
+   "p": "Una consulta pide los 10 vectores más parecidos con `where grupo = 7` (el 2 % de la tabla) y con un índice HNSW devuelve 2 filas, sin error. ¿Por qué?",
+   "o": [
+    "El índice trae unos 40 candidatos por cercanía y recién después se aplica el filtro, así que sobreviven pocos del grupo 7",
+    "El índice HNSW no admite filtros y los ignora; las 2 filas devueltas son las únicas del grupo 7 que existen en la tabla",
+    "PostgreSQL aplica el filtro primero y después busca en lo que queda, pero el índice tiene un tope de 2 filas por consulta",
+    "La búsqueda exacta y la aproximada devuelven siempre la misma cantidad de filas, así que debe haber un error de carga de datos"
+   ],
+   "c": 0,
+   "e": "El README lo avisa: con índices aproximados, el filtro se aplica después de recorrer el índice. Con `ef_search` = 40 y un grupo del 2 %, de 40 candidatos quedan cerca de 1. La búsqueda exacta, sin índice, devolvió 10 en las 20 pruebas, así que el grupo tiene filas de sobra y no hay error de datos."
+  },
+  {
+   "p": "Una tienda tiene 5.000 vectores de 128 dimensiones y se pregunta si necesita un índice HNSW. Con lo medido hoy (26 ms para 100.000), ¿qué le conviene?",
+   "o": [
+    "Crear el índice igual, porque la búsqueda exacta es peligrosa y puede dar resultados incorrectos con tablas chicas",
+    "No crear ninguno: la búsqueda exacta tardaría poco más de 1 ms (ESTIMACIÓN lineal), da recall perfecto y no hay nada que mantener",
+    "Crear un IVFFlat sobre la tabla vacía antes de cargar los datos, porque así se mantiene siempre actualizado",
+    "Cambiar a una base vectorial dedicada, porque PostgreSQL no puede buscar vectores si no hay un índice sobre ellos"
+   ],
+   "c": 1,
+   "e": "El costo exacto es proporcional a la cantidad de vectores: 5.000 es la veinteava parte de 100.000, o sea más o menos 1,3 ms. Con recall perfecto y sin índice que construir ni mantener, no hay razón para aproximar. La exacta no es peligrosa, un IVFFlat sobre tabla vacía queda mal armado, y pgvector busca sin índice por defecto."
+  },
+  {
+   "p": "Alguien consulta una base de reclamos de logística con el texto «receta de pizza» y el buscador por similitud devuelve 10 reclamos. ¿Qué significa?",
+   "o": [
+    "Que esos 10 reclamos hablan de recetas, porque el buscador solo devuelve resultados cuando hay algo parecido en la base",
+    "Que el modelo de embeddings falló, porque ninguna consulta sin relación con la base debería producir resultados",
+    "Que son los 10 reclamos menos lejanos de la consulta: sin un límite de distancia, siempre devuelve algo aunque nada se parezca",
+    "Que la base está mal indexada, porque un índice bien armado devolvería cero filas ante una consulta sin parecidos"
+   ],
+   "c": 2,
+   "e": "La búsqueda de vecinos más cercanos ordena por distancia y corta en k: siempre hay un más cercano. Para saber si se parece de verdad hay que mirar la distancia y compararla con un umbral calibrado con ejemplos. Ni el modelo ni el índice fallaron."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística cómo una base puede encontrar reclamos «parecidos» a uno nuevo aunque no compartan palabras: qué guarda de cada reclamo, qué quiere decir «cerca», y por qué para ir rápido a veces se acepta que el resultado no sea exactamente el mejor.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0938-pgvector-readme",
+   "nota": "El README oficial de pgvector: tipos, operadores, y las secciones de indexado HNSW e IVFFlat con sus parámetros por defecto. Leé «Indexing» y «Filtering» para repetir lo medido hoy."
+  },
+  {
+   "fuente": "bd0938-hnsw-paper",
+   "nota": "El artículo original de HNSW. Alcanza con el resumen y las figuras de las capas, para ver por qué se entra por arriba y se baja."
+  },
+  {
+   "fuente": "bd0938-supabase-pgvector",
+   "nota": "Cómo se habilita y se usa la extensión en Supabase, con ejemplos de columnas y consultas, y la nota sobre filtros con índices aproximados."
+  }
+ ],
+ "videos": [
+  {
+   "q": "vector embeddings and similarity search explained cosine similarity",
+   "por_que": "Para ver animadas la dirección de los vectores y por qué el coseno ignora el largo."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "vector",
+   "d": "Lista ordenada de números, donde cada posición es una dimensión. En búsqueda por similitud, un modelo convierte un texto, una imagen u otro dato en un vector tal que lo parecido queda cerca."
+  },
+  {
+   "t": "similitud coseno",
+   "d": "Medida de parecido entre dos vectores: el coseno del ángulo que forman. Vale 1 si apuntan en la misma dirección y 0 si son perpendiculares; ignora el largo de cada uno."
+  },
+  {
+   "t": "pgvector",
+   "d": "Extensión de PostgreSQL que agrega el tipo `vector`, los operadores de distancia y los índices HNSW e IVFFlat. Permite guardar vectores junto al resto de los datos y buscar los más cercanos."
+  },
+  {
+   "t": "vecino más cercano",
+   "d": "Dado un vector de consulta, el vector guardado con menor distancia a él. La búsqueda de los k vecinos más cercanos puede ser exacta (compara con todos) o aproximada (usa un índice y puede fallar)."
+  },
+  {
+   "t": "distancia euclídea",
+   "d": "Distancia en línea recta entre dos puntos: raíz de la suma de los cuadrados de las diferencias, coordenada por coordenada. Se llama también L2 y depende del largo de los vectores."
+  },
+  {
+   "t": "recall",
+   "d": "En búsqueda aproximada, la fracción de los vecinos verdaderos que el índice devolvió. Recall 0,9 con k = 10 significa 9 aciertos de 10."
+  },
+  {
+   "t": "HNSW",
+   "d": "Índice aproximado que arma un grafo de proximidad en varias capas y busca avanzando hacia el vecino más cercano. Sus parámetros principales son m, ef_construction y ef_search."
+  },
+  {
+   "t": "IVFFlat",
+   "d": "Índice aproximado que agrupa los vectores en listas alrededor de centros y, al buscar, recorre solo las más cercanas a la consulta. Se crea con datos ya cargados."
+  }
+ ],
+ "siguiente": "Búsqueda de texto: el índice invertido, la otra forma de encontrar documentos por palabras, y cómo se ordena lo encontrado por relevancia.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0938-pgvector-readme",
+   "t": "pgvector: open-source vector similarity search for Postgres (README)",
+   "a": "Andrew Kane y colaboradores",
+   "tipo": "doc",
+   "url": "https://github.com/pgvector/pgvector"
+  },
+  {
+   "id": "bd0938-pgvector-changelog",
+   "t": "pgvector: CHANGELOG",
+   "a": "Andrew Kane y colaboradores",
+   "tipo": "doc",
+   "url": "https://github.com/pgvector/pgvector/blob/master/CHANGELOG.md"
+  },
+  {
+   "id": "bd0938-supabase-pgvector",
+   "t": "pgvector: Embeddings and vector similarity",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/database/extensions/pgvector"
+  },
+  {
+   "id": "bd0938-hnsw-paper",
+   "t": "Efficient and robust approximate nearest neighbor search using Hierarchical Navigable Small World graphs",
+   "a": "Yu. A. Malkov y D. A. Yashunin",
+   "tipo": "paper",
+   "anio": "2016",
+   "url": "https://arxiv.org/abs/1603.09320"
+  }
+ ]
+}
