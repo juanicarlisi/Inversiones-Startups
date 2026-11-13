@@ -121,6 +121,9 @@ Validador «Todo en orden» con las 1.625 lecciones; prueba de arranque (31 de 3
 con letra grande: 330 portadas con el «cuándo» cortado con «…», arregladas en la pantalla (dos líneas) y vueltas a auditar en cero;
 las 86 pantallas, sin problemas.
 
+El APK 54 se compiló en GitHub con el validador, la prueba de arranque y la prueba de lo social en verde (123,9 MB):
+https://github.com/juanicarlisi/senda-app/releases/tag/prueba-54 (trae todo lo anterior).
+
 ## 3. Próximos
 
 1. Que el fundador pruebe el APK 54 (pendiente «probar54») y elija el logo antes de pagar el INPI (pendiente «logo_eleccion»).
