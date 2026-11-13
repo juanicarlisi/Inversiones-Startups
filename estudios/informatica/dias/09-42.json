@@ -1,0 +1,689 @@
+{
+ "id": "09-42",
+ "titulo": "Supabase: la anatomía de un backend sobre Postgres",
+ "bajada": "Abrís un proyecto de Supabase pieza por pieza, comprobás con la base de Senda cómo un token elige el rol de Postgres con el que corre cada pedido, y ves qué paga y qué no usa Senda de lo que ofrece.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Nombrar las piezas de un proyecto de Supabase (PostgREST, Auth, Realtime, Storage, funciones de borde, pg_graphql) y decir qué guarda cada una en la base.",
+  "Explicar cómo un token firmado elige el rol de Postgres de cada pedido (anon, authenticated, service_role) y por qué la seguridad real vive en privilegios y políticas.",
+  "Distinguir un permiso que falta (error 42501) de una política que no deja pasar filas (lista vacía) y diagnosticar cada caso con consultas al catálogo.",
+  "Describir cómo Realtime convierte el registro de cambios de la base en mensajes, y qué costo tiene frente a consultar cada tantos segundos.",
+  "Leer, para un proyecto real, cuáles servicios usa, cuáles no y qué límites de plan lo condicionan."
+ ],
+ "venis_de": "En [@07-25] y [@07-29] viste a Supabase desde afuera: qué alquila una app y cómo se prueban sus reglas. En [@09-32] conociste los roles y las extensiones de PostgreSQL, y ayer, en [@09-41], los privilegios y la seguridad por fila. Hoy se juntan: cada servicio de Supabase es un programa común que habla con la misma base, con esos mismos roles.",
+ "se_apoya_en": [
+  "05-26",
+  "07-10",
+  "07-25",
+  "07-29",
+  "08-07",
+  "09-27",
+  "09-32",
+  "09-40",
+  "09-41"
+ ],
+ "gancho": [
+  "Cuando el teléfono de Ana abre Senda y pide su perfil, ninguna línea de código de Senda corre en un servidor. El pedido sale como `GET /rest/v1/perfiles`, llega a una puerta de entrada de Supabase, lo recibe un programa escrito en Haskell que Senda no escribió, y termina como una consulta común y corriente en una base PostgreSQL, ejecutada con el rol `authenticated`. Lo demás ya lo hizo la base: la política de ayer decidió que Ana ve su fila y no la de Beto.",
+  "Hoy desarmás esa cadena. Aprendés qué programas rodean a la base, cómo el token de cada pedido los hace trabajar con el rol correcto, y qué parte de todo eso usa Senda de verdad. Las pruebas corrieron en esta máquina, en un PostgreSQL 16.15 propio con las 42 migraciones de Senda. Un aviso importante: no pude instalar PostgREST en esta máquina, así que para ver el mecanismo escribí un imitador de unas 50 líneas que hace lo que la documentación de PostgREST dice que hace. No es PostgREST ni es Supabase; es una maqueta para ver la idea."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un proyecto de Supabase por dentro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un proyecto de Supabase es una base PostgreSQL rodeada de programas independientes. Cada uno resuelve una tarea que ya viste en la Parte 7, y la documentación de arquitectura de Supabase lista el conjunto [#pki-supabase-arq]. Esta tabla es el mapa de hoy, con lo que cada pieza deja guardado en la base."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pieza",
+    "Qué hace",
+    "Qué deja en Postgres"
+   ],
+   "filas": [
+    [
+     "[[PostgREST]]",
+     "Convierte tablas y funciones en una API HTTP: cada pedido pasa a ser una consulta SQL",
+     "Nada propio: no guarda estado"
+    ],
+    [
+     "[[Auth (GoTrue)|GoTrue]]",
+     "Registra personas, verifica el login y emite los tokens",
+     "El esquema `auth`: usuarios, sesiones, identidades"
+    ],
+    [
+     "[[Realtime|Realtime de Supabase]]",
+     "Envía por WebSocket los cambios de la base, mensajes entre clientes y presencia",
+     "Nada propio: lee el registro de cambios por una réplica lógica"
+    ],
+    [
+     "[[Storage|Storage de Supabase]]",
+     "API de archivos compatible con S3",
+     "Una fila por archivo en `storage.objects`, más las políticas de acceso"
+    ],
+    [
+     "Funciones de borde",
+     "Código Deno para lo que SQL no puede hacer ([@07-29])",
+     "Nada: llaman a la base como cualquier cliente"
+    ],
+    [
+     "`pg_graphql`",
+     "Extensión que refleja el esquema como API GraphQL",
+     "Nada: corre dentro de la base"
+    ],
+    [
+     "Supavisor",
+     "Pooler: reparte pocas conexiones reales entre muchos clientes",
+     "Nada"
+    ]
+   ],
+   "cap": "Basado en la página de arquitectura de Supabase, leída el 13-11-2026. Esa página también nombra a Envoy como puerta de entrada y a Studio como panel."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en la última columna: casi ninguna pieza guarda estado propio. Todo lo importante queda en Postgres, y la página de arquitectura lo dice como principio de diseño: cada herramienta tiene que poder funcionar sola con solo una base [#pki-supabase-arq]. Por eso entender Supabase es, en el fondo, entender Postgres: roles, privilegios, políticas, extensiones."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "App",
+       "s": "teléfono con la clave pública",
+       "k": "cliente"
+      },
+      {
+       "t": "Puerta de entrada",
+       "s": "enruta por la ruta del pedido",
+       "k": "red",
+       "e": "HTTPS + token"
+      }
+     ],
+     "baja": "según la ruta:"
+    },
+    {
+     "nodos": [
+      {
+       "t": "/auth/v1",
+       "s": "Auth",
+       "k": "servidor"
+      },
+      {
+       "t": "/rest/v1",
+       "s": "PostgREST",
+       "k": "servidor"
+      },
+      {
+       "t": "/realtime/v1",
+       "s": "Realtime",
+       "k": "servidor"
+      },
+      {
+       "t": "/storage/v1",
+       "s": "Storage",
+       "k": "servidor"
+      }
+     ],
+     "baja": "todos terminan en:"
+    },
+    {
+     "nodos": [
+      {
+       "t": "PostgreSQL",
+       "s": "roles, privilegios, políticas, datos",
+       "k": "datos"
+      }
+     ]
+    }
+   ],
+   "cap": "El camino de un pedido. Las rutas `/auth/v1`, `/rest/v1` y `/storage/v1` son las que usa Senda; `/functions/v1` va a las funciones de borde y `/graphql/v1` a `pg_graphql`."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Pensalo como un operador logístico con varias puertas de recepción: una para mercadería a granel, otra para paquetería, otra para devoluciones. Cada puerta tiene sus propios operarios, pero todos dejan la mercadería en el mismo depósito y respetan el mismo reglamento de acceso. Donde deja de valer: las puertas de Supabase las construyó un solo proveedor para entenderse entre sí, y al cambiar de proveedor perdés las puertas, no el depósito. Los datos y las políticas son Postgres y se exportan; el servicio de cuentas no.",
+   "titulo": "El operador con varias puertas"
+  },
+  {
+   "t": "h",
+   "x": "El rol viaja en el token"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ayer viste que cada rol tiene privilegios y que las políticas de seguridad por fila miran quién consulta. Falta un eslabón: cómo la base sabe que quien consulta es Ana. Supabase usa cuatro roles de Postgres que la documentación describe así: `anon` para pedidos sin sesión, `authenticated` para personas con sesión, `service_role` para código de confianza y que se salta la seguridad por fila, y `authenticator`, el único que se conecta a la base y que, en las palabras de Supabase, valida el token y «cambia» al rol que corresponda [#bd42-supabase-roles]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "El mecanismo lo describe la documentación de PostgREST. El pedido trae un token firmado ([[JWT]]). PostgREST verifica la firma y mira la afirmación `role` del token; abre una transacción, ejecuta `SET LOCAL ROLE` con ese nombre y, mientras dura, la consulta corre con los permisos de ese rol. Si el pedido no trae token, usa el rol anónimo. Para que el cambio sea posible, el administrador tiene que haber concedido esos roles al `authenticator` [#baas-postgrest-auth]. Los datos del token (quién es la persona, `sub`) quedan en una variable de sesión que la base lee con `auth.uid()` ([@07-29])."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para ver el mecanismo escribí un imitador de PostgREST en Node. Hace tres cosas: verifica la firma HMAC del token, elige el rol (`anon` si no hay token) y corre la consulta en una transacción con el rol y los datos del token puestos. Se conecta con un rol `authenticator`, creado con `NOINHERIT` como describe la documentación."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const claims = verificar(token) || (token ? null : { role: 'anon' });   // firma, vencimiento\nconst rol = claims.role || 'anon';\nif (!ROLES.has(rol)) return salida(401, { message: 'rol no permitido' });  // lista cerrada\n\nawait c.query('begin');\nawait c.query(\"select set_config('request.jwt.claims', $1, true)\", [JSON.stringify(claims)]);\nawait c.query('set local role ' + rol);          // desde acá la consulta corre como ese rol\nconst r = await c.query(`select to_jsonb(t) as fila from public.${tabla} t limit 5`);\nawait c.query('commit');",
+   "cap": "minirest.js, el núcleo. Un rol no se puede pasar como parámetro: por eso va una lista cerrada de tres nombres, y el nombre de la tabla ya pasó una expresión regular `[a-z_]+`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Después le pedí cosas con distintos tokens, sobre la copia de Senda: la tabla `perfiles`, que tiene una política para `authenticated`, y dos tablas con la seguridad por fila prendida y ninguna política o sin permisos. Las firmas son de práctica, con un secreto inventado."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node cliente_rest.js   # cada línea: quién pide, qué tabla, qué respondió",
+     "s": "sin token (rol anon)               perfiles        → 200 0 filas []\nAna (authenticated)                perfiles        → 200 1 filas [\"Ana\"]\nBeto (authenticated)               perfiles        → 200 1 filas [\"Beto\"]\ntoken de Ana con el sub cambiado   perfiles        → 401 {\"message\":\"JWT inválido o vencido\"}\ntoken vencido                      perfiles        → 401 {\"message\":\"JWT inválido o vencido\"}\nrole: postgres en el token         perfiles        → 401 {\"message\":\"rol no permitido\"}\nAna                                preguntas_clave → 200 0 filas []\nservice_role                       perfiles        → 200 3 filas [\"Prueba\",\"Ana\",\"Beto\"]\nservice_role                       preguntas_clave → 200 5 filas [\"esc-001\",\"esc-002\",\"esp-001\",\"esp-002\",\"cas-001\"]\nsin token (rol anon)               compras_play    → 403 {\"code\":\"42501\",\"message\":\"permission denied for table compras_play\"}"
+    },
+    {
+     "c": "psql -U authenticator -c \"set role postgres\" -c \"select count(*) from perfiles\"",
+     "s": "ERROR:  permission denied to set role \"postgres\"\nERROR:  permission denied for table perfiles"
+    }
+   ],
+   "cap": "Corrido en PostgreSQL 16.15 con las 42 migraciones de Senda. Los tokens de la prueba llevan `is_anonymous: true`, como los de Senda. Las filas se resumen a su nombre o id."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay cuatro cosas para leer en esa salida. Primera: Ana y Beto piden lo mismo y reciben cada uno solo su fila; la diferencia está en el `sub` del token y en la política de ayer, no en el programa. Segunda: tocar el `sub` de un token rompe la firma, por eso el pedido ni llega a la base. Tercera: `service_role` ve todo, incluso `preguntas_clave` con las respuestas correctas, porque tiene el atributo `BYPASSRLS`; por eso esa clave nunca debe viajar en una app. Cuarta, la más sutil: el `authenticator` en sí no puede hacer nada (`permission denied for table perfiles`), y cuando intentó pasar a `postgres` la base lo rechazó. Es un camaleón con una lista cerrada de disfraces."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En la salida de arriba, `anon` pidiendo `perfiles` recibió `200 []` (lista vacía) y pidiendo `compras_play` recibió un error 403 con código `42501`. Las dos son respuestas de «no». ¿Qué diferencia hay entre lo que pasó adentro de la base?",
+   "resp": "En `perfiles`, `anon` sí tiene el permiso de leer la tabla y la política que existe es solo para `authenticated`: la consulta corre y la seguridad por fila deja cero filas. En `compras_play` se retiró el permiso con `revoke`: la base ni la deja empezar y lanza el error 42501. Supabase lo resume así: la base evalúa primero los permisos de tabla y recién después la seguridad por fila."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Los roles `anon` y `service_role` también eran el nombre de las claves de API de Supabase, dos tokens largos que empiezan con `eyJ`. Al 13-11-2026, la documentación dice que Supabase está retirando esas claves antes de fin de 2026 y las reemplaza por una clave publicable (`sb_publishable_...`) y una secreta (`sb_secret_...`), que son cadenas cortas y no tokens; cada una se resuelve igual a un rol de Postgres (publicable: `anon` o `authenticated`; secreta: `service_role`) [#red31-supabase-api-keys]. Los tokens de las personas que inician sesión son otra cosa: llevan las afirmaciones `sub`, `role`, `aud`, `exp`, `session_id` e `is_anonymous`, entre otras [#bd42-supabase-jwt-fields]. Lo que no cambia es el principio de que el rol decide qué se puede hacer. Senda guarda su clave en una variable que todavía se llama `..._ANON_KEY`, y el flujo que arma la app prueba primero la clave nueva ([@07-25]).",
+   "titulo": "Las claves cambian de nombre"
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "El imitador firma con un secreto compartido (HMAC). Quien tenga ese secreto puede fabricar cualquier token, con cualquier `role`: por eso la clave de servicio es un secreto de verdad. Supabase publica además un listado de claves públicas de verificación para que otros programas comprueben sus tokens sin poder fabricarlos [#sen29-supabase-jwts]. Es un cambio de algoritmo que no altera el mecanismo de hoy: el token dice el rol, y la base lo obedece.",
+   "titulo": "Quien firma, manda"
+  },
+  {
+   "t": "h",
+   "x": "Auth: quién emite el pasaporte"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El servicio de cuentas es un programa en Go, nacido de un proyecto de Netlify llamado GoTrue, que emite tokens, administra sesiones y habla con proveedores externos como Google [#bd42-auth-readme]. Sus tablas viven en un esquema `auth` de la misma base. La documentación aclara dos cosas que importan: el esquema `auth` no se expone en la API automática, y para guardar datos de las personas conviene crear una tabla propia en `public` que referencie `auth.users` con `on delete cascade`, usando solo la clave primaria como referencia porque lo demás lo administra Supabase y puede cambiar [#bd42-supabase-userdata]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda hace exactamente eso, y la prueba se ve en el catálogo. En mi copia local, 31 claves foráneas de tablas de `public` apuntan a `auth.users`. Borré una cuenta de práctica y miré qué pasó con sus datos:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select count(*) from pg_constraint where contype = 'f' and confrelid = 'auth.users'::regclass;",
+     "s": "31"
+    },
+    {
+     "c": "-- Carla: una cuenta de práctica con un perfil y una membresía\nselect 'antes: perfiles=' || (select count(*) from perfiles where id = '3333…') || ' miembros=' || (select count(*) from miembros where usuario = '3333…');",
+     "s": "antes: perfiles=1 miembros=1"
+    },
+    {
+     "c": "delete from auth.users where id = '3333…';\nselect 'después: perfiles=' || (select count(*) from perfiles where id = '3333…') || ' miembros=' || (select count(*) from miembros where usuario = '3333…');",
+     "s": "DELETE 1\ndespués: perfiles=0 miembros=0"
+    }
+   ],
+   "cap": "Corrido en la copia local. En ella `auth.users` es la tabla mínima que usa la prueba de Senda; la de Supabase tiene más columnas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Borrar una fila de `auth.users` limpió el perfil y la membresía en una sola instrucción, porque los datos de Senda cuelgan de ella. Es el mismo diseño de [@09-07] aplicado a una tabla que administra otro programa, y es lo que hace posible «Borrar mi cuenta». El costo es la dependencia: si algún día Senda se muda de Supabase, esas 31 referencias tienen que apuntar a otra tabla de usuarios."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Realtime: leer el registro de cambios"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un cambio en una tabla ya queda escrito en el registro de la base ([[write-ahead log]], [@09-27]). Realtime aprovecha eso: según su documentación de arquitectura, usa ranuras de replicación lógicas para leer del registro el flujo de cambios y traducirlos a eventos a los que se suscribe cada cliente [#bd42-realtime-arq]. Para ver la materia prima, prendí `wal_level = logical` en mi base, abrí una ranura con el plugin de prueba `test_decoding` que trae PostgreSQL ([@09-32]), cambié el nivel de Ana y le sumé una amistad."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select pg_create_logical_replication_slot('rt42', 'test_decoding');\nupdate perfiles set nivel = nivel + 1 where nombre = 'Ana';\ninsert into amistades (de, para) values ('1111…', '2222…');\nselect data from pg_logical_slot_get_changes('rt42', null, null) where data !~ '^(BEGIN|COMMIT)';",
+     "s": "table public.perfiles: UPDATE: id[uuid]:'1111…' nombre[text]:'Ana' creado[…]:'2026-11-13 20:49:20.330276+00' apodo[text]:null codigo[text]:'UHQR34' pais[text]:'AR' lany[jsonb]:'{}' nivel[integer]:6 admin[bo…\ntable public.amistades: INSERT: de[uuid]:'1111…' para[uuid]:'2222…' estado[text]:'pendiente' creada[timestamp with time zone]:'2026-11-13 20:50:19.368259+00'"
+    },
+    {
+     "c": "select pg_drop_replication_slot('rt42');",
+     "s": "(la ranura se borró; select count(*) from pg_replication_slots devuelve 0)"
+    }
+   ],
+   "cap": "Corrido en PostgreSQL 16.15. Es el mismo mecanismo, no el plugin ni el programa de Supabase. Los ids están abreviados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La salida muestra el cambio entero, con todas las columnas de la fila, incluida `admin`. Realtime no se lo manda a todos: por cada suscriptor comprueba si las políticas de seguridad por fila le permiten ver esa fila. La documentación de Supabase lo cuenta sin adornos: un cambio con 100 personas suscriptas hace 100 chequeos de autorización, el procesamiento va en un solo hilo para conservar el orden y, más allá de unos 3.000 suscriptores simultáneos a los mismos cambios, recomienda usar *Broadcast* en lugar de *Postgres Changes* [#bd42-realtime-pc]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Una ranura de replicación que nadie lee es una trampa. PostgreSQL la conserva aunque no haya nadie conectado, y mientras exista no puede borrar el registro de cambios que ella todavía necesita: el disco se va llenando. En casos extremos la documentación advierte que la base podría apagarse para protegerse [#bd42-pg-logicaldecoding]. Por eso mi prueba borró la ranura al terminar.",
+   "titulo": "Una ranura olvidada llena el disco"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el plan gratis, la documentación de Supabase fija estos límites de Realtime: 200 conexiones simultáneas, 100 mensajes por segundo y 100 entradas a canales por segundo, con un máximo de 100 canales por conexión [#redws-supabase-limits]. Senda no usa Realtime. Sus salas en vivo y su encuesta del día consultan por HTTP cada 2 y cada 8 segundos mientras la pantalla está abierta. Si 100 personas estuvieran en una sala, serían unos 50 pedidos por segundo contra la base (100 personas por 0,5 pedidos por segundo: es una cuenta, no una medición). El pedido HTTP no tiene tope de conexiones, pero cada uno es una consulta. Es un compromiso: más pedidos a la base a cambio de no depender de las 200 conexiones del plan gratis."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Storage: el archivo afuera, el permiso adentro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Storage guarda los archivos en un almacén compatible con S3 y los metadatos en Postgres, en la tabla `storage.objects`. Quién puede subir, bajar o borrar se decide con políticas de seguridad por fila sobre esa tabla; por defecto, sin políticas, Storage no deja subir nada [#bd42-supabase-storage]. El permiso de un archivo es una política de SQL, igual a las que ya escribiste."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda tiene un bucket privado, `sermones`, para el PDF que un líder comparte con su grupo. La migración que lo crea escribe cuatro políticas sobre `storage.objects`: el líder sube, reemplaza y borra, y los miembros descargan solo si la trivia está lista y el líder marcó compartir. Para probarlas armé en mi copia un esquema `storage` mínimo, con la tabla `objects` y las dos funciones auxiliares que usan las políticas. Las políticas son las reales de Senda. Un grupo con Ana de líder y Carla de miembro, Beto afuera, y una fila de archivo:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- como Ana (líder), Carla (miembro), Beto (de otro grupo) y anon\nselect count(*) from storage.objects where bucket_id = 'sermones';",
+     "s": "Ana: 1   Carla: 1   Beto: 0   anon: 0"
+    },
+    {
+     "c": "-- Beto intenta subir un PDF a la carpeta del grupo\ninsert into storage.objects (bucket_id, name) values ('sermones', '9999…/otro.pdf');",
+     "s": "ERROR:  new row violates row-level security policy for table \"objects\""
+    },
+    {
+     "c": "-- Carla (miembro, no líder) intenta lo mismo",
+     "s": "ERROR:  new row violates row-level security policy for table \"objects\""
+    },
+    {
+     "c": "-- el líder deja de compartir: update trivias_sermon set pdf_publico = false …\n-- Carla vuelve a contar los archivos",
+     "s": "0"
+    }
+   ],
+   "cap": "Corrido en la copia local. El esquema `storage` es un imitador mínimo; las políticas son las de `supabase/migrations/20261120000000_sermon_pdf.sql`."
+  },
+  {
+   "t": "pensa",
+   "x": "Carla es miembro y descargaba el PDF. El líder apaga la opción de compartir y Carla deja de verlo, sin que nadie toque el almacén de archivos. ¿Dónde está guardada la regla que lo explica?",
+   "resp": "En una política de seguridad por fila sobre `storage.objects`, que consulta la fila de la trivia en otra tabla (`pdf_publico` y `estado`). El archivo no cambió de lugar: cambió la respuesta de la política a la misma consulta."
+  },
+  {
+   "t": "senda",
+   "titulo": "Un permiso de archivo que depende de una fila de otra tabla",
+   "x": [
+    "La política de descarga no mira solo el grupo: también busca en `trivias_sermon` que la trivia esté `lista` y con `pdf_publico` prendido. Cuando el líder apaga la opción, Carla deja de ver el archivo sin que se toque el almacén. La app no pide el archivo directamente: pide un enlace firmado que vence a los 3.600 segundos (una hora), según `src/util/sermon.ts`.",
+    "El límite de 6 MB por archivo y el tipo `application/pdf` están declarados en la creación del bucket. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261120000000_sermon_pdf.sql",
+    "src/util/sermon.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "GraphQL y funciones de borde: lo que se ofrece y lo que se usa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "`pg_graphql` es una extensión ([[extensión]], [@09-32]) que refleja el esquema de la base como una API GraphQL en `/graphql/v1`, y respeta el mismo modelo de seguridad: roles, privilegios y seguridad por fila [#bd42-supabase-graphql]. Una misma tabla queda entonces expuesta por dos puertas, REST y GraphQL, con las mismas reglas, lo cual es una razón más para que las reglas estén en la base y no en cada puerta. La documentación avisa que, desde la versión 1.6.0 de la extensión, la introspección (listar el esquema) viene apagada y se prende por esquema. Senda no la llama: no hay ninguna referencia a GraphQL en `src/` ni en `supabase/`; el cliente usa REST y funciones. No pude comprobar si el proyecto real tiene la extensión activada."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las funciones de borde son programas Deno que corren al lado de la base. Ya las viste en [@07-29]: Senda tiene tres, y entre las tres usan las dos claves, la del usuario (para respetar la seguridad por fila) y la de servicio (para saltársela cuando hace falta). Son el único lugar donde Senda tiene código propio de servidor."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué paga y qué límites trae"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Supabase cobra por cosas distintas de las que cobrarías en un servidor propio: personas activas por mes, tamaño de la base, tráfico de salida y archivos. Esta tabla muestra los dos planes de entrada al 13-11-2026, según su página de precios [#baas-supabase-pricing]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Concepto",
+    "Free",
+    "Pro (desde USD 25/mes)"
+   ],
+   "filas": [
+    [
+     "Personas activas por mes",
+     "50.000",
+     "100.000; luego USD 0,00325 por persona"
+    ],
+    [
+     "Tamaño de la base",
+     "500 MB",
+     "8 GB por proyecto; luego USD 0,125 por GB"
+    ],
+    [
+     "Tráfico de salida",
+     "5 GB",
+     "250 GB; luego USD 0,09 por GB"
+    ],
+    [
+     "Archivos",
+     "1 GB",
+     "100 GB; luego USD 0,0213 por GB"
+    ],
+    [
+     "Conexiones directas a la base",
+     "—",
+     "60 en la instancia Micro, 200 por el pooler"
+    ],
+    [
+     "Proyectos inactivos",
+     "Se pausan tras 1 semana sin actividad",
+     "No se pausan"
+    ],
+    [
+     "Realtime: conexiones simultáneas",
+     "200",
+     "500, o 10.000 sin tope de gasto [#redws-supabase-limits]"
+    ],
+    [
+     "Copias de seguridad",
+     "No se mencionan en la página",
+     "Diarias, retenidas 7 días"
+    ]
+   ],
+   "cap": "Precios y límites leídos el 13-11-2026 en la página de precios de Supabase y en su documentación de límites de Realtime; cambian seguido. La fila de conexiones es de la tabla de instancias de la misma página."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres lecturas de esa tabla. Primera: el plan gratis no tiene un tope de pedidos de API («Unlimited API requests», dice la página), pero sí de personas activas, tamaño de base y salida. Segunda: el recurso que se acaba primero, en un proyecto con muchas personas conectadas, suele ser la cantidad de conexiones a la base, y por eso existe el pooler. Tercera: pasar de plan gratis a Pro agrega copias diarias y sacude el riesgo de la pausa; es un costo fijo de USD 25 que compite con cualquier otro uso de ese dinero. Decidirlo es del fundador; lo que corresponde acá es saber qué se compra."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Senda: qué usa de lo que ofrece"
+  },
+  {
+   "t": "senda",
+   "titulo": "El mapa de servicios, contra el código",
+   "x": [
+    "**Auth:** sí. Cuentas anónimas con `POST /auth/v1/signup` y, si la persona lo pide, vínculo con Google por PKCE. 31 tablas de `public` cuelgan de `auth.users`.",
+    "**PostgREST:** sí, para todo. El cliente habla con `/rest/v1` por `fetch`, sin la librería `supabase-js`; los módulos `src/util/cuenta.ts` y `src/util/nube.ts` concentran la red.",
+    "**Storage:** sí, un solo bucket privado (`sermones`) con enlaces firmados de una hora.",
+    "**Funciones de borde y cron y pg_net:** sí (tres funciones; tres tareas programadas; avisos por `pg_net`).",
+    "**Realtime:** no. Tres tablas se agregan a la publicación `supabase_realtime`, pero nada en el cliente se suscribe. En mi base local la publicación no existe y la migración lo avisa y sigue, sin fallar.",
+    "**GraphQL:** no. Tampoco hay conexión directa a la base desde la app: todo entra por HTTP, así que el pooler no interviene en la app; solo en las migraciones."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/util/nube.ts",
+    "src/util/salas.ts",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/functions/borrar-cuenta/index.ts"
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos observaciones de criterio, mías. Una: que Senda use tantas piezas de Supabase por la puerta HTTP y casi ninguna por conexión directa es lo que le permite ser tan chica en código propio, y también lo que la ata: los tokens, `auth.uid()` y la API automática son de Supabase, y no se exportan con un `pg_dump`. Dos: la publicación de Realtime con tres tablas y sin suscriptores es un resto de una decisión que cambió. No cuesta mucho, pero es el tipo de cosa que conviene anotar para que nadie la crea en uso."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Te llega este reporte de una app con Supabase: (a) «la lista de pedidos de una persona logueada vuelve vacía, con 200»; (b) «la tabla de recibos devuelve 403 con código 42501 para todos»; (c) «la tabla de claves devuelve vacío incluso con la clave de servicio». Para cada caso decí cuál es la causa más probable y escribí una consulta al catálogo que lo compruebe, usando como modelo `perfiles`, `compras_play` y `preguntas_clave` de Senda.",
+   "pista": "Pensá en el orden: la base evalúa primero los permisos de tabla y después la seguridad por fila. Y el rol `service_role` tiene el atributo BYPASSRLS, pero no se salta un `revoke`.",
+   "solucion": "(a) Vacío con 200: los permisos están, pero ninguna política deja pasar filas a ese rol. Comprobá con `select policyname, roles, qual from pg_policies where tablename = 'pedidos';` y fijate si hay una para `authenticated`. En la copia de Senda: `perfiles` tiene 0 políticas para `anon`. (b) 403 con 42501: falta el permiso de tabla. Comprobá con `select has_table_privilege('authenticated', 'public.recibos', 'select');`; en Senda, `has_table_privilege('anon', 'public.compras_play', 'select')` da `false` porque la migración hizo `revoke all`. (c) Vacío con `service_role`: la tabla está realmente vacía, o se consulta otra tabla; la seguridad por fila no es la causa porque `service_role` la saltea. Comprobá con `select count(*) from preguntas_clave;` (en la copia local, 5.371). Y no confundas: para `authenticated`, `preguntas_clave` también devolvió vacío, pero por otra razón, la tabla tiene seguridad por fila y ninguna política."
+  }
+ ],
+ "recap": [
+  "Un proyecto de Supabase es una base PostgreSQL con programas alrededor (PostgREST, Auth, Realtime, Storage, funciones de borde); casi ninguno guarda estado propio, todo queda en Postgres.",
+  "El token de cada pedido trae el rol: PostgREST verifica la firma, ejecuta `SET LOCAL ROLE` y la consulta corre con los privilegios de ese rol. `service_role` se salta la seguridad por fila; el `authenticator` no puede nada por sí mismo.",
+  "La base evalúa primero los permisos de tabla y después la seguridad por fila: un permiso que falta da error 42501, y una política que no encuentra filas da una lista vacía.",
+  "Los datos de Senda cuelgan de `auth.users` con 31 claves foráneas en cascada: borrar una cuenta limpia el perfil y la membresía en una instrucción, a costa de depender de una tabla que administra Supabase.",
+  "Realtime lee las ranuras de replicación lógica sobre el registro de cambios y comprueba la seguridad por fila por cada suscriptor; Senda no lo usa y consulta cada 2 u 8 segundos.",
+  "El permiso de un archivo en Storage es una política sobre `storage.objects`; los precios y límites (50.000 personas activas, 500 MB, 200 conexiones de Realtime en el plan gratis) están fechados y cambian."
+ ],
+ "repaso": [
+  {
+   "p": "Una app manda un pedido a PostgREST con un token cuyo `role` dice `authenticated`. ¿Qué hace PostgREST antes de ejecutar la consulta?",
+   "o": [
+    "Verifica la firma, abre una transacción y ejecuta `SET LOCAL ROLE authenticated`, de modo que la consulta corre con ese rol",
+    "Le pregunta a Auth, con una consulta a su tabla de usuarios, si la persona existe, y recién después elige el rol",
+    "Copia el `role` a una variable de sesión y deja que la consulta corra con los permisos del `authenticator`",
+    "Ejecuta la consulta con el rol `service_role` y filtra las filas en su propio código antes de devolverlas"
+   ],
+   "c": 0,
+   "e": "PostgREST valida el token sin consultar a Auth (la firma alcanza) y cambia de rol dentro de la transacción. El `authenticator` por sí mismo casi no tiene permisos, y `service_role` se saltaría la seguridad por fila, que es justo lo que no se quiere."
+  },
+  {
+   "p": "Con la seguridad por fila prendida, una persona con sesión recibe `200` y una lista vacía de una tabla, y otra tabla le devuelve `403` con código `42501`. ¿Cuál es la mejor explicación?",
+   "o": [
+    "En ambas el servidor de la API falló y devolvió códigos distintos por casualidad, sin relación con la base de datos",
+    "La primera tabla no tiene ninguna fila, y la segunda tiene demasiadas filas para devolverlas en un solo pedido",
+    "En la primera, el permiso de tabla existe pero ninguna política deja ver filas; en la segunda, falta el permiso de tabla",
+    "En la primera falta el permiso de tabla, y en la segunda una política rechazó todas las filas que la persona pidió"
+   ],
+   "c": 2,
+   "e": "La base evalúa primero los permisos de tabla: si faltan, error 42501 (403). Si pasan, la seguridad por fila filtra y puede dejar cero filas, sin error (200 con lista vacía). Las otras opciones invierten el orden o atribuyen la diferencia a la API."
+  },
+  {
+   "p": "¿Por qué una app que se instala en miles de teléfonos puede llevar la clave publicable de Supabase sin que eso exponga todos los datos?",
+   "o": [
+    "Porque la clave está cifrada dentro de la app y el sistema operativo impide que otra aplicación la lea",
+    "Porque la clave publicable solo identifica a la app y corresponde a un rol de pocos permisos, sujeto a las políticas",
+    "Porque Supabase borra los datos de las tablas que no están en uso cuando detecta que la clave se compartió",
+    "Porque la clave publicable cambia cada día y la app pide una nueva antes de cada pedido para evitar usos ajenos"
+   ],
+   "c": 1,
+   "e": "La clave publicable no es un secreto: cualquiera puede sacarla del instalador. Resuelve a un rol de pocos permisos (`anon` o `authenticated`), y lo que ese rol ve lo decide la seguridad por fila. La que nunca debe viajar es la secreta, que equivale a `service_role`."
+  },
+  {
+   "p": "Una tabla de Senda tiene 31 claves foráneas que apuntan a `auth.users` con borrado en cascada. ¿Qué consecuencia práctica tiene eso al borrar una cuenta?",
+   "o": [
+    "Hay que borrar a mano las filas de cada tabla antes de poder eliminar el usuario de `auth.users` en la base",
+    "Al borrar la fila de `auth.users`, la base borra sola las filas dependientes, por ejemplo el perfil y las membresías",
+    "La base conserva todas las filas dependientes y solo marca al usuario como inactivo para poder recuperarlo después",
+    "La base rechaza el borrado mientras existan filas dependientes y devuelve un error de restricción de integridad"
+   ],
+   "c": 1,
+   "e": "Con `on delete cascade`, borrar la fila padre arrastra a las hijas. En la prueba, borrar una cuenta dejó perfiles=0 y miembros=0. Sin cascada la base rechazaría el borrado (restricción) y habría que limpiar a mano. Que la cascada borre o marque como inactivo depende de cómo se declare; acá es borrar."
+  },
+  {
+   "p": "Realtime entrega los cambios de una tabla a 100 personas suscriptas. Según la documentación de Supabase, ¿qué pasa por cada cambio?",
+   "o": [
+    "Se manda el cambio a todas las personas sin chequear nada, porque la seguridad solo se aplica al leer la tabla",
+    "Se hacen 100 chequeos de autorización, uno por suscriptor, así que el costo crece con la cantidad de suscriptores",
+    "Se hace un solo chequeo de autorización para todo el grupo, y el resultado se reparte entre las 100 conexiones",
+    "Se le pide a cada teléfono que consulte la tabla por su cuenta, y la base responde con la seguridad por fila"
+   ],
+   "c": 1,
+   "e": "Postgres Changes autoriza el evento contra cada suscriptor con las políticas de seguridad por fila, así que el trabajo crece con la cantidad de suscriptores, no solo con la frecuencia de escritura. Por eso la documentación recomienda Broadcast cuando hay muchísimos."
+  },
+  {
+   "p": "Una ranura de replicación lógica que nadie consume se quedó creada en una base. ¿Cuál es el riesgo principal?",
+   "o": [
+    "La base se vuelve más lenta en las consultas de lectura, porque cada consulta debe revisar si hay ranuras activas",
+    "Las ranuras sin consumidor se borran solas al reiniciar el servidor, y se pierden los cambios que no se enviaron",
+    "El registro de cambios que la ranura necesita no se puede reciclar y el disco se va llenando hasta poner en riesgo la base",
+    "Cualquier rol de la base puede leer el contenido de la ranura sin permiso y obtener todos los cambios guardados"
+   ],
+   "c": 2,
+   "e": "Una ranura persiste aunque no haya consumidor y retiene el registro (WAL) que aún no leyó, sin que se pueda reciclar. Es la trampa de los consumidores abandonados. Por eso la prueba de hoy la borró al terminar. No hace más lenta la lectura ni se borra sola."
+  }
+ ],
+ "feynman": "Explicale a alguien que sabe de logística qué hace cada puerta de entrada de un proyecto de Supabase y por qué casi toda la seguridad termina decidiéndose en un solo lugar, la base. Usá una analogía propia, distinta de la del operador con varias puertas, y marcá dónde deja de valer.",
+ "para_profundizar": [
+  {
+   "fuente": "pki-supabase-arq",
+   "nota": "La página de arquitectura de Supabase. Leé la lista de componentes y los principios de producto para ver qué pieza hace qué y cuáles pueden funcionar solas."
+  },
+  {
+   "fuente": "baas-postgrest-auth",
+   "nota": "La documentación de PostgREST sobre autenticación. La sección de JWT explica el cambio de rol con SET LOCAL ROLE que reprodujiste hoy."
+  },
+  {
+   "fuente": "red31-supabase-api-keys",
+   "nota": "La guía de claves de API de Supabase. Sirve para entender qué rol resuelve cada clave y por qué se retiran `anon` y `service_role`."
+  },
+  {
+   "fuente": "bd42-realtime-pc",
+   "nota": "La guía de Postgres Changes. Leé la parte de escalado para ver el costo por suscriptor y cuándo conviene Broadcast."
+  },
+  {
+   "fuente": "bd42-supabase-userdata",
+   "nota": "La guía para guardar datos de las personas. Explica por qué se referencia `auth.users` y por qué solo por la clave primaria."
+  }
+ ],
+ "videos": [
+  {
+   "q": "supabase architecture postgrest gotrue realtime storage explained",
+   "por_que": "Para ver las mismas piezas explicadas por otra persona y comparar cómo cuentan el recorrido de un pedido."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "PostgREST",
+   "d": "Servidor web escrito en Haskell que convierte las tablas y funciones de una base PostgreSQL en una API HTTP. Verifica el token de cada pedido, cambia al rol que ese token indica y ejecuta una consulta SQL."
+  },
+  {
+   "t": "GoTrue",
+   "d": "Servicio de cuentas de Supabase, escrito en Go: registra personas, verifica el login, emite los tokens y guarda sus datos en el esquema `auth`. Hoy su código se publica con el nombre Auth y nació de un proyecto de Netlify llamado GoTrue."
+  },
+  {
+   "t": "Realtime de Supabase",
+   "d": "Servidor en Elixir que envía por WebSocket tres cosas: los cambios de la base, leídos de su registro con una réplica lógica; mensajes entre clientes (Broadcast); y quién está conectado (Presence)."
+  },
+  {
+   "t": "Storage de Supabase",
+   "d": "API de archivos compatible con S3 que guarda los archivos en un almacén de objetos y sus metadatos en la tabla `storage.objects`. El permiso de cada archivo es una política de seguridad por fila sobre esa tabla."
+  },
+  {
+   "t": "suplantación de rol",
+   "d": "Cambio de rol de una sesión de base de datos con `SET ROLE` o `SET LOCAL ROLE`: la conexión sigue siendo la misma, pero las consultas corren con los privilegios del rol elegido. Es lo que hace PostgREST con cada pedido."
+  },
+  {
+   "t": "ranura de replicación",
+   "d": "Marca que PostgreSQL guarda para recordar hasta dónde leyó un consumidor del registro de cambios. Permite leer los cambios sin perderse ninguno, pero mientras existe retiene el registro y puede llenar el disco si nadie lo consume."
+  }
+ ],
+ "siguiente": "Cómo elegir una base de datos: un conjunto de preguntas para decidir entre una base relacional, una de documentos, una clave-valor o varias a la vez, con los criterios de todo lo que viste en esta parte.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd42-supabase-roles",
+   "t": "Postgres Roles (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://supabase.com/docs/guides/database/postgres/roles"
+  },
+  {
+   "id": "bd42-supabase-jwt-fields",
+   "t": "JWT Claims Reference (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://supabase.com/docs/guides/auth/jwt-fields"
+  },
+  {
+   "id": "bd42-supabase-userdata",
+   "t": "Managing User Data (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://supabase.com/docs/guides/auth/managing-user-data"
+  },
+  {
+   "id": "bd42-auth-readme",
+   "t": "supabase/auth: README",
+   "a": "Supabase",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://raw.githubusercontent.com/supabase/auth/master/README.md"
+  },
+  {
+   "id": "bd42-realtime-arq",
+   "t": "supabase/realtime: ARCHITECTURE.md",
+   "a": "Supabase",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://raw.githubusercontent.com/supabase/realtime/main/ARCHITECTURE.md"
+  },
+  {
+   "id": "bd42-realtime-pc",
+   "t": "Postgres Changes (Supabase Realtime docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://supabase.com/docs/guides/realtime/postgres-changes"
+  },
+  {
+   "id": "bd42-pg-logicaldecoding",
+   "t": "PostgreSQL 16: Logical Decoding Concepts",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/logicaldecoding-explanation.html"
+  },
+  {
+   "id": "bd42-supabase-storage",
+   "t": "Storage Access Control (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://supabase.com/docs/guides/storage/security/access-control"
+  },
+  {
+   "id": "bd42-supabase-graphql",
+   "t": "GraphQL (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://supabase.com/docs/guides/graphql"
+  }
+ ]
+}

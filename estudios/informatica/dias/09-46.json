@@ -1,0 +1,919 @@
+{
+ "id": "09-46",
+ "titulo": "Cómo se actualiza una copa: transacciones y funciones en la base de Senda",
+ "bajada": "Seguís una marca de copa hasta la tabla en una copia local de la base de Senda y probás con dos sesiones qué es atómico, qué espera a qué, qué pasa con dos teléfonos y cuando falta una clave.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Seguir una marca de copa desde el teléfono hasta `copas_resultados` y nombrar qué comprueba cada paso de `marca_copa`.",
+  "Dibujar el borde de la transacción sobre un flujo real y clasificar qué se deshace junto y qué queda del otro lado.",
+  "Predecir qué pasa cuando dos pedidos tocan lo mismo: restricción única, `for update`, advisory lock y fila caliente.",
+  "Calcular por qué una misma fórmula da un punto distinto en JavaScript y en `numeric` de PostgreSQL.",
+  "Reconocer una falla silenciosa por dato faltante y proponer la comprobación que la haría visible."
+ ],
+ "venis_de": "Ya viste qué es una transacción ([@09-24]), cómo se aísla la concurrencia ([@09-25]) y cómo se bloquea ([@09-26]); en [@07-29] viste que Senda no tiene servidor propio y en [@09-45] su esquema. Hoy usás todo eso para seguir un caso completo, con experimentos de dos sesiones.",
+ "se_apoya_en": [
+  "07-29",
+  "08-17",
+  "09-17",
+  "09-18",
+  "09-24",
+  "09-25",
+  "09-26",
+  "09-45"
+ ],
+ "gancho": [
+  "Una chica termina la copa de Navidad de Senda: quince preguntas, veinte segundos cada una, las quince bien. En su pantalla final ve 13.240 puntos. Más tarde abre la tabla y su fila dice 12.351 puntos y 14 aciertos. Contestó todo bien y la base le contó una de menos, sin ningún error: solo otro número.",
+  "Los números son de una partida que armé con tiempos inventados, pero el mecanismo es real. Armé una copia propia de la base de Senda, con las 42 migraciones del commit `25e08fa` (9 de noviembre de 2026) sobre PostgreSQL 16.15, y abrí dos sesiones de `psql` a la vez para ver qué es atómico, qué espera a qué y qué pasa cuando falta una pieza. En cada caso te digo qué corrí y qué no pude probar."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El camino de una marca, de punta a punta"
+  },
+  {
+   "t": "p",
+   "x": "Una copa es una competencia corta con las mismas 15 preguntas para todos: hay tres en el código (Navidad, Pascua y Pentecostés de 2027). La de Navidad conserva en la base su nombre viejo, `adviento-2026`. Las 15 preguntas viven en una fila de la tabla `copas`, junto con la ventana de juego: la de Navidad abre el 18-12-2026 a las 10:00 UTC y cierra el 22-12-2026 a las 12:00 UTC."
+  },
+  {
+   "t": "p",
+   "x": "Mientras la persona juega, el teléfono calcula un puntaje de muestra. Al terminar manda lo que pasó, no lo que sacó: por pregunta, qué opción eligió y cuántos milisegundos tardó. La base corrige con una [[clave de respuestas]] que el teléfono nunca tiene. A una función de la base que se llama con un solo pedido HTTP y hace todo ese trabajo la llamo [[función RPC de copas]]: `marca_copa` guarda la marca y `tabla_copa` arma la tabla. Es el mecanismo de [[RPC de base de datos]] de [@07-29], aplicado a un caso donde importa quién queda primero."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "cap": "El pedido de una marca. La transacción abarca desde el segundo mensaje hasta el último.",
+   "actores": [
+    {
+     "n": "Teléfono",
+     "k": "cliente"
+    },
+    {
+     "n": "PostgREST",
+     "k": "red"
+    },
+    {
+     "n": "marca_copa",
+     "k": "servidor"
+    },
+    {
+     "n": "corregir_partida",
+     "k": "servidor"
+    },
+    {
+     "n": "Tablas",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "POST /rpc/marca_copa",
+     "d": "Lleva la copa, un `cliente_id` nuevo y las jugadas `{pregunta, respuesta, ms}`."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "START TRANSACTION + rol + sub",
+     "d": "PostgREST abre la transacción y fija el rol y el `sub` del token (`auth.uid()`)."
+    },
+    {
+     "de": 2,
+     "a": 4,
+     "t": "¿Copa abierta? Lista fija",
+     "d": "Exige que `now()`, el reloj de la base, esté entre `desde` y `hasta`."
+    },
+    {
+     "de": 2,
+     "a": 3,
+     "t": "Corregir hasta 15 jugadas",
+     "d": "Ignora repetidas y acota cada tiempo entre 300 ms y 20 s."
+    },
+    {
+     "de": 3,
+     "a": 4,
+     "t": "Clave de cada pregunta",
+     "d": "`preguntas_clave` tiene seguridad por fila sin políticas: solo la leen funciones `security definer`."
+    },
+    {
+     "de": 3,
+     "a": 2,
+     "t": "aciertos, puntos, ms",
+     "resp": true,
+     "d": "Devuelve tres números."
+    },
+    {
+     "de": 2,
+     "a": 4,
+     "t": "insert … on conflict do nothing",
+     "d": "La restricción única `(copa, usuario)` hace que la primera marca sea la oficial."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "COMMIT y 200 con la fila",
+     "resp": true,
+     "d": "Si algo falló, deshace todo y responde con el error."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "El teléfono no manda puntos. La tabla de resultados nació en `20261101000000_juntos.sql` con una política que dejaba insertar al propio usuario, y `20261107000000_grupos.sql` la borra con el comentario «el puntaje lo mandaba el teléfono». Hoy la única puerta es la función."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Paso",
+    "Qué comprueba",
+    "Si falla"
+   ],
+   "filas": [
+    [
+     "Sesión",
+     "`auth.uid()` no nulo",
+     "`sin_cuenta`"
+    ],
+    [
+     "Ventana",
+     "La copa existe y `now()` está entre `desde` y `hasta`",
+     "`torneo_cerrado`"
+    ],
+    [
+     "Filtro",
+     "La pregunta es una de las 15 de la copa",
+     "Se ignora, sin aviso"
+    ],
+    [
+     "Corrección",
+     "Opción contra clave; máximo 15; repetida suma una vez",
+     "Sin clave: cuenta como error, sin aviso"
+    ],
+    [
+     "Registro",
+     "No hay marca previa de esa persona en esa copa",
+     "No escribe y devuelve `oficial = false`"
+    ]
+   ],
+   "cap": "Los pasos de `marca_copa` en la última versión del commit 25e08fa."
+  },
+  {
+   "t": "senda",
+   "titulo": "marca_copa y su cliente",
+   "x": [
+    "Implementado en el commit `25e08fa` (9 de noviembre de 2026); el código cambia, la forma permanece. `marca_copa` está en `20261127000000_seguridad.sql` y llama a `corregir_partida`, de `20261107000000_grupos.sql`. En el teléfono, `guardarMarcaNube` (`src/util/grupos.ts`) arma el pedido y `Copa.tsx` calcula la muestra con `puntosRespuesta` (`src/datos/puntaje.ts`).",
+    "La pantalla final muestra los puntos que calculó el teléfono, con la etiqueta «Marca oficial» que él mismo decide (`oficial = !marca`). Lo que devuelve la base solo cambia el cartel: «en la tabla», «pendiente» o «no se subió»."
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261107000000_grupos.sql",
+    "src/util/grupos.ts",
+    "src/pantallas/Copa.tsx",
+    "src/datos/puntaje.ts"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select * from marca_copa('adviento-2026', gen_random_uuid(), jug_demo('adviento-2026'));  -- con la fecha real, 13-11-2026",
+     "s": "ERROR:  torneo_cerrado"
+    },
+    {
+     "c": "update copas set desde = now() - interval '1 hour', hasta = now() + interval '2 hours';  -- solo en mi copia\nselect * from marca_copa('adviento-2026', gen_random_uuid(), jug_demo('adviento-2026'));",
+     "s": " aciertos | puntos |  ms   | oficial\n----------+--------+-------+---------\n       14 |  12351 | 70500 | t"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026 en PostgreSQL 16.15. `jug_demo` es un ayudante mío que arma las 15 jugadas correctas, con tiempos inventados. Respondí las 15 bien y la base contó 14."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": [
+    "Mi primer intento dio 3 aciertos. `jug_demo` leía la clave con el rol `authenticated` y `preguntas_clave` tiene seguridad por fila sin políticas: la consulta no devolvió filas ni error, y mis jugadas salieron con la opción de relleno. Es la misma falla que verás con la clave faltante: la base no grita, devuelve menos."
+   ],
+   "titulo": "Ojo: una consulta vacía no es un error"
+  },
+  {
+   "t": "h",
+   "x": "Qué se deshace junto y qué no"
+  },
+  {
+   "t": "p",
+   "x": "Ya viste qué es una [[transacción]] ([@09-24]) y qué garantiza la [[atomicidad]]. Acá la pregunta es de ingeniería: dada una operación concreta de Senda, ¿qué se deshace junto si algo falla a mitad y qué queda hecho? Ese ejercicio es la [[atomicidad en la práctica]]: dibujar el borde de la transacción sobre el flujo real."
+  },
+  {
+   "t": "p",
+   "x": "El borde lo pone PostgREST: cada pedido corre en una transacción, con `READ COMMITTED` por defecto [#bd0946-postgrest-transacciones]. Y una función no puede confirmar por su cuenta: `COMMIT` solo se admite en procedimientos y bloques `DO` [#jv2222-pg-transactions]. Lo comprobé."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create function f_commit() returns void language plpgsql as $$\nbegin\n  insert into respuestas (anonimo, pregunta, nivel, acierto, cliente_id) values (gen_random_uuid(), 'x', 1, true, gen_random_uuid());\n  commit;\nend $$;\nselect f_commit();",
+     "s": "ERROR:  invalid transaction termination\nCONTEXT:  PL/pgSQL function f_commit() line 1 at COMMIT"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. Cierra la transacción quien llamó a la función, no la función."
+  },
+  {
+   "t": "p",
+   "x": "Probé `jugar_turno` con la segunda jugada rota: la primera es válida y se inserta antes de que falle la segunda."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select jugar_turno(:partida, gen_random_uuid(),\n  '[{\"pregunta\":\"bot-004\",\"respuesta\":2},{\"pregunta\":\"bot-005\",\"respuesta\":\"x\"}]');",
+     "s": "ERROR:  invalid input syntax for type smallint: \"x\"\nCONTEXT:  PL/pgSQL function jugar_turno(uuid,uuid,jsonb) line 15 at assignment"
+    },
+    {
+     "c": "select count(*) from jugadas where jugador = :beto;           -- antes y después\nselect ronda, turno_de from partidas where id = :partida;     -- antes y después\nselect count(*) from avisos where usuario = :ana;             -- antes y después",
+     "s": "0\n2 | Beto\n2"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. La jugada correcta desapareció, el turno no avanzó y no nació el aviso «Te toca jugar». Personas inventadas."
+  },
+  {
+   "t": "p",
+   "x": "Por eso conviene la lógica en la base: turno, jugadas y aviso son un pedido y un pedido es una transacción. Con tres llamadas sueltas desde un servidor, el turno podría avanzar sin aviso. Pero no todo cabe adentro."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Qué ocurre",
+    "¿Se deshace junto?",
+    "Por qué"
+   ],
+   "filas": [
+    [
+     "Jugadas, ronda, turno y fila de `avisos` en `jugar_turno`",
+     "Sí",
+     "Un pedido, una transacción (comprobado)"
+    ],
+    [
+     "Corrección y fila de `copas_resultados` en `marca_copa`",
+     "Sí",
+     "Misma razón"
+    ],
+    [
+     "Marca local del teléfono y marca en la base",
+     "No",
+     "Dos sistemas: se guarda local y se sube después, con reintento"
+    ],
+    [
+     "Fila de `avisos` y notificación al rival",
+     "No",
+     "El envío lo hace después una tarea programada ([@08-17])"
+    ],
+    [
+     "Cobro del cupo y llamada a Claude",
+     "No",
+     "La base no deshace lo que ocurre en un servicio ajeno"
+    ]
+   ],
+   "cap": "La transacción cubre lo que pasa dentro de la base y nada más."
+  },
+  {
+   "t": "pensa",
+   "x": "Un turno llega con tres jugadas: dos válidas y una con la respuesta escrita como texto. ¿Qué queda guardado y de quién es el turno?",
+   "resp": "Nada queda guardado y el turno sigue siendo de la misma persona. La conversión a número falla dentro de la función y PostgreSQL deshace la transacción entera, incluida la primera jugada."
+  },
+  {
+   "t": "h",
+   "x": "Dos teléfonos a la vez"
+  },
+  {
+   "t": "p",
+   "x": "Para ver una [[condición de carrera]] hay que solapar dos pedidos, y uno real dura milisegundos. Usé dos sesiones de `psql`: la primera hace su trabajo y duerme cuatro segundos con `pg_sleep(4)` antes de confirmar; la segunda llega un segundo después. En la vida real la ventana es mínima y la lógica es la misma."
+  },
+  {
+   "t": "h3",
+   "x": "Dos personas distintas"
+  },
+  {
+   "t": "p",
+   "x": "La restricción es sobre el par `(copa, usuario)`: dos cuentas distintas no se tocan."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- sesión A (cuenta c): marca_copa + pg_sleep(4) + commit\n-- sesión B (cuenta d): marca_copa, 1 s después",
+     "s": "A empieza 00.848  ...  A confirma 04.910\nB empieza 01.853  ...  B termina  01.863   (10 ms, sin esperar)"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026, reloj de la base. Cuentas inventadas."
+  },
+  {
+   "t": "h3",
+   "x": "La misma cuenta en dos teléfonos"
+  },
+  {
+   "t": "p",
+   "x": "Senda permite guardar el progreso con Google y recuperarlo en otro aparato con el mismo `user.id`: la función está en el código; que esté encendida en el proyecto real no lo pude ver. Entonces dos pedidos pueden llegar con el mismo `auth.uid()`. A tarda 4,0 s en la primera pregunta y B 1,0 s, para ver cuál marca queda."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- sesión A (teléfono 1): marca_copa lenta + pg_sleep(4) + commit",
+     "s": " aciertos | puntos |  ms   | oficial\n       14 |  12351 | 70500 | t       -- confirma a los 4,0 s"
+    },
+    {
+     "c": "-- sesión B (teléfono 2, misma cuenta): marca_copa rápida, 1 s después",
+     "s": " aciertos | puntos |  ms   | oficial\n       14 |  13401 | 25500 | t       -- espera 3,0 s y dice «oficial»"
+    },
+    {
+     "c": "select puntos, aciertos, ms from copas_resultados where usuario = :cuenta;",
+     "s": " puntos | aciertos |  ms\n  12351 |       14 | 70500        -- la fila guardada es la de A"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. B recibió 13.401 puntos, un número que no está en ninguna tabla."
+  },
+  {
+   "t": "p",
+   "x": "Son tres piezas. En `READ COMMITTED` el `exists` inicial no ve la fila sin confirmar de A, así que `ya` queda en falso [#bd0925-pg-iso]. El `insert … on conflict do nothing` de B choca con la restricción única y espera a que A confirme [#bd05-pg-insert]. Al confirmar A, el `do nothing` actúa y B sigue, devolviendo `not ya`, o sea `true`."
+  },
+  {
+   "t": "p",
+   "x": "La integridad se sostiene: queda una sola marca. Lo que falla es la verdad del mensaje, que en Senda casi no importa porque el teléfono ignora esos números. Contar las filas realmente insertadas con `get diagnostics` la diría; es una opinión de diseño."
+  },
+  {
+   "t": "pensa",
+   "x": "¿Qué evitó que quedaran dos marcas oficiales: el `exists` del principio o la restricción única? ¿Qué pasaría sin ella?",
+   "resp": "La restricción única. El `exists` no ve lo que otro pedido todavía no confirmó. Sin la restricción, A y B insertarían su fila y habría dos marcas oficiales de la misma persona."
+  },
+  {
+   "t": "h3",
+   "x": "Un duelo: dos pedidos sobre la misma fila"
+  },
+  {
+   "t": "p",
+   "x": "`jugar_turno` empieza con `select … for update` sobre la fila de la partida: un [[lock de fila]] que hace esperar a los demás [#bd0925-pg-iso]. Mandé el turno desde dos teléfonos de la misma persona con identificadores distintos (X e Y) y después un reintento con X."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "cap": "Dos teléfonos y un reintento contra la misma partida.",
+   "actores": [
+    {
+     "n": "Teléfono 1",
+     "k": "cliente"
+    },
+    {
+     "n": "Teléfono 2",
+     "k": "cliente"
+    },
+    {
+     "n": "Fila de la partida",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 2,
+     "t": "jugar_turno(X): for update",
+     "d": "El primero toma el lock y procesa sus jugadas."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "jugar_turno(Y): for update",
+     "d": "El segundo queda esperando en la primera línea."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "COMMIT: ronda 2, turno del rival",
+     "resp": true,
+     "d": "Se registran jugadas, ronda y aviso."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "ERROR no_es_tu_turno",
+     "resp": true,
+     "d": "Al despertar relee la fila: el turno ya es del rival. No escribió nada."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "reintento con X",
+     "d": "Mismo identificador que el primer pedido."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "devuelve la partida, sin cambios",
+     "resp": true,
+     "d": "X ya está en `jugadas`: no cuenta nada dos veces."
+    }
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- teléfono 1: jugar_turno(X) + pg_sleep(4)\n-- teléfono 2: jugar_turno(Y), 1 s después",
+     "s": "T1 empieza 19.155 ... confirma 23.166 -> ronda 2, turno de Beto\nT2 empieza 20.163 ... ERROR no_es_tu_turno a las 23.167   (esperó 3,0 s)"
+    },
+    {
+     "c": "-- reintento: jugar_turno(X) sin esperas",
+     "s": "ronda 2, turno de Beto          -- 3 ms, sin error y sin duplicar jugadas"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. El segundo pedido espera, relee la fila y recibe un error claro."
+  },
+  {
+   "t": "p",
+   "x": "Son dos defensas distintas. El `for update` ordena los pedidos que llegan juntos. El `cliente_id` vuelve inofensivo un pedido repetido: es una clave de idempotencia ([@07-12]) aplicada a un duelo. Con los dos, el turno del teléfono 1 pasa una sola vez aunque llegue tres veces, y el teléfono 2 recibe un rechazo explícito."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Herramienta",
+    "Qué ordena",
+    "Dónde en Senda"
+   ],
+   "filas": [
+    [
+     "Restricción única",
+     "Que no haya dos filas con la misma clave",
+     "`copas_resultados (copa, usuario)`, `jugadas (cliente_id)`"
+    ],
+    [
+     "`for update`",
+     "Quién va primero sobre una fila existente",
+     "`jugar_turno` sobre `partidas`"
+    ],
+    [
+     "Advisory lock",
+     "Quién va primero sobre una clave inventada",
+     "`reclamar_trivia`, por usuario"
+    ],
+    [
+     "`cliente_id`",
+     "Que reintentar no repita el efecto",
+     "Marcas, turnos y respuestas"
+    ]
+   ],
+   "cap": "Cuatro formas de coordinar escrituras que usa Senda."
+  },
+  {
+   "t": "h",
+   "x": "El candado que cuida la plata: reclamar_trivia"
+  },
+  {
+   "t": "p",
+   "x": "En la trivia del sermón lo que se disputa es plata: cada PDF va a Claude y los comentarios del proyecto estiman USD 0,15 a 0,30 por trivia (estimación de ellos, que no verifiqué). El plan gratis permite una trivia en total y Max ocho por mes. La función de borde `trivia-sermon` llama a `reclamar_trivia` antes de pedirle nada a Claude."
+  },
+  {
+   "t": "senda",
+   "titulo": "reclamar_trivia: reservar antes de gastar",
+   "x": [
+    "Implementado en `25e08fa`. `reclamar_trivia` (`20261127000000_seguridad.sql`) pide un `pg_advisory_xact_lock` por usuario, comprueba el cupo, pasa la trivia de `procesando` a `generando` y anota el cobro en `trivias_cobradas`. La función de borde (`supabase/functions/trivia-sermon/index.ts`) la llama primero y, si Claude falla, borra el cobro (`devolverCupo`). Probé la función de la base; no probé la de borde ni a Claude."
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/functions/trivia-sermon/index.ts",
+    "supabase/migrations/20261104000000_topes_planes.sql"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "El peligro: un líder del plan gratis crea dos trivias en `procesando` (la política deja hasta dos en espera) y manda dos pedidos juntos. Cada uno ve un cupo, y los dos pasan. El `for update` no ayuda: son filas distintas. Hace falta bloquear por persona, y para eso sirve el advisory lock, un candado cuyo nombre es un número que elegís. Senda usa `hashtext('trivia:' || auth.uid())` con la variante `xact`, que se suelta al terminar la transacción [#back18-pg-explicit-locking]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- real: dos trivias 'procesando' de la cuenta a, cupo 1; sesión 1 con pg_sleep(4), sesión 2 un segundo después",
+     "s": "sesión 1: ok\nsesión 2: ERROR:  sin_trivias   (esperó unos 3 s al candado)\nresultado: una trivia cobrada, la otra sigue en 'procesando'"
+    },
+    {
+     "c": "-- copia mía SIN la línea del advisory lock, mismo experimento con la cuenta b",
+     "s": "sesión 1: ok\nsesión 2: ok   (sin esperar: 3 ms)\nresultado: las dos cobradas, con un cupo de 1"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. La copia sin candado la hice yo en mi base de prueba; no existe en el repositorio."
+  },
+  {
+   "t": "p",
+   "x": "Falta lo que la base no resuelve. La función reserva y confirma; después, afuera, se le pide a Claude, que puede fallar. Si falla, `devolverCupo` borra el cobro: una [[compensación]], una acción inversa escrita a mano, porque la transacción ya terminó y no hay forma de deshacer algo que pasó en otro sistema. Si la función de borde muriera entre el cobro y la devolución, el cupo quedaría gastado sin trivia: por la forma del código es posible y no lo probé."
+  },
+  {
+   "t": "h",
+   "x": "Una fila caliente: salud_resumen"
+  },
+  {
+   "t": "p",
+   "x": "Cada respuesta del Espadeo en solitario llega a `respuestas`, y un [[trigger]], `sumar_salud`, la suma a `salud_resumen`: una fila por pregunta con respuestas, aciertos y segundos. Leer cuánto acierta la gente cuesta una fila, no un recorrido de millones, y `limpiar_viejo` borra lo crudo a los 30 días sin perder el resumen. El precio es una fila caliente por pregunta: todas las respuestas a esa pregunta escriben sobre la misma fila y hacen cola."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- sesión A: respuesta a 'bot-001' + pg_sleep(3); sesión B, 1 s después, la misma pregunta",
+     "s": "A confirma a los 3,0 s;  B termina a los 3,0 s   (B esperó 2 s)"
+    },
+    {
+     "c": "-- sesión B con otra pregunta ('bot-003')",
+     "s": "B termina a 0,003 s   (no esperó)"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. Son filas distintas de `respuestas`; lo que espera es la fila del resumen que el trigger actualiza."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Es la balanza de una playa de camiones: cada camión lleva otra carga, pero todos pasan por la misma balanza y hacen cola. La balanza es la fila de la pregunta en `salud_resumen`. Donde deja de valer: en la playa agregás otra balanza; en la base habría que repartir cada pregunta en varias filas y sumarlas después."
+   ],
+   "titulo": "Pensalo así: una sola balanza"
+  },
+  {
+   "t": "p",
+   "x": "Medí el peaje con `pgbench` [#bd0925-pgbench]: ocho clientes escribiendo una respuesta, de seis a ocho segundos, una vez sobre la misma pregunta y otra sobre preguntas al azar entre cinco mil."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Escenario",
+    "Transacciones por segundo"
+   ],
+   "filas": [
+    [
+     "Todos sobre una misma pregunta",
+     "entre 2.700 y 2.940"
+    ],
+    [
+     "Repartidos entre 5.000 preguntas",
+     "entre 5.700 y 7.200"
+    ]
+   ],
+   "cap": "Medido en esta VM (4 CPU compartidos, `fsync` activo, una instancia): sirve la proporción, de dos a dos y medio, no las cifras."
+  },
+  {
+   "t": "p",
+   "x": "¿Importa? No se sabe desde el código. La copa pone a todos sobre las mismas 15 preguntas, pero no escribe en `respuestas`: solo lo hace el Espadeo en solitario, con preguntas sorteadas y en lotes. No medí tráfico real. Si creciera, el código deja anotada una palanca: mandar una de cada N respuestas (`MUESTRA_RESPUESTAS`, hoy 1)."
+  },
+  {
+   "t": "p",
+   "x": "Hay un segundo efecto. Un lote lleva varias respuestas en un `insert` y cada una toma el candado de su fila de resumen. Dos lotes con las mismas dos preguntas en orden inverso se esperan en ciclo: un [[deadlock de base de datos]], el tema de [@09-26]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- sesión A: respuesta de bot-001, pausa 1,5 s, respuesta de bot-002\n-- sesión B: respuesta de bot-002, pausa 1,5 s, respuesta de bot-001",
+     "s": "sesión A: confirma\nsesión B: ERROR:  deadlock detected\nDETAIL:  Process 20263 waits for ShareLock on transaction 188066; blocked by process 20264.\nCONTEXT:  while inserting index tuple (106,70) in relation \"salud_resumen\""
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. Pasado `deadlock_timeout` (1 s) PostgreSQL aborta una de las dos; la otra sigue."
+  },
+  {
+   "t": "senda",
+   "titulo": "El resumen que se suma solo",
+   "x": [
+    "`sumar_salud` y `salud_resumen` están en `20261027000000_escala.sql`. El cliente (`src/util/nube.ts`) junta de a diez, manda un lote con `on_conflict=cliente_id` y `resolution=ignore-duplicates`, y si falla reintenta con espera creciente conservando la cola. Un deadlock aborta un lote y el teléfono lo reenvía. No sé con qué frecuencia ocurre en producción."
+   ],
+   "archivos": [
+    "supabase/migrations/20261027000000_escala.sql",
+    "src/util/nube.ts"
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En la prueba del deadlock, B perdió. ¿Se perdió también su primera respuesta, la de `bot-002`, que ya había insertado?",
+   "resp": "Sí. La transacción entera se deshace, con la fila de `respuestas` y la suma en `salud_resumen`. Por eso el teléfono conserva el lote y lo reenvía; el `cliente_id` de cada respuesta evita contarlas dos veces."
+  },
+  {
+   "t": "h",
+   "x": "Dos formas de redondear"
+  },
+  {
+   "t": "p",
+   "x": "Cada acierto vale de 1.000 puntos (al instante) a 500 (al agotarse los 20 s). La fórmula está escrita dos veces: en el teléfono, `Math.round(1000 * (1 - f / 2))` con `f = ms / 20000`; en la base, `round(1000 * (1 - (t::numeric / 20000) / 2))`. ¿Dan siempre lo mismo? Probé los 19.701 tiempos entre 300 ms (el piso de la base) y 20.000 ms."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// El teléfono (src/datos/puntaje.ts): coma flotante binaria\nconst telefono = (ms) => Math.round(1000 * (1 - (ms / 20000) / 2));\n\n// La base: decimales exactos. Se simula con enteros: 1000 - ms/40 = (40000 - ms) / 40,\n// y la mitad exacta sube (round de numeric empata alejándose de cero)\nconst base = (ms) => Math.floor((2 * (40000 - ms) + 40) / 80);\n\nlet difieren = 0, primero = null;\nfor (let ms = 300; ms <= 20000; ms++) {\n  if (telefono(ms) !== base(ms)) { difieren++; if (primero === null) primero = ms; }\n}\nconsole.log(\"tiempos probados:\", 20000 - 300 + 1);\nconsole.log(\"difieren:\", difieren, \"(el primero en ms =\", primero + \")\");\nconsole.log(\"1000*(1-(5140/20000)/2) en JavaScript =\", 1000 * (1 - (5140 / 20000) / 2));\nconsole.log(\"teléfono:\", telefono(5140), \"| base:\", base(5140));",
+   "cap": "Ejecutable. En PostgreSQL corrí la fórmula real, `round(numeric)`, sobre los mismos 19.701 tiempos y coincide con `base`.",
+   "ejecutable": true
+  },
+  {
+   "t": "p",
+   "x": "Difieren 41 de 19.701, siempre por un punto y a favor de la base. Son tiempos que dejan el cálculo en una mitad exacta: `1000 - ms/40` termina en `,5` cuando `ms` deja resto 20 al dividir por 40 (493 tiempos), y en 41 de ellos el teléfono baja. La causa es la coma flotante: `ms / 20000` no se escribe exacto en binario y con 5.140 ms el teléfono obtiene `871,4999999999999`, que `Math.round` baja a 871. La base usa `numeric`, que guarda decimales exactos, ve `871,5` y lo sube a 872 [#bd0904-pg16-functions-math]. Con números positivos, `Math.round` [#bd0946-mdn-math-round] y `round(numeric)` desempatan igual; el teléfono nunca llega a la mitad [#goldberg-float]. Para dinero o puntajes que compiten, `numeric` es la herramienta, como viste en [@09-06]."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Calculá a mano el puntaje de un acierto a los 5.140 ms de 20.000. ¿Qué da la base y qué el teléfono?",
+   "pista": "5.140 / 20.000 = 0,257. Dividilo por 2, restalo de 1 y multiplicá por 1.000.",
+   "solucion": "0,257 / 2 = 0,1285; 1 - 0,1285 = 0,8715; por 1.000, 871,5. La base lo redondea a 872. El teléfono calcula en binario, obtiene 871,4999999999999 y redondea a 871."
+  },
+  {
+   "t": "p",
+   "x": "En el peor caso, quince aciertos con quince diferencias, el teléfono mostraría 15 puntos menos sobre 15.000, el 0,1 %. Es diseño aceptable: la base es la autoridad y el teléfono muestra una estimación. Un detalle de `tabla_copa`: numera con `row_number`, que no da el mismo puesto a los iguales; en mi copia, tres cuentas con idénticos valores quedaron en los puestos 2, 3 y 4."
+  },
+  {
+   "t": "h",
+   "x": "Cuando falta la clave"
+  },
+  {
+   "t": "p",
+   "x": "Volvé al gancho: quince respuestas correctas, catorce aciertos. En `corregir_partida` la línea que decide es `if found and … = c`: si la pregunta no está en `preguntas_clave`, `found` es falso y la respuesta cuenta como error. Sin excepción, aviso ni registro."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select c.id as copa, q.n, q.p as pregunta\nfrom copas c cross join lateral unnest(c.preguntas) with ordinality q(p, n)\nleft join preguntas_clave k on k.id = q.p\nwhere k.id is null order by 1, 2;",
+     "s": "       copa       | n | pregunta\n------------------+---+-----------\n adviento-2026    | 5 | bot-46004\n pascua-2027      | 4 | cas-46004\n pentecostes-2027 | 3 | bot-46062\n pentecostes-2027 | 4 | cas-46005"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. De las 45 preguntas fijas de las tres copas, 4 no tienen clave."
+  },
+  {
+   "t": "p",
+   "x": "Es un hallazgo conocido y lo verifiqué. La clave se genera con `scripts/autor/preguntas_clave.py` desde `contenido/espadeo.json`, y el propio script dice que hay que correrlo cada vez que cambia el contenido. La última migración trae 5.371 claves; el contenido tiene 5.402 preguntas vivas: 104 no están en la clave, y 73 filas de la clave son de preguntas ya retiradas. Las cuatro de las copas están entre las 104. Busqué `preguntas_clave` en `scripts/validar_contenido.py` y en los flujos de GitHub y no apareció: no encontré una comprobación que compare las dos listas. Infiero que los bancos nuevos se sumaron después de la última generación."
+  },
+  {
+   "t": "senda",
+   "titulo": "De dónde sale la clave",
+   "x": [
+    "`scripts/autor/preguntas_clave.py` escribe una migración con un upsert por cada pregunta que no sea borrador ni retirada; la última en `25e08fa` es `20261121000000_preguntas_clave.sql`. Las 15 preguntas de cada copa están en `20261127000001_copas.sql`, que genera otro script (`scripts/autor/copas_preguntas.py`). Son dos generadores independientes y nada obliga a que uno cubra lo que el otro usa."
+   ],
+   "archivos": [
+    "scripts/autor/preguntas_clave.py",
+    "supabase/migrations/20261121000000_preguntas_clave.sql",
+    "supabase/migrations/20261127000001_copas.sql"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "En una copa, quien contesta bien la pregunta sin clave pierde esos puntos: el máximo es 14 aciertos en Navidad y 13 en Pentecostés. Como la primera partida es la oficial, la pérdida es permanente. En un duelo pasa algo más raro: `jugar_turno` marca la pregunta como fallada y, como el Espadeo se juega hasta fallar, corta el turno."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select jugar_turno(:partida, gen_random_uuid(), '[{\"pregunta\":\"bot-006\",\"respuesta\":0},{\"pregunta\":\"bot-46004\",\"respuesta\":2},{\"pregunta\":\"bot-007\",\"respuesta\":0}]');\nselect pregunta, acierto from jugadas where partida = :partida and ronda = 3 order by creada;",
+     "s": "bot-006   | t\nbot-46004 | f      -- la opción 2 es la correcta según el contenido\n__turno__ | t      -- la tercera jugada nunca se guardó"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026. El teléfono, que sí conoce la respuesta, cree que acertó; la base cortó el turno."
+  },
+  {
+   "t": "p",
+   "x": "Con una pregunta sin clave cada 52, un turno de cinco preguntas toparía con una un 9 % de las veces si el sorteo fuera parejo (estimación mía). Hay tiempo: la copa de Navidad abre en 35 días. El arreglo es generar la migración de nuevo; falta, además, la comprobación que evite que se repita, por ejemplo la consulta de arriba convertida en una prueba que falle si devuelve filas."
+  },
+  {
+   "t": "pensa",
+   "x": "`corregir_partida` cuenta como error la pregunta sin clave en lugar de lanzar una excepción. ¿Qué cambia entre fallar en silencio y fallar en voz alta, y cuál elegirías para repartir premios?",
+   "resp": "En voz alta, la primera prueba de la copa habría fallado y el hallazgo habría aparecido antes de que jugara nadie. En silencio, el resultado parece válido y es incorrecto. Para algo que reparte premios y no se rehace, prefiero que la función se niegue a puntuar. Es una regla práctica: el costo es que una pregunta mal cargada frene las marcas de todos hasta corregirla."
+  },
+  {
+   "t": "h",
+   "x": "Cerrar la copa, y lo que la base no deja hacer"
+  },
+  {
+   "t": "p",
+   "x": "Busqué qué cierra una copa y la respuesta es que nada. Las tres tareas de `pg_cron` son avisos, duelos vencidos y limpieza, y la limpieza no toca `copas_resultados`. La copa se cierra sola porque `marca_copa` compara `now()` con `hasta` en cada pedido, y `tabla_copa`, que no mira fechas, sigue mostrando la tabla. Una marca que quedó en la bandeja del teléfono por falta de señal y llega después del cierre se descarta; el código lo dice en un comentario («esa marca ya no entra»)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select * from corregir_partida('[]'::jsonb, 20, 15);",
+     "s": "ERROR:  permission denied for function corregir_partida"
+    },
+    {
+     "c": "insert into copas_resultados (cliente_id, copa, usuario, puntos, aciertos, ms) values (gen_random_uuid(), 'adviento-2026', auth.uid(), 15000, 15, 4500);",
+     "s": "ERROR:  new row violates row-level security policy for table \"copas_resultados\""
+    },
+    {
+     "c": "with u as (update copas_resultados set puntos = 15000 where usuario = auth.uid() returning 1) select count(*) from u;",
+     "s": "0      -- sin política de update: cero filas, sin error"
+    },
+    {
+     "c": "select count(*) from preguntas_clave;",
+     "s": "0      -- la clave no se puede leer"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026 con el rol `authenticated`: un error de permiso, uno de política y dos ceros silenciosos."
+  },
+  {
+   "t": "p",
+   "x": "Lo que la base no puede impedir lo dice el mapa del proyecto: los milisegundos de cada respuesta los informa el teléfono y un cliente alterado puede declarar 300 ms en todas. En las salas en vivo el tiempo lo mide la base; en la copa, no."
+  },
+  {
+   "t": "h",
+   "x": "Los hallazgos, clasificados"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Hallazgo",
+    "Evidencia",
+    "Clasificación"
+   ],
+   "filas": [
+    [
+     "4 de 45 preguntas de copa sin clave (104 vivas en total)",
+     "Corrido; contado contra el contenido",
+     "Riesgo real hasta regenerar la migración (copa el 18-12-2026)"
+    ],
+    [
+     "Pregunta sin clave corta el turno de un duelo",
+     "Corrido",
+     "Riesgo real, de menor costo"
+    ],
+    [
+     "Misma cuenta en dos teléfonos: `oficial = true` con puntos que no quedaron",
+     "Corrido con dos sesiones",
+     "Deuda menor: la app ignora el campo"
+    ],
+    [
+     "Teléfono y base difieren en 41 de 19.701 tiempos",
+     "Corrido en Node y PostgreSQL",
+     "Diseño aceptable"
+    ],
+    [
+     "Fila caliente y deadlock posible en `salud_resumen`",
+     "Corrido; carga real sin medir",
+     "A vigilar si crece el tráfico"
+    ],
+    [
+     "`jugar_turno` aborta todo con una respuesta nula; `tabla_copa` no desempata",
+     "Corrido; la app manda -1",
+     "Deuda menor"
+    ]
+   ],
+   "cap": "Clasificación mía, según las evidencias de hoy; todo corrido sobre una copia local."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": [
+    "Todo lo de Senda corresponde al commit `25e08fa` (9 de noviembre de 2026); el hallazgo de la clave puede estar corregido cuando leas esto. Corrí PostgreSQL 16.15 con las 42 migraciones y un simulador mínimo de Supabase (roles y `auth.uid()`). No tenía `pg_cron` ni `pg_net`, así que no ejecuté `cerrar_vencidas` ni `enviar_avisos`, y tampoco probé la función de borde ni a Claude. Mi copia tiene 92 funciones y el mapa cuenta 93: falta `grupo_de_ruta`, que necesita el esquema `storage`.",
+    "Las cifras de `pgbench` son de una VM de 4 CPU compartidos. No sé qué versiones de PostgreSQL y PostgREST corre el proyecto real; lo de PostgREST lo verifiqué en su documentación."
+   ],
+   "titulo": "Vigencia: qué corrí y qué no"
+  },
+  {
+   "t": "p",
+   "x": "Te llevás una manera de leer cualquier flujo con base: marcar el borde de la transacción, listar qué queda adentro y afuera, y preguntar qué pasa si dos pedidos llegan juntos o falta un dato. La Parte 9 cierra en [@09-47]."
+  }
+ ],
+ "recap": [
+  "Una marca de copa es un solo pedido a `marca_copa`: el teléfono manda evidencia (opción y tiempo) y la base corrige con una clave que el teléfono no ve y escribe la marca oficial.",
+  "Dentro de la base, todo el pedido es atómico: se deshacen jugadas, turno y aviso juntos. Fuera del borde (teléfono, envío de avisos, llamada a Claude) hay que reintentar con identificadores o compensar a mano.",
+  "Para pedidos simultáneos Senda combina restricción única, `for update`, advisory lock por usuario y `cliente_id`. Un `exists` previo informa pero no protege.",
+  "La misma cuenta en dos teléfonos deja una sola marca, pero el segundo recibe `oficial = true` con puntos que no quedaron: la integridad se sostiene y el mensaje no.",
+  "`salud_resumen` abarata la lectura a cambio de una fila caliente por pregunta; teléfono y base redondean distinto en 41 de 19.701 tiempos por coma flotante frente a `numeric`.",
+  "Una pregunta sin clave no da error: cuenta como fallo. Hoy 4 de las 45 de las copas están sin clave, y fallar en silencio es peor que fallar en voz alta cuando se reparten premios."
+ ],
+ "repaso": [
+  {
+   "p": "Un turno de duelo llega con tres jugadas y la tercera trae una respuesta que no se puede convertir a número. ¿Qué queda en la base cuando `jugar_turno` termina con error?",
+   "o": [
+    "Nada: se deshacen las jugadas, el cambio de ronda y el aviso, porque todo es una sola transacción.",
+    "Las dos primeras jugadas, que ya se habían insertado, pero el turno no avanza para nadie.",
+    "Las tres jugadas, con la tercera marcada como fallada, y el turno pasa al rival normalmente.",
+    "Las dos primeras jugadas y el aviso, porque el aviso se crea en otra transacción aparte."
+   ],
+   "c": 0,
+   "e": "PostgREST ejecuta cada pedido en una transacción y la función no puede confirmar por su cuenta; si algo falla, PostgreSQL deshace todo lo que hizo, incluida la primera jugada. Las otras opciones imaginan guardados parciales que la base no permite: el aviso se inserta en la misma transacción, no en una aparte."
+  },
+  {
+   "p": "La misma cuenta marca en la copa desde dos teléfonos casi al mismo tiempo. La fila del primero todavía no se confirmó cuando llega el segundo. ¿Qué recibe el segundo teléfono?",
+   "o": [
+    "Un error de restricción única, porque la fila del primero ya existe para todos los pedidos.",
+    "`oficial = false` de inmediato, porque el `exists` del principio ve la fila del primero.",
+    "`oficial = true` después de esperar, con sus propios puntos, aunque la fila guardada sea la del primero.",
+    "Los puntos del primero, porque el `on conflict` los copia en la respuesta del segundo."
+   ],
+   "c": 2,
+   "e": "En READ COMMITTED el `exists` no ve filas sin confirmar, así que `ya` queda en falso. El insert espera al primero y después no hace nada por el `do nothing`, pero la función igual devuelve `not ya`. Pensar que llega un error confunde el `do nothing` con una falla; suponer que `exists` ve filas sin confirmar es falso, y no existe ninguna copia de los puntos del primero."
+  },
+  {
+   "p": "Un líder del plan gratis tiene dos trivias en `procesando` y un cupo de una. Dos pedidos a `reclamar_trivia`, uno por trivia, llegan a la vez. ¿Qué cambia si se quita el `pg_advisory_xact_lock`?",
+   "o": [
+    "Nada, porque el `update … where estado = 'procesando'` bloquea las dos filas a la vez.",
+    "Los dos pedidos leen un cupo disponible, ninguno espera y las dos trivias se cobran con un cupo de uno.",
+    "Se cobra una sola, porque la clave primaria de `trivias_cobradas` impide dos filas de un mismo usuario.",
+    "Falla uno con un deadlock, porque cada pedido toma primero la fila que el otro necesita."
+   ],
+   "c": 1,
+   "e": "Son filas distintas de `trivias_sermon` y de `trivias_cobradas` (la clave primaria es la trivia, no el usuario), así que nadie espera a nadie y los dos ven el cupo en uno. El candado por usuario sirve justo para esa carrera entre «mirar el cupo» y «anotar el cobro». No hay ciclo de espera, por lo que tampoco hay deadlock."
+  },
+  {
+   "p": "El teléfono calcula `Math.round(1000 * (1 - (ms / 20000) / 2))` y la base `round(1000 * (1 - (t::numeric / 20000) / 2))`. Con 5.140 ms uno da 871 y el otro 872. ¿Por qué?",
+   "o": [
+    "`Math.round` redondea las mitades hacia abajo y `round` de PostgreSQL las redondea hacia arriba.",
+    "El teléfono trunca los decimales antes de redondear y la base los conserva todos hasta el final.",
+    "La base cambia los 5.140 ms por 300 ms, que es el piso que le pone a cada respuesta.",
+    "En coma flotante binaria el resultado exacto 871,5 queda como 871,4999999999999, y `numeric` guarda 871,5."
+   ],
+   "c": 3,
+   "e": "Con números positivos, `Math.round` sube la mitad hacia más infinito y `round(numeric)` la aleja de cero: hacen lo mismo. La diferencia está en que el teléfono nunca llega a la mitad exacta por la representación binaria. El piso de 300 ms solo afecta a tiempos menores, y 5.140 está muy por encima."
+  },
+  {
+   "p": "Una persona contesta bien las 15 preguntas de una copa, pero una de ellas no tiene fila en `preguntas_clave`. ¿Qué ve en la tabla, y por qué es un problema de diseño y no solo de datos?",
+   "o": [
+    "Un error `clave_faltante`, y la marca no se guarda hasta que el equipo cargue la clave que falta.",
+    "14 aciertos y sin ningún error, porque la función cuenta como fallo lo que no encuentra y no avisa.",
+    "15 aciertos, porque la función confía en la respuesta que mandó el teléfono cuando no hay clave.",
+    "Una marca vacía de cero puntos, porque el filtro de la lista fija descarta toda la partida."
+   ],
+   "c": 1,
+   "e": "En `corregir_partida`, `found` es falso cuando no hay fila y la respuesta simplemente no suma. No hay excepción ni registro: el resultado parece válido y es incorrecto. Es un problema de diseño porque nada obliga a que el dato esté, y la primera marca no se puede reemplazar. Las otras opciones suponen un error, una confianza o un descarte total que no existen en el código."
+  },
+  {
+   "p": "¿Qué garantiza que una persona tenga una sola marca oficial por copa aunque dos pedidos lleguen al mismo tiempo?",
+   "o": [
+    "La comprobación `exists` que hace la función antes de insertar la marca.",
+    "El `security definer`, que ejecuta la función con permisos de quien la creó.",
+    "La restricción única sobre `(copa, usuario)` de la tabla de resultados.",
+    "El `for update` sobre la fila de la copa, que ordena los pedidos."
+   ],
+   "c": 2,
+   "e": "Las comprobaciones previas se hacen antes de que el otro pedido confirme y no ven lo que todavía no existe; la restricción única la aplica la base en el momento de insertar. El `security definer` controla permisos, no concurrencia, y `marca_copa` no hace `for update` sobre la copa."
+  },
+  {
+   "p": "¿Por qué dos respuestas para la misma pregunta del Espadeo pueden esperarse entre sí si son filas distintas de `respuestas`?",
+   "o": [
+    "Porque la tabla `respuestas` tiene un lock de tabla mientras corre cualquier `insert`.",
+    "Porque el índice único `respuestas_cliente_id` obliga a insertarlas de una en una.",
+    "Porque PostgREST procesa de a un pedido por vez para cada tabla del esquema.",
+    "Porque el trigger actualiza la misma fila de `salud_resumen`, y esa fila queda bloqueada hasta el commit."
+   ],
+   "c": 3,
+   "e": "El trigger `sumar_salud` hace un upsert sobre la fila de la pregunta en `salud_resumen` dentro de la misma transacción, y esa fila queda tomada hasta confirmar. Las respuestas de preguntas distintas no esperan. Un `insert` común no bloquea la tabla entera, el índice único solo choca con un mismo `cliente_id` y PostgREST atiende pedidos en paralelo."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística, sin tecnicismos, qué pasa cuando un teléfono manda la marca de una copa a la base, qué cosas se anulan juntas si el pedido falla a mitad, y por qué una pregunta que falta en la clave hace que la persona pierda puntos sin que nadie vea un error.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0925-pg-iso",
+   "por_que": "La sección de READ COMMITTED explica por qué `exists` no ve filas sin confirmar y cómo `INSERT … ON CONFLICT DO NOTHING` puede no insertar por una transacción que el insert no ve: es la raíz del caso de los dos teléfonos."
+  },
+  {
+   "fuente": "back18-pg-explicit-locking",
+   "por_que": "El apartado de advisory locks distingue los de sesión y los de transacción; es lo que usa `reclamar_trivia` para ordenar a un mismo usuario."
+  },
+  {
+   "fuente": "bd0946-postgrest-transacciones",
+   "por_que": "Dice que cada pedido a PostgREST corre en una transacción con el aislamiento por defecto y qué modo de acceso (lectura o escritura) tiene una función según su volatilidad."
+  },
+  {
+   "fuente": "goldberg-float",
+   "por_que": "El artículo clásico sobre coma flotante; la sección sobre errores de redondeo ayuda a entender por qué 871,5 aparece como 871,4999999999999."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "función RPC de copas",
+   "d": "Función guardada en la base (`marca_copa`, `tabla_copa`) que la app llama con un solo pedido HTTP a `/rest/v1/rpc/<nombre>`. Recibe las respuestas crudas, corrige con la clave que el teléfono no tiene y escribe el resultado oficial, todo dentro de una transacción."
+  },
+  {
+   "t": "atomicidad en la práctica",
+   "d": "Dibujar el borde de la transacción sobre un flujo real y ver qué se deshace junto si algo falla y qué queda del otro lado. Dentro de una función de la base es todo o nada; entre el teléfono, la base y un servicio ajeno hay que armarlo con reintentos, identificadores y compensaciones."
+  },
+  {
+   "t": "marca oficial",
+   "d": "La primera marca que una persona guarda en una copa. Una restricción única sobre `(copa, usuario)` impide una segunda; las partidas siguientes son práctica y no entran en la tabla."
+  },
+  {
+   "t": "clave de respuestas",
+   "d": "Tabla (`preguntas_clave` en Senda) con la opción correcta de cada pregunta. Solo la leen las funciones de la base; el teléfono no la tiene, así que no puede mandar un puntaje inventado."
+  },
+  {
+   "t": "compensación",
+   "d": "Acción inversa escrita a mano para deshacer algo que una transacción no puede, como un cobro anotado antes de llamar a un servicio ajeno que después falla. En Senda, `devolverCupo` borra el cobro de la trivia."
+  }
+ ],
+ "siguiente": "Cierre de la Parte 9: del dato al disco y de vuelta, con un recorrido que junta todo lo que viste de bases de datos.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0946-postgrest-transacciones",
+   "t": "Transactions (documentación de PostgREST, texto fuente en su repositorio)",
+   "a": "PostgREST",
+   "tipo": "doc",
+   "anio": 2025,
+   "url": "https://raw.githubusercontent.com/PostgREST/postgrest/main/docs/references/transactions.rst"
+  },
+  {
+   "id": "bd0946-mdn-math-round",
+   "t": "Math.round() (MDN)",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/round"
+  }
+ ]
+}

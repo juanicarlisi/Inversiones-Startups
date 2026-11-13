@@ -1,0 +1,844 @@
+{
+ "id": "09-44",
+ "titulo": "Laboratorio: diseñar el esquema de una mini Senda sin ayuda",
+ "bajada": "Diseñás con tus manos las tablas, las reglas, los índices y los permisos de una app de lectura y juegos, y recién al final ves cómo lo resolvió la real.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Traducir un enunciado de requisitos en tablas, relaciones y cardinalidades, e identificar dónde hace falta una tabla intermedia.",
+  "Escribir claves y restricciones para que una regla de negocio la haga cumplir la base y no el programa, y probarla con un `INSERT` que tiene que fallar.",
+  "Decidir qué índices necesita un esquema a partir de las consultas y comprobarlo con `EXPLAIN (ANALYZE)`.",
+  "Armar permisos y políticas de seguridad por fila que se prueban con un rol sin privilegios.",
+  "Revisar el esquema de otra persona con una lista de control y encontrar los defectos antes de que lleguen a producción."
+ ],
+ "venis_de": "Ya sabés leer una consulta, diseñar tablas del problema a las relaciones [@09-14], poner restricciones [@09-06], indexar [@09-21], proteger filas [@09-41] y mirar un backend entero sobre Postgres [@09-42]. Hoy no hay explicación nueva: hay un problema y un teclado.",
+ "se_apoya_en": [
+  "09-06",
+  "09-07",
+  "09-14",
+  "09-20",
+  "09-21",
+  "09-41",
+  "09-42"
+ ],
+ "gancho": [
+  "Un fundador le dice a un desarrollador: «necesito una app de lectura y juegos». El desarrollador abre un editor y, en veinte minutos, decide cuántas tablas hay, qué es único, qué puede quedar vacío y quién puede leer qué. Nadie le va a preguntar nada de eso. Y dentro de un año, cada una de esas decisiones va a costar semanas arreglarla con datos de verdad adentro.",
+  "Hoy hacés esos veinte minutos, pero con la ventaja de que alguien te marca los errores. Te doy un enunciado inventado, una mini Senda, y no te muestro cómo está hecha la real. Vas a diseñar el esquema por rondas, a probar cada regla con un caso que tiene que fallar, a medir si los índices alcanzan y a revisar el esquema defectuoso de un colega. La comparación con Senda viene al final, y es corta a propósito: el [@09-45] la recorre entera."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Cómo se trabaja hoy"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Este día se hace con las manos. Cada ejercicio trae una consigna, una pista y una solución escondida; la regla del laboratorio es **escribir tu respuesta antes de abrir la solución**. Si la abrís antes, aprendés a leer un esquema ajeno, y eso ya lo hiciste. Lo que se entrena hoy es decidir.",
+    "Necesitás un PostgreSQL de práctica. Todo lo que sigue lo corrí en la versión 16.15, en una VM de 4 CPU compartidos con una base creada para esto, y los tiempos son de esa VM («medido en esta VM»). PostgreSQL no arranca como administrador del sistema: se crea un clúster con un usuario común."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "initdb -D ./datos -E UTF8 --locale=C.UTF-8     # crea un clúster nuevo en ./datos\npg_ctl -D ./datos -o \"-p 5544\" -l log.txt start  # lo arranca en el puerto 5544\ncreatedb -p 5544 minisenda\npsql -p 5544 minisenda                          # y ya podés escribir SQL",
+   "cap": "Un clúster descartable. Para borrarlo, `pg_ctl stop` y se elimina la carpeta `./datos`. Usá siempre datos inventados."
+  },
+  {
+   "t": "h",
+   "x": "El enunciado: una mini Senda"
+  },
+  {
+   "t": "p",
+   "x": "Estas son las reglas de la aplicación inventada. Son todo lo que sabés de ella. Si algo no está dicho, decidilo vos y anotá por qué."
+  },
+  {
+   "t": "lista",
+   "ord": true,
+   "items": [
+    "**Cuentas.** Cada persona tiene un alias de 3 a 20 caracteres. No puede haber dos iguales, y «Ana» y «ana» cuentan como el mismo.",
+    "**Lectura.** Se guarda qué capítulos de la Biblia terminó cada persona y cuándo. Releer un capítulo no crea otro registro. Los libros y sus capítulos son datos fijos: cargá tres de ejemplo (Génesis con 50 capítulos, Salmos con 150 y Juan con 21).",
+    "**Preguntas.** Hay un banco de preguntas de opción múltiple. Cada una tiene un enunciado, exactamente 4 opciones, exactamente una correcta, una dificultad de 1 a 3, un versículo de referencia que tiene que existir y un estado: borrador, publicada o retirada.",
+    "**Duelos.** Dos personas se enfrentan en un duelo de 5 preguntas, las mismas para las dos. Cada jugador responde cada pregunta una sola vez, eligiendo una opción en cierta cantidad de milisegundos. Un duelo está en curso, terminado o vencido.",
+    "**Honestidad del duelo.** Nadie juega contra sí mismo, no entra un tercero, y solo se puede responder dentro de un duelo propio y con una de sus 5 preguntas.",
+    "**Grupos.** Hay grupos con nombre (jóvenes, iglesia, familia). Una persona puede estar en muchos, con un rol en cada uno: líder, ayudante o miembro. Cada grupo tiene como mucho un líder.",
+    "**Copa semanal.** Cada semana hay una copa. De cada persona se guarda una sola vez su resultado en esa copa: puntos de 0 a 10.000, aciertos de 0 a 10 y milisegundos. Hay que mostrar los 20 primeros de una copa al instante.",
+    "**Rapidez.** También al instante: «mis grupos» y «mis duelos en curso».",
+    "**Privacidad.** Cada persona lee y escribe solo sus lecturas. Todos ven los alias. Cualquiera ve las preguntas publicadas, pero nadie puede leer cuál es la correcta, porque la corrige el servidor. Los miembros de un grupo ven a los demás miembros de ese grupo y a nadie más."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Diseño guiado: siete pasos y un control"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[diseño guiado]] es un método con un orden fijo y una regla de control: **un requisito no está cumplido hasta que existe un `INSERT` que falla**. Cada regla del enunciado se traduce a algo que la base haga cumplir, y se demuestra con un caso que intenta romperla. Si no se puede escribir ese caso, la regla vive solo en la cabeza de quien programó.",
+    "Los pasos son los de [@09-14], con dos agregados al final."
+   ]
+  },
+  {
+   "t": "pasos",
+   "pasos": [
+    {
+     "t": "Los sustantivos son tablas",
+     "x": "Personas, capítulos, preguntas, duelos, grupos, copas. Preguntate de cada una si tiene vida propia o si es un dato de otra."
+    },
+    {
+     "t": "Los verbos son relaciones",
+     "x": "«Una persona lee un capítulo», «juega un duelo», «está en un grupo». Para cada una, la cardinalidad: uno a muchos o muchos a muchos. Los muchos a muchos piden tabla intermedia."
+    },
+    {
+     "t": "Claves",
+     "x": "La clave primaria de cada tabla y las foráneas. Una clave compuesta es válida cuando lo que identifica una fila son dos cosas juntas."
+    },
+    {
+     "t": "Tipos y NOT NULL",
+     "x": "El tipo más estrecho que dice la verdad (una fecha es `timestamptz`, no texto) y vacío solo donde vacío tiene sentido."
+    },
+    {
+     "t": "Reglas como restricciones",
+     "x": "`CHECK`, `UNIQUE`, claves foráneas. Cada regla del enunciado, con su caso que debe fallar."
+    },
+    {
+     "t": "Consultas, entonces índices",
+     "x": "Las claves ya crean índices, pero no los que necesitan las consultas. Se decide con las consultas del enunciado y se comprueba con `EXPLAIN`."
+    },
+    {
+     "t": "Quién ve qué",
+     "x": "Permisos y seguridad por fila, probados con un rol sin privilegios."
+    }
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Ronda 1: del enunciado a las tablas"
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 1: el mapa.** Sin escribir SQL, anotá en papel las tablas que necesita el enunciado y, para cada par relacionado, la cardinalidad. Marcá dónde hace falta una tabla intermedia y qué datos propios guardaría.",
+   "pista": "Buscá los pares donde la frase vale en las dos direcciones con «muchos»: una persona lee muchos capítulos y un capítulo lo leen muchas personas. Preguntate también qué dato no pertenece a ninguno de los dos lados (¿cuándo leyó?, ¿en qué orden juega?).",
+   "solucion": [
+    "Trece tablas. Datos fijos: libros y capítulos (un libro tiene muchos capítulos). Una persona (`usuarios`), un grupo, un duelo, una copa y una pregunta tienen vida propia. Las demás son intermedias: `lecturas` (personas × capítulos, con la fecha), `miembros` (personas × grupos, con el rol y desde cuándo), `partida_jugadores` (duelos × personas, con el orden), `partida_preguntas` (duelos × preguntas, con la posición), `jugadas` (la respuesta de una persona a una pregunta dentro de un duelo, con la opción y los milisegundos) y `copa_resultados` (personas × copas, con puntos, aciertos y milisegundos).",
+    "La señal para detectar una tabla intermedia es que casi siempre guarda datos propios. Si en tu mapa pusiste las respuestas dentro de la tabla de duelos, por ejemplo con columnas `respuesta1` a `respuesta5`, te falta una tabla: es el error clásico de 1FN que viste en [@09-15]."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 2: personas y lecturas.** Escribí el `CREATE TABLE` de `usuarios`, `libros`, `capitulos` y `lecturas` para cumplir las reglas 1 y 2. Después demostralo con cuatro `INSERT`: «ana» tiene que fallar si existe «Ana», un alias de 2 letras tiene que fallar, releer un capítulo no tiene que duplicar nada y leer Juan 22 tiene que fallar.",
+   "pista": "`UNIQUE` sobre una columna distingue mayúsculas de minúsculas. Un índice único admite una expresión, y `INSERT … ON CONFLICT DO NOTHING` convierte «ya estaba» en una no-acción en lugar de un error. Un capítulo existe como par (libro, número).",
+   "solucion": [
+    "El alias va con un índice único sobre `lower(alias)` y un `CHECK` de largo [#lab44-pg-indices-expresion]. Las lecturas llevan clave primaria compuesta `(usuario, libro, capitulo)`: una fila por persona y capítulo, sin una columna `id` inútil. La clave foránea también es compuesta, `(libro, capitulo)` contra `capitulos`, y eso impide leer Juan 22 sin ninguna línea de programa [#back0707-postgres-constraints].",
+    "Las cuatro pruebas dieron lo esperado, como muestra la salida de abajo. La relectura se resuelve del lado de la aplicación con `ON CONFLICT DO NOTHING`; sin esa cláusula, la clave primaria rechaza el duplicado con un error."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "insert into usuarios (alias) values ('ana');   -- ya existe 'Ana'",
+     "s": "ERROR:  duplicate key value violates unique constraint \"usuarios_alias_unico\""
+    },
+    {
+     "c": "insert into usuarios (alias) values ('Jo');",
+     "s": "ERROR:  new row for relation \"usuarios\" violates check constraint \"usuarios_alias_check\""
+    },
+    {
+     "c": "insert into lecturas (usuario, libro, capitulo) values (:'ana', 'jua', 3) on conflict do nothing;",
+     "s": "INSERT 0 0      -- ya estaba: no hizo nada y no falló"
+    },
+    {
+     "c": "insert into lecturas (usuario, libro, capitulo) values (:'ana', 'jua', 3);",
+     "s": "ERROR:  duplicate key value violates unique constraint \"lecturas_pkey\""
+    },
+    {
+     "c": "insert into lecturas (usuario, libro, capitulo) values (:'ana', 'jua', 22);",
+     "s": "ERROR:  insert or update on table \"lecturas\" violates foreign key constraint \"lecturas_libro_capitulo_fkey\""
+    }
+   ],
+   "cap": "Medido en esta VM, PostgreSQL 16.15. `:'ana'` es una variable de `psql` con el id de Ana. Cada línea es una regla del enunciado que la base hace cumplir."
+  },
+  {
+   "t": "h",
+   "x": "Ronda 2: reglas que se cumplen solas"
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 3: las preguntas.** La regla 3 pide exactamente 4 opciones y exactamente una correcta. Pensá dos diseños: (A) una tabla `opciones` con una fila por opción y una columna booleana `correcta`; (B) una columna con un arreglo de textos y otra con el número de la correcta, en la misma tabla. ¿Cuál garantiza la regla con restricciones declarativas? Probalo con `INSERT` que deben fallar.",
+   "pista": "En el diseño A, un índice único parcial (`where correcta`) impide dos correctas. Pensá si impide cero correctas, o cinco opciones. En el B, mirá qué pueden verificar `cardinality(...)` y `between`.",
+   "solucion": [
+    "El diseño B garantiza ambas cosas con dos `CHECK`: `cardinality(opciones) = 4` y `correcta between 1 and 4`. El diseño A garantiza como mucho una correcta, con un índice único parcial [#lab44-pg-indices-parciales], pero acepta una pregunta con 4 opciones y ninguna correcta: lo comprobé, la cuenta dio «0 correctas de 4 opciones». «Exactamente 4 opciones» ni siquiera se puede escribir en el A sin un disparador.",
+    "El B tiene su precio: un arreglo no admite claves foráneas por opción ni estadísticas por opción (cuánta gente eligió la C). Si el número de opciones variara por pregunta, el A pasaría a ser mejor, con un disparador que verifique el total. Es una decisión de requisitos, no de gusto."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "insert into preguntas (...) values ('¿Qué le dijo Jesús a Nicodemo?', array['a','b','c'], 1, ...);",
+     "s": "ERROR:  new row for relation \"preguntas\" violates check constraint \"preguntas_opciones_check\""
+    },
+    {
+     "c": "insert into preguntas (...) values ('¿Qué le dijo Jesús a Nicodemo?', array['a','b','c','d'], 5, ...);",
+     "s": "ERROR:  new row for relation \"preguntas\" violates check constraint \"preguntas_correcta_check\""
+    },
+    {
+     "c": "-- diseño A: cuatro opciones y ninguna correcta (con un índice único parcial en correcta)\nselect count(*) filter (where correcta) as correctas, count(*) as opciones from alt.opciones where pregunta = 1;",
+     "s": " correctas | opciones\n         0 |        4"
+    },
+    {
+     "c": "insert into alt.opciones (pregunta, posicion, texto, correcta) values (2,1,'a',true),(2,2,'b',true);",
+     "s": "ERROR:  duplicate key value violates unique constraint \"opciones_pregunta_idx\""
+    }
+   ],
+   "cap": "Medido en esta VM. El diseño A impidió dos correctas pero aceptó cero; el B impidió las dos cosas."
+  },
+  {
+   "t": "pensa",
+   "x": "En el ejercicio 3, dos `INSERT` de preguntas fallaron y la primera pregunta válida recibió el id 3, no el 1. ¿Por qué se «perdieron» el 1 y el 2, y qué le pasa a quien espera ids sin huecos?",
+   "resp": "Las secuencias que generan los ids (`generated always as identity`) entregan el número antes de comprobar las restricciones, y no lo devuelven si el `INSERT` falla. Por eso aparecen huecos: es normal y esperado. Quien necesite una numeración sin huecos (una factura, por ejemplo) no puede apoyarse en una secuencia y necesita otro mecanismo."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 4: el duelo honesto.** Las reglas 4 y 5 son cuatro prohibiciones: jugar contra uno mismo, un tercer jugador, responder fuera del duelo propio y responder una pregunta que no es del duelo. Más la regla de una respuesta por pregunta y jugador. Diseñá las tablas para que cada una sea una restricción y no un `if` del programa. ¿Qué regla no se puede garantizar solo con claves?",
+   "pista": "Tres tablas intermedias con claves compuestas. Una clave foránea puede apuntar a dos columnas a la vez. Pensá qué cuenta («exactamente dos») no sabe hacer una restricción.",
+   "solucion": [
+    "`partida_jugadores` con clave primaria `(partida, usuario)` impide jugar contra uno mismo, porque la misma persona no puede aparecer dos veces. Un `unique (partida, orden)` con `check (orden in (1, 2))` impide el tercero. `partida_preguntas` fija las 5 preguntas del duelo. `jugadas` apunta con dos claves foráneas compuestas, una a `partida_jugadores` y otra a `partida_preguntas`, y con eso solo responde quien juega y solo sobre las preguntas del duelo. Su clave `(partida, usuario, pregunta)` impide responder dos veces [#be28-postgres-fk].",
+    "Lo que no se puede garantizar con claves es «exactamente dos jugadores» (un duelo con uno solo cumple todas las restricciones) ni «exactamente 5 preguntas». Eso se resuelve con una función que cree el duelo y sus filas en una sola transacción [@09-24], o con un disparador diferido [@09-18]. Conviene anotar la regla como pendiente, no fingir que está resuelta."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "insert into partida_jugadores (partida, usuario, orden) values (1, :'ana', 2);   -- Ana ya juega este duelo",
+     "s": "ERROR:  duplicate key value violates unique constraint \"partida_jugadores_pkey\""
+    },
+    {
+     "c": "insert into partida_jugadores (partida, usuario, orden) values (1, :'cleo', 1);  -- el lugar 1 está ocupado",
+     "s": "ERROR:  duplicate key value violates unique constraint \"partida_jugadores_partida_orden_key\""
+    },
+    {
+     "c": "insert into partida_jugadores (partida, usuario, orden) values (1, :'cleo', 3);",
+     "s": "ERROR:  new row for relation \"partida_jugadores\" violates check constraint \"partida_jugadores_orden_check\""
+    },
+    {
+     "c": "insert into jugadas (partida, usuario, pregunta, elegida, ms) values (1, :'ana', 3, 1, 900);   -- ya respondió la 3",
+     "s": "ERROR:  duplicate key value violates unique constraint \"jugadas_pkey\""
+    },
+    {
+     "c": "insert into jugadas (partida, usuario, pregunta, elegida, ms) values (1, :'cleo', 3, 3, 4200);   -- Cleo no juega",
+     "s": "ERROR:  insert or update on table \"jugadas\" violates foreign key constraint \"jugadas_partida_usuario_fkey\""
+    },
+    {
+     "c": "insert into jugadas (partida, usuario, pregunta, elegida, ms) values (1, :'ana', 9, 3, 4200);   -- la 9 no es del duelo",
+     "s": "ERROR:  insert or update on table \"jugadas\" violates foreign key constraint \"jugadas_partida_pregunta_fkey\""
+    }
+   ],
+   "cap": "Medido en esta VM. Seis intentos de romper el duelo, seis rechazos, ninguno con una línea de programa. Antes se había cargado el duelo 1 con Ana y Beto y sus 5 preguntas."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 5: los grupos.** Diseñá `grupos` y `miembros` para que una persona no aparezca dos veces en el mismo grupo y cada grupo tenga como mucho un líder. Probá los dos casos. Después contestá: ¿la regla garantiza que **todo** grupo tenga líder?",
+   "pista": "La clave de `miembros` es el par (grupo, usuario). Para «como mucho uno», un índice único que solo mire las filas con rol de líder.",
+   "solucion": [
+    "Clave primaria `(grupo, usuario)` y un índice único parcial `on miembros (grupo) where rol = 'lider'`: solo cuenta las filas con ese rol, así que dos líderes en el mismo grupo chocan y cualquier cantidad de miembros comunes no [#lab44-pg-indices-parciales]. No garantiza que haya líder: un grupo sin miembros cumple todo, y la consulta que lo buscó encontró uno. Si el requisito es «al menos uno», el grupo y su primer líder se crean dentro de la misma transacción, y la salida del último líder se controla en una función.",
+    "Ojo con el requisito mismo: yo escribí «como mucho un líder» y lo hice cumplir. Si el producto necesita varios líderes o un traspaso de liderazgo, la regla se convierte en un obstáculo. Una restricción dura es una decisión de negocio escrita en la base."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "insert into miembros (grupo, usuario, rol) values (1, :'cleo', 'lider');   -- el grupo 1 ya tiene líder",
+     "s": "ERROR:  duplicate key value violates unique constraint \"un_solo_lider\""
+    },
+    {
+     "c": "insert into miembros (grupo, usuario, rol) values (1, :'beto', 'ayudante');   -- Beto ya está en el grupo 1",
+     "s": "ERROR:  duplicate key value violates unique constraint \"miembros_pkey\""
+    },
+    {
+     "c": "insert into grupos (nombre) values ('Sin líder');\nselect count(*) from grupos g where not exists (select 1 from miembros m where m.grupo = g.id and m.rol = 'lider');",
+     "s": " count\n     1"
+    }
+   ],
+   "cap": "Medido en esta VM. El último resultado muestra un grupo sin líder: lo permite el diseño, y por eso la regla de «al menos uno» se anota como pendiente."
+  },
+  {
+   "t": "h",
+   "x": "Ronda 3: índices y permisos"
+  },
+  {
+   "t": "p",
+   "x": "Los pasos 6 y 7 se hacen con números. Cargué un volumen razonable con una fórmula determinista, sin azar: 20.000 personas, 5.000 grupos de 40 miembros, 200.000 duelos (400.000 filas de jugadores) y 15 copas de 20.000 resultados cada una (300.000 filas). La base entera pesa 145 MB."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 6: los índices.** Con el esquema de las claves, y antes de correr nada, anotá para cada consulta si creés que la clave primaria alcanza: (Q1) los 20 primeros de la copa `c07`, ordenados por puntos, aciertos y milisegundos; (Q2) «mis grupos», filtrando `miembros` por usuario; (Q3) «mis duelos en curso», filtrando `partida_jugadores` por usuario y uniendo con `partidas`. Después medilas con `EXPLAIN (ANALYZE)`, creá los índices que falten y medí de nuevo.",
+   "pista": "Una clave primaria compuesta sirve para buscar por su **primera** columna, o por las dos juntas. Buscar solo por la segunda es otra historia. Para Q1, el índice puede devolver las filas ya en el orden pedido.",
+   "solucion": [
+    "Q1 tenía la clave `(copa, usuario)`, que encuentra las 20.000 filas de la copa pero obliga a ordenarlas: 11,5 ms. Con un índice `(copa, puntos desc, aciertos desc, ms asc)` las lee ya ordenadas y se detiene en 20: 0,067 ms. Q2 y Q3 filtran por la segunda columna de una clave `(grupo, usuario)` y `(partida, usuario)`, así que leyeron las tablas enteras: 30 y 55 ms. Un índice por `usuario` en cada una las bajó a 0,08 y 0,10 ms.",
+    "Los índices tienen precio. El de la copa pesa 9,3 MB, el de `miembros` 2 MB (la tabla pesa 13 MB) y el de `partida_jugadores` 3,2 MB, y cada `INSERT` en esas tablas ahora escribe también en el índice. La regla práctica es que cada clave foránea cuyo lado «hijo» se consulta por esa columna merece una pregunta: ¿alguien la usa para buscar? Si sí, necesita índice, y PostgreSQL no lo crea solo."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Consulta",
+    "Sin índice propio",
+    "Con el índice",
+    "Índice creado"
+   ],
+   "filas": [
+    [
+     "Q1: los 20 primeros de una copa",
+     "11,5 ms (ordena 20.000 filas)",
+     "0,067 ms",
+     "(copa, puntos desc, aciertos desc, ms)"
+    ],
+    [
+     "Q2: mis grupos",
+     "30,3 ms (lee 200.000 filas)",
+     "0,078 ms",
+     "miembros (usuario)"
+    ],
+    [
+     "Q3: mis duelos en curso",
+     "55,0 ms (lee 400.000 filas)",
+     "0,104 ms",
+     "partida_jugadores (usuario)"
+    ]
+   ],
+   "cap": "Medido en esta VM, PostgreSQL 16.15, tiempos de `EXPLAIN (ANALYZE)` de una sola corrida. El volumen es el del texto, con datos inventados y fórmula fija."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 7: quién ve qué.** Implementá la regla 9 con un rol sin privilegios llamado `app` y una función `mi_id()` que lea el id de la persona de una variable de sesión (así lo emula Supabase con los datos del token, [@09-42]). Probá: Ana no puede escribir una lectura a nombre de Beto; `select *` sobre preguntas falla pero la aplicación puede leer lo demás; Ana puede saber si respondió bien sin ver la correcta; y los miembros de un grupo se ven entre sí y nadie más los ve. Prestá atención a lo que pasa cuando la política de `miembros` consulta a `miembros`.",
+   "pista": "Los permisos sobre columnas los da `GRANT SELECT (columnas)`, y la seguridad por fila, `CREATE POLICY`. Para corregir sin leer la respuesta, una función `security definer` con su `search_path` fijo [#sen29-pg-createfunction]. Si la política de una tabla mira la misma tabla, Postgres puede protestar.",
+   "solucion": [
+    "`lecturas` lleva una política `for all using (usuario = mi_id()) with check (usuario = mi_id())`: leer y escribir lo propio, y el intento de Ana de escribir a nombre de Beto es rechazado por la seguridad por fila. En `preguntas`, la política deja ver solo las publicadas y el `GRANT` por columnas deja afuera `correcta` [#lab44-pg-grant]: `select *` falla con «permission denied», pero `select count(*)` o `select enunciado` funcionan. Una función `corregir(pregunta, elegida)` con `security definer` compara adentro y devuelve verdadero o falso, así que Ana se entera de si acertó sin ver la columna.",
+    "En `miembros`, la política ingenua («veo las filas de los grupos donde estoy») consulta la misma tabla que protege, y PostgreSQL la corta con `infinite recursion detected in policy`. La salida es mover la pregunta a una función `security definer` que lea la tabla sin pasar por la política (`soy_miembro(grupo)`). Con ella, Ana ve a los 2 miembros del grupo y Cleo, que no pertenece, ve cero [#postgres-rls-ddl]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "set role app;  select set_config('app.usuario', :'ana', false);",
+     "s": "SET"
+    },
+    {
+     "c": "insert into lecturas (usuario, libro, capitulo) values (:'beto', 'jua', 1);   -- a nombre de Beto",
+     "s": "ERROR:  new row violates row-level security policy for table \"lecturas\""
+    },
+    {
+     "c": "select * from preguntas;",
+     "s": "ERROR:  permission denied for table preguntas"
+    },
+    {
+     "c": "select corregir(1, 1::smallint), corregir(1, 2::smallint);   -- la correcta de la pregunta 1 es la opción 1",
+     "s": " t | f"
+    },
+    {
+     "c": "select usuario from miembros;   -- política: grupo in (select grupo from miembros where ...)",
+     "s": "ERROR:  infinite recursion detected in policy for relation \"miembros\""
+    },
+    {
+     "c": "-- tras crear soy_miembro(grupo) y usarla en la política:\nselect u.alias || ' (' || m.rol || ')' from miembros m join usuarios u on u.id = m.usuario where m.grupo = 900001;",
+     "s": " Ana (lider)\n Beto (miembro)"
+    },
+    {
+     "c": "select set_config('app.usuario', :'cleo', false);  select count(*) from miembros where grupo = 900001;",
+     "s": " count\n     0"
+    }
+   ],
+   "cap": "Medido en esta VM. La persona se identifica con una variable de sesión que escribe el servidor; en Supabase la escribe PostgREST a partir del token. La corrección con `security definer` y la política de miembros usan una función auxiliar."
+  },
+  {
+   "t": "h",
+   "x": "Revisión de esquema: buscá los defectos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[revisión de esquema]] es una lectura crítica con una lista de control y casos que intentan romper lo revisado. Sirve igual para el esquema de otro, el tuyo de hace seis meses o el que te generó una herramienta. La lista de abajo es la que usé para este laboratorio."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Control",
+    "La pregunta",
+    "Cómo se prueba"
+   ],
+   "filas": [
+    [
+     "Clave primaria",
+     "¿Toda tabla identifica sus filas?",
+     "Insertar dos filas iguales"
+    ],
+    [
+     "Claves foráneas",
+     "¿Todo vínculo entre tablas está declarado?",
+     "Insertar una fila que apunta a algo inexistente"
+    ],
+    [
+     "Tipos",
+     "¿El tipo dice la verdad (fecha, número, texto)?",
+     "Insertar un valor absurdo del tipo"
+    ],
+    [
+     "Vacíos",
+     "¿Cada columna sin `NOT NULL` realmente puede faltar?",
+     "Insertar una fila sin esa columna"
+    ],
+    [
+     "Dominios",
+     "¿Los rangos y listas cerradas son `CHECK`?",
+     "Insertar un estado o un puntaje fuera de rango"
+    ],
+    [
+     "Unicidad",
+     "¿Cada «no puede haber dos» tiene su `UNIQUE`?",
+     "Insertar el duplicado con otra mayúscula"
+    ],
+    [
+     "Borrado",
+     "¿Se decidió qué pasa con los hijos al borrar un padre?",
+     "Borrar una persona con duelos y grupos"
+    ],
+    [
+     "Índices",
+     "¿Cada consulta frecuente tiene el suyo? ¿Hay índices que nadie usa?",
+     "`EXPLAIN (ANALYZE)` de las consultas del enunciado"
+    ],
+    [
+     "Permisos",
+     "¿Toda tabla expuesta tiene seguridad por fila y permisos mínimos?",
+     "Probar con un rol sin privilegios"
+    ],
+    [
+     "Reglas sin restricción",
+     "¿Qué reglas siguen viviendo solo en el programa?",
+     "Anotarlas por escrito, una por una"
+    ]
+   ],
+   "cap": "Diez controles. El último es el más valioso: obliga a decir qué falta, en lugar de suponer que está resuelto."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create schema colega;\ncreate table colega.usuarios   (id serial, alias varchar(20) unique, creado text);\ncreate table colega.respuestas (usuario int, pregunta int, elegida int, puntos numeric);\ncreate table colega.miembros   (grupo int, usuario int, rol text);\ncreate table colega.partidas   (id serial primary key, jugador1 int, jugador2 int, estado text);",
+   "cap": "El esquema de un colega, en un esquema aparte de la base de práctica (`colega`). Tiene siete defectos."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 8: el esquema de un colega.** Revisá las cuatro tablas de arriba con la lista de control y escribí todos los defectos que encuentres. Demostrá al menos cuatro con un `INSERT` o una consulta.",
+   "pista": "Pasá la lista de control tabla por tabla. Mirá las claves, los tipos, qué impide cada tabla que se repita y qué impide que apunte a algo que no existe. Y la última fila de la lista: qué falta del lado de los permisos.",
+   "solucion": [
+    "Siete: (1) `usuarios` tiene `id serial` pero no es clave primaria: las dos filas con `id` 1 entraron. (2) `alias varchar(20) unique` distingue mayúsculas: «Ana» y «ana» conviven. (3) `creado text`: «31/02/2026» se acepta y al ordenar un texto «2026-11-13» queda antes que una fecha escrita al revés. (4) `respuestas` no tiene clave primaria ni foráneas: entraron dos filas iguales de un usuario que no existe. (5) `puntos numeric` y `elegida int` sin `CHECK`: -5000 puntos y la opción 99. (6) `partidas` permite jugar contra uno mismo (1 contra 1), con estado «ya fue», y `miembros` repite lo mismo: sin clave, sin lista cerrada de roles y sin índice por usuario. (7) Ninguna de las tablas tiene seguridad por fila ni permisos mínimos.",
+    "Los casos corridos están en la salida de abajo. Fijate que ninguno falló: ese silencio es el síntoma. Un esquema sano se reconoce porque es difícil meterle datos malos."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "insert into colega.usuarios (id, alias, creado) values (1, 'Ana', '31/02/2026'), (1, 'ana', '2026-11-13');",
+     "s": "INSERT 0 2      -- dos ids iguales y dos alias que son uno"
+    },
+    {
+     "c": "select creado from colega.usuarios order by creado;",
+     "s": " 2026-11-13\n 31/02/2026"
+    },
+    {
+     "c": "insert into colega.respuestas values (999, 999, 99, -5000), (999, 999, 99, -5000);",
+     "s": "INSERT 0 2      -- usuario 999 inexistente, opción 99, puntos negativos, duplicada"
+    },
+    {
+     "c": "insert into colega.partidas (jugador1, jugador2, estado) values (1, 1, 'ya fue');",
+     "s": "INSERT 0 1      -- jugó contra sí mismo, con un estado inventado"
+    }
+   ],
+   "cap": "Medido en esta VM. Cuatro `INSERT` sin ningún error: los cuatro tendrían que haber fallado."
+  },
+  {
+   "t": "h",
+   "x": "Mi esquema completo, para comparar con el tuyo"
+  },
+  {
+   "t": "p",
+   "x": "Esta es mi versión, la que se corrió en todos los ejercicios. No es la única respuesta correcta: en cada ejercicio hubo una decisión que podía ir de otra manera, y si la tuya es distinta y cumple las reglas con una prueba que falla, es igual de válida. Lo que no vale es una regla sin su caso de prueba."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "grafo",
+   "alto": 420,
+   "nodos": [
+    {
+     "id": "usuarios",
+     "x": 50,
+     "y": 45,
+     "t": "usuarios",
+     "k": "datos"
+    },
+    {
+     "id": "libros",
+     "x": 8,
+     "y": 6,
+     "t": "libros",
+     "k": "neutro"
+    },
+    {
+     "id": "capitulos",
+     "x": 30,
+     "y": 6,
+     "t": "capitulos",
+     "k": "neutro"
+    },
+    {
+     "id": "lecturas",
+     "x": 25,
+     "y": 32,
+     "t": "lecturas",
+     "k": "servidor"
+    },
+    {
+     "id": "preguntas",
+     "x": 8,
+     "y": 70,
+     "t": "preguntas",
+     "k": "cliente"
+    },
+    {
+     "id": "partidas",
+     "x": 50,
+     "y": 94,
+     "t": "partidas",
+     "k": "red"
+    },
+    {
+     "id": "pj",
+     "x": 76,
+     "y": 70,
+     "t": "partida_jugadores",
+     "k": "servidor"
+    },
+    {
+     "id": "pp",
+     "x": 30,
+     "y": 70,
+     "t": "partida_preguntas",
+     "k": "servidor"
+    },
+    {
+     "id": "jugadas",
+     "x": 52,
+     "y": 70,
+     "t": "jugadas",
+     "k": "servidor"
+    },
+    {
+     "id": "grupos",
+     "x": 90,
+     "y": 25,
+     "t": "grupos",
+     "k": "red"
+    },
+    {
+     "id": "miembros",
+     "x": 76,
+     "y": 40,
+     "t": "miembros",
+     "k": "servidor"
+    },
+    {
+     "id": "copas",
+     "x": 90,
+     "y": 6,
+     "t": "copas",
+     "k": "neutro"
+    },
+    {
+     "id": "cres",
+     "x": 70,
+     "y": 10,
+     "t": "copa_resultados",
+     "k": "servidor"
+    }
+   ],
+   "aristas": [
+    {
+     "de": "libros",
+     "a": "capitulos",
+     "t": "1:N",
+     "dir": true
+    },
+    {
+     "de": "capitulos",
+     "a": "lecturas",
+     "t": "1:N",
+     "dir": true
+    },
+    {
+     "de": "usuarios",
+     "a": "lecturas",
+     "t": "1:N",
+     "dir": true
+    },
+    {
+     "de": "capitulos",
+     "a": "preguntas",
+     "t": "1:N",
+     "dir": true
+    },
+    {
+     "de": "partidas",
+     "a": "pj",
+     "t": "1:N",
+     "dir": true
+    },
+    {
+     "de": "usuarios",
+     "a": "pj",
+     "t": "1:N",
+     "dir": true
+    },
+    {
+     "de": "partidas",
+     "a": "pp",
+     "t": "1:N",
+     "dir": true
+    },
+    {
+     "de": "preguntas",
+     "a": "pp",
+     "t": "1:N",
+     "dir": true
+    },
+    {
+     "de": "pj",
+     "a": "jugadas",
+     "t": "1:N",
+     "dir": true
+    },
+    {
+     "de": "pp",
+     "a": "jugadas",
+     "t": "1:N",
+     "dir": true
+    },
+    {
+     "de": "grupos",
+     "a": "miembros",
+     "t": "1:N",
+     "dir": true
+    },
+    {
+     "de": "usuarios",
+     "a": "miembros",
+     "t": "1:N",
+     "dir": true
+    },
+    {
+     "de": "copas",
+     "a": "cres",
+     "t": "1:N",
+     "dir": true
+    },
+    {
+     "de": "usuarios",
+     "a": "cres",
+     "t": "1:N",
+     "dir": true
+    }
+   ],
+   "cap": "Las flechas van del lado «uno» al lado «muchos». Las tablas verdes son intermedias: `lecturas`, `partida_jugadores`, `partida_preguntas`, `jugadas`, `miembros` y `copa_resultados`."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "-- Mini Senda: esquema de referencia (PostgreSQL 16)\ncreate table usuarios (\n  id     uuid primary key default gen_random_uuid(),\n  alias  text not null check (char_length(alias) between 3 and 20),\n  creado timestamptz not null default now()\n);\ncreate unique index usuarios_alias_unico on usuarios (lower(alias));\n\ncreate table libros (\n  codigo text primary key check (codigo ~ '^[a-z0-9]{3,10}$'),\n  nombre text not null unique\n);\ncreate table capitulos (\n  libro  text     not null references libros,\n  numero smallint not null check (numero > 0),\n  primary key (libro, numero)\n);\ncreate table lecturas (\n  usuario  uuid     not null references usuarios on delete cascade,\n  libro    text     not null,\n  capitulo smallint not null,\n  leido_en timestamptz not null default now(),\n  primary key (usuario, libro, capitulo),\n  foreign key (libro, capitulo) references capitulos\n);\n\ncreate table preguntas (\n  id         bigint generated always as identity primary key,\n  enunciado  text     not null check (char_length(enunciado) >= 10),\n  opciones   text[]   not null check (cardinality(opciones) = 4 and array_position(opciones, null) is null),\n  correcta   smallint not null check (correcta between 1 and 4),\n  dificultad smallint not null check (dificultad between 1 and 3),\n  estado     text     not null default 'borrador' check (estado in ('borrador','publicada','retirada')),\n  libro      text     not null,\n  capitulo   smallint not null,\n  versiculo  smallint not null check (versiculo > 0),\n  foreign key (libro, capitulo) references capitulos\n);\n\ncreate table partidas (\n  id     bigint generated always as identity primary key,\n  estado text not null default 'en_curso' check (estado in ('en_curso','terminada','vencida')),\n  creada timestamptz not null default now()\n);\ncreate table partida_jugadores (\n  partida bigint   not null references partidas on delete cascade,\n  usuario uuid     not null references usuarios on delete cascade,\n  orden   smallint not null check (orden in (1, 2)),\n  primary key (partida, usuario),\n  unique (partida, orden)\n);\ncreate table partida_preguntas (\n  partida  bigint   not null references partidas on delete cascade,\n  orden    smallint not null check (orden between 1 and 5),\n  pregunta bigint   not null references preguntas,\n  primary key (partida, orden),\n  unique (partida, pregunta)\n);\ncreate table jugadas (\n  partida    bigint   not null,\n  usuario    uuid     not null,\n  pregunta   bigint   not null,\n  elegida    smallint not null check (elegida between 1 and 4),\n  ms         int      not null check (ms >= 0),\n  respondida timestamptz not null default now(),\n  primary key (partida, usuario, pregunta),\n  foreign key (partida, usuario)  references partida_jugadores,\n  foreign key (partida, pregunta) references partida_preguntas (partida, pregunta)\n);\n\ncreate table grupos (\n  id     bigint generated always as identity primary key,\n  nombre text not null check (char_length(nombre) between 3 and 40),\n  creado timestamptz not null default now()\n);\ncreate table miembros (\n  grupo   bigint not null references grupos on delete cascade,\n  usuario uuid   not null references usuarios on delete cascade,\n  rol     text   not null default 'miembro' check (rol in ('lider','ayudante','miembro')),\n  desde   timestamptz not null default now(),\n  primary key (grupo, usuario)\n);\ncreate unique index un_solo_lider on miembros (grupo) where rol = 'lider';\n\ncreate table copas (\n  id      text primary key,\n  empieza date not null,\n  termina date not null,\n  check (termina > empieza)\n);\ncreate table copa_resultados (\n  copa     text     not null references copas,\n  usuario  uuid     not null references usuarios on delete cascade,\n  puntos   int      not null check (puntos between 0 and 10000),\n  aciertos smallint not null check (aciertos between 0 and 10),\n  ms       int      not null check (ms >= 0),\n  primary key (copa, usuario)\n);",
+   "cap": "Esquema de referencia del laboratorio: 13 tablas, 98 líneas. Los índices de las consultas, los permisos y las políticas se agregaron en la ronda 3, como se vio arriba."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Lo que este esquema sigue sin garantizar",
+   "x": "Que un duelo tenga exactamente dos jugadores y cinco preguntas; que un grupo tenga al menos un líder; que las cuatro opciones de una pregunta sean distintas entre sí; que un duelo «terminado» tenga todas sus jugadas; que los puntos de una copa coincidan con las respuestas. Todas son reglas sobre un conjunto de filas, y las claves y los `CHECK` miran una fila por vez. Se resuelven con funciones transaccionales y disparadores: es el tema del [@09-46]."
+  },
+  {
+   "t": "h",
+   "x": "Ahora sí: una comparación breve con Senda"
+  },
+  {
+   "t": "p",
+   "x": "Con tu diseño ya hecho, un vistazo a cómo resolvió algunas de estas decisiones la app real. No es una auditoría (eso es el [@09-45]): es la lista de coincidencias y diferencias que se pueden ver en el mapa técnico y en tres migraciones. Esto corresponde al commit `25e08fa`; el código cambia, la forma permanece."
+  },
+  {
+   "t": "senda",
+   "titulo": "Dónde coincidió y dónde decidió distinto",
+   "x": [
+    "**Coincide.** El alias único sin distinguir mayúsculas (`perfiles.apodo`) es un índice único sobre `lower(apodo)`, igual que el nuestro. Usa `text` con `CHECK` en lugar de enums (el mapa técnico cuenta cero enums), como hicimos. Y activa seguridad por fila en las 41 tablas.",
+    "**Decidió distinto, y por requisitos distintos.** Las preguntas del Espadeo no están en la base: viven en archivos JSON dentro de la app y en la base solo existe `preguntas_clave`, con la respuesta correcta de cada una, accesible solo por funciones. Sus duelos guardan `jugador_a` y `jugador_b` en la misma fila de `partidas` (el segundo queda vacío mientras se espera rival), con arreglos para las piezas y sin una restricción de tabla que impida jugar contra uno mismo: la regla está en `unirse_partida`, que levanta el error `sos_vos`. Y cada fila de `jugadas` tiene como clave primaria un `cliente_id` que genera el teléfono, para que un reintento sin conexión no cuente dos veces. En mi esquema, esa clave no existe porque el enunciado nunca habló de reintentos.",
+    "**Ni siquiera existe.** No hay una tabla de lecturas por capítulo: el progreso de lectura vive en el teléfono, y solo para las cuentas vinculadas hay una copia en una columna JSON de `progreso_nube`. No encontré un índice que limite a un líder por grupo: los roles cambian por funciones como `pasar_liderazgo`."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261111000000_novedades.sql",
+    "supabase/migrations/20261102000000_preguntas_clave.sql",
+    "supabase/migrations/20261130000006_progreso_nube.sql"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Ninguna de esas diferencias es un error de una de las dos versiones. Un requisito distinto da un esquema distinto: Senda trabaja sin conexión y reintenta, y por eso necesita claves generadas por el cliente; mi enunciado no. La lección del laboratorio es la inversa de «copiá un buen esquema»: antes de dibujar tablas, escribí las reglas, y para cada regla, el caso que tiene que fallar."
+  }
+ ],
+ "recap": [
+  "El diseño guiado tiene un orden (tablas, relaciones, claves, tipos, restricciones, índices, permisos) y un control: un requisito está cumplido cuando existe un `INSERT` que falla.",
+  "Una clave primaria compuesta y las claves foráneas compuestas hacen cumplir reglas de un duelo (nadie contra sí mismo, un tercero no entra, solo preguntas del duelo) sin una línea de programa.",
+  "Un índice único sobre `lower(alias)` y uno parcial `where rol = 'lider'` expresan reglas de unicidad que un `UNIQUE` simple no puede.",
+  "Una clave primaria compuesta sirve para su primera columna; las consultas por la segunda necesitan su índice (de 30 y 55 ms a unos 0,1 ms en esta VM).",
+  "Los permisos se prueban con un rol sin privilegios. Una política que consulta su propia tabla produce recursión infinita, y se resuelve con una función `security definer`.",
+  "Hay reglas que las restricciones no ven, porque miran una fila por vez: «exactamente dos jugadores» o «al menos un líder» se anotan como pendientes y se resuelven con transacciones y funciones.",
+  "Dos esquemas distintos pueden ser buenos si los requisitos son distintos. Senda eligió otras claves y otro reparto de datos por trabajar sin conexión."
+ ],
+ "repaso": [
+  {
+   "p": "Querés que «Ana» y «ana» cuenten como el mismo alias. ¿Qué lo garantiza?",
+   "o": [
+    "Un `UNIQUE` sobre la columna `alias`, porque la comparación de texto ignora las mayúsculas",
+    "Un `CHECK` de largo mínimo sobre `alias`, que obliga a escribir todos los alias en minúscula",
+    "Un índice único sobre `lower(alias)`, que compara siempre la versión en minúsculas",
+    "Un tipo `varchar(20)` en la columna, porque limita las variantes posibles de cada texto"
+   ],
+   "c": 2,
+   "e": "Un `UNIQUE` común compara el texto tal cual y trata «Ana» y «ana» como distintos; lo comprobamos con el esquema del colega. El índice sobre `lower(alias)` convierte los dos a «ana» antes de comparar. El `CHECK` de largo no mira las mayúsculas y `varchar(20)` solo limita el largo."
+  },
+  {
+   "p": "La tabla `miembros` tiene clave primaria `(grupo, usuario)` y se carga con 200.000 filas. La consulta «mis grupos» filtra por `usuario` y tarda 30 ms. ¿Qué pasa y qué conviene?",
+   "o": [
+    "La clave solo ayuda a buscar por `grupo`; conviene un índice por `usuario`",
+    "El orden de las columnas de la clave no importa; conviene reiniciar el servidor de la base",
+    "La clave primaria sirve para cualquier columna que contenga, así que la consulta tarda por otra causa",
+    "Los 200.000 registros son demasiados para PostgreSQL; conviene migrar a otro motor"
+   ],
+   "c": 0,
+   "e": "Una clave primaria compuesta actúa como índice ordenado primero por `grupo`, así que sirve para buscar por `grupo` o por `grupo` y `usuario`, pero no para buscar solo por `usuario`. Con un índice propio la consulta bajó de 30 a unos 0,08 ms en esta VM. Reiniciar o migrar no cambia el orden de las columnas, y el volumen es chico para PostgreSQL."
+  },
+  {
+   "p": "Querés garantizar que una pregunta tiene exactamente 4 opciones y exactamente una correcta, sin código del lado de la aplicación. ¿Qué diseño lo logra con restricciones declarativas?",
+   "o": [
+    "Una tabla `opciones` con una fila por opción y un índice único parcial sobre las correctas",
+    "Una tabla `opciones` con un `CHECK` que cuenta cuántas filas hay con el mismo `pregunta`",
+    "Dos columnas, `opcion1` y `opcion2`, cada una con un `CHECK` de no estar vacía",
+    "Un arreglo de 4 textos con `cardinality(...) = 4` y una columna `correcta` entre 1 y 4"
+   ],
+   "c": 3,
+   "e": "Con el arreglo y el número, dos `CHECK` de una sola fila lo garantizan todo. El índice único parcial solo asegura como mucho una correcta, y aceptó una pregunta con cero. Un `CHECK` no puede contar filas de otras filas, y dos columnas no alcanzan para cuatro opciones."
+  },
+  {
+   "p": "En `jugadas`, la clave foránea compuesta `(partida, usuario)` contra `partida_jugadores` y otra `(partida, pregunta)` contra `partida_preguntas` hacen cumplir, entre otras cosas, que…",
+   "o": [
+    "…un duelo tiene siempre exactamente dos jugadores y exactamente cinco preguntas",
+    "…nadie responde dos veces la misma pregunta dentro del mismo duelo",
+    "…solo responde una persona que juega ese duelo y solo preguntas de ese duelo",
+    "…las respuestas se guardan en el mismo orden en que las preguntas se publicaron"
+   ],
+   "c": 2,
+   "e": "Las dos claves foráneas exigen que la persona y la pregunta existan **en ese duelo**. La regla de no responder dos veces la da la clave primaria `(partida, usuario, pregunta)`, y la de «exactamente dos» y «exactamente cinco» no se puede escribir con claves. El orden no lo garantiza ninguna de las dos."
+  },
+  {
+   "p": "Escribís una política de seguridad por fila sobre `miembros` que usa `(select grupo from miembros where usuario = mi_id())` y Postgres responde «infinite recursion detected in policy». ¿Cuál es la causa y la salida?",
+   "o": [
+    "La política consulta la tabla que protege, y se evalúa a sí misma; hay que usar una función `security definer`",
+    "La tabla no tiene clave primaria, y por eso las políticas no pueden resolver los duplicados",
+    "El rol `app` no tiene permiso de lectura, y la política vuelve a intentarlo sin parar",
+    "El valor de `mi_id()` es nulo, y Postgres entra en un ciclo al comparar contra nulo"
+   ],
+   "c": 0,
+   "e": "Para decidir qué filas de `miembros` se ven, la política vuelve a leer `miembros`, que dispara la misma política, y así sin fin. Una función `security definer` lee la tabla con los permisos de su dueño, sin pasar por la política. Un permiso faltante o un valor nulo dan otros errores, y `miembros` sí tenía clave."
+  },
+  {
+   "p": "Con permisos de columna que dejan afuera `correcta`, el rol `app` ejecuta `select * from preguntas` y `select count(*) from preguntas`. ¿Qué ocurre?",
+   "o": [
+    "Las dos funcionan: `select *` omite en silencio las columnas sin permiso",
+    "La primera falla con «permission denied» y la segunda funciona, porque no lee `correcta`",
+    "Las dos fallan, porque basta con una columna sin permiso para negar toda la tabla",
+    "La primera funciona y la segunda falla, porque contar filas exige leer todas las columnas"
+   ],
+   "c": 1,
+   "e": "`select *` incluye la columna prohibida y se rechaza entera; `count(*)` no lee ninguna columna en particular y se permite. Por eso la aplicación tiene que pedir las columnas por nombre. PostgreSQL no omite columnas en silencio, y contar filas no exige leerlas todas."
+  },
+  {
+   "p": "Un duelo con un solo jugador cumple todas las restricciones del esquema del laboratorio. ¿Cómo se garantiza «exactamente dos jugadores»?",
+   "o": [
+    "Con un `UNIQUE` más sobre `orden`, que obliga a que existan los dos valores",
+    "Con una función que crea el duelo y sus dos jugadores en una sola transacción",
+    "Con un `CHECK` de `orden in (1, 2)`, que ya impide que falte alguno",
+    "Con un índice por `usuario`, porque así el motor detecta duelos incompletos"
+   ],
+   "c": 1,
+   "e": "Las restricciones miran una fila por vez y «exactamente dos» habla de un conjunto de filas. Crear el duelo y los dos jugadores dentro de una transacción garantiza que ocurran juntos (o con un disparador diferido que controle el total). `UNIQUE` y `CHECK` limitan lo máximo, no lo mínimo, y un índice no valida nada."
+  }
+ ],
+ "feynman": "Elegí una regla del enunciado (por ejemplo «cada grupo tiene como mucho un líder») y explicale a alguien que no programa cómo la hace cumplir la base sin que el programa tenga que acordarse, y qué caso de prueba tiene que fallar para demostrarlo. Después contá una regla del mismo enunciado que ninguna restricción puede garantizar, y dónde se resuelve.",
+ "para_profundizar": [
+  {
+   "fuente": "back0707-postgres-constraints",
+   "nota": "El capítulo de restricciones de la documentación de PostgreSQL: `CHECK`, `UNIQUE`, claves primarias y foráneas compuestas, y el comportamiento de `NULL`. Leelo con el esquema del laboratorio abierto al lado."
+  },
+  {
+   "fuente": "postgres-rls-ddl",
+   "nota": "La página oficial de políticas de seguridad por fila. Fijate en el ejemplo de política con subconsulta y en la advertencia sobre recursión: es el caso que apareció en el ejercicio 7."
+  },
+  {
+   "fuente": "lab44-pg-indices-parciales",
+   "nota": "Los índices parciales y los índices únicos parciales: la herramienta detrás de «como mucho un líder por grupo». Leé el ejemplo del índice único sobre un subconjunto de filas."
+  },
+  {
+   "fuente": "lab44-pg-grant",
+   "nota": "`GRANT` con lista de columnas: cómo ocultar una columna a un rol, y qué implica para `select *`. Es la base del permiso que protege la respuesta correcta."
+  }
+ ],
+ "videos": [],
+ "terminos": [
+  {
+   "t": "diseño guiado",
+   "d": "Método de diseño con un orden fijo (tablas, relaciones, claves, tipos, restricciones, índices, permisos) y una regla de control: cada requisito se da por cumplido solo cuando existe un caso de prueba que la base rechaza."
+  },
+  {
+   "t": "revisión de esquema",
+   "d": "Lectura crítica de un esquema con una lista de control (claves, tipos, vacíos, restricciones, borrado, índices, permisos) y con casos que intentan romperlo, para encontrar defectos antes de que haya datos reales."
+  }
+ ],
+ "siguiente": "El esquema real de Senda: las tablas, las relaciones y las políticas que protegen cada fila, recorridas con las migraciones aplicadas en una base propia.",
+ "fuentes_nuevas": [
+  {
+   "id": "lab44-pg-indices-parciales",
+   "t": "PostgreSQL 16: Partial Indexes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/indexes-partial.html"
+  },
+  {
+   "id": "lab44-pg-indices-expresion",
+   "t": "PostgreSQL 16: Indexes on Expressions",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/indexes-expressional.html"
+  },
+  {
+   "id": "lab44-pg-grant",
+   "t": "PostgreSQL 16: GRANT",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/sql-grant.html"
+  }
+ ]
+}

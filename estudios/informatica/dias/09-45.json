@@ -1,0 +1,999 @@
+{
+ "id": "09-45",
+ "titulo": "El esquema real de Senda: tablas, relaciones y RLS",
+ "bajada": "Aplicás las 42 migraciones de Senda en una base propia y le preguntás al catálogo: 41 tablas, 46 claves foráneas, 53 políticas y 92 funciones medidas, con un diagrama y los hallazgos.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Armar un diccionario de datos desde el catálogo de PostgreSQL, en lugar de contar sentencias en archivos.",
+  "Leer el diagrama de las tablas centrales de Senda y distinguir las claves foráneas reales de las relaciones que solo existen por convención.",
+  "Clasificar las 41 tablas por patrón de política RLS y decir qué capa se evalúa primero: permisos, política o restricción.",
+  "Probar como `anon` las funciones `security definer` y decir qué demuestra y qué no esa sonda.",
+  "Clasificar un hallazgo del esquema como riesgo real, deuda o a confirmar, con la evidencia que corriste."
+ ],
+ "venis_de": "En [@07-29] viste cómo Senda reparte el trabajo entre RLS, funciones y tareas, y en [@09-07] las claves foráneas y sus acciones de borrado. Hoy juntás todo en un solo inventario del esquema, sacado del catálogo y no de la lectura de los archivos.",
+ "se_apoya_en": [
+  "05-31",
+  "07-29",
+  "08-17",
+  "09-07",
+  "09-14",
+  "09-17",
+  "09-18"
+ ],
+ "gancho": [
+  "Un depósito serio tiene una planilla maestra: cada posición, qué mercadería hay y quién puede retirarla. Si dice que el pasillo 4 está vacío y hay cuarenta pallets, el inventario miente, y con él todo lo que se decide. Una base de datos tiene esa planilla, con una ventaja: se la podés pedir a la propia base. PostgreSQL guarda su descripción completa (tablas, columnas, claves, reglas de acceso, funciones) en tablas internas que se consultan con SQL. Ese conjunto se llama [[catálogo|catálogo de PostgreSQL]].",
+  "El mapa técnico de Senda trae cifras como «41 tablas», «76 políticas» y «93 funciones». Salieron de contar sentencias en 42 archivos de texto, y una migración puede crear algo y otra cambiarlo o borrarlo. Hoy hacemos lo que haría un auditor: aplicar las 42 migraciones, en orden, sobre una base propia y preguntarle qué quedó. De ahí sale el diccionario de datos, y salen hallazgos que ningún documento del repositorio menciona."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Cómo se saca un inventario que no miente"
+  },
+  {
+   "t": "p",
+   "x": "Un [[diccionario de datos de Senda]] es lo que guarda cualquier equipo serio sobre su base: la lista escrita de qué tablas hay, qué guarda cada columna, cómo se relacionan las tablas y quién puede leer o escribir cada una. Escrito a mano, envejece en una semana; sacado del catálogo, es tan verdadero como la base misma. Esto hice, en orden:"
+  },
+  {
+   "t": "pasos",
+   "titulo": "Del repositorio al inventario",
+   "pasos": [
+    {
+     "t": "Una base propia",
+     "x": "Levanté un PostgreSQL 16.15 nuevo, en UTF-8, en un directorio mío. No toqué ninguna base de Senda ni de Supabase."
+    },
+    {
+     "t": "El piso de Supabase",
+     "x": "Cargué `pruebas/nube/supabase_minimo.sql`, el archivo que el proyecto usa para probar sus migraciones: los roles `anon`, `authenticated` y `service_role`, una `auth.users` reducida y la función `auth.uid()`, que devuelve el id de la persona de la sesión."
+    },
+    {
+     "t": "Las 42 migraciones, en orden",
+     "x": "Las apliqué en el orden de su nombre. Terminaron sin un solo error."
+    },
+    {
+     "t": "Preguntarle al catálogo",
+     "x": "Consulté `pg_class` (tablas), `pg_constraint` (claves y restricciones), `pg_policies` (reglas RLS) y `pg_proc` (funciones) [#bd4545-pg-catalogs]. Cada cifra sale de ahí, salvo que diga otra cosa."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Mi copia no es Supabase. No tiene el esquema `storage` (los PDF de sermones), ni `pg_cron` (las tres tareas programadas), ni el Auth real, ni las funciones de borde. La migración que crea el almacén de PDF se salta sola si falta `storage`, y eso explica una diferencia que vas a ver enseguida. Esta es la consulta de conteos y lo que respondió:"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "select 'tablas' as cosa, count(*) as cuantas from pg_tables where schemaname = 'public'\nunion all select 'con RLS prendida', count(*) from pg_class where relnamespace = 'public'::regnamespace and relkind = 'r' and relrowsecurity\nunion all select 'políticas vivas', count(*) from pg_policies where schemaname = 'public'\nunion all select 'funciones', count(*) from pg_proc where pronamespace = 'public'::regnamespace and prokind = 'f'\nunion all select '  de ellas security definer', count(*) from pg_proc where pronamespace = 'public'::regnamespace and prokind = 'f' and prosecdef\nunion all select 'triggers', count(*) from pg_trigger t join pg_class c on c.oid = t.tgrelid where not tgisinternal and c.relnamespace = 'public'::regnamespace\nunion all select 'vistas', count(*) from pg_views where schemaname = 'public'\nunion all select 'claves foráneas', count(*) from pg_constraint where contype = 'f' and connamespace = 'public'::regnamespace\nunion all select 'índices', count(*) from pg_indexes where schemaname = 'public'\nunion all select 'columnas', count(*) from information_schema.columns where table_schema = 'public' and table_name in (select tablename from pg_tables where schemaname = 'public');",
+   "cap": "conteos.sql: una sola consulta al catálogo, sin leer ningún archivo de Senda."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -d senda_d0945 -f conteos.sql",
+     "s": "            cosa             | cuantas\n-----------------------------+---------\n tablas                      |      41\n con RLS prendida            |      41\n políticas vivas             |      53\n funciones                   |      92\n   de ellas security definer |      80\n triggers                    |      14\n vistas                      |       4\n claves foráneas             |      46\n índices                     |      72\n columnas                    |     276\n(10 rows)"
+    }
+   ],
+   "cap": "Corrido en PostgreSQL 16.15 con las 42 migraciones aplicadas. Es una sola VM y una copia: no es el proyecto vivo."
+  },
+  {
+   "t": "p",
+   "x": "Puestas al lado del mapa técnico (commit `25e08fa`, leído sobre los archivos), coinciden casi todas, y las diferencias enseñan algo:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cosa",
+    "Mapa técnico (texto de las migraciones)",
+    "Mi base (catálogo)",
+    "Por qué difieren"
+   ],
+   "filas": [
+    [
+     "Tablas en `public`",
+     "41",
+     "41",
+     "Coinciden"
+    ],
+    [
+     "Tablas con RLS prendida",
+     "41",
+     "41",
+     "Coinciden: ninguna quedó sin RLS"
+    ],
+    [
+     "Políticas RLS",
+     "76 sentencias `create policy`",
+     "53 políticas vivas",
+     "32 `drop policy` (reemplazos) y 6 `create policy` del almacén de PDF, que mi copia no tiene"
+    ],
+    [
+     "Funciones en `public`",
+     "93",
+     "92",
+     "`grupo_de_ruta` solo se crea con `storage`"
+    ],
+    [
+     "De ellas, `security definer`",
+     "80 ([@09-17])",
+     "80",
+     "Coinciden"
+    ],
+    [
+     "Triggers y vistas",
+     "14 y 4",
+     "14 y 4",
+     "Coinciden"
+    ],
+    [
+     "Claves foráneas",
+     "46 ([@09-07])",
+     "46",
+     "Coinciden"
+    ]
+   ],
+   "cap": "Mapa: columna del archivo `senda/mapa-tecnico.md`, §4.2. Base: mi consulta de arriba."
+  },
+  {
+   "t": "pensa",
+   "x": "El mapa dice 76 políticas y el catálogo muestra 53. ¿Quién se equivoca?",
+   "resp": "Ninguno: cuentan cosas distintas. Las 76 son sentencias en los archivos, y varias reemplazan a una anterior o son del almacén de PDF. Las 53 son las que existen al terminar las 42 migraciones. Regla práctica: el texto de las migraciones cuenta la historia y el catálogo cuenta el estado. Para saber qué protege hoy a la base, vale el segundo."
+  },
+  {
+   "t": "p",
+   "x": "Con las 42 migraciones aplicadas la base no queda vacía: trae **6.798 filas** de fábrica. Son 5.371 en `preguntas_clave` (la respuesta correcta de cada pregunta de la trivia), 1.421 en `nombres_biblicos`, 3 copas y 3 interruptores; el contenido que tiene que vivir en el servidor viaja como migración generada. Un `count(*)` por tabla sobre una base recién armada lo confirma."
+  },
+  {
+   "t": "h",
+   "x": "Las 41 tablas, por familia"
+  },
+  {
+   "t": "p",
+   "x": "El mapa técnico ordena las tablas en ocho familias por tema. Las cifras de cada familia son mías, sumadas del catálogo."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Familia",
+    "Tablas",
+    "Columnas",
+    "Claves foráneas",
+    "Políticas"
+   ],
+   "filas": [
+    [
+     "Identidad y perfil",
+     "3",
+     "24",
+     "2",
+     "8"
+    ],
+    [
+     "Amigos, duelos y avisos",
+     "6",
+     "43",
+     "12",
+     "4"
+    ],
+    [
+     "Grupos, eventos y encuestas",
+     "6",
+     "40",
+     "10",
+     "15"
+    ],
+    [
+     "Copas, torneos y salas en vivo",
+     "10",
+     "75",
+     "14",
+     "12"
+    ],
+    [
+     "Sermón, planes y dinero",
+     "4",
+     "26",
+     "5",
+     "5"
+    ],
+    [
+     "Moderación y seguridad",
+     "2",
+     "13",
+     "1",
+     "0"
+    ],
+    [
+     "Estadísticas, Pulso y contenido",
+     "6",
+     "36",
+     "1",
+     "3"
+    ],
+    [
+     "Tablas que la app no usa",
+     "4",
+     "19",
+     "1",
+     "6"
+    ],
+    [
+     "**Total**",
+     "**41**",
+     "**276**",
+     "**46**",
+     "**53**"
+    ]
+   ],
+   "cap": "Conteo propio sobre el catálogo: tablas, columnas, claves foráneas y políticas de cada familia."
+  },
+  {
+   "t": "p",
+   "x": "Tres lecturas. «Moderación y seguridad» tiene 2 tablas y **0 políticas**: están cerradas del todo y solo las abren funciones. Las tablas más anchas son `torneos` (17 columnas), `partidas` y `perfiles` (15). Y las cuatro de la última fila las creó la migración inicial y el cliente no las usa: busqué sus nombres en `src/`, en `scripts/` y en las funciones de borde, y ninguno es destino de una llamada."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: la planilla maestra del depósito",
+   "x": [
+    "Cada tabla es una posición de rack. Las claves foráneas son remitos que remiten a otra posición. Las políticas RLS son el guardia de cada pasillo, que mira tu credencial en cada pedido.",
+    "Se rompe en dos lugares: la planilla es una copia que se desactualiza, mientras que el catálogo es la estructura misma; y el guardia te mira una vez en la puerta, mientras que una política se evalúa en cada consulta, fila por fila."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El diagrama: un centro y varios satélites"
+  },
+  {
+   "t": "p",
+   "x": "Este es el mapa de las tablas centrales: amigos, duelos, grupos, copas, torneos y salas. Cada flecha va de la tabla que guarda la referencia a la tabla a la que apunta. Las punteadas son relaciones que existen en el dominio pero no como clave foránea."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "grafo",
+   "alto": 470,
+   "nodos": [
+    {
+     "id": "u",
+     "x": 50,
+     "y": 46,
+     "t": "auth.users",
+     "k": "alerta"
+    },
+    {
+     "id": "pf",
+     "x": 50,
+     "y": 8,
+     "t": "perfiles",
+     "k": "cliente"
+    },
+    {
+     "id": "am",
+     "x": 12,
+     "y": 8,
+     "t": "amistades",
+     "k": "cliente"
+    },
+    {
+     "id": "pa",
+     "x": 12,
+     "y": 30,
+     "t": "partidas",
+     "k": "cliente"
+    },
+    {
+     "id": "ju",
+     "x": 12,
+     "y": 52,
+     "t": "jugadas",
+     "k": "cliente"
+    },
+    {
+     "id": "cr",
+     "x": 88,
+     "y": 10,
+     "t": "copas_resultados",
+     "k": "servidor"
+    },
+    {
+     "id": "co",
+     "x": 88,
+     "y": 30,
+     "t": "copas",
+     "k": "servidor"
+    },
+    {
+     "id": "mi",
+     "x": 88,
+     "y": 56,
+     "t": "miembros",
+     "k": "red"
+    },
+    {
+     "id": "gr",
+     "x": 88,
+     "y": 90,
+     "t": "grupos",
+     "k": "red"
+    },
+    {
+     "id": "ts",
+     "x": 60,
+     "y": 68,
+     "t": "trivias_sermon",
+     "k": "datos"
+    },
+    {
+     "id": "to",
+     "x": 60,
+     "y": 90,
+     "t": "torneos",
+     "k": "datos"
+    },
+    {
+     "id": "tr",
+     "x": 32,
+     "y": 90,
+     "t": "torneo_resultados",
+     "k": "datos"
+    },
+    {
+     "id": "sa",
+     "x": 34,
+     "y": 68,
+     "t": "salas",
+     "k": "datos"
+    },
+    {
+     "id": "sp",
+     "x": 12,
+     "y": 80,
+     "t": "sala_particip.",
+     "k": "datos"
+    }
+   ],
+   "aristas": [
+    {
+     "de": "pf",
+     "a": "u",
+     "t": "1 a 1",
+     "dir": true
+    },
+    {
+     "de": "am",
+     "a": "u",
+     "t": "de, para",
+     "dir": true
+    },
+    {
+     "de": "pa",
+     "a": "u",
+     "t": "jugadores",
+     "dir": true
+    },
+    {
+     "de": "ju",
+     "a": "pa",
+     "t": "cascada",
+     "dir": true
+    },
+    {
+     "de": "cr",
+     "a": "u",
+     "dir": true
+    },
+    {
+     "de": "cr",
+     "a": "co",
+     "t": "sin clave",
+     "dir": true,
+     "dash": true
+    },
+    {
+     "de": "mi",
+     "a": "u",
+     "dir": true
+    },
+    {
+     "de": "mi",
+     "a": "gr",
+     "t": "cascada",
+     "dir": true
+    },
+    {
+     "de": "ts",
+     "a": "gr",
+     "dir": true
+    },
+    {
+     "de": "to",
+     "a": "gr",
+     "dir": true
+    },
+    {
+     "de": "to",
+     "a": "ts",
+     "t": "sin clave",
+     "dir": true,
+     "dash": true
+    },
+    {
+     "de": "tr",
+     "a": "to",
+     "dir": true
+    },
+    {
+     "de": "sa",
+     "a": "ts",
+     "t": "sin clave",
+     "dir": true,
+     "dash": true
+    },
+    {
+     "de": "sa",
+     "a": "u",
+     "t": "anfitrión",
+     "dir": true
+    },
+    {
+     "de": "sp",
+     "a": "sa",
+     "dir": true
+    }
+   ],
+   "cap": "14 de las 41 tablas. Las flechas hacia `auth.users` se dibujaron solo en seis tablas para no tapar el dibujo; en total son 31, desde 26 tablas. Punteada: relación que no existe como clave foránea."
+  },
+  {
+   "t": "p",
+   "x": "El centro no es de Senda: `auth.users` vive en el esquema `auth`, que administra Supabase Auth. Hay **31 claves foráneas** hacia ella, desde 26 de las 41 tablas, 23 con CASCADE y 8 con SET NULL. Borrar una cuenta dispara hasta 31 verificaciones o cascadas, y [@09-07] midió lo que cuesta cada una cuando falta el índice. Las otras 15 cuelgan de cinco tablas padre: `grupos` (7), `torneos` (3), `salas` (2), `encuestas` (2) y `partidas` (1). Casi todas se borran en cascada; `salas.grupo` usa SET NULL, porque una sala puede existir sin grupo."
+  },
+  {
+   "t": "p",
+   "x": "Las punteadas son [[relaciones por convención|relación por convención]]: existen en la cabeza de quien programa, pero la base no las hace cumplir. Buscando columnas que parecen apuntar a otra tabla y no tienen restricción, encuentro cuatro:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Columna",
+    "Parece apuntar a",
+    "Qué hay en lugar de la restricción"
+   ],
+   "filas": [
+    [
+     "`copas_resultados.copa`",
+     "`copas.id`",
+     "Un `text` con el id que define la app; [@09-14] ya lo analizó"
+    ],
+    [
+     "`torneos.trivia`",
+     "`trivias_sermon.id`",
+     "Un `uuid` que admite null, con el comentario «si la fuente es un sermón»"
+    ],
+    [
+     "`salas.trivia`",
+     "`trivias_sermon.id`",
+     "Un `uuid` que admite null, sin comentario ni restricción"
+    ],
+    [
+     "`jugadas.pregunta`",
+     "`preguntas_clave.id`",
+     "Un `text`: los enunciados viven en el contenido de la app, y la base solo guarda la clave de respuestas"
+    ]
+   ],
+   "cap": "Verificado en el catálogo (`pg_constraint`) y en el texto de las migraciones `20261101000000_juntos.sql` y `20261127000001_copas.sql`."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Una corrección al mapa técnico",
+   "x": "El mapa dice que `torneos` y `salas` apuntan a `trivias_sermon`. En el texto de las migraciones esa columna es un `uuid` con un comentario, y en el catálogo no hay clave foránea. Era una relación de intención, no de esquema. La corrijo acá; el archivo del mapa no lo toco."
+  },
+  {
+   "t": "h3",
+   "x": "Qué cuesta esa clave que falta"
+  },
+  {
+   "t": "p",
+   "x": "Armé un caso con cuentas, grupos y sermones inventados: dos grupos («Jóvenes Sur» y «Células Norte»), cada uno con su líder, un sermón publicado de 5 preguntas y un torneo abierto sobre ese sermón. Ana juega en Sur y Beto en Norte. Después, el líder de Sur borra su cuenta con el torneo abierto. Ese borrado existe en la app: la función de borde `borrar-cuenta` llama a `preparar_borrado()`, que traspasa el liderazgo, y luego borra al usuario con la clave de servicio. Yo salté `preparar_borrado()` (no cambia lo que sigue) y borré la fila de `auth.users`. Al final, Ana y Beto mandan las mismas cinco respuestas correctas."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- 1. el líder de Sur borra su cuenta con el torneo abierto\ndelete from auth.users where id = '…c1';\nselect t.nombre, t.creado_por is null as sin_autor, s.id is not null as sermon_existe\n  from torneos t left join trivias_sermon s on s.id = t.trivia order by t.nombre desc;",
+     "s": "          nombre           | sin_autor | sermon_existe\n---------------------------+-----------+---------------\n Torneo del sermón (Sur)   | t         | f\n Torneo del sermón (Norte) | f         | t"
+    },
+    {
+     "c": "-- 2. las mismas 5 respuestas correctas, cada una en su torneo\nselect aciertos, puntos, oficial from marca_torneo('…Norte', gen_random_uuid(), :J);   -- como Beto",
+     "s": " aciertos | puntos | oficial\n----------+--------+---------\n        5 |   4500 | t"
+    },
+    {
+     "c": "select aciertos, puntos, oficial from marca_torneo('…Sur', gen_random_uuid(), :J);   -- como Ana",
+     "s": " aciertos | puntos | oficial\n----------+--------+---------\n        0 |      0 | t"
+    },
+    {
+     "c": "-- 3. Ana lo intenta de nuevo\nselect aciertos, puntos, oficial from marca_torneo('…Sur', gen_random_uuid(), :J);",
+     "s": " aciertos | puntos | oficial\n----------+--------+---------\n        0 |      0 | f"
+    }
+   ],
+   "cap": "Corrido en mi base con las 42 migraciones aplicadas. `:J` son las cinco respuestas correctas, 4 segundos cada una. Se muestran solo las columnas relevantes."
+  },
+  {
+   "t": "p",
+   "x": "La clave que faltaba hacía de red. `trivias_sermon.creado_por` usa CASCADE: el sermón desaparece con su autor. `torneos.creado_por` usa SET NULL: el torneo sobrevive, porque el grupo sigue. Cada decisión es razonable sola; juntas dejan un torneo sin su sermón. Y `marca_torneo` lee las preguntas con `select preguntas into lista from trivias_sermon where id = t.trivia` y sigue con `coalesce(lista, '[]')`: sin sermón corrige contra una lista vacía, da 0 aciertos y lo guarda como oficial. Hay una sola marca oficial por persona y torneo (`unique (torneo, usuario)`), así que el segundo intento de Ana volvió con `oficial = f`."
+  },
+  {
+   "t": "p",
+   "x": "¿Cuánto pesa? Es raro: hace falta que un líder se borre la cuenta con un torneo de sermón abierto. El daño es chico (una marca) pero silencioso: nadie ve un error. Lo clasifico como riesgo real de baja probabilidad. El camino común no lo causa: `archivarTrivia`, en `src/util/sermon.ts`, no borra el sermón, le cambia el estado a `archivada` con un `PATCH`. Lo que lo dispara es el borrado de cuenta."
+  },
+  {
+   "t": "pensa",
+   "x": "Un compañero propone arreglarlo con una clave foránea `torneos.trivia → trivias_sermon` con `on delete restrict`. ¿Qué se rompe?",
+   "resp": "Borrar la cuenta del líder. Esa cuenta arrastra sus sermones en cascada, y `restrict` frenaría el borrado entero mientras un torneo apuntara a alguno. Lo que más me convence (criterio mío) es copiar las preguntas a `torneo_preguntas` al crear el torneo, como ya hace Senda con las preguntas propias: el torneo deja de depender del sermón."
+  },
+  {
+   "t": "senda",
+   "titulo": "Un torneo, su sermón y el borrado de cuenta",
+   "x": [
+    "**Implementado.** `torneos.trivia` y `salas.trivia` son `uuid` sin clave foránea (`20261101000000_juntos.sql`). `marca_torneo` lee `trivias_sermon` en el momento de puntuar (`20261122000000_desafios.sql`). La migración de borrado de cuenta (`20261128000000_borrar_cuenta.sql`) le puso SET NULL a `torneos.creado_por`; `trivias_sermon.creado_por` es CASCADE.",
+    "Lo reproduje en mi base de pruebas con cuentas inventadas. Esto corresponde al commit `25e08fa`; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261122000000_desafios.sql",
+    "supabase/migrations/20261128000000_borrar_cuenta.sql",
+    "src/util/sermon.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "RLS: cinco patrones en 41 tablas"
+  },
+  {
+   "t": "p",
+   "x": "Una [[política RLS]] es una regla con nombre, guardada en la base y atada a una tabla y a una operación (`select`, `insert`, `update` o `delete`). Puede llevar dos condiciones: `using` decide qué filas existentes puede ver o tocar quien consulta, y `with check` decide qué filas nuevas se pueden escribir [#bd4545-pg-createpolicy]. Con RLS prendida y ninguna política aplicable, la base asume «denegar todo». Así se ve una de cada tipo en el catálogo (`pg_policies`) [#bd4545-pg-view-policies]:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select tablename, policyname, cmd, qual, with_check from pg_policies\n where policyname in ('veo mis partidas', 'el líder pregunta a su grupo');",
+     "s": "-[ RECORD 1 ]------------------------------------------------------------\ntablename  | encuestas\npolicyname | el líder pregunta a su grupo\ncmd        | INSERT\nqual       |\nwith_check | ((alcance = 'grupo') AND soy_lider(grupo) AND (creado_por = auth.uid()))\n-[ RECORD 2 ]------------------------------------------------------------\ntablename  | partidas\npolicyname | veo mis partidas\ncmd        | SELECT\nqual       | ((auth.uid() = jugador_a) OR (auth.uid() = jugador_b))\nwith_check |"
+    }
+   ],
+   "cap": "Salida de `psql -x`, sin los `::text` que PostgreSQL agrega al mostrar las condiciones."
+  },
+  {
+   "t": "p",
+   "x": "`veo mis partidas` es un `using`: filtra qué duelos ves. `el líder pregunta a su grupo` es un `with check`: examina la fila que querés crear y exige que seas líder del grupo (`soy_lider`, una función auxiliar) y figures como autor, así nadie crea una encuesta a nombre de otra persona. Las 53 políticas se reparten en 28 de lectura, 14 de alta, 6 de modificación y 5 de borrado. Por tabla, las 41 caen en cinco patrones:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Patrón",
+    "Tablas",
+    "Cuáles",
+    "Regla típica"
+   ],
+   "filas": [
+    [
+     "Lo mío",
+     "9",
+     "`perfiles`, `push_tokens`, `progreso`, `suscripciones`, `copas_resultados`, `amistades`, `partidas` y otras 2",
+     "`auth.uid() = usuario` (o jugador_a o jugador_b)"
+    ],
+    [
+     "Por pertenencia",
+     "12",
+     "`grupos`, `miembros`, `eventos`, `encuestas`, `trivias_sermon`, `torneos`, `salas`, `jugadas` y otras 4",
+     "`soy_miembro(grupo)`, `estoy_en_sala(sala)` o ser jugador de la partida"
+    ],
+    [
+     "Lectura pública",
+     "4",
+     "`copas`, `interruptores`, `nombres_biblicos`, `paquetes`",
+     "`using (true)` o una condición mínima"
+    ],
+    [
+     "Solo entra",
+     "5",
+     "`respuestas`, `pulso_votos`, `propuestas_travesia`, `propuestas`, `reportes`",
+     "`insert … with check (true)`, a veces con tope de tamaño; nadie lee"
+    ],
+    [
+     "Cerradas",
+     "11",
+     "`avisos`, `compras_play`, `denuncias`, `preguntas_clave`, `torneo_preguntas`, `trivias_cobradas` y otras 5",
+     "RLS prendida y ninguna política: solo se toca por funciones"
+    ]
+   ],
+   "cap": "Clasificación mía a partir de `pg_policies`. Algunas mezclan: `eventos`, `encuestas` y `torneos` dejan leer a cualquiera lo «de Senda» o lo abierto; las puse en su patrón principal."
+  },
+  {
+   "t": "p",
+   "x": "Solo 15 de las 41 tablas tienen alguna política de escritura, y solo 6 aceptan `update` directo desde la app: `eventos`, `perfiles`, `progreso`, `push_tokens`, `salas` y `trivias_sermon`. En las otras 26, nada que mande el teléfono escribe por la puerta de la tabla: cada alta, turno y puntaje entra por una función, tema de mañana [@09-46]. Del lado de la app, busqué en `src/` qué tablas toca de manera directa (`rest/v1/<tabla>` o los ayudantes `leer` y `escribir`): salen 14 tablas y 2 vistas (`pulso_resultados` y `mis_partidas`). Las otras 27 tablas solo se alcanzan por funciones o por el servidor. Es una búsqueda de texto; una llamada armada dinámicamente se me puede escapar."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Con RLS prendida, la tabla está protegida de todo»",
+   "x": "RLS gobierna lo que se le pide a la tabla. Las vistas y las funciones `security definer` corren con los permisos de su dueño y pasan por encima ([@09-17]). Senda tiene 4 vistas, ninguna con `security_invoker` (sus `reloptions` están vacías), y 80 funciones `security definer`. Lo comprobé: `salud_preguntas` lee `salud_resumen`, que no tiene políticas, y `anon` obtiene filas. Es a propósito (totales por pregunta, sin personas), pero el diccionario de seguridad tiene que inventariar también vistas y funciones."
+  },
+  {
+   "t": "h3",
+   "x": "Tres capas, en este orden"
+  },
+  {
+   "t": "p",
+   "x": "Una escritura atraviesa varias barreras, y saber el orden sirve para interpretar un error. Lo probé con Ana, una cuenta inventada con sesión (`authenticated`), en seis pedidos."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "1. El rol del pedido",
+     "d": "El token dice si llega como `anon` (sin sesión) o `authenticated`; de ahí sale `auth.uid()`.",
+     "k": "cliente"
+    },
+    {
+     "n": "2. Los permisos (GRANT y REVOKE)",
+     "d": "¿Puede este rol tocar esta tabla o columna? `compras_play` está cerrada acá; `perfiles` deja escribir 5 columnas al crear y 7 al actualizar.",
+     "k": "red"
+    },
+    {
+     "n": "3. La política RLS",
+     "d": "¿Esta fila, para esta persona? `using` para las existentes, `with check` para las nuevas.",
+     "k": "servidor"
+    },
+    {
+     "n": "4. Las restricciones",
+     "d": "`NOT NULL`, `CHECK`, `UNIQUE` y claves foráneas: valen para todos, incluso cuando la política dijo que sí.",
+     "k": "datos"
+    }
+   ],
+   "cap": "Orden confirmado en mi base y en la documentación de PostgreSQL: los permisos van primero y el `with check` se evalúa antes que cualquier otra restricción [#bd4545-pg-createpolicy]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- 1. hay un aviso para Ana en la tabla, pero Ana no lo ve\nselect count(*) as avisos_visibles from avisos;",
+     "s": " avisos_visibles\n-----------------\n               0"
+    },
+    {
+     "c": "-- 2. Ana intenta escribir en la misma tabla\ninsert into avisos (usuario, titulo, cuerpo) values ('…Ana', 'x', 'y');",
+     "s": "ERROR:  new row violates row-level security policy for table \"avisos\""
+    },
+    {
+     "c": "-- 3. una tabla a la que Senda le sacó todos los permisos\nselect count(*) from compras_play;",
+     "s": "ERROR:  permission denied for table compras_play"
+    },
+    {
+     "c": "-- 4. Ana crea el perfil de Beto, con un nombre de 60 letras (el tope es 40)\ninsert into perfiles (id, nombre) values ('…Beto', repeat('x', 60));",
+     "s": "ERROR:  new row violates row-level security policy for table \"perfiles\""
+    },
+    {
+     "c": "-- 5. Ana crea el suyo, con el mismo nombre largo\ninsert into perfiles (id, nombre) values ('…Ana', repeat('x', 60));",
+     "s": "ERROR:  new row for relation \"perfiles\" violates check constraint \"perfiles_nombre_check\""
+    },
+    {
+     "c": "-- 6. una vista a la que Senda le quitó el permiso de lectura\nselect count(*) from perfiles_publicos;",
+     "s": "ERROR:  permission denied for view perfiles_publicos"
+    }
+   ],
+   "cap": "Corrido como el rol `authenticated`, con `auth.uid()` de Ana. La fila 4 rompe dos reglas a la vez y la base nombra solo la primera capa que falla."
+  },
+  {
+   "t": "p",
+   "x": "Mirá los casos 4 y 5. El 4 rompe dos reglas (es el perfil de otra persona y el nombre excede el tope) y la base se queja de la política. Recién cuando Ana escribe su propio perfil (caso 5) aparece el `CHECK`. Para depurar: un error de restricción puede tapar una política que ya había dicho que no. Y en el caso 1 la tabla tiene una fila para Ana y Ana cuenta cero: la base no dice «prohibido», dice «no hay nada para vos»."
+  },
+  {
+   "t": "pensa",
+   "x": "En el caso 1 `count(*)` devolvió 0 y no un error. ¿Por qué eso complica encontrar fallas de permisos?",
+   "resp": "Porque un cero puede significar «no hay filas» o «hay filas que no podés ver», y desde afuera se ven idénticos. Un error de permiso, como el del caso 3, es una señal clara. Para distinguir hay que mirar como otro rol o revisar las políticas. Por eso `pruebas/nube/recorrido.py` prueba cada paso con la cuenta de cada persona."
+  },
+  {
+   "t": "senda",
+   "titulo": "Las políticas nacieron con las tablas, y los permisos se fueron cerrando",
+   "x": [
+    "**Implementado.** Las tablas nacen con `enable row level security` (`20261026000000_inicio.sql`). La auditoría (`20261127000000_seguridad.sql`) quitó los permisos de `compras_play`, `trivias_cobradas` e `intentos_codigo` y la lectura de `perfiles_publicos`; `denuncias` se cerró en `20261129000000_moderacion.sql`. `20261111000000_novedades.sql` dejó a `perfiles` con permisos por columna.",
+    "Esto corresponde al commit `25e08fa`; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261026000000_inicio.sql",
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261111000000_novedades.sql",
+    "supabase/migrations/20261129000000_moderacion.sql",
+    "pruebas/nube/supabase_minimo.sql"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Lo que no puedo ver: los permisos del proyecto real",
+   "x": "El simulador reparte permisos por defecto a `anon` y `authenticated` sobre cada tabla nueva, como hacía Supabase en proyectos viejos [#sen29-supabase-securing-api]. Por eso en mi copia seis tablas cerradas por RLS tienen además permisos de tabla abiertos: `avisos`, `invitaciones_grupo`, `preguntas_clave`, `pulso_conteo`, `salud_resumen` y `torneo_preguntas`. En el proyecto real depende de su configuración, que no pude consultar."
+  },
+  {
+   "t": "h",
+   "x": "Las funciones: la otra mitad del esquema"
+  },
+  {
+   "t": "p",
+   "x": "Las tablas son la mitad de la puerta. La otra mitad son las funciones, porque en las 26 tablas sin política de escritura solo cambia algo cuando una función las toca. El catálogo cuenta 92 en `public`: 80 `security definer` ([@09-17]) y 12 `security invoker`, casi todas ayudantes y funciones de trigger ([@09-18]). Ocho de las 80 están cerradas a `authenticated` (las internas, como `cerrar_vencidas` o `limpiar_viejo`, que corre `pg_cron`) y las otras 72 están abiertas a quien tenga sesión. Además, **53 de las `security definer` las puede ejecutar `anon`**, el rol de quien llega sin iniciar sesión. Tres son funciones de trigger, que no se llaman a mano. Las otras 50 las probé con esta sonda:"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create temp table sonda (f text, resultado text);\ngrant all on sonda to anon;\ndo $$\ndeclare r record; a text; filas int; msg text;\nbegin\n  for r in select p.oid, p.proname, p.proargtypes::oid[] as tipos, p.pronargs - p.pronargdefaults as obligatorios\n           from pg_proc p\n           where p.pronamespace = 'public'::regnamespace and p.prokind = 'f' and p.prosecdef\n             and p.prorettype <> 'trigger'::regtype and has_function_privilege('anon', p.oid, 'execute')\n  loop\n    select coalesce(string_agg(case format_type(t, null)\n             when 'uuid' then 'gen_random_uuid()' when 'text' then '''x''' when 'jsonb' then '''[]''::jsonb'\n             when 'boolean' then 'false' when 'text[]' then 'array[''x'']' when 'timestamp with time zone' then 'now()'\n             else '1' end, ',' order by i), '')\n      into a from unnest(r.tipos) with ordinality as u(t, i) where i <= r.obligatorios;\n    begin\n      set local role anon;\n      execute format('select count(*) from public.%I(%s)', r.proname, a) into filas;\n      reset role;\n      insert into sonda values (r.proname, 'respondió');\n    exception when others then\n      reset role;\n      get stacked diagnostics msg = message_text;\n      insert into sonda values (r.proname, msg);\n    end;\n  end loop;\nend $$;",
+   "cap": "sonda.sql, recortado: arma argumentos inventados según el tipo de cada función, la llama como `anon` y anota si respondió o con qué error falló."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select … from sonda group by 1 order by 2 desc;   -- agrupando los mensajes de error",
+     "s": "              que_paso              | count\n------------------------------------+-------\n respondió                          |    18\n sin_cuenta                         |    14\n rechazó mis datos inventados       |     9\n rechazó por rol                    |     5\n mi llamada no encajó               |     3\n llegó al insert; la frenó un CHECK |     1"
+    },
+    {
+     "c": "-- filas de las 41 tablas antes y después de la sonda (base recién armada contra base sondeada)",
+     "s": "6798 / 6798"
+    }
+   ],
+   "cap": "Los grupos de mensajes los armé yo a mano. «Rechazó por rol» reúne `solo_lider`, `solo_admin` y `no_es_miembro`."
+  },
+  {
+   "t": "p",
+   "x": "Esto no prueba que las 50 sean seguras: prueba algo más modesto. **Nada se escribió** (las 41 tablas tienen 6.798 filas antes y después) y ninguna devolvió datos de otra persona. De las 18 que respondieron, las que miré son lo esperable: `mi_plan` devuelve `gratis`, `soy_admin` falso, `mis_novedades` listas vacías y `apodo_libre` dice si un alias está libre, algo que tiene que poder preguntar quien todavía no tiene cuenta. Catorce se negaron con `sin_cuenta`, el código de Senda para «falta sesión». Cinco rechazaron por rol. Nueve rechazaron mis datos inventados (un código, un torneo o una partida que no existen) y la sonda no distingue si ya habían mirado la sesión. Tres no encajaron con mis argumentos. Y una llegó hasta el `insert`."
+  },
+  {
+   "t": "p",
+   "x": "Esa última es `crear_grupo`, y es la que más enseña. Llamada sin sesión pero con un nombre válido:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "set role anon;\nselect crear_grupo('Jóvenes de prueba', 'jovenes');",
+     "s": "ERROR:  null value in column \"usuario\" of relation \"miembros\" violates not-null constraint\nCONTEXT:  PL/pgSQL function crear_grupo(text,text) line 6 at SQL statement"
+    },
+    {
+     "c": "reset role;\nselect count(*) as grupos_creados from grupos;",
+     "s": " grupos_creados\n----------------\n               0"
+    }
+   ],
+   "cap": "Corrido en mi base. La función real está en `20261101000000_juntos.sql`."
+  },
+  {
+   "t": "p",
+   "x": "La función no tiene un `if auth.uid() is null` explícito. Sin sesión, `auth.uid()` es null: el primer `insert` (el grupo) acepta `creado_por` nulo y el segundo (la fila del líder en `miembros`) lo frena el `NOT NULL` de `miembros.usuario`. Como una llamada a función corre en una sola transacción ([[atomicidad]], [@09-24]), el grupo a medio crear se deshace: cero grupos después. Funciona, pero la barrera es una restricción de otra tabla, no una regla escrita en la función. Mi criterio (otro equipo podría pensar distinto): empezar las funciones que crean cosas con una línea que levante `sin_cuenta`, como ya hacen 14 de las 50, y quitarle `execute` a `anon` a las que no tienen motivo para recibirlo. No encontré una falla explotable: es una segunda cerradura."
+  },
+  {
+   "t": "senda",
+   "titulo": "Funciones que se protegen por distintas vías",
+   "x": [
+    "**Implementado.** `crear_grupo` y los ayudantes `soy_lider` y `soy_miembro` están en `20261101000000_juntos.sql`; `cambiar_rol` (`20261107000000_grupos.sql`) rechaza con `solo_lider` porque `soy_lider` es falso sin sesión. Las internas se cierran con `revoke execute`, como `enviar_avisos` en `20261127000000_seguridad.sql`.",
+    "Hay tres vías de protección y conviven: chequear sesión, delegar en un ayudante de rol y apoyarse en una restricción. Commit `25e08fa`; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261107000000_grupos.sql",
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué encontré y cuánto pesa"
+  },
+  {
+   "t": "p",
+   "x": "Un hallazgo sin clase es ruido. Uso las de [@08-17]: **riesgo real** (haría daño si se publica hoy), **deuda** (funciona y se encarece con el tiempo) y **a confirmar** (solo se comprueba en el proyecto real), y sumo **corrección del mapa** para cuando el documento y el código discrepan."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Hallazgo y evidencia",
+    "Clase",
+    "Mi criterio"
+   ],
+   "filas": [
+    [
+     "Un torneo de sermón sobrevive a su sermón cuando el líder borra su cuenta y `marca_torneo` guarda un cero oficial (reproducido: 0 de 5 con cinco correctas)",
+     "Riesgo real, de baja probabilidad",
+     "Copiar las preguntas al crear el torneo, o que `marca_torneo` rechace en vez de corregir contra `[]`"
+    ],
+    [
+     "53 funciones `security definer` ejecutables por `anon`; `crear_grupo` se protege solo con un `NOT NULL` de otra tabla",
+     "Deuda",
+     "Chequeo de sesión explícito y `revoke execute … from anon` en las que piden sesión"
+    ],
+    [
+     "Seis tablas cerradas por RLS con permisos de tabla abiertos en mi copia, entre ellas `preguntas_clave` (las respuestas)",
+     "A confirmar en el proyecto real",
+     "Mirar los permisos reales y, si están abiertos, `revoke all` como en otras cinco"
+    ],
+    [
+     "Cuatro tablas que la app no usa, dos con alta anónima abierta (`reportes` y `propuestas`)",
+     "Deuda",
+     "Cerrarlas o borrarlas: son superficie sin función"
+    ],
+    [
+     "El mapa dice que `torneos.trivia` y `salas.trivia` apuntan a `trivias_sermon`; en la base no hay clave foránea",
+     "Corrección del mapa",
+     "Corregido en este día; la fuente no se toca"
+    ]
+   ],
+   "cap": "Contra el esquema que dejan las 42 migraciones, no contra el proyecto vivo. La columna «Mi criterio» es mía."
+  },
+  {
+   "t": "p",
+   "x": "Ninguno es un agujero que se muestre con una sola llamada desde afuera. Pesa más el primero, porque nadie ve un error, y salió de cruzar el catálogo con el cuerpo de una función: ninguno lo mostraba solo."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Vas a sumar mensajes de grupo: una tabla `mensajes` con grupo, autor, texto y fecha. Antes de crearla, escribí su fila del diccionario: familia, claves foráneas con su acción de borrado, un índice, patrón de RLS y quién la escribe.",
+   "pista": "Pensá qué pasa con los mensajes cuando se borra el grupo y cuando se borra la cuenta del autor, y si el teléfono insertaría directo o por una función.",
+   "solucion": "Familia: «Grupos, eventos y encuestas». Claves foráneas: `grupo → grupos` con CASCADE y `autor → auth.users` con SET NULL (el mensaje queda como «cuenta borrada») o CASCADE: es una decisión de producto y conviene escribirla. Índice: `(grupo, creado desc)`, porque la pantalla pide los últimos mensajes de un grupo ([@09-07]: las claves foráneas no traen índice). RLS: patrón «por pertenencia», `select` por `soy_miembro(grupo)`. Escritura: ninguna política de alta; una función `security definer` con `search_path` fijo que verifique sesión, pertenencia y largo (`check (char_length(texto) between 1 and 500)`), el filtro de palabras como los otros siete triggers, y `revoke insert` a `authenticated`."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué puede cambiar",
+   "x": [
+    "Al 13-11-2026, commit `25e08fa`. Corrí PostgreSQL 16.15 (paquete de Ubuntu); según el aviso de la documentación oficial, la rama 16 publicó la 16.16 el 12-11-2026 [#bd4545-pg-view-policies]. No es la versión ni la configuración de Supabase: roles y `auth.uid()` son simulados, y los permisos por defecto de Supabase están cambiando [#sen29-supabase-securing-api] ([@07-29]).",
+    "Cada número de hoy es del esquema de las 42 migraciones y cambia con la próxima. La forma no envejece: sacar el inventario del catálogo, clasificar por patrón de política y el orden permisos, política, restricciones. Para rehacerlo, el repositorio trae `pruebas/nube/correr.sh`, que arma una base y aplica las migraciones."
+   ]
+  }
+ ],
+ "recap": [
+  "Un diccionario que no miente sale del catálogo de una base con las migraciones aplicadas en orden: el texto cuenta la historia y el catálogo el estado (76 sentencias de política contra 53 vivas).",
+  "Senda tiene 41 tablas (todas con RLS), 276 columnas, 46 claves foráneas (31 hacia `auth.users`), 72 índices, 53 políticas y 92 funciones.",
+  "Una relación sin clave foránea (`torneos.trivia`, `salas.trivia`) no la hace cumplir nadie: un torneo de sermón puede quedar sin sermón y puntuar cero de forma oficial.",
+  "Las 41 tablas caen en cinco patrones de política (lo mío, por pertenencia, lectura pública, solo entra, cerradas); solo 15 tienen política de escritura.",
+  "Una escritura pasa por permisos, después por la política y recién después por las restricciones; un error de restricción puede esconder una política que ya había dicho que no.",
+  "Vistas y funciones `security definer` saltan RLS: el diccionario incluye 4 vistas y 80 funciones, 53 ejecutables por `anon`; la sonda no encontró escrituras ni datos ajenos."
+ ],
+ "repaso": [
+  {
+   "p": "Un compañero dice que Senda tiene 76 políticas RLS y otro dice 53. Los dos leyeron bien. ¿Qué explica la diferencia?",
+   "o": [
+    "Una cifra cuenta sentencias en los archivos y la otra las políticas que quedan vivas al final",
+    "Una cifra incluye las tablas sin RLS y la otra solo las que la tienen prendida",
+    "Una cifra viene de la base de Senda y la otra de una copia con menos migraciones",
+    "Una cifra cuenta las políticas de lectura y la otra suma las de escritura"
+   ],
+   "c": 0,
+   "e": "Las 76 son sentencias `create policy` en los 42 archivos; varias reemplazan a una anterior (hay 32 `drop policy`) y 6 son del almacén de PDF. Las 53 son las que existen al terminar. No hay tablas sin RLS (las 41 la tienen), y ambas copias tienen las mismas 42 migraciones; lo que cambia es qué se cuenta."
+  },
+  {
+   "p": "Una tabla tiene RLS prendida, ninguna política y permisos de tabla abiertos. Una cuenta con sesión ejecuta `select count(*)` sobre ella y hay filas guardadas. ¿Qué devuelve?",
+   "o": [
+    "Un error «permission denied» porque no hay política que lo permita",
+    "Todas las filas, porque los permisos de tabla se lo permiten",
+    "Cero, sin error, porque sin política se asume denegar todo",
+    "Un error que avisa que falta definir una política para esa tabla"
+   ],
+   "c": 2,
+   "e": "Con RLS prendida y sin políticas aplicables, la base asume «denegar todo», pero lo hace filtrando: ninguna fila es visible y el conteo da 0 sin error. El «permission denied» aparece solo cuando falta el permiso de tabla, como en `compras_play`."
+  },
+  {
+   "p": "Ana, con sesión, intenta crear el perfil de Beto con un nombre de 60 letras, cuando el tope es 40. ¿Qué error recibe?",
+   "o": [
+    "Una violación del `CHECK` del nombre, porque el texto es demasiado largo",
+    "Un «permission denied», porque Ana no puede escribir en `perfiles`",
+    "Los dos errores juntos, el de la política y el del `CHECK` del nombre",
+    "Una violación de la política RLS, porque la política se evalúa antes"
+   ],
+   "c": 3,
+   "e": "El `with check` de la política se evalúa antes que las demás restricciones, así que la base se queja primero de que Ana no puede crear el perfil de otra persona. El `CHECK` del nombre recién aparecería si Ana escribiera su propio perfil. Y Ana sí tiene permiso de tabla sobre cinco columnas de `perfiles`, por eso no es un «permission denied»."
+  },
+  {
+   "p": "El líder de un grupo borra su cuenta mientras hay un torneo de sermón abierto. ¿Qué combinación de reglas deja al torneo sin sus preguntas?",
+   "o": [
+    "`torneos.creado_por` usa SET NULL y `trivias_sermon.creado_por` usa CASCADE, y `torneos.trivia` no tiene clave foránea",
+    "`torneos.creado_por` usa CASCADE y borra el torneo, y las preguntas quedan sueltas",
+    "`trivias_sermon.creado_por` usa SET NULL y `torneos.trivia` queda apuntando a una fila nula",
+    "`marca_torneo` borra las preguntas del sermón apenas la primera persona termina de jugar"
+   ],
+   "c": 0,
+   "e": "El torneo sobrevive (SET NULL en su autor), el sermón desaparece (CASCADE en el suyo) y nada une `torneos.trivia` con `trivias_sermon.id`, así que ninguna restricción lo impide. Las otras opciones invierten las acciones o inventan un borrado que ninguna función hace."
+  },
+  {
+   "p": "La sonda llamó como `anon` a 50 funciones con argumentos inventados: 18 respondieron y ninguna escribió. ¿Qué se puede concluir?",
+   "o": [
+    "Que las 50 funciones verifican la sesión antes de hacer cualquier cosa",
+    "Que con esos argumentos ninguna escribió ni devolvió datos ajenos, pero no que sean seguras con otros",
+    "Que `anon` no puede ejecutar ninguna función `security definer` de Senda",
+    "Que las 18 que respondieron tienen una falla, porque `anon` no debería recibir nada"
+   ],
+   "c": 1,
+   "e": "Una sonda con argumentos inventados solo muestra lo que pasó con esos argumentos: ninguna escritura y ningún dato de otra persona. No prueba que todas chequeen la sesión (9 rechazaron por datos inexistentes sin que se sepa si miraron la sesión), y varias respuestas son legítimas, como `apodo_libre` o `mi_plan`."
+  },
+  {
+   "p": "Alguien propone una clave foránea `torneos.trivia → trivias_sermon` con `on delete restrict` para evitar el torneo huérfano. ¿Qué problema trae?",
+   "o": [
+    "Impide crear torneos de sermón, porque el sermón todavía no existe al crearlos",
+    "Obliga a copiar todas las preguntas del sermón a cada torneo para poder crearlo",
+    "Hace que el torneo se borre solo cuando alguien archiva el sermón con `PATCH`",
+    "Frena el borrado de la cuenta del líder mientras haya un torneo apuntando a su sermón"
+   ],
+   "c": 3,
+   "e": "Borrar la cuenta arrastra los sermones del líder en cascada, y `restrict` frena el borrado de un sermón mientras algún torneo lo use: el borrado de cuenta fallaría. Archivar con `PATCH` no borra la fila, así que no se ve afectado, y el sermón existe antes de crear el torneo."
+  }
+ ],
+ "feynman": "Explicale a alguien que conoce logística pero no informática por qué decir «Senda tiene 41 tablas» no alcanza para saber cuán protegida está, y qué cuatro preguntas le harías al catálogo para completar el cuadro (por ejemplo: qué relaciones existen de verdad, quién puede leer y escribir cada tabla, qué funciones saltan esas reglas y qué dato queda sin dueño cuando se borra una cuenta).",
+ "para_profundizar": [
+  {
+   "fuente": "bd4545-pg-view-policies",
+   "nota": "La vista `pg_policies` del manual de PostgreSQL 16: las columnas que usaste hoy (`qual`, `with_check`, `cmd`, `roles`) y cómo se lee cada una."
+  },
+  {
+   "fuente": "bd4545-pg-createpolicy",
+   "nota": "Manual de `CREATE POLICY`: la diferencia entre `USING` y `WITH CHECK`, la tabla de qué condición aplica a cada comando y la frase sobre el orden respecto de otras restricciones."
+  },
+  {
+   "fuente": "bd4545-pg-ddl-priv",
+   "nota": "Capítulo de privilegios del manual: `GRANT` y `REVOKE` por tabla y por columna, la capa 2 del dibujo de hoy."
+  },
+  {
+   "fuente": "sen29-supabase-securing-api",
+   "nota": "La guía de Supabase sobre qué roles pueden tocar qué por defecto y por qué está cambiando; sirve para saber qué mirar en tu propio proyecto."
+  }
+ ],
+ "videos": [
+  {
+   "q": "PostgreSQL pg_catalog pg_class pg_constraint consultar el esquema",
+   "por_que": "Para ver cómo se consulta el catálogo de una base y practicar sacar un inventario sin leer los archivos de migración."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "diccionario de datos de Senda",
+   "d": "El inventario escrito de la base de Senda: qué tablas hay, qué guarda cada columna, cómo se relacionan y quién puede leer o escribir cada una. El de este día sale del catálogo de una copia con las 42 migraciones aplicadas, no de leer los archivos."
+  },
+  {
+   "t": "política RLS",
+   "d": "Regla con nombre, guardada en la base y atada a una tabla y a una operación, que decide qué filas puede ver (`using`) o escribir (`with check`) quien consulta. Con RLS prendida y sin políticas aplicables, la base asume denegar todo."
+  },
+  {
+   "t": "catálogo de PostgreSQL",
+   "d": "Conjunto de tablas y vistas internas (`pg_class`, `pg_constraint`, `pg_policies`, `pg_proc`) donde PostgreSQL guarda la descripción de todo lo que existe en la base. Se consulta con SQL y refleja siempre el estado actual."
+  },
+  {
+   "t": "relación por convención",
+   "d": "Vínculo entre dos tablas que los programadores respetan pero que la base no hace cumplir porque no existe una clave foránea. Si el dato al que apunta desaparece, la fila que lo mencionaba queda sin que nada avise."
+  }
+ ],
+ "siguiente": "seguís una copa de Senda de punta a punta: qué función corrige, qué es atómico y qué pasa cuando dos teléfonos mandan a la vez, reproducido con dos sesiones de PostgreSQL.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd4545-pg-catalogs",
+   "t": "PostgreSQL 16: System Catalogs",
+   "a": "The PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/catalogs.html"
+  },
+  {
+   "id": "bd4545-pg-view-policies",
+   "t": "PostgreSQL 16: pg_policies",
+   "a": "The PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/view-pg-policies.html"
+  },
+  {
+   "id": "bd4545-pg-createpolicy",
+   "t": "PostgreSQL 16: CREATE POLICY",
+   "a": "The PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/sql-createpolicy.html"
+  },
+  {
+   "id": "bd4545-pg-ddl-priv",
+   "t": "PostgreSQL 16: Privileges",
+   "a": "The PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/ddl-priv.html"
+  }
+ ]
+}
