@@ -508,6 +508,14 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - antes de publicar, una sesión exclusiva de revisión legal exhaustiva con Claude en rol de abogado, contra fuentes primarias
     (`oportunidades/proyectos/senda/revision_legal_prelanzamiento.md`; DEC-2026-11-10-5); reemplaza la consulta paga.
 
+- **Datos del 13-11-2026 (Senda, prueba 53):**
+  - Jugar en la barra es una ficha chica dentro de la barra (la moneda con zócalo era «muy grande» y «cachivache»); el logo «Camino en
+    la noche» ya está en el ícono, el adaptable, el splash y la app (`scripts/marca/marca_camino.py`);
+  - la trivia suma las doctrinas comunes por su nombre (banco 53: definición simple → nombre de la doctrina; solo lo que comparten
+    las iglesias protestantes, nada secundario), también en portugués e inglés;
+  - «QUE ESTÉ TODO PERFECTO Y COMPLETO PARA EL LANZAMIENTO»: las 1.026 preguntas rebuscadas que quedaban, leídas una por una (978
+    reescritas, 31 retiradas, errores de contenido corregidos) y los 294 campos de lecciones por idioma retraducidos; desde ahora las
+    traducciones de lo que cambie se escriben en la sesión, sin lotes (capítulo 78).
 ## 2. Reglas no negociables
 
 1. **Evidencia antes que afirmación.** Separar siempre **HECHO** (con fuente y fecha), **ESTIMACIÓN** (con método), **HIPÓTESIS**
