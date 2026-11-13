@@ -1,0 +1,737 @@
+{
+ "id": "05-24",
+ "titulo": "Firewalls, proxies y VPN",
+ "bajada": "Cerrás puertas con un firewall propio, armás un proxy y un proxy inverso con tus manos y levantás un túnel WireGuard para ver, byte a byte, qué ve cada intermediario.",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué decide un firewall (dirección, puerto, protocolo, estado) y por qué hace falta una regla con estado para que lleguen las respuestas.",
+  "Distinguir un rechazo de un descarte leyendo el error de `curl` (conexión rechazada frente a tiempo agotado).",
+  "Diferenciar un proxy de un proxy inverso por quién lo elige, y decir qué ve un proxy en HTTP, en HTTPS con CONNECT y cuando intercepta TLS.",
+  "Describir qué es un túnel y una VPN, y calcular el tamaño de un paquete dentro de WireGuard.",
+  "Elegir cuál de las cuatro piezas resuelve un problema dado y decir qué no resuelve."
+ ],
+ "venis_de": "En [@05-22] viste TLS y en [@05-23] los certificados, y ayer apareció el proxy de esta VM que fabrica certificados propios. Hoy se ordenan las máquinas que viven en el medio del camino: las que filtran el tráfico, las que lo reenvían en tu nombre o delante de un servidor, y las que lo envuelven en un túnel.",
+ "se_apoya_en": [
+  "05-02",
+  "05-14",
+  "05-16",
+  "05-18",
+  "05-23"
+ ],
+ "gancho": [
+  "Tenés tres servicios en una máquina: una base de datos que nadie de afuera debería tocar, una API que sí tiene que ser pública y un panel para tu equipo. Todos escuchan en algún puerto. Un servicio que escucha es una puerta, y por defecto la puerta atiende a cualquiera que llegue. ¿Quién decide quién entra a cuál?",
+  "Cuatro piezas contestan partes distintas de esa pregunta. El **firewall** decide qué paquetes pasan. El **proxy** sale a Internet en nombre de los clientes. El **proxy inverso** atiende en nombre de los servidores. La **VPN** hace que dos redes lejanas se comporten como una. Se confunden mucho porque las cuatro son intermediarias, pero se distinguen con una sola pregunta: ¿quién sabe que existe y qué decide?",
+  "Hoy las armás todas en esta VM, dentro de redes virtuales propias para no tocar nada ajeno: un firewall con `nftables`, un proxy y un proxy inverso con `nginx`, y un túnel WireGuard cuyo tráfico vas a mirar byte a byte."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Firewall: el portero que mira cabeceras"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[firewall]] es un filtro que decide, para cada paquete o conexión, si pasa, se descarta o se rechaza, mirando las cabeceras que ya conocés: dirección IP de origen y destino, protocolo, puerto y, en los modernos, el **estado** de la conexión. No mira el significado de lo que hay adentro. Es un portero con una lista: lee la patente del camión, no el contenido de la carga.",
+    "En Linux, el filtro vive en el kernel y se llama Netfilter; la herramienta moderna para escribir sus reglas es `nftables` (`nft`), y la anterior, `iptables`, hoy suele ser una capa de compatibilidad sobre la misma base. Lo comprobé en esta VM: `iptables --version` responde `v1.8.10 (nf_tables)` y `nft --version`, `v1.0.9`. Las reglas se agrupan en cadenas enganchadas a un punto del recorrido del paquete (`input` para lo que llega a esta máquina, `output` para lo que sale, `forward` para lo que pasa de largo). Dentro de una cadena se evalúan en orden, y si ninguna decide, manda la **política** por defecto de la cadena [#pki-nft-ref]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Mejor que describirlo es construirlo. Creé dos redes virtuales aisladas (*network namespaces*, que viste en [@05-14] como mundos de puertos separados) unidas por un cable virtual: un servidor con IP 10.24.1.1 y un cliente con 10.24.1.2. El servidor tiene tres servicios web en los puertos 8080, 9090 y 7070, y le cargué estas reglas:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "nft list ruleset",
+     "s": "table inet filtro {\n\tchain entrada {\n\t\ttype filter hook input priority filter; policy drop;\n\t\tiif \"lo\" accept\n\t\tct state established,related accept\n\t\ttcp dport 8080 accept\n\t\ttcp dport 9090 reject with tcp reset\n\t}\n}"
+    }
+   ],
+   "cap": "Ejecutado dentro del namespace del servidor (nftables v1.0.9). `policy drop` significa: lo que ninguna regla acepte, se descarta."
+  },
+  {
+   "t": "p",
+   "x": "Leelas de arriba hacia abajo: lo que viene por la interfaz local pasa; lo que pertenece a una conexión ya establecida pasa; el puerto 8080 pasa; el 9090 se rechaza con un aviso explícito; todo lo demás cae en la política y se descarta. Ahora el cliente prueba los tres puertos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -sS -o /dev/null --connect-timeout 3 -w 'HTTP %{http_code}\\n' http://10.24.1.1:8080/",
+     "s": "HTTP 200"
+    },
+    {
+     "c": "curl -sS -o /dev/null --connect-timeout 3 http://10.24.1.1:9090/",
+     "s": "curl: (7) Failed to connect to 10.24.1.1 port 9090 after 0 ms: Couldn't connect to server"
+    },
+    {
+     "c": "curl -sS -o /dev/null --connect-timeout 3 http://10.24.1.1:7070/",
+     "s": "curl: (28) Failed to connect to 10.24.1.1 port 7070 after 3002 ms: Timeout was reached"
+    }
+   ],
+   "cap": "Salida real, medida entre dos namespaces de esta VM. Los tres puertos tienen un servicio escuchando: lo único que cambia es la regla del firewall."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los dos errores se ven parecidos y significan cosas opuestas. En el 9090 el firewall **rechazó**: contestó al instante con un RST de TCP (el mismo aviso que el kernel manda a un puerto sin servicio, según el RFC 9293 [#rfc9293]) y `curl` falló en 0 milisegundos. En el 7070 el firewall **descartó**: no contestó nada, y el cliente esperó los 3 segundos que le permití.",
+    "Esa diferencia es una herramienta de diagnóstico. **Rechazada** quiere decir que alguien contestó que no (puerto sin servicio o regla de rechazo). **Tiempo agotado** quiere decir silencio: un descarte, una máquina apagada o una ruta rota. Una práctica habitual, que es criterio y no norma: descartar hacia Internet, para no dar pistas a quien escanea, y rechazar dentro de una red interna, para que el error aparezca rápido."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Si un firewall con política de entrada `drop` solo acepta el puerto 8080, y desde esa máquina hacés `curl` a un sitio externo, ¿por qué podría quedarse colgado aunque la salida esté permitida?",
+   "resp": "Porque la respuesta del sitio es tráfico de entrada que ninguna regla acepta. Hace falta una regla que deje pasar lo que pertenece a una conexión iniciada desde adentro: `ct state established,related accept`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Eso es el firewall **con estado**: Netfilter anota cada conexión en una tabla (*connection tracking*) y las reglas pueden preguntar si un paquete es parte de una conexión conocida [#pki-nft-ct]. Lo comprobé sacando esa línea. El servidor inicia una conexión al cliente (que tiene un servicio en el 8000) y esta vez la entrada solo acepta el 8080:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -sS --connect-timeout 3 http://10.24.1.2:8000/   # con la regla ct state established",
+     "s": "respuesta del cliente"
+    },
+    {
+     "c": "curl -sS --connect-timeout 3 http://10.24.1.2:8000/   # sin esa regla",
+     "s": "curl: (28) Failed to connect to 10.24.1.2 port 8000 after 3002 ms: Timeout was reached"
+    }
+   ],
+   "cap": "Salida real. Sin la regla de estado, el SYN-ACK de vuelta cae en la política `drop` y el saludo de tres vías de [@05-16] nunca se completa."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "La regla de estado es la portería que recuerda qué camiones salieron: cuando el camión vuelve con la mercadería, el guardia lo deja pasar porque está en la planilla de salidas, aunque no esté en la lista de visitas autorizadas.",
+    "Dónde falla: la planilla de una portería es de papel y no se llena sola. La tabla de conexiones del kernel tiene un tamaño limitado y entradas que vencen, así que un ataque que llene la tabla puede hacer que el firewall deje de aceptar conexiones nuevas."
+   ],
+   "titulo": "La planilla de salidas"
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": [
+    "Un firewall no hace seguro a lo que deja pasar. Si abrís el puerto 443 y la aplicación que atiende tiene un error, el firewall no se entera: el paquete cumple todas las reglas. Tampoco ve dentro de TLS. Y, como viste en [@05-10], **NAT no es un firewall**: oculta direcciones, pero que una conexión entrante no tenga traducción no equivale a una regla que la prohíba.",
+    "La regla práctica es la de *denegar por defecto*: política `drop` y abrir de a un puerto, justificado. Es criterio de práctica, no una ley."
+   ],
+   "titulo": "Cerrar no es lo mismo que proteger"
+  },
+  {
+   "t": "h",
+   "x": "Proxy: el que sale a Internet por vos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[proxy]] es un intermediario que el **cliente elige**: le manda sus pedidos y el proxy los hace en su nombre. Así lo define el estándar de HTTP: un agente que reenvía mensajes, elegido por el cliente, normalmente por configuración local [#rfc9110]. Cuando un cliente le habla a un proxy sobre HTTP sin cifrar, la primera línea del pedido lleva la dirección completa (`GET http://sitio/ruta HTTP/1.1`) en lugar de solo la ruta, para que el proxy sepa adónde ir [#rfc9112].",
+    "Se usan para controlar y registrar la salida de una red (una empresa, un colegio), para guardar copias de lo que mucha gente pide, para que todos salgan con una misma IP pública o para filtrar destinos. Esta VM es un ejemplo: toda su salida a Internet pasa por un proxy del entorno. Para HTTPS, el cliente le pide al proxy un **túnel** con el método [[CONNECT|método CONNECT]]. Esto es lo que dice `curl` en esta máquina (dejé afuera el resto de los encabezados):"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -sv -o /dev/null https://example.com/ 2>&1 | grep -E '^> CONNECT|^< HTTP/1\\.[01] 200'",
+     "s": "> CONNECT example.com:443 HTTP/1.1\n< HTTP/1.1 200 Connection Established"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026. `curl` toma el proxy de una variable de entorno (`HTTPS_PROXY`) y le pide un túnel a example.com, puerto 443. No muestro el valor de la variable ni los demás encabezados."
+  },
+  {
+   "t": "p",
+   "x": "Para ver qué ve un proxy, escribí uno de 51 líneas en Node que escucha solo en localhost. La parte que importa es el manejo de CONNECT: abre una conexión TCP al destino, contesta «200» y a partir de ahí copia bytes en los dos sentidos sin interpretarlos."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "proxy.on(\"connect\", (req, cliente, cabeza) => {\n  const [host, puerto] = req.url.split(\":\");          // lo único que pidió el cliente\n  console.log(`CONNECT  ${req.url}`);\n  const destino = net.connect(+puerto, HOSTS[host] || host, () => {\n    cliente.write(\"HTTP/1.1 200 Connection Established\\r\\n\\r\\n\");\n    if (cabeza.length) destino.write(cabeza);\n    cliente.pipe(destino); destino.pipe(cliente);      // copia ciega en los dos sentidos\n  });\n  /* … más abajo registra el primer mensaje del cliente y lee el SNI … */\n});",
+   "cap": "Extracto de proxy.js (Node 22). El RFC 9110 describe lo mismo: tras un 2xx, el proxy pasa a «reenvío ciego» de datos [#rfc9110]."
+  },
+  {
+   "t": "p",
+   "x": "Le hice dos pedidos: uno por HTTP sin cifrar a un servidor de práctica y otro por HTTPS al servidor TLS de la CA de práctica de [@05-23], con una ruta y una clave en la dirección. Esto fue lo que registró el proxy:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -x http://127.0.0.1:48561 'http://api.ejemplo.test:48563/index.html?usuario=juan'",
+     "s": "hola desde el puerto"
+    },
+    {
+     "c": "curl -x http://127.0.0.1:48561 --cacert raiz.pem 'https://api.ejemplo.test:48562/secreto?clave=1234'",
+     "s": ""
+    },
+    {
+     "c": "cat proxy.log",
+     "s": "proxy escuchando en 127.0.0.1:48561\nHTTP     GET http://api.ejemplo.test:48563/index.html?usuario=juan  agente=curl/8.5.0\nCONNECT  api.ejemplo.test:48562\n         primer mensaje: 517 bytes, empieza con 160301, SNI=api.ejemplo.test\n         túnel cerrado: 746 bytes del cliente, que el proxy no puede leer"
+    }
+   ],
+   "cap": "Salida real. Dos líneas para el pedido sin cifrar (el proxy ve la dirección completa con `usuario=juan`) y tres para el cifrado (solo ve el destino, el nombre del servidor y cuántos bytes pasaron)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La diferencia es el punto del día. Por HTTP, el proxy ve **todo**: la dirección completa con sus parámetros, los encabezados, el contenido. Por HTTPS con CONNECT, ve el destino que pidió el cliente y, como TLS arranca con un mensaje inicial sin cifrar (`160301` son los primeros bytes de un registro de saludo), también el nombre del servidor, el SNI. La ruta `/secreto` y la clave `1234` viajaron dentro del túnel cifrado y el proxy no las vio. Existe una extensión estandarizada en marzo de 2026, *Encrypted Client Hello* (RFC 9849), que cifra también el nombre, pero hace falta que la usen los dos extremos [#pki-rfc9849]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "x": [
+    "En esta VM el proxy sí puede leer HTTPS, y la razón es la de [@05-23]: es un proxy que **intercepta TLS**. Al recibir el CONNECT no copia bytes a ciegas; termina él mismo el saludo con el cliente presentando un certificado de example.com firmado por su propia CA, que el sistema tiene instalada, y abre otra conexión hacia afuera. Como el cliente confía en esa CA, no ve ningún aviso.",
+    "Las empresas lo usan para inspeccionar tráfico. Tiene un costo: ese proxy ve contraseñas y datos en claro, su clave de CA se vuelve un objetivo valioso, y toda app que fije certificados (como el *pinning* que mencionamos en [@05-23]) falla. Lo que hace legítima o no la interceptación es quién tiene el control del equipo y si las personas lo saben."
+   ],
+   "titulo": "El proxy que sí abre el sobre"
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Un proxy me da anonimato.» El destino ve la IP del proxy en lugar de la tuya, pero el proxy ve tu IP y todo adónde vas. Cambiaste de quién confiás, no de si confiás. Y si en el sitio iniciás sesión o tus cookies te identifican, la IP importaba poco.",
+   "titulo": "Proxy no es capa de invisibilidad"
+  },
+  {
+   "t": "h",
+   "x": "Proxy inverso: el que atiende por el servidor"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[proxy inverso]] está del otro lado. El cliente **no sabe** que existe: le habla creyendo que es el servidor. El estándar lo llama *gateway* y lo define como un intermediario que actúa como servidor de origen hacia afuera, traduce los pedidos y los reenvía hacia adentro a otros servidores [#rfc9110]. La diferencia con el proxy no es técnica sino de quién lo configura: el **proxy** lo elige el cliente y trabaja para los clientes; el **proxy inverso** lo pone el dueño del servicio y trabaja para los servidores."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "comparar",
+   "izq": {
+    "t": "Proxy (de salida)",
+    "k": "cliente",
+    "items": [
+     "Lo elige el cliente (configuración, variable de entorno)",
+     "El servidor ve al proxy, no al cliente",
+     "Controla, registra o guarda copias de lo que sale",
+     "Ejemplo: el proxy del entorno de esta VM"
+    ]
+   },
+   "der": {
+    "t": "Proxy inverso (de entrada)",
+    "k": "servidor",
+    "items": [
+     "Lo elige el dueño del servicio; el cliente no se entera",
+     "El servidor de aplicación ve al proxy, no al cliente",
+     "Reparte, protege y termina TLS delante de los servidores",
+     "Ejemplo: nginx delante de una API"
+    ]
+   },
+   "cap": "Mismo mecanismo (un intermediario que reenvía), puntos de vista opuestos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para qué se usa: **terminar TLS** en un solo lugar (el certificado y la clave de [@05-23] viven en el proxy y los servidores de atrás hablan HTTP simple), **repartir por ruta o por nombre** (`/api` a un servicio y `/` a otro), esconder los servidores de la red pública, guardar copias de respuestas, comprimir o limitar pedidos por cliente. Mañana vas a ver la variante más importante, el reparto de carga entre muchos servidores.",
+    "Lo armé con `nginx`, que ya viene en esta VM, dentro del mismo namespace del servidor. Agregué dos servidores de aplicación inventados, `api` y `web`, en los puertos 48571 y 48572, y cambié el firewall: ahora solo acepta los puertos 48570 y 48573 (los del proxy). Estos son los puntos importantes de la configuración:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "server {\n  listen 48570;\n  location /api/ {\n    proxy_pass http://127.0.0.1:48571;              # servicio api\n    proxy_set_header Host $host;\n    proxy_set_header X-Forwarded-For $remote_addr;  # quién es el cliente de verdad\n    proxy_set_header X-Forwarded-Proto $scheme;     # http o https\n  }\n  location / { proxy_pass http://127.0.0.1:48572; /* igual, hacia web */ }\n}\nserver {\n  listen 48573 ssl;  server_name api.ejemplo.test;\n  ssl_certificate     cadena.pem;   # hoja + intermedia de la CA de práctica\n  ssl_certificate_key hoja.key;\n  location / { proxy_pass http://127.0.0.1:48571; /* … */ }\n}",
+   "cap": "Extracto de nginx.conf (nginx 1.24.0). La documentación de cada directiva está en el módulo `ngx_http_proxy_module` [#pki-nginx-proxy]."
+  },
+  {
+   "t": "p",
+   "x": "El cliente (en su propio namespace, con IP 10.24.1.2) hizo cuatro pedidos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -sS http://10.24.1.1:48570/api/pedidos/17",
+     "s": "{\"soy\":\"api\",\"camino\":\"/api/pedidos/17\",\"host\":\"10.24.1.1\",\"me_habla\":\"127.0.0.1\",\"x_forwarded_for\":\"10.24.1.2\",\"x_forwarded_proto\":\"http\"}"
+    },
+    {
+     "c": "curl -sS http://10.24.1.1:48570/index.html",
+     "s": "{\"soy\":\"web\",\"camino\":\"/index.html\",\"host\":\"10.24.1.1\",\"me_habla\":\"127.0.0.1\",\"x_forwarded_for\":\"10.24.1.2\",\"x_forwarded_proto\":\"http\"}"
+    },
+    {
+     "c": "curl -sS --connect-timeout 3 http://10.24.1.1:48571/api/pedidos/17   # directo al servicio",
+     "s": "curl: (28) Failed to connect to 10.24.1.1 port 48571 after 3002 ms: Timeout was reached"
+    },
+    {
+     "c": "curl -sS --cacert raiz.pem --resolve api.ejemplo.test:48573:10.24.1.1 https://api.ejemplo.test:48573/api/pedidos/17",
+     "s": "{\"soy\":\"api\",\"camino\":\"/api/pedidos/17\",\"host\":\"api.ejemplo.test\",\"me_habla\":\"127.0.0.1\",\"x_forwarded_for\":\"10.24.1.2\",\"x_forwarded_proto\":\"https\"}"
+    }
+   ],
+   "cap": "Salida real. Los servicios responden con lo que les llegó. Los pedidos a la API por HTTPS usaron la CA de práctica de [@05-23], con `curl --noproxy '*'` para no pasar por el proxy del entorno (omitido por claridad)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo que muestran los cuatro pedidos: el proxy repartió por ruta (`/api/` a `api`, el resto a `web`), el firewall dejó los servicios internos **inaccesibles desde afuera** (el tercero se agota), y el último pedido llegó por HTTPS al proxy pero el servicio de atrás lo recibió como HTTP simple desde 127.0.0.1, con un encabezado, `X-Forwarded-Proto: https`, que le cuenta lo que pasó antes. Es [[terminación de TLS]]: el [[handshake TLS]] lo hace el proxy.",
+    "Ese `me_habla: 127.0.0.1` revela un problema clásico. Para el servicio, **todo cliente es el proxy**. La IP real llega solo en el encabezado `X-Forwarded-For`, que existe por costumbre desde hace años (el estándar `Forwarded`, RFC 7239, es la versión formal [#pki-rfc7239]). Y ese encabezado se puede falsificar. Lo probé: mandé `X-Forwarded-For: 8.8.8.8` por dos rutas con configuraciones distintas."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -sS -H 'X-Forwarded-For: 8.8.8.8' http://10.24.1.1:48570/api/pedidos/17   # nginx reemplaza con $remote_addr",
+     "s": "{… \"x_forwarded_for\":\"10.24.1.2\" …}"
+    },
+    {
+     "c": "curl -sS -H 'X-Forwarded-For: 8.8.8.8' http://10.24.1.1:48570/append/pedidos/17   # nginx agrega con $proxy_add_x_forwarded_for",
+     "s": "{… \"x_forwarded_for\":\"8.8.8.8, 10.24.1.2\" …}"
+    }
+   ],
+   "cap": "Salida real, recortada a la parte importante. En la segunda ruta el valor mentiroso queda primero en la lista."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Si tu aplicación toma **el primer valor** de `X-Forwarded-For` como IP del cliente, en la segunda configuración cree que el cliente es 8.8.8.8. Los límites por IP, los bloqueos y los registros de auditoría quedan en manos de quien quiera mentir. La regla práctica: confiá solo en el valor que agregó **tu** proxy (el último de la lista), nunca en el primero, y configurá el proxy para que reemplace el encabezado en lugar de concatenarlo cuando es la primera capa.",
+   "titulo": "El encabezado que cualquiera puede inventar"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Cliente",
+       "s": "10.24.1.2",
+       "k": "cliente"
+      },
+      {
+       "t": "Firewall",
+       "s": "acepta solo 48570 y 48573",
+       "k": "alerta",
+       "e": "intenta cualquier puerto"
+      },
+      {
+       "t": "Proxy inverso",
+       "s": "nginx: TLS y reparto por ruta",
+       "k": "red",
+       "e": "pasa solo el 48570 o 48573"
+      }
+     ],
+     "baja": "El proxy habla con los servicios por la interfaz local, que el firewall deja pasar"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Servicio api",
+       "s": "puerto 48571",
+       "k": "servidor",
+       "e": "/api/…"
+      },
+      {
+       "t": "Servicio web",
+       "s": "puerto 48572",
+       "k": "servidor",
+       "e": "todo lo demás"
+      }
+     ]
+    }
+   ],
+   "cap": "La arquitectura del laboratorio: dos piezas con trabajos distintos y complementarios."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda: un host y cuatro prefijos de ruta",
+   "x": [
+    "Según el mapa técnico (commit `25e08fa`), la app habla con un único proyecto de Supabase y, en el código, ese host recibe pedidos con cuatro prefijos de ruta: `/auth/v1/…` (cuentas), `/rest/v1/…` (tablas y funciones), `/functions/v1/…` (por ejemplo, borrar la cuenta) y `/storage/v1/…` (el PDF de la trivia del sermón). **Implementado:** esos prefijos aparecen en `cuenta.ts` y `sermon.ts`.",
+    "La documentación de Supabase lista, entre los componentes de cada proyecto, servicios separados para cada cosa (autenticación, API de tablas, almacenamiento, funciones) y un *API gateway* basado en Envoy [#pki-supabase-arq]. **Inferencia mía, no verificada en el servidor:** repartir un host entre varios servicios según el prefijo de la ruta es el trabajo de un proxy inverso, igual que tu `location /api/`. Para la app es transparente: no sabe cuántos servicios hay detrás."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/util/sermon.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Túnel y VPN: una red dentro de otra"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[túnel]] es un paquete dentro de otro: el [[encapsulamiento]] de [@05-02] llevado a que **un protocolo viaje como carga de otro**. El CONNECT de hoy ya hizo uno, de bytes TCP dentro de una conexión HTTP. Una [[VPN]] (red privada virtual) es un túnel que además **cifra y autentica** y presenta al sistema una interfaz de red virtual: lo que mandás por esa interfaz sale envuelto por Internet y reaparece del otro lado, como si los dos extremos compartieran un cable.",
+    "Sirve para tres cosas distintas, que conviene no mezclar: entrar a una **red privada** desde afuera (la oficina, la red de un depósito), **unir dos sedes** como una sola red, y **proteger el tráfico en una red que no controlás** (el Wi-Fi del café), que mueve la confianza del café al proveedor de la VPN.",
+    "Hay varias tecnologías. IPsec (RFC 4301) es el estándar clásico y muy extendido [#pki-rfc4301]. Hoy te muestro WireGuard, que usa claves públicas y privadas como las de [@05-21]: cada extremo tiene un par, se intercambian las públicas (como se hace con SSH) y el resto es automático. Según su documento de diseño, es un túnel de capa 3 que encapsula paquetes IP dentro de UDP, con cifrado ChaCha20-Poly1305 e intercambio de claves Curve25519, y una implementación para Linux de menos de 4.000 líneas [#pki-wg-paper]. Linux la trae en el kernel desde la versión 5.6 [#pki-wg-install]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "El kernel de esta VM (6.18) **no** trae WireGuard: su configuración dice `CONFIG_WIREGUARD is not set`. Instalé la versión en espacio de usuario, `wireguard-go` (v0.0.20230223 de los paquetes de Ubuntu), y con ella armé dos namespaces unidos por un cable virtual: 10.24.2.1 y 10.24.2.2, la red «de Internet». Encima de ella, cada uno recibió una interfaz de túnel, `10.99.0.1` y `10.99.0.2`."
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "wg genkey > a.key; wg pubkey < a.key > a.pub       # par de claves del extremo A (igual para B)\nip netns exec wg24a wireguard-go wga24            # crea la interfaz de túnel\nip netns exec wg24a wg set wga24 private-key a.key listen-port 51820 \\\n  peer $(cat b.pub) allowed-ips 10.99.0.2/32 endpoint 10.24.2.2:51820\nip netns exec wg24a ip addr add 10.99.0.1/24 dev wga24\nip netns exec wg24a ip link set wga24 up           # y lo mismo, espejado, en B",
+   "cap": "Los pasos reales, resumidos. `allowed-ips` es a la vez la tabla de rutas del túnel y la lista de direcciones que ese par puede usar. Las claves de práctica no se muestran y se descartaron al terminar."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ip netns exec wg24a ping -c2 10.99.0.2 | tail -2",
+     "s": "2 packets transmitted, 2 received, 0% packet loss, time 1001ms\nrtt min/avg/max/mdev = 0.716/0.923/1.130/0.207 ms"
+    },
+    {
+     "c": "ip netns exec wg24a wg show wga24",
+     "s": "interface: wga24\n  public key: HrzXmweCA382HwFTEb5jibzWrFEunlTgNFCfpPXihEE=\n  private key: (hidden)\n  listening port: 51820\n\npeer: UpytQrpaxOKtiawNUDr992kCF5ilnhtz649DHeEPAUk=\n  endpoint: 10.24.2.2:51820\n  allowed ips: 10.99.0.2/32\n  latest handshake: 1 second ago\n  transfer: 348 B received, 404 B sent"
+    }
+   ],
+   "cap": "Salida real. Las claves públicas son de práctica y se pueden mostrar. Las privadas nunca salen de cada extremo: `wg` las oculta."
+  },
+  {
+   "t": "p",
+   "x": "Ahora lo que importa: qué ve alguien que espía el cable entre los dos extremos. Capturé con `tcpdump` en la «red de Internet» mientras hacía un `ping` por el túnel y otro `ping` directo entre las dos direcciones de la red de abajo, sin túnel."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "tcpdump -n -i wg24va -X 'not arp'   # recortado a las dos primeras filas de cada paquete",
+     "s": "IP 10.24.2.1.51820 > 10.24.2.2.51820: UDP, length 128\n\t0x0000:  4500 009c 0453 4000 4011 1dcc 0a18 0201  E....S@.@.......\n\t0x0010:  0a18 0202 ca6c ca6c 0088 18cc 0400 0000  .....l.l........\n\t0x0020:  41d5 f383 0200 0000 0000 0000 de11 49cf  A.............I.\n\nIP 10.24.2.1 > 10.24.2.2: ICMP echo request, id 16351, seq 1, length 64\n\t0x0000:  4500 0054 1f0a 4000 4001 036d 0a18 0201  E..T..@.@..m....\n\t0x0010:  0a18 0202 0800 89be 3fdf 0001 f24d f76a  ........?....M.j\n\t0x0020:  0000 0000 7ad5 0b00 0000 0000 1011 1213  ....z...........\n\t0x0030:  1415 1617 1819 1a1b 1c1d 1e1f 2021 2223  .............!\"#"
+    }
+   ],
+   "cap": "Captura real. El primer paquete es el ping por el túnel: solo se ve UDP con 128 bytes de datos. El segundo es el ping sin túnel: se ve ICMP y hasta el relleno `10 11 12 13…` que usa `ping`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El ping directo está al desnudo: tipo de mensaje, números de secuencia y contenido. El del túnel es un datagrama [[UDP]] de 128 bytes entre los puertos 51820 y el interior es ilegible. Pero hay una parte que sí se puede leer y confirmar con el documento de diseño: los primeros 16 bytes del contenido UDP son `04 00 00 00` (tipo 4: dato transportado, más tres bytes reservados), `41 d5 f3 83` (el índice del receptor) y `02 00 00 00 00 00 00 00` (un contador de 8 bytes) [#pki-wg-paper].",
+    "Los 128 bytes se pueden explicar con una cuenta. El `ping` genera un paquete IP de 84 bytes (20 de cabecera IP, 8 de ICMP y 56 de datos). WireGuard lo rellena con ceros hasta un múltiplo de 16, que son 96, y le agrega 16 bytes de cabecera propia y 16 de etiqueta de autenticación: 16 + 96 + 16 = **128**. Coincide con lo medido, y también explica por qué la interfaz del túnel nació con MTU 1420, no 1500: son 32 bytes de WireGuard, 8 de UDP y hasta 40 de un IPv6 externo, 80 en total, y 1500 menos 80 da 1420 (esta última cuenta es **inferencia** mía)."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "Sin túnel",
+     "celdas": [
+      {
+       "t": "IP 20",
+       "k": "red"
+      },
+      {
+       "t": "ICMP 8",
+       "k": "cliente"
+      },
+      {
+       "t": "datos 56",
+       "k": "cliente"
+      }
+     ],
+     "nota": "84 bytes, legibles"
+    },
+    {
+     "e": "Con WireGuard",
+     "celdas": [
+      {
+       "t": "IP 20",
+       "k": "red"
+      },
+      {
+       "t": "UDP 8",
+       "k": "red"
+      },
+      {
+       "t": "WG 16",
+       "k": "alerta"
+      },
+      {
+       "t": "paquete interno 84 + 12 de relleno",
+       "k": "datos"
+      },
+      {
+       "t": "etiqueta 16",
+       "k": "alerta"
+      }
+     ],
+     "nota": "156 bytes de paquete IP, ilegibles (128 de datos UDP)"
+    }
+   ],
+   "cap": "El mismo ping, sin túnel y dentro de WireGuard. Costo del túnel: 72 bytes más por paquete en este caso."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Con una VPN soy anónimo y estoy seguro.» Una VPN cifra el tramo entre vos y el extremo del túnel. Más allá de ese extremo, el tráfico sale como siempre: si el sitio no usa HTTPS, lo ve quien esté en ese punto. El proveedor de una VPN comercial ve a qué destinos vas. Y el sitio al que entrás sigue reconociéndote por tu cuenta y tus cookies. Una VPN resuelve un problema concreto (el camino entre dos puntos) y no es un traje de invisibilidad.",
+   "titulo": "Lo que la VPN no hace"
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Verificado el 13-11-2026: la documentación oficial de WireGuard indica que viene en el kernel de Linux desde la versión 5.6 y que hay clientes para Windows, macOS, iOS y Android; en esta VM usé `wireguard-tools` v1.0.20210914 y `wireguard-go` v0.0.20230223, las versiones de los paquetes de Ubuntu 24.04. Las versiones, los paquetes y las aplicaciones cambian: antes de instalar, mirá [la página oficial de instalación](https://www.wireguard.com/install/). Lo que no cambia es la idea: un par de claves por extremo y paquetes envueltos en UDP.",
+   "titulo": "Qué puede haber cambiado"
+  },
+  {
+   "t": "h",
+   "x": "Cuál usar y para qué no sirve"
+  },
+  {
+   "t": "p",
+   "x": "Las cuatro piezas se confunden porque las cuatro son intermediarias. La tabla las separa por la pregunta que contesta cada una y por lo que no puede hacer."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pieza",
+    "Quién la elige",
+    "Qué ve o decide",
+    "Qué no hace"
+   ],
+   "filas": [
+    [
+     "Firewall",
+     "El dueño de la máquina o de la red",
+     "Cabeceras (IP, puerto, estado) y pasa, rechaza o descarta",
+     "No ve dentro de TLS; no arregla fallas de la aplicación que deja pasar"
+    ],
+    [
+     "Proxy",
+     "El cliente (o su red)",
+     "Destinos y, si intercepta TLS, todo el contenido",
+     "No da anonimato; el proxy ve tu origen y tu destino"
+    ],
+    [
+     "Proxy inverso",
+     "El dueño del servicio",
+     "Pedidos que llegan; reparte, termina TLS, cachea",
+     "No protege a una app con errores; oculta, no arregla"
+    ],
+    [
+     "VPN",
+     "Las dos puntas del túnel",
+     "Un camino cifrado entre dos puntos",
+     "No oculta quién sos ni protege más allá del extremo del túnel"
+    ]
+   ],
+   "cap": "Las cuatro se combinan: en el laboratorio, un firewall y un proxy inverso trabajan juntos."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Una distribuidora tiene una API de pedidos que usa su personal desde la calle y un servidor de base de datos que no debe ser alcanzable desde Internet. Armá una arquitectura con las piezas de hoy: decí dónde pondrías cada una y qué puertos quedan abiertos hacia afuera.",
+   "pista": "Pensá qué debe ser público (una sola puerta bien guardada) y qué debe quedar atrás.",
+   "solucion": "Un proxy inverso con TLS en el puerto 443 recibe a todo el mundo y reparte hacia la API; el firewall deja pasar solo el 443 desde afuera; la API y la base viven en una red interna donde el firewall solo acepta tráfico de la API hacia la base. Si el personal necesita administrar la base, entra por una VPN a la red interna y no por un puerto público. Así la superficie expuesta es una sola puerta."
+  }
+ ],
+ "recap": [
+  "Un firewall decide por cabeceras (IP, puerto, protocolo, estado) si un paquete pasa. Con una regla de estado deja entrar las respuestas de conexiones iniciadas desde adentro. No ve dentro de TLS ni arregla fallas de la aplicación.",
+  "Rechazar y descartar se distinguen por el error: «conexión rechazada» llega al instante porque alguien dijo que no; «tiempo agotado» es silencio.",
+  "Un proxy lo elige el cliente y sale en su nombre; por HTTP ve todo, y por HTTPS con CONNECT ve el destino y el nombre del servidor, pero no la ruta ni el contenido, salvo que intercepte TLS con su propia CA.",
+  "Un proxy inverso lo pone el dueño del servicio: termina TLS, reparte por ruta o nombre y esconde los servidores. El servicio ve al proxy como cliente, y la IP real llega en `X-Forwarded-For`, que se puede falsificar si no se configura bien.",
+  "Un túnel es un paquete dentro de otro; una VPN es un túnel cifrado con una interfaz virtual. En WireGuard el ping de 84 bytes viaja como 128 bytes de UDP: 16 de cabecera, 96 de datos con relleno y 16 de etiqueta.",
+  "Ninguna de las cuatro da anonimato ni seguridad total: cada una resuelve una parte del problema y se combinan."
+ ],
+ "repaso": [
+  {
+   "p": "Un servidor tiene un servicio en el puerto 7070 y un firewall con política de entrada `drop` sin ninguna regla para ese puerto. Un cliente prueba conectarse. ¿Qué ve?",
+   "o": [
+    "Una conexión rechazada de inmediato, porque el servicio no responde",
+    "Un error 403 de HTTP, porque el firewall bloquea esa dirección",
+    "Un tiempo agotado, porque el paquete se descarta sin contestar nada",
+    "Una conexión exitosa, porque el servicio está escuchando adentro"
+   ],
+   "c": 2,
+   "e": "Con `drop` el paquete SYN se descarta sin respuesta, así que el cliente espera hasta el límite de tiempo. El rechazo inmediato aparece con una regla `reject` o con un puerto sin servicio. Un 403 es una respuesta HTTP y nunca llega porque la conexión TCP no se establece."
+  },
+  {
+   "p": "Un servidor con política de entrada `drop` solo acepta el puerto 8080. Desde ese servidor, `curl` a un sitio externo se cuelga. ¿Cuál es la causa más probable?",
+   "o": [
+    "Falta una regla que acepte lo que pertenece a conexiones ya establecidas",
+    "El puerto de salida 443 está cerrado en la política de salida",
+    "El proxy inverso del servidor reescribe la dirección del sitio",
+    "La política `drop` también bloquea los paquetes de salida del servidor"
+   ],
+   "c": 0,
+   "e": "La respuesta del sitio es tráfico de entrada y no pertenece al puerto 8080. Sin `ct state established,related accept`, cae en la política. La política de entrada no bloquea la salida, y un proxy inverso no interviene en las conexiones que el servidor inicia hacia afuera."
+  },
+  {
+   "p": "¿Qué ve un proxy de salida en un pedido HTTPS que pasa por un CONNECT sin interceptar TLS?",
+   "o": [
+    "La dirección completa, con la ruta y los parámetros de la consulta",
+    "El host y el puerto de destino, el nombre del servidor y el tamaño del tráfico",
+    "Nada: ni siquiera sabe a qué sitio se conecta el cliente",
+    "El contenido de las respuestas, porque se almacenan en su caché"
+   ],
+   "c": 1,
+   "e": "El CONNECT lleva el destino y el saludo TLS inicial deja ver el nombre del servidor (SNI). Ruta, parámetros y contenido viajan cifrados dentro del túnel. Sin interceptar, el proxy no puede cachear respuestas HTTPS."
+  },
+  {
+   "p": "Una API detrás de nginx registra la misma IP en todos los pedidos: la del proxy. ¿Qué hay que hacer para recuperar la IP real del cliente de forma confiable?",
+   "o": [
+    "Leer la IP de la conexión TCP, que ya trae el valor del cliente",
+    "Tomar el primer valor del encabezado `X-Forwarded-For` de cada pedido",
+    "Confiar solo en el valor que agrega el propio proxy y reemplazar el resto",
+    "Pedirle al cliente que mande su IP en un encabezado propio"
+   ],
+   "c": 2,
+   "e": "La conexión TCP es del proxy. `X-Forwarded-For` trae la IP, pero cualquier cliente puede mandar uno falso, y el primer valor de la lista es justamente el que controla el cliente. Hay que usar el valor agregado por tu proxy y configurarlo para no confiar en lo que viene de afuera."
+  },
+  {
+   "p": "Una empresa instala un proxy que abre el HTTPS de sus empleados. ¿Qué necesita para que los navegadores no muestren avisos?",
+   "o": [
+    "Que los servidores de destino le entreguen su clave privada",
+    "Que el proxy use un puerto distinto del 443 para el túnel",
+    "Que la CA del proxy esté instalada en el almacén de confianza de cada equipo",
+    "Que el cliente use HTTP/3 con certificado de cliente"
+   ],
+   "c": 2,
+   "e": "El proxy presenta certificados fabricados y firmados por su propia CA. Los clientes los aceptan solo si esa CA está en su almacén de confianza, como en esta VM. Ninguna clave privada de los servidores se entrega, ni el puerto ni el protocolo HTTP/3 cambian el mecanismo."
+  },
+  {
+   "p": "Un ping de 84 bytes de IP pasa por un túnel WireGuard y en el cable se capturan 128 bytes de datos UDP. ¿Cómo se explica la cifra?",
+   "o": [
+    "84 bytes de datos más 44 de cabeceras IP y UDP",
+    "84 bytes cifrados, ya que el cifrado duplica el tamaño",
+    "96 de datos con relleno más 16 de cabecera y 16 de etiqueta",
+    "84 bytes más una cabecera de 44 bytes de TCP y TLS"
+   ],
+   "c": 2,
+   "e": "WireGuard rellena el paquete interno a un múltiplo de 16 (96), agrega su cabecera de 16 bytes y una etiqueta de autenticación de 16. La suma es 128. Las cabeceras IP y UDP del exterior no se cuentan en esos 128, y WireGuard no usa TCP ni TLS."
+  }
+ ],
+ "feynman": "Explicale a alguien que usa una VPN para ver series en el celular qué hacen realmente un firewall, un proxy, un proxy inverso y una VPN, y cuál de esas piezas está involucrada cuando abre una app que habla con un servidor. Usá tu propia analogía.",
+ "para_profundizar": [
+  {
+   "fuente": "rfc9110",
+   "nota": "Las definiciones de proxy y de gateway (proxy inverso) en la sección 3.7 y el método CONNECT en la 9.3.6. Es la fuente de lo que describimos del reenvío ciego."
+  },
+  {
+   "fuente": "pki-wg-paper",
+   "nota": "El documento de diseño de WireGuard: la sección 5.4.6 describe los mensajes de datos que viste en la captura, byte por byte."
+  },
+  {
+   "fuente": "pki-nft-ref",
+   "nota": "La referencia rápida de nftables: tablas, cadenas, enganches, prioridades y políticas, con el vocabulario usado en las reglas de hoy."
+  },
+  {
+   "fuente": "pki-nginx-proxy",
+   "nota": "La documentación de las directivas `proxy_pass` y `proxy_set_header` de nginx, para armar un proxy inverso propio."
+  }
+ ],
+ "videos": [
+  {
+   "q": "reverse proxy vs forward proxy explained",
+   "por_que": "Para ver la diferencia entre ambos dibujada con otros ejemplos, a la que volvés si te quedan dudas de quién lo configura."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "firewall",
+   "d": "Filtro que decide, mirando cabeceras como IP, puerto, protocolo y estado de la conexión, si un paquete pasa, se descarta o se rechaza. Puede vivir en el kernel de una máquina, en un router o en un equipo dedicado."
+  },
+  {
+   "t": "proxy",
+   "d": "Intermediario elegido por el cliente que hace sus pedidos en su nombre. Sirve para controlar, registrar, cachear o filtrar el tráfico de salida, y el servidor de destino ve al proxy en lugar del cliente."
+  },
+  {
+   "t": "proxy inverso",
+   "d": "Intermediario puesto por el dueño de un servicio, que recibe los pedidos de los clientes como si fuera el servidor y los reenvía a otros servidores. Termina TLS, reparte por ruta o nombre y esconde los servidores internos."
+  },
+  {
+   "t": "VPN",
+   "d": "Red privada virtual: un túnel cifrado y autenticado entre dos puntos, con una interfaz de red virtual, de modo que el tráfico de una red viaja por otra como si los extremos compartieran un cable."
+  },
+  {
+   "t": "túnel",
+   "d": "Técnica en la que los paquetes de un protocolo viajan como carga dentro de otro: el túnel de una VPN encapsula paquetes IP dentro de UDP, y el CONNECT de HTTP lleva bytes TCP dentro de una conexión."
+  },
+  {
+   "t": "método CONNECT",
+   "d": "Método de HTTP con que un cliente le pide a un proxy un túnel hacia un host y puerto. Tras una respuesta 2xx, el proxy copia bytes en ambos sentidos sin interpretarlos, y es como viaja HTTPS por un proxy."
+  },
+  {
+   "t": "terminación de TLS",
+   "d": "Práctica de dejar que un intermediario, normalmente un proxy inverso, haga el handshake TLS con el cliente y reenvíe el tráfico ya descifrado a los servidores de atrás, que quedan sin certificado propio."
+  },
+  {
+   "t": "filtrado con estado",
+   "d": "Modo de un firewall que recuerda las conexiones (connection tracking) y decide según si un paquete pertenece a una conexión conocida, de modo que las respuestas de lo iniciado desde adentro pasan sin una regla por cada una."
+  },
+  {
+   "t": "WireGuard",
+   "d": "Protocolo y software de VPN que encapsula paquetes IP dentro de UDP, con claves públicas y privadas por extremo, cifrado ChaCha20-Poly1305 e intercambio de claves Curve25519. Está en el kernel de Linux desde la versión 5.6."
+  }
+ ],
+ "siguiente": "CDN y balanceadores de carga: cómo se reparte un mismo servicio entre muchos servidores y se acerca al usuario, el uso más importante del proxy inverso.",
+ "fuentes_nuevas": [
+  {
+   "id": "pki-nft-ref",
+   "t": "Quick reference: nftables in 10 minutes",
+   "a": "Netfilter project (wiki de nftables)",
+   "tipo": "doc",
+   "url": "https://wiki.nftables.org/wiki-nftables/index.php/Quick_reference-nftables_in_10_minutes"
+  },
+  {
+   "id": "pki-nft-ct",
+   "t": "Connection Tracking System",
+   "a": "Netfilter project (wiki de nftables)",
+   "tipo": "doc",
+   "url": "https://wiki.nftables.org/wiki-nftables/index.php/Connection_Tracking_System"
+  },
+  {
+   "id": "pki-rfc7239",
+   "t": "RFC 7239: Forwarded HTTP Extension",
+   "a": "IETF",
+   "tipo": "rfc",
+   "anio": "2014",
+   "url": "https://www.rfc-editor.org/rfc/rfc7239"
+  },
+  {
+   "id": "pki-rfc4301",
+   "t": "RFC 4301: Security Architecture for the Internet Protocol",
+   "a": "IETF",
+   "tipo": "rfc",
+   "anio": "2005",
+   "url": "https://www.rfc-editor.org/rfc/rfc4301"
+  },
+  {
+   "id": "pki-rfc9849",
+   "t": "RFC 9849: TLS Encrypted Client Hello",
+   "a": "IETF",
+   "tipo": "rfc",
+   "anio": "2026",
+   "url": "https://www.rfc-editor.org/rfc/rfc9849"
+  },
+  {
+   "id": "pki-wg-paper",
+   "t": "WireGuard: Next Generation Kernel Network Tunnel",
+   "a": "Jason A. Donenfeld",
+   "tipo": "paper",
+   "url": "https://www.wireguard.com/papers/wireguard.pdf"
+  },
+  {
+   "id": "pki-wg-install",
+   "t": "WireGuard: Installation",
+   "a": "WireGuard",
+   "tipo": "doc",
+   "url": "https://www.wireguard.com/install/"
+  },
+  {
+   "id": "pki-nginx-proxy",
+   "t": "Module ngx_http_proxy_module",
+   "a": "nginx",
+   "tipo": "doc",
+   "url": "https://nginx.org/en/docs/http/ngx_http_proxy_module.html"
+  },
+  {
+   "id": "pki-supabase-arq",
+   "t": "Architecture (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/getting-started/architecture"
+  }
+ ]
+}
