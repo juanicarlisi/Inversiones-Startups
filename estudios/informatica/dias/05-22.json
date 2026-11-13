@@ -1,0 +1,648 @@
+{
+ "id": "05-22",
+ "titulo": "TLS y HTTPS: el candado",
+ "bajada": "Qué promete de verdad el candado, cómo se negocia en una sola ida y vuelta y qué se ve en una captura real de un handshake TLS 1.3.",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Contar cómo se pasó de SSL a TLS 1.3 y decir qué versiones se pueden usar hoy.",
+  "Explicar qué garantiza HTTPS y qué no garantiza el candado del navegador.",
+  "Recorrer el handshake de TLS 1.3 mensaje por mensaje y decir para qué sirve cada uno.",
+  "Leer una captura real de un handshake y reconocer cada registro.",
+  "Interpretar un error de verificación de certificado con openssl s_client."
+ ],
+ "venis_de": "En [@05-21] viste las piezas sueltas: cifrado simétrico, par de claves, intercambio de claves, y la falla que deja a Diffie-Hellman sin saber con quién habla. Hoy las ves juntas, trabajando, en el protocolo que usa tu navegador.",
+ "se_apoya_en": [
+  "05-21",
+  "05-16",
+  "05-18",
+  "05-14"
+ ],
+ "gancho": [
+  "Abrís el sitio de tu banco y aparece el candado. Todo el mundo sabe que «es seguro», pero casi nadie sabe decir qué se verificó, cuándo, y con qué. Y hay una pregunta incómoda: si el candado garantiza tanto, ¿por qué las páginas de estafa también lo muestran?",
+  "Hoy vas a ver el protocolo que hay detrás. Primero su historia corta, porque explica nombres que todavía se usan mal. Después qué promete [[HTTPS]] y qué no. Y lo central: un handshake real, capturado en esta máquina con `tcpdump`, abierto mensaje por mensaje, para ver qué viaja a la vista de todos y qué ya no."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "De SSL a TLS: treinta años de arreglos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En los años noventa, Netscape necesitaba que se pudieran pagar cosas desde un navegador sin que el número de tarjeta viajara a la vista. Diseñó un protocolo para esto, el *Secure Sockets Layer*, [[SSL|SSL (historia)]]: la versión 2.0 es de febrero de 1995 y la 3.0, de noviembre de 1996. La 3.0 nunca fue publicada formalmente por el IETF, y recién en 2011 se la documentó como registro histórico en el RFC 6101 [#cripto-rfc6101].",
+    "El IETF tomó SSL 3.0 como base y lo estandarizó con otro nombre, [[TLS]], *Transport Layer Security*. La versión 1.0 es de enero de 1999 y su texto aclara que las diferencias con SSL 3.0 no son dramáticas, pero alcanzan para que no se entiendan entre sí (traducción mía) [#cripto-rfc2246]. Después vinieron TLS 1.1 (2006), 1.2 (2008) y 1.3 (agosto de 2018, RFC 8446 [#rfc8446]). En el medio, el IETF fue prohibiendo las versiones rotas."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "linea-tiempo",
+   "eventos": [
+    {
+     "a": "1995",
+     "t": "SSL 2.0",
+     "d": "Netscape. Versión inicial, con fallas serias de diseño."
+    },
+    {
+     "a": "1996",
+     "t": "SSL 3.0",
+     "d": "Rediseño de Netscape; base de TLS."
+    },
+    {
+     "a": "1999",
+     "t": "TLS 1.0",
+     "d": "RFC 2246: el IETF toma el control del protocolo."
+    },
+    {
+     "a": "2006",
+     "t": "TLS 1.1",
+     "d": "RFC 4346."
+    },
+    {
+     "a": "2008",
+     "t": "TLS 1.2",
+     "d": "RFC 5246: la versión recomendada por el IETF desde entonces."
+    },
+    {
+     "a": "2011",
+     "t": "SSL 2.0 prohibido",
+     "d": "RFC 6176: los clientes y servidores no deben negociarlo nunca."
+    },
+    {
+     "a": "2015",
+     "t": "SSL 3.0 prohibido",
+     "d": "RFC 7568: se deja de usar tras ataques como POODLE (2014)."
+    },
+    {
+     "a": "2018",
+     "t": "TLS 1.3",
+     "d": "RFC 8446: handshake más corto y sin algoritmos viejos."
+    },
+    {
+     "a": "2021",
+     "t": "TLS 1.0 y 1.1 deprecados",
+     "d": "RFC 8996: pasan a «histórico»."
+    }
+   ],
+   "cap": "Fechas de los encabezados de cada RFC (rfc-editor.org), leídos el 13-11-2026. SSL 2.0: referencia «The SSL Protocol», febrero de 1995, citada en el RFC 6101."
+  },
+  {
+   "t": "p",
+   "x": "Por eso hoy se dice «certificado SSL» o «el servidor usa SSL» por costumbre, pero lo que corre en todos lados es TLS, casi siempre 1.2 o 1.3. Dos cosas se mantienen entre versiones: el RFC 6101 define a SSL 3.0 como un protocolo diseñado para prevenir escuchas, alteraciones y falsificación de mensajes (traducción mía), y el RFC 8446 describe a TLS 1.3 con las mismas tres ideas. Son la confidencialidad, la integridad y la autenticidad de [@05-21]."
+  },
+  {
+   "t": "pensa",
+   "x": "Un proveedor te dice «nuestro servidor usa SSL, es seguro». ¿Qué probablemente quiere decir, y qué le preguntarías para saber si es cierto?",
+   "resp": "Probablemente quiere decir que usa HTTPS, o sea TLS: SSL es el nombre heredado. Lo que importa preguntar es la versión: SSL 2.0 y 3.0 están prohibidos y TLS 1.0 y 1.1 están deprecados desde 2021. Hoy lo razonable es TLS 1.2 como piso y TLS 1.3 donde se pueda."
+  },
+  {
+   "t": "h",
+   "x": "Qué es HTTPS y qué promete el candado"
+  },
+  {
+   "t": "p",
+   "x": "[[HTTPS]] es [[HTTP]] dentro de una conexión TLS, y por defecto usa el [[puerto]] 443. El estándar de HTTP define con precisión qué significa que una conexión esté «segura»: que el servidor fue autenticado como actuando en nombre de la autoridad que figura en la dirección, y que toda la comunicación con él tiene protección de confidencialidad e integridad [#rfc9110]. Son tres promesas concretas y ninguna más."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "El candado sí garantiza",
+    "El candado no garantiza"
+   ],
+   "filas": [
+    [
+     "Que lo que viaja entre tu dispositivo y el servidor va cifrado: nadie en el camino lo lee.",
+     "Que el nombre del sitio quede oculto: viaja en claro en el primer mensaje (lo vas a ver en la captura)."
+    ],
+    [
+     "Que nadie en el camino altera los datos sin que se note.",
+     "Que el sitio sea honesto: una página de estafa con un certificado a su nombre muestra el mismo candado."
+    ],
+    [
+     "Que quien responde tiene un certificado válido para el dominio de la barra de direcciones.",
+     "Que el servidor esté bien protegido o que guarde bien tus datos una vez que los recibe."
+    ]
+   ],
+   "cap": "Dos de las tres columnas de la izquierda dependen de los certificados, que son el tema de [@05-23]. Hoy alcanza con saber que un certificado liga un nombre de dominio con una clave pública."
+  },
+  {
+   "t": "h",
+   "x": "El handshake de TLS 1.3, mensaje por mensaje"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Antes de mandar un solo byte de HTTP, cliente y servidor hacen un [[handshake TLS]]: un intercambio corto que decide la versión y los algoritmos, acuerda un secreto, autentica al servidor y confirma que nadie tocó nada. Es lo de [@05-21] puesto en orden: el [[intercambio de claves]] con curva X25519 resuelve el secreto compartido, y un certificado más una firma resuelven con quién se habla.",
+    "En TLS 1.3 esto cuesta **una sola ida y vuelta** (1-RTT): el cliente puede mandar sus datos HTTP en cuanto envía su propio mensaje final. Todo lo que sigue al ServidorHello va cifrado, y la especificación lo cuenta como una de las diferencias mayores con TLS 1.2 [#rfc8446]. En el diagrama, las llaves { } marcan mensajes protegidos con las claves del handshake y los corchetes [ ] los protegidos con las claves de la aplicación."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Navegador",
+     "k": "cliente"
+    },
+    {
+     "n": "Servidor",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "ClientHello",
+     "d": "En claro. Versiones que acepta (1.3), cifrados que ofrece, su clave pública X25519 efímera (key_share, 32 bytes) y el nombre del sitio que busca (SNI)."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "ServerHello",
+     "resp": true,
+     "d": "En claro. Elige un cifrado (por ejemplo TLS_AES_256_GCM_SHA384) y manda su propia clave X25519 efímera. Con eso los dos ya pueden calcular el mismo secreto y derivar las claves del handshake."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "{EncryptedExtensions}",
+     "resp": true,
+     "d": "Ya cifrado. Parámetros adicionales de la conexión que antes viajaban a la vista."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "{Certificate}",
+     "resp": true,
+     "d": "Ya cifrado. El certificado del servidor: su nombre, su clave pública y la firma de quien lo emitió."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "{CertificateVerify}",
+     "resp": true,
+     "d": "Ya cifrado. El servidor firma el resumen de todo el handshake con la clave privada de su certificado. Prueba que la tiene. Esto es lo que frena al intermediario de ayer."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "{Finished}",
+     "resp": true,
+     "d": "Ya cifrado. Un código de autenticación sobre todo el handshake: confirma que nadie cambió nada de lo que se acordó."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "{Finished}",
+     "d": "El cliente verifica el certificado y la firma, y manda su propio Finished. A partir de acá hay claves de aplicación."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "[GET / HTTP/1.1 ...]",
+     "d": "Primer pedido HTTP, cifrado con las claves de aplicación. La respuesta vuelve igual."
+    }
+   ],
+   "cap": "Handshake completo de TLS 1.3 (figura 1 del RFC 8446). Los nombres entre llaves son mensajes que viajan cifrados."
+  },
+  {
+   "t": "p",
+   "x": "Tres detalles de ese diagrama valen más que el resto. Primero, las claves no se mandan: salen del secreto de X25519 y del resumen de todos los mensajes anteriores mediante una función de derivación, HKDF [#rfc8446]. Segundo, cada tipo de mensaje se protege con claves distintas, una para cada sentido. Tercero, el CertificateVerify y el Finished atan la identidad a esas claves: si Eva en el medio (ayer) hubiera cambiado la clave pública de Beto por la suya, no tendría cómo firmar con la clave privada que corresponde al certificado de Beto."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El guardia, el DNI y la firma en el momento",
+   "x": [
+    "Entrás a una planta con control de acceso. El guardia te pide el DNI (el certificado) y además te hace firmar ahí mismo en el libro (el CertificateVerify). Con solo el DNI no alcanza: cualquiera puede tener el DNI de otro. La firma en vivo prueba que sos quien tiene esa identidad.",
+    "Dónde falla: el guardia compara tu firma con una que ya conoce. En TLS no hay firma previa que comparar: el navegador confía en la firma de una autoridad sobre el certificado, y eso es lo que se verá en [@05-23]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Cada registro posterior viaja cifrado con AES-GCM, el modo de ayer. Para no repetir el nonce que arruinó el experimento de [@05-21], TLS 1.3 lo arma con el número de secuencia del registro (un contador de 64 bits que empieza en 0 y sube de a uno) combinado por [[XOR]] con un valor fijo de la sesión [#rfc8446]. Cada registro tiene así un nonce distinto sin tener que enviarlo."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Cómo se lee TLS_AES_256_GCM_SHA384",
+   "x": "En TLS 1.3 el nombre de una suite dice solo dos cosas: el cifrado autenticado de los datos (AES con clave de 256 bits en modo GCM) y el hash que usa la derivación de claves (SHA-384). Ya no incluye ni el intercambio de claves ni la firma, que se negocian aparte. La especificación exige que toda implementación sepa TLS_AES_128_GCM_SHA256, y recomienda también la de AES-256 y la de ChaCha20-Poly1305 [#rfc8446]."
+  },
+  {
+   "t": "pensa",
+   "x": "En TLS 1.2 el certificado del servidor viajaba a la vista de cualquiera. En TLS 1.3 ya no. ¿Qué cambió y qué ve un observador de la red ahora?",
+   "resp": "En TLS 1.3 todos los mensajes que siguen al ServerHello se cifran, incluido el certificado. El observador ve el ClientHello (con el nombre del sitio y los algoritmos que ofrece el cliente) y el ServerHello (con el cifrado elegido), y de ahí en adelante solo tamaños y tiempos de registros cifrados."
+  },
+  {
+   "t": "h",
+   "x": "Un handshake real, abierto"
+  },
+  {
+   "t": "p",
+   "x": "Todo lo que sigue lo hice en esta máquina, solo contra programas míos. Levanté un servidor con `openssl s_server` en el puerto 24613 de localhost, con un certificado autofirmado de práctica que creé para la ocasión (nombre `localhost`, curva P-256, válido dos días). Capturé la conexión en la interfaz de loopback con `tcpdump` y me conecté con `openssl s_client`. Después abrí la captura con `tshark`, la versión de consola de Wireshark."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "openssl s_client -connect localhost:24613 -servername localhost -CAfile servidor.crt -brief",
+     "s": "CONNECTION ESTABLISHED\nProtocol version: TLSv1.3\nCiphersuite: TLS_AES_256_GCM_SHA384\nPeer certificate: CN = localhost\nHash used: SHA256\nSignature type: ECDSA\nVerification: OK\nServer Temp Key: X25519, 253 bits\nDONE"
+    },
+    {
+     "c": "tshark -r cap2.pcap -d tcp.port==24613,tls -Y tls",
+     "s": " 4 TLSv1 377 Client Hello (SNI=localhost)\n 6 TLSv1.3 844 Server Hello, Change Cipher Spec, Application Data, Application Data, Application Data, Application Data\n 8 TLSv1.3 146 Change Cipher Spec, Application Data\n 9 TLSv1.3 103 Application Data\n10 TLSv1.3 90 Application Data\n11 TLSv1.3 321 Application Data\n13 TLSv1.3 321 Application Data\n15 TLSv1.3 5254 Application Data\n16 TLSv1.3 90 Application Data"
+    }
+   ],
+   "cap": "Medido en esta VM, sobre loopback. Se omiten los paquetes TCP sin datos. El primer mensaje se rotula «TLSv1» porque el campo de versión del registro dice 0x0301 por compatibilidad: la oferta de TLS 1.3 va dentro del mensaje, en la extensión supported_versions."
+  },
+  {
+   "t": "p",
+   "x": "Lo que muestra la captura es lo que vería cualquiera que estuviera mirando el cable. Desde el servidor llegan un ServerHello legible y un solo paquete con cuatro registros más rotulados «Application Data»: son EncryptedExtensions, Certificate, CertificateVerify y Finished, que el observador no puede distinguir. Los tamaños de los registros ayudan a ver qué es cada cosa. En TLS 1.3 cada registro cifrado suma 21 bytes de más (4 de cabecera del mensaje, 1 del tipo real y 16 de la etiqueta de autenticación)."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Registro (en bytes)",
+    "Qué es",
+    "Cuenta"
+   ],
+   "filas": [
+    [
+     "122 (en claro)",
+     "ServerHello",
+     "mensaje de 118 bytes más 4 de cabecera"
+    ],
+    [
+     "23",
+     "EncryptedExtensions",
+     "2 bytes de contenido, vacío, más 21"
+    ],
+    [
+     "437",
+     "Certificate",
+     "416 bytes de mensaje (el certificado DER pesa 407) más 21"
+    ],
+    [
+     "96",
+     "CertificateVerify",
+     "75 de mensaje (la firma ECDSA) más 21"
+    ],
+    [
+     "69",
+     "Finished",
+     "48 bytes (SHA-384) más 21"
+    ]
+   ],
+   "cap": "Corroborado descifrando la captura (abajo). Que cada registro rotulado «Application Data» sea ese mensaje lo confirmé con las claves de la sesión; los tamaños solos darían una inferencia."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "openssl s_client -connect localhost:24613 -servername localhost -CAfile servidor.crt -keylogfile claves.log",
+     "s": "(la conexión de antes, ahora con el cliente anotando los secretos de ESA sesión en un archivo)"
+    },
+    {
+     "c": "tshark -r cap2.pcap -d tcp.port==24613,tls -o tls.keylog_file:claves.log -Y tls",
+     "s": " 4 TLSv1 377 Client Hello (SNI=localhost)\n 6 TLSv1.3 844 Server Hello, Change Cipher Spec, Encrypted Extensions, Certificate, Certificate Verify, Finished\n 8 TLSv1.3 146 Change Cipher Spec, Finished\n10 TLSv1.3 90 Alert (Level: Warning, Description: Close Notify)\n11 TLSv1.3 321 New Session Ticket\n13 TLSv1.3 321 New Session Ticket"
+    }
+   ],
+   "cap": "La misma captura, descifrada con el archivo de claves que escribe el propio cliente (`-keylogfile`). Wireshark lo acepta para depurar tus propias conexiones [#cripto-wireshark-tls]. Ese archivo es una llave de esa sesión: se borra después y no se comparte."
+  },
+  {
+   "t": "p",
+   "x": "Ahí está el diagrama, con nombres y orden idénticos al de la figura 1 del RFC. Hay dos mensajes más que no estaban en el dibujo básico: los `New Session Ticket` (dos, de 229 bytes cada uno, que dejan al cliente retomar la conexión sin repetir todo el handshake) y el `Close Notify`, un aviso cifrado de que se cierra la conexión. Y el `Change Cipher Spec` es un resto: en TLS 1.3 no hace nada, y se manda para que los equipos intermedios viejos no se confundan, según el RFC."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Qué sigue viendo quien mira el cable",
+   "x": "En el primer mensaje, sin cifrar, está el nombre del sitio (`SNI=localhost` en la captura), y el cable muestra siempre la IP y el puerto del servidor. Quien mira ve a qué sitio vas, cuándo, cuántos bytes mandás y cuántos recibís. No ve la ruta de la URL, ni los encabezados, ni las cookies, ni el contenido. Ocultar también el nombre exige una extensión adicional que no vimos hoy."
+  },
+  {
+   "t": "h",
+   "x": "Cuando la verificación falla"
+  },
+  {
+   "t": "p",
+   "x": "Al recibir el certificado, el cliente se hace cuatro preguntas:"
+  },
+  {
+   "t": "lista",
+   "ord": true,
+   "items": [
+    "¿El nombre que pedí (`banco.example`) figura entre los nombres del certificado?",
+    "¿El certificado está vigente hoy (entre su fecha de inicio y de vencimiento)?",
+    "¿Lo firmó una autoridad que mi dispositivo ya conoce, directamente o por una cadena de firmas?",
+    "¿La firma del CertificateVerify se corresponde con la clave pública del certificado?"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Si una respuesta es no, el cliente abandona. Probemos el caso del café de ayer."
+  },
+  {
+   "t": "p",
+   "x": "Me conecto al mismo servidor local, sin decirle al cliente que confíe en ese certificado, y después pidiendo un nombre de sitio equivocado."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "openssl s_client -connect localhost:24631 -servername localhost",
+     "s": "depth=0 CN = localhost\nverify error:num=18:self-signed certificate\n...\nServer Temp Key: X25519, 253 bits\nVerification error: self-signed certificate\nNew, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384"
+    },
+    {
+     "c": "openssl s_client -connect localhost:24631 -servername localhost -CAfile servidor.crt -verify_hostname banco.example",
+     "s": "verify error:num=62:hostname mismatch\nVerification error: hostname mismatch\nVerify return code: 62 (hostname mismatch)"
+    }
+   ],
+   "cap": "Medido en esta VM; salida resumida, con las líneas intermedias omitidas (…). Es el mismo servidor, sin cambios, en otro puerto."
+  },
+  {
+   "t": "p",
+   "x": "Mirá la primera salida con atención. La conexión se cifró: hay TLS 1.3, AES-256-GCM y X25519, todo funcionando. Pero el cliente no pudo comprobar **quién** respondía, porque el certificado lo firmó el propio servidor y nada lo conecta con una autoridad que el cliente ya conoce. Es exactamente el ataque de intermediario de [@05-21]: un canal cifrado, sin saber con quién. Un navegador frenaría acá con una pantalla de advertencia. La segunda salida es otra falla de la misma familia: el certificado es válido para `localhost`, pero se lo pidió para `banco.example`."
+  },
+  {
+   "t": "p",
+   "x": "Ahora un sitio público. Estoy detrás de un proxy HTTPS (el de este entorno), así que le pido a `openssl` que pase por él. Rotulo el dato: medido en esta VM, no representa una conexión doméstica."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "openssl s_client -connect example.com:443 -proxy 127.0.0.1:38195 -servername example.com -brief",
+     "s": "CONNECTION ESTABLISHED\nProtocol version: TLSv1.3\nCiphersuite: TLS_AES_256_GCM_SHA384\nPeer certificate: CN = example.com\nHash used: SHA256\nSignature type: ECDSA\nVerification: OK\nServer Temp Key: X25519, 253 bits\nDONE"
+    },
+    {
+     "c": "curl -sv https://example.com -o /dev/null 2>&1 | grep -E 'CONNECT|Connection Established|issuer'",
+     "s": "> CONNECT example.com:443 HTTP/1.1\n< HTTP/1.1 200 Connection Established\n*  issuer: C=US; O=SSL Corporation; CN=Cloudflare TLS Issuing ECC CA 3"
+    }
+   ],
+   "cap": "Medido en esta VM, detrás de un proxy: no representa una conexión doméstica. El proxy solo vio la línea CONNECT (el nombre y el puerto) y a partir de ahí bytes cifrados; el handshake fue de punta a punta con el servidor. Quién es «Cloudflare TLS Issuing ECC CA 3» y por qué la verificación dio OK es el tema de [@05-23]."
+  },
+  {
+   "t": "h",
+   "x": "El mito del candado"
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«El candado significa que el sitio es confiable»",
+   "x": [
+    "El candado dice que tu conexión es privada, íntegra y con el servidor cuyo nombre figura en la barra. No dice nada sobre sus intenciones. Cualquiera puede registrar un dominio parecido al de un banco y conseguir un certificado válido para ese dominio. Para el navegador todo está bien: el nombre coincide, el certificado es válido. La confianza que importa, que ese dominio sea el del banco real, la tenés que verificar vos leyendo la dirección.",
+    "Es una confusión tan frecuente que Google la usó para justificar un cambio de diseño. En 2023 publicó que, según sus estudios, el 11 % de los participantes entendía el significado exacto del candado, y que casi todos los sitios de phishing usan HTTPS."
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "the lock icon does not indicate website trustworthiness",
+   "autor": "Equipo de Chrome, «An Update on the Lock Icon», Chromium Blog, 2 de mayo de 2023",
+   "fuente": "cripto-chromium-lock"
+  },
+  {
+   "t": "p",
+   "x": "Por eso, desde Chrome 117 (septiembre de 2023) el candado se reemplazó por un ícono neutro con controles [#cripto-chromium-lock]. Una analogía de depósito: un precinto intacto prueba que nadie abrió la caja en el camino, no que adentro esté lo que pediste. Dónde falla la analogía: un precinto no sabe quién lo puso, y TLS sí verifica contra quién se está hablando."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Recibís un mensaje que dice «Tu cuenta fue bloqueada, entrá a https://banco-seguro-login.example para verificarla». La página tiene candado y su certificado es válido. ¿Qué dos verificaciones harías antes de poner tus datos, y por qué el candado no alcanza como respuesta?",
+   "pista": "Pensá qué comprobó exactamente el navegador (nombre y certificado) y qué quedó fuera de su alcance (de quién es ese dominio).",
+   "solucion": "Primero, comparar el dominio completo con el que usás siempre para tu banco, escribiéndolo vos o desde tus favoritos y no desde el mensaje. Segundo, desconfiar de la urgencia y entrar por un canal propio. El candado no alcanza porque solo certifica que el servidor es el dueño de ese dominio, no que el dominio sea el tuyo."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Lo que cambió en 2026, verificado el 13-11-2026",
+   "x": [
+    "TLS 1.3 sigue siendo la versión vigente (RFC 8446), y TLS 1.0 y 1.1 están deprecados desde marzo de 2021 [#cripto-rfc8996]. Lo nuevo es el intercambio de claves híbrido. Los intercambios con curvas (como X25519) serían rotos por una computadora cuántica, como viste ayer, y por eso el IETF publicó en agosto de 2026 el RFC 10024, que define X25519MLKEM768: el cliente manda a la vez una clave X25519 y una clave de ML-KEM-768 y el secreto final combina los dos [#cripto-rfc10024]. Si se rompe uno, el otro sigue protegiendo.",
+    "Lo medí en esta VM. Con el `openssl` de línea de comandos (versión 3.0.13) el ClientHello ofrece solo curvas clásicas y pesa 302 bytes. Con Node 22.23.4, que trae OpenSSL 3.5.9, el ClientHello ofrece el grupo 0x11EC (4588, X25519MLKEM768) en primer lugar, con una clave de 1.216 bytes (1.184 de ML-KEM más 32 de X25519), y el servidor de prueba lo eligió y respondió con 1.120 bytes. El ClientHello pasó a 1.577 bytes, más de lo que cabe en un paquete Ethernet común de 1.500 bytes. Los tamaños de ML-KEM-768 salen del estándar FIPS 203 [#cripto-fips-203]. Hoy, entonces, un handshake con una biblioteca reciente ya es post-cuántico por defecto, sin que nadie lo configure."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Dónde aparece TLS en Senda"
+  },
+  {
+   "t": "senda",
+   "titulo": "Todo el tráfico de la app con el servidor va sobre HTTPS",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. En `src/util/cuenta.ts`, la función `peticion()` hace un `fetch` a la dirección de la nube con cada pedido, y `cabeceras()` agrega el token de sesión en un [[encabezado HTTP]], `Authorization: Bearer …`. Ese token es lo que Eva querría robar en el café: viaja protegido solo por TLS. La dirección de la nube no está escrita en el código: la inyecta el flujo de compilación, y en `.github/workflows/apk.yml` se arma como `https://<proyecto>.supabase.co`, o sea con HTTPS.",
+    "En la otra punta, la función de borde `compras` habla con Google por `https://oauth2.googleapis.com/token` y por la API de Android Publisher, también con HTTPS. Una búsqueda sobre `src/` no encuentra direcciones `http://` hacia servidores: las únicas son los identificadores de espacio de nombres de imágenes SVG, que no abren ninguna conexión."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    ".github/workflows/apk.yml",
+    "supabase/functions/compras/index.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Sin fijar certificados: se confía en el sistema",
+   "x": [
+    "Una búsqueda en el código, `package.json` y `app.json` por «pinning», «cleartext» o configuración de seguridad de red no encuentra nada: la app no fija certificados propios ni cambia las reglas del teléfono, y confía en las autoridades que trae Android o iOS. La dirección de las métricas, en `src/util/metricas.ts`, también es `https://` por defecto. Es la opción normal. Fijar certificados da más protección frente a un intermediario con certificado válido, pero obliga a actualizar la app cada vez que cambia el certificado."
+   ],
+   "archivos": [
+    "src/util/metricas.ts",
+    "app.json"
+   ]
+  }
+ ],
+ "recap": [
+  "SSL (Netscape, 1995 y 1996) dio origen a TLS (1999). SSL 2.0 y 3.0 están prohibidos, TLS 1.0 y 1.1, deprecados, y hoy se usa TLS 1.2 y sobre todo 1.3 (RFC 8446, 2018).",
+  "HTTPS es HTTP dentro de TLS, por el puerto 443. El candado garantiza canal cifrado, datos sin alterar y que respondió quien tiene un certificado válido para ese dominio. Nada más.",
+  "El handshake de TLS 1.3 cuesta una ida y vuelta: ClientHello con la clave X25519 del cliente, ServerHello con la del servidor, y desde ahí todo cifrado (certificado, firma CertificateVerify y Finished).",
+  "Las claves de sesión no se envían: salen del secreto X25519 y del resumen del handshake. Los registros usan AES-GCM con un nonce que nunca se repite, armado con un contador.",
+  "Cifrado sin autenticación sirve poco: openssl mostró TLS 1.3 funcionando junto a «self-signed certificate». Quien mira el cable ve el nombre del sitio y los tamaños, no el contenido.",
+  "El candado no prueba que el sitio sea honesto. Y los handshakes con bibliotecas recientes ya usan intercambio híbrido post-cuántico (X25519MLKEM768, RFC 10024)."
+ ],
+ "repaso": [
+  {
+   "p": "En openssl s_client aparece «Protocol version: TLSv1.3» con AES-256-GCM y, a la vez, «verify error: self-signed certificate». ¿Qué significa?",
+   "o": [
+    "La conexión falló: nada viajó cifrado porque el certificado no se pudo validar",
+    "El cifrado es débil, porque un certificado autofirmado usa claves más cortas",
+    "El canal está cifrado, pero no se pudo comprobar que quien responde sea el dueño del dominio",
+    "La versión de TLS es vieja y por eso la verificación siempre va a fallar así"
+   ],
+   "c": 2,
+   "e": "El handshake terminó y los datos viajarían cifrados, pero la verificación de identidad falló porque nada liga el certificado a una autoridad conocida. Es el ataque de intermediario de [@05-21]: cifrado sin saber con quién se habla."
+  },
+  {
+   "p": "Alguien mira el cable durante un handshake TLS 1.3. ¿Qué mensajes puede leer en claro?",
+   "o": [
+    "Solo el ClientHello y el ServerHello; el resto del handshake va cifrado",
+    "Todo el handshake, certificado incluido, y recién cifra los datos HTTP",
+    "Nada: ya el primer mensaje del cliente viaja cifrado con la clave del servidor",
+    "Solo los datos HTTP; el handshake completo viaja cifrado desde el primer byte"
+   ],
+   "c": 0,
+   "e": "En TLS 1.3 todo lo que sigue al ServerHello va cifrado, certificado incluido. El ClientHello y el ServerHello no, porque todavía no hay claves: por eso se ve el nombre del sitio (SNI). Las demás opciones suponen un cifrado previo que no puede existir."
+  },
+  {
+   "p": "¿Qué hace el mensaje CertificateVerify y por qué ayuda contra un intermediario?",
+   "o": [
+    "Manda la clave de sesión cifrada con la clave pública del navegador del cliente",
+    "Repite el ClientHello para confirmar que nadie lo modificó por el camino",
+    "Consulta al servidor DNS para confirmar que el dominio del certificado existe",
+    "El servidor firma el resumen del handshake con la clave privada de su certificado"
+   ],
+   "c": 3,
+   "e": "La firma prueba que el servidor tiene la clave privada correspondiente al certificado, y cubre las claves intercambiadas. Un intermediario puede presentar el certificado público de otro, pero no puede firmar sin esa clave privada. Las claves de sesión nunca se mandan."
+  },
+  {
+   "p": "Una página de estafa usa un dominio parecido al de un banco y tiene un certificado válido para ese dominio. ¿Qué muestra el navegador?",
+   "o": [
+    "Un aviso rojo, porque el candado solo se muestra a empresas verificadas",
+    "El candado normal: el certificado es válido para ese dominio, aunque el sitio engañe",
+    "El candado normal solo si el sitio copia el diseño del banco real al detalle",
+    "Ningún candado, porque HTTPS no se puede usar en sitios creados hace pocos días"
+   ],
+   "c": 1,
+   "e": "El navegador verifica el nombre y la validez del certificado, no la intención del sitio. Por eso casi todo el phishing usa HTTPS. La confianza en el dominio la verifica el usuario, comparando la dirección con la que conoce."
+  },
+  {
+   "p": "En TLS 1.3, cada registro se cifra con AES-GCM y la misma clave. ¿Cómo evita repetir el nonce?",
+   "o": [
+    "Un valor al azar que el emisor elige y manda aparte con cada registro",
+    "El hash del mensaje anterior, calculado sobre todo el texto previo",
+    "El contador de secuencia del registro, combinado por XOR con un valor fijo de la sesión",
+    "La hora del reloj del servidor en milisegundos, que nunca se repite"
+   ],
+   "c": 2,
+   "e": "El nonce sale del número de secuencia del registro (64 bits, que empieza en 0 y sube de a uno) combinado por XOR con un valor fijo derivado en el handshake. No se envía: cada lado lo calcula. Un reloj o un azar podrían repetirse; un contador, no."
+  },
+  {
+   "p": "Según los estándares del IETF citados hoy, ¿qué versiones de protocolo todavía se pueden usar para una conexión HTTPS nueva?",
+   "o": [
+    "TLS 1.2 y TLS 1.3, que no están deprecadas",
+    "TLS 1.0 y TLS 1.1, que siguen aceptadas pero con aviso de mejora",
+    "SSL 3.0, siempre que el certificado del servidor sea válido",
+    "SSL 2.0, solo si la conexión es interna y no sale a Internet"
+   ],
+   "c": 0,
+   "e": "SSL 2.0 y 3.0 están prohibidos (RFC 6176 y 7568) y TLS 1.0 y 1.1 deprecados (RFC 8996, 2021). Quedan TLS 1.2 y 1.3. Que el certificado sea válido no arregla un protocolo roto, porque la falla está en el protocolo y no en el certificado."
+  },
+  {
+   "p": "Estás en un café y abrís un sitio por HTTPS. ¿Qué puede ver quien captura el tráfico Wi-Fi?",
+   "o": [
+    "Nada: la IP, el nombre del sitio y los tamaños viajan cifrados",
+    "La IP y el nombre del sitio, más tamaños y tiempos, pero no la ruta ni el contenido",
+    "Todo el contenido, pero no la contraseña, que se cifra aparte",
+    "Solo la IP; el nombre del sitio ya va cifrado en el primer mensaje"
+   ],
+   "c": 1,
+   "e": "En el ClientHello, que va en claro, está el nombre del sitio (SNI); la IP y el puerto se ven siempre. El resto (ruta, cookies, contenido) va cifrado. En la captura de hoy se leyó «SNI=localhost» en el primer mensaje."
+  }
+ ],
+ "feynman": "Explicale a alguien que usa el home banking todos los días qué pasa en el primer segundo después de que escribís la dirección y antes de ver la página, y por qué el candado no alcanza para decir que un sitio es confiable. Usá una analogía propia y decí dónde falla.",
+ "para_profundizar": [
+  {
+   "fuente": "rfc8446",
+   "nota": "El RFC de TLS 1.3. Leé la sección 2 (visión general, con la figura 1 del handshake) y la 1.2 (diferencias con TLS 1.2); el resto es para quien implemente el protocolo."
+  },
+  {
+   "fuente": "cripto-openssl-s-client",
+   "nota": "Manual de la herramienta que usamos hoy. Probá las opciones -brief, -showcerts y -tls1_2 contra tu propio servidor local."
+  },
+  {
+   "fuente": "cripto-wireshark-tls",
+   "nota": "Cómo descifrar tus propias capturas con el archivo de claves del cliente (SSLKEYLOGFILE). Es la forma de repetir la parte descifrada de hoy."
+  },
+  {
+   "fuente": "cripto-chromium-lock",
+   "nota": "La publicación de Chrome sobre por qué el candado dejó de ser un símbolo de confianza. Corta y bien argumentada, con los resultados de sus estudios."
+  }
+ ],
+ "videos": [
+  {
+   "q": "TLS 1.3 handshake explained step by step wireshark",
+   "por_que": "Para ver el mismo handshake animado y comparado con un recorrido en Wireshark, como el de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "TLS",
+   "d": "Transport Layer Security: el protocolo que cifra y autentica la comunicación entre dos programas sobre una conexión TCP. Es el que hay detrás del candado del navegador. La versión actual es la 1.3 (RFC 8446, 2018)."
+  },
+  {
+   "t": "HTTPS",
+   "d": "HTTP dentro de una conexión TLS. Usa el puerto 443 por defecto y agrega confidencialidad, integridad y autenticación del servidor al HTTP de siempre."
+  },
+  {
+   "t": "handshake TLS",
+   "d": "El intercambio inicial de mensajes con el que cliente y servidor acuerdan versión y algoritmos, generan claves compartidas, autentican al servidor y confirman que nada se alteró. En TLS 1.3 toma una ida y vuelta."
+  },
+  {
+   "t": "SSL (historia)",
+   "d": "Secure Sockets Layer: el protocolo de Netscape (versiones 2.0 de 1995 y 3.0 de 1996) del que nació TLS. Está prohibido desde hace años, pero su nombre sigue en expresiones como «certificado SSL»."
+  }
+ ],
+ "siguiente": "los certificados: qué dice por dentro uno de ellos, quién lo firma, cómo el navegador arma una cadena de confianza hasta una raíz que ya conoce, y cómo Let's Encrypt los hizo gratuitos.",
+ "fuentes_nuevas": [
+  {
+   "id": "cripto-rfc6101",
+   "t": "RFC 6101: The Secure Sockets Layer (SSL) Protocol Version 3.0",
+   "a": "A. Freier, P. Karlton y P. Kocher (IETF)",
+   "tipo": "rfc",
+   "anio": 2011,
+   "url": "https://www.rfc-editor.org/rfc/rfc6101"
+  },
+  {
+   "id": "cripto-rfc2246",
+   "t": "RFC 2246: The TLS Protocol Version 1.0",
+   "a": "T. Dierks y C. Allen (IETF)",
+   "tipo": "rfc",
+   "anio": 1999,
+   "url": "https://www.rfc-editor.org/rfc/rfc2246"
+  },
+  {
+   "id": "cripto-rfc8996",
+   "t": "RFC 8996: Deprecating TLS 1.0 and TLS 1.1",
+   "a": "K. Moriarty y S. Farrell (IETF)",
+   "tipo": "rfc",
+   "anio": 2021,
+   "url": "https://www.rfc-editor.org/rfc/rfc8996"
+  },
+  {
+   "id": "cripto-rfc10024",
+   "t": "RFC 10024: Post-Quantum Traditional (PQ/T) Hybrid Key Agreement Mechanisms for TLS 1.3",
+   "a": "K. Kwiatkowski, P. Kampanakis, B. E. Westerbaan y D. Stebila (IETF)",
+   "tipo": "rfc",
+   "anio": 2026,
+   "url": "https://www.rfc-editor.org/rfc/rfc10024"
+  },
+  {
+   "id": "cripto-fips-203",
+   "t": "Module-Lattice-Based Key-Encapsulation Mechanism Standard, FIPS 203",
+   "a": "NIST",
+   "tipo": "doc",
+   "anio": 2024,
+   "url": "https://csrc.nist.gov/pubs/fips/203/final"
+  },
+  {
+   "id": "cripto-chromium-lock",
+   "t": "An Update on the Lock Icon",
+   "a": "Equipo de Chrome (Chromium Blog)",
+   "tipo": "articulo",
+   "anio": 2023,
+   "url": "https://blog.chromium.org/2023/05/an-update-on-lock-icon.html"
+  },
+  {
+   "id": "cripto-wireshark-tls",
+   "t": "TLS (wiki de Wireshark)",
+   "a": "Wireshark",
+   "tipo": "doc",
+   "url": "https://wiki.wireshark.org/TLS"
+  },
+  {
+   "id": "cripto-openssl-s-client",
+   "t": "openssl-s_client (OpenSSL 3.0)",
+   "a": "OpenSSL Project",
+   "tipo": "doc",
+   "url": "https://docs.openssl.org/3.0/man1/openssl-s_client/"
+  }
+ ]
+}

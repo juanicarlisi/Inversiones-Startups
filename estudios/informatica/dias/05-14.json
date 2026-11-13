@@ -1,0 +1,780 @@
+{
+ "id": "05-14",
+ "titulo": "Puertos y sockets",
+ "bajada": "Levantás un servidor propio en la VM, lo mirás desde afuera con ss y strace y entendés por qué una IP atiende a muchos programas y de dónde salen los errores de «Address already in use» y «Connection refused».",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar para qué sirve un puerto, qué tamaño tiene y cómo se dividen los puertos conocidos, registrados y dinámicos.",
+  "Describir qué es un socket y seguir la secuencia socket, bind, listen, accept y connect con una traza real de strace.",
+  "Leer una salida de ss e identificar el servicio que escucha, su proceso, su descriptor y sus conexiones.",
+  "Usar la tupla de cinco elementos para explicar cómo un servidor distingue dos conexiones al mismo puerto y calcular el límite de puertos efímeros.",
+  "Diagnosticar «Address already in use», «Connection refused» y «Permission denied» y decir qué cambia atarse a 127.0.0.1 o a 0.0.0.0."
+ ],
+ "venis_de": "Los últimos días viste cómo una IP lleva un paquete hasta una máquina ([@05-08]), cómo se traducen nombres a direcciones ([@05-13]) y cómo el NAT reparte una IP pública ([@05-10]). Hoy entrás a la máquina: cómo el sistema operativo decide a qué programa le toca cada paquete.",
+ "se_apoya_en": [
+  "05-08",
+  "05-10",
+  "05-13",
+  "02-02",
+  "02-04",
+  "02-11",
+  "02-16"
+ ],
+ "gancho": [
+  "Tu teléfono tiene una sola dirección IP en la red, y en este momento hay varias apps hablando con Internet a la vez: el navegador, el correo, una app de música. Todos los paquetes llegan a la misma dirección. ¿Cómo hace el sistema operativo para entregar cada uno al programa correcto sin mezclar el video con el mail?",
+  "La respuesta es un número de 16 bits que ya viste trabajando sin que te lo presentaran: el 443 de `https` y el 53 del DNS de ayer. Hoy lo estudiás de verdad. Vas a levantar un servidor propio en esta VM, a mirarlo desde afuera con `ss`, a verlo recibir conexiones y a provocar a propósito tres errores que se ven todos los días: «Address already in use», «Connection refused» y «Permission denied»."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un número de 16 bits para repartir el tráfico"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el [@05-08] viste que los routers llevan cada paquete hasta la máquina correcta usando la [[dirección IP|dirección IP]]. Ahí termina su trabajo. Adentro de la máquina falta otro reparto: ¿para qué programa es este paquete? Esa decisión la toma el sistema operativo con un número que viaja en el encabezado: el [[puerto|puerto]]. Es un entero de 16 bits, o sea de 0 a 65.535. UDP y TCP, los dos protocolos de transporte que estudiás en los próximos días, empiezan con los mismos dos campos: puerto de origen y puerto de destino [#rfc768]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "Fila 1",
+     "celdas": [
+      {
+       "t": "Puerto de origen",
+       "s": "16 bits",
+       "k": "cliente"
+      },
+      {
+       "t": "Puerto de destino",
+       "s": "16 bits",
+       "k": "servidor"
+      }
+     ]
+    },
+    {
+     "e": "Fila 2",
+     "celdas": [
+      {
+       "t": "Longitud",
+       "s": "16 bits",
+       "k": "neutro"
+      },
+      {
+       "t": "Suma de verificación",
+       "s": "16 bits",
+       "k": "neutro"
+      }
+     ],
+     "nota": "Después vienen los datos."
+    }
+   ],
+   "cap": "Encabezado UDP según el RFC 768: 8 bytes. El de TCP, que ves en el [@05-16], arranca con los mismos dos puertos."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el número de muelle",
+   "x": [
+    "La dirección IP es la dirección de un depósito, con calle y altura. El puerto es el número de muelle: el camión llega al depósito correcto por la dirección y el muelle decide quién descarga. El 80 sería el muelle de pedidos web y otro, el de devoluciones.",
+    "Dónde deja de valer: los muelles son físicos y los puertos son solo un número anotado en el paquete. Y un muelle recibe un camión por vez, mientras que un mismo puerto puede atender miles de conexiones a la vez, como vas a ver."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "¿Quién decide qué número corresponde a qué servicio? IANA lleva un registro público y lo reparte en tres franjas (RFC 6335 [#sock-rfc6335]). La primera, de 0 a 1023, son los [[puertos conocidos|puertos conocidos]] (*well-known ports*): los de los servicios estándar. Te toca verlos en tu propia máquina, donde el archivo `/etc/services` guarda una copia chica de esa tabla:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Franja",
+    "Rango",
+    "Para qué sirve"
+   ],
+   "filas": [
+    [
+     "Sistema (conocidos)",
+     "0 a 1023",
+     "Servicios estándar: 22 SSH, 53 DNS, 80 HTTP, 443 HTTPS"
+    ],
+    [
+     "Usuario (registrados)",
+     "1024 a 49151",
+     "Aplicaciones que pidieron un número, como 5432 para PostgreSQL"
+    ],
+    [
+     "Dinámicos o privados",
+     "49152 a 65535",
+     "Nunca se asignan; uso local y temporal"
+    ]
+   ],
+   "cap": "Franjas según el RFC 6335."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "getent services https http domain ssh postgresql",
+     "s": "https                 443/tcp\nhttp                  80/tcp www\ndomain                53/tcp\nssh                   22/tcp\npostgresql            5432/tcp postgres"
+    },
+    {
+     "c": "awk -F, '$1!=\"\" && $2 ~ /^[0-9]+$/ && $2<1024 {print $2}' ports.csv | sort -un | wc -l",
+     "s": "686"
+    },
+    {
+     "c": "awk -F, '$1!=\"\" && $2 ~ /^[0-9]+$/ && $2>=1024 && $2<=49151 {print $2}' ports.csv | sort -un | wc -l",
+     "s": "5419"
+    }
+   ],
+   "cap": "Salida real, 2026-11-13. Las dos últimas líneas cuentan, en el CSV del registro de IANA, cuántos números de cada franja tienen un servicio con nombre (sin contar rangos): 686 de los 1.024 del rango de sistema y 5.419 de los 48.128 del rango de usuario."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "Mito: «cada servicio tiene su puerto por naturaleza»",
+   "x": "«El puerto 80 es HTTP porque así está escrito en el cable.» No. Es una convención registrada: nada técnico impide poner un servidor web en el 9422 (es lo que te pido en el ejercicio del final) ni SSH en el 80. La convención funciona porque el cliente necesita saber a qué muelle ir sin que nadie se lo diga: por eso `https://` implica el 443 y `http://` el 80, salvo que escribas otro número en la dirección."
+  },
+  {
+   "t": "pensa",
+   "x": "¿Por qué casi todos los servidores web escuchan en el 80 o el 443, si podrían usar cualquier número?",
+   "resp": "Porque el cliente tiene que adivinar a qué puerto golpear. Si todos los sitios usaran números distintos, habría que escribirlo en cada dirección. Con un valor convenido, el navegador lo completa solo. La convención ahorra una conversación previa."
+  },
+  {
+   "t": "h",
+   "x": "Qué es un socket"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con el puerto resuelto, falta la otra mitad: ¿cómo le pide un programa al sistema operativo «quiero hablar por red»? Con un [[socket|socket]]. La idea llegó con la versión 4.2 de BSD, de la Universidad de California en Berkeley, en 1983 [#sock-apnic], y las llamadas siguen siendo las mismas en Linux: `socket`, `bind`, `listen`, `accept` y `connect` [#sock-man7-socket-2]. Son [[llamadas al sistema|llamada al sistema]] ([@02-02]): el programa pide, el kernel hace.",
+    "El truco de diseño es que un socket se comporta como un archivo. La documentación de Linux dice que `socket()` crea un extremo de comunicación y devuelve un *descriptor de archivo* que lo representa [#sock-man7-socket-2]. Un [[descriptor de archivo|descriptor de archivo]] es un número chico que el kernel entrega a cada proceso por cada cosa que abre (lo viste con los archivos en el [@02-11]): el 0, el 1 y el 2 son la entrada, la salida y el error estándar ([@02-16]), y el próximo libre suele ser el 3. Leer y escribir en un socket se parece mucho a leer y escribir en un archivo."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "«Socket» quiere decir dos cosas",
+   "x": [
+    "La palabra tiene dos sentidos y conviene no mezclarlos. En los RFC, un socket es una *dirección con puerto*: la IP más el puerto (así lo define el glosario del RFC 9293 [#rfc9293]). Con ese sentido, el RFC de TCP dice, justo debajo, una frase que conviene retener.",
+    "En la programación, en cambio, el socket es el objeto del kernel con su descriptor. En esta lección, «socket» es ese objeto, y para lo otro digo «dirección y puerto»."
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "A connection is defined by a pair of sockets.",
+   "autor": "RFC 9293 (TCP), sección 3.4.1",
+   "fuente": "rfc9293"
+  },
+  {
+   "t": "p",
+   "x": "Un servidor es el programa que se queda esperando y un cliente es el que llama. Las llamadas se reparten así:"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Servidor",
+     "k": "servidor"
+    },
+    {
+     "n": "Kernel",
+     "k": "os"
+    },
+    {
+     "n": "Cliente",
+     "k": "cliente"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "socket(): dame un extremo",
+     "d": "El kernel crea el objeto y le da al proceso un descriptor (el 3, en el servidor que armamos abajo)."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "bind(): que sea 127.0.0.1:9414",
+     "d": "Le asigna una dirección y un puerto. Si ya está tomado, falla con «Address already in use»."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "listen(): empiezo a escuchar",
+     "d": "El socket pasa al estado LISTEN: el kernel ya acepta las llamadas entrantes y las deja en una cola de espera."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "connect(): quiero 127.0.0.1:9414",
+     "d": "El cliente crea su propio socket y pide la conexión. El kernel le asigna un puerto de origen libre."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "accept(): te devuelvo un socket nuevo",
+     "resp": true,
+     "d": "El servidor recibe un segundo descriptor para esa conexión. El primero sigue escuchando."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "datos en las dos direcciones",
+     "d": "Ahora se leen y escriben bytes por el socket conectado, como un archivo."
+    }
+   ],
+   "cap": "Servidor y cliente no se hablan por la red directamente al empezar: cada uno le pide cosas a su propio kernel."
+  },
+  {
+   "t": "p",
+   "x": "Este es el servidor mínimo, de 15 líneas. Atiende a cada cliente en un hilo propio, le manda un saludo con el puerto desde el que lo ve y espera a que cierre:"
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import socket, threading\n\ndef atender(c, quien):\n    print(\"llegó una conexión de\", quien, \"por el socket\", c.getsockname(), flush=True)\n    c.sendall(f\"hola, te veo desde el puerto {quien[1]}\\n\".encode())\n    while c.recv(1024):          # se queda hasta que el cliente cierre\n        pass\n    c.close()\n\ns = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\ns.bind((\"127.0.0.1\", 9414))\ns.listen()\nprint(\"escuchando en\", s.getsockname(), flush=True)\nwhile True:\n    c, quien = s.accept()\n    threading.Thread(target=atender, args=(c, quien), daemon=True).start()\n",
+   "cap": "servidor.py. Corrió en esta VM con Python 3.13 (con otro nombre de archivo, para no pisar los de otros ejercicios; el contenido es idéntico)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada llamada del diagrama aparece en el código: `socket.socket(...)`, `bind`, `listen` y `accept`. Para verlas sin intermediarios corrí una versión equivalente (servidor y cliente en el mismo programa) bajo `strace`, que muestra las llamadas al sistema de un proceso:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "strace -e trace=socket,bind,listen,connect,accept4 python3 -c \"import socket; s = socket.socket(); s.bind(('127.0.0.1', 9418)); s.listen(); c = socket.socket(); c.connect(('127.0.0.1', 9418)); a, _ = s.accept(); print(a.getsockname(), a.getpeername())\" 2>&1 | grep -v '^+++\\|AF_UNIX\\|AF_NETLINK'",
+     "s": "socket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, IPPROTO_IP) = 3\nbind(3, {sa_family=AF_INET, sin_port=htons(9418), sin_addr=inet_addr(\"127.0.0.1\")}, 16) = 0\nlisten(3, 128)                          = 0\nsocket(AF_INET, SOCK_STREAM|SOCK_CLOEXEC, IPPROTO_IP) = 4\nconnect(4, {sa_family=AF_INET, sin_port=htons(9418), sin_addr=inet_addr(\"127.0.0.1\")}, 16) = 0\naccept4(3, {sa_family=AF_INET, sin_port=htons(56164), sin_addr=inet_addr(\"127.0.0.1\")}, [16], SOCK_CLOEXEC) = 5\n('127.0.0.1', 9418) ('127.0.0.1', 56164)"
+    }
+   ],
+   "cap": "Salida real. El `3` es el socket que escucha; el `4`, el del cliente; el `5`, el que `accept4` devolvió para atender esa conexión (Python usa `accept4`, una variante de `accept`). Se filtraron las llamadas ajenas a la red."
+  },
+  {
+   "t": "h",
+   "x": "Un servicio escuchando"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[servicio escuchando|servicio escuchando]] es un proceso que tiene un socket en estado LISTEN atado a una dirección y un puerto, y espera llamadas. Se mira con `ss` (*socket statistics*), que lista los sockets del sistema. Las opciones: `-l` (solo los que escuchan), `-t` (TCP), `-n` (números, sin traducir nombres) y `-p` (qué proceso). Lancé el servidor y le pregunté:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ss -ltnp 'sport = :9414'",
+     "s": "State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess\nLISTEN 0      128        127.0.0.1:9414      0.0.0.0:*    users:((\"python3\",pid=19247,fd=3))"
+    }
+   ],
+   "cap": "Salida real. El `pid` cambia en cada ejecución. `fd=3` es el descriptor del socket dentro del proceso."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Se lee de izquierda a derecha: está en LISTEN, atado a `127.0.0.1:9414` y lo tiene el proceso `python3` con PID 19247, a través de su descriptor 3. Lo bueno de que un socket sea un descriptor es que también aparece en el directorio de descriptores del proceso, `/proc/PID/fd`. Abrí dos clientes con `nc` (*netcat*, una navaja suiza para conectarse a un puerto) y volví a mirar:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ss -tnp 'sport = :9414'",
+     "s": "State Recv-Q Send-Q Local Address:Port Peer Address:Port Process\nESTAB 0      0          127.0.0.1:9414    127.0.0.1:55626 users:((\"python3\",pid=19247,fd=5))\nESTAB 0      0          127.0.0.1:9414    127.0.0.1:55620 users:((\"python3\",pid=19247,fd=4))"
+    },
+    {
+     "c": "ss -tn 'dport = :9414'",
+     "s": "State Recv-Q Send-Q Local Address:Port  Peer Address:PortProcess\nESTAB 0      0          127.0.0.1:55620    127.0.0.1:9414\nESTAB 0      0          127.0.0.1:55626    127.0.0.1:9414"
+    },
+    {
+     "c": "ls -l /proc/19247/fd | awk 'NR>1 {print $9, $10, $11}' | sed 's#/tmp/.*/##'",
+     "s": "0 -> /dev/null\n1 -> p0514_servidor.log\n2 -> p0514_servidor.log\n3 -> socket:[877309]\n4 -> socket:[877310]\n5 -> socket:[881867]"
+    }
+   ],
+   "cap": "Salida real (loopback: la conexión se ve desde los dos extremos). El servidor ahora tiene tres sockets: el que escucha (3) y uno por cliente (4 y 5)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en lo que pasó. El socket 3 sigue escuchando en el mismo puerto y por cada cliente que llegó, `accept` creó un socket nuevo (4 y 5), conectado a *ese* cliente. Los dos clientes entraron por el mismo puerto de destino (9414) y se distinguen por el puerto de origen: 55620 y 55626. Los eligió el kernel de cada cliente (acá es el mismo, porque los dos clientes corren en esta VM)."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Detalle: la cola de espera",
+   "x": "Mientras no se llama a `accept`, las conexiones nuevas esperan en una cola cuyo tamaño se fija con `listen` (*backlog*) [#sock-man7-listen-2]. En mis pruebas, `ss` muestra ese tamaño en la columna Send-Q de un socket que escucha: 128 en el servidor de Python (`strace` mostró `listen(3, 128)`), 5 en `python3 -m http.server` y 511 en Node, que es su valor por defecto documentado [#sock-node-net]. Es una observación mía sobre lo que muestra `ss`, no una definición de su manual."
+  },
+  {
+   "t": "pensa",
+   "x": "El socket 3 escucha en el 9414 y los sockets 4 y 5 también tienen 9414 como puerto local. ¿Por qué no hay conflicto de «puerto ocupado» entre ellos?",
+   "resp": "Porque el sistema no identifica una conexión solo por el puerto local sino por la combinación completa de protocolo, dirección y puerto de los dos extremos. Los sockets 4 y 5 difieren en el puerto remoto (55620 y 55626), y el 3 está en estado LISTEN y sin extremo remoto. Los conflictos aparecen cuando dos sockets quieren el mismo extremo local para escuchar."
+  },
+  {
+   "t": "h",
+   "x": "La tupla de cinco elementos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Esa combinación se llama **tupla de cinco elementos**: protocolo, IP de origen, puerto de origen, IP de destino y puerto de destino. Es la identidad de una conexión. Cuando llega un paquete, el kernel mira esos cinco datos para decidir a qué socket entregarlo. Las dos conexiones del ejemplo son:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Protocolo",
+    "IP origen",
+    "Puerto origen",
+    "IP destino",
+    "Puerto destino"
+   ],
+   "filas": [
+    [
+     "TCP",
+     "127.0.0.1",
+     "55620",
+     "127.0.0.1",
+     "9414"
+    ],
+    [
+     "TCP",
+     "127.0.0.1",
+     "55626",
+     "127.0.0.1",
+     "9414"
+    ]
+   ],
+   "cap": "Las dos conexiones del laboratorio. Solo cambia un campo: el puerto de origen."
+  },
+  {
+   "t": "p",
+   "x": [
+    "De esos cinco datos, el cliente controla uno solo cuando el destino es fijo: el puerto de origen. Lo elige el kernel de una franja que se llama [[puerto efímero|puerto efímero]]. En esta VM la franja se lee del sistema, y el cliente de Python mostró cuál le tocó:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat /proc/sys/net/ipv4/ip_local_port_range",
+     "s": "32768\t60999"
+    },
+    {
+     "c": "python3 -c \"import socket; s = socket.create_connection(('127.0.0.1', 9414)); print('yo:', s.getsockname(), 'servidor:', s.getpeername()); print(s.recv(100).decode().strip())\"",
+     "s": "yo: ('127.0.0.1', 40548) servidor: ('127.0.0.1', 9414)\nhola, te veo desde el puerto 40548"
+    }
+   ],
+   "cap": "Salida real. Linux usa por defecto 32768 a 60999 [#sock-kernel-ip-sysctl]. El RFC 6335 reserva para este fin 49152 a 65535: cada sistema operativo elige su franja."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuenta rápida: 60999 − 32768 + 1 = **28.232** puertos. Desde una sola IP hacia un mismo servidor y puerto (443, por ejemplo), solo varía el puerto de origen, así que ese es el tope de conexiones distintas que puede mantener abiertas (con el rango por defecto). Es mucho para una persona y poco para un servicio que haga millones de pedidos a una misma dirección: ahí se suelen reutilizar las conexiones o repartirlas entre varias IP."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Por qué importa para el NAT",
+   "x": "El NAT que viste en el [@05-10] trabaja con esta misma tupla: reescribe la IP y el puerto de origen de cada conexión saliente y se acuerda de la correspondencia en una tabla. Cada conexión ocupa un puerto de la IP pública, y por eso un CGNAT ([@05-09]) que comparte pocas IPs entre muchos clientes puede quedarse sin puertos. Es un razonamiento mío a partir de cómo funciona la tupla; el mecanismo del NAT está en el RFC 3022 [#rfc3022]."
+  },
+  {
+   "t": "h",
+   "x": "Tres errores que ahora se entienden"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los tres mensajes que más se ven cuando algo de red falla son consecuencias directas de lo que acabás de ver. Los provoqué a propósito."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "**«Address already in use».** Un socket que escucha ocupa su dirección y puerto, y solo uno puede tenerlos (el manual de `listen` lo menciona como `EADDRINUSE`: otro socket ya escucha en el mismo puerto [#sock-man7-listen-2]). Con el servidor andando, un segundo `bind` al 9414 falla, y Node avisa lo mismo con otras palabras:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 -c \"import socket; s = socket.socket(); s.bind(('127.0.0.1', 9414))\"",
+     "s": "... \nOSError: [Errno 98] Address already in use"
+    },
+    {
+     "c": "node -e \"require('net').createServer().listen(9421, '127.0.0.1')\" 2>&1 | grep -m1 -i 'EADDRINUSE'",
+     "s": "Error: listen EADDRINUSE: address already in use 127.0.0.1:9421"
+    }
+   ],
+   "cap": "Salida real, recortada a la última línea del error de Python. El segundo caso, con Node, es otro programa intentando lo mismo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La causa de todos los días es una copia vieja de tu propio servidor que quedó corriendo en otra terminal. Para encontrarla se usa `ss -ltnp 'sport = :PUERTO'` o `lsof -nP -iTCP:PUERTO -sTCP:LISTEN`, que dicen qué proceso lo tiene:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "lsof -nP -iTCP:9421 -sTCP:LISTEN",
+     "s": "COMMAND   PID USER   FD   TYPE DEVICE SIZE/OFF NODE NAME\nnode    19941 root   21u  IPv4 882666      0t0  TCP 127.0.0.1:9421 (LISTEN)"
+    }
+   ],
+   "cap": "Salida real: el servidor de Node de la prueba, con `FD 21u` (descriptor 21, abierto para leer y escribir)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**«Connection refused».** Pedir una conexión a un puerto donde nadie escucha: el kernel de la máquina de destino contesta con un rechazo (en TCP, un segmento especial que vas a ver en el [@05-16]). Es una respuesta rápida y clara: «acá no hay nadie». Se distingue de un *timeout*, donde nadie contesta (por ejemplo, un firewall que descarta los paquetes en silencio): el rechazo dice «puerta cerrada» y el silencio dice «no sé»."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 -c \"import socket; socket.create_connection(('127.0.0.1', 9419))\"",
+     "s": "...\nConnectionRefusedError: [Errno 111] Connection refused"
+    }
+   ],
+   "cap": "Salida real, recortada a la última línea."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**«Permission denied».** En Linux, escuchar en un puerto por debajo de 1024 requiere privilegios (la capacidad `CAP_NET_BIND_SERVICE`) [#sock-man7-ip-7]. El límite es un valor del kernel, `ip_unprivileged_port_start`, que por defecto vale 1024 [#sock-kernel-ip-sysctl]. Lo probé con un usuario sin privilegios, el 65534 (`nobody`):"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "setpriv --reuid=65534 --regid=65534 --clear-groups python3 -c \"import socket; s = socket.socket(); s.bind(('127.0.0.1', 80))\"",
+     "s": "...\nPermissionError: [Errno 13] Permission denied"
+    },
+    {
+     "c": "setpriv --reuid=65534 --regid=65534 --clear-groups python3 -c \"import socket; s = socket.socket(); s.bind(('127.0.0.1', 9420)); print('ok, escucha en', s.getsockname())\"",
+     "s": "ok, escucha en ('127.0.0.1', 9420)"
+    }
+   ],
+   "cap": "Salida real. En la misma VM, el puerto 80 se rechaza y el 9420 se acepta para el mismo usuario. Por eso los servidores de desarrollo usan 3000, 8000 o 8080."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El 1024 no es una barrera de seguridad",
+   "x": "Un puerto bajo no hace más seguro a un servicio. En Linux el límite de 1024 es solo un valor del kernel que se puede cambiar, hasta ponerlo en 0 [#sock-kernel-ip-sysctl]. Sirve, a mi criterio, para que un programa cualquiera no se haga pasar por el servidor web de una máquina compartida. No reemplaza ninguna otra defensa."
+  },
+  {
+   "t": "h",
+   "x": "A quién le abrís la puerta: 127.0.0.1 contra 0.0.0.0"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El `bind` ata el socket a una dirección *y* un puerto. La dirección `127.0.0.1` (*loopback*) solo la alcanzan los programas de la misma máquina. La `0.0.0.0` significa «cualquier dirección de esta máquina»: Ethernet, Wi-Fi, loopback, todas. Armé dos servidores, uno de cada tipo, y un tercer par con el mismo número de puerto en dos protocolos:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import socket\n\ndef escuchar(ip, puerto, tipo=socket.SOCK_STREAM):\n    s = socket.socket(socket.AF_INET, tipo)\n    s.bind((ip, puerto))\n    if tipo == socket.SOCK_STREAM:\n        s.listen()\n    return s\n\nsolo_local = escuchar(\"127.0.0.1\", 9415)       # solo atiende a quien llega por la dirección 127.0.0.1\ntodas = escuchar(\"0.0.0.0\", 9416)               # atiende por cualquier dirección de esta máquina\ntcp = escuchar(\"127.0.0.1\", 9417)               # el mismo número de puerto...\nudp = escuchar(\"127.0.0.1\", 9417, socket.SOCK_DGRAM)   # ...en otro protocolo no choca\ninput()                                         # se queda vivo hasta que le cierren la entrada\n",
+   "cap": "dos_servidores.py. Corrió en esta VM con Python 3.13."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ss -lntu 'sport = :9415 or sport = :9416 or sport = :9417'",
+     "s": "Netid State  Recv-Q Send-Q Local Address:Port Peer Address:PortProcess\nudp   UNCONN 0      0          127.0.0.1:9417      0.0.0.0:*\ntcp   LISTEN 0      128          0.0.0.0:9416      0.0.0.0:*\ntcp   LISTEN 0      128        127.0.0.1:9415      0.0.0.0:*\ntcp   LISTEN 0      128        127.0.0.1:9417      0.0.0.0:*"
+    },
+    {
+     "c": "nc -zv 127.0.0.1 9415",
+     "s": "Connection to 127.0.0.1 9415 port [tcp/*] succeeded!"
+    },
+    {
+     "c": "nc -zv 127.0.0.2 9415",
+     "s": "nc: connect to 127.0.0.2 port 9415 (tcp) failed: Connection refused"
+    },
+    {
+     "c": "nc -zv 127.0.0.2 9416",
+     "s": "Connection to 127.0.0.2 9416 port [tcp/*] succeeded!"
+    }
+   ],
+   "cap": "Salida real. `127.0.0.2` es otra dirección de loopback de la misma máquina: sirve para simular «otra dirección»."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres lecciones. Una: el servidor atado a `127.0.0.1` rechaza la conexión que llega por `127.0.0.2`, y el atado a `0.0.0.0` la acepta. Dos: en TCP y en UDP el 9417 convive, porque el protocolo es parte de la identidad (el primero de los cinco elementos). Tres, una regla práctica: un servicio de desarrollo, como una base de datos o un panel, debería escuchar en `127.0.0.1` salvo que quieras que lo vea la red. Atarlo a `0.0.0.0` en una máquina con IP pública y sin firewall lo expone al mundo; detrás del router de una casa, el NAT de la casa lo protege hasta que hacés un [[reenvío de puertos|reenvío de puertos]] ([@05-10])."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay una tercera familia de sockets, que no usa ni IP ni puerto. Un [[socket Unix|socket Unix]] se identifica con una ruta en el sistema de archivos y sirve para que dos procesos de la *misma* máquina se hablen sin pasar por la red [#sock-man7-unix-7]. En un listado, el archivo aparece con tipo `s`:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ls -la u3/ | tail -n 1",
+     "s": "srwxr-xr-x 1 root root    0 Nov 13 17:59 .s.DEMO.5499"
+    },
+    {
+     "c": "ss -xl | grep DEMO",
+     "s": "u_str LISTEN 0      128           u3/.s.DEMO.5499 899108            * 0"
+    }
+   ],
+   "cap": "Salida real. El socket se creó en Python con `s = socket.socket(socket.AF_UNIX); s.bind('u3/.s.DEMO.5499'); s.listen()`. `ss -x` lista los sockets de este tipo."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Hallazgo del entorno: acá `curl` sale por un proxy",
+   "x": "Mientras armaba esta lección vi algo del entorno: en esta VM, salir a Internet pasa por un proxy local. Una conexión de `curl` hacia `https://example.com` no aparece en `ss` como «hacia el 443»: aparece hacia `127.0.0.1` y un puerto local del proxy (con el 443 hablando el proxy, del otro lado). Por eso la tupla de cinco elementos de esta lección la mostré en loopback, donde se ve completa, y no contra un servidor de Internet."
+  },
+  {
+   "t": "senda",
+   "titulo": "Puertos que aparecen en Senda (y un archivo que lo cuenta)",
+   "x": [
+    "El código de Senda deja ver puertos en tres lugares (sus llamadas a Internet usan el 443 sin escribirlo, porque `https://` lo implica). **1)** La prueba de la base social usa un PostgreSQL local: `pruebas/nube/correr.sh` toma `SENDA_PG_PORT` y, si no existe, el puerto **5499**, no el 5432 que IANA registra para PostgreSQL. Mi lectura es que sirve para no chocar con un Postgres instalado, es decir, para evitar un «Address already in use». **2)** En ese mismo script el host por defecto es `/var/tmp/senda-pg`, que no es un nombre sino una carpeta: la documentación de libpq dice que un host con forma de ruta absoluta indica una conexión por socket Unix, y que el puerto pasa a ser la extensión del nombre del archivo del socket [#sock-postgres-libpq].",
+    "**3)** El script de auditoría de textos, `scripts/auditoria/textos.cjs`, abre por defecto `http://localhost:8790/`, donde hay que servir la vista previa web. El informe de una corrida, `auditoria-textos.json`, quedó versionado en el commit `25e08fa`: de sus 3.110 casos, 681 terminaron en `net::ERR_CONNECTION_REFUSED` contra ese puerto, es decir que en esa corrida nadie escuchaba en el 8790. No sé por qué; otros 2.424 casos fallaron porque el navegador de la prueba se cerró. Es la misma historia de hoy en un caso real: el cliente existe, el servicio no. El código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "pruebas/nube/correr.sh",
+    "pruebas/nube/recorrido.py",
+    "scripts/auditoria/textos.cjs",
+    "auditoria-textos.json"
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Levantá un servidor web de prueba con `python3 -m http.server 9422 --bind 127.0.0.1` en una terminal. En otra, averiguá con dos herramientas distintas qué proceso escucha en el 9422 y con qué descriptor, y pedí la página con `curl` mostrando el puerto de origen que usó `curl`. Después cerrá el servidor y repetí el pedido: ¿qué error ves y qué significa?",
+   "pista": "`ss` y `lsof` sirven para lo primero. Para el puerto de origen, `curl` tiene una variable de salida que se llama `local_port` (se usa con `-w`).",
+   "solucion": "`ss -ltnp 'sport = :9422'` devuelve `LISTEN ... 127.0.0.1:9422 ... users:((\"python3\",pid=20642,fd=3))` y `lsof -nP -iTCP:9422 -sTCP:LISTEN` devuelve una línea con `python3`, el PID, `3u` y `TCP 127.0.0.1:9422 (LISTEN)` (los PID cambian). El pedido `curl -s -o /dev/null -w '%{http_code} %{local_port}->%{remote_port}\\n' http://127.0.0.1:9422/` mostró `200 33170->9422`: el puerto de destino es el 9422 y el de origen, uno efímero elegido por el kernel. Cerrado el servidor, el pedido falla con «Connection refused»: la máquina contestó que en ese puerto no hay nadie escuchando."
+  }
+ ],
+ "recap": [
+  "Un puerto es un número de 16 bits (0 a 65.535) en el encabezado de UDP y TCP: la IP lleva el paquete a la máquina y el puerto decide a qué programa. IANA lo divide en conocidos (0 a 1023), registrados y dinámicos; que el 443 sea HTTPS es una convención.",
+  "Un socket, en la API, es un extremo de comunicación que el kernel representa con un descriptor de archivo. El servidor hace socket, bind, listen y accept; el cliente, socket y connect; accept devuelve un socket nuevo por cada cliente y el original sigue escuchando.",
+  "Un servicio escuchando es un proceso con un socket en LISTEN atado a una dirección y un puerto; se ve con `ss -ltnp`. Una conexión se identifica con la tupla de cinco elementos: protocolo, IP y puerto de origen, IP y puerto de destino.",
+  "El cliente recibe un puerto efímero elegido por su kernel (en Linux, de 32768 a 60999 por defecto: 28.232 puertos), lo que limita las conexiones simultáneas hacia un mismo destino. El NAT usa la misma tupla.",
+  "«Address already in use» = otro socket ya escucha ahí. «Connection refused» = el destino contestó que nadie escucha. «Permission denied» = puerto bajo sin privilegio. Atarse a 127.0.0.1 expone el servicio solo a la propia máquina; a 0.0.0.0, a todas las direcciones."
+ ],
+ "repaso": [
+  {
+   "p": "Dos pestañas del navegador abren la misma página del mismo servidor, las dos al puerto 443. ¿Qué distingue una conexión de la otra en el servidor?",
+   "o": [
+    "El puerto de origen, que el cliente elige distinto para cada una",
+    "El puerto de destino, que el servidor cambia en cada pestaña",
+    "La dirección IP del servidor, que cambia con cada conexión",
+    "Nada, porque comparten el socket que escucha en el 443"
+   ],
+   "c": 0,
+   "e": "Las dos conexiones comparten protocolo, IP de origen, IP de destino y puerto de destino; solo cambia el puerto de origen, y por eso son dos conexiones distintas. El puerto de destino es el 443 en ambas, la IP del servidor no cambia y cada conexión usa su propio socket, creado por accept."
+  },
+  {
+   "p": "Al arrancar, un programa falla con «Address already in use» en el puerto 8080. ¿Cuál es la causa más probable?",
+   "o": [
+    "El puerto 8080 está reservado al sistema y pide permisos de administrador",
+    "Otro socket ya escucha en esa dirección y puerto, tal vez una copia vieja",
+    "La IP de la máquina cambió y el puerto quedó asociado a la anterior",
+    "Nadie escucha en ese puerto y el sistema rechaza el pedido por eso"
+   ],
+   "c": 1,
+   "e": "Un socket que escucha ocupa su dirección y puerto, y solo uno puede tenerlos; lo habitual es otra instancia del mismo servidor. Un puerto reservado daría «Permission denied», una IP que cambió no ocupa puertos, y que nadie escuche produce «Connection refused», que es del lado del cliente."
+  },
+  {
+   "p": "`nc -zv 127.0.0.1 9415` conecta, pero `nc -zv 127.0.0.2 9415` da «Connection refused». Es el mismo servidor, que hizo `bind` a `127.0.0.1`. ¿Por qué falla la segunda?",
+   "o": [
+    "127.0.0.2 no es una dirección de esta máquina y por eso no se puede usar",
+    "El puerto 9415 acepta una sola conexión a la vez y estaba ocupado",
+    "El servidor solo escucha en 127.0.0.1 y no en las demás direcciones de la máquina",
+    "El firewall descarta los paquetes hacia direcciones que terminan en 2"
+   ],
+   "c": 2,
+   "e": "El `bind` ata el socket a una dirección y un puerto concretos. 127.0.0.2 sí es una dirección local, pero nadie escucha en ella, así que el kernel contesta con un rechazo. Si el servidor se hubiera atado a 0.0.0.0, la habría aceptado, como el del puerto 9416 en el laboratorio."
+  },
+  {
+   "p": "Un cliente abre conexiones a un mismo servidor (misma IP, puerto 443) desde una sola IP, con el rango efímero por defecto de Linux (32768 a 60999). ¿Cuántas conexiones simultáneas distintas puede tener, como máximo?",
+   "o": [
+    "28.232, una por cada puerto de origen disponible",
+    "65.535, una por cada número de puerto posible",
+    "60.999, hasta el final del rango efímero",
+    "443, el puerto de destino al que se conecta"
+   ],
+   "c": 0,
+   "e": "Con IP y puerto de destino fijos, y la misma IP de origen, solo varía el puerto de origen: 60999 − 32768 + 1 = 28.232 valores. Los 65.535 incluyen puertos fuera de la franja efímera, 60.999 cuenta el inicio como si fuera cero y el 443 es el destino, no un límite."
+  },
+  {
+   "p": "Un programa sin privilegios intenta escuchar en el puerto 443 y recibe «Permission denied». ¿Qué explica el error?",
+   "o": [
+    "El puerto 443 está asignado a HTTPS y solo un servidor web puede usarlo",
+    "Otro proceso ya lo tiene y el sistema prohíbe compartirlo entre usuarios",
+    "En Linux los puertos por debajo de 1024 exigen privilegio para escuchar en ellos",
+    "El cliente que intentó conectarse no tenía permiso para llegar a ese servidor"
+   ],
+   "c": 2,
+   "e": "Por debajo de 1024 hace falta privilegio (`CAP_NET_BIND_SERVICE` o ser root) para hacer `bind`. Si el puerto estuviera ocupado, el error sería «Address already in use»; que HTTPS use el 443 es una convención y no una restricción del sistema; y un cliente nunca produce este error al escuchar."
+  },
+  {
+   "p": "En un servidor, `accept()` devuelve un socket nuevo por cada cliente. ¿Qué pasa con el socket original que escucha?",
+   "o": [
+    "Se cierra y es reemplazado por el nuevo, que pasa a escuchar",
+    "Queda esperando conexiones y puede aceptar más clientes",
+    "Se convierte en el canal de datos del primer cliente",
+    "Queda bloqueado hasta que el cliente cierre la conexión"
+   ],
+   "c": 1,
+   "e": "El socket que escucha sigue en LISTEN en el mismo puerto y `accept` puede llamarse otra vez; cada cliente recibe su socket conectado. Si se cerrara o se bloqueara, el servidor atendería a un solo cliente por vez y nadie más podría conectarse mientras tanto."
+  }
+ ],
+ "feynman": "Explicale a alguien que programa pero nunca tocó redes qué pasa, paso a paso, cuando un servidor «escucha en el 8080» y dos clientes se conectan: qué sockets existen, qué número tiene cada extremo y cómo se distinguen las dos conexiones. Usá tu propia analogía.",
+ "para_profundizar": [
+  {
+   "fuente": "beej-net",
+   "nota": "Capítulo 5, «System Calls or Bust»: socket, bind, connect, listen y accept en C, una por una, con el mismo orden que usamos hoy. Para ver en otro lenguaje el mismo esqueleto del servidor."
+  },
+  {
+   "fuente": "sock-rfc6335",
+   "nota": "Procedimientos de IANA para nombres de servicio y números de puerto: la sección sobre rangos explica qué significan «conocido», «registrado» y «dinámico» y por qué."
+  },
+  {
+   "fuente": "sock-iana-ports",
+   "nota": "El registro oficial. Buscá un servicio que uses (por ejemplo, PostgreSQL) y mirá a quién se asignó y desde cuándo."
+  },
+  {
+   "fuente": "sock-man7-ip-7",
+   "nota": "El manual de IP en Linux: puertos privilegiados, direcciones y los errores de red que viste hoy (`EADDRINUSE`, `EACCES`), con su significado exacto."
+  }
+ ],
+ "videos": [
+  {
+   "q": "ports and sockets explained TCP listen accept client server networking",
+   "por_que": "Para ver animadas las llamadas listen y accept y cómo se reparten las conexiones por puerto."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "puerto",
+   "d": "Número de 16 bits (0 a 65.535) en el encabezado de UDP y TCP que indica a qué programa de la máquina se entrega el paquete, una vez que la dirección IP ya lo llevó hasta ahí."
+  },
+  {
+   "t": "socket",
+   "d": "En la programación de redes, extremo de una comunicación que el kernel representa con un descriptor de archivo. El programa lo crea con socket(), lo ata con bind() y lo usa para escuchar, conectarse, leer y escribir."
+  },
+  {
+   "t": "servicio escuchando",
+   "d": "Proceso que tiene un socket en estado LISTEN atado a una dirección y un puerto y espera conexiones entrantes. Con ss -ltnp se ve qué proceso escucha en cada puerto."
+  },
+  {
+   "t": "puertos conocidos",
+   "d": "Franja de 0 a 1023 del registro de IANA, también llamada puertos de sistema, reservada a servicios estándar como 22 (SSH), 53 (DNS), 80 (HTTP) y 443 (HTTPS). En Linux, atarse a ellos requiere privilegio."
+  },
+  {
+   "t": "tupla de cinco elementos",
+   "d": "Combinación de protocolo, IP de origen, puerto de origen, IP de destino y puerto de destino que identifica una conexión. El kernel la usa para decidir a qué socket entregar cada paquete que llega."
+  },
+  {
+   "t": "puerto efímero",
+   "d": "Puerto de origen temporal que el sistema operativo del cliente elige para una conexión saliente. En Linux sale por defecto del rango 32768 a 60999 y se libera cuando la conexión termina."
+  },
+  {
+   "t": "descriptor de archivo",
+   "d": "Número chico que el kernel entrega a un proceso por cada recurso abierto: un archivo, una tubería o un socket. Los números 0, 1 y 2 son la entrada, la salida y el error estándar."
+  },
+  {
+   "t": "socket Unix",
+   "d": "Socket que no usa IP ni puerto: se identifica con una ruta en el sistema de archivos y comunica procesos de la misma máquina sin pasar por la red. En un listado aparece como un archivo de tipo s."
+  }
+ ],
+ "siguiente": "UDP, el protocolo más simple del transporte: sin conexión, sin entrega garantizada, y por qué justamente eso lo vuelve ideal para la voz, los juegos y el propio DNS.",
+ "fuentes_nuevas": [
+  {
+   "id": "sock-rfc6335",
+   "t": "RFC 6335: IANA Procedures for the Management of the Service Name and Transport Protocol Port Number Registry",
+   "a": "IETF",
+   "tipo": "rfc",
+   "anio": 2011,
+   "url": "https://www.rfc-editor.org/rfc/rfc6335"
+  },
+  {
+   "id": "sock-iana-ports",
+   "t": "Service Name and Transport Protocol Port Number Registry (IANA)",
+   "a": "IANA",
+   "tipo": "doc",
+   "url": "https://www.iana.org/assignments/service-names-port-numbers/service-names-port-numbers.xhtml"
+  },
+  {
+   "id": "sock-man7-socket-2",
+   "t": "socket(2): create an endpoint for communication",
+   "a": "Linux man-pages",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man2/socket.2.html"
+  },
+  {
+   "id": "sock-man7-listen-2",
+   "t": "listen(2): listen for connections on a socket",
+   "a": "Linux man-pages",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man2/listen.2.html"
+  },
+  {
+   "id": "sock-man7-ip-7",
+   "t": "ip(7): Linux IPv4 protocol implementation",
+   "a": "Linux man-pages",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man7/ip.7.html"
+  },
+  {
+   "id": "sock-man7-unix-7",
+   "t": "unix(7): sockets for local interprocess communication",
+   "a": "Linux man-pages",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man7/unix.7.html"
+  },
+  {
+   "id": "sock-kernel-ip-sysctl",
+   "t": "IP Sysctl (documentación del kernel de Linux)",
+   "a": "Linux kernel",
+   "tipo": "doc",
+   "url": "https://docs.kernel.org/networking/ip-sysctl.html"
+  },
+  {
+   "id": "sock-apnic",
+   "t": "Hooray for the sockets interface (blog de APNIC, 2026-07-28)",
+   "a": "APNIC",
+   "tipo": "articulo",
+   "anio": 2026,
+   "url": "https://blog.apnic.net/2026/07/28/hooray-for-the-sockets-interface/"
+  },
+  {
+   "id": "sock-node-net",
+   "t": "net (documentación de Node.js)",
+   "a": "OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://nodejs.org/api/net.html"
+  },
+  {
+   "id": "sock-postgres-libpq",
+   "t": "libpq: Database Connection Control Functions (PostgreSQL)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/current/libpq-connect.html"
+  }
+ ]
+}

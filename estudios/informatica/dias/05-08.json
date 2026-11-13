@@ -1,0 +1,746 @@
+{
+ "id": "05-08",
+ "titulo": "Routers y el camino de un paquete",
+ "bajada": "Armás tres redes y dos routers en esta máquina, matás un paquete a propósito para ver quién responde y leés cómo Facebook desapareció de Internet por un anuncio que se retiró.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué decide un router al recibir un paquete y por qué lo decide solo con la dirección de destino.",
+  "Leer una tabla de ruteo (`ip route`) y aplicar la regla del prefijo más largo a mano y en código.",
+  "Explicar qué hace el TTL, cómo un bucle de rutas se corta solo y qué responde el router que lo corta.",
+  "Distinguir el ruteo estático del dinámico y el ruteo dentro de una organización del ruteo entre organizaciones.",
+  "Describir qué es un sistema autónomo, qué hace BGP y cómo un anuncio retirado dejó a Facebook fuera de Internet el 4-10-2021."
+ ],
+ "venis_de": "En [@05-06] viste que las direcciones se agrupan en prefijos y que los routers de Internet guardan una entrada por cada bloque. Hoy mirás esa tabla desde adentro: qué dice cada fila, quién la escribe y qué pasa cuando un paquete llega a un router. Ayer, en [@05-07], viste que IPv4 e IPv6 conviven; el ruteo funciona igual para las dos.",
+ "se_apoya_en": [
+  "05-06",
+  "05-05",
+  "05-03",
+  "05-02"
+ ],
+ "gancho": [
+  "Mandé un ping a `8.8.8.8` con una instrucción rara: que el paquete viva un solo salto. La respuesta no vino de Google. Vino de `192.0.2.1`, el primer router de esta VM, con el mensaje `Time to live exceeded`. Un paquete que muere a propósito delató quién era el primer router del camino.",
+  "Hoy usás ese truco para ver cómo funciona un router. Vas a leer la tabla de ruteo de esta VM, aplicar la regla con la que un router elige entre rutas que se pisan, armar en esta misma máquina tres redes con dos routers y provocar un bucle para ver cómo se corta. Al final subís de escala: cómo las redes de todo el mundo se avisan unas a otras qué direcciones alcanzan, y qué pasó el 4 de octubre de 2021 cuando una de las más grandes dejó de avisar."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué hace un router y qué no hace"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[router]] es un equipo con **dos o más conexiones a redes distintas** cuyo trabajo es reenviar paquetes de una a otra. Cuando le llega un [[paquete]], mira la dirección IP de destino, consulta una lista de reglas y lo manda por la conexión que corresponda, hacia el próximo vecino del camino. Ese vecino es el **siguiente salto** y la lista de reglas es la [[tabla de ruteo]]. Cada vez que un paquete pasa de un router al siguiente se cuenta un [[salto]].",
+    "Dos cosas lo distinguen de un [[switch]] de [@05-03]. El switch trabaja dentro de una misma [[LAN]] y decide por [[dirección MAC]]. El router une redes distintas y decide por dirección IP. Y otra diferencia, que es la que más cuesta ver: **un router no conoce el camino completo**. Solo sabe cuál es el próximo paso para cada destino. Si el paquete llega a destino es porque cada router del camino tomó bien su decisión local."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Un centro de distribución con cross-docking",
+   "x": [
+    "En un centro de cross-docking la mercadería no se guarda: llega por un andén, alguien lee el destino de cada bulto, mira un cartel que dice «zona sur, andén 4; zona oeste, andén 7; todo lo demás, andén 1» y lo sube al camión que sale. Ningún centro conoce el recorrido completo: cada uno decide solo el tramo que sigue. Un router hace eso con paquetes.",
+    "Dónde falla: un centro de distribución tiene custodia del bulto, lo puede apartar y reclamar si falta. Un router solo lo retiene unos instantes en una cola; si se llena o no hay ruta, el paquete se descarta, y el remitente no se entera salvo que el router decida avisarle con un mensaje de control."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Un router sabe el camino hasta el servidor»",
+   "x": "Ningún router lo sabe. Lo que sabe cada uno es, para cada prefijo, a quién entregárselo. El camino emerge de decenas de decisiones independientes, y por eso dos paquetes consecutivos de la misma conexión podrían seguir caminos distintos si una tabla cambia en el medio."
+  },
+  {
+   "t": "p",
+   "x": "Un detalle sobre tu propia compu: no todo equipo con dos conexiones es un router. Linux, por defecto, no reenvía lo que no es para él. Se lo habilita con un parámetro del kernel. En esta VM:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat /proc/sys/net/ipv4/ip_forward",
+     "s": "0"
+    }
+   ],
+   "cap": "Salida real. Con `0`, esta VM acepta paquetes dirigidos a ella pero no los reenvía: es un equipo final, no un router. Más abajo se lo cambia a `1` en equipos de práctica."
+  },
+  {
+   "t": "h",
+   "x": "La tabla de ruteo de esta VM"
+  },
+  {
+   "t": "p",
+   "x": "Esta VM tiene una sola conexión real a una red, `eth0`. Su tabla de ruteo es de las más chicas posibles:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ip route",
+     "s": "default via 192.0.2.1 dev eth0 \n192.0.2.0/24 dev eth0 proto kernel scope link src 192.0.2.2"
+    },
+    {
+     "c": "ip route get 192.0.2.77",
+     "s": "192.0.2.77 dev eth0 src 192.0.2.2 uid 0 \n    cache"
+    },
+    {
+     "c": "ip route get 8.8.8.8",
+     "s": "8.8.8.8 via 192.0.2.1 dev eth0 src 192.0.2.2 uid 0 \n    cache"
+    },
+    {
+     "c": "ip route get 127.0.0.1",
+     "s": "local 127.0.0.1 dev lo src 127.0.0.1 uid 0 \n    cache <local>"
+    }
+   ],
+   "cap": "Salida real de esta VM. `ip route get` no manda ningún paquete: solo pregunta a la tabla qué haría con ese destino [#ruteo-man-ip-route]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Leé las dos filas de `ip route`. La segunda, `192.0.2.0/24 dev eth0`, dice: todo lo que esté en el [[prefijo|CIDR]] `192.0.2.0/24` está **directamente conectado** por `eth0`, sin intermediarios. No tiene `via`: el paquete sale hacia el destino mismo. La primera, `default via 192.0.2.1`, es la **ruta por defecto**: para todo lo que no coincida con otra fila, entregárselo al router `192.0.2.1`. Es la «puerta de enlace» de la red, el router de salida; cómo se entera una máquina de su dirección lo ves en [@05-11].",
+    "Las tres consultas lo confirman. `192.0.2.77` está en el prefijo directo y sale por `eth0` sin `via`. `8.8.8.8` no coincide con nada más específico, así que usa la ruta por defecto y sale `via 192.0.2.1`. `127.0.0.1` es del propio equipo y no sale por ninguna interfaz física. Una tabla de dos filas alcanza para una VM. Un router del centro de Internet tiene otra escala: según el informe de Geoff Huston del 13-11-2026, la tabla de ruteo global que ve uno de sus puntos de observación tiene unas 1.093.000 entradas IPv4 y unas 265.500 IPv6 [#ruteo-huston-bgp4] [#ruteo-huston-bgp6]."
+   ]
+  },
+  {
+   "t": "widget",
+   "n": "cidr",
+   "titulo": "La red directa de esta VM",
+   "cfg": {
+    "valor": "192.0.2.2/24"
+   },
+   "cap": "La VM es `192.0.2.2/24`. Mirá el rango: a todo lo que está entre esas direcciones se llega sin pasar por ningún router."
+  },
+  {
+   "t": "pensa",
+   "x": "Una compu con la tabla de arriba quiere mandar un paquete a `192.0.2.1` y otro a `192.0.2.200`. ¿A quién le entrega cada uno?",
+   "resp": "Los dos están en `192.0.2.0/24`, así que los dos se mandan directo, sin router. El primero es justamente el router: se le entrega como a cualquier equipo de la red. La ruta por defecto solo se usa para direcciones de afuera del prefijo."
+  },
+  {
+   "t": "h",
+   "x": "Cuando dos reglas valen: gana la más específica"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las filas de una tabla se pisan. La ruta por defecto, `0.0.0.0/0`, incluye a **todas** las direcciones. Una fila `198.51.100.0/24` incluye a 256. Si una dirección cae en las dos, ¿cuál vale? La regla, que fija el RFC 1812 para los routers IPv4, es usar la ruta más específica, es decir, **la de prefijo más largo** [#ruteo-rfc1812]. Más específica es la que describe menos direcciones.",
+    "Con esta regla, una ruta general convive con excepciones: «todo `198.51.100.0/24` va por la derecha, pero la mitad de arriba (`198.51.100.128/25`) va por otro lado, y la dirección `198.51.100.200` por un tercero». Lo implementé en Python con el módulo `ipaddress` de [@05-05]."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import ipaddress as ip\n\nTABLA = [\n    (\"0.0.0.0/0\",          \"10.0.0.2\"),   # ruta por defecto\n    (\"198.51.100.0/24\",    \"10.0.0.3\"),\n    (\"198.51.100.128/25\",  \"10.0.0.4\"),\n    (\"198.51.100.200/32\",  \"10.0.0.5\"),\n]\n\ndef mejor_ruta(destino):\n    d = ip.ip_address(destino)\n    candidatas = [(ip.ip_network(p), via) for p, via in TABLA if d in ip.ip_network(p)]\n    return max(candidatas, key=lambda c: c[0].prefixlen)   # gana el prefijo más largo\n\nfor destino in [\"8.8.8.8\", \"198.51.100.10\", \"198.51.100.127\", \"198.51.100.130\", \"198.51.100.199\", \"198.51.100.200\"]:\n    red, via = mejor_ruta(destino)\n    print(f\"{destino:16} -> via {via:9} (gana {red})\")\n",
+   "cap": "lpm.py: filtra las rutas que contienen el destino y se queda con la de prefijo más largo."
+  },
+  {
+   "t": "p",
+   "x": "Después armé esa misma tabla en el kernel de Linux, en un espacio de red de práctica, y le pregunté a Linux lo mismo con `ip route get`. Si mi código es correcto, tiene que coincidir en cada destino:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 lpm.py",
+     "s": "8.8.8.8          -> via 10.0.0.2  (gana 0.0.0.0/0)\n198.51.100.10    -> via 10.0.0.3  (gana 198.51.100.0/24)\n198.51.100.127   -> via 10.0.0.3  (gana 198.51.100.0/24)\n198.51.100.130   -> via 10.0.0.4  (gana 198.51.100.128/25)\n198.51.100.199   -> via 10.0.0.4  (gana 198.51.100.128/25)\n198.51.100.200   -> via 10.0.0.5  (gana 198.51.100.200/32)"
+    },
+    {
+     "c": "ip route get 198.51.100.130   # (y los otros cinco) dentro del espacio de práctica",
+     "s": "8.8.8.8 via 10.0.0.2 dev x0508 src 10.0.0.1 uid 0 \n198.51.100.10 via 10.0.0.3 dev x0508 src 10.0.0.1 uid 0 \n198.51.100.127 via 10.0.0.3 dev x0508 src 10.0.0.1 uid 0 \n198.51.100.130 via 10.0.0.4 dev x0508 src 10.0.0.1 uid 0 \n198.51.100.199 via 10.0.0.4 dev x0508 src 10.0.0.1 uid 0 \n198.51.100.200 via 10.0.0.5 dev x0508 src 10.0.0.1 uid 0"
+    }
+   ],
+   "cap": "Salida real, seis destinos. Las dos listas coinciden en los seis `via`. La segunda se abrevió: el kernel imprime una línea `cache` más por destino. El nombre `x0508` es una interfaz virtual del espacio de práctica."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "«Más largo» no quiere decir «más lejos»",
+   "x": "El largo es el del prefijo: `/25` es más específico que `/24` porque fija un bit más de la dirección. Nada que ver con la distancia al destino. Y la ruta por defecto, `/0`, es la menos específica de todas: fija cero bits, así que solo se usa cuando ninguna otra coincide. Esta regla es la razón por la que anunciar un prefijo más específico puede desviar el tráfico de otra red, algo que va a importar cuando lleguemos a BGP."
+  },
+  {
+   "t": "pensa",
+   "x": "En la tabla de arriba, ¿qué ruta usaría un paquete a `198.51.100.129` y cuál uno a `198.51.100.128`?",
+   "resp": "Los dos usan `198.51.100.128/25`, vía `10.0.0.4`. Ese prefijo cubre del 128 al 255, y `198.51.100.200/32` solo cubre una dirección. El `/32` únicamente gana para `.200`."
+  },
+  {
+   "t": "h",
+   "x": "El TTL: un contador contra los paseos infinitos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si cada router decide solo, un error en dos tablas puede hacer que un paquete dé vueltas para siempre. Para eso, el encabezado IPv4 trae un campo de 8 bits, el **TTL** (*time to live*). Cada router que reenvía el paquete le resta uno; si llega a cero, lo descarta y le manda al origen un mensaje de control, el *Time Exceeded* [#rfc791] [#ruteo-rfc1812] [#ruteo-rfc792]. En IPv6 el campo se llama Hop Limit y hace lo mismo.",
+    "El nombre viene de la especificación original, en la que se medía en segundos. Hoy es, en la práctica, un tope de saltos: el propio RFC 1812 lo dice, y dice también que lo crítico es evitar que los problemas de ruteo hagan que los paquetes den vueltas indefinidamente. El valor inicial lo elige el equipo que envía. En esta VM:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat /proc/sys/net/ipv4/ip_default_ttl",
+     "s": "64"
+    }
+   ],
+   "cap": "Salida real: esta VM arranca los paquetes con TTL 64."
+  },
+  {
+   "t": "p",
+   "x": "Ahora el truco del comienzo. `ping -t N` fija el TTL de salida. Con TTL 1, el primer router lo descarta; con 2, el segundo; y así. Quien lo descarta responde, y su dirección queda a la vista. Esto fue contra `8.8.8.8` desde esta VM:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ping -c 1 -t 1 8.8.8.8 | sed -n 2p",
+     "s": "From 192.0.2.1 icmp_seq=1 Time to live exceeded"
+    },
+    {
+     "c": "ping -c 1 -t 2 8.8.8.8 | sed -n 2p",
+     "s": "From 21.4.233.157 icmp_seq=1 Time to live exceeded"
+    },
+    {
+     "c": "ping -c 1 -t 3 8.8.8.8 | sed -n 2p",
+     "s": "From 21.4.233.157 icmp_seq=1 Destination Port Unreachable"
+    }
+   ],
+   "cap": "Medido en esta VM, detrás de un proxy y de un entorno que filtra el tráfico: no representa una conexión doméstica. El segundo salto es una dirección de la infraestructura del entorno que no sé identificar. Con TTL 3 la misma dirección contesta «puerto inalcanzable», así que el paquete no llegó a Google. Mi interpretación: el entorno rechaza el tráfico de este tipo hacia afuera y solo deja pasar la web por el proxy."
+  },
+  {
+   "t": "p",
+   "x": "Esa información sirve para algo: si repetís el truco con TTL 1, 2, 3, ... y anotás quién responde en cada intento, obtenés la lista de routers del camino. Es lo que hace la herramienta `traceroute`, que vas a usar en [@05-28]."
+  },
+  {
+   "t": "h",
+   "x": "Armá el recorrido: tres redes y dos routers"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una VM sin nadie del otro lado no alcanza para ver ruteo. Lo que sí se puede hacer es construir una red de práctica adentro de la VM. Linux tiene **espacios de nombres de red** (*network namespaces*): copias aisladas de la pila de red, con sus propias interfaces, tabla de ruteo y parámetros, que es lo que usan los contenedores [#ruteo-man-netns]. Y tiene cables virtuales, `veth`, que conectan dos espacios. Con esto armé cuatro equipos en fila: A y B son equipos finales; R1 y R2, routers."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "grafo",
+   "alto": 260,
+   "nodos": [
+    {
+     "id": "a",
+     "x": 8,
+     "y": 50,
+     "t": "A 192.0.2.10",
+     "k": "cliente"
+    },
+    {
+     "id": "r1",
+     "x": 36,
+     "y": 50,
+     "t": "R1",
+     "k": "red"
+    },
+    {
+     "id": "r2",
+     "x": 64,
+     "y": 50,
+     "t": "R2",
+     "k": "red"
+    },
+    {
+     "id": "b",
+     "x": 92,
+     "y": 50,
+     "t": "B 203.0.113.10",
+     "k": "servidor"
+    }
+   ],
+   "aristas": [
+    {
+     "de": "a",
+     "a": "r1",
+     "t": "192.0.2.0/24"
+    },
+    {
+     "de": "r1",
+     "a": "r2",
+     "t": "198.51.100.0/24"
+    },
+    {
+     "de": "r2",
+     "a": "b",
+     "t": "203.0.113.0/24"
+    }
+   ],
+   "cap": "El laboratorio. Las tres redes usan los bloques de documentación que reserva el RFC 5737; no existen en Internet, y por eso no chocan con nada real."
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "# Tres redes y dos routers, todo dentro de esta VM (cada namespace es una pila de red aislada)\nfor n in rt0508a rt0508r1 rt0508r2 rt0508b; do ip netns add $n; ip netns exec $n ip link set lo up; done\nip link add va0508   type veth peer name vr1a0508   # cable virtual A  <-> R1\nip link add vr1r0508 type veth peer name vr2r0508   # cable virtual R1 <-> R2\nip link add vr2b0508 type veth peer name vb0508     # cable virtual R2 <-> B\nip link set va0508 netns rt0508a;    ip link set vr1a0508 netns rt0508r1\nip link set vr1r0508 netns rt0508r1; ip link set vr2r0508 netns rt0508r2\nip link set vr2b0508 netns rt0508r2; ip link set vb0508 netns rt0508b\ncfg() { ip netns exec $1 ip addr add $3 dev $2; ip netns exec $1 ip link set $2 up; }\ncfg rt0508a  va0508   192.0.2.10/24\ncfg rt0508r1 vr1a0508 192.0.2.1/24\ncfg rt0508r1 vr1r0508 198.51.100.1/24\ncfg rt0508r2 vr2r0508 198.51.100.2/24\ncfg rt0508r2 vr2b0508 203.0.113.1/24\ncfg rt0508b  vb0508   203.0.113.10/24\nip netns exec rt0508r1 sysctl -qw net.ipv4.ip_forward=1   # R1 y R2 reenvían; A y B no\nip netns exec rt0508r2 sysctl -qw net.ipv4.ip_forward=1\nip netns exec rt0508a  ip route add default via 192.0.2.1\nip netns exec rt0508b  ip route add default via 203.0.113.1\nip netns exec rt0508r1 ip route add 203.0.113.0/24 via 198.51.100.2\nip netns exec rt0508r2 ip route add 192.0.2.0/24 via 198.51.100.1\n",
+   "cap": "El armado real (se corrió como root). R1 y R2 tienen el reenvío activado; A y B tienen una ruta por defecto hacia su router; los dos routers tienen una ruta estática hacia la red del otro lado."
+  },
+  {
+   "t": "p",
+   "x": "Las rutas de R1 y R2 las escribí a mano, una por una. Eso es **ruteo estático**. Mirá las tablas que quedaron y probá un ping de punta a punta:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ip netns exec rt0508r1 ip route",
+     "s": "192.0.2.0/24 dev vr1a0508 proto kernel scope link src 192.0.2.1 \n198.51.100.0/24 dev vr1r0508 proto kernel scope link src 198.51.100.1 \n203.0.113.0/24 via 198.51.100.2 dev vr1r0508"
+    },
+    {
+     "c": "ip netns exec rt0508r2 ip route",
+     "s": "192.0.2.0/24 via 198.51.100.1 dev vr2r0508 \n198.51.100.0/24 dev vr2r0508 proto kernel scope link src 198.51.100.2 \n203.0.113.0/24 dev vr2b0508 proto kernel scope link src 203.0.113.1"
+    },
+    {
+     "c": "ip netns exec rt0508a ping -c 2 203.0.113.10",
+     "s": "64 bytes from 203.0.113.10: icmp_seq=1 ttl=62 time=0.035 ms\n64 bytes from 203.0.113.10: icmp_seq=2 ttl=62 time=0.033 ms"
+    },
+    {
+     "c": "ip netns exec rt0508a traceroute -n -q 1 203.0.113.10",
+     "s": " 1  192.0.2.1  0.017 ms\n 2  198.51.100.2  0.007 ms\n 3  203.0.113.10  0.007 ms"
+    }
+   ],
+   "cap": "Salida real, abreviada (se quitaron los encabezados y las estadísticas de ping). Los tiempos son de un solo equipo y no dicen nada de una red real."
+  },
+  {
+   "t": "p",
+   "x": "Mirá `ttl=62`. El ping salió de A con 64 y pasó por **dos routers**: R1 lo dejó en 63 y R2 en 62. El TTL con el que llega es una forma de contar saltos. Y mirá `traceroute`: R1 es el salto 1, R2 el 2 y B el 3, porque a cada tanda de paquetes con TTL creciente le contestó quien lo descartó. Después apagué el reenvío en R1 y repetí el ping: **cero respuestas**. R1 sigue vivo y recibe el paquete, pero como no es para él y no reenvía, lo descarta. Un router es un equipo común con una opción activada."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ip netns exec rt0508r1 sysctl -qw net.ipv4.ip_forward=0",
+     "s": ""
+    },
+    {
+     "c": "ip netns exec rt0508a ping -c 2 -W 1 203.0.113.10 | tail -2",
+     "s": "2 packets transmitted, 0 received, 100% packet loss, time 1008ms\n"
+    }
+   ],
+   "cap": "Salida real: sin reenvío en R1, A no recibe nada de B. Después lo volví a activar."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ip netns exec rt0508a ping -c 1 -t 1 203.0.113.10 | sed -n 2p",
+     "s": "From 192.0.2.1 icmp_seq=1 Time to live exceeded"
+    },
+    {
+     "c": "ip netns exec rt0508a ping -c 1 -t 2 203.0.113.10 | sed -n 2p",
+     "s": "From 198.51.100.2 icmp_seq=1 Time to live exceeded"
+    },
+    {
+     "c": "ip netns exec rt0508a ping -c 1 -t 3 203.0.113.10 | sed -n 2p",
+     "s": "64 bytes from 203.0.113.10: icmp_seq=1 ttl=62 time=0.014 ms"
+    }
+   ],
+   "cap": "Salida real. Con TTL 1 muere en R1, con TTL 2 en R2 y con TTL 3 llega a B. Es el mismo truco que en el primer ejemplo, pero acá se ve el camino completo."
+  },
+  {
+   "t": "h",
+   "x": "Provocar un bucle y ver cómo se corta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora rompo algo a propósito. Le doy a R1 una ruta por defecto que apunta a R2, y a R2 una ruta por defecto que apunta a R1. Cada uno cree que el otro sabe cómo llegar a lo que él no conoce. Después le mando a un destino que no existe en ninguna tabla, `10.9.9.9`, y miro con `traceroute` por dónde pasa:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ip netns exec rt0508r1 ip route add default via 198.51.100.2",
+     "s": ""
+    },
+    {
+     "c": "ip netns exec rt0508r2 ip route add default via 198.51.100.1",
+     "s": ""
+    },
+    {
+     "c": "ip netns exec rt0508a traceroute -n -m 8 -q 1 -w 1 10.9.9.9",
+     "s": "traceroute to 10.9.9.9 (10.9.9.9), 8 hops max, 60 byte packets\n 1  192.0.2.1  0.039 ms\n 2  198.51.100.2  0.010 ms\n 3  192.0.2.1  0.003 ms\n 4  198.51.100.2  0.004 ms\n 5  192.0.2.1  0.003 ms\n 6  198.51.100.2  0.004 ms\n 7  192.0.2.1  0.004 ms\n 8  198.51.100.2  0.005 ms"
+    }
+   ],
+   "cap": "Salida real. Los saltos alternan entre las dos interfaces del bucle: R1 con `192.0.2.1`, R2 con `198.51.100.2`."
+  },
+  {
+   "t": "p",
+   "x": "El paquete rebota entre R1 y R2. Ninguno de los dos lo reconoce como ya visto: un router no tiene memoria de los paquetes que pasaron. Lo único que corta el bucle es el TTL. Con 64, el paquete habría dado unas 64 vueltas antes de morir (un ping común desde A, con TTL 64, murió en R2, que es el salto par). Sin ese contador, un error de configuración llenaría los enlaces de paquetes inmortales. Lo mismo, como programa que podés tocar:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// A, R1, R2 y B, como en el laboratorio. Cada router decide solo con su propia tabla.\nconst aInt = ip => ip.split(\".\").reduce((n, o) => n * 256 + Number(o), 0);\nfunction contiene(prefijo, ip) {\n  const [red, largo] = prefijo.split(\"/\");\n  const bits = Number(largo);\n  const mascara = bits === 0 ? 0 : (0xFFFFFFFF << (32 - bits)) >>> 0;\n  return ((aInt(ip) & mascara) >>> 0) === ((aInt(red) & mascara) >>> 0);\n}\n\nconst tablas = {\n  R1: [[\"192.0.2.0/24\", \"directo\"], [\"198.51.100.0/24\", \"directo\"], [\"203.0.113.0/24\", \"R2\"]],\n  R2: [[\"192.0.2.0/24\", \"R1\"], [\"198.51.100.0/24\", \"directo\"], [\"203.0.113.0/24\", \"directo\"]],\n};\nconst hosts = { \"192.0.2.10\": \"A\", \"203.0.113.10\": \"B\" };\n\nfunction enviar(destino, ttl, primero) {\n  console.log(`A manda un paquete a ${destino} con TTL ${ttl}`);\n  let actual = primero;\n  for (let paso = 1; paso <= 70; paso++) {\n    ttl -= 1;                                           // cada router resta 1\n    if (ttl === 0) { console.log(`  ${actual}: TTL llegó a 0, descarta y avisa «tiempo excedido» a A`); return; }\n    const candidatas = tablas[actual].filter(([p]) => contiene(p, destino));\n    if (candidatas.length === 0) { console.log(`  ${actual}: sin ruta, descarta`); return; }\n    candidatas.sort((x, y) => Number(y[0].split(\"/\")[1]) - Number(x[0].split(\"/\")[1]));\n    const [prefijo, siguiente] = candidatas[0];          // el prefijo más largo gana\n    if (siguiente === \"directo\") {\n      console.log(`  ${actual}: TTL ${ttl}, ruta ${prefijo} directa -> entrega a ${hosts[destino] ?? \"nadie\"}`);\n      return;\n    }\n    console.log(`  ${actual}: TTL ${ttl}, ruta ${prefijo} -> reenvía a ${siguiente}`);\n    actual = siguiente;\n  }\n}\n\nenviar(\"203.0.113.10\", 64, \"R1\");\nconsole.log(\"--- ahora R1 y R2 tienen una ruta por defecto que apunta el uno al otro ---\");\ntablas.R1.push([\"0.0.0.0/0\", \"R2\"]);\ntablas.R2.push([\"0.0.0.0/0\", \"R1\"]);\nenviar(\"10.9.9.9\", 8, \"R1\");\n",
+   "ejecutable": true,
+   "cap": "Simula la misma red: tablas, prefijo más largo, TTL y el bucle. Cambiá el TTL inicial o las rutas y fijate qué cambia. Los números coinciden con los reales de arriba (62 al llegar y 8 saltos hasta morir)."
+  },
+  {
+   "t": "h",
+   "x": "Rutas a mano y rutas que se aprenden solas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Escribir cada ruta con `ip route add` sirve para una red chica. En una red de cien routers sería inmanejable, y no se repara solo: si un enlace se cae, la ruta sigue apuntando a un camino muerto hasta que alguien la cambie. Por eso los routers hablan entre sí con **protocolos de ruteo**: cada uno cuenta lo que ve a sus vecinos, y todos van armando sus tablas. Si un enlace se cae, los vecinos lo notan y las tablas se recalculan.",
+    "Dentro de una organización se usan protocolos como OSPF. El RFC 2328 lo describe como un protocolo de estado de enlace: cada router comunica el estado de sus conexiones, todos arman el mismo mapa de la red y cada uno calcula sobre ese mapa los caminos más cortos [#ruteo-rfc2328]. Los llama protocolos de pasarela interior, porque distribuyen información entre routers de **un único** sistema autónomo (ahora vemos qué es). No instalé un demonio de ruteo para correrlo acá: esta parte la describo según el RFC."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Entre redes: sistemas autónomos y BGP"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Internet no es una red: es una red de redes administradas por organizaciones distintas (proveedores, empresas, universidades, gobiernos). Cada una decide sus propias reglas. La unidad es el [[sistema autónomo]], definido por el RFC 1930 así:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "An AS is a connected group of one or more IP prefixes run by one or more network operators which has a SINGLE and CLEARLY DEFINED routing policy.",
+   "autor": "RFC 1930, sección 3",
+   "fuente": "ruteo-rfc1930"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada sistema autónomo tiene un número, el **ASN**. Eran de 16 bits y el RFC 6793 los extendió a 32 [#ruteo-rfc6793]. Cloudflare es el AS13335 y Facebook (Meta) el AS32934, según el propio relato de Cloudflare sobre el incidente de 2021 [#ruteo-cloudflare-outage]. El RFC 6996 reserva rangos para uso privado, como `64512` a `65534` [#ruteo-rfc6996]; el informe de Huston que citamos antes lo observa desde el AS65000, un número privado. Según ese informe, al 13-11-2026 se veían unos 80.000 sistemas autónomos distintos en la tabla IPv4 y 38.000 en la IPv6.",
+    "Para que los sistemas autónomos se avisen qué direcciones alcanzan, usan [[BGP]], el *Border Gateway Protocol*, especificado en el RFC 4271. Su función principal es intercambiar información de alcanzabilidad: cada red anuncia a sus vecinos los prefijos que puede alcanzar, y el anuncio lleva la **lista de sistemas autónomos por los que pasó**, el `AS_PATH` [#rfc4271]. Con esa lista, cada red arma un mapa de cómo están conectadas las demás y aplica **su política**: a quién le acepta rutas, a quién le anuncia las suyas, cuál prefiere. Si dos rutas empatan en preferencia, la primera regla de desempate del RFC es la de menos sistemas autónomos en el camino. Y si un anuncio ya trae el propio número de AS en su camino, se lo excluye de la decisión: así BGP evita bucles entre redes."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "show ip bgp 129.134.30.0   # sesión de ejemplo del relato de Cloudflare (antes del corte)",
+     "s": "BGP routing table entry for 129.134.0.0/17\n  ...\n  3303 6453 32934\n  217.192.89.50 ... Origin IGP, localpref 100, valid, external"
+    }
+   ],
+   "cap": "Fragmento de una consulta a un servidor público de rutas, tomada del texto de Cloudflare [#ruteo-cloudflare-outage]; no la corrí yo. Cada número es un sistema autónomo: la ruta pasa por el 3303 y el 6453 y termina en el 32934, el de Facebook. Esa lista es el `AS_PATH`."
+  },
+  {
+   "t": "pensa",
+   "x": "Un sistema autónomo anuncia `203.0.113.0/24`. Otro, por error, anuncia `203.0.113.128/25`. Pensando en la regla del prefijo más largo, ¿qué pasa con el tráfico a `203.0.113.200` en las redes que oyeron los dos anuncios?",
+   "resp": "Va hacia el que anunció el `/25`, porque es más específico, aunque no sea el dueño de esas direcciones. Esa es una forma de desvío de tráfico, accidental o malintencionado. BGP, en su origen, se basa en confianza: cada red cree lo que le anuncian."
+  },
+  {
+   "t": "p",
+   "x": "Hay defensas. El RFC 6480 describe una infraestructura de claves para que el dueño de un bloque de direcciones pueda autorizar de forma verificable qué sistemas autónomos lo pueden originar [#ruteo-rfc6480]. Que se aplique, y en qué proporción, depende de cada red y cambia todos los años."
+  },
+  {
+   "t": "h",
+   "x": "4 de octubre de 2021: el día que Facebook se quedó sin ruta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Es el caso más estudiado de lo que pasa cuando una red grande deja de anunciar sus prefijos. Hay dos relatos oficiales, de adentro y de afuera. Meta contó que, durante un trabajo de mantenimiento, un comando que debía medir la capacidad de su red troncal desconectó por error todas las conexiones entre sus centros de datos, y que una falla en la herramienta de auditoría impidió frenarlo [#ruteo-meta-outage]. Hasta ahí, un error propio.",
+    "Lo que lo volvió invisible para el mundo fue lo que vino después. Los servidores de nombres de Meta tienen direcciones que se anuncian a Internet por BGP, y están programados para **retirar esos anuncios si no pueden hablar con los centros de datos**, porque eso indica una red enferma. Con la red troncal caída, todos retiraron sus anuncios al mismo tiempo. Los servidores seguían encendidos, pero nadie en Internet sabía cómo llegar a ellos [#ruteo-meta-outage]. Desde afuera, Cloudflare vio la ráfaga de retiros de rutas alrededor de las 15:40 UTC y comprobó a las 15:58 que Facebook había dejado de anunciar los prefijos de su DNS [#ruteo-cloudflare-outage]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "linea-tiempo",
+   "eventos": [
+    {
+     "a": "15:40 UTC",
+     "t": "Pico de cambios de rutas",
+     "d": "12:40 en Buenos Aires. Cloudflare registra una ráfaga de retiros de rutas desde la red de Facebook."
+    },
+    {
+     "a": "15:51 UTC",
+     "t": "Cloudflare abre un incidente",
+     "d": "Su resolvedor 1.1.1.1 devuelve error al buscar facebook.com y primero sospechan de sí mismos."
+    },
+    {
+     "a": "15:58 UTC",
+     "t": "Los prefijos del DNS ya no se anuncian",
+     "d": "Los servidores de nombres de Facebook son inalcanzables aunque estén encendidos."
+    },
+    {
+     "a": "Durante el corte",
+     "t": "Acceso físico",
+     "d": "Según Meta, no podían entrar por red a sus centros de datos y el DNS caído rompió herramientas internas: hubo que enviar gente a los edificios."
+    },
+    {
+     "a": "~21:00 a 21:28 UTC",
+     "t": "Vuelven los anuncios",
+     "d": "18:00 a 18:28 en Buenos Aires. Cloudflare ve actividad BGP renovada y facebook.com resuelve de nuevo desde ~21:20."
+    }
+   ],
+   "cap": "Horas según el relato de Cloudflare [#ruteo-cloudflare-outage] y la explicación de Meta [#ruteo-meta-outage]. La conversión a hora de Buenos Aires (UTC-3) es mía. Entre la caída y la vuelta de la resolución pasaron unas cinco horas y media."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay dos efectos más que valen como lección. Uno, que al fallar el DNS de Facebook, los resolvedores de todo el mundo recibieron errores y los programas empezaron a reintentar, y Cloudflare estimó que los resolvedores del mundo atendían unas 30 veces más consultas que lo normal [#ruteo-cloudflare-outage]. Un solo sistema caído trasladó carga a muchos otros. Otro, que las propias herramientas con las que Meta habría diagnosticado el problema dependían de la red que se había caído. Para mí, la idea de fondo es que conviene preguntarse qué cosas dependen de que lo que se rompe esté sano, porque ahí es donde un error chico se vuelve largo. Es una opinión de criterio, no un dato del informe."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Lo que cambia con el tiempo",
+   "x": "El tamaño de la tabla de ruteo global y la cantidad de sistemas autónomos crecen todos los meses: las cifras de hoy son de un único punto de observación (el informe de Huston, 13-11-2026) y se leen en `bgp.potaroo.net`. Lo que no envejece: la regla del prefijo más largo, el TTL, la diferencia entre ruteo interior y exterior y el hecho de que BGP une las redes por confianza y política."
+  },
+  {
+   "t": "h",
+   "x": "Qué te llevás"
+  },
+  {
+   "t": "p",
+   "x": "Un router no conoce el camino: aplica una tabla, elige el prefijo más largo, resta uno al TTL y entrega al siguiente. Esas decisiones locales, repetidas entre decenas de redes que se avisan por BGP, hacen que un paquete salga de tu teléfono y llegue. Mañana, en [@05-09], vas a ver el tramo que une tu casa con esa red de redes: el proveedor, la fibra y por qué tu dirección pública quizá no sea tuya."
+  }
+ ],
+ "recap": [
+  "Un router une redes distintas y decide para cada paquete, solo con la dirección IP de destino y su tabla de ruteo, a qué vecino entregárselo (el siguiente salto). Ningún router conoce el camino completo.",
+  "Una tabla de ruteo tiene rutas directas, rutas con `via` y una ruta por defecto (`0.0.0.0/0`). Cuando varias coinciden, gana la de prefijo más largo, la más específica. Se verificó contra el kernel de Linux en seis destinos.",
+  "El TTL (8 bits) baja uno en cada router; en cero, el paquete se descarta y el router avisa al origen con un mensaje «tiempo excedido». Eso corta los bucles de rutas y permite a `traceroute` descubrir los routers del camino.",
+  "Rutas estáticas: escritas a mano, no se reparan solas. Rutas dinámicas: los routers se cuentan lo que ven (OSPF dentro de una organización) y recalculan si algo falla.",
+  "Un sistema autónomo es una red o grupo de redes con una política de ruteo propia, con un número (ASN). BGP intercambia entre sistemas autónomos los prefijos alcanzables junto con la lista de redes que atravesaron, y cada red aplica su política.",
+  "El 4-10-2021, Facebook retiró sus anuncios BGP (incluidos los de sus servidores DNS) tras un error en su red troncal. Sus servidores seguían encendidos, pero nadie sabía llegar: unas cinco horas y media sin facebook.com."
+ ],
+ "repaso": [
+  {
+   "p": "Un router tiene tres rutas: `0.0.0.0/0` hacia X, `198.51.100.0/24` hacia Y y `198.51.100.128/25` hacia Z. Llega un paquete para `198.51.100.130`. ¿Hacia dónde lo manda?",
+   "o": [
+    "Hacia Z, porque el prefijo `/25` es el más específico que lo contiene",
+    "Hacia X, porque la ruta por defecto es la que se evalúa primero",
+    "Hacia Y, porque el `/24` quedó cargado antes en la tabla",
+    "Lo descarta, porque dos rutas lo contienen y hay ambigüedad"
+   ],
+   "c": 0,
+   "e": "Entre las rutas que contienen al destino gana la de prefijo más largo (RFC 1812). La ruta por defecto es la menos específica y no depende del orden de carga. Que dos rutas coincidan no es ambigüedad: es el caso normal que resuelve la regla."
+  },
+  {
+   "p": "Un paquete llega a un router con TTL 1. El destino está lejos. ¿Qué hace el router?",
+   "o": [
+    "Lo reenvía con TTL 0 para que el siguiente decida",
+    "Lo descarta y envía al origen un mensaje de tiempo excedido",
+    "Lo retiene en una cola hasta que otro router lo reclame",
+    "Lo reenvía y le avisa al origen que ya casi no le queda vida"
+   ],
+   "c": 1,
+   "e": "Según el RFC 1812, el router resta uno y, si queda en cero, descarta el paquete y manda un mensaje ICMP «Time Exceeded» al origen. Un paquete con TTL 0 nunca se reenvía y los routers no guardan paquetes para que otros los reclamen."
+  },
+  {
+   "p": "Un switch y un router reciben el mismo paquete. ¿Qué dato mira cada uno para decidir por dónde sale?",
+   "o": [
+    "Los dos miran solo la dirección IP de destino",
+    "El switch mira la IP de destino y el router, la MAC",
+    "El switch mira la MAC de destino y el router, la IP",
+    "Los dos miran solo el puerto de origen del paquete"
+   ],
+   "c": 2,
+   "e": "El switch opera dentro de una red local y usa la dirección MAC de la trama; el router une redes distintas y usa la dirección IP de destino con su tabla de ruteo. Invertir los datos o decir que los dos usan lo mismo es el error común."
+  },
+  {
+   "p": "R1 y R2 tienen, cada uno, una ruta por defecto que apunta al otro. Llega un paquete para una dirección que ninguno conoce. ¿Qué ocurre?",
+   "o": [
+    "Rebota entre los dos hasta que el TTL llega a cero",
+    "Queda guardado en R1 hasta que alguien lo reclame",
+    "Uno lo reconoce como ya visto y lo descarta enseguida",
+    "Llega al destino real después de varias vueltas"
+   ],
+   "c": 0,
+   "e": "Los routers no recuerdan paquetes anteriores: no pueden darse cuenta de que ya lo vieron. Lo único que corta el bucle es el TTL, que baja en cada reenvío. Tampoco llega al destino, porque ninguna de las dos tablas lo conoce."
+  },
+  {
+   "p": "El 4-10-2021 los servidores de nombres de Facebook seguían encendidos, pero facebook.com no se resolvía en ningún lado. ¿Por qué?",
+   "o": [
+    "Alguien borró los registros del DNS de facebook.com",
+    "Sus servidores retiraron los anuncios BGP y nadie sabía llegar",
+    "Los resolvedores públicos bloquearon a Facebook por seguridad",
+    "Se agotaron las direcciones IPv4 de esos servidores"
+   ],
+   "c": 1,
+   "e": "Al caerse la red troncal, los servidores de nombres retiraron por diseño sus anuncios BGP. Sin esa ruta en la tabla de los demás, las consultas no tenían por dónde llegar. No hubo borrado de registros ni bloqueo de terceros, y el problema no era de cantidad de direcciones."
+  },
+  {
+   "p": "¿Qué es un sistema autónomo en el contexto de BGP?",
+   "o": [
+    "Un router que reenvía paquetes sin ayuda de una persona",
+    "Cualquier red a la que se le haya asignado una IP pública",
+    "Un protocolo para repartir direcciones IP dentro de una red",
+    "Una red o grupo de redes con una política de ruteo propia y un número"
+   ],
+   "c": 3,
+   "e": "El RFC 1930 lo define por la política de ruteo única y bien definida de un grupo de prefijos y su operador, identificado por un ASN. Tener una IP pública no alcanza para ser un sistema autónomo, no es un tipo de equipo y tampoco es un protocolo."
+  }
+ ],
+ "feynman": "Explicale a alguien que no sabe de redes cómo hace un paquete para llegar desde tu teléfono a un servidor del otro lado del mundo si ningún router conoce el camino completo. Usá una analogía propia, que no sea la del cross-docking.",
+ "para_profundizar": [
+  {
+   "fuente": "ruteo-rfc1812",
+   "nota": "El estándar de requisitos para routers IPv4. La sección 5.3.1 es la del TTL y la 2.2.5 es la regla del prefijo más largo, ambas cortas y legibles."
+  },
+  {
+   "fuente": "ruteo-cloudflare-outage",
+   "nota": "La explicación de afuera del incidente del 4-10-2021, con las consultas a servidores públicos de rutas. Sirve para ver BGP funcionando en un caso real."
+  },
+  {
+   "fuente": "ruteo-meta-outage",
+   "nota": "La explicación de adentro, firmada por Meta. Leela junto con la de Cloudflare: una muestra la causa y la otra el efecto."
+  },
+  {
+   "fuente": "ruteo-man-ip-route",
+   "nota": "El manual del comando `ip route`. Sirve para leer cualquier tabla de ruteo de Linux y para repetir los experimentos de hoy."
+  }
+ ],
+ "videos": [
+  {
+   "q": "how routers work longest prefix match routing table explained",
+   "por_que": "Para ver la regla del prefijo más largo y la tabla de ruteo explicadas con otros diagramas."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "router",
+   "d": "Equipo con conexiones a dos o más redes que reenvía paquetes de una a otra. Para cada paquete mira la dirección IP de destino, consulta su tabla de ruteo y lo entrega al siguiente vecino del camino."
+  },
+  {
+   "t": "tabla de ruteo",
+   "d": "Lista de reglas de un router o de un equipo: para cada prefijo de destino, por qué interfaz y hacia qué vecino sale el paquete. Cuando varias reglas coinciden, gana la de prefijo más largo."
+  },
+  {
+   "t": "salto",
+   "d": "Cada paso de un paquete de un router al siguiente. El TTL baja uno por salto, y por eso sirve para contarlos."
+  },
+  {
+   "t": "BGP",
+   "d": "Border Gateway Protocol. Protocolo con el que los sistemas autónomos se avisan qué prefijos pueden alcanzar y por qué cadena de redes. Une las redes de Internet por política y por confianza."
+  },
+  {
+   "t": "sistema autónomo",
+   "d": "Red o grupo de redes IP bajo una misma administración, con una política de ruteo propia y un número, el ASN. Internet es la unión de decenas de miles de ellos."
+  },
+  {
+   "t": "TTL",
+   "d": "Time to live. Campo de 8 bits del encabezado IPv4 que cada router reduce en uno. Si llega a cero, el paquete se descarta y se avisa al origen. En IPv6 se llama Hop Limit."
+  },
+  {
+   "t": "ruta por defecto",
+   "d": "Fila de la tabla de ruteo con prefijo `0.0.0.0/0` (en IPv6, `::/0`) que coincide con todo. Se usa cuando ninguna otra ruta más específica lo hace y suele apuntar al router de salida."
+  },
+  {
+   "t": "prefijo más largo",
+   "d": "Regla para elegir entre rutas que coinciden con un mismo destino: gana la que fija más bits de la dirección, es decir, la más específica."
+  },
+  {
+   "t": "ASN",
+   "d": "Número de sistema autónomo. Identifica a cada sistema autónomo en BGP; hoy se usan números de 32 bits (RFC 6793)."
+  },
+  {
+   "t": "OSPF",
+   "d": "Protocolo de ruteo interior de estado de enlace (RFC 2328): los routers de un sistema autónomo comparten el estado de sus conexiones, arman el mismo mapa y calculan los caminos más cortos."
+  }
+ ],
+ "siguiente": "cómo llega todo esto hasta tu casa: el proveedor de Internet, la fibra, el cable y el celular, y por qué la dirección IP pública de tu conexión puede no ser tuya.",
+ "fuentes_nuevas": [
+  {
+   "id": "ruteo-rfc1812",
+   "t": "RFC 1812: Requirements for IP Version 4 Routers",
+   "a": "IETF",
+   "tipo": "rfc",
+   "anio": "1995",
+   "url": "https://www.rfc-editor.org/rfc/rfc1812"
+  },
+  {
+   "id": "ruteo-rfc792",
+   "t": "RFC 792: Internet Control Message Protocol",
+   "a": "IETF",
+   "tipo": "rfc",
+   "anio": "1981",
+   "url": "https://www.rfc-editor.org/rfc/rfc792"
+  },
+  {
+   "id": "ruteo-rfc2328",
+   "t": "RFC 2328: OSPF Version 2",
+   "a": "IETF",
+   "tipo": "rfc",
+   "anio": "1998",
+   "url": "https://www.rfc-editor.org/rfc/rfc2328"
+  },
+  {
+   "id": "ruteo-rfc1930",
+   "t": "RFC 1930: Guidelines for creation, selection, and registration of an Autonomous System (AS)",
+   "a": "IETF",
+   "tipo": "rfc",
+   "anio": "1996",
+   "url": "https://www.rfc-editor.org/rfc/rfc1930"
+  },
+  {
+   "id": "ruteo-rfc6793",
+   "t": "RFC 6793: BGP Support for Four-Octet Autonomous System (AS) Number Space",
+   "a": "IETF",
+   "tipo": "rfc",
+   "anio": "2012",
+   "url": "https://www.rfc-editor.org/rfc/rfc6793"
+  },
+  {
+   "id": "ruteo-rfc6996",
+   "t": "RFC 6996: Autonomous System (AS) Reservation for Private Use",
+   "a": "IETF",
+   "tipo": "rfc",
+   "anio": "2013",
+   "url": "https://www.rfc-editor.org/rfc/rfc6996"
+  },
+  {
+   "id": "ruteo-rfc6480",
+   "t": "RFC 6480: An Infrastructure to Support Secure Internet Routing",
+   "a": "IETF",
+   "tipo": "rfc",
+   "anio": "2012",
+   "url": "https://www.rfc-editor.org/rfc/rfc6480"
+  },
+  {
+   "id": "ruteo-meta-outage",
+   "t": "More details about the October 4 outage",
+   "a": "Santosh Janardhan, Engineering at Meta",
+   "tipo": "articulo",
+   "anio": "2021",
+   "url": "https://engineering.fb.com/2021/10/05/networking-traffic/outage-details/"
+  },
+  {
+   "id": "ruteo-cloudflare-outage",
+   "t": "Understanding how Facebook disappeared from the Internet",
+   "a": "Cloudflare",
+   "tipo": "articulo",
+   "anio": "2021",
+   "url": "https://blog.cloudflare.com/october-2021-facebook-outage/"
+  },
+  {
+   "id": "ruteo-huston-bgp4",
+   "t": "BGP Routing Table Analysis Report (IPv4, 13-11-2026)",
+   "a": "Geoff Huston, APNIC",
+   "tipo": "articulo",
+   "anio": "2026",
+   "url": "https://bgp.potaroo.net/as2.0/bgp-active.html"
+  },
+  {
+   "id": "ruteo-huston-bgp6",
+   "t": "BGP Routing Table Analysis Report (IPv6, 13-11-2026)",
+   "a": "Geoff Huston, APNIC",
+   "tipo": "articulo",
+   "anio": "2026",
+   "url": "https://bgp.potaroo.net/v6/as2.0/bgp-active.html"
+  },
+  {
+   "id": "ruteo-man-netns",
+   "t": "network_namespaces(7): overview of Linux network namespaces",
+   "a": "Linux man-pages",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man7/network_namespaces.7.html"
+  },
+  {
+   "id": "ruteo-man-ip-route",
+   "t": "ip-route(8): routing table management",
+   "a": "Linux man-pages",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man8/ip-route.8.html"
+  }
+ ]
+}
