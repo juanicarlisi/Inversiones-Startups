@@ -1,0 +1,788 @@
+{
+ "id": "03-55",
+ "titulo": "Rust",
+ "bajada": "Ves cómo un lenguaje evita los errores de memoria del C sin recolector de basura: con una regla sobre quién es dueño de cada dato, que el compilador hace cumplir antes de que el programa exista.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar la regla de propiedad (un solo dueño por dato, liberación al salir de alcance) y por qué entregar un dato a una función invalida la variable original.",
+  "Distinguir el préstamo compartido del exclusivo y enunciar la regla «muchos lectores o un solo escritor».",
+  "Leer un error real del compilador de Rust (E0382, E0502, E0597 o E0499), decir qué regla se violó y proponer un arreglo.",
+  "Precisar qué garantiza Rust y qué no: sin uso después de liberar ni carreras de datos en código seguro, pero con fugas posibles y con `unsafe`.",
+  "Ubicar a Cargo y crates.io en el trabajo diario y juzgar cuándo conviene pagar la curva de aprendizaje de Rust."
+ ],
+ "venis_de": "En el [@03-24] viste las cuatro maneras de devolver memoria (a mano, con recolector, contando referencias y con propiedad) y en el [@03-52] viste qué le pasa a un programa en C cuando se equivoca con un puntero. Hoy la cuarta manera, la propiedad, se convierte en un lenguaje entero.",
+ "se_apoya_en": [
+  "03-24",
+  "03-52",
+  "03-51",
+  "03-54"
+ ],
+ "gancho": [
+  "En el [@03-24] corriste un programa en C que liberaba dos veces el mismo bloque, y el sistema lo cortó con `free(): double free detected`. Cortó en plena ejecución, con el programa ya andando, quizás en manos de un cliente. Hoy vas a ver el caso opuesto: el error se escribe igual, pero el programa **ni siquiera llega a existir**. El compilador se niega a generarlo y te explica, con número de línea y causa, qué regla se rompió.",
+  "Eso es Rust, y no es una comodidad de escritorio. En noviembre de 2025 el equipo de seguridad de Android contó que las vulnerabilidades de memoria bajaron por primera vez del 20 % del total, y que el código nuevo escrito en Rust muestra, según su propia medición, una densidad de esas vulnerabilidades unas mil veces menor que el C y C++ del sistema [#rust-android-2025]. Para entender cómo se logra eso no hace falta saber mucho Rust. Hace falta entender una regla sobre **quién es dueño de cada dato**, y hoy la vas a ver funcionando con errores reales del compilador."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "De un proyecto personal al kernel de Linux"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Rust empezó como un proyecto personal de Graydon Hoare, que trabajaba en Mozilla. Según la historia que resume Wikipedia (apoyada en MIT Technology Review), arrancó en 2006, Mozilla empezó a patrocinarlo oficialmente en 2009 y el sistema de propiedad que vas a ver hoy ya estaba en su lugar hacia 2010 [#rust-wikipedia]. Esas fechas **no las verifiqué en una fuente primaria**; las que siguen sí.",
+    "La versión 1.0, la primera que prometió no romper el código de nadie en las versiones siguientes, salió el 15 de mayo de 2015 y fijó un ritmo que sigue hoy: una versión nueva cada seis semanas [#rust-1-0-anuncio]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "linea-tiempo",
+   "eventos": [
+    {
+     "a": "2006",
+     "t": "Proyecto personal de Graydon Hoare",
+     "d": "Según Wikipedia (que cita a MIT Technology Review). No verificado en fuente primaria."
+    },
+    {
+     "a": "2009",
+     "t": "Mozilla lo patrocina",
+     "d": "Mozilla pone ingenieros a trabajar en el proyecto (mismo origen)."
+    },
+    {
+     "a": "2015",
+     "t": "Rust 1.0 (15 de mayo)",
+     "d": "Primera versión estable, con Cargo y crates.io desde el primer día [#rust-1-0-anuncio]."
+    },
+    {
+     "a": "2017",
+     "t": "Quantum CSS en Firefox",
+     "d": "En agosto Mozilla presenta Stylo, un motor de estilos en Rust traído de Servo [#rust-stylo-mozilla]; Firefox 57, con motor nuevo, sale el 14 de noviembre [#firefox-57-notas]."
+    },
+    {
+     "a": "2021",
+     "t": "Nace la Rust Foundation",
+     "d": "Según Wikipedia, en febrero de 2021 el patrocinio pasa a una fundación [#rust-wikipedia]."
+    },
+    {
+     "a": "2022",
+     "t": "Linux 6.1 suma soporte inicial de Rust",
+     "d": "Lanzado el 11 de diciembre de 2022 [#kernelnewbies-6-1]."
+    },
+    {
+     "a": "2025",
+     "t": "Edición 2024 y fin del «experimento» en el kernel",
+     "d": "Edición 2024 con Rust 1.85 en febrero [#rust-1-85-anuncio]; en diciembre, los mantenedores del kernel concluyen que Rust ya no es experimental [#lwn-rust-kernel]."
+    },
+    {
+     "a": "2026",
+     "t": "Rust 1.100.0 (12 de noviembre)",
+     "d": "La estable al día de hoy [#rust-notas-version]."
+    }
+   ],
+   "cap": "Historia mínima de Rust. Las dos primeras fechas vienen de una fuente secundaria."
+  },
+  {
+   "t": "h",
+   "x": "El problema: devolver memoria sin romper nada"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el [@03-24] viste que todo programa que pide memoria al montículo tiene que devolverla, y que hay cuatro estrategias para hacerlo. Con [[malloc y free]] lo decide el programador, y eso produce fugas, liberaciones dobles y accesos a memoria ya liberada. Con un [[recolector de basura]] lo decide el entorno, a cambio de memoria extra y pausas. Con conteo de referencias (como el [[ARC]] de Swift del [@03-51]) cada dato lleva un contador. La cuarta es la [[ownership|propiedad]], y Rust es el lenguaje que la tomó como regla central.",
+    "La idea de fondo es mover la decisión **al momento de compilar**. El programador no escribe `free` y tampoco hay un recolector corriendo: el compilador sabe en qué línea termina la vida de cada dato y pone ahí la liberación. Para poder saberlo exige un conjunto chico de reglas, y si no se cumplen, no compila. Eso mueve el costo: lo que en C se paga con errores en producción, y con recolector en memoria y pausas, en Rust se paga **en tiempo de aprendizaje y en discusiones con el compilador**. Explica tanto el entusiasmo como las quejas."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Estrategia",
+    "Quién decide cuándo liberar",
+    "Cuándo se detecta el error",
+    "Costo típico"
+   ],
+   "filas": [
+    [
+     "A mano (C)",
+     "el programador, con `free`",
+     "en ejecución, o nunca",
+     "errores graves"
+    ],
+    [
+     "Recolector (JS, Java, Go)",
+     "el entorno, mirando qué sigue alcanzable",
+     "no hay errores de liberación",
+     "memoria extra y pausas"
+    ],
+    [
+     "Conteo de referencias (Swift)",
+     "un contador por dato",
+     "ciclos que nunca bajan a cero",
+     "mantener el contador"
+    ],
+    [
+     "Propiedad (Rust)",
+     "el compilador, con reglas de dueño único",
+     "al compilar",
+     "curva de aprendizaje"
+    ]
+   ],
+   "cap": "Las cuatro maneras del [@03-24], con la de Rust al final. La columna del medio es la que cambia: en Rust el error aparece antes de que exista el programa."
+  },
+  {
+   "t": "h",
+   "x": "Propiedad: cada dato tiene un solo dueño"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El libro oficial del lenguaje resume la propiedad en tres reglas [#rust-book]. **Cada valor tiene un dueño. Solo puede haber un dueño a la vez. Cuando el dueño sale de alcance, el valor se libera.** Un dueño es, en el caso más común, una variable. «Salir de alcance» significa que termina el bloque `{ … }` donde se la declaró, por ejemplo cuando termina una función.",
+    "Para leer el código que sigue necesitás cuatro piezas de sintaxis. `let` declara una variable, y en Rust es inmutable salvo que escribas `let mut`. `fn` declara una función. `String::from(\"Flores\")` crea un texto que vive en el montículo (el que viste en el [@03-24]). Y `impl Drop` es un gancho que corre justo cuando el dueño de un dato termina; lo uso solo para que la liberación **se vea**."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el remito de un pallet",
+   "x": "Un pallet tiene un solo responsable por vez, el que firmó el remito. Cuando se lo entregás a otro depósito, **ya no es tuyo**. Y cuando el último responsable lo da de baja, el pallet sale del sistema una sola vez. La analogía deja de valer en que, en logística, alguien podría firmar dos remitos por el mismo pallet y lo descubrirías en una auditoría. En Rust el segundo remito **no se puede emitir**: el compilador lo rechaza antes de que el programa corra."
+  },
+  {
+   "t": "codigo",
+   "lang": "rust",
+   "x": "struct Envio {\n    destino: String,\n}\n\nimpl Drop for Envio {\n    fn drop(&mut self) {\n        println!(\"  se libera el envío a {}\", self.destino);\n    }\n}\n\nfn entregar(e: Envio) {\n    println!(\"  entregando a {}\", e.destino);\n}   // acá termina entregar: su dueño, e, sale de alcance\n\nfn main() {\n    let a = Envio { destino: String::from(\"Flores\") };\n    println!(\"creado\");\n    entregar(a);\n    println!(\"de vuelta en main\");\n}",
+   "cap": "El envío cambia de dueño al entregarlo. Lo corrí con rustc 1.97.0 en este entorno."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "rustc -o prop1 prop1.rs && ./prop1",
+     "s": "creado\n  entregando a Flores\n  se libera el envío a Flores\nde vuelta en main"
+    }
+   ],
+   "cap": "Salida real. La liberación ocurre cuando termina `entregar`, porque `e` era la dueña; en `main` ya no queda nada que liberar."
+  },
+  {
+   "t": "p",
+   "x": "Mirá el orden: la liberación aparece **antes** de «de vuelta en main», porque al llamar a `entregar(a)` el envío cambió de dueño, de `a` a `e`. Cuando `entregar` termina, `e` sale de alcance y su dato se libera. Nadie escribió `free`: el compilador puso la liberación en ese punto exacto. A ese traspaso se lo llama [[movimiento]]."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "let a = Envio {…}",
+       "s": "`a` es la dueña",
+       "k": "cliente"
+      },
+      {
+       "t": "entregar(a)",
+       "s": "el dueño pasa a `e`",
+       "k": "red",
+       "e": "movimiento"
+      },
+      {
+       "t": "fin de entregar",
+       "s": "`e` sale de alcance",
+       "k": "servidor",
+       "e": "termina la función"
+      }
+     ],
+     "baja": "El envío se libera ahí. Si `main` intenta usar `a` después, el compilador ya sabe que dejó de ser dueña."
+    },
+    {
+     "nodos": [
+      {
+       "t": "println!(…, a.destino)",
+       "s": "intento de uso de `a`",
+       "k": "alerta"
+      },
+      {
+       "t": "Error E0382",
+       "s": "valor usado después de moverlo",
+       "k": "alerta",
+       "e": "el compilador lo rechaza"
+      }
+     ]
+    }
+   ],
+   "cap": "Quién es dueño en cada momento. El segundo renglón es lo que pasa si `main` sigue usando `a`."
+  },
+  {
+   "t": "p",
+   "x": "Ahora el segundo programa: `main` entrega el envío y después lee su destino, como si todavía fuera suyo. En C eso sería un uso después de liberar."
+  },
+  {
+   "t": "codigo",
+   "lang": "rust",
+   "x": "struct Envio {\n    destino: String,\n}\n\nfn entregar(e: Envio) {\n    println!(\"entregando a {}\", e.destino);\n}\n\nfn main() {\n    let a = Envio { destino: String::from(\"Flores\") };\n    entregar(a);\n    println!(\"el envío iba a {}\", a.destino);   // ¿sigue siendo mío?\n}",
+   "cap": "La variante que rompe la regla: usar `a` después de entregarla."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "rustc -o prop2 prop2.rs",
+     "s": "error[E0382]: borrow of moved value: `a`\n  --> prop2.rs:12:35\n   |\n10 |     let a = Envio { destino: String::from(\"Flores\") };\n   |         - move occurs because `a` has type `Envio`, which does not implement the `Copy` trait\n11 |     entregar(a);\n   |              - value moved here\n12 |     println!(\"el envío iba a {}\", a.destino);   // ¿sigue siendo mío?\n   |                                   ^^^^^^^^^ value borrowed here after move\n   |\nnote: consider changing this parameter type in function `entregar` to borrow instead if owning the value isn't necessary\n  --> prop2.rs:5:16\n   |\n 5 | fn entregar(e: Envio) {\n   |    --------    ^^^^^ this parameter takes ownership of the value\n   |    |\n   |    in this function\n..."
+    }
+   ],
+   "cap": "Salida real de rustc 1.97.0, recortada al final. El compilador de Rust escribe en inglés: «value moved here» es «el valor se movió acá»."
+  },
+  {
+   "t": "p",
+   "x": "Leé el mensaje como un informe de auditoría. Dice **qué** (se usó un valor movido), **dónde** (línea 12), **desde cuándo** (se movió en la línea 11) y hasta **cómo arreglarlo**: la nota sugiere que `entregar` reciba un préstamo. Es parte de la fama de Rust: sus errores suelen explicar la regla violada y proponer salidas."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "No todo se mueve: los números se copian",
+   "x": "Los tipos chicos y de tamaño fijo, como los enteros, **se copian** en lugar de moverse: copiar 4 bytes sale casi gratis y no hay nada en el montículo que liberar dos veces. Lo comprobé con dos asignaciones: con un entero, ambas variables siguen usables; con un `String`, usar la original da el mismo error E0382, y el compilador sugiere `ruta.clone()` si de verdad querés una segunda copia. Duplicar un dato grande tiene que ser una decisión **visible** en el código."
+  },
+  {
+   "t": "pensa",
+   "x": "En C, ¿qué habría pasado con un programa equivalente a `prop2`, que entrega un dato y lo vuelve a leer? ¿Y qué ventaja concreta tiene que Rust lo detecte al compilar?",
+   "resp": "En C la lectura habría ocurrido igual: valor viejo, basura o un error semanas después, como el `double free` del [@03-24]. Rust lo detecta al compilar: el error nunca llega a un cliente y aparece en el momento más barato para corregirlo, con el código todavía fresco en la cabeza."
+  },
+  {
+   "t": "h",
+   "x": "Préstamos: mirar sin quedarse con el dato"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si cada vez que le pasás un dato a una función lo perdieras, programar sería una pesadilla. La solución es el [[préstamo]]: en lugar de entregar el dato, entregás una **referencia** con `&`, y el dueño sigue siendo el mismo. Hay dos clases. El préstamo **compartido** (`&dato`) deja leer, y puede haber tantos como quieras a la vez. El **exclusivo** (`&mut dato`) deja leer y modificar, pero mientras existe no puede haber ningún otro préstamo del mismo dato.",
+    "En una frase: **muchos lectores o un solo escritor, nunca los dos juntos**. Quien la hace cumplir es el [[verificador de préstamos]] (en inglés, *borrow checker*), la parte del compilador que sigue, línea por línea, quién tiene prestado qué y hasta cuándo."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "rust",
+   "x": "fn contar_paradas(paradas: &Vec<String>) -> usize {\n    paradas.len()          // solo mira: no se lo queda ni lo cambia\n}\n\nfn agregar(paradas: &mut Vec<String>, nueva: &str) {\n    paradas.push(String::from(nueva));   // puede modificar, pero nadie más lo está mirando\n}\n\nfn main() {\n    let mut paradas = vec![String::from(\"Palermo\")];\n    println!(\"antes: {}\", contar_paradas(&paradas));\n    agregar(&mut paradas, \"Flores\");\n    println!(\"después: {}\", contar_paradas(&paradas));\n    println!(\"la lista sigue siendo mía: {:?}\", paradas);\n}",
+   "cap": "Dos funciones que piden prestada la lista: una solo para leer (`&`) y otra para modificarla (`&mut`)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "rustc -o prest1 prest1.rs && ./prest1",
+     "s": "antes: 1\ndespués: 2\nla lista sigue siendo mía: [\"Palermo\", \"Flores\"]"
+    }
+   ],
+   "cap": "Salida real. `paradas` nunca cambió de dueño: `main` la prestó dos veces y la siguió usando."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: la auditoría y el reacomodo",
+   "x": "Cinco auditores pueden mirar a la vez el mismo estante, porque ninguno lo toca. Pero si un operario va a reacomodarlo, se cierra el pasillo: nadie más puede mirar, porque lo que ven cambiaría mientras lo miran. La analogía falla en que acá no hay un supervisor que cierre el pasillo: el compilador demuestra, antes de ejecutar, que nunca va a estar abierto y cerrado a la vez."
+  },
+  {
+   "t": "p",
+   "x": "El caso clásico es modificar una lista mientras se la recorre: si la lista crece puede mudarse de lugar en memoria, y lo que apuntaba al lugar viejo queda colgando. Esto pasa en Rust cuando se intenta."
+  },
+  {
+   "t": "codigo",
+   "lang": "rust",
+   "x": "fn main() {\n    let mut paradas = vec![String::from(\"Palermo\")];\n    for p in &paradas {                          // recorrer = prestar la lista para leer\n        if p == \"Palermo\" {\n            paradas.push(String::from(\"Flores\"));   // agregar en medio del recorrido\n        }\n    }\n    println!(\"{:?}\", paradas);\n}",
+   "cap": "Agregar una parada mientras se recorre la lista de paradas."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "rustc -o prest2b prest2b.rs",
+     "s": "error[E0502]: cannot borrow `paradas` as mutable because it is also borrowed as immutable\n --> prest2b.rs:5:13\n  |\n3 |     for p in &paradas {                          // recorrer = prestar la lista para leer\n  |              --------\n  |              |\n  |              immutable borrow occurs here\n  |              immutable borrow later used here\n4 |         if p == \"Palermo\" {\n5 |             paradas.push(String::from(\"Flores\"));   // agregar en medio del recorrido\n  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ mutable borrow occurs here\n\nerror: aborting due to 1 previous error\n\nFor more information about this error, try `rustc --explain E0502`."
+    }
+   ],
+   "cap": "Salida real de rustc 1.97.0. El `for` presta la lista para leer durante todo el recorrido; el `push` pide un préstamo exclusivo en medio."
+  },
+  {
+   "t": "p",
+   "x": "El mensaje señala los dos préstamos que chocan: el de lectura que abre el `for` y el de escritura del `push`. Para ver cuánto vale esa regla, el mismo error en C: guardé la dirección del primer elemento de una lista, la hice crecer con `realloc` y después leí por la dirección vieja."
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <stdio.h>\n#include <stdlib.h>\n#include <string.h>\n\nint main(void) {\n    int *paradas = malloc(2 * sizeof *paradas);\n    paradas[0] = 10; paradas[1] = 20;\n    int *primera = &paradas[0];            /* guardo la dirección del primer elemento */\n    paradas = realloc(paradas, 4096 * sizeof *paradas);   /* la lista crece: puede mudarse de lugar */\n    paradas[2] = 30;\n    printf(\"primera: %d\\n\", *primera);     /* ¿sigue ahí? */\n    free(paradas);\n    return 0;\n}",
+   "cap": "El equivalente en C: la lista crece con `realloc` y la dirección guardada queda apuntando a un bloque que ya no es el vigente."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -o dang dang.c && ./dang",
+     "s": "primera: 10"
+    },
+    {
+     "c": "gcc -Wall -Wextra -o dang dang.c",
+     "s": "dang.c:11:5: warning: pointer 'primera' used after 'realloc' [-Wuse-after-free]"
+    },
+    {
+     "c": "valgrind ./dang   # recortado",
+     "s": "Invalid read of size 4\n   at 0x10920A: main (in .../dang)\n Address 0x4a7c040 is 0 bytes inside a block of size 8 free'd\n   at 0x484DB80: realloc (in .../vgpreload_memcheck-amd64-linux.so)\n\nERROR SUMMARY: 1 errors from 1 contexts"
+    }
+   ],
+   "cap": "Salida real con gcc 13.3 y valgrind 3.22. Sin opciones el programa compila sin avisos, corre y muestra un valor «correcto»; con `-Wall` aparece una advertencia, y aun así el ejecutable se genera. Solo valgrind lo marca como lectura inválida."
+  },
+  {
+   "t": "p",
+   "x": "Este contraste es el corazón del día. El programa en C **funciona**: imprime 10, el valor esperado, porque el bloque viejo conserva su contenido por casualidad. Es el peor tipo de error: anda hoy y mañana, con otro tamaño de lista o en otra máquina, lee basura. gcc 13.3 avisa si se lo pide con `-Wall`, pero la advertencia no frena el ejecutable. En Rust, el equivalente es un error de compilación sin opciones que prender."
+  },
+  {
+   "t": "p",
+   "x": "Una tercera clase de error es la versión de Rust del puntero colgante del [@03-52]: una referencia que sobrevive a su dato."
+  },
+  {
+   "t": "codigo",
+   "lang": "rust",
+   "x": "fn main() {\n    let referencia;\n    {\n        let ruta = String::from(\"Palermo - Flores\");\n        referencia = &ruta;\n    }                                   // acá ruta se libera\n    println!(\"{}\", referencia);\n}",
+   "cap": "Una referencia declarada afuera que apunta a un dato que vive solo dentro de las llaves."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "rustc -o prest3 prest3.rs",
+     "s": "error[E0597]: `ruta` does not live long enough\n --> prest3.rs:5:22\n  |\n4 |         let ruta = String::from(\"Palermo - Flores\");\n  |             ---- binding `ruta` declared here\n5 |         referencia = &ruta;\n  |                      ^^^^^ borrowed value does not live long enough\n6 |     }                                   // acá ruta se libera\n  |     - `ruta` dropped here while still borrowed\n7 |     println!(\"{}\", referencia);\n  |                    ---------- borrow later used here\n\nerror: aborting due to 1 previous error"
+    }
+   ],
+   "cap": "Salida real de rustc 1.97.0. «does not live long enough» es «no vive lo suficiente»: el dato se libera en la línea 6 y el préstamo se usa en la 7."
+  },
+  {
+   "t": "ejercicio",
+   "x": "El programa `prop2` no compiló porque `entregar` se queda con el envío. Arreglalo de dos maneras sin cambiar lo que imprime, una que preste el dato y otra que entregue una copia, y decí cuál es más barata.",
+   "pista": "Para la primera, cambiá el tipo del parámetro de `Envio` a `&Envio` y la llamada de `entregar(a)` a `entregar(&a)`. Para la segunda, agregá `#[derive(Clone)]` antes de la definición de `Envio` y llamá a `entregar(a.clone())`.",
+   "solucion": "Con préstamo: `fn entregar(e: &Envio)` y `entregar(&a);`. Con copia: `#[derive(Clone)]` sobre `struct Envio` y `entregar(a.clone());`. Las dos compilan (las probé) e imprimen «entregando a Flores» y «el envío iba a Flores». El préstamo es más barato, porque la copia reserva memoria nueva y copia los bytes; además, deja claro en la firma que la función no se queda con el dato. La copia tiene sentido cuando quien la recibe necesita conservarla o modificarla sin tocar el original."
+  },
+  {
+   "t": "h",
+   "x": "Seguridad de memoria sin recolector de basura"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con las reglas ya podés entender la frase que aparece en todas partes: **seguridad de memoria sin GC** (sin [[recolector de basura]]). El programa no puede usar memoria que ya no le pertenece, ni liberar dos veces un bloque, ni dejar una referencia colgante, y lo logra sin un proceso que recorra el montículo cada tanto. El anuncio de la 1.0 ya lo prometía: seguridad y control de bajo nivel sin recolector ni entorno de ejecución [#rust-1-0-anuncio].",
+    "Como todo se decide al compilar, no hay costo de recolección mientras el programa corre. Lo medí con una versión del programa de pedidos del [@03-24]: cada pedido pide 1 MiB y el dato se libera solo al terminar la función."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "rust",
+   "x": "use std::fs;\n\n// VmRSS: memoria física que el proceso ocupa ahora (lo lee de /proc/self/status)\nfn rss_kib() -> u64 {\n    let estado = fs::read_to_string(\"/proc/self/status\").unwrap();\n    for linea in estado.lines() {\n        if let Some(resto) = linea.strip_prefix(\"VmRSS:\") {\n            return resto.trim().trim_end_matches(\" kB\").trim().parse().unwrap();\n        }\n    }\n    0\n}\n\nfn procesar_pedido(n: u8) -> usize {\n    let buffer = vec![n; 1 << 20];     // pide 1 MiB y lo llena\n    buffer.iter().map(|&b| b as usize).sum::<usize>() % 7\n}   // acá buffer sale de alcance y su memoria se devuelve sola\n\nfn main() {\n    println!(\"al empezar: {} KiB\", rss_kib());\n    let mut acumulado = 0;\n    for i in 1..=200u32 {\n        acumulado += procesar_pedido(i as u8);\n        if i % 50 == 0 {\n            println!(\"tras {:3} pedidos: {} KiB\", i, rss_kib());\n        }\n    }\n    println!(\"(resultado para que no se optimice: {})\", acumulado);\n}",
+   "cap": "Doscientos pedidos de 1 MiB cada uno. `vec![n; 1 << 20]` crea un bloque de un millón de bytes; la liberación ocurre al salir de `procesar_pedido`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "rustc -O -o rss rss.rs && ./rss",
+     "s": "al empezar: 2108 KiB\ntras  50 pedidos: 3132 KiB\ntras 100 pedidos: 3132 KiB\ntras 150 pedidos: 3132 KiB\ntras 200 pedidos: 3132 KiB\n(resultado para que no se optimice: 600)"
+    }
+   ],
+   "cap": "Una corrida en una máquina virtual de este entorno (dato de una sola máquina). La memoria física del proceso queda plana: el sistema reutiliza el mismo bloque en cada vuelta."
+  },
+  {
+   "t": "p",
+   "x": "Es la forma del programa C «sin fuga» del [@03-24]: sube una vez y queda plana. La diferencia es que acá no hay ningún `free` que se pueda olvidar."
+  },
+  {
+   "t": "h3",
+   "x": "También las carreras de datos"
+  },
+  {
+   "t": "p",
+   "x": "Las mismas reglas frenan lo que viste en el [@03-40]: si dos hilos tocan el mismo dato y al menos uno escribe, hay una carrera de datos. Para el verificador cada hilo es un préstamo más. Probé con dos hilos que incrementan un contador común."
+  },
+  {
+   "t": "codigo",
+   "lang": "rust",
+   "x": "use std::thread;\n\nfn main() {\n    let mut total = 0;\n    thread::scope(|s| {\n        s.spawn(|| { for _ in 0..1000 { total += 1; } });\n        s.spawn(|| { for _ in 0..1000 { total += 1; } });\n    });\n    println!(\"total: {}\", total);\n}",
+   "cap": "Dos hilos suman 1000 veces cada uno sobre la misma variable `total`. `thread::scope` es la forma de lanzar hilos que prestan variables locales."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "rustc -o hilos hilos.rs",
+     "s": "error[E0499]: cannot borrow `total` as mutable more than once at a time\n --> hilos.rs:7:17\n  |\n6 |         s.spawn(|| { for _ in 0..1000 { total += 1; } });\n  |         ------------------------------------------------\n  |         |       |                       |\n  |         |       |                       first borrow occurs due to use of `total` in closure\n  |         |       first mutable borrow occurs here\n7 |         s.spawn(|| { for _ in 0..1000 { total += 1; } });\n  |                 ^^                      ----- second borrow occurs due to use of `total` in closure\n..."
+    }
+   ],
+   "cap": "Salida real de rustc 1.97.0, recortada. «Cannot borrow as mutable more than once» es «no se puede pedir prestado para modificar más de una vez»."
+  },
+  {
+   "t": "p",
+   "x": "Dos escritores simultáneos: el préstamo exclusivo lo prohíbe. La salida es envolver el contador en una cerradura (`Mutex`), que obliga a pedir turno; esa versión compila y la corrí: imprime `total: 2000`. Es el argumento con el que Mozilla justificó Rust en su motor de estilos paralelo: se puede verificar estáticamente que no hay carreras de datos [#rust-stylo-mozilla]."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Rust es seguro, así que no tiene fugas ni errores de memoria»",
+   "x": [
+    "Tiene dos agujeros con nombre. El primero: **las fugas no están prohibidas**. El libro oficial lo dice sin vueltas: evitar las fugas no es una de las garantías de Rust [#rust-book]. Lo comprobé con dos nodos con conteo de referencias que se apuntan entre sí: al terminar `main`, cada uno tenía 2 referencias, el mensaje «se libera» nunca salió y valgrind informó 96 bytes perdidos. Es el ciclo del [@03-24], escrito en Rust seguro.",
+    "El segundo: la palabra clave **`unsafe`**. Dentro de un bloque `unsafe` el programador le dice al compilador «de esto me encargo yo» y recupera libertades de C, como leer a través de un puntero crudo; un sistema operativo lo necesita para hablar con el hardware. Android contó que su primer error de memoria originado en Rust, un desborde de búfer en la biblioteca CrabbyAVIF, **no llegó a publicarse**; lo registraron como CVE-2025-48530 y lo trataron como una casi falla [#rust-android-2025]. Su conclusión: reducir `unsafe` al mínimo y revisarlo con más rigor."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cargo y crates.io: el taller que viene con el lenguaje"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[Cargo]] es a la vez el gestor de dependencias y el sistema de construcción de Rust: crea proyectos, baja bibliotecas, compila y corre las pruebas. Las bibliotecas y programas se llaman [[crate]] (en español, «cajón»), y el registro público donde se publican es **crates.io**. El anuncio de la 1.0 los presentó juntos: agregar una biblioteca ya era una línea en un archivo [#rust-1-0-anuncio].",
+    "Si venís de JavaScript, la correspondencia es directa: `Cargo.toml` hace de `package.json`, `Cargo.lock` de `package-lock.json` y crates.io de [[npm]] (el del [@03-48]). Lo que sigue lo corrí en este entorno."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cargo new rutas",
+     "s": "    Creating binary (application) `rutas` package"
+    },
+    {
+     "c": "cd rutas && cat Cargo.toml",
+     "s": "[package]\nname = \"rutas\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]"
+    },
+    {
+     "c": "cargo add fastrand",
+     "s": "    Updating crates.io index\n     Locking 1 package to latest Rust 1.97.0 compatible version\n      Adding fastrand v2.5.0"
+    },
+    {
+     "c": "cargo run",
+     "s": " Downloading crates ...\n  Downloaded fastrand v2.5.0\n   Compiling fastrand v2.5.0\n   Compiling rutas v0.1.0\n    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.75s\n     Running `target/debug/rutas`\nparadas al azar (semilla 42): [47, 33, 73, 45, 37]"
+    }
+   ],
+   "cap": "Salida real, con un `src/main.rs` de cinco líneas que usa la biblioteca `fastrand` para sortear 5 paradas. El tiempo de 0,75 s es una medición de una sola máquina virtual."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "grep -A3 'name = \"fastrand\"' Cargo.lock",
+     "s": "name = \"fastrand\"\nversion = \"2.5.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"da7c62ceae207dd37ea5b845da6a0696c799f85e97da1ab5b7910be3c1c80223\""
+    }
+   ],
+   "cap": "El registro de `fastrand` dentro del `Cargo.lock` que Cargo generó solo (recortado): versión exacta, origen y suma de verificación."
+  },
+  {
+   "t": "p",
+   "x": "`Cargo.lock` fija **la versión exacta** de cada biblioteca y su suma de verificación, para que otro equipo obtenga el mismo resultado y detecte si lo descargado fue alterado; es la idea del `integrity` de `package-lock.json`. La línea `edition = \"2024\"` es otro mecanismo para evolucionar sin romper nada: cada tanto una **edición** nueva permite cambios incompatibles (por ejemplo, volver palabra reservada un término libre) y cada proyecto declara cuál usa; ediciones distintas se pueden mezclar en una aplicación [#rust-edition-guide]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Cada crate es código ajeno que corre con tus permisos",
+   "x": "Que el lenguaje evite errores de memoria no garantiza que una dependencia sea honesta ni que esté mantenida, y una línea en `Cargo.toml` puede traer varias más. Conviene revisar el `Cargo.lock` en los cambios. Es el problema de la cadena de suministro que ya viste con npm: es del ecosistema, no de un lenguaje."
+  },
+  {
+   "t": "h",
+   "x": "Dónde se usa de verdad (con fuente)"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dónde",
+    "Qué se verificó",
+    "Fuente"
+   ],
+   "filas": [
+    [
+     "Kernel de Linux",
+     "Soporte inicial en la versión 6.1 (11-12-2022); en diciembre de 2025 los mantenedores concluyeron que ya no es experimental.",
+     "kernelnewbies; LWN"
+    ],
+    [
+     "Android",
+     "Según Google (2025): vulnerabilidades de memoria por debajo del 20 % del total; en el código nuevo, densidad unas 1000 veces menor que en C y C++, con cambios que se revierten unas 4 veces menos. Su kernel 6.12 es el primero con Rust habilitado.",
+     "Blog de seguridad de Google"
+    ],
+    [
+     "Firefox",
+     "El motor de estilos Stylo, escrito en Rust, primer gran traspaso de tecnología de Servo (agosto de 2017).",
+     "Mozilla Hacks"
+    ]
+   ],
+   "cap": "Tres usos verificados. Las cifras de Android son mediciones de Google sobre su propio código."
+  },
+  {
+   "t": "p",
+   "x": "Un matiz del informe de Android: la estrategia es **escribir en Rust el código nuevo**, no reescribir lo viejo [#rust-android-2025]. Cuando alguien diga «lo estamos pasando a Rust», preguntá **qué parte** y **por qué esa**."
+  },
+  {
+   "t": "h",
+   "x": "La curva de aprendizaje y cuándo conviene"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Rust tiene fama de difícil, y después de lo de hoy se entiende: pide pensar en la vida de cada dato antes de escribir. Las reglas se aprenden rápido; lo lento es **diseñar distinto**, porque el compilador rechaza diseños que otros lenguajes aceptan (por ejemplo, dos objetos que se guardan mutuamente una referencia). Mucha gente cuenta semanas de pelea con el verificador de préstamos y después de apoyarse en él. Es una impresión repetida, no un dato que yo haya medido.",
+    "Lo que sí se midió es lo que contó Google en Android: menos tiempo de revisión (un 25 % menos) y menos reversiones en el código nuevo en Rust que en el equivalente en C++ [#rust-android-2025]. Mi lectura: el aprendizaje se paga una vez y el ahorro se cobra todos los días. Es un solo caso, de una empresa enorme con ingenieros expertos; no lo extendería sin más a un equipo chico."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Una regla práctica, que es opinión: en una aplicación de negocio con base de datos, pantallas y reglas que cambian cada semana, el error de memoria casi nunca es el principal riesgo y un lenguaje con recolector (como Go, del [@03-54]) te deja avanzar más rápido. Si el producto es un motor, algo que corre cerca del hardware o que procesa datos no confiables a gran escala, la conversación sobre Rust es seria. La pregunta no es «Rust sí o no» sino **qué cuesta el error y quién lo paga**."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa Rust en su código propio",
+   "x": [
+    "Esto corresponde al commit `25e08fa` (el código cambia, la forma permanece). En el repositorio de Senda no hay ningún archivo `.rs` ni ningún `Cargo.toml` (lo busqué con `find` fuera de `node_modules`), y ni `package.json`, ni `app.json` ni los flujos de `.github/workflows/` mencionan `cargo` o `rustc`. El código propio de la app es TypeScript y JavaScript.",
+    "Hay un hallazgo de otro orden, en el archivo de versiones. `package-lock.json` incluye `lightningcss` 1.33.0, que entra como dependencia del paquete `@expo/metro-config` 57.0.12 (parte de Expo). El sitio oficial de lightningcss dice que está escrito en Rust [#lightningcss-sitio], y el lock lista sus binarios por plataforma como dependencias opcionales (por ejemplo `lightningcss-linux-x64-gnu` y `lightningcss-android-arm64`). Es decir, Rust está en la cadena de herramientas de Senda sin que nadie lo haya elegido: llegó con una dependencia de una dependencia. **No verifiqué** si el armado del APK llega a ejecutar ese componente (es un procesador de CSS y una app nativa casi no usa CSS); solo consta que figura en el lock. Tampoco miré el código interno de otras dependencias, así que no afirmo nada sobre ellas."
+   ],
+   "archivos": [
+    "package.json",
+    "package-lock.json",
+    ".github/workflows/apk.yml"
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un colega propone: «Reescribamos en Rust las partes lentas de Senda». ¿Qué tres preguntas harías antes de contestar?",
+   "resp": "(1) ¿Qué parte es lenta y cómo se midió? El tiempo puede irse en la red o en la base, donde Rust no ayuda. (2) ¿Cómo se integra con una app que hoy es toda TypeScript? Código nativo en otro lenguaje suma herramientas y compilación por arquitectura (el [@01-33] mostró lo que eso cuesta en el APK). (3) ¿Qué error evitaría? Sin riesgo de memoria ni cuello de cómputo, el beneficio es bajo y el costo alto. Es criterio, no regla."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué cambia con el tiempo en este tema (verificado el 13-11-2026)",
+   "x": [
+    "Lo que no envejece: las tres reglas (dueño único, lectores o escritor, préstamos más cortos que el dato) y la idea de decidir la liberación al compilar.",
+    "Lo que sí cambia: la versión. Según las notas oficiales, la estable hoy es la 1.100.0 del 12-11-2026 [#rust-notas-version]. Los programas de este día los compilé con **rustc 1.97.0**; los mensajes de error cambian de redacción entre versiones. La edición vigente es la 2024 [#rust-1-85-anuncio]. También cambian el estado de Rust en el kernel y las cifras de Android (de noviembre y diciembre de 2025). Las fechas de 2006 a 2009 salen de Wikipedia, sin verificar en fuente primaria."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Lo que te llevás para decidir",
+   "x": "Cuando alguien diga «está en Rust», podés preguntar **cuánto `unsafe` tiene**, **si es código nuevo o una migración** y **quién del equipo lo sabe mantener**. Y si te hablan de «Cargo» o de «crates», es el mismo mundo que npm: versiones, archivos de bloqueo y dependencias de dependencias."
+  }
+ ],
+ "recap": [
+  "Rust decide **al compilar** cuándo liberar cada dato: sin `free` a mano y sin recolector. El costo se paga aprendiendo, no en producción.",
+  "Tres reglas: cada dato tiene **un dueño**; se puede prestar a **muchos lectores o a un solo escritor**; ningún préstamo dura más que su dato. Quien las verifica es el **verificador de préstamos**.",
+  "Entregar un `String` a una función **mueve** la propiedad y la variable original queda inutilizable (E0382). Los números chicos se copian; duplicar un dato grande se escribe con `.clone()`.",
+  "Las mismas reglas impiden uso después de liberar (E0502, E0597) y carreras de datos entre hilos (E0499) en código seguro. Las fugas **sí** son posibles, por ejemplo con ciclos de conteo de referencias, y `unsafe` devuelve la responsabilidad al programador.",
+  "**Cargo** es gestor de dependencias y constructor; los paquetes son *crates* en crates.io; `Cargo.lock` fija versiones y sumas de verificación como `package-lock.json`.",
+  "Se usa donde un error de memoria es caro (Linux, Android, partes de Firefox), sobre todo en código **nuevo**. Senda no tiene código propio en Rust; solo aparece una herramienta escrita en Rust (lightningcss) como dependencia indirecta."
+ ],
+ "repaso": [
+  {
+   "p": "Un programa en Rust le pasa un `String` a una función que lo recibe por valor y, después de la llamada, intenta imprimir ese mismo `String` desde la variable original. ¿Qué ocurre?",
+   "o": [
+    "Compila, y imprime texto vacío porque la función lo vació al terminar",
+    "Compila y se ejecuta bien porque el texto se copia solo al llamar",
+    "No compila: el valor se movió y la variable original dejó de ser su dueña",
+    "Compila, pero aborta al ejecutar con un aviso de doble liberación"
+   ],
+   "c": 2,
+   "e": "Un `String` vive en el montículo y se mueve al entregarlo, así que usarlo después es el error E0382, detectado al compilar. Copiarse solo es lo que hacen los enteros, no los textos; el aborto en ejecución es el síntoma del C, justo lo que Rust evita; y vaciar el texto no es algo que pase."
+  },
+  {
+   "p": "¿Cuál de estas situaciones rechaza el verificador de préstamos de Rust?",
+   "o": [
+    "Pedir prestada una lista para modificarla mientras otra parte la está leyendo",
+    "Que cinco funciones lean a la vez la misma lista sin modificarla",
+    "Pedir prestada una lista, usarla y devolverla antes de modificarla",
+    "Que una función reciba una lista prestada solo para contar sus elementos"
+   ],
+   "c": 0,
+   "e": "Un escritor junto a lectores simultáneos es lo que prohíbe la regla de «muchos lectores o un solo escritor». Los otros tres casos son préstamos compatibles: varios lectores, préstamos que no se superponen en el tiempo y un préstamo de solo lectura."
+  },
+  {
+   "p": "Rust no tiene recolector de basura y aun así nadie escribe `free`. ¿Cómo se libera entonces la memoria?",
+   "o": [
+    "Un hilo de fondo del sistema operativo revisa cada tanto qué ya no se usa",
+    "Cada dato lleva un contador de referencias que avisa cuando llega a cero",
+    "El programador marca los datos al final y el programa libera todo junto",
+    "El compilador inserta la liberación en el punto donde el dueño sale de alcance"
+   ],
+   "c": 3,
+   "e": "La liberación se decide al compilar, a partir de quién es dueño de cada dato y cuándo termina su bloque. Revisar cada tanto qué sobra es un recolector; el contador por dato es conteo de referencias (Rust lo ofrece como opción, no como regla); y marcar a mano es el caso del C."
+  },
+  {
+   "p": "Un compañero afirma que, como Rust garantiza seguridad de memoria, en un programa en Rust sin `unsafe` es imposible que la memoria se acumule sin límite. ¿Qué respuesta es correcta?",
+   "o": [
+    "Verdadero: el verificador de préstamos prohíbe todo lo que acumule memoria",
+    "Falso: dos nodos con conteo de referencias que se apuntan entre sí nunca se liberan",
+    "Verdadero: sin `unsafe`, el recolector interno limpia lo que ya no se usa",
+    "Falso: pero solo pasa si el programa corre en una arquitectura de 32 bits"
+   ],
+   "c": 1,
+   "e": "Las fugas son seguras en Rust, como dice su libro oficial, y un ciclo de conteo de referencias es el ejemplo clásico (lo corrí: valgrind marcó 96 bytes perdidos). Rust no trae recolector, y el verificador evita accesos inválidos, no acumulación. El ancho de la arquitectura no tiene que ver."
+  },
+  {
+   "p": "En un proyecto Rust, ¿qué hace `Cargo.lock` y por qué se versiona junto al código?",
+   "o": [
+    "Lista las bibliotecas que el programador quiere usar, con rangos de versiones aceptables",
+    "Fija la versión exacta y la suma de verificación de cada crate para repetir el mismo armado",
+    "Guarda el código compilado de cada dependencia para no tener que descargarlas",
+    "Impide que otras personas modifiquen el proyecto sin permiso del autor"
+   ],
+   "c": 1,
+   "e": "El `Cargo.lock` es el registro de lo que realmente se resolvió y con qué suma de verificación, igual que `package-lock.json`. Lo que se pide con rangos va en `Cargo.toml`; el código compilado queda en la carpeta `target`; y no hay permisos de edición en ese archivo."
+  },
+  {
+   "p": "Un equipo propone escribir en `unsafe` un tramo de un controlador de dispositivo para hablar con el hardware. ¿Qué garantía deja de dar el compilador dentro de ese bloque?",
+   "o": [
+    "La de que el código compile en todas las plataformas que el proyecto soporta",
+    "La de que los hilos puedan lanzarse dentro de otras funciones del mismo programa",
+    "La de que los accesos a memoria son válidos: pasa a ser responsabilidad del equipo",
+    "La de que `Cargo` pueda bajar las bibliotecas que el bloque necesita usar"
+   ],
+   "c": 2,
+   "e": "Dentro de `unsafe` el programador promete respetar reglas que el compilador no puede comprobar, como la validez de los punteros crudos. Todo lo demás (compilar, lanzar hilos, bajar crates) no depende de ese bloque. Por eso Android propone mantener el `unsafe` al mínimo y revisarlo con cuidado."
+  }
+ ],
+ "feynman": "Explicale a alguien que conoce logística por qué Rust puede evitar errores de memoria sin recolector de basura: contá las tres reglas con el ejemplo del remito del pallet y con el pasillo del depósito, y decí qué cosas Rust **no** garantiza.",
+ "para_profundizar": [
+  {
+   "fuente": "rust-book",
+   "nota": "El libro oficial. El capítulo 4 (qué es la propiedad) y el 15 sobre ciclos de referencias sirven para releer con ejemplos las tres reglas de hoy y el caso de las fugas."
+  },
+  {
+   "fuente": "rust-android-2025",
+   "nota": "La crónica de Google sobre Rust en Android con los datos de 2025: de donde salen las cifras del día y el caso del error en `unsafe`."
+  },
+  {
+   "fuente": "rust-edition-guide",
+   "nota": "Explica con precisión cómo funcionan las ediciones y qué incluye cada una, para entender la línea `edition` de Cargo.toml."
+  },
+  {
+   "fuente": "rust-cargo-por-que",
+   "nota": "El libro de Cargo explica en una página para qué existe y cómo se relaciona con el compilador; sirve como mapa antes de usarlo."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Rust ownership and borrowing explained",
+   "por_que": "Para ver animadas las reglas de propiedad y de préstamo con ejemplos de código."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "préstamo",
+   "d": "En Rust, usar un dato sin quedarse con su propiedad, a través de una referencia (`&` para leer, `&mut` para modificar). Se puede prestar a muchos lectores a la vez o a un único escritor, nunca a ambos al mismo tiempo."
+  },
+  {
+   "t": "verificador de préstamos",
+   "d": "La parte del compilador de Rust (en inglés, *borrow checker*) que sigue quién es dueño de cada dato y qué préstamos hay vivos, y rechaza el programa si se rompe alguna regla."
+  },
+  {
+   "t": "seguridad de memoria sin GC",
+   "d": "Garantía de que un programa no usa memoria liberada, no la libera dos veces ni deja referencias colgantes, lograda sin recolector de basura: el compilador decide la liberación según quién es dueño de cada dato. Rust la da en código seguro, es decir, fuera de `unsafe`."
+  },
+  {
+   "t": "cargo",
+   "d": "El gestor de dependencias y sistema de construcción de Rust. Crea proyectos, baja las bibliotecas que se piden en `Cargo.toml`, las compila, corre pruebas y fija versiones en `Cargo.lock`."
+  },
+  {
+   "t": "movimiento",
+   "d": "En Rust, el traspaso de la propiedad de un dato de una variable a otra (por ejemplo, al pasarlo a una función). La variable original queda inutilizable; el compilador rechaza cualquier uso posterior."
+  },
+  {
+   "t": "crate",
+   "d": "Unidad de código de Rust: una biblioteca o un programa. Los que se comparten públicamente se publican en crates.io, el registro de paquetes de Rust."
+  },
+  {
+   "t": "unsafe",
+   "d": "Palabra clave de Rust que abre un bloque donde el compilador deja de verificar algunas reglas de memoria y la responsabilidad pasa al programador. Se usa para hablar con hardware o con código en C, y se procura que sea mínimo."
+  }
+ ],
+ "siguiente": "SQL, el idioma de los datos: un vistazo a cómo se le pregunta algo a una base de datos describiendo qué querés y no cómo obtenerlo.",
+ "fuentes_nuevas": [
+  {
+   "id": "rust-1-0-anuncio",
+   "t": "Announcing Rust 1.0",
+   "a": "The Rust Core Team",
+   "tipo": "articulo",
+   "anio": "2015",
+   "url": "https://blog.rust-lang.org/2015/05/15/Rust-1.0/"
+  },
+  {
+   "id": "rust-1-85-anuncio",
+   "t": "Announcing Rust 1.85.0 and Rust 2024",
+   "a": "The Rust Release Team",
+   "tipo": "articulo",
+   "anio": "2025",
+   "url": "https://blog.rust-lang.org/2025/02/20/Rust-1.85.0/"
+  },
+  {
+   "id": "rust-notas-version",
+   "t": "Rust Release Notes",
+   "a": "The Rust Project",
+   "tipo": "doc",
+   "url": "https://doc.rust-lang.org/stable/releases.html"
+  },
+  {
+   "id": "rust-edition-guide",
+   "t": "The Rust Edition Guide",
+   "a": "The Rust Project",
+   "tipo": "doc",
+   "url": "https://doc.rust-lang.org/edition-guide/editions/index.html"
+  },
+  {
+   "id": "rust-cargo-por-que",
+   "t": "Why Cargo Exists",
+   "a": "The Cargo Book",
+   "tipo": "doc",
+   "url": "https://doc.rust-lang.org/cargo/guide/why-cargo-exists.html"
+  },
+  {
+   "id": "rust-android-2025",
+   "t": "Rust in Android: move fast and fix things",
+   "a": "Jeff Vander Stoep (Google)",
+   "tipo": "articulo",
+   "anio": "2025",
+   "url": "https://blog.google/security/rust-in-android-move-fast-fix-things/"
+  },
+  {
+   "id": "rust-stylo-mozilla",
+   "t": "Inside a super fast CSS engine: Quantum CSS (aka Stylo)",
+   "a": "Lin Clark (Mozilla Hacks)",
+   "tipo": "articulo",
+   "anio": "2017",
+   "url": "https://hacks.mozilla.org/2017/08/inside-a-super-fast-css-engine-quantum-css-aka-stylo/"
+  },
+  {
+   "id": "firefox-57-notas",
+   "t": "Firefox 57.0 release notes",
+   "a": "Mozilla",
+   "tipo": "doc",
+   "anio": "2017",
+   "url": "https://www.firefox.com/en-US/firefox/57.0/releasenotes/"
+  },
+  {
+   "id": "kernelnewbies-6-1",
+   "t": "Linux 6.1",
+   "a": "KernelNewbies",
+   "tipo": "doc",
+   "anio": "2022",
+   "url": "https://kernelnewbies.org/Linux_6.1"
+  },
+  {
+   "id": "lwn-rust-kernel",
+   "t": "The (successful) end of the kernel Rust experiment",
+   "a": "Jonathan Corbet (LWN.net)",
+   "tipo": "articulo",
+   "anio": "2025",
+   "url": "https://lwn.net/Articles/1049831/"
+  },
+  {
+   "id": "rust-wikipedia",
+   "t": "Rust (programming language)",
+   "a": "Wikipedia",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/Rust_(programming_language)"
+  },
+  {
+   "id": "lightningcss-sitio",
+   "t": "Lightning CSS",
+   "a": "Parcel",
+   "tipo": "doc",
+   "url": "https://lightningcss.dev/"
+  }
+ ]
+}
