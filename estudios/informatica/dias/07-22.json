@@ -1,0 +1,796 @@
+{
+ "id": "07-22",
+ "titulo": "Java y Spring Boot",
+ "bajada": "Generás un proyecto con Spring Initializr, lo compilás con OpenJDK 21, lo abrís por dentro (233 beans, Tomcat embebido, SQL generado) y medís qué cuesta arrancarlo y cuántos pedidos atiende.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué hace un contenedor de aplicaciones y en qué cambia cuando viene embebido en el JAR.",
+  "Definir qué es un bean de Spring, cómo llega a otra clase por constructor y qué pasa cuando falta uno.",
+  "Distinguir JPA, Hibernate y Spring Data JPA, y leer el SQL que generan.",
+  "Calcular cuánto tarda una tanda de pedidos según los hilos de Tomcat, los hilos virtuales y el tamaño del pool de conexiones.",
+  "Ubicar a Java en Senda y decir con evidencia dónde está su lógica de servidor."
+ ],
+ "venis_de": "En [@07-21] viste el mismo servicio de envíos en FastAPI y Django, y cómo cuenta el modelo de ejecución. Hoy lo reescribís en el ecosistema que domina buena parte del software empresarial y retomás la JVM de [@03-50] desde el lado del servidor.",
+ "se_apoya_en": [
+  "03-50",
+  "03-43",
+  "03-40",
+  "07-20",
+  "07-21",
+  "07-05"
+ ],
+ "gancho": [
+  "Un proyecto de Spring Boot recién generado tiene una clase con un `main` de una línea. Le sumé seis clases chicas y lo compilé: salió un único archivo de 54 MB con un servidor web adentro. Al arrancarlo, Spring creó 233 objetos antes de que llegara el primer pedido. Ese primer pedido tardó entre 426 y 501 milisegundos, y el segundo, cinco o siete.",
+  "Hoy abrís esa caja. Vas a ver qué es un bean, quién crea tus objetos para que no los crees vos, cómo una clase se vuelve una tabla, por qué el servidor viene dentro del programa y por qué un pool de diez conexiones convierte cien pedidos en cinco segundos de espera. Todo medido en esta VM con Spring Boot 4.1.2 y OpenJDK 21."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "De una línea de comandos a un proyecto: Spring Initializr"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Armar a mano la estructura de un proyecto Spring sería perder una tarde. El generador oficial es **Spring Initializr** (`start.spring.io`): le pedís lenguaje, versión de Boot, versión de Java y dependencias, y devuelve un ZIP. Desde esta VM responde:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -o envios.zip -w '%{http_code} %{size_download}\\n' https://start.spring.io/starter.zip -d type=maven-project -d language=java -d bootVersion=4.1.2 -d javaVersion=21 -d dependencies=web,data-jpa,h2,validation -d groupId=ar.demo -d artifactId=envios",
+     "s": "200 14970"
+    },
+    {
+     "c": "unzip -q envios.zip && find . -type f | sort",
+     "s": "./pom.xml\n./mvnw\n./src/main/java/ar/demo/envios/EnviosApplication.java\n./src/main/resources/application.properties\n./src/test/java/ar/demo/envios/EnviosApplicationTests.java\n(y .gitignore, HELP.md y los archivos del wrapper de Maven)"
+    }
+   ],
+   "cap": "Todo lo que genera el servicio: 14.970 bytes. El `pom.xml` es el archivo de Maven que declara el proyecto y sus dependencias. Datos inventados: `ar.demo` y `envios` son nombres de práctica."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El código generado es mínimo: una clase `EnviosApplication` con un `main` de una línea. Lo demás está en el `pom.xml`, donde las librerías se piden por **starters** (`spring-boot-starter-data-jpa`, `...-validation`, `...-webmvc`): cada uno arrastra un conjunto de librerías que combinan entre sí, y el proyecto hereda de `spring-boot-starter-parent` las versiones de todas. Lo compilé con Maven y OpenJDK 21 y salió un solo archivo, `envios-0.0.1-SNAPSHOT.jar`, de 54 MB, con **71 JAR** adentro.",
+    "En el medio, Maven Central (el repositorio público de librerías) contestó **429**, demasiados pedidos, a varias descargas; la salida a Internet de esta VM se comparte con otros procesos. Con un repositorio local propio, el segundo intento terminó. En una empresa suele haber un espejo propio delante, justamente por esto."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Lo que ofrecía Initializr el 13-11-2026",
+   "x": "La metadata de Initializr ofrecía Spring Boot 4.1.2 como predeterminada (y la 4.2.0 en RC2) y Java 17 (predeterminado), 21, 25 y 27. Según la documentación, Boot 4.1.2 exige Java 17 como mínimo, es compatible hasta Java 27 y usa Spring Framework 7.0.10 o superior [#jv2222-boot-requisitos]. Las versiones de soporte largo de Java están en [@03-50]."
+  },
+  {
+   "t": "h",
+   "x": "Arrancar cuesta: la JVM, la memoria y el primer pedido"
+  },
+  {
+   "t": "p",
+   "x": [
+    "De [@03-50] sabés que la [[JVM]] interpreta el bytecode al principio y compila a código máquina lo que se repite ([@03-43]). En un servidor eso tiene precio de entrada y premio a largo plazo. Comparé el servicio de envíos de [@07-21] en FastAPI con este, en la misma VM:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Medido en la VM",
+    "FastAPI + Uvicorn",
+    "Spring Boot 4.1.2"
+   ],
+   "filas": [
+    [
+     "Tiempo hasta atender el primer pedido",
+     "0,37 s",
+     "3,4 a 5,7 s (siete arranques)"
+    ],
+    [
+     "Memoria en reposo (RSS)",
+     "46 MB",
+     "270 a 350 MB"
+    ],
+    [
+     "Hilos del sistema operativo en reposo",
+     "2",
+     "29 a 40"
+    ],
+    [
+     "Primer pedido (`POST`) / segundo",
+     "no medido",
+     "426 y 501 ms / 5,0 y 6,8 ms (dos arranques)"
+    ],
+    [
+     "Pedido a régimen (mediana)",
+     "no medido",
+     "unos 3,3 ms"
+    ]
+   ],
+   "cap": "VM compartida y dos programas de juguete: no es un benchmark. La memoria de la JVM depende de su configuración, y los 3,3 ms son de un `POST` mínimo contra una base en memoria."
+  },
+  {
+   "t": "p",
+   "x": "La fila del medio enseña. El primer pedido tardó entre 426 y 501 ms y el siguiente, cinco o siete. Mi lectura, una **inferencia** que no separé midiendo, es que el primero paga trabajos de una sola vez: cargar clases, inicializar Jackson, Hibernate y la validación, y ejecutar bytecode por el intérprete antes de que el compilador JIT lo optimice. Después, el mismo camino corre unas cien veces más rápido."
+  },
+  {
+   "t": "pensa",
+   "x": "Un servicio con tráfico constante lleva semanas encendido. Una función que se enciende para un pedido y se apaga a los pocos minutos arranca todo el tiempo. ¿Para cuál de los dos pesa más el arranque de la JVM?",
+   "resp": "Para la segunda. En el servicio de larga duración el arranque se paga una vez y se reparte entre millones de pedidos; en la función que arranca seguido, se paga cada vez. El arranque en frío de [@07-26] trata de este mismo costo."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Arranque lento no es lo mismo que servidor lento",
+   "x": "Estos números no dicen que Java «sea lento»: dicen que arrancar es caro y que la memoria base es mayor. A régimen, el pedido tardó unos 3 ms. Confundir el costo de arranque con el rendimiento sostenido es un error frecuente al mirar la JVM."
+  },
+  {
+   "t": "h",
+   "x": "El contenedor de aplicaciones: del WAR al JAR con servidor adentro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El modelo clásico de Java funcionaba al revés de lo que viste con Node y Python. Primero se instalaba un [[contenedor de aplicaciones]] (un *servlet container*, como Apache Tomcat), que abre el puerto, entiende HTTP, administra un grupo de hilos y llama a tu código según la especificación de Servlet. Después se le copiaba tu aplicación empaquetada como **WAR**, a veces junto con otras. Según su sitio, Tomcat implementa varias especificaciones de Jakarta EE: Servlet, Pages, Expression Language, WebSocket, Annotations y Authentication [#jv2222-tomcat].",
+    "**Spring Boot** da vuelta ese esquema. Cada aplicación web de Boot incluye un servidor embebido: para servlets, Tomcat por defecto, o Jetty si se cambia [#jv2222-boot-webserver]. Se comprueba mirando adentro del JAR:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "jar tf target/envios-0.0.1-SNAPSHOT.jar | grep -E 'BOOT-INF/lib/(tomcat-embed-core|hibernate-core|spring-core|h2-)'",
+     "s": "BOOT-INF/lib/spring-core-7.0.10.jar\nBOOT-INF/lib/hibernate-core-7.4.13.Final.jar\nBOOT-INF/lib/tomcat-embed-core-11.0.27.jar\nBOOT-INF/lib/h2-2.4.240.jar"
+    },
+    {
+     "c": "java -jar target/envios-0.0.1-SNAPSHOT.jar",
+     "s": "Tomcat initialized with port 19731 (http)\nStarting Servlet engine: [Apache Tomcat/11.0.27]\nHibernate ORM core version 7.4.13.Final\nTomcat started on port 19731 (http) with context path '/'\nStarted EnviosApplication in 5.693 seconds (process running for 6.26)"
+    }
+   ],
+   "cap": "Líneas elegidas del listado y del registro de arranque (Java imprime además una línea «Picked up JAVA_TOOL_OPTIONS» propia del entorno). El servidor está dentro del JAR y arranca con el programa: no hay nada que instalar aparte."
+  },
+  {
+   "t": "p",
+   "x": "Entregás un solo archivo que se ejecuta con `java -jar`, y la versión del servidor viaja con la aplicación. Es la misma idea de Uvicorn en [@07-21] con otro punto de vista: allá el servidor es un programa al que le pasás tu aplicación, acá es una librería que tu aplicación arranca. El modelo viejo sigue: Boot también se puede desplegar en cualquier contenedor compatible con Servlet 6.1 o superior [#jv2222-boot-requisitos]."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "Tomcat embebido",
+     "d": "Puerto, HTTP y un grupo de hilos: un hilo por pedido",
+     "k": "red"
+    },
+    {
+     "n": "Spring MVC",
+     "d": "Rutas, JSON de entrada y salida, validación (`@Valid`)",
+     "k": "servidor"
+    },
+    {
+     "n": "Tu controlador",
+     "d": "`EnvioController`: recibe el pedido y llama al servicio",
+     "k": "cliente"
+    },
+    {
+     "n": "Tu servicio",
+     "d": "`EnvioService`: la lógica y la transacción (`@Transactional`)",
+     "k": "cliente"
+    },
+    {
+     "n": "Repositorio de Spring Data JPA",
+     "d": "`EnvioRepository`: una interfaz sin implementación escrita",
+     "k": "datos"
+    },
+    {
+     "n": "Hibernate",
+     "d": "Traduce objetos a SQL (implementa JPA)",
+     "k": "datos"
+    },
+    {
+     "n": "Base de datos",
+     "d": "H2 en memoria en esta prueba",
+     "k": "os"
+    }
+   ],
+   "cap": "El camino de un pedido en la aplicación que compilé, de arriba (lo que llega) hacia abajo (donde se guarda)."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Un depósito propio, con sus muelles",
+   "x": [
+    "El modelo clásico es alquilar un espacio en un depósito compartido: el dueño decide cuántos muelles hay y en qué turnos se descarga. El de Boot es llevar tu propio depósito, con sus muelles, dentro de un contenedor que se despacha entero.",
+    "Dónde deja de valer: un contenedor marítimo no consume memoria. Acá el servidor embebido gasta memoria e hilos de tu proceso, y cada servicio carga su propio Tomcat."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Un hilo por pedido: la concurrencia de Java"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el modelo de servlets, cada pedido usa un hilo de un grupo, y en Tomcat el máximo predeterminado es **200** (`server.tomcat.threads.max`) [#jv2222-boot-props]. Cambia la regla de ayer: bloquear un hilo con `Thread.sleep` no frena a los demás mientras queden hilos libres. Armé una ruta `/espera` que duerme 0,5 s y anoté el pedido más lento con tres configuraciones:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Configuración",
+    "10 pedidos",
+    "100 pedidos",
+    "400 pedidos",
+    "1.000 pedidos",
+    "Hilos del SO al final"
+   ],
+   "filas": [
+    [
+     "Tomcat con 200 hilos (predeterminado)",
+     "0,53 s",
+     "0,53 s",
+     "0,75 a 1,12 s",
+     "1,61 a 2,25 s",
+     "228"
+    ],
+    [
+     "Tomcat limitado a 20 hilos",
+     "0,53 s",
+     "2,49 s",
+     "9,92 s",
+     "no medido",
+     "48"
+    ],
+    [
+     "Hilos virtuales activados",
+     "0,54 s",
+     "0,53 s",
+     "0,56 a 0,60 s*",
+     "0,58 a 0,60 s",
+     "34"
+    ]
+   ],
+   "cap": "Pedido más lento de cada tanda, en la VM compartida, con rangos cuando repetí la medición. *La primera tanda de 400 en frío tardó 1,55 s: el calentamiento de la JVM otra vez."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las cuentas cierran: con 20 hilos, 100 pedidos de medio segundo son 5 tandas (2,49 s) y 400 son 20 (9,92 s). Con 200 hilos, hasta unos cientos esperan a la vez y los 1.000 hacen cola (1,61 a 2,25 s). Con **hilos virtuales** (los de [@03-50]) los 1.000 terminaron casi como los 10 y los hilos reales del sistema se quedaron en 34. Se activan con `spring.threads.virtual.enabled`, que vale `false` por defecto y hace que el máximo de Tomcat deje de aplicar [#jv2222-boot-props].",
+    "Es la respuesta de Java a lo que en Python resuelve `async def`: muchas esperas sin que cada una cueste un hilo del sistema. Cambia dónde queda el cuidado: en Python el error es bloquear el bucle; en Java con hilos clásicos, quedarse sin hilos. Y aunque sobren hilos, hay otro cuello de botella: el grupo de conexiones a la base:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Configuración del pool de conexiones",
+    "10 pedidos",
+    "100 pedidos (dos tandas medidas)"
+   ],
+   "filas": [
+    [
+     "10 conexiones (el valor predeterminado de HikariCP)",
+     "0,55 s",
+     "4,95 s y 4,98 s"
+    ],
+    [
+     "50 conexiones",
+     "0,53 s",
+     "0,99 s y 0,98 s"
+    ]
+   ],
+   "cap": "Ruta `/espera-db`: un método `@Transactional` que toma una conexión, la retiene 0,5 s y la devuelve. Con 200 hilos disponibles, el límite pasó a ser la cantidad de conexiones. Pedido más lento de cada tanda."
+  },
+  {
+   "t": "p",
+   "x": "Cien pedidos que retienen una conexión medio segundo con un pool de diez son diez tandas: casi 5 segundos, aunque haya hilos de sobra. HikariCP, el pool que usa Boot, documenta 10 como máximo por defecto y explica que cuando se agota, las llamadas esperan hasta un tiempo límite antes de fallar [#jv2222-hikari]. Esta es una de las razones por las que el tamaño de los pools se calcula con cuidado y no se sube «por las dudas»: cada conexión a la base cuesta memoria y trabajo del lado de la base, algo que vas a ver en [@16-08]."
+  },
+  {
+   "t": "codigo",
+   "lang": "java",
+   "x": "package ar.demo.envios;\n\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\n\n@Service\nclass EsperaService {\n    private final EnvioRepository repo;\n\n    EsperaService(EnvioRepository repo) {\n        this.repo = repo;\n    }\n\n    @Transactional\n    long conConexion() throws InterruptedException {\n        long n = repo.count();  // la transacción toma una conexión del pool\n        Thread.sleep(500);      // y la retiene mientras dura el método\n        return n;\n    }\n}",
+   "cap": "EsperaService.java: la ruta `/espera-db` llama a este método. La anotación hace que Spring abra una transacción, y con ella toma una conexión del pool."
+  },
+  {
+   "t": "h",
+   "x": "Spring y los beans: quién crea tus objetos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Spring** nombra dos cosas que conviene separar. El *Spring Framework* es el núcleo, con un contenedor que construye y conecta objetos; hoy va por la versión 7.0.10 en este proyecto. *Spring Boot* es la capa que lo configura casi todo sola, la que arma el servidor embebido, la conexión a la base y el resto a partir de las librerías presentes. Lo central del contenedor es la idea de **bean**: según la documentación de Spring, un [[bean]] es un objeto que el contenedor instancia, ensambla y administra [#jv2222-spring-beans]. Un objeto común y corriente de tu programa que el contenedor no creó no es un bean.",
+    "Es la inyección de dependencias de [@07-20], con la diferencia de que acá la hace el contenedor del lenguaje. Mirá cómo se ve en el código: ningún `new`. El servicio pide el repositorio por el constructor, el controlador pide el servicio, y Spring arma la cadena en el orden en que se necesitan:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "java",
+   "x": "package ar.demo.envios;\n\nimport java.util.List;\nimport org.springframework.http.HttpStatus;\nimport org.springframework.stereotype.Service;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.web.server.ResponseStatusException;\n\n@Service\nclass EnvioService {\n    private final EnvioRepository repo;\n\n    EnvioService(EnvioRepository repo) {\n        this.repo = repo;\n    }\n\n    @Transactional\n    Envio crear(EnvioNuevo n) {\n        return repo.save(new Envio(n.destino(), n.pesoKg(), n.prioridad()));\n    }\n\n    Envio buscar(Long id) {\n        return repo.findById(id).orElseThrow(\n                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, \"No existe ese envío\"));\n    }\n\n    List<Envio> listar(String estado) {\n        return estado == null ? repo.findAll() : repo.findByEstado(estado);\n    }\n}",
+   "cap": "EnvioService.java. `@Service` lo marca como bean. El repositorio llega por el constructor; nadie escribe `new EnvioService(...)`."
+  },
+  {
+   "t": "codigo",
+   "lang": "java",
+   "x": "@RestController\n@RequestMapping(\"/envios\")\nclass EnvioController {\n    private final EnvioService servicio;\n\n    EnvioController(EnvioService servicio) {   // el contenedor pasa el bean acá\n        this.servicio = servicio;\n    }\n\n    @PostMapping\n    @ResponseStatus(HttpStatus.CREATED)\n    Envio crear(@Valid @RequestBody EnvioNuevo nuevo) {\n        return servicio.crear(nuevo);\n    }\n    // ... uno() y listar() siguen el mismo patrón\n}",
+   "cap": "EnvioController.java (recorte). Misma idea: pide `EnvioService` por constructor. La documentación de Spring recomienda este estilo para las dependencias obligatorias [#jv2222-spring-di]."
+  },
+  {
+   "t": "p",
+   "x": "Para ver los beans reales agregué un pequeño código que se activa con una opción y los lista. Antes de que llegue el primer pedido, el contenedor ya había creado:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "java -jar target/envios-0.0.1-SNAPSHOT.jar --demo.beans=true",
+     "s": "BEANS en total: 233\n  propio: envioController -> EnvioController\n  propio: envioRepository -> EnvioRepository\n  propio: envioService -> EnvioService$$SpringCGLIB$$0\n  propio: enviosApplication -> EnviosApplication$$SpringCGLIB$$0\n  propio: jpa.EnvioRepository.fragments#0 -> RepositoryComposition\nmismo servicio en las dos consultas: true"
+    }
+   ],
+   "cap": "233 beans: unos pocos son míos, el resto lo crea Spring Boot (servidor, pool de conexiones, Hibernate, JSON). La última línea compara dos pedidos de `EnvioService` al contenedor: devolvió el mismo objeto."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay tres cosas para notar. Una: `EnvioRepository` es una **interfaz** de tres líneas, y aun así hay un bean de ese nombre: Spring Data generó la implementación en el arranque. Dos: el bean es **uno solo** por clase, porque el alcance predeterminado es *singleton*, y la documentación lo define así: una sola instancia compartida por todos los que la pidan [#jv2222-spring-scopes]. Es lo que muestra el `true`. Tres: `envioService` aparece con el tipo `EnvioService$$SpringCGLIB$$0`, una clase generada que hereda de la mía. Mi lectura (otra inferencia) es que se debe al `@Transactional`: Spring envuelve el bean en un representante (*proxy*) que abre y cierra la transacción alrededor de cada método. Por eso el objeto que recibe el controlador no es exactamente el que escribiste.",
+    "Esto último pesa más de lo que parece. Si algo se comporta distinto de lo que dice el código, una causa posible es que hay un intermediario que no escribiste. Y si falta una pieza, el contenedor lo dice enseguida. Borré la anotación `@Service` de `EnvioService`, recompilé y arranqué:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "java -jar target/envios-0.0.1-SNAPSHOT.jar",
+     "s": "APPLICATION FAILED TO START\n\nDescription:\n\nParameter 0 of constructor in ar.demo.envios.EnvioController required a bean of type 'ar.demo.envios.EnvioService' that could not be found.\n\nAction:\n\nConsider defining a bean of type 'ar.demo.envios.EnvioService' in your configuration."
+    }
+   ],
+   "cap": "Sin `@Service`, el contenedor no encuentra el bean y la aplicación **ni arranca**. El mensaje dice qué parámetro de qué constructor falló y qué tipo faltaba."
+  },
+  {
+   "t": "pensa",
+   "x": "El servicio falló al arrancar y no al primer pedido. ¿Qué ventaja operativa tiene eso, y qué pasaría con un sistema que descubre dependencias faltantes recién cuando alguien llega a esa ruta?",
+   "resp": "Un despliegue con una pieza faltante nunca llega a recibir tráfico: el balanceador ve que no arrancó y mantiene la versión anterior. En un sistema que descubre el problema en el primer pedido, la versión rota queda recibiendo clientes y el error aparece en producción, en una ruta poco usada, quizá semanas después."
+  },
+  {
+   "t": "h3",
+   "x": "La autoconfiguración: lo que hace Boot por vos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En mi `application.properties` no hay ni una línea sobre la base de datos, y aun así el registro de arranque dice `HikariPool-1 - Added connection ... url=jdbc:h2:mem:...`. La documentación de Boot explica el mecanismo con un ejemplo parecido: si en el classpath hay una base embebida y no configuraste una conexión, Boot arma una base en memoria [#jv2222-boot-autoconfig]. Eso es la **autoconfiguración**: Boot mira qué librerías hay y, si no definiste lo tuyo, pone una configuración razonable. Con la opción `--debug` imprime un informe de qué se activó y por qué: en mi proyecto, 92 entradas activadas y 65 descartadas.",
+    "Es cómodo y tiene una trampa: la base H2 de esta prueba vive en memoria y se pierde al apagar. Si esa configuración llegara a producción porque nadie definió la conexión real, el servicio andaría perfecto hasta el primer reinicio. Por eso `--debug` es una herramienta de trabajo."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "JPA e Hibernate: de la clase a la tabla"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Acá hay tres nombres para tres cosas. **[[JPA]]** (hoy *Jakarta Persistence*) es una **especificación**: un estándar para administrar persistencia y mapeo objeto-relacional en Java [#jv2222-jakarta-persistence], sin ser un programa. **[[Hibernate]]** es una **implementación**, la más conocida; su sitio dice que ofrece la de Jakarta Persistence junto a su API propia [#jv2222-hibernate]. **Spring Data JPA** es una capa de Spring que, sobre Hibernate, genera los repositorios. El registro de arranque dice Hibernate ORM 7.4.13.Final.",
+    "El rol es el mismo que el de [[el ORM de Django|Django ORM]] de [@07-21]: traducir objetos a SQL. La diferencia de forma es que en Django la clase hereda de `Model` y la migración se genera aparte, y acá la clase lleva anotaciones y, en este proyecto de prueba, Hibernate crea la tabla al arrancar. La entidad completa:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "java",
+   "x": "package ar.demo.envios;\n\nimport jakarta.persistence.Entity;\nimport jakarta.persistence.GeneratedValue;\nimport jakarta.persistence.GenerationType;\nimport jakarta.persistence.Id;\n\n@Entity\npublic class Envio {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    private String destino;\n    private double pesoKg;\n    private String prioridad;\n    private String estado;\n\n    protected Envio() {}  // JPA lo exige para poder armar objetos al leer filas\n\n    public Envio(String destino, double pesoKg, String prioridad) {\n        this.destino = destino;\n        this.pesoKg = pesoKg;\n        this.prioridad = prioridad == null ? \"normal\" : prioridad;\n        this.estado = \"pendiente\";\n    }\n\n    public Long getId() { return id; }\n    public String getDestino() { return destino; }\n    public double getPesoKg() { return pesoKg; }\n    public String getPrioridad() { return prioridad; }\n    public String getEstado() { return estado; }\n}",
+   "cap": "Envio.java. `@Entity` la declara persistente; `@Id` y `@GeneratedValue`, la clave que genera la base. El constructor vacío protegido lo exige JPA."
+  },
+  {
+   "t": "codigo",
+   "lang": "java",
+   "x": "package ar.demo.envios;\n\nimport java.util.List;\nimport org.springframework.data.jpa.repository.JpaRepository;\n\ninterface EnvioRepository extends JpaRepository<Envio, Long> {\n    List<Envio> findByEstado(String estado);\n}",
+   "cap": "EnvioRepository.java: tres líneas útiles. `JpaRepository` aporta `save`, `findById`, `findAll`, `count`; `findByEstado` se genera a partir del nombre del método."
+  },
+  {
+   "t": "p",
+   "x": "Con `spring.jpa.show-sql=true` el registro muestra el SQL que Hibernate mandó a la base. Lo que corrió, sin que yo escribiera una sola frase SQL:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# registro del arranque y de tres pedidos",
+     "s": "Hibernate: drop table if exists envio cascade\nHibernate: create table envio (peso_kg float(53) not null, id bigint generated by default as identity, destino varchar(255), estado varchar(255), prioridad varchar(255), primary key (id))\nHibernate: insert into envio (destino,estado,peso_kg,prioridad,id) values (?,?,?,?,default)\nHibernate: select e1_0.id,e1_0.destino,e1_0.estado,e1_0.peso_kg,e1_0.prioridad from envio e1_0 where e1_0.id=?\nHibernate: select e1_0.id,e1_0.destino,e1_0.estado,e1_0.peso_kg,e1_0.prioridad from envio e1_0 where e1_0.estado=?"
+    }
+   ],
+   "cap": "Primero el `create table` generado desde la clase, después el `insert` del `POST`, el `select` por clave del `GET /envios/1` y el `select ... where estado=?` que salió del nombre `findByEstado`."
+  },
+  {
+   "t": "p",
+   "x": "Tres detalles que se aprenden mirando. Los textos quedaron como `varchar(255)` porque yo no declaré largo: el límite de 60 caracteres no existe en la tabla, igual que el mínimo de 3 en el caso de Django de [@07-21], y hay que ponerlo en la entidad o validarlo antes. La columna `peso_kg` salió de `pesoKg`: en esta configuración se pasa de camelCase a snake_case solo, y conviene saberlo cuando alguien lee la base con otra herramienta. Y el `?` del SQL confirma que Hibernate manda los valores aparte, como Django, que es la defensa que ampliás en [@15-12]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El aviso que arrancó con el servidor",
+   "x": "En el registro de arranque aparece un WARN: `spring.jpa.open-in-view is enabled by default`. La documentación de la propiedad dice que su valor por defecto es `true` y que mantiene abierta la sesión de JPA durante todo el pedido [#jv2222-boot-props]; por eso Boot avisa que se pueden hacer consultas mientras se arma la respuesta. No lo cambié porque es una decisión de diseño que viene con costos, pero ilustra algo general: los valores por defecto de un framework son decisiones de otros y conviene leer los avisos."
+  },
+  {
+   "t": "h3",
+   "x": "La validación: más cerca de Pydantic de lo que parece, pero con otro final"
+  },
+  {
+   "t": "codigo",
+   "lang": "java",
+   "x": "package ar.demo.envios;\n\nimport jakarta.validation.constraints.DecimalMax;\nimport jakarta.validation.constraints.DecimalMin;\nimport jakarta.validation.constraints.NotBlank;\nimport jakarta.validation.constraints.Pattern;\nimport jakarta.validation.constraints.Size;\n\npublic record EnvioNuevo(\n        @NotBlank @Size(min = 3, max = 60) String destino,\n        @DecimalMin(value = \"0.0\", inclusive = false) @DecimalMax(\"1000\") double pesoKg,\n        @Pattern(regexp = \"normal|urgente\") String prioridad) {}",
+   "cap": "EnvioNuevo.java: un `record` (clase inmutable de Java) con anotaciones de Bean Validation. Es el equivalente del modelo de Pydantic de [@07-21]."
+  },
+  {
+   "t": "p",
+   "x": "Mandé los mismos pedidos que en FastAPI y en Django. Lo que contestó Spring con su configuración predeterminada:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pedido",
+    "Respuesta real",
+    "Qué pasó"
+   ],
+   "filas": [
+    [
+     "`POST` válido",
+     "201 con el envío y su `id`",
+     "Guardó con `insert`"
+    ],
+    [
+     "`POST` con 3 errores",
+     "400 y `{\"timestamp\":...,\"status\":400,\"error\":\"Bad Request\",\"path\":\"/envios\"}`",
+     "El cuerpo no dice qué campo falló"
+    ],
+    [
+     "`GET /envios/abc`",
+     "400, mismo tipo de cuerpo",
+     "`Long` no pudo leer el texto"
+    ],
+    [
+     "`GET /envios/99`",
+     "404, mismo tipo de cuerpo",
+     "Lo lancé con `ResponseStatusException`"
+    ],
+    [
+     "`POST` con `\"pesoKg\":\"10\"`",
+     "201: guardó 10.0",
+     "Jackson convirtió el texto a número"
+    ],
+    [
+     "`POST` con `\"pesoKg\":\"pesado\"`",
+     "400",
+     "No había conversión posible"
+    ]
+   ],
+   "cap": "Medido con Spring Boot 4.1.2 y los valores por defecto. El detalle no viaja al cliente, pero sí está en el registro del servidor."
+  },
+  {
+   "t": "p",
+   "x": "El detalle existe, pero se quedó en el servidor: el registro tiene un WARN con `Validation failed for argument [0] ... with 3 errors` y cada campo rechazado. El cliente recibió un 400 sin pistas. Activar `server.error.include-message` e `include-binding-errors` no cambió el cuerpo. Con `spring.mvc.problemdetails.enabled=true` la respuesta pasó a `application/problem+json` (formato estándar de errores HTTP) pero con un texto genérico, `Invalid request content.`; el 404 sí mostró «No existe ese envío». Para devolver campo por campo hay que escribir un manejador de excepciones, que hoy no escribí. Es la diferencia más concreta con FastAPI: allá el 422 detallado viene gratis, acá es trabajo tuyo, a cambio de que el formato lo decidas vos."
+  },
+  {
+   "t": "h",
+   "x": "Por qué tanta Java en empresas grandes: lo que se puede afirmar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Se repite que Java domina en las empresas grandes. Busqué un dato con fuente. La encuesta de Stack Overflow 2026 pregunta qué lenguajes se usaron en el último año: Python, el 58,0 % de los encuestados (puesto 4); Java, el 27,6 % (puesto 7) [#jv2222-so-2026]. Es una encuesta a desarrolladores en general, no mide empresas, y no encontré una fuente confiable que mida lenguajes dentro de empresas grandes. **No afirmo** que domine; afirmo lo que esa encuesta dice.",
+    "Con respaldo se puede decir lo que ya viste: un ecosistema grande de librerías y un soporte largo y público (Oracle fija las versiones de soporte largo, [@03-50]); Spring Boot 4.1.2 soporta Java 17 a 27 [#jv2222-boot-requisitos]. Lo que sigue es criterio mío: en sistemas que viven años y mantienen equipos grandes, pesan el tipado estático para refactorizar, la cantidad de gente que conoce la plataforma y la estabilidad de las versiones. El costo lo medimos hoy: más memoria, arranque lento y más ceremonia que en FastAPI."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Aspecto",
+    "FastAPI ([@07-21])",
+    "Spring Boot (hoy)"
+   ],
+   "filas": [
+    [
+     "Modelo de ejecución",
+     "Bucle de eventos y pool de 40 hilos para `def`",
+     "Un hilo por pedido (200) o hilos virtuales"
+    ],
+    [
+     "Validación",
+     "Por tipos, 422 detallado de serie",
+     "Anotaciones; el detalle al cliente se escribe aparte"
+    ],
+    [
+     "Acceso a datos",
+     "Se elige uno aparte",
+     "JPA, Hibernate y repositorios con el starter"
+    ],
+    [
+     "Documentación de la API",
+     "`/openapi.json` y `/docs` incluidos",
+     "No incluida (Initializr ofrece `springdoc-openapi`)"
+    ],
+    [
+     "Arranque y memoria en reposo",
+     "0,37 s y 46 MB",
+     "3,4 a 5,7 s y 270 a 350 MB"
+    ]
+   ],
+   "cap": "Resumen de lo medido en los dos días."
+  },
+  {
+   "t": "h",
+   "x": "Y Senda: Java solo para armar el APK"
+  },
+  {
+   "t": "p",
+   "x": "Senda no tiene servidor en Java ni en otro lenguaje: su backend es Supabase. Pero Java aparece en un lugar que sorprende, y la lógica que acá vive en un `@Service` allá vive en otro sitio. Dos hechos verificados contra el código y el mapa técnico."
+  },
+  {
+   "t": "senda",
+   "titulo": "Java en Senda: el taller, no el servicio",
+   "x": [
+    "En el commit 25e08fa no hay ni un solo archivo `.java`, `.kt` ni `.gradle` versionado (`git ls-files` no devuelve ninguno). Aun así, cuatro flujos de GitHub Actions (`apk.yml`, `aab.yml`, `humo.yml` y `firma.yml`) instalan Java 17 de la distribución Zulu con `actions/setup-java`. La razón está en el mismo flujo `apk.yml`: corre `npx expo prebuild --platform android`, que genera el proyecto Android de esa compilación, y después `./gradlew assembleRelease`. Gradle, la herramienta que construye el APK, corre sobre la JVM. Es Java como herramienta de fábrica: el teléfono no ejecuta Java escrito por el equipo, y ningún servidor propio lo ejecuta.",
+    "Código de ese commit; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    ".github/workflows/aab.yml",
+    ".github/workflows/humo.yml",
+    ".github/workflows/firma.yml"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "La capa de servicio de Senda es una función de Postgres",
+   "x": [
+    "Donde Spring pondría un método de `@Service` con `@Transactional`, Senda usa funciones SQL. `jugar_turno`, el turno de un duelo, está definida en `supabase/migrations/20261127000000_seguridad.sql` y el teléfono la llama como RPC desde `src/util/juntos.ts`. La función lee la partida con `select ... for update` (un bloqueo de fila), rechaza con `raise exception` cuando no es el turno de la persona (`'no_es_tu_turno'`) o la partida está cerrada, y limita la entrada a 40 jugadas. Es la misma lógica de negocio con otro hogar.",
+    "La transacción no se anota: según el manual de PostgreSQL, solo los procedimientos llamados con `CALL` y los bloques `DO` pueden cerrar transacciones, así que una función corre dentro de la del que la llama [#jv2222-pg-transactions], y un bloqueo, una vez tomado, se mantiene hasta el final de esa transacción [#jv2222-pg-locking]. Código de ese commit."
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "src/util/juntos.ts"
+   ]
+  }
+ ],
+ "recap": [
+  "Spring Initializr genera el proyecto; los starters traen conjuntos de librerías que combinan, y el resultado de Maven fue un único JAR de 54 MB con 71 JAR adentro, entre ellos Tomcat, Hibernate y H2.",
+  "Arrancar cuesta: entre 3,4 y 5,7 s y 270 a 350 MB en reposo frente a 0,37 s y 46 MB de FastAPI, y un primer pedido de 426 y 501 ms contra 5 a 7 ms del segundo; a régimen el pedido tardó unos 3 ms.",
+  "El contenedor de aplicaciones (Tomcat) hospeda tu código; Spring Boot lo embebe en el JAR y se arranca con `java -jar`. Tomcat usa hasta 200 hilos por defecto, con hilos virtuales la espera masiva no consume hilos del sistema, y un pool de 10 conexiones a la base limita aunque sobren hilos.",
+  "Un bean es un objeto que el contenedor de Spring instancia, ensambla y administra; es singleton por defecto, llega por constructor, y si falta uno la aplicación ni arranca (233 beans en la prueba).",
+  "La autoconfiguración de Boot decide por vos según las librerías presentes (H2 en el classpath, base en memoria); `--debug` muestra qué se activó.",
+  "JPA es la especificación, Hibernate la implementación y Spring Data JPA genera los repositorios; el SQL sale de las clases, y las reglas como largo o rango hay que declararlas porque la tabla no las trae.",
+  "En Senda, Java es solo la herramienta de compilación del APK (Java 17 y Gradle en CI); la lógica del servidor vive en funciones de Postgres."
+ ],
+ "repaso": [
+  {
+   "p": "En una aplicación de Spring Boot, ¿cuál de estos objetos es un bean?",
+   "o": [
+    "Un `new EnvioService(repo)` que el programador escribió en un método",
+    "Un objeto que el contenedor creó, conectó con sus dependencias y administra",
+    "Cualquier objeto de Java que se guarda en una base de datos",
+    "Una clase con anotaciones que nadie ha pedido todavía en el código"
+   ],
+   "c": 1,
+   "e": "Un bean es un objeto que el contenedor de Spring instancia, ensambla y administra. Un objeto creado con `new` por el programador queda fuera del contenedor, y que algo se guarde en una base o esté anotado no lo vuelve bean por sí solo."
+  },
+  {
+   "p": "Un servicio Spring Boot con Tomcat limitado a 20 hilos recibe 100 pedidos simultáneos que bloquean su hilo 0,5 s. ¿Cuánto tarda el último en terminar, aproximadamente?",
+   "o": [
+    "Unos 0,5 segundos, porque Tomcat atiende todos a la vez",
+    "Unos 5 segundos, porque son diez tandas de a diez hilos",
+    "Unos 2,5 segundos, porque son cinco tandas de 20 hilos",
+    "Unos 25 segundos, porque cada pedido espera a los demás"
+   ],
+   "c": 2,
+   "e": "Con 20 hilos se atienden 20 pedidos por vez, y 100 son 5 tandas de 0,5 s: 2,5 s. En la medición dio 2,49 s. Medio segundo ocurriría con hilos de sobra o con hilos virtuales; los otros números suponen más o menos hilos de los que hay."
+  },
+  {
+   "p": "El primer pedido a la aplicación tardó 426 ms y el segundo 5 ms. ¿Cuál es la explicación más razonable?",
+   "o": [
+    "Hibernate vuelve a compilar todas las consultas en cada pedido",
+    "El primer pedido paga inicializaciones y calentamiento que se hacen una vez",
+    "Tomcat solo atiende bien a partir del segundo pedido recibido",
+    "La base H2 en memoria es más lenta cuando está vacía de datos"
+   ],
+   "c": 1,
+   "e": "Carga de clases, inicialización de bibliotecas y el paso del intérprete al compilador JIT se pagan una sola vez, por eso el segundo pedido es tan rápido. Si Hibernate recompilara cada vez, el segundo tardaría lo mismo que el primero. Es una inferencia razonable, y no se separó cada causa."
+  },
+  {
+   "p": "Alguien dice «JPA y Hibernate son lo mismo». ¿Qué afirmación es la correcta?",
+   "o": [
+    "JPA es una especificación y Hibernate es una implementación de ella",
+    "Hibernate es la especificación y JPA es la herramienta que la ejecuta",
+    "JPA es el servidor web y Hibernate es el que atiende los pedidos",
+    "Son dos nombres del mismo programa, uno viejo y otro nuevo"
+   ],
+   "c": 0,
+   "e": "JPA (Jakarta Persistence) define el estándar y Hibernate lo implementa, además de ofrecer su API propia. Spring Data JPA es una tercera capa que genera repositorios. Ni JPA es un servidor ni son sinónimos."
+  },
+  {
+   "p": "Se borra la anotación `@Service` de `EnvioService`, pero `EnvioController` sigue pidiéndolo por constructor. ¿Qué ocurre?",
+   "o": [
+    "La aplicación arranca y falla recién cuando llega el primer pedido",
+    "Spring crea el servicio solo, porque el constructor lo deja claro",
+    "La aplicación no arranca y el mensaje nombra el tipo que faltaba",
+    "El controlador funciona pero sin transacciones ni conexión a la base"
+   ],
+   "c": 2,
+   "e": "El contenedor valida el grafo al arrancar y informa «required a bean of type ... that could not be found». Fallar temprano evita desplegar una versión rota. Spring no inventa beans por el solo hecho de que un constructor los pida."
+  },
+  {
+   "p": "Un pool de conexiones de 10, 200 hilos disponibles y 100 pedidos que retienen una conexión 0,5 s cada uno. ¿Qué espera encontrar?",
+   "o": [
+    "Cerca de 0,5 s, porque hay hilos de sobra para todos",
+    "Cerca de 25 s, porque cada conexión se usa una por vez",
+    "Cerca de 0,05 s, porque la base responde casi al instante",
+    "Cerca de 5 s, porque son diez tandas de a diez conexiones"
+   ],
+   "c": 3,
+   "e": "El límite lo pone el pool, no los hilos: 100 pedidos entre 10 conexiones son diez tandas de 0,5 s, unos 5 s, y en la medición dio 4,95 s. Con 50 conexiones fueron dos tandas, casi 1 s."
+  },
+  {
+   "p": "¿Dónde corre en Senda la lógica del turno de un duelo (`jugar_turno`), y quién garantiza que dos jugadas simultáneas no se pisen?",
+   "o": [
+    "En un servidor Java propio que serializa las jugadas de cada partida",
+    "En el teléfono, que decide y le informa el resultado a la base",
+    "En una función de Postgres, con un bloqueo de fila hasta que cierra la transacción",
+    "En una función de borde en Deno que recibe cada turno por separado"
+   ],
+   "c": 2,
+   "e": "La función de la base lee la partida con `for update`, y el bloqueo se mantiene hasta el final de la transacción, por lo que otro turno de la misma partida espera. Senda no tiene servidor propio, y las funciones de borde son otras (borrar cuenta, trivia del sermón, compras)."
+  }
+ ],
+ "feynman": "Explicale a alguien que usa FastAPI qué es un bean de Spring y por qué su aplicación Java no tiene ningún `new` para conectar el controlador con el servicio. Contá qué pasa si falta una pieza y comparalo con lo que haría Python en el mismo caso, diciendo dónde la comparación deja de ser exacta.",
+ "para_profundizar": [
+  {
+   "fuente": "jv2222-spring-beans",
+   "nota": "La introducción al contenedor y a los beans en la documentación de Spring Framework. Leé los dos primeros párrafos para ver la definición de bean y de inyección de dependencias."
+  },
+  {
+   "fuente": "jv2222-boot-autoconfig",
+   "nota": "Cómo decide Boot qué configurar y cómo ver el informe de condiciones con `--debug`. Sirve para repetir en tu máquina los 92 y 65 de hoy."
+  },
+  {
+   "fuente": "jv2222-boot-props",
+   "nota": "El apéndice de propiedades: ahí están `server.tomcat.threads.max`, `spring.threads.virtual.enabled` y `spring.jpa.open-in-view` con sus valores por defecto."
+  },
+  {
+   "fuente": "jv2222-hikari",
+   "nota": "El README de HikariCP, secciones de configuración. La entrada `maximumPoolSize` explica el límite de diez conexiones que se midió hoy."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Spring Boot dependency injection beans explained",
+   "por_que": "Para ver a otra persona explicar el contenedor con el depurador y comparar con la lista de beans que imprimiste hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "Spring",
+   "d": "Ecosistema de Java para construir aplicaciones. Su núcleo, el Spring Framework, es un contenedor que construye y conecta objetos. Spring Boot lo configura casi todo solo."
+  },
+  {
+   "t": "bean",
+   "d": "Objeto que el contenedor de Spring instancia, ensambla y administra. Por defecto hay una sola instancia compartida (singleton) y se entrega a quien la pide, normalmente por constructor."
+  },
+  {
+   "t": "JPA",
+   "d": "Jakarta Persistence (antes Java Persistence API): especificación estándar de Java para mapear objetos a tablas. Hibernate es su implementación más conocida y Spring Data JPA genera los repositorios."
+  },
+  {
+   "t": "contenedor de aplicaciones",
+   "d": "Programa que hospeda una aplicación web de Java: abre el puerto, entiende HTTP, administra un grupo de hilos y llama a tu código según la especificación de Servlet. Tomcat es el ejemplo clásico; Spring Boot lo trae embebido."
+  },
+  {
+   "t": "Spring Boot",
+   "d": "Capa de Spring que arma sola el servidor embebido, la base y el resto a partir de las librerías presentes, y empaqueta todo en un único JAR ejecutable con `java -jar`."
+  },
+  {
+   "t": "Hibernate",
+   "d": "Implementación de JPA y de uso muy extendido: lee las anotaciones de tus clases, genera el SQL y convierte las filas en objetos."
+  },
+  {
+   "t": "autoconfiguración",
+   "d": "Mecanismo de Spring Boot que activa configuraciones según las librerías del classpath, siempre que no hayas definido las tuyas. Con `--debug` se imprime qué se activó y por qué."
+  }
+ ],
+ "siguiente": ".NET y ASP.NET Core. La tercera gran plataforma de servidores empresariales, con el mismo problema (rutas, validación, base de datos) y el servidor Kestrel adentro del programa, como Tomcat hoy.",
+ "fuentes_nuevas": [
+  {
+   "id": "jv2222-boot-requisitos",
+   "t": "Spring Boot: System Requirements",
+   "a": "Proyecto Spring",
+   "tipo": "doc",
+   "url": "https://docs.spring.io/spring-boot/system-requirements.html"
+  },
+  {
+   "id": "jv2222-boot-webserver",
+   "t": "Embedded Web Servers (Spring Boot how-to)",
+   "a": "Proyecto Spring",
+   "tipo": "doc",
+   "url": "https://docs.spring.io/spring-boot/how-to/webserver.html"
+  },
+  {
+   "id": "jv2222-boot-autoconfig",
+   "t": "Auto-configuration (Spring Boot)",
+   "a": "Proyecto Spring",
+   "tipo": "doc",
+   "url": "https://docs.spring.io/spring-boot/reference/using/auto-configuration.html"
+  },
+  {
+   "id": "jv2222-boot-props",
+   "t": "Common Application Properties (Spring Boot)",
+   "a": "Proyecto Spring",
+   "tipo": "doc",
+   "url": "https://docs.spring.io/spring-boot/appendix/application-properties/index.html"
+  },
+  {
+   "id": "jv2222-spring-beans",
+   "t": "Introduction to the Spring IoC Container and Beans",
+   "a": "Proyecto Spring",
+   "tipo": "doc",
+   "url": "https://docs.spring.io/spring-framework/reference/core/beans/introduction.html"
+  },
+  {
+   "id": "jv2222-spring-di",
+   "t": "Dependency Injection (Spring Framework)",
+   "a": "Proyecto Spring",
+   "tipo": "doc",
+   "url": "https://docs.spring.io/spring-framework/reference/core/beans/dependencies/factory-collaborators.html"
+  },
+  {
+   "id": "jv2222-spring-scopes",
+   "t": "Bean Scopes (Spring Framework)",
+   "a": "Proyecto Spring",
+   "tipo": "doc",
+   "url": "https://docs.spring.io/spring-framework/reference/core/beans/factory-scopes.html"
+  },
+  {
+   "id": "jv2222-tomcat",
+   "t": "Apache Tomcat: Welcome",
+   "a": "Apache Software Foundation",
+   "tipo": "doc",
+   "url": "https://tomcat.apache.org/"
+  },
+  {
+   "id": "jv2222-jakarta-persistence",
+   "t": "Jakarta Persistence",
+   "a": "Eclipse Foundation (Jakarta EE)",
+   "tipo": "doc",
+   "url": "https://jakarta.ee/specifications/persistence/"
+  },
+  {
+   "id": "jv2222-hibernate",
+   "t": "Hibernate ORM",
+   "a": "Proyecto Hibernate",
+   "tipo": "doc",
+   "url": "https://hibernate.org/orm/"
+  },
+  {
+   "id": "jv2222-hikari",
+   "t": "HikariCP: README (configuración)",
+   "a": "Brett Wooldridge y colaboradores",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/brettwooldridge/HikariCP/dev/README.md"
+  },
+  {
+   "id": "jv2222-so-2026",
+   "t": "Stack Overflow Developer Survey 2026: Technology",
+   "a": "Stack Overflow",
+   "tipo": "articulo",
+   "anio": 2026,
+   "url": "https://survey.stackoverflow.co/2026/technology"
+  },
+  {
+   "id": "jv2222-pg-transactions",
+   "t": "PostgreSQL: Transaction Management (PL/pgSQL)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/current/plpgsql-transactions.html"
+  },
+  {
+   "id": "jv2222-pg-locking",
+   "t": "PostgreSQL: Explicit Locking",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/current/explicit-locking.html"
+  }
+ ]
+}
