@@ -1,0 +1,819 @@
+{
+ "id": "09-06",
+ "titulo": "Tipos de datos y restricciones",
+ "bajada": "Elegir el tipo correcto para cada columna y ponerle reglas (not null, unique, check, default) que la base haga cumplir aunque falle todo lo demás.",
+ "minutos": 27,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué define un tipo SQL y por qué un tipo estricto ayuda a quien lee los datos después.",
+  "Elegir entre `integer`, `bigint`, `numeric` y `double precision` y justificar por qué el dinero va en `numeric`.",
+  "Escribir restricciones `not null`, `unique`, `check` y valores por defecto, e interpretar el error cuando una falla.",
+  "Predecir qué pasa con los NULL frente a `check` y `unique`.",
+  "Agregar una regla a una tabla con datos usando `not valid` y `validate constraint`."
+ ],
+ "venis_de": "Ayer, en [@09-05], creaste tablas y escribiste, cambiaste y borraste filas, y la base rechazó un peso escrito con letras sin que explicáramos por qué. Hoy se explica.",
+ "se_apoya_en": [
+  "09-05",
+  "09-04",
+  "01-13",
+  "01-14",
+  "07-07"
+ ],
+ "gancho": [
+  "Una distribuidora cobra un recargo fijo de diez centavos por cada bulto de una promoción. Al cierre del mes, la planilla suma diez recargos y obtiene 0,9999999999999999. Nadie lo ve a ojo, pero contra la factura de un cliente grande sobra un centavo, y un centavo basta para que alguien dedique una tarde entera a buscarlo.",
+  "La causa no es un error de programación: es la elección de un tipo. Hoy vas a ver qué tipos ofrece una base de datos, cuándo conviene cada uno, y cómo se le pueden poner reglas a una columna para que ningún programa, por distraído que sea, la llene con basura."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué es un tipo, y por qué una planilla no lo tiene"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un **tipo** (en SQL, «tipo de dato») es la clase de valor que admite una columna. Define tres cosas: qué valores caben (un entero, un texto, una fecha), qué operaciones tienen sentido (se suman números, no fechas con texto) y cuántos bytes ocupa. Cada columna de una tabla tiene un tipo y todas las filas lo respetan. Es lo que hizo que `numeric(6,2)` rechazara un peso escrito con letras, como viste en [@09-05].",
+    "En una planilla de cálculo, el tipo vive en la celda y cambia con lo que escribas: ponés `pesado` donde iban kilos y la planilla lo acepta. Algunos programas hacen lo mismo con las bases. SQLite, la base que viene dentro de tantas apps, es el ejemplo clásico: según su documentación, el tipo de una columna es una «afinidad», una preferencia, y no una obligación [#sql-sqlite-tipos]. Lo probé con el SQLite 3.45.1 de esta máquina:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "sqlite3 :memory:\ncreate table b (peso integer);\ninsert into b values ('pesado');\ninsert into b values (12.7);\nselect peso, typeof(peso) from b;",
+     "s": "pesado|text\n12.7|real"
+    },
+    {
+     "c": "create table c (peso integer) strict;\ninsert into c values ('pesado');",
+     "s": "Runtime error near line 6: cannot store TEXT value in INTEGER column c.peso (19)"
+    }
+   ],
+   "cap": "SQLite 3.45.1. En una tabla común, una columna `integer` guardó un texto y un decimal. Desde la versión 3.37.0 (27-11-2021) existe el modo `strict`, que la hace estricta tabla por tabla [#bd06-sqlite-strict]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "PostgreSQL es estricto por defecto: lo que no cuadra con el tipo, no entra. Eso sirve a quien escribe después. Cuando una columna es de tipo `numeric`, un programa que la lee sabe que va a recibir un número, y nadie tiene que revisar si alguna fila trae un texto escondido. Elegir bien el tipo es la primera regla de calidad de los datos, la más barata de todas."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Números: enteros, exactos y aproximados"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los **enteros** vienen en tres tamaños: `smallint` (2 bytes, de -32.768 a 32.767), `integer` (4 bytes, hasta 2.147.483.647) y `bigint` (8 bytes, hasta unos 9,2 trillones) [#bd06-pg-numeric]. Si te pasás, la base no corta ni da vueltas: falla, que es lo que querés. Es el desbordamiento que viste en [@01-13], pero con aviso."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select 2147483647::int + 1;",
+     "s": "ERROR:  integer out of range"
+    },
+    {
+     "c": "select 2147483647::bigint + 1;",
+     "s": "  ?column?  \n------------\n 2147483648\n(1 row)"
+    },
+    {
+     "c": "select 32768::smallint;",
+     "s": "ERROR:  smallint out of range"
+    },
+    {
+     "c": "create table t_num (peso numeric(6,2));",
+     "s": "CREATE TABLE"
+    },
+    {
+     "c": "insert into t_num values (12345.67);",
+     "s": "ERROR:  numeric field overflow\nDETAIL:  A field with precision 6, scale 2 must round to an absolute value less than 10^4."
+    },
+    {
+     "c": "insert into t_num values (1234.5), (1.005), (1.004) returning peso;",
+     "s": "  peso   \n---------\n 1234.50\n    1.01\n    1.00\n(3 rows)\n\nINSERT 0 3"
+    }
+   ],
+   "cap": "Con `integer`, sumar uno al máximo da error; con `bigint` entra sin problemas. `smallint` rechaza 32768. Un campo `numeric(6,2)` rechaza lo que no cabe y redondea los decimales de más."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para números con coma hay dos familias, y la diferencia es la que más plata cuesta. Los **aproximados** (`real` y `double precision`) guardan el valor en [[coma flotante]], el formato de [@01-14]: es rápido y compacto, pero 0,1 no se puede representar exacto en binario. Los **exactos** (`numeric`) guardan los dígitos decimales tal cual, con la cantidad de cifras que declares. La documentación lo dice sin vueltas: `numeric` está especialmente recomendado para importes de dinero y toda cantidad donde la exactitud importe [#bd06-pg-numeric]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select 0.1::float8 + 0.2::float8 as float8, 0.1::numeric + 0.2::numeric as numeric;",
+     "s": "       float8        | numeric \n---------------------+---------\n 0.30000000000000004 |     0.3\n(1 row)"
+    },
+    {
+     "c": "select sum(0.1::float8) as float8, sum(0.1::numeric) as numeric from generate_series(1, 10);",
+     "s": "       float8       | numeric \n--------------------+---------\n 0.9999999999999999 |     1.0\n(1 row)"
+    },
+    {
+     "c": "select sum(0.1::float8) as float8, sum(0.1::numeric) as numeric from generate_series(1, 1000000);",
+     "s": "       float8       | numeric  \n--------------------+----------\n 100000.00000133288 | 100000.0\n(1 row)"
+    },
+    {
+     "c": "select 7 / 2 as entero, 7 / 2.0 as con_decimales, 7::numeric / 2 as numerico;",
+     "s": " entero |   con_decimales    |      numerico      \n--------+--------------------+--------------------\n      3 | 3.5000000000000000 | 3.5000000000000000\n(1 row)"
+    }
+   ],
+   "cap": "Misma suma en las dos familias. Diez veces 0,1 dan 1,0 exacto con `numeric`, y 0,9999999999999999 con `double precision`. Con un millón de sumas el error se ve en el quinto decimal. La última fila muestra la división de enteros. Medido en esta VM."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "No es un error del motor",
+   "x": "PostgreSQL hace bien la cuenta: el problema es que `0,1` en binario es una fracción periódica, como 1/3 en decimal. Un reporte de fletes que suma 3.000 tarifas de `double precision` puede dar un centavo de diferencia con la factura, y nadie sabe explicar por qué. Para plata, usá `numeric` (o un `bigint` con los importes en centavos). Para pesos y medidas físicas, que ya son aproximaciones, el flotante está bien."
+  },
+  {
+   "t": "p",
+   "x": [
+    "`numeric(p,s)` tiene dos números: `p` es la cantidad total de dígitos y `s` cuántos van después de la coma. `numeric(6,2)` admite hasta 9999,99. Si el valor trae más decimales, se **redondea** (1,005 quedó 1,01); si no cabe la parte entera, falla («numeric field overflow»). Un detalle de la salida anterior: la división de dos enteros devuelve un entero, así que `7 / 2` da 3. Con un decimal en cualquiera de los dos lados da 3,5.",
+    "El `numeric` exacto cuesta velocidad. La documentación avisa que sus cálculos son muy lentos frente a los de enteros y flotantes [#bd06-pg-numeric]. Sumé cinco millones de valores: `double precision` tardó de 0,45 a 0,58 s, `bigint` de 0,42 a 0,52 s y `numeric` de 0,97 a 1,03 s (tres corridas en esta VM, con el tiempo de fabricar los números incluido). Es una diferencia de factor dos, que para una columna de importes no pesa."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Guardás el peso de un bulto como `real` y lo mostrás en pantalla: 0,1 + 0,2 sale 0,3. ¿Hay algún problema, entonces?",
+   "resp": "El 0,3 es el valor redondeado a la hora de mostrarlo. Guardado, el número es otro: ampliado a `double precision`, 0,1 + 0,2 en `real` vale 0,30000001192092896. Mostrar bien no es calcular bien: si después comparás con `=` o sumás miles de valores, el error aparece. En la salida de un ejercicio de abajo lo vas a ver."
+  },
+  {
+   "t": "h",
+   "x": "Texto, fechas y el resto de la caja"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Texto.** Para casi todo, `text`. PostgreSQL también tiene `varchar(n)` y `char(n)`, pero la documentación aclara que entre los tres no hay diferencia de rendimiento, salvo que `char(n)` rellena con espacios y ocupa más [#bd06-pg-character]. Si querés un tope de largo, es una regla: se pone con `check (char_length(col) <= 80)`, como hace Senda más abajo, y se puede cambiar después sin tocar el tipo.",
+    "**Fechas.** `date` guarda un día; `timestamptz` guarda un instante. Pese al nombre, no guarda la zona: según la documentación, todo lo que lleva zona horaria se guarda en UTC y se convierte a la zona de la sesión al mostrarlo [#bd06-pg-datetime]. Es el problema de [@09-04]: el mismo instante se ve distinto según quién lo mira, y eso es correcto."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select '2026-11-13 21:30:00-03'::timestamptz as instante;",
+     "s": "        instante        \n------------------------\n 2026-11-14 00:30:00+00\n(1 row)"
+    },
+    {
+     "c": "set time zone 'America/Argentina/Buenos_Aires';",
+     "s": "SET"
+    },
+    {
+     "c": "select '2026-11-13 21:30:00-03'::timestamptz as instante;",
+     "s": "        instante        \n------------------------\n 2026-11-13 21:30:00-03\n(1 row)"
+    },
+    {
+     "c": "set time zone 'UTC';",
+     "s": "SET"
+    },
+    {
+     "c": "select '2026-11-13 21:30:00-03'::timestamptz as instante;",
+     "s": "        instante        \n------------------------\n 2026-11-14 00:30:00+00\n(1 row)"
+    }
+   ],
+   "cap": "Un mismo instante, tres sesiones: la que lee en UTC, la de Buenos Aires y otra vez UTC. El valor guardado no cambió; cambió cómo se muestra."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Booleano, uuid, jsonb y arrays.** `boolean` ocupa 1 byte. `uuid` es un identificador de 16 bytes (se verá como clave en [@09-07]). `jsonb` guarda un documento JSON en formato binario: es algo más lento de insertar y bastante más rápido de consultar que `json`, y admite índices [#bd06-pg-json]. Es útil para datos que cambian de forma (el atuendo de un personaje), pero no reemplaza a las columnas: lo que consultás y filtrás seguido merece su columna. Los **arrays** (`text[]`) guardan una lista dentro de una celda. Funcionan, y rompen la idea de que cada casillero guarda un solo valor; en [@09-15] vas a ver por qué eso trae problemas."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select pg_column_size(1::smallint) as smallint, pg_column_size(1::int) as int, pg_column_size(1::bigint) as bigint,\n       pg_column_size(1::float8) as float8, pg_column_size(12.50::numeric(6,2)) as numeric_6_2,\n       pg_column_size(true) as boolean, pg_column_size(current_date) as date, pg_column_size(now()) as timestamptz,\n       pg_column_size(gen_random_uuid()) as uuid, pg_column_size('BUL-000001'::text) as text_10;",
+     "s": " smallint | int | bigint | float8 | numeric_6_2 | boolean | date | timestamptz | uuid | text_10 \n----------+-----+--------+--------+-------------+---------+------+-------------+------+---------\n        2 |   4 |      8 |      8 |          10 |       1 |    4 |           8 |   16 |      14\n(1 row)"
+    }
+   ],
+   "cap": "El tamaño, medido con `pg_column_size`: los enteros ocupan 2, 4 y 8 bytes, un `boolean` 1, una fecha 4, un `timestamptz` 8 y un `uuid` 16. Un `numeric(6,2)` ocupó 10 bytes; los textos varían con el largo."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dato",
+    "Tipo habitual",
+    "Ojo"
+   ],
+   "filas": [
+    [
+     "Cantidad de bultos, edad",
+     "`integer` (o `smallint` si el rango es chico)",
+     "Se desborda en 2.147.483.647; para ids de tablas enormes, `bigint`"
+    ],
+    [
+     "Importe, tarifa",
+     "`numeric(12,2)`",
+     "Nunca `real` ni `double precision`"
+    ],
+    [
+     "Peso, distancia, coordenadas",
+     "`double precision`",
+     "Aproximado: no comparar con `=`"
+    ],
+    [
+     "Nombre, código, dirección",
+     "`text` (con `check` de largo si hace falta)",
+     "`char(n)` rellena con espacios"
+    ],
+    [
+     "Día, momento exacto",
+     "`date`, `timestamptz`",
+     "Sin zona (`timestamp`) es una trampa si hay usuarios en varios husos"
+    ],
+    [
+     "Sí o no",
+     "`boolean not null`",
+     "Sin `not null` hay tres estados"
+    ],
+    [
+     "Identificador sin orden",
+     "`uuid`",
+     "16 bytes; ver [@09-07]"
+    ],
+    [
+     "Datos que cambian de forma",
+     "`jsonb`",
+     "Lo que consultás seguido merece su propia columna"
+    ]
+   ],
+   "cap": "Guía de partida, no regla fija. Los tamaños de la tabla de bytes de arriba son medidos en PostgreSQL 16.15; las recomendaciones son criterio propio, apoyado en la documentación [#bd06-pg-numeric]."
+  },
+  {
+   "t": "h3",
+   "x": "Enum o texto con CHECK"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para una columna que admite pocos valores (el estado de un bulto) hay dos caminos. El **enum** es un tipo propio con una lista fija; el **texto con `check … in (…)`** es un texto común con una regla. Los dos rechazan lo que no está en la lista. La diferencia aparece cuando la lista cambia:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create type estado_envio as enum ('recibido', 'en_ruta', 'entregado');",
+     "s": "CREATE TYPE"
+    },
+    {
+     "c": "create table envios_e (id int, estado estado_envio);",
+     "s": "CREATE TABLE"
+    },
+    {
+     "c": "insert into envios_e values (1, 'en_ruta');",
+     "s": "INSERT 0 1"
+    },
+    {
+     "c": "insert into envios_e values (2, 'perdido');",
+     "s": "ERROR:  invalid input value for enum estado_envio: \"perdido\"\nLINE 1: insert into envios_e values (2, 'perdido');\n                                        ^"
+    },
+    {
+     "c": "alter type estado_envio add value 'cancelado';",
+     "s": "ALTER TYPE"
+    },
+    {
+     "c": "select enum_range(null::estado_envio);",
+     "s": "               enum_range               \n----------------------------------------\n {recibido,en_ruta,entregado,cancelado}\n(1 row)"
+    },
+    {
+     "c": "alter type estado_envio drop value 'cancelado';",
+     "s": "ERROR:  syntax error at or near \"value\"\nLINE 1: alter type estado_envio drop value 'cancelado';\n                                     ^"
+    }
+   ],
+   "cap": "Con un enum, agregar un valor se puede, pero sacarlo no existe (el último comando da un error de sintaxis, porque esa orden no existe). La documentación lo confirma: los valores no se pueden quitar, salvo borrar y recrear el tipo [#bd06-pg-enum]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con texto y `check`, cambiar la lista es reemplazar la regla en una sola orden, y eso incluye sacar valores. No hay un ganador absoluto: el enum ocupa 4 bytes y se ordena en el orden en que lo declaraste; el texto con `check` es más flexible. Para mí, en una tabla que crece rápido y cuya lista de estados va a cambiar, el `check` es más cómodo, y es el camino que eligió Senda, como se ve más abajo."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "alter table bultos\n  drop constraint bultos_estado_check,\n  add constraint bultos_estado_check\n      check (estado in ('recibido', 'en_ruta', 'entregado', 'cancelado', 'perdido'));",
+     "s": "ALTER TABLE"
+    },
+    {
+     "c": "insert into bultos (codigo, peso_kg, estado) values ('BUL-000020', 3, 'perdido') returning id, estado;",
+     "s": " id | estado  \n----+---------\n 14 | perdido\n(1 row)\n\nINSERT 0 1"
+    }
+   ],
+   "cap": "Agregar «perdido» a los estados permitidos: se saca la regla vieja y se pone la nueva en una sola orden, y los datos existentes se revisan contra la nueva."
+  },
+  {
+   "t": "h",
+   "x": "Restricciones: las reglas que viven en la tabla"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una **restricción** es una regla que cada fila tiene que cumplir para entrar o quedarse en la tabla. Hay una para cada tipo de error. Esta es la tabla de bultos de hoy, con todas las reglas, y el ejemplo completo de las demás se corrió contra ella:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table bultos (\n  id           bigint generated always as identity primary key,\n  codigo       text not null unique check (codigo ~ '^BUL-[0-9]{6}$'),\n  peso_kg      numeric(6,2) not null check (peso_kg > 0),\n  estado       text not null default 'recibido'\n               check (estado in ('recibido', 'en_ruta', 'entregado', 'cancelado')),\n  descuento    numeric(4,2) check (descuento between 0 and 50),\n  remito       text unique,\n  entregado_en timestamptz,\n  creado       timestamptz not null default now(),\n  constraint entregado_con_fecha check ((estado = 'entregado') = (entregado_en is not null))\n);",
+   "cap": "bultos.sql, para el día de hoy. El `~` compara contra una expresión regular: el código tiene que ser `BUL-` seguido de seis dígitos. Datos inventados."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El control de la puerta del depósito",
+   "x": [
+    "Pensalas como los controles que un depósito hace al recibir un bulto: la balanza que rechaza un peso de cero (`check`), el sello que exige un código completo (`not null`), la planilla que no deja repetir un número de remito (`unique`), el casillero que se completa solo con la fecha del día (`default`). Ninguna persona del depósito necesita acordarse de nada: el control está en la puerta y vale para cualquier camión.",
+    "Dónde deja de valer: el control de la puerta mira un bulto por vez. Una regla que compare con lo que ya está adentro del depósito, o con otro depósito, no se puede tomar desde la puerta; eso es parte del límite de `check`, más abajo."
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**`not null`**: la columna no puede quedar vacía. Sin esta regla, vacío (`NULL`) es un valor más.",
+    "**`default`**: el valor que se usa cuando el `INSERT` no menciona la columna. Puede ser una expresión (`now()`), que se evalúa **cada vez que se inserta una fila**, no cuando se crea la tabla [#bd06-pg-default]. Es un valor por defecto, no una regla: si el `INSERT` pone otro, gana el otro.",
+    "**`unique`**: dos filas no pueden tener el mismo valor. Se apoya en un índice; en [@09-20] lo vas a ver.",
+    "**`check`**: una condición que tiene que dar verdadera para esa fila, pudiendo mirar varias columnas a la vez."
+   ],
+   "ord": false
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Regla",
+    "Qué impide",
+    "Qué hace con un NULL",
+    "Mira"
+   ],
+   "filas": [
+    [
+     "`not null`",
+     "Dejar el casillero vacío",
+     "Lo rechaza (es su único trabajo)",
+     "Una columna"
+    ],
+    [
+     "`unique`",
+     "Repetir un valor en otra fila",
+     "Los deja pasar, y varios a la vez",
+     "Todas las filas, por un índice"
+    ],
+    [
+     "`check`",
+     "Un valor que incumple una condición",
+     "Lo deja pasar (da «desconocido»)",
+     "Solo la fila que se escribe"
+    ],
+    [
+     "`default`",
+     "Nada: completa lo que falta",
+     "Solo actúa si no se menciona la columna",
+     "Una columna"
+    ]
+   ],
+   "cap": "Resumen de lo que se corre más abajo [#be28-postgres-fk]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "insert into bultos (codigo, peso_kg) values ('XYZ-1', 3);",
+     "s": "ERROR:  new row for relation \"bultos\" violates check constraint \"bultos_codigo_check\"\nDETAIL:  Failing row contains (2, XYZ-1, 3.00, recibido, null, null, null, 2026-11-13 20:23:30.829894+00)."
+    },
+    {
+     "c": "insert into bultos (codigo, peso_kg) values ('BUL-000002', 0);",
+     "s": "ERROR:  new row for relation \"bultos\" violates check constraint \"bultos_peso_kg_check\"\nDETAIL:  Failing row contains (3, BUL-000002, 0.00, recibido, null, null, null, 2026-11-13 20:23:30.830692+00)."
+    },
+    {
+     "c": "insert into bultos (codigo, peso_kg, estado) values ('BUL-000002', 3, 'perdido');",
+     "s": "ERROR:  new row for relation \"bultos\" violates check constraint \"bultos_estado_check\"\nDETAIL:  Failing row contains (4, BUL-000002, 3.00, perdido, null, null, null, 2026-11-13 20:23:30.830859+00)."
+    },
+    {
+     "c": "insert into bultos (codigo, peso_kg, estado) values ('BUL-000002', 3, 'entregado');",
+     "s": "ERROR:  new row for relation \"bultos\" violates check constraint \"entregado_con_fecha\"\nDETAIL:  Failing row contains (5, BUL-000002, 3.00, entregado, null, null, null, 2026-11-13 20:23:30.830989+00)."
+    },
+    {
+     "c": "insert into bultos (codigo, peso_kg, estado, entregado_en) values ('BUL-000002', 3, 'entregado', now()) returning id, estado;",
+     "s": " id |  estado   \n----+-----------\n  6 | entregado\n(1 row)\n\nINSERT 0 1"
+    },
+    {
+     "c": "insert into bultos (codigo, peso_kg) values ('BUL-000003', null);",
+     "s": "ERROR:  null value in column \"peso_kg\" of relation \"bultos\" violates not-null constraint\nDETAIL:  Failing row contains (7, BUL-000003, null, recibido, null, null, null, 2026-11-13 20:23:30.831832+00)."
+    }
+   ],
+   "cap": "Seis intentos contra esas reglas. Cada error trae el nombre de la regla y la fila rechazada. Las reglas sin nombre propio reciben uno automático (`bultos_codigo_check`); el cruce entre dos columnas, que sí lo tiene, se llama `entregado_con_fecha`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en la regla `entregado_con_fecha`: dice que un bulto está `entregado` **si y solo si** tiene fecha de entrega. Ningún programa puede dejar un bulto «entregado» sin fecha, ni uno con fecha que no esté entregado. Cuando una regla involucra dos columnas de la misma fila, `check` es la herramienta."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Dos trampas con NULL"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "insert into bultos (codigo, peso_kg, descuento) values ('BUL-000004', 5, null) returning descuento;",
+     "s": " descuento \n-----------\n          \n(1 row)\n\nINSERT 0 1"
+    },
+    {
+     "c": "insert into bultos (codigo, peso_kg, descuento) values ('BUL-000005', 5, 80);",
+     "s": "ERROR:  new row for relation \"bultos\" violates check constraint \"bultos_descuento_check\"\nDETAIL:  Failing row contains (9, BUL-000005, 5.00, recibido, 80.00, null, null, 2026-11-13 20:23:30.855115+00)."
+    },
+    {
+     "c": "insert into bultos (codigo, peso_kg, remito) values ('BUL-000006', 5, null), ('BUL-000007', 5, null) returning id, remito;",
+     "s": " id | remito \n----+--------\n 10 | \n 11 | \n(2 rows)\n\nINSERT 0 2"
+    },
+    {
+     "c": "insert into bultos (codigo, peso_kg, remito) values ('BUL-000008', 5, 'R-1'), ('BUL-000009', 5, 'R-1');",
+     "s": "ERROR:  duplicate key value violates unique constraint \"bultos_remito_key\"\nDETAIL:  Key (remito)=(R-1) already exists."
+    }
+   ],
+   "cap": "Tres cosas que sorprenden. Un `check` no frena un NULL (el descuento vacío pasó; el 80 no). Un `unique` deja entrar muchos NULL (dos remitos vacíos). Y un remito repetido, sí se rechaza."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "NULL pasa por el check y por el unique",
+   "x": [
+    "**`check`**: según la documentación, una restricción se cumple si la condición da verdadero **o desconocido**; como casi toda comparación con NULL da desconocido, un `check` no impide los vacíos. Para eso está `not null` [#be28-postgres-fk].",
+    "**`unique`**: dos NULL no se consideran iguales, así que se pueden guardar varias filas con la columna vacía. Se cambia con `unique nulls not distinct` [#be28-postgres-fk]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create table r2 (remito text unique nulls not distinct);",
+     "s": "CREATE TABLE"
+    },
+    {
+     "c": "insert into r2 values (null);",
+     "s": "INSERT 0 1"
+    },
+    {
+     "c": "insert into r2 values (null);",
+     "s": "ERROR:  duplicate key value violates unique constraint \"r2_remito_key\"\nDETAIL:  Key (remito)=(null) already exists."
+    }
+   ],
+   "cap": "Con `nulls not distinct`, el segundo NULL ya choca."
+  },
+  {
+   "t": "h3",
+   "x": "Agregar una regla a una tabla que ya tiene datos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El primer día de una tabla es fácil: nadie rompió nada todavía. Lo difícil es sumar una regla cuando ya hay filas, y alguna no la cumple. `alter table … add constraint` revisa **todas** las filas y, si una falla, no agrega nada. La salida de emergencia se llama `not valid`: la regla se aplica desde ya a las filas nuevas y se saltea las viejas; cuando las arreglás, `validate constraint` hace la revisión completa [#bd06-pg-altertable]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "insert into viajes values (1, 120), (2, -5);",
+     "s": "INSERT 0 2"
+    },
+    {
+     "c": "alter table viajes add constraint km_positivo check (km > 0);",
+     "s": "ERROR:  check constraint \"km_positivo\" of relation \"viajes\" is violated by some row"
+    },
+    {
+     "c": "alter table viajes add constraint km_positivo check (km > 0) not valid;",
+     "s": "ALTER TABLE"
+    },
+    {
+     "c": "insert into viajes values (3, -9);",
+     "s": "ERROR:  new row for relation \"viajes\" violates check constraint \"km_positivo\"\nDETAIL:  Failing row contains (3, -9)."
+    },
+    {
+     "c": "alter table viajes validate constraint km_positivo;",
+     "s": "ERROR:  check constraint \"km_positivo\" of relation \"viajes\" is violated by some row"
+    },
+    {
+     "c": "update viajes set km = 5 where id = 2;",
+     "s": "UPDATE 1"
+    },
+    {
+     "c": "alter table viajes validate constraint km_positivo;",
+     "s": "ALTER TABLE"
+    }
+   ],
+   "cap": "La secuencia entera. Sin `not valid`, la regla no se acepta mientras haya una fila mala. Con `not valid`, rige para lo nuevo (el -9 se rechazó) pero `validate` sigue fallando hasta que se corrige la fila vieja."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "La base como última defensa",
+   "x": [
+    "Un dato pasa por varias capas: la pantalla, el servidor ([@07-07]) y la base. Cada una atrapa errores distintos. Las reglas de la base tienen una ventaja: valen para **todos** los que escriben, no solo para la app que las recordó. Una migración, un script de un jueves a la noche, otra app o un servidor con un error pasan por las mismas reglas. Y una regla `unique` es la única que funciona bien bajo concurrencia: dos pedidos simultáneos no pueden colarse los dos.",
+    "Tiene un límite que la documentación aclara: un `check` solo puede mirar la fila que se está escribiendo; no sirve para reglas que comparan con otras filas o con otras tablas [#be28-postgres-fk]. Para eso están las claves foráneas ([@09-07]) y la lógica de negocio ([@07-08])."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Querés que un chofer no pueda tener dos viajes «en curso» al mismo tiempo. ¿Alcanza con un `check`?",
+   "resp": "No: el `check` ve solo la fila que se escribe, no los otros viajes del chofer. Hace falta una regla que mire varias filas, como un índice único parcial (único por chofer, solo para las filas en curso), que vas a ver con los índices ([@09-20]), o un bloqueo en el servidor ([@07-08])."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 1: elegí el tipo.** Para cada dato, elegí un tipo y una regla: (a) el importe de una tarifa en pesos, (b) la patente de un camión, (c) si un chofer está activo, (d) el momento en que se entregó un bulto, (e) las coordenadas de un punto de entrega.",
+   "pista": "Pensá en lo que pasa si el valor se calcula, se compara o se muestra en otra zona horaria, y en qué es lo que no puede fallar.",
+   "solucion": [
+    "(a) `numeric(12,2)` con `check (importe >= 0)`: es plata, tiene que ser exacto. (b) `text` con un `check` de formato (por ejemplo, con una expresión regular) y `unique`: el largo es chico y el formato es una regla, no un tipo. (c) `boolean not null default true`: sin `not null`, «activo» tendría tres estados (sí, no y vacío). (d) `timestamptz`, vacío hasta que se entregue, y la regla `entregado_con_fecha` de hoy. (e) Dos columnas `double precision` (latitud y longitud) con `check` de rango (de -90 a 90 y de -180 a 180): son medidas, el flotante alcanza. `jsonb` también serviría, pero sacás poder de consulta."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 2: una regla entre dos columnas.** Un bulto cancelado tiene que tener un motivo. Agregá la columna `motivo` y la regla. ¿Qué dice la base si intentás cancelar sin motivo?",
+   "pista": "La condición se lee «o no está cancelado, o tiene motivo»: `estado <> 'cancelado' or motivo is not null`.",
+   "solucion": [
+    "Con `alter table bultos add column motivo text;` y `alter table bultos add constraint cancelado_con_motivo check (estado <> 'cancelado' or motivo is not null);`, el intento de cancelar sin motivo dio `ERROR: new row for relation \"bultos\" violates check constraint \"cancelado_con_motivo\"`, con la fila rechazada. Con `motivo = 'dirección inexistente'` entró. Un bulto en otro estado puede tener el motivo vacío, porque la primera mitad de la condición ya es verdadera."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 3: mostrar bien no es calcular bien.** En PostgreSQL, ¿qué da `0.1::real + 0.2::real`? ¿Y si lo ampliás a `double precision` antes de mostrarlo?",
+   "pista": "La respuesta tiene que ver con la precisión de 6 dígitos decimales que la documentación asigna a `real`.",
+   "solucion": [
+    "Mostró `0.3`, pero al ampliarlo con `::float8` apareció `0.30000001192092896`: el `real` guarda unos 6 a 7 dígitos decimales y redondea al mostrar. Con `double precision` directo, `0.30000000000000004`. Con `numeric`, `0.3` exacto. La moraleja es la del encabezado: lo que ves no es necesariamente lo que hay guardado."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Qué reglas pone Senda en su base",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. Las migraciones de Senda son un buen ejemplo de reglas para todos los gustos, y hay tres cosas que se pueden verificar:",
+    "1) **Tipos y reglas básicas** en `respuestas` (lo que guarda cada respuesta del Espadeo y la Travesía): `nivel smallint not null check (nivel between 1 and 5)`, `segundos smallint check (segundos between 0 and 600)` y `creado timestamptz not null default now()`. Copié esa definición tal cual a mi PostgreSQL: un nivel 9 y 4.000 segundos fueron rechazados con `respuestas_nivel_check` y `respuestas_segundos_check`, y los segundos vacíos pasaron, porque el `check` deja pasar el NULL. Es el ejemplo de arriba.",
+    "2) **Reglas entre columnas**: la tabla `amistades` tiene `check (de <> para)` (nadie es amigo de sí mismo) y `eventos` tiene `check ((alcance = 'grupo') = (grupo is not null))`, la misma idea que `entregado_con_fecha`: un evento de grupo trae el grupo, y uno general no.",
+    "3) **Texto con `check` en lugar de enum**: una búsqueda en todas las migraciones no encontró ningún tipo enum. Los estados y tipos son `text` con `check … in (…)`, y cuando apareció un juego nuevo la lista se reemplazó: `alter table public.torneos drop constraint if exists torneos_juego;` y `add constraint torneos_juego check (juego in ('trivia', 'letra', 'quien'))`, la forma de `cambio` de hoy.",
+    "Un detalle más: la migración `20261127000000_seguridad.sql` agrega un bloque de topes de tamaño (la base gratis es de 500 MB) con la forma `alter table … add constraint … check (…) not valid`, por ejemplo `respuestas_pregunta_corta check (char_length(pregunta) <= 80) not valid`. No encontré ningún `validate constraint` en las migraciones: esas reglas rigen para lo que se escriba desde ahora, y las filas viejas quedan como estaban."
+   ],
+   "archivos": [
+    "supabase/migrations/20261026000000_inicio.sql",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261122000000_desafios.sql",
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create table public.respuestas (\n  id bigint generated always as identity primary key,\n  anonimo uuid not null,\n  pregunta text not null,\n  nivel smallint not null check (nivel between 1 and 5),\n  acierto boolean not null,\n  segundos smallint check (segundos between 0 and 600),\n  creado timestamptz not null default now()\n);",
+     "s": "CREATE TABLE"
+    },
+    {
+     "c": "insert into public.respuestas (anonimo, pregunta, nivel, acierto, segundos) values (gen_random_uuid(), 'p1', 3, true, 12);",
+     "s": "INSERT 0 1"
+    },
+    {
+     "c": "insert into public.respuestas (anonimo, pregunta, nivel, acierto) values (gen_random_uuid(), 'p1', 9, true);",
+     "s": "ERROR:  new row for relation \"respuestas\" violates check constraint \"respuestas_nivel_check\"\nDETAIL:  Failing row contains (2, 248f3cb1-ddd9-451a-9b8e-e185e708a473, p1, 9, t, null, 2026-11-13 20:24:11.497537+00)."
+    },
+    {
+     "c": "insert into public.respuestas (anonimo, pregunta, nivel, acierto, segundos) values (gen_random_uuid(), 'p1', 3, true, 4000);",
+     "s": "ERROR:  new row for relation \"respuestas\" violates check constraint \"respuestas_segundos_check\"\nDETAIL:  Failing row contains (3, 1d76ab48-affc-4acb-b2f8-cba304203dd0, p1, 3, t, 4000, 2026-11-13 20:24:11.497783+00)."
+    },
+    {
+     "c": "insert into public.respuestas (anonimo, pregunta, nivel, acierto, segundos) values (gen_random_uuid(), 'p1', 3, true, null) returning segundos;",
+     "s": " segundos \n----------\n         \n(1 row)\n\nINSERT 0 1"
+    }
+   ],
+   "cap": "Corrida contra mi PostgreSQL con la definición de `respuestas` copiada de la migración."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué puede cambiar",
+   "x": "Todo lo de hoy es de PostgreSQL 16.15 (13-11-2026). Los tipos y las reglas básicas son estándar y estables. Lo que depende de la versión es lo nuevo: `unique nulls not distinct` funcionó en la 16.15 que usé; si tu versión es más vieja, puede no existir. La 18 suma columnas generadas virtuales y restricciones sobre rangos de tiempo [#bd05-pg18-notas]. Antes de usar algo que no conocés, leé la documentación de la versión que tengas instalada."
+  }
+ ],
+ "recap": [
+  "Un tipo define qué valores caben, qué operaciones tienen sentido y cuántos bytes ocupa. PostgreSQL es estricto con los tipos; SQLite, por defecto, no.",
+  "Los enteros (2, 4 y 8 bytes) fallan con aviso al desbordarse. Para dinero, `numeric`; el flotante es rápido pero guarda aproximaciones: diez veces 0,1 dieron 0,9999999999999999.",
+  "`text` alcanza para casi todo texto; `timestamptz` guarda un instante en UTC y lo muestra en la zona de la sesión.",
+  "`not null`, `default`, `unique` y `check` son las reglas básicas. El error trae el nombre de la regla y la fila rechazada.",
+  "Un `check` deja pasar los NULL y un `unique` deja entrar varios NULL; hay que sumar `not null` o `nulls not distinct`.",
+  "`not valid` permite agregar una regla sin revisar las filas viejas; `validate constraint` hace la revisión cuando ya las corregiste."
+ ],
+ "repaso": [
+  {
+   "p": "Una tabla de tarifas guarda los importes en `double precision`. Al cierre, el total de 10 tarifas de 0,10 da 0,9999999999999999. ¿Cuál es la explicación y la solución correctas?",
+   "o": [
+    "El servidor suma en el orden equivocado, y la solución es ordenar las tarifas antes de sumarlas siempre",
+    "La columna es de un tamaño insuficiente, y la solución es pasarla a `bigint` para que quepan más dígitos",
+    "La base tiene un error de suma, y la solución es redondear el total a dos decimales antes de guardarlo",
+    "El binario no representa 0,1 exacto, y la solución es usar `numeric`, que guarda los dígitos decimales tal cual"
+   ],
+   "c": 3,
+   "e": "El 0,1 es una fracción periódica en binario, como 1/3 en decimal, y cada suma arrastra un error mínimo. `numeric` guarda decimales exactos. Redondear tapa el síntoma y arriesga errores acumulados; `bigint` no tiene decimales; y el orden no cambia que cada valor ya es una aproximación."
+  },
+  {
+   "p": "Un `check (descuento between 0 and 50)` está puesto en una columna sin `not null`. ¿Qué pasa si se inserta una fila con el descuento vacío (`NULL`)?",
+   "o": [
+    "La fila se rechaza solo si hay otra fila con el descuento vacío, porque el `check` revisa los repetidos",
+    "La fila se rechaza, porque un valor vacío nunca está entre 0 y 50 y el `check` lo considera falso",
+    "La fila entra con el descuento en 0, porque la base reemplaza el vacío por el límite inferior permitido",
+    "La fila entra, porque el `check` se cumple si la condición da verdadero o desconocido, y con NULL da desconocido"
+   ],
+   "c": 3,
+   "e": "En PostgreSQL, un `check` solo rechaza cuando la condición da falso. Con NULL la comparación da desconocido y la fila pasa. Para impedir los vacíos hace falta `not null`. La base no reemplaza nada por su cuenta, y el `check` no mira otras filas."
+  },
+  {
+   "p": "Una columna `remito text unique` recibe tres filas con el remito vacío. ¿Qué pasa en PostgreSQL 16 con la definición estándar?",
+   "o": [
+    "Las tres entran, porque dos NULL no se consideran iguales y por eso no violan la regla de unicidad",
+    "Entran las tres, pero la base las marca como duplicadas para que alguien las revise más tarde",
+    "Entra la primera y se rechazan las otras dos, porque todos los vacíos se consideran el mismo valor",
+    "Se rechazan las tres, porque una columna `unique` exige que cada fila tenga un valor no vacío"
+   ],
+   "c": 0,
+   "e": "Con `unique` común, los NULL se consideran distintos entre sí, y entran todos. Si querés que un solo NULL sea posible, existe `unique nulls not distinct` (corrido hoy). `unique` no exige valor (para eso es `not null`), y la base no marca duplicados: o acepta o rechaza."
+  },
+  {
+   "p": "Hay una tabla con millones de filas y se necesita sumar `check (km > 0)`, pero se sabe que unas pocas filas viejas tienen km en cero. ¿Qué forma permite agregar la regla ya mismo para lo nuevo y arreglar lo viejo después?",
+   "o": [
+    "`add constraint … check (km > 0) not valid` y más tarde `validate constraint` cuando las filas viejas estén corregidas",
+    "Borrar las filas que no cumplen antes de agregar la regla, porque la base no permite una regla a medias",
+    "`add constraint … check (km > 0)` normal, porque la base ignora las filas viejas que no cumplan la regla",
+    "Agregarla como `default (km > 0)` para que la base corrija sola las filas viejas cuando las vuelva a leer"
+   ],
+   "c": 0,
+   "e": "Sin `not valid`, `add constraint` revisa todo y falla ante una sola fila mala (corrido hoy). `not valid` aplica la regla a lo nuevo y difiere la revisión de lo viejo. Borrar datos para acomodar una regla suele ser peor que corregirlos, y un `default` solo rellena columnas ausentes."
+  },
+  {
+   "p": "Se quiere que un bulto esté `entregado` si y solo si tiene fecha de entrega. ¿Qué regla expresa eso?",
+   "o": [
+    "`not null` en `entregado_en`, que obliga a todos los bultos a tener fecha de entrega desde el principio",
+    "`check ((estado = 'entregado') = (entregado_en is not null))`, que compara las dos columnas de la misma fila",
+    "`default now()` en `entregado_en`, que completa la fecha con la hora actual en todos los bultos nuevos",
+    "`unique (estado, entregado_en)`, que impide repetir la combinación de estado y fecha en dos filas"
+   ],
+   "c": 1,
+   "e": "Una regla entre dos columnas de la misma fila es un `check`. `unique` prohíbe repetir combinaciones, no relaciona columnas; `not null` exigiría fecha incluso a los bultos que todavía no se entregaron; y `default now()` marcaría como entregado todo lo que se cree."
+  },
+  {
+   "p": "Una columna de estados tiene un `enum` de tres valores y el negocio decide eliminar uno de ellos. ¿Qué es verdad en PostgreSQL?",
+   "o": [
+    "`alter type … drop value` lo quita, siempre que no haya filas que lo usen en ninguna tabla",
+    "Los valores de un enum se quitan solos cuando nadie los usa durante un tiempo configurable",
+    "Se puede quitar con `alter type … rename`, que borra el valor y reacomoda los que quedan",
+    "No hay una orden para quitar un valor de un enum: hay que borrar y recrear el tipo, o usar texto con `check`"
+   ],
+   "c": 3,
+   "e": "La documentación dice que los valores existentes no se pueden quitar de un enum salvo recreando el tipo; en la corrida de hoy `drop value` dio un error de sintaxis. `rename` cambia el nombre de un valor, no lo quita, y no hay limpieza automática. Con texto y `check`, la lista se cambia reemplazando la regla."
+  }
+ ],
+ "feynman": "Explicale a un jefe de depósito, sin jerga, por qué una planilla acepta que alguien escriba «pesado» donde van kilos y una base de datos no, y qué ventaja trae eso cuando varios programas escriben en la misma tabla. Usá un ejemplo propio de reglas, distinto de los bultos.",
+ "para_profundizar": [
+  {
+   "fuente": "bd06-pg-numeric",
+   "nota": "El capítulo de PostgreSQL sobre tipos numéricos. Leé la tabla de rangos y la sección de números de precisión arbitraria: es la fuente de las cifras de hoy."
+  },
+  {
+   "fuente": "be28-postgres-fk",
+   "nota": "El capítulo de restricciones. Sirve para las secciones de CHECK, NOT NULL y UNIQUE, con la aclaración sobre los NULL y el límite de que un CHECK mira solo la fila."
+  },
+  {
+   "fuente": "bd06-pg-altertable",
+   "nota": "La referencia de ALTER TABLE: busca ADD table_constraint con NOT VALID y VALIDATE CONSTRAINT, que son las dos órdenes de la sección de agregar reglas a una tabla con datos."
+  },
+  {
+   "fuente": "bd06-pg-enum",
+   "nota": "La página de tipos enumerados, corta, con el aviso de que los valores no se pueden quitar y la lista de lo que sí se puede hacer."
+  }
+ ],
+ "videos": [
+  {
+   "q": "PostgreSQL data types numeric vs float money constraints not null unique check explained",
+   "por_que": "Para escuchar la diferencia entre numeric y los flotantes con otro ejemplo, y ver las restricciones en una consola distinta a la nuestra."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "tipo SQL",
+   "d": "La clase de valor que admite una columna (entero, texto, fecha, booleano…). Define qué valores caben, qué operaciones tienen sentido y cuántos bytes ocupa. PostgreSQL rechaza lo que no cuadra con el tipo."
+  },
+  {
+   "t": "NOT NULL",
+   "d": "Restricción que prohíbe dejar una columna vacía. Sin ella, NULL es un valor más. Es la única forma de impedir los vacíos: `check` y `unique` los dejan pasar."
+  },
+  {
+   "t": "UNIQUE",
+   "d": "Restricción que impide que dos filas tengan el mismo valor en una columna o combinación de columnas. Por defecto acepta varios NULL, porque no los considera iguales."
+  },
+  {
+   "t": "CHECK",
+   "d": "Restricción con una condición que cada fila tiene que cumplir, y que puede mirar varias columnas de esa misma fila. Se cumple si la condición da verdadero o desconocido, y no ve otras filas."
+  },
+  {
+   "t": "valor por defecto",
+   "d": "El valor que la base usa cuando un `INSERT` no menciona la columna (`default`). Si es una expresión como `now()`, se evalúa en cada inserción. No es una regla: el `INSERT` puede poner otro valor."
+  },
+  {
+   "t": "numeric",
+   "d": "Tipo de PostgreSQL para números decimales exactos, con precisión (dígitos totales) y escala (dígitos después de la coma) declaradas. Recomendado para dinero; más lento que los enteros y los flotantes."
+  },
+  {
+   "t": "restricción",
+   "d": "Regla que la base hace cumplir sobre las filas de una tabla: `not null`, `unique`, `check`, clave primaria o foránea. Una violación hace fallar la sentencia entera."
+  },
+  {
+   "t": "NOT VALID",
+   "d": "Modificador de `alter table … add constraint` que aplica la regla solo a las filas nuevas y saltea la revisión de las existentes. Se completa con `validate constraint` cuando ya se corrigieron."
+  },
+  {
+   "t": "timestamptz",
+   "d": "Tipo de PostgreSQL para un instante en el tiempo. Se guarda en UTC y se muestra en la zona horaria de la sesión."
+  }
+ ],
+ "siguiente": "Claves primarias y foráneas: cómo la base identifica cada fila de forma única, qué diferencia hay entre una clave natural y una sustituta (un número, un UUID) y cómo evita que un bulto apunte a un depósito que no existe.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd05-pg18-notas",
+   "t": "PostgreSQL 18.0 Release Notes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2025,
+   "url": "https://www.postgresql.org/docs/release/18.0/"
+  },
+  {
+   "id": "bd06-pg-numeric",
+   "t": "PostgreSQL 16: Numeric Types",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/datatype-numeric.html"
+  },
+  {
+   "id": "bd06-pg-character",
+   "t": "PostgreSQL 16: Character Types",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/datatype-character.html"
+  },
+  {
+   "id": "bd06-pg-datetime",
+   "t": "PostgreSQL 16: Date/Time Types",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/datatype-datetime.html"
+  },
+  {
+   "id": "bd06-pg-json",
+   "t": "PostgreSQL 16: JSON Types",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/datatype-json.html"
+  },
+  {
+   "id": "bd06-pg-enum",
+   "t": "PostgreSQL 16: Enumerated Types",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/datatype-enum.html"
+  },
+  {
+   "id": "bd06-pg-default",
+   "t": "PostgreSQL 16: Default Values",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/ddl-default.html"
+  },
+  {
+   "id": "bd06-pg-altertable",
+   "t": "PostgreSQL 16: ALTER TABLE",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/sql-altertable.html"
+  },
+  {
+   "id": "bd06-sqlite-strict",
+   "t": "SQLite: STRICT Tables",
+   "a": "SQLite",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.sqlite.org/stricttables.html"
+  }
+ ]
+}
