@@ -1,0 +1,651 @@
+{
+ "id": "07-28",
+ "titulo": "Laboratorio: una API mínima con autenticación y base de datos",
+ "bajada": "Construís de punta a punta una API real, con registro, login, rutas protegidas, autorización por dueño y base de datos, y la probás con curl y con una prueba automática.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Construir una API con Express 5 y PostgreSQL que registre personas, guarde contraseñas con hash y entregue tokens de sesión.",
+  "Proteger rutas y chequear en el servidor que cada recurso pertenezca a quien lo pide.",
+  "Validar la entrada con un esquema, responder los errores con un formato único y dejar una línea de log por pedido.",
+  "Escribir una prueba de punta a punta que recorra la API real y detecte una falla de autorización.",
+  "Medir el costo de un hash lento y de una consulta sin índice, y resolver cinco ejercicios sobre el mismo código."
+ ],
+ "venis_de": "En los días anteriores de esta parte viste cada pieza por separado: rutas y middleware ([@07-05]), capas ([@07-06]), validación ([@07-07]), contraseñas ([@07-09]), sesiones ([@07-10]), autorización ([@07-11]) y logs ([@07-12]). Ayer sumaste los criterios para elegir tecnología ([@07-27]). Hoy se juntan las piezas en un servicio que corre en tu máquina.",
+ "se_apoya_en": [
+  "07-04",
+  "07-05",
+  "07-06",
+  "07-07",
+  "07-09",
+  "07-10",
+  "07-11",
+  "07-12",
+  "07-27"
+ ],
+ "gancho": [
+  "Hasta acá leíste cómo es un backend. Hoy lo construís. El caso, inventado, es el de un depósito chico: cada persona se registra, inicia sesión y gestiona sus envíos (a quién van, a qué dirección, cuántos bultos y en qué estado están). Nadie puede ver ni tocar los envíos de otra persona, y un envío entregado no se puede cancelar. Es poco código y casi todo lo que viste en la parte está adentro.",
+  "Todo lo de este día lo corrí en esta máquina, con un PostgreSQL propio y datos inventados. Los tiempos son de una sola máquina virtual compartida, y las contraseñas y tokens son de práctica. Al terminar tenés una API con nueve pruebas verdes y cinco ejercicios donde la rompés a propósito para ver qué pasa."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué vamos a construir y con qué"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una **API de ejemplo** es un servicio mínimo pero completo: tiene todas las piezas que tiene un backend real (entrada validada, identidad, permisos, base de datos, errores uniformes, registros) y le faltan, a propósito, las que solo importan en producción. Sirve para ver cómo conversan las piezas sin perderse en detalles. Más abajo vas a ver exactamente qué le falta a esta."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pieza",
+    "Qué usamos",
+    "Por qué"
+   ],
+   "filas": [
+    [
+     "Servidor web",
+     "Express 5.3.0 sobre Node 22.23.4",
+     "Es el que viste en [@07-05]; la versión 5 reenvía solo los errores de las funciones `async`"
+    ],
+    [
+     "Base de datos",
+     "PostgreSQL 16.15, local",
+     "Es la misma base de datos que usa Senda, y lo normal en proyectos nuevos"
+    ],
+    [
+     "Conexión a la base",
+     "`pg` 8.23.1 (node-postgres)",
+     "El cliente de PostgreSQL para Node; con parámetros `$1`, `$2`"
+    ],
+    [
+     "Validación",
+     "`zod` 4.6.7",
+     "Describe la forma de los datos y rechaza lo que no calza ([@07-07])"
+    ],
+    [
+     "Contraseñas",
+     "`scrypt` de `node:crypto`",
+     "Viene con Node, no suma dependencias; es una opción aceptada por OWASP"
+    ],
+    [
+     "Pruebas",
+     "`node:test` y `fetch`",
+     "También vienen con Node: ninguna dependencia nueva"
+    ]
+   ],
+   "cap": "Versiones leídas del registro de npm y de la máquina el 13-11-2026. El código completo está en los bloques de abajo."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 13-11-2026",
+   "x": "La versión 5.0.0 de Express se publicó en npm el 10-09-2024 y la última al día de hoy es la 5.3.0 (publicada el 09-10-2026), según el registro de npm [#be28-npm-express]. Con Express 5, una función de ruta `async` que lanza un error o rechaza una promesa lo envía sola al manejador de errores, como si se hubiera llamado a `next(err)` [#be28-express-migrar-5]. Con Express 4 había que atrapar cada error a mano. Las versiones de las demás librerías cambian seguido: antes de copiar este código a un proyecto real, corré `npm view <paquete> version`."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Cliente",
+       "s": "curl o una app",
+       "k": "cliente"
+      },
+      {
+       "t": "Identificador y log",
+       "s": "middleware: id del pedido, hora de inicio",
+       "k": "red",
+       "e": "pedido HTTP"
+      },
+      {
+       "t": "Lectura del JSON",
+       "s": "máximo 10 KB",
+       "k": "red"
+      }
+     ],
+     "baja": "y por ruta:"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Sesión",
+       "s": "token → persona (si la ruta lo pide)",
+       "k": "servidor"
+      },
+      {
+       "t": "Validación",
+       "s": "zod: 400 con campo y problema",
+       "k": "servidor"
+      },
+      {
+       "t": "Regla y SQL",
+       "s": "dueño en el WHERE, transiciones",
+       "k": "servidor"
+      },
+      {
+       "t": "PostgreSQL",
+       "s": "restricciones como última defensa",
+       "k": "datos"
+      }
+     ],
+     "baja": "si algo falla en cualquier paso:"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Manejador de errores",
+       "s": "un solo formato: código, mensaje, id del pedido",
+       "k": "alerta"
+      }
+     ]
+    }
+   ],
+   "cap": "El recorrido de un pedido por esta API. Es la cadena de middleware de [@07-05] aplicada a un servicio entero."
+  },
+  {
+   "t": "h",
+   "x": "Paso 1: las tablas, con restricciones"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Se empieza por los datos, porque todo lo demás se apoya en ellos. Son tres tablas: `usuarios`, `sesiones` y `envios`. Las restricciones (que el email sea único, que los bultos estén entre 1 y 500, que el estado sea uno de cuatro valores) las pone la base además del código. Es una defensa en profundidad: si un día alguien escribe un endpoint nuevo y se olvida de validar, la base rechaza igual el valor imposible ([@07-08]).",
+    "Fijate en lo que *no* hay: la tabla `envios` no tiene un índice sobre `usuario_id`. PostgreSQL no lo crea solo al declarar la clave foránea, y su documentación aclara que la declaración de una clave foránea no crea automáticamente un índice en las columnas que referencian [#be28-postgres-fk]. Lo dejo así a propósito: lo vas a necesitar en el ejercicio 3."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table usuarios (\n  id            bigint generated always as identity primary key,\n  email         text not null unique,\n  nombre        text not null,\n  password_hash text not null,\n  creado        timestamptz not null default now()\n);\n\ncreate table sesiones (\n  token_hash text primary key,\n  usuario_id bigint not null references usuarios(id) on delete cascade,\n  expira     timestamptz not null\n);\n\ncreate table envios (\n  id           bigint generated always as identity primary key,\n  usuario_id   bigint not null references usuarios(id) on delete cascade,\n  destinatario text not null check (length(destinatario) between 1 and 80),\n  direccion    text not null check (length(direccion) between 1 and 120),\n  bultos       int  not null check (bultos between 1 and 500),\n  estado       text not null default 'pendiente'\n               check (estado in ('pendiente', 'en_ruta', 'entregado', 'cancelado')),\n  creado       timestamptz not null default now()\n);",
+   "cap": "schema.sql. Se carga con psql contra la base envios_lab, que creé en mi PostgreSQL local con un usuario de práctica."
+  },
+  {
+   "t": "h",
+   "x": "Paso 2: contraseñas y tokens"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Este módulo es el más corto y el más delicado. Hay cuatro decisiones, todas visibles en el código.",
+    "**Qué algoritmo.** La guía de OWASP al 13-11-2026 recomienda Argon2id con 19 MiB de memoria, 2 iteraciones y paralelismo 1, y dice que, si no está disponible, se use scrypt con costo 2^17, bloque de tamaño 8 y paralelismo 1 [#be28-owasp-password-storage]. En Node 22.23.4 no existe `crypto.argon2` (lo comprobé: `typeof` da `undefined`), así que uso scrypt con esos parámetros mínimos. Si tu versión de Node ya trae Argon2, es la primera opción.",
+    "**Qué se guarda.** Una sola cadena con el algoritmo, los parámetros, la [[sal]] y el hash: `scrypt$131072$8$1$sal$hash`. Los parámetros viajan adentro para poder subir el costo más adelante sin romper a los usuarios viejos. La sal es de 16 bytes al azar por contraseña, así que dos personas con la misma clave tienen hashes distintos.",
+    "**Cómo se compara.** `timingSafeEqual` compara sin cortar en el primer byte distinto, para no filtrar información por el tiempo que tarda. Y cuando el email no existe, igual se hace un hash (`HASH_FALSO`), para que la respuesta tarde lo mismo que cuando la contraseña está mal.",
+    "**Qué es el token.** 32 bytes al azar pasados a texto: un *token opaco*, sin información adentro. En la base se guarda solo su huella SHA-256, de modo que si alguien lee la tabla `sesiones` no puede usar los tokens. Acá alcanza un hash rápido, porque un token de 256 bits al azar no se adivina probando. Con una contraseña humana la situación es opuesta, como vas a medir ahora."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { scrypt, randomBytes, timingSafeEqual, createHash } from 'node:crypto';\nimport { promisify } from 'node:util';\n\nconst scryptAsync = promisify(scrypt);\n// Parámetros mínimos de OWASP para scrypt: N = 2^17, r = 8, p = 1.\nconst N = 2 ** 17, R = 8, P = 1;\nconst MAXMEM = 256 * 1024 * 1024; // scrypt necesita 128 * N * r bytes = 128 MiB\n\nexport async function hashear(password) {\n  const sal = randomBytes(16);\n  const h = await scryptAsync(password, sal, 64, { N, r: R, p: P, maxmem: MAXMEM });\n  return ['scrypt', N, R, P, sal.toString('base64'), h.toString('base64')].join('$');\n}\n\nexport async function verificar(password, guardado) {\n  const [alg, n, r, p, sal, esperado] = guardado.split('$');\n  if (alg !== 'scrypt') return false;\n  const h = await scryptAsync(password, Buffer.from(sal, 'base64'), 64,\n    { N: Number(n), r: Number(r), p: Number(p), maxmem: MAXMEM });\n  return timingSafeEqual(h, Buffer.from(esperado, 'base64'));\n}\n\n// Un hash falso para gastar el mismo tiempo cuando el email no existe.\nexport const HASH_FALSO = await hashear('no-importa-esto-es-un-relleno');\n\nexport const nuevoToken = () => randomBytes(32).toString('base64url');\n// El token tiene 256 bits al azar: alcanza con SHA-256, no hace falta un hash lento.\nexport const huella = (token) => createHash('sha256').update(token).digest('hex');",
+   "cap": "src/seguridad.js. La línea con `await hashear(...)` fuera de una función se ejecuta una vez al arrancar el módulo."
+  },
+  {
+   "t": "p",
+   "x": "Medí cuánto cuesta cada intento, con un script que hashea una vez y verifica cinco, y compará con SHA-256 corriendo en el mismo hilo:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Operación",
+    "Tiempo o ritmo",
+    "Intentos por segundo (un hilo)"
+   ],
+   "filas": [
+    [
+     "scrypt con N = 2^17",
+     "338 ms al hashear, 327 ms al verificar",
+     "3,1"
+    ],
+    [
+     "SHA-256 de `clave` + número",
+     "unos 1,6 microsegundos",
+     "608.921"
+    ]
+   ],
+   "cap": "Medido el 13-11-2026 en una VM de 4 núcleos compartida, con Node 22.23.4 (una segunda corrida dio 3,0 y 613.572). SHA-256 se llamó desde Node, de a un texto por vez; un programa especializado probaría mucho más rápido. Es un orden de magnitud, no un récord."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La relación es de unas 200.000 veces: si alguien robara la tabla `usuarios`, probar claves contra un hash de scrypt le costaría 200.000 veces más que contra un SHA-256 sin sal. Ese es el objetivo de un hash lento: no hace imposible el [[ataque de diccionario]], lo vuelve caro.",
+    "Pero hay otra cara. Cada hash ocupa unos 128 MiB mientras corre (Node lo explica: scrypt necesita aproximadamente 128 × N × r bytes [#cripto-node-crypto]) y unos 340 ms de procesador. Además, `scrypt` asíncrono corre en el grupo de hilos de [[libuv]], que por defecto tiene 4 hilos, como viste en el [@07-04]. Lo medí contra la API, con logins simultáneos:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node concurrentes.mjs",
+     "s": "1 logins a la vez: latencias 359 ms; total 359 ms\n4 logins a la vez: latencias 345, 356, 360, 382 ms; total 383 ms\n8 logins a la vez: latencias 361, 363, 373, 381, 686, 689, 695, 708 ms; total 711 ms"
+    }
+   ],
+   "cap": "Segunda corrida, 13-11-2026 (la primera tuvo más ruido, con latencias de 345 a 1.107 ms en el caso de 8). Cuatro logins entran juntos; los otros cuatro esperan su turno."
+  },
+  {
+   "t": "p",
+   "x": "Los cuatro primeros se resuelven a la vez y los cuatro siguientes esperan, así que el último tarda el doble. Esto conecta con el [@07-27]: elegir un hash lento es una decisión de seguridad que trae un [[costo oculto]] de procesador y de memoria, y que convierte al login en un blanco fácil si cualquiera puede llamarlo sin límite. En el ejercicio 1 vas a poner ese límite."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: la ventanilla de despacho",
+   "x": "Un depósito con cuatro ventanillas de despacho, donde cada trámite lleva siempre 350 ms de revisión manual. Con cuatro camiones en la puerta, los cuatro se atienden juntos; con ocho, los últimos cuatro esperan y salen al doble de tiempo. Las ventanillas son los hilos del grupo de libuv. La analogía deja de valer en que acá la revisión es lenta a propósito: es la que encarece cada intento de un atacante, y por eso la solución no es agregar ventanillas sino limitar quién llega a ellas."
+  },
+  {
+   "t": "pensa",
+   "x": "Un login con un email que no existe tarda lo mismo (unos 350 ms) que uno con la contraseña mal. Pensá qué información le daría a un atacante que el primero respondiera en 2 milisegundos.",
+   "resp": "Le diría qué emails tienen cuenta: probando una lista de correos, los que tarden 350 ms existen y los que tarden 2 ms no. Eso se llama enumeración de usuarios, y sirve para armar ataques de fuerza bruta o de engaño dirigidos. Medí los dos casos en esta API: con un email existente y clave mala, 0,38 a 0,43 s; con un email inexistente, 0,31 a 0,39 s. Un camino sin hash, como el del ejercicio 1, tarda entre 1 y 2 ms."
+  },
+  {
+   "t": "h",
+   "x": "Paso 3: la API"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora las rutas. Para leerlas mejor, el archivo `src/app.js` está partido en dos bloques. El primero tiene lo que rodea a las rutas: el log, el error propio, los esquemas de zod, la tabla de transiciones permitidas y el middleware que convierte un token en una persona. El segundo, la función que arma la aplicación con sus rutas."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import express from 'express';\nimport { randomUUID } from 'node:crypto';\nimport { z } from 'zod';\nimport { pool } from './db.js';\nimport { hashear, verificar, HASH_FALSO, nuevoToken, huella } from './seguridad.js';\n\nconst HORAS_SESION = 8;\n\nexport function log(nivel, datos) {\n  console.log(JSON.stringify({ t: new Date().toISOString(), nivel, ...datos }));\n}\n\nclass ErrorHttp extends Error {\n  constructor(estado, codigo, mensaje, detalles) {\n    super(mensaje);\n    Object.assign(this, { estado, codigo, detalles });\n  }\n}\n\n// --- Esquemas de entrada: lo que no cumple, ni entra a la lógica ---\nconst Registro = z.object({\n  email: z.email().max(120).transform((s) => s.toLowerCase()),\n  nombre: z.string().trim().min(1).max(60),\n  password: z.string().min(10).max(128),\n});\nconst Login = z.object({ email: z.email().transform((s) => s.toLowerCase()), password: z.string().min(1).max(128) });\nconst NuevoEnvio = z.object({\n  destinatario: z.string().trim().min(1).max(80),\n  direccion: z.string().trim().min(1).max(120),\n  bultos: z.number().int().min(1).max(500),\n});\nconst CambioEstado = z.object({ estado: z.enum(['en_ruta', 'entregado', 'cancelado']) });\nconst Id = z.string().regex(/^[1-9]\\d{0,17}$/);\n\n// Regla de negocio: de qué estado se puede pasar a cuál.\nconst TRANSICIONES = { pendiente: ['en_ruta', 'cancelado'], en_ruta: ['entregado'], entregado: [], cancelado: [] };\n\nconst leer = (esquema, datos) => {\n  const r = esquema.safeParse(datos);\n  if (!r.success) {\n    const detalles = r.error.issues.map((i) => ({ campo: i.path.join('.'), problema: i.message }));\n    throw new ErrorHttp(400, 'entrada_invalida', 'Los datos enviados no son válidos', detalles);\n  }\n  return r.data;\n};\n\n// --- Middleware de autenticación: del token a la persona ---\nasync function exigirSesion(req, _res, next) {\n  const m = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.get('authorization') ?? '');\n  if (!m) throw new ErrorHttp(401, 'sin_sesion', 'Falta una sesión válida');\n  const { rows } = await pool.query(\n    `select u.id, u.email from sesiones s join usuarios u on u.id = s.usuario_id\n     where s.token_hash = $1 and s.expira > now()`, [huella(m[1])]);\n  if (rows.length === 0) throw new ErrorHttp(401, 'sin_sesion', 'Falta una sesión válida');\n  req.usuario = rows[0];\n  req.tokenHash = huella(m[1]);\n  next();\n}\n",
+   "cap": "src/app.js, primera parte: el log, los errores, los esquemas y la autenticación."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "export function crearApp() {\n  const app = express();\n  app.disable('x-powered-by');\n\n  app.use((req, res, next) => { // identificador de pedido + una línea de log por respuesta\n    req.id = randomUUID();\n    res.set('X-Request-Id', req.id);\n    const t0 = process.hrtime.bigint();\n    res.on('finish', () => log('info', {\n      id: req.id, metodo: req.method, ruta: req.route?.path ?? 'sin_ruta',\n      estado: res.statusCode, ms: Number(process.hrtime.bigint() - t0) / 1e6,\n      usuario: req.usuario?.id ?? null,\n    }));\n    next();\n  });\n  app.use(express.json({ limit: '10kb' }));\n\n  app.post('/registro', async (req, res) => {\n    const d = leer(Registro, req.body);\n    try {\n      const { rows } = await pool.query(\n        'insert into usuarios (email, nombre, password_hash) values ($1, $2, $3) returning id, email, nombre',\n        [d.email, d.nombre, await hashear(d.password)]);\n      res.status(201).json(rows[0]);\n    } catch (e) {\n      if (e.code === '23505') throw new ErrorHttp(409, 'email_repetido', 'Ya existe una cuenta con ese email');\n      throw e;\n    }\n  });\n\n  app.post('/login', async (req, res) => {\n    const d = leer(Login, req.body);\n    const { rows } = await pool.query('select id, password_hash from usuarios where email = $1', [d.email]);\n    const ok = await verificar(d.password, rows[0]?.password_hash ?? HASH_FALSO);\n    if (rows.length === 0 || !ok) throw new ErrorHttp(401, 'credenciales', 'Email o contraseña incorrectos');\n    const token = nuevoToken();\n    const { rows: [s] } = await pool.query(\n      `insert into sesiones (token_hash, usuario_id, expira)\n       values ($1, $2, now() + make_interval(hours => $3)) returning expira`,\n      [huella(token), rows[0].id, HORAS_SESION]);\n    res.json({ token, expira: s.expira });\n  });\n\n  app.post('/logout', exigirSesion, async (req, res) => {\n    await pool.query('delete from sesiones where token_hash = $1', [req.tokenHash]);\n    res.status(204).end();\n  });\n\n  app.get('/yo', exigirSesion, (req, res) => res.json(req.usuario));\n\n  app.post('/envios', exigirSesion, async (req, res) => {\n    const d = leer(NuevoEnvio, req.body);\n    const { rows } = await pool.query(\n      `insert into envios (usuario_id, destinatario, direccion, bultos) values ($1, $2, $3, $4)\n       returning id, destinatario, direccion, bultos, estado, creado`,\n      [req.usuario.id, d.destinatario, d.direccion, d.bultos]);\n    res.status(201).json(rows[0]);\n  });\n\n  app.get('/envios', exigirSesion, async (req, res) => {\n    const { rows } = await pool.query(\n      `select id, destinatario, direccion, bultos, estado, creado from envios\n       where usuario_id = $1 order by id desc limit 50`, [req.usuario.id]);\n    res.json(rows);\n  });\n\n  // Dueño del recurso: la búsqueda lleva el usuario. Si no es tuyo, para vos no existe (404).\n  async function envioPropio(req) {\n    const id = leer(Id, req.params.id);\n    const { rows } = await pool.query(\n      'select id, destinatario, direccion, bultos, estado, creado from envios where id = $1 and usuario_id = $2',\n      [id, req.usuario.id]);\n    if (rows.length === 0) throw new ErrorHttp(404, 'no_encontrado', 'No existe ese envío');\n    return rows[0];\n  }\n\n  app.get('/envios/:id', exigirSesion, async (req, res) => res.json(await envioPropio(req)));\n\n  app.patch('/envios/:id/estado', exigirSesion, async (req, res) => {\n    const { estado: nuevo } = leer(CambioEstado, req.body);\n    const envio = await envioPropio(req);\n    if (!TRANSICIONES[envio.estado].includes(nuevo)) {\n      throw new ErrorHttp(409, 'transicion_invalida', `Un envío ${envio.estado} no puede pasar a ${nuevo}`);\n    }\n    const { rows } = await pool.query( // compare-and-set: solo si sigue en el estado que leímos\n      `update envios set estado = $1 where id = $2 and usuario_id = $3 and estado = $4\n       returning id, destinatario, direccion, bultos, estado, creado`,\n      [nuevo, envio.id, req.usuario.id, envio.estado]);\n    if (rows.length === 0) throw new ErrorHttp(409, 'cambio_concurrente', 'El envío cambió mientras lo procesábamos');\n    res.json(rows[0]);\n  });\n\n  app.use((_req, _res, next) => next(new ErrorHttp(404, 'ruta_inexistente', 'Esa ruta no existe')));\n\n  // Manejador de errores: un solo formato para todo lo que sale mal.\n  app.use((err, req, res, _next) => {\n    if (err.type === 'entity.parse.failed') err = new ErrorHttp(400, 'json_invalido', 'El cuerpo no es JSON válido');\n    if (err.type === 'entity.too.large') err = new ErrorHttp(413, 'cuerpo_grande', 'El cuerpo supera los 10 KB');\n    if (!(err instanceof ErrorHttp)) {\n      log('error', { id: req.id, mensaje: err.message, pila: err.stack?.split('\\n').slice(0, 3) });\n      err = new ErrorHttp(500, 'error_interno', 'Algo salió mal de nuestro lado');\n    }\n    res.status(err.estado).json({ error: { codigo: err.codigo, mensaje: err.message, detalles: err.detalles }, id: req.id });\n  });\n\n  return app;\n}",
+   "cap": "src/app.js, segunda parte: las rutas. El log usa `req.route?.path`, el patrón (`/envios/:id`) y no la URL con el id, para poder agrupar."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import pg from 'pg';\n\n// La URL de conexión viene del entorno, nunca del código (día 19 de esta parte).\nexport const pool = new pg.Pool({\n  connectionString: process.env.DATABASE_URL,\n  max: 10,\n});\n\n// src/servidor.js\nimport { crearApp } from './app.js';\nimport { log } from './app.js';\n\nconst puerto = Number(process.env.PORT ?? 3000);\ncrearApp().listen(puerto, '127.0.0.1', () => log('info', { evento: 'escuchando', puerto }));",
+   "cap": "src/db.js y src/servidor.js (el segundo no tiene lógica; sirve para poder arrancar la aplicación en las pruebas sin abrir un puerto fijo). La URL de la base viene de la variable de entorno `DATABASE_URL`, no del código ([@07-19])."
+  },
+  {
+   "t": "h3",
+   "x": "Las decisiones que conviene discutir"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Se valida en la puerta.** Cada ruta pasa el cuerpo por un esquema de zod antes de tocar la lógica ([@07-07]). Lo que no calza da un 400 con el campo y el problema. Un detalle: los mensajes de zod vienen en inglés; el contrato con el cliente es el campo y el código `entrada_invalida`, no la frase.",
+    "**Un solo formato de error.** Todo lo que sale mal pasa por el último middleware y devuelve `{ error: { codigo, mensaje, detalles }, id }`, con el mismo identificador que quedó en el log ([@07-12]). Los errores que no son nuestros (una caída de la base, un bug) se loguean con detalle pero al cliente le llega un 500 genérico, sin la pila.",
+    "**El dueño va en el WHERE.** `envioPropio` busca `where id = $1 and usuario_id = $2`. Si el envío existe pero es de otra persona, para ella es un 404: la consulta no lo encuentra. Es la defensa contra la falla que OWASP pone en el primer lugar de su lista de riesgos de APIs, que describe como muy común porque el servidor no sigue el estado del cliente y depende de identificadores que manda el cliente [#be28-owasp-bola]. Devolver 404 en lugar de 403 es un criterio mío: no confirma que el recurso existe. Tiene un costo: quien tiene permiso legítimo recibe menos información.",
+    "**La regla de negocio es una tabla.** `TRANSICIONES` dice de qué estado se puede pasar a cuál. Para cambiar la regla se toca una línea, y la prueba la cubre.",
+    "**Compare-and-set.** El `update` repite `and estado = $4`: solo cambia el envío si sigue en el estado que leímos. Si dos pedidos llegan a la vez, uno gana y el otro recibe un 409 en lugar de pisar el cambio.",
+    "**Los ids llegan como texto.** `\"id\":\"1\"` y no `1`. Un `bigint` de PostgreSQL puede valer más que el mayor entero seguro de JavaScript (2^53 − 1), y `pg` devuelve como texto los tipos que no convierte [#node-postgres-types]. Lo viste en las respuestas de más abajo."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El `update` de `PATCH /envios/:id/estado` repite `and usuario_id = $3` aunque `envioPropio` ya había comprobado que el envío es de la persona. ¿Para qué sirve la segunda comprobación?",
+   "resp": "Es una defensa en profundidad: si alguien reutiliza el update desde otra ruta y se olvida de llamar a `envioPropio`, la condición del dueño sigue protegiendo los datos. Cuesta una condición más en el SQL y no cambia el resultado cuando todo está bien."
+  },
+  {
+   "t": "h",
+   "x": "Paso 4: probarla con curl"
+  },
+  {
+   "t": "p",
+   "x": "Con el servidor corriendo en el puerto 19738, este es el recorrido completo de dos personas inventadas, Ana y Beto. Acorté los tokens (son valores de práctica que ya no sirven) y dejé las respuestas tal como salieron:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "B=http://127.0.0.1:19738; H='Content-Type: application/json'",
+     "s": ""
+    },
+    {
+     "c": "curl -s -i -X POST $B/registro -H \"$H\" -d '{\"email\":\"Ana@Ejemplo.com\",\"nombre\":\"Ana\",\"password\":\"una-clave-larga-de-practica\"}' | grep -E '^HTTP|^X-Request|^\\{'",
+     "s": "HTTP/1.1 201 Created\nX-Request-Id: 3ecc5eaa-7fa0-4e2e-8412-0a4e54506f52\n{\"id\":\"1\",\"email\":\"ana@ejemplo.com\",\"nombre\":\"Ana\"}"
+    },
+    {
+     "c": "curl -s -X POST $B/registro -H \"$H\" -d '{\"email\":\"ANA@ejemplo.com\",\"nombre\":\"Otra\",\"password\":\"otra-clave-larga-1\"}'",
+     "s": "{\"error\":{\"codigo\":\"email_repetido\",\"mensaje\":\"Ya existe una cuenta con ese email\"},\"id\":\"5cff2968-c270-4c64-88fb-5ce240a2a134\"}"
+    },
+    {
+     "c": "curl -s -X POST $B/registro -H \"$H\" -d '{\"email\":\"no-es-un-email\",\"nombre\":\"\",\"password\":\"corta\"}'",
+     "s": "{\"error\":{\"codigo\":\"entrada_invalida\",\"mensaje\":\"Los datos enviados no son válidos\",\"detalles\":[{\"campo\":\"email\",\"problema\":\"Invalid email address\"},{\"campo\":\"nombre\",\"problema\":\"Too small: expected string to have >=1 characters\"},{\"campo\":\"password\",\"problema\":\"Too small: expected string to have >=10 characters\"}]},\"id\":\"a34aae94-8aa2-4e86-98d7-a3a32612eb03\"}"
+    },
+    {
+     "c": "TOKEN=$(curl -s -X POST $B/login -H \"$H\" -d '{\"email\":\"ana@ejemplo.com\",\"password\":\"una-clave-larga-de-practica\"}' | jq -r .token)",
+     "s": ""
+    },
+    {
+     "c": "curl -s -i $B/envios | grep -E '^HTTP|^\\{'",
+     "s": "HTTP/1.1 401 Unauthorized\n{\"error\":{\"codigo\":\"sin_sesion\",\"mensaje\":\"Falta una sesión válida\"},\"id\":\"53cf38b9-9cd8-42b0-8d6a-6ecaa37a792d\"}"
+    },
+    {
+     "c": "curl -s -X POST $B/envios -H \"$H\" -H \"Authorization: Bearer $TOKEN\" -d '{\"destinatario\":\"Ferretería Norte\",\"direccion\":\"Av. Inventada 123\",\"bultos\":12}'",
+     "s": "{\"id\":\"1\",\"destinatario\":\"Ferretería Norte\",\"direccion\":\"Av. Inventada 123\",\"bultos\":12,\"estado\":\"pendiente\",\"creado\":\"2026-11-13T19:33:50.170Z\"}"
+    },
+    {
+     "c": "curl -s -i $B/envios/1 -H \"Authorization: Bearer $TOKEN_DE_BETO\" | grep -E '^HTTP|^\\{'",
+     "s": "HTTP/1.1 404 Not Found\n{\"error\":{\"codigo\":\"no_encontrado\",\"mensaje\":\"No existe ese envío\"},\"id\":\"b8e42ceb-0ff4-4758-9ba8-d66c977f3f8b\"}"
+    },
+    {
+     "c": "curl -s -i -X PATCH $B/envios/1/estado -H \"$H\" -H \"Authorization: Bearer $TOKEN\" -d '{\"estado\":\"entregado\"}' | grep -E '^HTTP|^\\{'",
+     "s": "HTTP/1.1 409 Conflict\n{\"error\":{\"codigo\":\"transicion_invalida\",\"mensaje\":\"Un envío pendiente no puede pasar a entregado\"},\"id\":\"736fbc67-afdc-4001-899e-955f5ba5b5d2\"}"
+    },
+    {
+     "c": "curl -s -X PATCH $B/envios/1/estado -H \"$H\" -H \"Authorization: Bearer $TOKEN\" -d '{\"estado\":\"en_ruta\"}'",
+     "s": "{\"id\":\"1\",\"destinatario\":\"Ferretería Norte\",\"direccion\":\"Av. Inventada 123\",\"bultos\":12,\"estado\":\"en_ruta\",\"creado\":\"2026-11-13T19:33:50.170Z\"}"
+    },
+    {
+     "c": "curl -s -i -X POST $B/logout -H \"Authorization: Bearer $TOKEN\" | grep -E '^HTTP'",
+     "s": "HTTP/1.1 204 No Content"
+    },
+    {
+     "c": "curl -s -i $B/yo -H \"Authorization: Bearer $TOKEN\" | grep -E '^HTTP|^\\{'",
+     "s": "HTTP/1.1 401 Unauthorized\n{\"error\":{\"codigo\":\"sin_sesion\",\"mensaje\":\"Falta una sesión válida\"},\"id\":\"a1f0bc23-3aa7-4e40-af6d-a40161f27d5e\"}"
+    }
+   ],
+   "cap": "Salida real de una corrida completa (las dos personas, Ana y Beto, se registraron antes; el token de Beto aparece como $TOKEN_DE_BETO). Los id de pedido y las horas son los que salieron."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos detalles de esa salida valen una mirada. El primero: Beto tiene el id 3, no el 2. El intento repetido de registrar a Ana falló por el email único, pero gastó un número de la secuencia de identidades; las secuencias de PostgreSQL no se deshacen cuando una inserción falla, así que no hay que esperar ids consecutivos. El segundo: el 409 del segundo registro se produjo después de hashear la contraseña, lo que cuesta unos 350 ms para un intento que va a fallar; ahora lo sabés medir.",
+    "Y esto es lo que el servidor dejó en su log, una línea por pedido, en JSON, sin contraseñas ni tokens:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cut -c1-200 servidor.log   # algunas líneas",
+     "s": "{\"t\":\"2026-11-13T19:33:49.445Z\",\"nivel\":\"info\",\"id\":\"cea77915-...\",\"metodo\":\"POST\",\"ruta\":\"/login\",\"estado\":200,\"ms\":351.2,\"usuario\":null}\n{\"t\":\"2026-11-13T19:33:50.172Z\",\"nivel\":\"info\",\"id\":\"75cb931c-...\",\"metodo\":\"POST\",\"ruta\":\"/envios\",\"estado\":201,\"ms\":5.6,\"usuario\":\"1\"}\n{\"t\":\"2026-11-13T19:33:50.188Z\",\"nivel\":\"info\",\"id\":\"b8e42ceb-...\",\"metodo\":\"GET\",\"ruta\":\"/envios/:id\",\"estado\":404,\"ms\":2.2,\"usuario\":\"3\"}"
+    }
+   ],
+   "cap": "Tres líneas del log del servidor (acorté los identificadores y redondeé los milisegundos). Se ve de un vistazo que el login cuesta 351 ms y que crear un envío cuesta 5,6 ms."
+  },
+  {
+   "t": "h",
+   "x": "Paso 5: una prueba de punta a punta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Probar con curl sirve para mirar, pero no queda. Una **prueba de punta a punta** recorre el sistema entero tal como lo usaría un cliente: levanta la aplicación de verdad, le manda pedidos HTTP reales, pasa por Express, por zod, por el SQL y por PostgreSQL, y mira las respuestas. Se diferencia de una prueba unitaria en que no reemplaza ninguna pieza por un simulacro. Es más lenta y más completa: si algo se rompe en la unión de dos piezas, esta es la que se entera.",
+    "Estas nueve pruebas corren con `node:test`, que viene con Node [#dep14-node-test]. Cada una cuenta una frase: lo que el sistema promete."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { test, before, after } from 'node:test';\nimport assert from 'node:assert/strict';\nimport { crearApp } from '../src/app.js';\nimport { pool } from '../src/db.js';\n\nlet servidor, base;\nconst api = async (metodo, ruta, cuerpo, token) => {\n  const r = await fetch(base + ruta, {\n    method: metodo,\n    headers: { 'Content-Type': 'application/json', ...(token && { Authorization: `Bearer ${token}` }) },\n    body: cuerpo === undefined ? undefined : JSON.stringify(cuerpo),\n  });\n  return { estado: r.status, cuerpo: r.status === 204 ? null : await r.json() };\n};\nconst alta = async (email) => {\n  await api('POST', '/registro', { email, nombre: 'Prueba', password: 'clave-de-practica-1' });\n  return (await api('POST', '/login', { email, password: 'clave-de-practica-1' })).cuerpo.token;\n};\n\nbefore(async () => {\n  await pool.query('truncate usuarios, sesiones, envios restart identity cascade');\n  servidor = crearApp().listen(0, '127.0.0.1');\n  await new Promise((ok) => servidor.once('listening', ok));\n  base = `http://127.0.0.1:${servidor.address().port}`;\n});\nafter(async () => { servidor.close(); await pool.end(); });\n\ntest('registro: guarda un hash, no la contraseña, y rechaza emails repetidos', async () => {\n  const r = await api('POST', '/registro', { email: 'ana@ejemplo.com', nombre: 'Ana', password: 'una-clave-larga-de-practica' });\n  assert.equal(r.estado, 201);\n  const { rows } = await pool.query(\"select password_hash from usuarios where email = 'ana@ejemplo.com'\");\n  assert.match(rows[0].password_hash, /^scrypt\\$131072\\$8\\$1\\$/);\n  assert.ok(!rows[0].password_hash.includes('una-clave'));\n  const otra = await api('POST', '/registro', { email: 'ANA@ejemplo.com', nombre: 'Otra', password: 'otra-clave-larga-1' });\n  assert.equal(otra.estado, 409);\n});\n\ntest('validación: datos inválidos dan 400 con el campo y el problema', async () => {\n  const r = await api('POST', '/registro', { email: 'no-es-un-email', nombre: '', password: 'corta' });\n  assert.equal(r.estado, 400);\n  assert.equal(r.cuerpo.error.codigo, 'entrada_invalida');\n  assert.deepEqual(r.cuerpo.error.detalles.map((d) => d.campo).sort(), ['email', 'nombre', 'password']);\n});\n\ntest('login: contraseña mala y email inexistente dan el mismo 401', async () => {\n  const mala = await api('POST', '/login', { email: 'ana@ejemplo.com', password: 'incorrecta-1234' });\n  const nadie = await api('POST', '/login', { email: 'nadie@ejemplo.com', password: 'incorrecta-1234' });\n  assert.equal(mala.estado, 401);\n  assert.equal(nadie.estado, 401);\n  assert.deepEqual(mala.cuerpo.error, nadie.cuerpo.error);\n});\n\ntest('rutas protegidas: sin token o con token inventado, 401', async () => {\n  assert.equal((await api('GET', '/envios')).estado, 401);\n  assert.equal((await api('GET', '/envios', undefined, 'x'.repeat(43))).estado, 401);\n});\n\ntest('inyección SQL en el email no logra nada', async () => {\n  const r = await api('POST', '/login', { email: \"x@y.com' OR '1'='1\", password: 'cualquiera-123' });\n  assert.equal(r.estado, 400);\n});\n\ntest('envíos: cada persona ve solo los suyos y un envío ajeno es un 404', async () => {\n  const ana = await alta('ana2@ejemplo.com');\n  const beto = await alta('beto@ejemplo.com');\n  const creado = await api('POST', '/envios', { destinatario: 'Ferretería Norte', direccion: 'Av. Inventada 123', bultos: 12 }, ana);\n  assert.equal(creado.estado, 201);\n  const id = creado.cuerpo.id;\n  assert.equal((await api('GET', `/envios/${id}`, undefined, ana)).estado, 200);\n  assert.equal((await api('GET', `/envios/${id}`, undefined, beto)).estado, 404);\n  assert.equal((await api('PATCH', `/envios/${id}/estado`, { estado: 'cancelado' }, beto)).estado, 404);\n  assert.deepEqual((await api('GET', '/envios', undefined, beto)).cuerpo, []);\n  assert.equal((await api('GET', '/envios', undefined, ana)).cuerpo.length, 1);\n});\n\ntest('regla de negocio: un envío entregado no se puede cancelar', async () => {\n  const t = await alta('carla@ejemplo.com');\n  const { cuerpo: e } = await api('POST', '/envios', { destinatario: 'Kiosco Sur', direccion: 'Calle Falsa 456', bultos: 3 }, t);\n  assert.equal((await api('PATCH', `/envios/${e.id}/estado`, { estado: 'entregado' }, t)).estado, 409);\n  assert.equal((await api('PATCH', `/envios/${e.id}/estado`, { estado: 'en_ruta' }, t)).estado, 200);\n  assert.equal((await api('PATCH', `/envios/${e.id}/estado`, { estado: 'entregado' }, t)).estado, 200);\n  const r = await api('PATCH', `/envios/${e.id}/estado`, { estado: 'cancelado' }, t);\n  assert.equal(r.estado, 409);\n  assert.equal(r.cuerpo.error.codigo, 'transicion_invalida');\n});\n\ntest('logout: el token deja de servir', async () => {\n  const t = await alta('dani@ejemplo.com');\n  assert.equal((await api('GET', '/yo', undefined, t)).estado, 200);\n  assert.equal((await api('POST', '/logout', undefined, t)).estado, 204);\n  assert.equal((await api('GET', '/yo', undefined, t)).estado, 401);\n});\n\ntest('errores: JSON roto da 400 y un cuerpo enorme da 413', async () => {\n  const roto = await fetch(base + '/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{\"email\":' });\n  assert.equal(roto.status, 400);\n  const grande = await api('POST', '/login', { email: 'a@b.com', password: 'x'.repeat(20000) });\n  assert.equal(grande.estado, 413);\n});",
+   "cap": "test/e2e.test.js. `crearApp().listen(0)` pide un puerto libre al sistema, para que la prueba no choque con nada. La prueba vacía las tablas con `truncate` antes de empezar."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "DATABASE_URL=postgres://api_lab:clave-de-practica-falsa@127.0.0.1:19728/envios_lab npm test",
+     "s": "✔ registro: guarda un hash, no la contraseña, y rechaza emails repetidos (763.96ms)\n✔ validación: datos inválidos dan 400 con el campo y el problema (5.71ms)\n✔ login: contraseña mala y email inexistente dan el mismo 401 (674.64ms)\n✔ rutas protegidas: sin token o con token inventado, 401 (6.34ms)\n✔ inyección SQL en el email no logra nada (2.90ms)\n✔ envíos: cada persona ve solo los suyos y un envío ajeno es un 404 (1279.21ms)\n✔ regla de negocio: un envío entregado no se puede cancelar (645.63ms)\n✔ logout: el token deja de servir (616.25ms)\n✔ errores: JSON roto da 400 y un cuerpo enorme da 413 (6.63ms)\nℹ tests 9\nℹ pass 9\nℹ fail 0\nℹ duration_ms 4553.09"
+    }
+   ],
+   "cap": "Salida del 13-11-2026, recortada (omití las líneas de recuento en cero y redondeé los tiempos). Los tiempos de 600 a 1.300 ms son los de scrypt: el resto responde en menos de 10 ms."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Dos advertencias sobre estas pruebas",
+   "x": [
+    "La primera: la prueba «inyección SQL» pasa por una razón distinta de la que sugiere su nombre. El email con comillas se rechaza por la validación (un 400 porque no es un email), así que nunca llega a la consulta. La verdadera defensa son los parámetros `$1`, y la vas a ver funcionar en el ejercicio 4.",
+    "La segunda: estas pruebas hacen `truncate` sobre la base que usan. Acá es una base de práctica; en un proyecto real tienen que correr contra una base propia de pruebas, nunca contra datos reales."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Lo que le falta a esta API para producción",
+   "x": [
+    "Es la lista de lo que quedó afuera a propósito. Falta HTTPS (la API escucha en `127.0.0.1`; en producción un proxy termina la conexión segura), un límite de intentos de login (ejercicio 1), una herramienta de migraciones para evolucionar las tablas, un lugar seguro para los secretos, recuperación de contraseña, verificación de email, renovación de sesiones (hoy dura 8 horas y punto), paginación, respaldos de la base y un apagado ordenado del servidor. Cada una es tema de otros días de este estudio."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cinco ejercicios sobre el mismo código"
+  },
+  {
+   "t": "p",
+   "x": "Los cinco se resolvieron en copias del código, y cada solución trae la salida que dio. Intentá cada uno antes de abrir la solución."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 1: un límite de intentos.** El login es caro (340 ms de procesador y 128 MiB cada uno) y cualquiera puede llamarlo. Agregá un límite de 5 intentos por minuto por email que responda 429 sin hashear nada.",
+   "pista": "Un `Map` en memoria con la cuenta de intentos y el instante en que vence la ventana. Se chequea justo después de validar el cuerpo y antes de tocar la base.",
+   "solucion": [
+    "Una posible solución: una función `limitar(clave, max = 5, ventanaMs = 60_000)` con un `Map` de `clave → { cuenta, hasta }`. Si no hay entrada o venció, se crea con cuenta 1; si no, se suma uno y, si pasa de 5, se lanza `new ErrorHttp(429, 'demasiados_intentos', ...)`. Se llama con `limitar(d.email)` justo después de `leer(Login, req.body)`.",
+    "Resultado con siete intentos seguidos con clave mala: los cinco primeros dieron 401 y tardaron entre 0,33 y 0,36 s; el sexto y el séptimo dieron 429 en 1,7 y 1,4 milisegundos. El rechazo ya no gasta el hash, y por eso protege también al procesador.",
+    "Los límites de esta solución: vive en la memoria de un solo proceso (se pierde al reiniciar y no se comparte entre varias copias del servidor; para eso se usa un almacén compartido como Redis, tema del [@07-15]) y, al estar atado al email, permite que alguien bloquee a una víctima a propósito. Un sistema real combina varias claves, como la dirección IP y el email."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 2: romper la autorización.** En `envioPropio`, quitá `and usuario_id = $2` de la consulta (y el parámetro sobrante) y corré `npm test`. ¿Qué prueba falla y qué te dice la falla?",
+   "pista": "Una prueba que dice «un envío ajeno es un 404» tendría que ponerse roja si la API devolviera el envío a otra persona.",
+   "solucion": [
+    "Falla una sola prueba, la de los envíos ajenos, con `AssertionError: Expected values to be strictly equal: 200 !== 404`, en la línea donde Beto pide el envío de Ana. Las otras ocho siguen en verde: ninguna otra miraba ese comportamiento. La API rota funciona perfecto para quien solo usa sus propios datos, y por eso este error no se ve a ojo ni en una demostración.",
+    "Es el tipo de falla que el [@07-11] llama autorización a nivel de objeto, y la razón de peso para tener una prueba que intente justamente lo prohibido. Restaurá la condición y volvé a correr: nueve en verde."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 3: el índice que faltaba.** Cargá 300.000 envíos repartidos entre 3.000 personas (usá `generate_series` en una base de práctica aparte) y medí con `EXPLAIN (ANALYZE, BUFFERS)` la consulta de la lista de una persona que tiene solo 3 envíos. Después creá un índice y volvé a medir.",
+   "pista": "El índice que sirve es sobre `(usuario_id, id desc)`, porque la consulta filtra por usuario y ordena por id descendente.",
+   "solucion": [
+    "Sin índice, el plan recorrió la clave primaria hacia atrás filtrando fila por fila: `Rows Removed by Filter: 100000` por cada uno de los tres procesos, unas 5.900 a 6.100 páginas leídas de la memoria y entre 28 y 45 milisegundos en tres corridas. Con `create index envios_usuario_idx on envios (usuario_id, id desc)`, el plan pasó a `Index Scan`, leyó 7 páginas y tardó menos de 0,1 milisegundo. El índice ocupa 9,3 MB contra 33 MB de la tabla.",
+    "Lo que enseña: sin el índice, el costo de la consulta crece con el tamaño de toda la tabla, no con la cantidad de envíos de la persona. Si la tabla creciera diez veces, esperarías un costo del orden de diez veces mayor (es una extrapolación, no la medí). Y el índice no es gratis: ocupa espacio y cada inserción tiene que actualizarlo. La documentación de PostgreSQL sobre `EXPLAIN` explica cómo leer el plan [#be28-postgres-explain]."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 4: la inyección SQL, contra tu propia base.** Escribí dos funciones que busquen un usuario por email: una que arme el SQL pegando el texto (`'${email}'`) y otra que use `$1`. Probalas con `nadie@x.com' OR '1'='1` y con `nadie@x.com'; delete from sesiones; --`.",
+   "pista": "Con `pg`, una consulta sin parámetros se manda por el protocolo simple, que acepta varias instrucciones separadas por punto y coma.",
+   "solucion": [
+    "Con la primera carga (`' OR '1'='1`), la función que pega texto devolvió 5 filas, o sea todos los usuarios de la tabla, y la que usa `$1` devolvió 0. Con la segunda, había 4 sesiones antes: la función parametrizada las dejó en 4, y la de texto pegado las dejó en 0, porque la base ejecutó el `delete` que venía escondido en el email.",
+    "La diferencia está en que con `$1` el valor viaja separado del SQL y la base lo trata siempre como dato, nunca como instrucción. La guía de OWASP sobre prevención de inyección SQL pone las consultas parametrizadas como la primera defensa [#owasp-sql-injection]. Se hizo contra una base propia y local; no se prueba contra sistemas ajenos."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 5: el log que se traga los secretos.** Agregá un middleware «para depurar» que imprima `req.headers` y `req.body` de cada pedido. Hacé un login y una llamada con el token, y buscá la contraseña y el token en el log. Después arreglalo.",
+   "pista": "Lo más seguro no es ocultar campos sensibles uno por uno, sino loguear solo una lista corta de campos permitidos.",
+   "solucion": [
+    "Con el middleware, el log tenía una línea con `\"cuerpo\":{\"email\":\"ana@ejemplo.com\",\"password\":\"una-clave-larga-de-practica\"}` y otra con `\"authorization\":\"Bearer cADH…\"` completo. Buscando en el archivo, la contraseña apareció una vez y el token también. Quien tenga acceso al archivo (o al servicio de logs adonde se envíe) puede entrar como esa persona mientras el token sirva.",
+    "El arreglo es el que ya tiene la versión original: loguear una lista fija de campos (método, ruta, estado, milisegundos, id de persona) y nada más. Una segunda capa es una herramienta de redacción que reemplace por `[oculto]` los campos con nombres como `password`, `token` o `authorization`, pero es una red de seguridad, no el diseño. OWASP incluye los secretos entre lo que no debe registrarse [#owasp-logging]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué te llevás"
+  },
+  {
+   "t": "p",
+   "x": "Mirá el tamaño: seis archivos y 329 líneas, contando el SQL y las pruebas. Casi todo lo que viste en la parte aparece: la cadena de middleware, la validación, el hash con sal, las sesiones, la autorización por dueño, el error uniforme y el log. Lo que sigue es ver esto mismo cuando no escribís el servidor: el [@07-29] muestra qué hace Senda, que no tiene servidor propio, para cumplir estas funciones desde la base de datos."
+  }
+ ],
+ "recap": [
+  "Una API de ejemplo reúne todas las piezas de un backend real (validación, identidad, permisos, base, errores, logs) y omite lo que solo importa en producción.",
+  "Las contraseñas se guardan con un hash lento y con sal: aquí, scrypt tardó unos 340 ms y unos 3 intentos por segundo contra 608.000 de SHA-256; el costo es un arma contra el atacante y un costo de procesador para el servidor.",
+  "El token de sesión es aleatorio; en la base se guarda su huella, y el logout lo borra.",
+  "La autorización por dueño se hace en el servidor, poniendo el usuario en la consulta; para quien no es el dueño, el recurso no existe (404).",
+  "Una prueba de punta a punta recorre la API real y detecta fallas que no se ven a ojo; la falla de autorización del ejercicio 2 solo la encontró la prueba.",
+  "Un índice ausente, una consulta armada con texto pegado y un log que imprime todo son fallas silenciosas: funcionan hasta que alguien las usa mal."
+ ],
+ "repaso": [
+  {
+   "p": "Probás una API donde el endpoint `GET /envios/:id` busca solo `where id = $1`. Con una persona que usa únicamente sus propios envíos, todo parece correcto. ¿Cuál es el problema?",
+   "o": [
+    "Las consultas con un solo parámetro son más lentas, y la lista tardará más cuando la tabla crezca mucho",
+    "Cualquier persona con sesión puede leer envíos ajenos cambiando el número del id, y solo una prueba que lo intente lo detecta",
+    "El id numérico se filtra al cliente, así que hay que reemplazarlo por texto en todas las respuestas de la API",
+    "La base rechazará la consulta porque falta el usuario, y devolverá un error 500 cada vez que alguien la use"
+   ],
+   "c": 1,
+   "e": "Sin el usuario en el WHERE, el servidor devuelve cualquier envío cuyo id se pida: es la falla de autorización a nivel de objeto, y no se nota usando solo los datos propios. La velocidad de la consulta no cambia por el parámetro. Cambiar el tipo del id no arregla el permiso. Y la base no rechaza la consulta: la responde sin mirar de quién es la fila."
+  },
+  {
+   "p": "La API guarda las contraseñas con scrypt y cada verificación tarda unos 330 ms. Alguien propone pasar a SHA-256 para que el login sea instantáneo. Según lo que mediste hoy, ¿qué se perdería?",
+   "o": [
+    "Los hashes dejarían de ser únicos por persona, porque SHA-256 no admite una sal distinta para cada contraseña",
+    "Nada importante, porque una función hash siempre es irreversible y eso alcanza para proteger las contraseñas",
+    "SHA-256 no se puede usar en Node 22 y habría que actualizar la versión del entorno antes de poder cambiarlo",
+    "Con la tabla robada, se probarían unas 200.000 veces más claves por segundo por hilo, y el ataque de diccionario sería barato"
+   ],
+   "c": 3,
+   "e": "La velocidad que hace cómodo el login es la misma que ayuda a quien robó la tabla: la medición dio 3 intentos por segundo con scrypt contra más de 600.000 con SHA-256. Que sea irreversible no basta, porque se adivina probando. SHA-256 sí funciona en Node 22 y sí admite una sal; el problema es la velocidad, no la sal."
+  },
+  {
+   "p": "Ocho personas inician sesión a la vez en tu servidor Node con scrypt asíncrono y el grupo de hilos por defecto. En la medición de hoy, ¿qué pasó con las latencias?",
+   "o": [
+    "Cuatro respondieron en unos 365 ms y las otras cuatro esperaron su turno y tardaron cerca de 690 ms",
+    "Las ocho respondieron en unos 365 ms, porque Node atiende todos los pedidos en paralelo y sin ningún límite",
+    "Las ocho respondieron en unos 2.900 ms, porque el hilo único las procesó una por una en el orden de llegada",
+    "Cuatro respondieron en 365 ms y las otras cuatro fallaron con un error 500 por falta de memoria en el servidor"
+   ],
+   "c": 0,
+   "e": "El scrypt asíncrono usa el grupo de hilos de libuv, que por defecto tiene 4: cuatro hashes corren juntos y los siguientes esperan. No hay paralelismo ilimitado, ni un único hilo que los haga uno por uno, ni errores: los que esperan se atienden después."
+  },
+  {
+   "p": "Un endpoint devuelve 401 con el mismo mensaje para un email inexistente y para una contraseña incorrecta, pero responde en 2 ms en el primer caso y en 350 ms en el segundo. ¿Qué puede lograr un atacante?",
+   "o": [
+    "Entrar a la cuenta, porque un tiempo corto indica que la contraseña ya se verificó bien en el servidor",
+    "Nada, porque mientras el texto del mensaje de error sea el mismo no se filtra ninguna información útil",
+    "Saber qué emails tienen cuenta midiendo el tiempo de respuesta, aunque el texto del error sea idéntico",
+    "Hacer caer el servidor, porque una respuesta de 2 ms rompe el funcionamiento del grupo de hilos de Node"
+   ],
+   "c": 2,
+   "e": "El tiempo también es una respuesta: quien lo mide ve cuáles emails existen. Por eso la API hashea un valor falso cuando el email no está. Que el texto sea igual no alcanza. Y una respuesta rápida no indica que la contraseña esté bien ni daña al servidor."
+  },
+  {
+   "p": "En la medición con 300.000 envíos, la consulta de la lista de una persona con 3 envíos tardó 28 a 45 ms sin índice y menos de 0,1 ms con un índice sobre `(usuario_id, id desc)`. ¿Qué explica la diferencia?",
+   "o": [
+    "Sin índice recorría la clave primaria filtrando fila por fila; con índice va directo a las filas de esa persona",
+    "El índice hace que PostgreSQL guarde todos los envíos en la memoria del servidor de forma permanente",
+    "Con el índice la base devuelve menos columnas, y por eso la respuesta es más corta y llega más rápido",
+    "Sin índice la base recorría los 300.000 envíos dos veces, para poder ordenarlos recién al final de la consulta"
+   ],
+   "c": 0,
+   "e": "El índice permite encontrar las filas de una persona sin mirar las demás: de unas 6.000 páginas leídas a 7. No guarda nada en memoria de forma permanente, no cambia las columnas devueltas, y el plan sin índice no ordenaba dos veces: recorría la clave primaria hacia atrás descartando las filas ajenas."
+  },
+  {
+   "p": "Dos pedidos llegan a la vez para pasar el mismo envío de `en_ruta` a `entregado` y de `en_ruta` a `cancelado`. La API repite `and estado = $4` en el update. ¿Qué logra esa condición?",
+   "o": [
+    "Que PostgreSQL ejecute los dos cambios en orden alfabético de estado para que el resultado sea consistente",
+    "Que los dos pedidos tengan éxito, pero el segundo guarde el valor anterior para no perder ese cambio",
+    "Que solo uno cambie el estado y el otro reciba un 409, en lugar de que el último pise el cambio del primero",
+    "Que el envío quede bloqueado para siempre y haya que desbloquearlo a mano directamente en la base"
+   ],
+   "c": 2,
+   "e": "La condición hace que el update solo toque la fila si sigue en el estado que se leyó: el primero cambia y el segundo ya no encuentra ese estado, devuelve cero filas y la API responde 409. No hay orden alfabético ni bloqueo permanente, y el segundo pedido no tiene éxito."
+  }
+ ],
+ "feynman": "Explicale a una persona que trabaja en logística, sin usar jerga, qué pasa desde que alguien escribe su email y su contraseña en una app hasta que ve la lista de sus envíos: qué se guarda, qué se manda en cada pedido, cómo sabe el servidor quién es y cómo evita que vea los envíos de otra persona. Usá una analogía propia, distinta de la de la tarjeta de acceso a un depósito.",
+ "para_profundizar": [
+  {
+   "fuente": "be28-owasp-password-storage",
+   "nota": "La guía de OWASP para guardar contraseñas. Leé la sección de algoritmos para ver los parámetros mínimos de Argon2id y scrypt, que son los que usó el laboratorio."
+  },
+  {
+   "fuente": "be28-express-migrar-5",
+   "nota": "La guía oficial para pasar de Express 4 a 5. La sección sobre promesas rechazadas explica por qué las rutas `async` de este día no necesitan `try/catch`."
+  },
+  {
+   "fuente": "be28-owasp-bola",
+   "nota": "La descripción oficial de la falla de autorización por objeto, con tres escenarios de ataque. Sirve para repasar el ejercicio 2 con ejemplos de otras empresas."
+  },
+  {
+   "fuente": "be28-postgres-explain",
+   "nota": "El capítulo de PostgreSQL sobre cómo leer el resultado de EXPLAIN. Es lo que necesitás para repetir la medición del ejercicio 3 con tus propias tablas."
+  }
+ ],
+ "videos": [
+  {
+   "q": "node.js express authentication tutorial scrypt bcrypt session token explained",
+   "por_que": "Para comparar cómo otra persona arma el login de una API en Node y ver qué decisiones coinciden con las de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "API de ejemplo",
+   "d": "Un servicio mínimo pero completo, hecho para aprender: tiene todas las piezas de un backend real (validación, identidad, permisos, base de datos, errores, registros) y deja afuera lo que solo importa en producción."
+  },
+  {
+   "t": "prueba de punta a punta",
+   "d": "Una prueba que levanta el sistema real, le manda pedidos como lo haría un cliente y revisa las respuestas, pasando por todas las piezas sin reemplazar ninguna por un simulacro. Es más lenta que una prueba unitaria y detecta fallas en la unión de las piezas."
+  },
+  {
+   "t": "token opaco",
+   "d": "Un identificador de sesión hecho de bytes al azar, sin información adentro. Solo sirve porque el servidor lo busca en su base; si se roba, sirve hasta que se borra o vence."
+  },
+  {
+   "t": "enumeración de usuarios",
+   "d": "Ataque que averigua qué cuentas existen a partir de diferencias en las respuestas: el texto, el código o el tiempo. Se evita respondiendo igual, en el mismo tiempo, cuando falla el email y cuando falla la contraseña."
+  },
+  {
+   "t": "compare-and-set",
+   "d": "Una actualización que solo cambia un dato si todavía tiene el valor que se leyó antes. Evita que dos pedidos simultáneos se pisen sin enterarse."
+  }
+ ],
+ "siguiente": "Senda no tiene un servidor propio: qué hace la base en su lugar. Vas a ver, con el código de Senda delante, cómo las políticas de acceso por fila, las funciones de la base y tres funciones de borde cumplen las mismas funciones que hoy escribiste a mano.",
+ "fuentes_nuevas": [
+  {
+   "id": "be28-npm-express",
+   "t": "Registro de npm: paquete express (última versión)",
+   "a": "npm",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://registry.npmjs.org/express/latest"
+  },
+  {
+   "id": "be28-express-migrar-5",
+   "t": "Migrating to Express 5",
+   "a": "Express.js",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://expressjs.com/en/guide/migrating-5.html"
+  },
+  {
+   "id": "be28-owasp-password-storage",
+   "t": "Password Storage Cheat Sheet",
+   "a": "OWASP",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html"
+  },
+  {
+   "id": "be28-owasp-bola",
+   "t": "API1:2023 Broken Object Level Authorization",
+   "a": "OWASP",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/"
+  },
+  {
+   "id": "be28-postgres-fk",
+   "t": "PostgreSQL 16: Constraints (claves foráneas)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/ddl-constraints.html"
+  },
+  {
+   "id": "be28-postgres-explain",
+   "t": "PostgreSQL 16: Using EXPLAIN",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/using-explain.html"
+  }
+ ]
+}

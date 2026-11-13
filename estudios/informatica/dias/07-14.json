@@ -1,0 +1,628 @@
+{
+ "id": "07-14",
+ "titulo": "Colas de mensajes y eventos",
+ "bajada": "Corrés un broker de verdad en esta VM, ves la diferencia entre repartir un mensaje a uno y repartirlo a todos, provocás un duplicado a propósito y lo absorbés.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir una cola (cada mensaje lo atiende uno del grupo) de la publicación-suscripción (cada suscriptor recibe una copia) y combinarlas.",
+  "Explicar qué hace un broker y qué se gana y qué se paga al ponerlo entre dos programas.",
+  "Reconocer las dos formas de generar un mensaje duplicado y absorberlo con una clave de idempotencia aplicada en la misma transacción que el efecto.",
+  "Explicar por qué varios consumidores rompen el orden y cómo las particiones por clave lo recuperan solo donde hace falta.",
+  "Ubicar en Senda qué hace el trabajo de un broker, qué duplicados absorbe y qué infraestructura de publicación-suscripción tiene sin usar."
+ ],
+ "venis_de": "En [@07-13] la cola era una tabla de tu propia base y los jobs eran órdenes para un solo programa. Hoy el problema crece: hay un hecho que le importa a muchos programas distintos, y la tabla compartida deja de ser una buena idea.",
+ "se_apoya_en": [
+  "07-13",
+  "07-12",
+  "07-03",
+  "05-26",
+  "05-18"
+ ],
+ "gancho": [
+  "Se crea un pedido. Cuatro equipos necesitan enterarse: el que manda el aviso al cliente, el que descuenta stock, el que factura y el que arma la ruta de reparto. Si la API los llama uno por uno, tiene que conocer a los cuatro, esperar a los cuatro y fallar si falla cualquiera. Y el día que aparece un quinto equipo, hay que volver a abrir la API para agregarlo.",
+  "Hoy ponés en el medio un programa cuyo único trabajo es repartir mensajes. Compilé uno real, NATS, en esta VM, y vas a ver cómo reparte un mensaje a tres servicios, cómo lo reparte a uno solo, qué pasa con un mensaje que nadie escuchó y qué pasa cuando llega dos veces. Al final mirás por qué Senda, con todo esto a mano, hoy no usa nada de esto."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un hecho, cuatro interesados"
+  },
+  {
+   "t": "p",
+   "x": "Mirá cómo quedan las dos formas de resolverlo. En la primera, la API es la que sabe quién necesita qué. En la segunda, la API avisa que pasó algo y se despreocupa de quién escucha."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "comparar",
+   "izq": {
+    "t": "La API llama a cada servicio",
+    "k": "alerta",
+    "items": [
+     "La API conoce a los cuatro servicios y sus direcciones.",
+     "Cada llamada suma espera a la respuesta del pedido.",
+     "Si facturación está caída, o falla el pedido o se pierde la factura.",
+     "Un servicio nuevo obliga a modificar y publicar la API."
+    ]
+   },
+   "der": {
+    "t": "La API publica un mensaje",
+    "k": "ok",
+    "items": [
+     "La API dice «pedido 42 creado» una sola vez y sigue.",
+     "Cada servicio se suscribe por su cuenta y lee a su ritmo.",
+     "Si facturación está caída, el mensaje la espera.",
+     "Un servicio nuevo se suscribe sin tocar la API."
+    ]
+   },
+   "cap": "El mismo hecho, dos arquitecturas. La segunda necesita una pieza más: alguien que guarde y reparta los mensajes."
+  },
+  {
+   "t": "p",
+   "x": "Esa pieza más es lo que cuesta, y por eso conviene entender qué hace antes de ponerla."
+  },
+  {
+   "t": "h",
+   "x": "Mensaje, broker y cola de mensajes"
+  },
+  {
+   "t": "p",
+   "x": "Un **mensaje** es un paquete de datos que un programa le manda a otro: un identificador, un tipo, un contenido y a veces una hora. Se parece al job de [@07-13], con una diferencia de intención. Un job es una **orden** («avisá al cliente del pedido 42»), dirigida a quien la va a ejecutar. Un **evento** es un **hecho ya ocurrido** («el pedido 42 fue creado»), que no le ordena nada a nadie. Cada interesado decide qué hacer con él. Por eso los eventos escalan mejor: quien los publica no sabe quién los usa."
+  },
+  {
+   "t": "p",
+   "x": "El programa del medio es el **[[broker]]** (corredor, intermediario). Es un servidor como los de [@07-03], pero que en lugar de atender páginas atiende mensajes: acepta conexiones [[TCP]] de los programas que publican (productores) y de los que consumen, recibe cada mensaje, decide a quién le toca, lo guarda mientras haga falta, lo entrega y lleva la cuenta de cuáles se confirmaron. Con ese programa armás una **[[cola de mensajes]]**: un lugar donde los mensajes esperan hasta que un consumidor los toma. Es lo que hacía la tabla de ayer, pero como servicio independiente, con su propio protocolo y clientes en todos los lenguajes."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Productor",
+       "s": "la API de pedidos",
+       "k": "servidor"
+      },
+      {
+       "t": "Broker",
+       "s": "recibe, guarda y reparte",
+       "k": "datos",
+       "e": "publica «pedido 42 creado»"
+      },
+      {
+       "t": "Consumidores",
+       "s": "avisos, stock, facturación",
+       "k": "cliente",
+       "e": "entrega, y ellos confirman"
+      }
+     ]
+    }
+   ],
+   "cap": "El productor y los consumidores no se conocen entre sí. Solo conocen al broker."
+  },
+  {
+   "t": "p",
+   "x": "Esto tiene un costo concreto: el broker es una pieza más que tiene que estar levantada, vigilada y actualizada. Si se cae, nadie publica ni consume. Cuántas copias poner para que eso no pase es tema de [@16-11]."
+  },
+  {
+   "t": "h",
+   "x": "Dos formas de repartir: a uno o a todos"
+  },
+  {
+   "t": "p",
+   "x": "Compilé NATS 2.15.3, un broker liviano escrito en Go, y lo corrí en `127.0.0.1:19714`. En NATS los mensajes se publican a un **asunto** (*subject*), un nombre como `pedidos.creado`, y quien se suscribe a ese asunto los recibe. Hice cuatro experimentos con programas míos y mensajes inventados. En todos, el broker es el mismo; cambia cómo se suscriben los consumidores:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// publicación-suscripción: cada servicio abre su propia suscripción al mismo asunto\nnc.subscribe('pedidos.creado', { callback: (err, m) => avisos.push(decode(m.data)) });\nnc.subscribe('pedidos.creado', { callback: (err, m) => stock.push(decode(m.data)) });\n\n// cola: tres workers que comparten el nombre de un grupo\nfor (const w of ['w1', 'w2', 'w3'])\n  nc.subscribe('pedidos.preparar', { queue: 'preparacion', callback: (err, m) => hechos[w].push(decode(m.data)) });\n\nnc.publish('pedidos.creado', encode('pedido-41'));",
+   "cap": "Extracto de mi programa de prueba (cliente `nats` 2.29.3 para Node). La diferencia entre repartir a todos y repartir a uno es una opción de la suscripción: `queue`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node nats1.js",
+     "s": "A) pub/sub, 3 mensajes publicados:\n   avisos      recibió 3: pedido-41, pedido-42, pedido-43\n   stock       recibió 3: pedido-41, pedido-42, pedido-43\n   facturacion recibió 3: pedido-41, pedido-42, pedido-43\nB) cola, 9 mensajes publicados:\n   w1 recibió 5: pedido-1, pedido-5, pedido-6, pedido-7, pedido-8\n   w2 recibió 2: pedido-3, pedido-4\n   w3 recibió 2: pedido-2, pedido-9\n   total recibido: 9 (cada mensaje llegó a un solo worker)\nC) dos servicios con dos instancias cada uno, 6 mensajes:\n   avisos#1 recibió 3: pedido-1, pedido-3, pedido-4\n   avisos#2 recibió 3: pedido-2, pedido-5, pedido-6\n   stock#1  recibió 1: pedido-4\n   stock#2  recibió 5: pedido-1, pedido-2, pedido-3, pedido-5, pedido-6\nD) publicado sin suscriptores y suscripto después: recibió 0 mensajes"
+    }
+   ],
+   "cap": "Salida real. El reparto dentro de un grupo lo decide el broker y no sale parejo (5, 2 y 2): no hay turnos. Cada corrida da un reparto distinto."
+  },
+  {
+   "t": "p",
+   "x": "Cada experimento muestra una idea distinta."
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**A, publicación-suscripción.** La **[[publicación-suscripción]]** (*pub/sub*) entrega una copia de cada mensaje a cada suscriptor. Avisos, stock y facturación recibieron los tres pedidos. Es lo que querés para un evento: todos los interesados se enteran.",
+    "**B, cola.** Los tres workers compartían un nombre de grupo, y el broker eligió **uno solo** del grupo para cada mensaje: 5 + 2 + 2 = 9, ni uno de más. Es lo que querés para un trabajo que tiene que hacerse una vez, repartido entre varios obreros, como en [@07-13].",
+    "**C, las dos juntas.** Es la combinación habitual. Cada servicio es un grupo (así todos se enteran) y cada servicio tiene varias instancias (así cada mensaje lo atiende una sola). Los dos grupos recibieron los 6 mensajes, repartidos dentro de cada uno. Kafka y otros brokers lo llaman *consumer group*.",
+    "**D, nadie escuchaba.** Publiqué cuando no había ningún suscriptor y me suscribí después: cero mensajes. NATS básico no guarda nada: la documentación lo describe como «como mucho una vez» y dice que, si el suscriptor está desconectado, nunca ve ese mensaje [#back14-nats-core]."
+   ],
+   "ord": false
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El altavoz y la cinta",
+   "x": [
+    "En un depósito, un anuncio por altavoz («llegó el camión 12») lo escucha todo el que está en la nave: eso es la publicación-suscripción. Una cinta transportadora con casilleros reparte las cajas entre los operarios y cada caja la agarra uno: eso es la cola.",
+    "La analogía deja de valer en D: el anuncio por altavoz se pierde si estabas en el baño, y en software eso es una decisión de diseño, no una fatalidad. La cinta, en cambio, puede dejar las cajas esperando. Lo que sigue es cómo logra un broker esa memoria."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Con el diseño del experimento C, aparece un quinto servicio, «analítica», que también necesita todos los pedidos. ¿Qué hay que cambiar en la API que publica, y qué hay que agregar?",
+   "resp": "En la API, nada: sigue publicando `pedidos.creado` igual. Hay que agregar el servicio nuevo, con una suscripción a ese asunto bajo un nombre de grupo propio (por ejemplo `analitica`). Recibirá todos los mensajes sin que nadie más se entere, y es lo que la API llamando a cada servicio no permitía."
+  },
+  {
+   "t": "h",
+   "x": "Guardar el mensaje: de «como mucho una vez» a «al menos una vez»"
+  },
+  {
+   "t": "p",
+   "x": "Para que un mensaje espere a quien llega tarde, el broker tiene que guardarlo en disco. NATS lo hace con **JetStream**: un *stream* es un almacén del lado del servidor, ligado a uno o más asuntos, y cada consumidor tiene su propia posición en él y debe **confirmar** (*ack*) cada mensaje que termina. Según la documentación, el servidor reentrega un mensaje hasta que se confirma, así que se maneja «al menos una vez» incluso si algo falla [#back14-nats-jetstream-ack]."
+  },
+  {
+   "t": "p",
+   "x": "Ese «al menos una vez» ya lo conocés de [@07-13] con otro nombre: el arriendo era la espera de confirmación. En SQS se llama *visibility timeout* [#back14-sqs-visibilidad] y en NATS, *AckWait*, que por defecto dura 30 segundos [#back14-nats-ack]. Es el mismo principio con distinta etiqueta. Y trae el mismo problema: si el consumidor procesó el mensaje y se cayó antes de confirmar, el broker lo manda de nuevo."
+  },
+  {
+   "t": "h",
+   "x": "Mensajes duplicados: el precio de no perder nada"
+  },
+  {
+   "t": "p",
+   "x": "Un **[[mensaje duplicado]]** es el mismo mensaje procesado dos veces. Aparece por dos caminos, y los dos los provoqué en esta VM."
+  },
+  {
+   "t": "p",
+   "x": "**Camino 1: el productor reintenta.** Publicó, la confirmación del broker se perdió por el camino, y no sabe si el mensaje quedó guardado. Reintenta, y quedan dos. La documentación de NATS lo dice así: un timeout significa «sin confirmación», no «no se escribió», porque el servidor pudo guardar el mensaje y perderse solo la respuesta [#back14-nats-publicar]. La defensa es etiquetar cada mensaje con un identificador estable (`Nats-Msg-Id`); el broker rechaza el segundo con el mismo identificador dentro de una ventana de tiempo. Mi stream tenía una ventana de dos minutos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node js_pub.js",
+     "s": "publicación 1: stream=PEDIDOS seq=1 duplicate=false\npublicación 2: stream=PEDIDOS seq=1 duplicate=true"
+    }
+   ],
+   "cap": "Mandé dos veces el mismo mensaje, con el mismo `Nats-Msg-Id`. El broker contestó que la segunda era un duplicado y no la guardó (sigue en la posición 1)."
+  },
+  {
+   "t": "p",
+   "x": "**Camino 2: el consumidor se cae antes de confirmar.** Es el de [@07-13] con otro broker. Armé dos consumidores del mismo mensaje, «el pedido 42 usa 10 tornillos», con stock inicial de 100 cada uno. El primero, ingenuo, resta y confirma. El segundo, idempotente, anota el identificador del mensaje y resta, ambas cosas en una transacción (la de [@09-24]). Los dos mueren después de restar y antes de confirmar. Pasados los 2 segundos de espera de confirmación que les puse, arranco de nuevo cada uno:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node js_cons.js stock-ingenuo crash; sleep 3; node js_cons.js stock-ingenuo ok",
+     "s": "stock-ingenuo: recibió pedido-42 (entrega 1)\n   stock: 100 -> 90\n   ¡se cae el proceso antes de confirmar (ack)!\nstock-ingenuo: recibió pedido-42 (entrega 2)\n   stock: 90 -> 80\n   ack enviado\nstock-ingenuo: stock final 80"
+    },
+    {
+     "c": "node js_cons.js stock-idempotente crash; sleep 3; node js_cons.js stock-idempotente ok",
+     "s": "stock-idempotente: recibió pedido-42 (entrega 1)\n   stock: 100 -> 90\n   ¡se cae el proceso antes de confirmar (ack)!\nstock-idempotente: recibió pedido-42 (entrega 2)\n   pedido-42 ya estaba procesado: se descarta y se confirma\n   ack enviado\nstock-idempotente: stock final 90"
+    }
+   ],
+   "cap": "Salida real, con NATS y PostgreSQL 16 locales. El mismo mensaje, entregado dos veces: el ingenuo descuenta 20 tornillos de un pedido de 10."
+  },
+  {
+   "t": "p",
+   "x": "El broker hizo su trabajo: no perdió el mensaje. El stock del consumidor ingenuo quedó mal por culpa del consumidor. La versión idempotente hace esto:"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "begin;\ninsert into procesados (consumidor, mensaje_id) values ('stock-idempotente', 'pedido-42')\n  on conflict do nothing;                      -- 1 fila si es la primera vez, 0 si ya estaba\n-- solo si insertó una fila (el programa lo comprueba):\nupdate stock set cantidad = cantidad - 10 where consumidor = 'stock-idempotente';\ncommit;                                        -- el registro y el efecto se confirman juntos",
+   "cap": "La idea en SQL. El registro del mensaje y el cambio de stock se confirman juntos: si el proceso muere en el medio, ninguno de los dos queda."
+  },
+  {
+   "t": "p",
+   "x": "Que el registro y el efecto vayan en la **misma transacción** no es un detalle. Si anotaras el identificador en un paso y restaras el stock en otro, volverías a abrir el hueco de [@07-13]: una caída entre los dos pasos deja el mensaje anotado pero sin efecto, o con efecto pero sin anotar. Es la regla de [@07-12] puesta a trabajar: **idempotencia** quiere decir que repetir da el mismo resultado que hacerlo una vez."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La ventana del broker no alcanza",
+   "x": [
+    "La deduplicación del broker es una ayuda con límites: NATS la aplica dentro de una ventana de tiempo, y SQS FIFO dentro de cinco minutos [#back14-sqs-fifo-dedup]. Pasada la ventana, el broker ya no reconoce el repetido. Y no cubre el camino 2, porque ahí el mensaje se guardó una sola vez y se entregó dos. La defensa que siempre hace falta está en el consumidor: una clave por mensaje, aplicada junto con el efecto.",
+    "Esa tabla de identificadores procesados crece. Hay que borrar las filas viejas, pero no antes de que pueda llegar una reentrega de ese mensaje, así que la regla práctica es conservarlas más tiempo que el mayor plazo de reentrega del broker."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un cliente toca dos veces «Confirmar pedido» y la app publica dos mensajes distintos, cada uno con su propio identificador de mensaje, que dicen lo mismo. ¿Absorbe eso una tabla de identificadores de mensaje procesados?",
+   "resp": "No. Los dos mensajes son distintos para el broker y para la tabla, que solo reconoce el mismo identificador repetido. Hace falta una clave de negocio, algo que identifique la operación, como el número de pedido, y que la app genere una sola vez por operación y reutilice al reintentar. Mensaje repetido y operación repetida son problemas distintos."
+  },
+  {
+   "t": "h",
+   "x": "Orden: lo que se rompe al sumar consumidores"
+  },
+  {
+   "t": "p",
+   "x": "Con una cola y un solo consumidor, los mensajes salen en el orden en que entraron. Pero un solo consumidor es lento, y por eso pusimos varios. Probé qué pasa: publiqué cuatro eventos del mismo pedido, en orden (`creado`, `pagado`, `despachado`, `entregado`), a un grupo de dos workers, uno lento y uno rápido:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node orden.js 20",
+     "s": "publicados en orden: creado -> pagado -> despachado -> entregado\ncorridas con el orden de finalización alterado: 12 de 20\nejemplo de orden en que terminaron: pagado -> entregado -> creado -> despachado"
+    }
+   ],
+   "cap": "Salida real de una corrida; en otra repetición del mismo programa fueron 13 de 20. Terminar «entregado» antes que «creado» es un estado imposible."
+  },
+  {
+   "t": "p",
+   "x": "El broker entregó los mensajes en orden. El que se rompió es el orden en que **terminan**, porque dos workers trabajan en paralelo a velocidades distintas. Lo mismo pasa con cualquier cola de varios consumidores, entre ellas las SQS estándar, cuya documentación avisa que los mensajes pueden llegar fuera de orden y que mantienen el orden solo «con el mejor esfuerzo» [#back14-sqs-estandar]."
+  },
+  {
+   "t": "p",
+   "x": "Existe una salida sin renunciar al paralelismo: pedir orden solo **donde hace falta**. Nadie necesita que el pedido 42 y el 57 estén ordenados entre sí; sí que los eventos del 42 lo estén. Eso hace Kafka con las **particiones**: un tema se divide en varias, y los eventos con la misma clave caen siempre en la misma partición. Su documentación garantiza que cualquier consumidor de una partición lee sus eventos exactamente en el orden en que se escribieron [#back14-kafka-intro], y que cada partición la consume un solo consumidor por grupo en cada momento [#back14-kafka-diseno]. Un pedido, una partición, un consumidor: orden por pedido, paralelismo entre pedidos. Lo simulé con una función de hash simple (no es el algoritmo de Kafka, solo la idea):"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Simulación de la idea de las particiones (no es Kafka: el hash y el reparto son simples).\nconst N = 3;                                         // particiones del tema\nconst particiones = Array.from({ length: N }, () => []);\n\nfunction hash(clave) {                               // FNV-1a de 32 bits\n  let h = 0x811c9dc5;\n  for (const c of clave) { h ^= c.charCodeAt(0); h = Math.imul(h, 0x01000193) >>> 0; }\n  return h;\n}\nconst enviar = (clave, evento) => particiones[hash(clave) % N].push(`${clave}:${evento}`);\n\n// los eventos de cinco pedidos llegan entremezclados, pero en orden dentro de cada pedido\nconst pasos = ['creado', 'pagado', 'despachado'];\nfor (const paso of pasos)\n  for (const pedido of ['P-101', 'P-102', 'P-103', 'P-104', 'P-105']) enviar(pedido, paso);\n\nparticiones.forEach((p, i) => console.log(`partición ${i}: ${p.join('  ')}`));\n\n// un grupo de consumidores: cada partición la lee un solo consumidor, en orden\nfunction reparto(consumidores) {\n  const mapa = {};\n  for (let p = 0; p < N; p++) (mapa[`c${p % consumidores + 1}`] ??= []).push(p);\n  return mapa;\n}\nfor (const k of [1, 2, 3, 5])\n  console.log(`${k} consumidor(es) en el grupo -> ${JSON.stringify(reparto(k))}`);",
+   "ejecutable": true,
+   "cap": "Simulación de la idea (no es Kafka). Los tres eventos de cada pedido quedan juntos y en orden dentro de su partición. Con 5 consumidores y 3 particiones, dos quedan sin trabajo: las particiones son el tope de paralelismo."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "El precio del orden por clave",
+   "x": [
+    "El orden vale solo dentro de una partición, y nunca entre particiones distintas. Y el paralelismo máximo de un grupo es la cantidad de particiones, como viste con los 5 consumidores y 3 particiones. Elegir mal la clave (por ejemplo, usar el país cuando el 90 % de los pedidos son de uno) deja una partición saturada y las otras ociosas."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Los brokers que vas a encontrar"
+  },
+  {
+   "t": "p",
+   "x": "Los cuatro nombres que más aparecen no son intercambiables: se diferencian sobre todo en qué pasa con un mensaje después de entregarse. Esta tabla resume lo que dice la documentación oficial de cada uno; no corrí RabbitMQ, Kafka ni SQS:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Broker",
+    "Cómo reparte",
+    "Qué pasa con el mensaje",
+    "Garantía que declara"
+   ],
+   "filas": [
+    [
+     "RabbitMQ",
+     "Se publica a *exchanges*, que copian el mensaje a *colas* según reglas; los consumidores leen de las colas [#back14-rabbitmq-amqp].",
+     "Con confirmaciones activadas, se borra de la cola recién cuando el consumidor confirma.",
+     "Confirmaciones del consumidor; los mensajes sin ruta pueden devolverse, descartarse o ir a una cola de cartas muertas."
+    ],
+    [
+     "Kafka",
+     "Un tema dividido en particiones; los productores agregan eventos al final [#back14-kafka-intro].",
+     "No se borra al consumirse: se retiene un tiempo configurable y se puede releer.",
+     "Orden dentro de una partición; la misma clave va a la misma partición."
+    ],
+    [
+     "Amazon SQS (lo ves en [@13-20])",
+     "Colas de AWS, de dos tipos: estándar y FIFO [#back14-sqs-estandar].",
+     "Queda en la cola, invisible un rato (*visibility timeout*), hasta que se la borra [#back14-sqs-visibilidad].",
+     "Estándar: al menos una vez, orden de mejor esfuerzo. FIFO: orden por grupo de mensajes [#back14-sqs-fifo] y duplicados filtrados durante 5 minutos [#back14-sqs-fifo-dedup]."
+    ],
+    [
+     "NATS",
+     "Asuntos con publicación-suscripción y grupos de cola [#back14-nats-core].",
+     "Básico: no se guarda. Con JetStream: se guarda en un stream y se reentrega hasta la confirmación.",
+     "Básico: como mucho una vez. JetStream: al menos una vez, con deduplicación en el publicar."
+    ]
+   ],
+   "cap": "Fuentes: documentación oficial de cada proyecto, leída el 13 de noviembre de 2026. «Garantía» es lo que el proyecto declara, no algo que yo haya medido."
+  },
+  {
+   "t": "cita",
+   "x": "Events in a topic can be read as often as needed—unlike traditional messaging systems, events are not deleted after consumption.",
+   "autor": "Apache Kafka, documentación (Introduction)",
+   "fuente": "back14-kafka-intro"
+  },
+  {
+   "t": "p",
+   "x": "Esa frase marca la frontera. En una **cola** (RabbitMQ, SQS, mi tabla de [@07-13]) el mensaje es un trabajo pendiente: cuando se hace, desaparece. En un **registro** como Kafka el mensaje es un hecho en una lista que se conserva: muchos consumidores lo leen cada uno a su ritmo, y alguien nuevo puede empezar desde el principio. Cuál conviene depende de si lo que mandás son tareas para hacer o historia para consultar."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 13 de noviembre de 2026",
+   "x": [
+    "Kafka: la página de descargas del proyecto lista 4.4.0, publicada el 22 de octubre de 2026 [#back14-kafka-descargas]. NATS: la documentación marca 2.15 como la última versión, y el servidor que compilé, 2.15.3, es el que el proxy de módulos de Go ofrecía el 11 de noviembre [#back14-nats-core]. Supabase ofrece hoy «Queues», una cola duradera basada en la extensión pgmq dentro de Postgres [#back14-supabase-queues]; es una forma de lo que hiciste ayer, empaquetada. No verifiqué la versión actual de RabbitMQ. Los productos cambian de versión seguido; las ideas (cola, publicación-suscripción, confirmación, duplicado, partición) no."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Cuándo hace falta un broker (criterio mío)",
+   "x": [
+    "Una regla práctica: mientras todo corra en una sola base y un solo equipo, la tabla de jobs de [@07-13] alcanza y tiene una ventaja enorme, que es la transacción compartida con tus datos. Un broker se justifica cuando aparece alguno de estos tres motivos: varios sistemas distintos tienen que enterarse del mismo hecho, los consumidores están escritos en otros lenguajes o equipos, o el volumen supera lo que una tabla soporta cómodamente. Antes de eso, es una pieza más que operar."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "En Senda: sin broker, con la mitad de uno"
+  },
+  {
+   "t": "p",
+   "x": "Senda no usa ningún broker de mensajes, y tampoco la cola administrada de Supabase: busqué `pgmq` en `supabase/` y `src/` y no aparece. Lo que sigue corresponde al commit 25e08fa; el código cambia, la forma permanece."
+  },
+  {
+   "t": "senda",
+   "titulo": "Publicación-suscripción encendida de un lado, sin oyentes del otro",
+   "x": [
+    "La migración de «Juntos» agrega las tablas `salas`, `sala_participantes` y `encuesta_conteo` a la publicación `supabase_realtime`, el mecanismo de Supabase que avisa por una conexión persistente cuando una fila cambia. Pero **ningún código del cliente se suscribe**: no hay WebSockets. Todo lo «en vivo» es sondeo (*polling*): la sala en vivo pregunta cada 2 segundos (`CADA_MS = 2000` en `src/util/salas.ts`), los resultados de la encuesta cada 8 y las novedades de Inicio cada 45.",
+    "El costo se puede estimar: una sala con 100 participantes mirando hace unos 100 ÷ 2 = 50 pedidos por segundo a la base, aunque no cambie nada (estimación aritmética; cada participante la sondea por separado). El plan de pasar las salas a Realtime está documentado como mejora futura. Mientras tanto, para avisos a un grupo, el reparto es el de [@07-13]: una tabla (`avisos`) y un worker programado, no un broker."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "src/util/salas.ts",
+    "src/pantallas/Inicio.tsx",
+    "src/componentes/encuestaDia.tsx"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Los duplicados que Senda ya absorbe",
+   "x": [
+    "Un duelo por turnos manda sus jugadas desde el teléfono, que puede perder la señal justo después de enviar y reenviar. La función `jugar_turno` recibe un `cliente_id` generado en el teléfono y, al principio, pregunta si ya vio ese `cliente_id` de ese jugador; si lo vio, devuelve la partida tal como está y no hace nada más. Cada jugada se inserta con `on conflict (cliente_id) do nothing`. Además bloquea la fila de la partida con `for update` mientras trabaja, así que dos envíos simultáneos se atienden de a uno.",
+    "Las respuestas del Espadeo siguen el mismo patrón: un índice único sobre `cliente_id` en la tabla y el cliente que manda con `resolution=ignore-duplicates`. Es el camino 1 de hoy resuelto con una clave que genera el emisor, y en el mismo lugar donde está el efecto, como pedía la regla. Lo que Senda no tiene, porque no lo necesita todavía, es el camino 2: no hay consumidores separados que puedan caerse a mitad de mensaje."
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261027000000_escala.sql",
+    "src/util/nube.ts"
+   ]
+  }
+ ],
+ "recap": [
+  "Un broker es un programa intermediario que recibe, guarda y reparte mensajes: desacopla a quien publica de quienes consumen, a cambio de una pieza más que operar.",
+  "Una cola entrega cada mensaje a un solo consumidor del grupo; la publicación-suscripción entrega una copia a cada suscriptor; lo habitual es combinarlas, con un grupo por servicio.",
+  "Sin guardar mensajes, quien no estaba conectado no los recibe nunca; con un almacén y confirmaciones, el broker reentrega hasta que se confirma, que es entrega al menos una vez.",
+  "Los duplicados llegan por dos caminos, un productor que reintenta y un consumidor que se cae antes de confirmar; la defensa que siempre hace falta es una clave por mensaje aplicada en la misma transacción que el efecto.",
+  "Con varios consumidores se rompe el orden de finalización; las particiones por clave lo recuperan solo entre los eventos que lo necesitan, y el tope de paralelismo pasa a ser la cantidad de particiones.",
+  "En Senda no hay broker: hay una tabla con worker programado, sondeo en lugar de Realtime, y claves de cliente que absorben los duplicados."
+ ],
+ "repaso": [
+  {
+   "p": "Una API publica «pedido creado» y tres servicios (avisos, stock, facturación) necesitan recibirlo, cada uno con dos instancias. ¿Cómo conviene suscribirlos?",
+   "o": [
+    "Todas las instancias en un solo grupo, así cada mensaje lo recibe una de las seis",
+    "Un grupo por servicio, de modo que cada servicio reciba todo y una instancia lo atienda",
+    "Sin grupos, para que cada una de las seis instancias reciba una copia de cada mensaje",
+    "Un grupo por instancia, de modo que cada instancia reciba una copia de cada mensaje"
+   ],
+   "c": 1,
+   "e": "Un grupo por servicio combina las dos ideas: todos los servicios se enteran de todo, y dentro de cada servicio una sola instancia atiende cada mensaje. Un único grupo de seis haría que solo un servicio viera cada pedido; sin grupos o con un grupo por instancia, las dos instancias de un mismo servicio ejecutarían el trabajo dos veces."
+  },
+  {
+   "p": "Un suscriptor a NATS básico (sin JetStream) se conecta a las 10:05. El mensaje se publicó a las 10:03, sin nadie suscripto. ¿Qué recibe?",
+   "o": [
+    "El mensaje de las 10:03, porque el broker lo guardó hasta que alguien lo pidiera",
+    "El mensaje de las 10:03, pero recién después de la próxima publicación",
+    "Nada: NATS básico entrega solo a los suscriptores conectados al publicar",
+    "Un error, porque el asunto no tiene suscriptores y el broker lo rechaza"
+   ],
+   "c": 2,
+   "e": "NATS básico es «como mucho una vez» y no guarda mensajes: lo que se publicó sin nadie suscripto se pierde, y el experimento D de hoy lo mostró con 0 recibidos. Para guardar hace falta JetStream. No hay ningún error ni reentrega diferida."
+  },
+  {
+   "p": "Un productor publica y el broker guarda el mensaje, pero la confirmación se pierde. El productor reintenta. ¿Qué evita que haya dos copias?",
+   "o": [
+    "Que TCP descarta solo los mensajes repetidos entre dos programas",
+    "Que el consumidor siempre confirma dos veces el mismo mensaje",
+    "Que el productor espera una hora antes de reintentar cualquier envío",
+    "Un identificador estable en cada mensaje, que el broker usa para rechazar repetidos"
+   ],
+   "c": 3,
+   "e": "Con un identificador estable (en NATS, `Nats-Msg-Id`) el broker reconoce el reintento dentro de su ventana de deduplicación y contesta duplicate=true sin guardarlo de nuevo. TCP no conoce los mensajes de aplicación, que son otra capa; esperar una hora no resuelve nada, y confirmar dos veces no tiene que ver con el productor."
+  },
+  {
+   "p": "Un consumidor resta stock, se cae antes de confirmar y el broker reentrega. El consumidor ingenuo dejó 80 tornillos en lugar de 90. ¿Cuál es la defensa que siempre hace falta?",
+   "o": [
+    "Una clave por mensaje, guardada en la misma transacción que el cambio de stock",
+    "Apagar la reentrega del broker para que los mensajes lleguen una sola vez",
+    "Restar el stock después de confirmar el mensaje en lugar de antes",
+    "Usar un broker con garantía «exactamente una vez» y olvidarse del consumidor"
+   ],
+   "c": 0,
+   "e": "La clave aplicada junto con el efecto hace que la segunda entrega no cambie nada. Apagar la reentrega pierde mensajes cuando algo falla; confirmar antes de restar convierte el hueco en pérdida (si se cae entre los dos pasos, el stock no se resta nunca); y entre dos sistemas distintos ninguna garantía declarada de «exactamente una vez» exime al consumidor de ser idempotente."
+  },
+  {
+   "p": "Cuatro eventos del mismo pedido van a una cola con dos workers, uno lento y uno rápido, y a veces «entregado» termina antes que «creado». ¿Cuál es la causa?",
+   "o": [
+    "El broker mezcla los mensajes al azar antes de entregarlos",
+    "Los workers trabajan en paralelo y terminan en distinto orden del que recibieron",
+    "Los mensajes se corrompen cuando hay más de un consumidor en el grupo",
+    "NATS no preserva el orden de publicación dentro de un mismo asunto"
+   ],
+   "c": 1,
+   "e": "El broker entrega en orden de publicación; el desorden aparece porque cada worker termina cuando termina, y uno más rápido puede cerrar un mensaje posterior antes que otro cierre uno anterior. La solución no es otro broker, sino asignar los eventos de un mismo pedido al mismo consumidor, por ejemplo con particiones por clave."
+  },
+  {
+   "p": "Un tema de Kafka tiene 3 particiones y se levantan 5 consumidores en el mismo grupo. ¿Qué pasa con el paralelismo?",
+   "o": [
+    "Los cinco trabajan, porque Kafka crea particiones nuevas para los que sobran",
+    "Los cinco trabajan, porque cada consumidor lee mensajes de las tres particiones",
+    "Trabajan tres, y los otros dos quedan sin partición asignada, esperando",
+    "Trabajan dos, y el tercero atiende las particiones que quedan libres"
+   ],
+   "c": 2,
+   "e": "Dentro de un grupo, cada partición la lee un solo consumidor, así que con 3 particiones el máximo útil es 3 consumidores y los otros 2 quedan ociosos. Es el costo de garantizar orden por partición: para más paralelismo hacen falta más particiones, que Kafka no crea por su cuenta."
+  },
+  {
+   "p": "En Senda, `jugar_turno` recibe dos veces el mismo `cliente_id` de un jugador porque el teléfono reenvió. ¿Qué hace la segunda llamada?",
+   "o": [
+    "Devuelve la partida como está, porque ya vio ese cliente_id de ese jugador",
+    "Anota de nuevo las jugadas, y la base descarta las repetidas al confirmar",
+    "Lanza un error para avisar al teléfono de que el turno ya se jugó",
+    "Cuenta las jugadas otra vez y le suma puntos al jugador por el reenvío"
+   ],
+   "c": 0,
+   "e": "La función empieza preguntando si ya existe una jugada con ese cliente_id de ese jugador y, si existe, devuelve la partida sin tocar nada: es una operación idempotente con la clave puesta junto al efecto. No lanza error (el reenvío no es una falta) y no suma nada por repetirse."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó la diferencia entre mandar un mensaje a una sola persona de un grupo y mandarlo a todas, y por qué un mismo mensaje puede llegar dos veces aunque nadie se haya equivocado. Usá una analogía propia que no sea la del altavoz ni la de la cinta.",
+ "para_profundizar": [
+  {
+   "fuente": "back14-nats-jetstream-ack",
+   "nota": "La página de entrega y confirmación de JetStream: el ciclo de entrega, confirmación y reentrega, que es el de hoy con otro broker. Leé la parte sobre confirmación doble."
+  },
+  {
+   "fuente": "back14-kafka-intro",
+   "nota": "La introducción oficial de Kafka: temas, particiones, claves y por qué un registro no se borra al consumirse. Sirve para ver el modelo opuesto a la cola."
+  },
+  {
+   "fuente": "back14-sqs-fifo-dedup",
+   "nota": "Cómo SQS FIFO filtra duplicados durante cinco minutos con un identificador de deduplicación: la defensa del camino 1, con otro producto."
+  },
+  {
+   "fuente": "ddia",
+   "nota": "El capítulo sobre procesamiento de flujos (el 11 en la primera edición) compara los brokers estilo cola con los basados en registro, y discute la idempotencia."
+  }
+ ],
+ "videos": [
+  {
+   "q": "message queue vs publish subscribe explained consumer groups",
+   "por_que": "Para ver el mismo reparto a uno o a todos explicado con otro ejemplo y otro broker."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "cola de mensajes",
+   "d": "Un lugar, administrado por un broker, donde los mensajes esperan hasta que un consumidor los toma. Cada mensaje lo atiende un solo consumidor del grupo, lo que permite repartir un trabajo entre varios obreros."
+  },
+  {
+   "t": "publicación-suscripción",
+   "d": "Patrón en el que un productor publica un mensaje a un asunto o tema y cada suscriptor interesado recibe una copia. El productor no sabe quién escucha. También se escribe pub/sub."
+  },
+  {
+   "t": "broker",
+   "d": "El programa intermediario entre productores y consumidores: acepta mensajes, decide a quién entregarlos, los guarda mientras haga falta y lleva la cuenta de cuáles se confirmaron. Ejemplos: RabbitMQ, Kafka, NATS."
+  },
+  {
+   "t": "mensaje duplicado",
+   "d": "El mismo mensaje procesado más de una vez. Aparece cuando un productor reintenta una publicación cuya confirmación se perdió, o cuando un consumidor se cae antes de confirmar y el broker reentrega."
+  },
+  {
+   "t": "evento",
+   "d": "Un mensaje que describe un hecho ya ocurrido, como «el pedido 42 fue creado». No ordena nada: cada interesado decide qué hacer. Se opone al comando, que sí es una orden dirigida a quien la ejecuta."
+  },
+  {
+   "t": "confirmación (ack)",
+   "d": "El aviso que un consumidor le manda al broker cuando terminó de procesar un mensaje. Hasta que llega, el broker considera el mensaje pendiente y lo reentrega si pasa demasiado tiempo."
+  },
+  {
+   "t": "grupo de consumidores",
+   "d": "Un conjunto de consumidores que comparten un nombre y se reparten los mensajes: cada mensaje lo atiende uno solo del grupo. Distintos grupos reciben cada uno todos los mensajes. NATS lo llama grupo de cola; Kafka, consumer group."
+  },
+  {
+   "t": "partición",
+   "d": "Una de las partes en que se divide un tema de Kafka. Los eventos con la misma clave caen en la misma partición y se leen en el orden en que se escribieron; cada partición la lee un solo consumidor de un grupo."
+  }
+ ],
+ "siguiente": "Caching en el backend. Hasta acá el problema era hacer cosas más tarde y repartirlas; mañana es el contrario: responder rápido a una pregunta que ya se hizo mil veces, guardando la respuesta cerca en lugar de recalcularla, y qué se rompe cuando esa copia queda vieja.",
+ "fuentes_nuevas": [
+  {
+   "id": "back14-nats-core",
+   "t": "Core NATS Deep Dive (documentación oficial de NATS)",
+   "a": "NATS.io",
+   "tipo": "doc",
+   "url": "https://docs.nats.io/learn/core-nats"
+  },
+  {
+   "id": "back14-nats-jetstream-ack",
+   "t": "Delivery and acknowledgment (JetStream, documentación de NATS)",
+   "a": "NATS.io",
+   "tipo": "doc",
+   "url": "https://docs.nats.io/learn/jetstream/delivery-and-acknowledgment"
+  },
+  {
+   "id": "back14-nats-ack",
+   "t": "Ack responses and redelivery (JetStream, documentación de NATS)",
+   "a": "NATS.io",
+   "tipo": "doc",
+   "url": "https://docs.nats.io/learn/jetstream/acknowledgment"
+  },
+  {
+   "id": "back14-nats-publicar",
+   "t": "Publishing (JetStream, documentación de NATS)",
+   "a": "NATS.io",
+   "tipo": "doc",
+   "url": "https://docs.nats.io/learn/jetstream/publishing"
+  },
+  {
+   "id": "back14-kafka-intro",
+   "t": "Introduction (documentación de Apache Kafka 4.4)",
+   "a": "Apache Software Foundation",
+   "tipo": "doc",
+   "url": "https://kafka.apache.org/44/getting-started/introduction/"
+  },
+  {
+   "id": "back14-kafka-descargas",
+   "t": "Apache Kafka: descargas y versiones soportadas",
+   "a": "Apache Software Foundation",
+   "tipo": "doc",
+   "url": "https://kafka.apache.org/community/downloads/"
+  },
+  {
+   "id": "back14-rabbitmq-amqp",
+   "t": "AMQP 0-9-1 Model Explained (RabbitMQ)",
+   "a": "Broadcom (RabbitMQ)",
+   "tipo": "doc",
+   "url": "https://www.rabbitmq.com/tutorials/amqp-concepts"
+  },
+  {
+   "id": "back14-sqs-estandar",
+   "t": "Amazon SQS standard queues (guía del desarrollador)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/standard-queues.html"
+  },
+  {
+   "id": "back14-sqs-fifo",
+   "t": "Amazon SQS FIFO queues (guía del desarrollador)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-fifo-queues.html"
+  },
+  {
+   "id": "back14-kafka-diseno",
+   "t": "Design (documentación de Apache Kafka 4.4)",
+   "a": "Apache Software Foundation",
+   "tipo": "doc",
+   "url": "https://kafka.apache.org/44/design/design/"
+  },
+  {
+   "id": "back14-sqs-fifo-dedup",
+   "t": "Amazon SQS FIFO queue exactly-once processing (guía del desarrollador)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/FIFO-queues-exactly-once-processing.html"
+  },
+  {
+   "id": "back14-sqs-visibilidad",
+   "t": "Amazon SQS visibility timeout (guía del desarrollador)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-visibility-timeout.html"
+  },
+  {
+   "id": "back14-supabase-queues",
+   "t": "Supabase Queues (documentación de Supabase)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/queues"
+  }
+ ]
+}
