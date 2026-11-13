@@ -1,0 +1,915 @@
+{
+ "id": "04-03",
+ "titulo": "La terminal del desarrollador y los scripts",
+ "bajada": "Escribís un script que resume un CSV de envíos, le hacés decir si salió bien o mal con un código de retorno, lo rompés a propósito y lo depurás con la traza de bash.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Escribir un script de shell con shebang, argumentos, condiciones y bucles, y ejecutarlo con los permisos correctos.",
+  "Leer y producir códigos de retorno, y explicar qué significan el 0, el 1, el 2, el 126, el 127 y el 137.",
+  "Explicar qué hacen `set -e`, `set -u` y `set -o pipefail`, y nombrar tres situaciones en las que `set -e` no corta el script.",
+  "Depurar un script con `bash -x`, `bash -n`, `trap ... ERR` y ShellCheck.",
+  "Distinguir alias, función y script, y usar `make` para que una tarea no se repita si nada cambió."
+ ],
+ "venis_de": "En el [@02-16] y el [@02-17] aprendiste a escribir comandos, encadenarlos con tuberías y leer un código de salida. Hoy esos comandos dejan de vivir en tu teclado: se guardan en un archivo, reciben argumentos, avisan cómo les fue y se pueden repetir sin errores de tipeo.",
+ "se_apoya_en": [
+  "02-16",
+  "02-17",
+  "02-18"
+ ],
+ "gancho": [
+  "Un lunes en un depósito (el caso es inventado). El sistema de despachos exporta de madrugada un archivo CSV con los envíos del día anterior. Alguien lo abre en una planilla y hace siempre lo mismo: saca el encabezado, cuenta cuántos envíos quedaron entregados, devueltos o pendientes, suma los kilos por zona y, si hay devueltos, avisa. Son cuatro tareas que llevan un rato todos los días y que se equivocan los lunes de mal humor.",
+  "Esas cuatro tareas se pueden escribir una sola vez en un archivo de texto de veintisiete líneas. Hoy lo corrí sobre un CSV inventado de 500.000 envíos (14,8 MB) y tardó una cuarta parte de un segundo en una VM de pruebas. La velocidad es lo de menos. Lo que cambia las cosas es que un script puede **decir si le fue bien o mal** de una forma que otro programa entiende sin leer nada. Esa señal se llama código de retorno, y es lo que vas a aprender hoy a producir, a leer y a no malinterpretar."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un script de shell es una receta que se lee de arriba abajo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el [@02-16] viste que el [[shell]] lee lo que escribís, lo interpreta y le pide al sistema que ejecute programas. Un **script de shell** es lo mismo sin teclado: un archivo de texto con los comandos que escribirías uno por uno, que el shell lee de arriba abajo. No hay compilación ni un formato especial. Si sabés escribir comandos, ya tenés la mitad del camino; la otra mitad es decidir qué hacer cuando algo sale mal.",
+    "Este es el script más chico que sirve para ver las piezas. Las dos primeras líneas son las que importan hoy."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "#!/usr/bin/env bash\necho \"Hola desde un script. Soy el proceso $$ y mi nombre es $0\"",
+   "cap": "saludo.sh. La primera línea es el «shebang»; la segunda imprime el número de proceso (`$$`) y el nombre con el que se lo invocó (`$0`)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ls -l saludo.sh",
+     "s": "-rw-r--r-- 1 root root 85 Nov 13 17:21 saludo.sh"
+    },
+    {
+     "c": "./saludo.sh; echo \"código: $?\"",
+     "s": "bash: line 1: ./saludo.sh: Permission denied\ncódigo: 126"
+    },
+    {
+     "c": "chmod +x saludo.sh",
+     "s": ""
+    },
+    {
+     "c": "./saludo.sh; echo \"código: $?\"",
+     "s": "Hola desde un script. Soy el proceso 9327 y mi nombre es ./saludo.sh\ncódigo: 0"
+    },
+    {
+     "c": "bash saludo.sh",
+     "s": "Hola desde un script. Soy el proceso 9328 y mi nombre es saludo.sh"
+    },
+    {
+     "c": "./noexiste.sh; echo \"código: $?\"",
+     "s": "bash: line 1: ./noexiste.sh: No such file or directory\ncódigo: 127"
+    }
+   ],
+   "cap": "Corrido en una VM Ubuntu 24.04 con bash 5.2.21. Cada comando se ejecutó con `bash -c`, por eso los mensajes empiezan con «bash: line 1:»; en una terminal interactiva empiezan solo con «bash:»."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Pasaron tres cosas que vale la pena separar. Primera: el archivo nuevo nace sin permiso de ejecución ([[permisos rwx]]), y por eso `./saludo.sh` falló con «Permission denied». Segunda: `chmod +x` le agrega ese permiso y entonces anduvo. Tercera, y más sutil: `bash saludo.sh` funcionó **aun sin el permiso**, porque ahí el programa que se ejecuta es `bash`, que solo necesita leer el archivo.",
+    "¿Cómo sabe el sistema qué programa debe leer el archivo cuando lo ejecutás directo? Por el **shebang**, los dos caracteres `#!` al comienzo. Según la página de `execve` del manual de Linux, si el archivo ejecutable empieza con `#!`, el [[kernel]] toma el resto de la línea como el intérprete y lo ejecuta pasándole la ruta del script [#man7-execve]. Es decir: el que resuelve esto no es el shell, es el kernel. Un script de Python que empiece con `#!/usr/bin/env python3` funciona igual, y esa es la razón por la que no se nota el lenguaje desde afuera."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "La forma `#!/usr/bin/env bash` le pide al programa `env` que busque `bash` en el [[PATH]] (lo viste en el [@02-18]), en lugar de fijar una ruta. Sirve porque no todos los sistemas guardan bash en el mismo lugar. Hay otra variante que conviene conocer por las dudas: `#!/bin/sh`. En esta VM, `/bin/sh` es un enlace a `dash`, un shell más simple que bash. Un script que use `[[ ]]` o arreglos y declare `#!/bin/sh` puede fallar justo ahí, y eso es una de las causas clásicas de «anda en mi máquina y no en el servidor»."
+  },
+  {
+   "t": "pensa",
+   "x": "El archivo `saludo.sh` existe y lo creaste vos, pero `./saludo.sh` dio «Permission denied». ¿Qué permiso falta y por qué `bash saludo.sh` sí funcionó?",
+   "resp": "Falta el permiso de ejecución (la «x»). En Linux leer, escribir y ejecutar son permisos distintos y un archivo nuevo nace sin el último. `bash saludo.sh` anda porque el programa que se ejecuta es bash, que solo necesita **leer** el archivo."
+  },
+  {
+   "t": "h",
+   "x": "Variables, argumentos y condiciones"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora un script con trabajo de verdad. Resume un CSV de envíos: cuenta cuántos hay por estado y suma los kilos por zona. Los datos son inventados, pero la forma es la de cualquier exportación de un sistema de despachos."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat envios.csv",
+     "s": "id,zona,estado,peso_kg\n1001,Palermo,entregado,4.2\n1002,Palermo,entregado,12.0\n1003,Caballito,devuelto,3.5\n1004,Belgrano,entregado,7.8\n1005,Caballito,entregado,1.1\n1006,Belgrano,pendiente,22.4\n1007,Palermo,devuelto,5.0\n1008,Boedo,entregado,9.9\n1009,Caballito,entregado,2.6\n1010,Belgrano,entregado,6.3"
+    }
+   ],
+   "cap": "Diez envíos inventados. Los kilos de Belgrano suman 7,8 + 22,4 + 6,3 = 36,5; los de Palermo, 4,2 + 12,0 + 5,0 = 21,2."
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "#!/usr/bin/env bash\n# Resume un CSV de envíos: cuántos por estado y cuántos kilos por zona.\n# Códigos de retorno: 0 todo bien · 1 hay devueltos · 2 uso incorrecto · 3 archivo ilegible\nset -euo pipefail\n\nif [ \"$#\" -ne 1 ]; then\n  echo \"Uso: $0 archivo.csv\" >&2\n  exit 2\nfi\n\narchivo=\"$1\"\nif [ ! -r \"$archivo\" ]; then\n  echo \"No puedo leer «$archivo»\" >&2\n  exit 3\nfi\n\necho \"== Envíos por estado ==\"\ntail -n +2 \"$archivo\" | cut -d, -f3 | sort | uniq -c\n\necho \"== Kilos por zona ==\"\ntail -n +2 \"$archivo\" | awk -F, '{ kg[$2] += $4 } END { for (z in kg) printf \"%-10s %5.1f\\n\", z, kg[z] }' | sort\n\ndevueltos=$(tail -n +2 \"$archivo\" | grep -c ',devuelto,' || true)\nif [ \"$devueltos\" -gt 0 ]; then\n  echo \"Atención: $devueltos envíos devueltos\" >&2\n  exit 1\nfi",
+   "cap": "resumen.sh. Escrito y corrido en esta VM (bash 5.2.21). El comentario de la cabecera documenta los códigos de retorno, igual que lo haría la ayuda de un programa."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá cómo está armado. `$#` es la cantidad de [[argumento de línea de comandos|argumentos]] que recibió el script y `$1` el primero; `$0` es el nombre con el que lo llamaron (el `saludo.sh` de recién). Los guarda en una [[variable]] con `archivo=\"$1\"`, sin espacios alrededor del `=`: en bash, `archivo = \"$1\"` significaría «ejecutá un programa llamado `archivo`». Después usa `$(...)`, que ejecuta un comando y devuelve lo que imprimió, para guardar en `devueltos` el resultado del `grep -c`. Y manda los mensajes de error a la salida de error con `>&2`, el segundo de los tres canales del [@02-16], para que no se mezclen con el resultado."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Variable",
+    "Qué contiene",
+    "Ejemplo en resumen.sh"
+   ],
+   "filas": [
+    [
+     "`$0`",
+     "El nombre con el que se invocó el script",
+     "`Uso: $0 archivo.csv`"
+    ],
+    [
+     "`$1`, `$2`…",
+     "Cada argumento, en orden",
+     "`archivo=\"$1\"`"
+    ],
+    [
+     "`$#`",
+     "Cuántos argumentos llegaron",
+     "`[ \"$#\" -ne 1 ]`"
+    ],
+    [
+     "`$@`",
+     "Todos los argumentos, cada uno por separado",
+     "no se usa acá"
+    ],
+    [
+     "`$?`",
+     "Código de retorno del último comando",
+     "`echo $?` en la terminal"
+    ],
+    [
+     "`$$`",
+     "Número de proceso del propio script",
+     "`saludo.sh`"
+    ]
+   ],
+   "cap": "Los «parámetros especiales» de bash más usados. `$1` y `$@` solo existen dentro de un script o una función."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Un `if` no mira «verdadero o falso»: mira códigos",
+   "x": [
+    "La línea `if [ \"$#\" -ne 1 ]; then` parece una comparación, pero `[` es un comando (según `type [` en esta VM, un comando interno de bash; además existe como programa en `/usr/bin/[`). Compara lo que le pasás y **termina con código 0 o distinto de 0**. El `if` solo se fija en eso: ejecuta la rama `then` si el comando terminó en 0. Por eso funciona `if grep -q hola archivo; then`, sin corchetes: el `if` evalúa directamente el código de retorno del `grep`. Todo el control de flujo del shell descansa sobre ese número.",
+    "La consecuencia práctica es una trampa de forma: los espacios dentro de `[ ... ]` son obligatorios. `[\"$a\" = \"$b\"]` pegado no es una comparación mal escrita, es un comando que no existe."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./resumen.sh envios.csv; echo \"código: $?\"",
+     "s": "== Envíos por estado ==\n      2 devuelto\n      7 entregado\n      1 pendiente\n== Kilos por zona ==\nBelgrano    36.5\nBoedo        9.9\nCaballito    7.2\nPalermo     21.2\nAtención: 2 envíos devueltos\ncódigo: 1"
+    },
+    {
+     "c": "./resumen.sh; echo \"código: $?\"",
+     "s": "Uso: ./resumen.sh archivo.csv\ncódigo: 2"
+    },
+    {
+     "c": "./resumen.sh nada.csv; echo \"código: $?\"",
+     "s": "No puedo leer «nada.csv»\ncódigo: 3"
+    },
+    {
+     "c": "time ./resumen.sh grande.csv",
+     "s": "== Envíos por estado ==\n  45273 devuelto\n 409471 entregado\n  45256 pendiente\n== Kilos por zona ==\nBelgrano   1268092.6\nBoedo      1265210.3\nCaballito  1278429.4\nFlores     1271612.2\nPalermo    1275699.1\nRecoleta   1266751.4\nAtención: 45273 envíos devueltos\n\nreal\t0m0.276s\nuser\t0m0.240s\nsys\t0m0.094s"
+    }
+   ],
+   "cap": "Tres corridas con un resultado distinto cada una (1, 2 y 3) y una sobre `grande.csv`, un CSV de 500.000 filas (14,8 MB) generado con una semilla fija; tiempo de una sola VM, no una medición general."
+  },
+  {
+   "t": "p",
+   "x": "Fijate que el script terminó con **cuatro códigos distintos según la situación**: 0 si todo está bien, 1 si hay devueltos, 2 si lo llamaron mal, 3 si el archivo no se puede leer. Quien lo ejecute (una persona, otro script, un flujo automático) puede reaccionar a cada caso sin leer una sola línea de texto. De eso trata la próxima sección."
+  },
+  {
+   "t": "h",
+   "x": "El código de retorno: el idioma entre programas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El **código de retorno** es el número que un programa deja al terminar (lo que en la terminal llamaste [[código de salida]]). Es un entero entre 0 y 255. Según el manual de bash, un comando que sale con 0 tuvo éxito y uno que sale con cualquier otro valor falló; el diseño es deliberado, porque hay una sola manera de decir «todo bien» y muchas de decir «mal» [#oficio-bash-exit-status].",
+    "En el script lo viste de las dos puntas: lo **leíste** con `$?` y lo **produjiste** con `exit 3`. También lo usaste sin verlo cada vez que un `if` evaluó un `grep`. Y el propio shell lo usa para reportar sus fallas: el manual fija que si un comando no se encuentra el código es 127, que si se encuentra pero no es ejecutable es 126, y que si lo mata una señal de número N el código es 128 + N [#oficio-bash-exit-status]. Esos tres los provocaste arriba."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Código",
+    "Cuándo aparece",
+    "Lo vimos hoy en"
+   ],
+   "filas": [
+    [
+     "0",
+     "Éxito",
+     "`./saludo.sh` con permiso"
+    ],
+    [
+     "1",
+     "Falla genérica; en `grep`, «no encontré nada»",
+     "`grep -q zzz saludo.sh`; `resumen.sh` con devueltos"
+    ],
+    [
+     "2",
+     "Uso incorrecto o error en `grep`; error de sintaxis en bash",
+     "`grep` sobre un archivo que no existe; `bash -n` sobre un script cortado"
+    ],
+    [
+     "126",
+     "El archivo está pero no se puede ejecutar",
+     "`./saludo.sh` sin permiso x"
+    ],
+    [
+     "127",
+     "El comando no existe",
+     "`./noexiste.sh`"
+    ],
+    [
+     "137",
+     "128 + 9: lo mató la señal 9 (`kill -9`)",
+     "`sh -c 'kill -9 $$'`"
+    ]
+   ],
+   "cap": "Códigos de bash y de `grep` corridos en esta VM. Fuera de 126, 127 y 128 + N, el significado de cada número lo decide cada programa."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "grep -q zzz saludo.sh; echo $?",
+     "s": "1"
+    },
+    {
+     "c": "grep -q Hola saludo.sh; echo $?",
+     "s": "0"
+    },
+    {
+     "c": "grep -q Hola no_existe.sh; echo $?",
+     "s": "grep: no_existe.sh: No such file or directory\n2"
+    },
+    {
+     "c": "sh -c \"kill -9 \\$\\$\"; echo $?",
+     "s": "bash: line 1:  9338 Killed                  sh -c \"kill -9 \\$\\$\"\n137"
+    }
+   ],
+   "cap": "El `grep -q` no imprime nada: solo responde con el código. Le da 1 cuando busca bien y no encuentra, y 2 cuando no pudo buscar."
+  },
+  {
+   "t": "pensa",
+   "x": "`grep -q zzz saludo.sh` devolvió 1. ¿Es un error del programa?",
+   "resp": "No. Para `grep`, 1 es una respuesta legítima («busqué bien y no hay coincidencias»); el error de verdad es el 2. Por eso un `grep` sin resultados dentro de un script con `set -e` puede cortarlo aunque nada haya fallado: lo vas a ver en la sección siguiente."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el remito de recepción",
+   "x": [
+    "Cuando un camión descarga en un depósito, el que recibe firma un remito: «conforme», «conforme con observaciones» o «rechazado». El sistema que sigue (facturar, reponer, reclamar) decide según esa marca y no vuelve a contar la mercadería. El código de retorno es esa marca: 0 es «conforme» y los demás valores son los distintos rechazos.",
+    "Donde la analogía deja de valer: un código es un solo número de 0 a 255, sin explicación. El **motivo** del rechazo no viaja ahí; viaja por la salida de error, en texto, para una persona. Por eso `resumen.sh` imprime «Atención: 2 envíos devueltos» y además termina con 1. Los dos canales cumplen trabajos distintos."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Con el código a mano aparecen los operadores que encadenan comandos según cómo les fue. `a && b` ejecuta `b` solo si `a` terminó en 0; `a || b` ejecuta `b` solo si `a` falló. Por eso `mkdir informes && cd informes` no entra a una carpeta que no se pudo crear, y por eso `./resumen.sh envios.csv || echo \"revisar\"` avisa sin tener que leer la salida. Son atajos del mismo `if`."
+  },
+  {
+   "t": "h",
+   "x": "`set -euo pipefail`: la red de seguridad y sus agujeros"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Por defecto, un script de bash **sigue de largo** cuando un comando falla. Si el tercer paso de siete falla, ejecuta del cuarto al séptimo con datos a medio hacer. Para tareas de armado y despliegue eso es peligroso, y por eso casi todos los scripts serios arrancan con una línea que cambia el comportamiento: `set -euo pipefail`. Son tres opciones juntas, y cada una cubre un hueco distinto."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "`-e`: cortar al primer fallo"
+  },
+  {
+   "t": "p",
+   "x": "Con `set -e` el shell termina apenas un comando devuelve algo distinto de 0. En el primer script de abajo, la línea posterior al `false` nunca se imprime y el código final es 1 (el del comando que falló)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat a.sh",
+     "s": "#!/usr/bin/env bash\nset -e\necho \"1) antes\"\nfalse\necho \"2) después de false (no debería verse)\""
+    },
+    {
+     "c": "bash a.sh; echo \"código: $?\"",
+     "s": "1) antes\ncódigo: 1"
+    }
+   ],
+   "cap": "`false` es un comando que no hace nada y siempre devuelve 1; sirve para provocar fallas a propósito."
+  },
+  {
+   "t": "h3",
+   "x": "`-u`: una variable mal escrita es un error"
+  },
+  {
+   "t": "p",
+   "x": "Sin `-u`, una variable que no existe vale cadena vacía, sin aviso. Con `-u`, bash corta con un mensaje. La diferencia importa más de lo que parece cuando la variable arma una ruta:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat c2.sh",
+     "s": "#!/usr/bin/env bash\necho \"borro /tmp/ejemplo/$CARPETA/datos\""
+    },
+    {
+     "c": "bash c2.sh",
+     "s": "borro /tmp/ejemplo//datos"
+    },
+    {
+     "c": "bash c.sh; echo \"código: $?\"",
+     "s": "c.sh: line 3: DIRECTRIO_DE_TRABAJO: unbound variable\ncódigo: 1"
+    }
+   ],
+   "cap": "Ni este script ni el de abajo borran nada: el primero solo imprime. `c.sh` tiene `set -u` y una variable con un error de tipeo (DIRECTRIO)."
+  },
+  {
+   "t": "p",
+   "x": "Si en lugar del `echo` hubiera un `rm -rf /tmp/ejemplo/$CARPETA/datos` con la variable vacía, el comando pegaría en `/tmp/ejemplo//datos`: un lugar distinto del que querías. Con `-u`, el script se detiene antes de llegar ahí."
+  },
+  {
+   "t": "h3",
+   "x": "`-o pipefail`: que una tubería falle si falla cualquiera de sus partes"
+  },
+  {
+   "t": "p",
+   "x": "Una [[tubería]] como `a | b` devuelve por defecto el código del **último** comando. Si `a` falla pero `b` anda, el conjunto sale con 0 y `set -e` no se entera. `pipefail` cambia esa regla: la tubería falla si falló alguna parte."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat d.sh",
+     "s": "#!/usr/bin/env bash\necho \"sin pipefail:\"\ncat /archivo/que/no/existe | wc -l\necho \"código del pipeline: ${PIPESTATUS[0]} ${PIPESTATUS[1]}\"\nset -o pipefail\necho \"con pipefail:\"\ncat /archivo/que/no/existe | wc -l\necho \"código del pipeline: $?\""
+    },
+    {
+     "c": "bash d.sh 2>&1",
+     "s": "sin pipefail:\ncat: /archivo/que/no/existe: No such file or directory\n0\ncódigo del pipeline: 1 0\ncon pipefail:\ncat: /archivo/que/no/existe: No such file or directory\n0\ncódigo del pipeline: 1"
+    }
+   ],
+   "cap": "`PIPESTATUS` es un arreglo de bash con el código de cada parte de la última tubería: el `cat` devolvió 1 y el `wc` devolvió 0. Sin `pipefail`, el conjunto habría valido 0."
+  },
+  {
+   "t": "h3",
+   "x": "Los agujeros: cuándo `set -e` NO corta"
+  },
+  {
+   "t": "p",
+   "x": "Hasta acá `set -euo pipefail` parece una armadura. No lo es, y conocer sus excepciones es lo que separa a quien lo copia de quien lo entiende. El manual de bash enumera varios casos en los que `-e` se ignora a propósito: cuando el comando fallido es parte de la condición de un `if`, `while` o `until`; cuando es parte de una lista `&&` o `||` y no es el último de la lista; cuando es una parte de una tubería que no es la última (sujeto a `pipefail`); o cuando se invierte con `!` [#oficio-bash-set]. Y agrega algo que sorprende: si una función se ejecuta en un contexto donde `-e` está ignorado, **ninguno** de los comandos dentro de la función lo respeta."
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "#!/usr/bin/env bash\nset -e\nif false; then echo \"no\"; fi\necho \"1) pasé el if con condición falsa\"\nfalse || echo \"2) el || atrapó el fallo\"\nfalse && echo \"no se imprime\"\necho \"3) sigo vivo después de 'false && ...'\"\nf() { false; echo \"4) dentro de f, después de false\"; }\nf || echo \"5) f falló\"\necho \"6) fin\"",
+   "cap": "b.sh. Cinco formas de que `set -e` no corte. Antes de seguir, intentá anticipar qué líneas imprime."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Sin ejecutar `b.sh`: ¿qué líneas se imprimen, en qué orden, y con qué código termina el script? Prestale atención especial al número 4 y al número 5.",
+   "pista": "Para la función `f`, mirá en qué contexto se llama: está a la izquierda de un `||`. ¿Qué dice el manual sobre `-e` dentro de una función llamada así?",
+   "solucion": "Se imprimen 1, 2, 3, 4 y 6, y el código es 0. La línea 4 **sí** aparece: como `f` se ejecuta a la izquierda de un `||`, `set -e` se ignora dentro de ella y el `false` no corta la función. La línea 5 **no** aparece, porque `f` terminó con el código de su último comando (el `echo`, que anda) y entonces el `||` no se activa. Lo corrí con bash 5.2.21 y salió exactamente eso."
+  },
+  {
+   "t": "p",
+   "x": "Hay dos agujeros más que no vienen de esa lista y que muerden en la práctica. El primero es el `grep` sin resultados que viste arriba. En `resumen.sh` hay una línea que cuenta los devueltos con `grep -c`; cuando no hay ninguno, `grep -c` imprime `0` y devuelve 1, y con `pipefail` y `-e` el script entero muere en silencio. Para probarlo saqué el `|| true` de esa línea y lo corrí sobre un CSV sin devueltos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./resumen_sin_true.sh limpio.csv; echo \"código: $?\"",
+     "s": "== Envíos por estado ==\n      7 entregado\n      1 pendiente\n== Kilos por zona ==\nBelgrano    36.5\nBoedo        9.9\nCaballito    3.7\nPalermo     16.2\ncódigo: 1"
+    }
+   ],
+   "cap": "El resumen se imprimió completo y el script terminó con 1 **sin ningún mensaje**: no había devueltos, y esa fue justamente la causa de la muerte. Además, el código 1 coincide con el que `resumen.sh` usa para decir «hay devueltos»."
+  },
+  {
+   "t": "p",
+   "x": "El segundo es `local x=$(comando)` dentro de una función. El código que queda es el de `local` (que sale bien) y no el del comando, así que la falla se esconde. Lo probé: `local x=$(false)` siguió de largo con `x` vacío, mientras que separar en dos líneas (`local x` y luego `x=$(false)`) sí cortó el script con código 1. La regla práctica es declarar y asignar por separado."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Una red con agujeros no es una red inútil (criterio mío)",
+   "x": "Para scripts cortos de armado, `set -euo pipefail` evita muchos desastres silenciosos y yo lo pondría casi siempre. Pero no reemplaza escribir cada chequeo importante a mano: `if [ ! -r \"$archivo\" ]` es mejor que esperar que `cat` falle en algún lado. Y hay scripts que **no** quieren cortar al primer error, como veremos en Senda más abajo: a veces el diseño correcto es seguir, juntar las fallas y decidir al final."
+  },
+  {
+   "t": "h",
+   "x": "Cuando algo falla: depurar un script"
+  },
+  {
+   "t": "p",
+   "x": "Un script que renombra los remitos de un día, agregándoles el prefijo `2026-`, parece tan simple que no se le presta atención. Este es el primer intento, que tiene un error de los más frecuentes de la historia del shell:"
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "#!/usr/bin/env bash\n# Agrega el prefijo 2026- a cada remito .txt\nset -eu\nfor f in $(ls *.txt); do\n  mv $f 2026-$f\ndone",
+   "cap": "renombrar_mal.sh. No lo copies a un proyecto real: está rotulado «mal» a propósito."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ls",
+     "s": "remito 1001.txt\nremito 1002.txt\nremito_1003.txt"
+    },
+    {
+     "c": "bash renombrar_mal.sh; echo \"código: $?\"",
+     "s": "mv: cannot stat 'remito': No such file or directory\ncódigo: 1"
+    }
+   ],
+   "cap": "Dos de los tres archivos tienen un espacio en el nombre, un caso de lo más normal con archivos que vienen de una planilla."
+  },
+  {
+   "t": "p",
+   "x": "El mensaje dice que `mv` no encuentra un archivo llamado `remito`. Pero ese archivo no existe: lo que existe es `remito 1001.txt`. ¿De dónde sale `remito` solo? Este es el momento de usar la herramienta más importante para depurar scripts: **la traza**. `bash -x script` imprime cada comando **ya expandido**, con un `+` adelante, antes de ejecutarlo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "bash -x renombrar_mal.sh 2>&1 | head -5",
+     "s": "+ set -eu\n++ ls 'remito 1001.txt' 'remito 1002.txt' remito_1003.txt\n+ for f in $(ls *.txt)\n+ mv remito 2026-remito\nmv: cannot stat 'remito': No such file or directory"
+    }
+   ],
+   "cap": "Las líneas con `++` son comandos ejecutados dentro de `$(...)`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahí está. La traza muestra `mv remito 2026-remito`: dos argumentos donde debería haber uno. El shell, al expandir `$f` sin comillas, **parte el valor en las palabras separadas por espacios** (word splitting) y `mv` recibe `remito` y `2026-remito` en vez del nombre entero. El error no estaba en `mv`: estaba en cómo se le pasaban los datos. El arreglo se resume en dos reglas. Poné **comillas dobles** alrededor de toda expansión de variable. Y no recorras la salida de `ls`: recorré un patrón (`./*.txt`), que el shell expande bien aunque los nombres tengan espacios.",
+    "ShellCheck, un analizador estático de scripts, marca el problema sin ejecutar nada. Lo instalé desde los paquetes de Ubuntu (versión 0.9.0) y esto fue lo que dijo: SC2045 («iterar sobre la salida de `ls` es frágil, usá globs») y SC2086 («poné comillas dobles para evitar globbing y word splitting»), además de sugerir `mv \"$f\" 2026-\"$f\"`. Su sugerencia automática arregla las comillas pero no el `ls`, y por eso conviene leer el aviso y no solo aplicarlo."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "#!/usr/bin/env bash\n# Agrega el prefijo 2026- a cada remito .txt\nset -eu\nfor f in ./*.txt; do\n  [ -e \"$f\" ] || continue     # si no hay ningún .txt, el patrón queda literal: se saltea\n  mv -- \"$f\" \"./2026-${f#./}\"\ndone",
+   "cap": "renombrar_bien.sh. ShellCheck 0.9.0 no marca nada. `--` indica que lo que sigue son nombres, no opciones; `${f#./}` le saca el `./` del comienzo."
+  },
+  {
+   "t": "p",
+   "x": "Para seguir una sección larga de un script no hace falta trazarlo entero: `set -x` prende la traza y `set +x` la apaga. Y la variable `PS4` define el prefijo de cada línea trazada; si la ponés con `${LINENO}`, cada comando aparece con su número de línea."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat t2.sh",
+     "s": "#!/usr/bin/env bash\nPS4='+ línea ${LINENO}: '\nset -x\ntotal=0\nfor n in 1 2 3; do\n  total=$((total + n))\ndone\necho \"total=$total\"\nset +x\necho \"listo\""
+    },
+    {
+     "c": "bash t2.sh",
+     "s": "+ línea 4: total=0\n+ línea 5: for n in 1 2 3\n+ línea 6: total=1\n+ línea 5: for n in 1 2 3\n+ línea 6: total=3\n+ línea 5: for n in 1 2 3\n+ línea 6: total=6\n+ línea 8: echo total=6\ntotal=6\n+ línea 9: set +x\nlisto"
+    }
+   ],
+   "cap": "Probé también pasar `PS4` como variable de entorno de `bash -x`, y en esta VM no tuvo efecto; por eso se define adentro del script."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Un método para depurar un script",
+   "pasos": [
+    {
+     "t": "Leé el mensaje completo",
+     "x": "Casi siempre dice el comando y la línea que falló. En el ejemplo, `mv` se quejaba de un archivo llamado `remito`: ya era una pista de que algo lo había cortado."
+    },
+    {
+     "t": "Mirá qué recibió realmente el comando",
+     "x": "`bash -x` muestra los argumentos después de expandir variables y patrones. La mayoría de los errores de shell están en esa diferencia entre lo que creías que pasabas y lo que pasaste."
+    },
+    {
+     "t": "Reducí el caso",
+     "x": "Un solo archivo con espacio en el nombre alcanza para reproducir el problema. Un caso mínimo se entiende en un minuto, y uno de 500.000 filas no."
+    },
+    {
+     "t": "Pasale ShellCheck",
+     "x": "Detecta errores de comillas, variables sin usar y construcciones frágiles sin ejecutar el script. Es gratuito y se puede enganchar a un flujo automático."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Dos herramientas más completan la caja. `bash -n script` lee el archivo sin ejecutarlo y avisa de errores de sintaxis; con un `if` sin su `fi` terminó con el código 2 y el mensaje «unexpected end of file». Y `trap 'comando' ERR` ejecuta un comando cada vez que algo falla: con `set -eE` y un `trap 'echo \"falló la línea $LINENO con código $?\" >&2' ERR`, un `cp` de un archivo inexistente produjo «falló la línea 5 con código 1» antes de terminar el script. Es una manera barata de dejar un rastro de dónde murió algo que corre sin nadie mirando."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La traza imprime todo, también los secretos",
+   "x": "`bash -x` muestra los valores ya expandidos. Si el script usa una variable con una contraseña o un token en un comando, la traza la imprime tal cual y queda en el log. Esto sale de cómo funciona la expansión, no de una regla del manual, y lo vas a volver a ver en el [@04-06]: los secretos y los logs no se llevan bien."
+  },
+  {
+   "t": "h",
+   "x": "Alias y funciones: atajos para vos, no para el script"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[alias]] es un nombre corto que el shell reemplaza por un texto antes de ejecutar. Con `alias ll='ls -l'`, escribir `ll` ejecuta `ls -l`. (La palabra ya apareció en la Parte 3 para dos nombres que apuntan al mismo objeto en memoria; la idea tiene un aire parecido, pero acá el reemplazo es de texto, antes de que el comando corra.) Sirve para abreviar lo que tipeás cien veces al día, y se guarda en el archivo `~/.bashrc`, que bash lee cuando abrís una terminal interactiva.",
+    "Y tiene un límite que desconcierta a quien recién empieza. Dentro de un script, el alias **no funciona**. Lo probé: un script con `alias ll='ls -l'` y una línea `ll al.sh` terminó con «ll: command not found» y código 127. Los alias se expanden en shells interactivos; en uno no interactivo, como el que corre un script, hay que habilitarlos aparte con `shopt -s expand_aliases`, y con esa línea el mismo script anduvo."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "bash al.sh",
+     "s": "dentro del script:\nal.sh: line 4: ll: command not found\ncódigo: 127"
+    },
+    {
+     "c": "bash al2.sh",
+     "s": "-rw-r--r-- 1 root root 91 Nov 13 17:12 al.sh"
+    },
+    {
+     "c": "type ll",
+     "s": "ll is aliased to `ls -l'"
+    }
+   ],
+   "cap": "`al2.sh` es el mismo script con `shopt -s expand_aliases` agregado. `type` dice cómo interpreta bash un nombre: alias, función, comando interno, programa o palabra clave."
+  },
+  {
+   "t": "p",
+   "x": "Cuando el atajo necesita argumentos o más de una línea, el alias se queda corto y entra la **función**. Una función de shell es un bloque con nombre; recibe `$1`, `$2` como un script y devuelve un código de retorno como cualquier comando. Una clásica es crear una carpeta y entrar en ella: `mkcd() { mkdir -p -- \"$1\" && cd -- \"$1\"; }`. La probé y `type mkcd` respondió «mkcd is a function»."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Alias",
+    "Función",
+    "Script"
+   ],
+   "filas": [
+    [
+     "Dónde vive",
+     "En tu shell (`~/.bashrc`)",
+     "En tu shell o dentro de un script",
+     "En un archivo propio"
+    ],
+    [
+     "Argumentos",
+     "Solo los pega al final",
+     "`$1`, `$2`, …",
+     "`$1`, `$2`, …"
+    ],
+    [
+     "Funciona en scripts",
+     "No, salvo con `expand_aliases`",
+     "Sí, si está definida en el script",
+     "Sí"
+    ],
+    [
+     "Se comparte con el equipo",
+     "No",
+     "Solo si va dentro de un archivo versionado",
+     "Sí: se guarda en el repositorio"
+    ]
+   ],
+   "cap": "Una regla práctica (criterio mío): alias para los atajos de tu teclado, función para lógica corta, script para lo que otros tienen que poder ejecutar."
+  },
+  {
+   "t": "h",
+   "x": "`make`: una receta que sabe qué ya está hecho"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta ahora, cada vez que querés generar el resumen lo corrés a mano, aunque nada haya cambiado. Con un archivo grande, repetir trabajo cuesta. `make` es un programa que resuelve eso, y lo hace desde mucho antes de que existieran los gestores de paquetes que vas a ver mañana: se usa para automatizar tareas que producen archivos a partir de otros archivos. Se lo asocia con compilar C, pero sirve para cualquier receta.",
+    "Su archivo, el `Makefile`, se compone de **reglas**. Según el manual de GNU make, cada regla tiene un objetivo (en general el nombre de un archivo que se genera), sus prerrequisitos (los archivos que se usan como entrada) y una receta, y la receta existe para generar el objetivo si alguno de los prerrequisitos cambió; las líneas de la receta tienen que empezar con un tabulador [#oficio-gnu-make-reglas]."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": ".PHONY: todo ver\n\ntodo: resumen.txt\n\nresumen.txt: envios.csv resumen.sh\n\t./resumen.sh envios.csv > resumen.txt || test $$? -eq 1\n\t@echo \"resumen.txt listo ($$(wc -l < resumen.txt) líneas)\"\n\nver: resumen.txt\n\t@cat resumen.txt",
+   "cap": "Makefile (`\\t` es un tabulador). `.PHONY` marca nombres que no son archivos; `$$` escribe un `$` literal para el shell; `@` evita que make repita la línea antes de ejecutarla."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "make",
+     "s": "./resumen.sh envios.csv > resumen.txt || test $? -eq 1\nAtención: 2 envíos devueltos\nresumen.txt listo (9 líneas)"
+    },
+    {
+     "c": "make",
+     "s": "make: Nothing to be done for 'todo'."
+    },
+    {
+     "c": "touch envios.csv && make",
+     "s": "./resumen.sh envios.csv > resumen.txt || test $? -eq 1\nAtención: 2 envíos devueltos\nresumen.txt listo (9 líneas)"
+    },
+    {
+     "c": "make -f Makefile.mal",
+     "s": "Makefile.mal:2: *** missing separator.  Stop."
+    }
+   ],
+   "cap": "GNU Make 4.3. La segunda corrida no hace nada: el resultado ya existe y la entrada no cambió. Después de tocar `envios.csv` rehace el trabajo. `Makefile.mal` tiene la receta indentada con espacios en lugar de un tabulador."
+  },
+  {
+   "t": "p",
+   "x": "Dos detalles muestran cómo conversa `make` con los códigos de retorno. El primero: `make` considera que una receta falló si algún comando devuelve algo distinto de 0, y corta ahí. Lo comprobé con otro Makefile que ejecutaba `./resumen.sh envios.csv` sin más, y `make` imprimió `Error 1`, no ejecutó la línea siguiente y terminó con código 2. Por eso el Makefile de arriba lleva `|| test $$? -eq 1`: acepta el 1 («hay devueltos») como resultado normal y deja que cualquier otro código siga cortando. El segundo: el error `missing separator` es el tropiezo más común de quien empieza, porque la diferencia entre un tabulador y cuatro espacios no se ve en pantalla."
+  },
+  {
+   "t": "h",
+   "x": "En Windows: la misma idea con otro modelo"
+  },
+  {
+   "t": "p",
+   "x": "PowerShell, el shell que Microsoft trae para Windows y que también existe para Linux y macOS, hace lo mismo con otras reglas. No lo corrí en este entorno, así que lo que sigue sale de la documentación oficial. La primera diferencia es el modelo de tuberías: en las de PowerShell, según su documentación, cada comando emite **objetos** que recibe el siguiente, no texto [#oficio-ps-pipelines]. La segunda es el estado del último comando: `$?` contiene `True` o `False`, y `$LASTEXITCODE` guarda el código de salida del último programa nativo o script; para un programa nativo, `$?` es `True` cuando `$LASTEXITCODE` vale 0 [#oficio-ps-variables]. Es la misma idea de fondo (un resultado para que decida el que sigue), con un valor lógico además del número."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "PowerShell hoy (documentación leída el 13-11-2026)",
+   "x": "Las páginas de Microsoft que cito son de la versión 7.6 de PowerShell y la de variables automáticas figura actualizada en abril de 2026 [#oficio-ps-variables]. Un script de PowerShell para Windows suele terminar en `.ps1` y se ejecuta con reglas propias de seguridad (políticas de ejecución) que no verifiqué hoy; cuando lo necesites, esa parte conviene leerla en la documentación vigente de tu versión."
+  },
+  {
+   "t": "h",
+   "x": "Cómo usa Senda los códigos de retorno"
+  },
+  {
+   "t": "p",
+   "x": "Senda es la app del fundador y ahí los scripts de shell viven en `scripts/` y los dispara GitHub Actions desde `.github/workflows/`. Leí cuatro (todos del commit `25e08fa`, 9-11-2026) y cada uno decide distinto qué hacer cuando algo no sale como se esperaba. Cada elección tiene su razón, y se la puede reconstruir leyendo el código."
+  },
+  {
+   "t": "senda",
+   "titulo": "Tres scripts, tres decisiones distintas",
+   "x": [
+    "`scripts/limpiar_sermones.sh` empieza con `set -euo pipefail`, igual que el modelo de esta lección. Si faltan las credenciales de Supabase, imprime «nada que hacer» y sale con `exit 0`: no hay trabajo, y no tener trabajo no es un fallo. Si la consulta de red falla, `curl -f` convierte los errores HTTP en un código distinto de 0 y el script corta. Y si no consigue una clave, imprime `::error::No se pudo obtener la clave de servicio` y sale con `exit 1`. Acepta un argumento `--probar` que solo lista lo que borraría. La línea `::error::` es un «comando de flujo» que GitHub Actions interpreta como anotación de error [#oficio-gha-comandos], y `::add-mask::` evita que la clave se imprima en el log.",
+    "`scripts/supabase_despertar.sh` usa `set -u`, sin `-e`. Es deliberado: su trabajo es reactivar un servicio si el plan gratis lo pausó, y por diseño **nunca debe frenar la compilación**. Sin credenciales, sale con 0. Si la API no lo reactiva, imprime un `::warning::` y también sale con 0. Si pasan diez minutos y el proyecto no quedó sano, otro `::warning::` aclara que la app de prueba funciona igual (guarda lo pendiente y lo manda después). Además, en `apk.yml` el paso lleva `continue-on-error: true`: aunque el script fallara, el flujo seguiría.",
+    "`scripts/humo_emulador.sh` usa `set -uo pipefail`, sin `-e`, y un contador `FALLAS`. Cada comprobación incrementa el contador y el script sigue, para que una sola corrida reporte **todos** los problemas (la app se cerró, apareció la pantalla de fallo, hay errores en el log). Al final, su última línea es `[ \"$FALLAS\" -eq 0 ]`, y el código de esa comparación es el código de todo el script."
+   ],
+   "archivos": [
+    "scripts/limpiar_sermones.sh",
+    "scripts/supabase_despertar.sh",
+    "scripts/humo_emulador.sh",
+    ".github/workflows/limpieza.yml",
+    ".github/workflows/apk.yml"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Script",
+    "Opciones",
+    "Si no hay nada que hacer",
+    "Si algo falla"
+   ],
+   "filas": [
+    [
+     "`limpiar_sermones.sh`",
+     "`set -euo pipefail`",
+     "`exit 0`",
+     "Corta con el código del comando; `exit 1` si falta la clave"
+    ],
+    [
+     "`supabase_despertar.sh`",
+     "`set -u`",
+     "`exit 0`",
+     "Avisa con `::warning::` y sale con 0: no frena el APK"
+    ],
+    [
+     "`humo_emulador.sh`",
+     "`set -uo pipefail`",
+     "—",
+     "Cuenta las fallas y sale con 1 al final si hay alguna"
+    ]
+   ],
+   "cap": "Lo que hace cada script, leído del código. Los dos primeros los corrí sin credenciales en esta VM, desde otro directorio y con un entorno vacío (`env -i`): ambos terminaron con código 0 y no escribieron nada. El tercero necesita `adb` y un emulador, y no lo corrí."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El flujo `limpieza.yml` ejecuta `bash scripts/limpiar_sermones.sh` en un paso sin `shell:` explícito. Según la documentación de GitHub Actions, cuando no se indica `shell`, en Linux el paso corre como `bash -e {0}`, y cuando se indica `bash` corre `bash --noprofile --norc -eo pipefail {0}` [#oficio-gha-sintaxis]. En los dos casos, un script que termina con un código distinto de 0 hace fallar el paso, y el flujo se marca en rojo. Esa es la cadena completa: el script decide el número, el shell del paso lo recibe, GitHub lo convierte en un cuadrito verde o rojo.",
+    "Un hallazgo del código, a modo de criterio de ingeniería y no de crítica: `apk.yml` instala el NDK de Android con un bucle de tres reintentos, `yes | sdkmanager ... && break`. Si los tres intentos fallan, el bucle termina con el código de su último comando, el `sleep`, que es 0, y el paso **termina en verde** sin haber instalado nada. Lo reproduje en esta VM con un `false` en lugar de `sdkmanager`: tras tres «Reintento» el paso devolvió 0. La falla aparecería más adelante, no en este paso. La versión corregida guarda una bandera (`ok=1` cuando un intento sale bien) y, si no se puso, termina con `exit 1`. No verifiqué si Gradle descarga el NDK por su cuenta cuando falta, así que no sé qué consecuencia tendría en un caso real."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Un último dato de ShellCheck 0.9.0 sobre estos cuatro scripts: marca tres observaciones menores y ninguna grave. Una es un `$xy` sin comillas en `humo_emulador.sh`, y ahí el espacio sin proteger es **intencional**: `xy` guarda dos coordenadas separadas por un espacio y hace falta que lleguen como dos argumentos a `adb shell input tap`. Es un buen ejemplo de que un aviso de un analizador es una pregunta, no una orden. El cuarto script, `android_r8.sh`, modifica archivos de la carpeta `android/` y por eso no lo ejecuté."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Todo esto corresponde al commit 25e08fa",
+   "x": "Los scripts y flujos de Senda cambian seguido; lo que describo es el estado del commit `25e08fa` (9-11-2026). La forma de pensar (decidir qué es un fallo, qué es «nada que hacer» y cuándo conviene juntar las fallas) es la que se mantiene."
+  }
+ ],
+ "recap": [
+  "Un **script de shell** es un archivo de comandos que el shell lee de arriba abajo; el shebang (`#!`) le dice al kernel qué intérprete usar, y para ejecutarlo directo necesita el permiso de ejecución.",
+  "El **código de retorno** es el número (0 a 255) con el que un programa dice cómo le fue: 0 es éxito, 126 «no ejecutable», 127 «no existe», 128 + N «lo mató la señal N»; el resto lo define cada programa.",
+  "Un `if` evalúa códigos de retorno, no valores lógicos; `&&` y `||` encadenan según el código, y `[` es un comando más.",
+  "`set -euo pipefail` corta en el primer fallo, en variables sin definir y en tuberías con partes fallidas, pero `-e` se ignora en condiciones de `if`, en listas `&&` y `||`, y dentro de funciones llamadas en esos contextos.",
+  "Para depurar: leer el mensaje, mirar qué recibió el comando con `bash -x`, reducir el caso y pasar ShellCheck; el origen más común de errores es una variable sin comillas.",
+  "Un **alias** es un atajo de tu terminal y no funciona dentro de un script; una función sirve para lógica con argumentos; `make` evita repetir trabajo si los archivos de entrada no cambiaron.",
+  "Senda usa tres políticas distintas de salida según el trabajo: cortar al fallo, nunca frenar, o juntar fallas y decidir al final."
+ ],
+ "repaso": [
+  {
+   "p": "Ejecutás `./reporte.sh` y el shell responde «Permission denied», aunque el archivo existe en esa carpeta. ¿Qué pasó y con qué código terminó el intento?",
+   "o": [
+    "Faltaba el permiso de ejecución del archivo y el shell devolvió 126",
+    "El archivo no está en esa carpeta y el shell devolvió 127 al buscarlo",
+    "El script tiene un error de sintaxis y bash devolvió 2 al leerlo",
+    "Falta el shebang y el kernel devolvió 1 al no saber qué ejecutar"
+   ],
+   "c": 0,
+   "e": "Que el archivo exista pero no se pueda ejecutar es el caso del 126. El 127 es para comandos que no se encuentran. Un error de sintaxis se vería recién al leer el script, y el shebang solo decide qué intérprete lo lee."
+  },
+  {
+   "p": "`grep -q hola notas.txt` devuelve 1 y `grep -q hola archivo_inexistente.txt` devuelve 2. ¿Cómo se interpreta?",
+   "o": [
+    "Los dos son fallas del programa, con distinta gravedad según el número",
+    "El 1 es «busqué bien y no hay coincidencias», el 2 es «no pude buscar»",
+    "El 1 indica que el patrón es incorrecto y el 2 que el archivo es grande",
+    "El 1 es éxito y el 2 es advertencia, igual que en la mayoría de los comandos"
+   ],
+   "c": 1,
+   "e": "Para grep, 1 es una respuesta (sin coincidencias) y 2 es un error real. El éxito siempre es 0 y no hay advertencias intermedias como convención general. Por eso un grep sin resultados puede cortar un script con `set -e` sin que haya ocurrido una falla."
+  },
+  {
+   "p": "Un script tiene `set -e` en la primera línea. ¿Cuál de estas líneas NO corta el script aunque el comando falle?",
+   "o": [
+    "`cp origen.csv destino.csv` cuando origen.csv no existe",
+    "`mv remitos/hoy.txt archivo/` cuando la carpeta archivo no existe",
+    "`grep -q devuelto envios.csv || echo \"sin devueltos\"` sin coincidencias",
+    "`rm -- viejo.txt` cuando el archivo no existe y no se usa la opción -f"
+   ],
+   "c": 2,
+   "e": "El comando fallido está en una lista con `||` y no es el último, así que `-e` lo ignora y corre el `echo`. En los otros tres casos el comando es una línea sola: cp, mv y rm devuelven un código distinto de 0 y el script corta ahí."
+  },
+  {
+   "p": "Un script con `set -e` pero sin `pipefail` ejecuta `cat archivo_que_no_existe | wc -l`. ¿Qué pasa?",
+   "o": [
+    "El script corta porque `cat` falló, sin importar `wc`",
+    "El script sigue y la tubería devuelve 1 porque `cat` falló primero",
+    "El script corta porque `wc` no recibió datos y no pudo contar nada",
+    "El script sigue porque la tubería devuelve el código de `wc`, que fue 0"
+   ],
+   "c": 3,
+   "e": "Sin pipefail, el código de una tubería es el de su último comando. `wc -l` anduvo (contó cero líneas) y devolvió 0, así que `-e` no se entera de la falla de `cat`. `PIPESTATUS` muestra que el primer comando devolvió 1."
+  },
+  {
+   "p": "Definís `alias ll='ls -l'` en `~/.bashrc` y escribís `ll` dentro de un script `tarea.sh`. ¿Qué pasa al ejecutarlo?",
+   "o": [
+    "Funciona igual, porque el alias queda cargado en todo el sistema",
+    "Falla con «command not found» (127): un script no expande alias por defecto",
+    "Funciona solo si el script tiene el permiso de ejecución activado",
+    "Falla con 126 porque `ll` existe pero no se puede ejecutar desde un script"
+   ],
+   "c": 1,
+   "e": "Los alias se expanden en shells interactivos. El shell que ejecuta un script no lo es: no lee `.bashrc` ni expande alias salvo que el script active `expand_aliases`. El 126 sería si el archivo existiera sin permiso; acá directamente no existe un comando llamado ll."
+  },
+  {
+   "p": "Corrés `make` dos veces seguidas sin tocar ningún archivo, y la segunda imprime «Nothing to be done for 'todo'». ¿Por qué?",
+   "o": [
+    "Porque el objetivo ya existe y ningún prerrequisito cambió desde que se generó",
+    "Porque make recuerda tus comandos y los saltea la segunda vez",
+    "Porque la receta tiene un error y make la descartó sin avisar",
+    "Porque `.PHONY` le dice a make que ya terminó el trabajo del objetivo"
+   ],
+   "c": 0,
+   "e": "Make compara el objetivo (resumen.txt) con sus prerrequisitos (envios.csv y resumen.sh): si el objetivo está al día, no repite la receta. `.PHONY` hace lo contrario, marca nombres que no son archivos y que siempre deben ejecutarse."
+  },
+  {
+   "p": "`supabase_despertar.sh` de Senda termina con código 0 aunque no haya podido reactivar el proyecto de Supabase. ¿Qué lo explica?",
+   "o": [
+    "Un descuido: el script debería terminar con 1 en ese caso",
+    "Que `set -e` está activo y convierte todos los errores en éxito",
+    "Es deliberado: reactivar es un favor y no debe frenar la compilación del APK",
+    "Que GitHub Actions ignora los códigos de salida de los scripts de red"
+   ],
+   "c": 2,
+   "e": "El script usa `set -u` sin `-e`, avisa con `::warning::` y sale con 0, porque la app de prueba funciona igual sin la base despierta. GitHub Actions sí respeta los códigos; si el script saliera con 1, ese paso fallaría (aquí además lleva `continue-on-error: true`)."
+  }
+ ],
+ "feynman": "Explicale a alguien que usa planillas, y que nunca programó, por qué un script avisa si salió bien o mal con un número y no con un mensaje, y qué cambia cuando ese número lo lee otro programa. Usá un ejemplo propio y dejá claro qué haría un script en cada uno de los tres casos: «todo bien», «hay algo para revisar» y «no pude hacer el trabajo».",
+ "para_profundizar": [
+  {
+   "fuente": "gnu-bash-manual",
+   "nota": "El manual oficial de bash. Para hoy, las secciones «Exit Status» y «The Set Builtin» (ahí está la lista completa de excepciones de `set -e`) son las que respaldan lo que viste."
+  },
+  {
+   "fuente": "missing-semester-shell-tools",
+   "nota": "La clase de scripting y herramientas de shell del curso del MIT. Complementa lo de hoy con más herramientas de la línea de comandos para automatizar tareas."
+  },
+  {
+   "fuente": "oficio-gnu-make-reglas",
+   "nota": "La introducción a las reglas del manual de GNU make: qué son objetivo, prerrequisitos y receta, y por qué la receta empieza con un tabulador."
+  },
+  {
+   "fuente": "oficio-gha-comandos",
+   "nota": "Los «comandos de flujo» de GitHub Actions (`::error::`, `::warning::`, `::add-mask::`): cómo un script puede hablarle al flujo desde su salida."
+  }
+ ],
+ "videos": [
+  {
+   "q": "bash scripting set -e pipefail pitfalls explicado",
+   "por_que": "Para ver los matices de `set -e` explicados con ejemplos en pantalla."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "script de shell",
+   "d": "Archivo de texto con comandos que el shell ejecuta de arriba abajo. Con el permiso de ejecución y un shebang en la primera línea se lo puede correr directamente, como si fuera un programa."
+  },
+  {
+   "t": "alias",
+   "d": "En el shell, nombre corto que se reemplaza por un texto antes de ejecutar el comando (`alias ll='ls -l'`). Se expande en terminales interactivas y por defecto no dentro de un script; no es la misma idea que dos nombres para un mismo objeto en memoria."
+  },
+  {
+   "t": "código de retorno",
+   "d": "Número entre 0 y 255 con el que un programa avisa cómo terminó: 0 es éxito y cualquier otro valor es una falla o un resultado especial. Otros programas, los `if` del shell y los flujos automáticos deciden en base a él."
+  },
+  {
+   "t": "shebang",
+   "d": "Los dos caracteres `#!` al principio de un script, seguidos de la ruta de un intérprete (`#!/usr/bin/env bash`). Le dicen al kernel con qué programa debe leer el archivo cuando se lo ejecuta directo."
+  },
+  {
+   "t": "modo estricto de bash",
+   "d": "Nombre informal de `set -euo pipefail`: cortar al primer comando fallido (`-e`), tratar una variable no definida como error (`-u`) y hacer fallar una tubería si falla cualquiera de sus partes (`-o pipefail`). Tiene excepciones: no es una garantía total."
+  },
+  {
+   "t": "Makefile",
+   "d": "Archivo de reglas que lee la herramienta `make`: cada regla dice qué archivo se genera, de qué archivos depende y qué comandos lo producen. `make` solo repite el trabajo cuando las entradas cambiaron."
+  },
+  {
+   "t": "traza de ejecución",
+   "d": "Registro de cada comando que ejecuta un script, ya con sus variables expandidas. En bash se activa con `bash -x` o `set -x` y es la primera herramienta para entender por qué un script hace algo distinto de lo esperado."
+  }
+ ],
+ "siguiente": "los gestores de paquetes: así como hoy un script automatizó tareas tuyas, mañana vas a ver cómo un programa instala por vos las decenas de piezas ajenas que usa tu proyecto, y qué pasa de verdad cuando escribís npm install.",
+ "fuentes_nuevas": [
+  {
+   "id": "oficio-bash-exit-status",
+   "t": "Bash Reference Manual: Exit Status",
+   "a": "Proyecto GNU",
+   "tipo": "doc",
+   "url": "https://www.gnu.org/software/bash/manual/html_node/Exit-Status.html"
+  },
+  {
+   "id": "oficio-bash-set",
+   "t": "Bash Reference Manual: The Set Builtin",
+   "a": "Proyecto GNU",
+   "tipo": "doc",
+   "url": "https://www.gnu.org/software/bash/manual/html_node/The-Set-Builtin.html"
+  },
+  {
+   "id": "oficio-gnu-make-reglas",
+   "t": "GNU Make Manual: What a Rule Looks Like",
+   "a": "Proyecto GNU",
+   "tipo": "doc",
+   "url": "https://www.gnu.org/software/make/manual/html_node/Rule-Introduction.html"
+  },
+  {
+   "id": "oficio-ps-pipelines",
+   "t": "about_Pipelines (PowerShell)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_pipelines"
+  },
+  {
+   "id": "oficio-ps-variables",
+   "t": "about_Automatic_Variables (PowerShell)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/powershell/module/microsoft.powershell.core/about/about_automatic_variables"
+  },
+  {
+   "id": "oficio-gha-sintaxis",
+   "t": "Workflow syntax for GitHub Actions",
+   "a": "GitHub",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax"
+  },
+  {
+   "id": "oficio-gha-comandos",
+   "t": "Workflow commands for GitHub Actions",
+   "a": "GitHub",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-commands"
+  }
+ ]
+}
