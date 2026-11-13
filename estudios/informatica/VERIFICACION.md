@@ -134,3 +134,41 @@ Entorno: proxy HTTPS; ICMP y UDP directos limitados; DNS interceptado (solo regi
 - **Base:** `respuestas` con `with check (true)` sin tope por emisor; alta anónima sin captcha; la migración `20261101000000_juntos.sql` ya agrega tablas a `supabase_realtime` aunque el cliente no use Realtime (una sala de 500 llenaría el tope de Pro, 200 en Free: inferencia a probar con carga).
 - **Región de Supabase:** no consta en el repo (la URL va en un secreto); hay que mirarla en el panel.
 - **Repo:** `auditoria-textos.json` está versionado en la raíz de `senda-app`: es el informe de una corrida fallida (681 de 3.110 casos con `ERR_CONNECTION_REFUSED`); conviene sacarlo o regenerarlo. La URL de Supabase queda grabada en cada APK (`EXPO_PUBLIC_*`). Sin fijado de certificados ni configuración de seguridad de red propia. Hash DJB2 no criptográfico en `src/util/respaldo.ts`; la función `compras` (RS256) no la invoca nada.
+
+## Parte 6 (Frontend, 13-11-2026): qué no se verificó en fuente primaria
+Todo lo medido con Chromium 153 y Playwright 1.63 en una VM de 4 CPU compartida, sin GPU, sin teléfono real ni lector de pantalla real; tiempos con ±20 % de ruido.
+| Días | No verificado o de segunda mano |
+|---|---|
+| 06-01 / 06-02 | Fechas de Netscape e IE (no figuran); explicación del `User-Agent` (habitual); Safari 6 % en Argentina como hipótesis; StatCounter mide visitas, no personas. |
+| 06-03 / 06-04 | Margen de 3.000 px de `loading=lazy` (medido, no en el estándar); origen «usuario» de la cascada; `:nth-child(of S)` fuera de la calculadora. |
+| 06-05 / 06-06 | `dvh` sin teléfono real (el emulador da 664 para vh/svh/lvh/dvh); Baseline desde `web-features` 3.46.0. |
+| 06-07 / 06-08 | Baseline de subgrid, `:has`, container queries (npm `web-features`); dato argentino de StatCounter (octubre 2026: celular 51,87 %); no hay dato de INDEC. |
+| 06-09 / 06-10 | Nombre `UpdateLayoutTree` = «Recalculate Style» (inferencia); memoria de capas es nominal, no de GPU; «ahorro de batería solo en OLED» sin fuente. |
+| 06-11 / 06-12 | `touchstart` pasivo por defecto y `innerText` (MDN); `Pressable` de react-native-web como `<button>` solo con render de servidor. |
+| 06-13 / 06-14 | Pedidos idénticos en paralelo serializados en Chrome (hipótesis); filas de 120/144 Hz extrapoladas; sin teléfono. |
+| 06-15 / 06-16 | Fechas de AngularJS, Angular 2, jQuery de CHANGELOG; Svelte 0.0.1 de npm; no se pudo verificar cuándo se presentó React. |
+| 06-17 / 06-18 | Nombres internos `$$typeof`/`_owner`/`_store` (medidos, no documentados); React 19.3.1 de `npm view`. |
+| 06-19 / 06-20 | Complejidad n³ de la doc vieja de React 18.2; notas de Fiber de un repo no oficial; números de `tag` de fibras (internos). |
+| 06-21 / 06-22 | Sin teléfono (CPU frenado 6× es emulación); react.dev se contradice sobre transiciones (nota de vigencia); mercado de herramientas de estado no verificado. |
+| 06-23 / 06-24 | `gcTime`/reintentos de TanStack Query por la guía (no medibles en Node); zod en navegador no medido; sin lector de pantalla real. |
+| 06-25 / 06-26 | Anuncio de cambio de pantalla a lectores (sin fuente); desajuste de hidratación por husos horarios (razonamiento). |
+| 06-27 / 06-28 | React Compiler solo por el anuncio de Next 16; Vapor/Vue 3.6 solo por tag `rc`; HTML duplicado del componente de servidor es interpretación propia. |
+| 06-29 / 06-30 | Angular 2 como producto distinto de AngularJS (conocimiento propio); fechas de Angular 2 de npm; no se citan empresas que usan Angular. |
+| 06-31 / 06-32 | Adam Wathan–Tailwind (del texto); gráficos de State of JS/Stack Overflow de terceros; Preact alto por dependencias (inferencia); sin dato de empleo en CABA. |
+| 06-33 / 06-34 | JAWS comercial y TalkBack/VoiceOver incluidos (general); 57 % de axe vía Storybook/Deque; DTCG 2025.10 es Community Group Report, WCAG 3.0 borrador. |
+| 06-35 / 06-36 | Fitts, Hick, MacKenzie, Hyman por DOI (403): fórmulas vía Wikipedia; Apple HIG 44 pt y Material 48 dp solo como los cita `MARCO_UX.md`; ease-out/in como criterio. |
+| 06-37 / 06-38 | CORS de PostgREST por resumen de búsqueda (429); funciones de borde desde navegador es inferencia; cuota de Chromium medida (3 GiB temporal, 10 GiB persistente) no explicada; sin Safari ni Firefox. |
+| 06-39 / 06-40 | Umbrales de LCP/INP/CLS por WebFetch; fecha exacta del INP; tope de 7 días de Safari (dato de 2020); push real y Background Sync solo doc. |
+| 06-41 / 06-42 | Fechas de primera publicación de bundlers (de npm); 1 s por defecto de `findBy` (memoria); forma de trofeo de Dodds (título); Nx no corrido. |
+| 06-43 / 06-44 | Exportación web de Senda no armada (se usó una app mínima propia con Expo 57.0.33 / RNW 0.21.4); ~838 KB del Lany en base64 es cuenta; URL fija en la web es inferencia. |
+
+## Hallazgos sobre Senda de la Parte 6 (commit 25e08fa)
+- **Estilos y temas:** sin librerías de estilos (`StyleSheet.create`, 47 archivos); `useEstilos` recalcula con el tema; 5 temas en `src/tema.ts`; la app no consulta `prefers-color-scheme`/`Appearance`. Contraste (cuenta sobre los tokens, a confirmar con el fondo real): tema Clásico `enlace` #b87710 da 3,69 contra blanco y 3,21 contra su base, `texto3` 3,01; `Kicker` lo usa a 10,5 px; `texto3` aparece 354 veces en 61 archivos; el `texto3` de Índigo pasa de 5,10 a 3,43 según el fondo. WCAG 2.2: `MARCO_UX.md` dice «05-10-2023» pero la vigente es la republicada del 12-12-2024.
+- **Tokens sin uso:** `espacio` no lo importa nadie; `radio` se usa 3 veces frente a 490 `borderRadius` numéricos y 348 hex fuera de `tema.ts`.
+- **Accesibilidad:** 335 de 339 elementos tocables declaran `accessibilityRole`; 321 `accessibilityLabel` y ningún `testID`; `Boton` chico mide 43 dp (la regla R8 pide 44); sin Storybook ni registro de pruebas con TalkBack/VoiceOver.
+- **Estado:** 21 stores de zustand con `persist` (el mapa decía 11); `migrate` de `usuario.ts` castea sin zod; `useAjustes()` sin selector en 4 archivos; zod solo en `leerNovedades`; React Compiler no activado (plugin 1.0.0 solo transitivo); `cargarNovedades` con `if (pidiendo) return pidiendo;` antes de mirar si es forzada (inferencia, hasta 45 s de dato viejo).
+- **Efectos y listas:** 235 `useEffect(` en 75 archivos y 21 `let vivo = true` en 16; 282 `key={` y 29 `key={i}` en 15 archivos (sin auditar si se reordenan); sin StrictMode ni ESLint.
+- **Textos en el código:** `Proponer.tsx` (líneas 197-201) tiene texto de pantalla en español dentro del código, contra la regla de claves en tres idiomas; el mínimo de 10 caracteres de «para quién» existe solo en el cliente.
+- **Web:** `web/` son 73 páginas (docs dicen 72), pasan el validador Nu; `web/estilo.css` 31 líneas sin `@media`; sin PWA (ni manifiesto ni Service Worker); `registrarPush` devuelve false en web; las tres funciones de borde (`borrar-cuenta`, `trivia-sermon`, `compras`) no devuelven cabeceras CORS y `sermon.ts` tiene una rama web que las llama (probable preflight fallido desde navegador); token `senda-sesion` sin cifrar en AsyncStorage (legible por scripts en la web); `almacen.ts` traga errores de tope con `.catch(() => {})`; el `<html lang="en">` de la exportación web lo corrige `texto.tsx`; importar `react-native-android-widget` sin guarda deja la página web en blanco.
+- **Navegación y red:** `NavigationContainer` sin `linking`, los enlaces `senda://unirme/…` se interpretan con una regex en `abrirEnlace`; 34 `Pila.Screen` más 5 pestañas; fuentes: 10 `.ttf` suman 2,3 MB (en WOFF2 el sitio ahorraría ~600 KB).
+- **Herramientas:** un solo `package.json` sin workspaces; bundler Metro 0.84.5; 10 pruebas Jest con 16 `jest.mock`; `scripts/auditoria/textos.cjs` usa Playwright que no está en `package.json`; ningún workflow menciona web ni Playwright; React 19.2.3 fijado (la última es 19.3.1); `MARCO_UX.md` llega a R28 aunque `CLAUDE.md` dice 27 reglas.
