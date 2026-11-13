@@ -1,0 +1,832 @@
+{
+ "id": "07-24",
+ "titulo": "Go, Rust, Ruby y PHP: otras alternativas",
+ "bajada": "Escribís el servicio de despachos en Go y en Rust, ves qué genera Rails con un solo comando y aprendés qué dice (y qué no dice) una comparación de «hola mundo».",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Leer un servidor HTTP en Go (solo biblioteca estándar) y en Rust (con axum) y explicar cómo cada uno protege el estado compartido.",
+  "Explicar la convención sobre configuración con lo que genera Rails a partir de un comando.",
+  "Describir el modelo clásico de PHP (cada pedido corre el script desde cero) y lo que agrega Laravel.",
+  "Leer una tabla de pedidos por segundo, memoria y arranque con sus salvedades, y decir qué conclusiones permite y cuáles no.",
+  "Elegir entre las cuatro opciones con un criterio razonado."
+ ],
+ "venis_de": "Ayer ([@07-23]) recorriste ASP.NET Core con su contenedor de dependencias y Entity Framework. En [@03-54] y [@03-55] conociste Go y Rust como lenguajes. Hoy los ves trabajando de servidor, junto con Ruby y PHP, que cuentan otra historia: la de los frameworks que deciden por vos.",
+ "se_apoya_en": [
+  "07-23",
+  "03-54",
+  "03-55",
+  "07-05",
+  "07-19"
+ ],
+ "gancho": [
+  "Ayer el servicio de despachos tenía un framework entero detrás: contenedor de dependencias, mapeador de base de datos, migraciones. Hoy lo escribís con casi nada. En Go son 89 líneas y ninguna dependencia externa. En Rust, con un compilador que no te deja compartir datos de forma insegura. Y después mirás qué pasa cuando en Ruby una sola línea de comando escribe por vos tres archivos y una ruta.",
+  "Todo corrió en esta VM, con datos inventados. Al final hay una tabla medida, y tan importante como la tabla es la lista de motivos por los que no deberías usarla para elegir tecnología."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Go: el servidor entero está en la biblioteca estándar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@03-54] viste que Go se diseñó chico a propósito, con [[goroutines|goroutine]] y [[canales|canal]]. Un servidor web casi no necesita nada de afuera: el paquete `net/http` de la biblioteca estándar trae servidor y enrutador, y `encoding/json` convierte estructuras en JSON. Desde Go 1.22 el enrutador entiende métodos y comodines, como `GET /envios/{id}` [#backend-go-1-22-notes]. El estado compartido va en una estructura con un candado:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "go",
+   "x": "type Deposito struct {\n\tmu     sync.Mutex\n\tenvios []Envio\n}\n\nfunc (d *Deposito) Uno(id int) (Envio, bool) {\n\td.mu.Lock()\n\tdefer d.mu.Unlock()\n\tfor _, e := range d.envios {\n\t\tif e.ID == id {\n\t\t\treturn e, true\n\t\t}\n\t}\n\treturn Envio{}, false\n}\n\nfunc (d *Deposito) Agregar(e Envio) Envio {\n\td.mu.Lock()\n\tdefer d.mu.Unlock()\n\te.ID = len(d.envios) + 1\n\td.envios = append(d.envios, e)\n\treturn e\n}",
+   "cap": "El depósito: una lista de envíos y un `sync.Mutex`. Cada método toma el candado, trabaja y lo suelta al salir (`defer`)."
+  },
+  {
+   "t": "p",
+   "x": "¿Para qué el candado? La documentación dice que `Serve` acepta las conexiones y crea una goroutine de servicio por cada una [#backend-go-net-http]. Dos clientes conectados a la vez significan dos goroutines que pueden tocar la lista al mismo tiempo. Sin [[mutex]] eso es una [[condición de carrera]], el problema que viste en [@03-54]. Ahora el middleware y el primer endpoint:"
+  },
+  {
+   "t": "codigo",
+   "lang": "go",
+   "x": "// Un middleware en Go es una función que recibe un manejador y devuelve otro.\nfunc medir(sig http.Handler) http.Handler {\n\treturn http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {\n\t\tt0 := time.Now()\n\t\tsig.ServeHTTP(w, r)\n\t\tlog.Printf(\"%s %s en %v\", r.Method, r.URL.Path, time.Since(t0))\n\t})\n}\n\nfunc main() {\n\tdep := &Deposito{envios: []Envio{\n\t\t{1, \"Rosario\", 12.5, \"en_deposito\"},\n\t\t{2, \"Mendoza\", 40, \"despachado\"},\n\t}}\n\tmux := http.NewServeMux()\n\n\tmux.HandleFunc(\"GET /envios/{id}\", func(w http.ResponseWriter, r *http.Request) {\n\t\tid, err := strconv.Atoi(r.PathValue(\"id\"))\n\t\tif err != nil {\n\t\t\thttp.NotFound(w, r)\n\t\t\treturn\n\t\t}\n\t\te, ok := dep.Uno(id)\n\t\tif !ok {\n\t\t\thttp.NotFound(w, r)\n\t\t\treturn\n\t\t}\n\t\tw.Header().Set(\"Content-Type\", \"application/json\")\n\t\tjson.NewEncoder(w).Encode(e)\n\t})",
+   "cap": "Un middleware en Go es una función que recibe un manejador y devuelve otro. El resto de `main` registra el `POST` y arranca con `http.ListenAndServe(\"127.0.0.1:19241\", medir(mux))`."
+  },
+  {
+   "t": "p",
+   "x": "Es la cadena de [[middleware]] que viste en Express ([@07-05]) y ayer en ASP.NET Core, con otra forma: no hay un registro especial, solo una función que envuelve a otra. Armé el servicio completo (leer un envío y crearlo con validación) y lo probé:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -si http://127.0.0.1:19241/envios/2",
+     "s": "HTTP/1.1 200 OK\nContent-Type: application/json\nDate: Fri, 13 Nov 2026 19:35:04 GMT\nContent-Length: 63\n\n{\"id\":2,\"destino\":\"Mendoza\",\"pesoKg\":40,\"estado\":\"despachado\"}"
+    },
+    {
+     "c": "curl -si http://127.0.0.1:19241/envios/abc | head -3",
+     "s": "HTTP/1.1 404 Not Found\nContent-Type: text/plain; charset=utf-8\nX-Content-Type-Options: nosniff"
+    },
+    {
+     "c": "curl -si -X POST http://127.0.0.1:19241/envios -d '{\"destino\":\"Cordoba\"}'",
+     "s": "HTTP/1.1 400 Bad Request\nContent-Type: application/json\nDate: Fri, 13 Nov 2026 19:35:16 GMT\nContent-Length: 55\n\n{\"error\":\"destino obligatorio y peso entre 0,1 y 1000\"}"
+    }
+   ],
+   "cap": "Servidor propio en 127.0.0.1:19241, datos inventados. En el log del servidor, el middleware anotó `GET /envios/2 en 78.269µs`."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "En Go nada viene hecho",
+   "x": "Ayer el framework puso el `Content-Type`, convirtió el objeto en JSON y decidió el código de estado. Acá lo escribís vos. Y un campo que falta en el pedido llega como el valor cero de su tipo (`pesoKg` sin mandar es 0), igual que en .NET: lo atajó mi regla `PesoKg < 0.1`. El 404 salió como texto plano porque `http.NotFound` escribe texto: si tu API promete JSON en los errores, ese detalle es tuyo."
+  },
+  {
+   "t": "pensa",
+   "x": "Sacá el `sync.Mutex` del depósito y mandá mil `POST` simultáneos. ¿Qué puede pasar con la lista de envíos, y por qué el programa puede seguir andando sin ningún error visible?",
+   "resp": "Dos goroutines pueden leer el mismo tamaño de lista y escribir en la misma posición: se pierden envíos o se repiten ids, y en casos peores se corrompe la estructura interna de la lista. Muchas veces no hay un error visible porque el resultado incorrecto es un valor válido. Go tiene un detector de carreras que se activa a pedido [#golang-race-detector], pero no corre solo."
+  },
+  {
+   "t": "h3",
+   "x": "Un binario, con o sin libc"
+  },
+  {
+   "t": "p",
+   "x": "El resultado de compilar es un solo archivo. Lo compilé dos veces, y el cambio de una variable de entorno alcanza para que cambie lo que lleva adentro:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "go build -o despacho . && ls -l despacho && ldd despacho",
+     "s": "-rwxr-xr-x 1 root root 8645745 despacho\n\tlinux-vdso.so.1 (0x00007fbd7b9e5000)\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007fbd7b600000)"
+    },
+    {
+     "c": "CGO_ENABLED=0 go build -o despacho-static . && ls -l despacho-static && ldd despacho-static",
+     "s": "-rwxr-xr-x 1 root root 8566811 despacho-static\n\tnot a dynamic executable"
+    }
+   ],
+   "cap": "Go 1.24.7 en la VM. El primero se enlaza con la libc porque hay compilador de C instalado y [[cgo]] está activo por defecto; el segundo es un [[binario estático]]."
+  },
+  {
+   "t": "p",
+   "x": "Con la caché de compilación vacía, el servidor tardó 9,9 segundos en compilarse (en 4 núcleos); con la caché llena, 0,45. Ya corriendo, tras cuatro pedidos, ocupaba 6 MB de memoria residente y 5 hilos del sistema. Para desplegarlo alcanza con copiar ese archivo a un servidor del mismo sistema y chip, o compilarlo para otro con la compilación cruzada del [@03-54]."
+  },
+  {
+   "t": "h",
+   "x": "Rust: el mismo servicio, con un compilador que vigila"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Rust parte de otro lugar: su biblioteca estándar solo trae TCP y UDP en `std::net` [#backend-rust-std-net]; el protocolo HTTP vive en bibliotecas aparte, los *crates* (así se llaman los paquetes de Rust). Para este servicio usé axum, que su documentación describe como una biblioteca de enrutamiento y manejo de pedidos que se apoya en el ecosistema de `tower` y `tokio` [#backend-axum-docs]. Con [[cargo]] agregué cuatro dependencias directas y Cargo fijó 51 paquetes en total. La primera compilación en modo `release` tardó 19,8 segundos, descarga de todo incluida, y dejó un binario de 2,0 MB enlazado dinámicamente con la libc.",
+    "Los tipos hacen de portero. El pedido de creación se declara como una estructura, y axum la llena o rechaza el pedido antes de que corra mi función:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "rust",
+   "x": "#[derive(Deserialize)]\n#[serde(rename_all = \"camelCase\")]\nstruct NuevoEnvio {\n    destino: String,\n    peso_kg: f64,\n}\n\ntype Deposito = Arc<Mutex<Vec<Envio>>>;\n\nasync fn uno(State(dep): State<Deposito>, Path(id): Path<u32>) -> Result<Json<Envio>, StatusCode> {\n    let envios = dep.lock().unwrap();\n    envios.iter().find(|e| e.id == id).cloned().map(Json).ok_or(StatusCode::NOT_FOUND)\n}\n\nasync fn crear(State(dep): State<Deposito>, Json(n): Json<NuevoEnvio>) -> Response {\n    if n.destino.is_empty() || n.peso_kg < 0.1 || n.peso_kg > 1000.0 {\n        return (StatusCode::BAD_REQUEST, \"destino obligatorio y peso entre 0,1 y 1000\").into_response();\n    }\n    let mut envios = dep.lock().unwrap();\n    let e = Envio { id: envios.len() as u32 + 1, destino: n.destino, peso_kg: n.peso_kg, estado: \"en_deposito\".into() };\n    envios.push(e.clone());\n    (StatusCode::CREATED, Json(e)).into_response()\n}",
+   "cap": "`Path<u32>` y `Json<NuevoEnvio>` son extractores: si el pedido no encaja con el tipo, axum contesta el error sin llamar a la función."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -si http://127.0.0.1:19242/envios/abc | sed -n '1p;$p'",
+     "s": "HTTP/1.1 400 Bad Request\nInvalid URL: Cannot parse `abc` to a `u32`"
+    },
+    {
+     "c": "curl -si -X POST http://127.0.0.1:19242/envios -H 'Content-Type: application/json' -d '{\"destino\":\"Cordoba\"}' | sed -n '1p;$p'",
+     "s": "HTTP/1.1 422 Unprocessable Entity\nFailed to deserialize the JSON body into the target type: missing field `pesoKg` at line 1 column 21"
+    },
+    {
+     "c": "curl -si -X POST http://127.0.0.1:19242/envios -d '{\"destino\":\"Cordoba\",\"pesoKg\":5}' | sed -n '1p;$p'",
+     "s": "HTTP/1.1 415 Unsupported Media Type\nExpected request with `Content-Type: application/json`"
+    }
+   ],
+   "cap": "El mismo servicio en 127.0.0.1:19242. Tres errores que ninguna línea de mi código escribió."
+  },
+  {
+   "t": "p",
+   "x": "Compará con lo de ayer. En .NET, el mismo pedido sin peso entró con `pesoKg` en 0 hasta que agregamos reglas; en Go, llegó como cero y lo atajó mi `if`. En Rust, el campo es obligatorio porque así lo declaré en la estructura, y el error nombra exactamente lo que hay que corregir. Si quisiera que fuera opcional, lo escribo con un tipo que lo diga (`Option`). El sistema de tipos hizo de validación de entrada, aunque las reglas de negocio (el peso entre 0,1 y 1000) las sigo escribiendo yo."
+  },
+  {
+   "t": "p",
+   "x": "Lo más característico viene con el estado compartido. El depósito es un `Arc<Mutex<Vec<Envio>>>`: una lista dentro de un [[mutex]], dentro de un contador de referencias atómico (`Arc`) para que varias tareas la compartan. Hice un experimento en una copia: saqué el `Mutex` y dejé el `push`. El compilador se negó:"
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "error[E0596]: cannot borrow data in an `Arc` as mutable\n  --> src/main.rs:43:5\n   |\n43 |     envios.push(e.clone());\n   |     ^^^^^^ cannot borrow as mutable\n   |\n   = help: trait `DerefMut` is required to modify through a dereference, but it is not implemented for `Arc<Vec<Envio>>`",
+   "cap": "Salida de `cargo build` (Rust 1.97.0) sobre la copia sin `Mutex`. Es la regla de propiedad y préstamo de [@03-55] aplicada a un servidor."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: un solo cuaderno de despachos",
+   "x": "Imaginá un mostrador con un único cuaderno donde se anotan los envíos y varias ventanillas que atienden a la vez. En Go, cada ventanilla puede agarrar el cuaderno y confiás en que alguien se acuerde del candado. En Rust, el cuaderno no sale de su cajón si no está el candado puesto, y el programa ni siquiera se arma. La analogía tiene un límite: el candado evita que dos ventanillas escriban a la vez, pero no evita que dos ventanillas se queden esperándose una a la otra para siempre (un [[deadlock]]). El libro oficial de Rust advierte que `Mutex` trae ese riesgo [#backend-rust-book-shared-state]."
+  },
+  {
+   "t": "p",
+   "x": "El precio de esa vigilancia se paga antes de ejecutar: más tiempo de compilación (19,8 segundos para un servicio de 68 líneas, dependencias desde cero) y una curva de aprendizaje real con la propiedad y los préstamos. A cambio, el servidor corre con 4 MB de memoria tras el calentamiento (medición más abajo) y sin recolector de basura."
+  },
+  {
+   "t": "h",
+   "x": "Ruby y Rails: convención sobre configuración"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[Rails]] es el framework web del lenguaje Ruby. Se instala con `gem install rails` (hoy, la versión 8.1.4.1, publicada el 4-11-2026 con licencia MIT [#backend-rubygems-rails]) y su idea central tiene nombre: [[convención sobre configuración]]. Si seguís los nombres y la estructura que el framework espera, no hace falta declarar nada; solo configurás lo que se aparta de la norma. La doctrina publicada en el sitio de Rails lo justifica así:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "There are thousands of such decisions that just need to be made once, and if someone else can do it for you, all the better.",
+   "autor": "The Rails Doctrine (rubyonrails.org)",
+   "fuente": "backend-rails-doctrine"
+  },
+  {
+   "t": "p",
+   "x": "Para verlo creé una aplicación de API (`rails new despacho --api --minimal`, 22,8 segundos con la instalación de las gemas) que quedó con 41 archivos, y pedí un recurso completo con un solo comando:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "bin/rails generate scaffold Envio destino:string peso_kg:decimal estado:string",
+     "s": "      invoke  active_record\n      create    db/migrate/20261113193700_create_envios.rb\n      create    app/models/envio.rb\n      invoke  resource_route\n       route    resources :envios\n      invoke  scaffold_controller\n      create    app/controllers/envios_controller.rb\n      invoke    resource_route"
+    }
+   ],
+   "cap": "Rails 8.1.4.1, 0,8 segundos. Tres archivos nuevos y una línea en `config/routes.rb`. El «scaffold» (andamio) genera la estructura base de un recurso."
+  },
+  {
+   "t": "p",
+   "x": "Mirá lo que escribió. Primero la migración, que describe la tabla (se aplica con `bin/rails db:migrate`):"
+  },
+  {
+   "t": "codigo",
+   "lang": "ruby",
+   "x": "class CreateEnvios < ActiveRecord::Migration[8.1]\n  def change\n    create_table :envios do |t|\n      t.string :destino\n      t.decimal :peso_kg\n      t.string :estado\n\n      t.timestamps\n    end\n  end\nend",
+   "cap": "`db/migrate/20261113193700_create_envios.rb`, generado. `t.timestamps` agrega las columnas `created_at` y `updated_at`."
+  },
+  {
+   "t": "p",
+   "x": "Después el modelo, y acá está lo que más sorprende. Es una clase vacía:"
+  },
+  {
+   "t": "codigo",
+   "lang": "ruby",
+   "x": "class Envio < ApplicationRecord\nend",
+   "cap": "`app/models/envio.rb`, tal como lo generó Rails."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "bin/rails runner 'p Envio.column_names; p Envio.table_name'",
+     "s": "[\"id\", \"destino\", \"peso_kg\", \"estado\", \"created_at\", \"updated_at\"]\n\"envios\""
+    }
+   ],
+   "cap": "La clase vacía ya conoce sus seis columnas y el nombre de su tabla."
+  },
+  {
+   "t": "p",
+   "x": "No hay ninguna línea que diga cuál es la tabla ni qué columnas tiene. La capa de acceso a datos de Rails, llamada [[Active Record]], mapea cada tabla a una clase y cada columna a un atributo; la guía oficial explica que busca la tabla poniendo en plural el nombre de la clase, y que `created_at` y `updated_at` se completan solos [#backend-rails-guides-ar]. Es el oficio del [[Django ORM]] de [@07-21]. El controlador sigue el mismo criterio. Esta es la acción que crea un envío:"
+  },
+  {
+   "t": "codigo",
+   "lang": "ruby",
+   "x": "  # POST /envios\n  def create\n    @envio = Envio.new(envio_params)\n\n    if @envio.save\n      render json: @envio, status: :created, location: @envio\n    else\n      render json: @envio.errors, status: :unprocessable_content\n    end\n  end",
+   "cap": "`app/controllers/envios_controller.rb`, fragmento generado. `render json:` convierte el objeto en JSON."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "bin/rails routes",
+     "s": "            Prefix Verb   URI Pattern           Controller#Action\n            envios GET    /envios(.:format)     envios#index\n                   POST   /envios(.:format)     envios#create\n             envio GET    /envios/:id(.:format) envios#show\n                   PATCH  /envios/:id(.:format) envios#update\n                   PUT    /envios/:id(.:format) envios#update\n                   DELETE /envios/:id(.:format) envios#destroy\nrails_health_check GET    /up(.:format)         rails/health#show"
+    }
+   ],
+   "cap": "Una sola línea (`resources :envios`) produjo las siete rutas, y cada una apunta a un método con el nombre esperado."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Lo que escribís",
+    "Lo que Rails deduce"
+   ],
+   "filas": [
+    [
+     "La clase `Envio`",
+     "La tabla `envios` y los atributos que tengan sus columnas"
+    ],
+    [
+     "`resources :envios`",
+     "Siete rutas y los nombres de las acciones (`index`, `show`, `create`, `update`, `destroy`)"
+    ],
+    [
+     "Un archivo `envios_controller.rb`",
+     "Que la clase se llama `EnviosController` y que atiende la ruta `/envios`"
+    ],
+    [
+     "`t.timestamps` en la migración",
+     "Que `created_at` y `updated_at` se llenan solos al guardar"
+    ]
+   ],
+   "cap": "La ganancia es no tener que decidir ni escribir cada vez; el costo es que tenés que saber qué se deduce."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La convención es de otro idioma",
+   "x": "La guía oficial aclara que la pluralización funciona para palabras del inglés, regulares e irregulares, y que se pueden cambiar las reglas [#backend-rails-guides-ar]. Lo comprobé con palabras de logística: `envio` dio `envios` y `deposito` dio `depositos`, pero `camion` dio `camions` y `ciudad` dio `ciudads`, y `pais` quedó igual. El archivo `config/initializers/inflections.rb`, que Rails ya generó, es donde se corrigen. Una convención que no conocés juega en contra."
+  },
+  {
+   "t": "p",
+   "x": "Faltan las reglas. En el modelo escribí dos líneas, y con eso el pedido sin peso dejó de entrar:"
+  },
+  {
+   "t": "codigo",
+   "lang": "ruby",
+   "x": "class Envio < ApplicationRecord\n  validates :destino, presence: true\n  validates :peso_kg, numericality: { greater_than_or_equal_to: 0.1, less_than_or_equal_to: 1000 }\nend",
+   "cap": "`app/models/envio.rb`, con las dos validaciones que agregué."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -si -X POST http://127.0.0.1:19243/envios -H 'Content-Type: application/json' -d '{\"envio\":{\"destino\":\"Cordoba\"}}' | sed -n '1p;$p'",
+     "s": "HTTP/1.1 422 Unprocessable Content\n{\"peso_kg\":[\"is not a number\"]}"
+    },
+    {
+     "c": "curl -s http://127.0.0.1:19243/envios/2",
+     "s": "{\"id\":2,\"destino\":\"Mendoza\",\"peso_kg\":\"40.0\",\"estado\":\"despachado\",\"created_at\":\"2026-11-13T19:37:18.408Z\",\"updated_at\":\"2026-11-13T19:37:18.408Z\"}"
+    }
+   ],
+   "cap": "Rails en modo desarrollo. Mirá `peso_kg`: el decimal salió como texto entre comillas. No busqué el motivo en la documentación; un cliente que espera un número se va a encontrar texto."
+  },
+  {
+   "t": "h3",
+   "x": "Desarrollo y producción no se comportan igual"
+  },
+  {
+   "t": "p",
+   "x": "Rails corre por defecto en modo desarrollo, y la diferencia con producción se vio en dos casos. Primero, un pedido de un envío que no existe (`GET /envios/99`): en desarrollo devolvió una respuesta de 18.176 bytes, un JSON con la pila completa de llamadas del framework; en producción, 0 bytes. Segundo, al arrancar en producción sin ninguna configuración de base de datos, el primer pedido dio 500 con `No database file specified. Missing argument: database` en el log, hasta que pasé la variable de entorno `DATABASE_URL`. Es el tema de [@07-19]: lo que cambia entre entornos se resuelve con configuración, y un servidor en desarrollo expone cosas que no querés mostrar."
+  },
+  {
+   "t": "h",
+   "x": "PHP y Laravel: un pedido, un script"
+  },
+  {
+   "t": "p",
+   "x": "PHP nació para generar páginas web, y su modelo clásico lo refleja: cada pedido ejecuta el script desde la primera línea, y al terminar no queda nada en memoria. Lo comprobé con dos servidores que cuentan visitas en una variable, uno en PHP y otro en Node:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "php -S 127.0.0.1:19255 contador.php   # tres veces: curl http://127.0.0.1:19255/",
+     "s": "visitas contadas en memoria: 1\nvisitas contadas en memoria: 1\nvisitas contadas en memoria: 1"
+    },
+    {
+     "c": "node contador.js   # tres veces: curl http://127.0.0.1:19256/",
+     "s": "visitas contadas en memoria: 1\nvisitas contadas en memoria: 2\nvisitas contadas en memoria: 3"
+    }
+   ],
+   "cap": "PHP 8.3.6 (servidor integrado) y Node 22.23.4. La variable de PHP se reinicia en cada pedido; la de Node vive mientras viva el proceso."
+  },
+  {
+   "t": "p",
+   "x": "Ese modelo tiene una ventaja (un error en un pedido no contamina al siguiente) y un costo: el framework tiene que arrancar de nuevo cada vez. Por eso Laravel ofrece Octane, que según su documentación arranca la aplicación una sola vez, la mantiene en memoria y le va pasando los pedidos [#backend-laravel-octane], con servidores como FrankenPHP, que la misma documentación describe como un servidor de aplicaciones de PHP escrito en Go. En producción, lo habitual es poner un servidor web adelante: el ejemplo de configuración de Laravel usa Nginx hablándole a PHP-FPM por un socket (`php8.3-fpm.sock`) [#backend-laravel-deploy]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El servidor de PHP que viste no es para producción",
+   "x": "El comando `php -S` es el servidor integrado. El manual de PHP lo advierte: está pensado para desarrollo y demostraciones controladas, no es un servidor completo, no debe usarse en una red pública y corre un solo proceso de un solo hilo, de modo que las aplicaciones se detienen si un pedido se bloquea [#backend-php-builtin]. Lo usé porque es lo que hay a mano en la VM, y por eso mi número de PHP más abajo no representa una instalación real con [[PHP-FPM]], que **no instalé**."
+  },
+  {
+   "t": "p",
+   "x": "[[Laravel]] es el framework de PHP con más baterías incluidas y se parece mucho a Rails. Su mapeador, Eloquent, aplica la misma convención: el modelo `Flight` usa por defecto la tabla `flights` [#backend-laravel-eloquent]. Quise instalarlo entero y no pude: Composer no logró bajar los paquetes comprimidos y cayó a clonar cada repositorio con todo su historial. Eso llenó el disco de la VM (unos 12 GB); lo borré todo. Lo que sí pude bajar es el esqueleto del proyecto, que ya cuenta mucho:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "composer create-project laravel/laravel despacho --no-install --no-scripts",
+     "s": "  - Installing laravel/laravel (v13.11.0): Cloning 06d016a364 from cache\nCreated project in despacho"
+    },
+    {
+     "c": "ls despacho/config | tr '\\n' ' '; echo; ls despacho/database/migrations",
+     "s": "app.php auth.php cache.php database.php filesystems.php logging.php mail.php queue.php services.php session.php \n0001_01_01_000000_create_users_table.php\n0001_01_01_000001_create_cache_table.php\n0001_01_01_000002_create_jobs_table.php"
+    }
+   ],
+   "cap": "Esqueleto de `laravel/laravel` v13.11.0: 66 archivos. Su `composer.json` pide PHP 8.3 o más y `laravel/framework` ^13.17. El framework en sí no se instaló."
+  },
+  {
+   "t": "p",
+   "x": "Sin ejecutar nada ya se ve la diferencia de filosofía con Go y Rust: un proyecto nuevo trae configuración lista para autenticación, caché, base de datos, archivos, correo, colas y sesiones, y migraciones para usuarios, caché y trabajos en segundo plano. Es [[convención sobre configuración]] otra vez, en otro idioma. Lo demás (Artisan, el generador de archivos, el enrutador real) lo conozco por la documentación y no lo ejecuté."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Rails (Ruby)",
+    "Laravel (PHP)"
+   ],
+   "filas": [
+    [
+     "Mapeo de tablas",
+     "Active Record: `Book` usa `books` [#backend-rails-guides-ar]",
+     "Eloquent: `Flight` usa `flights` [#backend-laravel-eloquent]"
+    ],
+    [
+     "Cómo se sirve en producción",
+     "Puma, un servidor de Ruby (el que usó Rails en mi prueba)",
+     "Nginx con PHP-FPM, o FrankenPHP, o Octane [#backend-laravel-deploy]"
+    ],
+    [
+     "Modelo de ejecución",
+     "Un proceso que queda vivo entre pedidos",
+     "Clásico: un script por pedido. Octane: proceso vivo [#backend-laravel-octane]"
+    ]
+   ],
+   "cap": "Dos frameworks de la misma familia: los dos traen de fábrica lo que en Go y Rust armás vos."
+  },
+  {
+   "t": "h",
+   "x": "Un «hola mundo» medido, y por qué no es un benchmark"
+  },
+  {
+   "t": "p",
+   "x": "Para ponerle números a la comparación escribí el servicio más chico posible en cada plataforma: `GET /hola` devuelve `{\"mensaje\":\"hola\"}`. Go y Rust con lo que ya viste; Node con `node:http`; .NET con una Minimal API; Rails en producción (con el registro en nivel `warn`) y un controlador de una acción; PHP con el servidor integrado y un script de tres líneas. Cada servidor corrió en 2 de los 4 núcleos de la VM y el generador de carga (`hey`, 32 conexiones) en los otros 2. Después de 3 segundos de calentamiento medí 5 corridas de 6 segundos."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Servidor",
+    "Arranque hasta la primera respuesta",
+    "Memoria tras la carga",
+    "Pedidos por segundo (mediana; mín.–máx.)",
+    "p99"
+   ],
+   "filas": [
+    [
+     "Go (binario estático)",
+     "0,010 s",
+     "11 MB",
+     "61.443 (55.825–65.352)",
+     "2,2 ms"
+    ],
+    [
+     "Rust (axum)",
+     "0,008 s",
+     "4 MB",
+     "60.716 (55.358–71.551)",
+     "1,8 ms"
+    ],
+    [
+     "Node 22 (1 proceso)",
+     "0,096 s",
+     "81 MB",
+     "57.170 (53.040–60.961)",
+     "2,2 ms"
+    ],
+    [
+     ".NET 10 (Minimal API)",
+     "0,437 s",
+     "87 MB",
+     "42.766 (37.400–46.188)",
+     "3,1 ms"
+    ],
+    [
+     "PHP 8.3 (servidor integrado, 2 procesos)",
+     "0,033 s",
+     "59 MB",
+     "26.783 (23.848–28.384)",
+     "3,3 ms"
+    ],
+    [
+     "Rails 8.1 (1 proceso, 3 hilos)",
+     "1,12 s",
+     "85 MB",
+     "794 (760–1.062)",
+     "56,9 ms"
+    ],
+    [
+     "Rails 8.1 (2 procesos)",
+     "1,04 s",
+     "242 MB",
+     "2.779 (2.508–3.576)",
+     "28,0 ms"
+    ]
+   ],
+   "cap": "Medido en una VM de este estudio el 13-11-2026, con otras tareas corriendo al lado (promedio de carga entre 2 y 6 en 4 núcleos), todo por localhost. No es un benchmark: sirve para ver órdenes de magnitud, no posiciones."
+  },
+  {
+   "t": "p",
+   "x": "Antes de sacar conclusiones, la lista de motivos por los que esta tabla no sirve para elegir tecnología:"
+  },
+  {
+   "t": "lista",
+   "ord": false,
+   "items": [
+    "**Un pedido trivial.** No hay base de datos, ni autenticación, ni lógica. Mide el costo mínimo del framework y nada más. En un servicio real, casi todo el tiempo se va esperando la base.",
+    "**La misma máquina para todos.** El generador de carga y las otras tareas de la VM compiten por el procesador. En una misma plataforma, las 5 corridas varían entre el 14 y el 38 por ciento del valor mediano.",
+    "**Una configuración por plataforma.** Node corrió con un solo proceso y usó un núcleo; Rails con 1 y con 2 procesos; el PHP es el servidor de desarrollo. Ajustar cada una cambiaría los números.",
+    "**Sin red, sin TLS, sin límites de recursos.** En producción hay un proxy inverso, certificados y contenedores con memoria acotada.",
+    "**Versiones puntuales.** Son las de la VM y de este día; la de Go es vieja (ver más abajo)."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En la tabla, Go llegó a 61.443 pedidos por segundo y Node a 57.170. ¿Podés concluir que Go es un 7 por ciento más rápido que Node?",
+   "resp": "No. Los rangos de las cinco corridas se pisan (55.825 a 65.352 contra 53.040 a 60.961), y la VM estaba compartida con otras tareas. La diferencia de 7 por ciento queda dentro del ruido de la propia medición. Lo que sí se puede afirmar es que están en el mismo orden de magnitud y que ambos están muy lejos de Rails con un proceso."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo que sí enseña la tabla son cuatro cosas. Primero, el orden de magnitud: entre Rails con un proceso (794) y Go (61.443) hay un factor de 75 a 80, mucho mayor que el ruido. Segundo, Go, Rust y Node empatan: con 2 núcleos y un generador en la misma máquina, el límite es de la medición, no de los servidores. Tercero, la memoria: 4 MB contra 85 MB, o 242 MB con dos procesos de Rails, que pesa cuando pagás por GB o corrés muchas copias. Cuarto, el arranque: milisegundos contra más de un segundo, que importa cuando alguien levanta y baja copias seguido, algo que vas a ver en [@07-26].",
+    "Y una advertencia sobre el uso: si tu servicio atiende 50 pedidos por segundo contra una base de datos, ninguna de estas cifras es tu límite. Es como medir cuántos remitos por minuto puede sellar el mostrador de recepción de un depósito cuando el cuello de botella real es la playa de carga. La analogía deja de valer en que en software un cuello de botella se puede mover (una caché, más réplicas); en el depósito físico, mover la playa es una obra."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cuándo conviene cada una"
+  },
+  {
+   "t": "p",
+   "x": "Lo que sigue es criterio mío, armado con lo que corrió hoy:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Go",
+    "Rust",
+    "Rails",
+    "Laravel"
+   ],
+   "filas": [
+    [
+     "Se luce cuando",
+     "Servicios de red chicos o medianos, herramientas de línea de comandos, un binario fácil de desplegar",
+     "Piezas donde la memoria y las pausas importan y el equipo acepta una curva fuerte",
+     "Un producto web con muchas pantallas y recursos clásicos, con un equipo chico que quiere resultados rápido",
+     "Lo mismo que Rails, en un equipo que ya conoce PHP o tiene un hosting de PHP"
+    ],
+    [
+     "Cuesta cuando",
+     "Hay mucha lógica de negocio o formularios: escribís más a mano y el lenguaje tiene pocas abstracciones",
+     "El equipo es nuevo en el lenguaje o el plazo es corto; compilar lleva tiempo",
+     "Hace falta mucho rendimiento por proceso o el equipo no conoce las convenciones",
+     "Se espera estado en memoria entre pedidos sin usar Octane"
+    ],
+    [
+     "Te da de fábrica",
+     "Servidor, enrutador y JSON en la biblioteca estándar",
+     "Seguridad de memoria sin recolector; el servidor viene de un crate",
+     "ORM, migraciones, generadores, configuración por entorno",
+     "ORM, migraciones, colas, correo, sesiones, generadores"
+    ]
+   ],
+   "cap": "Criterio del estudio, no una regla. La decisión real también depende de quién del equipo sabe qué: lo trabajamos en [@07-27]."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 13-11-2026",
+   "x": [
+    "Go: las versiones con soporte son la 1.27.4 y la 1.26.11, porque cada versión mayor se soporta hasta que salen dos más nuevas [#backend-go-release-policy]. El Go de esta VM (1.24.7) quedó fuera de soporte; lo usé solo para el experimento. Rust: la estable es la 1.100.0 (9-11-2026) [#backend-rust-stable]; la VM tiene la 1.97.0. axum 0.8.9 (14-4-2026) tiene licencia MIT [#backend-crates-axum].",
+    "Ruby: la última es la 4.0.9 (23-10-2026); la rama 3.3, que es la de la VM (3.3.6), está en mantenimiento de seguridad y su fin de vida se espera para el 31-3-2027 [#backend-ruby-branches]. Rails: 8.1.4.1. PHP: la última es la 8.5.12 (21-10-2026); la 8.3 de la VM terminó su soporte activo el 31-12-2025 y recibe correcciones de seguridad hasta el 31-12-2027 [#backend-php-supported]. Laravel: el framework está en la 13.42.0 (10-11-2026) [#backend-packagist-laravel] y exige PHP 8.3 o superior [#backend-laravel-deploy]."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa estos lenguajes, pero depende de uno de ellos",
+   "x": [
+    "En el repositorio de Senda no hay código de Go, Rust, Ruby ni PHP. Sin embargo, cada cuenta anónima que crea la app hace un `POST` a `/auth/v1/signup` (en `src/util/cuenta.ts`, con la función `llamarAuth(\"signup\", ...)`), y ese servicio es Supabase Auth, que su propio README describe como un servidor de usuarios y autenticación escrito en Go [#backend-supabase-auth-readme]. Es un servicio de red que alguien más construyó y mantiene.",
+    "El flujo de GitHub que aplica las migraciones (`.github/workflows/supabase.yml`) usa la herramienta `supabase` fijada en la versión 3.0.0; no verifiqué en qué lenguaje está escrita. Esto corresponde al commit `25e08fa` (9-11-2026); el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    ".github/workflows/supabase.yml"
+   ]
+  }
+ ],
+ "recap": [
+  "Go trae servidor, enrutador y JSON en la biblioteca estándar. Cada conexión corre en una goroutine, y el estado compartido necesita un mutex que ponés vos.",
+  "Rust no trae servidor en su biblioteca estándar: se usa un crate como axum. Los tipos validan el pedido y el compilador no deja compartir estado mutable sin un mecanismo seguro, a cambio de más tiempo de compilación y una curva de aprendizaje más alta.",
+  "Rails se basa en la convención sobre configuración: con un nombre de clase y un comando se deducen la tabla, las columnas, las rutas y los archivos. La contra es que tenés que conocer lo que se deduce (por ejemplo, que la pluralización es inglesa).",
+  "En el modelo clásico de PHP cada pedido ejecuta el script desde cero y no deja nada en memoria; Laravel trae las baterías y Octane mantiene la aplicación viva entre pedidos. El servidor integrado de PHP es solo para desarrollo.",
+  "Un «hola mundo» mide el costo mínimo de una plataforma en una máquina concreta. Sirve para órdenes de magnitud (memoria, arranque, un factor de 75 a 80) y no para decidir entre dos plataformas cercanas.",
+  "Un framework con baterías y uno sin ellas son dos maneras de repartir el trabajo entre la plataforma y tu equipo. La elección depende más de quién sabe qué y de qué problema tenés que de los pedidos por segundo."
+ ],
+ "repaso": [
+  {
+   "p": "Un servicio en Go guarda los envíos en una lista compartida y atiende pedidos simultáneos. ¿Qué pasa si no se protege el acceso con un mutex?",
+   "o": [
+    "Dos goroutines pueden escribir al mismo tiempo y se pierden o se repiten envíos sin que haya un error visible",
+    "El compilador de Go rechaza el programa, porque detecta que la lista se comparte entre goroutines sin ningún candado",
+    "Go ejecuta los pedidos de a uno por vez, así que la lista nunca se toca desde dos lugares a la vez",
+    "El programa se detiene con un mensaje claro apenas dos clientes se conectan a la vez, así que se nota enseguida"
+   ],
+   "c": 0,
+   "e": "Go no impide compartir memoria entre goroutines: es responsabilidad tuya. Sin candado hay una condición de carrera, y el resultado incorrecto suele ser un valor válido, por lo que no salta ningún error. En Rust, en cambio, el compilador rechaza la versión equivalente. Y el servidor de Go no atiende de a uno: crea una goroutine por conexión."
+  },
+  {
+   "p": "Un cliente le manda a un servidor en Rust con axum un JSON sin el campo obligatorio `pesoKg`. ¿Qué ocurre con el servicio tal como se escribió hoy?",
+   "o": [
+    "La función se ejecuta con `pesoKg` en cero, igual que pasó en ASP.NET Core antes de agregar reglas",
+    "El programa se cae con un error interno, porque Rust no sabe manejar datos que faltan en un pedido",
+    "Axum contesta 422 y nombra el campo que falta, sin llegar a ejecutar la función del endpoint",
+    "Axum rellena el campo con el último peso recibido, porque guarda el valor anterior entre pedidos"
+   ],
+   "c": 2,
+   "e": "El campo se declaró obligatorio en la estructura, y el extractor `Json` rechaza el pedido antes de llamar a la función. La opción del cero describe a .NET sin validación y a Go sin una regla escrita. Rust no se cae ni conserva valores anteriores: contesta un error de cliente."
+  },
+  {
+   "p": "Escribís `rails generate scaffold Envio ...` y el modelo generado es una clase vacía, pero `Envio.column_names` devuelve las columnas de la tabla. ¿Por qué?",
+   "o": [
+    "Rails guardó la lista de columnas dentro de la clase vacía, en un comentario que se interpreta al arrancar",
+    "Active Record deduce la tabla `envios` por el nombre de la clase y mapea sus columnas a atributos",
+    "El comando generó un segundo archivo oculto con las columnas, que se carga junto con el modelo",
+    "`column_names` inventa los nombres a partir del nombre de la clase, y por eso coinciden con la migración"
+   ],
+   "c": 1,
+   "e": "Es la convención sobre configuración: el nombre de la clase, en plural, dice qué tabla usar, y Active Record asigna a cada columna un atributo. No hay archivos ocultos ni comentarios. Los nombres no se inventan: salen de la tabla creada por la migración."
+  },
+  {
+   "p": "En Rails, una tabla de logística se llama `camion`. ¿Qué nombre de tabla va a deducir Rails por defecto para el modelo `Camion`?",
+   "o": [
+    "`camiones`, porque Rails detecta el idioma de la palabra y aplica la regla del español",
+    "`camion`, porque Rails nunca modifica el nombre de la clase para armar el de la tabla",
+    "`camiones`, porque Rails consulta un diccionario de español que se instala con el framework",
+    "`camions`, porque las reglas de plural son las del inglés y no conocen esta palabra en español"
+   ],
+   "c": 3,
+   "e": "La guía oficial dice que la pluralización cubre palabras del inglés, y en mi prueba `camion` dio `camions`. Se corrige agregando una regla en `config/initializers/inflections.rb`. Rails sí pluraliza el nombre de la clase, así que no deja `camion`, y no trae diccionario de español."
+  },
+  {
+   "p": "Medís un «hola mundo» en dos servidores: A da 61.000 pedidos por segundo y B da 57.000, en una VM compartida, con rangos que se pisan entre corridas. ¿Cuál es la conclusión razonable?",
+   "o": [
+    "A es un 7 por ciento más rápido que B, así que conviene elegirlo para cualquier servicio",
+    "B es mejor, porque un servidor que recibe menos pedidos por segundo gasta menos recursos del sistema",
+    "No se puede afirmar que A sea más rápido que B; la diferencia está dentro del ruido de la medición",
+    "La medición no sirve para nada, porque un «hola mundo» no puede mostrar ninguna diferencia entre plataformas"
+   ],
+   "c": 2,
+   "e": "Con rangos que se pisan y una VM compartida, una diferencia chica no es una diferencia. La medición sí sirve para órdenes de magnitud (un factor de 75 a 80 entre Rails con un proceso y Go no se explica por ruido). Y que un servidor reciba menos pedidos por segundo no significa que gaste menos recursos."
+  },
+  {
+   "p": "Corrés `php -S` y pedís tres veces una página que incrementa una variable global. Siempre ves 1, y en Node ves 1, 2 y 3. ¿Cuál es la explicación?",
+   "o": [
+    "PHP no admite variables globales, así que el incremento se pierde antes de llegar al cliente",
+    "Cada pedido de PHP ejecuta el script desde cero y no guarda nada en memoria, mientras el proceso de Node sigue vivo",
+    "Node guarda el contador en una base de datos interna y PHP no tiene forma de guardarlo",
+    "PHP atiende cada pedido con un servidor distinto, por lo cual cada uno tiene su propio contador"
+   ],
+   "c": 1,
+   "e": "En el modelo clásico de PHP, la variable vive solo durante el pedido; Node, con un proceso persistente, conserva la variable entre pedidos. PHP sí tiene variables globales, y el contador de Node está en la memoria del proceso, no en una base. Y el servidor integrado usa un único conjunto de procesos, no uno por pedido."
+  },
+  {
+   "p": "Un compañero quiere desplegar Laravel poniendo `php artisan serve` (o `php -S`) como servidor de producción, porque anda bien en su máquina. ¿Qué le conviene saber?",
+   "o": [
+    "Funciona igual que en producción, porque Laravel reemplaza al servidor de PHP por uno propio",
+    "Solo hay que cambiar el puerto a 80 y el servidor ya queda listo para recibir tráfico público",
+    "Se puede usar siempre que se instale en una máquina con mucha memoria, porque la memoria alcanza",
+    "Ese servidor es de desarrollo; en producción se usa Nginx con PHP-FPM, o FrankenPHP, o Octane"
+   ],
+   "c": 3,
+   "e": "El manual de PHP advierte que el servidor integrado es para desarrollo, corre un proceso de un solo hilo y no debe usarse en una red pública. Laravel documenta Nginx con PHP-FPM, FrankenPHP y Octane como formas de servir en producción. Cambiar el puerto o sumar memoria no corrige esas limitaciones."
+  }
+ ],
+ "feynman": "Explicale a alguien que sabe programar un poco por qué Rails y Go son dos maneras opuestas de armar un servidor: qué decide el framework por vos en uno y qué decidís vos en el otro, con un ejemplo concreto de cada lado. Usá una analogía propia que no sea la del cuaderno de despachos.",
+ "para_profundizar": [
+  {
+   "fuente": "backend-go-net-http",
+   "nota": "La documentación del paquete `net/http`: qué trae el servidor estándar, `ServeMux` y `Handler`. Leé la descripción de `Server.Serve` y la de `ServeMux` con los patrones de la 1.22."
+  },
+  {
+   "fuente": "backend-axum-docs",
+   "nota": "La página principal de axum: extractores, manejo de errores y el modelo de middleware con `tower`. Sirve para entender de dónde salen los errores 400, 415 y 422 de hoy."
+  },
+  {
+   "fuente": "backend-rails-guides-ar",
+   "nota": "La guía «Active Record Basics»: las convenciones de nombres de tablas y columnas, y cómo cambiarlas cuando no encajan con tu caso."
+  },
+  {
+   "fuente": "backend-laravel-octane",
+   "nota": "La documentación de Laravel Octane: qué cambia cuando la aplicación queda en memoria entre pedidos, incluida la sección sobre pérdidas de memoria."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Go net/http servidor desde cero ServeMux 1.22",
+   "por_que": "Para ver a alguien armar un servidor como el de hoy y comparar el flujo con el tuyo."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "Rails",
+   "d": "Ruby on Rails: el framework web del lenguaje Ruby. Trae enrutador, mapeador de base de datos (Active Record), migraciones y generadores de archivos, y se apoya en convenciones de nombres para evitar configuración."
+  },
+  {
+   "t": "Laravel",
+   "d": "Framework web de PHP con muchas piezas incluidas: enrutador, mapeador de base de datos (Eloquent), migraciones, colas, sesiones, correo y una herramienta de línea de comandos (Artisan)."
+  },
+  {
+   "t": "convención sobre configuración",
+   "d": "Principio de diseño en el que el framework deduce nombres, tablas y rutas a partir de reglas de nomenclatura estándar, y solo hay que configurar lo que se aparta de la norma. Ahorra decisiones, a costa de tener que conocer las reglas."
+  },
+  {
+   "t": "Active Record",
+   "d": "El mapeador de base de datos de Rails: cada tabla se asocia a una clase y cada columna a un atributo, y los objetos se guardan y consultan sin escribir SQL a mano."
+  },
+  {
+   "t": "scaffold",
+   "d": "Generador de Rails que crea de una vez la migración, el modelo, el controlador y las rutas de un recurso a partir de un comando; sirve como punto de partida."
+  },
+  {
+   "t": "PHP-FPM",
+   "d": "Administrador de procesos de PHP que atiende los pedidos que le pasa un servidor web como Nginx. Es la forma habitual de correr PHP en producción."
+  }
+ ],
+ "siguiente": "Backend como servicio: Supabase y Firebase. Después de armar tu servidor, la opción de no tener servidor propio: autenticación, base de datos y reglas de seguridad ya hechas, y qué te cuesta cada comodidad.",
+ "fuentes_nuevas": [
+  {
+   "id": "backend-go-1-22-notes",
+   "t": "Go 1.22 Release Notes",
+   "a": "The Go Authors",
+   "tipo": "doc",
+   "anio": 2024,
+   "url": "https://go.dev/doc/go1.22"
+  },
+  {
+   "id": "backend-go-net-http",
+   "t": "Package http (net/http)",
+   "a": "The Go Authors",
+   "tipo": "doc",
+   "url": "https://pkg.go.dev/net/http"
+  },
+  {
+   "id": "backend-go-release-policy",
+   "t": "Release History (Go): política de versiones soportadas",
+   "a": "The Go Authors",
+   "tipo": "doc",
+   "url": "https://go.dev/doc/devel/release"
+  },
+  {
+   "id": "backend-rust-std-net",
+   "t": "Module std::net",
+   "a": "The Rust Project",
+   "tipo": "doc",
+   "url": "https://doc.rust-lang.org/std/net/index.html"
+  },
+  {
+   "id": "backend-axum-docs",
+   "t": "axum (documentación en docs.rs)",
+   "a": "Tokio Project",
+   "tipo": "doc",
+   "url": "https://docs.rs/axum/0.8.9/axum/"
+  },
+  {
+   "id": "backend-rust-book-shared-state",
+   "t": "Shared-State Concurrency (The Rust Programming Language, cap. 16.3)",
+   "a": "Klabnik y Nichols",
+   "tipo": "libro",
+   "url": "https://doc.rust-lang.org/book/ch16-03-shared-state.html"
+  },
+  {
+   "id": "backend-rust-stable",
+   "t": "Manifiesto del canal estable de Rust",
+   "a": "The Rust Project",
+   "tipo": "doc",
+   "url": "https://static.rust-lang.org/dist/channel-rust-stable.toml"
+  },
+  {
+   "id": "backend-crates-axum",
+   "t": "axum 0.8.9 (página del crate en docs.rs)",
+   "a": "Tokio Project",
+   "tipo": "doc",
+   "url": "https://docs.rs/crate/axum/0.8.9"
+  },
+  {
+   "id": "backend-rubygems-rails",
+   "t": "rails en RubyGems (API)",
+   "a": "RubyGems.org",
+   "tipo": "doc",
+   "url": "https://rubygems.org/api/v1/gems/rails.json"
+  },
+  {
+   "id": "backend-rails-doctrine",
+   "t": "The Rails Doctrine",
+   "a": "Rails",
+   "tipo": "articulo",
+   "url": "https://rubyonrails.org/doctrine"
+  },
+  {
+   "id": "backend-rails-guides-ar",
+   "t": "Active Record Basics",
+   "a": "Rails Guides",
+   "tipo": "doc",
+   "url": "https://guides.rubyonrails.org/active_record_basics.html"
+  },
+  {
+   "id": "backend-ruby-branches",
+   "t": "Ruby Maintenance Branches",
+   "a": "ruby-lang.org",
+   "tipo": "doc",
+   "url": "https://www.ruby-lang.org/en/downloads/branches/"
+  },
+  {
+   "id": "backend-php-builtin",
+   "t": "Built-in web server (manual de PHP)",
+   "a": "The PHP Group",
+   "tipo": "doc",
+   "url": "https://www.php.net/manual/en/features.commandline.webserver.php"
+  },
+  {
+   "id": "backend-php-supported",
+   "t": "Supported Versions (PHP)",
+   "a": "The PHP Group",
+   "tipo": "doc",
+   "url": "https://www.php.net/supported-versions.php"
+  },
+  {
+   "id": "backend-packagist-laravel",
+   "t": "laravel/framework en Packagist (metadatos de versiones)",
+   "a": "Packagist",
+   "tipo": "doc",
+   "url": "https://repo.packagist.org/p2/laravel/framework.json"
+  },
+  {
+   "id": "backend-laravel-deploy",
+   "t": "Deployment (Laravel 13.x)",
+   "a": "Laravel",
+   "tipo": "doc",
+   "url": "https://laravel.com/docs/13.x/deployment"
+  },
+  {
+   "id": "backend-laravel-octane",
+   "t": "Laravel Octane (Laravel 13.x)",
+   "a": "Laravel",
+   "tipo": "doc",
+   "url": "https://laravel.com/docs/13.x/octane"
+  },
+  {
+   "id": "backend-laravel-eloquent",
+   "t": "Eloquent: Getting Started (Laravel 13.x)",
+   "a": "Laravel",
+   "tipo": "doc",
+   "url": "https://laravel.com/docs/13.x/eloquent"
+  },
+  {
+   "id": "backend-supabase-auth-readme",
+   "t": "supabase/auth: README",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/supabase/auth/master/README.md"
+  }
+ ]
+}
