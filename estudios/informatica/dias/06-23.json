@@ -1,0 +1,786 @@
+{
+ "id": "06-23",
+ "titulo": "Estado del servidor contra estado de la interfaz",
+ "bajada": "Escribís una caché de cliente de 35 líneas, la rompés con un caso real y medís en Chromium cómo se muestra un dato viejo mientras se pide el nuevo.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir el estado de la interfaz del estado del servidor y decidir dónde vive cada dato de una pantalla.",
+  "Explicar qué hace una caché del cliente y en qué se diferencia de la caché HTTP del navegador.",
+  "Leer una cabecera `Cache-Control: max-age=…, stale-while-revalidate=…` y predecir qué ve el usuario en cada momento.",
+  "Escribir y depurar una caché mínima con deduplicación, revalidación e invalidación.",
+  "Reconocer cómo resuelve Senda los datos del servidor sin una biblioteca de caché."
+ ],
+ "venis_de": "En [@06-22] viste dónde guardar el estado que comparten varias partes de una app, y en [@05-19] cómo el navegador guarda respuestas HTTP con `Cache-Control` y `ETag`. Hoy se juntan las dos cosas: qué hacer, dentro de la app, con datos que vienen de un servidor y envejecen.",
+ "se_apoya_en": [
+  "06-22",
+  "05-19",
+  "06-19",
+  "06-13",
+  "06-16"
+ ],
+ "gancho": [
+  "Imaginá el tablero de un depósito donde se siguen los pedidos del día. La pantalla dice «Pedido 42: en ruta». Mientras lo mirás, el camión llega y el chofer marca la entrega en su celular. En el mundo real el pedido ya está entregado; en tu pantalla sigue en ruta. El tablero y el pedido son inventados, pero el problema es real y es el centro del día.",
+  "Hay datos que son tuyos y datos que son prestados: copias de algo que vive en un servidor y que otros pueden cambiar. Esa distinción cambia cómo se resuelve casi todo lo demás. Hoy vas a escribir una caché de cliente de unas 35 líneas, la vas a romper a propósito, vas a medir en Chromium cómo funciona `stale-while-revalidate` y vas a ver cómo lo resuelven TanStack Query y la propia Senda, que no usa esa biblioteca. Todo lo que se muestra salió de esta VM el 13 de noviembre de 2026."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Dos clases de estado"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta ahora trabajaste con estado que nace y muere en el cliente: si un menú está abierto, qué pestaña está activa, lo que la persona escribió en un campo y todavía no mandó. Es el **[[estado de la interfaz|estado de la interfaz]]**. Es tuyo: lo cambia solo tu código, se lee al instante y, si se pierde, se pierde una comodidad y no un dato.",
+    "El **estado del servidor** es otra cosa. Son los pedidos, los perfiles, las lecciones: información que vive en una base remota, que llega con [[latencia de red]] y que cualquiera puede modificar sin avisarte, ya sea otra persona, otro teléfono o un proceso automático. Lo que tu pantalla guarda no es el dato, es una **foto con fecha** del dato. La documentación de TanStack Query lo dice así al describir el estado del servidor:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "Implies shared ownership and can be changed by other people without your knowledge",
+   "autor": "TanStack Query, «Overview»",
+   "fuente": "estserv-tanstack-overview"
+  },
+  {
+   "t": "p",
+   "x": "De esa foto con fecha salen todas las diferencias prácticas. Una tabla para tenerlas a mano:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Aspecto",
+    "Estado de la interfaz",
+    "Estado del servidor"
+   ],
+   "filas": [
+    [
+     "Quién es el dueño",
+     "Tu código, en el cliente",
+     "Una base remota; tu app tiene una copia"
+    ],
+    [
+     "Cómo se lee",
+     "Al instante, de forma síncrona",
+     "Con espera, por la red, de forma asíncrona"
+    ],
+    [
+     "Cómo envejece",
+     "No envejece: solo cambia si lo cambiás vos",
+     "Envejece solo: otros lo cambian sin avisarte"
+    ],
+    [
+     "Qué pasa si falla",
+     "Nada: está en memoria",
+     "Puede no llegar, llegar tarde o llegar fuera de orden"
+    ],
+    [
+     "Ejemplo",
+     "«El menú de filtros está abierto»",
+     "«El pedido 42 está en ruta»"
+    ],
+    [
+     "Pregunta que hay que hacerse",
+     "¿Quién más necesita verlo en pantalla?",
+     "¿Hasta cuándo puedo confiar en mi copia?"
+    ]
+   ],
+   "cap": "La segunda columna se resuelve con useState, Context o zustand ([@06-22]). La tercera necesita, además, una política de frescura."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El tablero y los camiones",
+   "x": [
+    "El tablero de la oficina es una copia del estado real de los camiones. Un buen despachante sabe que es una foto y pregunta por radio cuando la decisión importa.",
+    "Dónde deja de valer: el despachante sabe por oficio qué datos envejecen rápido (la posición de un camión) y cuáles casi nunca (la dirección del cliente). Un programa no sabe nada de eso hasta que alguien lo escribe, y eso es la política de frescura."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Una pantalla muestra «el filtro de estado está abierto» y «el pedido 42 tiene 12 bultos». ¿Qué dato es del estado de la interfaz y cuál del estado del servidor? ¿Qué cambia en cómo los guardarías?",
+   "resp": "El filtro abierto es de la interfaz: un useState o un store alcanzan. Los 12 bultos son del servidor: es una copia que otro puede cambiar, así que además de guardarla hay que decidir cuándo desconfiar de ella y cómo volver a pedirla."
+  },
+  {
+   "t": "h",
+   "x": "Hacerlo a mano con un efecto: lo que no se ve en la demo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La primera reacción suele ser traer los datos dentro de un [[useEffect]] y guardarlos con `useState` o en un store como zustand ([@06-22]). Para una pantalla sola funciona. El código típico:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "function Pedido({ id }) {\n  const [pedido, setPedido] = useState(null);\n  useEffect(() => {\n    fetch(`/pedidos/${id}`)\n      .then((r) => r.json())\n      .then(setPedido);\n  }, [id]);\n  return pedido ? <Ficha pedido={pedido} /> : <Cargando />;\n}",
+   "cap": "El patrón de siempre. Está bien para una demo; los problemas aparecen con uso real."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los problemas no se ven al probarlo una vez. Dos pantallas que muestran el pedido 42 hacen dos pedidos iguales. Al volver a una pantalla ya visitada hay otro spinner, aunque el dato lo tenías hace un segundo. No hay reintentos. Y hay uno más sutil: **las respuestas pueden llegar en distinto orden del que salieron las preguntas**. Es una [[condición de carrera]]: el resultado depende de quién llega primero.",
+    "Se ve sin React, con una búsqueda que se dispara en cada letra. Escribís «ru» y enseguida «ruta». El servidor de mentira tarda 80 ms en la primera búsqueda y 10 ms en la segunda, algo que una red real hace todo el tiempo. Apretá «Ejecutar»:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// El servidor de mentira: buscar «ru» tarda 80 ms y «ruta» tarda 10 ms (a veces la red es así)\nconst demora = { ru: 80, ruta: 10 };\nconst buscar = (texto) => new Promise((r) => setTimeout(() => r('resultados para «' + texto + '»'), demora[texto]));\n\nlet pantalla = '(vacío)';            // lo que mostraría la interfaz\n\n// Versión ingenua: el equivalente a un efecto sin limpieza\nfunction escribirIngenuo(texto) {\n  buscar(texto).then((r) => { pantalla = r; });\n}\nescribirIngenuo('ru');               // la persona tipea «ru»…\nescribirIngenuo('ruta');             // …y enseguida «ruta»\nawait new Promise((r) => setTimeout(r, 120));\nconsole.log('ingenuo  -> pantalla:', pantalla, '| lo que escribió: «ruta»');\n\n// Versión con limpieza: cada pedido sabe si todavía vale\nlet vigente = 0;\nfunction escribirCuidadoso(texto) {\n  const miNumero = ++vigente;        // el efecto de limpieza de React hace lo mismo con una bandera\n  buscar(texto).then((r) => { if (miNumero === vigente) pantalla = r; });\n}\npantalla = '(vacío)';\nescribirCuidadoso('ru');\nescribirCuidadoso('ruta');\nawait new Promise((r) => setTimeout(r, 120));\nconsole.log('cuidadoso -> pantalla:', pantalla);",
+   "ejecutable": true,
+   "cap": "Sin DOM ni React: solo el orden de llegada de dos promesas. La versión ingenua corresponde a un efecto sin limpieza; la cuidadosa, a uno con limpieza."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La versión ingenua muestra los resultados de «ru» cuando la persona ya escribió «ruta»: la respuesta lenta llegó tarde y pisó a la correcta. La cuidadosa le pone a cada pedido un número y descarta lo que ya no corresponde a la última pregunta. En React ese descarte es el [[efecto de limpieza]] de [@06-19].",
+    "Cada problema tiene arreglo de pocas líneas, pero hay que arreglarlos todos y en cada pantalla. Un trabajo que se repite igual en todos lados conviene que viva en un solo lugar: una caché del cliente."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "La caché del cliente: guardar lo que ya pediste"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una **[[caché del cliente]]** es un almacén, dentro de la propia app, donde se guardan las respuestas del servidor bajo una **clave** (por ejemplo `pedido:42`), para contestar las próximas preguntas iguales sin ir a la red. La app decide la clave, qué se guarda, cuánto tiempo se le cree y cuándo se tira.",
+    "Ya conocés una caché parecida: la [[caché HTTP]] del navegador de [@05-19]. Conviven, y conviene no confundirlas. Están una encima de la otra:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "Pantalla (componentes)",
+     "d": "Pide datos por clave y se redibuja cuando cambian.",
+     "k": "cliente"
+    },
+    {
+     "n": "Caché del cliente (JavaScript)",
+     "d": "La clave la elige la app. Guarda datos ya interpretados. Vive en la memoria de la pestaña: si recargás, se pierde, salvo que la persistas.",
+     "k": "datos"
+    },
+    {
+     "n": "Caché HTTP del navegador",
+     "d": "La clave es la URL más algunos encabezados. La maneja el navegador según Cache-Control y ETag, sin que tu código se entere.",
+     "k": "os"
+    },
+    {
+     "n": "Red y servidor",
+     "d": "La fuente de verdad. Con latencia, errores y límites.",
+     "k": "servidor"
+    }
+   ],
+   "cap": "Un pedido pasa por tres capas antes de llegar al servidor. Cada una puede contestar por su cuenta."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con dos capas, tirar la copia de tu caché de JavaScript no obliga al navegador a ir al servidor. Armé un servidor local con `Cache-Control: no-cache` y `ETag` y le hice tres `fetch` desde Chromium:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node srv2.js   # servidor local, solo en 127.0.0.1",
+     "s": "servidor: GET /pedido  If-None-Match: (no vino) -> 200 con 40 bytes\nservidor: GET /pedido  If-None-Match: \"v1-abc\" -> 304 sin cuerpo\nservidor: GET /pedido  If-None-Match: \"v1-abc\" -> 304 sin cuerpo"
+    },
+    {
+     "c": "node pw2.js    # tres fetch desde Chromium (Playwright)",
+     "s": "JS: llamada 1 -> status 200 {\"id\":42,\"estado\":\"en ruta\",\"bultos\":12}\nJS: llamada 2 -> status 200 {\"id\":42,\"estado\":\"en ruta\",\"bultos\":12}\nJS: llamada 3 -> status 200 {\"id\":42,\"estado\":\"en ruta\",\"bultos\":12}"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026, Chromium 153.0.8010.12. Las dos salidas son de la misma corrida. El código de las llamadas fue siempre `fetch('/pedido')`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las dos últimas veces el navegador preguntó con `If-None-Match`, el servidor contestó **304 sin cuerpo** y el navegador le entregó a tu JavaScript el cuerpo guardado, como si fuera un 200. Es una revalidación en la capa HTTP, debajo de la que hagas en JavaScript: ahorra bytes, no la ida y vuelta.",
+    "Con `max-age` pasa lo contrario: durante ese tiempo el navegador contesta sin consultar al servidor, aunque tu caché de JavaScript crea que la copia venció. Se ve con números enseguida."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Frescura: fresco, vencido y cuánto aguantar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una copia está **fresca** mientras confiás en ella y **vencida** (en inglés *stale*) cuando ya no. Vencida no quiere decir falsa: quiere decir que no le creés sin chequear. **Cuánto aguantar es una decisión de producto, no técnica.** Ejemplos inventados de un sistema de reparto:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dato (ejemplo inventado)",
+    "Cuánto puede estar viejo",
+    "Por qué"
+   ],
+   "filas": [
+    [
+     "Posición del camión en el mapa",
+     "Segundos",
+     "Se mueve y alguien decide con eso"
+    ],
+    [
+     "Estado del pedido (en ruta, entregado)",
+     "Decenas de segundos",
+     "Es noticia, pero nadie actúa en el instante"
+    ],
+    [
+     "Datos del cliente (nombre, dirección)",
+     "Horas",
+     "Casi nunca cambian"
+    ],
+    [
+     "Catálogo de productos",
+     "Minutos a horas",
+     "Cambia por tandas, no por pedido"
+    ],
+    [
+     "Saldo de cuenta antes de cobrar",
+     "Nunca",
+     "Un error cuesta plata: se pregunta siempre"
+    ]
+   ],
+   "cap": "Son valores de criterio, no de un sistema real. Cada fila es una política distinta para la misma caché."
+  },
+  {
+   "t": "h",
+   "x": "Revalidación y stale-while-revalidate"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Revalidar** es preguntarle al origen si lo que tenés sigue valiendo. En HTTP se hace con pedidos condicionales (el `ETag` guardado va en `If-None-Match` y el servidor contesta 304 si no cambió); en una app de JavaScript, lo común es volver a ejecutar el pedido. La [[revalidación]] cuesta tiempo, batería y servidor, y uno decide cuándo pagarla.",
+    "Ante una copia vencida hay tres salidas. Esperar al servidor con un spinner: correcto y lento. Mostrar la vencida y olvidarse: rápido, pero puede mentir mucho tiempo. O **mostrar la vencida al instante y pedir la nueva por atrás**, para cambiarla cuando llegue. Esa tercera es [[stale-while-revalidate]]."
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "allows a cache to immediately return a stale response while it revalidates it in the background, thereby hiding latency",
+   "autor": "RFC 5861, sección 1",
+   "fuente": "estserv-rfc5861"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo definió Mark Nottingham en el RFC 5861 (mayo de 2010), de categoría *Informational*: no es un estándar de la IETF sino una contribución independiente. `Cache-Control: max-age=600, stale-while-revalidate=30` significa que la respuesta está fresca 600 segundos y que después puede servirse vencida hasta 30 más mientras se revalida de forma asincrónica. Pasada esa ventana no se sirve más: el próximo pedido espera al servidor [#estserv-rfc5861].",
+    "Un detalle que se pasa por alto: la revalidación **la dispara un pedido**. Si nadie pide nada mientras corre la ventana, no pasa nada por atrás. El RFC sugiere que sea así para evitar un ataque de amplificación, el de una caché que genera tráfico por su cuenta [#estserv-rfc5861]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Lo medí con Chromium: un servidor que cuenta pedidos, tarda 300 ms en contestar a propósito y manda `Cache-Control: max-age=2, stale-while-revalidate=10`. Desde una página hice cinco lecturas con `fetch`:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Lectura",
+    "Momento",
+    "Tardó",
+    "Versión que vio JS",
+    "¿Pidió al servidor?"
+   ],
+   "filas": [
+    [
+     "1",
+     "0,0 s",
+     "310 ms",
+     "1",
+     "Sí, y esperó: no había nada guardado"
+    ],
+    [
+     "2",
+     "1,3 s",
+     "6 ms",
+     "1",
+     "No: la copia estaba fresca (menos de 2 s)"
+    ],
+    [
+     "3",
+     "3,8 s",
+     "4 ms",
+     "1",
+     "Sí, por atrás: vencida pero dentro de los 10 s"
+    ],
+    [
+     "4",
+     "4,8 s",
+     "6 ms",
+     "2",
+     "No: la que se pidió en la lectura 3 ya llegó"
+    ],
+    [
+     "5",
+     "17,8 s",
+     "311 ms",
+     "3",
+     "Sí, y esperó: pasaron más de 12 s desde la versión 2"
+    ]
+   ],
+   "cap": "Medido en esta VM, Chromium 153.0.8010.12, 13-11-2026. El servidor recibió 3 pedidos para 5 lecturas. Los 300 ms son la demora artificial del servidor."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá la fila 3: la lectura volvió en 4 ms con la **versión 1**, ya vencida, y a la vez Chromium pidió la 2 por atrás. En la fila 4 la lectura ya vio la 2 sin esperar. Nadie vio un spinner entre la 2 y la 4. En la fila 5 la ventana había terminado y la lectura pagó el viaje completo.",
+    "Según [web.dev](https://web.dev/articles/stale-while-revalidate), la directiva funciona en Chrome 75 y Firefox 68, y los navegadores que no la entienden usan solo `max-age`. La misma idea se puede aplicar en JavaScript a datos que ya están en tu app. Como secuencia, con una caché del cliente en el medio:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Pantalla",
+     "k": "cliente"
+    },
+    {
+     "n": "Caché del cliente",
+     "k": "datos"
+    },
+    {
+     "n": "Servidor",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "Dame «pedido:42»",
+     "d": "La pantalla pide por clave. No sabe si hay red ni si el dato está guardado."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "Vencido, pero tomá: «en ruta»",
+     "resp": true,
+     "d": "La caché contesta al instante con lo que tiene. La pantalla se dibuja sin esperar."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "Revalidación: ¿cómo está el 42?",
+     "d": "Por atrás, sin bloquear. Si ya hay un pedido en curso para esa clave, se reutiliza en lugar de lanzar otro."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "«entregado»",
+     "resp": true,
+     "d": "Llega la verdad. La caché reemplaza lo guardado y anota el momento."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "Cambió: ahora «entregado»",
+     "resp": true,
+     "d": "La caché avisa a quienes escuchan esa clave y la pantalla se redibuja sola, como en la [[sincronización de estado]] de [@06-16]."
+    }
+   ],
+   "cap": "Stale-while-revalidate en la capa de JavaScript. El último mensaje es lo que lo distingue de una caché pasiva: alguien tiene que avisar a la pantalla."
+  },
+  {
+   "t": "pensa",
+   "x": "Una respuesta llega con `Cache-Control: max-age=60, stale-while-revalidate=300` en el segundo 0. Nadie pide esa URL entre el segundo 61 y el 360. ¿Se actualiza sola en ese lapso? ¿Qué pasa con un pedido en el segundo 200 y con otro en el 400?",
+   "resp": "No se actualiza sola: la revalidación la dispara un pedido. En el 200 está vencida pero dentro de la ventana (60 + 300 = 360): se sirve al instante y se revalida por atrás. En el 400 la ventana terminó y ese pedido espera al servidor."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Stale-while-revalidate actualiza cada tanto»",
+   "x": "No. Es una regla sobre qué hacer cuando alguien **pide** algo vencido, no un temporizador. Para refrescar sin que nadie pida hace falta otra cosa, como un sondeo, con su propio costo."
+  },
+  {
+   "t": "h",
+   "x": "Un mini-caché de 35 líneas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para entender qué hay debajo de las bibliotecas, nada mejor que escribir una. Esta guarda respuestas bajo una clave, las da por frescas cinco segundos, evita pedidos repetidos, sirve lo vencido mientras revalida por atrás y avisa a quien escucha. El servidor es de mentira y el reloj es simulado, para que la salida sea siempre la misma:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Mini-caché del cliente: una entrada por clave, con datos, momento y pedido en curso.\nconst cache = new Map();\nconst FRESCO_MS = 5000;\nlet ahora = 0; // reloj simulado: así la salida no depende de la velocidad de la máquina\n\nfunction entrada(clave) {\n  if (!cache.has(clave)) cache.set(clave, { datos: undefined, desde: -Infinity, enCurso: null, oyentes: new Set() });\n  return cache.get(clave);\n}\n\nfunction leer(clave, buscar) {\n  const e = entrada(clave);\n  if (ahora - e.desde < FRESCO_MS) return Promise.resolve(e.datos); // fresco: sin red\n  if (!e.enCurso) {                                                  // nadie lo pidió todavía: pedir una sola vez\n    e.enCurso = buscar()\n      .then((d) => { e.datos = d; e.desde = ahora; e.oyentes.forEach((f) => f(d)); return d; })\n      .finally(() => { e.enCurso = null; });\n  }\n  return e.datos !== undefined ? Promise.resolve(e.datos) : e.enCurso; // vencido con datos: devolver ya; sin datos: esperar\n}\n\nfunction suscribir(clave, f) { const e = entrada(clave); e.oyentes.add(f); return () => e.oyentes.delete(f); }\nfunction invalidar(prefijo) { for (const [k, e] of cache) if (k.startsWith(prefijo)) e.desde = -Infinity; }\n\n// --- Un servidor de mentira: guarda el estado real y cuenta cuántas veces le preguntan ---\nlet estadoReal = 'en ruta', llamadas = 0;\nconst dormir = (ms) => new Promise((r) => setTimeout(r, ms));\nasync function pedirPedido42() { llamadas++; const copia = estadoReal; await dormir(20); return copia; }\n\nconst log = (...a) => console.log(...a);\n\n// 1. Tres componentes piden lo mismo a la vez\nconst [a, b, c] = await Promise.all([1, 2, 3].map(() => leer('pedido:42', pedirPedido42)));\nlog('1. tres lecturas simultáneas ->', a, b, c, '| llamadas al servidor:', llamadas);\n\n// 2. Un segundo después: sigue fresco\nahora = 1000;\nawait leer('pedido:42', pedirPedido42);\nlog('2. a 1 s -> llamadas al servidor:', llamadas);\n\n// 3. El pedido se entrega, pasan 6 s: la lectura devuelve lo viejo y revalida por detrás\nestadoReal = 'entregado'; ahora = 6000;\nconst dejarDeEscuchar = suscribir('pedido:42', (d) => log('   (la pantalla se entera de:', d + ')'));\nlog('3. a 6 s, devuelve ya ->', await leer('pedido:42', pedirPedido42), '| llamadas:', llamadas);\nawait dormir(50);\ndejarDeEscuchar();\n\n// 4. Un bug: invalidar mientras hay un pedido volando\nahora = 20000;\nconst lenta = leer('pedido:42', pedirPedido42);        // sale con 'entregado'\nestadoReal = 'devuelto';                               // el usuario lo devuelve y la app llama a invalidar\ninvalidar('pedido:');\nawait lenta; await dormir(50);\nlog('4. estado real: devuelto | caché cree:', cache.get('pedido:42').datos, '| ¿fresco?', ahora - cache.get('pedido:42').desde < FRESCO_MS);",
+   "ejecutable": true,
+   "cap": "Corre en el navegador (Worker) y en Node. Los cuatro pasos finales son escenarios; el cuarto muestra un error de diseño."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los tres primeros escenarios salen bien. Con tres lecturas simultáneas hay **un solo** pedido: es la **[[deduplicación de pedidos]]**, y se logra guardando la promesa en curso (`enCurso`) para que los demás la esperen. A un segundo, la copia está fresca. A los seis segundos, la lectura devuelve «en ruta» al instante, aunque el pedido ya está entregado, y enseguida el oyente se entera de «entregado».",
+    "El cuarto escenario es el que importa. La caché empieza un pedido, el estado real pasa a «devuelto» y la app llama a `invalidar`. La función marca la entrada como vencida, pero el pedido que ya iba en vuelo vuelve con «entregado» y la deja **fresca**. La salida lo dice: *estado real: devuelto | caché cree: entregado | ¿fresco? true*. La invalidación se perdió."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Invalidar y guardar no pueden pisarse",
+   "x": "Una respuesta puede salir antes de un cambio y llegar después. Si al llegar «sella» la entrada como fresca, borra el efecto de la invalidación. Es la misma familia de bug que «ru» y «ruta»: el orden de llegada no es el de salida."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Arreglá el cuarto escenario con pocas líneas: una invalidación que llega con un pedido en vuelo tiene que impedir que ese pedido deje la entrada fresca.",
+   "pista": "Un contador por entrada que sube cada vez que se invalida. El pedido anota el valor al salir y, al llegar, marca «fresco» solo si el contador no cambió.",
+   "solucion": "Agregá `gen: 0` a la entrada. En `leer`, antes de pedir: `const gen = e.gen;`. Al llegar la respuesta: `e.datos = d; if (gen === e.gen) e.desde = ahora;`. En `invalidar`: `e.desde = -Infinity; e.gen++;`. En mi corrida, la lectura siguiente devolvió «entregado» al instante, disparó un pedido nuevo y la caché terminó creyendo «devuelto», que era lo correcto."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Le faltan cosas que una biblioteca resuelve: qué hacer cuando el pedido **falla** (hoy `enCurso` rechaza y nadie lo maneja), reintentos con espera creciente, **liberar memoria** (el `Map` solo crece), claves compuestas en vez de textos pegados a mano, invalidar por grupos sin confundir `pedido:` con `pedidos`, revalidar cuando la persona vuelve a la pestaña y guardar en disco para sobrevivir a cerrar la app. Con esa lista a la vista se entiende por qué existen las bibliotecas."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Invalidación: cuando sabés que el dato cambió"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Esperar el vencimiento sirve para lo que cambia por su cuenta. Pero a veces sabés **con certeza** que tu copia quedó vieja: acabás de cambiarla vos. La persona marca el pedido como devuelto, la app manda el cambio y la copia de ese pedido ya no vale. Marcarla como vencida sin esperar el reloj es la **[[invalidación de caché]]**.",
+    "Invalidar **no es borrar**. Si borrás la entrada, la próxima lectura no tiene nada para mostrar y vuelve el spinner. Si solo la marcás vencida, la pantalla sigue mostrando lo que tenía mientras se revalida: stale-while-revalidate otra vez, disparado por un evento y no por el reloj.",
+    "Las claves importan. Si son jerárquicas, como `['clientes']` para la lista y `['clientes', 7]` para una ficha, una sola orden («invalidá todo lo que empiece con `clientes`») deja vencidas las dos. Con textos sueltos hay que acordarse de cada una."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Una persona corrige el nombre del cliente 7 en una ficha. La app muestra la lista de clientes (`['clientes']`) y la ficha (`['clientes', 7]`). ¿Qué invalidarías y por qué?",
+   "resp": "Todo lo que empiece con `clientes`: la lista también muestra ese nombre y quedó vieja. Con claves jerárquicas alcanza una orden de prefijo; con claves sueltas, el olvido de una pantalla se nota cuando alguien ve el nombre viejo."
+  },
+  {
+   "t": "p",
+   "x": "Si el cambio lo hizo otro, hay dos caminos: que el servidor avise (con conexiones abiertas, que se ven más adelante en el curso) o preguntar cada tanto. Preguntar cada tanto se llama sondeo o *polling*: funciona, pero cada pregunta cuesta aunque nada haya cambiado."
+  },
+  {
+   "t": "h",
+   "x": "TanStack Query y SWR: lo mismo, hecho por especialistas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**TanStack Query** (antes React Query) y **SWR** (de Vercel) implementan estas ideas para React. El nombre de SWR es literal: según su sitio, viene de stale-while-revalidate, la estrategia del RFC 5861 [#estserv-swr-home]. TanStack Query se presenta como la biblioteca que se ocupa de traer, cachear, sincronizar y actualizar el estado del servidor [#estserv-tanstack-overview].",
+    "`useQuery` no es magia de React: leí el código de la versión instalada y `useBaseQuery` crea un `QueryObserver` del paquete `@tanstack/query-core`, que no depende de React y corre en Node. Lo usé para repetir mis escenarios con la biblioteca de verdad (tres «componentes» simulados y un servidor de mentira que cuenta llamadas):"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { QueryClient, QueryObserver } from '@tanstack/query-core';\nconst dormir = (ms) => new Promise((r) => setTimeout(r, ms));\nlet estadoReal = 'en ruta', llamadas = 0;\nasync function pedir() { llamadas++; const copia = estadoReal; await dormir(30); return copia; }\n\nconst qc = new QueryClient();\nconst clave = ['pedidos', 42];\nconst montar = (extra = {}) => new QueryObserver(qc, { queryKey: clave, queryFn: pedir, ...extra });\n\n// 1. Dos «componentes» piden lo mismo a la vez\nconst a = montar(), b = montar();\nconst ua = a.subscribe(() => {}), ub = b.subscribe(() => {});\nawait dormir(100);\nconsole.log('1. llamadas al servidor:', llamadas, '| datos:', a.getCurrentResult().data);\n\n// 2. Tercer componente: staleTime 0 (el valor por defecto)\nestadoReal = 'entregado';\nconst c = montar();\nconsole.log('2. al montar: data =', c.getCurrentResult().data, '| isStale =', c.getCurrentResult().isStale);\nc.subscribe(() => {});\nawait dormir(100);\nconsole.log('   tras revalidar: data =', c.getCurrentResult().data, '| llamadas:', llamadas);\n\n// 3. Cuarto componente con staleTime de 5 s\nconst antes = llamadas;\nconst d = montar({ staleTime: 5000 });\nd.subscribe(() => {});\nawait dormir(100);\nconsole.log('3. pedidos nuevos:', llamadas - antes, '| isStale =', d.getCurrentResult().isStale);\n\n// 4. Invalidar con un pedido volando (el bug de mi mini-caché)\nconst volando = qc.refetchQueries({ queryKey: clave }); // sale con 'entregado'\nestadoReal = 'devuelto';\nawait Promise.all([volando, qc.invalidateQueries({ queryKey: clave })]);\nawait dormir(100);\nconsole.log('4. estado real: devuelto | TanStack cree:', qc.getQueryData(clave));\nprocess.exit(0);",
+   "cap": "Usa @tanstack/query-core 5.107.1 (el mismo núcleo que usa @tanstack/react-query). No es ejecutable en la página porque necesita el paquete instalado."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node t_corto.mjs",
+     "s": "1. llamadas al servidor: 1 | datos: en ruta\n2. al montar: data = en ruta | isStale = true\n   tras revalidar: data = entregado | llamadas: 2\n3. pedidos nuevos: 0 | isStale = false\n4. estado real: devuelto | TanStack cree: devuelto"
+    }
+   ],
+   "cap": "Salida real, Node 22, @tanstack/query-core 5.107.1, 13-11-2026. Cada escenario corresponde a uno de los de la mini-caché."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada línea corresponde a algo que escribiste a mano. La 1 es la deduplicación. La 2 es el comportamiento por defecto: lo guardado se considera vencido desde el primer instante (`staleTime` vale 0), así que un componente nuevo recibe lo guardado y dispara una revalidación [#estserv-tanstack-defaults]. La 3 muestra que con `staleTime: 5000` no hay pedido. Y la 4 es el bug de tu mini-caché, resuelto: `invalidateQueries` marca la consulta como vencida y, si está en uso, la vuelve a pedir [#estserv-tanstack-invalidation].",
+    "En otra corrida medí dos cosas más. Con `gcTime: 200`, la entrada seguía en la caché al desmontar y desapareció antes de los 300 ms: es la liberación de memoria que le faltaba a tu `Map`. Y `invalidateQueries({ queryKey: ['pedidos'] })` con dos consultas activas (`['pedidos', 42]` y `['pedidos', 7]`) lanzó dos pedidos, uno por cada una."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Mi prueba en Node cambia dos valores por defecto",
+   "x": "Quise medir los reintentos por defecto con una consulta que siempre falla y obtuve un solo intento. En el código (`retryer.js` y `removable.js`) vi por qué: si la biblioteca detecta que no corre en un navegador, usa 0 reintentos y un `gcTime` infinito. En un navegador, la guía oficial indica 3 reintentos con espera exponencial y 5 minutos de `gcTime` [#estserv-tanstack-defaults]. Esos números no los medí."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y valores por defecto (13-11-2026)",
+   "x": [
+    "Al 13-11-2026, `npm view` informa `@tanstack/react-query` 5.107.1, `swr` 2.5.1 y `react` 19.3.1; Senda declara `react` 19.2.3. Los valores por defecto de TanStack Query v5 son los de su guía «Important Defaults»: `staleTime` 0, `gcTime` de 5 minutos y 3 reintentos con espera creciente [#estserv-tanstack-defaults].",
+    "Los nombres de las opciones cambian entre versiones mayores: según la guía de migración a la v5, `cacheTime` pasó a llamarse `gcTime` [#estserv-tanstack-migrar-v5]. Lo que dura es el patrón; los nombres, no."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "SWR sigue la misma filosofía con un enfoque más chico: según su documentación revalida por defecto al volver a enfocar la pestaña y al recuperar la red, puede refrescar a intervalos con `refreshInterval` y trae `useSWRImmutable` para recursos que no cambian [#estserv-swr-revalidation]. Las dos piden lo mismo: una **clave** y una **función que trae el dato**. Cómo se pide (REST, GraphQL, `fetch`) lo decidís vos."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cómo lo resuelve Senda sin biblioteca"
+  },
+  {
+   "t": "p",
+   "x": [
+    "¿Senda usa alguna de estas bibliotecas? Lo comprobé con `grep` en `package.json` y en `src/`: no hay TanStack Query, ni SWR, ni `useQuery`, y el mapa técnico lo confirma. El problema existe igual: Senda pide novedades de duelos, amistades y torneos, y eventos de calendario, y tiene que decidir cuánto confiar en lo que ya trajo. Lo resuelve a mano, en dos módulos, con las piezas que armaste."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Novedades: frescura de 30 segundos, un pedido compartido y lo último que se vio",
+   "x": [
+    "En el commit 25e08fa, `cargarNovedades(ya = false)` de `src/util/juntos.ts` guarda las novedades en un store de zustand (`useNovedades`) con el momento de la última carga (`cuando`). Si no se pide «ya» y pasaron menos de 30 segundos, no hace nada: **frescura de 30 s**. Una variable de módulo, `pidiendo`, guarda la promesa en curso y las llamadas que llegan mientras tanto reciben esa misma promesa: **deduplicación**. Si el pedido falla, el `catch` deja lo que había («sin señal: queda lo último que se vio»), la idea de *stale-if-error* que define la sección 4 del RFC 5861.",
+    "La **revalidación** está en `src/pantallas/Inicio.tsx`: se pide al entrar y se repite cada 45 segundos mientras se mira la pantalla (`setInterval` dentro de un `useFocusEffect`). Es sondeo. La **invalidación** es manual: `responderAmistad`, `unirseTorneo` y `responderTorneo` terminan con `cargarNovedades(true)`, es decir, «ignorá la frescura y volvé a pedir». Lo que llega pasa por zod (`leerNovedades`), tema de mañana. Código de ese commit; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/juntos.ts",
+    "src/pantallas/Inicio.tsx"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Eventos: una caché que sobrevive a cerrar la app",
+   "x": [
+    "`cargarEventosNube(forzar = false)`, en `src/util/eventosNube.ts`, hace lo mismo con otra política: 5 minutos de frescura (`actualizado`), una promesa compartida (`cargando`) y «sin señal: queda lo último que llegó». Su store usa el middleware `persist` de zustand con el nombre `senda-eventos-nube`: la copia se guarda en el teléfono y la app arranca mostrando lo último que vio, aun sin conexión. Es una caché del cliente **persistente**. Cuando el administrador crea un evento, `src/pantallas/Admin.tsx` llama a `cargarEventosNube(true)`: otra invalidación manual."
+   ],
+   "archivos": [
+    "src/util/eventosNube.ts",
+    "src/pantallas/Admin.tsx"
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos observaciones de criterio, ninguna una crítica. Primera: el patrón «momento + frescura + promesa compartida + quedarse con lo último» está escrito dos veces, con valores distintos (30 s y 5 min) y con la invalidación repartida por las funciones que escriben. Es el costo de no tener una caché central.",
+    "Segunda, una **inferencia** que sale de leer el código y que no reproduje en el teléfono: `cargarNovedades` empieza con `if (pidiendo) return pidiendo;`, antes de mirar si el pedido es forzado. Si justo hay un sondeo en vuelo cuando la persona acepta una amistad, el `cargarNovedades(true)` posterior recibe esa promesa, que salió antes del cambio. Es la familia de bug del cuarto escenario. El efecto es chico y se corrige solo en el siguiente sondeo, como mucho 45 segundos después."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cómo decidir qué usar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una regla práctica, que es criterio y no ley. Si pocas pantallas piden pocos datos y algo de vejez no duele, una caché a mano de tres piezas (momento de la carga, promesa compartida, quedarse con lo último si falla) alcanza, como en Senda. Cuando aparecen claves con parámetros, varias pantallas sobre el mismo dato, escrituras que afectan listas distintas, paginación o reintentos, mantener esa lógica cuesta más que sumar una biblioteca.",
+    "La política de frescura sigue siendo tuya con cualquier herramienta, y lo que es del estado de la interfaz no va a la caché. Con una buena caché del servidor, muchas apps terminan con menos estado global, porque parte de lo que estaba ahí eran datos del servidor disfrazados."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "La idea para llevarte",
+   "x": "Tu app no tiene el dato del servidor: tiene una copia con fecha. Las preguntas son cuándo desconfiar de ella, qué mostrar mientras tanto y quién avisa a la pantalla cuando llega algo mejor."
+  }
+ ],
+ "recap": [
+  "El estado de la interfaz es tuyo y se lee al instante; el estado del servidor es una copia con fecha de algo que otros pueden cambiar, y necesita una política de frescura.",
+  "Traer datos a mano con un efecto genera pedidos duplicados, spinners repetidos y condiciones de carrera: la respuesta lenta puede llegar última y pisar a la correcta.",
+  "Una caché del cliente guarda respuestas bajo una clave en la propia app, y convive con la caché HTTP del navegador: tirar la copia de JavaScript no obliga al navegador a ir al servidor.",
+  "Stale-while-revalidate (RFC 5861) devuelve el dato vencido al instante y lo revalida por atrás: medido en Chromium, la lectura vencida tardó 4 ms y la siguiente ya vio la versión nueva.",
+  "Invalidar es marcar como vencido lo que sabés que cambió, no borrarlo; y una invalidación que llega con un pedido en vuelo puede perderse si no se la protege.",
+  "TanStack Query y SWR resuelven deduplicación, frescura, invalidación, reintentos y liberación de memoria; Senda no las usa y arma a mano una versión chica en `juntos.ts` y `eventosNube.ts`."
+ ],
+ "repaso": [
+  {
+   "p": "En una pantalla de seguimiento de pedidos, ¿cuál de estos datos es estado del servidor?",
+   "o": [
+    "La pestaña activa de la barra de navegación inferior",
+    "El texto a medio escribir en el buscador de pedidos",
+    "La lista de pedidos del día que guarda la base remota",
+    "Si el panel de filtros está desplegado o plegado"
+   ],
+   "c": 2,
+   "e": "La lista de pedidos vive en una base remota que otros pueden modificar: lo que tiene la app es una copia con fecha. La pestaña, el texto a medio escribir y el panel de filtros nacen y mueren en el cliente y los cambia solo tu código, así que son estado de la interfaz."
+  },
+  {
+   "p": "Una respuesta llega con `Cache-Control: max-age=60, stale-while-revalidate=300` en el segundo 0. En el segundo 200 alguien pide ese recurso. ¿Qué pasa?",
+   "o": [
+    "Se espera al servidor porque ya pasaron más de 60 segundos",
+    "Se devuelve la copia de inmediato y se revalida por atrás",
+    "Se devuelve un error porque la ventana de 300 segundos terminó",
+    "Se devuelve la copia y no se revalida hasta pasar el segundo 360"
+   ],
+   "c": 1,
+   "e": "A los 200 s la copia está vencida (pasó el max-age de 60) pero dentro de la ventana de 60 + 300 = 360 s, así que se sirve al instante y la revalidación arranca por atrás. Esperar al servidor ocurriría pasados los 360 s; la ventana no terminó, y la revalidación empieza justo con ese pedido, no recién en el segundo 360."
+  },
+  {
+   "p": "En la búsqueda ingenua, ¿por qué la pantalla termina mostrando los resultados de «ru» aunque la persona ya escribió «ruta»?",
+   "o": [
+    "Porque fetch devuelve siempre la primera respuesta que guardó",
+    "Porque el servidor contesta siempre en el orden de escritura",
+    "Porque React descarta el segundo setState de la misma pantalla",
+    "Porque la respuesta de «ru» llegó última y pisó a la de «ruta»"
+   ],
+   "c": 3,
+   "e": "La búsqueda de «ru» tardó 80 ms y la de «ruta» 10 ms: la respuesta lenta llegó tarde y se guardó encima. Es una condición de carrera. Los otros motivos inventan comportamientos: fetch no guarda respuestas viejas, el servidor no garantiza orden y React no descarta actualizaciones de estado."
+  },
+  {
+   "p": "Una app hace `fetch` a una URL con `Cache-Control: max-age=3600`. En JavaScript se invalida la entrada de la caché del cliente y se vuelve a llamar a `fetch`. ¿Qué puede pasar?",
+   "o": [
+    "El navegador siempre ignora su caché cuando JavaScript reintenta el pedido",
+    "El servidor recibe el pedido igual porque invalidar vacía también la caché HTTP",
+    "El navegador puede contestar desde su caché HTTP sin consultar al servidor",
+    "`fetch` lanza un error porque la caché del cliente y la HTTP chocan entre sí"
+   ],
+   "c": 2,
+   "e": "Son dos capas distintas. Invalidar la copia de JavaScript no toca la caché HTTP, y mientras dure max-age el navegador puede contestar solo; en la medición, la lectura a 1,3 s no llegó al servidor. Ninguna capa vacía a la otra ni lanza errores por convivir."
+  },
+  {
+   "p": "Una invalidación llega mientras un pedido para esa clave está en vuelo, y al terminar el pedido la caché marca la entrada como fresca. ¿Cuál es el problema?",
+   "o": [
+    "La entrada puede quedar con un dato anterior al cambio que se quería invalidar",
+    "El pedido en vuelo se cancela y la respuesta se pierde para siempre",
+    "La caché queda bloqueada para esa clave hasta que se reinicie la app",
+    "Se duplican los pedidos al servidor para esa clave hasta que venza"
+   ],
+   "c": 0,
+   "e": "El pedido salió antes del cambio y, al llegar, deja la entrada fresca con datos viejos: la invalidación se perdió. No hay cancelación ni bloqueo ni duplicados en ese escenario; el arreglo es anotar una generación en cada entrada y no marcarla fresca si cambió mientras volaba el pedido."
+  },
+  {
+   "p": "En TanStack Query v5 con los valores por defecto, un componente nuevo usa una clave que ya está en la caché. ¿Qué ocurre?",
+   "o": [
+    "Muestra lo guardado al instante y lo revalida por atrás",
+    "Borra lo guardado y muestra un spinner hasta traer lo nuevo",
+    "Muestra lo guardado y no pide nada durante cinco minutos",
+    "Muestra lo guardado y pide de nuevo solo si pasó un minuto"
+   ],
+   "c": 0,
+   "e": "Con staleTime en 0 los datos guardados se consideran vencidos de inmediato: se muestran al instante y se revalidan por atrás, como pasó en la medición. Los cinco minutos son el gcTime, que mide cuánto se guarda una entrada sin uso, no la frescura; y no hay un umbral de un minuto por defecto."
+  },
+  {
+   "p": "En Senda, `responderAmistad` termina con `cargarNovedades(true)`. ¿A qué equivale eso en el vocabulario de hoy?",
+   "o": [
+    "Reintentar con espera creciente de 5 segundos a 10 minutos",
+    "Invalidar lo guardado y revalidar sin esperar el vencimiento",
+    "Persistir el estado en el teléfono para verlo sin conexión",
+    "Servir un dato vencido mientras se revalida por atrás"
+   ],
+   "c": 1,
+   "e": "El `true` ignora la frescura de 30 segundos y fuerza el pedido: es una invalidación manual seguida de una revalidación. El reintento con espera creciente es la bandeja de salida de nube.ts, que es de escrituras; persistir es lo que hace eventosNube.ts; y servir lo vencido mientras se revalida no es lo que hace esa llamada."
+  }
+ ],
+ "feynman": "Explicale a alguien que programa un poco por qué la lista de pedidos que viene de un servidor no se guarda igual que «el menú está abierto»: qué le puede pasar a la copia, cuándo conviene mostrarla vencida mientras se pide la nueva y qué significa invalidarla. Usá un ejemplo propio que no sea el del tablero de camiones.",
+ "para_profundizar": [
+  {
+   "fuente": "estserv-rfc5861",
+   "nota": "El RFC completo son seis páginas. Leé las secciones 3 y 4 (stale-while-revalidate y stale-if-error) y la 5, sobre el riesgo de amplificación: se hace en diez minutos y es la fuente de la idea."
+  },
+  {
+   "fuente": "estserv-tanstack-overview",
+   "nota": "La motivación de TanStack Query: la lista de qué es difícil del estado del servidor es casi un índice de lo que viste hoy."
+  },
+  {
+   "fuente": "estserv-tanstack-defaults",
+   "nota": "La guía de valores por defecto. Leela completa para saber qué hace una consulta si no configurás nada."
+  },
+  {
+   "fuente": "estserv-webdev-swr",
+   "nota": "Jeff Posnick explica la versión HTTP con demos y casos de uso, y fecha el soporte de los navegadores. Algunas demos dejaron de andar porque cerró el hosting que usaban."
+  }
+ ],
+ "videos": [
+  {
+   "q": "stale-while-revalidate explained cache strategy",
+   "por_que": "Para ver la misma idea dibujada por otra persona, antes de pasar a las bibliotecas de React."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "caché del cliente",
+   "d": "Almacén dentro de la propia app donde se guardan respuestas del servidor bajo una clave, para contestar las próximas preguntas iguales sin ir a la red. Es distinta de la caché HTTP del navegador, que maneja el navegador según los encabezados."
+  },
+  {
+   "t": "revalidación",
+   "d": "Preguntarle al origen si una copia guardada sigue valiendo. En HTTP se hace con un pedido condicional (If-None-Match con un ETag); en una app suele ser volver a ejecutar el pedido."
+  },
+  {
+   "t": "invalidación de caché",
+   "d": "Marcar como vencido lo guardado cuando se sabe que cambió, por ejemplo después de escribir. No lo borra: la pantalla puede seguir mostrándolo mientras se vuelve a pedir."
+  },
+  {
+   "t": "stale-while-revalidate",
+   "d": "Estrategia que devuelve de inmediato una respuesta vencida y la revalida por atrás para actualizarla. En HTTP es una directiva de Cache-Control definida en el RFC 5861; las bibliotecas de datos de React la aplican en JavaScript."
+  },
+  {
+   "t": "estado del servidor",
+   "d": "Datos que viven en un servidor y que la app solo copia: son asíncronos, compartidos y pueden quedar viejos sin que la app se entere."
+  },
+  {
+   "t": "estado de la interfaz",
+   "d": "Datos que nacen y mueren en el cliente, como si un menú está abierto o qué pestaña está activa. Los cambia solo el código de la app y se leen al instante."
+  },
+  {
+   "t": "deduplicación de pedidos",
+   "d": "Hacer un solo pedido al servidor cuando varias partes de la app piden lo mismo a la vez. Se logra guardando el pedido en curso para que los demás lo esperen."
+  },
+  {
+   "t": "condición de carrera",
+   "d": "Error en que el resultado depende de qué operación termina primero. En el frontend, el caso típico es que una respuesta lenta llegue después de una más nueva y la pise."
+  },
+  {
+   "t": "TanStack Query",
+   "d": "Biblioteca para React (antes React Query) que maneja el estado del servidor: caché con claves, deduplicación, revalidación, invalidación, reintentos y liberación de memoria."
+  }
+ ],
+ "siguiente": "Formularios y validación: el camino inverso, de la persona hacia el servidor. Cómo se controla lo que escribe, qué puede validar el cliente, por qué eso nunca alcanza y cómo un esquema (zod, que Senda ya usa) describe la forma de un dato válido.",
+ "fuentes_nuevas": [
+  {
+   "id": "estserv-rfc5861",
+   "t": "RFC 5861: HTTP Cache-Control Extensions for Stale Content",
+   "a": "M. Nottingham (Independent Submission)",
+   "tipo": "rfc",
+   "anio": 2010,
+   "url": "https://www.rfc-editor.org/rfc/rfc5861"
+  },
+  {
+   "id": "estserv-tanstack-overview",
+   "t": "TanStack Query: Overview",
+   "a": "TanStack",
+   "tipo": "doc",
+   "url": "https://tanstack.com/query/latest/docs/framework/react/overview"
+  },
+  {
+   "id": "estserv-tanstack-defaults",
+   "t": "TanStack Query: Important Defaults",
+   "a": "TanStack",
+   "tipo": "doc",
+   "url": "https://tanstack.com/query/latest/docs/framework/react/guides/important-defaults"
+  },
+  {
+   "id": "estserv-tanstack-invalidation",
+   "t": "TanStack Query: Query Invalidation",
+   "a": "TanStack",
+   "tipo": "doc",
+   "url": "https://tanstack.com/query/latest/docs/framework/react/guides/query-invalidation"
+  },
+  {
+   "id": "estserv-tanstack-migrar-v5",
+   "t": "TanStack Query: Migrating to v5",
+   "a": "TanStack",
+   "tipo": "doc",
+   "url": "https://tanstack.com/query/latest/docs/framework/react/guides/migrating-to-v5"
+  },
+  {
+   "id": "estserv-swr-home",
+   "t": "SWR: React Hooks for Data Fetching",
+   "a": "Vercel",
+   "tipo": "doc",
+   "url": "https://swr.vercel.app/"
+  },
+  {
+   "id": "estserv-swr-revalidation",
+   "t": "SWR: Automatic Revalidation",
+   "a": "Vercel",
+   "tipo": "doc",
+   "url": "https://swr.vercel.app/docs/revalidation"
+  },
+  {
+   "id": "estserv-webdev-swr",
+   "t": "Keeping things fresh with stale-while-revalidate",
+   "a": "Jeff Posnick (web.dev)",
+   "tipo": "articulo",
+   "url": "https://web.dev/articles/stale-while-revalidate"
+  }
+ ]
+}

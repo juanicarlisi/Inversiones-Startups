@@ -1,0 +1,824 @@
+{
+ "id": "06-13",
+ "titulo": "JavaScript en el navegador: fetch, temporizadores y Web APIs",
+ "bajada": "Armás pedidos al servidor y temporizadores en una página real, y descubrís por qué fetch y setTimeout no son parte de JavaScript.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir qué ofrece el lenguaje JavaScript y qué ofrece el navegador, y ubicar fetch, setTimeout y JSON en cada lado.",
+  "Escribir una llamada con fetch que maneje por separado el fallo de red, el código de estado de error y el cuerpo que no es JSON.",
+  "Predecir en qué orden corren el código síncrono, una promesa y un setTimeout de 0 ms, y explicar por qué el tiempo pedido es un mínimo.",
+  "Cortar un pedido lento con AbortController o con AbortSignal.timeout, y lanzar varios pedidos a la vez sin que se pisen.",
+  "Reconocer en el código de Senda el patrón de pedido con corte de tiempo y reintento con espera creciente."
+ ],
+ "venis_de": "En [@06-11] y [@06-12] la página aprendió a cambiar su árbol y a escuchar clics. Hoy aprende a pedirle datos al servidor y a esperar sin congelarse, apoyándote en las promesas de [@03-41] y en el idioma HTTP de [@05-18].",
+ "se_apoya_en": [
+  "03-41",
+  "05-18",
+  "06-10",
+  "06-11",
+  "06-12"
+ ],
+ "gancho": [
+  "Imaginá un tablero de seguimiento de camiones, como el de cualquier centro de distribución. Una grilla con las patentes, el estado de cada una y la hora de la última actualización. Querés que los estados se refresquen solos, cada pocos segundos, sin que nadie recargue la página y sin perder lo que alguien estaba escribiendo en el filtro.",
+  "Con lo que viste hasta ahora (HTML, CSS, DOM, eventos) la página sabe dibujarse y reaccionar a un clic, pero no sabe pedirle nada a nadie ni esperar un rato. Para eso el navegador le presta herramientas. Hoy las usás contra un servidor chico que armé en esta VM, y vas a comprobar algo que sorprende: ninguna de esas herramientas es parte de JavaScript."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "JavaScript solo casi no puede nada"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@03-41] corriste código en Node y usaste `setTimeout` y `console.log` como si vinieran con el lenguaje. Una prueba para ver si es así: Node permite crear un contexto de V8 nuevo y vacío, o sea el motor de JavaScript sin nada de lo que agrega el entorno. Le pregunté qué tipo de cosa es cada nombre en ese contexto:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node -e \"const vm=require('node:vm'); for (const n of ['Array','Promise','JSON','Math','setTimeout','fetch','URL','structuredClone','document']) console.log(n.padEnd(16), vm.runInNewContext('typeof '+n))\"",
+     "s": "Array            function\nPromise          function\nJSON             object\nMath             object\nsetTimeout       undefined\nfetch            undefined\nURL              undefined\nstructuredClone  undefined\ndocument         undefined"
+    }
+   ],
+   "cap": "Salida real en esta VM, Node 22.23.4 (13 de noviembre de 2026). `runInNewContext` evalúa el texto dentro de un contexto V8 recién creado, sin las piezas que Node agrega."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las cuatro primeras existen: son del lenguaje, definido en el estándar ECMAScript [#ecma-262]. Las cinco últimas, no: las pone el **entorno** donde corre el motor (el navegador, Node, una app móvil). Al conjunto de funciones y objetos que un navegador le ofrece al JavaScript de la página se lo llama [[Web API]]: `fetch` para hablar con el servidor, `setTimeout` para esperar, `document` para tocar el [[DOM]] de [@06-11], `addEventListener` para los [[eventos|evento]] de [@06-12], y cientos más [#mdn-webapi].",
+    "Cada una tiene su propia especificación, que escriben comités distintos del que mantiene el lenguaje. Mirá la diferencia con ejemplos:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pieza",
+    "Ejemplos",
+    "Dónde se define",
+    "Quién la implementa"
+   ],
+   "filas": [
+    [
+     "Lenguaje",
+     "`Array`, `Promise`, `JSON.parse`, `Math`",
+     "ECMA-262 [#ecma-262]",
+     "El motor de JavaScript (V8 en Chrome)"
+    ],
+    [
+     "Web API de red",
+     "`fetch`, `Response`, `AbortController`",
+     "Fetch Standard, de WHATWG [#front-fetch-standard]",
+     "El navegador"
+    ],
+    [
+     "Web API de tiempo",
+     "`setTimeout`, `setInterval`",
+     "HTML Standard, de WHATWG [#front-html-timers]",
+     "El navegador"
+    ],
+    [
+     "Web API del documento",
+     "`document`, `querySelector`",
+     "DOM Standard, de WHATWG",
+     "El navegador"
+    ]
+   ],
+   "cap": "Las dos primeras columnas salen de la prueba de arriba. Node implementa por su cuenta algunas de las mismas Web API (`fetch`, `setTimeout`) para que el código se pueda mover de un lado a otro, pero la implementación es otra."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "Tu código",
+     "d": "El script de la página: llama a `fetch(...)` y a `setTimeout(...)`.",
+     "k": "cliente"
+    },
+    {
+     "n": "Web APIs",
+     "d": "`fetch`, `setTimeout`, `document`, `localStorage`: las ofrece el navegador.",
+     "k": "red"
+    },
+    {
+     "n": "Motor de JavaScript",
+     "d": "Ejecuta el lenguaje: variables, funciones, promesas, `JSON`.",
+     "k": "servidor"
+    },
+    {
+     "n": "Sistema operativo y red",
+     "d": "Reloj, sockets, pantalla: lo que el navegador usa para cumplir tus pedidos.",
+     "k": "os"
+    }
+   ],
+   "cap": "Tu código habla con las Web APIs, y estas usan el sistema operativo. El motor solo ejecuta el lenguaje."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El chofer y el depósito",
+   "x": [
+    "El motor de JavaScript es un chofer que sabe manejar muy bien, pero no sabe pesar un bulto ni hablar por radio con otra sucursal. Para eso está el depósito: el chofer pide («pesame esto», «avisame en diez minutos»), sigue con otra cosa y el depósito avisa cuando está listo.",
+    "Dónde deja de valer: el aviso vuelve siempre por la misma puerta, el [[event loop]] de [@03-41], y se atiende de a uno por vez."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«JavaScript es asíncrono»",
+   "x": "Es impreciso. El lenguaje ejecuta una cosa por vez. Lo que ocurre «en paralelo» (esperar la red, contar el tiempo) lo hace el entorno, que avisa poniendo una tarea en la cola. La [[promesa]] representa un resultado que todavía no llegó, pero quien lo trae es una Web API."
+  },
+  {
+   "t": "pensa",
+   "x": "En la prueba de arriba, `JSON` apareció como `object`. ¿Eso lo convierte en una Web API?",
+   "resp": "No. `JSON.parse` y `JSON.stringify` son del lenguaje (ECMA-262) y por eso existen hasta en un motor vacío. La Web API es el método `json()` de una respuesta de `fetch`, que lee el cuerpo y después usa `JSON.parse`."
+  },
+  {
+   "t": "h",
+   "x": "Temporizadores: pedirle al navegador que te despierte"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[temporizador]] es un pedido al navegador: «dentro de tantos milisegundos, ejecutá esta función». `setTimeout(f, ms)` lo hace una vez y `setInterval(f, ms)` lo repite hasta `clearTimeout` o `clearInterval`. Lo importante es lo que **no** hace: no frena tu código. `setTimeout` vuelve enseguida, el navegador cuenta el tiempo por su lado y, al cumplirse, pone `f` en la cola de tareas del [[event loop]], donde espera su turno como cualquier otra.",
+    "Con [@03-41] ya podés predecir esto. Probalo: hay código síncrono, una [[promesa]] cumplida y un temporizador de 0 milisegundos."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "const orden = [];\norden.push('1 código síncrono');\nsetTimeout(() => orden.push('4 setTimeout con 0 ms'), 0);\nPromise.resolve().then(() => orden.push('3 promesa'));\norden.push('2 código síncrono');\nawait new Promise((r) => setTimeout(r, 50)); // esperamos para poder imprimir todo\nconsole.log(orden.join('\\n'));",
+   "cap": "Salida esperada: 1, 2, 3, 4. El código síncrono termina primero, después las microtareas (la promesa) y recién entonces la tarea del temporizador. Lo corrí en Chrome 153 (página y Worker) y en Node 22, con el mismo orden."
+  },
+  {
+   "t": "p",
+   "x": "El `0` no significa «ahora» sino «lo antes posible, cuando no haya nada más corriendo». Dos medidas, en una página real de Chrome 153 (headless, en esta VM):"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "const t0 = performance.now();\nlet cuando;\nsetTimeout(() => { cuando = performance.now() - t0; }, 10);\nwhile (performance.now() - t0 < 300) {} // ocupamos el hilo 300 ms a propósito\nawait new Promise((r) => setTimeout(r, 20));\nconsole.log('pedí 10 ms; corrió a los ' + Math.round(cuando) + ' ms');",
+   "cap": "Medido en esta VM, en una página de Chrome 153: «pedí 10 ms; corrió a los 300 ms». El valor que pasás a `setTimeout` es un **mínimo**: si el hilo está ocupado, el aviso espera."
+  },
+  {
+   "t": "p",
+   "x": "La segunda medida es un `setTimeout(f, 0)` que se vuelve a pedir a sí mismo doce veces seguidas, anotando el instante de cada ejecución:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node medir-timers.cjs",
+     "s": "setTimeout(f,0) anidado, instantes en ms:\n0.0 0.0 0.1 0.1 0.1 0.1 0.1 4.3 8.4 12.6 16.7 20.7"
+    }
+   ],
+   "cap": "Medido en esta VM con Playwright y Chrome 153, 13-11-2026. `medir-timers.cjs` es un script mío que abre una página y ejecuta ese `setTimeout` encadenado."
+  },
+  {
+   "t": "p",
+   "x": "A partir de la octava repetición hay un escalón: unos 4 milisegundos entre una y otra, aunque pidas 0. El estándar HTML manda que, con más de cinco niveles de temporizadores encadenados, el mínimo suba a 4 ms [#front-html-timers]. Así un bucle de `setTimeout(f, 0)` no quema el procesador."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Pestañas escondidas: los temporizadores se frenan",
+   "x": [
+    "Cuando la pestaña no se ve, el navegador atrasa los temporizadores para ahorrar batería. Según MDN, Chrome los revisa una vez por segundo en pestañas ocultas y, desde Chrome 88 (enero de 2021), una vez por **minuto** si son de cadenas largas y la pestaña lleva más de cinco minutos oculta y en silencio [#front-mdn-settimeout].",
+    "Consecuencia: un tablero con `setInterval` en una pestaña que nadie mira no se actualiza al ritmo pedido, y no sirve como reloj exacto. Política verificada en MDN el 13 de noviembre de 2026; cambia entre versiones."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "setInterval contra un setTimeout encadenado"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Trampa clásica de un tablero que se refresca: `setInterval(pedir, 100)` lanza `pedir` cada 100 ms **pase lo que pase**, aunque el pedido anterior no haya vuelto. Si el servidor tarda 300 ms, se acumulan. Lo medí contra el punto `/api/lento` de mi servidor (300 ms de demora) durante un segundo:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Estrategia",
+    "Pedidos lanzados en 1 s",
+    "Máximo en vuelo a la vez"
+   ],
+   "filas": [
+    [
+     "`setInterval(pedir, 100)`",
+     "10",
+     "4"
+    ],
+    [
+     "Esperar la respuesta y recién ahí pedir otro `setTimeout` de 100 ms",
+     "3",
+     "1"
+    ]
+   ],
+   "cap": "Medido en esta VM, Chrome 153, servidor local con 300 ms de demora fija. «En vuelo» es un pedido enviado cuya respuesta todavía no llegó."
+  },
+  {
+   "t": "p",
+   "x": "Con el intervalo fijo, si el servidor se atrasa, los pedidos se apilan y lo empeoran. Encadenando, el siguiente sale cuando el anterior terminó. Una regla práctica (criterio, no ley): para repetir pedidos, esperá la respuesta y recién ahí programá el siguiente, o mantené una marca de «ya hay uno en curso», que es lo que hace Senda."
+  },
+  {
+   "t": "pensa",
+   "x": "Dentro de un clic llamás a `setTimeout(f, 0)` y enseguida hacés un cálculo que tarda 2 segundos. ¿Cuándo corre `f`: antes del cálculo, durante o después?",
+   "resp": "Después. El cálculo ocupa el hilo y `f` es una tarea en cola que espera su turno. El cero solo dice «no esperes más tiempo del necesario». Mañana, en [@06-14], ves cuánto cuesta ocupar el hilo."
+  },
+  {
+   "t": "h",
+   "x": "fetch: pedirle datos al servidor sin recargar la página"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[fetch]] es la Web API para hacer un pedido HTTP desde el JavaScript de la página: le das una URL y, opcionalmente, un método, encabezados y un cuerpo, y devuelve una [[promesa]] [#mdn-fetch]. Lo que viste en [@05-18] (línea de solicitud, campos, línea vacía, cuerpo) es exactamente lo que el navegador manda por vos. La sintaxis mínima:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const respuesta = await fetch('/api/pedidos/42'); // 1: llegan el estado y los encabezados\nconst pedido = await respuesta.json();            // 2: llega y se lee el cuerpo\nconsole.log(pedido.cliente);                      // «Ferretería Norte»",
+   "cap": "No es ejecutable acá porque necesita una página y un servidor. En Chrome, contra mi servidor, devolvió `200`, `ok` verdadero, `content-type: application/json; charset=utf-8` y el cuerpo `{\"id\":42,\"cliente\":\"Ferretería Norte\",\"bultos\":12,\"estado\":\"en ruta\"}`."
+  },
+  {
+   "t": "p",
+   "x": "Hay **dos** `await`, no uno, y es lo que más confunde. Armé un punto del servidor, `/api/stream`, que manda los encabezados enseguida y deja el cuerpo a medias un segundo antes de terminarlo. Anoté cuándo se cumple cada promesa:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node medir-fetch.cjs",
+     "s": "fetch resolvió (llegaron los encabezados) a los 5 ms\nres.json() terminó a los 1004 ms\nstatus=200 datos={\"estado\":\"cargando\",\"partes\":[1,2,3]}"
+    }
+   ],
+   "cap": "Medido en esta VM con Playwright y Chrome 153. El servidor es un programa mío en Node que escucha solo en 127.0.0.1."
+  },
+  {
+   "t": "p",
+   "x": "La primera promesa se cumple cuando llegan el estado y los encabezados; la segunda, `respuesta.json()`, espera a que termine el cuerpo. Con una respuesta grande o lenta, la diferencia puede ser de segundos. Quién hace qué:"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Tu código",
+     "k": "cliente"
+    },
+    {
+     "n": "Navegador (Web API)",
+     "k": "red"
+    },
+    {
+     "n": "Servidor",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "fetch('/api/pedidos/42')",
+     "d": "Tu código entrega el pedido, recibe una promesa pendiente y sigue ejecutando."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "GET /api/pedidos/42 HTTP/1.1",
+     "d": "El navegador arma la solicitud con las reglas de [@05-18]."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "200 OK + encabezados",
+     "resp": true,
+     "d": "Llega el principio de la respuesta."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "Se cumple la promesa de fetch",
+     "resp": true,
+     "d": "Tu código recibe un Response con estado y encabezados; el cuerpo puede no haber terminado."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "respuesta.json()",
+     "d": "Segunda promesa: el cuerpo leído como JSON."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "Resto del cuerpo",
+     "resp": true,
+     "d": "Llega el final del cuerpo."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "Se cumple la promesa de json()",
+     "resp": true,
+     "d": "El navegador interpretó el texto y entrega un objeto."
+    }
+   ],
+   "cap": "Dos promesas en cadena: una por la llegada de la respuesta y otra por la llegada del cuerpo."
+  },
+  {
+   "t": "p",
+   "x": "El objeto `Response` que devuelve la primera promesa trae lo que necesitás para decidir qué hacer:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Miembro",
+    "Qué es",
+    "Valor en el pedido de arriba"
+   ],
+   "filas": [
+    [
+     "`respuesta.status`",
+     "El [[código de estado]] numérico de [@05-18]",
+     "`200`"
+    ],
+    [
+     "`respuesta.ok`",
+     "`true` si el estado está entre 200 y 299 [#front-mdn-response-ok]",
+     "`true`"
+    ],
+    [
+     "`respuesta.headers.get('content-type')`",
+     "Un [[encabezado HTTP]] de la respuesta (sin distinguir mayúsculas)",
+     "`application/json; charset=utf-8`"
+    ],
+    [
+     "`await respuesta.json()`",
+     "Lee el cuerpo y lo interpreta como JSON (promesa)",
+     "El objeto del pedido"
+    ],
+    [
+     "`await respuesta.text()`",
+     "Lee el cuerpo como texto (promesa)",
+     "El mismo JSON, como cadena"
+    ]
+   ],
+   "cap": "El cuerpo se lee una sola vez: ver más abajo."
+  },
+  {
+   "t": "h",
+   "x": "Cómo falla fetch: tres maneras distintas"
+  },
+  {
+   "t": "p",
+   "x": "Acá está la trampa más cara de `fetch`. Probé seis situaciones y anoté qué hizo cada promesa:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Situación",
+    "¿Rechaza `fetch`?",
+    "`ok` y estado",
+    "Qué pasa al leer el cuerpo"
+   ],
+   "filas": [
+    [
+     "`200` con JSON",
+     "No",
+     "`true`, 200",
+     "`json()` devuelve el objeto"
+    ],
+    [
+     "`404` (el pedido 999 no existe)",
+     "**No**",
+     "`false`, 404",
+     "`json()` funciona: trae `{\"error\":\"no_existe\"}`"
+    ],
+    [
+     "`503` con `Retry-After: 30`",
+     "**No**",
+     "`false`, 503",
+     "Se puede leer el cuerpo; el encabezado dice cuándo reintentar"
+    ],
+    [
+     "Puerto cerrado (nadie escucha)",
+     "**Sí**: `TypeError: Failed to fetch`",
+     "No hay respuesta",
+     "No hay cuerpo"
+    ],
+    [
+     "`200` pero el cuerpo es HTML (como el de un wifi con portal cautivo)",
+     "No",
+     "`true`, 200",
+     "`json()` rechaza con `SyntaxError: Unexpected token '<'`"
+    ],
+    [
+     "`204` sin cuerpo",
+     "No",
+     "`true`, 204",
+     "`json()` rechaza con `SyntaxError: Unexpected end of JSON input`"
+    ]
+   ],
+   "cap": "Medido en esta VM, Chrome 153, 13-11-2026. Los textos de los mensajes de error dependen del navegador; los nombres de los errores no."
+  },
+  {
+   "t": "cita",
+   "x": "A fetch() promise does not reject if the server responds with HTTP status codes that indicate errors (404, 504, etc.).",
+   "autor": "MDN Web Docs, «Window: fetch() method»",
+   "fuente": "mdn-fetch"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El estándar dice que, si la respuesta es un «error de red», la promesa se rechaza con un `TypeError` [#front-fetch-standard]. Un `404` **no es un error de red**: es una respuesta válida que el servidor mandó a propósito. Para fetch, la conversación salió bien aunque el servidor dijera «no».",
+    "Por eso hay tres capas de fallo, y cada una se atiende en un lugar distinto:"
+   ]
+  },
+  {
+   "t": "lista",
+   "ord": true,
+   "items": [
+    "**La red falló** (sin conexión, servidor caído, nombre que no resuelve): `fetch` rechaza. Se atrapa con `try/catch` o con `.catch`.",
+    "**El servidor respondió con error** (4xx, 5xx): `fetch` no rechaza. Hay que mirar `respuesta.ok` o `respuesta.status` y decidir; los códigos de [@05-18] dicen si conviene reintentar (503) o arreglar el pedido (400).",
+    "**El cuerpo no es lo que esperabas** (HTML en vez de JSON, vacío): `json()` rechaza. Se atrapa también con `try/catch`."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "async function traerPedido(id) {\n  const r = await fetch(`/api/pedidos/${id}`); // puede rechazar: sin red\n  if (!r.ok) throw new Error(`HTTP ${r.status}`); // no rechaza solo: lo decidís vos\n  return r.json();                                // puede rechazar: no era JSON\n}\n\ntry {\n  const p = await traerPedido(42);\n  console.log(p.estado);\n} catch (e) {\n  console.log('falló:', e.message);\n}",
+   "cap": "El patrón que recomienda MDN: revisar `ok` antes de leer el cuerpo. Con el pedido 999 imprime «falló: HTTP 404»; con el servidor apagado, «falló: Failed to fetch»."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "«Failed to fetch» no dice por qué",
+   "x": [
+    "El mensaje es deliberadamente pobre y sirve para causas muy distintas: servidor caído, DNS que no resuelve, certificado inválido y también un bloqueo del propio navegador. Una página mía en `http://127.0.0.1:18614` pide datos a mi servidor en `http://127.0.0.1:18613`. Para el navegador son dos **orígenes**, porque el puerto cuenta (el concepto completo llega en [@06-38]). Primero, qué contesta el servidor ante un `curl` que simula esa página:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -D - -o /dev/null -H 'Origin: http://127.0.0.1:18614' http://127.0.0.1:18613/api/sin-cors",
+     "s": "HTTP/1.1 200 OK\nContent-Type: application/json; charset=utf-8\nContent-Length: 22"
+    },
+    {
+     "c": "curl -s -D - -o /dev/null -H 'Origin: http://127.0.0.1:18614' http://127.0.0.1:18613/api/cors",
+     "s": "HTTP/1.1 200 OK\nContent-Type: application/json; charset=utf-8\nContent-Length: 28\nAccess-Control-Allow-Origin: *"
+    }
+   ],
+   "cap": "Salida real, curl 8.5.0, sin las líneas `Date`, `Connection` ni `Keep-Alive`. El servidor contesta 200 en los dos casos; solo el segundo trae el encabezado `Access-Control-Allow-Origin`."
+  },
+  {
+   "t": "p",
+   "x": "Desde la página, con `fetch`, el primer caso rechazó con `TypeError: Failed to fetch`, y la consola explicó que el pedido «has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present». Con el encabezado puesto, devolvió `200` y el objeto. El registro de mi servidor confirma lo importante: **el pedido llegó y se atendió** en ambos casos, con `Origin: http://127.0.0.1:18614`. Lo que el navegador bloqueó fue que **tu código lea la respuesta**, una protección para el usuario que decide el servidor con ese encabezado. Fuera del navegador (una app nativa, `curl`) no existe esa regla [#front-rn-network]."
+  },
+  {
+   "t": "pensa",
+   "x": "Tu página llama a `fetch` y recibe un `404`. En otra prueba, `fetch` rechaza con `TypeError`. ¿En cuál de los dos casos sabés con seguridad que el servidor recibió el pedido?",
+   "resp": "En el `404`: hubo respuesta, así que el servidor lo recibió. Con el `TypeError` no se sabe: pudo no llegar, pudo llegar y perderse la respuesta, o estar bloqueada la lectura. Por eso los pedidos que crean cosas deben ser idempotentes ([@05-18])."
+  },
+  {
+   "t": "h",
+   "x": "Mandar datos y JSON en el navegador"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para mandar datos, `fetch` acepta un `method`, `headers` y un `body`. Antes, ordenemos un nombre muy usado y poco entendido: [[JSON en el navegador]] son **tres piezas**. `JSON.stringify` convierte un objeto en texto y `JSON.parse` hace lo inverso: son del lenguaje, y la forma del texto la fija el RFC 8259 [#rfc8259]. La tercera es `respuesta.json()`, una Web API que lee el cuerpo llegado por la red y lo pasa por `JSON.parse`.",
+    "Mandar un objeto como JSON requiere convertirlo con `JSON.stringify` y avisar con el encabezado `Content-Type` que el cuerpo es JSON. Lo segundo se olvida seguido. Probé el mismo cuerpo con y sin el encabezado:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Sin el encabezado\nawait fetch('/api/pedidos', { method: 'POST', body: JSON.stringify({ cliente: 'X' }) });\n\n// Con el encabezado\nawait fetch('/api/pedidos', {\n  method: 'POST',\n  headers: { 'Content-Type': 'application/json' },\n  body: JSON.stringify({ cliente: 'Ferretería Ñandú', bultos: 3 }),\n});",
+   "cap": "Dos pedidos, uno detrás del otro, contra mi servidor local."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "grep POST servidor.log   # lo que anotó mi servidor",
+     "s": "{\"m\":\"POST\",\"url\":\"/api/pedidos\",\"ct\":\"text/plain;charset=UTF-8\",\"origin\":\"http://127.0.0.1:18613\"}\n{\"m\":\"POST\",\"url\":\"/api/pedidos\",\"ct\":\"application/json\",\"origin\":\"http://127.0.0.1:18613\"}"
+    },
+    {
+     "c": "# respuestas que recibió la página",
+     "s": "sin encabezado: 415 {\"error\":\"se_espera_json\",\"recibi_content_type\":\"text/plain;charset=UTF-8\"}\ncon encabezado: 201 {\"id\":43,\"cliente\":\"Ferretería Ñandú\",\"bultos\":3}"
+    }
+   ],
+   "cap": "Medido en esta VM, Chrome 153. El servidor es mío y rechaza con 415 los cuerpos que no declaran `application/json`; otros servidores pueden ser más permisivos o más estrictos."
+  },
+  {
+   "t": "p",
+   "x": "Con un texto como cuerpo, `fetch` manda `Content-Type: text/plain;charset=UTF-8` si no le decís otra cosa. El servidor vio un texto y se negó con `415`; con el encabezado, contestó `201`. El texto viajó en UTF-8 ([@01-15]): «Ñandú» ocupa más bytes que letras, y `Content-Length`, que `fetch` calcula solo, cuenta bytes."
+  },
+  {
+   "t": "h3",
+   "x": "Lo que JSON no puede transportar"
+  },
+  {
+   "t": "p",
+   "x": "JSON tiene solo seis tipos de valor: objeto, arreglo, cadena, número, booleano y `null`. Lo que no entre en ellos se pierde o se transforma en `JSON.stringify`. Corré este bloque y mirá qué sobrevive:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "const original = {\n  a: undefined,\n  f: () => 1,\n  fecha: new Date(0),\n  nada: NaN,\n  infinito: Infinity,\n  lista: [undefined],\n  mapa: new Map([[1, 2]]),\n};\nconsole.log(JSON.stringify(original));\n\ntry {\n  JSON.stringify({ n: 10n });\n} catch (e) {\n  console.log('BigInt:', e.name);\n}\n\nconst ida = JSON.stringify({ guia: 9007199254740993 });\nconsole.log('número grande ->', JSON.parse(ida).guia);\nconsole.log('como cadena    ->', JSON.parse('{\"guia\":\"9007199254740993\"}').guia);",
+   "cap": "Corrido en Node 22 y en un Worker de Chrome 153, con el mismo resultado: `undefined` y funciones desaparecen, la fecha pasa a texto, `NaN` e `Infinity` se vuelven `null`, el `Map` queda vacío, y los `BigInt` lanzan `TypeError`."
+  },
+  {
+   "t": "p",
+   "x": "Lo más traicionero es lo último: `9007199254740993` volvió como `9007199254740992`. Los números de JavaScript son de punto flotante de 64 bits ([@01-13]) y por encima de 2⁵³ − 1 (9.007.199.254.740.991) no alcanzan todos los enteros. Una guía de seguimiento de 16 dígitos puede perder el último sin avisar. Regla práctica: mandá los identificadores largos como **cadenas**, porque son nombres y no cantidades para operar."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un cuerpo se lee una sola vez",
+   "x": "Si llamás a `respuesta.json()` y después a `respuesta.text()`, la segunda rechaza con `TypeError: Failed to execute 'text' on 'Response': body stream already read`: el cuerpo es un flujo y se consume al leerlo. Para leerlo de dos maneras, usá antes `respuesta.clone()`; en Chrome funcionó con las dos lecturas."
+  },
+  {
+   "t": "h",
+   "x": "Cortar a tiempo y pedir varias cosas a la vez"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta ahora, si el servidor no contesta, tu código espera. `fetch` no trae un parámetro de «tiempo máximo»: lo ponés vos. La pieza es un `AbortController`: un objeto con una señal (`controller.signal`) que se le pasa a `fetch` y un método `abort()` que la dispara [#front-mdn-abortcontroller]. Lo probé pidiendo `/api/lento?ms=3000` (el servidor tarda 3 segundos) y cancelando a los 500 ms:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const control = new AbortController();\nsetTimeout(() => control.abort(), 500);\ntry {\n  await fetch('/api/lento?ms=3000', { signal: control.signal });\n} catch (e) {\n  console.log(e.name);   // «AbortError»\n}\n\n// La versión corta, para el caso más común:\nawait fetch('/api/lento?ms=3000', { signal: AbortSignal.timeout(500) }); // rechaza con «TimeoutError»",
+   "cap": "Medido en Chrome 153, en esta VM: `AbortError` a los 501 ms con el control manual, y `TimeoutError` a los 500 ms con `AbortSignal.timeout`."
+  },
+  {
+   "t": "p",
+   "x": "Los dos nombres distinguen causas: `TimeoutError` dice que se cumplió el plazo y `AbortError` que alguien canceló [#front-mdn-abortsignal-timeout]. Ojo con esto: cancelar corta **tu espera**, no deshace lo que el servidor haya empezado. En mi prueba, el servidor registró los dos pedidos lentos y siguió trabajando. Si lo cancelado era un POST que crea algo, no sabés si se creó: es el problema de [@05-18] y la razón de diseñar pedidos que se puedan repetir sin efectos dobles."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo último es pedir varias cosas a la vez. Tres pedidos de 300 ms cada uno, hechos uno detrás del otro con `await`, tardan 900 ms; con `Promise.all` (que espera a todas las [[promesas|promesa]] juntas), 300 ms:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node medir-paralelo.cjs",
+     "s": "secuencial=912 ms, paralelo=305 ms\nsecuencial=915 ms, paralelo=309 ms\nsecuencial=909 ms, paralelo=305 ms\nmisma URL x3 en paralelo, cache:'default': 905 ms\nmisma URL x3 en paralelo, cache:'no-store': 305 ms"
+    }
+   ],
+   "cap": "Medido en esta VM, Chrome 153: tres repeticiones con tres URL distintas y, al final, la misma URL tres veces. El servidor local demora 300 ms por pedido."
+  },
+  {
+   "t": "p",
+   "x": "Una variante que me sorprendió: pidiendo **la misma URL** tres veces en paralelo, tardó 905 ms, como si fueran seriales. Con `cache: 'no-store'` en cada `fetch`, bajó a 305 ms. No lo verifiqué en una fuente primaria; mi hipótesis es que el navegador ordena los pedidos idénticos a través de su caché HTTP ([@05-19]). Medido está el efecto: si tus pedidos «en paralelo» tardan como seriales, mirá si son a la misma URL."
+  },
+  {
+   "t": "p",
+   "x": "Si un pedido de un `Promise.all` falla, la promesa entera rechaza enseguida y se pierden los demás resultados. `Promise.allSettled` espera a todos y devuelve el de cada uno: con un pedido bueno y uno a un puerto cerrado, dio `fulfilled` y `rejected`. Para un tablero de secciones independientes suele convenir `allSettled`."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Escribí una función `pedirConPlazo(url, ms)` que haga un `fetch` con un plazo máximo de `ms` milisegundos, devuelva el JSON si todo sale bien y lance un error con un mensaje distinto en cada uno de estos casos: se acabó el plazo, hubo un fallo de red, el servidor contestó con un estado de error.",
+   "pista": "Usá `AbortSignal.timeout(ms)` y distinguí los casos por `e.name`: `TimeoutError`, `TypeError` y, para el estado de error, lo que decida `respuesta.ok`.",
+   "solucion": "```\nasync function pedirConPlazo(url, ms) {\n  let r;\n  try {\n    r = await fetch(url, { signal: AbortSignal.timeout(ms) });\n  } catch (e) {\n    if (e.name === 'TimeoutError') throw new Error('plazo vencido');\n    throw new Error('fallo de red');\n  }\n  if (!r.ok) throw new Error('el servidor respondió ' + r.status);\n  return r.json();\n}\n```\nEl `catch` solo cubre red y plazo; el chequeo de `ok` va aparte porque un estado de error no rechaza."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda: pedir con plazo y reintentar con espera creciente",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. En `src/util/interruptores.ts`, la lectura de los «interruptores remotos» (funciones que el fundador puede apagar desde la base) arma a mano el patrón de hoy: un `AbortController`, un `setTimeout` de 5.000 ms que llama a `abort()`, el `fetch` con `signal` y, en el `finally`, un `clearTimeout`. Si la respuesta no es `ok` sale en silencio, y si hay excepción queda lo último guardado en el teléfono. `src/util/lugares.ts` repite el molde con 9.000 ms para consultar direcciones. Ninguno usa `AbortSignal.timeout`.",
+    "En `src/util/nube.ts`, `enviarRespuestas` manda por `POST` las respuestas del Espadeo. Si `r.ok` es falso lanza un error, y el `catch` calcula la próxima hora de intento con una espera que crece, `5000 * 2 ** (fallos - 1)` milisegundos con tope de 10 minutos y un factor al azar entre 0,5 y 1,5. Los intentos los disparan un `setTimeout` a los 8 a 15 segundos de abrir y un `setInterval` de 45 a 55 segundos, y no se pisan: la función sale al principio si ya hay un envío en curso (`if (!NUBE_ACTIVA || enviando) return`), la segunda solución al apilamiento que mediste hoy."
+   ],
+   "archivos": [
+    "src/util/interruptores.ts",
+    "src/util/lugares.ts",
+    "src/util/nube.ts",
+    "src/util/cuenta.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda: el JSON que llega se supone, no se comprueba",
+   "x": [
+    "`respuesta.json()` devuelve lo que haya en el cuerpo, sin chequear su forma. En `interruptores.ts` el resultado se declara con `as { clave: Interruptor; activo: boolean }[]`, y en `src/util/cuenta.ts` las funciones `leer` y `rpc` afirman el tipo con `as T`. Es una promesa que le hacés a TypeScript y no una verificación: si el servidor cambia la forma, el error aparece más adelante y lejos de la causa. El mapa técnico anota que validar con zod se cumple hoy en un solo punto (las novedades): es deuda técnica, no una crítica.",
+    "Y una aclaración sobre qué es `fetch` en un teléfono: React Native dice que provee la API Fetch [#front-rn-network], pero la implementa su propia capa de red nativa, no el navegador. En la vista previa web (react-native-web) es el del navegador, y por eso `lugares.ts` distingue `Platform.OS === \"web\"` al armar los encabezados."
+   ],
+   "archivos": [
+    "src/util/interruptores.ts",
+    "src/util/cuenta.ts",
+    "src/util/lugares.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué cambia con el tiempo y qué no",
+   "x": [
+    "No envejece: la separación entre lenguaje y entorno, la promesa que se cumple en dos tiempos, las tres capas de fallo, el JSON de seis tipos y el tiempo de un temporizador como mínimo. Cambia: la lista de Web APIs, los mensajes de error de cada navegador y las políticas de ahorro en pestañas ocultas. Según MDN, `AbortController` está disponible en todos los navegadores principales desde marzo de 2019 y `AbortSignal.timeout` desde abril de 2024 [#front-mdn-abortsignal-timeout]: para navegadores más viejos, armá el corte a mano, como hace Senda.",
+    "Medido el 13 de noviembre de 2026 en Chrome 153.0.8010.12 (headless, VM compartida) y Node 22.23.4; los tiempos son de una sola VM. Temporizadores en pestañas ocultas según MDN [#front-mdn-settimeout]; mínimo de 4 ms encadenado según el estándar HTML [#front-html-timers]."
+   ]
+  }
+ ],
+ "recap": [
+  "JavaScript, el lenguaje, no trae `fetch`, `setTimeout` ni `document`: son Web APIs que pone el navegador. En un contexto V8 vacío solo existen `Array`, `Promise`, `JSON`, `Math` y compañía.",
+  "Un temporizador pide un aviso, no frena el código. El tiempo que pasás es un mínimo (pedí 10 ms y corrió a los 300 porque el hilo estaba ocupado) y encadenados más de cinco niveles el piso sube a 4 ms.",
+  "Para repetir pedidos, `setInterval` los apila si el servidor se atrasa (10 lanzados y 4 en vuelo contra 3 y 1 al encadenar). Esperá la respuesta antes de programar el siguiente, o salí si ya hay uno en curso.",
+  "`fetch` trae dos promesas: una cuando llegan el estado y los encabezados (5 ms) y otra cuando termina el cuerpo (1.004 ms). Un cuerpo se lee una sola vez, salvo con `clone()`.",
+  "`fetch` rechaza solo cuando falla la red; un 404 o un 503 llegan como respuesta con `ok` en falso. Un cuerpo que no es JSON hace rechazar a `json()`. Son tres capas que se atienden por separado.",
+  "Para mandar JSON hacen falta `JSON.stringify` y el encabezado `Content-Type: application/json`; JSON no transporta `undefined`, fechas, `NaN` ni enteros por encima de 2⁵³ − 1 sin pérdida.",
+  "`AbortController` o `AbortSignal.timeout` cortan la espera, no el trabajo del servidor. `Promise.all` junta pedidos en paralelo y `Promise.allSettled` los tolera uno por uno."
+ ],
+ "repaso": [
+  {
+   "p": "Un programa escrito para el navegador llama a `setTimeout` y a `Promise.resolve()`. ¿Cuál de las dos cosas existe en un motor de JavaScript puro, sin ningún entorno alrededor?",
+   "o": [
+    "Las dos, porque forman parte del lenguaje y están en ECMAScript",
+    "Solo `Promise`, que es del lenguaje; `setTimeout` la agrega el entorno",
+    "Solo `setTimeout`, porque las promesas las agrega el navegador",
+    "Ninguna de las dos, porque ambas necesitan acceso al sistema operativo"
+   ],
+   "c": 1,
+   "e": "En el contexto vacío de V8 `Promise` apareció como función y `setTimeout` como `undefined`. Las promesas se definen en ECMA-262; `setTimeout` es una Web API del estándar HTML. La opción de «ninguna» confunde que algo necesite el reloj con que no pueda ser parte del lenguaje, y la de «solo setTimeout» invierte la realidad."
+  },
+  {
+   "p": "Una página ejecuta `setTimeout(f, 0)`, después una promesa ya resuelta con `.then(g)` y luego una línea síncrona `h()`. ¿En qué orden corren `f`, `g` y `h`?",
+   "o": [
+    "`h`, `f`, `g`, porque el temporizador se ejecuta primero que las promesas",
+    "`f`, `g`, `h`, porque se corren en el orden en que se escribieron",
+    "`h`, `g`, `f`, porque las microtareas van antes que la tarea del temporizador",
+    "`g`, `h`, `f`, porque las promesas se ejecutan en el mismo instante en que se crean"
+   ],
+   "c": 2,
+   "e": "El código síncrono (`h`) termina primero; después se vacía la cola de microtareas (`g`) y recién entonces el event loop toma la tarea del temporizador (`f`). La medición en Chrome y en Node dio ese orden. Creer que se ejecutan en orden de escritura ignora la cola, y creer que la promesa corre al crearse ignora que su `.then` es una microtarea."
+  },
+  {
+   "p": "Un tablero hace `setInterval(actualizar, 100)` y cada pedido tarda 300 ms. Durante un segundo, ¿qué ocurre con los pedidos?",
+   "o": [
+    "Se lanzan unos 10 y llegan a haber 4 en vuelo a la vez, apilados",
+    "Se lanzan unos 3, porque el intervalo espera la respuesta anterior",
+    "Se lanzan unos 10, pero de a uno por vez, sin superponerse",
+    "Se lanzan unos 4, porque el navegador limita los pedidos a cuatro"
+   ],
+   "c": 0,
+   "e": "`setInterval` dispara cada 100 ms sin mirar si el pedido anterior terminó; la medición dio 10 lanzados y 4 simultáneos. Encadenar un `setTimeout` tras cada respuesta daría 3 pedidos y 1 a la vez. El navegador no limita a cuatro (el límite por servidor en HTTP/1.1 es más alto) y nada serializa solo los pedidos."
+  },
+  {
+   "p": "Tu código hace `const r = await fetch('/api/pedidos/999')` y el servidor responde `404`. ¿Qué pasa con la promesa de `fetch`?",
+   "o": [
+    "Rechaza con `TypeError`, porque el pedido no pudo satisfacerse",
+    "Se cumple y `r.ok` vale `false` con `r.status` igual a 404",
+    "Rechaza con `SyntaxError`, porque el cuerpo de un error no es JSON",
+    "Queda pendiente hasta que el servidor mande una respuesta con éxito"
+   ],
+   "c": 1,
+   "e": "`fetch` solo rechaza ante un error de red; un 404 es una respuesta válida que el servidor eligió mandar, y llega con `ok` en `false`. El `TypeError` es para cuando no hay respuesta, y el `SyntaxError` lo produce `json()` ante un cuerpo que no es JSON, que acá ni siquiera ocurre: el cuerpo era `{\"error\":\"no_existe\"}`."
+  },
+  {
+   "p": "Una página en un origen pide datos a tu servidor en otro puerto; el servidor responde 200, pero `fetch` rechaza con `Failed to fetch`. ¿Qué es lo más probable?",
+   "o": [
+    "El servidor no recibió el pedido, porque el navegador lo bloqueó antes de enviarlo",
+    "El servidor está caído, porque `Failed to fetch` siempre significa que no hay conexión",
+    "El pedido salió y el servidor contestó, pero faltó el encabezado que permite leer la respuesta",
+    "El cuerpo era HTML en lugar de JSON y la conversión falló al leerlo"
+   ],
+   "c": 2,
+   "e": "En la prueba, el servidor registró el pedido con su encabezado `Origin` y contestó 200; lo que bloqueó el navegador fue la lectura de la respuesta, por falta de `Access-Control-Allow-Origin`. `Failed to fetch` sirve para causas muy distintas, así que no siempre es «sin conexión». Un cuerpo HTML daría `SyntaxError` en `json()` y no un rechazo de `fetch`."
+  },
+  {
+   "p": "Un identificador de seguimiento de 16 dígitos viaja como número en JSON y vuelve con el último dígito cambiado. ¿Cuál es la causa y la solución práctica?",
+   "o": [
+    "`JSON.parse` redondea siempre los números; conviene evitar JSON para identificadores",
+    "El servidor lo corrompió en el camino; hay que reenviar el pedido",
+    "`Content-Length` calculó mal los bytes, y por eso se truncó el número",
+    "Los números de JavaScript son flotantes de 64 bits y no representan todos los enteros grandes; mandalo como cadena"
+   ],
+   "c": 3,
+   "e": "Por encima de 2⁵³ − 1 (9.007.199.254.740.991) no todos los enteros caben en un número de JavaScript: en la prueba, `…993` volvió como `…992`. No hay corrupción del servidor ni del tamaño del cuerpo. Como el identificador es un nombre y no una cantidad para operar, se manda como cadena."
+  },
+  {
+   "p": "Cancelás un `fetch` de un POST que crea un pedido con `AbortController` a los 500 ms. Después de recibir `AbortError`, ¿qué podés afirmar?",
+   "o": [
+    "Que el pedido no se creó, porque la cancelación llega hasta el servidor y deshace la operación",
+    "Que tu código dejó de esperar la respuesta, pero el servidor pudo haberlo creado igual",
+    "Que el pedido se creó, porque `AbortError` se lanza después de que llega la respuesta",
+    "Que la conexión se reutiliza y el servidor responderá al próximo pedido de todos modos"
+   ],
+   "c": 1,
+   "e": "Abortar corta la espera del cliente; el servidor puede haber recibido y procesado el pedido, y en la prueba siguió trabajando en los pedidos lentos que se cancelaron. Por eso las operaciones que crean cosas deben poder repetirse sin efectos dobles ([@05-18]). Tampoco se puede afirmar lo contrario, que se creó: simplemente no se sabe."
+  }
+ ],
+ "feynman": "Explicale a alguien que programa un poco pero no conoce el navegador por qué `fetch` y `setTimeout` no son parte de JavaScript, qué pasa en cada paso cuando una página pide datos al servidor y cómo se distinguen los tres modos de fallar. Usá un ejemplo propio de logística que no sea el del tablero de camiones.",
+ "para_profundizar": [
+  {
+   "fuente": "mdn-fetch",
+   "nota": "La referencia de `fetch` en MDN, con las opciones del segundo argumento y el patrón de revisar `ok`. Leé la sección de excepciones para ver qué rechaza y qué no."
+  },
+  {
+   "fuente": "front-fetch-standard",
+   "nota": "El Fetch Standard, la especificación de `fetch`. Buscá «network error» para ver dónde se define cuándo la promesa rechaza con `TypeError`; es la fuente de la regla de las tres capas."
+  },
+  {
+   "fuente": "front-mdn-settimeout",
+   "nota": "La página de `setTimeout` en MDN: la sección sobre demoras mayores a las pedidas explica el piso de 4 ms y el frenado de las pestañas ocultas."
+  },
+  {
+   "fuente": "rfc8259",
+   "nota": "El formato JSON completo en pocas páginas: sirve para comprobar que solo hay seis tipos de valor y entender por qué una fecha no es un valor JSON."
+  }
+ ],
+ "videos": [
+  {
+   "q": "fetch API async await error handling response.ok JavaScript",
+   "por_que": "Para ver a otra persona escribir el manejo de errores de `fetch` y comparar con las tres capas de fallo de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "Web API",
+   "d": "Función u objeto que el navegador ofrece al JavaScript de la página y que no forma parte del lenguaje: `fetch`, `setTimeout`, `document`, `localStorage`. Cada una se define en un estándar propio (WHATWG, W3C) y la implementa el navegador."
+  },
+  {
+   "t": "fetch",
+   "d": "Web API para hacer pedidos HTTP desde JavaScript. Devuelve una promesa que se cumple cuando llegan el estado y los encabezados; solo rechaza si falla la red, no ante un 404 o un 503."
+  },
+  {
+   "t": "temporizador",
+   "d": "Pedido al navegador de ejecutar una función dentro de un tiempo (`setTimeout`) o cada cierto tiempo (`setInterval`). El tiempo es un mínimo: si el hilo está ocupado, la función corre más tarde."
+  },
+  {
+   "t": "JSON en el navegador",
+   "d": "Las tres piezas con que una página maneja JSON: `JSON.stringify` y `JSON.parse` (del lenguaje) y `respuesta.json()` (Web API que lee el cuerpo recibido y lo interpreta). JSON solo tiene objetos, arreglos, cadenas, números, booleanos y `null`."
+  },
+  {
+   "t": "AbortController",
+   "d": "Objeto de la plataforma web con una señal que se pasa a `fetch` y un método `abort()` que la dispara. Sirve para cancelar un pedido; `AbortSignal.timeout(ms)` arma una señal que se dispara sola al vencer el plazo."
+  }
+ ],
+ "siguiente": "El hilo principal, el event loop del navegador y la fluidez. Hoy un temporizador de 10 ms corrió a los 300 porque algo ocupaba el hilo: mañana medís cuánto se puede ocupar antes de que el usuario lo note y cómo sacar el trabajo pesado a un Web Worker.",
+ "fuentes_nuevas": [
+  {
+   "id": "front-fetch-standard",
+   "t": "Fetch Standard",
+   "a": "WHATWG",
+   "tipo": "doc",
+   "url": "https://fetch.spec.whatwg.org/"
+  },
+  {
+   "id": "front-html-timers",
+   "t": "HTML Standard: Timers",
+   "a": "WHATWG",
+   "tipo": "doc",
+   "url": "https://html.spec.whatwg.org/multipage/timers-and-user-prompts.html"
+  },
+  {
+   "id": "front-mdn-settimeout",
+   "t": "Window: setTimeout() method",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/Window/setTimeout"
+  },
+  {
+   "id": "front-mdn-response-ok",
+   "t": "Response: ok property",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/Response/ok"
+  },
+  {
+   "id": "front-mdn-abortcontroller",
+   "t": "AbortController",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/AbortController"
+  },
+  {
+   "id": "front-mdn-abortsignal-timeout",
+   "t": "AbortSignal: timeout() static method",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal/timeout_static"
+  },
+  {
+   "id": "front-rn-network",
+   "t": "React Native: Networking",
+   "a": "Meta (React Native)",
+   "tipo": "doc",
+   "url": "https://reactnative.dev/docs/network"
+  }
+ ]
+}

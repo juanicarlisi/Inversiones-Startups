@@ -1,0 +1,585 @@
+{
+ "id": "06-15",
+ "titulo": "Laboratorio: una página interactiva sin frameworks",
+ "bajada": "Armás una lista de tareas que funciona con 90 líneas de HTML, CSS y JavaScript, y después la forzás hasta ver con números dónde empieza a doler mantener el estado a mano.",
+ "minutos": 30,
+ "vigencia": "principio",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Construir una página interactiva con estado en una variable y una función que redibuja la lista desde ese estado.",
+  "Conectar eventos con delegación para que agregar, tildar y borrar cambien el estado y no el DOM directamente.",
+  "Reproducir cuatro fallas reales del render manual (foco perdido, texto escrito perdido, inyección de HTML y DOM desincronizado) y corregir cada una.",
+  "Comparar con una medición el costo de redibujar todo contra el de tocar un solo nodo, con 100, 1.000 y 5.000 tareas.",
+  "Explicar qué tarea repetitiva quedó a cargo del programador y por qué eso empuja a inventar los frameworks."
+ ],
+ "venis_de": "En [@06-11] aprendiste a crear, insertar y borrar nodos del DOM, en [@06-12] a escuchar eventos y en [@06-14] a cuidar que el hilo principal no se trabe. Hoy lo juntás todo en una página entera, hecha a mano, y mirás qué pasa cuando crece.",
+ "se_apoya_en": [
+  "06-11",
+  "06-12",
+  "06-14",
+  "06-10"
+ ],
+ "gancho": [
+  "En un depósito de logística hay una pizarra al lado del portón con los pendientes del turno: «contar pallets del muelle 3», «etiquetar bultos de Rosario», «revisar el camión 12». Cuando alguien termina algo, lo tacha. Cuando entra algo nuevo, lo escribe abajo. Si hay que anotar cuántos quedan, alguien borra el número de arriba y pone el nuevo. Funciona porque son cinco o seis cosas y una sola persona que tiene todo en la cabeza.",
+  "Hoy vas a construir esa pizarra en una página web, sin ninguna biblioteca: solo HTML, CSS y JavaScript, que ya conocés. Va a tener unas noventa líneas y va a andar bien. Después la vas a forzar a propósito, con pruebas automáticas corridas en esta VM, para ver con tus propios ojos qué se rompe cuando la pizarra deja de caber en la cabeza de una persona. Ese dolor es la razón por la que existen React, Vue y compañía, y mañana lo ponés en palabras con [@06-16]."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué vamos a hacer y por qué una lista de tareas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[lista de tareas|lista de tareas]] es el ejemplo más repetido de la programación de interfaces, y no por falta de imaginación. Tiene todo lo que tiene una pantalla real en miniatura: datos que cambian (las tareas), acciones del usuario (agregar, tildar, borrar), una vista que tiene que reflejar los datos (la lista y un contador) y un par de detalles incómodos (foco del teclado, texto escrito a medias). Hay un proyecto llamado TodoMVC que desde hace más de una década ofrece **la misma lista de tareas** programada en muchos frameworks para poder compararlos, y que se usa como carga de prueba en los benchmarks entre navegadores [#fe15-todomvc].",
+    "Las reglas del laboratorio son cuatro. Todo en un solo archivo `.html` que podés abrir con doble clic. Nada de bibliotecas. El estado de la aplicación vive en **una variable de JavaScript**, nunca en el DOM. Y cada pieza de código que te muestro está **corrida en Chromium** con Playwright (Playwright 1.63.0, Chromium 153.0.8010.12, en la VM de este estudio), no escrita de memoria. Los tiempos que vas a ver son de esa VM, de una sola corrida (mediana de tres series), y sirven para comparar proporciones, no como cifras universales."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Antes de escribir una línea, dos términos que van a ordenar todo el día. **Estado en variables** quiere decir que la verdad de la aplicación (qué tareas hay, cuáles están hechas) está guardada en variables de JavaScript. **Render manual** quiere decir que una función que escribís vos, a mano, convierte ese estado en elementos del [[DOM]]. Entre las dos cosas hay una promesa que vas a cumplir o romper todo el tiempo: *lo que se ve tiene que coincidir con lo que dicen las variables*."
+  },
+  {
+   "t": "h",
+   "x": "Paso 1: el esqueleto de HTML y CSS"
+  },
+  {
+   "t": "p",
+   "x": "Empezamos por lo que no se mueve. Un formulario con un campo y un botón, una lista vacía y un párrafo para el contador. La lista no trae ninguna tarea escrita en el HTML: las va a dibujar JavaScript a partir del estado."
+  },
+  {
+   "t": "codigo",
+   "lang": "html",
+   "x": "<!doctype html>\n<html lang=\"es\">\n<head>\n<meta charset=\"utf-8\">\n<title>Pendientes del depósito</title>\n<style>\n  body { font-family: system-ui, sans-serif; max-width: 28rem; margin: 2rem auto; }\n  li.hecha span { text-decoration: line-through; color: #777; }\n  li { display: flex; gap: .5rem; align-items: center; padding: .25rem 0; }\n</style>\n</head>\n<body>\n  <h1>Pendientes del depósito</h1>\n  <form id=\"alta\">\n    <input id=\"texto\" placeholder=\"Nueva tarea\" autocomplete=\"off\">\n    <button>Agregar</button>\n  </form>\n  <ul id=\"lista\"></ul>\n  <p id=\"resumen\"></p>\n<script>\n  // acá va el JavaScript\n</script>\n</body>\n</html>",
+   "cap": "Archivo `tareas.html`, versión mínima. Los estilos hacen que cada tarea sea una fila y que las hechas aparezcan tachadas."
+  },
+  {
+   "t": "p",
+   "x": "Dos detalles de este esqueleto importan más adelante. El `<ul id=\"lista\">` está **vacío a propósito**: es el lugar donde vamos a volcar las tareas. Y el `<p id=\"resumen\">` también está vacío: el texto «Pendientes: 1 de 2» lo va a escribir el código, porque depende de los datos."
+  },
+  {
+   "t": "h",
+   "x": "Paso 2: el estado y el render manual"
+  },
+  {
+   "t": "p",
+   "x": "Ahora el corazón del laboratorio. Primero el estado, que es un arreglo de objetos con un identificador, un texto y una marca de hecha. Después una función `render()` que **borra la lista y la vuelve a armar desde cero** leyendo ese arreglo. Fijate que `render()` no recibe nada: lee las variables."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// 1) El estado: una variable. Es la única fuente de verdad.\nlet tareas = [\n  { id: 1, texto: \"Contar pallets del muelle 3\", hecha: false },\n  { id: 2, texto: \"Etiquetar bultos de Rosario\", hecha: true },\n];\nlet proximoId = 3;\n\n// 2) El render manual: borra la lista y la vuelve a armar desde el estado.\nconst lista = document.querySelector(\"#lista\");\nconst resumen = document.querySelector(\"#resumen\");\n\nfunction render() {\n  lista.innerHTML = \"\";\n  for (const t of tareas) {\n    const li = document.createElement(\"li\");\n    li.dataset.id = t.id;\n    li.className = t.hecha ? \"hecha\" : \"\";\n    li.innerHTML = `<input type=\"checkbox\" ${t.hecha ? \"checked\" : \"\"}>\n      <span>${t.texto}</span> <button class=\"borrar\">x</button>`;\n    lista.append(li);\n  }\n  const pendientes = tareas.filter(t => !t.hecha).length;\n  resumen.textContent = `Pendientes: ${pendientes} de ${tareas.length}`;\n}",
+   "cap": "El estado vive en `tareas`. `render()` es la única función que toca la lista y el resumen."
+  },
+  {
+   "t": "p",
+   "x": "Cada tarea termina siendo un `<li>` con un casillero, un texto y un botón. Guardamos el `id` en `data-id` para que, cuando el usuario toque algo, podamos saber de qué tarea se trata. El contador sale de filtrar el arreglo: no hay ningún número guardado aparte, así que no puede quedar desactualizado respecto de las tareas… siempre que alguien se acuerde de llamar a `render()`. Ese «siempre que» es el hilo del que va a colgar el resto del día."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: la pizarra se reescribe entera",
+   "x": "Es como si, cada vez que cambia algo, alguien borrara **toda** la pizarra y la reescribiera copiando de una planilla del escritorio. La planilla es el estado; la pizarra es el DOM. Mientras la planilla sea la única que se edita, la pizarra siempre coincide. Dónde deja de valer la analogía: una persona tarda minutos en reescribir la pizarra y nota el esfuerzo; el navegador la reescribe en milisegundos y el costo no se ve hasta que la pizarra tiene miles de renglones."
+  },
+  {
+   "t": "pensa",
+   "x": "Abrís la consola del navegador y cambiás a mano el texto de un `<li>` con `document.querySelector('li span').textContent = 'otra cosa'`. Después tildás otra tarea. ¿Qué ves y por qué?",
+   "resp": "Tu cambio desaparece apenas se llama a `render()`: la función borra los `<li>` y los rearma leyendo `tareas`, y el arreglo nunca se enteró de tu edición. La regla del render manual es que **los cambios se hacen sobre el estado**, y el DOM se regenera como consecuencia."
+  },
+  {
+   "t": "h",
+   "x": "Paso 3: los eventos cambian el estado y llaman a render"
+  },
+  {
+   "t": "p",
+   "x": "Falta que la página reaccione. Hay tres acciones: agregar (se envía el formulario), tildar un casillero y borrar con la «x». Las tres siguen el mismo ciclo de tres pasos, que es lo más importante que te llevás del laboratorio:"
+  },
+  {
+   "t": "pasos",
+   "titulo": "El ciclo de cada acción",
+   "pasos": [
+    {
+     "t": "Llega el evento",
+     "x": "El usuario toca algo y el navegador dispara un [[evento]] que atiende un [[manejador]]."
+    },
+    {
+     "t": "Se cambia el estado",
+     "x": "El manejador modifica la variable `tareas` (agrega, cambia una marca o filtra). No toca el DOM."
+    },
+    {
+     "t": "Se llama a render()",
+     "x": "`render()` vuelve a dibujar todo leyendo el estado nuevo."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Para tildar y borrar usamos [[delegación de eventos|delegación de eventos]], que viste en [@06-12]: un solo manejador en la `<ul>` que mira qué elemento recibió el clic. No es capricho. Como `render()` destruye y recrea los `<li>`, un manejador pegado a cada `<li>` se perdería en cada redibujo. El manejador de la lista, en cambio, queda vivo porque la `<ul>` nunca se reemplaza."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// 3) Los cambios tocan el estado y después llaman a render().\ndocument.querySelector(\"#alta\").addEventListener(\"submit\", (e) => {\n  e.preventDefault();\n  const input = document.querySelector(\"#texto\");\n  const texto = input.value.trim();\n  if (!texto) return;\n  tareas.push({ id: proximoId++, texto, hecha: false });\n  input.value = \"\";\n  render();\n});\n\nlista.addEventListener(\"click\", (e) => {\n  const li = e.target.closest(\"li\");\n  if (!li) return;\n  const id = Number(li.dataset.id);\n  if (e.target.matches(\".borrar\")) tareas = tareas.filter(t => t.id !== id);\n  if (e.target.matches(\"input[type=checkbox]\")) {\n    const t = tareas.find(t => t.id === id);\n    t.hecha = !t.hecha;\n  }\n  render();\n});\n\nrender();   // primer dibujo, con el estado inicial",
+   "cap": "Los dos manejadores y la primera llamada a `render()`. El `id` viaja en `data-id` y se convierte a número con `Number`."
+  },
+  {
+   "t": "p",
+   "x": "Probé esta versión en Chromium con un script de Playwright que escribe, toca y mira el resultado. Esto es lo que devolvió, acción por acción:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node t1.cjs   # abre tareas.html, escribe, tilda y borra, e imprime el estado de la pantalla",
+     "s": "inicio {\"lis\":[\"Contar pallets del muelle 3 x\",\"Etiquetar bultos de Rosario x [hecha]\"],\"resumen\":\"Pendientes: 1 de 2\"}\nalta   {\"lis\":[\"Contar pallets del muelle 3 x\",\"Etiquetar bultos de Rosario x [hecha]\",\"Revisar camión 12 x\"],\"resumen\":\"Pendientes: 2 de 3\"}\ncheck  {\"lis\":[\"Contar pallets del muelle 3 x [hecha]\",\"Etiquetar bultos de Rosario x [hecha]\",\"Revisar camión 12 x\"],\"resumen\":\"Pendientes: 1 de 3\"}\nborrar {\"lis\":[\"Contar pallets del muelle 3 x [hecha]\",\"Revisar camión 12 x\"],\"resumen\":\"Pendientes: 1 de 2\"}\nerrores []"
+    }
+   ],
+   "cap": "Salida real del script de prueba. «[hecha]» es la clase CSS de la fila; la «x» es el texto del botón de borrar."
+  },
+  {
+   "t": "p",
+   "x": "Funciona. Agregar sumó una fila y movió el contador, tildar tachó una fila y lo movió de nuevo, borrar sacó una y lo ajustó. No hubo ningún error de JavaScript. Con esto ya tenés **una aplicación entera**: estado en variables, render manual y eventos que cierran el ciclo."
+  },
+  {
+   "t": "pensa",
+   "x": "¿Por qué el manejador del formulario hace `e.preventDefault()` antes de nada?",
+   "resp": "Porque el comportamiento por defecto de un formulario es enviar un pedido HTTP y recargar la página, como viste en [@06-03]. Al recargar se perdería la variable `tareas`, que vive en la memoria de esa carga de página. `preventDefault()` evita el envío y deja que el código lo maneje."
+  },
+  {
+   "t": "h",
+   "x": "Ejercicios para ampliar la página"
+  },
+  {
+   "t": "p",
+   "x": "Antes de forzarla, ampliala dos veces, con la costumbre de ver cada función nueva como «una variable más y un `render()` que la lee»."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 1: borrar las hechas.** Agregá un botón «Borrar hechas» que quite de la lista todas las tareas tildadas. Pensalo antes de programar: ¿qué cambia, el estado o el DOM?",
+   "pista": "Si cambiás el estado y llamás a `render()`, el DOM se arregla solo. `filter` te devuelve un arreglo nuevo con lo que cumple una condición.",
+   "solucion": "Un botón nuevo y un manejador de clic que hace `tareas = tareas.filter(t => !t.hecha)` y después llama a `render()`. No hay que tocar el DOM. Probado: con las tareas 1 (pendiente) y 2 (hecha), el botón deja solo la 1 y el resumen dice «Pendientes: 1 de 1»."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 2: filtro de vista.** Agregá un selector con «Todas», «Pendientes» y «Hechas» que cambie qué tareas se muestran, **sin borrar ninguna** del estado. El contador tiene que seguir contando todas.",
+   "pista": "El filtro es información que la pantalla necesita, así que va en otra variable de estado, no en el DOM. `render()` recorre una lista ya filtrada y el contador sigue usando `tareas` completo.",
+   "solucion": "Una variable nueva, `let filtro = \"todas\"`, y una función `visibles()` que devuelve las tareas que cumplen el filtro. `render()` recorre `visibles()` en lugar de `tareas`, pero el contador sigue calculándose con `tareas` completo. El `<select>` solo hace `filtro = e.target.value` y llama a `render()`. Probado: «pendientes» muestra solo las no hechas, «hechas» solo las hechas, y el resumen sigue diciendo «Pendientes: 1 de 3» con las tres cargadas."
+  },
+  {
+   "t": "h",
+   "x": "Ahora forzamos la página: cuatro fallas reales"
+  },
+  {
+   "t": "p",
+   "x": "La versión anterior anda bien con uso tranquilo. Veamos qué pasa cuando alguien la usa de verdad. Cada falla de abajo la reproduje con Playwright sobre el archivo de los pasos 1 a 3."
+  },
+  {
+   "t": "h3",
+   "x": "Falla 1: el teclado pierde el lugar"
+  },
+  {
+   "t": "p",
+   "x": "Una persona que usa el teclado se mueve con Tab hasta un casillero y lo tilda con la barra espaciadora. Eso hizo mi script: puso el foco en el casillero de la primera tarea y apretó Space."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# foco en el casillero de la tarea 1, tecla Space",
+     "s": "antes:   foco en INPUT checkbox\ndespués: foco en BODY   | tarea 1 hecha: true"
+    }
+   ],
+   "cap": "El estado cambió bien (la tarea quedó hecha), pero el elemento que tenía el foco dejó de existir."
+  },
+  {
+   "t": "p",
+   "x": "El casillero se tildó, pero el foco **volvió al `<body>`**. La razón es mecánica: `render()` destruyó el `<li>` con su casillero y creó otro idéntico a la vista, pero para el navegador es **otro nodo**. El que tenía el foco ya no está, y el nuevo no lo heredó. Para quien navega con teclado o con un lector de pantalla, la próxima pulsación de Tab arranca otra vez desde arriba de la página: un problema de accesibilidad que nadie ve cuando prueba con el mouse [#fe15-mdn-activeelement]."
+  },
+  {
+   "t": "h3",
+   "x": "Falla 2: el estado se esconde en el DOM"
+  },
+  {
+   "t": "p",
+   "x": "Supongamos que a cada tarea le sumás un campo de texto para una nota («falta firma del chofer»). Es una mejora de cuatro líneas dentro del `render()`. Mi script escribió una nota en la tarea 1 y después tildó **otra** tarea, la 2."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# nota en la tarea 1, y después se tilda la tarea 2",
+     "s": "antes: falta firma del chofer\ndespués de tildar OTRA tarea: \"\""
+    }
+   ],
+   "cap": "El texto que alguien estaba escribiendo se perdió porque `render()` recreó todas las filas, también las que no cambiaron."
+  },
+  {
+   "t": "p",
+   "x": "La nota desapareció. Fue una cosa que no estaba en ninguna variable: **vivía en el campo de texto**, o sea en el DOM. Cuando `render()` recreó todo, el campo nuevo salió vacío. La regla del paso 2 («solo el estado manda») tiene una consecuencia incómoda: **todo lo que el usuario puede escribir o cambiar tiene que estar también en una variable**, o el redibujado lo pisa."
+  },
+  {
+   "t": "h3",
+   "x": "Falla 3: cualquier texto se interpreta como HTML"
+  },
+  {
+   "t": "p",
+   "x": "En el `render()` de la plantilla escribimos `<span>${t.texto}</span>` dentro de un `innerHTML`. Eso pega el texto de la tarea **como HTML**, no como texto. Probé agregar una tarea cuyo texto es un fragmento de HTML con un evento adjunto que cambia el título de la pestaña:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# texto de la tarea: <img src=x onerror=\"document.title='ejecutado'\">",
+     "s": "título antes:   Pendientes del depósito\ntítulo después: ejecutado"
+    }
+   ],
+   "cap": "Código ajeno ejecutado dentro de la página, contra un programa mío en mi VM. El fragmento solo cambia el título."
+  },
+  {
+   "t": "p",
+   "x": "Ese código no lo escribiste vos: vino de un campo de texto. En una aplicación real, el texto de ese campo puede venir de **otra persona** (un comentario, un nombre de cliente, una etiqueta) y entonces cualquiera puede hacer que tu página ejecute lo que quiera en el navegador de los demás. Se llama XSS (*cross-site scripting*) y tiene su propia parte más adelante en el estudio. La documentación de MDN lo dice sin vueltas: `innerHTML` es probablemente el vector más común de este ataque, y para texto que tiene que ser texto plano corresponde `textContent` [#fe15-mdn-innerhtml]. La guía de OWASP lo trata a fondo [#fe15-owasp-xss]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "innerHTML y los «scripts»",
+   "x": "Es un error común creer que `innerHTML` es seguro porque «no ejecuta `<script>`». Es cierto que una etiqueta `<script>` insertada así no corre, pero un `<img>` con un atributo `onerror` sí ejecuta código, como acaba de pasar. La defensa no es filtrar etiquetas a mano: es no usar HTML cuando lo que querés mostrar es texto."
+  },
+  {
+   "t": "h3",
+   "x": "Falla 4: el estado y el DOM se separan"
+  },
+  {
+   "t": "p",
+   "x": "La última es la más aburrida y la más frecuente. Alguien agrega una función nueva, cambia el estado y **se olvida de llamar a `render()`**. Lo simulé en una línea: filtrar las hechas del arreglo sin redibujar."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "tareas = tareas.filter(t => !t.hecha);   // sin render()",
+     "s": "estado: 1 tarea | DOM: 2 filas | resumen en pantalla: «Pendientes: 1 de 2»"
+    }
+   ],
+   "cap": "La variable ya no coincide con lo que se ve, y no hay ningún error que avise."
+  },
+  {
+   "t": "p",
+   "x": "Esta falla no tira ninguna excepción: la página sigue andando, pero **miente**. Y se agrava cuando la página crece: cada pieza visible depende de alguna parte del estado, y cada acción tiene que acordarse de actualizar todas las que le corresponden."
+  },
+  {
+   "t": "pensa",
+   "x": "Una pantalla tiene la lista, el contador, el título de la pestaña, un mensaje «No hay tareas» y un botón «Borrar hechas» que se deshabilita si no hay ninguna hecha. Hay cinco acciones posibles (agregar, tildar, borrar, borrar hechas y filtrar). Si actualizaras cada pieza a mano desde cada acción, ¿cuántos lugares tendrías que acordarte de tocar?",
+   "resp": "Cinco acciones por cinco piezas son 25 lugares donde acordarse de algo. Con el render manual de hoy quedan 5 llamadas a `render()` y las cinco piezas viven en un solo lugar, adentro de `render()`: es la ventaja de ese diseño frente a las actualizaciones sueltas."
+  },
+  {
+   "t": "h",
+   "x": "El costo: redibujar todo contra tocar un solo nodo"
+  },
+  {
+   "t": "p",
+   "x": "Quedaba una duda que todo programador tiene al ver `lista.innerHTML = \"\"`: ¿no es un desperdicio destruir y recrear todo para cambiar una sola fila? Lo medí. Armé listas de 100, 1.000 y 5.000 tareas y cronometré, dentro de Chromium, dos formas de tildar la primera. La forma «completa» llama a `render()`. La forma «puntual» cambia solo la clase del `<li>` y el casillero que cambiaron, más el texto del resumen. En las dos, fuerzo al navegador a calcular el [[layout]] antes de cortar el cronómetro, para que el costo de acomodar la página esté incluido."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tareas",
+    "Nodos en la lista",
+    "Render completo",
+    "Cambio puntual",
+    "Cuántas veces más lento"
+   ],
+   "filas": [
+    [
+     "100",
+     "400",
+     "2,62 ms",
+     "0,04 ms",
+     "unas 65 veces"
+    ],
+    [
+     "1.000",
+     "4.000",
+     "20,67 ms",
+     "0,06 ms",
+     "unas 340 veces"
+    ],
+    [
+     "5.000",
+     "20.000",
+     "124,96 ms",
+     "0,11 ms",
+     "más de 1.000 veces"
+    ]
+   ],
+   "cap": "Medido en esta VM (4 CPU, Chromium 153), mediana de 3 series de 10 repeticiones cada una, incluyendo el cálculo de layout. Son datos de una sola máquina: sirven para ver la proporción, no el valor absoluto en tu teléfono."
+  },
+  {
+   "t": "p",
+   "x": "Los números cuentan dos historias. La primera es tranquilizadora: con **100 tareas** el redibujo completo cuesta 2,62 ms, mucho menos que lo que dura un cuadro a 60 Hz (16,7 ms, como viste en [@06-14]). Para la lista de tareas de una persona, el render completo es una decisión razonable. La segunda historia es incómoda: el costo crece **con el tamaño de la lista y no con el tamaño del cambio**. Con 1.000 tareas ya son 20,67 ms, más que un cuadro, y cada vez que alguien tilda algo la página puede [[trabarse|jank]]. Con 5.000 son 125 ms: se nota."
+  },
+  {
+   "t": "p",
+   "x": "La solución parece sencilla: actualizar solo el nodo que cambió, que cuesta una fracción de milisegundo. Pero fijate qué te pide: que el manejador de cada acción **sepa** qué nodos tocar, y que se acuerde de las otras piezas que dependen de lo mismo (el contador, el título, el mensaje de lista vacía). Te devuelve exactamente al problema de los 25 lugares. Hay un compromiso real entre dos males: **simple y lento** contra **rápido y propenso a olvidos**."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "x": "Nadie en la práctica elige entre estos dos extremos a mano. La idea que hay detrás de los frameworks es que el programador escriba la versión simple («dado este estado, la pantalla es así») y que una máquina descubra solo qué nodos cambiaron y los toque. Cómo lo hace cada uno es el tema de los próximos días, empezando por [@06-16]."
+  },
+  {
+   "t": "h",
+   "x": "Cómo corregir las fallas con lo que ya sabés"
+  },
+  {
+   "t": "p",
+   "x": "Las fallas 1 a 3 tienen arreglo con las herramientas de hoy. Los ejercicios que siguen los resuelven uno por uno; cada solución la corrí contra el archivo y te anoto el resultado. Mientras los hacés, fijate en el costo en código de cada parche: es la mejor pista de qué trabajo hace un framework por vos."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 3: cerrá la inyección.** Cambiá el `render()` para que el texto de la tarea nunca se interprete como HTML. Probalo con `<img src=x onerror=\"document.title='ejecutado'\">` como texto de una tarea.",
+   "pista": "En vez de armar el `<li>` con una plantilla de texto, crealo con `createElement` y asigná el texto con `textContent`. Las propiedades de `textContent` convierten todo a texto plano.",
+   "solucion": "Armás cada fila con `document.createElement`: el casillero, el `span` con `span.textContent = t.texto` y el botón, y los sumás con `li.append(check, span, borrar)`. Ningún texto del usuario pasa por el parser de HTML. Probado: con ese texto, el título de la pestaña no cambia y en pantalla se ve el fragmento literal, como texto."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 4: devolvé el foco.** Hacé que, después de tildar un casillero con la barra espaciadora, el foco siga en el casillero de esa misma tarea.",
+   "pista": "Antes de borrar la lista, anotá a qué tarea pertenece el elemento con foco (`document.activeElement` y su `closest('li')`). Después de armarla de nuevo, buscá el casillero con ese `data-id` y llamale `.focus()`.",
+   "solucion": "Al empezar `render()` guardás `document.activeElement.closest(\"li\")?.dataset.id`. Al terminar, si había un valor guardado, buscás con `querySelector` el casillero de la fila con ese `data-id` y le llamás `.focus()`. Probado: tras Space sobre el casillero de la tarea 1, el foco queda en un `INPUT` dentro de la fila de la tarea 1 y la tarea quedó hecha. Notá que es un parche para un solo tipo de elemento: con campos de texto habría que guardar también la posición del cursor."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 5: un solo lugar para lo derivado.** Hacé que el título de la pestaña muestre cuántas tareas quedan pendientes, por ejemplo «(2) Pendientes del depósito», y que se mantenga bien con cualquier acción, sin tocar los manejadores.",
+   "pista": "Todo lo que se calcula a partir del estado va dentro de `render()`, junto al resumen. Así ninguna acción puede olvidarlo.",
+   "solucion": "Dentro de `render()`, justo después de escribir el resumen, asignás `document.title` con la cantidad de pendientes entre paréntesis y el nombre de la página. Como todas las acciones llaman a `render()`, ninguna puede olvidarse del título. Probado: pasó de «(1) Pendientes del depósito» a «(0) …» al tildar la única pendiente y volvió a «(1) …» al deshacer, sin cambiar ningún manejador."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 6: deshacer.** Agregá un botón «Deshacer» que revierta la última acción, sea cual sea. Tenés que lograrlo sin escribir una función de deshacer para cada acción.",
+   "pista": "Si cada cambio produce un arreglo nuevo (con `map` y `filter` en lugar de modificar el viejo), podés guardar el arreglo anterior en una pila antes de reemplazarlo. Deshacer es sacar el último de la pila.",
+   "solucion": "Una pila `historial` y una función `cambiar(nuevo)` que primero hace `historial.push(tareas)`, después reemplaza `tareas` por el arreglo nuevo y llama a `render()`. Todas las acciones usan `cambiar` y arman arreglos nuevos con `map` y `filter` en vez de modificar el viejo (por eso tildar pasa a ser `tareas.map(t => t.id === id ? { ...t, hecha: !t.hecha } : t)`). El botón Deshacer saca el último arreglo de la pila y llama a `render()`. Probado: tras «Borrar hechas», Deshacer devolvió las dos tareas originales con la hecha todavía marcada."
+  },
+  {
+   "t": "codigo",
+   "lang": "html",
+   "x": "<!doctype html>\n<html lang=\"es\">\n<head>\n<meta charset=\"utf-8\">\n<title>Pendientes del depósito</title>\n<style>\n  body { font-family: system-ui, sans-serif; max-width: 28rem; margin: 2rem auto; }\n  li.hecha span { text-decoration: line-through; color: #777; }\n  li { display: flex; gap: .5rem; align-items: center; padding: .25rem 0; }\n</style>\n</head>\n<body>\n  <h1>Pendientes del depósito</h1>\n  <form id=\"alta\">\n    <input id=\"texto\" placeholder=\"Nueva tarea\" autocomplete=\"off\">\n    <button>Agregar</button>\n  </form>\n  <p>\n    <select id=\"filtro\"><option value=\"todas\">Todas</option><option value=\"pendientes\">Pendientes</option><option value=\"hechas\">Hechas</option></select>\n    <button id=\"limpiar\">Borrar hechas</button>\n    <button id=\"deshacer\">Deshacer</button>\n  </p>\n  <ul id=\"lista\"></ul>\n  <p id=\"resumen\"></p>\n<script>\nlet tareas = [\n  { id: 1, texto: \"Contar pallets del muelle 3\", hecha: false },\n  { id: 2, texto: \"Etiquetar bultos de Rosario\", hecha: true },\n];\nlet proximoId = 3;\nlet filtro = \"todas\";\nlet historial = [];\n\nconst lista = document.querySelector(\"#lista\");\nconst resumen = document.querySelector(\"#resumen\");\n\nconst visibles = () => tareas.filter(t =>\n  filtro === \"todas\" || (filtro === \"hechas\") === t.hecha);\n\nfunction render() {\n  const foco = document.activeElement.closest(\"li\")?.dataset.id;\n  lista.innerHTML = \"\";\n  for (const t of visibles()) {\n    const li = document.createElement(\"li\");\n    li.dataset.id = t.id;\n    li.className = t.hecha ? \"hecha\" : \"\";\n    const check = document.createElement(\"input\");\n    check.type = \"checkbox\";\n    check.checked = t.hecha;\n    const span = document.createElement(\"span\");\n    span.textContent = t.texto;\n    const borrar = document.createElement(\"button\");\n    borrar.className = \"borrar\";\n    borrar.textContent = \"x\";\n    li.append(check, span, borrar);\n    lista.append(li);\n  }\n  const pendientes = tareas.filter(t => !t.hecha).length;\n  resumen.textContent = `Pendientes: ${pendientes} de ${tareas.length}`;\n  document.title = `(${pendientes}) Pendientes del depósito`;\n  if (foco) lista.querySelector(`li[data-id=\"${foco}\"] input`)?.focus();\n}\n\nfunction cambiar(nuevo) {\n  historial.push(tareas);\n  tareas = nuevo;\n  render();\n}\n\ndocument.querySelector(\"#alta\").addEventListener(\"submit\", (e) => {\n  e.preventDefault();\n  const input = document.querySelector(\"#texto\");\n  const texto = input.value.trim();\n  if (!texto) return;\n  cambiar([...tareas, { id: proximoId++, texto, hecha: false }]);\n  input.value = \"\";\n});\n\nlista.addEventListener(\"click\", (e) => {\n  const li = e.target.closest(\"li\");\n  if (!li) return;\n  const id = Number(li.dataset.id);\n  if (e.target.matches(\".borrar\")) cambiar(tareas.filter(t => t.id !== id));\n  if (e.target.matches(\"input[type=checkbox]\"))\n    cambiar(tareas.map(t => t.id === id ? { ...t, hecha: !t.hecha } : t));\n});\n\ndocument.querySelector(\"#limpiar\").addEventListener(\"click\", () => {\n  cambiar(tareas.filter(t => !t.hecha));\n});\n\ndocument.querySelector(\"#filtro\").addEventListener(\"change\", (e) => {\n  filtro = e.target.value;\n  render();\n});\n\ndocument.querySelector(\"#deshacer\").addEventListener(\"click\", () => {\n  if (historial.length) { tareas = historial.pop(); render(); }\n});\n\nrender();\n</script>\n</body>\n</html>",
+   "cap": "La página completa con los seis ejercicios resueltos (`final.html`). Es el archivo con el que corrí las pruebas."
+  },
+  {
+   "t": "p",
+   "x": "El ejercicio 6 es el premio de haber puesto el estado en una variable: como la pantalla es consecuencia del arreglo, viajar en el tiempo es cambiar de arreglo. Con el estado repartido por el DOM, deshacer sería una pesadilla."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Sin framework no se puede hacer algo serio»",
+   "x": "Es falso: la página de hoy tiene estado, eventos, delegación, accesibilidad básica y deshacer en menos de cien líneas, y en el navegador se ejecuta sin instalar nada. Lo que sí es cierto es que, a medida que crecen las pantallas y los equipos, las convenciones y atajos que cada proyecto inventa para no olvidarse de `render()` terminan siendo un framework casero, sin documentación y sin comunidad. Los frameworks formalizan ese trabajo; no lo hacen posible por primera vez."
+  },
+  {
+   "t": "h",
+   "x": "Lo que queda a tu cargo: el dolor, puesto en una tabla"
+  },
+  {
+   "t": "p",
+   "x": "En la versión final hay una función de dibujo y un manojo de parches cuyo único objetivo es que lo que se ve coincida con lo que dicen las variables. La tabla resume cada responsabilidad que quedó **en manos del programador** y que un framework te saca de encima:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Responsabilidad",
+    "Cómo la resolvimos hoy",
+    "Qué cuesta"
+   ],
+   "filas": [
+    [
+     "Que la pantalla refleje el estado",
+     "`render()` redibuja todo y cada acción lo llama",
+     "Un olvido deja la página mintiendo, sin errores"
+    ],
+    [
+     "Texto del usuario seguro",
+     "`createElement` + `textContent`, a mano",
+     "Una línea con `innerHTML` y hay una vulnerabilidad"
+    ],
+    [
+     "Foco del teclado",
+     "Guardar y restaurar el foco dentro de `render()`",
+     "Parche por cada cosa que el redibujo destruye"
+    ],
+    [
+     "Lo que el usuario escribe a medias",
+     "Habría que guardarlo en una variable",
+     "Cada campo es una variable más y su propio `render()`"
+    ],
+    [
+     "Velocidad con listas largas",
+     "No resuelta: el costo crece con la lista",
+     "Si optimizás, volvés al problema de los olvidos"
+    ]
+   ],
+   "cap": "Las cinco tareas repetitivas del render manual. Un framework no las elimina: las automatiza."
+  },
+  {
+   "t": "p",
+   "x": "La conclusión de este laboratorio no es que el render manual sea malo. Para una página chica es lo mejor que podés hacer: es simple, rápido de escribir y se lee de arriba abajo. La conclusión es que hay un punto en el que **el trabajo de mantener sincronizados estado y pantalla supera al trabajo de lo que la página hace**. Mañana ponemos nombre a ese punto, miramos de dónde vienen las soluciones y escribimos un mini framework de juguete de unas treinta líneas que cumple la promesa con mucho menos esfuerzo."
+  }
+ ],
+ "recap": [
+  "El **estado en variables** es la verdad de la aplicación: qué tareas hay, cuáles están hechas. El DOM es solo su reflejo.",
+  "El **render manual** es una función que borra y rearma la vista leyendo el estado. Cada acción sigue el ciclo: evento, cambio de estado, `render()`.",
+  "La delegación de eventos funciona con el render manual porque el contenedor de la lista no se destruye, aunque sus hijos sí.",
+  "Redibujar todo destruye los nodos viejos: se pierden el foco, lo que estaba escrito a medias y cualquier estado que viviera en el DOM.",
+  "Asignar con `innerHTML` texto que viene del usuario permite ejecutar código ajeno; para texto plano se usa `textContent`.",
+  "Medido en esta VM, redibujar 1.000 tareas cuesta unos 20 ms y 5.000 unos 125 ms, contra una fracción de milisegundo para cambiar un solo nodo.",
+  "Tocar solo lo que cambió es rápido, pero te obliga a acordarte de todas las piezas que dependen del mismo dato. Ese conflicto es el origen de los frameworks."
+ ],
+ "repaso": [
+  {
+   "p": "Una persona tilda un casillero con la barra espaciadora y, tras el redibujo de la lista, el foco queda en el `<body>`. ¿Cuál es la causa?",
+   "o": [
+    "El navegador cierra el foco cada vez que cambia una clase CSS",
+    "Los casilleros nuevos no pueden recibir el foco del teclado",
+    "La barra espaciadora no puede mantener el foco en un casillero",
+    "El nodo con foco fue destruido y el nuevo es otro distinto"
+   ],
+   "c": 3,
+   "e": "El `render()` vació la lista y creó casilleros nuevos. Para el navegador, un nodo recreado no es el mismo que tenía el foco, y el foco vuelve al `<body>`. Los casilleros nuevos sí pueden recibir foco (si se les pide con `.focus()`), y cambiar una clase CSS no afecta al foco."
+  },
+  {
+   "p": "Un campo de texto dentro de una fila de la lista queda vacío cuando se tilda otra tarea. ¿Qué principio se violó?",
+   "o": [
+    "Todo lo que el usuario puede cambiar debería estar en el estado",
+    "Los campos de texto no pueden vivir dentro de una lista",
+    "El estado debería guardarse siempre en el propio DOM",
+    "Los manejadores de eventos deberían pegarse a cada campo"
+   ],
+   "c": 0,
+   "e": "El texto vivía solo en el campo, es decir en el DOM. Al redibujar, el campo se recreó vacío. La regla del render manual es que cualquier dato que deba sobrevivir a un redibujo tiene que estar en una variable. Guardar estado en el DOM es justamente la causa del problema, no su solución."
+  },
+  {
+   "p": "Una función agrega un `<li>` con `innerHTML = '<span>' + texto + '</span>'`, y `texto` viene de un campo que llena otra persona. ¿Cuál es el riesgo real?",
+   "o": [
+    "Que el texto se vea más lento en pantallas viejas",
+    "Que un `<script>` insertado así se ejecute siempre",
+    "Que un atributo como `onerror` ejecute código ajeno",
+    "Que el navegador rechace textos con más de 100 letras"
+   ],
+   "c": 2,
+   "e": "Un `<script>` agregado con `innerHTML` no se ejecuta, pero un `<img src=x onerror=...>` sí corre su código, como se probó. Por eso el texto del usuario se pone con `textContent`. La velocidad y el largo del texto no son el problema: el problema es que se interpreta como HTML."
+  },
+  {
+   "p": "Un colega propone que cada `<li>` tenga su propio `addEventListener('click', ...)` y que `render()` siga recreando las filas. ¿Qué pasaría?",
+   "o": [
+    "Los manejadores desaparecerían junto con cada fila destruida",
+    "Los manejadores se acumularían y se ejecutarían varias veces",
+    "Funcionaría igual, porque el navegador copia los manejadores",
+    "El navegador impediría recrear filas con manejadores"
+   ],
+   "c": 0,
+   "e": "Los manejadores están ligados al nodo, no a su aspecto. Si `render()` crea nodos nuevos, hay que volver a registrarlos cada vez, y si se olvida, las filas nuevas no responden. La delegación evita el problema: el manejador está en la `<ul>`, que no se destruye. No se acumulan porque los nodos viejos se descartan, y el navegador no copia manejadores."
+  },
+  {
+   "p": "Con la tabla del laboratorio: 100 tareas cuestan 2,6 ms al redibujar y 1.000 cuestan 20,7 ms. ¿Qué conclusión sale de esos dos datos?",
+   "o": [
+    "El tiempo se mantiene casi constante, sea cual sea la lista",
+    "El tiempo crece con el tamaño de la lista y no del cambio",
+    "El tiempo depende solo de cuántas tareas están hechas",
+    "El tiempo es proporcional al largo de cada texto escrito"
+   ],
+   "c": 1,
+   "e": "Diez veces más tareas son unas ocho veces más tiempo: el costo sigue el tamaño total de la lista aunque cambie una sola fila. Por eso con 1.000 tareas el redibujo ya supera los 16,7 ms de un cuadro a 60 Hz. No depende de cuáles están hechas ni del largo de los textos, que en el experimento eran todos parecidos."
+  },
+  {
+   "p": "Querés que el título de la pestaña muestre siempre cuántas tareas quedan pendientes, sin olvidos. ¿Dónde conviene ponerlo en el render manual?",
+   "o": [
+    "Dentro de `render()`, junto con el resumen del contador",
+    "En cada manejador de eventos, después de cambiar el estado",
+    "En un `setInterval` que lo recalcula cada segundo, siempre",
+    "En el HTML, escrito a mano con el número que corresponda"
+   ],
+   "c": 0,
+   "e": "Lo derivado del estado va dentro de `render()`: ninguna acción puede olvidarlo porque todas llaman a esa función. Repartirlo en los manejadores crea el problema de los 25 lugares, y un `setInterval` agrega trabajo constante y deja la pantalla desactualizada hasta el próximo tic. En el HTML no puede estar, porque depende de los datos."
+  },
+  {
+   "p": "Tu lista de tareas guarda un arreglo anterior antes de cada cambio y por eso permite «deshacer». ¿Qué condición tiene que cumplirse para que funcione bien?",
+   "o": [
+    "Que el arreglo viejo se modifique en el lugar con `push`",
+    "Que cada acción produzca un arreglo nuevo sin tocar el viejo",
+    "Que el DOM guarde una copia de cada versión anterior",
+    "Que `render()` se llame dos veces seguidas por acción"
+   ],
+   "c": 1,
+   "e": "Si una acción modifica el arreglo viejo en el lugar, la copia guardada en la pila cambia también y el deshacer devuelve el mismo estado. Con `map` y `filter`, que devuelven arreglos nuevos, cada versión queda intacta. Guardar copias en el DOM es el error que ya vimos, y llamar dos veces a `render()` no ayuda."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó cómo funciona la lista de tareas de hoy usando una analogía propia que no sea la pizarra: dónde está la verdad, qué pasa cuando alguien toca algo y por qué, aunque anda, se vuelve difícil de mantener cuando la lista y la pantalla crecen.",
+ "para_profundizar": [
+  {
+   "fuente": "fe15-todomvc",
+   "nota": "La misma lista de tareas escrita en decenas de frameworks. Abrí la versión «JavaScript» pura y una de React, y compará cómo se resuelve el redibujo en cada una."
+  },
+  {
+   "fuente": "mdn-dom-intro",
+   "nota": "Repaso del DOM como árbol de nodos: sirve para entender por qué recrear un nodo no es lo mismo que cambiarlo."
+  },
+  {
+   "fuente": "fe15-mdn-innerhtml",
+   "nota": "La sección «Security considerations» explica por qué `innerHTML` es un vector de ataque y qué hacer en cambio."
+  },
+  {
+   "fuente": "fe15-owasp-xss",
+   "nota": "Guía de prevención de XSS de OWASP: léela cuando llegues a la parte de seguridad; ahora alcanza con la introducción."
+  }
+ ],
+ "videos": [
+  {
+   "q": "vanilla JavaScript todo app from scratch state and render function",
+   "por_que": "Para ver a otra persona armar una lista de tareas sin frameworks y comparar su render manual con el de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "estado en variables",
+   "d": "Guardar la verdad de la aplicación (qué datos hay y cuál es su situación) en variables del programa, y no en lo que muestra la pantalla. La vista se calcula a partir de ellas."
+  },
+  {
+   "t": "render manual",
+   "d": "Una función escrita a mano que convierte el estado en elementos del DOM, normalmente borrando y rearmando la vista. Cada acción tiene que acordarse de llamarla."
+  },
+  {
+   "t": "lista de tareas",
+   "d": "El ejemplo clásico de interfaz con datos que cambian: una lista de ítems que se agregan, se tildan y se borran, con un contador. Se usa para comparar frameworks entre sí."
+  }
+ ],
+ "siguiente": "Por qué existen los frameworks: el problema del estado. Ponemos nombre a lo que dolió hoy (la sincronización a mano), vemos de dónde vinieron jQuery, Angular, React y Vue, y armamos un mini framework de juguete que redibuja desde el estado.",
+ "fuentes_nuevas": [
+  {
+   "id": "fe15-todomvc",
+   "t": "TodoMVC: Helping you select an MV* framework",
+   "a": "TodoMVC",
+   "tipo": "doc",
+   "url": "https://todomvc.com/"
+  },
+  {
+   "id": "fe15-mdn-innerhtml",
+   "t": "Element: innerHTML property",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/Element/innerHTML"
+  },
+  {
+   "id": "fe15-mdn-activeelement",
+   "t": "Document: activeElement property",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/Document/activeElement"
+  },
+  {
+   "id": "fe15-owasp-xss",
+   "t": "Cross Site Scripting Prevention Cheat Sheet",
+   "a": "OWASP",
+   "tipo": "doc",
+   "url": "https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html"
+  }
+ ]
+}

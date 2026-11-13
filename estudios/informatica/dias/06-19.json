@@ -1,0 +1,811 @@
+{
+ "id": "06-19",
+ "titulo": "React III: efectos y ciclo de vida",
+ "bajada": "Aprendés a conectar un componente con el mundo de afuera sin que se te escapen temporizadores ni respuestas viejas, y a reconocer cuándo no hace falta un efecto.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es un efecto, para qué sirve y en qué se diferencia del cuerpo del componente y de un manejador de eventos.",
+  "Predecir el orden de render, setup y limpieza cuando cambia una dependencia y cuando el componente desaparece.",
+  "Diagnosticar un cierre viejo y una carrera de red, y corregirlos con dependencias honestas, una bandera o un AbortController.",
+  "Elegir entre estado y ref según si el valor se muestra o no.",
+  "Decidir, ante un caso concreto, si hace falta un efecto o si alcanza con calcular en el render o escribir un manejador."
+ ],
+ "venis_de": "En [@06-17] y [@06-18] viste que un componente es una función de props y estado a JSX, y que cada cambio de estado hace un re-render. Hoy sumás el tercer lugar donde puede vivir código: el que se ocupa de lo que hay fuera de React.",
+ "se_apoya_en": [
+  "06-12",
+  "06-13",
+  "06-16",
+  "06-17",
+  "06-18"
+ ],
+ "gancho": [
+  "Armaste un tablero de seguimiento para un depósito. El operador toca el pedido 41 y, un segundo después, cambia de idea y toca el 42. Arriba dice «Pedido 42», pero el estado que aparece abajo es el del 41. El servidor no mandó nada corrupto: contestó bien las dos veces. Lo que pasó es que la respuesta del 41 era lenta, llegó última y pisó a la del 42.",
+  "Ese bug no está en el HTML, ni en el CSS, ni en el servidor. Está en cómo un componente de React habla con el mundo de afuera: la red, un temporizador, el teclado del teléfono. Para eso existe [[useEffect]], el hook más usado de React y también el peor usado. Hoy lo desarmás con mediciones hechas en esta VM: Chromium manejado por Playwright, React 19.3.1 en modo desarrollo y un servidor mío con demoras puestas a propósito."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Tres lugares donde puede vivir el código de un componente"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@06-17] y [@06-18] viste dos lugares para escribir código dentro de un [[componente]]. El **cuerpo** es la función que, con las [[props]] y el estado de ese momento, devuelve el [[JSX]]: un cálculo que tiene que ser puro, porque React puede llamarlo más de una vez. Los **manejadores de eventos** ([@06-12]) corren porque alguien tocó algo.",
+    "Falta un tercer caso: lo que hay que hacer **porque el componente está en pantalla**. Abrir una conexión, escuchar el teclado, arrancar un reloj, pedir datos. No va en el cuerpo (tiene que ser puro) ni en un manejador (nadie tocó nada). Para eso existe [[useEffect]]: le dice a React «cuando termines de mostrar esto, ejecutá este código, y cuando ya no lo necesites, deshacelo»."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Según la documentación, un efecto sirve para **sincronizar un componente con un sistema externo**: algo que React no controla, como una conexión de red, un [[temporizador]], un listener de `window` o una librería de mapas. Si no hay nada externo en juego, probablemente no necesitás uno [#react-docs-effect-ref]."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Lugar",
+    "Para qué",
+    "Cuándo corre",
+    "Qué se espera de él"
+   ],
+   "filas": [
+    [
+     "Cuerpo",
+     "Calcular qué se dibuja",
+     "En cada render",
+     "Que sea puro"
+    ],
+    [
+     "Manejador",
+     "Reaccionar a algo que hizo la persona",
+     "Cuando ocurre el evento",
+     "Puede mandar un POST, guardar, navegar"
+    ],
+    [
+     "`useEffect`",
+     "Sincronizar un sistema externo mientras el componente está en pantalla",
+     "Después de actualizar la pantalla, y otra vez si cambian sus dependencias",
+     "Que sepa arrancar y también detener"
+    ]
+   ],
+   "cap": "Los tres lugares del código de un componente."
+  },
+  {
+   "t": "p",
+   "x": "¿En qué orden pasa todo? Armé un componente que anota cuándo React lo calcula y cuándo corre su efecto, y qué texto tiene el DOM en ese instante. Con Playwright toqué «cambiar» (pedido 41 a 42) y después «sacar» (el componente desaparece):"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node ciclo.js   # Playwright: abre la página, toca «cambiar» y después «sacar»; imprime la lista",
+     "s": "render pedido=41\nsetup pedido=41 (DOM dice: Pedido 41)\nrender pedido=42\ncleanup pedido=41\nsetup pedido=42 (DOM dice: Pedido 42)\ncleanup pedido=42"
+    }
+   ],
+   "cap": "Medido en esta VM, 13-11-2026: Chromium vía Playwright, React 19.3.1 en modo desarrollo, sin StrictMode. El componente es `Seguimiento({ pedido })` con `useEffect(…, [pedido])`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Primero React calcula el componente con el 41 (`render`) y actualiza el DOM. Recién después corre el efecto (`setup`), que ya encuentra «Pedido 41» en pantalla. Según la documentación, si el efecto no nació de una interacción React suele dejar que el navegador pinte antes de ejecutarlo [#react-docs-effect-ref].",
+    "Lo menos obvio viene al pasar a 42: `render` del 42, **`cleanup` del 41** y recién entonces `setup` del 42. La limpieza corre después del render nuevo, pero con los valores del render viejo. Y al irse el componente hay una última limpieza."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Anatomía de un efecto: setup, dependencias y limpieza"
+  },
+  {
+   "t": "p",
+   "x": "Un efecto tiene tres partes, y las tres existen por una razón:"
+  },
+  {
+   "t": "pasos",
+   "pasos": [
+    {
+     "t": "Setup",
+     "x": "La función que le pasás a `useEffect`. Arranca la sincronización: abre la conexión, escucha el evento, lanza el pedido."
+    },
+    {
+     "t": "Dependencias",
+     "x": "El segundo argumento: la lista de todos los valores que el setup usa y que pueden cambiar (props, estado, variables del cuerpo). React los compara con los del render anterior con `Object.is` y, si alguno cambió, repite el ciclo. Las [[dependencias]] no se eligen a gusto: se declaran todas las que el código usa [#react-docs-effect-ref]."
+    },
+    {
+     "t": "Limpieza",
+     "x": "La función que el setup devuelve. Deshace lo que hizo: cierra la conexión, saca el listener, cancela el pedido. El [[efecto de limpieza]] corre antes de repetir el setup y cuando el componente desaparece."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "La forma del segundo argumento decide cuándo corre el efecto (regla de la documentación, no medición mía) [#react-docs-effect-ref]:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cómo se escribe",
+    "Cuándo corre el setup"
+   ],
+   "filas": [
+    [
+     "`useEffect(f)` sin lista",
+     "Después de cada render."
+    ],
+    [
+     "`useEffect(f, [])`",
+     "Una vez, al aparecer el componente."
+    ],
+    [
+     "`useEffect(f, [a, b])`",
+     "Al aparecer y cada vez que `a` o `b` cambian."
+    ]
+   ],
+   "cap": "Tres formas de escribir las dependencias."
+  },
+  {
+   "t": "pensa",
+   "x": "El pedido arranca en 41, cambia a 42, después a 43 y finalmente el componente desaparece. ¿Cuántas veces corre la limpieza en total, y con qué valores?",
+   "resp": "Tres veces: con 41, con 42 y con 43. Cada setup que arrancó termina con su limpieza. Las dos primeras corren al cambiar el valor, y la última al desaparecer el componente."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "Es tentador leer el efecto como «código que corre al montar» y la limpieza como «al desmontar». React pide evitar esa idea: un efecto es un proceso de sincronización con **un solo ciclo de empezar y parar**, que se repite mientras el componente sigue en pantalla [#react-docs-lifecycle]. Escribí cada efecto como si fuera independiente: «así arranco esto, así lo detengo».",
+   "titulo": "«Montar» y «desmontar» engañan"
+  },
+  {
+   "t": "h3",
+   "x": "Strict Mode: el efecto se prueba a golpes en desarrollo"
+  },
+  {
+   "t": "p",
+   "x": "En desarrollo, con la app envuelta en `StrictMode`, React ejecuta `setup`, `cleanup` y `setup` otra vez antes de dejar el efecto en régimen. Es una prueba de estrés deliberada para encontrar limpiezas que faltan [#react-docs-strictmode]. El mismo experimento, dentro de `StrictMode`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node ciclo.js --estricto   # la misma página, dentro de <StrictMode>",
+     "s": "render pedido=41\nrender pedido=41\nsetup pedido=41 (DOM dice: Pedido 41)\ncleanup pedido=41\nsetup pedido=41 (DOM dice: Pedido 41)\nrender pedido=42\nrender pedido=42\ncleanup pedido=41\nsetup pedido=42 (DOM dice: Pedido 42)\ncleanup pedido=42"
+    }
+   ],
+   "cap": "Medido en esta VM, 13-11-2026, React 19.3.1 en desarrollo. Cada `render` aparece dos veces y, al principio, el efecto hace setup, cleanup, setup."
+  },
+  {
+   "t": "p",
+   "x": "El cuerpo se ejecutó dos veces por render (la prueba de pureza) y el efecto arrancó, paró y volvió a arrancar. La regla de React: nadie debería notar la diferencia entre un `setup` solo y `setup`, `cleanup`, `setup`. Si se nota, a tu limpieza le falta algo. Un dato de Senda: no usa `StrictMode` (lo busqué con `grep` en el commit 25e08fa), de modo que ese ciclo de prueba no corre ahí."
+  },
+  {
+   "t": "h",
+   "x": "Las dependencias dicen la verdad: el problema del cierre viejo"
+  },
+  {
+   "t": "p",
+   "x": "Cada render es una llamada a la función del componente, y los valores de adentro (`n`, `pedido`) quedan fijos en esa llamada, como una foto. Las funciones creadas en esa llamada, como el setup de un efecto, **recuerdan su foto**. Eso es un cierre (*closure*), una propiedad de JavaScript. Se ve sin React:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Cada «render» es una llamada a una función: los valores quedan fijos adentro.\nfunction renderizar(n) {\n  const sumarUno = () => n + 1; // cierra sobre el n de ESTE render\n  return sumarUno;\n}\nconst render1 = renderizar(0);\nconst render2 = renderizar(1);\nconst render3 = renderizar(2);\nconsole.log(\"la función creada en el render 1 calcula:\", render1());\nconsole.log(\"la función creada en el render 2 calcula:\", render2());\nconsole.log(\"la función creada en el render 3 calcula:\", render3());\n\n// Un temporizador creado en el render 1 y nunca renovado sigue usando render1:\nlet pantalla = 0;\nconst viejo = setInterval(() => { pantalla = render1(); }, 50);\nawait new Promise((r) => setTimeout(r, 300));\nclearInterval(viejo);\nconsole.log(\"tras 6 ticks, la pantalla vale:\", pantalla);",
+   "cap": "Cada «render» es una llamada a `renderizar`. El temporizador del primer render sigue usando la foto del primer render. Corrido en node 22."
+  },
+  {
+   "t": "p",
+   "x": "Ahora, un reloj que suma 1 en pantalla con cada tic de un `setInterval` de 100 ms. Probé tres formas de escribir su efecto y las dejé correr algo más de un segundo:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// A: lista vacía, pero el cierre usa n\nuseEffect(() => {\n  const id = setInterval(() => setN(n + 1), 100);\n  return () => clearInterval(id);\n}, []);\n\n// B: lista honesta [n]\nuseEffect(() => {\n  const id = setInterval(() => setN(n + 1), 100);\n  return () => clearInterval(id);\n}, [n]);\n\n// C: el efecto ya no lee n; pide «sumá uno al valor actual»\nuseEffect(() => {\n  const id = setInterval(() => setN((x) => x + 1), 100);\n  return () => clearInterval(id);\n}, []);",
+   "cap": "Tres versiones del mismo efecto."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Versión",
+    "Dependencias",
+    "Número en pantalla",
+    "Veces que corrió el setup"
+   ],
+   "filas": [
+    [
+     "A: `setN(n + 1)`",
+     "`[]`",
+     "1, y ahí se queda",
+     "1"
+    ],
+    [
+     "B: `setN(n + 1)`",
+     "`[n]`",
+     "12",
+     "13"
+    ],
+    [
+     "C: `setN((x) => x + 1)`",
+     "`[]`",
+     "12",
+     "1"
+    ]
+   ],
+   "cap": "Medido en esta VM, 13-11-2026, a poco más de un segundo de abrir la página; los números exactos varían entre corridas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "En la **A**, el temporizador nació en el primer render, donde `n` valía 0, y cada 100 ms ejecuta `setN(0 + 1)`: la pantalla muestra 1 para siempre, sin ningún error. La lista dice «no uso nada que cambie» y el código sí usa `n`.",
+    "La **B** es honesta: depende de `n`, así que cada tic cancela el temporizador y arranca otro (13 veces en un segundo). La **C** es la mejor: React le da al updater el valor actual (`x`), el efecto **no lee `n`** y el temporizador vive una sola vez. Cuando una dependencia molesta, la salida suele ser que el efecto deje de usar ese valor, no mentir en la lista."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": [
+    "La regla de linter `react-hooks/exhaustive-deps`, del paquete `eslint-plugin-react-hooks`, avisa cuando falta una dependencia [#react-docs-exhaustive-deps]. Silenciarla con un comentario deja el bug escondido. Senda no la tiene: el `package.json` del commit 25e08fa no declara ESLint y no hay archivos de configuración en el repositorio (lo busqué con `find`). Su chequeo automático es `tsc --noEmit`, que revisa tipos pero no listas de dependencias. No implica que haya bugs: implica que habría que auditarlos a mano."
+   ],
+   "titulo": "El linter que avisa y que Senda no tiene"
+  },
+  {
+   "t": "p",
+   "x": "Segundo tropiezo: `Object.is` compara objetos por identidad, y un objeto creado en el cuerpo es uno nuevo en cada render. Con `{ pedido: 41 }` como dependencia, el efecto corrió 6 veces tras 5 re-renders (una por render); con el número `41`, una sola vez (medido en esta VM). Conviene depender de valores simples. Y para leer los últimos valores desde un efecto *sin* que lo dispare, React sumó un hook."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": [
+    "`useEffectEvent` es un hook estable desde React 19.2 (1 de octubre de 2025) [#react-blog-192]. Sirve para código que es un «evento» pero se dispara desde un efecto, como mostrar una notificación con el tema actual al conectarse un chat sin que cambiar el tema reconecte. No va en las dependencias, y no hay que usarlo solo para callar al linter [#react-blog-192].",
+    "Verificado el 13-11-2026: la última versión de `react` en npm es la 19.3.1, la documentación está en v19.3 y esa versión exporta `useEffectEvent` (`typeof React.useEffectEvent` da `function` en esta VM). Senda declara `react` 19.2.3 y no usa `useEffectEvent` (lo busqué con `grep`)."
+   ],
+   "titulo": "React 19.3, verificado el 13-11-2026"
+  },
+  {
+   "t": "h",
+   "x": "La limpieza: lo que se abre, tiene que cerrarse"
+  },
+  {
+   "t": "p",
+   "x": "La limpieza es la parte que más se olvida, y su regla es de simetría: si el `setup` abre algo afuera, el `cleanup` lo cierra. Listener que se agrega, listener que se saca; temporizador que arranca, temporizador que se frena."
+  },
+  {
+   "t": "p",
+   "x": "Armé un componente que arranca un `setInterval` de 100 ms que suma un tic a un contador global de la página, con y sin limpieza. Lo mostré y lo saqué cinco veces seguidas y medí cuántos tics había en un segundo con el componente **ya desaparecido**:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node fuga.js   # 5 veces: montar, esperar 60 ms, desmontar. Después, contar tics durante 1000 ms",
+     "s": "sin limpieza → tics en 1 s con el componente ausente: 50\ncon limpieza → tics en 1 s con el componente ausente: 0"
+    }
+   ],
+   "cap": "Medido en esta VM, 13-11-2026, React 19.3.1, sin StrictMode. 50 tics por segundo son 5 temporizadores de 100 ms que nadie frenó."
+  },
+  {
+   "t": "p",
+   "x": "Sin limpieza quedaron cinco temporizadores vivos en una pantalla donde ya no hay nada que actualizar, y cada aparición sumaba uno. En una app real, esos zombis gastan batería, memoria y, si lo abierto es una conexión, datos."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Es como una alerta de seguimiento de pedidos. Al abrir el pedido 41 activás una alerta que avisa cada cambio de estado (el setup). Al pasar al 42, **cerrás** la del 41 antes de abrir la del 42 (la limpieza). Si te olvidás, te siguen llegando avisos de pedidos que nadie mira. Dónde deja de valer: en el depósito cerrás la alerta cuando te acordás; en React la limpieza corre sola, pero solo si la escribiste. React no puede adivinar qué abriste.",
+   "titulo": "La alerta que nadie cerró"
+  },
+  {
+   "t": "ejercicio",
+   "x": "Escribí un componente `Ancho` que muestre el ancho de la ventana (`window.innerWidth`) y se actualice cuando la persona la cambia de tamaño (el evento `resize` de `window`). Tiene que agregar el listener cuando el componente aparece y sacarlo cuando desaparece. ¿Qué lista de dependencias lleva?",
+   "pista": "El setup llama a `window.addEventListener('resize', alCambiar)`. La limpieza tiene que llamar a `window.removeEventListener` con **la misma función** `alCambiar`. ¿Usa el efecto alguna prop o estado que cambie?",
+   "solucion": "`useEffect(() => { const alCambiar = () => setAncho(window.innerWidth); window.addEventListener('resize', alCambiar); return () => window.removeEventListener('resize', alCambiar); }, []);` con `const [ancho, setAncho] = useState(window.innerWidth)` arriba y `return ancho;` abajo. La lista es `[]`: el efecto no lee props ni estado (`setAncho` es siempre la misma función). El listener se saca con la misma referencia con que se agregó, por eso `alCambiar` va en una variable. Lo probé en Chromium: con 800 px mostró 800 y al achicar a 390 px mostró 390."
+  },
+  {
+   "t": "senda",
+   "titulo": "Dos suscripciones, dos bajas",
+   "x": [
+    "`useAlturaTeclado` (`src/util/teclado.ts`) agrega dos listeners con `Keyboard.addListener` (teclado que aparece y que se esconde) y su limpieza llama a `.remove()` de cada uno. Lista `[]`: no lee nada que cambie. Es la forma del ejercicio.",
+    "En `src/App.tsx`, el efecto que empieza en la línea 142 se suscribe a enlaces entrantes y a `AppState`, arranca un `setInterval` que sube el progreso cada 10 minutos y, al limpiar, saca cada suscripción y llama a `clearInterval`. Corresponde al commit 25e08fa del 8-11-2026; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/teclado.ts",
+    "src/App.tsx"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Carreras de red: la respuesta lenta que llega última"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Volvamos al bug del gancho. Un efecto pide los datos del pedido cada vez que cambia el elegido. La persona toca rápido 42, 41 y otra vez 42: tres pedidos al servidor. Para provocar el desorden, mi servidor contesta el 41 en 800 ms y el 42 en 150 ms. Esas demoras son inventadas; en una red real, según React, no hay garantía sobre el orden de llegada de las respuestas [#react-docs-no-effect].",
+    "Sin protección, la pantalla marca «elegido: 42» pero muestra el dato del 41: las respuestas del 42 llegan primero y la del 41 llega última y las pisa."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Pantalla",
+     "k": "cliente"
+    },
+    {
+     "n": "Servidor",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET /pedido/42 (pedido A)",
+     "d": "La persona toca el 42. El servidor tarda unos 150 ms en contestar."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET /pedido/41 (pedido B)",
+     "d": "A los pocos milisegundos toca el 41. Este pedido está puesto a tardar unos 800 ms."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET /pedido/42 (pedido C)",
+     "d": "Vuelve a tocar el 42. Otro pedido de 150 ms."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "Responde A: pedido 42 entregado",
+     "resp": true,
+     "d": "Llega a los 150 ms. La pantalla muestra «entregado»."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "Responde C: pedido 42 entregado",
+     "resp": true,
+     "d": "Llega a los 180 ms, igual que A."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "Responde B: pedido 41 en depósito",
+     "resp": true,
+     "d": "Llega a los 800 ms, mucho después de que la persona se fue del 41. Sin protección, `setDato` lo guarda igual y pisa lo correcto."
+    }
+   ],
+   "cap": "La carrera de red del experimento, con demoras artificiales."
+  },
+  {
+   "t": "p",
+   "x": "Hay dos arreglos, y ambos se apoyan en la limpieza. El primero ignora la respuesta vieja con una bandera. La idea se prueba sin React, con dos pedidos simulados:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Dos respuestas que llegan en distinto orden que los pedidos.\nconst demora = { 41: 400, 42: 80 };\nconst pedir = (id) => new Promise((ok) => setTimeout(() => ok({ id, estado: id === 41 ? \"en depósito\" : \"entregado\" }), demora[id]));\n\nasync function probar(conGuarda) {\n  let pantalla = \"(vacía)\";\n  const efecto = (id) => {\n    let ignorar = false;\n    pedir(id).then((r) => { if (!ignorar) pantalla = `pedido ${r.id}: ${r.estado}`; });\n    return () => { ignorar = true; }; // la limpieza\n  };\n  const sinGuarda = (id) => { pedir(id).then((r) => { pantalla = `pedido ${r.id}: ${r.estado}`; }); return () => {}; };\n  const lanzar = conGuarda ? efecto : sinGuarda;\n  const limpiar41 = lanzar(41);          // el usuario elige el 41\n  limpiar41();                           // cambia de idea: React corre la limpieza del efecto anterior...\n  lanzar(42);                            // ...y el efecto nuevo para el 42\n  await new Promise((r) => setTimeout(r, 600));\n  return pantalla;\n}\nconsole.log(\"sin guarda  → el usuario eligió el 42 y ve:\", await probar(false));\nconsole.log(\"con guarda  → el usuario eligió el 42 y ve:\", await probar(true));",
+   "cap": "Simulación sin React: el 41 tarda 400 ms y el 42, 80 ms. La función que devuelve `efecto` es la limpieza."
+  },
+  {
+   "t": "p",
+   "x": "El segundo arreglo corta el pedido con un `AbortController`, objeto del navegador que cancela un [[fetch]] en curso [#mdn-fetch]; el pedido cancelado falla con un `AbortError` que se ignora en el `catch`. Las tres versiones que probé:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// 1. Sin protección\nuseEffect(() => {\n  fetch('/api/pedido/' + id).then(r => r.json()).then(setDato);\n}, [id]);\n\n// 2. Con bandera: ignora la respuesta vieja, pero el pedido sigue\nuseEffect(() => {\n  let ignore = false;\n  fetch('/api/pedido/' + id).then(r => r.json())\n    .then(j => { if (!ignore) setDato(j); });\n  return () => { ignore = true; };\n}, [id]);\n\n// 3. Con AbortController: ignora y además cancela el pedido\nuseEffect(() => {\n  const ctl = new AbortController();\n  fetch('/api/pedido/' + id, { signal: ctl.signal })\n    .then(r => r.json()).then(setDato)\n    .catch(e => { if (e.name !== 'AbortError') throw e; });\n  return () => ctl.abort();\n}, [id]);",
+   "cap": "La variante 2 es el patrón de la documentación de React."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Versión",
+    "Qué muestra la pantalla (elegido: 42)",
+    "Pedidos que el navegador canceló",
+    "Pedidos que el servidor respondió completos"
+   ],
+   "filas": [
+    [
+     "1. Sin protección",
+     "«pedido 41: en depósito» (mal)",
+     "0",
+     "3"
+    ],
+    [
+     "2. Bandera `ignore`",
+     "«pedido 42: entregado»",
+     "0",
+     "3"
+    ],
+    [
+     "3. `AbortController`",
+     "«pedido 42: entregado»",
+     "2 (`ERR_ABORTED`)",
+     "1"
+    ]
+   ],
+   "cap": "Medido en esta VM, 13-11-2026: Chromium vía Playwright, React 19.3.1 en desarrollo, servidor local mío con demoras de 150 ms (42) y 800 ms (41). Orden de toques: 42, 41, 42 en unos 30 ms."
+  },
+  {
+   "t": "p",
+   "x": "La bandera arregla lo que se ve pero no el trabajo: los tres pedidos viajaron y el servidor los contestó completos, aunque se tiraron dos respuestas. `AbortController` cortó dos conexiones. Para un tablero chico da igual; para una búsqueda pesada que pide con cada letra, no."
+  },
+  {
+   "t": "pensa",
+   "x": "En una búsqueda que pide al servidor por cada letra, la persona escribe «hola» rápido. ¿Por qué podría ver resultados de «hol» si el código no tiene protección, y qué parte del efecto lo evita?",
+   "resp": "Las respuestas pueden llegar en cualquier orden: la de «hol» puede llegar después de la de «hola» y guardarse última. Lo evita la limpieza del efecto, que ignora la respuesta anterior con una bandera o cancela su pedido con AbortController."
+  },
+  {
+   "t": "senda",
+   "titulo": "El mismo patrón para cargar una Biblia",
+   "x": [
+    "`src/pantallas/Biblia.tsx` (línea 35) tiene un efecto con `[version]` que ejecuta `cargarBiblia(version).then((b) => vivo && setBiblia(b))`; `vivo` arranca en `true` y la limpieza lo pone en `false`. Es la bandera de la versión 2 con otro nombre: si la persona cambia de versión dos veces y la primera tarda más, esa respuesta se descarta. `useBiblia` en `src/componentes/pasaje.tsx` hace lo mismo. Esa carga lee un archivo local, no la red: la carrera existe con cualquier operación asíncrona.",
+    "En `src/` hay 21 apariciones de `let vivo = true` en 16 archivos (conteo con `grep`, commit 25e08fa). `AbortController` no aparece en ningún efecto: en `src/util/interruptores.ts` y `lugares.ts` solo corta los pedidos que pasan de 5 y de 9 segundos respectivamente: un tope de espera, no una carrera."
+   ],
+   "archivos": [
+    "src/pantallas/Biblia.tsx",
+    "src/componentes/pasaje.tsx",
+    "src/util/interruptores.ts"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Aun con la guarda, pedir datos desde un efecto es el camino «a mano». React señala tres costos: *cascadas* de pedidos (el padre pide, se dibuja el hijo y recién entonces pide), nada de caché (si el componente vuelve, pide otra vez) y mucho código repetitivo [#react-docs-effect-ref]. Para eso hay bibliotecas y mecanismos de los frameworks ([@06-23]). Además, los efectos solo corren en el navegador, no mientras se arma el HTML en un servidor ([@06-26])."
+  },
+  {
+   "t": "h",
+   "x": "useRef: la caja que React no mira"
+  },
+  {
+   "t": "p",
+   "x": "A veces hace falta **guardar algo entre renders sin redibujar la pantalla**: el id de un temporizador, un contador interno. Una variable común se reinicia en cada render, y el estado dispara un re-render con cada cambio. Para eso existe [[ref]], un objeto con una propiedad, `current`, que React conserva entre renders y que se modifica sin avisarle a React [#react-docs-useref]."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const intervaloRef = useRef(0);     // un valor que no se dibuja\nconst campoRef = useRef(null);      // un nodo del DOM\n\nfunction alArrancar() {\n  intervaloRef.current = setInterval(tic, 1000); // no re-renderiza\n}\n\n// <input ref={campoRef} />  → React guarda el elemento en campoRef.current\n// campoRef.current.focus()  → se usa en un manejador o en un efecto",
+   "cap": "Los dos usos de un ref."
+  },
+  {
+   "t": "p",
+   "x": "Dos usos: **guardar un valor que no se muestra** y **conseguir el nodo del DOM**: con `ref={miRef}` en un elemento, React guarda ese elemento en `miRef.current`, y desde ahí se le puede dar el foco, medir su tamaño o hacerlo scrollear. Para comparar con el estado, un botón «+1» tocado 10 veces, contando cuántas veces React volvió a ejecutar el cuerpo:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dónde se guarda el contador",
+    "Renders extra tras 10 clics",
+    "Número en pantalla después de los 10 clics"
+   ],
+   "filas": [
+    [
+     "En estado (`useState`)",
+     "10",
+     "10"
+    ],
+    [
+     "En un ref (`useRef`)",
+     "0",
+     "0 (el valor era 10, pero nadie redibujó)"
+    ]
+   ],
+   "cap": "Medido en esta VM, 13-11-2026, React 19.3.1. Con ref, tras forzar un re-render con otro botón, la pantalla pasó de 0 a 10."
+  },
+  {
+   "t": "p",
+   "x": "El ref cambió diez veces y la pantalla siguió en 0: React nunca se enteró. La regla práctica: **si el valor se muestra, va en estado; si no, puede ir en un ref**. Y no leas ni escribas `ref.current` durante el render, salvo para inicializarlo [#react-docs-useref]: se usa en manejadores y efectos."
+  },
+  {
+   "t": "h",
+   "x": "Cuándo no usar un efecto"
+  },
+  {
+   "t": "p",
+   "x": "Si te llevás una sola regla: el efecto es para **sincronizar con algo externo**, y muchos efectos de la práctica no sincronizan nada. React tiene una guía entera sobre eso, «You Might Not Need an Effect» [#react-docs-no-effect]. Dos casos comunes, medidos."
+  },
+  {
+   "t": "h3",
+   "x": "1. Datos que se pueden calcular en el render"
+  },
+  {
+   "t": "p",
+   "x": "Un buscador de bultos filtra una lista según lo que se tipea. Una forma es guardar la lista filtrada en estado y actualizarla con un efecto; la otra, calcular el filtro en el render. Tipeé «pallet» con 100 ms entre teclas y conté los renders:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cómo se calcula la lista",
+    "Renders por las 6 letras",
+    "Qué se vio en el primer render de la primera letra"
+   ],
+   "filas": [
+    [
+     "Efecto que hace `setVis(...)`",
+     "12",
+     "Consulta «p», pero la lista todavía era la de antes (6 bultos, cuando correspondían 2)"
+    ],
+    [
+     "Variable calculada en el render",
+     "6",
+     "Consulta «p» y lista de 2, siempre coherentes"
+    ]
+   ],
+   "cap": "Medido en esta VM, 13-11-2026, React 19.3.1, sin StrictMode; lista de 6 bultos inventados («bulto A» a «caja F»)."
+  },
+  {
+   "t": "p",
+   "x": "Con el efecto hay dos renders por letra: en el primero la consulta ya cambió pero la lista es la vieja (una pantalla incoherente, por un instante) y recién después el efecto pide otro render. Calcular en el render es menos código y nunca muestra un estado a medias. Si el cálculo fuera pesado, `useMemo` lo memoriza ([@06-21])."
+  },
+  {
+   "t": "h3",
+   "x": "2. Cosas que pasan porque alguien hizo algo"
+  },
+  {
+   "t": "p",
+   "x": "El segundo error es poner en un efecto lo que va en un manejador. La pregunta de React: ¿esto pasa **porque el componente se mostró** o **porque la persona hizo algo**? Una métrica de «pantalla vista» va en un efecto; confirmar una compra, en un manejador [#react-docs-no-effect]. Armé las dos versiones de un botón «Comprar» y conté los POST que llegaron sin tocar nada:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dónde está el POST",
+    "POST al abrir la página (sin StrictMode)",
+    "POST al abrir la página (con StrictMode)",
+    "POST tras un clic"
+   ],
+   "filas": [
+    [
+     "En un efecto con `[]`",
+     "1",
+     "2",
+     "sin cambio"
+    ],
+    [
+     "En el manejador de clic",
+     "0",
+     "0",
+     "1"
+    ]
+   ],
+   "cap": "Medido en esta VM, 13-11-2026, React 19.3.1 en desarrollo. El servidor es un programa mío que solo cuenta las llamadas a `/api/comprar`; no hay compras reales."
+  },
+  {
+   "t": "p",
+   "x": "La compra en un efecto se dispara sola al abrir la pantalla y, con StrictMode en desarrollo, **dos veces**: la prueba de estrés avisando que ese código no es de un efecto. Con un manejador no pasa nada hasta que alguien aprieta el botón."
+  },
+  {
+   "t": "p",
+   "x": "Hay un tercer caso, borrar el estado de un componente cuando cambia una prop (un campo de texto cuando se cambia de usuario). Con un efecto se dibuja una vez con el estado viejo; React recomienda una **`key`** que dependa del usuario, que es el tema de [@06-20]."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Quiero…",
+    "Herramienta"
+   ],
+   "filas": [
+    [
+     "Mostrar algo calculado con props o estado",
+     "Una variable en el cuerpo del componente (y `useMemo` si es caro, [@06-21])"
+    ],
+    [
+     "Reaccionar a un clic, un envío o un toque",
+     "Un manejador de evento"
+    ],
+    [
+     "Reiniciar el estado cuando cambia un id",
+     "Una `key` ([@06-20])"
+    ],
+    [
+     "Mantener abierta una conexión, un temporizador o un listener",
+     "Un efecto con su limpieza"
+    ],
+    [
+     "Pedir datos al aparecer o al cambiar una consulta",
+     "Un efecto con bandera o `AbortController`, o mejor una biblioteca de datos ([@06-23])"
+    ],
+    [
+     "Suscribirse a un valor externo que cambia con el tiempo",
+     "`useSyncExternalStore` [#react-docs-sync-store] (solo como pista; no lo vemos)"
+    ]
+   ],
+   "cap": "Elegir la herramienta según lo que se quiere lograr."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "x": "Senda tiene 235 líneas con `useEffect(` en 75 archivos de `src/` (conteo con `grep`, commit 25e08fa). No audité cuáles hacen falta. La auditoría se hace con las preguntas de hoy: ¿con qué sistema externo se sincroniza?, ¿tiene limpieza?, ¿dice la verdad su lista? Ojo con los números de las tablas: son de una sola corrida, con demoras artificiales y componentes chicos. Muestran el **comportamiento**, no velocidades; el orden de los eventos no cambia con la máquina.",
+   "titulo": "Un criterio de auditoría, aplicado a Senda"
+  }
+ ],
+ "recap": [
+  "`useEffect` sirve para sincronizar un componente con un sistema externo (red, temporizador, listener, librería de terceros). Corre después de que React actualiza la pantalla, y si no hay nada externo en juego, probablemente no hace falta.",
+  "Un efecto tiene setup, lista de dependencias y limpieza. Cuando cambia una dependencia, React corre la limpieza del render viejo y luego el setup nuevo. Una última limpieza corre cuando el componente desaparece.",
+  "Los efectos no son «al montar» y «al desmontar»: son ciclos de empezar y parar que se repiten mientras haya dependencias que cambian. En desarrollo, StrictMode hace un ciclo de más a propósito para encontrar limpiezas que faltan.",
+  "La lista de dependencias tiene que decir la verdad: cada render es una foto, y un efecto con `[]` que lee `n` se queda con el `n` del primer render. En la medición, un reloj con `[]` quedó clavado en 1.",
+  "Sin limpieza, lo que abrió el setup sigue vivo: cinco montajes sin `clearInterval` dejaron 50 tics por segundo en una pantalla vacía.",
+  "Pedir datos en un efecto tiene carreras: la respuesta lenta puede llegar última y pisar a la correcta. Se arregla con una bandera `ignore` (ignora) o con `AbortController` (cancela).",
+  "Un ref guarda un valor entre renders sin redibujar y sirve también para tener el nodo del DOM. Si se muestra, es estado; si no, puede ser ref. No se lee ni se escribe durante el render."
+ ],
+ "repaso": [
+  {
+   "p": "Un componente muestra el pedido elegido y tiene un efecto con la lista `[pedido]`. La persona cambia de pedido 41 a 42. ¿En qué orden pasan las cosas?",
+   "o": [
+    "React calcula el render del 42, corre la limpieza del 41 y luego el setup del 42",
+    "React corre la limpieza del 41, calcula el render del 42 y luego corre el setup",
+    "React corre el setup del 42 y después la limpieza del 41, para no cortar el servicio",
+    "React calcula el render del 42 y corre solo el setup, porque la limpieza es solo al salir"
+   ],
+   "c": 0,
+   "e": "Primero se calcula el render nuevo, y entonces React ejecuta la limpieza del efecto anterior (con los valores del render viejo) y después el setup con los valores nuevos. Adelantar la limpieza antes del render o invertir el orden entre limpieza y setup no es lo que ocurre, y la limpieza corre también cuando cambia una dependencia, no solo al salir. La medición con Playwright mostró render 42, cleanup 41, setup 42."
+  },
+  {
+   "p": "Un reloj usa `useEffect(() => { const id = setInterval(() => setN(n + 1), 100); return () => clearInterval(id); }, [])`. Después de varios segundos, la pantalla sigue en 1. ¿Por qué?",
+   "o": [
+    "El `setInterval` no admite lista vacía y solo corre una vez antes de frenarse",
+    "React no vuelve a dibujar si el nuevo valor de estado se parece al anterior",
+    "El temporizador usa el valor de n del primer render, que vale 0, y cada tic pone 1",
+    "La limpieza frena el temporizador apenas termina el primer tic del intervalo"
+   ],
+   "c": 2,
+   "e": "El efecto corrió una sola vez, en el primer render, donde n valía 0: ese cierre recuerda siempre ese 0 y cada tic ejecuta setN(0 + 1). El `setInterval` sigue corriendo (se midió), React sí redibuja cuando cambia el estado, y la limpieza solo corre al desaparecer el componente. La salida es `setN((x) => x + 1)` o depender de `n`."
+  },
+  {
+   "p": "Un componente arranca un `setInterval` en su efecto pero no devuelve ninguna limpieza. La persona entra y sale de esa pantalla cinco veces. ¿Qué queda corriendo?",
+   "o": [
+    "Solo uno, porque React reemplaza el temporizador anterior al volver a montar",
+    "Cinco temporizadores, aunque la pantalla ya no esté, porque nadie los frenó",
+    "Ninguno, porque el navegador frena los temporizadores de lo que no se ve",
+    "Uno solo, el último, porque setInterval ignora los repetidos con el mismo código"
+   ],
+   "c": 1,
+   "e": "React no puede adivinar qué abrió el setup, y el navegador tampoco frena los temporizadores solo porque un componente se haya ido. Cada montaje arrancó el suyo y quedaron cinco, que en la medición produjeron 50 tics por segundo con la pantalla vacía. Con `clearInterval` en la limpieza quedaron cero."
+  },
+  {
+   "p": "Un efecto pide los datos de un pedido cada vez que cambia el id elegido. La persona toca el 41 (lento) y enseguida el 42 (rápido). Sin ninguna protección, ¿qué puede pasar?",
+   "o": [
+    "React cancela solo el primer pedido porque sabe que el id cambió y descarta su respuesta",
+    "La pantalla siempre muestra el 42, porque React ejecuta las respuestas en orden de pedido",
+    "El servidor devuelve un error porque no acepta dos pedidos de la misma pantalla",
+    "Puede quedar en pantalla el dato del 41, porque su respuesta llegó última y se guardó después"
+   ],
+   "c": 3,
+   "e": "React no cancela pedidos de red ni ordena las respuestas: el navegador las entrega cuando llegan, y la que llega última se guarda última. En la medición, la pantalla marcaba «elegido: 42» y mostraba «pedido 41: en depósito». Se arregla con una bandera `ignore` o con `AbortController` en la limpieza."
+  },
+  {
+   "p": "Para evitar la carrera de red, ¿qué ventaja concreta tiene `AbortController` sobre la bandera `ignore`?",
+   "o": [
+    "Evita la carrera porque hace que las respuestas lleguen en el mismo orden de los pedidos",
+    "Corta el pedido en curso, así que el servidor no termina de responder lo que ya no se usa",
+    "Es obligatorio en React 19, y la bandera ya no está admitida en esa versión",
+    "Elimina la necesidad de la limpieza, porque el navegador cancela solo al cambiar el id"
+   ],
+   "c": 1,
+   "e": "Las dos arreglan lo que se ve. La diferencia es el trabajo: con la bandera los tres pedidos viajaron y se respondieron completos; con AbortController se cortaron dos. No cambia el orden de llegada, no es obligatorio (la bandera es el patrón de la documentación) y sigue necesitando la limpieza: ahí se llama a `abort()`."
+  },
+  {
+   "p": "Querés contar cuántas veces se tocó un botón para guardarlo en un log interno, sin mostrarlo en pantalla. ¿Qué conviene usar?",
+   "o": [
+    "Estado con useState, porque todo valor que cambia tiene que estar en el estado",
+    "Una variable común en el cuerpo del componente, que se conserva entre renders",
+    "Un ref, porque el valor no se muestra y no hace falta redibujar",
+    "Un efecto sin lista de dependencias, que recuerda lo que contó en cada render"
+   ],
+   "c": 2,
+   "e": "Un ref conserva el valor entre renders y cambiarlo no dispara re-render: en la medición, 10 clics con ref dieron 0 renders extra. El estado redibujaría en cada clic para nada, y una variable común del cuerpo se reinicia en cada render. El efecto sin lista corre después de cada render, pero no guarda nada por sí solo."
+  },
+  {
+   "p": "En un buscador, una persona escribe y la lista filtrada se guarda en estado con un efecto que se dispara al cambiar el texto. ¿Qué problema tiene frente a calcular el filtro en el render?",
+   "o": [
+    "Hay un render extra por cada cambio, y en el primero la consulta es nueva y la lista es vieja",
+    "El efecto no puede leer el texto que se escribe, porque pertenece a otro componente",
+    "El filtro dentro del render corre más lento, así que el efecto es más eficiente",
+    "Los efectos no pueden cambiar el estado de un componente, solo mirar valores"
+   ],
+   "c": 0,
+   "e": "Medido con 6 letras: 12 renders con el efecto y 6 calculando en el render, con una pantalla incoherente en el primero de cada par. El efecto sí puede leer el texto y sí puede cambiar el estado, y calcular en el render no es más lento en un caso así. Lo derivado se calcula, no se sincroniza."
+  }
+ ],
+ "feynman": "Explicale a alguien que programa pero nunca usó React qué es un efecto, qué dos cosas tiene que hacer su código y por qué una lista de dependencias que no dice toda la verdad produce errores difíciles de ver. Usá un ejemplo propio que no sea el reloj ni el pedido del tablero.",
+ "para_profundizar": [
+  {
+   "fuente": "react-docs-effect-ref",
+   "nota": "La referencia oficial de `useEffect`: parámetros, cuándo corre cada parte y ejemplos. Leé «Reference» y «Usage» hasta la sección de dependencias."
+  },
+  {
+   "fuente": "react-docs-no-effect",
+   "nota": "«You Might Not Need an Effect»: la guía de React sobre los casos donde no hace falta un efecto. Los casos 1 y 3 de hoy salen de acá, con muchos más ejemplos."
+  },
+  {
+   "fuente": "react-docs-lifecycle",
+   "nota": "«Lifecycle of Reactive Effects»: cómo pensar cada efecto como un ciclo de empezar y parar, y por qué las dependencias no se eligen."
+  },
+  {
+   "fuente": "react-docs-useref",
+   "nota": "La referencia de `useRef`, con la regla de no leer ni escribir `ref.current` durante el render."
+  }
+ ],
+ "videos": [
+  {
+   "q": "React useEffect cleanup function race condition fetch AbortController explained",
+   "por_que": "Para ver a otra persona armar un efecto con fetch, la bandera y AbortController, y comparar con las tres versiones de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "useEffect",
+   "d": "El hook de React para sincronizar un componente con un sistema externo (red, temporizadores, listeners, librerías de terceros). Su código corre después de que React actualizó la pantalla y puede devolver una función de limpieza."
+  },
+  {
+   "t": "dependencias",
+   "d": "La lista que se pasa como segundo argumento a `useEffect`: todos los valores reactivos (props, estado, variables del cuerpo) que el efecto usa. React los compara con `Object.is` y repite el efecto si alguno cambió."
+  },
+  {
+   "t": "efecto de limpieza",
+   "d": "La función que devuelve un efecto para deshacer lo que hizo su setup (cerrar una conexión, sacar un listener, frenar un temporizador). Corre antes de repetir el setup con valores nuevos y cuando el componente desaparece."
+  },
+  {
+   "t": "ref",
+   "d": "Un objeto `{ current }` que React conserva entre renders y que se puede modificar sin provocar un re-render. Sirve para guardar valores que no se muestran y para acceder al nodo real del DOM de un elemento."
+  }
+ ],
+ "siguiente": "React IV: virtual DOM, reconciliación y keys. Cómo decide React qué partes de la pantalla cambiar en cada render, qué no es el «DOM virtual» y por qué una mala `key` hace que el estado salte de una fila a otra.",
+ "fuentes_nuevas": [
+  {
+   "id": "react-docs-effect-ref",
+   "t": "useEffect (referencia de React)",
+   "a": "Meta (React)",
+   "tipo": "doc",
+   "url": "https://react.dev/reference/react/useEffect"
+  },
+  {
+   "id": "react-docs-no-effect",
+   "t": "You Might Not Need an Effect",
+   "a": "Meta (React)",
+   "tipo": "doc",
+   "url": "https://react.dev/learn/you-might-not-need-an-effect"
+  },
+  {
+   "id": "react-docs-lifecycle",
+   "t": "Lifecycle of Reactive Effects",
+   "a": "Meta (React)",
+   "tipo": "doc",
+   "url": "https://react.dev/learn/lifecycle-of-reactive-effects"
+  },
+  {
+   "id": "react-docs-useref",
+   "t": "useRef (referencia de React)",
+   "a": "Meta (React)",
+   "tipo": "doc",
+   "url": "https://react.dev/reference/react/useRef"
+  },
+  {
+   "id": "react-docs-strictmode",
+   "t": "StrictMode (referencia de React)",
+   "a": "Meta (React)",
+   "tipo": "doc",
+   "url": "https://react.dev/reference/react/StrictMode"
+  },
+  {
+   "id": "react-docs-sync-store",
+   "t": "useSyncExternalStore (referencia de React)",
+   "a": "Meta (React)",
+   "tipo": "doc",
+   "url": "https://react.dev/reference/react/useSyncExternalStore"
+  },
+  {
+   "id": "react-docs-exhaustive-deps",
+   "t": "exhaustive-deps (regla de eslint-plugin-react-hooks)",
+   "a": "Meta (React)",
+   "tipo": "doc",
+   "url": "https://react.dev/reference/eslint-plugin-react-hooks/lints/exhaustive-deps"
+  },
+  {
+   "id": "react-blog-192",
+   "t": "React 19.2",
+   "a": "El equipo de React",
+   "tipo": "articulo",
+   "anio": 2025,
+   "url": "https://react.dev/blog/2025/10/01/react-19-2"
+  }
+ ]
+}
