@@ -1,0 +1,732 @@
+{
+ "id": "05-26",
+ "titulo": "WebSockets y conexiones de larga vida",
+ "bajada": "Cómo hace un servidor para avisarte algo sin que preguntes: cuatro técnicas medidas en una máquina de verdad, con una trama WebSocket abierta byte por byte y el costo de mantener 15.000 conexiones.",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar por qué HTTP, que empieza siempre el cliente, obliga a inventar técnicas para que el servidor avise primero.",
+  "Comparar polling, long polling, Server-Sent Events y WebSocket por dirección, demora, costo y reconexión.",
+  "Leer un handshake WebSocket y una trama byte por byte: opcode, máscara y largo.",
+  "Estimar lo que cuesta mantener miles de conexiones abiertas y qué más se rompe: descriptores, tormentas de reconexión y timeouts de proxies.",
+  "Decidir con criterio qué técnica conviene para una función dada, y verificar qué usa de verdad una app."
+ ],
+ "venis_de": "En [@05-18] viste que HTTP funciona con pedido y respuesta: siempre pregunta el cliente. Ayer, en [@05-25], vimos balanceadores que reparten pedidos; hoy aparece el caso incómodo, las conexiones que no se cierran, y lo que le hacen a esos balanceadores.",
+ "se_apoya_en": [
+  "05-18",
+  "05-16",
+  "05-14",
+  "05-25",
+  "05-20"
+ ],
+ "gancho": [
+  "Querés saber dónde está el camión que trae tu pedido. La pantalla muestra un punto en un mapa, y el punto tiene que moverse cuando el camión avanza. Pero HTTP, que viste en [@05-18], funciona al revés de lo que necesitás: el servidor solo habla cuando alguien le pregunta. Es como un depósito que contesta el teléfono pero nunca llama.",
+  "Hay tres salidas posibles. Llamar cada tanto y preguntar «¿se movió?». Llamar y quedarte en línea hasta que te contesten. O dejar una línea abierta por la que el depósito te hable cuando tenga algo. Las tres existen en Internet, tienen nombre y se pagan distinto. Hoy las medís en una máquina real y ves qué cuesta mantener miles de líneas abiertas a la vez."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El problema: el servidor no puede llamarte"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En un intercambio [[HTTP]] el cliente abre, pregunta y espera una [[solicitud y respuesta|respuesta]]; sin pregunta no hay nada para contestar. Eso está bien para leer una página y es un problema para un chat, el seguimiento de un camión, un tablero de cotizaciones o la pantalla de una sala de juego en la que todos esperan la misma pregunta. En todos, **algo ocurre en el servidor y los clientes tienen que enterarse sin pedirlo**.",
+    "Hay cuatro técnicas, de la más simple a la más específica: polling, long polling, Server-Sent Events y WebSocket. Para compararlas armé en esta VM un servidor Node de laboratorio con un único estado, un número de versión que sube con cada novedad, y lo consulté de las cuatro maneras."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Polling: preguntar cada tanto"
+  },
+  {
+   "t": "p",
+   "x": "El [[polling]] (sondeo) es lo más directo: el cliente repite el pedido cada cierto intervalo y mira si cambió algo. No necesita nada especial del servidor ni de los proxies, y por eso lo usa muchísima gente. Tiene dos costos. Uno es la **demora**: si preguntás cada 2 segundos y la novedad llega en un instante al azar, esperás en promedio la mitad del intervalo, 1 segundo, y en el peor caso casi 2. El otro es el **ruido**: la mayoría de las respuestas dicen «nada nuevo». El RFC 6202, que describe estas técnicas, lo advierte: el polling continuo puede consumir mucho ancho de banda al forzar un viaje de ida y vuelta cuando no hay datos [#redws-rfc6202]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -w '\\nrequest=%{size_request} cabecera_resp=%{size_header} cuerpo=%{size_download}\\n' http://127.0.0.1:38290/estado",
+     "s": "{\"version\":0}\nrequest=84 cabecera_resp=155 cuerpo=13"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026 (Node 22, curl 8.5.0). Un pedido de «nada nuevo» son 84 + 155 + 13 = 252 bytes en HTTP/1.1, sin contar los encabezados de TCP e IP. Un navegador real manda más encabezados (cookies, agente de usuario); con HTTP/2 se comprimen ([@05-20])."
+  },
+  {
+   "t": "p",
+   "x": "Con 252 bytes por pedido, una persona que pregunta cada 2 segundos genera 1.800 pedidos por hora, unos 450 KB por hora para enterarse, casi siempre, de nada. Para 10.000 personas son **5.000 pedidos por segundo**. ¿Cuánto trabajo es eso para un servidor? Lo medí con un cliente que lanza ese ritmo sobre un manejador trivial, que solo devuelve el número."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node polling_cpu.js $PID 2000 2000 10",
+     "s": "2000 clientes, uno cada 2000 ms: 1000 pedidos/s, CPU del servidor: 0.71 s en 10 s (7.1 % de un núcleo)"
+    },
+    {
+     "c": "node polling_cpu.js $PID 10000 2000 10",
+     "s": "10000 clientes, uno cada 2000 ms: 4999 pedidos/s, CPU del servidor: 1.07 s en 10 s (10.7 % de un núcleo)"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026, dos corridas de cada una (la otra dio 6,4 % y 11,1 %). El cliente de prueba y el servidor comparten la máquina: la cifra sirve como orden de magnitud, no como capacidad real."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El costo del polling no está en el protocolo",
+   "x": "Un manejador que solo devuelve un número usó cerca del 11 % de un núcleo para 5.000 pedidos por segundo. Si cada respuesta, en cambio, consulta una base de datos, el costo lo pone esa consulta, no el HTTP. Antes de descartar el polling por «ineficiente», medí cuánto cuesta lo que hace cada respuesta."
+  },
+  {
+   "t": "h",
+   "x": "Long polling: el pedido que se queda esperando"
+  },
+  {
+   "t": "p",
+   "x": "En el **long polling** el cliente hace el pedido igual, pero el servidor **no contesta enseguida**: lo deja colgado hasta que haya algo para contar o venza un límite. Según el RFC 6202, así logra reducir la demora y el uso de recursos, porque responde recién cuando ocurre un evento; el cliente, apenas recibe la respuesta, vuelve a preguntar [#redws-rfc6202]. Comparé los dos en la VM: un cliente de long polling y otro de polling cada 2 segundos, y una novedad a los 3,3 segundos."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node lp.js",
+     "s": "la novedad ocurrió a los 3342 ms\nlong polling se enteró a los 3344 ms  (demora: 2 ms)\npolling cada 2 s se enteró a los 4046 ms  (demora: 704 ms, pedidos hechos en ese tiempo: 2)"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026, una sola corrida. La demora del polling depende de en qué punto del intervalo cae la novedad; acá fueron 704 ms, dentro del rango de 0 a 2.000."
+  },
+  {
+   "t": "p",
+   "x": "El long polling tiene su propia trampa: cada cliente ocupa **una conexión abierta mientras espera**, y cada novedad cuesta un pedido nuevo con todos sus encabezados. Además, algo en el camino puede cortar la espera. Un Application Load Balancer de AWS, por ejemplo, tiene un tiempo de inactividad de 60 segundos por defecto [#redcdn-aws-alb]. Por eso los servidores de long polling responden antes de que venza ese límite; el de mi laboratorio contesta a los 25 segundos aunque no haya nada nuevo."
+  },
+  {
+   "t": "pensa",
+   "x": "Un chat con long polling: llega un mensaje, el servidor responde, y el cliente tarda 200 ms en volver a preguntar. ¿Qué pasa con un mensaje que llega en esos 200 ms?",
+   "resp": "Si el servidor no guarda lo que pasó, se perdería o se retrasaría hasta el próximo pedido. Por eso el cliente manda «lo último que vi» (en la maqueta, `desde=N`) y el servidor responde de inmediato con todo lo posterior. Todas las técnicas de hoy necesitan alguna forma de numerar lo ocurrido y retomarlo."
+  },
+  {
+   "t": "h",
+   "x": "Server-Sent Events: un canal de una sola vía"
+  },
+  {
+   "t": "p",
+   "x": "[[Server-Sent Events]] (SSE) formaliza el «quedarse en línea», pero en lugar de contestar una vez y cortar, el servidor **mantiene la respuesta abierta y va escribiendo eventos**. Es un estándar del navegador (`EventSource`). El servidor responde con el tipo `text/event-stream`, el texto va en UTF-8 y cada mensaje termina con una línea en blanco; los campos son `event`, `data`, `id` y `retry` [#redws-mdn-sse]. Lo comprobé con curl y dos novedades."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -i -N -m 3 localhost:38290/eventos",
+     "s": "HTTP/1.1 200 OK\nContent-Type: text/event-stream\nCache-Control: no-cache\nConnection: keep-alive\nTransfer-Encoding: chunked\n\nretry: 3000\n\nid: 0\nevent: novedad\ndata: {\"version\":0}\n\nid: 1\nevent: novedad\ndata: {\"version\":1}\n\nid: 2\nevent: novedad\ndata: {\"version\":2}"
+    },
+    {
+     "c": "curl -s -N -m 1 -H 'Last-Event-ID: 2' localhost:38290/eventos",
+     "s": ": el cliente dijo que lo último que vio fue 2\n\nretry: 3000\n\nid: 2\nevent: novedad\ndata: {\"version\":2}"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026 (se quitó el encabezado Date). Las novedades 1 y 2 las disparé yo desde otra terminal, al segundo y a los 1,5 s. La respuesta se queda abierta (`chunked`) hasta que alguno corta. El comentario de la segunda salida (línea con `:`) lo escribe mi servidor para mostrar qué le llegó."
+  },
+  {
+   "t": "p",
+   "x": "Tres cosas hacen a SSE práctico. Primero, la **reconexión automática**: si se corta, el navegador reabre la conexión, esperando el tiempo del campo `retry` [#redws-mdn-sse]. Segundo, la especificación dice que al reconectar el navegador informa lo último que vio en el encabezado `Last-Event-ID`; **lo que hace el servidor con ese dato, como reenviar lo perdido, es trabajo tuyo**, y mi demo solo anota que lo recibió [#redws-whatwg-sse]. Tercero, la especificación sugiere mandar una línea de comentario (empieza con `:`) cada 15 segundos más o menos, para que proxies viejos no corten la conexión por inactividad [#redws-whatwg-sse]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El límite de seis conexiones",
+   "x": "Según MDN, con HTTP/1.1 SSE tiene un tope muy bajo de conexiones abiertas, **6 por navegador y por dominio**, y se nota sobre todo al abrir varias pestañas. Con HTTP/2 ([@05-20]) el máximo de flujos simultáneos se negocia y por defecto es 100 [#redws-mdn-sse]. SSE es solo de servidor a cliente y de texto: si el cliente tiene que hablar, lo hace con pedidos HTTP aparte."
+  },
+  {
+   "t": "h",
+   "x": "WebSocket: una línea abierta en los dos sentidos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[WebSocket]] es una conexión [[TCP]] que, después de empezar como un pedido HTTP, cambia de protocolo y queda abierta para que **cualquiera de los dos lados mande mensajes cuando quiera**. El protocolo es el RFC 6455 y lo usa el chat de tu navegador, una pizarra compartida o un juego en tiempo real. Es una [[conexión persistente]]: vive horas, no milisegundos.",
+    "El cambio de protocolo se hace con un pedido HTTP común que lleva `Upgrade: websocket` [#rfc6455]. Lo mandé con curl, usando la clave de ejemplo del propio RFC."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Navegador",
+     "k": "cliente"
+    },
+    {
+     "n": "Servidor",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET / + Upgrade: websocket + clave",
+     "d": "Un pedido HTTP más. Lleva `Upgrade: websocket`, la versión 13 y una clave en base64 elegida al azar."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "101 Switching Protocols + Accept",
+     "resp": true,
+     "d": "El servidor acepta el cambio y prueba que entendió, calculando un valor a partir de la clave del cliente."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "trama de texto «hola»",
+     "d": "A partir de acá no hay más HTTP en esa conexión: se intercambian tramas WebSocket."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "trama de texto con novedad",
+     "d": "El servidor puede hablar sin que nadie le haya preguntado nada."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "trama de cierre (código 1000)",
+     "d": "Cualquiera de los dos puede cerrar. El código 1000 significa cierre normal."
+    }
+   ],
+   "cap": "Un handshake, mensajes en ambos sentidos y un cierre ordenado, todo en una sola conexión TCP."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -i -N -m 1 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' http://127.0.0.1:38290/",
+     "s": "HTTP/1.1 101 Switching Protocols\nUpgrade: websocket\nConnection: Upgrade\nSec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+    },
+    {
+     "c": "printf %s 'dGhlIHNhbXBsZSBub25jZQ==258EAFA5-E914-47DA-95CA-C5AB0DC85B11' | openssl sha1 -binary | base64",
+     "s": "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026. El servidor responde 101 y el valor de `Sec-WebSocket-Accept` coincide con el que se calcula a mano. Handshake completo: 191 bytes de pedido y 129 de respuesta, una sola vez por conexión."
+  },
+  {
+   "t": "p",
+   "x": "El `Accept` sale de pegar la clave del cliente con una cadena fija del RFC (`258EAFA5-E914-47DA-95CA-C5AB0DC85B11`), calcular el SHA-1 y pasarlo a base64 [#rfc6455]. No protege nada: sirve para que el cliente compruebe que quien contestó entendió de verdad el protocolo y no es, por ejemplo, un servidor HTTP común que devolvió cualquier cosa. El servidor de laboratorio (unas 70 líneas de Node, escrito a mano para esta clase) hace exactamente ese cálculo."
+  },
+  {
+   "t": "h",
+   "x": "Una trama, byte por byte"
+  },
+  {
+   "t": "p",
+   "x": "Después del 101 los dos lados intercambian **tramas** (no son las tramas Ethernet de [@05-03]; mismo nombre, otra capa). Cada una empieza con un byte que lleva el bit FIN y el código de operación (`opcode`): 0x1 es texto, 0x2 binario, 0x8 cierre, 0x9 ping y 0xA pong. El segundo byte tiene el bit MASK y el largo del mensaje: de 0 a 125 es el largo mismo, y con 126 o 127 siguen 2 u 8 bytes con el largo real [#rfc6455]. Escribí un cliente con sockets crudos para ver las tramas tal cual, y mandé el mensaje de ejemplo del RFC: «Hello»."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "Cliente → servidor (11 bytes)",
+     "celdas": [
+      {
+       "t": "81",
+       "k": "red",
+       "s": "FIN=1, opcode 1 (texto)"
+      },
+      {
+       "t": "85",
+       "k": "red",
+       "s": "MASK=1, largo 5"
+      },
+      {
+       "t": "37 fa 21 3d",
+       "k": "alerta",
+       "s": "clave de máscara"
+      },
+      {
+       "t": "7f 9f 4d 51 58",
+       "k": "datos",
+       "s": "«Hello» enmascarado"
+      }
+     ]
+    },
+    {
+     "e": "Servidor → cliente (7 bytes)",
+     "celdas": [
+      {
+       "t": "81",
+       "k": "red",
+       "s": "FIN=1, opcode 1 (texto)"
+      },
+      {
+       "t": "05",
+       "k": "red",
+       "s": "sin MASK, largo 5"
+      },
+      {
+       "t": "48 65 6c 6c 6f",
+       "k": "datos",
+       "s": "«Hello» tal cual"
+      }
+     ]
+    }
+   ],
+   "cap": "Las dos tramas de la demo. Mismo mensaje, y la del cliente pesa 4 bytes más: la clave de máscara."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node frames.js",
+     "s": "cliente envia  : 81 85 37 fa 21 3d 7f 9f 4d 51 58  (11 bytes para 5 de texto)\nservidor envia : 81 05 48 65 6c 6c 6f  (7 bytes)\ncliente envia  : 89 84 01 02 03 04 71 6b 6d 63  (ping)\nservidor envia : 8a 04 70 69 6e 67  (6 bytes)"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026. 48 65 6c 6c 6f es «Hello» en ASCII ([@01-15]). El ping (0x89) lo contestó el servidor con un pong (0x8a) que devuelve los mismos 4 bytes, «ping»."
+  },
+  {
+   "t": "p",
+   "x": "Fijate dos cosas. Para mandar 5 letras, el cliente gastó 11 bytes y el servidor 7: el costo por mensaje es de 2 a 6 bytes de cabecera, contra los cientos de bytes de un pedido HTTP. Y el cliente **tiene que enmascarar** sus tramas: cada byte del mensaje se combina con la clave de 4 bytes. El RFC lo exige (el servidor no debe enmascarar y, si el cliente no lo hace, corta la conexión) [#rfc6455] [#redws-mdn-ws-servers]. Mi servidor de laboratorio destruye la conexión de un cliente que manda una trama sin máscara."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Enmascarar es cifrar»",
+   "x": "No. La clave de máscara viaja **dentro de la misma trama**, en claro: cualquiera que vea los bytes puede deshacerla. El RFC explica que el enmascarado existe para proteger a intermediarios, como proxies con caché, de ser engañados por un script malicioso que arme datos que parezcan un pedido HTTP; por eso la clave debe ser impredecible y cambiar en cada trama [#rfc6455]. Para que nadie lea el contenido hace falta `wss://`, que es WebSocket dentro de [[TLS]] ([@05-22])."
+  },
+  {
+   "t": "p",
+   "x": "Con todo eso armé un chat mínimo: el servidor reenvía cada mensaje a todos los conectados. Tres clientes, con el `WebSocket` que trae Node 22 (el mismo objeto que usa un navegador)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node chat.js",
+     "s": "ana escribe:\n  [ana recibe] ana: hola a todos\n  [beto recibe] ana: hola a todos\n  [carla recibe] ana: hola a todos\nbeto escribe:\n  [ana recibe] beto: llego tarde al depósito\n  [beto recibe] beto: llego tarde al depósito\n  [carla recibe] beto: llego tarde al depósito\ncarla se va; beto vuelve a escribir:\n  [ana recibe] beto: ¿me escuchan?\n  [beto recibe] beto: ¿me escuchan?"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026. Cuando carla cierra, deja de recibir. El servidor la saca de la lista al cerrarse su conexión."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Mi primera versión tenía conexiones fantasma",
+   "x": "Al cortar un cliente de golpe, el servidor seguía contándolo: `/medidas` mostraba 2 WebSockets cuando ya no había ninguno. Un servidor HTTP de Node deja las conexiones «a medio cerrar» hasta que uno las cierra explícitamente; hubo que agregar un manejador que cierre su lado cuando el cliente cierra el suyo. Un cliente que desaparece sin avisar, por ejemplo un teléfono que perdió señal, ni siquiera manda ese cierre: por eso existen los ping y pong, para comprobar que el otro lado sigue vivo."
+  },
+  {
+   "t": "h",
+   "x": "Cuál elegir"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Polling",
+    "Long polling",
+    "SSE",
+    "WebSocket"
+   ],
+   "filas": [
+    [
+     "Quién habla",
+     "Solo el cliente",
+     "Solo el cliente",
+     "Servidor al cliente",
+     "Los dos"
+    ],
+    [
+     "Demora de una novedad",
+     "Hasta un intervalo",
+     "Milisegundos",
+     "Milisegundos",
+     "Milisegundos"
+    ],
+    [
+     "Conexión",
+     "Una nueva por pedido (o reutilizada)",
+     "Una abierta por cliente, se renueva",
+     "Una abierta, larga",
+     "Una abierta, larga"
+    ],
+    [
+     "Reconexión",
+     "La hace tu código",
+     "La hace tu código",
+     "La hace el navegador",
+     "La hacés vos"
+    ],
+    [
+     "Datos",
+     "Cualquiera",
+     "Cualquiera",
+     "Texto UTF-8",
+     "Texto y binario"
+    ],
+    [
+     "Necesita del servidor",
+     "Nada especial",
+     "Retener pedidos",
+     "Mantener respuestas abiertas",
+     "Un servidor que entienda el protocolo"
+    ]
+   ],
+   "cap": "El polling y el long polling son HTTP común; SSE y WebSocket son conexiones largas. «La hacés vos» en WebSocket: en mi prueba, al cortarse llegó el evento `close` (código 1006) y nada más."
+  },
+  {
+   "t": "p",
+   "x": "Una regla práctica, que es criterio mío y no norma: si la novedad llega cada minutos y una demora de segundos no duele, el polling alcanza y es lo más fácil de operar. Si el servidor solo avisa y el cliente no responde en la misma línea, como cotizaciones o el avance de un pedido, SSE suele ser lo más sencillo. Si los dos lados conversan con baja demora, como un chat o un juego, WebSocket. Y sin importar cuál elijas, pensá en qué pasa cuando la conexión se corta."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El depósito y el teléfono",
+   "x": [
+    "Polling: llamar al depósito cada diez minutos para preguntar si ya salió el camión. Long polling: llamar y quedarte en línea hasta que contesten con novedades. SSE: una radio del depósito que solo transmite, y vos escuchás. WebSocket: un handy con canal abierto, donde cualquiera de los dos habla cuando quiere.",
+    "Dónde falla: en el handy y en la radio, cada canal abierto ocupa algo de una frecuencia que se agota. En Internet un canal abierto no ocupa ancho de banda mientras nadie habla; lo que ocupa son recursos del servidor, y eso lo medimos ahora."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Lo que cuesta mantener conexiones abiertas"
+  },
+  {
+   "t": "p",
+   "x": "Una conexión abierta no gasta ancho de banda mientras está callada, pero no es gratis para el servidor: ocupa memoria, un **descriptor de archivo** (cada socket, para el sistema operativo, es un archivo abierto, [@02-11]) y hay que recordar quién está conectado. Para medirlo, abrí conexiones WebSocket crudas, solo con el handshake, hacia el servidor de laboratorio y leí cuánta memoria residente (RSS) tenía el proceso del servidor en cada etapa. Corrí el experimento dos veces; la tabla muestra el rango de las dos."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Conexiones abiertas",
+    "Memoria del servidor (RSS)",
+    "Descriptores abiertos"
+   ],
+   "filas": [
+    [
+     "0",
+     "50,6 MiB",
+     "23"
+    ],
+    [
+     "1.000",
+     "64,7 a 65,3 MiB",
+     "1.023"
+    ],
+    [
+     "5.000",
+     "80,7 a 81,8 MiB",
+     "5.023"
+    ],
+    [
+     "10.000",
+     "103,8 a 104,9 MiB",
+     "10.023"
+    ],
+    [
+     "15.000",
+     "113,9 a 115,3 MiB",
+     "15.023"
+    ]
+   ],
+   "cap": "Medido en esta VM el 13-11-2026 con un servidor Node 22 sin estado por conexión. RSS en KiB convertido a MiB. El kernel también gasta memoria por cada socket y no entra en esta cuenta."
+  },
+  {
+   "t": "p",
+   "x": "De las 0 a las 15.000 conexiones el servidor creció unos 64 MiB: **unos 4,3 KiB por conexión en promedio**, y del orden de 3,3 KiB por cada una de las últimas 10.000 (las primeras 1.000 incluyen el calentamiento de Node). Con ellas abiertas y calladas, el servidor usó **0,00 segundos de CPU en 10 segundos**. Avisarles a todas lo mismo es otra cosa: con 10.000 conectadas, un solo `/publicar` tardó unos 110 ms en escribir 10.000 mensajes, y el último cliente lo recibió a los 109 ms."
+  },
+  {
+   "t": "p",
+   "x": "Es un piso muy optimista, porque mi servidor no guarda nada por usuario. Uno real recuerda en qué salas está cada uno, qué suscripciones tiene, mensajes pendientes. Y hay límites que no son memoria: la cantidad de descriptores (en esta VM el límite es 20.000, que se ve con `ulimit -n`), cuántos mensajes por segundo podés enviar y cuánto tarda en reconectarse todo el mundo cuando algo se reinicia."
+  },
+  {
+   "t": "h3",
+   "x": "La tormenta de reconexiones"
+  },
+  {
+   "t": "p",
+   "x": "Si el servidor se reinicia (una actualización, por ejemplo), las 10.000 conexiones se cortan **a la vez**. Y si todos los clientes esperan exactamente el mismo tiempo antes de reconectar, vuelven **a la vez**: una [[tormenta de reconexiones]] que puede tumbar al servidor recién levantado. La salida es agregar azar a la espera. Lo simulé con el valor `retry: 3000` de nuestro ejemplo de SSE."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// El servidor se reinicia y 10.000 clientes reconectan. ¿Cuántos llegan en el mismo instante?\nlet semilla = 42;\nconst azar = () => { semilla = (semilla * 1664525 + 1013904223) % 4294967296; return semilla / 4294967296; };\n\nconst clientes = 10000, esperaMs = 3000;           // «retry: 3000», el valor que mandamos en el ejemplo de SSE\nfunction pico(nombre, retraso) {\n  const porVentana = new Map();                     // ventanas de 100 ms\n  for (let i = 0; i < clientes; i++) {\n    const v = Math.floor(retraso() / 100);\n    porVentana.set(v, (porVentana.get(v) || 0) + 1);\n  }\n  const mayor = Math.max(...porVentana.values());\n  console.log(nombre.padEnd(28), 'ventanas de 100 ms usadas:', String(porVentana.size).padStart(3), ' reconexiones en la peor ventana:', mayor);\n}\npico('todos esperan lo mismo', () => esperaMs);\npico('con azar (0,5x a 1,5x)', () => esperaMs * (0.5 + azar()));",
+   "cap": "Simulación con números pseudoaleatorios de semilla fija (siempre da lo mismo). Cuenta cuántos clientes reconectan dentro de la misma ventana de 100 ms."
+  },
+  {
+   "t": "p",
+   "x": "Con la misma espera, los 10.000 llegan en una ventana de 100 ms. Con espera entre 0,5 y 1,5 veces el valor, la peor ventana tiene 367: unas 27 veces menos. Es la misma idea de las bandejas de salida de una app seria: esperar un tiempo variable antes de reintentar."
+  },
+  {
+   "t": "h",
+   "x": "Cuando hay un balanceador en el medio"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Esto conecta con [@05-25]. Un [[balanceador de carga]] decide a qué servidor va cada **conexión**, y una conexión de larga vida queda atada a ese servidor durante toda su vida (el Network Load Balancer de AWS lo dice así para TCP [#redcdn-aws-nlb]). Eso trae tres problemas.",
+    "**Primero, hay que pedirle al proxy que deje pasar el cambio de protocolo.** `Upgrade` y `Connection` son encabezados «salto a salto» y el proxy no los reenvía solo; en nginx hay que pasarlos explícitamente [#redws-nginx-ws]. **Segundo, los proxies cortan lo que ven inactivo**: por defecto, nginx cierra la conexión si el servidor no manda datos en 60 segundos, y la propia documentación sugiere que el servidor mande tramas ping periódicas [#redws-nginx-ws]. **Tercero, el estado queda repartido**: si Ana está conectada al servidor A y Beto al B, un mensaje de Ana para Beto tiene que cruzar de A a B, con un canal de publicación entre servidores."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node prueba_nx.js 38310 3     # nginx sin encabezados de upgrade",
+     "s": "puerto 38310: error a los 39 ms"
+    },
+    {
+     "c": "node prueba_nx.js 38311 9     # nginx con Upgrade/Connection, proxy_read_timeout 5s, el servidor no manda nada",
+     "s": "puerto 38311: abierta a los 49 ms\npuerto 38311: cerrada a los 5046 ms (código 1006)"
+    },
+    {
+     "c": "PING_MS=3000 node server.js 38290   # el servidor manda un ping cada 3 s; luego node prueba_nx.js 38311 12",
+     "s": "puerto 38311: abierta a los 35 ms\npuerto 38311: sigue abierta a los 12 s"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026 con nginx 1.24.0 delante del servidor de laboratorio. Reduje el corte de 60 s a 5 s con `proxy_read_timeout` para no esperar un minuto. 1006 es el código que usa el navegador para un cierre anormal, sin trama de cierre."
+  },
+  {
+   "t": "p",
+   "x": "El primer caso falla en 39 ms: el proxy no pasó la intención de cambiar de protocolo y el servidor contestó un 404 común. El segundo se corta justo a los 5 segundos de silencio, que es lo que le dije a nginx. El tercero sobrevive porque el ping de cada 3 segundos cuenta como datos del servidor y reinicia el reloj del proxy; el cliente de Node responde el pong solo."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Detalle de configuración de nginx, consultado el 13-11-2026",
+   "x": "La página oficial de proxy de WebSocket de nginx muestra la configuración sin `proxy_http_version 1.1`, con un comentario que dice que esa línea hacía falta antes de la versión 1.29.7 [#redws-nginx-ws]. Mi nginx es el 1.24.0, así que la usé. Si copiás una configuración vieja o nueva, mirá qué versión tenés."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda hoy no usa WebSocket: sondea",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. La sala en vivo de Senda se resuelve con **polling**: `src/util/salas.ts` define `CADA_MS = 2000` y `src/pantallas/Sala.tsx` repite la lectura cada 2 segundos mientras la pantalla de la sala está en foco (dentro de un `useFocusEffect`, que limpia el intervalo al salir). Las novedades de Inicio se piden cada 45 segundos (`setInterval(..., 45_000)` en `src/pantallas/Inicio.tsx`) y la encuesta del día, cada 8 (`src/componentes/encuestaDia.tsx`). Una búsqueda de `realtime` o `websocket` en `src/` solo encuentra comentarios.",
+    "Con la cuenta de hoy: una sala de 500 personas consultando cada 2 segundos son 250 pedidos por segundo (500 ÷ 2), y cada uno es un pedido HTTP a la base. En mi servidor de juguete, 5.000 pedidos por segundo usaron el 11 % de un núcleo; la base de Senda hace más trabajo por pedido y eso no lo medí. El mapa técnico lo marca como un cuello de botella conocido y `docs/ESCALA.md` lo tiene previsto."
+   ],
+   "archivos": [
+    "src/util/salas.ts",
+    "src/pantallas/Sala.tsx",
+    "src/pantallas/Inicio.tsx",
+    "src/componentes/encuestaDia.tsx"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "El tiempo real está preparado en la base, pero nadie escucha",
+   "x": [
+    "La migración `supabase/migrations/20261101000000_juntos.sql` agrega las tablas `salas`, `sala_participantes` y `encuesta_conteo` a la publicación `supabase_realtime`: la base ya avisa de los cambios, pero **ningún código del teléfono se suscribe**. Es planificado, no implementado. `docs/ESCALA.md` prevé pasar las salas a Realtime recién a partir de unas 25 mil personas por mes, tocando solo `src/util/salas.ts`. El README de Supabase Realtime dice que todo viaja «sobre WebSockets» [#redws-supabase-realtime].",
+    "Hay un número que conviene mirar antes de ese día. La documentación de límites de Realtime muestra, para las conexiones simultáneas, 200 en el plan gratuito y 500 en Pro [#redws-supabase-limits]. Si cada teléfono en una sala abre una conexión, una sola sala de 500 personas ya llenaría el Pro y ni cabría en el gratuito. Es una inferencia mía, a confirmar con una prueba de carga, que según el mapa técnico todavía no existe. Los límites son configurables y cambian con el tiempo."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "docs/ESCALA.md"
+   ]
+  }
+ ],
+ "recap": [
+  "HTTP empieza siempre el cliente; para que el servidor avise primero hay cuatro técnicas: polling, long polling, SSE y WebSocket.",
+  "El polling tiene una demora de hasta un intervalo y mucho ruido, pero su costo real depende de lo que hace cada respuesta: con un manejador trivial, 5.000 pedidos por segundo usaron cerca del 11 % de un núcleo.",
+  "El long polling retiene el pedido hasta que haya algo; SSE mantiene una respuesta abierta de servidor a cliente con reconexión automática y `Last-Event-ID`.",
+  "WebSocket arranca como un pedido HTTP con `Upgrade`, recibe un 101 y sigue como tramas: 2 a 6 bytes de cabecera, texto o binario, en los dos sentidos.",
+  "El cliente debe enmascarar sus tramas para no engañar a intermediarios; la máscara viaja en la trama y no cifra nada, el cifrado es `wss://`.",
+  "Una conexión callada cuesta unos 4 KiB y un descriptor de archivo en un servidor Node sin estado; el problema real son los descriptores, el estado por usuario, el envío masivo y las tormentas de reconexión.",
+  "Detrás de un proxy hay que pasar `Upgrade` y `Connection`, respetar su timeout de inactividad con pings y agregar azar a la reconexión."
+ ],
+ "repaso": [
+  {
+   "p": "Un cliente hace polling cada 2 segundos. Una novedad ocurre en un instante al azar. ¿Cuánto tarda en enterarse, en promedio?",
+   "o": [
+    "Unos 2 segundos, porque debe esperar el intervalo completo",
+    "Unos 1.000 ms, la mitad del intervalo entre una pregunta y otra",
+    "Casi nada, porque el servidor le avisa apenas ocurre",
+    "Depende del tamaño de la respuesta que devuelva el servidor"
+   ],
+   "c": 1,
+   "e": "La novedad cae en cualquier punto del intervalo con igual probabilidad, así que la espera va de 0 a 2 segundos y el promedio es 1. No tarda el intervalo completo salvo en el peor caso, y el servidor no avisa nada en el polling: es el cliente quien pregunta. El tamaño de la respuesta no cambia cuándo se hace la pregunta."
+  },
+  {
+   "p": "¿Qué distingue al long polling del polling común?",
+   "o": [
+    "El servidor deja el pedido sin contestar hasta tener una novedad o un límite",
+    "El cliente pregunta más seguido, de modo que la demora se reduce",
+    "El servidor abre una conexión nueva hacia el cliente para avisarle",
+    "El cliente cambia de protocolo con un encabezado Upgrade"
+   ],
+   "c": 0,
+   "e": "En el long polling el pedido queda colgado y se contesta cuando ocurre algo, por eso la demora es de milisegundos. Preguntar más seguido es polling más agresivo. El servidor no abre conexiones hacia el cliente en ninguna de estas técnicas, y el encabezado Upgrade es del handshake de WebSocket."
+  },
+  {
+   "p": "Querés mostrar en vivo el avance de un pedido, solo del servidor al cliente, y que si se corta la conexión se retome sola. ¿Qué técnica encaja mejor?",
+   "o": [
+    "Long polling, porque reconecta solo gracias al navegador",
+    "Server-Sent Events, porque EventSource reabre la conexión y es de una vía",
+    "WebSocket, porque es la única que permite conexiones largas",
+    "Polling, porque es el único método sin conexiones abiertas"
+   ],
+   "c": 1,
+   "e": "SSE es de servidor a cliente y el navegador reabre la conexión solo (con el tiempo de `retry`). Con long polling tu código tiene que volver a preguntar. WebSocket también sirve, pero no es la única opción de conexión larga ni reconecta solo. Y el polling sin conexiones abiertas es cierto, pero no cumple lo de enterarse al instante."
+  },
+  {
+   "p": "El servidor contesta 101 Switching Protocols a un handshake WebSocket. ¿Qué pasa con esa conexión TCP a partir de ahí?",
+   "o": [
+    "Se cierra, y el cliente abre otra conexión aparte para los mensajes",
+    "Se queda hablando HTTP, con pedidos y respuestas más rápidos",
+    "Pasa a intercambiar tramas WebSocket, en los dos sentidos",
+    "Se cifra con TLS automáticamente, igual que con HTTPS"
+   ],
+   "c": 2,
+   "e": "El 101 significa que se acepta el cambio de protocolo sobre la misma conexión, que deja de hablar HTTP y pasa a tramas. No se abre otra conexión. El cifrado no sale solo: hace falta `wss://`, es decir, WebSocket dentro de TLS."
+  },
+  {
+   "p": "Un compañero dice que el enmascarado de las tramas del cliente es una forma de cifrado. ¿Qué le respondés?",
+   "o": [
+    "Sí, aunque débil: el XOR con 4 bytes oculta el contenido a terceros",
+    "No: la clave viaja en la trama, y evita que intermediarios confundan los datos con HTTP",
+    "Sí, pero solo en tramas de texto y no en las binarias",
+    "No: el enmascarado solo lo hace el servidor al responder"
+   ],
+   "c": 1,
+   "e": "La clave de máscara va en claro dentro de la propia trama, así que cualquiera puede deshacerla; el objetivo es proteger a proxies con caché de datos que parezcan un pedido HTTP. Se aplica a todas las tramas del cliente, y el servidor no enmascara. Para privacidad se usa `wss://`."
+  },
+  {
+   "p": "Un servidor Node mantiene 10.000 WebSockets abiertos y callados, sin estado propio por conexión. Según las mediciones de hoy, ¿qué consumen principalmente?",
+   "o": [
+    "Un núcleo de CPU entero, porque cada conexión pide atención constante",
+    "Un puerto distinto del servidor por cada conexión, hasta agotar los 65.535",
+    "Unos pocos KiB de memoria y un descriptor de archivo por conexión",
+    "Ancho de banda continuo, porque el canal está siempre transmitiendo"
+   ],
+   "c": 2,
+   "e": "Se midieron unos 4 KiB y un descriptor por conexión, con CPU casi nula en silencio. El servidor usa un único puerto para todas, porque cada conexión se distingue por la dirección y el puerto del cliente. Callada, una conexión no transmite datos útiles. Lo que se agota primero suelen ser los descriptores o el envío masivo."
+  },
+  {
+   "p": "Pusiste nginx delante de un servidor WebSocket y todas las conexiones se cortan exactamente a los 60 segundos sin mensajes. ¿Qué es lo más probable y cómo se resuelve?",
+   "o": [
+    "Un corte por inactividad del proxy, de 60 s por defecto; se sube el timeout o se mandan pings",
+    "El navegador cierra toda conexión a los 60 segundos, y hay que reconectar",
+    "El servidor Node tiene un límite de vida de 60 segundos por conexión",
+    "Falta el handshake: sin Upgrade nginx descarta la conexión cada minuto"
+   ],
+   "c": 0,
+   "e": "nginx cierra por defecto la conexión si el servidor no manda datos en 60 segundos; se soluciona subiendo `proxy_read_timeout` o con pings periódicos, que cuentan como datos. Si faltara Upgrade, la conexión no llegaría a abrirse (fallaría al instante, como en la prueba) y no se cortaría al minuto. Ni el navegador ni Node imponen ese límite."
+  }
+ ],
+ "feynman": "Explicale a alguien de tu depósito cómo puede una pantalla enterarse de que el camión avanzó sin que alguien presione «actualizar». Contá las cuatro técnicas con una analogía propia (teléfono, radio, handy) y decí cuál usarías para un chat y por qué.",
+ "para_profundizar": [
+  {
+   "fuente": "rfc6455",
+   "nota": "El protocolo completo. Para este día alcanza con la sección 1.3 (el handshake), la 5.2 (formato de la trama) y la 10.3 (por qué se enmascara)."
+  },
+  {
+   "fuente": "redws-rfc6202",
+   "nota": "Un informe del IETF sobre long polling y streaming con HTTP, con los problemas conocidos de cada uno. Es la fuente de por qué estas técnicas son como son."
+  },
+  {
+   "fuente": "redws-mdn-ws-servers",
+   "nota": "Una guía de MDN para escribir un servidor WebSocket a mano: handshake, tramas, ping y pong. Es el camino que seguimos en el laboratorio."
+  },
+  {
+   "fuente": "redws-nginx-ws",
+   "nota": "Cómo poner nginx delante de un servidor WebSocket: encabezados, timeout de 60 segundos y pings. Para cuando lo pongas en producción."
+  }
+ ],
+ "videos": [
+  {
+   "q": "WebSockets vs Server-Sent Events vs long polling explained",
+   "por_que": "Para ver las tres técnicas dibujadas, con las mismas ideas de hoy y otra voz."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "WebSocket",
+   "d": "Protocolo (RFC 6455) que convierte una conexión TCP, después de un pedido HTTP con Upgrade, en un canal abierto donde cliente y servidor se mandan mensajes en cualquier momento, en tramas de texto o binarias."
+  },
+  {
+   "t": "conexión persistente",
+   "d": "Conexión que se mantiene abierta durante minutos u horas en lugar de cerrarse tras cada pedido. Cada una ocupa memoria y un descriptor de archivo en el servidor aunque no transmita nada."
+  },
+  {
+   "t": "long polling",
+   "d": "Variante del polling donde el servidor deja el pedido sin contestar hasta que hay una novedad o vence un límite. El cliente vuelve a preguntar apenas recibe la respuesta."
+  },
+  {
+   "t": "Server-Sent Events",
+   "d": "Estándar web (EventSource) en el que el servidor mantiene abierta una respuesta de tipo text/event-stream y le va mandando eventos al cliente. Es de una sola vía y el navegador reconecta solo."
+  },
+  {
+   "t": "polling",
+   "d": "Técnica en la que el cliente repite un pedido cada cierto intervalo para ver si hay novedades. Es simple, pero tiene demora de hasta un intervalo y muchas respuestas que dicen que no cambió nada."
+  },
+  {
+   "t": "tormenta de reconexiones",
+   "d": "Pico de conexiones que ocurre cuando muchos clientes se cortan a la vez y reintentan todos al mismo tiempo. Se mitiga con una espera variable al azar entre los reintentos."
+  }
+ ],
+ "siguiente": "Latencia, ancho de banda y la velocidad de la luz: por qué 100 megabits no hacen que una página cargue más rápido, y cuántos milisegundos te cuesta, como mínimo, la distancia.",
+ "fuentes_nuevas": [
+  {
+   "id": "redws-rfc6202",
+   "t": "RFC 6202: Known Issues and Best Practices for the Use of Long Polling and Streaming in Bidirectional HTTP",
+   "a": "S. Loreto, P. Saint-Andre, S. Salsano y G. Wilkins",
+   "tipo": "rfc",
+   "anio": "2011",
+   "url": "https://www.rfc-editor.org/rfc/rfc6202"
+  },
+  {
+   "id": "redws-mdn-sse",
+   "t": "Using server-sent events",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events"
+  },
+  {
+   "id": "redws-whatwg-sse",
+   "t": "HTML Standard: Server-sent events",
+   "a": "WHATWG",
+   "tipo": "doc",
+   "url": "https://html.spec.whatwg.org/multipage/server-sent-events.html"
+  },
+  {
+   "id": "redws-mdn-ws-servers",
+   "t": "Writing WebSocket servers",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocket_servers"
+  },
+  {
+   "id": "redws-nginx-ws",
+   "t": "nginx: WebSocket proxying",
+   "a": "nginx.org",
+   "tipo": "doc",
+   "url": "https://nginx.org/en/docs/http/websocket.html"
+  },
+  {
+   "id": "redws-supabase-limits",
+   "t": "Supabase: Realtime limits",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/realtime/limits"
+  },
+  {
+   "id": "redws-supabase-realtime",
+   "t": "supabase/realtime (README)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://github.com/supabase/realtime"
+  },
+  {
+   "id": "redcdn-aws-alb",
+   "t": "AWS: Application Load Balancers",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/elasticloadbalancing/latest/application/application-load-balancers.html"
+  },
+  {
+   "id": "redcdn-aws-nlb",
+   "t": "AWS: Network Load Balancer, introducción",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/elasticloadbalancing/latest/network/introduction.html"
+  }
+ ]
+}
