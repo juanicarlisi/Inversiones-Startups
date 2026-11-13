@@ -1,0 +1,595 @@
+{
+ "id": "06-14",
+ "titulo": "El hilo principal, el event loop del navegador y la fluidez",
+ "bajada": "Medís cuánto congela una pestaña un cálculo de medio segundo y comparás tres maneras de que la página no se trabe: dejarlo, partirlo y mandarlo a un Worker.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué corre en el hilo principal del navegador y por qué un cálculo largo congela la página aunque no haya pedido de red.",
+  "Describir una vuelta del event loop del navegador, desde la tarea hasta el dibujo del cuadro, y ubicar ahí requestAnimationFrame.",
+  "Calcular cuántos milisegundos tiene cada cuadro a 60 y a 120 Hz y cuántos cuadros se pierden con una tarea de una duración dada.",
+  "Distinguir una tarea larga (50 ms o más) de un cuadro perdido, y medir ambas con la API de rendimiento del navegador.",
+  "Elegir entre partir un trabajo en trozos y mandarlo a un Web Worker, y explicar qué cambia en cada caso."
+ ],
+ "venis_de": "En [@06-13] viste que un temporizador pedido a 10 ms corrió a los 300 porque el hilo estaba ocupado. Hoy ese «hilo ocupado» pasa al centro: qué es, cuánto dura una vuelta y cómo se mide el daño. Apoyás esto en el event loop de [@03-41] y en la concurrencia de [@03-40].",
+ "se_apoya_en": [
+  "03-40",
+  "03-41",
+  "06-10",
+  "06-12",
+  "06-13"
+ ],
+ "gancho": [
+  "Un tablero de despacho tiene un botón «Optimizar rutas». Lo tocás y pasa algo raro: el camión animado se congela, el botón de al lado no responde y, medio segundo después, todo vuelve de golpe y aparece el resultado. No hubo ningún pedido a un servidor. El cálculo se hizo ahí mismo, dentro de tu pestaña.",
+  "Medio segundo parece poco hasta que lo ponés en cuadros y en clics que esperan. Hoy armo esa situación en esta VM con un cálculo de prueba, la mido con las herramientas del propio navegador y la comparo con dos arreglos distintos: partir el trabajo en pedazos y mandarlo a otro hilo."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un solo empleado para casi todo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una pestaña tiene muchas cosas que hacer: correr tu JavaScript, atender [[eventos|evento]], calcular estilos, hacer el [[layout]] y dibujar. Casi todo eso lo hace un único hilo, el [[hilo principal]]. Según web.dev, es el lugar donde corren la mayoría de las tareas del navegador y donde se ejecuta casi todo el JavaScript que escribís, y solo puede procesar **una tarea por vez** [#front-web-long-tasks]. Un cálculo de medio segundo no es un trámite más en la cola: mientras dura, nada más avanza en ese hilo.",
+    "Para verlo armé una página con una caja que se mueve en cada cuadro, tres botones que cuentan cuántos números primos hay hasta 3.000.000 y un botón cualquiera que cuenta clics. Un script de Playwright toca uno de los tres botones de cálculo, 150 ms después toca el botón cualquiera y anota tres cosas: el instante de cada cuadro dibujado, las tareas largas y cuánto tardó el navegador en empezar a atender cada clic."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El despachante único",
+   "x": [
+    "El hilo principal es el despachante de un depósito chico: atiende el teléfono, anota los pedidos, programa los camiones y firma los remitos, todo él solo y uno a la vez. Si se pone a armar a mano una planilla de rutas durante diez minutos, el teléfono suena y nadie atiende; cuando termina, contesta todas las llamadas juntas.",
+    "Dónde deja de valer: un despachante real puede dejar la planilla a medias y atender un llamado urgente. El navegador no interrumpe una tarea de JavaScript en curso; la termina entera antes de pasar a lo siguiente."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Una vuelta del event loop, con dibujo incluido"
+  },
+  {
+   "t": "p",
+   "x": "En [@03-41] viste el [[event loop]] con sus [[tareas|tarea]] y [[microtareas|microtarea]]. El del navegador tiene un paso más: de vez en cuando le toca **dibujar**. El estándar HTML lo define como una tarea más: «actualizar el dibujo» se encola cuando hay una oportunidad de renderizar, que normalmente coincide con el refresco de la pantalla [#asincronia-html-event-loops]. Una vuelta completa se ve así:"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "1. Una tarea",
+       "s": "un clic, un temporizador, una respuesta de red",
+       "k": "cliente"
+      },
+      {
+       "t": "2. Microtareas",
+       "s": "promesas pendientes, hasta vaciar la cola",
+       "k": "datos",
+       "e": "termina la tarea"
+      },
+      {
+       "t": "3. ¿Toca dibujar?",
+       "s": "cada ~16,7 ms a 60 Hz",
+       "k": "red",
+       "e": "cola vacía"
+      }
+     ],
+     "baja": "Si toca dibujar"
+    },
+    {
+     "nodos": [
+      {
+       "t": "4. requestAnimationFrame",
+       "s": "tus funciones de animación",
+       "k": "ok"
+      },
+      {
+       "t": "5. Estilos y layout",
+       "s": "recalcular lo que cambió",
+       "k": "servidor"
+      },
+      {
+       "t": "6. Pintura y composición",
+       "s": "se arma el cuadro y se muestra",
+       "k": "servidor"
+      }
+     ],
+     "baja": "Y vuelta al paso 1 con la tarea siguiente"
+    }
+   ],
+   "cap": "Una vuelta del event loop del navegador. Los pasos 4 a 6 solo ocurren cuando hay oportunidad de dibujar; la pestaña oculta no se dibuja."
+  },
+  {
+   "t": "p",
+   "x": "Lo que importa es lo que **no** pasa: el dibujo no interrumpe a una tarea. Si la tarea 1 dura 500 ms, el paso 3 espera 500 ms, y durante ese tiempo la pantalla no se actualiza ni el navegador atiende un clic nuevo. Las microtareas tampoco ayudan. Armé una cadena de 3.000.000 de microtareas, cada una encolando a la siguiente, y la medí:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node medir-microtareas.cjs",
+     "s": "3000000 microtareas encadenadas: 1006 ms; cuadros dibujados en ese tiempo: 5; mayor hueco entre cuadros: 983 ms"
+    }
+   ],
+   "cap": "Medido en esta VM con Playwright y Chrome 153, 13-11-2026. En una segunda corrida: 896 ms, 4 cuadros, hueco de 883 ms. Una cadena de microtareas bloquea el dibujo igual que un bucle."
+  },
+  {
+   "t": "p",
+   "x": "El orden dentro de una misma vuelta también se puede observar. Desde un clic encolé, en este orden, un temporizador de 0 ms, un `requestAnimationFrame` y una promesa, y anoté en qué orden corrían. Repetí la prueba 30 veces: las 30 dio «código síncrono, promesa, temporizador, requestAnimationFrame». El estándar no garantiza que el temporizador llegue siempre antes que el cuadro (si el dibujo está por tocar, puede ir al revés); lo que sí es seguro es que la promesa va primero, porque las microtareas se vacían al terminar la tarea."
+  },
+  {
+   "t": "pensa",
+   "x": "Un clic dispara una tarea de 40 ms. ¿Es una «tarea larga»? ¿Se pierde algún cuadro en una pantalla de 60 Hz?",
+   "resp": "No es una tarea larga: el umbral es 50 ms [#front-mdn-longtask]. Pero a 60 Hz cada cuadro dura 16,7 ms, así que 40 ms equivalen a unos 2,4 cuadros: el navegador salta dos. Son dos umbrales distintos, uno para medir bloqueos y otro para medir fluidez."
+  },
+  {
+   "t": "h",
+   "x": "Cuántos milisegundos tenés por cuadro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una animación fluida es una sucesión de cuadros que se muestran al ritmo de la pantalla. La cuenta es simple: a 60 Hz, el cuadro dura 1000 / 60 ≈ 16,7 ms. Según MDN, la frecuencia más común es 60 Hz, aunque también se usan 75, 120 y 144 Hz [#front-mdn-raf]. Lo medí en esta VM: la caja de prueba dibujó **90 cuadros en 1,5 segundos**, con el mayor intervalo entre cuadros de 17 ms. Es una pantalla virtual de 60 Hz.",
+    "No toda esa duración es tuya. web.dev explica que el máximo técnico es 16 ms a 60 Hz, pero el navegador necesita unos 6 ms para dibujar cada cuadro, así que recomienda que tu código use **10 ms** [#front-web-rail]. Es una guía de una época de pantallas de 60 Hz; a otras frecuencias la cuenta cambia, y lo que sigue en la tabla es mi extrapolación, no una cifra publicada:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pantalla",
+    "Duración del cuadro",
+    "Para tu código (cuadro menos ~6 ms)"
+   ],
+   "filas": [
+    [
+     "60 Hz",
+     "16,7 ms",
+     "unos 10 ms (guía de web.dev)"
+    ],
+    [
+     "120 Hz",
+     "8,3 ms",
+     "unos 2 ms (extrapolación mía)"
+    ],
+    [
+     "144 Hz",
+     "6,9 ms",
+     "menos de 1 ms (extrapolación mía)"
+    ]
+   ],
+   "cap": "El cuadro es 1000 dividido por los hercios. Los 6 ms del navegador son una cifra de web.dev pensada para 60 Hz; no la tomes como constante."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando un cuadro tarda más de lo que le corresponde y el navegador se salta uno o varios, el ojo lo ve como un tirón. A eso se le llama [[jank]]. Con la tarea de 500 ms de arriba, a 60 Hz se pierden unos 30 cuadros (500 / 16,7). Mi medición lo confirma: en una ventana de 1,5 segundos hubo 58 a 61 cuadros en vez de 90.",
+    "Hay otros dos umbrales de uso común. Una **tarea larga** (*long task*) es cualquier tarea de 50 ms o más; MDN y web.dev usan esa misma definición [#front-mdn-longtask]. Y para la respuesta a un toque, web.dev propone responder dentro de 100 ms y por eso atender los eventos en trozos de 50 ms como máximo [#front-web-rail]. La métrica de Core Web Vitals que mide esto en páginas reales se llama INP (*Interaction to Next Paint*): hasta 200 ms es «buena», de 200 a 500 «necesita mejorar», más de 500 «mala» [#front-web-inp]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "requestAnimationFrame: moverse al ritmo de la pantalla"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[requestAnimationFrame]] le pide al navegador que llame a tu función justo antes del próximo dibujo [#front-mdn-raf]. Es el paso 4 del diagrama. Sirve para todo lo que cambia lo que se ve en cada cuadro: mover una caja, redibujar un gráfico, avanzar un juego. Tiene dos ventajas sobre un `setTimeout` de 16 ms: no se desfasa del ritmo de la pantalla, y si la pestaña se oculta el navegador deja de llamarla, porque el estándar excluye de la actualización del dibujo a los documentos ocultos [#asincronia-html-event-loops].",
+    "Hay una trampa que nace de la tabla anterior. Este código mueve la caja 4 píxeles por cuadro:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "let x = 0;\nfunction cuadro() {\n  x = (x + 4) % 300;            // 4 px por cuadro\n  caja.style.transform = `translateX(${x}px)`;\n  requestAnimationFrame(cuadro);\n}\nrequestAnimationFrame(cuadro);",
+   "cap": "Versión ingenua. No es ejecutable acá porque necesita una página con una caja."
+  },
+  {
+   "t": "p",
+   "x": "A 60 Hz son 4 × 60 = 240 píxeles por segundo. A 120 Hz son 480: la caja va al **doble de velocidad**, porque el código cuenta cuadros y no tiempo. Y si un cuadro se pierde, la caja se atrasa. La versión correcta mide el tiempo que pasó, con el instante que `requestAnimationFrame` le entrega a la función:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const VELOCIDAD = 240;          // píxeles por segundo, en cualquier pantalla\nlet x = 0, antes = null;\nfunction cuadro(ahora) {         // «ahora» llega en milisegundos\n  if (antes !== null) x = (x + VELOCIDAD * (ahora - antes) / 1000) % 300;\n  antes = ahora;\n  caja.style.transform = `translateX(${x}px)`;\n  requestAnimationFrame(cuadro);\n}\nrequestAnimationFrame(cuadro);",
+   "cap": "Misma animación, con velocidad en píxeles por segundo. Si un cuadro se salta, el siguiente avanza lo que corresponde."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda: un bucle de cuadros que cuida el presupuesto",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. `src/componentes/pieza3d.tsx`, que dibuja la fiesta de la armadura, usa justo este patrón: una función `cuadro` que se vuelve a pedir con `requestAnimationFrame`, actualiza la escena, dibuja y, al desmontarse el componente, llama a `cancelAnimationFrame`. En React Native, `requestAnimationFrame` es una de las funciones de tiempo que ofrece la propia plataforma [#front-rn-timers], igual que `setTimeout`.",
+    "`src/componentes/lany3d.tsx` (el Lany en 3D, hoy apagado con `LANY_3D = false` en `src/arte/Arte.tsx`) muestra tres cuidados más: en reposo dibuja a 24 cuadros por segundo y a 60 solo mientras hay un gesto (un comentario del código dice que así el costo baja a menos de la mitad), no dibuja si la app está en segundo plano y limita el tiempo entre cuadros con `Math.min(0.05, …)`, para que un tirón no produzca un salto enorme. Es la misma idea de medir tiempo y no cuadros."
+   ],
+   "archivos": [
+    "src/componentes/pieza3d.tsx",
+    "src/componentes/lany3d.tsx",
+    "src/arte/Arte.tsx"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Tres salidas para el trabajo pesado"
+  },
+  {
+   "t": "p",
+   "x": "Con el cálculo de 500 ms hay tres caminos. El primero, **no hacerlo**: un algoritmo mejor o un resultado guardado ahorran el problema, y siempre se prueba antes. Si el trabajo es necesario, quedan los otros dos. Probé los tres con la misma página, cinco veces cada uno, y esto fue lo que midió:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Estrategia",
+    "Cuadros en 1,5 s (de 90)",
+    "Mayor hueco entre cuadros",
+    "Tareas largas",
+    "Espera del 2.º clic",
+    "Resultado listo en"
+   ],
+   "filas": [
+    [
+     "Sin hacer nada",
+     "90",
+     "17 ms",
+     "0",
+     "-",
+     "-"
+    ],
+    [
+     "En el hilo principal",
+     "58 a 61",
+     "500 a 550 ms",
+     "1 (de 527 a 566 ms)",
+     "367 a 404 ms",
+     "516 a 566 ms"
+    ],
+    [
+     "En un Web Worker",
+     "90",
+     "17 ms",
+     "0",
+     "menos de 16 ms (no figura)",
+     "514 a 602 ms"
+    ],
+    [
+     "En trozos de 8 ms",
+     "86 a 90",
+     "17 ms",
+     "0",
+     "0 a 7 ms",
+     "1.398 a 1.644 ms"
+    ]
+   ],
+   "cap": "Medido en esta VM (4 CPU, compartida), Chrome 153, cinco corridas por fila; los rangos son mínimo y máximo. En «trozos», una de las cinco no terminó dentro de la espera de la prueba y no se cuenta. En una corrida aislada anterior, con la VM más cargada, el Worker llegó a mostrar un hueco de 100 ms y un resultado en 1.131 ms: son órdenes de magnitud, no garantías."
+  },
+  {
+   "t": "p",
+   "x": "Mirá la fila del hilo principal. El cálculo tardó lo mismo que hubiera tardado en cualquier lado, pero el segundo clic, hecho 150 ms después de empezar, esperó entre 367 y 404 ms para que el navegador lo atendiera: recién entonces empezó a correr su manejador. Un toque con esa espera cae en el tramo «necesita mejorar» del INP. Y se cumplieron los 30 cuadros perdidos que anticipaba la cuenta."
+  },
+  {
+   "t": "h3",
+   "x": "Partir en trozos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La idea es trabajar un rato corto (8 ms en mi prueba), soltar el hilo y seguir después, para que entre un dibujo o un clic en el medio. Se hace con un temporizador de 0 ms entre trozo y trozo, o con `scheduler.yield()`, una API pensada para eso. Resultado medido: los 90 cuadros, hueco máximo de 17 ms y el segundo clic atendido enseguida.",
+    "El costo se ve en la última columna: el mismo cálculo tardó **de 2,5 a 3 veces más** (alrededor de 1,5 segundos contra 0,5). Tiene sentido: entre trozos hay pausas, cada una puede dejar pasar un dibujo, y a partir del sexto temporizador encadenado el mínimo sube a 4 ms, como midiste en [@06-13]. Trozos es una buena solución cuando lo que importa es que la página siga viva y el resultado no corre apuro."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "scheduler.yield: existe, pero no en todos lados",
+   "x": "En Chrome 153 `typeof scheduler.yield` dio `function`. Sin embargo, MDN lo marca el 13 de noviembre de 2026 como «disponibilidad limitada»: no es Baseline porque no funciona en algunos de los navegadores más usados [#front-mdn-yield]. Mientras siga así, hay que preguntar si existe antes de usarlo y tener el temporizador de 0 ms como plan B."
+  },
+  {
+   "t": "h3",
+   "x": "Mandarlo a un Web Worker"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[Web Worker]] es un script que el navegador corre en **otro hilo**, con su propio event loop y sin acceso a la página. Es la versión del navegador de lo que viste en [@03-40]: hilos que no comparten estado y se hablan por [[paso de mensajes|paso de mensajes]], con `postMessage` de un lado y `onmessage` del otro [#front-mdn-workers]. Mientras el Worker calcula, el hilo principal sigue libre: en la tabla, 90 cuadros, ninguna tarea larga y un segundo clic sin espera apreciable.",
+    "Fijate que el resultado no llegó antes: de 514 a 602 ms, igual que en el hilo principal. El Worker no hace el cálculo más rápido, hace que **no estorbe**. Y tiene un límite claro: no ve el [[DOM]]. Se lo pregunté a un Worker de verdad:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node medir-worker.cjs",
+     "s": "typeof document: undefined\ntypeof window: undefined\ntypeof localStorage: undefined\ntypeof fetch: function\ntypeof setTimeout: function\ntypeof indexedDB: object\ncopia (clon) de 64 MB:  postMessage ocupó el hilo 34.4 ms; el original sigue valiendo 67108864 bytes\ntransferencia de 64 MB: postMessage ocupó el hilo 0.1 ms; el original ahora vale 0 bytes"
+    }
+   ],
+   "cap": "Medido en esta VM, Chrome 153, 13-11-2026. En otra corrida, la copia de 64 MB ocupó el hilo 57 ms. `typeof` dentro del Worker: sin `document` ni `window`, pero con `fetch` y `setTimeout`, las Web APIs de [@06-13]."
+  },
+  {
+   "t": "p",
+   "x": "Un Worker puede pedir datos con `fetch` y esperar con temporizadores, pero no puede tocar la página: si quiere cambiar algo visible, manda el resultado al hilo principal, que sí puede. Las dos líneas finales muestran el otro costo. `postMessage` **copia** los datos con el algoritmo de clonado estructurado [#front-mdn-structured-clone]: 64 MB tardaron 34 ms de hilo principal ocupado, que ya son dos cuadros perdidos. Se puede **transferir** el buffer en lugar de copiarlo: tardó 0,1 ms, pero el original quedó en 0 bytes porque ahora pertenece al Worker [#front-mdn-transferable]."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Otra oficina que se comunica por mensajes",
+   "x": [
+    "Un Worker es una segunda oficina con su propio despachante. No comparten escritorio: se mandan mensajes. Copiar es sacar una fotocopia de la planilla y mandarla (cuesta tiempo en proporción al tamaño); transferir es mandar el original, y desde ese momento ya no lo tenés vos.",
+    "Dónde la analogía deja de valer: una oficina real puede pedir «prestame ese papel un rato». Entre hilos del navegador, salvo que uses memoria compartida (que existe pero tiene sus propias reglas), cada dato vive de un solo lado."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si es async, no bloquea»",
+   "x": "Una función `async` no corre en otro hilo. Probé `async function calcular() { await Promise.resolve(); return contarPrimos(3000000); }` y la medición fue la misma que la del hilo principal: resultado a los 533 ms, un hueco de 517 ms entre cuadros y una tarea larga de 533 ms. `async` y `await` ordenan el código en el tiempo; no lo mueven a otro hilo. Para eso hace falta un Worker."
+  },
+  {
+   "t": "h",
+   "x": "Cómo medirlo sin adivinar"
+  },
+  {
+   "t": "p",
+   "x": "Todo lo de arriba lo medí con APIs que trae el navegador, y las podés usar desde tu propia página. Las tres piezas son estas:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// 1. Tareas largas (50 ms o más)\nnew PerformanceObserver((lista) => {\n  for (const t of lista.getEntries()) console.log('tarea larga', Math.round(t.duration), 'ms');\n}).observe({ type: 'longtask', buffered: true });\n\n// 2. Retraso de cada interacción (Event Timing)\nnew PerformanceObserver((lista) => {\n  for (const e of lista.getEntries()) {\n    console.log(e.name, 'espera', Math.round(e.processingStart - e.startTime), 'ms');\n  }\n}).observe({ type: 'event', durationThreshold: 16, buffered: true });\n\n// 3. Intervalo entre cuadros\nlet previo = performance.now();\nfunction medir(ahora) {\n  if (ahora - previo > 25) console.log('cuadro lento:', Math.round(ahora - previo), 'ms');\n  previo = ahora;\n  requestAnimationFrame(medir);\n}\nrequestAnimationFrame(medir);",
+   "cap": "El código de medición de mi prueba, resumido. No es ejecutable acá porque necesita una página con interacciones. `durationThreshold: 16` es el mínimo que acepta el navegador, por eso los clics más rápidos no aparecen en la tabla."
+  },
+  {
+   "t": "p",
+   "x": "El panel «Rendimiento» de las herramientas de desarrollo muestra lo mismo en una línea de tiempo, con las tareas largas marcadas en rojo [#front-web-long-tasks]. La regla práctica: medir en un dispositivo parecido al del usuario. Un teléfono económico puede ser varias veces más lento que tu computadora, y una tarea de 40 ms en la tuya puede ser de 200 ms en el suyo."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Una pantalla de 120 Hz muestra un cuadro cada 8,3 ms. (a) ¿Cuántos cuadros se pierden con una tarea de 200 ms? (b) ¿Y a 60 Hz? (c) Un clic llega 50 ms después de empezar esa tarea: ¿cuánto espera hasta que el navegador empieza a atenderlo?",
+   "pista": "Dividí la duración de la tarea por la duración del cuadro. Para (c), restá el tiempo que ya pasó de la tarea.",
+   "solucion": "(a) 200 / 8,3 ≈ 24 cuadros. (b) 200 / 16,7 ≈ 12 cuadros. Con la misma tarea, la pantalla de más hercios pierde el doble de cuadros, aunque el tirón dure lo mismo. (c) El clic espera lo que le falta a la tarea: 200 − 50 = 150 ms, más el tiempo de despacho, porque el hilo está ocupado hasta que la tarea termina."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda: partir el trabajo y sacar la animación del hilo ocupado",
+   "x": [
+    "En `src/pantallas/Inicio.tsx`, la función `usePrepararPestanas` cuenta su propio motivo: la primera vez que se tocaba Travesía o Jugar, la app las armaba en ese momento, y con el teléfono quieto eso tomaba medio segundo. Como la tarea de hoy. La solución elegida es la de «trozos»: armar una pestaña por vez mientras se mira Inicio, con un `setTimeout` a los 4.500 ms y otro cada 1.400 ms. El comentario también explica que no usaron `InteractionManager` porque las animaciones en bucle impiden que arranque. En un teléfono, React Native distingue el hilo de JavaScript, donde corre el render de React y el layout, del hilo de interfaz, el único que puede tocar las vistas nativas [#front-rn-threading].",
+    "Y para lo que no puede esperar, `src/lector/Libro.tsx` usa funciones marcadas con `\"worklet\"` de Reanimated. La documentación de Reanimated dice que un worklet es una función corta de JavaScript que puede correr en el hilo de interfaz [#front-reanimated-glossary], y el mapa técnico confirma que la vuelta de hoja del lector corre ahí. Cuando el JavaScript normal necesita pedirla, usa `scheduleOnUI`, y para avisar de vuelta, `scheduleOnRN`. No es un Web Worker, pero resuelve el mismo problema: que una animación no dependa de que el hilo de JavaScript esté libre. En `src` no hay ningún `new Worker`."
+   ],
+   "archivos": [
+    "src/pantallas/Inicio.tsx",
+    "src/lector/Libro.tsx"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué envejece y qué no",
+   "x": [
+    "No envejece: un hilo principal que atiende una cosa por vez, el dibujo como parte del ciclo, la cuenta del cuadro (1000 dividido por los hercios), la diferencia entre tarea larga y cuadro perdido, y el modelo de Worker con mensajes.",
+    "Sí cambia: las métricas y los umbrales. INP reemplazó a FID como métrica de Core Web Vitals, según web.dev [#front-web-inp]; los 10 ms por cuadro son de una guía de pantallas de 60 Hz [#front-web-rail]; y la disponibilidad de `scheduler.yield` está según MDN al 13 de noviembre de 2026 [#front-mdn-yield]. Mediciones de esta página: Chrome 153.0.8010.12 headless, VM de 4 CPU compartida; los tiempos varían de corrida en corrida."
+   ]
+  }
+ ],
+ "recap": [
+  "El hilo principal ejecuta tu JavaScript, atiende eventos y participa del dibujo, y solo hace una tarea por vez. Un cálculo de 500 ms sin pedido de red congela la página igual: en la prueba, 58 a 61 cuadros en vez de 90 y un clic que esperó entre 367 y 404 ms.",
+  "Una vuelta del event loop del navegador es: una tarea, las microtareas, y si toca dibujar, `requestAnimationFrame`, estilos, layout y pintura. El dibujo no interrumpe una tarea, ni siquiera una cadena de microtareas.",
+  "El cuadro dura 1000 dividido por los hercios (16,7 ms a 60 Hz, 8,3 ms a 120 Hz) y el navegador usa parte. Jank es saltarse cuadros; una tarea larga es una de 50 ms o más; son umbrales distintos.",
+  "`requestAnimationFrame` llama a tu función antes de cada dibujo y se frena en pestañas ocultas. Las animaciones se escriben en píxeles por segundo con el tiempo que entrega, no en píxeles por cuadro.",
+  "Partir el trabajo en trozos mantiene viva la página pero alarga el total (de 0,5 a unos 1,5 s en la prueba). Un Web Worker mantiene viva la página sin alargarlo, pero no ve el DOM y se comunica por mensajes que copian los datos o los transfieren.",
+  "`async` y `await` no mueven nada a otro hilo: una función `async` con un cálculo pesado bloquea igual. Se mide con `PerformanceObserver` (tareas largas y Event Timing) y con la diferencia entre cuadros."
+ ],
+ "repaso": [
+  {
+   "p": "Una página no hace ningún pedido de red, pero al tocar un botón se congela medio segundo. ¿Cuál es la explicación más probable?",
+   "o": [
+    "El servidor tardó en responder y la página espera sin poder hacer otra cosa",
+    "Un cálculo largo ocupa el hilo principal y no deja atender eventos ni dibujar",
+    "El navegador limita cada clic a medio segundo para evitar toques dobles",
+    "El motor de JavaScript reinicia el hilo cada vez que se actualiza la pantalla"
+   ],
+   "c": 1,
+   "e": "Sin pedido de red, la espera solo puede venir de código que corre en el hilo principal, que atiende una tarea por vez: en la prueba, 566 ms de cálculo dejaron la página sin dibujar. Un servidor lento no aplica sin pedido. Ni existe un tope por clic ni el motor reinicia el hilo."
+  },
+  {
+   "p": "A 60 Hz, una tarea de 120 ms bloquea el hilo principal. ¿Aproximadamente cuántos cuadros se pierden y es una tarea larga?",
+   "o": [
+    "Unos 7 cuadros, y sí es una tarea larga porque supera los 50 ms",
+    "Unos 2 cuadros, y no es una tarea larga porque es menor a un segundo",
+    "Ningún cuadro, porque las tareas menores a 200 ms no afectan el dibujo",
+    "Unos 7 cuadros, pero no es una tarea larga porque eso depende de los hercios"
+   ],
+   "c": 0,
+   "e": "120 / 16,7 ≈ 7 cuadros. Y el umbral de tarea larga es 50 ms de duración, sin relación con la pantalla: 120 ms es una. Los otros planteos inventan umbrales (un segundo, 200 ms) o atan la definición a la frecuencia de la pantalla."
+  },
+  {
+   "p": "Una animación mueve un objeto 3 píxeles por cada llamada de `requestAnimationFrame`. Al pasarla de una pantalla de 60 Hz a una de 120 Hz, ¿qué ocurre?",
+   "o": [
+    "Se ve igual, porque el navegador reparte los 3 píxeles entre los dos cuadros",
+    "Se ve más lenta, porque con más cuadros por segundo cada uno dura menos",
+    "Se ve el doble de rápida, porque el código cuenta cuadros y hay el doble por segundo",
+    "Se detiene, porque `requestAnimationFrame` solo funciona a 60 Hz"
+   ],
+   "c": 2,
+   "e": "3 px × 60 = 180 px/s, y 3 px × 120 = 360 px/s. El navegador llama a la función una vez por cuadro y no ajusta los píxeles. La solución es calcular el avance con el tiempo que entrega `requestAnimationFrame`. No hay límite de 60 Hz."
+  },
+  {
+   "p": "Una función `async` empieza con `await Promise.resolve()` y después ejecuta un bucle de 500 ms. ¿Qué pasa con la fluidez de la página mientras dura el bucle?",
+   "o": [
+    "Sigue fluida, porque `async` ejecuta la función en un hilo separado",
+    "Sigue fluida, porque el `await` inicial le cede el hilo al dibujo",
+    "Se congela, porque el bucle corre en el hilo principal pese a ser `async`",
+    "Se congela solo la función, porque el dibujo corre en otro hilo propio"
+   ],
+   "c": 2,
+   "e": "`async` no cambia de hilo: tras el `await` el bucle corre en el hilo principal, y la medición dio una tarea larga de 533 ms y un hueco de 517 ms entre cuadros. El `await` cede el hilo solo hasta que la microtarea siguiente toma el control."
+  },
+  {
+   "p": "Querés calcular algo pesado sin congelar la página, y el cálculo no necesita tocar el DOM. ¿Qué diferencia práctica tiene mandarlo a un Web Worker frente a partirlo en trozos de 8 ms en el hilo principal?",
+   "o": [
+    "El Worker lo calcula más rápido, y los trozos no cambian el tiempo total",
+    "El Worker no alarga el total y deja el hilo libre; los trozos lo alargan pero no requieren mensajes",
+    "Los trozos dejan el hilo libre del todo; el Worker sigue bloqueándolo en parte",
+    "No hay diferencia: los dos usan el mismo hilo, solo cambia la sintaxis"
+   ],
+   "c": 1,
+   "e": "En la prueba, el Worker tardó lo mismo que el hilo principal (514 a 602 ms contra 516 a 566), sin tareas largas; los trozos tardaron unas tres veces más (1.398 a 1.644 ms) pero se escriben sin mensajes ni datos copiados. El Worker no acelera el cálculo, y los trozos no liberan el hilo del todo, porque cada trozo lo ocupa un rato."
+  },
+  {
+   "p": "Pasás un `Uint8Array` de 64 MB a un Web Worker con `postMessage(buf, [buf.buffer])`. Después, en el hilo principal, `buf.byteLength` vale 0. ¿Por qué?",
+   "o": [
+    "Porque el Worker lo modificó y dejó el original vacío",
+    "Porque falló la copia y el Worker nunca recibió los datos",
+    "Porque la transferencia mueve el buffer al Worker y el original ya no lo posee",
+    "Porque el navegador liberó la memoria al no usarse más en el hilo principal"
+   ],
+   "c": 2,
+   "e": "Al transferir, el buffer deja de pertenecer al hilo que lo mandó para evitar copiarlo: en la medición costó 0,1 ms contra 34 a 57 ms de la copia. El Worker sí recibió los 67.108.864 bytes. No es un fallo ni una liberación espontánea, y el Worker no modifica el original."
+  },
+  {
+   "p": "Un clic espera 380 ms desde que el usuario toca hasta que empieza a correr su manejador. Según los umbrales de INP de web.dev, ¿en qué tramo cae esa interacción?",
+   "o": [
+    "«Buena», porque 380 ms es menos de un segundo",
+    "«Necesita mejorar», porque está entre 200 y 500 ms",
+    "«Mala», porque cualquier espera sobre 100 ms lo es",
+    "No se puede clasificar, porque INP solo mide la primera interacción"
+   ],
+   "c": 1,
+   "e": "web.dev define como «buena» hasta 200 ms, «necesita mejorar» entre 200 y 500, y «mala» más de 500. Los 100 ms son una meta de respuesta, no el corte de INP. Y INP considera las interacciones de toda la visita, no solo la primera, que era lo que medía FID."
+  }
+ ],
+ "feynman": "Explicale a alguien que no programa por qué una página puede trabarse aunque no esté esperando nada de internet. Contá qué hace el «hilo principal», qué es un cuadro y por qué los hercios de la pantalla cambian cuánto tiempo tenés, y qué ganás y qué perdés al partir el trabajo o al mandarlo a un Worker. Usá un ejemplo propio de logística que no sea el despachante.",
+ "para_profundizar": [
+  {
+   "fuente": "front-web-long-tasks",
+   "nota": "El artículo de web.dev sobre tareas largas explica qué es una tarea, qué es el hilo principal y cómo partir el trabajo. Leé las secciones «What is a task?» y «Strategies to manage tasks»."
+  },
+  {
+   "fuente": "front-mdn-workers",
+   "nota": "La guía de MDN para usar Web Workers: cómo crear uno, qué APIs tiene disponibles y cómo se comunican los hilos. Sirve para repetir el ejemplo de hoy con tu propio cálculo."
+  },
+  {
+   "fuente": "asincronia-html-event-loops",
+   "nota": "La sección del estándar HTML sobre event loops, con el paso «update the rendering». Buscá esa frase para ver en qué orden se hace el trabajo de cada cuadro."
+  },
+  {
+   "fuente": "front-web-rail",
+   "nota": "El modelo RAIL de web.dev, con los umbrales de respuesta (100 ms) y de animación (10 ms por cuadro). Es de una época de pantallas de 60 Hz: leelo como razonamiento, no como constantes."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Jake Archibald In The Loop JSConf.Asia event loop tasks microtasks rendering",
+   "por_que": "Una charla clásica sobre el event loop del navegador, con animaciones de cómo se ordenan tareas, microtareas y dibujo; complementa el diagrama de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "hilo principal",
+   "d": "El hilo del navegador donde corre casi todo el JavaScript de una pestaña, se atienden los eventos y se hace buena parte del dibujo. Hace una tarea por vez: si una dura demasiado, la página no responde ni se actualiza."
+  },
+  {
+   "t": "jank",
+   "d": "Tirón visible en una animación o en el desplazamiento, que ocurre cuando uno o más cuadros tardan más de lo que corresponde y el navegador se salta algunos. A 60 Hz, cada cuadro dura unos 16,7 ms."
+  },
+  {
+   "t": "requestAnimationFrame",
+   "d": "Web API que pide al navegador llamar a una función justo antes del próximo dibujo, normalmente al ritmo de refresco de la pantalla. Es la forma indicada de animar, y se frena en pestañas ocultas."
+  },
+  {
+   "t": "Web Worker",
+   "d": "Script que el navegador ejecuta en otro hilo, con su propio event loop y sin acceso al DOM. Se comunica con la página por mensajes (`postMessage`) y permite hacer trabajo pesado sin congelar la interfaz."
+  },
+  {
+   "t": "tarea larga",
+   "d": "Tarea que ocupa el hilo principal 50 ms o más. Es el umbral con que el navegador y herramientas como web.dev señalan posibles problemas de respuesta."
+  }
+ ],
+ "siguiente": "Laboratorio: una página interactiva sin frameworks. Con el DOM, los eventos, `fetch` y el hilo principal ya en la mano, armás una lista de tareas a mano y ves de primera fila qué trabajo te va a ahorrar un framework.",
+ "fuentes_nuevas": [
+  {
+   "id": "front-web-long-tasks",
+   "t": "Optimize long tasks",
+   "a": "Wagner y Kenny (web.dev)",
+   "tipo": "articulo",
+   "anio": 2022,
+   "url": "https://web.dev/articles/optimize-long-tasks"
+  },
+  {
+   "id": "front-web-rail",
+   "t": "Measure performance with the RAIL model",
+   "a": "web.dev",
+   "tipo": "articulo",
+   "url": "https://web.dev/articles/rail"
+  },
+  {
+   "id": "front-web-inp",
+   "t": "Interaction to Next Paint (INP)",
+   "a": "web.dev",
+   "tipo": "articulo",
+   "url": "https://web.dev/articles/inp"
+  },
+  {
+   "id": "front-mdn-raf",
+   "t": "Window: requestAnimationFrame() method",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/Window/requestAnimationFrame"
+  },
+  {
+   "id": "front-mdn-longtask",
+   "t": "PerformanceLongTaskTiming",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/PerformanceLongTaskTiming"
+  },
+  {
+   "id": "front-mdn-yield",
+   "t": "Scheduler: yield() method",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/Scheduler/yield"
+  },
+  {
+   "id": "front-mdn-workers",
+   "t": "Using Web Workers",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Using_web_workers"
+  },
+  {
+   "id": "front-mdn-transferable",
+   "t": "Transferable objects",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects"
+  },
+  {
+   "id": "front-mdn-structured-clone",
+   "t": "The structured clone algorithm",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm"
+  },
+  {
+   "id": "front-rn-timers",
+   "t": "React Native: Timers",
+   "a": "Meta (React Native)",
+   "tipo": "doc",
+   "url": "https://reactnative.dev/docs/timers"
+  },
+  {
+   "id": "front-rn-threading",
+   "t": "React Native: Threading model",
+   "a": "Meta (React Native)",
+   "tipo": "doc",
+   "url": "https://reactnative.dev/architecture/threading-model"
+  },
+  {
+   "id": "front-reanimated-glossary",
+   "t": "Reanimated: Glossary of terms (worklet)",
+   "a": "Software Mansion",
+   "tipo": "doc",
+   "url": "https://docs.swmansion.com/react-native-reanimated/docs/fundamentals/glossary/"
+  }
+ ]
+}
