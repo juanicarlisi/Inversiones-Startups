@@ -1,0 +1,965 @@
+{
+ "id": "03-54",
+ "titulo": "Go",
+ "bajada": "Entendés por qué Go se diseñó chico a propósito y lo comprobás con números reales: 100.000 goroutines, un binario estático, una carrera de datos y las pausas del recolector.",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué problema querían resolver Pike, Thompson y Griesemer en Google en 2007, y por qué eligieron un lenguaje chico.",
+  "Escribir y leer programas con goroutines y canales, y explicar la idea de CSP que hay detrás.",
+  "Medir el costo de una goroutine y compararlo con el de un hilo del sistema operativo.",
+  "Distinguir un binario estático de uno dinámico y reproducir la diferencia con la variable CGO_ENABLED.",
+  "Leer una línea de gctrace y explicar qué significa «recolector de baja latencia» y cuál es su costo."
+ ],
+ "venis_de": "Del [@03-53] viste una plataforma con un runtime grande, JIT y tres formas de entregar un programa. Go toma el camino contrario: compila antes de entregar y mete un runtime chico dentro de un único ejecutable. Del [@03-40] y del [@03-41] ya sabés qué es la concurrencia y qué es esperar sin bloquear; hoy ves un lenguaje que hace de eso su rasgo central.",
+ "se_apoya_en": [
+  "02-20",
+  "02-22",
+  "03-24",
+  "03-40",
+  "03-53"
+ ],
+ "gancho": [
+  "Cambiás una línea de un servidor web, compilás y medio segundo después tenés un único archivo. Lo copiás a otra computadora sin instalar nada y anda. Después lanzás cien mil tareas concurrentes en un par de décimas de segundo, y la máquina ni se entera. Si venís de los runtimes grandes del [@03-50] y del [@03-53], eso se siente raro. En Go es lo normal, y no por casualidad: es el resultado de decisiones tomadas en 2007.",
+  "Hoy medimos esas decisiones. Vas a lanzar goroutines, a provocar una carrera de datos y un bloqueo a propósito, a mirar cuánto pesa un binario y a leer una línea del recolector de basura mientras trabaja. Todo corrió en este entorno con Go 1.24.7 (el que venía instalado) y, para algunos tamaños, con Go 1.27.4. Los tiempos son de una sola máquina virtual de cuatro núcleos."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un lenguaje chico a propósito: Google, 2007"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Según el FAQ oficial de Go, en 2007 el software de producción se escribía sobre todo en C++ o Java, casi ninguna computadora era todavía multiprocesador y GitHub no existía. Robert Griesemer, Rob Pike y Ken Thompson empezaron a esbozar los objetivos de un lenguaje nuevo en un pizarrón el 21 de septiembre de 2007, hartos de la complejidad que hacía falta para construir proyectos grandes [#golang-faq].",
+    "Su diagnóstico, también del FAQ: en los lenguajes populares había que elegir entre compilación eficiente, ejecución eficiente o facilidad de programación, y los tres juntos no estaban. Go intentó combinar la comodidad de un lenguaje dinámico con la eficiencia y la seguridad de uno estático y compilado, con una meta muy concreta: que construir un ejecutable grande lleve, como mucho, unos pocos segundos [#golang-faq]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Pike lo explicó en 2012 con una lista de dolores del desarrollo en Google: compilaciones lentas, dependencias sin control, cada programador usando un subconjunto distinto del lenguaje, código difícil de entender, costo de las actualizaciones y dificultad para escribir herramientas automáticas [#golang-at-google]. Fijate que casi todo es ingeniería de equipos grandes. Pike lo dice sin vueltas: Go no es un lenguaje de investigación; es lenguaje diseñado al servicio de la ingeniería de software."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "linea-tiempo",
+   "eventos": [
+    {
+     "a": "21-09-2007",
+     "t": "El pizarrón",
+     "d": "Griesemer, Pike y Thompson esbozan los objetivos."
+    },
+    {
+     "a": "ene. 2008",
+     "t": "Primer compilador",
+     "d": "Thompson empieza uno que genera código C, para explorar ideas."
+    },
+    {
+     "a": "10-11-2009",
+     "t": "Código abierto",
+     "d": "Go se vuelve un proyecto público."
+    },
+    {
+     "a": "28-03-2012",
+     "t": "Go 1",
+     "d": "Una versión pensada para ser estable a largo plazo."
+    },
+    {
+     "a": "19-08-2015",
+     "t": "Go 1.5",
+     "d": "Llega el recolector de basura concurrente que ves hoy."
+    },
+    {
+     "a": "15-03-2022",
+     "t": "Go 1.18",
+     "d": "Aparecen los genéricos, 13 años después de abrir el código."
+    },
+    {
+     "a": "19-08-2026",
+     "t": "Go 1.27",
+     "d": "La versión mayor vigente a esta fecha."
+    }
+   ],
+   "cap": "Fuentes: FAQ de Go [#golang-faq] y página oficial de versiones [#golang-releases]."
+  },
+  {
+   "t": "p",
+   "x": "Ese «chico» se nota en el lenguaje. La especificación lista 25 palabras reservadas [#golang-spec] (conté las de la lista). No hay jerarquía de clases: un tipo cumple una interfaz automáticamente si tiene los métodos que esta pide, sin declararlo [#golang-faq]. No hay excepciones con `try`/`catch`: las funciones devuelven el error como un valor más, la idea del [[error como valor]] que viste en el [@03-16]. Y los genéricos llegaron tarde a propósito: el FAQ dice que se dejaron afuera «por simplicidad» hasta encontrar un diseño cuyo valor justificara la complejidad."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Decisión de diseño",
+    "Qué se gana",
+    "Qué se cede"
+   ],
+   "filas": [
+    [
+     "Pocas palabras reservadas y casi una sola forma de hacer cada cosa",
+     "El código de otra persona se lee parecido al tuyo",
+     "Menos atajos: a veces más líneas para decir lo mismo"
+    ],
+    [
+     "Errores como valores, sin excepciones",
+     "El camino de error está a la vista: `if err != nil`",
+     "Repetición: ese chequeo se escribe a mano muchas veces"
+    ],
+    [
+     "Sin herencia de clases; interfaces que se cumplen solas",
+     "Los tipos no dependen unos de otros",
+     "Hay que pensar en composición si venís de Java"
+    ],
+    [
+     "Compilar y entregar un solo archivo",
+     "Segundos de espera, nada que instalar",
+     "Binarios más grandes que en C"
+    ],
+    [
+     "Recolector de basura",
+     "Sin liberar memoria a mano",
+     "Costo de procesador y algo de memoria extra"
+    ]
+   ],
+   "cap": "La columna de la derecha es mi lectura de los costos (criterio mío); la de la izquierda sale del FAQ y de la especificación."
+  },
+  {
+   "t": "h",
+   "x": "Goroutines: tareas que cuestan casi nada"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[goroutine]] es una función que corre de forma concurrente con el resto del programa. Se lanza poniendo `go` delante de una llamada. No es un [[hilo]] del sistema operativo: la maneja el propio runtime de Go, que reparte muchísimas goroutines sobre unos pocos hilos reales. Cuando una goroutine se bloquea, por ejemplo en una llamada al sistema, el runtime pasa las otras a un hilo libre y el programador no ve nada de eso [#golang-faq].",
+    "La documentación interna del runtime lo resume con tres letras: una **G** es una goroutine, una **M** es un hilo del sistema operativo y una **P** representa los recursos necesarios para ejecutar código Go. Hay exactamente tantas P como diga `GOMAXPROCS` (acá, 4, uno por núcleo), y el planificador empareja cada G con una M y una P [#golang-runtime-hacking]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Para saber cuánto cuesta una goroutine, lancé 100.000 que se quedan esperando en un canal y miré la memoria y los hilos:"
+  },
+  {
+   "t": "codigo",
+   "lang": "go",
+   "x": "package main\n\nimport (\n\t\"fmt\"\n\t\"os\"\n\t\"runtime\"\n\t\"strings\"\n\t\"sync\"\n\t\"time\"\n)\n\nfunc main() {\n\tconst n = 100_000\n\tvar antes, durante runtime.MemStats\n\truntime.ReadMemStats(&antes)\n\n\tvar wg sync.WaitGroup\n\tparar := make(chan struct{})\n\tinicio := time.Now()\n\tfor i := 0; i < n; i++ {\n\t\twg.Add(1)\n\t\tgo func() {\n\t\t\tdefer wg.Done()\n\t\t\t<-parar // espera, sin hacer nada\n\t\t}()\n\t}\n\tcreacion := time.Since(inicio)\n\ttime.Sleep(200 * time.Millisecond)\n\truntime.ReadMemStats(&durante)\n\n\tfmt.Printf(\"goroutines vivas: %d\\n\", runtime.NumGoroutine())\n\tfmt.Printf(\"crear %d goroutines: %d ms\\n\", n, creacion.Milliseconds())\n\tfmt.Printf(\"memoria de pilas: %d MB en total, unos %d bytes por goroutine\\n\",\n\t\t(durante.StackInuse-antes.StackInuse)/1_000_000,\n\t\t(durante.StackInuse-antes.StackInuse)/n)\n\testado, _ := os.ReadFile(\"/proc/self/status\")\n\tfor _, linea := range strings.Split(string(estado), \"\\n\") {\n\t\tif strings.HasPrefix(linea, \"Threads:\") {\n\t\t\tfmt.Println(\"hilos del sistema operativo:\", strings.TrimSpace(strings.TrimPrefix(linea, \"Threads:\")))\n\t\t}\n\t}\n\tclose(parar)\n\twg.Wait()\n}",
+   "cap": "`runtime.ReadMemStats` informa cuánta memoria de pilas usa el programa; `/proc/self/status` dice cuántos hilos del sistema operativo tiene."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "go run .",
+     "s": "goroutines vivas: 100001\ncrear 100000 goroutines: 144 ms\nmemoria de pilas: 204 MB en total, unos 2048 bytes por goroutine\nhilos del sistema operativo: 6"
+    }
+   ],
+   "cap": "Salida real. En mis corridas, crear las 100.000 tardó entre 135 y 263 ms, siempre con 204 MB de pilas y entre 5 y 6 hilos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos cosas para fijar. Cada goroutine usa unos **2 KB** de pila: la documentación del runtime dice que las pilas de usuario empiezan chicas (por ejemplo, 2K) y crecen cuando hace falta [#golang-runtime-hacking], y la medición lo confirma. Y 100.000 goroutines caben en **6 hilos del sistema**, porque las que esperan en un canal quedan estacionadas dentro del runtime y no ocupan ningún hilo.",
+    "Compará con hilos del sistema. Según el manual de `pthread_create`, la pila por defecto de un hilo nuevo la determina el límite `RLIMIT_STACK` [#golang-man7-pthread-create], y en esta máquina `ulimit -s` da 8.192 KB. Cien mil hilos reservarían unos 800 GB de espacio de direcciones (es un cálculo, no lo probé; reservar no es lo mismo que usar memoria física), y este kernel permite como máximo 128.500 hilos en todo el sistema (`/proc/sys/kernel/threads-max`). Por eso en otros lenguajes se piensa dos veces antes de crear un hilo por tarea, y en Go se crea una goroutine sin pensarlo."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El programa creó 100.000 goroutines y el sistema operativo vio unos 6 hilos. ¿Cómo es posible que tanta concurrencia no necesite tantos hilos?",
+   "resp": "Porque las goroutines no están atadas a un hilo. Las que esperan en un canal quedan estacionadas en estructuras del runtime, con su pila de 2 KB, sin ocupar ningún hilo. Solo las que están listas para correr necesitan una P y un hilo, y hay tantas P como núcleos (4 acá)."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Barata no es gratis",
+   "x": "Las 100.000 goroutines ocuparon 204 MB de pilas. Y una goroutine que nunca termina (porque espera un canal que nadie va a escribir) se queda en memoria para siempre: es una fuga, parecida a la [[fuga de memoria]] del [@03-24]. La facilidad de lanzarlas hace más fácil olvidarse de cuándo terminan."
+  },
+  {
+   "t": "h",
+   "x": "Canales: comunicar en lugar de compartir"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el [@03-40] viste que dos tareas que [[compartir estado]] necesitan cerrojos, y en el [@02-22] viste qué se rompe cuando falta uno. Hay otra manera de organizar un programa concurrente: que no compartan nada y se manden mensajes. Esa es la idea de **[[CSP]]** (Communicating Sequential Processes), que C. A. R. Hoare propuso en 1978: un programa como un conjunto de procesos secuenciales independientes cuya herramienta básica es enviar y recibir datos entre ellos [#golang-hoare-csp-1978].",
+    "Go toma esa idea con un giro. En el artículo de Hoare los procesos se nombran entre sí; el FAQ de Go cuenta que sus primitivas vienen de otra rama de la familia, cuyo aporte central es que los **canales** son valores de primera clase, algo que se crea, se pasa y se guarda como cualquier otro dato [#golang-faq]. Un [[canal]] es un conducto tipado: una goroutine escribe con `c <- valor` y otra lee con `valor := <-c`."
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "Do not communicate by sharing memory; instead, share memory by communicating.",
+   "autor": "Effective Go, citado en el blog de Go (Andrew Gerrand, 2010)",
+   "fuente": "golang-share-memory"
+  },
+  {
+   "t": "p",
+   "x": "En criollo: en vez de que muchas goroutines toquen la misma variable protegida con un candado, una sola goroutine es dueña del dato y las demás le piden cosas por un canal. Un canal sin buffer (`make(chan T)`) funciona como un encuentro: el que envía espera hasta que alguien recibe, y al revés. Con buffer (`make(chan T, 10)`) el envío espera solo si el canal está lleno. Veamos un ejemplo de logística: 20 pedidos y 4 repartidores que los toman de una misma cola."
+  },
+  {
+   "t": "codigo",
+   "lang": "go",
+   "x": "package main\n\nimport (\n\t\"fmt\"\n\t\"sort\"\n\t\"sync\"\n\t\"time\"\n)\n\ntype Pedido struct {\n\tID    int\n\tKilos float64\n}\n\ntype Resultado struct {\n\tPedido     int\n\tRepartidor int\n}\n\n// Cada repartidor es una goroutine: toma pedidos del canal hasta que se cierra.\nfunc repartidor(n int, pedidos <-chan Pedido, hechos chan<- Resultado, wg *sync.WaitGroup) {\n\tdefer wg.Done()\n\tfor p := range pedidos {\n\t\tdemora := 100 * time.Millisecond\n\t\tif p.ID == 3 {\n\t\t\tdemora = 500 * time.Millisecond // un pedido complicado\n\t\t}\n\t\ttime.Sleep(demora) // simula el tiempo de entrega\n\t\thechos <- Resultado{p.ID, n}\n\t}\n}\n\nfunc main() {\n\tpedidos := make(chan Pedido)\n\thechos := make(chan Resultado, 20)\n\tvar wg sync.WaitGroup\n\n\tinicio := time.Now()\n\tfor n := 1; n <= 4; n++ {\n\t\twg.Add(1)\n\t\tgo repartidor(n, pedidos, hechos, &wg)\n\t}\n\tfor i := 1; i <= 20; i++ {\n\t\tpedidos <- Pedido{ID: i, Kilos: 5}\n\t}\n\tclose(pedidos) // no hay más pedidos: los repartidores terminan solos\n\twg.Wait()\n\tclose(hechos)\n\n\tporRepartidor := map[int][]int{}\n\tfor r := range hechos {\n\t\tporRepartidor[r.Repartidor] = append(porRepartidor[r.Repartidor], r.Pedido)\n\t}\n\tfor n := 1; n <= 4; n++ {\n\t\tsort.Ints(porRepartidor[n])\n\t\tfmt.Printf(\"repartidor %d entregó %d pedidos\\n\", n, len(porRepartidor[n]))\n\t}\n\tfmt.Printf(\"20 pedidos con 4 repartidores: %d ms (en fila serían 2400)\\n\",\n\t\ttime.Since(inicio).Milliseconds())\n}",
+   "cap": "Cada repartidor es una goroutine. El pedido 3 es complicado y tarda 500 ms; los demás, 100 ms. `WaitGroup` espera a que terminen todas."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "go run .",
+     "s": "repartidor 1 entregó 6 pedidos\nrepartidor 2 entregó 2 pedidos\nrepartidor 3 entregó 6 pedidos\nrepartidor 4 entregó 6 pedidos\n20 pedidos con 4 repartidores: 605 ms (en fila serían 2400)"
+    }
+   ],
+   "cap": "Salida real. En las cuatro corridas que hice el reparto fue idéntico y el total estuvo entre 601 y 605 ms; el lenguaje no garantiza ese reparto."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Qué pasa en ese programa",
+   "pasos": [
+    {
+     "t": "Un canal, cuatro lectores",
+     "x": "`pedidos` es un canal sin buffer. Las cuatro goroutines repartidor leen de él con `for p := range pedidos`: cada una toma un pedido, «lo entrega» y vuelve a pedir otro."
+    },
+    {
+     "t": "El que se libera toma el siguiente",
+     "x": "El `main` envía los 20 pedidos de a uno. Cada envío espera hasta que un repartidor esté libre. Nadie asigna trabajo a mano: el repartidor que recibió el pedido lento de 500 ms hizo solo 2 entregas, y los otros tres hicieron 6."
+    },
+    {
+     "t": "Cerrar el canal avisa que se terminó",
+     "x": "`close(pedidos)` indica que no hay más. Los `range` terminan solos y cada repartidor avisa con `wg.Done()`."
+    },
+    {
+     "t": "Recién entonces se cuentan los resultados",
+     "x": "`wg.Wait()` bloquea el `main` hasta que todos terminaron, y recién ahí se lee el canal de resultados."
+    }
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: la fila única del banco",
+   "x": [
+    "Con un canal compartido pasa lo mismo que en un banco con una sola fila y varios cajeros: el cliente va al cajero que se libera, y si uno se atasca con un trámite largo, los otros siguen atendiendo. Una fila por cajero sería peor, porque un trámite largo deja a los de su fila esperando aunque otro cajero esté libre.",
+    "Donde la analogía deja de valer: en el programa los repartidores son idénticos y ninguno pasa por encima de otro. Un canal real no tiene prioridades ni clientes preferenciales."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Si en lugar de 4 repartidores lanzás 20 goroutines, una por pedido, ¿cuánto tarda el total? ¿Y cuántos hilos hacen falta?",
+   "resp": "Tarda lo que el pedido más lento: unos 500 ms (lo medí: 501 ms). Los hilos no suben a 20: las goroutines que duermen en `time.Sleep` no ocupan un hilo, y hay 4 P para las que estén listas. Con 4 repartidores sobre una cola el total fue 605 ms: se ahorra concurrencia a cambio de un poco de tiempo."
+  },
+  {
+   "t": "p",
+   "x": "Para que lo toques, acá va el mismo patrón en JavaScript, que corre en tu navegador. No tiene canales ni hilos paralelos, pero una cola compartida y varios «trabajadores» con `async` resuelven igual el problema de las esperas."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Lo mismo que el programa de Go, pero con async/await de JavaScript:\n// 4 «repartidores» sacan pedidos de una misma cola hasta que se vacía.\nconst espera = (ms) => new Promise((ok) => setTimeout(ok, ms));\n\nconst cola = Array.from({ length: 20 }, (_, i) => i + 1);   // pedidos 1..20\nconst entregados = { 1: 0, 2: 0, 3: 0, 4: 0 };\n\nasync function repartidor(n) {\n  while (cola.length > 0) {\n    const pedido = cola.shift();                 // saco el próximo de la fila\n    await espera(pedido === 3 ? 500 : 100);      // el pedido 3 es complicado\n    entregados[n]++;\n  }\n}\n\nconst inicio = Date.now();\nawait Promise.all([1, 2, 3, 4].map(repartidor));\nfor (const n of [1, 2, 3, 4]) console.log(`repartidor ${n} entregó ${entregados[n]} pedidos`);\nconsole.log(`total: ${Date.now() - inicio} ms (en fila serían 2400)`);",
+   "cap": "Con un solo hilo y un [[event loop]], los 4 trabajadores se turnan en las esperas. Para cálculo pesado en paralelo real, JavaScript necesita otros mecanismos."
+  },
+  {
+   "t": "h",
+   "x": "Qué se rompe: carreras y bloqueos"
+  },
+  {
+   "t": "p",
+   "x": "Que Go haga fácil la concurrencia no la vuelve segura. Un error clásico: mil goroutines que suman 1 a la misma variable `stock`."
+  },
+  {
+   "t": "codigo",
+   "lang": "go",
+   "x": "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\nfunc main() {\n\tstock := 0\n\tvar wg sync.WaitGroup\n\tfor i := 0; i < 1000; i++ {\n\t\twg.Add(1)\n\t\tgo func() {\n\t\t\tdefer wg.Done()\n\t\t\tstock++ // mil goroutines tocan la misma variable sin coordinarse\n\t\t}()\n\t}\n\twg.Wait()\n\tfmt.Println(\"stock final:\", stock, \"(esperado: 1000)\")\n}",
+   "cap": "Mil goroutines tocan la misma variable sin coordinarse. `stock++` son tres pasos: leer, sumar y escribir."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "for i in 1 2 3 4 5; do go run . ; done",
+     "s": "stock final: 1000 (esperado: 1000)\nstock final: 998 (esperado: 1000)\nstock final: 941 (esperado: 1000)\nstock final: 1000 (esperado: 1000)\nstock final: 1000 (esperado: 1000)"
+    },
+    {
+     "c": "go run -race .",
+     "s": "==================\nWARNING: DATA RACE\nRead at 0x00c000012158 by goroutine 7:\n  main.main.func1()\n      /tmp/go54w/carrera/main.go:15 +0x84\n\nPrevious write at 0x00c000012158 by goroutine 17:\n  main.main.func1()\n      /tmp/go54w/carrera/main.go:15 +0x96\n\nGoroutine 7 (running) created at:\n  main.main()\n      /tmp/go54w/carrera/main.go:13 +0x84\n…"
+    }
+   ],
+   "cap": "Salida real de cinco corridas y del chequeador de carreras (recortado; la ruta del archivo es la de mi carpeta temporal)."
+  },
+  {
+   "t": "p",
+   "x": "Es la [[condición de carrera]] del [@02-22]: dos goroutines leen el mismo valor, cada una suma uno y escribe, y una pisa la suma de la otra. Lo traicionero es que **a veces sale bien**: tres de las cinco corridas dieron 1000. Un error que aparece una de cada dos veces es el que no se detecta en las pruebas y salta en producción. Por eso Go trae un detector de carreras: compilando o corriendo con `-race`, el programa vigila los accesos a memoria y avisa cuál goroutine leyó y cuál escribió, y en qué línea [#golang-race-detector]."
+  },
+  {
+   "t": "p",
+   "x": "Hay dos arreglos habituales. Uno es un [[mutex]] (`sync.Mutex`) alrededor del `stock++`. El otro es el estilo de Go: una goroutine es dueña del dato y las demás le mandan mensajes."
+  },
+  {
+   "t": "codigo",
+   "lang": "go",
+   "x": "package main\n\nimport (\n\t\"fmt\"\n\t\"sync\"\n)\n\nfunc main() {\n\tmovimientos := make(chan int)\n\tlisto := make(chan int)\n\n\t// Una sola goroutine es dueña del stock: nadie más lo toca.\n\tgo func() {\n\t\tstock := 0\n\t\tfor m := range movimientos {\n\t\t\tstock += m\n\t\t}\n\t\tlisto <- stock\n\t}()\n\n\tvar wg sync.WaitGroup\n\tfor i := 0; i < 1000; i++ {\n\t\twg.Add(1)\n\t\tgo func() {\n\t\t\tdefer wg.Done()\n\t\t\tmovimientos <- 1 // en vez de tocar la variable, mandan un mensaje\n\t\t}()\n\t}\n\twg.Wait()\n\tclose(movimientos)\n\tfmt.Println(\"stock final:\", <-listo)\n}",
+   "cap": "La goroutine anónima de arriba es la única que toca `stock`. Las mil restantes le mandan un `1` por el canal."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "for i in 1 2 3 4 5; do go run -race . ; done",
+     "s": "stock final: 1000\nstock final: 1000\nstock final: 1000\nstock final: 1000\nstock final: 1000"
+    }
+   ],
+   "cap": "Cinco corridas con el detector activado: siempre 1000 y ninguna advertencia."
+  },
+  {
+   "t": "p",
+   "x": "El otro fantasma es el [[deadlock]]. Un envío por un canal sin buffer espera a que alguien reciba; si nadie va a recibir nunca, el programa queda colgado. Go lo detecta cuando **todas** las goroutines están dormidas:"
+  },
+  {
+   "t": "codigo",
+   "lang": "go",
+   "x": "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tpedidos := make(chan int) // sin buffer: enviar espera a que alguien reciba\n\tpedidos <- 1              // nadie va a recibir nunca\n\tfmt.Println(\"no llego acá\")\n}",
+   "cap": "Un envío sin receptor."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "go run .",
+     "s": "fatal error: all goroutines are asleep - deadlock!\n\ngoroutine 1 [chan send]:\nmain.main()\n\t/tmp/go54w/muerto/main.go:7 +0x28\nexit status 2"
+    }
+   ],
+   "cap": "Salida real. Nombra la goroutine, el estado («chan send») y la línea."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El aviso de deadlock tiene límites",
+   "x": "El runtime solo lo grita cuando no queda ninguna goroutine viva. En un servidor, donde siempre hay otras goroutines atendiendo pedidos, un bloqueo parcial pasa en silencio: las tareas afectadas quedan colgadas y el resto sigue funcionando. Tampoco hay magia con los canales: si dos goroutines modifican después un dato que se pasó por un canal, hay carrera igual. Pasarlo por el canal vale solo si el que lo recibe pasa a ser el único dueño (una convención, criterio mío)."
+  },
+  {
+   "t": "h",
+   "x": "Un binario estático y una compilación rápida"
+  },
+  {
+   "t": "p",
+   "x": "Un [[binario estático]] es un ejecutable que lleva adentro todo el código que necesita, incluido el runtime de Go y las bibliotecas, sin depender de bibliotecas compartidas del sistema. Es lo opuesto del [[enlace dinámico]] que viste en el [@02-20], donde el programa busca `libc.so` en tiempo de ejecución. Compilemos el servidor HTTP mínimo y miremos qué pasa:"
+  },
+  {
+   "t": "codigo",
+   "lang": "go",
+   "x": "package main\n\nimport (\n\t\"fmt\"\n\t\"log\"\n\t\"net/http\"\n)\n\nfunc main() {\n\thttp.HandleFunc(\"/envio/\", func(w http.ResponseWriter, r *http.Request) {\n\t\tid := r.URL.Path[len(\"/envio/\"):]\n\t\tfmt.Fprintf(w, \"envío %s: en camino\\n\", id)\n\t})\n\tlog.Println(\"escuchando en 127.0.0.1:8057\")\n\tlog.Fatal(http.ListenAndServe(\"127.0.0.1:8057\", nil))\n}",
+   "cap": "Un servidor web completo con solo la biblioteca estándar. Lo corrí y respondió `envío 42: en camino` a un `curl`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "go build -o srv .   &&   ldd srv",
+     "s": "\tlinux-vdso.so.1\n\tlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6\n\t/lib64/ld-linux-x86-64.so.2"
+    },
+    {
+     "c": "CGO_ENABLED=0 go build -o srv-static .   &&   ldd srv-static",
+     "s": "\tnot a dynamic executable"
+    }
+   ],
+   "cap": "Salida real (se omitieron las direcciones de memoria de `ldd`). El mismo código, dos resultados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "¡Sorpresa! El primer binario depende de `libc.so.6`. La causa está en el paquete `net`: tiene una parte escrita en C, el [[cgo]], que se compila y se enlaza con la libc cuando hay un compilador de C disponible. Lo verifiqué con `go list -f '{{.CgoFiles}}' net`, que lista cinco archivos de cgo, y con `CGO_ENABLED=0`, que da una lista vacía. En esta máquina hay `gcc`, así que `go version -m srv` mostró `CGO_ENABLED=1` por defecto. Con `CGO_ENABLED=0` (o con las etiquetas de compilación `-tags netgo,osusergo`, que también probé) el binario sale estático.",
+    "Esto desmiente la idea de que «Go siempre produce binarios estáticos». Lo hace si se lo pedís o si el programa no usa nada que requiera C. Y no es obligatorio: el `docker` instalado en este entorno es un programa de Go enlazado dinámicamente con la libc."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Programa «hola» o servidor",
+    "Cómo se compiló",
+    "Tamaño medido",
+    "Enlace"
+   ],
+   "filas": [
+    [
+     "«hola» en C",
+     "`gcc -O2`",
+     "15.960 bytes",
+     "dinámico (necesita libc)"
+    ],
+    [
+     "«hola» en C",
+     "`gcc -O2 -static`",
+     "785.376 bytes",
+     "estático"
+    ],
+    [
+     "«hola» en Go",
+     "`CGO_ENABLED=0 go build`",
+     "2.209.239 bytes",
+     "estático"
+    ],
+    [
+     "Servidor HTTP en Go",
+     "`go build` (cgo activo)",
+     "8.230.895 bytes",
+     "dinámico (libc)"
+    ],
+    [
+     "Servidor HTTP en Go",
+     "`CGO_ENABLED=0 go build`",
+     "8.151.081 bytes",
+     "estático"
+    ],
+    [
+     "Servidor HTTP en Go",
+     "`CGO_ENABLED=0`, `-ldflags=\"-s -w\"`",
+     "5.525.688 bytes",
+     "estático, sin símbolos ni depuración"
+    ]
+   ],
+   "cap": "Go 1.24.7 y gcc 13.3 en Linux x86-64. Con Go 1.27.4, el «hola» pesó 2.359.076 bytes, el servidor estático 8.665.294 y el reducido 5.894.304. Una sola máquina."
+  },
+  {
+   "t": "p",
+   "x": "¿Por qué un «hola» de Go pesa 2,2 MB y el de C, 16 KB? Porque el de C deja casi todo afuera, en la libc del sistema, y el de Go lleva adentro su planificador de goroutines y su recolector de basura. Es el mismo trueque de la tabla de entrega del [@03-53]: más peso a cambio de no depender de lo que tenga instalado la máquina de destino. Para un servidor que se despliega en muchas máquinas o en un [[contenedor]], copiar un solo archivo es una ventaja operativa enorme."
+  },
+  {
+   "t": "p",
+   "x": "Esa independencia abre otra puerta, la [[compilación cruzada]]: compilar en una máquina para otra. Desde esta Linux x86-64, sin instalar nada más, produje:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go build -o hola.exe . && file hola.exe",
+     "s": "hola.exe: PE32+ executable (console) Aarch64, for MS Windows, 13 sections"
+    },
+    {
+     "c": "GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o hola-arm64 . && file hola-arm64",
+     "s": "hola-arm64: ELF 64-bit LSB executable, ARM aarch64, version 1 (SYSV), statically linked, …"
+    },
+    {
+     "c": "GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o hola-mac . && file hola-mac",
+     "s": "hola-mac: Mach-O 64-bit arm64 executable, flags:<|DYLDLINK|PIE>"
+    }
+   ],
+   "cap": "Salida real (recortada). Tres sistemas y dos chips, desde una sola máquina. No ejecuté estos binarios: solo comprobé qué clase de archivo son."
+  },
+  {
+   "t": "p",
+   "x": "Y la velocidad. Medí cuatro compilaciones del servidor con el reloj de la máquina:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Qué compilé",
+    "Tiempo"
+   ],
+   "filas": [
+    [
+     "Servidor con caché vacía (compila antes la biblioteca estándar que usa `net/http`, con cgo)",
+     "15,9 s"
+    ],
+    [
+     "Servidor estático, caché vacía para esa configuración",
+     "6,1 s"
+    ],
+    [
+     "Servidor sin cambios",
+     "0,12 s"
+    ],
+    [
+     "Servidor tras cambiar una letra de `main.go`",
+     "0,49 s"
+    ]
+   ],
+   "cap": "Tiempos de reloj en una sola máquina virtual de 4 núcleos. La primera fila incluye compilar paquetes de la biblioteca estándar, que después quedan guardados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La caché explica gran parte del resultado, pero el diseño ayuda. Pike cuenta dos decisiones del lenguaje [#golang-at-google]. La primera: importar un paquete y no usarlo es un **error de compilación**, no una advertencia, lo que garantiza que el árbol de dependencias de un programa no tenga ramas de más. La segunda: cuando un paquete importa a otro, el compilador lee un solo archivo objeto, que ya trae los tipos de todo lo que el paquete exporta, en lugar de releer código fuente de toda la cadena de dependencias, como hacen las cabeceras de C.",
+    "La primera se ve en seguida:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "go build .",
+     "s": "# imp\n./main.go:5:2: \"os\" imported and not used"
+    }
+   ],
+   "cap": "Un programa que importa `os` sin usarlo. No compila."
+  },
+  {
+   "t": "h",
+   "x": "Un recolector que espera poco"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el [@03-24] viste que el [[recolector de basura]] libera la memoria que nadie usa, y que tiene un costo: mientras trabaja, puede frenar el programa. Un recolector simple frena todo («stop the world»), limpia y suelta. Con un heap grande, esa pausa puede durar mucho, y para un servidor que responde pedidos eso son clientes esperando.",
+    "Go 1.5, de agosto de 2015, cambió de enfoque. Su recolector es concurrente, de marcado y barrido con tres colores, basado en una idea que Dijkstra propuso en 1978, y está diseñado para favorecer la **baja latencia** y para ajustarse con una sola perilla [#golang-gc-1-5]. Eso es un [[recolector de baja latencia]]: prioriza que las pausas sean cortas por encima de aprovechar al máximo el procesador. El equipo se había puesto una meta de menos de 10 ms de pausa y dijo haber quedado bien por debajo [#golang-gc-1-5]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Barrido: pausa corta",
+       "s": "frena el programa (STW)",
+       "k": "alerta"
+      },
+      {
+       "t": "Marcado concurrente",
+       "s": "el programa sigue corriendo",
+       "k": "servidor",
+       "e": "arranca"
+      },
+      {
+       "t": "Cierre del marcado: pausa corta",
+       "s": "frena el programa (STW)",
+       "k": "alerta",
+       "e": "termina"
+      }
+     ]
+    }
+   ],
+   "cap": "Las tres fases de un ciclo, según la documentación del runtime [#golang-runtime-pkg]. Solo las dos de los extremos frenan el programa."
+  },
+  {
+   "t": "p",
+   "x": "Para verlo, armé un programa con unos 130 MB de datos vivos (dos millones de envíos enlazados, que el recolector tiene que recorrer) y lo hice generar basura sin parar durante tres segundos, midiendo cuánto se frenaba."
+  },
+  {
+   "t": "codigo",
+   "lang": "go",
+   "x": "package main\n\nimport (\n\t\"fmt\"\n\t\"runtime\"\n\t\"runtime/debug\"\n\t\"time\"\n)\n\nvar (\n\tsumidero []byte // obliga a que la basura viva en el heap\n\traiz     *Envio // mantiene vivos los envíos hasta el final\n)\n\ntype Envio struct {\n\tID      int\n\tDestino string\n\tKilos   float64\n\tNext    *Envio\n}\n\nfunc main() {\n\t// Heap vivo grande: 2 millones de envíos enlazados (el recolector tiene que recorrerlos).\n\tfor i := 0; i < 2_000_000; i++ {\n\t\traiz = &Envio{ID: i, Destino: \"Palermo\", Kilos: 1.5, Next: raiz}\n\t}\n\n\t// Mientras tanto, el programa sigue trabajando y generando basura.\n\tinicio := time.Now()\n\tvar peorDemora time.Duration\n\tfor time.Since(inicio) < 3*time.Second {\n\t\tt := time.Now()\n\t\tsumidero = make([]byte, 256<<10) // 256 KB de basura por vuelta\n\t\tif d := time.Since(t); d > peorDemora {\n\t\t\tpeorDemora = d\n\t\t}\n\t}\n\n\tvar s debug.GCStats\n\tdebug.ReadGCStats(&s)\n\tvar maxPausa time.Duration\n\tfor _, p := range s.Pause {\n\t\tif p > maxPausa {\n\t\t\tmaxPausa = p\n\t\t}\n\t}\n\tvar m runtime.MemStats\n\truntime.ReadMemStats(&m)\n\tfmt.Printf(\"heap en uso al final: ~%d MB · ciclos de GC: %d\\n\", m.HeapAlloc>>20, s.NumGC)\n\tfmt.Printf(\"pausa más larga del recolector: %v · pausa total: %v\\n\", maxPausa, s.PauseTotal)\n\tfmt.Printf(\"la vuelta más lenta del programa: %v\\n\", peorDemora)\n\truntime.KeepAlive(raiz)\n}",
+   "cap": "`debug.ReadGCStats` da el historial de pausas. La variable `sumidero` obliga a que la basura viva en el heap y no en la pila."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "go run .",
+     "s": "heap en uso al final: ~253 MB · ciclos de GC: 40\npausa más larga del recolector: 227.676µs · pausa total: 1.891995ms\nla vuelta más lenta del programa: 6.037011ms"
+    },
+    {
+     "c": "GODEBUG=gctrace=1 ./gc 2>&1 | grep \"^gc 20 \"",
+     "s": "gc 20 @1.538s 18%: 0.018+58+0.005 ms clock, 0.074+16/40/0.010+0.022 ms cpu, 223->261->130 MB, 261 MB goal, 0 MB stacks, 0 MB globals, 4 P"
+    }
+   ],
+   "cap": "Salidas reales de dos corridas distintas. En las otras dos corridas sin traza, la pausa más larga fue de 171 y 172 microsegundos y la vuelta más lenta, de 13 y 18 ms."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Cómo se lee la línea del ciclo 20",
+   "pasos": [
+    {
+     "t": "«gc 20 @1.538s 18%»",
+     "x": "Es el ciclo 20, ocurrió a 1,538 s de arrancar y, desde el inicio, el programa lleva el 18 % del tiempo trabajando en recolección [#golang-runtime-pkg]."
+    },
+    {
+     "t": "«0.018+58+0.005 ms clock»",
+     "x": "Las tres fases, en milisegundos de reloj: 0,018 de pausa al empezar, 58 de marcado **concurrente** (el programa siguió corriendo) y 0,005 de pausa al cerrar. El programa estuvo frenado unos 0,023 ms y no 58."
+    },
+    {
+     "t": "«223->261->130 MB, 261 MB goal»",
+     "x": "El heap tenía 223 MB al empezar, 261 al terminar y quedaron 130 MB vivos. La meta de 261 MB es esos 130 vivos más el 100 % (el valor por defecto de `GOGC`) [#golang-runtime-pkg]."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "La pausa más larga fue de 0,2 milisegundos, muy por debajo de los 10 ms que Go se fijó como meta en 2015. Pero mirá lo que no dice ese número: la vuelta más lenta del programa fue de 6 a 18 ms, y el recolector pasó cerca del 18 % del tiempo trabajando. La latencia baja no es costo cero: el recolector corre al lado del programa, consume procesador, y un programa que asigna mucha memoria colabora con él en el momento de asignar."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Go no tiene pausas»",
+   "x": "Tiene pausas muy cortas, que no es lo mismo. Y esas pausas son solo una parte del retraso que un programa puede sufrir por el recolector. Si tu servicio tiene metas estrictas de latencia, hay que medirlo con tu carga real, no confiar en la fama."
+  },
+  {
+   "t": "p",
+   "x": "La perilla es `GOGC`. Con el mismo programa, cambiándola:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "GOGC",
+    "Meta de heap (última línea)",
+    "Ciclos en 3 s",
+    "Tiempo en GC al final"
+   ],
+   "filas": [
+    [
+     "50",
+     "162 MB",
+     "49",
+     "21 %"
+    ],
+    [
+     "100 (por defecto)",
+     "261 MB",
+     "42",
+     "19 %"
+    ],
+    [
+     "200",
+     "679 MB",
+     "28",
+     "14 %"
+    ],
+    [
+     "400",
+     "2.072 MB",
+     "12",
+     "6 %"
+    ]
+   ],
+   "cap": "Una corrida por fila, en una sola máquina. Las metas salen de las líneas de gctrace; la de 100 es la del ciclo 20 de arriba. Más memoria, menos ciclos."
+  },
+  {
+   "t": "ejercicio",
+   "x": "En una línea de gctrace leés `545->679->226 MB, 679 MB goal` con `GOGC=200`. Verificá con una cuenta que la meta de 679 MB es coherente con el valor de GOGC. ¿Qué esperás que pase con la memoria si lo subís a 400?",
+   "pista": "La meta es el heap vivo más el porcentaje de GOGC aplicado sobre ese vivo.",
+   "solucion": "Con 226 MB vivos y GOGC=200, la meta es 226 × (1 + 200/100) = 678 MB, que coincide con los 679 de la línea. Con GOGC=400 el multiplicador es 5, así que la meta sube mucho: en mi corrida fue de 2.072 MB con 414 MB vivos. El recolector corre menos veces, a cambio de usar bastante más memoria."
+  },
+  {
+   "t": "h",
+   "x": "Dónde se usa Go, y dónde no"
+  },
+  {
+   "t": "p",
+   "x": "Un binario de Go guarda en su interior qué versión del compilador lo construyó. El comando `go version -m` lo muestra, y en este mismo entorno hay dos programas de Go que no escribí yo:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "go version -m /usr/bin/docker | head -2",
+     "s": "/usr/bin/docker: go1.26.10\n\tpath\tgithub.com/docker/cli/cmd/docker"
+    },
+    {
+     "c": "go version -m /usr/local/bin/gh | head -3",
+     "s": "/usr/local/bin/gh: go1.26.1\n\tpath\tgithub.com/cli/cli/v2/cmd/gh\n\tmod\tgithub.com/cli/cli/v2\tv2.89.0"
+    }
+   ],
+   "cap": "Salida real. `docker` es la línea de comandos de Docker (47 MB, dinámica) y `gh`, la de GitHub (40 MB, estática)."
+  },
+  {
+   "t": "p",
+   "x": "Más allá de lo instalado acá, leí el archivo `go.mod` de varios proyectos famosos de infraestructura el 13-11-2026. Cada uno declara su módulo y la versión mínima de Go:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Proyecto",
+    "Para qué sirve",
+    "Módulo en su go.mod",
+    "Versión de Go que declara"
+   ],
+   "filas": [
+    [
+     "Docker (moby)",
+     "Motor de contenedores, que viste en el [@02-24]",
+     "`github.com/moby/moby/v2` ([go.mod](https://raw.githubusercontent.com/moby/moby/master/go.mod))",
+     "1.26.8"
+    ],
+    [
+     "Kubernetes",
+     "Orquestador de contenedores",
+     "`k8s.io/kubernetes` ([go.mod](https://raw.githubusercontent.com/kubernetes/kubernetes/master/go.mod))",
+     "1.27.0"
+    ],
+    [
+     "Prometheus",
+     "Sistema de métricas y alertas",
+     "`github.com/prometheus/prometheus` ([go.mod](https://raw.githubusercontent.com/prometheus/prometheus/main/go.mod))",
+     "1.26.10"
+    ],
+    [
+     "Terraform",
+     "Infraestructura definida como código",
+     "`github.com/hashicorp/terraform` ([go.mod](https://raw.githubusercontent.com/hashicorp/terraform/main/go.mod))",
+     "1.26.11"
+    ],
+    [
+     "etcd",
+     "Base de datos clave-valor distribuida",
+     "`go.etcd.io/etcd/v3` ([go.mod](https://raw.githubusercontent.com/etcd-io/etcd/main/go.mod))",
+     "1.27"
+    ]
+   ],
+   "cap": "Datos tomados de la rama principal de cada repositorio el 13-11-2026. Que figure el lenguaje no dice cuánto del código es Go."
+  },
+  {
+   "t": "p",
+   "x": "El patrón es claro y, para mí, no es casualidad: Go domina las herramientas de infraestructura de nube, que son programas de servidor o de línea de comandos, con mucho trabajo concurrente de red y que se reparten como un solo archivo. Es una lectura mía a partir de esta muestra, no una estadística. En el [@07-24] lo vas a comparar con otras opciones para el backend. Donde Go casi no aparece es en lo que corre dentro del teléfono o del navegador."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa Go, y una herramienta que parecía de Go no lo es",
+   "x": [
+    "Esto corresponde al commit `25e08fa` (el código cambia, la forma permanece). No hay archivos `.go` ni `go.mod` en el repositorio de Senda. Como con .NET, la única mención a Go está en el paso que libera espacio en disco de los flujos `apk.yml`, `aab.yml` y `humo.yml`: borra `/opt/hostedtoolcache/go`, el Go que trae instalado la máquina de compilación de GitHub.",
+    "El hallazgo está en `supabase.yml`. El flujo que aplica las migraciones a la base fija la versión 3.0.0 del CLI de Supabase con `supabase/setup-cli@v1`. Uno asumiría que una herramienta de este tipo es de Go. Instalé de npm el paquete `supabase@3.0.0` y le pedí a `go version -m` que mirara su ejecutable de 140 MB: respondió «not a Go executable». El `package.json` de su código fuente declara dependencias de TypeScript y de Bun, un entorno de ejecución de JavaScript. No verifiqué que el flujo descargue exactamente ese archivo, pero la lección vale: el lenguaje de una herramienta se comprueba, no se supone."
+   ],
+   "archivos": [
+    ".github/workflows/supabase.yml",
+    ".github/workflows/apk.yml",
+    ".github/workflows/aab.yml",
+    ".github/workflows/humo.yml",
+    "supabase/functions/trivia-sermon/index.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones de Go (verificado el 13-11-2026)",
+   "x": [
+    "Según la página oficial de versiones [#golang-releases], Go 1.27.0 salió el 19-08-2026 y la revisión 1.27.4 el 10-11-2026 (con correcciones de seguridad en cgo, el comando `go`, el compilador, el enlazador y `net/http`). Go 1.26.0 salió el 10-02-2026. La política dice que cada versión mayor tiene soporte hasta que existan dos versiones mayores más nuevas: hoy, entonces, tienen soporte la 1.26 y la 1.27. El Go 1.24.7 que venía instalado acá (1.24.0 es del 11-02-2025) ya quedó fuera de soporte.",
+    "Para correr con 1.27.4 no instalé nada: desde Go 1.21 el comando `go` puede bajar la versión de Go que pida el `go.mod` del proyecto [#golang-toolchain]. Lo que no envejece son las ideas de hoy: goroutines y canales, el binario estático como opción y un recolector que prefiere pausas cortas. Lo que cambia cada seis meses son los números (tamaños, pausas) y los detalles internos del recolector; los de este día valen para estas versiones y esta máquina."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Lo que te llevás para decidir",
+   "x": "Si alguien te propone Go para un servicio, las preguntas útiles son: ¿es mucho trabajo concurrente de red?, ¿se despliega en muchas máquinas o en contenedores?, ¿el equipo tolera repetir el manejo de errores a mano? y ¿hay una meta de latencia que haya que medir? En cambio, para una app de teléfono o un sitio con mucha interfaz, Go no suele ser la herramienta."
+  }
+ ],
+ "recap": [
+  "Go nació en Google en 2007 para que construir software grande fuera más rápido y claro: 25 palabras reservadas, errores como valores, sin herencia de clases y genéricos recién en 2022.",
+  "Una **goroutine** pesa unos 2 KB de pila y la planifica el runtime sobre pocos hilos: medí 100.000 en 135 a 263 ms, con 204 MB y 5 o 6 hilos del sistema.",
+  "Los **canales** vienen de CSP (Hoare, 1978): en vez de compartir una variable, una goroutine es dueña del dato y las demás le mandan mensajes. Una cola con 4 repartidores repartió el trabajo sola.",
+  "La concurrencia sigue pudiendo romperse: mil `stock++` dieron 1000, 998 y 941, y `go run -race` mostró la carrera. El deadlock total se detecta; el parcial, no.",
+  "Un **binario estático** lleva todo adentro: el «hola» de Go pesa 2,2 MB. Con cgo activo, un servidor depende de libc; con `CGO_ENABLED=0` es estático. La compilación cruzada produjo binarios para Windows, Linux y Mac desde una sola máquina.",
+  "Su **recolector de baja latencia** pausó el programa unos 0,2 ms con 130 MB vivos, pero consumió cerca del 18 % del tiempo. `GOGC` cambia memoria por ciclos. Senda no usa Go."
+ ],
+ "repaso": [
+  {
+   "p": "Un programa lanza 100.000 goroutines que esperan en un canal y el sistema operativo muestra solo unos 6 hilos. ¿Cómo es posible?",
+   "o": [
+    "Go crea un hilo del sistema por cada diez mil goroutines, fijo",
+    "El runtime reparte las goroutines y las que esperan no ocupan ningún hilo",
+    "Las 100.000 goroutines se ejecutan a la vez, una por cada núcleo",
+    "Go las simula con un único hilo, sin posibilidad de paralelismo"
+   ],
+   "c": 1,
+   "e": "Las goroutines no están atadas a un hilo: el runtime las planifica sobre unos pocos hilos, y las que duermen en un canal quedan estacionadas sin ocupar ninguno. Hay tantas P como núcleos, así que sí hay paralelismo real, y tampoco hay una proporción fija de hilos."
+  },
+  {
+   "p": "Una goroutine ejecuta `c <- 1` sobre un canal sin buffer, y no hay ninguna otra goroutine que vaya a recibir. ¿Qué pasa si no hay más goroutines vivas?",
+   "o": [
+    "El valor queda guardado en el canal y el programa sigue",
+    "El envío falla con un error que hay que revisar",
+    "El valor se descarta y el programa continúa sin aviso",
+    "El envío espera y el runtime aborta por deadlock"
+   ],
+   "c": 3,
+   "e": "Un envío sin buffer espera a que alguien reciba. Si todas las goroutines están dormidas, el runtime aborta con «all goroutines are asleep - deadlock!». Guardar el valor solo ocurre con buffer, y los otros dos comportamientos no existen en Go."
+  },
+  {
+   "p": "Mil goroutines hacen `stock++` sobre la misma variable. En una corrida el resultado es 998 y en otra, 1000. ¿Qué lo explica y qué herramienta lo detecta?",
+   "o": [
+    "Un deadlock intermitente, que detecta el propio compilador",
+    "Un desborde del entero, que se corrige usando un tipo más grande",
+    "Una carrera de datos: el incremento no es atómico; lo detecta `-race`",
+    "Una falla del recolector que pierde objetos, visible con gctrace"
+   ],
+   "c": 2,
+   "e": "`stock++` son tres pasos (leer, sumar, escribir) y dos goroutines pueden pisarse. Es una carrera de datos, y `go run -race` la señala con las líneas implicadas. Un deadlock cuelga el programa y no cambia un número, y mil unidades no desbordan ningún entero."
+  },
+  {
+   "p": "Compilás un servidor HTTP en Go, en una máquina que tiene gcc, y `ldd` muestra `libc.so.6`. ¿Qué cambio lo vuelve estático?",
+   "o": [
+    "Agregar `-ldflags=\"-s -w\"`, que quita símbolos y depuración",
+    "Compilar con `CGO_ENABLED=0`, que deja afuera la parte en C de `net`",
+    "Usar `GOOS=linux`, porque Linux siempre enlaza en forma estática",
+    "Instalar libc en la máquina de destino antes de ejecutarlo"
+   ],
+   "c": 1,
+   "e": "Con cgo activo, el paquete `net` incluye código en C que se enlaza con la libc. `CGO_ENABLED=0` lo saca y el binario queda estático. `-s -w` solo reduce tamaño, y GOOS elige el sistema de destino, no el tipo de enlace."
+  },
+  {
+   "p": "Una línea de gctrace dice `0.018+58+0.005 ms clock`. ¿Cuánto tiempo estuvo frenado el programa por el recolector en ese ciclo?",
+   "o": [
+    "Unos 58 ms, porque es la fase más larga del ciclo",
+    "Unos 58,023 ms, la suma de las tres fases del ciclo",
+    "Casi nada: Go nunca frena el programa por la recolección",
+    "Unos 0,023 ms: los extremos frenan y el medio es concurrente"
+   ],
+   "c": 3,
+   "e": "Las dos fases de los extremos son pausas (stop-the-world) y suman 0,023 ms. Los 58 ms del medio son marcado concurrente: el programa sigue corriendo mientras tanto, aunque compartiendo procesador con el recolector. Sí hay pausas, pero cortas."
+  },
+  {
+   "p": "En un servicio con unos 130 MB de datos vivos subís `GOGC` de 100 a 400. ¿Qué esperás que pase?",
+   "o": [
+    "Más ciclos de recolección y menos memoria usada",
+    "Menos ciclos de recolección y mucha más memoria usada",
+    "El mismo número de ciclos, pero con pausas más cortas",
+    "Que el recolector se apague y no se ejecute nunca más"
+   ],
+   "c": 1,
+   "e": "GOGC define cuánto puede crecer el heap antes del próximo ciclo: con 400, la meta es unas cinco veces el heap vivo. Hay menos ciclos, a cambio de más memoria. Solo `GOGC=off` apaga el recolector, y no se vio efecto sobre la duración de las pausas."
+  },
+  {
+   "p": "¿Qué se puede afirmar sobre Go en el repositorio de Senda (commit 25e08fa)?",
+   "o": [
+    "Las funciones de borde del servidor están escritas en Go",
+    "El CLI de Supabase que fija el flujo es un programa de Go",
+    "No hay código Go; el flujo de compilación borra el Go de la máquina",
+    "La app usa goroutines para resolver las salas en vivo"
+   ],
+   "c": 2,
+   "e": "No hay archivos `.go` ni `go.mod`: las funciones de borde son TypeScript, el paquete del CLI 3.0.0 no es un ejecutable de Go (`go version -m` lo rechazó) y la app es React Native. Lo único relacionado es el paso que borra `/opt/hostedtoolcache/go` para liberar disco."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística por qué en Go lanzar 100.000 tareas es barato, cómo cuatro repartidores toman pedidos de una cola sin que nadie los asigne y qué diferencia hay entre un binario estático y uno dinámico. Usá los números que mediste hoy.",
+ "para_profundizar": [
+  {
+   "fuente": "golang-faq",
+   "nota": "El FAQ oficial de Go: de dónde salió el lenguaje, por qué no tiene excepciones ni herencia y por qué los genéricos llegaron en 2022. Es la mejor lectura corta sobre sus decisiones."
+  },
+  {
+   "fuente": "golang-at-google",
+   "nota": "El artículo de Pike de 2012 con los dolores que Go quería resolver (compilaciones lentas, dependencias); para entender el diseño como una respuesta de ingeniería."
+  },
+  {
+   "fuente": "golang-gc-1-5",
+   "nota": "El anuncio del recolector concurrente de Go 1.5, con la idea del marcado tricolor y la meta de latencia; completa la lectura de la línea de gctrace."
+  },
+  {
+   "fuente": "golang-hoare-csp-1978",
+   "nota": "El artículo original de CSP (Hoare, 1978); alcanza con leer la introducción y las primeras secciones para ver de dónde viene la idea de procesos que se mandan mensajes."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Go concurrency patterns Rob Pike goroutines channels",
+   "por_que": "Una charla clásica del propio Pike con ejemplos de goroutines y canales que complementa el patrón de los repartidores."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "goroutine",
+   "d": "Función de Go que corre de forma concurrente con el resto del programa; la maneja el runtime, que reparte miles sobre unos pocos hilos del sistema. Su pila empieza en unos 2 KB."
+  },
+  {
+   "t": "canal",
+   "d": "Conducto tipado de Go para pasar valores entre goroutines (`c <- v` para enviar y `v := <-c` para recibir). Sin buffer, el envío espera a que alguien reciba."
+  },
+  {
+   "t": "binario estático",
+   "d": "Ejecutable que lleva adentro todo el código que necesita, runtime incluido, sin depender de bibliotecas compartidas del sistema; se copia y corre."
+  },
+  {
+   "t": "recolector de baja latencia",
+   "d": "Recolector de basura que prioriza pausas cortas sobre el máximo aprovechamiento del procesador: hace casi todo el trabajo de marcado mientras el programa sigue corriendo."
+  },
+  {
+   "t": "CSP",
+   "d": "Communicating Sequential Processes (Hoare, 1978): modelo de concurrencia donde procesos independientes se comunican enviándose mensajes en vez de compartir variables."
+  },
+  {
+   "t": "cgo",
+   "d": "Mecanismo de Go para llamar código en C. Si está activo (CGO_ENABLED=1), algunas bibliotecas estándar, como `net`, se enlazan con la libc y el binario ya no es estático."
+  },
+  {
+   "t": "compilación cruzada",
+   "d": "Compilar en un sistema y chip para ejecutar en otro distinto; en Go se pide con las variables GOOS y GOARCH."
+  }
+ ],
+ "siguiente": "Rust: otro lenguaje compilado a un solo ejecutable, pero que evita los errores de memoria sin recolector de basura gracias a un verificador de préstamos.",
+ "fuentes_nuevas": [
+  {
+   "id": "golang-faq",
+   "t": "Go FAQ (Frequently Asked Questions)",
+   "a": "The Go Authors",
+   "tipo": "doc",
+   "url": "https://go.dev/doc/faq"
+  },
+  {
+   "id": "golang-releases",
+   "t": "Release History",
+   "a": "The Go Authors",
+   "tipo": "doc",
+   "url": "https://go.dev/doc/devel/release"
+  },
+  {
+   "id": "golang-at-google",
+   "t": "Go at Google: Language Design in the Service of Software Engineering",
+   "a": "Rob Pike (SPLASH 2012)",
+   "tipo": "articulo",
+   "anio": 2012,
+   "url": "https://go.dev/talks/2012/splash.article"
+  },
+  {
+   "id": "golang-spec",
+   "t": "The Go Programming Language Specification",
+   "a": "The Go Authors",
+   "tipo": "doc",
+   "url": "https://go.dev/ref/spec"
+  },
+  {
+   "id": "golang-gc-1-5",
+   "t": "Go GC: Prioritizing low latency and simplicity",
+   "a": "Richard Hudson (blog de Go, 2015)",
+   "tipo": "articulo",
+   "anio": 2015,
+   "url": "https://go.dev/blog/go15gc"
+  },
+  {
+   "id": "golang-share-memory",
+   "t": "Share Memory By Communicating",
+   "a": "Andrew Gerrand (blog de Go, 2010)",
+   "tipo": "articulo",
+   "anio": 2010,
+   "url": "https://go.dev/blog/codelab-share"
+  },
+  {
+   "id": "golang-hoare-csp-1978",
+   "t": "Communicating Sequential Processes",
+   "a": "C. A. R. Hoare (Communications of the ACM, agosto de 1978)",
+   "tipo": "paper",
+   "anio": 1978,
+   "url": "https://www.cs.cmu.edu/~crary/819-f09/Hoare78.pdf"
+  },
+  {
+   "id": "golang-runtime-hacking",
+   "t": "Go runtime: HACKING.md (Gs, Ms y Ps)",
+   "a": "The Go Authors",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/golang/go/master/src/runtime/HACKING.md"
+  },
+  {
+   "id": "golang-runtime-pkg",
+   "t": "Package runtime: variables de entorno GOGC y gctrace",
+   "a": "The Go Authors",
+   "tipo": "doc",
+   "url": "https://pkg.go.dev/runtime"
+  },
+  {
+   "id": "golang-race-detector",
+   "t": "Data Race Detector",
+   "a": "The Go Authors",
+   "tipo": "doc",
+   "url": "https://go.dev/doc/articles/race_detector"
+  },
+  {
+   "id": "golang-toolchain",
+   "t": "Go Toolchains",
+   "a": "The Go Authors",
+   "tipo": "doc",
+   "url": "https://go.dev/doc/toolchain"
+  },
+  {
+   "id": "golang-man7-pthread-create",
+   "t": "pthread_create(3): Linux manual page",
+   "a": "man7.org",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man3/pthread_create.3.html"
+  }
+ ]
+}
