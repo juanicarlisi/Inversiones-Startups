@@ -1,0 +1,947 @@
+{
+ "id": "09-36",
+ "titulo": "Clave-valor y Redis",
+ "bajada": "Probás una base de claves y valores en memoria con Valkey 9.0.7: qué estructuras guarda, cuántas operaciones por segundo hace contra PostgreSQL, qué pierde si se cae y cuándo conviene.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar cómo se busca y se guarda en una base clave-valor, y por qué las preguntas se diseñan antes.",
+  "Elegir entre cadena, hash, lista, conjunto, conjunto ordenado y flujo según lo que hay que hacer con el dato.",
+  "Interpretar mediciones de operaciones por segundo y entender el papel de la ida y vuelta por la red y del pipelining.",
+  "Describir cómo se pierde y cómo se protege un dato en memoria: expiración, RDB y AOF.",
+  "Decidir cuándo un clave-valor al lado de la base principal aporta algo y cuándo alcanza con SQL."
+ ],
+ "venis_de": "Ayer viste las bases de documentos: un registro entero se guarda y se lee como una unidad ([@09-35]). Antes viste qué es NoSQL y qué dice el teorema CAP ([@09-34]), la replicación ([@09-29]) y el sharding ([@09-30]). Hoy sigue el caso más simple, donde la base ni siquiera mira adentro del valor. Redis y Valkey ya te aparecieron como caché en [@07-15].",
+ "se_apoya_en": [
+  "07-15",
+  "09-27",
+  "09-29",
+  "09-30",
+  "09-33",
+  "09-34",
+  "09-35"
+ ],
+ "gancho": [
+  "En un depósito inventado de Pompeya hay una pared de casilleros numerados. Si te dan el número, abrís el casillero en un segundo y sacás lo que hay adentro. Si te dan solo una descripción («el que tiene el paquete frío para Avellaneda»), tenés que abrirlos todos. Una base clave-valor es esa pared: encontrar por número es instantáneo y encontrar por contenido no existe.",
+  "Hoy la usás de verdad. Instalé Valkey 9.0.7 en esta máquina y medí qué guarda, cuántas operaciones por segundo hace comparado con PostgreSQL, qué pierde si se cae y cuándo conviene ponerla al lado de la base principal. También vas a ver que Senda tiene un almacén clave-valor, y que está donde quizá no lo esperabas: adentro del teléfono."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "La idea: un casillero con número"
+  },
+  {
+   "t": "p",
+   "x": "Una base [[clave-valor]] guarda pares. La **clave** es un nombre único y el **valor** es lo que hay adentro. Casi todo lo que hace se reduce a tres movimientos: guardar un valor bajo una clave (`SET`), leerlo (`GET`) y borrarlo (`DEL`). Si la clave existe, la respuesta es inmediata; si no, la base dice que no hay nada (`nil`). No tiene columnas, ni `WHERE`, ni `JOIN`: para encontrar algo hay que saber su clave."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "SET envio:ENV-000001:estado en_ruta",
+     "s": "OK"
+    },
+    {
+     "c": "GET envio:ENV-000001:estado",
+     "s": "\"en_ruta\""
+    },
+    {
+     "c": "GET envio:ENV-000999:estado",
+     "s": "(nil)"
+    },
+    {
+     "c": "SET envio:ENV-000001:estado entregado",
+     "s": "OK"
+    },
+    {
+     "c": "INCR entregas:2026-11-13",
+     "s": "(integer) 1"
+    },
+    {
+     "c": "INCRBY entregas:2026-11-13 4",
+     "s": "(integer) 5"
+    },
+    {
+     "c": "EXISTS envio:ENV-000001:estado",
+     "s": "(integer) 1"
+    },
+    {
+     "c": "DEL envio:ENV-000001:estado",
+     "s": "(integer) 1"
+    },
+    {
+     "c": "EXISTS envio:ENV-000001:estado",
+     "s": "(integer) 0"
+    }
+   ],
+   "cap": "Salida real de Valkey 9.0.7 con `valkey-cli`, en esta VM. `INCR` suma 1 de forma atómica, por eso sirve de contador. Los dos puntos dentro de la clave son una costumbre de quien diseña, no una sintaxis de la base."
+  },
+  {
+   "t": "p",
+   "x": "Como no hay búsqueda por contenido, **las preguntas se diseñan antes**. Si querés saber cuántos envíos están en ruta, alguien tiene que mantener una clave `envios:en_ruta` (por ejemplo un conjunto, más abajo) cada vez que un envío cambia de estado. En SQL el índice se agrega después y la pregunta cambia cuando quiera; acá la pregunta forma parte del diseño."
+  },
+  {
+   "t": "pensa",
+   "x": "Guardaste el estado de cada envío en una clave `envio:ID:estado`. El dueño pregunta cuántos envíos hay hoy en ruta. ¿Qué opciones tenés, y qué cuesta cada una?",
+   "resp": "Una opción es recorrer todas las claves y contarlas (existe `SCAN`, pero lee todo el espacio de claves: lento en una base grande). La otra es mantener a propósito una estructura aparte, como un conjunto `envios:en_ruta` al que se agrega y se saca cada envío cuando cambia de estado. La segunda es rápida, pero el código es responsable de no olvidarse de actualizarla."
+  },
+  {
+   "t": "h",
+   "x": "Los valores no son solo textos: estructuras en memoria"
+  },
+  {
+   "t": "p",
+   "x": "[[Redis|Redis (primera vista)]] y su descendiente libre Valkey (que ya viste en [@07-15]) guardan **[[estructuras en memoria|estructura en memoria]]**: el valor es una estructura de datos con comandos propios para tocar una parte sin leerla ni reescribirla entera. Su documentación las enumera: cadenas, listas, conjuntos, tablas de hash, conjuntos ordenados, flujos y otras [#bd36-valkey-tipos]. «En memoria» quiere decir que viven en la RAM del servidor y no en un disco."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Estructura",
+    "Qué es",
+    "Ejemplo de logística",
+    "Comandos de hoy"
+   ],
+   "filas": [
+    [
+     "Cadena (string)",
+     "Un texto o un número",
+     "Entregas del día",
+     "`SET`, `GET`, `INCR`"
+    ],
+    [
+     "Hash",
+     "Campos y valores bajo una clave",
+     "La ficha de un envío",
+     "`HSET`, `HGET`, `HINCRBY`"
+    ],
+    [
+     "Lista",
+     "Secuencia en orden de inserción",
+     "Cola de avisos por enviar",
+     "`LPUSH`, `RPOP`"
+    ],
+    [
+     "Conjunto (set)",
+     "Elementos únicos, sin orden",
+     "Choferes activos",
+     "`SADD`, `SISMEMBER`, `SINTER`"
+    ],
+    [
+     "Conjunto ordenado",
+     "Únicos, cada uno con un puntaje",
+     "Tabla de posiciones",
+     "`ZADD`, `ZREVRANGE`, `ZREVRANK`"
+    ],
+    [
+     "Flujo (stream)",
+     "Registro de eventos que solo crece",
+     "Historial de un envío",
+     "`XADD`, `XRANGE`"
+    ]
+   ],
+   "cap": "Resumen de la documentación de Valkey [#bd36-valkey-tipos]. Un conjunto ordenado se llama en inglés *sorted set*."
+  },
+  {
+   "t": "p",
+   "x": "Tres sesiones reales. La ficha de un envío como hash, una cola de avisos como lista (el primero que entra es el primero que sale) y dos grupos de choferes como conjuntos, de los que se pide la intersección:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "HSET envio:ENV-000003 estado entregado zona Sur localidad Avellaneda bultos 1",
+     "s": "(integer) 4"
+    },
+    {
+     "c": "HGET envio:ENV-000003 zona",
+     "s": "\"Sur\""
+    },
+    {
+     "c": "HINCRBY envio:ENV-000003 bultos 2",
+     "s": "(integer) 3"
+    },
+    {
+     "c": "HGETALL envio:ENV-000003",
+     "s": "1) \"estado\"\n2) \"entregado\"\n3) \"zona\"\n4) \"Sur\"\n5) \"localidad\"\n6) \"Avellaneda\"\n7) \"bultos\"\n8) \"3\""
+    }
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "LPUSH cola:avisos partida:11 partida:12 partida:13",
+     "s": "(integer) 3"
+    },
+    {
+     "c": "LLEN cola:avisos",
+     "s": "(integer) 3"
+    },
+    {
+     "c": "RPOP cola:avisos",
+     "s": "\"partida:11\""
+    },
+    {
+     "c": "RPOP cola:avisos",
+     "s": "\"partida:12\""
+    }
+   ],
+   "cap": "`LPUSH` con tres valores los apila a la izquierda y `RPOP` saca por la derecha: sale primero `partida:11`, que entró primero [#bd36-valkey-listas]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "SADD choferes:activos ana beto carla",
+     "s": "(integer) 3"
+    },
+    {
+     "c": "SADD choferes:zona-sur ana carla dario",
+     "s": "(integer) 3"
+    },
+    {
+     "c": "SISMEMBER choferes:activos beto",
+     "s": "(integer) 1"
+    },
+    {
+     "c": "SINTER choferes:activos choferes:zona-sur",
+     "s": "1) \"ana\"\n2) \"carla\""
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Y la tabla de posiciones. Un conjunto ordenado mantiene a sus miembros ordenados por puntaje todo el tiempo, y por eso puede responder en qué puesto está alguien sin recorrer a los demás: `ZREVRANK` tiene una complejidad de O(log N) según su documentación [#bd36-valkey-zrevrank]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ZADD copa:semana 1500 ana 2300 beto 1200 carla 2300 dario",
+     "s": "(integer) 4"
+    },
+    {
+     "c": "ZREVRANGE copa:semana 0 2 WITHSCORES",
+     "s": "1) \"dario\"\n2) \"2300\"\n3) \"beto\"\n4) \"2300\"\n5) \"ana\"\n6) \"1500\""
+    },
+    {
+     "c": "ZREVRANK copa:semana carla",
+     "s": "(integer) 3"
+    },
+    {
+     "c": "ZINCRBY copa:semana 400 carla",
+     "s": "\"1600\""
+    },
+    {
+     "c": "ZREVRANK copa:semana carla",
+     "s": "(integer) 2"
+    },
+    {
+     "c": "TYPE copa:semana",
+     "s": "zset"
+    },
+    {
+     "c": "GET copa:semana",
+     "s": "(error) WRONGTYPE Operation against a key holding the wrong kind of value"
+    }
+   ],
+   "cap": "`dario` y `beto` empatan en 2300 y salen en orden alfabético inverso: con puntajes iguales manda el orden lexicográfico [#bd36-valkey-zsets]. El último error es otro dato: la base sabe qué estructura hay en cada clave, y un `GET` no sirve sobre un conjunto ordenado."
+  },
+  {
+   "t": "p",
+   "x": "El flujo es un registro que solo crece, con identificadores que llevan la hora (el `1794603603442` de abajo son milisegundos desde 1970). Sirve para historiales y para colas donde cada mensaje debe confirmarse, porque admite *grupos de consumidores* [#bd36-valkey-streams]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "XADD eventos:ENV-000003 * tipo retirado deposito Barracas",
+     "s": "\"1794603603442-0\""
+    },
+    {
+     "c": "XADD eventos:ENV-000003 * tipo entregado deposito Avellaneda",
+     "s": "\"1794603603445-0\""
+    },
+    {
+     "c": "XLEN eventos:ENV-000003",
+     "s": "(integer) 2"
+    },
+    {
+     "c": "XRANGE eventos:ENV-000003 - +",
+     "s": "1) 1) \"1794603603442-0\"\n   2) 1) \"tipo\"\n      2) \"retirado\"\n      3) \"deposito\"\n      4) \"Barracas\"\n2) 1) \"1794603603445-0\"\n   2) 1) \"tipo\"\n      2) \"entregado\"\n      3) \"deposito\"\n      4) \"Avellaneda\""
+    }
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Pensá en una pared de casilleros donde cada casillero tiene una forma pensada para algo: uno es una fila de espera, otro una lista de nombres sin repetir, otro una tabla de puntajes que se reordena sola. No abrís el casillero para sacar todo y devolverlo ordenado: le pedís a *ese casillero* que haga su trabajo.",
+    "La analogía falla en que un casillero físico solo guarda cosas. Acá la estructura trae sus operaciones, y el costo de cada una (O(1), O(log N)) lo decide el tipo de estructura, no el volumen de datos."
+   ],
+   "titulo": "Casilleros con forma"
+  },
+  {
+   "t": "h",
+   "x": "Todo en RAM: de dónde sale la velocidad"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Cliente",
+       "s": "tu servidor o tu app",
+       "k": "cliente"
+      },
+      {
+       "t": "Red",
+       "s": "ida y vuelta por cada pedido",
+       "k": "red",
+       "e": "comando"
+      },
+      {
+       "t": "Un hilo ejecuta",
+       "s": "un comando por vez",
+       "k": "servidor"
+      },
+      {
+       "t": "RAM",
+       "s": "las estructuras viven acá",
+       "k": "datos",
+       "e": "lee o cambia"
+      }
+     ],
+     "baja": "si está activada la persistencia:"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Disco",
+       "s": "archivo AOF o foto RDB",
+       "k": "hw"
+      }
+     ]
+    }
+   ],
+   "cap": "El camino de un comando. Valkey ejecuta los comandos de a uno, con hilos auxiliares para la red; si se necesitan varios núcleos, la documentación sugiere correr varias instancias [#bd36-valkey-benchmark]."
+  },
+  {
+   "t": "p",
+   "x": "La velocidad sale de tres cosas: los datos ya están en RAM, cada comando hace poco trabajo, y no hay planificador de consultas ni transacciones que coordinar. El límite pasa a ser la **ida y vuelta por la red** de cada pedido. Una forma de achicar ese límite es el [[pipelining]]: mandar varios comandos juntos sin esperar cada respuesta [#bd36-valkey-pipelining]. Lo medí con la herramienta oficial `valkey-benchmark` (valores de 100 bytes, 100.000 claves) y, para tener una referencia, con `pgbench` contra PostgreSQL 16.15, que leyó una fila por su clave primaria en una tabla de 100.000 filas."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Prueba, en operaciones por segundo",
+    "Valkey 9.0.7",
+    "PostgreSQL 16.15"
+   ],
+   "filas": [
+    [
+     "Leer por clave, 1 cliente que espera cada respuesta",
+     "27.400",
+     "25.600"
+    ],
+    [
+     "Leer por clave, 50 clientes a la vez",
+     "144.000",
+     "228.000"
+    ],
+    [
+     "Leer por clave, 50 clientes con 16 pedidos por tanda",
+     "1.410.000",
+     "277.000"
+    ],
+    [
+     "Escribir, 50 clientes (SET)",
+     "113.000",
+     "—"
+    ],
+    [
+     "Puesto de un jugador entre 100.000 (50 clientes)",
+     "171.000 (`ZREVRANK`)",
+     "1.500 (`count(*)` con índice)"
+    ],
+    [
+     "Los 10 primeros de 100.000 (50 clientes)",
+     "109.000",
+     "115.000"
+    ]
+   ],
+   "cap": "Medianas de tres corridas, VM de 4 CPU compartidos, 13-11-2026. Las corridas variaron hasta un 30 % por otros procesos en la máquina. En PostgreSQL, la tanda de 16 usa `\\startpipeline` de `pgbench`. La documentación de Valkey avisa que comparar resultados de programas de benchmark distintos no sirve para extrapolar [#bd36-valkey-benchmark]: leelo como orden de magnitud."
+  },
+  {
+   "t": "p",
+   "x": "Qué dicen los números. Con un solo cliente, **empatan**: los dos hacen unas 26.000 a 27.000 lecturas por segundo, porque lo que limita es el viaje, no la base. Con 50 clientes en paralelo gana PostgreSQL, que reparte el trabajo entre procesos, mientras Valkey ejecuta de a un comando. La ventaja grande de Valkey aparece en dos lugares: con pipelining (cinco veces más) y cuando la estructura hace el trabajo. Saber el puesto de un jugador entre 100.000 fue unas 110 veces más rápido, porque SQL tuvo que contar uno por uno a los que tenían más puntos y el conjunto ordenado ya los tiene contados. Pedir solo los diez primeros, en cambio, es una lectura corta en los dos."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, costs off, timing off)\nselect count(*) + 1 from copa where puntos > (select puntos from copa where id = 4);",
+     "s": " Aggregate (actual rows=1 loops=1)\n   InitPlan 1 (returns $0)\n     ->  Index Scan using copa_pkey on copa copa_1 (actual rows=1 loops=1)\n           Index Cond: (id = 4)\n   ->  Index Only Scan using copa_puntos on copa (actual rows=83770 loops=1)\n         Index Cond: (puntos > $0)\n         Heap Fetches: 0\n Execution Time: 4.663 ms"
+    }
+   ],
+   "cap": "El plan de la consulta de puestos para el jugador 4, que está en el puesto 83.771: el índice entrega 83.770 entradas y las cuenta una por una. Para el puesto 1, casi ninguna; para el último, todas. La consulta de Valkey para el mismo jugador devolvió `(integer) 83770` (en Valkey el puesto empieza en 0)."
+  },
+  {
+   "t": "pensa",
+   "x": "Un cliente hace 27.400 lecturas por segundo contra un servidor en la misma máquina, es decir, cada pedido tarda unos 0,04 ms. Si el servidor estuviera en otra ciudad, con 20 ms de ida y vuelta, y el cliente siguiera esperando cada respuesta, ¿cuántas lecturas por segundo haría? ¿Qué cambiaría con pipelining?",
+   "resp": "Cada pedido tardaría unos 20 ms, así que haría del orden de 50 lecturas por segundo (1.000 ÷ 20): quinientas veces menos. Con pipelining de 16, mandaría 16 comandos por cada viaje de 20 ms y llegaría a unos 800 por segundo con el mismo cliente. El viaje domina el costo; por eso conviene juntar pedidos o poner el servidor cerca de la app."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": [
+    "«Redis es cien veces más rápido que una base SQL» es verdad para el puesto en un ranking y falso para leer una fila por su clave. La diferencia la hace la estructura y el patrón de uso, no el producto. Y como los datos viven en RAM, hay un costo: 100.000 claves de 24 bytes con valores de 100 bytes ocuparon 17,4 MB, unos 174 bytes por par (124 de contenido). A ese ritmo, 100 millones de pares serían del orden de 17 GB (ESTIMACIÓN lineal; el costo real depende de los tamaños)."
+   ],
+   "titulo": "El mito de las 100 veces"
+  },
+  {
+   "t": "h",
+   "x": "Expiración: datos con fecha de vencimiento"
+  },
+  {
+   "t": "p",
+   "x": "Una clave puede tener un tiempo de vida. Esa [[expiración]] es una función central de este tipo de bases: pasado el plazo, la clave desaparece sola [#bd36-valkey-expire]. Sirve para lo que tiene vencimiento natural: sesiones, códigos de un solo uso, límites de intentos. Tres patrones, con salida real:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "SET lock:deposito-pompeya camion-7 NX EX 10",
+     "s": "OK"
+    },
+    {
+     "c": "SET lock:deposito-pompeya camion-9 NX EX 10",
+     "s": "(nil)"
+    },
+    {
+     "c": "TTL lock:deposito-pompeya",
+     "s": "(integer) 10"
+    },
+    {
+     "c": "INCR intentos:ip:203.0.113.9",
+     "s": "(integer) 1"
+    },
+    {
+     "c": "EXPIRE intentos:ip:203.0.113.9 60",
+     "s": "(integer) 1"
+    },
+    {
+     "c": "INCR intentos:ip:203.0.113.9",
+     "s": "(integer) 2"
+    },
+    {
+     "c": "INCR intentos:ip:203.0.113.9",
+     "s": "(integer) 3"
+    },
+    {
+     "c": "TTL intentos:ip:203.0.113.9",
+     "s": "(integer) 60"
+    }
+   ],
+   "cap": "`SET … NX EX 10` guarda solo si la clave **no existe** (`NX`) y la hace vencer en 10 segundos: el segundo camión no consigue la reserva, que es la base de un candado simple. Los tres `INCR` son un contador de intentos por IP (la IP es de la zona reservada para documentación) que se borra a los 60 segundos."
+  },
+  {
+   "t": "p",
+   "x": "¿Cómo se borran? La documentación describe dos mecanismos: la clave vencida se elimina cuando alguien intenta leerla, y además el servidor recorre de a poco las claves con vencimiento para liberar las que nadie vuelve a pedir [#bd36-valkey-expire]. Cargué 100.000 claves con **el mismo instante de vencimiento** (`PXAT`, una hora absoluta) y miré `DBSIZE` cada 100 ms:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tiempo después del vencimiento (aprox.)",
+    "Claves que quedan"
+   ],
+   "filas": [
+    [
+     "+45 ms",
+     "18.620"
+    ],
+    [
+     "+160 ms",
+     "6.719"
+    ],
+    [
+     "+273 ms",
+     "8"
+    ],
+    [
+     "+492 ms",
+     "0"
+    ]
+   ],
+   "cap": "Una corrida, con un bucle de shell que llama a `valkey-cli`: los tiempos tienen un error de decenas de milisegundos. Nadie pidió esas claves; las barrió el servidor."
+  },
+  {
+   "t": "p",
+   "x": "Dos cosas más de la documentación. El vencimiento se guarda como hora absoluta, así que sigue corriendo aunque el servidor esté apagado [#bd36-valkey-expire]. Y reescribir una clave con `SET` a secas le quita el vencimiento, el descuido que viste en [@07-15]."
+  },
+  {
+   "t": "h",
+   "x": "Persistencia: la RAM se borra"
+  },
+  {
+   "t": "p",
+   "x": "Si el proceso se cae o se corta la luz, lo que estaba solo en RAM se pierde. Valkey ofrece dos formas de guardar en disco, que se pueden combinar [#bd36-valkey-persistencia]. El [[RDB]] es una foto completa de los datos cada cierto tiempo: compacta, ideal para copias de seguridad, pero se pierde lo escrito desde la última foto. El [[AOF]] es un archivo donde se anota cada comando de escritura; es pariente del registro de [@09-27], con una diferencia: el comando se anota después de ejecutarse en memoria y antes de responderle al cliente. Con AOF se elige cuándo forzar el archivo a disco (`fsync`): en cada comando (`always`), cada segundo (`everysec`) o lo decide el sistema (`no`)."
+  },
+  {
+   "t": "p",
+   "x": "En Valkey 9.0.7, sin tocar nada, `CONFIG GET` mostró: foto RDB si hay al menos 1 cambio en una hora, 100 en cinco minutos o 10.000 en un minuto (`save 3600 1 300 100 60 10000`); AOF apagado; `appendfsync everysec`; y `maxmemory 0`, es decir, **sin tope de memoria**. Probé cuatro configuraciones: cargué 100.000 claves, maté el proceso con `kill -9` y lo reinicié:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Configuración",
+    "Claves antes",
+    "Claves al reiniciar",
+    "Archivo en disco"
+   ],
+   "filas": [
+    [
+     "Sin persistencia",
+     "100.000",
+     "0",
+     "ninguno"
+    ],
+    [
+     "RDB: foto a mano y 1.000 claves más después",
+     "101.000",
+     "100.000",
+     "`dump.rdb`: 2.377.878 bytes"
+    ],
+    [
+     "AOF cada segundo",
+     "100.000",
+     "100.000",
+     "AOF: 4.766.980 bytes"
+    ],
+    [
+     "AOF en cada comando",
+     "100.000",
+     "100.000",
+     "AOF: 4.766.980 bytes"
+    ]
+   ],
+   "cap": "Con `kill -9` se corta el proceso, no la máquina: el sistema operativo conserva lo que el proceso ya le entregó. Por eso este experimento no reproduce la ventana de `everysec`, que según la documentación puede perder hasta 1 segundo ante la caída del sistema entero [#bd36-valkey-persistencia]; esa cifra no la medí."
+  },
+  {
+   "t": "p",
+   "x": "El archivo AOF pesó casi lo mismo que el archivo de comandos que le mandé (4.766.780 bytes), porque es eso: cada comando repetido. La foto pesó la mitad, y sin la historia. La seguridad tiene un precio en velocidad, que medí con 50 clientes escribiendo:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Escritura (SET), 50 clientes",
+    "Operaciones por segundo",
+    "Con 1 cliente"
+   ],
+   "filas": [
+    [
+     "Sin persistencia",
+     "113.000",
+     "—"
+    ],
+    [
+     "AOF cada segundo",
+     "123.000",
+     "23.600"
+    ],
+    [
+     "AOF en cada comando",
+     "56.000",
+     "3.900"
+    ]
+   ],
+   "cap": "Medianas de tres corridas en esta VM, con un disco virtual. `everysec` cuesta lo que no se distingue del ruido; `always` baja a la mitad con 50 clientes y a 3.900 por segundo con uno, unos 0,25 ms por cada `fsync`. En un disco físico los números serían otros."
+  },
+  {
+   "t": "h",
+   "x": "Para qué sirve, y para qué no"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Uso",
+    "Estructura típica",
+    "Cómo se ve"
+   ],
+   "filas": [
+    [
+     "Caché",
+     "Cadena con vencimiento",
+     "`SET resumen:sur … EX 60` ([@07-15])"
+    ],
+    [
+     "Sesión o código de un solo uso",
+     "Cadena o hash con vencimiento",
+     "El token como clave, la persona como valor"
+    ],
+    [
+     "Contador y límite de intentos",
+     "Cadena con `INCR` + vencimiento",
+     "El patrón de la IP de arriba"
+    ],
+    [
+     "Cola de tareas",
+     "Lista o flujo",
+     "`LPUSH` para encolar, `RPOP` para sacar"
+    ],
+    [
+     "Ranking",
+     "Conjunto ordenado",
+     "`ZINCRBY` al sumar puntos, `ZREVRANGE` para los mejores"
+    ],
+    [
+     "Lo último visto",
+     "Lista recortada",
+     "`LPUSH` más `LTRIM 0 4` conserva solo los 5 más recientes"
+    ]
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "LPUSH vistos:ana ENV-000001 ENV-000002 ENV-000003 ENV-000004 ENV-000005 ENV-000006",
+     "s": "(integer) 6"
+    },
+    {
+     "c": "LTRIM vistos:ana 0 4",
+     "s": "OK"
+    },
+    {
+     "c": "LRANGE vistos:ana 0 -1",
+     "s": "1) \"ENV-000006\"\n2) \"ENV-000005\"\n3) \"ENV-000004\"\n4) \"ENV-000003\"\n5) \"ENV-000002\""
+    }
+   ],
+   "cap": "El patrón de «lo último visto»: se apilan seis envíos, se recorta a cinco y sale el más viejo (`ENV-000001`)."
+  },
+  {
+   "t": "p",
+   "x": "Los límites son tan importantes como los usos:"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Tiene que caber en RAM.** Y por defecto no hay tope de memoria: sin `maxmemory`, un servidor que crece sin control termina matado por el sistema operativo.",
+    "**No se consulta por contenido.** Sin `WHERE`, sin `JOIN`, sin restricciones entre datos. Lo que en SQL hace la base (integridad, [[índice]]s), acá lo mantiene tu código.",
+    "**Las transacciones no se deshacen.** `MULTI`/`EXEC` ejecutan un bloque de comandos sin que nada se les cruce, pero si uno falla los demás igual se aplican: la documentación dice que no hay *rollback* para no perder simplicidad ni velocidad [#bd36-valkey-transacciones].",
+    "**La réplica es asíncrona.** Valkey replica sin esperar la confirmación de la copia [#bd36-valkey-replicacion], así que una escritura confirmada puede perderse si el primario cae antes de copiarla: la [[replicación asíncrona]] de [@09-29] y la elección del teorema CAP de [@09-34].",
+    "**Para crecer se reparte.** Valkey Cluster divide las claves en 16.384 ranuras (`CRC16(clave) mod 16384`) y cada nodo atiende algunas [#bd36-valkey-cluster]: es el [[sharding]] de [@09-30], con la propia clave como [[clave de shard]]."
+   ],
+   "ord": false
+  },
+  {
+   "t": "ejercicio",
+   "x": "Elegí la estructura y los comandos para cada caso: (a) limitar a 5 intentos de login por IP cada 15 minutos; (b) mostrar los 10 choferes con más entregas hoy, actualizado en vivo; (c) una cola de avisos que no puede perder ningún mensaje aunque un proceso se caiga a mitad de trabajo; (d) saber si un chofer ya fue asignado a una ruta hoy.",
+   "pista": "Preguntate en cada uno si hace falta orden, si hace falta que se borre solo y si perder un mensaje es aceptable.",
+   "solucion": "(a) Cadena con `INCR` y `EXPIRE 900` la primera vez; si el valor pasa de 5, se rechaza. (b) Conjunto ordenado con `ZINCRBY` al registrar cada entrega y `ZREVRANGE 0 9 WITHSCORES`. (c) Un flujo con grupos de consumidores y confirmación, no una lista: con `RPOP` el mensaje sale de la cola apenas se lee y se pierde si el proceso cae. (d) Un conjunto `asignados:2026-11-13` con `SADD`/`SISMEMBER`, con vencimiento para que se limpie al día siguiente."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Licencias y versiones, al 13-11-2026",
+   "x": [
+    "Redis nació bajo licencia BSD de tres cláusulas. El 20-03-2024 Redis Inc. anunció que desde la 7.4 usaría dos licencias que no son de código abierto, RSALv2 y SSPLv1 [#cache715-redis-licencia-2024]. El 28-03-2024 la Linux Foundation anunció Valkey, una continuación abierta del código de Redis 7.2.4 bajo BSD de tres cláusulas [#cache715-lf-valkey]. El 01-05-2025 Redis sumó la AGPLv3, aprobada por la OSI, como opción desde Redis 8 [#cache715-redis-agpl-2025].",
+    "La versión más reciente de Valkey es la 9.0.7, del 27-10-2026 [#bd36-valkey-descargas]; es la que usé, con el binario oficial y su huella SHA-256 verificada, y el `LICENSE` incluido es BSD-3-Clause. En el listado oficial de descargas de Redis, la serie más nueva es la 8.10 (hasta la 8.10.3 al día de hoy) [#bd36-redis-descargas]. Un dato de compatibilidad: el `INFO` de Valkey 9.0.7 todavía informa `redis_version:7.2.4` junto a `valkey_version:9.0.7`. Los comandos de este día existen en las dos, pero lo medido es de Valkey."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Senda: un clave-valor que no esperabas"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "CREATE TABLE catalystLocalStorage (\n  key   TEXT PRIMARY KEY,\n  value TEXT NOT NULL\n);",
+   "cap": "La tabla que crea el código fuente de AsyncStorage 2.2.0 en Android, con base de datos de nombre `RKStorage`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "sqlite3 rk.db \"EXPLAIN QUERY PLAN SELECT value FROM catalystLocalStorage WHERE key = 'senda-copas';\"",
+     "s": "QUERY PLAN\n`--SEARCH catalystLocalStorage USING INDEX sqlite_autoindex_catalystLocalStorage_1 (key=?)"
+    }
+   ],
+   "cap": "Armé esa tabla en el sqlite3 3.45.1 de esta máquina con dos claves de ejemplo. Buscar por clave usa el índice de la clave primaria."
+  },
+  {
+   "t": "senda",
+   "titulo": "El almacén local de Senda es clave-valor, y por debajo es SQLite",
+   "x": [
+    "Lo local de Senda vive en `@react-native-async-storage/async-storage` 2.2.0: pares de texto a texto. `almacen.ts` escribe cada estado con `JSON.stringify` y claves que empiezan con `senda-`; el respaldo a la nube (`armarCopia`) las junta recorriendo esas claves. Es un clave-valor, y el valor de cada clave es un documento JSON, como los de ayer.",
+    "Lo que no esperabas: según el código fuente del paquete, en Android ese almacén es una tabla de SQLite, la de arriba. Una interfaz clave-valor encima de una base relacional, la misma SQLite de [@09-33]. No abrí la base de una app instalada, porque no tengo un teléfono acá: lo que afirmo sale del código del paquete, versión 2.2.0. Esto corresponde al commit 25e08fa (8-11-2026); el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/almacen.ts",
+    "src/util/respaldo.ts",
+    "package.json"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa Redis ni Valkey: la cola y el ranking viven en Postgres",
+   "x": [
+    "Busqué las palabras `redis`, `valkey`, `upstash`, `ioredis` y `memcached` en todo el repositorio y no aparecen. Lo que en otros sistemas iría a Redis está resuelto con tablas. La cola de avisos es la tabla `avisos`, con un índice parcial `avisos_pendientes` sobre los que todavía no se enviaron (`where enviado is null`). La tabla de una copa la calcula `tabla_copa` con `row_number()` sobre todos los resultados de esa copa, y devuelve los 50 primeros más la fila de quien consulta, apoyada en el índice `copas_tabla`.",
+    "Esa consulta tiene la forma de la que medí: sobre una tabla mía de 100.000 filas tardó entre 32 y 35 ms por llamada, y sobre 1.000 filas, 0,37 ms; el trabajo crece con la cantidad de participantes. No sé cuántos tiene hoy una copa de Senda, así que no es un problema: es la cifra a mirar si alguna vez lo fuera, y el momento en que un conjunto ordenado sería una alternativa. `docs/ESCALA.md` plantea ligas de 30 personas para no ordenar a todos contra todos; no encontré tablas de ligas en las migraciones, así que por ahora es diseño."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "docs/ESCALA.md"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Un criterio para llevarte: Redis o Valkey valen la pena cuando necesitás una estructura que SQL no tiene (un ranking que responde al instante, una cola con confirmación), datos con vencimiento o muchísimas operaciones simples por segundo, y aceptás que lo que está ahí puede perderse. Lo que no se puede perder ni hay que consultar por contenido sigue en la base de verdad. Mientras SQL alcance, una pieza menos es menos plata y menos cosas que se rompen."
+  }
+ ],
+ "recap": [
+  "Una base clave-valor busca solo por clave: guardar, leer y borrar. Las preguntas se diseñan antes, porque no hay `WHERE` ni `JOIN`.",
+  "Redis y Valkey guardan estructuras en memoria (cadenas, hashes, listas, conjuntos, conjuntos ordenados, flujos), cada una con comandos y costos propios.",
+  "Medido en esta VM: con un cliente que espera cada respuesta, Valkey y PostgreSQL empatan en lecturas por clave; con pipelining Valkey rinde cinco veces más; el puesto en un ranking fue unas 110 veces más rápido que con SQL.",
+  "La expiración borra claves solas, al leerlas y con barridos periódicos: 100.000 claves vencidas juntas desaparecieron en medio segundo.",
+  "La RAM se pierde: RDB (foto) y AOF (comandos) la guardan; por defecto el AOF está apagado y no hay tope de memoria. `always` costó la mitad de las escrituras.",
+  "No se consulta por contenido, las transacciones no se deshacen y la réplica es asíncrona. Senda usa un clave-valor (AsyncStorage, sobre SQLite) en el teléfono y ninguno en la nube: la cola y el ranking están en Postgres."
+ ],
+ "repaso": [
+  {
+   "p": "Guardaste el estado de cada envío en claves del tipo `envio:ID:estado` en un clave-valor. Piden cuántos envíos hay en ruta ahora. ¿Cuál es la forma sensata de responderlo rápido?",
+   "o": [
+    "Mantener a propósito una estructura aparte, como un conjunto de envíos en ruta, que el código actualiza en cada cambio",
+    "Preguntarle a la base por todas las claves cuyo valor sea `en_ruta`, que la base resuelve con un índice interno",
+    "Agregar una columna de estado a cada clave, para que la base pueda filtrar por esa columna",
+    "Guardar los envíos en una lista ordenada por estado, así los que están en ruta quedan todos juntos al principio"
+   ],
+   "c": 0,
+   "e": "No hay búsqueda por valor: lo único que la base sabe hacer rápido es ir a una clave. Por eso se mantiene un conjunto que el código actualiza, y contarlo es instantáneo. La base no tiene índice sobre los valores ni columnas, y una lista no se ordena sola por un estado."
+  },
+  {
+   "p": "Medís lecturas por clave con un solo cliente que espera cada respuesta, y Valkey y PostgreSQL dan casi lo mismo, unas 26.000 por segundo. ¿Qué explica mejor el empate?",
+   "o": [
+    "PostgreSQL guarda todo en RAM igual que Valkey, por lo que no puede haber diferencias entre ambos nunca",
+    "Valkey se vuelve lento cuando tiene un solo cliente, porque está pensado para muchos clientes en paralelo",
+    "Lo que limita es la ida y vuelta de cada pedido por la red, no el trabajo de la base, y ese viaje es igual para los dos",
+    "pgbench y valkey-benchmark usan el mismo código por dentro, así que miden siempre exactamente lo mismo"
+   ],
+   "c": 2,
+   "e": "Con un cliente que espera cada respuesta, el tiempo es casi todo viaje. Por eso el pipelining (varios pedidos juntos) cambió tanto el resultado de Valkey. PostgreSQL no guarda todo en RAM por diseño, aunque aquí la tabla cabía en su caché; y son dos programas distintos, cuya comparación directa la propia documentación desaconseja."
+  },
+  {
+   "p": "Una tabla de posiciones de 100.000 jugadores necesita decir en qué puesto está cada uno. ¿Por qué un conjunto ordenado lo hizo unas 110 veces más rápido que la consulta SQL de la prueba?",
+   "o": [
+    "Porque Redis y Valkey siempre responden más rápido que cualquier consulta SQL, sea cual sea la consulta",
+    "Porque el conjunto ordenado comprime los puntajes y por eso la comparación se hace sobre menos datos",
+    "Porque el conjunto ordenado mantiene el orden al escribir, y el SQL tuvo que contar uno por uno los que tenían más puntos",
+    "Porque la consulta SQL no usaba el índice de puntos, y con un índice mejor habría dado el mismo resultado que Valkey"
+   ],
+   "c": 2,
+   "e": "El conjunto ordenado paga el orden al insertar (O(log N)) y después responde el puesto en O(log N). El SQL usó el índice de puntos y aun así tuvo que recorrer la mitad de las entradas, en promedio. No es cierto que Valkey sea siempre más rápido: con la lectura por clave quedó igual o por debajo de PostgreSQL."
+  },
+  {
+   "p": "Cargás 100.000 claves en un Valkey con la configuración por defecto y matás el proceso con `kill -9`. ¿Qué esperás encontrar al reiniciar, y por qué?",
+   "o": [
+    "Todas las claves, porque Valkey escribe cada comando en el AOF antes de responderle al cliente por defecto",
+    "Las que entraron hasta el último segundo, porque `everysec` es la configuración por defecto de la persistencia",
+    "Probablemente solo las de la última foto RDB que se haya hecho, y cero si todavía no hubo ninguna",
+    "Ninguna clave en ningún caso, porque Valkey es una base que solo funciona en memoria y nunca escribe a disco"
+   ],
+   "c": 2,
+   "e": "Por defecto el AOF está apagado y la persistencia es por fotos RDB según reglas como `3600 1 300 100 60 10000`. Si no se cumplió ninguna regla desde el arranque, no hay foto y se pierde todo. `everysec` es la política por defecto del AOF, pero el AOF no está activado. Y Valkey sí escribe a disco, solo que por defecto en fotos periódicas."
+  },
+  {
+   "p": "Una cola de avisos en una lista (`LPUSH` para encolar, `RPOP` para sacar) no puede perder mensajes aunque el proceso que los envía se caiga a mitad de trabajo. ¿Qué problema tiene la lista?",
+   "o": [
+    "Las listas solo aceptan 1.000 elementos, así que la cola se llena enseguida cuando llegan muchos mensajes",
+    "Las listas no conservan el orden de inserción, por lo que los avisos podrían enviarse en cualquier orden",
+    "`LPUSH` borra todos los mensajes anteriores si se llama más de una vez por segundo con la misma clave",
+    "`RPOP` ya sacó el mensaje de la lista cuando el proceso lo lee: si se cae antes de enviarlo, el mensaje se perdió"
+   ],
+   "c": 3,
+   "e": "Con `RPOP` el elemento sale de la lista en el acto: nada lo recuerda si el consumidor cae. Para no perder mensajes se usa un flujo con grupo de consumidores y confirmación. Las listas conservan el orden y no tienen un tope tan chico ni borran lo anterior."
+  },
+  {
+   "p": "Después de investigar el repositorio, ¿qué se puede afirmar sobre Redis y Senda?",
+   "o": [
+    "Senda usa Redis para la cola de avisos, que es la tabla `avisos`, y para las copas, que son una vista de Redis",
+    "Senda no usa Redis ni Valkey: la cola de avisos y la tabla de la copa están en PostgreSQL, y lo local es un clave-valor de AsyncStorage",
+    "Senda usa Valkey en el teléfono para guardar el progreso, que se copia a la nube con una función de la base",
+    "Senda no tiene ningún clave-valor: todo lo local son documentos JSON en archivos sueltos, sin base de datos"
+   ],
+   "c": 1,
+   "e": "La búsqueda de `redis`, `valkey`, `upstash`, `ioredis` y `memcached` no encontró nada. La cola es la tabla `avisos`, la copa se calcula con `row_number()`, y lo local es AsyncStorage, un clave-valor que en Android se guarda en una tabla de SQLite. No hay archivos sueltos ni Valkey en el teléfono."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística por qué buscar un envío por su número es instantáneo en una base clave-valor y buscar «todos los que están en ruta» no lo es, y cómo lo resolverías con un cuaderno de dos hojas (una por número, otra con el listado de los que están en ruta). Después decí qué pasaría con ese cuaderno si se mojara y no tuvieras copia.",
+ "para_profundizar": [
+  {
+   "fuente": "bd36-valkey-tipos",
+   "nota": "La lista oficial de tipos de datos de Valkey, con un enlace a cada estructura y sus comandos. Para ver qué más existe además de lo de hoy (mapas de bits, geoespacial, HyperLogLog) y qué costo tiene cada comando."
+  },
+  {
+   "fuente": "bd36-valkey-persistencia",
+   "nota": "La explicación oficial de RDB y AOF, con ventajas y desventajas de cada uno y las tres políticas de `fsync`. Leela entera antes de poner Valkey en algo que no se pueda perder."
+  },
+  {
+   "fuente": "bd36-valkey-pipelining",
+   "nota": "Por qué la ida y vuelta por la red domina el rendimiento y cómo el pipelining lo evita. Sirve para repetir la medición con otros tamaños de tanda."
+  },
+  {
+   "fuente": "cache715-redis-licencia-2024",
+   "nota": "El anuncio de Redis Inc. del cambio de licencia de marzo de 2024, que originó a Valkey. Para ver el argumento de la empresa, tal como lo contó ella."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Redis data structures explained sorted set list hash stream use cases",
+   "por_que": "Para ver otros ejemplos de cada estructura, como un ranking de videojuego o una cola de trabajos, con datos distintos de los envíos."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "clave-valor",
+   "d": "Tipo de base de datos que guarda pares: una clave única y un valor. Se busca solo por clave; no hay consultas por el contenido del valor, y por eso es muy simple y muy rápida."
+  },
+  {
+   "t": "estructura en memoria",
+   "d": "Valor de una base como Redis o Valkey que no es un texto opaco sino una estructura de datos (lista, conjunto, hash, conjunto ordenado, flujo) guardada en RAM, con comandos propios para leer o cambiar una parte."
+  },
+  {
+   "t": "expiración",
+   "d": "Tiempo de vida de una clave: pasado el plazo, la base la borra sola. Se usa para sesiones, caché, códigos de un solo uso y límites de intentos."
+  },
+  {
+   "t": "pipelining",
+   "d": "Enviar varios comandos juntos sin esperar la respuesta de cada uno, para que el costo de la ida y vuelta por la red se reparta entre muchos pedidos."
+  },
+  {
+   "t": "RDB",
+   "d": "Foto completa de los datos de Redis o Valkey que se guarda en disco cada cierto tiempo. Es compacta y buena para copias de seguridad, pero se pierde lo escrito desde la última foto."
+  },
+  {
+   "t": "AOF",
+   "d": "Append-only file: archivo donde Redis o Valkey anotan cada comando de escritura, para rehacer los datos al reiniciar. Se elige cada cuánto forzarlo a disco: en cada comando, cada segundo o a criterio del sistema."
+  }
+ ],
+ "siguiente": "Columnares, de grafos y de series de tiempo: las otras tres familias NoSQL, cada una pensada para una forma distinta de leer los datos.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd36-valkey-tipos",
+   "t": "Valkey data types",
+   "a": "Valkey",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://valkey.io/topics/data-types/"
+  },
+  {
+   "id": "bd36-valkey-listas",
+   "t": "Valkey lists",
+   "a": "Valkey",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://valkey.io/topics/lists/"
+  },
+  {
+   "id": "bd36-valkey-zsets",
+   "t": "Valkey sorted sets",
+   "a": "Valkey",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://valkey.io/topics/sorted-sets/"
+  },
+  {
+   "id": "bd36-valkey-zrevrank",
+   "t": "ZREVRANK (Valkey command)",
+   "a": "Valkey",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://valkey.io/commands/zrevrank/"
+  },
+  {
+   "id": "bd36-valkey-streams",
+   "t": "Valkey streams",
+   "a": "Valkey",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://valkey.io/topics/streams-intro/"
+  },
+  {
+   "id": "bd36-valkey-expire",
+   "t": "EXPIRE (Valkey command)",
+   "a": "Valkey",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://valkey.io/commands/expire/"
+  },
+  {
+   "id": "bd36-valkey-persistencia",
+   "t": "Valkey persistence",
+   "a": "Valkey",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://valkey.io/topics/persistence/"
+  },
+  {
+   "id": "bd36-valkey-benchmark",
+   "t": "Valkey benchmark",
+   "a": "Valkey",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://valkey.io/topics/benchmark/"
+  },
+  {
+   "id": "bd36-valkey-pipelining",
+   "t": "Using pipelining to speed up Valkey queries",
+   "a": "Valkey",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://valkey.io/topics/pipelining/"
+  },
+  {
+   "id": "bd36-valkey-transacciones",
+   "t": "Valkey transactions",
+   "a": "Valkey",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://valkey.io/topics/transactions/"
+  },
+  {
+   "id": "bd36-valkey-replicacion",
+   "t": "Valkey replication",
+   "a": "Valkey",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://valkey.io/topics/replication/"
+  },
+  {
+   "id": "bd36-valkey-cluster",
+   "t": "Valkey Cluster specification",
+   "a": "Valkey",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://valkey.io/topics/cluster-spec/"
+  },
+  {
+   "id": "bd36-valkey-descargas",
+   "t": "Download Valkey",
+   "a": "Valkey",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://valkey.io/download/"
+  },
+  {
+   "id": "bd36-redis-descargas",
+   "t": "Redis releases (listado de descargas)",
+   "a": "Redis",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://download.redis.io/releases/"
+  }
+ ]
+}
