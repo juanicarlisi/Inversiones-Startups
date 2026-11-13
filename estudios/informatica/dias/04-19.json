@@ -1,0 +1,733 @@
+{
+ "id": "04-19",
+ "titulo": "Build: compilar, empaquetar y optimizar",
+ "bajada": "Qué pasa entre el código que escribís y el archivo que corre en el teléfono: un bundler real, tree shaking y minificación con números medidos, mapas de fuente, Metro, Hermes y el peso del APK de Senda.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Describir las etapas de un build (transpilar, empaquetar, optimizar, generar mapas) y qué entra y qué sale de cada una.",
+  "Demostrar con esbuild qué hacen el bundler, el tree shaking y la minificación sobre un proyecto chico, con tamaños medidos.",
+  "Leer un mapa de fuente y explicar por qué un error en producción se ve distinto con y sin él.",
+  "Explicar qué hace Metro en una app React Native y por qué, con Hermes, el JavaScript llega al teléfono sin minificar.",
+  "Ubicar en Senda dónde se arma el bundle, qué pesa en el APK y qué cachés usa el armado."
+ ],
+ "venis_de": "Ya sabés que un [[compilador]] traduce de un lenguaje a otro ([@03-42]), que TypeScript se compila a JavaScript ([@03-46]), que un proyecto se parte en módulos ([@03-17]) y que npm instala dependencias y las fija en un archivo de bloqueo ([@04-04], [@04-05]). Las pruebas y el lint ([@04-14] a [@04-18]) revisan el código. Falta el paso que lo convierte en lo que de verdad se entrega.",
+ "se_apoya_en": [
+  "01-18",
+  "03-17",
+  "03-42",
+  "03-46",
+  "03-48",
+  "04-04",
+  "04-05",
+  "04-18"
+ ],
+ "gancho": [
+  "Tenés que partir una lista de 1.250 cajas en tandas de 48 para armar pallets. En JavaScript hay una función ya hecha, `chunk`, dentro de una biblioteca famosa llamada lodash. La importás, la usás y mirás qué sale del build. Con el paquete clásico, `lodash`, el archivo final pesa 73.546 bytes. Con su versión moderna, `lodash-es`, pesa 3.185. Tu código es idéntico en los dos casos. La diferencia es de 23 veces, y la decide el build.",
+  "Un build es todo lo que ocurre entre «el código que escribió una persona» y «el archivo que corre en la pantalla de otra». Hoy lo desarmás con herramientas reales corridas en este entorno: esbuild para ver cada etapa, Metro y Hermes para ver cómo lo hace una app de React Native, y al final los números del APK de Senda, que pesa 89,1 MB según su documentación."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué hace un build, en cinco pasos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El código que escribís no es el que corre. Tiene TypeScript o JSX que ningún motor entiende tal cual, cientos de [[módulos|módulo]] que se importan entre sí, comentarios, nombres largos y funciones que nadie llama. El **build** es el proceso automático que parte de ese conjunto y produce lo que se entrega: un archivo, o unos pocos, listos para ejecutar. Se corre sin intervención humana y siempre desde el mismo origen, así que dos personas con el mismo código deberían obtener lo mismo.",
+    "Casi todos los builds de JavaScript pasan por las mismas estaciones. Transpilar es traducir una sintaxis a otra del mismo nivel (TypeScript a JavaScript, JSX a llamadas de función). Un [[bundler]] sigue cada `import`, arma el mapa de quién depende de quién y junta todo en pocos archivos. Después se optimiza: el [[tree shaking]] saca lo que nadie usa y la [[minificación]] achica el texto. Por último se genera un [[mapa de fuente]], que es la etiqueta para volver del archivo final al código original."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Código fuente",
+       "s": "TypeScript, JSX, cientos de archivos",
+       "k": "cliente"
+      },
+      {
+       "t": "Transpilar",
+       "s": "TypeScript y JSX pasan a JavaScript",
+       "k": "servidor",
+       "e": "lo lee el build"
+      },
+      {
+       "t": "Empaquetar",
+       "s": "el bundler sigue cada import",
+       "k": "servidor",
+       "e": "un archivo por módulo"
+      }
+     ],
+     "baja": "sobre el archivo ya empaquetado"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Optimizar",
+       "s": "tree shaking y minificación",
+       "k": "datos"
+      },
+      {
+       "t": "Mapa de fuente",
+       "s": "de la salida al original",
+       "k": "red",
+       "e": "se genera a la vez"
+      },
+      {
+       "t": "Artefacto final",
+       "s": "bundle, y en móvil bytecode y APK",
+       "k": "ok",
+       "e": "sale del build"
+      }
+     ]
+    }
+   ],
+   "cap": "Las estaciones de un build de JavaScript. El orden exacto cambia según la herramienta, pero el recorrido es este."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo como armar un despacho",
+   "x": "Un cliente pide diez ítems. En el depósito alguien los junta de distintos sectores (resolver los `import`), los embala en un solo bulto (empaquetar), saca el aire y los envoltorios que sobran (minificar), deja afuera lo que no figura en el pedido (tree shaking) y pega una etiqueta de trazabilidad con el sector de origen de cada cosa (el mapa de fuente). La analogía deja de valer en que un build no mueve nada: el código original queda intacto en el repositorio y el build se puede repetir cuantas veces haga falta. Es más una fotocopiadora con filtros que un pedido."
+  },
+  {
+   "t": "h",
+   "x": "El bundler: de muchos archivos a uno"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un navegador o un teléfono no saben, por sí solos, qué significa `import { costoFlete } from \"./logistica\"` cuando los archivos están repartidos en carpetas, ni dónde está `three` cuando alguien escribe `import \"three\"`. Hay que resolver cada nombre a un archivo concreto, leerlo, ver qué importa a su vez y repetir. El resultado de seguir todo ese rastro es un grafo de dependencias, y el bundler lo recorre y lo escribe como un único archivo.",
+    "En la web, además, cada archivo suelto es un pedido de red aparte, con su espera. Lo vemos con esbuild, un bundler real, sobre un ejemplo inventado de dos archivos: un módulo de depósito con tres funciones y un `main.js` que usa solo dos."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// src/logistica.js\nexport function palletsNecesarios(cajas, cajasPorPallet) {\n  return Math.ceil(cajas / cajasPorPallet);\n}\n\nexport function costoFlete(kilos, tarifaPorKilo) {\n  const cargoMinimo = 15;\n  return Math.max(cargoMinimo, kilos * tarifaPorKilo);\n}\n\nexport function etiquetaDespacho(destino, bultos) {\n  return `DESPACHO A ${destino.toUpperCase()} (${bultos} bultos)`;\n}\n\n// src/main.js\nimport { palletsNecesarios, costoFlete } from \"./logistica.js\";\n\nconst cajas = 1250;\nconst pallets = palletsNecesarios(cajas, 48);\nconsole.log(\"Pallets:\", pallets);\nconsole.log(\"Flete:\", costoFlete(310, 0.8));",
+   "cap": "Ejemplo inventado. `main.js` importa dos de las tres funciones."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "npx esbuild --version",
+     "s": "0.28.2"
+    },
+    {
+     "c": "wc -c src/logistica.js src/main.js",
+     "s": "422 src/logistica.js\n210 src/main.js\n632 total"
+    },
+    {
+     "c": "npx esbuild src/main.js --bundle --format=esm",
+     "s": "// src/logistica.js\nfunction palletsNecesarios(cajas2, cajasPorPallet) {\n  return Math.ceil(cajas2 / cajasPorPallet);\n}\nfunction costoFlete(kilos, tarifaPorKilo) {\n  const cargoMinimo = 15;\n  return Math.max(cargoMinimo, kilos * tarifaPorKilo);\n}\n\n// src/main.js\nvar cajas = 1250;\nvar pallets = palletsNecesarios(cajas, 48);\nconsole.log(\"Pallets:\", pallets);\nconsole.log(\"Flete:\", costoFlete(310, 0.8));"
+    }
+   ],
+   "cap": "Dos archivos de entrada (632 bytes) pasan a uno solo. La función `etiquetaDespacho` existía pero main.js no la usa: no aparece en la salida."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en tres cosas de la salida. Los dos archivos son uno. Los `import` y `export` desaparecieron, porque ya no hacen falta: todo está en el mismo lugar. Y `etiquetaDespacho` no está, aunque existía en el módulo. De esa tercera cosa se ocupa la sección que sigue."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El bundler dejó `cajas2` en el parámetro de `palletsNecesarios` y `cajas` afuera, aunque en tu código las dos se llaman `cajas`. ¿Por qué tuvo que cambiar uno de los nombres?",
+   "resp": "Porque al pegar los dos archivos en uno, las dos variables quedan en el mismo espacio de nombres y chocarían. En `logistica.js` `cajas` era un parámetro y en `main.js` una variable del módulo, cada una en su propio archivo; el bundler renombra una de las dos para que sigan siendo cosas distintas. Es un trabajo que antes hacían los módulos y que ahora hace el bundler."
+  },
+  {
+   "t": "h",
+   "x": "Tree shaking: sacar lo que nadie usa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[tree shaking]] (sacudir el árbol: se cae la hoja seca) elimina del resultado las exportaciones que ningún módulo importa. Para ver que no es magia, apagalo y mirá qué vuelve."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "npx esbuild src/main.js --bundle --format=esm --tree-shaking=false",
+     "s": "// src/logistica.js\nfunction palletsNecesarios(cajas2, cajasPorPallet) {\n  return Math.ceil(cajas2 / cajasPorPallet);\n}\nfunction costoFlete(kilos, tarifaPorKilo) {\n  const cargoMinimo = 15;\n  return Math.max(cargoMinimo, kilos * tarifaPorKilo);\n}\nfunction etiquetaDespacho(destino, bultos) {\n  return `DESPACHO A ${destino.toUpperCase()} (${bultos} bultos)`;\n}\n\n// src/main.js\nvar cajas = 1250;\nvar pallets = palletsNecesarios(cajas, 48);\nconsole.log(\"Pallets:\", pallets);\nconsole.log(\"Flete:\", costoFlete(310, 0.8));"
+    }
+   ],
+   "cap": "El mismo build con el tree shaking apagado: vuelve `etiquetaDespacho`, que nadie llama."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La función aparece de nuevo. Con el tree shaking prendido, esbuild sabe que `main.js` solo nombra `palletsNecesarios` y `costoFlete`, y no copia la tercera. Esto funciona porque `import` y `export` son **estáticos**: se pueden leer sin ejecutar el programa. Una biblioteca escrita con `require`, que se decide mientras corre, no deja a nadie saber qué parte se va a pedir, y el bundler tiene que dejarla entera. Es la diferencia entre `lodash` y `lodash-es` del gancho, y entre las dos filas de `three` que siguen."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Qué se importa (esbuild 0.28.2, entrada de pocas líneas)",
+    "Bundle sin minificar (bytes)",
+    "Minificado (bytes)",
+    "Minificado y comprimido con gzip (bytes)"
+   ],
+   "filas": [
+    [
+     "`lodash` (el paquete clásico): `_.chunk`",
+     "225.686",
+     "73.546",
+     "26.454"
+    ],
+    [
+     "`lodash-es`: `import { chunk }`",
+     "7.999",
+     "3.185",
+     "1.570"
+    ],
+    [
+     "`three`: `import { Vector3 }`",
+     "459.265",
+     "248.503",
+     "55.672"
+    ],
+    [
+     "`three`: `import * as THREE` y usar todo",
+     "1.710.189",
+     "742.885",
+     "189.640"
+    ]
+   ],
+   "cap": "Medido en este entorno el 13-11-2026 con `lodash` 4.17.21, `lodash-es` 4.18.1 y `three` 0.186.1 (el rango que declara Senda). Los bytes son exactos para estas versiones. gzip es la compresión sin pérdida que viste en el [@01-18] y es la que suele aplicar un servidor web."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La tabla enseña dos cosas. Una: con `lodash-es` el mismo uso baja de 73.546 a 3.185 bytes. La otra, más sutil: aun importando una sola clase de `three`, `Vector3`, el resultado minificado pesa 248.503 bytes, porque `Vector3` depende de otras piezas de la biblioteca y esas viajan con ella. Importar una función no garantiza que llegue solo una función."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El tree shaking tiene un miedo: los efectos secundarios",
+   "x": [
+    "Un módulo puede hacer algo solo por cargarse, como modificar una variable global o registrar algo. Si el bundler lo descarta porque nadie importó nada de él, quizás rompe la app. Sin una garantía en contrario, es prudente: lo conserva. La garantía es un campo del `package.json` del paquete, `\"sideEffects\": false`, que declara que ninguno de sus archivos hace nada al cargarse."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat node_modules/miniutil/registro.js",
+     "s": "globalThis.__registro = (globalThis.__registro || 0) + 1; // efecto secundario al cargar el módulo\nexport function registrarTodo() { return \"registrado\"; }"
+    },
+    {
+     "c": "cat src/main.js",
+     "s": "import { sumar } from \"miniutil\"; console.log(sumar(2, 3));"
+    },
+    {
+     "c": "npx esbuild src/main.js --bundle --format=esm",
+     "s": "// node_modules/miniutil/sumar.js\nfunction sumar(a, b) {\n  return a + b;\n}\n\n// node_modules/miniutil/registro.js\nglobalThis.__registro = (globalThis.__registro || 0) + 1;\n\n// src/main.js\nconsole.log(sumar(2, 3));"
+    },
+    {
+     "c": "sed -i 's/}$/,\"sideEffects\":false}/' node_modules/miniutil/package.json",
+     "s": ""
+    },
+    {
+     "c": "npx esbuild src/main.js --bundle --format=esm",
+     "s": "// node_modules/miniutil/sumar.js\nfunction sumar(a, b) {\n  return a + b;\n}\n\n// src/main.js\nconsole.log(sumar(2, 3));"
+    }
+   ],
+   "cap": "Misma importación, dos resultados. Sin la promesa «sideEffects: false» del paquete, esbuild conserva el archivo que modifica algo global al cargarse; con la promesa, lo descarta. Corrido con esbuild 0.28.2."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Por eso un paquete liviano tiene que estar escrito con `import` y `export` y declarar que no tiene efectos secundarios. `lodash-es` lo declara en su `package.json`, y `three` con una lista de los archivos que sí los tienen. El `lodash` clásico usa `require`, y el bundler ni siquiera puede mirar qué exporta."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un compañero escribe `import _ from \"lodash\"` y usa solo `_.chunk` en una app que se descarga por red. Con la tabla de arriba, ¿qué le proponés cambiar, cuánto se ahorra y por qué funciona?",
+   "pista": "Mirá las dos primeras filas de la tabla, la columna de minificado, y qué diferencia hay entre `require` e `import` para quien arma el grafo.",
+   "solucion": "Cambiar a `import { chunk } from \"lodash-es\"`. El resultado minificado baja de 73.546 a 3.185 bytes, unas 23 veces menos (con gzip, de 26.454 a 1.570). Funciona porque `lodash-es` está escrito con `import`/`export` y declara `\"sideEffects\": false`: el bundler puede ver que solo se pide `chunk` y dejar afuera el resto. Esto lo verificás midiendo el bundle, no confiando en la intuición."
+  },
+  {
+   "t": "h",
+   "x": "Minificación: achicar el texto sin cambiar lo que hace"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La [[minificación]] reescribe el código para que ocupe menos, sin cambiar su comportamiento. Quita espacios, saltos de línea y comentarios, acorta los nombres de variables locales (`cajasPorPallet` pasa a `e`), resuelve cuentas que ya se pueden hacer (`\"a\" + \" \" + \"b\"` pasa a `\"a b\"`) y reemplaza constantes por su valor. Lo viste arriba: 632 bytes en dos archivos quedaron en 158 bytes en uno, y `cargoMinimo` terminó siendo un `15` suelto dentro de `Math.max`."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "npx esbuild src/main.js --bundle --minify --format=esm > salida.min.js",
+     "s": ""
+    },
+    {
+     "c": "cat salida.min.js",
+     "s": "function t(o,e){return Math.ceil(o/e)}function s(o,e){return Math.max(15,o*e)}var c=1250,l=t(c,48);console.log(\"Pallets:\",l);console.log(\"Flete:\",s(310,.8));"
+    },
+    {
+     "c": "wc -c salida.min.js",
+     "s": "158 salida.min.js"
+    }
+   ],
+   "cap": "De 632 bytes en dos archivos a 158 en uno. Los nombres `cajas`, `costoFlete`, `cargoMinimo` desaparecieron: ahora son `c`, `s` y un `15` suelto."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "Minificar no es proteger el código",
+   "x": "Muchos creen que un archivo minificado es un archivo secreto. No lo es: el comportamiento está entero y cualquiera puede darlo vuelta con un formateador. Se pierden los nombres de las variables, no la lógica. Ofuscar es otra cosa (embrollar a propósito) y tampoco es un candado; retomás el tema en la parte de seguridad ([@15-01])."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Minificar y comprimir son dos ahorros que se suman pero no son lo mismo. Para `three` entero, minificar baja el texto de 1.710.189 a 742.885 bytes, un 57 % menos. Pero lo que viaja por red suele ir comprimido con gzip, y ahí pesa 189.640 bytes, la cuarta parte de lo minificado. Cuando alguien te hable de «redujimos el bundle un 60 %», la primera pregunta útil es **cuál**: sin comprimir o comprimido, minificado o no."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "npx esbuild src/t_todo.js --bundle --minify --format=esm --outfile=salida.js --color=false",
+     "s": "\n  salida.js  725.5kb\n\n⚡ Done in 81ms"
+    }
+   ],
+   "cap": "esbuild empaquetando y minificando el espacio de nombres completo de three.js (23 MB en `node_modules`). Una sola máquina virtual, sin red: es un orden de magnitud, no un benchmark."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Empaquetar y minificar 23 MB de `three` llevó 81 milisegundos. esbuild está escrito en Go, que se compila a código de máquina (el binario que usé lo trae a la vista), y eso explica buena parte de su velocidad. [@06-41] compara el ecosistema de build de JavaScript."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Mapas de fuente: volver del archivo roto al código que escribiste"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si el bundle es un archivo de una línea con nombres de una letra, un error en producción te dice «línea 1, columna 61». Inservible. El [[mapa de fuente]] es un archivo aparte, normalmente con extensión `.map`, que guarda la tabla de equivalencias entre cada posición del archivo final y la posición original. El formato es un estándar (ECMA-426) [#build-ecma426-source-maps] y el bundle solo lleva al final un comentario que apunta al mapa.",
+    "Para verlo hace falta un error. Armé uno a propósito: una línea de pedido sin precio, que rompe al calcular el total."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat pedido.js",
+     "s": "export function totalPedido(lineas) {\n  let total = 0;\n  for (const linea of lineas) {\n    total += linea.cantidad * linea.precio.unitario;\n  }\n  return total;\n}"
+    },
+    {
+     "c": "node dist/app.min.js 2>&1 | head -n 8",
+     "s": "/proyecto/dist/app.min.js:1\nfunction i(a){let o=0;for(let t of a)o+=t.cantidad*t.precio.unitario;return o}var d=[{cantidad:3,precio:{unitario:120}},{cantidad:2}];console.log(i(d));\n                                                            ^\n\nTypeError: Cannot read properties of undefined (reading 'unitario')\n    at i (/proyecto/dist/app.min.js:1:61)\n    at Object.<anonymous> (/proyecto/dist/app.min.js:1:147)"
+    },
+    {
+     "c": "node --enable-source-maps dist/app.map.js 2>&1 | head -n 8",
+     "s": "/proyecto/pedido.js:4\n    total += linea.cantidad * linea.precio.unitario;\n                                           ^\n\nTypeError: Cannot read properties of undefined (reading 'unitario')\n    at totalPedido (/proyecto/pedido.js:4:44)\n    at Object.<anonymous> (/proyecto/app.js:7:13)"
+    }
+   ],
+   "cap": "El mismo error en el mismo build. Arriba, sin mapa: línea 1, columna 61 de un archivo ilegible. Abajo, con `--enable-source-maps` de Node: archivo, línea y columna del código que escribió una persona."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El mapa es un JSON. Este tiene estos campos: `version`, `sources`, `mappings`, `names`. `sources` lista los archivos originales, `names` los nombres que se acortaron y `mappings` es una cadena larga de números codificados que relaciona posiciones. No necesitás leerla: lo hace la herramienta que muestra el error."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El mapa tiene que llegar a quien lo usa, y solo a quien debe",
+   "x": [
+    "Un mapa de fuente sirve si alguien lo tiene al lado del error. En una página web, subirlo junto al bundle significa que cualquiera puede reconstruir tu código original; por eso muchos equipos lo guardan aparte y se lo dan solo a la herramienta que reporta errores. En una app móvil el caso es parecido: el APK que se reparte no lleva el mapa. Si no lo guardaste de ese build exacto, no hay cómo traducir el error."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Metro: el bundler de React Native"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[Metro]] es el bundler que usa React Native. Su documentación describe tres fases: **resolución** (traducir cada `import` al archivo que le corresponde, incluso eligiendo `Button.ios.js` en lugar de `Button.js` cuando se compila para iPhone), **transformación** (compilar cada módulo a algo que el teléfono entienda, por defecto con Babel, y en paralelo) y **serialización** (juntar los módulos transformados con el pequeño programa que los carga) [#build-metro-concepts]. En desarrollo mantiene el grafo en memoria y lo actualiza al guardar un archivo, que es lo que hace posible el refresco instantáneo mientras programás.",
+    "Una app de React Native necesita cosas que un bundler pensado para la web no trae de fábrica: elegir archivos según la plataforma, tratar imágenes y sonidos como recursos y servir el bundle a un teléfono conectado mientras programás. Para ver qué produce Metro, lo corrí sobre el mismo ejemplo del depósito, en la misma versión (0.84.5) que figura en el lockfile de Senda."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "npx metro --version",
+     "s": "0.84.5"
+    },
+    {
+     "c": "npx metro build index.js --out dev.js --platform android --dev true >/dev/null 2>&1; npx metro build index.js --out prod.js --platform android --dev false --minify >/dev/null 2>&1; wc -c dev.js prod.js",
+     "s": " 9595 dev.js\n 2815 prod.js\n12410 total"
+    },
+    {
+     "c": "tail -n 3 prod.js",
+     "s": "__d(function(g,r,i,a,m,e,d){var l=r(d[0]),o=(0,l.palletsNecesarios)(1250,48);console.log(\"Pallets:\",o),console.log(\"Flete:\",(0,l.costoFlete)(310,.8))},0,[1]);\n__d(function(g,r,i,a,m,e,d){Object.defineProperty(e,\"__esModule\",{value:!0}),e.costoFlete=function(t,n){return Math.max(15,t*n)},e.etiquetaDespacho=function(t,n){return`DESPACHO A ${t.toUpperCase()} (${n} bultos)`},e.palletsNecesarios=function(t,n){return Math.ceil(t/n)}},1,[]);\n__r(0);"
+    },
+    {
+     "c": "grep -c etiquetaDespacho prod.js",
+     "s": "1"
+    }
+   ],
+   "cap": "Metro 0.84.5 (la versión del lockfile de Senda) empaquetando el mismo ejemplo de depósito. Las últimas tres líneas son los dos módulos y la orden de arrancar el 0. La configuración es la mínima: sin Expo, sin ninguna opción de tree shaking."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay tres cosas para notar. Cada módulo quedó envuelto en una llamada `__d(function…, 0, [1])`: un número de módulo y la lista de los que necesita. `__r(0)` ordena arrancar el módulo cero, el de entrada. Y el bundle de producción pesa 2.815 bytes frente a 9.595 del de desarrollo, que lleva además el código del refresco en caliente y los avisos para quien programa.",
+    "La cuarta cosa es la más importante para el día de hoy: `etiquetaDespacho` **sigue ahí**. Metro, por sí solo, no hace tree shaking entre módulos; cada módulo se carga entero. Por eso medir el peso de una app con el bundle de desarrollo engaña, y por eso el tree shaking de una app Expo es un tema aparte."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Tree shaking en Expo: experimental, a 13-11-2026",
+   "x": "Según la documentación de Expo (página modificada el 01-10-2026), el tree shaking entre módulos con Metro está disponible de forma experimental desde el SDK 52 y la opción `experimentalImportSupport` viene activa por defecto desde el SDK 54. Para la eliminación efectiva de exportaciones sin usar, la misma página indica activar a mano `EXPO_UNSTABLE_TREE_SHAKING=1` y `EXPO_UNSTABLE_METRO_OPTIMIZE_GRAPH=1`, y advierte que es «muy experimental» porque cambia la forma en que Metro empaqueta [#build-expo-tree-shaking]. Versiones, nombres de variables y estado cambian: antes de apoyarte en esto, releé esa página."
+  },
+  {
+   "t": "senda",
+   "titulo": "La configuración de Metro de Senda: cinco líneas",
+   "x": [
+    "Senda usa Expo SDK 57 (`expo ~57.0.26`) y su lockfile fija Metro 0.84.5. Su `metro.config.js` parte de la configuración por defecto de Expo y agrega una sola cosa: que los archivos `.bib` (las Biblias), `.riv` (Lany), `.wasm` y `.glb` se traten como recursos y no como código.",
+    "No encontré en el repositorio ninguna de las variables experimentales de tree shaking (`EXPO_UNSTABLE_*`) ni en el workflow del APK ni en los scripts. Mi conclusión, a confirmar abriendo un APK real, es que Senda **no** usa hoy el tree shaking entre módulos de Expo y que el bundle lleva cada módulo entero. Lo que sí hace es repartir la carga: en `src/App.tsx` varias pantallas se registran con `getComponent={() => require(…)}`, así que su módulo se evalúa recién la primera vez que alguien las abre. Según `docs/PESO.md`, al abrir la app se evalúan 72 módulos propios en lugar de 158. Esto es del commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "metro.config.js",
+    "package.json",
+    "src/App.tsx",
+    "docs/PESO.md"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Del bundle al APK: Hermes y Gradle"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En Android, el bundle de JavaScript no se entrega como texto. Lo compila a [[bytecode]] el compilador de [[Hermes]], el motor de JavaScript de React Native, **antes** de armar el APK. El teléfono ya recibe instrucciones listas para ejecutar, y se ahorra leer y analizar el texto al arrancar. Así lo describe la documentación de Expo: compilar el JavaScript a bytecode por adelantado mejora el tiempo de arranque [#expo-hermes].",
+    "El encargado de coordinar todo esto es Gradle, el sistema de build de Android (en [@10-26] lo vas a ver en detalle). Leí el código del plugin de Gradle de React Native 0.86.3, el que usa Senda: para cada variante de producción registra una tarea llamada `createBundle<Variante>JsAndAssets`, que corre primero el comando de bundle de Metro, después `hermesc -emit-binary` sobre el resultado y, por último, compone los mapas de fuente. La plantilla de Expo para el SDK 57 (`expo-template-bare-minimum` 57.0.35) fija en ese plugin `bundleCommand = \"export:embed\"`, o sea que quien hace el bundle es la CLI de Expo sobre Metro, y `hermesEnabled=true`."
+   ]
+  },
+  {
+   "t": "pasos",
+   "titulo": "El recorrido de un build de producción de Senda (según el código de los plugins y los workflows)",
+   "pasos": [
+    {
+     "t": "Contenido y pruebas",
+     "x": "Antes de compilar, el workflow corre el validador de contenido y la prueba de arranque. Si fallan, no hay APK."
+    },
+    {
+     "t": "expo prebuild",
+     "x": "Genera la carpeta `android/` a partir de `app.json` y las plantillas de Expo. No viene guardada en el repositorio: nace en cada armado."
+    },
+    {
+     "t": "Gradle y el bundle",
+     "x": "La tarea de React Native llama a `export:embed` de Expo, que usa Metro para armar un único archivo de JavaScript."
+    },
+    {
+     "t": "hermesc",
+     "x": "El compilador de Hermes convierte ese archivo en bytecode. Es lo que termina dentro del APK."
+    },
+    {
+     "t": "El resto del APK",
+     "x": "Gradle compila el código Java/Kotlin, suma las bibliotecas nativas y los recursos, y empaqueta y firma todo en `app-release.apk`."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Veamos el bytecode con la herramienta real, la misma versión que fija el lockfile de Senda."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "H=node_modules/hermes-compiler/hermesc/linux64-bin/hermesc; $H -emit-binary -O -out prod.hbc prod.js; ls -l prod.js prod.hbc | awk '{print $5, $9}'",
+     "s": "5605 prod.hbc\n2815 prod.js"
+    },
+    {
+     "c": "file prod.hbc",
+     "s": "prod.hbc: Hermes JavaScript bytecode, version 98"
+    }
+   ],
+   "cap": "El compilador de Hermes (paquete `hermes-compiler` 250829098.0.17, el que fija el lockfile de Senda) convierte el JavaScript en bytecode. Para este ejemplo diminuto el bytecode es más grande que el texto: tiene encabezado, tablas y cadenas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El archivo empieza con un número mágico que identifica el formato, y `file` informa «Hermes JavaScript bytecode, version 98». Si Hermes se actualiza, la versión del formato puede cambiar, y por eso un bundle compilado con una versión no corre en otra; la documentación de Expo lo advierte [#expo-hermes].",
+    "Ahora viene la parte que contradice la intuición. Mirá cuánto pesa el bytecode según el JavaScript que le entra, minificado o no:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Entrada a hermesc",
+    "JavaScript (bytes)",
+    "Bytecode (bytes)"
+   ],
+   "filas": [
+    [
+     "Metro, 2 módulos, minificado",
+     "2.815",
+     "5.605"
+    ],
+    [
+     "Metro, 2 módulos, sin minificar",
+     "7.325",
+     "5.901"
+    ],
+    [
+     "lodash completo, minificado",
+     "73.546",
+     "192.218"
+    ],
+    [
+     "lodash completo, sin minificar",
+     "225.686",
+     "188.452"
+    ]
+   ],
+   "cap": "Medido el 13-11-2026 con hermesc de `hermes-compiler` 250829098.0.17 y la opción `-O`. El de lodash es un bundle de esbuild; el de dos módulos es el de Metro. Una sola corrida por fila."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con minificar o sin minificar, el bytecode de lodash pesa casi lo mismo: 192.218 bytes contra 188.452, una diferencia de 2 %. El texto de entrada baja a un tercio y el bytecode no se entera. Esto cuadra con lo que dice el código del plugin de React Native: en la tarea de bundle, la opción de minificar se calcula como `!isHermesEnabledInThisVariant`, o sea que con Hermes activo **no se minifica**, y el comando recibe `--minify false`. Dicho de otro modo, la minificación sirve para código que viaja como texto, como una página web, y casi nada para código que se compila a bytecode. Es una inferencia mía a partir de una sola medición y de la lectura del plugin; no abrí un APK real de Senda para confirmarlo."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Qué pesa en el APK de Senda y quién lo mide",
+   "x": [
+    "Según `docs/PESO.md`, el APK de la prueba 33 pesó 89,1 MB (solo arm64). El JavaScript de la app, que incluye todo el contenido (lecciones, preguntas, láminas), ocupa 9,8 MB: el 11 % del APK. Las bibliotecas nativas pesan 35,9 MB y el código Java/Kotlin, 15,3 MB. Son cifras del 23-10-2026 y han cambiado desde entonces.",
+    "El mismo flujo que arma el APK (`apk.yml`) tiene un paso, «Peso del APK», que abre el archivo, suma el tamaño de cada parte y escribe la tabla en el resumen de la corrida. Es un control sencillo: nadie tiene que acordarse de medir. Y R8, activable con `scripts/android_r8.sh`, hace sobre el código Java/Kotlin lo que el bundler hace sobre el JavaScript, quitar lo que nadie llama y acortar nombres; según el mismo documento, bajó el APK 37 a 87,1 MB frente a los 95,9 del 36. Como el bundle de Hermes no se toca, esa mejora no viene del JavaScript.",
+    "Según su código, el plugin de React Native deja los mapas de fuente en una carpeta de salida aparte, fuera de los recursos del APK. El paso que publica la versión copia solamente `app-release.apk`, y en `.github/` y en `scripts/` no encontré ninguna referencia a mapas de fuente. Senda tampoco envía errores a un servicio (no hay Sentry); la pantalla de fallo guarda el detalle en el teléfono. El mapa técnico de Senda lo registra como una decisión implícita, de privacidad y de costo. La consecuencia práctica es que un error de JavaScript se lee por su mensaje y no por una línea resuelta."
+   ],
+   "archivos": [
+    "docs/PESO.md",
+    ".github/workflows/apk.yml",
+    "scripts/android_r8.sh",
+    "package.json"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Tiempos de build y cachés"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un build se corre muchas veces, así que su duración es un costo que se paga cada vez. Se reduce con **cachés**: guardar el resultado de lo que no cambió para no rehacerlo. Metro guarda el resultado de la fase de transformación (su documentación lo menciona) [#build-metro-concepts]: en general, si tocás un archivo se vuelve a transformar ese y no los otros mil. Gradle guarda en caché tareas completas y dependencias. Y npm mantiene una caché local de paquetes descargados.",
+    "En el servidor de integración, donde cada corrida empieza en una máquina limpia, la caché tiene que guardarse y recuperarse a propósito. Los workflows de Senda lo hacen en dos lugares: `actions/setup-node` con `cache: npm` para las dependencias, y `gradle/actions/setup-gradle` para Gradle. Sin esas líneas, cada APK bajaría todo de cero."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un compañero propone hacer el build de producción siempre con `--reset-cache`, «para estar seguros de que no arrastra nada viejo». ¿Qué ganás y qué perdés?",
+   "resp": "Ganás certeza: nada viejo contamina el resultado, que es útil cuando sospechás de la caché. Perdés tiempo, porque todos los archivos se transforman de nuevo. Por eso conviene usarlo como diagnóstico puntual y no como rutina. Fijate que el plugin de React Native lo pasa siempre en el comando de bundle (lo leí en su código): en un armado de producción se elige certeza antes que velocidad."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para que un build dé el mismo resultado a todos hace falta fijar las versiones de las herramientas y las dependencias: el trabajo del archivo de bloqueo del [@04-05]. Por eso los workflows de Senda instalan con `npm ci`, que respeta el lockfile al pie de la letra, y no con `npm install`."
+   ]
+  }
+ ],
+ "recap": [
+  "Un build convierte lo que escribe una persona en lo que se entrega: transpila, empaqueta, optimiza y genera un mapa de fuente. Es automático y repetible.",
+  "El bundler resuelve cada `import`, arma el grafo y lo escribe como un archivo. Lo viste con esbuild: 632 bytes en dos archivos pasaron a 158 en uno.",
+  "El tree shaking saca lo que nadie importa, pero solo funciona con `import`/`export` y con paquetes que declaran no tener efectos secundarios: `lodash` minificado pesó 73.546 bytes y `lodash-es`, 3.185.",
+  "La minificación achica el texto, y rinde sobre todo cuando el código viaja como texto. Con Hermes el bytecode pesó casi lo mismo con y sin minificar (192.218 contra 188.452 bytes).",
+  "Un mapa de fuente conecta el archivo final con el original y convierte «línea 1, columna 61» en archivo y línea de verdad. Si no lo guardaste de ese build, el error queda ilegible.",
+  "Metro es el bundler de React Native: resuelve, transforma y serializa módulos. Por sí solo no hace tree shaking entre módulos; en Expo es experimental. Después, Hermes compila el bundle a bytecode y Gradle arma el APK."
+ ],
+ "repaso": [
+  {
+   "p": "Un paquete trae un archivo que, solo por cargarse, modifica una variable global. Tu app no importa nada de ese archivo, pero el paquete no declara `\"sideEffects\": false`. ¿Qué hace un bundler prudente?",
+   "o": [
+    "Lo incluye igual, porque podría tener un efecto que la app necesita",
+    "Lo descarta, porque nadie lo importa en ningún módulo de la app",
+    "Falla el build y pide declarar la propiedad antes de seguir",
+    "Lo incluye solo si el modo de producción está desactivado"
+   ],
+   "c": 0,
+   "e": "Sin la garantía del paquete, el bundler no puede saber si cargar el archivo tiene un efecto que otra parte del programa espera, y prefiere no romper nada. Descartarlo sería ser demasiado optimista; no falla el build ni depende del modo de desarrollo."
+  },
+  {
+   "p": "Un error en producción dice `app.min.js:1:61`. Tenés el código fuente de hoy en el repositorio, pero el bundle es de hace tres semanas. ¿Qué te permite ubicar la línea original con seguridad?",
+   "o": [
+    "El código del repositorio de hoy abierto en esa línea",
+    "El archivo de bloqueo de las dependencias de ese día",
+    "El mapa de fuente que generó ese mismo build",
+    "Volver a minificar el código actual y comparar columnas"
+   ],
+   "c": 2,
+   "e": "El mapa registra la equivalencia exacta de ese bundle. El código actual puede haber cambiado de línea, el lockfile no tiene posiciones y minificar de nuevo daría otro archivo, con otras columnas."
+  },
+  {
+   "p": "Alguien dice: «con Hermes, minificar el JavaScript antes de compilarlo apenas cambia el peso del bytecode». ¿Qué evidencia de hoy lo respalda?",
+   "o": [
+    "El bytecode de dos módulos pesó menos que el texto que le dio origen",
+    "El bytecode de lodash pesó 188.452 bytes sin minificar y 192.218 minificado",
+    "El bundle de desarrollo de Metro pesó 9.595 y el de producción 2.815",
+    "El APK de Senda bajó de 95,9 a 87,1 MB al activar el recorte de R8"
+   ],
+   "c": 1,
+   "e": "La comparación correcta es la misma entrada con y sin minificar, y da un 2 % de diferencia. El bytecode diminuto era más grande que su texto, la diferencia entre desarrollo y producción no tiene que ver con Hermes y R8 actúa sobre Java/Kotlin, no sobre el JavaScript."
+  },
+  {
+   "p": "Dos personas importan lo mismo: una escribe `import _ from \"lodash\"` y usa `_.chunk`; la otra, `import { chunk } from \"lodash-es\"`. Con la misma herramienta, ¿por qué la segunda obtiene un bundle mucho menor?",
+   "o": [
+    "Porque `lodash-es` tiene menos funciones que el paquete clásico de lodash en total",
+    "Porque `import { chunk }` obliga al bundler a minificar, y `import _` no lo permite",
+    "Porque `lodash-es` se comprime con gzip antes de entrar al bundle y el otro no",
+    "`lodash-es` usa `import`/`export` estáticos, que permiten saber qué se pide y dejar el resto afuera"
+   ],
+   "c": 3,
+   "e": "Las importaciones estáticas se leen sin ejecutar el programa, y eso hace posible el tree shaking. Las dos versiones tienen las mismas funciones, la minificación no depende de la forma de importar y la compresión ocurre después, al servir el archivo."
+  },
+  {
+   "p": "Medís el peso de tu app de React Native con el bundle de desarrollo de Metro y te asustás: es tres veces el esperado. ¿Cuál es la explicación más probable?",
+   "o": [
+    "Metro duplica cada módulo para poder compararlo con el anterior cada vez que guardás",
+    "El bundle de desarrollo incluye también los mapas de fuente de todos los módulos",
+    "El de desarrollo incluye código para el refresco en caliente y avisos que el de producción no lleva",
+    "Metro desactiva el empaquetado para que cada archivo se pueda cargar por separado"
+   ],
+   "c": 2,
+   "e": "En el ejemplo, 9.595 bytes en desarrollo contra 2.815 en producción: el exceso es de infraestructura para quien programa. No se duplican módulos ni se desactiva el empaquetado, y los mapas son archivos aparte, no parte del bundle."
+  },
+  {
+   "p": "En Senda, activar R8 bajó el APK 37 a 87,1 MB desde 95,9 MB del 36. ¿Qué parte del APK explica esa mejora?",
+   "o": [
+    "El código Java/Kotlin y los recursos, que R8 recorta y renombra",
+    "El bundle de JavaScript, que R8 minifica antes de que lo vea Hermes",
+    "Las Biblias y la música, que R8 comprime con otro formato más chico",
+    "Las bibliotecas nativas en C++, que R8 vuelve a compilar con optimizaciones"
+   ],
+   "c": 0,
+   "e": "R8 trabaja sobre el código Java/Kotlin y los recursos de Android. No procesa JavaScript, no recomprime audio o texto ni recompila bibliotecas nativas."
+  },
+  {
+   "p": "Un build de CI siempre parte de una máquina limpia y tarda 12 minutos. Querés bajarlo sin tocar el código. ¿Qué cambio tiene más sentido probar primero?",
+   "o": [
+    "Agregar `--reset-cache` a todos los comandos para evitar cachés viejas",
+    "Guardar y recuperar la caché de dependencias y de Gradle entre corridas",
+    "Minificar el código dos veces para que el bundle sea todavía más chico",
+    "Pasar de `npm ci` a `npm install` para que resuelva las versiones más rápido"
+   ],
+   "c": 1,
+   "e": "Si cada corrida empieza vacía, reutilizar lo que no cambió es la palanca clara. `--reset-cache` hace lo contrario, minificar dos veces no baja el tiempo del build y `npm install` ignora el lockfile, justo lo que quita reproducibilidad."
+  }
+ ],
+ "feynman": "Explicale a alguien que no programa por qué un archivo que pesa 225 KB sin minificar puede terminar en 3 KB sin perder nada de lo que hace, y qué tiene que pasar para que un error se pueda leer después. Usá una analogía tuya, que no sea la del despacho.",
+ "para_profundizar": [
+  {
+   "fuente": "build-esbuild-api",
+   "nota": "La referencia de esbuild: las opciones `--bundle`, `--minify`, `--tree-shaking` y `--sourcemap` que usaste hoy, con la explicación de cuándo el tree shaking no puede actuar. Sirve para reproducir las pruebas con tu propio código."
+  },
+  {
+   "fuente": "build-metro-concepts",
+   "nota": "Una página corta de Metro con las tres fases (resolución, transformación, serialización) y el grafo de dependencias. Sirve para tener claro qué hace Metro antes de abrir cualquier configuración."
+  },
+  {
+   "fuente": "build-expo-tree-shaking",
+   "nota": "La guía oficial de Expo sobre eliminación de código muerto, con el estado experimental y las variables que hay que activar. Releela cada vez que cambies de SDK, porque es lo que más se mueve."
+  },
+  {
+   "fuente": "build-ecma426-source-maps",
+   "nota": "El estándar de los mapas de fuente. No hace falta leerlo entero: el apartado del formato muestra qué significan los campos `sources`, `names` y `mappings` que viste hoy."
+  }
+ ],
+ "videos": [
+  {
+   "q": "esbuild bundler tree shaking source maps explicado",
+   "por_que": "Para ver a una persona correr un bundler sobre un proyecto y comparar tamaños, lo mismo que hiciste hoy. Elegí uno que muestre el resultado antes y después de minificar."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "bundler",
+   "d": "Herramienta que sigue todos los `import` de un programa, junta los módulos en pocos archivos y los deja listos para ejecutar. esbuild, Rollup, webpack y Metro son bundlers."
+  },
+  {
+   "t": "minificación",
+   "d": "Reescribir el código para que ocupe menos sin cambiar lo que hace: quitar espacios y comentarios, acortar nombres locales y resolver cuentas anticipadas. No oculta la lógica."
+  },
+  {
+   "t": "tree shaking",
+   "d": "Eliminar del resultado las partes del código que ningún módulo usa, aprovechando que `import` y `export` son estáticos. Se frena ante módulos con efectos secundarios que no están declarados."
+  },
+  {
+   "t": "mapa de fuente",
+   "d": "Archivo aparte (`.map`, un JSON) que relaciona cada posición del código final con la posición del código original, para leer errores y depurar sobre el código que se escribió."
+  },
+  {
+   "t": "Metro",
+   "d": "El bundler de React Native. Resuelve cada módulo según la plataforma, lo transforma con Babel y lo serializa en un bundle; en desarrollo mantiene el grafo en memoria y actualiza al guardar."
+  },
+  {
+   "t": "transpilar",
+   "d": "Traducir código de una sintaxis a otra del mismo nivel, por ejemplo TypeScript a JavaScript o JSX a llamadas de función. Es una etapa del build, anterior al empaquetado."
+  },
+  {
+   "t": "efecto secundario",
+   "d": "Algo que un módulo hace solo por cargarse, como modificar una variable global. Los bundlers lo tratan con cautela y por eso los paquetes pueden declarar `\"sideEffects\": false` en su `package.json`."
+  },
+  {
+   "t": "grafo de dependencias",
+   "d": "El conjunto de módulos alcanzables desde un archivo de entrada y los vínculos de importación entre ellos. El bundler lo recorre para decidir qué incluir."
+  }
+ ],
+ "siguiente": "Ya sabés construir el artefacto en tu máquina. Mañana, la integración continua: una máquina sin dueño que repite ese build y las pruebas en cada cambio, y avisa a todos si algo se rompió.",
+ "fuentes_nuevas": [
+  {
+   "id": "build-esbuild-api",
+   "t": "esbuild: API (bundling, minify, tree shaking, source maps)",
+   "a": "esbuild",
+   "tipo": "doc",
+   "url": "https://esbuild.github.io/api/"
+  },
+  {
+   "id": "build-metro-concepts",
+   "t": "Metro: Concepts",
+   "a": "Metro (Meta)",
+   "tipo": "doc",
+   "url": "https://metrobundler.dev/docs/concepts"
+  },
+  {
+   "id": "build-expo-tree-shaking",
+   "t": "Tree shaking and code removal",
+   "a": "Expo",
+   "tipo": "doc",
+   "url": "https://docs.expo.dev/guides/tree-shaking/"
+  },
+  {
+   "id": "build-ecma426-source-maps",
+   "t": "ECMA-426: Source map format specification",
+   "a": "Ecma TC39",
+   "tipo": "doc",
+   "url": "https://tc39.es/ecma426/"
+  }
+ ]
+}

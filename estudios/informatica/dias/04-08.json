@@ -1,0 +1,1122 @@
+{
+ "id": "04-08",
+ "titulo": "Git II: cómo funciona por dentro",
+ "bajada": "Abrís .git y ves los cuatro tipos de objeto, calculás a mano el identificador de un commit y entendés por qué una rama pesa 41 bytes.",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Recorrer a mano el directorio .git de un repositorio y decir qué hace cada parte importante.",
+  "Explicar cómo Git calcula el identificador de un objeto y por qué el mismo contenido da el mismo identificador.",
+  "Describir los objetos blob, tree, commit y tag y armar un commit con comandos de bajo nivel.",
+  "Explicar por qué el historial es un DAG y qué son una referencia y HEAD.",
+  "Explicar qué hace el empaquetado y por qué las deltas no cambian el modelo de instantáneas."
+ ],
+ "venis_de": "En [@04-07] viste qué problema resuelve el control de versiones y qué guarda un commit (árbol, padre, autor y mensaje). Hoy abrís la caja: de dónde salen esos identificadores, qué es de verdad un árbol y por qué una rama no pesa nada.",
+ "se_apoya_en": [
+  "04-07",
+  "03-27",
+  "02-11"
+ ],
+ "gancho": [
+  "Ayer viste que un commit es una foto del proyecto con un enlace al anterior. Hoy hacés lo que casi nadie hace: abrir la caja. Dentro del directorio oculto `.git` no hay una base de datos misteriosa ni un formato cerrado. Hay carpetas con nombres de dos letras, archivos con nombres de 38 caracteres que parecen basura y cuatro tipos de cosas.",
+  "Lo bueno es que todo se entiende entero. Vas a hacer un commit sin usar `git commit`, vas a recalcular a mano el identificador de un commit con una herramienta que no es Git y vas a ver por qué una rama pesa 41 bytes. Al final volvés a mirar el repositorio de Senda con ojos nuevos y vas a encontrar en él un detalle que explica por qué su historia parece tener un solo commit."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un repositorio vacío, abierto"
+  },
+  {
+   "t": "p",
+   "x": "Empecemos por lo más chico: crear un repositorio sin nada adentro y mirar qué apareció. Como en [@04-07], el repositorio es la carpeta del proyecto más un directorio oculto, `.git`, donde vive todo lo que Git sabe. Con `find` listamos ese directorio (salteé `hooks`, que trae scripts de ejemplo que hoy no importan)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git init -b main laboratorio",
+     "s": "Initialized empty Git repository in /tmp/gitd-0408-lab/laboratorio/.git/"
+    },
+    {
+     "c": "cd laboratorio",
+     "s": ""
+    },
+    {
+     "c": "find .git -path .git/hooks -prune -o -print | sort",
+     "s": ".git\n.git/HEAD\n.git/branches\n.git/config\n.git/description\n.git/info\n.git/info/exclude\n.git/objects\n.git/objects/info\n.git/objects/pack\n.git/refs\n.git/refs/heads\n.git/refs/tags"
+    },
+    {
+     "c": "cat .git/HEAD",
+     "s": "ref: refs/heads/main"
+    },
+    {
+     "c": "find .git/objects -type f | wc -l",
+     "s": "0"
+    }
+   ],
+   "cap": "Salida real en este entorno (Git 2.43.0, mensajes en inglés). Mismo patrón que ayer: nombre, mail y fechas de los commits fijados para que los identificadores sean reproducibles."
+  },
+  {
+   "t": "p",
+   "x": "Casi todo es relleno. Solo importan tres cosas. `objects` es la base de datos: hoy tiene **cero archivos**. `refs` guarda los punteros con nombre (ramas y etiquetas). Y `HEAD` es un archivito de una línea que dice `ref: refs/heads/main`: indica en qué rama estás parado. En un rato aparece una cuarta pieza, el índice. El resto (`config`, `description`, `info`, `branches`) es configuración y restos de versiones viejas."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El repositorio es esa carpeta",
+   "x": "Si copiás `.git` a otro lado, te llevaste el proyecto entero con toda su historia. Si lo borrás, los archivos de la carpeta de trabajo siguen ahí, pero se acabó el historial. Por eso `.git` no se toca a mano ni se borra para «arreglar» algo."
+  },
+  {
+   "t": "h",
+   "x": "Todo es un objeto, y su nombre sale de su contenido"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Pro Git describe el núcleo de Git con una frase: es un sistema de archivos direccionable por contenido, y en su centro hay un almacén simple de clave y valor [#gitint-objetos]. Ya conocés la idea de una [[tabla hash]]: le das una clave y te devuelve un valor. La diferencia es que acá **nadie elige la clave**. La calcula Git aplicando una [[función hash]] al valor. Si el contenido es el mismo, la clave es la misma; si cambia una letra, la clave es otra.",
+    "La función que usa Git (por ahora) es SHA-1. Devuelve 160 bits, que se escriben como **40 dígitos hexadecimales**. Hay 2¹⁶⁰ claves posibles, un número de 49 cifras (alrededor de 1,46 × 10⁴⁸). Mirá cómo se calcula la de un contenido mínimo, la palabra `hola` con un salto de línea, y cómo la podés recalcular sin Git:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "printf 'hola\\n' | git hash-object --stdin",
+     "s": "5c1b14949828006ed75a3e8858957f86a2f7e2eb"
+    },
+    {
+     "c": "printf 'blob 5\\0hola\\n' | sha1sum",
+     "s": "5c1b14949828006ed75a3e8858957f86a2f7e2eb  -"
+    }
+   ],
+   "cap": "`git hash-object` calcula el identificador sin guardar nada. `sha1sum` es una herramienta común de Linux. El archivo se calcula **con una cabecera adelante**: la palabra `blob`, un espacio, el tamaño (5 bytes) y un byte nulo (`\\0`). Mismo resultado, a mano."
+  },
+  {
+   "t": "p",
+   "x": "Fijate que el hash no se calcula sobre `hola` a secas sino sobre `blob 5\\0hola`. Esa cabecera dice qué tipo de objeto es y cuánto mide. Recién el resultado se convierte en el nombre con el que Git guarda el contenido."
+  },
+  {
+   "t": "widget",
+   "n": "hash",
+   "titulo": "Probá cómo cambia un hash con una sola letra",
+   "cfg": {
+    "texto": "hola"
+   },
+   "cap": "Este widget calcula SHA-256 del texto tal cual, sin cabecera. Git calcula SHA-1 (o SHA-256 en repositorios nuevos que lo pidan) sobre cabecera más contenido, así que los números no coinciden con los de la terminal. Lo que sí se ve igual es la idea: cambiar una letra cambia todo el resultado."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Una etiqueta que se arma mirando adentro de la caja",
+   "x": [
+    "Imaginá un depósito donde la etiqueta de cada caja no la elige nadie: se calcula leyendo lo que hay adentro. Dos cajas con exactamente lo mismo reciben la misma etiqueta, así que alcanza con guardar una. Si cambia un solo tornillo, la etiqueta es completamente otra.",
+    "Dónde falla la analogía: en un depósito real las etiquetas las asigna una persona y a veces se repiten por error. En Git un mismo identificador para dos contenidos distintos sería una **colisión**, algo que con una buena función hash es increíblemente improbable (y por eso el proyecto ya se prepara para pasar de SHA-1 a SHA-256, más abajo)."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Tenés dos archivos con exactamente el mismo contenido pero con nombres distintos en dos carpetas. ¿Cuántos objetos de contenido guarda Git?",
+   "resp": "Uno solo. El contenido de un archivo se guarda sin su nombre; el nombre vive en otro objeto (el que describe la carpeta). Dos contenidos idénticos dan el mismo identificador y por lo tanto el mismo objeto."
+  },
+  {
+   "t": "h",
+   "x": "Los cuatro tipos de objeto"
+  },
+  {
+   "t": "p",
+   "x": "Todo lo que Git guarda es uno de cuatro tipos de objeto. Los dos primeros son el esqueleto de una foto del proyecto; el tercero lo viste ayer; el cuarto es una etiqueta."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tipo",
+    "Qué guarda",
+    "Qué NO guarda",
+    "Ejemplo de hoy"
+   ],
+   "filas": [
+    [
+     "blob",
+     "El contenido de un archivo, byte por byte",
+     "Nombre ni permisos",
+     "El texto de `rutas.txt`"
+    ],
+    [
+     "tree",
+     "Una carpeta: lista de entradas con modo, tipo, identificador y nombre",
+     "El contenido de los archivos (apunta a ellos)",
+     "La carpeta raíz y la carpeta `docs`"
+    ],
+    [
+     "commit",
+     "Identificador del árbol raíz, del padre, autor, fecha y mensaje",
+     "Los archivos (apunta al árbol)",
+     "El primer commit del laboratorio"
+    ],
+    [
+     "tag",
+     "Un nombre y un mensaje pegados a otro objeto, casi siempre un commit",
+     "Cambios ni archivos",
+     "La etiqueta `v1`, más abajo"
+    ]
+   ],
+   "cap": "Una etiqueta como la de la última fila se llama «anotada»; hay otra variante más simple que es solo un puntero, y la vemos en la sección de punteros."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[objeto blob]] es el contenido de un archivo, sin nada más. Un [[objeto tree]] es una carpeta: una lista de entradas, y cada entrada dice «este nombre, con estos permisos, es el blob (o el árbol) con tal identificador». Como el nombre vive en el árbol y no en el blob, **renombrar un archivo no crea un blob nuevo**: cambia el árbol que lo contiene y nada más.",
+    "Veámoslo con las manos. Creo dos archivos, uno dentro de una carpeta `docs`, y hago `git add .`. Todavía no hice ningún commit."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "printf 'Ruta 1: Deposito Barracas -> Cordoba\\nRuta 2: Deposito Barracas -> Rosario\\n' > rutas.txt",
+     "s": ""
+    },
+    {
+     "c": "mkdir docs && printf 'Rutas de la distribuidora (ejemplo inventado)\\n' > docs/leeme.txt",
+     "s": ""
+    },
+    {
+     "c": "git add .",
+     "s": ""
+    },
+    {
+     "c": "find .git/objects -type f | sort",
+     "s": ".git/objects/02/19479b0c525a78e7291038813ed4104f85d2da\n.git/objects/77/a7fa00f084937ef95acd02c230ef8401376c77"
+    },
+    {
+     "c": "git cat-file -t 0219479",
+     "s": "blob"
+    },
+    {
+     "c": "git cat-file -s 0219479",
+     "s": "74"
+    },
+    {
+     "c": "git cat-file -p 0219479",
+     "s": "Ruta 1: Deposito Barracas -> Cordoba\nRuta 2: Deposito Barracas -> Rosario"
+    },
+    {
+     "c": "python3 -c \"import zlib; print(zlib.decompress(open('.git/objects/02/19479b0c525a78e7291038813ed4104f85d2da','rb').read()))\"",
+     "s": "b'blob 74\\x00Ruta 1: Deposito Barracas -> Cordoba\\nRuta 2: Deposito Barracas -> Rosario\\n'"
+    }
+   ],
+   "cap": "Después de `git add` ya hay dos objetos guardados (dos blobs). `git cat-file` pregunta tipo (`-t`), tamaño (`-s`) o contenido (`-p`). El último comando abre el archivo del disco: es la cabecera `blob 74` seguida del contenido, comprimido con zlib."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá el nombre del archivo en el disco: `.git/objects/02/19479b0c…`. Las dos primeras letras del identificador son la carpeta y las 38 restantes son el nombre del archivo [#gitint-objetos]. Adentro hay exactamente lo que calculamos antes, la cabecera (`blob 74`, y el `\\x00` es el byte nulo) seguida del contenido, todo comprimido con zlib. No hay un formato misterioso: es texto con cabecera, comprimido, guardado con su hash como nombre.",
+    "Ahora hago el commit y cuento los objetos."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git commit -m \"Agrega las rutas y el leeme\"",
+     "s": "[main (root-commit) b4d88d2] Agrega las rutas y el leeme\n 2 files changed, 3 insertions(+)\n create mode 100644 docs/leeme.txt\n create mode 100644 rutas.txt"
+    },
+    {
+     "c": "find .git/objects -type f | wc -l",
+     "s": "5"
+    },
+    {
+     "c": "git cat-file -p HEAD",
+     "s": "tree dc10a96bb208cc0063772c2088ea7b0ecc1f2dd3\nauthor Ana Perez <ana@example.com> 1793624400 -0300\ncommitter Ana Perez <ana@example.com> 1793624400 -0300\n\nAgrega las rutas y el leeme"
+    },
+    {
+     "c": "git cat-file -p HEAD^{tree}",
+     "s": "040000 tree f4a873c3b8343f62ed755fde38bd005f05ad95f1\tdocs\n100644 blob 0219479b0c525a78e7291038813ed4104f85d2da\trutas.txt"
+    },
+    {
+     "c": "git cat-file -p f4a873c",
+     "s": "100644 blob 77a7fa00f084937ef95acd02c230ef8401376c77\tleeme.txt"
+    },
+    {
+     "c": "git cat-file -t f4a873c",
+     "s": "tree"
+    }
+   ],
+   "cap": "Pasaron de 2 a 5 objetos: los 2 blobs de antes, 2 árboles (la carpeta raíz y `docs`) y 1 commit. El commit apunta a un solo árbol, el raíz, y desde ahí se llega a todo."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "arbol",
+   "raiz": {
+    "t": "commit b4d88d2",
+    "s": "autor, fecha, mensaje; sin padre",
+    "k": "servidor",
+    "h": [
+     {
+      "t": "tree dc10a96",
+      "s": "carpeta raíz",
+      "k": "datos",
+      "h": [
+       {
+        "t": "blob 0219479",
+        "s": "rutas.txt",
+        "k": "cliente"
+       },
+       {
+        "t": "tree f4a873c",
+        "s": "docs/",
+        "k": "datos",
+        "h": [
+         {
+          "t": "blob 77a7fa0",
+          "s": "leeme.txt",
+          "k": "cliente"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "cap": "Los cinco objetos del primer commit del laboratorio. Cada uno se nombra con el comienzo de su identificador; las flechas implícitas van de arriba hacia abajo."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "git add ya guarda el contenido",
+   "x": "El blob se creó cuando hiciste `git add`, no cuando hiciste el commit: el commit solo arma los árboles y el objeto commit. Si agregás un archivo y nunca lo commiteás, el blob queda en la base sin que nada lo apunte. Git lo limpia más tarde: la documentación de `git gc` dice que elimina «objetos inalcanzables» como los creados por un `git add` anterior [#gitint-gc]."
+  },
+  {
+   "t": "h",
+   "x": "Hacer un commit sin usar git commit"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si un commit son esos cinco objetos más un puntero, deberíamos poder armarlos nosotros. Se puede, y es la mejor forma de comprobar que entendiste el modelo. Pro Git llama a los comandos de uso diario «porcelana» (`add`, `commit`) y a los de bajo nivel «fontanería» (`hash-object`, `update-index`, `write-tree`, `commit-tree`, `update-ref`) [#git-book]. Vamos a usar solo fontanería en un repositorio nuevo, con el mismo contenido, el mismo mensaje y la misma fecha que antes.",
+    "Los pasos son cinco: guardar cada contenido como blob, anotarlos en el índice con su nombre, convertir el índice en árboles, crear el objeto commit apuntando al árbol raíz y, por último, mover la rama para que apunte al commit nuevo."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git init -q -b main manual && cd manual",
+     "s": ""
+    },
+    {
+     "c": "printf 'Ruta 1: Deposito Barracas -> Cordoba\\nRuta 2: Deposito Barracas -> Rosario\\n' | git hash-object -w --stdin",
+     "s": "0219479b0c525a78e7291038813ed4104f85d2da"
+    },
+    {
+     "c": "printf 'Rutas de la distribuidora (ejemplo inventado)\\n' | git hash-object -w --stdin",
+     "s": "77a7fa00f084937ef95acd02c230ef8401376c77"
+    },
+    {
+     "c": "git update-index --add --cacheinfo 100644,0219479b0c525a78e7291038813ed4104f85d2da,rutas.txt",
+     "s": ""
+    },
+    {
+     "c": "git update-index --add --cacheinfo 100644,77a7fa00f084937ef95acd02c230ef8401376c77,docs/leeme.txt",
+     "s": ""
+    },
+    {
+     "c": "git write-tree",
+     "s": "dc10a96bb208cc0063772c2088ea7b0ecc1f2dd3"
+    },
+    {
+     "c": "git commit-tree dc10a96bb208cc0063772c2088ea7b0ecc1f2dd3 -m \"Agrega las rutas y el leeme\"",
+     "s": "b4d88d2e395f447a2047095b9ef20d516b31ad5b"
+    },
+    {
+     "c": "git update-ref refs/heads/main b4d88d2e395f447a2047095b9ef20d516b31ad5b",
+     "s": ""
+    },
+    {
+     "c": "git log --oneline",
+     "s": "b4d88d2 Agrega las rutas y el leeme"
+    }
+   ],
+   "cap": "Fontanería de Git, paso por paso. El índice se explica en una sección más abajo; por ahora alcanza con saber que es el borrador del próximo árbol. `update-ref` mueve la rama `main` al commit nuevo."
+  },
+  {
+   "t": "p",
+   "x": "Mirá el final: `b4d88d2`, **el mismo identificador** que me devolvió `git commit` en el laboratorio. No hay ningún dato escondido. Un commit es eso: los blobs, los árboles, un objeto con autor, fecha y mensaje, y una rama que apunta a él. Cualquier cosa que haga `git commit` por vos se puede hacer con esos cinco comandos."
+  },
+  {
+   "t": "p",
+   "x": "Para cerrar el círculo, recalculemos el identificador del commit sin Git. El contenido de un commit es el texto que viste con `cat-file -p` (más las cabeceras), y se hashea igual que un blob: tipo, tamaño, byte nulo y contenido."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git cat-file -s HEAD",
+     "s": "182"
+    },
+    {
+     "c": "(printf 'commit 182\\0'; git cat-file commit HEAD) | sha1sum",
+     "s": "b4d88d2e395f447a2047095b9ef20d516b31ad5b  -"
+    },
+    {
+     "c": "git rev-parse HEAD",
+     "s": "b4d88d2e395f447a2047095b9ef20d516b31ad5b"
+    },
+    {
+     "c": "git cat-file commit HEAD | sed 's/leeme/Leeme/' | git hash-object -t commit --stdin",
+     "s": "3131cb9b84c4e0ff7ed57ef9bcbf9410a1a32104"
+    }
+   ],
+   "cap": "El primer comando da el tamaño del texto del commit (182 bytes). El segundo arma la cabecera `commit 182\\0`, le pega el texto y calcula SHA-1 con `sha1sum`: da el mismo número que `git rev-parse HEAD`. El último cambia una sola letra del mensaje y calcula de nuevo, sin guardar nada."
+  },
+  {
+   "t": "p",
+   "x": "La última línea de esa salida es lo más importante del día. Cambié **una letra** del mensaje y el identificador es completamente otro (`3131cb9…` en vez de `b4d88d2…`). Ahora pensá en el commit siguiente: guarda en su línea `parent` el identificador del commit viejo. Si alguien «corrigiera» el pasado, el commit modificado tendría otro identificador, y todos sus descendientes, que guardan el identificador anterior, quedarían apuntando a un commit que ya no existe. Para cambiar la historia hay que reescribir **todos los commits posteriores**, y todos los identificadores cambian. Eso es lo que hace `git rebase` y es la razón de la regla de no reescribir historia que otros ya bajaron, que vemos en [@04-10]."
+  },
+  {
+   "t": "h",
+   "x": "El DAG de commits: la historia como un grafo"
+  },
+  {
+   "t": "p",
+   "x": "Si cada commit guarda quién es su padre, el historial es un [[grafo]]: los commits son los vértices y las líneas `parent` son las aristas, dibujadas con flechas que apuntan hacia atrás en el tiempo. Los especialistas lo llaman [[DAG de commits]]: grafo **dirigido** (las flechas tienen sentido) y **acíclico** (no hay forma de seguirlas y volver al punto de partida)."
+  },
+  {
+   "t": "p",
+   "x": "El carácter acíclico no es una regla que Git controle: sale de la construcción. Para escribir el `parent` en el commit B, el commit A tiene que existir ya, porque necesitás su identificador. Y el identificador de A depende de todo A. Un ciclo exigiría que un commit contuviera su propio hash, y el hash se calcula a partir del contenido terminado. Los commits solo pueden apuntar a commits más viejos."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "grafo",
+   "alto": 340,
+   "nodos": [
+    {
+     "id": "c1",
+     "x": 6,
+     "y": 50,
+     "t": "b4d88d2",
+     "k": "servidor"
+    },
+    {
+     "id": "c2",
+     "x": 24,
+     "y": 50,
+     "t": "54df610",
+     "k": "servidor"
+    },
+    {
+     "id": "c3",
+     "x": 42,
+     "y": 50,
+     "t": "1c3146b",
+     "k": "servidor"
+    },
+    {
+     "id": "c4",
+     "x": 60,
+     "y": 50,
+     "t": "bdf8681",
+     "k": "servidor"
+    },
+    {
+     "id": "c5",
+     "x": 82,
+     "y": 22,
+     "t": "fe33f09",
+     "k": "servidor"
+    },
+    {
+     "id": "c6",
+     "x": 82,
+     "y": 78,
+     "t": "14d8625",
+     "k": "servidor"
+    },
+    {
+     "id": "rc",
+     "x": 82,
+     "y": 4,
+     "t": "cotizaciones",
+     "k": "red"
+    },
+    {
+     "id": "rm",
+     "x": 82,
+     "y": 96,
+     "t": "main",
+     "k": "red"
+    },
+    {
+     "id": "hd",
+     "x": 55,
+     "y": 96,
+     "t": "HEAD",
+     "k": "cliente"
+    }
+   ],
+   "aristas": [
+    {
+     "de": "c2",
+     "a": "c1",
+     "dir": true
+    },
+    {
+     "de": "c3",
+     "a": "c2",
+     "dir": true
+    },
+    {
+     "de": "c4",
+     "a": "c3",
+     "dir": true
+    },
+    {
+     "de": "c5",
+     "a": "c4",
+     "dir": true
+    },
+    {
+     "de": "c6",
+     "a": "c4",
+     "dir": true
+    },
+    {
+     "de": "rc",
+     "a": "c5",
+     "dir": true,
+     "dash": true
+    },
+    {
+     "de": "rm",
+     "a": "c6",
+     "dir": true,
+     "dash": true
+    },
+    {
+     "de": "hd",
+     "a": "rm",
+     "dir": true,
+     "dash": true
+    }
+   ],
+   "cap": "El historial real del laboratorio de hoy. Las flechas llenas son líneas `parent` (cada commit apunta a su padre) y las punteadas son referencias. Después de `bdf8681` el historial se bifurcó en dos ramas; ahí hay un commit con dos hijos. Un commit con dos padres sería una fusión, tema de [@04-10]."
+  },
+  {
+   "t": "p",
+   "x": "Ese grafo tiene un solo commit raíz (`b4d88d2`, el que no tiene padre) y una bifurcación. Un commit puede tener un hijo, varios hijos (como `bdf8681`) o, en las fusiones, dos padres. La idea de una cadena lineal que usamos ayer es el caso más simple del grafo. Quedó dibujada sola: los commits `fe33f09` y `14d8625` los hice a propósito en dos ramas distintas, que son lo próximo."
+  },
+  {
+   "t": "h",
+   "x": "Ramas y HEAD: punteros de 41 bytes"
+  },
+  {
+   "t": "p",
+   "x": "Con todo lo anterior, una rama es sorprendentemente poco. Una [[referencia]] es un archivo bajo `.git/refs` que contiene un identificador de commit y un nombre legible. Una rama es una referencia dentro de `refs/heads`. Pro Git lo resume así: una rama es básicamente un puntero simple a la cabeza de una línea de trabajo [#gitint-referencias]. Veámoslo con el laboratorio, desde `main` hasta una segunda rama (omití los pasos de crear archivos y hacer `git add`, que ya conocés)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat .git/refs/heads/main",
+     "s": "bdf8681bb7115db4dbbc848584cd5c292d285cb3"
+    },
+    {
+     "c": "wc -c .git/refs/heads/main",
+     "s": "41 .git/refs/heads/main"
+    },
+    {
+     "c": "git rev-parse HEAD",
+     "s": "bdf8681bb7115db4dbbc848584cd5c292d285cb3"
+    },
+    {
+     "c": "git branch cotizaciones",
+     "s": ""
+    },
+    {
+     "c": "cat .git/refs/heads/cotizaciones",
+     "s": "bdf8681bb7115db4dbbc848584cd5c292d285cb3"
+    },
+    {
+     "c": "git switch cotizaciones",
+     "s": "Switched to branch 'cotizaciones'"
+    },
+    {
+     "c": "cat .git/HEAD",
+     "s": "ref: refs/heads/cotizaciones"
+    },
+    {
+     "c": "git commit -m \"Agrega la cotizacion de Mendoza\"",
+     "s": "[cotizaciones fe33f09] Agrega la cotizacion de Mendoza\n 1 file changed, 1 insertion(+)\n create mode 100644 cotizaciones.txt"
+    },
+    {
+     "c": "git switch main",
+     "s": "Switched to branch 'main'"
+    },
+    {
+     "c": "cat .git/HEAD",
+     "s": "ref: refs/heads/main"
+    },
+    {
+     "c": "git commit -m \"Actualiza el leeme por tercera vez\"",
+     "s": "[main 14d8625] Actualiza el leeme por tercera vez\n 1 file changed, 1 insertion(+), 1 deletion(-)"
+    },
+    {
+     "c": "git log --graph --oneline --all",
+     "s": "* 14d8625 Actualiza el leeme por tercera vez\n| * fe33f09 Agrega la cotizacion de Mendoza\n|/  \n* bdf8681 Suma la ruta a Mendoza\n* 1c3146b Agrega una copia del leeme\n* 54df610 Actualiza el leeme\n* b4d88d2 Agrega las rutas y el leeme"
+    },
+    {
+     "c": "git rev-parse main cotizaciones HEAD",
+     "s": "14d8625882958d177bc0333707db29d2f6a83008\nfe33f09ecdffc8e1ad6398da63d4565434707304\n14d8625882958d177bc0333707db29d2f6a83008"
+    }
+   ],
+   "cap": "Salida real. `wc -c` cuenta bytes: 41, o sea 40 dígitos hexadecimales y un salto de línea. `git branch` solo crea otro archivo con el mismo identificador. `git log --graph --all` dibuja el DAG de arriba."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada rama es un archivo de **41 bytes**. Crear una (`git branch cotizaciones`) no copió ninguna carpeta: escribió un archivito que repite el identificador del commit actual. Por eso crear ramas en Git es instantáneo y barato.",
+    "Y [[HEAD]] es el archivo `.git/HEAD`. Casi siempre contiene el nombre de una rama (`ref: refs/heads/main`), no un identificador. Cuando hacés un commit, Git crea los objetos, y después **mueve la rama a la que apunta HEAD** para que señale al commit nuevo. Cuando cambiás de rama con `git switch`, Git cambia el contenido de HEAD y reemplaza los archivos de tu carpeta para que coincidan con el árbol de esa rama."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Marcadores de un libro",
+   "x": [
+    "Un libro con dos marcadores. Cada marcador señala una página y vos lo movés cuando avanzás. Las páginas no cambian, y un marcador no es una copia del libro. La rama es el marcador, el commit es la página, y HEAD es «el marcador con el que estoy leyendo ahora».",
+    "Diferencias: en Git, cuando agregás una página nueva (un commit), el marcador que estás usando se mueve solo hasta ella, y las páginas nuevas siempre tienen una anterior a la que apuntan."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git switch --detach main~1",
+     "s": "HEAD is now at bdf8681 Suma la ruta a Mendoza"
+    },
+    {
+     "c": "cat .git/HEAD",
+     "s": "bdf8681bb7115db4dbbc848584cd5c292d285cb3"
+    },
+    {
+     "c": "git switch main",
+     "s": "Previous HEAD position was bdf8681 Suma la ruta a Mendoza\nSwitched to branch 'main'"
+    },
+    {
+     "c": "git tag -a v1 -m \"Primera version estable\" main~2",
+     "s": ""
+    },
+    {
+     "c": "git cat-file -t v1",
+     "s": "tag"
+    },
+    {
+     "c": "git cat-file -p v1",
+     "s": "object 1c3146b3591e4a774b53a7e290bc7a0ab8eea4eb\ntype commit\ntag v1\ntagger Ana Perez <ana@example.com> 1793977200 -0300\n\nPrimera version estable"
+    }
+   ],
+   "cap": "`git switch --detach` apunta HEAD directo a un commit: el archivo `HEAD` pasa a tener un identificador en vez de `ref: …`. El segundo grupo crea una etiqueta anotada y muestra el objeto, el cuarto tipo de la tabla de antes."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando HEAD tiene un identificador en lugar de un nombre de rama, estás en el estado que Git llama «detached HEAD» o HEAD suelto: mirás un commit en particular sin ninguna rama que se mueva con tus commits nuevos. Pro Git dice que pasa, por ejemplo, cuando hacés checkout de un commit o de una etiqueta [#gitint-referencias]. No es un error; es la forma de mirar el pasado sin tocarlo.",
+    "La etiqueta anotada que creé (`v1`) es el cuarto tipo de objeto: un `tag` con el identificador del objeto al que apunta, su tipo, el nombre, quién la puso, cuándo y un mensaje. Otra variante, la etiqueta liviana, es solo una referencia en `refs/tags`, sin objeto propio."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Crear una rama copia el proyecto»",
+   "x": "No copia nada. Una rama es un archivo de 41 bytes con un identificador. Si venís de otros sistemas donde una rama era una copia de toda la carpeta en el servidor, es normal esperar lo mismo, y es una de las razones por las que Git cambió la forma de trabajar."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Borrar una rama no borra commits",
+   "x": "Borrar una rama elimina el puntero, no los commits. Los commits que ya nadie apunta quedan en la base hasta que `git gc` los elimine, y por defecto solo borra los objetos inalcanzables más viejos que dos semanas (`gc.pruneExpire`) [#gitint-gc]. En [@04-09] vemos cómo recuperarlos con el registro de movimientos de las referencias."
+  },
+  {
+   "t": "h",
+   "x": "El índice: la zona del medio"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Faltaba una pieza. Entre la carpeta donde editás y la base de objetos hay una zona intermedia: el [[índice de Git]], un archivo (`.git/index`) donde Git anota, para cada ruta, el modo y el identificador del blob que irá en el **próximo** commit. Cuando hacés `git add`, Git guarda el blob y actualiza esa lista. Cuando hacés `git commit`, convierte esa lista en árboles y arma el commit. Es lo que en la jerga también se llama área de preparación, y mañana la usamos a fondo en [@04-09].",
+    "Por eso hay tres lugares donde puede estar tu archivo: la carpeta de trabajo, el índice y la base de objetos (el último commit)."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Carpeta de trabajo",
+       "s": "tus archivos tal como los editás",
+       "k": "cliente"
+      },
+      {
+       "t": "Índice",
+       "s": ".git/index: la lista del próximo commit",
+       "k": "red",
+       "e": "git add (guarda el blob)"
+      },
+      {
+       "t": "Base de objetos",
+       "s": ".git/objects: blobs, árboles y commits",
+       "k": "servidor",
+       "e": "git commit (arma árboles y commit)"
+      }
+     ]
+    }
+   ],
+   "cap": "Los tres lugares. `git add` mueve contenido del primero al segundo; `git commit`, del segundo al tercero."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git ls-files --stage rutas.txt",
+     "s": "100644 0219479b0c525a78e7291038813ed4104f85d2da 0\trutas.txt"
+    },
+    {
+     "c": "git add rutas.txt",
+     "s": ""
+    },
+    {
+     "c": "git ls-files --stage rutas.txt",
+     "s": "100644 069ebbf1dcb44bd0ff498c81c81125143cc2a942 0\trutas.txt"
+    }
+   ],
+   "cap": "Después de agregar una ruta a `rutas.txt` y antes del `git add`, el índice sigue apuntando al blob viejo (`0219479…`). Después del `git add`, apunta al nuevo (`069ebbf…`). `ls-files --stage` lee el índice. El 100644 es el modo de un archivo común."
+  },
+  {
+   "t": "ejercicio",
+   "x": "En el laboratorio había 5 objetos en `.git/objects` después del primer commit. Cambio una línea de `docs/leeme.txt`, hago `git add docs/leeme.txt` y después `git commit`. ¿Cuántos objetos hay después del `git add` y cuántos después del commit? Explicá de cuáles se trata.",
+   "pista": "Pensá qué objetos dependen del archivo que cambió: el blob nuevo, pero también la carpeta que lo contiene y la carpeta que contiene a esa.",
+   "solucion": "Corrí el cambio y conté con `find .git/objects -type f | wc -l`: 5 antes, 6 después de `git add` y 9 después del commit. El `git add` crea un solo objeto, el blob nuevo de `leeme.txt`. El commit crea tres: el árbol de `docs` (cambió su contenido), el árbol raíz (cambió porque apunta al árbol de `docs`) y el commit. En total son 4 objetos nuevos: 1 blob, 2 árboles y 1 commit. Fijate que `rutas.txt` no se reguardó: su blob sigue siendo el mismo."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Seguimos sobre ese repositorio, que ahora tiene 9 objetos. Copio `docs/leeme.txt` a `docs/copia.txt` (mismo contenido, distinto nombre), hago `git add docs/copia.txt` y después `git commit`. ¿Cuántos objetos hay después de cada paso?",
+   "pista": "Un blob se nombra por su contenido. ¿Cuántos contenidos distintos hay después de la copia?",
+   "solucion": "Corrí el experimento: 9 objetos antes, 9 después de `git add` y 12 después del commit. El `git add` no crea ningún blob porque el contenido de `copia.txt` ya existía (`git ls-files --stage` mostró el mismo identificador para las dos rutas). El commit crea tres objetos: el árbol de `docs` (ahora con dos entradas), el árbol raíz y el commit. Un archivo duplicado cuesta una entrada en un árbol, no una copia de su contenido."
+  },
+  {
+   "t": "h",
+   "x": "Empaquetado: cuando Git se pone a comprimir"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta ahora cada objeto era un archivo suelto. Para pocos objetos va bien, pero un proyecto real tiene decenas de miles y miles de archivos chicos desperdician espacio del sistema de archivos. Git los junta en un [[packfile]]: un solo archivo `.pack` con un índice aparte (`.idx`) para encontrar cada objeto rápido [#gitint-pack]. Lo hace `git gc` (de «garbage collection», recolección de basura), y también ocurre solo: Git revisa, después de ciertos comandos, si el repositorio creció lo suficiente y lanza `gc --auto`. El umbral por defecto es de unos 6.700 objetos sueltos (`gc.auto`) [#gitint-gc].",
+    "Lo interesante pasa dentro del packfile. Según la especificación, un objeto puede guardarse como una **delta** contra otro objeto base: se almacena solo lo que cambió y se reconstruye aplicándolo [#gitint-pack]. Este es el atajo del que te hablé ayer: el modelo que ves son fotos completas, pero el almacenamiento puede usar diferencias para ahorrar espacio. Mirémoslo con un experimento: un archivo de 3.000 líneas (inventado), dos commits que cambian una sola línea y `git gc`."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git init -q -b main grande && cd grande",
+     "s": ""
+    },
+    {
+     "c": "awk 'BEGIN{for(i=1;i<=3000;i++) printf \"pedido-%05d,Barracas,destino-%03d,%d kg\\n\", i, i%173, (i*37)%900+100}' > pedidos.csv",
+     "s": ""
+    },
+    {
+     "c": "wc -c pedidos.csv",
+     "s": "123000 pedidos.csv"
+    },
+    {
+     "c": "git commit -m \"Carga inicial de pedidos\"",
+     "s": ""
+    },
+    {
+     "c": "git commit -m \"Corrige el pedido 1500\"",
+     "s": ""
+    },
+    {
+     "c": "find .git/objects -type f | wc -l",
+     "s": "6"
+    },
+    {
+     "c": "git count-objects -v | grep -E '^(count|size|in-pack|packs|size-pack):'",
+     "s": "count: 6\nsize: 64\nin-pack: 0\npacks: 0\nsize-pack: 0"
+    },
+    {
+     "c": "git gc",
+     "s": ""
+    },
+    {
+     "c": "find .git/objects -type f | sort",
+     "s": ".git/objects/info/commit-graph\n.git/objects/info/packs\n.git/objects/pack/pack-86622d9c63819643cac01b84588a45b20b8a26d2.idx\n.git/objects/pack/pack-86622d9c63819643cac01b84588a45b20b8a26d2.pack\n.git/objects/pack/pack-86622d9c63819643cac01b84588a45b20b8a26d2.rev"
+    },
+    {
+     "c": "git count-objects -v | grep -E '^(count|size|in-pack|packs|size-pack):'",
+     "s": "count: 0\nsize: 0\nin-pack: 6\npacks: 1\nsize-pack: 22"
+    },
+    {
+     "c": "git verify-pack -v .git/objects/pack/pack-*.idx",
+     "s": "a3e5a60a46e53c6be62c0c65777922600bcb578e commit 225 156 12\n72e4dc495566dcc2119e34dfd79c8bd3a3d8b906 commit 179 130 168\nf427b4dc0b8f2a299dcb352f708ce96723345ba3 blob   123000 21025 298\n9ca4606c1ff07f856e60f2c20f8779af8916690b blob   20 34 21323 1 f427b4dc0b8f2a299dcb352f708ce96723345ba3\na3cf1100cd6dcdf36929e898f870a128d9eace0e tree   39 49 21357\n8ddfd5cab44c4c46f0921a002cb52a7eaed6a54a tree   39 50 21406\nnon delta: 5 objects\nchain length = 1: 1 object\n.git/objects/pack/pack-86622d9c63819643cac01b84588a45b20b8a26d2.pack: ok"
+    }
+   ],
+   "cap": "Salida real en esta VM; tamaños en esta corrida. `count-objects` informa `size` y `size-pack` en KiB (según su documentación). En `verify-pack`, las columnas son identificador, tipo, tamaño, tamaño dentro del pack y posición; los objetos delta agregan la profundidad de la cadena y su base."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los números cuentan la historia. Antes del `gc` había 6 objetos sueltos que ocupaban 64 KiB según `count-objects`. Después, un único pack de 22 KiB. De esos, el primer `pedidos.csv`, de 123.000 bytes, ocupa **21.025 bytes** en el pack (el texto se comprime unas 5,8 veces con zlib). Y el segundo `pedidos.csv`, que cambia una sola línea, ocupa **34 bytes**, porque `verify-pack` lo muestra como delta (profundidad 1) con el primero como base.",
+    "Fijate lo que no cambió: `git cat-file -p` sobre cualquiera de los dos devuelve el archivo completo, y su identificador sigue siendo el mismo. La delta es un detalle interno de cómo se guarda, no de qué se guarda. El segundo blob, completo, habría ocupado otros 21 KB; en vez de eso ocupa 34 bytes, unas 600 veces menos."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Si el pack guarda diferencias, ¿Git dejó de ser un sistema de instantáneas?",
+   "resp": "No. Lo que ves y lo que Git modela son fotos completas: cada commit apunta a un árbol entero y cada archivo tiene su identificador. Guardar una foto como delta de otra es una optimización de espacio que Git decide por su cuenta, y al leerla se reconstruye el mismo contenido con el mismo identificador."
+  },
+  {
+   "t": "h",
+   "x": "SHA-1 hoy, SHA-256 más adelante"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Git usa el hash para tres cosas: **nombrar** objetos, **detectar corrupción** (si un archivo cambia, su hash deja de coincidir) y **encadenar** commits. Pro Git destaca la integridad: es imposible cambiar el contenido de un archivo o directorio sin que Git se entere [#git-book]. Todo eso se apoya en que dos contenidos distintos no den el mismo hash.",
+    "SHA-1 tiene un problema conocido. El documento de diseño del proyecto lo cuenta así: el 23 de febrero de 2017 el ataque «SHAttered» demostró una colisión práctica de SHA-1; desde Git 2.13.0 se usa por defecto una implementación reforzada que no es vulnerable a ese ataque, pero SHA-1 sigue siendo débil, y el proyecto eligió SHA-256 como sucesor a fines de 2018 [#gitint-transicion]. La versión que corre en este entorno ya permite crear repositorios con SHA-256:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git init -b main --object-format=sha256 repo256",
+     "s": "Initialized empty Git repository in /tmp/gitd-0408-lab/repo256/.git/"
+    },
+    {
+     "c": "cat .git/config",
+     "s": "[core]\n\trepositoryformatversion = 1\n\tfilemode = true\n\tbare = false\n\tlogallrefupdates = true\n[extensions]\n\tobjectformat = sha256"
+    },
+    {
+     "c": "printf 'hola\\n' | git hash-object --stdin",
+     "s": "7c4ec9179e2685a37ce07d3a97887c984018b6e3d8662451fc662db52b4df1b1"
+    },
+    {
+     "c": "git commit -m \"prueba\"  (sobre un archivo a.txt)",
+     "s": "3ad3ddccc1981321eab81fcc3c0acaee2dd93f52775b0139748e08f785cde405"
+    }
+   ],
+   "cap": "Repositorio nuevo con `--object-format=sha256`. El mismo texto `hola` con salto de línea da un identificador de 64 dígitos en vez de 40, y `config` registra la extensión. Las fechas del commit son las fijadas para la demo."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Estado de la migración, verificado el 13-11-2026",
+   "x": [
+    "Según la documentación oficial de `git init`, el formato de objetos por defecto sigue siendo `sha1`; `sha256` es opcional y, textual, «at present, there is no interoperability between SHA-256 repositories and SHA-1 repositories». El documento de transición agrega que los repositorios SHA-256 no los leen versiones muy viejas de Git y que usar SHA-256 en servidores públicos está desaconsejado hasta que el protocolo lo soporte [#gitint-transicion] [#gitint-init].",
+    "El documento sobre cambios incompatibles de Git 3.0 dice que el formato por defecto para repositorios nuevos pasará a `sha256`, condicionado a que el ecosistema esté listo, que aún no hay fecha de lanzamiento de esa versión y que no se planea abandonar `sha1` [#gitint-cambios]. Conclusión práctica: hoy casi todo lo que encuentres (incluido GitHub y tu repositorio de Senda) usa SHA-1. Lo que aprendiste vale igual para SHA-256; solo cambian el largo del identificador y la función."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Senda: un repositorio de un solo commit, y por qué"
+  },
+  {
+   "t": "p",
+   "x": "En el mapa técnico de Senda figura un dato curioso: el repositorio local tiene **un solo commit**. Con lo de hoy podemos explicarlo, y de paso ver un caso real. Todo lo que sigue sale de comandos de solo lectura corridos sobre el repositorio, y corresponde al commit 25e08fa; el código cambia, la forma permanece."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git log --oneline",
+     "s": "25e08fa R28 en Torneos, Ajustes y el avatar; las tarjetas con tono ya no salen grises"
+    },
+    {
+     "c": "git rev-list --count HEAD",
+     "s": "1"
+    },
+    {
+     "c": "cat .git/shallow",
+     "s": "25e08faf5e0d892d256e8e4f2c54b956eb3c1af6"
+    },
+    {
+     "c": "git cat-file -p HEAD | sed -n '1,2p'",
+     "s": "tree 87160bc8ad68dec81e65a1c238989f7bb9f13173\nparent 881a3eeffeee652477ec8bda9b02f51b2be21b43"
+    },
+    {
+     "c": "git cat-file -p HEAD | grep -c '^gpgsig'",
+     "s": "1"
+    },
+    {
+     "c": "git cat-file -e 881a3eeffeee652477ec8bda9b02f51b2be21b43; echo \"codigo de salida: $?\"",
+     "s": "codigo de salida: 1"
+    },
+    {
+     "c": "git count-objects -vH | grep -E \"in-pack|size-pack\"",
+     "s": "in-pack: 1150\nsize-pack: 78.30 MiB"
+    },
+    {
+     "c": "git ls-files | wc -l",
+     "s": "1065"
+    }
+   ],
+   "cap": "Salida real, solo lectura. Por privacidad no muestro la línea `author` ni el mensaje completo del commit."
+  },
+  {
+   "t": "senda",
+   "titulo": "Un commit con padre, pero sin padre a la vista",
+   "x": [
+    "`git log` muestra una sola línea porque el repositorio es un **clon superficial** (`--depth 1`): `.git/shallow` lista el commit `25e08fa` como el límite, y Git deja de recorrer el historial ahí. Pero mirá `cat-file`: el commit **sí tiene una línea `parent`** (`881a3ee…`). El objeto de ese padre no está en la base local (`cat-file -e` devolvió 1, es decir, no existe). El commit sabe que tuvo un padre; este clon simplemente no lo bajó.",
+    "Dos observaciones. Primero, de eso no se puede concluir cuántos commits hay antes ni cómo evolucionó el proyecto: este clon no alcanza para saberlo. Segundo, el commit trae una cabecera `gpgsig`, una firma digital SSH guardada dentro del propio commit. No la verifiqué, pero ilustra que un commit puede cargar más campos que los de ayer, y esa firma forma parte del texto que se hashea para obtener su identificador."
+   ],
+   "archivos": [
+    ".gitignore",
+    "CLAUDE.md"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Dónde nace un clon superficial en los flujos de Senda",
+   "x": [
+    "Los flujos de GitHub Actions de Senda usan la acción `actions/checkout@v4`. Su archivo `action.yml` declara `fetch-depth` con valor por defecto **1** («0 indica toda la historia»), de modo que, sin pedir otra cosa, el flujo del APK baja un solo commit. Es lo normal para compilar: no hace falta el pasado para armar un APK. El flujo de lotes, en cambio, pide `fetch-depth: 0` porque necesita la historia completa para trabajar con su rama.",
+    "El APK, entonces, se arma sobre un repositorio superficial igual al que estudiamos. No es un defecto: es una decisión de velocidad y espacio que se nota en el repositorio local."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    ".github/workflows/lotes.yml"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un repositorio con un commit no es un proyecto sin historia",
+   "x": "La conclusión correcta es «este clon no tiene el historial», no «este proyecto no tiene historial». Los comentarios del código de Senda (por ejemplo, «prueba N») y su documentación guardan la evolución, como señala el mapa técnico, pero el repositorio local no."
+  },
+  {
+   "t": "h",
+   "x": "Cuatro cosas que se entienden mal"
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«El identificador es un número de versión»",
+   "x": "No es un contador (no hay «revisión 123»). Es un hash calculado del contenido, así que no crece, no dice nada del orden y dos personas que hacen exactamente el mismo commit obtienen el mismo número. Para nombrarlo alcanza con los primeros 7 u 8 dígitos mientras no sea ambiguo."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Git guarda archivos con su nombre»",
+   "x": "El blob no tiene nombre. El nombre y los permisos viven en el árbol, por eso un renombrado es barato y por eso dos archivos iguales comparten un solo objeto."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "HEAD no es «el último commit»",
+   "x": "HEAD es «dónde estoy parado»: casi siempre una rama que apunta a un commit. El último commit del repositorio puede estar en otra rama. Y si HEAD está suelto, apunta directo a un commit sin rama."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": "Git es una base de datos de objetos con nombre calculado (blob, tree, commit, tag) más un puñado de punteros chicos (ramas, etiquetas, HEAD). Todo lo demás, desde el log hasta los merges, es lectura y movimiento de esos punteros."
+  }
+ ],
+ "recap": [
+  "Git es una base de datos donde la clave de cada objeto es el hash de su contenido: mismo contenido, misma clave, y cambiar una letra cambia todo el identificador.",
+  "Hay cuatro tipos de objeto: blob (contenido de un archivo, sin nombre), tree (una carpeta), commit (apunta a un árbol y a su padre) y tag (un nombre pegado a un objeto).",
+  "Un commit se puede armar con comandos de bajo nivel (`hash-object`, `update-index`, `write-tree`, `commit-tree`, `update-ref`) y da el mismo identificador que `git commit`.",
+  "El historial es un DAG: cada commit apunta a sus padres, y como el identificador depende del padre, cambiar el pasado obliga a reescribir todo lo que vino después.",
+  "Una rama es un archivo de 41 bytes con un identificador; HEAD indica qué rama (o qué commit) estás mirando; el índice es la lista del próximo commit.",
+  "`git gc` junta los objetos sueltos en packfiles y puede guardar versiones parecidas como deltas, sin cambiar qué se guarda ni los identificadores; SHA-1 es el formato por defecto y SHA-256 es opcional."
+ ],
+ "repaso": [
+  {
+   "p": "Dos archivos de un proyecto tienen exactamente el mismo contenido pero están en carpetas distintas y con nombres distintos. ¿Qué guarda Git del contenido?",
+   "o": [
+    "Dos blobs iguales, uno por cada nombre de archivo",
+    "Un solo blob, apuntado desde los dos árboles",
+    "Un blob y una referencia con el nombre de cada archivo",
+    "Un blob por carpeta que contiene a cada archivo"
+   ],
+   "c": 1,
+   "e": "El blob se nombra por el hash de su contenido y no guarda el nombre, así que contenidos idénticos son el mismo objeto. Los nombres viven en los árboles, y cada árbol apunta al mismo blob. Por eso copiar un archivo cuesta una entrada de árbol y no una copia del contenido."
+  },
+  {
+   "p": "Cambiás una sola letra del mensaje del primer commit de un repositorio de 100 commits (hipotéticamente, sin mover nada más). ¿Qué ocurre con los identificadores?",
+   "o": [
+    "Cambia solo el del primer commit, los otros no se enteran",
+    "No cambia ninguno, porque el mensaje no se hashea",
+    "Cambia el del último commit, que es el que se firma",
+    "Cambian el del primer commit y el de todos sus descendientes"
+   ],
+   "c": 3,
+   "e": "El mensaje forma parte del texto del commit, que se hashea para obtener su identificador. El segundo commit guarda ese identificador en su línea parent, así que su contenido cambia y también su identificador, y así hasta el final. Por eso reescribir historia modifica todo lo posterior."
+  },
+  {
+   "p": "¿Qué hay dentro de `.git/refs/heads/main`?",
+   "o": [
+    "El identificador del commit al que apunta la rama",
+    "Una copia de todos los archivos de la rama",
+    "La lista de todos los commits de la rama main",
+    "El nombre de la rama que está activa ahora"
+   ],
+   "c": 0,
+   "e": "Una rama es un archivo de 41 bytes: 40 dígitos del identificador del commit y un salto de línea. La lista de commits sale de seguir las líneas parent, y la rama activa la indica el archivo HEAD, no el contenido de la rama."
+  },
+  {
+   "p": "Hacés `git add` de un archivo nuevo y no hacés commit. ¿Qué existe ya en `.git/objects`?",
+   "o": [
+    "Nada, todo se crea recién al hacer el commit",
+    "El árbol y el commit, pero sin mensaje",
+    "El blob con el contenido del archivo",
+    "Una delta del archivo respecto del anterior"
+   ],
+   "c": 2,
+   "e": "`git add` guarda el blob y actualiza el índice; los árboles y el objeto commit se crean recién al hacer el commit. Por eso un archivo agregado pero nunca commiteado deja un blob suelto, que `git gc` termina limpiando. Las deltas aparecen en el empaquetado."
+  },
+  {
+   "p": "Después de `git gc`, un repositorio con dos versiones casi iguales de un archivo grande pesa mucho menos. ¿Por qué?",
+   "o": [
+    "Borra la versión vieja del archivo para ahorrar espacio",
+    "Pasa a guardar solo diferencias y deja de tener fotos",
+    "Elimina los commits intermedios que no son necesarios",
+    "Compacta con zlib y guarda la segunda versión como una delta"
+   ],
+   "c": 3,
+   "e": "El pack comprime cada objeto y puede guardar uno como delta de otro. Aun así sigue guardando las dos versiones: cada commit apunta a su árbol completo y el contenido se reconstruye idéntico. No se borra historia ni se cambia el modelo de instantáneas."
+  },
+  {
+   "p": "¿Qué significa que el historial de commits sea un grafo «acíclico»?",
+   "o": [
+    "Que cada commit tiene exactamente un padre",
+    "Siguiendo los padres nunca se vuelve a un commit ya visto",
+    "Que no se pueden crear ramas con el mismo origen",
+    "Que los commits no se pueden borrar nunca"
+   ],
+   "c": 1,
+   "e": "Como un commit contiene el identificador de su padre, el padre tiene que existir antes: los enlaces solo van hacia atrás en el tiempo y no pueden formar un ciclo. No implica un único padre (las fusiones tienen dos) ni limita las ramas, ni prohíbe borrar commits que ninguna referencia alcance."
+  },
+  {
+   "p": "Estás en HEAD suelto (detached HEAD) mirando un commit viejo. ¿Cómo se ve eso en el archivo `.git/HEAD`?",
+   "o": [
+    "Contiene `ref: refs/heads/main`, como siempre",
+    "Está vacío hasta que volvés a una rama",
+    "Contiene un identificador de commit y no una referencia",
+    "Contiene el nombre de la etiqueta más cercana"
+   ],
+   "c": 2,
+   "e": "Normalmente HEAD es una referencia simbólica a una rama. Con HEAD suelto contiene directamente el identificador del commit. No se vacía ni guarda nombres de etiquetas, y por eso un commit nuevo en ese estado no mueve ninguna rama."
+  }
+ ],
+ "feynman": "Explicale a alguien que usa Git solo con add, commit y push qué hay dentro de la carpeta .git: qué es un identificador, qué son un blob, un árbol y un commit y por qué crear una rama es instantáneo. Usá una analogía propia.",
+ "para_profundizar": [
+  {
+   "fuente": "gitint-objetos",
+   "nota": "Pro Git, «Los objetos Git» (capítulo 10): arma a mano blobs, árboles y commits con las mismas herramientas de hoy. Es el mejor complemento para repetir el laboratorio por tu cuenta."
+  },
+  {
+   "fuente": "gitint-referencias",
+   "nota": "Pro Git, «Referencias Git»: ramas, HEAD, HEAD suelto y etiquetas, con el mismo nivel de detalle que usamos acá."
+  },
+  {
+   "fuente": "gitint-pack",
+   "nota": "La especificación del formato de packfile: tipos de objeto, deltas y archivos de índice. Para ver cómo es, byte a byte, lo que hizo `git gc`."
+  },
+  {
+   "fuente": "gitint-transicion",
+   "nota": "El documento de diseño de la transición a SHA-256: por qué se hizo, qué compatibilidad se busca y cuál es el estado. Lectura corta y concreta."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Git internals how git works blob tree commit objects explained",
+   "por_que": "Para ver los objetos de Git dibujados y animados por otra persona, con los mismos nombres de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "objeto blob",
+   "d": "El objeto de Git que guarda el contenido de un archivo, byte por byte, sin su nombre ni sus permisos. Se nombra con el hash de su contenido, así que dos archivos iguales comparten un solo blob."
+  },
+  {
+   "t": "objeto tree",
+   "d": "El objeto de Git que representa una carpeta: una lista de entradas, cada una con modo, tipo, identificador y nombre, que apuntan a blobs (archivos) o a otros árboles (subcarpetas)."
+  },
+  {
+   "t": "DAG de commits",
+   "d": "El historial de un repositorio visto como un grafo dirigido acíclico: cada commit apunta a sus padres, las flechas van hacia atrás en el tiempo y no hay forma de volver al punto de partida siguiéndolas."
+  },
+  {
+   "t": "referencia",
+   "d": "Un nombre legible que apunta a un objeto de Git, guardado como un archivo bajo .git/refs que contiene un identificador. Las ramas y las etiquetas livianas son referencias."
+  },
+  {
+   "t": "HEAD",
+   "d": "El puntero que indica dónde estás parado en el repositorio. Casi siempre contiene el nombre de una rama; en HEAD suelto contiene directamente el identificador de un commit."
+  },
+  {
+   "t": "índice de Git",
+   "d": "El archivo .git/index: la lista de rutas, modos y blobs que formarán el próximo commit. `git add` lo actualiza y `git commit` lo convierte en árboles. También se llama área de preparación."
+  },
+  {
+   "t": "packfile",
+   "d": "Un archivo único donde Git junta muchos objetos para ahorrar espacio, con un índice aparte para encontrarlos. Puede guardar un objeto como delta de otro sin cambiar el contenido ni el identificador."
+  }
+ ],
+ "siguiente": "un laboratorio completo de comandos: deshacer, recuperar trabajo borrado con reflog y entender qué cambia cada variante de reset en el índice y en la carpeta.",
+ "fuentes_nuevas": [
+  {
+   "id": "gitint-objetos",
+   "t": "Pro Git: Los objetos Git",
+   "a": "Scott Chacon y Ben Straub",
+   "tipo": "libro",
+   "url": "https://git-scm.com/book/es/v2/Los-entresijos-internos-de-Git-Los-objetos-Git"
+  },
+  {
+   "id": "gitint-referencias",
+   "t": "Pro Git: Referencias Git",
+   "a": "Scott Chacon y Ben Straub",
+   "tipo": "libro",
+   "url": "https://git-scm.com/book/es/v2/Los-entresijos-internos-de-Git-Referencias-Git"
+  },
+  {
+   "id": "gitint-pack",
+   "t": "Git: formato de packfile (gitformat-pack)",
+   "a": "Proyecto Git",
+   "tipo": "doc",
+   "url": "https://git-scm.com/docs/pack-format"
+  },
+  {
+   "id": "gitint-gc",
+   "t": "git-gc: documentación oficial",
+   "a": "Proyecto Git",
+   "tipo": "doc",
+   "url": "https://git-scm.com/docs/git-gc"
+  },
+  {
+   "id": "gitint-transicion",
+   "t": "Git: transición de la función hash (hash-function-transition)",
+   "a": "Proyecto Git",
+   "tipo": "doc",
+   "url": "https://git-scm.com/docs/hash-function-transition"
+  },
+  {
+   "id": "gitint-cambios",
+   "t": "Git: BreakingChanges (cambios incompatibles de Git 3.0)",
+   "a": "Proyecto Git",
+   "tipo": "doc",
+   "url": "https://git-scm.com/docs/BreakingChanges"
+  },
+  {
+   "id": "gitint-init",
+   "t": "git-init: documentación oficial",
+   "a": "Proyecto Git",
+   "tipo": "doc",
+   "url": "https://git-scm.com/docs/git-init"
+  }
+ ]
+}

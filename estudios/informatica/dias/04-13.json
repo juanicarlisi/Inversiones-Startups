@@ -1,0 +1,761 @@
+{
+ "id": "04-13",
+ "titulo": "Depuración profesional",
+ "bajada": "Del método de [@03-15] a las herramientas de oficio: depurador, registro de eventos, git bisect, gdb y strace, probadas sobre bugs reales y sobre el caso de una pérdida de USD 460 millones.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Elegir la herramienta de depuración según la pregunta que tenés (depurador, registro de eventos, git bisect, gdb, strace o un detector de carreras).",
+  "Usar un punto de interrupción condicional y la pila de llamadas para encontrar la línea que pierde datos en un programa chico.",
+  "Escribir un registro de eventos con una línea por hecho y filtrarlo con una herramienta de línea de comandos.",
+  "Explicar por qué `git bisect run` necesita una prueba confiable y cuántas pruebas hacen falta entre miles de commits.",
+  "Contar, con el informe de la SEC, qué falló el 1 de agosto de 2012 en Knight Capital y qué lecciones de depuración deja."
+ ],
+ "venis_de": "En [@03-15] aprendiste el método (reproducir, sospechar, aislar, comprobar) y viste un depurador y una bisección chicos, siempre sobre JavaScript en tu máquina. Hoy el problema se agranda: bugs que no tienen mensaje, que viven en servidores donde no podés frenar nada o que cambian cuando los mirás. Usás además lo de [@04-07] a [@04-12] (Git) y de [@02-07], [@02-21] y [@02-22] (excepciones, códigos de salida, carreras).",
+ "se_apoya_en": [
+  "03-15",
+  "04-08",
+  "04-10",
+  "02-21",
+  "02-22",
+  "04-06"
+ ],
+ "gancho": [
+  "En un depósito, cuando falta un pallet, nadie revisa el edificio entero. Se mira el remito, el registro de quién escaneó qué y a qué hora, y se reconstruye el recorrido hasta el tramo donde se perdió. Si no hay ningún registro, la búsqueda es a ciegas y cuesta días. Con el software pasa igual, con una diferencia incómoda: lo que no quedó escrito mientras el programa corría ya no se puede recuperar.",
+  "El 1 de agosto de 2012 una empresa financiera de Nueva York vio durante unos 45 minutos cómo su propio programa hacía lo que nadie quería, y perdió más de 460 millones de dólares. Hoy usás herramientas de ese mismo oficio. Ninguna es magia: cada una responde una pregunta distinta, y el oficio consiste en saber cuál preguntar primero."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Una herramienta para cada pregunta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El método de [@03-15] no cambia: reproducir el error, formular una hipótesis, aislar y cambiar una sola cosa por vez. Lo que cambia con la experiencia es el catálogo de herramientas para **comprobar la hipótesis**. Un [[depurador]] es un programa que ejecuta a otro bajo su control: lo frena donde le pedís, te deja leer sus variables y su memoria, y lo hace avanzar paso a paso. Es la herramienta más conocida, pero responde una sola clase de pregunta: *qué valía cada cosa en este instante*.",
+    "Esta tabla junta las herramientas de hoy con la pregunta que contesta cada una; todas las corrí en este entorno (una VM con Ubuntu 24.04)."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "La pregunta",
+    "La herramienta",
+    "Qué te muestra"
+   ],
+   "filas": [
+    [
+     "¿Qué valían las variables cuando falló?",
+     "Depurador (`node inspect`, DevTools, VS Code)",
+     "El estado del programa frenado en una línea"
+    ],
+    [
+     "¿Qué hizo el programa en un servidor donde no puedo frenar nada?",
+     "Registro de eventos",
+     "El relato que el propio programa dejó escrito"
+    ],
+    [
+     "¿Qué cambio del historial lo rompió?",
+     "`git bisect`",
+     "El primer commit malo, por búsqueda binaria"
+    ],
+    [
+     "¿Por qué murió sin explicar nada?",
+     "`gdb` sobre un programa nativo",
+     "La línea y la pila donde el sistema lo mató"
+    ],
+    [
+     "¿Qué le pidió al sistema operativo y qué le contestó?",
+     "`strace`",
+     "Cada llamada al sistema, con su resultado"
+    ],
+    [
+     "¿Dos hilos se están pisando?",
+     "`helgrind` o ThreadSanitizer",
+     "Los accesos a memoria sin coordinar"
+    ]
+   ],
+   "cap": "Las seis herramientas de la lección y la pregunta que contesta cada una. Todas se corrieron en esta VM el 13-11-2026."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La herramienta no reemplaza la hipótesis",
+   "x": "El error más común de quien recién descubre un depurador es abrirlo sin saber qué espera ver. Antes de frenar el programa decí en voz alta qué valor esperabas en esa línea. Si no lo sabés, ninguna herramienta lo va a saber por vos."
+  },
+  {
+   "t": "pensa",
+   "x": "Una función de tu notebook devuelve 5 y debería devolver 6, siempre, con los mismos datos. ¿Con cuál de las seis herramientas empezarías y cuál dejarías para más tarde?",
+   "resp": "Con el depurador: el error se reproduce siempre y en tu máquina, así que podés frenar y mirar. El registro y `git bisect` valen cuando no podés frenar o no sabés cuándo empezó. `gdb`, `strace` y `helgrind` son para programas nativos."
+  },
+  {
+   "t": "h",
+   "x": "El depurador a fondo: un bug que parece razonable"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Este programa asigna pedidos de un depósito a camiones, en el orden en que llegan, sin partir ningún pedido. Los datos son inventados: nueve pedidos que suman 54 pallets y camiones de 12. El mínimo teórico es 54 / 12 = 4,5, o sea 5 camiones como piso. Corre y dice **5**. Parece perfecto, y es justamente el peor tipo de bug: un resultado verosímil que nadie desconfía."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Datos INVENTADOS: nueve pedidos de un depósito, en pallets. El camión lleva 12.\nfunction camionesNecesarios(pedidos, capacidad) {\n  let camiones = 1;\n  let carga = 0;\n  for (let i = 0; i < pedidos.length; i++) {\n    const p = pedidos[i];\n    if (carga + p > capacidad) {\n      camiones++;\n      carga = 0;\n      continue;\n    }\n    carga += p;\n  }\n  return camiones;\n}\n\nconst pedidos = [8, 5, 9, 4, 7, 6, 3, 10, 2];\nconst total = pedidos.reduce((a, b) => a + b, 0);\nconsole.log('pallets:', total, 'camiones:', camionesNecesarios(pedidos, 12));",
+   "cap": "El archivo camiones.js. Contiene un error de una línea."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mi hipótesis es «se pierde algún pedido». El depurador de Node permite poner un **punto de interrupción condicional**: una marca que solo frena si una expresión es verdadera. Me interesa el primer momento en que se abre un camión nuevo, en la vuelta `i === 1` (8 + 5 = 13 no entra en 12). Sesión real, abreviada:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node inspect camiones.js",
+     "p": "$",
+     "s": "Break on start in camiones.js:17"
+    },
+    {
+     "c": "sb('camiones.js', 7, 'i === 1')",
+     "p": "debug>",
+     "s": "(marca la línea 7 con la condición i === 1)"
+    },
+    {
+     "c": "c",
+     "p": "debug>",
+     "s": "break in camiones.js:7\n> 7     if (carga + p > capacidad) {"
+    },
+    {
+     "c": "exec carga + p",
+     "p": "debug>",
+     "s": "13"
+    },
+    {
+     "c": "exec camiones",
+     "p": "debug>",
+     "s": "1"
+    },
+    {
+     "c": "n",
+     "p": "debug>",
+     "s": "step in camiones.js:8\n> 8       camiones++;"
+    },
+    {
+     "c": "n",
+     "p": "debug>",
+     "s": "step in camiones.js:9\n> 9       carga = 0;"
+    },
+    {
+     "c": "n",
+     "p": "debug>",
+     "s": "step in camiones.js:10\n>10       continue;"
+    },
+    {
+     "c": "exec carga",
+     "p": "debug>",
+     "s": "0"
+    },
+    {
+     "c": "exec camiones",
+     "p": "debug>",
+     "s": "2"
+    },
+    {
+     "c": "exec pedidos[i]",
+     "p": "debug>",
+     "s": "5"
+    }
+   ],
+   "cap": "Salida real con Node 22.23.4, abreviada: saqué las líneas de conexión y el código que Node muestra alrededor de cada parada. `sb` es la forma corta de `setBreakpoint`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "13 no cabe en 12, así que se abre el camión 2 (`camiones` pasa de 1 a 2) y la carga vuelve a 0. Después llega el `continue` y salta a la próxima vuelta: el pedido de 5 pallets, `pedidos[i]`, **no quedó en ningún camión**. La corrección es borrar `continue`, para que el pedido que no entró en el camión viejo se sume al nuevo. Sin esa línea el programa da **6** camiones.",
+    "Hay una lección más. Un programa que carga pedidos tiene un hecho que siempre debe cumplirse, una **invariante**: lo cargado suma lo recibido. Si lo comprobás al final, el bug deja de ser silencioso. Probalo con el botón de ejecutar (mismo programa, con un parámetro para activar la corrección):"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Datos INVENTADOS: pedidos en pallets; el camión lleva 12.\nfunction camionesNecesarios(pedidos, capacidad, corregido) {\n  let camiones = 1, carga = 0, cargado = 0;\n  for (const p of pedidos) {\n    if (carga + p > capacidad) {\n      camiones++;\n      carga = 0;\n      if (!corregido) continue;      // la línea del bug\n    }\n    carga += p;\n    cargado += p;\n  }\n  const total = pedidos.reduce((a, b) => a + b, 0);\n  if (cargado !== total) {\n    throw new Error(`se cargaron ${cargado} pallets y había ${total}`);\n  }\n  return camiones;\n}\n\nconst pedidos = [8, 5, 9, 4, 7, 6, 3, 10, 2];\nfor (const corregido of [false, true]) {\n  try {\n    console.log(`corregido=${corregido}: camiones`, camionesNecesarios(pedidos, 12, corregido));\n  } catch (e) {\n    console.log(`corregido=${corregido}: ALARMA, ${e.message}`);\n  }\n}",
+   "cap": "Con el bug, el programa cargó 29 de 54 pallets y la comprobación final lo delata. Corregido, da 6 camiones. Las alarmas de este tipo se pueden dejar en el código para siempre."
+  },
+  {
+   "t": "h3",
+   "x": "De dónde sale el depurador: un protocolo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "`node inspect` es un cliente. Con la opción `--inspect`, Node abre un puerto local y habla un protocolo por WebSocket; Chrome DevTools, VS Code y las IDE de JetBrains son clientes del mismo protocolo [#node-debugging-guide]. El programa es el mismo y cambia la interfaz que elegís. Con el puerto abierto, Node se anuncia por HTTP:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node --inspect=127.0.0.1:9447 programa.js &",
+     "p": "$",
+     "s": "Debugger listening on ws://127.0.0.1:9447/af39b90c-…"
+    },
+    {
+     "c": "curl -s http://127.0.0.1:9447/json/list | jq '.[0] | {type, url}'",
+     "p": "$",
+     "s": "{\n  \"type\": \"node\",\n  \"url\": \"file://\"\n}"
+    }
+   ],
+   "cap": "Salida real con Node 22.23.4, abreviada (el identificador del WebSocket cambia cada vez; acá lo acorté). Puerto elegido por mí, el predeterminado es 9229."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Nunca dejes ese puerto abierto hacia afuera",
+   "x": "La guía de Node advierte que, si el depurador queda atado a una IP pública o a 0.0.0.0, cualquiera que llegue a esa dirección puede conectarse sin restricción y ejecutar código arbitrario en tu proceso [#node-debugging-guide]."
+  },
+  {
+   "t": "pensa",
+   "x": "Un bucle de 50.000 vueltas falla solo cuando `i` vale 31.337. ¿Por qué un punto de interrupción común es mala idea y qué usarías?",
+   "resp": "Un punto común frenaría 50.000 veces. El condicional con `i === 31337` frena una sola, donde importa. Un `console.log` en cada vuelta sirve, pero deja 50.000 líneas que tapan lo que buscás."
+  },
+  {
+   "t": "h",
+   "x": "El registro de eventos: tu depurador en producción"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En producción no podés frenar el programa: hay gente usándolo, y frenar un servidor es una interrupción del servicio. Ahí entra el **registro de eventos** (en inglés, *log*): el relato que el programa escribe de lo que va haciendo, con una línea por hecho, la hora, qué tan grave es y los datos que identifican el caso.",
+    "Los 12 factores de [@04-06] tratan el registro como un flujo de eventos: cada proceso lo escribe a la salida estándar sin buffer y no se ocupa de archivos, porque otro sistema lo recoge y lo guarda [#dep13-12factor-logs]. Así el mismo programa sirve en tu notebook (lo ves en la terminal) y en un servidor (lo recolecta un sistema)."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el libro de novedades del depósito",
+   "x": "El turno noche anota qué pasó y quién tiene que enterarse, y el turno mañana reconstruye lo ocurrido leyendo. La analogía deja de valer en algo importante: ese libro lo escribe una persona que decide en el momento qué vale la pena anotar, y el programa solo escribe lo que alguien programó antes de que el problema existiera."
+  },
+  {
+   "t": "p",
+   "x": "Para que el relato sirva, cada línea tiene que poder leerse tanto por una persona como por un programa. Un formato cómodo es una línea de JSON por hecho. Este programa inventado procesa cuatro pedidos y registra qué hace con cada uno:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Datos INVENTADOS. Una línea JSON por hecho.\nconst registrar = (nivel, evento, campos = {}) =>\n  console.log(JSON.stringify({ ts: new Date().toISOString(), nivel, evento, ...campos }));\n\nconst pedidos = [\n  { id: 'P-101', pallets: 8, destino: 'Rosario' },\n  { id: 'P-102', pallets: 0, destino: 'La Plata' },\n  { id: 'P-103', pallets: 5, destino: 'Rosario' },\n  { id: 'P-104', pallets: 40, destino: 'Mar del Plata' },\n];\nfor (const p of pedidos) {\n  registrar('info', 'pedido_recibido', { pedido: p.id, pallets: p.pallets });\n  if (p.pallets === 0) { registrar('warn', 'pedido_vacio', { pedido: p.id }); continue; }\n  if (p.pallets > 33) {\n    registrar('error', 'excede_camion', { pedido: p.id, pallets: p.pallets, maximo: 33, destino: p.destino });\n    continue;\n  }\n  registrar('info', 'pedido_asignado', { pedido: p.id, destino: p.destino });\n}",
+   "cap": "El archivo logs.js. El tope de 33 pallets por camión es un dato inventado para el ejemplo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node logs.js > eventos.log; cut -c1-150 eventos.log | tail -n 4",
+     "p": "$",
+     "s": "{\"ts\":\"2026-11-13T17:21:04.006Z\",\"nivel\":\"info\",\"evento\":\"pedido_recibido\",\"pedido\":\"P-103\",\"pallets\":5}\n{\"ts\":\"2026-11-13T17:21:04.006Z\",\"nivel\":\"info\",\"evento\":\"pedido_asignado\",\"pedido\":\"P-103\",\"destino\":\"Rosario\"}\n{\"ts\":\"2026-11-13T17:21:04.006Z\",\"nivel\":\"info\",\"evento\":\"pedido_recibido\",\"pedido\":\"P-104\",\"pallets\":40}\n{\"ts\":\"2026-11-13T17:21:04.006Z\",\"nivel\":\"error\",\"evento\":\"excede_camion\",\"pedido\":\"P-104\",\"pallets\":40,\"maximo\":33,\"destino\":\"Mar del Plata\"}"
+    },
+    {
+     "c": "jq -c 'select(.nivel==\"error\")' eventos.log",
+     "p": "$",
+     "s": "{\"ts\":\"2026-11-13T17:13:55.183Z\",\"nivel\":\"error\",\"evento\":\"excede_camion\",\"pedido\":\"P-104\",\"pallets\":40,\"maximo\":33,\"destino\":\"Mar del Plata\"}"
+    },
+    {
+     "c": "jq -r '.nivel' eventos.log | sort | uniq -c",
+     "p": "$",
+     "s": "      1 error\n      6 info\n      1 warn"
+    }
+   ],
+   "cap": "Salida real con jq 1.7 y Node 22.23.4. En el primer comando mostré solo las últimas cuatro líneas, cortadas a 150 caracteres."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con tres comandos sacaste solo los errores, contaste eventos por gravedad y seguiste un pedido por su identificador. Con `console.log('llegó acá 2')` nada de eso es posible. Cuatro reglas prácticas (criterio de oficio, no norma):"
+   ]
+  },
+  {
+   "t": "lista",
+   "ord": false,
+   "items": [
+    "**Un hecho, una línea**, con la misma estructura siempre: hora, nivel, nombre del evento y los datos que lo identifican.",
+    "**Niveles con sentido**: *info* para lo normal que querés poder reconstruir, *warn* para lo raro que no frenó nada y *error* para lo que dejó algo sin hacer. Si todo es error, nada lo es.",
+    "**Identificadores, no frases**: el número de pedido o de usuario permite seguir un caso entre miles. Cuando un caso cruza varios programas, el mismo identificador en todas las líneas permite coserlas; eso es lo que se llama correlación y se estudia en [@16-14].",
+    "**Nada de secretos ni datos personales**: una contraseña o un token que cae en un registro queda guardado en archivos que mucha gente puede leer (la lección de [@04-06])."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El registro cuesta y envejece",
+   "x": "Registrar todo ocupa disco y plata, y tapa lo importante con ruido. Y un registro que nadie mira no sirve: en el caso de Knight Capital hubo 97 avisos automáticos sin leer."
+  },
+  {
+   "t": "pensa",
+   "x": "Mirando solo eventos.log, ¿qué podés responder sobre el pedido P-104 y qué no?",
+   "resp": "Llegó con 40 pallets, el máximo era 33 y el programa lo descartó con un error. No podés saber **por qué** llegó un pedido de 40: un error de carga, un pedido legítimo que habría que partir en dos camiones o una falla del sistema emisor. El registro dice lo que el programa sabía, no lo que ocurría afuera."
+  },
+  {
+   "t": "h",
+   "x": "git bisect con miles de commits"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@03-15] corriste una bisección de diez commits. Ahora la misma idea a escala: [[git bisect]] es el comando de Git que busca por búsqueda binaria el primer commit que introdujo un problema, dado un commit bueno y uno malo. Armé un repositorio de práctica con 1.000 commits en los que el commit 637 cambia una línea de una tarifa (el cambio de `pallets * 100` a `pallets * 100 - 1`), y una prueba que sale con código 0 si la tarifa de 3 pallets es 300 y con 1 si no. Todo es inventado salvo el comportamiento de Git, que es real."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "git bisect start HEAD $(git rev-list --max-parents=0 HEAD)",
+     "p": "$",
+     "s": "(marca el último commit como malo y el primero como bueno)"
+    },
+    {
+     "c": "git bisect run ../prueba_tarifa.sh",
+     "p": "$",
+     "s": "running '../prueba_tarifa.sh'\nBisecting: 249 revisions left to test after this (roughly 8 steps)\n[5597b1e…] c750: nota\n…\nBisecting: 0 revisions left to test after this (roughly 0 steps)\n[7055a5c…] c637: ajuste de redondeo\n7055a5c… is the first bad commit\n\n    c637: ajuste de redondeo\n\n nota.txt  | 2 +-\n tarifa.js | 2 +-\nbisect found first bad commit"
+    }
+   ],
+   "cap": "Salida real con git 2.43.0, muy abreviada (identificadores acortados y pasos intermedios omitidos). Fueron 10 pruebas y la corrida entera tardó 0,35 segundos en esta VM, con una prueba de unos milisegundos. Una sola medición, en una sola máquina."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mil commits, diez pruebas: cada una descarta la mitad y 2^10 = 1.024 alcanza para 1.000, la cuenta de [@03-15]. Nadie revisa 637 cambios a mano; `git bisect run` lo hace solo mientras tomás un café.",
+    "Esa automatización exige **tres condiciones**, y la mayoría de los fracasos con `bisect` es por no cumplirlas:"
+   ]
+  },
+  {
+   "t": "lista",
+   "ord": true,
+   "items": [
+    "**La prueba es confiable.** Según la documentación, el programa debe salir con 0 si el código está bien y con un código entre 1 y 127 (menos el 125) si está mal; cualquier otro código aborta la búsqueda [#git-bisect-doc]. Si la prueba falla al azar, `bisect` se equivoca sin avisar: un commit bueno marcado como malo manda toda la búsqueda al lugar equivocado.",
+    "**La prueba corre en commits viejos.** Si en el commit del medio el proyecto ni compila, la prueba no dice nada sobre el bug. Para eso existe el código 125: «no puedo probar este commit», y Git lo saltea [#git-bisect-doc]. El ejemplo de la documentación usa `make || exit 125`.",
+    "**El bug estaba ausente antes.** Si el problema existe desde el primer commit, no hay un primer commit malo que encontrar."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Los commits chicos hacen que bisect valga la pena",
+   "x": "Si el commit culpable hubiera sido uno de 80 archivos («varios arreglos»), `bisect` lo señalaría igual y el trabajo seguiría: ver cuál de las 80 modificaciones rompió. Los commits que hacen una sola cosa, como en [@04-07] y [@04-12], vuelven exacto al localizador (inferencia mía)."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un repositorio tiene 5.000 commits entre el último bueno y el malo. ¿Cuántas pruebas necesita como máximo `git bisect`? ¿Y si cada prueba tarda 4 minutos?",
+   "pista": "Buscá la menor potencia de 2 que sea mayor o igual a 5.000. Cada prueba duplica lo que podés descartar.",
+   "solucion": "2^12 = 4.096 es menor que 5.000 y 2^13 = 8.192 es mayor, así que hacen falta **13 pruebas** como máximo. A 4 minutos cada una son 52 minutos (cálculo propio), contra los 20.000 minutos, casi 14 días, que llevaría probar uno por uno."
+  },
+  {
+   "t": "h",
+   "x": "Debajo del lenguaje: gdb y strace"
+  },
+  {
+   "t": "p",
+   "x": [
+    "No todos los programas son de JavaScript. Los hay en C, C++, Rust o Go, y toda app de teléfono tiene partes nativas. Cuando un programa nativo falla, a veces el sistema operativo lo mata sin explicación. Por ejemplo, el programa que sigue recorre las paradas de una ruta de reparto (datos inventados). Es una lista enlazada, es decir, cada parada guarda un [[puntero]] a la siguiente, y la última guarda `NULL`, o sea «no hay más». El error es no preguntar si se llegó al final."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <stdio.h>\n#include <stdlib.h>\n/* Datos INVENTADOS: paradas de una ruta de reparto. */\nstruct parada { int pallets; struct parada *sig; };\n\nstatic struct parada *nueva(int pallets, struct parada *sig) {\n    struct parada *p = malloc(sizeof *p);\n    p->pallets = pallets;\n    p->sig = sig;\n    return p;\n}\n\nstatic int total(struct parada *p) {\n    int suma = 0;\n    while (1) {                 /* error: nunca se pregunta si p es NULL */\n        suma += p->pallets;\n        p = p->sig;\n    }\n    return suma;\n}\n\nint main(void) {\n    struct parada *ruta = nueva(8, nueva(5, nueva(9, NULL)));\n    printf(\"total: %d\\n\", total(ruta));\n    return 0;\n}",
+   "cap": "El archivo rutas.c. El while(1) nunca termina por sí solo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -g -O0 rutas.c -o rutas && ./rutas; echo \"salida: $?\"",
+     "p": "$",
+     "s": "Segmentation fault\nsalida: 139"
+    }
+   ],
+   "cap": "Salida real con gcc 13.3 en la VM. Ni siquiera aparece el «total:» del printf: el programa murió antes."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El mensaje no dice nada útil. Lo que ocurrió es lo que viste en [@02-07] y [@02-08]: el programa leyó la dirección 0, que no pertenece a ninguna página de su memoria virtual, la CPU levantó una excepción y el kernel terminó el proceso enviándole una señal llamada SIGSEGV. El número 139 es la convención de los shells: 128 más el número de la señal; el shell lo confirma, porque `kill -l 139` imprime `SEGV` (visto en esta VM). Ya lo ves: el [[código de salida]] de [@02-21] ya traía la pista.",
+    "Ahora entra `gdb`, el depurador de GNU para programas nativos. Para que muestre nombres de variables y números de línea, el programa se compila con la opción `-g`, que agrega esa información («símbolos de depuración») al ejecutable. Sin ella, `gdb` muestra funciones sin variables ni líneas: lo comprobé compilando el mismo archivo sin `-g`, y la pila sale como `#0 0x…1bc in total ()`."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gdb -q -batch -ex run -ex bt -ex 'print p' -ex 'print suma' ./rutas",
+     "p": "$",
+     "s": "Program received signal SIGSEGV, Segmentation fault.\n0x00005555555551bc in total (p=0x0) at rutas.c:16\n16\t        suma += p->pallets;\n#0  0x00005555555551bc in total (p=0x0) at rutas.c:16\n#1  0x0000555555555215 in main () at rutas.c:24\n$1 = (struct parada *) 0x0\n$2 = 22"
+    },
+    {
+     "c": "gdb -q -batch -ex 'break rutas.c:16 if p == 0' -ex run -ex up -ex 'print *ruta->sig->sig' ./rutas",
+     "p": "$",
+     "s": "Breakpoint 1, total (p=0x0) at rutas.c:16\n#1  0x0000555555555215 in main () at rutas.c:24\n$1 = {pallets = 9, sig = 0x0}"
+    }
+   ],
+   "cap": "Salida real con GNU gdb 15.1, abreviada (quité las líneas sobre libthread_db). `bt` es *backtrace* (la pila de llamadas), `up` sube un nivel de la pila."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Leelo como una historia. La falla está en `rutas.c:16`, dentro de `total`, con `p` valiendo 0. La variable `suma` vale 22, que es 8 + 5 + 9: las tres paradas se sumaron bien y el programa siguió leyendo después de la última. La segunda línea frena **antes** del desastre, con un punto condicional (`p == 0`, igual que la condición `i === 1` de Node), y muestra que el último nodo de la lista tiene `sig = 0x0`. La corrección es cambiar `while (1)` por `while (p != NULL)`."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "La otra herramienta nativa es `strace`, que lista cada **llamada al sistema** (la petición que un programa le hace al kernel, como abrir un archivo) con su resultado. Sirve cuando un programa falla con un mensaje inútil. Este script de shell lee un archivo de configuración y, si no puede, solo dice «no pude arrancar»:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./leer_config.sh",
+     "p": "$",
+     "s": "no pude arrancar"
+    },
+    {
+     "c": "strace -f -e trace=openat ./leer_config.sh 2>&1 | grep deposito",
+     "p": "$",
+     "s": "[pid  9370] openat(AT_FDCWD, \"./config/deposito.conf\", O_RDONLY) = -1 ENOENT (No such file or directory)"
+    }
+   ],
+   "cap": "Salida real con strace 6.8. El script usa `cat ./config/deposito.conf 2>/dev/null`: el `2>/dev/null` tira a la basura el mensaje de error de `cat`. `ENOENT` significa «no existe ese archivo»."
+  },
+  {
+   "t": "p",
+   "x": "El script buscó `./config/deposito.conf` (ruta relativa al directorio donde lo corriste) y el archivo no existe. El error que `cat` imprimió lo silenció el propio script. Todo programa que calla errores para «no ensuciar la pantalla» es candidato a una sesión de `strace`."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y plataformas (13-11-2026)",
+   "x": "Corrí gdb 15.1, strace 6.8, valgrind 3.22.0 y gcc 13.3 sobre Ubuntu 24.04. Estas herramientas son de Linux. Las opciones que usé son estables desde hace años, pero las salidas cambian con la versión. Para depurar en Windows, macOS o un teléfono Android se usan otras herramientas que no probé hoy."
+  },
+  {
+   "t": "h",
+   "x": "Los bugs que desaparecen cuando mirás"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[heisenbug]] es un bug que cambia o se esconde cuando intentás observarlo (el nombre juega con Heisenberg y su idea de que medir altera lo medido). En software, observar cambia casi siempre el **tiempo**: frenar con un depurador, agregar un `printf`, compilar con otras opciones. Los típicos son las condiciones de carrera de [@02-22]: dos hilos que tocan el mismo dato sin coordinarse.",
+    "Este programa de C es el caso mínimo. Dos hilos suman un millón de veces cada uno a un contador compartido; debería dar 2.000.000."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <pthread.h>\n#include <stdio.h>\n#define VUELTAS 1000000\nstatic long contador = 0;\n\nstatic void *sumar(void *arg) {\n    (void)arg;\n    for (int i = 0; i < VUELTAS; i++) contador++;\n    return NULL;\n}\n\nint main(void) {\n    pthread_t a, b;\n    pthread_create(&a, NULL, sumar, NULL);\n    pthread_create(&b, NULL, sumar, NULL);\n    pthread_join(a, NULL);\n    pthread_join(b, NULL);\n    printf(\"esperado %d, obtenido %ld\\n\", 2 * VUELTAS, contador);\n    return 0;\n}",
+   "cap": "El archivo carrera.c. La operación contador++ son tres pasos (leer, sumar, escribir) y dos hilos pueden intercalarlos."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -O0 -g -pthread carrera.c -o c0 && for i in 1 2 3; do ./c0; done",
+     "p": "$",
+     "s": "esperado 2000000, obtenido 1487970\nesperado 2000000, obtenido 1081352\nesperado 2000000, obtenido 1038538"
+    },
+    {
+     "c": "gcc -O2 -pthread carrera.c -o c2 && for i in 1 2 3 4 5 6 7 8 9 10; do ./c2; done | sort | uniq -c",
+     "p": "$",
+     "s": "     10 esperado 2000000, obtenido 2000000"
+    }
+   ],
+   "cap": "Salida real, VM de 4 núcleos con gcc 13.3. Los números del primer caso varían en cada corrida; son una muestra de una máquina."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mismo código, dos resultados. Sin optimizar, el contador pierde alrededor de la mitad de las sumas. Optimizado con `-O2`, da lo correcto las diez veces. Mirando el código ensamblador que genera `gcc -O2 -S`, la función `sumar` quedó reducida a una sola instrucción: `addq $1000000, contador(%rip)`. El compilador reemplazó el bucle por una única suma de un millón, y la ventana donde dos hilos pueden pisarse se volvió minúscula. **El bug sigue ahí.** Solo dejó de verse.",
+    "Esa es la trampa: diez corridas sin fallas no prueban que el programa esté bien. Para estas fallas hay que usar herramientas que **detectan** la carrera en lugar de depender de que ocurra. Dos de ellas, ambas probadas hoy sobre `c0`: `valgrind --tool=helgrind`, que informó dos «Possible data race» con la dirección del dato (`Address … is 0 bytes inside data symbol \"contador\"`) y la línea `carrera.c:7`; y el compilador con `-fsanitize=thread`, que imprimió «WARNING: ThreadSanitizer: data race» con la misma línea [#dep13-helgrind-manual]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Lo corrí diez veces y anda»",
+   "x": "Para un problema de tiempo, una corrida sin fallas es una muestra, no una prueba. La corrección de esta carrera es protegerla con un candado ([[mutex]]) o usar una operación atómica; y se verifica con un detector, no con repeticiones."
+  },
+  {
+   "t": "h",
+   "x": "Un caso real: Knight Capital, 1 de agosto de 2012"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Knight Capital Americas LLC era una firma de Nueva York con un sistema automático, llamado SMARS, que recibía órdenes de compra y venta de acciones y las partía en órdenes menores que mandaba a las bolsas. Lo que sigue sale de la orden de la SEC (la comisión de valores de Estados Unidos) del 16 de octubre de 2013, que leí entera [#dep13-sec-knight]. Las cifras son de ese documento."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "linea-tiempo",
+   "eventos": [
+    {
+     "a": "2003",
+     "t": "Knight deja de usar «Power Peg»",
+     "d": "Una función vieja de SMARS que seguía instalada y se podía llamar."
+    },
+    {
+     "a": "2005",
+     "t": "Se mueve una función de control",
+     "d": "El conteo de acciones ya ejecutadas pasa a otro punto del código. Nadie vuelve a probar Power Peg."
+    },
+    {
+     "a": "27 jul 2012",
+     "t": "Empieza el despliegue del código nuevo",
+     "d": "Se copia a pocos servidores por día, durante varios días."
+    },
+    {
+     "a": "1 ago 2012",
+     "t": "Antes de abrir el mercado: 97 correos",
+     "d": "Desde cerca de las 8:01 de la mañana, avisos automáticos con el texto «Power Peg disabled»."
+    },
+    {
+     "a": "1 ago 2012",
+     "t": "Unos 45 minutos de órdenes descontroladas",
+     "d": "4 millones de ejecuciones, 154 acciones, más de 397 millones de acciones, 460 millones de dólares de pérdida."
+    },
+    {
+     "a": "16 oct 2013",
+     "t": "Orden de la SEC",
+     "d": "Multa de USD 12 millones y orden de cese."
+    }
+   ],
+   "cap": "Armada con los datos de la orden de la SEC, Release No. 34-70694."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La cadena de causas que describe el documento es esta. Para una nueva función de la bolsa de Nueva York, Knight escribió código nuevo que reutilizaba una **bandera** (un campo de la orden) que antes activaba Power Peg. En el despliegue, un técnico no copió el código nuevo a uno de los **ocho** servidores; no hubo un segundo técnico que revisara, y no había procedimientos escritos que lo exigieran. El 1 de agosto, en esa máquina, la bandera reutilizada activó el viejo Power Peg, que además había perdido en 2005 su función de dejar de enviar órdenes cuando ya estaban ejecutadas. Para 212 órdenes de entrada, el servidor mandó millones de órdenes menores: 4 millones de ejecuciones en 154 acciones, más de 397 millones de acciones en unos 45 minutos, y una pérdida de más de 460 millones de dólares [#dep13-sec-knight].",
+    "Lo útil para nosotros es lo que la SEC dice sobre **cómo se buscó** el problema. Primero, 97 correos automáticos desde las 8:01 decían «Power Peg disabled»; no estaban pensados como alertas, el personal no solía leerlos y nadie actuó antes de la apertura. Segundo, Knight no tenía procedimientos de respuesta a incidentes: el equipo técnico trabajó con el sistema en vivo, que seguía enviando órdenes. Tercero, en un intento por arreglarlo, desinstalaron el código nuevo de los siete servidores donde estaba bien instalado, y eso empeoró el problema: esos servidores también quedaron con la bandera activando Power Peg [#dep13-sec-knight]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mis lecciones de depuración (interpretación mía, no del informe): **comparar los entornos** (siete servidores bien y uno mal es la pista más barata); **tratar un aviso automático como síntoma** y no como ruido; **no deshacer a ciegas** lo que no entendés (la reversión sumó daño); y **borrar el código muerto**, que espera a que alguien reutilice su bandera."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Qué no sabemos",
+   "x": "El informe de la SEC es un documento legal sobre reglas del mercado, no una autopsia técnica: no describe el sistema de registro de Knight ni cuánto tardó cada paso del diagnóstico."
+  },
+  {
+   "t": "h",
+   "x": "Cómo se depura Senda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda no tiene reporte remoto de fallos (Sentry, Bugsnag, Crashlytics): el mapa técnico lo registra como ausencia verificada. Tiene una **guardia**, lo primero que se instala, que atrapa los errores de JavaScript al cargar, al dibujar una pantalla y en segundo plano. Anota el último fallo en el teléfono (mensaje, 14 líneas de pila, dónde, cuándo y si fue fatal) en la clave `senda-ultimo-fallo` y muestra una pantalla con el detalle para copiar y mandar al equipo.",
+    "Nació de una depuración: el APK 30 «se cerraba al abrir» y no se pudo reproducir, así que se instrumentó la app. Dos límites: solo ve errores de JavaScript (un cierre nativo no pasa por ella; para eso hay una prueba de humo en emulador) y el registro vive en el teléfono, así que la persona tiene que copiarlo y mandarlo."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "La guardia y los registros de Senda",
+   "x": [
+    "La guardia está en `src/util/guardia.ts` (`anotarFallo`, `instalarGuardia`, la clave `senda-ultimo-fallo`) y es lo primero que importa `index.ts`. La pantalla de fallo está en `src/componentes/fallo.tsx`.",
+    "Un `grep` sobre `src/` e `index.ts` encontró 8 líneas con `console.log`, `console.warn` o `console.error` (dato de búsqueda, no de ejecución). La mayoría llevan una etiqueta entre corchetes, como `[Lany3D]` en `src/lany3d/diagnostico.ts` o `[arranque]` en `src/pantallas/Inicio.tsx`: es una versión mínima de lo de hoy, con prefijo en lugar de campos. No hay niveles ni identificadores.",
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "index.ts",
+    "src/util/guardia.ts",
+    "src/componentes/fallo.tsx",
+    "src/lany3d/diagnostico.ts",
+    "src/pantallas/Inicio.tsx"
+   ]
+  }
+ ],
+ "recap": [
+  "Cada herramienta contesta una pregunta distinta: el depurador, qué valía cada cosa; el registro de eventos, qué hizo el programa donde no podés frenar; `git bisect`, qué cambio lo rompió; `gdb`, `strace` y los detectores de carreras, lo que ocurre debajo del lenguaje.",
+  "Un punto de interrupción condicional frena una sola vez, donde importa; una invariante en el código convierte un bug silencioso en una alarma.",
+  "Un registro de eventos útil tiene una línea por hecho, con hora, nivel, nombre del evento e identificadores, y nunca guarda secretos ni datos personales.",
+  "`git bisect run` encuentra un commit entre miles en unas pocas pruebas, pero exige una prueba confiable, el código 125 para lo que no se puede probar y commits chicos.",
+  "Un programa nativo que muere por una señal (139 en el shell es SIGSEGV) se investiga con `gdb` y símbolos de depuración (`-g`); `strace` muestra lo que pidió al sistema operativo, incluidos errores silenciados.",
+  "Un heisenbug cambia con la observación y diez corridas sin fallas no prueban nada: se usan detectores como helgrind o ThreadSanitizer.",
+  "En Knight Capital, un servidor de ocho sin código nuevo, 97 avisos ignorados y una reversión a ciegas convirtieron un error de despliegue en 460 millones de dólares de pérdida en unos 45 minutos."
+ ],
+ "repaso": [
+  {
+   "p": "Un programa que asigna 54 pallets a camiones de 12 devuelve 5, que coincide con el mínimo teórico (54 / 12 = 4,5, redondeado hacia arriba). ¿Qué conclusión es correcta?",
+   "o": [
+    "El resultado es correcto porque coincide con el mínimo teórico y no hay forma de que sea menor",
+    "Coincidir con el mínimo no demuestra que haya cargado todo: hay que comprobar que lo cargado sume 54",
+    "El resultado es sospechoso solo si el programa tarda mucho en correr o usa demasiada memoria",
+    "Basta con ejecutar el programa con otros datos y ver si entrega números parecidos al mínimo"
+   ],
+   "c": 1,
+   "e": "Un resultado que parece razonable no prueba nada si el programa pudo perder datos por el camino. En el ejemplo de hoy se cargaban 29 de 54 pallets y igual daba 5. La invariante «lo cargado suma lo recibido» es la comprobación que lo delata. Las otras opciones miden tiempo, memoria o parecido, y nada de eso dice si se perdieron pedidos."
+  },
+  {
+   "p": "Un bucle de 50.000 vueltas falla solo en la vuelta 31.337. ¿Cuál es la mejor manera de frenar justo ahí con un depurador?",
+   "o": [
+    "Poner un punto de interrupción común y apretar «continuar» 31.336 veces hasta llegar",
+    "Poner un punto de interrupción con la condición `i === 31337`, que frena solo cuando es cierta",
+    "Agregar un `console.log` con el valor de `i` en cada vuelta y leer luego la salida entera",
+    "Borrar las primeras 31.336 vueltas del bucle para que el programa llegue directo al error"
+   ],
+   "c": 1,
+   "e": "El punto condicional frena una sola vez, en el momento exacto. El punto común obliga a continuar a mano 31.336 veces; el `console.log` genera 50.000 líneas que tapan lo que buscás; y editar el bucle cambia el programa que querías investigar, así que el bug podría desaparecer."
+  },
+  {
+   "p": "Un servidor imprime «error» sin más datos. ¿Cuál de estas líneas de registro sirve más para reconstruir un caso en producción?",
+   "o": [
+    "{\"nivel\":\"error\",\"evento\":\"excede_camion\",\"pedido\":\"P-104\",\"pallets\":40,\"maximo\":33}",
+    "Algo salió mal con un pedido, avisar a alguien del equipo para que lo revise a la brevedad",
+    "{\"nivel\":\"info\",\"evento\":\"login\",\"usuario\":\"ana\",\"clave\":\"correo2026\",\"ok\":true}",
+    "llegó acá 2 (línea de prueba dejada para ver por dónde pasa el programa en el servidor)"
+   ],
+   "c": 0,
+   "e": "La primera tiene una estructura fija, un nombre de evento y los identificadores del caso, así que se puede filtrar y seguir. La segunda es una frase vaga sin datos; la tercera guarda una contraseña en un archivo que mucha gente puede leer; la cuarta no dice qué ni de quién."
+  },
+  {
+   "p": "Un `git bisect run` con una prueba que falla al azar una de cada cinco veces aunque el código esté bien. ¿Qué es lo más probable que pase?",
+   "o": [
+    "Git detecta la prueba inestable y se detiene con un aviso de que no se puede continuar",
+    "Si la prueba es chica, la búsqueda funciona igual, porque la bisección compensa los errores",
+    "Marcará como malo algún commit bueno y la búsqueda puede terminar en un commit inocente",
+    "Git repite sola cada prueba cinco veces y se queda con el resultado más frecuente"
+   ],
+   "c": 2,
+   "e": "`bisect` toma cada resultado como verdad y no tiene forma de saber que la prueba es inestable. Un falso «malo» manda la búsqueda hacia el lado equivocado y termina señalando un commit inocente. Lo correcto es estabilizar la prueba primero (fijar el dato aleatorio o repetirla) antes de automatizar."
+  },
+  {
+   "p": "Un programa en C muere con «Segmentation fault» y, en `gdb`, `bt` muestra `#0 … in total ()` sin variables ni números de línea. ¿Qué pasó y qué conviene hacer?",
+   "o": [
+    "El programa se compiló sin la opción `-g`, así que conviene volver a compilarlo con ella",
+    "gdb no es capaz de leer la pila de un programa que murió por una señal del sistema",
+    "El kernel ocultó las variables al matar el proceso, y no hay forma de recuperarlas",
+    "La falla está en el kernel y no en el programa, así que hay que reiniciar la máquina"
+   ],
+   "c": 0,
+   "e": "Sin símbolos de depuración, `gdb` solo conoce nombres de funciones y direcciones. Recompilando con `-g` aparecen `p=0x0` y la línea `rutas.c:16`. El kernel no oculta nada: la señal solo termina el proceso, y `gdb` lee el estado en ese momento. Y la falla no es del kernel, que hizo bien su trabajo al cortar un acceso inválido."
+  },
+  {
+   "p": "Un contador compartido por dos hilos da resultados incorrectos compilado con `-O0` y correctos en diez corridas con `-O2`. ¿Qué es correcto afirmar?",
+   "o": [
+    "El compilador corrigió el programa al optimizar, así que el bug quedó resuelto para siempre",
+    "El bug sigue en el código; la optimización cambió el tiempo y escondió la carrera",
+    "Los resultados de `-O0` eran los falsos y los de `-O2` son los verdaderos del programa",
+    "Con dos núcleos el programa falla siempre y con uno nunca, sin importar el compilador"
+   ],
+   "c": 1,
+   "e": "La optimización colapsó el bucle en una sola suma y achicó la ventana donde los hilos se pisan, pero el acceso sin coordinación sigue ahí. Se confirma con un detector como helgrind o ThreadSanitizer. Un compilador no corrige errores de lógica, y diez corridas sin fallas no demuestran ausencia de la carrera."
+  },
+  {
+   "p": "Según la orden de la SEC, ¿cuál fue la causa técnica inmediata de la pérdida de Knight Capital el 1 de agosto de 2012?",
+   "o": [
+    "Un ataque externo logró alterar las órdenes que el sistema enviaba a las bolsas",
+    "El código nuevo tenía un bucle infinito que se activaba en los ocho servidores",
+    "Un servidor de ocho no recibió el código nuevo y una bandera reutilizada activó código viejo",
+    "Una falla de la red de la bolsa duplicó cada orden que Knight enviaba durante el día"
+   ],
+   "c": 2,
+   "e": "El documento describe un despliegue incompleto: uno de los ocho servidores no recibió el código nuevo y la bandera reutilizada activó el viejo Power Peg. Los otros siete funcionaban bien (hasta que la reversión los empeoró). El informe no menciona un ataque, un bucle en el código nuevo ni una falla de la red de la bolsa."
+  }
+ ],
+ "feynman": "Imaginá que un compañero de logística te cuenta que el sistema de su depósito «a veces cuenta mal» y nadie sabe por qué. Explicale, con tus palabras y sin jerga, qué tres preguntas le harías para decidir cómo investigarlo (por ejemplo: ¿se repite?, ¿dejó algún registro?, ¿desde cuándo pasa?) y qué haría falta para que el próximo error de ese tipo se vea en minutos.",
+ "para_profundizar": [
+  {
+   "fuente": "node-debugging-guide",
+   "nota": "La guía oficial de Node.js: cómo se activa el inspector, qué clientes lo usan y las advertencias de seguridad sobre dejar el puerto abierto. Sirve para repetir la sesión de hoy con la interfaz de Chrome o VS Code."
+  },
+  {
+   "fuente": "dep13-gdb-manual",
+   "nota": "El manual de GDB: busca los capítulos sobre puntos de interrupción (con condiciones) y sobre examinar la pila, para llevar lo de hoy más lejos."
+  },
+  {
+   "fuente": "git-bisect-doc",
+   "nota": "La referencia oficial de `git bisect`, con los códigos de salida de `run`, el uso de `skip` y el ejemplo `make || exit 125`."
+  },
+  {
+   "fuente": "dep13-sec-knight",
+   "nota": "La orden de la SEC sobre Knight Capital. Leé los párrafos 14 a 27 para ver el despliegue, los avisos ignorados y la respuesta al incidente con los números originales."
+  }
+ ],
+ "videos": [
+  {
+   "q": "gdb tutorial breakpoint condicional backtrace programa en C",
+   "por_que": "Para ver una sesión de gdb en vivo, con el mismo tipo de comandos que usamos hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "depurador",
+   "d": "Programa que ejecuta a otro bajo su control: lo frena en una línea, deja leer sus variables y su memoria y lo hace avanzar paso a paso. Ejemplos: `node inspect`, Chrome DevTools, VS Code y `gdb`."
+  },
+  {
+   "t": "registro de eventos",
+   "d": "Relato escrito por un programa de lo que va haciendo, con una línea por hecho: hora, gravedad, nombre del evento y datos que lo identifican. Sirve para depurar donde no se puede frenar el programa, como en producción."
+  },
+  {
+   "t": "git bisect",
+   "d": "Comando de Git que busca por búsqueda binaria el primer commit que introdujo un problema, entre uno bueno y uno malo. Con `git bisect run` lo automatiza con un programa de prueba que sale con 0 si anda y con un código de 1 a 127 (menos el 125) si falla."
+  },
+  {
+   "t": "heisenbug",
+   "d": "Bug que cambia o desaparece cuando se lo observa, porque la observación (un depurador, un log, otra opción de compilación) altera el tiempo del programa. Las condiciones de carrera son el ejemplo típico."
+  }
+ ],
+ "siguiente": "por qué conviene que una máquina repita las comprobaciones por vos, cuánto cuesta un bug según cuándo se lo encuentra y cómo se reparten las pruebas en una pirámide.",
+ "fuentes_nuevas": [
+  {
+   "id": "dep13-sec-knight",
+   "t": "In the Matter of Knight Capital Americas LLC (Order, Release No. 34-70694)",
+   "a": "U.S. Securities and Exchange Commission",
+   "tipo": "doc",
+   "anio": "2013",
+   "url": "https://www.sec.gov/files/litigation/admin/2013/34-70694.pdf"
+  },
+  {
+   "id": "dep13-gdb-manual",
+   "t": "Debugging with GDB",
+   "a": "GNU Project",
+   "tipo": "doc",
+   "url": "https://sourceware.org/gdb/current/onlinedocs/gdb.html/"
+  },
+  {
+   "id": "dep13-helgrind-manual",
+   "t": "Helgrind: a thread error detector (manual de Valgrind)",
+   "a": "Valgrind Developers",
+   "tipo": "doc",
+   "url": "https://valgrind.org/docs/manual/hg-manual.html"
+  },
+  {
+   "id": "git-bisect-doc",
+   "t": "git-bisect: use binary search to find the commit that introduced a bug",
+   "a": "Git Project",
+   "tipo": "doc",
+   "url": "https://git-scm.com/docs/git-bisect"
+  },
+  {
+   "id": "node-debugging-guide",
+   "t": "Debugging Node.js",
+   "a": "OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://nodejs.org/en/learn/getting-started/debugging"
+  },
+  {
+   "id": "dep13-12factor-logs",
+   "t": "The Twelve-Factor App, XI: Logs",
+   "a": "Adam Wiggins",
+   "tipo": "articulo",
+   "anio": "2011",
+   "url": "https://12factor.net/logs"
+  }
+ ]
+}

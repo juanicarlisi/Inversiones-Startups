@@ -1,0 +1,707 @@
+{
+ "id": "04-05",
+ "titulo": "Versionado semántico y el infierno de las dependencias",
+ "bajada": "Hoy aprendés a leer un número de versión y un rango como ^ o ~, a ver por qué dos paquetes se pelean por la misma pieza y qué hace un archivo de bloqueo para que tu instalación de hoy sea igual a la de mañana.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué promete cada parte de un número MAJOR.MINOR.PATCH y qué no puede garantizar.",
+  "Calcular qué versiones acepta un rango con ^ o ~, incluido el caso de las versiones 0.x.",
+  "Distinguir una dependencia directa de una transitiva y leer un conflicto de versiones en la salida de npm.",
+  "Contar qué hacen package-lock.json y npm ci para que dos instalaciones den el mismo resultado.",
+  "Interpretar un informe de npm audit y decidir qué actualizar y qué no."
+ ],
+ "venis_de": "En el [@04-04] viste que un gestor de paquetes lee el package.json, baja lo que falta del registro y deja un archivo de bloqueo. Hoy falta lo que ese archivo trae escondido: qué quiere decir cada número de versión y qué pasa cuando las cuentas no cierran.",
+ "se_apoya_en": [
+  "02-19",
+  "03-48",
+  "04-04"
+ ],
+ "gancho": [
+  "En el package.json de Senda hay dos líneas que parecen gemelas: `\"zustand\": \"^5.0.15\"` y `\"three\": \"^0.186.1\"`. Tienen el mismo símbolo, el ^, y la misma forma de número. Hoy, 13 de noviembre de 2026, consulté el registro de npm: la última versión de zustand es la 5.1.0 y la de three es la 0.187.0. Con el ^ de zustand, npm aceptaría la 5.1.0. Con el ^ de three, npm **rechaza** la 0.187.0.",
+  "El símbolo es el mismo y la conducta es distinta. Entender por qué es entender el versionado semántico, y de ahí se tira de un hilo que llega a un depósito de piezas que cada paquete pide en una versión distinta, a un archivo que congela todo y a dos incidentes famosos donde una pieza ajena le rompió el día a miles de equipos."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Tres números y una promesa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una versión de un paquete se escribe con tres números separados por puntos: `MAJOR.MINOR.PATCH` (mayor, menor y parche), por ejemplo `5.0.15`. El [[versionado semántico|versionado semántico]] (SemVer, versión 2.0.0 de su especificación) le da a cada número un significado fijo [#semver-2-0-0]. Es una **promesa** de quien publica el paquete a quienes lo usan, y se apoya en una **API pública**: la lista de funciones y comportamientos que el paquete ofrece a otros programas (el término [[API]] lo viste en el [@00-02]). SemVer exige que el paquete la declare; sin eso no hay contra qué medir un cambio."
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Parche** (de `5.0.14` a `5.0.15`): se arregló un error y lo que usabas funciona igual.",
+    "**Menor** (de `5.0.15` a `5.1.0`): se agregó algo nuevo y lo que ya usabas sigue funcionando. El parche vuelve a cero.",
+    "**Mayor** (de `5.1.0` a `6.0.0`): se cambió algo de forma incompatible y tu código puede dejar de funcionar. Menor y parche vuelven a cero."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "La especificación agrega tres reglas que se olvidan. Los números son **enteros, no decimales**: `1.10.0` viene después de `1.9.0`. Una versión publicada **no se modifica**: cualquier arreglo sale con número nuevo. Y la versión mayor cero (`0.y.z`) es «desarrollo inicial»: ahí, textualmente, cualquier cosa puede cambiar en cualquier momento [#semver-2-0-0]. Esto último pesa más adelante."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: la versión de un procedimiento de depósito",
+   "x": "El procedimiento de recepción de un operador logístico está en la versión 4.2.1. Corregir una errata de una planilla es un parche (4.2.2). Sumar un muelle opcional sin tocar lo anterior es una versión menor (4.3.0). Cambiar el formato de la etiqueta, de modo que todos los transportistas reimpriman las suyas, es una mayor (5.0.0). Donde la analogía falla: en el depósito alguien revisa que cada cambio esté bien clasificado. En software, **nadie lo revisa**: el número lo elige quien publica."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "SemVer es una promesa, no una garantía",
+   "x": "Un parche puede romper tu programa si su autor se equivocó, o si tu código usaba un detalle interno que nunca fue API pública. El número sirve para **estimar el riesgo**; las pruebas automáticas (las ves desde el [@04-14]) lo confirman. Una regla práctica, mía y no de la norma: cuanto más a la izquierda cambia el número, más conviene leer las notas de la versión antes de actualizar."
+  },
+  {
+   "t": "pensa",
+   "x": "¿Qué versión es más nueva, `1.9.0` o `1.10.0`? ¿Y `2.0.0-beta.1` frente a `2.0.0`?",
+   "resp": "Gana `1.10.0`, porque se compara número a número y 10 es mayor que 9. Y gana `2.0.0`: lo que va después del guion es un pre-lanzamiento y tiene menos precedencia que la versión final [#semver-2-0-0]. Lo verifiqué con la biblioteca `semver`."
+  },
+  {
+   "t": "h",
+   "x": "Cómo lee npm un rango: ^ y ~"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En un package.json (el archivo del [@04-04]) casi nunca se escribe una versión exacta. Se escribe un **rango**: una condición que cumplen muchas versiones a la vez. npm usa para evaluarla una biblioteca llamada `semver` [#node-semver-readme]. Los dos símbolos que vas a ver todo el tiempo son `^` y `~`. La virgulilla `~` permite **solo parches** (cuando escribís las tres partes). El circunflejo `^` permite cambios que no toquen **el primer número distinto de cero**, de izquierda a derecha."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Se escribe",
+    "Equivale a",
+    "Acepta",
+    "No acepta"
+   ],
+   "filas": [
+    [
+     "`5.0.15`",
+     "exactamente esa",
+     "solo la 5.0.15",
+     "todo lo demás"
+    ],
+    [
+     "`~5.0.15`",
+     "`>=5.0.15 <5.1.0`",
+     "5.0.16",
+     "5.1.0"
+    ],
+    [
+     "`^5.0.15`",
+     "`>=5.0.15 <6.0.0`",
+     "5.0.16 y 5.1.0",
+     "6.0.0"
+    ],
+    [
+     "`^0.186.1`",
+     "`>=0.186.1 <0.187.0`",
+     "0.186.2",
+     "0.187.0"
+    ],
+    [
+     "`^0.0.3`",
+     "`>=0.0.3 <0.0.4`",
+     "solo la 0.0.3",
+     "0.0.4"
+    ]
+   ],
+   "cap": "Equivalencias de la documentación de `semver` [#node-semver-readme], comprobadas con la biblioteca en esta máquina."
+  },
+  {
+   "t": "p",
+   "x": "Mirá las dos últimas filas. En una versión `0.x`, el primer número distinto de cero es el **menor**, así que `^0.186.1` se comporta como un `~` común. La razón es la regla de antes: en desarrollo inicial cualquier cosa puede cambiar, y muchos autores usan el menor de una `0.x` para marcar los cambios incompatibles. La documentación de `semver` lo dice casi así [#node-semver-readme]. Con esto se explica el misterio del principio: `zustand` está en `5.x` y su `^` deja pasar menores; `three` está en `0.x` y su `^` solo deja pasar parches. Lo comprobé contra el registro de npm con los rangos de Senda:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node rangos.js",
+     "s": "three                          ^0.186.1   rango=>=0.186.1 <0.187.0-0   ultima publicada=0.187.0  ultima dentro del rango=0.186.1\nreact-native-android-widget    ^0.22.1    rango=>=0.22.1 <0.23.0-0     ultima publicada=0.26.0   ultima dentro del rango=0.22.1\nreact-native-audio-api         ~0.13.6    rango=>=0.13.6 <0.14.0-0     ultima publicada=1.0.0    ultima dentro del rango=0.13.6\nzod                            ^4.6.7     rango=>=4.6.7 <5.0.0-0       ultima publicada=4.6.7    ultima dentro del rango=4.6.7\nzustand                        ^5.0.15    rango=>=5.0.15 <6.0.0-0      ultima publicada=5.1.0    ultima dentro del rango=5.1.0\nexpo                           ~57.0.26   rango=>=57.0.26 <57.1.0-0    ultima publicada=58.0.25  ultima dentro del rango=57.0.33"
+    }
+   ],
+   "cap": "Un script mío que pide al registro las versiones estables de cada paquete de Senda y busca la más alta que cumple el rango (semver 7.8.6, 13-11-2026, una sola máquina). El `-0` final es notación interna: «sin pre-lanzamientos»."
+  },
+  {
+   "t": "p",
+   "x": "Los tres paquetes `0.x` tienen versiones más nuevas **fuera** de su rango; el último es un salto a la `1.0.0`. `expo` queda en la serie 57 aunque ya existe la 58. Y `zustand` es el único con una versión nueva que su rango sí acepta. El código de abajo hace el mismo cálculo, solo para `^` y `~`, y corre en tu navegador:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Mini intérprete de rangos: solo ^ y ~ con tres números (sin pre-lanzamientos)\nconst numeros = (v) => v.split('.').map(Number);\nconst comparar = (a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2];\n\nfunction limites(rango) {\n  const operador = rango[0];\n  const [M, m, p] = numeros(rango.slice(1));\n  const desde = [M, m, p]; // incluido\n  let hasta; // excluido\n  if (operador === '~') hasta = [M, m + 1, 0];\n  else if (M > 0) hasta = [M + 1, 0, 0];\n  else if (m > 0) hasta = [0, m + 1, 0];\n  else hasta = [0, 0, p + 1];\n  return { desde, hasta };\n}\n\nfunction cumple(version, rango) {\n  const { desde, hasta } = limites(rango);\n  const v = numeros(version);\n  return comparar(v, desde) >= 0 && comparar(v, hasta) < 0;\n}\n\n// Versiones publicadas de verdad (consulta al registro de npm, 13-11-2026)\nconst publicadas = {\n  three: ['0.184.0', '0.185.0', '0.185.1', '0.186.0', '0.186.1', '0.187.0'],\n  zustand: ['5.0.12', '5.0.13', '5.0.14', '5.0.15', '5.0.16', '5.1.0'],\n  expo: ['57.0.26', '57.0.27', '57.0.33', '58.0.0', '58.0.25'],\n};\nconst pedidos = [['three', '^0.186.1'], ['zustand', '^5.0.15'], ['expo', '~57.0.26']];\n\nfor (const [paquete, rango] of pedidos) {\n  const { desde, hasta } = limites(rango);\n  const dentro = publicadas[paquete].filter((v) => cumple(v, rango));\n  console.log(`${paquete} ${rango}  =>  >=${desde.join('.')} y <${hasta.join('.')}`);\n  console.log('   entran:', dentro.join(', '));\n  console.log('   quedan afuera:', publicadas[paquete].filter((v) => !dentro.includes(v)).join(', '));\n}\n",
+   "ejecutable": true,
+   "cap": "Un mini intérprete de rangos con versiones reales del registro de npm (13-11-2026). Lo verifiqué contra la biblioteca oficial con 28.320 combinaciones de versión y rango: cero diferencias. Cambiá los rangos y mirá qué entra."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Versiones publicadas de una biblioteca inventada: `1.4.2`, `1.4.9`, `1.5.0`, `1.9.9`, `2.0.0`. ¿Cuál es la más alta que instalaría npm con (a) `^1.4.2`, (b) `~1.4.2`, (c) `1.4.2`? Después, con las versiones `0.4.2`, `0.4.9`, `0.5.0`, ¿qué pasa con `^0.4.2`?",
+   "pista": "Para cada rango escribí primero el intervalo: «desde» y «antes de».",
+   "solucion": "(a) `>=1.4.2 <2.0.0`: la `1.9.9`. (b) `>=1.4.2 <1.5.0`: la `1.4.9`. (c) exacta: la `1.4.2`. Con `^0.4.2`, que equivale a `>=0.4.2 <0.5.0`, instala la `0.4.9` y deja afuera la `0.5.0`."
+  },
+  {
+   "t": "h",
+   "x": "Las piezas que nadie eligió: dependencias transitivas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando tu package.json pide `zustand`, eso es una dependencia **directa**: la elegiste vos. Pero `zustand` tiene su propio package.json, con sus propias dependencias, y esas tienen las suyas. Cada pieza que se instala porque otra la necesita es una [[dependencia transitiva|dependencia transitiva]].",
+    "El iceberg sorprende. Senda declara **55** dependencias directas (49 de ejecución y 6 de desarrollo). Su `package-lock.json`, el archivo que registra todo lo que npm instaló, tiene **849** paquetes: más de nueve de cada diez los eligió alguien que nadie del equipo conoce. Es un conteo mío sobre el commit 25e08fa; el código cambia, la forma permanece."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "arbol",
+   "raiz": {
+    "t": "Tu proyecto",
+    "s": "package.json",
+    "k": "cliente",
+    "h": [
+     {
+      "t": "debug@4.4.3",
+      "s": "directa: la elegiste vos",
+      "k": "servidor",
+      "h": [
+       {
+        "t": "ms@^2.1.3",
+        "s": "transitiva",
+        "k": "datos",
+        "h": []
+       }
+      ]
+     },
+     {
+      "t": "express (ejemplo inventado)",
+      "s": "directa",
+      "k": "servidor",
+      "h": [
+       {
+        "t": "debug@2.6.9",
+        "s": "transitiva",
+        "k": "datos",
+        "h": [
+         {
+          "t": "ms@2.0.0",
+          "s": "transitiva de la transitiva",
+          "k": "datos",
+          "h": []
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "cap": "Árbol de dependencias. `debug` y `ms` son paquetes reales; `express` está como ejemplo de la forma. Lo transitivo puede tener varios niveles."
+  },
+  {
+   "t": "pensa",
+   "x": "Si una de las 794 dependencias transitivas de Senda trae un error grave, ¿quién se entera y quién puede arreglarlo?",
+   "resp": "Se entera quien la usa, aunque nunca la haya pedido; pero solo puede arreglarla su autor, o quien actualice el paquete intermedio que la trae. Esa distancia entre quien sufre el problema y quien lo puede resolver es el corazón de la «cadena de suministro» ([@14-23])."
+  },
+  {
+   "t": "h",
+   "x": "Cuando dos piezas piden versiones incompatibles"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si el paquete A necesita `ms` en la versión 2.0.0 exacta y el paquete B lo necesita en `^2.1.3`, ¿cuál instala npm? Es un [[conflicto de versiones|conflicto de versiones]]: dos dependencias piden versiones de una tercera que ninguna versión única satisface. Es el «infierno de dependencias» con el que abre la propia especificación de SemVer [#semver-2-0-0]. npm tiene dos salidas, y conviene ver las dos. La primera es **anidar**: dejar una copia de la versión vieja adentro de quien la pide. Lo reproduje con dos versiones reales de `debug`, instaladas bajo nombres distintos para que convivan:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "npm i viejo@npm:debug@2.6.9 nuevo@npm:debug@4.4.3",
+     "s": "added 4 packages, and audited 5 packages in 425ms"
+    },
+    {
+     "c": "npm view debug@2.6.9 dependencies --json",
+     "s": "{\n  \"ms\": \"2.0.0\"\n}"
+    },
+    {
+     "c": "npm view debug@4.4.3 dependencies --json",
+     "s": "{\n  \"ms\": \"^2.1.3\"\n}"
+    },
+    {
+     "c": "npm ls --all",
+     "s": "c2@1.0.0 /ruta/al/proyecto\n+-- nuevo@npm:debug@4.4.3\n| `-- ms@2.1.3\n`-- viejo@npm:debug@2.6.9\n  `-- ms@2.0.0"
+    },
+    {
+     "c": "find node_modules -path '*ms/package.json'",
+     "s": "node_modules/ms/package.json\nnode_modules/viejo/node_modules/ms/package.json"
+    }
+   ],
+   "cap": "`debug@2.6.9` pide `ms` 2.0.0 exacta, así que una sola copia no servía. npm dejó la 2.1.3 en la raíz y metió la 2.0.0 dentro de `viejo`. Corrida del 13-11-2026."
+  },
+  {
+   "t": "p",
+   "x": "Anidar funciona cuando la pieza es un detalle interno y cada quien usa su copia sin enterarse. Senda tiene ese patrón: su lock guarda 7 copias de `debug` en 3 versiones (una 4.4.3 en la raíz, una 3.2.7 y cinco 2.6.9 dentro de otras herramientas) y 6 copias de `ms` en 2 versiones. El precio es espacio y tiempo de descarga. Son herramientas del servidor de desarrollo de Expo; si llegan o no al APK no lo verifiqué (lo normal es que no, porque el empaquetador solo incluye lo que la app importa, pero es inferencia mía)."
+  },
+  {
+   "t": "p",
+   "x": "La segunda salida es frenar. Algunos paquetes necesitan **una sola copia** de otro y lo declaran como **dependencia de pares** (`peerDependencies`): «funciono con esta versión de React, pero el React lo trae tu proyecto». Desde npm 7 esas dependencias se instalan solas, y si no se pueden satisfacer el comando se detiene [#npm-docs-package-json]. Pedí React 19 con un `react-dom` de la serie 18:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "npm i react@19.2.3 react-dom@18.3.1",
+     "s": "npm error code ERESOLVE\nnpm error ERESOLVE unable to resolve dependency tree\nnpm error\nnpm error While resolving: c1@1.0.0\nnpm error Found: react@19.2.3\nnpm error node_modules/react\nnpm error   react@\"19.2.3\" from the root project\nnpm error\nnpm error Could not resolve dependency:\nnpm error peer react@\"^18.3.1\" from react-dom@18.3.1\nnpm error node_modules/react-dom\nnpm error   react-dom@\"18.3.1\" from the root project\nnpm error\nnpm error Fix the upstream dependency conflict, or retry\nnpm error this command with --force or --legacy-peer-deps\nnpm error to accept an incorrect (and potentially broken) dependency resolution."
+    }
+   ],
+   "cap": "Se lee de arriba abajo: «encontré react 19.2.3», «pero react-dom 18.3.1 pide un react ^18.3.1». Corrida del 13-11-2026 con npm 10.9.9."
+  },
+  {
+   "t": "p",
+   "x": "Acá no sirve una copia anidada: `react` y `react-dom` tienen que compartir **la misma** instancia de React. El mensaje ofrece dos atajos (`--force` y `--legacy-peer-deps`) y los describe como aceptar un resultado «incorrecto y potencialmente roto». No los probé ni los recomiendo como primera respuesta: el conflicto no desaparece, se muda a tiempo de ejecución, donde cuesta más encontrarlo. Las salidas sanas son igualar versiones o, con una razón fuerte, declarar un `overrides` en el package.json para reemplazar la versión de una dependencia de una dependencia [#npm-docs-package-json]."
+  },
+  {
+   "t": "h",
+   "x": "El archivo de bloqueo: la misma instalación hoy y mañana"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un rango como `^6.0.0` acepta muchas versiones y el registro cambia todos los días: si hoy instalás y mañana instala tu compañero, pueden recibir versiones distintas sin que nadie toque el código. Para eso existe el [[archivo de bloqueo|archivo de bloqueo]], `package-lock.json`: npm lo genera cada vez que modifica las dependencias y describe **el árbol exacto** que armó, de modo que las instalaciones siguientes den un árbol idéntico aunque salgan versiones nuevas [#npm-docs-package-lock]. Instalé `semver@6.0.0` (npm anotó `^6.0.0` en el package.json y `6.0.0` en el lock) y probé dos cosas:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "npm install   # el package.json dice ^6.0.0 y el lock dice 6.0.0",
+     "s": "up to date, audited 2 packages in 426ms\n\n1 high severity vulnerability\n\nTo address all issues, run:\n  npm audit fix\n\nRun `npm audit` for details."
+    },
+    {
+     "c": "node -p \"require('./node_modules/semver/package.json').version\"",
+     "s": "6.0.0"
+    },
+    {
+     "c": "rm -rf node_modules package-lock.json && npm install",
+     "s": "added 1 package, and audited 2 packages in 413ms\n\nfound 0 vulnerabilities"
+    },
+    {
+     "c": "node -p \"require('./node_modules/semver/package.json').version\"",
+     "s": "6.3.2"
+    }
+   ],
+   "cap": "Con el lock, `npm install` respeta lo anotado (6.0.0) aunque el rango admita la 6.3.2, y no lo cambia ni por el aviso de seguridad. Sin el lock, resuelve el rango contra el registro de hoy y trae la 6.3.2. Corrida del 13-11-2026."
+  },
+  {
+   "t": "p",
+   "x": "Para equipos y compilaciones automáticas existe `npm ci`: borra `node_modules`, instala **exactamente** lo que dice el lock, **nunca escribe** el package.json ni el lock, y si los dos archivos no coinciden se detiene en lugar de arreglarlos [#npm-docs-npm-ci]. Lo provoqué cambiando el rango a `^7.0.0` sin tocar el lock:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "npm ci",
+     "s": "npm error code EUSAGE\nnpm error\nnpm error `npm ci` can only install packages when your package.json and package-lock.json or npm-shrinkwrap.json are in sync. Please update your lock file with `npm install` before continuing.\nnpm error\nnpm error Invalid: lock file's semver@6.3.2 does not satisfy semver@7.8.6"
+    },
+    {
+     "c": "echo $?",
+     "s": "1"
+    }
+   ],
+   "cap": "Sale con el [[código de retorno|código de retorno]] 1 que viste en el [@04-03]: por eso un servidor de integración continua lo toma como fallo y no sigue. Corrida del 13-11-2026."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Lo que el lock sí y no garantiza",
+   "x": [
+    "Cada entrada del lock guarda la versión, la dirección de descarga y un hash `sha512` del archivo [#npm-docs-package-lock]. Si alguien cambiara el contenido de esa versión en el registro, el hash no coincidiría. Eso da una instalación **reproducible** de las dependencias.",
+    "No da una compilación reproducible completa, que también depende del sistema operativo, de Node, de Gradle y del compilador. Y el package-lock.json **no se publica**: quien instale tu biblioteca recibe tus rangos, no tu lock [#npm-docs-package-lock]."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Cómo usa Senda el lock",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. Senda commitea su `package-lock.json` (formato 3, 11.015 líneas, 849 paquetes) y tres flujos de GitHub Actions instalan con `npm ci`: el del APK de prueba, el del AAB para Google Play y el de la prueba de humo. Entonces cada compilación parte del mismo árbol y no del registro del día.",
+    "Por ejemplo, el lock fija `zustand` en `5.0.15`, aunque el rango `^5.0.15` admite hoy la `5.1.0`: el APK de mañana lleva la misma versión que el de hoy hasta que alguien actualice el lock a propósito. Las novedades entran cuando alguien las elige y las prueba."
+   ],
+   "archivos": [
+    "package.json",
+    "package-lock.json",
+    ".github/workflows/apk.yml",
+    ".github/workflows/aab.yml",
+    ".github/workflows/humo.yml"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Actualizar con criterio"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Congelar todo da tranquilidad un rato y después se paga: cuanto más se espera, más grande es el salto y más vulnerabilidades conocidas se acumulan. Actualizar todo sin mirar tiene el problema opuesto: un día se rompe la compilación y no sabés cuál de las 849 piezas fue. El oficio está en el medio: **actualizar poco y seguido, con pruebas, de a una cosa por vez**. Dependabot (de GitHub) y Renovate son bots que miran tus dependencias y, cuando sale una versión nueva, abren una propuesta de cambio (un *pull request*, tema del [@04-11]) que sube el número [#dependabot-docs-version-updates] [#renovate-docs]. Después sigue siendo trabajo humano: corren las pruebas y alguien decide. Los menciono por documentación; no los probé.",
+    "Con las versiones mayores y con las `0.x` hay que ser más cuidadoso: pasar de `^0.186.1` a `0.187.0` es, por convención, un cambio que puede romper. En Expo hay un detalle propio: sus paquetes deben ser compatibles con el SDK. Su documentación describe `npx expo install` como la forma de instalar paquetes que funcionan con la versión de React Native del proyecto, y `npx expo install --check` como un control que detecta paquetes en versión incorrecta y, en integración continua, sale con código distinto de cero [#expo-docs-cli-install-check]. Es la regla que figura en el `CLAUDE.md` de Senda."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Vulnerabilidades conocidas: npm audit"
+  },
+  {
+   "t": "p",
+   "x": "Cuando alguien descubre un error de seguridad en una versión de un paquete, se publica un aviso con un identificador y el rango de versiones afectadas. `npm audit` manda al registro la descripción de tus dependencias y recibe un informe de las vulnerabilidades conocidas, con su impacto y el arreglo posible [#npm-docs-npm-audit]. Lo probé a propósito con una versión vieja, `semver@6.0.0`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "npm audit",
+     "s": "# npm audit report\n\nsemver  6.0.0 - 6.3.0\nSeverity: high\nsemver vulnerable to Regular Expression Denial of Service - https://github.com/advisories/GHSA-c2qf-rxjj-qqgw\nfix available via `npm audit fix`\nnode_modules/semver\n\n1 high severity vulnerability\n\nTo address all issues, run:\n  npm audit fix"
+    },
+    {
+     "c": "echo $?",
+     "s": "1"
+    },
+    {
+     "c": "npm audit fix",
+     "s": "changed 1 package, and audited 2 packages in 515ms\n\nfound 0 vulnerabilities"
+    },
+    {
+     "c": "node -p \"require('./node_modules/semver/package.json').version\"",
+     "s": "6.3.2"
+    }
+   ],
+   "cap": "Aviso de severidad alta para la serie 6.0.0 a 6.3.0. `npm audit fix` subió la copia a la 6.3.2, **dentro** del rango `^6.0.0`. El comando sale con código 1 mientras haya vulnerabilidades. Corrida del 13-11-2026; la base de avisos cambia a diario."
+  },
+  {
+   "t": "p",
+   "x": "Repetí lo mismo con la versión **fijada exacta** (`semver@6.0.0`, con `--save-exact`). El informe es igual, pero el arreglo ya no entra por las buenas: npm dice `fix available via npm audit fix --force` y aclara que instalaría la 6.3.2, «which is outside the stated dependency range». Un rango abierto deja que el arreglo entre solo; una versión exacta lo convierte en una decisión humana. Ninguna es mejor en general: depende de cuánto confíes en las pruebas que corren después."
+  },
+  {
+   "t": "senda",
+   "titulo": "npm audit sobre el lock de Senda",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. Copié el `package.json` y el `package-lock.json` de Senda a una carpeta de prueba, sin tocar el repositorio, y corrí `npm audit` el 13-11-2026: **20 avisos** (3 altos, 9 moderados y 8 bajos) sobre 849 piezas. Es un número con fecha: la base de avisos cambia.",
+    "Los tres altos son transitivos y cuelgan del CLI de Expo: una copia vieja de `zod` (la 3.25.76, anidada dentro de `expo`; la `zod` directa de Senda es la 4.6.7 y no está afectada), `node-forge` y el propio `@expo/cli`. Casi todo lo demás sale también de Expo o de las pruebas con Jest. Hay un aviso moderado sobre una dependencia directa, `@dicebear/core` 9.4.2, que arma los avatares; no evalué si Senda usa la opción afectada. En mi corrida, `npm audit fix` en simulación no propuso cambios sin `--force`. Y un cuidado: para `jest` el informe sugiere la 25.1.0, más vieja que la 29.7.0 del lock."
+   ],
+   "archivos": [
+    "package.json",
+    "package-lock.json"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un aviso no es un incendio",
+   "x": "`npm audit` solo conoce vulnerabilidades **ya publicadas** y marca versiones, no si tu programa usa la parte afectada. Una falla en una herramienta de desarrollo que nunca llega al teléfono preocupa menos que una en una pieza que viaja en el APK. Pero ignorar todo el informe porque «siempre da cosas» es el error de quien no ve el aviso que sí importaba. Conviene filtrar por gravedad y por si la pieza llega a producción; en integración continua, `--audit-level` define desde qué gravedad el comando falla [#npm-docs-npm-audit]."
+  },
+  {
+   "t": "h",
+   "x": "Dos casos famosos: left-pad y xz"
+  },
+  {
+   "t": "p",
+   "x": "Se cuentan juntos y no son lo mismo. Muestran los dos extremos de la confianza que depositás cuando instalás algo."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Aspecto",
+    "left-pad (2016)",
+    "xz (2024)"
+   ],
+   "filas": [
+    [
+     "Qué pasó",
+     "Su autor retiró de npm 273 paquetes, entre ellos `left-pad`.",
+     "Se descubrió una puerta trasera en los tarballs oficiales de xz/liblzma, versiones 5.6.0 y 5.6.1."
+    ],
+    [
+     "Cuándo",
+     "22 de marzo de 2016",
+     "29 de marzo de 2024 (aviso público)"
+    ],
+    [
+     "Cómo se supo",
+     "Cientos de fallos por minuto en compilaciones de miles de proyectos.",
+     "Andres Freund vio que el ingreso por ssh gastaba CPU de más y que valgrind daba errores."
+    ],
+    [
+     "Por qué llegó lejos",
+     "Babel y Atom la traían por una cadena transitiva (`line-numbers` pedía la `0.0.3` exacta).",
+     "Es una biblioteca de sistema de la que dependen otras, ssh incluido en las distribuciones afectadas."
+    ],
+    [
+     "Qué ayudó",
+     "La comunidad republicó el paquete; npm restauró el original en unas 2,5 horas.",
+     "Las versiones afectadas todavía no estaban integradas de forma amplia en las distribuciones."
+    ]
+   ],
+   "cap": "Fuentes: la crónica del equipo de npm [#npm-blog-kik-left-pad] y el aviso de Freund en oss-security [#oss-security-xz-freund-2024], que también dice que Red Hat asignó el CVE-2024-3094."
+  },
+  {
+   "t": "p",
+   "x": "En left-pad lo grave fue que se pudo **retirar** una pieza de la que dependían miles de proyectos sin que ninguno lo supiera. Hoy el registro la marca como obsoleta con la leyenda «use String.prototype.padStart()»: lo que hacía un archivo de 52 líneas, con comentarios y licencia, el lenguaje lo trae incorporado (consulta del 13-11-2026). En xz no falló ningún rango: lo que salvó a muchos fue que sus distribuciones **todavía** no habían actualizado. Es un argumento a favor de dejar madurar una versión nueva antes de adoptarla. La moraleja común es que instalar es **dar permiso de ejecución** a código de gente que no conocés; el [@15-24] la retoma y el [@14-23] la lleva a la firma y la procedencia."
+  },
+  {
+   "t": "pensa",
+   "x": "El lock de Senda fija `zustand` en 5.0.15. ¿Lo protege de un caso como el de xz? ¿Y de uno como el de left-pad?",
+   "resp": "Del primero, en parte: mientras el lock no cambie no entra la versión nueva y otros tienen tiempo de revisarla, pero la 5.0.15 de hoy podría estar comprometida y el lock no lo sabe. Del segundo, también en parte: el hash detectaría un cambio de contenido, pero si la pieza desaparece del registro, no hay de dónde bajarla. El lock da repetibilidad, no seguridad por sí mismo."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué cambia con el tiempo (13-11-2026)",
+   "x": "Los principios de hoy (SemVer, rangos, lock) no envejecen: SemVer sigue en la versión 2.0.0. Cambian el comportamiento exacto de npm (corrí npm 10.9.9 con Node 22.23.4), la biblioteca `semver` (7.8.6), los avisos de `npm audit` y las versiones de Senda y Expo que cité (SDK 57 en el commit 25e08fa; el registro ya tiene la serie 58). Antes de copiar un comando a un proyecto real, mirá qué versión tenés con `npm -v`."
+  },
+  {
+   "t": "h",
+   "x": "Lo que dice el package.json de Senda"
+  },
+  {
+   "t": "senda",
+   "titulo": "Tres estilos de versión en un mismo archivo",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. Contando con un script, las 55 dependencias directas (49 de ejecución y 6 de desarrollo) se reparten así: **29 con `~`** (20 de ellas, `expo*`), **13 con versión exacta** y **13 con `^`**. Las exactas incluyen `react`, `react-dom` (ambas en `19.2.3`), `react-native` (`0.86.3`), `react-native-reanimated` y `react-native-svg`. Las de `^` incluyen `three`, `zod`, `zustand` y la navegación.",
+    "Lo que se ve, como inferencia mía: `~` para el ecosistema de Expo, que se mueve junto con cada SDK; versiones exactas para piezas que tienen que coincidir entre sí y con el código nativo (como `react` y `react-dom`, que ya viste pelearse); `^` para lo que se actualiza con menos riesgo. Ningún documento del proyecto lo explica así.",
+    "Además, el repositorio no tiene `.npmrc`, ni `overrides`, ni configuración de Dependabot o Renovate (verificado el 13-11-2026 con `grep` y `ls`). Hoy actualizar es un trabajo manual, con `npx expo install`, cuando alguien decide hacerlo. Es razonable para un proyecto de este tamaño; lo único que importa es saber que es así."
+   ],
+   "archivos": [
+    "package.json",
+    "package-lock.json",
+    "CLAUDE.md"
+   ]
+  }
+ ],
+ "recap": [
+  "SemVer es una promesa de quien publica: el parche arregla, el menor agrega sin romper, el mayor puede romper. Nadie la verifica: el número estima el riesgo y las pruebas lo confirman.",
+  "`~1.2.3` acepta solo parches; `^1.2.3` acepta menores y parches; en una `0.x`, `^0.186.1` solo acepta parches. Por eso dos `^` de Senda se comportan distinto.",
+  "Una dependencia transitiva la trae otra dependencia. Senda tiene 55 directas y 849 paquetes en el lock: casi todo lo que se instala, nadie lo eligió.",
+  "Un conflicto de versiones se resuelve anidando copias (si la pieza es un detalle interno) o frena con ERESOLVE (si tiene que haber una sola, como `react`). `--force` no lo arregla, lo esconde.",
+  "`package-lock.json` guarda el árbol exacto con su hash; `npm ci` instala eso, no escribe nada y falla si los archivos no coinciden. Es instalación reproducible, no compilación reproducible.",
+  "`npm audit` informa vulnerabilidades ya conocidas y con fecha. Un rango abierto deja que el arreglo entre solo; una versión exacta lo vuelve una decisión humana.",
+  "left-pad (una pieza retirada) y xz (una pieza con código malicioso) enseñan lo mismo desde dos lados: instalar es darle permiso de ejecución a código ajeno."
+ ],
+ "repaso": [
+  {
+   "p": "Un paquete publica la versión 3.2.1 y después la 3.3.0. ¿Qué se espera, según SemVer, de ese cambio?",
+   "o": [
+    "Que se agregó una función nueva y lo que usabas sigue andando",
+    "Que se arregló un error interno sin agregar nada visible afuera",
+    "Que cambió la API de forma incompatible con la versión anterior",
+    "Que es una versión de prueba que todavía no debería usarse"
+   ],
+   "c": 0,
+   "e": "El segundo número (menor) sube cuando se agrega funcionalidad compatible. El tercero (parche) es para arreglos internos, el primero (mayor) para cambios incompatibles, y una versión de prueba se marca con un guion, como `3.3.0-beta.1`."
+  },
+  {
+   "p": "El package.json dice `\"three\": \"^0.186.1\"` y el registro ya publicó la 0.187.0. ¿Qué instala `npm install` en un proyecto sin lock?",
+   "o": [
+    "La 0.187.0, porque el `^` siempre acepta la versión más nueva",
+    "La 0.186.1 exacta, porque en versiones 0.x el `^` equivale a fijar",
+    "La 0.186.1 o un parche posterior de esa serie, pero no la 0.187.0",
+    "Ninguna, porque npm no instala paquetes de la serie 0.x con rango"
+   ],
+   "c": 2,
+   "e": "En una versión `0.x` el primer número distinto de cero es el menor, así que `^0.186.1` equivale a `>=0.186.1 <0.187.0`. No fija una sola versión (aceptaría 0.186.2 si existiera), pero sí frena en el menor siguiente."
+  },
+  {
+   "p": "Estás con `^1.4.2` y las versiones publicadas son 1.4.2, 1.4.9, 1.5.0 y 2.0.0. Cambiás el rango a `~1.4.2`. ¿Qué cambia?",
+   "o": [
+    "Pasás de poder recibir la 2.0.0 a quedarte en la 1.5.0",
+    "Pasás de poder recibir la 1.5.0 a quedarte en la 1.4.9",
+    "No cambia nada, porque `^` y `~` aceptan lo mismo en 1.x",
+    "Pasás a recibir solo la 1.4.2 exacta y ningún parche"
+   ],
+   "c": 1,
+   "e": "`^1.4.2` es `>=1.4.2 <2.0.0`, así que ya excluía la 2.0.0 y podía llegar a la 1.5.0. `~1.4.2` es `>=1.4.2 <1.5.0` y se queda con parches. Ninguno de los dos fija la versión exacta."
+  },
+  {
+   "p": "Instalás un paquete y npm termina con `ERESOLVE`: `react@19.2.3` en tu proyecto, y `peer react@\"^18.3.1\"` pedido por `react-dom@18.3.1`. ¿Qué respuesta resuelve el conflicto en lugar de esconderlo?",
+   "o": [
+    "Repetir el comando con `--force` para que npm instale de todos modos",
+    "Borrar el package-lock.json y volver a instalar para que npm decida",
+    "Mover `react-dom` a devDependencies para que deje de molestar",
+    "Subir `react-dom` a una versión que acepte React 19, o bajar React a la 18"
+   ],
+   "c": 3,
+   "e": "Hay que lograr que las versiones sean compatibles. `--force` instala igual pero deja la incompatibilidad para el tiempo de ejecución, borrar el lock no cambia lo que piden los paquetes y mover a devDependencies no cambia que `react-dom` pide un par."
+  },
+  {
+   "p": "Un compañero y vos instalan el mismo proyecto con el mismo package.json, con un día de diferencia. Los dos usan `npm ci`, y el lock está en el repositorio. ¿Qué es lo más probable?",
+   "o": [
+    "Reciben lo más nuevo que permitan los rangos de cada día",
+    "Reciben lo mismo solo si el lock tiene menos de 24 horas de vida",
+    "Reciben exactamente los mismos paquetes, aunque hayan salido versiones nuevas",
+    "Reciben distintas versiones de las dependencias transitivas pero no de las directas"
+   ],
+   "c": 2,
+   "e": "`npm ci` instala lo que dice el lock, que anota la versión y el hash de cada pieza, directa o transitiva. Los rangos del package.json no se vuelven a resolver. Si el lock no coincidiera con el package.json, el comando fallaría en lugar de adivinar."
+  },
+  {
+   "p": "`npm audit` dice que `semver@6.0.0` tiene una vulnerabilidad alta. En un proyecto el rango es `^6.0.0` y en otro la versión está fijada exacta. ¿Qué diferencia hay al aplicar `npm audit fix`?",
+   "o": [
+    "Con el rango abierto el arreglo entra solo; con la exacta pide `--force`",
+    "No hay diferencia: `npm audit fix` ignora los rangos de cualquier forma",
+    "Con la exacta el arreglo entra solo y con el rango abierto pide `--force`",
+    "En los dos casos npm elimina la dependencia hasta que haya un arreglo"
+   ],
+   "c": 0,
+   "e": "La versión corregida (6.3.2) cae dentro de `^6.0.0`, así que el arreglo respeta el rango. Con la exacta cae fuera del rango declarado y npm exige `--force`. Es una decisión humana, no una falla."
+  },
+  {
+   "p": "¿Por qué el lock de un proyecto no te protege por sí solo de un incidente como el de xz en 2024?",
+   "o": [
+    "Porque el lock se ignora siempre cuando instalás desde el registro público",
+    "Porque el hash del lock cambia solo cada vez que se publica una versión nueva",
+    "Porque npm ci vuelve a resolver los rangos antes de instalar el árbol",
+    "Porque guarda la versión y su hash, pero esa versión ya podía ser maliciosa"
+   ],
+   "c": 3,
+   "e": "El lock da repetibilidad y detecta cambios de contenido después de anotado, pero no sabe si lo que anotó era sano. Sí da tiempo: mientras no se actualice, no entra la versión nueva, y otros pueden revisarla primero."
+  }
+ ],
+ "feynman": "Explicale a alguien que arma depósitos o rutas, y no sabe de programación, qué quiere decir `^5.0.15` y por qué el mismo símbolo se comporta distinto en `^0.186.1`. Después contale con tus palabras qué hace el archivo de bloqueo y qué pasaría en una empresa si cada día se armara el pedido con la última versión de cada pieza.",
+ "para_profundizar": [
+  {
+   "fuente": "semver-2-0-0",
+   "nota": "La especificación oficial de SemVer 2.0.0, en la página de semver.org. Es corta; leé las reglas 4 a 11 para ver la versión cero, los pre-lanzamientos y la precedencia."
+  },
+  {
+   "fuente": "node-semver-readme",
+   "nota": "El README de la biblioteca `semver` de npm: la gramática completa de rangos (`^`, `~`, `x`, uniones con `||`) y las reglas de pre-lanzamientos. Es la referencia exacta de la tabla de hoy."
+  },
+  {
+   "fuente": "npm-docs-npm-ci",
+   "nota": "La página de `npm ci`: en qué se diferencia de `npm install` y qué errores produce cuando package.json y lock no coinciden."
+  },
+  {
+   "fuente": "npm-docs-npm-audit",
+   "nota": "Cómo funciona `npm audit`, la opción `--audit-level` y los avisos que no se arreglan solos."
+  },
+  {
+   "fuente": "npm-blog-kik-left-pad",
+   "nota": "La crónica del propio equipo de npm, con la hora y el orden de lo que pasó el 22 de marzo de 2016. Cuenta también qué cambios anunciaron para evitar que se repita."
+  }
+ ],
+ "videos": [
+  {
+   "q": "semantic versioning explained caret tilde npm",
+   "por_que": "Para ver los rangos ^ y ~ explicados con otro ejemplo y en inglés."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "versionado semántico",
+   "d": "Convención de numeración MAJOR.MINOR.PATCH (SemVer 2.0.0): el mayor sube con cambios incompatibles, el menor con funciones nuevas compatibles y el parche con arreglos. Es una promesa del autor, que nadie verifica."
+  },
+  {
+   "t": "dependencia transitiva",
+   "d": "Dependencia que no pediste vos sino otra dependencia tuya: la trae el paquete que sí elegiste, y a su vez puede traer otras. Es la gran mayoría de lo que instala un proyecto de JavaScript."
+  },
+  {
+   "t": "conflicto de versiones",
+   "d": "Situación en la que dos dependencias piden versiones de una tercera que ninguna versión única satisface. Se resuelve anidando copias, igualando versiones o frenando la instalación con un error."
+  },
+  {
+   "t": "rango de versiones",
+   "d": "Condición que cumplen muchas versiones a la vez, como `^5.0.15` (de 5.0.15 hasta antes de 6.0.0) o `~5.0.15` (hasta antes de 5.1.0). Es lo que se escribe en el package.json en lugar de una versión exacta."
+  },
+  {
+   "t": "dependencia de pares",
+   "d": "Dependencia que un paquete exige pero que debe aportar el proyecto que lo usa, para que haya una sola copia compartida. En npm se declara como peerDependencies, y desde npm 7 se instala sola."
+  },
+  {
+   "t": "instalación reproducible",
+   "d": "Instalación que da siempre el mismo árbol de paquetes, con las mismas versiones y los mismos hashes, gracias al archivo de bloqueo y a comandos como npm ci. No garantiza por sí sola una compilación idéntica."
+  }
+ ],
+ "siguiente": "configuración, variables de entorno y secretos: dónde viven los valores que cambian entre un ambiente y otro, y qué le pasa a una clave que se commitea por error.",
+ "fuentes_nuevas": [
+  {
+   "id": "semver-2-0-0",
+   "t": "Semantic Versioning 2.0.0",
+   "a": "Tom Preston-Werner",
+   "tipo": "doc",
+   "url": "https://semver.org/"
+  },
+  {
+   "id": "node-semver-readme",
+   "t": "node-semver: the semantic versioner for npm (README)",
+   "a": "npm, Inc. y colaboradores",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/npm/node-semver/main/README.md"
+  },
+  {
+   "id": "npm-docs-package-json",
+   "t": "package.json (npm CLI v10)",
+   "a": "npm Docs",
+   "tipo": "doc",
+   "url": "https://docs.npmjs.com/cli/v10/configuring-npm/package-json"
+  },
+  {
+   "id": "npm-docs-package-lock",
+   "t": "package-lock.json (npm CLI v10)",
+   "a": "npm Docs",
+   "tipo": "doc",
+   "url": "https://docs.npmjs.com/cli/v10/configuring-npm/package-lock-json"
+  },
+  {
+   "id": "npm-docs-npm-ci",
+   "t": "npm ci (npm CLI v10)",
+   "a": "npm Docs",
+   "tipo": "doc",
+   "url": "https://docs.npmjs.com/cli/v10/commands/npm-ci"
+  },
+  {
+   "id": "npm-docs-npm-audit",
+   "t": "npm audit (npm CLI v10)",
+   "a": "npm Docs",
+   "tipo": "doc",
+   "url": "https://docs.npmjs.com/cli/v10/commands/npm-audit"
+  },
+  {
+   "id": "npm-blog-kik-left-pad",
+   "t": "kik, left-pad, and npm",
+   "a": "Isaac Z. Schlueter (npm Blog, 23-03-2016)",
+   "tipo": "articulo",
+   "anio": "2016",
+   "url": "https://blog.npmjs.org/post/141577284765/kik-left-pad-and-npm"
+  },
+  {
+   "id": "oss-security-xz-freund-2024",
+   "t": "backdoor in upstream xz/liblzma leading to ssh server compromise",
+   "a": "Andres Freund (lista oss-security, 29-03-2024)",
+   "tipo": "articulo",
+   "anio": "2024",
+   "url": "https://www.openwall.com/lists/oss-security/2024/03/29/4"
+  },
+  {
+   "id": "dependabot-docs-version-updates",
+   "t": "About Dependabot version updates",
+   "a": "GitHub Docs",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/about-dependabot-version-updates"
+  },
+  {
+   "id": "renovate-docs",
+   "t": "Renovate Docs",
+   "a": "Mend Renovate",
+   "tipo": "doc",
+   "url": "https://docs.renovatebot.com/"
+  },
+  {
+   "id": "expo-docs-cli-install-check",
+   "t": "Expo CLI: npx expo install y validación de versiones",
+   "a": "Expo",
+   "tipo": "doc",
+   "url": "https://docs.expo.dev/more/expo-cli/"
+  }
+ ]
+}
