@@ -1,0 +1,928 @@
+{
+ "id": "09-17",
+ "titulo": "Vistas, vistas materializadas y funciones",
+ "bajada": "Guardar una consulta, guardar su resultado o guardar un cálculo dentro de la base, y saber cuál conviene, cuánto cuesta y qué riesgo de seguridad trae cada una.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué guarda una vista (una consulta, no datos) y qué guarda una vista materializada (un resultado que envejece).",
+  "Decidir cuándo conviene una vista, una vista materializada o una tabla de resumen, con números de tiempo medidos.",
+  "Escribir una función SQL y marcarla con la volatilidad correcta, sabiendo qué le promete eso al planificador.",
+  "Predecir de quién son los permisos cuando una vista o una función `security definer` toca una tabla con RLS.",
+  "Reconocer en el código real de Senda una vista, una tabla de resumen y una función con permisos del dueño."
+ ],
+ "venis_de": "En [@09-13] consultaste con funciones de ventana y en [@09-16] viste cuándo conviene guardar datos duplicados para leer más rápido. Hoy aparece la pregunta de fondo: dónde vive la lógica que se repite, en cada programa que consulta o dentro de la base.",
+ "se_apoya_en": [
+  "09-09",
+  "09-11",
+  "09-12",
+  "09-16"
+ ],
+ "gancho": [
+  "En la oficina de despacho hay un pedido que ya es costumbre: «¿cuántos bultos pendientes y en ruta tiene cada depósito, y cuántos kilos?». Alguien escribió la consulta una vez, con su [[INNER JOIN]] y sus [[función de agregación|agregaciones]] (las de [@09-09] y [@09-11]), y desde entonces se copió en la planilla del gerente, en el panel de la sucursal y en un script que corre de noche. Un día cambia el criterio de qué cuenta como «pendiente». Se corrige en dos de los tres lugares y los números dejan de coincidir.",
+  "Hoy ves tres herramientas de PostgreSQL que le ponen nombre a esa lógica y la guardan en la base: la **[[vista]]**, que guarda una consulta; la **[[vista materializada]]**, que guarda el resultado de una consulta; y la **[[función SQL|función]]**, que guarda un cálculo con parámetros. Parecen parientes y se confunden, pero resuelven problemas distintos y fallan de maneras distintas. Todo lo que sigue lo corrí en PostgreSQL 16.15, en esta máquina virtual, con un millón de bultos inventados. Los tiempos son de una sola VM compartida: sirven para comparar entre sí, no como cifras universales."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Los datos de hoy y la vista: una consulta con nombre"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Trabajamos con cuatro depósitos y un millón de bultos. Todo es inventado y sale de aritmética entera, sin azar, así que el script devuelve siempre lo mismo y podés reproducirlo. Ocupa unos 87 MB con su clave primaria."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table depositos (id int primary key, nombre text not null, zona text not null);\ninsert into depositos values (1,'Avellaneda','Sur'),(2,'Pacheco','Norte'),(3,'Moron','Oeste'),(4,'Barracas','Sur');\n\ncreate table bultos (\n  id          int primary key,\n  deposito_id int not null references depositos(id),\n  peso_kg     numeric(6,2) not null,\n  estado      text not null check (estado in ('pendiente','en_ruta','entregado','devuelto')),\n  costo       numeric(8,2) not null,\n  creado      date not null\n);\ninsert into bultos\nselect i,\n       1 + i % 4,\n       1 + (i * 37 % 4000) / 100.0,\n       (array['pendiente','en_ruta','entregado','entregado','entregado','entregado','entregado','entregado','entregado','devuelto'])[1 + (i / 4) % 10],\n       round((1 + (i * 37 % 4000) / 100.0) * 35 + (i % 7) * 10, 2),\n       date '2026-01-01' + (i % 300)\nfrom generate_series(1, 1000000) i;",
+   "cap": "Datos de ejemplo: 10 % de pendientes, 10 % en ruta, 70 % entregados, 10 % devueltos. Inventados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La consulta que se copia por toda la oficina es la del gancho. Guardada como vista queda así:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create view resumen_depositos as\nselect d.nombre, d.zona,\n       count(*) filter (where b.estado = 'pendiente') as pendientes,\n       count(*) filter (where b.estado = 'en_ruta')   as en_ruta,\n       round(sum(b.peso_kg) filter (where b.estado = 'pendiente'), 1) as kg_pendientes\nfrom depositos d\njoin bultos b on b.deposito_id = d.id\ngroup by d.id, d.nombre, d.zona;"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select * from resumen_depositos order by nombre;",
+     "s": "   nombre   | zona  | pendientes | en_ruta | kg_pendientes \n------------+-------+------------+---------+---------------\n Avellaneda | Sur   |      25000 |   25000 |      520000.0\n Barracas   | Sur   |      25000 |   25000 |      527750.0\n Moron      | Oeste |      25000 |   25000 |      528500.0\n Pacheco    | Norte |      25000 |   25000 |      529250.0"
+    },
+    {
+     "c": "select relkind, relname, pg_relation_size('resumen_depositos') as bytes from pg_class where relname = 'resumen_depositos';",
+     "s": " relkind |      relname      | bytes \n---------+-------------------+-------\n v       | resumen_depositos |     0"
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo primero que llama la atención es el último número: la vista **pesa cero bytes**. No hay filas guardadas. `relkind = 'v'` es la marca de PostgreSQL para «esto es una vista». Lo que existe es el texto de la consulta, y cada vez que alguien la nombra, el motor la ejecuta de nuevo. La prueba es sencilla: insertamos un bulto pendiente en Avellaneda y volvemos a mirar."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "insert into bultos values (1000001, 1, 12.50, 'pendiente', 500, '2026-10-28');\nselect nombre, pendientes, kg_pendientes from resumen_depositos where nombre = 'Avellaneda';",
+     "s": "   nombre   | pendientes | kg_pendientes \n------------+------------+---------------\n Avellaneda |      25001 |      520012.5"
+    }
+   ],
+   "cap": "La vista refleja el cambio al instante porque no guardó nada. Después borré ese bulto."
+  },
+  {
+   "t": "p",
+   "x": [
+    "¿Qué hace el motor con el nombre? Lo reemplaza. Antes de planificar, PostgreSQL toma la consulta guardada y la pega en lugar del nombre de la vista, un paso que la documentación llama reescritura y que se registra como una regla en el catálogo [#bd0917-pg-rules-views]. Se ve con `EXPLAIN`, que muestra el camino que va a seguir el motor (lo estudiamos entero en [@09-22]): en el plan no hay ninguna «tabla resumen_depositos», hay un recorrido de `bultos` y de `depositos`."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (costs off) select * from resumen_depositos where zona = 'Sur';",
+     "s": " Subquery Scan on resumen_depositos\n   ->  Finalize GroupAggregate\n         Group Key: d.id\n         ->  Gather Merge\n               Workers Planned: 2\n               ->  Partial GroupAggregate\n                     Group Key: d.id\n                     ->  Sort\n                           Sort Key: d.id\n                           ->  Hash Join\n                                 Hash Cond: (b.deposito_id = d.id)\n                                 ->  Parallel Seq Scan on bultos b\n                                 ->  Hash\n                                       ->  Seq Scan on depositos d\n                                             Filter: (zona = 'Sur'::text)"
+    }
+   ],
+   "cap": "El nombre de la vista aparece solo como etiqueta; abajo están las tablas reales. Fijate que el filtro por zona se aplicó al leer `depositos`."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Una vista es la pantalla del tablero de despacho: no guarda las cargas, las muestra consultando el sistema cada vez que la mirás. Si cambia una carga, la pantalla cambia. La analogía se queda corta en el costo: una pantalla de verdad ya tiene la información armada, y la vista hace todo el trabajo de la consulta cada vez que la abrís.",
+   "titulo": "Pensalo así: la pantalla del tablero"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Eso tiene una consecuencia práctica. Medí `select * from resumen_depositos` tres veces: 115, 86 y 86 milisegundos (en esta VM), lo mismo que tarda la consulta escrita a mano. **Una vista no acelera nada.** Sirve para otra cosa:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Una sola definición.** Si cambia el criterio de «pendiente», se cambia en un lugar y las tres planillas se corrigen solas.",
+    "**Un nombre que dice qué es.** `resumen_depositos` se lee mejor que doce líneas con un `JOIN` y tres `FILTER`.",
+    "**Un contrato estable.** Si mañana `bultos` se parte en dos tablas, se reescribe la vista y quienes la consultan no se enteran.",
+    "**Un recorte.** Una vista puede mostrar solo algunas columnas o filas. Eso ya es seguridad, y ahí hay trampas: va una sección más abajo."
+   ],
+   "ord": false
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Las vistas se pueden apilar: una vista que lee otra vista que lee otra. Cada capa se pega dentro de la siguiente al planificar, así que la consulta final puede ser enorme sin que nadie la haya escrito. Cuando una consulta «simple» sobre una vista tarda mucho, se mira el plan expandido, no el nombre.",
+   "titulo": "Vistas sobre vistas"
+  },
+  {
+   "t": "pensa",
+   "x": "Alguien te dice: «la consulta del reporte es lenta, la convertimos en vista y listo». ¿Qué va a pasar con el tiempo de respuesta, y por qué?",
+   "resp": "Va a seguir igual. La vista solo guarda el texto de la consulta; al usarla, el motor la reescribe y ejecuta la misma consulta contra las mismas tablas. En el experimento de arriba, la vista tardó entre 86 y 115 ms, igual que la consulta directa. Para ganar velocidad hace falta guardar el resultado (vista materializada) o hacer más rápida la consulta (índices, que se estudian desde [@09-20])."
+  },
+  {
+   "t": "h3",
+   "x": "Vistas que se pueden modificar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una vista simple (una sola tabla, sin agregaciones) se puede usar también para escribir: PostgreSQL traduce el `UPDATE` sobre la vista en un `UPDATE` sobre la tabla. Con `WITH CHECK OPTION`, además, rechaza las escrituras que dejarían la fila fuera de la vista [#bd0917-pg-createview]:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create view bultos_pendientes as\n  select id, deposito_id, peso_kg, estado from bultos where estado = 'pendiente'\n  with check option;\nupdate bultos_pendientes set estado = 'entregado' where id = 1;",
+     "s": "ERROR:  new row violates check option for view \"bultos_pendientes\"\nDETAIL:  Failing row contains (1, 2, 13.00, entregado, 57.95, 2026-01-02)."
+    }
+   ],
+   "cap": "Marcar como entregado a través de una vista de pendientes haría desaparecer la fila de la vista; con CHECK OPTION el motor lo impide."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una última consecuencia: si la vista oculta una columna `NOT NULL` sin valor por defecto (acá, `costo`), un `INSERT` a través de ella falla porque la tabla no sabe qué poner. Vistas de lectura para mostrar, funciones para escribir con reglas, es una división sana."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Vistas y seguridad: de quién son los permisos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dar acceso a una vista en lugar de a la tabla es una de las formas más viejas de mostrar solo una parte de los datos. Probemos con Ana, una usuaria de base de datos con permiso para leer una vista que no incluye el `costo` de los bultos (el dato sensible de este ejemplo). Primero, lo que se espera:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- como dueño de las tablas\ncreate view bultos_publicos as\n  select id, deposito_id, peso_kg, estado, creado from bultos;\ngrant select on bultos_publicos to ana;",
+     "s": ""
+    },
+    {
+     "c": "-- como ana\nselect count(*) from bultos;\nselect costo from bultos_publicos limit 1;",
+     "s": "ERROR:  permission denied for table bultos\nERROR:  column \"costo\" does not exist"
+    }
+   ],
+   "cap": "Ana no puede leer la tabla ni ver la columna oculta. Hasta acá, todo bien."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora sumamos la [[RLS]] (seguridad a nivel de fila) de [@07-29]: una política para que Ana solo vea los bultos del depósito 2, y le preguntamos qué ve a través de la vista."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- como dueño\nalter table bultos enable row level security;\ncreate policy solo_mi_deposito on bultos for select to ana\n  using (deposito_id = current_setting('app.deposito')::int);",
+     "s": ""
+    },
+    {
+     "c": "-- como ana\nset app.deposito = '2';\nselect count(*) as filas_por_la_vista from bultos_publicos;",
+     "s": " filas_por_la_vista \n--------------------\n            1000000"
+    }
+   ],
+   "cap": "Ana ve el millón de filas, no las 250.000 de su depósito. La vista se saltó la política."
+  },
+  {
+   "t": "p",
+   "x": [
+    "¿Por qué? Por defecto, una vista lee las tablas con los permisos de **quien creó la vista**, no de quien la consulta. Y el dueño de una tabla no queda sujeto a su propia RLS. La documentación lo dice así: si alguna tabla de base tiene RLS, por defecto se aplican las políticas del dueño de la vista [#bd0917-pg-createview]. La vista funcionó como una ventana abierta con los permisos del dueño. PostgreSQL 15 sumó la opción `security_invoker`, que invierte el criterio: la vista usa los permisos de quien consulta, y entonces la política vuelve a regir. Las guías oficiales de Supabase la recomiendan para las vistas expuestas [#be1111-supabase-rls]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- como dueño\nalter view bultos_publicos set (security_invoker = true);\ngrant select (id, deposito_id, peso_kg, estado, creado) on bultos to ana;",
+     "s": ""
+    },
+    {
+     "c": "-- como ana\nset app.deposito = '2';\nselect count(*) as filas_por_la_vista from bultos_publicos;\nselect costo from bultos limit 1;",
+     "s": " filas_por_la_vista \n--------------------\n             250000\n\nERROR:  permission denied for table bultos"
+    }
+   ],
+   "cap": "Con security_invoker la política rige: 250.000 filas. Para que funcione hubo que darle a Ana permiso sobre la tabla, pero solo sobre las columnas sin `costo`."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Hay una segunda trampa. Una vista puede esconder columnas de forma confiable, pero **no esconde filas de forma confiable** salvo que se marque `security_barrier` [#bd0917-pg-rules-privileges]. Quien puede crear funciones propias consigue que el planificador evalúe su función antes del filtro de la vista, y la función ve filas que el filtro iba a descartar.",
+   "titulo": "Vistas que esconden filas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo comprobé con una vista que oculta los bultos devueltos. Mala, otra usuaria, creó una función con un costo declarado ínfimo que solo avisa lo que ve (`raise notice`). El planificador ordena los filtros por costo estimado, y la función de Mala pasó adelante:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create view sin_devueltos as select id, estado from bultos where estado <> 'devuelto';\n-- Mala crea lab.curioso(text), que hace `raise notice` y devuelve true, con cost 0.0000001\nselect id, estado from sin_devueltos where id between 36 and 40 and lab.curioso(estado);",
+     "s": "NOTICE:  vi estado: devuelto\nNOTICE:  vi estado: devuelto\nNOTICE:  vi estado: devuelto\nNOTICE:  vi estado: devuelto\nNOTICE:  vi estado: pendiente\n id |  estado   \n----+-----------\n 40 | pendiente"
+    },
+    {
+     "c": "alter view sin_devueltos set (security_barrier = true);\nselect id, estado from sin_devueltos where id between 36 and 40 and lab.curioso(estado);",
+     "s": "NOTICE:  vi estado: pendiente\n id |  estado   \n----+-----------\n 40 | pendiente"
+    }
+   ],
+   "cap": "Sin la barrera, la función de Mala vio cuatro filas devueltas que la vista oculta. Con la barrera, solo vio la fila visible. Es una demo en mi base local, con mis propios usuarios."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una aclaración honesta: en una corrida anterior, con otra vista recién creada, el planificador evaluó primero el filtro de la vista y no hubo fuga. El orden depende de los costos estimados. Por eso la garantía no existe sin `security_barrier`: no se trata de si hoy se ve la fuga, sino de que el motor no promete lo contrario."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Opción de la vista",
+    "Qué cambia",
+    "Cuándo la usás"
+   ],
+   "filas": [
+    [
+     "Por defecto",
+     "Lee las tablas con los permisos del dueño de la vista; si el dueño es dueño de la tabla, se salta su RLS",
+     "Ocultar columnas o simplificar consultas cuando el dueño controla todo el acceso"
+    ],
+    [
+     "`security_invoker = true` (desde PostgreSQL 15)",
+     "Lee las tablas con los permisos de quien consulta; la RLS de la tabla sigue rigiendo",
+     "Vistas expuestas a usuarios finales sobre tablas con RLS"
+    ],
+    [
+     "`security_barrier = true`",
+     "Fuerza que los filtros de la vista se evalúen antes que las funciones del usuario",
+     "Vistas que esconden filas y que consultan usuarios que pueden crear funciones"
+    ]
+   ],
+   "cap": "Resumen de [#bd0917-pg-createview]. `security_invoker` existe desde PostgreSQL 15, según las guías de Supabase citadas arriba."
+  },
+  {
+   "t": "h",
+   "x": "La vista materializada: guardar el resultado"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si la consulta del reporte es cara y no hace falta que esté al segundo, hay otra salida: ejecutarla una vez y guardar lo que devolvió. Eso es una **[[vista materializada]]**. Se declara igual que una vista, pero PostgreSQL ejecuta la consulta al crearla y deja el resultado en disco, como una tabla. Las lecturas siguientes leen ese resultado, no las tablas de origen [#bd0917-pg-matviews]. El reporte clásico de logística, bultos y costo por depósito y mes:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create materialized view reporte_mensual as\nselect deposito_id, date_trunc('month', creado)::date as mes,\n       count(*) as bultos, round(sum(costo)) as costo_total\nfrom bultos group by 1, 2;\ncreate unique index on reporte_mensual (deposito_id, mes);"
+  },
+  {
+   "t": "p",
+   "x": [
+    "(La línea del `create unique index` es un índice único, que todavía no estudiamos: se ve desde [@09-20]. Por ahora basta saber que le da al motor una forma rápida de encontrar filas y que hace falta para un refresco sin bloqueo, como verás enseguida.) Cinco corridas de cada una, en esta VM:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Qué se ejecuta",
+    "Tiempo (cinco corridas)",
+    "Qué hace el motor"
+   ],
+   "filas": [
+    [
+     "La consulta directa sobre 1.000.000 de filas",
+     "92 a 129 ms",
+     "Recorre las filas de `bultos` y agrupa"
+    ],
+    [
+     "`select * from reporte_mensual`",
+     "0,05 a 0,32 ms",
+     "Lee unas 40 filas ya calculadas"
+    ]
+   ],
+   "cap": "Medido en esta VM. La diferencia es de unas mil veces, pero compará el costo de mantener el resultado al día, abajo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El precio está en el nombre del siguiente concepto: **el resultado envejece**. Una vista materializada no se entera de que las tablas cambiaron. Entraron 1.000 bultos nuevos de octubre al depósito 1 y consulté las dos fuentes:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "insert into bultos select 1000000 + i, 1, 10, 'pendiente', 400, date '2026-10-28' from generate_series(1, 1000) i;\nselect 'directa' as fuente, count(*) as bultos from bultos\n  where deposito_id = 1 and date_trunc('month', creado) = '2026-10-01'\nunion all\nselect 'materializada', bultos from reporte_mensual where deposito_id = 1 and mes = '2026-10-01';",
+     "s": "    fuente     | bultos \n---------------+--------\n directa       |  20998\n materializada |  19998"
+    }
+   ],
+   "cap": "El reporte materializado muestra 1.000 bultos menos que la realidad."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para ponerla al día hay que pedirlo: `refresh materialized view`. El refresco vuelve a ejecutar la consulta entera y reemplaza el contenido. En esta VM tardó 98 ms. La variante `concurrently` (107 ms) no bloquea a quienes leen mientras se arma la versión nueva, pero exige que la vista tenga al menos un índice único que cubra todas las filas [#bd0917-pg-refresh]. Sin ella, durante el refresco, las lecturas esperan. Y aun con ella, solo puede correr un refresco por vez sobre la misma vista."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "**Mito: «materializada quiere decir que se actualiza sola».** No. PostgreSQL 16 no la refresca automáticamente ni con cada cambio. Alguien o algo tiene que ejecutar el `refresh`: una tarea programada, un trabajo nocturno, un botón en el panel. Decidir cada cuánto es una decisión de negocio: ¿tolerás un reporte con una hora de atraso, o con un día?"
+  },
+  {
+   "t": "pensa",
+   "x": "Un panel muestra «bultos en ruta ahora» para los coordinadores, que lo miran cada minuto para reasignar choferes. ¿Sirve una vista materializada refrescada de noche? ¿Y para el reporte mensual de costos que revisa el gerente el primer día hábil?",
+   "resp": "Para el panel de «ahora» no sirve: un dato con un día de atraso es peor que no tenerlo, porque da una seguridad falsa. Para el reporte mensual sí: el mes cerrado no cambia, y una materializada refrescada de noche responde en décimas de milisegundo y descarga a la base de recalcular lo mismo cien veces. La regla práctica es medir cuánto atraso tolera quien lee, y elegir el mecanismo según eso."
+  },
+  {
+   "t": "h3",
+   "x": "Cuatro maneras de no recalcular, y cuándo cada una"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Mecanismo",
+    "Qué guarda",
+    "¿Está al día?",
+    "Quién lo mantiene"
+   ],
+   "filas": [
+    [
+     "Consulta o vista",
+     "Nada: calcula al leer",
+     "Siempre",
+     "Nadie; paga cada lectura"
+    ],
+    [
+     "Vista materializada",
+     "El resultado completo",
+     "Hasta el último `refresh`",
+     "Una tarea que ejecuta el refresco, que rehace todo"
+    ],
+    [
+     "Tabla de resumen mantenida por trigger",
+     "Un resumen que se suma fila a fila",
+     "Siempre (dentro del mismo cambio)",
+     "La propia base, en cada escritura (lo ves en [@09-18])"
+    ],
+    [
+     "Caché en la aplicación",
+     "Lo que haya pedido el programa",
+     "Hasta que vence",
+     "El programa; la base no se entera"
+    ]
+   ],
+   "cap": "Cada fila cambia una cosa por otra: frescura contra costo de lectura contra costo de escritura. Elegir es medir."
+  },
+  {
+   "t": "senda",
+   "titulo": "salud_preguntas: la misma vista, dos veces",
+   "x": [
+    "Senda tiene una vista cuyo nombre aparece en dos migraciones, y la segunda es exactamente este problema. En `20261026000000_inicio.sql`, `salud_preguntas` (cuántas veces salió cada pregunta, qué porcentaje acertó y cuánto tardó) se define como una vista que **agrupa toda la tabla `respuestas`** en cada lectura. Al día siguiente, en `20261027000000_escala.sql`, la misma vista se redefine para leer de una tabla `salud_resumen`, que un trigger va sumando cada vez que se inserta una respuesta. No usaron una vista materializada: hicieron a mano su versión incremental, la de la fila de arriba.",
+    "Para medir qué se ganó copié esas definiciones, tal cual están en las migraciones, a una base mía con un millón de respuestas inventadas y 5.400 preguntas (del orden de las que tiene Senda). Leer la vista completa tardó **70 a 97 ms** con la versión que agrupa y **4 a 6 ms** con la que lee el resumen, en esta VM. La contrapartida está en el trigger: cada respuesta paga una escritura de más, y las preguntas muy jugadas concentran esas escrituras sobre una misma fila. Eso lo medimos en [@09-18].",
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. En las migraciones de Senda no hay ninguna vista materializada (`grep -i materialized` no devuelve nada): sus tres tablas de conteo (`salud_resumen`, `pulso_conteo`, `encuesta_conteo`) son resúmenes mantenidos por trigger."
+   ],
+   "archivos": [
+    "supabase/migrations/20261026000000_inicio.sql",
+    "supabase/migrations/20261027000000_escala.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Funciones: guardar un cálculo con parámetros"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una vista no recibe argumentos: es siempre la misma consulta. Para un cálculo que depende de datos que le pasás, está la **[[función SQL|función]]**. En el depósito, la fórmula del costo de envío se copia por todos lados: 35 por kilo, más un adicional que depende de la zona. Guardada en la base:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create function costo_envio(peso numeric, zona text) returns numeric\nlanguage sql immutable as $$\n  select round(peso * 35 + case zona when 'Sur' then 10 when 'Norte' then 25 else 40 end, 2)\n$$;\nselect costo_envio(12.5, 'Norte');   -- 462.50",
+   "cap": "Una función SQL: el cuerpo es una sola consulta. `immutable` es una promesa que explicamos en un momento."
+  },
+  {
+   "t": "p",
+   "x": [
+    "PostgreSQL admite varios lenguajes para el cuerpo. Los dos que vas a ver todo el tiempo son `sql`, donde el cuerpo es una consulta, y `plpgsql`, un lenguaje procedural con variables, `if`, bucles y manejo de errores. Escribí la misma fórmula en los dos, con una validación que solo cabe en el segundo:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create function costo_envio_pl(peso numeric, zona text) returns numeric\nlanguage plpgsql immutable as $$\nbegin\n  if peso <= 0 then raise exception 'peso invalido: %', peso; end if;\n  return round(peso * 35 + case zona when 'Sur' then 10 when 'Norte' then 25 else 40 end, 2);\nend $$;"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La diferencia aparece en el plan. Una función `sql` simple se **inlinea**: el planificador no la llama, copia su cuerpo dentro de la consulta, y por eso puede optimizarlo junto con el resto. Una función `plpgsql` es una caja negra que se invoca fila por fila:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (verbose, costs off) select b.id, costo_envio(b.peso_kg, d.zona) from bultos b join depositos d on d.id = b.deposito_id where b.id = 77;",
+     "s": " Nested Loop\n   Output: b.id, round(((b.peso_kg * '35'::numeric) + (CASE d.zona WHEN 'Sur'::text THEN 10 WHEN 'Norte'::text THEN 25 ELSE 40 END)::numeric), 2)\n   ..."
+    },
+    {
+     "c": "explain (verbose, costs off) select b.id, costo_envio_pl(b.peso_kg, d.zona) from bultos b join depositos d on d.id = b.deposito_id where b.id = 77;",
+     "s": " Nested Loop\n   Output: b.id, costo_envio_pl(b.peso_kg, d.zona)\n   ..."
+    }
+   ],
+   "cap": "Recortado: solo la línea `Output` del primer nodo. En la versión SQL, la fórmula quedó dentro del plan; en la plpgsql, el plan guarda una llamada."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Qué cuesta eso: sumé el costo de envío de todos los bultos del millón con cada versión, dos corridas cada una. La función SQL tardó **310 y 369 ms**; la plpgsql, **608 y 645 ms**. Es el mismo resultado (756.435.407,05), con el doble de tiempo, por la llamada a una caja negra un millón de veces. No es motivo para evitar `plpgsql`: cuando hay `if`, bucles o errores, es la herramienta. Es motivo para no usarlo donde alcanza con una expresión."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 1: la vista del porcentaje.** Armá una vista `devueltos_por_deposito` que muestre, por depósito, cuántos bultos devueltos hay y qué porcentaje representan sobre el total de ese depósito, con un decimal.",
+   "pista": "Es una agregación con `FILTER`, como `resumen_depositos`. El porcentaje es `100.0 * devueltos / total`, y `count(*)` sin filtro te da el total del grupo.",
+   "solucion": [
+    "Una solución: `create view devueltos_por_deposito as select d.nombre, count(*) filter (where b.estado = 'devuelto') as devueltos, round(100.0 * count(*) filter (where b.estado = 'devuelto') / count(*), 1) as pct from depositos d join bultos b on b.deposito_id = d.id group by d.id, d.nombre;`",
+    "Corrida en esta VM: cada depósito da 25.000 devueltos y 10,0 %. Los datos inventados son muy regulares a propósito: lo que importa es que la vista guarda el criterio, no los números."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 2: una función de demora.** Escribí una función SQL `esta_demorado(estado, creado, hoy)` que devuelva verdadero si el bulto sigue abierto (`pendiente` o `en_ruta`) y pasaron más de 60 días desde `creado`. Después contá los bultos demorados al 31 de octubre de 2026.",
+   "pista": "Recibí `hoy` como parámetro en lugar de usar `current_date`: así el resultado depende solo de los argumentos, y podés marcar la función `immutable`. Se pueden restar dos fechas y da un número de días.",
+   "solucion": [
+    "`create function esta_demorado(estado text, creado date, hoy date) returns boolean language sql immutable as $$ select estado in ('pendiente','en_ruta') and hoy - creado > 60 $$;` y luego `select count(*) from bultos where esta_demorado(estado, creado, date '2026-10-31');`",
+    "Corrida en esta VM: **165.001**. Tomar `hoy` como argumento es lo que permite la marca `immutable`; con `current_date` adentro, la función ya no daría lo mismo mañana."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Volatilidad: la promesa que le hacés al planificador"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada función de PostgreSQL lleva una etiqueta de **volatilidad** que le dice al planificador cuánto puede confiar en que repite resultados. Son tres, y la documentación las define con precisión [#bd0917-pg-volatility]:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Etiqueta",
+    "Qué promete",
+    "Qué le permite al planificador",
+    "Ejemplo"
+   ],
+   "filas": [
+    [
+     "`IMMUTABLE`",
+     "Mismos argumentos, mismo resultado, para siempre; no toca la base",
+     "Evaluarla una vez al planificar si los argumentos son constantes; usarla en un índice sobre expresión",
+     "`costo_envio`, `lower(texto)`"
+    ],
+    [
+     "`STABLE`",
+     "Mismo resultado dentro de una sola sentencia; no modifica la base",
+     "Evaluarla una sola vez y usarla en una condición de índice",
+     "Una función que lee una tabla de parámetros; `now()`"
+    ],
+    [
+     "`VOLATILE` (por defecto)",
+     "Puede dar resultados distintos en cada llamada y modificar la base",
+     "Nada: la evalúa en cada fila donde haga falta",
+     "`random()`, una función que inserta"
+    ]
+   ],
+   "cap": "Si no escribís nada, la función es `VOLATILE`, la etiqueta más segura y la que menos optimiza."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las consecuencias se ven en tres experimentos. **Primero:** un índice sobre una expresión guarda el resultado de la función, así que el motor exige que ese resultado nunca cambie. Marqué una función de «primer día del mes» sin etiqueta y se lo pedí:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create function primero_de_mes(f date) returns date language plpgsql as $$\nbegin return make_date(extract(year from f)::int, extract(month from f)::int, 1); end $$;\ncreate index on bultos (primero_de_mes(creado));",
+     "s": "ERROR:  functions in index expression must be marked IMMUTABLE"
+    },
+    {
+     "c": "alter function primero_de_mes(date) immutable;\ncreate index bultos_mes on bultos (primero_de_mes(creado));",
+     "s": "CREATE INDEX"
+    }
+   ],
+   "cap": "Esta vez la promesa es verdadera: el primer día del mes de una fecha no cambia nunca."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Segundo:** una función `STABLE` puede usarse para buscar por [[clave primaria]] con un índice; una `VOLATILE`, no. Dos funciones que devuelven siempre 777, una con cada etiqueta, usadas para buscar un bulto:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, costs off, timing off) select * from bultos where id = id_de_hoy_v();   -- VOLATILE",
+     "s": " Seq Scan on bultos (actual rows=1 loops=1)\n   Filter: (id = id_de_hoy_v())\n   Rows Removed by Filter: 1000999\n Execution Time: 194.913 ms"
+    },
+    {
+     "c": "explain (analyze, costs off, timing off) select * from bultos where id = id_de_hoy_s();   -- STABLE",
+     "s": " Index Scan using bultos_pkey on bultos (actual rows=1 loops=1)\n   Index Cond: (id = id_de_hoy_s())\n Execution Time: 0.031 ms"
+    }
+   ],
+   "cap": "Mismo dato, mismo resultado: 195 ms recorriendo el millón de filas contra 0,03 ms con el índice. La única diferencia es la etiqueta."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La razón la da la documentación: un índice evalúa el valor de comparación una sola vez, y eso solo es válido si la función no puede cambiar de una fila a otra [#bd0917-pg-volatility]. **Tercero:** la etiqueta es una promesa que nadie verifica. Si mentís, no hay error: hay resultados que no son los que escribiste."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create function sorteo_mal() returns int language plpgsql immutable as $$ begin return (random() * 1000)::int; end $$;\ncreate function sorteo_bien() returns int language plpgsql volatile as $$ begin return (random() * 1000)::int; end $$;\nselect sorteo_mal() as inmutable_mentirosa, sorteo_bien() as volatil from generate_series(1, 4);",
+     "s": " inmutable_mentirosa | volatil \n---------------------+---------\n                 887 |     992\n                 887 |     359\n                 887 |     362\n                 887 |     584"
+    }
+   ],
+   "cap": "La función «inmutable» se evaluó una sola vez al planificar, y el planificador pegó el 887 en las cuatro filas. Los números cambian en cada corrida; lo que importa es que la columna de la izquierda no cambia."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": "**Regla práctica (criterio mío, apoyado en la documentación):** etiquetá cada función con la categoría más estricta que sea verdadera. Si lee datos de tablas, como mucho `STABLE`. Si toma la fecha de hoy del reloj, `STABLE` o `VOLATILE`, nunca `IMMUTABLE`. Si escribe en la base, `VOLATILE`. Y revisá las funciones que usan tus políticas de RLS: se evalúan en cada consulta."
+  },
+  {
+   "t": "pensa",
+   "x": "Una función `es_feriado(fecha)` busca la fecha en la tabla `feriados`, que la oficina edita una vez al año. ¿Cuál es la etiqueta correcta, y qué pasaría si la marcás `IMMUTABLE` y la usás en un índice?",
+   "resp": "La correcta es `STABLE`: lee una tabla, así que el resultado puede cambiar cuando alguien edite `feriados`, pero no cambia dentro de una sentencia. Marcada `IMMUTABLE` en un índice, el índice guardaría el resultado de cuando se creó y seguiría diciendo lo viejo después de que agreguen un feriado, sin ningún error. Es la clase de bug que aparece meses después."
+  },
+  {
+   "t": "h",
+   "x": "`security definer`: la función con los permisos del dueño"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Por defecto, una función corre con los permisos de quien la llama (`security invoker`). Con `security definer` corre con los del **dueño**. Es la versión para funciones de lo que vimos con las vistas: una puerta controlada hacia datos a los que quien llama no puede entrar. Y tiene un uso clásico en la RLS, que me tomó un experimento entender. Una política que dice «veo los miembros de mis grupos» necesita preguntarle a la tabla de miembros, pero esa tabla tiene la misma política:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create policy ver_ingenuo on miembros for select to ana\n  using (grupo in (select grupo from miembros where usuario = current_setting('app.yo')::int));\n-- como ana:\nselect * from miembros;",
+     "s": "ERROR:  infinite recursion detected in policy for relation \"miembros\""
+    },
+    {
+     "c": "create function soy_miembro(g int) returns boolean language sql security definer stable\nset search_path = public as $$\n  select exists (select 1 from public.miembros where grupo = g and usuario = current_setting('app.yo')::int)\n$$;\ncreate policy ver_con_funcion on miembros for select to ana using (soy_miembro(grupo));\n-- como ana, siendo el usuario 11:\nselect * from miembros order by usuario;",
+     "s": " grupo | usuario |   rol   \n-------+---------+---------\n     1 |      10 | lider\n     1 |      11 | miembro"
+    }
+   ],
+   "cap": "La política que consulta su propia tabla entra en bucle; la función con permisos del dueño lee sin disparar la política. Ana ve solo el grupo 1."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La función corre como dueño, así que la RLS de `miembros` no se aplica adentro, y el bucle se corta. Funciona, pero entregaste una puerta: la función ahora hace lo que dice su código con permisos que quien llama no tiene. Los dos riesgos clásicos son mundanos [#sen29-pg-createfunction]:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Cualquiera puede llamarla.** PostgreSQL concede por defecto el permiso de ejecución a `PUBLIC` en toda función nueva. Si no lo revocás, la puerta está abierta a todos los roles.",
+    "**El `search_path` lo controla quien llama.** Si la función nombra una tabla sin esquema, quien la llama puede hacer que esa palabra apunte a **otra tabla** suya. El esquema temporal se busca primero por defecto, y cualquier rol puede crear tablas ahí."
+   ],
+   "ord": false
+  },
+  {
+   "t": "p",
+   "x": [
+    "El segundo riesgo se puede ver. Una función del dueño que dice si un cliente es VIP, sin cuidados, y Mala, que no tiene permiso sobre `vip`:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- dueño\ncreate table vip (cliente int primary key);\ninsert into vip values (1), (2), (3);\ncreate function es_vip(c int) returns boolean language sql security definer as $$\n  select exists (select 1 from vip where cliente = c) $$;\ngrant execute on function es_vip(int) to public;",
+     "s": ""
+    },
+    {
+     "c": "-- Mala\nselect es_vip(99) as antes;\ncreate temp table vip (cliente int);\ninsert into vip values (99);\ngrant select on vip to public;\nselect es_vip(99) as con_tabla_temporal;",
+     "s": " antes \n-------\n f\n\n con_tabla_temporal \n--------------------\n t"
+    }
+   ],
+   "cap": "Mala se hizo pasar por VIP creando una tabla temporal con el mismo nombre. La función, con permisos del dueño, leyó la de Mala."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La documentación recomienda que `search_path` excluya los esquemas donde usuarios no confiables pueden crear objetos, y que se nombre `pg_temp` al final para que el esquema temporal se busque último [#sen29-pg-createfunction]. Ojo con un detalle que comprobé: poner solo `set search_path = public` **no alcanza** si la tabla se nombra sin esquema. Alcanza si el nombre lleva esquema:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- dueño: con search_path = public pero la tabla sin esquema\ncreate or replace function es_vip(c int) returns boolean language sql security definer\nset search_path = public as $$ select exists (select 1 from vip where cliente = c) $$;\n-- Mala repite su tabla temporal y llama a la función:\nselect es_vip(99);",
+     "s": " es_vip \n--------\n t"
+    },
+    {
+     "c": "-- dueño: tabla con esquema\ncreate or replace function es_vip(c int) returns boolean language sql security definer\nset search_path = public as $$ select exists (select 1 from public.vip where cliente = c) $$;\n-- Mala, lo mismo:\nselect es_vip(99);",
+     "s": " es_vip \n--------\n f"
+    }
+   ],
+   "cap": "Con un nombre sin esquema, el esquema temporal gana aunque el search_path diga public. Con `public.vip`, la tabla de Mala no cuenta."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La versión completa y segura, la que pide la documentación, junta todo: `set search_path = public, pg_temp`, nombres con esquema, `revoke execute … from public` y un `grant` a quienes corresponde. En la corrida, Mala recibió «permission denied for function es_vip»; Ana, con permiso explícito, pudo llamarla."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Las funciones con permisos del dueño de Senda",
+   "x": [
+    "Senda usa este mecanismo a escala. Un script mío sobre las 42 migraciones encuentra **93 funciones distintas** en `public` (60 en `plpgsql`, 33 en `sql`), y **80 son `security definer`**. Las 80 declaran `set search_path = public`, y en sus cuerpos conté 288 referencias a tablas con el prefijo `public.` y ninguna a una tabla sin esquema (lo que no lleva el prefijo son nombres de CTE, funciones que devuelven filas y `auth.users`). Es el patrón de la segunda prueba de arriba. Lo único que falta respecto de la recomendación de la documentación es `pg_temp` al final del `search_path`; con los nombres calificados no se explota, pero sería una línea más de defensa. Es una observación de criterio, no un hallazgo de falla.",
+    "El caso de la RLS recursiva es real: las políticas de grupos y miembros usan `soy_miembro` y `soy_lider`, ambas `security definer stable`, definidas en `20261101000000_juntos.sql`. Y la etiqueta de volatilidad también se cumple: de las 76 políticas, las que llaman a funciones usan solo nueve (`soy_miembro`, `soy_lider`, `soy_admin`, `estoy_en_sala`, `tiene_max`, `trivias_disponibles`, `trivias_en_espera`, `puedo_jugar_torneo` y `grupo_de_ruta`), y las nueve están marcadas `STABLE` o `IMMUTABLE`. Conteos hechos con una expresión regular sobre el texto de las migraciones, así que pueden fallar en casos raros.",
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261111000000_novedades.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "mis_partidas: una vista que reemplaza a una política",
+   "x": [
+    "Los duelos del Espadeo se guardan en `partidas`, y su política de lectura dice `auth.uid() in (jugador_a, jugador_b)`: cada uno ve sus partidas. La app no lee `partidas` directo sino la vista `mis_partidas`, que repite la misma condición (`where auth.uid() in (p.jugador_a, p.jugador_b)`) y suma columnas calculadas: quién es el rival, cuál es su alias y si me toca jugar. El alias lo trae una función `security definer` (`apodo_de`), porque la política de `perfiles` solo deja ver la fila propia: la función es la puerta controlada hacia el nombre del rival.",
+    "Es el primer caso de hoy leído al revés: la vista **no** usa `security_invoker`, así que se ejecuta con los permisos de su dueño y no hereda la política de `partidas`. Por eso repite el filtro a mano. Funciona porque `auth.uid()` devuelve quien consulta (la documentación aclara que funciones como `current_user` dentro de una vista siempre responden por quien llama). Si alguien editara la vista y olvidara el `where`, la política no lo salvaría. Hay una vista más, `perfiles_publicos`, a la que una migración de seguridad (`20261127000000_seguridad.sql`) le **quitó el permiso de lectura** para que ya no sea un padrón público; los datos de otras personas se piden a funciones como `perfiles_de`, que devuelven solo lo permitido."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261119000000_rival_nombre.sql",
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Lo que te llevás"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Vista:** consulta con nombre; cero bytes, siempre al día, el mismo costo que la consulta. Sirve para una definición única, para ocultar columnas y para dar un contrato estable.",
+    "**Vista materializada:** el resultado guardado; rápida de leer, vieja hasta el próximo `refresh`, que nadie hace solo. Conviene cuando el atraso es tolerable y la consulta es cara.",
+    "**Función SQL:** cálculo con parámetros; la versión `sql` simple se inlinea y la `plpgsql` no. La etiqueta `IMMUTABLE`, `STABLE` o `VOLATILE` es una promesa que nadie verifica y que decide si un índice se puede usar.",
+    "**Seguridad:** una vista usa los permisos de su dueño salvo `security_invoker`, y no esconde filas con garantías salvo `security_barrier`. Una función `security definer` necesita `search_path` fijo, nombres con esquema y el permiso de ejecución revocado a `PUBLIC`."
+   ],
+   "ord": false
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Versiones al 13-11-2026: según la página oficial de versiones, las vigentes de PostgreSQL son 18.7, 17.12, 16.16, 15.20 y 14.25 (publicadas el 12-11-2026), con la 19 en candidata de lanzamiento [#postgresql-versioning]. Corrí todo en la 16.15 de Ubuntu 24.04. `security_invoker` en vistas existe desde la 15; la 15 también quitó el permiso `CREATE` de todos los roles sobre el esquema `public` en bases nuevas [#bd0917-pg-release-15], lo que achica el riesgo de enmascarar objetos en ese esquema pero no el del esquema temporal. `REFRESH MATERIALIZED VIEW` sigue sin ser automático en las versiones que consulté.",
+   "titulo": "Qué puede cambiar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hoy guardaste lógica que se *consulta*. Mañana, en [@09-18], guardás lógica que *se ejecuta sola* cuando algo cambia, y con eso aparece el efecto más sorprendente de las bases de datos: cosas que pasan sin que nadie las haya pedido."
+   ]
+  }
+ ],
+ "recap": [
+  "Una vista es una consulta guardada con nombre: no ocupa espacio, refleja el dato al instante, y su costo es el de la consulta original.",
+  "Una vista materializada guarda el resultado; lee cientos de veces más rápido y envejece hasta que alguien ejecuta `refresh`. `concurrently` evita bloquear lecturas y pide un índice único.",
+  "La vista lee las tablas con los permisos de su dueño: puede saltarse la RLS. `security_invoker` (PostgreSQL 15) lo corrige, y `security_barrier` evita que funciones ajenas vean filas filtradas.",
+  "Una función SQL simple se inlinea y corre más rápido que su equivalente `plpgsql`, que sirve cuando se necesitan `if`, bucles o errores.",
+  "La volatilidad (`IMMUTABLE`, `STABLE`, `VOLATILE`) es una promesa al planificador: decide si hay índice, y mentirla da resultados erróneos sin avisar.",
+  "Una función `security definer` corre con permisos del dueño: fijá `search_path`, nombrá las tablas con esquema y revocá la ejecución a `PUBLIC`."
+ ],
+ "repaso": [
+  {
+   "p": "Convertís en vista una consulta de reporte que tarda 100 ms. ¿Cuánto esperás que tarde al consultar la vista?",
+   "o": [
+    "Unos 100 ms, porque el motor reescribe la vista como la misma consulta sobre las tablas de origen",
+    "Casi 0 ms, porque la vista guarda el resultado de la consulta en disco como una tabla",
+    "Menos que antes, porque la vista tiene un plan de ejecución guardado desde que se creó",
+    "Más de 100 ms, porque el motor primero tiene que leer la vista y después la tabla"
+   ],
+   "c": 0,
+   "e": "La vista guarda solo el texto de la consulta, y el motor lo pega en lugar del nombre antes de planificar, así que el trabajo es el mismo. Lo que guarda el resultado es la vista materializada (la segunda opción confunde ambas). Tampoco guarda un plan: se planifica en cada ejecución. En el experimento, la vista tardó entre 86 y 115 ms."
+  },
+  {
+   "p": "El dueño de la tabla `bultos` (con RLS y una política por depósito) crea una vista simple sobre ella y le da `select` a Ana. Ana consulta la vista. ¿Qué filas ve?",
+   "o": [
+    "Todas las filas de la tabla, porque la vista se ejecuta con los permisos del dueño, que no está sujeto a la RLS",
+    "Solo las de su depósito, porque la política de la tabla se aplica siempre, sin importar cómo se consulte",
+    "Ninguna, porque Ana no tiene permiso sobre la tabla subyacente y la vista no se lo da",
+    "Solo las que cumplan el filtro de la vista, porque la RLS se desactiva dentro de las vistas"
+   ],
+   "c": 0,
+   "e": "Por defecto la vista accede a las tablas con los permisos de su dueño, y el dueño de una tabla no queda sujeto a su propia RLS, así que Ana ve el millón de filas. La segunda opción supone que la política siempre rige, pero con `security_invoker = true` sí. La tercera olvida que la vista justamente presta los permisos del dueño."
+  },
+  {
+   "p": "Una vista materializada muestra 19.998 bultos de octubre y la consulta directa da 20.998. ¿Cuál es la explicación más probable y la solución?",
+   "o": [
+    "Entraron 1.000 bultos después del último refresco; hay que ejecutar `refresh materialized view`",
+    "La vista materializada tiene un error y hay que recrearla con `create or replace`",
+    "La consulta directa cuenta bultos duplicados y la materializada es la correcta",
+    "PostgreSQL actualiza la materializada con un retraso fijo, y basta con esperar unos minutos"
+   ],
+   "c": 0,
+   "e": "Una vista materializada guarda el resultado del último refresco y no se entera de los cambios en las tablas: la diferencia son los 1.000 bultos insertados después. Se arregla con `refresh`. No se actualiza sola ni con un retraso fijo (la última opción es el mito), y no hay nada que sugiera duplicados."
+  },
+  {
+   "p": "Querés crear un índice sobre `primero_de_mes(creado)`, una función escrita en plpgsql sin ninguna etiqueta de volatilidad, y PostgreSQL responde: «functions in index expression must be marked IMMUTABLE». ¿Qué corresponde?",
+   "o": [
+    "Verificar que la función es verdaderamente inmutable y, si lo es, marcarla `IMMUTABLE`",
+    "Marcarla `IMMUTABLE` de todas formas, porque la etiqueta solo sirve para silenciar el error",
+    "Marcarla `STABLE`, que es la etiqueta más permisiva que acepta un índice sobre expresión",
+    "Pasarla a `VOLATILE`, que le da más libertad al índice para recalcularla cuando haga falta"
+   ],
+   "c": 0,
+   "e": "El índice guarda el resultado de la función, por eso exige que no cambie nunca. Si es cierto que el mismo día da siempre el mismo primer día de mes, la etiqueta correcta es `IMMUTABLE`. Marcarla sin verificar (segunda opción) es mentirle al motor y puede dejar el índice desactualizado sin error. `STABLE` y `VOLATILE` no sirven para índices sobre expresiones."
+  },
+  {
+   "p": "Una consulta `where id = f()` recorre toda la tabla en lugar de usar el índice de `id`. `f()` devuelve siempre 777 y no toca la base, pero no tiene etiqueta. ¿Qué cambio puede arreglarlo?",
+   "o": [
+    "Marcar `f()` como `STABLE`, para que el motor la evalúe una sola vez y use el índice",
+    "Agregar un segundo índice sobre `id`, porque el primero no sirve con funciones",
+    "Reescribir la consulta con `limit 1`, que le indica al motor que busque por índice",
+    "Cambiar `f()` a `plpgsql`, que el planificador optimiza mejor que el lenguaje `sql`"
+   ],
+   "c": 0,
+   "e": "Una función `VOLATILE` (la etiqueta por defecto) no puede usarse como valor de búsqueda de un índice, porque el índice evalúa el valor una sola vez. Con `STABLE` el motor puede hacerlo: en el experimento bajó de 195 ms a 0,03 ms. Duplicar el índice o agregar `limit 1` no cambia la causa, y `plpgsql` suele optimizar peor, no mejor."
+  },
+  {
+   "p": "Una función `security definer` consulta `vip` sin esquema y tiene `set search_path = public`. Un usuario crea una tabla temporal llamada `vip` y la llama. ¿Qué pasa?",
+   "o": [
+    "La función lee la tabla temporal del usuario, porque el esquema temporal se busca primero si no se lo ubica al final",
+    "La función lee `public.vip`, porque `set search_path = public` impide que se use cualquier otro esquema",
+    "La función falla con un error, porque no puede haber dos tablas llamadas `vip` en la misma base",
+    "La función lee las dos tablas y devuelve la unión, porque PostgreSQL combina los nombres repetidos"
+   ],
+   "c": 0,
+   "e": "El esquema temporal se busca primero por defecto, aunque `search_path` diga solo `public`. Para evitarlo hay que nombrar la tabla con esquema (`public.vip`) o poner `pg_temp` al final del `search_path`. Dos tablas con el mismo nombre en esquemas distintos sí pueden existir, y PostgreSQL elige una, no las une."
+  },
+  {
+   "p": "Una política de RLS sobre `miembros` usa una subconsulta a la propia tabla `miembros` y PostgreSQL responde «infinite recursion detected in policy». ¿Cómo se resuelve en la práctica?",
+   "o": [
+    "Con una función `security definer` que lea `miembros` sin disparar la política, y usarla en la política",
+    "Desactivando la RLS en `miembros`, porque una tabla no puede protegerse a sí misma",
+    "Cambiando la subconsulta por un `JOIN`, que PostgreSQL no considera recursivo",
+    "Marcando la política como `permissive`, para que no se evalúe a sí misma"
+   ],
+   "c": 0,
+   "e": "La subconsulta vuelve a disparar la política que la contiene, y ese bucle no tiene salida. Una función con permisos del dueño lee la tabla sin que la RLS se aplique adentro, y la política la llama para decidir. Es lo que hace Senda con `soy_miembro`. Desactivar la RLS pierde la protección; reescribir con `JOIN` o cambiar el tipo de política no corta el ciclo."
+  },
+  {
+   "p": "¿Cuál de estas tareas es la que menos conviene resolver con una vista materializada?",
+   "o": [
+    "Un tablero de «bultos en ruta ahora» que los coordinadores miran cada minuto",
+    "El reporte de costos del mes cerrado que revisa el gerente el primer día hábil",
+    "Un ranking semanal de choferes que se publica los lunes a la mañana",
+    "Un resumen histórico de entregas por año para análisis de tendencias"
+   ],
+   "c": 0,
+   "e": "El tablero de «ahora» necesita datos al segundo, y una materializada solo está al día hasta su último refresco: dar un dato viejo como si fuera actual es peor que no mostrarlo. Los otros tres usan datos que cambian poco o que tolerarían un atraso de horas, que es el caso donde una materializada rinde."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística la diferencia entre una vista, una vista materializada y una tabla de resumen, usando el ejemplo de un reporte de bultos pendientes por depósito: qué guarda cada una, cuándo está desactualizada y qué le cuesta a la base. Después contá por qué una vista que «solo oculta una columna» puede igual dejar ver datos que la seguridad de filas protegía.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0917-pg-createview",
+   "nota": "La página oficial de `CREATE VIEW`: las opciones `security_invoker` y `security_barrier`, las vistas que se pueden actualizar y el aviso sobre RLS. Leé la sección de notas para el ejercicio de seguridad."
+  },
+  {
+   "fuente": "bd0917-pg-rules-privileges",
+   "nota": "El capítulo del sistema de reglas sobre permisos, con el ejemplo de la vista insegura que se vio hoy en pequeño. Sirve para entender por qué un filtro de vista no alcanza como seguridad."
+  },
+  {
+   "fuente": "bd0917-pg-volatility",
+   "nota": "La definición exacta de `IMMUTABLE`, `STABLE` y `VOLATILE` y qué optimizaciones habilita cada una. Leelo antes de escribir tu primera función que vaya a usarse en un índice."
+  },
+  {
+   "fuente": "sen29-pg-createfunction",
+   "nota": "La referencia de `CREATE FUNCTION`, con la sección «Writing SECURITY DEFINER Functions Safely» que fundamenta la parte de seguridad de hoy."
+  }
+ ],
+ "videos": [],
+ "terminos": [
+  {
+   "t": "vista",
+   "d": "Consulta guardada en la base con un nombre. No guarda datos: cada vez que se la consulta, el motor la reescribe como la consulta original sobre las tablas de origen."
+  },
+  {
+   "t": "vista materializada",
+   "d": "Vista cuyo resultado se guarda en disco como una tabla. Se lee muy rápido, pero queda desactualizada hasta que se ejecuta `REFRESH MATERIALIZED VIEW`, que PostgreSQL no hace solo."
+  },
+  {
+   "t": "función SQL",
+   "d": "Rutina guardada en la base que recibe argumentos y devuelve un valor o un conjunto de filas. Su cuerpo puede ser una consulta (lenguaje `sql`) o código procedural (`plpgsql`)."
+  },
+  {
+   "t": "volatilidad",
+   "d": "Etiqueta de una función (`IMMUTABLE`, `STABLE` o `VOLATILE`) que declara cuánto se repite su resultado. El planificador la usa para decidir si puede evaluarla una sola vez o usarla con un índice."
+  },
+  {
+   "t": "security definer",
+   "d": "Opción de una función que la hace ejecutarse con los permisos de su dueño y no con los de quien la llama. Permite abrir una puerta controlada a datos protegidos, y exige cuidados con `search_path` y con quién puede ejecutarla."
+  },
+  {
+   "t": "security invoker",
+   "d": "Opción de una vista (desde PostgreSQL 15) que hace que lea las tablas con los permisos de quien la consulta y no con los de su dueño, de modo que la RLS de las tablas siga rigiendo."
+  },
+  {
+   "t": "search_path",
+   "d": "Lista ordenada de esquemas donde PostgreSQL busca los nombres sin esquema. En una función con permisos del dueño conviene fijarla, porque si no la controla quien llama."
+  }
+ ],
+ "siguiente": "Procedimientos almacenados y triggers: lógica que corre dentro de la base, a veces sin que nadie la invoque, y por qué sorprende.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0917-pg-createview",
+   "t": "PostgreSQL 16: CREATE VIEW",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/sql-createview.html"
+  },
+  {
+   "id": "bd0917-pg-rules-views",
+   "t": "PostgreSQL 16: Views and the Rule System",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/rules-views.html"
+  },
+  {
+   "id": "bd0917-pg-rules-privileges",
+   "t": "PostgreSQL 16: Rules and Privileges",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/rules-privileges.html"
+  },
+  {
+   "id": "bd0917-pg-matviews",
+   "t": "PostgreSQL 16: Materialized Views",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/rules-materializedviews.html"
+  },
+  {
+   "id": "bd0917-pg-refresh",
+   "t": "PostgreSQL 16: REFRESH MATERIALIZED VIEW",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/sql-refreshmaterializedview.html"
+  },
+  {
+   "id": "bd0917-pg-volatility",
+   "t": "PostgreSQL 16: Function Volatility Categories",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/xfunc-volatility.html"
+  },
+  {
+   "id": "bd0917-pg-release-15",
+   "t": "PostgreSQL 15: Release Notes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2022,
+   "url": "https://www.postgresql.org/docs/release/15.0/"
+  }
+ ]
+}

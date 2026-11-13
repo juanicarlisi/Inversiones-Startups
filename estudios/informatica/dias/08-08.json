@@ -1,0 +1,646 @@
+{
+ "id": "08-08",
+ "titulo": "GraphQL",
+ "bajada": "Armás y corrés un servidor GraphQL sobre Postgres, contás sus consultas SQL, provocás el problema N+1 y lo arreglás, y ves cómo una consulta de 206 bytes pide 111.110 objetos.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué problema de REST quiere resolver GraphQL y medirlo en pedidos y bytes.",
+  "Leer un esquema GraphQL y escribir consultas y mutaciones contra él, con variables.",
+  "Describir cómo un ejecutor llama a un resolver por campo y por qué eso produce el problema N+1.",
+  "Contar las consultas SQL de un servidor y reducirlas de 101 a 3 con un cargador por lotes.",
+  "Elegir con criterio entre REST, un endpoint a medida y GraphQL, y nombrar las defensas contra consultas demasiado caras."
+ ],
+ "venis_de": "En [@08-02] diseñaste una API REST con recursos y en [@08-07] viste cómo un token dice quién hace el pedido. Hoy cambia la forma del contrato: en lugar de una URL por recurso, un esquema y un solo endpoint donde el cliente describe lo que necesita.",
+ "se_apoya_en": [
+  "07-06",
+  "08-01",
+  "08-02"
+ ],
+ "gancho": [
+  "La pantalla de seguimiento de un operador logístico muestra 50 despachos. Cada fila lleva el número, el estado, el nombre del cliente y la hora del último evento. Con una API REST de recursos chicos (despachos, clientes, eventos), armar esa pantalla cuesta 101 pedidos HTTP: uno para la lista, 50 para los clientes y 50 para los eventos. Lo medí: casi 47.800 bytes para mostrar lo que entra en 6.543.",
+  "Podrías agregar un endpoint hecho justo para esa pantalla. Sirve, hasta que aparece la pantalla del chofer, la del cliente y la del tablero, cada una con otros campos. GraphQL propone otra cosa: un único endpoint donde el cliente describe, campo por campo, la forma de la respuesta que quiere.",
+  "Hoy lo corrés con un servidor real sobre Postgres y vas a ver las dos caras. Gana: un pedido en lugar de 101. Cuesta: el problema de las 101 consultas no desaparece, solo se muda de la red a la base de datos, y una consulta de 206 bytes puede pedirle al servidor 111.110 objetos."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Dos problemas de REST que GraphQL quiso resolver"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una pantalla casi nunca coincide con un recurso. Eso produce dos desajustes que conviene nombrar. El [[sobrefetch]] es traer más de lo que la pantalla usa: la lista de despachos devuelve las 8 columnas y la pantalla solo muestra 2. El [[subfetch]] es que un pedido no alcance y haya que hacer otros: la lista trae `cliente_id`, pero el nombre está en otro recurso, y los eventos en un tercero.",
+    "Para medirlo armé tres versiones de la misma pantalla sobre una base Postgres de 20.000 despachos, 1.000 clientes y 100.000 eventos, todos inventados:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Enfoque",
+    "Pedidos HTTP",
+    "Bytes",
+    "Quién decide la forma"
+   ],
+   "filas": [
+    [
+     "REST con recursos chicos",
+     "101",
+     "~47.800",
+     "El servidor"
+    ],
+    [
+     "REST con un endpoint a medida de la pantalla",
+     "1",
+     "5.479",
+     "El servidor (uno por pantalla)"
+    ],
+    [
+     "GraphQL",
+     "1",
+     "6.543",
+     "El cliente (en cada consulta)"
+    ]
+   ],
+   "cap": "Medido el 13-11-2026, Postgres 16 local, 50 despachos. REST con recursos chicos: la lista con todas las columnas (17.082 bytes) más 50 clientes y 50 listas de eventos, 6 pedidos en paralelo, entre 160 y 260 ms en localhost según la corrida. Los bytes de GraphQL son solo el campo `data`. Los bytes de REST varían unos cientos entre corridas porque mis pruebas agregaron eventos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La diferencia en milisegundos de localhost engaña, porque ahí cada pedido casi no cuesta. En una red real cada ronda de pedidos paga el viaje de ida y vuelta. ESTIMACIÓN con supuestos míos: con seis conexiones simultáneas (el tope habitual de un navegador con HTTP/1.1) los 101 pedidos son unas 17 rondas; si cada viaje tarda 50 ms, son unos 850 ms contra unos 50 ms de un solo pedido. HTTP/2 permite multiplexar los pedidos en una conexión y acorta la diferencia (ver [@05-20]), pero no la elimina.",
+    "GraphQL nació en Facebook en 2012, cuando rehicieron sus aplicaciones móviles como nativas y necesitaban una forma de pedir los datos del News Feed [#api0808-fb-graphql-2015]. Facebook lo publicó como código abierto en 2015 y desde 2019 lo mantiene una fundación neutral dentro de la Linux Foundation [#api0808-graphql-foundation]. Es una especificación de lenguaje y de ejecución; no es una base de datos ni un protocolo de red."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El esquema: un contrato escrito y comprobable"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[esquema GraphQL]] es el documento que declara qué tipos de objeto existen, qué campos tiene cada uno, de qué tipo es cada campo y qué argumentos admite. Se escribe en un lenguaje propio, el SDL. Es el contrato de [@08-01] hecho texto, y el servidor lo exige antes de ejecutar nada. Este es el de mi servidor de práctica:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat esquema.graphql",
+     "s": "\"Un despacho de carga. Datos inventados para la práctica.\"\ntype Despacho {\n  id: ID!\n  estado: Estado!\n  origen: String!\n  destino: String!\n  pesoKg: Float!\n  observaciones: String!\n  cliente: Cliente!\n  eventos: [Evento!]!\n  ultimoEvento: Evento\n}\n\ntype Cliente {\n  id: ID!\n  nombre: String!\n  ciudad: String!\n  despachos(primeros: Int = 10): [Despacho!]!\n}\n\ntype Evento {\n  id: ID!\n  tipo: String!\n  lugar: String!\n  hora: String!\n}\n\nenum Estado { PENDIENTE EN_RUTA ENTREGADO }\n\ntype Query {\n  despacho(id: ID!): Despacho\n  despachos(estado: Estado, primeros: Int = 20): [Despacho!]!\n}\n\ntype Mutation {\n  cerrarDespacho(id: ID!, lugar: String!): Despacho!\n}"
+    }
+   ],
+   "cap": "El esquema del servidor de práctica (graphql-js 17.1.0, Node 22, Postgres 16.15). `!` significa que el valor nunca es nulo; `[Despacho!]!` es una lista no nula de despachos no nulos; `Query` y `Mutation` son las dos puertas de entrada."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una consulta es un texto que copia la forma que querés recibir. La respuesta repite esa forma, campo por campo, y no trae nada más. Con `jq` y `curl` contra mi servidor (`$S` es `http://127.0.0.1:20808`):"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "g() { curl -s -XPOST $S/graphql -H 'Content-Type: application/json' -d \"$(jq -n --arg q \"$1\" '{query:$q}')\"; }",
+     "s": ""
+    },
+    {
+     "c": "g '{ despachos(primeros: 2) { id estado cliente { nombre } } }' | jq -c .",
+     "s": "{\"data\":{\"despachos\":[{\"id\":\"D-000001\",\"estado\":\"EN_RUTA\",\"cliente\":{\"nombre\":\"Cliente 0743 S.A.\"}},{\"id\":\"D-000002\",\"estado\":\"ENTREGADO\",\"cliente\":{\"nombre\":\"Cliente 0215 S.A.\"}}]},\"extensions\":{\"consultasSQL\":2,\"filasLeidas\":4,\"msTotal\":6}}"
+    },
+    {
+     "c": "g '{ despacho(id: \"D-000001\") { id origen destino pesoKg eventos { tipo lugar } } }' | jq -c .data",
+     "s": "{\"despacho\":{\"id\":\"D-000001\",\"origen\":\"Tucumán\",\"destino\":\"Neuquén\",\"pesoKg\":103.31,\"eventos\":[{\"tipo\":\"RETIRADO\",\"lugar\":\"Córdoba\"},{\"tipo\":\"EN_DEPOSITO\",\"lugar\":\"Mendoza\"},{\"tipo\":\"EN_RUTA\",\"lugar\":\"Tucumán\"},{\"tipo\":\"EN_DEPOSITO\",\"lugar\":\"Buenos Aires\"},{\"tipo\":\"ENTREGADO\",\"lugar\":\"Rosario\"}]}}"
+    }
+   ],
+   "cap": "Salida real. La misma URL devuelve dos formas distintas según lo que se pida. El campo `extensions` es un agregado mío (cuenta las consultas SQL del pedido); la especificación permite agregar datos propios ahí."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Como el servidor conoce el esquema, valida la consulta antes de tocar la base: si pedís un campo que no existe, ni siquiera llega a ejecutar un resolver. Una consulta puede llevar variables (`$id`) y un nombre de operación, de modo que el texto de la consulta se escribe una vez y los valores viajan aparte. Para escribir datos se usa una operación `mutation`, que el servidor ejecuta en orden: la documentación de GraphQL explica que sus campos de primer nivel se esperan en serie, mientras que los de una consulta pueden resolverse en paralelo [#api0808-graphql-execution]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -w ' [HTTP %{http_code}]\\n' -XPOST $S/graphql -H 'Content-Type: application/json' -d '{\"query\":\"{ despacho(id: \\\"D-000001\\\") { id pesoKilos } }\"}'",
+     "s": "{\"errors\":[{\"message\":\"Cannot query field \\\"pesoKilos\\\" on type \\\"Despacho\\\". Did you mean \\\"pesoKg\\\"?\"}]} [HTTP 400]"
+    },
+    {
+     "c": "curl -s -w ' [HTTP %{http_code}]\\n' -XPOST $S/graphql -H 'Content-Type: application/json' -d '{\"query\":\"query Uno($id: ID!) { despacho(id: $id) { id estado } }\",\"variables\":{\"id\":\"D-NO-EXISTE\"}}'",
+     "s": "{\"data\":{\"despacho\":null},\"extensions\":{\"consultasSQL\":1,\"filasLeidas\":0,\"msTotal\":0.8}} [HTTP 200]"
+    },
+    {
+     "c": "curl -s -w ' [HTTP %{http_code}]\\n' -XPOST $S/graphql -H 'Content-Type: application/json' -d '{\"query\":\"mutation { cerrarDespacho(id: \\\"D-000011\\\", lugar: \\\"Rosario\\\") { id estado ultimoEvento { tipo lugar } } }\"}'",
+     "s": "{\"data\":{\"cerrarDespacho\":{\"id\":\"D-000011\",\"estado\":\"ENTREGADO\",\"ultimoEvento\":{\"tipo\":\"ENTREGADO\",\"lugar\":\"Rosario\"}}},\"extensions\":{\"consultasSQL\":3,\"filasLeidas\":3,\"msTotal\":2.6}} [HTTP 200]"
+    },
+    {
+     "c": "curl -s -w ' [HTTP %{http_code}]\\n' -XPOST $S/graphql -H 'Content-Type: application/json' -d '{\"query\":\"mutation { cerrarDespacho(id: \\\"D-999999\\\", lugar: \\\"Rosario\\\") { id } }\"}'",
+     "s": "{\"errors\":[{\"message\":\"No existe el despacho D-999999\",\"locations\":[{\"line\":1,\"column\":12}],\"path\":[\"cerrarDespacho\"]}],\"data\":null,\"extensions\":{\"consultasSQL\":1,\"filasLeidas\":0,\"msTotal\":0.9}} [HTTP 200]"
+    }
+   ],
+   "cap": "Salida real, en orden: un campo inexistente (400, sin ejecutar nada), un despacho inexistente (no es un error: el campo admite nulo, 200), una mutación que escribe y devuelve el resultado, y una mutación que falla (200 con `errors`). Mi mutación hace dos escrituras sin transacción porque es una demostración; en un sistema real irían en una."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en los códigos HTTP. Según graphql.org, una validación que falla suele responder 400, y una respuesta con `data` no nulo debe ser 2xx aunque traiga errores, porque HTTP no tiene un código para el éxito parcial [#api0808-graphql-serving]. Mi servidor usa el tipo `application/json`, el histórico, donde incluso una mutación fallida devuelve 200. Es un cambio de hábito respecto de [@08-03]: en REST el código dice el resultado; en GraphQL hay que mirar el cuerpo.",
+    "Hay una última pieza: la [[introspección]]. El esquema se puede consultar a sí mismo con campos que empiezan con `__`, y de ahí salen la documentación automática, los editores con autocompletado y los generadores de tipos para el cliente."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "g '{ __type(name: \"Despacho\") { fields { name } } }' | jq -c '[.data.__type.fields[].name]'",
+     "s": "[\"id\",\"estado\",\"origen\",\"destino\",\"pesoKg\",\"observaciones\",\"cliente\",\"eventos\",\"ultimoEvento\"]"
+    }
+   ],
+   "cap": "Salida real. Un cliente no necesita un documento aparte para saber qué puede pedir."
+  },
+  {
+   "t": "pensa",
+   "x": "Pedís `despacho(id: \"D-NO-EXISTE\")` y, en otro pedido, un campo `pesoKilos` que no está en el esquema. ¿Qué responde el servidor en cada caso y con qué código?",
+   "resp": "El despacho inexistente devuelve `{\"data\":{\"despacho\":null}}` con 200: el campo admite nulo y no hay nada que fallar. El campo inexistente es un error de validación: responde `errors` con 400 y no ejecuta ningún resolver ni toca la base. Por eso el esquema funciona como contrato: lo mal escrito se detecta antes."
+  },
+  {
+   "t": "h",
+   "x": "Resolvers: una función por campo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[resolver]] es la función que sabe producir el valor de un campo. El esquema dice qué existe; los resolvers dicen de dónde sale cada cosa. Cuando llega una consulta, el ejecutor la recorre como un árbol: llama al resolver de `despachos`, y por cada despacho que vuelve llama a los resolvers de `cliente` y `ultimoEvento`, y así hasta las hojas. La documentación de GraphQL lo resume diciendo que cada campo de cada tipo tiene detrás una función resolver escrita por quien hace el servidor [#api0808-graphql-execution]. Cada resolver recibe el objeto padre, los argumentos y un contexto compartido durante el pedido, donde suele ir la conexión a la base."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Recorte de servidor.cjs: los resolvers «ingenuos». Cada uno recibe (padre, argumentos, contexto).\nconst R = {\n  Query: {\n    despachos: (_, { estado, primeros }, ctx) =>\n      ctx.sql(\"select * from despachos order by id limit $1\", [limitar(primeros, 20)]),\n  },\n  Despacho: {\n    // se ejecuta UNA VEZ POR CADA despacho de la lista, y no sabe que hay 49 hermanos\n    cliente: (d, _, ctx) =>\n      ctx.sql(\"select * from clientes where id = $1\", [d.cliente_id]).then((f) => f[0]),\n    ultimoEvento: (d, _, ctx) =>\n      ctx.sql(\"select * from eventos where despacho_id = $1 order by hora desc limit 1\", [d.id]).then((f) => f[0] ?? null),\n  },\n};",
+   "cap": "Los resolvers ingenuos del servidor de práctica, recortados. No es un ejemplo de buena práctica: es el código que escribiría casi cualquiera en el primer intento."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La lista de picking que nadie lee entera",
+   "x": "Es como una lista de picking repartida entre sectores del depósito: la consulta anota qué se necesita, y cada sector (cada resolver) trae su parte. Nadie mira la lista completa. El que trae el cliente de cada despacho recibe un despacho por vez y ve un solo renglón. La analogía deja de valer en que un supervisor de depósito sí ve todos los renglones y agrupa los viajes. El ejecutor de GraphQL, por defecto, no lo hace."
+  },
+  {
+   "t": "h",
+   "x": "El problema N+1"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[problema N+1]] aparece cuando, para mostrar una lista de N elementos, el sistema hace una consulta para obtener la lista y otras N, una por elemento, para traer algo relacionado. Con 50 despachos y dos campos relacionados, mi servidor hace 1 + 50 + 50 = 101 consultas SQL. No es un invento de GraphQL: las bibliotecas que cargan relaciones bajo demanda (muchos ORM) lo producen igual. Pero GraphQL lo hace muy fácil de cometer, porque cada resolver es local, no sabe nada de sus hermanos, y el cliente puede componer relaciones como quiera.",
+    "Para verlo conté las consultas dentro del servidor. El modo «ingenuo» usa los resolvers de arriba; el modo «lote» usa el cargador que viene a continuación. La espera de 1 y 5 ms la agregué yo, reteniendo una conexión del pool antes de cada consulta, para simular una base de datos más lejos:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node prueba.cjs n1",
+     "s": "== N+1: la pantalla de 50 despachos (id, estado, nombre del cliente, hora del último evento)\nmodo=ingenuo latencia simulada a la base=0 ms | consultas SQL=101 | filas=150 | mediana de 15 corridas=33.2 ms\nmodo=lote    latencia simulada a la base=0 ms | consultas SQL=3 | filas=150 | mediana de 15 corridas=12.3 ms\nmodo=ingenuo latencia simulada a la base=1 ms | consultas SQL=101 | filas=150 | mediana de 15 corridas=46.1 ms\nmodo=lote    latencia simulada a la base=1 ms | consultas SQL=3 | filas=150 | mediana de 15 corridas=12.9 ms\nmodo=ingenuo latencia simulada a la base=5 ms | consultas SQL=101 | filas=150 | mediana de 15 corridas=79.9 ms\nmodo=lote    latencia simulada a la base=5 ms | consultas SQL=3 | filas=150 | mediana de 15 corridas=17.7 ms"
+    }
+   ],
+   "cap": "Salida real de una de dos corridas (la otra dio 10 ms contra 3 ms, 23 contra 6 y 66 contra 14: la VM está compartida y los tiempos absolutos varían, la proporción de 3 a 4,5 veces se mantuvo). El pool tiene 10 conexiones. Las filas leídas son iguales: lo que cambia es cuántas veces se le pregunta a la base."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Notá que las 50 consultas de clientes no se hacen una detrás de otra: salen juntas y hacen cola en las 10 conexiones del pool. Por eso el tiempo no se multiplica por 50, pero el trabajo sí: 101 idas a la base, 101 planes, 101 respuestas, y cuanto más lejos esté la base, más pesa.",
+    "La solución estándar es [[DataLoader]], una biblioteca del ecosistema GraphQL (versión 2.2.3). Su idea es simple: cada resolver pide su dato con `load(clave)` y no consulta nada. DataLoader junta todas las claves pedidas dentro de un mismo turno del bucle de eventos y llama una sola vez a la función de lote con todas ellas [#api0808-dataloader]. Dos reglas del contrato: la función de lote debe devolver un arreglo del mismo largo y en el mismo orden que las claves, y el cargador debe crearse nuevo en cada pedido."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// La misma relación, con DataLoader (paquete dataloader 2.2.3). El contexto se crea de nuevo en cada pedido.\ncliente: (d, _, ctx) =>\n  ctx.cargador(\"clientes\", async (ids) => {\n    const filas = await ctx.sql(\"select * from clientes where id = any($1)\", [ids]);\n    const porId = new Map(filas.map((f) => [f.id, f]));\n    return ids.map((id) => porId.get(id));          // mismo largo y mismo orden que las claves\n  }).load(d.cliente_id),",
+   "cap": "El resolver `cliente` con DataLoader, recortado del servidor de práctica. En lugar de una consulta por despacho, una sola con `any($1)` para todos los clientes distintos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para que veas que no hay magia, este es un DataLoader de juguete de 15 líneas, con un ejecutor mínimo y una «base» que cuenta sus consultas. Corré el código y después cambiá la cantidad de clientes distintos (`length: 20`) para ver cómo cambia el tamaño del lote. Fijate en la tercera línea de la salida, que es un error real y silencioso:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Mini ejecutor: un resolver por campo y un DataLoader de juguete. La «base» es un array que cuenta sus consultas. Datos inventados.\nconst clientes = Array.from({ length: 20 }, (_, i) => ({ id: i + 1, nombre: `Cliente ${String(i + 1).padStart(4, '0')} S.A.` }));\nconst despachos = Array.from({ length: 50 }, (_, i) => ({ id: 'D-' + String(i + 1).padStart(6, '0'), clienteId: ((i * 7) % 20) + 1 }));\n\nfunction crearBase() {\n  const b = { consultas: 0, lotes: [] };\n  b.despachos = async (n) => { b.consultas++; return despachos.slice(0, n); };\n  b.clientePorId = async (id) => { b.consultas++; return clientes.find((c) => c.id === id); };\n  b.clientesPorIds = async (ids) => { b.consultas++; b.lotes.push(ids.length); return ids.map((id) => clientes.find((c) => c.id === id)); };\n  // un lote MAL escrito: devuelve en el orden de la tabla, no en el orden de las claves pedidas\n  b.clientesPorIdsMal = async (ids) => { b.consultas++; b.lotes.push(ids.length); return clientes.filter((c) => ids.includes(c.id)); };\n  return b;\n}\n\n// DataLoader de juguete: junta las load() del mismo turno del bucle de eventos y llama UNA vez a la función de lote.\nfunction cargador(lote) {\n  let cola = [];\n  const cache = new Map();\n  return {\n    load(clave) {\n      if (cache.has(clave)) return cache.get(clave); // la misma clave, en el mismo pedido, no se vuelve a pedir\n      const p = new Promise((ok) => {\n        cola.push({ clave, ok });\n        if (cola.length === 1) queueMicrotask(async () => {\n          const tanda = cola; cola = [];\n          const valores = await lote(tanda.map((x) => x.clave)); // debe volver en el mismo orden que las claves\n          tanda.forEach((x, i) => x.ok(valores[i]));\n        });\n      });\n      cache.set(clave, p);\n      return p;\n    },\n  };\n}\n\nasync function pantalla(modo) {\n  const base = crearBase();\n  const cl = cargador((ids) => (modo === 'lote-mal' ? base.clientesPorIdsMal(ids) : base.clientesPorIds(ids)));\n  const lista = await base.despachos(50);                       // Query.despachos\n  const filas = await Promise.all(lista.map(async (d) => {      // Despacho.cliente: un resolver por despacho\n    const c = modo === 'ingenuo' ? await base.clientePorId(d.clienteId) : await cl.load(d.clienteId);\n    return { id: d.id, esperado: d.clienteId, recibido: c.id };\n  }));\n  const mal = filas.filter((f) => f.esperado !== f.recibido).length;\n  console.log(modo.padEnd(9), '| consultas:', String(base.consultas).padStart(3), '| tamaño de los lotes:', JSON.stringify(base.lotes), '| despachos con el cliente equivocado:', mal);\n}\nfor (const m of ['ingenuo', 'lote', 'lote-mal']) await pantalla(m);\n",
+   "ejecutable": true,
+   "cap": "Un DataLoader de juguete sobre una base de arreglos, con datos inventados. Probado en Node 22. Los 50 despachos usan 20 clientes distintos, así que el lote tiene 20 claves y no 50: la caché del pedido junta las repetidas."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Dos errores que DataLoader no avisa",
+   "x": [
+    "**Orden roto.** DataLoader asigna los valores a las claves por posición. Si tu función de lote devuelve las filas en el orden de la tabla y no en el de las claves, nada falla: cada despacho recibe el cliente de otro. En la salida de arriba, 45 de 50 quedaron con el cliente equivocado. La base devuelve filas en cualquier orden, así que hay que reordenar siempre.",
+    "**Un cargador compartido entre pedidos.** Su caché guarda lo que ya cargó. Si el cargador vive más que un pedido, el pedido de una persona puede recibir datos que cargó otra. La documentación de DataLoader recomienda crearlo al empezar cada pedido [#api0808-dataloader]."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Con DataLoader la pantalla pasó de 101 consultas a 3. ¿Por qué 3 y no 1? ¿Y qué pasaría con 500 despachos en lugar de 50?",
+   "resp": "Son 3 porque hay tres lugares donde se pide datos: la lista, los clientes y los últimos eventos. El cargador agrupa por campo, no por pantalla. Con 500 despachos seguirían siendo 3 consultas, cada una con más claves: el número de consultas depende de la forma de la consulta GraphQL, no de la cantidad de datos. Con el modo ingenuo serían 1.001."
+  },
+  {
+   "t": "h",
+   "x": "REST contra GraphQL: qué se gana y qué se paga"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo que se gana es concreto. El cliente elige los campos, así que no hay sobrefetch ni hace falta un endpoint nuevo por pantalla. Una pantalla, un pedido. El esquema da tipos y herramientas, y agregar un campo no rompe a nadie, porque los clientes viejos nunca lo piden (en [@08-13] vas a ver por qué eso importa para evolucionar una API).",
+    "Lo que se paga también es concreto:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Aspecto",
+    "En REST",
+    "En GraphQL"
+   ],
+   "filas": [
+    [
+     "Caché HTTP",
+     "Cada recurso tiene su URL y un GET se puede guardar en cachés intermedios",
+     "Una sola URL y casi siempre POST: el caché HTTP ayuda poco; el cliente necesita identificadores globales para su propia caché [#api0808-graphql-caching]"
+    ],
+    [
+     "Errores",
+     "El código de estado cuenta el resultado",
+     "200 con un campo `errors`, o resultados parciales: hay que leer el cuerpo [#api0808-graphql-serving]"
+    ],
+    [
+     "Autorización",
+     "Por ruta y método",
+     "Por campo, dentro de los resolvers, para poder dar respuestas parciales [#api0808-graphql-serving]"
+    ],
+    [
+     "Monitoreo",
+     "Una ruta por recurso en los registros",
+     "Todo es `POST /graphql`: hay que registrar el nombre de la operación"
+    ],
+    [
+     "Costo de un pedido",
+     "Lo fija el servidor al diseñar el endpoint",
+     "Lo fija el cliente con cada consulta"
+    ]
+   ],
+   "cap": "Las cinco diferencias que más pesan al operar. La última tiene su propia sección."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Y REST puede arreglar bastante por su cuenta: parámetros para pedir solo algunas columnas, para incluir recursos relacionados en la respuesta, o un endpoint a medida (la segunda fila de la primera tabla). PostgREST, que usa Supabase, permite elegir columnas y anidar tablas relacionadas en la misma URL [#api0808-supabase-joins]. La decisión real no es «REST trae de más y GraphQL no». Es quién escribe la forma de la respuesta, el servidor o el cliente, y cuántas formas distintas hay que mantener."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El costo escondido: una consulta chica que pide un millón"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si el cliente compone la consulta, puede componer una enorme. Mi esquema tiene un ciclo: un despacho tiene un cliente, y un cliente tiene despachos. Eso permite escribir `despachos { cliente { despachos { cliente { despachos { id } } } } }` con tantos niveles como se quiera, y cada nivel de lista multiplica por 10. Probé de 1 a 5 niveles, con el servidor en modo «lote»:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node prueba.cjs prof",
+     "s": "== consultas cada vez más profundas (cada nivel de despachos multiplica por 10)\nniveles=1 modo=lote    consulta=34 B | respuesta=267 B | despachos devueltos=10 | SQL=1 | 13 ms\nniveles=2 modo=lote    consulta=77 B | respuesta=2328 B | despachos devueltos=110 | SQL=3 | 6 ms\nniveles=3 modo=lote    consulta=120 B | respuesta=22928 B | despachos devueltos=1110 | SQL=3 | 8 ms\nniveles=4 modo=lote    consulta=163 B | respuesta=228929 B | despachos devueltos=11110 | SQL=3 | 61 ms\nniveles=5 modo=lote    consulta=206 B | respuesta=2288930 B | despachos devueltos=111110 | SQL=3 | 748 ms\n(en modo ingenuo, los niveles 2 y 3 hacen 21 y 221 consultas SQL)"
+    }
+   ],
+   "cap": "Salida real, recortada. «Despachos devueltos» cuenta repeticiones: como un cliente vuelve a sus propios despachos, el ciclo devuelve las mismas filas muchas veces. Los tiempos de los niveles 4 y 5 variaron entre 37 y 61 ms y entre 267 y 748 ms en tres corridas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una consulta de 206 bytes produce una respuesta de 2,3 megabytes: unas 11.000 veces más grande. Y la cuenta de SQL se queda en 3 porque el cargador, con su caché del pedido, no vuelve a pedir lo que ya tiene. Es decir, DataLoader arregla el N+1 pero no la amplificación: el servidor igual arma, convierte y envía 111.110 objetos. Con un nivel más serían un millón. Por eso graphql.org trata esto como seguridad y no como optimización [#api0808-graphql-security]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las defensas que describe, de más simple a más compleja: limitar el tamaño de toda lista paginada (mi servidor recorta `primeros` a 100); limitar la profundidad; limitar el número de campos y de alias por operación, porque 100 alias del mismo campo son anchos pero poco profundos; estimar un costo antes de ejecutar y rechazar lo que lo supere; poner un tiempo máximo de ejecución; y, cuando solo hablan clientes propios, aceptar solo consultas conocidas de antemano («documentos de confianza»). Escribí un analizador de juguete para ver el mecanismo:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Recorte de servidor.cjs: un analizador de juguete que mira la consulta ANTES de ejecutarla.\nfunction analizar(doc) {\n  const op = doc.definitions.find((d) => d.kind === \"OperationDefinition\");\n  let prof = 0;\n  const visitar = (tipo, sel, nivel) => {\n    let costo = 0;\n    for (const s of sel.selections) {\n      if (s.kind !== \"Field\" || s.name.value.startsWith(\"__\")) continue;\n      const def = tipo.getFields()[s.name.value];\n      const base = G.getNamedType(def.type);\n      prof = Math.max(prof, nivel + 1);\n      let mult = 1;                                   // si el campo es una lista, multiplica por «primeros»\n      if (G.isListType(G.getNullableType(def.type))) {\n        const arg = (s.arguments ?? []).find((a) => a.name.value === \"primeros\");\n        mult = arg ? Math.min(100, Number(arg.value.value)) : 10;\n      }\n      const hijos = s.selectionSet && G.isObjectType(base) ? visitar(base, s.selectionSet, nivel + 1) : 0;\n      costo += mult * (1 + hijos);\n    }\n    return costo;\n  };\n  return { profundidad: prof, objetos: visitar(schema.getQueryType(), op.selectionSet, 0) };\n}\n// /graphql-protegido rechaza con 400 si profundidad > 6 u objetos estimados > 5000",
+   "cap": "Un analizador de profundidad y costo estimado, recortado. No resuelve variables, fragmentos ni alias; en producción se usa una biblioteca mantenida y se combinan varias defensas."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node prueba.cjs prof   # las líneas «protegido» (ruta /graphql-protegido)",
+     "s": "niveles=3 protegido -> HTTP 200 ejecutada, 22928 B\nniveles=4 protegido -> HTTP 400 Consulta rechazada antes de ejecutar: profundidad 8 (máx. 6), objetos estimados 23330 (máx. 5000)\nniveles=5 protegido -> HTTP 400 Consulta rechazada antes de ejecutar: profundidad 10 (máx. 6), objetos estimados 233330 (máx. 5000)"
+    }
+   ],
+   "cap": "Salida real, recortada. La profundidad que muestra cuenta cada campo, incluido el último. La consulta que rechaza no llegó a la base."
+  },
+  {
+   "t": "pensa",
+   "x": "Un servidor limita la profundidad a 6. ¿Alcanza con eso para que ninguna consulta le haga daño?",
+   "resp": "No. Una consulta poco profunda puede ser muy ancha: pedir el mismo campo cien veces con alias distintos, o mandar muchas operaciones en un solo pedido, no pasa ningún límite de profundidad y obliga a resolver cien veces lo mismo. graphql.org recomienda sumar límites de ancho, de costo estimado y de tiempo, además del de profundidad [#api0808-graphql-security]."
+  },
+  {
+   "t": "h",
+   "x": "Cuándo conviene y cuándo no"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo que sigue es criterio mío, no norma. GraphQL rinde cuando varios clientes (una app móvil, una web, un tablero) piden combinaciones distintas de los mismos datos; cuando la red es lenta y cada viaje cuenta; cuando los datos tienen forma de grafo, con relaciones que se recorren; o cuando los equipos de frontend y backend avanzan por separado y quieren un contrato tipado.",
+    "Rinde menos cuando hay pocas pantallas fijas (un endpoint a medida o una vista SQL resuelven lo mismo con menos piezas); cuando la API es pública y vive de un caché HTTP fuerte; o cuando el equipo es chico y no tiene tiempo de operar lo que viene con el paquete: cargadores por lotes, límites de costo y monitoreo por operación. Una pregunta práctica para decidir: ¿cuántas formas distintas de respuesta necesitan mis clientes? Si es una, GraphQL es sobrecosto. Si son diez y cambian cada semana, ya no."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "En Senda: no hay GraphQL, y el mismo problema se resuelve en SQL"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Esto corresponde al commit `25e08fa` (9 de noviembre de 2026); el código cambia, la forma permanece. Busqué `graphql` sin distinguir mayúsculas en todo el repositorio de la app (código, migraciones, configuración y `package.json`) y no aparece en ninguna parte; `senda/mapa-tecnico.md` también lo lista entre lo que Senda no usa. La app le habla a la base con REST (`/rest/v1/<tabla>`) y con funciones SQL por la misma vía (`/rest/v1/rpc/<función>`), que es lo que ya viste en [@07-29]. Y aun así tiene los dos desajustes de hoy, así que los resuelve de tres maneras."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Tres formas de evitar el sobrefetch y el subfetch sin GraphQL",
+   "x": [
+    "**Elegir columnas.** Dieciséis líneas de `src/` usan `select=` con la lista de columnas que hacen falta, por ejemplo `perfiles?id=eq.<uid>&select=id,apodo,codigo,pais,nivel,admin` en `src/util/cuenta.ts`. Es el equivalente del sobrefetch resuelto: solo viaja lo pedido. Una sola línea usa `select=*`. Ninguna de esas líneas anida tablas relacionadas, aunque PostgREST lo permitiría.",
+    "**Una vista que ya trae lo relacionado.** `mis_partidas` (creada en `20261101000000_juntos.sql` y redefinida en `20261119000000_rival_nombre.sql`) devuelve cada duelo con el alias y el nombre del rival, calculados en la base con un `select` anidado. La app hace un solo pedido en `cargarPartidas` (`src/util/juntos.ts`) y no tiene que buscar el nombre del rival uno por uno.",
+    "**Una función por pantalla.** `mis_novedades()` (en `20261111000000_novedades.sql`) devuelve en un solo JSON, en una llamada, los pedidos de amistad, los duelos donde te toca, los terminados, las invitaciones a grupos y los torneos: lo que muestra «Te esperan» en Inicio. Es el «endpoint a medida» de la primera tabla, escrito en SQL. Como todo se junta dentro de Postgres, no hay N+1 entre el teléfono y el servidor."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/util/juntos.ts",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261119000000_rival_nombre.sql",
+    "supabase/migrations/20261111000000_novedades.sql"
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "El precio de esa elección es el que ya conocés: una función o una vista por cada forma de respuesta. La app llama a al menos 52 funciones SQL distintas con `rpc(\"…\")`, y cada una es un contrato que alguien escribió a mano. GraphQL cambiaría ese trabajo por flexibilidad, a cambio de todo lo que viste en las últimas dos secciones. Para una app con una sola interfaz, escrita por el mismo equipo que la base, la elección es razonable. Es mi opinión, no un hecho."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "pg_graphql: una puerta que Supabase puede abrir y Senda no usa",
+   "x": [
+    "Supabase ofrece GraphQL sobre la base con la extensión `pg_graphql`, en la dirección `/graphql/v1` de cada proyecto, y dice que respeta los roles, los permisos y las políticas de seguridad por filas [#api0808-supabase-graphql]. Las migraciones de Senda solo crean dos extensiones, `pg_cron` y `pg_net`, y la app nunca llama a `/graphql/v1`. Lo que no puedo saber desde el código es si la extensión está activada en el proyecto real: es un ajuste del panel (Database, Extensions). Una pregunta concreta para quien lo administre: si apareciera activada sin usarse, sería otra entrada a los mismos datos, protegida por las mismas cerraduras (RLS, que el mapa verificó en las 41 tablas), pero con más superficie que revisar."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "src/util/cuenta.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y estado al 13-11-2026",
+   "x": [
+    "Corrí `graphql` 17.1.0 (la última versión en npm al 13-11-2026), `dataloader` 2.2.3, `pg` 8.23.1 y Postgres 16.15. La página de la especificación (`spec.graphql.org`, leída el 13-11-2026) lista como último lanzamiento el de «September 2026», fechado el 12 de noviembre de 2026, y antes los de septiembre de 2025 y octubre de 2021 [#api0808-graphql-spec]. No leí esa versión nueva: lo que cuento del lenguaje sale de la documentación de graphql.org. La especificación de GraphQL sobre HTTP sigue siendo un borrador que no está finalizado, según graphql.org [#api0808-graphql-serving].",
+    "Según Supabase, desde `pg_graphql` 1.6.0 la introspección viene desactivada y se activa por esquema [#api0808-supabase-pg-graphql]."
+   ]
+  }
+ ],
+ "recap": [
+  "GraphQL nació para dos desajustes de REST: el **sobrefetch** (traer de más) y el **subfetch** (hacer varios pedidos para una pantalla). Medido: 101 pedidos y ~47.800 bytes contra 1 pedido y 6.543 bytes.",
+  "Un **esquema GraphQL** declara tipos, campos y argumentos; el servidor valida la consulta contra él antes de ejecutarla. La respuesta repite la forma de la consulta, y los errores de validación son 400.",
+  "Un **resolver** es la función que produce un campo. El ejecutor recorre la consulta como un árbol y llama a uno por campo; cada resolver ve solo a su padre, no a sus hermanos.",
+  "El **problema N+1** es una consulta para la lista y N para lo relacionado: 101 en la pantalla de 50. DataLoader junta las claves de un mismo turno y las pide en lote: 3 consultas. El lote debe devolver el mismo orden, y el cargador se crea por pedido.",
+  "Frente a REST se gana un pedido por pantalla y un contrato tipado; se paga caché HTTP, códigos de estado menos informativos, autorización por campo y monitoreo por operación. REST también puede resolverlo con columnas elegidas, anidado o endpoints a medida.",
+  "Como el cliente compone la consulta, una de 206 bytes pidió 111.110 objetos. DataLoader no arregla eso: hacen falta límites de profundidad, de ancho, de costo y de tiempo, o consultas conocidas de antemano.",
+  "Senda no usa GraphQL: elige columnas con `select=`, usa la vista `mis_partidas` y la función `mis_novedades()` para traer todo junto, y el esquema GraphQL de Supabase (`pg_graphql`) solo aparecería si alguien activara la extensión."
+ ],
+ "repaso": [
+  {
+   "p": "Una pantalla muestra 40 pedidos con el nombre del cliente de cada uno. El resolver de `cliente` hace una consulta por pedido y no usa ningún cargador. ¿Cuántas consultas SQL hace el servidor?",
+   "o": [
+    "40, porque cada pedido necesita una consulta propia de su cliente",
+    "1, porque el esquema le permite a la base resolver todo con un join",
+    "2, una para la lista y otra con todos los clientes juntos",
+    "41, una para la lista y una más por cada uno de los 40 pedidos"
+   ],
+   "c": 3,
+   "e": "Es el problema N+1: 1 consulta para la lista y 40 para los clientes, 41 en total. 40 olvida la consulta de la lista, 2 describe lo que haría un cargador por lotes y 1 requeriría escribir el join a mano en el resolver; el esquema no lo hace solo."
+  },
+  {
+   "p": "Una función de lote de DataLoader recibe las claves [3, 1, 2] y devuelve las filas ordenadas por id: [fila 1, fila 2, fila 3]. ¿Qué pasa?",
+   "o": [
+    "DataLoader reordena solo, porque conoce el id de cada fila devuelta",
+    "Cada clave recibe la fila de otra, sin ningún error ni aviso",
+    "DataLoader lanza un error porque el orden no coincide con las claves",
+    "Solo falla la primera clave, y las otras dos reciben bien su fila"
+   ],
+   "c": 1,
+   "e": "DataLoader empareja claves y valores por posición y solo verifica que el largo coincida. Con ese orden, la clave 3 recibe la fila 1, la 1 la fila 2 y la 2 la fila 3. Hay que reordenar las filas según las claves antes de devolverlas."
+  },
+  {
+   "p": "Un cliente pide el campo `pesoKilos`, que no existe en el esquema. ¿Qué hace un servidor GraphQL típico?",
+   "o": [
+    "Rechaza la consulta al validarla, con un 400, sin ejecutar resolvers",
+    "Ejecuta el resto de la consulta y devuelve `null` en ese campo",
+    "Responde 404, porque la ruta del campo no existe en el servidor",
+    "Pregunta a la base de datos si hay una columna con ese nombre"
+   ],
+   "c": 0,
+   "e": "La validación contra el esquema ocurre antes de ejecutar: un campo inexistente produce `errors` con 400 y no llega a ningún resolver ni a la base. No hay una ruta por campo (todo va a un endpoint) y el servidor no consulta la base para validar."
+  },
+  {
+   "p": "En lugar de GraphQL, un equipo agrega a su API REST un endpoint hecho a medida de la pantalla. ¿Qué cambia respecto de GraphQL en esa pantalla?",
+   "o": [
+    "Hace más pedidos HTTP y trae más bytes que la versión GraphQL",
+    "Es imposible, porque REST exige un endpoint por cada tabla",
+    "Hace los mismos pedidos y bytes, y la forma la fija el servidor",
+    "Evita el N+1 en la base, cosa que GraphQL nunca puede hacer"
+   ],
+   "c": 2,
+   "e": "Un endpoint a medida da un pedido y pocos bytes, como GraphQL (medí 5.479 contra 6.543). Lo que cambia es quién decide la forma y cuántos endpoints hay que mantener. REST no exige un endpoint por tabla, y GraphQL sí puede evitar el N+1 con un cargador."
+  },
+  {
+   "p": "Un servidor GraphQL ya usa DataLoader y hace 3 consultas SQL por pedido. Un cliente manda una consulta de 200 bytes con cinco niveles de listas anidadas que devuelve 100.000 objetos. ¿Por qué sigue siendo un problema?",
+   "o": [
+    "Porque DataLoader desactiva su caché cuando la lista tiene más de mil elementos",
+    "Porque el servidor igual arma y envía 100.000 objetos; DataLoader no reduce eso",
+    "Porque tres consultas SQL son siempre demasiado para un solo pedido",
+    "Porque las consultas anidadas dejan de validarse contra el esquema"
+   ],
+   "c": 1,
+   "e": "DataLoader reduce las consultas a la base, no lo que el servidor construye y serializa. Esa amplificación se frena con límites de profundidad, ancho, costo y tiempo. La caché del cargador no se desactiva por tamaño, y las consultas anidadas se validan igual."
+  },
+  {
+   "p": "¿Por qué el caché HTTP ayuda menos en una API GraphQL típica que en una REST?",
+   "o": [
+    "Porque GraphQL nunca usa HTTP y no hay encabezados de caché",
+    "Porque las respuestas de GraphQL son siempre demasiado grandes para guardarse",
+    "Porque GraphQL prohíbe repetir una consulta idéntica dentro de un minuto",
+    "Porque todo va a una sola URL, casi siempre con POST, y no hay URL por recurso"
+   ],
+   "c": 3,
+   "e": "El caché HTTP guarda respuestas por URL, y en REST cada recurso tiene la suya. En GraphQL hay un endpoint único y los pedidos suelen ser POST, así que no hay una clave por recurso. GraphQL sí usa HTTP en la práctica, no prohíbe repetir consultas y el tamaño no es la causa."
+  },
+  {
+   "p": "Senda carga lo que muestra «Te esperan» llamando una sola vez a la función SQL `mis_novedades()`. ¿Qué problema de los vistos evita, y por qué no hay N+1 entre el teléfono y el servidor?",
+   "o": [
+    "El subfetch, porque la función junta todo dentro de Postgres y devuelve un solo JSON",
+    "El sobrefetch, porque la función devuelve siempre menos bytes que una vista",
+    "El subfetch, porque la función es un resolver GraphQL con DataLoader adentro",
+    "La amplificación, porque la función limita la profundidad de las consultas"
+   ],
+   "c": 0,
+   "e": "La función arma los cinco bloques con SQL dentro de la base y los devuelve en un JSON: un viaje en lugar de varios (subfetch). No es un resolver GraphQL (Senda no usa GraphQL), no se trata de bytes menores y la amplificación por consultas anidadas no existe cuando la forma de la respuesta es fija."
+  }
+ ],
+ "feynman": "Explicale a alguien de un depósito, sin decir «API», por qué pedirle al sistema «dame estos campos» en lugar de ir pidiendo un dato por vez cambia la cantidad de viajes, y qué riesgo trae que quien pide pueda armar listas tan largas como quiera. Usá tu propia analogía, que no sea la de la lista de picking.",
+ "para_profundizar": [
+  {
+   "fuente": "api0808-graphql-security",
+   "nota": "La guía oficial de seguridad: paginar listas, límites de profundidad, ancho y costo, y documentos de confianza. Es el texto que respalda la parte más importante de hoy."
+  },
+  {
+   "fuente": "api0808-dataloader",
+   "nota": "El README de DataLoader, corto y claro. Leé las secciones de lotes y de caché por pedido, con el contrato de la función de lote."
+  },
+  {
+   "fuente": "api0808-graphql-serving",
+   "nota": "Cómo servir GraphQL sobre HTTP: método, cuerpo, códigos de estado y dónde va la autenticación y la autorización. Sirve para operar lo que viste hoy."
+  },
+  {
+   "fuente": "api0808-supabase-joins",
+   "nota": "Cómo elegir columnas y anidar tablas relacionadas con la API REST de Supabase, que es lo que Senda usa en lugar de GraphQL."
+  }
+ ],
+ "videos": [
+  {
+   "q": "GraphQL N+1 problem DataLoader explained",
+   "por_que": "Para ver el problema N+1 y el lote con otro ejemplo, en pantalla y paso a paso."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "esquema GraphQL",
+   "d": "El documento que declara los tipos, los campos, los argumentos y las operaciones de una API GraphQL, escrito en un lenguaje propio (SDL). El servidor valida cada consulta contra él antes de ejecutarla."
+  },
+  {
+   "t": "resolver",
+   "d": "La función que produce el valor de un campo de un esquema GraphQL. Recibe el objeto padre, los argumentos y un contexto, y el ejecutor llama a uno por cada campo pedido."
+  },
+  {
+   "t": "problema N+1",
+   "d": "Hacer una consulta para obtener una lista de N elementos y otras N, una por elemento, para traer algo relacionado. Es 1 + N idas a la base en lugar de 2, y se arregla agrupando las claves en una sola consulta."
+  },
+  {
+   "t": "DataLoader",
+   "d": "Biblioteca del ecosistema GraphQL que junta las peticiones de datos de un mismo turno del bucle de eventos y llama una vez a una función de lote. Su caché vive lo que dura un pedido."
+  },
+  {
+   "t": "sobrefetch",
+   "d": "Traer más datos de los que la pantalla usa, por ejemplo las 8 columnas de una fila cuando se muestran 2. Gasta bytes y tiempo de red."
+  },
+  {
+   "t": "subfetch",
+   "d": "Que un pedido no alcance y haya que hacer otros para completar una pantalla, por ejemplo pedir la lista y después cada cliente por separado. Gasta viajes de red."
+  },
+  {
+   "t": "introspección",
+   "d": "La capacidad de un esquema GraphQL de responder consultas sobre sí mismo (qué tipos y campos tiene), con campos que empiezan con dos guiones bajos. De ahí salen la documentación automática y los generadores de tipos."
+  }
+ ],
+ "siguiente": "RPC, gRPC y tRPC: la otra tradición, donde en lugar de recursos o de un grafo se llaman funciones remotas, con contratos en Protobuf y HTTP/2.",
+ "fuentes_nuevas": [
+  {
+   "id": "api0808-fb-graphql-2015",
+   "t": "GraphQL: A data query language",
+   "a": "Lee Byron (Facebook Engineering)",
+   "tipo": "articulo",
+   "anio": "2015",
+   "url": "https://engineering.fb.com/2015/09/14/core-infra/graphql-a-data-query-language/"
+  },
+  {
+   "id": "api0808-graphql-foundation",
+   "t": "What is the GraphQL Foundation?",
+   "a": "GraphQL Foundation",
+   "tipo": "doc",
+   "url": "https://graphql.org/foundation/"
+  },
+  {
+   "id": "api0808-graphql-execution",
+   "t": "Execution (GraphQL Learn)",
+   "a": "GraphQL Foundation",
+   "tipo": "doc",
+   "url": "https://graphql.org/learn/execution/"
+  },
+  {
+   "id": "api0808-graphql-serving",
+   "t": "Serving over HTTP (GraphQL Learn)",
+   "a": "GraphQL Foundation",
+   "tipo": "doc",
+   "url": "https://graphql.org/learn/serving-over-http/"
+  },
+  {
+   "id": "api0808-graphql-security",
+   "t": "Security (GraphQL Learn)",
+   "a": "GraphQL Foundation",
+   "tipo": "doc",
+   "url": "https://graphql.org/learn/security/"
+  },
+  {
+   "id": "api0808-graphql-caching",
+   "t": "Caching (GraphQL Learn)",
+   "a": "GraphQL Foundation",
+   "tipo": "doc",
+   "url": "https://graphql.org/learn/caching/"
+  },
+  {
+   "id": "api0808-graphql-spec",
+   "t": "GraphQL Specification Versions",
+   "a": "GraphQL Foundation",
+   "tipo": "doc",
+   "url": "https://spec.graphql.org/"
+  },
+  {
+   "id": "api0808-dataloader",
+   "t": "DataLoader (README)",
+   "a": "GraphQL Foundation",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/graphql/dataloader/main/README.md"
+  },
+  {
+   "id": "api0808-supabase-graphql",
+   "t": "GraphQL (Supabase Docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/graphql"
+  },
+  {
+   "id": "api0808-supabase-pg-graphql",
+   "t": "pg_graphql: GraphQL for Postgres (Supabase Docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/database/extensions/pg_graphql"
+  },
+  {
+   "id": "api0808-supabase-joins",
+   "t": "Querying Joins and Nested tables (Supabase Docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/database/joins-and-nesting"
+  }
+ ]
+}
