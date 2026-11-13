@@ -1,0 +1,597 @@
+{
+ "id": "09-40",
+ "titulo": "Archivos, imágenes y videos: objetos contra base de datos",
+ "bajada": "Se guardan 50 MiB de archivos dentro de PostgreSQL y afuera, con cada medición a la vista: escritura, tamaño, lectura, respaldo, y cómo se corta un video para mirarlo sin bajarlo entero.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Medir qué cuesta guardar archivos dentro de una tabla frente a guardarlos en un almacén de objetos con una fila de metadatos.",
+  "Explicar con TOAST y el registro de escritura por qué un archivo en la base pesa más de lo que parece al escribir, al respaldar y al replicar.",
+  "Diseñar la tabla de metadatos de un archivo y reconocer el problema de los archivos huérfanos entre dos sistemas.",
+  "Describir cómo un video se parte en segmentos y calidades (HLS) para reproducirse mientras se descarga, y por qué eso se sirve desde un almacén y no desde la base.",
+  "Identificar cómo Senda guarda sus PDF, avatares y contenido, y qué archivos se resuelven sin ningún servidor."
+ ],
+ "venis_de": "En [@07-16] viste cómo llega un archivo al servidor, por qué se guarda en un almacén de objetos y cómo se entrega con una URL firmada. Quedó pendiente una afirmación que se dio como regla práctica: meter archivos en la base «engorda las copias de seguridad». Hoy se mide con [[write-ahead log]], [[backup]] y [[réplica]] ([@09-27], [@09-28], [@09-29]) a la vista.",
+ "se_apoya_en": [
+  "07-16",
+  "09-24",
+  "09-27",
+  "09-28",
+  "09-29"
+ ],
+ "gancho": [
+  "Un chofer le saca una foto al remito firmado y toca «enviar». La foto pesa unos 3 MB, tiene que quedar guardada y alguien de la oficina la va a abrir mañana. Hay dos lugares posibles: adentro de la base de datos, en una columna binaria, o afuera, en un archivo, con una fila en la base que diga dónde está. Los dos funcionan, y se parecen hasta que hacés las cuentas.",
+  "Hoy las hacés. Con diez archivos de 5 MiB, un PostgreSQL local y un script corto, ves cuánto escribe, cuánto ocupa, cuánto tarda y cuánto pesa el respaldo de cada diseño. Después pasás a lo que hace especial al video, que no se puede tratar como una foto grande, y cerrás mirando cómo guarda Senda sus propios archivos."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Dos diseños para el mismo remito"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para una base de datos, un archivo es un [[blob]] (de *binary large object*): una secuencia de bytes grande y opaca. La base no sabe si es una foto, un PDF o un video, y no puede buscar adentro ni compararlo. En PostgreSQL el tipo que lo guarda en una columna se llama `bytea`. Alrededor del blob siempre hay datos sobre el archivo, los [[metadatos]]: nombre, tipo (`image/jpeg`), tamaño, quién lo subió, cuándo, un hash del contenido. Esos sí los entiende la base: se consultan, se filtran y se unen como cualquier columna.",
+    "El **diseño A** guarda bytes y metadatos en la misma fila. El **diseño B** guarda los bytes en un [[almacenamiento de objetos]] (el servicio de [@07-16]: claves que apuntan a archivos, accesibles por HTTP) y en la base deja solo una fila con los metadatos y la ruta. Para la prueba, mi «almacén» es un directorio del disco, para no depender de ninguna nube. Se parece a un depósito: el pallet va a la góndola y en el sistema queda una ficha con su ubicación."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table archivos_db (          -- diseño A: los bytes adentro\n  id int primary key, nombre text not null, mime text not null,\n  bytes int not null, datos bytea not null);\n\ncreate table archivos_ruta (         -- diseño B: la ficha; el archivo vive afuera\n  id int primary key, nombre text not null, mime text not null,\n  bytes int not null, sha256 text not null, ruta text not null);",
+   "cap": "Las dos tablas de la prueba (PostgreSQL 16.15, un clúster propio en esta VM)."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La góndola y la ficha",
+   "x": "La ficha en el sistema dice «pallet 4.812, góndola C-3». Si alguien mueve el pallet sin actualizar la ficha, o borra la ficha y deja el pallet, nada avisa. Con archivos pasa igual, y lo vas a ver corrido más abajo. La analogía falla en un punto: un depósito real se descubre con un inventario físico; acá el barrido hay que programarlo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los archivos de prueba son diez de 5 MiB (50 MiB en total) sacados de `/dev/urandom`. Son bytes al azar, no fotos, y es a propósito: un JPEG, un MP4 o un ZIP ya vienen comprimidos, y para un compresor un archivo comprimido se ve igual que ruido. Un archivo de texto o de ceros se comporta distinto, y también lo midió. Los números son de una VM compartida y los tiempos varían entre corridas: tomalos como orden de magnitud."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué pasa al guardar"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// A: los bytes viajan dentro del INSERT\nfor (const [i, n] of nombres.entries()) {\n  const b = fs.readFileSync(`${D}/uploads/${n}`);\n  await c.query(\"insert into archivos_db values ($1,$2,'image/jpeg',$3,$4)\", [i + 1, n, b.length, b]);\n}\n// B: el archivo va al almacén (su nombre es su hash) y la base anota la ficha\nfor (const [i, n] of nombres.entries()) {\n  const b = fs.readFileSync(`${D}/uploads/${n}`);\n  const h = crypto.createHash(\"sha256\").update(b).digest(\"hex\");\n  fs.copyFileSync(`${D}/uploads/${n}`, `${D}/store/${h.slice(0, 2)}/${h}`);\n  await c.query(\"insert into archivos_ruta values ($1,$2,'image/jpeg',$3,$4,$5)\", [i + 1, n, b.length, h, `store/${h.slice(0, 2)}/${h}`]);\n}",
+   "cap": "El corazón del experimento con el módulo `pg` de Node, simplificado. Antes de cada bloque, un `checkpoint`, y se mide el avance del registro de escritura (`pg_current_wal_lsn()`)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- A: 10 INSERT con bytea (cuatro corridas: 327 a 391 ms)",
+     "s": "tiempo: 371 ms | WAL generado: 53,53 MiB"
+    },
+    {
+     "c": "-- B: 10 copias de archivo + 10 INSERT de fila (cuatro corridas: 133 a 156 ms)",
+     "s": "tiempo: 156 ms | WAL generado: 0,00 MiB"
+    },
+    {
+     "c": "select pg_size_pretty(pg_relation_size('archivos_db')) tabla, pg_size_pretty(pg_relation_size(reltoastrelid)) toast, pg_size_pretty(pg_total_relation_size('archivos_db')) total_a, pg_size_pretty(pg_total_relation_size('archivos_ruta')) total_b from pg_class where relname = 'archivos_db';",
+     "s": "   tabla    | toast | total_a | total_b \n------------+-------+---------+---------\n 8192 bytes | 51 MB | 52 MB   | 32 kB"
+    },
+    {
+     "c": "select count(*) from pg_toast.pg_toast_<oid>;   -- la tabla escondida",
+     "s": " 26270"
+    }
+   ],
+   "cap": "Medido en esta VM, con `fsync` activado. PostgreSQL escribe «MB» para 1.048.576 bytes, o sea MiB. El tiempo de B incluye leer el archivo, calcular el SHA-256 y copiarlo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos cosas saltan a la vista. Primero, el diseño A escribió 53,5 MiB de registro de escritura para guardar 50 MiB de archivos: cada byte se escribe dos veces, una al [[write-ahead log]] y otra a la tabla. Ese registro es el que viaja a las [[réplica]]s y el que se archiva para el [[PITR]]. El diseño B casi no escribió nada en el registro: el archivo fue directo al almacén y la base anotó diez filas chicas.",
+    "Segundo, la tabla principal pesa 8 KiB, una sola página: los bytes no están ahí. PostgreSQL no deja que una fila ocupe más de una página, así que mueve los valores grandes a una tabla escondida y los parte en trozos. Ese mecanismo se llama TOAST: se activa cuando una fila supera unos 2 kB, y la documentación fija un máximo de 1 GB por valor [#bd0940-pg16-toast]. En mi prueba, la tabla escondida tiene 26.270 filas: cada archivo de 5 MiB se partió en unas 2.627 filas de 1.996 bytes."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Antes de partir un valor, TOAST intenta comprimirlo. Con bytes al azar no gana nada, y con un archivo ya comprimido pasa lo mismo. Con ceros, en cambio, gana muchísimo:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select pg_column_size(datos) guardado, octet_length(datos) original from archivos_db where id = 1;   -- bytes al azar",
+     "s": " guardado | original \n----------+----------\n  5242880 |  5242880"
+    },
+    {
+     "c": "select pg_column_size(d) guardado_ceros, octet_length(d) original from z;   -- 5 MiB de ceros",
+     "s": " guardado_ceros | original \n----------------+----------\n          60021 |  5242880"
+    }
+   ],
+   "cap": "Un archivo de ceros se achicó a 60.021 bytes; el de bytes al azar quedó igual. Fotos, videos, PDF con imágenes y ZIP se parecen al segundo."
+  },
+  {
+   "t": "pensa",
+   "x": "Con el diseño A y una réplica de lectura, ¿cuántas veces se escribe cada byte de una foto, sin contar los backups?",
+   "resp": "Al menos cuatro. En el servidor principal, una en el registro de escritura y otra en la tabla escondida (las dos las medí: 53,5 MiB de registro y 51 MiB de tabla para 50 MiB de archivos). Y en la réplica, que recibe ese mismo registro, otra vez registro y tabla. Las dos últimas son inferencia: dependen de cómo esté configurada la replicación."
+  },
+  {
+   "t": "h",
+   "x": "Qué pasa al leer y al respaldar"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select id, nombre, bytes from archivos_db;        -- solo metadatos",
+     "s": "10 filas | 0 ms"
+    },
+    {
+     "c": "select * from archivos_db;                          -- con los bytes",
+     "s": "10 filas | 357 a 393 ms | 50 MiB recibidos por el programa"
+    },
+    {
+     "c": "select datos from archivos_db where id = 7;        -- un archivo",
+     "s": "1 fila | 41 a 56 ms | 5 MiB"
+    },
+    {
+     "c": "pg_dump -Fp -t archivos_db | wc -c     # formato de texto",
+     "s": "104859411   (100,0 MiB, 0,36 s)"
+    },
+    {
+     "c": "pg_dump -Fc -t archivos_db | wc -c     # formato comprimido",
+     "s": "59790829    (57,0 MiB, 4,4 s)"
+    },
+    {
+     "c": "pg_dump -Fc -t archivos_ruta | wc -c",
+     "s": "2349        (2,3 KiB, 0,06 s)"
+    }
+   ],
+   "cap": "Tres corridas de las lecturas y una de cada volcado, en esta VM y con los datos en memoria. En el diseño B, leer el archivo 7 del disco tardó 1 ms, pero es una lectura repetida que el sistema operativo ya tenía en memoria, así que no es una comparación justa."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Medición (50 MiB en 10 archivos)",
+    "A: bytes en la base",
+    "B: archivo afuera + ficha"
+   ],
+   "filas": [
+    [
+     "Escribir",
+     "327 a 391 ms",
+     "133 a 156 ms (con el SHA-256)"
+    ],
+    [
+     "Registro de escritura",
+     "53,5 MiB",
+     "menos de 10 KiB (redondea a 0,00)"
+    ],
+    [
+     "Lo que ocupa la base",
+     "52 MB",
+     "32 kB (más 51 MB de archivos afuera)"
+    ],
+    [
+     "Listar los metadatos",
+     "0 ms",
+     "0 ms"
+    ],
+    [
+     "Volcado de la base (`pg_dump`)",
+     "100 MiB en texto o 57 MiB comprimido",
+     "2,3 KiB; los archivos se copian aparte"
+    ]
+   ],
+   "cap": "Corridas en una sola VM. Los volcados comprimidos de bytes al azar no se achican: el de texto duplicó el tamaño porque `bytea` se escribe en hexadecimal, dos caracteres por byte [#bd0940-pg16-bytea]."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Como TOAST los guarda aparte, tener archivos en la base no cuesta nada»",
+   "x": [
+    "Es verdad a medias. Una consulta que no toca los bytes no los siente: listar los metadatos tardó 0 ms. Pero todo lo que mueve los bytes paga el tamaño completo: escribirlos (el registro de escritura), replicarlos, volcarlos y restaurarlos. En la prueba, el volcado de texto de A fue de 100 MiB y el de B, de 2,3 KiB.",
+    "Y queda el riesgo cotidiano. Un `select *` en un programa que se acuerda de pedir una sola foto trae los 50 MiB de la tabla entera, como muestra la segunda fila de la terminal. Es el error más común: no el espacio, sino pedir columnas de más."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Cuándo el diseño A sí conviene",
+   "x": "Tiene ventajas reales. El archivo y su fila se guardan en la misma [[transacción]] ([@09-24]): aparecen juntos o no aparecen. Y un [[backup]] con [[PITR]] restaura archivos y filas al mismo instante, algo que con dos sistemas hay que coordinar. Por eso, para archivos de pocos KB y no demasiados (por ejemplo, la imagen escaneada de una firma), es una decisión razonable. Mi criterio, que no sale de un estándar sino de estas mediciones: a partir de cientos de KB por archivo o de miles de archivos, conviene B. PostgreSQL también tiene *large objects*, que admiten hasta 4 TB y lectura por partes, frente al máximo de 1 GB de un valor `bytea` [#bd0940-pg16-lo]; se usan poco y siguen pasando por el registro de escritura."
+  },
+  {
+   "t": "h",
+   "x": "El costo del diseño B: dos sistemas que tienen que coincidir"
+  },
+  {
+   "t": "p",
+   "x": [
+    "B ganó en todo lo medido, pero tiene un precio. El archivo y su fila viven en lugares distintos, y ninguna transacción los cubre a los dos. Lo reproduje: copio un archivo nuevo al almacén, abro una transacción, inserto la fila y fuerzo un error (un `id` repetido). La base deshace la fila; el archivo, no."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node huerfanos.js",
+     "s": "la transacción falló: duplicate key value violates unique constraint \"archivos_ruta_pkey\"\nfilas con id 11 en la base: 0\nel archivo sigue en disco: true\nen disco: 11 | en la base: 10 | huérfanos: 1"
+    }
+   ],
+   "cap": "Un archivo huérfano: existe en el almacén y ninguna fila lo nombra. El conteo final sale de comparar la lista de archivos del disco con la columna `ruta`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El orden de las operaciones decide qué falla queda. Si guardás el archivo primero y la fila después, un error deja un archivo huérfano: ocupa espacio y nadie lo ve. Si guardás la fila primero, un error deja una referencia rota: la persona ve una foto que no carga. El primero es más barato de arreglar, y la práctica habitual es esa: archivo primero, fila después y un barrido periódico que borra lo que ninguna fila nombra, con cuidado de no borrar los archivos recién subidos que todavía esperan su fila. Poner el hash como nombre del archivo ayuda: subir dos veces el mismo contenido da la misma ruta, así que repetir una subida fallida es seguro (la [[idempotencia]] de [@07-12]).",
+    "Supabase Storage tiene la misma arquitectura: guarda en Postgres los metadatos de buckets y objetos, y los archivos en un proveedor tipo S3. Su documentación advierte que borrar el metadato no borra el objeto, que queda inaccesible pero se sigue facturando [#bd0940-supabase-schema]. Es el mismo huérfano."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Diseñá la tabla de metadatos para las fotos de entrega de una empresa de logística: cada foto pertenece a un envío, la sube un chofer, y la oficina quiere buscar las fotos de un envío y detectar subidas duplicadas. Escribí las columnas, la clave y qué índice agregarías. Decidí también si guardarías la URL firmada de descarga.",
+   "pista": "Pensá qué datos querés consultar, qué dato identifica al archivo sin depender del nombre y qué dato vence solo.",
+   "solucion": "Una opción razonable: `foto_id` (clave primaria), `envio_id` (clave foránea al envío, con un índice, porque siempre se busca por envío), `subida_por` (el chofer), `nombre_original`, `mime`, `bytes`, `sha256`, `ruta` y `creado`. Las subidas duplicadas se detectan con una restricción `unique (envio_id, sha256)` o, si no importa el envío, un índice sobre `sha256`. La URL firmada no se guarda: vence, y se genera al pedirla a partir de la `ruta`, que es estable. Guardar el SHA-256 también permite verificar que el archivo no se corrompió."
+  },
+  {
+   "t": "h",
+   "x": "Servir el archivo: URL firmada y CDN"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@07-16] viste que el servidor firma una URL de vida corta y el teléfono descarga directo del almacén, sin pasar por tu backend. Con el diseño A eso no existe: cada descarga sería una consulta a la base, que devuelve los bytes por la misma conexión que usan las demás consultas. En la medición, traer 5 MiB tardó 41 a 56 ms con la base sin carga; con cientos de personas pidiendo fotos al mismo tiempo, esas conexiones ocupadas se convierten en cola.",
+    "Falta una pieza: la distancia. Una CDN (*content delivery network*) es una red de servidores repartidos por el mundo que guardan copias de los archivos. La primera persona que pide un archivo lo trae del *origen* (el almacén) y las siguientes lo reciben de la copia más cercana. Supabase documenta que todo lo que se sube a Storage queda en una CDN, y que su origen es el servidor de almacenamiento en la región del proyecto [#bd0940-supabase-cdn]. Las reglas generales de qué se puede copiar y por cuánto tiempo son las de la [[caché HTTP]], definidas en el RFC 9111 [#rfc9111]. Una base de datos no se parece en nada a esto: tiene un único servidor principal y toda lectura llega hasta él."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Video: no es un archivo más"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[streaming de video]] es reproducirlo mientras se descarga, sin esperar al final. Un video pesa mucho (un minuto a 800 kbit/s son unos 6 MB; ESTIMACIÓN aritmética: 800.000 bits por segundo × 60 ÷ 8) y la mayoría de las personas ve una parte. Hay tres niveles, cada uno resuelve un problema del anterior.",
+    "**Nivel 1: descargar el archivo entero y después reproducir.** Funciona, pero la espera es insoportable. **Nivel 2: MP4 progresivo.** El reproductor pide el archivo por pedazos con el encabezado `Range` ([@07-16]) y empieza a mostrar. Pero un MP4 guarda un índice (la caja `moov`) que le dice dónde está cada cuadro, y si el índice está al final del archivo, el reproductor tiene que ir a buscarlo antes de arrancar. Lo comprobé con un video de prueba de 10 segundos generado con `ffmpeg`; un pequeño programa de Python lista las cajas del archivo."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ffmpeg -f lavfi -i testsrc2=size=640x360:rate=24 -f lavfi -i sine=frequency=440 -t 10 -c:v libx264 -b:v 800k -c:a aac plano.mp4",
+     "s": "(video sintético de 10 s: 1.155.039 bytes)"
+    },
+    {
+     "c": "ffmpeg -i plano.mp4 -c copy -movflags +faststart rapido.mp4",
+     "s": ""
+    },
+    {
+     "c": "python3 cajas.py plano.mp4 rapido.mp4",
+     "s": "plano.mp4 -> ftyp@0 (32 B), free@32 (8 B), mdat@40 (1145992 B), moov@1146032 (9007 B)\nrapido.mp4 -> ftyp@0 (32 B), moov@32 (9007 B), free@9039 (8 B), mdat@9047 (1145992 B)"
+    }
+   ],
+   "cap": "`mdat` guarda las imágenes y el sonido; `moov`, el índice. La documentación de FFmpeg confirma que por defecto el índice se escribe al final y que `+faststart` lo mueve al principio para reproducir mejor [#bd0940-ffmpeg-formats]. El contenido del video no cambió; solo el orden de las cajas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Nivel 3: streaming adaptativo.** El video se corta en segmentos de pocos segundos y se codifica en varias calidades. Una lista de reproducción (*playlist*) enumera las calidades disponibles y, para cada una, sus segmentos. El reproductor baja un segmento, mide cuánto tardó y, para el siguiente, elige la calidad que le conviene: si la señal cae, baja a la más liviana sin cortar la reproducción. Los dos formatos principales son HLS (el de Apple, descrito en el RFC 8216 [#bd0940-rfc8216]) y MPEG-DASH. Lo que hace especial a este diseño es que no necesita un servidor especial: según MDN, para el streaming adaptativo sobre HTTP no hace falta ningún componente del lado del servidor [#bd0940-mdn-adaptive]. Son archivos comunes, listos para un almacén de objetos y una CDN.",
+    "Lo armé con `ffmpeg`: el mismo video de 10 segundos, en dos calidades (640×360 y 320×180) y segmentos de 2 segundos (para que se vean varios; en la práctica se usan más largos)."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ffmpeg -i plano.mp4 -filter_complex \"[0:v]split=2[a][b];[a]scale=640:360[v360];[b]scale=320:180[v180]\" -map \"[v360]\" -map 0:a -map \"[v180]\" -map 0:a -c:v libx264 -g 48 -b:v:0 800k -b:v:1 250k -c:a aac -f hls -hls_time 2 -hls_playlist_type vod -master_pl_name master.m3u8 -var_stream_map \"v:0,a:0 v:1,a:1\" \"hls/v%v.m3u8\"",
+     "s": ""
+    },
+    {
+     "c": "cat hls/master.m3u8",
+     "s": "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-STREAM-INF:BANDWIDTH=950400,RESOLUTION=640x360,CODECS=\"avc1.64001e,mp4a.40.2\"\nv0.m3u8\n\n#EXT-X-STREAM-INF:BANDWIDTH=327800,RESOLUTION=320x180,CODECS=\"avc1.64000c,mp4a.40.2\"\nv1.m3u8"
+    },
+    {
+     "c": "cat hls/v0.m3u8",
+     "s": "#EXTM3U\n#EXT-X-VERSION:3\n#EXT-X-TARGETDURATION:2\n#EXT-X-MEDIA-SEQUENCE:0\n#EXT-X-PLAYLIST-TYPE:VOD\n#EXTINF:2.000000,\nv0_000.ts\n#EXTINF:2.000000,\nv0_001.ts\n   ... (hasta v0_004.ts)\n#EXT-X-ENDLIST"
+    }
+   ],
+   "cap": "`master.m3u8` lista las dos calidades con el ancho de banda que necesita cada una; `v0.m3u8` lista los cinco segmentos de la calidad alta. La salida de `ffmpeg` creó 12 archivos: la lista maestra, dos listas y 10 segmentos."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Calidad",
+    "Segmentos",
+    "Peso total",
+    "Ancho de banda declarado"
+   ],
+   "filas": [
+    [
+     "640×360",
+     "5 de 2 s",
+     "1.200.380 bytes",
+     "950.400 bit/s"
+    ],
+    [
+     "320×180",
+     "5 de 2 s",
+     "432.588 bytes",
+     "327.800 bit/s"
+    ]
+   ],
+   "cap": "Tamaños de los archivos `.ts` generados. El mismo video en un solo MP4 pesaba 1.155.039 bytes. Es un video sintético de prueba: uno real con más movimiento pesaría más por segundo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las consecuencias de diseño son claras. Cada segmento es un archivo corto, así que se sirve desde el almacén y la CDN, y la base guarda solo metadatos: un identificador de video, su duración, la ruta de la lista maestra y un estado (subido, procesando, listo). Convertir un video es un trabajo pesado de procesador, y se hace como un [[job]] en segundo plano ([@07-13]), nunca dentro de la petición de subida. Y cada calidad extra multiplica lo que se almacena, aunque el costo que más pesa en la práctica es el de lo que sale hacia las personas."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un video de una hora a 800 kbit/s, visto completo por 1.000 personas: ¿cuánto pesa el archivo y cuántos datos salen del almacén en total?",
+   "resp": "El archivo: 800.000 × 3.600 ÷ 8 = 360.000.000 bytes, unos 360 MB. Visto completo por 1.000 personas salen unos 360 GB, si todos miran la misma calidad. Es una estimación aritmética, sin protocolos ni repeticiones. Por eso se sirve desde una CDN: el origen entrega la copia una vez a cada punto de la red, y no mil veces."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Límites y formatos al 13-11-2026",
+   "x": "El RFC 8216 es de agosto de 2017 y tiene la categoría *Informational* (lo escribió Apple, no es un estándar de la IETF) [#bd0940-rfc8216]. En Supabase, la documentación consultada el 13-11-2026 dice que un proyecto gratuito no puede pasar los 50 MB por archivo y que los planes Pro y superiores llegan hasta 500 GB [#bd0940-supabase-limits]. Con el video de 800 kbit/s de hoy, 50 MB alcanzan para unos 8 minutos (ESTIMACIÓN: 50 × 1.048.576 × 8 ÷ 800.000). Los límites y los precios cambian: consultalos antes de diseñar."
+  },
+  {
+   "t": "h",
+   "x": "En Senda: el mejor archivo es el que no se guarda"
+  },
+  {
+   "t": "senda",
+   "titulo": "Casi ningún archivo pasa por el servidor",
+   "x": [
+    "Un `grep` de `bytea` en `supabase/migrations/` no devuelve nada: **ninguna columna de Senda guarda bytes**. El avatar es un objeto `jsonb` de menos de 400 bytes con los nombres de las partes (la función `avatar_valido` lo exige) y la biblioteca DiceBear lo dibuja en el teléfono. La portada de un evento se elige de la galería y queda como una ruta local, sin subirse. Según el mapa técnico, tampoco hay CDN de imágenes ni subida de fotos de usuarios.",
+    "El único archivo que sube alguien es el PDF del sermón. Va a un bucket privado, `sermones`, con tope de 6 MiB, y su ruta se *deriva* de los datos: `<id del grupo>/<id de la trivia>.pdf`. No hay una columna `ruta`; la fila de `trivias_sermon` solo tiene `pdf_publico`. Y la política que decide quién puede descargar consulta esa fila: es el patrón del diseño B, con la autorización apoyada en la base. [@07-16] muestra el camino del archivo; lo nuevo acá es que **la base manda aunque no guarde los bytes**.",
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261120000000_sermon_pdf.sql",
+    "supabase/migrations/20261130000002_avatar.sql",
+    "src/util/sermon.ts",
+    "src/pantallas/Evento.tsx"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "El barrido de huérfanos existe: limpiar_sermones.sh",
+   "x": [
+    "El problema que reprodujiste arriba también aparece en Senda, y tiene su solución. Si se borra una trivia, un grupo o una cuenta, el PDF puede quedar en el bucket. Un flujo de GitHub Actions, `limpieza.yml`, corre cada lunes a las 07:17 UTC y ejecuta `scripts/limpiar_sermones.sh`. Ese script hace un `left join` de `storage.objects` contra `trivias_sermon` por el nombre `grupo/id.pdf` y borra por la API del almacén lo que no tiene fila, está archivado o con error. El propio script explica que Supabase no deja borrar archivos desde SQL.",
+    "La consecuencia es de política: la privacidad de Senda promete que el PDF se borra con la trivia, y la limpieza semanal significa que, si el borrado directo falla, el archivo puede quedar hasta una semana. Es una decisión de ingeniería razonable que conviene saber que existe."
+   ],
+   "archivos": [
+    "scripts/limpiar_sermones.sh",
+    ".github/workflows/limpieza.yml"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo más pesado va dentro de la app, no en el servidor",
+   "x": [
+    "La carpeta `assets/` pesa unos 60 MB: las 8 Biblias suman 32 MB sin comprimir, los sonidos 17 MB (cinco temas de música de unos 750 KB y los sonidos de fiesta), Lany 3,6 MB y el resto, imágenes. Según `docs/PESO.md`, las ocho Biblias y sus referencias ocupan unos 10,7 MB dentro del APK, que ya viene comprimido, y el APK de prueba 33 pesaba 89,1 MB (el 37, con R8, 87,1 MB). Esos archivos no necesitan base, almacén ni CDN: viajan con la app, funcionan sin conexión y no cuestan nada por descarga.",
+    "El contrapeso es que no existen actualizaciones por aire (`expo-updates` no está en el proyecto): para cambiar una Biblia hay que compilar una app nueva. Es una compensación entre costo de servidor cero y velocidad para cambiar el contenido."
+   ],
+   "archivos": [
+    "docs/PESO.md",
+    "assets/biblia/rv1909.bib",
+    "assets/sonidos/musica_pensar.mp3",
+    "src/util/avatar.ts"
+   ]
+  }
+ ],
+ "recap": [
+  "Un archivo es un blob opaco para la base. Los metadatos (nombre, tipo, tamaño, hash, dueño, ruta) sí van en tablas; los bytes pueden ir adentro (`bytea`) o en un almacén de objetos con una ruta.",
+  "Con 50 MiB en `bytea`, PostgreSQL escribió 53,5 MiB de registro de escritura y 51 MiB de tabla TOAST. Con el archivo afuera, el registro casi no se movió. TOAST no achica archivos ya comprimidos.",
+  "Una consulta que no toca los bytes no los siente, pero escribir, replicar y volcar pagan el tamaño completo: el volcado de texto de A fue de 100 MiB y el de B, de 2,3 KiB.",
+  "Con dos sistemas ninguna transacción cubre a los dos: archivo primero y fila después deja huérfanos. Se resuelve con barridos periódicos y nombres basados en el hash.",
+  "El video se sirve en segmentos y calidades (HLS o DASH), como archivos comunes desde un almacén y una CDN. Un MP4 progresivo necesita el índice `moov` al principio.",
+  "Senda guarda casi todo sin servidor: avatares como `jsonb` de menos de 400 bytes, Biblias y música dentro del APK, y un único PDF en un bucket con barrido semanal."
+ ],
+ "repaso": [
+  {
+   "p": "Guardás fotos de 4 MiB en una columna `bytea` y las consultas de listado (`select id, nombre`) siguen tardando 1 ms. ¿Cuál de estos costos sí aumentó con las fotos adentro?",
+   "o": [
+    "El tiempo de cada consulta de listado, porque la fila ahora pesa 4 MiB más",
+    "La cantidad de escritura en el registro, porque cada foto se escribe además de en la tabla",
+    "La cantidad de columnas permitidas por tabla, que baja con cada archivo guardado",
+    "El tiempo para encontrar una fila por su clave primaria, que se vuelve mucho más lento"
+   ],
+   "c": 1,
+   "e": "El valor grande se mueve a la tabla TOAST, así que las consultas que no lo piden no lo leen. Pero escribirlo pasa por el registro de escritura además de la tabla, y eso también alimenta réplicas y backups. El listado y la búsqueda por clave no se tocan, y el límite de columnas no depende del contenido."
+  },
+  {
+   "p": "Un equipo guarda videos de 200 MiB en `bytea` y le sorprende que `pg_dump` en formato texto genere un archivo de más de 400 MiB por video. ¿Cuál es la explicación más probable?",
+   "o": [
+    "El formato de salida de `bytea` es hexadecimal y escribe dos caracteres por cada byte",
+    "`pg_dump` guarda dos copias de cada fila para poder comprobar que no se corrompió",
+    "TOAST duplica los valores grandes y el volcado incluye las dos copias de cada uno",
+    "Los videos se descomprimen al volcarse y recuperan el tamaño que tenían sin comprimir"
+   ],
+   "c": 0,
+   "e": "La salida en hexadecimal usa dos caracteres por byte, por eso el volcado de texto de mis 50 MiB dio 100 MiB. `pg_dump` no duplica filas ni TOAST guarda copias, y un video ya viene comprimido, no se descomprime al volcar."
+  },
+  {
+   "p": "En un diseño B, la app primero inserta la fila con la ruta y después sube el archivo, y la subida falla. ¿Qué queda?",
+   "o": [
+    "Un archivo huérfano en el almacén, sin ninguna fila que lo nombre",
+    "Una fila con una ruta que no existe, y la persona ve una imagen que no carga",
+    "Nada: la base deshace la fila sola cuando falla la subida del archivo",
+    "El archivo en el almacén y una fila duplicada que la base borra al reiniciarse"
+   ],
+   "c": 1,
+   "e": "Si la fila va primero y el archivo falla, la fila apunta a algo que no existe. El huérfano es el caso inverso: el archivo sube y la fila no se guarda. La base no sabe nada del almacén, así que no deshace nada, y nada se borra al reiniciar."
+  },
+  {
+   "p": "Un MP4 de 100 MiB tiene el índice `moov` al final y se sirve por HTTP. ¿Qué problema tiene el reproductor para empezar a mostrar el video?",
+   "o": [
+    "Necesita el índice, que está en los últimos bytes, antes de saber dónde está cada cuadro",
+    "No puede pedir partes del archivo, porque los MP4 no admiten el encabezado `Range`",
+    "Tiene que descomprimir los 100 MiB enteros antes de mostrar el primer cuadro",
+    "Necesita convertirlo a HLS, porque un MP4 no se puede reproducir por HTTP"
+   ],
+   "c": 0,
+   "e": "El MP4 guarda el índice en la caja `moov`, y sin él no hay forma de ubicar los cuadros. Al final del archivo obliga a un pedido extra o a bajar todo. Con `+faststart` se mueve al principio. Sí admite `Range` y se reproduce por HTTP sin convertir."
+  },
+  {
+   "p": "Un video se parte en segmentos de 2 segundos y en tres calidades. ¿Qué ventaja tiene esa organización sobre un solo MP4?",
+   "o": [
+    "El reproductor puede cambiar de calidad entre segmentos cuando cambia la señal, sin cortar",
+    "El servidor puede reproducir el video por su cuenta, porque conoce el ancho de banda de cada persona",
+    "El archivo total pesa menos, porque los segmentos se comprimen más que un MP4 entero",
+    "El video no necesita un almacén ni una CDN, porque los segmentos se sirven desde el teléfono"
+   ],
+   "c": 0,
+   "e": "La ventaja es adaptar la calidad en cada segmento. El que decide es el reproductor, midiendo lo que tarda cada descarga; el servidor es solo HTTP. Y el total pesa más, no menos, porque hay varias calidades. Por eso se sirve desde un almacén y una CDN."
+  },
+  {
+   "p": "Senda no guarda ninguna columna `bytea`. El avatar de cada persona es un objeto `jsonb` de menos de 400 bytes. ¿Qué decisión de diseño refleja?",
+   "o": [
+    "Guardar la descripción mínima y dibujar en el teléfono, en lugar de guardar y servir una imagen",
+    "Guardar las imágenes en la base para que el respaldo las incluya, pero en formato comprimido",
+    "Usar `jsonb` porque es el único tipo con el que PostgreSQL puede guardar imágenes pequeñas",
+    "Servir los avatares desde la CDN de Supabase, con la base solo como índice de las rutas"
+   ],
+   "c": 0,
+   "e": "El `jsonb` guarda los nombres de las partes y DiceBear dibuja el avatar en el teléfono: no hay imagen que guardar, subir ni servir. No se guardan imágenes en la base ni en la CDN, y `jsonb` no sirve para eso."
+  }
+ ],
+ "feynman": "Explicale a alguien que arma una app con fotos por qué conviene guardar los archivos afuera de la base y dejar adentro solo una ficha. Usá la comparación de la góndola y la ficha, cuenta cuánto se escribe en cada diseño y mencioná qué problema nuevo aparece (el archivo huérfano) y cómo se resuelve.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0940-pg16-toast",
+   "nota": "El capítulo de PostgreSQL sobre TOAST: cuándo se activa, cómo se parten y comprimen los valores grandes y qué estrategias de almacenamiento existen. Sirve para entender el 26.270 de la tabla escondida."
+  },
+  {
+   "fuente": "bd0940-supabase-schema",
+   "nota": "La documentación del esquema de Storage de Supabase. Leé el primer párrafo: explica por qué los metadatos van en Postgres y los archivos en otro proveedor, y qué pasa si se borra uno sin el otro."
+  },
+  {
+   "fuente": "bd0940-rfc8216",
+   "nota": "El RFC de HTTP Live Streaming. Leé la sección 1 y las de listas de reproducción para ver cómo es un `master.m3u8` y un `v0.m3u8` como los que se generaron hoy."
+  },
+  {
+   "fuente": "bd0940-mdn-adaptive",
+   "nota": "La guía de MDN para preparar streaming adaptativo con DASH y HLS. Es corta y explica por qué los dos formatos solo necesitan un servidor HTTP común."
+  }
+ ],
+ "videos": [
+  {
+   "q": "HLS adaptive bitrate streaming explained m3u8 segments",
+   "por_que": "Para ver animado cómo el reproductor baja un segmento, mide el ancho de banda y elige la calidad del siguiente."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "blob",
+   "d": "Valor binario grande y opaco (foto, PDF, video) que una base de datos guarda sin interpretar. El nombre viene de binary large object. En PostgreSQL se guarda en columnas de tipo bytea."
+  },
+  {
+   "t": "almacenamiento de objetos",
+   "d": "Servicio que guarda archivos grandes como objetos en contenedores, cada uno con una clave única y metadatos, y los entrega por HTTP. Crece por separado de la base de datos y es la opción habitual para fotos, PDF y video."
+  },
+  {
+   "t": "metadatos",
+   "d": "Datos sobre un archivo, no el archivo: nombre, tipo, tamaño, hash, dueño, fecha y ruta. Se guardan en la base para poder consultarlos, filtrarlos y controlar quién accede."
+  },
+  {
+   "t": "streaming de video",
+   "d": "Reproducir un video mientras se descarga. Puede hacerse con un MP4 pedido por partes o, en el caso adaptativo, cortándolo en segmentos de pocos segundos y varias calidades, para que el reproductor elija la calidad en cada segmento."
+  },
+  {
+   "t": "TOAST",
+   "d": "Mecanismo de PostgreSQL que guarda los valores grandes de una fila fuera de la tabla principal, en una tabla escondida, partidos en trozos de unos 2 kB y comprimidos si es posible. Limita cada valor a 1 GB."
+  },
+  {
+   "t": "archivo huérfano",
+   "d": "Archivo que existe en el almacén y al que ninguna fila de la base hace referencia, o fila cuya ruta no existe. Aparece porque ninguna transacción cubre a la base y al almacén a la vez; se limpia con barridos periódicos."
+  },
+  {
+   "t": "CDN",
+   "d": "Red de distribución de contenido: servidores repartidos geográficamente que guardan copias de archivos. El primer pedido llega al origen y los siguientes se sirven desde la copia más cercana."
+  },
+  {
+   "t": "HLS",
+   "d": "HTTP Live Streaming: formato de Apple para streaming adaptativo. Usa listas de reproducción de texto (.m3u8) que nombran segmentos cortos del video en varias calidades, servidos como archivos comunes por HTTP."
+  },
+  {
+   "t": "segmento de video",
+   "d": "Trozo de unos pocos segundos de un video, guardado como archivo propio. El reproductor los baja de a uno y puede cambiar de calidad entre uno y otro."
+  }
+ ],
+ "siguiente": "Seguridad de datos en la base: quién puede leer cada tabla y cada fila, qué se cifra y cuándo, y cuándo un dato es personal.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0940-pg16-toast",
+   "t": "PostgreSQL 16: TOAST",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/storage-toast.html"
+  },
+  {
+   "id": "bd0940-pg16-bytea",
+   "t": "PostgreSQL 16: Binary Data Types (bytea)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/datatype-binary.html"
+  },
+  {
+   "id": "bd0940-pg16-lo",
+   "t": "PostgreSQL 16: Large Objects, Introduction",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/lo-intro.html"
+  },
+  {
+   "id": "bd0940-supabase-schema",
+   "t": "Supabase Storage: The Storage Schema",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/storage/schema/design"
+  },
+  {
+   "id": "bd0940-supabase-cdn",
+   "t": "Supabase Storage: CDN",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/storage/cdn/fundamentals"
+  },
+  {
+   "id": "bd0940-supabase-limits",
+   "t": "Supabase Storage: upload limits",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/storage/uploads/file-limits"
+  },
+  {
+   "id": "bd0940-rfc8216",
+   "t": "RFC 8216: HTTP Live Streaming",
+   "a": "R. Pantos y W. May",
+   "tipo": "rfc",
+   "url": "https://www.rfc-editor.org/rfc/rfc8216",
+   "anio": 2017
+  },
+  {
+   "id": "bd0940-mdn-adaptive",
+   "t": "Setting up adaptive streaming media sources (MDN)",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/Media/Guides/Audio_and_video_delivery/Setting_up_adaptive_streaming_media_sources"
+  },
+  {
+   "id": "bd0940-ffmpeg-formats",
+   "t": "FFmpeg Formats Documentation (MOV/MP4 muxer, movflags)",
+   "a": "FFmpeg",
+   "tipo": "doc",
+   "url": "https://ffmpeg.org/ffmpeg-formats.html"
+  }
+ ]
+}

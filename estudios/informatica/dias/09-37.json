@@ -1,0 +1,1112 @@
+{
+ "id": "09-37",
+ "titulo": "Columnares, de grafos y de series de tiempo",
+ "bajada": "Tres familias de bases hechas para un tipo de pregunta (sumar millones de filas, seguir conexiones, ordenar por reloj), medidas contra PostgreSQL con los mismos datos.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir una carga transaccional (OLTP) de una analítica (OLAP) y explicar por qué guardar los datos por columnas acelera la segunda.",
+  "Leer la estructura de un archivo Parquet y relacionar los bytes leídos con la velocidad de una agregación sobre 1,5 millones de filas.",
+  "Escribir el mismo recorrido de una red de depósitos como CTE recursivo y como consulta de grafos, e interpretar cuándo la segunda forma aporta algo.",
+  "Explicar qué distingue a una serie de tiempo y resolver rangos, resúmenes y retención con índice BRIN y particiones por fecha.",
+  "Elegir entre PostgreSQL común y una familia especializada para un caso concreto, y reconocer cuándo no hace falta ninguna."
+ ],
+ "venis_de": "Ayer viste Redis y el modelo clave-valor ([@09-36]), el último cajón del NoSQL que presentó [@09-34]. Hoy son tres familias que no cambian el lenguaje sino la forma de guardar: por columnas, por conexiones o por reloj. Para la primera te sirve cómo se guarda una tabla en disco ([@09-19]); para la segunda, el CTE recursivo ([@09-12]); para la tercera, el índice BRIN ([@09-21]) y las particiones ([@09-30]).",
+ "se_apoya_en": [
+  "09-11",
+  "09-12",
+  "09-17",
+  "09-19",
+  "09-21",
+  "09-22",
+  "09-25",
+  "09-27",
+  "09-30",
+  "09-33",
+  "09-34",
+  "09-36"
+ ],
+ "gancho": [
+  "Un lunes a la mañana llegan dos preguntas al mismo sistema de logística. La primera la hace un chofer desde el celular: «¿a qué dirección va el bulto 777777?». La segunda la hace el dueño: «¿cuántos kilos movió cada depósito en lo que va del año?». En SQL se escriben casi igual, y PostgreSQL contesta las dos. Pero por dentro piden cosas opuestas: la primera necesita una fila entera y nada más; la segunda necesita una columna de millones de filas y no le importa el resto.",
+  "Hoy conocés tres familias de bases que nacieron de mirar un tipo de pregunta y ordenar los datos para contestarla barato: las **columnares** (sumar millones de filas), las **de grafos** (seguir conexiones) y las **de series de tiempo** (todo viene con reloj). Vas a medir cada una contra el PostgreSQL que ya conocés, con los mismos datos. Adelanto honesto: PostgreSQL pierde por mucho en una de las tres, y en las otras dos la historia tiene más matices que el folleto."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Dos tipos de trabajo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los dos usos del gancho tienen nombre. **OLTP** (procesamiento de transacciones en línea, por la sigla en inglés) son muchísimas operaciones chicas, cada una sobre pocas filas pero enteras, con escrituras constantes y respuesta en milisegundos porque hay alguien esperando: registrar una entrega, consultar un bulto. **OLAP** (procesamiento analítico en línea) son pocas consultas que recorren millones de filas pero miran pocas columnas, casi no escriben (los datos entran por tandas) y toleran segundos: kilos por depósito por mes, entregas fallidas por chofer.",
+    "No son dos tipos de empresa sino dos patrones de acceso, y la misma empresa tiene los dos. El problema aparece de a poco: cuando la tabla pasa los millones de filas, el reporte del dueño tarda, y además compite por disco y memoria con la ventanilla. En [@09-17] viste una salida: preparar la respuesta de antemano. Hoy aparece la otra: cambiar **cómo se guardan** los datos."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "OLTP (la ventanilla)",
+    "OLAP (el tablero del dueño)"
+   ],
+   "filas": [
+    [
+     "Pregunta típica",
+     "¿Dónde está el bulto 777777?",
+     "¿Kilos por depósito en 300 días?"
+    ],
+    [
+     "Filas / columnas que toca",
+     "Pocas filas, casi todas las columnas",
+     "Millones de filas, dos o tres columnas"
+    ],
+    [
+     "Escrituras",
+     "Constantes, de a una",
+     "Cargas por lotes"
+    ],
+    [
+     "Respuesta esperada",
+     "Milisegundos",
+     "Segundos son aceptables"
+    ]
+   ],
+   "cap": "Simplificación útil: los productos se ubican en un punto del espectro, no en un extremo."
+  },
+  {
+   "t": "h",
+   "x": "Filas contra columnas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Como viste en [@09-19], una base tradicional guarda cada tabla en páginas de 8 KB, con las filas una tras otra y todas sus columnas juntas: el [[almacenamiento por filas]]. Es ideal para la ventanilla, porque una lectura trae el bulto completo. Pero para sumar pesos el motor lee también direcciones, fechas y referencias, porque están pegadas en la misma página. Si la fila mide unos 90 bytes y el peso son 4, se tira más del 95 % de lo leído.",
+    "Una [[base columnar]] guarda cada columna en su propia zona contigua. Para sumar pesos lee solo esa zona. Es la misma tabla, con los mismos valores, ordenada de otra manera en el disco."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "Por filas",
+     "celdas": [
+      {
+       "t": "id 1",
+       "k": "cliente"
+      },
+      {
+       "t": "Pilar",
+       "k": "red"
+      },
+      {
+       "t": "6.896",
+       "k": "servidor"
+      },
+      {
+       "t": "id 2",
+       "k": "cliente"
+      },
+      {
+       "t": "Quilmes",
+       "k": "red"
+      },
+      {
+       "t": "7.300",
+       "k": "servidor"
+      },
+      {
+       "t": "id 3",
+       "k": "cliente"
+      },
+      {
+       "t": "Pilar",
+       "k": "red"
+      },
+      {
+       "t": "512",
+       "k": "servidor"
+      }
+     ],
+     "nota": "para sumar pesos hay que saltar entre colores"
+    },
+    {
+     "e": "Por columnas",
+     "celdas": [
+      {
+       "t": "id 1",
+       "k": "cliente"
+      },
+      {
+       "t": "id 2",
+       "k": "cliente"
+      },
+      {
+       "t": "id 3",
+       "k": "cliente"
+      },
+      {
+       "t": "Pilar",
+       "k": "red"
+      },
+      {
+       "t": "Quilmes",
+       "k": "red"
+      },
+      {
+       "t": "Pilar",
+       "k": "red"
+      },
+      {
+       "t": "6.896",
+       "k": "servidor"
+      },
+      {
+       "t": "7.300",
+       "k": "servidor"
+      },
+      {
+       "t": "512",
+       "k": "servidor"
+      }
+     ],
+     "nota": "los pesos están juntos"
+    }
+   ],
+   "cap": "Los mismos nueve valores de tres filas. Azul: id. Ámbar: depósito. Verde: peso en gramos (valores de ejemplo)."
+  },
+  {
+   "t": "p",
+   "x": "La compresión suma otra ventaja. Una columna tiene valores del mismo tipo y parecidos entre sí: si en un millón de filas «depósito» toma solo 40 valores, se arma un diccionario de 40 entradas y cada fila guarda un número chico que apunta a él; si hay muchos iguales seguidos, se guarda «el 7, repetido 500 veces». El formato Parquet lista estas técnicas [#bd0937-parquet-encodings]. Y el motor procesa los valores por tandas: DuckDB, con el que medís hoy, se describe como un motor de «ejecución columnar-vectorizada» orientado a análisis [#bd0937-duckdb-why]."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: remitos contra planillas",
+   "x": "Una carpeta con un remito por bulto es una base por filas: abrís el remito 777.777 y tenés todo del bulto, pero para saber el peso total abrís un millón. Una planilla solo de pesos, otra solo de depósitos, otra de fechas, todas en el mismo orden, es una base columnar: sumar pesos es leer una planilla. Donde la analogía se queda corta: para reconstruir **un** bulto ya no abrís una carpeta sino once planillas, y eso es lo que la ventanilla no perdona."
+  },
+  {
+   "t": "pensa",
+   "x": "Si en una base columnar pedís todos los campos de un solo bulto, ¿qué tiene que hacer el motor y por qué eso favorece a la base por filas?",
+   "resp": "Tiene que ir a la zona de cada columna (once, en la tabla de hoy), ubicar la posición del bulto y juntar los valores. La base por filas lo resuelve con una lectura. Con muchas consultas así por segundo, el trabajo extra se acumula."
+  },
+  {
+   "t": "h",
+   "x": "Un archivo Parquet por dentro"
+  },
+  {
+   "t": "p",
+   "x": "Parquet es un formato de archivo abierto y columnar. Según su especificación, el archivo empieza con la marca `PAR1`, sigue con los datos partidos en **grupos de filas**, y dentro de cada grupo hay un trozo por columna; al final va la metadata, que anota dónde empieza cada trozo, y otra marca `PAR1`. La metadata va última para poder escribir en una sola pasada [#bd0937-parquet-formato]. Quien lee empieza por el final: ve qué columnas necesita y salta directo. Generé 1.500.000 movimientos inventados, los guardé en Parquet con compresión zstd y le pregunté a `pyarrow` qué hay adentro. Son dos grupos de filas, el primero de 1.048.576. Cuatro columnas de ese grupo:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Columna",
+    "Sin codificar",
+    "Codificada",
+    "En el archivo (zstd)",
+    "Mínimo y máximo"
+   ],
+   "filas": [
+    [
+     "`deposito` (40 valores)",
+     "2.097.152 B",
+     "791.990 B",
+     "763.465 B",
+     "1 y 40"
+    ],
+    [
+     "`zona` (8 valores)",
+     "2.097.152 B",
+     "398.540 B",
+     "399.079 B",
+     "1 y 8"
+    ],
+    [
+     "`peso_g`",
+     "4.194.304 B",
+     "2.088.584 B",
+     "2.042.827 B",
+     "100 y 29.999"
+    ],
+    [
+     "`referencia` (texto)",
+     "17.825.792 B",
+     "17.951.149 B",
+     "704.168 B",
+     "REF-000000001 y REF-001048576"
+    ]
+   ],
+   "cap": "Primer grupo de filas. «Sin codificar» es mi cálculo de los valores crudos; el resto, la metadata del archivo. La referencia sigue un patrón inventado y comprime muchísimo; los datos reales comprimen menos."
+  },
+  {
+   "t": "p",
+   "x": "Mirá `deposito`: 40 valores posibles caben en 6 bits, y 1.048.576 filas por 6 bits son 786.432 bytes. La metadata dice 791.990: el diccionario hizo eso, de 2 MB a menos de 0,8 MB sin perder nada. Y cada trozo guarda su mínimo y su máximo. Si una consulta pide `creado >= '2026-10-01'` y el máximo de un grupo es de julio, **ese grupo no se lee**. Lo vas a ver ocurrir."
+  },
+  {
+   "t": "h",
+   "x": "Medido: 1,5 millones de movimientos"
+  },
+  {
+   "t": "p",
+   "x": "El mismo conjunto, en dos motores. Este script de semilla fija lo genera (si lo corrés, obtenés los mismos números):"
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import numpy as np, pyarrow as pa, pyarrow.parquet as pq\nrng = np.random.default_rng(937)\nn = 1_500_000\nids = np.arange(1, n + 1)\nt0 = np.datetime64(\"2026-01-01T00:00:00\", \"s\")\nts = t0 + np.sort(rng.integers(0, 300 * 86400, n)).astype(\"timedelta64[s]\")\ntabla = pa.table({\n    \"id\": ids,\n    \"bulto_id\": rng.integers(1, 400_000, n, dtype=np.int32),\n    \"deposito\": rng.integers(1, 41, n, dtype=np.int16),\n    \"zona\": rng.integers(1, 9, n, dtype=np.int16),\n    \"chofer\": rng.integers(1, 301, n, dtype=np.int32),\n    \"estado\": rng.integers(1, 6, n, dtype=np.int16),\n    \"peso_g\": rng.integers(100, 30_000, n, dtype=np.int32),\n    \"volumen_cm3\": rng.integers(500, 200_000, n, dtype=np.int32),\n    \"costo_centavos\": rng.integers(80_000, 900_000, n, dtype=np.int32),\n    \"creado\": pa.array(ts.astype(\"datetime64[us]\")),\n    \"referencia\": np.char.add(\"REF-\", np.char.zfill(ids.astype(str), 9)),\n})\npq.write_table(tabla, \"movimientos.parquet\", compression=\"zstd\")",
+   "cap": "Once columnas, ordenadas por fecha. Las cargué en PostgreSQL 16.15 (con clave primaria en id) y en DuckDB 2.0.0, que las lee como tabla propia o directo del Parquet."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Formato",
+    "Tamaño en disco"
+   ],
+   "filas": [
+    [
+     "CSV (texto)",
+     "129,7 MB"
+    ],
+    [
+     "PostgreSQL: tabla",
+     "134 MB, más 32 MB del índice de la clave"
+    ],
+    [
+     "Parquet con zstd",
+     "32,7 MB"
+    ],
+    [
+     "DuckDB: archivo de base",
+     "35,7 MB"
+    ]
+   ],
+   "cap": "Medido en esta VM."
+  },
+  {
+   "t": "p",
+   "x": "Cuatro consultas, corridas seis veces cada una (la tabla muestra la mediana de las últimas cinco, porque la primera encuentra el disco frío). **A**: suma, cuenta y promedia tres columnas agrupando por depósito. **B**: promedio de una sola columna (`peso_g`). **C**: suma de una columna con un filtro de fecha que deja el 9 % de las filas. **D**: una fila entera por `id`, la ventanilla."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Consulta",
+    "PostgreSQL (1 proceso)",
+    "PostgreSQL (2 workers)",
+    "DuckDB tabla (1 hilo)",
+    "DuckDB tabla (4 hilos)",
+    "DuckDB sobre Parquet (4 hilos)"
+   ],
+   "filas": [
+    [
+     "A: agrupa 3 columnas",
+     "174,3 ms",
+     "67,8 ms",
+     "8,6 ms",
+     "6,7 ms",
+     "25,1 ms"
+    ],
+    [
+     "B: promedio de 1 columna",
+     "90,5 ms",
+     "41,4 ms",
+     "1,8 ms",
+     "1,4 ms",
+     "5,3 ms"
+    ],
+    [
+     "C: suma con filtro de fecha",
+     "85,3 ms",
+     "36,5 ms",
+     "1,2 ms",
+     "1,3 ms",
+     "11,3 ms"
+    ],
+    [
+     "D: una fila por id",
+     "0,1 ms",
+     "0,1 ms",
+     "0,9 ms",
+     "1,1 ms",
+     "31,0 ms"
+    ]
+   ],
+   "cap": "Medido en esta VM de 4 CPU compartidos, con el caché del sistema caliente. PostgreSQL con `psql \\timing`, DuckDB con un reloj en Python, ambos con el resultado ya traído. Una sola máquina: tomalo como orden de magnitud."
+  },
+  {
+   "t": "p",
+   "x": "En las tres analíticas, DuckDB con un hilo es entre 20 y 70 veces más rápido que PostgreSQL con un proceso. Y la ventanilla se da vuelta: PostgreSQL contesta D en una décima de milisegundo, con el índice de la clave primaria, y DuckDB tarda de 9 a 300 veces más. La diferencia sale de cuántos bytes lee cada uno:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- PostgreSQL 16\nset max_parallel_workers_per_gather = 0;\nexplain (analyze, buffers, costs off, timing off) select avg(peso_g) from movimientos;",
+     "s": " Aggregate (actual rows=1 loops=1)\n   Buffers: shared hit=4481 read=12623\n   ->  Seq Scan on movimientos (actual rows=1500000 loops=1)\n         Buffers: shared hit=4481 read=12623\n Execution Time: 110.216 ms"
+    },
+    {
+     "c": "-- DuckDB 2.0.0, consulta A, tabla propia\nexplain analyze select deposito, count(*) n, sum(peso_g) peso, avg(costo_centavos) costo from movimientos group by deposito order by deposito;",
+     "s": " Total Time: 0.0187s\n Data Read:   8.9 MB\n ...\n Table Scan: m.main.movimientos\n Projections: deposito, peso_g, costo_centavos\n Row Groups Scanned: 13 / 13"
+    },
+    {
+     "c": "-- DuckDB 2.0.0, consulta C, directo sobre el Parquet\nexplain analyze select sum(costo_centavos) from 'movimientos.parquet' where creado >= '2026-10-01';",
+     "s": " Total Time: 0.0134s\n Data Read:   4.3 MB\n ...\n Function: PARQUET_SCAN\n Projections: costo_centavos\n Filters: creado >= '2026-10-01 00:00:00'::TIMESTAMP\n Row Groups Scanned: 1 / 2"
+    }
+   ],
+   "cap": "Recortado. PostgreSQL leyó 17.104 páginas de 8 KB (unos 134 MB) para promediar una columna de 6 MB. DuckDB leyó 8,9 MB para tres columnas y, en C, salteó medio archivo."
+  },
+  {
+   "t": "p",
+   "x": "Ese es el mecanismo entero. En B, PostgreSQL recorre las 17.104 páginas porque el peso está repartido entre todas; DuckDB lee la columna que le interesa. En C, el primer grupo de filas termina en julio, así que su máximo lo descarta sin abrirlo. Eso funciona porque la tabla está ordenada por fecha: en una tabla desordenada, el rango de cada grupo sería casi el total y no se saltearía nada."
+  },
+  {
+   "t": "pensa",
+   "x": "En D, PostgreSQL tarda 0,1 ms y DuckDB sobre el archivo Parquet 31 ms. ¿Qué le falta al archivo?",
+   "resp": "Un índice por fila. PostgreSQL llega a la fila 777777 con el B-tree de la clave en un puñado de lecturas. El Parquet solo tiene mínimos y máximos por grupo: DuckDB descarta un grupo, pero en el otro tiene que descomprimir toda la columna. Su tabla propia lo resolvió en 0,9 ms porque `id` está ordenado; aun así, 9 veces más que el índice."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Qué no demuestra esta medición",
+   "x": "PostgreSQL se puede acelerar mucho en A, B y C: con más hilos, con un índice que cubra las columnas o con un resumen mantenido por trigger, como el de Senda más abajo. DuckDB corre dentro del programa que lo llama, sin red de por medio, y PostgreSQL se midió por un socket local. Lo que sí vale en cualquier máquina es el mecanismo, los bytes que hay que leer; los milisegundos, no."
+  },
+  {
+   "t": "p",
+   "x": "Una base columnar es la herramienta correcta para reportes y análisis sobre datos que entran por tandas y casi no se corrigen: el historial de eventos de una app, un año de movimientos. Es la equivocada para la ventanilla. Un Parquet se escribe de una vez, con la metadata al final, y de ahí sale una consecuencia (inferencia mía a partir del diseño): para cambiar una fila hay que reescribir el archivo o escribir otro y combinarlos. Por eso el mundo analítico trabaja con registros que solo crecen. **DuckDB** corre dentro de tu programa, sin servidor, como [[SQLite|SQLite embebida]] ([@09-33]), pero pensado para análisis [#bd0937-duckdb-why]; **ClickHouse** es un servidor que sus autores describen como columnar para OLAP [#bd0937-clickhouse-intro]. Los grandes almacenes de datos de la nube son de la misma familia; no los verifiqué uno por uno."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "**Mito: «columnar es más rápido»**. Es más rápido para un tipo de pregunta y más lento para el otro, como mostró la consulta D. Una tabla que se consulta por clave y se actualiza todo el día no gana nada con columnas."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no tiene base columnar propia y lo resuelve de dos maneras",
+   "x": [
+    "La base de Senda es PostgreSQL de Supabase, por filas. Para los datos de uso, `src/util/metricas.ts` manda eventos anónimos a PostHog por HTTP, sin SDK, y los tableros los arma PostHog. Su manual de ingeniería dice que ClickHouse alimenta «casi todas las funciones analíticas» del producto [#bd0937-posthog-clickhouse]: Senda **usa** un almacén columnar sin operarlo.",
+    "En su propia base, el problema analítico apareció igual. La vista `salud_preguntas` de `20261026000000_inicio.sql` agrupa toda la tabla `respuestas` en cada lectura. Al día siguiente, `20261027000000_escala.sql` la cambió por un resumen que un trigger suma al insertar: pre-agregar al escribir, la salida de [@09-17]. Esto corresponde al commit 25e08fa y a archivos leídos el 13-11-2026; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/metricas.ts",
+    "supabase/migrations/20261026000000_inicio.sql",
+    "supabase/migrations/20261027000000_escala.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Grafos: cuando lo importante son las conexiones"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una red de depósitos unidos por tramos de ruta, cada uno con sus kilómetros. La pregunta: «partiendo de Central, ¿a qué depósitos llego con tres tramos como máximo, y por qué camino?». Con una tabla de tramos, un salto es un `JOIN`, dos son dos `JOIN` encadenados, y si no sabés cuántos saltos hace falta recursión: el CTE recursivo de [@09-12].",
+    "Una [[base de grafos]] cambia el modelo. En el **grafo de propiedades** de Neo4j hay **nodos** (las cosas, con etiquetas como «Deposito»), **relaciones** (siempre con tipo y con una dirección) y **propiedades** (pares clave-valor, en nodos y en relaciones) [#bd0937-neo4j-concepts]. Un nodo se parece a una fila de entidad y una relación a una fila de tabla intermedia, con una diferencia: la relación se nombra, tiene dirección y se recorre desde el lenguaje, sin escribir el `JOIN`."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "grafo",
+   "alto": 300,
+   "nodos": [
+    {
+     "id": "c",
+     "x": 8,
+     "y": 50,
+     "t": "Central",
+     "k": "servidor"
+    },
+    {
+     "id": "a",
+     "x": 32,
+     "y": 18,
+     "t": "Avellaneda",
+     "k": "cliente"
+    },
+    {
+     "id": "q",
+     "x": 62,
+     "y": 8,
+     "t": "Quilmes",
+     "k": "cliente"
+    },
+    {
+     "id": "l",
+     "x": 64,
+     "y": 38,
+     "t": "La Plata",
+     "k": "cliente"
+    },
+    {
+     "id": "p",
+     "x": 32,
+     "y": 82,
+     "t": "Pilar",
+     "k": "cliente"
+    },
+    {
+     "id": "k",
+     "x": 62,
+     "y": 88,
+     "t": "Campana",
+     "k": "cliente"
+    },
+    {
+     "id": "r",
+     "x": 90,
+     "y": 62,
+     "t": "Rosario",
+     "k": "cliente"
+    }
+   ],
+   "aristas": [
+    {
+     "de": "c",
+     "a": "a",
+     "t": "9 km",
+     "dir": true
+    },
+    {
+     "de": "c",
+     "a": "p",
+     "t": "52 km",
+     "dir": true
+    },
+    {
+     "de": "a",
+     "a": "q",
+     "t": "18 km",
+     "dir": true
+    },
+    {
+     "de": "a",
+     "a": "l",
+     "t": "55 km",
+     "dir": true
+    },
+    {
+     "de": "p",
+     "a": "k",
+     "t": "45 km",
+     "dir": true
+    },
+    {
+     "de": "k",
+     "a": "r",
+     "t": "190 km",
+     "dir": true
+    },
+    {
+     "de": "p",
+     "a": "r",
+     "t": "300 km",
+     "dir": true
+    },
+    {
+     "de": "q",
+     "a": "c",
+     "t": "21 km",
+     "dir": true,
+     "dash": true
+    }
+   ],
+   "cap": "La red de ejemplo (inventada): siete depósitos y ocho tramos con dirección. El punteado, de Quilmes de vuelta a Central, cierra un ciclo."
+  },
+  {
+   "t": "p",
+   "x": "Cargué esta red en las dos formas. Primero en PostgreSQL 16.15, con un CTE recursivo; después en Kuzu 0.11.3, una base de grafos embebida que habla Cypher, el lenguaje de Neo4j. Las dos devuelven las mismas ocho filas:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- PostgreSQL: tablas depositos(id, nombre) y tramos(desde, hasta, km)\nwith recursive alcance(deposito, saltos, ruta) as (\n  select id, 0, nombre::text from depositos where nombre = 'Central'\n  union all\n  select d.id, a.saltos + 1, a.ruta || ' > ' || d.nombre\n  from alcance a\n  join tramos t on t.desde = a.deposito\n  join depositos d on d.id = t.hasta\n  where a.saltos < 3\n)\nselect saltos, ruta from alcance where saltos > 0 order by saltos, ruta;",
+     "s": " saltos |                   ruta                   \n--------+------------------------------------------\n      1 | Central > Avellaneda\n      1 | Central > Pilar\n      2 | Central > Avellaneda > La Plata\n      2 | Central > Avellaneda > Quilmes\n      2 | Central > Pilar > Campana\n      2 | Central > Pilar > Rosario\n      3 | Central > Avellaneda > Quilmes > Central\n      3 | Central > Pilar > Campana > Rosario\n(8 rows)"
+    },
+    {
+     "c": "-- Kuzu (Cypher): nodos Deposito, relaciones Tramo\nMATCH p = (a:Deposito {nombre: 'Central'})-[:Tramo* 1..3]->(b:Deposito)\nRETURN length(p) AS saltos, b.nombre AS destino, properties(nodes(p), 'nombre') AS ruta\nORDER BY saltos, destino",
+     "s": "[1, 'Avellaneda', ['Central', 'Avellaneda']]\n[1, 'Pilar', ['Central', 'Pilar']]\n[2, 'Campana', ['Central', 'Pilar', 'Campana']]\n[2, 'La Plata', ['Central', 'Avellaneda', 'La Plata']]\n[2, 'Quilmes', ['Central', 'Avellaneda', 'Quilmes']]\n[2, 'Rosario', ['Central', 'Pilar', 'Rosario']]\n[3, 'Central', ['Central', 'Avellaneda', 'Quilmes', 'Central']]\n[3, 'Rosario', ['Central', 'Pilar', 'Campana', 'Rosario']]"
+    }
+   ],
+   "cap": "Mismas ocho rutas, incluido el ciclo Central > Avellaneda > Quilmes > Central, porque nada prohíbe volver a pasar por un nodo."
+  },
+  {
+   "t": "p",
+   "x": "La consulta Cypher se lee como un dibujo: `(a:Deposito {nombre: 'Central'})` es un nodo entre paréntesis, `-[:Tramo* 1..3]->` es una flecha de tipo `Tramo` repetida de una a tres veces, y `(b:Deposito)` es el nodo al que se llega. El manual de Cypher lo describe así: los círculos del dibujo son pares de paréntesis y las relaciones, flechas hechas de guiones [#bd0937-neo4j-cypher-patterns]. En SQL escribís la mecánica: caso base, paso recursivo, límite de saltos y armado del camino. PostgreSQL tiene una cláusula `CYCLE` para detectar vueltas sobre sí mismo [#bd0937-pg-queries-with]; sin ella ni límite de saltos, un ciclo como el de Quilmes haría que la recursión no termine nunca."
+  },
+  {
+   "t": "h",
+   "x": "Medido: ¿el grafo gana?"
+  },
+  {
+   "t": "p",
+   "x": "El folleto de las bases de grafos dice que seguir conexiones es mucho más rápido que encadenar `JOIN`. Armé una red grande: 100.000 puntos y 599.996 tramos al azar (semilla 937, unos seis de salida por punto), con un índice en `tramos(desde)`. Pregunta: ¿a cuántos puntos distintos se llega desde el 1 con k tramos como máximo?"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Saltos máximos",
+    "Puntos alcanzados",
+    "PostgreSQL (CTE recursivo)",
+    "Kuzu (Cypher)"
+   ],
+   "filas": [
+    [
+     "1",
+     "5",
+     "0,4 ms",
+     "3,5 ms"
+    ],
+    [
+     "2",
+     "28",
+     "0,2 ms",
+     "5,4 ms"
+    ],
+    [
+     "3",
+     "158",
+     "0,8 ms",
+     "8,5 ms"
+    ],
+    [
+     "4",
+     "920",
+     "3,1 ms",
+     "8,9 ms"
+    ],
+    [
+     "5",
+     "5.376",
+     "12,0 ms",
+     "17,1 ms"
+    ],
+    [
+     "6",
+     "27.806",
+     "46,9 ms",
+     "30,4 ms"
+    ],
+    [
+     "7",
+     "81.145",
+     "268,1 ms",
+     "135,9 ms"
+    ],
+    [
+     "8",
+     "99.267",
+     "843,8 ms",
+     "1.273,5 ms"
+    ]
+   ],
+   "cap": "Medido en esta VM; mediana de tres a cinco corridas. Los dos motores devolvieron la misma cantidad en cada fila."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Camino más corto desde el punto 1 hasta…",
+    "Saltos",
+    "PostgreSQL",
+    "Kuzu"
+   ],
+   "filas": [
+    [
+     "el punto 31.415",
+     "5",
+     "2,4 ms",
+     "6,1 ms"
+    ],
+    [
+     "el punto 99.999",
+     "7",
+     "41,1 ms",
+     "20,6 ms"
+    ],
+    [
+     "el punto 77.777",
+     "7",
+     "57,6 ms",
+     "16,4 ms"
+    ]
+   ],
+   "cap": "En Kuzu: `[e:Tramo* SHORTEST 1..12]`. En PostgreSQL, el CTE con tope de 12 saltos y `limit 1` sin `order by`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "No se parece a la promesa. Con pocos saltos gana PostgreSQL, porque el índice en `desde` es un B-tree y cada salto es una búsqueda corta. Con cinco a siete, Kuzu gana por un factor de 1,5 a 3; con ocho, vuelve a ganar PostgreSQL. La razón: en las dos formas el costo de cada salto es proporcional a los puntos que visita, no al tamaño de la tabla, y con unos seis de salida cada salto multiplica por seis lo que hay que visitar hasta saturar la red (con 8 saltos ya se alcanzó el 99 % de los puntos).",
+    "El camino más corto tiene una trampa: la primera vez lo escribí con `order by saltos limit 1` y PostgreSQL tardó **3.414 ms**, porque el `order by` obliga a terminar toda la recursión antes de ordenar. Sin `order by`, la primera fila que aparece ya es la de menos saltos (el CTE avanza por niveles) y `limit 1` frena ahí. Un detalle del lenguaje separó 3,4 segundos de 58 milisegundos."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Entonces, ¿para qué sirve una base de grafos? Más para la **expresividad** que para la velocidad bruta de este caso: patrones con forma, algoritmos de recorrido ya hechos como el camino más corto, y modelos donde las conexiones se consultan todo el tiempo (redes de contactos, de cuentas, de dependencias). Mi medición es un grafo al azar, en una máquina y con un solo motor de grafos: en otros tamaños y formas el resultado puede cambiar. Decidí con tus datos."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Grafos: qué cambió y qué no",
+   "x": [
+    "Usé Kuzu porque corre embebido y habla Cypher, pero el proyecto cambió de rumbo: la prensa técnica informó el 16-02-2026 que Apple lo habría comprado, según documentos de la Unión Europea (Apple no lo anunció), y su repositorio de GitHub figura archivado desde octubre de 2025 [#bd0937-heise-kuzu]; la última versión en PyPI, la 0.11.3, es del 10-10-2025 [#bd0937-pypi-kuzu]. Sirve para aprender; yo no empezaría un proyecto nuevo con él. No instalé Neo4j: la sintaxis que corrí es la de Kuzu y puede diferir en detalles.",
+    "Estándares: el de consultas de grafos de propiedades, GQL, se publicó como ISO/IEC 39075:2024 [#bd0937-gql-iso]. SQL tiene además una parte de grafos (SQL/PGQ): PostgreSQL la integró a su rama de desarrollo en marzo de 2026 y la **revirtió** antes de lanzar la versión 19 [#bd0937-pg19-pgq-revert]. Verifiqué que la documentación de la 19 no tiene páginas de `CREATE PROPERTY GRAPH`; la fecha (7 de septiembre) es de prensa técnica. Al 12-11-2026 la 19 era candidata de lanzamiento y las estables eran 18.7, 17.12, 16.16, 15.20 y 14.25 [#postgresql-versioning]."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "amistades: un grafo guardado en una tabla",
+   "x": [
+    "Las amistades de Senda son un grafo guardado como tabla común. En `20261101000000_juntos.sql`, `amistades` tiene clave primaria `(de, para)`, un `estado` (pendiente, aceptada o bloqueada) y un índice `amistades_para (para, estado)`. Las funciones que miran una amistad, por ejemplo para permitir un duelo, comprueban un solo salto: que exista una fila aceptada entre los dos. No encontré en las migraciones ninguna consulta recursiva ni de más saltos sobre esa tabla.",
+    "Es coherente: con un salto, un B-tree sobra. Si algún día sugirieran amigos de amigos, serían dos `JOIN` sobre la misma tabla. Criterio mío: una base de grafos recién se justifica cuando las consultas de muchos saltos son el corazón del producto."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261111000000_novedades.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Series de tiempo: todo viene con reloj"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[serie de tiempo]] es una secuencia de mediciones, cada una con su marca de tiempo y su identidad: la temperatura de cada camión refrigerado cada minuto, las respuestas que da la gente en una app. Su perfil es muy particular: casi todo son inserciones al final, casi nada se corrige, se consulta por rango («ayer») y en resumen («promedio por hora»), y lo viejo pierde valor y se descarta a los 30 o 90 días.",
+    "PostgreSQL común tiene herramientas para atender ese perfil. Las medí con un caso inventado: 30 camiones con una lectura por minuto durante 30 días, 1.296.000 filas, 64 MB."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "select setseed(0.937);\ncreate table lecturas_plana (\n  camion smallint not null,\n  ts timestamptz not null,\n  temp numeric(3,1) not null);\ninsert into lecturas_plana\nselect c, t, round((4 + 2 * sin(extract(epoch from t) / 3600.0 + c) + random())::numeric, 1)\nfrom generate_series('2026-10-01 00:00+00'::timestamptz, '2026-10-30 23:59+00', interval '1 minute') t,\n     generate_series(1, 30) c\norder by t, c;",
+   "cap": "Datos inventados, con semilla fija, insertados en orden de tiempo, como llegarían de verdad."
+  },
+  {
+   "t": "h3",
+   "x": "Técnica 1: un índice BRIN en lugar de un B-tree"
+  },
+  {
+   "t": "p",
+   "x": "El [[BRIN]] de [@09-21] guarda un resumen por rango de bloques y está pensado para tablas enormes en las que una columna tiene «una correlación natural con su ubicación física» [#bd0937-pg-brin-intro]. Una serie de tiempo es el caso de manual: las filas se agregan en orden de tiempo. Armé un B-tree sobre `(camion, ts)` y un BRIN sobre `ts`:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cosa medida",
+    "Resultado"
+   ],
+   "filas": [
+    [
+     "Tamaño del B-tree sobre `(camion, ts)`",
+     "39 MB"
+    ],
+    [
+     "Tamaño del BRIN sobre `ts`",
+     "24 kB"
+    ],
+    [
+     "Promedio por hora de un día, sin índice",
+     "66,2 ms, 8.255 páginas leídas"
+    ],
+    [
+     "El mismo promedio, con el BRIN",
+     "9,1 ms, 296 páginas leídas"
+    ],
+    [
+     "Un camión, últimas 3 horas, con el B-tree",
+     "0,10 ms, 180 filas"
+    ]
+   ],
+   "cap": "Medido en esta VM, sin paralelismo. Para «un camión, tres horas» gana el B-tree, que sabe el lugar exacto de cada fila."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, buffers, costs off)\nselect date_bin('1 hour', ts, '2026-10-15 00:00+00') hora, round(avg(temp),2)\nfrom lecturas_plana\nwhere ts >= '2026-10-15 00:00+00' and ts < '2026-10-16 00:00+00'\ngroup by 1 order by 1;",
+     "s": "   ->  Bitmap Heap Scan on lecturas_plana (actual time=0.154..4.133 rows=43200 loops=1)\n         Heap Blocks: lossy=288\n         Buffers: shared hit=296\n         ->  Bitmap Index Scan on lp_brin (actual time=0.053..0.053 rows=2880 loops=1)\n               Buffers: shared hit=8\n Execution Time: 9.112 ms"
+    }
+   ],
+   "cap": "Recortado. `date_bin` agrupa los tiempos en cubetas de un ancho dado, aquí de una hora [#bd0937-pg-functions-datetime]. El BRIN leyó 8 páginas del índice y 288 de la tabla, de las 8.255 que tiene."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El BRIN depende del orden",
+   "x": "Si lecturas atrasadas entran mezcladas (un sensor sin conexión que manda todo junto un día después), los rangos de bloques se solapan y el índice descarta cada vez menos. Antes de elegirlo, mirá cómo llegan los datos."
+  },
+  {
+   "t": "h3",
+   "x": "Técnica 2: una partición por día"
+  },
+  {
+   "t": "p",
+   "x": "Las [[particiones|partición]] de [@09-30] parten una tabla según un rango. La partí por día (30 particiones) y una consulta con rango de fechas toca solo las que lo cubren; PostgreSQL descarta las otras, lo que su documentación llama *partition pruning* [#bd0937-pg-ddl-partitioning]:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, costs off, timing off, summary off)\nselect date_bin('1 hour', ts, '2026-10-15 00:00+00') hora, round(avg(temp),2)\nfrom lecturas\nwhere ts >= '2026-10-15 00:00+00' and ts < '2026-10-16 00:00+00'\ngroup by 1 order by 1;",
+     "s": " GroupAggregate (actual rows=24 loops=1)\n   ->  Sort (actual rows=43200 loops=1)\n         ->  Seq Scan on lecturas_20261015 lecturas (actual rows=43200 loops=1)\n               Filter: ((ts >= '2026-10-15 00:00:00+00') AND (ts < '2026-10-16 00:00:00+00'))"
+    }
+   ],
+   "cap": "De las 30 particiones, el plan menciona una sola. Recortado."
+  },
+  {
+   "t": "h3",
+   "x": "Técnica 3: la retención, donde las particiones brillan"
+  },
+  {
+   "t": "p",
+   "x": "Ahora descartar los 7 días más viejos, 302.400 filas. En la tabla común es un `DELETE`; en la particionada, borrar 7 particiones. Medí tiempo, registro de transacciones generado (el WAL de [@09-27]) y espacio:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Operación",
+    "Tiempo",
+    "WAL generado",
+    "Espacio después"
+   ],
+   "filas": [
+    [
+     "`DELETE` de 302.400 filas en la tabla común",
+     "115 ms",
+     "31 MB",
+     "Sigue en 64 MB, también tras `VACUUM`"
+    ],
+    [
+     "`DROP TABLE` de 7 particiones, en una transacción",
+     "21 ms (2 + 19 del commit)",
+     "135 kB",
+     "De 105 MB a 81 MB, devueltos al sistema"
+    ]
+   ],
+   "cap": "Medido en esta VM. El espacio de las particiones incluye los índices de cada una."
+  },
+  {
+   "t": "p",
+   "x": "A esta escala el tiempo difiere poco, pero las otras columnas cuentan la historia. El `DELETE` marca las filas como muertas una por una, y eso se escribe en el WAL (31 MB). Después, la lección de [@09-25]: `VACUUM` deja ese espacio reutilizable pero no achica el archivo salvo que las páginas vacías estén al final, y acá estaban al principio. Borrar una partición borra un archivo: sin filas muertas, casi sin WAL y sin `VACUUM`. La documentación dice que es mucho más rápido que una operación masiva y que evita la carga de `VACUUM` de un `DELETE` masivo [#bd0937-pg-ddl-partitioning]."
+  },
+  {
+   "t": "pensa",
+   "x": "Tras el `DELETE` y un `VACUUM`, la tabla común sigue pesando 64 MB. ¿Dónde está el espacio?",
+   "resp": "Dentro del archivo, como páginas libres al comienzo. PostgreSQL las reutiliza para filas nuevas, pero el archivo no se achica porque las páginas ocupadas están después. Para devolver el espacio hay que reescribir la tabla (por ejemplo con `VACUUM FULL`), que la bloquea mientras tanto."
+  },
+  {
+   "t": "p",
+   "x": "Todo esto se puede automatizar. **TimescaleDB** es una extensión de PostgreSQL ([@09-32]) cuyas *hypertables* se parten solas por tiempo en trozos y se usan «de la misma forma que una tabla común» [#bd0937-tiger-hypertables]; su empresa, antes Timescale, hoy se llama Tiger Data. **InfluxDB 3 Core** es una base propia «para recolectar, procesar, transformar y guardar datos de eventos y series de tiempo», que persiste en Parquet [#bd0937-influx3-core]. No instalé ninguna: en esta VM no había paquete de TimescaleDB para PostgreSQL 16. Criterio mío: si la serie entra cómoda en PostgreSQL, un BRIN y particiones a mano alcanzan; un producto especializado conviene con decenas de miles de escrituras por segundo o resúmenes continuos que no querés mantener a mano. Y una advertencia: ninguna partición se crea sola, alguien tiene que programar las del día siguiente y el borrado de las viejas."
+  },
+  {
+   "t": "senda",
+   "titulo": "respuestas: la serie de tiempo de Senda y su retención",
+   "x": [
+    "La tabla `respuestas` (cada respuesta del Espadeo y la Travesía, con `creado timestamptz default now()`) es la serie de tiempo de Senda; `20261027000000_escala.sql` le agrega un B-tree `respuestas_creado`. La limpieza, en `20261109000000_limpieza.sql`, es `limpiar_viejo()`: borra las de más de 30 días **en tandas de 50.000** y `pg_cron` la corre una vez por día a las 07:17 UTC. La salud de cada pregunta ya está en `salud_resumen`, así que lo crudo se puede tirar.",
+    "Es el `DELETE` de hoy, con cuidado de no bloquear. Hay una cuenta que se ve con lo que mediste: cada corrida borra como máximo 50.000 filas por día. Con los supuestos de `docs/CAPACIDAD.md` (ESTIMACIÓN: el 20 % de la gente del mes entra cada día y responde unas 30 veces), alcanza hasta unas 8.300 personas por mes, y el tope actual de esa documentación es de unas 5.700. Más allá la tabla crecería más rápido de lo que se vacía. `docs/ESCALA.md` ya prevé la salida de hoy: **particionar `respuestas` por mes** en la etapa 2. Está planificado en los documentos y **no** implementado en las migraciones. Detalle menor: una cuenta de ESCALA.md habla de borrar a los 90 días y la migración borra a los 30; manda la migración."
+   ],
+   "archivos": [
+    "supabase/migrations/20261027000000_escala.sql",
+    "supabase/migrations/20261109000000_limpieza.sql",
+    "docs/ESCALA.md",
+    "docs/CAPACIDAD.md"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cuál elegir"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Si tu pregunta es…",
+    "Familia",
+    "Ejemplo"
+   ],
+   "filas": [
+    [
+     "Sumar o agrupar millones de filas, pocas columnas",
+     "Columnar",
+     "DuckDB, Parquet, ClickHouse"
+    ],
+    [
+     "Seguir conexiones de muchos saltos, con patrones",
+     "Grafos",
+     "Neo4j, Kuzu"
+    ],
+    [
+     "Lo nuevo siempre al final, rangos y retención",
+     "Series de tiempo",
+     "PostgreSQL con BRIN y particiones, TimescaleDB, InfluxDB"
+    ],
+    [
+     "Todo lo demás: clientes, pedidos, estados",
+     "Relacional común",
+     "PostgreSQL"
+    ]
+   ],
+   "cap": "Regla práctica (criterio mío): empezá por PostgreSQL, medí, y sumá una especialidad cuando una consulta concreta lo justifique."
+  }
+ ],
+ "recap": [
+  "OLTP son muchas operaciones chicas sobre filas enteras; OLAP son pocas consultas que recorren millones de filas y miran pocas columnas. Cada una favorece una forma de guardar distinta.",
+  "Una base columnar guarda cada columna junta: lee solo la que necesita, la comprime mucho y salta grupos de filas por su mínimo y máximo. En el experimento leyó 8,9 MB contra 134 MB y fue de 20 a 70 veces más rápida; en la consulta por clave perdió.",
+  "Una base de grafos modela nodos, relaciones con tipo y dirección, y propiedades. Un CTE recursivo y Cypher dieron las mismas rutas; en 100.000 puntos no hubo un ganador claro. Lo que aporta es expresividad y algoritmos hechos.",
+  "Una serie de tiempo solo crece por el final y se consulta por rango. Un BRIN de 24 kB bajó una consulta de 66 a 9 ms, y particionar por día convirtió la retención en borrar un archivo: 135 kB de WAL contra 31 MB de un DELETE.",
+  "En Senda, `amistades` es un grafo de un solo salto en una tabla, `respuestas` es una serie de tiempo con retención por DELETE (la partición está planificada, no hecha) y las estadísticas de uso viven en PostHog, que usa ClickHouse."
+ ],
+ "repaso": [
+  {
+   "p": "En el experimento, promediar el peso de 1,5 millones de movimientos obligó a PostgreSQL a leer unos 134 MB y a DuckDB mucho menos. ¿Cuál es la explicación principal?",
+   "o": [
+    "DuckDB mantiene toda la tabla en memoria desde que arranca y PostgreSQL lee de un disco lento en cada consulta",
+    "DuckDB guarda cada columna junta y lee solo la que necesita; PostgreSQL recorre las páginas de filas enteras",
+    "DuckDB ordena la tabla por peso al cargarla y PostgreSQL la deja en el orden en que llegaron los datos",
+    "DuckDB usa un SQL más simple que el de PostgreSQL y por eso tiene menos pasos que recorrer al ejecutar"
+   ],
+   "c": 1,
+   "e": "El peso es una columna de 4 bytes dentro de filas de unos 90 bytes. Por filas viene mezclado con todo lo demás, y hay que leer las 17.104 páginas; por columnas está junto. Los errores comunes: el experimento usó caché caliente para los dos, ninguno ordenó por peso, y el SQL de DuckDB es casi igual al de PostgreSQL."
+  },
+  {
+   "p": "Una empresa de reparto registra cada entrega y cada cambio de estado desde 300 celulares al mismo tiempo, y los choferes consultan sus paradas todo el día. ¿Qué almacenamiento conviene para eso?",
+   "o": [
+    "Archivos Parquet, porque es el formato más compacto y cada celular puede agregar su fila al archivo cuando quiera",
+    "Una base de series de tiempo, porque las entregas tienen fecha y hora y todas las filas se ordenan por reloj",
+    "Una base columnar como DuckDB, porque guarda los datos más comprimidos y ocupa menos lugar en el servidor",
+    "Una base por filas como PostgreSQL, porque hay muchas escrituras chicas y consultas por clave sobre filas enteras"
+   ],
+   "c": 3,
+   "e": "Es una carga OLTP: escrituras pequeñas y concurrentes, lecturas por clave. En la consulta D, la columnar tardó entre 9 y 300 veces más que PostgreSQL. Parquet no se actualiza fila a fila, y que haya fecha no convierte en serie de tiempo a una tabla que se consulta y se corrige todo el día."
+  },
+  {
+   "p": "Una consulta filtra `creado >= '2026-10-01'` sobre un Parquet de dos grupos de filas y DuckDB informa «Row Groups Scanned: 1 / 2». ¿Qué mecanismo permitió saltear un grupo?",
+   "o": [
+    "El archivo tiene un B-tree sobre la columna creado que apunta directo a las filas de octubre y descarta el resto",
+    "Parquet ordena los grupos por tamaño y el motor lee solamente el más reciente de los dos que forman el archivo",
+    "La metadata guarda el mínimo y el máximo de cada columna por grupo; el máximo de creado de uno era anterior al filtro",
+    "DuckDB lee primero todo el archivo y descarta lo que no sirve antes de sumar, y por eso el grupo figura como saltado"
+   ],
+   "c": 2,
+   "e": "Cada trozo de columna anota su mínimo y su máximo en la metadata del final del archivo. El máximo de creado del primer grupo era de julio, así que no podía tener octubre. Parquet no trae un B-tree, no ordena grupos por tamaño y leer todo primero contradiría el «saltear»."
+  },
+  {
+   "p": "La misma consulta de alcance a 3 saltos se escribió como CTE recursivo en PostgreSQL y como patrón en Cypher, y devolvieron las mismas 8 rutas. ¿Qué conclusión razonable sale de eso y de la medición con 100.000 puntos?",
+   "o": [
+    "Que un motor de grafos siempre es cientos de veces más rápido que los JOIN, y la medición salió distinta por usar una red al azar",
+    "Que el grafo aporta sobre todo una forma más directa de expresar recorridos; en velocidad, con índice, PostgreSQL compitió bien",
+    "Que PostgreSQL no puede recorrer grafos porque no tiene tipos propios para nodos y relaciones, y el CTE solo sirve en tablas chicas",
+    "Que el CTE recursivo da resultados incompletos con ciclos, y por eso Cypher devolvió también la ruta que vuelve a Central"
+   ],
+   "c": 1,
+   "e": "Los dos motores dieron resultados idénticos y los tiempos se cruzaron según la profundidad (0,4 contra 3,5 ms a un salto; 268 contra 136 ms a siete; 844 contra 1.274 ms a ocho). La diferencia de lenguaje es real. Lo de «cientos de veces» no apareció, y el CTE también devolvió la ruta circular."
+  },
+  {
+   "p": "Una tabla de lecturas de sensores crece por el final, siempre en orden de tiempo, y casi todas las consultas piden el último día. ¿Qué le aporta un índice BRIN sobre la hora frente a un B-tree?",
+   "o": [
+    "Encuentra una fila puntual más rápido que el B-tree, porque guarda la posición exacta de cada fila en lugar de resúmenes por bloques",
+    "Funciona igual de bien aunque las filas lleguen desordenadas, porque el índice reordena la tabla en el disco cada vez que se consulta",
+    "Ocupa una fracción mínima (24 kB contra 39 MB en el experimento) y descarta casi toda la tabla, porque el orden físico sigue al del tiempo",
+    "Evita tener que particionar la tabla, porque el índice borra solo las filas viejas cuando se cumple el plazo de retención de los datos"
+   ],
+   "c": 2,
+   "e": "El BRIN guarda un resumen por rango de bloques y sirve cuando el orden del disco acompaña a la columna: por eso pesó 24 kB y bajó una consulta de 66 a 9 ms. Para una fila puntual gana el B-tree, con datos desordenados los rangos se solapan y rinde menos, y ningún índice borra datos."
+  },
+  {
+   "p": "Una tabla de eventos tiene un DELETE nocturno que borra como máximo 50.000 filas por corrida, una vez por día. Entran 80.000 eventos por día, y todos tienen más de 30 días cuando les toca salir. ¿Qué pasa?",
+   "o": [
+    "La tabla se estabiliza en 80.000 filas, que es lo que entra cada día, porque el resto se borra con el VACUUM de la noche",
+    "La base rechaza las inserciones nuevas cuando se supera el tope de borrado y la aplicación recibe un error por cada una",
+    "La tabla se mantiene estable, porque el DELETE se repite hasta vaciar el atraso antes de que termine cada corrida diaria",
+    "Cada día quedan unas 30.000 filas sin borrar y la tabla crece sin parar aunque la limpieza corra sin errores"
+   ],
+   "c": 3,
+   "e": "La limpieza tiene un tope por corrida; si entra más de lo que sale, el excedente se acumula día tras día. Es lo que pasaría con `limpiar_viejo` de Senda con mucha más gente que la de hoy. El VACUUM no borra filas vivas, el DELETE no se repite solo, y la base no frena inserciones por esto: simplemente crece."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística por qué los mismos datos de entregas se guardarían de tres maneras distintas según qué se quiera preguntar: sumar los kilos de todo el año, seguir cadenas de traspasos entre depósitos, o borrar lo que tiene más de 30 días. Para cada caso, decí qué lee el motor y qué evita leer.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0937-parquet-formato",
+   "nota": "La especificación del formato: grupos de filas, trozos por columna y la metadata del final. Leé la sección de estructura para ver por qué el archivo se lee de atrás para adelante."
+  },
+  {
+   "fuente": "bd0937-duckdb-why",
+   "nota": "La explicación de los autores de por qué un motor analítico puede correr dentro del programa. Sirve para entender qué problema resuelve DuckDB y cuál deja para otros."
+  },
+  {
+   "fuente": "bd0937-pg-ddl-partitioning",
+   "nota": "La sección de particiones de PostgreSQL 16: rangos, poda de particiones y cómo se retira una partición vieja. Es el manual de la técnica 3 de hoy."
+  },
+  {
+   "fuente": "ddia",
+   "nota": "Diseño de aplicaciones intensivas en datos, de Martin Kleppmann: el capítulo sobre almacenamiento y consulta compara bases transaccionales y analíticas y explica el almacenamiento por columnas."
+  }
+ ],
+ "videos": [
+  {
+   "q": "row-oriented vs column-oriented database storage explained",
+   "por_que": "Para ver animado cómo cambia lo que lee el motor según cómo se ordenan los bytes en el disco."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "base columnar",
+   "d": "Base de datos que guarda cada columna de una tabla en una zona contigua del disco, en lugar de guardar fila tras fila. Lee solo las columnas que una consulta necesita y comprime muy bien, lo que la hace rápida para análisis y lenta para buscar una fila entera."
+  },
+  {
+   "t": "base de grafos",
+   "d": "Base de datos cuyo modelo son nodos (las cosas), relaciones con tipo y dirección entre ellos, y propiedades en ambos. Está hecha para consultas que siguen conexiones, como caminos entre depósitos o amigos de amigos."
+  },
+  {
+   "t": "serie de tiempo",
+   "d": "Secuencia de mediciones, cada una con su marca de tiempo y su identidad. Se agrega siempre al final, casi no se corrige, se consulta por rango y en resúmenes, y se descarta con la edad."
+  },
+  {
+   "t": "OLTP",
+   "d": "Procesamiento de transacciones en línea. Muchas operaciones chicas que tocan pocas filas enteras, con escrituras constantes y respuesta en milisegundos: la ventanilla de un sistema."
+  },
+  {
+   "t": "OLAP",
+   "d": "Procesamiento analítico en línea. Pocas consultas que recorren millones de filas, miran pocas columnas y toleran segundos: el tablero de un sistema."
+  },
+  {
+   "t": "Parquet",
+   "d": "Formato de archivo abierto y columnar. Parte los datos en grupos de filas, guarda cada columna por separado con su mínimo y máximo, y escribe la metadata al final."
+  },
+  {
+   "t": "grupo de filas",
+   "d": "Tramo de un archivo Parquet con muchas filas y un trozo por cada columna. La metadata guarda el mínimo y el máximo de cada trozo, y eso permite saltear grupos enteros."
+  },
+  {
+   "t": "Cypher",
+   "d": "Lenguaje de consultas de grafos de Neo4j. Describe el patrón buscado con un dibujo hecho de paréntesis para los nodos y flechas para las relaciones."
+  },
+  {
+   "t": "retención",
+   "d": "Regla sobre cuánto tiempo se conservan los datos. En una serie de tiempo es habitual descartar o resumir lo que supera cierta edad, y borrar una partición entera es la forma barata de hacerlo."
+  }
+ ],
+ "siguiente": "Bases vectoriales: guardar significados como listas de números y buscar por parecido en lugar de por igualdad.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0937-duckdb-why",
+   "t": "Why DuckDB",
+   "a": "DuckDB",
+   "tipo": "doc",
+   "url": "https://duckdb.org/why_duckdb"
+  },
+  {
+   "id": "bd0937-parquet-formato",
+   "t": "Apache Parquet: File Format",
+   "a": "Apache Parquet",
+   "tipo": "doc",
+   "url": "https://parquet.apache.org/docs/file-format/"
+  },
+  {
+   "id": "bd0937-parquet-encodings",
+   "t": "Apache Parquet: Encodings",
+   "a": "Apache Parquet",
+   "tipo": "doc",
+   "url": "https://parquet.apache.org/docs/file-format/data-pages/encodings/"
+  },
+  {
+   "id": "bd0937-clickhouse-intro",
+   "t": "What is ClickHouse?",
+   "a": "ClickHouse",
+   "tipo": "doc",
+   "url": "https://clickhouse.com/docs/intro"
+  },
+  {
+   "id": "bd0937-posthog-clickhouse",
+   "t": "How PostHog runs ClickHouse at scale (Handbook)",
+   "a": "PostHog",
+   "tipo": "doc",
+   "url": "https://posthog.com/handbook/engineering/clickhouse/clusters"
+  },
+  {
+   "id": "bd0937-neo4j-concepts",
+   "t": "Graph database concepts",
+   "a": "Neo4j",
+   "tipo": "doc",
+   "url": "https://neo4j.com/docs/getting-started/appendix/graphdb-concepts/"
+  },
+  {
+   "id": "bd0937-neo4j-cypher-patterns",
+   "t": "Cypher Manual: Patterns",
+   "a": "Neo4j",
+   "tipo": "doc",
+   "url": "https://neo4j.com/docs/cypher-manual/current/patterns/"
+  },
+  {
+   "id": "bd0937-pg-queries-with",
+   "t": "PostgreSQL 16: WITH Queries (Common Table Expressions)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/queries-with.html"
+  },
+  {
+   "id": "bd0937-gql-iso",
+   "t": "GQL Standards (ISO/IEC 39075:2024)",
+   "a": "GQL Standards",
+   "tipo": "doc",
+   "url": "https://www.gqlstandards.org/"
+  },
+  {
+   "id": "bd0937-pg19-pgq-revert",
+   "t": "Revert SQL Property Graph Queries (SQL/PGQ), commit 2b9e1af",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://github.com/postgres/postgres/commit/2b9e1aff4d3d933ae8ee377fef22c2af9c7797e8"
+  },
+  {
+   "id": "bd0937-heise-kuzu",
+   "t": "Apple Buys Canadian Database Company Kuzu",
+   "a": "heise online",
+   "tipo": "articulo",
+   "anio": "2026",
+   "url": "https://www.heise.de/en/news/Apple-Buys-Canadian-Database-Company-Kuzu-11177751.html"
+  },
+  {
+   "id": "bd0937-pypi-kuzu",
+   "t": "kuzu en PyPI",
+   "a": "Python Package Index",
+   "tipo": "doc",
+   "url": "https://pypi.org/project/kuzu/"
+  },
+  {
+   "id": "bd0937-pg-brin-intro",
+   "t": "PostgreSQL 16: BRIN Introduction",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/brin-intro.html"
+  },
+  {
+   "id": "bd0937-pg-ddl-partitioning",
+   "t": "PostgreSQL 16: Table Partitioning",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/ddl-partitioning.html"
+  },
+  {
+   "id": "bd0937-pg-functions-datetime",
+   "t": "PostgreSQL 16: Date/Time Functions and Operators",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/functions-datetime.html"
+  },
+  {
+   "id": "bd0937-tiger-hypertables",
+   "t": "Understand hypertables",
+   "a": "Tiger Data (TimescaleDB)",
+   "tipo": "doc",
+   "url": "https://www.tigerdata.com/docs/learn/hypertables/understand-hypertables"
+  },
+  {
+   "id": "bd0937-influx3-core",
+   "t": "InfluxDB 3 Core documentation",
+   "a": "InfluxData",
+   "tipo": "doc",
+   "url": "https://docs.influxdata.com/influxdb3/core/"
+  }
+ ]
+}

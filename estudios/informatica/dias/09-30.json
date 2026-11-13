@@ -1,0 +1,869 @@
+{
+ "id": "09-30",
+ "titulo": "Particionamiento y sharding",
+ "bajada": "Partís una tabla de verdad, ves qué trozos se saltea el motor, armás un sharding con tres bases, medís qué cuesta y calculás cuándo hace falta (casi nunca al principio).",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es una partición y comparar los métodos por rango, por lista y por hash.",
+  "Leer un EXPLAIN para comprobar la poda de particiones y reconocer cuándo no hay poda.",
+  "Medir en qué casos partir una tabla ayuda (borrar y mantener) y en cuáles no (consultas que un índice ya resuelve).",
+  "Explicar qué es el sharding, qué es la clave de shard y qué cuestan las consultas y las transacciones que cruzan shards.",
+  "Estimar con números si una tabla necesita partición o sharding, y plantear la tabla `respuestas` de Senda como hipótesis."
+ ],
+ "venis_de": "Ayer ([@09-29]) copiaste la base entera en una réplica: eso da disponibilidad y reparte lecturas, pero cada copia sigue teniendo todos los datos. Hoy cambia la pregunta: ¿qué hacés cuando una sola tabla crece tanto que se vuelve incómoda de mantener, o cuando una sola máquina no alcanza?",
+ "se_apoya_en": [
+  "09-04",
+  "09-20",
+  "09-22",
+  "09-23",
+  "09-24",
+  "09-25",
+  "09-29"
+ ],
+ "gancho": [
+  "La tabla `envios` de una empresa de reparto tiene tres años de historia. Cada noche un trabajo borra los envíos de más de dos años, y esa limpieza tarda casi una hora y deja la base lenta. El equipo se pregunta: ¿y si borrar un mes entero fuera tan simple como tirar una carpeta?",
+  "Esa pregunta tiene respuesta, y se llama partición. Hay otra, más grande y más cara, con un nombre parecido: ¿qué hacés si ni una máquina alcanza para guardar o escribir todo? Esa se llama sharding. Hoy probás las dos.",
+  "El laboratorio usa PostgreSQL 16.15 y 1,2 millones de envíos inventados, con una fórmula fija en lugar de números al azar. Para el sharding armé tres bases en el mismo servidor: en producción serían tres máquinas, y eso solo empeora lo que vas a medir. Los tiempos son de una VM compartida."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Dos problemas con nombres parecidos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una **partición** es un pedazo de una tabla. Particionar es guardar una tabla lógica, la que ve la aplicación, como varias tablas físicas más chicas dentro de la misma base. La aplicación escribe y consulta `envios`; PostgreSQL decide en qué trozo cae cada fila.",
+    "El **sharding** también reparte filas, pero entre bases distintas, normalmente en máquinas distintas, y ahí la aplicación (o un intermediario) tiene que saber a qué base ir. Un *shard* es cada uno de esos trozos con su propia base."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Particionamiento",
+    "Sharding"
+   ],
+   "filas": [
+    [
+     "Dónde viven los trozos",
+     "En la misma base y el mismo servidor",
+     "En bases separadas, casi siempre en máquinas separadas"
+    ],
+    [
+     "Qué resuelve",
+     "Borrar y mantener por tandas; trozos manejables",
+     "Que los datos o las escrituras no entran en una máquina"
+    ],
+    [
+     "Qué complica",
+     "Restricciones únicas y planificación",
+     "Casi todo: consultas, transacciones, operación"
+    ],
+    [
+     "Cuándo se piensa",
+     "Con tablas grandes y datos que envejecen",
+     "Cuando una máquina ya no alcanza, y nada más barato sirvió"
+    ]
+   ],
+   "cap": "Las dos ideas se parecen, y los problemas de una se confunden con los de la otra."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: cajones y depósitos",
+   "x": "Un archivero con un cajón por mes: para tirar enero abrís un cajón y listo, todo en el mismo mueble. Eso es particionar. Repartir el archivo entre tres depósitos en barrios distintos es otra cosa: cada pedido va al depósito correcto, y una consulta sobre todos los barrios los recorre uno por uno. Eso es sharding. La analogía deja de valer en que, en una base, el «cajón correcto» lo elige el motor."
+  },
+  {
+   "t": "h",
+   "x": "Particionar una tabla en PostgreSQL"
+  },
+  {
+   "t": "p",
+   "x": [
+    "PostgreSQL ofrece **particionamiento declarativo**: se declara cómo repartir y el motor hace el resto [#bdpart30-pg-partitioning]. Por **rango**, cada trozo tiene un intervalo sin superposición (un mes de fechas). Por **lista**, se enumeran los valores de cada trozo (depósitos del norte y del sur). Por **hash**, se da un módulo y un resto: la fila va al trozo cuyo resto coincide con el del hash de la clave, y eso reparte parejo sin mirar el significado del dato.",
+    "Armé dos copias de la misma tabla de 1,2 millones de envíos (unos 113 bytes por fila entre tabla e índices): una común (`envios_plano`) y una partida por mes de creación (`envios`):"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table envios (\n  id bigint generated always as identity,\n  creado timestamptz not null,\n  deposito_id smallint not null,\n  cliente_id int not null,\n  estado text not null,\n  bultos smallint not null,\n  primary key (id, creado)\n) partition by range (creado);\n\n-- una partición por mes de 2026, con los límites a medianoche de Buenos Aires\ndo $$\ndeclare m int;\nbegin\n  for m in 1..12 loop\n    execute format(\n      'create table envios_2026_%s partition of envios for values from (%L) to (%L)',\n      lpad(m::text, 2, '0'),\n      make_timestamptz(2026, m, 1, 0, 0, 0, 'America/Argentina/Buenos_Aires'),\n      make_timestamptz(2026 + (m / 12), 1 + (m % 12), 1, 0, 0, 0, 'America/Argentina/Buenos_Aires'));\n  end loop;\nend $$;\n\ncreate table envios_resto partition of envios default;   -- lo que no cae en ningún mes\ncreate index envios_creado on envios (creado);",
+   "cap": "La tabla de datos se llenó con `insert … select` desde la tabla común: 2,75 segundos en esta VM para 1,2 millones de filas."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select c.relname, pg_get_expr(c.relpartbound, c.oid), pg_size_pretty(pg_total_relation_size(c.oid)) from pg_inherits i join pg_class c on c.oid = i.inhrelid where i.inhparent = 'envios'::regclass order by 1 limit 3",
+     "s": "envios_2026_01 | FOR VALUES FROM ('2026-01-01 03:00:00+00') TO ('2026-02-01 03:00:00+00') | 14 MB\nenvios_2026_02 | FOR VALUES FROM ('2026-02-01 03:00:00+00') TO ('2026-03-01 03:00:00+00') | 13 MB\nenvios_2026_03 | FOR VALUES FROM ('2026-03-01 03:00:00+00') TO ('2026-04-01 03:00:00+00') | 14 MB\n(…hasta envios_2026_11, y envios_2026_12 y envios_resto vacías)"
+    }
+   ],
+   "cap": "Doce particiones mensuales de unos 14 MB (la de noviembre es chica porque los datos llegan hasta el 2 de noviembre). La sesión estaba en UTC: medianoche de Buenos Aires aparece como las 03:00 en UTC."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El límite de un mes depende de la zona horaria",
+   "x": "Sin indicar zona, los límites habrían quedado a medianoche UTC, y un envío de las 22:00 del 31 de octubre en Buenos Aires habría caído en la partición de noviembre. Es el problema de `timestamptz` de [@09-04] con una consecuencia nueva: la zona que usás al declarar la partición queda grabada en sus límites."
+  },
+  {
+   "t": "p",
+   "x": "También armé una tabla por lista (depósitos 1 a 4 en una partición, 5 a 8 en otra) y una por hash con módulo 4 sobre el cliente, con 100.000 filas cada una. El reparto real fue este:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Método",
+    "Partición",
+    "Filas"
+   ],
+   "filas": [
+    [
+     "Lista por depósito",
+     "norte (1 a 4)",
+     "50.000"
+    ],
+    [
+     "Lista por depósito",
+     "sur (5 a 8)",
+     "50.000"
+    ],
+    [
+     "Hash del cliente, módulo 4",
+     "resto 0 / 1 / 2 / 3",
+     "24.860 / 25.240 / 25.255 / 24.645"
+    ]
+   ],
+   "cap": "Medido en esta VM. El hash reparte casi parejo (±1 %) sin que nadie decida el reparto a mano; la lista da el control que el hash no da."
+  },
+  {
+   "t": "h",
+   "x": "La poda: el motor se salta lo que no puede tener la respuesta"
+  },
+  {
+   "t": "p",
+   "x": "Lo que justifica la complejidad es la **poda de particiones** (*partition pruning*): si la consulta filtra por la clave de partición, el planificador ([@09-22]) descarta los trozos cuyos límites no pueden contener filas que cumplan. Se ve en el [[plan de ejecución]]:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, costs off, timing off) select count(*), sum(bultos) from envios where creado >= '2026-10-01 00:00-03' and creado < '2026-11-01 00:00-03'",
+     "s": "Aggregate (actual rows=1 loops=1)\n  ->  Seq Scan on envios_2026_10 envios (actual rows=121745 loops=1)\n        Filter: ((creado >= '2026-10-01 03:00:00+00') AND (creado < '2026-11-01 03:00:00+00'))\nPlanning Time: 0.791 ms\nExecution Time: 11.856 ms"
+    }
+   ],
+   "cap": "De las 13 particiones, el plan menciona una sola: las otras doce ni se abren."
+  },
+  {
+   "t": "pensa",
+   "x": "Con la tabla partida por mes de `creado`, ¿cuántas particiones recorre `select count(*) from envios where deposito_id = 3`?",
+   "resp": "Las trece. El filtro no menciona la clave de partición: el motor no puede saber en qué mes hay envíos del depósito 3, así que mira todos. La poda solo ocurre si el filtro usa la clave."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (costs off) select count(*) from envios where deposito_id = 3",
+     "s": "Aggregate\n  ->  Append\n        ->  Seq Scan on envios_2026_01 envios_1\n              Filter: (deposito_id = 3)\n        ->  Seq Scan on envios_2026_02 envios_2\n              Filter: (deposito_id = 3)\n        … (una línea igual por cada mes, hasta envios_2026_12 y envios_resto)\n(28 líneas en total)"
+    }
+   ],
+   "cap": "Sin la clave de partición en el filtro, el plan recorre las 13 particiones."
+  },
+  {
+   "t": "p",
+   "x": "Ahora la pregunta honesta: ¿se nota en el tiempo? Medí cuatro consultas sobre las dos copias, con nueve corridas cada una y sin paralelismo para que el resultado sea comparable:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Consulta",
+    "Tabla común (ms)",
+    "Tabla partida (ms)"
+   ],
+   "filas": [
+    [
+     "Un mes entero (121.745 filas)",
+     "13,4",
+     "9,9"
+    ],
+    [
+     "Un solo día",
+     "0,52",
+     "0,50"
+    ],
+    [
+     "Todo el año (1,2 millones de filas)",
+     "91,0",
+     "102,8"
+    ],
+    [
+     "Un cliente, sin la clave de partición",
+     "56,5",
+     "56,3"
+    ]
+   ],
+   "cap": "Mediana de nueve corridas, medido en esta VM, con la tabla entera en memoria (130 MB) y sin paralelismo. Los dos primeros casos usan en la común el índice sobre `creado`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Es menos espectacular de lo que suele prometerse. Para el mes entero, la partida gana un poco, porque lee solo ese trozo. Para un día empatan: el índice ya hacía el trabajo. Para toda la tabla, la partida **pierde** un 12 %, porque tiene trece trozos que recorrer y combinar. Y sin la clave, no hay diferencia.",
+    "La documentación es coherente con esto: los beneficios suelen justificarse solo cuando la tabla sería muy grande, y como regla práctica propone que supere la memoria del servidor [#bdpart30-pg-partitioning]. Mis 130 MB entran de sobra. El laboratorio sirve para ver el mecanismo, no para demostrar una ganancia de velocidad."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Donde sí gana: borrar un mes y mantener la tabla"
+  },
+  {
+   "t": "p",
+   "x": "La ventaja real aparece en la limpieza, que es la pregunta del gancho. Borré el mes de enero (121.745 filas) de las dos copias. En la común, con `delete`; en la partida, separando la partición y borrándola:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "delete from envios_plano where creado < '2026-02-01 00:00-03'",
+     "s": "DELETE 121745\nTime: 48.414 ms"
+    },
+    {
+     "c": "select pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), :'antes'))   -- WAL generado por el delete",
+     "s": "6678 kB"
+    },
+    {
+     "c": "vacuum envios_plano; select pg_size_pretty(pg_total_relation_size('envios_plano'))",
+     "s": "130 MB   (antes del delete: 130 MB)"
+    },
+    {
+     "c": "alter table envios detach partition envios_2026_01;",
+     "s": "Time: 1.832 ms"
+    },
+    {
+     "c": "drop table envios_2026_01;",
+     "s": "Time: 11.098 ms"
+    },
+    {
+     "c": "select pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), :'antes'))   -- WAL generado por detach + drop",
+     "s": "14 kB"
+    }
+   ],
+   "cap": "Medido en esta VM. La suma de las particiones quedó en 126 MB: el drop devolvió al sistema operativo los 14 MB de enero."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "`delete` de un mes",
+    "Separar y borrar la partición"
+   ],
+   "filas": [
+    [
+     "Tiempo",
+     "48 ms",
+     "13 ms (1,8 + 11,1)"
+    ],
+    [
+     "WAL generado",
+     "6.678 kB",
+     "14 kB"
+    ],
+    [
+     "Espacio devuelto",
+     "ninguno: el archivo sigue en 130 MB",
+     "los 14 MB del mes"
+    ],
+    [
+     "Trabajo pendiente",
+     "`vacuum` para reutilizar el espacio",
+     "ninguno"
+    ]
+   ],
+   "cap": "Misma operación lógica, resultados muy distintos por dentro."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Por qué: un `delete` no borra, marca las versiones de fila como muertas ([@09-25]). Hace falta `vacuum` para reutilizar ese espacio, y aun así el archivo no se achica. Además, cada fila borrada y sus entradas de índice se registran en el WAL ([@09-27]). Separar y borrar una partición borra un archivo entero y escribe casi nada.",
+    "En mi tabla son milisegundos contra casi nada, pero la diferencia crece con el tamaño: 6,7 MB de WAL por 121.745 filas son unos 56 bytes por fila, así que borrar cien millones de filas generaría del orden de **5,6 GB de WAL** (ESTIMACIÓN: extrapolación lineal), que además viaja a cada réplica y puede disparar el retraso de réplica de ayer ([@09-29]). Con particiones, sacar un mes sigue escribiendo kilobytes."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "La tabla `envios` está partida por mes y se conserva el mes actual y los 24 anteriores. Hoy es 13 de noviembre de 2026. (1) ¿Qué partición se separa y se borra hoy? (2) Escribí el SQL para crear la de enero de 2027 antes de que haga falta, y explicá por qué conviene anticiparla.",
+   "pista": "En noviembre de 2026 se conserva desde noviembre de 2024. Usá `partition of … for values from … to …`.",
+   "solucion": "(1) La de octubre de 2024: `alter table envios detach partition envios_2024_10; drop table envios_2024_10;`. (2) `create table envios_2027_01 partition of envios for values from ('2027-01-01 00:00-03') to ('2027-02-01 00:00-03');`. Si llega una fila de un mes sin partición y no hay una por defecto, la inserción falla, y la aplicación dejaría de escribir justo a medianoche del primer día del mes. Un trabajo programado que cree la del mes siguiente y separe la vieja evita ese corte."
+  },
+  {
+   "t": "h",
+   "x": "Los costos de partir una tabla"
+  },
+  {
+   "t": "p",
+   "x": "Partir no es gratis. Hay dos costos concretos que medí."
+  },
+  {
+   "t": "h3",
+   "x": "Las claves únicas tienen que incluir la clave de partición"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create table envios_mal (id bigint primary key, creado timestamptz not null, deposito_id smallint) partition by range (creado)",
+     "s": "ERROR:  unique constraint on partitioned table must include all partitioning columns\nDETAIL:  PRIMARY KEY constraint on table \"envios_mal\" lacks column \"creado\" which is part of the partition key."
+    }
+   ],
+   "cap": "PostgreSQL 16.15. Por eso la tabla de arriba tiene la clave primaria `(id, creado)`."
+  },
+  {
+   "t": "p",
+   "x": "La razón, según la documentación, es que los índices de cada partición solo pueden garantizar unicidad dentro de su propio trozo [#bdpart30-pg-partitioning]. Si `id` es único a secas, el motor tendría que consultar todos los trozos en cada inserción. En su lugar exige que la clave incluya la columna de partición: así la unicidad se verifica dentro de un solo trozo. Consecuencia práctica: la unicidad de `id` por sí solo deja de estar garantizada por la base. Dos filas con el mismo `id` pero distinta fecha serían válidas."
+  },
+  {
+   "t": "h3",
+   "x": "Demasiadas particiones se pagan en cada consulta"
+  },
+  {
+   "t": "p",
+   "x": "Creé una tabla particionada por hash con **1.000 particiones vacías** y medí solo el tiempo de planificación, sin ejecutar nada:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Caso",
+    "Tiempo de planificación (ms)"
+   ],
+   "filas": [
+    [
+     "Una tabla sin partir, filtro por depósito",
+     "0,20"
+    ],
+    [
+     "13 particiones, filtro por mes (poda)",
+     "0,48"
+    ],
+    [
+     "13 particiones, filtro por depósito (sin poda)",
+     "0,96"
+    ],
+    [
+     "1.000 particiones, filtro por la clave (poda)",
+     "2,46"
+    ],
+    [
+     "1.000 particiones, filtro por otra columna (sin poda)",
+     "37,97"
+    ]
+   ],
+   "cap": "Mediana de 15 corridas, medido en esta VM. Las tablas están vacías: es solo el costo de planificar, antes de leer una fila."
+  },
+  {
+   "t": "p",
+   "x": "Una consulta trivial pasó de 0,2 a 38 milisegundos **solo en planificar**, porque el motor revisa cada una de las mil particiones y tiene que mantener su información en la memoria de cada sesión. La documentación lo describe: demasiadas particiones suben el tiempo de planificación y la memoria, y poca cantidad deja índices grandes; recomienda no suponer que más es mejor [#bdpart30-pg-partitioning]. Una partición por mes durante diez años son 120 trozos: manejable. Una por hora durante diez años serían más de 87.000: un error de diseño."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Una tabla que ya existe no se «convierte»",
+   "x": "En PostgreSQL 16 no hay un comando que convierta una tabla común en partida: se crea la partida y se copian los datos (o se agrega la vieja con `attach partition`). Copiar mis 1,2 millones de filas tardó 2,75 segundos; con mil millones tardaría horas (ESTIMACIÓN lineal). Conviene decidir la clave antes de que la tabla crezca."
+  },
+  {
+   "t": "h",
+   "x": "Cuando una máquina no alcanza: sharding"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El **sharding** parte los datos entre varias bases, cada una en su servidor. Lo que decide a qué base va una fila es la **clave de shard**: la columna cuyo valor determina el destino. En una base de envíos, la clave podría ser `cliente_id`.",
+    "Una buena clave tiene muchos valores distintos (cientos de miles de clientes, no ocho depósitos), aparece en casi todas las consultas para que cada una vaya a un solo shard, y reparte parejo la carga. Con el depósito como clave, si Retiro concentrara el 40 % del tráfico, su shard cargaría con el 40 % mientras los otros descansan (un *shard caliente*)."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Armé una versión de juguete: tres bases (`shard_a`, `shard_b`, `shard_c`) y una cuarta, el **coordinador**, sin datos propios, con una tabla particionada por hash del cliente cuyas particiones son *tablas foráneas* que apuntan a cada shard (extensión `postgres_fdw` [#bdpart30-pg-fdw]). En producción el coordinador sería un proxy o la propia aplicación. Cargué 300.000 envíos a través de él y cayeron 99.675, 100.725 y 99.600 en cada shard."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "-- en la base «coord»\ncreate extension postgres_fdw;\ncreate server shard_a foreign data wrapper postgres_fdw\n  options (host '/var/tmp/r0930/sock', port '21301', dbname 'shard_a', batch_size '1000');\ncreate user mapping for current_user server shard_a;\n-- (lo mismo para shard_b y shard_c)\n\ncreate table envios_s (id bigint not null, cliente_id int not null, creado timestamptz not null,\n  deposito_id smallint not null, estado text not null, bultos smallint not null)\n  partition by hash (cliente_id);\n\ncreate foreign table envios_s_0 partition of envios_s for values with (modulus 3, remainder 0)\n  server shard_a options (table_name 'envios_s');\ncreate foreign table envios_s_1 partition of envios_s for values with (modulus 3, remainder 1)\n  server shard_b options (table_name 'envios_s');\ncreate foreign table envios_s_2 partition of envios_s for values with (modulus 3, remainder 2)\n  server shard_c options (table_name 'envios_s');",
+   "cap": "El «sharding» de juguete: el coordinador reparte por hash y cada partición vive en otra base. La ruta del socket es la de mi laboratorio."
+  },
+  {
+   "t": "h3",
+   "x": "Con la clave, una consulta va a un solo shard"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (verbose, costs off) select * from envios_s where cliente_id = 777",
+     "s": "Foreign Scan on public.envios_s_2 envios_s\n  Remote SQL: SELECT id, cliente_id, creado, deposito_id, estado, bultos FROM public.envios_s WHERE ((cliente_id = 777))"
+    }
+   ],
+   "cap": "El coordinador calculó que el cliente 777 vive en la tercera base y le mandó el `WHERE` ya armado. Las otras dos bases ni se enteraron."
+  },
+  {
+   "t": "h3",
+   "x": "Sin la clave, la consulta va a todos y trae las filas"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, costs off, timing off) select count(*) from envios_s where estado = 'entregado'",
+     "s": "Aggregate (actual rows=1 loops=1)\n  ->  Append (actual rows=75000 loops=1)\n        ->  Foreign Scan on envios_s_0 (actual rows=24510 loops=1)\n        ->  Foreign Scan on envios_s_1 (actual rows=25455 loops=1)\n        ->  Foreign Scan on envios_s_2 (actual rows=25035 loops=1)\nExecution Time: 91.109 ms"
+    }
+   ],
+   "cap": "Para contar, el coordinador trajo **75.000 filas** (una por cada envío entregado) y las contó él. Medido en esta VM."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Consulta",
+    "Mediana (ms)"
+   ],
+   "filas": [
+    [
+     "Un cliente, con la clave de shard (1 base de 3)",
+     "12,0"
+    ],
+    [
+     "Todos los entregados, sin la clave (3 bases, 75.000 filas viajan)",
+     "108,8"
+    ],
+    [
+     "El mismo conteo en una sola base con los mismos 300.000 envíos",
+     "24,9"
+    ]
+   ],
+   "cap": "Mediana de nueve corridas, medido en esta VM. Las tres bases comparten máquina y se hablan por un socket local: con red de verdad, las 75.000 filas viajando costarían más."
+  },
+  {
+   "t": "p",
+   "x": "El conteo sin clave es unas cuatro veces más lento que en una sola base, aunque cada shard tiene un tercio de los datos. Lo que se paga no es calcular sino **mover filas** hacia el coordinador, y con shards en máquinas distintas entra la [[latencia de red]] ([@05-27]) en cada paso."
+  },
+  {
+   "t": "pensa",
+   "x": "Se hace sharding de los envíos con el depósito como clave: 8 depósitos, 8 shards. Un cliente consulta «todos mis envíos», que salen de varios depósitos. ¿Qué dos problemas aparecen?",
+   "resp": "La consulta del cliente no usa la clave de shard: va a los 8 shards y combina resultados. Y el reparto depende de qué tan grande sea cada depósito: el más grande se vuelve el cuello de botella. Con `cliente_id` como clave se evitan los dos, aunque trae problemas para otras consultas."
+  },
+  {
+   "t": "h3",
+   "x": "Una transacción que cruza shards deja de ser atómica"
+  },
+  {
+   "t": "p",
+   "x": "Lo más serio son las transacciones ([[transacción]], [@09-24]). Dentro de una base, o todo se confirma o nada ([[atomicidad]]). Entre bases, no: `postgres_fdw` no usa confirmación en dos fases, y al confirmar la transacción local confirma o cancela las remotas una por una [#bdpart30-pg-fdw]. Probé una transacción que modifica un envío del primer shard y otro del segundo, que rechaza el cambio justo al confirmar:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "begin;\nupdate envios_s set estado = 'revisado' where cliente_id = 2 and id = 315369;   -- vive en shard_a\nupdate envios_s set estado = 'falla' where cliente_id = 3 and id = (select min(id) from envios_s where cliente_id = 3);   -- vive en shard_b\ncommit;",
+     "s": "UPDATE 1\nUPDATE 1\nERROR:  shard_b rechaza este envío al confirmar\nremote SQL command: COMMIT TRANSACTION"
+    },
+    {
+     "c": "select estado from envios_s where cliente_id = 2 and id = 315369   -- en shard_a, después",
+     "s": "revisado"
+    }
+   ],
+   "cap": "El commit **falló**, pero el cambio del primer shard quedó confirmado. El shard_b usa una restricción diferida que rechaza `estado = 'falla'` recién al confirmar. Medido en esta VM."
+  },
+  {
+   "t": "p",
+   "x": "Quedó un estado a medias: la aplicación recibió un error y un shard igual cambió. Se puede resolver (confirmación en dos fases, o compensaciones que deshacen lo ya hecho), pero es trabajo que una base sola no necesita. Por eso, con shards, el diseño intenta que cada transacción toque **un solo shard**."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Lo que en una base era gratis",
+    "Qué pasa con shards"
+   ],
+   "filas": [
+    [
+     "Una consulta que no usa la clave",
+     "Va a todos los shards y combina resultados"
+    ],
+    [
+     "Un join entre dos tablas",
+     "Si no comparten la clave de shard, hay que mover filas entre máquinas"
+    ],
+    [
+     "Una transacción con varias tablas",
+     "Solo es atómica si todo cae en el mismo shard"
+    ],
+    [
+     "Una clave única o una clave foránea",
+     "No hay unicidad ni integridad global: cada shard solo ve lo suyo"
+    ],
+    [
+     "Un backup o una migración",
+     "Se hace N veces, una por shard, y hay que coordinarlas"
+    ]
+   ],
+   "cap": "Lo que sale de la prueba de hoy y de la documentación de `postgres_fdw`. Cada fila es un costo de operación, no solo de código."
+  },
+  {
+   "t": "h",
+   "x": "Rebalanceo: agregar un shard sin mover todo"
+  },
+  {
+   "t": "p",
+   "x": "Los tres shards se llenan y hay que sumar un cuarto. El **rebalanceo** es reubicar datos entre shards cuando cambia su cantidad o su carga. Y acá aparece una trampa de diseño muy común: la regla más simple de reparto, `hash(clave) % cantidad_de_shards`, **cambia casi todo** cuando cambia la cantidad. Lo calculé con un millón de claves de cliente y un hash estable:"
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import hashlib\n\ndef h(k):   # hash estable: el hash() de Python cambia en cada ejecución\n    return int.from_bytes(hashlib.md5(str(k).encode()).digest()[:8], \"big\")\n\nclaves = range(1, 1_000_001)\n\ndef movidos_modulo(n_viejo, n_nuevo):\n    return sum(1 for k in claves if h(k) % n_viejo != h(k) % n_nuevo)\n\nfor a, b in [(3, 4), (4, 5), (8, 9)]:\n    print(f\"módulo {a}->{b}: {movidos_modulo(a, b) / len(claves):.1%} de las claves cambian de shard\")",
+   "cap": "Calcula qué fracción de las claves cae en otro shard al pasar de N a N+1 shards con el reparto por módulo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 rebalanceo.py",
+     "s": "módulo 3->4: 75.0% de las claves cambian de shard\nmódulo 4->5: 80.0% de las claves cambian de shard\nmódulo 8->9: 88.9% de las claves cambian de shard"
+    }
+   ],
+   "cap": "Al pasar de N a N+1 shards, cambia de lugar una fracción N/(N+1) de las claves."
+  },
+  {
+   "t": "p",
+   "x": "Mover el 80 % de los datos para agregar un servidor es inviable. La salida habitual es un nivel intermedio de **buckets** (cubetas), en cantidad grande y fija, por ejemplo 1.024. La fila va a un bucket con `hash(clave) % 1024`, y una **tabla de asignación** dice qué shard tiene cada bucket. Para sumar un shard no cambia la regla de las filas: se reasignan algunos buckets al shard nuevo y se mueven solo esos datos."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cambio",
+    "Con módulo directo",
+    "Con 1.024 buckets"
+   ],
+   "filas": [
+    [
+     "3 → 4 shards",
+     "75,0 % de las claves",
+     "25,0 % (256 de 1.024 buckets)"
+    ],
+    [
+     "4 → 5 shards",
+     "80,0 %",
+     "19,9 % (204 buckets)"
+    ],
+    [
+     "8 → 9 shards",
+     "88,9 %",
+     "11,0 % (113 buckets)"
+    ]
+   ],
+   "cap": "Calculado con el script anterior más una asignación simple de buckets a shards. Con buckets se mueve lo mínimo necesario: 1/(N+1) de los datos."
+  },
+  {
+   "t": "p",
+   "x": "Los sistemas conocidos resuelven esto por vos. Citus es una extensión de código abierto de PostgreSQL que distribuye tablas en shards entre nodos [#bdpart30-citus]; Vitess escala MySQL horizontalmente con un proxy que enruta cada consulta al shard correcto y menciona resharding con segundos de solo lectura [#bdpart30-vitess]. No los probé: lo que sé viene de su documentación oficial."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 13-11-2026",
+   "x": "El sitio de PostgreSQL lista el 13-11-2026 como últimas versiones la 18.7, 17.12, 16.16, 15.20 y 14.25, todas publicadas el 12-11-2026 [#postgresql-versioning]. Mi laboratorio usó la 16.15, un punto atrás. Lo de hoy existe en esa versión, pero no revisé qué cambió en la 17 y la 18, y los enlaces son de la documentación de la 16. La página de Citus que leí figuraba como documentación de la versión 13.0.1. Antes de decidir algo, releé la documentación vigente."
+  },
+  {
+   "t": "h",
+   "x": "¿Cuándo hace falta de verdad?"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La respuesta corta es: bastante más tarde de lo que parece. PostgreSQL documenta un límite de 32 TB por tabla con el tamaño de bloque por defecto, y la base no tiene límite propio [#bdpart30-pg-limits]. Mi tabla de envíos ocupa unos 113 bytes por fila entre datos e índices: un millón de envíos por día serían unos 113 MB diarios, unos 41 GB por año (ESTIMACIÓN con esta medición). Lejos de 32 TB, y dentro de lo que maneja una máquina mediana.",
+    "La escalera práctica va de lo más barato a lo más caro. Primero **índices y consultas** ([@09-20] a [@09-23]): casi siempre es ahí. Segundo, una máquina más grande. Tercero, **réplicas de lectura** ([@09-29]). Cuarto, **particionar por tiempo** si la tabla crece y hay que borrar datos viejos. Quinto, y rara vez, **sharding**. Es una regla práctica, no una ley, pero cada escalón trae costos que el anterior no tenía."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Una base de 400 GB con 300 escrituras por segundo tiene un reporte semanal de 20 minutos que molesta a los usuarios. ¿Cuál es el primer paso antes de pensar en sharding?",
+   "resp": "Revisar el plan y los índices del reporte ([@09-23]) y, si sigue pesado, mandarlo a una réplica de lectura ([@09-29]). 400 GB y 300 escrituras por segundo entran en una máquina grande: el límite no es la máquina, es una consulta."
+  },
+  {
+   "t": "h",
+   "x": "Senda: una hipótesis sobre `respuestas`"
+  },
+  {
+   "t": "p",
+   "x": "Es un ejercicio de análisis, no una decisión. Según su documentación, la tabla de Senda que más crece es `respuestas` (cada respuesta del Espadeo y de la Travesía). Lo que sigue son hechos del código y mediciones sobre una copia de su definición; lo estimado va marcado."
+  },
+  {
+   "t": "senda",
+   "titulo": "La tabla `respuestas` y su limpieza",
+   "x": [
+    "Hechos verificados en el código (commit 25e08fa; el código cambia, la forma permanece): `respuestas` tiene una clave primaria `id` (identidad), un índice único sobre `cliente_id` y dos índices más, sobre `pregunta` y sobre `creado`. La app inserta con `on_conflict=cliente_id` para que un reintento no duplique la fila. Una función programada, `limpiar_viejo`, corre todos los días a las 7:17 UTC y borra **hasta 50.000** respuestas de más de 30 días por ejecución.",
+    "Hipótesis: una partición mensual por `creado` permitiría sacar un mes con un `drop`. Hoy Senda no tiene particiones ni hay decisión de agregarlas: el documento de escalabilidad solo menciona «particionar `respuestas` por mes» en la etapa 2."
+   ],
+   "archivos": [
+    "supabase/migrations/20261026000000_inicio.sql",
+    "supabase/migrations/20261027000000_escala.sql",
+    "supabase/migrations/20261109000000_limpieza.sql",
+    "src/util/nube.ts",
+    "docs/ESCALA.md"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Armé una copia de esa definición con un millón de filas inventadas y probé dos cosas. Primero, intentar la partición mensual con el índice único de `cliente_id`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create table respuestas_p (like respuestas including defaults) partition by range (creado);\ncreate unique index on respuestas_p (cliente_id);",
+     "s": "ERROR:  unique constraint on partitioned table must include all partitioning columns\nDETAIL:  UNIQUE constraint on table \"respuestas_p\" lacks column \"creado\" which is part of the partition key."
+    },
+    {
+     "c": "alter table respuestas_p add primary key (id);",
+     "s": "ERROR:  unique constraint on partitioned table must include all partitioning columns\nDETAIL:  PRIMARY KEY constraint on table \"respuestas_p\" lacks column \"creado\" which is part of the partition key."
+    }
+   ],
+   "cap": "Es el mismo límite del envío de arriba, aplicado a la definición de Senda: ni la clave primaria `id` ni el único sobre `cliente_id` son posibles tal como están. Medido en una copia; el resto de la definición (políticas, funciones) no se copió."
+  },
+  {
+   "t": "p",
+   "x": "La consecuencia es un razonamiento mío, no una decisión de Senda: el único sobre `cliente_id` hace idempotentes los reintentos (`on_conflict`). Con `(cliente_id, creado)`, un reintento que llegue otro mes tendría otro `creado` y no se vería como duplicado. Particionar por mes obligaría a repensar cómo se evitan los duplicados."
+  },
+  {
+   "t": "p",
+   "x": "Segundo, el tamaño y la limpieza. Con las cuatro estructuras que tiene, la copia ocupó **188 bytes por fila** (89 de tabla y 90 de índices, medido con un millón de filas). El documento estima unas 30 respuestas por persona por día, sirve para ver los órdenes de magnitud:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Personas activas por día",
+    "Respuestas por día",
+    "Filas con 30 días de historia",
+    "Tamaño (188 B por fila)",
+    "¿Alcanza el borrado de 50.000 por día?"
+   ],
+   "filas": [
+    [
+     "1.000",
+     "30.000",
+     "900.000",
+     "170 MB",
+     "Sí"
+    ],
+    [
+     "10.000",
+     "300.000",
+     "9 millones",
+     "1,7 GB",
+     "No: entran 6 veces más de las que salen"
+    ],
+    [
+     "100.000",
+     "3 millones",
+     "90 millones",
+     "17 GB",
+     "No: entran 60 veces más de las que salen"
+    ],
+    [
+     "1.000.000",
+     "30 millones",
+     "900 millones",
+     "170 GB",
+     "No: entran 600 veces más de las que salen"
+    ]
+   ],
+   "cap": "ESTIMACIÓN: el supuesto de 30 respuestas por persona y por día viene de `docs/ESCALA.md`, no de datos medidos en producción. Hay que releer la tabla si ese número cambia. Cálculo: personas × 30 × 30 días × 188 bytes."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La última columna es el hallazgo del día, una inferencia a partir del código y de esa estimación. `limpiar_viejo` borra como máximo 50.000 filas por ejecución y corre una vez por día. Con 30 respuestas por persona, entran más de 50.000 por día cuando hay más de unas **1.667 personas activas por día**; desde ahí el borrado no alcanza y la tabla crece sin límite, aunque cada tanda funcione bien. En mi copia, una tanda de 50.000 filas tardó 203 milisegundos y generó 2,7 MB de WAL: no es un problema de velocidad, es de cantidad.",
+    "Ni una partición ni más potencia lo resuelven hoy: habría que decidir cuántas tandas corren por noche, o cuándo pasar a particiones. Hay además una inconsistencia menor: `docs/ESCALA.md` habla de borrar a los 90 días y la migración de limpieza borra a los 30; manda el código. Es material de criterio, no una crítica: con el volumen de lanzamiento previsto la tabla es chica y ningún límite está cerca."
+   ]
+  }
+ ],
+ "recap": [
+  "Una partición es un trozo de una tabla dentro de la misma base; el sharding reparte filas entre bases en máquinas distintas. Se parecen en el nombre y difieren en casi todo lo demás.",
+  "En PostgreSQL se particiona por rango, lista o hash. Si el filtro usa la clave de partición hay poda y el plan recorre una partición de trece; si no, las recorre todas.",
+  "Particionar no aceleró consultas que un índice ya resolvía; sí cambió el mantenimiento: sacar un mes escribió 14 kB de WAL en vez de 6.678 kB y devolvió el espacio.",
+  "Costos: las claves únicas deben incluir la clave de partición, y mil particiones llevaron la planificación de 0,2 a 38 ms.",
+  "Con sharding, una consulta sin la clave va a todos los shards y trae filas (75.000, cuatro veces más lento), y una transacción entre shards puede quedar a medias.",
+  "El reparto por módulo mueve entre el 75 % y el 89 % de las claves al agregar un shard; con buckets, alrededor de 1/(N+1). Se agotan índices, máquina, réplicas y particiones antes de pensar en sharding."
+ ],
+ "repaso": [
+  {
+   "p": "Una tabla `envios` está partida por rango de `creado`, un trozo por mes. Un equipo ejecuta `select * from envios where cliente_id = 777`. ¿Qué hace el plan?",
+   "o": [
+    "Recorre solo la última partición, porque el planificador supone que los clientes recientes son los más consultados",
+    "Recorre todas las particiones, porque el filtro no usa la clave de partición y el motor no puede descartar ninguna",
+    "Usa el índice de la clave primaria para ir directo a una fila, sin mirar ninguna partición en particular",
+    "Falla con un error, porque en una tabla partida todas las consultas deben incluir la clave de partición"
+   ],
+   "c": 1,
+   "e": "La poda solo ocurre cuando el filtro menciona la clave de partición (acá, `creado`). Con un filtro por otra columna, el motor tiene que revisar todos los trozos, como se vio en el plan de las 13 particiones. No hay suposición sobre clientes recientes, la clave primaria es `(id, creado)` y no ayuda con `cliente_id`, y la consulta es válida: solo es más cara."
+  },
+  {
+   "p": "Alguien quiere particionar `respuestas` por mes de `creado`, pero necesita seguir garantizando que `cliente_id` es único en toda la tabla. ¿Qué dice PostgreSQL?",
+   "o": [
+    "Se puede: PostgreSQL verifica la unicidad consultando todas las particiones en cada inserción, aunque cueste más tiempo",
+    "Se puede si se agrega la opción `global` al índice único, que lo hace valer para todas las particiones a la vez",
+    "Se puede, pero solo si la tabla tiene menos de 1.000 particiones; con más, la restricción se desactiva sola",
+    "No se puede: todo índice único de una tabla partida debe incluir las columnas de la clave de partición, y `cliente_id` solo no las incluye"
+   ],
+   "c": 3,
+   "e": "El motor solo garantiza unicidad dentro de cada partición, así que exige que la clave única incluya la clave de partición. El error `unique constraint on partitioned table must include all partitioning columns` lo muestra. No existen los índices únicos globales en PostgreSQL 16, ni hay una opción `global`, ni un límite de 1.000 particiones que cambie el comportamiento."
+  },
+  {
+   "p": "Para borrar los datos de un mes, un equipo compara `delete from envios where creado < …` en una tabla común contra `detach partition` y `drop table` en una tabla partida. ¿Qué diferencia más relevante mostraron las mediciones?",
+   "o": [
+    "El delete escribió miles de veces más WAL y dejó el archivo del mismo tamaño; el drop escribió casi nada y devolvió el espacio",
+    "El delete fue instantáneo y el drop tardó segundos, porque eliminar un archivo entero obliga a revisar todas las filas de la partición",
+    "Los dos escribieron el mismo WAL, y la única diferencia fue que el drop bloqueó la tabla durante más tiempo que el delete",
+    "El delete devolvió el espacio al sistema operativo apenas terminó, y el drop obligó a ejecutar un `vacuum` para poder recuperarlo"
+   ],
+   "c": 0,
+   "e": "El delete registra cada fila borrada en el WAL (6.678 kB en la prueba) y deja el espacio reservado dentro del archivo (130 MB antes y después del vacuum). El drop borra un archivo y escribe 14 kB. El delete no devuelve espacio, el drop no necesita vacuum, y ambos tardaron milisegundos en esa escala, aunque el WAL diferente importa mucho más a gran escala y para las réplicas."
+  },
+  {
+   "p": "Con tres shards, una aplicación reparte los clientes con `hash(cliente) % 3`. El negocio crece y se pasa a cuatro shards con `hash(cliente) % 4`. ¿Qué pasa con los datos?",
+   "o": [
+    "Solo el cuarto shard recibe datos nuevos, y los clientes viejos se quedan donde estaban sin ninguna reubicación",
+    "Cambian de shard solo los clientes con identificador mayor que el último que había en el tercer shard",
+    "Cerca de tres cuartos de los clientes cambian de shard, y hay que mover esos datos aunque apenas hayan cambiado",
+    "No cambia nada, porque el hash de un cliente es siempre el mismo y por eso su shard tampoco puede cambiar"
+   ],
+   "c": 2,
+   "e": "El hash de cada cliente no cambia, pero su resto sí cambia al cambiar el divisor: con 3 a 4 shards se mueve el 75 % de las claves (N/(N+1)). Por eso se usan buckets fijos y una tabla de asignación, que mueven alrededor de 1/(N+1). Los clientes viejos no se quedan donde estaban, y el criterio no depende de qué identificador era el último."
+  },
+  {
+   "p": "Una transacción modifica un registro en el shard A y otro en el shard B, conectados con `postgres_fdw`. Al confirmar, el shard B rechaza el cambio. ¿Qué queda en el shard A?",
+   "o": [
+    "Nada: PostgreSQL deshace automáticamente lo hecho en A porque la transacción falló, como en una sola base",
+    "El cambio, pero marcado como pendiente hasta que alguien repita la operación completa desde el principio",
+    "Una copia del cambio en un registro temporal que se borra solo cuando el shard B vuelva a estar disponible",
+    "El cambio ya confirmado: el shard A se confirmó antes de que B fallara, porque no hay confirmación en dos fases entre ellos"
+   ],
+   "c": 3,
+   "e": "`postgres_fdw` confirma las transacciones remotas una por una y no usa dos fases, por lo que un fallo posterior no deshace lo que ya se confirmó. En la prueba, el shard A quedó con `revisado` aunque el commit dio error. No hay marca de pendiente ni registro temporal: el estado queda a medias, y la aplicación tiene que compensarlo."
+  },
+  {
+   "p": "Un equipo quiere acelerar una consulta que ya usa un índice sobre `creado` y tarda 0,5 ms, y propone particionar la tabla por mes. ¿Qué es lo más probable según las mediciones de hoy?",
+   "o": [
+    "La consulta se vuelve unas diez veces más rápida, porque cada partición es una tabla más chica que se lee entera",
+    "Casi no cambia el tiempo, porque el índice ya resolvía la consulta; la ganancia de particionar está en el mantenimiento",
+    "La consulta se vuelve más lenta de forma marcada, porque cada partición agrega un nivel más al árbol del índice",
+    "El tiempo no cambia, pero solo porque PostgreSQL ignora las particiones cuando existe un índice sobre la clave"
+   ],
+   "c": 1,
+   "e": "En la prueba, la consulta de un solo día pasó de 0,52 a 0,50 ms: empate. La partición no suma velocidad a una consulta que el índice ya resuelve; lo que mejora es el borrado y el mantenimiento. Tampoco la vuelve diez veces más rápida ni la empeora de forma marcada (sí un 12 % la que recorre todo), y PostgreSQL no ignora las particiones."
+  },
+  {
+   "p": "Una base de 400 GB con 300 escrituras por segundo tiene un reporte semanal pesado que molesta a los usuarios. Alguien propone sharding. ¿Qué respuesta es más sensata?",
+   "o": [
+    "Hacer sharding por depósito ya mismo, porque cualquier base de más de 100 GB necesita repartirse entre varias máquinas",
+    "Particionar por hora durante diez años, porque más particiones siempre mejoran el rendimiento de los reportes largos",
+    "Revisar los índices y el plan del reporte, y probar mandarlo a una réplica de lectura, antes de asumir que una máquina no alcanza",
+    "Pasar a replicación síncrona, porque así el reporte lee de una réplica que está siempre exactamente al día con la primaria"
+   ],
+   "c": 2,
+   "e": "400 GB y 300 escrituras por segundo entran en una sola máquina; el problema es una consulta, no la capacidad. Primero se revisan el plan y los índices, y se aísla el reporte en una réplica. No existe un umbral fijo de 100 GB, más particiones llevan a más planificación (mil particiones: 38 ms), y la replicación síncrona suma latencia sin resolver un reporte lento."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística, sin jerga, la diferencia entre guardar los remitos de cada mes en un cajón distinto del mismo archivero y repartir los remitos entre varios depósitos en barrios distintos. Contale qué se gana y qué se pierde en cada caso cuando hay que buscar un remito, cuando hay que tirar los de un mes y cuando hay que anotar un cambio que toca remitos de dos depósitos a la vez. Usá una analogía distinta de la del archivero y los barrios.",
+ "para_profundizar": [
+  {
+   "fuente": "bdpart30-pg-partitioning",
+   "nota": "El capítulo de PostgreSQL 16 sobre particionamiento: métodos, poda, limitaciones y buenas prácticas sobre la cantidad de particiones. Es la fuente de las citas de hoy."
+  },
+  {
+   "fuente": "bdpart30-pg-fdw",
+   "nota": "La referencia de `postgres_fdw`: cómo se envían las consultas a bases remotas y cómo se manejan las transacciones remotas. Leé la sección de administración de transacciones antes de confiar en algo que cruce bases."
+  },
+  {
+   "fuente": "bdpart30-citus",
+   "nota": "La introducción de Citus, una extensión de PostgreSQL para distribuir tablas entre nodos. Sirve para ver cómo un producto resuelve el reparto y el rebalanceo que hoy hiciste a mano."
+  },
+  {
+   "fuente": "bdpart30-pg-limits",
+   "nota": "La tabla de límites de PostgreSQL: tamaño máximo de tabla, columnas, campos. Para poner en números qué tan lejos está tu tabla de cualquier límite técnico."
+  }
+ ],
+ "videos": [
+  {
+   "q": "database sharding explained shard key hash range consistent hashing",
+   "por_que": "Para ver dibujado el reparto por rango y por hash, la clave de shard y el movimiento de datos al agregar un nodo."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "partición",
+   "d": "Un trozo de una tabla. En una tabla particionada, la aplicación ve una sola tabla lógica, pero las filas se guardan en varias tablas físicas más chicas dentro de la misma base, según una regla sobre una columna (la clave de partición)."
+  },
+  {
+   "t": "sharding",
+   "d": "Repartir los datos de una tabla entre varias bases, normalmente en máquinas distintas, de modo que cada una guarde solo una parte. Cada una de esas partes con su base se llama shard."
+  },
+  {
+   "t": "clave de shard",
+   "d": "La columna cuyo valor decide a qué shard va cada fila. Una buena clave tiene muchos valores distintos, aparece en casi todas las consultas y reparte la carga de forma pareja."
+  },
+  {
+   "t": "rebalanceo",
+   "d": "Reubicar datos entre shards cuando cambia su cantidad o su carga. Con un reparto por módulo se mueve casi todo; con buckets fijos y una tabla de asignación, solo una fracción."
+  },
+  {
+   "t": "poda de particiones",
+   "d": "Optimización del planificador: si el filtro de la consulta usa la clave de partición, descarta las particiones que no pueden contener filas que cumplan, y no las lee."
+  },
+  {
+   "t": "bucket",
+   "d": "Cubeta lógica a la que se asigna cada fila por el hash de su clave. Un sistema con sharding suele tener muchos más buckets que shards, y una tabla dice qué shard tiene cada uno, para mover pocos buckets al agregar un shard."
+  },
+  {
+   "t": "shard caliente",
+   "d": "Shard que recibe mucho más tráfico que los demás porque la clave de shard reparte mal la carga, de modo que se vuelve el cuello de botella del sistema."
+  }
+ ],
+ "siguiente": "Un cambio de esquema en una tabla de 100 millones de filas puede bloquear la aplicación entera. Mañana: migraciones de esquema sin caídas, con el patrón expandir y contraer y una prueba de lo que le pasa a una base cuando se le agrega una columna mientras se usa.",
+ "fuentes_nuevas": [
+  {
+   "id": "bdpart30-pg-partitioning",
+   "t": "PostgreSQL 16: Table Partitioning",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/ddl-partitioning.html"
+  },
+  {
+   "id": "bdpart30-pg-fdw",
+   "t": "PostgreSQL 16: postgres_fdw",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/postgres-fdw.html"
+  },
+  {
+   "id": "bdpart30-pg-limits",
+   "t": "PostgreSQL 16: PostgreSQL Limits",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/limits.html"
+  },
+  {
+   "id": "bdpart30-citus",
+   "t": "What is Citus? (Citus documentation)",
+   "a": "Citus Data / Microsoft",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.citusdata.com/en/stable/get_started/what_is_citus.html"
+  },
+  {
+   "id": "bdpart30-vitess",
+   "t": "What is Vitess (Vitess documentation)",
+   "a": "The Vitess Authors",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://vitess.io/docs/overview/whatisvitess/"
+  }
+ ]
+}
