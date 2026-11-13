@@ -1,0 +1,887 @@
+{
+ "id": "05-12",
+ "titulo": "DNS I: la agenda de Internet",
+ "bajada": "Armás un mensaje DNS byte por byte, lo mandás a un servidor real y entendés por qué un nombre como distribuidora.test se convierte en una dirección.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué problema resolvió DNS frente al archivo HOSTS.TXT y por qué la solución fue una base de datos distribuida en forma de árbol.",
+  "Leer un nombre de dominio de derecha a izquierda e identificar raíz, dominio de primer nivel y subdominios.",
+  "Distinguir dominio de zona y escribir una zona mínima con registros A, AAAA, CNAME, MX, TXT, NS y SOA.",
+  "Interpretar la respuesta de `dig` (estado, banderas, TTL, sección de respuesta y de autoridad).",
+  "Decodificar a mano un mensaje DNS: cabecera de 12 bytes, nombres con largo por etiqueta y punteros de compresión."
+ ],
+ "venis_de": "Ya sabés que un dispositivo recibe por DHCP su IP, su puerta de enlace y la dirección de un servidor DNS ([@05-11]), y que todo el reparto de paquetes se hace con direcciones numéricas ([@05-05], [@05-07]). Hoy aparece lo que hay detrás de ese servidor DNS: cómo se traduce un nombre en una dirección.",
+ "se_apoya_en": [
+  "05-05",
+  "05-07",
+  "05-11",
+  "01-12",
+  "02-31"
+ ],
+ "gancho": [
+  "Abrís el navegador y escribís un nombre. Nadie en la red va a mirar ese nombre: los routers de [@05-08] solo entienden direcciones IP, y la tuya no figura en tu cabeza ni en la de nadie. Alguien tuvo que convertir las letras en un número antes de que saliera el primer paquete.",
+  "Hoy vemos quién hace esa conversión, por qué está organizada como un árbol y cómo se ve por dentro. Hacemos tres cosas con las manos: escribimos la zona de una distribuidora inventada y la servimos con un servidor DNS real en esta máquina, le preguntamos con `dig`, y armamos a mano, byte por byte, una consulta que mandamos a un servidor público para decodificar lo que vuelve."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El problema: las personas usan nombres, las máquinas usan números"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[dirección IP]] como `104.20.23.154` identifica a una máquina en la red, pero es difícil de recordar y, sobre todo, puede cambiar: si una empresa se muda de proveedor de hosting, el servidor pasa a tener otra dirección. Los nombres resuelven las dos cosas. Una persona recuerda `ejemplo.com`; la dirección que hay detrás se cambia sin avisarle a nadie.",
+    "En logística ya lo conocés: el cliente conoce la razón social de la sucursal, no su domicilio exacto, y si la sucursal se muda, el nombre sigue siendo el mismo. Hace falta, entonces, un **servicio de traducción** de nombre a dirección que sea confiable, que lo consulte cualquiera y que se pueda actualizar. A ese servicio lo llamamos [[DNS]] (Domain Name System, «sistema de nombres de dominio»)."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Antes de DNS: un archivo para todos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En los primeros años de ARPANET la traducción era un único archivo de texto, `HOSTS.TXT`, con una línea por máquina. El Network Information Center (NIC), en SRI, lo mantenía, y cada computadora lo bajaba por FTP [#rfc1034]. El RFC 952 de octubre de 1985, firmado por Harrenstien, Stahl y Feinler, de SRI, fijó el formato de esa tabla [#dnsi-rfc952].",
+    "Paul Mockapetris, del Information Sciences Institute, explicó en el RFC 1034 por qué eso dejaba de servir [#rfc1034]. Primero, el ancho de banda total para distribuir una versión nueva crecía con el **cuadrado** de la cantidad de máquinas, porque cada máquina nueva implicaba que todas las demás volvieran a bajar el archivo. Segundo, las organizaciones querían administrar sus propios nombres, pero tenían que esperar a que el NIC editara el archivo central. Tercero, la red empezaba a necesitar un servicio de nombres de uso general, no solo una lista de máquinas.",
+    "La respuesta fue DNS: una **base de datos distribuida y jerárquica**. Mockapetris la propuso en el RFC 882 (noviembre de 1983) [#dnsi-rfc882] y la refinó en los RFC 1034 y 1035 (noviembre de 1987), que reemplazaron a los anteriores [#rfc1034] [#rfc1035]. Esos dos documentos siguen siendo la base del sistema, con muchas ampliaciones encima."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "linea-tiempo",
+   "eventos": [
+    {
+     "a": "1983",
+     "t": "RFC 882",
+     "d": "Mockapetris propone nombres de dominio y una base de datos distribuida."
+    },
+    {
+     "a": "1985",
+     "t": "RFC 952",
+     "d": "Se especifica el formato de la tabla de hosts de SRI-NIC: HOSTS.TXT."
+    },
+    {
+     "a": "1987",
+     "t": "RFC 1034 y 1035",
+     "d": "La especificación de DNS que reemplaza a los RFC 882 y 883. Sigue vigente en su base."
+    }
+   ],
+   "cap": "Fechas tomadas de los encabezados de los propios RFC."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "El viejo archivo sigue vivo en tu computadora",
+   "x": "Tu sistema todavía consulta un archivo local antes que a DNS. En Linux, `/etc/nsswitch.conf` dice en qué orden buscar nombres de máquinas, y `/etc/hosts` es el descendiente directo de HOSTS.TXT [#dnsi-nsswitch]. Sirve, por ejemplo, para que `localhost` siempre valga `127.0.0.1` sin preguntarle a nadie."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "grep '^hosts' /etc/nsswitch.conf",
+     "s": "hosts:          files dns"
+    },
+    {
+     "c": "grep localhost /etc/hosts",
+     "s": "127.0.0.1 localhost"
+    },
+    {
+     "c": "getent hosts localhost",
+     "s": "127.0.0.1       localhost"
+    }
+   ],
+   "cap": "`files dns` significa: primero el archivo local, después DNS. `getent` pregunta como lo haría cualquier programa, a través de la librería del sistema. Medido en esta VM Ubuntu 24.04."
+  },
+  {
+   "t": "h",
+   "x": "La idea: un árbol de nombres"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[nombre de dominio]] es una serie de **etiquetas** separadas por puntos, y se lee de derecha a izquierda, de lo más general a lo más específico. En `www.distribuidora.test` la etiqueta de más a la derecha, `test`, es el *dominio de primer nivel* (TLD). Después viene `distribuidora`, que pertenece a quien registró ese nombre dentro de `test`. Y `www` es una máquina o un servicio dentro del dominio de esa empresa. Hay un punto más, invisible, al final: el de la **raíz** de todo el árbol. `www.distribuidora.test.` con el punto final es la forma completa.",
+    "Todos los nombres forman un árbol con la raíz arriba. Cada etiqueta es un nodo; el nombre completo es el camino desde ese nodo hasta la raíz [#rfc1034]. Cada nodo puede guardar datos (por ejemplo, una dirección). Hay topes: cada etiqueta puede tener hasta 63 bytes y el nombre completo hasta 255 en su forma codificada [#rfc1035]. Las mayúsculas no importan: `WWW.Ejemplo.COM` y `www.ejemplo.com` son el mismo nombre [#dnsi-rfc4343]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "arbol",
+   "raiz": {
+    "t": "raíz  (.)",
+    "s": "el punto invisible del final",
+    "k": "red",
+    "h": [
+     {
+      "t": "test",
+      "s": "dominio de primer nivel (reservado para pruebas)",
+      "k": "datos",
+      "h": [
+       {
+        "t": "distribuidora",
+        "s": "la empresa inventada del laboratorio",
+        "k": "servidor",
+        "h": [
+         {
+          "t": "www",
+          "s": "sitio",
+          "k": "cliente"
+         },
+         {
+          "t": "mail",
+          "s": "correo",
+          "k": "cliente"
+         },
+         {
+          "t": "seguimiento",
+          "s": "rastreo de envíos",
+          "k": "cliente"
+         }
+        ]
+       }
+      ]
+     },
+     {
+      "t": "com",
+      "s": "otro dominio de primer nivel",
+      "k": "datos",
+      "h": [
+       {
+        "t": "example",
+        "s": "nombre reservado para ejemplos",
+        "k": "servidor",
+        "h": [
+         {
+          "t": "www",
+          "s": "sitio",
+          "k": "cliente"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "cap": "Un trozo del árbol de nombres. Para leer un nombre, partís de la hoja y subís hasta la raíz: www.distribuidora.test."
+  },
+  {
+   "t": "p",
+   "x": "¿Cuántos dominios de primer nivel hay? La lista oficial de IANA, versión 2026111300 del 13 de noviembre de 2026, tiene 1.436 entradas, de las cuales 151 son nombres internacionalizados en formato `xn--` [#dnsi-iana-tlds]. Los que usé acá (`test`, `example`) están reservados por estándares para pruebas y documentación, y nunca se asignan a nadie [#dnsi-rfc6761]: por eso sirven para ejercicios sin molestar a ningún dueño de verdad."
+  },
+  {
+   "t": "pensa",
+   "x": "Un nombre tiene la forma `pedidos.sur.distribuidora.test`. ¿Cuál es la etiqueta más general y cuál la más específica? ¿Y dónde estaría el nombre `sur.distribuidora.test` en el árbol respecto del primero?",
+   "resp": "La más general es `test`, a la derecha; la más específica es `pedidos`, a la izquierda. `sur.distribuidora.test` es el padre de `pedidos.sur.distribuidora.test`: un nodo más cerca de la raíz. Cada punto que sacás desde la izquierda te sube un nivel."
+  },
+  {
+   "t": "h",
+   "x": "Dominio y zona: quién administra qué"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos palabras que parecen sinónimos y no lo son. Un **dominio** es un subárbol de nombres: `distribuidora.test` y todo lo que cuelga de él. Una **[[zona]]** es la parte del árbol que administra una misma autoridad, con sus propios servidores. El RFC 1034 lo define así: se hacen «cortes» entre nodos vecinos del árbol y cada región conectada que queda es una zona, cuyos servidores son autoridad sobre todos sus nombres [#rfc1034].",
+    "Si `distribuidora.test` crea el subdominio `sur` y delega su administración a la sucursal del sur (con otros servidores), hay un corte entre `distribuidora.test` y `sur.distribuidora.test`. Siguen siendo un solo dominio, pero ahora son **dos zonas**. Esa delegación, que repetida desde la raíz hacia abajo hace funcionar todo el sistema, es el tema de [@05-13]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La planilla de sucursales por región",
+   "x": [
+    "Una distribuidora con sucursales por provincia. La casa central lleva la lista de las sucursales de Buenos Aires, y para las de Córdoba dice «consultá con el responsable de Córdoba», que lleva su propia lista. Cada lista es una zona; el conjunto de todas es el dominio.",
+    "Dónde falla: en una empresa podés pedir la lista completa al responsable. En DNS, para mantener las zonas chicas y rápidas, los servidores contestan lo que se les pregunta y no suelen entregar la lista entera."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Los registros: lo que guarda una zona"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El contenido de una zona son **registros de recurso**. Cada uno tiene un nombre, un TTL (cuántos segundos se puede recordar la respuesta, tema de [@05-13]), una clase (casi siempre `IN`, de Internet), un tipo y los datos [#rfc1035]. El tipo decide qué se guarda. El que más vas a ver es el **[[registro A]]**: asocia un nombre con una dirección IPv4 de 32 bits, la de [@05-05]. Su hermano para [[IPv6]] es el registro AAAA, que guarda 128 bits [#dnsi-rfc3596]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tipo",
+    "Qué guarda",
+    "Ejemplo (zona de laboratorio)",
+    "Para qué sirve"
+   ],
+   "filas": [
+    [
+     "A",
+     "Una dirección IPv4",
+     "distribuidora.test.  A  192.0.2.10",
+     "Llegar al servidor por IPv4"
+    ],
+    [
+     "AAAA",
+     "Una dirección IPv6",
+     "distribuidora.test.  AAAA  2001:db8::10",
+     "Llegar al servidor por IPv6"
+    ],
+    [
+     "CNAME",
+     "Otro nombre (alias)",
+     "www  CNAME  distribuidora.test.",
+     "Que dos nombres lleven al mismo lugar"
+    ],
+    [
+     "MX",
+     "Prioridad y servidor de correo",
+     "10  mail.distribuidora.test.",
+     "Decir dónde se entrega el correo del dominio"
+    ],
+    [
+     "TXT",
+     "Texto libre",
+     "\"v=spf1 mx -all\"",
+     "Datos para otros sistemas (verificaciones, política de correo)"
+    ],
+    [
+     "NS",
+     "El nombre de un servidor autoridad",
+     "ns1.distribuidora.test.",
+     "Decir quiénes responden por la zona"
+    ],
+    [
+     "SOA",
+     "Parámetros de la zona",
+     "ns1 admin 2026111301 7200 …",
+     "Un registro por zona: versión y tiempos"
+    ]
+   ],
+   "cap": "Los siete tipos de hoy. Las direcciones 192.0.2.0/24 y 2001:db8::/32 están reservadas para documentación y no existen en Internet [#dnsi-rfc5737]."
+  },
+  {
+   "t": "h",
+   "x": "Laboratorio: la zona de una distribuidora"
+  },
+  {
+   "t": "p",
+   "x": "Armé la zona de una empresa inventada, `distribuidora.test`, con direcciones de documentación. Es un archivo de texto en el formato clásico del RFC 1035 [#rfc1035]: cada línea es un registro. El `$TTL` es el valor por defecto; el último número del SOA es el TTL que se usa para respuestas negativas (lo vemos abajo)."
+  },
+  {
+   "t": "codigo",
+   "lang": "bash",
+   "x": "$ORIGIN distribuidora.test.\n$TTL 3600\n@        IN SOA  ns1.distribuidora.test. admin.distribuidora.test. (\n                 2026111301 ; serie\n                 7200       ; refresco\n                 900        ; reintento\n                 1209600    ; expira\n                 300 )      ; TTL para respuestas negativas\n@        IN NS   ns1.distribuidora.test.\n@        IN NS   ns2.distribuidora.test.\nns1      IN A    192.0.2.1\nns2      IN A    192.0.2.2\n@        IN A    192.0.2.10\n@        IN AAAA 2001:db8::10\nwww      IN CNAME distribuidora.test.\nseguimiento 300 IN A 192.0.2.20\n@        IN MX   10 mail.distribuidora.test.\n@        IN MX   20 respaldo.distribuidora.test.\nmail     IN A    192.0.2.25\nrespaldo IN A    192.0.2.26\n@        IN TXT  \"v=spf1 mx -all\"",
+   "cap": "distribuidora.test.zone. La `@` significa «el nombre de la zona»; los nombres sin punto final se completan con `$ORIGIN`."
+  },
+  {
+   "t": "p",
+   "x": "Lo puse a trabajar con BIND 9 (el software del Internet Systems Consortium, uno de los servidores DNS más conocidos, que instalé con `apt`) escuchando solo en `127.0.0.1`, puerto 5354, sin permitir consultas recursivas. Antes de arrancarlo, el verificador de zonas revisa el archivo. Después le pregunto con `dig`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "named-checkzone distribuidora.test distribuidora.test.zone",
+     "s": "zone distribuidora.test/IN: loaded serial 2026111301\nOK"
+    },
+    {
+     "c": "dig @127.0.0.1 -p 5354 distribuidora.test A | grep -E '^;; (flags|->>)|^distribuidora'",
+     "s": ";; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 56127\n;; flags: qr aa rd; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 1\ndistribuidora.test.\t3600\tIN\tA\t192.0.2.10"
+    },
+    {
+     "c": "dig @127.0.0.1 -p 5354 www.distribuidora.test A +noall +answer",
+     "s": "www.distribuidora.test.\t3600\tIN\tCNAME\tdistribuidora.test.\ndistribuidora.test.\t3600\tIN\tA\t192.0.2.10"
+    },
+    {
+     "c": "dig @127.0.0.1 -p 5354 distribuidora.test MX +noall +answer",
+     "s": "distribuidora.test.\t3600\tIN\tMX\t10 mail.distribuidora.test.\ndistribuidora.test.\t3600\tIN\tMX\t20 respaldo.distribuidora.test."
+    },
+    {
+     "c": "dig @127.0.0.1 -p 5354 distribuidora.test SOA +short",
+     "s": "ns1.distribuidora.test. admin.distribuidora.test. 2026111301 7200 900 1209600 300"
+    }
+   ],
+   "cap": "Medido en esta VM, con un servidor BIND 9 propio en localhost. `status: NOERROR` quiere decir «hay respuesta». La bandera `aa` (authoritative answer) indica que contesta el dueño de la zona, no una copia recordada."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá tres cosas. Primero, la bandera `aa`: el que contesta es **autoridad** de esa zona, la fuente primaria de la información. Segundo, la consulta por `www` devolvió el alias y, seguido, la dirección a la que lleva: el servidor siguió la cadena por vos. Tercero, un MX tiene un número delante. Es la **preferencia**, y **gana el número más bajo** [#rfc1035]: el correo se intenta entregar primero a `mail` (10) y, si no responde, a `respaldo` (20).",
+    "Ahora, qué pasa cuando preguntás por algo que no existe."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "dig @127.0.0.1 -p 5354 nada.distribuidora.test A +noall +comments +authority | grep -E 'status|SOA'",
+     "s": ";; ->>HEADER<<- opcode: QUERY, status: NXDOMAIN, id: 48105\ndistribuidora.test.\t300\tIN\tSOA\tns1.distribuidora.test. admin.distribuidora.test. 2026111301 7200 900 1209600 300"
+    }
+   ],
+   "cap": "NXDOMAIN significa que el nombre no existe. La respuesta incluye el SOA con un TTL de 300 s: el último campo del SOA de nuestra zona."
+  },
+  {
+   "t": "p",
+   "x": "`NXDOMAIN` también se recuerda. El RFC 2308 exige que el servidor autoridad incluya el SOA en esas respuestas, y su TTL le indica al resto cuánto tiempo puede recordar la inexistencia [#dnsi-rfc2308]. Por eso el último número del SOA de la zona se usa como TTL negativo. Es una de esas reglas que se descubren recién cuando alguien crea un nombre nuevo y por unos minutos «no existe» para quienes ya preguntaron."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un alias no convive con otros registros",
+   "x": [
+    "El RFC 1034 dice que, si un nodo tiene un CNAME, no puede tener otros datos, para que el alias y el nombre real nunca digan cosas distintas [#rfc1034]. El verificador de zonas lo hace cumplir. Probé agregar a mi zona una línea `distribuidora.test. IN CNAME otro.distribuidora.test.`:",
+    "`zone distribuidora.test/IN: loading from master file malo.zone failed: CNAME and other data` y a continuación `not loaded due to errors`. La raíz de la zona ya tiene SOA y NS, así que no puede ser un alias. Es la razón por la que los proveedores de hosting ofrecen trucos propios para el nombre «pelado» (sin `www`)."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Escribí las líneas de zona para: (a) un sitio `tienda` en la IPv4 192.0.2.30; (b) un alias `pedidos` que lleve al mismo lugar que `tienda`; (c) un servidor de correo secundario `respaldo2` con preferencia 30, que ya tiene dirección 192.0.2.27.",
+   "pista": "El alias es un CNAME hacia un nombre completo (con punto final o relativo a la zona). La preferencia del MX va antes del nombre del servidor.",
+   "solucion": "tienda    IN A     192.0.2.30\npedidos   IN CNAME tienda\nrespaldo2 IN A     192.0.2.27\n@         IN MX    30 respaldo2.distribuidora.test.\nEl alias apunta al nombre `tienda`, no a la IP: si la dirección de tienda cambia, solo se cambia un registro. El MX apunta a un nombre (y ese nombre tiene que tener su registro A), no a una dirección."
+  },
+  {
+   "t": "h",
+   "x": "Registros del mundo real, con una advertencia sobre esta máquina"
+  },
+  {
+   "t": "p",
+   "x": "Con el laboratorio local ya entendés el formato. Para ver registros de verdad hay un obstáculo propio de este entorno, que conviene contar porque el mismo problema te puede pasar en una red de empresa con DNS filtrado."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "cat /etc/resolv.conf | head -2",
+     "s": "nameserver 8.8.8.8\nnameserver 8.8.4.4"
+    },
+    {
+     "c": "dig +short example.com A",
+     "s": "172.66.147.243\n104.20.23.154"
+    },
+    {
+     "c": "dig +short example.com MX",
+     "s": ""
+    },
+    {
+     "c": "dig example.com MX | grep -E 'status|ANSWER:'",
+     "s": ";; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 40168\n;; flags: qr rd ra; QUERY: 1, ANSWER: 0, AUTHORITY: 0, ADDITIONAL: 1"
+    }
+   ],
+   "cap": "Medido en esta VM detrás del proxy del entorno. Las consultas de tipo A funcionan; las de MX (y NS, TXT, AAAA, SOA, que probé igual) vuelven vacías con `NOERROR`. Parece que el entorno responde por su cuenta las consultas DNS comunes. No es lo que pasaría en tu casa."
+  },
+  {
+   "t": "p",
+   "x": "Para esquivar la limitación usé **DNS sobre HTTPS** (DoH): el mismo mensaje DNS, sin cambios, viaja en el cuerpo de una solicitud HTTPS, definido en el RFC 8484 [#dnsi-rfc8484]. Mañana vemos para qué existe; hoy es solo un transporte que sí atraviesa el proxy. Armé un script que manda la consulta al resolvedor público de Cloudflare y decodifica la respuesta (es el de la próxima sección, con decodificadores para más tipos)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 dns_tipos.py example.com:A example.com:NS example.com:MX example.com:TXT",
+     "s": "; example.com A  (rcode=0)\nexample.com.                   180  IN  A     172.66.147.243\nexample.com.                   180  IN  A     104.20.23.154\n; example.com NS  (rcode=0)\nexample.com.                 85868  IN  NS    hera.ns.cloudflare.com.\nexample.com.                 85868  IN  NS    elliott.ns.cloudflare.com.\n; example.com MX  (rcode=0)\nexample.com.                   300  IN  MX    0 .\n; example.com TXT  (rcode=0)\nexample.com.                   300  IN  TXT   \"v=spf1 -all\"\nexample.com.                   300  IN  TXT   \"_k2n1y4vw3qtb4skdx9e7dxt97qrmmq9\""
+    },
+    {
+     "c": "python3 dns_tipos.py gmail.com:MX www.github.com:CNAME www.wikipedia.org:CNAME",
+     "s": "; gmail.com MX  (rcode=0)\ngmail.com.                    1018  IN  MX    20 alt2.gmail-smtp-in.l.google.com.\ngmail.com.                    1018  IN  MX    5 gmail-smtp-in.l.google.com.\ngmail.com.                    1018  IN  MX    30 alt3.gmail-smtp-in.l.google.com.\ngmail.com.                    1018  IN  MX    40 alt4.gmail-smtp-in.l.google.com.\ngmail.com.                    1018  IN  MX    10 alt1.gmail-smtp-in.l.google.com.\n; www.github.com CNAME  (rcode=0)\nwww.github.com.               3600  IN  CNAME github.com.\n; www.wikipedia.org CNAME  (rcode=0)\nwww.wikipedia.org.           86400  IN  CNAME dyna.wikimedia.org."
+    }
+   ],
+   "cap": "Datos de un resolvedor público (Cloudflare, vía DoH) consultado el 13-11-2026 desde esta VM. Los valores cambian y los TTL son los que le quedaban a cada respuesta recordada en ese momento: no los tomes como datos fijos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Se leen igual que nuestra zona. Los servidores de nombres de `example.com` son dos máquinas de un proveedor de DNS. Su MX es `0 .`: un «MX nulo», que el RFC 7505 define como la forma de declarar que un dominio no recibe correo [#dnsi-rfc7505]. Su TXT `v=spf1 -all` es el registro SPF que el RFC 7208 recomienda para un dominio que no envía correo [#dnsi-rfc7208]. Gmail tiene cinco MX con preferencias 5, 10, 20, 30 y 40: los correos se intentan primero por el de preferencia 5. Y `www.github.com` es un alias de `github.com`, igual que nuestro `www`.",
+    "Fijate también en los TTL: el de `example.com A` dice 180 segundos. En consultas anteriores del mismo rato dio 212, 180 y 132. No es un error: el resolvedor recuerda la respuesta y va descontando. Ese descuento es el protagonista de [@05-13]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El mensaje DNS por dentro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá usaste herramientas que arman y decodifican mensajes por vos. Ahora los armamos nosotros. Un mensaje DNS tiene cuatro partes: una **cabecera** de 12 bytes fijos, la **pregunta**, las **respuestas** y otras secciones de autoridad e información adicional [#rfc1035]. Pregunta y respuesta usan el mismo formato, y por eso el servidor repite tu pregunta en su respuesta.",
+    "La cabecera son seis números de 16 bits: un **identificador** (para emparejar respuesta y pregunta), las **banderas** (consulta o respuesta, si es autoridad `AA`, si deseás recursión `RD`, si está disponible `RA`, el código de resultado `RCODE`) y cuatro contadores (cuántas preguntas, respuestas, autoridades y adicionales). Los nombres se escriben como una secuencia de etiquetas, cada una **precedida por su largo en un byte**, y terminan en un byte `00`. `www.distribuidora.test` es `03 www 0d distribuidora 04 test 00`. Los números se mandan con el byte más significativo primero, el orden de red."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import socket, struct, subprocess\n\ndef armar_consulta(nombre, tipo, id_=0x1234):\n    # Cabecera de 12 bytes: id, banderas y cuatro contadores\n    banderas = 0x0100                         # consulta (QR=0), con recursión deseada (RD=1)\n    cab = struct.pack(\"!HHHHHH\", id_, banderas, 1, 0, 0, 0)\n    # Cada etiqueta va precedida por su largo; el nombre termina con un byte 0\n    qname = b\"\".join(bytes([len(e)]) + e.encode() for e in nombre.rstrip(\".\").split(\".\")) + b\"\\x00\"\n    return cab + qname + struct.pack(\"!HH\", tipo, 1)     # tipo (1 = A, 5 = CNAME...) y clase 1 = IN\n\ndef leer_nombre(msg, pos):\n    partes, salto = [], None\n    while True:\n        n = msg[pos]\n        if n == 0:\n            pos += 1\n            break\n        if n & 0xC0 == 0xC0:                  # puntero de compresión: 2 bytes que apuntan a otro lugar\n            if salto is None:\n                salto = pos + 2\n            pos = struct.unpack(\"!H\", msg[pos:pos+2])[0] & 0x3FFF\n            continue\n        partes.append(msg[pos+1:pos+1+n].decode())\n        pos += 1 + n\n    return \".\".join(partes) + \".\", (salto if salto is not None else pos)\n\ndef decodificar(msg):\n    id_, fl, qd, an, ns, ar = struct.unpack(\"!HHHHHH\", msg[:12])\n    marcas = [n for n, bit in ((\"QR\", 15), (\"AA\", 10), (\"TC\", 9), (\"RD\", 8), (\"RA\", 7)) if fl >> bit & 1]\n    print(f\"id={id_:#06x} banderas={' '.join(marcas)} rcode={fl & 0xF} preguntas={qd} respuestas={an}\")\n    pos = 12\n    for _ in range(qd):\n        _, pos = leer_nombre(msg, pos)\n        pos += 4\n    for _ in range(an):\n        nombre, pos = leer_nombre(msg, pos)\n        tipo, clase, ttl, largo = struct.unpack(\"!HHIH\", msg[pos:pos+10])\n        pos += 10\n        if tipo == 1:   valor = \".\".join(str(b) for b in msg[pos:pos+largo])\n        elif tipo == 5: valor = leer_nombre(msg, pos)[0]\n        else:           valor = msg[pos:pos+largo].hex()\n        print(f\"  {nombre:<26} ttl={ttl:<5} tipo={tipo} -> {valor}\")\n        pos += largo\n\ndef por_udp(consulta, ip, puerto):            # el DNS clásico: un datagrama de ida y uno de vuelta\n    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)\n    s.settimeout(3)\n    s.sendto(consulta, (ip, puerto))\n    return s.recv(4096)\n\ndef por_https(consulta, url):                 # DNS sobre HTTPS (RFC 8484): el mismo mensaje, en el cuerpo de un POST\n    return subprocess.run([\"curl\", \"-s\", \"-m\", \"20\", \"-H\", \"content-type: application/dns-message\",\n                           \"--data-binary\", \"@-\", url], input=consulta, capture_output=True).stdout\n\nq = armar_consulta(\"www.distribuidora.test\", 1)\nprint(len(q), \"bytes enviados:\", q.hex(\" \"))\nr = por_udp(q, \"127.0.0.1\", 5354)\nprint(len(r), \"bytes recibidos:\", r.hex(\" \"))\ndecodificar(r)\nprint()\nq = armar_consulta(\"example.com\", 1)\ndecodificar(por_https(q, \"https://cloudflare-dns.com/dns-query\"))",
+   "cap": "Consulta DNS armada a mano, enviada por UDP al servidor local y, después, por HTTPS a un resolvedor público. Python 3.13, solo librería estándar (más `curl` para el POST). No es ejecutable en el navegador."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 dns_a_mano.py",
+     "s": "40 bytes enviados: 12 34 01 00 00 01 00 00 00 00 00 00 03 77 77 77 0d 64 69 73 74 72 69 62 75 69 64 6f 72 61 04 74 65 73 74 00 00 01 00 01\n70 bytes recibidos: 12 34 85 00 00 01 00 02 00 00 00 00 03 77 77 77 0d 64 69 73 74 72 69 62 75 69 64 6f 72 61 04 74 65 73 74 00 00 01 00 01 c0 0c 00 05 00 01 00 00 0e 10 00 02 c0 10 c0 10 00 01 00 01 00 00 0e 10 00 04 c0 00 02 0a\nid=0x1234 banderas=QR AA RD rcode=0 preguntas=1 respuestas=2\n  www.distribuidora.test.    ttl=3600  tipo=5 -> distribuidora.test.\n  distribuidora.test.        ttl=3600  tipo=1 -> 192.0.2.10\n\nid=0x1234 banderas=QR RD RA rcode=0 preguntas=1 respuestas=2\n  example.com.               ttl=132   tipo=1 -> 172.66.147.243\n  example.com.               ttl=132   tipo=1 -> 104.20.23.154"
+    }
+   ],
+   "cap": "La primera parte es el servidor BIND local (autoridad: `AA`); la segunda, un resolvedor público por HTTPS (`RA`: ofrece recursión; sin `AA`). Medido en esta VM."
+  },
+  {
+   "t": "p",
+   "x": "Las 70 bytes de la respuesta se descomponen así. Fijate en los dos pares `c0 0c` y `c0 10`: son los punteros de compresión."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "celdas",
+   "filas": [
+    {
+     "e": "Cabecera",
+     "celdas": [
+      {
+       "t": "1234",
+       "k": "neutro",
+       "s": "id"
+      },
+      {
+       "t": "8500",
+       "k": "alerta",
+       "s": "banderas: QR AA RD"
+      },
+      {
+       "t": "0001",
+       "k": "neutro",
+       "s": "1 pregunta"
+      },
+      {
+       "t": "0002",
+       "k": "neutro",
+       "s": "2 respuestas"
+      },
+      {
+       "t": "0000",
+       "k": "neutro",
+       "s": "0 autoridad"
+      },
+      {
+       "t": "0000",
+       "k": "neutro",
+       "s": "0 adicionales"
+      }
+     ]
+    },
+    {
+     "e": "Pregunta",
+     "celdas": [
+      {
+       "t": "03 www",
+       "k": "cliente",
+       "s": "etiqueta 1"
+      },
+      {
+       "t": "0d distribuidora",
+       "k": "cliente",
+       "s": "etiqueta 2"
+      },
+      {
+       "t": "04 test",
+       "k": "cliente",
+       "s": "etiqueta 3"
+      },
+      {
+       "t": "00",
+       "k": "cliente",
+       "s": "fin del nombre"
+      },
+      {
+       "t": "0001",
+       "k": "datos",
+       "s": "tipo A"
+      },
+      {
+       "t": "0001",
+       "k": "datos",
+       "s": "clase IN"
+      }
+     ]
+    },
+    {
+     "e": "Respuesta 1",
+     "celdas": [
+      {
+       "t": "c00c",
+       "k": "servidor",
+       "s": "nombre: ver byte 12"
+      },
+      {
+       "t": "0005",
+       "k": "datos",
+       "s": "tipo CNAME"
+      },
+      {
+       "t": "0001",
+       "k": "datos",
+       "s": "clase IN"
+      },
+      {
+       "t": "00000e10",
+       "k": "red",
+       "s": "TTL 3600"
+      },
+      {
+       "t": "0002",
+       "k": "neutro",
+       "s": "largo 2"
+      },
+      {
+       "t": "c010",
+       "k": "servidor",
+       "s": "datos: ver byte 16"
+      }
+     ]
+    },
+    {
+     "e": "Respuesta 2",
+     "celdas": [
+      {
+       "t": "c010",
+       "k": "servidor",
+       "s": "nombre: ver byte 16"
+      },
+      {
+       "t": "0001",
+       "k": "datos",
+       "s": "tipo A"
+      },
+      {
+       "t": "0001",
+       "k": "datos",
+       "s": "clase IN"
+      },
+      {
+       "t": "00000e10",
+       "k": "red",
+       "s": "TTL 3600"
+      },
+      {
+       "t": "0004",
+       "k": "neutro",
+       "s": "largo 4"
+      },
+      {
+       "t": "c000020a",
+       "k": "ok",
+       "s": "192.0.2.10"
+      }
+     ]
+    }
+   ],
+   "cap": "Los 70 bytes en hexadecimal: 12 de cabecera, 28 de pregunta, 14 de la respuesta CNAME y 16 de la respuesta A. `c0 0c` significa «el nombre que ya está en el byte 12»; `c0 10`, «el que está en el 16», o sea `distribuidora.test`."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Cómo se lee la respuesta",
+   "pasos": [
+    {
+     "t": "Banderas 0x8500",
+     "x": "En binario, `1000 0101 0000 0000`: el bit más alto (QR) en 1 es «esto es una respuesta»; el bit de `AA` en 1, «contesta la autoridad»; el de `RD` en 1, «se pidió recursión» (se copia de la consulta). `RA` en 0: el BIND del laboratorio no hace recursión. Los cuatro últimos bits, `0000`, son el `RCODE`: sin error."
+    },
+    {
+     "t": "Punteros de compresión",
+     "x": "Un nombre repetido ocupa 2 bytes en vez de 20: los dos bits altos en 1 (`c0`) avisan que lo que sigue es una dirección dentro del mensaje, no un largo [#rfc1035]. Por eso ninguna etiqueta puede superar los 63 bytes: los dos bits de más arriba del byte de largo están reservados."
+    },
+    {
+     "t": "TTL 0x00000e10",
+     "x": "`0x0e10` son 3600 en decimal, el `$TTL` de la zona. El TTL ocupa 4 bytes: el estándar lo define como un entero de 32 bits [#rfc1035]."
+    },
+    {
+     "t": "Datos del registro A",
+     "x": "`c0 00 02 0a` son los cuatro bytes de la dirección: 192, 0, 2 y 10. Un registro A pesa 4 bytes de datos, y un AAAA, 16 [#dnsi-rfc3596]."
+    }
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un servidor contesta con banderas `0x8180`. Decí qué bits están en 1 y qué significan, y compará con las banderas de la respuesta de Cloudflare de arriba.",
+   "pista": "0x81 es 1000 0001 y 0x80 es 1000 0000. Los bits se numeran de 15 (el más alto) a 0: QR es el 15, AA el 10, RD el 8, RA el 7.",
+   "solucion": "1000 0001 1000 0000: bit 15 (QR) = respuesta; bit 8 (RD) = se pidió recursión; bit 7 (RA) = el servidor ofrece recursión; el bit 10 (AA) está en 0: no es la autoridad sino un resolvedor que contesta con datos recordados. Es lo mismo que mostró el script para example.com: QR RD RA."
+  },
+  {
+   "t": "pensa",
+   "x": "¿Por qué la respuesta repite la pregunta y se la devuelve al que preguntó, si él ya la conoce?",
+   "resp": "Porque DNS suele viajar en datagramas sueltos, sin conexión: el que pregunta puede tener varias consultas en vuelo y necesita saber a cuál corresponde cada respuesta. Se emparejan por el identificador y por la pregunta repetida, lo que también ayuda a descartar respuestas falsas que no coinciden. Cómo se transporta se ve en [@05-15]."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Un dominio es lo mismo que un sitio web»",
+   "x": "Un nombre de dominio es una entrada en una base de datos, y puede tener un sitio, un servidor de correo, las dos cosas o ninguna. `example.com` tiene sitio y, como vimos, declara explícitamente que no recibe correo. Comprar un dominio no pone un sitio en línea: eso lo hace un registro A o AAAA que apunte a un servidor que responda."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda usa nombres, y no tiene código DNS propio",
+   "x": [
+    "Esto corresponde al commit `25e08fa`; el código cambia, la forma permanece. En el código de Senda no hay ninguna referencia a DNS: la app le pide al sistema operativo del teléfono que abra una conexión a un nombre, y la traducción la hace el sistema con la configuración que le dio DHCP en cada red ([@05-11]). Lo que sí hay son nombres de máquina. El servicio de métricas tiene por defecto `https://us.i.posthog.com`, y la dirección del servidor de la base (Supabase) se lee de la variable `EXPO_PUBLIC_SUPABASE_URL` al armar el APK: no está escrita en el repositorio.",
+    "Eso permite que el proveedor cambie las direcciones IP de sus servidores sin que la app se entere: alcanza con actualizar los registros DNS. Planificado, no implementado: el sitio público (política de privacidad, términos y el archivo `app-ads.txt` de la carpeta `web/`) está generado, pero según los documentos todavía no se publicó. Cuando se publique con un dominio propio, va a necesitar sus registros en una zona como la de hoy."
+   ],
+   "archivos": [
+    "src/util/metricas.ts",
+    "src/util/cuenta.ts",
+    "src/util/nube.ts",
+    "web/app-ads.txt"
+   ]
+  }
+ ],
+ "recap": [
+  "DNS traduce nombres en direcciones. Reemplazó a HOSTS.TXT, un archivo central que no escalaba, por una base de datos distribuida y jerárquica (RFC 882 en 1983; RFC 1034 y 1035 en 1987).",
+  "Un nombre de dominio se lee de derecha a izquierda: raíz, dominio de primer nivel, dominios y subdominios. Cada etiqueta tiene hasta 63 bytes y el nombre completo hasta 255.",
+  "Un dominio es un subárbol de nombres; una zona es la parte del árbol que administra una misma autoridad. Un dominio puede estar formado por varias zonas.",
+  "Una zona guarda registros: A (IPv4), AAAA (IPv6), CNAME (alias), MX (correo, gana la preferencia más baja), TXT (texto), NS (servidores autoridad) y SOA (parámetros). Un CNAME no puede convivir con otros datos en el mismo nombre.",
+  "`dig` muestra estado, banderas y secciones: `aa` indica que contesta la autoridad; `NXDOMAIN` quiere decir que el nombre no existe, y esa ausencia también se recuerda según el SOA.",
+  "Un mensaje DNS son 12 bytes de cabecera más pregunta y respuestas. Los nombres se codifican con el largo de cada etiqueta y se comprimen con punteros de 2 bytes.",
+  "Senda no programa DNS: delega en el sistema operativo y usa nombres de máquina, lo que le permite a un proveedor cambiar de IP sin tocar la app."
+ ],
+ "repaso": [
+  {
+   "p": "En los años 80, ARPANET usaba un archivo central HOSTS.TXT con nombres y direcciones. ¿Cuál era el problema principal que motivó crear DNS?",
+   "o": [
+    "La lista se había vuelto demasiado larga para guardarla en una sola computadora",
+    "Distribuir cada versión escalaba mal y todos dependían de una sola oficina",
+    "Muchos nombres de máquinas se repetían y por eso no se podían resolver bien",
+    "El formato del archivo no permitía guardar direcciones numéricas como valores"
+   ],
+   "c": 1,
+   "e": "El RFC 1034 describe que el ancho de banda para distribuir cada versión crecía con el cuadrado de la cantidad de máquinas y que cada organización tenía que esperar a que el NIC editara el archivo. Que el archivo no cupiera en una computadora no era el obstáculo, y las direcciones numéricas eran justamente lo que contenía."
+  },
+  {
+   "p": "Un dominio `empresa.test` tiene un subdominio `sur.empresa.test` cuya administración se delega a otra sucursal con sus propios servidores. ¿Cuántos dominios y cuántas zonas hay?",
+   "o": [
+    "Un dominio y dos zonas",
+    "Dos dominios y una zona",
+    "Dos dominios y dos zonas",
+    "Un dominio y una zona"
+   ],
+   "c": 0,
+   "e": "El dominio es el subárbol completo, que sigue siendo uno solo. La zona es la parte que administra una misma autoridad: al delegar `sur`, se hace un corte y quedan dos zonas. La respuesta de dos dominios confunde el subdominio con un árbol aparte, y una sola zona ignoraría la delegación."
+  },
+  {
+   "p": "Un dominio tiene dos registros MX: `10 correo1.empresa.test` y `20 correo2.empresa.test`. ¿A cuál intenta entregar primero un servidor que manda correo a ese dominio?",
+   "o": [
+    "A correo2, porque el número más alto es el que tiene prioridad",
+    "Al que aparezca escrito primero en el archivo de la zona",
+    "A cualquiera de los dos: el número es solo una etiqueta",
+    "A correo1, porque el número más bajo tiene prioridad"
+   ],
+   "c": 3,
+   "e": "El RFC 1035 dice que en MX se prefieren los valores más bajos: gana correo1, con 10. El segundo se usa de respaldo si el primero no responde. El orden en el archivo no importa y el número no es decorativo."
+  },
+  {
+   "p": "Querés que `www.empresa.test` lleve al mismo servidor que `empresa.test`. Alguien propone poner un CNAME en el propio `empresa.test` apuntando a otro nombre. ¿Por qué falla?",
+   "o": [
+    "Los alias solo se pueden crear para nombres que empiecen con www",
+    "DNS no permite apuntar a otro nombre, solo a direcciones IP numéricas",
+    "Un CNAME no admite otros datos y ese nombre ya tiene SOA y NS",
+    "El CNAME necesita tener un TTL mayor que el del registro SOA"
+   ],
+   "c": 2,
+   "e": "El RFC 1034 prohíbe que un nodo con CNAME tenga otros datos, y el nombre de la zona ya tiene SOA y NS, como vimos con el error del verificador de zonas. Sí se pueden crear alias para cualquier nombre (no solo `www`), y apuntar a otro nombre es justamente lo que hace un CNAME."
+  },
+  {
+   "p": "Preguntás por `nada.empresa.test` y el servidor autoridad contesta NXDOMAIN con un SOA cuyo último campo vale 300. ¿Qué significa ese 300?",
+   "o": [
+    "Que hay 300 registros cargados en toda la zona consultada",
+    "Que ese nombre venció hace 300 días y hay que renovarlo",
+    "Que la inexistencia se puede recordar hasta 300 segundos",
+    "Que el servidor tardó 300 milisegundos en responder la consulta"
+   ],
+   "c": 2,
+   "e": "El RFC 2308 usa el campo del SOA (con el TTL del propio SOA) como tiempo de recuerdo de una respuesta negativa. No cuenta registros, no son días y no mide demora de consulta. Es la razón por la que un nombre recién creado puede parecer inexistente un rato para quienes ya preguntaron."
+  },
+  {
+   "p": "En la respuesta DNS que armaste a mano, el nombre del registro CNAME se escribe como `c0 0c`. ¿Qué es?",
+   "o": [
+    "Un puntero a un nombre ya escrito en el byte 12 del mensaje",
+    "La dirección IP de cuatro bytes que corresponde al servidor consultado",
+    "El código de error de la consulta, escrito con dos bytes",
+    "El tamaño total del mensaje DNS expresado en bytes"
+   ],
+   "c": 0,
+   "e": "Los dos bits más altos en 1 (`c0`) avisan que lo que sigue es una posición dentro del mensaje y no un largo de etiqueta. El byte 12 es donde empieza la pregunta, así que el nombre se reutiliza en 2 bytes. No es una IP ni un error: la IP viaja en los datos del registro y el error en las banderas."
+  },
+  {
+   "p": "Una `dig` contra tu servidor DNS muestra en la respuesta la bandera `aa`. ¿Qué te dice?",
+   "o": [
+    "Que la respuesta es auténtica y está firmada de forma criptográfica",
+    "Que el servidor aceptó resolver la consulta con recursión completa",
+    "Que la dirección que se devolvió pertenece a la familia IPv4",
+    "Que contesta la autoridad de la zona, no una copia recordada"
+   ],
+   "c": 3,
+   "e": "`aa` significa authoritative answer: responde el servidor que administra la zona, la fuente primaria. No implica firma criptográfica (eso es otro mecanismo), la recursión se indica con otras banderas (`rd` y `ra`) y el tipo de dirección lo da el registro."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca vio un servidor qué es DNS: por qué existió antes un archivo central y por qué dejó de funcionar, qué es un árbol de nombres, qué diferencia hay entre dominio y zona y qué contiene una zona. Usá una analogía propia con depósitos, sucursales o planillas.",
+ "para_profundizar": [
+  {
+   "fuente": "rfc1034",
+   "nota": "Los capítulos 2 («Introducción», con la historia de HOSTS.TXT) y 4.2 (cómo se divide la base en zonas) alcanzan para este día. Es un texto claro, escrito por el propio Mockapetris."
+  },
+  {
+   "fuente": "rfc1035",
+   "nota": "El capítulo 4 (formato de los mensajes) es la fuente del script de hoy: cabecera, pregunta, registros y compresión de nombres. Leelo con la respuesta de 70 bytes al lado."
+  },
+  {
+   "fuente": "dnsi-bind9",
+   "nota": "La documentación de BIND 9: para repetir el laboratorio con tu propia zona (`named.conf`, `named-checkzone`)."
+  },
+  {
+   "fuente": "dnsi-rfc2308",
+   "nota": "La caché de respuestas negativas: por qué NXDOMAIN también se recuerda y de dónde sale ese TTL. Anticipa lo que vemos en [@05-13]."
+  }
+ ],
+ "videos": [
+  {
+   "q": "how DNS works root TLD authoritative explained visually",
+   "por_que": "Para ver dibujada la jerarquía raíz, dominios de primer nivel y autoridad antes de la clase de mañana."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "DNS",
+   "d": "Domain Name System: el sistema que traduce nombres de dominio en direcciones IP (y guarda otros datos, como los servidores de correo). Es una base de datos distribuida y jerárquica, descripta en los RFC 1034 y 1035 de 1987."
+  },
+  {
+   "t": "nombre de dominio",
+   "d": "El nombre que identifica un nodo del árbol de DNS: una serie de etiquetas separadas por puntos que se lee de derecha a izquierda, como www.distribuidora.test. Cada etiqueta mide hasta 63 bytes y el nombre completo hasta 255."
+  },
+  {
+   "t": "registro A",
+   "d": "El registro de DNS que asocia un nombre con una dirección IPv4 (32 bits). Su equivalente para IPv6 es el registro AAAA, que guarda 128 bits."
+  },
+  {
+   "t": "zona",
+   "d": "La parte del árbol de nombres que administra una misma autoridad con sus propios servidores. Un dominio puede estar formado por varias zonas cuando se delega alguna de sus ramas."
+  },
+  {
+   "t": "registro de recurso",
+   "d": "Una entrada de una zona: nombre, TTL, clase, tipo y datos. Los tipos más comunes son A, AAAA, CNAME, MX, TXT, NS y SOA."
+  },
+  {
+   "t": "CNAME",
+   "d": "Un registro que declara que un nombre es un alias de otro. No puede convivir con otros registros en el mismo nombre, por lo que no puede estar en la raíz de una zona."
+  },
+  {
+   "t": "MX",
+   "d": "El registro que indica a qué servidor entregar el correo de un dominio, con una preferencia numérica: se prueba primero el número más bajo."
+  },
+  {
+   "t": "NXDOMAIN",
+   "d": "El código de respuesta que indica que el nombre consultado no existe. La respuesta incluye el SOA de la zona y puede recordarse un tiempo."
+  },
+  {
+   "t": "servidor autoridad",
+   "d": "Un servidor DNS que guarda los registros de una zona y contesta con la bandera aa. Es la fuente primaria, no una copia recordada."
+  },
+  {
+   "t": "compresión de nombres",
+   "d": "El recurso de los mensajes DNS por el que un nombre ya escrito se reemplaza por un puntero de 2 bytes (los dos bits más altos en 1) a su posición en el mismo mensaje."
+  }
+ ],
+ "siguiente": "quién contesta realmente tu consulta: el resolvedor recursivo, los servidores raíz, los dominios de primer nivel, la caché y el TTL, y por qué la «propagación DNS» no es lo que se cree.",
+ "fuentes_nuevas": [
+  {
+   "id": "dnsi-rfc882",
+   "t": "RFC 882: Domain Names - Concepts and Facilities",
+   "a": "Paul Mockapetris",
+   "tipo": "rfc",
+   "anio": 1983,
+   "url": "https://www.rfc-editor.org/rfc/rfc882"
+  },
+  {
+   "id": "dnsi-rfc952",
+   "t": "RFC 952: DoD Internet Host Table Specification",
+   "a": "K. Harrenstien, M. Stahl y E. Feinler",
+   "tipo": "rfc",
+   "anio": 1985,
+   "url": "https://www.rfc-editor.org/rfc/rfc952"
+  },
+  {
+   "id": "dnsi-rfc2308",
+   "t": "RFC 2308: Negative Caching of DNS Queries (DNS NCACHE)",
+   "a": "Mike Andrews",
+   "tipo": "rfc",
+   "anio": 1998,
+   "url": "https://www.rfc-editor.org/rfc/rfc2308"
+  },
+  {
+   "id": "dnsi-rfc3596",
+   "t": "RFC 3596: DNS Extensions to Support IP Version 6",
+   "a": "S. Thomson, C. Huitema, V. Ksinant y M. Souissi",
+   "tipo": "rfc",
+   "anio": 2003,
+   "url": "https://www.rfc-editor.org/rfc/rfc3596"
+  },
+  {
+   "id": "dnsi-rfc4343",
+   "t": "RFC 4343: Domain Name System (DNS) Case Insensitivity Clarification",
+   "a": "Donald Eastlake",
+   "tipo": "rfc",
+   "anio": 2006,
+   "url": "https://www.rfc-editor.org/rfc/rfc4343"
+  },
+  {
+   "id": "dnsi-rfc5737",
+   "t": "RFC 5737: IPv4 Address Blocks Reserved for Documentation",
+   "a": "J. Arkko, M. Cotton y L. Vegoda",
+   "tipo": "rfc",
+   "anio": 2010,
+   "url": "https://www.rfc-editor.org/rfc/rfc5737"
+  },
+  {
+   "id": "dnsi-rfc6761",
+   "t": "RFC 6761: Special-Use Domain Names",
+   "a": "S. Cheshire y M. Krochmal",
+   "tipo": "rfc",
+   "anio": 2013,
+   "url": "https://www.rfc-editor.org/rfc/rfc6761"
+  },
+  {
+   "id": "dnsi-rfc7208",
+   "t": "RFC 7208: Sender Policy Framework (SPF)",
+   "a": "S. Kitterman",
+   "tipo": "rfc",
+   "anio": 2014,
+   "url": "https://www.rfc-editor.org/rfc/rfc7208"
+  },
+  {
+   "id": "dnsi-rfc7505",
+   "t": "RFC 7505: A «Null MX» No Service Resource Record for Domains That Accept No Mail",
+   "a": "J. Levine y M. Delany",
+   "tipo": "rfc",
+   "anio": 2015,
+   "url": "https://www.rfc-editor.org/rfc/rfc7505"
+  },
+  {
+   "id": "dnsi-rfc8484",
+   "t": "RFC 8484: DNS Queries over HTTPS (DoH)",
+   "a": "P. Hoffman y P. McManus",
+   "tipo": "rfc",
+   "anio": 2018,
+   "url": "https://www.rfc-editor.org/rfc/rfc8484"
+  },
+  {
+   "id": "dnsi-iana-tlds",
+   "t": "IANA: lista de dominios de primer nivel (tlds-alpha-by-domain)",
+   "a": "IANA",
+   "tipo": "doc",
+   "url": "https://data.iana.org/TLD/tlds-alpha-by-domain.txt"
+  },
+  {
+   "id": "dnsi-nsswitch",
+   "t": "nsswitch.conf(5): Linux manual",
+   "a": "Proyecto man-pages de Linux",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man5/nsswitch.conf.5.html"
+  },
+  {
+   "id": "dnsi-bind9",
+   "t": "BIND 9: Administrator Reference Manual",
+   "a": "Internet Systems Consortium",
+   "tipo": "doc",
+   "url": "https://bind9.readthedocs.io/en/latest/"
+  }
+ ]
+}
