@@ -1,0 +1,688 @@
+{
+ "id": "03-42",
+ "titulo": "Compiladores e intérpretes: cómo un texto se vuelve acción",
+ "bajada": "Seguís el camino que recorre un texto hasta volverse una acción: lo desarmás con un intérprete de juguete, ves el árbol que arma un analizador real y seguís a gcc etapa por etapa.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir compilador e intérprete como técnicas de implementación, y explicar por qué un mismo lenguaje puede usar las dos.",
+  "Nombrar las etapas (análisis léxico, sintáctico, semántico, optimización, generación de código) y ubicar en cuál falla cada tipo de error.",
+  "Leer un árbol de sintaxis abstracta y ver en él la precedencia de los operadores.",
+  "Recorrer los archivos intermedios de gcc (.i, .s, .o y el ejecutable) y decir qué hizo cada etapa.",
+  "Explicar qué transforma el código TSX de Senda antes de correr en el teléfono y qué parte de esa cadena se verificó."
+ ],
+ "venis_de": "Hasta acá escribiste programas y viste cómo se organizan los datos y los algoritmos. Faltaba saber qué pasa entre el texto que tipeás y la acción en la máquina: en el [@02-20] viste el ejecutable ya armado; hoy ves cómo se llega a él.",
+ "se_apoya_en": [
+  "02-20",
+  "01-25",
+  "03-36",
+  "03-28",
+  "03-06"
+ ],
+ "gancho": [
+  "Escribís `precio * 2 + 1`. Son 14 caracteres y la [[CPU]] no entiende ninguno: lo único que ejecuta son instrucciones en código máquina, como las que viste en el [@01-25]. Entre lo que escribiste y los circuitos que hacen la cuenta hay un traductor, y ese traductor resuelve problemas que parecen de gramática: ¿dónde termina una palabra?, ¿qué se multiplica primero?, ¿existe `precio`?",
+  "Pensalo como una orden de picking que llega escrita a mano al depósito. Alguien tiene que descifrar la letra, entender cómo se agrupan los renglones, comprobar que los códigos de artículo existan y recién después mandar a un operario. Hoy desarmás ese proceso en etapas: construís un traductor de juguete en JavaScript que cabe en una pantalla, mirás el árbol que arma un analizador de JavaScript de verdad y seguís a gcc mientras convierte once líneas de C en un programa."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Compilar o interpretar: dos maneras de traducir"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La [[CPU]] ejecuta solamente [[instrucciones|instrucción]] en [[código máquina]]. Nadie escribe `precio * 2 + 1` en esa lengua, así que entre el [[programa fuente]] y el procesador hace falta una traducción. Hay dos grandes maneras de hacerla.",
+    "Un [[compilador]] traduce el programa entero a otra forma (por ejemplo, código máquina) **antes** de ejecutarlo, y no lo ejecuta: entrega un resultado y alguien lo corre después. Un [[intérprete]] toma el programa y lo **ejecuta** directamente, de a un trozo por vez, sin dejar un programa traducido como producto [#crafting-interpreters]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El libro y el traductor simultáneo",
+   "x": [
+    "Un compilador es quien traduce un libro entero: tarda una vez, y después cualquiera lo lee sin necesitar al traductor. Un intérprete es el traductor simultáneo de una conferencia: traduce cada frase mientras el orador habla y tiene que estar presente cada vez que se repite la charla.",
+    "Donde la analogía deja de valer: en la práctica casi todos los lenguajes mezclan las dos cosas, como vas a ver abajo."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Compilador",
+    "Intérprete"
+   ],
+   "filas": [
+    [
+     "Cuándo traduce",
+     "Antes de ejecutar, una vez",
+     "Mientras ejecuta, cada vez"
+    ],
+    [
+     "Qué entrega",
+     "Un programa nuevo: ejecutable, bytecode u otro lenguaje",
+     "El resultado de ejecutar el programa"
+    ],
+    [
+     "Suele ganar en",
+     "Velocidad de ejecución y errores detectados antes de correr",
+     "Empezar a probar sin pasos intermedios"
+    ],
+    [
+     "Suele perder en",
+     "Un paso más antes de cada prueba",
+     "Pagar la traducción en cada ejecución"
+    ],
+    [
+     "Ejemplo de hoy",
+     "gcc compilando C",
+     "El mini intérprete de este día"
+    ]
+   ],
+   "cap": "Las filas de ventajas son tendencias, no reglas; en este día medís una."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Python es interpretado y C es compilado»",
+   "x": "Compilar e interpretar son técnicas de **implementación**, no propiedades del lenguaje. Nystrom lo explica con una comparación: no es una pregunta de sí o no, como tampoco lo es si un tomate es fruta o verdura. gcc compila C a código máquina. CPython, la implementación habitual de Python, convierte el programa en un formato interno llamado bytecode y lo ejecuta dentro de una máquina virtual de lenguaje: desde afuera parece intérprete y por dentro compila [#crafting-interpreters]. En el [@03-43] ves esa pieza intermedia y cómo los motores de JavaScript compilan en caliente (compilación JIT)."
+  },
+  {
+   "t": "h",
+   "x": "El recorrido: de texto a acción"
+  },
+  {
+   "t": "p",
+   "x": "Casi todos los compiladores e intérpretes atraviesan etapas parecidas, y cada una recibe lo que dejó la anterior [#crafting-interpreters]. Las dos primeras se parecen mucho en todas las implementaciones; de la tercera en adelante entran las características de cada lenguaje y de lo que se quiera obtener."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Texto fuente",
+       "s": "`total = precio * 2 + 1`",
+       "k": "cliente"
+      },
+      {
+       "t": "Fichas",
+       "s": "sale del análisis léxico",
+       "k": "datos"
+      },
+      {
+       "t": "Árbol (AST)",
+       "s": "sale del análisis sintáctico",
+       "k": "red"
+      }
+     ]
+    },
+    {
+     "nodos": [
+      {
+       "t": "Árbol revisado",
+       "s": "sale del análisis semántico",
+       "k": "servidor"
+      },
+      {
+       "t": "Árbol mejorado",
+       "s": "sale de la optimización",
+       "k": "ok"
+      },
+      {
+       "t": "Código de salida",
+       "s": "lo emite la generación de código",
+       "k": "hw"
+      }
+     ]
+    }
+   ],
+   "cap": "Cada caja es lo que entrega una etapa. Un intérprete puede ejecutar el árbol directamente; un compilador sigue hasta generar código."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Etapa",
+    "Qué hace",
+    "Qué errores detecta"
+   ],
+   "filas": [
+    [
+     "[[Análisis léxico|análisis léxico]]",
+     "Corta los caracteres en «palabras» (fichas) y descarta espacios y comentarios",
+     "Un carácter que el lenguaje no admite"
+    ],
+    [
+     "Análisis sintáctico",
+     "Agrupa las fichas según la gramática y arma el árbol",
+     "Estructura rota: falta un paréntesis, un operador sobra"
+    ],
+    [
+     "Análisis semántico",
+     "Averigua qué significa cada nombre y si lo escrito tiene sentido",
+     "Nombres no definidos; tipos incompatibles en lenguajes con tipos"
+    ],
+    [
+     "Optimización",
+     "Cambia el programa por otro equivalente y más eficiente",
+     "Ninguno: no busca errores"
+    ],
+    [
+     "[[Generación de código|generación de código]]",
+     "Emite las instrucciones del destino",
+     "Ninguno del usuario"
+    ]
+   ],
+   "cap": "Resumen propio a partir de Nystrom, «A Map of the Territory»."
+  },
+  {
+   "t": "h",
+   "x": "Un intérprete de juguete, completo"
+  },
+  {
+   "t": "p",
+   "x": "Las primeras cuatro etapas caben en una pantalla. El código siguiente interpreta expresiones aritméticas con variables: lee el texto, arma el árbol, revisa que los nombres existan y recién entonces calcula. Cada función corresponde a una etapa del diagrama. Ejecutalo y mirá las ocho líneas de salida."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// MINI INTÉRPRETE: texto → fichas (léxico) → árbol (sintaxis) → chequeo (semántica) → resultado\nfunction leer(texto) {                                   // 1) análisis léxico: caracteres → fichas\n  const fichas = [], re = /\\s*(?:(\\d+(?:\\.\\d+)?)|([a-z_]\\w*)|(.))/gy;\n  let m;\n  while (re.lastIndex < texto.length && (m = re.exec(texto))) {\n    if (m[1] !== undefined) fichas.push({ tipo: \"num\", valor: Number(m[1]) });\n    else if (m[2] !== undefined) fichas.push({ tipo: \"id\", nombre: m[2] });\n    else if (\"+-*/()\".includes(m[3])) fichas.push({ tipo: m[3] });\n    else throw new Error(`carácter inesperado «${m[3]}»`);\n  }\n  return fichas;\n}\n\nfunction analizar(fichas) {                              // 2) análisis sintáctico: fichas → árbol (AST)\n  let i = 0;\n  const mirar = () => fichas[i]?.tipo, tomar = () => fichas[i++];\n  function expresion() {                                 // suma y resta: la precedencia más baja\n    let izq = termino();\n    while (mirar() === \"+\" || mirar() === \"-\") izq = { op: tomar().tipo, izq, der: termino() };\n    return izq;\n  }\n  function termino() {                                   // multiplicación y división: se resuelven antes\n    let izq = unario();\n    while (mirar() === \"*\" || mirar() === \"/\") izq = { op: tomar().tipo, izq, der: unario() };\n    return izq;\n  }\n  function unario() { return mirar() === \"-\" ? (tomar(), { op: \"neg\", der: unario() }) : atomo(); }\n  function atomo() {\n    const f = tomar();\n    if (!f) throw new Error(\"la expresión termina antes de tiempo\");\n    if (f.tipo === \"num\") return { num: f.valor };\n    if (f.tipo === \"id\") return { id: f.nombre };\n    if (f.tipo === \"(\") {\n      const e = expresion();\n      if (tomar()?.tipo !== \")\") throw new Error(\"falta cerrar el paréntesis\");\n      return e;\n    }\n    throw new Error(`no esperaba «${f.tipo}» acá`);\n  }\n  const arbol = expresion();\n  if (i < fichas.length) throw new Error(`sobra «${fichas[i].tipo}» al final`);\n  return arbol;\n}\n\nfunction chequear(n, conocidos) {                        // 3) análisis semántico: ¿tiene sentido?\n  if (n.id !== undefined && !(n.id in conocidos)) throw new Error(`«${n.id}» no está definido`);\n  if (n.op === \"/\" && n.der.num === 0) throw new Error(\"división por cero escrita en el código\");\n  for (const hijo of [n.izq, n.der]) if (hijo) chequear(hijo, conocidos);\n}\n\nfunction evaluar(n, entorno) {                           // 4) ejecutar: recorrer el árbol de abajo hacia arriba\n  if (n.num !== undefined) return n.num;\n  if (n.id !== undefined) return entorno[n.id];\n  if (n.op === \"neg\") return -evaluar(n.der, entorno);\n  const a = evaluar(n.izq, entorno), b = evaluar(n.der, entorno);\n  return n.op === \"+\" ? a + b : n.op === \"-\" ? a - b : n.op === \"*\" ? a * b : a / b;\n}\n\nfunction correr(texto, entorno = {}) {\n  try {\n    const arbol = analizar(leer(texto));\n    chequear(arbol, entorno);\n    return evaluar(arbol, entorno);\n  } catch (e) { return \"error: \" + e.message; }\n}\n\nconsole.log(JSON.stringify(leer(\"2 + 3 * 4\")));\nconsole.log(JSON.stringify(analizar(leer(\"2 + 3 * 4\"))));\nconsole.log(correr(\"2 + 3 * 4\"), \"|\", correr(\"(2 + 3) * 4\"), \"|\", correr(\"-2 * -(1 + 4)\"));\nconsole.log(correr(\"kilos * precio\", { kilos: 12, precio: 850.5 }));\nconsole.log(correr(\"2 + * 3\"));\nconsole.log(correr(\"kilos * 2\"));\nconsole.log(correr(\"10 / 0\"));\nconsole.log(correr(\"3 $ 4\"));",
+   "cap": "Lo corrí en Node 22 y en un Worker de Chromium con la misma salida. Son 74 líneas con comentarios y las llamadas de prueba."
+  },
+  {
+   "t": "p",
+   "x": "La salida muestra cada etapa. La primera línea son las fichas de `2 + 3 * 4`, y la segunda el árbol: la multiplicación quedó **más adentro** que la suma. Esa es la [[precedencia]] hecha estructura: la función que arma las sumas llama a la que arma los productos, así que los productos se resuelven primero y `2 + 3 * 4` da 14, no 20. Los paréntesis cambian la forma del árbol y por eso `(2 + 3) * 4` da 20."
+  },
+  {
+   "t": "p",
+   "x": "Los cuatro errores caen en etapas distintas. `3 $ 4` falla en el **léxico**: el carácter `$` no existe en este lenguaje. `2 + * 3` falla en el **sintáctico**: las fichas son válidas, pero un `*` no puede venir después de un `+`. `kilos * 2` y `10 / 0` pasan la gramática y fallan en el **semántico**: cada uno tiene la forma correcta, pero el primero usa un nombre que nadie definió y el segundo divide por una constante cero. Saber en qué etapa falla un error dice dónde buscarlo."
+  },
+  {
+   "t": "pensa",
+   "x": "Si le pasás `(2 + 3` al intérprete, ¿en qué etapa falla y por qué?",
+   "resp": "En la sintáctica, con «falta cerrar el paréntesis» (lo probé). Las fichas son todas válidas, así que el léxico no se queja. El problema está en la estructura: se abrió un grupo y nunca se cerró."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Agregá el operador `%` (el resto de una división) con la misma precedencia que `*` y `/`. ¿En cuántas funciones tenés que tocar el código y en cuáles? Probá con `17 % 5 * 2`.",
+   "pista": "Pensá qué etapas necesitan enterarse de que existe un símbolo nuevo: ¿quién lo reconoce, quién lo ubica en el árbol, quién lo calcula?",
+   "solucion": "En tres: `leer` (agregar `%` a los símbolos válidos), `termino` (aceptar `%` junto a `*` y `/`, para que tenga esa precedencia) y `evaluar` (calcular `a % b`). `chequear` no cambia. Lo probé: `17 % 5 * 2` da 4 (17 % 5 = 2, y después × 2) y `17 % (2 + 3)` da 2."
+  },
+  {
+   "t": "h",
+   "x": "El mismo árbol, con una herramienta de verdad"
+  },
+  {
+   "t": "p",
+   "x": "Los motores de JavaScript hacen lo mismo pero con el lenguaje entero. Para ver sus fichas y su árbol instalé con npm `acorn` (versión 8.19.0), un analizador de JavaScript escrito en JavaScript, y le pasé la línea `const total = precio * 2 + 1;`. Primero las fichas:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const acorn = require(\"acorn\");\nconst codigo = \"const total = precio * 2 + 1;\";\nfor (const t of acorn.tokenizer(codigo, { ecmaVersion: 2024 })) {\n  console.log(t.type.label.padEnd(8), JSON.stringify(codigo.slice(t.start, t.end)));\n}",
+   "cap": "Script de Node que usa acorn. No es ejecutable en la página porque necesita el paquete instalado."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node tokens.cjs",
+     "s": "const    \"const\"\nname     \"total\"\n=        \"=\"\nname     \"precio\"\n*        \"*\"\nnum      \"2\"\n+/-      \"+\"\nnum      \"1\"\n;        \";\""
+    }
+   ],
+   "cap": "Salida real. Nueve fichas, sin los espacios. La columna izquierda es el nombre que acorn le da a cada tipo de ficha; al `+` lo llama «+/-» porque agrupa el más y el menos."
+  },
+  {
+   "t": "p",
+   "x": "Ahora el árbol. Escribí una función chica que lo recorre e imprime el tipo de cada nodo con sangría:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const acorn = require(\"acorn\");\nconst codigo = \"const total = precio * 2 + 1;\";\nconst ast = acorn.parse(codigo, { ecmaVersion: 2024 });\nfunction mostrar(n, sangria = \"\") {\n  const dato = n.name ?? (n.type === \"Literal\" ? n.raw : n.operator ?? n.kind ?? \"\");\n  console.log(sangria + n.type + (dato ? \"  \" + dato : \"\"));\n  for (const hijo of [n.declarations, n.id, n.init, n.left, n.right, n.body].flat()) {\n    if (hijo && typeof hijo === \"object\") mostrar(hijo, sangria + \"  \");\n  }\n}\nmostrar(ast);",
+   "cap": "Recorrido recursivo ([@03-36]) del árbol que devuelve `acorn.parse`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node arbol.cjs",
+     "s": "Program\n  VariableDeclaration  const\n    VariableDeclarator\n      Identifier  total\n      BinaryExpression  +\n        BinaryExpression  *\n          Identifier  precio\n          Literal  2\n        Literal  1"
+    }
+   ],
+   "cap": "Salida real. Es un [[AST]] (árbol de sintaxis abstracta): el nodo raíz es el programa y las hojas son nombres y números."
+  },
+  {
+   "t": "p",
+   "x": "El [[AST]] se llama «abstracto» porque guarda la estructura y deja afuera lo que no cambia el significado: espacios, punto y coma y paréntesis (con `(2 + 3) * 4`, acorn no crea ningún nodo para los paréntesis, y la forma del árbol ya dice qué se suma primero; lo comprobé). Fijate que acá también la multiplicación está más adentro que la suma. Es el mismo árbol que armó tu intérprete, con nombres más largos."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node -e \"try{require('acorn').parse('const = 5;',{ecmaVersion:2024})}catch(e){console.log(e.name+': '+e.message)}\"",
+     "s": "SyntaxError: Unexpected token (1:6)"
+    }
+   ],
+   "cap": "Salida real. El mismo analizador, con una línea que no respeta la gramática: es un [[error de sintaxis]]. El mensaje da la posición (línea 1, columna 6), pero no dice qué querías escribir."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "El árbol también entiende TypeScript y JSX",
+   "x": "Probé `@babel/parser` 7.29.7 con los plugins `typescript` y `jsx` sobre `const m: string = 1; const e = <Text>{m}</Text>;`. El árbol trae nodos como `TSTypeAnnotation` (el `: string`) y `JSXElement` (el `<Text>`). Es la misma etapa de análisis sintáctico con una gramática más grande; lo vas a necesitar en la sección de Senda."
+  },
+  {
+   "t": "h",
+   "x": "Compilar: generar código y optimizar"
+  },
+  {
+   "t": "p",
+   "x": "Un intérprete recorre el árbol y calcula. Un compilador, en lugar de calcular, **recorre el árbol y escribe instrucciones**. Eso es la [[generación de código]]. El código siguiente traduce el mismo tipo de expresión a instrucciones para una máquina de pila de juguete (una pila y siete instrucciones, parecidas a las que ejecuta una máquina real) y las ejecuta. Antes de generar, aplica una optimización: calcular desde ya todo lo que se pueda calcular."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// COMPILADOR de juguete: el mismo árbol, pero en vez de ejecutarlo se traduce a instrucciones de una máquina de pila\nconst fichas = t => t.match(/\\d+(?:\\.\\d+)?|[a-z_]\\w*|[-+*/()]/g);        // léxico (versión compacta)\nfunction arbol(texto) {                                                  // sintaxis (versión compacta)\n  const f = fichas(texto); let i = 0;\n  const suma = () => { let n = prod(); while (\"+-\".includes(f[i] ?? \"#\")) { const op = f[i++]; n = { op, izq: n, der: prod() }; } return n; };\n  const prod = () => { let n = atomo(); while (\"*/\".includes(f[i] ?? \"#\")) { const op = f[i++]; n = { op, izq: n, der: atomo() }; } return n; };\n  const atomo = () => {\n    const x = f[i++];\n    if (x === \"(\") { const n = suma(); i++; return n; }\n    if (x === \"-\") return { op: \"neg\", der: atomo() };\n    return /^\\d/.test(x) ? { num: Number(x) } : { id: x };\n  };\n  return suma();\n}\n\nconst calc = (op, a, b) => ({ \"+\": a + b, \"-\": a - b, \"*\": a * b, \"/\": a / b, neg: -b })[op];\nfunction plegar(n) {                       // optimización: lo que ya se puede calcular, se calcula ahora y no cada vez\n  if (n.num !== undefined || n.id !== undefined) return n;\n  const izq = n.izq && plegar(n.izq), der = plegar(n.der);\n  if (der.num !== undefined && (!izq || izq.num !== undefined)) return { num: calc(n.op, izq?.num, der.num) };\n  return { op: n.op, izq, der };\n}\n\nfunction generar(n, out = []) {            // generación de código: recorrer el árbol y emitir instrucciones\n  if (n.num !== undefined) out.push(\"PUSH \" + n.num);\n  else if (n.id !== undefined) out.push(\"LOAD \" + n.id);\n  else {\n    if (n.izq) generar(n.izq, out);\n    generar(n.der, out);\n    out.push({ \"+\": \"ADD\", \"-\": \"SUB\", \"*\": \"MUL\", \"/\": \"DIV\", neg: \"NEG\" }[n.op]);\n  }\n  return out;\n}\n\nfunction maquina(programa, entorno) {      // la «CPU» de juguete: una pila y siete instrucciones\n  const pila = [];\n  for (const ins of programa) {\n    const [op, arg] = ins.split(\" \");\n    if (op === \"PUSH\") pila.push(Number(arg));\n    else if (op === \"LOAD\") pila.push(entorno[arg]);\n    else if (op === \"NEG\") pila.push(-pila.pop());\n    else { const b = pila.pop(), a = pila.pop(); pila.push(op === \"ADD\" ? a + b : op === \"SUB\" ? a - b : op === \"MUL\" ? a * b : a / b); }\n  }\n  return pila.pop();\n}\n\nconst texto = \"kilos * (2 + 3) + 10 * 10\";\nconst sinOptimizar = generar(arbol(texto));\nconst optimizado = generar(plegar(arbol(texto)));\nconsole.log(`«${texto}» sin optimizar (${sinOptimizar.length} instrucciones):\\n  ${sinOptimizar.join(\"; \")}`);\nconsole.log(`optimizado (${optimizado.length} instrucciones):\\n  ${optimizado.join(\"; \")}`);\nconsole.log(\"resultado con kilos = 4:\", maquina(sinOptimizar, { kilos: 4 }), \"y\", maquina(optimizado, { kilos: 4 }));",
+   "cap": "Corrido en Node 22 y en Chromium. El lexer y el parser son una versión compacta de los de antes."
+  },
+  {
+   "t": "p",
+   "x": "La expresión `kilos * (2 + 3) + 10 * 10` generó nueve instrucciones sin optimizar y cinco con la optimización, porque `2 + 3` y `10 * 10` ya se podían calcular al compilar. Seguí la versión corta con `kilos = 4`: `LOAD kilos` deja 4 en la pila, `PUSH 5` la deja en 4, 5, `MUL` las reemplaza por 20, `PUSH 100` deja 20, 100 y `ADD` los suma: 120. Se llama plegado de constantes, y Nystrom lo ilustra con el área de una moneda calculada en tiempo de compilación [#crafting-interpreters]. La ganancia se paga una vez, al compilar, y se cobra en cada ejecución."
+  },
+  {
+   "t": "p",
+   "x": "¿Cuánto cuesta no traducir? Una medición con el mismo cálculo de tres maneras: recorriendo el árbol en cada vuelta, con el texto de la expresión convertido en una función por `new Function`, y escrita a mano."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// El mismo cálculo de tres maneras. Árbol de «kilos * (2 + 3) + 10 * 10», recorrido una y otra vez:\nconst arbol = { op: \"+\", izq: { op: \"*\", izq: { id: \"kilos\" }, der: { op: \"+\", izq: { num: 2 }, der: { num: 3 } } },\n                         der: { op: \"*\", izq: { num: 10 }, der: { num: 10 } } };\nfunction caminar(n, e) {                                   // a) intérprete de árbol: decide en cada vuelta qué hacer\n  if (n.num !== undefined) return n.num;\n  if (n.id !== undefined) return e[n.id];\n  const a = caminar(n.izq, e), b = caminar(n.der, e);\n  return n.op === \"+\" ? a + b : n.op === \"*\" ? a * b : NaN;\n}\nconst generado = new Function(\"kilos\", \"return kilos * (2 + 3) + 10 * 10\"); // b) código generado una vez y compilado por el motor\nconst escrito = kilos => kilos * (2 + 3) + 10 * 10;                          // c) escrito a mano\n\nconst VUELTAS = 2_000_000;\nfunction medir(nombre, f) {\n  f(1);                                                    // una pasada de calentamiento\n  const t0 = performance.now(); let suma = 0;\n  for (let k = 0; k < VUELTAS; k++) suma += f(k);\n  console.log(nombre.padEnd(22), Math.round(performance.now() - t0), \"ms   (suma de control:\", suma + \")\");\n}\nconst entorno = { kilos: 0 };\nmedir(\"a) recorrer el árbol\", k => { entorno.kilos = k; return caminar(arbol, entorno); });\nmedir(\"b) código generado\", generado);\nmedir(\"c) escrito a mano\", escrito);",
+   "cap": "Mis corridas en una sola máquina virtual: el recorrido del árbol tardó entre 62 y 80 ms por dos millones de vueltas, y las otras dos entre 8 y 13 ms. Tus números van a diferir; la proporción es lo que importa."
+  },
+  {
+   "t": "p",
+   "x": "Recorrer el árbol salió unas cinco a ocho veces más lento. Las dos maneras corren sobre el mismo motor de JavaScript, así que la diferencia no es de lenguaje: el intérprete de árbol vuelve a decidir, en cada vuelta y en cada nodo, qué hacer, y la versión generada tomó esas decisiones una sola vez. `new Function` le entrega el texto al motor, que lo compila una sola vez y deja una función lista."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "`new Function` y `eval` ejecutan texto como código",
+   "x": "Sirven para mostrar la idea, pero ejecutan lo que reciban sin ninguna revisión. Nunca se les pasa texto que haya escrito otra persona (un campo de un formulario, una respuesta de un servidor): sería darle a esa persona el control del programa."
+  },
+  {
+   "t": "h",
+   "x": "gcc: un compilador de verdad, etapa por etapa"
+  },
+  {
+   "t": "p",
+   "x": "gcc no es un solo programa sino un coordinador que llama a varios. Con unas banderas se le pide que se detenga en cada etapa y deje el resultado a la vista. Usé este archivo de 11 líneas en gcc 13.3 sobre Ubuntu 24.04 (Linux x86-64):"
+  },
+  {
+   "t": "codigo",
+   "lang": "c",
+   "x": "#include <stdio.h>\n#define IVA 21\n\nint precio_final(int neto) {\n    return neto + neto * IVA / 100;\n}\n\nint main(void) {\n    printf(\"%d\\n\", precio_final(200));\n    return 0;\n}",
+   "cap": "`flete.c`: una macro (`IVA`), una función y `main`."
+  },
+  {
+   "t": "p",
+   "x": "**Primero, el preprocesador** (`-E`): expande las directivas que empiezan con `#`. Pega el contenido de `stdio.h` y reemplaza `IVA` por 21."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -E flete.c -o flete.i && wc -l flete.c flete.i",
+     "s": "  11 flete.c\n 824 flete.i\n 835 total"
+    },
+    {
+     "c": "tail -7 flete.i",
+     "s": "    return neto + neto * 21 / 100;\n}\n\nint main(void) {\n    printf(\"%d\\n\", precio_final(200));\n    return 0;\n}"
+    }
+   ],
+   "cap": "Salida real. Once líneas se volvieron 824, casi todas de `stdio.h`; la macro ya no existe."
+  },
+  {
+   "t": "p",
+   "x": "**Segundo, la compilación propiamente dicha** (`-S`): del C a [[ensamblador]] (instrucciones en texto, una por línea). Recorté las directivas de depuración:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -S flete.c -o flete.s && sed -n '/^precio_final:/,/\\.size/p' flete.s | grep -v '\\.cfi\\|^\\.L'",
+     "s": "precio_final:\n\tendbr64\n\tpushq\t%rbp\n\tmovq\t%rsp, %rbp\n\tmovl\t%edi, -4(%rbp)\n\tmovl\t-4(%rbp), %edx\n\tmovl\t%edx, %eax\n\tsall\t$2, %eax\n\taddl\t%edx, %eax\n\tsall\t$2, %eax\n\taddl\t%edx, %eax\n\tmovslq\t%eax, %rdx\n\timulq\t$1374389535, %rdx, %rdx\n\tshrq\t$32, %rdx\n\tsarl\t$5, %edx\n\tsarl\t$31, %eax\n\tsubl\t%eax, %edx\n\tmovl\t-4(%rbp), %eax\n\taddl\t%edx, %eax\n\tpopq\t%rbp\n\tret\n\t.size\tprecio_final, .-precio_final"
+    }
+   ],
+   "cap": "Salida real. Es la función `precio_final` de `flete.c` en ensamblador x86-64."
+  },
+  {
+   "t": "p",
+   "x": "Hay algo curioso que no pedí: gcc, sin ninguna bandera de optimización, no multiplicó por 21. Calculó `neto * 21` con dos desplazamientos y dos sumas (`((neto × 4 + neto) × 4) + neto`, que es 21 × neto) y cambió la división por 100 por una multiplicación por 1374389535 seguida de desplazamientos. Ese número es 2³⁷ ÷ 100 redondeado hacia arriba (lo comprobé: 1374389534,72), y desplazar 32 más 5 bits equivale a dividir por 2³⁷. Es una técnica conocida de los compiladores: multiplicar y desplazar suele ser más barato que dividir."
+  },
+  {
+   "t": "p",
+   "x": "**Tercero, el ensamblado** (`-c`): `as` convierte el ensamblador en un archivo objeto, con el código máquina listo pero con huecos (todavía no se sabe dónde vive `printf`). **Cuarto, el enlace**: el [[enlazador]] une el objeto con las bibliotecas y arma el ejecutable ([@02-20])."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -c flete.c -o flete.o && file flete.o",
+     "s": "flete.o: ELF 64-bit LSB relocatable, x86-64, version 1 (SYSV), not stripped"
+    },
+    {
+     "c": "gcc flete.o -o flete && ./flete",
+     "s": "242"
+    },
+    {
+     "c": "file flete",
+     "s": "flete: ELF 64-bit LSB pie executable, x86-64, version 1 (SYSV), dynamically linked, interpreter /lib64/ld-linux-x86-64.so.2, … (recortado)"
+    }
+   ],
+   "cap": "Salida real. El objeto es «relocatable» (con huecos); el ejecutable ya es un ELF con [[enlace dinámico]]: `printf` no está adentro, lo aporta la biblioteca compartida cuando el cargador arma el proceso. Y 200 + 200 × 21 ÷ 100 = 242."
+  },
+  {
+   "t": "p",
+   "x": "Todo junto se ve con `-save-temps`, que conserva los archivos intermedios, y con `-v`, que muestra a qué programas llama gcc."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -save-temps flete.c -o flete && ls -l flete.c flete.i flete.s flete.o flete",
+     "s": "flete.c\t175 bytes\nflete.i\t21392 bytes\nflete.s\t1292 bytes\nflete.o\t1680 bytes\nflete\t16000 bytes"
+    },
+    {
+     "c": "gcc -v flete.c -o flete2 2>&1 | grep -E 'cc1 -quiet|^ as -v|collect2'",
+     "s": " /usr/libexec/gcc/x86_64-linux-gnu/13/cc1 -quiet -v -imultiarch x86_64-linux-gnu flete.c … (recortado)\n as -v --64 -o /tmp/ccl16VTB.o /tmp/ccAZNDWr.s\n /usr/libexec/gcc/x86_64-linux-gnu/13/collect2 -plugin … (recortado)"
+    }
+   ],
+   "cap": "Salida real, con `ls` abreviado a nombre y tamaño. gcc llama a `cc1` (preprocesa y compila a ensamblador), a `as` (ensambla) y a `collect2`, la etapa de enlace. Con `strace` comprobé que `collect2` termina llamando a `/usr/bin/ld`."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Archivo",
+    "Etapa que lo produce",
+    "Tamaño"
+   ],
+   "filas": [
+    [
+     "`flete.c`",
+     "Lo escribiste vos",
+     "175 bytes"
+    ],
+    [
+     "`flete.i`",
+     "Preprocesador (`-E`)",
+     "21.392 bytes"
+    ],
+    [
+     "`flete.s`",
+     "Compilación a ensamblador (`-S`)",
+     "1.292 bytes"
+    ],
+    [
+     "`flete.o`",
+     "Ensamblador (`-c`)",
+     "1.680 bytes"
+    ],
+    [
+     "`flete`",
+     "Enlazador",
+     "16.000 bytes"
+    ]
+   ],
+   "cap": "Tamaños de mi corrida (una sola máquina). El ejecutable pesa mucho más que el objeto; mi explicación (INFERENCIA) es que el enlazador le suma las estructuras del formato ELF y el código de arranque."
+  },
+  {
+   "t": "pensa",
+   "x": "El archivo `flete.i` pesa 21.392 bytes y `flete.c` solo 175. ¿Qué significa esa diferencia y qué etapa la produce?",
+   "resp": "Es el trabajo del preprocesador: pegó el contenido de `stdio.h` (y de los archivos que ese incluye) dentro del programa. El compilador propiamente dicho trabaja sobre esos 824 renglones, no sobre los 11 que escribiste."
+  },
+  {
+   "t": "p",
+   "x": "Una última prueba con la optimización encendida (`-O2`). Si el compilador entiende la función, puede hacer la cuenta él."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "gcc -O2 -S flete.c -o flete_o2.s && sed -n '/^main:/,/\\.size/p' flete_o2.s | grep -v '\\.cfi\\|^\\.L'",
+     "s": "main:\n\tendbr64\n\tsubq\t$8, %rsp\n\tmovl\t$242, %edx\n\tmovl\t$2, %edi\n\txorl\t%eax, %eax\n\tleaq\t.LC0(%rip), %rsi\n\tcall\t__printf_chk@PLT\n\txorl\t%eax, %eax\n\taddq\t$8, %rsp\n\tret\n\t.size\tmain, .-main"
+    }
+   ],
+   "cap": "Salida real. Aparece `movl $242, %edx`: el resultado ya está calculado y `main` no llama a `precio_final`."
+  },
+  {
+   "t": "p",
+   "x": "Con `-O2`, `main` carga el número 242 y se lo pasa a `printf`: el compilador evaluó `precio_final(200)` mientras compilaba. Es el plegado de constantes de antes, pero a través de una llamada a función. En un programa de logística con tarifas fijas, es la diferencia entre calcular miles de veces el mismo valor y calcularlo una sola vez."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Los errores de un compilador, mirados por etapa",
+   "x": "Probé dos programas rotos. Con `return precio * 2;` sin declarar `precio`, gcc dice `error: 'precio' undeclared (first use in this function)`: **error semántico**, el nombre no existe. Con `int x = 5` sin el punto y coma, dice `error: expected ',' or ';' before 'return'` y señala la línea **siguiente** (la 3, no la 2): **error sintáctico**, y el compilador avisa dónde se dio cuenta, que no siempre es donde está el descuido."
+  },
+  {
+   "t": "h",
+   "x": "En Senda: lo que le pasa al TSX antes de correr"
+  },
+  {
+   "t": "p",
+   "x": "Senda se escribe casi entera en TypeScript con JSX (archivos `.ts` y `.tsx`). El motor de JavaScript del teléfono, Hermes, no entiende ni los tipos ni las etiquetas de JSX. Algo tiene que traducir antes de que el código corra. Esto corresponde al commit 25e08fa (9 de noviembre de 2026): el código cambia, la forma permanece."
+  },
+  {
+   "t": "senda",
+   "titulo": "Qué dice el repositorio sobre cómo se traduce",
+   "x": [
+    "`package.json` declara `\"main\": \"index.ts\"`: ese es el punto de partida del que se sigue toda la cadena de `import`. `metro.config.js` extiende la configuración de Expo y solo agrega cuatro extensiones (`bib`, `riv`, `wasm`, `glb`) a la lista de **recursos**: esos archivos se empaquetan tal cual, sin pasar por el compilador. No hay `babel.config.js` ni `.babelrc` ni sección `babel` en `package.json`. La documentación de Expo dice que sin ese archivo se usa `babel-preset-expo` por defecto [#compilacion-expo-babel], y que Babel convierte el JavaScript moderno a una versión que entienda el motor del teléfono.",
+    "Según `package-lock.json`, el proyecto instala `metro` 0.84.5, `@babel/core` 7.29.7, `babel-preset-expo` 57.0.13 y `@react-native/babel-preset` 0.86.3. La documentación de Metro dice que su transformador por defecto usa Babel para compilar JSX, TypeScript y Flow [#compilacion-metro-conceptos]. Metro, además, resuelve cada `import` y junta todo en un solo archivo, el bundle."
+   ],
+   "archivos": [
+    "package.json",
+    "metro.config.js",
+    "index.ts",
+    "tsconfig.json",
+    "package-lock.json"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Quise ver qué hace ese Babel con un componente de verdad y, en vez de afirmarlo de memoria, lo ejecuté. Instalé `@babel/core` 7.29.7 y `babel-preset-expo` 57.0.13, las versiones del lockfile, y le pasé un componente chico:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const babel = require(\"@babel/core\");\nconst fuente = `import { Text } from \"react-native\";\n\ntype Props = { nombre: string };\n\nexport function Saludo({ nombre }: Props) {\n  const mensaje: string = \\`Hola, \\${nombre}\\`;\n  return <Text>{mensaje}</Text>;\n}\n`;\nconst r = babel.transformSync(fuente, {\n  filename: \"Saludo.tsx\",\n  babelrc: false, configFile: false, compact: false,\n  presets: [\"babel-preset-expo\"],\n  caller: { name: \"metro\", bundler: \"metro\", platform: \"android\", isDev: false },\n});\nconsole.log(r.code);",
+   "cap": "Llamé a Babel directamente con el preset de Expo y un `caller` que se hace pasar por Metro. No es la corrida de Metro: Metro agrega pasos y opciones propias que no verifiqué."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node tsx.cjs",
+     "s": "Object.defineProperty(exports, \"__esModule\", {\n  value: true\n});\nexports.Saludo = Saludo;\nvar _reactNative = require(\"react-native\");\nvar _jsxRuntime = require(\"react/jsx-runtime\");\nfunction Saludo(_ref) {\n  var nombre = _ref.nombre;\n  var mensaje = `Hola, ${nombre}`;\n  return (0, _jsxRuntime.jsx)(_reactNative.Text, {\n    children: mensaje\n  });\n}"
+    }
+   ],
+   "cap": "Salida real. Entró un componente en TSX y salió JavaScript común."
+  },
+  {
+   "t": "p",
+   "x": "Se ve la traducción en acción. El tipo `Props` y las anotaciones `: Props` y `: string` desaparecieron. El `<Text>{mensaje}</Text>` de JSX se volvió una llamada a función, `jsx(Text, { children: mensaje })`. El `import` pasó a un `require`, el `export` a una asignación sobre `exports`, y la desestructuración `{ nombre }` y el `const` se reescribieron con `_ref.nombre` y `var`. Es un [[transpilador]] en el sentido de Nystrom: traduce de un lenguaje de alto nivel a otro, y por eso también cuenta como compilar [#crafting-interpreters]. TypeScript, con sus tipos, lo vas a ver en el [@03-46]; los tipos se verifican con `tsc`, y lo que hace Babel acá es sacarlos."
+  },
+  {
+   "t": "senda",
+   "titulo": "Del bundle al bytecode de Hermes",
+   "x": [
+    "El flujo de GitHub Actions que arma el APK (`.github/workflows/apk.yml`) corre `npx expo prebuild --platform android --no-install` y después `./gradlew assembleRelease`. Para ver qué hace Gradle con el JavaScript leí el código del plugin de Gradle de React Native 0.86.3 (la versión del lockfile, bajada de npm): en las variantes que no son de depuración, la tarea `createBundle…JsAndAssets` corre primero el comando de empaquetado del proyecto y, si Hermes está activado, corre después el compilador `hermesc` sobre el resultado y deja el bytecode en lugar del bundle. En `package-lock.json` está `hermes-compiler` 250829098.0.17, que según npm es «el CLI del compilador de Hermes que se usa en la compilación de React Native».",
+    "El peso lo confirma: `docs/PESO.md` mide el APK de la prueba 33 (23-10-2026) y atribuye 9,8 MB al «JavaScript (Hermes)», el archivo `assets/index.android.bundle`, además de 2,5 MB del motor Hermes en sí. Expo describe la idea general: Hermes compila el JavaScript a bytecode por adelantado para mejorar el arranque [#expo-hermes]. Qué comando de empaquetado usa exactamente Expo debajo de Gradle y qué opciones le pasa a Babel no lo verifiqué. Qué es el bytecode y cómo lo ejecuta Hermes es el tema del [@03-43]."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    "docs/PESO.md",
+    "app.json",
+    "package-lock.json"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "La cadena completa, de lo que escribís a lo que corre",
+   "x": "TSX en el repositorio → **Metro** resuelve los `import` y llama a **Babel** (con `babel-preset-expo`) para convertir cada archivo en JavaScript común → Metro junta todo en un bundle → **`hermesc`** lo compila a bytecode → el APK lleva ese bytecode → **Hermes** lo ejecuta en el teléfono. Las dos primeras etapas las verifiqué en la documentación y las versiones del lockfile; la de `hermesc` en el código del plugin de Gradle y la documentación de Expo y React Native."
+  }
+ ],
+ "recap": [
+  "Un **compilador** traduce antes de ejecutar y entrega otro programa; un **intérprete** ejecuta directamente. Son técnicas de implementación: un mismo lenguaje puede usar las dos.",
+  "El recorrido tiene etapas: **léxico** (fichas), **sintáctico** (árbol), **semántico** (significado de los nombres), **optimización** y **generación de código**. Saber en cuál falla un error dice dónde buscarlo.",
+  "El **AST** guarda la estructura y deja afuera espacios y paréntesis. La precedencia queda escrita en su forma: lo que se calcula primero está más adentro.",
+  "Generar código es recorrer el árbol y emitir instrucciones. Optimizar, como plegar constantes, se paga una vez al compilar y se cobra en cada ejecución.",
+  "gcc encadena preprocesador, compilador, ensamblador y enlazador. Con `-save-temps` se ven los archivos `.i`, `.s` y `.o` y con `-O2` se ve cómo calcula `precio_final(200)` durante la compilación.",
+  "En Senda, Metro y Babel convierten TSX en JavaScript y, al armar el APK, `hermesc` lo compila a bytecode para Hermes. Lo verificado y lo no verificado quedó marcado."
+ ],
+ "repaso": [
+  {
+   "p": "Un amigo dice: «Python es interpretado, así que nunca se compila». ¿Cuál es la respuesta más precisa?",
+   "o": [
+    "Es correcto, porque Python se ejecuta línea por línea sin traducir",
+    "Es incorrecto, porque Python se compila siempre a código máquina directo",
+    "Compilar o interpretar es de la implementación: CPython traduce a bytecode y lo ejecuta",
+    "Es correcto, porque el bytecode no se considera una forma de compilar"
+   ],
+   "c": 2,
+   "e": "Compilar e interpretar describen cómo funciona una implementación, no el lenguaje. CPython hace las dos cosas: compila a bytecode y ejecuta ese bytecode en una máquina virtual. Las otras opciones tratan la etiqueta como si fuera del lenguaje."
+  },
+  {
+   "p": "Al correr el intérprete de hoy, `kilos * 2` (sin haber definido `kilos`) falla con «`kilos` no está definido». ¿En qué etapa se detecta?",
+   "o": [
+    "En el análisis léxico, porque `kilos` no es una palabra reservada",
+    "En el análisis sintáctico, porque la expresión tiene forma inválida",
+    "En la generación de código, porque falta un valor para cargar",
+    "En el análisis semántico, porque la forma es válida pero el nombre no existe"
+   ],
+   "c": 3,
+   "e": "La expresión se lee bien (fichas válidas) y tiene la forma correcta (el árbol se arma). Lo que falla es el significado: nadie definió `kilos`. Eso lo detecta la etapa semántica."
+  },
+  {
+   "p": "En el árbol de `2 + 3 * 4`, ¿cómo aparece reflejado que la multiplicación se calcula primero?",
+   "o": [
+    "Es el nodo más cercano a la raíz, porque se evalúa primero",
+    "Es un nodo más profundo que la suma, y se evalúa antes de subir",
+    "Aparece a la izquierda de la suma, porque se lee primero",
+    "El árbol no lo refleja: lo decide la etapa de optimización"
+   ],
+   "c": 1,
+   "e": "Un árbol se evalúa de las hojas hacia la raíz. La multiplicación queda como hija de la suma, más adentro, y por eso se calcula antes. La precedencia queda escrita en la estructura del árbol."
+  },
+  {
+   "p": "gcc, con `-O2`, compila `main` de forma que carga directamente el número 242. ¿Qué hizo el compilador?",
+   "o": [
+    "Ejecutó el programa en secreto y guardó la salida del último intento",
+    "Calculó `precio_final(200)` mientras compilaba, porque todos sus valores eran conocidos",
+    "Copió el 242 de un archivo de configuración que genera el preprocesador",
+    "Reemplazó la función por una tabla de resultados para las 200 entradas"
+   ],
+   "c": 1,
+   "e": "Es plegado de constantes a través de una llamada: como `precio_final(200)` solo depende de valores conocidos al compilar, el compilador hace la cuenta (200 + 200 × 21 ÷ 100 = 242) y emite el resultado."
+  },
+  {
+   "p": "El archivo `flete.i` (21.392 bytes) es mucho más grande que `flete.c` (175 bytes). ¿Qué etapa lo explica?",
+   "o": [
+    "El preprocesador, que pega el contenido de `stdio.h` y expande la macro",
+    "El ensamblador, que agrega el código máquina de cada instrucción",
+    "El enlazador, que suma las bibliotecas dentro del archivo",
+    "El optimizador, que duplica el código para que corra más rápido"
+   ],
+   "c": 0,
+   "e": "`flete.i` es la salida del preprocesador: el archivo con las directivas `#` ya resueltas, o sea con `stdio.h` pegado adentro. El ensamblador y el enlazador trabajan después y producen otros archivos."
+  },
+  {
+   "p": "En Senda, el código se escribe en TSX y el teléfono corre Hermes. ¿Qué papel cumple Babel en esa cadena?",
+   "o": [
+    "Convierte el bytecode de Hermes en código máquina del teléfono",
+    "Empaqueta todos los archivos del proyecto en un solo bundle",
+    "Verifica los tipos de TypeScript y avisa de los errores antes del APK",
+    "Transforma cada archivo TSX en JavaScript común, sin tipos ni JSX"
+   ],
+   "c": 3,
+   "e": "Babel transforma la sintaxis de cada archivo: saca los tipos y convierte JSX. Empaquetar es trabajo de Metro, compilar a bytecode lo hace `hermesc`, y los tipos los revisa `tsc`, no Babel."
+  }
+ ],
+ "feynman": "Explicale a alguien del depósito qué hace un compilador y qué hace un intérprete usando la orden de picking escrita a mano, y por qué un error de «palabra desconocida» y un error de «paréntesis sin cerrar» se detectan en etapas distintas.",
+ "para_profundizar": [
+  {
+   "fuente": "crafting-interpreters",
+   "nota": "Capítulo 2, «A Map of the Territory»: el recorrido completo de las etapas, con el caso de compilador contra intérprete que usé hoy. Para hacer después: los capítulos 4 a 7 construyen un intérprete paso a paso."
+  },
+  {
+   "fuente": "compilacion-metro-conceptos",
+   "nota": "Los tres pasos de Metro (resolución, transformación y serialización) en la página oficial de conceptos; sirve para ubicar lo que hace Babel en la cadena de Senda."
+  },
+  {
+   "fuente": "compilacion-expo-babel",
+   "nota": "Qué hace Babel en un proyecto de Expo y qué preset usa por defecto, en la referencia de `babel.config.js`."
+  },
+  {
+   "fuente": "expo-hermes",
+   "nota": "La guía de Expo sobre Hermes: qué es y por qué el JavaScript se compila a bytecode antes de llegar al teléfono."
+  }
+ ],
+ "videos": [
+  {
+   "q": "how a compiler works lexer parser AST code generation explained",
+   "por_que": "Para ver animado el recorrido de las etapas con un ejemplo corto, parecido al del intérprete de juguete."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "compilador",
+   "d": "Programa que traduce un programa fuente a otra forma (código máquina, bytecode u otro lenguaje) antes de ejecutarlo. Entrega un resultado; no lo ejecuta."
+  },
+  {
+   "t": "intérprete",
+   "d": "Programa que ejecuta directamente un programa fuente, de a un trozo por vez, sin dejar un programa traducido como producto; puede recorrer un árbol o instrucciones intermedias."
+  },
+  {
+   "t": "análisis léxico",
+   "d": "Primera etapa: corta el texto del programa en fichas («palabras» como nombres, números y símbolos) y descarta espacios y comentarios."
+  },
+  {
+   "t": "AST",
+   "d": "Árbol de sintaxis abstracta: representa la estructura del programa y omite lo que no cambia su significado, como espacios, punto y coma y paréntesis. Lo arma el análisis sintáctico."
+  },
+  {
+   "t": "generación de código",
+   "d": "Etapa en la que el compilador recorre el árbol (ya revisado y optimizado) y emite las instrucciones del destino: código máquina, bytecode u otro lenguaje."
+  },
+  {
+   "t": "enlazador",
+   "d": "Programa que une uno o más archivos objeto con las bibliotecas que usan y arma el ejecutable final, resolviendo qué función vive en qué dirección."
+  },
+  {
+   "t": "transpilador",
+   "d": "Compilador que traduce de un lenguaje de alto nivel a otro de alto nivel, por ejemplo de TSX a JavaScript común, como hace Babel en el proyecto de Senda."
+  }
+ ],
+ "siguiente": "bytecode, máquinas virtuales y compilación JIT: qué es ese formato intermedio, cómo lo ejecuta una máquina virtual de lenguaje y por qué Hermes compila el JavaScript de Senda antes de que llegue al teléfono.",
+ "fuentes_nuevas": [
+  {
+   "id": "compilacion-expo-babel",
+   "t": "babel.config.js (Expo documentation)",
+   "a": "Expo",
+   "tipo": "doc",
+   "url": "https://docs.expo.dev/versions/latest/config/babel/"
+  },
+  {
+   "id": "compilacion-metro-conceptos",
+   "t": "Concepts (Metro documentation)",
+   "a": "Meta (Metro)",
+   "tipo": "doc",
+   "url": "https://metrobundler.dev/docs/concepts"
+  }
+ ]
+}

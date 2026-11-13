@@ -121,6 +121,7 @@ def verificar(id_, d, tot_fuentes):
         if not (0 <= q['c'] < len(q['o'])): e(f'pregunta {i + 1}: «c» fuera de rango'); continue
         if len({norm(o) for o in q['o']}) != len(q['o']): e(f'pregunta {i + 1}: opciones repetidas')
         if len(q['e']) < 40: e(f'pregunta {i + 1}: explicación muy corta')
+        if re.search(r'\b(primera|segunda|tercera|cuarta|primer|segundo|tercer|cuarto|última|ultima)\s+(opci[oó]n|respuesta|alternativa)|\bopci[oó]n\s+[a-dA-D1-4]\b|\bla\s+[a-d]\)|\b(opciones|respuestas)\s+[a-d]\b', q['e'] + ' ' + q['p'], re.I): e(f'pregunta {i + 1}: la explicación o el enunciado cita una opción por su posición (las opciones se mezclan al mostrarlas): nombrá la opción por su contenido')
         ls = [len(o) for o in q['o']]
         if len(q['o']) > 1 and ls[q['c']] == max(ls) and sorted(ls)[-1] > sorted(ls)[-2] + 8: larga += 1
     if len(Q) >= 5 and larga / len(Q) > .5: e(f'{larga} de {len(Q)} correctas son claramente las más largas: igualá el largo de las opciones')
