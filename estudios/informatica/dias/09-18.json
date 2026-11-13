@@ -1,0 +1,663 @@
+{
+ "id": "09-18",
+ "titulo": "Procedimientos almacenados y triggers",
+ "bajada": "Qué es un procedimiento, qué es un trigger, y por qué un INSERT de 200.000 filas puede tardar cuatro veces más sin que nadie haya tocado el script.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir un procedimiento almacenado de una función y decir qué puede hacer el primero que la segunda no.",
+  "Leer un trigger por sus cuatro piezas: evento, momento, nivel y función, y predecir en qué orden se disparan.",
+  "Medir el costo de un trigger por fila contra uno por sentencia en una carga masiva.",
+  "Reconocer los efectos ocultos típicos de un trigger: costo, todo o nada y esperas por filas calientes.",
+  "Decidir con criterio cuándo un trigger es la herramienta correcta y cuándo conviene otra cosa."
+ ],
+ "venis_de": "En [@09-17] guardaste lógica que se consulta: vistas y funciones que alguien tiene que llamar. Hoy aparece lo que se ejecuta solo, porque la base lo dispara cuando una fila cambia.",
+ "se_apoya_en": [
+  "09-05",
+  "09-17"
+ ],
+ "gancho": [
+  "El ensayo de la carga mensual tardó un cuarto de segundo para 200.000 paquetes. El martes real tardó más de un segundo, y el miércoles un compañero juraba que nadie había tocado el script. Tenía razón: el script era el mismo. Un mes antes, alguien había agregado a la tabla una auditoría que anota cada paquete insertado, y esa auditoría no figura en ninguna línea de la carga. Vive en la base, y se dispara sola.",
+  "Eso es un **[[trigger]]**, y su rasgo central es el de la historia: ocurre sin que la sentencia lo diga. Hoy ves cómo se escribe uno, en qué orden se ejecutan, y qué cosas hacen sentir a un equipo que la base «hizo algo por su cuenta». Antes, su pariente más tranquilo, el procedimiento almacenado. Todo lo que muestro lo corrí en PostgreSQL 16.15, en esta VM, con datos inventados; los tiempos son de una sola máquina compartida y sirven para comparar entre sí."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El procedimiento almacenado: una rutina que se llama a propósito"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@09-17] guardaste funciones: reciben argumentos, devuelven un valor y se usan dentro de una consulta (`select costo_envio(…)`). Un **[[procedimiento almacenado]]** es otra rutina guardada en la base, pero se invoca con su propia sentencia, `CALL`, y no devuelve un valor para usar en una consulta. A cambio puede hacer algo que ninguna función puede: **terminar transacciones**. Una transacción es un grupo de cambios que se guardan todos juntos o ninguno (la estudiamos en [@09-24]); hacer `COMMIT` en el medio de una rutina cierra el grupo actual y abre otro. Los procedimientos llegaron en PostgreSQL 11 [#bd0918-pg-release-11]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "El caso típico es una tarea larga sobre muchas filas. Tengo 200.000 envíos y quiero mover los entregados (140.000) a una tabla de archivo. Hacerlo de una sola vez deja una transacción enorme abierta, que retiene espacio y bloquea. En tandas con un `COMMIT` entre una y otra, cada tanda queda guardada apenas termina:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create procedure archivar_entregados(lote int default 50000)\nlanguage plpgsql as $$\ndeclare n int;\nbegin\n  loop\n    with viejos as (\n      delete from envios where id in (select id from envios where estado = 'entregado' limit lote) returning *\n    )\n    insert into envios_archivo select * from viejos;\n    get diagnostics n = row_count;\n    exit when n = 0;\n    raise notice 'archivados % envios', n;\n    commit;\n  end loop;\nend $$;",
+   "cap": "Un procedimiento que archiva en tandas. El `WITH … DELETE … RETURNING` es un CTE de [@09-12] que escribe."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "call archivar_entregados();\nselect (select count(*) from envios) as quedan, (select count(*) from envios_archivo) as archivados;",
+     "s": "NOTICE:  archivados 50000 envios\nNOTICE:  archivados 50000 envios\nNOTICE:  archivados 40000 envios\n quedan | archivados \n--------+------------\n  60000 |     140000"
+    }
+   ],
+   "cap": "Tres tandas, tres COMMIT. Si el proceso se cae en la segunda, las 50.000 de la primera ya están archivadas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "¿Y si intento lo mismo desde una función? PostgreSQL no lo permite, y tampoco desde un procedimiento invocado dentro de una transacción ya abierta con `BEGIN`:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create function intento_en_funcion() returns void language plpgsql as $$\nbegin\n  insert into envios_archivo values (-1, 'entregado', 1, current_date);\n  commit;\nend $$;\nselect intento_en_funcion();",
+     "s": "ERROR:  invalid transaction termination\nCONTEXT:  PL/pgSQL function intento_en_funcion() line 4 at COMMIT"
+    },
+    {
+     "c": "create procedure con_commit() language plpgsql as $$ begin commit; end $$;\nbegin;\ncall con_commit();",
+     "s": "ERROR:  invalid transaction termination\nCONTEXT:  PL/pgSQL function con_commit() line 1 at COMMIT"
+    }
+   ],
+   "cap": "La función corre dentro de la sentencia que la llamó, que ya tiene su transacción. El procedimiento solo puede cerrar la suya si lo llamaron desde el nivel de arriba, según la documentación [#jv2222-pg-transactions]."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Función",
+    "Procedimiento"
+   ],
+   "filas": [
+    [
+     "Cómo se invoca",
+     "Dentro de una consulta: `select f(x)`",
+     "Con su propia sentencia: `call p(x)`"
+    ],
+    [
+     "Qué devuelve",
+     "Un valor o un conjunto de filas",
+     "Nada para usar en una consulta; puede tener parámetros de salida"
+    ],
+    [
+     "Transacciones",
+     "No puede hacer `COMMIT` ni `ROLLBACK`",
+     "Sí, si lo llamaron desde el nivel de arriba"
+    ],
+    [
+     "Se usa para",
+     "Calcular, validar, filtrar, políticas de RLS",
+     "Tareas largas y por tandas, mantenimiento"
+    ]
+   ],
+   "cap": "Resumen de [#bd0918-pg-createprocedure] y [#jv2222-pg-transactions]."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Una función es el cálculo de la balanza: pesás, te da un número y seguís. Un procedimiento es el cierre de turno del depósito: una secuencia de pasos, con cortes intermedios en los que se confirma lo hecho hasta ahí. La analogía se queda corta en que la balanza no puede equivocarse a medio pesaje, y un cierre de turno largo sí puede caerse, por eso importa dónde confirmaste.",
+   "titulo": "Pensalo así: la balanza y el cierre de turno"
+  },
+  {
+   "t": "pensa",
+   "x": "Un proceso nocturno debe actualizar 3 millones de filas. Si lo escribís como una función que hace todo el `UPDATE` de una vez, y se cae al 90 %, ¿qué queda hecho? ¿Y si lo escribís como procedimiento con un `COMMIT` cada 100.000 filas?",
+   "resp": "Con la función, nada: es una sola transacción, y al caerse todo se revierte. Con el procedimiento quedan guardadas las tandas que ya tuvieron su COMMIT (hasta unos 2,7 millones), y hay que diseñar el proceso para poder retomar donde quedó. A cambio de la ganancia de no reiniciar, aparece una condición nueva: el estado intermedio existe y alguien puede verlo."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no tiene procedimientos: tiene funciones que se llaman por turno",
+   "x": [
+    "En las 42 migraciones de Senda no hay ningún `create procedure` (`grep` sobre `supabase/`). Las tareas periódicas son **funciones** que `pg_cron` llama con un `select`: por ejemplo `select public.enviar_avisos();` cada minuto, `select public.cerrar_vencidas();` cada 15 minutos y `select public.limpiar_viejo();` a las 04:17 de Buenos Aires. La de limpieza pone un tope de 50.000 filas a cada borrado de cada ejecución, y todo corre en una sola llamada, es decir, una sola transacción. Con las cifras actuales no hace falta más; si las tablas crecieran mucho, un procedimiento con un `COMMIT` por tanda sería el paso natural. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261109000000_limpieza.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El trigger: una regla que se dispara sola"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un trigger (en español, a veces «disparador») es una función que la base **ejecuta automáticamente** cuando ocurre un evento sobre una tabla. No se llama: se *engancha*. La definición tiene cuatro piezas [#bd0918-pg-createtrigger]:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pieza",
+    "Opciones",
+    "Qué decide"
+   ],
+   "filas": [
+    [
+     "Evento",
+     "`INSERT`, `UPDATE` (también `UPDATE OF columnas`), `DELETE`, `TRUNCATE`",
+     "Qué operación lo activa"
+    ],
+    [
+     "Momento",
+     "`BEFORE` (antes de tocar la fila), `AFTER` (después), `INSTEAD OF` (en vistas)",
+     "Si puede modificar o frenar la fila, o solo reaccionar"
+    ],
+    [
+     "Nivel",
+     "`FOR EACH ROW` (una vez por fila) o `FOR EACH STATEMENT` (una vez por sentencia)",
+     "Cuántas veces se ejecuta"
+    ],
+    [
+     "Función",
+     "Una función especial que devuelve `trigger`, con las variables `NEW` (la fila nueva), `OLD` (la anterior) y `TG_OP`",
+     "Qué hace"
+    ]
+   ],
+   "cap": "Un trigger siempre está atado a una tabla y a una función. Documentación: [#bd0918-pg-trigger-def] y [#back0708-postgres-triggers]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo más difícil de leer en un trigger es **cuándo** corre. Armé una tabla de prueba con cuatro triggers que solo avisan quién son, y le inserté dos filas con una sola sentencia:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create function avisar() returns trigger language plpgsql as $$\nbegin\n  raise notice '% % % (nivel %)', tg_when, tg_op, coalesce(new.id::text, '-'), tg_level;\n  return new;\nend $$;\ncreate trigger t1_antes_sentencia before insert on prueba for each statement execute function avisar();\ncreate trigger t2_antes_fila      before insert on prueba for each row       execute function avisar();\ncreate trigger t3_despues_fila    after  insert on prueba for each row       execute function avisar();\ncreate trigger t4_despues_sent    after  insert on prueba for each statement execute function avisar();\ninsert into prueba values (1, 'a'), (2, 'b');",
+     "s": "NOTICE:  BEFORE INSERT - (nivel STATEMENT)\nNOTICE:  BEFORE INSERT 1 (nivel ROW)\nNOTICE:  BEFORE INSERT 2 (nivel ROW)\nNOTICE:  AFTER INSERT 1 (nivel ROW)\nNOTICE:  AFTER INSERT 2 (nivel ROW)\nNOTICE:  AFTER INSERT - (nivel STATEMENT)"
+    }
+   ],
+   "cap": "Fijate en las filas: los AFTER por fila no se intercalan con los BEFORE. Esperan a que termine la sentencia, como dice la documentación [#bd0918-pg-trigger-def]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos reglas de la documentación completan el orden. Si hay varios triggers del mismo tipo sobre la misma tabla, se disparan **en orden alfabético por nombre** (por eso `t1`, `t2`…). Y en un `BEFORE` por fila, lo que la función devuelve manda: si devuelve la fila (modificada o no), esa fila se guarda; si devuelve `NULL`, esa fila se **salta**, sin error [#bd0918-pg-trigger-def]. Un `AFTER` ya no puede cambiar la fila, solo reaccionar. Esto permite dos usos clásicos de `BEFORE`: normalizar lo que entra y proteger lo que no debe cambiar."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create function limpiar() returns trigger language plpgsql as $$\nbegin\n  new.nota := lower(trim(new.nota));         -- cambia la fila antes de guardarla\n  if new.nota = '' then return null; end if;  -- NULL: esta fila se salta\n  return new;\nend $$;\ncreate trigger limpiar before insert on prueba for each row execute function limpiar();\ninsert into prueba (id, nota) values (1, '  Frágil, no apilar '), (2, '   '), (3, 'REFRIGERADO');\nselect id, nota from prueba order by id;",
+     "s": " id |       nota        \n----+-------------------\n  1 | frágil, no apilar\n  3 | refrigerado"
+    },
+    {
+     "c": "create function cerrado_es_cerrado() returns trigger language plpgsql as $$\nbegin\n  if old.estado = 'cerrado' and new.estado <> old.estado then\n    raise exception 'un envio cerrado no se reabre (id %)', old.id;\n  end if;\n  return new;\nend $$;\ncreate trigger cerrado_es_cerrado before update of estado on prueba for each row execute function cerrado_es_cerrado();\nupdate prueba set estado = 'cerrado' where id = 1;\nupdate prueba set estado = 'abierto' where id = 1;",
+     "s": "ERROR:  un envio cerrado no se reabre (id 1)\nCONTEXT:  PL/pgSQL function cerrado_es_cerrado() line 4 at RAISE"
+    }
+   ],
+   "cap": "La fila 2 desapareció sin error (el trigger devolvió NULL) y las otras quedaron limpias. El segundo trigger es una regla que ninguna aplicación puede saltearse."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Un trigger es el sello de recepción del depósito: nadie le pide que actúe, actúa cuando pasa algo (llegó un bulto, se movió un pallet). Un `BEFORE` es el control en la puerta, que puede dejar pasar, corregir la etiqueta o rechazar el bulto. Un `AFTER` es el registro en el libro una vez que el bulto ya entró. La analogía se queda corta en que el sello de un depósito lo ve cualquiera, y un trigger no aparece en el `INSERT` de nadie.",
+   "titulo": "Pensalo así: el sello de recepción"
+  },
+  {
+   "t": "h",
+   "x": "El efecto oculto: lo que pasa sin que la sentencia lo diga"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Todo lo anterior son buenos usos. El problema es el nombre del concepto: un **[[efecto oculto]]** es todo lo que una sentencia provoca y que no está escrito en ella. Quien lee `insert into paquetes …` no ve la auditoría, la normalización ni la regla. Los efectos ocultos no son malos por sí mismos, pero se pagan en sorpresas, y te muestro cuatro, medidos."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Efecto 1: el costo se multiplica por la cantidad de filas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La carga del gancho, reproducida: insertar 200.000 paquetes. Primero sin trigger. Después con un trigger `AFTER INSERT` por fila que anota cada paquete en una tabla de auditoría. Y por último con un trigger por **sentencia** que usa una *tabla de transición* (`REFERENCING NEW TABLE AS nuevos`, desde PostgreSQL 10 [#bd0918-pg-release-10]): una tabla temporal con todas las filas de la sentencia, que la función lee de una vez."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create function auditar_fila() returns trigger language plpgsql as $$\nbegin\n  insert into auditoria (tabla, paquete) values (tg_table_name, new.id);\n  return null;\nend $$;\ncreate trigger auditar after insert on paquetes for each row execute function auditar_fila();\n\n-- la alternativa: una sola vez por sentencia, con todas las filas nuevas\ncreate function auditar_sentencia() returns trigger language plpgsql as $$\nbegin\n  insert into auditoria (tabla, paquete) select tg_table_name, id from nuevos;\n  return null;\nend $$;\ncreate trigger auditar after insert on paquetes referencing new table as nuevos\n  for each statement execute function auditar_sentencia();"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Variante (200.000 filas)",
+    "Tiempo (tres corridas)",
+    "Filas escritas"
+   ],
+   "filas": [
+    [
+     "Sin trigger",
+     "257 a 276 ms",
+     "200.000"
+    ],
+    [
+     "Trigger por fila",
+     "1.011 a 1.422 ms",
+     "400.000 (las filas más las de auditoría)"
+    ],
+    [
+     "Trigger por sentencia con tabla de transición",
+     "533 a 642 ms",
+     "400.000"
+    ]
+   ],
+   "cap": "Medido en esta VM. El trigger por sentencia no es gratis: escribe lo mismo. Pero ahorra una llamada a la función por fila."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El por fila tardó entre 4 y 5 veces más que el insert limpio. El por sentencia, alrededor de dos veces, que es justo lo esperable porque escribe el doble de filas. La diferencia no es un detalle: son 200.000 invocaciones de una función que empiezan y terminan cada una con su propio trabajo."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Efecto 2: todo o nada"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un trigger que rechaza una fila rechaza **toda la sentencia**. Puse un tope de peso de 60 kg y le pasé 100.000 paquetes con uno solo, el 99.999, de 99 kg:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create function tope_de_peso() returns trigger language plpgsql as $$\nbegin\n  if new.peso_kg > 60 then raise exception 'peso fuera de rango en el paquete %: %', new.id, new.peso_kg; end if;\n  return new;\nend $$;\ncreate trigger tope_de_peso before insert on paquetes for each row execute function tope_de_peso();\ninsert into paquetes select i, 'pendiente', case when i = 99999 then 99 else 1 + i % 50 end from generate_series(1, 100000) i;\nselect count(*) as filas_guardadas from paquetes;",
+     "s": "ERROR:  peso fuera de rango en el paquete 99999: 99.00\nCONTEXT:  PL/pgSQL function tope_de_peso() line 3 at RAISE\n filas_guardadas \n-----------------\n               0"
+    }
+   ],
+   "cap": "Falló al llegar a la fila 99.999, y las 99.998 anteriores se revirtieron. Tardó 196 ms en no hacer nada."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Es el comportamiento correcto para una regla de integridad, y una sorpresa fastidiosa para una carga masiva: un solo dato malo frena el lote entero."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Efecto 3: la fila caliente"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay triggers que, en cada operación, actualizan una **misma fila** compartida: un contador, un resumen, un saldo. Eso crea dos problemas. El primero es de espera: una transacción que modificó esa fila obliga a las demás a esperar que termine (el tema de [@09-26]). Lo reproduje con el trigger de Senda que ves más abajo, con dos sesiones. La sesión A inserta una respuesta de la pregunta `p0001` y se queda 3 segundos antes de confirmar. Mientras, otra sesión inserta una respuesta de `p0002`, y otra de `p0001`:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- sesión A: begin; insert … 'p0001'; select pg_sleep(3); commit;\n-- 0,5 s después, otra sesión, otra pregunta:\ninsert into respuestas (…) values (…, 'p0002', …);",
+     "s": "otra pregunta (p0002): 0.04 s"
+    },
+    {
+     "c": "-- y otra sesión, la misma pregunta que A tiene tomada:\ninsert into respuestas (…) values (…, 'p0001', …);",
+     "s": "misma pregunta (p0001): 2.49 s"
+    }
+   ],
+   "cap": "La segunda sesión esperó casi los 3 segundos de A. No hay error ni aviso: solo espera."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El segundo problema es de volumen. Si **una sola sentencia** inserta muchas respuestas de la misma pregunta, el trigger actualiza esa fila una y otra vez dentro de la misma transacción, y cada actualización crea una versión nueva de la fila. Medí el tiempo de insertar N respuestas de una misma pregunta, en una sola sentencia:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Respuestas a una sola pregunta",
+    "5.000",
+    "10.000",
+    "20.000",
+    "100.000"
+   ],
+   "filas": [
+    [
+     "Tiempo en esta VM",
+     "0,3 s",
+     "0,7 s",
+     "2,3 s",
+     "65 s"
+    ]
+   ],
+   "cap": "Crece más rápido que la cantidad de filas: duplicar las respuestas multiplica el tiempo por más de dos. Para comparar, 100.000 respuestas repartidas entre 5.400 preguntas tardaron 1,7 s. Y al terminar, el resumen de una sola fila ocupaba 6,6 MB."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mi explicación (una inferencia, no la medí por dentro): cada actualización deja una versión anterior de la fila que sigue ocupando lugar mientras la transacción está abierta, y cada una nueva tiene que recorrer esa cadena. El mecanismo exacto lo vemos en [@09-19] y en [@09-25]. Lo que sí está medido es la forma de la curva."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Efecto 4: no se ven en la sentencia, pero sí en el catálogo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un trigger no está en el `INSERT`, pero la base sabe que existe. `\\d tabla` en `psql` los lista al final, y el catálogo `pg_trigger` los consulta. Con la tabla de paquetes de los ejemplos, después del ejercicio de abajo:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select tgname, case when tgtype & 2 = 2 then 'BEFORE' else 'AFTER' end as momento,\n       case when tgtype & 1 = 1 then 'fila' else 'sentencia' end as nivel\nfrom pg_trigger where tgrelid = 'paquetes'::regclass and not tgisinternal order by tgname;",
+     "s": "      tgname       | momento | nivel \n-------------------+---------+-------\n marcar_modificado | BEFORE  | fila\n tope_de_peso      | BEFORE  | fila"
+    }
+   ],
+   "cap": "Los triggers «internos» (los que implementan claves foráneas) se excluyen con `not tgisinternal`. Hábito: antes de tocar una tabla desconocida, mirá sus triggers."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "**Mito: «el trigger es gratis porque lo ejecuta la base, no mi aplicación».** Se ejecuta en la base, pero corre en el camino de cada escritura: suma tiempo, suma esperas y suma filas escritas. Que no figure en el `INSERT` no lo vuelve invisible a la factura."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio: la fecha de última modificación.** Agregá a `paquetes` una columna `modificado timestamptz` y escribí un trigger que la complete con la hora actual cada vez que se actualiza un paquete. Probalo con dos paquetes, actualizando solo uno.",
+   "pista": "Es un `BEFORE UPDATE` por fila: la función asigna `new.modificado := now()` y devuelve `new`. Un `AFTER` no serviría, porque ya no puede cambiar la fila.",
+   "solucion": [
+    "`alter table paquetes add column modificado timestamptz;` y luego `create function marcar_modificado() returns trigger language plpgsql as $$ begin new.modificado := now(); return new; end $$;` con `create trigger marcar_modificado before update on paquetes for each row execute function marcar_modificado();`",
+    "Corrida en esta VM: después de `update paquetes set estado = 'en_ruta' where id = 1`, el paquete 1 tiene fecha de modificación y el 2 no (la columna sigue en `NULL`). Es un caso donde el trigger es la herramienta correcta: la regla no depende de quien escriba."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cuándo usarlos y cuándo no"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo que sigue es criterio, no ley. Una regla práctica: **usá un trigger para lo que tiene que cumplirse siempre, sin importar quién escriba**, y evitalo para lo que es lógica de negocio."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Sí conviene",
+    "Conviene otra cosa"
+   ],
+   "filas": [
+    [
+     "Guardias de integridad que ningún programa puede saltear (`cerrado_es_cerrado`)",
+     "Reglas de negocio con muchas ramas: son difíciles de leer y probar desde la base; mejor una función que se llame de forma explícita"
+    ],
+    [
+     "Completar valores que dependen de la propia fila (`modificado`, un código generado)",
+     "Un valor derivable con columna generada, `DEFAULT` o `CHECK`, que es declarativo y más claro"
+    ],
+    [
+     "Auditoría y resúmenes que deben estar al día en la misma transacción",
+     "Llamadas a servicios de afuera (mandar un mail, un push): si la transacción se revierte, el aviso ya salió"
+    ],
+    [
+     "Contadores incrementales para evitar recorrer millones de filas",
+     "Cargas masivas con una regla pesada por fila: medir antes, o usar nivel de sentencia"
+    ]
+   ],
+   "cap": "Criterio propio, apoyado en lo medido hoy. Las reglas de negocio complejas suelen vivir mejor en una función que el programa llama a propósito, como las RPC de Supabase de [@07-29]."
+  },
+  {
+   "t": "pensa",
+   "x": "Querés que cada vez que un envío pase a «entregado» se mande un mail al cliente. ¿Por qué un trigger `AFTER UPDATE` que llame al servicio de mail es una mala idea, y qué harías?",
+   "resp": "El trigger corre dentro de la transacción: si el cambio se revierte después, el cliente ya recibió un mail falso, y si el servicio de mail tarda, cada UPDATE espera. Lo común es que el trigger solo anote el evento en una tabla de pendientes y que un proceso aparte lea esa tabla y envíe, con reintentos. Así el mail sale solo si el cambio quedó confirmado."
+  },
+  {
+   "t": "senda",
+   "titulo": "Los 14 triggers de Senda, por familias",
+   "x": [
+    "Senda tiene 14 triggers, y los tres tipos de hoy aparecen. **Contadores** (`AFTER INSERT` por fila): `respuestas_salud`, `pulso_votos_conteo` y `encuesta_voto_suma` suman a una tabla de resumen cada vez que entra un dato. **Un generador** (`BEFORE INSERT`): `perfil_codigo` inventa el código de amigo de seis letras y repite hasta que no exista. **Guardias** (`BEFORE UPDATE`): `eventos_fijos`, `trivias_sermon_guardia` y `salas_guardia` impiden cambiar columnas que solo las funciones del servidor pueden tocar. Y siete triggers de **filtro de palabras** (`BEFORE INSERT OR UPDATE OF` columnas de texto) que reutilizan una sola función, `textos_permitidos`, pasándole por argumento qué columnas mirar (`tg_argv`).",
+    "Un detalle fino: `salas_guardia` solo aplica sus reglas `if current_user in ('anon', 'authenticated')`. Cuando la escritura la hace el dueño (por una función del servidor), el guardia no interviene: es una regla para la app, no para el sistema. Y los contadores son `security definer`: quien responde una pregunta puede insertar en `respuestas`, pero no tiene permiso sobre `salud_resumen` (tiene RLS y ninguna política), así que el trigger necesita los permisos del dueño. El conteo de 14 coincide con el mapa técnico y con un `grep` mío sobre `create trigger`. Esto corresponde al commit 25e08fa."
+   ],
+   "archivos": [
+    "supabase/migrations/20261027000000_escala.sql",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261129000000_moderacion.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que cuesta el trigger de salud_resumen, medido",
+   "x": [
+    "Copié a una base mía las tablas `respuestas` y `salud_resumen` y el trigger `sumar_salud`, tal como están en las migraciones. Insertar 100.000 respuestas repartidas en 5.400 preguntas tardó **450 a 500 ms sin el trigger y 1.740 a 1.770 ms con él**: unas cuatro veces. Es el costo de la fila de arriba: cada respuesta paga un `upsert` sobre el resumen. A cambio, leer la salud de las preguntas pasa de agrupar un millón de filas (70 a 97 ms, [@09-17]) a leer 5.400 (4 a 6 ms).",
+    "El mapa técnico ya marca como cuello de botella «la fila caliente» de `salud_resumen`. Lo que medí confirma el mecanismo y acota el riesgo: dos sesiones sobre la misma pregunta se esperan (2,49 s contra 0,04 s en otra pregunta). Pero como la app manda las respuestas en lotes de 50 (`src/util/nube.ts`, según el mapa) y las transacciones son cortas, la espera dura milisegundos, no segundos. La curva de 65 segundos requiere cien mil respuestas de la misma pregunta en una sola sentencia, algo que la app no hace. Es un caso para tener en la cabeza si algún día se cargan respuestas de golpe."
+   ],
+   "archivos": [
+    "supabase/migrations/20261026000000_inicio.sql",
+    "supabase/migrations/20261027000000_escala.sql",
+    "src/util/nube.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "El filtro de palabras: siete triggers, una función",
+   "x": [
+    "Con la función `texto_permitido` y el trigger `perfiles_textos` copiados de `20261129000000_moderacion.sql`, actualicé 100.000 filas de una réplica de `perfiles`. Si el `UPDATE` toca una columna que el trigger no mira (`pais`), tardó **431 a 471 ms**: el trigger no se dispara, por el `UPDATE OF apodo, nombre`. Si toca `nombre`, tardó **2.531 a 2.636 ms**; con el trigger apagado, 401 a 479 ms. O sea, unos 21 microsegundos más por fila, por una expresión regular con unas ochenta palabras. Para una persona que edita su alias es imperceptible. Solo se nota en una carga masiva, y un `UPDATE OF` bien puesto ya evita el costo en las demás columnas."
+   ],
+   "archivos": [
+    "supabase/migrations/20261129000000_moderacion.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Lo que te llevás"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Procedimiento:** se llama con `CALL`, no devuelve valor y puede hacer `COMMIT`; sirve para tareas largas por tandas. Senda no usa ninguno.",
+    "**Trigger:** evento, momento, nivel y función. Los `BEFORE` pueden cambiar o saltar la fila; los `AFTER` reaccionan, y los de fila corren al final de la sentencia, en orden alfabético.",
+    "**Efecto oculto:** lo que no está en la sentencia pero ocurre: costo por fila (4 a 5 veces en la carga medida), todo o nada, esperas por filas calientes y una curva que se dispara con muchas filas iguales.",
+    "**Criterio:** trigger para reglas que deben cumplirse siempre; otra cosa para lógica de negocio, llamadas externas y cargas masivas pesadas. Y mirá siempre `pg_trigger` antes de tocar una tabla ajena."
+   ],
+   "ord": false
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Versiones al 13-11-2026: según la página oficial, las vigentes de PostgreSQL son 18.7, 17.12, 16.16, 15.20 y 14.25, con la 19 en candidata de lanzamiento [#postgresql-versioning]; corrí todo en la 16.15. Los procedimientos con `COMMIT` existen desde la 11 [#bd0918-pg-release-11] y las tablas de transición desde la 10 [#bd0918-pg-release-10]. Los tiempos son de una VM compartida: sirven para comparar variantes entre sí, no como cifras universales.",
+   "titulo": "Qué puede cambiar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá la base fue una caja: se le pide, responde, y a veces hace cosas por su cuenta. Mañana, en [@09-19], se abre la caja: cómo se guarda de verdad una tabla en el disco, y por qué cada `UPDATE` que hiciste hoy dejó una versión vieja de la fila."
+   ]
+  }
+ ],
+ "recap": [
+  "Un procedimiento se invoca con `CALL` y puede terminar transacciones; una función no puede. Sirve para tareas largas por tandas.",
+  "Un trigger se define por evento, momento (`BEFORE` o `AFTER`), nivel (fila o sentencia) y una función que devuelve `trigger`.",
+  "En un `BEFORE` por fila, devolver `NULL` salta esa fila y devolver `NEW` la guarda; un `AFTER` por fila corre al final de la sentencia.",
+  "Un efecto oculto es lo que la sentencia provoca sin decirlo. Medido: el trigger por fila hizo la carga 4 a 5 veces más lenta.",
+  "Un trigger que rechaza una fila rechaza toda la sentencia, y los que actualizan una misma fila obligan a esperar a las demás transacciones.",
+  "Usá triggers para reglas que se cumplan siempre; no para lógica de negocio pesada ni para llamar a servicios de afuera."
+ ],
+ "repaso": [
+  {
+   "p": "Desde una función `plpgsql` intentás hacer `COMMIT` después de insertar una fila, y PostgreSQL responde «invalid transaction termination». ¿Qué corresponde para poder confirmar por tandas?",
+   "o": [
+    "Agregar `security definer` a la función, para que corra con permisos que permitan confirmar",
+    "Pasar la rutina a un procedimiento y llamarlo con `CALL` desde el nivel de arriba, no dentro de una transacción abierta",
+    "Llamar la función con `select` dentro de un bloque `BEGIN … END`, que habilita `COMMIT`",
+    "Marcar la función `VOLATILE`, que es la etiqueta que permite modificar y confirmar datos"
+   ],
+   "c": 1,
+   "e": "Solo los procedimientos invocados con `CALL` pueden terminar transacciones, y únicamente si no hay una transacción abierta de otra sentencia en el medio. `security definer` cambia permisos, no transacciones, y la volatilidad no habilita el `COMMIT`. Un bloque `BEGIN` abierto, además, justamente lo impide."
+  },
+  {
+   "p": "Una tabla tiene un trigger `BEFORE INSERT` por fila y otro `AFTER INSERT` por fila. Insertás dos filas con una sola sentencia. ¿En qué orden corren?",
+   "o": [
+    "BEFORE de la fila 1, AFTER de la fila 1, BEFORE de la fila 2, AFTER de la fila 2",
+    "AFTER de las dos filas primero y BEFORE de las dos filas al final, porque AFTER guarda",
+    "En un orden indeterminado, porque PostgreSQL no garantiza nada sobre triggers de la misma tabla",
+    "BEFORE de la fila 1, BEFORE de la fila 2, AFTER de la fila 1, AFTER de la fila 2"
+   ],
+   "c": 3,
+   "e": "Los BEFORE por fila corren justo antes de operar sobre cada fila, y los AFTER por fila esperan al final de la sentencia, así que no se intercalan. Es lo que mostró el experimento con los avisos. El orden no es indeterminado: entre triggers del mismo tipo se usa el orden alfabético por nombre."
+  },
+  {
+   "p": "En un trigger `BEFORE INSERT` por fila, la función termina con `return null`. ¿Qué pasa con esa fila?",
+   "o": [
+    "No se inserta, y no se produce ningún error ni se cancela el resto de las filas",
+    "Se inserta con todas las columnas en `NULL`, porque la fila nueva quedó vacía",
+    "Se cancela toda la sentencia con un error, porque devolver `NULL` es una falla",
+    "Se inserta tal cual venía, porque `NULL` significa «no modifiqué nada»"
+   ],
+   "c": 0,
+   "e": "En un BEFORE por fila, devolver `NULL` le dice al motor que se salte la operación para esa fila, sin error y sin tocar las demás. Para cancelar toda la sentencia hay que lanzar una excepción con `raise exception`. Devolver `NEW` (modificada o no) es lo que conserva la fila."
+  },
+  {
+   "p": "Cargás 200.000 filas en una tabla con un trigger `AFTER INSERT` por fila que escribe una fila de auditoría. Querés reducir el tiempo sin perder la auditoría. ¿Qué cambio es el más directo?",
+   "o": [
+    "Pasarlo de `AFTER` a `BEFORE`, porque los `BEFORE` corren antes y por lo tanto son más rápidos",
+    "Agregar `security definer` a la función del trigger, para que corra con permisos de dueño",
+    "Pasarlo a un trigger por sentencia con una tabla de transición, que escribe todas las filas de auditoría en una sola operación",
+    "Marcar la función del trigger como `IMMUTABLE`, para que el motor la evalúe una sola vez"
+   ],
+   "c": 2,
+   "e": "Lo caro es invocar la función 200.000 veces. Un trigger por sentencia con tabla de transición la invoca una vez y escribe todo junto: en el experimento bajó de 1.000-1.400 ms a 530-640 ms. Cambiar el momento no reduce las llamadas, `security definer` no tiene que ver con la velocidad y una función que escribe no puede ser `IMMUTABLE`."
+  },
+  {
+   "p": "Un trigger rechaza con una excepción el paquete 99.999 de un `INSERT` masivo de 100.000. ¿Cuántas filas quedan guardadas?",
+   "o": [
+    "Las 99.998 anteriores, porque se guardan una por una y solo falla la que no cumple",
+    "Ninguna, porque la sentencia entera se revierte cuando el trigger lanza la excepción",
+    "Las 99.998 anteriores más la 100.000, porque el trigger solo frena la fila mala",
+    "Depende del orden de las filas, porque PostgreSQL guarda en tandas de mil"
+   ],
+   "c": 1,
+   "e": "Una sentencia SQL es atómica: si una fila falla, ninguna queda. En la prueba el conteo fue 0. Quien responde que se guardan las anteriores supone que cada fila se confirma sola, y eso es lo que cambia con un procedimiento que hace COMMIT por tandas, no con un INSERT único."
+  },
+  {
+   "p": "Dos sesiones insertan, a la vez, una respuesta de la misma pregunta, y un trigger actualiza la fila de resumen de esa pregunta. ¿Qué observás en la segunda sesión?",
+   "o": [
+    "Falla de inmediato con un error de conflicto, porque dos sesiones no pueden tocar la misma fila",
+    "Termina sin esperar, porque cada sesión trabaja sobre su propia copia de la fila",
+    "Termina sin esperar, pero el resumen suma solo una de las dos respuestas",
+    "Espera a que la primera confirme, porque la fila del resumen queda tomada hasta ese momento"
+   ],
+   "c": 3,
+   "e": "Una fila modificada por una transacción abierta no la puede modificar otra: la segunda espera. Es lo que se midió: 2,49 s contra 0,04 s en otra pregunta. No hay error ni pérdida, solo espera; el resumen termina con las dos respuestas sumadas."
+  },
+  {
+   "p": "¿En cuál de estos casos un trigger es la herramienta más apropiada?",
+   "o": [
+    "Impedir que cualquier programa pueda reabrir un envío que ya está cerrado",
+    "Mandar un mail al cliente cuando un envío pasa a «entregado»",
+    "Calcular el precio final con ocho reglas de descuento que cambian cada mes",
+    "Cargar de una sola vez un millón de filas con una validación pesada por fila"
+   ],
+   "c": 0,
+   "e": "Una regla de integridad que ninguna aplicación debe poder saltear es el caso clásico del trigger. El mail sale aunque la transacción se revierta; las ocho reglas conviene dejarlas en una función que el programa llame a propósito; y una validación pesada por fila en una carga masiva multiplica el costo por la cantidad de filas."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística qué es un trigger usando el sello de recepción como punto de partida, y qué puede salir mal: contá por qué una carga que tardaba un cuarto de segundo puede tardar más de un segundo sin que nadie cambie el script, y qué pasa si una sola fila falla en una carga de cien mil.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0918-pg-trigger-def",
+   "nota": "El capítulo oficial sobre cómo se comportan los triggers: orden de ejecución, qué devuelve cada tipo, y la diferencia entre fila y sentencia. Leé el apartado de visibilidad de los cambios para entender qué ve cada trigger."
+  },
+  {
+   "fuente": "bd0918-pg-createtrigger",
+   "nota": "La referencia de `CREATE TRIGGER`: la sintaxis con `UPDATE OF`, `WHEN`, `REFERENCING` y los ejemplos. Sirve para el ejercicio y para leer los triggers de otros."
+  },
+  {
+   "fuente": "back0708-postgres-triggers",
+   "nota": "La guía de PL/pgSQL para escribir funciones de trigger, con la lista de variables especiales (`NEW`, `OLD`, `TG_OP`, `TG_ARGV`) que usaste hoy."
+  },
+  {
+   "fuente": "bd0918-pg-createprocedure",
+   "nota": "La referencia de `CREATE PROCEDURE` y sus diferencias con las funciones. Leelo junto con la página de transacciones de PL/pgSQL antes de escribir tu primer proceso por tandas."
+  }
+ ],
+ "videos": [],
+ "terminos": [
+  {
+   "t": "procedimiento almacenado",
+   "d": "Rutina guardada en la base que se invoca con `CALL`, no devuelve un valor para usar en una consulta y puede terminar transacciones con `COMMIT` o `ROLLBACK`, cosa que una función no puede."
+  },
+  {
+   "t": "trigger",
+   "d": "Función que la base ejecuta automáticamente cuando ocurre un evento (`INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`) sobre una tabla. Se define por evento, momento (`BEFORE` o `AFTER`) y nivel (por fila o por sentencia)."
+  },
+  {
+   "t": "efecto oculto",
+   "d": "Todo lo que una sentencia provoca y que no está escrito en ella, típicamente porque lo hace un trigger: costo adicional, escrituras en otras tablas, esperas o rechazos que quien escribió la sentencia no ve."
+  },
+  {
+   "t": "tabla de transición",
+   "d": "Tabla temporal que PostgreSQL ofrece a un trigger por sentencia con las filas nuevas o viejas de toda la sentencia, para procesarlas de una vez en lugar de una por una."
+  },
+  {
+   "t": "fila caliente",
+   "d": "Una fila que muchas transacciones intentan modificar a la vez, como un contador o un resumen. Cada modificación obliga a esperar a que termine la anterior."
+  }
+ ],
+ "siguiente": "Cómo se guarda una tabla en disco: páginas de 8 KB, tuplas y qué pasa con cada UPDATE.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0918-pg-createtrigger",
+   "t": "PostgreSQL 16: CREATE TRIGGER",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/sql-createtrigger.html"
+  },
+  {
+   "id": "bd0918-pg-trigger-def",
+   "t": "PostgreSQL 16: Overview of Trigger Behavior",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/trigger-definition.html"
+  },
+  {
+   "id": "bd0918-pg-createprocedure",
+   "t": "PostgreSQL 16: CREATE PROCEDURE",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/sql-createprocedure.html"
+  },
+  {
+   "id": "bd0918-pg-release-10",
+   "t": "PostgreSQL 10: Release Notes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2017,
+   "url": "https://www.postgresql.org/docs/release/10.0/"
+  },
+  {
+   "id": "bd0918-pg-release-11",
+   "t": "PostgreSQL 11: Release Notes",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2018,
+   "url": "https://www.postgresql.org/docs/release/11.0/"
+  }
+ ]
+}
