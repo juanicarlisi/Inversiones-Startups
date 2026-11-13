@@ -1,0 +1,861 @@
+{
+ "id": "06-41",
+ "titulo": "El ecosistema de build de JavaScript",
+ "bajada": "Armás el mismo tablero con cinco herramientas, medís cuánto tardan en construir y en el servidor de desarrollo, y levantás un monorepo con caché para ver qué rehace y qué se saltea.",
+ "minutos": 30,
+ "vigencia": "herramienta",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar por qué una web con muchos módulos necesita un paso de build aunque el navegador ya entienda módulos nativos.",
+  "Distinguir qué trabajo hace cada pieza (transformar, empaquetar, servir en desarrollo, minificar) y ubicar en ese mapa a Vite, webpack, esbuild, Rolldown y Rspack.",
+  "Leer una tabla de tiempos de build y de desarrollo, y decir qué mide cada número y qué no.",
+  "Describir cómo un monorepo con workspaces y una caché de tareas decide qué reconstruir tras un cambio.",
+  "Elegir una herramienta de build con criterios concretos y reconocer qué usa Senda y por qué no es un monorepo."
+ ],
+ "venis_de": "En [@04-19] viste qué hace un build por dentro, con esbuild y Metro: empaquetar, minificar, sacar lo que sobra y generar mapas de fuente. Ayer, en [@06-40], el peso del bundle apareció como una de las causas de una web lenta. Hoy subís un nivel: quién hace ese trabajo en la web, qué tan rápido, y qué pasa cuando en vez de una app tenés varias que comparten piezas.",
+ "se_apoya_en": [
+  "04-19",
+  "06-40",
+  "06-31",
+  "06-17",
+  "04-05"
+ ],
+ "gancho": [
+  "Generé un proyecto de prueba con 1.551 archivos y le pedí a cinco herramientas que lo dejaran listo para el navegador. La más rápida tardó 140 milisegundos. La más lenta, 6,96 segundos. El código de entrada era el mismo y el tamaño del resultado fue parecido en todas. Una diferencia de unas 50 veces, para el mismo trabajo.",
+  "Hoy recorrés ese ecosistema con las manos. Primero entendés por qué el navegador, que ya sabe cargar módulos, igual necesita ayuda. Después medís: un build de producción, el servidor de desarrollo (donde un equipo pasa el día) y un monorepo con caché, que es lo que aparece cuando las apps empiezan a compartir código. Al final, qué usa Senda y cómo se elige sin dejarse llevar por la moda."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Por qué el navegador solo no alcanza"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los navegadores entienden módulos de JavaScript desde hace años: con `<script type=\"module\">` y la palabra `import` alcanza para repartir un programa en archivos, sin ninguna herramienta [#mdn-js-modules-guide]. Si eso funciona, ¿para qué existe todo un ecosistema de build? Hay cuatro motivos concretos, y cada herramienta de hoy se explica por alguno.",
+    "**Primero, sintaxis que el navegador no entiende.** El [[JSX]] de React o el TypeScript hay que traducirlos a JavaScript común antes de llegar. **Segundo, los nombres de paquetes.** Cuando escribís `import { useState } from \"react\"`, el navegador no sabe qué es «react»: necesita una dirección. Alguien tiene que buscar el paquete en `node_modules` y entregarlo. **Tercero, la cantidad de pedidos.** Cada `import` es una solicitud al servidor, y el navegador se entera de los imports de un archivo recién cuando lo bajó y lo leyó. Una cadena de archivos que importan archivos que importan archivos se descarga en escalones, uno después de otro. La documentación de Vite lo ejemplifica con `lodash-es`, un paquete con más de 600 módulos internos: importar una sola función dispararía más de 600 pedidos [#b641-vite-dep-prebundling]. **Cuarto, el peso**, que ya conocés de [@06-40]: sacar lo que no se usa y [[minificación|minificar]] antes de enviar."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Consolidar la carga",
+   "x": "En logística nadie manda 1.500 cajas sueltas a un mismo destino: las consolida en pallets, y cada pallet es un solo movimiento. Un [[bundler]] hace eso con los módulos: junta muchos archivos en pocos para que el camino tenga menos viajes. La analogía se queda corta en un punto: el bundler también **transforma** lo que va adentro (traduce JSX, reemplaza nombres, saca código muerto), cosa que un pallet nunca hace con las cajas."
+  },
+  {
+   "t": "p",
+   "x": "Ya viste en [@04-19] qué hace el empaquetado, el [[tree shaking]] y los [[mapa de fuente|mapas de fuente]]; no lo repito. Lo que sigue es la parte que ese día dejó para hoy: las herramientas que hacen todo esto en la web, cómo se comparan y cómo se organizan cuando el proyecto crece."
+  },
+  {
+   "t": "pensa",
+   "x": "Dos apps cargan 600 archivos. En una, el navegador los pide todos a la vez porque están en una lista. En la otra, cada archivo importa a otros dos que importan a otros dos. ¿Cuál tarda más y por qué?",
+   "resp": "La segunda. En una cadena de imports el navegador no sabe qué viene después hasta bajar y leer el archivo anterior, así que los pedidos se encadenan y cada escalón paga una espera de red. Con la lista, todos salen juntos."
+  },
+  {
+   "t": "h",
+   "x": "Un mismo oficio, varias piezas"
+  },
+  {
+   "t": "p",
+   "x": "Antes de comparar, conviene saber que «herramienta de build» nombra varios trabajos distintos, y que muchas herramientas hacen más de uno. La línea de tiempo muestra cuándo apareció cada una; la tabla de abajo, qué trabajo hace cada tipo de pieza."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "linea-tiempo",
+   "eventos": [
+    {
+     "a": "2014",
+     "t": "webpack 1.0.0",
+     "d": "Primera versión 1.0.0 de webpack en npm (19 de febrero)."
+    },
+    {
+     "a": "2015",
+     "t": "Rollup 0.1.0",
+     "d": "Primera versión en npm (14 de mayo). Durante años fue el motor de producción de Vite, que lo usaba para empaquetar."
+    },
+    {
+     "a": "2020",
+     "t": "esbuild y Vite",
+     "d": "esbuild 0.1.0 el 13 de abril y Vite 0.1.0 el 21 de abril. Uno trae velocidad nativa; el otro, un servidor de desarrollo con módulos nativos del navegador."
+    },
+    {
+     "a": "2024",
+     "t": "Rspack 1.0",
+     "d": "Un empaquetador escrito en Rust con una API que imita a la de webpack (28 de agosto)."
+    },
+    {
+     "a": "2026",
+     "t": "Vite 8 y Rolldown",
+     "d": "Vite 8.0.0 sale el 12 de marzo con Rolldown como único empaquetador; Rolldown publica su 1.0.0 en npm el 7 de mayo."
+    }
+   ],
+   "cap": "Fechas de la primera versión publicada en el registro de npm, consultadas con `npm view <paquete> time` el 13-11-2026 [#b641-vite8-anuncio]. No son la fecha en que cada proyecto empezó a escribirse."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Trabajo",
+    "Qué hace",
+    "Quién lo hace hoy (ejemplos)"
+   ],
+   "filas": [
+    [
+     "Transformar",
+     "Traduce JSX, TypeScript y sintaxis nueva a JavaScript que el destino entienda",
+     "Babel, SWC, Oxc (el de Vite 8), el propio esbuild"
+    ],
+    [
+     "Empaquetar",
+     "Sigue los `import` y junta los módulos en pocos archivos",
+     "webpack, Rollup, esbuild, Rolldown, Rspack, Metro"
+    ],
+    [
+     "Servir en desarrollo",
+     "Un servidor local que reacciona al guardar un archivo",
+     "Vite, webpack-dev-server, el servidor de Next.js"
+    ],
+    [
+     "Minificar",
+     "Achica el código final",
+     "el de esbuild, el de Oxc, el que trae webpack en modo producción"
+    ],
+    [
+     "Orquestar tareas entre paquetes",
+     "Decide el orden y evita repetir trabajo en un monorepo",
+     "Turborepo, Nx"
+    ]
+   ],
+   "cap": "Un mapa de trabajos, no de productos: casi todos los productos de la lista combinan dos o tres filas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[webpack]] es un empaquetador estático de módulos: a partir de uno o más puntos de entrada arma el grafo de dependencias y lo combina en uno o más archivos. Su documentación organiza todo en torno a la entrada, la salida, los *loaders* (que le enseñan a procesar cosas que no son JavaScript, como JSX), los *plugins* y el modo [#b641-webpack-concepts]. Por eso la configuración que viene abajo necesita `babel-loader`: sin él, webpack no sabría qué hacer con un archivo `.jsx`.",
+    "[[esbuild]] es un empaquetador y minificador escrito en Go y compilado a código nativo. Según sus propios autores es rápido por dos razones: no paga el costo de que un motor de JavaScript lea y optimice el código del propio empaquetador cada vez que corre, y aprovecha el paralelismo de Go, con memoria compartida entre hilos [#b641-esbuild-faq]. Lo probaste en [@04-19].",
+    "[[Vite]] es otra cosa: un **servidor de desarrollo y un orquestador de build** que además empaqueta. Hasta la versión 7 delegaba en esbuild (desarrollo) y en Rollup (producción). La versión 8 los reemplazó por un único empaquetador, [[Rolldown]], escrito en Rust y compatible con la API de plugins de Rollup, con el compilador Oxc para parsear, transformar y minificar [#b641-vite8-anuncio]. [[Rspack]] sigue otro camino: un empaquetador en Rust que ofrece una API parecida a la de webpack, pensado para quien ya tiene una configuración de webpack y quiere ir más rápido sin reescribirla [#b641-rspack-intro]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "«Vite reemplazó a webpack» es una simplificación",
+   "x": "Son piezas de distinto nivel. Vite orquesta y trae un servidor de desarrollo; webpack empaqueta y se configura con loaders. Y el reemplazo no es total: la documentación de Next.js dice que Turbopack es hoy su empaquetador por defecto (Next.js 16.4.6, consultado el 13-11-2026), pero conserva la opción `--webpack` para quien la necesite [#b641-next-turbopack]. Hay mucho código en producción que todavía construye con webpack."
+  },
+  {
+   "t": "h",
+   "x": "Experimento 1: el mismo tablero con cinco herramientas"
+  },
+  {
+   "t": "p",
+   "x": "El tablero de envíos es el de [@06-31]: una lista con un filtro y un botón «avanzar» por fila, escrita en React 19.3.1. La construí con las cinco herramientas, cada una con su configuración mínima. Estas son dos de ellas; esbuild no necesita archivo, alcanza con opciones en la línea de comandos."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const path = require(\"path\");\nmodule.exports = {\n  mode: \"production\",\n  entry: \"./src/main.jsx\",\n  output: { path: path.resolve(__dirname, \"out-webpack\"), filename: \"main.js\" },\n  resolve: { extensions: [\".jsx\", \".js\"] },\n  module: {\n    rules: [{\n      test: /\\.jsx$/,\n      exclude: /node_modules/,\n      use: { loader: \"babel-loader\", options: { presets: [[\"@babel/preset-react\", { runtime: \"automatic\" }]] } },\n    }],\n  },\n};",
+   "cap": "webpack.config.cjs: el modo, la entrada, la salida y una regla que le dice que los archivos .jsx pasen primero por babel-loader. Hace falta instalar webpack, webpack-cli, babel-loader, @babel/core y @babel/preset-react."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { defineConfig } from \"vite\";\nimport react from \"@vitejs/plugin-react\";\nexport default defineConfig({ plugins: [react()], build: { outDir: \"out-vite\" } });",
+   "cap": "vite.config.js: un plugin de React y la carpeta de salida. Vite ya trae la entrada (index.html) y las reglas de transformación."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "./node_modules/.bin/esbuild src/main.jsx --bundle --minify --jsx=automatic --define:process.env.NODE_ENV='\"production\"' --outfile=out-esbuild/main.js",
+     "s": "\n  out-esbuild/main.js  219.2kb\n\n⚡ Done in 35ms"
+    }
+   ],
+   "cap": "El build completo con esbuild 0.28.2. El --define reemplaza process.env.NODE_ENV por «production», que es lo que hace que React se construya sin sus chequeos de desarrollo."
+  },
+  {
+   "t": "p",
+   "x": "Medí cada herramienta entre siete y nueve veces, borrando la carpeta de salida antes de cada corrida, y me quedé con la mediana. El tiempo es de reloj de pared, incluye arrancar Node y salvo que lo diga, no usa caché."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Herramienta (versión)",
+    "Mediana (ms)",
+    "Archivo final (bytes)",
+    "Con brotli (bytes)"
+   ],
+   "filas": [
+    [
+     "esbuild 0.28.2",
+     "50",
+     "224.462",
+     "59.886"
+    ],
+    [
+     "Rolldown 1.3.2",
+     "151",
+     "221.727",
+     "58.618"
+    ],
+    [
+     "Rspack 2.3.2",
+     "242",
+     "221.504",
+     "59.231"
+    ],
+    [
+     "Vite 8.3.8 (usa Rolldown 1.2.19)",
+     "281",
+     "220.472",
+     "58.671"
+    ],
+    [
+     "webpack 5.112.2 + Babel",
+     "2.537",
+     "219.665",
+     "58.503"
+    ]
+   ],
+   "cap": "Medido en esta VM el 13-11-2026, de 4 núcleos y compartida con otras tareas, así que los tiempos tienen ruido: en cada fila, el mínimo y el máximo se alejaron de la mediana hasta un 23 %. Brotli nivel 11. Un proyecto, una máquina."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos cosas saltan a la vista. **El tamaño es casi idéntico**: de los 220 KB, casi todo es el motor de React y de React DOM; el tablero propio pesa menos de 2 KB, como viste en [@06-31]. Con la compresión de brotli, la diferencia entre la mejor y la peor es de unos 1,4 KB. Y **el tiempo cambia mucho**, pero con un proyecto de 14 módulos se mide mayormente el arranque de cada programa: `npx esbuild --version` tardó entre 168 y 189 ms en esta VM solo en encontrar y arrancar el programa, así que corrí los binarios directo.",
+    "Esa es la trampa de medir con un «hola mundo»: es lo mismo que probar un camión vacío. Los números se vuelven informativos cuando la carga crece."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Experimento 2: 1.551 módulos"
+  },
+  {
+   "t": "p",
+   "x": "Con un script de Python generé 1.500 componentes de una línea (`Envio0.jsx` a `Envio1499.jsx`), cada uno con un `import` de una de 50 funciones auxiliares, más un archivo de entrada que los importa a todos y los dibuja. Es un proyecto grande en cantidad de archivos, aunque cada uno sea trivial. Las mismas cinco herramientas, la misma mediana, siete corridas."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Herramienta",
+    "Mediana (ms)",
+    "Archivo final (bytes)",
+    "Con gzip nivel 9 (bytes)"
+   ],
+   "filas": [
+    [
+     "esbuild",
+     "140",
+     "404.398",
+     "92.288"
+    ],
+    [
+     "Rolldown",
+     "276",
+     "421.573",
+     "85.087"
+    ],
+    [
+     "Vite 8.3.8",
+     "400",
+     "372.412",
+     "84.303"
+    ],
+    [
+     "Rspack",
+     "500",
+     "380.229",
+     "86.886"
+    ],
+    [
+     "webpack + SWC (loader escrito en Rust)",
+     "4.255",
+     "386.766",
+     "—"
+    ],
+    [
+     "webpack + Babel",
+     "6.963",
+     "413.528",
+     "84.950"
+    ]
+   ],
+   "cap": "Medido en esta VM el 13-11-2026, 1.551 módulos propios más React. La fila de webpack con SWC la corrí aparte, seis veces, para separar cuánto pesa el loader. Los tamaños difieren entre herramientas porque cada una decide distinto qué reescribir y qué dejar; no hay una ganadora por tamaño."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora sí hay diferencia, y es de orden de magnitud. webpack con Babel tarda 6,96 segundos; esbuild, 0,14: unas 50 veces. Mi lectura, que es una inferencia y no un perfil medido, es que hay dos fuentes del tiempo. La primera es el **transformador**: cambiar Babel (escrito en JavaScript) por SWC (escrito en Rust) en el mismo webpack bajó el build de 6,96 a 4,26 segundos, un 39 % menos. La segunda es **el propio empaquetador**: aun con SWC, webpack tarda 30 veces más que esbuild, y esos 4 segundos ya no los explica el loader.",
+    "También conviene mirar quién queda cerca de quién. Rolldown, Vite (que lo usa) y Rspack están dentro de un factor 2 entre sí en las dos pruebas, y en la grande Vite le gana a Rspack. Con una sola máquina y un solo proyecto, yo no declararía ganador entre esos tres; sí diría que los tres están en otra categoría que webpack + Babel."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un equipo hace 60 builds de producción por día entre CI y máquinas locales. Con los tiempos de la tabla, ¿cuánto espera en total por día con webpack + Babel y cuánto con esbuild? Después preguntate: ¿esa cuenta describe bien dónde se pierde el tiempo de un equipo?",
+   "pista": "Multiplicá cada mediana por 60 y pasá a minutos o segundos.",
+   "solucion": "webpack + Babel: 60 × 6,96 s = 417,8 s, casi 7 minutos por día. esbuild: 60 × 0,14 s = 8,4 s. La cuenta es correcta pero engaña: 7 minutos repartidos entre varias personas pesan poco. Lo que más duele es la espera que se repite cientos de veces por persona y por día, en el servidor de desarrollo, y eso se mide aparte."
+  },
+  {
+   "t": "h",
+   "x": "Experimento 3: el servidor de desarrollo, donde se vive"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una persona que programa una interfaz guarda un archivo y mira el navegador decenas o cientos de veces por día. Ahí la velocidad del build de producción importa menos que dos cosas: cuánto tarda en **arrancar** el servidor y cuánto tarda en **reflejar un cambio**. Para lo segundo existe el [[reemplazo en caliente de módulos|reemplazo en caliente]] (HMR, de *hot module replacement*): el servidor manda al navegador solo el módulo que cambió y la página lo cambia sin recargar entera, conservando el estado, por ejemplo lo que escribiste en un formulario.",
+    "Hay dos diseños para armar ese servidor, y son el corazón de por qué Vite le cambió el juego a las herramientas de su época [#b641-vite-why]:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "comparar",
+   "izq": {
+    "t": "Con bundle (webpack-dev-server)",
+    "k": "red",
+    "items": [
+     "Antes de servir nada, arma el bundle de toda la app",
+     "El arranque crece con la cantidad de módulos",
+     "El navegador recibe pocos archivos grandes",
+     "Al guardar, recompila lo afectado y empuja la actualización"
+    ]
+   },
+   "der": {
+    "t": "Con módulos nativos (Vite)",
+    "k": "servidor",
+    "items": [
+     "Arranca sin armar nada: transforma cada archivo cuando el navegador lo pide",
+     "Las dependencias (React) se empaquetan una sola vez y se guardan",
+     "El navegador hace un pedido por módulo",
+     "Al guardar, reemplaza solo ese módulo"
+    ]
+   },
+   "cap": "Los dos diseños de servidor de desarrollo, según la guía «Why Vite» [#b641-vite-why]."
+  },
+  {
+   "t": "p",
+   "x": "Medí los dos con Playwright y Chromium, abriendo la página en cada caso y esperando a que aparezcan las filas. Para el HMR modifiqué un archivo auxiliar con un texto marcado y medí cuánto tarda en verse en pantalla, cinco veces por corrida. Tres corridas por herramienta; la tabla da la mediana. «Listo» es el tiempo hasta que el servidor imprime que está andando."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Vite 8.3.8, 14 módulos",
+    "webpack-dev-server 6.1.0, 14 módulos",
+    "Vite, 1.551 módulos",
+    "webpack-dev-server, 1.551 módulos"
+   ],
+   "filas": [
+    [
+     "Servidor listo (ms)",
+     "326",
+     "1.044",
+     "341",
+     "3.900"
+    ],
+    [
+     "Primera pantalla, desde que abro la página (ms)",
+     "358",
+     "223",
+     "2.845",
+     "467"
+    ],
+    [
+     "Pedidos al servidor para la primera pantalla",
+     "10",
+     "2",
+     "1.559",
+     "2"
+    ],
+    [
+     "Suma listo + primera pantalla (ms)",
+     "≈ 680",
+     "≈ 1.270",
+     "≈ 3.190",
+     "≈ 4.370"
+    ],
+    [
+     "Cambio visible tras guardar (ms)",
+     "—",
+     "—",
+     "150",
+     "632"
+    ]
+   ],
+   "cap": "Medido en esta VM el 13-11-2026: mediana de 3 corridas; webpack-dev-server en modo development y con Babel. El HMR son 15 medidas por herramienta (rango de Vite, 117 a 172 ms; de webpack, 551 a 818 ms). La suma usa las medianas de cada fila, por eso puede diferir unos ms de la mediana de las sumas."
+  },
+  {
+   "t": "p",
+   "x": "Mirá la columna de Vite con 1.551 módulos. El servidor está listo en 0,34 segundos, igual que con 14, porque no hizo casi nada todavía. Pero la primera pantalla tarda 2,85 segundos y el navegador hizo **1.559 pedidos**. El trabajo no desapareció: se pasó de «antes de servir» a «cuando el navegador lo pida». A cambio, cada cambio posterior es mucho más barato: 150 ms contra 632 ms."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node reqs.cjs   # Playwright lista las respuestas de Vite 8.3.8 al abrir el tablero chico",
+     "s": "200 /\n200 /src/main.jsx\n200 /@react-refresh\n200 /node_modules/.vite/deps/react.js\n200 /node_modules/.vite/deps/react_jsx-dev-runtime.js\n200 /node_modules/.vite/deps/react-DgVJeC5g.js\n200 /@vite/client\n200 /node_modules/vite/dist/client/env.mjs\n200 /node_modules/.vite/deps/react-dom_client.js\n200 /node_modules/.vite/deps/react-dom-CFuoV50Q.js"
+    }
+   ],
+   "cap": "Los 10 pedidos del tablero chico. Lo propio es /src/main.jsx. Todo lo de /node_modules/.vite/deps/ es React empaquetado por Vite una vez, porque React se publica en un formato que el navegador no carga tal cual [#b641-vite-dep-prebundling]."
+  },
+  {
+   "t": "pensa",
+   "x": "En la prueba grande, el servidor de Vite estaba listo en 0,34 s y el de webpack en 3,9 s. ¿Se puede concluir que Vite hizo el mismo trabajo once veces más rápido?",
+   "resp": "No. Vite postergó casi todo el trabajo: transformó cada módulo cuando el navegador lo pidió, y por eso la primera pantalla tardó 2,85 s. Para comparar hay que sumar los dos tramos: 3,2 s contra 4,4 s. Vite gana, pero por mucho menos que once veces."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Los propios equipos conocen el límite",
+   "x": "La guía de Vite dice que enviar módulos sueltos a producción sigue siendo ineficiente por los pedidos anidados y que por eso el empaquetado se mantiene para producción; el equipo explora un «full bundle mode» para desarrollo en bases de código muy grandes [#b641-vite-why]. La documentación de Turbopack, por su parte, dice que sus autores eligieron empaquetar también en desarrollo, de forma optimizada, porque los módulos nativos pueden volver lenta una app grande por la cantidad de pedidos [#b641-next-turbopack]. Mi medición, con 1.559 pedidos, va en esa línea."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Desarrollo y producción no son el mismo programa",
+   "x": "En Vite, el servidor de desarrollo sirve módulos sueltos y el build de producción empaqueta. Un problema que solo aparece en el bundle final (un módulo que se omitió, una ruta mal resuelta) no lo vas a ver mientras desarrollás. Por eso conviene correr el build y mirarlo antes de publicar, no solo el servidor local."
+  },
+  {
+   "t": "h",
+   "x": "Monorepos: varias piezas, un solo lugar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Supongamos tres piezas: una app con el tablero de envíos, una biblioteca de componentes visuales (`ui`) y una biblioteca de utilidades que arma etiquetas de despacho (`etiquetas`). La app usa `ui`, y `ui` usa `etiquetas`. Si cada una vive en su propio repositorio, cambiar una etiqueta obliga a publicar una versión nueva de `etiquetas` en npm, subir la versión en `ui`, publicar `ui`, y recién ahí actualizar la app. Son cuatro pasos para cambiar una palabra.",
+    "Un [[monorepo]] pone las tres piezas en un solo repositorio de git. Atención con el nombre: no es un monolito. Las piezas siguen siendo paquetes separados, con su propio `package.json`, que se pueden publicar o desplegar por separado. Lo que se comparte es el repositorio y la forma de construirlas."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "El primer ingrediente lo trae npm: los [[workspaces de npm|workspaces]]. El `package.json` de la raíz declara qué carpetas son paquetes, y `npm install` los instala todos y deja los locales enlazados entre sí [#b641-npm-workspaces]. Así quedó mi proyecto de prueba:"
+  },
+  {
+   "t": "codigo",
+   "lang": "json",
+   "x": "{\n  \"name\": \"logistica-mono\",\n  \"private\": true,\n  \"workspaces\": [\"packages/*\", \"apps/*\"],\n  \"devDependencies\": { \"esbuild\": \"0.28.2\", \"turbo\": \"2.11.11\" },\n  \"packageManager\": \"npm@10.9.9\"\n}",
+   "cap": "package.json de la raíz del monorepo de prueba. El campo packageManager lo exige Turborepo; los tres paquetes están en packages/ (etiquetas, ui) y apps/ (tablero)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ls -l node_modules/@logi | awk 'NR>1{print $9, $10, $11}'",
+     "s": "etiquetas -> ../../packages/etiquetas\ntablero -> ../../apps/tablero\nui -> ../../packages/ui"
+    }
+   ],
+   "cap": "Después de `npm install`, cada paquete aparece dentro de node_modules como un enlace simbólico (un archivo que apunta a otra carpeta). Importar «@logi/ui» desde la app lee directamente packages/ui, sin publicar nada."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Pero hay una trampa: la app importa `@logi/ui`, y `ui` declara `\"main\": \"dist/index.js\"`, es decir que se consume ya construida. Si construís la app antes que `ui`, la carpeta `dist` todavía no existe. El orden importa, y a mano se olvida.",
+    "El segundo ingrediente es un ejecutor de tareas que conoce el grafo de paquetes. Usé Turborepo 2.11.11, con este archivo:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "json",
+   "x": "{\n  \"tasks\": {\n    \"build\": { \"dependsOn\": [\"^build\"], \"outputs\": [\"dist/**\"] },\n    \"test\":  { \"dependsOn\": [\"build\"] }\n  }\n}",
+   "cap": "turbo.json. «dependsOn»: [\"^build\"] significa «antes de construir este paquete, construí los paquetes de los que depende»; «outputs» dice qué carpetas guardar en la caché; «test» necesita que el build del mismo paquete esté hecho."
+  },
+  {
+   "t": "p",
+   "x": "Lo interesante viene al repetir. Turborepo calcula una huella (un hash) con todo lo que puede cambiar el resultado de una tarea: los archivos del paquete, sus dependencias, la configuración. Si la huella ya está en la caché local, no ejecuta la tarea: restaura los archivos y repite el log guardado [#b641-turbo-caching]. Corrí seis veces, cambiando una cosa por vez:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Corrida",
+    "Qué cambié",
+    "Tareas ejecutadas de 4",
+    "Tiempo"
+   ],
+   "filas": [
+    [
+     "1",
+     "Nada, caché vacía",
+     "4",
+     "455 ms"
+    ],
+    [
+     "2",
+     "Nada",
+     "0 («FULL TURBO»)",
+     "8 ms"
+    ],
+    [
+     "3",
+     "Una línea en la app (apps/tablero)",
+     "1: build de la app",
+     "125 ms"
+    ],
+    [
+     "4",
+     "Una línea en la biblioteca ui",
+     "2: build de ui y de la app",
+     "243 ms"
+    ],
+    [
+     "5",
+     "El texto de la etiqueta, en etiquetas",
+     "4, y el test falla",
+     "371 ms"
+    ],
+    [
+     "6",
+     "Vuelvo la etiqueta a como estaba",
+     "0 («FULL TURBO»)",
+     "12 ms"
+    ]
+   ],
+   "cap": "Medido en esta VM el 13-11-2026, con TURBO_TELEMETRY_DISABLED=1 y la caché local (la carpeta .turbo/cache pesó 88 KB). Proyecto de juguete: las tareas son de unos pocos milisegundos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en la corrida 4. Cambié `ui` y se reconstruyeron `ui` y la app, que depende de ella, pero **no** `etiquetas`, que `ui` usa pero no cambió. El grafo funciona en un solo sentido: lo que está abajo no se toca, lo que está arriba se rehace. En la 5, cambié una base y se rehizo todo, y el test de `etiquetas` falló porque esperaba el texto viejo. Es justo para lo que está el test: la modificación de una pieza compartida se nota antes de llegar a la app.",
+    "Y en la 6 pasa lo más llamativo: al devolver el archivo a su contenido anterior, la huella vuelve a ser la anterior y la tarea se restaura de la caché, sin ejecutarse, porque la caché se indexa por contenido y no por fecha de modificación. Con una caché remota compartida entre el equipo y el servidor de CI, la ejecución que hizo una persona sirve a las demás [#b641-turbo-caching]."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "En ese monorepo, el equipo cambia una función de `packages/etiquetas/src/index.js` sin tocar su test, y el test sigue pasando. ¿Qué tareas se vuelven a ejecutar de las cuatro y cuáles se toman de la caché? Aclará por qué `etiquetas:test` entra o no.",
+   "pista": "Pensá en qué cambia la huella de cada tarea: sus archivos y los de sus dependencias.",
+   "solucion": "Las cuatro se ejecutan: el build de etiquetas (cambió su código), el test de etiquetas (depende de ese build, cuya salida cambió), el build de ui (depende de etiquetas) y el de la app. Y si lo que cambia es un `README.md` del paquete, por defecto también se ejecutan las cuatro: lo probé y cualquier archivo del paquete cuenta como entrada. Para excluirlo hay que decirlo con `inputs` en el `turbo.json`."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La caché es conservadora por defecto",
+   "x": "Agregué un `README.md` a `etiquetas` y las cuatro tareas se rehicieron, aunque un README no cambia ningún resultado: por defecto, cualquier archivo del paquete cuenta como entrada. Turborepo permite acotarlo con el campo `inputs`; con `[\"$TURBO_DEFAULT$\", \"!README.md\"]` en `build` y en `test`, el mismo cambio dejó las cuatro tareas en caché [#b641-turbo-config]. Cuanto más preciso el `inputs`, más aciertos de caché, y también más riesgo de excluir algo que sí importaba."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Nx, la otra gran opción",
+   "x": "Nx cubre el mismo terreno: su documentación lo presenta como un sistema de build para monorepos de JavaScript y TypeScript, con caché de tareas, orquestación y un grafo de proyectos, y agrega reglas de límites entre proyectos y ejecución distribuida en CI (versión 24.0.6, 13-11-2026) [#b641-nx-intro]. No lo corrí acá; elegí Turborepo para la demostración y no es un veredicto entre los dos."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Cuándo no hace falta",
+   "x": "Mi demostración tiene tareas de milisegundos, así que el ahorro es mínimo. La ganancia aparece cuando una tarea tarda minutos y la mayoría de los cambios no la afectan. Y un monorepo cuesta: un repositorio más pesado, permisos más gruesos y una configuración de CI más cuidadosa. Una regla práctica, que es criterio mío: pasá a un monorepo cuando dos piezas cambian juntas con frecuencia, no antes."
+  },
+  {
+   "t": "h",
+   "x": "Senda: Metro y un solo paquete"
+  },
+  {
+   "t": "senda",
+   "titulo": "Ni Vite, ni webpack, ni monorepo",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. El `package.json` de Senda no declara Vite, webpack ni esbuild entre sus dependencias, y no tiene el campo `workspaces`. El único `package.json` fuera de `node_modules` en todo el repositorio es el de la raíz: la carpeta `web/`, con páginas públicas como `borrar-cuenta.html`, es HTML y CSS escritos a mano, sin su propio manifiesto. Senda es un solo paquete.",
+    "El bundler es Metro, que fija el `package-lock.json` en la versión 0.84.5, como viste en [@04-19]. Su `metro.config.js` parte de la configuración de Expo y solo suma cuatro extensiones (`bib`, `riv`, `wasm`, `glb`) como recursos. Hasta la vista previa en el navegador pasa por el mismo camino: el script `web:export` de `package.json` corre `expo export --platform web`, y la documentación de Expo describe a Metro como el bundler recomendado para la web, con el adaptador de webpack ya en desuso [#b641-expo-metro]. En [@06-43] volvemos a esa vista previa con más detalle."
+   ],
+   "archivos": [
+    "package.json",
+    "metro.config.js",
+    "package-lock.json",
+    "app.json"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "¿Debería Senda ser un monorepo? Con lo que hay en el código, hoy no: no existen dos paquetes que se construyan juntos y compartan código, que es lo que un monorepo resuelve. La lección es práctica: la mejor configuración de build suele ser la más chica que cubre lo que tenés."
+  },
+  {
+   "t": "h",
+   "x": "Cómo elegir sin seguir la moda"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Situación",
+    "Candidato razonable",
+    "Qué mirar antes de decidir"
+   ],
+   "filas": [
+    [
+     "App web nueva, sin framework definido",
+     "Vite",
+     "Que el plugin de tu framework esté mantenido; probá `vite build` y miralo, no solo el servidor de desarrollo"
+    ],
+    [
+     "Proyecto con Next.js",
+     "El que trae Next (Turbopack por defecto)",
+     "Qué funciones tuyas dependen de webpack, como loaders propios [#b641-next-turbopack]"
+    ],
+    [
+     "App grande con configuración de webpack a medida",
+     "Probar Rspack antes de reescribir",
+     "Cuántos loaders y plugins tuyos usás y si Rspack los soporta"
+    ],
+    [
+     "Una biblioteca o un script interno",
+     "esbuild o Rolldown, con pocas opciones",
+     "Que el formato de salida (ESM, CommonJS) coincida con quién la va a consumir"
+    ],
+    [
+     "App React Native o Expo",
+     "Metro, que viene con la plataforma",
+     "Poco: el ecosistema móvil lo decide por vos"
+    ],
+    [
+     "Varias apps que comparten paquetes",
+     "Workspaces + Turborepo o Nx",
+     "Si el tiempo de las tareas justifica la caché y quién mantiene la configuración"
+    ]
+   ],
+   "cap": "Es una guía de partida, no una receta. Todo lo que dice «candidato» se confirma midiendo con tu código."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 13-11-2026",
+   "x": "Consulté el registro de npm con `npm view <paquete> version`. Vite 8.3.8, Rolldown 1.3.2 (Vite 8.3.8 trae la 1.2.19), esbuild 0.28.2, webpack 5.112.2, Rspack 2.3.2, Turborepo 2.11.11, Nx 24.0.6 y Next.js 16.4.6. esbuild sigue en versiones 0.x: sus autores recomiendan fijar la versión exacta, y por eso los comandos de hoy la fijan. El resultado de cualquier benchmark de herramientas de build envejece en meses; los principios de arriba (consolidar para reducir pedidos, transformar, servir, cachear por contenido) no."
+  }
+ ],
+ "recap": [
+  "El navegador carga módulos, pero el build cubre cuatro cosas que no hace solo: traducir JSX o TypeScript, resolver nombres de paquetes, reducir los pedidos encadenados y achicar el peso.",
+  "«Build» agrupa trabajos distintos: transformar, empaquetar, servir en desarrollo, minificar y orquestar. Vite orquesta y sirve; webpack, esbuild, Rolldown y Rspack empaquetan.",
+  "Mismo código, mismos 220 KB finales, y un build de 1.551 módulos que tarda entre 0,14 s (esbuild) y 6,96 s (webpack con Babel). El transformador y el empaquetador aportan cada uno su parte.",
+  "Vite arranca rápido porque posterga el trabajo: en 1.551 módulos la primera pantalla costó 1.559 pedidos y 2,85 s, y sumando quedó en 3,2 s contra 4,4 s de webpack. Lo que sí gana claro es el cambio posterior: 150 ms contra 632 ms.",
+  "Un monorepo guarda varios paquetes en un repositorio y se apoya en workspaces de npm. Una caché por contenido, como la de Turborepo, rehace solo lo que depende de lo que cambió.",
+  "Senda usa Metro y es un único paquete: sin Vite, sin webpack y sin monorepo, a propósito o no, lo mínimo que cubre lo que necesita."
+ ],
+ "repaso": [
+  {
+   "p": "Los navegadores ya cargan módulos nativos con `import`. ¿Cuál es la razón más sólida para empaquetar igual una app de producción con cientos de módulos?",
+   "o": [
+    "Los navegadores no pueden leer un archivo que use la palabra import",
+    "Los imports anidados se descubren de a escalones y encadenan esperas de red",
+    "Un módulo nativo no admite que su código se minifique antes de enviarlo",
+    "Los módulos nativos solo funcionan si se sirven desde la misma máquina"
+   ],
+   "c": 1,
+   "e": "Cada import se pide recién cuando el navegador leyó el archivo que lo contiene, así que una cadena larga paga una espera por escalón. Los navegadores sí leen `import`, los módulos sí se pueden minificar y no hay límite de origen para cargarlos."
+  },
+  {
+   "p": "En una app de 1.551 módulos, el servidor de Vite está listo en 0,34 s y el de webpack en 3,9 s, pero la primera pantalla tarda 2,85 s contra 0,47 s. ¿Qué lectura es la correcta?",
+   "o": [
+    "Vite trabaja once veces más rápido que webpack en cualquier caso",
+    "Vite pospone el trabajo hasta que el navegador lo pide, y suma menos",
+    "webpack tardó más porque no puede usar varios núcleos para compilar",
+    "Los 1.559 pedidos de Vite son un error de configuración de la prueba"
+   ],
+   "c": 1,
+   "e": "El tiempo de arranque no incluye el trabajo que Vite hace después, módulo por módulo. Sumando los dos tramos da 3,2 s contra 4,4 s. La comparación de once veces mide solo una parte, y los 1.559 pedidos son exactamente lo esperado con módulos sueltos."
+  },
+  {
+   "p": "En el monorepo de prueba, `ui` depende de `etiquetas` y la app depende de `ui`. Cambiás solo un archivo de `ui`. ¿Qué tareas de build se ejecutan?",
+   "o": [
+    "Las tres, porque cualquier cambio invalida la caché completa del repositorio",
+    "Solo la de ui, porque el cambio afecta únicamente a ese paquete",
+    "La de ui y la de la app, y la de etiquetas sale de la caché",
+    "La de etiquetas y la de ui, que son las que dependen entre sí"
+   ],
+   "c": 2,
+   "e": "La app depende de ui, así que su huella cambia; etiquetas está debajo y no cambió, así que su huella sigue en la caché. La corrida 4 de la tabla lo midió: dos tareas ejecutadas y dos restauradas."
+  },
+  {
+   "p": "Cambiás un archivo, ejecutás `turbo run build`, lo revertís al contenido anterior y volvés a ejecutar. ¿Qué pasa en la segunda corrida y por qué?",
+   "o": [
+    "Se reconstruye todo, porque la fecha de modificación del archivo cambió",
+    "Se reconstruye solo la tarea del archivo, porque no hay caché del revertido",
+    "Falla, porque Turborepo no admite volver atrás un cambio guardado",
+    "Sale de la caché, porque la huella depende del contenido y coincide"
+   ],
+   "c": 3,
+   "e": "La caché se indexa por una huella de los contenidos, no por fechas. Al volver al contenido original, la huella es la de antes y se restaura el resultado guardado, como en la corrida 6. Nada de eso depende de la fecha ni impide revertir."
+  },
+  {
+   "p": "Un equipo tiene un webpack grande con muchos loaders propios, tarda mucho en construir y no quiere reescribir la configuración. ¿Cuál es un primer paso razonable?",
+   "o": [
+    "Reemplazar webpack por esbuild y portar a mano cada loader propio",
+    "Probar Rspack, que ofrece una API parecida a la de webpack",
+    "Pasar a Nx, porque acelera el empaquetado de los archivos de la app",
+    "Desactivar la minificación de producción, que es lo que más tarda"
+   ],
+   "c": 1,
+   "e": "Rspack nació para quien ya tiene configuración de webpack y quiere más velocidad sin reescribirla; aun así hay que verificar que soporte los loaders propios. Nx organiza tareas entre paquetes, no acelera el empaquetado de una app, y quitar la minificación cambia el producto, no el problema."
+  },
+  {
+   "p": "En 1.551 módulos, webpack con Babel tardó 6,96 s y con SWC como loader, 4,26 s, mientras esbuild tardó 0,14 s. ¿Qué conclusión sostienen estos números?",
+   "o": [
+    "El loader influye, pero aun así sobra mucho tiempo del empaquetador mismo",
+    "El tiempo de webpack depende solo del loader elegido y no de otra cosa",
+    "SWC es más lento que Babel cuando se usa con proyectos muy chicos",
+    "esbuild es más rápido porque no minifica el código que entrega al final"
+   ],
+   "c": 0,
+   "e": "Cambiar el loader recortó 2,7 s, pero quedaron 4,26 s, que ya no son del loader. Que dependa «solo» del loader contradice esa diferencia, no se midió ningún caso chico con SWC y esbuild sí minificó en la prueba."
+  },
+  {
+   "p": "Una persona dice: «Pasemos a un monorepo y así el sistema es un monolito más fácil de manejar». ¿Qué le corregirías?",
+   "o": [
+    "Que un monorepo solo es válido si todos los paquetes usan el mismo lenguaje",
+    "Que un monorepo obliga a publicar todos los paquetes juntos en una versión única",
+    "Que un monorepo es un repositorio con varios paquetes, no un único programa",
+    "Que un monorepo reemplaza al empaquetador, por lo que el build deja de hacer falta"
+   ],
+   "c": 2,
+   "e": "Un monorepo comparte el repositorio y la forma de construir, pero cada paquete sigue siendo independiente y puede publicarse o desplegarse por separado. No exige un lenguaje común ni versión única, y el empaquetador sigue siendo necesario."
+  }
+ ],
+ "feynman": "Explicale a alguien de tu depósito, sin jerga, por qué un equipo con tres aplicaciones que comparten piezas puede ahorrar mucha espera con un monorepo y una caché por contenido, y por qué eso no convierte al sistema en un monolito. Usá el ejemplo de la etiqueta de despacho que cambia en un paquete y llega a la app.",
+ "para_profundizar": [
+  {
+   "fuente": "b641-vite-why",
+   "nota": "La guía «Why Vite» explica los dos diseños de servidor de desarrollo y los límites que el propio equipo reconoce. Leé «The Origins» y «Where Vite is Heading» para entender la tabla de hoy."
+  },
+  {
+   "fuente": "b641-turbo-caching",
+   "nota": "Cómo calcula Turborepo la huella de una tarea y qué se guarda en la caché. Es la página que sustenta la tabla de seis corridas."
+  },
+  {
+   "fuente": "b641-webpack-concepts",
+   "nota": "Los conceptos centrales de webpack (entrada, salida, loaders, plugins, modo). Con eso podés leer cualquier webpack.config de un proyecto ajeno."
+  },
+  {
+   "fuente": "b641-esbuild-faq",
+   "nota": "La respuesta a «Why is esbuild fast?» y la sección sobre madurez para producción. Ayuda a no confundir velocidad con ausencia de límites."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Vite por qué es rápido servidor de desarrollo módulos ES explicado",
+   "por_que": "Para ver en movimiento la diferencia entre un servidor con bundle y uno con módulos nativos, que hoy medís en la tabla."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "Vite",
+   "d": "Herramienta de desarrollo y de build para la web. En desarrollo sirve cada módulo por separado al navegador; para producción empaqueta. Desde la versión 8 usa Rolldown como único empaquetador."
+  },
+  {
+   "t": "webpack",
+   "d": "Empaquetador estático de módulos de JavaScript. Parte de uno o más puntos de entrada, arma el grafo de dependencias y lo combina en archivos de salida; los loaders le enseñan a procesar archivos que no son JavaScript."
+  },
+  {
+   "t": "esbuild",
+   "d": "Empaquetador y minificador escrito en Go y compilado a código nativo. Es muy rápido porque no depende de un motor de JavaScript para correr y reparte el trabajo en varios hilos."
+  },
+  {
+   "t": "monorepo",
+   "d": "Un solo repositorio de git que guarda varios paquetes o aplicaciones relacionados, con herramientas que los enlazan y los construyen en el orden correcto. No es un monolito: cada paquete sigue siendo independiente."
+  },
+  {
+   "t": "Rolldown",
+   "d": "Empaquetador escrito en Rust, compatible con la API de plugins de Rollup. Vite 8 lo usa como su único empaquetador, tanto en desarrollo como en producción."
+  },
+  {
+   "t": "Rspack",
+   "d": "Empaquetador escrito en Rust con una API que imita a la de webpack. Sirve para acelerar proyectos con configuración de webpack sin reescribirla del todo."
+  },
+  {
+   "t": "reemplazo en caliente de módulos",
+   "d": "Técnica de los servidores de desarrollo (HMR): al guardar un archivo, el servidor manda al navegador solo el módulo que cambió y la página lo sustituye sin recargarse, conservando su estado."
+  },
+  {
+   "t": "workspaces de npm",
+   "d": "Función de npm que permite declarar, en el package.json de la raíz, qué carpetas son paquetes de un mismo repositorio; npm los instala juntos y los enlaza entre sí en node_modules."
+  }
+ ],
+ "siguiente": "Mañana pasás a otra pregunta práctica: cómo se prueba una interfaz sin recorrerla a mano cada vez, con Testing Library, pruebas de componente y un recorrido completo con Playwright.",
+ "fuentes_nuevas": [
+  {
+   "id": "b641-vite-why",
+   "t": "Why Vite",
+   "a": "Equipo de Vite (VoidZero)",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://vite.dev/guide/why"
+  },
+  {
+   "id": "b641-vite8-anuncio",
+   "t": "Announcing Vite 8",
+   "a": "Equipo de Vite (VoidZero)",
+   "tipo": "articulo",
+   "anio": 2026,
+   "url": "https://vite.dev/blog/announcing-vite8"
+  },
+  {
+   "id": "b641-vite-dep-prebundling",
+   "t": "Dependency Pre-Bundling (Vite)",
+   "a": "Equipo de Vite (VoidZero)",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://vite.dev/guide/dep-pre-bundling"
+  },
+  {
+   "id": "b641-webpack-concepts",
+   "t": "Concepts (webpack)",
+   "a": "Equipo de webpack",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://webpack.js.org/concepts/"
+  },
+  {
+   "id": "b641-esbuild-faq",
+   "t": "FAQ: Why is esbuild fast? (esbuild)",
+   "a": "Evan Wallace",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://esbuild.github.io/faq/"
+  },
+  {
+   "id": "b641-rspack-intro",
+   "t": "Introduction (Rspack)",
+   "a": "Equipo de Rspack",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://rspack.rs/guide/start/introduction"
+  },
+  {
+   "id": "b641-next-turbopack",
+   "t": "Turbopack (documentación de Next.js)",
+   "a": "Vercel",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://nextjs.org/docs/app/api-reference/turbopack"
+  },
+  {
+   "id": "b641-npm-workspaces",
+   "t": "Workspaces (npm CLI v10)",
+   "a": "npm",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.npmjs.com/cli/v10/using-npm/workspaces"
+  },
+  {
+   "id": "b641-turbo-caching",
+   "t": "Caching (Turborepo)",
+   "a": "Vercel",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://turborepo.com/docs/crafting-your-repository/caching"
+  },
+  {
+   "id": "b641-turbo-config",
+   "t": "Configuring turbo.json (Turborepo)",
+   "a": "Vercel",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://turborepo.com/docs/reference/configuration"
+  },
+  {
+   "id": "b641-nx-intro",
+   "t": "What is Nx?",
+   "a": "Nrwl / Nx",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://nx.dev/docs/getting-started/intro"
+  },
+  {
+   "id": "b641-expo-metro",
+   "t": "Customizing Metro (Expo)",
+   "a": "Expo",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.expo.dev/guides/customizing-metro/"
+  }
+ ]
+}
