@@ -115,6 +115,17 @@ arco con la cruz (se leía como una lápida) y el libro con colinas (la senda pa
 https://claude.ai/artifact/RziKMpKvPd5PRsjjHZLY78; archivos en `marcas/logo_2026-11b/finales/` (fuente: `logos.py`). Recomendación:
 la S de camino. Si se cambia, decidirlo antes de pagar el INPI: las marcas mixtas SENDA BIBLIA Y JUEGOS llevan el dibujo.
 
+### 2.8 Controles antes del APK
+
+Validador «Todo en orden» con las 1.625 lecciones; prueba de arranque (31 de 31); auditoría de textos de las 1.143 lecciones nuevas
+con letra grande: 330 portadas con el «cuándo» cortado con «…», arregladas en la pantalla (dos líneas) y vueltas a auditar en cero;
+las 86 pantallas, sin problemas.
+
 ## 3. Próximos
 
-(se completa al cerrar)
+1. Que el fundador pruebe el APK 54 (pendiente «probar54») y elija el logo antes de pagar el INPI (pendiente «logo_eleccion»).
+2. Traducir al portugués y al inglés las rutas nuevas, de a una y enteras (DEC-2026-10-21-2), empezando por las de entrada.
+3. Los visuales que faltan (imperios y reinos helenísticos, Jerusalén del siglo I, la casa y la sinagoga, los hallazgos, la Biblia
+   en español, los géneros y los pactos).
+4. La revisión doctrinal humana de los puntos de §2.6.
+5. La sesión legal exclusiva antes de que la ficha de Play sea pública (DEC-2026-11-10-5).
