@@ -1,0 +1,875 @@
+{
+ "id": "07-04",
+ "titulo": "Node.js por dentro",
+ "bajada": "Un solo hilo atiende mil conexiones y a la vez una ruta de dos segundos las congela a todas: medís por qué, con hilos, llamadas al sistema, streams y workers.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué aporta cada pieza de Node (V8, libuv, módulos) y cuál es el hilo único del que se habla.",
+  "Describir las fases del bucle de eventos de Node y predecir el orden entre código sincrónico, nextTick, promesas, timers e inmediatos.",
+  "Distinguir qué corre en el hilo del bucle y qué en el pool de hilos de libuv, y calcular el efecto del tamaño del pool sobre tareas de CPU.",
+  "Justificar con números el uso de streams y backpressure frente a cargar un archivo entero en memoria.",
+  "Reconocer cuándo una ruta bloquea el bucle y elegir entre esperar con `async`, un worker thread o varios procesos."
+ ],
+ "venis_de": "En [@07-03] el motor de Node aceptó conexiones y llamó a tu código sin que supieras cómo, y en [@03-41] y [@06-14] viste el event loop del lenguaje y del navegador. Hoy abrimos el de Node: qué hay debajo, cuántos hilos usa de verdad y qué lo hace congelarse.",
+ "se_apoya_en": [
+  "07-03",
+  "03-41",
+  "03-40",
+  "06-14",
+  "02-05"
+ ],
+ "gancho": [
+  "Dos datos que parecen incompatibles. Un servidor de Node atendió **mil conexiones abiertas al mismo tiempo con siete hilos**, los mismos siete que tenía sin ninguna. Y en el mismo servidor, **una sola ruta que calcula durante dos segundos congeló a todas las demás durante esos dos segundos**: un pedido que normalmente tarda menos de un milisegundo esperó casi dos segundos completos.",
+  "Los dos hechos son verdaderos y vienen de la misma causa: tu JavaScript corre en un solo hilo, que gira en un bucle y nunca espera. Hoy abrimos la caja, con mediciones hechas en esta VM: qué hilos tiene un proceso de Node, qué dice el kernel cuando llega una conexión, por qué un archivo de 1 GiB no necesita 1 GiB de memoria y qué hacer cuando un cálculo no se puede evitar."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Tres piezas bajo un mismo nombre"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando alguien dice «Node.js» está nombrando un conjunto. Tu programa en JavaScript es lo de arriba; lo que lo ejecuta es **V8**, el motor de JavaScript de Chrome, que se encarga de leer el código, compilarlo y correrlo. La documentación de Node lo dice sin vueltas: V8 ejecuta JavaScript, y todo lo demás (el DOM en un navegador, aquí los archivos y las redes) lo pone el entorno que lo aloja [#nodejs-v8-page]. V8, solo, no sabe abrir un archivo ni escuchar en un puerto.",
+    "Lo que sabe hacer eso es [[libuv]], una biblioteca en C hecha para ofrecer entrada y salida asíncrona en varios sistemas operativos; su documentación aclara que se desarrolló principalmente para Node.js [#dep-libuv-docs]. libuv trae el **bucle de eventos**, sockets TCP y UDP, resolución de DNS, operaciones de archivos y un pool de hilos para lo que el sistema no sabe hacer sin bloquear [#srv0704-libuv-design]. Entre las dos piezas están los módulos de Node (`fs`, `net`, `http`, `stream`, `crypto`…), que son JavaScript con enlaces a C++: cuando llamás `fs.readFile`, el módulo le pide a libuv que haga la lectura y registra una función para cuando termine."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "Tu código",
+     "d": "Tu servidor, tus rutas, tus funciones. Es JavaScript común.",
+     "k": "cliente"
+    },
+    {
+     "n": "Módulos de Node",
+     "d": "`fs`, `net`, `http`, `stream`, `crypto`: la API que usás. JavaScript más enlaces a C++.",
+     "k": "servidor"
+    },
+    {
+     "n": "V8  ·  libuv",
+     "d": "V8 ejecuta el JavaScript. libuv corre el bucle de eventos y el pool de hilos, y habla con el kernel.",
+     "k": "datos"
+    },
+    {
+     "n": "Sistema operativo",
+     "d": "Sockets, archivos, `epoll` (el aviso de «hay datos»), hilos del kernel.",
+     "k": "os"
+    }
+   ],
+   "cap": "Las capas de Node. En esta parte y en las siguientes, casi todo pasa en las dos de arriba."
+  },
+  {
+   "t": "p",
+   "x": "Cada versión de Node empaqueta versiones concretas de cada pieza. Se ven en `process.versions`, y lo que está abajo es lo que corrí en esta VM, con la versión que traía instalada (22) y con la 26, la más nueva al 13 de noviembre de 2026:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node -e \"const v=process.versions; console.log(v.node, v.v8, v.uv, v.llhttp)\"",
+     "s": "22.23.4  12.4.254.21-node.57  1.51.0  9.4.3"
+    },
+    {
+     "c": "./node26 -e \"const v=process.versions; console.log(v.node, v.v8, v.uv, v.llhttp)\"",
+     "s": "26.13.1  14.6.202.34-node.40  1.52.1  9.4.4"
+    }
+   ],
+   "cap": "Salida real. `llhttp` es el parser de HTTP que ya viste en [@07-03]. Instalé la 26 en un directorio aparte con `npm install node@26` solo para esta comparación."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Pensalo como el mostrador de despacho de un depósito. V8 es la persona que lee las órdenes y decide qué hacer paso a paso. libuv es el sistema de timbres, cintas y avisos que le dice cuándo llegó un camión y le permite dejar tareas pesadas en manos del personal del fondo (el pool de hilos), sin quedarse mirando.",
+    "La analogía falla en esto: en un depósito real quien despacha puede ayudar a descargar. Acá, el hilo que ejecuta tu JavaScript solo puede hacer una cosa a la vez, y si se pone a «descargar» él mismo, nadie más es atendido."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Mirá el diagrama de capas. Si un día tu servidor de Node pierde conexiones porque el sistema operativo se quedó sin descriptores de archivo, ¿en qué capa buscarías la causa primero: en V8, en libuv o en el kernel?",
+   "resp": "En el kernel (el sistema operativo) y en cómo lo usa libuv. Los descriptores de archivo (los números con que el sistema identifica cada archivo o socket abierto) son un recurso del sistema operativo, y libuv es quien abre y cierra los sockets. V8 solo ejecuta tu JavaScript y no sabe de descriptores; un código tuyo que no cierra conexiones sí podría ser el culpable, pero la evidencia se lee en el sistema."
+  },
+  {
+   "t": "h",
+   "x": "Un hilo para tu código, otros alrededor"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La frase conocida es «Node es de un solo hilo». El [[hilo único]] es el que ejecuta tu JavaScript: en cualquier momento, un solo trozo de tu código está corriendo. La introducción oficial lo expresa así: una aplicación Node corre en un solo proceso, sin crear un hilo nuevo por cada pedido [#nodejs-intro-v8]. Pero el proceso en sí tiene más hilos. Se pueden contar, porque Linux los lista en `/proc/PID/task` ([@02-04], [@02-05]). Este programa los cuenta antes y después de pedir ocho cálculos de contraseña en paralelo (`crypto.pbkdf2`):"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const fs = require('node:fs');\nconst crypto = require('node:crypto');\n\nfunction hilos(etiqueta) {\n  const nombres = fs.readdirSync('/proc/self/task').map((t) => fs.readFileSync(`/proc/self/task/${t}/comm`, 'utf8').trim());\n  const resumen = {};\n  for (const n of nombres) resumen[n] = (resumen[n] || 0) + 1;\n  console.log(`${etiqueta}: ${nombres.length} hilos`, resumen);\n}\n\nhilos('al arrancar');\nlet hechos = 0;\nfor (let i = 0; i < 8; i++) {\n  crypto.pbkdf2('clave-de-practica', 'sal', 200000, 32, 'sha512', () => {\n    if (++hechos === 8) hilos('después de 8 pbkdf2 en paralelo');\n  });\n}\nsetTimeout(() => hilos('mientras las 8 siguen en marcha'), 20);",
+   "cap": "`hilos.js`: lista los hilos del propio proceso y su nombre, leídos de `/proc/self/task/<id>/comm`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node hilos.js  # Node 22.23.4",
+     "s": "al arrancar: 7 hilos { node: 6, DelayedTaskSche: 1 }\nmientras las 8 siguen en marcha: 11 hilos { node: 6, DelayedTaskSche: 1, 'libuv-worker': 4 }"
+    },
+    {
+     "c": "./node26 hilos.js  # Node 26.13.1",
+     "s": "al arrancar: 7 hilos { 'node-MainThread': 1, DelayedTaskSche: 1, 'node-V8Worker': 4, SignalInspector: 1 }\nmientras las 8 siguen en marcha: 11 hilos { ..., 'libuv-worker': 4 }"
+    },
+    {
+     "c": "UV_THREADPOOL_SIZE=8 node hilos.js",
+     "s": "al arrancar: 7 hilos { node: 6, DelayedTaskSche: 1 }\nmientras las 8 siguen en marcha: 15 hilos { node: 6, DelayedTaskSche: 1, 'libuv-worker': 8 }"
+    }
+   ],
+   "cap": "Salida real. Node 22 llama «node» a seis hilos distintos; Node 26 les pone nombre, y eso permite ver quién es quién. Los `libuv-worker` aparecen recién con el primer uso del pool."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Hilo (Node 26)",
+    "Cantidad",
+    "Qué hace"
+   ],
+   "filas": [
+    [
+     "`node-MainThread`",
+     "1",
+     "Ejecuta tu JavaScript y el bucle de eventos. Es «el hilo único»."
+    ],
+    [
+     "`node-V8Worker`",
+     "4",
+     "Trabajos de fondo de V8 (por ejemplo, recolección de basura y compilación). La documentación de `--v8-pool-size` los describe como el pool de V8 para trabajos en segundo plano [#srv0704-node-cli]."
+    ],
+    [
+     "`DelayedTaskSche`",
+     "1",
+     "Agenda tareas diferidas de la plataforma de V8 (por su nombre: «Delayed Task Scheduler»)."
+    ],
+    [
+     "`SignalInspector`",
+     "1",
+     "Atiende la señal que enciende el inspector, la herramienta de depuración."
+    ],
+    [
+     "`libuv-worker`",
+     "4 por defecto",
+     "El pool de hilos de libuv. No existen hasta que algo los usa."
+    ]
+   ],
+   "cap": "Los 7 hilos del arranque y los 4 del pool. El hilo único es solo uno de once; los demás no ejecutan tu JavaScript."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": [
+    "«Node es de un solo hilo, así que solo usa un núcleo del procesador.» Durante los cálculos de contraseña, el pool de libuv usó los cuatro núcleos de la VM a la vez (lo medimos más abajo). Lo que va en un solo hilo es **tu JavaScript**; el motor, el pool y el sistema operativo trabajan alrededor.",
+    "La frase correcta es «tu código JavaScript corre en un solo hilo». Ese límite importa más que la cantidad de núcleos que use el proceso."
+   ],
+   "titulo": "Un hilo no es un núcleo"
+  },
+  {
+   "t": "p",
+   "x": "Si hay un solo hilo para tu código, ¿cómo atiende a miles de clientes? Probé con 1.000 conexiones simultáneas contra un servidor que responde a los 2 segundos. Medí hilos, descriptores abiertos (`ls /proc/PID/fd`) y memoria antes y durante:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# servidor de la sección «Cuando una ruta bloquea a todas», ruta /espera",
+     "s": ""
+    },
+    {
+     "c": "antes:",
+     "s": "7 hilos, 22 descriptores abiertos, RSS 47 MiB"
+    },
+    {
+     "c": "node muchas.js 1000 19084   # 1000 clientes conectados a la vez",
+     "s": "con 1000 conexiones en espera: 7 hilos, 1022 descriptores abiertos, RSS 64 MiB\ncliente: 1000 respuestas completas en 2174 ms"
+    }
+   ],
+   "cap": "Salida real, una sola VM. Siete hilos antes y siete durante: las 1.000 conexiones no crearon ningún hilo. Costaron 17 MiB de memoria, más o menos 17 KiB por conexión (estimación: la diferencia de RSS dividida por 1.000)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las mil conexiones se atienden con un solo hilo porque casi todo el tiempo no hay nada que hacer: están esperando. El hilo único no se queda parado sobre cada una; le pide al kernel (a través de libuv) que lo despierte cuando alguna tenga algo para leer o escribir. Ese servicio del kernel en Linux se llama `epoll`.",
+    "Se ve en una traza de [[llamada al sistema|llamadas al sistema]] ([@02-02]). Con `strace` seguí el hilo principal de un servidor de Node mientras `curl` le pedía una sola página:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "strace -tt -p $PID -e trace=epoll_pwait,accept4,epoll_ctl,read,writev,close",
+     "s": "epoll_pwait(15, [{events=EPOLLIN, data={u32=21}}], 1024, 29421, NULL, 8) = 1\naccept4(21, NULL, NULL, SOCK_CLOEXEC|SOCK_NONBLOCK) = 22\nepoll_pwait(15, [{events=EPOLLIN, data={u32=22}}], 1024, 0, NULL, 8) = 1\nread(22, \"GET / HTTP/1.1\\r\\nHost: 127.0.0.1:\"..., 65536) = 78\nwritev(22, [{iov_base=\"HTTP/1.1 200 OK\\r\\nDate: Fri, 13 N\"..., iov_len=134}, ...], 2) = 134\nepoll_pwait(15, [{events=EPOLLIN, data={u32=22}}], 1024, 0, NULL, 8) = 1\nread(22, \"\", 65536) = 0\nepoll_ctl(15, EPOLL_CTL_DEL, 22, ...) = 0\nclose(22) = 0"
+    }
+   ],
+   "cap": "Salida real, acortada (saqué con `grep -v TZif` las lecturas de datos de zona horaria que hace para la cabecera `Date`). El 15 es el descriptor de `epoll`, el 21 es el socket que escucha y el 22 es la conexión de `curl`."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Cómo leer la traza",
+   "pasos": [
+    {
+     "t": "epoll_pwait en reposo",
+     "x": "El hilo estaba dormido dentro de `epoll_pwait`, esperando eventos sobre el descriptor 15 durante hasta 29.421 ms (el tiempo hasta el próximo temporizador pendiente). Despertó porque el descriptor 21, el socket que escucha, estaba listo para leer: llegó una conexión."
+    },
+    {
+     "t": "accept4",
+     "x": "Acepta la conexión y obtiene el descriptor 22. Fijate en `SOCK_NONBLOCK`: el socket es no bloqueante, nunca va a dejar al hilo esperando dentro de un `read`."
+    },
+    {
+     "t": "read, writev",
+     "x": "Con el aviso de que el 22 tiene datos, lee hasta 65.536 bytes (el tamaño del trozo de los streams que vas a ver en un rato): llegaron 78, el pedido entero. Ejecuta tu callback y escribe la respuesta con `writev`."
+    },
+    {
+     "t": "read de 0 bytes, close",
+     "x": "Un `read` que devuelve 0 es el cliente avisando que cerró. El hilo saca el descriptor del `epoll` y lo cierra. Todo el recorrido llevó unos 13 ms con `strace` encima, que enlentece."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Esa es la receta, y se llamaba **problema C10K**: cómo atender diez mil clientes a la vez en una sola máquina. Dan Kegel lo planteó en una página que mantuvo durante años y en la que repasa las estrategias posibles: un hilo por cliente, o muchos clientes por hilo con E/S no bloqueante y avisos de que un descriptor está listo [#srv0704-c10k]. Node pone esa idea en la base del lenguaje: tu código nunca espera, deja una función para cuando llegue el aviso. Es lo que viste en [@03-41] con callbacks, promesas y `async/await`."
+  },
+  {
+   "t": "h",
+   "x": "El bucle de eventos de Node, fase por fase"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El **[[bucle de eventos de Node]]** es el ciclo que libuv repite sin parar: mira si hay trabajo listo, ejecuta los callbacks correspondientes y vuelve a empezar. Ya viste el [[event loop]] en general y el del navegador ([@06-14]). El de Node tiene el mismo principio, pero con **fases**, y esa organización explica órdenes de ejecución que parecen caprichosos. Una vuelta completa, según la documentación de libuv [#srv0704-libuv-design]:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "1. Timers",
+       "s": "callbacks de setTimeout y setInterval vencidos",
+       "k": "cliente"
+      },
+      {
+       "t": "2. Pending callbacks",
+       "s": "algunos callbacks de E/S diferidos",
+       "k": "neutro",
+       "e": "después"
+      },
+      {
+       "t": "3. Idle, prepare",
+       "s": "uso interno de libuv",
+       "k": "neutro",
+       "e": "después"
+      }
+     ]
+    },
+    {
+     "nodos": [
+      {
+       "t": "4. Poll",
+       "s": "espera E/S (epoll) y ejecuta sus callbacks",
+       "k": "servidor",
+       "e": "después"
+      },
+      {
+       "t": "5. Check",
+       "s": "callbacks de setImmediate",
+       "k": "datos",
+       "e": "después"
+      },
+      {
+       "t": "6. Close callbacks",
+       "s": "cierre de sockets y handles",
+       "k": "red",
+       "e": "después"
+      }
+     ],
+     "baja": "Y vuelve al paso 1, si queda algo vivo (un servidor escuchando, un timer pendiente…)"
+    }
+   ],
+   "cap": "Las fases del bucle de eventos (libuv y la documentación de Node). Entre callback y callback, Node vacía las colas de `process.nextTick` y de promesas, que no son una fase."
+  },
+  {
+   "t": "p",
+   "x": "Lo que hay que retener: **poll** es donde el servidor pasa casi toda la vida (esperando E/S), **timers** corre los temporizadores vencidos y **check** corre los `setImmediate`, justo después de poll. La cola de `process.nextTick` no es una fase: Node la vacía después de cada operación, antes de seguir, y las promesas resueltas (microtareas) se vacían a continuación [#asincronia-node-event-loop]. Para ver todo junto, un programa con una de cada una:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const fs = require('node:fs');\n\nconsole.log('sincrónico: inicio');\nsetTimeout(() => console.log('timers: setTimeout 0'), 0);\nsetImmediate(() => console.log('check: setImmediate'));\nfs.readFile(__filename, () => {\n  console.log('poll: terminó readFile');\n  setTimeout(() => console.log('timers: setTimeout 0 pedido desde ese callback'), 0);\n  setImmediate(() => console.log('check: setImmediate pedido desde ese callback'));\n});\nPromise.resolve().then(() => console.log('microtarea: promesa resuelta'));\nprocess.nextTick(() => console.log('nextTick'));\nconsole.log('sincrónico: fin');",
+   "cap": "`fases.js`: una instrucción sincrónica, un timer, un `setImmediate`, una lectura de archivo, una promesa y un `nextTick`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node fases.js",
+     "s": "sincrónico: inicio\nsincrónico: fin\nnextTick\nmicrotarea: promesa resuelta\ntimers: setTimeout 0\ncheck: setImmediate\npoll: terminó readFile\ncheck: setImmediate pedido desde ese callback\ntimers: setTimeout 0 pedido desde ese callback"
+    },
+    {
+     "c": "for i in $(seq 1 100); do node -e \"setTimeout(()=>console.log('timeout primero'),0); setImmediate(()=>console.log('immediate primero'))\" | head -1; done | sort | uniq -c",
+     "s": "     96 immediate primero\n      4 timeout primero"
+    }
+   ],
+   "cap": "Salida real, Node 22.23.4. Con Node 26.13.1 el reparto fue 98 contra 2. En 50 corridas, dentro de un callback de lectura, `setImmediate` salió primero 50 de 50 veces, en las dos versiones."
+  },
+  {
+   "t": "p",
+   "x": "Los resultados tienen tres grados de certeza. Lo **garantizado**: el código sincrónico termina primero, después `nextTick` y después las promesas. Lo **estructural**: desde un callback de E/S (fase poll), el siguiente paso es check, así que `setImmediate` siempre sale antes que un `setTimeout 0` (50 de 50). Lo **variable**: desde el módulo principal, `setTimeout 0` (que en realidad es 1 ms) y `setImmediate` pueden salir en cualquier orden, según lo que tarde el programa en llegar al bucle; la documentación de Node lo advierte y acá cayó 96 y 4 de cada 100 [#asincronia-node-event-loop]."
+  },
+  {
+   "t": "p",
+   "x": "Para tocar el mecanismo con las manos, este modelo de 40 líneas reproduce las fases con colas y un reloj simulado. No es Node, es su forma. Corrélo, y después cambiá `RETRASO_ARRANQUE` de 0 a 2 y fijate qué pasa con el orden de `setTimeout` y `setImmediate`:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Un modelo mínimo del bucle de eventos de Node: no es Node, solo la forma de sus fases.\nconst RETRASO_ARRANQUE = 0;      // ms que tarda el programa en llegar al bucle (probá 0 y 2)\n\nlet ahora = 0;                   // reloj simulado, en ms\nconst timers = [], listosIO = [], inmediatos = [], ticks = [], micro = [];\nconst log = (t) => console.log(String(ahora).padStart(2) + ' ms  ' + t);\n\n// la API que ve tu código\nconst setTimeoutSim = (f, ms) => timers.push({ cuando: ahora + Math.max(1, ms), f });\nconst setImmediateSim = (f) => inmediatos.push(f);\nconst nextTickSim = (f) => ticks.push(f);\nconst promesaSim = (f) => micro.push(f);\nconst leerArchivoSim = (f) => listosIO.push({ cuando: ahora + 3, f });   // «el disco tarda 3 ms»\n\n// entre un callback y el siguiente se vacían primero nextTick y después las microtareas\nfunction vaciarColas() {\n  while (ticks.length || micro.length) {\n    while (ticks.length) ticks.shift()();\n    while (micro.length) micro.shift()();\n  }\n}\nfunction correr(f) { f(); vaciarColas(); }\n\n// --- tu programa ---\nlog('código sincrónico: inicio');\nsetTimeoutSim(() => log('timers: setTimeout 0'), 0);\nsetImmediateSim(() => log('check: setImmediate'));\nleerArchivoSim(() => {\n  log('poll: terminó la lectura del archivo');\n  setTimeoutSim(() => log('timers: setTimeout 0 pedido desde la lectura'), 0);\n  setImmediateSim(() => log('check: setImmediate pedido desde la lectura'));\n});\npromesaSim(() => log('microtarea: promesa'));\nnextTickSim(() => log('nextTick'));\nlog('código sincrónico: fin');\nvaciarColas();\n\n// --- el bucle ---\nahora += RETRASO_ARRANQUE;\nwhile (timers.length || listosIO.length || inmediatos.length) {\n  // 1. timers: los vencidos\n  timers.sort((a, b) => a.cuando - b.cuando);\n  while (timers.length && timers[0].cuando <= ahora) correr(timers.shift().f);\n  // 2. poll: la E/S que ya terminó\n  for (const e of listosIO.filter((e) => e.cuando <= ahora)) { listosIO.splice(listosIO.indexOf(e), 1); correr(e.f); }\n  // 3. check: los setImmediate de esta vuelta\n  for (const f of inmediatos.splice(0)) correr(f);\n  ahora += 1;                    // pasa el tiempo\n}",
+   "cap": "Un modelo del bucle: tres fases (timers, poll, check), `nextTick` y microtareas entre callbacks, y un reloj que avanza 1 ms por vuelta. Con retraso 0 sale `setImmediate` primero; con 2, `setTimeout` primero.",
+   "ejecutable": true
+  },
+  {
+   "t": "pensa",
+   "x": "En el modelo, ¿por qué con `RETRASO_ARRANQUE = 2` el `setTimeout 0` pasa a salir antes que el `setImmediate`, si el `setImmediate` se pidió en la misma pasada?",
+   "resp": "Porque cuando el bucle arranca, el reloj ya avanzó 2 ms y el timer (que vence a 1 ms) ya está vencido, así que la fase de timers lo corre primero. Con retraso 0 el timer todavía no venció en la primera vuelta, la fase check corre el `setImmediate`, y el timer sale en la vuelta siguiente. En Node real pasa lo mismo: depende de cuánto tarde el proceso en llegar al bucle."
+  },
+  {
+   "t": "h",
+   "x": "El pool de hilos de libuv: lo que no tiene aviso del kernel"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El `epoll` sirve para sockets. Para otras cosas el sistema operativo no ofrece un aviso asíncrono cómodo, y libuv usa el **[[pool de hilos de libuv]]**: un grupo de hilos que ejecutan operaciones bloqueantes en segundo plano y avisan al bucle cuando terminan. La documentación de libuv enumera qué corre ahí: las operaciones del sistema de archivos, las resoluciones de DNS (`getaddrinfo` y `getnameinfo`) y el código que cada programa le encargue [#srv0704-libuv-design]. Node suma sus propias tareas pesadas, como las de `crypto` (el `pbkdf2` de arriba) y `zlib`. La entrada y salida de red, en cambio, siempre pasa por el hilo del bucle [#srv0704-libuv-design].",
+    "El tamaño por defecto es **4** y se cambia con la variable de entorno `UV_THREADPOOL_SIZE`, hasta un máximo de 1024 [#srv0704-libuv-threadpool]. Lo medí: una tarea de `pbkdf2` (≈130 ms de CPU) lanzada 1, 4, 5 y 8 veces a la vez. La VM tiene 4 núcleos."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const crypto = require('node:crypto');\nconst N = Number(process.argv[2]);\nconst t0 = performance.now();\nlet hechos = 0;\nfor (let i = 0; i < N; i++) {\n  crypto.pbkdf2('clave-de-practica', 'sal', 300000, 32, 'sha512', () => {\n    console.log(`  tarea ${i + 1} lista a los ${Math.round(performance.now() - t0)} ms`);\n    if (++hechos === N) console.log(`  las ${N} terminaron a los ${Math.round(performance.now() - t0)} ms`);\n  });\n}",
+   "cap": "`pool.js`: lanza N tareas de `pbkdf2` a la vez y mide cuándo termina la última."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tareas a la vez",
+    "Pool de 4 (por defecto)",
+    "Pool de 8"
+   ],
+   "filas": [
+    [
+     "1",
+     "128 a 157 ms",
+     "—"
+    ],
+    [
+     "4",
+     "131 a 187 ms",
+     "—"
+    ],
+    [
+     "5",
+     "253 a 261 ms",
+     "—"
+    ],
+    [
+     "8",
+     "266 a 312 ms",
+     "265 a 287 ms"
+    ]
+   ],
+   "cap": "Tiempo hasta que termina la última tarea, mínimo y máximo de 5 corridas en Node 22.23.4 sobre una VM de 4 núcleos (estas medidas son de una sola máquina y se mueven de una corrida a otra). Con Node 26 salió lo mismo: 119-129, 167-202, 243-267 y 269-321 ms."
+  },
+  {
+   "t": "p",
+   "x": "La tabla cuenta una historia en escalones. Una tarea tarda lo que tarda. Cuatro, en paralelo, casi lo mismo, porque hay 4 hilos y 4 núcleos. La quinta no entra: espera a que se libere un hilo, y el total salta a unos 255 ms, **dos tandas**. Ocho tareas son dos tandas completas. Subir el pool a 8 no ayuda: con solo 4 núcleos, los 8 hilos se reparten el mismo procesador y el tiempo es el mismo (265-287 ms)."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": [
+    "El pool de hilos es **compartido** por el sistema de archivos, el DNS y la criptografía de todo el proceso. Si una ráfaga de operaciones de disco lentas ocupa los cuatro hilos, una resolución de DNS tiene que esperar su turno aunque no tenga nada que ver con el disco. Es una consecuencia directa de lo que dicen los documentos (un único pool para todo), no algo que haya medido acá.",
+    "Y para trabajo de CPU puro, como `pbkdf2`, un pool más grande que la cantidad de núcleos no acelera nada: lo mide la última fila de la tabla."
+   ],
+   "titulo": "El pool es una fila de espera, no un atajo"
+  },
+  {
+   "t": "h",
+   "x": "Streams: procesar sin cargarlo todo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un **[[stream]]** es una secuencia de datos que se procesa por trozos a medida que llega, en vez de esperar a tenerla completa. En Node hay cuatro formas: de lectura (`Readable`), de escritura (`Writable`), de transformación (`Transform`) y de doble sentido (`Duplex`, como un socket) [#srv0704-node-stream]. Los sockets, las solicitudes y respuestas HTTP, los archivos abiertos con `createReadStream` y la salida de un proceso hijo son streams.",
+    "Para ver qué cambia, calculé el hash SHA-256 de un archivo de 1 GiB de dos maneras. Primero cargándolo entero en memoria; después leyéndolo por trozos y pasándoselos al hash con `pipeline`, que conecta streams y cierra todo si hay un error:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const fs = require('node:fs');\nconst crypto = require('node:crypto');\nconst t0 = performance.now();\nconst datos = fs.readFileSync(process.argv[2]);                  // todo el archivo en memoria\nconst hash = crypto.createHash('sha256').update(datos).digest('hex');\nconsole.log('modo: archivo entero');\nconsole.log('sha256:', hash.slice(0, 16) + '…');\nconsole.log('tiempo:', Math.round(performance.now() - t0), 'ms');\nconsole.log('memoria máxima (RSS):', Math.round(process.resourceUsage().maxRSS / 1024), 'MiB');",
+   "cap": "`entero.js`: lee todo el archivo con `readFileSync` y recién ahí calcula el hash."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const fs = require('node:fs');\nconst crypto = require('node:crypto');\nconst { pipeline } = require('node:stream/promises');\nconst t0 = performance.now();\nconst hash = crypto.createHash('sha256');\nlet trozos = 0, primero = 0;\nconst lectura = fs.createReadStream(process.argv[2]);\nlectura.on('data', (t) => { if (!trozos++) primero = t.length; });\npipeline(lectura, hash).then(() => {\n  console.log('modo: stream');\n  console.log('sha256:', hash.digest('hex').slice(0, 16) + '…');\n  console.log(`trozos: ${trozos} de ${primero} bytes`);\n  console.log('tiempo:', Math.round(performance.now() - t0), 'ms');\n  console.log('memoria máxima (RSS):', Math.round(process.resourceUsage().maxRSS / 1024), 'MiB');\n});",
+   "cap": "`trozos.js`: el mismo hash, leyendo el archivo como stream y contando los trozos que pasan."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node entero.js grande.bin",
+     "s": "modo: archivo entero\nsha256: 49bc20df15e412a6…\ntiempo: 1957 ms\nmemoria máxima (RSS): 1069 MiB"
+    },
+    {
+     "c": "node trozos.js grande.bin",
+     "s": "modo: stream\nsha256: 49bc20df15e412a6…\ntrozos: 16384 de 65536 bytes\ntiempo: 1449 ms\nmemoria máxima (RSS): 87 MiB"
+    },
+    {
+     "c": "truncate -s 3G enorme.bin && node entero.js enorme.bin",
+     "s": "RangeError [ERR_FS_FILE_TOO_LARGE]: File size (3221225472) is greater than 2 GiB"
+    },
+    {
+     "c": "node trozos.js enorme.bin",
+     "s": "modo: stream\nsha256: 305b66a59d15b252…\ntrozos: 49152 de 65536 bytes\ntiempo: 8624 ms\nmemoria máxima (RSS): 88 MiB"
+    }
+   ],
+   "cap": "Salida real, Node 22.23.4. El archivo de 1 GiB está lleno de ceros; el de 3 GiB es un archivo «ralo» (`truncate`) sin datos reales, que sirve para el punto de la memoria y no para comparar tiempos. Cuatro corridas del modo entero dieron 1,9 a 2,7 s y las del modo stream, 1,4 a 1,7 s. Un proceso Node vacío ya ocupa unos 42 MiB."
+  },
+  {
+   "t": "p",
+   "x": "Los números hablan. El archivo entero ocupa casi 1 GiB de memoria (más que el archivo, por los 42 MiB base del proceso), el stream menos de 90 MiB, y además fue **más rápido**. El segundo experimento muestra el límite: `readFile` se rehúsa a cargar archivos de más de 2 GiB, y el stream hasheó 3 GiB con 88 MiB de memoria, trozo a trozo, de a 64 KiB. Por eso un servidor que sube o baja archivos grandes tiene que usar streams: la memoria queda proporcional al trozo y no al archivo."
+  },
+  {
+   "t": "h",
+   "x": "Backpressure: cuando el destino es más lento que el origen"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Falta un detalle importante. ¿Qué pasa si el origen lee más rápido que lo que el destino puede escribir, por ejemplo un archivo de disco veloz y un cliente con una conexión lenta? Los datos se acumulan en la memoria del servidor. El mecanismo que lo evita se llama **[[backpressure]]** (contrapresión): el destino avisa «frená, estoy lleno» y el origen espera.",
+    "En Node, `writable.write(trozo)` devuelve `true` mientras el buffer interno esté por debajo del `highWaterMark`; cuando devuelve `false`, la documentación pide dejar de escribir hasta que se emita el evento `drain` [#srv0704-node-stream]. `pipeline` hace esa coordinación solo. Para verla, escribí un destino lento (1 ms por trozo) y un productor que le manda 3.200 trozos de 64 KiB, o sea 200 MiB, de dos maneras: ignorando el `false` y respetándolo:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const { Writable } = require('node:stream');\nconst { once } = require('node:events');\n\nconst MODO = process.argv[2];                 // 'ignora' o 'respeta'\nconst TROZOS = 3200;                          // 3200 trozos de 64 KiB = 200 MiB\n\n// un destino lento: tarda 1 ms en «procesar» cada trozo (como una red o un disco lento)\nconst destino = new Writable({\n  write(_t, _enc, listo) { setTimeout(listo, 1); },\n});\n\nlet maxEnCola = 0, dijoBasta = 0;\n(async () => {\n  const t0 = performance.now();\n  for (let i = 0; i < TROZOS; i++) {\n    const cabeEnElBuffer = destino.write(Buffer.alloc(64 * 1024, 'x'));   // un trozo nuevo por vuelta\n    maxEnCola = Math.max(maxEnCola, destino.writableLength);\n    if (!cabeEnElBuffer) {\n      dijoBasta++;\n      if (MODO === 'respeta') await once(destino, 'drain');   // esperar a que se vacíe\n    }\n  }\n  destino.end();\n  await once(destino, 'finish');\n  console.log(`modo ${MODO}: write() devolvió false ${dijoBasta} veces`);\n  console.log(`  máximo acumulado en el buffer del stream: ${(maxEnCola / 1024 / 1024).toFixed(1)} MiB (límite de aviso: ${destino.writableHighWaterMark / 1024} KiB)`);\n  console.log(`  memoria máxima (RSS): ${Math.round(process.resourceUsage().maxRSS / 1024)} MiB, tiempo total ${Math.round(performance.now() - t0)} ms`);\n})();",
+   "cap": "`backpressure.js`: un productor veloz y un destino lento. En modo `respeta` espera `drain` cada vez que `write()` devuelve `false`; en modo `ignora`, sigue escribiendo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node backpressure.js ignora",
+     "s": "modo ignora: write() devolvió false 3200 veces\n  máximo acumulado en el buffer del stream: 200.0 MiB (límite de aviso: 64 KiB)\n  memoria máxima (RSS): 256 MiB, tiempo total 3678 ms"
+    },
+    {
+     "c": "node backpressure.js respeta",
+     "s": "modo respeta: write() devolvió false 3200 veces\n  máximo acumulado en el buffer del stream: 0.1 MiB (límite de aviso: 64 KiB)\n  memoria máxima (RSS): 73 MiB, tiempo total 3628 ms"
+    }
+   ],
+   "cap": "Salida real, Node 22.23.4. Con Node 26.13.1, 259 MiB y 73 MiB. El aviso no obliga a nada: `write()` sigue aceptando trozos después de devolver `false`, y por eso, ignorándolo, el buffer llegó a los 200 MiB."
+  },
+  {
+   "t": "p",
+   "x": "Las dos corridas escriben lo mismo, tardan lo mismo (el cuello de botella es el destino) y se diferencian solo en la memoria: 256 MiB contra 73. El `false` es una señal que el código tiene que respetar. Si el destino fuera la conexión de un usuario con mala señal, y el servidor tuviera cien usuarios así, ignorar el aviso se traduciría en gigabytes acumulados por cuenta de un solo cliente lento."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Es el aviso de «dársena llena» en un depósito: si el camión que sale no puede cargar más rápido, el que descarga tiene que frenar la cinta, porque si no, la mercadería se apila en el playón hasta que no entra más.",
+    "La analogía no incluye que en Node ese freno es un acuerdo entre funciones: nada lo impone. Si el código ignora el `false`, la cinta sigue andando y la memoria crece, como medimos."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": [
+    "El `highWaterMark` por defecto de los streams de bytes pasó de 16 KiB a **64 KiB** en Node 22.0.0, salvo en Windows, donde sigue en 16 KiB; en modo objeto es 16 objetos [#srv0704-node-stream]. Documentación consultada el 13 de noviembre de 2026 y comprobada en 22.23.4 y 26.13.1 (`writableHighWaterMark` = 65536). Con Node 20 o anteriores, el límite es otro."
+   ],
+   "titulo": "Valor por defecto de los streams"
+  },
+  {
+   "t": "h",
+   "x": "Cuando una ruta bloquea a todas"
+  },
+  {
+   "t": "p",
+   "x": "El hilo único tiene un costo, y es el que hace que este día sea importante para quien decide cómo armar un backend. Si tu JavaScript tarda 2 segundos en calcular algo, durante esos 2 segundos el bucle de eventos **no gira**: no acepta conexiones, no lee pedidos, no ejecuta ningún otro callback. Probé con un servidor de cuatro rutas:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// fib(42) recursivo: ~2 segundos de CPU pura en esta VM\nfunction fib(n) { return n < 2 ? n : fib(n - 1) + fib(n - 2); }\nmodule.exports = { fib };",
+   "cap": "`calculo.js`: `fib(42)` recursivo, unos 2 segundos de CPU pura en esta VM. Se reutiliza abajo."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const http = require('node:http');\nconst { Worker } = require('node:worker_threads');\nconst { monitorEventLoopDelay } = require('node:perf_hooks');\nconst { fib } = require('./calculo.js');\n\nconst PUERTO = Number(process.env.PUERTO || 19084);\nconst retraso = monitorEventLoopDelay({ resolution: 10 });\nretraso.enable();\n\nconst json = (res, cuerpo) => {\n  res.writeHead(200, { 'Content-Type': 'application/json' });\n  res.end(JSON.stringify({ pid: process.pid, ...cuerpo }));\n};\n\nhttp.createServer((req, res) => {\n  const t0 = performance.now();\n  if (req.url === '/rapida') return json(res, { ruta: 'rapida' });\n\n  if (req.url === '/lenta') {                         // cálculo en el hilo principal\n    return json(res, { ruta: 'lenta', resultado: fib(42), ms: Math.round(performance.now() - t0) });\n  }\n  if (req.url === '/espera') {                        // lenta, pero esperando (no calcula)\n    return setTimeout(() => json(res, { ruta: 'espera', ms: Math.round(performance.now() - t0) }), 2000);\n  }\n  if (req.url === '/worker') {                        // el mismo cálculo, en otro hilo\n    const w = new Worker(require.resolve('./trabajador.js'), { workerData: 42 });\n    return w.once('message', (r) => json(res, { ruta: 'worker', resultado: r, ms: Math.round(performance.now() - t0) }));\n  }\n  if (req.url === '/retraso') {                       // cuánto se atrasó el bucle de eventos\n    const r = { maxMs: +(retraso.max / 1e6).toFixed(0), p99Ms: +(retraso.percentile(99) / 1e6).toFixed(0) };\n    retraso.reset();\n    return json(res, { ruta: 'retraso', ...r });\n  }\n  res.writeHead(404).end();\n}).listen(PUERTO, '127.0.0.1', () => console.log(`pid ${process.pid} escuchando en ${PUERTO}`));",
+   "cap": "`bloqueo.js`: `/rapida` responde enseguida; `/lenta` calcula en el hilo principal; `/espera` espera 2 s sin calcular; `/worker` hace el mismo cálculo en otro hilo."
+  },
+  {
+   "t": "p",
+   "x": "Para cada ruta lenta lancé ese pedido en el segundo 0 y, mientras estaba en curso, tres pedidos a `/rapida` en los segundos 0,2, 0,4 y 0,6. Un `/rapida` responde en una fracción de milisegundo si el servidor está libre:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Ruta lenta en curso",
+    "Ella respondió tras",
+    "/rapida pedida a 0,2 s",
+    "a 0,4 s",
+    "a 0,6 s"
+   ],
+   "filas": [
+    [
+     "`/lenta` (calcula en el hilo)",
+     "2,08 s",
+     "1,88 s",
+     "1,68 s",
+     "1,48 s"
+    ],
+    [
+     "`/espera` (espera con un timer)",
+     "2,00 s",
+     "0,5 ms",
+     "0,6 ms",
+     "0,7 ms"
+    ],
+    [
+     "`/worker` (calcula en otro hilo)",
+     "2,05 s",
+     "1,1 ms",
+     "0,6 ms",
+     "0,7 ms"
+    ]
+   ],
+   "cap": "Tiempos reales de una corrida, en una sola VM, medidos con `curl -w %{time_total}`. Con `/lenta`, cada `/rapida` espera exactamente lo que le falta a la lenta para terminar."
+  },
+  {
+   "t": "p",
+   "x": "La primera fila es el problema: un pedido de 2 segundos congeló a todos los demás durante 2 segundos, y cada uno esperó lo que quedaba del cálculo. La segunda fila muestra que no es cuestión de **tardar**, sino de **calcular**: `/espera` también tarda 2 segundos, pero mientras espera, el hilo está libre para atender otras cosas. Es la diferencia entre una conversación que se pausa y un hilo que está ocupado. La tercera fila muestra la salida: el mismo cálculo, movido a otro hilo."
+  },
+  {
+   "t": "p",
+   "x": "El propio servidor puede medirlo. El módulo `perf_hooks` ofrece `monitorEventLoopDelay`, que mide cuánto se atrasa el bucle respecto de lo esperado. Tras las tres pruebas, preguntarle a `/retraso`: `{\"maxMs\":2082,\"p99Ms\":11}`. El atraso máximo (2.082 ms) es el cálculo de `/lenta`; el percentil 99 (11 ms, con muestreo de 10 ms) muestra que el resto del tiempo el bucle estuvo sano. Este tipo de métrica es la que conviene vigilar en un servidor real, porque el tiempo de CPU promedio puede estar bien mientras algunos usuarios sufren segundos de espera."
+  },
+  {
+   "t": "p",
+   "x": "La guía oficial de Node lo resume como una regla de diseño: Node es rápido cuando el trabajo asociado a cada cliente en un momento dado es «pequeño», tanto para los callbacks del bucle como para las tareas del pool de hilos [#srv0704-node-dont-block]. Es el mismo fenómeno que viste en el navegador con el `jank` de [@06-14]: un hilo principal ocupado congela la interfaz. Acá la víctima no es una persona sino todas las que estén conectadas."
+  },
+  {
+   "t": "pensa",
+   "x": "Tu API tiene una ruta que genera un PDF de 300 ms de CPU y otra que consulta una base de datos externa y espera 300 ms la respuesta. Las dos «tardan 300 ms». ¿Cuál tiene que preocuparte para la capacidad del servidor y por qué?",
+   "resp": "La del PDF. Mientras genera el PDF, el hilo único está ocupado y no atiende a nadie más: con 4 pedidos por segundo ya no queda margen. La consulta externa solo espera una respuesta de la red, y mientras espera, el hilo atiende a otros, así que miles de esas pueden estar en curso a la vez. Lo que importa es cuánto tiempo de CPU consume cada pedido en el hilo, no cuánto tarda en responder."
+  },
+  {
+   "t": "h",
+   "x": "Dos salidas: hilos de trabajo y varios procesos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si el cálculo no se puede evitar, hay dos caminos. El primero es mover el trabajo a otro hilo del mismo proceso con **[[worker thread]]** (el módulo `worker_threads`): un hilo con su propio motor V8 y su propio bucle de eventos, que se comunica con el principal por mensajes, o compartiendo memoria con `SharedArrayBuffer`. La documentación advierte que sirven para trabajo de CPU y que ayudan poco en E/S, donde las operaciones asíncronas nativas de Node ya son más eficientes [#concurrencia-node-worker-threads]. Es lo que hace la ruta `/worker`:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const { parentPort, workerData } = require('node:worker_threads');\nconst { fib } = require('./calculo.js');\nparentPort.postMessage(fib(workerData));",
+   "cap": "`trabajador.js`: el código que corre dentro del hilo de trabajo. Recibe el dato en `workerData` y devuelve el resultado con `postMessage`."
+  },
+  {
+   "t": "p",
+   "x": "El segundo camino es tener **varios procesos** de Node. El módulo `cluster` arranca procesos hijos que comparten el mismo puerto: el proceso primario escucha, acepta las conexiones y las reparte entre los trabajadores; por defecto, salvo en Windows, lo hace por turnos (*round-robin*) «con algo de inteligencia para no sobrecargar a un trabajador» [#srv0704-node-cluster]. Lo probé con el mismo cálculo: lancé `/lenta` y, mientras corría, ocho pedidos a `/rapida`, con 2 y con 4 procesos."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const cluster = require('node:cluster');\nconst http = require('node:http');\nconst { fib } = require('./calculo.js');\n\nconst PUERTO = Number(process.env.PUERTO || 19085);\nconst PROCESOS = Number(process.env.PROCESOS || 2);\n\nif (cluster.isPrimary) {\n  console.log(`primario pid ${process.pid}, política de reparto: ${cluster.schedulingPolicy === cluster.SCHED_RR ? 'round-robin' : 'del sistema'}`);\n  for (let i = 0; i < PROCESOS; i++) cluster.fork();\n} else {\n  http.createServer((req, res) => {\n    const t0 = performance.now();\n    const cuerpo = req.url === '/lenta' ? { ruta: 'lenta', resultado: fib(42) } : { ruta: 'rapida' };\n    res.writeHead(200, { 'Content-Type': 'application/json' });\n    res.end(JSON.stringify({ pid: process.pid, ...cuerpo }));\n  }).listen(PUERTO, '127.0.0.1');\n}",
+   "cap": "`cluster.js`: el primario crea N trabajadores; cada uno es un proceso con su propio servidor HTTP y su propio bucle de eventos."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "PROCESOS=2 node cluster.js  # /lenta + 8 pedidos a /rapida",
+     "s": "pid 15312 tardó 0.005208 s\npid 15312 tardó 0.001533 s\n... (6 más, todas de 1 a 2 ms, en el mismo pid 15312)\npid 15311 tardó 1.726476 s"
+    },
+    {
+     "c": "PROCESOS=4 node cluster.js  # lo mismo",
+     "s": "pid 15439 (3 pedidos), 15433 (2), 15432 (2): todos entre 1 y 9 ms\npid 15431 tardó 1.734794 s"
+    }
+   ],
+   "cap": "Salida real, una corrida de cada una, acortada. En ambas, un `/rapida` de ocho cayó en el trabajador ocupado con la lenta y esperó 1,7 s. Las otras siete respondieron en milisegundos."
+  },
+  {
+   "t": "p",
+   "x": "Con varios procesos, un cálculo bloquea solo a **uno** de ellos. En estas corridas, siete de ocho pedidos no se enteraron. El que cayó en el trabajador ocupado esperó casi lo mismo que con un solo proceso: el reparto reduce el daño, pero no lo elimina. Para eliminarlo hay que sacar el cálculo del hilo que atiende pedidos, como en el `/worker`."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Salida",
+    "Qué es",
+    "Mide y deja",
+    "Cuándo conviene"
+   ],
+   "filas": [
+    [
+     "`async` nativo",
+     "Dejar que el kernel o el pool de libuv hagan la espera",
+     "No bloquea; sin costo extra",
+     "Siempre que haya E/S: red, disco, base de datos"
+    ],
+    [
+     "`worker_threads`",
+     "Otro hilo con su V8 y su bucle, dentro del proceso",
+     "Unos 11 MiB por hilo ocioso; arranque de ≈ 30 ms",
+     "Cálculo de CPU de un pedido; mover datos con mensajes"
+    ],
+    [
+     "`cluster` / varios procesos",
+     "Procesos de Node que comparten el puerto",
+     "Unos 42 MiB por proceso; aísla fallos",
+     "Aprovechar todos los núcleos; que un fallo no tire todo"
+    ]
+   ],
+   "cap": "Tres formas de no bloquear ni desperdiciar núcleos. Las cifras son de esta VM con Node 22: 10 workers ociosos sumaron 114 MiB (11,4 MiB cada uno); un proceso Node vacío ocupa unos 42 MiB; arrancar un hilo tardó 31 ms (mediana de 20) y un proceso con `fork`, 28 ms."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "x": "La intuición de que «un hilo es más barato que un proceso» se cumple en memoria (11 MiB contra 42 MiB, ambos ociosos) pero no en el tiempo de arranque: medí 31 ms por un `Worker` y 28 ms por un `fork`, en 20 arranques cada uno. Si tu servidor arranca un hilo por pedido, el costo de 30 ms se paga en cada uno. Para eso existen los pools de hilos de trabajo, que se arrancan una vez y se reutilizan."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": [
+    "Versiones de Node al 13 de noviembre de 2026, según el calendario oficial de lanzamientos [#nodejs-release-schedule-json]: Node 26 («Lithium») es LTS desde el 28 de octubre de 2026; Node 24 («Krypton») pasó a mantenimiento el 20 de octubre; Node 22 («Jod») está en mantenimiento hasta el 30 de abril de 2027; Node 20 terminó su soporte el 30 de abril de 2026. Lo que mostré se corrió en 22.23.4 (la 22.23.5 salió el 11 de noviembre) y se repitió en 26.13.1.",
+    "Todo lo de este día es principio de diseño de Node (un hilo para el código, un pool, un bucle por fases) y no cambió en las dos versiones que probé. Lo que cambia con las versiones son los números por defecto (`highWaterMark`, nombres de los hilos) y los detalles internos."
+   ],
+   "titulo": "Qué versión de Node usar"
+  },
+  {
+   "t": "senda",
+   "titulo": "Dónde aparece Node en Senda y dónde no",
+   "x": [
+    "**Node no corre en producción en Senda.** Senda no tiene servidor propio: su parte de servidor es Supabase, y sus tres funciones de borde (`borrar-cuenta`, `compras`, `trivia-sermon`) usan `Deno.serve`, no Node. Un ejemplo es `supabase/functions/borrar-cuenta/index.ts`, que importa `jsr:@supabase/supabase-js@2`, una forma de importar propia de Deno. El JavaScript de la app corre en el teléfono, en el motor Hermes (el que trae el SDK por defecto; `app.json` no lo declara).",
+    "**Dónde sí está Node:** en el taller. El script `prueba:arranque` de `package.json` corre Jest, que se ejecuta en Node y prueba el arranque de la app y de los datos sin teléfono, y los flujos de GitHub Actions `apk.yml`, `aab.yml` y `humo.yml` instalan Node 22 con `actions/setup-node` para compilar. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. Una consecuencia práctica: Node 22 deja de recibir actualizaciones el 30 de abril de 2027, según el calendario oficial de arriba, así que habrá que subir la versión de esos flujos antes de esa fecha."
+   ],
+   "archivos": [
+    "package.json",
+    ".github/workflows/apk.yml",
+    "supabase/functions/borrar-cuenta/index.ts",
+    "pruebas/arranque/jest.config.js"
+   ]
+  }
+ ],
+ "recap": [
+  "Node son tres piezas: V8 ejecuta tu JavaScript, libuv hace el bucle de eventos y la entrada y salida asíncrona, y los módulos de Node conectan las dos.",
+  "Tu JavaScript corre en un solo hilo, pero el proceso tiene más: en esta VM, 7 al arrancar y 11 al usar el pool de libuv (4 hilos). Un solo hilo atendió 1.000 conexiones porque el kernel avisa (`epoll`) cuándo hay algo para leer.",
+  "El bucle de eventos de Node gira por fases (timers, poll, check…); nextTick y las promesas se vacían entre callbacks. Desde un callback de E/S, `setImmediate` siempre sale antes que `setTimeout 0`.",
+  "El pool de hilos de libuv (4 por defecto) ejecuta archivos, DNS y trabajo de criptografía y compresión; la red no pasa por él. Subirlo por encima de los núcleos no acelera trabajo de CPU.",
+  "Los streams procesan por trozos: un hash de 1 GiB ocupó 87 MiB con stream y 1.069 MiB cargando el archivo entero. El backpressure (`write()` devuelve `false`, esperar `drain`) evita que un destino lento acumule memoria: 73 MiB contra 256 MiB.",
+  "Un cálculo largo en el hilo único congela a todos los clientes (2 s de cálculo = 2 s de espera para cada uno); esperar no bloquea, calcular sí. Las salidas son un worker thread o varios procesos, y solo la primera saca el cálculo del hilo que atiende pedidos."
+ ],
+ "repaso": [
+  {
+   "p": "Un servidor de Node atiende 1.000 conexiones abiertas a la vez, casi todas esperando. ¿Por qué le alcanza con un hilo para ejecutar el JavaScript?",
+   "o": [
+    "Porque el kernel avisa mediante `epoll` cuándo una conexión tiene datos, y el hilo solo corre código cuando hay algo para hacer",
+    "Porque Node crea un hilo oculto por conexión y el proceso los reparte entre los núcleos",
+    "Porque V8 compila el servidor a código nativo tan rápido que atiende cada conexión en microsegundos",
+    "Porque el pool de hilos de libuv lee y escribe todos los sockets en paralelo con 4 hilos"
+   ],
+   "c": 0,
+   "e": "El hilo único no se queda esperando dentro de ninguna conexión: libuv le pide al kernel que lo despierte cuando algún socket está listo y ejecuta ese callback. En la medición, 1.000 conexiones no agregaron hilos (siguieron siendo 7). La red no pasa por el pool de libuv, y no hay un hilo por conexión."
+  },
+  {
+   "p": "Una ruta calcula durante 2 segundos en el hilo principal de un servidor de Node. Mientras tanto llega un pedido a una ruta que responde en 1 ms. ¿Qué pasa con ese pedido?",
+   "o": [
+    "Espera a que termine el cálculo, porque el bucle de eventos no vuelve a girar hasta entonces",
+    "Responde en 1 ms, porque Node atiende cada pedido en un hilo propio",
+    "Responde en 1 ms, porque las rutas rápidas tienen prioridad en el bucle",
+    "Falla de inmediato con un error 503 que genera el propio Node"
+   ],
+   "c": 0,
+   "e": "Con un solo hilo para el código, el pedido rápido espera lo que le falte al cálculo (medido: 1,88 s para el que llegó a los 0,2 s). No hay hilo por pedido ni prioridades entre callbacks, y Node no inventa un 503: el pedido simplemente queda en espera."
+  },
+  {
+   "p": "Una ruta tarda 2 segundos porque espera la respuesta de un servicio externo con `await fetch(...)`. Otra tarda 2 segundos porque hace un cálculo en un bucle. ¿Cuál de las dos perjudica a los demás clientes?",
+   "o": [
+    "Ninguna: las dos tardan lo mismo y el hilo está igual de ocupado",
+    "La que espera con `await`, porque deja el hilo retenido hasta la respuesta",
+    "Las dos, porque Node solo puede atender un pedido a la vez",
+    "La que calcula, porque mantiene ocupado al hilo; la que espera lo libera mientras tanto"
+   ],
+   "c": 3,
+   "e": "Con `await` el hilo queda libre y el bucle sigue atendiendo otros callbacks; la ruta continúa cuando llega la respuesta. El cálculo en cambio ocupa el hilo todo el tiempo, y por eso todos esperan. Que dos rutas tarden lo mismo no dice nada de cuánto CPU usan, y Node atiende miles de pedidos en curso si casi todos esperan."
+  },
+  {
+   "p": "Un backend usa `readFileSync` para devolver un archivo de 800 MiB a un cliente, y lo mismo con `createReadStream(...).pipe(res)`. Con 20 descargas simultáneas, ¿qué diferencia de memoria esperás?",
+   "o": [
+    "Ninguna: el sistema operativo comparte el archivo entre todas las descargas",
+    "Con `readFileSync` cada descarga ocupa unos 800 MiB; con stream, solo unos trozos de 64 KiB por descarga",
+    "Con stream se necesita más memoria, porque hay que guardar los trozos hasta confirmar la entrega",
+    "Con las dos formas la memoria es igual, pero `readFileSync` es más lento"
+   ],
+   "c": 1,
+   "e": "El modo entero carga el archivo completo por cada pedido (en la medición, 1 GiB de archivo llevó el proceso a 1.069 MiB), así que 20 descargas serían del orden de 16 GB. El stream avanza trozo a trozo, con memoria proporcional al trozo (87 MiB en total en la prueba) y respetando el backpressure. La memoria no se comparte automáticamente entre buffers distintos."
+  },
+  {
+   "p": "Un productor llama a `destino.write(trozo)` en un bucle sin mirar el valor que devuelve, y el destino es una conexión lenta. ¿Qué ocurre con el proceso de Node?",
+   "o": [
+    "`write()` se bloquea hasta que el destino acepta el trozo y el proceso queda quieto",
+    "Node descarta los trozos que el destino no puede recibir para proteger la memoria",
+    "Los trozos se acumulan en un buffer interno y la memoria crece, aunque `write()` ya devuelva `false`",
+    "Node lanza una excepción apenas el buffer supera el `highWaterMark`"
+   ],
+   "c": 2,
+   "e": "El valor `false` es solo un aviso: `write()` sigue aceptando datos y guardándolos en memoria. En el experimento, ignorarlo llevó el buffer a 200 MiB y el proceso a 256 MiB, contra 73 MiB respetándolo. No bloquea (es asíncrono), no descarta datos y no lanza error."
+  },
+  {
+   "p": "Un servicio hace 8 operaciones de criptografía (`pbkdf2`) al mismo tiempo en una máquina de 4 núcleos con el pool de libuv por defecto. ¿Qué tiempo total esperás frente a una sola operación, y qué cambia si `UV_THREADPOOL_SIZE` pasa a 8?",
+   "o": [
+    "Unas dos veces el tiempo de una; con 8 hilos no mejora, porque hay solo 4 núcleos",
+    "Ocho veces el tiempo de una; con 8 hilos baja a una vez",
+    "Igual que una sola, porque el pool las ejecuta todas en paralelo",
+    "Cuatro veces el tiempo de una; con 8 hilos baja a la mitad"
+   ],
+   "c": 0,
+   "e": "Con 4 hilos corren 4 a la vez y las otras 4 esperan: dos tandas, algo más del doble (medido: 266 a 312 ms contra 128 a 157). Con 8 hilos corren todas a la vez pero se reparten los mismos 4 núcleos, así que el total es parecido (265 a 287 ms). Ocho veces sería correr una por una; igual a una sola exige 8 núcleos libres."
+  }
+ ],
+ "feynman": "Explicale a una persona de logística por qué un servidor de Node puede atender a mil clientes a la vez con un solo hilo, y por qué un solo cálculo largo lo deja sin respuesta a todos. Usá una analogía tuya que no sea el mostrador de despacho, y decí dónde la analogía deja de valer.",
+ "para_profundizar": [
+  {
+   "fuente": "asincronia-node-event-loop",
+   "nota": "La guía oficial del bucle de eventos de Node: las fases, `process.nextTick` contra `setImmediate` y por qué el orden de `setTimeout` y `setImmediate` varía. Es el complemento directo de la sección de las fases."
+  },
+  {
+   "fuente": "srv0704-node-dont-block",
+   "nota": "Guía oficial «No bloquees el bucle de eventos»: qué corre en el bucle y qué en el pool, y cómo repartir un cálculo largo. Es la base de las reglas de diseño de este día."
+  },
+  {
+   "fuente": "srv0704-libuv-design",
+   "nota": "El diseño de libuv: el diagrama de las fases y por qué la red usa `epoll` y los archivos usan el pool de hilos. Leé la sección «The I/O loop» y «File I/O»."
+  },
+  {
+   "fuente": "srv0704-node-backpressure",
+   "nota": "La guía oficial de backpressure en streams de Node, con ejemplos de qué pasa cuando se ignora y cómo `pipeline` lo resuelve."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Node.js event loop explained phases libuv timers poll check",
+   "por_que": "Para ver el bucle de eventos explicado con animación por otra persona y comparar con el modelo que ejecutaste."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "libuv",
+   "d": "Biblioteca en C que implementa el bucle de eventos, la E/S asíncrona de red, el DNS, las operaciones de archivos y un pool de hilos en varios sistemas operativos. Node.js la usa por debajo y se desarrolló principalmente para él."
+  },
+  {
+   "t": "hilo único",
+   "d": "El hilo que ejecuta todo el JavaScript de un programa Node, una función por vez. El proceso tiene otros hilos (motor, pool de libuv), pero ninguno ejecuta tu código a la vez que este."
+  },
+  {
+   "t": "bucle de eventos de Node",
+   "d": "El ciclo que libuv repite sin parar en fases (timers, poll, check y otras): ejecuta los callbacks listos, espera E/S con epoll y vuelve a empezar. Si un callback tarda, todo lo demás espera."
+  },
+  {
+   "t": "stream",
+   "d": "Secuencia de datos que se procesa por trozos a medida que llega, sin cargarla completa en memoria. En Node son de lectura, escritura, transformación o doble sentido, y los sockets, archivos y respuestas HTTP lo son."
+  },
+  {
+   "t": "pool de hilos de libuv",
+   "d": "Grupo de hilos (4 por defecto, hasta 1024 con UV_THREADPOOL_SIZE) donde libuv ejecuta operaciones bloqueantes como archivos y DNS, y que Node también usa para crypto y zlib. Es compartido por todo el proceso."
+  },
+  {
+   "t": "backpressure",
+   "d": "Mecanismo por el cual un destino lento le avisa a su origen que frene: en un stream, write() devuelve false y hay que esperar el evento drain. Sin respetarlo, los datos se acumulan en memoria."
+  },
+  {
+   "t": "worker thread",
+   "d": "Hilo adicional de Node (módulo worker_threads) con su propio motor V8 y su propio bucle de eventos. Sirve para sacar cálculos de CPU del hilo principal y se comunica por mensajes o memoria compartida."
+  }
+ ],
+ "siguiente": "Express: rutas, middleware y el ciclo de una petición. Con el motor ya entendido, el siguiente paso es el framework que lo envuelve: cómo se declaran las rutas y cómo una cadena de funciones procesa cada pedido en orden.",
+ "fuentes_nuevas": [
+  {
+   "id": "srv0704-libuv-design",
+   "t": "Design overview (libuv)",
+   "a": "libuv",
+   "tipo": "doc",
+   "url": "https://docs.libuv.org/en/v1.x/design.html"
+  },
+  {
+   "id": "srv0704-libuv-threadpool",
+   "t": "Thread pool work scheduling (libuv)",
+   "a": "libuv",
+   "tipo": "doc",
+   "url": "https://docs.libuv.org/en/v1.x/threadpool.html"
+  },
+  {
+   "id": "srv0704-node-dont-block",
+   "t": "Don't Block the Event Loop (or the Worker Pool)",
+   "a": "OpenJS Foundation (Node.js)",
+   "tipo": "doc",
+   "url": "https://nodejs.org/en/learn/asynchronous-work/dont-block-the-event-loop"
+  },
+  {
+   "id": "srv0704-node-backpressure",
+   "t": "Backpressuring in Streams",
+   "a": "OpenJS Foundation (Node.js)",
+   "tipo": "doc",
+   "url": "https://nodejs.org/en/learn/modules/backpressuring-in-streams"
+  },
+  {
+   "id": "srv0704-node-stream",
+   "t": "Stream (documentación de Node.js)",
+   "a": "OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://nodejs.org/api/stream.html"
+  },
+  {
+   "id": "srv0704-node-cluster",
+   "t": "Cluster (documentación de Node.js)",
+   "a": "OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://nodejs.org/api/cluster.html"
+  },
+  {
+   "id": "srv0704-node-cli",
+   "t": "Command-line API (documentación de Node.js)",
+   "a": "OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://nodejs.org/api/cli.html"
+  },
+  {
+   "id": "srv0704-c10k",
+   "t": "The C10K problem",
+   "a": "Dan Kegel",
+   "tipo": "articulo",
+   "url": "https://www.kegel.com/c10k.html"
+  }
+ ]
+}
