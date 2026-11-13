@@ -107,3 +107,30 @@ Lo demás de cada día se corrió en la VM (Node 22, Python 3.13, Go, Rust, GHC,
 
 ## Para la app (pendiente)
 - Widget de terminal interactivo (lo pidieron varios redactores; muy útil para las Partes 2, 4 y 14); visor de Rss/Pss de procesos que comparten memoria.
+
+## Parte 5 (Redes e Internet, 13-11-2026): qué no se verificó en fuente primaria
+Entorno: proxy HTTPS; ICMP y UDP directos limitados; DNS interceptado (solo registros A); sin IPv6, `netem` ni WireGuard en el kernel; laboratorios con `ip netns`, veth, nftables, tcpdump y tshark en localhost; los tiempos de curl miden hasta el proxy.
+| Días | No verificado o de segunda mano |
+|---|---|
+| 05-01 / 05-02 | Baran, Davies y Kleinrock (RAND dio 403; ETHW e Internet Society); fecha de ISO 7498; cuentas de Kurose–Ross de memoria; checksum offload es explicación habitual. |
+| 05-03 / 05-04 | IEEE 802.3 y 802.11 (de pago; clases de Jain y Keysight); WPA2/WPA3 fechas de fuentes secundarias; sin radio en la VM (baliza armada a mano). |
+| 05-05 / 05-06 | «Octeto» por bytes de otros tamaños (memoria); reservas actuales de LACNIC no legibles. |
+| 05-07 / 05-08 | Fechas de agotamiento regional (informe de Huston); cifras de IPv6 de APNIC Labs (Argentina 34,8 %, mundo 44,2 %); corte de Facebook 2021 según Cloudflare y Meta; la VM no tiene IPv6 (ejemplo rotulado). |
+| 05-09 / 05-10 | 24 Mbit/s de ADSL2+ (secundarias); altitud geoestacionaria; qué ISP argentinos usan CGNAT (desconocido); hole punching 82 %/64 % de Ford et al. (medición vieja). |
+| 05-11 / 05-12 | Cisco DAI y MAC aleatoria (resumen WebFetch); dnsmasq leído a medias; DNS real por DoH porque el UDP/53 está interceptado. |
+| 05-13 / 05-14 | Cifras vivas de root-servers.org; «1983» de 4.2BSD (blog de APNIC); TTL de segundo nivel no medidos. |
+| 05-15 / 05-16 | Mecanismo del «bad udp cksum»; `Recv-Q` en CLOSE-WAIT; MTU 1.500 y juegos (práctica general). |
+| 05-17 / 05-18 | RFC 7231–7235 fechas de memoria; BBR retransmitió más (no investigado); propuesta de Berners-Lee solo vía cern-web. |
+| 05-19 / 05-20 | TCP+TLS 1.3 en dos idas y vueltas (estándar, no medido); HTTP/3 no probado (curl sin soporte; solo RFC y `Alt-Svc`). |
+| 05-21 / 05-22 | RSA 1978 (solo resumen); edad del universo; significado legal de `ITSAppUsesNonExemptEncryption`; ClientHello híbrido de 1.577 bytes (medido en Node con OpenSSL 3.5.9; la VM trae OpenSSL 3.0.13). |
+| 05-23 / 05-24 | X.509 como estándar ITU (memoria); origen de `X-Forwarded-For`; gateway Envoy de Supabase (inferencia); MTU 1420 de WireGuard (inferencia). |
+| 05-25 / 05-26 | Autores de RFC 4786 y 6202 (memoria); `IAD` = Dulles (inferencia); límites de Supabase Realtime (200 en Free, 500 en Pro, del proveedor); nginx `sticky` según la doc. |
+| 05-27 / 05-28 | 1983 y el metro (BIPM); índice de fibra de Corning vía distribuidor; largo de Firmina; Muuss (su relato). |
+| 05-29 / 05-30 | ECH oculta el nombre (no verificado); causa del intento extra de Chrome con `ignoreHTTPSErrors`; tiempos «en frío» son cálculo. |
+| 05-31 / 05-32 | Qué hacen `Prefer`/`on_conflict` de PostgREST (429); no se llamó a la base real; RTT de 50 ms inventado en 05-32. |
+
+## Hallazgos sobre Senda de la Parte 5 (commit 25e08fa)
+- **Red:** solo HTTPS con `fetch` (nada de WebSocket, UDP ni sockets propios); salas en vivo con sondeo cada 2 s, Inicio cada 45 s, encuesta cada 8 s; el reintento de `nube.ts` llega a 480 s (320 s de base), no a 10 min; `enviarTurnosPendientes` descarta el turno ante cualquier error que no sea `sin_senal` (incluido un 5xx); solo `interruptores.ts` (5 s) y la búsqueda de direcciones (9 s) fijan tiempo máximo; `cuenta.ts` siempre manda `Authorization: Bearer <clave pública>`, `nube.ts` solo si empieza con `eyJ`; la doc de Supabase pide la clave nueva solo en `apikey`.
+- **Base:** `respuestas` con `with check (true)` sin tope por emisor; alta anónima sin captcha; la migración `20261101000000_juntos.sql` ya agrega tablas a `supabase_realtime` aunque el cliente no use Realtime (una sala de 500 llenaría el tope de Pro, 200 en Free: inferencia a probar con carga).
+- **Región de Supabase:** no consta en el repo (la URL va en un secreto); hay que mirarla en el panel.
+- **Repo:** `auditoria-textos.json` está versionado en la raíz de `senda-app`: es el informe de una corrida fallida (681 de 3.110 casos con `ERR_CONNECTION_REFUSED`); conviene sacarlo o regenerarlo. La URL de Supabase queda grabada en cada APK (`EXPO_PUBLIC_*`). Sin fijado de certificados ni configuración de seguridad de red propia. Hash DJB2 no criptográfico en `src/util/respaldo.ts`; la función `compras` (RS256) no la invoca nada.
