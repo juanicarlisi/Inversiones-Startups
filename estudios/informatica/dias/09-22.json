@@ -1,0 +1,647 @@
+{
+ "id": "09-22",
+ "titulo": "Cómo ejecuta una consulta el motor",
+ "bajada": "Seguimos una consulta desde el texto SQL hasta las filas, aprendemos a leer su plan de ejecución y vemos por qué la misma unión puede tardar 0,04 ms o 82 ms.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Nombrar las cuatro etapas que recorre una consulta (parser, reescritura, planificador, ejecutor) y qué error corresponde a cada una.",
+  "Leer un plan de ejecución como un árbol, de adentro hacia afuera, y reconocer los nodos más comunes.",
+  "Distinguir el costo estimado de los tiempos y filas reales, y recalcular el costo de un Seq Scan.",
+  "Explicar cuándo conviene Nested Loop, Hash Join o Merge Join.",
+  "Usar EXPLAIN y EXPLAIN ANALYZE sin dañar datos."
+ ],
+ "venis_de": "En el [@09-20] y el [@09-21] viste qué es un índice y cómo se arma por dentro; en el [@09-19], cómo se guarda una tabla en páginas. Queda una pregunta: cuando hay varios caminos posibles (leer toda la tabla, usar un índice, unir de una u otra forma), ¿quién decide y con qué información?",
+ "se_apoya_en": [
+  "09-19",
+  "09-20",
+  "09-21",
+  "09-09"
+ ],
+ "gancho": [
+  "Escribís una consulta y, sin cambiar ni una coma, tarda 0,04 milisegundos o 82, según quién la resuelva y cómo. En esta VM, una misma unión de bultos con eventos pasó de una cosa a la otra con solo cambiar el método de unión. El SQL describe **qué** querés; alguien decide **cómo** buscarlo.",
+  "Ese alguien es el planificador, y su decisión se puede leer. Hoy seguimos una consulta desde el texto hasta las filas, aprendemos a leer el plan que el motor deja a la vista y vemos qué algoritmos de unión tiene para elegir. Lo corrí todo en PostgreSQL 16.15 con datos inventados; los tiempos son de una sola VM compartida."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Cuatro etapas entre el texto y la primera fila"
+  },
+  {
+   "t": "p",
+   "x": "Cuando mandás `select … from bultos join depositos …`, PostgreSQL recibe **texto**. No lo ejecuta tal cual: lo pasa por cuatro etapas, que la documentación describe como el camino de una consulta [#bd2122-pg-camino-consulta]."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Parser",
+       "s": "¿está bien escrito? Arma un árbol de la consulta",
+       "k": "cliente"
+      },
+      {
+       "t": "Reescritura",
+       "s": "vistas y políticas de seguridad se expanden",
+       "k": "red",
+       "e": "árbol de la consulta"
+      },
+      {
+       "t": "Planificador",
+       "s": "arma caminos posibles, estima costos, elige uno",
+       "k": "servidor",
+       "e": "consulta reescrita"
+      },
+      {
+       "t": "Ejecutor",
+       "s": "recorre el plan y devuelve filas",
+       "k": "datos",
+       "e": "plan de ejecución"
+      }
+     ]
+    }
+   ],
+   "cap": "Las cuatro etapas. La segunda y la tercera son las que más sorprenden al empezar."
+  },
+  {
+   "t": "p",
+   "x": "El [[parser]] hace dos cosas seguidas [#bd2122-pg-parser]: controla que el texto sea SQL válido y arma un árbol, y después resuelve los nombres (¿existe esa tabla?, ¿existe esa columna?, ¿qué tipo tiene?) consultando los catálogos del sistema. La **reescritura** cambia el árbol según reglas guardadas; la aplicación más conocida son las vistas, que se reemplazan por la consulta que las define. El [[planificador de consultas]] recibe el resultado y decide *cómo* se va a resolver, y el [[ejecutor]] lo lleva a cabo. Lo que el planificador entrega se llama [[plan de ejecución]]. Cada etapa tiene su propio tipo de error, y se pueden ver todos."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "selec * from depositos;",
+     "s": "ERROR:  syntax error at or near \"selec\"\nLINE 1: selec * from depositos;\n        ^"
+    },
+    {
+     "c": "select nombre, pais from depositos;",
+     "s": "ERROR:  column \"pais\" does not exist\nLINE 1: select nombre, pais from depositos;\n                       ^"
+    },
+    {
+     "c": "create view depositos_norte as select * from depositos where zona = 'Norte';\nexplain select nombre from depositos_norte where id > 2;",
+     "s": " Seq Scan on depositos  (cost=0.00..1.18 rows=4 width=8)\n   Filter: ((id > 2) AND (zona = 'Norte'::text))"
+    }
+   ],
+   "cap": "El primer error lo da el parser (gramática); el segundo, la resolución de nombres. En el plan de la tercera consulta la vista ya no existe: la reescritura la reemplazó por su definición y juntó las dos condiciones en un solo `Filter`."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el despacho de una distribuidora",
+   "x": "Llega un pedido: «40 bultos a 12 depósitos para mañana». Primero alguien chequea que el pedido tenga sentido (el parser). Después se reemplazan los nombres internos por los reales, como «el reparto de la zona Norte» por sus cuatro depósitos (la reescritura). Una coordinadora dibuja varias rutas posibles, estima cuánto tarda cada una y elige (el planificador). Y un chofer las recorre (el ejecutor). La analogía deja de valer en dos cosas: la coordinadora estima con datos guardados de antes, no con el tránsito de hoy, y la ruta se elige **antes** de salir; el ejecutor no la corrige a mitad de camino."
+  },
+  {
+   "t": "pensa",
+   "x": "Una consulta funciona perfecto en una tabla de 10 filas y es lenta en la misma tabla con 10 millones, sin tocar ni una letra del SQL. ¿Qué etapa explica la diferencia?",
+   "resp": "El planificador. El texto SQL describe *qué* querés, no *cómo* obtenerlo. Con 10 filas, leerlas todas es lo más barato; con 10 millones puede convenirle otro camino, y si no existe uno bueno (un índice, por ejemplo) la consulta es lenta. El mismo SQL puede producir planes distintos según el tamaño y la distribución de los datos."
+  },
+  {
+   "t": "h",
+   "x": "Leer un plan: un árbol que se recorre de adentro hacia afuera"
+  },
+  {
+   "t": "p",
+   "x": "Para trabajar usé tres tablas inventadas, que se generan sin azar: `depositos` (12 filas), `bultos` (300.000) y `eventos` (600.000, dos por bulto: ingreso y salida). El script que las arma está justo abajo."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table depositos (id int primary key, nombre text not null, zona text not null);\ninsert into depositos values\n (1,'Retiro','Norte'),(2,'Palermo','Norte'),(3,'Belgrano','Norte'),(4,'San Isidro','Norte'),\n (5,'Barracas','Sur'),(6,'Avellaneda','Sur'),(7,'Lanús','Sur'),(8,'Quilmes','Sur'),\n (9,'Flores','Oeste'),(10,'Haedo','Oeste'),(11,'Morón','Oeste'),(12,'Ituzaingó','Oeste');\n\ncreate table bultos (\n  id bigint primary key, deposito_id int not null, estado text not null,\n  peso_kg int not null, creado timestamp not null);\ninsert into bultos                                   -- 300.000 bultos, sin azar\nselect g, 1 + (g * 7919) % 12,\n       (array['en_deposito','en_ruta','entregado','entregado','entregado','entregado','devuelto'])[1 + (g * 31) % 7],\n       1 + (g * 17) % 40, timestamp '2026-01-01' + g * interval '2 minutes'\nfrom generate_series(1::bigint, 300000) g;\n\ncreate table eventos (id bigint primary key, bulto_id bigint not null, tipo text not null, cuando timestamp not null);\ninsert into eventos                                  -- 2 eventos por bulto: ingreso y salida\nselect g, 1 + (g - 1) % 300000, case when g <= 300000 then 'ingreso' else 'salida' end,\n       timestamp '2026-01-01' + g * interval '1 minute'\nfrom generate_series(1::bigint, 600000) g;\ncreate index eventos_bulto on eventos (bulto_id);\nvacuum analyze;",
+   "cap": "Script de datos. Todo lo de hoy corrió en PostgreSQL 16.15 en esta VM; los tiempos son de una sola máquina compartida y sirven para comparar entre sí."
+  },
+  {
+   "t": "p",
+   "x": "La pregunta: «¿cuántos bultos hay en ruta en cada depósito de la zona Norte y cuántos kilos pesan?». El comando `EXPLAIN` delante del `select` no lo ejecuta: muestra el plan."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain select d.nombre, count(*) as en_ruta, sum(b.peso_kg) as kg\nfrom bultos b join depositos d on d.id = b.deposito_id\nwhere d.zona = 'Norte' and b.estado = 'en_ruta'\ngroup by d.nombre order by en_ruta desc;",
+     "s": " Sort  (cost=6470.68..6470.69 rows=4 width=24)\n   Sort Key: (count(*)) DESC\n   ->  HashAggregate  (cost=6470.60..6470.64 rows=4 width=24)\n         Group Key: d.nombre\n         ->  Hash Join  (cost=1.20..6363.45 rows=14287 width=12)\n               Hash Cond: (b.deposito_id = d.id)\n               ->  Seq Scan on bultos b  (cost=0.00..6210.00 rows=42860 width=8)\n                     Filter: (estado = 'en_ruta'::text)\n               ->  Hash  (cost=1.15..1.15 rows=4 width=12)\n                     ->  Seq Scan on depositos d  (cost=0.00..1.15 rows=4 width=12)\n                           Filter: (zona = 'Norte'::text)"
+    }
+   ],
+   "cap": "Con `max_parallel_workers_per_gather = 0` para que el plan no se complique con procesos en paralelo. El resultado de la consulta son 4 filas (3.572, 3.572, 3.571 y 3.571 bultos)."
+  },
+  {
+   "t": "p",
+   "x": "La sangría marca el árbol: los nodos más adentro son hijos de los de arriba. Se lee **de adentro hacia afuera**, y cada nodo hace una cosa. Abajo, dos `Seq Scan` leen cada tabla entera ([[escaneo secuencial]], [@09-20]): el de `bultos` se queda con las filas en ruta, el de `depositos` con las de la zona Norte. El nodo `Hash` arma con esos 4 depósitos una tabla en memoria. El `Hash Join` busca ahí el depósito de cada bulto. `HashAggregate` junta por nombre y cuenta, y `Sort` ordena el resultado. El [[ejecutor]] recorre el árbol hacia abajo pidiéndole filas a cada hijo; las filas suben una a una."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "arbol",
+   "raiz": {
+    "t": "Sort",
+    "s": "ordena por cantidad, 4 filas",
+    "k": "servidor",
+    "h": [
+     {
+      "t": "HashAggregate",
+      "s": "cuenta y suma por depósito",
+      "k": "servidor",
+      "h": [
+       {
+        "t": "Hash Join",
+        "s": "une bultos con depósitos",
+        "k": "red",
+        "h": [
+         {
+          "t": "Seq Scan bultos",
+          "s": "lee 300.000, deja 42.857 en ruta",
+          "k": "datos"
+         },
+         {
+          "t": "Hash",
+          "s": "tabla en memoria con los depósitos Norte",
+          "k": "datos",
+          "h": [
+           {
+            "t": "Seq Scan depositos",
+            "s": "lee 12, deja 4",
+            "k": "datos"
+           }
+          ]
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   },
+   "cap": "El mismo plan, como árbol. Las hojas son las lecturas de tablas; los de arriba transforman lo que reciben."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Nodo",
+    "Qué hace",
+    "Cuándo aparece"
+   ],
+   "filas": [
+    [
+     "Seq Scan",
+     "Lee la tabla entera, página por página",
+     "Consulta poco selectiva o sin índice útil"
+    ],
+    [
+     "Index Scan",
+     "Baja por el índice y salta a la tabla por cada fila",
+     "Pocas filas, o cuando el orden del índice sirve"
+    ],
+    [
+     "Hash Join",
+     "Arma una tabla hash con un lado y recorre el otro",
+     "Uniones grandes sin orden previo"
+    ],
+    [
+     "Nested Loop",
+     "Por cada fila de un lado, busca en el otro",
+     "Un lado chico y el otro con índice"
+    ],
+    [
+     "Merge Join",
+     "Recorre en paralelo dos entradas ordenadas por la clave",
+     "Dos lados grandes ya ordenados"
+    ],
+    [
+     "Sort",
+     "Ordena filas, en memoria o con archivos temporales",
+     "`order by`, o para alimentar un Merge Join"
+    ],
+    [
+     "Aggregate",
+     "Junta filas en grupos y calcula `count`, `sum` …",
+     "`group by` y funciones de agregación"
+    ]
+   ],
+   "cap": "Hay muchos más nodos (el [@09-21] mostró Bitmap Heap Scan e Index Only Scan). Estos son los que vas a ver todos los días."
+  },
+  {
+   "t": "pensa",
+   "x": "En el `Seq Scan on bultos` del plan, ¿por qué te conviene mirar cuántas filas se descartan (`Rows Removed by Filter`)? Con `EXPLAIN ANALYZE` salió 257.143.",
+   "resp": "Porque mide el trabajo tirado: para quedarse con 42.857 filas el motor leyó 300.000, y descartó 257.143. Un número alto de descartes con pocas filas útiles apunta a un filtro que un índice podría resolver. Con un 14 % de filas útiles, como acá, no es obvio que convenga: eso se decide por selectividad, que se ve en el [@09-23]."
+  },
+  {
+   "t": "h",
+   "x": "Costos y tiempos: dos números que no se comparan"
+  },
+  {
+   "t": "p",
+   "x": "Cada nodo muestra `cost=0.00..6210.00`. Son dos números: el costo hasta devolver **la primera fila** y el costo **total**. La unidad no son milisegundos ni páginas: son unidades arbitrarias fijadas por parámetros del servidor. Por convención, leer una página en orden cuesta 1,0 (`seq_page_cost`), y todo lo demás se mide contra eso [#bd2122-pg-explain-uso]. Hay un detalle revelador: el planificador **no mide nada**, calcula. Podés rehacer su cuenta."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select relpages, reltuples::int from pg_class where relname = 'bultos';\nshow seq_page_cost; show cpu_tuple_cost; show cpu_operator_cost;",
+     "s": " relpages | reltuples\n----------+-----------\n     2460 |    300000\n\n seq_page_cost = 1\n cpu_tuple_cost = 0.01\n cpu_operator_cost = 0.0025"
+    },
+    {
+     "c": "-- costo del Seq Scan con un filtro:  páginas × 1  +  filas × 0,01  +  filas × 0,0025 (una comparación por fila)\nselect 2460 * 1 + 300000 * 0.01 + 300000 * 0.0025 as costo;",
+     "s": "   costo\n-----------\n 6210.0000"
+    }
+   ],
+   "cap": "Coincide con `cost=0.00..6210.00` del plan. Para `depositos` (1 página, 12 filas) da 1 + 0,12 + 0,03 = 1,15, también igual al plan. Los valores `relpages` y `reltuples` son estadísticas que guarda la base; el [@09-23] explica cómo se arman."
+  },
+  {
+   "t": "p",
+   "x": "Con `EXPLAIN ANALYZE` el comando sí **ejecuta** la consulta y agrega, al lado de cada estimación, lo que pasó de verdad: `actual time` (en milisegundos reales), `rows` reales y `loops`, las veces que se ejecutó el nodo. Es la comparación que importa [#bd2122-pg-explain-uso]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "explain (analyze, buffers) select d.nombre, count(*) ...   -- la misma consulta, recortada",
+     "s": " Sort  (cost=6470.68..6470.69 rows=4 width=24) (actual time=31.375..31.377 rows=4 loops=1)\n   ->  HashAggregate  (cost=6470.60..6470.64 rows=4 width=24) (actual time=31.366..31.368 rows=4 loops=1)\n         ->  Hash Join  (cost=1.20..6363.45 rows=14287 width=12) (actual time=0.021..28.721 rows=14286 loops=1)\n               ->  Seq Scan on bultos b  (cost=0.00..6210.00 rows=42860 width=8) (actual time=0.005..23.519 rows=42857 loops=1)\n                     Filter: (estado = 'en_ruta'::text)\n                     Rows Removed by Filter: 257143\n                     Buffers: shared hit=2460\n               ->  Hash  (cost=1.15..1.15 rows=4 width=12) (actual time=0.008..0.008 rows=4 loops=1)\n Planning Time: 0.055 ms\n Execution Time: 31.394 ms"
+    }
+   ],
+   "cap": "Líneas omitidas con criterio: se mantiene todo lo que se explica. `Buffers: shared hit=2460` son las páginas de la tabla, ya en memoria, igual que en el [@09-21]."
+  },
+  {
+   "t": "p",
+   "x": "Mirá las dos columnas. El filtro estimó 42.860 filas y devolvió 42.857; el join estimó 14.287 y devolvió 14.286. El planificador acertó casi exacto, porque los datos están repartidos parejo y las estadísticas están al día. Casi nunca pasa tan limpio: cuando la estimación y la realidad se separan por mucho, el plan elegido puede ser malo, y esa es la pista más útil para investigar una consulta lenta. También fijate en que el costo de la raíz (6.470) no se parece a 31 ms. No tienen por qué: sirven para comparar **planes entre sí** dentro del mismo servidor."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un nodo con loops=20",
+   "x": "En un nodo que corre varias veces, los números `actual time` y `rows` son **por vuelta**. Un `Index Only Scan` con `rows=2 loops=20` devolvió 40 filas en total, no 2. Es el error más común al leer planes de uniones con `Nested Loop`."
+  },
+  {
+   "t": "h",
+   "x": "Una misma unión, tres algoritmos"
+  },
+  {
+   "t": "p",
+   "x": "Unir dos tablas puede hacerse de tres maneras, las tres nombradas en la tabla de nodos. Con una analogía de logística: **Nested Loop** es tomar la lista de bultos de hoy y, por cada uno, buscar sus eventos en el fichero ordenado por número. **Hash Join** es armar primero un fichero en memoria con todos los eventos y después recorrer la lista pasando por él. **Merge Join** es tener dos manifiestos ya ordenados por número de bulto y avanzarlos a la par, como el cierre de caja de dos planillas. Cada uno gana en un tipo de situación, y el planificador lo elige comparando costos."
+  },
+  {
+   "t": "p",
+   "x": "Probé la misma unión de `bultos` con `eventos` en dos tamaños, y para ver los tres métodos en acción les fui apagando los otros con parámetros de sesión (`enable_hashjoin = off`, `enable_nestloop = off`). Eso es solo un recurso de diagnóstico: no se deja así en una aplicación."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Consulta",
+    "Elegido por el motor",
+    "Nested Loop",
+    "Hash Join",
+    "Merge Join"
+   ],
+   "filas": [
+    [
+     "Eventos de 20 bultos (40 filas)",
+     "Nested Loop: 0,04 ms",
+     "0,04 ms",
+     "81,7 ms",
+     "0,05 ms"
+    ],
+    [
+     "Eventos de los 300.000 bultos (600.000 filas)",
+     "Merge Join: 182 ms",
+     "346 ms",
+     "401 ms",
+     "182 ms"
+    ]
+   ],
+   "cap": "Tiempo de ejecución de la consulta completa (`EXPLAIN ANALYZE`), medido en esta VM, tabla en memoria. Las pruebas de 20 bultos usan el índice `eventos_bulto`."
+  },
+  {
+   "t": "p",
+   "x": "Para 20 bultos, el Nested Loop hace 20 búsquedas por índice y termina en 0,04 milisegundos. El Hash Join, en cambio, tiene que leer y armar en memoria una tabla hash con **todos** los eventos antes de poder responder la primera fila: 81,7 ms para devolver 40. Para los 300.000 bultos el panorama se invierte. El Nested Loop hace 300.000 búsquedas por índice (346 ms). El Hash Join gasta en construir la tabla hash. Y el Merge Join, que recibe las dos entradas ya ordenadas por el índice, gana. Un detalle que enseña: el costo propio del Hash Join (28.229) es menor que el del Merge Join (30.954), pero el motor eligió el Merge Join porque miró el **plan entero**: ese orden por `id` lo aprovecha el `GroupAggregate` de arriba y evita juntar con una tabla hash. El costo total del plan elegido fue 41.433; con el Hash Join forzado, 73.904."
+  },
+  {
+   "t": "pensa",
+   "x": "En la consulta de 20 bultos, ¿por qué el Hash Join tarda 81 ms aunque solo se pidan 40 eventos?",
+   "resp": "Porque tiene que leer **todos** los eventos (600.000 filas) para armar la tabla hash antes de producir la primera respuesta. El Nested Loop, en cambio, usa el índice por `bulto_id` y toca solo las páginas de esos 20 bultos."
+  },
+  {
+   "t": "h",
+   "x": "EXPLAIN no ejecuta; EXPLAIN ANALYZE sí"
+  },
+  {
+   "t": "p",
+   "x": "Esa diferencia es importante y la documentación la advierte [#bd2122-pg-explain-sql]: con `ANALYZE`, el comando **corre la consulta de verdad**. Tira el resultado de un `select`, pero cualquier otro efecto ocurre. Si el comando es un `update`, cambia los datos. Lo probé dentro de una transacción para poder deshacerlo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "begin;\nexplain update bultos set estado = 'entregado' where estado = 'en_ruta';\nselect count(*) from bultos where estado = 'en_ruta';",
+     "s": " Update on bultos  (cost=0.00..6210.00 rows=0 width=0)\n   ->  Seq Scan on bultos  (cost=0.00..6210.00 rows=42910 width=38)\n         Filter: (estado = 'en_ruta'::text)\n\n count\n-------\n 42857"
+    },
+    {
+     "c": "explain (analyze) update bultos set estado = 'entregado' where estado = 'en_ruta';\nselect count(*) from bultos where estado = 'en_ruta';",
+     "s": " Update on bultos  (... actual time=212.862..212.862 rows=0 loops=1)\n ...\n Execution Time: 212.873 ms\n\n count\n-------\n     0"
+    },
+    {
+     "c": "rollback;\nselect count(*) from bultos where estado = 'en_ruta';",
+     "s": " count\n-------\n 42857"
+    }
+   ],
+   "cap": "`EXPLAIN` a secas dejó los 42.857 bultos en ruta. Con `ANALYZE` los pasó a entregado (0 quedaron en ruta). El `rollback` los devolvió. Observá que un `update` tarda mucho más que el `select` equivalente: escribir cuesta."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El rollback no deshace todo",
+   "x": "Envolver `EXPLAIN ANALYZE` en `begin … rollback` restaura los datos, pero no el tiempo gastado ni los bloqueos que se tomaron mientras corrió. Un ejemplo que probé: una secuencia (`nextval`) avanza aunque haga `rollback`; después de un `explain (analyze)` y un `select nextval` dentro de una transacción revertida, el siguiente valor fue 3. En producción, antes de analizar un `update` o un `delete` mirá primero el `EXPLAIN` a secas."
+  },
+  {
+   "t": "h",
+   "x": "El plan de una app que usa seguridad por filas"
+  },
+  {
+   "t": "p",
+   "x": "La reescritura también agrega las **políticas de seguridad por filas** (RLS): la regla «cada persona ve solo lo suyo» se pega a tu consulta como una condición más antes de que el planificador la vea [#bd2122-pg-rls]. Armé una copia chica de la tabla de partidas de Senda, con 50.000 filas inventadas, los mismos dos índices y una política de la misma forma, y la consulté como un usuario con RLS."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- política (la función mi_id() imita a auth.uid(): lee un parámetro de la sesión)\ncreate policy veo_mis_partidas on partidas for select to app_usuario\n  using (mi_id() in (jugador_a, jugador_b));\nset role app_usuario;  set app.uid = '11';\nexplain (analyze, buffers, costs off, timing off) select * from partidas where estado = 'en_juego';",
+     "s": " Bitmap Heap Scan on partidas (actual rows=200 loops=1)\n   Recheck Cond: ((mi_id() = jugador_a AND estado = 'en_juego') OR (mi_id() = jugador_b AND estado = 'en_juego'))\n   Filter: (mi_id() = jugador_a OR mi_id() = jugador_b)\n   Buffers: shared hit=156\n   ->  BitmapOr\n         ->  Bitmap Index Scan on partidas_a (actual rows=100 loops=1)\n         ->  Bitmap Index Scan on partidas_b (actual rows=100 loops=1)"
+    },
+    {
+     "c": "reset role;  select count(*) from partidas where estado = 'en_juego';",
+     "s": " count\n-------\n  5000"
+    }
+   ],
+   "cap": "Plan simplificado (la función `mi_id()` aparece expandida en el plan real). La consulta no pedía ninguna condición sobre jugadores: la política la agregó. Como el dueño de la tabla no pasa por RLS, ve las 5.000 partidas en juego; el usuario ve las 200 suyas."
+  },
+  {
+   "t": "p",
+   "x": "Dos cosas para llevarse. Una: la política no es mágica ni gratis, es **una condición más en el plan**, y por eso tiene que poder usar índices. Dos: como la política dice «A o B», el planificador usa un `BitmapOr` que combina un índice por cada lado (el de `jugador_a` y el de `jugador_b`) y junta los resultados."
+  },
+  {
+   "t": "senda",
+   "titulo": "En Senda: la política de las partidas y sus dos índices",
+   "x": [
+    "En `20261101000000_juntos.sql`, la política de la tabla `partidas` es `using (auth.uid() in (jugador_a, jugador_b))`, y la misma migración crea `partidas_a (jugador_a, estado)` y `partidas_b (jugador_b, estado)`. Mi lectura, no una verificación: son los dos índices que un `BitmapOr` como el de arriba puede usar para esa política. La vista `mis_partidas` (`20261111000000_novedades.sql`) repite la misma condición `auth.uid() in (p.jugador_a, p.jugador_b)` y la etapa de reescritura la expande, como la de `depositos_norte`.",
+    "No corrí estas consultas contra la base de Senda (no tengo acceso a producción) ni sé qué plan elige con sus datos reales. Los planes de esta sección son de mi copia inventada, con `mi_id()` en lugar de `auth.uid()`. Esto corresponde al commit `25e08fa`; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261111000000_novedades.sql"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Los planes también se guardan",
+   "x": "Armar un plan lleva tiempo (en mis pruebas, de 0,02 a 0,7 ms: poco, pero se repite con cada consulta). Por eso PostgreSQL permite reutilizarlos. El intérprete de PL/pgSQL, el lenguaje de buena parte de las funciones de Senda, prepara cada sentencia de una función la primera vez que se ejecuta **en esa sesión** y puede guardar su plan para las siguientes llamadas [#bd2122-pg-plpgsql-plan]. Un plan guardado puede quedar viejo si los datos cambian mucho: lo que cuenta es el plan, no el texto."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- plan de una consulta inventada, recortado",
+     "s": "GroupAggregate (actual rows=20 loops=1)\n  ->  Nested Loop (actual rows=40 loops=1)\n        ->  Index Only Scan using bultos_pkey on bultos b (actual rows=20 loops=1)\n        ->  Index Only Scan using eventos_bulto on eventos e (actual rows=2 loops=20)"
+    }
+   ],
+   "cap": "Plan para el ejercicio."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Mirá el plan de arriba. (1) ¿Cuántas filas devolvió en total el `Index Only Scan` de `eventos`? (2) ¿Qué algoritmo de unión usó? (3) ¿Cuántas veces buscó en el índice de `eventos_bulto`?",
+   "pista": "Mirá `rows` y `loops` del nodo de adentro. ¿Qué nodo es el padre de los dos Index Only Scan?",
+   "solucion": "(1) 2 × 20 = 40 filas en total. (2) Nested Loop, el padre de los dos scans. (3) 20 veces, una por cada fila del lado externo (`loops=20`). Si hubieras leído solo `rows=2`, habrías creído que el nodo devolvió 2 filas."
+  },
+  {
+   "t": "h",
+   "x": "Qué mirar primero en un plan"
+  },
+  {
+   "t": "p",
+   "x": "Una guía de lectura, que es criterio y no ley. **Uno:** ¿dónde está la mayor parte del tiempo real? Se busca el nodo con más `actual time`, restando el de sus hijos. **Dos:** ¿coinciden `rows` estimado y real? Una diferencia de 10 veces o más es una pista fuerte. **Tres:** ¿hay un `Seq Scan` con muchos `Rows Removed by Filter` en una tabla grande? **Cuatro:** ¿qué nodos tienen `loops` grande? Un nodo barato que corre un millón de veces no es barato. **Cinco:** ¿hay un `Sort` que derrama a disco (lo dice la línea `Sort Method: external merge`)? El [@09-23] convierte esto en un método de trabajo."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "EXPLAIN en PostgreSQL 18 (13-11-2026)",
+   "x": "La versión 18 cambió varias cosas de `EXPLAIN` [#bd2122-pg-notas-18-explain]: `EXPLAIN ANALYZE` incluye `BUFFERS` por defecto (acá lo pedí a mano, porque usé la 16.15), muestra recuentos de filas con fracciones y suma datos como las búsquedas por índice de cada nodo. Los nombres de los nodos y la forma de leerlos siguen igual. Según la página de versiones de PostgreSQL [#bd2122-pg-versioning], hoy la rama estable más nueva es la 18 (18.7, del 12-11-2026); no corrí estas consultas en la 18."
+  }
+ ],
+ "recap": [
+  "Una consulta pasa por cuatro etapas: parser (sintaxis y nombres), reescritura (vistas y políticas de seguridad), planificador (elige cómo) y ejecutor (lo lleva a cabo).",
+  "El plan de ejecución es un árbol de nodos que se lee de adentro hacia afuera: `Seq Scan`, `Index Scan`, uniones (`Hash Join`, `Nested Loop`, `Merge Join`), `Sort`, `Aggregate`.",
+  "`cost` son unidades arbitrarias que el planificador calcula con estadísticas y parámetros (el `Seq Scan` de bultos: 2460 páginas + filas × 0,01 + filas × 0,0025 = 6210). Sirve para comparar planes, no para predecir milisegundos.",
+  "`EXPLAIN` no ejecuta; `EXPLAIN ANALYZE` sí, y agrega tiempos y filas reales. Un `update` analizado cambia datos: se envuelve en `begin … rollback`, que no deshace las secuencias.",
+  "Los números de un nodo con `loops` son por vuelta: `rows=2 loops=20` son 40 filas. La pista más útil de un plan lento es la distancia entre filas estimadas y reales.",
+  "No hay un algoritmo de unión mejor que los otros: Nested Loop gana con pocas filas e índice, Hash Join y Merge Join con muchas. El motor mira el costo del plan entero.",
+  "Las políticas RLS se suman a la consulta como una condición más y el plan las muestra; por eso tienen que poder usar índices."
+ ],
+ "repaso": [
+  {
+   "p": "Escribís `select nombre, pais from depositos` y `pais` no existe. ¿Qué parte del camino de la consulta devuelve el error?",
+   "o": [
+    "El planificador, al descubrir que ningún camino puede resolver la consulta",
+    "El parser, al resolver los nombres contra los catálogos del sistema",
+    "La reescritura, al buscar una regla que defina la columna que falta",
+    "El ejecutor, al intentar leer la columna de cada fila de la tabla"
+   ],
+   "c": 1,
+   "e": "El nombre de las columnas se resuelve en la segunda parte del parser (transformación), antes de planificar y ejecutar: por eso el error aparece sin leer ninguna fila. Las otras etapas solo reciben consultas ya válidas. Un error de gramática, en cambio, lo detecta la primera parte del parser."
+  },
+  {
+   "p": "Un `EXPLAIN` muestra `Seq Scan on bultos (cost=0.00..6210.00 ...)`. ¿Qué significa el `6210.00`?",
+   "o": [
+    "Unidades de costo arbitrarias que el planificador calcula con estadísticas",
+    "Las páginas de 8 kB que va a leer el nodo, contadas una por una",
+    "El número de filas que el nodo espera devolver al nodo que está arriba",
+    "Milisegundos que tardará el escaneo secuencial al ejecutarse la consulta"
+   ],
+   "c": 0,
+   "e": "El costo no es tiempo, ni páginas, ni filas: combina lecturas de página y trabajo de CPU en unidades fijadas por parámetros como `seq_page_cost`. Sirve para comparar planes del mismo servidor. Las otras tres opciones confunden costo con milisegundos, con filas (que muestra `rows`) o con páginas (que muestra `Buffers`)."
+  },
+  {
+   "p": "Un nodo muestra `Index Only Scan ... (actual rows=2 loops=20)`. ¿Cuántas filas devolvió en total ese nodo?",
+   "o": [
+    "2, porque `rows` ya cuenta el total de todas las vueltas del nodo",
+    "20, porque `loops` es la cantidad de filas y `rows` solo el promedio",
+    "22, porque hay que sumar las filas por vuelta más el número de vueltas",
+    "40, porque los números reales del nodo son por vuelta y corrió 20 veces"
+   ],
+   "c": 3,
+   "e": "Con `loops` mayor que 1, `rows` y `actual time` son promedios por vuelta; el total es `rows × loops`, acá 2 × 20 = 40. Leer solo `rows=2` subestima el trabajo del nodo, que es el error típico con un Nested Loop."
+  },
+  {
+   "p": "Corrés `explain (analyze) update bultos set estado = 'entregado' where estado = 'en_ruta'` fuera de una transacción. ¿Qué pasa?",
+   "o": [
+    "Se ejecuta sobre una copia de la tabla, que desaparece cuando termina",
+    "Se ejecuta pero se deshace solo, porque `explain` siempre revierte los cambios",
+    "Solo muestra el plan y los tiempos estimados, sin tocar ninguna fila",
+    "El update se ejecuta de verdad y los bultos quedan modificados en la base"
+   ],
+   "c": 3,
+   "e": "`ANALYZE` ejecuta la sentencia completa y deja sus efectos. Para analizar un `update` sin cambiar nada hay que envolverlo en `begin … rollback`. El `explain` a secas sí es el que no ejecuta. Ni se revierte solo ni usa una copia."
+  },
+  {
+   "p": "Para pedir los eventos de solo 20 bultos, el Hash Join tardó 81 ms y el Nested Loop 0,04 ms. ¿Cuál es la explicación?",
+   "o": [
+    "El Hash Join es un algoritmo más lento que el Nested Loop en cualquier consulta",
+    "El Hash Join no puede usar índices, así que cae en un orden aleatorio de lectura",
+    "El Hash Join debe leer y armar la tabla de todos los eventos antes de responder",
+    "El Nested Loop evita leer páginas y trabaja sin tocar la tabla de eventos"
+   ],
+   "c": 2,
+   "e": "El costo fijo de construir la tabla hash con 600.000 eventos se paga aunque se pidan 40 filas. El Nested Loop, con el índice por `bulto_id`, toca solo las páginas de los 20 bultos. Con los 300.000 bultos, en cambio, el Nested Loop fue más lento que el Merge Join. No hay un método mejor en general."
+  },
+  {
+   "p": "Con `partidas_a (jugador_a, estado)` y `partidas_b (jugador_b, estado)` y una política `mi_id() in (jugador_a, jugador_b)`, el plan usó un `BitmapOr`. ¿Qué indica?",
+   "o": [
+    "Que usó solo el índice de `jugador_a` y chequeó el otro lado fila por fila",
+    "Que el planificador descartó la política de seguridad porque no era indexable",
+    "Que un índice resolvió cada lado de la condición «A o B» y se juntaron los resultados",
+    "Que hizo un Seq Scan de las dos tablas y después combinó los resultados en memoria"
+   ],
+   "c": 2,
+   "e": "El `BitmapOr` combina dos búsquedas por índice, una por cada lado del `OR`, y después lee las páginas de la tabla una vez. La política no se descarta nunca: es una condición más de la consulta. Por eso conviene que existan índices que la puedan usar."
+  },
+  {
+   "p": "El plan estimó 42.860 filas en un filtro y devolvió 42.857. ¿Qué podés concluir de esa pequeña diferencia?",
+   "o": [
+    "Que el filtro se ejecutó dos veces, una para estimar y otra para devolver las filas",
+    "Que las estadísticas de la tabla describen bien los datos y el plan se eligió con buena información",
+    "Que el índice de la tabla está desactualizado y hay que reconstruirlo antes de seguir",
+    "Que el planificador midió el tiempo real de la consulta antes de elegir el plan"
+   ],
+   "c": 1,
+   "e": "El planificador estima con estadísticas guardadas, sin ejecutar nada; que lo estimado coincida casi exacto muestra que esas estadísticas son buenas. Una distancia grande sería la señal de problema. No hay medición previa ni doble ejecución, y la tabla ni siquiera tenía un índice en juego."
+  }
+ ],
+ "feynman": "Explicale a alguien del depósito, sin decir «índice» ni «hash», por qué la misma consulta puede ser rapidísima con 20 bultos y lentísima con el mismo método cuando se piden los 300.000, y quién es el que decide qué camino tomar.",
+ "para_profundizar": [
+  {
+   "fuente": "bd2122-pg-explain-uso",
+   "nota": "La guía oficial para leer EXPLAIN, con ejemplos de costos, filas y tiempos reales. Leé la parte de «EXPLAIN Basics» para ver cómo se calculan los costos que recalculamos hoy."
+  },
+  {
+   "fuente": "bd2122-pg-camino-consulta",
+   "nota": "El capítulo oficial sobre el camino de una consulta: las cuatro etapas, escritas por quienes mantienen el motor. Es corto y sirve de mapa para lo que sigue."
+  },
+  {
+   "fuente": "bd2122-pg-costos",
+   "nota": "La lista de parámetros de costo (`seq_page_cost`, `cpu_tuple_cost`, `enable_hashjoin`) con su valor por defecto. Para reconocerlos cuando aparezcan en un plan o en un foro."
+  }
+ ],
+ "videos": [
+  {
+   "q": "PostgreSQL EXPLAIN ANALYZE how to read a query plan nested loop hash join merge join",
+   "por_que": "Para ver los tres algoritmos de unión explicados con otros ejemplos y comparar con lo que mediste hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "parser",
+   "d": "Primera etapa del procesamiento de una consulta: comprueba que el texto SQL esté bien escrito, arma un árbol con su estructura y resuelve los nombres de tablas, columnas y tipos contra los catálogos del sistema."
+  },
+  {
+   "t": "planificador de consultas",
+   "d": "Etapa que decide cómo se va a resolver una consulta. Genera caminos posibles (por ejemplo, escanear la tabla o usar un índice), estima el costo de cada uno con estadísticas y elige el más barato."
+  },
+  {
+   "t": "ejecutor",
+   "d": "Etapa final del motor: recorre el plan de ejecución, lee las tablas y los índices, aplica filtros, uniones y ordenamientos, y entrega las filas del resultado."
+  },
+  {
+   "t": "plan de ejecución",
+   "d": "Árbol de operadores que produce el planificador y que el ejecutor sigue paso a paso. Cada nodo (Seq Scan, Hash Join, Sort …) hace una tarea y muestra costo estimado y, con EXPLAIN ANALYZE, filas y tiempo reales."
+  },
+  {
+   "t": "Nested Loop",
+   "d": "Algoritmo de unión que, por cada fila de un lado, busca las coincidencias en el otro. Es muy rápido con pocas filas y un índice del lado interno, y muy lento si se aplica a muchas filas sin índice."
+  },
+  {
+   "t": "Hash Join",
+   "d": "Algoritmo de unión que arma una tabla hash en memoria con uno de los lados y recorre el otro buscando coincidencias. Paga un costo fijo para construir la tabla, y rinde con uniones grandes."
+  },
+  {
+   "t": "Merge Join",
+   "d": "Algoritmo de unión que recorre en paralelo dos entradas ordenadas por la clave de unión. Conviene cuando ambos lados ya vienen ordenados, por ejemplo desde un índice."
+  },
+  {
+   "t": "costo del plan",
+   "d": "Número que el planificador calcula para comparar planes alternativos, en unidades arbitrarias basadas en lecturas de página y trabajo de CPU. No son milisegundos y solo se comparan entre planes del mismo servidor."
+  }
+ ],
+ "siguiente": "Hoy leíste planes; mañana vas a usarlos para arreglar consultas lentas: estadísticas, estimaciones erradas, el problema N+1 y un caso con tiempos medidos.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd2122-pg-camino-consulta",
+   "t": "PostgreSQL 16: Overview of PostgreSQL Internals (The Path of a Query)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/query-path.html"
+  },
+  {
+   "id": "bd2122-pg-parser",
+   "t": "PostgreSQL 16: The Parser Stage",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/parser-stage.html"
+  },
+  {
+   "id": "bd2122-pg-explain-uso",
+   "t": "PostgreSQL 16: Using EXPLAIN",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/using-explain.html"
+  },
+  {
+   "id": "bd2122-pg-explain-sql",
+   "t": "PostgreSQL 16: EXPLAIN (comando)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/sql-explain.html"
+  },
+  {
+   "id": "bd2122-pg-costos",
+   "t": "PostgreSQL 16: Planner Cost Constants and Method Configuration",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/runtime-config-query.html"
+  },
+  {
+   "id": "bd2122-pg-rls",
+   "t": "PostgreSQL 16: Row Security Policies",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/ddl-rowsecurity.html"
+  },
+  {
+   "id": "bd2122-pg-plpgsql-plan",
+   "t": "PostgreSQL 16: PL/pgSQL Under the Hood (Plan Caching)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/plpgsql-implementation.html"
+  },
+  {
+   "id": "bd2122-pg-versioning",
+   "t": "PostgreSQL: Versioning Policy y versiones soportadas",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/support/versioning/"
+  },
+  {
+   "id": "bd2122-pg-notas-18-explain",
+   "t": "PostgreSQL 18.0 release notes (sección EXPLAIN)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2025,
+   "url": "https://www.postgresql.org/docs/release/18.0/"
+  }
+ ]
+}

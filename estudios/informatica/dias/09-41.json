@@ -1,0 +1,1023 @@
+{
+ "id": "09-41",
+ "titulo": "Seguridad de datos en la base",
+ "bajada": "Atacás una base con 2.000 envíos inventados de cuatro maneras (texto malicioso, cable espiado, disco leído por fuera y empleado que ve de más) y ves qué defensa frena cada una.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Dar a cada rol solo los privilegios que necesita, a nivel de tabla y de columna, y comprobar qué rechaza la base.",
+  "Explicar qué hace la seguridad a nivel de fila, quién se la salta (dueño, superusuario, BYPASSRLS) y qué cambia con FORCE.",
+  "Reproducir una inyección SQL contra una app de práctica y arreglarla con consultas parametrizadas y un rol de mínimos permisos.",
+  "Distinguir el cifrado en tránsito del cifrado en reposo, y decir contra qué amenaza protege cada nivel y contra cuál no.",
+  "Reconocer qué es un dato personal según la Ley 25.326 y qué medidas de la base lo protegen: enmascarado y rastro de auditoría."
+ ],
+ "venis_de": "En [@07-07] viste que validar la entrada no reemplaza a las consultas parametrizadas, y en [@07-29] viste la seguridad por fila funcionando dentro de Senda. Hoy abrís la base por dentro: qué permisos concede, cómo se filtra cada fila, qué pasa cuando la app arma mal una consulta y qué se puede leer sin pasar por la base. En [@09-32] conociste los roles de PostgreSQL; hoy los usás de verdad.",
+ "se_apoya_en": [
+  "05-22",
+  "07-07",
+  "07-11",
+  "07-29",
+  "09-17",
+  "09-18",
+  "09-32"
+ ],
+ "gancho": [
+  "En un depósito hay una regla que nadie discute: no todo el personal tiene llave de todo. Recepción abre el portón pero no la oficina de facturación, cada chofer retira lo suyo y no recorre las góndolas, y el remito con el teléfono de cada destinatario no queda pegado en la puerta. Una base de datos guarda esos mismos teléfonos, y por defecto no sabe nada de estas reglas: hay que escribirlas, una por una.",
+  "Hoy armás, con datos inventados, la base de un depósito con 2.000 envíos y 50 clientes, y la atacás desde cuatro lados. Primero un texto que escribe una persona y que la app pega dentro de un comando. Después un intermediario que escucha el cable. Después alguien que lee el archivo de la tabla directamente desde el disco, sin pasar por la base. Y por último un empleado legítimo que ve más de lo que debería. Al final vas a ver qué dice la ley argentina sobre los datos personales y qué tiene y qué le falta a la base de Senda. Todo lo que ves corrió en esta máquina con PostgreSQL 16.15; los tiempos y los tamaños son de una sola máquina virtual compartida."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Cinco preguntas que se hace una base segura"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Proteger datos no es una función que se prende. Es una pila de defensas, cada una responde una pregunta distinta y ninguna reemplaza a las otras. Esta tabla es el mapa de hoy; cada fila es un apartado."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pregunta",
+    "Defensa",
+    "Dónde vive",
+    "Quién la rompe si falta"
+   ],
+   "filas": [
+    [
+     "¿Quién sos?",
+     "Autenticación (contraseña, token)",
+     "App y proveedor de cuentas ([@07-09])",
+     "Cualquiera que adivine o robe una credencial"
+    ],
+    [
+     "¿Qué objetos podés tocar?",
+     "[[privilegio|Privilegios]] (GRANT, REVOKE)",
+     "La base, por rol",
+     "Una app que se conecta con un rol que lo puede todo"
+    ],
+    [
+     "¿Qué filas ves?",
+     "[[seguridad a nivel de fila]] (políticas)",
+     "La base, por tabla",
+     "Un empleado o un cliente que ve filas ajenas"
+    ],
+    [
+     "¿Quién puede leerlo fuera de la base?",
+     "Cifrado en el cable y en el disco",
+     "Conexión, disco, columnas",
+     "Un intermediario de red o quien se lleva un disco o un backup"
+    ],
+    [
+     "¿Quién hizo qué?",
+     "Auditoría y enmascarado",
+     "Triggers, registros, vistas",
+     "Nadie se entera: ni de la fuga ni de quién la causó"
+    ]
+   ],
+   "cap": "Cinco defensas. Hoy hacés una demostración de cada una, excepto la primera, que ya viste."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "En un depósito, la autenticación es el torniquete con credencial, los privilegios son las llaves de cada sector, la seguridad por fila es el remito que dice qué pallets de qué cliente podés retirar, el cifrado es el precinto del camión y la auditoría son las cámaras y el libro de entradas y salidas. Donde la analogía deja de valer: en un depósito siempre hay un guardia que mira y puede dudar. La base aplica reglas exactas, sin mirar intenciones: si la regla deja pasar un pedido, lo deja pasar aunque lo haya escrito un atacante.",
+   "titulo": "Pensalo así: el depósito"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para probar las defensas necesitás una base con algo adentro. La que armé tiene tres tablas inventadas: `clientes` (50), `envios` (2.000, con teléfono y dirección de cada destinatario) y `cuentas_admin` (2 filas con hashes falsos). Todo sale de expresiones fijas, sin azar, así que si lo repetís obtenés los mismos números. Los roles son tres: `dueno_lab`, que es dueña de las tablas y corre las migraciones; `app_web`, con la que se conecta la app de práctica; y `analista`, una persona de reportes. Cada uno tiene su propia conexión."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table clientes (id int primary key, nombre text not null, dni text not null, telefono text not null);\ncreate table envios (\n  id int primary key,\n  cliente_id int not null references clientes(id),\n  destinatario text not null,\n  telefono_dest text not null,\n  direccion text not null,\n  estado text not null check (estado in ('pendiente','en_ruta','entregado'))\n);\ncreate table cuentas_admin (email text primary key, clave_hash text not null);\n\n-- 2.000 envíos: todo es una función del número g\ninsert into envios\nselect g, 1 + (g % 50), 'Destinatario ' || g,\n       '11-' || lpad((5000 + g*13 % 4000)::text, 4, '0') || '-' || lpad((g*104729 % 10000)::text, 4, '0'),\n       'Calle ' || (g % 400) || ' ' || (100 + g*17 % 9000),\n       (array['pendiente','en_ruta','entregado'])[1 + g % 3]\nfrom generate_series(1, 2000) g;\n-- (clientes se llena igual; cuentas_admin tiene dos filas con hashes falsos)",
+   "cap": "preparar.sql, recortado: faltan los create role y el relleno de clientes. Los teléfonos, los nombres y los hashes son inventados."
+  },
+  {
+   "t": "h",
+   "x": "Privilegios: dar lo justo y nada más"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un **privilegio** es un permiso concreto que un rol tiene sobre un objeto: leer una tabla (`SELECT`), escribirla (`INSERT`, `UPDATE`, `DELETE`), usar un esquema (`USAGE`) o ejecutar una función (`EXECUTE`). Se concede con `GRANT` y se retira con `REVOKE`. La regla que ordena todo es el **mínimo privilegio**: cada rol recibe lo que necesita para su trabajo y nada más, de modo que si una credencial se filtra, lo que se pierde es lo que ese rol podía hacer, no todo."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un rol recién creado casi no puede nada. Esto es lo que pasó cuando `analista` quiso leer los envíos y crear una tabla, y después lo que pasó cuando la dueña le dio permiso sobre cuatro de las cinco columnas útiles, dejando afuera el teléfono."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "set role analista;\nselect count(*) from envios;",
+     "s": "ERROR:  permission denied for table envios"
+    },
+    {
+     "c": "create table basura (x int);",
+     "s": "ERROR:  permission denied for schema public"
+    },
+    {
+     "c": "-- la dueña concede cuatro columnas\nset role dueno_lab;\ngrant select (id, cliente_id, estado, direccion) on envios to analista;",
+     "s": "GRANT"
+    },
+    {
+     "c": "set role analista;\nselect estado, count(*) from envios group by estado order by estado;",
+     "s": " estado   | count \n-----------+-------\n en_ruta   |   667\n entregado |   667\n pendiente |   666"
+    },
+    {
+     "c": "select telefono_dest from envios limit 1;",
+     "s": "ERROR:  permission denied for table envios"
+    },
+    {
+     "c": "select * from envios limit 1;",
+     "s": "ERROR:  permission denied for table envios"
+    },
+    {
+     "c": "update envios set estado = 'entregado';",
+     "s": "ERROR:  permission denied for table envios"
+    },
+    {
+     "c": "select has_table_privilege('analista','envios','select') as tabla_entera,\n       has_column_privilege('analista','envios','estado','select') as col_estado,\n       has_column_privilege('analista','envios','telefono_dest','select') as col_tel;",
+     "s": " tabla_entera | col_estado | col_tel \n--------------+------------+---------\n f            | t          | f"
+    }
+   ],
+   "cap": "Corrido en PostgreSQL 16.15, base seg41b. El mensaje habla de la tabla aunque la falta sea de una columna."
+  },
+  {
+   "t": "pensa",
+   "x": "`analista` tiene permiso sobre cuatro columnas de `envios` y corrió `select * from envios`. La base respondió «permission denied». ¿Por qué falló, si todas las columnas que quería ver eran útiles?",
+   "resp": "Porque el asterisco se expande a todas las columnas de la tabla, incluida `telefono_dest`, sobre la que no tiene permiso. Si falta el permiso de una sola columna, falla la consulta entera. Por eso las apps que usan permisos por columna tienen que nombrar cada columna que piden."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en el segundo error: `analista` no pudo crear una tabla en el esquema `public`. Desde PostgreSQL 15 la configuración por defecto ya no deja que cualquier rol cree objetos ahí; en versiones anteriores sí, y por eso un tutorial viejo puede mostrarte lo contrario [#bd41-pg-schemas]. Es el tipo de dato que cambia con el tiempo, y por eso va fechado."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Los permisos por defecto no son todos «cerrado». PostgreSQL no da ningún privilegio a PUBLIC (todos los roles) sobre tablas, columnas ni esquemas, pero sí le da `CONNECT` y `TEMPORARY` sobre la base, `EXECUTE` sobre las funciones y `USAGE` sobre lenguajes y tipos [#bd41-pg-priv]. Resultado práctico: las tablas nacen cerradas y las funciones nacen abiertas. Una función que escribas y olvides revocar la puede llamar cualquiera que pueda conectarse. En [@07-29] viste que en Supabase hay una capa más: además de PUBLIC, los roles `anon`, `authenticated` y `service_role` reciben `EXECUTE` por separado.",
+   "titulo": "Las funciones nacen abiertas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los permisos por columna tienen un costo de mantenimiento: cada columna nueva queda cerrada hasta que alguien la concede. Supabase los llama una función avanzada y recomienda, para la mayoría de los casos, políticas por fila más una tabla aparte para los roles [#bd41-supabase-col]. Senda los usa en un solo lugar y con motivo, la tabla `perfiles`, que verás en el último apartado."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Seguridad a nivel de fila: la regla viaja con la tabla"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los privilegios deciden sobre qué objetos podés operar. Con ellos solos, quien puede leer `envios` lee los 2.000 envíos de los 50 clientes. La **seguridad a nivel de fila** (en inglés *row level security*, la sigla [[RLS]] que viste en [@07-29]) es una condición que la base agrega a cada consulta sobre una tabla y que decide qué filas ve o modifica cada rol. Las reglas se llaman políticas. Si la tabla tiene la seguridad prendida y ninguna política, la base aplica una política de «todo denegado»: ninguna fila es visible ni modificable [#baas-postgres-rls]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay una variable de sesión, `app.cliente_id`, que la app escribe al abrir cada pedido para decir de qué cliente se trata. La política dice: `app_web` solo ve las filas cuyo `cliente_id` coincida con esa variable. Esto fue lo que pasó, paso a paso, y quién se salta la regla."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "alter table envios enable row level security;   -- como dueno_lab\nset role app_web;  select count(*) as app_web from envios;",
+     "s": "app_web \n---------\n       0"
+    },
+    {
+     "c": "set role dueno_lab;  select count(*) as dueno from envios;",
+     "s": "dueno \n-------\n  2000"
+    },
+    {
+     "c": "create policy \"cada cliente ve lo suyo\" on envios for select to app_web\n  using (cliente_id = nullif(current_setting('app.cliente_id', true), '')::int);",
+     "s": "CREATE POLICY"
+    },
+    {
+     "c": "set role app_web;\nselect count(*) as sin_variable from envios;\nset app.cliente_id = '7';\nselect count(*) as cliente_7 from envios;\nselect count(*) as cliente_7_con_or from envios where destinatario = 'x' or '1' = '1';",
+     "s": "sin_variable = 0\ncliente_7 = 40\ncliente_7_con_or = 40"
+    },
+    {
+     "c": "-- ahora, ¿quién se salta la política?\nselect count(*) from envios;   -- como dueno_lab, sin FORCE\nselect count(*) from envios;   -- como superusuario",
+     "s": "2000\n2000"
+    },
+    {
+     "c": "alter table envios force row level security;\nselect count(*) from envios;   -- dueno_lab con FORCE\nselect count(*) from envios;   -- superusuario con FORCE",
+     "s": "0\n2000"
+    },
+    {
+     "c": "create role auditor_bypass login bypassrls;  grant select on envios to auditor_bypass;\nselect count(*) from envios;   -- auditor_bypass, con FORCE",
+     "s": "2000"
+    }
+   ],
+   "cap": "Corrido en PostgreSQL 16.15, base seg41b. Los resultados de cada consulta están abreviados a su valor."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Quién consulta",
+    "Sin políticas",
+    "Con la política (cliente 7)",
+    "Con FORCE"
+   ],
+   "filas": [
+    [
+     "`app_web` (rol de la app)",
+     "0 filas",
+     "40 filas",
+     "40 filas"
+    ],
+    [
+     "`dueno_lab` (dueña de la tabla)",
+     "2000",
+     "2000: la dueña se salta la regla",
+     "0: ninguna política le habla a ella"
+    ],
+    [
+     "Superusuario",
+     "2000",
+     "2000",
+     "2000"
+    ],
+    [
+     "Rol con `BYPASSRLS`",
+     "2000",
+     "2000",
+     "2000"
+    ]
+   ],
+   "cap": "Cuántas filas de `envios` ve cada rol. La documentación de PostgreSQL dice lo mismo: superusuarios y roles con BYPASSRLS siempre se saltan la seguridad por fila, y las dueñas de la tabla normalmente también, salvo que se use FORCE [#baas-postgres-rls]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres cosas para quedarte. Primera: **prender la seguridad por fila sin escribir políticas deja la tabla cerrada** para los roles normales, y eso es una ventaja de seguridad: lo que olvidás abrir no se filtra. Segunda: quien administra la tabla no queda sujeto a la regla salvo que uses `FORCE`, así que una app jamás debería conectarse con el rol dueño. Tercera: el `0` de `dueno_lab` con FORCE no es un error. Como la única política es para `app_web`, a ella no le toca ninguna regla que le dé filas, y rige el «todo denegado»."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Una política que lee una variable de sesión vale lo que vale quien escribe esa variable. Después de poner `app.cliente_id = '7'`, la misma conexión cambió a `'8'` con una sola línea, y vio filas del cliente 8 (comprobado con `select distinct cliente_id`). Si la app solo manda texto fijo y es la única que escribe la variable, está bien. Pero si existe una inyección SQL, como la que vas a ver ahora, el atacante puede escribirla él. Por eso Supabase no usa una variable que la app elige: PostgREST verifica la firma del token y recién entonces pone `request.jwt.claims` para esa transacción (lo vas a ver mañana, en [@09-42]).",
+   "titulo": "La variable la escribe alguien"
+  },
+  {
+   "t": "h",
+   "x": "Inyección SQL: cuando el dato se vuelve orden"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La **inyección SQL** ocurre cuando una app arma el comando pegando texto que escribió una persona, y la base no tiene forma de saber dónde termina el dato y dónde empieza la orden. OWASP la ubica en el puesto A05 de su lista de 2025 y registra más de 14.000 vulnerabilidades de ese tipo en su base de CVE [#bd41-owasp-injection]. Es una falla de la app, no de la base, pero el daño ocurre en la base, y por eso se cuenta en este día."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "La app de práctica es una función de Node.js de seis líneas que busca envíos por nombre del destinatario. La primera versión pega el texto adentro del SQL. La segunda lo manda aparte, como un **parámetro**: el SQL va con un marcador `$1` y el valor viaja en otro mensaje, por lo que nunca se interpreta como código. Esa segunda forma se llama **consulta parametrizada**."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const { Client } = require('pg');\nconst c = new Client({ host: '/var/tmp/d4142', port: 21441, user: process.argv[2], database: 'seg41' });\n\n// MAL: el texto de la persona se pega dentro del SQL.\nasync function buscarMal(nombre) {\n  const sql = `select id, destinatario, estado from envios where destinatario = '${nombre}'`;\n  const r = await c.query(sql);               // sin parámetros: el protocolo simple admite varias sentencias\n  return (Array.isArray(r) ? r[0] : r).rows;\n}\n// BIEN: el SQL y el dato viajan por separado.\nasync function buscarBien(nombre) {\n  return (await c.query('select id, destinatario, estado from envios where destinatario = $1', [nombre])).rows;\n}",
+   "cap": "inyeccion.js, recortado: faltan la conexión y el bucle que prueba los ataques. Usa pg 8.23.1; el rol se pasa como argumento."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Se probó cada versión con cinco entradas: un nombre legítimo y cuatro ataques. Cada ataque es un texto que cierra la comilla del nombre y escribe SQL propio. El primero agrega una condición siempre verdadera. El segundo une el resultado con otra tabla, `cuentas_admin`, usando `union`. El tercero lee una columna que el programador nunca pensó mostrar. El cuarto termina la sentencia con un punto y coma y escribe otra, una `update`. Se corrió todo dos veces: conectando la app como `dueno_lab` (el rol que lo puede todo) y como `app_web`, con permisos mínimos."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node inyeccion.js dueno_lab",
+     "s": "--- conectado como dueno_lab\nuso normal                  : 1 filas [{\"id\":6,\"destinatario\":\"Destinatario 6\",\"estado\":\"pendiente\"}]\nataque 1: condición siempre : 2000 filas [{\"id\":1,\"destinatario\":\"Destinatario 1\",\"estado\":\"en_ruta\"}]\nataque 2: otra tabla        : 2 filas [{\"id\":0,\"destinatario\":\"ana@deposito.example\",\"estado\":\"scrypt$practica$aaaa1111\"}]\nataque 3: columna oculta    : 2 filas [{\"id\":2,\"destinatario\":\"11-5026-9458\",\"estado\":\"Calle 2 134\"}]\n   (el servidor ejecutó 2 sentencias)\nataque 4: escribir          : 0 filas []\ncon parámetros, ataque 1    : 0 filas []\ncon parámetros, ataque 2    : 0 filas []\ncon parámetros, uso normal  : 1 filas [{\"id\":6,\"destinatario\":\"Destinatario 6\",\"estado\":\"entregado\"}]"
+    },
+    {
+     "c": "psql -c \"select count(*) from envios where estado = 'pendiente'\"   # después del ataque 4",
+     "s": "0   (antes eran 666: el ataque 4 los pasó todos a «entregado»)"
+    },
+    {
+     "c": "node inyeccion.js app_web",
+     "s": "--- conectado como app_web\nuso normal                  : 1 filas [{\"id\":6,\"destinatario\":\"Destinatario 6\",\"estado\":\"pendiente\"}]\nataque 1: condición siempre : 2000 filas [{\"id\":1,\"destinatario\":\"Destinatario 1\",\"estado\":\"en_ruta\"}]\nataque 2: otra tabla        : ERROR permission denied for table cuentas_admin\nataque 3: columna oculta    : ERROR permission denied for table envios\nataque 4: escribir          : ERROR permission denied for table envios\ncon parámetros, ataque 1    : 0 filas []\ncon parámetros, ataque 2    : 0 filas []\ncon parámetros, uso normal  : 1 filas [{\"id\":6,\"destinatario\":\"Destinatario 6\",\"estado\":\"pendiente\"}]"
+    }
+   ],
+   "cap": "Corrido en esta máquina. `app_web` solo tiene `select` sobre cinco columnas de `envios` y dos de `clientes`. Las filas mostradas son solo la primera de cada resultado."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La lectura de la tabla de resultados tiene tres partes. Con la conexión que lo puede todo, los cuatro ataques funcionaron: se leyeron los 2.000 envíos, los hashes del administrador, los teléfonos y se cambiaron 666 estados. El cuarto funciona porque, sin parámetros, `pg` usa el protocolo simple de PostgreSQL, que admite varias sentencias en un solo texto; el protocolo extendido, el que se usa con parámetros, rechaza más de una sentencia por mensaje [#bd41-pg-protocolo]. Con la versión parametrizada, los dos ataques que se probaron devolvieron cero filas: el texto malicioso se buscó como si fuera un nombre, y nadie se llama así."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con `app_web`, la segunda parte, pasó algo más fino: los ataques 2, 3 y 4 fueron rechazados por la base con *permission denied*, porque el rol no tiene permiso sobre `cuentas_admin`, ni sobre `telefono_dest`, ni para escribir. Pero el ataque 1 **siguió funcionando**: devolvió los 2.000 envíos, porque ese rol sí puede leer `envios`. Los privilegios acotan el daño, no cierran la puerta. Para cerrarla hay que sumar la consulta parametrizada, que evita la inyección, y la seguridad por fila, que haría que ese rol, aun con la condición siempre verdadera, solo viera las filas de su cliente."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Con el rol de mínimos permisos, el ataque 1 devolvió los 2.000 envíos. ¿Qué dos defensas de las que viste hoy lo habrían frenado?",
+   "resp": "La consulta parametrizada, que impide que el texto se interprete como parte del SQL. Y la seguridad por fila, que agrega a cualquier consulta la condición sobre el cliente, aunque el atacante escriba una condición siempre verdadera (la base la combina con la política con un AND). Cualquiera de las dos lo frena; ponerlas juntas es defensa en profundidad."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Validar la entrada no reemplaza a parametrizar ([@07-07]). Las consultas parametrizadas cubren los *valores*, pero no los nombres de tablas ni de columnas ni el sentido de un `order by`: eso no se puede pasar como `$1`. Si necesitás que la persona elija el orden, la guía de OWASP recomienda mapear su elección a una lista fija de opciones que escribiste vos, nunca pegar lo que llega [#owasp-sql-injection]. Y escapar comillas a mano es frágil: hay formas de escribir el mismo carácter que un filtro casero no prevé.",
+   "titulo": "Lo que parametrizar no cubre"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una nota sobre Senda, verificada en el código: ninguna de sus 42 migraciones usa SQL dinámico. Busqué la palabra `execute` en `supabase/migrations/` y solo aparece en los `grant` y `revoke` de permisos; no hay un solo `execute format(...)` ni `execute '...'` que arme consultas con texto. Las funciones de Senda reciben los valores como argumentos tipados. Eso no prueba que no haya otra falla, pero cierra por construcción esta puerta dentro de la base. Y el teléfono no le manda SQL a la base: le manda pedidos HTTP a PostgREST, que arma las consultas con parámetros por su cuenta."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Una persona de atención al cliente necesita ver el id, el destinatario, la dirección y el estado de cualquier envío, y poder cambiar **solo** el estado. No debe ver el teléfono ni modificar nada más ni borrar envíos. Escribí los comandos para el rol `atencion` y decí qué debería rechazar la base. Después probalo.",
+   "pista": "Son dos `grant` con columnas: uno de `select` con cuatro columnas y otro de `update` con una sola. Un `update ... where id = 6` también necesita poder leer `id`.",
+   "solucion": "```\ngrant select (id, cliente_id, destinatario, direccion, estado) on envios to atencion;\ngrant update (estado) on envios to atencion;\n```\nComo `atencion`: `update envios set estado = 'en_ruta' where id = 6;` funciona (UPDATE 1). Fallan con *permission denied*: `update envios set direccion = 'Otra 1' where id = 6;`, `select telefono_dest from envios where id = 6;` y `delete from envios where id = 6;`. Lo corrí en seg41: las tres fallaron y la primera cambió el estado de 'pendiente' a 'en_ruta'."
+  },
+  {
+   "t": "h",
+   "x": "Cifrado: en el cable y en el disco"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá las defensas viven dentro de la base: solo valen si los datos pasan por ella. Hay dos caminos por los que los datos salen sin pasar por sus reglas: el cable entre la app y la base, y el disco donde se guardan los archivos. Cada uno tiene su cifrado."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Cifrado en tránsito.** Es el que ya conocés de la web ([[TLS]], [@05-22]): la conexión se cifra antes de enviar nada. PostgreSQL lo habla igual que HTTPS. Para verlo armé un intermediario, un programa de Node de 20 líneas que se pone en el medio, reenvía los bytes tal cual y anota lo que alcanza a leer, y mandé la misma consulta por él dos veces, con la conexión sin cifrar y con la cifrada."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql \"host=127.0.0.1 port=21489 sslmode=disable ...\" -c \"select id, destinatario, estado from envios where destinatario = 'Destinatario 6'\"",
+     "s": "cliente→base 87 bytes: \"Q...Vselect id, destinatario, estado from envios where destinatario = 'Destinatario 6'.\"\nbase→cliente 147 bytes: \"T...S..id...C...destinatario...C...estado...D...*......6....Destinatar\"\n¿aparece \"Destinatario 6\" en lo capturado? true\n¿aparece el texto de la consulta? true"
+    },
+    {
+     "c": "psql \"host=127.0.0.1 port=21489 sslmode=require ...\" -c \"(la misma consulta)\"",
+     "s": "cliente→base 293 bytes: \".... ......(r.8...0...#......G..PRh5...s... *kD|.EW.l..<.\\\\N...\"\nbase→cliente 1364 bytes: \"............=.hl.....9..6.....R...e].Y...P4 *kD|.EW.l..<...\"\n¿aparece \"Destinatario 6\" en lo capturado? false\n¿aparece el texto de la consulta? false"
+    }
+   ],
+   "cap": "El intermediario (puerto 21489) reenvía a la base (21441). Los bytes se muestran con los caracteres no imprimibles cambiados por puntos y recortados a 110 caracteres. Certificado autofirmado de dos días, creado solo para esta prueba."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Sin cifrar, un intermediario lee la consulta y los datos devueltos, palabra por palabra. Cifrado, ve bytes sin sentido. Pero hay un detalle que se pierde fácil. La opción de conexión `sslmode` tiene seis valores, y el que viene por defecto en libpq (la librería de cliente de PostgreSQL, que usan `psql` y muchos drivers) es `prefer`: intenta cifrar y, si el servidor no puede, sigue sin cifrar y sin avisar [#bd41-pg-libpq]. El valor `require` obliga a cifrar, pero la documentación aclara que por defecto no se verifica el certificado del servidor, y que entonces alguien que se haga pasar por él (por ejemplo, tomando su dirección IP) no sería detectado [#bd41-pg-libpq-ssl]. Quien cifra sin verificar a quién le habla está cifrando con cualquiera."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql \"host=localhost sslmode=verify-full\" -c \"select 1\"",
+     "s": "psql: error: ... root certificate file \".../.postgresql/root.crt\" does not exist"
+    },
+    {
+     "c": "psql \"host=localhost sslmode=verify-full sslrootcert=server.crt\" -c \"select ssl from pg_stat_ssl ...\"",
+     "s": "conectado, ssl=true"
+    },
+    {
+     "c": "psql \"host=127.0.0.1 sslmode=verify-full sslrootcert=server.crt\" -c \"select 1\"",
+     "s": "psql: error: ... server certificate for \"localhost\" does not match host name \"127.0.0.1\""
+    },
+    {
+     "c": "psql \"host=127.0.0.1 sslmode=require\" -c \"select ssl, version, cipher, bits from pg_stat_ssl where pid = pg_backend_pid()\"",
+     "s": "t | TLSv1.3 | TLS_AES_256_GCM_SHA384 | 256"
+    }
+   ],
+   "cap": "Con `verify-full` el cliente exige un certificado de confianza y que el nombre coincida con el servidor. El cuarto comando muestra la sesión cifrada que ve el propio servidor."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Cifrado en reposo.** Es el cifrado de los datos que están guardados, quietos, en un disco: **cifrado en reposo**. Protege contra el robo físico de un disco, de una copia de seguridad o de un volumen en la nube que alguien se lleva. No es lo mismo que el cifrado en tránsito: acá nadie escucha un cable, alguien tiene el archivo. Para entender de qué protege, mirá lo que hay en el archivo de la tabla. Creé una tabla con 300 teléfonos inventados en dos formas, una columna de texto común y otra cifrada con la extensión `pgcrypto`, forcé la escritura al disco con `CHECKPOINT` ([@09-27]) y busqué el patrón en el archivo, sin pasar por la base."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- 300 filas: tel_claro (text) y tel_cifrado (bytea, con pgp_sym_encrypt)\nselect pg_relation_filepath('contactos');",
+     "s": "base/17431/17471"
+    },
+    {
+     "c": "grep -a -o '11-9[0-9]\\{4\\}-5555' data/base/17431/17471 | wc -l",
+     "s": "300"
+    },
+    {
+     "c": "strings -n 12 data/base/17431/17471 | grep -m3 '11-9'",
+     "s": "11-90058-5555\n11-90057-5555\n11-90056-5555"
+    },
+    {
+     "c": "select length(tel_claro), length(tel_cifrado) from contactos where id = 42;",
+     "s": "13 | 79"
+    },
+    {
+     "c": "select (pgp_sym_encrypt('11-90042-5555','k') = pgp_sym_encrypt('11-90042-5555','k')) as mismo_cifrado;",
+     "s": "f"
+    }
+   ],
+   "cap": "Corrido como root sobre el servidor en marcha. Los 300 teléfonos de la columna común aparecen en el archivo; ninguno de la columna cifrada. `pgp_sym_encrypt` cifra con una clave de práctica que no es real."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Esto responde la pregunta clave: la base **no cifra por defecto** lo que guarda; los datos están en claro en el archivo, y cualquiera que pueda leer el archivo (un administrador, un backup sin cifrar, una imagen de disco) los lee. Hay tres niveles para cifrar, con alcances distintos [#bd41-pg-enc]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Nivel",
+    "Qué cifra",
+    "Protege contra",
+    "No protege contra"
+   ],
+   "filas": [
+    [
+     "Disco o volumen (LUKS, o el cifrado del proveedor de nube)",
+     "Todo lo que se escribe en ese disco",
+     "Robo o devolución de un disco, de un snapshot, de un backup copiado fuera",
+     "Alguien con acceso al servidor encendido: el sistema operativo entrega los datos ya descifrados"
+    ],
+    [
+     "Columna dentro de la base (`pgcrypto`)",
+     "Solo las columnas elegidas",
+     "Quien lea el archivo, un backup o un administrador sin la clave",
+     "La base descifra en el servidor: datos y clave pasan en claro por ahí un instante; quien controle el servidor puede capturarlos"
+    ],
+    [
+     "En la app, antes de enviar",
+     "Lo que la app decida",
+     "Hasta un administrador de la base, que solo ve bytes",
+     "Nada puede buscarse ni filtrarse en SQL; si se pierde la clave, se pierde el dato"
+    ]
+   ],
+   "cap": "Tres formas de cifrado en reposo. La documentación de PostgreSQL describe los tres niveles; no menciona un cifrado transparente hecho por el propio motor [#bd41-pg-enc]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las columnas cifradas tienen un precio que se ve en la terminal. El teléfono de 13 caracteres pasó a 79 bytes. Cifrar dos veces lo mismo da dos resultados distintos (`mismo_cifrado = f`), lo cual es una virtud, porque no se puede reconocer si dos filas tienen el mismo teléfono, pero implica que no podés buscar por ese teléfono ni indexarlo: `where tel_cifrado = pgp_sym_encrypt('...')` no encuentra nada. Y hay un límite que la documentación de `pgcrypto` dice sin vueltas: todas sus funciones corren dentro del servidor, así que datos y claves viajan en claro entre la app y la base; por eso hay que conectar localmente o por TLS, y confiar en quien administra el servidor, y si no podés, cifrar en la app [#bd41-pgcrypto]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Al 13-11-2026, la documentación actual de PostgreSQL (versión 18; la 18.7 y la 16.16 salieron el 12-11-2026) lista cinco formas de cifrar: contraseñas de roles (SCRAM por defecto), columnas con `pgcrypto`, partición de datos, red (SSL y GSSAPI) y cifrado en el cliente [#bd41-pg-enc] [#bd41-pg-versioning]. Lo que ofrece cada proveedor en la nube cambia: Supabase declara en su página de seguridad que todos los datos de clientes se cifran en reposo con AES-256 y en tránsito con TLS, que las APIs HTTP fuerzan TLS y que, para la conexión directa a Postgres, forzar SSL es una opción que se activa aparte [#bd41-supabase-seguridad] [#bd41-supabase-ssl]. Lo leí en su documentación; no verifiqué nada de eso contra un proyecto real.",
+   "titulo": "Qué ofrece cada uno, con fecha"
+  },
+  {
+   "t": "h",
+   "x": "Datos personales: qué son y qué obliga la ley"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Todo lo anterior protege datos. Falta saber cuáles hay que proteger con más cuidado, y por qué la ley se mete. Un **dato personal** es información sobre una persona que se sabe quién es, o que se puede saber. La Ley 25.326 de Protección de los Datos Personales de Argentina, sancionada el 4-10-2000, lo define así en su artículo 2 [#bd41-ley25326]:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "Información de cualquier tipo referida a personas físicas o de existencia ideal determinadas o determinables.",
+   "autor": "Ley 25.326, art. 2",
+   "fuente": "bd41-ley25326"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La palabra que trabaja es «determinables». Un teléfono sin nombre, una dirección o un identificador al azar guardado junto con un alias, un grupo y una cuenta de notificaciones pueden no decir «Juan Pérez», pero con otro dato de la misma base se llega a alguien. El Reglamento General de Protección de Datos de la Unión Europea (artículo 4) usa una idea parecida: una persona identificable es la que puede identificarse directa o indirectamente, por ejemplo mediante un número de identificación, datos de ubicación o un identificador en línea [#bd41-gdpr-art4]. Brasil tiene su propia ley, la Lei 13.709 de 2018 (LGPD); no pude abrir su texto oficial desde esta máquina y no la analizo acá."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dato (inventado)",
+    "¿Dato personal?",
+    "Por qué",
+    "Qué hacer en la base"
+   ],
+   "filas": [
+    [
+     "Teléfono y dirección del destinatario",
+     "Sí",
+     "Con ellos se llega a una persona",
+     "Privilegios por columna, vista enmascarada, cifrar si el riesgo lo justifica"
+    ],
+    [
+     "DNI del cliente",
+     "Sí",
+     "Identifica directamente",
+     "Mínimo acceso; guardarlo solo si hace falta"
+    ],
+    [
+     "Hash de la clave de un administrador",
+     "Sí, y además secreto",
+     "Pertenece a una persona y sirve para entrar como ella",
+     "Tabla cerrada a la app; hash lento con sal ([@07-09])"
+    ],
+    [
+     "Identificador al azar de una cuenta sin nombre",
+     "Probablemente, si se une a otros datos",
+     "Con alias, grupo y teléfono de notificaciones puede ser determinable",
+     "Tratarlo como personal por prudencia"
+    ],
+    [
+     "Cantidad de envíos por zona y mes",
+     "No, si los grupos son grandes",
+     "No señala a nadie determinable",
+     "Puede compartirse como reporte"
+    ]
+   ],
+   "cap": "La columna «¿Dato personal?» es mi criterio de lectura, no una opinión legal; las filas de ejemplo son inventadas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La ley también marca una categoría más delicada, los **datos sensibles**: los que revelan origen racial o étnico, opiniones políticas, convicciones religiosas, filosóficas o morales, afiliación sindical e información sobre la salud o la vida sexual (art. 2). El artículo 7 dice que nadie puede ser obligado a darlos y prohíbe formar bancos de datos que los revelen directa o indirectamente, con una excepción para la Iglesia Católica, las asociaciones religiosas y las organizaciones políticas y sindicales, que pueden llevar un registro de sus miembros [#bd41-ley25326]. Si una app guardara a qué iglesia o grupo de fe pertenece cada persona, la pregunta de si eso revela una convicción religiosa es de las que se le hacen a un abogado, no a un manual de bases de datos."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo que la ley le pide al responsable de una base se traduce, en parte, a todo lo que viste hoy. El artículo 9 exige adoptar las medidas técnicas y organizativas necesarias para garantizar la seguridad y confidencialidad de los datos y evitar su adulteración, pérdida, consulta o tratamiento no autorizado, y que permitan detectar desviaciones; y prohíbe registrar datos personales en bancos que no reúnan condiciones de integridad y seguridad. El artículo 14 da a cada persona derecho de acceso a sus datos, a responder en diez días corridos desde la intimación, y el 16 el de rectificación, actualización o supresión, en cinco días hábiles [#bd41-ley25326]. Para una base, eso significa poder **encontrar** todo lo que hay sobre una persona y poder **borrarlo**. Con claves foráneas y borrado en cascada ([@09-07]), borrar una cuenta es una instrucción; en una base donde los datos de una persona están desparramados sin clave, es una investigación."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "El texto que leí es el original de la ley, publicado en el Boletín Oficial el 2-11-2000, en el sitio de normativa de argentina.gob.ar el 13-11-2026; existe una versión actualizada y normas reglamentarias, y este estudio no reemplaza la consulta con un abogado. Lo que sirve para una base de datos de práctica no alcanza para cumplir con la ley en un producto real.",
+   "titulo": "Esto no es asesoramiento legal"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un principio práctico atraviesa a la ley y a la técnica: lo que no guardás no se puede filtrar. Antes de proteger una columna, preguntate si hace falta tenerla."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Enmascarar y dejar rastro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Enmascarado de datos** es mostrar una versión parcial de un dato para quien necesita ver que existe pero no su valor completo: un teléfono como `11-50****-**29`. En PostgreSQL se hace de forma simple con una vista ([[vista]], [@09-17]) que solo expone el campo transformado, y dándole al rol permiso sobre la vista y no sobre la tabla."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- como dueno_lab\ncreate view envios_vista as\n  select id, cliente_id, destinatario,\n         left(telefono_dest, 5) || '****-**' || right(telefono_dest, 2) as telefono_dest, estado\n  from envios;\ngrant select on envios_vista to analista;",
+     "s": "CREATE VIEW\nGRANT"
+    },
+    {
+     "c": "-- como analista\nselect telefono_dest from envios limit 1;",
+     "s": "ERROR:  permission denied for table envios"
+    },
+    {
+     "c": "select id, telefono_dest from envios_vista where id between 1 and 3 order by id;",
+     "s": " id | telefono_dest  \n----+----------------\n  1 | 11-50****-**29\n  2 | 11-50****-**58\n  3 | 11-50****-**87"
+    }
+   ],
+   "cap": "Corrido en seg41c. El analista ve el teléfono enmascarado sin tener permiso sobre la columna real."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Esto funciona porque una vista común corre con los permisos de **su dueño**, no de quien la consulta. Es práctico para dar acceso restringido, y es una trampa con la seguridad por fila: la vista de la dueña se salta la política. Probé una tabla con una política que solo deja ver al cliente 7 al rol `analista`, y dos vistas con el mismo contenido, una común y otra con `security_invoker = true`, una opción disponible desde PostgreSQL 15 que hace que se usen los permisos de quien consulta [#bd41-pg-view]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- como analista, con la política «solo cliente 7»\nselect count(*) as directo from envios;\nselect count(*) as vista_comun from envios_todo;\nselect count(*) as vista_invoker from envios_invoker;",
+     "s": "directo = 40\nvista_comun = 2000\nvista_invoker = 40"
+    }
+   ],
+   "cap": "Corrido en seg41c. `envios_todo` es una vista común de la dueña; `envios_invoker` tiene `security_invoker = true`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dicho de otro modo, una vista común puede dejar pasar justo lo que la política quería frenar. La regla práctica: si la tabla de abajo tiene seguridad por fila, la vista que la envuelve debería ser `security_invoker`. Y el enmascarado no es cifrado: los últimos dos dígitos y el prefijo siguen mostrando información, y quien tenga permiso sobre la tabla real ve todo."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo último es dejar rastro: una **pista de auditoría** es un registro de quién cambió qué y cuándo. Se puede hacer con un trigger ([@09-18]) que anota cada cambio de estado. Lo armé, y `app_web` hizo tres cambios de estado conectada con su propio rol. El trigger usa `security definer` para escribir en una tabla a la que `app_web` no tiene acceso: ni leerla ni borrarla."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- como app_web\nupdate envios set estado = 'entregado' where id in (3, 4, 5) and estado <> 'entregado';\nupdate envios set estado = 'en_ruta' where id = 6;\ndelete from auditoria;",
+     "s": "UPDATE 2\nUPDATE 1\nERROR:  permission denied for table auditoria"
+    },
+    {
+     "c": "-- como dueña\nselect id, envio_id, quien, rol_activo, antes, despues from auditoria order by id;",
+     "s": " id | envio_id |  quien  | rol_activo |   antes   |  despues  \n----+----------+---------+------------+-----------+-----------\n  1 |        4 | app_web | dueno_lab  | en_ruta   | entregado\n  2 |        3 | app_web | dueno_lab  | pendiente | entregado\n  3 |        6 | app_web | dueno_lab  | pendiente | en_ruta"
+    },
+    {
+     "c": "alter table envios disable trigger envios_auditar;   -- como dueña\nselect tgname, tgenabled from pg_trigger where tgname = 'envios_auditar';",
+     "s": "envios_auditar | D     (D = desactivado)"
+    }
+   ],
+   "cap": "Corrido en seg41c. La columna `quien` usa `session_user`; `rol_activo` usa `current_user`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay dos detalles que en la práctica importan. El primero: dentro de una función `security definer`, `current_user` es la dueña de la función, no quien hizo el cambio. Por eso la tabla guarda también `session_user`, el rol con el que se conectó la sesión; sin esa columna, el registro diría que lo hizo siempre `dueno_lab`. El segundo: un trigger de auditoría lo puede apagar quien administre la tabla, como se ve en la última línea, y la tabla de auditoría la puede vaciar la dueña. Un registro que puede borrar o apagar quien se quiere vigilar no sirve contra esa persona. Por eso, para auditar de verdad se registra fuera de la base. PostgreSQL tiene registros de conexiones y sentencias en sus propios archivos de log, y existe una extensión, `pgaudit`, que Supabase permite activar para un registro de auditoría más fino [#bd41-supabase-pgaudit]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Senda: cerrada por defecto, con tres puntos para mirar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Esto es lo que encontré aplicando las 42 migraciones de Senda a una base PostgreSQL 16.15 propia, con la preparación mínima de Supabase que usa su propia prueba (`pruebas/nube/supabase_minimo.sql`). Es el código del commit `25e08fa`; el código cambia, la forma permanece. Mis cuentas se hicieron sobre el catálogo de esa base, no sobre el proyecto real de Supabase, que no consulté."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "La base de Senda cuenta cada defensa de hoy",
+   "x": [
+    "**Seguridad por fila:** las 41 tablas de `public` la tienen prendida, hay 53 políticas y 11 tablas no tienen ninguna política. Esas 11 (por ejemplo `preguntas_clave`, `avisos`, `denuncias`, `compras_play`, `trivias_cobradas`) quedan cerradas para la app: solo se tocan a través de funciones `security definer` o con la clave de servicio. Ninguna usa `FORCE`, y no hace falta porque la app nunca se conecta con el rol dueño.",
+    "**Privilegios:** en mi base, `anon` y `authenticated` tienen permiso de lectura sobre 36 de las 41 tablas, porque el archivo de preparación copia los permisos por defecto de Supabase. Las otras 5 (`compras_play`, `denuncias`, `intentos_codigo`, `progreso_nube` y `trivias_cobradas`) tienen los permisos retirados con `revoke all`, una segunda cerradura además de la seguridad por fila. En `perfiles`, un `revoke insert, update` seguido de `grant` por columna evita que alguien se ponga `admin`: la app solo puede escribir `id, nombre, pais, nivel, lany` al crear su perfil y `nombre, pais, nivel, lany, visto` al actualizarlo.",
+    "**Dinámico:** ninguna migración usa SQL dinámico. Las 80 funciones `security definer` fijan `search_path`, como viste en [@07-29]."
+   ],
+   "archivos": [
+    "supabase/migrations/20261111000000_novedades.sql",
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261026000000_inicio.sql",
+    "pruebas/nube/supabase_minimo.sql"
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los otros tres puntos son los que mirarías si fueras el responsable técnico."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Punto",
+    "Qué verifiqué",
+    "Cómo lo leo"
+   ],
+   "filas": [
+    [
+     "`respuestas` acepta inserciones de cualquiera",
+     "La política `la app agrega respuestas` permite `insert` a `anon` y `authenticated` con `with check (true)`; no hay política de lectura. Un `insert` como `anon` con un id de pregunta inventado funcionó (INSERT 0 1) y un `select` devolvió 0 filas. El único tope es que el id tenga 80 caracteres o menos (restricción `NOT VALID`, que solo mira filas nuevas)",
+     "Es una decisión consciente: la tabla es de solo escritura. El riesgo es que cualquiera pueda llenarla de filas falsas y alterar las estadísticas de dificultad; la limpieza a los 30 días acota el espacio, no la calidad"
+    ],
+    [
+     "`unirse_grupo` no frena los intentos",
+     "`ver_grupo_codigo` cuenta los intentos fallidos y a los 20 por hora lanza `demasiado` (lo comprobé: intento 21). `unirse_grupo` no tiene ese tope: llamarla 5.000 veces con códigos inventados dio 5.000 `codigo_desconocido` en 37 ms dentro de la base, sin el tiempo de red",
+     "Los códigos de grupo tienen 8 letras de un alfabeto de 31 caracteres: unos 8,5 × 10^11 combinaciones (estimación: 31^8). Adivinar uno es improbable, pero las dos funciones deberían tener la misma defensa. Es una inconsistencia, no una falla explotable hoy"
+    ],
+    [
+     "La sesión se guarda en el teléfono sin almacén cifrado",
+     "`src/util/cuenta.ts` guarda `access_token` y `refresh_token` en `AsyncStorage` bajo la clave `senda-sesion`; no hay `expo-secure-store` en `package.json` ni en `src/`. El documento de seguridad del proyecto ya lo lista como pendiente",
+     "Protege contra el robo del token una app de terceros en el mismo teléfono solo en parte: depende de cómo guarde Android el archivo y de si el teléfono tiene cifrado de disco. Está anotado para cuando exista «Guardar mi cuenta»"
+    ]
+   ],
+   "cap": "Tres puntos de criterio ingenieril. Las tres cosas están en el código del commit 25e08fa y las medí en una base local, no en producción."
+  },
+  {
+   "t": "senda",
+   "titulo": "Qué datos personales guarda y qué borra",
+   "x": [
+    "Senda no pide correo ni contraseña: las cuentas son anónimas ([@07-25]). En `perfiles` quedan un nombre que escribe la persona, un alias único, un código de amigo, el país, un nivel y datos de avatar. En `push_tokens`, el token de notificaciones, la plataforma y el idioma. En `progreso_nube`, una copia del progreso de hasta 1,5 MB para quien vincule una cuenta de Google. El correo, si lo hay, queda en la tabla de cuentas de Supabase Auth, no en `perfiles`.",
+    "El borrado de cuenta lo hace la función de borde `borrar-cuenta`, que borra los PDF compartidos, deja los grupos sin quedar huérfanos y elimina el usuario; la base borra en cascada perfil, amistades, avisos, tokens, duelos, votos, copia de progreso y trivias. Lo que la persona creó para un grupo queda sin autor (`creado_por` pasa a `null`). Las tablas de claves foráneas de [@09-07] son lo que hace posible este borrado."
+   ],
+   "archivos": [
+    "supabase/migrations/20261128000000_borrar_cuenta.sql",
+    "supabase/functions/borrar-cuenta/index.ts",
+    "supabase/migrations/20261130000006_progreso_nube.sql",
+    "src/util/cuenta.ts"
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una pregunta que no me corresponde resolver: un grupo de una app cristiana, con alias y nombres de grupo, ¿revela convicciones religiosas en el sentido del artículo 7? Es el tipo de duda que se lleva a un abogado, y la tabla de arriba muestra cómo se acota técnicamente: guardar lo mínimo, no pedir el correo, dar permiso por columna y poder borrar todo."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Clasificá estos seis datos de una app de reparto con las categorías **no personal**, **personal** y **sensible**, y para cada uno elegí la defensa de hoy que más pesa: privilegio por columna, seguridad por fila, cifrado de columna o enmascarado en una vista. Datos: (a) cantidad de bultos por zona y mes; (b) dirección de entrega; (c) aviso de que una persona entrega a una congregación religiosa; (d) teléfono del destinatario; (e) hora de apertura del depósito; (f) historial de pedidos de una sola persona.",
+   "pista": "Preguntate dos cosas por cada dato: ¿se llega a una persona con él o con él más otro dato de la misma base? ¿Quién necesita verlo completo?",
+   "solucion": "(a) No personal: es un agregado; no necesita defensa especial. (b) Personal: privilegio por columna, y seguridad por fila para que el chofer vea solo sus rutas. (c) Sensible según el art. 2 de la Ley 25.326 (convicciones religiosas): lo mejor es no guardarlo; si hace falta, cifrado de columna y acceso mínimo. (d) Personal: enmascarado para quien solo tiene que reconocerlo y privilegio por columna para el resto. (e) No personal: es información del negocio. (f) Personal: seguridad por fila, para que cada persona (y cada empleado) vea solo lo que le toca. Es un ejercicio de criterio: otra persona podría pesar distinto, sobre todo en (c) y (f)."
+  }
+ ],
+ "recap": [
+  "La seguridad de una base son capas con preguntas distintas: quién sos, qué objetos tocás, qué filas ves, qué se lee fuera de la base y quién hizo qué. Ninguna reemplaza a otra.",
+  "Un privilegio es un permiso de un rol sobre un objeto. Mínimo privilegio: cada rol recibe lo justo; las tablas nacen cerradas y las funciones nacen abiertas (EXECUTE para PUBLIC).",
+  "Con la seguridad por fila prendida y sin políticas, nadie ve nada; la dueña, los superusuarios y los roles con BYPASSRLS se saltan las políticas, y FORCE solo alcanza a la dueña.",
+  "La inyección SQL pasó con los cuatro ataques cuando la app pegaba texto y conectaba con un rol que podía todo: se leyeron 2.000 envíos y se cambiaron 666 estados. Los parámetros la evitan; los privilegios mínimos acotan el daño; la seguridad por fila limita lo que se ve.",
+  "El cifrado en tránsito evita que un intermediario lea el cable (con `verify-full` también comprueba a quién le hablás); el cifrado en reposo evita que se lean los datos de un disco robado, pero con el disco montado no protege. Los 300 teléfonos de la columna común estaban en claro en el archivo.",
+  "Un dato personal es el que refiere a personas determinadas o determinables (Ley 25.326, art. 2); el art. 9 exige medidas de seguridad. Enmascarar con una vista y auditar con un trigger ayudan, pero una vista común salta la seguridad por fila y una auditoría dentro de la base la puede apagar quien la administra."
+ ],
+ "repaso": [
+  {
+   "p": "Un rol tiene permiso de lectura sobre cuatro de las cinco columnas de una tabla. Ejecuta `select * from envios` y la base lo rechaza. ¿Por qué?",
+   "o": [
+    "El asterisco incluye también la columna sin permiso, así que la consulta entera falla aunque las otras cuatro estén permitidas",
+    "Los permisos por columna solo funcionan cuando se escribe `where`, y esta consulta no tenía ninguna condición para filtrar",
+    "La base rechaza cualquier consulta con asterisco para ahorrar memoria, sin importar los permisos que tenga el rol",
+    "Para leer cuatro columnas hay que pedir primero el permiso sobre la tabla completa y retirarlo columna por columna"
+   ],
+   "c": 0,
+   "e": "El asterisco se expande a todas las columnas, y basta con que falte el permiso de una para que la consulta falle. Nombrando solo las cuatro permitidas funciona. Los permisos por columna no dependen del `where`, el asterisco no está prohibido por memoria y no hace falta tener la tabla completa para conceder columnas."
+  },
+  {
+   "p": "Conectás la app de práctica con un rol de mínimos permisos: solo lee cinco columnas de `envios`. Un atacante manda `x' or '1'='1` en el campo de búsqueda y la consulta pega el texto adentro del SQL. ¿Qué pasa?",
+   "o": [
+    "La base rechaza el pedido, porque un rol con pocos permisos no puede ejecutar condiciones lógicas escritas por la persona",
+    "El pedido devuelve las 2.000 filas, porque el rol sí puede leer `envios`, y el daño queda limitado a lo que ese rol puede ver",
+    "El pedido devuelve cero filas, porque la base detecta las comillas y las descarta antes de ejecutar la consulta completa",
+    "La base borra la tabla `envios`, porque la condición siempre verdadera activa un borrado automático de datos de prueba"
+   ],
+   "c": 1,
+   "e": "Con permisos mínimos, el ataque no puede leer otras tablas ni escribir, pero sigue pudiendo leer todo lo que el rol ya podía leer: las 2.000 filas. La base no detecta comillas ni analiza intenciones. Para frenarlo hacen falta parámetros y seguridad por fila. Y no hay ningún borrado automático."
+  },
+  {
+   "p": "Una tabla tiene seguridad por fila con FORCE y una única política, escrita para el rol `app_web`. ¿Cuántas filas ve la dueña de la tabla al consultarla?",
+   "o": [
+    "Todas, porque la dueña de una tabla siempre se salta la seguridad por fila, incluso con FORCE activado",
+    "Solo las que ve `app_web`, porque FORCE hace que la dueña herede las políticas de los demás roles de la tabla",
+    "Ninguna, porque con FORCE rige la política, que no le habla a ella, y sin política aplicable queda todo denegado",
+    "Se produce un error, porque ninguna política describe a la dueña y la consulta no se puede ejecutar de ningún modo"
+   ],
+   "c": 2,
+   "e": "FORCE somete a la dueña a las políticas. Como la única política es para `app_web`, a ella no le toca ninguna que le dé filas, y rige el «todo denegado»: 0 filas, sin error. Sin FORCE sí ve todas. Un superusuario o un rol con BYPASSRLS ven todas igual."
+  },
+  {
+   "p": "Una app se conecta a PostgreSQL con `sslmode=require`. Un intermediario en la red intenta leer el tráfico. ¿Qué es verdad?",
+   "o": [
+    "Cifra el cable, así que no lee consultas ni datos; pero sin verificar el certificado no detecta a un servidor falso",
+    "Verifica el certificado del servidor, así que ni un intermediario ni un servidor falso pueden engañar a la conexión",
+    "No cifra nada: `require` solo exige que el servidor soporte SSL, pero los datos siguen viajando en texto legible",
+    "Cifra solo la contraseña de conexión, y las consultas y los resultados viajan en claro hasta que termine la sesión"
+   ],
+   "c": 0,
+   "e": "`require` obliga a cifrar, pero por defecto no valida el certificado: un intermediario que se haga pasar por el servidor no se detecta. Para verificar a quién te conectás hace falta `verify-full` con el certificado raíz. La contraseña, las consultas y los datos van cifrados juntos."
+  },
+  {
+   "p": "La base está en un servidor con disco cifrado (LUKS) y encendido. Un administrador corre `strings` sobre el archivo de una tabla en el directorio de datos. ¿Qué ve?",
+   "o": [
+    "Solo bytes sin sentido, porque el cifrado del disco protege cada archivo incluso con el servidor funcionando",
+    "Solo los datos de las columnas marcadas como sensibles, porque el cifrado del disco las oculta aunque el disco esté montado",
+    "Los teléfonos en texto legible, porque con el disco montado el sistema operativo entrega los datos ya descifrados a quien pueda leer",
+    "Un error de formato, porque `strings` no puede leer archivos de bases de datos cuando están en uso por un servidor"
+   ],
+   "c": 2,
+   "e": "El cifrado de disco protege contra el robo del disco o de una copia, no contra quien ya tiene acceso al servidor con el volumen montado: el sistema entrega los datos descifrados. En la prueba de hoy, con el servidor en marcha, los 300 teléfonos de la columna común aparecieron en el archivo."
+  },
+  {
+   "p": "Una app guarda un identificador al azar por cuenta, sin nombre ni correo, junto con un alias, el grupo y un token de notificaciones. ¿Cómo lo trata la definición de dato personal de la Ley 25.326?",
+   "o": [
+    "No es dato personal, porque sin nombre ni correo ninguna persona queda identificada y la ley no se aplica",
+    "Es dato sensible por definición, porque cualquier identificador de cuenta revela convicciones religiosas o políticas",
+    "Es dato personal sin importar nada más, porque la ley prohíbe guardar cualquier identificador distinto de un DNI",
+    "Puede serlo: la ley habla de personas determinables, y los datos de la misma base pueden permitir llegar a alguien"
+   ],
+   "c": 3,
+   "e": "La definición incluye a las personas «determinables». Aunque no tenga nombre, un identificador que se junta con un alias, un grupo y un token puede servir para determinar a alguien, por eso conviene tratarlo con prudencia. Que sea sensible depende de lo que revele; la ley no prohíbe los identificadores. Es un criterio de lectura, no un dictamen."
+  },
+  {
+   "p": "Un trigger de auditoría es `security definer` y guarda `current_user` y `session_user`. `app_web` cambia un estado conectada con su propio rol. ¿Qué muestra cada columna?",
+   "o": [
+    "`current_user` muestra `app_web` y `session_user` muestra la dueña de la función, porque la sesión hereda el rol de la dueña",
+    "Las dos muestran `app_web`, porque ambas columnas siempre devuelven el rol con el que se inició la conexión de la app",
+    "Las dos muestran la dueña de la función, porque dentro de un `security definer` desaparece la identidad de quien llamó",
+    "`current_user` muestra la dueña de la función y `session_user` muestra `app_web`, el rol con el que se conectó la sesión"
+   ],
+   "c": 3,
+   "e": "Dentro de una función `security definer`, `current_user` es la dueña de la función; `session_user` sigue siendo el rol de la conexión. En la prueba salió `rol_activo = dueno_lab` y `quien = app_web`. Sin guardar `session_user`, el registro habría atribuido todo a la dueña."
+  }
+ ],
+ "feynman": "Explicale a alguien que conoce logística pero no bases de datos por qué darle a la app la contraseña de la dueña de la base es peligroso, aunque la app valide todo lo que escribe la gente. Usá tu propia analogía (no la del depósito y las llaves) y decí qué tres cosas cambiarías para que el daño de una falla quede acotado.",
+ "para_profundizar": [
+  {
+   "fuente": "bd41-pg-priv",
+   "nota": "El capítulo de PostgreSQL sobre privilegios. Leé la parte de privilegios por defecto de PUBLIC para entender por qué las funciones nacen abiertas y las tablas cerradas."
+  },
+  {
+   "fuente": "baas-postgres-rls",
+   "nota": "La documentación de PostgreSQL sobre políticas de seguridad por fila. Sirve para repetir la tabla de quién se salta la política y probar `WITH CHECK` además de `USING`."
+  },
+  {
+   "fuente": "owasp-sql-injection",
+   "nota": "La guía de OWASP para prevenir la inyección SQL. Ahí están las defensas en orden de prioridad y el caso de nombres de columnas y de orden que los parámetros no cubren."
+  },
+  {
+   "fuente": "bd41-pg-libpq-ssl",
+   "nota": "El capítulo de PostgreSQL sobre conexiones SSL, con la tabla de `sslmode` y qué protege cada valor contra cada ataque. Es lo que necesitás para configurar una conexión que verifique el certificado."
+  },
+  {
+   "fuente": "bd41-ley25326",
+   "nota": "El texto original de la Ley 25.326. Leé los artículos 2, 7, 9, 14 y 16: son los que se tradujeron a decisiones técnicas hoy."
+  }
+ ],
+ "videos": [
+  {
+   "q": "sql injection explained demo parameterized queries postgres",
+   "por_que": "Para ver otra persona armar y frenar una inyección SQL contra una app de práctica, y comparar con lo que mediste hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "privilegio",
+   "d": "Permiso que un rol tiene sobre un objeto de la base para una acción concreta, como leer una tabla, escribir una columna o ejecutar una función. Se concede con GRANT y se retira con REVOKE."
+  },
+  {
+   "t": "seguridad a nivel de fila",
+   "d": "Mecanismo por el cual la base agrega a cada consulta una condición que decide qué filas de una tabla puede ver o modificar cada rol. Con ella prendida y sin políticas, nadie ve nada; dueño, superusuarios y roles con BYPASSRLS se la saltan salvo con FORCE."
+  },
+  {
+   "t": "cifrado en reposo",
+   "d": "Cifrado de los datos guardados en un disco, un volumen o una copia de seguridad. Protege contra el robo del medio de almacenamiento; no protege contra quien tiene acceso al sistema con el disco montado."
+  },
+  {
+   "t": "dato personal",
+   "d": "Información de cualquier tipo referida a personas determinadas o determinables, según la Ley 25.326 de Argentina. Un dato sin nombre puede ser personal si, junto con otros de la misma base, permite llegar a alguien."
+  },
+  {
+   "t": "mínimo privilegio",
+   "d": "Regla de diseño que da a cada rol solo los permisos necesarios para su tarea. Si una credencial se filtra, el daño se limita a lo que ese rol podía hacer."
+  },
+  {
+   "t": "inyección SQL",
+   "d": "Falla de una app que arma un comando SQL pegando texto de una persona, de modo que ese texto puede cambiar el sentido de la consulta. Se evita con consultas parametrizadas y se acota con roles de mínimos permisos."
+  },
+  {
+   "t": "consulta parametrizada",
+   "d": "Consulta cuyo SQL lleva marcadores como `$1` y cuyos valores viajan aparte. La base nunca interpreta el valor como parte del código, así que el texto malicioso es solo un dato."
+  },
+  {
+   "t": "enmascarado de datos",
+   "d": "Mostrar una versión parcial de un dato, como un teléfono con asteriscos, a quien necesita reconocerlo sin ver su valor completo. No es cifrado: quien tenga acceso a la tabla real ve el dato entero."
+  },
+  {
+   "t": "pista de auditoría",
+   "d": "Registro de quién cambió qué y cuándo. Para que sirva contra quien administra la base tiene que guardarse fuera de su alcance, porque un trigger o una tabla dentro de la base los puede apagar o vaciar quien la administre."
+  }
+ ],
+ "siguiente": "Supabase por dentro: cómo PostgREST, el servicio de cuentas, Realtime y Storage se apoyan en los roles, los privilegios y la seguridad por fila de hoy, y cómo el token que lleva cada pedido elige el rol con el que se ejecuta.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd41-pg-priv",
+   "t": "PostgreSQL 16: Privileges",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/ddl-priv.html"
+  },
+  {
+   "id": "bd41-pg-schemas",
+   "t": "PostgreSQL 16: Schemas (patrón de uso seguro)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/ddl-schemas.html"
+  },
+  {
+   "id": "bd41-pg-enc",
+   "t": "PostgreSQL: Encryption Options",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/current/encryption-options.html"
+  },
+  {
+   "id": "bd41-pgcrypto",
+   "t": "PostgreSQL 16: pgcrypto",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/pgcrypto.html"
+  },
+  {
+   "id": "bd41-pg-libpq-ssl",
+   "t": "PostgreSQL 16: SSL Support (libpq)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/libpq-ssl.html"
+  },
+  {
+   "id": "bd41-pg-libpq",
+   "t": "PostgreSQL 16: Database Connection Control Functions (sslmode)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/libpq-connect.html"
+  },
+  {
+   "id": "bd41-pg-protocolo",
+   "t": "PostgreSQL 16: Message Flow (consulta simple y extendida)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/protocol-flow.html"
+  },
+  {
+   "id": "bd41-pg-view",
+   "t": "PostgreSQL 16: CREATE VIEW",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/sql-createview.html"
+  },
+  {
+   "id": "bd41-pg-versioning",
+   "t": "PostgreSQL: Versioning Policy",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/support/versioning/"
+  },
+  {
+   "id": "bd41-owasp-injection",
+   "t": "A05:2025 Injection (OWASP Top 10:2025)",
+   "a": "OWASP",
+   "tipo": "doc",
+   "anio": 2025,
+   "url": "https://owasp.org/Top10/2025/A05_2025-Injection/"
+  },
+  {
+   "id": "bd41-ley25326",
+   "t": "Ley 25.326 de Protección de los Datos Personales (texto original)",
+   "a": "Honorable Congreso de la Nación Argentina",
+   "tipo": "doc",
+   "anio": 2000,
+   "url": "https://www.argentina.gob.ar/normativa/nacional/ley-25326-64790/texto"
+  },
+  {
+   "id": "bd41-gdpr-art4",
+   "t": "Art. 4 GDPR: Definitions (reproducción no oficial del Reglamento (UE) 2016/679)",
+   "a": "gdpr-info.eu",
+   "tipo": "articulo",
+   "anio": 2016,
+   "url": "https://gdpr-info.eu/art-4-gdpr/"
+  },
+  {
+   "id": "bd41-supabase-col",
+   "t": "Column Level Security (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://supabase.com/docs/guides/database/postgres/column-level-security"
+  },
+  {
+   "id": "bd41-supabase-seguridad",
+   "t": "Security at Supabase",
+   "a": "Supabase",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://supabase.com/security"
+  },
+  {
+   "id": "bd41-supabase-ssl",
+   "t": "Postgres SSL Enforcement (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://supabase.com/docs/guides/platform/ssl-enforcement"
+  },
+  {
+   "id": "bd41-supabase-pgaudit",
+   "t": "PGAudit: Postgres Auditing (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://supabase.com/docs/guides/database/extensions/pgaudit"
+  }
+ ]
+}

@@ -1,0 +1,614 @@
+{
+ "id": "09-20",
+ "titulo": "Índices I: qué son y por qué aceleran",
+ "bajada": "Medís la misma búsqueda sobre un millón de filas antes y después de crear un índice, ves cuándo el motor lo ignora con razón y cuánto cuesta mantenerlo.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es un índice y por qué pasa de leer todas las páginas de una tabla a leer unas pocas.",
+  "Leer en un plan si el motor usó un escaneo secuencial o un índice, y cuántas páginas tocó.",
+  "Definir selectividad y predecir cuándo un índice ayuda mucho, poco o nada.",
+  "Calcular el costo de mantener un índice en inserciones y actualizaciones, incluyendo la pérdida de actualizaciones HOT.",
+  "Reconocer los índices de la base de Senda y decir qué consulta justifica cada uno."
+ ],
+ "venis_de": "Ayer ([@09-19]) viste que una tabla son páginas de 8 KiB con filas y que cada fila tiene una dirección, el `ctid`. También que una búsqueda sin ayuda lee todas las páginas. Hoy aparece la ayuda: el índice.",
+ "se_apoya_en": [
+  "09-03",
+  "09-07",
+  "09-19"
+ ],
+ "gancho": [
+  "La coordinadora de reparto abre la ficha de un cliente y quiere ver todos sus bultos. Son 50 de un millón. Sin ayuda, la base revisa los 1.000.000 de bultos uno por uno para devolverte esos 50, y tarda 33 milisegundos. Parece poco hasta que le sumás a la coordinadora, a diez colegas y a la app de los choferes: mil búsquedas por segundo ya piden 33 procesadores trabajando solo en eso.",
+  "Con un índice, la misma búsqueda lee 53 páginas en lugar de 7.300 y tarda unos 0,2 milisegundos. Hoy medimos esa diferencia en una PostgreSQL 16 propia con datos inventados, vemos cuándo el índice no sirve y qué precio se paga por tenerlo. Todo lo que aparece en las salidas lo corrí acá; los tiempos son de una sola máquina virtual compartida."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Buscar sin ayuda: leer todo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Partimos de la tabla `bultos` de ayer ([@09-19]): un millón de filas, 7.300 páginas, 57 MiB, cargada con el mismo script. Cada bulto pertenece a uno de 20.000 clientes, y cada cliente tiene exactamente 50 bultos. La pregunta es la de la coordinadora: *mostrame los bultos del cliente 4242*. La tabla tiene clave primaria sobre `id`, pero nada sobre `cliente`. Le pedí a PostgreSQL que ejecute la consulta y que cuente lo que hace, con `EXPLAIN (ANALYZE, BUFFERS)`, que devuelve el *plan* (la receta con que el motor resolvió la consulta) más sus números reales. Cómo se arma y se lee un plan a fondo lo ves en [@09-22] y [@09-23]; hoy alcanzan cuatro líneas."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "set max_parallel_workers_per_gather = 0;  -- un solo proceso, para que el plan sea simple\nexplain (analyze, buffers, costs off, summary on) select * from bultos where cliente = 4242;",
+     "s": "SET\n                           QUERY PLAN                           \n----------------------------------------------------------------\n Seq Scan on bultos (actual time=0.650..35.130 rows=50 loops=1)\n   Filter: (cliente = 4242)\n   Rows Removed by Filter: 999950\n   Buffers: shared hit=7300\n Planning:\n   Buffers: shared hit=72\n Planning Time: 0.203 ms\n Execution Time: 35.159 ms\n(8 rows)"
+    }
+   ],
+   "cap": "Medido en esta VM con PostgreSQL 16.15; la tabla ya está en memoria, así que no hay disco de por medio."
+  },
+  {
+   "t": "p",
+   "x": [
+    "`Seq Scan` es el **[[escaneo secuencial]]**: el motor recorre la tabla de la primera página a la última, mira cada fila y se queda con las que cumplen la condición. `Rows Removed by Filter: 999950` dice que miró un millón de filas para devolver 50. `Buffers: shared hit=7300` dice que tocó las 7.300 páginas de la tabla, que es lo que viste ayer que cuesta una suma sobre una columna. Once corridas dieron una mediana de 32,7 ms.",
+    "El escaneo secuencial no es un defecto: para leer toda una tabla es lo mejor que hay, porque lee páginas una detrás de otra. El problema es usarlo para encontrar muy pocas filas. Y crece con la tabla: si tuviera 10 millones de filas haría diez veces más trabajo (es una estimación por proporción; no lo medí). Con 1.000 búsquedas por segundo, 33 ms cada una son 33 segundos de trabajo por cada segundo de reloj: hacen falta como mínimo 33 procesadores solo para esta consulta."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "La tabla de una empresa de reparto creció a 20 millones de filas y la misma búsqueda por cliente sigue sin índice. Con lo que viste, ¿cuánto esperás que tarde, más o menos?",
+   "resp": "Unas 20 veces lo de acá: alrededor de 650 ms, porque el trabajo es proporcional a la cantidad de páginas (estimación). Si además los datos no entran en memoria y hay que leerlos del disco, tarda bastante más."
+  },
+  {
+   "t": "h",
+   "x": "El índice: un atajo que apunta a direcciones"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un **[[índice]]** es una estructura de datos aparte, que PostgreSQL mantiene en su propio archivo, donde los valores de una o varias columnas están ordenados y cada uno lleva la dirección de la fila en la tabla. La dirección es la que viste ayer: el `ctid`, (página, puntero) ([@09-19]). Buscar en un índice es como buscar una palabra en un diccionario, no como leer el libro entero. Se crea así:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create index bultos_cliente on bultos (cliente);\nanalyze bultos;   -- actualiza las estadísticas que el motor usa para decidir",
+   "cap": "Un índice sobre `cliente`. Por defecto es un índice B-tree, el que se explica en [@09-21]."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select pg_size_pretty(pg_relation_size('bultos_cliente')) as indice_cliente, pg_size_pretty(pg_relation_size('bultos_pkey')) as indice_pk, pg_size_pretty(pg_relation_size('bultos')) as tabla;",
+     "s": " indice_cliente | indice_pk | tabla \n----------------+-----------+-------\n 7008 kB        | 21 MB     | 57 MB\n(1 row)"
+    },
+    {
+     "c": "explain (analyze, buffers, costs off, summary on) select * from bultos where cliente = 4242;",
+     "s": "SET\n                                      QUERY PLAN                                      \n--------------------------------------------------------------------------------------\n Bitmap Heap Scan on bultos (actual time=0.030..0.208 rows=50 loops=1)\n   Recheck Cond: (cliente = 4242)\n   Heap Blocks: exact=50\n   Buffers: shared hit=50 read=3\n   ->  Bitmap Index Scan on bultos_cliente (actual time=0.019..0.019 rows=50 loops=1)\n         Index Cond: (cliente = 4242)\n         Buffers: shared read=3\n Planning:\n   Buffers: shared hit=88 read=1\n Planning Time: 0.250 ms\n Execution Time: 0.229 ms\n(11 rows)"
+    }
+   ],
+   "cap": "Crear el índice tardó unos 0,3 segundos (medido con reloj, incluye el arranque del cliente). La consulta tardó, en mediana, 0,18 ms contra los 32,7 ms de antes."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La búsqueda pasó de leer 7.300 páginas a leer 53: 3 del índice y 50 de la tabla. Tardó unas 178 veces menos. Dos detalles del plan valen la pena. Primero, `Heap Blocks: exact=50`: los 50 bultos del cliente 4242 están en 50 páginas distintas, porque en la carga los clientes se repiten a lo largo de toda la tabla. El índice no los junta, solo sabe dónde están. Segundo, el nombre `Bitmap Heap Scan`: el motor primero junta todas las direcciones que da el índice, las ordena por página y después visita cada página una sola vez [#be28-postgres-explain].",
+    "Y mirá el tamaño: el índice sobre `cliente` pesa 7 MiB y el de `id`, 21 MiB, aunque los dos cubren un millón de filas. El de `cliente` es más chico porque cada valor aparece 50 veces y los índices B-tree de PostgreSQL pueden guardar los duplicados una sola vez, con la lista de direcciones al lado (se llama deduplicación) [#bd2020-pg-btree-impl]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "comparar",
+   "izq": {
+    "t": "Sin índice",
+    "k": "alerta",
+    "items": [
+     "Recorre las 7.300 páginas de la tabla",
+     "Revisa 1.000.000 de filas para devolver 50",
+     "Tarda 33 ms",
+     "El trabajo crece con la tabla"
+    ]
+   },
+   "der": {
+    "t": "Con índice sobre cliente",
+    "k": "ok",
+    "items": [
+     "Lee 3 páginas del índice y 50 de la tabla",
+     "Revisa 50 filas",
+     "Tarda 0,18 ms",
+     "Crece muy poco con la tabla"
+    ]
+   },
+   "cap": "La misma consulta, antes y después de `create index`. Medido en esta VM, con la tabla en memoria."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El índice del final de un libro",
+   "x": "Un libro de logística trae al final un índice alfabético: «Cross-docking, 112, 240». No lo leés entero: buscás la palabra y vas a esas páginas. Es lo mismo, con dos límites. El índice de un libro se imprime una vez y queda fijo; el de la base se actualiza solo con cada cambio de la tabla, y eso cuesta (lo medimos más abajo). Y en un libro nadie te pregunta por todas las páginas que mencionan «y»: ahí sí conviene leer el libro entero, y es lo que sigue."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ya tenías un índice sin haberlo pedido. Al declarar `id` como clave primaria ([@09-07]), PostgreSQL creó solo un índice único para hacer cumplir la regla de que no se repita, y ese índice también sirve para buscar:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select indexname, indexdef from pg_indexes where tablename = 'bultos';",
+     "s": "  indexname  |                             indexdef                              \n-------------+-------------------------------------------------------------------\n bultos_pkey | CREATE UNIQUE INDEX bultos_pkey ON public.bultos USING btree (id)\n(1 row)"
+    },
+    {
+     "c": "explain (analyze, buffers, costs off, summary on) select * from bultos where id = 500000;",
+     "s": "SET\n                                    QUERY PLAN                                    \n----------------------------------------------------------------------------------\n Index Scan using bultos_pkey on bultos (actual time=0.018..0.019 rows=1 loops=1)\n   Index Cond: (id = 500000)\n   Buffers: shared hit=4\n Planning:\n   Buffers: shared hit=86\n Planning Time: 0.180 ms\n Execution Time: 0.038 ms\n(7 rows)"
+    }
+   ],
+   "cap": "`Buffers: shared hit=4`: tres páginas del índice (bajar niveles hasta la hoja) y una de la tabla. Mediana de 11 corridas: 0,035 ms. Forzando el escaneo secuencial (apagué los otros caminos solo para la prueba) la misma búsqueda tardó 30,8 ms: unas 879 veces más."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La clave primaria tiene índice; la clave foránea, no",
+   "x": "Declarar una clave foránea no crea un índice sobre esa columna: lo aclara la documentación de PostgreSQL [#be28-postgres-fk]. Si vas a buscar «los envíos de este cliente» o a borrar clientes, la columna `cliente_id` de `envios` tiene que indexarse a mano. Es de los olvidos más comunes."
+  },
+  {
+   "t": "h",
+   "x": "Selectividad: cuánto de la tabla toca la consulta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si el índice es tan bueno, ¿por qué no indexar todo y usarlo siempre? Porque su ventaja depende de cuántas filas tenés que traer. A ese número lo llamamos **[[selectividad]]**: la fracción de la tabla que deja pasar una condición. Una condición muy selectiva deja pasar poquísimas filas (`id = 500000`: una de un millón); una poco selectiva deja pasar muchas (`zona = 'Norte'`: un cuarto de la tabla).",
+    "Para medir dónde cambia la cosa, tomé la consulta `select count(*), sum(peso_g) from bultos where cliente <= K` y fui subiendo K, de modo que trajera desde 50 filas hasta todo el millón. Para cada K medí la mediana de 5 corridas con tres estrategias, forzadas una por una con las opciones `enable_*` (solo para la prueba):"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Filas que devuelve",
+    "% de la tabla",
+    "Secuencial (ms)",
+    "Índice simple (ms)",
+    "Índice bitmap (ms)",
+    "Lo que eligió el motor solo"
+   ],
+   "filas": [
+    [
+     "50",
+     "0,005 %",
+     "31,8",
+     "0,2",
+     "0,2",
+     "Por índice (bitmap)"
+    ],
+    [
+     "1.000",
+     "0,1 %",
+     "32,7",
+     "1,8",
+     "2,2",
+     "Por índice (bitmap)"
+    ],
+    [
+     "10.000",
+     "1 %",
+     "36,4",
+     "6,2",
+     "6,2",
+     "Por índice (bitmap)"
+    ],
+    [
+     "50.000",
+     "5 %",
+     "36,4",
+     "30,4",
+     "13,9",
+     "Por índice (bitmap)"
+    ],
+    [
+     "100.000",
+     "10 %",
+     "37,9",
+     "31,7",
+     "17,5",
+     "Por índice (bitmap)"
+    ],
+    [
+     "250.000",
+     "25 %",
+     "45,1",
+     "145,6",
+     "34,8",
+     "Por índice (bitmap)"
+    ],
+    [
+     "500.000",
+     "50 %",
+     "67,4",
+     "275,8",
+     "58,3",
+     "Por índice (bitmap)"
+    ],
+    [
+     "1.000.000",
+     "100 %",
+     "61,2",
+     "605,7",
+     "87,4",
+     "Escaneo secuencial"
+    ]
+   ],
+   "cap": "Medido en esta VM compartida, medianas de 5 corridas, con la tabla en memoria. «Índice simple» recorre el índice y va a la tabla fila por fila; «bitmap» junta direcciones, las ordena y visita cada página una vez."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres lecturas. Con pocas filas el índice gana por goleada: 50 filas en 0,2 ms contra 32 ms. El índice simple, que salta de una página a otra siguiendo las direcciones, pierde la ventaja entre el 10 % y el 25 % de la tabla y es unas diez veces peor leyendo todo. El bitmap aguanta mejor porque visita cada página una sola vez, pero con el 100 % de la tabla ya no gana, y ahí el motor elige solo el escaneo secuencial: acertó. Cuánto exactamente cambia el punto de cruce depende del disco, de la memoria y de cómo están ordenadas las filas; en esta VM todo está cacheado, que es lo más favorable para los saltos. Una regla práctica (aproximada, criterio mío): cuando la condición deja pasar más de unos pocos puntos porcentuales de la tabla, no esperes mucho de un índice.",
+    "Hay dos casos más en los que el motor no usa el índice, o no sirve de mucho:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create table chicos as select * from bultos where id <= 100;\nalter table chicos add primary key (id);\nvacuum analyze chicos;\nexplain (analyze, buffers, costs off, timing off, summary off) select * from chicos where id = 50;",
+     "s": "CREATE TABLE\nALTER TABLE\nVACUUM\nSET\n                 QUERY PLAN                 \n--------------------------------------------\n Seq Scan on chicos (actual rows=1 loops=1)\n   Filter: (id = 50)\n   Rows Removed by Filter: 99\n   Buffers: shared hit=1\n Planning:\n   Buffers: shared hit=73\n(6 rows)"
+    },
+    {
+     "c": "select count(*) as filas, pg_relation_size('chicos') / 8192 as paginas from chicos;",
+     "s": " filas | paginas \n-------+---------\n   100 |       1\n(1 row)"
+    }
+   ],
+   "cap": "Una tabla de 100 filas con clave primaria: el motor ignora el índice."
+  },
+  {
+   "t": "p",
+   "x": [
+    "En `chicos` las 100 filas caben en **una** página: el motor la lee entera con el escaneo secuencial (`Buffers: shared hit=1`). Usar el índice sería leer su página y después la de la tabla, o sea más trabajo. Las tablas chicas se leen enteras y no hay nada para arreglar.",
+    "El otro caso es una columna con pocos valores distintos, como `zona`, que tiene cuatro con un 25 % cada uno. Creé un índice sobre `zona` (pesó 6,6 MiB) y pregunté por `zona = 'Norte'`: el motor lo usó en bitmap, pero visitó las 7.300 páginas de la tabla, todas, porque las filas de cada zona están mezcladas en cada página. Tardó 28,7 ms contra 43,1 ms del escaneo secuencial: una ganancia chica, a cambio de 6,6 MiB de espacio y de trabajo extra en cada escritura. Después lo borré."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Una tabla de envíos tiene una columna `activo`, verdadero en el 99 % de las filas. ¿Te sirve un índice para `where activo = false`? ¿Y para `where activo = true`?",
+   "resp": "Para `false`, que deja pasar el 1 %, sí: es muy selectivo. Para `true`, que deja pasar el 99 %, no: leería casi toda la tabla y el motor va a preferir el escaneo secuencial. La misma columna es buena o mala según el valor que se busque; por eso la selectividad depende de la condición y no de la columna sola."
+  },
+  {
+   "t": "h",
+   "x": "Lo que cuesta un índice"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá, todo ventajas. Ahora la factura. Un índice no es gratis en tres cosas: ocupa espacio, hace más lento cada cambio y obliga a cuidar su mantenimiento.",
+    "**Espacio.** Los índices se pagan en disco y en memoria. En la tabla de 18 MiB de respuestas que armé más abajo, cuatro índices sumaron 23 MiB: más que los datos.",
+    "**Escrituras.** Cada `insert` tiene que agregar una entrada a cada índice de la tabla. Probé cargar 300.000 filas en tres tablas iguales, sin índices, con uno (sobre `cliente`) y con tres (`cliente`, `zona + estado` y `peso_g`):"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tabla",
+    "Índices",
+    "Carga de 300.000 filas (mediana de 3)",
+    "Tamaño de los índices",
+    "Veces el tiempo sin índices"
+   ],
+   "filas": [
+    [
+     "w0",
+     "ninguno",
+     "174 ms",
+     "0",
+     "1"
+    ],
+    [
+     "w1",
+     "1",
+     "588 ms",
+     "3,0 MiB",
+     "3,4"
+    ],
+    [
+     "w3",
+     "3",
+     "1.449 ms",
+     "8,7 MiB",
+     "8,3"
+    ]
+   ],
+   "cap": "Medido en esta VM, tablas de 17 MiB cada una. Esos tiempos incluyen leer las filas de `bultos`, que es una parte del mismo costo en las tres."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Es decir, tres índices hacen la carga unas ocho veces más lenta. Y los `update` pagan algo más sutil, que viene de ayer. Cuando un `update` no toca ninguna columna indexada y la página tiene lugar, es una actualización HOT: la versión nueva queda en la misma página y los índices ni se enteran. Si la columna que cambia está indexada, no hay HOT y hay que escribir una entrada nueva en cada índice [#bd2020-pg-hot]. Probé con dos tablas de 100.000 filas (con espacio libre en las páginas) y cambié el `estado` de 20.000 filas:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tabla",
+    "Índice sobre estado",
+    "Actualizaciones HOT",
+    "Tiempo del UPDATE",
+    "Índices antes y después"
+   ],
+   "filas": [
+    [
+     "u0",
+     "no",
+     "20.000 de 20.000",
+     "24 ms",
+     "3,3 MiB sin cambio"
+    ],
+    [
+     "u1",
+     "sí",
+     "0 de 20.000",
+     "325 ms",
+     "4,0 MiB a 7,1 MiB"
+    ]
+   ],
+   "cap": "Mismo cambio, mismos datos: el UPDATE con la columna indexada tardó 13 veces más y casi duplicó el tamaño de los índices. Medido en esta VM."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Mantenimiento y bloqueos.** Un índice recién creado también tiene que construirse: aquí fueron menos de un segundo, pero en una tabla grande y ocupada pueden ser minutos. Un `CREATE INDEX` común bloquea las escrituras de esa tabla mientras trabaja (las lecturas siguen); con `CREATE INDEX CONCURRENTLY` no las bloquea, a cambio de tardar más y de tener más cuidados [#bd2020-pg-createindex]. En un servicio en vivo, la diferencia se nota."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Más índices, más velocidad»",
+   "x": "Cada índice acelera algunas lecturas y enlentece todas las escrituras, además de ocupar lugar. Un índice que ninguna consulta usa solo cuesta. La regla práctica es indexar para las consultas que de verdad se hacen y comprobarlo con el plan, no por si acaso."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 1: ¿indexás o no?** (Los números son inventados.) Una tabla `envios` tiene 5 millones de filas. Recibe 200 inserciones por segundo y se consulta unas 30 veces por segundo con `where cliente_id = ?`, devolviendo unas 50 filas. Con lo medido hoy, estimá el trabajo por segundo de cada opción y decidí.",
+   "pista": "Escaneo secuencial: 33 ms por millón de filas. Con índice, una consulta como la de hoy tardó 0,2 ms. Costo extra de un índice en las cargas: (588 − 174) ms por 300.000 filas.",
+   "solucion": "Sin índice, cada búsqueda lee 5 veces más que la de hoy: unos 165 ms; 30 por segundo son unos 5 segundos de trabajo por segundo, más de un procesador entero ocupado solo en esto. Con índice, 30 × 0,2 ms son unos 6 ms por segundo. El índice agrega a las cargas unos 1,4 µs por fila (414 ms / 300.000), o sea 200 × 1,4 µs ≈ 0,3 ms por segundo. Se indexa `cliente_id` sin dudar: el costo es de 0,3 ms por segundo contra 5 segundos ahorrados. Todo es estimación por proporción, con datos en memoria."
+  },
+  {
+   "t": "h",
+   "x": "En Senda: la tabla que recibe todas las respuestas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda tiene una tabla que recibe una fila por cada respuesta de trivia, `respuestas`, y esa tabla carga cuatro índices. Lo que está en el código es esto:"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Cuatro índices sobre `respuestas`, uno parcial en `avisos` y uno por expresión en `perfiles`",
+   "x": [
+    "Implementado en el código (commit 25e08fa). Sobre `respuestas`: la clave primaria `id`; `respuestas_pregunta` (de la migración inicial); `respuestas_cliente_id`, **único**, que hace idempotentes los reintentos del teléfono (un lote repetido no duplica filas); y `respuestas_creado`, que sirve a la limpieza diaria, que borra por antigüedad.",
+    "Sobre `avisos`, `avisos_pendientes` es un **[[índice parcial]]**: `(enviar_desde) where enviado is null`. Solo indexa los avisos todavía no enviados, de modo que se mantiene chico aunque la tabla acumule historia, y es justo lo que consulta el envío por lote (`enviado is null and enviar_desde <= now()`). Y `perfiles_apodo_unico` es un índice único sobre una expresión, `lower(apodo)`: así dos personas no pueden tomar «Ana» y «ana»."
+   ],
+   "archivos": [
+    "supabase/migrations/20261026000000_inicio.sql",
+    "supabase/migrations/20261027000000_escala.sql",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261111000000_novedades.sql"
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Medí cuánto pagan esos índices en una réplica: la misma tabla `respuestas` (sin el trigger de resumen) con solo la clave primaria y con los cuatro índices, y la carga de 200.000 filas (tres corridas cada una):"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Réplica",
+    "Índices",
+    "Carga de 200.000 filas (mediana de 3)",
+    "Tamaño de la tabla",
+    "Tamaño de los índices"
+   ],
+   "filas": [
+    [
+     "r1",
+     "solo la clave primaria",
+     "749 ms",
+     "18 MiB",
+     "4,3 MiB"
+    ],
+    [
+     "r4",
+     "los cuatro de Senda",
+     "1.760 ms",
+     "18 MiB",
+     "23 MiB"
+    ]
+   ],
+   "cap": "Medido en esta VM. Los cuatro índices hicieron la carga 2,4 veces más lenta y pesan más que la tabla. Los UUID al azar de `cliente_id` obligan al índice a insertar en lugares dispersos, algo más caro que insertar en orden (supongo: no lo aislé)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "No es una crítica: `respuestas_cliente_id` cumple una función de seguridad de los datos (evita duplicados) y `respuestas_creado` hace barata la limpieza. Pero ilustra la pregunta que hay que hacerse con cada índice: ¿qué consulta lo usa? Del código del repositorio, `respuestas_pregunta` solo lo veo útil para agrupar por pregunta en el relleno inicial del resumen, porque desde entonces el resumen se mantiene con un trigger. No puedo descartar que algo lo use desde afuera (la Consola, el panel de Supabase). Eso se resuelve mirando en la base viva el contador `idx_scan` de la vista `pg_stat_user_indexes`: si vale cero hace meses, el índice solo cuesta. No tengo acceso a esa base y no lo verifiqué."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 13-11-2026",
+   "x": "La documentación de PostgreSQL mostraba el 13-11-2026 un aviso del 12-11-2026: salieron las versiones 18.7, 17.12, 16.16, 15.20 y 14.25, y la 19 estaba en candidata a versión (RC 2), todavía no final [#bd2020-pg-indexes-intro]. Probé en la 16.15, y lo que viste (índices B-tree, deduplicación, `CREATE INDEX CONCURRENTLY`, HOT) está en la 16; no revisé si cambia algo en la 17 ni en la 18. Los números de tiempo no se trasladan a otra máquina; sí lo hace la forma de las curvas."
+  },
+  {
+   "t": "h",
+   "x": "Lo que se confunde y lo que te llevás"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**«Con un índice todo es rápido»:** ayuda a las consultas muy selectivas; si la condición deja pasar una parte grande de la tabla, el motor lee igual casi todo.",
+    "**«El motor ignoró mi índice, está roto»:** casi siempre decidió que leer la tabla es más barato (tabla chica, poca selectividad, estadísticas viejas). Se comprueba con `EXPLAIN`.",
+    "**«Los índices se mantienen solos»:** se actualizan solos, pero cada escritura paga por ellos.",
+    "**«La clave foránea ya tiene índice»:** la primaria sí, la foránea no."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hoy usamos el índice como una caja negra que apunta a direcciones. Mañana ([@09-21]) la abrimos: cómo está organizado por dentro para que, con un millón de filas, encontrar una cueste tres páginas, y por qué un índice sobre dos columnas funciona distinto según el orden en que las declares."
+   ]
+  }
+ ],
+ "recap": [
+  "Un escaneo secuencial recorre toda la tabla: es lo mejor para leer mucho y lo peor para encontrar poco, y su costo crece con el tamaño de la tabla.",
+  "Un índice guarda valores ordenados con la dirección (ctid) de cada fila; permite pasar de 7.300 páginas leídas a unas 50 para una búsqueda selectiva.",
+  "La selectividad es la fracción de la tabla que deja pasar una condición: con pocas filas el índice gana por mucho, con el 10 al 25 % el índice simple deja de convenir y con casi todas el motor elige leer la tabla.",
+  "Un índice cuesta espacio, tiempo en cada insert y update, y puede impedir las actualizaciones HOT; no se indexa por las dudas.",
+  "La clave primaria y las restricciones únicas crean índice solas; la clave foránea no.",
+  "El motor decide si usa un índice; en tablas de una página o con poca selectividad, lo ignora y hace bien."
+ ],
+ "repaso": [
+  {
+   "p": "La consulta `where zona = 'Norte'` devuelve el 25 % de una tabla de un millón de filas, con las filas de cada zona mezcladas en todas las páginas. ¿Qué esperás de un índice sobre `zona`?",
+   "o": [
+    "Una mejora enorme, porque el índice evita leer la tabla en todos los casos",
+    "Una mejora chica, porque igual hay que visitar casi todas las páginas de la tabla",
+    "Ninguna mejora posible, porque los índices solo funcionan con claves únicas",
+    "Un error, porque un índice no puede crearse sobre una columna de texto"
+   ],
+   "c": 1,
+   "e": "Con las filas mezcladas, hay que tocar casi todas las páginas aunque se use el índice: en la prueba, 7.300 páginas con el índice y 28,7 ms contra 43,1 ms sin él. Un índice no necesita claves únicas, y el texto se indexa sin problema; lo que limita es la selectividad."
+  },
+  {
+   "p": "En un servicio en producción necesitás crear un índice en una tabla grande que recibe escrituras todo el día. ¿Qué pasa con un `CREATE INDEX` común?",
+   "o": [
+    "Las lecturas siguen, pero las escrituras a esa tabla esperan hasta que termine",
+    "Todo queda bloqueado, lecturas y escrituras, hasta que termine de construirse",
+    "No se bloquea nada, porque PostgreSQL arma el índice en segundo plano",
+    "Solo se bloquean las lecturas, porque las escrituras se anotan aparte"
+   ],
+   "c": 0,
+   "e": "Según la documentación, un CREATE INDEX común bloquea las escrituras pero no las lecturas; con CONCURRENTLY no bloquea las escrituras, a costa de tardar más. Que bloquee todo o que no bloquee nada son extremos que la documentación no describe."
+  },
+  {
+   "p": "Una tabla de 100 filas tiene clave primaria y buscás `where id = 50`. El plan muestra `Seq Scan` y no el índice. ¿Por qué es una buena decisión?",
+   "o": [
+    "El motor no sabe usar índices en tablas de menos de mil filas porque no hay estadísticas",
+    "Las claves primarias solo se usan en `JOIN`, nunca en una condición `where`",
+    "El índice de la clave primaria se desactiva cuando la tabla tiene menos de cien filas",
+    "Usar el índice exige leer su página y después la de la tabla, y la tabla entera cabe en una página"
+   ],
+   "c": 3,
+   "e": "La tabla `chicos` ocupa una sola página, así que el escaneo secuencial cuesta una lectura; el índice costaría la suya más la de la tabla. No hay umbral fijo de filas ni desactivación de índices, y la clave primaria se usa también en `where`."
+  },
+  {
+   "p": "Un `UPDATE` cambia la columna `estado` en 20.000 filas. Con un índice sobre `estado` tarda unas 13 veces más que sin él. ¿Por qué?",
+   "o": [
+    "El índice obliga a ordenar toda la tabla de nuevo antes de guardar los cambios en `estado`",
+    "PostgreSQL bloquea la tabla entera mientras mantiene un índice sobre una columna que cambia",
+    "Cada versión nueva necesita una entrada en el índice y ya no puede ser una actualización HOT",
+    "Los índices se reconstruyen desde cero después de cada UPDATE sobre su columna indexada"
+   ],
+   "c": 2,
+   "e": "Si el cambio toca una columna indexada, la fila nueva no puede quedar solo en la página: el índice necesita una entrada nueva, y por eso hay 0 actualizaciones HOT. No hay reordenamiento de la tabla, bloqueo total ni reconstrucción completa; el costo es agregar entradas."
+  },
+  {
+   "p": "Una búsqueda sin índice tarda 33 ms en una tabla de un millón de filas. La tabla crece a 10 millones y se hacen 50 búsquedas por segundo. ¿Cuánto trabajo por segundo implican, más o menos?",
+   "o": [
+    "Unos 33 milisegundos por segundo, porque la tabla más grande se lee con la misma velocidad",
+    "Unos 16 segundos de trabajo por cada segundo de reloj, más de lo que da un solo procesador",
+    "Unos 1,6 segundos por segundo, porque el escaneo secuencial es proporcional al logaritmo",
+    "Unos 0,2 segundos por segundo, porque PostgreSQL guarda en memoria los resultados repetidos"
+   ],
+   "c": 1,
+   "e": "El escaneo secuencial es proporcional al tamaño de la tabla: 10 veces más filas son unos 330 ms por consulta, y 50 por segundo dan unos 16 segundos de trabajo por segundo (estimación). No depende del logaritmo ni hay un caché de resultados automático; la solución es un índice."
+  },
+  {
+   "p": "La tabla `envios` tiene una clave foránea `cliente_id` hacia `clientes`. ¿Qué se puede decir del índice sobre `cliente_id`?",
+   "o": [
+    "No se crea solo: si vas a buscar por esa columna, hay que crearlo a mano",
+    "Se crea solo al declarar la clave foránea, igual que con la clave primaria",
+    "Se crea solo, pero únicamente cuando la tabla supera los 8 KiB de tamaño",
+    "No hace falta nunca, porque la clave foránea ya acelera todas las búsquedas"
+   ],
+   "c": 0,
+   "e": "La documentación de PostgreSQL aclara que declarar una clave foránea no crea un índice sobre la columna. La clave primaria y las restricciones únicas sí lo crean. Sin índice, buscar los envíos de un cliente recorre toda la tabla."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística, sin decir «B-tree» ni «ctid», qué es un índice en una base de datos, por qué hace que una búsqueda sea mucho más rápida y por qué no conviene ponerle índice a todas las columnas. Usá el libro con índice al final y decí dónde esa imagen deja de valer.",
+ "para_profundizar": [
+  {
+   "fuente": "bd2020-pg-indexes-intro",
+   "nota": "La introducción oficial a los índices, corta: las dos ideas de hoy (índice como atajo, y que el motor decide cuándo usarlo) con el ejemplo del libro."
+  },
+  {
+   "fuente": "use-the-index-luke",
+   "nota": "El libro libre «Use The Index, Luke»: las primeras páginas, sobre la anatomía de un índice y el árbol de búsqueda, anticipan el día de mañana y explican por qué un índice acelera."
+  },
+  {
+   "fuente": "bd2020-pg-createindex",
+   "nota": "La referencia de CREATE INDEX: leé la parte de «Building Indexes Concurrently» para entender qué se bloquea y qué no."
+  },
+  {
+   "fuente": "bd2020-pg-btree-impl",
+   "nota": "El detalle oficial del B-tree de PostgreSQL, incluida la deduplicación que explica por qué el índice de `cliente` pesa menos que el de `id`; sirve como adelanto de [@09-21]."
+  }
+ ],
+ "videos": [
+  {
+   "q": "PostgreSQL index explained sequential scan vs index scan EXPLAIN ANALYZE",
+   "por_que": "Para ver otro caso real del mismo contraste de hoy, con planes distintos, y reconocer las líneas del plan."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "índice",
+   "d": "Estructura de datos aparte de la tabla donde los valores de una o varias columnas están ordenados y cada uno lleva la dirección de su fila. Permite encontrar pocas filas sin leer toda la tabla, a cambio de espacio y de trabajo en cada escritura."
+  },
+  {
+   "t": "escaneo secuencial",
+   "d": "Forma de ejecutar una consulta en que el motor recorre toda la tabla página por página y revisa cada fila. Es lo más eficiente para leer gran parte de la tabla y lo más lento para encontrar pocas filas."
+  },
+  {
+   "t": "selectividad",
+   "d": "Fracción de las filas de una tabla que deja pasar una condición. Una condición selectiva deja pasar pocas filas y es la que más se beneficia de un índice; una poco selectiva deja pasar muchas."
+  },
+  {
+   "t": "índice parcial",
+   "d": "Índice que solo incluye las filas que cumplen una condición escrita en su definición, por ejemplo las filas no enviadas. Es más chico y barato de mantener que uno sobre toda la tabla."
+  }
+ ],
+ "siguiente": "Ya sabés qué hace un índice. Mañana: cómo está armado por dentro (el B-tree) para que en un millón de filas encontrar una cueste tres páginas, y qué otros tipos de índice existen.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd2020-pg-indexes-intro",
+   "t": "PostgreSQL 16: Indexes, Introduction",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/indexes-intro.html"
+  },
+  {
+   "id": "bd2020-pg-createindex",
+   "t": "PostgreSQL 16: CREATE INDEX",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/sql-createindex.html"
+  },
+  {
+   "id": "bd2020-pg-btree-impl",
+   "t": "PostgreSQL 16: B-Tree Implementation (deduplicación)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/btree-implementation.html"
+  },
+  {
+   "id": "bd2020-pg-hot",
+   "t": "PostgreSQL 16: Heap-Only Tuples (HOT)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/storage-hot.html"
+  }
+ ]
+}

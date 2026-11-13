@@ -1,0 +1,920 @@
+{
+ "id": "09-35",
+ "titulo": "Documentos: MongoDB y Firestore",
+ "bajada": "Guardás un envío entero como un solo documento, lo corrés en un MongoDB real contra PostgreSQL con los mismos 100.000 envíos, y entendés dónde gana y dónde pierde cada modelo.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es un documento y una colección, y en qué se diferencian de una fila y una tabla.",
+  "Decidir con una regla práctica si un dato va embebido en el documento o referenciado desde otra colección.",
+  "Leer una consulta por documento de MongoDB y su equivalente en SQL, y detectar la trampa de las listas.",
+  "Describir qué garantizan MongoDB y Firestore al cambiar uno o varios documentos, y qué tope de tamaño tiene cada uno.",
+  "Comparar con mediciones el mismo caso en MongoDB, en PostgreSQL con jsonb y en tres tablas."
+ ],
+ "venis_de": "Ayer viste por qué existe NoSQL, qué familias hay y qué dice el teorema CAP ([@09-34]). Antes viste PostgreSQL a fondo, con el tipo JSONB ([@09-32]), la normalización ([@09-15], [@09-16]) y los índices ([@09-20], [@09-21]). Hoy bajás a la primera familia, la de documentos, con un MongoDB real corriendo en esta máquina.",
+ "se_apoya_en": [
+  "09-08",
+  "09-16",
+  "09-20",
+  "09-21",
+  "09-24",
+  "09-29",
+  "09-32",
+  "09-34"
+ ],
+ "gancho": [
+  "Un envío, en un depósito, es una hoja con todo adentro: quién lo manda, adónde va, cuántos bultos son y qué pasó en cada paso del camino. Cuando ese mismo envío pasa a una base relacional, la hoja se corta en pedazos. El envío ENV-000003 de hoy, que es inventado, tiene un bulto y cinco novedades, así que vive en siete filas repartidas en tres tablas. Para mostrarlo en pantalla hay que juntar otra vez esas siete filas.",
+  "Las bases de documentos hacen otra apuesta: guardar la hoja entera, tal como la usa la aplicación. La apuesta tiene ventajas y costos reales, y los dos se pueden medir. Hoy lo hacés con 100.000 envíos inventados, cargados en MongoDB 9.0.8 y en PostgreSQL 16.15, y después mirás cómo lo resuelve Firestore, el servicio de Google que usan muchas apps de teléfono."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "La idea: guardar la hoja entera"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[documento]] es un conjunto de campos, cada uno con su nombre y su valor, que se guarda y se lee como una sola unidad. Un valor puede ser un número, un texto, una fecha, una lista o, y acá está lo nuevo, otro documento adentro. Una [[colección]] es el lugar donde viven los documentos del mismo tipo, por ejemplo todos los envíos. Se parece a una tabla, con una diferencia que importa: la colección no exige que todos sus documentos tengan los mismos campos.",
+    "Así se ve el envío ENV-000003 de los datos de hoy (todos inventados), con un bulto y cinco novedades:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "json",
+   "x": "{\n  \"codigo\": \"ENV-000003\",\n  \"estado\": \"entregado\",\n  \"cliente\": { \"id\": 36, \"nombre\": \"Comercio K36\" },\n  \"destino\": { \"zona\": \"Sur\", \"localidad\": \"Avellaneda\", \"calle\": \"Calle 16 n.º 4293\" },\n  \"bultos\": [\n    { \"tipo\": \"pallet\", \"kg\": 8.4 }\n  ],\n  \"eventos\": [\n    { \"ts\": \"2026-10-24T20:36:00Z\", \"tipo\": \"retirado\",        \"deposito\": \"Barracas\" },\n    { \"ts\": \"2026-10-25T00:00:00Z\", \"tipo\": \"intento_fallido\", \"deposito\": \"Barracas\" },\n    { \"ts\": \"2026-10-25T01:43:00Z\", \"tipo\": \"intento_fallido\", \"deposito\": \"Avellaneda\" },\n    { \"ts\": \"2026-10-25T11:00:00Z\", \"tipo\": \"salio_a_ruta\",    \"deposito\": \"Avellaneda\" },\n    { \"ts\": \"2026-10-25T18:59:00Z\", \"tipo\": \"entregado\",       \"deposito\": \"Avellaneda\" }\n  ]\n}",
+   "cap": "Un documento completo. Es la salida real de MongoDB, con las fechas en formato JSON y el sangrado acomodado para leerlo."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "arbol",
+   "raiz": {
+    "t": "Documento ENV-000003",
+    "s": "un solo registro",
+    "k": "datos",
+    "h": [
+     {
+      "t": "codigo, estado",
+      "s": "dos textos",
+      "k": "neutro"
+     },
+     {
+      "t": "cliente",
+      "s": "documento anidado: id y nombre",
+      "k": "cliente"
+     },
+     {
+      "t": "destino",
+      "s": "documento anidado: zona, localidad, calle",
+      "k": "cliente"
+     },
+     {
+      "t": "bultos",
+      "s": "lista con 1 documento",
+      "k": "servidor"
+     },
+     {
+      "t": "eventos",
+      "s": "lista con 5 documentos",
+      "k": "servidor"
+     }
+    ]
+   },
+   "cap": "El mismo envío como árbol. Los campos `cliente` y `destino` son documentos dentro del documento; `bultos` y `eventos` son listas de documentos."
+  },
+  {
+   "t": "p",
+   "x": "En un diseño de tablas ([@09-08]) esos mismos datos se reparten: una fila en `envios_rel`, una en `bultos_rel` y cinco en `eventos_rel`, enlazadas por el código con claves foráneas ([@09-07]). El documento hace otra cosa: **embebe** las partes, es decir, las guarda adentro, en vez de enlazarlas."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Diseño",
+    "Dónde vive ENV-000003",
+    "Para mostrarlo completo en pantalla"
+   ],
+   "filas": [
+    [
+     "Tres tablas",
+     "7 filas: 1 en `envios_rel`, 1 en `bultos_rel` y 5 en `eventos_rel`",
+     "Tres consultas, o un JOIN que repite datos"
+    ],
+    [
+     "Un documento",
+     "1 documento en la colección `envios`",
+     "Una búsqueda por código"
+    ]
+   ],
+   "cap": "Con los 100.000 envíos de hoy, las tres tablas suman 100.000 + 240.687 + 439.276 = 779.963 filas; la colección tiene 100.000 documentos."
+  },
+  {
+   "t": "p",
+   "x": "Para probarlo generé 100.000 envíos con un script de semilla fija. Los cargué en MongoDB 9.0.8 y en PostgreSQL 16.15, los dos corriendo en esta misma máquina virtual: en PostgreSQL de dos maneras, como una columna `jsonb` (la viste en [@09-32]) y repartidos en las tres tablas. MongoDB lo bajé del sitio oficial (153 MB comprimidos, con la huella SHA-256 igual a la del listado oficial de descargas [#bd35-mongo-descargas]) y lo corrí solo en esta máquina, sin acceso desde afuera."
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import json, random\nfrom datetime import datetime, timedelta, timezone\n\nrandom.seed(7)\nZONAS = {\"Sur\": [\"Avellaneda\", \"Lanús\", \"Quilmes\", \"Lomas de Zamora\"],\n         \"Norte\": [\"Vicente López\", \"San Isidro\", \"Tigre\", \"San Martín\"],\n         \"Oeste\": [\"Morón\", \"Haedo\", \"Ramos Mejía\", \"Merlo\"],\n         \"CABA\": [\"Pompeya\", \"Palermo\", \"Caballito\", \"Barracas\"]}\nCLIENTES = [f\"Comercio {chr(65 + i % 26)}{i:02d}\" for i in range(60)]\nESTADOS = [\"pendiente\", \"en_ruta\", \"entregado\", \"entregado\", \"cancelado\"]\nDEPOSITOS = [\"Pompeya\", \"Barracas\", \"Avellaneda\", \"Morón\"]\nINICIO = datetime(2026, 9, 1, 8, 0, tzinfo=timezone.utc)\n\ndef envio(i):\n    zona = random.choice(list(ZONAS))\n    c = random.randrange(len(CLIENTES))\n    bultos = []\n    for _ in range(random.choice([1, 1, 2, 3, 5])):\n        b = {\"tipo\": random.choice([\"caja\", \"sobre\", \"pallet\"]), \"kg\": round(random.uniform(0.2, 40), 1)}\n        r = random.random()\n        if r < 0.10: b[\"frio\"] = {\"max_c\": random.choice([2, 4, 8])}\n        if random.random() < 0.15: b[\"fragil\"] = True\n        if random.random() < 0.02: b[\"peligroso\"] = {\"clase\": random.choice([\"3\", \"8\"])}\n        bultos.append(b)\n    t = INICIO + timedelta(minutes=random.randrange(0, 60 * 24 * 60))\n    eventos = []\n    estado = random.choice(ESTADOS)\n    n = 0 if estado == \"pendiente\" else random.randint(3, 8)\n    for k in range(n):\n        t += timedelta(minutes=random.randint(20, 600))\n        if k == 0: tipo = \"retirado\"\n        elif k == n - 1 and estado == \"entregado\": tipo = \"entregado\"\n        elif k == n - 1 and estado == \"en_ruta\": tipo = \"salio_a_ruta\"\n        else: tipo = random.choice([\"en_deposito\", \"salio_a_ruta\", \"intento_fallido\"])\n        eventos.append({\"ts\": t.strftime(\"%Y-%m-%dT%H:%M:%SZ\"), \"tipo\": tipo, \"deposito\": random.choice(DEPOSITOS)})\n    return {\"codigo\": f\"ENV-{i:06d}\", \"estado\": estado,\n            \"cliente\": {\"id\": c, \"nombre\": CLIENTES[c]},\n            \"destino\": {\"zona\": zona, \"localidad\": random.choice(ZONAS[zona]), \"calle\": f\"Calle {random.randint(1, 99)} n.º {random.randint(100, 4999)}\"},\n            \"bultos\": bultos, \"eventos\": eventos}\n\nwith open(\"envios.ndjson\", \"w\") as f:\n    for i in range(1, 100001):\n        f.write(json.dumps(envio(i), ensure_ascii=False) + \"\\n\")",
+   "cap": "generar.py. Con la semilla 7 todos obtienen los mismos 100.000 envíos (el archivo resultante pesa 64.179.265 bytes). Todos los nombres, zonas y depósitos son inventados."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Pensalo como la carpeta de un envío. El diseño de tablas guarda cada tipo de papel en su propio fichero (remitos, partes de ruta, novedades) y, cada vez que alguien pide el envío entero, un empleado busca en los tres. El documento guarda la carpeta completa en un estante.",
+    "La analogía falla en dos puntos. Una carpeta puede llevar copias del mismo papel sin que nadie se entere, y en una base eso son datos duplicados que hay que mantener iguales. Y una carpeta que crece sin tope no cabe en el estante: MongoDB tiene un tope real por documento, que vas a ver con números."
+   ],
+   "titulo": "La carpeta del envío"
+  },
+  {
+   "t": "pensa",
+   "x": "La pantalla que más usa tu app muestra un envío completo, con sus bultos y novedades. Otra pantalla, que el dueño abre una vez por semana, cuenta envíos por zona y estado. ¿Qué diseño esperás que le quede mejor a cada una, y por qué?",
+   "resp": "Al envío completo le queda bien el documento: lo que se pide junto está guardado junto. Al conteo por zona y estado le quedan mejor las tablas, porque solo hay que leer dos columnas angostas y no abrir cada documento. Más abajo se mide: 14 ms con tablas, 23 con MongoDB y 76 con jsonb."
+  },
+  {
+   "t": "h",
+   "x": "Por dentro de MongoDB: BSON y un tope de tamaño"
+  },
+  {
+   "t": "p",
+   "x": [
+    "MongoDB no guarda texto JSON. Guarda **BSON**, un formato binario que se parece a JSON pero tiene más tipos: fechas de verdad, enteros de 32 y de 64 bits, decimales exactos y un tipo para identificadores [#bd35-mongo-bson]. Todo documento tiene un campo `_id` único, que hace de clave primaria. Si no lo ponés, el *driver* (la librería que usa tu programa para hablar con la base) inventa un `ObjectId`: 12 bytes formados por 4 de fecha en segundos, 5 al azar por proceso y 3 de un contador [#bd35-mongo-bson].",
+    "Para ver qué significa «binario» conviene contar bytes a mano. Un documento BSON empieza con 4 bytes que dicen cuánto mide en total. Cada campo lleva un byte de tipo, el nombre del campo terminado en un byte nulo y el valor. Un byte cero cierra el documento. Un texto suma sus propios 4 bytes de largo y un nulo al final. El programa de abajo calcula el tamaño de un evento y después responde una pregunta de diseño: cuántos eventos entran en un solo documento si el tope es de 16 MiB [#bd35-mongo-limites]. Lo podés correr acá mismo."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Tamaño en bytes de un documento BSON, calculado a mano con las reglas del formato.\nconst enc = new TextEncoder();\nconst clave = (k) => 1 + enc.encode(k).length + 1;          // byte de tipo + nombre + byte nulo\nconst texto = (s) => 4 + enc.encode(s).length + 1;           // largo (4) + bytes UTF-8 + nulo\nconst doc = (campos) => 4 + campos.reduce((a, c) => a + c, 0) + 1;   // largo total (4) + campos + cierre\n\nconst evento = doc([\n  clave('ts') + 8,                       // fecha: 8 bytes\n  clave('tipo') + texto('en_deposito'),\n  clave('deposito') + texto('Barracas'),\n]);\nconsole.log('un evento mide', evento, 'bytes');\n\n// Un documento con un arreglo de n eventos. Cada elemento lleva por nombre su posición (\"0\", \"1\", ...).\nconst TOPE = 16 * 1024 * 1024;\nconst fijo = doc([clave('codigo') + texto('GIGA'), clave('eventos') + 4 + 1]);   // todo menos los elementos\nlet total = fijo, n = 0;\nwhile (total + clave(String(n)) + evento <= TOPE) { total += clave(String(n)) + evento; n += 1; }\nconsole.log('el tope es', TOPE, 'bytes');\nconsole.log('entran', n, 'eventos y el documento mide', total, 'bytes');\nconsole.log('con uno más mediría', total + clave(String(n)) + evento);",
+   "ejecutable": true,
+   "cap": "Resultado en esta máquina: 62 bytes por evento y 241.261 eventos en 16.777.196 bytes. Contra el driver real de Node (versión 7.9.0) dio los mismos 62 bytes, y el servidor aceptó un documento con 241.261 eventos y rechazó el de 241.262."
+  },
+  {
+   "t": "h",
+   "x": "Una colección sin molde, y con molde si lo pedís"
+  },
+  {
+   "t": "p",
+   "x": "Probé qué acepta MongoDB: dos documentos de formas distintas en la misma colección (en uno `bultos` es una lista y en el otro un texto) y, después, una colección con regla de validación."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "await db.createCollection('validada', { validator: { $jsonSchema: {\n  bsonType: 'object', required: ['codigo', 'bultos'],\n  properties: {\n    codigo: { bsonType: 'string' },\n    bultos: { bsonType: 'array', minItems: 1,\n      items: { bsonType: 'object', required: ['kg'],\n        properties: { kg: { bsonType: ['double', 'int'], minimum: 0 } } } } } } } });",
+   "cap": "La regla pide que `bultos` sea una lista con al menos un elemento y que cada uno tenga un `kg` numérico mayor o igual a cero."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "await prueba.insertMany([{ codigo: 'X-1', bultos: [{ tipo: 'caja', kg: 3 }] },\n                         { codigo: 'X-2', bultos: 'dos cajas', nota: 'cargado a mano', kg_total: '7' }])",
+     "s": "forma distinta aceptada: 2"
+    },
+    {
+     "c": "await validada.insertOne({ codigo: 'X-2', bultos: 'dos cajas' })",
+     "s": "validación: 121 Document failed validation"
+    },
+    {
+     "c": "await validada.insertOne({ codigo: 'X-3', bultos: [{ kg: 3.5 }] })",
+     "s": "válido: true"
+    }
+   ],
+   "cap": "Las frases de salida son las que imprime mi script de prueba con lo que devolvió el servidor: la primera cuenta los documentos aceptados; las otras muestran el código de error 121 y el resultado de la inserción válida."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": [
+    "«Sin esquema» quiere decir que la base no te obliga a declarar uno. El esquema existe igual: vive en el código que lee los documentos, que tiene que decidir qué hacer si `bultos` llega como texto. MongoDB recomienda sumar validación cuando la aplicación ya tiene estructura definida [#bd35-mongo-validacion]; es lo que en tablas hacen `NOT NULL` y `CHECK` ([@09-06])."
+   ],
+   "titulo": "«Sin esquema» no significa «sin estructura»"
+  },
+  {
+   "t": "h",
+   "x": "Consultas por documento"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En SQL la consulta es un texto con una gramática. En MongoDB, una [[consulta por documento]] es un documento: describís con campos y valores cómo tienen que ser los documentos que buscás, y la base devuelve documentos completos de la colección. Un campo anidado se nombra con puntos, como `'destino.zona'`. Si el campo es una lista, cada condición se cumple cuando **algún** elemento la cumple, y esa frase esconde una trampa que aparece enseguida.",
+    "El pedido de hoy: los envíos en ruta hacia la zona Sur con al menos un bulto con cadena de frío. Se escribe así en MongoDB, en PostgreSQL con `jsonb` y en PostgreSQL con tablas, y las tres devuelven los mismos 1.082 envíos."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dónde",
+    "Cómo se pide"
+   ],
+   "filas": [
+    [
+     "MongoDB (colección)",
+     "`find({ estado: 'en_ruta', 'destino.zona': 'Sur', 'bultos.frio': { $exists: true } })`"
+    ],
+    [
+     "PostgreSQL con jsonb",
+     "`select * from envios_doc where doc @> '{\"estado\":\"en_ruta\", \"destino\":{\"zona\":\"Sur\"}, \"bultos\":[{\"frio\":{}}]}'`"
+    ],
+    [
+     "PostgreSQL con tablas",
+     "`select e.* from envios_rel e where estado = 'en_ruta' and zona = 'Sur' and exists (select 1 from bultos_rel b where b.codigo = e.codigo and b.frio_max_c is not null)`"
+    ]
+   ],
+   "cap": "El operador `@>` de `jsonb` significa «el documento de la izquierda contiene al de la derecha»; con `\"frio\":{}` alcanza para pedir que ese campo exista."
+  },
+  {
+   "t": "p",
+   "x": "Ahora la trampa. Pedí los envíos con algún bulto con frío y algún bulto frágil, con dos condiciones sobre `bultos`, y compará con la versión que exige que sea **el mismo bulto** el que tenga las dos propiedades (`$elemMatch`):"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Escritura",
+    "Qué exige en realidad",
+    "Envíos"
+   ],
+   "filas": [
+    [
+     "MongoDB, dos condiciones con punto",
+     "algún bulto con frío y algún bulto frágil, que pueden ser distintos",
+     "8.431"
+    ],
+    [
+     "MongoDB, `$elemMatch`",
+     "un mismo bulto con frío y frágil",
+     "3.607"
+    ],
+    [
+     "PostgreSQL jsonb, dos `@>` unidos con AND",
+     "igual que con punto",
+     "8.431"
+    ],
+    [
+     "PostgreSQL jsonb, un solo `@>`",
+     "un mismo bulto con frío y frágil",
+     "3.607"
+    ],
+    [
+     "PostgreSQL con tablas",
+     "un mismo bulto, porque la fila de `bultos_rel` es una sola",
+     "3.607"
+    ]
+   ],
+   "cap": "Medido sobre los 100.000 envíos de hoy. La diferencia de 4.824 envíos es una consulta que parece correcta y devuelve de más."
+  },
+  {
+   "t": "pensa",
+   "x": "Un envío tiene dos bultos: uno con frío que no es frágil y otro frágil que no lleva frío. ¿Entra en el conteo de 8.431? ¿Y en el de 3.607?",
+   "resp": "Entra en el de 8.431, porque hay un bulto con frío y hay un bulto frágil. No entra en el de 3.607, porque ningún bulto reúne las dos condiciones a la vez."
+  },
+  {
+   "t": "p",
+   "x": "Para agrupar, MongoDB usa el **pipeline de agregación**: etapas por las que pasan los documentos, como una cinta con puestos. La etapa `$group` cumple el papel de `GROUP BY` [#bd35-mongo-agregacion]. Contar por zona y estado da 16 grupos (cuatro zonas por cuatro estados); van los tres primeros:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "await col.aggregate([\n  { $group: { _id: { zona: '$destino.zona', estado: '$estado' }, n: { $sum: 1 } } },\n  { $sort: { '_id.zona': 1, '_id.estado': 1 } }\n]).toArray()",
+     "s": "[{\"_id\":{\"zona\":\"CABA\",\"estado\":\"cancelado\"},\"n\":5006},\n {\"_id\":{\"zona\":\"CABA\",\"estado\":\"en_ruta\"},\"n\":4936},\n {\"_id\":{\"zona\":\"CABA\",\"estado\":\"entregado\"},\"n\":10006}, …]"
+    }
+   ],
+   "cap": "El `select zona, estado, count(*) from envios_rel group by 1, 2` de PostgreSQL devolvió los mismos números."
+  },
+  {
+   "t": "h",
+   "x": "Embebido o referenciado: la decisión de diseño"
+  },
+  {
+   "t": "p",
+   "x": "La decisión central al diseñar con documentos es qué va adentro y qué va aparte. La documentación de MongoDB da criterios que conviene leer como reglas prácticas, no como leyes [#bd35-mongo-embeber]:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Embebé (guardá adentro) cuando…",
+    "Referenciá (guardá el identificador y el dato aparte) cuando…"
+   ],
+   "filas": [
+    [
+     "los datos se piden siempre juntos",
+     "la lista del lado hijo crece sin límite"
+    ],
+    [
+     "la relación es de «contiene» (un envío contiene bultos)",
+     "duplicar el dato es difícil de mantener igual en todos lados"
+    ],
+    [
+     "los datos se actualizan juntos",
+     "el conjunto pesa demasiado para cargarlo siempre entero"
+    ],
+    [
+     "se archivan o se borran juntos",
+     "los datos se escriben en momentos distintos, con mucha escritura"
+    ]
+   ],
+   "cap": "Resumen propio de la guía oficial de modelado de MongoDB, consultada el 13-11-2026."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada regla se puede mirar con un número. **Duplicar tiene un precio.** En los documentos de hoy el nombre del cliente va copiado en cada envío, y cambiárselo al cliente 17 obligó a reescribir 1.720 documentos. Si el nombre es un dato vivo, conviene una colección `clientes` y una referencia. Si es histórico, como la dirección a la que se entregó un envío ya cerrado, la copia es lo correcto: la mudanza del cliente no debe cambiar el pasado. La guía de MongoDB distingue esos dos casos [#bd35-mongo-embeber].",
+    "**Una lista sin tope termina mal.** Los eventos de un envío son entre 3 y 8, un número chico y acotado: embeberlos está bien. Cambiá el caso: un camión que informa su posición cada 10 segundos produce 8.640 registros por día. ¿Qué pasa si todos van dentro del documento del camión?"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "await grande.insertOne({ codigo: 'GIGA2', eventos: /* 241.262 eventos */ })",
+     "s": "MongoServerError: object to insert too large. size in bytes: 16777284, max size: 16777216"
+    },
+    {
+     "c": "await grande.updateOne({ codigo: 'GIGA' }, { $push: { eventos: evento } })   // GIGA ya tenía 241.261",
+     "s": "MongoServerError (código 10334): Plan executor error during update :: caused by :: Resulting document after update is larger than 16777216"
+    }
+   ],
+   "cap": "Los dos errores son del servidor real. La documentación oficial confirma el tope: 16 mebibytes por documento [#bd35-mongo-limites]."
+  },
+  {
+   "t": "p",
+   "x": "Con registros del tamaño de los eventos de hoy (62 bytes más unos 7 del nombre de posición en la lista), el documento se llenaría en unos 28 días (241.261 ÷ 8.640 = 27,9). Es una ESTIMACIÓN: un registro real de posición tendría otro tamaño y otro plazo. Lo que importa es la forma: pasado ese plazo, las escrituras empiezan a fallar. Las posiciones tienen que ser una colección aparte, con un documento por registro y el código del camión como referencia."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": [
+    "Hay una ventaja del documento que no se ve en una consulta: una operación sobre **un solo documento** es atómica, sin pedir nada especial [#bd35-mongo-transacciones]. Cambié el estado de un envío y le sumé un evento en una sola orden, y o se aplicaron las dos cosas o ninguna:"
+   ],
+   "titulo": "Dos cambios, una sola orden"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "await col.updateOne({ codigo: 'ENV-000002' }, {\n  $set:  { estado: 'entregado' },\n  $push: { eventos: { ts: new Date('2026-11-13T15:00:00Z'), tipo: 'entregado', deposito: 'Pompeya' } }\n})",
+     "s": "antes:   {\"estado\":\"pendiente\",\"eventos\":[]}\ndespués: {\"estado\":\"entregado\",\"eventos\":[{\"ts\":\"2026-11-13T15:00:00.000Z\",\"tipo\":\"entregado\",\"deposito\":\"Pompeya\"}]}"
+    }
+   ],
+   "cap": "Las líneas «antes» y «después» son una lectura del documento antes y después de la orden. En tablas, lo mismo exigiría una [[transacción]] con dos escrituras ([@09-24])."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Para cada dato, decidí si lo embebés en el documento del envío o lo guardás aparte con una referencia, y justificalo con una de las reglas de la tabla: (a) la dirección de entrega del envío; (b) el teléfono actual del cliente; (c) los tres contactos de emergencia que declara un chofer; (d) las lecturas de temperatura de un contenedor refrigerado, una por minuto durante el viaje.",
+   "pista": "Para cada uno preguntate dos cosas: si cambia con el tiempo y si la lista tiene tope. Después fijate si el dato se pide casi siempre junto con el envío.",
+   "solucion": "(a) Embebida: se pide siempre con el envío y es un dato histórico, porque si el cliente se muda no debe cambiar la dirección de un envío ya hecho. (b) Referenciada: es un dato vivo del cliente, compartido por muchos envíos; copiarlo obliga a reescribirlos todos, como los 1.720 documentos del nombre. (c) Embebidos en el documento del chofer: son tres, con tope, y se piden con él. (d) Referenciadas: un viaje de 10 horas son 600 lecturas, y la cuenta crece con cada viaje más largo o con más sensores; van en una colección de lecturas con el código del contenedor."
+  },
+  {
+   "t": "h",
+   "x": "Índices y transacciones"
+  },
+  {
+   "t": "p",
+   "x": "Un índice en una base de documentos sirve para lo mismo que en tablas ([@09-20]): evitar recorrer todo. Sin índice, MongoDB lee la colección entera (`COLLSCAN`, el escaneo secuencial de [@09-22]); de fábrica solo existe el índice de `_id`. Pedí con `explain('executionStats')` la consulta del frío, primero sin índice y después con un [[índice compuesto]] sobre `estado` y `destino.zona`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "await col.find(filtro).explain('executionStats')    // sin índice",
+     "s": "plan: COLLSCAN | devueltos 1082 | docsExaminados 100000 | clavesExaminadas 0 | ms 23"
+    },
+    {
+     "c": "await col.createIndex({ estado: 1, 'destino.zona': 1 })",
+     "s": "estado_1_destino.zona_1"
+    },
+    {
+     "c": "await col.find(filtro).explain('executionStats')    // con índice",
+     "s": "plan: FETCH > IXSCAN | devueltos 1082 | docsExaminados 5048 | clavesExaminadas 5048 | ms 8"
+    }
+   ],
+   "cap": "Las líneas de salida las arma una función mía con los campos `winningPlan` y `executionStats` del `explain`. Los milisegundos son de esta máquina y de una sola corrida."
+  },
+  {
+   "t": "p",
+   "x": "El índice no encuentra los 1.082 envíos: encuentra los 5.048 en ruta hacia el Sur, y el filtro del frío se aplica después, documento por documento. PostgreSQL, con un índice GIN sobre el `jsonb`, trajo los mismos 5.048 candidatos y al revisarlos descartó 3.966. La idea es la de [@09-21]; cambia el nombre del plan."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para cambiar varios documentos a la vez, MongoDB ofrece transacciones con las propiedades de siempre ([@09-24]). Su documentación advierte que suelen costar más que escribir un solo documento y que no reemplazan a un buen diseño [#bd35-mongo-transacciones]; además duran, por defecto, hasta 60 segundos [#bd35-mongo-limites].",
+    "Probé algo que la documentación da por sabido: qué pasa si pedís una transacción a un `mongod` suelto, sin [[réplica]] ([@09-29]). Con un pedido crudo de transacción:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "db.command({ insert: 'stock', documents: [{ _id: 'Z', bultos: 1 }],\n             lsid: sesion.id, txnNumber: 1, autocommit: false, startTransaction: true })",
+     "s": "IllegalOperation 20 | Transaction numbers are only allowed on a replica set member or mongos"
+    }
+   ],
+   "cap": "Es el mensaje del servidor. El driver de Node, con `withTransaction`, mostró otro engañoso («This MongoDB deployment does not support retryable writes…») que no desaparece agregando `retryWrites=false`."
+  },
+  {
+   "t": "p",
+   "x": "Las transacciones y las escrituras reintentables usan números de transacción, y un servidor suelto no los maneja. Reinicié `mongod` con `--replSet` como un conjunto de réplicas de un solo nodo, que alcanza para probar, y moví 30 bultos entre depósitos, una vez bien y otra simulando una caída a mitad de camino:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "async function mover(n, falla) {\n  const s = cli.startSession();\n  try {\n    await s.withTransaction(async () => {\n      await stock.updateOne({ _id: 'Pompeya' }, { $inc: { bultos: -n } }, { session: s });\n      if (falla) throw new Error('se cayó el sistema a mitad de camino');\n      await stock.updateOne({ _id: 'Barracas' }, { $inc: { bultos: n } }, { session: s });\n    });\n    console.log('commit ok');\n  } catch (e) { console.log('transacción abortada:', e.message); }\n  finally { await s.endSession(); }\n  console.log(JSON.stringify(await stock.find().sort({ _id: 1 }).toArray()));\n}",
+   "cap": "Partimos de Pompeya con 100 bultos y Barracas con 20. Se llama `mover(30, false)` y después `mover(30, true)`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "await mover(30, false)",
+     "s": "commit ok\n[{\"_id\":\"Barracas\",\"bultos\":50},{\"_id\":\"Pompeya\",\"bultos\":70}]"
+    },
+    {
+     "c": "await mover(30, true)",
+     "s": "transacción abortada: se cayó el sistema a mitad de camino\n[{\"_id\":\"Barracas\",\"bultos\":50},{\"_id\":\"Pompeya\",\"bultos\":70}]"
+    }
+   ],
+   "cap": "El segundo intento descontó 30 de Pompeya dentro de la transacción y la caída lo deshizo: los dos depósitos quedan como estaban."
+  },
+  {
+   "t": "h",
+   "x": "El mismo caso en PostgreSQL: lo que se midió"
+  },
+  {
+   "t": "p",
+   "x": "Corrí las mismas preguntas contra los tres diseños desde un programa de Node que mide el pedido completo (ida, ejecución y vuelta). Cada número es la mediana de tres corridas, de 15 repeticiones cada una (7 en el agrupado), con tres de calentamiento."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Prueba (100.000 envíos)",
+    "MongoDB 9.0.8",
+    "PostgreSQL 16.15, jsonb",
+    "PostgreSQL 16.15, tablas"
+   ],
+   "filas": [
+    [
+     "Filtro en ruta + Sur + frío, sin índices",
+     "21 ms",
+     "43 ms",
+     "16 ms"
+    ],
+    [
+     "El mismo filtro, con índices",
+     "5,2 ms",
+     "5,6 ms",
+     "12,7 ms"
+    ],
+    [
+     "Traer un envío completo por código (con índice)",
+     "0,59 ms",
+     "0,14 ms",
+     "0,48 ms (3 consultas)"
+    ],
+    [
+     "Contar por zona y estado (recorre todo)",
+     "23 ms",
+     "76 ms",
+     "14 ms"
+    ]
+   ],
+   "cap": "Medido en esta VM (4 CPU compartidos), el 13-11-2026, con Node 22.23.4, `mongodb` 7.9.0 y `pg` 8.23.1. PostgreSQL sin paralelismo (`max_parallel_workers_per_gather = 0`). El agrupado sobre jsonb varió entre corridas de 67 a 86 ms. Son órdenes de magnitud de una máquina, no un ranking."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cómo quedó guardado",
+    "Tabla o colección",
+    "Con índices"
+   ],
+   "filas": [
+    [
+     "MongoDB",
+     "16,2 MiB en disco (57,8 MiB sin comprimir)",
+     "2,7 MiB de índices"
+    ],
+    [
+     "PostgreSQL, jsonb",
+     "80 MiB",
+     "107 MiB en total (el GIN pesa 22 MiB)"
+    ],
+    [
+     "PostgreSQL, tres tablas",
+     "60 MiB",
+     "91 MiB en total"
+    ]
+   ],
+   "cap": "PostgreSQL muestra «MB» en unidades de 1.024, por eso uso MiB. MongoDB comprime los bloques con snappy (lo comprobé en la configuración de la colección). Los datos son sintéticos y repetitivos: comprimen mejor que los reales."
+  },
+  {
+   "t": "p",
+   "x": "Traer un envío por código es rápido en los tres: décimas de milisegundo. Con índice, filtrar sobre documentos (MongoDB, o `jsonb` con un GIN) tarda la mitad que con tablas, que tienen que unir `envios_rel` con `bultos_rel`. Agrupar por zona y estado, en cambio, favorece a las tablas, y por mucho sobre `jsonb`: para sacar dos campos de cada fila, PostgreSQL abre el valor `jsonb` completo (760 bytes de promedio, contra 606 del BSON y 641 del texto), mientras que con columnas lee solo las dos que necesita. Un detalle más: `jsonb` no conserva el orden de las claves [#bd35-pg-json], y MongoDB devolvió los campos en el orden en que se cargaron."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": [
+    "«MongoDB es más rápido que SQL» no sobrevive a la tabla de arriba: ganó, perdió o empató según la pregunta, y la diferencia más grande (76 contra 5,6 ms sobre `jsonb`) la dio el índice, no el motor. Lo que decide es **si el patrón de lectura coincide con la forma en que guardaste los datos**: leer entero lo que guardaste entero es barato; leer pedacitos de muchos documentos, caro.",
+    "Y la medición tiene límites: 100.000 documentos de 600 bytes, un solo cliente, sin escrituras concurrentes y en una máquina compartida. Con millones de documentos o datos reales, los números cambian y alguno puede darse vuelta. Sirve el método: armar el mismo caso en los dos sistemas y medir la pregunta que tu app hace de verdad."
+   ],
+   "titulo": "El mito de la velocidad"
+  },
+  {
+   "t": "h",
+   "x": "Firestore: el documento como servicio"
+  },
+  {
+   "t": "p",
+   "x": "Firestore es la base de documentos de Google y de Firebase. Comparte la idea (documentos en colecciones, campos anidados, listas), pero no instalás ni administrás ningún servidor: la app de un teléfono o un navegador habla con él a través de una librería (un SDK, [@07-25]). Según su documentación, una colección solo contiene documentos, un documento puede tener subcolecciones, y ambos se crean solos al escribir el primero [#bd35-firestore-modelo]. Las diferencias que más pesan al diseñar:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "MongoDB (servidor propio)",
+    "Firestore, edición Standard"
+   ],
+   "filas": [
+    [
+     "Qué es",
+     "Un programa que instalás y operás vos, o contratás como servicio",
+     "Un servicio de Google: no hay servidor que instalar"
+    ],
+    [
+     "Tamaño máximo de un documento",
+     "16 MiB [#bd35-mongo-limites]",
+     "1 MiB [#bd35-firestore-limites]"
+    ],
+    [
+     "Transacciones entre documentos",
+     "Sí, en conjuntos de réplicas o sharding",
+     "Sí, con reintento automático si otro cliente cambia lo leído, y duran hasta 270 s [#bd35-firestore-transacciones] [#bd35-firestore-limites]"
+    ],
+    [
+     "Índices",
+     "Los creás vos; sin índice recorre toda la colección",
+     "Automáticos por campo; los de varios campos, a mano. Cada consulta usa un índice y falla si falta [#bd35-firestore-indices]"
+    ],
+    [
+     "Consultas",
+     "Filtros, agregación y uniones entre colecciones con etapas del pipeline",
+     "Filtros sobre una colección, con topes de combinación; sin uniones entre colecciones [#bd35-firestore-consultas]"
+    ],
+    [
+     "Cómo se paga",
+     "Tu servidor, o la tarifa del servicio administrado",
+     "Por documento leído, escrito o borrado, más el almacenamiento y el tráfico [#bd35-firestore-precios]"
+    ]
+   ],
+   "cap": "Datos de la documentación oficial al 13-11-2026."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La última fila cambia la forma de diseñar. En un servidor propio, leer un documento de más casi no cuesta. En Firestore Standard cada documento leído es una unidad de cobro: listar 1.000 envíos para mostrar 10 se paga como 1.000 lecturas. Por eso se diseña por pantallas, duplicando datos a propósito para que cada una se resuelva con pocas lecturas.",
+    "Como las apps hablan directo con Firestore, la seguridad se define con reglas que dicen quién lee o escribe cada documento (*Security Rules*), sin servidor intermedio: la misma idea que las políticas por fila de PostgreSQL ([@07-25]), con otra sintaxis [#baas-firestore-rules-start]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Lo que cambia, al 13-11-2026",
+   "x": [
+    "**MongoDB.** En el listado oficial de descargas, la versión más reciente es la 9.0.8, del 5-11-2026 [#bd35-mongo-descargas]. El `LICENSE-Community.txt` del archivo que bajé es la **Server Side Public License (SSPL) versión 1, del 16-10-2018**. MongoDB dice que las versiones publicadas desde esa fecha la usan y que la OSI no la aprobó [#bd35-sspl-faq]; la OSI sostiene que no es código abierto y que su autor la retiró del proceso de aprobación [#bd35-osi-sspl]. En la práctica: podés usar y modificar el código, pero quien ofrece MongoDB como servicio público debe publicar también el software con que lo gestiona. Para una app propia no rige esa obligación [#bd35-sspl-faq].",
+    "**Firestore.** Google ofrece dos ediciones: la Enterprise incluye una API compatible con MongoDB, y la Standard (la de este día) se cobra por documentos leídos y escritos [#bd35-gcp-firestore-ediciones] [#bd35-gcp-firestore-mongo]. En Standard, la capa gratuita diaria es de 50.000 lecturas, 20.000 escrituras y 20.000 borrados, con 1 GiB almacenado, para una sola base por proyecto [#bd35-firestore-precios]. Los precios cambian por región: leelos en la página oficial antes de calcular un costo."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Senda: documentos adentro de Postgres"
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa MongoDB ni Firestore",
+   "x": [
+    "Busqué «firestore» y «mongo» en el código y los documentos de Senda y no aparece ninguna. «Firebase» sí, pero solo como puerta de entrega de los avisos a Android (FCM): hay un `google-services.json` y la guía `docs/EXPO_FIREBASE.md`, y el `package.json` no trae ninguna librería de Firebase. La base de Senda es el PostgreSQL de Supabase.",
+    "Documentos sí hay, adentro de Postgres. El respaldo del progreso guarda una fila por persona en `progreso_nube`, con una columna `datos jsonb`. La app arma un objeto con todo lo que guarda en el teléfono (cada almacén es un texto JSON, escrito con `JSON.stringify` en `almacen.ts`) y lo manda entero; `guardar_progreso` lo reemplaza entero y rechaza lo que no sea un objeto o pase de 1.500.000 bytes. Nadie consulta por dentro: se escribe y se lee completo, el caso en que un documento se lleva bien con `jsonb`. Y como cada valor del objeto es a su vez un texto con JSON, SQL no podría filtrar por esos datos sin volver a leerlos."
+   ],
+   "archivos": [
+    "supabase/migrations/20261130000006_progreso_nube.sql",
+    "src/util/respaldo.ts",
+    "src/util/almacen.ts",
+    "package.json",
+    "docs/EXPO_FIREBASE.md"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "El tope de tamaño, hecho a mano",
+   "x": [
+    "El perfil público tiene una columna `vitrina jsonb` con una restricción que exige un objeto de menos de 1.024 bytes (`pg_column_size`). Es el tope de 16 MiB de MongoDB, pero elegido por la aplicación y chico a propósito, para que ningún campo crezca sin límite. El teléfono, además, arma la copia con un tope propio de 1.400.000 caracteres, por debajo de los 1.500.000 bytes que acepta la base. Y la cola de avisos guarda en `avisos.datos` un `jsonb` mínimo, que `jugar_turno` arma con `jsonb_build_object('partida', …)`.",
+    "Esto corresponde al commit 25e08fa (8-11-2026); el código cambia, la forma permanece. Los archivos de migración que cito llevan fechas posteriores al commit en el nombre."
+   ],
+   "archivos": [
+    "supabase/migrations/20261125000000_perfil_publico.sql",
+    "supabase/migrations/20261108000000_juntos_listo.sql",
+    "src/util/respaldo.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cómo elegir: una regla práctica"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una regla práctica, que es criterio y no ley: el documento conviene cuando el dato **tiene un dueño y se lee y se escribe entero** (un envío con su historia, un perfil, la copia de un progreso), cuando su forma varía de un caso a otro y cuando las listas de adentro tienen tope. Las tablas, cuando muchas cosas se relacionan en todas direcciones, cuando las reglas de integridad cruzan entidades (que no haya un bulto sin envío) y cuando los reportes agrupan por campos sueltos.",
+    "Hay un camino del medio, el que usa Senda: tablas para lo que se relaciona y una columna `jsonb`, con restricción de tope, para lo que es un documento."
+   ]
+  }
+ ],
+ "recap": [
+  "Un documento guarda un registro completo con sus partes embebidas; una colección los agrupa sin exigir los mismos campos.",
+  "«Sin esquema» quiere decir que la base no obliga a declararlo: el esquema pasa al código, o a una validación opcional.",
+  "Una consulta por documento describe lo buscado como un documento. Con listas, «algún elemento cumple cada condición» no es «un mismo elemento cumple todas» (`$elemMatch`): 8.431 contra 3.607 envíos.",
+  "Se embebe lo que se pide junto y tiene tope; se referencia lo que crece sin límite o cambia en un solo lugar. El tope por documento es de 16 MiB en MongoDB y de 1 MiB en Firestore.",
+  "Una operación sobre un documento es atómica. Varios documentos exigen una transacción, y en MongoDB, un conjunto de réplicas.",
+  "Medido con 100.000 envíos: con índice, documentos y `jsonb` filtraron en unos 5 ms y las tablas en 12; agrupar costó 14 ms con tablas y 76 con `jsonb`. Ninguno gana siempre."
+ ],
+ "repaso": [
+  {
+   "p": "Un envío tiene como máximo 8 eventos, y la pantalla principal siempre lo muestra completo. ¿Qué ventaja concreta ofrece guardarlo como un documento con los eventos adentro, frente a tres tablas?",
+   "o": [
+    "Se lee en una sola búsqueda, porque lo que se pide junto está guardado junto en el mismo lugar",
+    "La base verifica por sí sola que cada evento pertenezca a un envío que existe, sin declarar nada",
+    "Los reportes que agrupan por zona corren más rápido porque cada zona queda en un solo documento",
+    "Cambiar un campo es más rápido porque la base no tiene que reescribir nada del documento entero"
+   ],
+   "c": 0,
+   "e": "La ventaja es que lo que se pide junto se lee junto, en una búsqueda. La integridad entre partes no la verifica nadie: dentro de un documento no hay claves foráneas. Los reportes que agrupan, en cambio, favorecen a las tablas (14 contra 76 ms en la medición con jsonb). Y modificar un campo no evita reescribir: un documento se guarda como una unidad."
+  },
+  {
+   "p": "Una consulta de MongoDB pide `{ 'bultos.frio': { $exists: true }, 'bultos.fragil': true }` y devuelve 8.431 envíos. La misma con `$elemMatch` devuelve 3.607. ¿Qué explica la diferencia?",
+   "o": [
+    "La segunda solo mira el primer bulto del envío, por lo que descarta a todos los envíos con varios bultos",
+    "La primera busca en el envío entero y la segunda solo en los bultos, que son una parte más chica",
+    "La primera acepta que un bulto tenga frío y otro distinto sea frágil; la segunda exige uno solo con ambos",
+    "La primera ignora el índice y recorre toda la colección, por lo que encuentra más resultados que la segunda"
+   ],
+   "c": 2,
+   "e": "Con notación de punto, cada condición sobre una lista se cumple si algún elemento la cumple, y pueden ser elementos distintos. `$elemMatch` exige que un mismo elemento cumpla todo. No tiene que ver con el primer bulto ni con el índice: el índice cambia la velocidad, nunca el resultado."
+  },
+  {
+   "p": "Un camión informa su posición cada 10 segundos. Se discute si guardar esas posiciones en una lista dentro del documento del camión o en una colección aparte. ¿Cuál es la decisión más sensata, y por qué?",
+   "o": [
+    "Dentro del documento del camión, porque las posiciones se piden siempre con el camión y así se leen de una vez",
+    "Dentro del documento, y se resuelve el tope archivando las más viejas con una tarea cada madrugada",
+    "En una colección aparte, pero solo si la base es Firestore, porque en MongoDB siempre conviene embeber",
+    "En una colección aparte, un documento por registro y con el código del camión, porque la lista no tiene tope"
+   ],
+   "c": 3,
+   "e": "Una lista que crece sin límite termina contra el tope del documento (16 MiB en MongoDB; con registros de 62 bytes y 8.640 por día, unos 28 días). Apenas llegan al tope, las escrituras fallan. Archivar a mano es un parche para un diseño que no escala. Y la regla no depende del producto: en MongoDB también se referencia lo que crece sin tope."
+  },
+  {
+   "p": "Un programa intenta abrir una transacción sobre varios documentos contra un `mongod` iniciado solo, sin conjunto de réplicas. ¿Qué ocurre?",
+   "o": [
+    "La transacción se ejecuta sin garantías de atomicidad, porque en un servidor solo no hay con quién coordinarse",
+    "El servidor la rechaza con IllegalOperation: los números de transacción solo existen en un conjunto de réplicas o en mongos",
+    "Se ejecuta bien pero más lento, porque MongoDB convierte la transacción en una sucesión de operaciones sueltas",
+    "Se ejecuta bien y recién falla al confirmar, cuando el servidor descubre que no hay un nodo secundario"
+   ],
+   "c": 1,
+   "e": "El servidor responde `IllegalOperation`: «Transaction numbers are only allowed on a replica set member or mongos». No finge una transacción. Ni siquiera hace falta más de un nodo: un conjunto de réplicas de uno solo alcanza, y así se probó la transferencia entre depósitos."
+  },
+  {
+   "p": "Una app con Firestore pide envíos filtrando por dos campos distintos a la vez y recibe un error con un enlace. ¿Qué pasó y qué se hace?",
+   "o": [
+    "Falta el índice de varios campos para esa combinación, y el enlace del error lo crea en la consola",
+    "El documento superó 1 MiB y hay que dividirlo, porque con dos filtros Firestore lee el documento completo",
+    "Firestore no admite dos filtros en una consulta y hay que filtrar uno de ellos en el teléfono, a mano",
+    "El teléfono perdió conexión, y al reconectar la consulta se repite sola sin que haga falta hacer nada"
+   ],
+   "c": 0,
+   "e": "Firestore resuelve cada consulta con un índice. Los de un solo campo son automáticos, y los de varios campos hay que crearlos; el mensaje de error trae el enlace para hacerlo. Dos filtros sí se admiten, y el tamaño de 1 MiB no interviene en la consulta."
+  },
+  {
+   "p": "Agrupar los 100.000 envíos por zona y estado tardó unos 76 ms sobre `jsonb`, 14 ms con tablas y 23 ms en MongoDB. ¿Qué explicación calza mejor con lo medido?",
+   "o": [
+    "PostgreSQL no sabe agrupar sobre jsonb y lo resuelve con un método general que es lento",
+    "Con jsonb hay que abrir el valor completo de cada fila para sacar dos campos; con columnas se leen solo esas dos",
+    "El índice GIN estaba mal armado, y con un índice mejor el agrupado sobre jsonb tardaría menos que con tablas",
+    "MongoDB es más rápido que PostgreSQL en todo, y las tablas son rápidas porque son un caso especial"
+   ],
+   "c": 1,
+   "e": "Para agrupar hay que leer dos campos de cada fila, y con `jsonb` eso implica abrir el valor entero (760 bytes de promedio); con columnas se leen solo dos. El agrupado recorre todo, así que ningún índice ayudaría. PostgreSQL sí agrupa sobre `jsonb`, y MongoDB no ganó en todas las pruebas: con el filtro con índice quedó parejo con `jsonb`."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística la diferencia entre guardar un envío como una carpeta con todos sus papeles y guardarlo repartido en tres ficheros por tipo de papel. Usá un ejemplo que no sea el de hoy, como el parte diario de un chofer con sus paradas, y decí en qué caso elegirías cada forma y qué pasaría si las paradas de un chofer se fueran sumando durante años dentro del mismo documento.",
+ "para_profundizar": [
+  {
+   "fuente": "bd35-mongo-embeber",
+   "nota": "La guía oficial de modelado de MongoDB: la tabla de cuándo embeber y cuándo referenciar, y los tipos de datos duplicados (inmutables, temporales, sensibles a lo viejo). Sirve para repasar el ejercicio de decisión de hoy con los criterios del fabricante."
+  },
+  {
+   "fuente": "bd35-mongo-limites",
+   "nota": "La página de límites de MongoDB: el tope de 16 MiB por documento, los 100 niveles de anidación y el límite de 60 segundos de las transacciones. Leela entera para saber qué cosas no se pueden hacer."
+  },
+  {
+   "fuente": "bd35-firestore-indices",
+   "nota": "Cómo decide Firestore qué índices crea solo y cuáles hay que crear a mano. Para entender por qué una consulta nueva puede fallar con un enlace."
+  },
+  {
+   "fuente": "bd35-pg-json",
+   "nota": "El capítulo de PostgreSQL sobre json y jsonb, con los operadores de contención y los índices GIN que se usaron en la comparación."
+  }
+ ],
+ "videos": [
+  {
+   "q": "MongoDB schema design embedding vs referencing explained",
+   "por_que": "Para ver otro ejemplo de la decisión de hoy (embeber o referenciar) con datos distintos de los envíos."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "documento",
+   "d": "Registro de una base de documentos: un conjunto de campos con nombre y valor que se guarda y se lee como una sola unidad. Un valor puede ser un número, un texto, una fecha, una lista u otro documento anidado."
+  },
+  {
+   "t": "colección",
+   "d": "Grupo de documentos del mismo tipo dentro de una base de documentos. Se parece a una tabla, pero no obliga a que todos los documentos tengan los mismos campos."
+  },
+  {
+   "t": "consulta por documento",
+   "d": "Forma de buscar en una base de documentos: se describe cómo tienen que ser los documentos que se quieren (campos, valores, campos anidados) y la base devuelve documentos completos de una colección, no filas combinadas de varias tablas."
+  },
+  {
+   "t": "BSON",
+   "d": "Formato binario con el que MongoDB guarda los documentos. Se parece a JSON pero tiene más tipos, como fechas, decimales exactos e identificadores, y cada documento empieza con su largo total."
+  },
+  {
+   "t": "ObjectId",
+   "d": "Identificador de 12 bytes que MongoDB genera para el campo `_id` cuando no se pone uno: 4 bytes de fecha, 5 al azar por proceso y 3 de un contador."
+  },
+  {
+   "t": "documento embebido",
+   "d": "Dato guardado dentro de otro documento, como los bultos de un envío. Se lee junto con el documento que lo contiene, a costa de duplicar datos y de limitar el crecimiento."
+  },
+  {
+   "t": "referencia entre documentos",
+   "d": "Guardar en un documento el identificador de otro, que vive en otra colección. Evita duplicar y permite listas sin tope, pero exige otra búsqueda para traer el dato referenciado."
+  },
+  {
+   "t": "pipeline de agregación",
+   "d": "Forma que tiene MongoDB de agrupar y calcular: una lista de etapas (`$match`, `$group`, `$sort`) por las que pasan los documentos, una detrás de otra."
+  },
+  {
+   "t": "Firestore",
+   "d": "Base de documentos como servicio de Google y Firebase. No tiene servidor que administrar, se usa desde la app con una librería, y se cobra por documento leído, escrito o borrado en la edición Standard."
+  },
+  {
+   "t": "SSPL",
+   "d": "Server Side Public License, la licencia que usa MongoDB desde el 16-10-2018. Permite usar y modificar el código, pero obliga a publicar el software de gestión a quien ofrezca MongoDB como servicio público. La OSI no la reconoce como código abierto."
+  }
+ ],
+ "siguiente": "Clave-valor y Redis: el caso más simple de todos, una clave, un valor y una base que ni siquiera mira adentro del valor, con medición de cuántas operaciones por segundo aguanta en memoria.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd35-mongo-descargas",
+   "t": "MongoDB downloads: listado de versiones (current.json)",
+   "a": "MongoDB",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://downloads.mongodb.org/current.json"
+  },
+  {
+   "id": "bd35-mongo-limites",
+   "t": "MongoDB Limits and Thresholds",
+   "a": "MongoDB",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.mongodb.com/docs/manual/reference/limits/"
+  },
+  {
+   "id": "bd35-mongo-transacciones",
+   "t": "Transactions (MongoDB Database Manual)",
+   "a": "MongoDB",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.mongodb.com/docs/manual/core/transactions/"
+  },
+  {
+   "id": "bd35-mongo-embeber",
+   "t": "Best Practices for Data Modeling in MongoDB",
+   "a": "MongoDB",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.mongodb.com/docs/manual/data-modeling/concepts/embedding-vs-references/"
+  },
+  {
+   "id": "bd35-mongo-validacion",
+   "t": "Schema Validation (MongoDB Database Manual)",
+   "a": "MongoDB",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.mongodb.com/docs/manual/core/schema-validation/"
+  },
+  {
+   "id": "bd35-mongo-bson",
+   "t": "MongoDB BSON Types",
+   "a": "MongoDB",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.mongodb.com/docs/manual/reference/bson-types/"
+  },
+  {
+   "id": "bd35-mongo-agregacion",
+   "t": "Aggregation Pipeline (MongoDB Database Manual)",
+   "a": "MongoDB",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.mongodb.com/docs/manual/core/aggregation-pipeline/"
+  },
+  {
+   "id": "bd35-sspl-faq",
+   "t": "Server Side Public License FAQ",
+   "a": "MongoDB",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.mongodb.com/legal/licensing/server-side-public-license/faq"
+  },
+  {
+   "id": "bd35-osi-sspl",
+   "t": "The SSPL is Not an Open Source License",
+   "a": "Open Source Initiative",
+   "tipo": "articulo",
+   "anio": 2021,
+   "url": "https://opensource.org/blog/the-sspl-is-not-an-open-source-license"
+  },
+  {
+   "id": "bd35-firestore-modelo",
+   "t": "Cloud Firestore Data model",
+   "a": "Google (Firebase)",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://firebase.google.com/docs/firestore/data-model"
+  },
+  {
+   "id": "bd35-firestore-limites",
+   "t": "Firestore quotas and limits",
+   "a": "Google (Firebase)",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://firebase.google.com/docs/firestore/quotas"
+  },
+  {
+   "id": "bd35-firestore-transacciones",
+   "t": "Transactions and batched writes (Firestore)",
+   "a": "Google (Firebase)",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://firebase.google.com/docs/firestore/manage-data/transactions"
+  },
+  {
+   "id": "bd35-firestore-indices",
+   "t": "Index types in Cloud Firestore",
+   "a": "Google (Firebase)",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://firebase.google.com/docs/firestore/query-data/index-overview"
+  },
+  {
+   "id": "bd35-firestore-consultas",
+   "t": "Perform simple and compound queries in Cloud Firestore",
+   "a": "Google (Firebase)",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://firebase.google.com/docs/firestore/query-data/queries"
+  },
+  {
+   "id": "bd35-firestore-precios",
+   "t": "Understand Cloud Firestore billing",
+   "a": "Google (Firebase)",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://firebase.google.com/docs/firestore/pricing"
+  },
+  {
+   "id": "bd35-gcp-firestore-ediciones",
+   "t": "Firestore editions overview",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://cloud.google.com/firestore/docs/editions"
+  },
+  {
+   "id": "bd35-gcp-firestore-mongo",
+   "t": "Firestore with MongoDB compatibility overview",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://cloud.google.com/firestore/mongodb-compatibility/docs/overview"
+  },
+  {
+   "id": "bd35-pg-json",
+   "t": "PostgreSQL 16: JSON Types",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/datatype-json.html"
+  }
+ ]
+}
