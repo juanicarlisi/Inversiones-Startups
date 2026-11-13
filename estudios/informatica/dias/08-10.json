@@ -1,0 +1,615 @@
+{
+ "id": "08-10",
+ "titulo": "Webhooks",
+ "bajada": "Programás un emisor y un receptor de webhooks, los atacás con mensajes falsos, repetidos y desordenados, y ves qué defensas hacen falta de cada lado.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar por qué un webhook invierte los roles de una API y qué problema resuelve frente a consultar cada tanto.",
+  "Verificar la firma HMAC de un webhook sobre el cuerpo crudo, con comparación en tiempo constante y ventana de tiempo.",
+  "Distinguir un mensaje falso, uno alterado, uno repetido y uno viejo, y decir qué defensa frena a cada uno.",
+  "Explicar por qué la entrega es «al menos una vez» y diseñar un receptor idempotente con el id del evento.",
+  "Reconocer qué se rompe cuando los eventos llegan fuera de orden y dos formas de arreglarlo."
+ ],
+ "venis_de": "Hasta ahora siempre preguntó el cliente: GET, POST, una llamada gRPC en el [@08-09]. Hoy se da vuelta: el otro sistema te llama a vos. Usás la firma HMAC del [@08-05], la idempotencia del [@07-12] y los reintentos del [@07-17], pero ahora desde el lado de quien recibe.",
+ "se_apoya_en": [
+  "08-05",
+  "07-12",
+  "07-13",
+  "07-14",
+  "07-17",
+  "05-18",
+  "08-09"
+ ],
+ "gancho": [
+  "Tu sistema de pedidos quiere saber cuándo se entregó el despacho D-1042. Una opción es preguntarle al sistema del transportista cada minuto. Con 200 despachos en ruta son 288.000 consultas por día (200 × 1.440 minutos), y casi todas devuelven «sigue igual». Además, en promedio te enterás medio minuto tarde. Otra opción es que, cuando el chofer marque la entrega, el sistema del transportista te llame a vos. Eso es un webhook.",
+  "El costo de ese cambio es que ahora tenés una dirección pública a la que cualquiera puede mandar un POST, el aviso puede llegar dos veces o ninguna, y dos avisos pueden llegar en el orden equivocado. Hoy armás un emisor y un receptor en esta VM, los atacás a propósito y mirás qué defensas hacen falta. Todo con datos inventados y secretos falsos."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Preguntar cada minuto o que te avisen"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[webhook]] es una llamada HTTP que un sistema hace a una dirección tuya cuando ocurre un evento. La descripción corriente es «callback HTTP definido por el usuario»: vos le decís al otro sistema a qué URL llamar y cuándo, y él lo hace. Según Wikipedia, el término lo acuñó Jeff Lindsay en 2007 a partir de la palabra *hook* [#api0810-wikipedia-webhook]. La especificación comunitaria *Standard Webhooks* los llama una «API inversa»: en una API común vos hacés el pedido y el servicio contesta; en un webhook, el servicio hace el pedido y vos contestás [#api0810-standard-webhooks].",
+    "La ventaja es de economía y de rapidez. Con la consulta periódica (*polling*), el costo crece con la cantidad de cosas que vigilás y la demora promedio es la mitad del intervalo. Con webhooks, el costo crece con la cantidad de eventos que ocurren de verdad y la demora es la de una llamada HTTP. Para una API que cambia poco, es mucha menos carga para los dos. Los números de los despachos son inventados, la cuenta es de aritmética."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Emisor (el transportista)",
+     "k": "cliente"
+    },
+    {
+     "n": "Tu receptor /webhook",
+     "k": "servidor"
+    },
+    {
+     "n": "Tu base de datos",
+     "k": "datos"
+    },
+    {
+     "n": "Cola de trabajo",
+     "k": "red"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "POST /webhook (id, hora, firma)",
+     "d": "El chofer marca la entrega y el emisor arma el mensaje: cuerpo JSON y tres cabeceras con id del evento, hora de envío y firma HMAC."
+    },
+    {
+     "de": 1,
+     "a": 1,
+     "t": "verifica firma y hora",
+     "d": "Lo primero que hace el receptor, antes de mirar el contenido: recalcula la firma con el secreto compartido y compara."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "¿ya vi este id? lo anoto",
+     "d": "Inserta el id del evento. Si ya estaba, el mensaje es un duplicado y no se vuelve a aplicar."
+    },
+    {
+     "de": 1,
+     "a": 3,
+     "t": "encola el trabajo pesado",
+     "d": "Lo lento (avisar al cliente, facturar) se deja en una cola para no hacer esperar al emisor."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "200 OK",
+     "resp": true,
+     "d": "La respuesta rápida es la confirmación. Cualquier otra cosa le dice al emisor «no llegó» y va a reintentar."
+    },
+    {
+     "de": 3,
+     "a": 2,
+     "t": "aplica el cambio al despacho",
+     "d": "Más tarde, un proceso aparte hace el trabajo de verdad, con la tranquilidad de que el emisor ya fue atendido."
+    }
+   ],
+   "cap": "El camino de un webhook bien recibido. Cada paso corresponde a un problema que aparece más abajo."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el timbre y el buzón",
+   "x": "Mirar el buzón cada cinco minutos para ver si llegó el paquete es *polling*. Que el repartidor toque el timbre es un webhook. La analogía deja de valer en dos cosas: al timbre puede tocar cualquiera, no solo el repartidor (por eso hace falta verificar quién es), y si no abrís, el repartidor de verdad vuelve a tocar más tarde, así que puede tocar dos veces por el mismo paquete."
+  },
+  {
+   "t": "p",
+   "x": "Mirá cómo se ve un webhook en el cable. Es una solicitud HTTP común, la del [@05-18], que armó mi emisor de práctica y capturé en un puerto local:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 crudo.py &   # escucha en 127.0.0.1:20841 y guarda la solicitud tal cual llega",
+     "s": "POST /webhook HTTP/1.1\nhost: 127.0.0.1:20841\ncontent-type: application/json\nwebhook-id: evt_C1\nwebhook-timestamp: 1794601353\nwebhook-signature: v1,/XcwM/PFrZ32yIX5/ZGSdV0+Y2IwfPi7ds1xxhOT55k=\ncontent-length: 122\n\n{\"id\":\"evt_C1\",\"tipo\":\"despacho.actualizado\",\"secuencia\":1,\"datos\":{\"despacho\":\"D-1042\",\"estado\":\"entregado\",\"bultos\":12}}"
+    }
+   ],
+   "cap": "Solicitud real, abreviada (omití cabeceras de cliente como user-agent). El emisor y el receptor son programas míos; el nombre y los valores de las tres cabeceras `webhook-*` siguen la especificación Standard Webhooks, y el secreto es falso."
+  },
+  {
+   "t": "h",
+   "x": "Quién llama: la firma del webhook"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tu receptor es una URL pública. Cualquiera que la conozca puede mandarle un POST con un JSON que diga «despacho entregado». Mantener la URL en secreto no alcanza: aparece en registros, en capturas de pantalla, en la configuración de otros equipos. La defensa estándar es la [[firma de webhook]]: el emisor calcula una [[firma HMAC]] del mensaje con un secreto que solo conocen él y vos (lo viste en el [@08-05]), y el receptor recalcula y compara. Quien no tiene el secreto no puede fabricar una firma válida.",
+    "Cada proveedor eligió detalles distintos. Tres ejemplos, tomados de su documentación oficial:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Quién",
+    "Cabecera",
+    "Qué se firma",
+    "Contra la repetición"
+   ],
+   "filas": [
+    [
+     "GitHub",
+     "`X-Hub-Signature-256: sha256=<hex>`",
+     "El cuerpo del mensaje",
+     "Un `X-GitHub-Delivery` único por evento (igual en una reentrega)"
+    ],
+    [
+     "Stripe",
+     "`Stripe-Signature`, con hora y firma `v1`",
+     "La hora y el cuerpo",
+     "Tolerancia por defecto de 5 minutos en sus librerías, más registrar los id"
+    ],
+    [
+     "Standard Webhooks (especificación abierta)",
+     "`webhook-id`, `webhook-timestamp`, `webhook-signature` (`v1,<base64>`)",
+     "`id.hora.cuerpo`",
+     "Verificar la hora con tolerancia y usar el id como clave de idempotencia"
+    ]
+   ],
+   "cap": "Fuentes: documentación de GitHub y de Stripe y la especificación Standard Webhooks, consultadas el 13 de noviembre de 2026. Mi emisor de práctica usa el tercer esquema, simplificado."
+  },
+  {
+   "t": "p",
+   "x": "Para ver que no hay magia, calculé con `openssl` el caso de prueba que publica GitHub en su documentación (secreto «It's a Secret to Everybody», cuerpo «Hello, World!»). Además, comprobé que mi función de firma da el mismo resultado que `openssl` para un mensaje del formato `id.hora.cuerpo`:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "printf 'Hello, World!' | openssl dgst -sha256 -hmac \"It's a Secret to Everybody\"",
+     "s": "SHA2-256(stdin)= 757107ea0eb2509fc211221cce984b8a37570b6d7586c22c46f4379c8b043e17"
+    },
+    {
+     "c": "printf '%s' 'evt_X1.1700000000.{\"tipo\":\"despacho.actualizado\",\"datos\":{\"estado\":\"entregado\"}}' | openssl dgst -sha256 -hmac 'whsec_FALSO_demo_08_10' -binary | base64",
+     "s": "PH9nZOVi8NG+R7h74dx3xJ9LgszDqFgN2DEVbeE5Tls="
+    },
+    {
+     "c": "node -e \"console.log(firmar('whsec_FALSO_demo_08_10','evt_X1','1700000000','{...el mismo cuerpo...}'))\"",
+     "s": "v1,PH9nZOVi8NG+R7h74dx3xJ9LgszDqFgN2DEVbeE5Tls="
+    }
+   ],
+   "cap": "La primera línea coincide con el valor que GitHub publica para ese caso de prueba (757107ea…3e17). El `...` de la tercera línea reemplaza el cuerpo de la segunda."
+  },
+  {
+   "t": "p",
+   "x": "Ahora lo importante: qué rechaza el receptor. Armé el receptor en Node (el servidor HTTP del [@07-03]) y le mandé cuatro mensajes. El primero es auténtico. Los otros tienen un defecto distinto:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node demo.js    # escenario A",
+     "s": "firma correcta        -> 200 {\"resultado\":\"aplicado\"}\ncuerpo alterado       -> 401 {\"error\":\"firma_invalida\"}\nsecreto equivocado    -> 401 {\"error\":\"firma_invalida\"}\ncuerpo re-serializado -> 401 {\"error\":\"firma_invalida\"}\nsin cabeceras         -> 401 {\"error\":\"faltan_cabeceras\"}"
+    }
+   ],
+   "cap": "Salida real de esta VM, 13 de noviembre de 2026 (Node 22.23.4), contra mi receptor en 127.0.0.1:20840. El 401 es el [[código de estado]] de «no autenticado»."
+  },
+  {
+   "t": "p",
+   "x": "La tercera fila de arriba es la que más tropieza en la práctica. «Cuerpo re-serializado» significa que el receptor interpretó el JSON y lo volvió a escribir con espacios y saltos de línea antes de verificar. El contenido es idéntico, pero los bytes no, y la firma se calculó sobre los bytes. Tanto Stripe como Standard Webhooks lo advierten: hay que verificar sobre el **cuerpo crudo**, tal como llegó, antes de que ninguna parte del programa lo interprete [#api0810-stripe-firmas][#api0810-standard-webhooks]. Muchos frameworks interpretan el JSON por vos antes de que tu código lo vea. Ahí se rompe la verificación."
+  },
+  {
+   "t": "p",
+   "x": "Dos reglas más de las mismas fuentes. La comparación de firmas se hace en **tiempo constante** (`crypto.timingSafeEqual` en Node): con un `==` común, el tiempo que tarda la comparación puede filtrar cuántos caracteres de la firma acertó un atacante, y GitHub lo advierte en su guía [#api0810-github-validar]. Y el secreto debe ser distinto por cada destino y poder rotarse: la especificación permite mandar varias firmas separadas por espacios en una misma cabecera, para cambiar de secreto sin cortar el servicio [#api0810-standard-webhooks]. Este es el mismo mecanismo en un programa corto que corre acá, con la API de criptografía del navegador:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Firmar y verificar un webhook con HMAC-SHA256 (WebCrypto, corre acá mismo). Secreto falso, datos inventados.\nconst enc = new TextEncoder();\nconst SECRETO = 'whsec_FALSO_solo_para_practicar';\n\nasync function firmar(id, ts, cuerpo) {\n  const llave = await crypto.subtle.importKey('raw', enc.encode(SECRETO), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);\n  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', llave, enc.encode(`${id}.${ts}.${cuerpo}`)));\n  return [...mac].map((b) => b.toString(16).padStart(2, '0')).join('');\n}\nfunction iguales(a, b) {                    // compara siempre todo el largo, sin cortar en la primera diferencia\n  let d = a.length ^ b.length;\n  for (let i = 0; i < Math.max(a.length, b.length); i++) d |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);\n  return d === 0;\n}\nconst vistos = new Set();                   // en serio: una tabla con el id como clave primaria\nasync function recibir(m, ahora) {\n  if (!iguales(m.firma, await firmar(m.id, m.ts, m.cuerpo))) return 'rechazado: firma inválida';\n  if (Math.abs(ahora - m.ts) > 300) return 'rechazado: fuera de la ventana de 5 minutos';\n  if (vistos.has(m.id)) return 'ya procesado: se ignora (pero se responde 200)';\n  vistos.add(m.id);\n  return 'aceptado: ' + JSON.parse(m.cuerpo).estado;\n}\n\nconst ahora = 1_800_000_000;                // un «ahora» fijo, para que la salida sea siempre igual\nconst cuerpo = '{\"estado\":\"entregado\"}';\nconst bueno = { id: 'evt_1', ts: ahora - 3, cuerpo, firma: await firmar('evt_1', ahora - 3, cuerpo) };\n\nconsole.log('1. mensaje auténtico    ->', await recibir(bueno, ahora));\nconsole.log('2. el mismo, repetido   ->', await recibir(bueno, ahora + 1));\nconsole.log('3. cuerpo alterado      ->', await recibir({ ...bueno, cuerpo: '{\"estado\":\"cancelado\"}' }, ahora));\nconsole.log('4. timestamp cambiado   ->', await recibir({ ...bueno, ts: ahora }, ahora));\nconst viejo = { id: 'evt_0', ts: ahora - 900, cuerpo, firma: await firmar('evt_0', ahora - 900, cuerpo) };\nconsole.log('5. auténtico pero viejo ->', await recibir(viejo, ahora));\nconsole.log('firma de ejemplo        :', bueno.firma.slice(0, 16) + '…');\n",
+   "ejecutable": true,
+   "cap": "Firma, verificación, ventana de tiempo y deduplicación en JavaScript puro. La función `iguales` ilustra la idea de la comparación completa; en un servidor real usá `crypto.timingSafeEqual`."
+  },
+  {
+   "t": "pensa",
+   "x": "Un emisor firma solo el cuerpo, no la hora. Un atacante captura un mensaje auténtico y lo manda otra vez diez minutos después. ¿Qué pasa y qué conviene cambiar?",
+   "resp": "Pasa lo peor: la firma sigue siendo válida, porque cuerpo y secreto no cambiaron, y el receptor lo acepta. Hay que meter la hora (y el id) dentro de lo que se firma, y rechazar mensajes con una hora muy distinta de la actual. Así el atacante no puede cambiar la hora para que parezca fresco, porque rompería la firma. Es lo que hacen Stripe y Standard Webhooks."
+  },
+  {
+   "t": "h",
+   "x": "El ataque de repetición y sus dos defensas"
+  },
+  {
+   "t": "p",
+   "x": "Un [[ataque de repetición]] (*replay*) no necesita romper nada: el atacante captura un mensaje auténtico y lo reenvía. La firma sigue válida, porque el mensaje es exactamente el mismo. Hay dos defensas y se complementan. La primera es la **ventana de tiempo**: la hora de envío va dentro de lo firmado y el receptor rechaza lo que se aleja demasiado de su reloj. Stripe usa por defecto 5 minutos y aclara que un valor de tolerancia de 0 anula la comprobación entera, así que no hay que usarlo; también pide mantener el reloj del servidor sincronizado con NTP [#api0810-stripe-firmas]. La segunda es la **deduplicación**: guardar el id de cada evento procesado y no volver a procesarlo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node demo.js    # escenario B",
+     "s": "mensaje de hace 10 min -> 401 {\"error\":\"timestamp_fuera_de_tolerancia\"}\nmensaje auténtico      -> 200 {\"resultado\":\"aplicado\"}\nmismo mensaje, 2.ª vez -> 200 {\"resultado\":\"duplicado_ignorado\"}\nsin deduplicar, 3.ª vez-> 200 {\"resultado\":\"aplicado\"}\nestado: [{\"id\":\"D-1042\",\"estado\":\"entregado\",\"secuencia\":4,\"bultos_entregados\":24}]"
+    }
+   ],
+   "cap": "Salida real. La primera línea es un mensaje legítimo firmado con una hora de hace 10 minutos, o sea uno que un atacante habría capturado entonces. La última línea muestra el daño de no deduplicar: 12 bultos contados dos veces."
+  },
+  {
+   "t": "p",
+   "x": "Fijate en la tercera fila: el mensaje repetido inmediatamente está dentro de la ventana y tiene firma válida, así que **la ventana no lo frena**. Lo frena el id guardado. Y fijate en la última: sin deduplicación, el efecto se aplicó dos veces (24 bultos entregados donde había 12). Cada defensa cubre lo que la otra no."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Hora nueva en cada intento, mismo id",
+   "x": "Cuando el emisor reintenta un mensaje, la especificación Standard Webhooks pide que la hora del intento cambie (así la ventana de tiempo sigue sirviendo) y que el id del evento se mantenga (así el receptor reconoce el duplicado) [#api0810-standard-webhooks]. Mi emisor hace eso: en cada intento firma de nuevo con la hora actual y el mismo id."
+  },
+  {
+   "t": "h",
+   "x": "Reintentos: el emisor insiste, el receptor tiene que aguantar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El emisor no sabe si su aviso llegó hasta que recibe una respuesta. Para él, un [[código de estado]] 2xx es éxito y todo lo demás (un 500, un 503, un corte de conexión, una respuesta que tarda de más) es fracaso. Con el fracaso, hace un [[reintento de entrega]]: manda el mismo evento otra vez, esperando más cada vez, con la lógica del [[reintento con espera]] del [@07-17]. Cuánto insisten cambia según el servicio. Stripe lo intenta hasta por tres días con espera exponencial en modo real [#api0810-stripe-webhooks]. La especificación Standard Webhooks sugiere un calendario que se extiende por varios días, con algo de aleatoriedad (*jitter*) para no golpear todos a la vez: inmediato, 5 segundos, 5 minutos, 30 minutos, 2 horas, 5, 10, 14, 20 y 24 horas [#api0810-standard-webhooks]. GitHub, en cambio, no reentrega solo: documenta que quien recibe puede pedir una reentrega a mano o con un script [#api0810-github-fallidas].",
+    "Eso responde a «qué pasa si mi receptor está caído»: depende del emisor. Con uno que reintenta, los avisos se acumulan de su lado y llegan cuando volvés. Con uno que no, hay que ir a buscarlos. Mi emisor de práctica reintenta con esperas de 200, 400, 800 y 1.600 milisegundos (escala reducida: un servicio real usa segundos, minutos y horas). Apagué el receptor a propósito, mandé un evento y lo volví a prender:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node demo.js    # escenario C: el receptor está apagado y vuelve a los ~700 ms",
+     "s": "    1 ms  evt_C1 intento 1: conexión rechazada\n  203 ms  evt_C1 intento 2: conexión rechazada\n  604 ms  evt_C1 intento 3: conexión rechazada\n 1407 ms  evt_C1 intento 4: 200 {\"resultado\":\"aplicado\"}\nresultado: {\"entregado\":true,\"intento\":4}"
+    }
+   ],
+   "cap": "Salida real. Las esperas entre intentos (200, 400 y 800 ms) se duplican."
+  },
+  {
+   "t": "p",
+   "x": "Hasta acá el reintento parece la solución. El problema es el caso opuesto: el receptor **sí procesó** el mensaje pero su respuesta llegó tarde o se perdió. Para el emisor, es igual que si no hubiera llegado. Es el mismo dilema del plazo vencido del [@08-09], visto desde el otro lado. Lo reproduje: el receptor aplica el efecto y después tarda 450 ms en responder, y el emisor espera como máximo 300:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node demo.js    # escenario D",
+     "s": "(dedupe=true)\n  300 ms  evt_D1 intento 1: sin respuesta (timeout)\n  503 ms  evt_D1 intento 2: 200 {\"resultado\":\"duplicado_ignorado\"}\nestado: [{\"id\":\"D-1042\",\"estado\":\"entregado\",\"secuencia\":1,\"bultos_entregados\":12}]\n(dedupe=false)\n  300 ms  evt_D1 intento 1: sin respuesta (timeout)\n  503 ms  evt_D1 intento 2: 200 {\"resultado\":\"aplicado\"}\nestado: [{\"id\":\"D-1042\",\"estado\":\"entregado\",\"secuencia\":1,\"bultos_entregados\":24}]"
+    }
+   ],
+   "cap": "Salida real. Mismo evento, mismo id, dos intentos. Con deduplicación se cuentan 12 bultos; sin ella, 24."
+  },
+  {
+   "t": "p",
+   "x": "Por eso la entrega de webhooks es **«al menos una vez»** (*at least once*) y no «exactamente una»: el emisor prefiere mandar de más antes que perder un aviso, y deja la tarea de ignorar los repetidos al receptor. Stripe lo dice sin vueltas: un receptor puede recibir el mismo evento más de una vez, y la guía es registrar los id procesados y no volver a procesarlos [#api0810-stripe-webhooks]. Es el [[mensaje duplicado]] y la [[idempotencia]] del [@07-12] y el [@07-14], aplicados a un webhook. El receptor de práctica lo hace con una tabla cuya clave primaria es el id del evento:"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "BEGIN;\n-- clave primaria = id del evento: si ya existe, no inserta y devuelve 0 filas\nINSERT INTO eventos (id) VALUES ('evt_D1') ON CONFLICT DO NOTHING;\n-- solo si la fila se insertó (changes = 1), se aplica el efecto\nUPDATE despachos\n   SET estado = 'entregado', bultos_entregados = bultos_entregados + 12\n WHERE id = 'D-1042';\nCOMMIT;",
+   "cap": "Lo que hace mi receptor por cada evento (SQLite, el mismo patrón vale en PostgreSQL). Registrar el id y aplicar el efecto van en la misma transacción."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El id y el efecto, en la misma transacción",
+   "x": "Si primero anotás el id y después aplicás el efecto, un fallo entre los dos pasos hace que el evento figure como procesado y no se haya procesado: perdiste el aviso, y el reintento del emisor lo va a ignorar. Si primero aplicás el efecto y después anotás el id, un fallo entre los dos pasos hace que el reintento lo aplique de nuevo. Con una sola transacción, o se hacen las dos cosas o ninguna."
+  },
+  {
+   "t": "pensa",
+   "x": "Tu receptor tarda 40 segundos en procesar un evento (llama a otros sistemas) y el emisor corta a los 10. ¿Qué vas a ver, y cómo se arregla?",
+   "resp": "El emisor da por fallido cada intento y reintenta, así que vas a procesar el mismo evento varias veces, cada una con otro intento en marcha, y el emisor puede terminar desactivando tu endpoint por tantos fallos. Se arregla respondiendo 2xx enseguida: verificás la firma, guardás el evento y lo pasás a una cola de trabajos (el [@07-13]), y el trabajo lento lo hace otro proceso. GitHub pide responder en menos de 10 segundos y sugiere justamente una cola [#api0810-github-buenas-practicas]."
+  },
+  {
+   "t": "h",
+   "x": "El orden no está garantizado"
+  },
+  {
+   "t": "p",
+   "x": "Imaginá dos eventos del mismo despacho: el 1 dice «en ruta» y el 2 dice «entregado». El emisor intenta el 1, el receptor está ocupado y responde 503, y el emisor programa un reintento. Mientras tanto sale el 2, que pasa a la primera. Después llega el reintento del 1. Si el receptor aplica «lo último que llegó», el despacho entregado vuelve a figurar «en ruta» para siempre. Stripe lo advierte en su documentación: no garantiza que los eventos lleguen en el orden en que se generaron, y desaconseja usar la hora de creación para decidirlo, porque eventos distintos pueden compartirla [#api0810-stripe-webhooks]. Lo armé con mi emisor y mi receptor reales:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node demo.js    # escenario E",
+     "s": "    2 ms  evt_E1 intento 1: 503\n    1 ms  evt_E2 intento 1: 200 {\"resultado\":\"aplicado\"}\n  154 ms  evt_E1 intento 2: 200 {\"resultado\":\"aplicado\"}\n(orden=llegada) estado final: [{\"id\":\"D-1042\",\"estado\":\"en_ruta\",\"secuencia\":1,...}]\n    2 ms  evt_E1 intento 1: 503\n    1 ms  evt_E2 intento 1: 200 {\"resultado\":\"aplicado\"}\n  153 ms  evt_E1 intento 2: 200 {\"resultado\":\"viejo_ignorado\"}\n(orden=secuencia) estado final: [{\"id\":\"D-1042\",\"estado\":\"entregado\",\"secuencia\":2,...}]"
+    }
+   ],
+   "cap": "Salida real, abreviada con `...` en lugar de la cantidad de bultos. Con «gana el último que llega» el despacho entregado queda en ruta; con número de secuencia, se descarta el evento viejo."
+  },
+  {
+   "t": "p",
+   "x": "Hay dos arreglos. El primero, el de mi receptor, es que cada evento lleve un **número de secuencia** por objeto (o una versión) y el receptor ignore lo que sea más viejo que lo que ya tiene. Solo sirve si el emisor lo ofrece. El segundo es tratar el webhook como un **aviso** y no como la fuente de la verdad: al recibirlo, el receptor consulta la API para leer el estado actual. Es lo que pide Google para sus notificaciones de compras en Play: avisan solo que cambió el estado de una compra y hay que llamar a su API para obtener el estado completo [#api0810-google-rtdn]. Con ese enfoque, el orden de llegada no importa, porque siempre releés el estado de ahora."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Evento completo",
+    "Aviso mínimo + consulta"
+   ],
+   "filas": [
+    [
+     "Qué viaja",
+     "El estado entero del objeto",
+     "Solo el tipo de evento y el id"
+    ],
+    [
+     "Orden",
+     "Hay que ordenar con secuencia o versión",
+     "No importa: siempre releés el estado actual"
+    ],
+    [
+     "Costo",
+     "Una sola llamada",
+     "Una llamada extra a la API por cada aviso"
+    ],
+    [
+     "Datos sensibles en el cable",
+     "Más expuestos",
+     "Mínimos; el dato se pide con autenticación"
+    ],
+    [
+     "Si el emisor está caído al consultar",
+     "No afecta",
+     "Hay que reintentar la consulta"
+    ]
+   ],
+   "cap": "Comparación mía a partir de lo que describen las documentaciones de Stripe y de Google. Muchos proveedores ofrecen las dos formas."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si el webhook falló, el dato se perdió»",
+   "x": "Un webhook es una notificación; el dato suele seguir en la API del emisor. Por eso se recomienda tener una forma de **reconciliar**: un proceso que cada tanto consulta la API y compara con lo que recibiste por webhooks. GitHub propone justamente un script programado que revise las entregas fallidas y las reintente [#api0810-github-fallidas]. Los webhooks aceleran; la consulta periódica corrige."
+  },
+  {
+   "t": "h",
+   "x": "Si lo estás construyendo vos: el lado del emisor"
+  },
+  {
+   "t": "p",
+   "x": "Ofrecer webhooks a otros tiene riesgos propios. El principal es SSRF (*server-side request forgery*): como tus clientes te dicen a qué URL llamar, uno puede apuntar a una dirección interna de tu red (un servicio de administración, los metadatos del proveedor de nube) y hacer que tu servidor la consulte. Standard Webhooks recomienda sacar las llamadas por un proxy que filtre direcciones internas y poner los procesos emisores en una red privada que no alcance servicios internos [#api0810-standard-webhooks]. Lo mismo vale para pedir HTTPS (la firma garantiza autenticidad, pero no cifra el contenido) y para desactivar un destino que falla durante mucho tiempo, avisando por otro canal. No hay que mandar secretos ni claves en el cuerpo."
+  },
+  {
+   "t": "h",
+   "x": "Senda: hoy no recibe webhooks"
+  },
+  {
+   "t": "senda",
+   "titulo": "Verificar compras preguntando, no esperando avisos",
+   "x": [
+    "En el commit 25e08fa, Senda no tiene ningún receptor de webhooks. Hay tres funciones de borde (`borrar-cuenta`, `compras` y `trivia-sermon`) y las tres exigen una sesión de persona. La más cercana al tema es `supabase/functions/compras/index.ts`: la app manda el recibo de una suscripción de Google Play, y la función le **pregunta** a Google (por una API con cuenta de servicio) si es válido y guarda la suscripción. Es consulta a pedido, no aviso.",
+    "El propio código nombra lo que falta. Un comentario del archivo dice que, cuando haya compras de verdad, hay que recibir los avisos de Google (RTDN, por Pub/Sub) para renovaciones, reembolsos y cambios de plan, y `docs/SEGURIDAD.md` lo lista como tarea pendiente. Los hechos de Google que importan están en su documentación: esos avisos llegan por Pub/Sub, avisan solo que cambió el estado y traen un `messageId` único para evitar procesar duplicados [#api0810-google-rtdn]. En un Pub/Sub de tipo *push*, el receptor confirma devolviendo un código HTTP de éxito y cualquier otro código hace que se reenvíe [#api0810-pubsub-push]. Es todo lo de hoy: firma, deduplicación y respuesta rápida. Como la función actual exige la sesión de una persona, que un aviso de Google no trae, el receptor tendría que ser una función aparte con otra forma de autenticarse (es mi inferencia, no algo que el código diga). Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/functions/compras/index.ts",
+    "docs/SEGURIDAD.md"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Cuando Senda es la que llama: los avisos push",
+   "x": [
+    "Senda sí hace llamadas salientes desde la base de datos. La función SQL `enviar_avisos()` (en `supabase/migrations/20261130000005_grupos_grandes.sql`) agrupa avisos de a 100 teléfonos y hace un `net.http_post` a la API de push de Expo; la programa `pg_cron` cada minuto. No es un webhook (Expo no firma un evento que Senda reciba), pero sirve para ver el otro extremo de la entrega.",
+    "Según la documentación de Supabase, `pg_net` hace las llamadas de forma asíncrona, devuelve un id de pedido y no las arranca hasta que la transacción se confirma, y la respuesta queda 6 horas en la tabla `net._http_response` [#api0810-supabase-pgnet]. El código de `enviar_avisos()` marca los avisos como enviados (`update public.avisos set enviado = now()`) sin consultar esa tabla, y una búsqueda de texto no encontró ningún uso de `_http_response` en el repositorio. Si Expo rechaza un pedido, ese aviso ya figura como enviado y no se reintenta. Es una entrega **«a lo sumo una vez»**: la opuesta a la de un webhook. Para un recordatorio de torneo es una decisión razonable (un aviso perdido cuesta poco y uno repetido molesta), y es bueno saber que la eligieron."
+   ],
+   "archivos": [
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "src/util/cuenta.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué cambia con el tiempo",
+   "x": "Las cabeceras y la tolerancia por defecto de Stripe, el límite de 10 segundos de GitHub y el calendario de reintentos de cada proveedor son decisiones de ellos y pueden cambiar: lo consulté el 13-11-2026 en sus páginas oficiales. *Standard Webhooks* es una especificación comunitaria en versión 1.0.0, no un estándar de IETF; no hay un RFC de webhooks. Lo estable son los problemas (autenticar, repetir, duplicar, desordenar) y las defensas (HMAC con hora, id de evento, secuencia, respuesta rápida). La documentación de `pg_net` marca su API como beta en esa fecha."
+  }
+ ],
+ "recap": [
+  "Un webhook es una llamada HTTP que el otro sistema te hace cuando ocurre un evento. Reemplaza al polling: menos carga y menos demora, a cambio de exponer una URL pública.",
+  "La firma de webhook es un HMAC sobre el cuerpo crudo (y la hora y el id) con un secreto compartido; se compara en tiempo constante, y re-serializar el JSON antes de verificar rompe la firma.",
+  "Un ataque de repetición reenvía un mensaje auténtico. Lo frenan la ventana de tiempo (hora firmada, tolerancia de pocos minutos) y la deduplicación por id; ninguna alcanza sola.",
+  "El reintento de entrega hace que la entrega sea «al menos una vez»: si se perdió la respuesta, el emisor reenvía y el receptor tiene que ser idempotente, guardando el id del evento en la misma transacción que el efecto.",
+  "El orden de llegada no está garantizado. Se arregla con secuencia o versión, o tratando el webhook como aviso y releyendo el estado por la API.",
+  "El receptor responde 2xx enseguida y deja el trabajo lento en una cola; el emisor protege su red de SSRF y desactiva destinos que fallan mucho.",
+  "Senda no recibe webhooks: verifica compras consultando a Google, deja los avisos de Google como tarea pendiente, y sus avisos push salen desde la base con entrega «a lo sumo una vez»."
+ ],
+ "repaso": [
+  {
+   "p": "Un receptor de webhooks recibe un POST con cuerpo y firma HMAC correctos, pero la hora del mensaje es de hace una hora. El receptor tiene una ventana de 5 minutos. ¿Qué debería hacer?",
+   "o": [
+    "Aceptarlo, porque la firma es válida y el contenido no fue alterado",
+    "Rechazarlo: aunque sea auténtico, puede ser un mensaje capturado y reenviado",
+    "Aceptarlo y marcarlo como sospechoso para revisarlo más tarde a mano",
+    "Pedirle al emisor que vuelva a firmar el mismo mensaje con otro secreto"
+   ],
+   "c": 1,
+   "e": "La ventana de tiempo existe para frenar la repetición: un mensaje auténtico pero viejo es justo lo que un atacante reenviaría. La firma valida quién lo hizo y que no se alteró, no cuándo se mandó. Aceptarlo, aunque sea «marcado», ya aplica el efecto, y cambiar el secreto no tiene relación con el problema."
+  },
+  {
+   "p": "Un mensaje legítimo se reenvía en la ventana de 5 minutos, con la misma firma y la misma hora. ¿Qué defensa lo detiene?",
+   "o": [
+    "La ventana de tiempo, porque la hora está firmada",
+    "La comparación en tiempo constante de la firma",
+    "La deduplicación por id del evento, ya guardado",
+    "El uso de HTTPS entre emisor y receptor"
+   ],
+   "c": 2,
+   "e": "El reenvío cae dentro de la ventana y su firma es válida, así que ni la hora ni la firma lo detienen. Lo detiene el id ya registrado. La comparación en tiempo constante evita filtrar información por el tiempo de respuesta, y HTTPS evita que lo lean, pero un atacante que ya lo tiene puede reenviarlo igual."
+  },
+  {
+   "p": "Un receptor en Node usa un middleware que convierte el cuerpo en objeto JSON, y verifica la firma sobre `JSON.stringify(req.body)`. Con mensajes auténticos, la verificación falla de vez en cuando. ¿Cuál es la causa más probable?",
+   "o": [
+    "El secreto se desincroniza con el paso del tiempo entre emisor y receptor",
+    "`JSON.stringify` puede producir bytes distintos de los que se firmaron",
+    "El HMAC-SHA256 no es determinista y da firmas diferentes cada vez",
+    "El emisor firma el mensaje dos veces y el receptor solo comprueba una firma"
+   ],
+   "c": 1,
+   "e": "La firma se calculó sobre los bytes exactos que mandó el emisor. Volver a escribir el JSON puede cambiar espacios, orden de claves o formato de números, y con otros bytes la firma no coincide. HMAC es determinista, y los secretos no se desfasan solos. Hay que verificar sobre el cuerpo crudo."
+  },
+  {
+   "p": "El receptor procesa el evento `evt_9` y guarda su resultado, pero se cae justo antes de responder. El emisor reintenta. ¿Qué diseño evita un doble efecto?",
+   "o": [
+    "Responder siempre 200 aunque algo falle, para que el emisor no reintente",
+    "Aumentar el tiempo de espera del emisor hasta que nunca venza",
+    "Guardar el id junto con el efecto en una transacción y ignorar los ya vistos",
+    "Guardar el id en memoria del servidor para no depender de la base de datos"
+   ],
+   "c": 2,
+   "e": "Si el id y el efecto se confirman juntos, el reintento encuentra el id y no repite nada. Responder 200 ante fallos pierde eventos que sí fallaron. Un tiempo de espera infinito no es posible y no cubre caídas. Y un registro solo en memoria se pierde si el proceso se reinicia, que es justo cuando hace falta."
+  },
+  {
+   "p": "Llegan dos eventos del mismo despacho: primero «entregado» (secuencia 2) y luego «en ruta» (secuencia 1), este último por un reintento. ¿Qué estado debe quedar?",
+   "o": [
+    "En ruta, porque es el último mensaje que se recibió",
+    "Entregado, porque el receptor descarta lo de menor secuencia",
+    "Depende de la hora del reloj del receptor en cada llegada",
+    "Indeterminado: hay que pedirle al emisor que reenvíe en orden"
+   ],
+   "c": 1,
+   "e": "Con número de secuencia por objeto, el receptor compara con lo que ya aplicó e ignora lo viejo, así que queda «entregado». «Gana el último que llega» es el error clásico. La hora de llegada no dice cuál evento ocurrió antes, y el emisor no puede garantizar el orden con reintentos."
+  },
+  {
+   "p": "¿Cuál es una razón válida para tratar un webhook como un simple aviso y consultar luego la API del emisor?",
+   "o": [
+    "Que los webhooks nunca llegan duplicados y la API sí",
+    "Que así no hace falta verificar ninguna firma",
+    "Que el estado leído al momento no depende del orden de llegada de los avisos",
+    "Que las consultas a la API son siempre más baratas que recibir webhooks"
+   ],
+   "c": 2,
+   "e": "Si cada aviso dispara una lectura del estado actual, da igual en qué orden lleguen o cuántas veces: siempre se obtiene el estado de ahora. Los webhooks sí pueden duplicarse, la firma sigue haciendo falta (quizá más, porque cualquiera puede mandar un aviso falso que provoque lecturas) y la consulta extra tiene un costo."
+  },
+  {
+   "p": "La función `enviar_avisos()` de Senda marca cada aviso como enviado después de lanzar el `net.http_post` a Expo, sin consultar la respuesta. ¿Qué tipo de entrega es?",
+   "o": [
+    "Al menos una vez, porque el aviso se reintenta hasta que Expo confirme",
+    "Exactamente una vez, porque se marca como enviado en la base",
+    "A lo sumo una vez: si Expo rechaza el pedido, no se reintenta",
+    "Indefinida, porque pg_net no puede hacer pedidos HTTP"
+   ],
+   "c": 2,
+   "e": "El aviso queda marcado como enviado al lanzar la llamada, y no se consulta si la llamada tuvo éxito. Si falla, nadie lo vuelve a intentar. «Al menos una vez» requeriría reintentos hasta recibir una confirmación, y «exactamente una vez» no lo garantiza ningún sistema simple que cruce una red. pg_net sí hace pedidos HTTP."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó cómo se entera un sistema de que le entregaron un paquete sin preguntar todo el tiempo. Contá qué es el aviso, cómo sabe que el aviso es auténtico y por qué puede llegar dos veces. Usá una analogía propia que no sea la del timbre.",
+ "para_profundizar": [
+  {
+   "fuente": "api0810-standard-webhooks",
+   "nota": "La especificación Standard Webhooks (versión 1.0.0). Es breve y reúne firma, reintentos, tiempos de espera y SSRF en un solo lugar; leé las secciones de firma y de operación."
+  },
+  {
+   "fuente": "api0810-stripe-firmas",
+   "nota": "La guía de Stripe para verificar firmas: el aviso sobre el cuerpo crudo y la tolerancia de 5 minutos salen de acá."
+  },
+  {
+   "fuente": "api0810-github-validar",
+   "nota": "Cómo valida GitHub sus webhooks, con un caso de prueba (secreto y cuerpo) para comprobar tu propia implementación."
+  },
+  {
+   "fuente": "api0810-google-rtdn",
+   "nota": "La referencia de las notificaciones de Google Play: un caso real de aviso mínimo que obliga a consultar la API para conocer el estado."
+  }
+ ],
+ "videos": [
+  {
+   "q": "webhooks explained signature verification replay attack idempotency",
+   "por_que": "Para ver otra explicación de la verificación de firmas y de por qué los webhooks pueden repetirse."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "webhook",
+   "d": "Llamada HTTP que un sistema hace a una URL que le diste cuando ocurre un evento, en lugar de esperar a que vos le consultes. Es una especie de API inversa: el servicio es el cliente y vos sos el servidor."
+  },
+  {
+   "t": "firma de webhook",
+   "d": "Código que el emisor adjunta al webhook, calculado con un HMAC del mensaje (cuerpo, y en general también hora e id) y un secreto compartido. El receptor lo recalcula y, si no coincide, descarta el mensaje."
+  },
+  {
+   "t": "reintento de entrega",
+   "d": "Nuevo intento del emisor de mandar un webhook que no recibió una respuesta 2xx a tiempo, con esperas cada vez mayores. Hace que la entrega sea «al menos una vez» y obliga al receptor a tolerar duplicados."
+  },
+  {
+   "t": "ataque de repetición",
+   "d": "Ataque en el que alguien captura un mensaje auténtico y lo reenvía, con su firma intacta, para repetir su efecto. Se frena con una hora firmada y una ventana de tolerancia, y con la deduplicación por id."
+  }
+ ],
+ "siguiente": "Tiempo real: WebSockets, SSE y push. Un webhook avisa de servidor a servidor. Mañana ves cómo un servidor le habla a un navegador o a un teléfono sin que la persona pregunte, y qué cuesta mantener esas conexiones abiertas.",
+ "fuentes_nuevas": [
+  {
+   "id": "api0810-standard-webhooks",
+   "t": "Standard Webhooks (especificación, versión 1.0.0)",
+   "a": "Standard Webhooks (comunidad; texto en el repositorio standard-webhooks/standard-webhooks de GitHub, licencia Apache 2.0)",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/standard-webhooks/standard-webhooks/main/spec/standard-webhooks.md"
+  },
+  {
+   "id": "api0810-stripe-webhooks",
+   "t": "Receive Stripe events in your webhook endpoint",
+   "a": "Stripe (documentación)",
+   "tipo": "doc",
+   "url": "https://docs.stripe.com/webhooks"
+  },
+  {
+   "id": "api0810-stripe-firmas",
+   "t": "Resolve webhook signature verification errors / verificar firmas (Stripe)",
+   "a": "Stripe (documentación)",
+   "tipo": "doc",
+   "url": "https://docs.stripe.com/webhooks/signatures"
+  },
+  {
+   "id": "api0810-github-validar",
+   "t": "Validating webhook deliveries",
+   "a": "GitHub Docs",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries"
+  },
+  {
+   "id": "api0810-github-buenas-practicas",
+   "t": "Best practices for using webhooks",
+   "a": "GitHub Docs",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks"
+  },
+  {
+   "id": "api0810-github-fallidas",
+   "t": "Handling failed webhook deliveries",
+   "a": "GitHub Docs",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries"
+  },
+  {
+   "id": "api0810-google-rtdn",
+   "t": "Real-time developer notifications reference guide (Play Billing)",
+   "a": "Google (Android Developers)",
+   "tipo": "doc",
+   "url": "https://developer.android.com/google/play/billing/rtdn-reference"
+  },
+  {
+   "id": "api0810-pubsub-push",
+   "t": "Push subscriptions (Pub/Sub)",
+   "a": "Google Cloud (documentación)",
+   "tipo": "doc",
+   "url": "https://cloud.google.com/pubsub/docs/push"
+  },
+  {
+   "id": "api0810-supabase-pgnet",
+   "t": "pg_net: Async Networking",
+   "a": "Supabase (documentación)",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/database/extensions/pg_net"
+  },
+  {
+   "id": "api0810-wikipedia-webhook",
+   "t": "Webhook",
+   "a": "Wikipedia (en inglés)",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/Webhook"
+  }
+ ]
+}

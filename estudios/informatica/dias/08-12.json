@@ -1,0 +1,545 @@
+{
+ "id": "08-12",
+ "titulo": "Límites de uso, cuotas y abuso",
+ "bajada": "Cómo una API se defiende de quien le pide demasiado: dos limitadores programados y probados, el 429 bien dicho, el cliente que sabe esperar y qué pasa con varios servidores.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir límite de velocidad, cuota y límite de concurrencia, y decir qué recurso protege cada uno.",
+  "Programar y comparar una ventana fija, una ventana deslizante y un balde de fichas con un reloj falso.",
+  "Responder bien a un cliente que se pasó: código 429, `Retry-After` y los encabezados de cuota, con su estado de estandarización.",
+  "Escribir el lado cliente que respeta el límite sin multiplicar el problema.",
+  "Explicar por qué un límite en memoria no sirve con varios servidores y qué lo reemplaza, y leer los topes en SQL de Senda."
+ ],
+ "venis_de": "En [@07-17] aprendiste a reintentar con espera y azar cuando un servicio falla, y en [@08-11] viste que un solo evento se multiplica por las conexiones de una sala. Hoy cambia el punto de vista: ya no sos quien reintenta sino quien recibe, y tenés que decidir cuántos pedidos aceptás, de quién y qué decís cuando ya no.",
+ "se_apoya_en": [
+  "07-17",
+  "07-12",
+  "08-11",
+  "05-18",
+  "08-05"
+ ],
+ "gancho": [
+  "Un integrador conecta su sistema a tu API y escribe un bucle simple: pedir el estado de un pedido, y si falla, volver a pedir al instante. No tiene mala intención. Un día tu servidor devuelve errores porque se reinició, y ese bucle empieza a girar. Medí en esta VM qué hace un programa así contra un servidor de juguete que devuelve «no» a casi todo: **11.051 pedidos en 3 segundos**, de un solo cliente, de los cuales aceptaron 10.",
+  "Si ese cliente comparte tu servidor con mil más, los otros mil pagan el precio. Poner un límite no es desconfiar de la gente: es repartir un recurso que alcanza para todos solo si nadie se lo lleva entero. Hoy programás los dos limitadores más usados, los probás con una ráfaga, mirás cómo se dice «basta» en HTTP, y buscás en el código de Senda dónde hay topes y dónde falta uno."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Para qué sirve un límite"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una API comparte tres cosas con todos sus clientes: **cómputo** (CPU, conexiones), **la base de datos** detrás y, si llama a servicios de terceros, **plata**. Un límite protege alguna de esas cosas de dos peligros distintos. Uno es el error bienintencionado, como el bucle del gancho. El otro es el abuso: alguien que prueba claves o códigos hasta acertar (fuerza bruta), que recorre todos los ids para copiarse tus datos (enumeración) o que baja toda tu API con un programa (scraping). Para los dos, la medida es la misma: contar y cortar.",
+    "Hay tres tipos de límite que conviene no mezclar:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tipo",
+    "Qué mide",
+    "Ejemplo real",
+    "Se renueva"
+   ],
+   "filas": [
+    [
+     "[[rate limiting]] (límite de velocidad)",
+     "Pedidos por unidad de tiempo",
+     "GitHub: 60 por hora sin autenticar, 5.000 por hora autenticado [#lim0812-github-rate]",
+     "Continuamente o por ventana"
+    ],
+    [
+     "[[cuota]]",
+     "Total de un recurso en un período largo",
+     "Un plan de 100.000 llamadas por mes",
+     "Al empezar el período"
+    ],
+    [
+     "Límite de concurrencia",
+     "Pedidos en curso al mismo tiempo",
+     "GitHub: hasta 100 pedidos concurrentes [#lim0812-github-rate]",
+     "Apenas termina uno"
+    ]
+   ],
+   "cap": "Un mismo servicio suele combinar los tres. La cuota es un acuerdo comercial; el límite de velocidad, una defensa técnica."
+  },
+  {
+   "t": "p",
+   "x": "El de GitHub muestra además que un límite puede tener varias dimensiones a la vez: además de las 5.000 por hora, su documentación describe límites «secundarios» con puntos por minuto (un GET cuesta 1 punto, un POST 5) y tiempo de CPU. Por eso nadie diseña un solo número: se diseña un conjunto, y el cliente tiene que enterarse de cuál lo alcanzó."
+  },
+  {
+   "t": "h",
+   "x": "Tres maneras de contar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Todo limitador responde una pregunta: «con este pedido, ¿me paso?». La diferencia está en cómo cuenta. Programé tres, con un reloj falso que me deja simular minutos en un instante. Probalos vos acá abajo (el código corre en tu navegador):"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Tres formas de limitar, con un reloj falso para poder probarlas al instante.\nclass VentanaFija {                      // cuenta por bloque de tiempo; al cambiar de bloque vuelve a cero\n  constructor(limite, ventanaMs) { this.limite = limite; this.ventana = ventanaMs; this.bloque = -1; this.n = 0; }\n  permitir(t) { const b = Math.floor(t / this.ventana); if (b !== this.bloque) { this.bloque = b; this.n = 0; } return this.n < this.limite ? (this.n++, true) : false; }\n}\nclass VentanaDeslizante {                // guarda la hora de cada pedido aceptado y cuenta solo los de los últimos ventanaMs\n  constructor(limite, ventanaMs) { this.limite = limite; this.ventana = ventanaMs; this.horas = []; }\n  permitir(t) { while (this.horas.length && this.horas[0] <= t - this.ventana) this.horas.shift(); if (this.horas.length < this.limite) { this.horas.push(t); return true; } return false; }\n}\nclass BaldeDeFichas {                    // token bucket: capacidad C, se rellena a R fichas por segundo\n  constructor(capacidad, porSegundo) { this.c = capacidad; this.r = porSegundo; this.fichas = capacidad; this.ultimo = 0; }\n  permitir(t) { this.fichas = Math.min(this.c, this.fichas + (t - this.ultimo) / 1000 * this.r); this.ultimo = t; if (this.fichas >= 1) { this.fichas -= 1; return true; } return false; }\n  segundosHastaFicha() { return Math.max(0, (1 - this.fichas) / this.r); }\n}\n\n// Prueba: límite de 10 pedidos por minuto (el balde: capacidad 10, 10 fichas por 60 s = 1 ficha cada 6 s)\nfunction correr(nombre, lim, pedidos) { let ok = 0; const aceptados = []; for (const t of pedidos) if (lim.permitir(t)) { ok++; aceptados.push(Math.round(t / 100) / 10); } return { nombre, ok, aceptados }; }\nconst rafaga = (desde, n) => Array.from({ length: n }, (_, i) => desde + i * 50);   // n pedidos, uno cada 50 ms\n// A: 10 pedidos al final del minuto 0 (t = 59 s) y 10 al inicio del minuto 1 (t = 60 s)\nconst borde = [...rafaga(59000, 10), ...rafaga(60000, 10)];\nfor (const r of [correr('ventana fija 10/min', new VentanaFija(10, 60000), borde),\n                 correr('ventana deslizante 10/min', new VentanaDeslizante(10, 60000), borde),\n                 correr('balde 10 fichas, 1 cada 6 s', new BaldeDeFichas(10, 1 / 6), borde)])\n  console.log(r.nombre.padEnd(30), 'aceptó', String(r.ok).padStart(2), 'de 20 en 1 segundo');\n\n// B: un cliente tranquilo (un pedido cada 10 s durante 2 minutos) que a los 65 s junta 8 pedidos de golpe\nconst tranquilo = Array.from({ length: 12 }, (_, i) => i * 10000);\nconst mixto = [...tranquilo, ...rafaga(65000, 8)].sort((a, b) => a - b);\nfor (const r of [correr('ventana deslizante 10/min', new VentanaDeslizante(10, 60000), mixto),\n                 correr('balde 10 fichas, 1 cada 6 s', new BaldeDeFichas(10, 1 / 6), mixto)]) {\n  const deLaRafaga = r.aceptados.filter((t) => t >= 65 && t < 66).length;\n  console.log(r.nombre.padEnd(30), 'aceptó', String(r.ok).padStart(2), 'de', mixto.length, '| de la ráfaga de 8 pasaron', deLaRafaga);\n}",
+   "ejecutable": true,
+   "cap": "Tres limitadores y dos pruebas. El balde (token bucket) tiene capacidad 10 y recibe una ficha cada 6 segundos, lo que promedia 10 por minuto."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**La ventana fija** divide el tiempo en bloques (cada minuto) y cuenta cuántos pedidos hubo en el bloque actual; al cambiar de bloque, vuelve a cero. Guarda dos números por cliente, y esa es su virtud. Su defecto se ve en la primera prueba: un cliente que manda 10 pedidos a los 59 segundos y 10 más a los 60 pasa **los 20**, porque cayeron en bloques distintos. «10 por minuto» dejó pasar 20 en un segundo.",
+    "**La ventana deslizante** guarda la hora de cada pedido aceptado y, en cada pedido nuevo, cuenta solo los de los últimos 60 segundos. Aceptó 10 de los 20, como se espera. El precio es la memoria: hasta una marca por pedido aceptado, es decir, hasta tantas como el límite (para 5.000 por hora, 5.000 marcas por cliente).",
+    "**El balde de fichas** ([[token bucket]]) es la idea más usada en la práctica. Imaginá un balde con capacidad para 10 fichas que se va llenando de a una cada 6 segundos. Cada pedido gasta una ficha; sin ficha, no pasa. El código no tiene ningún temporizador: en cada pedido calcula cuánto tiempo pasó desde el anterior y suma las fichas que se juntaron en ese lapso, con un tope en la capacidad. Guarda **dos números** por cliente (fichas y última hora)."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "La segunda prueba muestra la diferencia de carácter. Un cliente tranquilo hace un pedido cada 10 segundos y, a los 65, junta 8 de golpe. La ventana deslizante deja pasar 4 de los 8, porque en los últimos 60 segundos ya hubo 6 pedidos suyos. El balde los deja pasar a los 8: el cliente venía gastando menos de lo que se rellenaba, tenía el balde lleno, y una [[ráfaga]] razonable es justo para lo que sirve la capacidad."
+  },
+  {
+   "t": "pensa",
+   "x": "Con el balde de capacidad 10 y una ficha cada 6 segundos, ¿cuántos pedidos puede hacer como máximo un cliente que estuvo mucho tiempo sin usar la API, durante el primer minuto en que la usa? ¿Y es lo mismo que «10 por minuto» de la ventana deslizante?",
+   "resp": "20: las 10 fichas que ya tenía más las 10 que se rellenan en 60 segundos. No es lo mismo: la ventana deslizante nunca acepta más de 10 en ningún período de 60 segundos. En régimen, ambos promedian 10 por minuto, pero el balde permite empezar con una ráfaga. Cuando se dice «10 por minuto», conviene aclarar a cuál de los dos se refiere."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Capacidad y ritmo son dos perillas",
+   "x": "En un balde, la **capacidad** decide cuánta ráfaga tolerás y el **ritmo de relleno** decide el promedio sostenido. Una API de pagos puede querer capacidad chica (casi sin ráfagas) y una de consulta de catálogo, capacidad grande. Con la ventana fija esa distinción no existe: solo hay un número."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El balde es la caja del supermercado con fichas",
+   "x": "Si en un depósito un portero entrega 10 fichas de ingreso por hora, y vos las usás todas de golpe a las 9, a las 9:01 no entrás más. Si pasaste la mañana sin entrar, a las 12 tenés muchas fichas juntas. La analogía falla en un punto: en el depósito las fichas que no usás se pierden al cerrar; en el balde, se juntan hasta el tope de la capacidad, y esa es justamente la ráfaga que permite."
+  },
+  {
+   "t": "h",
+   "x": "Decir «basta» bien: 429 y Retry-After"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El código para decir «te pasaste» es el **429 Too Many Requests**, definido en el RFC 6585: indica que el usuario mandó demasiados pedidos en un lapso. El mismo texto aclara dos cosas útiles. La respuesta **debería** incluir detalles del problema, y **puede** incluir un encabezado `Retry-After` que diga cuánto esperar [#srv0703-rfc6585]. Y aclara otra: el estándar no define cómo se identifica al usuario ni cómo se cuentan los pedidos; eso lo decide cada servidor.",
+    "Del `Retry-After` ya hablamos en [@07-17], pero ahora lo ves desde el lado de quien lo manda. Según el RFC 9110 su valor es **una fecha HTTP o una cantidad de segundos** (`Retry-After: 120`, o una fecha completa) [#rfc9110]. Armé un servidor de juguete con un balde por clave de API (`X-Api-Key`), capacidad 5 y 2 fichas por segundo, y le tiré 12 pedidos seguidos con una clave de ejemplo:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "for i in $(seq 1 12); do curl -s -o /dev/null -D - -H 'X-Api-Key: clave-de-ejemplo-1' http://127.0.0.1:20812/pedidos | ...; done",
+     "s": "1 200\n2 200\n3 200\n4 200\n5 200\n6 429  Retry-After: 1\n7 429  Retry-After: 1\n8 429  Retry-After: 1\n9 429  Retry-After: 1\n10 429  Retry-After: 1\n11 429  Retry-After: 1\n12 429  Retry-After: 1"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026 (servidor de laboratorio en Node 22). Pasaron los 5 que cabían en el balde; el resto recibió 429. El `Retry-After` es 1 porque el servidor redondea hacia arriba los 0,5 s que faltan para la próxima ficha."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El cuerpo de esa respuesta conviene que sea un [[sobre de error]] como el de [@07-12]: un código estable que el programa puede leer (`demasiados_pedidos`) y un texto para humanos. Y ojo con una trampa: no todos usan 429. La documentación de GitHub dice que al superar el límite principal devuelve **403 o 429** [#lim0812-github-rate]. Un cliente que solo mire el 429 se quedaría sin ver la mitad de los rechazos.",
+    "Hay otra pregunta: ¿cómo le avisás al cliente cuánto le queda **antes** de que se pase? Cada servicio inventó sus encabezados. GitHub usa `x-ratelimit-limit`, `x-ratelimit-remaining` y `x-ratelimit-reset` (este último, en segundos desde 1970) [#lim0812-github-rate]. El IETF tiene un borrador, `draft-ietf-httpapi-ratelimit-headers`, que define los campos `RateLimit-Policy` y `RateLimit`, con ejemplos como `RateLimit: \"default\";r=50;t=30` y `RateLimit-Policy: \"default\";q=100;w=10` [#lim0812-ratelimit-draft]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Un estándar que todavía no lo es",
+   "x": "Al 13-11-2026 ese texto es la revisión 11 de un borrador del grupo httpapi del IETF, actualizada el 23-05-2026 y con vencimiento el 24-11-2026; no es un RFC y el propio documento advierte que no se lo cite más que como trabajo en curso [#lim0812-ratelimit-draft]. Si hoy diseñás una API, el único mecanismo estándar y estable para este tema es el 429 con `Retry-After`; los encabezados de cuota restante son convención de cada proveedor. Por eso mi servidor de laboratorio no los emite."
+  },
+  {
+   "t": "h",
+   "x": "El otro lado: el cliente que sabe esperar"
+  },
+  {
+   "t": "p",
+   "x": "Un límite solo funciona bien si el cliente colabora. Probé dos clientes contra el mismo servidor de juguete, capacidad 5 y 2 fichas por segundo. El **ingenuo** vuelve a pedir apenas recibe un 429, durante 3 segundos. El **educado** tiene 20 tareas, y ante un 429 espera lo que dice `Retry-After` más un poco de azar (*jitter*), como viste en [@07-17]."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cliente",
+    "Pedidos enviados",
+    "Aceptados",
+    "Rechazados",
+    "Tiempo"
+   ],
+   "filas": [
+    [
+     "Ingenuo (reintenta de inmediato)",
+     "11.051",
+     "10",
+     "11.041",
+     "3 s (cortado por mí)"
+    ],
+    [
+     "Educado (respeta Retry-After)",
+     "27",
+     "20",
+     "7",
+     "7,8 s"
+    ]
+   ],
+   "cap": "Medido en esta VM el 13-11-2026, una corrida de cada uno. El servidor y los clientes comparten máquina. Los 7,8 s coinciden con la cuenta: 5 fichas ya estaban en el balde y las otras 15 tareas necesitan 15 ÷ 2 = 7,5 s."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en lo que pasó con el ingenuo: del lado del servidor, **cada rechazo también cuesta**. Un 429 es barato comparado con una consulta a la base, pero 11.000 de ellos en 3 segundos son 11.000 pedidos que hubo que leer, identificar y contestar. Un límite que se aplica tarde en la cadena (después de haber consultado la base) no protege la base. Por eso se aplica **lo más temprano posible**, idealmente en un proxy o puerta de entrada antes de llegar al código.",
+    "Las reglas del cliente que no estorba, resumidas: leé `Retry-After` y respetalo; si no viene, esperá con crecimiento exponencial y azar ([@07-17]); ponele un tope a los reintentos; y si podés, usá un balde propio del lado cliente para no llegar nunca al 429. GitHub lo dice casi igual en su guía: si hay `retry-after`, esperá esos segundos; si no, si `x-ratelimit-remaining` es 0 esperá hasta `x-ratelimit-reset`; si no, al menos un minuto; y si los fallos siguen, backoff exponencial y un máximo de intentos [#lim0812-github-rate]. Y advierte algo que vale como principio: seguir pidiendo mientras estás limitado puede terminar en que bloqueen tu integración."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Tu integración tiene que hacer 200 consultas a una API que usa un balde de capacidad 5 con 2 fichas por segundo. El balde empieza lleno. ¿Cuánto tarda como mínimo en terminar sin recibir ningún 429?",
+   "pista": "Las primeras 5 salen de las fichas que ya hay. Las demás salen a la velocidad con que se rellena el balde.",
+   "solucion": "Primeras 5: al instante. Quedan 195 que salen a 2 por segundo: 195 ÷ 2 = 97,5 segundos. En total, algo más de un minuto y medio. Si en lugar de esperar mandás todo de golpe, casi todo vuelve rechazado y además molestás a los demás clientes."
+  },
+  {
+   "t": "h",
+   "x": "¿Quién es «el cliente»?"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Contar pedidos supone saber **a quién** se los cuenta. Esa es la decisión de diseño más delicada de un limitador: la clave del límite. Hay cuatro opciones comunes y cada una falla de una forma:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Por dirección IP.** Es lo único disponible antes de autenticar, pero muchas personas comparten una IP (un wifi de iglesia, de oficina o de escuela, o una operadora que reparte una dirección entre cientos de teléfonos). Un límite por IP puede castigar a decenas de inocentes por uno solo.",
+    "**Por clave de API.** Es el más justo para clientes que son otros programas. Falla si la clave se filtra: quien la tenga gasta el cupo del dueño.",
+    "**Por usuario.** Ideal para acciones de personas. Solo sirve después de iniciar sesión, y si crear cuentas es gratis, el atacante crea cuentas nuevas.",
+    "**Por ruta.** Un mismo cliente puede tener un límite amplio para leer y uno muy chico para acciones caras o sensibles: iniciar sesión, buscar, pedir un código."
+   ],
+   "ord": false
+  },
+  {
+   "t": "p",
+   "x": "Lo habitual es combinar: un límite amplio por IP en la puerta de entrada, uno por usuario o clave más ajustado detrás, y topes especiales en las rutas peligrosas. La propia GitHub lo hace: 60 por hora para quien no se identifica y 5.000 para quien sí [#lim0812-github-rate]. Identificarse da más cupo porque da **responsabilidad**."
+  },
+  {
+   "t": "pensa",
+   "x": "Una iglesia con 80 personas comparte un wifi, y todas abren tu app a la misma hora. Tu API limita a 100 pedidos por minuto por IP y cada persona hace 3 pedidos al abrir. ¿Qué pasa y qué clave de límite sería mejor?",
+   "resp": "80 × 3 = 240 pedidos en un minuto desde una sola IP: 140 de ellos reciben error, y quienes los hicieron no hicieron nada raro. Conviene limitar por usuario o por clave una vez que están identificadas, y dejar el límite por IP solo como red de seguridad amplia (por ejemplo, 2.000 por minuto)."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Detrás de un proxy, la IP que ves no es la del cliente",
+   "x": "Si tu app está detrás de un balanceador, la IP de origen que lee tu código es la del balanceador. Por eso los proxies agregan encabezados como `X-Forwarded-For` con la IP original. Pero ese encabezado también puede escribirlo el cliente: si tu limitador le cree a cualquier valor, un atacante cambia el encabezado en cada pedido y nunca se acumula. Regla práctica: creele solo al encabezado que agregó **tu propio** proxy."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Con un rate limit estoy protegido de un ataque»",
+   "x": "El límite acota lo que cada cliente identificado puede hacer. Un ataque repartido entre miles de direcciones pasa cada límite individual. Un scraper paciente que pide 1 página por minuto también. El límite sube el costo del abuso, pero para frenar ataques masivos hacen falta otras capas (redes de entrega de contenido, filtros en el proveedor, detección de patrones). Y no reemplaza al control de acceso: limitar los intentos de adivinar un código no sirve si el código es de 4 dígitos."
+  },
+  {
+   "t": "h",
+   "x": "Cuando hay más de un servidor"
+  },
+  {
+   "t": "p",
+   "x": "Los dos limitadores de arriba guardan sus números en la memoria del proceso. Si tu API corre en dos servidores detrás de un balanceador ([@05-25]), cada uno tiene su propio balde. Probé el mismo servidor de juguete en dos puertos, con la misma clave, y mandé 10 pedidos seguidos alternando entre los dos, como haría un balanceador:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# dos nodos, cada uno con su balde en memoria (capacidad 5)",
+     "s": ""
+    },
+    {
+     "c": "./alternar.sh",
+     "s": "1 nodo:20872 ok 2 nodo:20871 ok 3 nodo:20872 ok 4 nodo:20871 ok 5 nodo:20872 ok 6 nodo:20871 ok 7 nodo:20872 ok 8 nodo:20871 ok 9 nodo:20872 ok 10 nodo:20871 ok"
+    },
+    {
+     "c": "# los mismos dos nodos con el balde en Redis (capacidad 5)",
+     "s": ""
+    },
+    {
+     "c": "./alternar.sh",
+     "s": "1 nodo:20872 ok 2 nodo:20871 ok 3 nodo:20872 ok 4 nodo:20871 ok 5 nodo:20872 ok 6 nodo:20871 429 7 nodo:20872 429 8 nodo:20871 429 9 nodo:20872 429 10 nodo:20871 429"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026 con Redis 7.0.15 propio. Con memoria local pasaron los 10: el límite real fue 5 por nodo. Con Redis compartido pasaron 5."
+  },
+  {
+   "t": "p",
+   "x": "Con N nodos y memoria local, el límite real es N veces el que configuraste, y además depende de a qué nodo te toca (un cliente con mala suerte se ve limitado y otro no). La solución es un lugar compartido y **rápido**: normalmente Redis o un servicio equivalente. Y acá hay una trampa clásica: si cada nodo lee el contador, lo calcula y lo escribe, dos nodos pueden leer el mismo valor a la vez y gastar la misma ficha dos veces. La operación tiene que ser **atómica**. En Redis se resuelve con un script Lua, que el servidor ejecuta entero sin intercalar otros comandos:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// El balde vive en Redis y se actualiza con un script Lua: Redis lo ejecuta entero, sin que nadie se meta en el medio.\nconst LUA = `\nlocal d = redis.call('HMGET', KEYS[1], 'f', 't')\nlocal t = redis.call('TIME'); local ahora = t[1] * 1000 + math.floor(t[2] / 1000)\nlocal fichas = tonumber(d[1]) or tonumber(ARGV[1]); local ultimo = tonumber(d[2]) or ahora\nfichas = math.min(tonumber(ARGV[1]), fichas + (ahora - ultimo) / 1000 * tonumber(ARGV[2]))\nlocal ok = 0\nif fichas >= 1 then fichas = fichas - 1; ok = 1 end\nredis.call('HSET', KEYS[1], 'f', fichas, 't', ahora)\nredis.call('PEXPIRE', KEYS[1], 60000)\nreturn {ok, math.floor(fichas)}`;\n// en cada pedido, en cualquier nodo:\nconst [ok] = await r.evalSha(sha, { keys: ['limite:' + clave], arguments: ['5', '2'] });   // capacidad 5, 2 fichas por segundo",
+   "cap": "El balde de fichas del servidor de laboratorio, con el estado en Redis. El script usa el reloj de Redis (`TIME`) para que los nodos no discutan sobre la hora."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Otra opción es no programar nada y usar el limitador de la puerta de entrada. nginx trae `limit_req`, que según su documentación aplica el método del *leaky bucket*, el «balde que gotea» [#lim0812-nginx-limit-req]. Es un primo del balde de fichas: los pedidos entran a un balde y salen a ritmo fijo; lo que desborda, se rechaza. Lo configuré así, con 2 pedidos por segundo y una tolerancia (`burst`) de 5:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "sed -n 6,12p nginx.conf",
+     "s": "  limit_req_zone $binary_remote_addr zone=api:1m rate=2r/s;\n  limit_req_status 429;\n  server {\n    listen 127.0.0.1:20874;\n    root /var/tmp/ng0812/www;\n    location = /rapido { limit_req zone=api burst=5 nodelay; try_files /ok.txt =404; }\n    location = /parejo { limit_req zone=api burst=5;         try_files /ok.txt =404; }"
+    },
+    {
+     "c": "for i in $(seq 1 12); do curl -s -o /dev/null -w \"%{http_code} \" http://127.0.0.1:20874/rapido; done",
+     "s": "200 200 200 200 200 200 429 429 429 429 429 429"
+    },
+    {
+     "c": "for i in $(seq 1 12); do curl -s -o /dev/null -w \"%{http_code}:%{time_total}s \" http://127.0.0.1:20874/parejo; done",
+     "s": "200:0.000283s 200:0.495792s 200:0.493925s 200:0.494820s 200:0.494825s 200:0.493811s ..."
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026 con nginx 1.24.0. Con `nodelay` pasan 6 (uno más los 5 del `burst`) y el resto recibe 429. Sin `nodelay`, nginx no rechaza: demora cada pedido para que salgan a 2 por segundo (unos 0,5 s de espera cada uno). Una trampa que me costó un intento: con `return 200` dentro del bloque, nginx contestaba antes de aplicar el límite, y no rechazaba nada."
+  },
+  {
+   "t": "p",
+   "x": "Dos detalles del ejemplo. `limit_req_status` vale 503 por defecto [#lim0812-nginx-limit-req]; el 429 hay que pedirlo. Y `nodelay` cambia la filosofía: rechazar lo que sobra, o frenar al cliente y atenderlo despacio. Para un cliente humano, frenar suele ser mejor; para una API máquina a máquina, rechazar rápido con un `Retry-After` evita que se acumulen conexiones abiertas."
+  },
+  {
+   "t": "senda",
+   "titulo": "Los topes de Senda viven en la base, y uno tiene un hueco",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. Senda no tiene servidor propio ([@07-29]): los límites que implementó están **escritos en SQL** dentro de funciones de Supabase, y cada uno contesta de una manera distinta. `guardar_progreso` acepta una vez cada 10 segundos y, si llegás antes, **no da error**: devuelve la hora del último guardado. `denunciar` frena a las 20 en un día y `ver_grupo_codigo`, a los 20 intentos fallidos por hora; los dos lanzan el error `demasiado`. Los grupos tienen topes de cantidad (30 por persona, 5 como líder, 10.000 miembros).",
+    "Hay una pieza interesante en `ver_grupo_codigo`. Cuando el código no existe, la función **no lanza error**: anota el intento en la tabla `intentos_codigo` y devuelve vacío. El comentario del código explica por qué: una excepción deshace la transacción entera, y el intento anotado desaparecería con ella. Es una limitación real de las funciones SQL: el registro que querés conservar y el error que querés devolver no pueden convivir.",
+    "Ahora el hueco. La documentación de seguridad del proyecto dice que adivinar códigos de grupo se arregló con códigos de 8 letras y el freno a los 20 intentos por hora de `ver_grupo_codigo`. Verifiqué cada pieza aplicando las migraciones del repo (leídas sin modificar) a un PostgreSQL mío con el simulador de Supabase que el propio repo trae para sus pruebas. Como un usuario de prueba, llamé 30 veces con un código falso a cada función:"
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "supabase/migrations/20261130000006_progreso_nube.sql",
+    "supabase/migrations/20261129000000_moderacion.sql",
+    "src/util/grupos.ts"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select public.ver_grupo_codigo('ZZZZZZZZ')   -- 30 veces, como usuario autenticado",
+     "s": "20 respondieron «no existe», 10 frenados con «demasiado»"
+    },
+    {
+     "c": "select public.unirse_grupo('ZZZZZZZZ')        -- 30 veces, mismo usuario",
+     "s": "30 respondieron «codigo_desconocido», 0 frenados"
+    },
+    {
+     "c": "select count(*) from public.intentos_codigo",
+     "s": "20"
+    }
+   ],
+   "cap": "Medido en esta VM el 13-11-2026 con las 42 migraciones de Senda aplicadas a un PostgreSQL 16 propio, sin tocar ninguna base real. El freno existe en la función que muestra el grupo; la que **te mete** en él no cuenta los fallos."
+  },
+  {
+   "t": "senda",
+   "titulo": "Qué significa ese hueco, sin dramatizar",
+   "x": [
+    "Esto no es un error de lectura mío: `unirse_grupo` (su última versión está en `20261130000005_grupos_grandes.sql`) no consulta `intentos_codigo`, y está disponible para cualquier usuario autenticado. La pantalla de grupos llama primero a `verGrupoCodigo` y después a `unirseGrupo` (`src/pantallas/Grupos.tsx`), pero un programa que hable directo con la base puede saltarse el primer paso. Un detalle más: los grupos nuevos nacen con un código de 8 letras (el valor por defecto de la columna), pero `renovar_codigo_grupo` genera uno de **6**: lo corrí y devolvió `EHTFD7`.",
+    "Una cuenta de órdenes de magnitud, que es INFERENCIA mía y no una medición. El alfabeto del código tiene 31 símbolos: 31⁸ son unos 853 mil millones de combinaciones, y 31⁶ son unos 888 millones. Si hubiera 10.000 grupos y todos tuvieran código de 6 letras, un intento al azar acertaría con probabilidad de 10.000 ÷ 888 millones, cerca de 1 en 89.000. A 100 intentos por segundo (un número ilustrativo; no sé qué ritmo tolera el gateway de Supabase) alguien encontraría **algún** grupo en unos 15 minutos. Con códigos de 8 letras la misma cuenta da más de 9 días. Entrar a un grupo ajeno no es un daño enorme, pero justifica cerrar el hueco con el mismo patrón que `ver_grupo_codigo`: anotar el intento y devolver vacío, en lugar de lanzar el error."
+   ],
+   "archivos": [
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "supabase/migrations/20261107000000_grupos.sql",
+    "docs/SEGURIDAD.md"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Los límites del lado del cliente y de la plataforma",
+   "x": [
+    "Dos señales en el teléfono. En `src/util/cuenta.ts`, `llamarAuth` convierte un 429 de Supabase Auth en el error propio `demasiado`, que la pantalla traduce; es el único lugar del cliente donde aparece un 429 (los errores de las funciones SQL llegan como mensajes de texto, no como 429). Y `src/util/lugares.ts` se frena a sí mismo: antes de cada búsqueda de direcciones espera hasta que pasen 1.100 milisegundos desde la anterior, un cliente educado con un servicio gratuito de terceros. Y `src/util/nube.ts` reintenta con espera creciente (5 segundos, el doble cada vez, hasta 10 minutos) multiplicada por un azar entre 0,5 y 1,5.",
+    "La plataforma también cuenta. La documentación de Supabase fija, al 13-11-2026, que las altas anónimas (`/signup` sin correo ni teléfono) tienen un límite por dirección IP de 30 por hora por defecto, configurable [#lim0812-supabase-auth-rate]. Como todas las cuentas de Senda nacen anónimas, hay una tensión: el documento de seguridad deja pendiente **bajar** ese límite para frenar altas masivas, pero en un evento donde cien teléfonos comparten el wifi de una iglesia, el límite por IP se alcanza con solo 31 personas instalando en la misma hora. Es una inferencia a verificar con una prueba, y es exactamente el problema de «¿quién es el cliente?» de hoy."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/util/lugares.ts",
+    "src/util/nube.ts"
+   ]
+  }
+ ],
+ "recap": [
+  "Un límite reparte recursos compartidos y frena tanto errores bienintencionados como abusos; conviene no mezclar límite de velocidad, cuota y límite de concurrencia.",
+  "La ventana fija deja pasar el doble en el borde de dos bloques; la deslizante es exacta pero guarda una marca por pedido; el balde de fichas guarda dos números y deja una ráfaga tanto mayor como su capacidad.",
+  "El código para rechazar es 429; `Retry-After` (segundos o fecha) es la parte estable, y los encabezados de cuota restante son convención de cada proveedor o un borrador del IETF sin terminar.",
+  "El cliente educado respeta `Retry-After`, espera con azar y limita sus reintentos: en la prueba, 27 pedidos contra 11.051 del ingenuo para hacer lo mismo.",
+  "La clave del límite (IP, clave de API, usuario, ruta) es la decisión de diseño más delicada: la IP castiga a quienes comparten red y la clave de API falla si se filtra.",
+  "Con varios servidores, un límite en memoria se multiplica por el número de nodos; hace falta un estado compartido y operaciones atómicas, o un limitador en la puerta de entrada como nginx `limit_req`.",
+  "Senda pone topes en SQL: unos devuelven error (`demasiado`), otros devuelven en silencio; `unirse_grupo` no cuenta intentos fallidos y `renovar_codigo_grupo` genera códigos de 6 letras."
+ ],
+ "repaso": [
+  {
+   "p": "Un limitador de ventana fija permite 10 pedidos por minuto. Un cliente manda 10 pedidos a los 59 segundos y 10 más a los 60 segundos. ¿Qué pasa?",
+   "o": [
+    "Rechaza los últimos 10, porque en un segundo ya pasó el límite",
+    "Acepta los 20, porque cayeron en dos bloques distintos de tiempo",
+    "Acepta los 10 primeros y los otros esperan al siguiente bloque",
+    "Acepta 15, porque el segundo bloque se cuenta a la mitad"
+   ],
+   "c": 1,
+   "e": "La ventana fija vuelve a cero al cambiar de bloque, así que los dos grupos se cuentan por separado y pasan 20 pedidos en un segundo. Eso es lo que corrige la ventana deslizante, que cuenta los últimos 60 segundos sin importar los bloques."
+  },
+  {
+   "p": "Un balde de fichas tiene capacidad 10 y recibe una ficha cada 6 segundos. Un cliente no usó la API en una hora. ¿Cuántos pedidos puede mandar de golpe sin recibir un 429?",
+   "o": [
+    "1, porque se renueva una ficha cada 6 segundos",
+    "60, porque en una hora se juntaron muchísimas fichas",
+    "10, porque el balde se llena hasta su capacidad y no más",
+    "6, porque es el intervalo del relleno de fichas"
+   ],
+   "c": 2,
+   "e": "El balde acumula fichas hasta la capacidad (10) y después deja de juntar. Dar 1 ignora la acumulación y 60 ignora el tope. El 6 es el intervalo entre fichas, no la cantidad que caben."
+  },
+  {
+   "p": "Una API responde 429 con `Retry-After: 30`. ¿Qué debería hacer un cliente bien portado?",
+   "o": [
+    "Reintentar enseguida para ver si el límite se levantó",
+    "Esperar unos 30 segundos, con algo de azar, y reintentar con un tope",
+    "Cambiar de clave de API para pasar por otro balde",
+    "Abandonar la tarea porque un 429 nunca se resuelve solo"
+   ],
+   "c": 1,
+   "e": "`Retry-After` dice cuánto esperar y el azar evita que todos los clientes vuelvan en el mismo instante; el tope de reintentos evita bucles eternos. Reintentar ya empeora el problema, cambiar de clave es esquivar el límite, y un 429 es transitorio por definición."
+  },
+  {
+   "p": "Dos servidores con el mismo limitador en memoria (5 pedidos por segundo cada uno) están detrás de un balanceador que alterna. ¿Cuántos pedidos por segundo deja pasar el conjunto a un mismo cliente?",
+   "o": [
+    "Unos 10, porque cada nodo cuenta por separado",
+    "Unos 5, porque el balanceador comparte el contador",
+    "Unos 2,5, porque el límite se reparte entre los dos nodos",
+    "Cualquier cantidad, porque el límite deja de funcionar"
+   ],
+   "c": 0,
+   "e": "Cada nodo tiene su propio balde y no sabe nada del otro, así que el límite efectivo es la suma. En la prueba, 10 pedidos alternados pasaron todos con límite 5 por nodo. El balanceador no comparte estados, y el límite no desaparece: se multiplica por el número de nodos."
+  },
+  {
+   "p": "¿Por qué hace falta una operación atómica (como un script Lua en Redis) al limitar con un estado compartido?",
+   "o": [
+    "Para que el script se ejecute más rápido que varios comandos",
+    "Para que Redis guarde el balde en disco y no se pierda",
+    "Para que el reloj de los nodos coincida exactamente",
+    "Para que dos nodos no lean el mismo saldo y gasten la misma ficha"
+   ],
+   "c": 3,
+   "e": "Si leer, calcular y escribir son pasos separados, dos pedidos simultáneos pueden leer el mismo valor y descontar una sola vez. La atomicidad evita esa carrera. No tiene que ver con la velocidad ni con guardar en disco; el reloj se resuelve usando la hora del propio Redis."
+  },
+  {
+   "p": "Una función SQL de Senda tiene que anotar cada intento fallido de código y además avisar el error. ¿Por qué `ver_grupo_codigo` devuelve vacío en lugar de lanzar una excepción?",
+   "o": [
+    "Porque una excepción deshace la transacción y se perdería el intento anotado",
+    "Porque las excepciones de SQL son más lentas que devolver un valor",
+    "Porque PostgREST no permite excepciones en funciones públicas",
+    "Porque devolver vacío ya cuenta como un 429 para el cliente"
+   ],
+   "c": 0,
+   "e": "El comentario del código lo dice: un raise deshace lo hecho en la transacción, incluido el insert del intento. La velocidad no es el motivo, PostgREST sí admite excepciones (es como llegan `demasiado` o `codigo_desconocido`) y el valor vacío no genera ningún 429."
+  },
+  {
+   "p": "Un limitador de IP detrás de un balanceador cuenta todos los pedidos contra una sola dirección. ¿Qué pasa y cómo se corrige?",
+   "o": [
+    "Nada: el balanceador cuenta aparte a cada cliente real",
+    "Se cuentan como un solo cliente; se usa la IP original, solo del encabezado que agregó tu proxy",
+    "Se cuentan bien; hay que desactivar el límite para el balanceador",
+    "Se pierden los pedidos; se corrige agregando más servidores"
+   ],
+   "c": 1,
+   "e": "La IP de origen que ve el servidor es la del balanceador, así que todos los clientes comparten un balde. Se corrige leyendo la IP original del encabezado que agrega tu propio proxy (por ejemplo `X-Forwarded-For`), y creyendo solo a ese, porque un cliente puede escribir el encabezado."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística por qué un depósito que entrega 10 fichas de ingreso por hora no es lo mismo que uno que deja entrar «10 camiones por hora, contados cada hora en punto», y qué tendría que hacer un chofer que se encuentra con el portón cerrado. Usá una analogía propia que no sea la del balde ni la del depósito.",
+ "para_profundizar": [
+  {
+   "fuente": "srv0703-rfc6585",
+   "nota": "La sección 4 define el 429 en un párrafo y su nota sobre `Retry-After`; la 7.2 explica por qué un servidor puede elegir no responder nada bajo carga. Se lee en cinco minutos."
+  },
+  {
+   "fuente": "lim0812-github-rate",
+   "nota": "La documentación de límites de GitHub, un caso real de primario, secundarios, puntos por pedido y guía de reintento. Mirá la tabla de puntos y la sección de qué hacer al recibir un 403 o 429."
+  },
+  {
+   "fuente": "lim0812-nginx-limit-req",
+   "nota": "El módulo `limit_req` de nginx, con la explicación de `burst`, `nodelay` y `delay`. Sirve para entender cómo se pone un límite antes de que el pedido toque tu código."
+  },
+  {
+   "fuente": "lim0812-ratelimit-draft",
+   "nota": "El borrador del IETF sobre los encabezados `RateLimit` y `RateLimit-Policy`. Leé la introducción y los ejemplos; recordá que es trabajo en curso y puede cambiar."
+  }
+ ],
+ "videos": [
+  {
+   "q": "token bucket vs sliding window rate limiting explained",
+   "por_que": "Para ver las dos ideas animadas y comparar con la prueba que corriste hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "rate limiting",
+   "d": "Limitación de velocidad: tope a la cantidad de pedidos que un cliente puede hacer por unidad de tiempo. Protege al servidor de errores y abusos y reparte los recursos entre todos los clientes."
+  },
+  {
+   "t": "token bucket",
+   "d": "Balde de fichas: algoritmo de límite donde cada pedido gasta una ficha y las fichas se rellenan a ritmo fijo hasta una capacidad máxima. Permite ráfagas de hasta la capacidad y un promedio sostenido igual al ritmo de relleno; guarda solo dos números por cliente."
+  },
+  {
+   "t": "cuota",
+   "d": "Tope total de un recurso en un período largo (llamadas por mes, bytes por día), normalmente atado a un plan o contrato. No mide cuán rápido se usa sino cuánto en total."
+  },
+  {
+   "t": "error 429",
+   "d": "Código de estado HTTP «Too Many Requests» (RFC 6585): el cliente mandó demasiados pedidos en un lapso. La respuesta puede incluir `Retry-After` para decir cuánto esperar."
+  },
+  {
+   "t": "ráfaga",
+   "d": "Cantidad de pedidos que un cliente puede mandar de golpe antes de ser frenado. En un balde de fichas es la capacidad; en nginx se llama `burst`."
+  },
+  {
+   "t": "límite por ventana",
+   "d": "Familia de limitadores que cuentan pedidos dentro de un período. En la ventana fija el conteo vuelve a cero cada bloque de tiempo y deja pasar el doble en el borde; en la deslizante se cuentan los pedidos de los últimos N segundos y es exacta pero guarda una marca por pedido."
+  },
+  {
+   "t": "clave de límite",
+   "d": "Lo que el limitador usa para decidir a quién cuenta los pedidos: la IP, una clave de API, el usuario o la ruta. Elegirla bien es la decisión más delicada del diseño, porque cada opción falla de una forma distinta."
+  }
+ ],
+ "siguiente": "Versionado y evolución de APIs: hoy pusiste reglas para los clientes que ya existen; mañana, cómo cambiar la API sin romperles lo que hacen hoy (cambios compatibles e incompatibles, versión en la URL o en cabecera, y avisar de lo que se retira).",
+ "fuentes_nuevas": [
+  {
+   "id": "lim0812-github-rate",
+   "t": "Rate limits for the REST API",
+   "a": "GitHub Docs",
+   "tipo": "doc",
+   "url": "https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api"
+  },
+  {
+   "id": "lim0812-nginx-limit-req",
+   "t": "Module ngx_http_limit_req_module",
+   "a": "nginx.org",
+   "tipo": "doc",
+   "url": "https://nginx.org/en/docs/http/ngx_http_limit_req_module.html"
+  },
+  {
+   "id": "lim0812-ratelimit-draft",
+   "t": "RateLimit header fields for HTTP (draft-ietf-httpapi-ratelimit-headers)",
+   "a": "IETF httpapi WG",
+   "tipo": "doc",
+   "url": "https://datatracker.ietf.org/doc/draft-ietf-httpapi-ratelimit-headers/"
+  },
+  {
+   "id": "lim0812-supabase-auth-rate",
+   "t": "Rate limits (Supabase Auth)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/auth/rate-limits"
+  }
+ ]
+}

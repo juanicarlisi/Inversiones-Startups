@@ -1,0 +1,808 @@
+{
+ "id": "09-04",
+ "titulo": "SQL II: ordenar, limitar, funciones y NULL",
+ "bajada": "Ponés orden y límite a tus consultas, usás funciones de texto, número y fecha, y aprendés con una base real cómo un valor vacío rompe consultas que parecían correctas.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Ordenar con ORDER BY y desempatar con una columna única para que el resultado sea siempre el mismo.",
+  "Paginar con LIMIT y OFFSET, y medir por qué la paginación por clave lee menos filas.",
+  "Usar funciones de texto, número y fecha en el SELECT y en el WHERE, y reconocer sus trampas (bytes, redondeo, tildes).",
+  "Predecir qué devuelve una consulta con NULL usando la lógica de tres valores, y corregir `= NULL`, `<>` y `NOT IN`.",
+  "Escribir rangos de fechas medio abiertos y razonar sobre zonas horarias con timestamptz."
+ ],
+ "venis_de": "En el [@09-03] aprendiste SELECT, FROM y WHERE sobre una base de 12.000 bultos. Hoy la tabla suma horas y valores vacíos, y vas a ordenar, cortar y calcular, y a ver cómo una columna que no siempre tiene valor cambia lo que significa cada comparación.",
+ "se_apoya_en": [
+  "01-15",
+  "01-19",
+  "03-35",
+  "08-03",
+  "09-03"
+ ],
+ "gancho": [
+  "Martes, 9:10. Te llegan tres pedidos para el parte de la mañana: «los diez bultos más pesados que no se entregaron», «cuántos bultos no son de Ana» y «cuántos ingresaron en octubre». Los tres se escriben en una línea de SQL, corren sin error y devuelven números con pinta razonable: 8.561 bultos que no son de Ana, 1.252 ingresados en octubre.",
+  "Los tres están mal. Faltan 1.742 bultos sin chofer, faltan 54 del 31 de octubre, y la lista de los diez más pesados puede salir distinta en cada consulta. Ninguna de las tres fallas da un mensaje de error: es SQL que se comporta exactamente como está definido y no como lo imaginaste. Hoy los armás, los rompés y los arreglás, sobre una base de 12.000 bultos inventados, con PostgreSQL corriendo en esta máquina; los tiempos son de una sola VM compartida."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Preparar la base de hoy: la misma idea, con horas y con huecos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ayer ([@09-03]) filtraste filas. Hoy la tabla `bultos` cambia en tres cosas: la fecha de ingreso lleva hora y zona (tipo `timestamptz`, que se explica en el [@09-06]), y las columnas `entregado_en`, `chofer` y `nota` pueden estar **vacías**. En SQL ese vacío se llama NULL y es el protagonista de la tarde. Es una base nueva (`logistica4`) con otra semilla: los números de hoy no coinciden con los de ayer. Todo es inventado, igual que los nombres de los seis choferes.",
+    "Un detalle de la herramienta: `psql` muestra el NULL como un espacio en blanco, y ese espacio se parece a un texto vacío. Con `\\pset null 'NULL'` lo dibuja con todas las letras, y es lo que uso en todas las salidas."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "-- Carga del laboratorio de SQL II: 12.000 bultos inventados, ahora con horas y con huecos (NULL).\nset time zone 'UTC';\n\ncreate table bultos (\n  id           integer primary key,\n  cliente      text,\n  destino      text,\n  tipo         text,\n  peso_kg      numeric(7,2),\n  estado       text,\n  ingresado_en timestamptz,\n  entregado_en timestamptz,   -- vacío mientras el bulto no se entregó\n  chofer       text,          -- vacío mientras nadie lo retiró del depósito\n  nota         text           -- casi siempre vacía\n);\n\nselect setseed(0.2027);\n\ninsert into bultos\nselect\n  g,\n  cliente, destino, tipo,\n  round((case tipo\n           when 'sobre' then 0.1 + r * 0.4\n           when 'bolsa' then 0.5 + r * r * 9\n           when 'tubo'  then 0.5 + r * 4.5\n           when 'caja'  then 1 + r * r * 34\n           else              60 + r * r * 540\n         end)::numeric, 2),\n  estado,\n  ing,\n  case when estado = 'entregado' then ing + (1 + floor(random() * 5))::int * interval '1 day' + floor(random() * 36000)::int * interval '1 second' end,\n  case when estado <> 'en depósito'\n       then (array['Ana','Beto','Carla','Diego','Elena','Marcos'])[1 + floor(random() * 6)::int] end,\n  case when random() < 0.1 then (array['frágil','llamar antes','sin timbre','dejar con portería'])[1 + floor(random() * 4)::int] end\nfrom (\n  select g, random() as r,\n         (array['Ferretería Norte','Librería del Sur','Farmacia Plaza','Casa Olivos','Tienda Mirador','Ferretería Sur',\n                'Distribuidora Ríos','Panadería La Esquina','Electro Pampa','Moda Palermo','Vivero Tigre','Ferreyra Hnos.'])[1 + floor(random() * 12)::int] as cliente,\n         (array['Avellaneda','Lanús','Quilmes','La Plata','Morón','San Isidro','Tigre','Pilar',\n                'Rosario','Córdoba','Mendoza','Bahía Blanca','Mar del Plata','Tucumán','Salta'])[1 + floor(random() * 15)::int] as destino,\n         (array['caja','caja','caja','sobre','bolsa','pallet','tubo'])[1 + floor(random() * 7)::int] as tipo,\n         (array['en depósito','en camino','en camino','entregado','entregado','entregado','devuelto'])[1 + floor(random() * 7)::int] as estado,\n         date_trunc('second', timestamptz '2026-01-01 00:00:00+00' + random() * 304 * interval '1 day') as ing\n  from generate_series(1, 12000) as g\n) as s;",
+   "cap": "carga2.sql: 12.000 bultos con horas y con huecos, siempre los mismos (semilla fija). Se corre en una base nueva, con `psql -f carga2.sql`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select md5(string_agg(b::text, '|' order by id)) from bultos b;",
+     "s": "               md5                \n----------------------------------\n b8908be3efb4f1d49974bbaa3dfe24c8\n(1 row)"
+    },
+    {
+     "c": "select count(*) total, count(entregado_en) con_entrega, count(chofer) con_chofer, count(nota) con_nota from bultos;",
+     "s": " total | con_entrega | con_chofer | con_nota \n-------+-------------+------------+----------\n 12000 |        5043 |      10258 |     1159\n(1 row)"
+    }
+   ],
+   "cap": "Medido en esta VM con PostgreSQL 16.15. Si tu huella da b8908be3efb4f1d49974bbaa3dfe24c8, tenés los mismos datos. Fijate que `count(*)` cuenta filas (12.000) y `count(columna)` cuenta solo las que no están vacías; la diferencia es el tema del día."
+  },
+  {
+   "t": "h",
+   "x": "ORDER BY: sin él, el orden no está prometido"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una consulta sin [[ORDER BY]] devuelve las filas en el orden que le resulte cómodo a la base, y el estándar no promete ninguno [#bd0904-pg16-queries-order]. Muchas veces sale por id porque así están guardadas, y eso engaña: el día que cambie el plan o se reescriban filas, el orden cambia sin avisar. Para pedir uno se escribe `order by columna`, ascendente por defecto, o `order by columna desc` para el inverso. Se pueden poner varias columnas, y la segunda desempata a la primera. Por ejemplo, los cinco pallets más pesados a Mendoza:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select id, cliente, peso_kg from bultos\n where destino = 'Mendoza' and tipo = 'pallet'\n order by peso_kg desc, id limit 5;",
+     "s": "  id   |       cliente        | peso_kg \n-------+----------------------+---------\n  1535 | Panadería La Esquina |  591.99\n 10047 | Vivero Tigre         |  581.34\n  6412 | Librería del Sur     |  558.45\n  4077 | Distribuidora Ríos   |  552.50\n 11033 | Vivero Tigre         |  523.28\n(5 rows)"
+    }
+   ],
+   "cap": "`limit 5` corta la respuesta a cinco filas; se explica en la próxima sección."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ese `, id` del final no es un adorno. Hay 17 sobres que pesan exactamente 0,50 kilos (el máximo de un sobre), y pedir «los cinco sobres más pesados» deja a la base con un empate enorme. Con el orden solo por peso, **el desempate lo decide la base**. Mirá lo que pasó al reescribir 17 filas sin cambiar ningún valor (dentro de un `begin … rollback`, que deshace todo al final; las transacciones llegan más adelante):"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select id from bultos where tipo = 'sobre' order by peso_kg desc limit 5;",
+     "s": "  id  \n------\n  902\n  300\n  305\n  848\n 3138\n(5 rows)"
+    },
+    {
+     "c": "begin;\nupdate bultos set nota = nota where tipo = 'sobre' and peso_kg = 0.50;   -- reescribe 17 filas sin cambiar nada\nselect id from bultos where tipo = 'sobre' order by peso_kg desc limit 5;",
+     "s": "BEGIN\nUPDATE 17\n  id  \n------\n  848\n  902\n  300\n  305\n 3138\n(5 rows)"
+    },
+    {
+     "c": "select id from bultos where tipo = 'sobre' order by peso_kg desc, id limit 5;",
+     "s": "  id  \n------\n  300\n  305\n  848\n  902\n 3138\n(5 rows)"
+    },
+    {
+     "c": "rollback;",
+     "s": "ROLLBACK"
+    }
+   ],
+   "cap": "Medido en esta VM. Los mismos cinco empatados, en otro orden, porque el `update` movió las filas dentro del archivo de la tabla. Con `, id` el orden es siempre el mismo."
+  },
+  {
+   "t": "p",
+   "x": "Esto es lo contrario de lo que viste con los [[ordenamientos estables|ordenamiento estable]] del [@03-35]: SQL no promete respetar el orden previo de los empates. La regla práctica es que **todo `order by` que alimenta una lista visible termina en una columna única**, casi siempre el id. Con los valores vacíos hay otra regla: PostgreSQL los trata como si fueran más grandes que cualquier valor, así que van al final en orden ascendente y al principio en el descendente. Se cambia con `nulls first` o `nulls last` [#bd0904-pg16-queries-order]."
+  },
+  {
+   "t": "pensa",
+   "x": "Una pantalla muestra «los 10 envíos más recientes» con `order by ingresado_en desc limit 10`. Un día dos personas ven listas distintas con los mismos datos. ¿Qué pudo pasar y cómo se evita?",
+   "resp": "Hubo envíos con exactamente el mismo `ingresado_en` justo en el borde de la lista: la base eligió a cuál dejar adentro de forma distinta en cada consulta. Se evita agregando una columna única al final, `order by ingresado_en desc, id desc`, así el orden queda completamente determinado."
+  },
+  {
+   "t": "h",
+   "x": "LIMIT y OFFSET: pocas filas, y el costo de saltar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[LIMIT]] corta la respuesta en n filas. Con un `order by` adelante sirve para «los cinco más pesados» o «el último ingreso». [[OFFSET]] saltea las primeras m filas, y juntos arman la [[paginación]] que viste en el [@08-03]: página 1 es `limit 10 offset 0`, página 2 es `limit 10 offset 10`, y así. Funciona bien con pocos datos y falla de dos maneras.",
+    "**Primera falla: los datos se mueven mientras se lee.** Pedí la página 1 de los últimos bultos por id, hacé que entre un bulto nuevo y pedí la página 2:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "begin;\nselect id from bultos order by id desc limit 5 offset 0;",
+     "s": "BEGIN\n  id   \n-------\n 12000\n 11999\n 11998\n 11997\n 11996\n(5 rows)"
+    },
+    {
+     "c": "insert into bultos (id, cliente, destino, tipo, peso_kg, estado, ingresado_en)\nvalues (12001, 'Casa Olivos', 'Salta', 'caja', 3.5, 'en depósito', '2026-11-13 12:00+00');\nselect id from bultos order by id desc limit 5 offset 5;",
+     "s": "INSERT 0 1\n  id   \n-------\n 11996\n 11995\n 11994\n 11993\n 11992\n(5 rows)"
+    },
+    {
+     "c": "select id from bultos where id < 11996 order by id desc limit 5;   -- paginación por clave\nrollback;",
+     "s": "  id   \n-------\n 11995\n 11994\n 11993\n 11992\n 11991\n(5 rows)\n\nROLLBACK"
+    }
+   ],
+   "cap": "Medido en esta VM. El 11996 apareció en las dos páginas: con el bulto nuevo, todo se corrió un lugar. (El `insert` se explica en el [@09-05]; el `rollback` lo deja todo como estaba.) La tercera consulta pide «lo que sigue después del último id que vi» y no se entera de las altas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Segunda falla: saltar cuesta.** Las filas salteadas por `offset` hay que calcularlas igual, y la documentación lo advierte: un offset grande puede ser ineficiente [#bd0904-pg16-queries-limit]. Para verlo medí `explain analyze` con tres formas de pedir diez filas del final, en la tabla de hoy y en una de dos millones de filas (un `id` entero y un texto corto, generada con `generate_series`):"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table g (id integer primary key, destino text);\ninsert into g select i, 'ciudad ' || (i % 15) from generate_series(1, 2000000) i;\nanalyze g;\n\nexplain (analyze, costs off) select id, destino from g order by id limit 10 offset 1990000;\nexplain (analyze, costs off) select id, destino from g where id > 1990000 order by id limit 10;",
+   "cap": "La tabla grande de la medición. La salida de la primera: `Index Scan using g_pkey ... rows=1990010` y `Execution Time: 201.885 ms`; la de la segunda, `rows=10` y `Execution Time: 0.019 ms`."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Forma de pedir 10 filas",
+    "12.000 filas",
+    "2.000.000 de filas",
+    "Filas que leyó la base (2 M)"
+   ],
+   "filas": [
+    [
+     "`limit 10 offset 0` (página 1)",
+     "0,011 ms",
+     "0,013 ms",
+     "10"
+    ],
+    [
+     "`limit 10 offset` casi al final",
+     "1,467 ms",
+     "200 ms",
+     "1.990.010"
+    ],
+    [
+     "`where id > último_visto limit 10`",
+     "0,016 ms",
+     "0,019 ms",
+     "10"
+    ]
+   ],
+   "cap": "Medido en esta VM (una corrida, 4 procesadores compartidos; la de dos millones tiene 127 MB con su índice). En todas el orden fue `order by id`. El costo del `offset` crece con la posición y no con lo que devuelve."
+  },
+  {
+   "t": "p",
+   "x": "La tercera fila es la **paginación por clave**: en vez de «saltá 1.990.000 filas», dice «dame las que vienen después de la última que vi». Lee solo lo que devuelve, siempre. Tiene un precio: no se puede saltar a la página 37, solo ir hacia adelante o atrás, y necesita un orden con una columna única [#bd0904-winand-no-offset]. Para un scroll infinito o una API con cursor es lo correcto; para una pantalla con números de página y 500 filas, el `offset` alcanza."
+  },
+  {
+   "t": "senda",
+   "titulo": "Un LIMIT con orden para borrar de a tandas",
+   "x": [
+    "Senda no pagina listas con `offset`, pero usa `order by … limit` para otra cosa: borrar datos viejos sin trabar la base. La función `limpiar_viejo` (commit 25e08fa) elimina las respuestas con más de 30 días con `where creado < now() - interval '30 days' order by creado limit p_tanda`, con una tanda de 50.000 por defecto, y el comentario del archivo dice que corre todos los días a las 7:17 UTC, que son las 4:17 en Buenos Aires. Es la misma idea de hoy: ordenar, cortar y repetir hasta que no queden filas. La tabla `partidas` usa `order by vence_en nulls last limit 20` para listar primero las que vencen antes; en PostgreSQL ese `nulls last` ya es el comportamiento de un orden ascendente, y está escrito igual para que se lea."
+   ],
+   "archivos": [
+    "supabase/migrations/20261109000000_limpieza.sql",
+    "supabase/migrations/20261111000000_novedades.sql",
+    "supabase/migrations/20261101000000_juntos.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Funciones: texto, números y fechas"
+  },
+  {
+   "t": "p",
+   "x": "Una [[función]] recibe valores y devuelve otro. En SQL se usan en el `select` (para mostrar algo calculado) y en el `where` (para filtrar por algo calculado). PostgreSQL trae cientos; estas son las que se usan todos los días, con lo que devolvieron en la base de hoy:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Para qué",
+    "Expresión",
+    "Resultado"
+   ],
+   "filas": [
+    [
+     "largo en caracteres",
+     "`length('Panadería')`",
+     "9"
+    ],
+    [
+     "largo en bytes",
+     "`octet_length('Panadería')`",
+     "10"
+    ],
+    [
+     "a minúsculas / mayúsculas",
+     "`lower('Córdoba')` / `upper('Córdoba')`",
+     "córdoba / CÓRDOBA"
+    ],
+    [
+     "sacar espacios de los bordes",
+     "`trim('   Rosario  ')`",
+     "Rosario"
+    ],
+    [
+     "reemplazar",
+     "`replace('Mar del Plata', ' ', '-')`",
+     "Mar-del-Plata"
+    ],
+    [
+     "primeras letras",
+     "`left('Distribuidora Ríos', 4)`",
+     "Dist"
+    ],
+    [
+     "pegar textos",
+     "`'Salta' || ' → ' || 'caja'`",
+     "Salta → caja"
+    ],
+    [
+     "redondear con decimales",
+     "`round(3.14159, 2)`",
+     "3.14"
+    ],
+    [
+     "resto de una división",
+     "`17 % 5`",
+     "2"
+    ],
+    [
+     "hora actual",
+     "`now()`",
+     "la hora del servidor, con zona"
+    ],
+    [
+     "cortar una fecha al día",
+     "`date_trunc('day', ingresado_en)`",
+     "la medianoche de ese día"
+    ],
+    [
+     "sacar una parte",
+     "`extract(month from ingresado_en)`",
+     "2 (para el bulto 1)"
+    ],
+    [
+     "restar dos instantes",
+     "`entregado_en - ingresado_en`",
+     "1 day 08:41:06 (bulto 1)"
+    ]
+   ],
+   "cap": "Todas corridas en esta VM, PostgreSQL 16.15 con la base en `C.UTF-8`. Con otra configuración regional de la base, `upper` y `lower` pueden no entender las tildes."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres detalles que muerden. **Caracteres no es bytes:** «Panadería» tiene nueve caracteres y diez bytes, porque la «í» ocupa dos en UTF-8 (lo viste en el [@01-15]). **Las funciones se pueden usar en el `where`:** `where lower(destino) = 'córdoba'` devolvió 805 bultos, pero `'cordoba'` sin tilde devolvió 0; bajar a minúsculas arregla las mayúsculas, no las tildes. Y un filtro que aplica una función a una columna puede impedir que la base use un índice común sobre esa columna, algo que vas a ver cuando estudies índices.",
+    "**Redondear no es tan simple.** `round(2.5)` devuelve 3 y `round(3.5)` devuelve 4, porque con `numeric` los empates se redondean alejándose del cero; pero `round(2.5::float8)`, con un número en [[coma flotante]], devolvió 2, porque para ese tipo el empate depende de la plataforma y lo más común es redondear al par más cercano [#bd0904-pg16-functions-math]. Dos redondeos distintos con el mismo 2,5, y los dos son correctos según su tipo. Las cuentas de plata van en `numeric`."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "NULL: ni verdadero ni falso"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[NULL]] significa «no hay un valor». No es cero, no es un texto vacío, no es «falso». Puede querer decir que no se sabe (un teléfono que nadie cargó) o que no corresponde (la fecha de entrega de algo que no se entregó). En la tabla de hoy el `chofer` está vacío exactamente cuando el bulto sigue en depósito:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select chofer, count(*) from bultos group by chofer order by chofer;",
+     "s": " chofer | count \n--------+-------\n Ana    |  1697\n Beto   |  1666\n Carla  |  1714\n Diego  |  1730\n Elena  |  1677\n Marcos |  1774\n NULL   |  1742\n(7 rows)"
+    }
+   ],
+   "cap": "`group by` junta las filas iguales y cuenta cada grupo; se estudia en el [@09-11]. Fijate que NULL aparece como un grupo propio."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora el problema. Una comparación con NULL no da verdadero ni falso: da **desconocido**, que SQL también representa con NULL. Y el `where` deja pasar solo las filas donde el predicado da verdadero. Es la [[lógica de tres valores]]: la [[tabla de verdad]] que conocías ([@01-19]) tiene una tercera fila. Esta es la de `and` y `or`, corrida en la base:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "a",
+    "b",
+    "a AND b",
+    "a OR b"
+   ],
+   "filas": [
+    [
+     "verdadero",
+     "verdadero",
+     "verdadero",
+     "verdadero"
+    ],
+    [
+     "verdadero",
+     "falso",
+     "falso",
+     "verdadero"
+    ],
+    [
+     "verdadero",
+     "NULL",
+     "NULL",
+     "verdadero"
+    ],
+    [
+     "falso",
+     "verdadero",
+     "falso",
+     "verdadero"
+    ],
+    [
+     "falso",
+     "falso",
+     "falso",
+     "falso"
+    ],
+    [
+     "falso",
+     "NULL",
+     "falso",
+     "NULL"
+    ],
+    [
+     "NULL",
+     "verdadero",
+     "NULL",
+     "verdadero"
+    ],
+    [
+     "NULL",
+     "falso",
+     "falso",
+     "NULL"
+    ],
+    [
+     "NULL",
+     "NULL",
+     "NULL",
+     "NULL"
+    ]
+   ],
+   "cap": "Resultado de `select a, b, a and b, a or b` sobre las nueve combinaciones. Además, `not NULL` es NULL. Lo que se puede decidir igual: `falso and lo-que-sea` es falso y `verdadero or lo-que-sea` es verdadero."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select count(*) from bultos where chofer = 'Ana';",
+     "s": " count \n-------\n  1697\n(1 row)"
+    },
+    {
+     "c": "select count(*) from bultos where chofer <> 'Ana';",
+     "s": " count \n-------\n  8561\n(1 row)"
+    },
+    {
+     "c": "select count(*) from bultos where chofer is null;",
+     "s": " count \n-------\n  1742\n(1 row)"
+    },
+    {
+     "c": "select count(*) from bultos where chofer = null;",
+     "s": " count \n-------\n     0\n(1 row)"
+    },
+    {
+     "c": "select count(*) from bultos where chofer is distinct from 'Ana';",
+     "s": " count \n-------\n 10303\n(1 row)"
+    }
+   ],
+   "cap": "Medido en esta VM. 1.697 + 8.561 + 1.742 = 12.000: las tres consultas juntas cubren toda la tabla, y las dos primeras no."
+  },
+  {
+   "t": "p",
+   "x": "Mirá lo que pasó. «Choferes que no son Ana» devolvió 8.561, y faltan los 1.742 bultos sin chofer, que tampoco son de Ana. Para esos, la comparación `NULL <> 'Ana'` da desconocido y el `where` los descarta, **sin avisar**. El error clásico es `where chofer = null`: devuelve siempre cero filas, porque `= null` siempre da desconocido, aun cuando el chofer esté vacío. Para preguntar por un vacío existen `is null`, `is not null` y `is distinct from`, que sí tratan el NULL como un valor comparable."
+  },
+  {
+   "t": "pensa",
+   "x": "En la columna `nota`, 295 bultos dicen «frágil», 864 tienen otra nota y 10.841 la tienen vacía. ¿Cuántas filas devuelve `where nota <> 'frágil'`?",
+   "resp": "864: las que tienen otra nota. Las 10.841 vacías no pasan, porque la comparación da desconocido. Quien lee «notas distintas de frágil» espera 11.705 (todo menos las 295 frágiles), y para obtenerlas hace falta `where nota is distinct from 'frágil'`. Sumá los tres grupos y comprobá: 295 + 864 + 10.841 = 12.000."
+  },
+  {
+   "t": "h3",
+   "x": "La trampa de NOT IN con un NULL en la lista"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select count(*) from bultos where chofer not in ('Ana', 'Beto');",
+     "s": " count \n-------\n  6895\n(1 row)"
+    },
+    {
+     "c": "select count(*) from bultos where chofer not in ('Ana', 'Beto', null);",
+     "s": " count \n-------\n     0\n(1 row)"
+    }
+   ],
+   "cap": "Medido en esta VM. La segunda lista tiene un NULL y la consulta no devuelve nada."
+  },
+  {
+   "t": "p",
+   "x": "`x not in ('Ana','Beto',null)` es `not (x = 'Ana' or x = 'Beto' or x = null)`. Para un chofer que no es ninguno de los dos, las dos primeras comparaciones dan falso y la tercera desconocido, `falso or falso or desconocido` es desconocido, y `not desconocido` es desconocido: nunca verdadero, así que ninguna fila pasa. Con una lista escrita a mano se nota enseguida. Pero cuando la lista sale de otra consulta (algo que vas a escribir en unos días) y una sola fila trae un vacío, el `not in` empieza a devolver cero resultados sin ningún error."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: la casilla en blanco de un formulario",
+   "x": [
+    "Un formulario de entrega tiene una casilla «chofer». Si está en blanco, no sabés si nadie retiró el bulto o si el dato se perdió. Preguntar «¿el chofer es distinto de Ana?» no tiene respuesta honesta: tal vez sí, tal vez no. SQL responde «no sé», y el `where` solo deja pasar lo que sabe que es cierto.",
+    "Dónde deja de valer: en el formulario una persona decide qué hacer con la casilla vacía. En SQL esa decisión la tomás vos, con `is null` o `coalesce`; si no la tomás, la base decide por vos y descarta la fila."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«NULL es como un cero» o «como un texto vacío»",
+   "x": "No lo es. Si fuera cero, `1 + NULL` daría 1, y da NULL. Si fuera un texto vacío, `'a' || NULL` daría 'a', y da NULL. Los agregados lo ignoran (`count(chofer)` contó 10.258 contra los 12.000 de `count(*)`), pero lo hacen porque así lo define cada función, no porque NULL valga nada."
+  },
+  {
+   "t": "senda",
+   "titulo": "Un NULL que se usa a propósito en Senda",
+   "x": [
+    "La vista `salud_preguntas` calcula, para cada pregunta de la trivia, qué fracción de respuestas fue correcta y cuántos segundos tardó la gente en promedio (commit 25e08fa). Lo del tiempo promedio se escribe `case when segundos_n > 0 then round(segundos_total::numeric / segundos_n, 1) end`: si nadie midió tiempo para esa pregunta, el `case` no tiene `else` y devuelve **NULL**, y así no divide por cero. Para la fracción de aciertos usa otro recurso, `greatest(respuestas, 1)`, que nunca deja el divisor en cero. Las respuestas llegan desde `src/util/nube.ts`. Corrí la definición sobre una copia con tres preguntas inventadas:"
+   ],
+   "archivos": [
+    "supabase/migrations/20261027000000_escala.sql",
+    "src/util/nube.ts"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select * from salud_preguntas order by pregunta;",
+     "s": " pregunta | respuestas | acierto | segundos \n----------+------------+---------+----------\n q-0001   |         40 |   0.775 |     13.0\n q-0002   |         12 |   0.250 |     NULL\n q-0003   |          0 |   0.000 |     NULL\n(3 rows)"
+    },
+    {
+     "c": "select pregunta, aciertos::numeric / respuestas as sin_greatest from salud_resumen;",
+     "s": "ERROR:  division by zero"
+    }
+   ],
+   "cap": "Copia local de `salud_resumen` y de la vista (mismas columnas y mismo SQL que la migración, con filas inventadas). Está implementado así en el código; no verifiqué quién lee la vista."
+  },
+  {
+   "t": "h",
+   "x": "COALESCE y CASE: ponerle nombre a los huecos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[COALESCE]] recibe varios valores y devuelve el primero que no está vacío. Sirve para mostrar un texto en lugar del NULL. [[CASE]] es el «si… entonces… si no…» de SQL: se evalúa en orden y devuelve el valor del primer `when` que da verdadero. Si ninguno da verdadero y no hay `else`, devuelve NULL."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select coalesce(chofer, 'sin asignar') as chofer, count(*) from bultos group by 1 order by 1;",
+     "s": "   chofer    | count \n-------------+-------\n Ana         |  1697\n Beto        |  1666\n Carla       |  1714\n Diego       |  1730\n Elena       |  1677\n Marcos      |  1774\n sin asignar |  1742\n(7 rows)"
+    },
+    {
+     "c": "select case when peso_kg < 1 then 'liviano' when peso_kg < 20 then 'medio' else 'pesado' end as categoria, count(*)\n  from bultos group by 1 order by 2 desc;",
+     "s": " categoria | count \n-----------+-------\n medio     |  6758\n pesado    |  2945\n liviano   |  2297\n(3 rows)"
+    }
+   ],
+   "cap": "Medido en esta VM. Si se saca el `else 'pesado'`, esos 2.945 bultos quedan con la categoría NULL, en vez de dar un error."
+  },
+  {
+   "t": "h",
+   "x": "Zonas horarias: un instante, dos horas en el reloj"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un `timestamptz` guarda **un instante** del tiempo, no una hora de pared. Internamente lo guarda en UTC (la hora de referencia mundial, sin horario de verano) y la convierte a la zona que tenga configurada cada sesión al mostrarlo [#bd0904-pg16-datatype-datetime]. Es el mismo valor; cambia cómo se lo lee:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Guardado",
+       "s": "un instante, en UTC",
+       "k": "datos"
+      },
+      {
+       "t": "Sesión en UTC",
+       "s": "2026-02-03 06:05:42+00",
+       "k": "red",
+       "e": "se muestra así"
+      },
+      {
+       "t": "Sesión en Buenos Aires",
+       "s": "2026-02-03 03:05:42-03",
+       "k": "servidor",
+       "e": "o así"
+      }
+     ]
+    }
+   ],
+   "cap": "El bulto 1, tal como lo mostró la base en las dos configuraciones (`set time zone 'UTC'` y `set time zone 'America/Argentina/Buenos_Aires'`). En esta VM, Buenos Aires dio −03 tanto en enero como en julio de 2026."
+  },
+  {
+   "t": "p",
+   "x": "Ahora el problema práctico: «¿cuántos bultos ingresaron en octubre?». Tres formas de escribirlo, en una sesión en UTC y en una de Buenos Aires:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Consulta sobre `ingresado_en`",
+    "Sesión UTC",
+    "Sesión Buenos Aires"
+   ],
+   "filas": [
+    [
+     "`between '2026-10-01' and '2026-10-31'`",
+     "1.252",
+     "1.258"
+    ],
+    [
+     "`>= '2026-10-01' and < '2026-11-01'`",
+     "1.306",
+     "1.303"
+    ],
+    [
+     "bultos del 31 de octubre, `::date = '2026-10-31'`",
+     "54",
+     "45"
+    ]
+   ],
+   "cap": "Medido en esta VM. El `between` pierde el último día entero: '2026-10-31' es la medianoche que abre ese día, y lo ingresado después queda afuera (en UTC, 1.306 − 1.252 = 54 bultos; en Buenos Aires, 1.303 − 1.258 = 45). El mes tiene 1.306 o 1.303 bultos según la zona en que se cuente."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay dos lecciones. La primera: con valores que llevan hora, **el rango se escribe medio abierto**, `>= comienzo and < comienzo_del_siguiente`, y no con `between`, que incluye el extremo y deja afuera lo que pasa después de la medianoche. La segunda: «octubre» y «el 31» dependen de **en qué zona** se cuenta. Para un depósito de Buenos Aires, un bulto que entra a las 22:00 del 31 de octubre es del 31; para la base en UTC ya es del 1 de noviembre. La práctica común es guardar los instantes en UTC y fijar la zona al consultar, o escribir la zona en el literal (`'2026-10-31 00:00-03'`). El ejercicio 6 lo resuelve."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Seis ejercicios con la base abierta"
+  },
+  {
+   "t": "p",
+   "x": "Resueltos en la base `logistica4`; cada solución trae la salida que dio. Intentá cada uno antes de abrirla."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 1: los diez más pesados sin entregar.** Listá id, destino, peso y estado de los 10 bultos más pesados que no tienen fecha de entrega, con desempate por id. ¿Están todos «en camino»?",
+   "pista": "`where entregado_en is null`, `order by peso_kg desc, id` y `limit 10`.",
+   "solucion": "select id, destino, peso_kg, estado from bultos where entregado_en is null order by peso_kg desc, id limit 10;\n\nSalida real: 10414 (Tucumán, 599,64 kg), 5470, 9910, 65, 4886, 7651, 1962, 2061, 498 y 6213 (590,06 kg). No: cinco están en camino, dos devueltos y tres en depósito, porque «sin fecha de entrega» incluye a todos los que no llegaron, también los que volvieron."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 2: la página 3.** La página 2 de «los últimos bultos por id, de a 10» terminó en el id 11981. Pedí la página 3 con paginación por clave, y explicá por qué no usarías un `offset` si la tabla tuviera 50 millones de filas.",
+   "pista": "Las páginas se ordenan por `id desc`: lo siguiente son los ids menores que el último visto.",
+   "solucion": "select id from bultos where id < 11981 order by id desc limit 10;\n\nSalida: del 11980 al 11971. Con 50 millones de filas, un offset de 20 sobre la página 3 sería barato, pero la página 400.000 leería casi 4 millones de filas para devolver 10; la paginación por clave lee 10 siempre."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 3: «los que no son de Ana», bien contados.** Escribí la consulta que cuenta todos los bultos cuyo chofer no es Ana, incluidos los que no tienen chofer, de dos maneras distintas, y comprobá que dan 10.303.",
+   "pista": "Una con `is distinct from` y otra con `or` y `is null`.",
+   "solucion": "select count(*) from bultos where chofer is distinct from 'Ana';           -- 10303\nselect count(*) from bultos where chofer <> 'Ana' or chofer is null;       -- 10303\n\nLas dos dan 10.303 = 8.561 + 1.742. La versión con `<>` sola da 8.561."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 4: la entrega más reciente.** Pedí los 3 bultos con la entrega más reciente con `order by entregado_en desc limit 3`. Mirá el resultado, explicá qué sale mal y corregilo de dos maneras.",
+   "pista": "En orden descendente PostgreSQL pone los vacíos primero. Podés filtrarlos o cambiar su lugar en el orden.",
+   "solucion": "select id, entregado_en from bultos order by entregado_en desc limit 3;     -- ids 2, 4 y 6, con NULL\n\nSalen tres filas con `entregado_en` vacío: en orden descendente los NULL se consideran los más grandes y van primero. Dos arreglos:\nselect id, entregado_en from bultos where entregado_en is not null order by entregado_en desc limit 3;\nselect id, entregado_en from bultos order by entregado_en desc nulls last limit 3;\n\nLos dos dan 5477 (2026-11-06 02:50:36+00), 2436 y 1708."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 5: categorías con CASE.** Contá cuántos bultos hay de cada categoría de demora de entrega: «rápida» si tardó menos de 2 días, «normal» de 2 a 4 días, «lenta» si tardó más, y «sin entregar» si todavía no tiene `entregado_en`.",
+   "pista": "Restá `entregado_en - ingresado_en` y comparalo con `interval '2 days'`; la rama «sin entregar» va primera, con `entregado_en is null`.",
+   "solucion": "select case when entregado_en is null then 'sin entregar'\n            when entregado_en - ingresado_en < interval '2 days' then 'rápida'\n            when entregado_en - ingresado_en <= interval '4 days' then 'normal'\n            else 'lenta' end as demora, count(*)\n  from bultos group by 1 order by 2 desc;\n\nSalida real: sin entregar 6.957, lenta 2.073, normal 2.002, rápida 968. Si la rama de los vacíos no va primera, la resta da NULL, ninguna comparación da verdadero y esas filas caen en el `else`: la «lenta» saldría con 9.030."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 6: el 31 de octubre, hora Argentina.** ¿Cuántos bultos ingresaron entre las 00:00 y las 24:00 del 31 de octubre de 2026 en Buenos Aires? La respuesta es 45; tenés que llegar a ella sin cambiar la configuración de la sesión.",
+   "pista": "Escribí la zona en los literales: `'2026-10-31 00:00-03'`. Y recordá el rango medio abierto.",
+   "solucion": "select count(*) from bultos where ingresado_en >= '2026-10-31 00:00-03' and ingresado_en < '2026-11-01 00:00-03';\n\nSalida: 45. Con `::date = '2026-10-31'` en una sesión UTC da 54, porque ese día va de las 21:00 del 30 en hora argentina a las 21:00 del 31."
+  }
+ ],
+ "recap": [
+  "Sin ORDER BY el orden no está prometido, y con empates tampoco lo está dentro de un ORDER BY: se agrega siempre una columna única al final (`order by peso_kg desc, id`).",
+  "LIMIT corta la respuesta y OFFSET saltea filas. El offset tiene que calcular las filas que saltea: con 2 millones de filas, `offset` 1.990.000 tardó 200 ms, contra 0,019 ms de pedir «lo que sigue después del último id».",
+  "Las funciones de texto, número y fecha se usan en el SELECT y en el WHERE. Caracteres y bytes no son lo mismo, `lower` no saca tildes y el redondeo de `numeric` y el de coma flotante difieren en los empates.",
+  "NULL significa «sin valor» y cualquier comparación con NULL da desconocido, no falso. El WHERE deja pasar solo lo verdadero: `<>`, `not in` y `= null` pierden filas sin avisar.",
+  "Para el vacío se usa `is null`, `is distinct from` y COALESCE; CASE arma categorías y devuelve NULL si ninguna rama aplica.",
+  "Un timestamptz es un instante guardado en UTC y mostrado en la zona de la sesión. Los rangos con hora se escriben medio abiertos (`>= comienzo and < siguiente`), no con `between`."
+ ],
+ "repaso": [
+  {
+   "p": "Una lista de «los 5 sobres más pesados» se pide con `order by peso_kg desc limit 5`, y hay 17 sobres de exactamente 0,50 kg. ¿Qué pasa con esa consulta?",
+   "o": [
+    "La base devuelve siempre los cinco primeros que cargaron, porque en un empate respeta el orden de inserción original",
+    "La consulta falla con un error de ambigüedad, porque hay más de cinco filas que cumplen la condición del orden",
+    "La base elige cinco cualesquiera de los 17 empatados, y puede elegir otros cinco si cambia la forma en que están guardados",
+    "La base devuelve los 17 empatados, porque descartar alguno sería injusto con las filas que tienen el mismo valor"
+   ],
+   "c": 2,
+   "e": "SQL no promete ningún orden entre filas empatadas, y lo comprobamos: un `update` que no cambió valores alteró cuáles cinco salían primero. Para fijarlo hay que agregar una columna única al `order by`. No hay error de ambigüedad, `limit` corta aunque haya empate y la base no respeta el orden de inserción."
+  },
+  {
+   "p": "¿Por qué `limit 10 offset 1990000` tarda mucho más que `limit 10 offset 0` en una tabla de dos millones de filas, devolviendo la misma cantidad de filas?",
+   "o": [
+    "Porque la base tiene que producir y descartar las 1.990.000 filas anteriores antes de empezar a devolver",
+    "Porque `offset` obliga a ordenar de nuevo toda la tabla cada vez, sin importar que el orden ya viniera de un índice",
+    "Porque las filas del final son más pesadas en disco y tardan más en leerse, aunque haya solo diez para devolver",
+    "Porque `limit` solo es eficiente con valores de offset chicos, y a partir de cierto tamaño el motor cambia de algoritmo"
+   ],
+   "c": 0,
+   "e": "El offset no salta con un atajo: las filas se calculan y se tiran, y por eso en la medición `Index Scan` leyó 1.990.010 filas para devolver diez. No es un reordenamiento, no depende del peso de las filas del final y `limit` no cambia de algoritmo por el offset."
+  },
+  {
+   "p": "Querés los bultos cuyo chofer no es Ana, incluidos los que no tienen chofer. ¿Qué consulta lo logra?",
+   "o": [
+    "`where chofer <> 'Ana'`, porque los vacíos tampoco son Ana y la comparación los incluye automáticamente",
+    "`where chofer != 'Ana' and chofer = null`, que junta las dos condiciones en una sola consulta",
+    "`where not (chofer = 'Ana')`, porque negar la igualdad trae todo lo que no coincide, vacíos incluidos",
+    "`where chofer <> 'Ana' or chofer is null`, que suma explícitamente los bultos sin chofer"
+   ],
+   "c": 3,
+   "e": "Con NULL, `<>` y `not (… = …)` dan desconocido y el `where` descarta esas filas (devuelven 8.561 y faltan 1.742). `= null` nunca da verdadero. Solo `is null` o `is distinct from` incluyen los vacíos."
+  },
+  {
+   "p": "¿Qué devuelve `select count(*) from bultos where chofer not in ('Ana', 'Beto', null)`?",
+   "o": [
+    "El conteo de los bultos que no son de Ana ni de Beto, porque el NULL de la lista se ignora al comparar",
+    "Cero filas contadas, porque con un NULL en la lista el `not in` nunca llega a dar verdadero para ninguna fila",
+    "Un error de sintaxis, porque no se puede escribir NULL como un elemento más dentro de una lista de valores",
+    "El conteo de los bultos sin chofer, porque el NULL de la lista le avisa a la base que se quieren los vacíos"
+   ],
+   "c": 1,
+   "e": "`x not in (a, b, null)` equivale a `not (x = a or x = b or x = null)`: para cualquier x que no sea a ni b, queda `falso or falso or desconocido`, que es desconocido, y su negación también. Por eso ninguna fila pasa. No se ignora el NULL, no es error de sintaxis y los vacíos no se piden así."
+  },
+  {
+   "p": "Querés los bultos ingresados en octubre de 2026 y `ingresado_en` es un `timestamptz`. ¿Qué rango es el correcto?",
+   "o": [
+    "`ingresado_en between '2026-10-01' and '2026-10-31'`, porque `between` incluye los dos extremos del rango",
+    "`ingresado_en > '2026-10-01' and ingresado_en <= '2026-10-31'`, que excluye el comienzo y agrega el final",
+    "`ingresado_en >= '2026-10-01' and ingresado_en < '2026-11-01'`, que cubre octubre entero hasta justo antes del 1 de noviembre",
+    "`ingresado_en::date between '2026-10-01' and '2026-10-31'`, siempre, sin importar la zona horaria de la sesión"
+   ],
+   "c": 2,
+   "e": "Con horas, el `between` trata '2026-10-31' como las 00:00 de ese día y pierde las 24 horas siguientes (54 bultos). El rango medio abierto no depende de qué día sea el último. El `::date` sí funciona, pero cuenta según la zona de la sesión, que puede mover el día de un bulto cercano a la medianoche."
+  },
+  {
+   "p": "Un bulto se guardó con `ingresado_en` de 06:05 UTC. Alguien conectado con la zona de Buenos Aires hace `select ingresado_en` ¿qué ve?",
+   "o": [
+    "La misma hora 06:05, porque el valor guardado ya no se puede convertir, y la zona de la sesión solo afecta a `now()`",
+    "Un error, porque la zona de la sesión tiene que coincidir con la zona con la que se guardó el valor",
+    "Las 09:05, porque Buenos Aires está adelantada tres horas respecto de UTC y hay que sumarle esa diferencia",
+    "El mismo instante mostrado como 03:05 con -03: la base convierte al mostrar, pero el dato guardado no cambió"
+   ],
+   "c": 3,
+   "e": "Un `timestamptz` guarda un instante; la zona de la sesión decide cómo se muestra. Buenos Aires está tres horas atrás de UTC (−03), por eso 06:05 UTC son las 03:05 locales. La zona no afecta solo a `now()`, no hace falta que coincida y la diferencia se resta, no se suma."
+  }
+ ],
+ "feynman": "Explicale a alguien que usa una planilla de cálculo, sin jerga, por qué «los bultos que no son de Ana» puede dar menos que «todos menos los de Ana» cuando hay celdas vacías, y por qué «los de octubre» puede dar un número distinto según desde qué país se mire. Usá un ejemplo propio que no sea de bultos ni de choferes, y decí cómo harías para confiar en el número.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0904-pg16-queries-order",
+   "nota": "La sección oficial sobre ORDER BY y NULLS FIRST/LAST: confirma que sin orden explícito el resultado no está prometido y cómo se ordenan los vacíos."
+  },
+  {
+   "fuente": "bd0904-winand-no-offset",
+   "nota": "El artículo de Markus Winand sobre paginación por clave: explica con diagramas por qué el offset es costoso y cómo se escribe la alternativa; sirve para repasar la medición de hoy."
+  },
+  {
+   "fuente": "bd0904-pg16-datatype-datetime",
+   "nota": "La documentación de fecha y hora de PostgreSQL: leé la parte de zonas horarias para ver cómo se escriben, cómo se guardan los instantes y qué hace `at time zone`."
+  },
+  {
+   "fuente": "bd0904-pg16-functions-conditional",
+   "nota": "COALESCE, NULLIF, CASE y GREATEST en el manual oficial: son las herramientas para decidir qué hacer con los vacíos, con los ejemplos de Senda en la mano."
+  }
+ ],
+ "videos": [
+  {
+   "q": "SQL NULL three-valued logic explained IS NULL NOT IN trap",
+   "por_que": "Para ver otra explicación de la lógica de tres valores y de la trampa del `not in` con vacíos, con otros ejemplos."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "ORDER BY",
+   "d": "La cláusula que ordena el resultado de una consulta por una o más columnas, ascendente (por defecto) o descendente. Sin ella, SQL no promete ningún orden; con empates, conviene sumar una columna única al final."
+  },
+  {
+   "t": "LIMIT",
+   "d": "La cláusula que corta la respuesta en una cantidad máxima de filas. Con ORDER BY sirve para pedir «los cinco más pesados» o «el último»; sin ORDER BY devuelve un subconjunto impredecible."
+  },
+  {
+   "t": "OFFSET",
+   "d": "La cláusula que saltea las primeras filas de la respuesta; con LIMIT arma páginas. Las filas salteadas se calculan igual, así que un offset grande es costoso."
+  },
+  {
+   "t": "NULL",
+   "d": "El marcador de «no hay valor» (no se sabe, o no corresponde). No es cero ni texto vacío: cualquier comparación con NULL da desconocido, y se pregunta por él con `is null`."
+  },
+  {
+   "t": "lógica de tres valores",
+   "d": "La lógica de SQL, con tres resultados posibles para un predicado: verdadero, falso y desconocido (NULL). El WHERE deja pasar solo las filas donde da verdadero, por eso las filas con vacíos suelen caer sin avisar."
+  },
+  {
+   "t": "COALESCE",
+   "d": "Una función que recibe varios valores y devuelve el primero que no es NULL. Sirve para reemplazar un vacío por un valor de reemplazo, por ejemplo `coalesce(chofer, 'sin asignar')`."
+  },
+  {
+   "t": "CASE",
+   "d": "La expresión condicional de SQL: evalúa sus `when` en orden y devuelve el valor del primero que da verdadero, o el del `else`. Si ninguno da verdadero y no hay `else`, devuelve NULL."
+  }
+ ],
+ "siguiente": "Hasta ahora creaste tablas con un script sin entenderlo del todo; mañana vas a escribir vos esas sentencias: `create table`, `insert`, `update` y `delete`, y a ver qué pasa cuando cambiás datos de verdad.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0904-pg16-queries-order",
+   "t": "Sorting Rows (ORDER BY) (PostgreSQL 16)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/queries-order.html"
+  },
+  {
+   "id": "bd0904-pg16-queries-limit",
+   "t": "LIMIT and OFFSET (PostgreSQL 16)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/queries-limit.html"
+  },
+  {
+   "id": "bd0904-pg16-functions-math",
+   "t": "Mathematical Functions and Operators: round (PostgreSQL 16)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/functions-math.html"
+  },
+  {
+   "id": "bd0904-pg16-datatype-datetime",
+   "t": "Date/Time Types y zonas horarias (PostgreSQL 16)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/datatype-datetime.html"
+  },
+  {
+   "id": "bd0904-pg16-functions-conditional",
+   "t": "Conditional Expressions: CASE, COALESCE, GREATEST (PostgreSQL 16)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.postgresql.org/docs/16/functions-conditional.html"
+  },
+  {
+   "id": "bd0904-winand-no-offset",
+   "t": "We need tool support for keyset pagination",
+   "a": "Markus Winand",
+   "tipo": "articulo",
+   "anio": 2014,
+   "url": "https://use-the-index-luke.com/no-offset"
+  }
+ ]
+}

@@ -1,0 +1,739 @@
+{
+ "id": "09-15",
+ "titulo": "Normalización I: 1FN, 2FN y 3FN",
+ "bajada": "Por qué una planilla «todo en uno» se corrompe sola, qué es una dependencia funcional y cómo se parte una tabla en tres sin perder ni un dato, con la prueba corrida en PostgreSQL.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Demostrar con una tabla real las anomalías de actualización, de inserción y de borrado que produce un diseño «todo en uno».",
+  "Decidir si una columna depende de otra (dependencia funcional) a partir del significado de los datos y comprobar con una consulta que ningún dato la refuta.",
+  "Reconocer si una tabla cumple 1FN, 2FN y 3FN y qué síntoma da cada violación.",
+  "Normalizar una tabla paso a paso y verificar con SQL que el JOIN de las piezas reconstruye la original, fila por fila.",
+  "Aplicar el criterio a tablas de una app real (Senda) y distinguir una violación accidental de una decisión deliberada."
+ ],
+ "venis_de": "Ya sabés crear tablas con tipos y restricciones ([@09-06]), definir claves primarias y foráneas ([@09-07]), unir tablas con JOIN ([@09-09]) y dibujar un modelo entidad-relación ([@09-14]). Hoy se aprende a decidir qué columna va en qué tabla para que los datos no se contradigan.",
+ "se_apoya_en": [
+  "09-02",
+  "09-05",
+  "09-06",
+  "09-07",
+  "09-09",
+  "09-14"
+ ],
+ "gancho": [
+  "Lunes a la mañana, mostrador de un operador logístico. Marcela recibe un llamado: la Panificadora La Espiga cambió de teléfono. Abre la planilla de envíos, busca uno de los bultos de ese cliente y corrige el número en esa fila. Listo. A la tarde, Rubén, el chofer, filtra otro bulto de la misma panificadora, ve el número viejo, llama y le atiende una persona que nunca escuchó hablar del paquete.",
+  "Nadie se equivocó con mala intención. El error está en el diseño: el teléfono de un cliente está escrito en cada una de sus filas, así que hay tantas «verdades» como filas. Hoy vas a ver ese problema funcionando, con 3.000 bultos inventados en PostgreSQL, y vas a aprender la herramienta que lo evita: la normalización. Al final del día vas a poder mirar cualquier tabla y decir qué columna está en el lugar equivocado y por qué."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "La planilla «todo en uno»"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si venís de logística, esta planilla te va a resultar familiar: una fila por bulto, y en esa misma fila todo lo que alguien pudo necesitar. El bulto, la fecha, el cliente con su nombre y su teléfono, el depósito de salida con su nombre y su zona, el estado y el peso. Es cómoda: una sola tabla, una sola consulta, ningún [[JOIN|INNER JOIN]].",
+    "Para verla en tu pantalla, armá la tabla con el script de abajo. Los datos son **inventados**: 20 clientes, 5 depósitos y 3.000 bultos, con semilla fija para que salgan los mismos números. Todo el SQL de hoy lo corrí en PostgreSQL 16.15, la versión que trae Ubuntu 24.04 (más abajo, en la nota de vigencia, está el estado de las versiones al 13-11-2026)."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table planilla (\n  bulto_id        int primary key,\n  fecha           date not null,\n  cliente_id      int  not null,\n  cliente_nombre  text not null,\n  cliente_tel     text not null,\n  deposito_id     int  not null,\n  deposito_nombre text not null,\n  deposito_zona   text not null,\n  estado          text not null,\n  peso_kg         numeric(6,2) not null\n);\n\nselect setseed(0.42);\nwith\ncli(id, nombre) as (values\n  (1,'Ferretería Don Aníbal'),(2,'Librería El Faro'),(3,'Pinturas Quilmes Sur'),(4,'Farmacia Sarmiento'),\n  (5,'Electro Boedo'),(6,'Vivero Los Aromos'),(7,'Panificadora La Espiga'),(8,'Bicicletería Palermo'),\n  (9,'Repuestos Lanús'),(10,'Tienda Mundo Bebé'),(11,'Óptica Rivadavia'),(12,'Mueblería Haedo'),\n  (13,'Juguetería Arco Iris'),(14,'Cerrajería Almagro'),(15,'Tintorería Belgrano'),(16,'Insumos Ñandú'),\n  (17,'Deportes San Telmo'),(18,'Casa de Té Caballito'),(19,'Autopartes Sáenz Peña'),(20,'Papelera Villa Crespo')),\ndep(id, nombre, zona) as (values\n  (1,'Dock Norte','Norte'),(2,'Dock Sur','Sur'),(3,'Dock Oeste','Oeste'),\n  (4,'Central Avellaneda','Sur'),(5,'Satélite Pilar','Norte')),\ngen as (\n  select g as bulto_id,\n         date '2026-09-01' + (random()*60)::int as fecha,\n         1 + (random()*19)::int as cliente_id,\n         1 + (random()*4)::int  as deposito_id,\n         (array['entregado','entregado','entregado','en_camino','devuelto'])[1+(random()*4)::int] as estado,\n         round((0.5 + random()*30)::numeric, 2) as peso_kg\n  from generate_series(1, 3000) g)\ninsert into planilla\nselect gen.bulto_id, gen.fecha, gen.cliente_id, cli.nombre,\n       '11-4' || lpad((cli.id*137 % 1000)::text,3,'0') || '-' || lpad((cli.id*7919 % 10000)::text,4,'0'),\n       gen.deposito_id, dep.nombre, dep.zona, gen.estado, gen.peso_kg\nfrom gen join cli on cli.id = gen.cliente_id join dep on dep.id = gen.deposito_id;",
+   "cap": "Planilla «todo en uno» con datos inventados. Cada bulto repite el nombre y el teléfono de su cliente y el nombre y la zona de su depósito."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select * from planilla order by bulto_id limit 3;",
+     "s": " bulto_id |   fecha    | cliente_id |     cliente_nombre     | cliente_tel  | deposito_id |  deposito_nombre   | deposito_zona |  estado   | peso_kg \n----------+------------+------------+------------------------+--------------+-------------+--------------------+---------------+-----------+---------\n        1 | 2026-10-16 |          8 | Bicicletería Palermo   | 11-4096-3352 |           5 | Satélite Pilar     | Norte         | entregado |    3.33\n        2 | 2026-09-14 |         10 | Tienda Mundo Bebé      | 11-4370-9190 |           3 | Dock Oeste         | Oeste         | entregado |   23.12\n        3 | 2026-10-05 |         19 | Autopartes Sáenz Peña  | 11-4603-0461 |           4 | Central Avellaneda | Sur           | en_camino |    4.42"
+    }
+   ],
+   "cap": "Las primeras filas de la planilla. Corrido en esta VM con PostgreSQL 16.15."
+  },
+  {
+   "t": "h",
+   "x": "Tres formas de romper una tabla sin que nadie avise"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un cliente como la Panificadora La Espiga (el cliente 7) aparece en 162 de los 3.000 bultos. Su teléfono está escrito 162 veces. Veamos qué pasa cuando alguien hace lo que hizo Marcela: corregir el teléfono en **una** fila. La base de datos no se queja, porque no hay ninguna regla que le diga que esas 162 filas tienen que coincidir."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "update planilla set cliente_tel = '11-5555-0000' where bulto_id = 4;",
+     "s": "UPDATE 1"
+    },
+    {
+     "c": "select cliente_tel, count(*) from planilla where cliente_id = 7 group by 1 order by 2 desc;",
+     "s": "  cliente_tel  | count \n--------------+-------\n 11-4959-5433 |   161\n 11-5555-0000 |     1"
+    },
+    {
+     "c": "select cliente_id, count(distinct cliente_tel) as telefonos, count(*) as filas from planilla group by cliente_id having count(distinct cliente_tel) > 1;",
+     "s": " cliente_id | telefonos | filas \n------------+-----------+-------\n          7 |         2 |   162"
+    }
+   ],
+   "cap": "El cliente 7 quedó con dos teléfonos. Corrido en esta VM."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Eso es una **[[anomalía de actualización|anomalía de actualización]]**: un mismo hecho (el teléfono del cliente 7) está guardado en muchos lugares, se modifica en algunos y los datos quedan contradictorios. Hay otras dos anomalías hermanas, y las tres tienen la misma causa."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Anomalía de inserción.** Querés dar de alta un depósito nuevo, «Dock Nuevo», que todavía no despachó nada. Pero en la planilla, un depósito solo existe como columnas de alguna fila de bulto, y un bulto exige su `bulto_id`. Probalo:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "insert into planilla (bulto_id, fecha, cliente_id, cliente_nombre, cliente_tel, deposito_id, deposito_nombre, deposito_zona, estado, peso_kg) values (null, current_date, null, null, null, 6, 'Dock Nuevo', 'Oeste', null, null);",
+     "s": "ERROR:  null value in column \"bulto_id\" of relation \"planilla\" violates not-null constraint\nDETAIL:  Failing row contains (null, 2026-11-13, null, null, null, 6, Dock Nuevo, Oeste, null, null)."
+    }
+   ],
+   "cap": "No hay dónde anotar un depósito sin inventar un bulto falso."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Anomalía de borrado.** Un cliente nuevo, el Taller Mecánico Dock Sud, mandó un único bulto, y ese bulto se cancela y se borra. Con él desaparece lo único que sabíamos del cliente: el nombre y el teléfono. Se perdió un dato que nadie quería borrar."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "insert into planilla values (9001, '2026-11-02', 21, 'Taller Mecánico Dock Sud', '11-4777-1234', 4, 'Central Avellaneda', 'Sur', 'en_camino', 12.50);",
+     "s": "INSERT 0 1"
+    },
+    {
+     "c": "delete from planilla where bulto_id = 9001;",
+     "s": "DELETE 1"
+    },
+    {
+     "c": "select cliente_id, cliente_nombre from planilla where cliente_id = 21;",
+     "s": " cliente_id | cliente_nombre \n------------+----------------\n(0 rows)"
+    }
+   ],
+   "cap": "El cliente 21 existía solo como columnas de su único bulto."
+  },
+  {
+   "t": "pensa",
+   "x": "Alguien propone: «No hace falta rediseñar nada. Cada vez que cambie un teléfono, el programa hace `update ... where cliente_id = 7` y listo». ¿Por qué esa solución es frágil, aunque funcione hoy?",
+   "resp": "Porque la consistencia queda en manos de la disciplina de cada programa que escribe en la tabla: la app, un script de importación, una persona con acceso a la base. Alcanza con que uno solo se olvide o falle a mitad de camino para que haya dos teléfonos. Un buen diseño hace que la contradicción sea imposible, no que sea improbable. Y esa solución tampoco arregla las anomalías de inserción y de borrado."
+  },
+  {
+   "t": "h",
+   "x": "Dependencia funcional: la idea que ordena todo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las tres anomalías vienen de lo mismo: la tabla mezcla hechos sobre cosas distintas. El teléfono es un hecho sobre el **cliente**, la zona es un hecho sobre el **depósito**, el peso es un hecho sobre el **bulto**. Para decirlo con precisión hace falta una herramienta: la **[[dependencia funcional|dependencia funcional]]**.",
+    "Decimos que la columna A **determina** a la columna B (se escribe `A → B`) cuando, para cada valor de A, existe exactamente un valor de B. Si te digo «cliente 7», hay un único nombre y un único teléfono que corresponden. Si te digo «depósito 3», hay una única zona. En cambio, si te digo «cliente 7», no hay un único depósito: ese cliente despacha desde varios. Entonces `cliente_id → cliente_tel` es una dependencia funcional, y `cliente_id → deposito_id` no lo es.",
+    "Esto es lo que los logísticos ya conocen con otro nombre: el **maestro de clientes** y el **maestro de artículos** frente a los **movimientos**. En el maestro de artículos, el código determina la descripción, y nadie reescribe la descripción en cada remito. La normalización consiste, en gran parte, en separar los maestros de los movimientos."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El código de artículo y su descripción",
+   "x": "Pensá en la planilla del depósito donde cada línea de movimiento repite la descripción completa del artículo. Si cambia el nombre comercial, tendrías que corregirlo en miles de líneas. Por eso existe el maestro: la descripción vive en un solo lugar y los movimientos solo guardan el código. La analogía se queda corta en un punto: en un sistema real, a veces el movimiento **sí** guarda una copia a propósito (el remito conserva la dirección que tenía el cliente el día del envío). Eso se llama copiar deliberadamente y lo vemos mañana, en [@09-16]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "¿Cómo se comprueba una dependencia? Con una consulta que busque el contraejemplo: valores de A que aparezcan con más de un valor de B. Si no devuelve filas, ninguna fila refuta la dependencia."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- ¿cliente_id determina nombre y teléfono?\nselect cliente_id from planilla group by cliente_id having count(distinct cliente_nombre) > 1 or count(distinct cliente_tel) > 1;",
+     "s": " cliente_id \n------------\n(0 rows)"
+    },
+    {
+     "c": "-- ¿cliente_id determina el depósito?\nselect cliente_id, count(distinct deposito_id) as depositos_distintos from planilla group by cliente_id order by cliente_id limit 3;",
+     "s": " cliente_id | depositos_distintos \n------------+---------------------\n          1 |                   5\n          2 |                   5\n          3 |                   5"
+    },
+    {
+     "c": "-- ¿la zona determina el depósito?\nselect deposito_zona, count(distinct deposito_id) from planilla group by 1 order by 1;",
+     "s": " deposito_zona | count \n---------------+-------\n Norte         |     2\n Oeste         |     1\n Sur           |     2"
+    }
+   ],
+   "cap": "Tres comprobaciones. Estoy corriendo estas consultas sobre la planilla reiniciada, antes de la actualización a mano de recién."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La tercera consulta muestra que la dependencia tiene **dirección**: el depósito determina su zona, pero la zona no determina el depósito (la zona Sur tiene dos: Dock Sur y Central Avellaneda). `A → B` no implica `B → A`."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Los datos pueden refutar una dependencia, pero no probarla",
+   "x": "Que una consulta no encuentre contraejemplos no demuestra nada sobre el futuro: tal vez hoy todos los clientes tienen un único depósito y mañana no. La dependencia funcional es una **regla del negocio**, y se decide por el significado de los datos. Un ejemplo clásico: ¿la ciudad determina el país? Con tus datos de hoy tal vez sí. Pero «Córdoba» existe en Argentina y en España. La consulta dice qué pasa en tus filas; el significado dice qué puede pasar."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para jugar con esta idea sin abrir una base, acá va una función de JavaScript que hace lo mismo que la consulta: dado un conjunto de filas, busca los valores de A que tienen más de un valor de B. Modificá las filas y mirá qué dependencias sobreviven."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "const filas = [\n  { bulto: 1, cliente: 7, tel: \"11-4959-5433\", deposito: \"Dock Norte\" },\n  { bulto: 2, cliente: 7, tel: \"11-4959-5433\", deposito: \"Dock Sur\" },\n  { bulto: 3, cliente: 7, tel: \"11-5555-0000\", deposito: \"Dock Norte\" },\n  { bulto: 4, cliente: 3, tel: \"11-4411-7482\", deposito: \"Dock Sur\" },\n  { bulto: 5, cliente: 3, tel: \"11-4411-7482\", deposito: \"Dock Sur\" },\n];\n\n// ¿X determina Y? Devuelve los valores de X que tienen más de un valor de Y.\nfunction refutaciones(filas, X, Y) {\n  const vistos = new Map();\n  for (const f of filas) {\n    const k = X.map((c) => f[c]).join(\"|\");\n    if (!vistos.has(k)) vistos.set(k, new Set());\n    vistos.get(k).add(Y.map((c) => f[c]).join(\"|\"));\n  }\n  return [...vistos].filter(([, ys]) => ys.size > 1).map(([k, ys]) => `${k} -> ${[...ys].join(\" / \")}`);\n}\n\nfor (const [X, Y] of [[[\"cliente\"], [\"tel\"]], [[\"cliente\"], [\"deposito\"]], [[\"bulto\"], [\"cliente\", \"tel\"]]]) {\n  const r = refutaciones(filas, X, Y);\n  console.log(`${X.join(\"+\")} -> ${Y.join(\"+\")}:`, r.length ? \"REFUTADA por \" + r.join(\"; \") : \"ninguna fila la refuta\");\n}",
+   "cap": "Detector de dependencias funcionales sobre cinco filas inventadas. La del cliente 7 con dos teléfonos hace caer la primera."
+  },
+  {
+   "t": "pensa",
+   "x": "En la planilla hay una columna `deposito_zona`. ¿Qué columna la determina? ¿Y la zona determina al bulto, o al peso?",
+   "resp": "La determina `deposito_id` (cada depósito tiene una única zona), y también `deposito_nombre` mientras no haya dos depósitos con el mismo nombre. La zona no determina el bulto ni el peso: en la zona Sur hay cientos de bultos con pesos distintos. Fijate que la zona es un hecho sobre el depósito, no sobre el bulto."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Falta una pieza: ¿qué es la clave de la tabla en estos términos? Una **[[clave candidata]]** es un conjunto mínimo de columnas que determina todas las demás. En la planilla, `bulto_id` lo hace: dado un bulto, queda fijado todo lo demás. Una de las candidatas se elige como [[clave primaria]]. Una columna que no forma parte de ninguna clave candidata es una columna **no clave**, y las formas normales se tratan de cómo se relacionan las columnas no clave con las claves."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Las formas normales: una escalera de reglas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una **[[forma normal|forma normal]]** es un conjunto de reglas que una tabla cumple o no cumple, definidas en términos de dependencias funcionales. Están ordenadas: cada una incluye a la anterior. Una tabla en 3FN está también en 2FN y en 1FN; una tabla que viola la 1FN no puede estar en ninguna de las otras.",
+    "La primera la propuso Codd en su artículo de 1970 sobre el modelo relacional [#codd-1970]; la segunda y la tercera son de sus trabajos de 1971 y 1972, según la bibliografía de William Kent [#bd0915-kent-five-normal-forms]. Kent, en 1983, las resumió en una frase que se volvió clásica para recordarlas, y que parafraseo: cada columna no clave tiene que ser un hecho sobre **la clave, toda la clave y nada más que la clave**. Las tres partes de esa frase son, en orden, 1FN, 2FN y 3FN. Vamos una por una, siempre con tablas que vas a poder correr."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "1FN: una celda, un valor"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Primera forma normal: todas las filas tienen la misma cantidad de columnas y **cada celda contiene un solo valor**, sin listas ni grupos que se repiten. Es la regla de la forma, no de las dependencias.",
+    "Un caso típico en logística: la planilla de rutas, donde alguien anota en una celda todos los bultos que lleva el chofer, separados por comas. Armé una con 24 bultos repartidos en 6 rutas:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select * from rutas_planilla order by ruta;",
+     "s": " ruta |   bultos   \n------+------------\n    1 | 6,12,18,24\n    2 | 1,7,13,19\n    3 | 2,8,14,20\n    4 | 3,9,15,21\n    5 | 4,10,16,22\n    6 | 5,11,17,23"
+    },
+    {
+     "c": "-- ¿en qué ruta viaja el bulto 4?\nselect ruta, bultos from rutas_planilla where bultos like '%4%' order by ruta;",
+     "s": " ruta |   bultos   \n------+------------\n    1 | 6,12,18,24\n    3 | 2,8,14,20\n    5 | 4,10,16,22"
+    }
+   ],
+   "cap": "La búsqueda `like '%4%'` devuelve tres rutas: encuentra el 24 y el 14 además del 4."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La base de datos no sabe que esa celda es una lista: para ella es un texto. Buscar un bulto es adivinar con patrones, contar los bultos de una ruta obliga a partir el texto, y no hay forma de decir que un bulto no puede estar en dos rutas ni de apuntar con una [[clave foránea]] al bulto 4. La solución es una fila por cada par ruta-bulto:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create table ruta_bultos as select 1 + (bulto_id % 6) as ruta, bulto_id from planilla where bulto_id <= 24;\nalter table ruta_bultos add primary key (bulto_id);\nselect ruta, bulto_id from ruta_bultos where bulto_id = 4;",
+     "s": " ruta | bulto_id \n------+----------\n    5 |        4\n(1 row)"
+    },
+    {
+     "c": "select ruta, count(*) as bultos from ruta_bultos group by ruta order by ruta;",
+     "s": " ruta | bultos \n------+--------\n    1 |      4\n    2 |      4\n    3 |      4\n    4 |      4\n    5 |      4\n    6 |      4"
+    }
+   ],
+   "cap": "Una fila por bulto. La clave primaria sobre `bulto_id` garantiza que un bulto viaja en una sola ruta."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "«Un valor» depende de lo que vayas a preguntar",
+   "x": "Una fecha se puede partir en día, mes y año, y nadie la considera una violación de 1FN, porque la tratás como una unidad. Un valor es **atómico** si nunca necesitás buscar, filtrar, contar ni unir por una parte suya. PostgreSQL permite columnas de tipo arreglo (`text[]`) y `jsonb`, y son legales. La regla práctica: si vas a consultar por cada elemento de la lista, o a exigir reglas sobre cada uno, convertilo en filas. Lo mismo vale para las columnas repetidas como `parada1`, `parada2`, `parada3`: es la misma lista disfrazada, con un tope fijo y una pesadilla cuando aparece la cuarta parada."
+  },
+  {
+   "t": "h3",
+   "x": "2FN: toda la clave"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Segunda forma normal: la tabla está en 1FN y **ninguna columna no clave depende de una parte de la clave**. La regla solo tiene sentido cuando la clave tiene **más de una columna** (una clave compuesta). Si la clave es una sola columna, no existe «una parte de la clave», y la 2FN se cumple sola. La planilla de bultos, con su `bulto_id`, ya está en 2FN. Para ver una violación hace falta otra tabla: lo que viaja dentro de cada bulto.",
+    "Cada fila dice «en el bulto B viajan C unidades del artículo S». La clave es la pareja `(bulto_id, sku)`: el mismo bulto contiene varios artículos, y el mismo artículo viaja en varios bultos. Y como la descripción del artículo y su peso unitario están en la misma fila, la tabla repite esos datos cada vez:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table contenido_plano (\n  bulto_id        int  not null,\n  sku             text not null,\n  cantidad        int  not null,\n  sku_descripcion text not null,\n  sku_peso_g      int  not null,\n  primary key (bulto_id, sku)\n);\n\nselect setseed(0.42);\nwith prod(sku, descr, peso_g) as (values\n  ('TOR-M8','Tornillo M8 caja x100',850),('LAM-LED','Lámpara LED 9 W',90),('CAB-USB','Cable USB-C 1 m',45),\n  ('PIL-AA','Pila AA pack x4',100),('CIN-EMB','Cinta de embalar',260),('GUA-NIT','Guantes de nitrilo x50',420)),\nsel as (\n  select b.bulto_id, p.sku, p.descr, p.peso_g, 1 + (random()*9)::int as cantidad\n  from generate_series(1, 400) b(bulto_id)\n  cross join prod p\n  where random() < 0.5)\ninsert into contenido_plano select bulto_id, sku, cantidad, descr, peso_g from sel;",
+   "cap": "Contenido de los primeros 400 bultos: cada bulto lleva cerca de la mitad de los 6 artículos. Datos inventados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Qué depende de qué: `cantidad` depende de la pareja completa (cuántas unidades de ese artículo en ese bulto). Pero `sku_descripcion` y `sku_peso_g` dependen **solo de `sku`**, que es una parte de la clave. Es una dependencia parcial. El síntoma es el mismo que ya conocés:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select count(*) as filas, count(distinct bulto_id) as bultos, count(distinct sku) as skus from contenido_plano;",
+     "s": " filas | bultos | skus \n-------+--------+------\n  1200 |    395 |    6"
+    },
+    {
+     "c": "select count(*) as filas_con_LAM_LED from contenido_plano where sku = 'LAM-LED';",
+     "s": " filas_con_lam_led \n-------------------\n               187"
+    },
+    {
+     "c": "-- alguien corrige la descripción, pero solo en los primeros 100 bultos\nupdate contenido_plano set sku_descripcion = 'Lámpara LED 9 W cálida' where sku = 'LAM-LED' and bulto_id <= 100;\nselect sku_descripcion, count(*) from contenido_plano where sku = 'LAM-LED' group by 1 order by 2 desc;",
+     "s": "    sku_descripcion     | count \n------------------------+-------\n Lámpara LED 9 W        |   146\n Lámpara LED 9 W cálida |    41"
+    }
+   ],
+   "cap": "Para corregir una descripción hay que tocar 187 filas. Si se corrige en parte, el mismo artículo tiene dos descripciones."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La corrección es sacar lo que depende de una parte de la clave y llevarlo a su propia tabla, con esa parte como clave: un maestro de productos."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create table productos as select distinct sku, sku_descripcion as descripcion, sku_peso_g as peso_g from contenido_plano;\nalter table productos add primary key (sku);\ncreate table contenido as select bulto_id, sku, cantidad from contenido_plano;\nalter table contenido add primary key (bulto_id, sku), add foreign key (sku) references productos (sku);\nselect count(*) from contenido;\nupdate productos set descripcion = 'Lámpara LED 9 W cálida' where sku = 'LAM-LED';",
+     "s": " count \n-------\n  1200\n\nUPDATE 1"
+    }
+   ],
+   "cap": "Antes de este paso restablecí la descripción original en las 187 filas. Los 1.200 renglones de contenido no se perdieron, y ahora cambiar la descripción es una sola fila."
+  },
+  {
+   "t": "pensa",
+   "x": "La planilla de bultos de la primera sección tiene la clave `bulto_id` y columnas como `cliente_tel` y `deposito_zona`. ¿Está en 2FN?",
+   "resp": "Sí, y de manera trivial: la clave tiene una sola columna, así que ninguna columna puede depender de «una parte» de ella. Que esté en 2FN no la salva. Sigue teniendo las tres anomalías del principio, porque le falta la tercera regla."
+  },
+  {
+   "t": "h3",
+   "x": "3FN: nada más que la clave"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tercera forma normal: la tabla está en 2FN y **ninguna columna no clave depende de otra columna no clave**. Es lo que se llama una dependencia transitiva: la clave determina a B, B determina a C, y por lo tanto la clave determina a C, pero «por el camino de B».",
+    "En la planilla de bultos hay dos de esas cadenas, y se ven dibujando todas las dependencias:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dependencia",
+    "Qué significa",
+    "¿Problema?"
+   ],
+   "filas": [
+    [
+     "`bulto_id → fecha, estado, peso_kg, cliente_id, deposito_id`",
+     "Dado un bulto, queda fijado todo lo que le pasa a él",
+     "No: son hechos sobre el bulto"
+    ],
+    [
+     "`cliente_id → cliente_nombre, cliente_tel`",
+     "Dado un cliente, quedan fijados su nombre y teléfono",
+     "Sí: son hechos sobre el cliente, no sobre el bulto"
+    ],
+    [
+     "`deposito_id → deposito_nombre, deposito_zona`",
+     "Dado un depósito, quedan fijados su nombre y zona",
+     "Sí: son hechos sobre el depósito, no sobre el bulto"
+    ]
+   ],
+   "cap": "Cadenas transitivas de la planilla: `bulto_id → cliente_id → cliente_tel` y `bulto_id → deposito_id → deposito_zona`."
+  },
+  {
+   "t": "pensa",
+   "x": "Mirá la columna `cliente_tel`. ¿Es un hecho sobre el bulto, o sobre el cliente? ¿Y si cambia de bulto pero el cliente es el mismo?",
+   "resp": "Es un hecho sobre el cliente: no cambia aunque cambie el bulto. Por eso mismo aparece repetido 162 veces para el cliente 7. Cada vez que una columna no clave se repite en filas distintas «porque pertenece a otra cosa», estás frente a una dependencia transitiva."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El arreglo es el mismo que en 2FN: cada hecho se va a la tabla de la cosa a la que pertenece, y en la tabla original queda solo la clave de esa cosa, que funciona como [[clave foránea]]. La planilla se parte en tres:"
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "planilla",
+       "s": "3.000 filas, 10 columnas",
+       "k": "alerta"
+      }
+     ],
+     "baja": "se separan los hechos según de quién son"
+    },
+    {
+     "nodos": [
+      {
+       "t": "clientes",
+       "s": "cliente_id (PK), nombre, tel",
+       "k": "servidor",
+       "e": "hechos del cliente"
+      },
+      {
+       "t": "bultos",
+       "s": "bulto_id (PK), fecha, estado, peso_kg, cliente_id (FK), deposito_id (FK)",
+       "k": "cliente",
+       "e": "hechos del bulto"
+      },
+      {
+       "t": "depositos",
+       "s": "deposito_id (PK), nombre, zona",
+       "k": "datos",
+       "e": "hechos del depósito"
+      }
+     ]
+    }
+   ],
+   "cap": "De la planilla «todo en uno» a tres tablas en 3FN. `bultos` apunta con claves foráneas a las otras dos."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table clientes  (cliente_id int primary key, nombre text not null, tel text not null);\ncreate table depositos (deposito_id int primary key, nombre text not null, zona text not null);\ncreate table bultos (\n  bulto_id    int primary key,\n  fecha       date not null,\n  cliente_id  int not null references clientes (cliente_id),\n  deposito_id int not null references depositos (deposito_id),\n  estado      text not null,\n  peso_kg     numeric(6,2) not null\n);\ninsert into clientes  select distinct cliente_id, cliente_nombre, cliente_tel from planilla;\ninsert into depositos select distinct deposito_id, deposito_nombre, deposito_zona from planilla;\ninsert into bultos    select bulto_id, fecha, cliente_id, deposito_id, estado, peso_kg from planilla;",
+   "cap": "La normalización como tres tablas y tres `insert ... select`. Hay que crear primero las tablas referenciadas."
+  },
+  {
+   "t": "h",
+   "x": "La prueba de que no perdiste nada"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Partir una tabla da miedo por una razón concreta: ¿y si en el camino se pierde información o aparecen filas que no existían? Se verifica con una operación de conjuntos. Reconstruimos la planilla con [[INNER JOIN|JOIN]] y la comparamos con la original, en los dos sentidos, con `EXCEPT`: lo que sobra y lo que falta tienen que dar cero."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "with rec as (\n  select b.bulto_id, b.fecha, c.cliente_id, c.nombre as cliente_nombre, c.tel as cliente_tel,\n         d.deposito_id, d.nombre as deposito_nombre, d.zona as deposito_zona, b.estado, b.peso_kg\n  from bultos b join clientes c using (cliente_id) join depositos d using (deposito_id))\nselect 'sobra' as lado, count(*) from (select * from rec except select * from planilla) x\nunion all\nselect 'falta', count(*) from (select * from planilla except select * from rec) y;",
+     "s": " lado  | count \n-------+-------\n sobra |     0\n falta |     0"
+    }
+   ],
+   "cap": "El JOIN de las tres tablas reproduce exactamente las 3.000 filas originales. Una descomposición con esta propiedad se llama sin pérdida."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora repetimos las tres anomalías sobre el diseño nuevo. El teléfono se cambia en un único renglón y queda cambiado para los 162 bultos. El depósito nuevo se da de alta sin ningún bulto. El cliente 21 sobrevive aunque se borre su único bulto. Y la base de datos, gracias a las claves foráneas ([@09-07]), impide los huérfanos:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "update clientes set tel = '11-5555-0000' where cliente_id = 7;\nselect c.tel, count(*) from bultos b join clientes c using (cliente_id) where c.cliente_id = 7 group by 1;",
+     "s": "     tel      | count \n--------------+-------\n 11-5555-0000 |   162"
+    },
+    {
+     "c": "insert into depositos values (6, 'Dock Nuevo', 'Oeste');\nselect * from depositos order by deposito_id desc limit 2;",
+     "s": " deposito_id |     nombre     | zona  \n-------------+----------------+-------\n           6 | Dock Nuevo     | Oeste\n           5 | Satélite Pilar | Norte"
+    },
+    {
+     "c": "insert into bultos values (9002, '2026-11-02', 99, 4, 'en_camino', 3.00);",
+     "s": "ERROR:  insert or update on table \"bultos\" violates foreign key constraint \"bultos_cliente_id_fkey\"\nDETAIL:  Key (cliente_id)=(99) is not present in table \"clientes\"."
+    },
+    {
+     "c": "delete from depositos where deposito_id = 1;",
+     "s": "ERROR:  update or delete on table \"depositos\" violates foreign key constraint \"bultos_deposito_id_fkey\" on table \"bultos\"\nDETAIL:  Key (deposito_id)=(1) is still referenced from table \"bultos\"."
+    }
+   ],
+   "cap": "Las anomalías desaparecieron, y el motor protege las referencias."
+  },
+  {
+   "t": "h",
+   "x": "Qué ganaste, qué pagaste y cómo se hace paso a paso"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ganaste que cada hecho vive en un solo lugar: un teléfono, una zona, una descripción. La contradicción pasó de «posible y silenciosa» a «imposible». También ganaste espacio: en esta VM, la planilla ocupó 472 kB y las tres tablas juntas 384 kB (medido con `pg_total_relation_size`, incluye índices). Con 3.000 filas es una anécdota; con 300 millones de bultos serían decenas de gigabytes de textos repetidos.",
+    "Lo que pagaste: para leer un bulto con el nombre de su cliente ahora hace falta un JOIN. El motor lo resuelve bien con claves e índices, y en la mayoría de los sistemas el costo es despreciable. Pero no es cero, y hay casos donde importa. Kent lo dice sin vueltas en la introducción de su guía: no existe obligación de normalizar completamente todos los registros cuando se consideran los requisitos reales de rendimiento [#bd0915-kent-five-normal-forms]. De eso trata el día siguiente."
+   ]
+  },
+  {
+   "t": "pasos",
+   "titulo": "Receta para normalizar una tabla",
+   "pasos": [
+    {
+     "t": "Escribí qué significa cada fila y cuál es su clave",
+     "x": "Una frase: «cada fila es un bulto». Si no podés decirlo en una frase, la tabla mezcla cosas."
+    },
+    {
+     "t": "Anotá las dependencias funcionales por significado",
+     "x": "Para cada columna, preguntate de qué cosa es un hecho. Después comprobá con una consulta de contraejemplos que los datos actuales no las contradicen."
+    },
+    {
+     "t": "Revisá 1FN",
+     "x": "Buscá celdas con listas y columnas numeradas (`parada1`, `parada2`). Pasalas a filas."
+    },
+    {
+     "t": "Revisá 2FN y 3FN",
+     "x": "Con clave compuesta, buscá columnas que dependan de una sola parte. Con cualquier clave, buscá columnas no clave que dependan de otra no clave. Cada grupo se muda a su tabla."
+    },
+    {
+     "t": "Verificá que sea sin pérdida",
+     "x": "Reconstruí con JOIN y compará con `EXCEPT` en los dos sentidos. Después agregá las claves foráneas, que son las que sostienen la consistencia."
+    }
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Forma",
+    "Pregunta de control",
+    "Síntoma si se viola",
+    "Arreglo"
+   ],
+   "filas": [
+    [
+     "1FN",
+     "¿Cada celda tiene un solo valor y no hay columnas repetidas?",
+     "No se puede buscar ni contar por elemento (`like '%4%'` trae rutas de más)",
+     "Una fila por elemento"
+    ],
+    [
+     "2FN",
+     "¿Alguna columna depende de solo una parte de la clave compuesta?",
+     "El dato del artículo se repite en cada bulto; correcciones a medias",
+     "Tabla propia con esa parte como clave"
+    ],
+    [
+     "3FN",
+     "¿Alguna columna no clave depende de otra columna no clave?",
+     "Teléfono del cliente repetido en cada bulto; anomalías de inserción y borrado",
+     "Tabla propia con la columna determinante como clave"
+    ]
+   ],
+   "cap": "Las tres formas en una tabla. La 2FN solo aparece con claves compuestas."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Cuatro errores comunes",
+   "x": [
+    "**Confundir «valor repetido» con «redundancia».** El estado `entregado` aparece 1.800 veces y está bien: es un hecho sobre cada bulto, que casualmente coincide. Hay redundancia cuando el mismo hecho sobre la misma cosa está escrito en dos lugares.",
+    "**Decidir por los datos y no por el significado.** Si hoy cada código postal tiene una sola localidad, no significa que siempre sea así.",
+    "**Elegir un nombre como clave.** Si `cliente_nombre` fuera la clave, renombrar al cliente rompería todas las referencias. Las claves buenas son estables y no significan nada, como `cliente_id`.",
+    "**Creer que 3FN es el final.** Existen formas más estrictas, que mañana se ven en [@09-16], y casos donde conviene quedarse un escalón más abajo."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cómo se ve en una app real: Senda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una advertencia: este bloque sale de leer las migraciones de Senda, que es el código que define las tablas de su base en Supabase, y no de mirar los datos en producción. Todo corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Cuatro tablas de Senda frente a las formas normales",
+   "x": [
+    "**`miembros` es un buen ejemplo de 2FN.** Su clave es la pareja `(grupo, usuario)`, y las otras columnas, `rol` y `desde`, son hechos sobre esa pareja (qué rol tiene ese usuario en ese grupo y desde cuándo). Ninguna depende solo del grupo o solo del usuario. Los datos del grupo viven en `grupos`, y los del usuario no están copiados: se enlazan por clave foránea.",
+    "**`partidas` viola 1FN en sentido estricto, y es una decisión razonable.** Tiene `jugador_a` y `jugador_b`, columnas con sufijo, y `piezas_a` y `piezas_b`, arreglos de texto. Un duelo siempre tiene dos jugadores, y las funciones que leí en las migraciones leen y escriben cada arreglo completo, sin buscar piezas sueltas. Si en algún momento hubiera que preguntar «cuántos duelos usaron la pieza X», convendría una tabla aparte. No revisé todas las consultas de la app, así que lo que afirmo es lo que dicen las funciones de la migración.",
+    "**`respuestas` guarda `pregunta` y `nivel` en cada fila.** La app envía como `nivel` la dificultad que tenía la pregunta en el momento (`preg.dificultad`), y hay otra tabla, `preguntas_clave`, con una columna `nivel` por pregunta. Si la dificultad de una pregunta fuera siempre la misma, sería una dependencia `pregunta → nivel` repetida en cada respuesta. Pero `respuestas` registra **hechos que ocurrieron**: guardar el nivel de aquel momento puede ser lo correcto si la dificultad se recalibra. No encontré en el código la razón de esta elección; es una inferencia mía.",
+    "**`grupos` tiene `pais` y `ciudad` como texto libre.** Ninguna regla de la base obliga a que una ciudad tenga un único país, y no debería: «Córdoba» existe en dos países. Es el caso de una dependencia que **no** hay que asumir."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261026000000_inicio.sql",
+    "src/pantallas/Jugar.tsx"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones de PostgreSQL al 13-11-2026",
+   "x": "La teoría de hoy (dependencias, formas normales) no cambia con las versiones. El SQL lo corrí en PostgreSQL 16.15, el paquete de Ubuntu 24.04; no lo probé en otras versiones, aunque nada de lo usado es nuevo. Según la política de versiones del proyecto, consultada el 13-11-2026, la rama 18 es la más nueva (18.7, primera publicación el 25-09-2025), la 16 va por la 16.16 y la 14 tiene su última publicación prevista para el 12-11-2026, o sea ayer [#postgresql-versioning]. Si usás Supabase u otro servicio administrado, la versión la elige el proveedor."
+  },
+  {
+   "t": "h",
+   "x": "Ejercicios"
+  },
+  {
+   "t": "ejercicio",
+   "x": "Esta tabla de entregas tiene clave `(chofer_id, fecha)`: cada fila es un chofer en un día, con el vehículo que usó. Datos inventados.\n\n| chofer_id | fecha | chofer_nombre | patente | modelo | km |\n| 1 | 02-11 | Marcela Ibáñez | AB123CD | Renault Kangoo | 51 |\n| 1 | 03-11 | Marcela Ibáñez | AB123CD | Renault Kangoo | 130 |\n| 2 | 02-11 | Rubén Aguirre | AC456EF | Fiat Fiorino | 117 |\n| 2 | 03-11 | Rubén Aguirre | AB123CD | Renault Kangoo | 98 |\n\nDecí en qué forma normal está, qué dependencias la rompen y cómo la partirías.",
+   "pista": "Hay una columna que depende de una parte de la clave y otra que depende de una columna no clave. Preguntate, para cada columna: ¿de qué cosa es un hecho?",
+   "solucion": "Está en 1FN (todas las celdas tienen un valor). **Rompe 2FN**: `chofer_nombre` depende solo de `chofer_id`, que es una parte de la clave. **Rompe 3FN**: `modelo` depende de `patente`, que es una columna no clave; la cadena es `(chofer_id, fecha) → patente → modelo`. Las dependencias que sí dependen de toda la clave son `patente` y `km`. Partición: `choferes(chofer_id PK, nombre)`, `vehiculos(patente PK, modelo)` y `entregas(chofer_id, fecha, patente FK, km)` con clave `(chofer_id, fecha)`. Se verifica con un JOIN de las tres y un `EXCEPT` contra la tabla original, igual que en la planilla."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un operador guarda `pedidos(pedido_id, cliente_id, cliente_ciudad, cliente_provincia)` con clave `pedido_id`. Su compañero dice: «`cliente_ciudad` determina `cliente_provincia`, así que hay que sacar la provincia a una tabla de ciudades». ¿Estás de acuerdo?",
+   "pista": "Pensá en el significado, no en los datos de hoy. ¿Existen ciudades con el mismo nombre en lugares distintos? Y aparte: ¿cuál es la dependencia que seguro vale?",
+   "solucion": "La dependencia que seguro vale es `cliente_id → cliente_ciudad, cliente_provincia`: son hechos sobre el cliente, y por eso conviene que vivan en `clientes` y no en cada pedido (violación de 3FN por la cadena `pedido_id → cliente_id → ciudad`). Lo que dice el compañero, `ciudad → provincia`, depende del significado: si la ciudad es un texto libre, hay nombres que se repiten en varias provincias (y países), y no se cumple. Solo valdría si la ciudad fuera un código de un catálogo oficial. Mover la provincia a una tabla de ciudades sin ese código inventaría una regla que el negocio no tiene."
+  }
+ ],
+ "recap": [
+  "Una tabla que mezcla hechos sobre cosas distintas repite datos, y eso produce anomalías: de actualización (datos contradictorios), de inserción (no hay dónde anotar algo) y de borrado (se pierde un dato al borrar otro).",
+  "Una dependencia funcional `A → B` dice que cada valor de A determina un único valor de B. Se decide por el significado del negocio; los datos solo pueden refutarla.",
+  "1FN: una celda, un valor, sin columnas repetidas. 2FN: ninguna columna depende de una parte de una clave compuesta. 3FN: ninguna columna no clave depende de otra no clave.",
+  "Normalizar es mudar cada grupo de hechos a la tabla de la cosa a la que pertenece y dejar claves foráneas. Se verifica que sea sin pérdida reconstruyendo con JOIN y comparando con EXCEPT.",
+  "Las claves foráneas hacen que la base impida los huérfanos, y el costo es que leer datos de varias tablas exige JOIN."
+ ],
+ "repaso": [
+  {
+   "p": "En una tabla de bultos con la clave `bulto_id`, la columna `cliente_tel` se repite en cada bulto del mismo cliente. ¿Qué forma normal se viola y por qué?",
+   "o": [
+    "La 3FN, porque el teléfono depende del cliente y no del bulto, que es la clave",
+    "La 2FN, porque el teléfono depende de una parte de una clave compuesta del bulto",
+    "La 1FN, porque el teléfono es un texto que contiene guiones y no es atómico",
+    "Ninguna, porque repetir un valor no es una violación de las formas normales"
+   ],
+   "c": 0,
+   "e": "La clave tiene una sola columna, así que la 2FN no se puede violar. El teléfono depende de `cliente_id`, que es una columna no clave: dependencia transitiva, o sea, 3FN. Que el teléfono tenga guiones no lo vuelve no atómico para el uso normal, y la repetición del teléfono sí es el síntoma."
+  },
+  {
+   "p": "Los datos de hoy muestran que cada ciudad aparece con una única provincia. ¿Qué conclusión es correcta sobre la dependencia `ciudad → provincia`?",
+   "o": [
+    "Los datos no la refutan, pero que valga siempre depende del significado del negocio",
+    "Los datos la demuestran, porque no hay ninguna fila que la contradiga hoy",
+    "Solo vale si las dos columnas tienen el mismo tipo de dato en la tabla",
+    "Vale siempre, porque las dependencias funcionales se calculan sobre los datos"
+   ],
+   "c": 0,
+   "e": "Los datos pueden refutar una dependencia (si aparece un contraejemplo) pero no probarla. Mañana puede entrar una ciudad con el mismo nombre en otra provincia. El tipo de dato no define dependencias."
+  },
+  {
+   "p": "Una tabla `contenido(bulto_id, sku, cantidad, sku_descripcion)` tiene como clave `(bulto_id, sku)`. ¿Qué problema concreto produce `sku_descripcion`?",
+   "o": [
+    "Cambiar la descripción de un artículo obliga a tocar todas sus filas y puede dejarlo con dos",
+    "La descripción no se puede indexar porque es una columna de texto dentro de una clave",
+    "La tabla deja de estar en 1FN porque la descripción tiene más de una palabra",
+    "Los bultos no pueden contener más de un artículo porque la clave es compuesta"
+   ],
+   "c": 0,
+   "e": "La descripción depende solo de `sku`, una parte de la clave: es una violación de 2FN. El efecto es la anomalía de actualización. Que tenga varias palabras no afecta 1FN, y la clave compuesta sí permite varios artículos por bulto."
+  },
+  {
+   "p": "Una planilla guarda en la columna `bultos` el texto `6,12,18,24`. Buscás el bulto 6 con `like '%6%'`. ¿Qué pasa?",
+   "o": [
+    "Puede traer filas de más, por ejemplo una con el bulto 16 o 26",
+    "Trae solo las filas que contengan exactamente el bulto 6, nada más",
+    "La base falla porque no puede comparar un texto con un patrón numérico",
+    "Trae todas las filas de la tabla, porque `like` ignora los números"
+   ],
+   "c": 0,
+   "e": "Para la base la celda es un texto, y `like '%6%'` encuentra el carácter 6 dentro de cualquier número (16, 26, 60). Es el síntoma de violar 1FN: no se puede buscar por elemento de forma confiable."
+  },
+  {
+   "p": "Dividís una tabla en dos y querés comprobar que no se perdió información. ¿Qué verificación es correcta?",
+   "o": [
+    "Reconstruir con JOIN y comparar contra la original con EXCEPT en los dos sentidos",
+    "Contar que la suma de filas de las dos tablas nuevas dé lo mismo que la original",
+    "Revisar que cada tabla nueva tenga una clave primaria declarada antes de seguir",
+    "Comprobar que la tabla original se pueda borrar sin que la base dé ningún error"
+   ],
+   "c": 0,
+   "e": "Sumar filas no alcanza: se pueden perder datos y que los conteos coincidan. La prueba de verdad es que el JOIN devuelva exactamente las filas originales, sin sobrar ni faltar ninguna. Tener claves es necesario, pero no prueba que la partición sea sin pérdida."
+  },
+  {
+   "p": "¿Por qué una tabla cuya clave primaria es una sola columna ya cumple 2FN, siempre que esté en 1FN?",
+   "o": [
+    "Porque no hay una parte de la clave de la que puedan depender las demás columnas",
+    "Porque las claves de una sola columna impiden que existan dependencias transitivas",
+    "Porque 2FN solo exige que la clave sea un número entero y no un texto",
+    "Porque en una clave simple las demás columnas no pueden depender de nada"
+   ],
+   "c": 0,
+   "e": "La 2FN prohíbe depender de **una parte** de una clave compuesta. Con una sola columna no hay partes. Eso no impide las dependencias transitivas (3FN), y las columnas no clave sí dependen de la clave."
+  }
+ ],
+ "feynman": "Explicale a alguien que usa una planilla de Excel para todo por qué conviene partirla en varias tablas. Usá el ejemplo del teléfono de un cliente que aparece en 162 filas, nombrá las tres anomalías con tus palabras y explicá qué significa «esta columna depende de aquella». Si te trabás, volvé a la tabla de las tres formas.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0915-kent-five-normal-forms",
+   "nota": "La guía de Kent de 1983 es corta y está escrita para quien no es matemático: las secciones 2 y 3 son las de hoy (1FN, 2FN, 3FN y dependencias funcionales). Las secciones 4 y 5, sobre 4FN y 5FN, te adelantan parte de mañana."
+  },
+  {
+   "fuente": "codd-1970",
+   "nota": "El artículo donde nace el modelo relacional. Leé la sección 1.4 sobre «normal form» (la primera forma normal) para ver de dónde sale el término."
+  },
+  {
+   "fuente": "back0707-postgres-constraints",
+   "nota": "Documentación de PostgreSQL sobre claves primarias, foráneas, `UNIQUE` y `CHECK`: son las herramientas con las que la base impone las reglas que descubrís al normalizar."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "forma normal",
+   "d": "Conjunto de reglas, definidas con dependencias funcionales, que una tabla cumple o no. Van en escalera: 1FN, 2FN, 3FN y siguientes, y cada una incluye a la anterior. Buscan evitar datos repetidos y las anomalías que producen."
+  },
+  {
+   "t": "dependencia funcional",
+   "d": "Relación `A → B` entre columnas: para cada valor de A existe exactamente un valor de B. Se decide por el significado de los datos; las filas actuales pueden refutarla, pero no demostrarla."
+  },
+  {
+   "t": "anomalía de actualización",
+   "d": "Problema de una tabla con datos repetidos: un mismo hecho está escrito en varias filas, se modifica solo en algunas y los datos quedan contradictorios. Sus hermanas son la anomalía de inserción y la de borrado."
+  },
+  {
+   "t": "anomalía de inserción",
+   "d": "Imposibilidad de registrar un hecho sin inventar otro. Por ejemplo, no poder dar de alta un depósito que todavía no despachó bultos porque solo existe como columnas de una fila de bulto."
+  },
+  {
+   "t": "anomalía de borrado",
+   "d": "Pérdida de un dato que nadie quería borrar: al eliminar la única fila donde aparecía un cliente, desaparecen su nombre y su teléfono junto con ella."
+  },
+  {
+   "t": "1FN",
+   "d": "Primera forma normal: todas las filas tienen la misma cantidad de columnas y cada celda guarda un solo valor, sin listas ni columnas repetidas (`parada1`, `parada2`). La atomicidad depende de lo que se vaya a consultar."
+  },
+  {
+   "t": "2FN",
+   "d": "Segunda forma normal: la tabla está en 1FN y ninguna columna no clave depende de solo una parte de una clave compuesta. Con una clave de una sola columna se cumple automáticamente."
+  },
+  {
+   "t": "3FN",
+   "d": "Tercera forma normal: la tabla está en 2FN y ninguna columna no clave depende de otra columna no clave (no hay dependencias transitivas). Cada hecho vive en la tabla de la cosa a la que pertenece."
+  }
+ ],
+ "siguiente": "Normalización II y desnormalización: qué cubre la BCNF que la 3FN deja pasar, y cuándo conviene copiar datos a propósito, con una medición en la mano.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd0915-kent-five-normal-forms",
+   "t": "A Simple Guide to Five Normal Forms in Relational Database Theory",
+   "a": "William Kent",
+   "tipo": "articulo",
+   "anio": 1983,
+   "url": "https://www.bkent.net/Doc/simple5.htm"
+  }
+ ]
+}

@@ -1,0 +1,752 @@
+{
+ "id": "09-12",
+ "titulo": "SQL VII: subconsultas y CTE",
+ "bajada": "Aprendés a meter una consulta adentro de otra, a nombrar cada paso con WITH y a recorrer una jerarquía entera con una sola consulta recursiva.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir las subconsultas escalares, de lista y de tabla, y saber qué error produce cada mal uso.",
+  "Elegir entre `IN`, `NOT IN`, `EXISTS` y `NOT EXISTS`, y explicar por qué un NULL rompe `NOT IN`.",
+  "Reconocer una consulta correlacionada en un plan (`SubPlan` con muchos `loops`) y reescribirla.",
+  "Escribir una CTE que ordene una consulta de varios pasos, y explicar cuándo PostgreSQL la incorpora a la consulta de afuera.",
+  "Escribir un CTE recursivo para una jerarquía y protegerlo de ciclos."
+ ],
+ "venis_de": "En [@09-11] resumiste miles de filas con `GROUP BY` y viste cómo unir antes de agregar duplica los totales. Hoy usás esa misma idea de «calcular primero, comparar después» de forma ordenada, con consultas adentro de consultas.",
+ "se_apoya_en": [
+  "09-04",
+  "09-09",
+  "09-10",
+  "09-11"
+ ],
+ "gancho": [
+  "Un encargado de depósito pregunta: «¿qué bultos pesan más que el promedio de la red?». Primero hay que averiguar el promedio, y recién ahí se puede comparar. Si lo hacés en dos pasos a mano, copiás un 10,30 en la segunda consulta y esa consulta queda congelada: cuando entren bultos nuevos, el número pegado ya no es el promedio.",
+  "La pregunta siguiente es peor: «¿qué bultos pesan más que el promedio **de su propio depósito**?». Ahora el valor de referencia cambia con cada fila. Ese tipo de pregunta se resuelve con consultas adentro de consultas, y es el lugar del SQL donde una versión correcta puede tardar quince segundos y otra, que da el mismo resultado, seis milisegundos. Hoy medimos esa diferencia en lugar de creerla."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Una consulta adentro de otra"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay preguntas que no se contestan con una consulta sola. «¿Qué bultos pesan más que el promedio de la red?» necesita **primero** saber cuánto es el promedio y **después** comparar. Podrías correr dos consultas, copiar el 10,30 del resultado de la primera y pegarlo en la segunda. Anda hasta que mañana entran bultos nuevos, el promedio cambia y el número pegado queda viejo sin que nadie se entere.",
+    "La solución es dejar que SQL haga las dos cosas en el mismo pedido. Una [[subconsulta]] es un `SELECT` escrito entre paréntesis adentro de otra consulta: el motor la resuelve y usa su resultado como parte de la consulta de afuera. Según dónde la pongas, devuelve una de tres cosas."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Forma",
+    "Qué devuelve",
+    "Dónde se usa",
+    "Ejemplo de hoy"
+   ],
+   "filas": [
+    [
+     "Escalar",
+     "Un solo valor (una fila, una columna)",
+     "Donde iría un número o un texto: `WHERE`, `SELECT`, `HAVING`",
+     "El peso promedio de la red"
+    ],
+    [
+     "De lista",
+     "Una columna con varias filas",
+     "A la derecha de `IN`, `NOT IN` o `EXISTS`",
+     "Los bultos que tienen algún reclamo"
+    ],
+    [
+     "De tabla",
+     "Varias filas y columnas",
+     "En el `FROM`, como si fuera una tabla",
+     "Bultos por día de cada depósito"
+    ]
+   ],
+   "cap": "Las tres formas de una subconsulta. Cambia lo que devuelve; la sintaxis es siempre un SELECT entre paréntesis."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para practicar sumá dos tablas más a las que armaste en [@09-11]: `reclamos` (algunos con `bulto_id` NULL, porque no todo reclamo se refiere a un bulto) y `ubicaciones`, que representa la estructura física de la red como un árbol: la red, las regiones, los depósitos, los muelles y los andenes. Los datos siguen siendo inventados."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "-- Se suman a las tres tablas del día anterior (depositos, bultos, intentos)\ncreate table reclamos (\n  id       int  primary key,\n  bulto_id int  references bultos (id),      -- puede ser NULL: un reclamo general, sin bulto\n  creado   date not null\n);\ninsert into reclamos\nselect i,\n       case when i % 25 = 0 then null else 1 + (i * 37) % 20000 end,\n       date '2026-07-01' + (i * 7) % 92\nfrom generate_series(1, 600) i;\n\ncreate table ubicaciones (\n  id       int  primary key,\n  nombre   text not null,\n  padre_id int  references ubicaciones (id)  -- NULL en la raíz\n);\ninsert into ubicaciones values\n  (1,  'Red Buenos Aires', null),\n  (2,  'Región Sur',    1), (3,  'Región Oeste',  1), (4,  'Región Norte', 1), (5, 'Región Centro', 1),\n  (6,  'Pompeya',       2), (7,  'Barracas',      2), (8,  'Villa Lugano', 3), (9, 'Colegiales',    4), (10, 'Dock Nuevo', 5),\n  (11, 'Muelle A',      6), (12, 'Muelle B',      6), (13, 'Cámara fría',  7), (14, 'Playa de carga', 8),\n  (15, 'Andén 1',      11), (16, 'Andén 2',      11), (17, 'Andén 3',     12);",
+   "cap": "Dos tablas nuevas. Corrido en PostgreSQL 16.15, en una base creada con codificación UTF8."
+  },
+  {
+   "t": "h3",
+   "x": "La subconsulta escalar"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select (select avg(peso_kg) from bultos)::numeric(6,2) as prom_red, count(*) as mas_pesados\nfrom bultos where peso_kg > (select avg(peso_kg) from bultos);",
+     "s": " prom_red | mas_pesados \n----------+-------------\n    10.30 |        7514\n(1 row)"
+    },
+    {
+     "c": "logi=> select d.nombre, round(avg(b.peso_kg), 2) as prom\nfrom bultos b join depositos d on d.id = b.deposito_id\ngroup by d.nombre\nhaving avg(b.peso_kg) > (select avg(peso_kg) from bultos);",
+     "s": "   nombre   | prom \n------------+-------\n Colegiales | 10.58\n(1 row)"
+    }
+   ],
+   "cap": "Primero los bultos por encima del promedio de la red (7.514 de 20.000). Después, los depósitos cuyo promedio supera el de la red: solo Colegiales (10,58 contra 10,30). La subconsulta puede estar en el HAVING, que ya conocés de [@09-11]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La subconsulta se calcula antes que la de afuera y, como no depende de ninguna fila de la consulta principal, **se calcula una sola vez**. Tiene una condición dura: debe devolver exactamente una fila y una columna. Si devuelve varias filas, PostgreSQL protesta; si no devuelve ninguna, no hay error y el valor es NULL [#bd1112-pg-escalares]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select * from bultos where peso_kg > (select avg(peso_kg) from bultos group by deposito_id);",
+     "s": "ERROR:  more than one row returned by a subquery used as an expression"
+    }
+   ],
+   "cap": "Con `group by deposito_id` la subconsulta devuelve cuatro promedios, uno por depósito, y el `>` no sabe contra cuál comparar."
+  },
+  {
+   "t": "pensa",
+   "x": "Escribís `where peso_kg > (select avg(peso_kg) from bultos where estado = 'inexistente')`. No hay ningún bulto con ese estado. ¿Qué pasa: error, todas las filas, ninguna fila?",
+   "resp": "Ninguna fila, y sin error. El `AVG` de cero filas es NULL (lo viste en [@09-11]), y como una subconsulta escalar que no devuelve filas también vale NULL, la comparación `peso_kg > NULL` no da verdadero para nadie. Es la lógica de tres valores: «mayor que algo que no sé» no es verdadero. El peligro es que la consulta parece correcta y devuelve un resultado vacío."
+  },
+  {
+   "t": "h3",
+   "x": "La subconsulta en el FROM: una tabla armada al vuelo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "A veces necesitás agregar **sobre algo que ya es una agregación**. Por ejemplo: «¿cuántos bultos despacha por día, en promedio, cada depósito?». Hay que contar bultos por depósito y día, y recién entonces promediar esos conteos. SQL no te deja anidar una agregación adentro de otra en la misma consulta (`avg(count(*))` da el error *aggregate function calls cannot be nested*), pero sí te deja usar el primer resultado como si fuera una tabla. Eso es una **tabla derivada**: una subconsulta puesta en el `FROM`."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select deposito_id, round(avg(n), 1) as bultos_por_dia, max(n) as maximo\nfrom (select deposito_id, creado, count(*) as n\n      from bultos group by deposito_id, creado) t\ngroup by deposito_id order by deposito_id;",
+     "s": " deposito_id | bultos_por_dia | maximo \n-------------+----------------+--------\n           1 |           54.0 |     72\n           2 |           54.7 |     75\n           3 |           54.9 |     72\n           4 |           53.8 |     77\n(4 rows)"
+    }
+   ],
+   "cap": "La consulta de adentro devuelve una fila por depósito y día (368 filas: 4 depósitos por 92 días). La de afuera la resume. Es la misma técnica con la que arreglaste los kilos duplicados en [@09-11]."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "El alias de la tabla derivada, según la versión",
+   "x": "Hasta PostgreSQL 15, una subconsulta en el `FROM` sin [[alias de tabla]] daba error. La versión 16 (14-09-2023) permite omitirlo [#bd1112-pg-16-notas], y en esta VM (16.15) la prueba `select count(*) from (select 1 as a from bultos limit 3)` devolvió 3. Otros motores siguen exigiéndolo, así que ponerlo (acá, la `t`) es la costumbre que viaja bien."
+  },
+  {
+   "t": "h",
+   "x": "IN, NOT IN y EXISTS: preguntar si hay alguno"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una pregunta muy común no pide un valor sino una **existencia**: «¿este bulto tiene algún reclamo?», «¿este bulto tuvo un intento de entrega fallido?». Para eso SQL ofrece `IN (subconsulta)`, que da verdadero si el valor está en la lista que devuelve la subconsulta, y [[EXISTS]], que da verdadero si la subconsulta devuelve **al menos una fila**, sin importar qué contenga. La documentación advierte que el motor no tiene por qué evaluarla completa: le alcanza con encontrar la primera fila [#bd1112-pg-subquery]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select count(*) from bultos b\nwhere exists (select 1 from reclamos r where r.bulto_id = b.id);",
+     "s": " count \n-------\n   576\n(1 row)"
+    }
+   ],
+   "cap": "Bultos con al menos un reclamo. El `select 1` es una convención: a EXISTS no le importan las columnas, solo si hay filas."
+  },
+  {
+   "t": "h3",
+   "x": "Por qué EXISTS y no un JOIN"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con `JOIN` también podrías listar los bultos que tienen reclamo, pero el `JOIN` devuelve **una fila por cada coincidencia**. Si un bulto tuviera tres reclamos, aparecería tres veces, con el problema de los kilos duplicados del día anterior. `EXISTS` pregunta «¿hay alguno?» y devuelve cada bulto una sola vez. Se ve con los intentos: algunos bultos tuvieron más de un intento «ausente»."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select count(*) as filas, count(distinct b.id) as bultos\nfrom bultos b join intentos i on i.bulto_id = b.id where i.resultado = 'ausente';",
+     "s": " filas | bultos \n-------+--------\n 17045 |  15192\n(1 row)"
+    },
+    {
+     "c": "logi=> select count(*) from bultos b\nwhere exists (select 1 from intentos i where i.bulto_id = b.id and i.resultado = 'ausente');",
+     "s": " count \n-------\n 15192\n(1 row)"
+    }
+   ],
+   "cap": "El JOIN devuelve 17.045 filas para 15.192 bultos distintos; EXISTS devuelve 15.192. Es la diferencia entre contar coincidencias y contar bultos."
+  },
+  {
+   "t": "h3",
+   "x": "NOT IN: la trampa del NULL"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora la pregunta inversa: «¿qué bultos **no** tienen reclamo?». Lo natural es negar el `IN`. Esta es probablemente la consulta con más errores silenciosos del SQL."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> select count(*) from bultos where id not in (select bulto_id from reclamos);",
+     "s": " count \n-------\n     0\n(1 row)"
+    },
+    {
+     "c": "logi=> select count(*) from bultos b\nwhere not exists (select 1 from reclamos r where r.bulto_id = b.id);",
+     "s": " count \n-------\n 19424\n(1 row)"
+    }
+   ],
+   "cap": "Los reclamos tienen 576 bultos distintos, así que deberían quedar 19.424 sin reclamo. NOT IN devuelve cero. NOT EXISTS devuelve la respuesta correcta."
+  },
+  {
+   "t": "p",
+   "x": [
+    "¿Por qué da cero? Veinticuatro de los reclamos tienen `bulto_id` NULL. Escribir `id NOT IN (a, b, NULL)` equivale a `NOT (id = a OR id = b OR id = NULL)`. Para un bulto sin reclamo, las dos primeras comparaciones dan falso y la última da NULL (no se sabe si `id = NULL`). Falso, falso y NULL en un `OR` dan NULL, y negar NULL sigue dando NULL. El `WHERE` solo deja pasar los verdaderos, así que **ningún bulto pasa**. Es la [[lógica de tres valores]] aplicada a una lista: un solo NULL adentro de la lista hace que `NOT IN` no pueda afirmar nada. La documentación lo dice sin vueltas: si no hay coincidencias y alguna fila de la lista es NULL, el resultado de `NOT IN` es NULL, no verdadero [#bd1112-pg-subquery]."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Tu colega dice: «el NOT IN me devolvió cero, así que todos los bultos tienen reclamo». ¿Cómo le demostrás con una consulta que se equivoca?",
+   "resp": "Corriendo `select count(*) from bultos where id in (select bulto_id from reclamos)`: da 576, no 20.000, así que no todos tienen reclamo. Otra forma es repetir el `NOT IN` agregando `where bulto_id is not null` adentro de la subconsulta: da 19.424. Y la más segura de todas es no usar `NOT IN` con subconsultas que puedan traer NULL: `NOT EXISTS` no tiene este problema."
+  },
+  {
+   "t": "p",
+   "x": [
+    "`NOT EXISTS` es el patrón estándar para el [[anti-join]]: «dame las filas de A que **no** tienen pareja en B», que ya viste en [@09-10] con `LEFT JOIN ... IS NULL`. Las dos formas son correctas con NULL. Mirá los planes: `NOT EXISTS` se convierte en un `Anti Join` (el motor lo resuelve como una unión que descarta los que tienen pareja), mientras que `NOT IN` queda como un filtro que consulta una tabla hash armada a partir de la subconsulta."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> explain (costs off) select count(*) from bultos b\nwhere not exists (select 1 from reclamos r where r.bulto_id = b.id);",
+     "s": "               QUERY PLAN               \n----------------------------------------\n Aggregate\n   ->  Hash Right Anti Join\n         Hash Cond: (r.bulto_id = b.id)\n         ->  Seq Scan on reclamos r\n         ->  Hash\n               ->  Seq Scan on bultos b\n(6 rows)"
+    },
+    {
+     "c": "logi=> explain (costs off) select count(*) from bultos where id not in (select bulto_id from reclamos);",
+     "s": "                QUERY PLAN                \n------------------------------------------\n Aggregate\n   ->  Seq Scan on bultos\n         Filter: (NOT (hashed SubPlan 1))\n         SubPlan 1\n           ->  Seq Scan on reclamos\n(5 rows)"
+    }
+   ],
+   "cap": "Dos formas de preguntar lo mismo con resultados distintos. La primera se resuelve como una unión; la segunda, como un filtro con una subconsulta aparte (`SubPlan`)."
+  },
+  {
+   "t": "h",
+   "x": "La consulta correlacionada: la subconsulta que mira la fila de afuera"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Todas las subconsultas de arriba se pueden resolver sin saber cuál es la fila que se está mirando afuera. Pero hay preguntas que lo necesitan: «¿qué bultos pesan más que el promedio **de su propio depósito**?». El promedio ya no es uno solo: cambia con cada fila, según su depósito. Una [[consulta correlacionada]] es una subconsulta que **usa una columna de la consulta de afuera**. La documentación lo describe así: la subconsulta puede referirse a variables de la consulta que la rodea, que actúan como constantes durante cada evaluación [#bd1112-pg-escalares]."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "select count(*)\nfrom bultos b\nwhere b.peso_kg > (select avg(x.peso_kg)\n                   from bultos x\n                   where x.deposito_id = b.deposito_id);   -- b es de la consulta de afuera",
+   "cap": "La subconsulta menciona b.deposito_id, que pertenece a la consulta de afuera. Ese es el cable que la correlaciona."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para razonarla, pensala como un bucle: por cada bulto de afuera, ejecutá la subconsulta con el depósito de ese bulto, y quedate con el bulto si pesa más que el resultado. Es una descripción **conceptual**: el motor puede hacerlo de otras maneras. Veamos qué hace PostgreSQL en realidad."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> explain (analyze, costs off, timing off) select count(*) from bultos b\nwhere peso_kg > (select avg(x.peso_kg) from bultos x where x.deposito_id = b.deposito_id);",
+     "s": "                               QUERY PLAN                                \n-------------------------------------------------------------------------\n Aggregate (actual rows=1 loops=1)\n   ->  Seq Scan on bultos b (actual rows=7528 loops=1)\n         Filter: (peso_kg > (SubPlan 1))\n         Rows Removed by Filter: 12472\n         SubPlan 1\n           ->  Aggregate (actual rows=1 loops=20000)\n                 ->  Seq Scan on bultos x (actual rows=5000 loops=20000)\n                       Filter: (deposito_id = b.deposito_id)\n                       Rows Removed by Filter: 15000\n Planning Time: 0.266 ms\n Execution Time: 14924.426 ms\n(11 rows)"
+    }
+   ],
+   "cap": "El SubPlan se ejecutó 20.000 veces (loops=20000) y cada vez recorrió la tabla entera. Medido en esta VM: 14,9 s en esta corrida y 13,6 s en otra sin EXPLAIN."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los números cierran: 20.000 bultos por 20.000 filas recorridas en cada vuelta son **400 millones de lecturas de filas**, para contestar algo que depende de cuatro valores (el promedio de cada depósito). El motor no se dio cuenta de que repetía el mismo cálculo. ¿Y un índice? Probé crear uno sobre `deposito_id` y la consulta bajó a 10,5 s: cada vuelta ya no recorre las 20.000 filas, pero igual lee las 5.000 de su depósito. El problema no es cómo se busca, sino que se repite 20.000 veces algo que alcanzaría con calcular 4."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "La reescritura: calcular el promedio de cada depósito **una vez** (una subconsulta en el `FROM`) y unirla con los bultos. Es la misma pregunta, con el mismo resultado de 7.528 bultos."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> explain (analyze, costs off, timing off) select count(*) from bultos b\njoin (select deposito_id, avg(peso_kg) as prom from bultos group by deposito_id) p\n  on p.deposito_id = b.deposito_id\nwhere b.peso_kg > p.prom;",
+     "s": "                               QUERY PLAN                               \n------------------------------------------------------------------------\n Aggregate (actual rows=1 loops=1)\n   ->  Hash Join (actual rows=7528 loops=1)\n         Hash Cond: (b.deposito_id = bultos.deposito_id)\n         Join Filter: (b.peso_kg > (avg(bultos.peso_kg)))\n         Rows Removed by Join Filter: 12472\n         ->  Seq Scan on bultos b (actual rows=20000 loops=1)\n         ->  Hash (actual rows=4 loops=1)\n               Buckets: 1024  Batches: 1  Memory Usage: 9kB\n               ->  HashAggregate (actual rows=4 loops=1)\n                     Group Key: bultos.deposito_id\n                     Batches: 1  Memory Usage: 24kB\n                     ->  Seq Scan on bultos (actual rows=20000 loops=1)\n Planning Time: 0.410 ms\n Execution Time: 5.776 ms\n(14 rows)"
+    }
+   ],
+   "cap": "Dos lecturas de la tabla (una para promediar, otra para comparar) y 5,8 ms: unas 2.500 veces menos tiempo. Una sola corrida en una VM compartida; la proporción es lo que importa, no los milisegundos."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Correlacionada no es sinónimo de lenta",
+   "x": "El problema de arriba es un caso concreto: una subconsulta que **agrega sobre muchas filas** y se repite por cada fila de afuera. Una correlacionada que busca una fila puntual por una clave con índice es barata, aunque se repita muchas veces. Por eso el criterio es leer el plan: si ves `SubPlan` con `loops` muy alto y una lectura grande adentro, hay una candidata para reescribir. Y no todos los motores resuelven esto igual: PostgreSQL ejecutó el `SubPlan` tal cual, y no lo asumas de otros motores sin mirar su plan."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Contá los bultos que pesan más que el promedio **de su zona de destino** (`zona_destino`), primero con una subconsulta correlacionada y después con una tabla derivada unida. Comprobá que las dos dan lo mismo.",
+   "pista": "La correlacionada compara con `(select avg(x.peso_kg) from bultos x where x.zona_destino = b.zona_destino)`. La otra calcula `select zona_destino, avg(peso_kg) from bultos group by zona_destino` en el `FROM` y une por `zona_destino`.",
+   "solucion": [
+    "Correlacionada: `select count(*) from bultos b where peso_kg > (select avg(x.peso_kg) from bultos x where x.zona_destino = b.zona_destino);` Con derivada: `select count(*) from bultos b join (select zona_destino, avg(peso_kg) as prom from bultos group by zona_destino) p on p.zona_destino = b.zona_destino where b.peso_kg > p.prom;`",
+    "Las dos dan 7.516. La primera tardó 16,6 s en esta VM; la segunda, unos milisegundos. Los bultos sin peso (NULL) quedan afuera de las dos, porque `NULL > algo` no es verdadero."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "CTE: ponerle nombre a cada paso"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando una consulta tiene varias capas de subconsultas, se lee de adentro hacia afuera y cuesta seguirla. Una [[CTE]] (*common table expression*, expresión de tabla común) resuelve eso: te deja darle **nombre** a un resultado intermedio con `WITH nombre AS (consulta)` y usarlo después como si fuera una tabla. La consulta se lee de arriba hacia abajo, como una receta. Cada CTE puede usar las que están definidas antes."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un ejemplo de logística: ¿qué depósitos devuelven más bultos que el promedio de la red? Hay dos pasos: contar totales y devueltos por depósito, y calcular la tasa de la red entera."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> with por_deposito as (\n  select deposito_id, count(*) as total,\n         count(*) filter (where estado = 'devuelto') as devueltos\n  from bultos group by deposito_id\n), red as (\n  select sum(devueltos)::numeric / sum(total) as tasa from por_deposito\n)\nselect d.nombre, p.total, p.devueltos,\n       round(100.0 * p.devueltos / p.total, 2) as pct, round(100 * red.tasa, 2) as pct_red\nfrom por_deposito p join depositos d on d.id = p.deposito_id cross join red\norder by pct desc;",
+     "s": "    nombre    | total | devueltos | pct  | pct_red \n--------------+-------+-----------+------+---------\n Pompeya      |  4970 |       443 | 8.91 |    8.58\n Colegiales   |  4951 |       433 | 8.75 |    8.58\n Barracas     |  5031 |       436 | 8.67 |    8.58\n Villa Lugano |  5048 |       403 | 7.98 |    8.58\n(4 rows)"
+    }
+   ],
+   "cap": "Dos CTE encadenadas: `red` usa `por_deposito`. Tres de los cuatro depósitos superan la tasa de la red (8,58 %), y la tasa de la red es un promedio ponderado: suma de devueltos sobre suma de totales, como viste en [@09-11]."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Una CTE no es una variable ni una tabla temporal",
+   "x": "Una CTE existe solo durante la consulta que la declara. No queda guardada, no se puede reutilizar en otra consulta y no tiene índices propios. Sirve para **ordenar** el razonamiento. Si necesitás que un resultado intermedio sobreviva entre consultas, eso es otra cosa (una vista o una tabla temporal), que verás en [@09-17]."
+  },
+  {
+   "t": "h3",
+   "x": "Se calcula una vez, o se pega adentro: lo que cambió en PostgreSQL 12"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una duda legítima: ¿la CTE se calcula aparte y se guarda, o el motor la mezcla con el resto? Depende de la versión. Hasta PostgreSQL 11, una CTE se calculaba **siempre aparte** y el optimizador no podía mirar adentro: servía de barrera. Desde la 12 (3 de octubre de 2019), si la CTE no es recursiva, no tiene efectos secundarios y se usa **una sola vez**, se incorpora a la consulta de afuera como si fuera una subconsulta normal. Si se usa más de una vez, se calcula aparte una vez y se reutiliza. Y podés forzar cualquiera de los dos comportamientos con `MATERIALIZED` o `NOT MATERIALIZED` [#bd1112-pg-with] [#bd1112-pg-12-notas]."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> explain (costs off) with u as (select * from bultos) select count(*) from u where id = 123;",
+     "s": "                    QUERY PLAN                     \n---------------------------------------------------\n Aggregate\n   ->  Index Only Scan using bultos_pkey on bultos\n         Index Cond: (id = 123)\n(3 rows)"
+    },
+    {
+     "c": "logi=> explain (costs off) with u as materialized (select * from bultos) select count(*) from u where id = 123;",
+     "s": "         QUERY PLAN         \n----------------------------\n Aggregate\n   CTE u\n     ->  Seq Scan on bultos\n   ->  CTE Scan on u\n         Filter: (id = 123)\n(5 rows)"
+    }
+   ],
+   "cap": "Misma CTE, dos planes. Sin la palabra, PostgreSQL 16 la pegó adentro y usó el índice de la clave primaria para buscar un solo bulto. Con MATERIALIZED, la calculó entera (lee los 20.000 bultos) y recién después filtró."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La regla práctica: usá la CTE para **claridad** y confiá en el optimizador. Si una CTE se usa dos veces, sí se calcula una sola vez, y eso es una ventaja cuando el cálculo es caro. Si ves `CTE Scan` en un plan y la consulta es lenta, probá `NOT MATERIALIZED`. Y si tenés una CTE cara que querés asegurarte de no repetir, `MATERIALIZED` lo garantiza."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "CTE que modifican datos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En PostgreSQL, una CTE puede ser también un `INSERT`, `UPDATE` o `DELETE` con `RETURNING`, que devuelve las filas modificadas. Esas se ejecutan **siempre una vez y completas**, aunque la consulta de afuera no las lea, y ahí no hay forma de que el optimizador las incorpore [#bd1112-pg-with]. Sirven para hacer varias cosas atómicas en una sola instrucción: borrar filas y obtener cuáles se borraron, o actualizar y contar. Senda lo usa."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Una CTE que modifica, y subconsultas que cuentan y preguntan",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. En la migración `20261101000000_juntos.sql`, la función `cerrar_vencidas()` cierra los duelos del Espadeo cuyo plazo venció. Empieza con una CTE que **modifica**: `with v as (update public.partidas set estado = 'vencida', ... where estado = 'en_juego' and vence_en < now() returning id) select count(*) into n from v`. El `UPDATE` corre adentro del `WITH`, y la consulta de afuera cuenta cuántas filas devolvió el `RETURNING`. Esa función la ejecuta `pg_cron` cada 15 minutos (`*/15 * * * *`).",
+    "En la migración `20261107000000_grupos.sql`, `mis_grupos()` devuelve, para cada grupo de la persona, cuántos miembros tiene, con una subconsulta escalar **correlacionada** en el `SELECT`: `(select count(*) from public.miembros x where x.grupo = g.id)`. Es el patrón de hoy: se ejecuta una vez por grupo. Como `miembros` tiene una clave primaria `(grupo, usuario)` declarada en `juntos.sql`, cada conteo puede apoyarse en ese índice; lo deduzco del esquema, no lo medí en Senda con datos reales. Y la función `soy_miembro(p_grupo)` es un `exists (select 1 from public.miembros where grupo = p_grupo and usuario = auth.uid())` que las políticas de seguridad por fila usan para decidir qué ve cada persona.",
+    "También hay subconsultas escalares que ponen topes. En `20261130000005_grupos_grandes.sql`, antes de unirse a un grupo, la función cuenta `(select count(*) from public.miembros where usuario = auth.uid()) >= 30` (tope de 30 grupos por persona) y `... where grupo = g.id) >= 10000` (tope de 10.000 miembros por grupo) y, si se pasan, lanza un error."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261107000000_grupos.sql",
+    "supabase/migrations/20261130000005_grupos_grandes.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "CTE recursivo: recorrer una jerarquía"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá la tabla `ubicaciones`: cada fila apunta a su padre. Es una [[relación recursiva]] (como la que viste en [@09-08]): una tabla que se refiere a sí misma. La red tiene regiones, las regiones tienen depósitos, los depósitos tienen muelles y los muelles tienen andenes. ¿Cuántos niveles? Hoy cuatro, pero mañana alguien puede agregar un sector adentro de un andén. Con `JOIN` tendrías que escribir una unión por cada nivel, y la consulta se rompe cuando aparece un nivel más."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[CTE recursivo]] (`WITH RECURSIVE`) resuelve esto con dos partes unidas por `UNION ALL`: un **ancla**, que arranca con las filas iniciales, y una **parte recursiva**, que se refiere al propio CTE y produce las filas siguientes a partir de las anteriores."
+   ]
+  },
+  {
+   "t": "pasos",
+   "titulo": "Cómo se ejecuta, paso a paso",
+   "pasos": [
+    {
+     "t": "Se corre el ancla",
+     "x": "Produce las filas de partida. Acá: la fila de la raíz, la que no tiene padre (`padre_id is null`)."
+    },
+    {
+     "t": "Se corre la parte recursiva con lo último producido",
+     "x": "Busca las filas cuyo padre es alguna de las filas recién producidas. Primera vuelta: las cuatro regiones, hijas de la red."
+    },
+    {
+     "t": "Se repite con lo nuevo",
+     "x": "En cada vuelta, la parte recursiva mira solo las filas de la vuelta anterior: depósitos, después muelles, después andenes."
+    },
+    {
+     "t": "Se detiene cuando una vuelta no produce nada",
+     "x": "Los andenes no tienen hijos, así que la última vuelta sale vacía. El resultado es la unión de todo lo producido."
+    }
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "with recursive arbol as (\n  select id, nombre, 0 as nivel, nombre::text as ruta\n  from ubicaciones where padre_id is null                      -- 1) el ancla: la raíz\n  union all\n  select u.id, u.nombre, a.nivel + 1, a.ruta || ' > ' || u.nombre\n  from ubicaciones u join arbol a on u.padre_id = a.id         -- 2) los hijos de lo anterior\n)\nselect repeat('  ', nivel) || nombre as ubicacion, nivel\nfrom arbol order by ruta;",
+   "cap": "La consulta recursiva de la jerarquía. `ruta` va armando el camino desde la raíz para poder ordenar el árbol de forma natural."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> \\i arbol.sql   -- la consulta de arriba",
+     "s": "      ubicacion       | nivel \n----------------------+-------\n Red Buenos Aires     |     0\n   Región Centro      |     1\n     Dock Nuevo       |     2\n   Región Norte       |     1\n     Colegiales       |     2\n   Región Oeste       |     1\n     Villa Lugano     |     2\n       Playa de carga |     3\n   Región Sur         |     1\n     Barracas         |     2\n       Cámara fría    |     3\n     Pompeya          |     2\n       Muelle A       |     3\n         Andén 1      |     4\n         Andén 2      |     4\n       Muelle B       |     3\n         Andén 3      |     4\n(17 rows)"
+    }
+   ],
+   "cap": "El árbol completo, con la sangría según el nivel. Los 17 renglones salen de una sola consulta que no sabe cuántos niveles hay."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La misma idea sirve en las dos direcciones. Hacia abajo: todo lo que cuelga de «Región Sur» (la región, sus dos depósitos y todo lo que contienen) son 9 ubicaciones. Hacia arriba: la cadena de un andén hasta la raíz, dando vuelta la condición de unión (en vez de `u.padre_id = a.id`, `u.id = a.padre_id`)."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> with recursive arriba as (\n  select id, nombre, padre_id, 0 as sube from ubicaciones where nombre = 'Andén 3'\n  union all\n  select u.id, u.nombre, u.padre_id, a.sube + 1 from ubicaciones u join arriba a on u.id = a.padre_id\n)\nselect sube, nombre from arriba order by sube;",
+     "s": " sube |      nombre      \n------+------------------\n    0 | Andén 3\n    1 | Muelle B\n    2 | Pompeya\n    3 | Región Sur\n    4 | Red Buenos Aires\n(5 rows)"
+    }
+   ],
+   "cap": "De un andén hasta la red: cuatro pasos hacia arriba. Es la pregunta «¿de quién depende este lugar?», útil para permisos y para rutas."
+  },
+  {
+   "t": "h3",
+   "x": "El peligro: un ciclo que nunca termina"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una recursión termina cuando una vuelta no produce filas nuevas. Si los datos tienen un **ciclo** (A es hijo de B, B es hijo de C y C es hijo de A) siempre hay una fila nueva que producir, y la consulta no termina nunca. En un árbol de ubicaciones bien cargado no pasa, pero un error de carga (alguien edita el `padre_id` de una fila y lo apunta a un descendiente suyo) lo produce. Probé un ciclo de tres filas con un límite de 500 ms para que no se quede para siempre."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> set statement_timeout = '500ms';  -- y la consulta recursiva sobre la tabla con un ciclo de 3 filas",
+     "s": "ERROR:  canceling statement due to statement timeout"
+    }
+   ],
+   "cap": "Sin una protección, la recursión se corta solo por el tiempo límite. Es la red de seguridad del servidor, no una solución."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La solución moderna es la cláusula `CYCLE`, que PostgreSQL incorporó en la versión 14 (30 de septiembre de 2021) junto con `SEARCH` [#bd1112-pg-14-notas]. Marca cada fila con una columna booleana que dice si ese camino ya pasó por la misma fila, y corta la recursión ahí. Otra defensa más vieja y más simple: llevar una columna `nivel` y limitar con `where a.nivel < 20`."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "logi=> with recursive r as (\n  select id, padre from ciclo where id = 1\n  union all\n  select c.id, c.padre from ciclo c join r on c.id = r.padre\n) cycle id set es_ciclo using camino\nselect id, padre, es_ciclo from r;",
+     "s": " id | padre | es_ciclo \n----+-------+----------\n  1 |     3 | f\n  3 |     2 | f\n  2 |     1 | f\n  1 |     3 | t\n(4 rows)"
+    }
+   ],
+   "cap": "Con CYCLE, la consulta termina: da una vuelta, vuelve a la fila 1 (marcada es_ciclo = t) y se detiene."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Escribí una consulta recursiva que liste todo lo que cuelga de **Pompeya** (incluida ella), con su nivel, donde Pompeya tiene nivel 0. ¿Cuántas filas salen y cuáles son los niveles?",
+   "pista": "El ancla es `select id, nombre, 0 as nivel from ubicaciones where nombre = 'Pompeya'`. La parte recursiva une `ubicaciones u` con el propio CTE por `u.padre_id = b.id` y suma 1 al nivel.",
+   "solucion": [
+    "Una posible solución: `with recursive bajo as (select id, nombre, 0 as nivel from ubicaciones where nombre = 'Pompeya' union all select u.id, u.nombre, b.nivel + 1 from ubicaciones u join bajo b on u.padre_id = b.id) select nivel, nombre from bajo order by nivel, nombre;`",
+    "Salen 6 filas: Pompeya (nivel 0), Muelle A y Muelle B (nivel 1), y Andén 1, Andén 2 y Andén 3 (nivel 2). «Cámara fría», «Playa de carga» y el resto no aparecen porque cuelgan de otros depósitos."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cuál usar y los errores que se repiten"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Si la pregunta es…",
+    "Usá",
+    "Cuidado con"
+   ],
+   "filas": [
+    [
+     "«¿Cuál es el valor de referencia?» (un promedio, un máximo)",
+     "Subconsulta escalar",
+     "Que devuelva una sola fila; que una tabla vacía da NULL"
+    ],
+    [
+     "«¿Está este valor en el conjunto?»",
+     "`IN` o `EXISTS`",
+     "`NOT IN` si la lista puede tener NULL"
+    ],
+    [
+     "«¿No tiene pareja?»",
+     "`NOT EXISTS`",
+     "Nada: es la forma segura del anti-join"
+    ],
+    [
+     "«Agregar sobre algo ya agregado»",
+     "Tabla derivada en el `FROM`",
+     "Ponerle alias para que funcione en cualquier versión"
+    ],
+    [
+     "«Comparar cada fila contra su grupo»",
+     "Derivada unida, o una función de ventana (mañana)",
+     "La correlacionada repite el cálculo por fila"
+    ],
+    [
+     "«Una consulta larga que no se entiende»",
+     "CTE",
+     "No es una tabla temporal: vive solo en esa consulta"
+    ],
+    [
+     "«Recorrer una jerarquía de profundidad desconocida»",
+     "CTE recursivo",
+     "Los ciclos; ponele `CYCLE` o un límite de niveles"
+    ]
+   ],
+   "cap": "Un mapa de decisión. Ninguna es mejor en general: cada una responde una pregunta distinta."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres errores concretos para llevarte. Uno, `NOT IN` sobre una columna que admite NULL: devuelve vacío sin avisar. Dos, una subconsulta escalar que puede devolver más de una fila: funciona con los datos de hoy y falla el día que aparece un duplicado. Tres, dar por hecho que la CTE «cachea»: en la versión 12 o posterior, una CTE usada una sola vez se pega a la consulta, y en versiones anteriores siempre se calculaba aparte. Cuando la velocidad importa, el plan te dice qué pasó, y la forma de mirarlo es `EXPLAIN`."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y qué se verificó (13-11-2026)",
+   "x": "Todo corrió en PostgreSQL 16.15. Al 13-11-2026 la rama más nueva es la 18 (18.7, publicada el 12-11-2026) y la 16 recibe correcciones hasta el 9-11-2028 [#postgresql-versioning]. Lo que depende de la versión: la incorporación automática de CTE (desde la 12, 03-10-2019), `CYCLE` y `SEARCH` (desde la 14, 30-09-2021) y el alias opcional en subconsultas del `FROM` (desde la 16, 14-09-2023), según las notas de cada versión. Los tiempos son de una sola VM compartida, de una o dos corridas."
+  }
+ ],
+ "recap": [
+  "Una **subconsulta** es un `SELECT` entre paréntesis dentro de otra consulta. Puede ser escalar (un valor), de lista (una columna) o de tabla (en el `FROM`). La escalar debe devolver una sola fila, y si no devuelve ninguna vale NULL.",
+  "Para agregar sobre algo ya agregado se usa una tabla derivada en el `FROM`: no se pueden anidar agregaciones. Conviene ponerle alias.",
+  "`EXISTS` pregunta si hay al menos una fila y no duplica filas como el `JOIN`. `NOT EXISTS` es la forma segura de buscar lo que no tiene pareja: `NOT IN` devuelve vacío si la lista tiene un NULL.",
+  "Una **consulta correlacionada** usa columnas de la consulta de afuera y, conceptualmente, se repite por cada fila. Con una agregación adentro, es la receta del cálculo repetido: 14,9 s contra 5,8 ms al calcular una vez y unir.",
+  "Una **CTE** (`WITH`) le da nombre a cada paso y se lee de arriba abajo. Desde PostgreSQL 12, si se usa una vez y no modifica datos, se pega a la consulta; con dos usos se calcula una vez. `MATERIALIZED` y `NOT MATERIALIZED` fuerzan una u otra cosa.",
+  "Un **CTE recursivo** recorre jerarquías de profundidad desconocida con un ancla y una parte recursiva. Termina cuando una vuelta no produce filas; un ciclo en los datos lo vuelve infinito, y `CYCLE` (desde la 14) o un límite de niveles lo evitan."
+ ],
+ "repaso": [
+  {
+   "p": "Ejecutás `select * from bultos where peso_kg > (select avg(peso_kg) from bultos group by deposito_id)` y PostgreSQL da error. ¿Cuál es el problema?",
+   "o": [
+    "La subconsulta devuelve cuatro promedios cuando el operador necesita exactamente un valor",
+    "El nombre de la tabla se repite adentro y afuera, y el motor no sabe a cuál se refiere",
+    "Una subconsulta no puede contener un GROUP BY, porque solo admite agregaciones simples",
+    "El operador mayor que no sirve con un AVG, que solo puede compararse con un entero"
+   ],
+   "c": 0,
+   "e": "Una subconsulta escalar tiene que devolver una sola fila y una sola columna. Con `group by deposito_id` devuelve un promedio por depósito (cuatro filas), y el `>` no sabe contra cuál comparar: el error dice «more than one row returned by a subquery used as an expression». Repetir el nombre de la tabla es normal, `GROUP BY` sí se admite y `>` funciona con cualquier número."
+  },
+  {
+   "p": "Tu consulta `where id not in (select bulto_id from reclamos)` devuelve 0 filas, aunque hay bultos sin reclamo. En `reclamos`, `bulto_id` admite NULL. ¿Qué explica el resultado?",
+   "o": [
+    "Con un NULL en la lista, la comparación no puede dar verdadero para ningún bulto",
+    "NOT IN solo funciona con listas de números y falla en silencio con otros tipos",
+    "La subconsulta se calcula antes que la consulta de afuera y no ve los bultos",
+    "El motor descarta todas las filas porque el NULL cuenta como un cero en la lista"
+   ],
+   "c": 0,
+   "e": "`id NOT IN (a, b, NULL)` equivale a `NOT (id = a OR id = b OR id = NULL)`. Para un bulto sin reclamo, las dos primeras dan falso y la tercera NULL, así que el resultado es NULL y el `WHERE` lo descarta. No tiene que ver con el tipo de la columna, con el orden de cálculo ni con que el NULL valga cero. La solución es `NOT EXISTS`, o filtrar los NULL dentro de la subconsulta."
+  },
+  {
+   "p": "Querés los bultos con al menos un intento «ausente». Unos tienen dos. ¿Cuál escribe cada bulto una sola vez sin usar DISTINCT?",
+   "o": [
+    "Un INNER JOIN con intentos, porque el JOIN siempre une cada bulto una sola vez",
+    "Un LEFT JOIN con intentos, porque conserva las filas aunque no haya intentos",
+    "Un WHERE con EXISTS sobre intentos, que solo pregunta si hay alguno",
+    "Un GROUP BY por zona de destino, que junta los bultos de cada una de las zonas"
+   ],
+   "c": 2,
+   "e": "`EXISTS` pregunta «¿hay alguno?» y por eso cada bulto sale una vez (15.192 en los datos de hoy). Un `JOIN`, interno o izquierdo, devuelve una fila por cada intento coincidente: 17.045 filas para esos mismos 15.192 bultos. Agrupar por zona devuelve zonas, no bultos."
+  },
+  {
+   "p": "La consulta «bultos más pesados que el promedio de su depósito» tarda 15 segundos con 20.000 bultos y 4 depósitos. En el plan aparece un SubPlan con loops=20000. ¿Cuál es la mejora más directa?",
+   "o": [
+    "Calcular el promedio de los 4 depósitos una sola vez en una tabla derivada y unirla",
+    "Cambiar la subconsulta por un NOT IN, que el motor resuelve más rápido que un AVG",
+    "Agregar un LIMIT para que el motor deje de ejecutar la subconsulta después de unas pocas filas",
+    "Envolver la subconsulta en un EXISTS, que el optimizador siempre resuelve con índices"
+   ],
+   "c": 0,
+   "e": "El plan muestra que la subconsulta se ejecuta una vez por cada bulto de afuera y recorre miles de filas cada vez, para obtener solo 4 valores distintos. Calcularlos una vez y unir lo reduce a milisegundos. `NOT IN` y `EXISTS` responden otras preguntas, y un `LIMIT` cambia el resultado en lugar de acelerar el cálculo."
+  },
+  {
+   "p": "En PostgreSQL 16, una CTE no recursiva, sin efectos secundarios, se usa una sola vez en la consulta. ¿Qué hace el motor con ella por defecto?",
+   "o": [
+    "La calcula aparte, la guarda en un resultado temporal y después la filtra",
+    "La pega dentro de la consulta de afuera, como si fuera una subconsulta común",
+    "La ejecuta una vez por cada fila que lee la consulta principal desde su tabla",
+    "La rechaza con un error hasta que el autor agregue la palabra MATERIALIZED"
+   ],
+   "c": 1,
+   "e": "Desde PostgreSQL 12, ese tipo de CTE se incorpora a la consulta de afuera por defecto, y así el optimizador puede usar índices para filtrar adentro. Con `MATERIALIZED` se fuerza el cálculo aparte (el plan muestra `CTE Scan`). No se ejecuta por cada fila ni da error por faltar una palabra."
+  },
+  {
+   "p": "Una consulta con WITH RECURSIVE sobre una tabla de ubicaciones nunca termina, aunque antes funcionaba. ¿Qué es lo más probable?",
+   "o": [
+    "La tabla creció mucho y el motor tarda más, pero va a terminar en un rato",
+    "Alguien apuntó el padre de una fila a un descendiente suyo y hay un ciclo",
+    "El ancla devuelve más de una fila, y la recursión no admite varias a la vez",
+    "El UNION ALL de la consulta debería ser un UNION, que siempre corta la recursión"
+   ],
+   "c": 1,
+   "e": "Si el padre de una ubicación pasa a ser una de sus descendientes, cada vuelta de la recursión encuentra una fila nueva y no se detiene. Se evita con la cláusula `CYCLE` o con un límite de niveles. Una tabla grande tarda más, pero termina; el ancla puede devolver varias filas, y cambiar a `UNION` no es una garantía en todos los casos."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística que no sabe SQL por qué «los bultos que no tienen reclamo» puede dar cero con una forma de escribirlo y 19.424 con otra, aunque las dos parezcan decir lo mismo. Usá una analogía propia, distinta de las del día, y explicá qué papel juega el «no sé» (el NULL) de la lista de reclamos.",
+ "para_profundizar": [
+  {
+   "fuente": "bd1112-pg-with",
+   "nota": "El capítulo de PostgreSQL sobre WITH: CTE simples, recursivas, la regla de materialización y las que modifican datos. Leé la sección 7.8.3 para ver cuándo se incorpora una CTE a la consulta."
+  },
+  {
+   "fuente": "bd1112-pg-subquery",
+   "nota": "Las expresiones de subconsulta (`EXISTS`, `IN`, `NOT IN`, `ANY`, `ALL`) con lo que ocurre con los NULL en cada una. Sirve para repasar la trampa del `NOT IN` con la fuente oficial."
+  },
+  {
+   "fuente": "bd1112-pg-escalares",
+   "nota": "La sección sobre subconsultas escalares dentro de las expresiones SQL. Muestra el ejemplo oficial de una subconsulta correlacionada en el SELECT."
+  },
+  {
+   "fuente": "be28-postgres-explain",
+   "nota": "Cómo leer `EXPLAIN`. Sirve para repetir la comparación del día y encontrar un `SubPlan` con muchos `loops` en tus consultas."
+  }
+ ],
+ "videos": [
+  {
+   "q": "SQL correlated subquery vs join performance explained",
+   "por_que": "Para ver el mismo problema de rendimiento explicado con otro conjunto de datos."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "subconsulta",
+   "d": "Un `SELECT` escrito entre paréntesis dentro de otra consulta. Según dónde se use devuelve un valor (escalar), una lista de valores (para `IN` o `EXISTS`) o una tabla (en el `FROM`)."
+  },
+  {
+   "t": "CTE",
+   "d": "Expresión de tabla común: un resultado intermedio con nombre, escrito con `WITH nombre AS (consulta)`, que la consulta principal usa como si fuera una tabla. Existe solo durante esa consulta."
+  },
+  {
+   "t": "consulta correlacionada",
+   "d": "Subconsulta que usa columnas de la consulta de afuera, de modo que su resultado cambia con cada fila externa. Conceptualmente se repite por cada fila, lo que puede volverla muy lenta."
+  },
+  {
+   "t": "EXISTS",
+   "d": "Condición que es verdadera si la subconsulta devuelve al menos una fila, sin importar qué columnas tenga. `NOT EXISTS` es la forma segura de buscar filas sin pareja."
+  },
+  {
+   "t": "CTE recursivo",
+   "d": "CTE con `WITH RECURSIVE` formado por un ancla y una parte recursiva unidas por `UNION ALL`. Recorre jerarquías de profundidad desconocida y termina cuando una vuelta no produce filas nuevas."
+  },
+  {
+   "t": "tabla derivada",
+   "d": "Una subconsulta puesta en el `FROM`, que se trata como una tabla. Permite agregar sobre algo ya agregado."
+  }
+ ],
+ "siguiente": "las funciones de ventana: cómo comparar cada fila con su grupo, rankear y calcular medias móviles sin perder el detalle de las filas.",
+ "fuentes_nuevas": [
+  {
+   "id": "bd1112-pg-with",
+   "t": "PostgreSQL 16: WITH Queries (Common Table Expressions)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/queries-with.html"
+  },
+  {
+   "id": "bd1112-pg-subquery",
+   "t": "PostgreSQL 16: Subquery Expressions",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/functions-subquery.html"
+  },
+  {
+   "id": "bd1112-pg-escalares",
+   "t": "PostgreSQL 16: Scalar Subqueries",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/sql-expressions.html#SQL-SYNTAX-SCALAR-SUBQUERIES"
+  },
+  {
+   "id": "bd1112-pg-12-notas",
+   "t": "PostgreSQL 12: notas de la versión",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2019,
+   "url": "https://www.postgresql.org/docs/12/release-12.html"
+  },
+  {
+   "id": "bd1112-pg-14-notas",
+   "t": "PostgreSQL 14: notas de la versión",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2021,
+   "url": "https://www.postgresql.org/docs/14/release-14.html"
+  },
+  {
+   "id": "bd1112-pg-16-notas",
+   "t": "PostgreSQL 16: notas de la versión",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://www.postgresql.org/docs/16/release-16.html"
+  }
+ ]
+}
