@@ -1,0 +1,695 @@
+{
+ "id": "07-02",
+ "titulo": "Arquitectura cliente-servidor y otras topologías",
+ "bajada": "Con cuentas hechas en esta VM comparás un servidor único contra un reparto entre pares, y con dos instancias detrás de un balanceador ves por qué el estado decide cómo crece un servicio.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar el modelo cliente-servidor como dos roles asimétricos y mostrar que una misma computadora puede cumplir los dos.",
+  "Calcular con un modelo simple por qué un servidor único se vuelve el cuello de botella y cómo lo evita un diseño entre pares.",
+  "Describir cómo verifica una pieza un par desconocido en BitTorrent y qué parte de una llamada WebRTC pasa por servidores.",
+  "Distinguir cliente grueso de cliente delgado con una medición y nombrar el costo de cada uno.",
+  "Demostrar con dos instancias detrás de un balanceador por qué un servidor con estado no escala y qué cambia al sacar el estado."
+ ],
+ "venis_de": "En [@07-01] viste por qué existe un backend y dónde corre la frontera de confianza. Antes viste puertos y sockets en [@05-14] y que HTTP no recuerda nada entre pedidos en [@05-19]. Hoy se ordena el mapa: quién inicia, quién guarda qué y qué otras formas hay de organizarlo.",
+ "se_apoya_en": [
+  "07-01",
+  "05-14",
+  "05-19",
+  "05-10",
+  "05-25",
+  "06-26"
+ ],
+ "gancho": [
+  "Mil personas quieren bajar el mismo archivo de 1 GB a la vez. Si lo servís desde una sola máquina que sube 1 Gbit/s, esa máquina tiene que mandar mil copias completas. En el modelo simple que calculé hoy, la última persona termina a las 2,2 horas. Con diez mil personas, a las 22 horas.",
+  "BitTorrent resuelve el mismo problema con otra idea: quien ya bajó una parte se la reparte a los demás. El mismo cálculo da unos 6 minutos, tanto para mil personas como para diez mil. No cambió el archivo ni la red. Cambió quién le habla a quién. Esa pregunta, quién inicia, quién espera y quién guarda qué, es lo que define una topología, y hoy vas a ver las más usadas con sus costos."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Cliente y servidor son roles, no máquinas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El modelo [[cliente-servidor]] divide una conversación en dos papeles asimétricos. El **servidor** está esperando en una dirección y un puerto conocidos. El **cliente** aparece cuando necesita algo, abre la conexión y pide. Ya lo viste con sockets en [@05-14]: el servidor hace `socket`, `bind`, `listen` y `accept`; el cliente, `socket` y `connect`. HTTP, el correo, el DNS ([@05-12]) y las conexiones a una base de datos funcionan así.",
+    "Para verlo sin ruido armé el servidor más chico que se me ocurrió: un depósito de práctica que entiende tres órdenes de texto (`STOCK`, `RESERVAR` y `SALIR`), con datos inventados, escrito con el módulo `net` de Node. Escucha solo en 127.0.0.1, puerto 19781. Dos terminales, la de Ana y la de Beto, se conectan con `nc`; las líneas que empiezan con el nombre de cada uno se escribieron en su terminal."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node deposito.js &",
+     "s": ""
+    },
+    {
+     "c": "[Ana] STOCK TORNILLO",
+     "s": "OK TORNILLO 10"
+    },
+    {
+     "c": "[Ana] RESERVAR TORNILLO 6",
+     "s": "OK reservadas 6 TORNILLO, quedan 4"
+    },
+    {
+     "c": "[Beto] STOCK TORNILLO",
+     "s": "OK TORNILLO 4"
+    },
+    {
+     "c": "[Beto] RESERVAR TORNILLO 6",
+     "s": "ERR sin_stock, quedan 4"
+    },
+    {
+     "c": "[Beto] RESERVAR TUERCA 2",
+     "s": "OK reservadas 2 TUERCA, quedan 3"
+    },
+    {
+     "c": "[Beto] VOLAR",
+     "s": "ERR orden_desconocida"
+    }
+   ],
+   "cap": "Un solo servidor atiende a dos clientes al mismo tiempo. El stock empieza en 10 tornillos y 5 tuercas, inventados. Corrido en esta VM."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay tres cosas para mirar. Primero, el estado es compartido ([@07-01]): cuando Ana reservó seis tornillos, el stock que vio Beto ya era de cuatro y su pedido de seis recibió un error. Segundo, el servidor atendió a los dos desde un solo puerto, el 19781. Tercero, esto es lo que muestra `ss` mientras las dos conexiones estaban abiertas:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ss -ltnH 'sport = :19781' | awk '{print $1, $4, $5}'",
+     "s": "LISTEN 127.0.0.1:19781 0.0.0.0:*"
+    },
+    {
+     "c": "ss -tnH 'sport = :19781' | awk '{print $1, $4, $5}'",
+     "s": "ESTAB 127.0.0.1:19781 127.0.0.1:55534\nESTAB 127.0.0.1:19781 127.0.0.1:55530"
+    }
+   ],
+   "cap": "Una línea LISTEN (el socket que espera) y una ESTAB por cada cliente. Los puertos de origen, que elige el sistema operativo de cada cliente, cambian en cada corrida."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las tres líneas tienen el mismo puerto local. Lo que distingue una conexión de otra es el puerto de origen del cliente, un puerto efímero: es la tupla de cinco elementos de [@05-14]. Y fijate en la última orden de la terminal, `VOLAR`, que el servidor no conoce. Contestó `ERR orden_desconocida` y siguió atendiendo. Un pedido raro no tiene que tumbar al servidor, la misma idea de frontera que viste en [@07-01]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Un rol, no una máquina",
+   "x": [
+    "Cliente y servidor describen quién cumple qué papel en una conversación concreta, y una misma computadora puede cumplir los dos a la vez. En [@07-01], tu servidor le contestaba a la app (servidor) y, para resumir un texto, le pedía algo a un tercero (cliente). Un servidor de aplicación es cliente de su base de datos. La especificación de la tabla distribuida de BitTorrent define a cada participante, justamente, como «a client/server listening on a TCP port» [#bittorrent-bep5]."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En la clase anterior, tu servidor de práctica llamó a un tercero para resumir un texto. En esa llamada, ¿quién era el cliente y quién el servidor?",
+   "resp": "Tu servidor era el cliente (iniciaba el pedido y agregaba la credencial) y el tercero era el servidor (esperaba, comprobaba la clave y respondía). La misma máquina fue servidor para la app y cliente del tercero."
+  },
+  {
+   "t": "senda",
+   "titulo": "Un servidor que no puede llamar: por qué Senda pregunta cada 45 segundos",
+   "x": [
+    "Una consecuencia del modelo es que el servidor no llama al cliente por su cuenta. En Senda se nota en cómo se entera tu teléfono de que alguien te desafió a un duelo. La pantalla de Inicio pregunta cada 45 segundos mientras está a la vista (`setInterval(() => void cargarNovedades(true), 45_000)` en `src/pantallas/Inicio.tsx`), y la sala en vivo pregunta cada 2 segundos (`CADA_MS = 2000` en `src/util/salas.ts`). No usa WebSockets: según el mapa técnico, la migración agrega las tablas a la publicación de Realtime de Supabase, pero ningún código del cliente se suscribe.",
+    "Para avisar con la app cerrada interviene un tercero. Una tarea de `pg_cron` ejecuta `enviar_avisos()` cada minuto y la base manda el aviso con `net.http_post` al servicio de notificaciones, que lo reenvía al teléfono. Es el patrón de siempre: o pregunta el cliente (sondeo), o interviene otro servidor que sí puede llegar al teléfono. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/pantallas/Inicio.tsx",
+    "src/util/salas.ts",
+    "supabase/migrations/20261130000005_grupos_grandes.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El precio de pasar todo por un solo punto"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La asimetría tiene un costo que se ve con una cuenta. Si N clientes bajan el mismo archivo desde el servidor, la subida del servidor tiene que mandar N copias completas. Cuantos más clientes, más tarda cada uno, aunque cada cliente tenga una conexión rápida. Es el modelo simple que desarrollan Kurose y Ross en su libro de redes [#kurose-ross]. Lo calculé con parámetros inventados: un archivo de 1 GB, un servidor que sube 1 Gbit/s, clientes que bajan a 100 Mbit/s y que, si se les permite, suben 20 Mbit/s a otros clientes."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "# Tiempo mínimo para que N clientes bajen un archivo, en un modelo simple (todos los números son inventados).\nF = 8e9            # archivo de 1 GB = 8.000 millones de bits\nus = 1e9           # el servidor sube 1 Gbit/s\nui = 20e6          # cada cliente podría subir 20 Mbit/s a otros\ndi = 100e6         # cada cliente baja a 100 Mbit/s\n\ndef horas(s): return f\"{s/3600:.1f} h\" if s >= 3600 else f\"{s/60:.1f} min\"\nprint(f\"{'N':>6} {'solo servidor':>14} {'con reparto entre pares':>24}\")\nfor N in (10, 100, 1000, 10000):\n    cs  = max(N * F / us, F / di)                       # el servidor manda N copias completas\n    p2p = max(F / us, F / di, N * F / (us + N * ui))    # los clientes también suben\n    print(f\"{N:>6} {horas(cs):>14} {horas(p2p):>24}\")",
+   "cap": "El modelo en seis líneas. Cada fórmula es el tiempo mínimo que impone el cuello de botella más lento. Todos los números de entrada son inventados."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 reparto.py",
+     "s": "     N  solo servidor  con reparto entre pares\n    10        1.3 min                  1.3 min\n   100       13.3 min                  4.4 min\n  1000          2.2 h                  6.3 min\n 10000         22.2 h                  6.6 min"
+    }
+   ],
+   "cap": "Resultado del script de arriba, corrido en esta VM. Son cotas inferiores de un modelo simple, no mediciones de una red real."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Leelo por filas. Con diez clientes da igual: el límite es la bajada de cada uno, 80 segundos para 1 GB a 100 Mbit/s. Con cien, el servidor ya es el cuello de botella. Con mil, la diferencia es de 2,2 horas contra 6,3 minutos. La columna de la derecha casi no crece porque cada cliente que llega trae su propia capacidad de subida: el sistema crece con la demanda en vez de ahogarse con ella.",
+    "Conviene ser honesto con el modelo. Ignora la coordinación entre pares, que los pares se van, y que muchas conexiones de hogar suben bastante menos de lo que bajan. Sirve para ver la forma de las curvas, no para predecir un tiempo. Y el servidor único tiene una ventaja que la cuenta no muestra: es simple, y quien lo opera decide todo."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Peer-to-peer: cada uno es cliente y servidor a la vez"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En una red [[peer-to-peer]] (entre pares) los participantes cumplen los dos roles al mismo tiempo: piden lo que les falta y sirven lo que ya tienen. No hay una máquina especial. Hay muchas parecidas, que se llaman *pares* (peers). BitTorrent es el ejemplo más conocido, y su especificación (BEP 3, de Bram Cohen) lo plantea como una mejora sobre HTTP simple:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "the downloaders upload to each other, making it possible for the file source to support very large numbers of downloaders with only a modest increase in its load",
+   "autor": "Bram Cohen, BEP 3: The BitTorrent Protocol Specification",
+   "fuente": "bittorrent-bep3"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá la lista de entidades que la misma especificación enumera para repartir un archivo: un servidor web común, un archivo `.torrent` estático, un *tracker* y un par inicial que ya tiene el archivo completo [#bittorrent-bep3]. O sea, BitTorrent baja el tráfico pesado a los pares, pero sigue necesitando servidores para encontrarse. El tracker no guarda el archivo: le dice a cada par quiénes son los otros. Más tarde se agregó una tabla distribuida (BEP 5) para poder prescindir de él, y el documento lo resume así: cada par pasa a ser, en efecto, un tracker [#bittorrent-bep5].",
+    "El archivo se parte en piezas del mismo tamaño (lo más común, 256 KiB según la especificación) y el `.torrent` lleva el hash SHA-1 de cada una. Un hash es un resumen de longitud fija del contenido: si cambia un solo byte, el resumen cambia por completo. Acá aparece lo que más importa para este curso. Los pares son desconocidos y cualquiera podría mandarte basura. ¿Cómo sabés que la pieza que recibiste es la correcta? Calculás su hash y lo comparás con el del `.torrent`. Lo probé con un archivo de 1 MiB partido en cuatro piezas de 256 KiB, y con una pieza donde cambié un solo byte, como si la hubiera mandado un par malicioso:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "head -c 1048576 /dev/urandom > archivo.bin && split -b 262144 -d archivo.bin pieza_",
+     "s": ""
+    },
+    {
+     "c": "sha1sum pieza_*",
+     "s": "9e1395415e144d3a41bda3c97b51c335f3554637  pieza_00\n59f715e8938b43e604cbbe5d8fd346087256cf9d  pieza_01\n37d588a03885f0b6f82868402b2f870dec0bd220  pieza_02\n0cb09f27ac9362219130594c50e232b377392905  pieza_03"
+    },
+    {
+     "c": "cp pieza_02 recibida_02 && printf '\\x00' | dd of=recibida_02 bs=1 seek=1000 conv=notrunc 2>/dev/null",
+     "s": ""
+    },
+    {
+     "c": "sha1sum recibida_02",
+     "s": "fb082b657292db20ef145120c33fe8c1ed6cc3e0  recibida_02"
+    },
+    {
+     "c": "[ \"$(sha1sum < pieza_02)\" = \"$(sha1sum < recibida_02)\" ] && echo coincide || echo 'no coincide: se descarta y se pide a otro par'",
+     "s": "no coincide: se descarta y se pide a otro par"
+    }
+   ],
+   "cap": "Los hash cambian en cada corrida porque el archivo es de bytes al azar. La segunda pieza, con un byte cambiado en la posición 1000, ya no coincide y se descarta."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Es la frontera de confianza de [@07-01] en otro diseño. En cliente-servidor, la confianza se apoya en un lugar: tu servidor. En peer-to-peer no hay un lado de adentro, y la confianza se traslada al contenido. No importa quién te lo manda: importa que coincida con un hash que obtuviste por un canal que sí elegiste, el `.torrent`."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Camiones que se pasan bultos",
+   "x": [
+    "Imaginá un depósito que se satura un día de mucha demanda. En lugar de que todos esperen en la puerta, cada camión que ya cargó empieza a pasarle bultos a otro camión en la ruta. El depósito suelta mucha carga, pero ahora nadie lleva la cuenta central, y por eso hace falta un manifiesto con el contenido exacto de cada caja: es el papel del hash.",
+    "La analogía falla en un punto: una caja que entregás a otro camión ya no la tenés, mientras que un archivo copiado queda en los dos lados. Por eso en peer-to-peer cada par que termina puede seguir sirviendo, y la capacidad total crece."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Lo que complica a los pares"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Encontrarse.** Sin un lugar conocido hay que descubrir quién tiene qué: con un tracker o con una tabla distribuida.",
+    "**El NAT.** Como viste en [@05-10], un teléfono detrás de un NAT no recibe conexiones que no inició. Dos pares en esa situación necesitan STUN y perforación, y si falla, un relevo.",
+    "**Entrar y salir.** Los pares aparecen y desaparecen. Nadie garantiza que la pieza que necesitás esté disponible.",
+    "**No hay autoridad.** Nadie puede corregir, borrar ni arbitrar. Un ranking con premios, por ejemplo, no tendría quién decida quién ganó."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "WebRTC, el estándar con el que los navegadores hacen videollamadas, es un buen ejemplo de diseño mixto. El RFC 8825 (enero de 2021) dibuja dos caminos: el audio y el video (la «media path») van directo entre los navegadores, y el armado de la llamada pasa por servidores web, la [[señalización]]: quién llama a quién y con qué formato [#rfc8825-webrtc-overview]. Para atravesar el NAT se usa ICE, un protocolo que se apoya en STUN y en TURN, este último un relevo [#nat-rfc8445]. Lo pesado es entre pares y lo delicado pasa por servidores."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Estado de los documentos citados (leídos el 13-11-2026)",
+   "x": [
+    "La página de BEP 3 lo marca como «Final» con última modificación el 4 de febrero de 2017, y la de BEP 5 como «Accepted», modificada el 21 de enero de 2020. El RFC 8825 es de enero de 2021 y el RFC 8445, de julio de 2018. Los protocolos son estables; los programas y servicios que los usan cambian seguido. Lo que se mantiene es el reparto de roles que viste hoy."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Peer-to-peer significa sin servidores»",
+   "x": [
+    "En los dos ejemplos de hoy hay servidores: BitTorrent usa un servidor web y un tracker para empezar, y WebRTC usa servidores para la señalización y, cuando hace falta, para el relevo. Peer-to-peer describe por dónde viaja el tráfico pesado, no la ausencia total de servidores."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un juego quiere un ranking semanal con premios reales. ¿Por qué sería difícil hacerlo peer-to-peer puro, con cada teléfono informando su propio puntaje a los demás?",
+   "resp": "Porque no hay lado de adentro de la frontera: cada par podría informar el puntaje que quiera y nadie tiene autoridad para comprobarlo ni para arbitrar. Con premios, alguien tiene que ser el árbitro, y ese alguien es un servidor."
+  },
+  {
+   "t": "h",
+   "x": "Cliente grueso y cliente delgado"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un cliente **delgado** hace poco: muestra lo que el servidor le arma y le manda lo que la persona toca. Un cliente **grueso** hace mucho: guarda datos, aplica reglas y dibuja las pantallas por su cuenta, y usa al servidor para lo que no puede solo. Con [[cliente grueso y delgado]] no se nombran dos categorías sino un espectro, y cada producto elige un punto.",
+    "Para ver una diferencia concreta serví la misma lista de 50 pedidos inventados de dos maneras. Como HTML ya armado, que es lo que haría un cliente delgado, y como JSON, que es lo que pide un cliente grueso que arma la pantalla por su cuenta. Después pedí cada una con el filtro «en ruta»:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "S=http://127.0.0.1:19786",
+     "s": ""
+    },
+    {
+     "c": "curl -s -o /dev/null -w '%{size_download} bytes\\n' $S/lista.html",
+     "s": "5704 bytes"
+    },
+    {
+     "c": "curl -s -o /dev/null -w '%{size_download} bytes\\n' \"$S/lista.html?estado=en%20ruta\"",
+     "s": "1997 bytes"
+    },
+    {
+     "c": "curl -s -o /dev/null -w '%{size_download} bytes\\n' $S/api/pedidos",
+     "s": "5625 bytes"
+    },
+    {
+     "c": "curl -s -o /dev/null -w '%{size_download} bytes\\n' \"$S/api/pedidos?estado=en%20ruta\"",
+     "s": "1885 bytes"
+    }
+   ],
+   "cap": "Mismo contenido, dos formatos. El HTML es mínimo (sin estilos ni scripts) y el JSON no está comprimido, para comparar los datos y nada más. Corrido en esta VM."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá los números. El tamaño casi no cambia: 5.704 bytes de HTML contra 5.625 de JSON. Lo que cambia es quién hace el trabajo y qué pasa al filtrar. El cliente delgado tuvo que volver al servidor y bajar otra página de 1.997 bytes. El grueso ya tenía los 50 pedidos y filtra sin tocar la red. A cambio, el grueso pagó antes: tuvo que bajar el programa que sabe dibujar la lista, una descarga que en esta prueba no conté y que es parte del costo ([@06-40])."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "comparar",
+   "izq": {
+    "t": "Cliente delgado",
+    "k": "red",
+    "items": [
+     "Cada gesto es un viaje al servidor",
+     "Se actualiza cambiando solo el servidor",
+     "Anda en dispositivos débiles",
+     "Sin red, no hay nada que mostrar",
+     "La lógica queda del lado de adentro"
+    ]
+   },
+   "der": {
+    "t": "Cliente grueso",
+    "k": "cliente",
+    "items": [
+     "Responde al instante con lo que ya tiene",
+     "Puede funcionar sin conexión ([@06-39])",
+     "Descarga más de entrada y consume más batería",
+     "Hay que actualizar muchas copias instaladas",
+     "Parte de la lógica queda a la vista del cliente"
+    ]
+   },
+   "cap": "Cada columna es una ventaja del otro lado. Es el mismo péndulo que viste en [@06-26] entre renderizar en el servidor (SSR) y en el navegador (CSR)."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda es un cliente muy grueso, y lo paga",
+   "x": [
+    "El mapa técnico describe a Senda como una app «primero el teléfono»: la Biblia entera (los ocho archivos de `assets/biblia`), el contenido educativo, el progreso, las rachas y los ajustes viven en el teléfono, y la nube se usa solo para lo que necesita a más de una persona. Las reglas del juego, como las vidas, están en `src/tema.ts` (`export const reglas`), y el progreso en `src/estado/usuario.ts`. Lo que no llega por falta de señal queda en una bandeja de salida persistente (`senda-cola-nube` en `src/util/nube.ts`) y se manda después.",
+    "El costo de un cliente grueso está documentado en el mismo mapa (sección 17.7): no existe una «versión mínima soportada», no hay actualizaciones por aire y corregir una pregunta exige un APK nuevo. Hay migraciones que borran funciones de la base con `drop function if exists`, y un teléfono con una versión vieja instalada puede seguir llamando a la función que ya no existe. Lo que sí cambia sin pasar por la tienda es lo que vive del lado del servidor: los interruptores de la tabla `interruptores` y las funciones SQL. Es la otra cara de la ventaja del cliente grueso: la app funciona sin internet, pero la versión que está en cada bolsillo no la controlás vos."
+   ],
+   "archivos": [
+    "src/tema.ts",
+    "src/estado/usuario.ts",
+    "src/util/nube.ts",
+    "src/util/interruptores.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Grueso es una app nativa y delgado es una web»",
+   "x": [
+    "No coincide con el espectro. Una web hecha con React que baja un JSON y dibuja todo en el navegador es un cliente grueso. Una app nativa que solo abre una página del servidor dentro de una vista es un cliente delgado. Lo que cuenta es cuánto trabajo y cuántos datos quedan en el dispositivo."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Servidor con estado y servidor sin estado"
+  },
+  {
+   "t": "p",
+   "x": [
+    "HTTP no recuerda nada entre dos pedidos: cada uno llega solo ([@05-19]). Pero las aplicaciones sí necesitan recordar, por ejemplo el carrito de Ana. Hay dos maneras de resolverlo. Un [[servidor con estado]] guarda en su propia memoria lo que sabe de cada cliente entre un pedido y el siguiente. Uno sin estado no guarda nada de nadie: lo que hay que recordar vive afuera, en una base o en un almacén, y cada pedido trae lo necesario para saber de quién es.",
+    "De esa elección depende cómo crece un servicio. Armé un carrito de práctica y levanté dos copias idénticas, A y B, detrás de un balanceador de juguete que reparte los pedidos por turnos, uno a cada una ([@05-25]). Ana agrega tres cosas y después mira su carrito dos veces. Primero, con el carrito guardado en la memoria de cada copia:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "LB=http://127.0.0.1:19784",
+     "s": ""
+    },
+    {
+     "c": "curl -s -X POST \"$LB/agregar?item=tornillos\" -H 'X-Cliente: ana'",
+     "s": "{\"atendio\":\"A\",\"carrito\":[\"tornillos\"]}"
+    },
+    {
+     "c": "curl -s -X POST \"$LB/agregar?item=tuercas\" -H 'X-Cliente: ana'",
+     "s": "{\"atendio\":\"B\",\"carrito\":[\"tuercas\"]}"
+    },
+    {
+     "c": "curl -s -X POST \"$LB/agregar?item=arandelas\" -H 'X-Cliente: ana'",
+     "s": "{\"atendio\":\"A\",\"carrito\":[\"tornillos\",\"arandelas\"]}"
+    },
+    {
+     "c": "curl -s $LB/carrito -H 'X-Cliente: ana'",
+     "s": "{\"atendio\":\"B\",\"carrito\":[\"tuercas\"]}"
+    },
+    {
+     "c": "curl -s $LB/carrito -H 'X-Cliente: ana'",
+     "s": "{\"atendio\":\"A\",\"carrito\":[\"tornillos\",\"arandelas\"]}"
+    }
+   ],
+   "cap": "Cada respuesta dice qué copia la atendió. El campo X-Cliente identifica a Ana. Corrido en esta VM, con tres procesos de Node en los puertos 19782 al 19784."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ana agregó tornillos, tuercas y arandelas, y el carrito que ve depende de quién la atiende: tuercas en un caso, tornillos y arandelas en el otro. Ninguna copia tiene el carrito completo, y si una se reinicia, su parte se pierde. Los balanceadores tienen un parche, las sesiones pegajosas, que mandan siempre a la misma persona a la misma copia, pero el estado sigue atado a una máquina que se puede caer.",
+    "Segunda versión: las copias no guardan nada y le piden el carrito a un almacén compartido, un pequeño servidor de clave y valor en el puerto 19785. Después de los tres agregados reinicié la copia A a propósito, para ver qué pasaba:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "LB=http://127.0.0.1:19784",
+     "s": ""
+    },
+    {
+     "c": "curl -s -X POST \"$LB/agregar?item=tornillos\" -H 'X-Cliente: ana'",
+     "s": "{\"atendio\":\"A\",\"carrito\":[\"tornillos\"]}"
+    },
+    {
+     "c": "curl -s -X POST \"$LB/agregar?item=tuercas\" -H 'X-Cliente: ana'",
+     "s": "{\"atendio\":\"B\",\"carrito\":[\"tornillos\",\"tuercas\"]}"
+    },
+    {
+     "c": "curl -s -X POST \"$LB/agregar?item=arandelas\" -H 'X-Cliente: ana'",
+     "s": "{\"atendio\":\"A\",\"carrito\":[\"tornillos\",\"tuercas\",\"arandelas\"]}"
+    },
+    {
+     "c": "curl -s $LB/carrito -H 'X-Cliente: ana'",
+     "s": "{\"atendio\":\"B\",\"carrito\":[\"tornillos\",\"tuercas\",\"arandelas\"]}"
+    },
+    {
+     "c": "curl -s $LB/carrito -H 'X-Cliente: ana'",
+     "s": "{\"atendio\":\"A\",\"carrito\":[\"tornillos\",\"tuercas\",\"arandelas\"]}"
+    },
+    {
+     "c": "# reinicio la instancia A (la apago y la vuelvo a levantar)",
+     "s": ""
+    },
+    {
+     "c": "curl -s $LB/carrito -H 'X-Cliente: ana'",
+     "s": "{\"atendio\":\"B\",\"carrito\":[\"tornillos\",\"tuercas\",\"arandelas\"]}"
+    },
+    {
+     "c": "curl -s $LB/carrito -H 'X-Cliente: ana'",
+     "s": "{\"atendio\":\"A\",\"carrito\":[\"tornillos\",\"tuercas\",\"arandelas\"]}"
+    }
+   ],
+   "cap": "Mismo programa, con el estado afuera. Las dos copias ven el carrito completo antes y después de reiniciar A."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los dos turnos ven el carrito completo, y reiniciar A no cambió nada. Las copias pasaron a ser intercambiables: podés sumar una tercera o apagar una sin que nadie lo note. El estado no desapareció, se mudó a un lugar pensado para guardarlo. Ese lugar es una base de datos, y vas a dedicarle partes enteras más adelante."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "«Sin estado» describe al servidor, no a la aplicación",
+   "x": [
+    "Una aplicación con servidores sin estado sigue teniendo estado, pero en otro lado: la base, una caché o el propio cliente, que lleva un token con lo necesario ([@07-10]). Y que el protocolo no recuerde nada tampoco significa que la aplicación no lo haga: las cookies de [@05-19] existen justamente para eso."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Las funciones de borde de Senda no guardan nada en memoria",
+   "x": [
+    "Busqué en las tres funciones de `supabase/functions/` variables de módulo que retengan datos entre pedidos (`let`, `var`, `new Map`) y no encontré ninguna. La de la trivia del sermón deja su estado en la base: la fila de `trivias_sermon` pasa por los estados `generando`, `error` y `revisar`, y antes de llamar al modelo reserva el cupo con la función `reclamar_trivia`. Si el proceso se reinicia entre dos pedidos, el estado sigue ahí. Eso es lo que se espera de una pieza sin estado: puede reiniciarse entre dos pedidos sin que se note."
+   ],
+   "archivos": [
+    "supabase/functions/trivia-sermon/index.ts",
+    "supabase/functions/borrar-cuenta/index.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cómo se organiza por dentro: tres capas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una última topología, esta vez dentro del backend. Las aplicaciones clásicas se dividen en tres capas: la que muestra y recoge toques, la que aplica las reglas y la que guarda los datos. Se puede construir todo como un solo programa, que se suele llamar monolito, o repartirlo en piezas que se hablan por red. Esa discusión es de la Parte 12; hoy alcanza con ver dónde cae cada capa:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Capa",
+    "Qué hace",
+    "En una web clásica",
+    "En Senda"
+   ],
+   "filas": [
+    [
+     "Presentación",
+     "Dibuja y recoge toques",
+     "El navegador",
+     "El teléfono (React Native)"
+    ],
+    [
+     "Lógica",
+     "Aplica reglas y decide",
+     "Un servidor de aplicación",
+     "Repartida: reglas locales en `src/tema.ts` y reglas con autoridad en funciones SQL"
+    ],
+    [
+     "Datos",
+     "Guarda el estado compartido",
+     "Una base de datos",
+     "PostgreSQL en Supabase; en el teléfono, AsyncStorage para lo propio"
+    ]
+   ],
+   "cap": "En Senda las tres capas existen, pero en solo dos lugares: no hay servidor de aplicación en el medio, y la lógica con autoridad vive dentro de la base (93 funciones SQL según el mapa técnico, commit 25e08fa)."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Topología",
+    "Quién guarda la verdad",
+    "Dónde se rompe",
+    "Ejemplo"
+   ],
+   "filas": [
+    [
+     "Cliente-servidor",
+     "El servidor",
+     "Cuando se cae o se satura",
+     "El ranking de Senda en Supabase"
+    ],
+    [
+     "Peer-to-peer puro",
+     "Nadie en particular; se verifica el contenido",
+     "Encontrar pares, NAT, sin árbitro",
+     "Repartir un archivo con BitTorrent"
+    ],
+    [
+     "Mixta",
+     "Un servidor coordina; los pares llevan lo pesado",
+     "Hay dos sistemas para mantener",
+     "Una videollamada con WebRTC"
+    ]
+   ],
+   "cap": "Una regla práctica, que es criterio mío y no una ley: empezá con cliente-servidor, y pasá a una mezcla cuando el costo de que todo pase por un punto sea el problema."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Elegí la topología y el punto de cliente que te parece mejor para cada caso, y justificalo en una frase: (a) un ranking semanal con premios; (b) repartir el instalador de 2 GB de un juego a 50.000 personas el mismo día; (c) una videollamada entre dos personas; (d) la lista de pedidos de un depósito que se consulta desde un celular, a veces sin señal.",
+   "pista": "Preguntate en cada uno quién tiene que ser el árbitro, qué pesa más (datos o decisiones) y qué pasa si falta la red.",
+   "solucion": "(a) Cliente-servidor con autoridad en el servidor: con premios hace falta un árbitro y reglas que el cliente no pueda saltear ([@07-01]). (b) Se puede resolver con CDN ([@05-25]) o con un reparto entre pares verificando el hash de cada pieza; lo pesado es el volumen, y las decisiones casi no importan. (c) Mixta, como WebRTC: audio y video directos y señalización por servidores. (d) Cliente grueso con copia local y sincronización con el servidor: tiene que funcionar sin señal y los datos compartidos los guarda el servidor."
+  }
+ ],
+ "recap": [
+  "Cliente y servidor son roles: el servidor espera en una dirección y puerto conocidos y el cliente inicia; una misma computadora puede cumplir los dos papeles, como tu backend con la app y con un tercero.",
+  "Como quien inicia es el cliente, el servidor no puede llamarlo: o el cliente pregunta cada tanto (sondeo, lo que hace Senda cada 45 segundos) o interviene un tercero como el servicio de notificaciones.",
+  "Un servidor único manda N copias y se vuelve el cuello de botella; en el modelo simple de hoy, mil clientes tardan 2,2 horas contra 6,3 minutos si se reparten entre pares.",
+  "Peer-to-peer reparte el trabajo pesado, pero sigue necesitando servidores para encontrarse (tracker, señalización) y traslada la confianza al contenido: se verifica el hash de cada pieza.",
+  "Un cliente grueso guarda datos y aplica reglas por su cuenta: responde sin red, pero deja copias viejas dando vueltas; uno delgado depende del servidor para cada gesto. Senda es un cliente muy grueso.",
+  "Un servidor con estado atado a su memoria no escala bien detrás de un balanceador; sacar el estado a un almacén compartido vuelve intercambiables a las copias, y el estado se muda, no desaparece."
+ ],
+ "repaso": [
+  {
+   "p": "Alguien dice que «cliente y servidor son roles y no máquinas». ¿Qué significa en la práctica?",
+   "o": [
+    "Una misma computadora puede ser servidor para unos y cliente de otro a la vez",
+    "Un servidor siempre tiene más potencia de cálculo que cada uno de sus clientes",
+    "El cliente es siempre una persona y el servidor es siempre un programa",
+    "Solo puede haber un servidor en cada red local de computadoras que se conecte"
+   ],
+   "c": 0,
+   "e": "El rol depende de la conversación: tu backend es servidor para la app y cliente de la base o de un tercero. No hay relación fija de potencia (un teléfono puede ser servidor de otro), el cliente suele ser un programa y en una misma red puede haber muchos servidores."
+  },
+  {
+   "p": "Un servidor sube 1 Gbit/s y 100 clientes bajan, todos desde él, un archivo de 1 GB (8.000 millones de bits). Solo por la subida del servidor, ¿cuánto tarda como mínimo?",
+   "o": [
+    "Unos 8 segundos, porque manda el archivo una sola vez para todos",
+    "Unos 80 segundos, que es el límite de la bajada de cada cliente",
+    "Unos 800 segundos, porque tiene que mandar cien copias completas",
+    "Unos 8.000 segundos, porque cada bit se manda mil veces seguidas"
+   ],
+   "c": 2,
+   "e": "Son 100 copias de 8.000 millones de bits por una subida de 1.000 millones de bits por segundo: 800 segundos. Los 8 segundos serían una sola copia; los 80 segundos son el piso por la bajada de cada cliente, que acá no es el límite; y los 8.000 segundos suponen mil copias."
+  },
+  {
+   "p": "En BitTorrent recibís una pieza de un par desconocido. ¿Cómo verificás que no fue alterada?",
+   "o": [
+    "Confiás en que el par es honesto porque el tracker lo tiene registrado",
+    "Calculás el hash de la pieza y lo comparás con el del archivo .torrent",
+    "Le pedís al tracker que revise el contenido de la pieza que recibiste",
+    "TCP garantiza que el contenido es idéntico al del archivo original"
+   ],
+   "c": 1,
+   "e": "El .torrent lleva el hash de cada pieza; si el que calculás no coincide, descartás la pieza y la pedís a otro par. El tracker solo presenta pares entre sí y no guarda contenido, y TCP asegura que los bytes llegaron como se enviaron, no que quien los envió dijera la verdad."
+  },
+  {
+   "p": "En una videollamada WebRTC entre dos navegadores, según el RFC 8825, ¿qué va por servidores y qué va directo?",
+   "o": [
+    "Todo el audio y el video pasan por un servidor central que los reenvía",
+    "Todo va directo entre navegadores y no hace falta ningún servidor para armar la llamada",
+    "El audio va directo y el video pasa siempre por un servidor de relevo",
+    "La señalización pasa por servidores web y el audio y el video van directos"
+   ],
+   "c": 3,
+   "e": "El RFC dibuja un «trapecio»: el camino de arriba (señalización) pasa por servidores y el de abajo (los medios) va directo entre navegadores. Si la conexión directa falla, existe el relevo TURN, pero no es el camino normal. Sin señalización los navegadores no sabrían ni cómo encontrarse."
+  },
+  {
+   "p": "Un cliente delgado y uno grueso muestran la misma lista de pedidos. La persona cambia el filtro a «en ruta». ¿Qué diferencia esperás?",
+   "o": [
+    "El delgado vuelve a pedir una página al servidor y el grueso filtra con lo que ya tiene",
+    "El grueso siempre vuelve al servidor porque no confía en sus propios datos guardados",
+    "Los dos filtran sin tocar la red, porque la lista completa ya está en pantalla",
+    "El delgado filtra localmente porque el servidor ya le mandó toda la base de datos"
+   ],
+   "c": 0,
+   "e": "En la prueba, el delgado bajó otra página de 1.997 bytes, y el grueso filtró localmente los 50 pedidos que ya tenía. Las otras opciones invierten los roles o suponen que el delgado tiene datos que, por definición, no guarda."
+  },
+  {
+   "p": "Tres copias idénticas de un servicio guardan el carrito de cada cliente en su propia memoria, detrás de un balanceador que reparte por turnos. ¿Qué le pasa a quien agrega cosas a su carrito?",
+   "o": [
+    "Nada: el balanceador manda siempre al mismo cliente a la misma copia",
+    "El balanceador junta los carritos de las copias antes de contestar",
+    "El carrito queda completo en cada copia porque HTTP lo replica solo",
+    "Cada copia guarda solo una parte y la persona ve carritos distintos"
+   ],
+   "c": 3,
+   "e": "El reparto por turnos manda cada pedido a una copia distinta y ninguna sabe lo que guardaron las otras: Ana vio carritos incompletos en la prueba. Fijar a la persona a una copia (sesión pegajosa) es un parche y la memoria se pierde si se reinicia. Ni el balanceador ni HTTP replican el estado."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó por qué, cuando mucha gente quiere bajar el mismo archivo a la vez, un servidor único se satura y un reparto entre pares no. Después contale qué pierde el reparto entre pares (a quién le creés) y cómo lo resuelve el hash. Usá un ejemplo de logística propio.",
+ "para_profundizar": [
+  {
+   "fuente": "bittorrent-bep3",
+   "nota": "La especificación del protocolo. Leé el comienzo (la lista de entidades) y la sección de piezas y hashes: son pocas páginas y muestran cómo se arma un diseño entre pares real."
+  },
+  {
+   "fuente": "rfc8825-webrtc-overview",
+   "nota": "El resumen de WebRTC. Mirá la figura 2 de la sección 3, el «trapecio»: la señalización pasa por servidores y los medios van directo entre navegadores."
+  },
+  {
+   "fuente": "kurose-ross",
+   "nota": "Libro de redes. En el capítulo sobre la capa de aplicación se desarrolla el modelo de distribución de archivos cliente-servidor contra peer-to-peer que usé hoy para las cuentas."
+  },
+  {
+   "fuente": "mdn-client-server",
+   "nota": "La visión general cliente-servidor de MDN, en español: una lectura corta y amable para reforzar el vocabulario de hoy."
+  }
+ ],
+ "videos": [
+  {
+   "q": "how bittorrent works explained trackers peers pieces",
+   "por_que": "Para ver animado el reparto en piezas y el papel del tracker, y comparar con lo que calculaste."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "cliente-servidor",
+   "d": "Modelo en el que una conversación tiene dos papeles asimétricos: el servidor espera en una dirección y un puerto conocidos y el cliente inicia los pedidos. Son roles de una conversación, no tipos de máquina."
+  },
+  {
+   "t": "peer-to-peer",
+   "d": "Modelo en el que los participantes, llamados pares, piden y sirven a la vez, sin una máquina especial que lo haga todo. La carga pesada se reparte, aunque suele haber servidores de apoyo para encontrarse."
+  },
+  {
+   "t": "cliente grueso y delgado",
+   "d": "Un cliente delgado muestra lo que arma el servidor y depende de él para cada gesto; uno grueso guarda datos, aplica reglas y dibuja por su cuenta. No son dos categorías sino un espectro."
+  },
+  {
+   "t": "servidor con estado",
+   "d": "El que guarda en su propia memoria lo que sabe de cada cliente entre un pedido y el siguiente. Uno sin estado guarda eso afuera, en una base o un almacén, y por eso sus copias son intercambiables."
+  },
+  {
+   "t": "señalización",
+   "d": "Los mensajes con los que dos participantes se ponen de acuerdo para establecer una comunicación directa (quién llama a quién, con qué formato), que suelen pasar por servidores aunque después el tráfico vaya directo."
+  }
+ ],
+ "siguiente": "Un servidor HTTP desde cero: hoy usaste servidores chicos que armé yo; mañana escribís uno entero con `net`, que lee la solicitud byte a byte y contesta con una respuesta válida.",
+ "fuentes_nuevas": [
+  {
+   "id": "bittorrent-bep3",
+   "t": "BEP 3: The BitTorrent Protocol Specification",
+   "a": "Bram Cohen",
+   "tipo": "doc",
+   "url": "https://www.bittorrent.org/beps/bep_0003.html"
+  },
+  {
+   "id": "bittorrent-bep5",
+   "t": "BEP 5: DHT Protocol",
+   "a": "Andrew Loewenstern y Arvid Norberg",
+   "tipo": "doc",
+   "url": "https://www.bittorrent.org/beps/bep_0005.html"
+  },
+  {
+   "id": "rfc8825-webrtc-overview",
+   "t": "RFC 8825: Overview: Real-Time Protocols for Browser-Based Applications",
+   "a": "H. Alvestrand",
+   "tipo": "rfc",
+   "anio": 2021,
+   "url": "https://www.rfc-editor.org/rfc/rfc8825"
+  }
+ ]
+}

@@ -1,0 +1,853 @@
+{
+ "id": "07-13",
+ "titulo": "Procesamiento asíncrono: jobs y workers",
+ "bajada": "Sacás del camino del pedido el trabajo lento, armás una cola que sobrevive a un reinicio y ves qué pasa cuando dos workers se pelean un job o uno se cae a mitad de tarea.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar por qué conviene responder `202` y hacer el trabajo lento fuera del ciclo pedido-respuesta, y qué pierde el cliente a cambio.",
+  "Distinguir job, worker y cola de trabajos, y reconocer qué se pierde cuando la cola vive solo en la memoria del proceso.",
+  "Leer una consulta de reclamo con `FOR UPDATE SKIP LOCKED` y explicar qué evita frente a la versión de leer y después marcar.",
+  "Decidir qué errores se reintentan, con qué espera y cuándo un job pasa a «muerto», y por qué el reintento obliga a escribir workers idempotentes.",
+  "Reconocer en Senda una cola en una tabla con su worker programado y una bandeja de salida en el teléfono, y qué le falta a cada una."
+ ],
+ "venis_de": "En [@07-12] viste cómo un servidor responde con errores coherentes, deja logs que se pueden leer y por qué una operación idempotente se puede repetir sin miedo. Hoy aparece la pregunta de cuándo conviene no hacer el trabajo antes de contestar, y lo que cuesta no hacerlo.",
+ "se_apoya_en": [
+  "07-12",
+  "07-05",
+  "07-04",
+  "05-18",
+  "02-22",
+  "03-41"
+ ],
+ "gancho": [
+  "Tocás «Confirmar pedido» en una app de reparto. Del otro lado el servidor tiene que hacer dos cosas: guardar el pedido y avisarle al cliente, con una notificación, que ya está en camino. Guardar tarda milisegundos. Avisar depende de un proveedor externo que hoy tarda un segundo y medio en contestar. Si el servidor hace las dos cosas antes de responder, vos mirás una ruedita girando durante un segundo y medio por algo que no necesitabas esperar.",
+  "Hoy vas a ver cómo se saca ese trabajo del camino del pedido. Armé en esta VM, con datos inventados, un servidor que espera y otro que no; una cola en la memoria, que se pierde cuando el proceso muere, y otra en PostgreSQL, que sobrevive. Vas a ver a dos programas pelearse por el mismo trabajo y a un proceso morir justo después de mandar un aviso. Al final, cómo lo resuelve Senda."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El pedido que espera de más"
+  },
+  {
+   "t": "p",
+   "x": "Empecemos por el servidor que espera. Es un programa de Node con Express ([@07-05]) que, al recibir `POST /pedidos`, guarda el pedido en una tabla y después llama al proveedor de avisos, que en mi demo es una espera simulada de 1,5 segundos. Recién entonces contesta `201`. Le mandé tres pedidos con `curl` y medí cuánto tardó cada respuesta:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "for i in 1 2 3; do curl -s -o /dev/null -w \"%{http_code} %{time_total}s\\n\" -X POST localhost:19813/pedidos -H 'content-type: application/json' -d '{\"cliente\":\"Ferretería Ñandú\"}'; done",
+     "s": "201 1.539665s\n201 1.513782s\n201 1.503457s"
+    }
+   ],
+   "cap": "Servidor propio en 127.0.0.1, cliente inventado. Medido una sola vez en una VM: los números son indicativos, no un benchmark."
+  },
+  {
+   "t": "p",
+   "x": "Hay tres problemas, y ninguno depende de que el proveedor sea lento justo hoy."
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**El usuario espera algo que no cambia su respuesta.** El pedido estaba guardado a los pocos milisegundos; lo demás era un trámite interno.",
+    "**El fallo se contagia.** Si el proveedor devuelve un error (un 503, como los de [@05-18]), el servidor tiene que elegir entre contestar error aunque el pedido esté guardado o tragarse el error y perder el aviso para siempre. Las dos opciones son malas.",
+    "**Cada pedido en espera ocupa recursos.** Cuenta de almacenero: si llegan 100 pedidos por segundo y cada uno queda esperando 1,5 segundos, hay 100 × 1,5 = 150 pedidos abiertos al mismo tiempo, cada uno con su conexión y su memoria. Es una cuenta aproximada, porque supone llegadas parejas, pero muestra cómo la espera se acumula."
+   ],
+   "ord": false
+  },
+  {
+   "t": "p",
+   "x": "La salida es separar **aceptar** de **hacer**. El servidor guarda el pedido, anota en algún lugar «falta avisar al cliente» y responde enseguida. Otro programa, un rato después, lee esa anotación y hace el trabajo lento. HTTP tiene un código pensado para esto, el `202 Accepted`, y el RFC 9110 es claro con sus límites:"
+  },
+  {
+   "t": "cita",
+   "x": "There is no facility in HTTP for re-sending a status code from an asynchronous operation.",
+   "autor": "RFC 9110, sección 15.3.3 (202 Accepted)",
+   "fuente": "rfc9110"
+  },
+  {
+   "t": "p",
+   "x": "Traducido: un `202` dice «recibí tu pedido y lo voy a procesar», no «salió bien». Si el cliente necesita saber el resultado, tiene que preguntarlo más tarde o recibir otro mensaje, como una notificación. Es justo lo que va a hacer el trabajo de fondo."
+  },
+  {
+   "t": "h",
+   "x": "Job, worker y cola de trabajos"
+  },
+  {
+   "t": "p",
+   "x": "Son tres piezas, y los nombres se usan casi igual en todos los lenguajes y herramientas:"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "Un **[[job]]** (trabajo) es una unidad de trabajo descrita como datos: qué hay que hacer y con qué datos. Por ejemplo `{\"tipo\": \"avisar_pedido\", \"pedido\": 42}`, un [[JSON]] como los que ya viste. No es una función corriendo: es la orden de correr una, escrita en un papel que se puede guardar y mover de lugar.",
+    "Un **[[worker]]** es un proceso que se dedica a sacar jobs y ejecutarlos. No atiende HTTP, así que no hay un cliente esperando y puede tardar lo que haga falta. Se puede correr uno o cincuenta.",
+    "Una **[[cola de trabajos]]** es el lugar donde los jobs esperan entre que alguien los anota y algún worker los toma. Quien anota se llama **productor** (acá, la API); quien consume es el worker."
+   ],
+   "ord": false
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La ventanilla y el depósito",
+   "x": [
+    "En un depósito, el empleado de ventanilla recibe tu pedido, completa un remito y lo deja en la bandeja de preparación. Vos te vas con el comprobante. Los operarios sacan remitos de la bandeja. El remito es el job, la bandeja es la cola y los operarios son los workers.",
+    "Donde la analogía deja de valer: en el depósito, si un remito se pierde, alguien lo nota porque falta mercadería. En software, un job que desaparece no deja ninguna señal: las formas de enterarse hay que construirlas a propósito."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "App del cliente",
+       "s": "toca «Confirmar»",
+       "k": "cliente"
+      },
+      {
+       "t": "API",
+       "s": "guarda el pedido y anota el job",
+       "k": "servidor",
+       "e": "POST /pedidos"
+      },
+      {
+       "t": "Cola de trabajos",
+       "s": "el job espera su turno",
+       "k": "datos",
+       "e": "anota"
+      }
+     ],
+     "baja": "mientras tanto, en otro proceso, sin ningún cliente esperando"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Worker",
+       "s": "saca un job y lo ejecuta",
+       "k": "servidor",
+       "e": "lo toma"
+      },
+      {
+       "t": "Proveedor de avisos",
+       "s": "el servicio lento",
+       "k": "red",
+       "e": "llama"
+      },
+      {
+       "t": "App del cliente",
+       "s": "recibe la notificación",
+       "k": "cliente",
+       "e": "push"
+      }
+     ]
+    }
+   ],
+   "cap": "La API responde `202` apenas anota el job. El worker hace el trabajo lento por su cuenta."
+  },
+  {
+   "t": "p",
+   "x": "El código más corto que muestra la idea es un arreglo y un bucle. Es JavaScript puro, así que lo podés correr acá. La cola es un arreglo, el productor hace `push` y dos workers sacan con `shift` mientras quede algo:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const dormir = (ms) => new Promise((r) => setTimeout(r, ms));\nconst cola = [];                 // la cola: un arreglo en la memoria\nconst hechos = [];\n\nasync function worker(nombre) {  // saca trabajos mientras haya\n  while (cola.length > 0) {\n    const job = cola.shift();    // se completa entero antes de que corra el otro worker\n    await dormir(job.ms);        // el trabajo lento (simulado)\n    hechos.push(`${nombre} hizo ${job.tipo} #${job.id}`);\n  }\n}\n\n// el productor anota seis trabajos y \"contesta\" enseguida\nfor (let id = 1; id <= 6; id++) cola.push({ id, tipo: 'avisar', ms: 100 });\nconsole.log('202 enviado; trabajos en cola:', cola.length);\n\nconst t0 = Date.now();\nawait Promise.all([worker('A'), worker('B')]);\nconsole.log(hechos.join('\\n'));\nconsole.log(`terminaron en ~${Math.round((Date.now() - t0) / 100) * 100} ms`);",
+   "ejecutable": true,
+   "cap": "Dos workers reparten seis trabajos de 100 ms: terminan en unos 300 ms en lugar de 600. La salida que obtuve en Node 22 era exactamente esta."
+  },
+  {
+   "t": "p",
+   "x": "Ningún trabajo se repitió ni se salteó, aunque hay dos workers. En Node eso está garantizado por el [[hilo único]]: el `shift` se completa entero antes de que el otro worker ejecute una línea. Guardalo, porque con workers en procesos distintos esa garantía desaparece."
+  },
+  {
+   "t": "pensa",
+   "x": "El servidor contestó `202` y después el worker falló al mandar el aviso. La respuesta HTTP ya se fue. ¿Cómo se entera el usuario de que algo salió mal?",
+   "resp": "No se entera por esa respuesta: ya terminó. Hay que decidirlo en el diseño: reintentar hasta lograrlo, dejar el estado del pedido donde la app lo consulte o avisar por otro canal. Lo que no sirve es que el fallo desaparezca en silencio."
+  },
+  {
+   "t": "h",
+   "x": "Primera cola: un arreglo en la memoria del servidor"
+  },
+  {
+   "t": "p",
+   "x": "Con ese mismo arreglo armé la segunda versión del servidor. La API guarda el pedido, hace `cola.push(...)` y responde `202`. Un worker, dentro del mismo proceso, saca un job por vez y espera 1,5 segundos por cada uno. Le mandé cinco pedidos seguidos y miré el largo de la cola:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "for i in 1 2 3 4 5; do curl -s -o /dev/null -w \"%{http_code} %{time_total}s\\n\" -X POST localhost:19813/pedidos -H 'content-type: application/json' -d '{\"cliente\":\"Ferretería Ñandú\"}'; done",
+     "s": "202 0.017883s\n202 0.002246s\n202 0.001869s\n202 0.001335s\n202 0.001488s"
+    },
+    {
+     "c": "curl -s localhost:19813/estado",
+     "s": "{\"en_cola\":4,\"hechos\":0}"
+    }
+   ],
+   "cap": "Las respuestas tardan entre 1 y 18 milisegundos en lugar de 1.500. El quinto job ya lo tiene el worker en las manos; por eso en la cola quedan cuatro."
+  },
+  {
+   "t": "p",
+   "x": "La espera desapareció de la respuesta. La otra cara: un solo worker hace un trabajo cada 1,5 segundos, o sea 0,67 por segundo, y si llegan más rápido la cola crece. **El largo de la cola es la medida más útil de un sistema con workers**: si crece sin parar, faltan workers o sobran pedidos."
+  },
+  {
+   "t": "p",
+   "x": "Ahora la parte que importa. Con cuatro avisos esperando en el arreglo, maté el proceso con `kill -9` (el equivalente a un corte de luz para el programa: no tiene ninguna chance de despedirse) y lo volví a arrancar:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "kill -9 $PID_DEL_SERVIDOR   # y arrancarlo de nuevo",
+     "s": ""
+    },
+    {
+     "c": "curl -s localhost:19813/estado",
+     "s": "{\"en_cola\":0,\"hechos\":0}"
+    },
+    {
+     "c": "psql colas -tc \"select count(*) from pedidos\"",
+     "s": "     5"
+    }
+   ],
+   "cap": "Los cinco pedidos siguen en la base de datos. Los avisos pendientes estaban solo en la memoria del proceso."
+  },
+  {
+   "t": "p",
+   "x": "Los cinco pedidos están guardados, porque viven en la base. Los avisos en espera y el que estaba en curso desaparecieron con la memoria, sin un error y sin rastro. A esos cinco clientes nadie les va a avisar."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Una cola en memoria es un «lo intento»",
+   "x": [
+    "Sirve cuando perder un trabajo es barato, como reconstruir una vista o calentar una caché. No sirve cuando el trabajo forma parte de lo que le prometiste al usuario. Y no hace falta una catástrofe: cada vez que se reinicia el servidor para publicar una versión nueva, se pierde lo que había en la memoria."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Segunda cola: una tabla en la base de datos"
+  },
+  {
+   "t": "p",
+   "x": "Una cola que sobreviva a un reinicio tiene que vivir en algo que sobreviva a un reinicio. La opción con menos piezas nuevas es la [[base de datos]] que la aplicación ya tiene: una tabla donde cada fila es un job. Uso SQL, el lenguaje de consulta de las bases relacionales, que se estudia en la Parte 9. Acá alcanza con leerlo casi como inglés: `insert` agrega una fila, `update` cambia filas, `select` las lee."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table jobs (\n  id              bigserial primary key,\n  tipo            text        not null,            -- qué hay que hacer: 'avisar_pedido'\n  payload         jsonb       not null,            -- con qué datos: {\"pedido\": 42}\n  estado          text        not null default 'pendiente',   -- pendiente | en_proceso | hecho | muerto\n  intentos        int         not null default 0,\n  max_intentos    int         not null default 4,\n  ejecutar_desde  timestamptz not null default now(),  -- no antes de esta hora (sirve para reintentar con espera)\n  bloqueado_hasta timestamptz,                         -- el «arriendo»: hasta cuándo es de un worker\n  ultimo_error    text\n);",
+   "cap": "La tabla de jobs que usé en PostgreSQL 16.15, levantado en esta VM en un puerto propio. Es una versión reducida de una cola real."
+  },
+  {
+   "t": "p",
+   "x": "Cada columna responde algo que hará falta más abajo: qué hay que hacer (`tipo`, `payload`), en qué punto está (`estado`), cuántas veces se intentó (`intentos`), cuándo reintentar (`ejecutar_desde`) y quién lo tiene ahora (`bloqueado_hasta`)."
+  },
+  {
+   "t": "p",
+   "x": "La ventaja principal de usar la misma base es que el job y el pedido se pueden guardar **juntos**. Una transacción es un bloque de operaciones de la base que se cumple entero o no se cumple en absoluto (la ves a fondo en [@09-24]). Probé guardar el pedido y su job dentro de una y cancelarla, y después repetirlo confirmándola:"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "begin;\ninsert into pedidos(cliente) values ('Ferretería Ñandú');\ninsert into jobs(tipo, payload) values ('avisar_pedido', '{\"pedido\": 1}');\nrollback;                      -- cancelamos: ni el pedido ni el job quedan\n-- después: pedidos = 0, jobs = 0\n-- repetido con «commit» en lugar de «rollback»: pedidos = 1, jobs = 1",
+   "cap": "Lo ejecuté con psql contra mi base de prueba. Con `rollback` quedaron 0 pedidos y 0 jobs; con `commit`, 1 y 1."
+  },
+  {
+   "t": "p",
+   "x": "Eso evita que el pedido quede guardado sin su job porque el proceso murió justo entre una cosa y la otra: pasan las dos o ninguna."
+  },
+  {
+   "t": "h3",
+   "x": "Reclamar un job sin pisarse"
+  },
+  {
+   "t": "p",
+   "x": "Con varios workers, el paso delicado es **reclamar**: elegir el job pendiente más viejo y marcarlo como tomado. La versión ingenua hace dos consultas, leer y después marcar. Mirá qué pasa si dos workers la ejecutan a la vez: una [[condición de carrera]], la de [@02-22], pero entre procesos:"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Worker A",
+     "k": "servidor"
+    },
+    {
+     "n": "Worker B",
+     "k": "cliente"
+    },
+    {
+     "n": "Base de datos",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 2,
+     "t": "select: el job pendiente más viejo",
+     "d": "A pregunta cuál es el primer job pendiente."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "es el job 7",
+     "resp": true,
+     "d": "El 7, todavía pendiente."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "select: el job pendiente más viejo",
+     "d": "B pregunta lo mismo antes de que A marque nada."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "es el job 7",
+     "resp": true,
+     "d": "Lo mismo: el 7 sigue pendiente."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "update: job 7 en proceso",
+     "d": "A lo marca."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "update: job 7 en proceso",
+     "d": "B también. La base lo acepta: son dos actualizaciones válidas."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "registra: ejecuté el job 7",
+     "d": "A ejecuta el job."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "registra: ejecuté el job 7",
+     "d": "B lo ejecuta de nuevo: dos avisos iguales."
+    }
+   ],
+   "cap": "Cada consulta funciona bien por separado. El error está en el hueco entre leer y marcar."
+  },
+  {
+   "t": "p",
+   "x": "La solución es una sola sentencia que elige y marca a la vez, y que **bloquea** la fila elegida para que nadie más la tome. PostgreSQL lo hace con `FOR UPDATE`. Con el agregado `SKIP LOCKED`, quien llega y encuentra una fila bloqueada la salta en vez de esperar. Su propia documentación lo describe para este caso exacto:"
+  },
+  {
+   "t": "cita",
+   "x": "can be used to avoid lock contention with multiple consumers accessing a queue-like table",
+   "autor": "Documentación de PostgreSQL, SELECT (cláusula de bloqueo)",
+   "fuente": "postgres-select-bloqueo-filas"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "update jobs\n   set estado = 'en_proceso',\n       intentos = intentos + 1,\n       bloqueado_hasta = now() + interval '30 seconds'\n where id = (\n         select id from jobs\n          where (estado = 'pendiente'  and ejecutar_desde <= now())\n             or (estado = 'en_proceso' and bloqueado_hasta < now() and intentos < max_intentos)\n          order by id\n          limit 1\n          for update skip locked)\nreturning *;",
+   "cap": "La consulta de reclamo de mi worker: toma un job pendiente (o uno cuyo arriendo venció), lo marca y suma un intento, todo en una sentencia. Se explica el arriendo más abajo."
+  },
+  {
+   "t": "p",
+   "x": "Probé tres formas de reclamar con 200 jobs y 4 workers, y después conté cuántas veces se ejecutó cada job:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cómo se reclama",
+    "Ejecuciones de 200 jobs",
+    "Jobs ejecutados más de una vez",
+    "Resultado"
+   ],
+   "filas": [
+    [
+     "Leer y después marcar (ingenua)",
+     "361 a 389",
+     "116 a 133",
+     "Incorrecto: avisos repetidos"
+    ],
+    [
+     "Una sentencia con `FOR UPDATE`",
+     "200",
+     "0",
+     "Correcto"
+    ],
+    [
+     "Una sentencia con `FOR UPDATE SKIP LOCKED`",
+     "200",
+     "0",
+     "Correcto"
+    ]
+   ],
+   "cap": "Cuatro corridas de la ingenua y una de cada una de las otras, en una VM con PostgreSQL 16.15. Los valores exactos cambian en cada corrida, porque dependen de quién llega antes."
+  },
+  {
+   "t": "p",
+   "x": "Con un reclamo corto, `FOR UPDATE` y `SKIP LOCKED` dan el mismo resultado correcto. La diferencia aparece cuando el worker hace el trabajo **dentro** de la transacción, con la fila bloqueada. Con 40 jobs de 20 ms y 4 workers, `FOR UPDATE` tardó entre 850 y 890 ms: los workers esperaban en fila, casi como uno solo (40 × 20 = 800). `SKIP LOCKED` tardó entre 218 y 245 ms, cerca del ideal de 200 (40 × 20 ÷ 4)."
+  },
+  {
+   "t": "p",
+   "x": "Ese diseño trae otra ventaja. Hice que un proceso reclamara un job dentro de una transacción y se matara con `kill -9` sin confirmarla:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node cae_tx.js",
+     "s": "hijo: reclamó el trabajo 1 y se muere sin commit\npadre: el hijo terminó con SIGKILL\npadre: ahora puede reclamar: [{\"id\":\"1\",\"estado\":\"pendiente\"}]"
+    }
+   ],
+   "cap": "Programa de prueba propio. Al morir la conexión, la base deshace la transacción y libera el bloqueo sola: el job vuelve a estar disponible."
+  },
+  {
+   "t": "p",
+   "x": "Tiene un costo: una transacción abierta durante todo el trabajo ocupa una conexión de la base, y no sirve para trabajos de minutos. Por eso muchas colas usan un **arriendo** (*lease*): el worker marca el job como suyo hasta una hora límite (`bloqueado_hasta`), la transacción de reclamo termina enseguida y, si el worker no termina a tiempo, otro puede retomarlo. Mi worker de las próximas secciones usa arriendo."
+  },
+  {
+   "t": "ejercicio",
+   "x": "En hora pico llegan 5 pedidos por segundo y cada aviso tarda 1,5 segundos. Cada worker hace un job por vez. ¿Cuántos workers hacen falta como mínimo para que la cola no crezca? ¿Por qué conviene tener más?",
+   "pista": "Es la misma cuenta de los pedidos abiertos al mismo tiempo: llegadas por segundo por segundos que dura cada trabajo.",
+   "solucion": "5 × 1,5 = 7,5 jobs en curso a la vez, así que hacen falta al menos 8 workers: con 7 la cola crece. Con 8 se trabaja casi al límite, y cualquier aumento chico la hace crecer; por eso se deja margen (10 o 12) y se vigila el largo de la cola. Es una estimación que supone llegadas parejas."
+  },
+  {
+   "t": "h",
+   "x": "Cuando el trabajo falla: reintentos"
+  },
+  {
+   "t": "p",
+   "x": "Un worker falla por motivos muy distintos, y la respuesta correcta cambia con el motivo, como con los códigos de [@05-18]. Si el proveedor contesta 503 («saturado»), probablemente funcione en unos segundos: conviene un **[[reintento]]**, o sea volver a ejecutar el mismo job más tarde. Si contesta 400 («ese token no existe»), repetir el pedido da el mismo error: solo se gasta tiempo."
+  },
+  {
+   "t": "p",
+   "x": "Armé cuatro jobs de mentira. `ok` anda siempre. `inestable` falla las dos primeras veces con un 503 simulado y anda a la tercera. `siempre_503` falla siempre. `datos_invalidos` falla con un error que el worker marca como permanente. Cada job tiene 4 intentos como máximo, con esperas de 1, 2 y 4 segundos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node worker.js",
+     "s": "[ 0.0 s] w1 toma el trabajo 1 (ok), intento 1 de 4\n[ 0.0 s] w1 trabajo 1: hecho\n[ 0.0 s] w1 toma el trabajo 2 (inestable), intento 1 de 4\n[ 0.0 s] w1 trabajo 2: falló (503 proveedor saturado); reintento en 1 s\n[ 0.0 s] w1 toma el trabajo 3 (siempre_503), intento 1 de 4\n[ 0.0 s] w1 trabajo 3: falló (503 proveedor saturado); reintento en 1 s\n[ 0.0 s] w1 toma el trabajo 4 (datos_invalidos), intento 1 de 4\n[ 0.0 s] w1 trabajo 4: MUERTO (400 el token del teléfono no existe) sin reintentar: el error es permanente\n[ 1.0 s] w1 toma el trabajo 2 (inestable), intento 2 de 4\n[ 1.0 s] w1 trabajo 2: falló (503 proveedor saturado); reintento en 2 s\n[ 1.0 s] w1 toma el trabajo 3 (siempre_503), intento 2 de 4\n[ 1.0 s] w1 trabajo 3: falló (503 proveedor saturado); reintento en 2 s\n[ 3.1 s] w1 toma el trabajo 2 (inestable), intento 3 de 4\n[ 3.1 s] w1 trabajo 2: hecho\n[ 3.1 s] w1 toma el trabajo 3 (siempre_503), intento 3 de 4\n[ 3.1 s] w1 trabajo 3: falló (503 proveedor saturado); reintento en 4 s\n[ 7.2 s] w1 toma el trabajo 3 (siempre_503), intento 4 de 4\n[ 7.2 s] w1 trabajo 3: MUERTO (503 proveedor saturado) tras 4 intentos"
+    },
+    {
+     "c": "psql colas -c \"select id,tipo,estado,intentos from jobs order by id\"",
+     "s": " id |      tipo       | estado | intentos \n----+-----------------+--------+----------\n  1 | ok              | hecho  |        1\n  2 | inestable       | hecho  |        3\n  3 | siempre_503     | muerto |        4\n  4 | datos_invalidos | muerto |        1"
+    }
+   ],
+   "cap": "Salida real de un worker que escribí para la demo; el proveedor y los errores están simulados. Las esperas de 1, 2 y 4 segundos se ven en los tiempos entre intentos."
+  },
+  {
+   "t": "p",
+   "x": "Tres ideas salen de esa corrida:"
+  },
+  {
+   "t": "p",
+   "x": "**Primera: la espera crece.** 1, 2 y 4 segundos es un *backoff exponencial*: cada intento espera el doble que el anterior. Si el proveedor está caído porque lo aplastaron con pedidos, reintentar cada medio segundo agrava el problema. Esperar más cada vez le da aire."
+  },
+  {
+   "t": "p",
+   "x": "**Segunda: un poco de azar.** Si el proveedor se cae a las 10:00 y 1.000 jobs fallan en el mismo segundo, con espera exacta los 1.000 reintentan juntos a las 10:00:01 y otra vez a las 10:00:03: una avalancha contra un servicio que intenta levantarse. Sumar azar a cada espera, lo que se llama *jitter*, desparrama los reintentos; la explicación clásica es de Amazon [#red31-aws-backoff-jitter]. Celery lo activa por defecto cuando se pide espera creciente, con un tope de 10 minutos [#back13-celery-tareas]."
+  },
+  {
+   "t": "p",
+   "x": "**Tercera: el final de la fila.** Un job que se quedó sin intentos no puede reintentarse eternamente, ni desaparecer. Pasa a un estado aparte, **muerto**, que muchos sistemas llaman *dead letter* (carta muerta, como la que el correo no pudo entregar): una bandeja para que una persona mire qué pasó. Si nadie la mira, se falla en silencio con más pasos; por eso se pone una alarma sobre la cantidad de jobs muertos."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "pendiente",
+       "s": "esperando su hora",
+       "k": "neutro"
+      },
+      {
+       "t": "en proceso",
+       "s": "un worker lo tiene",
+       "k": "servidor",
+       "e": "un worker lo reclama"
+      },
+      {
+       "t": "hecho",
+       "s": "terminó bien",
+       "k": "ok",
+       "e": "no hubo error"
+      }
+     ],
+     "baja": "si hay un error"
+    },
+    {
+     "nodos": [
+      {
+       "t": "pendiente otra vez",
+       "s": "con espera 1, 2, 4… segundos",
+       "k": "red",
+       "e": "error pasajero y quedan intentos"
+      },
+      {
+       "t": "muerto",
+       "s": "revisión humana",
+       "k": "alerta",
+       "e": "error permanente o sin intentos"
+      }
+     ]
+    }
+   ],
+   "cap": "Los estados de un job en mi tabla. «Pendiente otra vez» vuelve a empezar el ciclo cuando llega `ejecutar_desde`."
+  },
+  {
+   "t": "pensa",
+   "x": "Un proveedor se cae y falla de golpe una ráfaga de jobs. ¿Por qué conviene sumar azar a la espera de cada reintento, si ya crece de forma exponencial?",
+   "resp": "Porque la espera exponencial no los separa: si todos fallaron a la vez, todos esperan lo mismo y vuelven a la vez. Con azar, cada job elige un momento distinto y el proveedor recibe una corriente en lugar de una avalancha."
+  },
+  {
+   "t": "h",
+   "x": "El worker que se cae a mitad de camino"
+  },
+  {
+   "t": "p",
+   "x": "Hay un caso peor que el error: el worker que muere sin avisar. Para que el job no quede «en proceso» para siempre, el reclamo le pone un **arriendo**, la columna `bloqueado_hasta`: si el worker no lo marca como hecho antes de esa hora, otro puede reclamarlo. BullMQ usa el mismo principio: el worker tiene un candado sobre el job y lo renueva cada tanto, y si no lo renueva, el job se considera «estancado» (*stalled*), vuelve a la espera y lo procesa otro worker [#back13-bullmq-stalled]."
+  },
+  {
+   "t": "p",
+   "x": "Veamos qué ocurre en el peor momento. Armé un job `avisar_ingenuo` cuyo worker manda el aviso, y justo después, antes de anotar que terminó, se cae (lo programé para que muera a propósito, con arriendo de 2 segundos). Después arranqué un segundo worker:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "NOMBRE=w1 LEASE_S=2 CAE=1 node worker.js",
+     "s": "[ 0.0 s] w1 toma el trabajo 1 (avisar_ingenuo), intento 1 de 4\n[ 0.0 s] w1    ENVIÓ el aviso pedido-41\n[ 0.0 s] w1    ¡se cae el proceso antes de anotar que terminó!"
+    },
+    {
+     "c": "NOMBRE=w2 LEASE_S=2 node worker.js",
+     "s": "[ 2.0 s] w2 toma el trabajo 1 (avisar_ingenuo), intento 2 de 4\n[ 2.0 s] w2    ENVIÓ el aviso pedido-41\n[ 2.0 s] w2 trabajo 1: hecho"
+    }
+   ],
+   "cap": "Dos procesos reales. A los 2 segundos vence el arriendo y w2 retoma el job. El cliente recibió el aviso del pedido 41 dos veces."
+  },
+  {
+   "t": "p",
+   "x": "El worker no tiene forma de saber si el primero murió antes de mandar el aviso o después. Desde afuera, las dos situaciones son idénticas. La única forma de no perder trabajo es repetirlo, y eso tiene nombre: **entrega al menos una vez**. Cada job se ejecuta una o más veces, nunca cero. El precio es que algunos se ejecutan dos."
+  },
+  {
+   "t": "p",
+   "x": "La defensa es la idea de [@07-12]: hacer el worker [[idempotente|idempotencia]]. En mi segundo job, `avisar`, el worker anota el aviso en una tabla con una clave única, `pedido-42`, usando `on conflict do nothing`: si la clave ya está, no hace nada. Misma caída, mismo segundo worker:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "NOMBRE=w1 LEASE_S=2 CAE=1 node worker.js",
+     "s": "[ 0.0 s] w1 toma el trabajo 1 (avisar), intento 1 de 4\n[ 0.0 s] w1    ENVIÓ el aviso pedido-42\n[ 0.0 s] w1    ¡se cae el proceso antes de anotar que terminó!"
+    },
+    {
+     "c": "NOMBRE=w2 LEASE_S=2 node worker.js",
+     "s": "[ 2.0 s] w2 toma el trabajo 1 (avisar), intento 2 de 4\n[ 2.0 s] w2    el aviso pedido-42 ya estaba enviado: no se manda otra vez\n[ 2.0 s] w2 trabajo 1: hecho"
+    }
+   ],
+   "cap": "El mismo escenario con el worker idempotente: el segundo intento reconoce la clave y no repite el aviso."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Mi demo simplifica a propósito",
+   "x": [
+    "En mi demo, «enviar el aviso» y «anotar la clave» son la misma fila de la misma base, así que el truco funciona entero. Con un proveedor externo son dos operaciones en dos sistemas, y entre una y otra el proceso puede caerse. Si anotás la clave antes de enviar, un fallo en el medio pierde el aviso; si la anotás después, lo duplica.",
+    "La salida real es mandarle la clave al proveedor. Stripe, por ejemplo, deja que el cliente mande una clave por pedido y guarda la respuesta del primero: un reintento con la misma clave devuelve lo mismo sin repetir el efecto [#back13-stripe-idempotencia]. Si el proveedor no ofrece eso, hay que decidir qué preferís: perder alguno o duplicar alguno."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Entrega exactamente una vez»",
+   "x": [
+    "Dentro de un único sistema, como una base con transacciones, se puede lograr. Entre dos sistemas independientes lo que se consigue es **al menos una vez** más trabajo idempotente, que da el mismo resultado que una sola vez. Celery lo dice sin vueltas: con confirmación tardía, una tarea puede ejecutarse varias veces si el worker se cae, y recomienda que sean idempotentes [#back13-celery-tareas]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué se usa en la práctica"
+  },
+  {
+   "t": "p",
+   "x": "Todo lo que escribí hoy existe resuelto en herramientas. No las corrí; las nombro según su documentación oficial:"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**BullMQ** (Node): «una cola de jobs y mensajes distribuida, rápida y robusta». Los reintentos se piden con `attempts` y un `backoff` fijo, exponencial o a medida; sin `attempts`, un job que falla no se reintenta [#back13-bullmq-reintentos]. Corre sobre Redis o compatibles y, según su documentación actual, también sobre PostgreSQL [#back13-bullmq-intro].",
+    "**Celery** (Python): define una cola de tareas como «un mecanismo para repartir trabajo entre hilos o máquinas», con un *broker* que media entre quien anota y el worker [#back13-celery-intro]; el broker es el tema de [@07-14].",
+    "**Sidekiq** (Ruby): «trabajos de fondo simples y eficientes para Ruby», con manejo de errores y trabajos programados en su versión libre [#back13-sidekiq]."
+   ],
+   "ord": false
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué cambia y qué no",
+   "x": [
+    "Verificado el 13 de noviembre de 2026. `SKIP LOCKED` está en PostgreSQL desde la versión 9.5 [#back13-pg-9-5-notas]. La documentación de BullMQ lista hoy Redis, Valkey, Dragonfly y PostgreSQL [#back13-bullmq-intro]; la de Celery describe la serie estable 5.7 [#back13-celery-intro]. Las versiones y opciones de estas herramientas cambian seguido; el principio (job, worker, cola, reintento, arriendo, idempotencia) no."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "En Senda: una cola en la base y una bandeja en el teléfono"
+  },
+  {
+   "t": "p",
+   "x": "Senda no tiene un servidor propio con workers, pero tiene dos colas. Todo lo que sigue corresponde al commit 25e08fa; el código cambia, la forma permanece."
+  },
+  {
+   "t": "senda",
+   "titulo": "Los avisos push: una tabla, un worker programado",
+   "x": [
+    "La tabla `avisos` es una cola de trabajos: cada fila es un aviso por mandar. Las funciones SQL que atienden un duelo o una invitación solo anotan filas ahí. El worker es la función `enviar_avisos()`, que despierta una tarea de `pg_cron` **cada minuto** (cron lo ves en [@07-18]).",
+    "El reclamo es el de hoy: toma hasta 3.000 avisos pendientes con `for update skip locked`, ordenados por `id`, con un índice parcial solo sobre los no enviados. Agrupa los avisos iguales de a 100 teléfonos, el máximo que admite Expo por pedido, y los manda con `net.http_post`.",
+    "**Lo que no tiene.** Después del envío, `enviar_avisos()` marca **todo** lo tomado como enviado. No guarda intentos ni un estado «muerto», y nada lee la respuesta: `pg_net` es asíncrono por diseño [#back13-supabase-pgnet], así que el SQL no se entera si Expo contestó con un error. Si un aviso falla, se pierde. Es una cola «como mucho una vez», una decisión razonable para un «Te toca jugar» (un aviso repetido molesta más que uno perdido), pero conviene saber que es una decisión."
+   ],
+   "archivos": [
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "supabase/migrations/20261101000000_juntos.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "La bandeja de salida del teléfono",
+   "x": [
+    "En el teléfono, `src/util/nube.ts` guarda las respuestas del Espadeo en una cola persistente (`senda-cola-nube`) y las manda en lotes de hasta 50. Cada fila lleva un `cliente_id` generado en el teléfono y el servidor ignora los repetidos (`resolution=ignore-duplicates`): la idempotencia de hoy, con una clave única. Si el envío falla, el próximo intento espera `5000 × 2^(fallos−1)` milisegundos por un número al azar entre 0,5 y 1,5: backoff exponencial con jitter.",
+    "**Hallazgo.** El comentario del código dice que la espera llega hasta 10 minutos, pero el contador de fallos se detiene en 7: la espera máxima es 5000 × 2⁶ = 320 segundos y, con el azar, queda entre unos 160 y 480 (de 2,7 a 8 minutos). No es grave: es un comentario que no coincide con el código.",
+    "**Una pregunta abierta.** Toda respuesta no exitosa se reintenta igual, sin distinguir un 503 de un 400, y siempre se manda primero el lote más viejo. Si el servidor rechazara para siempre una fila (un 400 por un valor inválido, por ejemplo), esa fila quedaría al frente frenando a las demás hasta que el tope de 500 filas la empuje afuera. Es una inferencia de leer el código, no la vi pasar: el equivalente de un job que merece pasar a «muerto»."
+   ],
+   "archivos": [
+    "src/util/nube.ts"
+   ]
+  }
+ ],
+ "recap": [
+  "Un servidor responde rápido si separa aceptar de hacer: guarda lo mínimo, anota un job y contesta `202`, que significa «recibido», no «terminado».",
+  "Un job es una orden descrita como datos, un worker es el proceso que los ejecuta y la cola de trabajos es donde esperan; el largo de la cola es la mejor señal de salud del sistema.",
+  "Una cola en la memoria del proceso se pierde con cualquier reinicio; una tabla en la base sobrevive, y permite guardar el pedido y su job en una misma transacción.",
+  "Con varios workers, reclamar en dos pasos (leer y marcar) duplica trabajo; una sola sentencia con `FOR UPDATE SKIP LOCKED` lo evita y deja que los demás sigan con otra fila.",
+  "Los errores pasajeros se reintentan con espera creciente y un poco de azar; los permanentes no se reintentan; lo que se queda sin intentos pasa a «muerto» y alguien tiene que mirarlo.",
+  "Si un worker puede caerse a mitad de tarea, el job se ejecutará al menos una vez y a veces dos: la defensa es escribir workers idempotentes, con la clave de idempotencia puesta donde está el efecto."
+ ],
+ "repaso": [
+  {
+   "p": "Una API responde `202 Accepted` apenas anota un job de «generar la etiqueta de envío». ¿Qué le está diciendo exactamente al cliente?",
+   "o": [
+    "Que el pedido fue recibido para procesarse, sin garantizar que termine bien",
+    "Que la etiqueta ya fue generada y está lista para descargarse del servidor",
+    "Que el cliente debe repetir el pedido después, porque el primero se ignora",
+    "Que el servidor está saturado y rechaza el pedido por falta de capacidad"
+   ],
+   "c": 0,
+   "e": "El `202` dice que el pedido fue aceptado y que el procesamiento no terminó; el RFC 9110 aclara que HTTP no tiene forma de reenviar después el resultado. Decir que la etiqueta ya existe confunde 202 con 200. Pedir que se repita o hablar de saturación describe otros códigos: el cliente no tiene que reintentar y el servidor sí aceptó."
+  },
+  {
+   "p": "Dos workers ejecutan a la vez «leer el job pendiente más viejo» y después «marcarlo en proceso», como dos consultas separadas. ¿Qué puede pasar?",
+   "o": [
+    "La base rechaza la segunda actualización porque el job ya fue marcado",
+    "Los dos leen el mismo job antes de que alguno lo marque y lo ejecutan",
+    "Uno de los dos workers queda bloqueado para siempre esperando al otro",
+    "Los dos toman el job siguiente, de modo que ninguno ejecuta el primero"
+   ],
+   "c": 1,
+   "e": "Entre leer y marcar hay un hueco: los dos ven el mismo job como pendiente y los dos lo marcan, porque cada actualización es válida por separado. En mi prueba, 200 jobs generaron entre 361 y 389 ejecuciones. La base no rechaza nada, nadie queda bloqueado y no se saltea el primer job."
+  },
+  {
+   "p": "Los workers hacen su trabajo con la fila bloqueada, dentro de la transacción de reclamo. ¿Qué ventaja tiene `SKIP LOCKED` sobre un simple `FOR UPDATE`?",
+   "o": [
+    "Evita que el mismo job se ejecute dos veces, cosa que FOR UPDATE no logra",
+    "Hace que los jobs se ejecuten siempre en orden estricto de llegada",
+    "Los workers saltan las filas bloqueadas en vez de esperar a que se liberen",
+    "Libera la fila automáticamente si el job tarda más de 30 segundos"
+   ],
+   "c": 2,
+   "e": "Ambos evitan la ejecución doble. La diferencia es que FOR UPDATE obliga a esperar la fila bloqueada, y los workers se ponen en fila (850 a 890 ms para 40 jobs de 20 ms), mientras que SKIP LOCKED toma otra fila disponible (218 a 245 ms). SKIP LOCKED no garantiza orden estricto ni tiene ningún límite de tiempo."
+  },
+  {
+   "p": "Un worker llama a un proveedor de avisos. Un job recibe 503 «saturado» y otro recibe 400 «el token del teléfono no existe». ¿Qué conviene hacer?",
+   "o": [
+    "Reintentar los dos con espera creciente, porque no se sabe qué error es cuál",
+    "No reintentar ninguno, porque cualquier error de un tercero es definitivo",
+    "Reintentar el del 400 con prisa y descartar el del 503 de inmediato",
+    "Reintentar el del 503 con espera y pasar el del 400 a «muerto» sin reintentar"
+   ],
+   "c": 3,
+   "e": "El 503 es pasajero y probablemente funcione más tarde. El 400 es un error del pedido: repetirlo da el mismo resultado, y el job debe quedar en «muerto» para que alguien lo mire. Reintentar todo a ciegas gasta intentos; descartar todo pierde trabajo que se podía salvar; invertir los casos es exactamente al revés."
+  },
+  {
+   "p": "1.000 jobs fallan en el mismo segundo y todos esperan exactamente 1, 2 y 4 segundos entre intentos. ¿Qué problema tiene eso aunque la espera crezca?",
+   "o": [
+    "Los 1.000 vuelven a la vez cada vez, y el proveedor recibe avalanchas parejas",
+    "Se usan demasiados intentos, así que los jobs mueren antes de poder salir bien",
+    "La espera exponencial es incompatible con una cola guardada en una base",
+    "Los jobs se ejecutan fuera de orden porque cada uno espera un tiempo distinto"
+   ],
+   "c": 0,
+   "e": "La espera exponencial separa los intentos de un mismo job, pero no separa a los jobs entre sí: si empezaron juntos, siguen juntos. El jitter, un poco de azar en cada espera, los desparrama. La cantidad de intentos y el almacenamiento no tienen que ver, y que cada job espere distinto es justamente lo que se busca."
+  },
+  {
+   "p": "Un worker manda un aviso y se cae antes de marcar el job como hecho. Otro worker lo retoma cuando vence el arriendo. ¿Qué garantía tiene el sistema y qué exige al código del worker?",
+   "o": [
+    "Garantiza ejecución exactamente una vez, así que el worker puede ser ingenuo",
+    "Garantiza que se ejecuta al menos una vez, y por eso el worker debe tolerar repeticiones",
+    "Garantiza que no se pierde ni se repite nada, porque la base registró el arriendo",
+    "Garantiza como mucho una ejecución, y por eso el aviso puede perderse siempre"
+   ],
+   "c": 1,
+   "e": "Desde afuera no se distingue «murió antes del aviso» de «murió después», así que la única forma de no perder el job es repetirlo: al menos una vez. Hay que escribir workers idempotentes (en mi demo, con una clave única). El «exactamente una vez» entre dos sistemas no existe sin ese trabajo, y «como mucho una vez» es el diseño que acepta perder avisos."
+  },
+  {
+   "p": "En Senda, `enviar_avisos()` marca como enviados todos los avisos que tomó, incluso si Expo no contestó bien. ¿Qué tipo de cola es, en la práctica?",
+   "o": [
+    "Una cola «al menos una vez», porque guarda cada aviso hasta que se envía",
+    "Una cola con reintentos, porque `pg_cron` la vuelve a ejecutar cada minuto",
+    "Una cola «como mucho una vez»: un aviso que falla no se vuelve a intentar",
+    "Una cola sin pérdida, porque `pg_net` guarda el resultado de cada pedido"
+   ],
+   "c": 2,
+   "e": "La función marca todo como enviado después de llamar a `net.http_post` y no mira la respuesta, así que un aviso fallido no se reintenta: como mucho una vez. Que `pg_cron` ejecute la función cada minuto no reintenta nada, porque lo ya marcado no se vuelve a tomar. Tampoco guarda ni lee el resultado del envío."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó por qué una app de reparto no hace «esperá un segundo y medio» mientras avisa al cliente, qué es una cola de trabajos y qué pasa si el empleado que lleva un trabajo se desmaya a mitad de camino. Usá una analogía propia que no sea la del remito.",
+ "para_profundizar": [
+  {
+   "fuente": "postgres-select-bloqueo-filas",
+   "nota": "La cláusula de bloqueo de SELECT, con `FOR UPDATE`, `NOWAIT` y `SKIP LOCKED`. Leé el párrafo sobre `SKIP LOCKED` y la advertencia de que da una vista inconsistente de los datos."
+  },
+  {
+   "fuente": "back13-celery-tareas",
+   "nota": "La guía de tareas de Celery: mirá `acks_late`, la explicación de reintentos con `retry_backoff` y por qué recomienda tareas idempotentes."
+  },
+  {
+   "fuente": "back13-bullmq-reintentos",
+   "nota": "Cómo se declaran intentos y espera en una cola real, para comparar con el worker de hoy."
+  },
+  {
+   "fuente": "ddia",
+   "nota": "Capítulos sobre procesamiento por lotes y por flujos y sobre tolerancia a fallos: el marco teórico de por qué «al menos una vez» más idempotencia es la receta habitual."
+  }
+ ],
+ "videos": [
+  {
+   "q": "background jobs queue worker retries dead letter explained",
+   "por_que": "Para ver el mismo ciclo de job, worker, reintento y job muerto en otra herramienta y otro lenguaje."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "job",
+   "d": "Una unidad de trabajo descrita como datos: qué hay que hacer y con qué datos, por ejemplo avisar_pedido con el número de pedido. Se guarda en una cola y un worker lo ejecuta más tarde, fuera del ciclo de pedido y respuesta."
+  },
+  {
+   "t": "worker",
+   "d": "Un proceso que se dedica a sacar jobs de una cola y ejecutarlos. No atiende clientes HTTP, así que puede tardar. Se pueden correr varios a la vez para repartir el trabajo."
+  },
+  {
+   "t": "cola de trabajos",
+   "d": "El lugar donde los jobs esperan entre que un productor los anota y un worker los toma. Puede vivir en la memoria de un proceso, en una tabla de la base de datos o en un servicio dedicado."
+  },
+  {
+   "t": "reintento",
+   "d": "Volver a ejecutar un job que falló, normalmente más tarde y con una espera creciente. Tiene sentido para errores pasajeros, como un 503, y no para errores permanentes, como un dato inválido."
+  },
+  {
+   "t": "productor",
+   "d": "El programa que anota jobs en la cola, por ejemplo la API que, al recibir un pedido, deja anotado que falta avisar al cliente. Se contrapone al worker, que los consume."
+  },
+  {
+   "t": "trabajo muerto (dead letter)",
+   "d": "Un job que ya no se va a reintentar, porque falló con un error permanente o agotó sus intentos. Se guarda aparte, a la vista de una persona, para revisarlo en lugar de perderlo en silencio."
+  },
+  {
+   "t": "arriendo (lease)",
+   "d": "Una hora límite que un worker pone sobre el job que reclamó. Si no termina antes, el job queda disponible para otro worker. Evita que un job quede tomado para siempre por un worker que murió."
+  },
+  {
+   "t": "entrega al menos una vez",
+   "d": "Garantía de que cada job se ejecuta una o más veces, nunca cero. Se logra repitiendo lo que pudo quedar a medias, y por eso obliga a que el trabajo sea idempotente."
+  },
+  {
+   "t": "backoff exponencial con jitter",
+   "d": "Política de reintentos en la que cada espera es el doble de la anterior (backoff exponencial) y se le suma un factor al azar (jitter) para que muchos jobs fallidos no vuelvan todos al mismo instante."
+  }
+ ],
+ "siguiente": "Colas de mensajes y eventos. Hoy la cola era una tabla de tu propia base y los jobs eran órdenes para un solo equipo; mañana aparece un programa intermediario, el broker, que reparte mensajes entre muchos programas y distingue entre «uno lo atiende» y «todos se enteran».",
+ "fuentes_nuevas": [
+  {
+   "id": "back13-celery-intro",
+   "t": "Introduction to Celery (documentación oficial, serie 5.7)",
+   "a": "Celery Project",
+   "tipo": "doc",
+   "url": "https://docs.celeryq.dev/en/stable/getting-started/introduction.html"
+  },
+  {
+   "id": "back13-celery-tareas",
+   "t": "Tasks (guía de usuario de Celery)",
+   "a": "Celery Project",
+   "tipo": "doc",
+   "url": "https://docs.celeryq.dev/en/stable/userguide/tasks.html"
+  },
+  {
+   "id": "back13-bullmq-intro",
+   "t": "What is BullMQ (documentación oficial)",
+   "a": "Taskforce.sh",
+   "tipo": "doc",
+   "url": "https://docs.bullmq.io/"
+  },
+  {
+   "id": "back13-bullmq-reintentos",
+   "t": "Retrying failing jobs (BullMQ)",
+   "a": "Taskforce.sh",
+   "tipo": "doc",
+   "url": "https://docs.bullmq.io/guide/retrying-failing-jobs"
+  },
+  {
+   "id": "back13-bullmq-stalled",
+   "t": "Stalled Jobs (BullMQ)",
+   "a": "Taskforce.sh",
+   "tipo": "doc",
+   "url": "https://docs.bullmq.io/guide/workers/stalled-jobs"
+  },
+  {
+   "id": "back13-sidekiq",
+   "t": "Sidekiq: simple, efficient background jobs for Ruby",
+   "a": "Contributed Systems",
+   "tipo": "doc",
+   "url": "https://sidekiq.org/"
+  },
+  {
+   "id": "back13-stripe-idempotencia",
+   "t": "Idempotent requests (API de Stripe)",
+   "a": "Stripe",
+   "tipo": "doc",
+   "url": "https://docs.stripe.com/api/idempotent_requests"
+  },
+  {
+   "id": "back13-supabase-pgnet",
+   "t": "pg_net: Async Networking (Supabase Docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/database/extensions/pg_net"
+  },
+  {
+   "id": "back13-pg-9-5-notas",
+   "t": "PostgreSQL 9.5: notas de la versión",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "anio": 2016,
+   "url": "https://www.postgresql.org/docs/9.5/release-9-5.html"
+  }
+ ]
+}

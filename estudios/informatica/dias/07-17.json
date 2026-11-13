@@ -1,0 +1,754 @@
+{
+ "id": "07-17",
+ "titulo": "Comunicación entre servicios",
+ "bajada": "Medís qué le pasa a un servicio que llama a otro que se cuelga, y armás las cuatro defensas que lo evitan: plazo, reintento con espera, respeto del Retry-After y un circuit breaker.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar por qué una llamada síncrona entre servicios puede dejar a quien llama sin respuesta y sin saber si el otro hizo el trabajo.",
+  "Calcular cuántas llamadas quedan abiertas con un timeout dado (ritmo por plazo) y repartir un plazo total entre varias llamadas.",
+  "Decidir qué errores y qué operaciones se pueden reintentar, y calcular cuánto se multiplica la carga cuando varias capas reintentan.",
+  "Comparar espera fija, exponencial y exponencial con jitter, y leer un encabezado Retry-After.",
+  "Leer e implementar los tres estados de un circuit breaker."
+ ],
+ "venis_de": "En [@07-13] y [@07-14] viste trabajo que se hace aparte, con jobs, workers y colas, y en [@07-12] la idempotencia. Hoy el caso contrario: un servicio que necesita la respuesta de otro ahora, esperando. Lo que falta es qué hacer cuando esa respuesta no llega.",
+ "se_apoya_en": [
+  "05-18",
+  "05-31",
+  "07-12",
+  "07-13",
+  "07-14"
+ ],
+ "gancho": [
+  "Imaginá la mesa de despacho de un depósito. El operador arma la hoja de ruta de un camión y, antes de cerrarla, llama por radio al encargado: «¿Tenés 40 pallets de yerba?». Mientras espera no puede cerrar nada. Casi siempre contestan en cinco segundos. Un martes no contesta nadie.",
+  "Pasan treinta segundos. Llegan otros dos camiones y otros dos operadores hacen la misma pregunta por el mismo canal: tres personas mirando una radio muda. Y hay una duda peor que la espera: quizás el encargado sí anotó la reserva y lo que se perdió fue la respuesta. Si el operador repite el pedido, puede terminar reservando 80 pallets en vez de 40.",
+  "Les pasa lo mismo a los servicios de software cuando uno le pregunta algo a otro por la red. Se resuelve con cuatro decisiones: cuánto esperar, cuándo repetir, cuánto separar un intento del siguiente y cuándo dejar de preguntar. Hoy las medís en tu máquina, con servidores míos que se cuelgan a propósito. El caso de la radio es inventado; los números que vienen después, no."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Una llamada que puede no volver"
+  },
+  {
+   "t": "p",
+   "x": "Cuando una función llama a otra dentro del mismo programa hay dos finales posibles: devuelve un valor o lanza un error, casi al instante. Cuando un servicio le pide algo a otro por la red (por ejemplo, el de pedidos le pide al de stock que reserve mercadería), la forma más simple es la [[llamada síncrona]]: quien llama manda el pedido y se queda esperando la respuesta antes de seguir. Es el HTTP de pedido y respuesta de [@05-18], solo que ahora los dos extremos son servidores tuyos."
+  },
+  {
+   "t": "p",
+   "x": "Ahí aparece un tercer final que dentro de un proceso casi no existe: el silencio. El otro servicio puede estar caído, saturado, detrás de una red que perdió el paquete o simplemente tardando. Desde afuera todos esos casos se ven igual, porque no llega nada. Y el silencio no dice si el otro hizo el trabajo antes de callarse."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "App",
+     "k": "cliente"
+    },
+    {
+     "n": "A (pedidos)",
+     "k": "servidor"
+    },
+    {
+     "n": "B (stock)",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "POST /pedidos (40 pallets)",
+     "d": "El usuario confirma el pedido en la app."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "reservar 40 pallets",
+     "d": "A le pide a B que reserve y se queda esperando la respuesta antes de seguir: es una llamada síncrona."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "«listo, reservado» (se pierde)",
+     "resp": true,
+     "d": "B sí hizo la reserva, pero su respuesta se pierde en la red y A nunca la recibe. A no puede saberlo."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "504: no pude confirmar",
+     "resp": true,
+     "d": "A se cansa de esperar y devuelve un error. Quedan 40 pallets reservados que nadie va a usar, o un usuario que reintenta y reserva otros 40."
+    }
+   ],
+   "cap": "El caso que hace difícil todo lo de hoy: cuando no hay respuesta, no sabés si la operación ocurrió."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Un timeout no significa «no pasó». Amazon lo dice sin vueltas: una falla o un corte de espera no implican que los efectos secundarios no hayan ocurrido [#red31-aws-backoff-jitter]. Y el RFC 9110 pide que un cliente no repita automáticamente una solicitud con método no idempotente salvo que sepa que repetirla es inofensiva [#rfc9110]. Ante el silencio, la pregunta es «¿qué hago si la operación sí ocurrió?».",
+   "titulo": "Silencio no es fracaso"
+  },
+  {
+   "t": "pensa",
+   "x": "Tu servicio A le pide a B que cobre una tarjeta y a los 5 segundos A se rinde sin respuesta. ¿Podés asegurar que la tarjeta no fue cobrada?",
+   "resp": "No. B pudo cobrar y perderse solo la respuesta. Por eso hace falta consultar el estado después, o diseñar el cobro para que repetirlo no cobre dos veces (la idempotencia de [@07-12])."
+  },
+  {
+   "t": "h",
+   "x": "El timeout: cuánto esperás antes de rendirte"
+  },
+  {
+   "t": "p",
+   "x": "Un [[timeout]] es el tiempo máximo que quien llama está dispuesto a esperar. Pasado ese plazo corta, aunque no sepa qué ocurrió del otro lado. Parece un detalle de configuración, pero decide si un problema chico en B se queda en B o se contagia a A: mientras una llamada espera ocupa una conexión, memoria y la paciencia de alguien, y si el plazo es larguísimo esas cosas se acumulan."
+  },
+  {
+   "t": "p",
+   "x": "Y los valores por defecto suelen ser larguísimos. gRPC no pone plazo salvo que se lo pidas [#back17-grpc-deadlines]; el SDK de Anthropic que instalé hoy espera 10 minutos [#back17-claude-sdk-ts]; y el `fetch` de Node 22.23.4, contra un servidor mío que aceptaba la conexión y no contestaba nunca, se rindió recién a los 300,9 segundos con el error `UND_ERR_HEADERS_TIMEOUT`."
+  },
+  {
+   "t": "p",
+   "x": "Armé un servicio B de práctica en `127.0.0.1` que tarda 3 segundos en contestar, y un cliente A con una cola de 4 conexiones (`maxSockets: 4`), como la de cualquier cliente HTTP real. A recibe 20 pedidos de golpe:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node b-lento.js 19771 &      # servicio B de práctica: /lento?ms=3000 tarda 3 s",
+     "s": "B escuchando en 19771"
+    },
+    {
+     "c": "node exp1-pool.js            # 20 pedidos a la vez, 4 conexiones, sin timeout",
+     "s": "timeout = ninguno | resultados: {\"ok\":20}\nla más rápida 3015 ms | la mediana 9016 ms | la más lenta 15021 ms | total 15035 ms"
+    },
+    {
+     "c": "node exp1-pool.js 500        # lo mismo, con timeout de 500 ms",
+     "s": "timeout = 500 | resultados: {\"timeout\":20}\nla más rápida 500 ms | la mediana 502 ms | la más lenta 503 ms | total 508 ms"
+    }
+   ],
+   "cap": "Salida real, una sola VM, todo en localhost: los milisegundos son de este laboratorio, no de una red. El timeout lo puse con `AbortSignal.timeout`."
+  },
+  {
+   "t": "p",
+   "x": "Sin timeout, las 4 conexiones atienden de a 4 pedidos y cada tanda tarda 3 segundos: 20 pedidos son 5 tandas y el último usuario espera 15. Con timeout de 500 ms, los 20 reciben el error en medio segundo. Fijate que el cronómetro corre desde antes de tener conexión libre: también cortó pedidos que no habían salido de A. Cuenta el tiempo de punta a punta."
+  },
+  {
+   "t": "p",
+   "x": "Ahora el caso grave: B no contesta nunca. A recibe 50 pedidos por segundo durante 6 segundos y llama a B por cada uno, sin límite de conexiones. Medí cuántas llamadas hacia B quedaron abiertas a la vez:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Timeout de A hacia B",
+    "Llamadas abiertas (pico)",
+    "Cortadas por timeout"
+   ],
+   "filas": [
+    [
+     "ninguno",
+     "300, y sube 50 por segundo",
+     "0"
+    ],
+    [
+     "2 s",
+     "104",
+     "215"
+    ],
+    [
+     "0,5 s",
+     "30",
+     "285"
+    ]
+   ],
+   "cap": "50 pedidos por segundo durante 6 s contra un B que no contesta. Medido en la VM con `node exp2.js`. Con 2 s el pico esperable es 50 × 2 = 100; con 0,5 s, 25; el excedente viene de que los pedidos llegan en ráfagas de 5 cada 100 ms."
+  },
+  {
+   "t": "p",
+   "x": "Es una regla de cuenta para tatuarse: **llamadas abiertas ≈ pedidos por segundo × segundos que cada una espera**. Con B sano, contestando en 50 ms, A tiene 50 × 0,05 = 2,5 llamadas abiertas. Con B colgado y un timeout de 30 segundos tendría 50 × 30 = 1.500. Cada una es una conexión y memoria ocupadas, y un lugar menos para los pedidos que ni usan a B: así un problema en el servicio de stock puede dejar sin servicio a la pantalla de login."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Un timeout largo es más seguro: le da más chances a B de contestar». Cuando B ya tarda mucho, lo más probable es que siga así, y el usuario hace rato que refrescó la pantalla. El libro de SRE de Google lo dice así: no hay crédito por entregar tarde, porque el cliente ya se fue [#back17-sre-cascading]. Su ejemplo numérico: si el 5 % de los pedidos de un frontend deja de terminar y el plazo es de 100 segundos, el frontend solo atiende el 19,6 % del tráfico.",
+   "titulo": "Mito: más espera, más seguridad"
+  },
+  {
+   "t": "p",
+   "x": "¿Cómo se elige el valor? Amazon propone fijar una tasa tolerable de falsos timeouts (por ejemplo 0,1 %) y mirar la latencia del servicio de abajo en ese [[percentil]]: el p99,9 es el tiempo que 999 de cada 1.000 llamadas no superan [#red31-aws-backoff-jitter]. Y hay que saber qué cuenta el cronómetro: Amazon cuenta un timeout de 20 ms que fallaba tras cada despliegue porque incluía abrir una conexión segura nueva; por eso se separan el plazo de conectar y el de la solicitud completa."
+  },
+  {
+   "t": "p",
+   "x": "Queda el caso de las cadenas. El usuario espera como mucho 2 segundos; A llama a B y B llama a C. Si cada uno pone «por las dudas» 10 segundos, B sigue esperando a C cuando A ya se rindió. La solución es el [[plazo propagado]]: se fija un plazo total arriba y cada eslabón le pasa al siguiente lo que queda. El libro de SRE da la cuenta: A fija 30 segundos, trabaja 7 y llama a B con 23; B tarda 4 y llama a C con 19 [#back17-sre-cascading]. gRPC lo hace solo en algunos lenguajes (por defecto en Java y Go) y manda el tiempo restante, no una hora, para no depender de que los relojes coincidan [#back17-grpc-deadlines]. El RFC 9110 no define un encabezado HTTP para eso (lo busqué): cada equipo arma el suyo."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Tu endpoint promete responder en 2 segundos. Gasta 0,3 s por su cuenta, llama a B y a C una tras otra y necesita 0,2 s al final para armar la respuesta. Con el mismo plazo para B y C, ¿cuánto le das a cada una?",
+   "pista": "Restá del total lo que no es espera y repartí el resto.",
+   "solucion": "2 − 0,3 − 0,2 = 1,5 s para las dos llamadas: 0,75 s cada una. Con plazo propagado es mejor todavía: si B contesta en 0,2 s, a C le quedan 1,3 s."
+  },
+  {
+   "t": "h",
+   "x": "Reintentar: cuándo tiene sentido"
+  },
+  {
+   "t": "p",
+   "x": "Después del corte viene la tentación de repetir. A veces es lo correcto: muchas fallas duran milisegundos (un servidor que se reinicia, un paquete perdido) y Amazon las llama fallas parciales o transitorias [#red31-aws-backoff-jitter]. El **reintento con espera** repite la llamada dejando pasar tiempo entre un intento y el siguiente, con reglas para no empeorar el problema. Antes de repetir hacen falta dos preguntas."
+  },
+  {
+   "t": "p",
+   "x": "**Primera pregunta: ¿el error puede ser pasajero?** Si el pedido está mal armado, repetirlo falla igual. Guía práctica, no ley:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Lo que recibís",
+    "¿Reintentar?",
+    "Por qué"
+   ],
+   "filas": [
+    [
+     "Timeout o conexión cortada",
+     "Sí, con espera",
+     "Puede ser un corte pasajero. Pero mirá la segunda pregunta."
+    ],
+    [
+     "502, 503 o 504",
+     "Sí, con espera",
+     "El RFC 9110 define 503 como sobrecarga o mantenimiento temporales que probablemente se alivien con el tiempo [#rfc9110]."
+    ],
+    [
+     "429",
+     "Sí, respetando Retry-After",
+     "El RFC 6585 lo define como «demasiados pedidos» de un mismo cliente [#back17-rfc6585]."
+    ],
+    [
+     "500",
+     "Poco y con cuidado",
+     "Puede ser una falla pasajera o un error de programación que fallará siempre."
+    ],
+    [
+     "400, 401, 403, 404, 422",
+     "No",
+     "El pedido mismo está mal o no está permitido. Repetirlo igual no cambia nada."
+    ]
+   ],
+   "cap": "Matiz de Amazon: con sistemas de consistencia eventual, un 404 de ahora puede ser un 200 dentro de un segundo [#red31-aws-backoff-jitter]. Por eso es criterio, no regla."
+  },
+  {
+   "t": "p",
+   "x": "**Segunda pregunta: ¿repetir causa daño?** Pedir cinco veces el estado de un pedido no rompe nada; cobrar cinco veces una tarjeta, sí. El RFC 9110 llama idempotente a un método cuando varias solicitudes idénticas tienen el mismo efecto que una sola: lo cumplen PUT, DELETE y los de lectura como GET; POST no [#rfc9110]. La norma dice:"
+  },
+  {
+   "t": "cita",
+   "x": "A client SHOULD NOT automatically retry a request with a non-idempotent method unless it has some means to know that the request semantics are actually idempotent",
+   "autor": "RFC 9110, sección 9.2.2",
+   "fuente": "rfc9110"
+  },
+  {
+   "t": "p",
+   "x": "La salida habitual para los POST es la **clave de idempotencia**: el cliente genera un identificador único por intención (no por intento) y lo manda con el pedido; el servidor guarda el resultado asociado a esa clave y, si vuelve a llegar, devuelve lo mismo sin ejecutar de nuevo. Amazon lo hace en la API de EC2 que lanza máquinas, con un token explícito [#red31-aws-backoff-jitter]. Es lo que [@07-12] llamó [[idempotencia]]."
+  },
+  {
+   "t": "h",
+   "x": "Cuando todas las capas reintentan"
+  },
+  {
+   "t": "p",
+   "x": "Hay un error de diseño que aparece cuando cada servicio, por prolijidad, reintenta por su cuenta. Armé una cadena de servicios en `127.0.0.1` donde el último (la «base») siempre responde 500, y cada capa que llama hacia abajo hace hasta 3 intentos. El usuario hace un solo pedido:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node exp3-cascada.js",
+     "s": "1 capa(s) con 3 intentos: 1 pedido del usuario (respuesta 500) -> la base recibió 3\n2 capa(s) con 3 intentos: 1 pedido del usuario (respuesta 500) -> la base recibió 9\n3 capa(s) con 3 intentos: 1 pedido del usuario (respuesta 500) -> la base recibió 27\n4 capa(s) con 3 intentos: 1 pedido del usuario (respuesta 500) -> la base recibió 81"
+    }
+   ],
+   "cap": "Salida real, sin esperas entre intentos para aislar el efecto. Los intentos se multiplican (3^n), no se suman."
+  },
+  {
+   "t": "p",
+   "x": "Los intentos se multiplican: 3, 9, 27, 81. Amazon hace la cuenta con cinco capas y tres intentos por capa: 243 veces la carga sobre la base justo cuando falla, y no se recupera más [#red31-aws-backoff-jitter]. Por eso dice que los reintentos son «egoístas»: el cliente gasta tiempo del servidor para subir su propia probabilidad de éxito."
+  },
+  {
+   "t": "p",
+   "x": "Dos reglas lo contienen. La primera: **reintentar en un solo lugar de la pila**; las demás capas pasan el error hacia arriba. El libro de SRE agrega que un servicio sobrecargado puede contestar «sobrecargado, no reintentes» para cortar la cadena [#back17-sre-overload]. La segunda: el [[presupuesto de reintentos]]. Google usa como máximo tres intentos por pedido y, además, cada cliente reintenta solo mientras los reintentos sean menos del 10 % de lo que manda; con el primer tope la carga queda cerca de 3 veces y con los dos, en torno a 1,1 [#back17-sre-overload]."
+  },
+  {
+   "t": "h",
+   "x": "Esperar cada vez más, y no todos a la vez"
+  },
+  {
+   "t": "p",
+   "x": "Reintentar enseguida suele ser inútil: si B está saturado, tus tres intentos seguidos le llegan en el peor momento. La respuesta clásica es el *backoff exponencial*: esperar 100 ms, 200, 400, 800, duplicando hasta un tope. Pero hay una trampa que no se ve con un solo cliente. Si 200 clientes fallaron a la vez, todos esperan 100 ms, vuelven juntos, fallan juntos y esperan 200 ms. El retraso crece pero la sincronización se queda: cada ola es un golpe nuevo."
+  },
+  {
+   "t": "p",
+   "x": "El remedio es el [[jitter]]: en su versión *full jitter*, en lugar de esperar `base × 2^n`, cada cliente espera un tiempo al azar entre 0 y ese valor, como describe Marc Brooker en el blog de arquitectura de AWS [#back17-aws-expo-backoff-jitter]. Lo probé con una simulación mía: 200 clientes, un servicio caído el primer segundo que después acepta 25 pedidos cada 100 ms. Podés correrla."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// 200 clientes quieren hacer 1 pedido a las 0:00. El servicio está caído el primer segundo y después acepta\n// como mucho 25 pedidos por cada 100 ms (el resto recibe 503). Cada cliente que falla reintenta según su política.\nfunction prng(semilla) {            // generador con semilla: la misma corrida da siempre la misma salida\n  let s = semilla >>> 0;\n  return () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };\n}\nfunction simular(nombre, espera) {\n  const azar = prng(7);\n  const CLIENTES = 200, CAIDO_HASTA = 1000, CAPACIDAD = 25, BUCKET = 100;\n  const proximo = new Array(CLIENTES).fill(0);   // cuándo vuelve a intentar cada cliente (ms)\n  const intento = new Array(CLIENTES).fill(0);\n  const hecho = new Array(CLIENTES).fill(false);\n  const porBucket = {};\n  let total = 0, ultimo = 0, pendientes = CLIENTES;\n  for (let b = 0; pendientes > 0 && b < 600; b++) {\n    const t0 = b * BUCKET, t1 = t0 + BUCKET;\n    const llegan = [];\n    for (let c = 0; c < CLIENTES; c++) if (!hecho[c] && proximo[c] >= t0 && proximo[c] < t1) llegan.push(c);\n    total += llegan.length; porBucket[b] = llegan.length;\n    llegan.sort(() => azar() - 0.5);\n    llegan.forEach((c, k) => {\n      const acepta = t0 >= CAIDO_HASTA && k < CAPACIDAD;\n      if (acepta) { hecho[c] = true; pendientes--; ultimo = t1; }\n      else { intento[c]++; proximo[c] = t1 + espera(intento[c], azar); }\n    });\n  }\n  const pico = Math.max(...Object.entries(porBucket).filter(([b]) => b * BUCKET >= CAIDO_HASTA).map(([, n]) => n));\n  console.log(`${nombre.padEnd(34)} pedidos totales ${String(total).padStart(5)} | pico tras la caída ${String(pico).padStart(3)} | terminó el último a los ${(ultimo / 1000).toFixed(1)} s`);\n}\nconst BASE = 100, TOPE = 8000;\nsimular('espera fija de 100 ms', () => 100);\nsimular('exponencial sin azar', (n) => Math.min(TOPE, BASE * 2 ** (n - 1)));\nsimular('exponencial con jitter completo', (n, azar) => azar() * Math.min(TOPE, BASE * 2 ** (n - 1)));",
+   "ejecutable": true,
+   "cap": "Simulación con generador de azar con semilla: da siempre el mismo resultado. Es un modelo, no una medición de un sistema real."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Política de espera",
+    "Pedidos totales (mínimo posible: 200)",
+    "Pico tras la caída (por 100 ms)",
+    "Termina el último"
+   ],
+   "filas": [
+    [
+     "Fija, 100 ms",
+     "1.900",
+     "200",
+     "2,5 s"
+    ],
+    [
+     "Exponencial sin azar",
+     "1.500",
+     "200",
+     "37,8 s"
+    ],
+    [
+     "Exponencial con jitter completo",
+     "1.111",
+     "30",
+     "4,2 s"
+    ]
+   ],
+   "cap": "Salida de la simulación de arriba, corrida en Node 22.23.4 el 13-11-2026. Con otra semilla del azar, el jitter da 1.136 pedidos, pico 38 y 3,9 s."
+  },
+  {
+   "t": "p",
+   "x": "Sin azar, el pico de 200 pedidos se repite en cada ola y el último tarda 37,8 segundos porque siguen chocando; con jitter el pico baja a 30 y todos terminan en 4,2. La espera fija es la más rápida en este juguete porque rellena la capacidad sin parar, pero manda 1.900 pedidos para conseguir 200 resultados, nueve veces y media lo necesario, y en un servidor real saturado rechazar también cuesta. Sin variación de red, que de por sí desparejaría un poco, el caso sin azar es el peor posible. En el experimento de Brooker, con 100 clientes compitiendo por escribir la misma fila, el jitter bajó los pedidos a menos de la mitad [#back17-aws-expo-backoff-jitter]."
+  },
+  {
+   "t": "pensa",
+   "x": "Mil teléfonos pierden la señal a la vez y vuelve a los 10 segundos. Todos reintentan con espera fija de 1 segundo. ¿Qué ve el servidor cuando la señal vuelve?",
+   "resp": "Mil pedidos casi simultáneos cada segundo, hasta que alguno pase. Es una ola sincronizada. Con espera aleatoria entre 0 y 1 segundo, el mismo millar se reparte en ese segundo."
+  },
+  {
+   "t": "p",
+   "x": "A veces el servidor sabe cuánto va a tardar y te lo dice. El encabezado `Retry-After` indica cuánto esperar antes de volver a preguntar, en segundos o como fecha, y el RFC 9110 lo usa con 503 [#rfc9110]; el 429 también lo admite [#back17-rfc6585]. Es más confiable que cualquier cuenta tuya. Un servidor mío, ocupado los primeros 3 segundos, con dos clientes: uno impaciente que reintenta cada 100 ms y otro que obedece:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node exp6-retry-after.js",
+     "s": "  impaciente intento 1 a los 0.1 s -> 503 (Retry-After: 2)\n  impaciente intento 2 a los 0.2 s -> 503 (Retry-After: 2)\n  (…)\n  impaciente intento 30 a los 3.1 s -> 200\n  impaciente: el servidor recibió 30 pedidos\n\n  obediente  intento 1 a los 0.0 s -> 503 (Retry-After: 2)\n  obediente  intento 2 a los 2.0 s -> 503 (Retry-After: 2)\n  obediente  intento 3 a los 4.0 s -> 200\n  obediente : el servidor recibió 3 pedidos"
+    }
+   ],
+   "cap": "Salida real, una VM. El obediente tardó un segundo más en conseguir su respuesta (4,0 s contra 3,1 s) pero le costó al servidor diez veces menos pedidos. Recortadas las 26 líneas intermedias del impaciente."
+  },
+  {
+   "t": "p",
+   "x": "Una buena librería ya hace esto: el SDK de Anthropic 1.8.0 (leí su código) reintenta dos veces los 408, 409, 429 y 5xx, espera 0,5 s duplicando hasta 8, resta hasta 25 % al azar y obedece `retry-after`."
+  },
+  {
+   "t": "h",
+   "x": "Circuit breaker: dejar de golpear lo que ya se cayó"
+  },
+  {
+   "t": "p",
+   "x": "El backoff y el jitter vuelven educados los reintentos, pero cada llamada sigue pagando su espera entera. Si B lleva dos minutos caído, no tiene sentido preguntarle 50 veces por segundo y esperar el timeout cada vez. El [[circuit breaker]] (disyuntor) envuelve la llamada, mide fallas y, al pasar un umbral, deja de llamar y falla de inmediato. Nygard lo popularizó en su libro *Release It!* y Fowler lo describió en su blog en 2014 [#back17-fowler-circuit-breaker]."
+  },
+  {
+   "t": "p",
+   "x": "Tiene tres estados. **Cerrado**: las llamadas salen y se cuentan las fallas. **Abierto**: tras N fallas, durante un tiempo de enfriamiento ninguna llamada sale de A y todas fallan en microsegundos. **Semiabierto**: pasado el enfriamiento deja salir una sola llamada de prueba; si sale bien, se cierra; si falla, vuelve a abrirse."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "grafo",
+   "alto": 300,
+   "nodos": [
+    {
+     "id": "c",
+     "x": 15,
+     "y": 25,
+     "t": "Cerrado",
+     "k": "ok"
+    },
+    {
+     "id": "a",
+     "x": 85,
+     "y": 25,
+     "t": "Abierto",
+     "k": "alerta"
+    },
+    {
+     "id": "s",
+     "x": 50,
+     "y": 80,
+     "t": "Semiabierto",
+     "k": "red"
+    }
+   ],
+   "aristas": [
+    {
+     "de": "c",
+     "a": "a",
+     "t": "N fallas seguidas",
+     "dir": true
+    },
+    {
+     "de": "a",
+     "a": "s",
+     "t": "pasó el enfriamiento",
+     "dir": true
+    },
+    {
+     "de": "s",
+     "a": "c",
+     "t": "la prueba salió bien",
+     "dir": true
+    },
+    {
+     "de": "s",
+     "a": "a",
+     "t": "la prueba falló",
+     "dir": true
+    }
+   ],
+   "cap": "Los tres estados de un circuit breaker. Las librerías les ponen los mismos nombres (CLOSED, OPEN, HALF_OPEN en Resilience4j; Closed, Open, HalfOpen en Polly)."
+  },
+  {
+   "t": "p",
+   "x": "Escribí uno de unas 30 líneas, con reloj inyectado para ver pasar el tiempo sin esperar. B no contesta entre el segundo 1 y el 12; A hace un pedido por segundo; el breaker abre tras 3 fallas seguidas y enfría 5 segundos:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Un circuit breaker chico con reloj inyectado, para verlo en cámara lenta (un pedido por segundo simulado).\nclass Breaker {\n  constructor({ umbral, enfriar, ahora }) {\n    Object.assign(this, { umbral, enfriar, ahora, estado: 'cerrado', fallos: 0, desde: 0, probando: false, cambios: [] });\n  }\n  cambiar(nuevo) { this.cambios.push(`t=${this.ahora()} s: ${this.estado} -> ${nuevo}`); this.estado = nuevo; }\n  async llamar(fn) {\n    if (this.estado === 'abierto') {\n      if (this.ahora() - this.desde < this.enfriar) throw new Error('circuito abierto');\n      this.cambiar('semiabierto');\n    }\n    if (this.estado === 'semiabierto') {\n      if (this.probando) throw new Error('circuito abierto');\n      this.probando = true;                       // una sola llamada de prueba a la vez\n    }\n    try {\n      const r = await fn();\n      this.fallos = 0; this.probando = false;\n      if (this.estado !== 'cerrado') this.cambiar('cerrado');\n      return r;\n    } catch (e) {\n      this.fallos++; this.probando = false;\n      if (this.estado === 'semiabierto' || this.fallos >= this.umbral) { this.desde = this.ahora(); this.cambiar('abierto'); }\n      throw e;\n    }\n  }\n}\nlet t = 0;                                   // reloj simulado, en segundos\nconst B = { llamadas: 0 };\nasync function llamarB() {                   // el servicio B: no contesta entre el segundo 1 y el 12\n  B.llamadas++;\n  if (t >= 1 && t <= 12) throw new Error('B no contesta');\n  return 'ok';\n}\nconst cb = new Breaker({ umbral: 3, enfriar: 5, ahora: () => t });\nfor (t = 0; t <= 16; t++) {\n  const antes = B.llamadas;\n  let r; try { r = await cb.llamar(llamarB); } catch (e) { r = e.message; }\n  console.log(`t=${String(t).padStart(2)} s  ${r.padEnd(17)} ${B.llamadas > antes ? 'llegó a B' : 'cortado en A'}`);\n}\nconsole.log('\\nCambios de estado:\\n' + cb.cambios.join('\\n'));\nconsole.log(`\\nLlegaron a B: ${B.llamadas} de 17 pedidos (sin breaker habrían llegado los 17)`);",
+   "ejecutable": true,
+   "cap": "Reloj simulado: cada vuelta del `for` es un segundo. Es un breaker de juguete: no mide ventanas de tiempo ni porcentajes, solo fallas seguidas."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node exp5-breaker.js",
+     "s": "t= 0 s  ok                llegó a B\nt= 1 s  B no contesta     llegó a B\nt= 2 s  B no contesta     llegó a B\nt= 3 s  B no contesta     llegó a B\nt= 4 s  circuito abierto  cortado en A\nt= 5 s  circuito abierto  cortado en A\nt= 6 s  circuito abierto  cortado en A\nt= 7 s  circuito abierto  cortado en A\nt= 8 s  B no contesta     llegó a B\nt= 9 s  circuito abierto  cortado en A\nt=10 s  circuito abierto  cortado en A\nt=11 s  circuito abierto  cortado en A\nt=12 s  circuito abierto  cortado en A\nt=13 s  ok                llegó a B\nt=14 s  ok                llegó a B\nt=15 s  ok                llegó a B\nt=16 s  ok                llegó a B\n\nCambios de estado:\nt=3 s: cerrado -> abierto\nt=8 s: abierto -> semiabierto\nt=8 s: semiabierto -> abierto\nt=13 s: abierto -> semiabierto\nt=13 s: semiabierto -> cerrado\n\nLlegaron a B: 9 de 17 pedidos (sin breaker habrían llegado los 17)"
+    }
+   ],
+   "cap": "Salida real del mismo código, corrido con Node 22.23.4."
+  },
+  {
+   "t": "p",
+   "x": "De los 12 pedidos que cayeron durante la falla, solo 4 llegaron a B: tres para abrir el circuito y una prueba (t=8) que falló y lo reabrió. Los otros 8 recibieron el error en el acto, sin esperar un timeout. A los 13 s la prueba salió bien y todo volvió solo. B tuvo respiro y A conservó sus conexiones."
+  },
+  {
+   "t": "p",
+   "x": "¿Y qué le contesta A al usuario con el circuito abierto? Un error claro, un dato guardado de antes o la pantalla sin esa parte. Lo último es una [[respuesta degradada]]: «mis pedidos» aparece sin el estado del stock en vez de no aparecer."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Es como la llave térmica del tablero eléctrico: si algo consume de más, corta para que no se queme todo. La analogía deja de valer en que la llave térmica se rearma a mano y el breaker de software se prueba solo, con una llamada de ensayo."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "El breaker no es obligatorio ni gratis. La biblioteca de Amazon advierte que introduce un comportamiento «modal», difícil de probar, y que puede alargar la recuperación. Prefieren una *bolsa de fichas* local: cada reintento gasta una ficha y, cuando se acaban, solo se reintenta a un ritmo bajo y fijo [#red31-aws-backoff-jitter]. Las dos ideas limitan lo que le mandás a algo que anda mal; elegir es criterio del equipo."
+  },
+  {
+   "t": "p",
+   "x": "Casi nadie escribe el suyo: en Node existe `opossum` (al vencer `resetTimeout` pasa a `halfOpen` y la siguiente llamada decide) [#back17-opossum-readme], en Java Resilience4j [#back17-resilience4j-cb] y en .NET Polly [#back17-polly-cb]."
+  },
+  {
+   "t": "h",
+   "x": "Qué hace Senda con todo esto"
+  },
+  {
+   "t": "p",
+   "x": "¿Cuáles de estas defensas tiene Senda? Leí el código. Como no tiene servidor propio ([@05-31]), las llamadas entre servicios están en tres lugares: el teléfono contra la base, la base contra Expo y la función de borde contra Claude."
+  },
+  {
+   "t": "senda",
+   "titulo": "El teléfono: reintento con espera y azar, pero sin plazo propio",
+   "x": [
+    "`enviarRespuestas()` en `src/util/nube.ts` manda por lotes las respuestas del Espadeo guardadas en una cola del teléfono. Si falla, `fallos` sube hasta 7 y la próxima espera es `5000 * 2 ** (fallos - 1)` milisegundos por un número al azar entre 0,5 y 1,5: de 2,5 segundos a 8 minutos. El `Math.min(600_000, …)` de esa línea nunca se activa: con el tope de 7, el máximo es 320 s × 1,5 = 480 s. El reloj de fondo tiene un desfase al azar de 45 a 55 segundos por teléfono: jitter en una tarea periódica. Repetir es seguro porque cada fila lleva un `cliente_id` y el POST usa `on_conflict=cliente_id` con `resolution=ignore-duplicates`: un lote que llegó pero cuya respuesta se perdió no se cuenta dos veces. En los duelos, `jugarTurno()` de `src/util/juntos.ts` reintenta solo si el error es `sin_senal` o `error_nube`; una regla rota («no es tu turno») se descarta.",
+    "Lo que no hay: ni el `fetch` de esa bandeja ni `peticion()` de `src/util/cuenta.ts` llevan timeout (la única lectura con plazo, de 5 segundos, es la de `src/util/interruptores.ts`), y no encontré circuit breaker ni lectura de `Retry-After` en `src/` ni en las funciones de borde. Como la bandeja marca `enviando` mientras espera, una conexión colgada que el teléfono no corte la dejaría esperando: no lo medí. Commit `25e08fa` (9 de noviembre de 2026): el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/nube.ts",
+    "src/util/cuenta.ts",
+    "src/util/juntos.ts",
+    "src/util/interruptores.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "La base y la función de borde también llaman a otros",
+   "x": [
+    "Cada minuto, `pg_cron` ejecuta `enviar_avisos()` (migración `20261130000005_grupos_grandes.sql`), que manda los avisos a Expo con `net.http_post` de `pg_net`. Esa llamada es asíncrona: la documentación de Supabase (actualizada el 3 de noviembre de 2026) dice que la extensión hace pedidos HTTP asíncronos, con 2.000 ms de plazo por defecto. El bloque `begin … exception when others` solo atrapa errores al encolar, y después `update public.avisos set enviado = now()` marca todo como enviado sin mirar qué contestó Expo: sin reintento ni confirmación, si Expo falla ese aviso se pierde. Para un «te toca jugar» es razonable; para un cobro no.",
+    "La llamada larga es la del sermón: `subirSermon()` en `src/util/sermon.ts` pide de forma síncrona a la función `trivia-sermon`, que llama a Claude por streaming. El teléfono espera sin plazo propio ni reintento; la función reserva el cupo con `reclamar_trivia` antes de gastar y lo devuelve con `devolverCupo()` si Claude falla antes de contestar, así que repetir a mano es seguro; y el SDK usa sus valores por defecto, porque el código no pasa `timeout` ni `maxRetries`: según su documentación, 10 minutos y 2 reintentos. Pero la página de límites de Supabase dice que una función que no responde en 150 segundos devuelve 504, así que el plazo efectivo lo pondría la plataforma (inferencia mía: no se ejecuta nada contra Supabase). Un solo punto de reintento automático, el SDK, más uno manual, el líder."
+   ],
+   "archivos": [
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "supabase/functions/trivia-sermon/index.ts",
+    "src/util/sermon.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Todo lo medido lo corrí el 13-11-2026 en la VM del curso, con Node 22.23.4 y cliente y servidores en `127.0.0.1`: los milisegundos no representan una red real y los servidores que se cuelgan los escribí yo. Cambian con el tiempo los plazos y reintentos por defecto de cada librería (SDK de Anthropic 1.8.0: 10 minutos y 2 reintentos [#back17-claude-sdk-ts]), los límites de Supabase por plan (150 s por función en la página que leí hoy [#back17-supabase-edge-limits]) y las bibliotecas de breaker (hoy `opossum` 10.0.0 en npm). No cambian: ritmo × plazo, reintentar en un solo lugar, el azar para desincronizar y los tres estados del breaker.",
+   "titulo": "Lo que cambia con el tiempo en este día"
+  }
+ ],
+ "recap": [
+  "Una llamada síncrona entre servicios tiene tres finales: respuesta buena, respuesta de error y silencio. Con el silencio no sabés si la operación ocurrió.",
+  "Sin timeout, las llamadas colgadas se acumulan: abiertas ≈ pedidos por segundo × segundos de espera. El valor por defecto de muchas herramientas es de minutos.",
+  "En cadenas conviene propagar el plazo: cada servicio le pasa al siguiente solo lo que queda del total.",
+  "Reintentá errores pasajeros (timeout, 502, 503, 504, 429) y operaciones idempotentes; los POST necesitan clave de idempotencia. Los 4xx de pedido mal armado, no.",
+  "Si varias capas reintentan, los intentos se multiplican (3 intentos × 3 capas = 9 sobre la base, no 6). Reintentá en un solo lugar y con presupuesto.",
+  "La espera crece (backoff) y se le agrega azar (jitter) para que los clientes no vuelvan juntos. Si el servidor manda Retry-After, es más confiable que tu cuenta.",
+  "El circuit breaker (cerrado, abierto, semiabierto) corta las llamadas a lo que ya cayó y prueba de a una; no es gratis y hay alternativas, como las bolsas de fichas."
+ ],
+ "repaso": [
+  {
+   "p": "A recibe 40 pedidos por segundo y por cada uno llama a B. B dejó de contestar y A tiene un timeout de 3 segundos. ¿Cuántas llamadas abiertas hacia B tiene A, aproximadamente, una vez que se estabiliza?",
+   "o": [
+    "Unas 13, porque 40 pedidos se reparten en 3 segundos",
+    "Unas 120, porque son 40 por segundo durante 3 segundos",
+    "Unas 40, porque entra una llamada nueva por pedido",
+    "Unas 3, porque ese es el plazo de espera que fijó A"
+   ],
+   "c": 1,
+   "e": "Llamadas abiertas ≈ ritmo × tiempo de espera: 40 × 3 = 120. Dividir (13) invierte la cuenta, 40 sería lo correcto solo con un plazo de 1 segundo y 3 es el plazo, no la cantidad. La medición con 50 pedidos por segundo dio un pico de 104 con timeout de 2 s."
+  },
+  {
+   "p": "Un servicio A cobra una tarjeta llamando por POST a B. A los 5 segundos A corta por timeout. ¿Qué se puede afirmar con seguridad?",
+   "o": [
+    "No se cobró, porque no llegó la respuesta del cobro",
+    "No se sabe si se cobró; hay que consultarlo o usar una clave de idempotencia",
+    "Se cobró, porque B suele cobrar cuando recibe el pedido",
+    "Se puede repetir sin riesgo, porque HTTP evita los cobros dobles"
+   ],
+   "c": 1,
+   "e": "El silencio no dice si la operación ocurrió: B pudo cobrar y perderse solo la respuesta. Asumir que no se cobró o que sí son apuestas, y HTTP no evita duplicados en POST (el RFC 9110 pide no reintentar métodos no idempotentes sin garantías). La clave de idempotencia permite repetir sin cobrar dos veces."
+  },
+  {
+   "p": "En una cadena A llama a B, B llama a C y C llama a la base. Cada servicio reintenta hasta 4 veces la llamada hacia abajo cuando falla, y la base está caída. Si el usuario hace un solo pedido, ¿cuántas veces se llama a la base como máximo?",
+   "o": [
+    "16 veces, porque 4 por 4 es lo que da una cadena",
+    "12 veces, porque cada una de las 3 capas suma 4",
+    "256 veces, porque son 4 elevado a la cuarta potencia",
+    "64 veces, porque los 4 intentos se multiplican en 3 capas"
+   ],
+   "c": 3,
+   "e": "Los intentos de cada capa se multiplican: 4 × 4 × 4 = 64. La suma (12) supone que las capas no se anidan; 16 cuenta solo dos capas y 256 cuenta cuatro. En la medición, 3 capas con 3 intentos dieron 27 pedidos a la base."
+  },
+  {
+   "p": "Para qué sirve agregar jitter (azar) a un backoff exponencial en un cliente que reintenta?",
+   "o": [
+    "Para que cada espera sea más larga que la anterior",
+    "Para que los clientes dejen de coincidir y no vuelvan todos juntos",
+    "Para limitar la cantidad máxima de intentos por pedido",
+    "Para que el servidor de destino procese cada pedido más rápido"
+   ],
+   "c": 1,
+   "e": "Sin azar, los clientes que fallaron juntos esperan igual y reintentan juntos: cada ola es un nuevo pico. El jitter los reparte en el tiempo (en la simulación, el pico bajó de 200 a 30). No alarga la espera media ni limita intentos, que es tarea del tope y del presupuesto, ni acelera al servidor."
+  },
+  {
+   "p": "Tu cliente tiene backoff propio que dice esperar 2 segundos. Recibís un 503 con `Retry-After: 30`. ¿Qué conviene hacer?",
+   "o": [
+    "Esperar 2 segundos, porque la política propia manda siempre",
+    "Reintentar ya una vez y recién después esperar los 30 segundos",
+    "Esperar unos 30 segundos, con algo de azar, porque el servidor sabe más",
+    "Ignorar el encabezado, porque solo se usa con respuestas de redirección"
+   ],
+   "c": 2,
+   "e": "Retry-After es la estimación del propio servidor de cuánto le falta, y el RFC 9110 lo usa justamente con 503. Esperar solo 2 s o reintentar antes sumaría pedidos a un servicio que pidió respiro. Valerse solo del backoff propio es lo que haría el cliente impaciente de la medición, con 30 pedidos contra 3."
+  },
+  {
+   "p": "Un circuit breaker está abierto con un enfriamiento de 10 segundos. Pasan los 10 segundos y llega un pedido. ¿Qué pasa?",
+   "o": [
+    "Se cierra de golpe y deja pasar todo el tráfico otra vez",
+    "Sigue abierto hasta que alguien lo reinicie a mano",
+    "Pasa a semiabierto y deja salir una sola llamada de prueba",
+    "Reintenta las últimas diez llamadas que había rechazado antes"
+   ],
+   "c": 2,
+   "e": "Tras el enfriamiento el breaker pasa a semiabierto: deja salir una llamada de prueba; si sale bien se cierra y si falla vuelve a abrirse. Cerrar de golpe volvería a golpear a un servicio que quizá no se recuperó; reiniciar a mano es lo que hace la llave térmica eléctrica, no el breaker de software."
+  },
+  {
+   "p": "Tu endpoint promete responder en 2 segundos. Ya gastó 0,5 s por su cuenta y ahora llama a B. ¿Qué plazo conviene darle a esa llamada?",
+   "o": [
+    "10 segundos, para no cortar a B antes de tiempo",
+    "2 segundos, el total que prometió el endpoint",
+    "0,5 segundos, lo que ya se gastó",
+    "1,5 segundos o menos, lo que queda del plazo total"
+   ],
+   "c": 3,
+   "e": "Con plazo propagado, cada llamada recibe lo que queda del total: 2 − 0,5 = 1,5 s, y un poco menos para poder armar la respuesta. 10 s o 2 s dejarían a B trabajando para un cliente que ya se rindió. 0,5 s confunde lo gastado con lo disponible."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística por qué un despacho que llama por radio al depósito tiene que decidir cuánto espera, cuándo repite el pedido y cuándo deja de llamar. Usá el caso del pedido que quizás ya se reservó y una cuenta con números propios de ritmo por plazo.",
+ "para_profundizar": [
+  {
+   "fuente": "red31-aws-backoff-jitter",
+   "nota": "El texto de Amazon sobre timeouts, reintentos y jitter. Leé las secciones «Timeouts» y «Retries and backoff»: tiene la cuenta de 243 veces y el argumento a favor de la bolsa de fichas."
+  },
+  {
+   "fuente": "back17-aws-expo-backoff-jitter",
+   "nota": "El artículo de Brooker con las simulaciones de los tres tipos de jitter (completo, parejo y descorrelacionado). Sirve para comparar los gráficos con la tabla de hoy."
+  },
+  {
+   "fuente": "back17-sre-cascading",
+   "nota": "Capítulo 22 del libro de SRE de Google. Leé «Retries» y «Latency and Deadlines»: explican por qué los reintentos y los plazos mal puestos hacen caer cadenas enteras."
+  },
+  {
+   "fuente": "rfc9110",
+   "nota": "Secciones 9.2.2 (métodos idempotentes) y 10.2.3 (Retry-After): son la regla escrita de cuándo repetir y cuánto esperar."
+  }
+ ],
+ "videos": [
+  {
+   "q": "exponential backoff and jitter retry storm explained",
+   "por_que": "Para ver dibujada la ola de reintentos sincronizados que hoy mediste con la simulación."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "llamada síncrona",
+   "d": "Llamada de un servicio a otro en la que quien llama manda el pedido y se queda esperando la respuesta antes de seguir con su trabajo. Es simple de programar, pero si el otro servicio tarda o no contesta, quien llama queda bloqueado esperando."
+  },
+  {
+   "t": "timeout",
+   "d": "Tiempo máximo que quien llama espera una respuesta. Al vencer, corta la espera, aunque no sepa si el otro lado hizo el trabajo. Sin timeout, las llamadas colgadas se acumulan y consumen conexiones y memoria."
+  },
+  {
+   "t": "reintento con espera",
+   "d": "Técnica de repetir una llamada fallida dejando pasar tiempo entre un intento y el siguiente, normalmente creciente y con azar, y con un tope de intentos. Sirve para sobrevivir fallas pasajeras sin sobrecargar al servicio que está mal."
+  },
+  {
+   "t": "circuit breaker",
+   "d": "Envoltorio de una llamada remota que cuenta fallas y, al pasar un umbral, deja de llamar y falla de inmediato (estado abierto). Tras un tiempo deja pasar una llamada de prueba (semiabierto) y, si sale bien, vuelve a funcionar normal (cerrado)."
+  },
+  {
+   "t": "jitter",
+   "d": "Azar que se le agrega a una espera, por ejemplo la de un reintento, para que muchos clientes que fallaron a la vez no vuelvan todos al mismo tiempo. En el full jitter, la espera es un número al azar entre 0 y el valor del backoff."
+  },
+  {
+   "t": "Retry-After",
+   "d": "Encabezado de HTTP con que el servidor indica cuánto esperar antes de volver a preguntar, en segundos o como fecha. Se usa con 503 y 429. Un cliente bien hecho lo respeta antes que su propia cuenta de espera."
+  },
+  {
+   "t": "plazo propagado",
+   "d": "Práctica de fijar un plazo total arriba de una cadena de llamadas y pasarle a cada servicio solo lo que queda del total, para que nadie siga trabajando para un cliente que ya se rindió. En inglés, deadline propagation."
+  },
+  {
+   "t": "presupuesto de reintentos",
+   "d": "Tope a la cantidad total de reintentos que se permite, por pedido o por cliente, por ejemplo hasta tres intentos por pedido y reintentos de como máximo el 10 % del tráfico. Evita que los reintentos multipliquen la carga de un servicio que ya está fallando."
+  },
+  {
+   "t": "respuesta degradada",
+   "d": "Respuesta parcial o más simple que un servicio devuelve cuando una de sus dependencias falla, en lugar de fallar entera. Por ejemplo, mostrar los pedidos sin el estado del stock."
+  },
+  {
+   "t": "percentil",
+   "d": "Valor por debajo del cual queda cierto porcentaje de las mediciones. El p99,9 de la latencia es el tiempo que 999 de cada 1.000 llamadas no superan, y sirve para elegir un timeout con pocos falsos cortes."
+  }
+ ],
+ "siguiente": "Tareas programadas y procesos de fondo. Hasta hoy el servicio respondía a pedidos; ahora la que lo llama es el reloj. Qué es cron, cómo se escribe una tarea programada y cómo evitar que dos copias hagan el mismo trabajo a la vez.",
+ "fuentes_nuevas": [
+  {
+   "id": "back17-aws-expo-backoff-jitter",
+   "t": "Exponential Backoff and Jitter",
+   "a": "Marc Brooker (AWS Architecture Blog)",
+   "tipo": "articulo",
+   "anio": 2015,
+   "url": "https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/"
+  },
+  {
+   "id": "back17-sre-overload",
+   "t": "Site Reliability Engineering, cap. 21: Handling Overload",
+   "a": "Google",
+   "tipo": "libro",
+   "anio": 2016,
+   "url": "https://sre.google/sre-book/handling-overload/"
+  },
+  {
+   "id": "back17-sre-cascading",
+   "t": "Site Reliability Engineering, cap. 22: Addressing Cascading Failures",
+   "a": "Google",
+   "tipo": "libro",
+   "anio": 2016,
+   "url": "https://sre.google/sre-book/addressing-cascading-failures/"
+  },
+  {
+   "id": "back17-fowler-circuit-breaker",
+   "t": "Circuit Breaker",
+   "a": "Martin Fowler",
+   "tipo": "articulo",
+   "anio": 2014,
+   "url": "https://martinfowler.com/bliki/CircuitBreaker.html"
+  },
+  {
+   "id": "back17-grpc-deadlines",
+   "t": "Deadlines (gRPC)",
+   "a": "gRPC",
+   "tipo": "doc",
+   "url": "https://grpc.io/docs/guides/deadlines/"
+  },
+  {
+   "id": "back17-rfc6585",
+   "t": "RFC 6585: Additional HTTP Status Codes",
+   "a": "Nottingham y Fielding (IETF)",
+   "tipo": "rfc",
+   "anio": 2012,
+   "url": "https://www.rfc-editor.org/rfc/rfc6585"
+  },
+  {
+   "id": "back17-claude-sdk-ts",
+   "t": "Claude SDK para TypeScript: reintentos y timeouts",
+   "a": "Anthropic",
+   "tipo": "doc",
+   "url": "https://platform.claude.com/docs/en/cli-sdks-libraries/sdks/typescript"
+  },
+  {
+   "id": "back17-supabase-edge-limits",
+   "t": "Edge Functions limits (Supabase)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/functions/limits"
+  },
+  {
+   "id": "back17-supabase-pgnet",
+   "t": "pg_net: Async Networking (Supabase)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/database/extensions/pg_net"
+  },
+  {
+   "id": "back17-opossum-readme",
+   "t": "opossum: circuit breaker para Node.js (README)",
+   "a": "Nodeshift",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/nodeshift/opossum/main/README.md"
+  },
+  {
+   "id": "back17-resilience4j-cb",
+   "t": "Resilience4j: CircuitBreaker",
+   "a": "Resilience4j",
+   "tipo": "doc",
+   "url": "https://resilience4j.readme.io/docs/circuitbreaker"
+  },
+  {
+   "id": "back17-polly-cb",
+   "t": "Polly: estrategia Circuit Breaker",
+   "a": "Polly",
+   "tipo": "doc",
+   "url": "https://www.pollydocs.org/strategies/circuit-breaker.html"
+  }
+ ]
+}

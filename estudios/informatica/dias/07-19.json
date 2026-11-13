@@ -1,0 +1,830 @@
+{
+ "id": "07-19",
+ "titulo": "Configuración y entornos del servidor",
+ "bajada": "Sacás de un servidor lo que cambia entre dev, staging y prod, hacés que se niegue a arrancar si está mal, lo defendés de filtraciones y apagás una función sin volver a desplegar.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir configuración de despliegue, secreto y regla de negocio, y decidir dónde vive cada uno.",
+  "Escribir una validación de configuración que haga fallar el arranque con todos los errores juntos.",
+  "Explicar cuatro formas en que se filtra un secreto y elegir un peldaño de almacenamiento justificado.",
+  "Implementar una feature flag con porcentaje estable y explicar qué valor por defecto corresponde si no se puede leer.",
+  "Identificar en el repositorio de Senda qué es secreto, qué es público y qué es una flag operativa."
+ ],
+ "venis_de": "En [@07-18] viste cómo se programan tareas que corren solas. Hoy volvés a una pregunta que todas las clases de la parte dejaron implícita: cómo recibe un servidor sus valores, desde el puerto hasta las claves, sin tenerlos pegados en el código.",
+ "se_apoya_en": [
+  "04-06",
+  "02-18",
+  "04-21",
+  "07-07",
+  "05-31"
+ ],
+ "gancho": [
+  "Imaginá un sistema de despachos que corre en tres lugares a la vez: tu notebook, donde probás cambios; una copia de ensayo, donde el equipo revisa antes de publicar; y el servidor de verdad, que atiende a los clientes. El código es exactamente el mismo en los tres. Lo que cambia es un puñado de valores: a qué base de datos se conecta, en qué puerto escucha, con qué clave le habla al transportista, cuánto escribe en sus logs.",
+  "Si esos valores están pegados al código, cada cambio de lugar es una edición del programa, y tarde o temprano alguien publica una versión con la dirección equivocada. Hoy vas a ver cómo se sacan del código, cómo hacer que el servidor se niegue a arrancar si están mal, cómo se cuidan los que dan poder (los secretos) y cómo se prende o apaga una función sin volver a desplegar. Todo corre en esta VM, con datos y claves inventados."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué es configuración y qué es código"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[La configuración por entorno|configuración por entorno]] son los valores que cambian de un despliegue a otro sin que cambie el programa: a qué base de datos se conecta, en qué puerto escucha, con qué nivel de detalle escribe sus logs. Según los [[principios de 12 factores]], es todo lo que probablemente varía entre despliegues, y tiene que estar estrictamente separada del código [#twelve-factor-config]. Lo que es igual en todos los despliegues, como la lista de rutas del servidor, es código y se versiona con él.",
+    "Esos principios dan una prueba de bolsillo: ¿podrías publicar el código como código abierto ahora mismo sin exponer ninguna credencial? Si no, hay configuración metida adentro del programa. Pero no todo valor que «se puede cambiar» va al mismo lugar. Conviene distinguir tres clases:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Clase de valor",
+    "Ejemplo (inventado)",
+    "Dónde vive y quién lo cambia"
+   ],
+   "filas": [
+    [
+     "Configuración de despliegue",
+     "Puerto, host de la base, nivel de logs",
+     "Variable de entorno o archivo de entorno; la cambia quien despliega"
+    ],
+    [
+     "Secreto",
+     "Contraseña de la base, clave del transportista",
+     "Gestor de secretos o archivo protegido; se ve en la sección de secretos"
+    ],
+    [
+     "Regla de negocio",
+     "Tarifa por kilo, ventana de entrega de la zona norte",
+     "Código o base de datos, con historial; la cambia el negocio ([@07-08])"
+    ]
+   ],
+   "cap": "La frontera no siempre es nítida. Preguntá quién decide el valor y si necesita historial: una tarifa en una variable de entorno se pisa sin dejar rastro y nadie sabrá qué tarifa se aplicó a un envío de hace tres meses."
+  },
+  {
+   "t": "p",
+   "x": "Un proceso recibe sus [[variables de entorno|variable de entorno]] al arrancar ([@02-18]) y Node las expone en `process.env`. Armé un servidor mínimo y lo arranqué dos veces con valores distintos:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const http = require('node:http');\nconst puerto = process.env.PORT ?? '3000';\nconst entorno = process.env.APP_ENV ?? 'dev';\nconst baseDeDatos = process.env.DATABASE_URL ?? 'postgres://localhost/despachos_dev';\n\nhttp.createServer((req, res) => {\n  res.setHeader('content-type', 'application/json');\n  res.end(JSON.stringify({ entorno, host_base: new URL(baseDeDatos).host }));\n}).listen(puerto, '127.0.0.1', () => console.log(`escuchando en ${puerto} (${entorno})`));",
+   "cap": "basico.js: todo lo que cambia entre despliegues entra por el entorno."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "PORT=19719 APP_ENV=dev node basico.js &",
+     "s": "escuchando en 19719 (dev)"
+    },
+    {
+     "c": "PORT=19720 APP_ENV=staging DATABASE_URL=postgres://db-staging.interna:5432/despachos node basico.js &",
+     "s": "escuchando en 19720 (staging)"
+    },
+    {
+     "c": "curl -s 127.0.0.1:19719",
+     "s": "{\"entorno\":\"dev\",\"host_base\":\"localhost\"}"
+    },
+    {
+     "c": "curl -s 127.0.0.1:19720",
+     "s": "{\"entorno\":\"staging\",\"host_base\":\"db-staging.interna:5432\"}"
+    }
+   ],
+   "cap": "Un solo archivo, dos comportamientos. Servidores propios en esta VM, que solo escuchan en 127.0.0.1."
+  },
+  {
+   "t": "p",
+   "x": "Escribir las variables a mano en cada arranque no escala; para eso existe el [[.env]] de [@04-06]. Node 22 lo carga con `--env-file`, y según su documentación, si una variable está en el entorno real y en el archivo, gana la del entorno real [#node-docs-cli-env-file]. Así la plataforma de producción pisa lo que haya en un archivo olvidado:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "printf 'APP_ENV=staging\\nPORT=19723\\n# comentario\\nLOG_LEVEL=debug\\n' > .env.demo",
+     "s": ""
+    },
+    {
+     "c": "node --env-file=.env.demo -e \"console.log(process.env.APP_ENV, process.env.PORT, process.env.LOG_LEVEL)\"",
+     "s": "staging 19723 debug"
+    },
+    {
+     "c": "APP_ENV=prod node --env-file=.env.demo -e \"console.log('la variable real gana:', process.env.APP_ENV)\"",
+     "s": "la variable real gana: prod"
+    }
+   ],
+   "cap": "Archivo de entorno con Node 22.23.4, la versión instalada en la VM."
+  },
+  {
+   "t": "pensa",
+   "x": "¿Por qué el puerto en el que escucha el servidor es configuración, pero la lista de rutas que expone es código?",
+   "resp": "Porque el puerto puede ser distinto en cada despliegue y la lista de rutas es idéntica en todos. Si el valor varía entre despliegues es configuración; si es igual en todos, es código."
+  },
+  {
+   "t": "h",
+   "x": "Entornos: dev, staging y prod"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un **entorno** es un despliegue completo del sistema, con su propia base, sus propias claves y sus propios datos. En *dev* programás en tu máquina. En *staging* (ensayo) corre una copia lo más parecida posible a la real, para probar antes de publicar. En *prod* atiende a personas de verdad. Los nombres son una convención: hay equipos que suman un *qa* o un entorno temporal por rama. Lo importante es qué puede cambiar entre ellos y qué no:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cambia entre entornos (configuración)",
+    "No debería cambiar (código y forma)"
+   ],
+   "filas": [
+    [
+     "Dirección y credenciales de la base de datos",
+     "El código: se construye **una vez** y se despliega muchas"
+    ],
+    [
+     "Claves de terceros, en modo de prueba del proveedor fuera de prod",
+     "La versión del motor de base de datos y de Node"
+    ],
+    [
+     "Los datos: inventados o anonimizados fuera de prod",
+     "Los nombres de las variables: mismas variables, otros valores"
+    ],
+    [
+     "Nivel de detalle de los logs y cantidad de copias del servidor",
+     "El camino de despliegue: se prueba el mismo en todos"
+    ]
+   ],
+   "cap": "Regla práctica: si staging y prod ejecutan builds distintos, lo que probaste no es lo que publicás."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "`NODE_ENV` tiene significado especial para las bibliotecas. La documentación de Express dice que con `NODE_ENV=production` guarda en caché las plantillas y devuelve errores menos detallados, y afirma que las pruebas indican una mejora de un factor tres [#cfg19-express-produccion]: es un dato de su documentación, no lo medí. Una regla práctica es que staging también corra con `NODE_ENV=production`, y que otra variable propia (por ejemplo `APP_ENV`) diga cuál de los dos entornos es.",
+   "titulo": "NODE_ENV no es «en qué entorno estoy»"
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Los 12 factores critican agrupar la configuración en entornos con nombre, porque las combinaciones se multiplican, y proponen variables independientes por despliegue [#twelve-factor-config]. En la práctica muchos equipos usan un archivo por entorno igual. Lo que sí hace daño es ramificar el código con `if (APP_ENV === 'prod')` en veinte lugares: esas ramas en staging no se ejecutan igual.",
+   "titulo": "¿Entornos con nombre o variables sueltas?"
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Un depósito de ensayo con las mismas estanterías que el real sirve para probar cómo se acomoda la mercadería antes de moverla de verdad. La analogía se corta en la escala: no recibe los mil camiones de un lunes a la mañana, y staging casi nunca tiene el tráfico ni los datos de producción, por eso hay fallas que solo se ven en prod. Una defensa barata, que propongo como regla práctica: credenciales distintas por entorno, para que la de dev no abra prod aunque alguien se equivoque de host."
+  },
+  {
+   "t": "h",
+   "x": "Fallar rápido: validar al arrancar"
+  },
+  {
+   "t": "p",
+   "x": "Todo lo que llega por el entorno es texto, y puede estar mal escrito o faltar. Armé el servicio de cotizaciones con la lectura más ingenua posible y le pasé tres configuraciones rotas:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const http = require('node:http');\nconst puerto = Number(process.env.PORT);\nconst limite = Number(process.env.LIMITE_KG);          // peso máximo por bulto\nhttp.createServer((req, res) => {\n  const kg = Number(new URL(req.url, 'http://x').searchParams.get('kg'));\n  const base = new URL(process.env.DATABASE_URL);       // se usa recién al primer pedido\n  res.end(kg > limite ? 'rechazado\\n' : `ok, base ${base.host}\\n`);\n}).listen(puerto, '127.0.0.1', () => console.log('listo en', puerto));",
+   "cap": "sinvalidar.js: no comprueba nada antes de usar los valores."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "PORT=19721 LIMITE_KG=veinte DATABASE_URL=postgres://db.interna:5432/d node sinvalidar.js &",
+     "s": "listo en 19721"
+    },
+    {
+     "c": "curl -s '127.0.0.1:19721/?kg=500'",
+     "s": "ok, base db.interna:5432"
+    },
+    {
+     "c": "PORT=19721 LIMITE_KG=20 node sinvalidar.js &   # falta DATABASE_URL",
+     "s": "listo en 19721"
+    },
+    {
+     "c": "curl -s -o /dev/null -w '%{http_code}\\n' '127.0.0.1:19721/?kg=5'",
+     "s": "000"
+    },
+    {
+     "c": "# el proceso murió al primer pedido (salida=1)",
+     "s": "TypeError: Invalid URL  (en new URL, línea 6)"
+    },
+    {
+     "c": "PORT=ocho-mil LIMITE_KG=20 DATABASE_URL=x node sinvalidar.js",
+     "s": "RangeError [ERR_SOCKET_BAD_PORT]: options.port should be >= 0 and < 65536. Received type number (NaN)."
+    }
+   ],
+   "cap": "Tres configuraciones rotas, tres comportamientos. El código 000 de curl significa que no hubo respuesta: el servidor se cayó."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El peor es el primero. `Number('veinte')` da `NaN`, y toda comparación con `NaN` da falso: `kg > limite` nunca se cumple y el servicio acepta un bulto de 500 kg sin avisar. Es una falla **silenciosa**, la más cara de encontrar. En el segundo, el servidor dice «listo» y se cae al primer pedido, que puede llegar horas después. Solo el tercero falla donde corresponde, al arrancar.",
+    "El principio que corrige los tres es **fallar rápido**: validar toda la configuración una sola vez, al arrancar, y terminar con un mensaje claro y un código de salida distinto de cero. Con un despliegue gradual y un chequeo de salud, una versión que muere al arrancar ni siquiera recibe tráfico. Uso zod, el de [@06-24], ahora del lado del servidor (versión 4.6.7 el 13-11-2026, según `npm view`):"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { z } from 'zod';\n\nconst Esquema = z.object({\n  APP_ENV: z.enum(['dev', 'staging', 'prod']).default('dev'),\n  PORT: z.coerce.number().int().min(1024).max(65535).default(3000),\n  DATABASE_URL: z.url(),\n  LIMITE_KG: z.coerce.number().positive().default(20),\n  LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),\n  CLAVE_API: z.string().min(16),\n});\n\nconst r = Esquema.safeParse(process.env);\nif (!r.success) {\n  console.error('Configuración inválida, no arranco:');\n  for (const i of r.error.issues) console.error(`  - ${i.path.join('.')}: ${i.message}`);\n  process.exit(78);\n}\nexport const config = Object.freeze(r.data);",
+   "cap": "config.mjs: lee, convierte y valida todo junto, una sola vez."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "PORT=ocho-mil LIMITE_KG=veinte CLAVE_API=corta node servidor.mjs",
+     "s": "Configuración inválida, no arranco:\n  - PORT: Invalid input: expected number, received NaN\n  - DATABASE_URL: Invalid input: expected string, received undefined\n  - LIMITE_KG: Invalid input: expected number, received NaN\n  - CLAVE_API: Too small: expected string to have >=16 characters"
+    },
+    {
+     "c": "echo $?",
+     "s": "78   # EX_CONFIG, de sysexits.h (verificado en /usr/include/sysexits.h de esta VM)"
+    },
+    {
+     "c": "DATABASE_URL=nada PORT=80 LOG_LEVEL=verbose CLAVE_API=FALSA-0000-0000-demo node servidor.mjs",
+     "s": "Configuración inválida, no arranco:\n  - PORT: Too small: expected number to be >=1024\n  - DATABASE_URL: Invalid URL\n  - LOG_LEVEL: Invalid option: expected one of \"debug\"|\"info\"|\"warn\"|\"error\""
+    }
+   ],
+   "cap": "Con zod se ven todos los problemas juntos, y el mensaje no repite el valor recibido (la clave corta no aparece)."
+  },
+  {
+   "t": "p",
+   "x": "`z.coerce.number()` convierte el texto a número y rechaza lo que da `NaN`. Los valores inofensivos pueden tener un default (el nivel de logs); un recurso real como `DATABASE_URL` no, porque si en producción se olvida la variable el servidor arrancaría contra la base equivocada sin avisar. Los errores salen **todos juntos**, así que quien despliega no corrige uno para descubrir el siguiente. Y `Object.freeze` deja la configuración inmutable: el resto del programa importa `config` y no vuelve a mirar `process.env`. Es la idea de [@07-07]: se valida en el borde y adentro se confía en los tipos."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Agregá una regla que cruce dos variables: en `prod` el servidor no debe arrancar con `LOG_LEVEL=debug`. ¿Sobre qué parte del esquema se escribe?",
+   "pista": "Una regla que mira más de un campo no va en cada campo: va sobre el objeto entero, con `.refine` después de `z.object(...)`. Indicá `path` para que el error señale la variable.",
+   "solucion": "Se encadena `.refine((c) => !(c.APP_ENV === 'prod' && c.LOG_LEVEL === 'debug'), { message: 'en prod no se arranca con LOG_LEVEL=debug', path: ['LOG_LEVEL'] })` al objeto. Lo corrí: con `prod` y `debug` da `LOG_LEVEL: en prod no se arranca con LOG_LEVEL=debug`; con `staging` y `debug` pasa. Cada campo solo ve su propio valor, por eso hay que validar el objeto completo."
+  },
+  {
+   "t": "h",
+   "x": "Secretos: configuración que da poder"
+  },
+  {
+   "t": "p",
+   "x": "Un [[secreto]] es un valor cuya posesión da poder: abre la base de datos, gasta plata en una API de pago, firma como si fueras vos. La prueba que uso: si se filtra, ¿alguien puede hacer algo que no debería, o gastar a tu cuenta? Es una propiedad de lo que permite hacer, no del valor, y por eso hay claves que no lo son: la [[clave anónima]] de [@05-31] está diseñada para ir dentro de la app."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Valor",
+    "¿Secreto?",
+    "Por qué"
+   ],
+   "filas": [
+    [
+     "Puerto, nivel de logs",
+     "No",
+     "No da poder sobre nada"
+    ],
+    [
+     "Contraseña de la base de datos",
+     "Sí",
+     "Abre todos los datos"
+    ],
+    [
+     "Clave de una API que cobra por uso, como una de IA",
+     "Sí",
+     "Quien la tiene gasta a nombre de otro"
+    ],
+    [
+     "Clave pública («publishable») de Supabase",
+     "No, por diseño",
+     "La limitan las políticas de acceso de la base; Supabase la declara segura para exponer [#red31-supabase-api-keys]"
+    ],
+    [
+     "Clave secreta («service_role») de Supabase",
+     "Sí",
+     "Salta las políticas de acceso; solo para componentes que controlás [#red31-supabase-api-keys]"
+    ]
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Cuatro maneras en que se escapa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Al repositorio.** Borrar el archivo en el commit siguiente no borra el valor de los commits viejos. GitHub aconseja que el primer paso ante un secreto filtrado sea revocarlo o rotarlo, y aclara que reescribir la historia puede no hacer falta una vez invalidado [#github-docs-removing-sensitive-data]. La protección contra push de GitHub ayuda a frenarlo antes [#github-docs-push-protection].",
+    "**A los logs.** Es el más común y el más tonto. Mirá qué imprime el `console.log(config)` de la versión de arriba, con claves de práctica obviamente falsas:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "PORT=19822 DATABASE_URL=postgres://app:FALSA-clave-de-practica@db.interna:5432/despachos CLAVE_API=FALSA-0000-0000-demo node srv_simple.mjs",
+     "s": "config cargada: {\n  APP_ENV: 'dev',\n  PORT: 19822,\n  DATABASE_URL: 'postgres://app:FALSA-clave-de-practica@db.interna:5432/despachos',\n  LIMITE_KG: 20,\n  LOG_LEVEL: 'info',\n  CLAVE_API: 'FALSA-0000-0000-demo'\n}"
+    }
+   ],
+   "cap": "Un solo `console.log` deja la clave de la API y la contraseña de la base en los logs."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en `DATABASE_URL`: es una **cadena de conexión**, y lleva usuario y contraseña pegados al host. Parece una dirección y es una credencial.",
+    "**Al entorno del proceso.** Las variables las hereda cualquier proceso hijo y, en Linux, quien tenga permiso sobre el proceso las lee en `/proc/<pid>/environ` [#man7-proc-pid-environ]. Lo comprobé:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "CLAVE_API=FALSA-0000-0000-demo node dormir.js &",
+     "s": ""
+    },
+    {
+     "c": "tr '\\0' '\\n' < /proc/$PID/environ | grep CLAVE_API",
+     "s": "CLAVE_API=FALSA-0000-0000-demo"
+    },
+    {
+     "c": "CLAVE_API=FALSA-0000-0000-demo node -e \"console.log(require('child_process').execSync('printenv CLAVE_API').toString())\"",
+     "s": "FALSA-0000-0000-demo"
+    }
+   ],
+   "cap": "Corro como root, que puede leer cualquier proceso. En un servidor real el permiso lo define el usuario de cada programa ([@02-13])."
+  },
+  {
+   "t": "p",
+   "x": "OWASP lo resume así: las variables de entorno son accesibles para todos los procesos y pueden terminar en logs o volcados, y no las recomienda si hay otra opción [#owasp-secrets-management-cheatsheet]. En la práctica sirven para configuración y son el nivel mínimo para secretos. El cuarto escape son los **clientes**: lo que se compila dentro de una app es público (se ve en la sección de Senda)."
+  },
+  {
+   "t": "h3",
+   "x": "Un envoltorio que no se deja imprimir"
+  },
+  {
+   "t": "p",
+   "x": "Contra el escape de los logs, se envuelven los secretos en un objeto que se niega a mostrarse. No frena a quien ya tiene el código: es una red contra descuidos."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "export class Secreto {\n  #valor;\n  constructor(valor) { this.#valor = valor; }\n  revelar() { return this.#valor; }          // el único camino para leerlo\n  toString() { return '[secreto]'; }\n  toJSON() { return '[secreto]'; }\n  [Symbol.for('nodejs.util.inspect.custom')]() { return '[secreto]'; }\n}\n// en el esquema:  DATABASE_URL: z.url().transform((v) => new Secreto(v)),\n//                 CLAVE_API: z.string().min(16).transform((v) => new Secreto(v)),",
+   "cap": "Secreto: console.log, JSON.stringify y las plantillas de texto muestran «[secreto]»."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "PORT=19722 DATABASE_URL=postgres://app:FALSA-clave-de-practica@db.interna:5432/despachos CLAVE_API=FALSA-0000-0000-demo node servidor.mjs",
+     "s": "config cargada: {\n  APP_ENV: 'dev',\n  PORT: 19722,\n  DATABASE_URL: [secreto],\n  LIMITE_KG: 20,\n  LOG_LEVEL: 'info',\n  CLAVE_API: [secreto]\n}\ncomo JSON: {\"APP_ENV\":\"dev\",\"PORT\":19722,\"DATABASE_URL\":\"[secreto]\",\"LIMITE_KG\":20,\"LOG_LEVEL\":\"info\",\"CLAVE_API\":\"[secreto]\"}"
+    }
+   ],
+   "cap": "El mismo `console.log(config)`, con los dos valores sensibles envueltos."
+  },
+  {
+   "t": "h3",
+   "x": "Dónde guardarlos: tres peldaños"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Peldaño",
+    "Cómo funciona",
+    "Límite"
+   ],
+   "filas": [
+    [
+     "1. Variable de entorno que inyecta la plataforma",
+     "Lo más simple, y lo que proponen los 12 factores [#twelve-factor-config]",
+     "Visible para quien tenga permiso sobre el proceso y heredada por los hijos"
+    ],
+    [
+     "2. Archivo montado, de solo lectura",
+     "El programa recibe la **ruta** en `NOMBRE_FILE` y lee el valor de ahí; la imagen oficial de PostgreSQL acepta `POSTGRES_PASSWORD_FILE` [#cfg19-docker-postgres-secrets]",
+     "No queda en el entorno, pero hay que proteger el archivo y mantenerlo fuera de la imagen"
+    ],
+    [
+     "3. Gestor de secretos (HashiCorp Vault, AWS Secrets Manager)",
+     "Centraliza almacenamiento, acceso fino, auditoría y rotación [#cfg19-vault-que-es] [#cfg19-aws-secrets-manager]",
+     "Es otra pieza que debe estar disponible, y su propia credencial se guarda en otro lado [#owasp-secrets-management-cheatsheet]"
+    ]
+   ],
+   "cap": "Se combinan. Para un servidor chico, el 1 o el 2 bien hechos suelen alcanzar; el 3 se justifica con muchos secretos, varios equipos o necesidad de auditoría."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { readFileSync } from 'node:fs';\n\nexport function leerSecreto(nombre) {\n  const ruta = process.env[`${nombre}_FILE`];\n  if (ruta) return readFileSync(ruta, 'utf8').trim();\n  const v = process.env[nombre];\n  if (!v) throw new Error(`falta ${nombre} o ${nombre}_FILE`);\n  return v;\n}",
+   "cap": "desdearchivo.mjs: la convención NOMBRE_FILE, en siete líneas."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ls -l run-secrets/clave_api",
+     "s": "-r-------- 1 root root 25 Nov 13 19:22 run-secrets/clave_api"
+    },
+    {
+     "c": "CLAVE_API_FILE=$PWD/run-secrets/clave_api node desdearchivo.mjs",
+     "s": "largo del secreto leído: 24 caracteres"
+    },
+    {
+     "c": "tr '\\0' '\\n' < /proc/$PID/environ | grep CLAVE",
+     "s": "CLAVE_API_FILE=/tmp/.../e0719/run-secrets/clave_api"
+    }
+   ],
+   "cap": "En el entorno queda la ruta, no el valor. Recorté el prefijo de la ruta."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Los secretos se parecen a las llaves de un depósito: conviene una por puesto, no una maestra, para que perder una no obligue a cambiar todas las cerraduras. Se corta en la copia: una llave física no se duplica sin que se note y un secreto digital sí, por eso hace falta poder revocarlo. Un secreto vale lo que tarda en poder cambiarse: se crea el nuevo, se despliega y recién entonces se revoca el viejo [#owasp-secrets-management-cheatsheet]."
+  },
+  {
+   "t": "pensa",
+   "x": "Un compañero subió por error la clave de la API al repositorio y la borró en el commit siguiente. ¿Quedó resuelto? ¿Qué harías primero?",
+   "resp": "No: la clave sigue en la historia de git. Lo primero es revocarla o rotarla, que la deja inservible; después se decide si vale la pena reescribir la historia. Hay que tratarla como filtrada desde que se subió."
+  },
+  {
+   "t": "h",
+   "x": "Feature flags: cambiar el comportamiento sin desplegar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[feature flag]] es una condición que se evalúa mientras el programa corre y decide qué camino de código sigue, con un valor que se cambia sin reconstruir ni volver a desplegar. Separa **desplegar** (poner el código en producción) de **liberar** (que la gente lo use): podés desplegar la función apagada, encenderla para un grupo chico y, si algo sale mal, apagarla en segundos. En 2017, Pete Hodgson las ordenó en cuatro categorías [#cd-fowler-feature-toggles]:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tipo",
+    "Para qué sirve",
+    "Vida típica según Fowler",
+    "Ejemplo (inventado)"
+   ],
+   "filas": [
+    [
+     "De liberación",
+     "Desplegar código a medio hacer, apagado",
+     "Días o una o dos semanas",
+     "La tarifa nueva, mientras se termina"
+    ],
+    [
+     "De experimento",
+     "Comparar dos variantes (prueba A/B)",
+     "De horas a semanas",
+     "Dos textos para el botón de cotizar"
+    ],
+    [
+     "Operativa (kill switch)",
+     "Apagar algo costoso o riesgoso",
+     "Corta, pero algunas son permanentes",
+     "Cortar los avisos si el proveedor falla"
+    ],
+    [
+     "De permisos",
+     "Funciones para ciertos usuarios o planes",
+     "Años",
+     "Una función solo del plan premium"
+    ]
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Armé una chica para ver el mecanismo. La tabla de flags vive en un archivo JSON, el servidor lo relee si cambió, y cada flag puede estar apagada, abierta para una lista de clientes o repartida por porcentaje:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { createHash } from 'node:crypto';\nimport { readFileSync, statSync } from 'node:fs';\n\n// Número estable de 0 a 99 para (flag, cliente): el mismo cliente cae siempre en el mismo lugar.\nexport function cubeta(flag, clienteId, sal = flag) {\n  const h = createHash('sha256').update(`${sal}:${clienteId}`).digest();\n  return h.readUInt32BE(0) % 100;\n}\n\nexport function crearFlags(ruta) {\n  let mtime = 0, tabla = {};\n  function recargar() {\n    const m = statSync(ruta).mtimeMs;\n    if (m !== mtime) { tabla = JSON.parse(readFileSync(ruta, 'utf8')); mtime = m; }\n  }\n  return {\n    activa(nombre, clienteId) {\n      try { recargar(); } catch { /* si el archivo falla, queda la última tabla buena */ }\n      const f = tabla[nombre];\n      if (!f || f.activo !== true) return false;           // desconocida o apagada: apagada\n      if (f.habilitados?.includes(clienteId)) return true;  // lista blanca\n      return cubeta(nombre, clienteId) < (f.porcentaje ?? 100);\n    },\n  };\n}",
+   "cap": "flags.mjs: unas treinta líneas alcanzan para entender el mecanismo (no es una herramienta de producción)."
+  },
+  {
+   "t": "p",
+   "x": "El porcentaje usa una [[función hash]] ([@03-27]) sobre el nombre de la flag y el id del cliente, y se queda con un número del 0 al 99. ¿Por qué no `Math.random()` en cada pedido? Porque el mismo cliente vería a veces una tarifa y a veces otra. Lo medí con 10.000 ids inventados:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node flags_prueba.mjs",
+     "s": "10 %  -> 974 de 10000\n25 %  -> 2517 de 10000\nlos del 10 % siguen dentro al subir a 25 %: true\nmismo cliente, 3 consultas: [ 4, 4, 4 ]\ndos flags al 10 %, cada una con su sal: clientes en las dos = 102\ndos flags al 10 % con la misma sal: clientes en las dos = 1034"
+    }
+   ],
+   "cap": "Datos de una sola ejecución, con ids inventados (`cliente-00000` a `cliente-09999`)."
+  },
+  {
+   "t": "p",
+   "x": "El reparto se acerca al pedido sin ser exacto: 974 y no 1.000. Al subir de 10 % a 25 %, los que ya estaban adentro siguen adentro. Y la **sal** por flag importa: con sal distinta, los clientes que caen en dos flags al 10 % son 102, el orden del 1 % esperable; con la misma sal son 1.034, y los mismos clientes serían los conejillos de todas las pruebas. Ahora el cotizador con la flag, con tarifas inventadas (`vieja = 500 + 40 por kilo`, `nueva = 700 + 25 por kilo`), mientras edito el archivo:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -H 'x-cliente: cliente-00007' '127.0.0.1:19819/?kg=10'",
+     "s": "{\"cliente\":\"cliente-00007\",\"tarifa\":\"nueva\",\"precio\":950}"
+    },
+    {
+     "c": "curl -s -H 'x-cliente: cliente-00001' '127.0.0.1:19819/?kg=10'",
+     "s": "{\"cliente\":\"cliente-00001\",\"tarifa\":\"vieja\",\"precio\":900}"
+    },
+    {
+     "c": "for i in $(seq 1 200); do curl -s -H \"x-cliente: cliente-$(printf %05d $i)\" ...; done | grep -c nueva",
+     "s": "24"
+    },
+    {
+     "c": "sed -i 's/\"nueva_tarifa\": { \"activo\": true/\"nueva_tarifa\": { \"activo\": false/' flags.json   # apago, sin reiniciar",
+     "s": ""
+    },
+    {
+     "c": "curl -s -H 'x-cliente: cliente-00007' '127.0.0.1:19819/?kg=10'",
+     "s": "{\"cliente\":\"cliente-00007\",\"tarifa\":\"vieja\",\"precio\":900}"
+    },
+    {
+     "c": "# la enciendo al 100 % y después dejo el JSON roto a propósito: echo '{ roto' > flags.json",
+     "s": ""
+    },
+    {
+     "c": "curl -s -H 'x-cliente: cliente-00001' '127.0.0.1:19819/?kg=10'",
+     "s": "{\"cliente\":\"cliente-00001\",\"tarifa\":\"nueva\",\"precio\":950}"
+    }
+   ],
+   "cap": "El cliente 00007 está en la lista blanca. De 200 clientes, 24 vieron la tarifa nueva (20 esperados por el 10 %, más el de la lista). El último pedido salió con el JSON ya roto, y el servidor siguió con la última tabla buena (al 100 %)."
+  },
+  {
+   "t": "p",
+   "x": "Apagar la flag tuvo efecto en el pedido siguiente, sin reiniciar: eso la convierte en kill switch. Y con el archivo roto el servidor siguió con la última tabla válida, porque un archivo corrupto no debería prender ni apagar nada."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": "¿Qué valor usar si la flag no se puede leer? Una regla práctica es **comportarse como antes de que la flag existiera**. Para una función nueva a medio hacer, eso es *apagada*: no debe encenderse porque falló una lectura, y por eso `flags.mjs` trata a la desconocida como apagada. Para un kill switch sobre algo que ya funcionaba, es *encendida*: si no se puede consultar, todo sigue como estaba. La misma regla da respuestas opuestas.",
+   "titulo": "El valor por defecto es una decisión de diseño"
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Cada flag agrega un `if` y duplica los caminos posibles: con diez hay, en teoría, 1.024 combinaciones, y producción puede estar en cualquiera. Fowler propone tratarlas como inventario con costo y mantenerlo bajo, por ejemplo con una fecha de vencimiento desde que nacen [#cd-fowler-feature-toggles]. Una regla práctica: toda flag de liberación nace con dueño y fecha para sacarla.",
+   "titulo": "Las flags viejas son deuda"
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "OpenFeature es una especificación abierta con una API común para evaluar flags con distintos proveedores, de modo que cambiar de herramienta no obligue a reescribir el código. Su sitio la presenta como proyecto en incubación de la CNCF con licencia Apache 2 (consultado el 13-11-2026) [#cfg19-openfeature]."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Querés excluir a ciertos clientes de la tarifa nueva aunque estén en la lista blanca o caigan en el porcentaje. ¿En qué orden evaluarías las reglas: apagada, bloqueados, habilitados y porcentaje? Probalo con `activo: true`, `porcentaje: 100`, `habilitados: ['cliente-1']` y `bloqueados: ['cliente-1', 'cliente-2']`.",
+   "pista": "Pensá qué debería ganar si un cliente está a la vez en habilitados y en bloqueados. Lo que prohíbe suele ir antes que lo que permite.",
+   "solucion": "El orden que usé: apagada o inexistente → falso; en `bloqueados` → falso; en `habilitados` → verdadero; y por último el porcentaje. Con el caso del enunciado dio `cliente-1: false | cliente-2: false | cliente-3: true`. El bloqueo va antes de la lista blanca para que una prohibición no se saltee por un descuido en otra lista."
+  },
+  {
+   "t": "h",
+   "x": "En Senda: secretos de compilación y una flag real"
+  },
+  {
+   "t": "p",
+   "x": "Senda no tiene servidor propio, pero sí configuración, secretos y flags, en lugares distintos de los de un backend clásico. Lo que sigue corresponde al commit `25e08fa`; el código cambia, la forma permanece."
+  },
+  {
+   "t": "senda",
+   "titulo": "Qué es secreto, qué es variable y qué viaja dentro del APK",
+   "x": [
+    "Los flujos de GitHub Actions usan 9 nombres de secretos del repositorio (entre ellos `SUPABASE_ACCESS_TOKEN`, `SUPABASE_DB_PASSWORD`, `POSTHOG_KEY`, cuatro de la firma de Android y `ANTHROPIC_API_KEY`) y 3 *variables* comunes, no secretos: `ADMOB_APP_ANDROID`, `ADMOB_INTERSTICIAL` y `ADMOB_PREMIO`, porque esos identificadores viajan dentro de la app. Es la separación de hoy.",
+    "El paso «Claves públicas de los servicios» de `apk.yml` muestra una asimetría de privilegios. Usa un secreto de mucho poder, `SUPABASE_ACCESS_TOKEN` (la llave de la API de gestión de Supabase), para pedirle a esa API la clave pública del proyecto: la `publishable` y, si no existe, la `anon`. La enmascara con `::add-mask::` aunque sea pública (GitHub pide enmascarar lo sensible que no sea uno de sus secretos [#github-docs-using-secrets]) y la deja como `EXPO_PUBLIC_SUPABASE_ANON_KEY`. `aab.yml` hace lo mismo.",
+    "En el código, `src/util/cuenta.ts` la lee con `process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY`, escrito con punto, que es lo que Expo necesita para reemplazar el valor al construir. Esas variables quedan en texto plano dentro de la app compilada y Expo avisa que no se guarden claves privadas en ellas [#expo-docs-environment-variables]. Para esta clave está bien: Supabase la declara segura para exponer [#red31-supabase-api-keys]. La consecuencia es de ingeniería: es configuración **de compilación**; para cambiarla hay que publicar otro APK."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    ".github/workflows/aab.yml",
+    "src/util/cuenta.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Los interruptores remotos: una flag operativa real",
+   "x": [
+    "Para lo que no puede esperar otro APK, Senda tiene `src/util/interruptores.ts`. La migración `20261130000000_interruptores.sql` crea la tabla `interruptores` con tres llaves: `direcciones` (búsqueda de lugares en OpenStreetMap), `anuncios` (AdMob) y `trivia_ia` (la trivia del sermón con IA). Leen todos con la clave pública; escribir solo puede el administrador, con la función `cambiar_interruptor`. Son interruptores operativos, kill switches.",
+    "La app las lee una vez por apertura, con un corte de 5 segundos, las guarda en `AsyncStorage` y, sin red, usa lo último guardado. Si nunca pudo leerlas, `encendido()` devuelve `true`: el valor de «comportarse como antes». La función de borde `trivia-sermon` consulta la misma tabla y, con la llave apagada, responde 503 «pausada»: el control se aplica en dos lugares y manda el del servidor, porque el teléfono es del usuario.",
+    "Detalle de criterio: como la lectura se guarda mientras vive el proceso, apagar una llave no alcanza a quien ya tiene la app abierta hasta que la reabra. Lo deduje del código y no lo probé en un teléfono. Y la tabla la lee cualquiera con la clave pública: su campo `nota` no debe llevar nada sensible."
+   ],
+   "archivos": [
+    "src/util/interruptores.ts",
+    "supabase/migrations/20261130000000_interruptores.sql",
+    "supabase/functions/trivia-sermon/index.ts",
+    "src/util/anuncios.ts",
+    "src/util/lugares.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Dos cosas para mirar en el repositorio",
+   "x": [
+    "**El `.gitignore` no tiene ninguna regla para `.env`.** `git check-ignore -v .env` sale con código 1: no está ignorado. Hoy no hay ningún `.env` versionado y las claves están en secretos de GitHub, así que no hay filtración: falta una red de seguridad que se agrega con una línea.",
+    "**Las funciones de borde leen nombres que Supabase ya llama «legacy».** `borrar-cuenta`, `compras` y `trivia-sermon` usan `Deno.env.get(\"SUPABASE_ANON_KEY\")` y `\"SUPABASE_SERVICE_ROLE_KEY\"`. La documentación de Supabase, actualizada el 30-09-2026, las lista como claves heredadas, con `SUPABASE_PUBLISHABLE_KEYS` y `SUPABASE_SECRET_KEYS` como reemplazo, y anuncia que va a deprecar `anon` y `service_role` hacia fines de 2026 [#cfg19-supabase-functions-env] [#red31-supabase-api-keys]. El cliente de la app ya contempla las dos formas; las funciones leen solo las viejas. Un cambio así rompe un servidor sin que nadie toque su código: la configuración vive en la plataforma, y la plataforma cambia. No verifiqué el calendario exacto más allá de esas páginas."
+   ],
+   "archivos": [
+    ".gitignore",
+    "supabase/functions/borrar-cuenta/index.ts",
+    "supabase/functions/compras/index.ts",
+    "supabase/functions/trivia-sermon/index.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Al 13-11-2026: `--env-file` de Node es estable desde la 22.21.0 [#node-docs-cli-env-file] y Supabase migra de las claves `anon` y `service_role` a las `publishable` y `secret` [#red31-supabase-api-keys]. Los principios de hoy no dependen de esas versiones."
+  }
+ ],
+ "recap": [
+  "La configuración es lo que cambia entre despliegues; lo igual en todos es código, y las reglas de negocio viven en código o en la base, con historial.",
+  "Un entorno es un despliegue completo con su base, sus claves y sus datos: cambian los valores, no el código ni su forma. Se construye una vez y se despliega muchas.",
+  "Lo que llega por el entorno es texto. Se valida una sola vez al arrancar, con todos los errores juntos, y si falla el proceso termina con un código distinto de cero.",
+  "Un secreto es un valor que da poder y se escapa por el repositorio, los logs, el entorno del proceso y los clientes. Se guarda en tres peldaños y tiene que poder rotarse sin parar el servicio.",
+  "Una feature flag separa desplegar de liberar. El porcentaje se reparte con un hash estable, y el valor por defecto es el comportamiento previo a que la flag existiera.",
+  "En Senda, la clave pública va dentro del APK por diseño, las privadas viven en secretos de GitHub o de Supabase, y los interruptores remotos son una flag operativa con el servidor como árbitro."
+ ],
+ "repaso": [
+  {
+   "p": "Un servicio guarda la tarifa por kilo en una variable de entorno `TARIFA_KG`. Meses después, finanzas pregunta qué tarifa se aplicó a un envío de agosto. ¿Qué problema quedó a la vista?",
+   "o": [
+    "Las variables de entorno no pueden guardar números, solo texto",
+    "No hay historial ni dueño: una regla de negocio no es configuración",
+    "Node no permite leer la variable más de una vez por proceso",
+    "La variable quedó visible para cualquiera que use la aplicación"
+   ],
+   "c": 1,
+   "e": "La tarifa cambia por decisión del negocio y necesita historial de cuándo y por quién; una variable de entorno se pisa sin dejar rastro. Es verdad que el entorno solo guarda texto, pero eso se resuelve convirtiéndolo. Node puede leer la variable las veces que haga falta, y una variable de servidor no se ve desde la app del usuario."
+  },
+  {
+   "p": "Un servidor lee `LIMITE_KG` con `Number(process.env.LIMITE_KG)` y alguien despliega con `LIMITE_KG=veinte`. El código compara `kg > limite` para rechazar bultos. ¿Qué pasa con un pedido de 500 kg?",
+   "o": [
+    "Se rechaza, porque un límite inválido hace que todo supere el máximo",
+    "Node detiene el arranque porque detecta que el límite no es numérico",
+    "El servidor acepta el bulto, porque comparar con NaN siempre da falso",
+    "Se compara contra cero y se rechaza todo pedido positivo"
+   ],
+   "c": 2,
+   "e": "`Number('veinte')` da NaN y toda comparación con NaN es falsa, así que `kg > limite` nunca se cumple y el servidor acepta cualquier peso sin avisar. Lo corrí. Node no valida el contenido de las variables ni sustituye el valor por cero. Por eso la configuración se valida al arrancar y se falla con ruido."
+  },
+  {
+   "p": "Alguien subió por error la clave de una API al repositorio y la borró en el commit siguiente. ¿Cuál es el primer paso correcto?",
+   "o": [
+    "Revocar o rotar la clave, porque sigue visible en la historia de git",
+    "Reescribir la historia con una herramienta y dar el asunto por cerrado",
+    "No hacer nada si el repositorio es privado, porque nadie la verá",
+    "Cambiar el nombre de la variable donde se usaba la clave"
+   ],
+   "c": 0,
+   "e": "Borrar el archivo no borra el valor de los commits anteriores. GitHub indica que el primer paso es revocar o rotar el secreto, con lo que deja de servir; reescribir la historia viene después y a veces no hace falta. Un repositorio privado igual lo comparten varias personas y herramientas, y cambiar el nombre de la variable no cambia nada del valor filtrado."
+  },
+  {
+   "p": "Querés que el 10 % de los clientes vea una tarifa nueva y que cada cliente vea siempre la misma. ¿Cuál es la técnica adecuada?",
+   "o": [
+    "Sortear con `Math.random() < 0,1` en cada pedido, porque en promedio da el 10 %",
+    "Tomar el 10 % de los clientes que vienen primero en orden alfabético por nombre",
+    "Calcular un hash del id del cliente con el nombre de la flag y comparar su módulo 100",
+    "Reiniciar el servidor con otro porcentaje cada vez que cambia el reparto"
+   ],
+   "c": 2,
+   "e": "Un hash de (flag, cliente) da a cada cliente una cubeta fija del 0 al 99, y comparar con el porcentaje reparte parejo y estable. El sorteo por pedido da en promedio el 10 %, pero el mismo cliente vería ambas tarifas. El orden alfabético es estable pero sesgado, no representativo. Reiniciar no resuelve nada: el reparto sigue dependiendo de cómo se decide."
+  },
+  {
+   "p": "Una flag de liberación protege una función nueva a medio terminar. El servicio de flags no responde al arrancar el servidor. ¿Qué valor conviene mientras no se pueda leer?",
+   "o": [
+    "Encendida, para no perder la oportunidad de que los usuarios la usen",
+    "Apagada, porque el código sin terminar no debe activarse por una falla",
+    "El último valor que tuvo otro servidor distinto, elegido al azar",
+    "Encendida solo para el 50 % de los usuarios, como punto medio"
+   ],
+   "c": 1,
+   "e": "El criterio es comportarse como antes de que la flag existiera: antes la función nueva no estaba, así que apagada. Encendida expone código a medio probar. Tomar el valor de otro servidor sin una regla vuelve el comportamiento impredecible, y el 50 % sin ningún motivo es una apuesta, no una decisión de diseño."
+  },
+  {
+   "p": "Para que la app lea una clave sin complicaciones, un compañero propone guardar la clave privada de un proveedor en una variable `EXPO_PUBLIC_CLAVE_PROVEEDOR`. ¿Qué consecuencia tiene?",
+   "o": [
+    "Queda cifrada dentro del APK, así que solo la propia app puede leerla",
+    "Expo la oculta al ejecutar, y solo se ve en las versiones de depuración",
+    "Queda en texto plano en la app compilada y cualquiera puede extraerla",
+    "No funciona, porque Expo bloquea variables que contengan claves privadas"
+   ],
+   "c": 2,
+   "e": "Según la documentación de Expo, las variables con ese prefijo se escriben tal cual en el paquete de la app y son visibles en texto plano: no se cifran ni se ocultan, y Expo no analiza si el valor es una clave privada. Una clave privada solo se usa desde un componente que controlás, como un servidor o una función de borde."
+  },
+  {
+   "p": "El equipo ejecuta staging con otro build y otras opciones de arranque que producción, «para ahorrar». ¿Qué pierde el ensayo?",
+   "o": [
+    "Nada importante, mientras la base de datos de staging sea más chica",
+    "La capacidad de usar variables de entorno distintas en cada despliegue",
+    "El acceso a las claves de prueba que ofrecen los proveedores externos",
+    "La garantía de que lo probado es lo mismo que luego se publica"
+   ],
+   "c": 3,
+   "e": "El valor de staging es probar lo que se va a publicar. Si el build o el modo de ejecución son distintos, una falla de producción puede no aparecer en el ensayo y se pierde esa garantía. La base chica es otra diferencia legítima, pero no la principal, y usar variables distintas por despliegue sigue siendo posible."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó por qué un servidor «no debería llevar pegadas» sus claves y su dirección de base de datos, qué pasa si arranca con un valor mal escrito y cómo se prende o se apaga una función nueva para un grupo de clientes sin volver a instalar nada. Usá una analogía propia que no sea la del depósito de ensayo ni la de las llaves.",
+ "para_profundizar": [
+  {
+   "fuente": "twelve-factor-config",
+   "nota": "La página corta de los 12 factores sobre configuración: la prueba del código abierto y la crítica a los entornos con nombre salen de ahí. Se lee en cinco minutos."
+  },
+  {
+   "fuente": "owasp-secrets-management-cheatsheet",
+   "nota": "La guía de OWASP sobre secretos: rotación, secretos dinámicos, auditoría y cómo inyectarlos en contenedores. Leé las secciones 2 (generales) y 5 (contenedores)."
+  },
+  {
+   "fuente": "cd-fowler-feature-toggles",
+   "nota": "El artículo de Pete Hodgson en el sitio de Martin Fowler, con las cuatro categorías de flags y cómo manejar su costo. Es largo; empezá por «Categories of Toggles»."
+  },
+  {
+   "fuente": "red31-supabase-api-keys",
+   "nota": "Qué clave de Supabase va en una app y cuál en un servidor, y el cambio de nombres. Sirve para leer con criterio la configuración de Senda."
+  }
+ ],
+ "videos": [
+  {
+   "q": "feature flags kill switch progressive rollout explained",
+   "por_que": "Para ver a otra persona mostrar el reparto por porcentaje y el apagado de emergencia en un panel de flags, y comparar con el archivo de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "configuración por entorno",
+   "d": "Valores que cambian de un despliegue a otro sin cambiar el programa, como la base de datos, el puerto o el nivel de logs. Se separan estrictamente del código y se suelen entregar por variables de entorno."
+  },
+  {
+   "t": "secreto",
+   "d": "Valor cuya posesión da poder, como una contraseña de base de datos o una clave de API que cobra por uso. No se guarda en el código, no se imprime en logs y debe poder rotarse sin parar el servicio."
+  },
+  {
+   "t": "feature flag",
+   "d": "Condición que se evalúa mientras el programa corre y decide qué camino de código sigue; su valor se cambia sin reconstruir ni volver a desplegar. Separa desplegar el código de liberarlo a los usuarios."
+  },
+  {
+   "t": "fallar rápido",
+   "d": "Principio de validar todo lo que un programa necesita al arrancar y terminar con un error claro si algo está mal, en vez de descubrirlo a mitad de un pedido. Hace que un despliegue defectuoso se note antes de recibir tráfico."
+  },
+  {
+   "t": "cadena de conexión",
+   "d": "Texto que indica cómo conectarse a un servicio, por ejemplo a una base de datos, y que suele llevar adentro usuario y contraseña. Por eso se trata como secreto aunque parezca una dirección."
+  },
+  {
+   "t": "construir una vez, desplegar muchas",
+   "d": "Práctica de generar un solo artefacto y desplegar ese mismo en todos los entornos, cambiando solo la configuración. Asegura que lo probado en staging sea lo que corre en producción."
+  },
+  {
+   "t": "rotación de secretos",
+   "d": "Reemplazar un secreto por uno nuevo y revocar el viejo, de manera periódica o ante una sospecha de filtración. Exige que el sistema pueda aceptar el cambio sin detenerse."
+  },
+  {
+   "t": "kill switch",
+   "d": "Interruptor operativo que apaga rápido una función costosa o riesgosa, sin desplegar. Debe tener un valor por defecto pensado para cuando no se puede consultar, normalmente el de seguir como antes."
+  },
+  {
+   "t": "cubeta de una flag",
+   "d": "Número estable, por ejemplo de 0 a 99, calculado con un hash del nombre de la flag y del id del cliente. Comparado con el porcentaje de la flag decide quién la ve, y no cambia entre consultas."
+  }
+ ],
+ "siguiente": "NestJS: un framework que trae módulos, inyección de dependencias y decoradores ya resueltos, para ver qué agrega sobre lo que armaste a mano con Express.",
+ "fuentes_nuevas": [
+  {
+   "id": "cfg19-openfeature",
+   "t": "OpenFeature: Standardizing Feature Flagging for Everyone",
+   "a": "OpenFeature (CNCF)",
+   "tipo": "doc",
+   "url": "https://openfeature.dev/"
+  },
+  {
+   "id": "cfg19-docker-postgres-secrets",
+   "t": "Imagen oficial de PostgreSQL en Docker Hub: Docker Secrets y variables _FILE",
+   "a": "Docker Hub",
+   "tipo": "doc",
+   "url": "https://hub.docker.com/_/postgres"
+  },
+  {
+   "id": "cfg19-aws-secrets-manager",
+   "t": "What is AWS Secrets Manager?",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/secretsmanager/latest/userguide/intro.html"
+  },
+  {
+   "id": "cfg19-vault-que-es",
+   "t": "What is Vault?",
+   "a": "HashiCorp",
+   "tipo": "doc",
+   "url": "https://developer.hashicorp.com/vault/docs/about-vault/what-is-vault"
+  },
+  {
+   "id": "cfg19-supabase-functions-env",
+   "t": "Environment variables (Supabase Edge Functions)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/functions/secrets"
+  },
+  {
+   "id": "cfg19-express-produccion",
+   "t": "Performance Best Practices Using Express in Production",
+   "a": "Express.js",
+   "tipo": "doc",
+   "url": "https://expressjs.com/en/advanced/best-practice-performance.html"
+  }
+ ]
+}

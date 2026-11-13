@@ -1,0 +1,682 @@
+{
+ "id": "07-07",
+ "titulo": "Modelos, validación y DTO",
+ "bajada": "Le mandás pedidos absurdos y maliciosos a un servidor propio sin defensa, ves qué rompe, y lo arreglás separando tres formas del mismo dato y validando la entrada.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir el DTO que cruza la frontera, el modelo de dominio y la fila de la base, y decir para qué sirve cada uno con un mismo ejemplo.",
+  "Reconocer cuatro fallas de un endpoint sin validación (valores absurdos, campos ajenos, tipos equivocados, errores que filtran detalles) y provocarlas con `curl`.",
+  "Escribir un esquema de zod que convierta una entrada cruda en un valor ya garantizado, y explicar la diferencia entre parsear y validar.",
+  "Elegir entre 400, 413 y 422 según qué falló, y fijar un límite de tamaño para el cuerpo.",
+  "Ubicar en Senda dónde se valida de verdad lo que llega y qué parte de esa validación se repite en el teléfono."
+ ],
+ "venis_de": "En [@06-24] validaste un formulario con zod y viste que la validación del navegador es comodidad y la del servidor es autoridad. En [@07-06] separaste el endpoint de las capas que hacen el trabajo. Hoy miramos qué le pasa a ese endpoint cuando lo que entra no es lo que esperaba, y cómo se arma una entrada confiable.",
+ "se_apoya_en": [
+  "06-24",
+  "07-01",
+  "07-05",
+  "07-06"
+ ],
+ "gancho": [
+  "Imaginá una distribuidora inventada, «Cargas del Sur». Un lunes, el sistema le factura a una clienta un envío a Rosario con una tarifa de menos 59.700 pesos. Nadie hackeó nada: alguien mandó un peso de menos 50 kilos, el servidor multiplicó, guardó y siguió como si nada.",
+  "Todo lo que cruza la [[frontera de confianza|frontera de confianza]] lo escribió alguien que el servidor no controla: una persona con un teléfono, un programa viejo, un script, otro servicio. Hoy levantás dos servidores en esta máquina. El primero se traga todo lo que le mandan y vas a ver qué se rompe. El segundo separa el dato en tres formas distintas y rechaza lo que no cumple. De paso aparecen tres palabras que se usan todo el tiempo en backend: [[modelo de dominio]], [[DTO]] y [[validación de entrada]]."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Lo que llega no es lo que esperás"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el [@07-01] viste la frontera de confianza: la línea que separa lo que controla el servidor de lo que no. Todo lo que la cruza es **entrada no confiable**: el cuerpo JSON, los parámetros de la URL, las cabeceras, los archivos subidos y hasta lo que contesta otro servicio. «No confiable» no quiere decir «malicioso»: quiere decir que el servidor no puede suponer nada sobre su forma, su tamaño ni su sentido.",
+    "Para ver qué significa eso en la práctica armé un servidor de Express 5 (`npm`, versión 5.3.0) con un solo [[endpoint]] y sin ninguna defensa. Es el endpoint que escribiría cualquiera con prisa: toma el cuerpo, completa unos valores, normaliza el destino, calcula la tarifa y guarda."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import express from 'express';\nconst app = express();\napp.use(express.json());\nconst TARIFA_KG = 1200;     // pesos por kilo (inventado)\nconst TARIFA_BULTO = 300;   // pesos por bulto (inventado)\nlet siguiente = 1;\nconst tabla = [];\n\napp.post('/envios', (req, res) => {\n  const e = { id: siguiente++, estado: 'pendiente', costo_interno: 0, ...req.body };\n  e.destino = e.destino.trim().toUpperCase();\n  e.tarifa = e.peso_kg * TARIFA_KG + e.bultos * TARIFA_BULTO;\n  tabla.push(e);\n  res.status(201).json(e);\n});\napp.listen(19707, '127.0.0.1');",
+   "cap": "El servidor sin defensa (datos inventados). Lo corrí tal cual en esta máquina."
+  },
+  {
+   "t": "p",
+   "x": "Con un pedido normal funciona. Después le mandé cuatro que ningún formulario decente enviaría, pero que `curl` manda sin protestar."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -X POST localhost:19707/envios -H 'Content-Type: application/json' -d '{\"destino\":\"Rosario\",\"peso_kg\":12,\"bultos\":2}'",
+     "s": "{\"id\":1,\"estado\":\"pendiente\",\"costo_interno\":0,\"destino\":\"ROSARIO\",\"peso_kg\":12,\"bultos\":2,\"tarifa\":15000}"
+    },
+    {
+     "c": "… -d '{\"destino\":\"Rosario\",\"peso_kg\":-50,\"bultos\":1}'",
+     "s": "{\"id\":2,\"estado\":\"pendiente\",\"costo_interno\":0,\"destino\":\"ROSARIO\",\"peso_kg\":-50,\"bultos\":1,\"tarifa\":-59700}"
+    },
+    {
+     "c": "… -d '{\"destino\":\"Rosario\",\"peso_kg\":3,\"bultos\":1,\"estado\":\"entregado\",\"costo_interno\":-99999,\"id\":1}'",
+     "s": "{\"id\":1,\"estado\":\"entregado\",\"costo_interno\":-99999,\"destino\":\"ROSARIO\",\"peso_kg\":3,\"bultos\":1,\"tarifa\":3900}"
+    },
+    {
+     "c": "… -d '{\"destino\":\"Rosario\",\"peso_kg\":\"abc\",\"bultos\":1}'",
+     "s": "{\"id\":4,\"estado\":\"pendiente\",\"costo_interno\":0,\"destino\":\"ROSARIO\",\"peso_kg\":\"abc\",\"bultos\":1,\"tarifa\":null}"
+    },
+    {
+     "c": "curl -si … -d '{\"peso_kg\":3,\"bultos\":1}'   # sin destino",
+     "s": "HTTP/1.1 500 Internal Server Error\nContent-Type: text/html; charset=utf-8\n…\n<pre>TypeError: Cannot read properties of undefined (reading 'trim')\n    at file:///…/lab0707/malo.mjs:11:25\n    at Layer.handleRequest (…/node_modules/router/lib/layer.js:152:17)\n    at next (…/node_modules/router/lib/route.js:157:13)\n    …"
+    }
+   ],
+   "cap": "Cinco pedidos al servidor sin defensa. Las rutas largas de la última salida están recortadas con «…»; todo lo demás es la salida real."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada pedido muestra una falla distinta:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Valores sin sentido.** Un peso de −50 kg es un número válido para JavaScript, y la multiplicación dio una tarifa negativa. El servidor no sabe nada de kilos: sabe de números.",
+    "**Campos ajenos.** El cliente mandó `estado`, `costo_interno` e `id`, que son del sistema. El `...req.body` los copió encima de los valores por defecto: el envío quedó «entregado», con costo interno negativo y el `id` de otro envío. Esto se llama [[asignación masiva]] (*mass assignment*) y OWASP, la organización que mantiene las listas de riesgos de seguridad web, la documenta como una vulnerabilidad clásica [#back0707-owasp-mass-assignment].",
+    "**Tipos equivocados.** Con `\"abc\"` la cuenta dio `NaN`, que JSON no puede representar, así que la respuesta dice `null`. El dato roto quedó guardado y se va a descubrir cuando alguien lo lea.",
+    "**Errores que cuentan de más.** Sin destino, `undefined.trim()` lanzó una excepción y Express contestó con un 500 que incluye la pila de llamadas con rutas de archivos del servidor. La documentación de Express aclara que esa pila no se incluye cuando `NODE_ENV` vale `production` [#back0707-express-errores]; corrí con el valor por defecto. Aun así, un 500 es la forma de decir «no entendí nada, el problema es mío», cuando en realidad el problema fue del pedido."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El cliente manda `\"peso_kg\": \"12\"` (un texto, no un número). El servidor sin defensa multiplica y devuelve una tarifa razonable. ¿Por qué eso puede ser peor que un error evidente?",
+   "resp": "Porque no avisa. En JavaScript, `\"12\" * 1200` da 14400 (convierte el texto en número), pero `\"12\" + 1` da `\"121\"` (junta textos). Lo corrí: el mismo dato se comporta bien en una línea del código y mal en otra, según el operador. Un error que explota en el momento se arregla; uno que corrompe en silencio se descubre en la factura."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Otra falla que viene gratis: el tamaño",
+   "x": [
+    "Un pedido de 90 kb con un `destino` de 90.000 letras entró sin quejas y quedó guardado; uno de 200 kb devolvió 413. Express limita el cuerpo JSON a 100 kb por defecto [#back0707-express-json]: protege de lo gigante, pero no sabe qué es razonable para *este* endpoint."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Tres formas del mismo envío"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El arreglo empieza por reconocer que «el envío» no es una sola cosa. Es el mismo dato, visto desde tres lugares, y cada lugar tiene sus necesidades:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**El DTO** (*data transfer object*) es la forma del dato cuando cruza la frontera: lo que el cliente manda o lo que el servidor devuelve. Martin Fowler, que lo describió en su catálogo de patrones, lo definió así [#back0707-fowler-dto]:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "An object that carries data between processes in order to reduce the number of method calls.",
+   "autor": "Martin Fowler, Data Transfer Object",
+   "fuente": "back0707-fowler-dto"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La definición original habla de ahorrar llamadas remotas; una nota de 2013 suma la ventaja que usamos hoy: dejar en un solo lugar la forma exacta de lo que viaja. En la práctica, un DTO es plano, serializable (se puede convertir en JSON) y sin reglas de negocio. Hay uno de entrada y otro de salida, y pueden ser distintos.",
+    "**El modelo de dominio** es la representación en el código de las cosas del negocio: el envío, la tarifa, la ventana de entrega. Tiene la forma que le conviene a la lógica, no a la red ni a la tabla. Acá, por ejemplo, el peso se guarda en gramos enteros, hay un estado con valores permitidos y existe un costo interno que el cliente nunca debería ver. En [@07-08] vas a ver dónde conviene que viva cada regla que lo rodea.",
+    "**La fila** es la forma en la base de datos: nombres de columnas, tipos y restricciones de la tabla. La fila cambia cuando cambia el almacenamiento (por ejemplo, un índice, una columna nueva o un renombre) y eso no debería obligar a cambiar lo que ven los clientes."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Las cuatro formas del mismo envío, sin librerías. Datos inventados.\nconst TARIFA_KG = 1200, TARIFA_BULTO = 300;\n\nconst dtoEntrada = JSON.parse('{\"destino\":\"  Rosario \",\"peso_kg\":12.5,\"bultos\":2}');\n\n// DTO de entrada -> modelo de dominio\nconst modelo = {\n  destino: dtoEntrada.destino.trim(),\n  pesoG: Math.round(dtoEntrada.peso_kg * 1000),\n  bultos: dtoEntrada.bultos,\n  ventana: 'manana',\n  estado: 'pendiente',\n  costoInterno: 0,\n};\nconst tarifa = (e) => Math.round((e.pesoG / 1000) * TARIFA_KG) + e.bultos * TARIFA_BULTO;\n\n// modelo -> fila de la base (nombres y unidades de la tabla)\nconst fila = { destino: modelo.destino, peso_g: modelo.pesoG, bultos: modelo.bultos, ventana: modelo.ventana, estado: modelo.estado, costo_interno: modelo.costoInterno };\n\n// modelo -> DTO de salida (sin costo_interno)\nconst dtoSalida = { id: 1, destino: modelo.destino, peso_kg: modelo.pesoG / 1000, bultos: modelo.bultos, estado: modelo.estado, tarifa: tarifa(modelo) };\n\nconsole.log('entrada :', JSON.stringify(dtoEntrada));\nconsole.log('modelo  :', JSON.stringify(modelo));\nconsole.log('fila    :', JSON.stringify(fila));\nconsole.log('salida  :', JSON.stringify(dtoSalida));\n\n// Por qué gramos enteros: sumar pesos con coma\nconsole.log('0,1 kg + 0,2 kg =', 0.1 + 0.2, '(en kilos con coma)');\nconsole.log('100 g + 200 g   =', 100 + 200, '(en gramos enteros)');",
+   "cap": "Las cuatro formas del mismo envío, sin librerías. Corrélo y mirá cómo cambian los nombres, las unidades y los campos que quedan afuera."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Forma",
+    "Quién la define",
+    "Qué se cuida ahí",
+    "Qué cambió en el ejemplo"
+   ],
+   "filas": [
+    [
+     "DTO de entrada",
+     "El contrato con el cliente",
+     "Que sea exacto y chico: solo lo que el cliente puede decidir",
+     "`peso_kg` en kilos con coma; sin `estado` ni `costo_interno`"
+    ],
+    [
+     "Modelo de dominio",
+     "Las reglas del negocio",
+     "Que no pueda existir un envío imposible",
+     "`pesoG` en gramos enteros; estado inicial puesto por el sistema"
+    ],
+    [
+     "Fila de la base",
+     "El diseño de la tabla",
+     "Tipos, restricciones y consultas rápidas",
+     "`peso_g`, `costo_interno` en snake_case, restricciones `check`"
+    ],
+    [
+     "DTO de salida",
+     "Lo que el cliente puede ver",
+     "Que no se escape nada interno",
+     "Vuelve `peso_kg` y `tarifa`; `costo_interno` no sale"
+    ]
+   ],
+   "cap": "El mismo envío en cuatro formas. Los datos son inventados; la conversión es la del código de arriba."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el remito, la ficha y la góndola",
+   "x": "Un cliente te manda un pedido por mail con sus palabras (el DTO de entrada). En el depósito, alguien lo pasa a la ficha interna con códigos propios, unidades de medida del sistema y campos que el cliente no ve (el modelo). Y en la estantería, el mismo producto queda con una ubicación y una etiqueta que sirven para encontrarlo rápido (la fila). La analogía deja de valer en que acá las conversiones son funciones que se escriben, se prueban y se pueden equivocar."
+  },
+  {
+   "t": "p",
+   "x": [
+    "¿Para qué tanta separación? Hay tres razones y las tres aparecieron en la demo. **Seguridad:** si el DTO de entrada no tiene `estado`, el cliente no tiene por dónde cambiarlo, y si el de salida no tiene `costo_interno`, no se escapa. OWASP, en su lista de riesgos de APIs de 2023, agrupa estas dos fallas en una sola categoría, «autorización a nivel de propiedad del objeto», y recomienda justamente no volcar objetos internos a la respuesta ni copiar la entrada a objetos internos [#back0707-owasp-api3]. **Cambio:** una app instalada en miles de teléfonos no se actualiza el mismo día que el servidor, así que lo que ve el cliente tiene que poder quedarse quieto aunque la tabla cambie. **Comodidad:** los gramos enteros evitan el problema de la coma flotante que muestra el final del código (`0.1 + 0.2` no da `0.3`)."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Tres formas no son obligatorias",
+   "x": [
+    "Separar todo es una queja conocida: mucho código que copia campos de un objeto a otro sin aportar nada. Una regla práctica: separá las formas cuando empiezan a diferir (nombres, unidades, campos que no se pueden mostrar o aceptar). Si el DTO, el modelo y la fila son idénticos campo por campo, son un solo objeto escrito tres veces."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Validar la entrada: qué se chequea y con qué"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La [[validación de entrada]] es comprobar, antes de usar un dato, que cumple lo que el sistema acepta. La lista de chequeos que casi siempre hace falta es corta y se puede ver en el pedido de cada falla de arriba:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Tipo:** número, texto, lista, booleano. «abc» no es un peso.",
+    "**Rango:** mínimo y máximo. −50 kg y 90.000 letras de destino quedan afuera.",
+    "**Largo:** de un texto o de una lista, porque «cualquier largo» es un ataque esperando.",
+    "**Valores permitidos:** una ventana es «mañana» o «tarde», no «noche» ni «cuando puedas».",
+    "**Campos:** los que faltan y los que sobran. `estado` no es del cliente.",
+    "**Tamaño total del cuerpo:** antes de leerlo entero."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Para escribir esos chequeos en una sola declaración se usa un esquema ([[validación de esquema]]). Ya conocés [[zod]] del [@06-24]: allá validaba un formulario, acá valida el cuerpo que llega por la red. Es la versión 4.6.7, la más reciente al 13-11-2026 y la que usa Senda. Este es el esquema de entrada del envío:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { z } from 'zod';\n\nconst EnvioEntrada = z.strictObject({\n  destino: z.string().trim().min(2).max(60),\n  peso_kg: z.number().min(0.001).max(30000),\n  bultos: z.number().int().min(1).max(500),\n  ventana: z.enum(['manana', 'tarde']).default('manana'),\n});\n\napp.post('/envios', (req, res) => {\n  const r = EnvioEntrada.safeParse(req.body);\n  if (!r.success) {\n    return res.status(422).json({ errores: r.error.issues.map((i) => ({\n      campo: i.path.join('.') || '(cuerpo)', codigo: i.code, mensaje: i.message })) });\n  }\n  const env = crearEnvio(r.data);      // r.data ya está limpio\n  filas.push(aFila(env));\n  res.status(201).json(aSalida(filas.length, env));\n});",
+   "cap": "El esquema de entrada y el endpoint. `crearEnvio`, `aFila` y `aSalida` son las conversiones de la sección anterior."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en una diferencia de fondo: `safeParse` no devuelve «sí» o «no», devuelve un valor nuevo, `r.data`, con `destino` ya sin espacios, `ventana` ya completada y nada más. Alexis King lo resumió en 2019 con un lema de tres palabras que se volvió clásico [#back0707-parse-dont-validate]:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "Parse, don’t validate.",
+   "autor": "Alexis King, «Parse, don’t validate»",
+   "fuente": "back0707-parse-dont-validate"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La idea es esta. **Validar** es mirar el dato, decir «está bien» y seguir usando el mismo dato crudo: el resto del programa no tiene garantía y vuelve a dudar, con chequeos repartidos por todos lados (King cita un nombre para ese vicio, *shotgun parsing*). **Parsear** es transformar el dato crudo en un valor nuevo que ya trae la garantía: o sale un valor bueno o sale un error, y no existe un estado intermedio. Después del `safeParse`, `crearEnvio` no pregunta si el peso es un número, porque el único camino hasta ahí pasó por el esquema.",
+    "El patrón no es exclusivo de JavaScript. Pydantic, que es lo equivalente en Python, hace lo mismo. Este es el mismo esquema y los dos errores que provocó un pedido con peso negativo y un campo ajeno (Pydantic 2.13.5; al 13-11-2026 el índice de paquetes ya ofrece la 2.14.3):"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "from typing import Literal\nfrom pydantic import BaseModel, ConfigDict, Field, ValidationError\n\nclass EnvioEntrada(BaseModel):\n    model_config = ConfigDict(extra=\"forbid\")\n    destino: str = Field(min_length=2, max_length=60)\n    peso_kg: float = Field(ge=0.001, le=30000)\n    bultos: int = Field(ge=1, le=500)\n    ventana: Literal[\"manana\", \"tarde\"] = \"manana\"\n\nprint(EnvioEntrada.model_validate({\"destino\": \"Rosario\", \"peso_kg\": 12.5, \"bultos\": 2}))\ntry:\n    EnvioEntrada.model_validate({\"destino\": \"Rosario\", \"peso_kg\": -50, \"bultos\": 1, \"estado\": \"entregado\"})\nexcept ValidationError as e:\n    for x in e.errors():\n        print(x[\"loc\"], x[\"type\"], \"|\", x[\"msg\"])",
+   "cap": "El esquema en Pydantic. Salida real: `('peso_kg',) greater_than_equal` y `('estado',) extra_forbidden`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora los mismos pedidos de antes contra el servidor con esquema:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -w ' [%{http_code}]' -X POST localhost:19707/envios -H 'Content-Type: application/json' -d '{\"destino\":\"  Rosario \",\"peso_kg\":12.5,\"bultos\":2}'",
+     "s": "{\"id\":1,\"destino\":\"Rosario\",\"peso_kg\":12.5,\"bultos\":2,\"ventana\":\"manana\",\"estado\":\"pendiente\",\"tarifa\":15600} [201]"
+    },
+    {
+     "c": "… -d '{\"destino\":\"Rosario\",\"peso_kg\":-50,\"bultos\":1}'",
+     "s": "{\"errores\":[{\"campo\":\"peso_kg\",\"codigo\":\"too_small\",\"mensaje\":\"Too small: expected number to be >=0.001\"}]} [422]"
+    },
+    {
+     "c": "… -d '{…,\"estado\":\"entregado\",\"costo_interno\":-99999}'",
+     "s": "{\"errores\":[{\"campo\":\"(cuerpo)\",\"codigo\":\"unrecognized_keys\",\"mensaje\":\"Unrecognized keys: \\\"estado\\\", \\\"costo_interno\\\"\"}]} [422]"
+    },
+    {
+     "c": "… -d '{\"destino\":\"Rosario\",\"peso_kg\":\"12\",\"bultos\":1}'",
+     "s": "{\"errores\":[{\"campo\":\"peso_kg\",\"codigo\":\"invalid_type\",\"mensaje\":\"Invalid input: expected number, received string\"}]} [422]"
+    },
+    {
+     "c": "… -d '{\"destino\":\"Rosario\",\"peso_kg\":0.0004,\"bultos\":1}'",
+     "s": "{\"errores\":[{\"campo\":\"peso_kg\",\"codigo\":\"too_small\",\"mensaje\":\"Too small: expected number to be >=0.001\"}]} [422]"
+    }
+   ],
+   "cap": "Los pedidos de antes contra el servidor con esquema. Los mensajes de zod vienen en inglés por defecto; el campo y el código sirven para que el cliente decida qué mostrar."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "JSON crudo",
+       "s": "lo que mandó el cliente",
+       "k": "cliente"
+      },
+      {
+       "t": "Esquema",
+       "s": "safeParse: parsea o rechaza",
+       "k": "alerta",
+       "e": "entra"
+      },
+      {
+       "t": "DTO de entrada",
+       "s": "ya con garantías",
+       "k": "red",
+       "e": "si pasa"
+      }
+     ],
+     "baja": "desde acá el código ya no vuelve a dudar"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Modelo de dominio",
+       "s": "crearEnvio: gramos, estado inicial",
+       "k": "servidor"
+      },
+      {
+       "t": "Fila",
+       "s": "aFila: nombres y unidades de la tabla",
+       "k": "datos",
+       "e": "se guarda"
+      },
+      {
+       "t": "DTO de salida",
+       "s": "aSalida: sin costo_interno",
+       "k": "red",
+       "e": "se responde"
+      }
+     ]
+    }
+   ],
+   "cap": "El recorrido de un envío por el servidor con esquema. Si el esquema rechaza, la respuesta es un 422 y nada más sucede."
+  },
+  {
+   "t": "pensa",
+   "x": "El esquema usa `z.strictObject`, que rechaza los campos que no conoce. Zod también ofrece `z.object`, que los descarta sin avisar. ¿Qué ventaja y qué costo tiene cada elección?",
+   "resp": "Con `z.object` el campo `estado` desaparece y el servicio nunca lo ve: no hay mass assignment, pero tampoco hay aviso, así que un error de tipeo del cliente (`pesokg`) pasa inadvertido y el peso falta. Con `z.strictObject` el cliente se entera enseguida, pero un cliente más nuevo que manda un campo de más queda bloqueado. Lo corrí: el mismo pedido con `estado` da `{destino, peso_kg}` en un caso y «rechazado» en el otro. Una regla práctica: estricto para clientes que controlás, tolerante cuando hay clientes que no podés actualizar."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Validar en la unidad en que guardás",
+   "x": [
+    "`z.number().positive()` deja pasar 0,0004 kg. Pero el modelo guarda gramos enteros, y `Math.round(0.0004 * 1000)` da 0: un envío de cero gramos, que el modelo considera imposible. Por eso el esquema usa `.min(0.001)`, el mínimo que sobrevive a la conversión. Una condición que debe cumplirse siempre, como «el peso es de al menos un gramo», se llama [[invariante]]; las invariantes se verifican en la unidad en que se guardan, no en la unidad en que llegan.",
+    "Otro tropiezo conocido: los parámetros de la URL (`?peso=12`) llegan siempre como texto, y por eso hace falta convertirlos con `z.coerce.number()`. Corrí `z.coerce.number().parse('')` y devolvió 0: un campo vacío se convierte en cero sin avisar. En un cuerpo JSON, donde ya hay números reales, conviene no coaccionar: `z.number()` rechaza `\"12\"` y eso es lo que queremos."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "El cliente puede mandar el código postal de destino. Se usa el formato numérico viejo de cuatro cifras, como 2000 (Rosario). Escribí el campo `codigo_postal` en el esquema de zod. ¿Lo declarás como número o como texto? Justificalo.",
+   "pista": "Preguntate qué cuentas harías con ese valor. ¿Lo vas a sumar, promediar o ordenar por magnitud?",
+   "solucion": "Como texto con restricción de forma: `codigo_postal: z.string().regex(/^\\d{4}$/)`. Un código postal es un identificador, no una cantidad: no se suma ni se promedia, y tratarlo como número invita a errores (por ejemplo, perder ceros a la izquierda en otros países o aceptar 2000.5). Como identificador, lo que importa es la forma, y una expresión regular de cuatro dígitos la captura. Los identificadores (códigos, teléfonos, documentos) se guardan como texto."
+  },
+  {
+   "t": "h",
+   "x": "400, 413 y 422: qué responder cuando no sirve"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Rechazar un pedido es correcto; importa *cómo*, porque del otro lado hay una app que decide qué mostrar. HTTP ya tiene códigos para esto. El RFC 9110 define el 400 como «el servidor no puede o no quiere procesar el pedido por algo que se percibe como error del cliente» (por ejemplo, sintaxis mal formada); el 413, como «el servidor se niega a procesar el pedido porque el contenido es más grande de lo que está dispuesto a aceptar»; y el 422, como «el servidor entiende el tipo de contenido y la sintaxis es correcta, pero no pudo procesar las instrucciones contenidas» [#rfc9110]. Traducido a la demo:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Qué pasó",
+    "Código",
+    "Quién lo detecta",
+    "Cómo se reconoce"
+   ],
+   "filas": [
+    [
+     "El cuerpo no es JSON (una coma de más)",
+     "400",
+     "`express.json()`, antes del endpoint",
+     "Respuesta `entity.parse.failed`"
+    ],
+    [
+     "El cuerpo supera el límite (8 kb en la demo)",
+     "413",
+     "`express.json({ limit: '8kb' })`",
+     "Respuesta `entity.too.large`, con 90 kb y con 200 kb"
+    ],
+    [
+     "El JSON se lee bien pero rompe el esquema",
+     "422",
+     "El esquema de zod en el endpoint",
+     "Lista de `errores`, campo por campo"
+    ]
+   ],
+   "cap": "Los tres rechazos de la demo, con lo que devolvió el servidor al ejecutarlos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La separación entre 400 y 422 no es unánime. Muchas APIs usan 400 para todo error de entrada, y es una decisión razonable si se usa de forma consistente. Lo que casi todas las APIs buenas comparten es devolver, en el cuerpo, **qué campo falló y por qué**, en un formato que el cliente pueda leer sin adivinar. En el [@07-12] vas a ver cómo se uniforma ese formato para toda la API.",
+    "Sobre el tamaño: conviene fijar el límite del endpoint a lo que necesita (un envío de la demo cabe en menos de 1 kb; puse 8 kb) y, además, un máximo a cada texto del esquema. Un balanceador delante del servidor suele tener su propio tope y puede rechazar el pedido antes de que llegue a tu código."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "La última línea de defensa es la base"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Si el servidor ya valida, ¿para qué repetir reglas en la base? Porque no todo lo que escribe en la base pasa por ese endpoint. Escriben scripts, migraciones, otros servicios, alguien con acceso a la consola y, sobre todo, el endpoint que se escriba el año que viene sin acordarse del esquema. Las restricciones de la base (en PostgreSQL, `check`, `not null`, `unique`) son la única barrera que no se puede olvidar, porque viven en la tabla [#back0707-postgres-constraints].",
+    "Armé la tabla de envíos en un PostgreSQL 16.15 propio y le mandé, saltándome el servidor, los mismos datos absurdos:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table envios (\n  id        bigint generated always as identity primary key,\n  destino   text    not null check (char_length(destino) between 2 and 60),\n  peso_g    integer not null check (peso_g between 1 and 30000000),\n  bultos    integer not null check (bultos between 1 and 500),\n  ventana   text    not null check (ventana in ('manana', 'tarde')),\n  estado    text    not null default 'pendiente' check (estado in ('pendiente', 'en_ruta', 'entregado'))\n);\ninsert into envios (destino, peso_g, bultos, ventana) values ('Rosario', 12500, 2, 'manana');\ninsert into envios (destino, peso_g, bultos, ventana) values ('Rosario', -50000, 1, 'manana');\ninsert into envios (destino, peso_g, bultos, ventana) values ('Rosario', 0, 1, 'manana');\ninsert into envios (destino, peso_g, bultos, ventana) values ('Rosario', 800, 1, 'noche');\ninsert into envios (destino, peso_g, bultos, ventana) values (null, 800, 1, 'tarde');\nselect * from envios;",
+   "cap": "La tabla con restricciones y cuatro inserciones inválidas. Las corrí con `psql` contra el PostgreSQL de esta máquina."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -f envios.sql",
+     "s": "ERROR:  new row for relation \"envios\" violates check constraint \"envios_peso_g_check\"\nDETAIL:  Failing row contains (2, Rosario, -50000, 1, manana, pendiente).\nERROR:  new row for relation \"envios\" violates check constraint \"envios_peso_g_check\"\nDETAIL:  Failing row contains (3, Rosario, 0, 1, manana, pendiente).\nERROR:  new row for relation \"envios\" violates check constraint \"envios_ventana_check\"\nDETAIL:  Failing row contains (4, Rosario, 800, 1, noche, pendiente).\nERROR:  null value in column \"destino\" of relation \"envios\" violates not-null constraint\nDETAIL:  Failing row contains (5, null, 800, 1, tarde, pendiente).\n id | destino | peso_g | bultos | ventana |  estado   \n----+---------+--------+--------+---------+-----------\n  1 | Rosario |  12500 |      2 | manana  | pendiente\n(1 row)"
+    }
+   ],
+   "cap": "Cuatro filas rechazadas por la base. Se ve un detalle: los números de id 2 a 5 se asignaron antes de fallar, así que esos números no se reutilizan."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las dos capas se complementan. El esquema da mensajes pensados para quien llamó (con el campo) y evita el viaje a la base. La restricción da una garantía que no depende de ningún programa."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Ya validé en el frontend»",
+   "x": "La validación del navegador o de la app mejora la experiencia (avisa al toque, ahorra un viaje), pero no es una barrera: cualquier programa puede hablarle al servidor sin pasar por tu pantalla. Todos los pedidos malos de hoy salieron de `curl`, que ni siquiera tiene una pantalla que respetar. Lo que se valida del lado del cliente se vuelve a validar del lado del servidor, siempre que ese dato importe."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Y conviene saber lo que la validación **no** hace. No sabe si el destino tiene cobertura, si el cliente tiene crédito o si ya existe un envío igual: esas son reglas de negocio, el tema del [@07-08]. Tampoco reemplaza a las consultas parametrizadas que evitan la inyección de SQL [#owasp-sql-injection]: un texto puede tener la forma correcta y aun así traer comillas que rompan una consulta armada a mano. Cada defensa cubre una cosa: validar responde «¿tiene forma de dato aceptable?», y nada más.",
+    "Por último, la entrada también incluye lo que contesta otro sistema. OWASP recomienda validar las respuestas contra un esquema como capa extra [#back0707-owasp-api3], y Senda tiene un ejemplo más abajo."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "En Senda: dónde se valida de verdad"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda no tiene un servidor propio que escriba esquemas, como el de la demo: su «backend» es Supabase, una plataforma que ofrece PostgreSQL con funciones y reglas de seguridad por fila (lo viste a grandes rasgos en [@07-01]). Eso cambia dónde cae cada pieza del día. Lo verifiqué leyendo el código del commit `25e08fa` (8-11-2026) y las migraciones."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "zod existe, pero valida en la dirección contraria",
+   "x": [
+    "La única validación con zod en toda la app es `leerNovedades` en `src/util/juntos.ts`: toma lo que contesta la función `mis_novedades` de la base, lo comprueba fila por fila contra un esquema (amistades, duelos, grupos, torneos) y **descarta** las filas que no tienen la forma esperada, para que una fila rara no rompa la pantalla de Inicio. Es el patrón de hoy, invertido: el cliente desconfía de su propio servidor, algo sensato en una app instalada en teléfonos que no se actualizan junto con él. No encontré otro lugar que importe zod, y `package.json` lo declara en `^4.6.7`."
+   ],
+   "archivos": [
+    "src/util/juntos.ts",
+    "package.json"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que escribe la gente se valida en la base, y el teléfono lo repite",
+   "x": [
+    "Cuando alguien elige su alias, el teléfono llama a la función SQL `elegir_apodo`. Esa función normaliza espacios, exige de 3 a 20 caracteres con letras, números, espacio, punto, guion o guion bajo, rechaza nombres reservados («admin», «senda», «lany», entre otros) y apoya la unicidad en un índice sobre `lower(apodo)`; si algo falla, lanza un error con un código fijo (`apodo_corto`, `apodo_largo`, `apodo_invalido`, `apodo_ocupado`). Además, un disparador (`texto_permitido`) filtra insultos en alias, nombres de grupo, eventos y torneos antes de guardarlos.",
+    "El teléfono repite una parte: `cambiarApodo` en `src/util/cuenta.ts` descarta alias de menos de 3 o más de 20 caracteres antes de molestar a la red. También recorta el tiempo de respuesta a un máximo de 600 segundos en `src/util/nube.ts`, que es el mismo tope que la restricción `check (segundos between 0 and 600)` de la tabla `respuestas`. Es la misma regla en dos lugares con propósitos distintos: en el teléfono ahorra un viaje y da un mensaje inmediato; en la base es la que cuenta."
+   ],
+   "archivos": [
+    "supabase/migrations/20261111000000_novedades.sql",
+    "supabase/migrations/20261129000000_moderacion.sql",
+    "src/util/cuenta.ts",
+    "src/util/nube.ts",
+    "supabase/migrations/20261026000000_inicio.sql"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Dos cosas que yo miraría (criterio, no veredicto)",
+   "x": [
+    "**Una tabla que cualquiera puede escribir.** La política de inserción de `respuestas` es `with check (true)` para usuarios anónimos y autenticados: el rol alcanza para insertar. Lo que limita la fila son las restricciones de columnas (`nivel` de 1 a 5, `segundos` de 0 a 600), pero `pregunta` es un `text` sin tope de largo. No probé qué máximo impone la capa de la API de Supabase por delante, así que no sé si importa en la práctica. Una regla práctica es que todo texto que viene de afuera lleve un largo máximo.",
+    "**Lo que contesta una IA también es entrada.** La función de borde `trivia-sermon` (`supabase/functions/trivia-sermon/index.ts`) le pide preguntas a Claude y, antes de guardarlas, **filtra** las que no tienen enunciado de texto, cuatro opciones distintas y una respuesta correcta entre 1 y 4, y recorta cada texto a un largo máximo. Esa validación está escrita a mano, sin esquema. No digo que deba cambiar: ilustra que nada cruza la frontera sin revisión, venga de una persona o de un modelo."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Esto envejece de maneras distintas",
+   "x": "Lo permanente: separar la forma de afuera de la de adentro, parsear en vez de validar, rechazar con el código adecuado y dejar una barrera en la base. Lo que cambia con el tiempo: las versiones y los mensajes de las librerías. Al 13-11-2026, `npm view` informa Express 5.3.0 (la rama 4.x sigue publicada, con la 4.22.3) y zod 4.6.7; los mensajes de error de zod vienen en inglés salvo que se configuren. La documentación de `express.json()` indica 100 kb como límite por defecto. De Senda: todo corresponde al commit `25e08fa`; el código cambia, la forma permanece."
+  }
+ ],
+ "recap": [
+  "Todo lo que cruza la frontera de confianza es entrada no confiable: el servidor sin defensa aceptó pesos negativos, campos ajenos, tipos equivocados y se rompió con un campo faltante.",
+  "Un mismo dato tiene al menos tres formas: el DTO que viaja, el modelo de dominio con las reglas y la fila de la base. Separarlas protege (nada interno sale ni entra) y deja cambiar cada una por su lado.",
+  "Parsear es transformar la entrada cruda en un valor que ya trae la garantía; validar a medias obliga al resto del código a seguir dudando. Zod y Pydantic hacen lo mismo en dos lenguajes.",
+  "Cada falla tiene su código: 400 si el cuerpo no se puede leer, 413 si es demasiado grande, 422 si se lee pero incumple las reglas. Lo que importa es devolver qué campo falló.",
+  "Las invariantes se validan en la unidad en que se guardan: 0,0004 kg pasa `positive()` y se convierte en 0 gramos.",
+  "La base es la última barrera: las restricciones `check` y `not null` frenan lo que el servidor deja pasar o lo que escribe otro programa.",
+  "En Senda, zod valida lo que devuelve el servidor, mientras que lo que escribe la gente se valida en funciones y restricciones SQL, y el teléfono repite parte para ahorrar viajes."
+ ],
+ "repaso": [
+  {
+   "p": "¿Qué es un DTO en el sentido que se usa en backend?",
+   "o": [
+    "La forma plana y serializable de un dato cuando cruza la frontera, sin reglas de negocio",
+    "La fila de la tabla tal como está guardada, con los mismos nombres de columnas",
+    "La clase que concentra las reglas del negocio y decide qué se puede hacer",
+    "El conjunto de restricciones `check` y `not null` que protege la base de datos"
+   ],
+   "c": 0,
+   "e": "Un DTO es la forma del dato al viajar: plana, serializable y sin lógica. La fila es otra forma (la de la tabla), las reglas viven en el modelo de dominio y las restricciones son una barrera de la base; las otras tres opciones confunden el DTO con una de esas piezas."
+  },
+  {
+   "p": "Tres pedidos llegan al mismo endpoint: (1) un cuerpo con una coma de más que no es JSON, (2) un JSON válido con `peso_kg: -50`, (3) un cuerpo de 200 kb con límite de 8 kb. ¿Qué códigos corresponden, en ese orden?",
+   "o": [
+    "422, 400 y 500, porque cualquier error del cliente se resume en un 422",
+    "400, 422 y 413, porque cada uno falla en un punto distinto del proceso",
+    "400, 400 y 400, porque los tres son errores del cliente sin más distinción",
+    "413, 422 y 400, porque el tamaño se revisa siempre después del esquema"
+   ],
+   "c": 1,
+   "e": "El primero no se puede leer (400), el segundo se lee pero incumple una regla (422) y el tercero supera el límite de tamaño (413), y ese chequeo ocurre antes de leer el cuerpo. Usar 400 para todo es una convención legítima y consistente, pero no es la que describe cada falla; el 500 sería culpar al servidor por un error del pedido."
+  },
+  {
+   "p": "El cliente envía `{\"destino\":\"Rosario\",\"peso_kg\":3,\"bultos\":1,\"estado\":\"entregado\"}`. ¿Qué pasa con `estado` si el esquema es `z.object` (el comportamiento por defecto de zod)?",
+   "o": [
+    "La clave se descarta sin avisar y el servicio no la ve, así que no hay asignación masiva",
+    "El pedido se rechaza con un 422 que menciona la clave desconocida, como con `strictObject`",
+    "El valor se guarda igual porque zod solo revisa los campos que declaró el esquema",
+    "Zod lanza una excepción no capturada y Express contesta con un 500 al cliente"
+   ],
+   "c": 0,
+   "e": "`z.object` descarta las claves no declaradas: el resultado del parseo trae solo destino, peso_kg y bultos. `z.strictObject` es el que rechaza. El costo del descarte silencioso es que un error de tipeo del cliente pasa sin aviso; el valor entregado a tu código ya viene limpio, así que no se guarda."
+  },
+  {
+   "p": "El esquema usaba `z.number().positive()` para el peso, y el modelo guarda gramos enteros. ¿Por qué un peso de 0,0004 kg es un problema?",
+   "o": [
+    "Pasa la validación pero al convertir a gramos queda en 0, un valor que el modelo no admite",
+    "Zod no acepta números con más de dos decimales y lo rechaza con un error de tipo",
+    "Los números pequeños se guardan como texto en JSON y la base no los convierte solos",
+    "Se guarda 0,0004 en la fila y la base lo acepta porque el tipo entero permite fracciones"
+   ],
+   "c": 0,
+   "e": "`positive()` acepta cualquier número mayor que cero, pero `Math.round(0.0004 * 1000)` es 0 y el modelo exige al menos 1 gramo. La invariante se valida en la unidad en que se guarda: de ahí el `.min(0.001)`. Las otras opciones inventan una limitación de zod o del tipo entero que no existe."
+  },
+  {
+   "p": "Si el servidor ya valida con un esquema, ¿para qué agregar `check` y `not null` en la tabla?",
+   "o": [
+    "Porque la base solo se puede proteger con restricciones y nunca con código del servidor",
+    "Para que el servidor pueda dejar de validar y el sistema sea más rápido con menos código",
+    "Porque otros programas, scripts y endpoints futuros escriben en la tabla sin pasar por ese esquema",
+    "Porque las restricciones de la base entienden mejor los tipos de JSON que un esquema"
+   ],
+   "c": 2,
+   "e": "La tabla recibe escrituras de más caminos que el endpoint (migraciones, scripts, otros servicios, código que se escriba después), y la restricción es la única defensa que no depende de acordarse de llamarla. No reemplaza al esquema del servidor, que da mejores mensajes y evita el viaje; las otras opciones confunden lo que cada capa hace."
+  },
+  {
+   "p": "En Senda, alguien se saltea la pantalla y llama directo a la función `elegir_apodo` con un alias de 25 caracteres. ¿Qué pasa?",
+   "o": [
+    "Pasa porque el límite de 20 solo existe en el teléfono y la base acepta cualquier largo",
+    "Lo rechaza un esquema de zod que Senda corre en un servidor propio delante de la base",
+    "Lo rechaza la propia función SQL con el error `apodo_largo`, aunque el teléfono ya lo habría cortado",
+    "Lo recorta el disparador `texto_permitido` a 20 caracteres y lo guarda sin avisar"
+   ],
+   "c": 2,
+   "e": "La regla de 3 a 20 caracteres está en `apodo_valido` y `elegir_apodo` lanza `apodo_largo`: la base es la autoridad. Senda no tiene servidor propio ni usa zod para esto, y `texto_permitido` filtra palabras, no recorta largos. Esto es lo que se lee en el código; no lo ejecuté contra la base real."
+  }
+ ],
+ "feynman": "Explicale a alguien que programa un poco, sin usar las palabras DTO ni esquema, por qué un servidor no debería guardar tal cual lo que recibe del cliente y qué cuatro cosas puede romper un pedido mal formado. Usá un ejemplo propio, que no sea el de los envíos.",
+ "para_profundizar": [
+  {
+   "fuente": "back0707-parse-dont-validate",
+   "nota": "El artículo de Alexis King que da nombre a la idea central de hoy. Tiene código en Haskell, pero el razonamiento sobre «validar a medias» se entiende sin saber el lenguaje: leé la primera mitad."
+  },
+  {
+   "fuente": "back0707-owasp-mass-assignment",
+   "nota": "La hoja de OWASP sobre asignación masiva, con ejemplos por framework y la manera de armar una lista permitida de campos. Sirve para ver que el problema de hoy no es de JavaScript."
+  },
+  {
+   "fuente": "estform-zod-basics",
+   "nota": "La guía básica de zod: tipos, `safeParse`, objetos estrictos y transformaciones. Sirve para probar variantes del esquema de hoy."
+  },
+  {
+   "fuente": "back0707-postgres-constraints",
+   "nota": "El capítulo de PostgreSQL sobre restricciones (`check`, `not null`, `unique`, claves): muestra qué más puede garantizar la base además de lo que corriste hoy."
+  }
+ ],
+ "videos": [
+  {
+   "q": "zod validación de esquemas TypeScript express body parse safeParse",
+   "por_que": "Para ver cómo otra persona integra zod en un servidor de Express, con otros ejemplos de errores."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "modelo de dominio",
+   "d": "La representación en el código de las cosas del negocio (un envío, una tarifa) con la forma que le conviene a la lógica, no a la red ni a la tabla. Es donde se expresan las reglas y las invariantes."
+  },
+  {
+   "t": "DTO",
+   "d": "Data transfer object: la forma plana y serializable que tiene un dato cuando cruza la frontera entre cliente y servidor. Existe uno de entrada y otro de salida, y no lleva reglas de negocio."
+  },
+  {
+   "t": "validación de entrada",
+   "d": "Comprobar, antes de usar un dato que viene de afuera, que tiene el tipo, el rango, el largo y la forma que el sistema acepta. Si falla, el pedido se rechaza con un error claro."
+  },
+  {
+   "t": "asignación masiva",
+   "d": "Falla que ocurre cuando el servidor copia automáticamente los campos del pedido a un objeto interno y el cliente aprovecha para escribir campos que no le tocan, como el estado o el rol."
+  },
+  {
+   "t": "invariante",
+   "d": "Condición que tiene que cumplirse siempre para que un objeto sea válido, por ejemplo «el peso es de al menos un gramo». Se verifica en la unidad en que el dato se guarda."
+  },
+  {
+   "t": "restricción de la base",
+   "d": "Regla que la base de datos hace cumplir sobre una tabla (`check`, `not null`, `unique`, claves foráneas). Funciona aunque quien escribe no sea el servidor principal."
+  }
+ ],
+ "siguiente": "dónde debe vivir una regla de negocio: en la aplicación, en el dominio o en la base, con las mismas tarifas de logística escritas en tres capas y las consecuencias de cada una.",
+ "fuentes_nuevas": [
+  {
+   "id": "back0707-fowler-dto",
+   "t": "Data Transfer Object",
+   "a": "Martin Fowler",
+   "tipo": "articulo",
+   "url": "https://martinfowler.com/eaaCatalog/dataTransferObject.html"
+  },
+  {
+   "id": "back0707-parse-dont-validate",
+   "t": "Parse, don’t validate",
+   "a": "Alexis King",
+   "tipo": "articulo",
+   "anio": 2019,
+   "url": "https://lexi-lambda.github.io/blog/2019/11/05/parse-don-t-validate/"
+  },
+  {
+   "id": "back0707-owasp-mass-assignment",
+   "t": "Mass Assignment Cheat Sheet",
+   "a": "OWASP",
+   "tipo": "doc",
+   "url": "https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html"
+  },
+  {
+   "id": "back0707-owasp-api3",
+   "t": "API3:2023 Broken Object Property Level Authorization",
+   "a": "OWASP",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/"
+  },
+  {
+   "id": "back0707-express-json",
+   "t": "express.json() (Express 5.x API reference)",
+   "a": "Express",
+   "tipo": "doc",
+   "url": "https://expressjs.com/en/5x/api/express/"
+  },
+  {
+   "id": "back0707-express-errores",
+   "t": "Error handling (Express)",
+   "a": "Express",
+   "tipo": "doc",
+   "url": "https://expressjs.com/en/guide/error-handling.html"
+  },
+  {
+   "id": "back0707-postgres-constraints",
+   "t": "PostgreSQL: Constraints",
+   "a": "The PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/current/ddl-constraints.html"
+  }
+ ]
+}

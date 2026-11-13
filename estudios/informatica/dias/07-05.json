@@ -1,0 +1,845 @@
+{
+ "id": "07-05",
+ "titulo": "Express: rutas, middleware y el ciclo de una petición",
+ "bajada": "Seguís un pedido por un servidor Express eslabón por eslabón, y aprendés a predecir en qué orden pasa todo y qué ocurre cuando algo falla.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Escribir una [[ruta]] con método, patrón y manejador, y predecir cuál de dos rutas parecidas atiende un pedido.",
+  "Leer qué trae el [[objeto de petición]] (`req`) y qué métodos de `res` arman la respuesta.",
+  "Dibujar el recorrido de un pedido por una [[cadena de middleware]] y decir qué pasa si un eslabón no llama a `next()`.",
+  "Distinguir cómo llegan al manejador de errores un `throw` sincrónico, una promesa rechazada y un error dentro de un temporizador.",
+  "Explicar por qué las tres funciones de borde de Senda repiten las mismas seis líneas y cómo las resolvería un middleware."
+ ],
+ "venis_de": "En [@07-03] escribiste un [[servidor HTTP]] con sockets y en [@07-04] viste qué hace Node por debajo con el [[bucle de eventos de Node]]. Hoy subís un escalón: un [[framework]] que elige la función que atiende cada pedido y arma los pasos previos y posteriores.",
+ "se_apoya_en": [
+  "07-03",
+  "07-04",
+  "05-18",
+  "03-41",
+  "03-16"
+ ],
+ "gancho": [
+  "Imaginá el muelle de recepción de un depósito. El camión no entra directo a descargar. Primero lo anotan en el registro, después pasa por la balanza, después alguien controla que los remitos coincidan con la orden de compra y recién entonces le asignan una dársena. Si un puesto encuentra un problema, el camión no sigue: va a la zona de rechazo. Y si un puesto se olvida de hacerlo avanzar, el camión queda esperando con el motor encendido, sin que nadie le avise nada.",
+  "Un servidor web trata así cada pedido [[HTTP]]. En [@07-03] viste que, escrito a mano, decidir qué hacer con cada pedido termina en una escalera de `if`. Express es el reglamento de ese muelle. Hoy lo instalé en esta VM, armé un servidor de práctica con datos inventados (despachos de un depósito) y lo rompí de varias maneras a propósito. Al terminar vas a poder leer un servidor Express y decir, sin ejecutarlo, qué pasos recorre un pedido y dónde se frena."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué es Express y qué te ahorra"
+  },
+  {
+   "t": "p",
+   "x": "Express es un [[framework]] web para Node.js. La documentación oficial lo resume así:"
+  },
+  {
+   "t": "cita",
+   "x": "Express is a routing and middleware web framework with minimal functionality of its own.",
+   "autor": "Documentación de Express, «Using middleware»",
+   "fuente": "be05-express-using-middleware"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hace dos cosas: **elegir qué función atiende cada pedido** (el ruteo) y **dejarte apilar pasos** que se ejecutan en orden (el middleware). Leer JSON, manejar cookies, validar y autenticar lo ponés vos o lo sumás con paquetes aparte.",
+    "Por debajo sigue siendo el módulo `http` de Node de [@07-03]. La prueba: la aplicación de Express es **una función** `(req, res, next)`, la forma que `http.createServer` espera. Este es el servidor completo más corto, corrido tal cual:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const express = require('express');\nconst http = require('node:http');\n\nconst app = express();\napp.get('/hola', (req, res) => res.send('hola desde el depósito'));\n\nconsole.log(typeof app, 'con', app.length, 'parámetros');   // ¿qué es app?\nhttp.createServer(app).listen(19756, '127.0.0.1', () => {\n  console.log('escuchando');\n});",
+   "cap": "hola.js: `app` se pasa a `http.createServer` como cualquier manejador."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node hola.js",
+     "s": "function con 3 parámetros\nescuchando"
+    },
+    {
+     "c": "curl -si localhost:19756/hola",
+     "s": "HTTP/1.1 200 OK\nX-Powered-By: Express\nContent-Type: text/html; charset=utf-8\nContent-Length: 23\nETag: W/\"17-fDTEvXKkXVtyr2V5pSSmqwrq4z8\"\nDate: Fri, 13 Nov 2026 19:23:38 GMT\nConnection: keep-alive\nKeep-Alive: timeout=5\n\nhola desde el depósito"
+    }
+   ],
+   "cap": "Salida real, 13-11-2026, Express 5.3.0 en Node 22. Express armó solo el código de estado, el `Content-Type`, el `Content-Length` y un `ETag` (el de [@05-19])."
+  },
+  {
+   "t": "p",
+   "x": "¿Cuánto es «mínimo»? Lo medí. `express` 5.3.0 declara 28 dependencias directas y, instalado, deja **65 paquetes** (contándose a sí mismo), unos 4,4 MB según `du`. Su propio código, la carpeta `lib/`, son unas 2.800 líneas, y el paquete `router` que usa por dentro suma otras 1.200. Es poco, pero cada paquete es código ajeno dentro de tu servidor."
+  },
+  {
+   "t": "h",
+   "x": "Rutas: método, patrón y manejador"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[ruta]] combina un [[método HTTP]], un **patrón** de dirección (`/despachos/:id`) y una función **manejadora** que corre cuando un pedido coincide con los dos primeros. Ojo con la palabra: acá es la parte de la [[URL]] que viaja al servidor ([@05-18]), y solo comparte el nombre con las tablas de ruteo de [@05-08].",
+    "El patrón `/despachos/:id` tiene un **parámetro**: lo que venga en ese tramo queda, como texto, en `req.params.id`. La consulta (lo que sigue al `?`) queda aparte, en `req.query`. Tres pedidos de mi servidor de práctica, cada uno atendido por su ruta:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -w ' -> %{http_code}\\n' localhost:19705/despachos/42",
+     "s": "{\"id\":42,\"cliente\":\"Ferretería Norte\",\"bultos\":12,\"estado\":\"en ruta\"} -> 200"
+    },
+    {
+     "c": "curl -s -w ' -> %{http_code}\\n' 'localhost:19705/despachos?estado=nuevo'",
+     "s": "[{\"id\":43,\"cliente\":\"Kiosco Sur\",\"bultos\":3,\"estado\":\"nuevo\"}] -> 200"
+    },
+    {
+     "c": "curl -s -w ' -> %{http_code}\\n' localhost:19705/despachos/999",
+     "s": "{\"error\":\"no existe ese despacho\"} -> 404"
+    }
+   ],
+   "cap": "Datos inventados. En el tercero la ruta coincide, pero el manejador decide que no hay tal despacho."
+  },
+  {
+   "t": "h3",
+   "x": "El orden de las rutas importa"
+  },
+  {
+   "t": "p",
+   "x": "Express recorre las rutas **en el orden en que las declaraste** y usa la primera que coincide. No elige «la más específica». Declaré estas dos y probé:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "app.get('/despachos/:id', (req, res) => res.json({ ruta: ':id', id: req.params.id }));\napp.get('/despachos/resumen', (req, res) => res.json({ ruta: 'resumen' }));",
+   "cap": "orden.js (parte)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s localhost:19753/despachos/resumen",
+     "s": "{\"ruta\":\":id\",\"id\":\"resumen\"}"
+    }
+   ],
+   "cap": "Salida real: «resumen» cayó dentro del parámetro `:id`."
+  },
+  {
+   "t": "pensa",
+   "x": "¿Cómo arreglás el servidor para que `GET /despachos/resumen` llegue a la ruta del resumen, sin cambiar los patrones?",
+   "resp": "Declarando primero la ruta fija y después la que tiene parámetro. Como gana la primera coincidencia, las rutas fijas van antes que las que capturan cualquier cosa."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Lo que llega en la consulta lo controla el cliente",
+   "x": [
+    "En Express 5 la consulta se interpreta con un analizador «simple»: una clave repetida se convierte en lista. `?estado=nuevo&estado=en%20ruta` dio `{\"estado\":[\"nuevo\",\"en ruta\"]}`. Un manejador que hace `req.query.estado.toLowerCase()` contestó 200 con el primer pedido y 500 con el segundo, porque una lista no tiene `toLowerCase`.",
+    "La documentación avisa que la forma de `req.query` y `req.body` depende de lo que mande el cliente y hay que validarla [#be05-express-api-request]. [@07-07] cubre cómo."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Un cambio de Express 5 que rompe tutoriales viejos",
+   "x": "En Express 4, `app.get('/*', …)` atrapaba cualquier dirección. En Express 5 el comodín lleva nombre: `/*splat`. Probé el patrón viejo con 5.3.0 y el programa ni arranca: `PathError: Missing parameter name at index 2: /*`. Con `/*splat`, la dirección `/x/y/z` deja `req.params.splat` igual a `['x','y','z']` [#be05-express-migrating-5]."
+  },
+  {
+   "t": "h",
+   "x": "Lo que trae el pedido y lo que vuelve: req y res"
+  },
+  {
+   "t": "p",
+   "x": "Cada manejador recibe dos objetos. El [[objeto de petición]] (`req`) es el objeto de Node que describe la solicitud, con campos que Express suma. El [[objeto de respuesta]] (`res`) es el canal para contestar: código de estado, campos y cuerpo."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Campo",
+    "Qué contiene",
+    "Quién lo llena"
+   ],
+   "filas": [
+    [
+     "`req.method`, `req.path`",
+     "Método y ruta, sin la consulta",
+     "Node, de la primera línea del pedido"
+    ],
+    [
+     "`req.params`, `req.query`",
+     "Partes `:id` del patrón; pares `clave=valor`",
+     "Express"
+    ],
+    [
+     "`req.get('x-llave')`",
+     "Un [[encabezado HTTP]] del pedido",
+     "Node"
+    ],
+    [
+     "`req.body`",
+     "El cuerpo ya interpretado",
+     "**Nadie, hasta que montes un middleware** como `express.json()`"
+    ],
+    [
+     "`req.llegada` (mío)",
+     "Lo que se te ocurra agregar",
+     "Tu middleware"
+    ]
+   ],
+   "cap": "`req.body` es `undefined` por defecto [#be05-express-api-request]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "En `res`, lo habitual: `res.status(n)` (devuelve el mismo `res`, para encadenar), `res.json(objeto)` (serializa y pone el `Content-Type`), `res.send(texto)`, `res.set(campo, valor)` y `res.end()`. El primer envío cierra el pedido.",
+    "Un detalle del cuerpo sorprende la primera vez: sin un middleware que lo lea, `req.body` no existe. Lo probé con dos rutas, una sin `express.json()` y otra con él:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -X POST localhost:19751/sin-json -H 'content-type: application/json' -d '{\"cliente\":\"X\"}'",
+     "s": "{\"tipoDeBody\":\"undefined\",\"body\":null}"
+    },
+    {
+     "c": "curl -s -X POST localhost:19751/con-json -H 'content-type: application/json' -d '{\"cliente\":\"X\"}'",
+     "s": "{\"tipoDeBody\":\"object\",\"cliente\":\"X\"}"
+    }
+   ],
+   "cap": "Salida real. Mismo pedido y servidor: cambia solo si un middleware leyó el cuerpo antes."
+  },
+  {
+   "t": "p",
+   "x": "El cuerpo llega como un [[stream]] de bytes ([@07-04]) y `express.json()` lo lee entero y lo convierte. También pone un tope: por defecto rechaza cuerpos de más de **100 kb** [#be05-express-api-express]. Con uno de unos 200.000 bytes mi servidor contestó 413 sin ejecutar la ruta. Es el mismo cuidado de [@05-18]: un servidor que acepta cuerpos de cualquier tamaño se tumba con uno enorme."
+  },
+  {
+   "t": "h",
+   "x": "Middleware y cadena: por dónde pasa un pedido"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[middleware]] es una función `(req, res, next)`. Recibe el pedido, la respuesta y `next`, que significa «ya terminé, que siga el siguiente». Puede hacer cuatro cosas: ejecutar código, modificar `req` y `res`, **responder** y cortar el ciclo, o **pasar el control** con `next()` [#be05-express-using-middleware].",
+    "Se declaran con `app.use(...)` y corren en el orden en que los declaraste. Ese conjunto ordenado es la [[cadena de middleware]]. El pedido entra por el primer eslabón y avanza hasta que alguien contesta o la cadena se acaba. Las rutas son parte de la misma cadena: `app.get(...)` es un eslabón que solo actúa si coinciden método y patrón.",
+    "Este es el servidor de práctica completo (73 líneas) que usé todo el día. Cada eslabón imprime una línea numerada, así se ve el recorrido de un pedido."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Servidor de práctica (datos inventados). Express 5.3.0, solo escucha en 127.0.0.1.\nconst express = require('express');\nconst app = express();\n\nconst despachos = new Map([\n  [42, { id: 42, cliente: 'Ferretería Norte', bultos: 12, estado: 'en ruta' }],\n  [43, { id: 43, cliente: 'Kiosco Sur', bultos: 3, estado: 'nuevo' }],\n]);\n\n// Cuenta los pasos de UN pedido (res.locals es propio de cada pedido).\nfunction paso(res, texto) {\n  res.locals.n = (res.locals.n ?? 0) + 1;\n  console.log(`  [${res.locals.n}] ${texto}`);\n}\n\napp.use((req, res, next) => {                       // eslabón 1: registrar\n  console.log(`${req.method} ${req.originalUrl}`);\n  paso(res, 'registrar: llegó el pedido');\n  res.on('finish', () => paso(res, `registrar: salió ${res.statusCode}`));\n  next();\n});\n\napp.use(express.json());                            // eslabón 2: leer el cuerpo JSON\n\napp.use((req, res, next) => {                       // eslabón 3: sellar la hora\n  req.llegada = Date.now();\n  paso(res, 'sello: anoté la hora en req.llegada');\n  next();\n});\n\napp.get('/despachos/:id', (req, res) => {           // ruta\n  paso(res, `ruta GET /despachos/:id con id=${req.params.id}`);\n  const d = despachos.get(Number(req.params.id));\n  if (!d) return res.status(404).json({ error: 'no existe ese despacho' });\n  res.json(d);\n});\n\napp.get('/despachos', (req, res) => {               // ruta\n  paso(res, `ruta GET /despachos con consulta ${JSON.stringify(req.query)}`);\n  let lista = [...despachos.values()];\n  if (req.query.estado) lista = lista.filter((d) => d.estado === req.query.estado);\n  res.json(lista);\n});\n\napp.post('/despachos', (req, res) => {              // ruta\n  paso(res, `ruta POST /despachos con cuerpo ${JSON.stringify(req.body)}`);\n  const { cliente, bultos } = req.body ?? {};\n  if (typeof cliente !== 'string' || !Number.isInteger(bultos))\n    return res.status(400).json({ error: 'faltan cliente o bultos' });\n  const id = Math.max(...despachos.keys()) + 1;\n  const d = { id, cliente, bultos, estado: 'nuevo' };\n  despachos.set(id, d);\n  res.status(201).location(`/despachos/${id}`).json(d);\n});\n\napp.get('/boom', async (req, res) => {              // ruta que falla a propósito\n  paso(res, 'ruta GET /boom: lanzo un error');\n  throw new Error('se cayó el depósito');\n});\n\napp.use((req, res) => {                             // eslabón final: nada respondió\n  paso(res, 'final de la cadena: ninguna ruta respondió');\n  res.status(404).json({ error: `no hay ruta para ${req.method} ${req.path}` });\n});\n\napp.use((err, req, res, next) => {                  // eslabón de errores: cuatro parámetros\n  paso(res, `manejador de errores: ${err.message}`);\n  if (res.headersSent) return next(err);\n  const mostrar = err.status && err.status < 500;   // los 4xx explican; los 5xx no cuentan detalles\n  res.status(err.status ?? 500).json({ error: mostrar ? err.message : 'error interno' });\n});\n\napp.listen(Number(process.env.PORT), '127.0.0.1', () => console.log('escuchando'));",
+   "cap": "server.js. Datos inventados; escucha en 127.0.0.1 y en el puerto de la variable PORT (usé 19705)."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Pedido",
+       "s": "GET /despachos/42",
+       "k": "cliente"
+      },
+      {
+       "t": "1. registrar",
+       "s": "anota y sigue",
+       "k": "red",
+       "e": "entra"
+      },
+      {
+       "t": "2. express.json",
+       "s": "lee el cuerpo",
+       "k": "red",
+       "e": "next()"
+      },
+      {
+       "t": "3. sellar hora",
+       "s": "req.llegada",
+       "k": "red",
+       "e": "next()"
+      }
+     ],
+     "baja": "next() hasta que algo coincide"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Ruta que coincide",
+       "s": "GET /despachos/:id",
+       "k": "servidor",
+       "e": "coincide"
+      },
+      {
+       "t": "Respuesta",
+       "s": "res.json(...)",
+       "k": "ok",
+       "e": "responde"
+      },
+      {
+       "t": "Nadie contestó",
+       "s": "eslabón final: 404",
+       "k": "alerta",
+       "e": "ninguna coincide"
+      },
+      {
+       "t": "Algo falló",
+       "s": "manejador de errores",
+       "k": "alerta",
+       "e": "next(error)"
+      }
+     ]
+    }
+   ],
+   "cap": "Responder corta el recorrido; `next()` lo continúa; `next(error)` salta al manejador de errores."
+  },
+  {
+   "t": "p",
+   "x": "Mandé cuatro pedidos distintos y copio lo que imprimió el servidor. Los números entre corchetes son el orden de ejecución para ese pedido:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "PORT=19705 node server.js   # lo que imprime tras GET /despachos/42, GET /nada, GET /boom y un POST con cuerpo roto",
+     "s": "GET /despachos/42\n  [1] registrar: llegó el pedido\n  [2] sello: anoté la hora en req.llegada\n  [3] ruta GET /despachos/:id con id=42\n  [4] registrar: salió 200\nGET /nada\n  [1] registrar: llegó el pedido\n  [2] sello: anoté la hora en req.llegada\n  [3] final de la cadena: ninguna ruta respondió\n  [4] registrar: salió 404\nGET /boom\n  [1] registrar: llegó el pedido\n  [2] sello: anoté la hora en req.llegada\n  [3] ruta GET /boom: lanzo un error\n  [4] manejador de errores: se cayó el depósito\n  [5] registrar: salió 500\nPOST /despachos\n  [1] registrar: llegó el pedido\n  [2] manejador de errores: Expected property name or '}' in JSON at position 1 (line 1 column 2)\n  [3] registrar: salió 400"
+    }
+   ],
+   "cap": "Registro real. Cuatro pedidos, cuatro caminos por la misma cadena."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Cómo leer ese registro",
+   "pasos": [
+    {
+     "t": "Camino feliz",
+     "x": "`GET /despachos/42` pasa por registrar, el lector de JSON (sin cuerpo, no imprime nada), el sello y la ruta. El aviso `salió 200` aparece al final porque «registrar» se enganchó a `res.on('finish', …)`: así se actúa *después* de que la respuesta salió."
+    },
+    {
+     "t": "Nada coincidió",
+     "x": "`GET /nada` recorre todo y llega al eslabón que declaré al final, que responde 404. Sin él, Express devuelve una página HTML con `Cannot GET /nada`."
+    },
+    {
+     "t": "Algo se rompió",
+     "x": "En `GET /boom` el manejador lanza una excepción. Express la atrapa y **se salta los eslabones normales que quedaban** hasta el de errores, el de cuatro parámetros."
+    },
+    {
+     "t": "Cuerpo roto",
+     "x": "En el cuarto pedido falló `express.json()` con `{roto`. El eslabón 3 (el sello) **nunca corrió**: el error saltó la cadena. El 400 lo puso el propio lector de JSON."
+    }
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El muelle de recepción",
+   "x": [
+    "La cadena es el recorrido del camión: registro, balanza, control, dársena. Cada puesto lo deja pasar (`next()`), lo rechaza ahí mismo (responde) o lo manda a la zona de rechazo (`next(error)`).",
+    "Dónde deja de valer: el camión ocupa el puesto mientras espera. En el servidor, si un eslabón espera algo (una consulta, un archivo), el proceso atiende **otros pedidos** gracias al bucle de eventos de [@07-04]. Se pausa la cadena de ese pedido, no el servidor."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "El orden decide qué se protege"
+  },
+  {
+   "t": "p",
+   "x": "Un middleware solo protege lo que viene **después**. Armé un eslabón que exige un encabezado `x-llave` (un texto de práctica, no un secreto) para todo lo que cuelga de `/admin`, pero una de las rutas la declaré antes:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "app.get('/admin/abierto', (req, res) => res.send('entró sin llave'));\napp.use('/admin', (req, res, next) =>\n  req.get('x-llave') === 'llave-de-practica'\n    ? next()\n    : res.status(401).json({ error: 'falta la llave' }));\napp.get('/admin/cerrado', (req, res) => res.send('entró con llave'));",
+   "cap": "lab.js (parte)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s localhost:19751/admin/abierto",
+     "s": "entró sin llave"
+    },
+    {
+     "c": "curl -s -w ' -> %{http_code}\\n' localhost:19751/admin/cerrado",
+     "s": "{\"error\":\"falta la llave\"} -> 401"
+    },
+    {
+     "c": "curl -s -w ' -> %{http_code}\\n' -H 'x-llave: llave-de-practica' localhost:19751/admin/cerrado",
+     "s": "entró con llave -> 200"
+    }
+   ],
+   "cap": "Salida real. La ruta declarada antes del control quedó sin protección."
+  },
+  {
+   "t": "p",
+   "x": "Es un error frecuente en servidores reales y no da ninguna alarma: todo funciona, solo que sin control. Regla práctica de orden: primero lo que vale para todos (registro, cuerpo, seguridad general), después las rutas, al final el 404 y el manejador de errores."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El eslabón que olvida a next",
+   "x": "Si un middleware ni responde ni llama a `next()`, el pedido queda **colgado**: sin error y sin respuesta. Lo probé con uno que solo imprimía una línea: `curl -m 2` terminó a los 2 segundos con código HTTP `000` y estado de salida 28 (tiempo agotado). La documentación lo advierte: si el middleware no termina el ciclo, debe llamar a `next()` [#be05-express-using-middleware]."
+  },
+  {
+   "t": "pensa",
+   "x": "Agregás, justo después de «registrar», un eslabón que responde `503` y no llama a `next()`. Para `GET /despachos/42`, ¿qué líneas imprime el registro?",
+   "resp": "Solo dos: `[1] registrar: llegó el pedido` y `[2] registrar: salió 503`. El sello, el lector de JSON y la ruta nunca corren porque la cadena se cortó al responder. «Registrar» sí se entera del final, porque escucha `res.on('finish')`."
+  },
+  {
+   "t": "h",
+   "x": "Por dentro: una cadena en 25 líneas"
+  },
+  {
+   "t": "p",
+   "x": "No hace falta creer que funciona así: se puede escribir. Este «mini Express» implementa solo la cadena, sin red. Guarda las funciones en una lista y `next` avanza un índice. La regla sutil es la que usa Express de verdad: **los eslabones de errores se reconocen por cuántos parámetros declaran**."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Un «mini Express»: solo la cadena de middleware, sin red.\nfunction crearApp() {\n  const capas = [];\n  return {\n    use(fn) { capas.push(fn); },\n    manejar(req, res) {\n      let i = 0;\n      const next = (err) => {\n        const capa = capas[i++];\n        if (!capa) return res.fin(err ? 500 : 404);   // se acabó la cadena\n        try {\n          if (err && capa.length === 4) capa(err, req, res, next);   // solo los de 4 parámetros ven errores\n          else if (!err && capa.length < 4) capa(req, res, next);    // solo los de 3 o menos ven pedidos\n          else next(err);                                            // los demás se saltean\n        } catch (e) { next(e); }\n      };\n      next();\n    },\n  };\n}\n\nconst app = crearApp();\napp.use((req, res, next) => { console.log('1 registrar', req.url); next(); });\napp.use((req, res, next) => { req.llegada = 'ahora'; console.log('2 sellar'); next(); });\napp.use((req, res, next) => {\n  if (req.url === '/roto') throw new Error('se cayó el depósito');\n  if (req.url === '/hola') return res.fin(200);       // responde y corta: no llama a next\n  next();\n});\napp.use((err, req, res, next) => { console.log('E manejador de errores:', err.message); res.fin(500); });\n\nfor (const url of ['/hola', '/roto', '/nada']) {\n  console.log('--- pedido a', url);\n  app.manejar({ url }, { fin: (codigo) => console.log('respuesta', codigo) });\n}",
+   "ejecutable": true,
+   "cap": "Tres pedidos: uno responde y corta, otro lanza un error y otro llega al final sin que nadie conteste."
+  },
+  {
+   "t": "p",
+   "x": "Compará con `lib/layer.js` del paquete `router` 2.2.0, el que usa Express 5.3.0. Cada eslabón es una «capa» con dos métodos. Para un pedido normal, si la función declara **más de 3 parámetros** la saltea. Para un error, si **no declara exactamente 4** se lo pasa al siguiente. Ambos ejecutan la función en un `try/catch` y, si devuelve una promesa, le cuelgan un `.then` que llama a `next(error)` si se rechaza [#be05-router-layer-src]. Mi juguete copia esa lógica, salvo promesas, patrones y parámetros."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const express = require('express');\nconst app = express();\n\nfunction registrar(req, res, next) { next(); }\napp.use(registrar);\napp.use(express.json());\napp.get('/despachos/:id', function porId(req, res) { res.send('x'); });\napp.use((req, res) => res.status(404).end());\n\nconsole.log(app.router.stack.map((capa) => capa.name));",
+   "cap": "capas.js."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node capas.js   # imprime app.router.stack.map((capa) => capa.name)",
+     "s": "[ 'registrar', 'jsonParser', 'handle', '<anonymous>' ]"
+    }
+   ],
+   "cap": "Salida real: mi función, el lector de JSON, la ruta y el 404 anónimo. `stack` es interno del paquete `router` y puede cambiar: sirve para espiar, no para usar en una aplicación."
+  },
+  {
+   "t": "h",
+   "x": "Cuando algo se rompe: tres caminos del error"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El manejador de errores es un middleware con **cuatro parámetros**: `(err, req, res, next)`. Tienen que estar los cuatro aunque no uses `next`: es la cantidad lo que lo identifica, y con tres Express lo trata como un middleware común [#be05-express-using-middleware]. Se declara **al final** de la cadena.",
+    "Un error llega a él por tres caminos, y no todos funcionan. Probé los tres con Express 5.3.0:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cómo falla el manejador",
+    "¿Llega al manejador de errores?",
+    "Qué observé"
+   ],
+   "filas": [
+    [
+     "`throw` sincrónico",
+     "Sí",
+     "Respuesta 500; el servidor sigue vivo."
+    ],
+    [
+     "`async` con `throw` o promesa rechazada",
+     "Sí (Express 5)",
+     "Mi ruta `/boom` es `async` y terminó en el manejador de errores con un 500."
+    ],
+    [
+     "`throw` dentro de un `setTimeout` o callback",
+     "No",
+     "El proceso terminó con código 1 y el servidor dejó de responder."
+    ]
+   ],
+   "cap": "En Express 4 la segunda fila era «No»: había que atrapar el error a mano en cada manejador `async` [#be05-express-migrating-5]."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La segunda fila es mejora de Express 5: si un manejador devuelve una [[promesa]] que se rechaza (toda función `async` que lanza un error lo hace), Express llama a `next(error)` solo [#be05-express-error-handling].",
+    "La tercera no la puede atrapar ningún framework: el `throw` ocurre cuando el manejador ya terminó, en otro turno del bucle de eventos, y no hay ninguna pila de Express que lo reciba. Lo armé así:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "app.get('/caida', (req, res) => {\n  setTimeout(() => { throw new Error('error dentro de un temporizador'); }, 10);\n  res.send('ok, respondí');\n});",
+   "cap": "orden.js (parte)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s localhost:19753/caida",
+     "s": "ok, respondí"
+    },
+    {
+     "c": "curl -s -m 2 -o /dev/null -w 'después de la caída: %{http_code}\\n' localhost:19753/despachos/1",
+     "s": "después de la caída: 000"
+    },
+    {
+     "c": "(en la terminal del servidor)",
+     "s": "Error: error dentro de un temporizador\n\nNode.js v22.23.4\nsalió con código 1"
+    }
+   ],
+   "cap": "Salida real. El cliente recibió su 200 y 10 ms después murió el servidor entero: con un solo hilo, un error sin atrapar tumba a **todos** los pedidos."
+  },
+  {
+   "t": "p",
+   "x": "Es el lado oscuro del modelo de [@07-04]. Por eso los servidores de producción corren bajo un supervisor que los reinicia, y por eso con callbacks se escribe `if (err) return next(err)` o, mejor, [[async/await]] dentro del manejador. La documentación trae este caso con `fs.readFile` [#be05-express-error-handling]."
+  },
+  {
+   "t": "p",
+   "x": "Si no declarás ningún manejador, Express tiene uno propio al final. Su comportamiento depende de `NODE_ENV`: en desarrollo devuelve **la pila completa del error** dentro de una página HTML; con `NODE_ENV=production`, solo el nombre del código de estado [#be05-express-error-handling]. Lo comprobé con el mismo `throw` sincrónico:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node lab.js   # y después: curl -s localhost:19751/sync",
+     "s": "<pre>Error: error sincrónico<br> &nbsp; &nbsp;at /tmp/…/lab.js:17:40<br> &nbsp; &nbsp;at Layer.handleRequest (…/router/lib/layer.js:152:17) …"
+    },
+    {
+     "c": "NODE_ENV=production node lab.js   # y después: curl -s localhost:19751/sync",
+     "s": "<pre>Internal Server Error</pre>"
+    }
+   ],
+   "cap": "Salida real, recortada. Sin la variable, el cliente ve rutas de archivos de tu servidor."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Responder dos veces",
+   "x": "Un manejador que llama a `res.send` dos veces no rompe al cliente, pero sí al servidor. Lo probé: el cliente recibió `uno` con 200 y el servidor registró `ERR_HTTP_HEADERS_SENT: Cannot set headers after they are sent`. Por eso mi manejador de errores empieza con `if (res.headersSent) return next(err)`: si la respuesta ya empezó, solo queda dejar que Express corte la conexión."
+  },
+  {
+   "t": "pensa",
+   "x": "Un manejador `async` hace `await consultarBase()` y esa función lanza un error. ¿Qué pasa en Express 5? ¿Y si usa `consultarBase(function (err, filas) {…})` y adentro hace `throw`?",
+   "resp": "Con `await`, la promesa del manejador se rechaza y Express 5 reenvía el error al manejador de errores. Con el callback, el `throw` ocurre en otro turno del bucle de eventos, fuera del alcance de Express, y tumba el proceso. Con callbacks hay que llamar a `next(err)` a mano."
+  },
+  {
+   "t": "h",
+   "x": "Otras opciones y un aviso sobre los números"
+  },
+  {
+   "t": "p",
+   "x": "Instalé cuatro frameworks en directorios separados y conté lo que trae cada uno (versiones que `npm` indicó como vigentes el 13-11-2026, medidas de esta VM). Para armar rutas por prefijo, Express ofrece `express.Router()`, una mini-aplicación que se monta con `app.use('/despachos', router)`; mañana la ves en acción."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Framework",
+    "Versión",
+    "Paquetes instalados",
+    "Disco",
+    "Rasgo que declara su sitio oficial"
+   ],
+   "filas": [
+    [
+     "Express",
+     "5.3.0",
+     "65",
+     "4,4 MB",
+     "Ruteo y middleware, poca funcionalidad propia [#be05-express-using-middleware]"
+    ],
+    [
+     "Fastify",
+     "5.12.8",
+     "48",
+     "15 MB",
+     "Validación con JSON Schema y plugins; pide Node 20 o más [#be05-fastify-home]"
+    ],
+    [
+     "Koa",
+     "3.3.0",
+     "36",
+     "1,7 MB",
+     "Del equipo de Express, con funciones async y sin middleware incluido [#be05-koa-home]"
+    ],
+    [
+     "Hono",
+     "4.13.18",
+     "1",
+     "3,7 MB",
+     "Sobre APIs estándar de la web; corre en Cloudflare, Deno, Bun, AWS y Node [#be05-hono-home]"
+    ]
+   ],
+   "cap": "Conteos propios (`.package-lock.json` y `du -sh`). El disco incluye tipos y documentación. Hono no tiene dependencias."
+  },
+  {
+   "t": "p",
+   "x": "Los sitios de Fastify y Hono publican gráficos de pedidos por segundo que los ponen sobre Express en un «hola mundo». **No los medí ni los uso como argumento**: un «hola mundo» mide casi solo el costo de devolver una frase, y en un servidor real el tiempo se va en la base, la red y tu código. La razón más sólida para elegir es práctica: el ecosistema, lo que tu equipo ya conoce y, con Hono, si necesitás correr el mismo código fuera de Node."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa Express, pero repite sus pasos tres veces",
+   "x": [
+    "Senda **no tiene servidor propio**: ni Express ni otro framework (el mapa técnico lo verificó con `grep`). Su backend es Supabase. Lo más parecido a un servidor escrito a mano son tres funciones de borde en Deno: `borrar-cuenta`, `trivia-sermon` y `compras`. No hay rutas ni cadena: cada función es **un manejador** `Deno.serve(async (req) => …)`.",
+    "Las tres abren igual: rechazan con 405 todo lo que no sea `POST`, crean un cliente de Supabase que reenvía el encabezado `Authorization`, preguntan quién es la persona con `auth.getUser()` y devuelven 401 si no hay cuenta. Son seis líneas repetidas en cada archivo. En Express serían **un middleware** declarado una vez. No es un defecto: son tres funciones chicas y copiar seis líneas es más simple que armar una cadena. Pero muestra qué resuelve el middleware: lo que todos los pedidos comparten.",
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. Un pendiente mío: `trivia-sermon` hace `await req.json()` sin `try/catch` y no pude probar qué responde el runtime ante un cuerpo roto, porque acá no hay Deno ni Supabase."
+   ],
+   "archivos": [
+    "supabase/functions/borrar-cuenta/index.ts",
+    "supabase/functions/compras/index.ts",
+    "supabase/functions/trivia-sermon/index.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Las «rutas» de Senda las genera la base",
+   "x": [
+    "En el teléfono, `src/util/cuenta.ts` arma direcciones `/rest/v1/<tabla>` (funciones `leer` y `escribir`) y `/rest/v1/rpc/<nombre>` (función `rpc`). Nadie las escribió una por una: según el mapa técnico, PostgREST de Supabase las genera a partir de las tablas y funciones SQL. Es una compensación: ganás velocidad, pero no hay un punto central donde correr tu propio código antes de cada pedido. Las reglas viven en la base."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/util/nube.ts"
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Escribí un middleware `soloLectura` que deje pasar `GET` y `HEAD` y rechace el resto con un `405` y `Allow: GET, HEAD`. Montalo para que afecte a `/despachos/...` pero **no** a `/salud`. ¿Dónde va el `app.use` respecto de las rutas?",
+   "pista": "`app.use('/prefijo', fn)` solo corre para direcciones con ese prefijo, y solo protege rutas declaradas **después** de él.",
+   "solucion": "```\nfunction soloLectura(req, res, next) {\n  if (req.method === 'GET' || req.method === 'HEAD') return next();\n  res.set('Allow', 'GET, HEAD').status(405).json({ error: 'este tramo es de solo lectura' });\n}\napp.use('/despachos', soloLectura);   // antes de las rutas de /despachos\n```\nLo probé: `GET /despachos/1` dio 200, `DELETE /despachos/1` dio 405 con `Allow: GET, HEAD` y `DELETE /salud` dio 204, porque ese prefijo no coincide."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Escribí un middleware que imprima cuántos milisegundos tardó cada pedido **cuando la respuesta ya salió**. ¿Por qué no alcanza con una línea después de `next()`?",
+   "pista": "`next()` vuelve cuando el siguiente eslabón llega a su primer punto de espera. Hay un evento de `res` que avisa el final.",
+   "solucion": "```\napp.use((req, res, next) => {\n  const inicio = Date.now();\n  res.on('finish', () => console.log(`${req.method} ${req.originalUrl} -> ${res.statusCode} en ${Date.now() - inicio} ms`));\n  next();\n});\n```\nUna ruta con `await` sigue corriendo después de que `next()` volvió. El evento `finish` se dispara cuando la respuesta ya se entregó al sistema operativo, la misma técnica que usa «registrar» en el servidor de hoy."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué versión de Express es «la actual»",
+   "x": [
+    "Verificado el 13-11-2026: `npm view express version` devuelve **5.3.0**. Express 5.0.0 salió en septiembre de 2024, pero recién el 31 de marzo de 2025 pasó a ser la que instala `npm install express`, con un calendario de soporte [#be05-express-blog-v5]. La página de soporte pide Node 18 como mínimo para v5 y lista a v4 como todavía activa; el calendario propuesto en 2025 hablaba de un fin de vida de v4 «no antes del 1 de octubre de 2026», pero el equipo aclaró que eran metas y no compromisos [#be05-express-support]. Antes de elegir versión para un proyecto nuevo, mirá esa página.",
+    "Lo que no envejece es la estructura: un pedido que atraviesa una cadena ordenada de funciones, rutas evaluadas en orden y un eslabón de errores. La tienen Koa, Fastify (con otros nombres) y casi cualquier framework web. Lo que cambia con las versiones son detalles, como los comodines o el trato a las promesas rechazadas."
+   ]
+  }
+ ],
+ "recap": [
+  "Express es un framework mínimo sobre el módulo `http` de Node: su aplicación es una función `(req, res, next)` que elige qué función atiende cada pedido y deja apilar pasos previos.",
+  "Una ruta es método, patrón y manejador; gana la primera que coincide, así que las fijas van antes que las que capturan parámetros.",
+  "`req` trae lo que llegó y `res` arma la respuesta; `req.body` es `undefined` hasta que `express.json()` lo lea, y todo lo que llega del cliente es texto no confiable.",
+  "Un middleware ejecuta código, modifica `req` y `res`, responde o llama a `next()`; si no responde ni llama a `next()`, el pedido queda colgado sin error.",
+  "La cadena protege solo lo que viene después: lo común primero, las rutas después, el 404 y el manejador de errores al final.",
+  "El manejador de errores se reconoce por sus cuatro parámetros; en Express 5 le llegan los `throw` sincrónicos y las promesas rechazadas, pero no los errores en callbacks o temporizadores, que tumban el proceso.",
+  "Senda no tiene Express: sus tres funciones de borde repiten a mano seis líneas que en un servidor Express serían un middleware."
+ ],
+ "repaso": [
+  {
+   "p": "En un servidor Express declarás una ruta `GET /admin/reporte` y, **después**, un middleware con `app.use('/admin', exigirLlave)`. Llega un `GET /admin/reporte` sin llave. ¿Qué pasa?",
+   "o": [
+    "Se responde el reporte sin pedir la llave",
+    "El middleware corta el pedido con un 401 seguro",
+    "Express avisa del orden al arrancar el servidor",
+    "El pedido pasa dos veces por la misma ruta"
+   ],
+   "c": 0,
+   "e": "Express recorre los eslabones en el orden en que se declararon y la ruta ya respondió antes de que el pedido llegara a `exigirLlave`. Un middleware solo protege lo que viene después. Express no revisa ese orden por su cuenta ni repite eslabones: el error es silencioso, por eso es peligroso."
+  },
+  {
+   "p": "Un middleware hace `console.log('pasé')` y termina, sin llamar a `next()` ni a `res.send()`. ¿Qué ve el cliente que mandó el pedido?",
+   "o": [
+    "Un 500 inmediato con el mensaje de la excepción",
+    "Un 404, porque ninguna ruta llegó a atenderlo",
+    "Nada: la conexión queda abierta hasta que se canse",
+    "Un 200 con el cuerpo vacío, porque no falló nada"
+   ],
+   "c": 2,
+   "e": "Ni respondió ni pasó el control, así que Express no tiene nada más que hacer con ese pedido y el cliente espera sin respuesta (en la prueba, `curl` con tiempo máximo de 2 segundos terminó con código 000). No hay excepción que dé un 500, el 404 solo aparece si la cadena llega al final, y no se manda ningún 200 por su cuenta."
+  },
+  {
+   "p": "Escribís un manejador de errores como `app.use((err, req, res) => { … })`, con tres parámetros. Algo lanza un error en una ruta. ¿Qué pasa con tu manejador?",
+   "o": [
+    "No recibe errores: Express lo trata como un middleware común",
+    "Recibe el error igual, porque el primero se llama `err`",
+    "Express lanza un aviso al arrancar y no deja iniciar",
+    "Recibe el error, pero `res` queda sin la función `send`"
+   ],
+   "c": 0,
+   "e": "Express identifica a los manejadores de errores por la cantidad de parámetros que declaran: exactamente cuatro. Con tres, la función se considera un middleware de pedidos y el error la saltea. El nombre `err` no importa, y no hay ningún aviso al arrancar: el error termina en el manejador por defecto."
+  },
+  {
+   "p": "Declarás `app.get('/despachos/:id', A)` y después `app.get('/despachos/resumen', B)`. Llega `GET /despachos/resumen`. ¿Quién lo atiende y con qué `req.params.id`?",
+   "o": [
+    "B, porque la dirección fija es más específica",
+    "B, porque se declaró última y pisa a la anterior",
+    "Ninguna: Express rechaza los patrones ambiguos",
+    "A, con `req.params.id` igual al texto `'resumen'`"
+   ],
+   "c": 3,
+   "e": "Express usa la primera ruta que coincide con método y patrón, sin buscar «la más específica», y `:id` captura cualquier texto de ese tramo. Por eso las rutas fijas deben declararse antes que las que tienen parámetros. Las otras opciones suponen una prioridad por especificidad o por último declarado que Express no tiene."
+  },
+  {
+   "p": "Tu ruta `POST /despachos` hace `const { cliente } = req.body` y el servidor responde 500 con «Cannot destructure property». El cliente manda un JSON válido con `Content-Type: application/json`. ¿Qué falta?",
+   "o": [
+    "Subir el límite de tamaño por defecto de 100 kb",
+    "Un middleware como `express.json()` antes de la ruta",
+    "Cambiar el método de POST a PUT en el cliente",
+    "Que el cliente mande el JSON como parámetro de consulta"
+   ],
+   "c": 1,
+   "e": "`req.body` vale `undefined` hasta que un middleware lea el cuerpo y lo interprete; desestructurar `undefined` produce ese error. El tope de 100 kb daría un 413 con un cuerpo grande, no este error, y ni el método ni la consulta tienen que ver con quién interpreta el cuerpo."
+  },
+  {
+   "p": "En Express 5.3.0, ¿cuál de estos fallos llega al manejador de errores de la aplicación sin que escribas código extra?",
+   "o": [
+    "Un `throw` dentro de un `setTimeout` de la ruta",
+    "Un `throw` dentro de un callback de `fs.readFile`",
+    "Un error lanzado después de un `await` en un `async`",
+    "Un `throw` en un evento disparado minutos después"
+   ],
+   "c": 2,
+   "e": "Express 5 le cuelga un manejo a la promesa que devuelve una función `async`: si se rechaza, llama a `next(error)`. Los otros casos ocurren en otro turno del bucle de eventos, sin ninguna promesa ni pila de Express que los reciba: con callbacks hay que pasar el error a mano con `next(err)`, y un `throw` suelto tumba el proceso."
+  },
+  {
+   "p": "Un middleware medidor guarda `const inicio = Date.now()`, llama a `next()` y en la línea siguiente imprime `Date.now() - inicio`. La ruta siguiente hace un `await` de 200 ms. ¿Qué imprime?",
+   "o": [
+    "Alrededor de 200 ms, el tiempo total del pedido",
+    "Casi 0 ms: `next()` vuelve cuando la ruta empieza",
+    "Un error, porque `next()` no puede ir antes de otra línea",
+    "Casi 200 ms más el tiempo de enviar la respuesta"
+   ],
+   "c": 1,
+   "e": "`next()` ejecuta el siguiente eslabón hasta su primer punto de espera y vuelve; el `await` de la ruta deja pendiente el resto. Medir el pedido completo exige engancharse a `res.on('finish')`. No hay error por poner código después de `next()`, y el tiempo no es el total ni es mayor que el de la ruta."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó cómo se atiende un pedido en un servidor Express, con una analogía propia que no sea la del muelle de un depósito: qué es una ruta, qué es un eslabón de la cadena, qué pasa si un eslabón no avisa que terminó y cómo se entera el sistema cuando algo sale mal.",
+ "para_profundizar": [
+  {
+   "fuente": "be05-express-using-middleware",
+   "nota": "La guía oficial de middleware: los cinco tipos y `next('route')`. Es corta; probá los ejemplos con tus propias rutas."
+  },
+  {
+   "fuente": "be05-express-error-handling",
+   "nota": "Cómo trata Express los errores síncronos, las promesas y los callbacks, y qué hace el manejador por defecto según `NODE_ENV`. Complementa la sección de hoy."
+  },
+  {
+   "fuente": "be05-express-migrating-5",
+   "nota": "Los cambios entre Express 4 y 5. Sirve para leer tutoriales viejos sin tropezar."
+  },
+  {
+   "fuente": "be05-router-layer-src",
+   "nota": "El archivo `layer.js` del paquete `router`: unas 250 líneas donde se decide quién atiende un pedido o un error. Buscá `handleRequest` y `handleError`."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Express.js middleware explained next() request response cycle",
+   "por_que": "Para ver a otra persona recorrer una cadena de middleware con logs y comparar con el recorrido numerado de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "ruta",
+   "d": "En un framework web como Express, la combinación de un método HTTP, un patrón de dirección (como `/despachos/:id`) y una función manejadora que atiende los pedidos que coinciden. No es lo mismo que una ruta de red del ruteo IP."
+  },
+  {
+   "t": "middleware",
+   "d": "Una función `(req, res, next)` que se ejecuta durante el ciclo de un pedido: puede ejecutar código, modificar el pedido o la respuesta, responder y cortar el ciclo, o llamar a `next()` para pasar el control al siguiente eslabón."
+  },
+  {
+   "t": "cadena de middleware",
+   "d": "El conjunto ordenado de middlewares y rutas de una aplicación. Cada pedido entra por el primer eslabón y avanza en el orden declarado hasta que alguien responde o la cadena se acaba; un error salta directo al manejador de errores."
+  },
+  {
+   "t": "objeto de petición",
+   "d": "El objeto (`req` en Express) que representa el pedido recibido: método, dirección, parámetros de la ruta, consulta, encabezados y, si un middleware lo interpretó, el cuerpo. Todo lo que trae lo controla quien mandó el pedido."
+  },
+  {
+   "t": "objeto de respuesta",
+   "d": "El objeto (`res` en Express) con el que el servidor contesta: fija el código de estado, los encabezados y el cuerpo. El primer envío cierra la respuesta; enviar de nuevo produce un error."
+  },
+  {
+   "t": "manejador de errores",
+   "d": "En Express, un middleware con cuatro parámetros `(err, req, res, next)`. Express solo le entrega errores a las funciones con esa firma, y se declara al final de la cadena."
+  }
+ ],
+ "siguiente": "Endpoints, controladores y servicios. Hoy un solo archivo mezcló rutas, validación, reglas y datos; mañana separás esas responsabilidades en capas con un refactor que conserva el comportamiento, probado antes y después.",
+ "fuentes_nuevas": [
+  {
+   "id": "be05-express-using-middleware",
+   "t": "Using middleware (Express)",
+   "a": "Express.js y OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://expressjs.com/en/guide/using-middleware.html"
+  },
+  {
+   "id": "be05-express-error-handling",
+   "t": "Error handling (Express)",
+   "a": "Express.js y OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://expressjs.com/en/guide/error-handling.html"
+  },
+  {
+   "id": "be05-express-migrating-5",
+   "t": "Moving to Express 5 (guía de migración)",
+   "a": "Express.js y OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://expressjs.com/en/guide/migrating-5.html"
+  },
+  {
+   "id": "be05-express-api-request",
+   "t": "Express 5.x API: Request",
+   "a": "Express.js y OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://expressjs.com/en/5x/api/request/"
+  },
+  {
+   "id": "be05-express-api-express",
+   "t": "Express 5.x API: express() y express.json",
+   "a": "Express.js y OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://expressjs.com/en/5x/api/express/"
+  },
+  {
+   "id": "be05-express-blog-v5",
+   "t": "Express@5.1.0: now the default on npm, with an LTS timeline",
+   "a": "Express Technical Committee",
+   "tipo": "articulo",
+   "anio": 2025,
+   "url": "https://expressjs.com/en/blog/2025-03-31-v5-1-latest-release"
+  },
+  {
+   "id": "be05-express-support",
+   "t": "Version support (Express)",
+   "a": "Express.js y OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://expressjs.com/en/support/"
+  },
+  {
+   "id": "be05-router-layer-src",
+   "t": "router 2.2.0: lib/layer.js",
+   "a": "Proyecto pillarjs/router",
+   "tipo": "doc",
+   "anio": 2025,
+   "url": "https://raw.githubusercontent.com/pillarjs/router/v2.2.0/lib/layer.js"
+  },
+  {
+   "id": "be05-fastify-home",
+   "t": "Fastify: sitio oficial",
+   "a": "Proyecto Fastify",
+   "tipo": "doc",
+   "url": "https://fastify.dev/"
+  },
+  {
+   "id": "be05-hono-home",
+   "t": "Hono: sitio oficial",
+   "a": "Yusuke Wada y colaboradores",
+   "tipo": "doc",
+   "url": "https://hono.dev/"
+  },
+  {
+   "id": "be05-koa-home",
+   "t": "Koa: sitio oficial",
+   "a": "Proyecto Koa",
+   "tipo": "doc",
+   "url": "https://koajs.com/"
+  }
+ ]
+}

@@ -1,0 +1,888 @@
+{
+ "id": "07-23",
+ "titulo": ".NET y ASP.NET Core",
+ "bajada": "Levantás un servidor de ASP.NET Core con base de datos, mirás Kestrel, el pipeline, la inyección de dependencias y Entity Framework por dentro, y aprendés cuándo conviene elegirlo.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Leer un `Program.cs` de ASP.NET Core de arriba abajo y decir qué hace cada bloque: registrar servicios, construir, armar el pipeline y arrancar.",
+  "Explicar qué hace Kestrel y en qué casos conviene ponerle un proxy inverso adelante.",
+  "Distinguir los tres tiempos de vida de un servicio (singleton, scoped y transient) y predecir qué pasa cuando uno de vida larga depende de uno de vida corta.",
+  "Describir qué hace Entity Framework Core (traducir LINQ a SQL, rastrear cambios y generar migraciones) y leer el SQL que produce.",
+  "Decidir cuándo .NET es una buena opción de backend y qué versión usar hoy."
+ ],
+ "venis_de": "En [@03-53] viste C# y .NET desde el lenguaje: el CLR, el IL, LINQ y async/await. En [@07-20], [@07-21] y [@07-22] recorriste otras tres plataformas de servidor (NestJS, Python con FastAPI y Django, y Java con Spring). Hoy se arma el mismo rompecabezas del lado de .NET, con un servidor que corriste vos de punta a punta.",
+ "se_apoya_en": [
+  "03-53",
+  "07-05",
+  "07-20",
+  "05-24",
+  "03-43"
+ ],
+ "gancho": [
+  "En esta VM bajé el SDK de .NET 10, escribí `dotnet new webapi`, reemplacé un archivo y arranqué el programa. Dos segundos después, un `curl` recibía un JSON con un envío a Rosario. En las cabeceras de la respuesta aparecía una línea que presenta al protagonista del día: `Server: Kestrel`.",
+  "Hoy leés ese servidor entero. Es un sistema de despachos inventado (envíos con destino, peso y estado) sobre una base SQLite. Los datos son de mentira; el servidor, los pedidos, el SQL y los tiempos son reales y los corrí yo. Al final vas a poder abrir cualquier proyecto de ASP.NET Core y saber dónde mirar primero."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Un servidor completo, de arriba abajo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[ASP.NET Core]] es el framework web de la plataforma [[.NET]]. Según la documentación de Microsoft, es multiplataforma, de alto rendimiento y de código abierto [#dotnet-aspnetcore-intro]. El ASP.NET original había salido casi catorce años antes, sobre el .NET Framework, que entonces no era de código abierto [#backend-dotnet-core-1-0]. El 27 de junio de 2016 Microsoft publicó ASP.NET Core 1.0, una reescritura para Windows, Linux y Mac, y el mismo día Entity Framework Core 1.0 [#backend-dotnet-aspnetcore-1-0]. Las dos piezas de hoy nacieron juntas.",
+    "Para crear el proyecto alcanza un comando. La plantilla trae un programa de ejemplo con un pronóstico del tiempo en `/weatherforecast`; yo lo reemplacé por el sistema de despachos."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "dotnet new webapi -n Despacho --use-minimal-apis -o Despacho",
+     "s": "  Determining projects to restore...\n  Restored Despacho/Despacho.csproj (in 1.17 sec).\nRestore succeeded."
+    }
+   ],
+   "cap": "Salida recortada, SDK 10.0.404 en la VM del estudio (13-11-2026). La plantilla genera `Program.cs`, `appsettings.json` y el proyecto."
+  },
+  {
+   "t": "p",
+   "x": "Lo que sigue es mi `Program.cs` por partes (completo tiene 100 líneas; cada fragmento es una copia del archivo que corrí). Primero, el arranque:"
+  },
+  {
+   "t": "codigo",
+   "lang": "cs",
+   "x": "var builder = WebApplication.CreateBuilder(args);\nbuilder.Services.AddDbContext<DespachoDb>(o => o.UseSqlite(\"Data Source=despacho.db\"));\nbuilder.Services.AddScoped<Tarifas>();\nbuilder.Services.AddControllers();\nbuilder.Services.AddValidation();\nbuilder.Services.AddSingleton<Reloj>();\nbuilder.Services.AddTransient<Ticket>();\n\nvar app = builder.Build();",
+   "cap": "Fases 1 a 3 de un programa de ASP.NET Core: crear el constructor, registrar servicios y construir la aplicación."
+  },
+  {
+   "t": "pasos",
+   "titulo": "Las cuatro fases de un Program.cs",
+   "pasos": [
+    {
+     "t": "Crear el constructor",
+     "x": "`WebApplication.CreateBuilder(args)` junta la configuración (`appsettings.json`, variables de entorno, argumentos), los logs y el servidor Kestrel. Todavía no arranca nada."
+    },
+    {
+     "t": "Registrar servicios",
+     "x": "Cada `builder.Services.AddAlgo(...)` anota qué piezas existen: la base de datos, las tarifas, los controladores. Es un registro: todavía no se crea nada."
+    },
+    {
+     "t": "Construir",
+     "x": "`builder.Build()` cierra la lista y arma el contenedor. Lo probé: registrar otro servicio después lanza `InvalidOperationException: The service collection cannot be modified because it is read-only.`"
+    },
+    {
+     "t": "Armar el pipeline y arrancar",
+     "x": "`app.Use(...)` y `app.MapGet(...)` declaran qué pasa con cada pedido. `app.Run()` deja el programa escuchando hasta que alguien lo apague."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Si venís de Express ([@07-05]), la diferencia es la fase doble: primero se declara qué piezas existen y recién después qué hace cada pedido. Así el contenedor de dependencias se arma una sola vez, ya cerrado y verificable. Más abajo vas a ver qué se gana con eso."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -si http://127.0.0.1:19231/envios/2",
+     "s": "HTTP/1.1 200 OK\nContent-Type: application/json; charset=utf-8\nDate: Fri, 13 Nov 2026 19:21:08 GMT\nServer: Kestrel\nTransfer-Encoding: chunked\n\n{\"id\":2,\"destino\":\"Mendoza\",\"pesoKg\":40.0,\"estado\":\"despachado\",\"costo\":null}"
+    },
+    {
+     "c": "curl -si http://127.0.0.1:19231/envios/99",
+     "s": "HTTP/1.1 404 Not Found\nContent-Length: 0\nDate: Fri, 13 Nov 2026 19:21:08 GMT\nServer: Kestrel"
+    }
+   ],
+   "cap": "Servidor propio en 127.0.0.1:19231, datos inventados."
+  },
+  {
+   "t": "p",
+   "x": "La función devolvió un objeto de C# y el framework lo convirtió en JSON, con los campos en minúscula inicial (`pesoKg`). El 200 o el 404 lo decidió el resultado que devolví (`Results.Ok` o `Results.NotFound`). La cabecera `Server: Kestrel` la puso el servidor."
+  },
+  {
+   "t": "h",
+   "x": "Kestrel: el servidor viene adentro del programa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en lo que no hiciste: no instalaste ningún servidor aparte. El programa que arrancás (`dotnet Despacho.dll`) es a la vez tu aplicación y el servidor. Es la misma idea que viste con Node en [@07-04]: el proceso abre el puerto desde tu código. Acá el que abre el puerto, acepta conexiones y lee los pedidos HTTP es [[Kestrel]], un [[servidor HTTP]] escrito para ASP.NET Core. La línea de arranque lo muestra:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "dotnet Despacho.dll",
+     "s": "info: Microsoft.Hosting.Lifetime[14]\n      Now listening on: http://127.0.0.1:19231\ninfo: Microsoft.Hosting.Lifetime[0]\n      Application started. Press Ctrl+C to shut down.\ninfo: Microsoft.Hosting.Lifetime[0]\n      Hosting environment: Production"
+    }
+   ],
+   "cap": "Arranque real. El puerto sale de `appsettings.json`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Kestrel habla HTTP/1.1, HTTP/2 y HTTP/3, WebSockets y TLS, y las plantillas ya lo traen configurado como servidor recomendado. Corre en Windows, Linux y macOS, aunque macOS se admite para desarrollo y pruebas y no para producción [#backend-dotnet-kestrel].",
+    "¿Hace falta poner algo adelante? La documentación dice que las dos configuraciones están soportadas, con y sin [[proxy inverso]] [#backend-dotnet-kestrel-proxy]. Cuando se pone uno (nginx, IIS o YARP, por ejemplo) es para concentrar el certificado TLS en un solo lugar, repartir varias aplicaciones sobre la misma IP y puerto y reducir lo que queda expuesto. Kestrel solo no puede compartir IP y puerto entre procesos distintos: quien escucha un puerto atiende todo su tráfico, sin mirar la cabecera `Host` [#backend-dotnet-kestrel-proxy]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Cliente",
+       "s": "navegador o app",
+       "k": "cliente"
+      },
+      {
+       "t": "Proxy inverso",
+       "s": "opcional: nginx, IIS, YARP",
+       "k": "red",
+       "e": "HTTPS"
+      },
+      {
+       "t": "Kestrel",
+       "s": "abre el puerto, lee HTTP",
+       "k": "servidor",
+       "e": "HTTP"
+      }
+     ],
+     "baja": "dentro del mismo proceso .NET"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Middleware",
+       "s": "cadena de piezas",
+       "k": "servidor"
+      },
+      {
+       "t": "Endpoint",
+       "s": "tu función o controlador",
+       "k": "servidor",
+       "e": "ruta que coincide"
+      },
+      {
+       "t": "Base de datos",
+       "s": "vía Entity Framework",
+       "k": "datos",
+       "e": "SQL"
+      }
+     ]
+    }
+   ],
+   "cap": "El camino de un pedido. Las respuestas vuelven por la misma cadena, en sentido inverso."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el portón de un depósito",
+   "x": "Kestrel es el portón con su guardia: abre, lee el remito (el pedido HTTP) y lo pasa para adentro. Un proxy inverso es una garita más sobre la calle, donde otra persona controla la entrada de varios depósitos a la vez. La analogía deja de valer en un punto: en un depósito real la mercadería no vuelve por el mismo recorrido, y en HTTP la respuesta sí atraviesa de regreso cada pieza por la que pasó el pedido."
+  },
+  {
+   "t": "h",
+   "x": "El pipeline de middleware, con un caso real"
+  },
+  {
+   "t": "p",
+   "x": "Después de Kestrel, cada pedido atraviesa una cadena de [[middleware]] como la de Express. Se arma con `app.Use`, que recibe el contexto del pedido y una función `next`. Lo que escribís antes de `await next()` corre en el camino de ida; lo que escribís después corre cuando la respuesta ya volvió. Mi middleware mide cuánto tarda todo lo que viene detrás:"
+  },
+  {
+   "t": "codigo",
+   "lang": "cs",
+   "x": "// Un middleware propio: mide cuánto tarda cada pedido.\napp.Use(async (ctx, next) =>\n{\n    var t0 = DateTime.UtcNow;\n    await next();\n    var ms = (DateTime.UtcNow - t0).TotalMilliseconds;\n    app.Logger.LogInformation(\"{M} {P} -> {S} en {Ms:F1} ms\", ctx.Request.Method, ctx.Request.Path, ctx.Response.StatusCode, ms);\n});",
+   "cap": "Un middleware propio de seis líneas útiles."
+  },
+  {
+   "t": "p",
+   "x": "El orden en que los middleware aparecen en `Program.cs` es el orden de ejecución en la ida, y el inverso en la vuelta; la documentación lo dice así [#backend-dotnet-middleware]. Por eso el que averigua quién sos va antes del que decide qué podés hacer ([@07-11])."
+  },
+  {
+   "t": "pensa",
+   "x": "Querés medir el tiempo de todos los pedidos, incluidos los que se rechazan por falta de permiso. ¿Ponés el middleware de medición antes o después del que revisa permisos, y por qué?",
+   "resp": "Antes. El que revisa permisos, al rechazar, contesta 403 y no llama a `next`: lo que esté detrás no corre para ese pedido. Medido después, solo verías los aceptados."
+  },
+  {
+   "t": "p",
+   "x": "Con ese middleware midió algo que conviene mirar. Arranqué el servidor desde cero y mandé cuatro pedidos idénticos a `GET /envios/1`:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pedido",
+    "Tiempo medido por el middleware",
+    "Qué cambió respecto del anterior"
+   ],
+   "filas": [
+    [
+     "1.º",
+     "258,3 ms",
+     "Primer pedido tras el arranque"
+    ],
+    [
+     "2.º",
+     "129,2 ms",
+     "Mismo pedido, sin ningún cambio"
+    ],
+    [
+     "3.º",
+     "7,0 ms",
+     "Mismo pedido, sin ningún cambio"
+    ],
+    [
+     "4.º",
+     "2,5 ms",
+     "Mismo pedido, sin ningún cambio"
+    ]
+   ],
+   "cap": "Una corrida en una VM de este estudio (13-11-2026). No es un benchmark: sirve para ver la forma de la curva, no los valores. Desde el lanzamiento del programa hasta la primera respuesta pasaron 2,0 s, con la creación de la base incluida."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El mismo pedido bajó de 258 a 2,5 ms. Hay dos candidatos: el [[JIT|compilación JIT]] que viste en [@03-43] y [@03-53], que traduce a código de máquina cada método la primera vez que se usa, y Entity Framework, que la primera vez arma su modelo de la base y abre la conexión. **No separé cuánto es de cada uno**, así que no doy porcentajes. La consecuencia sí es firme: el primer pedido de un servidor recién arrancado no representa su velocidad normal.",
+    "Importa para medir (una prueba de carga seria descarta el calentamiento) y para operar (un servidor recién reiniciado atiende más lento unos segundos). En [@07-26] vas a ver el mismo fenómeno con otro nombre, el arranque en frío."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Dos estilos para declarar endpoints"
+  },
+  {
+   "t": "p",
+   "x": "ASP.NET Core tiene dos maneras de escribir los [[endpoint]]. Las *Minimal APIs* son las que usé hasta ahora: cada endpoint es una función registrada con `MapGet`, `MapPost` y compañía, y los parámetros de la función son lo que necesita (un dato de la ruta, un objeto del cuerpo o un servicio del contenedor)."
+  },
+  {
+   "t": "codigo",
+   "lang": "cs",
+   "x": "app.MapGet(\"/envios/{id:int}\", async (int id, DespachoDb db) =>\n    await db.Envios.FindAsync(id) is { } e ? Results.Ok(e) : Results.NotFound());\n\napp.MapGet(\"/envios\", async (string? destino, DespachoDb db) =>\n    await db.Envios.Where(e => destino == null || e.Destino == destino).OrderBy(e => e.Id).ToListAsync());",
+   "cap": "Dos endpoints de lectura como Minimal API."
+  },
+  {
+   "t": "p",
+   "x": "La otra manera son los controladores ([[controlador]], [@07-06]): una clase con métodos marcados con atributos que dicen la ruta y el verbo."
+  },
+  {
+   "t": "codigo",
+   "lang": "cs",
+   "x": "using Microsoft.AspNetCore.Mvc;\nusing Microsoft.EntityFrameworkCore;\n\n[ApiController]\n[Route(\"api/envios\")]\npublic class EnviosController(DespachoDb db) : ControllerBase\n{\n    [HttpGet(\"{id:int}\")]\n    public async Task<ActionResult<Envio>> Uno(int id)\n    {\n        var e = await db.Envios.AsNoTracking().FirstOrDefaultAsync(x => x.Id == id);\n        return e is null ? NotFound() : e;\n    }\n}",
+   "cap": "El mismo endpoint de lectura, escrito como controlador (`EnviosController.cs`)."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s http://127.0.0.1:19231/api/envios/1",
+     "s": "{\"id\":1,\"destino\":\"Rosario\",\"pesoKg\":12.5,\"estado\":\"en_deposito\",\"costo\":null}"
+    }
+   ],
+   "cap": "El controlador responde igual que la Minimal API. Las dos conviven en el mismo programa: `app.MapControllers()` activa los controladores."
+  },
+  {
+   "t": "cita",
+   "x": "For new projects, we recommend using Minimal APIs as they provide a simplified, high-performance approach for building APIs with minimal code and configuration.",
+   "autor": "Microsoft, «APIs overview» (ASP.NET Core 10)",
+   "fuente": "backend-dotnet-apis-overview"
+  },
+  {
+   "t": "p",
+   "x": "La misma página sugiere controladores si necesitás extender el enlace de datos, validaciones avanzadas o soporte de OData, funciones que ellos traen listas y las Minimal APIs requieren armar a mano [#backend-dotnet-apis-overview]. Mi regla práctica: servicio nuevo, chico o mediano, Minimal APIs; equipo grande que ya conoce MVC, o necesidad de esas funciones, controladores. Los dos estilos comparten pipeline, contenedor y Entity Framework, así que pasar de uno al otro no es reescribir todo."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Rutas con tipo",
+   "x": "El `:int` de `{id:int}` es una restricción: la ruta solo coincide si el segmento es un entero. `GET /envios/abc` dio 404 sin que mi función llegara a ejecutarse; filtró el enrutador."
+  },
+  {
+   "t": "p",
+   "x": "Falta un detalle de los endpoints que sale caro en la práctica: qué pasa con lo que *no* llega en el pedido. Mi primera versión del `POST` recibía el [[DTO]] `NuevoEnvio` sin ninguna regla. Le mandé un envío sin peso:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -si -X POST http://127.0.0.1:19231/envios -H 'Content-Type: application/json' -d '{\"destino\":\"Cordoba\"}'",
+     "s": "HTTP/1.1 201 Created\nContent-Type: application/json; charset=utf-8\nDate: Fri, 13 Nov 2026 19:33:33 GMT\nServer: Kestrel\nLocation: /envios/4\nTransfer-Encoding: chunked\n\n{\"id\":4,\"destino\":\"Cordoba\",\"pesoKg\":0,\"estado\":\"en_deposito\",\"costo\":400}"
+    }
+   ],
+   "cap": "Primera versión, sin validación. Mirá `pesoKg`: llegó vacío y quedó en 0."
+  },
+  {
+   "t": "p",
+   "x": "El servidor aceptó un paquete de cero kilos y le cobró la tarifa base. El enlace de datos (en inglés, *model binding*) rellena lo que falta con el valor por defecto del tipo y sigue. Agregué `AddValidation()` y reglas con atributos ([[validación de entrada]], [@07-07]) sobre el mismo objeto:"
+  },
+  {
+   "t": "codigo",
+   "lang": "cs",
+   "x": "public record NuevoEnvio([Required] string Destino, [Range(0.1, 1000)] decimal PesoKg);",
+   "cap": "El DTO con dos reglas: `Destino` obligatorio y `PesoKg` entre 0,1 y 1000."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -si -X POST http://127.0.0.1:19231/envios -H 'Content-Type: application/json' -d '{\"destino\":\"Cordoba\"}'",
+     "s": "HTTP/1.1 400 Bad Request\nContent-Type: application/json; charset=utf-8\nDate: Fri, 13 Nov 2026 19:33:41 GMT\nServer: Kestrel\nTransfer-Encoding: chunked\n\n{\"title\":\"One or more validation errors occurred.\",\"errors\":{\"PesoKg\":[\"The field PesoKg must be between 0.1 and 1000.\"]}}"
+    }
+   ],
+   "cap": "Mismo pedido, con validación. Los atributos son los de `System.ComponentModel.DataAnnotations`, los mismos que usan los controladores; `AddValidation()` los activa en Minimal APIs [#backend-dotnet-minimal-apis]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Lo que falta se rellena en silencio",
+   "x": "Un número que no llega no da error: llega como 0. Un texto que no llega puede llegar como nulo. Si una regla de negocio depende de que el dato exista, la tenés que escribir como validación; el framework no la adivina."
+  },
+  {
+   "t": "h",
+   "x": "Inyección de dependencias: viene de fábrica"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@07-20] viste la [[inyección de dependencias en servidor]] en NestJS. ASP.NET Core la trae adentro, sin ninguna biblioteca aparte: solo con las plantillas, el framework registra más de 250 servicios propios [#backend-dotnet-di]. Mirá cómo se usa en mi código. En la fase de registro dije `AddScoped<Tarifas>()`. En el endpoint del `POST` alcanza con declarar un parámetro: `async (NuevoEnvio n, DespachoDb db, Tarifas tarifas)`. Nadie escribe `new Tarifas()`: el contenedor la crea, la entrega y, cuando corresponde, la descarta.",
+    "Cada registro decide cuánto vive la instancia. Son tres opciones:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tiempo de vida",
+    "Cuántas instancias hay",
+    "Para qué sirve"
+   ],
+   "filas": [
+    [
+     "Singleton (`AddSingleton`)",
+     "Una sola, para toda la vida del programa",
+     "Estado compartido por todos los pedidos: una caché, la hora de arranque"
+    ],
+    [
+     "Scoped (`AddScoped`)",
+     "Una por pedido HTTP",
+     "Todo lo que se ata a un pedido: el contexto de la base, el usuario actual"
+    ],
+    [
+     "Transient (`AddTransient`)",
+     "Una nueva cada vez que alguien la pide",
+     "Piezas livianas y sin estado que conviene no compartir"
+    ]
+   ],
+   "cap": "Según la documentación de ASP.NET Core: scoped es lo mismo dentro de un pedido y distinto entre pedidos; transient es siempre distinto; singleton es igual para todos [#backend-dotnet-di]."
+  },
+  {
+   "t": "p",
+   "x": "Para verlo armé un endpoint que pide al contenedor una instancia de cada tipo (dos de la transient) y muestra un identificador corto de cada una:"
+  },
+  {
+   "t": "codigo",
+   "lang": "cs",
+   "x": "app.MapGet(\"/di\", (Reloj reloj, Tarifas t1, Ticket a, Ticket b, IServiceProvider sp) => new\n{\n    singleton = reloj.Id,\n    scoped = t1.Id,\n    scopedOtraVez = sp.GetRequiredService<Tarifas>().Id,\n    transient1 = a.Id,\n    transient2 = b.Id\n});",
+   "cap": "Cada clase genera un identificador aleatorio de cuatro caracteres al construirse."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s http://127.0.0.1:19231/di",
+     "s": "{\"singleton\":\"474f\",\"scoped\":\"8562\",\"scopedOtraVez\":\"8562\",\"transient1\":\"045c\",\"transient2\":\"1e27\"}"
+    },
+    {
+     "c": "curl -s http://127.0.0.1:19231/di",
+     "s": "{\"singleton\":\"474f\",\"scoped\":\"abaa\",\"scopedOtraVez\":\"abaa\",\"transient1\":\"6008\",\"transient2\":\"8cce\"}"
+    }
+   ],
+   "cap": "El singleton (474f) no cambia entre pedidos. El scoped es el mismo dentro del pedido, aunque se pida por dos caminos, y cambia en el siguiente. Los transient siempre son distintos."
+  },
+  {
+   "t": "p",
+   "x": "El `DbContext` de Entity Framework se registra como scoped por defecto: un pedido, un contexto, porque las operaciones de base de datos de una aplicación web se acotan normalmente a un pedido [#backend-dotnet-di]. Ahora, lo que se rompe: ¿qué pasa si un singleton (que vive siempre) pide un servicio scoped (que debería vivir un pedido)? Escribí una clase que lo hace:"
+  },
+  {
+   "t": "codigo",
+   "lang": "cs",
+   "x": "public class Resumen(DespachoDb db)\n{\n    public int Contar() => db.Envios.Count();\n}",
+   "cap": "Registrada con `AddSingleton<Resumen>()`; depende del `DbContext`, que es scoped."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ASPNETCORE_ENVIRONMENT=Production dotnet Despacho.dll   # y en otra terminal: curl /resumen",
+     "s": "3 [HTTP 200]"
+    },
+    {
+     "c": "ASPNETCORE_ENVIRONMENT=Development dotnet Despacho.dll",
+     "s": "Unhandled exception. System.AggregateException: Some services are not able to be constructed (Error while validating the service descriptor 'ServiceType: Resumen Lifetime: Singleton ImplementationType: Resumen': Cannot consume scoped service 'DespachoDb' from singleton 'Resumen'.)"
+    }
+   ],
+   "cap": "El mismo programa en dos entornos. En mis dos corridas, solo en Development el contenedor avisó del problema, y lo hizo al construirse, antes de atender un solo pedido."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un error que en producción no avisa",
+   "x": [
+    "En Production el programa respondió bien: «3». Funcionó porque el singleton se quedó para siempre con el primer contexto que le tocó. La documentación de EF avisa que el `DbContext` no es seguro entre hilos y que no hay que compartirlo [#backend-efcore-dbcontext]: con 50 pedidos simultáneos sobre el mismo contexto, el error aparece cuando menos lo esperás. Además, un contexto que nunca se descarta acumula las entidades que rastrea y puede devolver datos viejos.",
+    "Es el tipo de bug que explica el «en mi máquina andaba». La lección práctica: dejá que el entorno de desarrollo te avise."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un servicio `Cotizador` guarda en memoria el dólar, que se baja cada cinco minutos, y lo leen todos los pedidos. ¿Qué tiempo de vida le das y qué cuidado tomás?",
+   "resp": "Singleton: uno solo, para que todos vean la misma cotización. El cuidado es la [[concurrencia]]: muchos pedidos leen mientras otra tarea actualiza, así que el cambio tiene que ser seguro entre hilos. Y no puede depender de nada scoped, como el DbContext."
+  },
+  {
+   "t": "h",
+   "x": "Entity Framework Core: de clases a SQL"
+  },
+  {
+   "t": "p",
+   "x": "La otra mitad del servidor habla con la base de datos. [[Entity Framework]] (EF Core) es el mapeador objeto-relacional de .NET: la documentación lo describe como una forma de trabajar con la base usando objetos .NET, con un modelo hecho de clases de entidad y de un objeto de contexto que representa una sesión con la base [#backend-efcore-overview]. Es el mismo oficio que cumplen el [[Django ORM]] de [@07-21] y [[JPA]] de [@07-22]. Mi modelo entero es este:"
+  },
+  {
+   "t": "codigo",
+   "lang": "cs",
+   "x": "public class Envio\n{\n    public int Id { get; set; }\n    public string Destino { get; set; } = \"\";\n    public decimal PesoKg { get; set; }\n    public string Estado { get; set; } = \"\";\n    public decimal? Costo { get; set; }\n}\n\npublic class DespachoDb(DbContextOptions<DespachoDb> opciones) : DbContext(opciones)\n{\n    public DbSet<Envio> Envios => Set<Envio>();\n}",
+   "cap": "`Envio` es una fila de la tabla; `DespachoDb` es la sesión; `DbSet<Envio>` es la tabla vista como colección."
+  },
+  {
+   "t": "p",
+   "x": "Con la base vacía, `EnsureCreated()` (línea 17 del programa) pidió crear la tabla y EF generó este SQL, que quedó en el log del servidor:"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "CREATE TABLE \"Envios\" (\n    \"Id\" INTEGER NOT NULL CONSTRAINT \"PK_Envios\" PRIMARY KEY AUTOINCREMENT,\n    \"Destino\" TEXT NOT NULL,\n    \"PesoKg\" TEXT NOT NULL,\n    \"Estado\" TEXT NOT NULL,\n    \"Costo\" TEXT NULL\n);",
+   "cap": "SQL generado por EF Core 10.0.15 para SQLite, copiado del log. Se aprende a leerlo en la parte de bases de datos."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "¿Por qué el peso quedó como TEXT?",
+   "x": "SQLite no tiene un tipo decimal propio. EF Core lo resuelve guardándolo como texto y registrando funciones para poder comparar y sumar [#backend-efcore-sqlite-limits]. Es un detalle de este motor, no de EF: lo que ves en la base depende del proveedor que uses, así que conviene mirar el esquema real que se generó."
+  },
+  {
+   "t": "h3",
+   "x": "Consultas: de LINQ a SQL"
+  },
+  {
+   "t": "p",
+   "x": "Las consultas se escriben con [[LINQ]], que ya conocés de [@03-53]. EF las traduce a SQL cuando las ejecuta. Mi endpoint `GET /envios` filtra por destino solo si el parámetro llega. Lo llamé con y sin filtro y copié el SQL del log:"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "-- GET /envios?destino=Rosario\nSELECT \"e\".\"Id\", \"e\".\"Costo\", \"e\".\"Destino\", \"e\".\"Estado\", \"e\".\"PesoKg\"\nFROM \"Envios\" AS \"e\"\nWHERE \"e\".\"Destino\" = @destino\nORDER BY \"e\".\"Id\"\n\n-- GET /envios   (sin parámetro)\nSELECT \"e\".\"Id\", \"e\".\"Costo\", \"e\".\"Destino\", \"e\".\"Estado\", \"e\".\"PesoKg\"\nFROM \"Envios\" AS \"e\"\nORDER BY \"e\".\"Id\"",
+   "cap": "Una sola expresión LINQ, dos SQL distintos: con el parámetro nulo, EF dejó afuera la condición."
+  },
+  {
+   "t": "p",
+   "x": "Dos cosas para mirar. El valor `Rosario` no se pegó al texto del SQL: viaja aparte, como parámetro (`@destino`). Eso cierra la puerta a la inyección de SQL, un ataque en el que el dato del usuario se interpreta como parte del comando, que vas a ver más adelante. Y con el parámetro nulo, EF resolvió `destino == null` al armar la consulta y dejó el SQL sin `WHERE`: el SQL que corre no es una traducción literal de tu código. Por eso en desarrollo conviene dejar prendido el log de comandos, como hice en `appsettings.json`."
+  },
+  {
+   "t": "h3",
+   "x": "Rastreo de cambios: guardar solo lo que cambió"
+  },
+  {
+   "t": "p",
+   "x": "Lo más característico de EF no está en las consultas sino en cómo guarda. Mirá el endpoint que marca un envío como despachado:"
+  },
+  {
+   "t": "codigo",
+   "lang": "cs",
+   "x": "app.MapPut(\"/envios/{id:int}/despachar\", async (int id, DespachoDb db) =>\n{\n    var e = await db.Envios.FindAsync(id);\n    if (e is null) return Results.NotFound();\n    e.Estado = \"despachado\";\n    await db.SaveChangesAsync();\n    return Results.Ok(e);\n});",
+   "cap": "Leer, cambiar una propiedad, guardar. No hay ninguna instrucción de «actualizar»."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "SELECT \"e\".\"Id\", \"e\".\"Costo\", \"e\".\"Destino\", \"e\".\"Estado\", \"e\".\"PesoKg\"\nFROM \"Envios\" AS \"e\"\nWHERE \"e\".\"Id\" = @p\nLIMIT 1;\n\nUPDATE \"Envios\" SET \"Estado\" = @p0\nWHERE \"Id\" = @p1\nRETURNING 1;",
+   "cap": "SQL del log para `PUT /envios/1/despachar`: una lectura y una escritura."
+  },
+  {
+   "t": "p",
+   "x": "El `UPDATE` tocó una sola columna, `Estado`. Cuando `FindAsync` trajo la fila, el contexto guardó una copia de sus valores; al llamar `SaveChangesAsync` la comparó con el objeto actual y escribió solo la diferencia. La documentación lo describe así: cada instancia de `DbContext` rastrea los cambios de las entidades y los escribe cuando se llama a `SaveChanges` [#backend-efcore-change-tracking]. De ahí sale el ciclo que recomienda: crear el contexto, rastrear entidades, cambiar, guardar y descartarlo. Es una unidad de trabajo, y por eso el contexto vive un pedido (scoped)."
+  },
+  {
+   "t": "h3",
+   "x": "Migraciones: cambiar la base sin perder datos"
+  },
+  {
+   "t": "p",
+   "x": "Usé `EnsureCreated()` porque es la forma más corta de armar una demo. La documentación de EF la llama una alternativa liviana a las migraciones y la reserva para casos donde los datos son descartables: prototipos, pruebas, cachés locales [#backend-efcore-ensure-created]. Veamos por qué. Le agregué una propiedad al modelo (`DespachadoEn`, una fecha opcional) y arranqué el programa contra la base que ya existía:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -w ' [HTTP %{http_code}]' http://127.0.0.1:19231/envios/1",
+     "s": " [HTTP 500]"
+    },
+    {
+     "c": "grep 'no such column' run4.log",
+     "s": "Microsoft.Data.Sqlite.SqliteException (0x80004005): SQLite Error 1: 'no such column: e.DespachadoEn'."
+    }
+   ],
+   "cap": "Modelo nuevo contra una base vieja. La documentación lo anticipa: si ya existe alguna tabla, `EnsureCreated` no inicializa el esquema."
+  },
+  {
+   "t": "p",
+   "x": "El modelo dice que la columna existe y la base dice que no. Para esto están las migraciones: archivos que describen cada cambio del esquema, en orden. La herramienta `dotnet ef` (una herramienta aparte, que se instala con `dotnet tool install`; el proyecto necesita además el paquete `Microsoft.EntityFrameworkCore.Design`) compara el modelo con la última migración y escribe la siguiente:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "dotnet ef migrations add AgregarFechaDespacho",
+     "s": "Build started...\nBuild succeeded.\nDone. To undo this action, use 'ef migrations remove'"
+    },
+    {
+     "c": "dotnet ef migrations script Inicial",
+     "s": "BEGIN TRANSACTION;\nALTER TABLE \"Envios\" ADD \"DespachadoEn\" TEXT NULL;\nINSERT INTO \"__EFMigrationsHistory\" (\"MigrationId\", \"ProductVersion\")\nVALUES ('20261113192311_AgregarFechaDespacho', '10.0.15');\nCOMMIT;"
+    }
+   ],
+   "cap": "`dotnet-ef` 10.0.15, sobre una copia del proyecto. El segundo comando pide el SQL de todo lo posterior a la migración `Inicial`."
+  },
+  {
+   "t": "codigo",
+   "lang": "cs",
+   "x": "protected override void Up(MigrationBuilder migrationBuilder)\n{\n    migrationBuilder.AddColumn<DateTime>(\n        name: \"DespachadoEn\",\n        table: \"Envios\",\n        type: \"TEXT\",\n        nullable: true);\n}\n\n/// <inheritdoc />\nprotected override void Down(MigrationBuilder migrationBuilder)\n{\n    migrationBuilder.DropColumn(\n        name: \"DespachadoEn\",\n        table: \"Envios\");\n}",
+   "cap": "La migración generada: `Up` aplica el cambio y `Down` lo deshace. EF también guarda en la base una tabla `__EFMigrationsHistory` con las que ya se aplicaron."
+  },
+  {
+   "t": "p",
+   "x": "Apliqué a mano ese `ALTER TABLE` sobre la base vieja, que tenía seis envíos, y repetí el pedido: respondió 200 y los seis envíos siguieron ahí. Esa es la diferencia con volver a crear la base. Una migración transforma lo que hay sin tirarlo."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "EnsureCreated y migraciones no se mezclan",
+   "x": "La documentación advierte que `EnsureCreated` y las migraciones no funcionan bien juntas, y que pasar de una a otra no es transparente: lo más simple es tirar la base y recrearla con migraciones [#backend-efcore-ensure-created]. Si sabés que el proyecto va a tener datos reales, empezá directamente con migraciones."
+  },
+  {
+   "t": "p",
+   "x": "Un último cuidado con cualquier mapeador: la comodidad esconde el SQL. Un patrón conocido (que **no medí** acá) es traer cincuenta envíos y pedir después, uno por uno, los datos relacionados de cada uno: cincuenta y una consultas en vez de dos. La defensa es la de hoy: mirar el log de comandos mientras desarrollás."
+  },
+  {
+   "t": "h",
+   "x": "Qué se entrega y cuánto pesa"
+  },
+  {
+   "t": "p",
+   "x": "En [@03-53] viste que un programa de .NET se puede entregar de varias formas. Publiqué el servidor de despachos de dos maneras y medí:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Forma de entrega",
+    "Tamaño",
+    "Qué hay adentro"
+   ],
+   "filas": [
+    [
+     "Dependiente del framework (`dotnet publish -c Release`)",
+     "39 MB",
+     "Mi código (32 KB) más las bibliotecas de EF y SQLite; 33 MB son la carpeta `runtimes`, con la parte nativa de SQLite para más de veinte combinaciones de sistema y chip. Necesita el runtime de .NET instalado"
+    ],
+    [
+     "Autocontenida, un solo archivo (`-r linux-x64 --self-contained -p:PublishSingleFile=true`)",
+     "106 MB",
+     "Todo lo anterior más el runtime de .NET; corre sin instalar nada y la probé: respondió igual"
+    ]
+   ],
+   "cap": "Medido en la VM del estudio, SDK 10.0.404, sin recortar el código no usado. No probé NativeAOT con este proyecto."
+  },
+  {
+   "t": "p",
+   "x": "Con el servidor caliente, tras unas diez peticiones, el proceso ocupaba 114 MB de memoria residente y tenía 23 hilos (`/proc/<pid>/status`). Es una sola corrida de un programa mínimo: sirve como orden de magnitud para comparar con otras plataformas mañana, no como especificación."
+  },
+  {
+   "t": "h",
+   "x": "Versiones, licencia y cuándo elegirlo"
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones al 13-11-2026",
+   "x": [
+    ".NET publica una versión mayor por año, en noviembre. Según la política oficial de soporte, .NET 10 salió el 11-11-2025, es de soporte largo (LTS) y se mantiene hasta el 14-11-2028. .NET 11 salió el 10-11-2026 (hace tres días), es de soporte estándar y también llega hasta el 14-11-2028. .NET 8 y .NET 9 dejaron de tener soporte el 10-11-2026 [#dotnet-support-policy]. Las últimas versiones de parche que figuran son 10.0.15 y 11.0.0 [#dotnet-releases-index].",
+    "Hallazgo de la VM: `dotnet add package Microsoft.EntityFrameworkCore.Sqlite` sin versión eligió la 11.0.0 y falló con `NU1202: ... is not compatible with net10.0`. Un proyecto necesita la misma versión mayor de EF Core que de .NET; por eso fijé la 10.0.15.",
+    "Licencia: los repositorios de ASP.NET Core, EF Core y el runtime de .NET declaran la licencia MIT en su archivo de licencia (leído el 13-11-2026) [#backend-dotnet-license]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Un criterio, que es opinión mía y no un hecho. .NET suele ser buena elección cuando el equipo ya conoce C# o la empresa ya vive en el mundo Microsoft (Windows en los servidores, SQL Server, Azure), y cuando el servicio es grande y de larga vida, donde los tipos estrictos ayudan a no romper cosas al cambiarlas. Suele ser menos natural si el equipo es todo de JavaScript y comparte lenguaje entre frontend y servidor, o si el servicio es una función chica de vida corta. Cuánta gente hay para contratar es otra variable, de tu mercado: la trabajamos en [@07-27]."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa .NET, pero tiene el mismo problema que resuelven las migraciones",
+   "x": [
+    "En el repositorio de Senda no hay ningún `.csproj` ni código de .NET: su servidor es Supabase, que ves en [@07-25] y [@07-29]. Pero el problema de las migraciones existe igual: cambiar la forma de la base sin perder lo que hay.",
+    "Senda tiene 42 archivos de migración en `supabase/migrations/`, con nombre que empieza con una fecha (`20261011000000_propuestas.sql`). Son SQL escrito a mano, no generado desde clases como en EF, y un flujo de GitHub los aplica con `supabase db push` tras pasar una prueba contra una base de ensayo (`.github/workflows/supabase.yml`). Las dos que miré (`propuestas` y `escala`) usan `if not exists`, para que repetirlas no rompa nada. Esto corresponde al commit `25e08fa` (9-11-2026); el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261011000000_propuestas.sql",
+    "supabase/migrations/20261027000000_escala.sql",
+    ".github/workflows/supabase.yml",
+    "supabase/config.toml"
+   ]
+  }
+ ],
+ "recap": [
+  "Un programa de ASP.NET Core tiene cuatro fases: crear el constructor, registrar servicios, construir (el contenedor queda cerrado) y armar el pipeline antes de `Run`.",
+  "Kestrel es el servidor HTTP que viene dentro del proceso: abre el puerto y lee los pedidos. Funciona solo o detrás de un proxy inverso, y las dos configuraciones están soportadas.",
+  "Cada pedido atraviesa una cadena de middleware: el código antes de `next` corre en la ida y el de después, en la vuelta, en orden inverso. El orden en `Program.cs` es parte de la lógica.",
+  "Un servicio puede ser singleton (uno), scoped (uno por pedido) o transient (uno nuevo cada vez). Un singleton que depende de un scoped es un error que Development detectó al arrancar y Production dejó pasar.",
+  "Entity Framework traduce LINQ a SQL con parámetros, rastrea los cambios de las entidades y escribe solo lo que cambió al guardar. El contexto es una unidad de trabajo y vive un pedido.",
+  "Las migraciones son archivos ordenados que transforman el esquema sin perder datos; `EnsureCreated` sirve para prototipos y pruebas, no para bases con datos reales.",
+  "El primer pedido a un servidor recién arrancado es mucho más lento que los siguientes: no sirve para medir."
+ ],
+ "repaso": [
+  {
+   "p": "Un singleton `Resumen` recibe un `DbContext` registrado como scoped. En Production la aplicación arranca y responde bien. ¿Cuál es el problema real?",
+   "o": [
+    "El singleton retiene para siempre el primer contexto, que no es seguro entre hilos y acumula entidades rastreadas",
+    "Production lo bloquea porque los singletons están prohibidos y solo se permiten en el entorno Development",
+    "El contexto se crea de nuevo en cada llamada, por lo cual cada pedido tarda más de lo necesario",
+    "Scoped y singleton significan lo mismo, así que el comportamiento es correcto y no hay ningún problema"
+   ],
+   "c": 0,
+   "e": "Un singleton se construye una sola vez, así que se queda con la instancia scoped que le tocó y la usa para todos los pedidos. EF documenta que el contexto no es seguro entre hilos y además rastrea entidades sin descartarlas. La opción que dice que Production lo prohíbe es falsa: lo dejó pasar. La que dice que se crea de nuevo en cada llamada describe a un transient, no a este caso."
+  },
+  {
+   "p": "Dos middleware, A y luego B, están registrados en ese orden. Los dos imprimen un texto antes y otro después de `await next()`. ¿En qué orden se imprimen los textos de «después»?",
+   "o": [
+    "Primero el de A y después el de B, el mismo orden en que se registraron los dos middleware",
+    "En un orden indefinido, porque el framework los ejecuta en paralelo con distintos hilos de trabajo",
+    "Primero el de B y después el de A, porque la respuesta vuelve por la cadena en sentido inverso",
+    "Ninguno se imprime, porque después de `next` el pedido ya terminó y no hay código que ejecutar"
+   ],
+   "c": 2,
+   "e": "Cada middleware envuelve al siguiente: A llama a B con `next`, B llama al endpoint, y cuando el endpoint termina el control vuelve a B y recién después a A. Por eso la ida sigue el orden de registro y la vuelta lo invierte. Un pedido pasa por la cadena de a una pieza por vez, no en paralelo, y el código posterior a `next` sí se ejecuta."
+  },
+  {
+   "p": "Un `POST` recibe un objeto con un campo numérico que el cliente olvidó mandar. Sin ninguna regla de validación, ¿qué recibe normalmente tu código en ese campo?",
+   "o": [
+    "Un error 400 automático, porque el framework siempre exige todos los campos del objeto recibido",
+    "El valor por defecto del tipo (cero, para un número), sin ningún error, y el pedido sigue adelante",
+    "El último valor que mandó otro cliente, porque el servidor conserva el dato entre los pedidos",
+    "Un error 500, porque un campo que no llega hace que el programa se detenga por completo"
+   ],
+   "c": 1,
+   "e": "El enlace de datos rellena con el valor por defecto de cada tipo lo que no llegó, y el pedido continúa: lo vimos con `pesoKg` en 0. El 400 aparece recién cuando agregás reglas de validación. Un servidor no conserva datos entre pedidos de distintos clientes en un objeto nuevo, y un campo ausente no detiene el programa."
+  },
+  {
+   "p": "Un endpoint carga un envío con `FindAsync`, cambia `Estado` y llama a `SaveChangesAsync`. El log muestra un `UPDATE` que modifica solo `Estado`. ¿Por qué EF sabe qué columna escribir?",
+   "o": [
+    "EF vuelve a leer la fila de la base al guardar y la compara con el objeto antes de armar el UPDATE",
+    "El programador tuvo que indicar el nombre de la columna en una línea que el código de ejemplo omitió",
+    "EF escribe siempre las cinco columnas, y el log solo muestra las que cambiaron por abreviar el texto",
+    "El contexto guardó una copia de los valores al leer la fila y, al guardar, compara y escribe la diferencia"
+   ],
+   "c": 3,
+   "e": "El rastreo de cambios guarda una instantánea cuando el contexto lee la entidad, y `SaveChanges` compara esa instantánea con el estado actual. No hace una segunda lectura, no necesita que nombres la columna y el SQL del log es el que realmente se ejecutó, con una sola columna en el SET."
+  },
+  {
+   "p": "Tenés una API en producción con datos reales y le agregás una propiedad al modelo de EF. La base ya tiene tablas. ¿Qué conviene hacer?",
+   "o": [
+    "Llamar a `EnsureCreated`, que detecta la columna nueva y la agrega a la tabla que ya existe",
+    "Borrar la base y recrearla, porque es la única forma de que el modelo y el esquema coincidan",
+    "Generar una migración y aplicarla, de modo que se agregue la columna sin tocar los datos existentes",
+    "No hacer nada, porque EF agrega las columnas solo cuando ve una propiedad nueva en el modelo"
+   ],
+   "c": 2,
+   "e": "La migración describe el cambio (`ALTER TABLE ... ADD`) y lo aplica sobre la base viva, conservando las filas. `EnsureCreated` no inicializa el esquema si ya hay tablas, así que no agrega nada; borrar y recrear pierde los datos; y EF no modifica la base por su cuenta: la prueba con 500 y «no such column» lo mostró."
+  },
+  {
+   "p": "¿Qué afirmación sobre Kestrel y los proxies inversos es correcta según la documentación de ASP.NET Core?",
+   "o": [
+    "Kestrel no puede recibir tráfico directo de Internet y necesita siempre un proxy como nginx o IIS",
+    "Kestrel puede atender solo o detrás de un proxy inverso, y las dos configuraciones están soportadas",
+    "Kestrel solo funciona en Windows, y por eso en Linux hay que reemplazarlo por otro servidor web",
+    "Un proxy inverso es obligatorio para tener HTTPS, porque Kestrel no sabe hablar TLS por sí mismo"
+   ],
+   "c": 1,
+   "e": "La documentación dice que, con o sin proxy inverso, es una configuración soportada. Kestrel corre en Windows, Linux y macOS, y habla TLS. El proxy aporta cosas útiles (un único lugar para el certificado, compartir IP y puerto entre aplicaciones), pero no es una obligación técnica."
+  },
+  {
+   "p": "Medís el tiempo de respuesta de una API recién arrancada mandando tres pedidos seguidos y promediando. ¿Cuál es el problema principal de ese método?",
+   "o": [
+    "Incluye el calentamiento del primer pedido, mucho más lento, y distorsiona el promedio de lo que será el servicio",
+    "Tres pedidos son demasiados, porque el servidor se satura y las respuestas se vuelven más lentas",
+    "Los pedidos seguidos usan siempre la misma conexión y por eso nunca llegan a medir el tiempo real",
+    "El promedio es una cuenta que no se puede aplicar a tiempos, y habría que usar siempre el mínimo"
+   ],
+   "c": 0,
+   "e": "En nuestra corrida los cuatro primeros pedidos idénticos tardaron 258, 129, 7 y 2,5 ms: el primero, o los primeros, incluyen compilación JIT y armado del modelo de EF. Un promedio que los mezcla no representa el régimen normal. Tres pedidos no saturan un servidor, la conexión compartida no es el problema central y el promedio sí se puede calcular, aunque conviene mirar también los percentiles."
+  }
+ ],
+ "feynman": "Explicale a alguien que sabe un poco de programación qué pasa desde que llega un pedido HTTP a un servidor de ASP.NET Core hasta que el cliente recibe la respuesta: qué hace Kestrel, qué hace el pipeline, de dónde sale cada pieza que usa tu función y cómo se guarda un cambio en la base. Usá una analogía propia que no sea la del depósito.",
+ "para_profundizar": [
+  {
+   "fuente": "backend-dotnet-di",
+   "nota": "La referencia oficial de la inyección de dependencias en ASP.NET Core. Leé las secciones de tiempos de vida y de «Lifetime and registration options», que repiten con otro código el experimento de hoy."
+  },
+  {
+   "fuente": "backend-efcore-change-tracking",
+   "nota": "Cómo EF rastrea las entidades y qué estados tienen (Added, Modified, Deleted). Es la base para entender por qué el contexto vive un pedido."
+  },
+  {
+   "fuente": "backend-dotnet-apis-overview",
+   "nota": "La comparación oficial entre Minimal APIs y controladores, con el criterio de cuándo usar cada una."
+  },
+  {
+   "fuente": "dotnet-support-policy",
+   "nota": "La tabla de versiones y fechas de fin de soporte. Es lo primero que se revisa antes de elegir una versión para un proyecto nuevo."
+  }
+ ],
+ "videos": [
+  {
+   "q": ".NET Conf ASP.NET Core minimal APIs Entity Framework Core tutorial",
+   "por_que": "Para ver a alguien del equipo de .NET armar una API parecida a la de hoy y comparar el flujo con el que corriste vos."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "ASP.NET Core",
+   "d": "El framework web de .NET para construir servidores y APIs. Es multiplataforma y de código abierto, y trae el servidor Kestrel, el pipeline de middleware, la inyección de dependencias y la configuración por entorno."
+  },
+  {
+   "t": "Entity Framework",
+   "d": "Entity Framework Core (EF Core): el mapeador objeto-relacional de .NET. Convierte clases en tablas, consultas LINQ en SQL, rastrea los cambios de los objetos y genera migraciones del esquema."
+  },
+  {
+   "t": "Kestrel",
+   "d": "El servidor HTTP que viene dentro de ASP.NET Core: abre el puerto, acepta conexiones, habla HTTP/1.1, HTTP/2, HTTP/3 y TLS, y pasa cada pedido al pipeline. Puede atender solo o detrás de un proxy inverso."
+  },
+  {
+   "t": "Minimal API",
+   "d": "Forma de declarar endpoints en ASP.NET Core con funciones registradas directamente en `Program.cs` (`MapGet`, `MapPost`), sin clases de controlador. La documentación la recomienda para proyectos nuevos."
+  },
+  {
+   "t": "tiempo de vida de un servicio",
+   "d": "Cuánto dura cada instancia de un servicio registrado en el contenedor: singleton (una para todo el programa), scoped (una por pedido HTTP) o transient (una nueva cada vez que se pide)."
+  },
+  {
+   "t": "DbContext",
+   "d": "La clase de Entity Framework que representa una sesión con la base: expone las tablas como colecciones, rastrea los cambios y los escribe con `SaveChanges`. No es seguro entre hilos y normalmente vive un pedido."
+  },
+  {
+   "t": "rastreo de cambios",
+   "d": "Mecanismo de EF por el cual el contexto recuerda cómo estaba cada entidad al leerla y, al guardar, escribe en la base solo lo que difiere."
+  },
+  {
+   "t": "migración de EF",
+   "d": "Archivo generado por `dotnet ef` que describe un cambio del esquema (qué agregar y cómo deshacerlo) y que se aplica en orden sobre la base, conservando los datos."
+  }
+ ],
+ "siguiente": "Go, Rust, Ruby y PHP: otras alternativas. El mismo tipo de servidor escrito en cuatro ecosistemas más, qué cambia en cada uno, y una comparación medida de un «hola mundo» con sus salvedades.",
+ "fuentes_nuevas": [
+  {
+   "id": "backend-dotnet-aspnetcore-1-0",
+   "t": "Announcing ASP.NET Core 1.0",
+   "a": "Jeffrey Fritz (Microsoft)",
+   "tipo": "articulo",
+   "anio": 2016,
+   "url": "https://devblogs.microsoft.com/dotnet/announcing-asp-net-core-1-0/"
+  },
+  {
+   "id": "backend-dotnet-core-1-0",
+   "t": "Announcing .NET Core 1.0",
+   "a": "Rich Lander (Microsoft)",
+   "tipo": "articulo",
+   "anio": 2016,
+   "url": "https://devblogs.microsoft.com/dotnet/announcing-net-core-1-0/"
+  },
+  {
+   "id": "backend-dotnet-kestrel",
+   "t": "Kestrel web server in ASP.NET Core",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel?view=aspnetcore-10.0"
+  },
+  {
+   "id": "backend-dotnet-kestrel-proxy",
+   "t": "When to use a reverse proxy with the ASP.NET Core Kestrel web server",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/servers/kestrel/when-to-use-a-reverse-proxy?view=aspnetcore-10.0"
+  },
+  {
+   "id": "backend-dotnet-apis-overview",
+   "t": "APIs overview (ASP.NET Core)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/apis?view=aspnetcore-10.0"
+  },
+  {
+   "id": "backend-dotnet-minimal-apis",
+   "t": "Minimal APIs quick reference",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/minimal-apis?view=aspnetcore-10.0"
+  },
+  {
+   "id": "backend-dotnet-di",
+   "t": "Dependency injection in ASP.NET Core",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/dependency-injection?view=aspnetcore-10.0"
+  },
+  {
+   "id": "backend-dotnet-middleware",
+   "t": "ASP.NET Core Middleware",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/aspnet/core/fundamentals/middleware/"
+  },
+  {
+   "id": "backend-efcore-overview",
+   "t": "Overview of Entity Framework Core",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/ef/core/"
+  },
+  {
+   "id": "backend-efcore-change-tracking",
+   "t": "Change Tracking (EF Core)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/ef/core/change-tracking/"
+  },
+  {
+   "id": "backend-efcore-dbcontext",
+   "t": "DbContext Lifetime, Configuration, and Initialization",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/ef/core/dbcontext-configuration/"
+  },
+  {
+   "id": "backend-efcore-ensure-created",
+   "t": "Create and Drop APIs (EnsureCreated, EF Core)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/ef/core/managing-schemas/ensure-created"
+  },
+  {
+   "id": "backend-efcore-sqlite-limits",
+   "t": "SQLite Database Provider Limitations (EF Core)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/ef/core/providers/sqlite/limitations"
+  },
+  {
+   "id": "backend-dotnet-license",
+   "t": "ASP.NET Core: LICENSE.txt (licencia MIT, archivo en el repositorio)",
+   "a": ".NET Foundation y colaboradores",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/dotnet/aspnetcore/main/LICENSE.txt"
+  }
+ ]
+}

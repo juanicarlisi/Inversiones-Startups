@@ -1,0 +1,759 @@
+{
+ "id": "07-25",
+ "titulo": "Backend como servicio: Supabase y Firebase",
+ "bajada": "Qué piezas de un backend se alquilan ya armadas, cómo se protegen los datos cuando el teléfono habla directo con la base y cuánto se paga a cambio, con Senda como caso real.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué piezas de un backend propio reemplaza un backend como servicio y cuáles te siguen tocando a vos.",
+  "Seguir un pedido desde el teléfono hasta la base y ver cómo una regla por fila decide qué datos devuelve a cada usuario.",
+  "Comparar las reglas por fila de Postgres con las reglas por documento de Firestore y predecir qué devuelve cada una ante la misma consulta.",
+  "Calcular cuántas filas caben en un plan gratis y qué unidades de cobro fechadas importan según el proveedor.",
+  "Distinguir en el código de Senda qué es Supabase tal cual, qué es lógica propia dentro de la base y qué no existe."
+ ],
+ "venis_de": "En los días anteriores de esta parte escribiste o leíste un servidor a mano: rutas ([@07-05]), controladores y servicios ([@07-06]), validación ([@07-07]), login ([@07-09]), permisos ([@07-11]) y configuración con secretos ([@07-19]). Hoy se da vuelta la pregunta: ¿y si casi nada de eso lo escribís vos?",
+ "se_apoya_en": [
+  "07-05",
+  "07-06",
+  "07-09",
+  "07-10",
+  "07-11",
+  "07-19"
+ ],
+ "gancho": [
+  "Pensá en un depósito propio. Antes de despachar un solo pedido tenés que conseguir el galpón, contratar gente, instalar el sistema que registra quién entra y quién sale, y resolver qué pasa cuando se corta la luz. Mucho trabajo, y casi idéntico en cualquier negocio. Por eso existen los operadores logísticos: les mandás la mercadería y las reglas, y ellos ponen el galpón.",
+  "En el backend pasa lo mismo, y Senda es el ejemplo. En su código no hay una carpeta `server/` ni `api/`, no hay Express ni NestJS. Sin embargo, la gente crea cuentas, juega duelos contra otros y recibe avisos en el teléfono. Alguien alquila esas piezas ya armadas. Hoy vas a ver qué se alquila, cómo se protege la información cuando el teléfono habla directo con la base, qué cuesta y qué pasa si algún día querés irte."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué es un backend como servicio"
+  },
+  {
+   "t": "p",
+   "x": "Un [[BaaS]] (backend como servicio, del inglés *backend as a service*) es un proveedor que te da, ya armadas y operadas por él, las piezas que casi toda app necesita: una base de datos, cuentas de usuario, almacenamiento de archivos, funciones de servidor y avisos. Tu app las usa por HTTP, y vos no escribís ni administrás el servidor que las atiende. Los dos nombres más conocidos son Supabase y Firebase, y los dos son los que vas a ver hoy."
+  },
+  {
+   "t": "p",
+   "x": "Esta tabla pone lado a lado lo que ya conocés de esta parte y su versión alquilada [#pki-supabase-arq][#firebase-docs]."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pieza",
+    "Si la escribís vos",
+    "Supabase",
+    "Firebase"
+   ],
+   "filas": [
+    [
+     "Base de datos",
+     "Servidor que habla con la base ([@07-06])",
+     "Postgres administrado, con una API que se genera sola",
+     "Firestore, una base de documentos"
+    ],
+    [
+     "Cuentas y login",
+     "Tu código de autenticación ([@07-09])",
+     "Auth: altas, login y tokens",
+     "Authentication"
+    ],
+    [
+     "Permisos",
+     "Chequeos en el servidor ([@07-11])",
+     "Reglas dentro de la base, por fila",
+     "Reglas de seguridad de Firestore, por documento"
+    ],
+    [
+     "Archivos",
+     "Subidas y almacenamiento de objetos ([@07-16])",
+     "Storage",
+     "Cloud Storage"
+    ],
+    [
+     "Lógica propia",
+     "Controladores y servicios ([@07-06])",
+     "Edge Functions (mañana, en [@07-26])",
+     "Cloud Functions"
+    ]
+   ],
+   "cap": "Equivalencias entre un backend propio y los productos de dos proveedores. Los nombres son los de las páginas oficiales consultadas el 13-11-2026."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El operador logístico",
+   "x": [
+    "Alquilar un backend se parece a tercerizar el depósito en un operador logístico: él pone el galpón, el personal y el sistema, y vos ponés la mercadería y las reglas. Se paga por uso, se arranca rápido y hay que adaptarse a cómo opera él.",
+    "Dónde deja de valer: el stock físico se muda en camiones. Los datos se pueden exportar, pero las reglas de acceso y las funciones que armaste sobre las herramientas del proveedor no viajan solas: hay que reescribirlas. De eso trata el apartado de salir de un proveedor, más abajo."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Siguen siendo tuyos el diseño de las tablas, las reglas de quién ve qué y la lógica que no entra en una regla. Un BaaS te saca el trabajo de *operar* servidores, no el de *diseñar*."
+  },
+  {
+   "t": "h",
+   "x": "El teléfono habla directo con la base"
+  },
+  {
+   "t": "p",
+   "x": "En un backend propio, el teléfono nunca toca la base. Le pide algo a tu servidor, y el servidor decide si corresponde y consulta la base ([@07-06]). En un BaaS se acorta el camino: el proveedor genera una API sobre tus tablas y el teléfono le manda los pedidos directamente. Supabase lo hace con un componente llamado PostgREST, que convierte tablas y funciones de Postgres en rutas HTTP [#pki-supabase-arq][#red31-supabase-data-api]."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Teléfono",
+       "s": "lleva una clave pública y el token de la persona",
+       "k": "cliente"
+      },
+      {
+       "t": "API generada",
+       "s": "pone el rol y los datos del token",
+       "k": "red",
+       "e": "pedido HTTP"
+      },
+      {
+       "t": "Base de datos",
+       "s": "aplica las reglas por fila",
+       "k": "datos",
+       "e": "consulta con ese rol"
+      }
+     ]
+    }
+   ],
+   "cap": "Sin servidor propio en el medio: lo que antes decidía tu código tiene que vivir dentro de la base."
+  },
+  {
+   "t": "p",
+   "x": "Esto cambia una suposición. Una app instalada en un teléfono es territorio ajeno: cualquiera puede abrir el instalador y leer lo que contiene. Por eso Supabase distingue dos claves. La **clave pública** (*publishable*) está pensada para ir dentro de la app y tiene pocos privilegios. La **clave secreta** se salta todas las reglas y, según la documentación, no debe ir en un navegador, en una app instalada ni en el control de versiones [#red31-supabase-api-keys]. Es el criterio de [[secreto]] de [@07-19] aplicado a dos claves."
+  },
+  {
+   "t": "pensa",
+   "x": "Si la clave que lleva la app es pública y cualquiera puede sacarla del instalador, ¿qué impide que alguien pida todas las filas de todas las personas?",
+   "resp": "Nada en la clave misma. Lo que lo impide son las reglas de seguridad que viven dentro de la base: cada pedido llega con la identidad de quien lo hace, y la base devuelve solo lo que esa identidad puede ver."
+  },
+  {
+   "t": "h",
+   "x": "Reglas de seguridad por fila: se ven funcionando"
+  },
+  {
+   "t": "p",
+   "x": "Las [[reglas de seguridad]] son condiciones que el proveedor evalúa dentro de la base, antes de leer o escribir, para decidir qué puede hacer cada persona. En Supabase se apoyan en una función de Postgres: la seguridad por fila, que en Postgres se llama *row level security* y que vas a estudiar a fondo en [@07-29]. Para verla, armé la mecánica en una base Postgres 16.15 propia, en esta máquina. No es el código de Supabase: es la misma idea, que la documentación de PostgREST describe así: la API se conecta con un rol casi sin permisos y, para cada pedido, se pasa al rol que corresponde con una orden `SET LOCAL ROLE` [#baas-postgrest-auth]."
+  },
+  {
+   "t": "p",
+   "x": "No hace falta saber SQL todavía (llega en la Parte 9). Se crean dos roles, que son grupos de permisos: `anon` para quien no inició sesión y `authenticated` para quien sí. Se define `auth.uid()`, una función que lee del token quién está pidiendo. Y se crea una tabla de notas donde cada fila guarda quién la escribió."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create role anon nologin;           -- quien no inició sesión\ncreate role authenticated nologin;  -- quien sí inició sesión\ncreate schema auth;\ncreate function auth.uid() returns uuid language sql stable as\n$$ select nullif(current_setting('request.jwt.claims', true)::jsonb ->> 'sub','')::uuid $$;\n\ncreate table public.notas (id serial primary key, autor uuid not null, texto text not null);\ngrant select, insert, update, delete on public.notas to authenticated;\ngrant select on public.notas to anon;",
+   "cap": "Preparación de la demo en Postgres 16.15 local (puerto 19251). La función `auth.uid()` es mía, escrita para imitar la idea; la de Supabase se llama igual pero la define el proveedor."
+  },
+  {
+   "t": "p",
+   "x": "La tabla tiene tres notas con datos inventados: dos de Ana y una de Beto, que incluye la «clave del wifi del depósito». Para simular lo que hace la API armé un comando, `pedido ROL USUARIO \"consulta\"`: abre una transacción, se pone el rol, deja el identificador donde `auth.uid()` lo busca y ejecuta la consulta. Primero, sin reglas, como persona anónima:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "pedido anon - \"select id, autor, texto from notas;\"",
+     "s": " id |                autor                 |                   texto                   \n----+--------------------------------------+-------------------------------------------\n  1 | 11111111-1111-1111-1111-111111111111 | nota de Ana: preparar el sermón\n  2 | 11111111-1111-1111-1111-111111111111 | nota de Ana: llamar al proveedor\n  3 | 22222222-2222-2222-2222-222222222222 | nota de Beto: clave del wifi del depósito\n(3 rows)"
+    }
+   ],
+   "cap": "Sin seguridad por fila, cualquiera con permiso sobre la tabla lee todo. Salida real de mi Postgres local, con datos inventados. El guion en el comando significa «sin usuario»."
+  },
+  {
+   "t": "p",
+   "x": "Ahora se activa la seguridad por fila sobre la tabla, sin escribir todavía ninguna política, y se repite el pedido como anónimo y como Ana:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -c \"alter table notas enable row level security\"",
+     "s": ""
+    },
+    {
+     "c": "pedido anon - \"select id, texto from notas;\"",
+     "s": " id | texto \n----+-------\n(0 rows)"
+    },
+    {
+     "c": "pedido authenticated 11111111-1111-1111-1111-111111111111 \"select id, texto from notas;\"",
+     "s": " id | texto \n----+-------\n(0 rows)"
+    }
+   ],
+   "cap": "Activada la seguridad por fila y sin políticas, la tabla queda cerrada para todos, incluida Ana. Es el comportamiento por defecto que describe la documentación de PostgreSQL [#baas-postgres-rls]."
+  },
+  {
+   "t": "p",
+   "x": "Cerrado por defecto es buena noticia: lo que olvidás abrir no se filtra. Ahora una política, que es la condición que abre filas: al leer, una persona con sesión ve las filas cuyo `autor` es ella."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -c \"create policy \\\"cada uno ve lo suyo\\\" on notas for select to authenticated using (auth.uid() = autor)\"",
+     "s": ""
+    },
+    {
+     "c": "pedido authenticated 11111111-1111-1111-1111-111111111111 \"select id, texto from notas;\"",
+     "s": " id |              texto               \n----+----------------------------------\n  1 | nota de Ana: preparar el sermón\n  2 | nota de Ana: llamar al proveedor\n(2 rows)"
+    },
+    {
+     "c": "pedido authenticated 22222222-2222-2222-2222-222222222222 \"select id, texto from notas;\"",
+     "s": " id |                   texto                   \n----+-------------------------------------------\n  3 | nota de Beto: clave del wifi del depósito\n(1 row)"
+    },
+    {
+     "c": "pedido anon - \"select id, texto from notas;\"",
+     "s": " id | texto \n----+-------\n(0 rows)"
+    }
+   ],
+   "cap": "La misma consulta, tres identidades, tres resultados. Ninguna consulta dio error: la base devuelve solo lo permitido."
+  },
+  {
+   "t": "p",
+   "x": "Para el anónimo, `auth.uid()` no tiene a quién devolver, la comparación falla y no se ve nada. La documentación de Supabase lo advierte: sin usuario devuelve `null` y la comparación falla en silencio, por lo que recomienda un chequeo explícito [#baas-supabase-rls]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Sin seguridad por fila, la tabla es pública para quien tenga permiso",
+   "x": "El primer pedido de la demo lo mostró: con la tabla sin seguridad por fila, la clave pública alcanza para leer todo lo que el rol permite. La documentación de Supabase lo dice sin vueltas: hay que activar la seguridad por fila en cada tabla de un esquema expuesto, y una tabla sin ella es legible y escribible por cualquier rol con permiso sobre ella [#baas-supabase-rls]. Olvidarse de una tabla es el error más común de este modelo."
+  },
+  {
+   "t": "h",
+   "x": "Escribir también es una consulta"
+  },
+  {
+   "t": "p",
+   "x": "Una política puede tener dos condiciones: una decide qué filas se pueden *ver o tocar* (`using`, la de recién) y otra qué filas se pueden *dejar escritas* (`with check`). Agrego una para insertar: solo se escribe a nombre propio. Ana prueba tres cosas, y una cuarta se pide con un rol que se salta las reglas, como la clave secreta:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -c \"create policy \\\"escribo como yo\\\" on notas for insert to authenticated with check (auth.uid() = autor)\"",
+     "s": ""
+    },
+    {
+     "c": "pedido authenticated 11111111-1111-1111-1111-111111111111 \"insert into notas (autor, texto) values ('22222222-2222-2222-2222-222222222222', 'Ana escribe haciéndose pasar por Beto');\"",
+     "s": "ERROR:  new row violates row-level security policy for table \"notas\""
+    },
+    {
+     "c": "pedido authenticated 11111111-1111-1111-1111-111111111111 \"insert into notas (autor, texto) values ('11111111-1111-1111-1111-111111111111', 'nota nueva de Ana');\"",
+     "s": "INSERT 0 1"
+    },
+    {
+     "c": "pedido authenticated 11111111-1111-1111-1111-111111111111 \"update notas set texto = 'borrado' where id = 3;\"",
+     "s": "UPDATE 0"
+    },
+    {
+     "c": "pedido service_role - \"select id, left(texto, 28) as texto from notas order by id;\"",
+     "s": " id |            texto             \n----+------------------------------\n  1 | nota de Ana: preparar el ser\n  2 | nota de Ana: llamar al prove\n  3 | nota de Beto: clave del wifi\n  5 | nota nueva de Ana\n(4 rows)"
+    }
+   ],
+   "cap": "Tres comportamientos distintos: error al falsificar el autor, éxito al escribir como uno mismo y cero filas afectadas, sin error, al tocar la nota de otro. El rol `service_role` se salta las reglas y ve todo. Salida real, Postgres 16.15 local."
+  },
+  {
+   "t": "pensa",
+   "x": "El `update` sobre la nota de Beto no dio error: dijo `UPDATE 0`. ¿Qué problema puede traer eso a una app, y cómo lo detectarías?",
+   "resp": "Para la base, esa fila es invisible para Ana, así que no hay nada que actualizar y el resultado es correcto, solo que vacío. Si la app asume que guardó, el usuario cree que cambió algo que no cambió. Se detecta mirando cuántas filas afectó el pedido (cero) en lugar de confiar en que no hubo error."
+  },
+  {
+   "t": "h",
+   "x": "Cuentas gestionadas y el token que dice quién sos"
+  },
+  {
+   "t": "p",
+   "x": "Hasta ahora escribí el identificador a mano. En la vida real lo pone la [[autenticación gestionada]]: el proveedor registra personas, verifica el login, renueva sesiones y, si lo configurás, acepta proveedores como Google. Para tu app el resultado es un [[token de acceso]] firmado: un texto corto que dice quién es la persona y hasta cuándo vale. El formato más usado se llama JWT y lo define el RFC 7519 [#rfc7519]; se estudia en [@08-07]. Hoy alcanza con ver qué lleva."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node jwt25.js",
+     "s": "{\"alg\":\"HS256\",\"typ\":\"JWT\"}\n{\"sub\":\"11111111-1111-1111-1111-111111111111\",\"role\":\"authenticated\",\"is_anonymous\":true,\"iat\":1794700000,\"exp\":1794703600}\nX5BPmVC9gUuRUJvmerY5ucsqW14WXUOp7XpF9qIJxDE\nverifica con el secreto: true\nmismo token con otro sub: rechazado\nlargo del token: 245 caracteres"
+    }
+   ],
+   "cap": "Token armado y verificado con un programa mío de 15 líneas de Node 22. El secreto es inventado («de práctica») y los números `iat` y `exp` son fijos para que la salida sea reproducible."
+  },
+  {
+   "t": "p",
+   "x": "Son tres partes separadas por puntos: un encabezado (el algoritmo), los datos (`sub` es la persona, `role` el rol, `exp` el vencimiento en segundos desde 1970) y una firma. La firma impide cambiar el `sub` por el de otro: en la demo, el mismo token con otro `sub` fue rechazado. Con ella, la API confía en los datos del token sin consultar nada más. Mi demo firma con un secreto compartido; los proveedores cambian de algoritmo con el tiempo, y lo permanente es la idea de un dato firmado que viaja con cada pedido."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Anónimo no es lo mismo que sin sesión",
+   "x": "En Supabase las cuentas anónimas se crean sin correo ni contraseña, tienen una identidad real en la base y usan el rol `authenticated`; su token trae una marca `is_anonymous`. La documentación recomienda un captcha invisible o Cloudflare Turnstile contra abusos, y anota un límite por IP de 30 altas por hora (modificable) y que no hay limpieza automática [#red31-supabase-anon-auth]. No se confunde con el rol `anon`, que es quien no tiene ninguna sesión."
+  },
+  {
+   "t": "senda",
+   "titulo": "Las cuentas de Senda son anónimas",
+   "x": [
+    "En el commit 25e08fa, la primera vez que alguien toca algo social (agregar un amigo, votar la encuesta, unirse a un grupo), la app hace un `POST` a `/auth/v1/signup` con un cuerpo mínimo (`{ data: {} }`) y recibe un token y un identificador. Guarda la sesión en `AsyncStorage` bajo la clave `senda-sesion`, y cada pedido lleva dos cabeceras: `apikey` con la clave pública y `Authorization` con el token de la persona. Eso está en `src/util/cuenta.ts`.",
+    "Dos observaciones verificadas en el código: la app no manda ningún captcha al crear la cuenta (no hay referencias en `src/`), y el token queda en texto plano en la carpeta privada de la app, sin almacén cifrado, algo que el documento de seguridad del proyecto anota como pendiente. Código de ese commit; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "docs/SEGURIDAD.md"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Dos filosofías de reglas: Postgres y Firestore"
+  },
+  {
+   "t": "p",
+   "x": "Firebase resuelve el mismo problema con otra herramienta. Su base de documentos, Firestore, guarda datos en colecciones de documentos (algo parecido a carpetas con fichas), y las reglas de seguridad se escriben en un lenguaje propio que declara, ruta por ruta, quién puede leer o escribir cada documento. Ese lenguaje no es SQL: tiene `match` para identificar documentos y `allow` para permitir operaciones [#baas-firestore-rules-start]. Una regla equivalente a la política de Ana y Beto se vería así:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "service cloud.firestore {\n  match /databases/{database}/documents {\n    match /notas/{notaId} {\n      allow read: if request.auth != null\n                  && request.auth.uid == resource.data.autor;\n    }\n  }\n}",
+   "cap": "Adaptada de los ejemplos de la documentación de Firestore [#baas-firestore-rules-query]. No la ejecuté: probar reglas de Firestore pide el emulador de Firebase o un proyecto con cuenta, y acá no se crean cuentas. El resaltado de sintaxis marca JavaScript solo por aproximación."
+  },
+  {
+   "t": "p",
+   "x": "Parecen casi iguales; la diferencia aparece con una consulta que podría traer filas ajenas. En Postgres la base filtra y devuelve lo permitido. En Firestore, según la documentación, las reglas *no son filtros*: la consulta se evalúa contra su resultado potencial, y si pudiera devolver documentos que la persona no puede leer, **falla entera**, aunque hoy todos los existentes fueran suyos [#baas-firestore-rules-query]. Para que funcione, la consulta tiene que incluir la misma restricción que la regla."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Aspecto",
+    "Postgres (política por fila)",
+    "Firestore (reglas de seguridad)"
+   ],
+   "filas": [
+    [
+     "Qué protege",
+     "Filas de tablas",
+     "Documentos, identificados por su ruta"
+    ],
+    [
+     "Lenguaje",
+     "SQL, el mismo con el que se consulta",
+     "Lenguaje propio de reglas, separado de las consultas"
+    ],
+    [
+     "Consulta que podría traer filas ajenas",
+     "Devuelve solo las permitidas, sin error (lo viste en la demo)",
+     "Falla entera, según la documentación"
+    ],
+    [
+     "Acceso del servidor propio",
+     "Un rol con el atributo que se salta las reglas, como la clave secreta de Supabase",
+     "Las librerías de servidor se saltan todas las reglas y se controlan con permisos de la nube [#baas-firestore-rules-start]"
+    ]
+   ],
+   "cap": "Contraste entre las dos filosofías, según PostgreSQL 16 y las páginas de Firestore consultadas el 13-11-2026."
+  },
+  {
+   "t": "pensa",
+   "x": "Una app pide «todas las notas» sin ningún filtro. ¿Qué recibe si la base es Postgres con la política de la demo? ¿Y si es Firestore con la regla de arriba?",
+   "resp": "En Postgres recibe solo sus propias notas, sin aviso de que hay otras. En Firestore la consulta falla completa, porque podría incluir notas ajenas. Un caso es cómodo y silencioso; el otro es estricto y obliga a declarar el filtro."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Sin backend» no significa sin lógica",
+   "x": "La lógica existe y se escribe en otro lado: en políticas, en funciones dentro de la base, en funciones de borde ([@07-26]) o en el teléfono. Lo que corre en el teléfono lo puede alterar la persona, así que lo que deba ser confiable tiene que quedar del lado del proveedor."
+  },
+  {
+   "t": "h",
+   "x": "Qué se gana y qué se paga"
+  },
+  {
+   "t": "p",
+   "x": "Se gana velocidad: base, cuentas, archivos y permisos andan en horas y no en semanas, sin servidores que parchear ni vigilar de madrugada. Se paga con **dependencia** del proveedor, **límites** de cada plan y un **modelo de costos** que puede sorprender. La tabla muestra los planes de entrada al 13 de noviembre de 2026."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Concepto",
+    "Supabase Free",
+    "Supabase Pro (desde USD 25 por mes)",
+    "Firebase Spark (sin costo)"
+   ],
+   "filas": [
+    [
+     "Tamaño de la base",
+     "500 MB por proyecto",
+     "8 GB de disco, luego USD 0,125 por GB",
+     "1 GiB de datos guardados en Firestore"
+    ],
+    [
+     "Transferencia de salida",
+     "5 GB",
+     "250 GB, luego USD 0,09 por GB",
+     "No figura en la tabla consultada"
+    ],
+    [
+     "Usuarios activos por mes",
+     "50.000",
+     "100.000, luego USD 0,00325 por usuario",
+     "No figura en la tabla consultada"
+    ],
+    [
+     "Invocaciones de funciones de borde",
+     "500.000",
+     "2 millones, luego USD 2 por millón",
+     "No figura en la tabla consultada"
+    ],
+    [
+     "Lecturas de documentos por día",
+     "No se cobran por unidad en la tabla consultada",
+     "No se cobran por unidad en la tabla consultada",
+     "50.000 lecturas por día"
+    ],
+    [
+     "Escrituras por día",
+     "No se cobran por unidad en la tabla consultada",
+     "No se cobran por unidad en la tabla consultada",
+     "20.000 escrituras y 20.000 borrados por día"
+    ],
+    [
+     "Inactividad",
+     "Se pausa tras una semana sin actividad",
+     "No se pausa por inactividad",
+     "No consultado"
+    ]
+   ],
+   "cap": "Precios y cuotas de la página de precios de cada proveedor, 13-11-2026 [#baas-supabase-pricing][#baas-firebase-pricing]. Firebase Blaze (pago por uso) aplica los mismos montos gratis y cobra el excedente según la lista de precios de Google Cloud, que no consulté. «No figura» significa que no lo vi en lo que devolvió la página, no que no exista."
+  },
+  {
+   "t": "p",
+   "x": "Los dos proveedores cobran *cosas distintas*: Supabase mide tamaño, transferencia y usuarios; Firestore, además, cuenta cada lectura y escritura de documento. Un ejemplo con un número inventado: una pantalla que al abrirse lee 100 documentos consume 100 de las 50.000 lecturas diarias del plan gratis, así que 500 aperturas por día agotan la cuota. Un cambio chico de diseño mueve la factura."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Para saber cuánto dura un plan gratis hay que medir cuánto pesa una fila. Armé en mi Postgres local una tabla con la misma forma que `respuestas` de Senda (identificador, un uuid, un texto corto, tres números chicos, una fecha y otro uuid, más tres índices) y le puse un millón de filas inventadas. El resultado fue 186 MB en total, de los cuales 89 MB eran la tabla y el resto, índices. Calculá cuántos bytes pesa cada fila en promedio y cuántas filas caben en 500 MB.",
+   "pista": "186 MB son 195.502.080 bytes. Dividí entre un millón de filas, y después 500 MB entre ese resultado. Tomá 500 MB como 500 × 1024 × 1024 bytes.",
+   "solucion": "195.502.080 ÷ 1.000.000 da unos 196 bytes por fila, índices incluidos. Con 500 MB (524.288.000 bytes) caben unos 2,68 millones de filas. Dos aclaraciones: es una estimación con mis columnas y textos cortos de unos cinco caracteres, y la base real también guarda las demás tablas. El dato útil es el orden de magnitud: millones de filas de este tipo entran, pero los índices pesan tanto como los datos."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -d tam25 -c \"select pg_size_pretty(pg_total_relation_size('respuestas')) as total, pg_size_pretty(pg_relation_size('respuestas')) as tabla\"",
+     "s": " total  | tabla \n--------+-------\n 186 MB | 89 MB\n(1 row)"
+    }
+   ],
+   "cap": "Medición propia en Postgres 16.15 con un millón de filas inventadas con la forma de la tabla `respuestas` de Senda. Una sola máquina y columnas de largo parecido a las reales; los números de una base real pueden diferir."
+  },
+  {
+   "t": "h",
+   "x": "Atarse o no atarse: el costo de salir"
+  },
+  {
+   "t": "p",
+   "x": "La dependencia de proveedor es el costo de cambiar de proveedor el día que haga falta: precio, límites, un cambio de producto o un cierre. No se mide en un número sino en qué tendrías que reescribir. En los dos casos de hoy es muy distinto."
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Supabase** se arma sobre componentes de código abierto y su documentación afirma que la versión en la nube es compatible con la que podés instalar vos [#pki-supabase-arq]. Tablas y políticas son Postgres estándar y se pueden exportar. Lo que queda atado es lo propio de la plataforma: las cuentas y sus tokens, `auth.uid()` y las funciones de borde.",
+    "**Firebase** es un servicio de Google. Su modelo de documentos y su lenguaje de reglas no tienen equivalente directo en otra base: migrar implica reescribir consultas y reglas, no solo mover datos [#firebase-docs].",
+    "**Otras opciones**: Appwrite es de código abierto, con cuentas, base, archivos y funciones, y se usa en su nube o instalada por cuenta propia [#baas-appwrite-docs]. PocketBase es un único ejecutable con SQLite integrado; su documentación avisa que antes de la versión 1.0 no garantiza compatibilidad hacia atrás y no lo recomienda aún para producción crítica [#baas-pocketbase-docs]. Cuál conviene se retoma en [@07-27]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un plan gratis también es un riesgo operativo",
+   "x": "Un proyecto de Supabase gratis se pausa tras una semana sin actividad y uno pago no [#baas-supabase-pricing]. Una app en pruebas puede encontrar la base dormida justo cuando alguien la necesita. Senda lo resolvió con automatización: `scripts/supabase_despertar.sh`, que un flujo de GitHub Actions corre antes de armar cada APK de prueba (no pude verificar el plan real del proyecto vivo, solo el código)."
+  },
+  {
+   "t": "h",
+   "x": "Cómo usa Supabase la app de Senda"
+  },
+  {
+   "t": "p",
+   "x": "Senda usa Supabase como su backend entero. En el código no encontré servidor propio, ni Redis, ni cobros de servidor. Conté las cosas con un script sobre las migraciones del commit 25e08fa."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Qué",
+    "Cuántos",
+    "Cómo lo verifiqué"
+   ],
+   "filas": [
+    [
+     "Tablas en el esquema público",
+     "41",
+     "Conté las sentencias de creación en `supabase/migrations/`"
+    ],
+    [
+     "Tablas con seguridad por fila activada",
+     "41 (todas)",
+     "Cruce entre tablas creadas y tablas con la activación"
+    ],
+    [
+     "Sentencias de creación de políticas",
+     "76",
+     "Incluye algunas que reemplazan a otras en migraciones posteriores, así que no son 76 reglas vigentes"
+    ],
+    [
+     "Funciones SQL propias",
+     "93",
+     "Cuenta de funciones públicas distintas"
+    ],
+    [
+     "Funciones de borde",
+     "3",
+     "Carpetas de `supabase/functions/`"
+    ],
+    [
+     "Tareas programadas con `pg_cron`",
+     "3",
+     "Según el mapa técnico, que revisé contra las migraciones"
+    ]
+   ],
+   "cap": "Datos del commit 25e08fa (2026-11-08). Que haya 41 tablas con seguridad por fila no prueba que cada política sea correcta: eso exige leerlas una por una."
+  },
+  {
+   "t": "senda",
+   "titulo": "Una política abierta a propósito",
+   "x": [
+    "La tabla `respuestas` guarda cada respuesta del Espadeo para recalcular la dificultad de las preguntas. Su política deja insertar a quien sea, con o sin sesión: `for insert to anon, authenticated with check (true)`. No hay política de lectura, así que nadie puede leer esas filas desde la API: lo que la app consulta son resúmenes que se arman con un disparador. Es el patrón de *solo escritura*: cualquiera puede dejar un dato, nadie puede leer los de otros.",
+    "El costo es que cualquiera podría llenar la tabla de basura. La migración `20261109000000_limpieza.sql` agrega una tarea diaria que borra las respuestas de más de 30 días, lo que acota el crecimiento. Es una decisión consciente con un riesgo conocido: `with check (true)` no es siempre un error."
+   ],
+   "archivos": [
+    "supabase/migrations/20261026000000_inicio.sql",
+    "supabase/migrations/20261109000000_limpieza.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Sin librería de Supabase en el teléfono y con la clave pública nueva",
+   "x": [
+    "Supabase ofrece una librería oficial de JavaScript, pero la app no la usa: habla con la API por `fetch` directo, concentrado en `src/util/cuenta.ts` y `src/util/nube.ts`. La librería aparece solo en las funciones de borde. Es una decisión explícita: cada proveedor queda detrás de un módulo, y si cambia, se reescribe ese módulo.",
+    "Un detalle de vigencia: la variable donde se guarda la clave pública se llama `EXPO_PUBLIC_SUPABASE_ANON_KEY`, el nombre de las claves heredadas. Pero el flujo que arma el APK (`.github/workflows/apk.yml`) pide primero la clave nueva (`publishable`) y solo usa la `anon` si no existe. El nombre quedó viejo, la lógica no."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/util/nube.ts",
+    ".github/workflows/apk.yml"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué puede haber cambiado",
+   "x": [
+    "Los precios, cuotas y nombres de producto de este día se tomaron de las páginas oficiales de Supabase y Firebase el 13 de noviembre de 2026 [#baas-supabase-pricing][#baas-firebase-pricing]. Es probable que cambien: antes de decidir algo con plata, releé la página.",
+    "Según la documentación de Supabase de esa fecha, las claves `anon` y `service_role` (que son JWT) quedan en desuso hacia fines de 2026 y se reemplazan por las claves `publishable` y `secret`, y las tablas nuevas del esquema público arrancan con todos los privilegios para los roles `anon` y `authenticated`: por eso la documentación pide revocarlos y dar solo lo necesario [#baas-supabase-rls][#red31-supabase-api-keys]. Lo permanente es la idea: la clave que viaja en la app no puede ser la que se salta las reglas, y las reglas viven dentro del dato."
+   ]
+  }
+ ],
+ "recap": [
+  "Un **BaaS** alquila las piezas que casi toda app necesita (base, cuentas, archivos, funciones). Te saca el trabajo de operar servidores, no el de diseñar datos y reglas.",
+  "El teléfono habla **directo con la base** a través de una API generada, y lleva una clave pública y un token firmado. Como la app es territorio ajeno, la seguridad tiene que vivir dentro del dato.",
+  "Con **seguridad por fila** en Postgres, la misma consulta devuelve resultados distintos según quién la haga, sin error. Sin políticas la tabla queda cerrada, y sin activarla queda abierta para quien tenga permiso.",
+  "El `with check` frena lo que se escribe y el `using` limita lo que se ve; tocar una fila ajena da cero filas afectadas, no un error, y eso puede ocultar fallas.",
+  "Firestore usa **reglas propias por documento** y sus consultas fallan enteras si podrían traer algo no permitido. Postgres filtra y Firestore rechaza.",
+  "Los planes cobran unidades distintas (tamaño y usuarios contra lecturas y escrituras), y los precios son datos fechados que se re-verifican.",
+  "Senda usa Supabase como backend completo, con las 41 tablas protegidas y lógica propia en la base; Firebase solo le entrega notificaciones."
+ ],
+ "repaso": [
+  {
+   "p": "Una app móvil lleva dentro la clave pública de su proveedor de backend. ¿Qué es lo que evita que cualquier persona que la extraiga lea los datos de todos?",
+   "o": [
+    "Las reglas de seguridad evaluadas dentro de la base para cada identidad",
+    "El hecho de que la clave está ofuscada en el instalador de la app",
+    "Que el proveedor cobra por lectura y nadie querría pagar tanto",
+    "La obligación de que cada persona use una dirección IP distinta"
+   ],
+   "c": 0,
+   "e": "La clave pública es pública por diseño, y ofuscarla no sirve porque cualquiera puede leer el instalador. Lo que protege son las reglas dentro de la base, que deciden por identidad. El cobro por lectura no es una defensa y la IP no identifica a nadie."
+  },
+  {
+   "p": "En Postgres, se activa la seguridad por fila sobre una tabla y todavía no se crea ninguna política. ¿Qué ve una persona con sesión iniciada al consultar la tabla?",
+   "o": [
+    "Todas las filas, porque tiene sesión iniciada",
+    "Solo las filas que ella misma escribió",
+    "Ninguna fila, porque por defecto se deniega todo",
+    "Un error que dice que falta una política"
+   ],
+   "c": 2,
+   "e": "Activada la seguridad por fila y sin políticas, la base deniega por defecto: no hay filas visibles ni modificables. No da error, devuelve cero filas. Tener sesión no abre nada por sí solo: hace falta una política que lo permita."
+  },
+  {
+   "p": "Una política con `with check (auth.uid() = autor)` está en una tabla. Ana intenta insertar una fila con el autor de Beto. ¿Qué ocurre?",
+   "o": [
+    "Se inserta, pero Ana no podrá verla después",
+    "Se inserta a nombre de Ana, corrigiendo el autor",
+    "Se inserta y se avisa a Beto de la anomalía",
+    "Se rechaza con un error de violación de la política"
+   ],
+   "c": 3,
+   "e": "El `with check` evalúa la fila que se intenta dejar escrita, y como el autor no coincide con la identidad de Ana, la inserción se rechaza con error. La base nunca corrige datos por su cuenta ni notifica a terceros."
+  },
+  {
+   "p": "Una consulta pide todos los documentos de una colección y la regla de Firestore solo deja leer los que tienen como autor al usuario. Los únicos documentos existentes son del usuario. ¿Qué pasa?",
+   "o": [
+    "Devuelve los documentos del usuario sin problemas",
+    "Devuelve una lista vacía por precaución",
+    "La consulta falla entera porque podría traer documentos ajenos",
+    "Devuelve los documentos pero marcados como de solo lectura"
+   ],
+   "c": 2,
+   "e": "Según la documentación, las reglas no son filtros: la consulta se evalúa contra su resultado potencial, no contra los datos actuales. Sin la restricción de autor en la propia consulta, falla completa aunque hoy no haya nada ajeno. Es lo contrario de lo que hace Postgres."
+  },
+  {
+   "p": "Un equipo compara dos planes gratis: uno cobra por tamaño de base y usuarios activos, otro por lecturas y escrituras de documentos. Una pantalla nueva lee 200 documentos cada vez que se abre. ¿Cuál plan se ve más afectado por ese cambio de diseño?",
+   "o": [
+    "El que cobra por lecturas, porque cada apertura suma 200 unidades",
+    "El que cobra por tamaño, porque los documentos leídos ocupan espacio",
+    "Los dos por igual, porque en ambos se lee la misma cantidad de datos",
+    "Ninguno, porque leer es siempre gratis en cualquier plan"
+   ],
+   "c": 0,
+   "e": "Cuando se cobra por lectura de documento, 200 lecturas por apertura se acumulan rápido contra la cuota diaria. Leer no agranda la base, así que el plan por tamaño no cambia. Y leer no es gratis en cualquier plan: depende de qué unidad cobra cada proveedor."
+  },
+  {
+   "p": "Una empresa debe elegir entre construir sobre un backend como servicio con Postgres de código abierto y otro con un modelo de documentos propietario. ¿Qué diferencia pesa más al evaluar el costo de salir?",
+   "o": [
+    "El precio por mes del plan inicial de cada uno",
+    "Cuánto de lo construido es estándar y se puede llevar a otro lado",
+    "La cantidad de funciones que ofrece cada panel de control",
+    "El nombre más conocido entre los desarrolladores"
+   ],
+   "c": 1,
+   "e": "El costo de salir depende de qué tendrías que reescribir. Tablas y políticas de Postgres se pueden exportar; un modelo propietario obliga a reescribir consultas y reglas. El precio inicial, el panel y la fama no dicen nada sobre qué tan atada queda la app."
+  },
+  {
+   "p": "En Senda, la tabla `respuestas` permite insertar a cualquiera pero no tiene política de lectura. ¿Qué describe mejor ese diseño?",
+   "o": [
+    "Es un error de seguridad que deja los datos expuestos",
+    "Cualquiera puede dejar un dato y nadie puede leer los de otros",
+    "Solo se pueden leer las respuestas propias desde la app",
+    "Las filas se pueden leer pero no insertar"
+   ],
+   "c": 1,
+   "e": "Sin política de lectura, la base niega leer a todos los roles de la API, así que nadie ve esas filas desde afuera, aunque cualquiera pueda insertar. La app consulta resúmenes en cambio. No es una exposición: es el patrón de solo escritura, con el riesgo de que alguien llene la tabla."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó cómo puede una app consultar una base sin pasar por un servidor propio y no por eso mostrarle a cada persona los datos de todos. Usá una analogía propia que no sea la del operador logístico y decí en qué momento tu analogía deja de valer.",
+ "para_profundizar": [
+  {
+   "fuente": "baas-supabase-rls",
+   "nota": "La guía oficial de seguridad por fila de Supabase. Leé las secciones sobre activar la seguridad por fila y sobre los roles, para ver las políticas de hoy aplicadas a tablas reales."
+  },
+  {
+   "fuente": "baas-postgres-rls",
+   "nota": "La referencia de PostgreSQL 16 sobre políticas por fila, con ejemplos de `using` y `with check`. Sirve para entender lo que Supabase hereda."
+  },
+  {
+   "fuente": "baas-firestore-rules-query",
+   "nota": "La página de Firestore sobre por qué las reglas no son filtros, con consultas que fallan y consultas que funcionan. Es el contraste directo con la demo de hoy."
+  },
+  {
+   "fuente": "baas-supabase-pricing",
+   "nota": "La página de precios, para comparar con tus números cuando consultes el plan de un proyecto. Releela antes de decidir algo con plata."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Supabase Row Level Security explained policies auth.uid()",
+   "por_que": "Para ver a alguien escribir políticas por fila sobre una tabla real y comparar con la demo de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "BaaS",
+   "d": "Backend como servicio (*backend as a service*): un proveedor ofrece ya armadas y operadas las piezas que casi toda app necesita, como base de datos, cuentas de usuario, almacenamiento de archivos y funciones de servidor, y la app las usa por HTTP."
+  },
+  {
+   "t": "autenticación gestionada",
+   "d": "Servicio del proveedor que se encarga de registrar personas, verificar el login, renovar sesiones y emitir tokens firmados que dicen quién es cada una, de modo que la app no programa ni opera ese mecanismo."
+  },
+  {
+   "t": "reglas de seguridad",
+   "d": "Condiciones que el proveedor evalúa dentro de la base, antes de leer o escribir, para decidir qué puede hacer cada persona. En Postgres son políticas por fila; en Firestore, un lenguaje propio que declara permisos por ruta de documento."
+  },
+  {
+   "t": "dependencia de proveedor",
+   "d": "Costo de cambiar de proveedor: lo que habría que reescribir o rehacer si suben los precios, cambian los límites o el producto desaparece. Es menor cuando lo construido usa estándares abiertos y mayor cuando usa herramientas propias de la plataforma."
+  },
+  {
+   "t": "rol de base de datos",
+   "d": "Grupo de permisos dentro de la base. Un backend como servicio usa roles distintos para quien no inició sesión, para quien sí y para el servidor de confianza, y las reglas se escriben pensando en cada uno."
+  }
+ ],
+ "siguiente": "Funciones serverless y edge: qué pasa cuando la lógica que no entra en una regla se despliega como una función suelta que arranca a pedido, cuánto tarda en arrancar y qué límites tiene.",
+ "fuentes_nuevas": [
+  {
+   "id": "baas-supabase-rls",
+   "t": "Row Level Security (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/database/postgres/row-level-security"
+  },
+  {
+   "id": "baas-supabase-pricing",
+   "t": "Supabase Pricing",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/pricing"
+  },
+  {
+   "id": "baas-firebase-pricing",
+   "t": "Firebase Pricing",
+   "a": "Google",
+   "tipo": "doc",
+   "url": "https://firebase.google.com/pricing"
+  },
+  {
+   "id": "baas-firestore-rules-start",
+   "t": "Get started with Cloud Firestore Security Rules",
+   "a": "Google",
+   "tipo": "doc",
+   "url": "https://firebase.google.com/docs/firestore/security/get-started"
+  },
+  {
+   "id": "baas-firestore-rules-query",
+   "t": "Securely query data (Cloud Firestore Security Rules)",
+   "a": "Google",
+   "tipo": "doc",
+   "url": "https://firebase.google.com/docs/firestore/security/rules-query"
+  },
+  {
+   "id": "baas-postgrest-auth",
+   "t": "Authentication (PostgREST documentation)",
+   "a": "PostgREST",
+   "tipo": "doc",
+   "url": "https://docs.postgrest.org/en/stable/references/auth.html"
+  },
+  {
+   "id": "baas-postgres-rls",
+   "t": "PostgreSQL 16: Row Security Policies",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/ddl-rowsecurity.html"
+  },
+  {
+   "id": "baas-appwrite-docs",
+   "t": "Appwrite documentation",
+   "a": "Appwrite",
+   "tipo": "doc",
+   "url": "https://appwrite.io/docs"
+  },
+  {
+   "id": "baas-pocketbase-docs",
+   "t": "PocketBase documentation",
+   "a": "PocketBase",
+   "tipo": "doc",
+   "url": "https://pocketbase.io/docs/"
+  }
+ ]
+}

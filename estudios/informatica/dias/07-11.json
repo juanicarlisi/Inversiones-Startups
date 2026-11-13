@@ -1,0 +1,689 @@
+{
+ "id": "07-11",
+ "titulo": "Autorización: qué podés hacer",
+ "bajada": "Entrás a un servidor propio como Marta, leés y borrás pedidos de otra persona cambiando un número, y después ves cómo se cierra el agujero con una política que niega por defecto.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Distinguir autenticación de autorización y elegir entre 401, 403 y 404 según lo que el servidor quiere decir.",
+  "Reproducir y corregir, contra un servidor propio, un acceso a objetos ajenos (BOLA o IDOR) y un escalado de privilegios por un campo que no debía aceptarse.",
+  "Comparar roles (RBAC), atributos (ABAC) y propiedad del recurso, y escribir una política de acceso que niega todo lo que no está permitido.",
+  "Explicar qué hace una política de seguridad por filas de Postgres, qué filtra en silencio y qué no puede decidir.",
+  "Reconocer en la base de Senda reglas de autorización reales y los dos agujeros que se corrigieron antes del lanzamiento."
+ ],
+ "venis_de": "En [@07-09] y [@07-10] viste cómo el servidor se asegura de **quién** es la persona que le habla: contraseñas con hash, sesiones y tokens. Hoy viene la otra mitad, la que más se rompe en la práctica: una vez que sabe quién sos, ¿qué te deja hacer y sobre qué cosas?",
+ "se_apoya_en": [
+  "07-05",
+  "07-06",
+  "07-07",
+  "07-09",
+  "07-10",
+  "05-18"
+ ],
+ "gancho": [
+  "Un depósito tiene una portería. El guardia te pide el documento, lo compara con tu cara y te deja pasar: eso es saber quién sos. Pero adentro hay cientos de pallets, y el guardia no te entregó las llaves de todos. Retirás el tuyo; si intentás llevarte el de al lado, alguien tiene que mirar una lista y decir que no.",
+  "Ahora imaginá un depósito donde la portería funciona perfecto y la lista no existe. Cualquiera con un pase válido se lleva cualquier pallet, siempre que sepa su número. En un servidor, ese depósito es muy común, y se descubre cambiando un `42` por un `43` en la dirección. Hoy lo vas a hacer vos contra un servidor propio, armado con Express, y vas a ver las tres formas más frecuentes de que ocurra y cómo se cierran."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "La portería y la lista"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Son dos preguntas distintas y se responden en momentos distintos. La [[autenticación]] contesta «¿quién sos?» y ya la conocés: una contraseña, una [[sesión de servidor]], un [[token de acceso]]. La **autorización** contesta «¿qué podés hacer vos, con esto, ahora?». La primera produce una identidad, por ejemplo `marta`. La segunda toma esa identidad, una acción (leer, borrar, cambiar) y un recurso concreto (el pedido 43) y devuelve sí o no.",
+    "El orden importa: sin identidad no se puede autorizar nada. Pero tener identidad no alcanza, y ahí está el error clásico: tratar «tiene una sesión válida» como si fuera «tiene permiso». Una cuenta válida es solo un pase de entrada."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El guardia de la portería",
+   "x": [
+    "El guardia que mira tu documento es la autenticación; la lista que dice qué pallets podés retirar es la autorización. La analogía sirve para ver que son controles separados. Deja de valer en un punto: el guardia te controla **una vez** al entrar y después confía en vos todo el día. Un servidor web no puede hacer eso. Como viste en [@05-18], cada solicitud HTTP llega sola, sin memoria de la anterior, así que **cada pedido se autoriza de nuevo**."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "El protocolo tiene tres respuestas para «no», y se eligen según lo que el servidor quiera decir. El RFC 9110 las define así [#rfc9110]:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Código",
+    "Qué dice el RFC",
+    "Cuándo usarlo"
+   ],
+   "filas": [
+    [
+     "401",
+     "La solicitud no se aplicó porque le faltan credenciales de autenticación válidas. Debe traer un campo `WWW-Authenticate`.",
+     "No hay sesión, o el token venció o es falso. El cliente puede volver a autenticarse y repetir."
+    ],
+    [
+     "403",
+     "El servidor entendió la solicitud y se niega a cumplirla. Repetirla con las mismas credenciales no sirve.",
+     "Hay sesión válida y el recurso existe, pero esta persona no puede hacer esto."
+    ],
+    [
+     "404",
+     "No hay representación del recurso, o el servidor no quiere revelar que existe. El RFC permite usarlo para ocultar un recurso prohibido.",
+     "Cuando confirmar que algo existe ya es una filtración: el pedido de otro cliente, un usuario que no es tu amigo."
+    ]
+   ],
+   "cap": "El nombre «Unauthorized» del 401 confunde: en la práctica significa «no autenticado». Lo que acá llamamos falta de autorización es el 403."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si inició sesión, está autorizado»",
+   "x": "No es así. Iniciar sesión solo demuestra quién es. Qué puede hacer sale de una regla que escribe el equipo, y esa regla hay que comprobarla en cada acción sobre cada recurso. Además, no hace falta que el atacante sea alguien raro: alcanza con un cliente legítimo, con su propio usuario, que se pone a probar números."
+  },
+  {
+   "t": "h",
+   "x": "El error número uno: cambiar un número"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Armé un servidor de práctica con cuatro personas inventadas: Marta y Ana (clientes), Lucho (operador del depósito norte) y Dani (administradora). Cada una tiene un token de práctica con formato obvio de falso. El servidor guarda tres pedidos: el 41 y el 43 son de Ana, el 42 es de Marta. La autenticación está bien hecha: sin token, 401. Este es el código de los tres puntos de entrada que importan hoy:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Autenticación: ¿quién sos? (una tabla de tokens de práctica)\napp.use((req, res, next) => {\n  const t = (req.headers.authorization || \"\").replace(/^Bearer /, \"\");\n  req.usuario = usuarios[t];\n  if (!req.usuario) return res.status(401).set(\"WWW-Authenticate\", \"Bearer\").json({ error: \"sin_sesion\" });\n  next();\n});\n\napp.get(\"/pedidos/:id\", (req, res) => {\n  const p = pedidos[req.params.id];\n  if (!p) return res.status(404).json({ error: \"no_existe\" });\n  res.json(p);            // ¿y si el pedido es de otra persona?\n});\n\napp.delete(\"/pedidos/:id\", (req, res) => {\n  const p = pedidos[req.params.id];\n  if (!p) return res.status(404).json({ error: \"no_existe\" });\n  delete pedidos[p.id];   // ¿y si quien borra es un cliente?\n  res.json({ borrado: p.id });\n});\n\napp.patch(\"/perfil\", (req, res) => {\n  Object.assign(req.usuario, req.body);   // acepta cualquier campo que mande el cliente\n  res.json(req.usuario);\n});",
+   "cap": "Extracto del servidor ingenuo, Express 5.3.0 sobre Node 22.23.4, solo en 127.0.0.1. Comprueba que hay sesión y nada más."
+  },
+  {
+   "t": "p",
+   "x": "Marta entra con su token y pide su pedido. Después hace lo que haría cualquier curioso: prueba otro número."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "SRV=http://127.0.0.1:19711; M=\"Authorization: Bearer token-de-practica-marta\"",
+     "s": ""
+    },
+    {
+     "c": "curl -s -H \"$M\" $SRV/pedidos/42",
+     "s": "{\"id\":42,\"dueno\":\"marta\",\"cliente\":\"Kiosco Sur\",\"bultos\":12,\"deposito\":\"sur\",\"estado\":\"pendiente\"}"
+    },
+    {
+     "c": "curl -s -H \"$M\" $SRV/pedidos/43",
+     "s": "{\"id\":43,\"dueno\":\"ana\",\"cliente\":\"Libreria Centro\",\"bultos\":5,\"deposito\":\"norte\",\"estado\":\"pendiente\"}"
+    },
+    {
+     "c": "curl -s -X DELETE -H \"$M\" $SRV/pedidos/43 -w ' [%{http_code}]\\n'",
+     "s": "{\"borrado\":43} [200]"
+    }
+   ],
+   "cap": "Salida real de esta VM, 13 de noviembre de 2026. Marta no tiene nada que ver con el pedido 43: lo leyó y lo borró."
+  },
+  {
+   "t": "p",
+   "x": [
+    "No hubo ninguna técnica sofisticada. El servidor recibió un identificador, buscó el objeto y lo entregó sin preguntar si ese objeto era de quien lo pedía. OWASP, la organización que mantiene las listas de riesgos de seguridad más usadas, pone este fallo en el primer lugar de su lista de riesgos de APIs (edición 2023) con el nombre **BOLA**, *Broken Object Level Authorization* [#be1111-owasp-api1]. En resumen: toda función que recibe el identificador de un objeto y actúa sobre él tiene que comprobar que quien la usa puede hacer esa acción sobre ese objeto en particular. En la literatura más vieja lo vas a encontrar como **IDOR**, referencia directa e insegura a un objeto; es el mismo problema.",
+    "OWASP explica además por qué es tan común: el servidor no guarda el estado del cliente y se apoya en parámetros que manda el cliente, como el identificador, para decidir qué objeto usar [#be1111-owasp-api1]. Y el identificador puede ser cualquier cosa."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un identificador difícil de adivinar no es un permiso",
+   "x": "Cambiar los números correlativos por UUID largos y aleatorios ayuda a que nadie los pruebe de a uno, pero no resuelve nada: esos identificadores aparecen en enlaces, correos y registros, y se filtran. La guía de OWASP sobre autorización dice que ocultar o aleatorizar los identificadores no alcanza por sí solo [#be1111-owasp-authz]. Lo que protege es la pregunta «¿este usuario puede ver este objeto?», se llame el objeto 43 o `7f3c-…`."
+  },
+  {
+   "t": "pensa",
+   "x": "En el servidor ingenuo, ¿cuántos pedidos puede leer y borrar Marta? ¿Y si Marta no sabe cuántos hay?",
+   "resp": "Todos. Con un `for` que pruebe los números del 1 al 1000 los recorre en un segundo y reconoce los que existen por el código 200 frente al 404. Ni siquiera necesita adivinar: el servidor le avisa cuándo acertó."
+  },
+  {
+   "t": "h",
+   "x": "Tres lugares donde chequear"
+  },
+  {
+   "t": "p",
+   "x": "El pedido borrado no es el único problema del servidor ingenuo. Hay tres preguntas distintas, que OWASP clasifica como tres riesgos separados, y cada una se comprueba en un lugar diferente:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Nivel",
+    "Pregunta",
+    "Ejemplo en el servidor",
+    "Nombre en OWASP 2023"
+   ],
+   "filas": [
+    [
+     "Función",
+     "¿Esta persona puede usar este endpoint?",
+     "Un cliente ejecuta `DELETE /pedidos/…`, que debería ser solo del depósito",
+     "API5 [#be1111-owasp-api5]"
+    ],
+    [
+     "Objeto",
+     "¿Puede actuar sobre este objeto concreto?",
+     "Marta lee el pedido de Ana",
+     "API1 [#be1111-owasp-api1]"
+    ],
+    [
+     "Propiedad",
+     "¿Puede leer o cambiar este campo del objeto?",
+     "Marta manda `rol: admin` en su perfil",
+     "API3 [#be1111-owasp-api3]"
+    ]
+   ],
+   "cap": "API3 reúne dos riesgos de la edición 2019: exposición excesiva de datos y asignación masiva."
+  },
+  {
+   "t": "p",
+   "x": "El tercer nivel merece su propia demostración, porque nace de algo que ya viste en [@07-07]. El servidor ingenuo guarda el cuerpo del `PATCH /perfil` directamente sobre el usuario con `Object.assign`. Marta sabe que su perfil tiene un campo `rol`; no lo vio en pantalla, pero lo ve en la respuesta de `GET /perfil`. Lo manda:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -H \"$M\" $SRV/perfil",
+     "s": "{\"id\":\"marta\",\"rol\":\"cliente\"}"
+    },
+    {
+     "c": "curl -s -X PATCH -H \"$M\" -H 'Content-Type: application/json' -d '{\"nombre\":\"Marta\",\"rol\":\"admin\"}' $SRV/perfil",
+     "s": "{\"id\":\"marta\",\"rol\":\"admin\",\"nombre\":\"Marta\"}"
+    },
+    {
+     "c": "curl -s -X DELETE -H \"$M\" $SRV/pedidos/41 -w ' [%{http_code}]\\n'",
+     "s": "{\"borrado\":41} [200]"
+    }
+   ],
+   "cap": "Marta se ascendió a sí misma. Esta falla se llama asignación masiva (mass assignment): el servidor acepta del cliente más campos de los que debía."
+  },
+  {
+   "t": "p",
+   "x": "La corrección no es esconder el campo en la pantalla ni ponerle un nombre raro. Es que el servidor decida **cuáles** campos acepta, con una lista explícita: el DTO de [@07-07] con solo `nombre`, y nada más. Lo que no está en la lista se descarta."
+  },
+  {
+   "t": "h",
+   "x": "Roles, atributos y propiedad: cómo se decide"
+  },
+  {
+   "t": "p",
+   "x": "Para escribir la regla hay tres familias de criterio, y casi todo sistema real mezcla las tres."
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Por rol (RBAC, control de acceso basado en roles).** Los permisos se asignan a roles y las personas reciben roles. «Los operadores pueden borrar pedidos» es una regla de rol. La OWASP la describe así: los permisos no se dan a la persona sino al rol, y la persona hereda los de sus roles [#be1111-owasp-authz]. Es fácil de explicar y de auditar, y por eso es lo primero que se hace.",
+    "**Por propiedad.** «Cada cliente ve sus propios pedidos» compara el dueño del objeto con quien pregunta. No depende del rol: la propiedad es un dato del recurso. Es la comprobación que faltaba contra el BOLA.",
+    "**Por atributos (ABAC, control de acceso basado en atributos).** La decisión sale de atributos de la persona, del recurso, de la acción y del entorno, evaluados contra reglas. La definición del NIST de Estados Unidos lo dice así: se autoriza evaluando atributos del sujeto, del objeto, de la operación pedida y, a veces, del entorno, contra una política [#be1111-nist-800-162]. «Un operador puede borrar un pedido si está pendiente y es de su depósito» usa tres atributos a la vez."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Con roles solos esa última regla obliga a inventar un rol por depósito y por estado: `operador-norte-pendientes`, `operador-sur-pendientes`… Esa explosión de roles es el límite típico del RBAC, y es el motivo por el que OWASP recomienda preferir atributos y relaciones sobre roles cuando las reglas crecen [#be1111-owasp-authz]. Una regla práctica: empezá con roles para lo grueso (quién es cliente, quién es operador), sumá propiedad para lo que es «mío» y usá atributos cuando el rol no alcanza a describir la condición."
+  },
+  {
+   "t": "h",
+   "x": "La política en un solo lugar"
+  },
+  {
+   "t": "p",
+   "x": "Si cada ruta escribe su propio `if`, tarde o temprano una se olvida. Lo que funciona es una **política de acceso**: un conjunto de reglas escritas en un único lugar que responde una pregunta, `puede(usuario, acción, recurso)`, y que todas las rutas consultan. Es el reglamento del depósito en un solo cuaderno. El código de abajo es JavaScript puro, así que lo podés ejecutar acá mismo. Lleva una regla de rol, una de propiedad y una de atributos, y una decisión de diseño importante en la línea del `reglas[accion]`."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Una política de acceso en un solo lugar. Datos inventados.\nconst reglas = {\n  \"pedido:leer\": (u, p) => u.rol === \"admin\" || p.dueno === u.id || (u.rol === \"operador\" && p.deposito === u.deposito),\n  \"pedido:borrar\": (u, p) => u.rol === \"admin\" || (u.rol === \"operador\" && p.deposito === u.deposito && p.estado === \"pendiente\"),\n};\n// Lo que no está escrito se niega: acción desconocida => false.\nconst puede = (u, accion, p) => (reglas[accion] ? reglas[accion](u, p) === true : false);\n\nconst marta = { id: \"marta\", rol: \"cliente\" };\nconst lucho = { id: \"lucho\", rol: \"operador\", deposito: \"norte\" };\nconst dani = { id: \"dani\", rol: \"admin\" };\nconst p41 = { id: 41, dueno: \"ana\", deposito: \"norte\", estado: \"en ruta\" };\nconst p43 = { id: 43, dueno: \"ana\", deposito: \"norte\", estado: \"pendiente\" };\nconst p42 = { id: 42, dueno: \"marta\", deposito: \"sur\", estado: \"pendiente\" };\n\nconst casos = [\n  [marta, \"pedido:leer\", p42], [marta, \"pedido:leer\", p41], [marta, \"pedido:borrar\", p42],\n  [lucho, \"pedido:leer\", p41], [lucho, \"pedido:leer\", p42], [lucho, \"pedido:borrar\", p41], [lucho, \"pedido:borrar\", p43],\n  [dani, \"pedido:borrar\", p41], [dani, \"pedido:exportar\", p41],\n];\nfor (const [u, a, p] of casos) {\n  console.log(`${u.id.padEnd(6)} ${a.padEnd(15)} pedido ${p.id} (${p.estado}, ${p.deposito}) -> ${puede(u, a, p) ? \"SI\" : \"no\"}`);\n}",
+   "ejecutable": true,
+   "cap": "La misma política que usa el servidor corregido. Probala: agregá un caso nuevo y fijate qué pasa."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node politica.js",
+     "s": "marta  pedido:leer     pedido 42 (pendiente, sur) -> SI\nmarta  pedido:leer     pedido 41 (en ruta, norte) -> no\nmarta  pedido:borrar   pedido 42 (pendiente, sur) -> no\nlucho  pedido:leer     pedido 41 (en ruta, norte) -> SI\nlucho  pedido:leer     pedido 42 (pendiente, sur) -> no\nlucho  pedido:borrar   pedido 41 (en ruta, norte) -> no\nlucho  pedido:borrar   pedido 43 (pendiente, norte) -> SI\ndani   pedido:borrar   pedido 41 (en ruta, norte) -> SI\ndani   pedido:exportar pedido 41 (en ruta, norte) -> no"
+    }
+   ],
+   "cap": "Salida real en node 22. Ninguna regla habla de «exportar», así que ni la administradora puede: lo no escrito se niega."
+  },
+  {
+   "t": "p",
+   "x": "Esa decisión tiene nombre en el texto fundacional de seguridad de sistemas, de Saltzer y Schroeder (1975): los permisos se basan en lo permitido y no en lo excluido, de modo que la situación por defecto es la falta de acceso [#be1111-saltzer]. Es lo que OWASP llama *deny by default* en su guía [#be1111-owasp-authz]. El motivo es práctico: si algún día agregás una acción y olvidás escribir su regla, el error tiene que ser un «no puedo» incómodo y no un «puede todo» silencioso. Del mismo texto salen otros dos principios que se usan hoy:"
+  },
+  {
+   "t": "cita",
+   "x": "Every access to every object must be checked for authority.",
+   "autor": "Saltzer y Schroeder, «The Protection of Information in Computer Systems» (1975), sobre la mediación completa",
+   "fuente": "be1111-saltzer"
+  },
+  {
+   "t": "p",
+   "x": "Esa frase es la regla de oro del backend: **cada acceso a cada objeto se verifica**, no solo el primero ni solo la lista. El otro es el **mínimo privilegio**: cada persona y cada programa deben operar con el menor conjunto de permisos necesario para su tarea, lo que limita el daño de un error o de una cuenta robada [#be1111-saltzer]."
+  },
+  {
+   "t": "p",
+   "x": "Ahora el servidor corregido: mismo código, pero cada ruta pregunta a la política. Las respuestas muestran otra decisión de diseño, la del 404."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -H \"$M\" $SRV/pedidos/43 -w ' [%{http_code}]\\n'",
+     "s": "{\"error\":\"no_existe\"} [404]"
+    },
+    {
+     "c": "curl -s -X DELETE -H \"$M\" $SRV/pedidos/42 -w ' [%{http_code}]\\n'",
+     "s": "{\"error\":\"sin_permiso\"} [403]"
+    },
+    {
+     "c": "curl -s -X PATCH -H \"$M\" -H 'Content-Type: application/json' -d '{\"nombre\":\"Marta\",\"rol\":\"admin\"}' $SRV/perfil",
+     "s": "{\"id\":\"marta\",\"rol\":\"cliente\",\"nombre\":\"Marta\"}"
+    },
+    {
+     "c": "curl -s -H \"Authorization: Bearer token-de-practica-lucho\" $SRV/pedidos/42 -w ' [%{http_code}]\\n'",
+     "s": "{\"error\":\"no_existe\"} [404]"
+    },
+    {
+     "c": "curl -s -X DELETE -H \"Authorization: Bearer token-de-practica-lucho\" $SRV/pedidos/43 -w ' [%{http_code}]\\n'",
+     "s": "{\"borrado\":43} [200]"
+    }
+   ],
+   "cap": "Servidor corregido. El pedido de Ana es un 404 para Marta (ni se entera de que existe); el suyo propio, que no puede borrar, es un 403; el campo `rol` se descartó; Lucho solo ve y borra lo de su depósito y en el estado correcto."
+  },
+  {
+   "t": "pensa",
+   "x": "¿Por qué Marta recibe 403 cuando quiere borrar su propio pedido 42, pero 404 cuando mira el pedido 43 de Ana?",
+   "resp": "El 42 ya lo puede ver: sabe que existe, así que ocultarlo no protege nada y el 403 le explica que le falta permiso para borrar. El 43 es de otra persona y confirmar que existe ya sería una filtración, por eso se contesta como si no estuviera."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Agregá a la política una acción `pedido:cambiar_estado` con esta regla: puede cambiarlo un operador del mismo depósito que el pedido, o un administrador; un cliente nunca. Escribí las dos líneas nuevas y un caso de prueba que debería dar «no».",
+   "pista": "Copiá la forma de `pedido:borrar` y quitá la condición del estado. El caso «no» más fácil usa a `marta` con cualquiera de sus pedidos.",
+   "solucion": "Dentro de `reglas`: `\"pedido:cambiar_estado\": (u, p) => u.rol === \"admin\" || (u.rol === \"operador\" && p.deposito === u.deposito),`. Caso de prueba: `[marta, \"pedido:cambiar_estado\", p42]` da «no», porque marta es cliente y no es operador ni admin. Y `[lucho, \"pedido:cambiar_estado\", p42]` también da «no», porque p42 es del depósito sur."
+  },
+  {
+   "t": "h",
+   "x": "Siempre en el servidor, siempre en cada pedido"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una app puede esconder el botón «Borrar» para los clientes, y es buena idea porque ordena la pantalla. Pero eso es comodidad, no seguridad: quien manda los pedidos es el cliente, y el cliente es lo único que el atacante controla. Con `curl` Marta no usó ninguna pantalla. Toda comprobación que importe va en el servidor, que es quien tiene los datos y no se deja editar.",
+    "Hay una trampa en el medio. Si el rol viaja dentro del token de acceso que viste en [@07-10], el servidor puede leerlo sin consultar nada, pero ese rol queda congelado hasta que el token vence. Si a Lucho lo sacan del depósito a las 10, su token puede seguir diciendo «operador» hasta las 11. Por eso los tokens duran poco y las acciones muy sensibles vuelven a consultar el estado actual."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Cinco maneras habituales de equivocarse",
+   "x": [
+    "1. Comprobar en la lista pero no en el detalle (o al revés): `GET /pedidos` filtra y `GET /pedidos/43` no.",
+    "2. Confiar en un identificador que manda el cliente en el cuerpo, por ejemplo `{\"usuario\": \"ana\", …}`, en vez de tomar la identidad de la sesión.",
+    "3. Proteger la ruta `GET` y olvidar `PUT`, `PATCH` o `DELETE` sobre el mismo recurso.",
+    "4. Dejar la regla por defecto en «permitir» y listar solo las prohibiciones.",
+    "5. Copiar la comprobación en veinte rutas y cambiarla solo en diecinueve."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Que la base haga cumplir la regla: políticas por fila"
+  },
+  {
+   "t": "p",
+   "x": "Hay otro lugar donde se puede hacer cumplir la autorización: dentro de la base de datos. Postgres, el motor de bases de datos relacional que vas a estudiar más adelante, tiene **seguridad por filas** (*row level security*, RLS). Se activa por tabla y, desde ese momento, cada consulta solo ve o toca las filas que una **política** permite [#be1111-pg-rls]. Mirá esta práctica con el Postgres 16.15 de esta VM. La función `mi_usuario()` lee un valor que la sesión declara; en Supabase el equivalente se llama `auth.uid()` y sale del token de la persona [#be1111-supabase-rls]."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create role app_user nologin;\ncreate function mi_usuario() returns text language sql stable\n  as $$ select current_setting('app.usuario', true) $$;\ncreate table pedidos (id int primary key, dueno text, cliente text, bultos int);\ninsert into pedidos values (41,'ana','Ferreteria Norte',3), (42,'marta','Kiosco Sur',12), (43,'ana','Libreria Centro',5);\ngrant select, insert, update, delete on pedidos to app_user;\ngrant execute on function mi_usuario() to app_user;\nalter table pedidos enable row level security;\n\nset role app_user;\nset app.usuario = 'marta';\n\\echo '-- 1. RLS prendida y ninguna politica:'\nselect count(*) as filas_visibles from pedidos;\nreset role;\n\ncreate policy cada_uno_lo_suyo on pedidos to app_user using (dueno = mi_usuario());\n\nset role app_user;\nset app.usuario = 'marta';\n\\echo '-- 2. con la politica, marta mira todo:'\nselect id, dueno from pedidos;\n\\echo '-- 3. marta pide el pedido 41, que es de ana:'\nselect id from pedidos where id = 41;\n\\echo '-- 4. marta intenta cambiarlo:'\nupdate pedidos set bultos = 99 where id = 41;\n\\echo '-- 5. marta intenta crear un pedido a nombre de ana:'\ninsert into pedidos values (44, 'ana', 'Pedido falso', 1);\nreset role;\n\\echo '-- 6. el duenio de la tabla ve todo, porque la politica no le aplica:'\nselect id, dueno, bultos from pedidos order by id;",
+   "cap": "Guion `final_rls.sql`, corrido con `psql -X -f`. `app_user` representa a la aplicación: un rol que no es dueño de la tabla."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -X -f final_rls.sql",
+     "s": "-- 1. RLS prendida y ninguna politica:\n filas_visibles\n----------------\n              0\n(1 row)\n\n-- 2. con la politica, marta mira todo:\n id | dueno\n----+-------\n 42 | marta\n(1 row)\n\n-- 3. marta pide el pedido 41, que es de ana:\n id\n----\n(0 rows)\n\n-- 4. marta intenta cambiarlo:\nUPDATE 0\n-- 5. marta intenta crear un pedido a nombre de ana:\npsql:final_rls.sql:27: ERROR:  new row violates row-level security policy for table \"pedidos\"\n-- 6. el duenio de la tabla ve todo, porque la politica no le aplica:\n id | dueno | bultos\n----+-------+--------\n 41 | ana   |      3\n 42 | marta |     12\n 43 | ana   |      5\n(3 rows)"
+    }
+   ],
+   "cap": "Salida real, PostgreSQL 16.15 en esta VM (datos inventados). El prompt de psql y los avisos `CREATE`, `GRANT` y `SET` se omitieron para que se lea mejor."
+  },
+  {
+   "t": "p",
+   "x": "Hay cuatro cosas para mirar en esa salida:"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Sin políticas, se niega todo.** Con RLS prendida y ninguna regla, Marta ve cero filas (paso 1). La documentación de Postgres lo llama política de denegación por defecto [#be1111-pg-rls].",
+    "**La base filtra en silencio.** El `select` del pedido 41 no da error: devuelve cero filas, como si no existiera (paso 3). El `update` dice `UPDATE 0` (paso 4). Es el mismo criterio del 404: no confirma lo que no debe.",
+    "**Para escribir hay una segunda comprobación.** La política `using` decide qué filas se pueden ver y cambiar; el `with check` decide qué filas se pueden crear o dejar después de un cambio. Si no escribís `with check`, Postgres usa la misma condición [#be1111-pg-rls]. Por eso el `insert` a nombre de Ana falla con error (paso 5).",
+    "**Hay quienes no pasan por la política.** El dueño de la tabla (paso 6) y los superusuarios la saltan; también la salta el rol de servicio de Supabase [#be1111-pg-rls] [#be1111-supabase-rls]. Esa llave maestra nunca debe ir dentro de una app."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Una política dice quién, no qué valores",
+   "x": "La seguridad por filas responde «¿esta fila es tuya?». No sabe de reglas de negocio: no puede decidir que un puntaje tiene que salir de corregir tus respuestas, que un pedido «en ruta» no se borra o que un grupo no puede quedarse sin líder. Para eso se necesita código que corra en el servidor, que en Postgres puede ser una función. Y, como dice la documentación de Supabase, una tabla sin RLS en un esquema expuesto es legible y escribible por cualquier rol con permiso sobre ella [#be1111-supabase-rls]."
+  },
+  {
+   "t": "h",
+   "x": "En Senda: autorización en la base, y dos agujeros cerrados"
+  },
+  {
+   "t": "senda",
+   "titulo": "Todas las tablas con políticas por fila",
+   "x": [
+    "Senda no tiene servidor propio: su «backend» es Supabase, y por eso casi toda su autorización vive en Postgres. En el commit 25e08fa, las 41 tablas del esquema `public` tienen RLS prendida (lo comprobé recorriendo todas las migraciones: 41 tablas creadas, 41 con `enable row level security`). Una política típica es `veo mis amistades`: una persona ve las filas de `amistades` solo si su `auth.uid()` es uno de los dos extremos de la amistad. La de los grupos usa una función: `veo mis grupos` consulta `soy_miembro(id)`.",
+    "Un detalle que da sentido a todo esto: las cuentas de Senda son **anónimas**, sin correo ni contraseña. Para Supabase, un usuario anónimo usa el rol `authenticated` [#be1111-supabase-rls]. Así que «tener sesión» en Senda casi no distingue a nadie: lo único que separa los datos de una persona de los de otra es la política. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql"
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Si en Senda todas las cuentas son anónimas y todas usan el rol `authenticated`, ¿qué evita que una persona lea las amistades de otra?",
+   "resp": "Solo la política por fila: `auth.uid() in (de, para)`. El rol `authenticated` no distingue a nadie, así que la separación de datos depende por completo de que cada tabla tenga la política correcta."
+  },
+  {
+   "t": "senda",
+   "titulo": "Un ayudante que se nombra líder",
+   "x": [
+    "La función `soy_lider(grupo)` de Senda devuelve verdadero para quien tenga rol `lider` **o** `ayudante`: está pensada para «tengo facultades de líder» y se usa en eventos, torneos y trivias del sermón. En la primera versión del esquema, la política `el líder cambia roles` sobre `miembros` decía `for update using (soy_lider(grupo))`. Sin `with check`, Postgres aplica la misma condición a la fila nueva. El resultado, según los comentarios de la migración `20261107000000_grupos.sql`: un ayudante podía nombrarse líder o bajar al líder.",
+    "Para estar seguro de que lo entendí, armé una maqueta con nombres propios y la corrí (abajo). La corrección real de Senda fue retirar esa política y mandar el cambio de roles por una función, `cambiar_rol`, que mira quién llama: si no es líder, `raise exception 'solo_lider'`. También impide dejar un grupo sin líder."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261107000000_grupos.sql"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create table miembros (grupo int, usuario text, rol text, primary key (grupo, usuario));\ninsert into miembros values (1,'lia','lider'), (1,'beto','ayudante'), (1,'caro','miembro');\ngrant select, update on miembros to app_user;\nalter table miembros enable row level security;\n\ncreate function soy_lider(g int) returns boolean language sql security definer stable as $$\n  select exists (select 1 from miembros\n                 where grupo = g and usuario = mi_usuario() and rol in ('lider','ayudante')) $$;\ngrant execute on function soy_lider(int) to app_user;\n\ncreate policy ver_el_grupo on miembros for select to app_user using (true);\ncreate policy el_lider_cambia_roles on miembros for update to app_user using (soy_lider(grupo));\n\nset role app_user;\nset app.usuario = 'beto';\n\\echo '-- beto, que es ayudante, se nombra lider y baja a lia:'\nupdate miembros set rol = 'lider' where usuario = 'beto';\nupdate miembros set rol = 'miembro' where usuario = 'lia';\nreset role;\nselect usuario, rol from miembros order by usuario;",
+   "cap": "Maqueta propia con la misma forma que la política original de Senda (nombres y datos inventados). Sigue el guion anterior: `app_user` y `mi_usuario()` ya existen."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -X -f final_grupo.sql",
+     "s": "-- beto, que es ayudante, se nombra lider y baja a lia:\nUPDATE 1\nUPDATE 1\n usuario |   rol\n---------+---------\n beto    | lider\n caro    | miembro\n lia     | miembro\n(3 rows)"
+    }
+   ],
+   "cap": "Salida real. Beto, que es ayudante, terminó como líder y Lia quedó como miembro."
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "drop policy el_lider_cambia_roles on miembros;\nrevoke update on miembros from app_user;\n\ncreate function cambiar_rol(g int, u text, r text) returns void language plpgsql security definer as $$\nbegin\n  if not exists (select 1 from miembros where grupo = g and usuario = mi_usuario() and rol = 'lider')\n    then raise exception 'solo_lider'; end if;\n  update miembros set rol = r where grupo = g and usuario = u;\nend $$;\ngrant execute on function cambiar_rol(int, text, text) to app_user;\n\nset role app_user;\nset app.usuario = 'beto';\nselect cambiar_rol(1, 'beto', 'lider');\nset app.usuario = 'lia';\nselect cambiar_rol(1, 'caro', 'ayudante');",
+   "cap": "La corrección con la forma de la de Senda: sin permiso directo de `update`, el cambio pasa por una función que verifica el rol de quien llama."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -X -f final_grupo2.sql",
+     "s": "-- ahora beto prueba lo mismo:\npsql:final_grupo2.sql:16: ERROR:  solo_lider\nCONTEXT:  PL/pgSQL function cambiar_rol(integer,text,text) line 4 at RAISE\n-- y lia, que si es lider, nombra ayudante a caro:\n cambiar_rol \n-------------\n \n(1 row)\n\n usuario |   rol    \n---------+----------\n beto    | ayudante\n caro    | ayudante\n lia     | lider\n(3 rows)"
+    }
+   ],
+   "cap": "Salida real del guion de corrección (antes se restauraron los roles originales)."
+  },
+  {
+   "t": "senda",
+   "titulo": "Alguien podía marcarse administrador",
+   "x": [
+    "El segundo agujero es la asignación masiva de la demostración, en versión SQL. La migración `20261111000000_novedades.sql` lo cuenta en su encabezado: la regla «cada uno cambia su perfil» dejaba que alguien se marcara `admin` desde su teléfono y, con eso, regalara planes o mandara eventos a todos. La función `soy_admin()` lee justamente esa columna del perfil. La corrección es la lista de campos permitidos en versión Postgres: se le quitan al rol `authenticated` los permisos generales de `insert` y `update` sobre `perfiles` y se le devuelven **solo por columna**: `grant update (nombre, pais, nivel, lany, visto)`. La columna `admin` no está en la lista, igual que el campo `rol` de Marta.",
+    "Otro caso, en una función de borde: `trivia-sermon` busca la trivia con el token de quien llama y, si la política no deja ver la fila, contesta `404 trivia desconocida` y no 403. Es el mismo criterio de hoy: la política ya dejó afuera a quien no es líder, y el 404 no confirma que la trivia exista."
+   ],
+   "archivos": [
+    "supabase/migrations/20261111000000_novedades.sql",
+    "supabase/functions/trivia-sermon/index.ts",
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Lo que la política sola no resuelve: las copas",
+   "x": "En la primera versión, la tabla de resultados de las copas tenía una política que solo comprobaba que la fila fuera de quien la guardaba. Cumplía «cada uno escribe lo suyo», pero el puntaje lo mandaba el teléfono, así que cada uno podía escribir el que quisiera. La migración de grupos lo cambió: ahora la marca entra solo por la función `marca_copa`, que corrige las respuestas contra la clave guardada en la base y calcula el puntaje. Es el ejemplo exacto de la advertencia anterior: la fila era suya, pero el valor no era confiable."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué cambia con el tiempo (13-11-2026)",
+   "x": [
+    "Los principios de hoy (verificar cada acceso, denegar por defecto, mínimo privilegio) son de 1975 y no envejecen. Lo que sí cambia: la lista de OWASP de riesgos de APIs vigente al 13 de noviembre de 2026 es la edición 2023, donde BOLA es el riesgo número 1 y API3 y API5 son los de propiedad y función; una edición nueva podría reordenarlos. La demostración corrió con Express 5.3.0 sobre Node 22.23.4 y con PostgreSQL 16.15, las versiones instaladas en esta VM.",
+    "La documentación de Supabase evoluciona rápido (por ejemplo, qué permisos se entregan por defecto a los roles `anon` y `authenticated`). Antes de confiar en un detalle de configuración, leé la página oficial vigente [#be1111-supabase-rls]."
+   ]
+  }
+ ],
+ "recap": [
+  "Autenticación dice quién sos; autorización decide qué podés hacer, con qué recurso y en qué momento. Tener sesión válida no equivale a tener permiso, y cada solicitud se autoriza de nuevo.",
+  "401 significa «no autenticado», 403 «autenticado pero sin permiso» y 404 puede usarse para no confirmar que un recurso ajeno existe, como permite el RFC 9110.",
+  "El fallo más frecuente es BOLA (o IDOR): el servidor recibe un identificador y entrega el objeto sin comprobar que es de quien lo pide. Un identificador difícil de adivinar no sustituye la comprobación.",
+  "Se autoriza en tres niveles: la función (¿puede usar este endpoint?), el objeto (¿este recurso?) y la propiedad (¿este campo?). El campo se resuelve con una lista de campos aceptados, no escondiéndolo en pantalla.",
+  "RBAC decide por rol, la propiedad compara dueño y solicitante, y ABAC evalúa atributos de la persona, el recurso, la acción y el entorno. Las reglas se escriben en un solo lugar y lo que no está permitido se niega.",
+  "Las políticas por fila de Postgres hacen cumplir quién ve qué dentro de la base, filtran en silencio y no conocen reglas de negocio; Senda las usa en sus 41 tablas y corrigió dos agujeros: un ayudante que se nombraba líder y un perfil que podía marcarse admin."
+ ],
+ "repaso": [
+  {
+   "p": "Marta tiene una sesión válida y pide `GET /pedidos/43`. El servidor contesta 200 con los datos del pedido de Ana. ¿Qué comprobación falló?",
+   "o": [
+    "La autenticación, porque el token de Marta no debió servir",
+    "La autorización sobre el objeto, porque no se miró de quién es el pedido",
+    "La validación del DTO, porque el identificador llegó mal escrito",
+    "El cifrado de la conexión, porque otra persona pudo leerla"
+   ],
+   "c": 1,
+   "e": "Marta se autenticó bien: el servidor sabía quién era. Lo que falló fue la autorización a nivel de objeto (BOLA): nadie preguntó si ese pedido le pertenecía. La validación del DTO revisa la forma de lo que llega, no los permisos, y el cifrado protege el camino y no qué datos entrega el servidor."
+  },
+  {
+   "p": "Una persona con sesión válida pide un pedido que existe pero es de otro cliente. El equipo no quiere confirmar que ese pedido existe. ¿Qué código conviene devolver?",
+   "o": [
+    "401, porque la persona debería volver a iniciar sesión",
+    "403, porque es la respuesta estándar para falta de permiso",
+    "404, que el RFC 9110 permite para no revelar que existe",
+    "200 con el cuerpo vacío, para no dar ninguna pista"
+   ],
+   "c": 2,
+   "e": "El RFC 9110 dice que un servidor que quiere ocultar la existencia de un recurso prohibido puede responder 404. El 403 confirma que existe y el 401 indica falta de autenticación, que acá no es el problema. Un 200 vacío engaña a los clientes, que lo interpretan como éxito."
+  },
+  {
+   "p": "Un servidor guarda el cuerpo de `PATCH /perfil` directamente sobre el usuario. Un cliente manda `{\"rol\":\"admin\"}`. ¿Cuál de estas correcciones realmente cierra el problema?",
+   "o": [
+    "Esconder el campo `rol` en la pantalla de la app",
+    "Cambiar el nombre del campo por otro menos obvio",
+    "Pedir HTTPS en todas las conexiones del servidor",
+    "Aceptar solo una lista explícita de campos permitidos"
+   ],
+   "c": 3,
+   "e": "El servidor es quien decide qué campos acepta; una lista explícita descarta el resto, incluido `rol`. Esconder el campo en la pantalla o renombrarlo no impide mandar el pedido a mano con curl, y HTTPS cifra el trayecto pero no cambia lo que el servidor acepta."
+  },
+  {
+   "p": "La política de un servidor tiene reglas para `pedido:leer` y `pedido:borrar`. Un día llega la acción `pedido:exportar`, que nadie escribió. ¿Qué debería hacer la función `puede`?",
+   "o": [
+    "Negarla, porque lo que no está permitido se deniega",
+    "Permitirla a los administradores, que pueden todo",
+    "Permitirla, porque nadie la prohibió expresamente",
+    "Dejar que el endpoint decida según el caso"
+   ],
+   "c": 0,
+   "e": "El principio de fail-safe defaults (Saltzer y Schroeder) y el deny by default de OWASP dicen que el estado por defecto es la falta de acceso. Si fuera permisiva, olvidar una regla abriría el acceso. Tampoco conviene que cada endpoint decida: eso dispersa la política y es una de las causas de los olvidos."
+  },
+  {
+   "p": "Una tabla tiene RLS prendida con la política `using (dueno = mi_usuario())`. Marta ejecuta `select * from pedidos where id = 41` y el pedido 41 es de Ana. ¿Qué recibe?",
+   "o": [
+    "Un error de permiso denegado para la tabla",
+    "La fila del pedido 41 con los campos vacíos",
+    "Una advertencia y la fila completa de todos modos",
+    "Cero filas y ningún error, como si no existiera"
+   ],
+   "c": 3,
+   "e": "La seguridad por filas filtra: las filas que la política no permite simplemente no aparecen, sin error. Es parecido al 404 y evita confirmar qué hay. El error de permiso denegado aparece cuando falta el permiso general sobre la tabla, no cuando la política excluye una fila."
+  },
+  {
+   "p": "Un operador solo puede borrar pedidos pendientes de su propio depósito. ¿Por qué esa regla es un caso típico de ABAC y no solo de RBAC?",
+   "o": [
+    "Porque depende de atributos del recurso y de la persona, no solo de su rol",
+    "Porque ABAC es siempre más seguro que cualquier regla por roles",
+    "Porque solo se puede escribir con funciones de la base de datos",
+    "Porque el rol «operador» no existe en el modelo de RBAC"
+   ],
+   "c": 0,
+   "e": "La regla combina el rol con el depósito de la persona, el depósito y el estado del pedido: son atributos. Con roles solos haría falta un rol por cada combinación. ABAC no es más seguro por sí mismo, solo más expresivo, y se puede implementar en código o en la base."
+  },
+  {
+   "p": "En Senda, `soy_lider(grupo)` es verdadero para líderes y ayudantes, y la política de actualización de `miembros` era `using (soy_lider(grupo))` sin `with check`. ¿Qué permitía?",
+   "o": [
+    "Que un ayudante cambiara su propio rol a líder",
+    "Que un miembro común borrara a cualquier ayudante",
+    "Que cualquier persona sin grupo viera todos los roles",
+    "Que el líder pudiera quedarse sin permisos de edición"
+   ],
+   "c": 0,
+   "e": "Como la política se evaluaba para quien tuviera rol de líder o de ayudante y la condición se aplicaba también a la fila nueva, un ayudante podía escribir `lider` en su propia fila o bajar al líder. Un miembro común no pasaba la condición, y los demás escenarios no se derivan de esa política."
+  }
+ ],
+ "feynman": "Explicale a alguien que trabaja en un depósito la diferencia entre autenticación y autorización con un ejemplo que no sea la portería: por ejemplo un cajero automático, una oficina con llaves o un grupo de WhatsApp con administradores. Incluí qué pasaría si el sistema chequeara solo la primera.",
+ "para_profundizar": [
+  {
+   "fuente": "be1111-owasp-api1",
+   "nota": "La ficha oficial del riesgo BOLA con escenarios de ataque y la sección «How to prevent». Leela entera: son dos pantallas y reconocés el caso de hoy."
+  },
+  {
+   "fuente": "be1111-owasp-authz",
+   "nota": "La guía práctica de OWASP: denegar por defecto, mínimo privilegio, validar permisos en cada solicitud, y cuándo preferir ABAC o relaciones sobre roles."
+  },
+  {
+   "fuente": "be1111-pg-rls",
+   "nota": "La sección de Postgres sobre seguridad por filas, con las reglas de `using`, `with check`, quién la salta y el ejemplo de la tabla de cuentas. Sirve para entender cada línea del guion de hoy."
+  },
+  {
+   "fuente": "be1111-saltzer",
+   "nota": "El artículo de 1975 con los principios de diseño de protección. Leé solo la sección «Design Principles»: ocho principios que siguen valiendo y que dan nombre a «mínimo privilegio» y «denegar por defecto»."
+  },
+  {
+   "fuente": "be1111-nist-800-162",
+   "nota": "La definición oficial de ABAC y sus componentes (atributos, política, decisión). Alcanza con el resumen y el capítulo 2."
+  }
+ ],
+ "videos": [
+  {
+   "q": "BOLA IDOR broken object level authorization explained API demo",
+   "por_que": "Para ver a otra persona explotar y corregir el mismo error que hiciste con curl, esta vez con una API de otra tecnología."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "autorización",
+   "d": "La decisión de si una identidad ya conocida puede realizar una acción sobre un recurso concreto en un momento dado. Es distinta de la autenticación, que solo establece quién es. Se comprueba en cada solicitud y siempre del lado del servidor."
+  },
+  {
+   "t": "RBAC",
+   "d": "Role-Based Access Control: control de acceso basado en roles. Los permisos se asignan a roles (cliente, operador, administrador) y cada persona recibe uno o más roles. Es simple de explicar y auditar, pero cuando las reglas dependen de muchas condiciones obliga a multiplicar roles."
+  },
+  {
+   "t": "ABAC",
+   "d": "Attribute-Based Access Control: control de acceso basado en atributos. La decisión surge de evaluar atributos de la persona, del recurso, de la acción y del entorno contra una política, como «puede borrar si el pedido está pendiente y es de su depósito». Es más expresivo que RBAC y más difícil de revisar."
+  },
+  {
+   "t": "política de acceso",
+   "d": "El conjunto de reglas, escritas en un solo lugar, que decide si una identidad puede hacer una acción sobre un recurso. Conviene que todo el código la consulte en vez de repetir condiciones, y que lo no permitido se niegue por defecto."
+  },
+  {
+   "t": "BOLA",
+   "d": "Broken Object Level Authorization (también IDOR): el servidor recibe el identificador de un objeto y lo entrega o modifica sin comprobar que quien lo pide tiene permiso sobre ese objeto en particular. Encabeza la lista de riesgos de APIs de OWASP en su edición de 2023."
+  },
+  {
+   "t": "escalada de privilegios",
+   "d": "Conseguir más permisos de los asignados, por ejemplo marcándose como administrador o usando una función que no corresponde a su rol. La asignación masiva y los controles por función mal hechos son dos causas comunes."
+  },
+  {
+   "t": "asignación masiva",
+   "d": "Mass assignment: un servidor copia directamente al objeto todos los campos que manda el cliente, y así permite cambiar propiedades que no debía, como `rol` o `admin`. Se evita aceptando solo una lista explícita de campos."
+  },
+  {
+   "t": "mínimo privilegio",
+   "d": "Principio de diseño según el cual cada persona y cada programa deben tener solo los permisos necesarios para su tarea. Limita el daño de un error, de un abuso o de una cuenta robada."
+  },
+  {
+   "t": "denegar por defecto",
+   "d": "Regla de diseño por la que el estado inicial es la falta de acceso y solo se permite lo que una regla autoriza de forma explícita, de modo que olvidar una regla falla del lado seguro. En inglés, deny by default o fail-safe defaults."
+  },
+  {
+   "t": "seguridad por filas",
+   "d": "Row level security (RLS): función de Postgres que, activada en una tabla, hace que cada consulta solo vea o modifique las filas permitidas por políticas definidas en la base. Filtra sin avisar con errores, y no conoce reglas de negocio."
+  }
+ ],
+ "siguiente": "Errores, logs y respuestas coherentes: el 403 y el 404 de hoy son solo dos de las formas en que un servidor dice «no». Mañana, cómo contestar siempre con el mismo formato, dejar rastro de lo que pasó sin filtrar secretos y evitar que un reintento duplique un pedido.",
+ "fuentes_nuevas": [
+  {
+   "id": "be1111-owasp-api1",
+   "t": "API1:2023 Broken Object Level Authorization (OWASP API Security Top 10)",
+   "a": "OWASP Foundation",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/"
+  },
+  {
+   "id": "be1111-owasp-api3",
+   "t": "API3:2023 Broken Object Property Level Authorization (OWASP API Security Top 10)",
+   "a": "OWASP Foundation",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/"
+  },
+  {
+   "id": "be1111-owasp-api5",
+   "t": "API5:2023 Broken Function Level Authorization (OWASP API Security Top 10)",
+   "a": "OWASP Foundation",
+   "tipo": "doc",
+   "anio": 2023,
+   "url": "https://owasp.org/API-Security/editions/2023/en/0xa5-broken-function-level-authorization/"
+  },
+  {
+   "id": "be1111-owasp-authz",
+   "t": "Authorization Cheat Sheet",
+   "a": "OWASP Foundation",
+   "tipo": "doc",
+   "url": "https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html"
+  },
+  {
+   "id": "be1111-saltzer",
+   "t": "The Protection of Information in Computer Systems",
+   "a": "Jerome Saltzer y Michael Schroeder",
+   "tipo": "paper",
+   "anio": 1975,
+   "url": "https://www.cs.virginia.edu/~evans/cs551/saltzer/"
+  },
+  {
+   "id": "be1111-nist-800-162",
+   "t": "NIST SP 800-162: Guide to Attribute Based Access Control (ABAC) Definition and Considerations",
+   "a": "NIST",
+   "tipo": "doc",
+   "anio": 2014,
+   "url": "https://csrc.nist.gov/pubs/sp/800/162/upd2/final"
+  },
+  {
+   "id": "be1111-pg-rls",
+   "t": "Row Security Policies (documentación de PostgreSQL)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/current/ddl-rowsecurity.html"
+  },
+  {
+   "id": "be1111-supabase-rls",
+   "t": "Row Level Security (documentación de Supabase)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/database/postgres/row-level-security"
+  }
+ ]
+}

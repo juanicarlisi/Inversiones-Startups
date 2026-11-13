@@ -1,0 +1,800 @@
+{
+ "id": "07-03",
+ "titulo": "Un servidor HTTP desde cero",
+ "bajada": "Construís en unas 130 líneas un servidor HTTP que entiende a curl, a Node y a Python, y descubrís qué parte del trabajo es leer texto y cuál es defenderse de pedidos mal hechos.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Escribir un servidor HTTP con `net` de Node que acepta conexiones, junta bytes, extrae el pedido y contesta con una respuesta válida.",
+  "Explicar por qué TCP exige juntar trozos y delimitar mensajes por `Content-Length`, y comprobarlo con un cuerpo partido en dos envíos.",
+  "Predecir qué código de estado (400, 413, 431, 501) contesta el servidor ante un pedido defectuoso concreto, y por qué.",
+  "Distinguir una conexión persistente de una que se cierra, y reconocerlo en la salida de `curl -v` y en el log del servidor.",
+  "Comparar el servidor casero con `node:http` e indicar qué resuelve el módulo por vos."
+ ],
+ "venis_de": "En [@05-18] escribiste solicitudes a mano y leíste respuestas, y en [@05-16] viste cómo TCP lleva bytes de forma confiable. Falta el otro lado de la conversación: el programa que está escuchando. Hoy lo construís con tus manos.",
+ "se_apoya_en": [
+  "05-18",
+  "05-14",
+  "05-16",
+  "03-41",
+  "05-19"
+ ],
+ "gancho": [
+  "En [@05-18] fuiste el cliente: escribiste solicitudes a mano y miraste cómo contestaba un servidor que yo había dejado andando. Hoy cambiás de lado. Vas a construir ese servidor con tus manos, usando una herramienta que casi no sabe nada de HTTP, y vas a descubrir que lo que parecía magia es leer texto, decidir y escribir texto.",
+  "Al final del día tenés un programa de 132 líneas que le contesta a `curl`, a `nc`, al `fetch` de Node y a un programa de Python. Todo lo que vas a ver en pantalla lo corrí en esta VM, contra servidores míos que solo escuchan en 127.0.0.1, con datos inventados."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué hace un servidor HTTP: esperar, leer, contestar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[servidor HTTP]] es un programa que hace tres cosas y las repite hasta que lo apagan: **espera** que alguien se conecte a un [[puerto]], **lee** lo que ese alguien manda y **contesta** con un mensaje de forma correcta. Todo lo que viene después en esta parte (rutas, autenticación, bases de datos) es qué hacer entre el «leer» y el «contestar».",
+    "El primer verbo tiene nombre propio: el **bucle de aceptación**. El programa le pide al sistema operativo un [[socket]] que escuche en una dirección y un puerto (la llamada `listen`) y entra en un bucle que pide una y otra vez la próxima conexión (la llamada `accept`). Mientras no llega al `accept`, las conexiones nuevas no se pierden: el kernel las completa y las deja en una cola, y `accept` saca la primera y te entrega un socket nuevo, conectado con ese cliente [#srv0703-man7-accept]. El largo máximo de la cola es el *backlog* que le pasás a `listen` [#sock-man7-listen-2]; Node usa 511 por defecto [#sock-node-net], y `ss -ltn` lo muestra en `Send-Q`:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "ss -ltn 'sport = :19073'",
+     "s": "State  Recv-Q Send-Q Local Address:Port  Peer Address:Port\nLISTEN 0      511        127.0.0.1:19073      0.0.0.0:*"
+    }
+   ],
+   "cap": "Servidor del laboratorio escuchando. 511 es el backlog por defecto de Node; el tope real lo fija el sistema (`/proc/sys/net/core/somaxconn` vale 4096 en esta VM)."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Pensalo como la ventanilla de despacho de un depósito. El **bucle de aceptación** es quien, al terminar con un camionero, mira la puerta y hace pasar al siguiente; el *backlog* es el largo de la fila que entra al playón.",
+    "La analogía se rompe en esto: la conexión que `accept` te entrega queda **abierta**, y el mismo cliente puede hacer varios pedidos por ella, como vas a ver más abajo."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Para ver el bucle sin nada que lo esconda, escribí la versión más simple posible en Python. Atiende de a una conexión por vez, lee hasta la línea vacía y contesta siempre lo mismo:"
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "import socket\n\nsrv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\nsrv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)\nsrv.bind((\"127.0.0.1\", 19074))\nsrv.listen()\nprint(\"escuchando en 127.0.0.1:19074\", flush=True)\n\nwhile True:                              # el bucle de aceptación\n    conexion, origen = srv.accept()      # se queda esperando hasta que alguien se conecta\n    print(\"atiendo a\", origen[1], flush=True)\n    pedido = b\"\"\n    while b\"\\r\\n\\r\\n\" not in pedido:     # lee hasta el final de los encabezados\n        trozo = conexion.recv(4096)\n        if not trozo:\n            break\n        pedido += trozo\n    cuerpo = b\"hola\\n\"\n    conexion.sendall(b\"HTTP/1.1 200 OK\\r\\nContent-Length: %d\\r\\nConnection: close\\r\\n\\r\\n\" % len(cuerpo) + cuerpo)\n    conexion.close()",
+   "cap": "Un servidor HTTP mínimo con sockets de Python, sin librerías de HTTP. El bucle de aceptación son las tres primeras líneas del `while`."
+  },
+  {
+   "t": "p",
+   "x": "Funciona. Con `curl` contesta en menos de un milisegundo. Ahora un experimento: abro una conexión con `nc` que no manda nada (un cliente colgado) y, mientras está abierta, le hago un pedido normal con `curl` y un límite de 2 segundos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -o /dev/null -w 'tiempo %{time_total}s\\n' http://127.0.0.1:19074/",
+     "s": "tiempo 0.000351s"
+    },
+    {
+     "c": "(sleep 8) | nc 127.0.0.1 19074 &",
+     "s": ""
+    },
+    {
+     "c": "curl -s -o /dev/null --max-time 2 -w 'código %{http_code}, tiempo %{time_total}s\\n' http://127.0.0.1:19074/",
+     "s": "código 000, tiempo 2.002221s"
+    }
+   ],
+   "cap": "Salida real, 13 de noviembre de 2026, en una sola VM. `código 000` significa que curl no recibió ninguna respuesta; terminó por el límite de 2 s (salida 28)."
+  },
+  {
+   "t": "p",
+   "x": "El servidor está atendiendo al cliente colgado: se quedó dentro del `recv`, esperando datos que nunca llegan, y no volvió al `accept`. El segundo cliente espera en la cola del kernel hasta que se rinde. Un solo cliente lento paraliza a todos los demás."
+  },
+  {
+   "t": "pensa",
+   "x": "El servidor de Python del experimento funciona perfecto con un cliente a la vez. ¿Qué cambio de estrategia hace falta para que un cliente colgado no frene a los demás?",
+   "resp": "Que atender a un cliente no bloquee el regreso al `accept`. Hay tres caminos clásicos: un hilo o proceso por conexión, un pool de hilos, o un solo hilo que reacciona a eventos («esta conexión tiene datos») sin quedarse esperando en ninguna. Node usa el tercero; mañana ves cómo funciona por dentro."
+  },
+  {
+   "t": "p",
+   "x": "Esa es la razón de ser de Node para servidores: el bucle de aceptación existe, pero lo corre el motor por vos y te avisa con un evento cada vez que llega una conexión. Mañana abrimos la caja ([@07-04]). Hoy lo usamos y vemos el resultado."
+  },
+  {
+   "t": "h",
+   "x": "Paso 1: aceptar y mirar los bytes tal cual llegan"
+  },
+  {
+   "t": "p",
+   "x": "El módulo `node:net` de Node es la capa más baja que ofrece el lenguaje para TCP: da sockets, no entiende HTTP. Es la herramienta justa para este laboratorio. El primer servidor solo acepta, imprime lo que llega y contesta algo fijo:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// v1: solo acepta conexiones y muestra los bytes tal cual llegan\nconst net = require('node:net');\n\nconst servidor = net.createServer((socket) => {\n  console.log(`conexión nueva desde el puerto ${socket.remotePort}`);\n  socket.on('data', (trozo) => {\n    console.log(`llegaron ${trozo.length} bytes:`);\n    console.log(JSON.stringify(trozo.toString('latin1')));\n    socket.end('HTTP/1.1 200 OK\\r\\nContent-Length: 3\\r\\nConnection: close\\r\\n\\r\\nhola');\n  });\n});\n\nservidor.listen(19073, '127.0.0.1', () => console.log('escuchando en 127.0.0.1:19073'));",
+   "cap": "`v1.js`: el servidor más chico posible. El callback de `createServer` corre cada vez que el motor acepta una conexión."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node v1.js &",
+     "s": "escuchando en 127.0.0.1:19073"
+    },
+    {
+     "c": "curl -si http://127.0.0.1:19073/pedidos/42?x=1",
+     "s": "HTTP/1.1 200 OK\nContent-Length: 3\nConnection: close\n\nhol"
+    }
+   ],
+   "cap": "En el servidor aparece: `conexión nueva desde el puerto 57436` y `llegaron 92 bytes`, con el texto de la solicitud entre comillas (`GET /pedidos/42?x=1 HTTP/1.1\\r\\nHost: 127.0.0.1:19073\\r\\nUser-Agent: curl/8.5.0\\r\\nAccept: */*\\r\\n\\r\\n`)."
+  },
+  {
+   "t": "p",
+   "x": "Dos cosas para mirar. La solicitud que imprimió el servidor es el mismo texto que armaste a mano en [@05-18], con sus `\\r\\n`: HTTP es eso. Y la respuesta salió **cortada**: mi servidor mandó `hola` (4 bytes) pero declaró `Content-Length: 3`, y `curl` le hizo caso al encabezado y dejó afuera la «a». Fue un error mío al escribir el ejemplo, y demuestra quién manda en un mensaje HTTP: el largo declarado, no lo que se escribió."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "TCP entrega un flujo de bytes, no mensajes. Con un pedido chico, un solo evento `data` suele traer el pedido entero, y eso engaña: el código parece andar. Con un cuerpo grande o un cliente lento, el mismo pedido llega en varios trozos, y un programa que asume «un `data` = un pedido» falla de formas que nadie reproduce a la primera.",
+   "titulo": "Un evento «data» no es un pedido"
+  },
+  {
+   "t": "p",
+   "x": "Lo medí. Otro servidor de dos líneas contó cuántos eventos `data` recibió cuando `curl` le mandó un cuerpo de 1.000.000 de bytes por `POST`, y cuántos cuando el cuerpo era de 100 bytes:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -X POST --data-binary @cuerpo1M.txt http://127.0.0.1:19075/",
+     "s": ""
+    },
+    {
+     "c": "# en el servidor:",
+     "s": "18 eventos 'data', 1000153 bytes en total\nprimeros tamaños: 65536, 32921, 65536, 29696, 65536, 29696"
+    },
+    {
+     "c": "curl -s -X POST --data-binary @cuerpo100.txt http://127.0.0.1:19075/",
+     "s": ""
+    },
+    {
+     "c": "# en el servidor:",
+     "s": "1 eventos 'data', 249 bytes en total"
+    }
+   ],
+   "cap": "Salida real. Los tamaños de los trozos dependen del kernel, del tamaño de los buffers y del momento: en otra máquina o en otra corrida serán distintos. Lo que no cambia es que un pedido grande llega en varios."
+  },
+  {
+   "t": "p",
+   "x": "El pedido de 100 bytes llegó en un solo trozo de 249 bytes (el cuerpo más los encabezados que agrega `curl`). El de 1 MB llegó en 18, el primero de 65.536 bytes. El servidor tiene que **juntar** trozos hasta saber que el pedido está completo. Para eso hace falta el paso siguiente."
+  },
+  {
+   "t": "h",
+   "x": "Paso 2: el parsing de solicitud"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El **parsing de solicitud** es convertir esa tira de bytes en algo que el programa pueda usar: un método, un destino, unos encabezados y un cuerpo. El RFC 9112 lo describe como un procedimiento de tres pasos: leer la línea de inicio, leer cada línea de campo hasta la línea vacía, y con lo que dicen esos campos decidir si hay cuerpo y de cuántos bytes [#rfc9112].",
+    "Una regla que se pasa por alto: el estándar exige tratar el mensaje como **octetos** (bytes) en una codificación compatible con ASCII, no como «texto Unicode» a ciegas, porque eso abre agujeros de seguridad cuando una secuencia inválida contiene un salto de línea [#rfc9112]. Por eso mi servidor busca `\\r\\n\\r\\n` sobre los bytes, lee la cabecera como `latin1` (un byte, un carácter) y deja el cuerpo como bytes."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Antes de ver el servidor completo, probá el parser aislado. Esta es una función pura, sin red: recibe lo que llegó hasta ahora y contesta qué hay que hacer. Corre acá mismo; cambiá los pedidos de ejemplo y mirá qué dice para cada uno:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Parser de pedidos HTTP/1.1 sobre texto, sin red. Devuelve qué hacer con lo recibido hasta ahora.\nfunction parsear(recibido) {\n  const fin = recibido.indexOf('\\r\\n\\r\\n');\n  if (fin === -1) return { estado: 'faltan bytes (no llegó la línea vacía)' };\n\n  const [primera, ...resto] = recibido.slice(0, fin).split('\\r\\n');\n  const partes = primera.split(' ');\n  if (partes.length !== 3 || !partes[2].startsWith('HTTP/1.')) {\n    return { estado: '400 Bad Request: línea de pedido inválida', linea: primera };\n  }\n  const campos = {};\n  for (const linea of resto) {\n    const i = linea.indexOf(':');\n    campos[linea.slice(0, i).trim().toLowerCase()] = linea.slice(i + 1).trim();\n  }\n  const largo = Number(campos['content-length'] ?? 0);\n  const cuerpo = recibido.slice(fin + 4);\n  const bytesCuerpo = new TextEncoder().encode(cuerpo).length;\n  if (bytesCuerpo < largo) return { estado: `faltan bytes del cuerpo (${bytesCuerpo} de ${largo})` };\n\n  return { estado: 'pedido completo', metodo: partes[0], destino: partes[1], campos, cuerpo, sobra: bytesCuerpo - largo };\n}\n\nconst pedidos = [\n  'GET /pedidos/42 HTTP/1.1\\r\\nHost: ejemplo.local\\r\\n\\r\\n',\n  'GET /pedidos/42 HTTP/1.1\\r\\nHost: ejemplo.local\\r\\n',\n  'POST /pedidos HTTP/1.1\\r\\nHost: ejemplo.local\\r\\nContent-Length: 20\\r\\n\\r\\n{\"cliente\":\"Ferre',\n  'POST /pedidos HTTP/1.1\\r\\nHost: ejemplo.local\\r\\ncontent-length: 17\\r\\n\\r\\n{\"cliente\":\"Sur\"}',\n  'HOLA\\r\\n\\r\\n',\n];\nfor (const p of pedidos) console.log(JSON.stringify(p.slice(0, 40)) + '…\\n  ->', parsear(p));",
+   "cap": "El corazón del parsing sin sockets. Trabaja sobre texto para que corra en el navegador; el servidor real trabaja sobre bytes. Las tres respuestas posibles son: faltan bytes, pedido inválido o pedido completo.",
+   "ejecutable": true
+  },
+  {
+   "t": "p",
+   "x": "Los casos que prueba son los que hacen que un servidor real sea más que «cortar por la línea vacía»: un pedido al que todavía le falta la línea vacía, otro con el cuerpo a medias (17 bytes de 20), uno bien formado y uno que ni siquiera tiene forma de pedido. La salida se lee mejor que cualquier explicación."
+  },
+  {
+   "t": "p",
+   "x": "La decisión central es dónde termina el cuerpo. El RFC 9112 da una lista ordenada de reglas [#rfc9112]; las que importan hoy, resumidas:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Lo que dice el pedido",
+    "Longitud del cuerpo",
+    "Qué hace mi servidor"
+   ],
+   "filas": [
+    [
+     "Sin `Content-Length` ni `Transfer-Encoding`",
+     "Cero: el pedido termina en la línea vacía",
+     "Lo atiende sin leer cuerpo"
+    ],
+    [
+     "`Content-Length: 41`",
+     "Exactamente 41 bytes después de la línea vacía",
+     "Espera hasta juntar 41 bytes"
+    ],
+    [
+     "`Content-Length: abc` o inválido",
+     "No se puede saber: el mensaje no se puede delimitar",
+     "400 y cierra la conexión"
+    ],
+    [
+     "`Transfer-Encoding: chunked`",
+     "Se decodifican trozos hasta uno de tamaño cero",
+     "No lo implementa: 501"
+    ],
+    [
+     "Los dos a la vez",
+     "Manda `Transfer-Encoding`; el mensaje es sospechoso",
+     "Cae en el 501 por el `Transfer-Encoding`"
+    ]
+   ],
+   "cap": "Reglas de delimitación del cuerpo de una solicitud (RFC 9112, sección 6.3), y qué hace el servidor del laboratorio con cada una."
+  },
+  {
+   "t": "p",
+   "x": "La última fila no es un detalle. Cuando dos programas en cadena (por ejemplo un proxy y un servidor) interpretan distinto dónde termina un mensaje, un atacante puede esconder un segundo pedido dentro del primero. Se llama *request smuggling* y el RFC pide reglas estrictas de delimitación justamente para reducirlo [#rfc9112]. Un servidor casero no necesita defenderse de eso hoy, pero te enseña por qué los parsers reales son tan quisquillosos."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Llegan bytes",
+       "s": "evento `data` del socket",
+       "k": "red"
+      },
+      {
+       "t": "Se juntan en un buffer",
+       "s": "lo anterior + lo nuevo",
+       "k": "datos"
+      },
+      {
+       "t": "¿Está \\r\\n\\r\\n?",
+       "s": "fin de los encabezados",
+       "k": "servidor",
+       "e": "siempre"
+      }
+     ],
+     "baja": "Si no está: se espera el próximo trozo (o 431 si ya es demasiado largo)"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Línea de pedido",
+       "s": "tres partes y versión válida",
+       "k": "servidor"
+      },
+      {
+       "t": "Encabezados",
+       "s": "nombre: valor; Host presente",
+       "k": "servidor",
+       "e": "si es válida"
+      },
+      {
+       "t": "Largo del cuerpo",
+       "s": "Content-Length válido y no enorme",
+       "k": "servidor",
+       "e": "si hay Host"
+      }
+     ],
+     "baja": "Si el cuerpo no terminó de llegar: se espera. Si algo es inválido: 400, 413, 431 o 501 y se cierra"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Pedido completo",
+       "s": "método, destino, campos, cuerpo",
+       "k": "ok"
+      },
+      {
+       "t": "Se descartan sus bytes",
+       "s": "quedan los que sobran",
+       "k": "datos",
+       "e": "se atiende"
+      },
+      {
+       "t": "¿Sobra otro pedido?",
+       "s": "se repite el ciclo",
+       "k": "neutro",
+       "e": "siempre"
+      }
+     ]
+    }
+   ],
+   "cap": "El ciclo de lectura de `leerPedido` en el servidor del laboratorio. Cada vuelta puede terminar en «faltan bytes», «pedido inválido» o «pedido completo»."
+  },
+  {
+   "t": "h",
+   "x": "Paso 3: armar una respuesta que cualquier cliente entienda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Contestar es el espejo de leer: línea de estado (`HTTP/1.1 200 OK`), líneas de campo, línea vacía y cuerpo, todo con `\\r\\n`. Un solo detalle muerde: el `Content-Length` cuenta **bytes**, no letras. La frase `{\"error\":\"método no permitido\"}` tiene 31 caracteres pero 32 bytes, porque la «é» ocupa dos en UTF-8 ([@01-15]). Si un programa declara el largo en caracteres, el cliente corta la respuesta un byte antes. Mi servidor convierte primero el JSON a bytes y mide eso.",
+    "Lo que queda es decidir qué contestar a cada pedido: la lógica de la aplicación, que acá son 25 líneas con un mapa de pedidos inventados. El servidor completo:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const net = require('node:net');\n\nconst PUERTO = Number(process.env.PUERTO || 19073);\nconst MAX_CABECERA = 8 * 1024;   // bytes de línea de pedido + encabezados\nconst MAX_CUERPO = 1024 * 1024;  // 1 MiB\n\n// datos inventados\nconst pedidos = new Map([\n  [42, { id: 42, cliente: 'Ferreteria Norte', bultos: 12, estado: 'en ruta' }],\n  [43, { id: 43, cliente: 'Libreria Sur', bultos: 3, estado: 'preparando' }],\n]);\nlet proximoId = 44;\n\n// ---------- parsing de solicitud ----------\nfunction error(codigo, frase, motivo) {\n  return { error: { codigo, frase, motivo } };\n}\n\n// Devuelve null si todavía faltan bytes, {error} si el pedido es inválido,\n// o {pedido, consumidos} cuando hay un pedido completo al principio de buf.\nfunction leerPedido(buf) {\n  const fin = buf.indexOf('\\r\\n\\r\\n');\n  if (fin === -1) {\n    return buf.length > MAX_CABECERA ? error(431, 'Request Header Fields Too Large', 'encabezados demasiado largos') : null;\n  }\n  if (fin > MAX_CABECERA) return error(431, 'Request Header Fields Too Large', 'encabezados demasiado largos');\n\n  const lineas = buf.subarray(0, fin).toString('latin1').split('\\r\\n');\n  const partes = lineas[0].split(' ');\n  if (partes.length !== 3 || !/^HTTP\\/1\\.[01]$/.test(partes[2])) {\n    return error(400, 'Bad Request', 'línea de pedido inválida');\n  }\n  const [metodo, destino, version] = partes;\n\n  const campos = {};\n  for (const linea of lineas.slice(1)) {\n    const i = linea.indexOf(':');\n    if (i <= 0) return error(400, 'Bad Request', 'línea de encabezado inválida');\n    campos[linea.slice(0, i).trim().toLowerCase()] = linea.slice(i + 1).trim();\n  }\n  if (version === 'HTTP/1.1' && !campos.host) return error(400, 'Bad Request', 'falta Host');\n  if (campos['transfer-encoding']) return error(501, 'Not Implemented', 'no entiendo Transfer-Encoding');\n\n  let largo = 0;\n  if (campos['content-length'] !== undefined) {\n    if (!/^\\d+$/.test(campos['content-length'])) return error(400, 'Bad Request', 'Content-Length inválido');\n    largo = Number(campos['content-length']);\n    if (largo > MAX_CUERPO) return error(413, 'Content Too Large', 'cuerpo demasiado grande');\n  }\n  const desde = fin + 4;\n  if (buf.length < desde + largo) return null;   // el cuerpo no terminó de llegar\n\n  const cuerpo = buf.subarray(desde, desde + largo);\n  return { pedido: { metodo, destino, version, campos, cuerpo }, consumidos: desde + largo };\n}\n\n// ---------- lógica: qué contestar ----------\nfunction atender({ metodo, destino, cuerpo }) {\n  const ruta = destino.split('?')[0];\n  const coincide = ruta.match(/^\\/pedidos\\/(\\d+)$/);\n\n  if (ruta === '/pedidos') {\n    if (metodo === 'GET' || metodo === 'HEAD') return { codigo: 200, frase: 'OK', json: [...pedidos.values()] };\n    if (metodo === 'POST') {\n      let datos;\n      try { datos = JSON.parse(cuerpo.toString('utf8')); } catch { datos = null; }\n      if (!datos || typeof datos.cliente !== 'string') {\n        return { codigo: 400, frase: 'Bad Request', json: { error: 'el cuerpo no es un JSON con «cliente»' } };\n      }\n      const nuevo = { id: proximoId++, cliente: datos.cliente, bultos: datos.bultos ?? 1, estado: 'preparando' };\n      pedidos.set(nuevo.id, nuevo);\n      return { codigo: 201, frase: 'Created', json: nuevo, extra: { Location: `/pedidos/${nuevo.id}` } };\n    }\n    return { codigo: 405, frase: 'Method Not Allowed', json: { error: 'método no permitido' }, extra: { Allow: 'GET, HEAD, POST' } };\n  }\n  if (coincide) {\n    if (metodo !== 'GET' && metodo !== 'HEAD') {\n      return { codigo: 405, frase: 'Method Not Allowed', json: { error: 'método no permitido' }, extra: { Allow: 'GET, HEAD' } };\n    }\n    const p = pedidos.get(Number(coincide[1]));\n    return p ? { codigo: 200, frase: 'OK', json: p } : { codigo: 404, frase: 'Not Found', json: { error: 'no existe ese pedido' } };\n  }\n  return { codigo: 404, frase: 'Not Found', json: { error: 'no existe esa ruta' } };\n}\n\n// ---------- armar la respuesta ----------\nfunction armar(r, { sinCuerpo = false, cerrar = false } = {}) {\n  const datos = Buffer.from(JSON.stringify(r.json) ?? '', 'utf8');\n  const campos = {\n    'Content-Type': 'application/json; charset=utf-8',\n    'Content-Length': datos.length,\n    ...(cerrar ? { Connection: 'close' } : {}),\n    ...r.extra,\n  };\n  let cabecera = `HTTP/1.1 ${r.codigo} ${r.frase}\\r\\n`;\n  for (const [k, v] of Object.entries(campos)) cabecera += `${k}: ${v}\\r\\n`;\n  return Buffer.concat([Buffer.from(cabecera + '\\r\\n', 'latin1'), sinCuerpo ? Buffer.alloc(0) : datos]);\n}\n\n// ---------- la conexión ----------\nconst servidor = net.createServer((socket) => {\n  let buf = Buffer.alloc(0);\n  let n = 0;\n  console.log(`[${socket.remotePort}] conexión nueva`);\n  socket.setTimeout(5000, () => { console.log(`[${socket.remotePort}] inactiva: la cierro`); socket.destroy(); });\n\n  socket.on('data', (trozo) => {\n    buf = Buffer.concat([buf, trozo]);\n    while (true) {                       // puede haber más de un pedido en el buffer\n      const leido = leerPedido(buf);\n      if (leido === null) return;        // faltan bytes: esperamos el próximo 'data'\n      if (leido.error) {\n        const e = leido.error;\n        console.log(`[${socket.remotePort}] pedido inválido: ${e.motivo} -> ${e.codigo}`);\n        socket.end(armar({ codigo: e.codigo, frase: e.frase, json: { error: e.motivo } }, { cerrar: true }));\n        return;\n      }\n      buf = buf.subarray(leido.consumidos);\n      const { pedido } = leido;\n      n++;\n      const cierra = pedido.campos.connection?.toLowerCase() === 'close' || pedido.version === 'HTTP/1.0';\n      const r = atender(pedido);\n      console.log(`[${socket.remotePort}] #${n} ${pedido.metodo} ${pedido.destino} -> ${r.codigo}`);\n      socket.write(armar(r, { sinCuerpo: pedido.metodo === 'HEAD', cerrar: cierra }));\n      if (cierra) return socket.end();\n    }\n  });\n  socket.on('error', (e) => console.log(`[${socket.remotePort}] error de socket: ${e.code}`));\n  socket.on('close', () => console.log(`[${socket.remotePort}] conexión cerrada tras ${n} pedido(s)`));\n});\n\nservidor.listen(PUERTO, '127.0.0.1', () => console.log(`escuchando en 127.0.0.1:${PUERTO}`));",
+   "cap": "`servidor.js` entero: 132 líneas, sin una sola librería. Las funciones `leerPedido`, `atender` y `armar` son puras (reciben datos y devuelven datos); solo el último bloque toca la red."
+  },
+  {
+   "t": "p",
+   "x": "Tres decisiones del código merecen un comentario. Una: el bucle `while (true)` dentro de `data` existe porque en el buffer puede haber **más de un pedido** (veremos que pasa) o ninguno completo. Dos: `socket.setTimeout(5000, …)` cierra las conexiones que no hacen nada durante 5 segundos; sin eso, un cliente colgado ocuparía memoria y un socket para siempre. Tres: los límites (`MAX_CABECERA` de 8 KiB y `MAX_CUERPO` de 1 MiB) están para que un pedido gigante no se coma la memoria del proceso."
+  },
+  {
+   "t": "h",
+   "x": "Probarlo con clientes que no conocen mi código"
+  },
+  {
+   "t": "p",
+   "x": "Un servidor se prueba con clientes escritos por otros. Arranqué `servidor.js` y le hablé con `curl`, con `nc` escribiendo el pedido a mano, con el `fetch` de Node y con `urllib` de Python:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -si $S/pedidos/42",
+     "s": "HTTP/1.1 200 OK\nContent-Type: application/json; charset=utf-8\nContent-Length: 69\n\n{\"id\":42,\"cliente\":\"Ferreteria Norte\",\"bultos\":12,\"estado\":\"en ruta\"}"
+    },
+    {
+     "c": "curl -si -X POST $S/pedidos -d '{\"cliente\":\"Panaderia Este\",\"bultos\":5}'",
+     "s": "HTTP/1.1 201 Created\nContent-Type: application/json; charset=utf-8\nContent-Length: 69\nLocation: /pedidos/44\n\n{\"id\":44,\"cliente\":\"Panaderia Este\",\"bultos\":5,\"estado\":\"preparando\"}"
+    },
+    {
+     "c": "curl -si -X PATCH $S/pedidos/42",
+     "s": "HTTP/1.1 405 Method Not Allowed\nContent-Type: application/json; charset=utf-8\nContent-Length: 32\nAllow: GET, HEAD\n\n{\"error\":\"método no permitido\"}"
+    },
+    {
+     "c": "curl -sI $S/pedidos/42",
+     "s": "HTTP/1.1 200 OK\nContent-Type: application/json; charset=utf-8\nContent-Length: 69\n"
+    }
+   ],
+   "cap": "Salida real contra `servidor.js` (`S=http://127.0.0.1:19073`). La última es una solicitud HEAD: mismos encabezados que el GET, pero sin cuerpo, con el `Content-Length` de lo que habría devuelto el GET."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node cliente.mjs",
+     "s": "200 OK application/json; charset=utf-8\n{ id: 43, cliente: 'Libreria Sur', bultos: 3, estado: 'preparando' }\n201 /pedidos/44"
+    },
+    {
+     "c": "python3 -c \"import urllib.request as u, json; r = u.urlopen('http://127.0.0.1:19073/pedidos/42'); print(r.status, r.reason, json.load(r))\"",
+     "s": "200 OK {'id': 42, 'cliente': 'Ferreteria Norte', 'bultos': 12, 'estado': 'en ruta'}"
+    }
+   ],
+   "cap": "Dos clientes escritos por otras personas (`fetch` de Node 22 y `urllib` de Python 3.13) entienden sin problemas las respuestas de un servidor que armé hoy."
+  },
+  {
+   "t": "p",
+   "x": "Hay una prueba más, y es la que muestra por qué HTTP/1.1 es más eficiente que HTTP/1.0. `curl` acepta dos direcciones en el mismo comando y, si el servidor lo permite, hace los dos pedidos por la **misma** conexión TCP:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -sv $S/pedidos/42 $S/pedidos/43 -o /dev/null -o /dev/null 2>&1 | grep -E 'Re-using|Connected|Connection #|^> GET|^< HTTP'",
+     "s": "* Connected to 127.0.0.1 (127.0.0.1) port 19073\n> GET /pedidos/42 HTTP/1.1\n< HTTP/1.1 200 OK\n* Connection #0 to host 127.0.0.1 left intact\n* Re-using existing connection with host 127.0.0.1\n> GET /pedidos/43 HTTP/1.1\n< HTTP/1.1 200 OK\n* Connection #0 to host 127.0.0.1 left intact"
+    }
+   ],
+   "cap": "Salida real. «Connected» aparece una sola vez: el segundo pedido reutilizó la conexión. En el log del servidor figura `#1 GET /pedidos/42` y `#2 GET /pedidos/43` bajo el mismo puerto de origen."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "curl",
+     "k": "cliente"
+    },
+    {
+     "n": "servidor.js",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "Saludo de tres vías (TCP)",
+     "d": "Se abre una sola conexión, como en [@05-16]. En el servidor sale `conexión nueva`."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET /pedidos/42",
+     "d": "Primera solicitud. El servidor la lee hasta la línea vacía."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "200 OK, Content-Length: 69",
+     "resp": true,
+     "d": "El largo declarado es lo que permite a curl saber dónde termina esta respuesta y empieza la siguiente."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET /pedidos/43 (misma conexión)",
+     "d": "Sin nuevo saludo: se ahorra un ida y vuelta de red por pedido."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "200 OK, Content-Length: 67",
+     "resp": true,
+     "d": "Segunda respuesta, delimitada también por su largo."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "curl cierra la conexión",
+     "d": "Quien cierra suele ser el cliente; el servidor lo registra como `conexión cerrada tras 2 pedido(s)`."
+    }
+   ],
+   "cap": "Dos pedidos por una conexión persistente. Cada flecha se puede avanzar paso a paso."
+  },
+  {
+   "t": "p",
+   "x": "La regla está en el RFC 9112, sección 9.3: en HTTP/1.1 la conexión es persistente por defecto, salvo que alguna de las partes mande `Connection: close`; en HTTP/1.0 es al revés, se cierra salvo pedido expreso [#rfc9112]. Mi servidor implementa ese mínimo en una línea (`const cierra = … === 'close' || version === 'HTTP/1.0'`). Una condición necesaria para que funcione, que el mismo RFC subraya: cada mensaje tiene que decir cuántos bytes mide, porque si no, el receptor no puede saber dónde empieza el próximo [#rfc9112]."
+  },
+  {
+   "t": "h",
+   "x": "Qué pasa cuando el pedido viene mal"
+  },
+  {
+   "t": "p",
+   "x": "La parte más reveladora de un servidor es cómo falla. El RFC 9112 dice que, ante algo que no encaja con la gramática de HTTP, el servidor debería contestar **400 (Bad Request)** y cerrar la conexión [#rfc9112]. Le mandé a mano seis pedidos defectuosos y anoté qué contestó:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "printf 'HOLA\\r\\n\\r\\n' | nc -w 2 127.0.0.1 19073",
+     "s": "HTTP/1.1 400 Bad Request\nContent-Type: application/json; charset=utf-8\nContent-Length: 38\nConnection: close\n\n{\"error\":\"línea de pedido inválida\"}"
+    },
+    {
+     "c": "printf 'GET /pedidos HTTP/1.1\\r\\n\\r\\n' | nc -w 2 127.0.0.1 19073 | head -1",
+     "s": "HTTP/1.1 400 Bad Request"
+    },
+    {
+     "c": "printf 'POST /pedidos HTTP/1.1\\r\\nHost: x\\r\\nContent-Length: abc\\r\\n\\r\\n' | nc -w 2 127.0.0.1 19073 | head -1",
+     "s": "HTTP/1.1 400 Bad Request"
+    },
+    {
+     "c": "python3 -c \"print('GET /pedidos HTTP/1.1\\r\\nHost: x\\r\\nX-Relleno: ' + 'a'*9000 + '\\r\\n\\r\\n', end='')\" | nc -w 2 127.0.0.1 19073 | head -1",
+     "s": "HTTP/1.1 431 Request Header Fields Too Large"
+    },
+    {
+     "c": "printf 'POST /pedidos HTTP/1.1\\r\\nHost: x\\r\\nContent-Length: 5000000\\r\\n\\r\\n' | nc -w 2 127.0.0.1 19073 | head -1",
+     "s": "HTTP/1.1 413 Content Too Large"
+    },
+    {
+     "c": "printf 'POST /pedidos HTTP/1.1\\r\\nHost: x\\r\\nTransfer-Encoding: chunked\\r\\n\\r\\n0\\r\\n\\r\\n' | nc -w 2 127.0.0.1 19073 | head -1",
+     "s": "HTTP/1.1 501 Not Implemented"
+    }
+   ],
+   "cap": "Salida real contra `servidor.js`. En el primer caso, la «í» de «línea» ocupa dos bytes y por eso el `Content-Length` es 38 y no 37."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pedido defectuoso",
+    "Respuesta",
+    "Por qué"
+   ],
+   "filas": [
+    [
+     "Una palabra suelta, sin forma de pedido",
+     "400",
+     "La línea de pedido necesita método, destino y versión [#rfc9112]"
+    ],
+    [
+     "HTTP/1.1 sin `Host`",
+     "400",
+     "El RFC exige 400 en una solicitud HTTP/1.1 sin `Host` [#rfc9112]"
+    ],
+    [
+     "`Content-Length` que no es un número",
+     "400",
+     "Sin largo válido no se puede saber dónde termina el mensaje [#rfc9112]"
+    ],
+    [
+     "Encabezados de más de 8 KiB",
+     "431",
+     "Código definido en el RFC 6585 para encabezados demasiado grandes [#srv0703-rfc6585]"
+    ],
+    [
+     "Cuerpo declarado de 5.000.000 de bytes",
+     "413",
+     "«Content Too Large»: el servidor se niega a procesar contenido mayor al que acepta [#rfc9110]"
+    ],
+    [
+     "`Transfer-Encoding: chunked`",
+     "501",
+     "Mi servidor no implementa esa codificación"
+    ]
+   ],
+   "cap": "Qué contesta `servidor.js` y qué dice la especificación (RFC 9112, 9110 y 6585)."
+  },
+  {
+   "t": "p",
+   "x": "Esa lista es, de hecho, el diseño de seguridad más básico de cualquier servidor: **nunca confiar en lo que declara el cliente sin ponerle un tope**. Mi servidor no reserva 5 MB porque alguien escribió `Content-Length: 5000000`, rechaza antes de leer. Un servidor que hiciera `Buffer.alloc(largoDeclarado)` se lo regalaría a cualquiera."
+  },
+  {
+   "t": "p",
+   "x": "El segundo tipo de defensa es el tiempo. Medí cuánto tarda el servidor en cerrar una conexión que abre `nc` y no manda nada:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "time (nc 127.0.0.1 19073 < /dev/null; echo \"nc terminó, salida $?\")",
+     "s": "nc terminó, salida 0\n\nreal\t0m5.032s"
+    }
+   ],
+   "cap": "Salida real. En el log del servidor: `inactiva: la cierro`. Es el `setTimeout` de 5000 ms de `servidor.js` en acción."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": [
+    "«HTTP es texto simple, un parser se escribe en una tarde.» Para el camino feliz, es verdad. Lo que lleva años es el camino infeliz: pedidos en mil trozos, longitudes que mienten, clientes lentos a propósito, mensajes que dos programas leen distinto.",
+    "Por eso en producción se usa un parser mantenido durante años y probado con tráfico real y hostil. Lo casero sirve para entender."
+   ],
+   "titulo": "El camino feliz engaña"
+  },
+  {
+   "t": "pensa",
+   "x": "Un cliente manda `POST /pedidos` con `Content-Length: 41`, pero el cuerpo llega en dos trozos con un segundo de diferencia. Según el código de `servidor.js`, ¿en qué momento contesta y por qué no se confunde?",
+   "resp": "Contesta cuando llegan los 41 bytes. Al primer trozo, `leerPedido` ve que `buf.length < desde + largo` y devuelve `null`, o sea «faltan bytes»: el servidor no hace nada y espera otro evento `data`. Con el segundo trozo el buffer ya tiene el cuerpo completo y recién ahí se atiende el pedido."
+  },
+  {
+   "t": "h",
+   "x": "Lo que hace por vos el servidor de Node"
+  },
+  {
+   "t": "p",
+   "x": "Lo que escribiste hoy tiene un equivalente de diez líneas con el módulo `node:http` que viene en Node:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const http = require('node:http');\n\nconst pedidos = { 42: { id: 42, cliente: 'Ferreteria Norte', bultos: 12, estado: 'en ruta' } };\n\nhttp.createServer((req, res) => {\n  const m = req.url.match(/^\\/pedidos\\/(\\d+)$/);\n  const p = m && pedidos[m[1]];\n  res.writeHead(p ? 200 : 404, { 'Content-Type': 'application/json' });\n  res.end(JSON.stringify(p ?? { error: 'no existe' }));\n}).listen(19078, '127.0.0.1');",
+   "cap": "`con_http.js`: lo mismo para una ruta, con el módulo HTTP de Node. El parsing, los límites y las conexiones persistentes los resuelve el módulo."
+  },
+  {
+   "t": "p",
+   "x": "Además de más corto, es **más completo**. Le mandé lo que el mío rechaza con 501, un cuerpo con `Transfer-Encoding: chunked`, y lo leyó sin problema. Mandé `HOLA` y contestó `400 Bad Request` con `Connection: close`. Agregó `Date` y `Keep-Alive: timeout=5` sin que se lo pidiera. En esta VM, Node 22.23.4 trae el parser `llhttp` 9.4.3 (`process.versions.llhttp`)."
+  },
+  {
+   "t": "p",
+   "x": "Un detalle que toca lo que hiciste: en el ejemplo llamé a `res.writeHead(…)` antes de `res.end(…)`; los encabezados quedaron fijados antes de conocer el cuerpo y Node contestó con `Transfer-Encoding: chunked`. Con `res.setHeader(…)` y `res.end('{\"ok\":true}')`, calculó `Content-Length: 11` solo. Es la delimitación que implementaste a mano, resuelta de dos formas."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": [
+    "Valores por defecto del servidor HTTP de Node, según la documentación oficial consultada el 13 de noviembre de 2026 y comprobados en Node 22.23.4: `headersTimeout` 60 s (recibir los encabezados completos), `requestTimeout` 300 s (todo el pedido), `keepAliveTimeout` 5 s (conexión inactiva) y `maxHeaderSize` 16 KiB [#srv0703-node-http].",
+    "El `requestTimeout` pasó de «sin límite» a 300 s en Node 18 [#srv0703-node-http]. Son valores de una versión y se pueden cambiar; ante la duda, leé la página de la versión que usás."
+   ],
+   "titulo": "Qué trae Node por defecto"
+  },
+  {
+   "t": "p",
+   "x": "Para trabajar vas a usar `node:http` o un framework. Pero ahora sabés qué hay debajo: cuando un pedido se corta, una subida se cuelga o un proxy responde 400 sin explicación, tenés el mapa de qué pudo salir mal en cada paso."
+  },
+  {
+   "t": "h",
+   "x": "Ejercicios"
+  },
+  {
+   "t": "p",
+   "x": "Los seis salen del mismo servidor, que sigue en `127.0.0.1:19073`. Todos están corridos: la solución muestra lo que salió de verdad."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 1 (contar bytes).** Pedí `/pedidos/43` con `curl` y comprobá que el `Content-Length` coincide con los bytes del cuerpo.",
+   "pista": "Un comando muestra solo el encabezado (`curl -si … | grep -i`) y otro cuenta el cuerpo (`curl -s … | wc -c`).",
+   "solucion": "Los dos dan 67: `Content-Length: 67` en el encabezado y `67` en `wc -c`. Coinciden porque el servidor mide el JSON ya convertido a bytes."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 2 (el Host obligatorio).** Con `nc`, mandá un `GET /pedidos/43` por HTTP/1.1 sin `Host` y el mismo por HTTP/1.0. ¿Cuál se acepta?",
+   "pista": "Armá cada solicitud con `printf` y `\\r\\n` en cada línea, y mirá solo la primera línea de la respuesta (`head -1`).",
+   "solucion": "HTTP/1.1 recibe `400 Bad Request` y HTTP/1.0 recibe `200 OK`. El `Host` es obligatorio desde HTTP/1.1 [#rfc9112]."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 3 (cuerpo en dos trozos).** Hacé un `POST /pedidos` con el cuerpo `{\"cliente\":\"Ferreteria Oeste\",\"bultos\":2}` partido en dos envíos separados por un segundo. Antes, calculá cuántos bytes mide.",
+   "pista": "Usá llaves con `printf`, `sleep 1` y `printf`, todo canalizado a `nc`. El largo lo da `python3 -c \"print(len(…))\"`.",
+   "solucion": "Mide 41 bytes. Con `Content-Length: 41`, cortado después de `{\"cliente\":\"Ferre`, el servidor espera y contesta `201 Created` con `Location: /pedidos/44`. Con un largo mal contado (38, mi error de la primera prueba) leyó 38 bytes, vio un JSON truncado y contestó 400: el final del cuerpo lo marca `Content-Length`."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 4 (dos pedidos pegados).** En **un solo envío**, mandá dos `GET` seguidos (`/pedidos/42` y `/pedidos/43`, el segundo con `Connection: close`). ¿Cuántas respuestas vuelven?",
+   "pista": "Un solo `printf` con las dos solicitudes concatenadas; `grep -E '^(HTTP|\\{)'` deja las líneas de estado y los cuerpos.",
+   "solucion": "Vuelven dos, con los pedidos 42 y 43. El `while (true)` saca el primer pedido del buffer, descarta sus bytes y encuentra el segundo. Es el *pipelining* de HTTP/1.1: los navegadores modernos no lo activan por defecto [#http20-mdn-conexiones], pero un servidor tiene que tolerarlo [#rfc9112]."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 5 (el largo que miente).** Tomá `v1.js` y leé el `Content-Length` de una variable (`LARGO`), con el cuerpo `hola` fijo. Probá 4, 3 y 10. ¿Qué hace `curl`?",
+   "pista": "Arrancá el servidor tres veces con `LARGO=4`, `LARGO=3` y `LARGO=10`, y usá `curl -sS` para ver los errores.",
+   "solucion": "Con 4 imprime `hola`. Con 3 imprime `hol`: curl respeta el largo declarado. Con 10 imprime `hola` y falla con `curl: (18) transfer closed with 6 bytes remaining to read`. Es la regla del RFC 9112: si el emisor cierra antes del largo declarado, el mensaje está incompleto [#rfc9112]."
+  },
+  {
+   "t": "ejercicio",
+   "x": "**Ejercicio 6 (agregar DELETE).** Sumá `DELETE /pedidos/:id` a `servidor.js`: `204 No Content` si borró, `404` si no existe. Ojo: el RFC 9110 prohíbe mandar `Content-Length` en un 204.",
+   "pista": "Un `if (metodo === 'DELETE')` dentro de la rama de `/pedidos/(\\d+)`, y en `armar`, omitir `Content-Type` y `Content-Length` cuando el código es 204.",
+   "solucion": "Son unas 6 líneas (`pedidos.delete(id)` devuelve `true` si había algo). Probado: el primer `DELETE` contesta `204 No Content` sin `Content-Length` [#rfc9110]; el segundo, `404` con `{\"error\":\"no existe ese pedido\"}`; y un `GET` posterior también da 404."
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que Senda hace del lado cliente de esta conversación",
+   "x": [
+    "Senda no tiene servidor propio: cuando manda datos, le habla por HTTP a Supabase con el tipo de pedido que hoy aprendiste a leer. En `src/util/nube.ts`, la función que sube las respuestas del Espadeo arma con `fetch` un `POST` a `/rest/v1/respuestas?on_conflict=cliente_id`, con `Content-Type: application/json` y un cuerpo JSON. Si la respuesta no es 2xx (`!r.ok`), lanza un error y reintenta más tarde.",
+    "El `Content-Length` que hoy calculaste a mano lo pone solo el entorno de JavaScript. Lo propio de Senda es la defensa que viste en [@05-18] contra reintentar un `POST` a ciegas: cada fila lleva un `cliente_id` propio y el servidor ignora duplicados, así un reintento tras un corte no crea dos filas. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/nube.ts",
+    "src/util/cuenta.ts"
+   ]
+  }
+ ],
+ "recap": [
+  "Un servidor HTTP hace tres cosas en bucle: esperar conexiones (bucle de aceptación), leer lo que llega y contestar con un mensaje bien formado.",
+  "En un servidor de un solo hilo y bloqueante, un cliente lento frena a todos; por eso Node, y casi todo servidor real, no se queda esperando dentro de una conexión.",
+  "TCP entrega bytes, no mensajes: un pedido puede llegar en varios trozos o junto con el siguiente, y el servidor tiene que juntar bytes hasta saber que el pedido está completo.",
+  "El parsing de solicitud lee la línea de pedido, los campos hasta la línea vacía y decide el largo del cuerpo; `Content-Length` cuenta bytes y es lo que delimita el mensaje.",
+  "Un servidor serio pone tope a todo lo que declara el cliente (encabezados, cuerpo, tiempo inactivo) y contesta 400, 413, 431 o 501 cuando algo no encaja.",
+  "En HTTP/1.1 la conexión es persistente por defecto: varios pedidos por la misma conexión, siempre que cada mensaje diga cuántos bytes mide."
+ ],
+ "repaso": [
+  {
+   "p": "Un servidor de un solo hilo atiende de a una conexión: lee con `recv` hasta tener los encabezados y recién después vuelve a `accept`. Un cliente abre la conexión y no manda nada. ¿Qué les pasa a los demás clientes?",
+   "o": [
+    "Esperan en la cola de conexiones del kernel hasta que el cliente colgado termine o se corte",
+    "El kernel rechaza sus conexiones enseguida porque el servidor está ocupado",
+    "El servidor atiende a los demás en paralelo porque `recv` no bloquea",
+    "El cliente colgado se desconecta solo al pasar un segundo sin mandar datos"
+   ],
+   "c": 0,
+   "e": "Mientras el programa está dentro de `recv`, no vuelve a `accept`. Las conexiones nuevas esperan en la cola (el backlog) hasta que el servidor las saque. No las rechaza (hay lugar en la cola) ni las atiende en paralelo (hay un solo hilo), y nadie corta al cliente colgado salvo que el servidor lo programe con un tiempo límite; en el experimento, el `curl` con límite de 2 s terminó sin respuesta."
+  },
+  {
+   "p": "Un servidor recibe un `POST` con `Content-Length: 1000`. Con el primer evento `data` ya tiene todos los encabezados y 300 bytes de cuerpo. ¿Qué tiene que hacer?",
+   "o": [
+    "Atender el pedido con los 300 bytes porque ya llegaron los encabezados",
+    "Seguir juntando bytes hasta tener los 1000 y recién ahí atender",
+    "Cerrar la conexión, porque el cliente debió mandarlo todo junto",
+    "Contestar 400 porque el cuerpo es más corto que lo declarado"
+   ],
+   "c": 1,
+   "e": "TCP no respeta límites de mensaje: el resto del cuerpo puede llegar en los próximos eventos. El servidor sabe que le faltan 700 bytes por el `Content-Length` y espera. Atender antes procesa un cuerpo truncado; cerrar o contestar 400 castiga a un cliente que no hizo nada mal."
+  },
+  {
+   "p": "Un servicio contesta con el cuerpo `{\"nota\":\"envío rápido\"}` y arma el `Content-Length` con la cantidad de caracteres del texto. El cuerpo tiene una «í». ¿Qué le pasa a un cliente que respeta el encabezado?",
+   "o": [
+    "Lo recibe completo porque cada carácter ocupa un byte",
+    "Lo recibe completo porque el cliente completa el byte que falta",
+    "Recibe un byte menos de lo necesario y el JSON queda truncado",
+    "Rechaza la respuesta porque las tildes no están permitidas en HTTP"
+   ],
+   "c": 2,
+   "e": "En UTF-8 la «í» ocupa dos bytes, así que contar caracteres da un número menor que el largo real. El cliente que obedece el encabezado deja de leer un byte antes del final y la respuesta queda mal formada. Las tildes sí se pueden mandar en el cuerpo; el error es medir el largo en caracteres y no en bytes."
+  },
+  {
+   "p": "Un cliente manda un encabezado `Content-Length: 5000000000` a un servidor que hace `Buffer.alloc(largoDeclarado)` antes de leer el cuerpo. ¿Cuál es el problema y la defensa correcta?",
+   "o": [
+    "Ninguno: el cliente es responsable de no mandar valores absurdos",
+    "El servidor reserva memoria por lo que el cliente declara; la defensa es un tope y responder 413 sin reservar",
+    "El único riesgo es que la respuesta tarde más; se arregla con más RAM",
+    "El problema es de TCP, que debería rechazar pedidos tan grandes"
+   ],
+   "c": 1,
+   "e": "Un atacante puede agotar la memoria del servidor sin mandar casi nada, solo declarando un largo enorme. La defensa es poner un máximo propio (en el laboratorio, 1 MiB) y contestar 413 antes de reservar o leer nada. TCP no conoce el sentido de HTTP y comprar RAM solo corre el límite."
+  },
+  {
+   "p": "Un cliente HTTP/1.1 hace dos pedidos seguidos a un servidor que solo implementa el cierre tras cada respuesta, sin avisarlo. ¿Qué se espera según el RFC 9112?",
+   "o": [
+    "El servidor debe mandar `Connection: close` en cada respuesta, porque si no, el cliente asume que la conexión es persistente",
+    "Nada especial: HTTP/1.1 cierra siempre la conexión tras cada respuesta",
+    "El cliente debe esperar 5 segundos antes de hacer el segundo pedido",
+    "El servidor debe contestar 400 al segundo pedido porque la conexión es de un solo uso"
+   ],
+   "c": 0,
+   "e": "En HTTP/1.1 la conexión es persistente por defecto, así que un servidor que no la quiera mantener tiene que avisarlo con `Connection: close` en la respuesta. Si no avisa, el cliente puede intentar reutilizarla y el segundo pedido falla al encontrarla cerrada. Los 5 segundos no salen de ninguna regla del protocolo, son un tiempo de inactividad que fija cada servidor."
+  },
+  {
+   "p": "En el servidor del laboratorio, un pedido `POST /pedidos` llega con encabezados válidos pero con un JSON roto en el cuerpo (`esto no es json`). ¿Qué contesta y en qué capa se decide?",
+   "o": [
+    "501, en el parsing, porque el cuerpo no tiene el formato esperado",
+    "413, en el parsing, porque el cuerpo no cumple lo declarado",
+    "400, en la lógica de `atender`, porque el cuerpo no es un JSON con «cliente»",
+    "200 con el cuerpo vacío, porque el parsing de HTTP no valida contenido"
+   ],
+   "c": 2,
+   "e": "El parsing de HTTP solo se ocupa del formato del mensaje (línea, campos, largo) y el pedido está bien formado; el contenido del cuerpo es asunto de la aplicación. `atender` intenta leer el JSON, falla y contesta 400. El 501 y el 413 se deciden antes, por el `Transfer-Encoding` o por el tamaño declarado, y devolver 200 ocultaría el error."
+  }
+ ],
+ "feynman": "Explicale a alguien que no programa qué hace un servidor web cuando alguien le manda un pedido: cómo sabe que el pedido llegó completo, qué hace si viene mal armado y por qué un cliente lento no tendría que frenar a los demás. Usá una analogía tuya distinta de la ventanilla de despacho.",
+ "para_profundizar": [
+  {
+   "fuente": "rfc9112",
+   "nota": "La especificación de HTTP/1.1 que seguiste hoy: leé la sección 2.2 (cómo se parsea un mensaje), la 6.3 (cuánto mide el cuerpo) y la 9.3 (conexiones persistentes). Es lectura corta y cada regla se puede comprobar con `nc`."
+  },
+  {
+   "fuente": "sock-node-net",
+   "nota": "El módulo `net` de Node: el evento `connection`, el `backlog` de `listen` y los tiempos de espera de un socket. Sirve para entender qué hace por debajo el `http.createServer`."
+  },
+  {
+   "fuente": "srv0703-node-http",
+   "nota": "La documentación del módulo `http` de Node: las opciones y valores por defecto del servidor (tiempos de espera, tamaño de encabezados) que comparaste hoy con tus propios límites."
+  },
+  {
+   "fuente": "srv0703-man7-accept",
+   "nota": "La página de manual de `accept(2)`: qué devuelve, por qué es un socket nuevo y qué pasa si la cola está vacía. Se lee en cinco minutos y baja a tierra el «bucle de aceptación»."
+  }
+ ],
+ "videos": [
+  {
+   "q": "build an HTTP server from scratch node net module parse request",
+   "por_que": "Para ver a otra persona armar el mismo recorrido (aceptar, parsear, contestar) y comparar decisiones con las tuyas."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "servidor HTTP",
+   "d": "Programa que escucha conexiones TCP en un puerto, lee solicitudes HTTP, ejecuta la lógica que corresponda y contesta con respuestas bien formadas. Puede ser un archivo de 100 líneas como el de hoy o un producto completo como nginx."
+  },
+  {
+   "t": "parsing de solicitud",
+   "d": "Convertir los bytes que llegan por una conexión en un pedido estructurado: método, destino, versión, campos y cuerpo. Incluye decidir si el pedido llegó entero, si está mal formado y dónde termina el cuerpo."
+  },
+  {
+   "t": "bucle de aceptación",
+   "d": "El ciclo de un servidor que espera la próxima conexión (`accept`), la atiende o la delega y vuelve a esperar. En Node lo corre el motor y avisa con un evento cada vez que hay una conexión nueva."
+  },
+  {
+   "t": "backlog",
+   "d": "Cola de conexiones ya establecidas por el kernel que todavía no fueron tomadas por el programa con `accept`. Su largo máximo se indica en `listen` y el sistema puede limitarlo."
+  },
+  {
+   "t": "Content-Length",
+   "d": "Encabezado HTTP que declara cuántos **bytes** mide el cuerpo del mensaje. Es lo que permite delimitar un mensaje sobre una conexión que se reutiliza, y se cuenta en bytes, no en caracteres."
+  }
+ ],
+ "siguiente": "Node.js por dentro. Hoy el motor aceptó conexiones y llamó a tu código sin que supieras cómo; mañana abrimos la caja: qué es V8, qué es libuv, por qué un solo hilo alcanza para miles de conexiones y qué pasa cuando una ruta lenta bloquea a todas las demás.",
+ "fuentes_nuevas": [
+  {
+   "id": "srv0703-rfc6585",
+   "t": "RFC 6585: Additional HTTP Status Codes",
+   "a": "Nottingham y Fielding (IETF)",
+   "tipo": "rfc",
+   "anio": 2012,
+   "url": "https://www.rfc-editor.org/rfc/rfc6585"
+  },
+  {
+   "id": "srv0703-node-http",
+   "t": "HTTP (documentación de Node.js)",
+   "a": "OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://nodejs.org/api/http.html"
+  },
+  {
+   "id": "srv0703-man7-accept",
+   "t": "accept(2): accept a connection on a socket",
+   "a": "Linux man-pages (man7.org)",
+   "tipo": "doc",
+   "url": "https://man7.org/linux/man-pages/man2/accept.2.html"
+  }
+ ]
+}

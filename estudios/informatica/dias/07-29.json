@@ -1,0 +1,864 @@
+{
+ "id": "07-29",
+ "titulo": "Senda no tiene un servidor propio: qué hace la base en su lugar",
+ "bajada": "Cómo una app sin servidor propio corrige respuestas, protege datos, manda avisos y se limpia sola: seguridad por fila, funciones dentro de la base y funciones edge, probadas en una copia local de sus migraciones.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué trabajos de un backend hace Senda con Supabase y cuáles no existen en su código.",
+  "Demostrar con una base local qué ve y qué escribe cada persona bajo RLS y permisos por columna.",
+  "Leer una función `security definer` real y nombrar sus tres riesgos: camino de búsqueda, permisos de ejecución y datos que declara el cliente.",
+  "Describir cómo se reparten el trabajo una función edge, pg_cron y pg_net.",
+  "Clasificar un hallazgo como riesgo real, deuda o diseño aceptable con evidencia que corriste vos."
+ ],
+ "venis_de": "Ya viste qué hace un backend ([@07-01]), cómo se decide quién puede qué ([@07-11]), cómo se programan tareas ([@07-18]) y qué ofrece un backend como servicio ([@07-25], [@07-26]). En [@05-31] seguiste una llamada de Senda desde el teléfono. Hoy mirás qué hay del otro lado.",
+ "se_apoya_en": [
+  "05-31",
+  "07-01",
+  "07-11",
+  "07-18",
+  "07-25",
+  "07-26"
+ ],
+ "gancho": [
+  "Alguien toca «Desafiar» en Senda. Pasan tres cosas que ninguna pantalla hace sola: se corrige la respuesta con una clave que el teléfono no tiene, se decide de quién es el turno y quién ganó, y un rato después suena una notificación en el teléfono del rival. Si buscás en el repositorio el programa que hace eso, no está: no hay carpeta `server/` ni `api/`, ni Express ni Fastify en `package.json`, ni un `Dockerfile`. Lo comprobé con `ls`, `find` y `grep` en el commit `25e08fa`.",
+  "Lo hace una base PostgreSQL con reglas escritas adentro, tres funciones chicas en el borde de la red de Supabase y tareas de fondo. Para no quedarme en un documento, apliqué las 42 migraciones de Senda en un PostgreSQL 16.15 propio y probé las reglas con dos personas inventadas, Ana y Beto. No pude correr el Supabase real (no hay credenciales y no se piden), su capa de API ni pg_cron y pg_net verdaderos. Te aviso qué fue corrido y qué leído."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Sin servidor propio no quiere decir sin servidores"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@07-01] viste que un [[backend]] existe para lo que el teléfono no puede o no debe hacer: guardar [[estado compartido]], proteger un [[secreto]], no confiar en lo que llega del cliente ([[frontera de confianza]]) y actuar a ciertas horas. Senda necesita todo eso. Lo que no tiene es un programa suyo, en una máquina suya, que lo haga. Lo hace Supabase, un [[BaaS]] ([@07-25]): los servidores existen, pero los opera otro. Senda solo escribe reglas y las deja dentro de la base."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Trabajo del backend",
+    "Quién lo hace en Senda",
+    "Dónde se ve"
+   ],
+   "filas": [
+    [
+     "Saber quién sos",
+     "Supabase Auth: cuenta anónima y un token que, según el mapa técnico, dura cerca de una hora",
+     "`src/util/cuenta.ts`"
+    ],
+    [
+     "Decidir qué filas ves y tocás",
+     "[[RLS]] y permisos por columna, en SQL",
+     "`supabase/migrations/`"
+    ],
+    [
+     "Reglas que no se pueden falsear",
+     "[[RPC de base de datos]]: `jugar_turno`, `marca_copa`",
+     "`supabase/migrations/`"
+    ],
+    [
+     "Hablar con un servicio externo con clave secreta",
+     "[[Función edge de Supabase]]: `trivia-sermon` le habla a Claude",
+     "`supabase/functions/`"
+    ],
+    [
+     "Hacer algo cada tanto",
+     "`pg_cron`: tres tareas dentro de la base",
+     "`20261109000000_limpieza.sql`"
+    ],
+    [
+     "Avisar al teléfono",
+     "`pg_net` pide el envío a Expo, que usa FCM de Google",
+     "`enviar_avisos()`"
+    ],
+    [
+     "Guardar un PDF",
+     "Storage de Supabase, bucket privado `sermones`",
+     "`20261120000000_sermon_pdf.sql`"
+    ]
+   ],
+   "cap": "Resumen propio sobre el mapa técnico y el código, commit 25e08fa."
+  },
+  {
+   "t": "p",
+   "x": "Lo que no hay también enseña: ni WebSockets ni `supabase-js` (el teléfono usa `fetch`, como en [@05-31]; lo «en vivo» es el teléfono preguntando cada pocos segundos) ni Redis. Cada pieza que no existe es una pieza que nadie opera."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Es una empresa de logística sin depósito propio. Alquila posiciones en un operador y deja escritas en el contrato sus reglas: quién retira qué (RLS), el procedimiento de despacho que nadie se salta (las funciones) y la hora de cierre del día (cron).",
+    "Donde deja de valer: el operador aplica sus reglas con su gente. Acá las escribe y las prueba Senda, y un error en una regla es de Senda."
+   ],
+   "titulo": "Pensalo así: el operador logístico"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Teléfono",
+     "k": "cliente"
+    },
+    {
+     "n": "API de Supabase",
+     "k": "red"
+    },
+    {
+     "n": "Postgres",
+     "k": "datos"
+    },
+    {
+     "n": "Expo",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "POST /rest/v1/rpc/jugar_turno",
+     "d": "Lleva la clave pública y el token de la persona: la [[solicitud autenticada]] de [@05-31]."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "rol authenticated y id de la persona",
+     "d": "La API verifica la firma del token. Según Supabase, `role` es el rol de Postgres para las políticas y `sub` el id de la persona [#sen29-supabase-jwts]."
+    },
+    {
+     "de": 2,
+     "a": 2,
+     "t": "corre la función con esas reglas",
+     "d": "`jugar_turno` corrige, decide el turno y anota un aviso. `auth.uid()` le dice a cada política quién pregunta."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "la partida, o un error con nombre",
+     "resp": true,
+     "d": "Si una regla se rompe, la función lanza `raise exception` con un código corto, como `no_es_tu_turno`."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "200 con JSON, o 4xx con `message`",
+     "resp": true,
+     "d": "El teléfono toma `message` y lo traduce a un texto de pantalla."
+    },
+    {
+     "de": 2,
+     "a": 3,
+     "t": "un minuto después: aviso al rival",
+     "d": "Fuera de la petición: una tarea de `pg_cron` revisa los avisos y `pg_net` los manda a Expo."
+    }
+   ],
+   "cap": "Esquema propio. «Rol e id» lo reproduje a mano en la copia local con `set role` y `request.jwt.claims`; no corrí la API de Supabase."
+  },
+  {
+   "t": "h",
+   "x": "RLS: la regla que viaja pegada a la tabla"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos ideas mínimas (el SQL completo llega en [@09-03]). Una **tabla** es una planilla con columnas fijas y una fila por cosa: `perfiles` tiene una fila por persona. `select` se lee «dame» y `where` «solo las que cumplan».",
+    "[[RLS]] (*row level security*, seguridad por fila) es una regla que la base aplica a cada consulta sobre una tabla y decide qué filas puede ver o modificar quien consulta. Supabase la compara con un `where` agregado solo a cada consulta [#sen29-supabase-rls], que quien consulta no puede quitar. Si la tabla tiene RLS y ninguna política, PostgreSQL aplica «todo denegado» [#sen29-pg-rowsecurity]. La política de `perfiles` en la primera migración de Senda cabe en una línea: `create policy \"cada uno ve su perfil\" on public.perfiles for select to authenticated using (auth.uid() = id);`. A quien llegue con el rol `authenticated`, mostrale solo la fila cuyo `id` sea el suyo.",
+    "En mi copia local, con las 42 migraciones, las 41 tablas de `public` tienen RLS prendido (lo leí del catálogo), hay 53 políticas vivas y 92 funciones, 80 `security definer`. El mapa técnico dice 76 y 93 porque cuenta sentencias escritas, incluidas las que una migración posterior reemplazó. Probé con Ana y Beto, con el rol y el id de cada uno, como lo haría la API."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- como Ana\nselect nombre, nivel from perfiles;",
+     "s": "Ana (inventada) | 3          (1 fila)"
+    },
+    {
+     "c": "-- Ana pide la fila de Beto por su id\nselect nombre from perfiles where id = '<id de Beto>';",
+     "s": "(0 filas)"
+    },
+    {
+     "c": "update perfiles set nivel = 999 where id = '<id de Beto>';",
+     "s": "UPDATE 0"
+    },
+    {
+     "c": "update perfiles set admin = true where id = '<id de Ana>';",
+     "s": "ERROR:  permission denied for table perfiles"
+    },
+    {
+     "c": "update perfiles set nivel = 999 where id = '<id de Ana>';",
+     "s": "UPDATE 1"
+    },
+    {
+     "c": "update perfiles set nivel = 1000 where id = '<id de Ana>';",
+     "s": "ERROR:  new row for relation \"perfiles\" violates check constraint \"perfiles_nivel_rango\""
+    }
+   ],
+   "cap": "Corrido el 13-11-2026 en PostgreSQL 16.15 local con las migraciones de Senda, en dos corridas seguidas. Salidas de `psql` recortadas; Ana y Beto son inventados."
+  },
+  {
+   "t": "pensa",
+   "x": "Ana intenta cambiar el nivel de Beto y la base contesta `UPDATE 0`, sin error. ¿Por qué RLS no avisa con un error?",
+   "resp": "Para la base, las filas que Ana no puede ver no existen: la actualización no encontró ninguna y no tocó nada. Es una decisión de privacidad, porque un error distinto para «no es tuya» y «no existe» le diría a Ana qué ids existen. Por eso Senda, para lo que importa, no deja que la app actualice tablas a mano: usa funciones que lanzan errores con nombre."
+  },
+  {
+   "t": "p",
+   "x": "Las dos últimas líneas muestran otras dos barreras. `admin = true` falla porque Senda le quitó a `authenticated` el permiso de escribir esa columna y le dejó cinco. Y `nivel = 1000` rebota contra una restricción `check` que acepta de 1 a 999. Permiso por columna, RLS y restricciones se suman; ninguna reemplaza a las otras."
+  },
+  {
+   "t": "senda",
+   "titulo": "Las reglas de una sola tabla: `perfiles`",
+   "x": [
+    "`20261111000000_novedades.sql` hace de cerradura: `revoke insert, update on public.perfiles from authenticated, anon;` y dos `grant` por columna. Al crear su perfil la app escribe `id, nombre, pais, nivel, lany`; al actualizarlo, `nombre, pais, nivel, lany, visto` (migraciones posteriores suman `vitrina` y `avatar`). El alias y el código de amigo cambian solo por funciones, y `admin` no lo escribe nadie desde la app.",
+    "`nivel` lo calcula y escribe el teléfono; la base solo exige que esté entre 1 y 999. Sin premios en juego es razonable, y el mapa técnico lo anota como deuda para cuando los haya. Commit `25e08fa`: el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261026000000_inicio.sql",
+    "supabase/migrations/20261111000000_novedades.sql"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": [
+    "«Anónimo» significa dos cosas en Supabase. El rol `anon` es el de un pedido sin sesión, solo con la clave pública. Una *persona anónima* de Supabase Auth, como las cuentas de Senda, tiene sesión y usa el rol `authenticated`; el token lo marca con `is_anonymous` [#sen29-supabase-rls] [#red31-supabase-anon-auth]. Una política `to anon` y una `to authenticated` alcanzan a conjuntos distintos."
+   ],
+   "titulo": "Ojo: «anon» y «anónimo» no son lo mismo"
+  },
+  {
+   "t": "h3",
+   "x": "La trampa de la política que se mira a sí misma"
+  },
+  {
+   "t": "p",
+   "x": "En Senda, quien es miembro de un grupo ve a los demás miembros. La política obvia sería «mostrame las filas de `miembros` cuyo grupo esté entre los grupos donde yo aparezco en `miembros`»: la tabla se consulta a sí misma. Lo probé con una tabla mía, `equipos_miembros`, y datos inventados."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "create policy \"veo a mi equipo (ingenua)\" on equipos_miembros for select to authenticated\n  using (equipo in (select equipo from equipos_miembros where usuario = auth.uid()));\n-- como Ana:\nselect * from equipos_miembros;",
+     "s": "ERROR:  infinite recursion detected in policy for relation \"equipos_miembros\""
+    },
+    {
+     "c": "-- la salida: una función que consulta sin pasar por la política\ncreate function soy_del_equipo(p int) returns boolean language sql security definer set search_path = public stable as $$\n  select exists (select 1 from equipos_miembros where equipo = p and usuario = auth.uid());\n$$;\ncreate policy \"veo a mi equipo\" on equipos_miembros for select to authenticated using (soy_del_equipo(equipo));\nselect * from equipos_miembros;",
+     "s": "equipo 1 | Ana\nequipo 1 | Beto"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026 en una base local, con tabla propia y datos inventados. Ana ve el equipo 1, donde está, y no el 2."
+  },
+  {
+   "t": "p",
+   "x": "Senda resolvió lo mismo con una función que lee `miembros` sin pasar por su política:"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "create or replace function public.soy_miembro(p_grupo uuid) returns boolean language sql security definer set search_path = public stable as $$\n  select exists (select 1 from public.miembros where grupo = p_grupo and usuario = auth.uid());\n$$;\ncreate policy \"veo a los miembros de mis grupos\" on public.miembros for select to authenticated using (public.soy_miembro(grupo));",
+   "cap": "De `supabase/migrations/20261101000000_juntos.sql`. `soy_miembro` consulta con los permisos de quien creó la función; la política usa la función y no la tabla."
+  },
+  {
+   "t": "h",
+   "x": "RPC: las reglas del juego viven en funciones"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[RPC de base de datos]] (llamada a procedimiento remoto) es una función guardada en la base que la API expone como un pedido HTTP, `POST /rest/v1/rpc/<nombre>`, con los argumentos en JSON. Para el teléfono es una llamada más; para la base es código que corre adentro, junto a los datos.",
+    "Una función corre por defecto con los permisos de quien la llama. Con `security definer` corre con los de quien la creó, que suele ser el dueño de las tablas [#sen29-pg-createfunction]. Puede leer y escribir lo que quien llama no puede tocar, y devolverle solo el resultado.",
+    "Senda lo usa para lo que no se deja en el teléfono. En las copas (15 preguntas) el puntaje lo decide la base: el teléfono manda qué respondió y cuánto tardó, y la base tiene en `preguntas_clave` la respuesta correcta de cada pregunta. Esa tabla tiene RLS y ninguna política, así que la app no puede ni leerla. Esta es la función que corrige:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "-- p_jugadas: [{\"pregunta\": \"esc-001\", \"respuesta\": 2, \"ms\": 4200}, …]. Devuelve aciertos, puntos y el tiempo total.\n-- Una respuesta en menos de 300 ms no es de una persona: cuenta como 300 ms (no se premia el reflejo de un programa).\ncreate or replace function public.corregir_partida(p_jugadas jsonb, p_segundos int, p_max int)\nreturns table (aciertos int, puntos int, ms int)\nlanguage plpgsql security definer set search_path = public stable as $$\ndeclare j jsonb; c smallint; t int; total_ms int := p_segundos * 1000; a int := 0; p int := 0; m int := 0; n int := 0; vistas text[] := '{}';\nbegin\n  if jsonb_typeof(p_jugadas) <> 'array' then raise exception 'jugadas_invalidas'; end if;\n  for j in select * from jsonb_array_elements(p_jugadas) loop\n    n := n + 1;\n    exit when n > p_max;\n    if (j->>'pregunta') = any (vistas) then continue; end if;   -- la misma pregunta dos veces no suma dos veces\n    vistas := array_append(vistas, j->>'pregunta');\n    t := least(total_ms, greatest(300, coalesce((j->>'ms')::int, total_ms)));\n    m := m + t;\n    select correcta into c from public.preguntas_clave where id = j->>'pregunta';\n    if found and (j->>'respuesta') is not null and (j->>'respuesta')::smallint = c then\n      a := a + 1;\n      p := p + round(1000 * (1 - (t::numeric / total_ms) / 2))::int;\n    end if;\n  end loop;\n  return query select a, p, m;\nend $$;\nrevoke execute on function public.corregir_partida(jsonb, int, int) from public;",
+   "cap": "`corregir_partida`, de `supabase/migrations/20261107000000_grupos.sql`. Es interna: la llama `marca_copa`. Fijate en el `revoke … from public` del final: más abajo no alcanza."
+  },
+  {
+   "t": "p",
+   "x": "El comentario explica el piso de 300 milisegundos; `vistas` evita contar dos veces una pregunta y `least(total_ms, greatest(300, …))` acota el tiempo que declara el teléfono. Lo probé con una copa y claves inventadas (`lab-1`, `lab-2`, `lab-3`) que cargué en mi base."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- como Ana\nselect * from preguntas_clave where id = 'lab-1';",
+     "s": "(0 filas)"
+    },
+    {
+     "c": "select * from marca_copa('copa-lab', <id>,\n  '[{\"pregunta\":\"lab-1\",\"respuesta\":2,\"ms\":1},\n    {\"pregunta\":\"lab-2\",\"respuesta\":1,\"ms\":5000},\n    {\"pregunta\":\"lab-2\",\"respuesta\":0,\"ms\":100},\n    {\"pregunta\":\"lab-9\",\"respuesta\":0,\"ms\":100}]');",
+     "s": "aciertos | puntos | ms   | oficial\n       1 |    993 | 5300 | t"
+    },
+    {
+     "c": "-- segundo intento, con la respuesta correcta de lab-3\nselect * from marca_copa('copa-lab', <otro id>, '[{\"pregunta\":\"lab-3\",\"respuesta\":3,\"ms\":2000}]');",
+     "s": "aciertos | puntos | ms   | oficial\n       1 |    950 | 2000 | f"
+    },
+    {
+     "c": "select * from corregir_partida('[{\"pregunta\":\"lab-1\",\"respuesta\":2,\"ms\":1}]', 20, 15);",
+     "s": "ERROR:  permission denied for function corregir_partida"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026 en la copia local. Preguntas, copa y ids inventados; `<id>` es el identificador de jugada que genera el teléfono."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Lo que mandó Ana",
+    "Lo que hizo la base"
+   ],
+   "filas": [
+    [
+     "`lab-1` acertada con `ms: 1`",
+     "Cuenta el acierto con 300 ms: 993 puntos, no el máximo"
+    ],
+    [
+     "`lab-2` mal y después `lab-2` bien",
+     "Solo cuenta la primera aparición, la mala"
+    ],
+    [
+     "`lab-9`, que no es de esa copa",
+     "La ignora: `marca_copa` filtra contra las 15 preguntas de la copa"
+    ],
+    [
+     "Un segundo intento",
+     "Responde, pero `oficial` es falso y no se guarda"
+    ],
+    [
+     "Llamar a `corregir_partida` directo",
+     "Permiso denegado"
+    ]
+   ],
+   "cap": "Cuenta de puntos: 1000 × (1 − (300 / 20.000) / 2) = 992,5, que la función redondea a 993."
+  },
+  {
+   "t": "pensa",
+   "x": "Ana mandó `lab-2` dos veces, primero mal y después bien. ¿Cuál cuenta, y qué evita esa regla?",
+   "resp": "Cuenta la primera: la función guarda las preguntas ya vistas y salta las repetidas. Sin eso, alguien podría mandar la misma pregunta con las cuatro respuestas y llevarse el acierto."
+  },
+  {
+   "t": "senda",
+   "titulo": "Cómo hablan la base y la app, y cómo se prueba",
+   "x": [
+    "Cuando una regla se rompe, las funciones lanzan un código corto, como `no_es_tu_turno` o `demasiados_grupos`. En `src/util/cuenta.ts`, `peticion` toma el campo `message` y, si coincide con `^[a-z_]+$`, lo vuelve un error con ese nombre; si no, `error_nube`. La pantalla lo traduce a texto.",
+    "`pruebas/nube/recorrido.py` levanta una base PostgreSQL común con lo mínimo de Supabase, aplica las migraciones y hace unas 188 comprobaciones como cada persona (conté 188 llamadas a `paso(`), incluidos los ataques de la auditoría del 7 de noviembre de 2026. El flujo `supabase.yml` lo corre antes de tocar la base real. Commit `25e08fa`: el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261107000000_grupos.sql",
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "src/util/cuenta.ts",
+    "pruebas/nube/recorrido.py"
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Los tres riesgos de una función con superpoderes"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Primero, el camino de búsqueda.** Cuando una función escribe `from perfiles` sin más, PostgreSQL busca esa tabla en una lista de esquemas, el `search_path`. El manual advierte que el esquema de tablas temporales se busca primero por defecto y que cualquiera puede escribir en él [#sen29-pg-createfunction]. Alguien crea una tabla temporal con el mismo nombre y la función, con los permisos del dueño, lee la falsa."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "-- dos funciones iguales; la segunda fija el camino\ncreate function soy_admin_sin_fijar() ... security definer stable as $$ select exists (select 1 from cuentas_lab where id = auth.uid() and admin) $$;\ncreate function soy_admin_fijada() ... security definer set search_path = public, pg_temp stable as $$ (mismo cuerpo) $$;\n-- como Ana, que no es admin:\nselect soy_admin_sin_fijar(), soy_admin_fijada();",
+     "s": "f | f"
+    },
+    {
+     "c": "create temp table cuentas_lab (id uuid, admin boolean);\ninsert into cuentas_lab values (auth.uid(), true);\nselect soy_admin_sin_fijar(), soy_admin_fijada();",
+     "s": "t | f"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026 con tablas y funciones de práctica en una base local. Ana se volvió «admin» en la función sin fijar usando una tabla temporal propia."
+  },
+  {
+   "t": "p",
+   "x": "Senda fija el camino en sus 80 funciones `security definer` (ninguna sin `search_path` en el catálogo), pero fija `public` a secas. PostgreSQL recomienda `pg_temp` al final; Supabase, dejarlo vacío y nombrar el esquema en cada tabla [#sen29-supabase-db-functions]. A Senda la protege que sus funciones escriben `public.` delante de cada tabla: una búsqueda de texto en las 80 encontró 77 que lo hacen y ninguna que no (es una heurística, no una prueba formal), y una tabla temporal `perfiles` con Ana como admin no cambió la respuesta de `soy_admin()`. Una regla práctica: sumar `pg_temp` al final en todas, para no depender de la disciplina de cada autor."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Segundo, quién puede ejecutarla.** En PostgreSQL una función nueva la puede ejecutar cualquiera (`PUBLIC`) salvo que se revoque. Supabase, además, le da `execute` por separado a `anon`, `authenticated` y `service_role` sobre lo que se crea en `public`, y su documentación aclara que un `revoke` limitado a un esquema no quita el permiso global [#sen29-supabase-securing-api]. Quitar solo `PUBLIC` no alcanza. La migración de seguridad de Senda lo dice en un comentario, y lo medí con dos copias locales, una hasta el 26 de noviembre y otra completa, con los permisos por defecto que la prueba de Senda copia de Supabase:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Función interna",
+    "Antes de `20261127000000_seguridad.sql`",
+    "Después"
+   ],
+   "filas": [
+    [
+     "`enviar_avisos`",
+     "`anon` y `authenticated` podían ejecutarla",
+     "Nadie de la app"
+    ],
+    [
+     "`cerrar_vencidas`",
+     "`anon` y `authenticated` podían",
+     "Nadie de la app"
+    ],
+    [
+     "`corregir_partida`",
+     "Podían, aunque tenía `revoke … from public`",
+     "Nadie de la app"
+    ],
+    [
+     "`tiene_max`",
+     "`anon` y `authenticated` podían",
+     "Nadie de la app"
+    ]
+   ],
+   "cap": "Medido el 13-11-2026 con `has_function_privilege`. Como `anon`, `select enviar_avisos()` devolvió 0 antes y «permission denied» después."
+  },
+  {
+   "t": "p",
+   "x": "La auditoría lo encontró y quedó corregido antes del lanzamiento: es una lección, no una falla abierta. La cara B: 53 de las 80 funciones las puede ejecutar el rol `anon`, porque son las que la app usa. Probé varias sin sesión: `buscar_personas`, `ver_perfil` y `ver_grupo_codigo` contestan `sin_cuenta`, porque empiezan mirando `auth.uid()`. Es un diseño aceptable que depende de que **cada función nueva** empiece con esa guarda."
+  },
+  {
+   "t": "p",
+   "x": "**Tercero, lo que la función cree.** `marca_copa` corrige contra una clave segura, pero el tiempo de cada respuesta lo declara el teléfono y la base solo le pone piso y techo. Quien altere el cliente puede declarar 300 ms en todas. Con las copas sin premios es un riesgo bajo; el mapa técnico lo marca para cuando lleguen los sorteos. La salida es la de las salas en vivo de Senda: medir con el reloj de la base, `now()`."
+  },
+  {
+   "t": "h",
+   "x": "Funciones edge: lo que una base de datos no puede hacer"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una función SQL no puede llamar a otra empresa con una clave secreta, leer un PDF ni borrar un usuario del sistema de cuentas. Para eso está la [[función edge de Supabase]]: un programa en TypeScript que corre en Deno dentro de la infraestructura de Supabase y se invoca con `POST /functions/v1/<nombre>`. Es la [[edge function]] de [@07-26] aplicada a un caso real. Senda tiene tres, de 41, 95 y 134 líneas."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Función",
+    "Qué hace",
+    "Quién la llama"
+   ],
+   "filas": [
+    [
+     "`trivia-sermon`",
+     "Recibe el PDF o texto de un sermón, reserva el cupo, le pide a Claude 8 a 12 preguntas, valida el JSON y lo guarda para que el líder lo revise",
+     "`subirSermon()` en `src/util/sermon.ts`"
+    ],
+    [
+     "`borrar-cuenta`",
+     "Borra los PDF compartidos, deja los grupos con líder y borra el usuario; la base borra el resto en cascada",
+     "`borrarCuenta()` en `src/util/cuenta.ts`"
+    ],
+    [
+     "`compras`",
+     "Verificaría un recibo de Google Play y escribiría la suscripción",
+     "Nadie: `grep` de `functions/v1` en `src/` da solo las otras dos"
+    ]
+   ],
+   "cap": "Leído en el código, commit 25e08fa. `compras` se despliega, pero la app no la invoca."
+  },
+  {
+   "t": "p",
+   "x": "Las tres exigen `POST` y le preguntan a Supabase quién es la persona. Después usan dos clientes, la idea más fina del archivo: con el de la persona rige RLS (si no es líder, no ve la trivia); con `admin`, armado con la clave de servicio del entorno, RLS no rige. `trivia-sermon` además **cobra antes de gastar**, porque llamar a Claude cuesta plata:"
+  },
+  {
+   "t": "codigo",
+   "lang": "ts",
+   "x": "  const { error: eReserva } = await supabase.rpc(\"reclamar_trivia\", { p_trivia: trivia });\n  if (eReserva) return new Response(/sin_trivias/.test(eReserva.message) ? \"sin_trivias\" : \"ya_procesada\", { status: 409 });\n  const admin = createClient(Deno.env.get(\"SUPABASE_URL\")!, Deno.env.get(\"SUPABASE_SERVICE_ROLE_KEY\")!);\n  const devolverCupo = () => admin.from(\"trivias_cobradas\").delete().eq(\"trivia\", trivia); // solo si Claude no llegó a responder",
+   "cap": "De `supabase/functions/trivia-sermon/index.ts`: reserva en la base antes de llamar a Claude y `devolverCupo` por si Claude falla antes de responder."
+  },
+  {
+   "t": "p",
+   "x": [
+    "`reclamar_trivia` es otra RPC. Con un candado de PostgreSQL (`pg_advisory_xact_lock`) deja pasar un solo pedido si llegan dos juntos y anota la trivia en un libro, `trivias_cobradas`, que nadie borra; de ahí sale el cupo (una de prueba sin plan, ocho por mes con Max). Es una [[condición de carrera]] evitada a propósito, y un tope de gasto que no depende del teléfono.",
+    "Dos advertencias honestas. `suscripciones` solo la escribe `regalar_plan` (para administradores) o `compras`, que nadie llama. Y `trivia-sermon` espera la respuesta de Claude dentro de la misma petición; según Supabase, al 13-11-2026 una función dura como máximo 150 segundos en el plan gratis y 400 en los pagos, y responde 504 si no contesta a los 150 [#sen29-supabase-edge-limits]. No medí cuánto tarda con un sermón largo: es una pregunta abierta, no un hallazgo."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "El borde de Senda: tres funciones, un libro y un interruptor",
+   "x": [
+    "Antes de gastar, `trivia-sermon` mira un interruptor remoto (`interruptores`, clave `trivia_ia`): apagado, marca la trivia con error sin tocar el cupo; así se frena el gasto sin versión nueva de la app. Ninguna de las tres devuelve cabeceras [[CORS]] ([@06-38], [@07-26]): al teléfono no le afecta, a una página web en otro origen sí. Con un servidor mío que copia ese comportamiento (405 si no es POST, sin cabeceras), Chromium bloqueó el pedido en la verificación previa y el servidor nunca vio el `POST`; con las cabeceras, pasó.",
+    "Los secretos (`ANTHROPIC_API_KEY`, `PLAY_CUENTA_SERVICIO`) los carga el fundador en el panel de Supabase; los valores no están en el repositorio. Commit `25e08fa`: el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/functions/trivia-sermon/index.ts",
+    "supabase/functions/borrar-cuenta/index.ts",
+    "supabase/functions/compras/index.ts",
+    "src/util/sermon.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Las tareas de fondo: pg_cron y pg_net"
+  },
+  {
+   "t": "p",
+   "x": "`pg_cron` ejecuta consultas con la sintaxis de [[cron]] ([@07-18]) desde adentro de la base. Senda programa tres [[tareas programadas|tarea programada]]:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Nombre",
+    "Cuándo corre",
+    "Qué hace"
+   ],
+   "filas": [
+    [
+     "`senda_enviar_avisos`",
+     "Cada minuto (antes, cada 5)",
+     "Toma avisos pendientes y pide a Expo que los envíe"
+    ],
+    [
+     "`senda_cerrar_vencidas`",
+     "Cada 15 minutos",
+     "Cierra los duelos vencidos y cancela los «al azar» que nadie tomó en 3 días"
+    ],
+    [
+     "`senda_limpiar_viejo`",
+     "Todos los días a las 7:17 UTC (4:17 en Buenos Aires)",
+     "Borra respuestas de más de 30 días, salas y duelos viejos y votos de encuestas cerradas"
+    ]
+   ],
+   "cap": "Leído en las migraciones; el paso a cada minuto está en `20261130000005_grupos_grandes.sql`."
+  },
+  {
+   "t": "p",
+   "x": [
+    "`pg_net` pide llamadas HTTP desde SQL con `net.http_post`. Según la documentación de Supabase es **asíncrona**: devuelve el id del pedido, la llamada no empieza hasta que la transacción termina y la respuesta se guarda 6 horas en `net._http_response` [#sen29-supabase-pg-net].",
+    "Así se entiende `enviar_avisos()`, reescrita porque un evento en un grupo grande tardaba horas en llegar. Agrupa los avisos iguales y los manda de a 100 teléfonos por pedido, el máximo que el comentario de la migración atribuye a Expo. Toma hasta 3.000 por corrida con `for update skip locked`, para que dos corridas solapadas no tomen el mismo aviso. La probé con 250 teléfonos y avisos inventados:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "select count(*) from avisos where enviado is null;",
+     "s": "250"
+    },
+    {
+     "c": "select public.enviar_avisos();",
+     "s": "250      -- tokens a los que se pidió el envío"
+    },
+    {
+     "c": "select count(*), array_agg(jsonb_array_length(body->'to') order by id) from net._pedidos;",
+     "s": "3 | {100,100,50}"
+    },
+    {
+     "c": "select public.enviar_avisos();   -- segunda corrida",
+     "s": "0"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026 en la copia local. `net.http_post` es el simulador de `pruebas/nube/supabase_minimo.sql`: anota el pedido en una tabla en vez de mandarlo. No corrí pg_net real ni toqué Expo."
+  },
+  {
+   "t": "p",
+   "x": "Al final, la función hace `update public.avisos set enviado = now()` sobre todo lo tomado, y `pg_net` es asíncrona: la base anota «enviado» cuando *pidió* el envío, no cuando Expo contestó. Si Expo rechazara un pedido, el aviso se perdería sin reintento; en el repositorio nadie lee `net._http_response` (lo busqué con `grep`). Es entrega «a lo sumo una vez». Para «te toca jugar» es razonable, porque Inicio consulta las novedades cada 45 segundos. Para un aviso que no pueda perderse sería un riesgo."
+  },
+  {
+   "t": "h3",
+   "x": "La migración que pasa sin hacer nada"
+  },
+  {
+   "t": "p",
+   "x": "Cada migración que programa una tarea está envuelta en `do $$ begin perform cron.schedule(…); exception when others then raise notice … end $$;`. Sirve para que las mismas migraciones corran en una base común sin `pg_cron`, como la de las pruebas. El efecto colateral: si la extensión no está prendida en el proyecto real, la migración termina bien y las tareas no se crean."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -d senda_local -f supabase/migrations/20261109000000_limpieza.sql",
+     "s": "NOTICE:  cron: schema \"cron\" does not exist (programar a mano cuando pg_cron esté activa)"
+    },
+    {
+     "c": "echo $?   # código de salida de psql",
+     "s": "0"
+    }
+   ],
+   "cap": "Corrido el 13-11-2026 en la copia local, sin pg_cron. Ninguna prueba ni flujo del repositorio consulta `cron.job` (lo busqué con `grep`)."
+  },
+  {
+   "t": "p",
+   "x": "Es una falla que no avisa: sin la limpieza los datos viejos se acumulan, y sin la de avisos los duelos no notifican. Una regla práctica: un paso posterior al despliegue que consulte `cron.job` y falle si faltan los tres nombres."
+  },
+  {
+   "t": "h",
+   "x": "Cuánto pesa cada hallazgo"
+  },
+  {
+   "t": "p",
+   "x": "La última columna es mi criterio, y la rotulo así: otra persona podría pesar distinto."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Hallazgo",
+    "Cómo lo verifiqué",
+    "Mi lectura"
+   ],
+   "filas": [
+    [
+     "`respuestas` y `salud_resumen` crecen con datos inventados",
+     "Como `anon`, 1.000 inserciones falsas dejaron 1.000 filas en `salud_resumen`, que ninguna tarea borra; cada texto tiene tope de 80 letras",
+     "Riesgo bajo hoy, crece sin tope. Completa [@05-31]"
+    ],
+    [
+     "Tareas que pueden no existir",
+     "Migración sin `pg_cron`: código 0",
+     "Riesgo real de operación, barato de cubrir"
+    ],
+    [
+     "Claves de respuesta desfasadas",
+     "5.402 preguntas vivas, 5.371 claves: 104 vivas sin clave y 4 de las 45 preguntas fijas de las copas",
+     "Riesgo real con fecha: la copa del 18 al 22 de diciembre de 2026 tiene una pregunta que nadie puede acertar"
+    ],
+    [
+     "`compras` sin llamador",
+     "`grep` de `functions/v1` en `src/`",
+     "Código desplegado sin uso"
+    ],
+    [
+     "Nivel y tiempos que declara el teléfono",
+     "Probé `nivel = 999` en el perfil propio",
+     "Aceptable sin premios; deuda con ellos"
+    ],
+    [
+     "Token en AsyncStorage y alta anónima sin captcha",
+     "Leído, ver [@05-31]",
+     "Deuda conocida y anotada en el repositorio"
+    ]
+   ],
+   "cap": "Corrido o leído el 13-11-2026 en el commit 25e08fa. «Riesgo real» puede pasar con el uso previsto; «deuda» hoy no duele y habrá que pagarla."
+  },
+  {
+   "t": "p",
+   "x": "Sobre las claves: la tabla se carga con migraciones *generadas* desde el contenido de la app. Si se agrega una pregunta y nadie regenera la clave, la base la corrige como incorrecta: `corregir_partida` con `bot-46004` dio 0 aciertos con las cuatro respuestas. El defecto no está en una línea de SQL sino en que ningún paso compara las dos listas."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Vas a sumar la columna `puntos_totales` a `perfiles` para mostrarla en la pantalla de amigos. Describí qué cambiarías en los permisos y qué función escribirías para que Ana no pueda ponerse 999999 puntos. Nombrá la trampa que reabriría el mismo agujero.",
+   "pista": "Pensá en `grant update (…)` por columna y en de dónde saca el dato la función.",
+   "solucion": "No incluís `puntos_totales` en el `grant update (…)` de `authenticated`: queda de solo lectura. Escribís una función `security definer` con `set search_path = public, pg_temp` que calcule el total desde lo que ya escribió la base (por ejemplo, la suma de `copas_resultados` de esa persona), con guarda de `auth.uid()` y `revoke`/`grant` explícitos. La trampa: una función `sumar_puntos(p_puntos int)` que recibe el valor por parámetro. Ana la llama con 999999 y la regla vuelve a vivir en el cliente."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": [
+    "Al 13-11-2026, commit `25e08fa`. Supabase describe permisos por defecto en proyectos existentes (tablas y funciones nuevas de `public` accesibles para `anon`, `authenticated` y `service_role`) y dice que está cambiando el valor por defecto de la plataforma a «opt-in» [#sen29-supabase-securing-api]; un proyecto nuevo puede comportarse distinto de uno viejo. Los límites de funciones edge y de pg_net los leí en su documentación ese día.",
+    "Lo que corrí fue PostgreSQL 16.15, no la versión de Supabase, con roles y `auth.uid()` simulados por el archivo de pruebas de Senda. La forma (RLS, `security definer`, privilegios de ejecución, `search_path`) es de PostgreSQL y no envejece; los números y los valores por defecto sí."
+   ],
+   "titulo": "Lo que puede cambiar"
+  }
+ ],
+ "recap": [
+  "Senda no tiene servidor propio: el backend lo hacen la base (RLS, funciones, tareas), tres funciones edge y servicios de Supabase y Expo.",
+  "RLS agrega a cada consulta un `where` que no se puede quitar; sin políticas, todo queda denegado.",
+  "Una RPC `security definer` corre con los permisos de su dueño: así quedan reglas que el teléfono no puede falsear, como el puntaje de una copa.",
+  "Esa función necesita tres cerraduras: `search_path` fijo, `revoke` explícito a los roles que no deben ejecutarla y desconfianza hacia los parámetros.",
+  "Una función edge hace lo que la base no puede (un secreto, una API externa, borrar un usuario). Con el cliente de la persona rige RLS; con la clave de servicio, no.",
+  "`pg_net` es asíncrona: la base anota «enviado» al pedir el envío. Y una migración puede pasar sin crear las tareas de `pg_cron`."
+ ],
+ "repaso": [
+  {
+   "p": "Con RLS, la persona A ejecuta `update perfiles set nivel = 999 where id = <id de B>` y recibe `UPDATE 0`, sin error. ¿Qué pasó?",
+   "o": [
+    "Postgres bloqueó la orden por falta de permiso y el error se oculta",
+    "La fila de B no se ve para A, así que no hubo nada que modificar",
+    "B no existe en la tabla, por eso no se encontró ninguna fila",
+    "La orden queda pendiente hasta que B la apruebe o se venza"
+   ],
+   "c": 1,
+   "e": "RLS actúa como un `where` extra: las filas que A no ve no son candidatas y la actualización termina sin tocar nada ni lanzar error. Un «permission denied» aparecería si faltara el permiso de la columna. B existe, y no hay aprobación diferida."
+  },
+  {
+   "p": "Una función `security definer` lee `from cuentas` sin prefijo y fija `search_path = public`. Alguien crea una tabla temporal `cuentas`. ¿Qué riesgo hay?",
+   "o": [
+    "La función puede leer la tabla temporal falsa, porque ese esquema se busca primero",
+    "La tabla temporal reemplaza a la real para todas las personas conectadas",
+    "PostgreSQL rechaza la función y deja de responder en todas las llamadas",
+    "La tabla temporal hereda las políticas RLS de la real y filtra sus filas"
+   ],
+   "c": 0,
+   "e": "El manual de PostgreSQL dice que el esquema temporal se busca primero salvo que se lo nombre en otro lugar, y que cualquiera puede escribir en él. La tabla temporal solo existe en la sesión de quien la crea, no afecta a otros, y no hereda políticas."
+  },
+  {
+   "p": "Una migración hace `revoke execute on function f() from public` y aun así una persona sin sesión puede llamar a `f()`. ¿Por qué?",
+   "o": [
+    "Porque `revoke … from public` recién rige desde la próxima conexión",
+    "Porque las funciones `security definer` ignoran todo `revoke` por diseño",
+    "Porque Supabase da `execute` a `anon` y `authenticated` por separado",
+    "Porque el `revoke` hay que repetirlo para cada tabla que la función lee"
+   ],
+   "c": 2,
+   "e": "En PostgreSQL `public` es el rol que representa a todos; en Supabase, además, `anon` y `authenticated` reciben `execute` directo sobre lo que se crea en `public`. Quitar solo el de `public` deja esos permisos intactos. Un `revoke` es inmediato y `security definer` no lo ignora."
+  },
+  {
+   "p": "`marca_copa` corrige con una clave que el teléfono no ve. ¿Por qué un cliente alterado aún podría ganar una copa?",
+   "o": [
+    "La clave de respuestas viaja dentro de la app y puede leerse",
+    "La función suma todas las repeticiones de la misma pregunta",
+    "La primera marca de cada copa se toma como de práctica",
+    "El tiempo lo declara el teléfono y la base solo le pone un piso"
+   ],
+   "c": 3,
+   "e": "La corrección es segura, pero el tiempo es un dato declarado: con piso de 300 ms se puede declarar 300 en todas. Las otras opciones describen lo que la función evita: la clave está en una tabla sin política, las repetidas se ignoran y la primera marca es la oficial."
+  },
+  {
+   "p": "`trivia-sermon` llama a `reclamar_trivia` antes de pedirle algo a Claude. ¿Qué problema resuelve ese orden?",
+   "o": [
+    "Que dos pedidos simultáneos gasten dos veces el crédito de una trivia",
+    "Que Claude conteste más rápido porque el cupo ya está reservado",
+    "Que el teléfono no tenga que esperar mientras Claude trabaja",
+    "Que la clave de la API de Claude no quede visible en el código"
+   ],
+   "c": 0,
+   "e": "Reservar primero, con un candado, deja pasar a un solo pedido y cobra cada trivia una vez. No acelera nada, la espera sigue siendo síncrona, y la clave se protege por otro camino: vive en el entorno de la función."
+  },
+  {
+   "p": "`enviar_avisos()` marca cada aviso como enviado justo después de `net.http_post`, y Expo contesta con un error. ¿Qué pasa con ese aviso?",
+   "o": [
+    "La base lo reintenta en la corrida siguiente porque la llamada falló",
+    "Se pierde: la llamada es asíncrona y ya figura como enviado",
+    "La base revierte la marca al detectar la respuesta con error",
+    "Queda esperando hasta que el teléfono lo pida con una consulta"
+   ],
+   "c": 1,
+   "e": "`pg_net` encola el pedido y devuelve un id; la respuesta llega después, cuando la función ya terminó. Como nadie lee `net._http_response`, el aviso no se reintenta. No hay reversión porque la transacción terminó bien."
+  },
+  {
+   "p": "Una migración que programa tareas con `pg_cron` termina con código 0 en un proyecto sin la extensión. ¿Cuál es la mejor forma de enterarte?",
+   "o": [
+    "Buscar «error» en el registro de la migración, que siempre aparece",
+    "Confiar en que las pruebas de la base real fallan si falta una tarea",
+    "Esperar a que alguien avise cuando dejen de llegar notificaciones",
+    "Un paso posterior al despliegue que consulte `cron.job` y falle"
+   ],
+   "c": 3,
+   "e": "La migración atrapa el error a propósito y solo emite un `NOTICE`, así que no hay «error» que buscar. Las pruebas de Senda corren en una base sin `pg_cron`, y esperar el síntoma es enterarse tarde. Un chequeo de `cron.job` vuelve visible una falla silenciosa."
+  }
+ ],
+ "feynman": "Explicale a alguien que conoce logística pero no informática por qué Senda puede corregir un concurso sin servidor propio. Usá estas ideas: quién guarda la clave de respuestas, quién decide qué filas ve cada persona y qué pasa si el teléfono miente sobre el tiempo.",
+ "para_profundizar": [
+  {
+   "fuente": "sen29-supabase-rls",
+   "nota": "La guía oficial de RLS en Supabase: cómo se combinan permisos y políticas y la diferencia entre el rol `anon` y las cuentas anónimas. Empezá por «Understand Row Level Security»."
+  },
+  {
+   "fuente": "sen29-pg-createfunction",
+   "nota": "Manual de PostgreSQL 16; la sección «Writing SECURITY DEFINER Functions Safely» explica el `search_path`, el esquema temporal y el ejemplo con `pg_temp` al final."
+  },
+  {
+   "fuente": "sen29-supabase-securing-api",
+   "nota": "La tabla de permisos por defecto de Supabase y el aviso de que están cambiando; sirve para saber si tu proyecto concede `execute` a `anon`."
+  },
+  {
+   "fuente": "sen29-supabase-pg-net",
+   "nota": "Por qué `net.http_post` es asíncrona, cuánto guarda de las respuestas y qué volumen soporta; contrastalo con `enviar_avisos()`."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Supabase Row Level Security explicado paso a paso",
+   "por_que": "Para ver cómo se escribe una política y cómo cambia el resultado de la misma consulta para dos personas distintas."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "RLS",
+   "d": "Seguridad por fila (*row level security*): regla de la base que decide qué filas de una tabla puede ver o modificar quien consulta. Funciona como un `where` agregado que quien consulta no puede quitar; sin políticas, todo queda denegado."
+  },
+  {
+   "t": "RPC de base de datos",
+   "d": "Función guardada dentro de la base que se expone como un pedido HTTP (`POST /rest/v1/rpc/<nombre>`). Corre junto a los datos y puede ser `security definer` para ejecutarse con los permisos de su dueño."
+  },
+  {
+   "t": "función edge de Supabase",
+   "d": "Programa en TypeScript que corre en Deno dentro de la infraestructura de Supabase y se invoca con `POST /functions/v1/<nombre>`. Sirve para lo que la base no puede: llamar a servicios externos con secretos o usar la clave de servicio."
+  },
+  {
+   "t": "security definer",
+   "d": "Modo de una función de PostgreSQL que la ejecuta con los permisos de quien la creó y no de quien la llama. Exige un `search_path` fijo y permisos de ejecución acotados."
+  },
+  {
+   "t": "search_path",
+   "d": "Lista de esquemas donde PostgreSQL busca un nombre de tabla o función que no trae esquema. Si incluye uno que otros pueden escribir, una función poderosa puede leer objetos falsos."
+  },
+  {
+   "t": "clave de servicio",
+   "d": "Credencial de Supabase que se salta RLS. Solo debe vivir en el entorno de una función o un servidor, nunca dentro de una app instalada."
+  },
+  {
+   "t": "pg_net",
+   "d": "Extensión de PostgreSQL que pide llamadas HTTP desde SQL de forma asíncrona: devuelve un id y la llamada sale al terminar la transacción."
+  },
+  {
+   "t": "pg_cron",
+   "d": "Extensión de PostgreSQL que ejecuta consultas programadas con sintaxis de cron dentro de la propia base."
+  }
+ ],
+ "siguiente": "cierre de la Parte 7: seguís una petición de punta a punta por el servidor (recepción, autenticación, validación, lógica, datos y respuesta) y juntás todo lo de la parte en un mapa.",
+ "fuentes_nuevas": [
+  {
+   "id": "sen29-supabase-rls",
+   "t": "Row Level Security (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/database/postgres/row-level-security"
+  },
+  {
+   "id": "sen29-supabase-securing-api",
+   "t": "Securing your API (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/api/securing-your-api"
+  },
+  {
+   "id": "sen29-supabase-jwts",
+   "t": "JSON Web Tokens (JWT) (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/auth/jwts"
+  },
+  {
+   "id": "sen29-supabase-db-functions",
+   "t": "Database Functions (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/database/functions"
+  },
+  {
+   "id": "sen29-supabase-pg-net",
+   "t": "pg_net: Async Networking (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/database/extensions/pg_net"
+  },
+  {
+   "id": "sen29-supabase-edge-limits",
+   "t": "Limits (Supabase Edge Functions)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/functions/limits"
+  },
+  {
+   "id": "sen29-pg-createfunction",
+   "t": "PostgreSQL 16: CREATE FUNCTION",
+   "a": "The PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/sql-createfunction.html"
+  },
+  {
+   "id": "sen29-pg-rowsecurity",
+   "t": "PostgreSQL 16: Row Security Policies",
+   "a": "The PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/ddl-rowsecurity.html"
+  }
+ ]
+}

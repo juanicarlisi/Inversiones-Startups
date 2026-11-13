@@ -1,0 +1,896 @@
+{
+ "id": "07-15",
+ "titulo": "Caching en el backend",
+ "bajada": "Medís cuánto tarda una consulta con y sin caché, ves cómo la copia guardada empieza a mentir y cómo 200 pedidos juntos pueden saturar una base.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es una caché de aplicación y qué dos cosas cuesta a cambio de la velocidad: memoria y frescura.",
+  "Implementar cache-aside con TTL y medir la latencia con y sin caché contra una base real.",
+  "Reconocer tres formas en que una caché miente: dato viejo hasta el TTL, carrera entre lector y escritor, y estampida de caché.",
+  "Distinguir las políticas de expulsión de Redis y ubicar Redis y Valkey con las fechas de su historia de licencias.",
+  "Encontrar en el código de Senda dónde hay cachés y verificar que no hay ninguna de servidor."
+ ],
+ "venis_de": "En [@05-19] viste la caché HTTP, donde el navegador o una CDN reutilizan una respuesta, y en [@06-23] la caché del cliente dentro de la app. Hoy la caché está del lado del servidor, entre tu código y la base de datos, y la decide tu propio programa.",
+ "se_apoya_en": [
+  "01-28",
+  "05-13",
+  "05-19",
+  "06-23",
+  "03-41",
+  "07-09"
+ ],
+ "gancho": [
+  "Un tablero de logística muestra, por zona, cuántos despachos salieron en los últimos 30 días. Cada vez que alguien lo abre, el servidor le pregunta a la base lo mismo, recorre un millón de filas y obtiene casi la misma respuesta que hace diez segundos. Ahora imaginá doscientos operadores mirándolo a la vez.",
+  "Guardar la respuesta un rato es obvio: se llama caché. Lo difícil es qué pasa **después**: cuándo esa copia deja de ser verdad, cómo se entera el sistema y qué ocurre cuando muchas copias vencen juntas. Hoy lo medimos y lo rompemos a propósito, con una base y un servidor de caché reales."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "La misma pregunta, mil veces"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Armé en esta VM una base PostgreSQL 16.15 con una tabla `despachos` de **un millón de filas inventadas**: id, zona (20 zonas, `Z01` a `Z20`), estado, peso en kilos y fecha. La pantalla del tablero hace siempre la misma pregunta: *de una zona, cuántos despachos hubo en los últimos 30 días, cuántos kilos y cuántos ya se entregaron*.",
+    "Sin índice, la base lee la tabla entera para contestar. En 2.000 pedidos seguidos, la mediana fue de **28 ms**. Parece poco, hasta que pensás en 200 operadores con el tablero abierto: la base repite el mismo trabajo, con el mismo resultado, una y otra vez.",
+    "Ese es el terreno de la **caché de aplicación**: una copia temporal del resultado de una operación cara, guardada en un lugar rápido (normalmente memoria) y que **tu propio código** consulta antes de ir a la fuente. Ya viste la idea en otras escalas: la [[caché]] del procesador ([@01-28]) y la caché HTTP del navegador o de una CDN ([@05-19]). Hoy la caché está entre tu código de servidor y la base, y la manejás vos."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La zona de picking",
+   "x": [
+    "Lo que más se pide no se busca cada vez en las estanterías altas del fondo: se deja en una zona de picking, junto al mostrador, y alguien la repone desde el depósito grande. La caché es la zona de picking; la base es el depósito grande.",
+    "Dónde deja de valer: la caja del mostrador es **la misma caja** que salió de la estantería; en una caché hay una **copia**, y si el original cambia y nadie repone la copia, el mostrador sigue despachando información vieja con total seguridad. De esa diferencia sale casi todo lo difícil de hoy."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "A cambio de velocidad, una caché cobra dos cosas: **memoria**, que es finita y cara ([@01-27]), y **frescura**: cada dato guardado puede estar desactualizado y hay que decidir cuánto se tolera."
+  },
+  {
+   "t": "h",
+   "x": "Cache-aside: el patrón que más vas a ver"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El patrón más común se llama [[cache-aside]] («caché al costado»): la caché no habla con la base; **la aplicación hace de intermediaria** [#cache715-azure-cache-aside]. Para leer:"
+   ]
+  },
+  {
+   "t": "pasos",
+   "pasos": [
+    {
+     "t": "Mirar la caché",
+     "x": "La app arma una clave para la pregunta, por ejemplo `resumen:Z07`, y la busca."
+    },
+    {
+     "t": "Acierto",
+     "x": "Si está (*cache hit*), se devuelve y no se toca la base."
+    },
+    {
+     "t": "Fallo",
+     "x": "Si no está (*cache miss*), la app hace la consulta lenta a la base."
+    },
+    {
+     "t": "Guardar",
+     "x": "La app escribe la respuesta en la caché con un [[TTL]] ([@05-13]) y la devuelve."
+    }
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Para escribir, se **cambia la base** y después se **borra la clave**; la próxima lectura será un fallo y traerá el valor nuevo. Así se ve el recorrido de un fallo:"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Cliente",
+     "k": "cliente"
+    },
+    {
+     "n": "App",
+     "k": "servidor"
+    },
+    {
+     "n": "Caché",
+     "k": "red"
+    },
+    {
+     "n": "Base",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET /zonas/Z07/resumen",
+     "d": "Un operador abre el tablero de la zona Z07."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "GET resumen:Z07",
+     "d": "La app pregunta primero a la caché, con una clave armada con la zona."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "vacío (fallo)",
+     "resp": true,
+     "d": "No hay nada guardado: primera vez, o el TTL ya venció."
+    },
+    {
+     "de": 1,
+     "a": 3,
+     "t": "SELECT count(*), sum(peso_kg) ...",
+     "d": "La app hace la consulta cara. En esta VM tarda unos 28 ms."
+    },
+    {
+     "de": 3,
+     "a": 1,
+     "t": "17446 despachos (y sus kilos)",
+     "resp": true,
+     "d": "La base contesta lo mismo que hace un rato."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "SET resumen:Z07 ... EX 60",
+     "d": "Guarda el resultado con TTL de 60 segundos: en ese minuto, los demás pedidos no tocan la base."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "200 con el resumen",
+     "resp": true,
+     "d": "Recién ahora le contesta al operador."
+    }
+   ],
+   "cap": "Recorrido de un fallo de caché en cache-aside. En un acierto, los pasos 4 y 5 no existen."
+  },
+  {
+   "t": "p",
+   "x": "El código que usé cabe en una pantalla. `resumenDB` es la consulta SQL de siempre; `cache` es un cliente de Redis o Valkey (más abajo):"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "async function resumenConCache(zona) {\n  const clave = `resumen:${zona}`;\n  const guardado = await cache.get(clave);           // 1. mirar la caché\n  if (guardado !== null) return JSON.parse(guardado); // 2. acierto: listo\n  const dato = await resumenDB(zona);                // 3. fallo: ir a la base\n  await cache.set(clave, JSON.stringify(dato), { EX: 60 }); // 4. guardar, vence en 60 s\n  return dato;                                       // 5. devolver\n}",
+   "cap": "cache-aside en Node 22 con el paquete `redis` 6.3.1 (versión del 11-11-2026 en npm). `EX: 60` es el TTL en segundos."
+  },
+  {
+   "t": "p",
+   "x": "Medí 2.000 pedidos con zonas al azar pero con sesgo (la `Z01` se pide el doble que la `Z02`, y así: pocos muy pedidos, algo normal). Primero directo a la base; después con caché, con la misma secuencia:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node bench1.mjs",
+     "s": "sin cache  : 2000 pedidos, p50 27.97 ms, p95 40.50 ms, total 59.1 s, consultas a la base: 2000\ncache-aside: 2000 pedidos, p50 0.07 ms, p95 0.21 ms, total 0.75 s, consultas a la base: 20\n  aciertos 1980 (99.0 %), p50 acierto 0.07 ms, p50 fallo 27.33 ms"
+    }
+   ],
+   "cap": "Salida real de esta VM (noviembre de 2026): PostgreSQL 16.15 y Valkey 9.0.7 en localhost, un cliente a la vez. Una segunda corrida dio mediana de 30.8 ms sin caché y 0.05 ms con caché. «p50» es la mediana; «p95», el tiempo bajo el cual quedó el 95 % de los pedidos."
+  },
+  {
+   "t": "p",
+   "x": "De 2.000 consultas quedaron **20**: una por zona, la primera vez. La mediana bajó de 28 ms a 0,07 ms, y el total, de casi un minuto a tres cuartos de segundo."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Caso (2.000 pedidos, esta VM)",
+    "Mediana",
+    "Consultas a la base"
+   ],
+   "filas": [
+    [
+     "Sin índice y sin caché",
+     "28 ms",
+     "2.000"
+    ],
+    [
+     "Con un índice sobre (zona, fecha), sin caché",
+     "10 ms",
+     "2.000"
+    ],
+    [
+     "Sin índice, con cache-aside y TTL de 60 s",
+     "0,07 ms",
+     "20"
+    ]
+   ],
+   "cap": "El 99 % de aciertos sale de cómo armé la prueba: 20 claves, TTL de 60 s y una corrida de menos de un segundo. En un sistema real depende de cuántas claves hay y cuánto se repiten dentro de su TTL. Se mide, no se supone."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Primero el índice",
+   "x": "Mirá la segunda fila: un índice bajó la consulta de 28 a 10 ms sin sumar ninguna pieza. Una caché sobre una consulta mal armada tapa el problema y agrega una dependencia. Primero se arregla la consulta (de índices hablamos en la parte de bases de datos) y después se cachea lo que siga siendo caro y se repita."
+  },
+  {
+   "t": "pensa",
+   "x": "Si el TTL fuera de 1 segundo y cada zona se pidiera una vez cada 5 segundos, ¿qué ganarías con la caché?",
+   "resp": "Nada, y perdés un poco: casi todo serían fallos, porque la clave vence antes de que la vuelvan a pedir, y pagás el viaje a la caché además de la consulta. Una caché rinde cuando la misma clave se pide varias veces **dentro** de su TTL."
+  },
+  {
+   "t": "h",
+   "x": "Redis: un servidor de claves en memoria"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En la prueba, `cache` era un cliente de [[Redis|Redis (primera vista)]] (en mi caso, de Valkey, que ya te cuento qué es). Redis es un servidor que guarda datos **en la memoria RAM** y los ofrece por red con comandos cortos. No reemplaza a tu base: se usa al costado, para lo que tiene que ser rapidísimo y puede perderse sin drama.",
+    "Frente a un `Map` dentro de tu programa, tiene dos diferencias. Es un **proceso aparte**: si tu app corre en cuatro instancias, las cuatro ven la misma caché, y sobrevive a que reinicies la app. Y cada acceso **cruza la red**: en `localhost` midió décimas de milisegundo; entre servidores suma el viaje de ida y vuelta (ESTIMACIÓN: desde decenas de microsegundos hasta un milisegundo o más, según la distancia; se mide).",
+    "Un valor no tiene por qué ser un texto. Según su documentación, Redis ofrece cadenas, listas, conjuntos, conjuntos ordenados, tablas de hash y varias estructuras más [#cache715-redis-tipos]. Una sesión real con `valkey-cli`, la herramienta de línea de comandos:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "SET resumen:Z01 '{\"despachos\":17446}' EX 5",
+     "s": "OK"
+    },
+    {
+     "c": "GET resumen:Z01",
+     "s": "{\"despachos\":17446}"
+    },
+    {
+     "c": "TTL resumen:Z01",
+     "s": "5"
+    },
+    {
+     "c": "GET resumen:Z01   # seis segundos después",
+     "s": "(vacío)"
+    },
+    {
+     "c": "TTL resumen:Z01",
+     "s": "-2"
+    },
+    {
+     "c": "INCR visitas:Z01",
+     "s": "1"
+    },
+    {
+     "c": "INCR visitas:Z01",
+     "s": "2"
+    },
+    {
+     "c": "HSET zona:Z01 nombre Palermo despachos 17446",
+     "s": "2"
+    },
+    {
+     "c": "HGETALL zona:Z01",
+     "s": "nombre\nPalermo\ndespachos\n17446"
+    },
+    {
+     "c": "TYPE zona:Z01",
+     "s": "hash"
+    },
+    {
+     "c": "DEL zona:Z01",
+     "s": "1"
+    }
+   ],
+   "cap": "Salida real de Valkey 9.0.7 en esta VM. `EX 5` da 5 segundos de vida; `TTL` devuelve los que quedan (`-2`: la clave ya no existe). `INCR` suma 1 de forma atómica y sirve para contadores, como el límite de intentos de [@07-09]. `HSET` guarda varios campos bajo una clave."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Un SET sin EX borra el TTL",
+   "x": "Si reescribís con `SET` a secas una clave que tenía tiempo de vida, el vencimiento desaparece y la clave queda para siempre. La documentación lo dice [#cache715-redis-expire] y lo comprobé: tras `EXPIRE k 100`, `TTL k` dio `100`; tras `SET k v2`, dio `-1` (sin vencimiento). Es un descuido clásico: una caché que se limpiaba sola y un día acumula datos viejos."
+  },
+  {
+   "t": "h3",
+   "x": "Cuando la memoria se llena"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Redis tiene un tope configurable, `maxmemory`, y una **política de expulsión** que decide qué hacer al llegar a él [#cache715-redis-eviction]. Probé las dos más importantes con un tope de 3 MB y 20.000 escrituras de 200 bytes:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node evict.mjs",
+     "s": "noeviction   claves guardadas=8146  escrituras rechazadas=11854  evicted_keys=0  existe k:0=1  existe k:19999=0\n   primer rechazo -> 8146: OOM command not allowed when used memory > 'maxmemory'.\nallkeys-lru  claves guardadas=8007  escrituras rechazadas=0  evicted_keys=11897  existe k:0=0  existe k:19999=1"
+    }
+   ],
+   "cap": "Valkey 9.0.7, `maxmemory 3mb`, 20.000 claves de 200 bytes de valor. Entran unas 8.000 porque cada clave gasta además memoria propia de administración. `evicted_keys` es el contador de claves que el servidor tuvo que sacar."
+  },
+  {
+   "t": "p",
+   "x": "Con `noeviction`, el servidor lleno **rechaza las escrituras nuevas** con un error (las lecturas siguen). Con `allkeys-lru` **expulsa las claves menos usadas recientemente** (LRU, *least recently used*) y sigue aceptando: quedó la clave más nueva y la más vieja desapareció. Para una caché casi siempre querés lo segundo, y la documentación lo propone como buen punto de partida cuando pocas claves se piden mucho más que el resto [#cache715-redis-eviction]. Para datos que no se pueden perder va `noeviction`, pero eso ya no es una caché."
+  },
+  {
+   "t": "h",
+   "x": "Invalidación: cuando la copia miente"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La [[invalidación]] es sacar o actualizar una copia cuando el original cambió. En [@06-23] la viste en el teléfono; acá es igual, y hay una frase famosa sobre cuán fastidiosa es:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "There are only two hard things in Computer Science: cache invalidation and naming things.",
+   "autor": "Atribuida a Phil Karlton; la recoge Martin Fowler",
+   "fuente": "cache715-fowler-two-hard"
+  },
+  {
+   "t": "p",
+   "x": "Ojo con la atribución: Fowler escribe que nunca halló una fuente en línea satisfactoria; lo más antiguo que encontró es un blog de Tim Bray de 2005, que dice haberla oído hacia 1996 o 1997 [#cache715-fowler-two-hard]. Es un dicho, no una cita con respaldo. Lo que sí podemos hacer es provocar los casos difíciles."
+  },
+  {
+   "t": "p",
+   "x": "**Caso 1: escribir y no avisarle a la caché.** Leí el resumen de la zona `Z03` (quedó guardado con TTL de 30 s), inserté un despacho nuevo en la base y volví a leer:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node stale.mjs   # parte 1",
+     "s": "--- 1. escribir sin invalidar ---\nlectura inicial                                despachos=17446 (base)\ntras insertar 1 en la base, sin tocar la cache despachos=17446 (cache)\n   TTL restante de la clave: 30 s"
+    }
+   ],
+   "cap": "Salida real. La base ya tiene 17.447, pero la caché sigue diciendo 17.446 hasta que venza el TTL."
+  },
+  {
+   "t": "p",
+   "x": "Esa «mentira» dura como máximo el TTL: 30 segundos no importan en un contador de visitas, pero sí en un stock. **Caso 2: invalidar al escribir.** Se cambia la base y se borra la clave:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node stale.mjs   # parte 2",
+     "s": "--- 2. escribir e invalidar (borrar la clave) ---\ntras insertar 1 y borrar la clave              despachos=17448 (base)"
+    }
+   ],
+   "cap": "Insertó otro despacho, borró `resumen:Z03` y la lectura siguiente fue un fallo que trajo 17.448."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "El orden de los pasos importa",
+   "x": "Primero se actualiza la base y **después** se borra la clave. Si se borra antes, un lector puede entrar en el medio, no encontrar la clave, leer el valor viejo de la base y guardarlo de nuevo [#cache715-azure-cache-aside]. Pero incluso con el orden correcto queda una grieta, la más instructiva."
+  },
+  {
+   "t": "p",
+   "x": "**Caso 3: la carrera.** Hice que un lector lento lea la base y tarde 300 ms en guardar, mientras otro proceso escribe y borra la clave. Así pasó todo:"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Lector",
+     "k": "cliente"
+    },
+    {
+     "n": "Escritor",
+     "k": "servidor"
+    },
+    {
+     "n": "Base",
+     "k": "datos"
+    },
+    {
+     "n": "Caché",
+     "k": "red"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 3,
+     "t": "GET resumen:Z03",
+     "d": "El lector mira la caché: no hay nada."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "SELECT ... → 17448",
+     "d": "Recibe 17.448, que es verdad en este instante."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "INSERT despacho → ahora hay 17449",
+     "d": "El lector aún no guardó nada; el escritor inserta un despacho."
+    },
+    {
+     "de": 1,
+     "a": 3,
+     "t": "DEL resumen:Z03",
+     "d": "El escritor invalida, pero no había nada que borrar."
+    },
+    {
+     "de": 0,
+     "a": 3,
+     "t": "SET resumen:Z03 = 17448",
+     "d": "Recién ahora el lector guarda lo que leyó antes: queda un valor viejo que nadie invalidará."
+    }
+   ],
+   "cap": "Ninguno hizo nada mal por separado."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node stale.mjs   # parte 3",
+     "s": "--- 3. la carrera: borrar no alcanza ---\nlector lento devolvio                          despachos=17448 (base)\nlo que hay de verdad en la base                despachos=17449 (base)\nuna lectura nueva, un rato despues             despachos=17448 (cache)\n   TTL restante de la clave: 30 s"
+    }
+   ],
+   "cap": "Salida real. La caché quedó con 17.448 aunque el escritor invalidó «correctamente»."
+  },
+  {
+   "t": "p",
+   "x": [
+    "No es un detalle de mi demo. El equipo de Facebook lo describió en su trabajo sobre memcached, una caché parecida a Redis: lo llamaron *stale set* («guardado viejo») y lo resolvieron con **leases**, un token que la caché entrega al que sufre el fallo y que se anula si alguien borra la clave mientras tanto, así el guardado tardío se rechaza [#cache715-nsdi-memcache].",
+    "Para una app chica, lo que tenés a mano es más modesto: **ponerle siempre un TTL**, aunque invalides al escribir, para que cualquier mentira tenga fecha de vencimiento; y, si el dato es crítico, **no cachearlo**. Acá solo demostré la carrera; no probé cada arreglo."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En el caso 3, el escritor borró la clave y igual quedó un dato viejo. ¿Qué falló exactamente?",
+   "resp": "El borrado ocurrió **antes** de que el lector guardara su copia, y esa copia salía de una lectura **anterior** a la escritura. Borrar solo limpia lo que ya está guardado; no cancela un guardado futuro. Por eso hacen falta tokens (leases), versiones o un TTL corto que acote el daño."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Estrategia",
+    "Cómo funciona",
+    "Cuándo sirve"
+   ],
+   "filas": [
+    [
+     "Solo TTL",
+     "La copia vence sola",
+     "Datos que toleran segundos o minutos de atraso"
+    ],
+    [
+     "Invalidar al escribir",
+     "Se cambia la base y se borra la clave",
+     "Muchas lecturas, pocas escrituras; sigue la carrera del caso 3"
+    ],
+    [
+     "Write-through",
+     "Se escribe la base y la caché en la misma operación",
+     "Cuando quien lee debe ver el valor nuevo ya; las escrituras se vuelven más lentas"
+    ]
+   ],
+   "cap": "Write-through actualiza base y caché en la misma escritura [#cache715-azure-cache-aside]."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Decidí qué TTL le pondrías (o si no lo cachearías) a cada dato de un sistema de logística inventado: (a) la tarifa de cada zona, que cambia una vez por semana; (b) la ubicación de un camión, que se actualiza cada 10 segundos; (c) el stock de un producto mientras se confirman pedidos que lo descuentan.",
+   "pista": "Preguntate cuánto cuesta equivocarse: qué pasa si quien lo usa ve un dato atrasado cinco minutos.",
+   "solucion": "(a) TTL de horas, más borrar la clave si alguien cambia la tarifa: casi no cambia y se pide mucho. (b) TTL de pocos segundos: la caché solo absorbe pedidos repetidos del mismo instante. (c) No cachearlo al descontar: puede servir para un «hay stock» en un listado, pero confirmar siempre contra la base, o se vende lo que no hay."
+  },
+  {
+   "t": "h",
+   "x": "La estampida: 200 pedidos y una clave vencida"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay un fallo del cache-aside que no aparece con pocos usuarios. La clave más pedida, `resumen:Z01`, vence, y en ese instante llegan 200 pedidos. Todos miran la caché, todos ven un fallo y todos hacen la consulta cara por su lado. Es la **estampida de caché** (*cache stampede*): una clave popular que vence y muchos pedidos que la regeneran a la vez.",
+    "Un trabajo de 2015 en Proceedings of the VLDB Endowment da la cuenta: si un ítem se pide 10 veces por segundo y recalcularlo tarda 3 segundos, **30 pedidos** lo recalculan en ese lapso [#cache715-vldb-stampede]. Y esas consultas simultáneas hacen más lenta a la base, así que cada una tarda más y entran más pedidos al fallo.",
+    "Lo reproduje: 200 pedidos juntos contra la clave recién vencida, con el cache-aside ingenuo y con una variante que **guarda la [[promesa]] de la consulta que ya está andando** ([@03-41]) para que los demás la esperen:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const enVuelo = new Map(); // clave -> promesa de la consulta que ya está andando\n\nasync function resumenUnaSolaVez(zona) {\n  const clave = `resumen:${zona}`;\n  const guardado = await cache.get(clave);\n  if (guardado !== null) return JSON.parse(guardado);\n  if (!enVuelo.has(clave)) {\n    enVuelo.set(clave, (async () => {\n      try {\n        const dato = await resumenDB(zona);\n        await cache.set(clave, JSON.stringify(dato), { EX: 60 });\n        return dato;\n      } finally {\n        enVuelo.delete(clave);\n      }\n    })());\n  }\n  return enVuelo.get(clave); // los 199 que llegan después esperan esta misma promesa\n}",
+   "cap": "Una sola consulta por clave y por proceso. El `finally` borra la entrada del `Map` cuando termina, salga bien o mal, para que un error no quede pegado."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node estampida.mjs",
+     "s": "ingenuo        200 pedidos juntos -> consultas a la base: 200, total 2959 ms, p95 2889 ms\nuna sola vez   200 pedidos juntos -> consultas a la base:   1, total 26 ms, p95 25 ms\ningenuo        200 pedidos juntos -> consultas a la base: 200, total 2832 ms, p95 2783 ms\nuna sola vez   200 pedidos juntos -> consultas a la base:   1, total 27 ms, p95 27 ms"
+    }
+   ],
+   "cap": "Salida real de esta VM: la base con un pool de 20 conexiones y 4 núcleos. Dos rondas de cada variante, con resultados casi iguales."
+  },
+  {
+   "t": "p",
+   "x": "**200 consultas contra 1**, y casi tres segundos contra 26 milisegundos hasta que todos reciben su respuesta. Para que lo toques, el mismo experimento en JavaScript puro, con un reloj falso que controlás a mano (sin red, corre acá mismo):"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Una caché de juguete: un Map con vencimiento y un reloj falso que controlamos a mano.\nlet reloj = 0; // segundos\nconst guardado = new Map(); // clave -> { valor, vence }\nconst cache = {\n  get(k) {\n    const e = guardado.get(k);\n    if (!e) return undefined;\n    if (reloj >= e.vence) { guardado.delete(k); return undefined; }\n    return e.valor;\n  },\n  set(k, valor, ttl) { guardado.set(k, { valor, vence: reloj + ttl }); },\n  del(k) { guardado.delete(k); },\n};\n\nlet consultasALaBase = 0;\nconst baseDeDatos = { Z01: 17446 };\nasync function consultarBase(zona) {\n  consultasALaBase++;\n  await new Promise((r) => setTimeout(r, 20)); // la base tarda\n  return baseDeDatos[zona];\n}\n\n// cache-aside: la aplicación mira la caché; si no está, va a la base y guarda.\nasync function leerZona(zona) {\n  const k = \"zona:\" + zona;\n  const enCache = cache.get(k);\n  if (enCache !== undefined) return { valor: enCache, de: \"caché\" };\n  const valor = await consultarBase(zona);\n  cache.set(k, valor, 10); // TTL de 10 segundos\n  return { valor, de: \"base\" };\n}\n\nconsole.log(\"t=0 \", await leerZona(\"Z01\"));\nreloj = 4;\nconsole.log(\"t=4 \", await leerZona(\"Z01\"));\nbaseDeDatos.Z01 = 17447; // alguien despachó un paquete más; la caché no se entera\nreloj = 9;\nconsole.log(\"t=9 \", await leerZona(\"Z01\"), \"<- dato viejo\");\nreloj = 10;\nconsole.log(\"t=10\", await leerZona(\"Z01\"), \"<- venció el TTL\");\n\n// la misma lectura, pero 50 pedidos a la vez justo cuando vence\nreloj = 100;\ncache.del(\"zona:Z01\");\nconsultasALaBase = 0;\nawait Promise.all(Array.from({ length: 50 }, () => leerZona(\"Z01\")));\nconsole.log(\"50 pedidos juntos -> consultas a la base:\", consultasALaBase);\n\n// arreglo: guardar la promesa de la consulta en curso para que los demás la esperen\nconst enVuelo = new Map();\nasync function leerZonaUnaVez(zona) {\n  const k = \"zona:\" + zona;\n  const enCache = cache.get(k);\n  if (enCache !== undefined) return { valor: enCache, de: \"caché\" };\n  if (!enVuelo.has(k)) {\n    enVuelo.set(k, consultarBase(zona).then((v) => { cache.set(k, v, 10); enVuelo.delete(k); return { valor: v, de: \"base\" }; }));\n  }\n  return enVuelo.get(k);\n}\ncache.del(\"zona:Z01\");\nconsultasALaBase = 0;\nawait Promise.all(Array.from({ length: 50 }, () => leerZonaUnaVez(\"Z01\")));\nconsole.log(\"con una sola consulta en vuelo -> consultas a la base:\", consultasALaBase);",
+   "cap": "Caché de juguete con TTL de 10 s. Salida de seis renglones: el ciclo de un dato (fallo, acierto, dato viejo, vencimiento) y la estampida con su arreglo (50 consultas contra 1). Cambiá el TTL o el tamaño de la manada."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Una promesa compartida solo protege dentro de un proceso",
+   "x": "El `Map` de promesas vive en **un** proceso. Con 4 instancias, la estampida baja de 200 consultas a hasta **4**, no a 1. Para coordinar entre procesos se usa un candado en la propia caché: `SET clave valor NX PX 5000` guarda **solo si la clave no existe** (NX) y con vida de 5000 milisegundos (PX). Quien lo consigue recalcula; los demás esperan o sirven el dato viejo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "SET lock:resumen:Z01 proc-A NX PX 5000",
+     "s": "OK"
+    },
+    {
+     "c": "SET lock:resumen:Z01 proc-B NX PX 5000",
+     "s": "(vacío)"
+    }
+   ],
+   "cap": "Salida real. A consiguió el candado y B no. El PX evita que el candado quede para siempre si A se cae. No armé el flujo completo con varios procesos: muestro solo la pieza clave."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dos defensas más. Una es **refrescar antes de que venza**: el trabajo de VLDB propone que cada pedido, con una probabilidad que crece al acercarse el vencimiento, recalcule antes de tiempo, así lo hace alguien con la clave aún viva y los demás no notan nada [#cache715-vldb-stampede]. La otra es servir el dato vencido mientras se renueva en segundo plano, lo que en HTTP es `stale-while-revalidate` ([@06-23], [#estserv-rfc5861]).",
+    "Facebook midió algo parecido: con leases, durante una semana y para claves muy propensas a estampidas, el pico de consultas a la base bajó de **17.000 por segundo a 1.300** [#cache715-nsdi-memcache]. Son números de su sistema de 2013: dan el orden de magnitud, no predicen el tuyo."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Con caché, la base ya no se cae»",
+   "x": "La caché esconde la carga, no la elimina. Si tu sistema vive del 99 % de aciertos y el servidor de caché se reinicia, durante un rato **todos** los pedidos son fallos y caen juntos sobre la base: una estampida de todas las claves a la vez (caché fría). Por eso se mide cuánto aguanta la base *sin* caché, no solo con ella."
+  },
+  {
+   "t": "h",
+   "x": "Redis y Valkey: casi lo mismo, con historia"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Usé **Valkey**, no Redis, y conviene saber por qué existen los dos. Redis nació con licencia BSD de tres cláusulas, de las más permisivas. El 20 de marzo de 2024 su empresa anunció que desde la versión 7.4 pasaba a una licencia dual, RSALv2 o SSPLv1, que ya no es «código abierto» según la Open Source Initiative (lo reconoce el propio aviso) [#cache715-redis-licencia-2024]. Una de las limitaciones de la RSALv2 es no poder ofrecer el software a terceros como servicio gestionado. El aviso aclara que el uso interno no cambia y que lo anterior sigue en BSD.",
+    "Ocho días después, el 28 de marzo, la Linux Foundation anunció Valkey: una bifurcación (*fork*) de Redis 7.2.4 que **sigue en BSD de tres cláusulas**, con el respaldo de AWS, Google Cloud, Oracle, Ericsson y Snap [#cache715-lf-valkey]. El 1 de mayo de 2025, Redis sumó la licencia AGPLv3, de código abierto, como opción desde Redis 8 [#cache715-redis-agpl-2025]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "linea-tiempo",
+   "eventos": [
+    {
+     "a": "2024-03-20",
+     "t": "Redis pasa a licencia dual",
+     "d": "RSALv2 o SSPLv1 desde la versión 7.4; lo anterior sigue en BSD."
+    },
+    {
+     "a": "2024-03-28",
+     "t": "Nace Valkey",
+     "d": "La Linux Foundation lo anuncia, a partir de Redis 7.2.4 y con BSD de tres cláusulas."
+    },
+    {
+     "a": "2025-05-01",
+     "t": "Redis suma AGPLv3",
+     "d": "Como opción adicional desde Redis 8."
+    },
+    {
+     "a": "2026-10-26",
+     "t": "Valkey 9.1.3",
+     "d": "Versión que muestra valkey.io como la última al 13-11-2026."
+    }
+   ],
+   "cap": "Fechas de los avisos oficiales citados; la última, de la portada de valkey.io el 13-11-2026."
+  },
+  {
+   "t": "p",
+   "x": "Instalé los dos. El paquete `redis-server` de Ubuntu 24.04 trae la 7.0.15 y su archivo de copyright dice `BSD-3-clause`; el binario oficial de Valkey 9.0.7 trae un `LICENSE` con `BSD-3-Clause`. Mi mismo código Node, sin cambiar una línea, habló con los dos:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "redis-server --version",
+     "s": "Redis server v=7.0.15 sha=00000000:0 malloc=jemalloc-5.3.0 bits=64 build=d064f9f48c901a92"
+    },
+    {
+     "c": "valkey-cli -p 19716 info server | grep -E 'server_name|valkey_version|redis_version'",
+     "s": "redis_version:7.2.4\nserver_name:valkey\nvalkey_version:9.0.7"
+    }
+   ],
+   "cap": "Valkey informa `redis_version:7.2.4`, la versión de Redis de la que se bifurcó, para que los clientes que preguntan por esa línea lo reconozcan. El puerto 19716 es de mi entorno."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Estado al 13-11-2026",
+   "x": [
+    "Las fechas y licencias son las de los avisos oficiales de Redis y de la Linux Foundation. No verifiqué cuál es hoy la última versión de Redis ni sus licencias versión por versión; sí confirmé lo que instalé: Redis 7.0.15 y Valkey 9.0.7, ambos BSD. La portada de Valkey muestra la 9.1.3 como la última (26-10-2026); usé la 9.0.7 porque era el binario que ofrecía la página de descargas para Ubuntu noble.",
+    "No es asesoramiento legal. Una regla práctica: para tu propia app, el riesgo de licencia es bajo en ambos; si algún día vas a **ofrecerlo como servicio a terceros**, leé la licencia con alguien que sepa. Y como los comandos básicos son los mismos, evitar los exclusivos de uno te deja cambiar después."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La clave tiene que incluir todo lo que cambia la respuesta",
+   "x": "Si el resumen depende de **quién** pregunta (cada cliente ve solo sus despachos) y la clave es `resumen:Z01`, el primero que la pida deja guardado su resumen y el segundo lo recibe. Eso es una fuga de datos, más grave que un dato viejo. La clave tiene que incluir el usuario, el idioma o lo que cambie la respuesta. Azure agrega que los datos sensibles quizá no deban ir a una caché compartida [#cache715-azure-cache-aside]."
+  },
+  {
+   "t": "h",
+   "x": "En Senda: tres cachés, ninguna de servidor"
+  },
+  {
+   "t": "p",
+   "x": "Esto corresponde al commit `25e08fa` de Senda; el código cambia, la forma permanece. Primero, lo que **no** hay: busqué `redis`, `memcache` y `valkey` como palabras en `src/`, `supabase/`, `scripts/` y `docs/` y no apareció ninguna. Senda no tiene servidor propio (lo verás en [@07-29]), así que no hay dónde poner una caché de aplicación. Sí hay tres cachés de otras formas, y encajan con lo de hoy."
+  },
+  {
+   "t": "senda",
+   "titulo": "La Biblia cargada una sola vez, y una promesa en vez de un valor",
+   "x": [
+    "`cargarBiblia` guarda en `cache` la **promesa** de leer y convertir el archivo de cada versión, no el resultado. Si dos pantallas piden la misma Biblia a la vez, comparten la promesa: la idea de «una sola consulta en vuelo» de hoy. Si la lectura falla, `cache[id]!.catch(() => delete cache[id])` quita la entrada, para reintentar en vez de guardar un error. No hay TTL ni invalidación, y no hacen falta: los archivos van dentro de la app y no cambian. Es el caso fácil de invalidación, el dato que nunca cambia."
+   ],
+   "archivos": [
+    "src/datos/biblia.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Avatares dibujados una vez, con una expulsión muy simple",
+   "x": [
+    "`svgAvatar` arma una clave con el contenido del avatar y guarda el dibujo en un `Map`. Si pasa de 200 entradas, **vacía todo** (`if (cache.size > 200) cache.clear()`): una expulsión muy tosca comparada con el LRU, que no distingue lo reciente de lo viejo. Sirve mientras recalcular un avatar sea barato; si fuera caro, convendría algo más fino."
+   ],
+   "archivos": [
+    "src/util/avatar.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Un resumen que se actualiza al escribir",
+   "x": [
+    "La tabla `salud_resumen` guarda, por pregunta, cuántas veces se respondió y cuántas se acertó. El disparador `respuestas_salud` la actualiza **en cada inserción de una respuesta**, en la misma operación, así que quien la lee no recorre millones de filas. Es una respuesta precalculada cuya «invalidación» es sumar al escribir, parecida a un write-through hecho en SQL. Y la migración de limpieza borra las respuestas de más de 30 días pero deja el resumen («la salud de cada pregunta vive en salud_resumen, que nunca se borra», dice su comentario)."
+   ],
+   "archivos": [
+    "supabase/migrations/20261027000000_escala.sql",
+    "supabase/migrations/20261109000000_limpieza.sql"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Ninguna es cache-aside con TTL en un servidor: cada una resuelve el problema a su escala, y un `Map`, una promesa o un disparador son lo más barato que hay."
+  }
+ ],
+ "recap": [
+  "Una caché de aplicación es una copia temporal de un resultado caro, en memoria, que tu código consulta antes de ir a la fuente. Cobra memoria y frescura.",
+  "Cache-aside: se mira la caché; si no está, se consulta la base y se guarda con TTL. Al escribir, se cambia la base y después se borra la clave.",
+  "Con un millón de filas inventadas en esta VM, la consulta tardó 28 ms de mediana; con índice, 10 ms; con caché, 0,07 ms. Primero se arregla la consulta; la caché rinde si la clave se repite dentro de su TTL.",
+  "Redis y Valkey son servidores de claves en memoria compartidos entre instancias. Al llenarse, `noeviction` rechaza escrituras y `allkeys-lru` saca lo menos usado.",
+  "La invalidación es difícil: una escritura sin aviso deja un dato viejo hasta el TTL, y una carrera entre lector y escritor guarda un dato viejo después de invalidar. Ponele siempre un TTL.",
+  "Si una clave popular vence, muchos pedidos la regeneran a la vez (200 consultas en vez de 1 en mi prueba). Se mitiga con una consulta compartida por proceso, un candado `SET NX PX` o refrescando antes de vencer.",
+  "Redis pasó a licencia dual el 20-03-2024 y Valkey nació el 28-03-2024 bajo BSD. La clave de caché debe incluir todo lo que cambia la respuesta, o se filtran datos entre usuarios."
+ ],
+ "repaso": [
+  {
+   "p": "Una app guarda en caché el resumen de cada zona, con TTL de 60 segundos. Un operador registra un despacho nuevo y la app solo escribe en la base, sin tocar la caché. ¿Qué ve el siguiente lector que pida esa zona dentro del minuto?",
+   "o": [
+    "El valor viejo guardado, hasta que el TTL venza y la clave se regenere",
+    "El valor nuevo, porque la base avisa sola a la caché del cambio",
+    "Un error, porque la caché y la base quedaron en conflicto",
+    "El valor nuevo, porque el TTL se reinicia con cada escritura"
+   ],
+   "c": 0,
+   "e": "La caché es una copia sin conexión con la base: nada la avisa. Sigue sirviendo el valor viejo hasta que el TTL lo borre, y recién la siguiente lectura trae el nuevo. Es lo que mostró el caso 1 (17.446 en la caché y 17.447 en la base). Que la base avise sola no ocurre, y los conflictos tampoco: la caché no valida nada."
+  },
+  {
+   "p": "Para escribir con cache-aside, ¿qué orden de pasos evita dejar un dato viejo guardado por un lector que entra en el medio?",
+   "o": [
+    "Borrar la clave primero y después actualizar la base",
+    "Actualizar la base primero y después borrar la clave",
+    "Actualizar la caché primero y después la base",
+    "Reiniciar el servidor de caché y recién después escribir"
+   ],
+   "c": 1,
+   "e": "Si se borra primero, un lector puede entrar antes de que la base cambie: no encuentra la clave, lee el valor viejo y lo guarda de nuevo. Actualizando la base primero, ese hueco se achica (aunque, como vimos en la carrera, no desaparece del todo). Reiniciar la caché es una exageración que además provoca una estampida."
+  },
+  {
+   "p": "En la demostración, el escritor borró la clave a tiempo y la caché igual quedó con un valor viejo. ¿Por qué el borrado no ayudó?",
+   "o": [
+    "Porque Redis ignora los borrados que llegan durante una lectura",
+    "Porque el escritor se equivocó de nombre de clave al borrar",
+    "Porque el borrado llegó antes de que el lector guardara su copia vieja",
+    "Porque el TTL impide borrar claves durante sus primeros segundos"
+   ],
+   "c": 2,
+   "e": "El lector leyó la base antes del cambio, el escritor borró una clave que todavía no existía, y recién después el lector guardó lo que había leído. El borrado solo limpia lo que ya está; no puede cancelar un guardado futuro. Redis no ignora borrados, la clave tenía el mismo nombre y el TTL no bloquea nada."
+  },
+  {
+   "p": "Una app corre en 4 instancias y cada una usa una consulta compartida por proceso (un Map de promesas) contra la misma clave. Vence la clave y llegan 200 pedidos repartidos entre las 4. ¿Cuántas consultas a la base harán como máximo?",
+   "o": [
+    "Una sola, porque la clave es la misma para todos",
+    "Doscientas, porque los Map no se comparten con nada",
+    "Cincuenta, porque se reparten por igual entre instancias",
+    "Cuatro, una por cada instancia que todavía no tiene su promesa"
+   ],
+   "c": 3,
+   "e": "Cada instancia tiene su propio Map en su propia memoria. Dentro de una, los pedidos comparten una sola consulta; entre instancias, no se ven. Salen hasta 4 consultas. Para llegar a 1 hace falta coordinar entre procesos, por ejemplo con un candado `SET NX PX` en la caché compartida. Las 200 serían el caso sin ninguna protección."
+  },
+  {
+   "p": "Un Redis configurado con `maxmemory` y la política `noeviction` llega a su tope. Tu app intenta guardar una clave nueva. ¿Qué pasa?",
+   "o": [
+    "El servidor borra la clave más vieja y guarda la nueva",
+    "El servidor rechaza la escritura con un error de memoria",
+    "El servidor guarda la clave y la deja en el disco",
+    "El servidor descarta la clave nueva sin avisar a nadie"
+   ],
+   "c": 1,
+   "e": "Con noeviction no se expulsa nada: las lecturas siguen funcionando pero las escrituras que agregan datos fallan con `OOM command not allowed`, como mostró la prueba (11.854 escrituras rechazadas). Borrar lo más viejo es el comportamiento de allkeys-lru, y descartar en silencio sería peor porque el error no se vería."
+  },
+  {
+   "p": "Un resumen de despachos depende del cliente que lo consulta, pero se guarda con la clave `resumen:Z01`, la misma para todos. ¿Cuál es el riesgo principal?",
+   "o": [
+    "Que la clave sea demasiado corta y la caché la rechace",
+    "Que un cliente reciba el resumen guardado por otro cliente",
+    "Que el TTL se acorte solo cuando hay más de un cliente",
+    "Que Redis necesite una clave distinta para cada instancia"
+   ],
+   "c": 1,
+   "e": "La clave identifica la pregunta; si no incluye al usuario, dos preguntas distintas comparten la misma respuesta guardada. Eso expone datos de un cliente a otro, más grave que un dato viejo. La longitud de la clave no es el problema, el TTL no cambia con la cantidad de clientes y las instancias comparten claves."
+  },
+  {
+   "p": "¿Cuál de estas afirmaciones sobre las licencias de Redis y Valkey, según los avisos oficiales de 2024, es correcta?",
+   "o": [
+    "Valkey se bifurcó de Redis 8 y usa licencia AGPLv3",
+    "Redis dejó de permitir su uso interno en producción desde 7.4",
+    "La licencia dual de Redis se aplica con efecto retroactivo a 7.2",
+    "Valkey nació de Redis 7.2.4 y mantiene BSD de tres cláusulas"
+   ],
+   "c": 3,
+   "e": "Valkey se anunció el 28-03-2024 como bifurcación de Redis 7.2.4, con BSD de tres cláusulas. Redis 8 y AGPLv3 llegaron un año después y no son su origen. Redis aclaró que el uso interno no cambia y que el cambio no es retroactivo: lo anterior sigue en BSD."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó qué es una caché usando una analogía tuya que no sea la zona de picking: por qué acelera las cosas, por qué puede dar información vieja y qué problema aparece si todos piden lo mismo justo cuando la copia vence.",
+ "para_profundizar": [
+  {
+   "fuente": "cache715-azure-cache-aside",
+   "nota": "La descripción del patrón cache-aside con sus consideraciones (vencimiento, expulsión, consistencia, escritura). Leé las secciones «Problems and considerations» y la nota sobre el orden de los pasos al escribir."
+  },
+  {
+   "fuente": "cache715-nsdi-memcache",
+   "nota": "El trabajo de Facebook sobre memcached. La sección «Leases» (página 388 de las actas) explica el guardado viejo y la manada con cifras de producción; el resto es mucho más amplio y se lee por partes."
+  },
+  {
+   "fuente": "cache715-vldb-stampede",
+   "nota": "El trabajo sobre estampida de caché. La introducción define el problema con ejemplos claros; la parte matemática del refresco temprano es opcional por ahora."
+  },
+  {
+   "fuente": "cache715-redis-eviction",
+   "nota": "La documentación de las políticas de expulsión de Redis, con cuándo conviene cada una y cómo leer `INFO` para medir tu tasa de aciertos."
+  }
+ ],
+ "videos": [
+  {
+   "q": "cache aside pattern cache stampede explained",
+   "por_que": "Para ver a otra persona dibujar el patrón y la estampida y comparar con lo que mediste hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "caché de aplicación",
+   "d": "Copia temporal de un resultado costoso, guardada en un lugar rápido (normalmente la memoria) y consultada por el propio código del servidor antes de ir a la fuente original, como una base de datos."
+  },
+  {
+   "t": "cache-aside",
+   "d": "Patrón en el que la aplicación hace de intermediaria: busca en la caché; si no está, consulta la fuente y guarda el resultado; al escribir, cambia la fuente y borra la clave de la caché."
+  },
+  {
+   "t": "invalidación",
+   "d": "Sacar o actualizar una copia guardada cuando el dato original cambió, para que nadie siga leyendo un valor viejo. Se hace al escribir, al vencer un TTL o con ambos."
+  },
+  {
+   "t": "Redis (primera vista)",
+   "d": "Servidor de estructuras de datos que vive en la memoria RAM y se consulta por red con comandos cortos (SET, GET, INCR, HSET). Se usa mucho como caché compartida entre las instancias de una app."
+  },
+  {
+   "t": "Valkey",
+   "d": "Bifurcación de Redis 7.2.4 anunciada por la Linux Foundation el 28-03-2024 y mantenida bajo licencia BSD de tres cláusulas. Usa los mismos comandos básicos que Redis."
+  },
+  {
+   "t": "estampida de caché",
+   "d": "Situación en la que una clave muy pedida vence y muchos pedidos simultáneos la regeneran a la vez, golpeando a la fuente con la misma consulta cara muchas veces."
+  },
+  {
+   "t": "política de expulsión",
+   "d": "Regla que decide qué claves saca una caché cuando se queda sin memoria. En Redis, noeviction rechaza escrituras y allkeys-lru saca las menos usadas recientemente."
+  },
+  {
+   "t": "write-through",
+   "d": "Estrategia en la que cada escritura actualiza la fuente y la caché en la misma operación, para que quien lea vea el valor nuevo apenas termine la escritura."
+  }
+ ],
+ "siguiente": "Archivos: subidas, almacenamiento de objetos y streaming. Hasta ahora el servidor manejó texto y números; mañana llegan los archivos pesados: cómo viaja una foto o un PDF hasta tu servidor, dónde se guarda y cómo se entrega sin cargarla entera en memoria.",
+ "fuentes_nuevas": [
+  {
+   "id": "cache715-azure-cache-aside",
+   "t": "Cache-Aside Pattern (Azure Architecture Center)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "anio": 2025,
+   "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/cache-aside"
+  },
+  {
+   "id": "cache715-nsdi-memcache",
+   "t": "Scaling Memcache at Facebook",
+   "a": "Nishtala et al. (NSDI '13, USENIX)",
+   "tipo": "paper",
+   "anio": 2013,
+   "url": "https://www.usenix.org/system/files/conference/nsdi13/nsdi13-final170_update.pdf"
+  },
+  {
+   "id": "cache715-vldb-stampede",
+   "t": "Optimal Probabilistic Cache Stampede Prevention",
+   "a": "Vattani, Chierichetti y Lowenstein (PVLDB 8(8))",
+   "tipo": "paper",
+   "anio": 2015,
+   "url": "https://www.vldb.org/pvldb/vol8/p886-vattani.pdf"
+  },
+  {
+   "id": "cache715-redis-licencia-2024",
+   "t": "Redis Adopts Dual Source-Available Licensing",
+   "a": "Redis",
+   "tipo": "articulo",
+   "anio": 2024,
+   "url": "https://redis.io/blog/redis-adopts-dual-source-available-licensing/"
+  },
+  {
+   "id": "cache715-redis-agpl-2025",
+   "t": "Redis is now available under the AGPLv3 open source license",
+   "a": "Rowan Trollope (Redis)",
+   "tipo": "articulo",
+   "anio": 2025,
+   "url": "https://redis.io/blog/agplv3/"
+  },
+  {
+   "id": "cache715-lf-valkey",
+   "t": "Linux Foundation Launches Open Source Valkey Community",
+   "a": "Linux Foundation",
+   "tipo": "articulo",
+   "anio": 2024,
+   "url": "https://www.linuxfoundation.org/press/linux-foundation-launches-open-source-valkey-community"
+  },
+  {
+   "id": "cache715-redis-eviction",
+   "t": "Key eviction (documentación de Redis)",
+   "a": "Redis",
+   "tipo": "doc",
+   "url": "https://redis.io/docs/latest/develop/reference/eviction/"
+  },
+  {
+   "id": "cache715-redis-tipos",
+   "t": "Redis data types (documentación de Redis)",
+   "a": "Redis",
+   "tipo": "doc",
+   "url": "https://redis.io/docs/latest/develop/data-types/"
+  },
+  {
+   "id": "cache715-redis-expire",
+   "t": "EXPIRE (documentación de Redis)",
+   "a": "Redis",
+   "tipo": "doc",
+   "url": "https://redis.io/docs/latest/commands/expire/"
+  },
+  {
+   "id": "cache715-fowler-two-hard",
+   "t": "TwoHardThings",
+   "a": "Martin Fowler",
+   "tipo": "articulo",
+   "url": "https://martinfowler.com/bliki/TwoHardThings.html"
+  }
+ ]
+}

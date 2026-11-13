@@ -1,0 +1,736 @@
+{
+ "id": "07-09",
+ "titulo": "Autenticación I: demostrar quién sos",
+ "bajada": "Atacás con un diccionario seis cuentas inventadas, medís por qué un hash común cae en milisegundos y uno de contraseña no, y probás un servidor que frena los intentos.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar por qué un servidor no puede confiar en lo que el cliente dice de sí mismo y qué prueba reemplaza esa confianza.",
+  "Justificar con un argumento concreto por qué las contraseñas se guardan con hash y no cifradas ni en texto plano.",
+  "Comparar con números medidos el costo por intento de MD5, SHA-256, PBKDF2, bcrypt, scrypt y Argon2id.",
+  "Describir qué evita la sal y qué no evita, y distinguir un ataque fuera de línea de uno en línea.",
+  "Reconocer en el SQL de Senda un límite de intentos, y dónde falta."
+ ],
+ "venis_de": "En [@07-08] viste dónde viven las reglas del negocio. Hoy llega la primera regla que casi toda app necesita antes de cualquier otra: saber con quién está hablando. Retomás el cifrado de [@05-21], las huellas de [@03-27] y las cookies de [@05-19].",
+ "se_apoya_en": [
+  "07-01",
+  "05-18",
+  "05-19",
+  "05-21",
+  "03-27"
+ ],
+ "gancho": [
+  "Un camión llega a un depósito a retirar un pallet. El chofer dice: «Vengo de parte de Ferretería Norte». El encargado no le entrega nada todavía. Pide el remito y un DNI, mira que los datos coincidan y recién entonces habilita el retiro. (Escena inventada, pero cualquier depósito serio funciona así.) Pedir esa prueba no es desconfianza: es lo único que separa un retiro legítimo de un robo con buena letra.",
+  "Un servidor está peor que ese encargado. No ve la cara de nadie: recibe líneas de texto, como viste en [@05-18], y cualquiera puede escribir `X-Usuario: marta` en un pedido. Hoy aprendés cómo se demuestra quién sos ante un programa, por qué las contraseñas no se guardan nunca tal cual (ni cifradas) y qué se hace para que, aunque alguien se lleve la base de datos entera, no se lleve las llaves de nadie. Lo medimos con un servidor propio, seis cuentas inventadas y hashes que calculé en esta VM."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Probar quién sos: tres familias de prueba"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La [[autenticación]] es el proceso por el cual un servidor comprueba que quien hace un pedido es quien dice ser. No decide qué puede hacer esa persona: eso es la autorización, tema de [@07-11]. El orden importa. Primero se averigua quién es, después qué le toca.",
+    "El servidor no tiene ojos, así que pide pruebas. Las pruebas se agrupan en tres familias, que se llaman [[factor de autenticación|factores]]:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Factor",
+    "Qué es",
+    "Ejemplo",
+    "Cómo falla"
+   ],
+   "filas": [
+    [
+     "Algo que sabés",
+     "Un secreto que está en tu cabeza",
+     "Contraseña, PIN",
+     "Se adivina, se filtra, o se la das a un sitio falso"
+    ],
+    [
+     "Algo que tenés",
+     "Un objeto o dispositivo tuyo",
+     "Teléfono con una app de códigos, llave física",
+     "Se pierde, se rompe o te lo roban"
+    ],
+    [
+     "Algo que sos",
+     "Un rasgo del cuerpo",
+     "Huella dactilar, cara",
+     "No se puede cambiar si te la copian, y puede dar falsos positivos"
+    ]
+   ],
+   "cap": "Clasificación habitual de los factores de autenticación. Una prueba combina factores de familias distintas; dos contraseñas siguen siendo un solo factor."
+  },
+  {
+   "t": "p",
+   "x": "En casi toda app web el factor de partida es la contraseña, y por eso casi todo el día de hoy gira en torno a ella: es el factor más usado y el que peor se maneja. Más abajo vemos qué se le suma encima. Hay además un problema de base: HTTP no tiene memoria entre un pedido y el siguiente ([@05-19]), así que la prueba hay que mandarla en cada pedido o dejarle al servidor algo con qué reconocerte. Eso es el tema de mañana, [@07-10]."
+  },
+  {
+   "t": "pensa",
+   "x": "Un cliente manda `POST /pedidos` con un campo `X-Usuario: marta`, y el servidor, al verlo, crea el pedido a nombre de Marta. ¿Qué está mal?",
+   "resp": "Ese campo lo escribe quien manda el pedido, o sea el cliente: cualquiera puede poner el nombre que quiera. Es el problema de la frontera de confianza ([@07-01]): lo que cruza hacia el servidor es una afirmación, no un hecho. Hace falta una prueba que solo Marta pueda producir."
+  },
+  {
+   "t": "h",
+   "x": "La contraseña: el servidor no debería poder leerla"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El modelo más simple es este. Marta elige una contraseña al registrarse, el servidor la guarda en una tabla y, cuando Marta vuelve, compara lo que escribe con lo guardado. Funciona, y es un desastre en cuanto alguien consigue la base: por una vulnerabilidad, por una copia de seguridad mal guardada o por un empleado. Pasó con empresas reales. En diciembre de 2009 se expusieron más de 32 millones de cuentas de RockYou, cuya base guardaba las contraseñas en texto plano, según el resumen de Wikipedia [#auth09-wiki-rockyou]. Y como mucha gente repite la contraseña en varios sitios, el daño no se queda en un solo servicio.",
+    "La salida que se le ocurre a casi todos es cifrar las contraseñas. Pero cifrar es reversible por diseño: con la clave volvés al texto original ([@05-21]). Y esa clave tiene que estar donde el servidor pueda usarla, o sea, cerca de la base. Quien roba la base suele poder robar también la clave. Por eso OWASP indica guardar las contraseñas con una función de hash y no cifradas: el hash es de una sola vía, y solo en casos raros, como tener que presentar la contraseña ante otro sistema, se justifica cifrar [#auth09-owasp-password-storage].",
+    "Una función hash ([@03-27]) convierte cualquier entrada en una huella de tamaño fijo: la misma entrada da siempre la misma huella, y de la huella no hay camino de vuelta. Con eso alcanza para un truco. El servidor guarda solo la huella. Cuando Marta escribe su contraseña, calcula la huella de lo que escribió y la compara con la guardada. Si coinciden, sabe que es la misma contraseña sin haberla guardado nunca. Si alguien roba la base, se lleva huellas, no contraseñas."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Marta (app)",
+     "k": "cliente"
+    },
+    {
+     "n": "Servidor",
+     "k": "servidor"
+    },
+    {
+     "n": "Base de datos",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "Registro: usuario y contraseña",
+     "d": "Viaja por HTTPS ([@05-22]). En este momento el servidor ve la contraseña en claro, es inevitable: tiene que calcular el hash."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "Guarda sal y hash, no la contraseña",
+     "d": "La contraseña se descarta de la memoria apenas se calcula el hash. En la base queda solo la huella, junto con la sal que viste en la sección siguiente."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "Login: usuario y contraseña",
+     "d": "Otro día, otro pedido. Otra vez la contraseña viaja por HTTPS."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "Pide la sal y el hash de Marta",
+     "d": "El servidor busca la fila de Marta por su nombre de usuario."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "Sal y hash guardados",
+     "resp": true,
+     "d": "La base devuelve lo que guardó en el registro."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "200 si coincide, 401 si no",
+     "resp": true,
+     "d": "El servidor recalcula el hash con la contraseña recibida y la sal guardada, compara y contesta. Nunca hubo una contraseña guardada para leer."
+    }
+   ],
+   "cap": "Registro e ingreso con hash. La base de datos nunca contiene la contraseña."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Una columna con nombre engañoso",
+   "x": "Supabase Auth guarda las contraseñas con bcrypt y una sal aleatoria por cuenta, y la columna se llama `encrypted_password` aunque lo que contiene es un hash, no un texto cifrado [#auth09-supabase-password-security]. El nombre es histórico; el contenido no se puede descifrar. Senda no usa esa columna, como vas a ver al final."
+  },
+  {
+   "t": "h",
+   "x": "El problema real: un hash común es demasiado rápido"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un hash pensado para verificar archivos tiene que ser veloz: MD5 o SHA-256 procesan millones de entradas por segundo. Para contraseñas, eso juega en contra. Quien tiene la base robada no intenta «invertir» el hash. Hace lo mismo que el servidor: prueba candidatos, calcula la huella de cada uno y compara. Si los candidatos salen de una lista de contraseñas probables (palabras, nombres, equipos, años, las que ya aparecieron en filtraciones anteriores) se llama [[ataque de diccionario]]. Si se prueban todas las combinaciones posibles, se llama fuerza bruta. En los dos casos el tiempo que lleva depende de una sola cosa: cuántos candidatos por segundo se pueden calcular.",
+    "Por eso para contraseñas existe una familia aparte, los [[hash de contraseña|hashes de contraseña]]: funciones diseñadas para ser lentas, con un parámetro de costo que se sube a medida que el hardware mejora, y en las modernas, para gastar mucha memoria por cada intento, lo que le quita ventaja a los chips especializados. OWASP recomienda Argon2id, scrypt, bcrypt y PBKDF2, y descarta MD5 y SHA-1 por rápidos [#auth09-owasp-password-storage]. Lo medí en esta VM:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Función",
+    "Parámetros",
+    "Tiempo por intento",
+    "Intentos por segundo (un hilo)"
+   ],
+   "filas": [
+    [
+     "MD5",
+     "ninguno",
+     "0,0015 a 0,0021 ms",
+     "470.000 a 675.000"
+    ],
+    [
+     "SHA-256",
+     "ninguno",
+     "0,0017 a 0,0022 ms",
+     "460.000 a 590.000"
+    ],
+    [
+     "PBKDF2-HMAC-SHA256",
+     "600.000 vueltas",
+     "115 a 119 ms",
+     "unos 9"
+    ],
+    [
+     "bcrypt",
+     "costo 10",
+     "64 a 85 ms",
+     "12 a 16"
+    ],
+    [
+     "scrypt",
+     "N=2^14, r=8 (16 MiB)",
+     "41 a 44 ms",
+     "unos 23"
+    ],
+    [
+     "scrypt",
+     "N=2^17, r=8 (128 MiB)",
+     "400 a 570 ms",
+     "2 a 3"
+    ],
+    [
+     "Argon2id",
+     "19 MiB, t=2, p=1",
+     "23 a 36 ms",
+     "28 a 44"
+    ],
+    [
+     "Argon2id",
+     "64 MiB, t=3, p=1",
+     "149 a 225 ms",
+     "4,5 a 6,7"
+    ]
+   ],
+   "cap": "Medido en esta VM compartida (4 vCPU, 13 de noviembre de 2026), un hilo, dos corridas por fila: el rango muestra el ruido entre corridas. MD5, SHA-256, PBKDF2 y scrypt: `crypto` de Node 22. bcrypt y Argon2id: Python 3.13 con `bcrypt` 5.0.0 y `argon2-cffi` 25.1.0. Un cracker especializado calcula muchísimo más por segundo, sobre todo en GPU: estas cifras sirven para comparar funciones entre sí, no para medir a un atacante real."
+  },
+  {
+   "t": "p",
+   "x": "Entre MD5 y scrypt de 16 MiB hay un factor de unas 25.000 veces. Para Marta, que entra una vez por día, esperar 40 milisegundos no se nota. Para quien prueba un millón de candidatos contra su cuenta es la diferencia entre unos dos segundos y entre 8 y 12 horas (ESTIMACIÓN: 1.000.000 por 31 a 44 ms, en un solo hilo)."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La cerradura lenta",
+   "x": [
+    "Imaginá una cerradura que tarda un segundo en abrirse. Para vos, que entrás una vez, es nada. Para alguien que prueba un millón de llaves, son once días. Esa es la idea del hash de contraseña: gastar un poco por cada intento legítimo para que el que prueba a ciegas no pueda sostener el ritmo.",
+    "La analogía falla en algo importante: el costo también lo pagás vos, el servidor, en cada ingreso. Si lo subís demasiado, tu propio servidor se vuelve el cuello de botella (a 400 ms por ingreso, unas 10 personas por segundo ocupan 4 núcleos enteros). Hay que calibrarlo: lo más lento que tu servidor soporte con su carga real."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Lo probé con seis cuentas inventadas y un diccionario propio de 480 candidatos: 40 palabras comunes con doce finales cada una (`tango`, `tango1`, `tango2020`…). Cuatro de las contraseñas son del tipo «palabra más número»; una es una frase larga y la última es una cadena al azar. Las tres corridas atacan las mismas cuentas con tres formas de guardar la contraseña:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node diccionario.js",
+     "s": "candidatos: 480 | cuentas: 6\n\nA) MD5 sin sal           1.1 ms, 4 de 6 -> marta:tango2020 pedro:asado123 tomas:boca1234 hugo:mate2024\nB) SHA-256 con sal       9.8 ms, 4 de 6, 1069 intentos -> marta:tango2020 pedro:asado123 tomas:boca1234 hugo:mate2024\nC) scrypt con sal        33.6 s, 4 de 6, 1069 intentos -> marta:tango2020 pedro:asado123 tomas:boca1234 hugo:mate2024"
+    }
+   ],
+   "cap": "Salida real, 13 de noviembre de 2026, Node 22. Cuentas y contraseñas inventadas; el ataque es contra mis propios hashes. En C se usó scrypt con N=2^14."
+  },
+  {
+   "t": "p",
+   "x": "Mirá las tres líneas. Las contraseñas de la forma «palabra y número» cayeron en los tres casos: las dos que no cayeron son la frase larga y la cadena al azar, y no porque los hashes sean distintos sino porque no están en el diccionario. Lo que cambia es el costo. Con MD5 sin sal el ataque terminó en 1 milisegundo. Con SHA-256 y sal, 10 milisegundos. Con scrypt, 33,6 segundos: unas 3.000 veces más, con el mismo diccionario y las mismas cuentas."
+  },
+  {
+   "t": "pensa",
+   "x": "En la línea B las cuentas tenían sal y el ataque igual tardó 10 milisegundos. Entonces, ¿para qué sirve la sal?",
+   "resp": "La sal no hace lento cada intento. Hace que el trabajo haya que repetirlo por cada cuenta y que no sirvan las tablas hechas de antemano. Lo que frena el cálculo es el costo del hash. Una cosa sin la otra deja un hueco: sal con hash rápido sigue cayendo; hash lento sin sal deja que un solo cálculo sirva para todas las cuentas."
+  },
+  {
+   "t": "h",
+   "x": "La sal: que la misma contraseña no dé el mismo hash"
+  },
+  {
+   "t": "p",
+   "x": "La [[sal]] es un valor al azar, distinto para cada cuenta, que se mezcla con la contraseña antes de calcular el hash y se guarda junto al hash, en claro. No es un secreto. Mirá qué pasa cuando dos cuentas eligen la misma contraseña (`tango2020`):"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node sal.js",
+     "s": "SIN SAL\nmarta  64ff61272c522a1d…\npedro  64ff61272c522a1d…\nlucia  04eb1ea7a855d67a…\n\nCON SAL (16 bytes al azar por usuario)\nmarta  sal=ab83ad37… c8407d0faf07aaee…\npedro  sal=c0e4b407… 1664d5be745d874f…\nlucia  sal=ed180f66… 64c13f79017814cf…"
+    }
+   ],
+   "cap": "Salida real. Con sal, los valores cambian en cada ejecución (la sal sale de `crypto.randomBytes`). Se muestran los primeros 16 caracteres del SHA-256."
+  },
+  {
+   "t": "p",
+   "x": "Sin sal, Marta y Pedro tienen la misma huella: alguien que mira la base ve de inmediato que repiten contraseña, y si descubre una, descubre la otra. Con sal, las huellas son distintas. Según OWASP, eso logra tres cosas [#auth09-owasp-password-storage]:"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "Dos cuentas con la misma contraseña ya no se pueden reconocer mirando la base.",
+    "Dejan de servir las tablas de huellas calculadas de antemano (las «rainbow tables»: una lista gigante de contraseña y su hash, armada una vez y reutilizada contra cualquier base). Con sal haría falta una tabla distinta por cada sal.",
+    "Hay que atacar de a una cuenta por vez. En la corrida A se calcularon 480 hashes y se comparó contra las seis cuentas a la vez; en la B, con sal, hicieron falta 1.069 intentos para el mismo resultado, porque cada cuenta se ataca por separado. Con un millón de cuentas, el trabajo se multiplica por un millón."
+   ],
+   "ord": false
+  },
+  {
+   "t": "p",
+   "x": "Un caso real que ilustra la sal que faltaba: en junio de 2012 se robaron las contraseñas de cerca de 6,5 millones de cuentas de LinkedIn, y especialistas señalaron que se descifraron fácil porque no usaban sal, según Wikipedia [#auth09-wiki-linkedin-2012]."
+  },
+  {
+   "t": "p",
+   "x": "En la práctica no manejás la sal a mano. Las bibliotecas modernas la generan y la guardan dentro del mismo texto que contiene el hash, junto con los parámetros. Mirá el mismo `tango2020` hasheado con dos funciones, con el formato desarmado:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 -c \"import bcrypt; print(bcrypt.hashpw(b'tango2020', bcrypt.gensalt(10)).decode())\"",
+     "s": "$2b$10$RidmprYWR3MBUVQ1DJILCuxhkx7EowxTNLKL2KMoYHlzvkolBz8EK"
+    },
+    {
+     "c": "# versión   costo   sal (22 caracteres)       hash (31 caracteres)",
+     "s": "# $2b$       10$     RidmprYWR3MBUVQ1DJILCu    xhkx7EowxTNLKL2KMoYHlzvkolBz8EK"
+    },
+    {
+     "c": "python3 -c \"from argon2 import PasswordHasher as P; print(P(time_cost=2, memory_cost=19456, parallelism=1).hash('tango2020'))\"",
+     "s": "$argon2id$v=19$m=19456,t=2,p=1$R6awruuMwBYw4M9JmSvj1Q$ScE2szCcmjHzB7gml2XaIBJMYWUVQiC8RT91JoC6gQs"
+    }
+   ],
+   "cap": "Salida real. En el bcrypt, `$2b$10$` indica versión y costo; en el Argon2id, `m`, `t` y `p` son memoria en KiB, pasadas y paralelismo. Todo lo necesario para verificar viaja dentro del texto, y por eso al subir el costo con los años, los hashes viejos se siguen verificando."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Y la pimienta",
+   "x": "Existe una capa más, la «pimienta» (en inglés, *pepper*): un secreto que se guarda fuera de la base, por ejemplo en un gestor de secretos, y se mezcla en el cálculo. Si el atacante se lleva solo la base, le falta ese ingrediente. OWASP la describe como un refuerzo opcional encima de la sal [#auth09-owasp-password-storage]. No reemplaza ni a la sal ni al hash lento."
+  },
+  {
+   "t": "h",
+   "x": "Qué parámetros usar hoy"
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Parámetros vigentes al 13 de noviembre de 2026",
+   "x": [
+    "**OWASP, Password Storage Cheat Sheet** (consultada el 13-11-2026) [#auth09-owasp-password-storage]. Argon2id: mínimo `m=19456` (19 MiB), `t=2`, `p=1`, o una de las combinaciones equivalentes que da la hoja (por ejemplo 46 MiB con una pasada, o 12 MiB con tres). scrypt, si no hay Argon2id: `N=2^17` (128 MiB), `r=8`, `p=1`. bcrypt, solo en sistemas heredados: costo de 10 como mínimo y contraseñas de hasta 72 bytes. PBKDF2-HMAC-SHA256, si se exige una implementación validada por FIPS: 600.000 iteraciones.",
+    "**NIST SP 800-63B-4** (versión de 2025) [#auth09-nist-800-63b-4]: si la contraseña es el único factor, al menos 15 caracteres; si es parte de un esquema multifactor, al menos 8. No imponer reglas de composición («una mayúscula, un símbolo»), no obligar a cambiarla cada tanto, y comparar cada contraseña nueva contra una lista de contraseñas conocidas o filtradas.",
+    "Estos números cambian con el hardware: cuando OWASP o NIST publiquen otros, valen los nuevos. Argon2 es el estándar RFC 9106 [#auth09-rfc9106]."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "La regla práctica, y esto es criterio y no norma: no armes tu propio esquema. Usá la función que trae tu framework o una biblioteca conocida, con los parámetros de la hoja de OWASP, medí cuánto tarda en tu servidor y ajustá. Armar \"SHA-256 de sal más contraseña\" a mano, como hice yo en la línea B para mostrar el problema, es justamente lo que no hay que hacer en producción."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Cambiar la contraseña cada 90 días la hace más segura»",
+   "x": "NIST dice lo contrario en su versión actual: los verificadores no deben exigir cambios periódicos, salvo que haya pedido de la persona o evidencia de que la contraseña se comprometió. Las rotaciones obligatorias producen contraseñas peores (`tango2020`, `tango2021`…) y no frenan a nadie que ya la tenga [#auth09-nist-800-63b-4]. Lo que sí pesa: largo, no repetirla entre sitios y una lista de contraseñas prohibidas al registrarse."
+  },
+  {
+   "t": "h",
+   "x": "El otro ataque: probar contraseñas contra el servidor vivo"
+  },
+  {
+   "t": "p",
+   "x": "Todo lo anterior defiende la base de datos si se la roban. Hay un segundo escenario, más común, donde el atacante no tiene nada: le habla al servidor como si fuera un usuario y prueba contraseñas en el formulario de ingreso. Son dos mundos distintos y se defienden distinto:"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "comparar",
+   "izq": {
+    "t": "Fuera de línea",
+    "k": "alerta",
+    "items": [
+     "El atacante ya tiene la base con los hashes.",
+     "Prueba a la velocidad de su propio hardware, sin que nadie lo vea.",
+     "Defensa: hash lento con memoria y sal; contraseñas largas.",
+     "Si falla la defensa, lo que se pierde ya está perdido."
+    ]
+   },
+   "der": {
+    "t": "En línea",
+    "k": "cliente",
+    "items": [
+     "El atacante habla con el servidor por la red.",
+     "Cada intento es un pedido HTTP: lo ve el servidor y se puede contar.",
+     "Defensa: límite de intentos, avisos, lista de contraseñas prohibidas.",
+     "El servidor decide, intento por intento, si sigue contestando."
+    ]
+   },
+   "cap": "Dos escenarios, dos defensas. Un hash lento no frena a quien prueba contra el formulario, y un límite de intentos no sirve de nada si ya se llevaron la base."
+  },
+  {
+   "t": "p",
+   "x": "Armé un servidor de práctica en esta VM (solo escucha en `127.0.0.1`) que guarda la contraseña de Marta con scrypt y sal, y tiene dos rutas de ingreso. La primera está mal hecha a propósito. Mirá cuánto tarda en contestar según el usuario exista o no:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -XPOST $S/registro -H \"$J\" -d '{\"usuario\":\"marta\",\"clave\":\"tango2020\"}' -w ' -> %{http_code}\\n'",
+     "s": "{\"ok\":true} -> 201"
+    },
+    {
+     "c": "for u in marta fantasma; do curl -s -XPOST $S/login-ingenuo -H \"$J\" -d \"{\\\"usuario\\\":\\\"$u\\\",\\\"clave\\\":\\\"incorrecta1\\\"}\" -w \"  $u: %{http_code} en %{time_total}s\\n\"; done",
+     "s": "{\"error\":\"clave_incorrecta\"}  marta: 401 en 0.037707s\n{\"error\":\"usuario_inexistente\"}  fantasma: 401 en 0.000773s"
+    }
+   ],
+   "cap": "`$S` es `http://127.0.0.1:19709` y `$J` el encabezado `Content-Type: application/json`. Salida real. Los dos mensajes distintos y la diferencia de 37 contra 0,8 milisegundos dicen quién tiene cuenta."
+  },
+  {
+   "t": "p",
+   "x": "Las dos señales (el texto del error y la demora) le avisan al atacante qué nombres de usuario existen. Sin eso tendría que adivinar a ciegas dos cosas; con eso, adivina una por vez. La segunda ruta contesta siempre lo mismo, y cuando el usuario no existe, igual gasta el tiempo de un hash contra un hash falso. Además cuenta los fallos por cuenta y, al quinto en un minuto, frena:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "for i in 1 2 3 4 5 6 7; do curl -s -i -XPOST $S/login -H \"$J\" -d '{\"usuario\":\"marta\",\"clave\":\"intento'$i'xx\"}' | grep -E '^HTTP|^Retry-After|error' | tr '\\r\\n' '  '; echo; done",
+     "s": "HTTP/1.1 401 Unauthorized  {\"error\":\"usuario_o_clave_incorrectos\"} \nHTTP/1.1 401 Unauthorized  {\"error\":\"usuario_o_clave_incorrectos\"} \nHTTP/1.1 401 Unauthorized  {\"error\":\"usuario_o_clave_incorrectos\"} \nHTTP/1.1 401 Unauthorized  {\"error\":\"usuario_o_clave_incorrectos\"} \nHTTP/1.1 401 Unauthorized  {\"error\":\"usuario_o_clave_incorrectos\"} \nHTTP/1.1 429 Too Many Requests  Retry-After: 60  {\"error\":\"demasiados_intentos\"} \nHTTP/1.1 429 Too Many Requests  Retry-After: 60  {\"error\":\"demasiados_intentos\"} "
+    },
+    {
+     "c": "curl -s -XPOST $S/login -H \"$J\" -d '{\"usuario\":\"marta\",\"clave\":\"tango2020\"}' -w ' -> %{http_code}\\n'",
+     "s": "{\"error\":\"demasiados_intentos\"} -> 429"
+    }
+   ],
+   "cap": "Salida real. El `429 Too Many Requests` lleva `Retry-After: 60`, que le dice al cliente cuántos segundos esperar. Al final, la contraseña correcta de Marta tampoco entra mientras dura el bloqueo."
+  },
+  {
+   "t": "p",
+   "x": "El corazón de ese servidor son estas dos funciones y la cuenta de fallos. Es JavaScript de verdad, del archivo que corrió arriba, sin el armado de las rutas:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const PARAMS = { N: 2 ** 14, r: 8, p: 1 };\nconst VENTANA_MS = 60_000, MAX_FALLOS = 5;\n\nfunction hashear(clave) {\n  const sal = crypto.randomBytes(16);          // sal nueva por cuenta\n  return sal.toString('hex') + '$' + crypto.scryptSync(clave, sal, 32, PARAMS).toString('hex');\n}\nfunction verificar(clave, guardado) {\n  const [sal, h] = guardado.split('$');\n  const calc = crypto.scryptSync(clave, Buffer.from(sal, 'hex'), 32, PARAMS);\n  return crypto.timingSafeEqual(calc, Buffer.from(h, 'hex')); // compara sin filtrar por tiempo\n}\nconst DUMMY = hashear('no-importa');            // hash falso: mismo trabajo si el usuario no existe\n\n// en la ruta /login:\nconst recientes = (fallos.get(usuario) || []).filter((t) => ahora - t < VENTANA_MS);\nif (recientes.length >= MAX_FALLOS) return responder(res, 429, { error: 'demasiados_intentos' }, { 'Retry-After': '60' });\nconst g = usuarios.get(usuario);\nconst ok = verificar(String(clave ?? ''), g ?? DUMMY) && !!g;",
+   "cap": "Fragmento de `servidor_login.js`, el programa que usé. `timingSafeEqual` compara dos valores en tiempo constante: una comparación común (`===`) puede terminar antes si el primer byte difiere, y esa diferencia, medida muchas veces, filtra información."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El bloqueo también se puede usar en tu contra",
+   "x": "Si el servidor bloquea la cuenta de Marta tras cinco fallos, cualquiera puede dejar a Marta sin entrar mandando cinco intentos malos a propósito: la defensa se vuelve un ataque de denegación. Por eso en la práctica se combina el límite por cuenta con límites por origen, con pausas que crecen en vez de un bloqueo total y con avisos a la persona. No hay receta única: es criterio de diseño según qué duela más, que entren o que bloqueen. NIST fija un techo (como máximo 100 fallos consecutivos por cuenta antes de deshabilitar ese autenticador) y deja a cada sistema poner un límite más estricto [#auth09-nist-800-63b-4]."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un servidor deja 5 intentos fallidos por minuto por cuenta y nada más. Un atacante conoce el usuario `marta` y prueba contra ella el diccionario de 480 candidatos de arriba, esperando cada ventana. ¿Cuánto tarda en probarlos todos? ¿Y si el diccionario tiene un millón de candidatos? ¿Qué conclusión sacás sobre el límite de intentos?",
+   "pista": "Cantidad de candidatos dividida por intentos por minuto da los minutos. Pasalos a horas o días.",
+   "solucion": "480 candidatos a 5 por minuto son 96 minutos, poco más de una hora y media: `tango2020` cae seguro. Un millón de candidatos son 200.000 minutos, unos 139 días para una sola cuenta. El límite compra tiempo y encarece mucho el ataque masivo, pero no protege a quien eligió una contraseña que está en el diccionario. Por eso va junto con la lista de contraseñas prohibidas al registrarse y con el largo mínimo."
+  },
+  {
+   "t": "h",
+   "x": "Más de una prueba: segundo factor y llaves de acceso"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La contraseña sola tiene un techo: se filtra, se repite y se entrega en sitios falsos. La respuesta es sumar una prueba de otra familia, lo que se suele llamar autenticación multifactor (MFA). Un caso muy extendido es el código de la app del teléfono, llamado TOTP, de contraseña de un solo uso basada en el tiempo. El servidor y la app comparten un secreto una única vez, al activarlo. Después, cada uno calcula por su lado el mismo número de 6 dígitos a partir del secreto y de la hora, con ventanas de 30 segundos, usando HMAC [#rfc6238]. Lo comprobé con los vectores de prueba del propio RFC:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node totp.js",
+     "s": "t=59         94287082 (RFC: 94287082)\nt=1111111109 07081804 (RFC: 07081804)\nt=1111111111 14050471 (RFC: 14050471)\nmisma ventana de 30 s: 359152 359152 | ventana siguiente: 969429"
+    }
+   ],
+   "cap": "Salida real. Mi código reproduce los tres vectores del Apéndice B del RFC 6238 (SHA-1, 8 dígitos, secreto de prueba `12345678901234567890`). Con 6 dígitos y el mismo secreto, los instantes 60 y 89 caen en una misma ventana y dan el mismo código; el 90 abre otra."
+  },
+  {
+   "t": "p",
+   "x": "Un TOTP sube mucho la vara, pero tiene un límite que el estándar de NIST nombra expresamente: los códigos que la persona tipea a mano, como los TOTP o los que llegan por mensaje, no se consideran resistentes al phishing, porque un sitio falso puede pedir el código y reenviárselo al sitio real en el momento [#auth09-nist-800-63b-4]. El código es válido, y lo usó quien no debía."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La respuesta a eso son las llaves de acceso (*passkeys*), que usan el estándar WebAuthn. Retomá [@05-21]: la clave pública y la privada. En el registro, el dispositivo crea un par de claves. La privada no sale nunca de ahí (queda protegida por la huella o el PIN del dispositivo). El servidor guarda solo la pública. Para ingresar, el servidor manda un reto al azar, el dispositivo lo firma con la privada y el servidor verifica la firma con la pública. Si alguien roba la base, se lleva claves públicas, que no sirven para entrar.",
+    "Hay un detalle clave: la firma incluye el sitio al que se le habla, y NIST cita a WebAuthn como ejemplo de resistencia al phishing por esa ligadura al nombre de dominio del verificador [#auth09-nist-800-63b-4]. Un sitio falso recibe una firma que el sitio real no acepta. Reproduje solo la idea, no el protocolo, con Ed25519 de Node:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node reto.js",
+     "s": "firma desde el sitio real      -> true\nfirma pedida por un sitio falso -> false\nreto viejo reutilizado          -> false\nlo que guarda el servidor: 44 bytes de clave pública (nada que sirva para entrar)"
+    }
+   ],
+   "cap": "Salida real. Simula la idea con `crypto.sign` y `crypto.verify` (Ed25519). No es WebAuthn: WebAuthn agrega el dominio, contadores, atestación y la interacción con el navegador y el dispositivo."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Estado de WebAuthn al 13 de noviembre de 2026",
+   "x": "La especificación Web Authentication Level 3 figura en W3C como Recomendación del 25 de agosto de 2026; la versión anterior, Level 2, es de abril de 2021 [#auth09-w3c-webauthn-3]. Las llaves de acceso que se sincronizan entre dispositivos (por ejemplo, vía el gestor de contraseñas del sistema) están contempladas en el apéndice sobre autenticadores sincronizables de NIST SP 800-63B-4 [#auth09-nist-800-63b-4]. Qué sitios y sistemas las soportan cambia mes a mes; mirá la documentación de cada plataforma."
+  },
+  {
+   "t": "h",
+   "x": "Senda: no tiene contraseñas, y aun así hay mucho para ver"
+  },
+  {
+   "t": "senda",
+   "titulo": "Una cuenta sin contraseña",
+   "x": [
+    "En Senda no hay registro con correo ni contraseña. Busqué `password` y `contraseña` en `src/`, en `supabase/functions/` y en `supabase/migrations/` y no hay ninguna aparición. La cuenta es anónima: se crea sola, la primera vez que la persona toca algo social (agregar un amigo, un rival al azar), con una llamada a `POST /auth/v1/signup` de Supabase Auth con cuerpo `{ data: {} }`. El resultado es una pareja de tokens que la app guarda en el teléfono. Mañana, en [@07-10], los abrimos.",
+    "Eso esquiva el problema de guardar contraseñas, pero no lo resuelve del todo: cambia de lugar la credencial. Ahora la prueba de quién sos es tener ese par de tokens en el teléfono. Supabase lo dice sin vueltas en su documentación: una cuenta anónima se comporta como una permanente, salvo que si se desinstala o se borran los datos, la persona no puede volver a entrar [#red31-supabase-anon-auth]. Por eso Senda ofrece guardar el progreso vinculando Google: ese camino usa un desafío PKCE, calculado con SHA-256 mediante `expo-crypto`, el mismo tipo de hash que viste hoy aplicado a otra cosa.",
+    "Esto corresponde al commit `25e08fa` (9 de noviembre de 2026); el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "docs/SEGURIDAD.md",
+    "package.json"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Un código de grupo de 8 caracteres y su límite de intentos",
+   "x": [
+    "Para unirse a un grupo (una iglesia, una célula) se usa un código. Es una contraseña corta que alguien podría intentar adivinar, y Senda lo trata en dos capas. Primera: el largo. El código tiene 8 caracteres de un alfabeto de 31 símbolos sin los que se confunden (sin O, I, L, 0 ni 1): son 31 elevado a 8, unos 853.000 millones de combinaciones. Segunda: un límite de intentos. La función SQL `ver_grupo_codigo` (la vista previa de un grupo) anota cada código inexistente en una tabla, `intentos_codigo`, y desde el vigésimo fallo en una hora contesta `demasiado`.",
+    "Hallazgo: ese límite vive solo en `ver_grupo_codigo`. La definición vigente de `unirse_grupo`, la que realmente suma a la persona al grupo, está en `20261130000005_grupos_grandes.sql` y no consulta ni anota `intentos_codigo`: la app llama primero a la vista previa y después a `unirse_grupo`, pero quien llame directo a `unirse_grupo` por la API REST se saltea el contador. No lo probé contra ningún servidor: lo leí en el SQL. El riesgo real es bajo, porque lo que más pesa es el espacio de 853.000 millones de códigos, no el contador. Pero es la lección de hoy en una línea: el límite tiene que estar en la puerta que decide, no en la que más se usa.",
+    "Tres datos más para cerrar el cuadro, todos leídos y no ejecutados. Uno: el contador es por cuenta, y las cuentas anónimas son gratis; lo único que limita las altas es el tope de Supabase, que su documentación fija por defecto en 30 por hora y por IP, y que `docs/SEGURIDAD.md` deja como tarea del fundador bajar antes del lanzamiento [#red31-supabase-anon-auth]. Dos: Supabase recomienda activar un captcha contra abusos de altas anónimas, y Senda decidió no activarlo porque su app no envía ese token (`docs/LANZAMIENTO.md`). Tres: `codigo_nuevo`, la función que genera los códigos, usa `random()` de PostgreSQL, y la documentación de PostgreSQL aclara que esa función no es apta para criptografía [#auth09-postgres-random]; OWASP pide un generador criptográficamente seguro para identificadores de sesión [#auth09-owasp-session-management]. Para un código de unirse a un grupo es un riesgo bajo; para un secreto real sería un error. Es criterio, y lo marco como tal.",
+    "Esto corresponde al commit `25e08fa` (9 de noviembre de 2026)."
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "docs/LANZAMIENTO.md",
+    "src/util/grupos.ts"
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Supongamos (número inventado) que existen 100.000 grupos en Senda, cada uno con un código al azar de 8 caracteres de un alfabeto de 31. Alguien prueba 20 códigos al azar por hora desde una cuenta. ¿Cuál es, aproximadamente, la probabilidad de que acierte uno en esa hora?",
+   "resp": "Cada intento tiene 100.000 de 853.000 millones de chances de dar con un grupo real: 20 intentos son unas 2,3 en un millón (20 por 100.000 dividido 853.000 millones). Aun si el contador no existiera, el espacio de códigos hace que adivinar sea imprácticamente lento. Lo que cambiaría la cuenta es poder probar millones de códigos por hora, y de eso se encargan tanto el límite como el tope de pedidos del proveedor."
+  },
+  {
+   "t": "p",
+   "x": "Hoy hiciste el viaje completo del problema. Un servidor no puede confiar en lo que el cliente dice, así que pide una prueba. Para la contraseña, guarda una huella lenta y con sal, nunca la clave. Defiende el formulario con límites de intentos que no revelen quién existe. Y deja abierta la puerta a pruebas más fuertes, como el segundo factor o las llaves de acceso. Falta lo que pasa después de que probaste quién sos: cómo hace el servidor para no pedírtelo de nuevo en cada pedido. Es lo de mañana."
+  }
+ ],
+ "recap": [
+  "Autenticar es comprobar quién hace el pedido; autorizar, decidir qué le toca. El servidor no puede creer lo que el cliente afirma: necesita una prueba, de las familias algo que sabés, algo que tenés o algo que sos.",
+  "Las contraseñas no se guardan en texto plano ni cifradas: se guarda un hash de contraseña, una huella lenta de la que no se puede volver. Al ingresar se recalcula y se compara.",
+  "Un hash común como MD5 o SHA-256 es demasiado rápido: en esta VM, unos 600.000 intentos por segundo contra unos 25 de scrypt. Un ataque de diccionario contra las seis cuentas inventadas terminó en 1 ms con MD5 y en 33,6 s con scrypt.",
+  "La sal es un valor al azar por cuenta, guardado junto al hash: evita que se reconozcan contraseñas repetidas, anula las tablas precalculadas y obliga a atacar cuenta por cuenta, pero no vuelve lento cada intento.",
+  "Contra el formulario en línea se defiende con límite de intentos (HTTP 429 y `Retry-After`), mensajes y tiempos iguales para usuario inexistente y contraseña mala, y lista de contraseñas prohibidas; el bloqueo por cuenta tiene el costo de poder usarse contra Marta.",
+  "El segundo factor (TOTP) suma una prueba, pero un código tipeado se puede reenviar desde un sitio falso; las llaves de acceso (WebAuthn) firman un reto ligado al dominio y el servidor guarda solo la clave pública.",
+  "En Senda no hay contraseñas: la cuenta anónima es un par de tokens. El código de grupo (31 elevado a 8) tiene límite de intentos solo en la vista previa, no en la función que une al grupo."
+ ],
+ "repaso": [
+  {
+   "p": "Una base de datos con contraseñas cifradas con AES se filtra. ¿Por qué eso es peor que si estuvieran guardadas como hash lento?",
+   "o": [
+    "Porque AES es más lento y deja a los usuarios esperando al ingresar",
+    "Porque la clave de descifrado suele estar cerca de la base y quien la roba recupera todas las contraseñas",
+    "Porque AES no se puede combinar con una sal para cada cuenta",
+    "Porque un hash es siempre más largo que un texto cifrado con AES"
+   ],
+   "c": 1,
+   "e": "Cifrar es reversible: con la clave se recupera el texto. Esa clave tiene que estar donde el servidor la use, o sea, cerca de la base, y quien accede a una suele alcanzar la otra. El hash no tiene camino de vuelta. No es un tema de velocidad ni de largo, y una sal se puede mezclar con casi cualquier cosa."
+  },
+  {
+   "p": "Marta y Pedro eligieron la misma contraseña. La base guarda SHA-256 de la contraseña sin ninguna sal. ¿Qué se ve mirando la base?",
+   "o": [
+    "Los dos hashes son idénticos, y descubrir una contraseña descubre la otra",
+    "Los dos hashes difieren porque SHA-256 mezcla el nombre de usuario",
+    "Los hashes son idénticos solo si las dos cuentas se crearon el mismo día",
+    "Los hashes difieren porque cada ejecución de SHA-256 agrega ruido al azar"
+   ],
+   "c": 0,
+   "e": "Una función hash es determinista: la misma entrada da siempre la misma salida. Sin sal, quienes repiten contraseña tienen huellas idénticas, como mostró `sal.js`. SHA-256 no mezcla el usuario ni la fecha, y no agrega ruido: justamente por eso se necesita una sal explícita."
+  },
+  {
+   "p": "Un atacante tiene la base con hashes de contraseña. Un servicio usa SHA-256 con sal por cuenta; el otro, scrypt con sal por cuenta. ¿Qué diferencia principal hay en el costo del ataque de diccionario?",
+   "o": [
+    "Con scrypt cada intento cuesta miles de veces más, con la misma sal en los dos",
+    "Con SHA-256 hay que repetir el trabajo por cuenta y con scrypt no hace falta",
+    "Con SHA-256 la sal no sirve y con scrypt sí, por una cuestión de formato",
+    "Con scrypt el diccionario deja de servir porque la sal se oculta mejor"
+   ],
+   "c": 0,
+   "e": "Las dos usan sal, así que las dos obligan a repetir el trabajo por cuenta. Lo que distingue a scrypt es el costo por intento, que en las mediciones fue unas 25.000 veces mayor que SHA-256 o MD5. La sal no se oculta en ninguna de las dos: se guarda en claro junto al hash."
+  },
+  {
+   "p": "Un login contesta «usuario inexistente» en 1 ms y «contraseña incorrecta» en 40 ms. ¿Qué problema introduce, aunque ambos devuelvan 401?",
+   "o": [
+    "Permite saber qué nombres de usuario existen, por el mensaje y por la demora",
+    "Hace que el servidor gaste más CPU de la necesaria con usuarios que existen",
+    "Obliga al cliente a reintentar y por eso abre la puerta a duplicados",
+    "Rompe la sal, porque el tiempo de respuesta revela el algoritmo usado"
+   ],
+   "c": 0,
+   "e": "La diferencia de mensaje y de tiempo deja enumerar usuarios, un primer paso para atacarlos. La solución es el mismo mensaje y el mismo trabajo (un hash falso si no existe). Que se gaste CPU es el costo normal del hash, los duplicados son otro problema y el algoritmo no es un secreto."
+  },
+  {
+   "p": "Un servidor bloquea una cuenta durante 15 minutos tras 5 intentos fallidos. ¿Qué riesgo nuevo trae esa medida?",
+   "o": [
+    "Que la contraseña de la cuenta quede expuesta en los registros del bloqueo",
+    "Que cualquiera pueda dejar sin acceso a una persona mandando intentos malos adrede",
+    "Que el hash de la contraseña deje de ser verificable mientras dura el bloqueo",
+    "Que el atacante pueda probar más contraseñas porque el contador se reinicia"
+   ],
+   "c": 1,
+   "e": "Si el bloqueo depende solo del nombre de usuario, el atacante no necesita la contraseña para molestar: le basta con fallar cinco veces. Por eso se combina con límites por origen y pausas crecientes. El bloqueo no expone contraseñas, no afecta el hash y no reinicia el contador al bloquear."
+  },
+  {
+   "p": "Un sistema pide un código TOTP de 6 dígitos como segundo factor. Un sitio falso le pide el código a la víctima y lo reenvía al sitio real en el momento. ¿Qué pasó?",
+   "o": [
+    "El sitio real lo rechazó porque el TOTP viaja cifrado de punta a punta",
+    "El sitio real lo aceptó: el código es válido y no está ligado al sitio donde se tipeó",
+    "El sitio real lo rechazó porque cada código solo sirve una vez por dispositivo",
+    "El sitio real lo aceptó porque la clave compartida se la mandó el sitio falso"
+   ],
+   "c": 1,
+   "e": "Un código tipeado es válido para quien lo presente dentro de su ventana de 30 segundos, y no lleva el nombre del sitio. Por eso NIST no lo considera resistente al phishing. Las llaves de acceso firman un reto ligado al dominio y no se pueden reenviar así. La clave compartida nunca viaja en el ataque."
+  },
+  {
+   "p": "En Senda, `ver_grupo_codigo` frena a los 20 códigos fallidos por hora, pero `unirse_grupo` no consulta ese contador. ¿Qué enseña eso sobre dónde poner un límite de intentos?",
+   "o": [
+    "Que alcanza con ponerlo en la pantalla que la gente usa primero",
+    "Que debe estar en cada función que decide el acceso, no solo en la más usada",
+    "Que no hace falta, porque el alfabeto de 31 símbolos ya lo vuelve inútil",
+    "Que conviene ponerlo solo en el cliente para que no cargue al servidor"
+   ],
+   "c": 1,
+   "e": "Quien llame directo a la función sin límite se saltea el contador: la protección tiene que estar donde se decide, porque el cliente se puede esquivar ([@07-01]). El espacio de 31 elevado a 8 códigos protege mucho, pero no reemplaza el límite; y la pantalla no es una frontera de confianza."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó por qué una empresa seria no puede mandarte tu contraseña por mail si te la olvidás, y qué guarda en cambio. Usá una analogía propia (que no sea la cerradura lenta) y mencioná qué hace la sal y por qué tarda más a propósito.",
+ "para_profundizar": [
+  {
+   "fuente": "auth09-owasp-password-storage",
+   "nota": "La hoja de referencia de OWASP para guardar contraseñas: parámetros mínimos de cada función, qué es la pimienta y cómo subir el costo con los años. Es lo que usa cualquier equipo para elegir parámetros; leé las secciones de Argon2id y de sal."
+  },
+  {
+   "fuente": "auth09-nist-800-63b-4",
+   "nota": "El estándar de identidad digital de NIST (2025): largo mínimo, nada de reglas de composición, límites de intentos y qué significa «resistente al phishing». Leé la sección 3.1.1 sobre contraseñas memorizadas y la 3.2.5 sobre phishing."
+  },
+  {
+   "fuente": "rfc6238",
+   "nota": "El RFC de TOTP: corto y legible. El Apéndice B trae los vectores de prueba que reproduje; sirve para ver el cálculo completo sin magia."
+  },
+  {
+   "fuente": "auth09-rfc9106",
+   "nota": "La definición formal de Argon2: si querés saber qué significan memoria, pasadas y paralelismo, la sección 3.1 da las definiciones de los parámetros."
+  }
+ ],
+ "videos": [
+  {
+   "q": "password hashing salt bcrypt argon2 explained",
+   "por_que": "Para ver a otra persona recorrer el mismo camino (texto plano, hash, sal, hash lento) y comparar con lo que mediste hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "autenticación",
+   "d": "Proceso por el cual un servidor comprueba que quien hace un pedido es quien dice ser, mediante una prueba que solo esa persona debería poder dar (algo que sabe, tiene o es). No decide qué puede hacer: eso es autorización."
+  },
+  {
+   "t": "hash de contraseña",
+   "d": "Huella que se guarda en lugar de la contraseña, calculada con una función deliberadamente lenta (y, en las modernas, que gasta memoria) y con una sal propia; permite verificar un ingreso sin conocer la contraseña."
+  },
+  {
+   "t": "sal",
+   "d": "Valor al azar, distinto para cada cuenta, que se mezcla con la contraseña antes de calcular el hash y se guarda junto a él en claro; evita que se reconozcan contraseñas repetidas y que sirvan las tablas calculadas de antemano."
+  },
+  {
+   "t": "ataque de diccionario",
+   "d": "Intento de adivinar contraseñas probando candidatos de una lista (palabras, nombres, años, contraseñas ya filtradas) y comparando la huella de cada uno con la guardada; funciona contra contraseñas previsibles."
+  },
+  {
+   "t": "factor de autenticación",
+   "d": "Cada familia de prueba de identidad: algo que sabés (contraseña), algo que tenés (teléfono o llave física) o algo que sos (huella). Una verificación multifactor combina factores de familias distintas."
+  }
+ ],
+ "siguiente": "Autenticación II: sesiones contra tokens. Ya probaste quién sos una vez; ahora, cómo hace el servidor para reconocerte en los pedidos siguientes sin pedirte la contraseña de nuevo, con sesiones de servidor y con tokens, ambos implementados en un servidor propio.",
+ "fuentes_nuevas": [
+  {
+   "id": "auth09-owasp-password-storage",
+   "t": "Password Storage Cheat Sheet",
+   "a": "OWASP",
+   "tipo": "doc",
+   "url": "https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html"
+  },
+  {
+   "id": "auth09-nist-800-63b-4",
+   "t": "NIST SP 800-63B-4: Digital Identity Guidelines, Authentication and Authenticator Management",
+   "a": "NIST",
+   "tipo": "doc",
+   "anio": 2025,
+   "url": "https://pages.nist.gov/800-63-4/sp800-63b.html"
+  },
+  {
+   "id": "auth09-rfc9106",
+   "t": "RFC 9106: Argon2, the Memory-Hard Function for Password Hashing and Other Applications",
+   "a": "Biryukov, Dinu, Khovratovich, Josefsson (IETF)",
+   "tipo": "rfc",
+   "anio": 2021,
+   "url": "https://www.rfc-editor.org/rfc/rfc9106"
+  },
+  {
+   "id": "auth09-w3c-webauthn-3",
+   "t": "Web Authentication: An API for accessing Public Key Credentials, Level 3",
+   "a": "W3C",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://www.w3.org/TR/webauthn-3/"
+  },
+  {
+   "id": "auth09-supabase-password-security",
+   "t": "Password security (Supabase Auth)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/auth/password-security"
+  },
+  {
+   "id": "auth09-wiki-rockyou",
+   "t": "RockYou (Wikipedia, sección Data breach)",
+   "a": "Wikipedia",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/RockYou"
+  },
+  {
+   "id": "auth09-wiki-linkedin-2012",
+   "t": "2012 LinkedIn hack (Wikipedia)",
+   "a": "Wikipedia",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/2012_LinkedIn_hack"
+  },
+  {
+   "id": "auth09-postgres-random",
+   "t": "PostgreSQL: Mathematical Functions and Operators (random)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/current/functions-math.html"
+  },
+  {
+   "id": "auth09-owasp-session-management",
+   "t": "Session Management Cheat Sheet",
+   "a": "OWASP",
+   "tipo": "doc",
+   "url": "https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html"
+  }
+ ]
+}

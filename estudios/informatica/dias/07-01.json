@@ -1,0 +1,620 @@
+{
+ "id": "07-01",
+ "titulo": "Qué es un backend y por qué hace falta",
+ "bajada": "Con un solo comando de curl falsificás un puntaje en un servidor de práctica, y de ahí sale para qué existe el backend y dónde pasa la frontera entre lo que controlás y lo que no.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Enumerar cinco cosas que una app no puede hacer sola y que justifican tener un backend: estado compartido, secretos, decisiones con autoridad, trabajo sin la app abierta y terceros.",
+  "Distinguir frontend de backend por quién controla la máquina donde corre el código, y no por lo que se ve.",
+  "Falsificar un pedido con curl contra un servidor propio y explicar por qué el servidor no debe creerle al cliente.",
+  "Rediseñar un endpoint para que el cliente informe lo que hizo y el servidor calcule lo que vale.",
+  "Ubicar en Senda dónde está la frontera de confianza cuando no existe un servidor propio."
+ ],
+ "venis_de": "En [@05-18] viste que un pedido HTTP es texto con una forma fija, y en [@06-24] que la validación de un formulario se saltea con `curl`. En [@06-44] cerraste el frontend completo. Hoy cruzás al otro lado de la conexión y preguntás para qué hace falta.",
+ "se_apoya_en": [
+  "05-18",
+  "06-24",
+  "05-31",
+  "05-22",
+  "06-44"
+ ],
+ "gancho": [
+  "Hoy, en esta VM, levanté un servidor de práctica y le mandé una sola línea de `curl`: «anotá a Beto con 999.999 puntos». Lo anotó. Beto no respondió ninguna pregunta, no abrió ninguna app y ni siquiera existe, pero quedó primero en el ranking.",
+  "El servidor no tuvo ningún error de programación: hizo exactamente lo que le pidieron. El problema es qué le pidieron y de quién lo creyó. Hoy empieza la Parte 7, la mitad de una app que no se ve. Vas a ver qué cosas no puede hacer una pantalla por sí sola, por qué existe un backend, y dónde corre la línea que separa lo que controlás de lo que no. Al final vas a ver cómo resolvió Senda esa línea sin tener ningún servidor propio."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Lo que una app puede hacer sola y dónde se queda corta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La Parte 6 terminó con una interfaz completa: pantallas, estado, formularios, datos guardados en el navegador. Con eso solo ya se hacen cosas útiles. Senda es un buen ejemplo. Lleva dentro del teléfono ocho versiones de la Biblia (los archivos `.bib` de `assets/biblia`, que ocupan 32 MB en el repositorio), el contenido de las lecciones, tu progreso y tus rachas, y funciona sin internet. Un lector, una lección o una calculadora no necesitan a nadie más.",
+    "Las limitaciones aparecen cuando entra una segunda persona, un secreto o el paso del tiempo. Hay cinco cosas que ninguna pantalla puede hacer por sí misma, y cada una alcanza para justificar un segundo programa corriendo en otra máquina:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Lo que hace falta",
+    "Por qué el teléfono solo no puede",
+    "Un caso de Senda (leído en su código)"
+   ],
+   "filas": [
+    [
+     "Que varias personas vean lo mismo",
+     "Cada teléfono tiene su propia copia y puede estar apagado o sin señal.",
+     "En un duelo del Espadeo, la función `jugar_turno` de la base corrige el turno; el teléfono solo manda sus jugadas."
+    ],
+    [
+     "Guardar un secreto",
+     "Lo que va dentro de la app lo puede leer cualquiera que la descargue.",
+     "La clave de la API de Claude es un secreto de la función de borde `trivia-sermon`; la app no la tiene."
+    ],
+    [
+     "Decidir con autoridad",
+     "El teléfono es de otra persona y puede mentir.",
+     "Los puntos de las copas y los torneos los calcula `corregir_partida` en la base."
+    ],
+    [
+     "Trabajar cuando nadie mira la app",
+     "Una app cerrada no ejecuta nada.",
+     "Una tarea de `pg_cron` llama a `enviar_avisos()` cada minuto y manda las notificaciones."
+    ],
+    [
+     "Hablar con terceros o hacer trabajo pesado",
+     "Hacen falta credenciales, conexión estable y a veces mucha CPU.",
+     "La trivia del sermón lee un PDF y le pide preguntas a un modelo de lenguaje desde una función de borde."
+    ]
+   ],
+   "cap": "Las cinco necesidades. Los casos de Senda corresponden al commit 25e08fa (2026-11-09); el código cambia, la forma permanece."
+  },
+  {
+   "t": "p",
+   "x": "Mirá lo que tienen en común las cinco filas. Todas piden una máquina que esté siempre prendida, a la que todos puedan llegar, y que no sea la de ninguno de los usuarios. Ese es el lugar que ocupa el backend."
+  },
+  {
+   "t": "h",
+   "x": "Qué es un backend (y qué no es)"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[backend]] es el conjunto de programas, datos y servicios que corren en máquinas que controla quien hace el producto, y que responden a los pedidos que llegan por la red. Frontend y backend no se distinguen porque uno se vea y el otro no. Se distinguen por **quién controla la máquina donde corre el código**. El frontend corre en el dispositivo de la persona. El backend corre en uno que controlás vos, o en uno de un proveedor al que se lo encargaste.",
+    "Esa diferencia sola explica casi todo lo que viene en esta parte. Y no dice nada sobre el tamaño. Un backend puede ser un programa en una sola computadora, cientos de copias detrás de un balanceador de carga ([@05-25]) o un servicio que alquilás ya armado, como hace Senda con Supabase. Desde el cliente se ve igual: manda un pedido HTTP ([@05-18]) y recibe una respuesta."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El depósito y la camioneta",
+   "x": [
+    "Pensalo como un depósito central y una camioneta de reparto. El repartidor lleva en la camioneta la hoja de ruta del día y puede trabajar sin llamar a nadie: es la app que funciona sin conexión. Pero el stock real, los remitos y la trazabilidad viven en el depósito. Ahí los ven todos, no se pierden si la camioneta se rompe, y nadie los puede reescribir desde el asiento del conductor.",
+    "La analogía deja de valer en un punto clave. Al repartidor lo conocés, lo contrataste y le podés pedir cuentas. A la persona que usa tu app no, y su teléfono lo maneja ella, o un programa, como quiera."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Estado compartido: el ranking que nadie tiene en el bolsillo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[estado compartido]] son los datos que varias personas o dispositivos leen y modifican, y que tienen que coincidir para todos: un ranking, el stock de un depósito, el turno de un duelo. Si cada teléfono guardara su propia copia, cada uno vería un ranking distinto, y si Ana perdiera el suyo se perdería también su puntaje. Alguien tiene que guardar la copia única, y tiene que ser una máquina disponible para todos.",
+    "Armé un servidor de práctica con el módulo `http` de Node. Escucha solo en la propia máquina (127.0.0.1, puerto 19761) y no usa datos reales. Cada comando de `curl` hace de un teléfono distinto: Ana y Beto son dos clientes inventados y un tercer comando mira el resultado."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "SRV=http://127.0.0.1:19761",
+     "s": ""
+    },
+    {
+     "c": "curl -s -X POST $SRV/ingenuo/puntaje -H 'Content-Type: application/json' -d '{\"jugador\":\"ana\",\"puntos\":300}'",
+     "s": "{\"ok\":true,\"anotado\":300}"
+    },
+    {
+     "c": "curl -s -X POST $SRV/ingenuo/puntaje -H 'Content-Type: application/json' -d '{\"jugador\":\"beto\",\"puntos\":999999}'",
+     "s": "{\"ok\":true,\"anotado\":999999}"
+    },
+    {
+     "c": "curl -s $SRV/ranking",
+     "s": "[{\"jugador\":\"beto\",\"puntos\":999999},{\"jugador\":\"ana\",\"puntos\":300}]"
+    }
+   ],
+   "cap": "El servidor guarda lo que le llega y lo devuelve ordenado. Todo corrió en esta VM; los nombres y los puntos son inventados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El tercer comando es de un tercer cliente, y ve las dos filas. Ese ranking no está en ninguno de los tres: está en el servidor, y eso es estado compartido. Ahora mirá la primera fila. Beto tiene 999.999 puntos porque eso fue lo que escribió en el pedido."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En Senda, Ana y Beto juegan un duelo por turnos. ¿Por qué el estado del duelo (de quién es el turno, cuántas piezas tiene cada uno) no puede vivir solo en el teléfono de uno de los dos?",
+   "resp": "Porque el otro jugador no lo vería. Además, ese teléfono puede quedarse sin batería o sin señal justo cuando le toca al rival, y quien guarda el estado puede mentir sobre él. Tiene que estar en un lugar disponible para los dos y que ninguno de los dos controle."
+  },
+  {
+   "t": "h",
+   "x": "La frontera de confianza"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El servidor de recién cometió un error clásico: le creyó al cliente. Le llegó `{\"jugador\":\"beto\",\"puntos\":999999}` y lo guardó, sin preguntarse quién lo mandaba ni de dónde salía ese número. Pero tampoco podía hacer mucho más, porque no puede mirar adentro del teléfono de Beto. Lo único que le llega son bytes por una conexión. Como viste en [@05-18], una solicitud HTTP es texto, y cualquiera que sepa escribir ese texto puede escribir una igual: un navegador con las herramientas de desarrollo abiertas, un script, una versión vieja de tu propia app.",
+    "La [[frontera de confianza]] es la línea, en el recorrido de un dato, que separa lo que controlás de lo que no. Del lado de adentro están tus servidores y tu base de datos: ejecutan tu código y siguen tus reglas. Del lado de afuera está todo lo demás. Todo lo que cruza hacia adentro es una **afirmación**, no un hecho. «Dice que sacó 999.999» es una afirmación. El servidor tiene que comprobarla o ignorarla."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "capas",
+   "capas": [
+    {
+     "n": "Pantalla de la persona",
+     "d": "La app o el navegador dibuja, junta lo que la persona toca y arma el pedido. Lo controla la persona, no vos.",
+     "k": "cliente"
+    },
+    {
+     "n": "Red",
+     "d": "El pedido viaja como texto HTTP dentro de TLS ([@05-22]). Cualquiera puede mandar uno igual con curl.",
+     "k": "red"
+    },
+    {
+     "n": "Frontera de confianza",
+     "d": "Lo que cruza hacia adentro es una afirmación que hay que comprobar antes de usarla.",
+     "k": "alerta"
+    },
+    {
+     "n": "Servidor",
+     "d": "Comprueba quién pide, qué puede hacer y si los datos tienen sentido. Calcula lo que vale (puntos, precios, permisos).",
+     "k": "servidor"
+    },
+    {
+     "n": "Base de datos",
+     "d": "Guarda el estado compartido. En el diseño clásico, solo le habla el servidor, nunca la pantalla.",
+     "k": "datos"
+    },
+    {
+     "n": "Servicios de terceros",
+     "d": "Pagos, correo, notificaciones, modelos de lenguaje. Se llaman con credenciales que viven del lado de adentro.",
+     "k": "os"
+    }
+   ],
+   "cap": "El recorrido de un pedido, de arriba hacia abajo. La línea roja es el único lugar donde se decide qué se acepta. En Senda, el servidor y la base son la misma pieza (Supabase), y las reglas viven dentro de la base."
+  },
+  {
+   "t": "p",
+   "x": "Esto ya lo viste desde el otro lado en [@06-24]: la validación de un formulario en el navegador es una comodidad para la persona, no una defensa. OWASP, la organización de referencia en seguridad de aplicaciones, lo dice en su guía de validación de entradas:"
+  },
+  {
+   "t": "cita",
+   "x": "Validate on the server even when the browser checks the same fields. Client-side validation is bypassable; use it for immediate feedback.",
+   "autor": "OWASP, Input Validation Cheat Sheet",
+   "fuente": "estform-owasp-input"
+  },
+  {
+   "t": "pensa",
+   "x": "Beto quedó con 999.999. Un compañero propone arreglarlo en la app de Android: que el botón «enviar» no se habilite si el puntaje supera el máximo posible. ¿Alcanza?",
+   "resp": "No. Beto no usó la app, usó curl. Cualquier regla que viva solo en el cliente se saltea escribiendo el pedido a mano. La regla tiene que estar en el servidor, del lado de adentro de la frontera. En la app el control sirve para la comodidad de la persona honesta."
+  },
+  {
+   "t": "h",
+   "x": "Cambiar lo que se le pide al cliente"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La corrección no consiste en agregar más candados a la app, sino en cambiar qué se le pide al cliente. En vez de «decime cuántos puntos hiciste», «decime qué respondiste». El servidor tiene su propia clave de respuestas, que nunca sale de ahí, y calcula los puntos él. Hice exactamente eso en otra ruta del mismo servidor, `/partida`, y probé tres pedidos: uno con trampas (un campo `puntos` de más, una respuesta mala, una pregunta que no existe y una repetida), uno con tres aciertos y uno que ni siquiera es JSON."
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "SRV=http://127.0.0.1:19761",
+     "s": ""
+    },
+    {
+     "c": "curl -s -X POST $SRV/partida -H 'Content-Type: application/json' -d '{\"jugador\":\"carla\",\"puntos\":999999,\"jugadas\":[{\"pregunta\":\"p1\",\"respuesta\":2},{\"pregunta\":\"p2\",\"respuesta\":3},{\"pregunta\":\"p9\",\"respuesta\":0},{\"pregunta\":\"p1\",\"respuesta\":2}]}'",
+     "s": "{\"aciertos\":1,\"puntos\":100}"
+    },
+    {
+     "c": "curl -s -X POST $SRV/partida -H 'Content-Type: application/json' -d '{\"jugador\":\"dani\",\"jugadas\":[{\"pregunta\":\"p1\",\"respuesta\":2},{\"pregunta\":\"p2\",\"respuesta\":0},{\"pregunta\":\"p3\",\"respuesta\":1}]}'",
+     "s": "{\"aciertos\":3,\"puntos\":300}"
+    },
+    {
+     "c": "curl -s -X POST $SRV/partida -H 'Content-Type: application/json' -d 'esto no es json'",
+     "s": "{\"error\":\"json_invalido\"}"
+    },
+    {
+     "c": "curl -s $SRV/ranking",
+     "s": "[{\"jugador\":\"beto\",\"puntos\":999999},{\"jugador\":\"ana\",\"puntos\":300},{\"jugador\":\"dani\",\"puntos\":300},{\"jugador\":\"carla\",\"puntos\":100}]"
+    }
+   ],
+   "cap": "En el primer pedido, Carla manda un campo `puntos` con 999.999: el servidor lo ignora. Cuenta solo la primera `p1` (acierto) y descarta la respuesta mala, la pregunta inexistente `p9` y la repetida. El segundo, con las tres respuestas correctas, vale 300. El tercero devuelve un error en vez de romperse."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El campo `puntos` de Carla no tuvo ningún efecto: el servidor no lo lee. La pregunta `p9`, que no existe, y la `p1` repetida tampoco sumaron. Y el pedido roto recibió un `json_invalido` en vez de tumbar el servidor. Fijate también en la última línea: el 999.999 de Beto sigue ahí. Un dato malo, una vez aceptado, queda guardado hasta que alguien lo borre. Por eso la comprobación va **antes** de guardar, nunca después."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Dato",
+    "Quién lo decide",
+    "Cómo se maneja en la ruta corregida"
+   ],
+   "filas": [
+    [
+     "Cuántos puntos vale cada respuesta",
+     "El servidor",
+     "Tiene la clave y la regla; el cliente no puede ni proponerlo."
+    ],
+    [
+     "Qué respondió la persona",
+     "El cliente informa; el servidor lo toma como afirmación",
+     "Se acepta como dato de entrada, pero se corrige contra la clave."
+    ],
+    [
+     "Cuántas preguntas cuenta una partida",
+     "El servidor",
+     "Corta en tres y descarta repetidas y desconocidas."
+    ],
+    [
+     "Quién es el jugador",
+     "Todavía nadie lo comprueba",
+     "El nombre viene en el cuerpo y se acepta tal cual."
+    ]
+   ],
+   "cap": "La última fila es una falla que queda abierta a propósito: Carla podría anotar un puntaje a nombre de Ana. Comprobar quién pide es el tema de [@07-09]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La frontera no resuelve todo",
+   "x": [
+    "Dani mandó las tres respuestas correctas y el servidor le dio 300 puntos. ¿Las contestó una persona? El servidor no tiene forma de saberlo. Si la clave de respuestas viajara dentro de la app, un programa podría leerla y contestar siempre perfecto. La frontera de confianza no elimina el engaño: lo acota. Después de hoy nadie puede inventar un puntaje mayor que el máximo del juego, pero sí quedan por defender el tiempo que tardó cada respuesta, la identidad de quien juega y la frecuencia con que lo hace. Algunas de esas defensas las vas a ver en los próximos días, como la identidad y el límite de intentos ([@07-09])."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Secretos: lo que va dentro de la app es público"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La segunda razón de peso para tener backend es guardar un secreto. Una app, sea web o móvil, se entrega completa a quien la pide. El JavaScript de una página es texto que el navegador baja. El paquete de una app de Android es un archivo que cualquiera puede abrir. Lo que está adentro se puede leer, aunque esté ofuscado, que es una forma de dificultarlo y no de impedirlo.",
+    "Mi servidor de práctica sirve en `/bundle.js` un «cliente» de juguete, con un error a propósito: la credencial de un tercero escrita adentro. El valor es una clave inventada con formato obvio de falsa. Fijate cómo se la extrae, y qué pasa si en cambio el servidor es el único que la conoce:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "SRV=http://127.0.0.1:19761",
+     "s": ""
+    },
+    {
+     "c": "curl -s $SRV/bundle.js | grep CLAVE",
+     "s": "const CLAVE_DEL_TERCERO = \"sk-practica-FALSA-0000\"; // error: un secreto dentro del cliente"
+    },
+    {
+     "c": "curl -s -o /dev/null -w '%{http_code}\\n' -X POST http://127.0.0.1:19762/resumen -d '{}'",
+     "s": "401"
+    },
+    {
+     "c": "curl -s -X POST $SRV/resumir -H 'Content-Type: application/json' -d '{\"texto\":\"la entrega salio del deposito a las seis\"}'",
+     "s": "{\"resumen\":\"la entrega salio…\"}"
+    }
+   ],
+   "cap": "Primero, buscar la clave en lo que se le entrega a cualquier cliente. Segundo, llamar al tercero (puerto 19762) sin clave: 401, «no autorizado». Tercero, pedirle al servidor que haga la llamada: el servidor agrega la credencial y devuelve el resultado."
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el segundo diseño, el cliente nunca ve la clave. Le pide a tu servidor «resumí este texto», y tu servidor agrega la credencial y llama al tercero. Es el patrón de casi toda integración: pagos, correo, mapas, modelos de lenguaje. Tiene un costo que conviene ver de entrada: ahora tu servidor es el único que puede gastar tu dinero con ese tercero, y tiene que decidir quién puede pedirle qué y cuántas veces. Si no, cualquiera puede usarlo de intermediario para gastar tu cuota."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Público por diseño y secreto de verdad",
+   "x": [
+    "No todo lo que va en la app es un error. En [@05-31] viste que la clave anónima de Senda viaja dentro de la app a propósito: identifica a la aplicación y solo alcanza lo que las reglas de la base permiten. La clave no está para esconderse. Lo que protege es lo que hay detrás. Un secreto de verdad es el que daría acceso a algo que las reglas no limitan, como una clave de pago o la de una API que cobra por uso. Esa no se manda nunca al cliente."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Un pedido, de punta a punta"
+  },
+  {
+   "t": "p",
+   "x": "Juntando las piezas, esto es lo que ocurre cuando se juega una partida contra el servidor corregido. La app informa lo que hizo la persona, el servidor consulta su clave en la base, guarda el resultado y contesta con lo que calculó:"
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "App",
+     "k": "cliente"
+    },
+    {
+     "n": "Servidor",
+     "k": "servidor"
+    },
+    {
+     "n": "Base de datos",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "POST /partida con las jugadas",
+     "d": "La app informa qué respondió la persona. No manda un puntaje: manda lo que hizo."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "¿Cuál es la correcta de cada una?",
+     "d": "El servidor consulta la clave de respuestas. Es una tabla que el cliente no puede leer."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "Las claves",
+     "resp": true,
+     "d": "La base devuelve las respuestas correctas solo al servidor."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "Guardar el puntaje calculado",
+     "d": "El servidor ya comprobó, corrigió y descartó lo que no corresponde. Recién ahora escribe."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "Hecho",
+     "resp": true,
+     "d": "El resultado queda en el estado compartido, visible para todos los clientes."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "201: 1 acierto, 100 puntos",
+     "resp": true,
+     "d": "La app recibe lo que se calculó y lo muestra. No decide nada."
+    }
+   ],
+   "cap": "Un solo viaje de ida y vuelta atraviesa la frontera dos veces: una al entrar (afirmación) y otra al salir (resultado calculado)."
+  },
+  {
+   "t": "p",
+   "x": "En una app real el recorrido suma pasos que vas a ver en los próximos días: comprobar quién pide ([@07-09]), qué puede hacer ([@07-11]), registrar lo que pasó para poder investigarlo ([@07-12]). Pero la forma es siempre esa."
+  },
+  {
+   "t": "h",
+   "x": "Senda: dónde está la frontera si no hay servidor"
+  },
+  {
+   "t": "p",
+   "x": "Senda no tiene backend propio. No hay carpeta `server/` ni `api/`, ni Express ni NestJS. Su backend es Supabase, un servicio que alquila: una base de datos PostgreSQL con una API que se genera sola, más tres funciones de borde y tareas programadas. La app le habla con `fetch`, como viste en [@05-31]. Entonces, ¿dónde queda la frontera de confianza? Dentro de la base."
+  },
+  {
+   "t": "senda",
+   "titulo": "La frontera, hecha de reglas dentro de la base",
+   "x": [
+    "El mapa técnico cuenta 41 tablas, todas con seguridad a nivel de fila activada (RLS, por Row Level Security): una regla que escribe la base y que decide qué filas puede leer o cambiar cada persona. La documentación de PostgreSQL aclara qué pasa cuando una tabla tiene RLS pero ninguna regla: se aplica una política que niega todo [#postgres-rls-ddl].",
+    "`preguntas_clave`, la tabla con la respuesta correcta de cada pregunta del Espadeo, está en ese caso. Se crea con `enable row level security` y el comentario «solo la leen las funciones», y no hay ninguna política sobre ella en las migraciones. Los teléfonos no pueden leerla.",
+    "`corregir_partida` es la función que arma el puntaje. En la migración de seguridad se le quita el permiso de ejecución a `anon` y a `authenticated`: ningún pedido de una app puede llamarla de forma directa. Solo la llaman funciones del servidor como `marca_copa`, que recibe `p_jugadas` (lo que hizo la persona) y nunca un puntaje. Además empieza con `if auth.uid() is null then raise exception 'sin_cuenta'; end if;`: la identidad sale del token de sesión que la base verificó, no de un campo que mande la app. Es justo lo que le faltaba a mi servidor de práctica en la última fila de la tabla.",
+    "Un detalle de criterio que figura en el código: `corregir_partida` toma como mínimo 300 ms por respuesta, con un comentario que dice que una respuesta más rápida «no es de una persona». Es una defensa pequeña contra programas que contestan al instante. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261107000000_grupos.sql",
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que todavía decide el teléfono",
+   "x": [
+    "No toda la autoridad está del lado de adentro, y el mapa técnico lo dice sin vueltas. Los talentos, los pasos, las vidas y la racha se calculan y se guardan en el teléfono: la función `ganar` de `src/estado/usuario.ts` suma talentos y pasos al estado local, y la base no los conoce. En copas y torneos, el tiempo de cada respuesta (`ms`) lo informa el teléfono y la base solo lo acota con ese piso de 300 ms.",
+    "Hay una segunda cara de lo mismo. El archivo `contenido/espadeo.json` viaja dentro de la app y trae el campo `correcta` de cada pregunta (5.483 preguntas en distintos estados de revisión), mientras la base tiene su propia copia en `preguntas_clave`. Como el mismo dato vive en los dos lados, alguien con paciencia podría leerlo en la app y contestar siempre perfecto: es el caso de Dani, a escala.",
+    "El propio mapa lo evalúa como una decisión razonable hoy, porque no hay dinero ni premios en juego y la app es «primero el teléfono». Su criterio es el que sirve para cualquier proyecto: definir qué cosas tienen valor y mover solo esas a la autoridad del servidor."
+   ],
+   "archivos": [
+    "src/estado/usuario.ts",
+    "contenido/espadeo.json",
+    "supabase/functions/trivia-sermon/index.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Las claves de Supabase están cambiando de nombre (verificado el 13-11-2026)",
+   "x": [
+    "La guía oficial de Supabase sobre claves de API, actualizada el 2 de noviembre de 2026, dice que las claves históricas `anon` y `service_role` se retiran antes de fin de 2026, y que hay que usar la clave «publishable» (`sb_publishable_…`, segura de exponer) y la «secret» (`sb_secret_…`, que se salta las reglas RLS y no debe salir del servidor) [#red31-supabase-api-keys]. Las nuevas no son JWT y la guía pide mandarlas en el encabezado `apikey`, no en `Authorization: Bearer`.",
+    "Senda llama `ANON_KEY` a su variable (`EXPO_PUBLIC_SUPABASE_ANON_KEY`) y, cuando no hay sesión, manda la clave también como `Authorization: Bearer` en `src/util/cuenta.ts`, línea 75. No puedo saber desde el código qué tipo de clave tiene el proyecto real, pero la migración a las nuevas probablemente pida tocar esa línea. Es el tipo de dependencia de una plataforma que conviene tener anotada: el principio (público contra secreto) no cambia, los nombres y los detalles sí."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Errores comunes"
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«El backend es la base de datos»",
+   "x": [
+    "La base de datos es una pieza del backend, no todo. El backend es también el código que decide qué se le pregunta a la base, con qué permisos y qué se hace con la respuesta. Por eso Senda puede tener una base con reglas y funciones adentro y aun así cumplir el papel de backend: las reglas son el código que decide."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Si la app no me deja hacerlo, nadie puede»",
+   "x": [
+    "Lo que la app no ofrece como botón sigue estando al alcance de cualquiera que sepa mandar el pedido a mano. El servidor tiene que comportarse como si no existiera ninguna app: como un mostrador que atiende a quien llegue, con o sin el formulario oficial."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Que esté en el servidor no lo hace seguro",
+   "x": [
+    "El backend es el lugar donde se **puede** hacer seguro, no una garantía. Mi primer servidor de hoy también estaba en el servidor, y le creyó a todo. Lo que importa es qué comprueba antes de aceptar un dato."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Para cada dato de una app de reparto, decidí si lo tiene que decidir el cliente o el servidor, y por qué: (a) el idioma de la interfaz, (b) el total a cobrar de un pedido, (c) si la persona que pide es líder de un grupo, (d) si se muestra una animación de festejo, (e) cuántos intentos de entrar le quedan a una cuenta.",
+   "pista": "Preguntate: si el cliente mintiera, ¿perdería algo alguien más que esa persona?",
+   "solucion": "(a) Cliente: solo afecta a quien la usa. (b) Servidor: el cliente podría mandar un total menor; se calcula con precios que están del lado de adentro. (c) Servidor: es un permiso, y quien lo pide es justo quien más interés tiene en mentir. (d) Cliente: es presentación. (e) Servidor: el contador tiene que sobrevivir aunque el atacante cambie de dispositivo o borre la app. Regla práctica: lo que afecta a otras personas, o a dinero, o a seguridad, se decide del lado de adentro."
+  }
+ ],
+ "recap": [
+  "Una app sola no puede compartir estado entre personas, guardar secretos, decidir con autoridad, trabajar cuando está cerrada ni hablar con terceros con credenciales: para eso existe el backend.",
+  "Frontend y backend se distinguen por quién controla la máquina donde corre el código, no por lo que se ve ni por el tamaño.",
+  "El estado compartido son los datos que varios clientes leen y modifican y que tienen que coincidir; alguien tiene que guardar la copia única.",
+  "La frontera de confianza separa lo que controlás de lo que no: todo lo que cruza hacia adentro es una afirmación, no un hecho, y el servidor la comprueba antes de guardarla.",
+  "Una buena API le pide al cliente lo que hizo y no lo que vale: el servidor calcula, ignora campos de más y descarta lo repetido o desconocido. Aun así no puede saber si el cliente es una persona.",
+  "Lo que va dentro de una app es público; los secretos reales viven en el servidor, y por eso las integraciones pasan por él. Senda resuelve la frontera con reglas dentro de la base, y conserva en el teléfono lo que no tiene valor en juego."
+ ],
+ "repaso": [
+  {
+   "p": "Una app de ranking le manda al servidor `{\"jugador\":\"ana\",\"puntos\":500}` y el servidor lo guarda sin comprobar nada. ¿Cuál es el problema de fondo?",
+   "o": [
+    "El servidor trata como un hecho lo que es solo una afirmación del cliente",
+    "El JSON debería viajar cifrado para que nadie lo pueda modificar al enviarlo",
+    "La app debería ocultar el botón de enviar cuando los puntos son demasiado altos",
+    "El servidor debería usar un puerto distinto al que usan los navegadores"
+   ],
+   "c": 0,
+   "e": "Cualquiera puede escribir ese pedido a mano, y el servidor no tiene forma de saber de dónde salió el 500. La frontera de confianza exige comprobar o recalcular. TLS protege el trayecto, no impide que el propio cliente mienta; ocultar un botón se saltea con curl, y el puerto no tiene relación con la confianza."
+  },
+  {
+   "p": "¿Qué distingue de verdad a un backend de un frontend?",
+   "o": [
+    "Que el backend no tiene interfaz y el frontend siempre tiene una",
+    "Que quien hace el producto controla la máquina donde corre el código",
+    "Que el backend usa un lenguaje distinto al que usa el frontend",
+    "Que el backend corre siempre en una sola computadora más grande"
+   ],
+   "c": 1,
+   "e": "Lo que define al backend es que corre en máquinas que controla quien hace el producto, o su proveedor. Hay backends escritos en JavaScript, igual que el frontend, y backends repartidos en cientos de máquinas. Que no tenga pantalla es una consecuencia, no la definición."
+  },
+  {
+   "p": "Un equipo guarda la clave de la API de un servicio de pago dentro del código de su app móvil, ofuscada, porque «así nadie la ve». ¿Qué conviene concluir?",
+   "o": [
+    "Está a salvo, porque el código de una app compilada no puede leerse",
+    "Es un problema solo si la app usa HTTP en lugar de HTTPS al enviar",
+    "Cualquiera que descargue la app puede extraerla: debe vivir en el servidor",
+    "Es seguro mientras la clave tenga una longitud mayor a veinte caracteres"
+   ],
+   "c": 2,
+   "e": "Lo que se entrega con la app se puede leer; ofuscar dificulta, no impide. La clave de pago tiene que quedar del lado de adentro de la frontera, y que el cliente le pida al servidor que haga la llamada. Cifrar el trayecto o alargar la clave no cambia que la clave viaja con la app."
+  },
+  {
+   "p": "En Senda, la tabla `preguntas_clave` tiene seguridad a nivel de fila activada y ninguna política. ¿Qué pueden leer de ella las apps de los usuarios?",
+   "o": [
+    "Todo, porque sin políticas no hay ninguna restricción que aplicar",
+    "Solo las filas de su propia cuenta, porque RLS siempre filtra por usuario",
+    "Solo las claves de preguntas que esa persona ya respondió antes",
+    "Nada: sin ninguna política, la regla por defecto niega todo acceso"
+   ],
+   "c": 3,
+   "e": "Según la documentación de PostgreSQL, con RLS activado y sin políticas rige una política que niega todo. Solo pasan las funciones que la base marca como de confianza. RLS no filtra por usuario por sí solo: eso lo hace una política que lo diga, y acá no hay ninguna."
+  },
+  {
+   "p": "El servidor corregido calcula los puntos con su propia clave y da 300 a un cliente que mandó las tres respuestas correctas. ¿Qué cosa sigue sin poder garantizar?",
+   "o": [
+    "Que el puntaje sea el que él calculó con su clave de respuestas",
+    "Que un cliente no pueda inventar un puntaje de 999.999 puntos",
+    "Que esas respuestas las haya dado una persona y no un programa",
+    "Que una misma pregunta repetida no cuente dos veces en la partida"
+   ],
+   "c": 2,
+   "e": "Las otras tres cosas las garantiza el código: calcula con su clave, ignora el campo puntos y descarta repetidas. Lo que no puede saber es si quien contestó es una persona o un programa con la clave. La frontera acota el engaño, no lo elimina."
+  },
+  {
+   "p": "Ana y Beto quieren ver el mismo ranking de puntajes. ¿Por qué no alcanza con que cada app guarde el suyo?",
+   "o": [
+    "Porque los teléfonos no pueden guardar datos en su almacenamiento propio",
+    "Porque cada uno tendría una copia distinta y no vería las jugadas del otro",
+    "Porque un ranking solo puede calcularse dentro de una base de datos SQL",
+    "Porque HTTP no permite que una app lea datos que están en el teléfono"
+   ],
+   "c": 1,
+   "e": "Eso es estado compartido: necesita una copia única, disponible para todos y que no sea la de ninguno. Los teléfonos sí guardan datos (Senda guarda casi todo localmente); lo que no pueden es coincidir entre sí. El cálculo del ranking no exige SQL, y HTTP no tiene nada que ver con el almacenamiento local."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística por qué un ranking de puntajes no puede vivir solo en los teléfonos y por qué el servidor no debe creerle al teléfono. Usá un ejemplo de tu rubro, como quién puede cargar el remito de una entrega, y decí qué comprobarías antes de aceptarlo.",
+ "para_profundizar": [
+  {
+   "fuente": "owasp-api",
+   "nota": "OWASP API Security Top 10: la lista de los fallos más comunes en APIs. Leé la introducción y las primeras entradas: casi todas son variantes de «le creí al cliente»."
+  },
+  {
+   "fuente": "estform-owasp-input",
+   "nota": "La hoja de OWASP sobre validación de entradas. La sección «Common Pitfalls» resume en pocas líneas por qué el servidor valida aunque el cliente también lo haga."
+  },
+  {
+   "fuente": "red31-supabase-api-keys",
+   "nota": "La guía oficial de Supabase sobre qué clave va en cada lugar. Sirve para ver el principio «público contra secreto» aplicado a un producto real."
+  },
+  {
+   "fuente": "postgres-rls-ddl",
+   "nota": "La documentación de PostgreSQL sobre seguridad a nivel de fila: la política por defecto (negar todo) y quiénes se saltean las políticas. Es la base de lo que hace Senda."
+  }
+ ],
+ "videos": [
+  {
+   "q": "never trust the client input validation server side explained",
+   "por_que": "Para ver a otra persona mostrar con ejemplos por qué todo lo que llega del cliente se trata como no confiable."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "backend",
+   "d": "El conjunto de programas, datos y servicios que corren en máquinas controladas por quien hace el producto y que responden a pedidos llegados por la red. Se distingue del frontend por quién controla la máquina, no por lo que se ve."
+  },
+  {
+   "t": "frontera de confianza",
+   "d": "La línea que separa lo que controlás (tus servidores y tu base) de lo que no (apps, navegadores, scripts). Todo lo que la cruza hacia adentro es una afirmación que hay que comprobar, no un hecho."
+  },
+  {
+   "t": "estado compartido",
+   "d": "Datos que varias personas o dispositivos leen y modifican y que tienen que coincidir para todos, como un ranking o el stock de un depósito. Exige una copia única en una máquina disponible para todos."
+  },
+  {
+   "t": "autoridad del servidor",
+   "d": "El principio de que las decisiones con valor (puntos, precios, permisos) las toma el servidor con sus propias reglas y datos, y el cliente solo informa lo que hizo y muestra el resultado."
+  },
+  {
+   "t": "pedido falsificado",
+   "d": "Una solicitud escrita a mano o por un script que imita a la que mandaría la app, con datos que la app nunca enviaría. Prueba que el cliente no es confiable."
+  }
+ ],
+ "siguiente": "Arquitectura cliente-servidor y otras topologías: cliente y servidor son roles y no máquinas, y hay otras maneras de organizar quién le habla a quién, como el peer-to-peer.",
+ "fuentes_nuevas": [
+  {
+   "id": "postgres-rls-ddl",
+   "t": "PostgreSQL: Row Security Policies",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/current/ddl-rowsecurity.html"
+  }
+ ]
+}

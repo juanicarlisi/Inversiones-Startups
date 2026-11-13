@@ -1,0 +1,906 @@
+{
+ "id": "07-21",
+ "titulo": "Python en el backend: FastAPI y Django",
+ "bajada": "Escribís el mismo endpoint de envíos en FastAPI y en Django, ves cómo cada uno valida y se documenta, y medís cuántos pedidos atiende un servidor Python con async, hilos y procesos.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar la diferencia entre WSGI y ASGI y leer el `scope` de una conexión ASGI real.",
+  "Describir cómo FastAPI usa las anotaciones de tipo para validar el pedido, devolver errores 422 y generar documentación OpenAPI.",
+  "Comparar lo que Django trae incluido (ORM, migraciones, admin) con lo que hay que escribir a mano en una API JSON.",
+  "Calcular cuánto tardan N pedidos con `async def`, con `def` y hilos, y con procesos, y explicar por qué `time.sleep` dentro de `async def` bloquea todo.",
+  "Decidir con criterios concretos entre FastAPI y Django para un producto dado."
+ ],
+ "venis_de": "En [@07-20] viste NestJS, un framework de servidor con módulos, proveedores e inyección de dependencias sobre Node. Hoy cambiás de lenguaje: el mismo problema (rutas, validación, base de datos) con las dos herramientas más usadas de Python.",
+ "se_apoya_en": [
+  "07-03",
+  "07-07",
+  "07-20",
+  "03-40",
+  "03-41",
+  "03-49"
+ ],
+ "gancho": [
+  "Escribí el mismo servicio de envíos dos veces: una con FastAPI, en 43 líneas, y otra con Django, repartida en cuatro archivos. Mandé el mismo pedido malo a las dos. La primera contestó con los tres errores a la vez, indicando campo por campo qué estaba mal. La segunda guardó en la base un peso negativo, hasta que le pedí validar a mano.",
+  "Las dos son Python, las dos son populares y las dos sirven para esto. Las diferencias no son de marca: vienen de decisiones de diseño que podés ver y medir. Hoy las vas a ver en funcionamiento: cómo un servidor le pasa un pedido a Python, qué hace cada framework con él, y por qué una línea tan inocente como `time.sleep(0.5)` convirtió 100 pedidos de medio segundo en cincuenta segundos de espera."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Python no habla HTTP: lo habla el servidor y te llama"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En [@07-03] armaste un servidor HTTP desde cero: abrías el puerto, leías los bytes del pedido y escribías la respuesta. Ese trabajo existe también en Python, pero casi nadie lo hace dentro de su aplicación. En producción se reparte entre **dos programas**. Uno es el **servidor**, que es dueño de los sockets: acepta conexiones, entiende HTTP y mantiene viva cada conexión. Con Python suele ser Uvicorn o Gunicorn. El otro es **tu aplicación**, que no sabe nada de sockets: es una función de Python que recibe un resumen del pedido y devuelve una respuesta.",
+    "Para que cualquier servidor pueda hablar con cualquier aplicación hace falta un contrato escrito. Python tuvo dos. El primero es [[WSGI]] (*Web Server Gateway Interface*), que se fijó en el PEP 333 en 2003 y se corrigió en el PEP 3333 en 2010 [#py2121-pep3333][#py2121-pep333]. El segundo es [[ASGI]] (*Asynchronous Server Gateway Interface*), que la documentación oficial describe como el sucesor espiritual de WSGI, pensado para servidores y frameworks capaces de trabajar con código asíncrono [#py2121-asgi]. Mirá las dos versiones mínimas posibles, con la misma respuesta:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "# WSGI: una función sincrónica. El servidor la llama una vez por pedido.\ndef app(environ, start_response):\n    cuerpo = f\"{environ['REQUEST_METHOD']} {environ['PATH_INFO']}\\n\".encode()\n    start_response(\"200 OK\", [(\"Content-Type\", \"text/plain\"), (\"Content-Length\", str(len(cuerpo)))])\n    return [cuerpo]\n",
+   "cap": "WSGI mínimo (wsgi_min.py). El servidor llama a `app` una vez por pedido y espera la respuesta como valor de retorno."
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "# ASGI: una corrutina con tres argumentos. El servidor la llama una vez por conexión.\nasync def app(scope, receive, send):\n    if scope[\"type\"] != \"http\":\n        return\n    cuerpo = f\"{scope['method']} {scope['path']}\\n\".encode()\n    await send({\"type\": \"http.response.start\", \"status\": 200,\n                \"headers\": [(b\"content-type\", b\"text/plain\"), (b\"content-length\", str(len(cuerpo)).encode())]})\n    await send({\"type\": \"http.response.body\", \"body\": cuerpo})",
+   "cap": "ASGI mínimo (asgi_min.py). El servidor llama a `app` una vez por conexión. `receive` y `send` son corrutinas: por ahí circulan los mensajes."
+  },
+  {
+   "t": "p",
+   "x": "Probé las dos en esta VM. La WSGI corre con `wsgiref`, el servidor de juguete que trae Python; la ASGI, con Uvicorn 0.54.0:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python3 wsgi_min.py &",
+     "s": ""
+    },
+    {
+     "c": "curl -si http://127.0.0.1:19721/hola",
+     "s": "HTTP/1.0 200 OK\nServer: WSGIServer/0.2 CPython/3.13.18\nContent-Type: text/plain\nContent-Length: 10\n\nGET /hola"
+    },
+    {
+     "c": "uvicorn asgi_min:app --port 19722 --log-level warning &",
+     "s": ""
+    },
+    {
+     "c": "curl -si http://127.0.0.1:19722/hola",
+     "s": "HTTP/1.1 200 OK\nserver: uvicorn\ncontent-type: text/plain\ncontent-length: 10\n\nGET /hola"
+    }
+   ],
+   "cap": "Mismo contenido, dos contratos. Salida abreviada (saqué la línea `date`). Se ve quién habló HTTP: el servidor, no la función."
+  },
+  {
+   "t": "p",
+   "x": "La diferencia de fondo está en la firma. La función WSGI recibe un diccionario `environ` ya completo y devuelve el resultado: cuando retorna, el pedido terminó. La función ASGI recibe un `scope`, que describe la **conexión**, y dos canales: `receive` para lo que llega y `send` para lo que sale. Como son corrutinas (el `async def` que viste en [@03-41]), la función puede quedarse esperando sin trabar al servidor. Eso permite cosas que WSGI no puede describir, como una conexión [[WebSocket]] que dura horas. Para ver el `scope` real, escribí una aplicación que lo imprime y le pedí `/envios/7?estado=en_ruta` con una cabecera inventada:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "uvicorn asgi_scope:app --port 19722 --log-level warning &",
+     "s": "lifespan: lifespan.startup"
+    },
+    {
+     "c": "curl -s 'http://127.0.0.1:19722/envios/7?estado=en_ruta' -H 'X-Demo: 1'",
+     "s": "{\"type\": \"http\", \"asgi\": {\"version\": \"3.0\", \"spec_version\": \"2.3\"}, \"http_version\": \"1.1\",\n \"server\": [\"127.0.0.1\", 19722], \"scheme\": \"http\", \"method\": \"GET\",\n \"path\": \"/envios/7\", \"query_string\": \"estado=en_ruta\",\n \"headers\": [[\"host\", \"127.0.0.1:19722\"], [\"user-agent\", \"curl/8.5.0\"], [\"accept\", \"*/*\"], [\"x-demo\", \"1\"]], ...}"
+    },
+    {
+     "c": "# al apagar el servidor con Ctrl+C",
+     "s": "lifespan: lifespan.shutdown"
+    }
+   ],
+   "cap": "El `scope` que recibe una aplicación ASGI (reformateado y recortado: omití `client`, `root_path` y `raw_path`). Antes de cualquier pedido, Uvicorn mandó un mensaje de arranque («lifespan»), y otro al apagar."
+  },
+  {
+   "t": "p",
+   "x": "Fijate en dos cosas. El `scope` ya trae el método, la ruta y la consulta separados, y las cabeceras como pares de bytes. Y antes del primer pedido Uvicorn le avisó a la aplicación que estaba arrancando: ese mensaje de *lifespan* es el lugar donde un framework abre su conexión a la base o carga su configuración una sola vez, y el de cierre es donde la suelta. El tipo de conexión está en `scope[\"type\"]`: según la especificación puede ser `http`, `websocket` o `lifespan` [#py2121-asgi-www]."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Cliente",
+       "s": "navegador, app o curl",
+       "k": "cliente"
+      },
+      {
+       "t": "Servidor ASGI",
+       "s": "Uvicorn: sockets y HTTP",
+       "k": "red",
+       "e": "bytes por TCP"
+      },
+      {
+       "t": "Framework",
+       "s": "Starlette + FastAPI, o Django",
+       "k": "servidor",
+       "e": "scope, receive, send"
+      },
+      {
+       "t": "Tu función",
+       "s": "la que escribís vos",
+       "k": "datos",
+       "e": "argumentos ya validados"
+      }
+     ],
+     "baja": "La respuesta hace el camino inverso: tu función devuelve un objeto, el framework lo convierte en mensajes `send` y el servidor los escribe como HTTP."
+    }
+   ],
+   "cap": "Las tres capas de una aplicación Python en producción. Solo la del medio cambia entre FastAPI y Django."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El contrato del muelle",
+   "x": [
+    "En logística, un muelle de carga acepta cualquier camión que respete medidas y accesos estándar, y el camión no necesita saber cómo funciona el depósito. WSGI y ASGI son esas medidas: Uvicorn es el muelle, FastAPI o Django son el depósito que atiende lo que llega, y mientras ambos cumplan la norma se pueden cambiar por separado.",
+    "Dónde deja de valer: un muelle real tiene un número finito de puertas y la carga queda físicamente en espera. Acá lo que decide cuántos pedidos se atienden a la vez no es el contrato sino cómo trabaja el servidor (procesos, hilos o un solo bucle de eventos), y eso lo vas a medir más abajo."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Una función WSGI devuelve un valor y termina. ¿Por qué ese diseño no alcanza para un WebSocket, que mantiene la conexión abierta mientras van y vienen mensajes?",
+   "resp": "Porque el contrato WSGI modela un pedido que produce una respuesta y se cierra: no hay forma de que la aplicación reciba un mensaje, conteste, espere otro y conteste de nuevo dentro de la misma llamada. ASGI describe la conexión como una conversación: `receive` y `send` se pueden usar tantas veces como haga falta mientras la conexión viva."
+  },
+  {
+   "t": "h",
+   "x": "FastAPI: los tipos son el contrato"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahora, la aplicación. El primer candidato es **FastAPI**, un framework que se apoya en dos bibliotecas: Starlette, un kit ASGI liviano que aporta rutas, WebSockets y tareas en segundo plano [#py2121-starlette], y [[Pydantic]], que valida datos y cuyo núcleo está escrito en Rust [#py2121-pydantic]. La idea central cabe en una frase y se llama [[tipado en FastAPI]]: las anotaciones de tipo que ya escribirías en cualquier código Python moderno (`peso_kg: float`) se usan como **instrucciones** para leer el pedido, validarlo y documentarlo.",
+    "Una aclaración que evita un malentendido enorme: Python por sí solo no hace nada con esas anotaciones. La documentación del módulo `typing` lo dice sin vueltas: el intérprete no las hace cumplir [#tipos-python-typing]. Si escribís `def f(x: int)` y llamás `f(\"hola\")`, Python ejecuta igual. La diferencia es que FastAPI **lee** las anotaciones cuando arranca la aplicación y arma, a partir de ellas, el código que valida cada pedido. El tipo no se vuelve obligatorio por magia: lo vuelve obligatorio el framework.",
+    "Este es el endpoint de prueba completo. Es un servicio de envíos con datos inventados, guardado en un diccionario en memoria, porque lo que importa hoy es cómo se declara y cómo se comporta:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "from typing import Literal\n\nfrom fastapi import FastAPI, HTTPException, Query\nfrom pydantic import BaseModel, Field\n\napp = FastAPI(title=\"Envíos de práctica\", version=\"0.1.0\")\n\n\nclass EnvioNuevo(BaseModel):\n    destino: str = Field(min_length=3, max_length=60)\n    peso_kg: float = Field(gt=0, le=1000)\n    prioridad: Literal[\"normal\", \"urgente\"] = \"normal\"\n\n\nclass Envio(EnvioNuevo):\n    id: int\n    estado: Literal[\"pendiente\", \"en_ruta\", \"entregado\"] = \"pendiente\"\n\n\nENVIOS: dict[int, Envio] = {}\n\n\n@app.post(\"/envios\", response_model=Envio, status_code=201)\ndef crear(nuevo: EnvioNuevo) -> Envio:\n    envio = Envio(id=len(ENVIOS) + 1, **nuevo.model_dump())\n    ENVIOS[envio.id] = envio\n    return envio\n\n\n@app.get(\"/envios/{envio_id}\", response_model=Envio)\ndef uno(envio_id: int) -> Envio:\n    if envio_id not in ENVIOS:\n        raise HTTPException(status_code=404, detail=\"No existe ese envío\")\n    return ENVIOS[envio_id]\n\n\n@app.get(\"/envios\", response_model=list[Envio])\ndef listar(\n    estado: Literal[\"pendiente\", \"en_ruta\", \"entregado\"] | None = None,\n    limite: int = Query(10, ge=1, le=100),\n) -> list[Envio]:\n    todos = [e for e in ENVIOS.values() if estado is None or e.estado == estado]\n    return todos[:limite]",
+   "cap": "main.py: FastAPI 0.162.7 con Pydantic 2.14.3. 43 líneas. No hay ningún `if` que revise el peso ni el destino: eso lo declaran los tipos y `Field`."
+  },
+  {
+   "t": "p",
+   "x": "Lo levanté con Uvicorn y le mandé un pedido correcto y uno con tres errores a la vez: destino de una letra, peso negativo y una prioridad que no existe:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "uvicorn main:app --port 19723 --log-level warning &",
+     "s": ""
+    },
+    {
+     "c": "curl -si -X POST $S/envios -H 'content-type: application/json' -d '{\"destino\":\"Rosario\",\"peso_kg\":12.5}'",
+     "s": "HTTP/1.1 201 Created\ncontent-type: application/json\n\n{\"destino\":\"Rosario\",\"peso_kg\":12.5,\"prioridad\":\"normal\",\"id\":1,\"estado\":\"pendiente\"}"
+    },
+    {
+     "c": "curl -s -X POST $S/envios -H 'content-type: application/json' -d '{\"destino\":\"X\",\"peso_kg\":-3,\"prioridad\":\"rapidisimo\"}'  # status 422",
+     "s": "{\"detail\":[\n {\"type\":\"string_too_short\",\"loc\":[\"body\",\"destino\"],\"msg\":\"String should have at least 3 characters\",\"input\":\"X\"},\n {\"type\":\"greater_than\",\"loc\":[\"body\",\"peso_kg\"],\"msg\":\"Input should be greater than 0\",\"input\":-3},\n {\"type\":\"literal_error\",\"loc\":[\"body\",\"prioridad\"],\"msg\":\"Input should be 'normal' or 'urgente'\",\"input\":\"rapidisimo\"}]}"
+    }
+   ],
+   "cap": "`$S` es http://127.0.0.1:19723. La respuesta de error está reformateada y sin los campos `ctx`; lo demás es literal. El código de estado fue 422."
+  },
+  {
+   "t": "p",
+   "x": "Tres cosas para notar. Primero, **la función `crear` ni se ejecutó** en el pedido malo: la validación ocurre antes. Segundo, el error no dice solo «mal»: dice en qué parte del pedido (`body`), qué campo y por qué, los tres a la vez, así que el que arma la app cliente no tiene que adivinar. Tercero, ese código 422 y esa forma de respuesta no los escribí yo. En [@07-07] viste por qué conviene validar la entrada antes de tocar la lógica; acá la validación es **declarativa**, y se limita a lo que dicen los tipos."
+  },
+  {
+   "t": "p",
+   "x": "La misma lectura de tipos funciona en las otras partes del pedido: el `envio_id: int` del camino, el `estado` y el `limite` de la consulta. Probé varias variantes y copio lo que contestó:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pedido",
+    "Respuesta real",
+    "Qué pasó"
+   ],
+   "filas": [
+    [
+     "`GET /envios/abc`",
+     "422, `loc: [\"path\", \"envio_id\"]`, «Input should be a valid integer»",
+     "El tipo `int` del camino rechazó el texto"
+    ],
+    [
+     "`GET /envios?limite=0`",
+     "422, `loc: [\"query\", \"limite\"]`, «greater than or equal to 1»",
+     "`Query(10, ge=1, le=100)` pone el mínimo"
+    ],
+    [
+     "`GET /envios/99`",
+     "404, `{\"detail\":\"No existe ese envío\"}`",
+     "Lo levanté yo con `HTTPException`"
+    ],
+    [
+     "`POST` con `\"peso_kg\":\"10\"`",
+     "201: lo aceptó y guardó 10.0",
+     "Pydantic convirtió el texto «10» a número"
+    ],
+    [
+     "`POST` con `\"peso_kg\":\"pesado\"`",
+     "422, «unable to parse string as a number»",
+     "No había forma de convertirlo"
+    ]
+   ],
+   "cap": "Medido en la VM con FastAPI 0.162.7. Las respuestas se abrevian a lo esencial."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "La validación también convierte",
+   "x": "El cuarto renglón sorprende: mandé el peso como texto y no se quejó. Pydantic, por defecto, **convierte** lo que puede (el texto «10» pasa a 10.0) en lugar de rechazar todo lo que no tenga el tipo exacto. Es cómodo para formularios y parámetros de la URL, donde todo llega como texto, y es una trampa si pensás que «validado» quiere decir «llegó con el tipo exacto». Si tu API necesita ser estricta, eso se configura; lo importante es saber que existe y probarlo."
+  },
+  {
+   "t": "h3",
+   "x": "La documentación sale del mismo código"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Como FastAPI ya sabe qué recibe y qué devuelve cada ruta, puede publicar una descripción formal del servicio. Mientras corría el servidor, pedí `/openapi.json` y obtuve un documento de 3.160 bytes que declara la versión 3.1.0 de la especificación OpenAPI (un estándar para describir APIs HTTP, que vas a ver en detalle en [@08-14]) [#doc-openapi]. Lo que escribí con `Field(min_length=3, max_length=60)` terminó acá:",
+    "Y las dos rutas `/docs` y `/redoc` contestan 200: son páginas interactivas armadas sobre ese mismo documento [#py2121-fastapi-features]. Un detalle práctico: el HTML de `/docs` pide sus scripts y estilos a `cdn.jsdelivr.net`, así que para verla dibujada la máquina del que mira necesita llegar a ese sitio."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "json",
+   "x": "{\n \"EnvioNuevo\": {\n  \"properties\": {\n   \"destino\": {\n    \"type\": \"string\",\n    \"maxLength\": 60,\n    \"minLength\": 3,\n    \"title\": \"Destino\"\n   },\n   \"peso_kg\": {\n    \"type\": \"number\",\n    \"maximum\": 1000.0,\n    \"exclusiveMinimum\": 0.0,\n    \"title\": \"Peso Kg\"\n   },\n   \"prioridad\": {\n    \"type\": \"string\",\n    \"enum\": [\n     \"normal\",\n     \"urgente\"\n    ],\n    \"title\": \"Prioridad\",\n    \"default\": \"normal\"\n   }\n  },\n  \"type\": \"object\",\n  \"required\": [\n   \"destino\",\n   \"peso_kg\"\n  ],\n  \"title\": \"EnvioNuevo\"\n }\n}",
+   "cap": "Fragmento de `components.schemas` en /openapi.json. Con ese documento un equipo de frontend o de mobile puede generar clientes o pruebas sin leer el servidor."
+  },
+  {
+   "t": "p",
+   "x": "La inyección de dependencias de [@07-20] también existe acá, con otro nombre: `Depends`. Escribí una función `operador` que lee una cabecera y falla con 401 si falta, y la pedí como parámetro de una ruta. Sin cabecera, 401 con `{\"detail\":\"Falta el operador\"}`; con `X-Operador: marta`, la ruta recibió «marta». La ruta no sabe de dónde sale ese valor: lo declara y el framework se lo entrega, igual que los proveedores de NestJS."
+  },
+  {
+   "t": "h",
+   "x": "Django: el kit completo, con el ORM adentro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Django nace de una necesidad de redacción. Según su propia documentación, lo desarrollaron en World Online, una empresa de sitios del diario de Lawrence, Kansas: tenían que lanzar aplicaciones web complejas en cuestión de horas, bajo la presión del cierre de edición. Dos de sus desarrolladores dejaron PHP por Python en el otoño de 2003, fueron extrayendo un framework genérico durante dos años, y en el verano de 2005 decidieron publicarlo como código abierto [#py2121-django-faq]. Ese origen explica su carácter: trae resuelto todo lo que un sitio con base de datos necesita, y por eso se lo describe como «baterías incluidas».",
+    "Lo que sigue es lo que pasa al ejecutar `django-admin startproject sitio` y `startapp envios`: Django genera unos pocos archivos con roles fijos. `settings.py` tiene la configuración (aplicaciones instaladas, base de datos, middleware), `urls.py` asigna rutas a funciones, `models.py` describe las tablas, `views.py` tiene la lógica de cada pedido y `admin.py` registra qué modelos se editan desde el panel. Y fijate en que el proyecto trae **los dos** archivos de entrada, `asgi.py` y `wsgi.py`: cada uno expone una variable `application` de tres líneas que cumple uno de los contratos de arriba. El mismo proyecto Django se puede servir con cualquiera de los dos tipos de servidor [#py2121-django-async]."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "El modelo: una clase que es una tabla"
+  },
+  {
+   "t": "p",
+   "x": "Un **ORM** (*object-relational mapper*, mapeador objeto-relacional) es la pieza que traduce entre los objetos del lenguaje y las filas de una base relacional, para que escribas métodos de Python en lugar de frases SQL a mano. El [[Django ORM|el ORM de Django]] parte de una clase como esta:"
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "from django.core.validators import MinLengthValidator, MinValueValidator, MaxValueValidator\nfrom django.db import models\n\n\nclass Envio(models.Model):\n    class Prioridad(models.TextChoices):\n        NORMAL = \"normal\"\n        URGENTE = \"urgente\"\n\n    class Estado(models.TextChoices):\n        PENDIENTE = \"pendiente\"\n        EN_RUTA = \"en_ruta\"\n        ENTREGADO = \"entregado\"\n\n    destino = models.CharField(max_length=60, validators=[MinLengthValidator(3)])\n    peso_kg = models.FloatField(validators=[MinValueValidator(0.001), MaxValueValidator(1000)])\n    prioridad = models.CharField(max_length=10, choices=Prioridad, default=Prioridad.NORMAL)\n    estado = models.CharField(max_length=10, choices=Estado, default=Estado.PENDIENTE)\n\n    def __str__(self):\n        return f\"#{self.pk} {self.destino}\"",
+   "cap": "envios/models.py (Django 6.1.3). 21 líneas. Los `validators` hablan de las reglas del negocio; el tipo de campo, de la columna."
+  },
+  {
+   "t": "p",
+   "x": "Con `python manage.py makemigrations envios` Django comparó esa clase contra el estado anterior y escribió un archivo de migración (`0001_initial.py`, 64 líneas), que es una descripción de lo que cambió. Después `sqlmigrate` muestra qué SQL correría. Lo corrí:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python manage.py makemigrations envios",
+     "s": "Migrations for 'envios':\n  envios/migrations/0001_initial.py\n    + Create model Envio"
+    },
+    {
+     "c": "python manage.py sqlmigrate envios 0001",
+     "s": "BEGIN;\n--\n-- Create model Envio\n--\nCREATE TABLE \"envios_envio\" (\"id\" integer NOT NULL PRIMARY KEY AUTOINCREMENT, \"destino\" varchar(60) NOT NULL, \"peso_kg\" real NOT NULL, \"prioridad\" varchar(10) NOT NULL, \"estado\" varchar(10) NOT NULL);\nCOMMIT;"
+    },
+    {
+     "c": "python manage.py migrate",
+     "s": "Operations to perform:\n  Apply all migrations: admin, auth, contenttypes, envios, sessions\nRunning migrations:\n  ...\n  Applying envios.0001_initial... OK\n  Applying sessions.0001_initial... OK"
+    }
+   ],
+   "cap": "SQLite, la base que Django configura por defecto. `migrate` aplicó 19 migraciones: las del admin, usuarios, sesiones y las nuestras. Las migraciones en serio, con tablas grandes y sin cortes, son tema de [@09-31]."
+  },
+  {
+   "t": "p",
+   "x": "Mirá lo que **no** llegó a la base: el largo mínimo de tres caracteres y el rango del peso. La tabla solo sabe de tipos y de `NOT NULL`. Esas reglas viven en Python, y se aplican solo cuando alguien llama a `full_clean()`. Lo comprobé:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "python manage.py shell",
+     "s": ""
+    },
+    {
+     "c": ">>> Envio.objects.create(destino=\"X\", peso_kg=-5)",
+     "s": "<Envio: #5 X>"
+    },
+    {
+     "c": ">>> Envio(destino=\"X\", peso_kg=-5).full_clean()",
+     "s": "ValidationError: {'destino': ['Ensure this value has at least 3 characters (it has 1).'], 'peso_kg': ['Ensure this value is greater than or equal to 0.001.']}"
+    }
+   ],
+   "cap": "`create()` guardó el envío inválido sin quejarse. La validación hay que pedirla."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "create() no valida",
+   "x": "Es un tropiezo clásico en Django: los `validators` de un campo se corren al llamar a `full_clean()` (o desde un formulario o el admin), no al guardar. Si una vista hace `Envio.objects.create(**datos)` con lo que mandó el cliente, la base acepta un peso negativo. En FastAPI, en cambio, el modelo Pydantic valida **al construirse**, así que un objeto inválido no llega a existir. Es una diferencia de diseño, no un defecto: cada framework te pone el momento de validar en otro lugar, y el que lo sepa lo usa bien."
+  },
+  {
+   "t": "h3",
+   "x": "Las consultas son perezosas"
+  },
+  {
+   "t": "p",
+   "x": "Para consultar, el ORM da un objeto llamado [[queryset]]. Armarlo no toca la base: la documentación lo llama «lazy» (perezoso) y aclara que podés apilar filtros todo el día sin actividad de base de datos [#py2121-django-queries]. La consulta se ejecuta cuando alguien necesita los resultados, por ejemplo al recorrerlo. Con tres envíos de práctica cargados, esto es lo que pasó y lo que Django le mandó a SQLite:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": ">>> qs = Envio.objects.filter(estado=\"en_ruta\", peso_kg__gt=10).order_by(\"-peso_kg\")\n>>> print(qs.query)",
+     "s": "SELECT \"envios_envio\".\"id\", \"envios_envio\".\"destino\", \"envios_envio\".\"peso_kg\", \"envios_envio\".\"prioridad\", \"envios_envio\".\"estado\" FROM \"envios_envio\" WHERE (\"envios_envio\".\"estado\" = en_ruta AND \"envios_envio\".\"peso_kg\" > 10.0) ORDER BY \"envios_envio\".\"peso_kg\" DESC"
+    },
+    {
+     "c": ">>> list(qs)",
+     "s": "[<Envio: #2 Mendoza>]"
+    },
+    {
+     "c": "# contando consultas reales con CaptureQueriesContext",
+     "s": "al armar el queryset:  0 consultas\ndespués de list():     1\nsegundo list():        1   (reutiliza el resultado guardado)\notro queryset .count(): 2   -> SELECT COUNT(*) AS \"__count\" FROM \"envios_envio\" WHERE \"envios_envio\".\"estado\" = 'en_ruta'"
+    }
+   ],
+   "cap": "El SQL impreso por `print(qs.query)` es para leer: muestra `= en_ruta` sin comillas porque Django manda los valores aparte de la frase, y por eso no es SQL listo para pegar. Esa separación es una defensa contra la inyección SQL de [@15-12]."
+  },
+  {
+   "t": "p",
+   "x": "La pereza es útil (podés construir la consulta por partes en una vista, como hace el `if estado := ...` del código de abajo) y también esconde costos: si recorrés una lista de envíos y en cada vuelta pedís un dato de otra tabla, el ORM puede lanzar una consulta por cada fila sin que lo notes. Ese patrón tiene nombre, el problema N+1, y lo vas a medir en [@09-23]. Por ahora, la regla práctica es mirar cuántas consultas hace una vista y no confiar en que «el ORM lo resuelve»."
+  },
+  {
+   "t": "h3",
+   "x": "El admin: un panel con nueve líneas"
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "from django.contrib import admin\n\nfrom .models import Envio\n\n\n@admin.register(Envio)\nclass EnvioAdmin(admin.ModelAdmin):\n    list_display = (\"id\", \"destino\", \"peso_kg\", \"prioridad\", \"estado\")\n    list_filter = (\"estado\", \"prioridad\")",
+   "cap": "envios/admin.py. Con esto, Django arma lista, filtros, formulario de alta y edición, y control de permisos para `Envio`."
+  },
+  {
+   "t": "p",
+   "x": "Lo probé de dos formas con el cliente de pruebas de Django (sin navegador): sin sesión, `/admin/envios/envio/` devolvió 302 hacia `/admin/login/`; con un superusuario de práctica (contraseña obviamente falsa, base descartable), devolvió 200 con título «Select envio to change | Django site admin», listó las filas y mostró el filtro lateral. Y al intentar dar de alta un envío con peso -3 desde el formulario del admin, la página volvió a mostrarse con el error de validación: el admin sí llama a las validaciones del modelo. Todo eso con un archivo de 9 líneas. Para un equipo que necesita que alguien de operaciones corrija datos desde el día uno, es un argumento fuerte [#py2121-django-overview]."
+  },
+  {
+   "t": "h3",
+   "x": "La vista: tu código hace lo que el tipado hacía solo"
+  },
+  {
+   "t": "p",
+   "x": "Hasta acá Django cubrió tablas, migraciones y panel. Para una API JSON, en cambio, la vista básica no hace magia: hay que leer el cuerpo, validar y armar las respuestas a mano. Este es el equivalente exacto del endpoint de FastAPI:"
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "@csrf_exempt  # solo para la demo con curl; una API real decide su política de CSRF\n@require_http_methods([\"GET\", \"POST\"])\ndef envios(request):\n    if request.method == \"GET\":\n        qs = Envio.objects.all()\n        if estado := request.GET.get(\"estado\"):\n            qs = qs.filter(estado=estado)\n        return JsonResponse([como_dict(e) for e in qs[:10]], safe=False)\n    datos = json.loads(request.body)\n    envio = Envio(destino=datos.get(\"destino\", \"\"), peso_kg=datos.get(\"peso_kg\", 0),\n                  prioridad=datos.get(\"prioridad\", \"normal\"))\n    try:\n        envio.full_clean()\n    except ValidationError as err:\n        return JsonResponse(err.message_dict, status=400)\n    envio.save()\n    return JsonResponse(como_dict(envio), status=201)",
+   "cap": "envios/views.py (recorte). El proyecto completo suma dos rutas en `urls.py` y la vista `uno` con `get_object_or_404`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "curl -s -X POST $S/envios -d '{\"destino\":\"X\",\"peso_kg\":-3,\"prioridad\":\"rapidisimo\"}'  # status 400",
+     "s": "{\"destino\": [\"Ensure this value has at least 3 characters (it has 1).\"], \"peso_kg\": [\"Ensure this value is greater than or equal to 0.001.\"], \"prioridad\": [\"Value 'rapidisimo' is not a valid choice.\"]}"
+    },
+    {
+     "c": "curl -si $S/envios/99 | head -1",
+     "s": "HTTP/1.1 404 Not Found    <- el cuerpo es una página HTML de depuración"
+    }
+   ],
+   "cap": "Los mismos tres errores, ahora con la forma que eligió Django. Se sirvió igual con Uvicorn (ASGI) y con Gunicorn (WSGI): las dos respuestas fueron idénticas."
+  },
+  {
+   "t": "p",
+   "x": "Dos observaciones. La respuesta de error es JSON porque la armé yo con `message_dict`; no hay un formato único y documentado como el 422 de FastAPI. Y el 404 de `get_object_or_404` volvió como **página HTML**, con el detalle de las rutas probadas: esa página aparece porque `startproject` deja `DEBUG = True` en `settings.py`, un modo de desarrollo que no se deja encendido en un servidor real porque muestra detalles internos. Para APIs JSON serias, la comunidad Django usa paquetes que agregan lo que falta: Django REST framework (versión 3.18.3 al 13-11-2026) y Django Ninja (1.8.0), este último basado en Pydantic [#py2121-pydantic]. Son proyectos aparte, con su propio ritmo de versiones."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Para el mismo endpoint",
+    "FastAPI",
+    "Django (sin extras)"
+   ],
+   "filas": [
+    [
+     "Archivos que escribí",
+     "1 (`main.py`, 43 líneas)",
+     "4 (`models`, `views`, `urls` y `admin`: 21, 37, 4 y 9 líneas), sobre los archivos que generó `startproject`"
+    ],
+    [
+     "Valida el cuerpo JSON",
+     "Sí, por los tipos, antes de entrar a la función",
+     "No: hay que llamar a `full_clean()` en la vista"
+    ],
+    [
+     "Formato de error",
+     "422 con `loc`, `msg` y `type`, siempre igual",
+     "El que armes; el 404 por defecto es HTML"
+    ],
+    [
+     "Descripción de la API",
+     "`/openapi.json` y `/docs`, sin escribir nada",
+     "No incluida; se agrega con paquetes"
+    ],
+    [
+     "Base de datos y migraciones",
+     "No incluidas (se elige un ORM aparte)",
+     "ORM, migraciones y SQLite por defecto"
+    ],
+    [
+     "Panel de administración",
+     "No incluido",
+     "Incluido: 9 líneas para `Envio`"
+    ],
+    [
+     "Modelo de ejecución",
+     "ASGI de origen",
+     "ASGI o WSGI, con vistas sync o async"
+    ]
+   ],
+   "cap": "Comparación medida sobre mis dos versiones. «Sin extras» es Django solo, sin Django REST framework ni Ninja."
+  },
+  {
+   "t": "pensa",
+   "x": "El `peso_kg` negativo llegó a la base con Django y fue rechazado con FastAPI. ¿Cuál de los dos fallaría con más gracia si mañana alguien suma otra vista que crea envíos y se olvida de validar?",
+   "resp": "Con FastAPI, la vista nueva usaría el mismo modelo Pydantic y la validación vendría puesta. Con Django, cada vista que cree envíos tiene que acordarse de llamar a `full_clean()`, o convertirse en una vía de entrada sin control. No hay un framework «mejor»: en Django la disciplina se concentra en usar formularios o serializadores siempre."
+  },
+  {
+   "t": "h",
+   "x": "async, hilos, procesos y el GIL: cuántos pedidos a la vez"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá comparamos cómo se escribe. Ahora lo que más confunde: cuántos pedidos atiende un servidor Python al mismo tiempo, y qué cambia con `async def`. Necesitás tres ideas de días anteriores. De [@03-41], que un solo hilo con un bucle de eventos puede esperar muchas cosas a la vez si cada una **cede** el control al esperar. De [@03-40], que Python con GIL ejecuta código Python en un solo hilo a la vez. Y de [@07-04], que Node tiene el mismo problema: un hilo bloqueado frena a todos.",
+    "FastAPI te deja declarar cada ruta con `def` o con `async def`, y las trata distinto. Según su documentación, una función con `def` se ejecuta en un **grupo de hilos externo** (*threadpool*) para no frenar el servidor, y una con `async def` corre directamente en el bucle de eventos [#py2121-fastapi-async]. Armé tres rutas que esperan 0,5 segundos de tres maneras distintas y les mandé 10 y 100 pedidos simultáneos desde un script con hilos:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "py",
+   "x": "@app.get(\"/async-espera\")\nasync def async_espera():\n    await asyncio.sleep(0.5)   # cede el control: el bucle atiende otros pedidos\n    return {\"hilo\": threading.get_ident()}\n\n@app.get(\"/sync-espera\")\ndef sync_espera():\n    time.sleep(0.5)            # bloquea, pero corre en un hilo del pool\n    return {\"hilo\": threading.get_ident()}\n\n@app.get(\"/async-bloquea\")\nasync def async_bloquea():\n    time.sleep(0.5)            # error clásico: bloquea el único hilo del bucle\n    return {\"hilo\": threading.get_ident()}",
+   "cap": "Recorte de conc.py. La tercera ruta es la trampa: `async def` con una espera que no cede."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Ruta (espera de 0,5 s)",
+    "10 pedidos a la vez",
+    "100 pedidos a la vez",
+    "Hilos distintos"
+   ],
+   "filas": [
+    [
+     "`async def` + `await asyncio.sleep`",
+     "0,54 s",
+     "0,72 s",
+     "1"
+    ],
+    [
+     "`def` + `time.sleep` (pool de hilos)",
+     "0,63 s",
+     "1,58 s",
+     "40"
+    ],
+    [
+     "`async def` + `time.sleep` (bloquea)",
+     "5,03 s",
+     "50,17 s",
+     "1"
+    ]
+   ],
+   "cap": "Una sola VM compartida y un solo proceso de Uvicorn: tiempos de ejemplo, no un benchmark. El pool por defecto tiene 40 hilos (lo consulté con el limitador de AnyIO)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La primera ruta es el caso ideal: un solo hilo atiende 100 pedidos que esperan en paralelo, porque `await` le devuelve el control al bucle mientras tanto. La segunda también escala, pero con otro costo: usa hilos de verdad, y el pool llega hasta 40, así que 100 pedidos se atienden en tres tandas (por eso 1,58 s, unas 3 veces 0,5). La tercera es la que rompe todo: `time.sleep` dentro de `async def` **no cede**, y como hay un solo hilo, los pedidos se hacen **de a uno**. Diez pedidos tardaron 10 veces 0,5 segundos, y cien tardaron 50.",
+    "Eso es lo que la gente llama «bloquear el bucle de eventos», y lo más traicionero es que no rompe nada en desarrollo, donde probás de a un pedido. Pasa igual con cualquier biblioteca que no sea asíncrona: un driver de base de datos tradicional dentro de un `async def` hace exactamente lo mismo que mi `time.sleep`. La documentación de FastAPI da una regla simple para decidir: si la biblioteca que usás te pide `await`, la ruta es `async def`; si no, `def`, y si dudás, `def` [#py2121-fastapi-async]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«async hace todo más rápido»",
+   "x": "La tabla lo desarma: con `def` y 40 hilos los 100 pedidos de espera tardaron 1,58 s, y con `async def` bien usado, 0,72 s. Ninguno hace que **una** espera dure menos: cada pedido sigue tardando 0,5 s. Lo que cambia es cuántas esperas conviven y cuánto cuesta cada una (un hilo del sistema pesa mucho más que una corrutina). Y con `async def` mal usado, como en la tercera fila, es muchísimo más lento que no haberlo usado."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Django, por su lado, no te obliga a elegir un estilo: acepta vistas síncronas y asíncronas, pero su documentación avisa que una vista `async` bajo un servidor WSGI corre en un bucle de eventos de un solo uso, sin los beneficios de una pila asíncrona completa [#py2121-django-async]. Lo medí con las dos vistas de espera de 0,5 s, cuatro formas de servir el mismo proyecto y 10 pedidos simultáneos:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cómo sirvo Django",
+    "Vista `def` + `time.sleep`",
+    "Vista `async def` + `asyncio.sleep`",
+    "Pares (proceso, hilo)"
+   ],
+   "filas": [
+    [
+     "Uvicorn (ASGI), 1 proceso",
+     "0,55 s",
+     "0,54 s",
+     "10 / 1"
+    ],
+    [
+     "Gunicorn (WSGI), 1 proceso, sin hilos extra",
+     "5,03 s",
+     "5,04 s",
+     "1 / 1"
+    ],
+    [
+     "Gunicorn (WSGI), 1 proceso y 10 hilos",
+     "0,53 s",
+     "0,53 s",
+     "10 / 10"
+    ],
+    [
+     "Gunicorn (WSGI), 4 procesos",
+     "1,53 s",
+     "1,52 s",
+     "4 / 4"
+    ]
+   ],
+   "cap": "10 pedidos de 0,5 s cada uno, medido en la VM compartida (Gunicorn 27.0.1, Uvicorn 0.54.0). La última columna es cuántos pares distintos (proceso, hilo) atendieron: izquierda sync, derecha async."
+  },
+  {
+   "t": "p",
+   "x": "Leé la segunda fila: Gunicorn en su modo por defecto, un proceso, atiende **un pedido por vez**, y ni siquiera la vista `async` ayuda (5,04 s). Su propio sitio lo describe: el trabajador por defecto es `sync`, un pedido por trabajador, y existen otros con varios hilos por trabajador [#py2121-gunicorn]. Las filas tres y cuatro muestran las dos salidas clásicas: más hilos dentro del proceso (0,53 s) o más procesos (4 procesos para 10 pedidos son tres tandas: 4, 4 y 2, y por eso 1,53 s). Y la primera fila es la ventaja de ASGI: Uvicorn atendió las 10 esperas en el mismo tiempo que una sola, tanto con la vista asíncrona como con la sincrónica, que Django mandó a hilos por su cuenta."
+  },
+  {
+   "t": "h3",
+   "x": "Y el cálculo puro: ahí entra el GIL"
+  },
+  {
+   "t": "p",
+   "x": "Todo lo anterior era **esperar**. Si en cambio la ruta calcula (una suma en Python puro que tarda 0,29 s sola), esperar no hay: el hilo está trabajando. Con un solo proceso y el GIL, cuatro pedidos simultáneos tardaron 1,13 s: se turnaron casi como si fueran de a uno. Con `uvicorn --workers 4`, que arranca cuatro **procesos** (cada uno con su propio GIL), tardaron 0,64 s en la primera corrida y 0,57 en la segunda."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cálculo de 0,29 s en Python puro",
+    "1 pedido",
+    "4 pedidos a la vez"
+   ],
+   "filas": [
+    [
+     "1 proceso de Uvicorn (1 GIL)",
+     "0,29 s",
+     "1,13 s (1,11 s en la repetición)"
+    ],
+    [
+     "4 procesos con `--workers 4`",
+     "0,27 s",
+     "0,64 s (0,57 s en la repetición)"
+    ]
+   ],
+   "cap": "VM compartida con otros procesos en marcha: el ideal con 4 núcleos libres sería cerca de 0,3 s, y no se alcanzó. Sirve para ver la tendencia, no el valor."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Por qué los servidores Python usan tantos procesos",
+   "x": "Con GIL, un proceso aprovecha como mucho un núcleo para código Python, así que la forma de usar una máquina de ocho núcleos es levantar varios procesos del servidor, cada uno con su aplicación cargada en memoria. Es el motivo de que existan `--workers` y el `-w` de Gunicorn. La alternativa, la variante de Python sin GIL, está soportada pero es opcional: su estado al 13-11-2026 es el que verificaste en [@03-40]."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un servidor Django con Gunicorn, **3 procesos** y vistas `def`, recibe 30 pedidos simultáneos que esperan 0,2 s cada uno (como una consulta lenta). ¿Cuánto tardan todos? ¿Y si en vez de procesos se usara un solo proceso con Uvicorn y vistas `def` (que Django despacha a hilos)? Estimá y explicá la diferencia.",
+   "pista": "Con 3 procesos y un pedido por vez en cada uno, los pedidos se atienden en tandas de 3.",
+   "solucion": "Con 3 procesos sync: 30 pedidos / 3 por tanda = 10 tandas de 0,2 s = unos 2 segundos. Con Uvicorn y un hilo por pedido, los 30 esperan en paralelo y terminan en poco más de 0,2 s, igual que en la medición de 10 pedidos (0,55 s para esperas de 0,5 s). La diferencia no viene de que Uvicorn sea «más rápido» sino de que las esperas conviven en lugar de hacer fila."
+  },
+  {
+   "t": "h",
+   "x": "Cómo elegir sin enamorarse"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las medidas de hoy no dicen cuál framework es mejor; dicen qué te da cada uno y qué tenés que armar vos. Una forma práctica de decidir es hacerse cinco preguntas sobre el producto y no sobre la moda.",
+    "Una: ¿el producto **es** una API que consumen apps y otros servicios? Entonces la validación declarativa, el 422 uniforme y la documentación automática de FastAPI ahorran trabajo real. Dos: ¿el producto tiene un panel interno donde operaciones edita datos, usuarios con permisos, formularios y sesiones? Ahí el kit de Django (admin, autenticación, migraciones) es lo que ya viene armado. Tres: ¿lo que más importa es la cantidad de conexiones largas (chats, notificaciones, tableros en vivo)? Es el territorio de ASGI, y los dos frameworks lo permiten. Cuatro: ¿quién va a mantener esto en tres años? La cantidad de gente que conoce el framework y la madurez del ecosistema pesan más que la elegancia del código. Cinco: ¿qué ya existe en la organización? Si hay un equipo de ciencia de datos que escribe Python, un servicio FastAPI que carga su modelo es un puente natural.",
+    "Lo que sigue son criterios míos, no leyes: para una API pura chica, FastAPI; para un sistema con mucho dato interno que mantiene gente no técnica, Django. Los dos se despliegan igual: un servidor detrás de un proxy inverso, como viste en [@05-24]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y estado al 13-11-2026",
+   "x": [
+    "Verificado en PyPI y en la documentación oficial el 13-11-2026: Django 6.1.3 (publicada el 03-11-2026), FastAPI 0.162.7 (13-11-2026), Pydantic 2.14.3, Starlette 1.10.0, Uvicorn 0.54.0, Gunicorn 27.0.1 y Django REST framework 3.18.3. La VM usa Python 3.13.18. FastAPI sigue en la serie 0.x, es decir, sin versión 1.0 todavía: su interfaz puede cambiar entre versiones menores, y conviene fijar la versión en el archivo de dependencias [#py2121-pypi-fastapi].",
+    "Django anuncia un cambio de política en su página de descargas [#py2121-django-download]: la 6.2 (abril de 2027) es la última con el esquema actual y será de soporte largo; desde 2028 las versiones se numeran por año (la «2028»), salen cada enero y todas tienen tres años de soporte. Al escribir esto, la serie 6.1 tenía soporte principal hasta abril de 2027 y extendido hasta diciembre de 2027. Gunicorn declara en su sitio que sirve aplicaciones WSGI y ASGI [#py2121-gunicorn]. Todo esto cambia: mirá esas páginas antes de elegir versión."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Y Senda: lo que no usa y qué hace en su lugar"
+  },
+  {
+   "t": "p",
+   "x": "Después de tanto Python, la pregunta honesta es si Senda lo usa en su servidor. El mapa técnico, contrastado con el código, dice que **no**: no hay Django, FastAPI ni ningún servidor propio. El repositorio tiene 198 archivos `.py` y 52.502 líneas de Python (las conté yo con `git ls-files`), pero ninguno importa `fastapi` ni `django` y no hay archivo de dependencias de Python: son herramientas para generar y validar contenido, no un servicio que atienda pedidos."
+  },
+  {
+   "t": "senda",
+   "titulo": "Un Python que prueba la base, no la sirve",
+   "x": [
+    "En el commit 25e08fa, `pruebas/nube/recorrido.py` (669 líneas) usa `psycopg2` para conectarse a un Postgres común, aplicar todas las migraciones de `supabase/migrations/` y recorrer lo que conecta a las personas (grupos, duelos, torneos). Cada paso se hace «como lo hace la app»: con el rol `authenticated` y el identificador de la persona dentro del token, de modo que las políticas de acceso por fila y las funciones SQL se prueban de verdad. El script `correr.sh` arma una base nueva y lo ejecuta. Es Python como herramienta de verificación, del lado del que prueba.",
+    "Código de ese commit; el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "pruebas/nube/recorrido.py",
+    "pruebas/nube/correr.sh"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "La validación que hoy vimos como Pydantic, repartida en tres lugares",
+   "x": [
+    "Lo que acá hizo `Field(min_length=3, max_length=60)`, en Senda se reparte. En la base, restricciones `check` en cada tabla: `supabase/migrations/20261011000000_propuestas.sql` exige, por ejemplo, que el nombre de una propuesta tenga entre 3 y 80 caracteres y que sus temas sean una lista de 3 a 12 elementos. En el teléfono, `src/util/juntos.ts` valida con `zod` (la biblioteca de esquemas de TypeScript, equivalente a Pydantic) lo que llega de la nube antes de mostrarlo, y descarta las filas que no cumplen. Y las tres funciones de borde, como `supabase/functions/borrar-cuenta/index.ts`, son TypeScript sobre Deno (`Deno.serve`), no Python.",
+    "Fijate en la consecuencia: Senda no tiene una capa donde ponga «la» validación, como la tiene un FastAPI. Cada borde se defiende solo. Es una elección razonable cuando la base es la fuente de verdad; el costo es que una regla de negocio puede quedar escrita en dos lenguajes. Código de ese commit."
+   ],
+   "archivos": [
+    "supabase/migrations/20261011000000_propuestas.sql",
+    "src/util/juntos.ts",
+    "supabase/functions/borrar-cuenta/index.ts"
+   ]
+  }
+ ],
+ "recap": [
+  "Un servidor de Python (Uvicorn, Gunicorn) habla HTTP y llama a tu aplicación por un contrato: WSGI (PEP 3333, función síncrona por pedido) o ASGI (corrutina por conexión, con mensajes `receive` y `send` y un mensaje de arranque).",
+  "FastAPI lee las anotaciones de tipo al arrancar y con ellas parsea, valida con Pydantic y documenta (`/openapi.json`, `/docs`); Python por sí solo no hace cumplir los tipos, lo hace el framework.",
+  "Pydantic convierte lo que puede (el texto «10» pasa a 10.0) y rechaza el resto con un 422 que dice parte, campo y motivo, sin ejecutar tu función.",
+  "Django trae modelos, ORM, migraciones y un panel de administración; el ORM arma consultas perezosas que se ejecutan al usarlas, y los validadores del modelo no corren en `create()`, solo en `full_clean()`.",
+  "En FastAPI, `def` corre en un pool de 40 hilos y `async def` en el bucle de eventos; `time.sleep` dentro de `async def` bloquea todo (10 pedidos de 0,5 s tardaron 5 s).",
+  "Un proceso con GIL aprovecha un solo núcleo para código Python: para usar más hay que levantar más procesos, y Gunicorn por defecto atiende un pedido por proceso a la vez.",
+  "Senda no usa Python en el servidor: su Python es de herramientas y pruebas, y la validación se reparte entre Postgres, zod y funciones de borde en Deno."
+ ],
+ "repaso": [
+  {
+   "p": "Una aplicación ASGI recibe `scope`, `receive` y `send` y una WSGI recibe `environ` y `start_response`. ¿Qué permite ASGI que el contrato WSGI no puede expresar?",
+   "o": [
+    "Mantener una conexión abierta e intercambiar mensajes durante su vida",
+    "Atender pedidos HTTP, algo que WSGI no puede hacer en absoluto",
+    "Ejecutar el servidor sin necesidad de ningún proceso de Python",
+    "Evitar que el servidor lea las cabeceras del pedido recibido"
+   ],
+   "c": 0,
+   "e": "ASGI modela la conexión como una conversación (WebSocket, lifespan, respuestas largas). WSGI también atiende HTTP, por lo que la segunda opción es falsa; ambos necesitan un proceso y ambos reciben las cabeceras, aunque con formatos distintos."
+  },
+  {
+   "p": "En FastAPI, un cliente manda `{\"destino\":\"Mendoza\",\"peso_kg\":\"pesado\"}` a una ruta cuyo modelo declara `peso_kg: float`. ¿Qué ocurre?",
+   "o": [
+    "La función se ejecuta y falla con un error 500 al sumar el peso",
+    "Python rechaza el pedido porque `float` obliga al tipo en tiempo de ejecución",
+    "La respuesta es un 422 que señala `body.peso_kg`, sin ejecutar la función",
+    "FastAPI guarda el texto tal cual y lo convierte más tarde en la base"
+   ],
+   "c": 2,
+   "e": "FastAPI usó la anotación como instrucción de validación: Pydantic intentó convertir «pesado», no pudo y devolvió 422 antes de llamar a la función. Python por sí solo no hace cumplir anotaciones, y por eso la segunda opción es un error de concepto."
+  },
+  {
+   "p": "En Django, un modelo `Envio` tiene `MinLengthValidator(3)` en `destino`. Una vista ejecuta `Envio.objects.create(destino=\"X\", peso_kg=5)`. ¿Qué pasa?",
+   "o": [
+    "Se rechaza el alta porque el validador corre siempre al guardar",
+    "Se rechaza porque la base de datos tiene una restricción de largo mínimo",
+    "Se guarda sin error: `create()` no valida, hay que llamar a `full_clean()`",
+    "Se guarda pero Django lo marca después como pendiente de revisar"
+   ],
+   "c": 2,
+   "e": "Los validadores de campo se aplican con `full_clean()` (o en formularios y admin). La tabla solo tiene `varchar(60) NOT NULL`, no un mínimo de tres caracteres, como se vio en el SQL de `sqlmigrate`."
+  },
+  {
+   "p": "Una ruta `async def` de FastAPI hace `time.sleep(0.5)`. Llegan 20 pedidos simultáneos a un solo proceso de Uvicorn. ¿Cuánto tarda en terminar el último?",
+   "o": [
+    "Cerca de medio segundo, porque `async def` los atiende a todos a la vez",
+    "Unos 10 segundos, porque el sueño bloquea el único hilo y se hacen de a uno",
+    "Unos 5 segundos, porque el servidor reparte los pedidos en dos tandas",
+    "Unos 20 segundos, porque cada pedido espera 1 segundo en total"
+   ],
+   "c": 1,
+   "e": "`time.sleep` no cede el control y hay un solo hilo, por lo que los 20 pedidos se atienden en fila: 20 por 0,5 s son 10 s. Con `await asyncio.sleep` habrían tardado cerca de medio segundo; con `def` y el pool de hilos, también."
+  },
+  {
+   "p": "Un endpoint calcula durante 0,3 s en Python puro, sin esperas. Se quiere atender 4 pedidos simultáneos aprovechando 4 núcleos. ¿Qué conviene?",
+   "o": [
+    "Declarar la ruta con `async def` para que corran a la vez",
+    "Subir el pool de hilos de 40 a 400 para que haya más lugar",
+    "Cambiar la ruta de `def` a `async def` y sumar un `await`",
+    "Levantar 4 procesos del servidor, cada uno con su propio GIL"
+   ],
+   "c": 3,
+   "e": "Con GIL, los hilos y las corrutinas de un proceso no ejecutan Python en paralelo; lo que sí escala es el número de procesos (`--workers 4`). En la medición, 1 proceso tardó 1,13 s para 4 pedidos y 4 procesos unos 0,6 s."
+  },
+  {
+   "p": "En un shell de Django armás `qs = Envio.objects.filter(estado='en_ruta')`, hacés `list(qs)` dos veces y después `Envio.objects.filter(estado='en_ruta').count()`. ¿Cuántas consultas SQL se ejecutaron?",
+   "o": [
+    "Cuatro: una por cada línea escrita incluyendo la asignación",
+    "Tres: dos listados y un recuento, cada uno independiente",
+    "Una: la asignación ejecuta la consulta y el resto la reutiliza",
+    "Dos: un SELECT en el primer `list(qs)` y un COUNT en el último"
+   ],
+   "c": 3,
+   "e": "Armar un queryset no toca la base (es perezoso). El primer `list(qs)` ejecuta un SELECT y el segundo reutiliza el resultado guardado. El `.count()` sobre otro queryset es un `SELECT COUNT(*)` nuevo. En total, 2, como midió `CaptureQueriesContext`."
+  }
+ ],
+ "feynman": "Explicale a alguien que programa un poco en otro lenguaje por qué un mismo `time.sleep(0.5)` es inofensivo en una ruta con `def` y desastroso en una con `async def` en FastAPI. Usá un ejemplo de depósito o de ventanilla con una cola, y decí dónde tu ejemplo deja de ser exacto.",
+ "para_profundizar": [
+  {
+   "fuente": "py2121-asgi",
+   "nota": "La especificación ASGI y su introducción. Leé la página principal y, después, `specs/www.html` para ver los campos del `scope` que imprimiste hoy."
+  },
+  {
+   "fuente": "py2121-fastapi-async",
+   "nota": "La explicación oficial de `async def` contra `def` en FastAPI, incluido el detalle técnico del grupo de hilos. Es el texto que respalda las tres filas de la primera tabla."
+  },
+  {
+   "fuente": "py2121-django-overview",
+   "nota": "Recorrido corto por modelos, migraciones y admin con el ejemplo del propio Django. Sirve para repetir en tu máquina lo que hiciste hoy con `Envio`."
+  },
+  {
+   "fuente": "py2121-django-async",
+   "nota": "Qué pasa con vistas asíncronas bajo ASGI y bajo WSGI, y cómo Django las adapta. Explica la segunda tabla de la concurrencia."
+  }
+ ],
+ "videos": [
+  {
+   "q": "FastAPI vs Django cuándo usar cada uno",
+   "por_que": "Para escuchar los criterios de otras personas y compararlos con las cinco preguntas de hoy; mirá cuáles de sus argumentos podés comprobar con medición."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "ASGI",
+   "d": "Asynchronous Server Gateway Interface: el contrato entre un servidor Python y una aplicación asíncrona. La aplicación es una corrutina `app(scope, receive, send)` que se llama una vez por conexión y soporta HTTP, WebSocket y mensajes de arranque y cierre."
+  },
+  {
+   "t": "WSGI",
+   "d": "Web Server Gateway Interface: el contrato clásico de Python (PEP 3333) entre servidor y aplicación. La aplicación es una función `app(environ, start_response)` que se llama una vez por pedido y devuelve la respuesta."
+  },
+  {
+   "t": "Django ORM",
+   "d": "El mapeador objeto-relacional de Django: traduce clases y métodos de Python a SQL. Una clase `Model` describe una tabla; `Envio.objects.filter(...)` arma una consulta perezosa que se ejecuta al usar los resultados."
+  },
+  {
+   "t": "tipado en FastAPI",
+   "d": "Uso de las anotaciones de tipo de Python como instrucciones: FastAPI las lee al arrancar para leer el pedido, validarlo con Pydantic y generar la documentación. Python por sí solo no hace cumplir las anotaciones."
+  },
+  {
+   "t": "Pydantic",
+   "d": "Biblioteca de validación de datos de Python basada en anotaciones de tipo, con el núcleo escrito en Rust. Convierte lo que puede (texto «10» a número) y rechaza el resto con errores detallados."
+  },
+  {
+   "t": "queryset",
+   "d": "El objeto con que el ORM de Django representa una consulta. Es perezoso: armarlo no toca la base, se ejecuta cuando se recorre o se pide su resultado, y guarda el resultado para reutilizarlo."
+  }
+ ],
+ "siguiente": "Java y Spring Boot. El mismo problema de hoy en el lenguaje que domina buena parte de las empresas grandes: qué es la JVM en un servidor, qué hace Spring con tus clases y por qué un servidor web puede venir adentro del propio programa.",
+ "fuentes_nuevas": [
+  {
+   "id": "py2121-pep3333",
+   "t": "PEP 3333: Python Web Server Gateway Interface v1.0.1",
+   "a": "Phillip J. Eby",
+   "tipo": "doc",
+   "anio": 2010,
+   "url": "https://peps.python.org/pep-3333/"
+  },
+  {
+   "id": "py2121-pep333",
+   "t": "PEP 333: Python Web Server Gateway Interface v1.0",
+   "a": "Phillip J. Eby",
+   "tipo": "doc",
+   "anio": 2003,
+   "url": "https://peps.python.org/pep-0333/"
+  },
+  {
+   "id": "py2121-asgi",
+   "t": "ASGI Documentation (ASGI 3.0)",
+   "a": "Django Software Foundation y colaboradores",
+   "tipo": "doc",
+   "url": "https://asgi.readthedocs.io/en/latest/"
+  },
+  {
+   "id": "py2121-asgi-www",
+   "t": "HTTP & WebSocket ASGI Message Format",
+   "a": "ASGI project",
+   "tipo": "doc",
+   "url": "https://asgi.readthedocs.io/en/latest/specs/www.html"
+  },
+  {
+   "id": "py2121-fastapi-async",
+   "t": "Concurrency and async / await (FastAPI)",
+   "a": "Sebastián Ramírez y colaboradores",
+   "tipo": "doc",
+   "url": "https://fastapi.tiangolo.com/async/"
+  },
+  {
+   "id": "py2121-fastapi-features",
+   "t": "FastAPI features",
+   "a": "Sebastián Ramírez y colaboradores",
+   "tipo": "doc",
+   "url": "https://fastapi.tiangolo.com/features/"
+  },
+  {
+   "id": "py2121-pydantic",
+   "t": "Pydantic documentation",
+   "a": "Pydantic Services",
+   "tipo": "doc",
+   "url": "https://docs.pydantic.dev/latest/"
+  },
+  {
+   "id": "py2121-starlette",
+   "t": "Starlette: introducción",
+   "a": "Tom Christie y colaboradores",
+   "tipo": "doc",
+   "url": "https://starlette.dev/"
+  },
+  {
+   "id": "py2121-gunicorn",
+   "t": "Gunicorn: Python WSGI HTTP Server",
+   "a": "Benoit Chesneau y colaboradores",
+   "tipo": "doc",
+   "url": "https://gunicorn.org/"
+  },
+  {
+   "id": "py2121-django-overview",
+   "t": "Django at a glance",
+   "a": "Django Software Foundation",
+   "tipo": "doc",
+   "url": "https://docs.djangoproject.com/en/6.1/intro/overview/"
+  },
+  {
+   "id": "py2121-django-faq",
+   "t": "FAQ: General (Django 6.1)",
+   "a": "Django Software Foundation",
+   "tipo": "doc",
+   "url": "https://docs.djangoproject.com/en/6.1/faq/general/"
+  },
+  {
+   "id": "py2121-django-async",
+   "t": "Asynchronous support (Django 6.1)",
+   "a": "Django Software Foundation",
+   "tipo": "doc",
+   "url": "https://docs.djangoproject.com/en/6.1/topics/async/"
+  },
+  {
+   "id": "py2121-django-queries",
+   "t": "Making queries (Django 6.1)",
+   "a": "Django Software Foundation",
+   "tipo": "doc",
+   "url": "https://docs.djangoproject.com/en/6.1/topics/db/queries/"
+  },
+  {
+   "id": "py2121-django-download",
+   "t": "Download Django (versiones soportadas)",
+   "a": "Django Software Foundation",
+   "tipo": "doc",
+   "url": "https://www.djangoproject.com/download/"
+  },
+  {
+   "id": "py2121-pypi-fastapi",
+   "t": "fastapi en PyPI",
+   "a": "Python Package Index",
+   "tipo": "doc",
+   "url": "https://pypi.org/project/fastapi/"
+  }
+ ]
+}
