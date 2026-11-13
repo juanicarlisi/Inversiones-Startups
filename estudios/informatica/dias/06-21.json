@@ -1,0 +1,755 @@
+{
+ "id": "06-21",
+ "titulo": "React V: contexto, rendimiento y hooks avanzados",
+ "bajada": "Cuándo el contexto redibuja de más, qué hacen en la práctica memo, useMemo y useCallback (medido, no supuesto) y cómo React evita trabar la pantalla cuando el trabajo es grande.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-13",
+ "objetivos": [
+  "Explicar qué es el contexto de React y por qué un valor nuevo en cada dibujo redibuja a todos sus consumidores aunque estén envueltos en memo.",
+  "Predecir qué filas de una lista se vuelven a dibujar según cómo se pasen sus props (funciones y objetos escritos en el momento contra valores estables).",
+  "Decidir si un cálculo justifica useMemo, con una vara medible, y reconocer cuándo useCallback sirve y cuándo no.",
+  "Distinguir una actualización urgente de una diferible y elegir entre useDeferredValue y useTransition para que un campo de texto no se trabe.",
+  "Ubicar en el código de Senda el store por contexto, el memo con comparador y el uso de transiciones, y decir qué no está activado (React Compiler)."
+ ],
+ "venis_de": "En [@06-20] viste cómo React compara el árbol viejo con el nuevo (DOM virtual, reconciliación, key) y decide qué tocar del DOM. Hoy mirás el costo del paso anterior: cuánto trabajo hacen los componentes al dibujarse, cómo evitarlo cuando sobra y cómo no trabar al usuario cuando el trabajo es legítimo.",
+ "se_apoya_en": [
+  "06-14",
+  "06-16",
+  "06-17",
+  "06-18",
+  "06-19",
+  "06-20"
+ ],
+ "gancho": [
+  "Un tablero de pedidos en pantalla (ejemplo inventado): 3.000 filas, una caja de búsqueda y un botón para pasar de tema claro a oscuro. Escribís una letra y todo sigue fluido. Un día el equipo agrega un adorno, un objeto de estilo más en cada fila, y de golpe cada tecla tarda lo que un parpadeo largo. ¿Qué cambió? Nada que se vea: sigue siendo el mismo tablero. Cambió cuánto trabajo hace React cada vez que algo se mueve.",
+  "Hoy cerrás el tramo de React con tres preguntas. Cómo pasar un dato a muchos niveles sin atar cada piso (el contexto) y qué cuesta. Cómo evitar que se vuelva a dibujar lo que no cambió (`memo`, `useMemo`, `useCallback`, y la máquina que hoy los escribe sola). Y qué hacer cuando el trabajo es grande de verdad, para que la tecla siga respondiendo. Cada afirmación va con una medición que hice en esta VM, y lo que no pude medir lo digo."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El problema: un dato que atraviesa seis pisos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Imaginá (ejemplo inventado) el tablero de pedidos de un operador logístico. Arriba de todo, un componente sabe qué usuario entró y si la pantalla está en tema claro u oscuro. Seis niveles más abajo hay un botón «reasignar chofer» que necesita saber las dos cosas. Con lo que viste hasta ahora, el dato solo puede llegar por [[props]], de componente en componente: cada piso intermedio lo recibe únicamente para dárselo al siguiente. En la comunidad de React a eso le dicen *prop drilling* (perforar con props), y molesta cuando los pisos del medio no tienen ningún interés en el dato.",
+    "El [[contexto]] es la salida que trae React: un componente de arriba publica un valor y cualquier componente que esté adentro, a la profundidad que sea, lo lee con `useContext`. Son tres piezas: crear el contexto con `createContext` (con un valor por defecto), poner un proveedor que fija el valor para todo lo que tiene adentro, y leerlo donde haga falta [#front21-react-usecontext]."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { createContext, useContext, useState } from 'react';\n\nconst TemaContexto = createContext('claro');          // 1. se crea, con valor por defecto\n\nfunction Tablero() {\n  const [tema, setTema] = useState('claro');\n  return (\n    <TemaContexto value={tema}>                        {/* 2. el proveedor fija el valor */}\n      <Cabecera />   {/* ...seis pisos de componentes que no saben nada del tema... */}\n    </TemaContexto>\n  );\n}\n\nfunction BotonReasignar() {\n  const tema = useContext(TemaContexto);               // 3. lo lee quien lo necesita\n  return <button className={'boton-' + tema}>Reasignar chofer</button>;\n}",
+   "cap": "Las tres piezas del contexto. `<TemaContexto value=…>` es la forma de React 19; antes se escribía `<TemaContexto.Provider value=…>`."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el pizarrón del hall del depósito",
+   "x": "En el hall de un depósito hay un pizarrón con el turno de hoy. Nadie se lo pasa de mano en mano a cada sector: el que lo necesita, lo mira. Acá el pizarrón es el contexto, quien lo escribe es el proveedor y quien lo mira llama a `useContext`. La analogía deja de valer en algo que importa mucho: cuando alguien borra y reescribe el pizarrón, **todos los que lo estaban mirando** reciben aviso y rehacen su trabajo, aunque solo les interesara una línea del cartel. De eso trata la próxima sección."
+  },
+  {
+   "t": "p",
+   "x": "Dos reglas más. React toma el valor del proveedor *más cercano* hacia arriba; si no hay ninguno, usa el valor por defecto que le diste a `createContext`. Y desde React 19 se puede escribir `<TemaContexto value=…>` sin `.Provider`, que es como lo muestra hoy la documentación; la forma con `.Provider` sigue andando y es la que usa el código de Senda."
+  },
+  {
+   "t": "h",
+   "x": "Lo que cambia, cambia para todos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La regla de fondo es corta. Cuando el valor de un proveedor cambia, React vuelve a dibujar (hace un [[re-render]] de) **todos los componentes que leen ese contexto** debajo de ese proveedor. «Cambia» se decide comparando el valor viejo con el nuevo usando `Object.is`: con números y textos mira el contenido; con objetos y funciones mira si es **el mismo objeto en memoria**, no si dicen lo mismo [#front21-react-usecontext]. Y hay una consecuencia que sorprende: envolver al consumidor en `memo` (llegamos en un momento) no lo salva, porque `memo` mira solo las props y el contexto no es una prop [#front21-react-memo].",
+    "El caso típico de la trampa es este: `<TemaContexto value={{ tema, setTema }}>`. Cada vez que se dibuja el componente que contiene al proveedor, por el motivo que sea, esas llaves fabrican un objeto nuevo. Aunque `tema` siga valiendo `'claro'`, para `Object.is` es otro valor, y todos los consumidores se redibujan.",
+    "Lo medí. Armé una pantalla con 100 consumidores, cada uno envuelto en `memo` y contando cuántas veces se dibuja. Hay un botón «otro», que cambia un estado que no tiene nada que ver con el tema, y un botón que cambia el dato. Probé cuatro formas de armar el contexto:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Variante",
+    "3 clics en «otro» (nada que ver con el dato)",
+    "1 clic que cambia el dato"
+   ],
+   "filas": [
+    [
+     "A. Un contexto con `value={{ tema, setTema }}`",
+     "300 dibujos (100 consumidores × 3)",
+     "100"
+    ],
+    [
+     "B. Igual, con el valor memorizado con `useMemo`",
+     "0",
+     "100"
+    ],
+    [
+     "C. Dos contextos: el dato por un lado, las acciones por otro",
+     "-",
+     "50 (los que leen el dato); 0 de los 50 que solo usan las acciones"
+    ],
+    [
+     "D. El contexto guarda un *store* que nunca cambia y cada consumidor lee su pedazo",
+     "0",
+     "1 (el único consumidor al que le tocaba)"
+    ]
+   ],
+   "cap": "Dibujos contados con un contador en cada consumidor. Chromium 153 con Playwright 1.63, React 19.3.1 en modo producción, medido en esta VM el 13-11-2026. Son conteos, no tiempos: salen iguales en cada corrida."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node contexto.cjs     # abre cada variante y cuenta los dibujos de los consumidores",
+     "s": "A #otro x3 {\"A\":300}\nA #tema x1 {\"A\":100}\nB #otro x3 {}\nB #tema x1 {\"B\":100}\nC #tema x1 {\"C.lee\":50}\nD #otro x3 {}\nD #sel x1 {\"D\":1}"
+    }
+   ],
+   "cap": "`{}` quiere decir que ningún consumidor se dibujó. En C no aparece `C.acciona`: los 50 que solo usan las acciones no se enteraron. En D, el clic «sel» marca el elemento 7 y se dibuja solo el 7."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La variante A es la trampa: 300 dibujos que no cambian nada en pantalla. La B la arregla con `useMemo`, que vemos en dos secciones. La C parte el contexto según *quién necesita qué*: los componentes que solo disparan la acción no tienen motivo para enterarse de que el dato cambió.",
+    "La D es la más interesante. En vez de pasar por el contexto el dato, pasa **el contenedor del dato** (un store, un objeto externo a React que guarda el estado y avisa a quien se suscribió). El contenedor es siempre el mismo objeto, así que el contexto nunca cambia y React no tiene motivo para redibujar a nadie por esa vía. Cada consumidor se suscribe al store con una función que elige el pedazo que le interesa, y el store solo avisa a los que ese pedazo afecta. Los stores los vas a ver mañana, con una biblioteca llamada zustand; acá alcanza con la idea. Y es justo lo que hace Senda, como vas a ver abajo."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En la variante A, ¿cambiaría algo si los consumidores no estuvieran envueltos en `memo`? ¿Y si el componente que contiene al proveedor nunca tuviera otro estado además del tema?",
+   "resp": "Sin `memo` se dibujarían igual: el valor nuevo los obliga, con o sin memo. Y si el contenedor del proveedor solo se dibujara cuando cambia el tema, el objeto nuevo no se fabricaría de más: la trampa se activa cuando ese componente se redibuja por una razón ajena al dato."
+  },
+  {
+   "t": "h",
+   "x": "memo: saltear el trabajo cuando nada cambió"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Dibujar un componente es llamar a su función para que devuelva el árbol que describe; por defecto, cuando un componente se vuelve a dibujar, también se dibujan todos sus hijos, hayan cambiado o no ([@06-18], [@06-20]). Casi siempre es aceptable: llamar funciones es barato y la [[reconciliación]] se ocupa de tocar el DOM solo donde hace falta. Pero hay pantallas con miles de componentes, como una lista de 3.000 pedidos, y ahí el costo de *llamar* tantas funciones empieza a notarse aunque casi nada cambie en pantalla.",
+    "[[memo]] es la herramienta para ese caso. `memo(Componente)` devuelve una versión del componente que, cuando se dibuja su padre, compara las props nuevas con las de la vez anterior, una por una con `Object.is`, y si todas son iguales **no vuelve a llamar** a su función [#front21-react-memo]. Es una optimización y no una garantía: la documentación aclara que React puede dibujarlo igual.",
+    "Para que sirva, las props tienen que ser iguales *de verdad*. Y acá aparece la segunda trampa clásica: una función escrita dentro del padre, como `onElegir={(id) => setElegido(id)}`, es una función nueva en cada dibujo, y una función nueva nunca es `Object.is` igual a la anterior. La prop «cambió» aunque la función haga exactamente lo mismo. Con un objeto escrito en el momento, `{ id: 3 }`, pasa lo mismo."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const Fila = memo(function Fila({ pedido, onElegir }) {\n  return (\n    <li>\n      <b>{pedido.cliente}</b> {pedido.bultos} bultos\n      <button onClick={() => onElegir(pedido.id)}>elegir</button>\n    </li>\n  );\n});\n\nfunction Pantalla({ pedidos }) {\n  const [texto, setTexto] = useState('');\n  const [elegido, setElegido] = useState(null);\n  const elegir = useCallback((id) => setElegido(id), []);   // la misma función en todos los dibujos\n  return (\n    <>\n      <input value={texto} onChange={(e) => setTexto(e.target.value)} />\n      <ul>{pedidos.map((p) => <Fila key={p.id} pedido={p} onElegir={elegir} />)}</ul>\n    </>\n  );\n}",
+   "cap": "Cada tecla cambia `texto` y vuelve a dibujar `Pantalla`. Con `memo` y una función estable, las 3.000 filas no se llaman."
+  },
+  {
+   "t": "p",
+   "x": "Medí cuatro versiones de esta pantalla con 3.000 filas (cliente, bultos y un botón «elegir») y una caja de búsqueda en el padre. Escribí cinco letras y tomé, con el componente `Profiler` de React, el tiempo de dibujo de cada tecla (mediana de 25 teclas). Como esta VM no es un teléfono, repetí con el procesador de Chromium frenado 6 veces, que es una emulación para acercarse a un equipo modesto y no una medición en un teléfono real."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Versión",
+    "Filas dibujadas por tecla",
+    "Tiempo de dibujo por tecla",
+    "Con CPU 6 veces más lento"
+   ],
+   "filas": [
+    [
+     "Sin `memo`",
+     "3.000",
+     "11,1 ms",
+     "70,2 ms"
+    ],
+    [
+     "`memo`, pero con la función escrita en el padre",
+     "3.000",
+     "10,9 ms",
+     "74,3 ms"
+    ],
+    [
+     "`memo` con la función estable (`useCallback`)",
+     "0",
+     "0,9 ms",
+     "6,3 ms"
+    ],
+    [
+     "Sin `memo` ni `useCallback`, compilado con React Compiler",
+     "0",
+     "0,2 ms",
+     "1,1 ms"
+    ]
+   ],
+   "cap": "Medido en esta VM compartida el 13-11-2026 (Chromium 153, React 19.3.1 de producción con perfilado). Una corrida; repetida, la primera fila dio entre 8,8 y 12,6 ms, así que tomá las diferencias grandes y no los decimales. Un cuadro a 60 Hz dura 16,7 ms."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres lecturas. La primera: con `memo` y una prop inestable no se ahorra nada (queda en el orden de la versión sin `memo`, dentro del ruido de la medición), y encima se paga la comparación. La segunda: con la función estable las filas ni se llaman, y lo que queda, 0,9 ms, es el costo de comparar 3.000 juegos de props. La tercera, y la que más pesa en la práctica: 11 ms por tecla no se siente, pero 70 ms son más de cuatro cuadros perdidos. Con 300 filas el problema ni existiría. Una regla práctica, que es criterio mío y no ley: medí antes de memorizar.",
+    "La cuarta fila la dejo para el final, en la sección del compilador."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "A cada `Fila` memorizada le pasás `estilo={{ color: 'gray' }}` escrito en el momento. ¿Sirve de algo el `memo`?",
+   "resp": "No. Ese objeto es nuevo en cada dibujo del padre, igual que la función de antes, así que la prop cambia siempre. Hay que definir el objeto fuera del componente (es siempre el mismo), memorizarlo, o pasar valores simples, como el texto del color."
+  },
+  {
+   "t": "h",
+   "x": "useMemo y useCallback: recordar algo entre dibujos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los dos hacen lo mismo con cosas distintas: guardan algo entre un dibujo y el siguiente y solo lo rehacen si cambió alguna de sus *dependencias*, la lista que va como segundo argumento y que ya conocés de [[useEffect]]. [[useMemo]] guarda **el resultado** de un cálculo; [[useCallback]] guarda **la función misma** [#front21-react-usememo] [#front21-react-usecallback]. A ese truco de recordar un resultado para no repetirlo se lo llama [[memoización]], y de ahí viene el nombre de `memo`."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const visibles = useMemo(\n  () => pedidos.filter((p) => p.cliente.includes(q)).sort(porCliente),\n  [pedidos, q],                  // se recalcula solo si cambia alguno de los dos\n);\n\nconst elegir = useCallback((id) => setElegido(id), []);   // misma función en cada dibujo",
+   "cap": "Las dos formas. Con la lista de dependencias vacía, el valor se calcula una sola vez y se reutiliza."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Según la documentación, hay pocos motivos legítimos para usarlos. Uno, un cálculo realmente lento cuyas entradas rara vez cambian. Dos, conservar la *identidad* de un valor o de una función cuando alguien la compara: porque la recibe un componente con `memo`, porque va dentro del valor de un contexto, o porque es dependencia de un `useEffect` y no querés que el efecto se dispare de más. Fuera de esos casos, dice la propia documentación, no hay beneficio, aunque tampoco un daño significativo; lo que sí hay es código menos legible [#front21-react-usememo].",
+    "Para el cálculo lento, medí con 30.000 pedidos inventados: filtrar por texto y ordenar por cliente. Cada clic en un botón sin relación con la búsqueda vuelve a dibujar el componente. Sin `useMemo`, el filtro y el orden se rehacen en cada clic. Con `useMemo`, no se rehacen nunca mientras no cambien la lista ni el texto."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Caso",
+    "Cálculos en 10 clics ajenos",
+    "Duración de cada cálculo"
+   ],
+   "filas": [
+    [
+     "30.000 pedidos, sin `useMemo`",
+     "10",
+     "7 a 11 ms (tres corridas)"
+    ],
+    [
+     "30.000 pedidos, con `useMemo`",
+     "0",
+     "-"
+    ],
+    [
+     "50 pedidos, sin `useMemo`",
+     "10",
+     "menos de 0,1 ms (lo que distingue el cronómetro)"
+    ]
+   ],
+   "cap": "Medido en esta VM el 13-11-2026 con `performance.now()` alrededor del cálculo. Al escribir una letra, las dos versiones calculan una vez, porque cambió una dependencia: 1,4 a 1,8 ms sin `useMemo` y 2,8 a 3,3 ms con él. Sospecho que en esa versión es el primer cálculo y el motor de JavaScript todavía está frío; no lo probé, así que no leas nada en esa diferencia."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La última fila es la que más enseña: con 50 pedidos el cálculo es tan barato que `useMemo` agrega código y comparaciones sin devolver nada. La documentación propone una vara concreta: salvo que estés creando o recorriendo miles de objetos, probablemente no sea caro, y si el cálculo suma 1 ms o más conviene probar [#front21-react-usememo]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Tres cosas que se rompen con useMemo y useCallback",
+   "x": [
+    "**Dependencias mal puestas.** `useCallback((id) => elegir(id, modo), [])` captura el `modo` del primer dibujo y no se entera de los cambios: la función «recuerda» un valor viejo. Todo lo que la función usa de afuera tiene que estar en la lista.",
+    "**No son una garantía.** La documentación dice que hay que usarlos solo como optimización: si tu código deja de funcionar al sacarlos, el problema está en otro lado y hay que arreglarlo primero.",
+    "**En desarrollo el cálculo corre dos veces.** En modo estricto (Strict Mode), React llama dos veces a algunas funciones para detectar efectos escondidos. Es esperable y no pasa en producción [#front21-react-usememo]."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Cada tecla vuelve a dibujar las 3.000 filas aunque `Fila` está envuelta en `memo`. Encontrá las dos causas y arreglalas (podés cambiar una línea de `Fila`).\n\nfunction Pantalla({ pedidos }) {\n  const [q, setQ] = useState('');\n  return pedidos.map((p) => (\n    <Fila key={p.id} pedido={p} estilo={{ color: 'gray' }} onElegir={() => elegir(p.id)} />\n  ));\n}",
+   "pista": "Mirá qué cosas se fabrican de nuevo en cada dibujo de `Pantalla`. Y recordá que un hook no se puede llamar dentro de un `map`.",
+   "solucion": "Hay dos props inestables. 1) `estilo={{ color: 'gray' }}` es un objeto nuevo en cada dibujo: se define una vez fuera del componente (`const ESTILO = { color: 'gray' }`) y se pasa `estilo={ESTILO}`. 2) `onElegir={() => elegir(p.id)}` es una función nueva por fila y por dibujo, y no se arregla con `useCallback` dentro del `map`, porque un hook no va en un bucle. La salida es pasar la misma función a todas las filas, `onElegir={elegir}` (con `elegir` estable, definida con `useCallback`), y que `Fila` la llame con su propio id: `onClick={() => onElegir(pedido.id)}`. Esa flecha vive adentro de `Fila`, que con props estables ya no se vuelve a dibujar."
+  },
+  {
+   "t": "h",
+   "x": "React Compiler: que lo memorice una máquina"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Escribir `memo`, `useMemo` y `useCallback` a mano es tedioso y fácil de hacer mal, como acabás de ver con las props inestables. [[React Compiler]] ataca el problema desde otro lado: es una herramienta que corre al **armar la app** (no al ejecutarla), lee tus componentes y hooks y agrega la memorización donde corresponde [#front21-react-compiler-intro]. Hoy se instala como un plugin de Babel, el transformador de código que usan muchas cadenas de compilación, y funciona con Babel, Vite, Metro (el empaquetador de React Native y Expo) y Rsbuild. Next.js ofrece una versión propia, sobre su compilador SWC, desde la 15.3.1.",
+    "Pasé por el compilador, sin tocar el código, un componente que filtra una lista y tiene un contador. Esto es lo que genera, recortado:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Entrada: const pares = items.filter((x) => x % 2 === 0);   y   <Lista datos={pares} />\nexport function Panel(t0) {\n  const $ = _c(12);                       // una caché de 12 casilleros por instancia del componente\n  const { items } = t0;\n  const [n, setN] = useState(0);\n  let t1;\n  if ($[0] !== items) {                   // ¿cambió «items» desde la última vez?\n    t1 = items.filter(_temp);             // sí: recalcular y guardar\n    $[0] = items;\n    $[1] = t1;\n  } else {\n    t1 = $[1];                            // no: reutilizar lo guardado\n  }\n  const pares = t1;\n  // ... lo mismo para la función del botón, para el <button> y para <Lista datos={pares} />\n}",
+   "cap": "Salida real de `babel-plugin-react-compiler` 1.0.0, recortada. Cada pedazo se recalcula solo si cambió lo que lo alimenta, que es lo que escribirías con `useMemo`, pero también cubre el JSX."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Repetí con ese compilador los experimentos anteriores, con el código original y sin agregar memorización. En la variante A del contexto, los 300 dibujos de los clics ajenos pasaron a 0: el compilador memorizó el objeto del valor sin que yo escribiera `useMemo`. Con la lista de 3.000 filas, hasta la versión sin `memo` ni `useCallback` bajó a 0 filas por tecla y 0,2 ms, la cuarta fila de la tabla. Los dibujos que sí corresponden no desaparecen: en A, el clic que cambia el tema siguió dibujando a los 100 consumidores.",
+    "La documentación de React sugiere, para código nuevo, apoyarse en el compilador y dejar `useMemo` y `useCallback` para cuando hace falta control preciso, por ejemplo cuando un valor es dependencia de un efecto y querés asegurar que no se dispare de más. Para código que ya tiene memorización, recomienda dejarla donde está, porque sacarla puede cambiar lo que genera el compilador, o probar con cuidado antes de quitarla [#front21-react-compiler-intro]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Estado al 13 de noviembre de 2026",
+   "x": [
+    "React Compiler 1.0 salió estable el 7 de octubre de 2025 [#front21-react-compiler-1]. El 13-11-2026, `npm view` informa `babel-plugin-react-compiler` 1.0.0 como última versión y `react` 19.3.1 (React 19.3 salió el 9 de septiembre de 2026 [#front21-react-19-3]; la 19.3.1, el 14 de octubre). La página de introducción de react.dev lo llama estable y todavía opcional, y avisa que en el futuro algunas funciones podrían requerirlo.",
+    "Para que funcione, el código tiene que seguir las reglas de React (componentes puros, sin mutar props ni estado): la propia documentación dice que adoptarlo en producción depende de la salud del código. En Expo se activa con `experiments.reactCompiler` en `app.json`, según su guía [#front21-expo-react-compiler]. Todo esto puede cambiar con la próxima versión de React o de Expo."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Con el compilador ya no hay que entender nada de esto»",
+   "x": "El compilador decide *dónde* poner la memorización, pero no cambia las reglas del juego. No vuelve barato un dibujo que corresponde (el tema cambió y hay 100 consumidores: se dibujan los 100), no arregla un componente que rompe las reglas de React y no reemplaza decidir dónde vive cada estado. Entender qué se redibuja y por qué sigue siendo lo que te permite leer un Profiler y discutir con quien escribe el código."
+  },
+  {
+   "t": "h",
+   "x": "Renderizado concurrente: dibujar sin trabar lo urgente"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá, el objetivo fue hacer *menos* trabajo. Pero hay trabajo que es legítimo y grande: filtrar y agrupar 5.000 pedidos, dibujar un gráfico. Mientras React lo hace, ocupa el [[hilo principal]] del navegador, el mismo que atiende los toques y las teclas. Si el dibujo dura 60 ms, la tecla que apretaste espera ese tiempo para reflejarse: es el [[jank]] que viste en [@06-14].",
+    "Hasta React 17, un dibujo que arrancaba no se podía interrumpir hasta terminar. React 18 (29 de marzo de 2022) introdujo el [[renderizado concurrente]]: React puede empezar a dibujar una actualización, **pausarla**, atender algo más urgente y retomarla después, o incluso **abandonarla** si ya quedó vieja [#front21-react-v18]. Lo permite algo que ya conocés: el dibujo es una función pura, así que tirar a la basura un dibujo a medias no deja efectos secundarios, y React cambia el DOM recién al final, cuando terminó de evaluar todo el árbol, de modo que la pantalla siempre se ve consistente."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el despachante y el mostrador",
+   "x": "Un despachante está armando un pedido grande, de 300 renglones. Entra un cliente al mostrador y pregunta algo simple. El despachante deja el pedido a medias, atiende al cliente y vuelve; si mientras tanto el pedido cambió, descarta lo armado y empieza con la versión nueva. Esa es la idea: lo urgente pasa primero y el trabajo grande puede esperar o rehacerse. La analogía falla en que el despachante conserva lo que ya armó, mientras que React, cuando abandona un dibujo, **lo tira** y vuelve a empezar desde la versión nueva."
+  },
+  {
+   "t": "p",
+   "x": [
+    "No se «enciende»: React 18 y 19 la usan por debajo, y vos le indicás la prioridad de cada actualización. Lo urgente es lo que el usuario espera ver ya (lo que tecleó); lo diferible es lo que puede tardar un instante (la lista filtrada). Hay dos herramientas. [[useDeferredValue]] te da una copia de un valor que se actualiza con retraso, dejando que el resto de la pantalla se actualice primero. [[useTransition]] (y su versión sin hook, `startTransition`) marca una actualización de estado como no urgente."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Opción 1: un valor diferido. La lista usa «diferida», el input usa «q».\nconst [q, setQ] = useState('');\nconst diferida = useDeferredValue(q);\n<input value={q} onChange={(e) => setQ(e.target.value)} />\n<ListaPesada pedidos={pedidos} filtro={diferida} />\n\n// Opción 2: una transición. El input usa «q» (urgente); la lista usa «filtro», que se cambia dentro de la transición.\nconst [esperando, iniciar] = useTransition();\n<input value={q} onChange={(e) => {\n  setQ(e.target.value);\n  iniciar(() => setFiltro(e.target.value));\n}} />",
+   "cap": "Las dos formas. En la segunda, `esperando` vale `true` mientras la transición está pendiente: sirve para mostrar un indicador."
+  },
+  {
+   "t": "p",
+   "x": "Lo medí con una lista de 300 ítems en la que cada uno hace 0,2 ms de trabajo, o sea unos 60 ms por dibujo completo. Es un trabajo falso, una espera activa que armé para tener un dibujo lento y predecible. Escribí «tablero» (7 teclas) con 10 ms entre teclas, y con 40 ms. Medí con la API Event Timing del navegador la duración de los eventos de teclado, que es el tiempo desde el evento hasta el siguiente cuadro pintado, redondeado a múltiplos de 8 ms [#front21-mdn-eventtiming], y conté cuántos ítems se dibujaron."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Versión",
+    "Mediana de los eventos que pasaron de 16 ms",
+    "Evento más lento",
+    "Ítems dibujados (2.100 si se dibuja todo cada vez)"
+   ],
+   "filas": [
+    [
+     "Sin nada: `q` alimenta input y lista",
+     "88 a 96 ms",
+     "96 a 112 ms",
+     "2.100"
+    ],
+    [
+     "`useDeferredValue`",
+     "16 ms",
+     "16 a 32 ms",
+     "380 a 910 con 10 ms entre teclas; 1.100 a 1.500 con 40 ms"
+    ],
+    [
+     "`useTransition`",
+     "16 ms",
+     "16 a 24 ms",
+     "380 a 940 con 10 ms entre teclas; 1.100 a 1.650 con 40 ms"
+    ]
+   ],
+   "cap": "Varias series de tres repeticiones, medido en esta VM el 13-11-2026; los rangos reúnen todo lo observado. Los números cambian entre corridas (la VM es compartida); lo estable es la distancia entre la primera fila y las otras dos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Sin ninguna ayuda, cada uno de los 28 eventos de teclado (cuatro por tecla) esperó cerca de 90 ms hasta el siguiente cuadro: el input respondía con un retraso que ya se nota. Con cualquiera de las dos herramientas, la mediana bajó al mínimo que mide la prueba, 16 ms, y el peor evento no pasó de 32. Hay un detalle revelador en la última columna: con las teclas más seguidas, React dibujó apenas entre 380 y 940 ítems de 2.100, porque **abandonó los dibujos de la lista que ya quedaron viejos** (si escribís «ta» rápido, no termina de pintar lo de «t»). No se hizo más rápido nada: se evitó trabajo inútil y se priorizó lo que el usuario espera ver.",
+    "El precio es que la lista queda un momento atrasada respecto de la caja. Está bien para un filtro, y para eso están `esperando` (en `useTransition`) o la comparación `q !== diferida`, que permiten mostrar un indicador mientras tanto. Una limitación documentada: el estado que muestra un campo de texto tiene que ser urgente, y las transiciones no sirven para controlar un input [#front21-react-usetransition]."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Si la lista filtrada tarda 80 ms, ¿dónde ponés `startTransition`: alrededor de `setTexto` (lo que muestra el input) o alrededor de `setFiltro` (lo que alimenta la lista)? ¿Por qué?",
+   "resp": "Alrededor de `setFiltro`. El texto del input tiene que reflejarse al instante, es lo urgente. Si lo ponés dentro de la transición, el input quedaría atrasado, que es lo contrario de lo que buscás."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La segunda pieza del título de hoy es [[Suspense]]: un componente que muestra un contenido alternativo (el *fallback*, por ejemplo «Cargando…») mientras algo de lo que tiene adentro todavía no está listo, como el código de una pantalla cargado con `lazy` [#front21-react-suspense]. Se combina con las transiciones. Probé una pantalla de inicio que lleva a otra cargada con `lazy` y que tarda 600 ms en estar disponible, con el límite de Suspense ya en pantalla:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cambio de pantalla hecho con…",
+    "A los 100 y 300 ms se ve",
+    "A los 700 ms se ve"
+   ],
+   "filas": [
+    [
+     "`setVer(true)` suelto",
+     "«Cargando…» (la pantalla vieja se oculta)",
+     "La pantalla nueva"
+    ],
+    [
+     "`setVer(true)` dentro de `startTransition`",
+     "La pantalla vieja, con `esperando` en `true`",
+     "La pantalla nueva"
+    ]
+   ],
+   "cap": "Texto visible leído con Playwright en esta VM el 13-11-2026. La documentación explica el motivo: una transición evita que un límite de Suspense ya visible vuelva a mostrar su fallback."
+  },
+  {
+   "t": "p",
+   "x": "Un detalle que descubrí armando la demo y que no estaba en mi primera versión: si el límite de Suspense nace en la misma actualización que suspende, el «Cargando…» aparece igual aunque uses `startTransition`. La transición protege lo que **ya está en pantalla**, y por eso el límite tiene que estar montado de antemano."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Dos páginas de React que hoy no dicen lo mismo",
+   "x": "El registro de cambios de React 19.3 (9-9-2026) dice que ahora las transiciones se renderizan de forma independiente, de modo que una lenta ya no retrasa a otras sin relación [#front21-react-19-3]. La página de `useTransition` que leí el 13-11-2026 todavía dice que, si hay varias transiciones en curso, React las agrupa. No sé cuál de las dos está desactualizada; para decidir algo sobre este punto, leé el registro de cambios y probá en tu versión."
+  },
+  {
+   "t": "h",
+   "x": "En Senda: lo que hace y lo que no"
+  },
+  {
+   "t": "senda",
+   "titulo": "El store que viaja por contexto: la variante D en un lector de la Biblia",
+   "x": [
+    "El lector de la Biblia de Senda tiene el problema de la variante D: muchas hojas, muchos versículos, y un toque que no tiene que redibujar todo. Su solución está en `src/lector/marcas.ts`. Allí se crea un store con zustand (`createStore`), se lo publica por un contexto (`MarcasCtx`) y cada versículo se suscribe solo a su pedazo. En `src/pantallas/Lector.tsx`, el componente `PiezaVerso` lee, por ejemplo, `useMarcas((m) => vivo && m.sel.includes(i))`: si el versículo `i` está seleccionado o no.",
+    "El comentario de cabecera del archivo cuenta el motivo: antes esas marcas vivían en el estado de la pantalla, y cada toque volvía a dibujar la hoja entera (el comentario cita la prueba 6: «marcar un versículo o una página está muy lento»); ahora cada versículo escucha solo lo suyo, y tocar uno redibuja ese versículo y la barra de acciones. `src/lector/vista.ts` repite el patrón con otro store, el de qué hoja está a la vista. El store se crea una vez por pantalla con `useRef` y se pasa con `<MarcasCtx.Provider value={marcas}>`. No medí cuánto tarda hoy un toque en un teléfono; lo que verifiqué es el diseño y lo que dicen sus comentarios.",
+    "Esto corresponde al commit `25e08fa` (9 de noviembre de 2026); el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/lector/marcas.ts",
+    "src/lector/vista.ts",
+    "src/pantallas/Lector.tsx"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "memo con comparador propio, valores diferidos y Suspense",
+   "x": [
+    "`PiezaVerso`, en `src/pantallas/Lector.tsx`, usa `memo` con un **segundo argumento**: una función propia que decide cuándo las props son «iguales» (compara `c`, `pz.i`, `pz.desde`, `p`, `tam`, `lh` y otras una por una). Es la salida que ofrece React cuando la comparación por defecto no alcanza. En `src/lector/Libro.tsx`, `Capa` memoriza con `useMemo` el dibujo de una hoja para que cambiar el orden de las hojas no vuelva a armar el texto.",
+    "De lo concurrente, el lector usa `useDeferredValue(pag)` para calcular con la página diferida las hojas «lejanas» (por el nombre y el uso, parece servir para que su preparación no compita con el gesto de pasar de página), y tres `startTransition` (por ejemplo, montar la hoja vecina como trabajo de fondo, con un comentario que dice que cede ante un toque nuevo). No hay ningún `useTransition` con hook en `src/`. Y `src/arte/Arte.tsx` carga la Lany en 3D con `lazy` dentro de un `Suspense` cuyo fallback es `null`, o sea nada visible mientras llega."
+   ],
+   "archivos": [
+    "src/pantallas/Lector.tsx",
+    "src/lector/Libro.tsx",
+    "src/arte/Arte.tsx"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Memoización a mano, y el compilador sin prender",
+   "x": [
+    "Contados con `grep` sobre `src/` en el commit `25e08fa`: 81 llamadas a `useMemo(`, 23 a `useCallback(` y 12 a `memo(`, en un `src/` con 102 archivos `.tsx`. Es memorización escrita a mano.",
+    "El compilador no está activado. `app.json` no tiene la sección `experiments`, no hay un `babel.config.js` propio, y `package.json` no lista el plugin. Aparece `babel-plugin-react-compiler` 1.0.0 en `package-lock.json`, pero como dependencia de `babel-preset-expo` 57.0.13, el preset de Babel de Expo. Que esté instalado no lo enciende: según la guía de Expo se prende con `experiments.reactCompiler`. Una regla práctica, criterio y no verdad: con tanta memorización a mano, activarlo sería un cambio de armado que convendría medir en un teléfono real, algo que no hice ni sé cuánto aportaría. La documentación de React dice que lo más seguro con código ya memorizado es dejarlo como está."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué herramienta para qué síntoma"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Lo que ves",
+    "Causa probable",
+    "Probá primero"
+   ],
+   "filas": [
+    [
+     "Un dato cruza muchos pisos que no lo usan",
+     "*Prop drilling*",
+     "Un contexto, o [[composición de componentes]]: pasar hijos ya armados"
+    ],
+    [
+     "Al cambiar un contexto se redibuja de más",
+     "Valor nuevo en cada dibujo, o un solo contexto con cosas que cambian a ritmos distintos",
+     "Memorizar el valor, separar datos de acciones, o un store en el contexto"
+    ],
+    [
+     "Una lista entera se redibuja al escribir en el padre",
+     "Hijos sin `memo`, o con props inestables",
+     "`memo` y props estables, o el compilador"
+    ],
+    [
+     "Un cálculo pesado se repite sin razón",
+     "Se rehace en cada dibujo",
+     "`useMemo`, después de medir"
+    ],
+    [
+     "Tecleás y la pantalla se traba",
+     "Un dibujo grande bloquea lo urgente",
+     "`useDeferredValue` o `useTransition`"
+    ],
+    [
+     "Al cambiar de pantalla aparece «Cargando…» y parpadea",
+     "Un Suspense visible vuelve a su fallback",
+     "Hacer el cambio dentro de una transición"
+    ]
+   ],
+   "cap": "Un mapa para empezar. Lo primero de cada fila es una hipótesis: se confirma midiendo con el Profiler de React, en las DevTools o con el componente `Profiler`."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«useCallback hace más rápida la función»",
+   "x": "`useCallback` no acelera la función ni evita crearla: en cada dibujo la función se crea igual, y la documentación lo aclara; lo único que cambia es que React te devuelve la anterior si las dependencias no cambiaron [#front21-react-usecallback]. Lo que se gana, cuando se gana, está en lo que pasa **después**: que un hijo con `memo` o un efecto vean la misma función y no se disparen."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un tablero tiene un contexto de usuario con `value={{ usuario, cerrarSesion }}` dentro de un componente `App` que además guarda el número de notificaciones sin leer. Cada vez que llega una notificación, se redibujan 200 componentes que solo leen el nombre del usuario. Proponé dos arreglos distintos y decí qué compararías para saber si funcionaron.",
+   "pista": "Pensá en la variante B (memorizar el valor) y en la C (partir el contexto), y en qué contar o medir.",
+   "solucion": "Arreglo 1: memorizar el valor, `useMemo(() => ({ usuario, cerrarSesion }), [usuario])`, con `cerrarSesion` estable (`useCallback`); así el objeto solo cambia cuando cambia el usuario. Arreglo 2: sacar el contador de notificaciones de `App` y ponerlo en su propio componente o contexto, para que `App` no se redibuje cuando llega una notificación; o separar el contexto en uno de datos y uno de acciones. Para saber si funcionó: contar cuántas veces se dibuja uno de esos 200 componentes al llegar una notificación (debería ser 0), o mirar con el Profiler de React cuántos componentes se dibujaron en esa actualización. Con React Compiler activado, el primer arreglo lo haría el compilador solo."
+  }
+ ],
+ "recap": [
+  "El **contexto** publica un valor desde un componente de arriba y lo lee cualquiera de abajo con `useContext`. Cuando el valor cambia (comparado con `Object.is`), se dibujan todos sus consumidores, aunque tengan `memo`.",
+  "Un objeto o una función escritos en el cuerpo de un componente son nuevos en cada dibujo. Si van como valor de un contexto o como prop de un componente con `memo`, rompen el ahorro. Se arregla memorizando, definiendo fuera del componente, o con un store estable por contexto, como hace Senda.",
+  "**`memo`** salta el dibujo si las props son iguales una por una; **`useMemo`** guarda el resultado de un cálculo y **`useCallback`** guarda la función. Son optimizaciones, no garantías, y solo valen cuando el costo se mide: con 3.000 filas, 11 ms contra 0,9 ms por tecla; con 50 pedidos, nada que ganar.",
+  "**React Compiler 1.0** (estable desde octubre de 2025) agrega esa memorización al armar la app. En mis pruebas bajó a 0 dibujos lo que hacía a mano, pero no elimina los dibujos que corresponden. Senda no lo tiene activado.",
+  "El **renderizado concurrente** (React 18, marzo de 2022) permite pausar o abandonar un dibujo para atender lo urgente. Se usa con `useDeferredValue` o `useTransition`; el texto de un campo siempre es lo urgente, y la lista que filtra, lo diferible.",
+  "Una transición protege lo que ya está en pantalla: con un Suspense visible, el cambio de pantalla deja la vieja con un indicador de pendiente en lugar de mostrar «Cargando…»."
+ ],
+ "repaso": [
+  {
+   "p": "Un proveedor escribe `value={{ tema, setTema }}` y sus 100 consumidores están envueltos en `memo`. El componente que contiene al proveedor se redibuja por un estado que no tiene que ver con el tema. ¿Qué pasa con los consumidores?",
+   "o": [
+    "Ninguno se redibuja, porque `memo` ya compara sus props y no cambiaron",
+    "Se redibujan los 100, porque el objeto es nuevo y el contexto no pasa por `memo`",
+    "Se redibuja solo el proveedor, porque React reparte el valor sin llamar a los hijos",
+    "Se redibujan solo los que usan `setTema`, porque esa referencia fue la que cambió"
+   ],
+   "c": 1,
+   "e": "El valor del proveedor es un objeto nuevo en cada dibujo y `Object.is` lo ve distinto; React redibuja a todos los que leen ese contexto, y `memo` solo mira props. Es falso que memo los proteja, falso que los hijos no se llamen y falso que importe `setTema`: esa función es estable."
+  },
+  {
+   "p": "Una fila está envuelta en `memo`, pero el padre le pasa `onElegir={(id) => setElegido(id)}` escrita en su cuerpo. Al escribir en una caja del padre, todas las filas se redibujan. ¿Por qué?",
+   "o": [
+    "Porque `memo` solo funciona con listas de menos de cien elementos",
+    "Porque `memo` compara también el estado del padre y lo ve distinto",
+    "Porque React ignora `memo` cuando la fila contiene un botón con evento",
+    "Porque la función es nueva en cada dibujo y la prop cambia para `Object.is`"
+   ],
+   "c": 3,
+   "e": "Una función escrita en el cuerpo del padre es un objeto nuevo en cada dibujo, y `Object.is` dice que es distinta de la anterior, así que `memo` ve una prop cambiada. `memo` no tiene un tope de elementos, no mira el estado del padre y no se desactiva por tener eventos."
+  },
+  {
+   "p": "Un componente filtra 40 pedidos en cada dibujo y el filtro tarda menos de 0,1 ms. Un compañero propone envolverlo en `useMemo`. ¿Qué criterio es el más razonable?",
+   "o": [
+    "Envolverlo igual, porque `useMemo` no cuesta nada y siempre ahorra tiempo",
+    "Envolverlo, porque `useMemo` garantiza que el cálculo no se repite jamás",
+    "Medir primero: con ese costo no se justifica el código extra ni las comparaciones",
+    "Cambiarlo por `useCallback`, que es la versión más rápida de `useMemo`"
+   ],
+   "c": 2,
+   "e": "La documentación propone medir y dice que, salvo miles de objetos, un cálculo probablemente no sea caro; envolver lo barato agrega código y comparaciones sin devolver nada. `useMemo` no garantiza nada (es optimización) y `useCallback` guarda funciones, no resultados."
+  },
+  {
+   "p": "Querés que una caja de búsqueda responda al instante aunque filtrar 5.000 pedidos lleve 80 ms. ¿Dónde conviene poner `startTransition`?",
+   "o": [
+    "Alrededor de `setFiltro`, el estado que alimenta la lista, y el texto del input queda urgente",
+    "Alrededor de `setTexto`, el estado que el input muestra, para que se actualice con prioridad",
+    "Alrededor de los dos estados, para que React los agrupe y se actualicen más rápido",
+    "Dentro de la función del filtro, para que el cálculo corra en otro hilo"
+   ],
+   "c": 0,
+   "e": "El texto del input es lo urgente y el filtro es lo que puede esperar o abandonarse. Poner `setTexto` en una transición atrasa el input; agrupar los dos pierde el beneficio; y `startTransition` no crea hilos: sigue siendo el hilo principal, con prioridades."
+  },
+  {
+   "p": "Un equipo activa React Compiler 1.0 en un proyecto cuyos componentes siguen las reglas de React. ¿Cuál de estas afirmaciones es correcta?",
+   "o": [
+    "Hay que borrar todos los `useMemo` y `useCallback`, o el compilador no funciona",
+    "Cada componente pasa a dibujarse en un hilo aparte y deja de bloquear la pantalla",
+    "En código nuevo deja de hacer falta escribir a mano casi toda la memorización",
+    "Elimina los re-renders: ningún componente se vuelve a dibujar sin necesidad ni con necesidad"
+   ],
+   "c": 2,
+   "e": "El compilador agrega la memorización al armar la app; para código nuevo, React sugiere apoyarse en él y dejar los hooks para control fino, y para el código existente, dejar lo que hay. No exige borrar hooks, no usa otro hilo y no elimina los dibujos que corresponden."
+  },
+  {
+   "p": "Una pantalla ya visible dentro de un `Suspense` lleva a otra cargada con `lazy` que tarda 600 ms. ¿Qué diferencia hay entre cambiar con `setPantalla(...)` suelto y hacerlo dentro de `startTransition`?",
+   "o": [
+    "Suelto no carga la pantalla nueva y la transición sí, porque `lazy` lo exige",
+    "Suelto aparece «Cargando…» y se oculta lo anterior; con transición sigue la vieja y hay un pendiente",
+    "En la transición la carga dura menos porque React la reparte entre varios hilos",
+    "No hay diferencia visible, porque Suspense siempre muestra su fallback al suspender"
+   ],
+   "c": 1,
+   "e": "Con la actualización suelta, el límite de Suspense muestra su fallback; con una transición, React mantiene visible lo que ya estaba y marca la espera (en `useTransition`, `esperando` en `true`) hasta que la pantalla nueva esté lista. La carga tarda lo mismo y no hay hilos extra."
+  },
+  {
+   "p": "Senda pasa por contexto un store que se crea una vez por pantalla, y cada versículo lee de él solo lo suyo. ¿Por qué tocar un versículo no redibuja a los demás?",
+   "o": [
+    "Porque React mira el DOM, detecta qué versículo se tocó y redibuja solo ese",
+    "Porque `memo` bloquea toda actualización que llega a un componente por contexto",
+    "Porque el store guarda los versículos fuera de React y los pinta sin componentes",
+    "Porque el valor del contexto no cambia nunca y cada versículo se suscribe solo a su pedazo"
+   ],
+   "c": 3,
+   "e": "El contexto contiene siempre el mismo objeto (el store), así que no hay un valor nuevo que obligue a redibujar; cada versículo se suscribe con una función que elige su pedazo y el store avisa solo a quien le afecta. React no mira el DOM para decidir, `memo` no frena el contexto y los versículos siguen siendo componentes."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística, sin usar las palabras «hook» ni «render», por qué escribir una letra en un buscador puede trabarse aunque la pantalla casi no cambie, y qué tres cosas puede hacer un programador: evitar el trabajo repetido, guardar un resultado, o dejar el trabajo grande para después de lo urgente. Usá una analogía tuya, que no sea la del pizarrón ni la del despachante, y decí en qué punto deja de valer.",
+ "para_profundizar": [
+  {
+   "fuente": "front21-react-usememo",
+   "nota": "La página oficial de `useMemo`: leé el recuadro «How to tell if a calculation is expensive» (la vara de 1 ms) y «Should you add useMemo everywhere?». Es la base de la regla «medí antes de memorizar»."
+  },
+  {
+   "fuente": "front21-react-usecontext",
+   "nota": "La documentación de `useContext`: la sección «Optimizing re-renders when passing objects and functions» es exactamente la variante A contra la B de hoy."
+  },
+  {
+   "fuente": "front21-react-compiler-intro",
+   "nota": "La introducción oficial a React Compiler: qué optimiza, qué se recomienda hacer con `useMemo`, `useCallback` y `memo` existentes, y las herramientas de armado compatibles."
+  },
+  {
+   "fuente": "front21-react-v18",
+   "nota": "El anuncio de React 18: la sección «What is Concurrent React?» explica con calma qué significa que el dibujo sea interrumpible y por qué la pantalla sigue consistente."
+  }
+ ],
+ "videos": [
+  {
+   "q": "React useTransition useDeferredValue explicado",
+   "por_que": "Para ver las dos herramientas concurrentes en una demo con una lista lenta, que es el mismo escenario que mediste hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "contexto",
+   "d": "Mecanismo de React para que un componente publique un valor (con un proveedor) y cualquier componente de abajo lo lea con `useContext` sin recibirlo por props. Cuando el valor cambia, React vuelve a dibujar a todos los que lo leen."
+  },
+  {
+   "t": "memo",
+   "d": "Función de React que envuelve un componente y le indica que, si sus props nuevas son iguales a las anteriores (comparadas una por una con `Object.is`), no lo vuelva a dibujar cuando se dibuja su padre. Es una optimización, no una garantía."
+  },
+  {
+   "t": "useMemo",
+   "d": "Hook que guarda el resultado de un cálculo entre dibujos y solo lo rehace cuando cambia alguna de sus dependencias. Sirve para cálculos lentos o para conservar la identidad de un objeto."
+  },
+  {
+   "t": "useCallback",
+   "d": "Hook que guarda una función entre dibujos y devuelve la misma mientras no cambien sus dependencias. No la hace más rápida: sirve para que un hijo con memo o un efecto no vean una función distinta cada vez."
+  },
+  {
+   "t": "renderizado concurrente",
+   "d": "Forma de trabajar de React desde la versión 18: puede empezar a dibujar una actualización, pausarla para atender algo más urgente, retomarla o abandonarla si quedó vieja. Se usa con useTransition y useDeferredValue."
+  },
+  {
+   "t": "memoización",
+   "d": "Técnica de guardar el resultado de un cálculo junto con sus entradas para no repetirlo cuando las entradas son las mismas. De ahí vienen memo, useMemo y useCallback."
+  },
+  {
+   "t": "useTransition",
+   "d": "Hook de React que marca una actualización de estado como no urgente. Devuelve una función para iniciar la transición y un indicador que dice si está pendiente; React puede interrumpir esa actualización si llega algo urgente."
+  },
+  {
+   "t": "useDeferredValue",
+   "d": "Hook de React que devuelve una copia de un valor que se actualiza con retraso: primero se redibuja lo urgente con el valor viejo y después, cuando hay tiempo, lo diferido con el nuevo."
+  },
+  {
+   "t": "Suspense",
+   "d": "Componente de React que muestra un contenido alternativo (el fallback, por ejemplo «Cargando…») mientras algo de lo que contiene todavía no está listo, como el código de una pantalla cargada con lazy."
+  },
+  {
+   "t": "React Compiler",
+   "d": "Herramienta que corre al armar la app y agrega memorización automática a componentes y hooks que siguen las reglas de React. Su versión 1.0 salió estable en octubre de 2025 y hoy se instala como plugin de Babel."
+  }
+ ],
+ "siguiente": "estado global: qué hacer cuando el dato lo necesitan veinte pantallas y no solo un árbol, con store, reductor y selector, y por qué Senda eligió zustand con once stores.",
+ "fuentes_nuevas": [
+  {
+   "id": "front21-react-usecontext",
+   "t": "useContext",
+   "a": "React (react.dev)",
+   "tipo": "doc",
+   "url": "https://react.dev/reference/react/useContext"
+  },
+  {
+   "id": "front21-react-memo",
+   "t": "memo",
+   "a": "React (react.dev)",
+   "tipo": "doc",
+   "url": "https://react.dev/reference/react/memo"
+  },
+  {
+   "id": "front21-react-usememo",
+   "t": "useMemo",
+   "a": "React (react.dev)",
+   "tipo": "doc",
+   "url": "https://react.dev/reference/react/useMemo"
+  },
+  {
+   "id": "front21-react-usecallback",
+   "t": "useCallback",
+   "a": "React (react.dev)",
+   "tipo": "doc",
+   "url": "https://react.dev/reference/react/useCallback"
+  },
+  {
+   "id": "front21-react-usetransition",
+   "t": "useTransition",
+   "a": "React (react.dev)",
+   "tipo": "doc",
+   "url": "https://react.dev/reference/react/useTransition"
+  },
+  {
+   "id": "front21-react-suspense",
+   "t": "Suspense",
+   "a": "React (react.dev)",
+   "tipo": "doc",
+   "url": "https://react.dev/reference/react/Suspense"
+  },
+  {
+   "id": "front21-react-compiler-intro",
+   "t": "React Compiler: Introduction",
+   "a": "React (react.dev)",
+   "tipo": "doc",
+   "url": "https://react.dev/learn/react-compiler/introduction"
+  },
+  {
+   "id": "front21-react-compiler-1",
+   "t": "React Compiler v1.0",
+   "a": "El equipo de React",
+   "tipo": "articulo",
+   "anio": 2025,
+   "url": "https://react.dev/blog/2025/10/07/react-compiler-1"
+  },
+  {
+   "id": "front21-react-v18",
+   "t": "React v18.0",
+   "a": "El equipo de React",
+   "tipo": "articulo",
+   "anio": 2022,
+   "url": "https://react.dev/blog/2022/03/29/react-v18"
+  },
+  {
+   "id": "front21-react-19-3",
+   "t": "React 19.3",
+   "a": "El equipo de React",
+   "tipo": "articulo",
+   "anio": 2026,
+   "url": "https://react.dev/blog/2026/09/09/react-19-3"
+  },
+  {
+   "id": "front21-expo-react-compiler",
+   "t": "React Compiler (guía de Expo)",
+   "a": "Expo",
+   "tipo": "doc",
+   "url": "https://docs.expo.dev/guides/react-compiler/"
+  },
+  {
+   "id": "front21-mdn-eventtiming",
+   "t": "PerformanceEventTiming",
+   "a": "MDN Web Docs",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEventTiming"
+  }
+ ]
+}
