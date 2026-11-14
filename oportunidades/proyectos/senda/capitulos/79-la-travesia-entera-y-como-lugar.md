@@ -124,6 +124,15 @@ las 86 pantallas, sin problemas.
 El APK 54 se compiló en GitHub con el validador, la prueba de arranque y la prueba de lo social en verde (123,9 MB):
 https://github.com/juanicarlisi/senda-app/releases/tag/prueba-54 (trae todo lo anterior).
 
+### 2.9 iPhone por TestFlight (pedido del 14-11)
+
+«Quiero publicarlo para que puedan hacer la descarga desde iPhone para probar». En iPhone no hay APK: se prueba con TestFlight y un
+enlace público (hasta 10.000 personas; la primera versión que va a testers externos la revisa Apple). Hecho de este lado: el flujo
+`.github/workflows/ios.yml` (compila en EAS sin Mac, con las mismas comprobaciones que el APK, y sube a App Store Connect con
+`eas submit`), el perfil `testflight` en `eas.json` y los permisos de iOS corregidos (el del micrófono lo borraba expo-audio; los de
+ubicación «siempre» y movimiento estaban en inglés). El proyecto de iOS se generó sin errores con `expo prebuild`. Falta del fundador:
+el identificador, la app en App Store Connect, la clave de API y seis secretos en GitHub (pendiente «iphone_testflight»).
+
 ## 3. Próximos
 
 1. Que el fundador pruebe el APK 54 (pendiente «probar54») y elija el logo antes de pagar el INPI (pendiente «logo_eleccion»).
