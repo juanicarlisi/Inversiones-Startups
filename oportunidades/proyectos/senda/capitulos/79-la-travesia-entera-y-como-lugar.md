@@ -142,6 +142,8 @@ Cómo siguió (14-11, todo con Claude en Chrome; el fundador solo eligió archiv
   Chrome creó el certificado Apple Distribution (vence el 14-11-2027) y el perfil «Senda App Store»; el `.p12` se armó acá (el
   certificado coincide con la clave) y se subió a Expo con `eas credentials` junto con el perfil; la clave de API quedó asignada
   para el envío. La clave privada y el `.p12` nunca salieron de la sesión ni entraron a un repositorio.
+- Tercera corrida (14-11, 16:38): versión 0.40.0 (compilación 2, prueba «54-ios»), compilada en EAS en 9 minutos y enviada a
+  App Store Connect por el flujo «iPhone a TestFlight» (SUCCESS). Apple la procesa antes de mostrarla en TestFlight.
 - El token de Expo que se usó para subirlos pasó por el chat: hay que borrarlo en expo.dev → Access tokens cuando la versión esté en
   TestFlight.
 
