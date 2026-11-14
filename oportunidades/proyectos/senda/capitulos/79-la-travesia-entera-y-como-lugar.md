@@ -130,8 +130,20 @@ https://github.com/juanicarlisi/senda-app/releases/tag/prueba-54 (trae todo lo a
 enlace público (hasta 10.000 personas; la primera versión que va a testers externos la revisa Apple). Hecho de este lado: el flujo
 `.github/workflows/ios.yml` (compila en EAS sin Mac, con las mismas comprobaciones que el APK, y sube a App Store Connect con
 `eas submit`), el perfil `testflight` en `eas.json` y los permisos de iOS corregidos (el del micrófono lo borraba expo-audio; los de
-ubicación «siempre» y movimiento estaban en inglés). El proyecto de iOS se generó sin errores con `expo prebuild`. Falta del fundador:
-el identificador, la app en App Store Connect, la clave de API y seis secretos en GitHub (pendiente «iphone_testflight»).
+ubicación «siempre» y movimiento estaban en inglés). El proyecto de iOS se generó sin errores con `expo prebuild`.
+
+Cómo siguió (14-11, todo con Claude en Chrome; el fundador solo eligió archivos):
+- Apple: App ID `com.sendaapp.biblia`, la app en App Store Connect (Apple ID 6834822554, «Senda: Biblia y juegos», es-MX, SKU
+  senda-ios) y la clave de API «Senda EAS» (App Manager, Key ID 3UJ6D4M2CR), guardada en la cuenta de Expo.
+- Expo se conectó al repositorio con su app de GitHub (solo `senda-app`); `ios.yml` ya no necesita secretos de Expo en GitHub: sube
+  la versión revisada a la rama `testflight` y `.eas/workflows/testflight.yml` compila y manda a TestFlight.
+- Primera corrida: `eas.json` no validaba (las notas `_nota`; pasaron a `docs/TIENDAS.md`). Segunda: EAS no crea el certificado de
+  distribución en modo no interactivo. Solución sin Mac: la clave privada y la solicitud (CSR) se generaron en la sesión; con la CSR,
+  Chrome creó el certificado Apple Distribution (vence el 14-11-2027) y el perfil «Senda App Store»; el `.p12` se armó acá (el
+  certificado coincide con la clave) y se subió a Expo con `eas credentials` junto con el perfil; la clave de API quedó asignada
+  para el envío. La clave privada y el `.p12` nunca salieron de la sesión ni entraron a un repositorio.
+- El token de Expo que se usó para subirlos pasó por el chat: hay que borrarlo en expo.dev → Access tokens cuando la versión esté en
+  TestFlight.
 
 ## 3. Próximos
 
