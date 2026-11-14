@@ -144,6 +144,8 @@ Cómo siguió (14-11, todo con Claude en Chrome; el fundador solo eligió archiv
   para el envío. La clave privada y el `.p12` nunca salieron de la sesión ni entraron a un repositorio.
 - Tercera corrida (14-11, 16:38): versión 0.40.0 (compilación 2, prueba «54-ios»), compilada en EAS en 9 minutos y enviada a
   App Store Connect por el flujo «iPhone a TestFlight» (SUCCESS). Apple la procesa antes de mostrarla en TestFlight.
+- En TestFlight (con Chrome): información de prueba, grupo externo «Probadores», contacto para el revisor y sin inicio de sesión;
+  la 0.40.0 (2) quedó «Pendiente de revisión» de apps beta el 14-11. El enlace público se activa cuando Apple la apruebe.
 - El token de Expo que se usó para subirlos pasó por el chat: hay que borrarlo en expo.dev → Access tokens cuando la versión esté en
   TestFlight.
 
