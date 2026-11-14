@@ -1662,3 +1662,25 @@ pública, una sesión dedicada solo a revisar los 21 puntos de `oportunidades/pr
 fuentes primarias vigentes, con informe y cambios propuestos; los que tocan la UX se consultan antes. La lista se completa con cada tema
 legal nuevo. Límite: es análisis, no asesoramiento profesional matriculado; si aparece un riesgo alto que solo un abogado puede resolver,
 se dice en el informe.
+
+## DEC-2026-11-14-1 — Senda: el torneo con premios del lanzamiento, «La Gran Copa de Verano» (PROPUESTA, a decidir)
+**Pedido del fundador (14-11-2026):** «Determinar fecha clave para torneo con premios, para incrementar participación exponencial al
+principio». **Propuesta:** final el sábado 30-01-2027 a las 20 h de Argentina, con clasificatorias los sábados 9, 16 y 23 de enero (copas
+de 15 preguntas iguales para todos) y una tabla por grupo (la suma de los diez mejores de cada iglesia o grupo de jóvenes, para que cada
+líder sume a su gente). Por qué esa fecha (INFERENCIA): seis semanas después del lanzamiento del 18-12, en pleno verano y en el mes de los
+campamentos de iglesias, antes de la vuelta a clases y de Brasil. El 18-12 se anuncia; la Copa de Navidad (19-12) es el ensayo sin premio.
+Concurso de habilidad, gratis, sin compra y con bases públicas (HIPÓTESIS a validar en la sesión legal, DEC-2026-11-10-5); premios solo
+en Latinoamérica, empezando por Argentina; a un menor, el premio se entrega a su adulto responsable. Presupuesto de premios: USD 150 a 250
+(ESTIMACIÓN, a aprobar). **Falta:** el sí del fundador y el presupuesto; Claude hace la tabla por grupo y las bases. Capítulo 80 §2.10.
+
+## DEC-2026-11-14-2 — Senda: la salida en EE. UU., Brasil y la UE (PROPUESTA, a decidir)
+**Pedido del fundador (14-11-2026):** «para la primer salida también cubramos EEUU, BRASIL, UE… recopilá absolutamente todo lo que haya
+que hacer». Tres informes con fuentes primarias (`conocimiento/2026-11-14-senda-lanzamiento-eeuu.md`, `-brasil.md`, `-ue.md`).
+**Propuesta (INFERENCIA):** el 18-12 salen Latinoamérica y EE. UU. con la opción A (Comunidad solo para mayores de 18, sin premios y sin la
+sala en vivo; casi sin costo); la UE (España, Portugal, Irlanda) el mismo día solo si el fundador aprueba los representantes RGPD y DSA
+(EUR 800 a 1.650 por año, ESTIMACIÓN) antes del 25-11; Brasil, solo con un representante legal en Brasil contratado a fin de noviembre;
+si no, se sostiene el 01-03-2027 (DEC-2026-11-07-6). **Reglas de corte:** EE. UU. y Brasil, 05-12; UE, 08-12 (si falta algo, 15-01-2027).
+**Ya en el código (APK 55):** las reglas por región, las señales de edad de Play y Apple, la edad obligatoria antes de la cuenta y el
+consentimiento aparte por los datos que pueden mostrar la fe. **Falta en el código (2 a 3 sesiones, ESTIMACIÓN):** el país de la tienda,
+los textos legales en inglés y portugués, la versión UE con el DSA y el modo protegido completo de Brasil. Esta propuesta reemplaza, si
+se aprueba, la recomendación de lanzar sin EE. UU., Brasil ni la UE (DEC-2026-11-07-5). Capítulo 80 §2.9.

@@ -524,6 +524,22 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     según lo que trata (reglas R30 a R33 del marco de UX); Jugar, un sol asentado en la barra (R29);
   - en las rutas de mártires y de la iglesia perseguida Lany no festeja: asiente y ora, sin confeti;
   - las rutas nuevas están solo en español; los puntos para el revisor doctrinal humano están en el capítulo 79 §2.6.
+- **Datos del 14-11-2026 (Senda, prueba 55):**
+  - «tienen que estar todos»: Nombres por letra valida con los 1.918 nombres de personas de la Biblia (sacados del texto) y la voz toma
+    varios nombres seguidos sin esperar; ¿Quién es? entiende 542 preguntas ligadas a cada personaje (todas las básicas: «¿es de la época
+    de Jesús?»), con comodín de pista, el globo de Lany que también se toca para escribir y un tope de preguntas más difícil;
+  - la trivia entera se releyó (2.864 reescritas, 358 retiradas, 5.136 vivas; «¿Quién es el predicador?» y las raras, fuera) y suma
+    «¿Cuál de estas frases dijo Pablo?» con distractores graciosos y sanos; tres áreas de la Travesía leídas línea por línea (336
+    arreglos); las otras diez, próximas;
+  - cada juego consume una vida; sin Pro, anuncio mientras juega Lany; salir de la trivia guarda la partida para volver;
+  - el instructivo de primer uso es un dedo que señala lo real de cada pestaña (patrón de «Antes o después»), un paso por toque y poco
+    texto; la auditoría de textos arranca con la guía vista y revisa el globo aparte;
+  - salir también en EE. UU., Brasil y la UE: tres informes con fuentes primarias (`conocimiento/2026-11-14-senda-lanzamiento-*.md`) y la
+    base en el código (reglas por región, señales de edad de Play y Apple, edad antes de la cuenta, consentimiento aparte por los datos
+    de fe); la propuesta (el 18-12 Latinoamérica y EE. UU. con Comunidad 18+; la UE solo con representantes aprobados antes del 25-11;
+    Brasil solo con representante legal, si no el 01-03-2027) espera su decisión (DEC-2026-11-14-2; capítulo 80 §2.9);
+  - el torneo con premios: «La Gran Copa de Verano», final el sábado 30-01-2027, clasificatorias en enero y tabla por grupo; premios
+    solo en Latinoamérica; espera su decisión y el presupuesto (DEC-2026-11-14-1; capítulo 80 §2.10).
 
 ## 2. Reglas no negociables
 
