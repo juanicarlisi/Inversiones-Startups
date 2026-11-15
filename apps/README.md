@@ -13,6 +13,7 @@ los prototipos que todavía no tienen repositorio (como Senda en el sprint 0).
 
 Cuando el fundador cree los repositorios (por ejemplo `carpincho-games` y `anden`), los prototipos se mueven con su historia y acá
 queda solo el enlace.
+| **Economía Familiar** (gastos, plan y fondos de la casa) | `apps/economia-familiar/` (acá; sin datos personales) | uso familiar, no es un negocio |
 
 La copia temporal de `senda-app` que estuvo acá durante el sprint 0 se borró el 05-10-2026, cuando se creó su repositorio (su
 historia sigue en el git de este repositorio).
