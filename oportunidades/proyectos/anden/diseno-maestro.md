@@ -1061,7 +1061,7 @@ el mismo día).
   `motor-validacion.md`, `mercado.md`.
 - `oportunidades/proyectos/anden/visiones/`: `rigor.md`, `experiencia.md`, `ia-nativa.md`.
 - `oportunidades/proyectos/P2-anden.yaml`, `apps/anden/README.md`, `apps/anden/js/referencias.js`, `cartera/decisiones.md`
-  (DEC-2026-10-17-2).
+  (DEC-2026-10-17-2H).
 
 **Abierta por esta síntesis**
 - Random123, vectores de prueba: https://raw.githubusercontent.com/DEShawResearch/random123/main/tests/kat_vectors

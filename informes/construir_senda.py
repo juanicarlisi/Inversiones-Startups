@@ -38,8 +38,8 @@ FUENTE = RAIZ / "informes" / "fuente-senda"
 GRAF = FUENTE / "graficos"
 TIPO = RAIZ / "informes" / "tipografia"
 TITULO = "Senda · El proyecto completo de la app"
-SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-8.pdf"
-SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-8.html"
+SALIDA_PDF = RAIZ / "informes" / "2026-10-senda-proyecto-v3-32.pdf"
+SALIDA_HTML_AUTO = RAIZ / "informes" / "2026-10-senda-proyecto-v3-32.html"
 SALIDA_HTML = FUENTE / "informe.html"
 
 AMBAR, NOCHE, VERDE, GRANADA, CREMA, TINTA = V.AMBAR, V.NOCHE, V.VERDE, V.ROJO, V.CREMA, "#1B1B1F"
@@ -209,7 +209,7 @@ calidad de las mejores apps del mundo. Junta en un solo lugar, en español de or
 30 de abril de 2027 (capítulo {{{{cap:30}}}}).</p></div>
 </div>
 <div class="caja rec"><h4 class="ico-t">{V.icono("check", 13, V.VERDE)} Dónde estamos y qué necesito de vos</h4>
-<p>Dieciséis versiones de prueba desde el 05-10-2026: ya funcionan {cm["hecho"]} de las {cm["total"]} funciones de la app (capítulos {{{{cap:06}}}} y
+<p>Diecisiete versiones de prueba desde el 05-10-2026: ya funcionan {cm["hecho"]} de las {cm["total"]} funciones de la app (capítulos {{{{cap:06}}}} y
 {{{{cap:33}}}}). Desde la 9, todo enseña y edifica (capítulo {{{{cap:34}}}}); la 10 suma una misión nueva, tres travesías, la trivia de la
 iglesia y el inventario bíblico (capítulo {{{{cap:35}}}}); la 11, Lany en Rive, una línea clara en cada travesía, el gran relato
 completo, la historia de la Iglesia, el «+» de estudio y todo el contenido publicado (capítulo {{{{cap:36}}}}); la 12, Lany como guía
@@ -219,8 +219,9 @@ rutas de Personajes y la recomendación sobre las licencias (capítulo {{{{cap:3
 15, Lany adulto y vestido según el área, la armadura que Lany se pone, 71 preguntas nuevas con su «¿Sabías que…?», la Biblia con la
 ortografía de hoy y «El evangelio» con la doctrina del estudio (capítulo {{{{cap:40}}}}); la 16, Lany v3, el logo nuevo, la senda
 iluminada, la guía de los 66 libros, Rut, Jonás y Quién es quién, «Vivir la historia», el kit de juegos de mesa y las ideas para ser la
-app número uno (capítulo {{{{cap:41}}}}).
-Ahora: probar la prueba 16, votar las ideas en la Consola, elegir la música, decidir si se comparte el kit, decidir las licencias y
+app número uno (capítulo {{{{cap:41}}}}); la 17, la redacción que nunca enseña un error, lecciones que entran en la pantalla, música
+publicitaria, Lany más viva, desafíos con fecha, Tu año en la Palabra, el sitio de las guías y Habacuc (capítulo {{{{cap:42}}}}).
+Ahora: probar la prueba 17, escuchar la música, decidir el camino de la voz, crear la cuenta de Cloudflare para el sitio, decidir las licencias y
 la figura legal, mandar el seguimiento a API.Bible y el pedido de la RVR1960 a la Sociedad Bíblica Argentina, 2 revisores doctrinales, 12 testers y
 Google Play antes del 15-11.</p></div>"""
 
@@ -686,6 +687,377 @@ def bloque_pantallas16() -> str:
             '<p class="nota">Capturas de la vista previa web de la app, prueba 16 (17-10-2026).</p>')
 
 
+P17 = RAIZ / "informes" / "fuente-senda" / "prueba17"
+
+
+def bloque_pantallas17() -> str:
+    items = [("leccion", "La lección entra sin deslizar (letra a 1,2)"), ("travesia", "El globo de Lany, sin tapar"), ("adviento", "Desafío con fecha: Adviento"),
+             ("anio", "Tu año en la Palabra"), ("web", "El sitio de las guías")]
+    celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center"><img src="data:image/jpeg;base64,'
+                     f'{base64.b64encode((P17 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:3mm;display:block;'
+                     f'box-shadow:0 1mm 3mm rgba(0,0,0,.25)"><figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>'
+                     for n, t in items)
+    return (f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+            '<p class="nota">Capturas de la vista previa web de la app en un teléfono de 360 puntos de ancho, prueba 17 (17-10-2026).</p>')
+
+
+P18 = RAIZ / "informes" / "fuente-senda" / "prueba18"
+
+
+def bloque_pantallas18() -> str:
+    items = [("quien", "¿Quién es?: Lany contesta sí o no"), ("frente", "En la frente, para jugar en grupo"), ("abdias", "Abdías, libro jugable"),
+             ("video", "Video de trivia: la pregunta"), ("video2", "Video de trivia: el versículo")]
+    celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center"><img src="data:image/jpeg;base64,'
+                     f'{base64.b64encode((P18 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:3mm;display:block;'
+                     f'box-shadow:0 1mm 3mm rgba(0,0,0,.25)"><figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>'
+                     for n, t in items)
+    return (f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+            '<p class="nota">Capturas de la vista previa web de la app (360 puntos de ancho) y cuadros de un video de la fábrica de difusión, prueba 18 (17-10-2026).</p>')
+
+
+P19 = RAIZ / "informes" / "fuente-senda" / "prueba19"
+
+
+def bloque_pantallas19() -> str:
+    items = [("vivir", "Vivir la historia: la encrucijada de Jonás"), ("tormenta", "La lámina cambia: la tormenta"), ("espejo", "El espejo al final"),
+             ("quien", "¿Quién es? con retratos"), ("inicio", "Inicio con los colores de la noche")]
+    celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center"><img src="data:image/jpeg;base64,'
+                     f'{base64.b64encode((P19 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:3mm;display:block;'
+                     f'box-shadow:0 1mm 3mm rgba(0,0,0,.25)"><figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>'
+                     for n, t in items)
+    return (f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+            '<p class="nota">Capturas de la vista previa web de la app (390 puntos de ancho), prueba 19 (18-10-2026).</p>')
+
+
+P20 = RAIZ / "informes" / "fuente-senda" / "prueba20"
+
+
+def bloque_pantallas20() -> str:
+    items = [("historia", "La historia de la lección: pasos, citas y glosario"), ("quien", "¿Quién es? contra alguien"), ("grupo", "Vivir la historia en grupo: votos y charla"),
+             ("pieza", "La fiesta de la pieza ganada"), ("letra", "Nombres por letra")]
+    celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center"><img src="data:image/jpeg;base64,'
+                     f'{base64.b64encode((P20 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:3mm;display:block;'
+                     f'box-shadow:0 1mm 3mm rgba(0,0,0,.25)"><figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>'
+                     for n, t in items)
+    lany = base64.b64encode((P20 / "lany.jpg").read_bytes()).decode()
+    return (f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+            '<p class="nota">Capturas de la vista previa web de la app (390 puntos de ancho), prueba 20 (19-10-2026).</p>'
+            f'<figure style="margin:3mm 0 0;text-align:center"><img src="data:image/jpeg;base64,{lany}" style="width:62%;border-radius:3mm;display:inline-block;box-shadow:0 1mm 3mm rgba(0,0,0,.25)">'
+            '<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">Las cinco reacciones nuevas de Lany, cuadro a cuadro (de arriba abajo: patatús, mano a la cara, mareo, taparse los ojos y giro), dibujadas por el mismo archivo de Rive de la app.</figcaption></figure>')
+
+
+P21 = RAIZ / "informes" / "fuente-senda" / "prueba21"
+
+
+def bloque_pantallas21() -> str:
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center"><img src="data:image/jpeg;base64,'
+                         f'{base64.b64encode((P21 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:3mm;display:block;'
+                         f'box-shadow:0 1mm 3mm rgba(0,0,0,.25)"><figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>'
+                         for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (fila([("lista", "La misión de la semana"), ("paso", "Un paso: lo que pasa, el pasaje y 4 opciones"), ("error", "Un error: por qué no y lo que pasó"),
+                  ("final", "Misión cumplida, sin errores"), ("instr", "«Cómo se juega» (Espadeo)")])
+            + fila([("titulo", "Evento: 1. el título"), ("dia", "2. el día en el mes"), ("hora", "3. la hora en ruedas"), ("listo", "4. se repite y avisos")])
+            + '<p class="nota">Capturas de la vista previa web de la app (360 puntos de ancho, teléfono chico), prueba 21 (19-10-2026).</p>')
+
+
+P22 = RAIZ / "informes" / "fuente-senda" / "prueba22"
+
+
+def bloque_pantallas22() -> str:
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center"><img src="data:image/jpeg;base64,'
+                         f'{base64.b64encode((P22 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:3mm;display:block;'
+                         f'box-shadow:0 1mm 3mm rgba(0,0,0,.25)"><figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>'
+                         for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (fila([("portada", "El mapa abre la lección"), ("pines", "«Toca el lugar en el mapa»"), ("ruta", "El viaje de Abraham se dibuja solo"),
+                  ("linea", "La línea de tiempo de los patriarcas"), ("orden", "Al ordenar, la línea revela el orden")])
+            + fila([("diagrama", "La semana de la creación, por capas"), ("reino", "El reino se divide"), ("trivia", "Trivia con mapa: las cuatro ciudades"),
+                    ("antes", "«Antes o después» termina con toda la línea"), ("idioma", "La Biblia en portugués")]))
+
+
+P23 = RAIZ / "informes" / "fuente-senda" / "prueba23"
+P24 = RAIZ / "informes" / "fuente-senda" / "prueba24"
+P25 = RAIZ / "informes" / "fuente-senda" / "prueba25"
+P26 = RAIZ / "informes" / "fuente-senda" / "prueba26"
+P27 = RAIZ / "informes" / "fuente-senda" / "prueba27"
+P28 = RAIZ / "informes" / "fuente-senda" / "prueba28"
+P29 = RAIZ / "informes" / "fuente-senda" / "prueba29"
+P30 = RAIZ / "informes" / "fuente-senda" / "prueba30"
+P31 = RAIZ / "informes" / "fuente-senda" / "prueba31"
+P32 = RAIZ / "informes" / "fuente-senda" / "prueba32"
+P33 = RAIZ / "informes" / "fuente-senda" / "prueba33"
+P34 = RAIZ / "informes" / "fuente-senda" / "prueba34"
+P35 = RAIZ / "informes" / "fuente-senda" / "prueba35"
+P36 = RAIZ / "informes" / "fuente-senda" / "prueba36"
+P37 = RAIZ / "informes" / "fuente-senda" / "prueba37"
+
+
+def bloque_pantallas23() -> str:
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center"><img src="data:image/jpeg;base64,'
+                         f'{base64.b64encode((P23 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:3mm;display:block;'
+                         f'box-shadow:0 1mm 3mm rgba(0,0,0,.25)"><figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>'
+                         for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (fila([("lany", "Lany v3 → v4: cara canela, lejos de Shaun"), ("inicio", "Lany v4 en Inicio"), ("ruleta", "El yunque de la Armería (antes, la corona)"),
+                  ("pasaje", "La fila de versión en cada pasaje"), ("versiones", "«Las versiones, en una pantalla»")])
+            + fila([("biblia", "«¿Por qué la RV1909?» en la Biblia"), ("ajustes", "Ajustes → Lectura de la Biblia"), ("rutas", "«Quién fue quién»"),
+                    ("creditos", "Licencias y créditos, completos"), ("grafico", "El gráfico de la ficha de Play")]))
+
+
+def bloque_pantallas24() -> str:
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center"><img src="data:image/jpeg;base64,'
+                         f'{base64.b64encode((P24 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:3mm;display:block;'
+                         f'box-shadow:0 1mm 3mm rgba(0,0,0,.25)"><figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>'
+                         for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (fila([("pasaje", "El pasaje de una lección: «caridad» subrayada"), ("ficha", "Tocar la palabra: «caridad → amor»"), ("corchetes", "Entre corchetes: «caridad [amor]»"),
+                  ("ajustes", "Ajustes → Palabras de hoy")])
+            + fila([("biblia", "La Biblia en 1 Corintios 13, subrayadas"), ("biblia_ficha", "La ficha al pie del lector"), ("estudio", "El «+»: palabras de hoy y el versículo en la PDT"),
+                    ("biblia_corchetes", "La Biblia entre corchetes"), ("paginas", "La hoja de papel: la ficha al tocar")]))
+
+
+def bloque_pantallas25() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P25 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def tira(n, t):
+        return f'<figure style="margin:1.6mm 0">{img(n)}<figcaption style="font-size:7pt;margin-top:1mm;line-height:1.2">{t}</figcaption></figure>'
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (tira("desmayo_antes", "Antes (prueba 20): el desmayo en bloque; catorce cuadros repartidos en los 2 segundos, los últimos iguales")
+            + tira("desmayo", "Ahora: anticipación, tambaleo con la cabeza y las orejas que llegan tarde, caída con gravedad, impacto, asentamiento")
+            + tira("desmayada", "«Desmayada» (bucle): respira en el piso, mueve una oreja, una pata y la cola hasta que la app la levanta")
+            + tira("patatus", "El patatús (2,8 s): la misma caída y se levanta de un salto, con estirar y aplastar, sacudiendo la cabeza")
+            + tira("facepalm", "Mano a la cara (1,6 s): anticipación, la mano con retroceso y rebote, la cabeza cae tarde y niega apenas")
+            + tira("mareo", "Mareo (1,8 s): sacudón de anticipación, vueltas con el jopo y la cola que llegan tarde, el cuerpo que respira con el vaivén")
+            + tira("tapaojos", "Taparse los ojos (1,7 s): la cabeza se va para atrás antes de las manos, se encoge, espía de reojo y las baja")
+            + fila([("pasaje_nbv", "Gálatas 5:22 en una lección: se abre en la NBV, con los chips y el motivo"), ("pasaje_rv1909", "Tocar «RV1909»: el mismo versículo, «caridad» subrayada"),
+                    ("trivia", "«Leer» después de una pregunta de la trivia: Gálatas 5:22 en la NBV, con la atribución"), ("inicio", "Inicio: el versículo del día usa la mejor versión")]))
+
+
+def bloque_pantallas26() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P26 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def tira(n, t):
+        return f'<figure style="margin:1.6mm 0">{img(n)}<figcaption style="font-size:7pt;margin-top:1mm;line-height:1.2">{t}</figcaption></figure>'
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (tira("ojeada", "«Ojeada» (2,2 s): mira a un lado y al otro; las orejas, el jopo y el torso llegan tarde")
+            + tira("rascar", "«Rascar» (1,9 s): la mano detrás de la oreja, tres pasadas, la cabeza ladeada hacia la mano")
+            + fila([("quien_tablero", "«¿Quién es?»: el tablero al empezar"), ("quien_tachando", "Después de la respuesta: las que no van se bajan solas, de a una"),
+                    ("quien_tachado", "Tachadas: trazo de marcador, retrato apagado y la cruz"), ("bienvenida_biblia", "Bienvenida: ¿qué Biblia usan en tu iglesia?")])
+            + fila([("tito", "Tito, en «Las cartas»"), ("tito_historia", "Antes de abrir Tito: la historia"), ("trivia_mapa", "Trivia del banco 6 con mapa"), ("jugar_pt", "Jugar en portugués")]))
+
+
+def bloque_pantallas30() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P30 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+
+    def tira(n, t):
+        return f'<figure style="margin:3mm 0">{img(n)}<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2;text-align:center">{t}</figcaption></figure>'
+    return (fila([("inicio_pt", "Inicio en portugués: la fecha, el saludo, las misiones y la misión de la semana en el idioma"), ("inicio_en", "Inicio en inglés"),
+                  ("ajustes_en", "Ajustes en inglés: los temas y los papeles con su nombre traducido"), ("romanos", "Romanos 1: la portada de la lección, con la línea de la Iglesia")])
+            + fila([("romanos_pregunta", "Una pregunta de Romanos"), ("corintios", "1 Corintios 12–13: «Un cuerpo, muchos miembros», con el diagrama"),
+                    ("fruto", "«El fruto del Espíritu», diagrama nuevo en la portada de «Listas»"), ("adan", "«Adán y Cristo» en Romanos 5")])
+            + tira("laminas", "Las seis láminas nuevas de «Vivir la historia» (Gedeón, Naamán, Pedro y Cornelio), en algunos de sus estados")
+            + tira("diagramas", "Los seis diagramas nuevos, con todas sus capas puestas"))
+
+
+def bloque_pantallas31() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P31 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (fila([("fallo", "«Algo falló»: la pantalla que se ve si algo revienta, con el detalle para copiar, «Reintentar» y «Borrar lo guardado»"),
+                  ("ajustes_fallo", "Ajustes → Ayuda y legal: «Último fallo registrado»"),
+                  ("corintios2", "2 Corintios 1–2: la portada, con la línea de la Iglesia"), ("corintios2_pregunta", "Una pregunta de 2 Corintios")])
+            + fila([("galatas", "Gálatas 5–6: el fruto del Espíritu en la portada"), ("efesios", "Efesios 6: la armadura de Dios"),
+                    ("colosenses", "Colosenses 1: Cristo, imagen del Dios invisible"), ("tesalonicenses_pregunta", "Una pregunta de 1 Tesalonicenses 4–5")]))
+
+
+def bloque_pantallas32() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P32 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (fila([("01_leccion_pt", "«Adão e Eva» en portugués: la portada, con la línea de tiempo traducida"), ("02_pregunta_pt", "Una pregunta de la misma lección, con «Está em Gênesis 2»"),
+                  ("03_camino_pt", "El camino de la Travesía: «A grande história · Capítulo 1 · Os começos»"), ("04_inicio_pt", "Inicio en portugués: «Seguir sua senda · A grande história»")])
+            + f'<figure style="margin:3mm 0 0;text-align:center">{img("05_laminas", "max-width:120mm;margin:0 auto;border-radius:3mm")}'
+              f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">Las cinco láminas nuevas de «Vivir la historia» (José, Elías, el ciego de Juan 9), en todos sus estados</figcaption></figure>')
+
+
+def bloque_pantallas36() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P36 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (fila([("02_frente", "En la frente, acostado: el nombre de punta a punta y las tres pistas"), ("04_lany", "Lany en el camino y en la lección, con la ropa de cada área")])
+            + fila([("01_torneo", "El torneo: jugadores, rondas, tiempo y personajes"), ("03_quien", "¿Quién es?: 71 personajes de toda la Biblia"),
+                    ("05_azar", "El Espadeo: el duelo con un rival al azar"), ("06_album", "El álbum: las estrellas dicen qué tan difícil es")])
+            + fila([("08_leccion", "Una lección larga: primero lo esencial"), ("09_oseas", "Oseas, capítulos 1 a 3: Jezreel en el mapa"),
+                    ("10_josue", "Josué 1 a 6: del Jordán a Jericó"), ("11_pregunta", "Una pregunta rehecha: la correcta ya no se nota por el largo")]))
+
+
+def bloque_pantallas37() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P37 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (fila([("01_grupos", "Grupos: tus grupos, unirte con el código, crear uno"), ("02_grupo", "Un grupo: el rol, el código, su calendario y sus torneos"),
+                  ("03_admin", "«Senda para todos»: eventos y la encuesta del día"), ("04_comunidad", "Comunidad: los eventos del grupo y de Senda en el día")])
+            + fila([("06_amos", "Amós 5 y 6: «Buscadme, y viviréis»"), ("07_miqueas", "Miqueas 4 y 5: de Belén saldrá"),
+                    ("08_samuel", "1 Samuel 16 a 20: David, el elegido"), ("12_copa", "La Copa de Navidad, con sus reglas")])
+            + fila([("09_en_egipto", "«The Big Story»: Slaves in Egypt"), ("10_en_resucito", "«The Big Story»: He is risen!"),
+                    ("11_pt_trivia", "La trivia en portugués (y los comodines traducidos)"), ("05_inicio", "Inicio: los eventos del día y la encuesta")])
+            + fila([("16_emu_bienvenida", "El APK con R8 en el emulador: la bienvenida"), ("13_emu_inicio", "…Inicio, con Lany y la guía"),
+                    ("14_emu_biblia", "…la Biblia"), ("15_emu_travesia", "…y la Travesía: abre y recorre sin cerrarse")]))
+
+
+def bloque_pantallas35() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P35 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (fila([("01_entrada", "La entrada con la ilustración de Lany del fundador; los medallones, sobre el camino"), ("02_album", "El álbum: «Los primeros», dos figuritas y una dorada"),
+                  ("03_sobre", "Al abrir un sobre: la figurita nueva y su ficha completa"), ("04_dorada", "La pregunta de la figurita dorada: lo que la Biblia dice de Adán")])
+            + fila([("05_jesus", "La página central: Jesús no es una figurita"), ("06_amigos", "Amigos: tu código, agregar, aceptar y la lista"),
+                    ("07_duelos", "Duelos: desafiar, rival al azar, código; «Te toca» primero"), ("08_guia", "La guía de bienvenida: Lany te muestra cada pestaña")]))
+
+
+def bloque_pantallas34() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P34 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (fila([("01_biblia", "La Biblia sin ruido: lo de hoy, un botón («Planes y versiones») y los libros"), ("02_ruleta", "La ruleta protagonista y el botón de música"),
+                  ("03_musica", "El control de música: interruptor, volumen, qué suena y «Cambiar de tema»"), ("04_entrada", "La entrada nueva: la puerta de luz, los medallones y la carga")])
+            + fila([("05_mapa", "El mapa de la Tierra Santa: cada nombre busca un lugar libre"), ("06_mapa_pablo", "El tercer viaje de Pablo: Rodas, Pátara y Cos sin pisarse"),
+                    ("07_linea", "La línea de tiempo: títulos y fechas enteros"), ("08_fiesta", "El festejo con letra grande: el versículo entra")]))
+
+
+def bloque_pantallas33() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P33 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (fila([("01_travesia", "La Travesía: las 13 áreas en el orden del fundador, sin estantes"), ("02_adan", "«De Adán a Noé»: la ficha de Adán antes de cualquier pregunta"),
+                  ("03_abram", "«Los patriarcas» empieza por quién es Abram: su nombre y su familia"), ("04_entrada", "La entrada: Lany de brazos cruzados y las seis piezas")])
+            + fila([("05_ruleta", "La ruleta se agarra y se gira con el dedo"), ("06_quien", "«¿Quién es?»: las tarjetas se bajan de a una, con su inicial y una raya"),
+                    ("07_copa", "Copa de Adviento: cada acierto suma más cuanto más rápido"), ("08_marca", "La marca de la copa y el repaso de cada respuesta")])
+            + fila([("09_proxima", "La próxima copa en Inicio, con la campana del recordatorio"), ("10_hora", "La hora del evento: la rueda ya no se traba"),
+                    ("11_descanso", "A los 45 minutos del día, la invitación a descansar"), ("12_nivel", "El nivel en el perfil, con lo que falta para el siguiente")])
+            + f'<figure style="margin:3mm 0 0;text-align:center">{img("13_linea", "max-width:150mm;margin:0 auto;border-radius:3mm")}'
+              f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">La Consola: «Cómo venimos y lo que viene», con la Pascua 2027 como gran hito</figcaption></figure>')
+
+
+def bloque_pantallas29() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P29 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+
+    def tira(n, t):
+        return f'<figure style="margin:3mm 0">{img(n)}<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2;text-align:center">{t}</figcaption></figure>'
+    return (tira("inicio_misiones", "«Misiones de hoy» en Inicio, ya con los textos (antes mostraba las claves internas)")
+            + fila([("hebreos", "Hebreos 8 y 9: la portada con el diagrama del tabernáculo"), ("hebreos_pregunta", "Una pregunta de Hebreos 8"),
+                    ("pedro2", "2 Pedro 1: la historia de la lección"), ("pedro2_pregunta", "Una pregunta de 2 Pedro 1")])
+            + fila([("linea_iglesia", "La historia de la Iglesia en una línea, en «Lutero y las 95 tesis»"), ("csj_pt", "«Como se joga» del Espadeo, en portugués"),
+                    ("jugar_pt", "Jugar en portugués: la armadura, el duelo y «Mais jogos»"), ("quien_pt", "«Quem é?» por dentro, en portugués")])
+            + fila([("historia_en", "«Live the story» en inglés (el contenido sigue en español)"), ("antes_en", "«Before or after» en inglés"),
+                    ("letra_pt", "«Nomes por letra» en portugués")]))
+
+
+def bloque_pantallas28() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P28 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+
+    def tira(n, t):
+        return f'<figure style="margin:3mm 0">{img(n)}<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2;text-align:center">{t}</figcaption></figure>'
+    return (tira("desmayo", "El desmayo nuevo, cada 200 ms: la mano a la sien, el mareo, ceden las rodillas, la caída con los brazos que llegan tarde y la pose floja (antebrazo sobre la panza, el otro brazo a lo largo del cuerpo)")
+            + tira("patatus", "Arriba: el patatús se levanta (1,9 a 2,8 s). Abajo: la «desmayada» guarda la pose y respira")
+            + fila([("pieza", "Pieza ganada en 390×780: todo en una pantalla y «Seguir» abajo"), ("pieza_chico", "En 360×640: Lany de 180 y entra justo"),
+                    ("trivia", "La opción con la palabra de hoy, sin paréntesis"), ("trivia_pasaje", "El pasaje se abre en la NBV, con el motivo («virtud»)")])
+            + fila([("trivia_ararat", "Génesis 8:4 en la PDT («Ararat»; la RV1909 dice «Armenia»)"), ("trivia_rode", "Hechos 12 en la RV1909: ya dice «Rode»"),
+                    ("santiago", "Santiago 2: la historia de la lección"), ("santiago_pregunta", "Una pregunta de Santiago 2")])
+            + fila([("santiago_pt", "La lección por dentro, en portugués"), ("pedro_en", "1 Pedro 2, con la lección en inglés")]))
+
+
+def bloque_pantallas27() -> str:
+    def img(n, extra=""):
+        return (f'<img src="data:image/jpeg;base64,{base64.b64encode((P27 / f"{n}.jpg").read_bytes()).decode()}" style="width:100%;border-radius:2mm;'
+                f'display:block;box-shadow:0 .6mm 2mm rgba(0,0,0,.2);{extra}">')
+
+    def fila(items):
+        celdas = "".join(f'<figure style="flex:1;min-width:0;margin:0;text-align:center">{img(n, "border-radius:3mm")}'
+                         f'<figcaption style="font-size:7pt;margin-top:1.5mm;line-height:1.2">{t}</figcaption></figure>' for n, t in items)
+        return f'<div style="display:flex;gap:2.4mm;align-items:flex-start;margin:3mm 0">{celdas}</div>'
+    return (fila([("lany_espada_reposo", "Reposo: la empuñadura en el puño, la hoja hacia el piso"), ("lany_espada_alto", "Al ponérsela: el brazo sube y la hoja apunta al cielo"),
+                  ("lany_espada_guardia", "En guardia con la armadura entera: la hoja en diagonal, sin cruzar la cara")])
+            + fila([("pieza_vitrina", "Pieza ganada: Lany grande y la espada en la vitrina"), ("pieza_puesta", "La pieza voló hasta Lany y ya la tiene puesta"),
+                    ("armadura_espada", "Armadura completa: Lany se pone la última pieza"), ("armadura_festejo", "…y festeja con confeti y globos")])
+            + fila([("timoteo", "1 Timoteo, en «Las cartas»"), ("templo", "El templo de Salomón (capa 1 de 5)"), ("estatua", "La estatua del sueño (capa 1 de 5)"),
+                    ("imperios", "La línea de los imperios, en Habacuc")])
+            + fila([("galilea", "Quién fue quién: Galilea, donde Jesús sanó"), ("timoteo2", "2 Timoteo: he peleado la buena batalla"), ("bienvenida_edad", "Bienvenida: la opción se marca y «Siguiente» avanza")]))
+
+
 def bloque_gantt_general(D) -> str:
     r = D["roadmap"]
     return gantt_html(r["general"], r["hitos_general"], dt.date(2026, 10, 1), dt.date(2030, 12, 31), 176 - 40, "gx-a4", "trimestres")
@@ -706,8 +1078,8 @@ def portada(D) -> str:
              (f"USD {usd(tot)}", "primer año en nivel profesional, por tramos (hay básico y premium)"), ("25 mil", "personas por semana con la Palabra 3 días o más: la meta de 2030")]
     dt_ = "".join(f"<div><b>{a}</b><span>{b}</span></div>" for a, b in datos)
     return f"""<section class="portada-s">
-<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.8 · 17 de octubre de 2026 · uso privado</div>
-<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.8</p>
+<div class="ps-marca">Holding · Proyecto P1 · Documento de trabajo · versión 3.32 · 30 de octubre de 2026 · uso privado</div>
+<div class="ps-hero"><div><h1>Senda</h1><p class="ps-sub">El proyecto completo de la app · v3.32</p>
 <p class="ps-lema">Una app cristiana para que los jóvenes conozcan la Biblia <b>jugando, leyendo y en comunidad</b>, con nivel profesional:
 nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen; Android e iOS primero y la web después.</p></div>
 <div class="ps-img"><div class="ps-esc">{lany16_png("tu_reposo", 100)}</div>{V.logo_txt(30, V.NOCHE)}</div></div>
@@ -717,7 +1089,7 @@ nada infantil, nada aburrido. Gratis para leer y aprender; en español de origen
 <div class="ps-mv"><div><span>Misión</span>Que una generación conozca la Palabra de Dios como ninguna antes, y que por medio de ella se rinda a
 Cristo y lo ame.</div><div><span>Visión</span>Iglesias llenas de personas que abren la Biblia cada día, la entienden, la recuerdan y la viven; y
 Senda como la herramienta en la que confían, porque todo lo que muestra está comprobado en la Escritura.</div></div>
-<div class="ps-pie">Esta versión suma la prueba 16: Lany v3, el logo «la puerta abierta», la senda iluminada, la guía de los 66 libros, los juegos de mesa y de rol y las ideas para ser la app número uno (capítulo 41), sobre las pruebas anteriores (capítulos 31 y 33 a 40) y el mapa de toda la app (capítulo 6). HECHO lleva fuente y fecha;
+<div class="ps-pie">Esta versión suma la prueba 17: redacción que nunca enseña un error, lecciones que entran en la pantalla, música publicitaria, Lany más viva y las ideas votadas (desafíos con fecha, Tu año en la Palabra, el sitio de las guías y Habacuc) (capítulo 42), sobre las pruebas anteriores (capítulos 31 y 33 a 41) y el mapa de toda la app (capítulo 6). HECHO lleva fuente y fecha;
 ESTIMACIÓN lleva método. Nada que mueva plata o hable con terceros sale sin la aprobación del fundador. Lany, logo y pantallas son
 bocetos de dirección: el diseño final lo hacen especialistas.</div>
 </section>"""
@@ -756,6 +1128,27 @@ def construir_html(D, incrustar: bool = False, paginas: dict | None = None) -> s
         "{{LANY_V3}}": bloque_lany_v3,
         "{{MARCA16}}": bloque_marca16,
         "{{PANTALLAS16}}": bloque_pantallas16,
+        "{{PANTALLAS17}}": bloque_pantallas17,
+        "{{PANTALLAS18}}": bloque_pantallas18,
+        "{{PANTALLAS19}}": bloque_pantallas19,
+        "{{PANTALLAS20}}": bloque_pantallas20,
+        "{{PANTALLAS21}}": bloque_pantallas21,
+        "{{PANTALLAS22}}": bloque_pantallas22,
+        "{{PANTALLAS23}}": bloque_pantallas23,
+        "{{PANTALLAS24}}": bloque_pantallas24,
+        "{{PANTALLAS25}}": bloque_pantallas25,
+        "{{PANTALLAS26}}": bloque_pantallas26,
+        "{{PANTALLAS27}}": bloque_pantallas27,
+        "{{PANTALLAS28}}": bloque_pantallas28,
+        "{{PANTALLAS29}}": bloque_pantallas29,
+        "{{PANTALLAS30}}": bloque_pantallas30,
+        "{{PANTALLAS31}}": bloque_pantallas31,
+        "{{PANTALLAS32}}": bloque_pantallas32,
+        "{{PANTALLAS33}}": bloque_pantallas33,
+        "{{PANTALLAS34}}": bloque_pantallas34,
+        "{{PANTALLAS35}}": bloque_pantallas35,
+        "{{PANTALLAS36}}": bloque_pantallas36,
+        "{{PANTALLAS37}}": bloque_pantallas37,
         "{{LANI_REACCIONES}}": S.lani_reacciones,
         "{{ECONOMIA_MAPA}}": S.economia_mapa,
         "{{ECONOMIA}}": lambda: bloque_economia(D),
@@ -907,7 +1300,7 @@ def main() -> int:
     env.setdefault("NODE_PATH", "/opt/node22/lib/node_modules")
 
     def imprimir():
-        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.8", "css", "oct-2026"],
+        subprocess.run(["node", str(RAIZ / "informes" / "imprimir_pdf.cjs"), str(SALIDA_HTML), str(SALIDA_PDF), "Senda · Proyecto completo · v3.32", "css", "oct-2026"],
                        check=True, env=env)
     imprimir()
     paginas = paginas_capitulos(D, SALIDA_PDF)

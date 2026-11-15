@@ -748,7 +748,7 @@
     `scripts/autor/historias_rol.py`, `docs/JUEGOS_MESA_ROL.md`, `scripts/kit_mesa.py`, `src/componentes/desafioDia.tsx`,
     `src/pantallas/Linea.tsx`, `src/componentes/pruebaNivel.tsx`.
 
-## DEC-2026-10-17-2 · Holding: Claude Max adelantado, Andén y los juegos se adelantan, Hub Nocturno y las apps que divierten
+## DEC-2026-10-17-2H · Holding: Claude Max adelantado, Andén y los juegos se adelantan, Hub Nocturno y las apps que divierten
 
 - **Contexto:** el fundador escribió el 17-10-2026 (resumen, sin citas textuales):
   - ya tiene Claude Max y quiere aprovecharlo al máximo en los proyectos;
@@ -789,6 +789,716 @@
 - **Revisar:** diciembre de 2026 (¿5x alcanza en el lanzamiento de Senda?; Hub Nocturno en prueba), febrero de 2027 (¿Hub Nocturno
   pasa a lanzamiento completo?).
 
+## DEC-2026-10-17-3H · Andén: de «calculadoras + simulador acotado» a simulador de categoría propia
+
+- **Contexto:** el fundador pidió el 17-10-2026 llevar Andén al máximo nivel concebible: el simulador logístico más profundo, realista
+  y avanzado (2D y 3D), por encima de FlexSim; nada de MVP superficial.
+- **Decidido:** diseño maestro por panel (seis frentes de investigación, tres visiones, tres jueces) en
+  `oportunidades/proyectos/anden/`; construcción por cortes verticales con batería de validación contra teoría (corte 1 cerrado con
+  pendientes el 31-10, DEC-2026-10-31-1H).
+
+## DEC-2026-10-17-2 · Senda: decimoséptima tanda (prueba 17), claridad que no enseña errores, lecciones que entran en la pantalla, música publicitaria y las ideas votadas
+
+- **Contexto:** el fundador escribió el 17-10-2026 (resumen, sin citas textuales):
+  - una pregunta de Historia de la Iglesia daba como respuesta la frase del error de Arrio: quien solo responde podía aprenderlo; todo
+    tiene que ser lógico, claro y sin prestarse a confusión (textos, preguntas, huecos);
+  - en la Travesía a veces hay textos tapados y en las respuestas a veces hay que deslizar para seguir;
+  - cambiar otra vez la música de inicio por algo más tipo publicitaria, libre si hace falta;
+  - el kit de juegos, no por ahora; el animador de Rive (USD 1.200) no se puede pagar: que Claude pula a Lany;
+  - ya votó las ideas para ser la número uno; avanzar con todo lo próximo y pendiente.
+- **Decidido:**
+  - **Regla de redacción para toda la app** (docs/REDACCION.md): la respuesta correcta siempre dice algo verdadero; el error se nombra
+    como error; las mentiras que cita la Biblia, como mentira; en doctrina, el verdadero o falso afirma la verdad. El validador da
+    error si se nombra a un hereje sin decir que era un error.
+  - **La lección se compacta sola** si no entra en la pantalla; la letra del sistema, hasta 1,2 veces.
+  - **Música de inicio: «Nonstop», de Kevin MacLeod** (CC BY 4.0, con el crédito en la app). FreePD (CC0) cerró (HECHO, 17-10-2026).
+  - **Kit imprimible en pausa.** **Sin animador pago:** Claude pule a Lany con código.
+  - **Ideas:** se hacen las votadas que no necesitan cuentas (temporadas, Tu año, el sitio, más libros); el sello de confianza, votado
+    que no, sale de los planes; proyector, ligas, duelos y líderes esperan las cuentas.
+  - **Voz de la Biblia narrada:** no se usa la voz Piper elegida para audio que se reparte, porque hereda una base con licencia solo
+    para investigación (lessac, Blizzard 2013). Recomendación: lanzar con la voz del teléfono y pagar una voz con licencia comercial
+    (ESTIMACIÓN: USD 100 a 300) solo si más del 20 % de los usuarios activos usa «Escuchar» cada semana al mes del lanzamiento.
+    Espera la confirmación del fundador.
+- **Hecho por Claude (APK prueba 17, versión 0.17.0):** lo anterior, más los desafíos con fecha (Adviento 2026, enero y Semana Santa
+  2027), «Tu año en la Palabra», el sitio estático de las 66 guías y Quién es quién (falta publicarlo), Habacuc jugable (3 de 66
+  libros), Lany más viva (reposo, parpadeo, suspiro) y el globo de Lany que ya no queda tapado; proyecto v3.9 (capítulo 42, estado,
+  mapa e inventario).
+- **Pendiente del fundador:** probar la prueba 17; escuchar la música (y elegir otra si quiere); decidir el camino de la voz; crear la
+  cuenta de Cloudflare para publicar el sitio; y lo que ya estaba (licencias y figura legal, API.Bible, Sociedad Bíblica Argentina,
+  revisores, Google Play antes del 15-11, Supabase).
+- **Evidencia:**
+  - `oportunidades/proyectos/senda/capitulos/42-claridad-lecciones-temporadas.md`, `oportunidades/proyectos/senda/ideas_numero_uno.yaml`;
+  - repositorio de la app: `docs/REDACCION.md`, `scripts/validar_contenido.py`, `src/pantallas/Leccion.tsx`, `src/pantallas/Travesia.tsx`,
+    `scripts/musica_publicitaria.py`, `assets/sonidos/CREDITOS.md`, `scripts/rive/lani.py`, `src/datos/temporadas.ts`,
+    `src/pantallas/Anio.tsx`, `scripts/sitio_web.py`, `web/`, `scripts/autor/habacuc.py`;
+  - licencias de voz: model cards de rhasspy/piper-voices (es_MX-ald, es_ES-davefx, en_US-lessac) y la licencia de Blizzard 2013 en
+    cstr.ed.ac.uk (consultadas el 17-10-2026).
+
+## DEC-2026-10-17-3 · Senda: decimoctava tanda (prueba 18), cobros y figura legal, el plan con Max, «¿Quién es?» y la fábrica de difusión
+
+- **Fecha:** 17-10-2026. **Quién:** el fundador pide; Claude ejecuta y recomienda.
+- **Pedido (resumen, sin citas textuales):**
+  - no llega a probar el APK pero no quiere atrasar el proyecto: ir a fondo con todo lo próximo, con calidad antes que velocidad;
+  - seguir puliendo a Lany (Rive, 3D, todo lo posible), mejorar la UX y avanzar con la Travesía y con la cantidad de preguntas;
+  - con Claude Max de USD 100, qué aprovechar para que Senda sea un éxito (publicidad, ideas, desarrollos);
+  - a qué cuenta va lo que paguen las suscripciones y lo que dejen los anuncios, cómo funciona y qué hace falta en lo legal;
+  - seguir explorando juegos de mesa y de rol; recordó el Adivina quién como un juego muy bueno.
+- **Decidido / recomendado:**
+  - **Cobros (recomendación, decide el fundador):** Google Play y AdMob pagan en dólares, por transferencia desde EE.UU., a una cuenta
+    en dólares a nombre del titular del perfil de pagos (HECHO, centros de ayuda de Google, 17-10-2026). Lanzar con cuenta personal,
+    **con anuncios y sin compras dentro de la app** (solo las cuentas que venden muestran su dirección completa); antes del primer
+    pago, caja de ahorro en dólares y monotributo con factura E (desde la «A» 8481 del BCRA los dólares pueden quedar en dólares, sin
+    tope); **decidir la SAS en diciembre y crearla en enero de 2027**, antes de prender las suscripciones; botón de arrepentimiento y
+    de baja (Disposición 954/2025) comprometido en los términos. Todo se re-verifica con un contador antes de facturar.
+  - **Plan con Max (recomendación, decide el fundador):** si pasa a Max, que sea antes del lanzamiento; el uso extra va a lo que no
+    necesita al fundador y acumula valor: la Biblia entera jugable (2 a 3 libros por semana), trivia hacia 2.000 con doble revisión y
+    dos lotes de videos por semana; después, los juegos de grupo (con Supabase), el sitio (con Cloudflare) y el portugués. **Regla de
+    corte:** si a los 60 días lo producido por semana no se duplica respecto de octubre, se vuelve a Pro.
+  - **«¿Quién es?» y «En la frente»:** la mecánica de adivinar con preguntas de sí o no es de dominio común y de más de 20 años; nombre,
+    aspecto y tarjetas propios. Todo enseña: cada «sí» con su versículo y un repaso al final.
+  - **Difusión sin cara:** la fábrica de videos y los stickers quedan hechos; publicar es decisión del fundador (regla 8).
+- **Hecho por Claude (APK prueba 18, versión 0.18.0):** trivia de 228 a 410 preguntas revisadas contra la RV1909; Abdías y Hageo
+  jugables (5 de 66 libros) y Quién es quién capítulo 2 (244 lecciones); «¿Quién es?» (23 personajes verificados) y «En la frente»;
+  Lany asiente y niega en Rive; 13 stickers animados; la fábrica de videos verticales y su primer lote de 7; pantallas angostas sin
+  títulos cortados; la pestaña Difusión en la Consola; proyecto v3.10 (capítulo 43, estado, mapa, inventario e ideas).
+- **Pendiente del fundador:** probar la prueba 18 cuando pueda; crear las cuentas de difusión y publicar; decidir Max; Google Play
+  antes del 15-11; la cuenta en dólares y el monotributo antes del primer pago; la empresa en diciembre; y lo que ya estaba (licencias,
+  API.Bible, Sociedad Bíblica Argentina, revisores, Supabase, Cloudflare, la voz).
+- **Evidencia:**
+  - `oportunidades/proyectos/senda/capitulos/43-cobros-max-quien-es-difusion.md`, `conocimiento/2026-10-17-senda-cobros-cuentas-y-figura-legal.md`,
+    `oportunidades/proyectos/senda/ideas_numero_uno.yaml`;
+  - repositorio de la app: `scripts/autor/trivia_banco2.py`, `scripts/autor/abdias.py`, `scripts/autor/hageo.py`,
+    `scripts/autor/quien_es_quien.py`, `scripts/autor/quien_soy.py`, `src/pantallas/QuienEs.tsx`, `src/pantallas/EnLaFrente.tsx`,
+    `scripts/rive/lani.py`, `scripts/difusion/`, `docs/JUEGOS_MESA_ROL.md` §6, `src/datos/legal.ts`;
+  - precios de Claude: guías de precios de 2026 (noqta.tn, heyuan110.com, consultadas el 17-10-2026); verificar en claude.com/pricing.
+
+
+## DEC-2026-10-18-1 · Senda: decimonovena tanda (prueba 19), Lany con volumen, «¿Quién es?» y «Vivir la historia» rediseñados, música, difusión y cobros
+
+- **Fecha:** 18-10-2026. **Quién:** el fundador pide; Claude ejecuta y recomienda.
+- **Pedido (resumen, sin citas textuales):** seguir a fondo con Lany y la UX hasta ser la mejor app de la tienda, usando Rive u otros
+  programas y estudiando otras apps; repensar la mecánica de «¿Quién es?» (preguntas libres o variables, muñequitos o caras); encontrar
+  el objetivo de «Vivir la historia» o sacarlo, con animación de lo que se elige; música de fondo para los juegos y una música de inicio
+  muy buena; colores menos llanos; por qué «Lany en 3D» no cambiaba nada y si conviene siempre 3D; difusión concreta y barata; qué
+  hacer desde ahora para cobrar; seguir con trivia y travesías.
+- **Decidido / recomendado:**
+  - **Lany 2D con volumen en toda la app; 3D solo en la fiesta** (recomendación): el 3D permanente perdería las 15 expresiones y gastaría
+    batería; se revisa si Rive suma 3D o hay presupuesto para un animador. El ajuste pasó a llamarse «Fiesta en 3D» y muestra qué hace.
+  - **«Vivir la historia» v2:** de cuatro caminos (sacarlo, relato sin decisiones, finales alternativos, encrucijadas reales), se eligió
+    **encrucijadas reales con espejo**: nunca se altera lo que cuenta la Biblia, no hay puntos por coincidir, y el aprendizaje está en el
+    porqué. Láminas animadas dibujadas con código; Jesús nunca se dibuja.
+  - **Música (decide el fundador):** fuente nueva de compositores profesionales con licencia para apps; «Driving Ambition» por defecto y
+    ocho alternativas en la Consola; cinco bucles de fondo, bajos y apagables.
+  - **Difusión (decide el fundador):** once métodos sin costo salvo premios y dominio; sorteos solo con bases y autorización (en CABA,
+    LOTBA, fuente secundaria), preferir concursos de habilidad; nada de «etiquetá a tres amigos» (Meta lo prohíbe); plan de 90 días.
+  - **Cobros (decide el fundador):** la lista de 12 pasos del capítulo 44 §8; público 13+; sitio con política de privacidad y app-ads.txt;
+    AdMob cobra desde USD 100; Hyperwallet disponible para Argentina (fuente secundaria).
+- **Hecho por Claude (APK prueba 19, versión 0.19.0):** sistema de color v2; Lany con sombra y luz de dos tonos en Rive y mirada hacia la
+  tarjeta; «¿Quién es?» v2 (41 rasgos, sugerencias, 41 retratos, tableros de 12/16/20); «Vivir la historia» v2 (7 historias, 23
+  encrucijadas, 16 láminas, el espejo, validador ampliado); música de inicio y de fondo con ajuste; trivia 560 (+150); Joel, Sofonías,
+  Filemón, 2 y 3 Juan y Judas jugables (10 de 66) y la ruta «Las cartas» (261 lecciones); proyecto v3.11 (capítulo 44, estado, mapa,
+  inventario, ideas, bitácoras).
+- **Pendiente del fundador:** probar la prueba 19; elegir la música de inicio en la Consola; decidir la difusión y crear las cuentas;
+  Google Play antes del 15-11; lo de siempre (licencias, API.Bible, Supabase, Cloudflare, Max, SAS).
+- **Evidencia:** `oportunidades/proyectos/senda/capitulos/44-lany-volumen-vivir-la-historia-musica-difusion.md`,
+  `conocimiento/2026-10-17-senda-benchmark-ux-color-sonido.md`, `conocimiento/2026-10-18-senda-difusion-cobros-y-vivir-la-historia.md`;
+  repositorio de la app: `scripts/rive/lani.py`, `scripts/arte/retratos.py`, `scripts/arte/laminas.py`, `scripts/autor/quien_soy.py`,
+  `scripts/autor/historias_rol.py`, `scripts/autor/libros_cortos.py`, `scripts/autor/trivia_banco3.py`, `scripts/musica_fondo.py`,
+  `src/componentes/lamina.tsx`, `src/pantallas/Historias.tsx`, `src/pantallas/QuienEs.tsx`, `src/tema.ts`.
+
+## DEC-2026-10-19-1 · Senda: vigésima tanda (prueba 20), textos claros y glosario, Lany graciosa, juegos en grupo, fiesta, calendario y widget
+
+- **Fecha:** 19-10-2026. **Quién:** el fundador pide; Claude ejecuta y recomienda.
+- **Pedido (resumen, sin citas textuales):** más animaciones y más gracia en Lany (que se desmaye al errar) con investigación de
+  otras mascotas; arreglar el doble «Siguiente» y las áreas que no se desmarcaban en la bienvenida, con menos opciones; intros de
+  lección cortas y hermosas; revisar las travesías línea por línea (los ángeles, Babel, «caridad», «potencia y divinidad», lo
+  básico explicado); repaso opcional menos invasivo; globos de Lany que no se pisen; mucha más fiesta y una pantalla de pieza con
+  tablero grande y menos texto; calendario en pasos y evaluar lugar, enlace y notas; widget del versículo; un juego de nombres por
+  letra para grupos; «¿Quién es?» contra alguien con preguntas escritas; «Vivir la historia» interactivo y útil; verificar que
+  ningún libro no confiable se usó; registrar el entorno de prueba para líderes y la idea de los kits por puntos.
+- **Decidido / recomendado:**
+  - **Glosario automático y redacción:** 95 palabras explicadas (RV1909 y términos básicos) inyectadas en 256 lecciones y
+    resaltadas en la historia; ocho preguntas sin contexto reescritas; «caridad» siempre como amor (dentro de la licencia: las
+    comillas siguen siendo texto exacto de 1909 y la explicación va afuera).
+  - **Lany:** cinco gestos nuevos en Rive (patatús, mano a la cara, mareo, taparse los ojos, giro); al errar, la primera vez el
+    «uff» clásico y después una reacción distinta cada vez; nunca burla. Investigación: Duolingo no tiene reacciones al error (espacio
+    libre), Lily mezcla 64 variaciones de reposo, Finch genera apego por nombre y espera; la viralidad viene de años de
+    personalidad coherente antes de cualquier golpe.
+  - **«¿Quién es?»:** se suma «contra alguien» (recomendación: no sacar a Lany; su intérprete pasó a raíces, sinónimos, tipeo y
+    desempate por especificidad, y se agregaron los rasgos «guerra» y «esposo o esposa» que pedían las preguntas naturales).
+  - **«Vivir la historia» en grupo** (voto secreto, votos a la vista, un minuto de charla con pregunta escrita, espejo de cada uno)
+    y copy nuevo cuando el personaje hizo otra cosa. **«Nombres por letra»** nuevo, con 255 nombres verificados.
+  - **Fiesta:** confeti y globos en lección, capítulo y pieza; pantalla de pieza con tablero grande, «n de 6» y frase; versículo chico.
+  - **Calendario:** evento en tres pasos; lugar, enlace y notas se quedan (sirven a los grupos) pero plegados; la tarjeta de Inicio
+    solo con eventos. **Widget** «Versículo del día» con react-native-android-widget (Android 16 lo muestra en la pantalla de bloqueo).
+  - **Libros:** manda la clasificación A del fundador; 76 títulos del inventario anterior quedaron afuera; ninguno se había usado.
+  - **Registrado:** entorno de prueba para líderes (hito previo a la prueba cerrada, cuando existan cuentas) y «10 kits por puntos»
+    como método 12 de difusión (capítulo 44 §7.1; necesita bases y, si es sorteo, autorización; concurso de habilidad si gana el
+    puntaje).
+- **Pendiente del fundador:** probar el APK prueba 20; la música de inicio en la Consola (sigue sin elegirse).
+- **Registro:** capítulo 45 y `conocimiento/2026-10-19-senda-mascotas-widgets-y-juegos-en-grupo.md`; en la app,
+  `scripts/autor/glosario.py`, `scripts/autor/nombres.py`, `src/componentes/textoRico.tsx`, `src/componentes/fiesta.tsx`,
+  `src/pantallas/Letra.tsx`, `src/widget/`.
+
+
+## DEC-2026-10-19-2 · Senda: vigésima primera tanda (prueba 21), la misión de la semana, «Cómo se juega» y un calendario más simple
+
+- **Fecha:** 2026-10-19 · **Quién:** el fundador pide; Claude recomienda y construye.
+- **Pedido:** explicar las instrucciones de cada juego antes de empezar, fácil y sencillo; «Vivir la historia» no le cierra (una vez
+  hecha queda tildada): una historia por semana como desafío, individual, con más opciones y más difíciles, varios pasos y puntos;
+  sacar el modo en grupo; al lanzar, una sola historia; textos más amigables; si se erró, que no quede completada sino para volver a
+  hacerla bien. Calendario sin clasificaciones: el título y listo; el día con un calendario dinámico y lindo; la hora como en la
+  alarma, deslizando o escribiendo; después si se repite; más compacto. Revisar la UX en general y avanzar con todo lo pendiente.
+- **Decidido / hecho:**
+  - **«Vivir la historia» v3, la misión de la semana:** una historia por lunes desde una fecha de inicio (hoy 19-10-2026 para
+    probar; **antes del lanzamiento se pone el lunes en que sale la app**); 6 a 8 pasos, 4 opciones parecidas por paso con el porqué
+    de cada error; se cumple solo sin errores; 50 talentos en su semana y 25 después; la misión de la semana en Inicio. Siete
+    historias hasta el 30-11. Se sacó el modo en grupo (pedido del fundador). Las opciones correctas ya no se adivinan por el largo
+    (regla nueva del validador).
+  - **«Cómo se juega»** en los siete juegos, sola la primera vez y siempre a mano.
+  - **Evento en cuatro pasos:** título (el tipo sale solo del título), día en el calendario del mes, hora con ruedas de alarma o
+    escrita, y al final repetición, aviso y «Más opciones».
+  - **Lo previsto:** Quién es quién capítulo 3 (poetas y profetas), trivia de 602, tableros por tema en «¿Quién es?».
+  - **Corregido:** pantallas transparentes en la web por una animación que arrancaba antes de montar la vista.
+- **Pendiente del fundador:** probar el APK prueba 21; siguen abiertas la música de inicio, licencias y figura legal, la voz y la
+  cuenta de Google Play antes del 15-11.
+- **Registro:** capítulo 46; en la app, `scripts/autor/historias_rol.py`, `src/estado/misiones.ts`, `src/pantallas/Historias.tsx`,
+  `src/componentes/comoSeJuega.tsx`, `src/componentes/rueda.tsx`, `src/pantallas/Evento.tsx`, `scripts/autor/trivia_banco4.py`.
+
+## DEC-2026-10-19-3 · Senda: vigésima segunda tanda (prueba 22), licencias pagando, visual a fondo, tiendas, contenido e idiomas
+
+- **Fecha:** 2026-10-19 · **Quién:** el fundador pide; Claude recomienda y construye.
+- **Pedido:** evaluar a fondo incluir una licencia de las Biblias (no importa pagar al empezar); en trivias, travesías y juegos,
+  más diagramas, líneas de tiempo e imágenes animadas, todo lo que sume a la diversión y la UX; ver si ya vamos a Play Store y App
+  Store (qué falta, cómo seguimos); a fondo con los contenidos de trivia y travesías; ver si se puede iniciar portugués e inglés.
+- **Decidido / hecho:**
+  - **Licencias, plan pagando (recomendación; el fundador decide):** API.Bible Pro + NTV ahora (USD 29 + 10 a 25 por mes al
+    empezar; 150 por versión con 50.000 usuarios); la **SAS en noviembre** (adelantada de enero) como titular de licencias y
+    cuentas; con la SAS, la RVR1960 por la Digital Bible Library y el formulario de la ABS; la NVI no se vende para apps con
+    ingresos (sigue en un toque desde Bible.com). La YouVersion Platform (gratis, 1.487 Biblias, pero sin anuncios ni
+    suscripciones) queda como plan B del camino «ministerio sin ingresos». La regla de corte del 13-10 (hasta el 10 % del ingreso
+    neto) sigue como tope, no como condición para empezar.
+  - **Sistema visual:** mapas sobre costas y ríos reales (Natural Earth; 54 lugares, 6 recorridos, 4 encuadres), seis líneas de
+    tiempo, ocho diagramas por capas y las láminas, en portadas, preguntas, trivia («tipo con imagen»), prueba de nivel, desafío del
+    día y el final de «Antes o después». Regla: un visual nunca regala la respuesta; la línea de tiempo en «ordenar» aparece al
+    responder. El visual va antes del texto en la portada.
+  - **Tiendas:** flujos de firma y AAB para Play, `eas.json` y `app.json` para iOS, textos de ficha, clasificación y seguridad de
+    datos (`docs/TIENDAS.md`); falta lo que solo hace el fundador: cuentas (Play USD 25, Apple USD 99 por año, Expo gratis), sitio
+    público con la política de privacidad y 12 testers.
+  - **Contenido:** rutas «El mapa de la Tierra Santa» y «La gran línea de tiempo» (12 lecciones), Quién es quién capítulos 4 y 5
+    (12 lecciones; la ruta completa), trivia banco 5 (42 nuevas, 8 con mapa; 644 en total). Travesía: 421 niveles, 291 lecciones.
+  - **Idiomas:** selector en Ajustes (español, portugués, inglés); Biblias libres en portugués (Bíblia Livre, Nova Bíblia Viva) e
+    inglés (BSB, WEB) dentro de la app; pestañas traducidas; el contenido se traduce ruta por ruta en 2027, primero portugués.
+  - **Vista previa:** `?demo=leccion:ID` y `?demo=espadeo:ID` abren una lección o una pregunta directo (Consola y pruebas).
+- **Pendiente del fundador:** pagar la NTV en API.Bible; crear la SAS en noviembre; cuentas de Play, Apple y Expo; publicar el
+  sitio; 12 testers; opcional, consultar a YouVersion por un acuerdo comercial. Siguen abiertas la música de inicio, la voz, Claude
+  Max y la cuenta de Play antes del 15-11. Probar el APK prueba 22 (incluye el 21, que no llegó a probar).
+- **Registro:** capítulo 47; bitácora `conocimiento/2026-10-19-senda-licencias-pagas-tiendas-idiomas.md`; en la app,
+  `scripts/arte/mapa_biblia.py`, `scripts/arte/diagramas.py`, `scripts/autor/lineas.py`, `scripts/autor/visuales.py`,
+  `scripts/autor/tierras.py`, `scripts/autor/quien_es_quien_45.py`, `scripts/autor/trivia_banco5.py`, `src/componentes/visual.tsx`,
+  `src/componentes/mapaBiblia.tsx`, `src/componentes/lineaTiempo.tsx`, `src/componentes/diagrama.tsx`, `src/i18n/textos.ts`,
+  `eas.json`, `.github/workflows/firma.yml`, `.github/workflows/aab.yml`, `docs/TIENDAS.md`.
+
+## DEC-2026-10-19-4 · Senda: vigésima tercera tanda (prueba 23), blindaje legal y versiones sin confusión
+
+- **Fecha:** 2026-10-19 · **Quién:** el fundador pide; Claude investiga, recomienda y construye.
+- **Pedido:** seguir con la prueba 23 sin esperar la prueba del 22; antes que nada, investigar exhaustivamente todos los riesgos
+  legales (plagio, imitar apps o juegos, música, contenido, nombres, imágenes) con ley y casos, y reforzar; que el último APK traiga
+  todas las modificaciones. Después: evaluar con calma cómo evitar que la gente se confunda entre la RV1909 de la app y la RVR1960,
+  con una UX muy amigable, fiel, sin texto gigante, manteniendo anuncios y suscripciones y contemplando que la RVR1960 no esté al
+  principio.
+- **Decidido / hecho (blindaje legal, capítulo 48):**
+  - **Música:** la licencia gratuita de Mixkit no permite videojuegos (página oficial, 19-10): los seis temas se retiraron; toda la
+    música es de Kevin MacLeod, CC BY 4.0, con crédito tema por tema («Nonstop» en la bienvenida, la elegida en la prueba 17).
+  - **Lany v4:** cara, patas y manos canela (la v3, negra con lana clara y copete, compartía los rasgos distintivos de Shaun the Sheep);
+    el fundador puede comparar en la Consola y pedir volver.
+  - **Espadeo:** el casillero de la corona (igual que Preguntados) pasa a ser el yunque de la Armería. La ruta «Quién es quién» pasa a
+    «Quién fue quién» (Hasbro vende «¿Quién es quién?»).
+  - **Créditos completos** y **docs/LEGAL.md** (inventario de activos con licencia, nombres, reglas, lista de control antes de cada
+    publicación); borrador de autorización escrita del ministerio aliado.
+  - **Pendiente del fundador:** INPI (Senda y Lany, clases 9, 41, 42; ≈ ARS 41.000 por clase), una hora con un abogado de PI,
+    la autorización del ministerio, el dominio (sendabiblia.com o .app).
+- **Decidido / hecho (versiones, capítulo 49):** regla «una sola Biblia a la vista, con nombre, y la RVR1960 a un toque»: fila de
+  versión en cada pasaje («RV1909 · escritura de hoy» + «RVR1960 ↗»), hoja «Las versiones, en una pantalla» (tres ideas) desde la
+  fila, la Biblia y Ajustes; los ejercicios siguen leyéndose igual en las dos versiones. Para la prueba 24: la pregunta de la
+  bienvenida («¿qué Biblia usan en tu iglesia?») y el glosario de palabras en el lector.
+- **Registro:** capítulos 48 y 49; bitácora `conocimiento/2026-10-19-senda-blindaje-legal.md`; en la app, `docs/LEGAL.md`,
+  `docs/legal/autorizacion_ministerio.md`, `scripts/musica_macleod.py`, `scripts/rive/lani.py` (paleta v4), `src/componentes/versiones.tsx`,
+  `src/datos/legal.ts`, `tienda/` (gráfico y capturas de la ficha).
+
+## DEC-2026-10-19-5 · Senda: lo legal sin romper la UX y las versiones medidas (recomendaciones que esperan decisión)
+
+- **Fecha:** 2026-10-19 (noche) · **Quién:** el fundador pide; Claude evalúa y recomienda; decide el fundador.
+- **Pedido:** que lo legal no rompa nada clave de la experiencia (evaluar el riesgo real de cada cambio y qué vale la pena), y revisar
+  de verdad las diferencias entre la RV1909 y la RVR1960: cuántas, cuáles, si son significativas, cuáles peligrosas, cómo mitigar.
+- **Evaluación (capítulo 48 §6):** regla «riesgo real × daño, contra lo que pierde la UX». Vale la pena: la música de MacLeod (riesgo
+  cero hoy; la licencia de Mixkit excluye videojuegos), Lany v4 (la v3 era el esquema de Shaun the Sheep; la mascota es lo que primero
+  mira un equipo de licencias), el yunque (la corona es la firma de Preguntados; costo mínimo) y «Quién fue quién» (gratis). A afinar:
+  la fila de versión (versión repetida con la leyenda de abajo; salida de la app en medio de la lección). No se cambia nada más por
+  lo legal: el camino, las reacciones de Lany, la ruleta, los juegos de mesa.
+- **Medición (capítulo 49 §7 y bitácora `conocimiento/2026-10-19-senda-rv1909-vs-rvr1960.md`):** sin copiar la 1960. Se nota en uno
+  de cada tres versículos (18 % con léxico viejo, 17 % con verbo y pronombre pegado, 99 nombres con grafía vieja); misma base textual
+  en casi todo (25 versículos verificados: tres con lectura distinta, ninguno toca una enseñanza de la Travesía). Peligrosos: los falsos
+  amigos («caridad», «salud», «conversación», «concierto», «reliquias», «pontífice», «parió») y «sepulcro»/«infierno» por «Seol»/«Hades».
+  Unos 25 ejercicios usan una palabra vieja en su propio texto.
+- **Espera decisión del fundador:**
+  1. **Color de Lany:** elegir en la Consola entre canela (v4), gris pizarra y crema; nunca la cara negra con lana blanca y copete.
+  2. **Música:** MacLeod hasta que haya ingresos; después, comprar las pistas con licencia de reproducción masiva en AudioJungle
+     (ESTIMACIÓN USD 300–1.000 una vez) o una suscripción a Envato Elements registrando el proyecto. Aprobar cuando toque gastar.
+  3. **Fila de versión afinada** (48 §6.3): sí o no, después de probar el APK 23.
+  4. **Nombres propios como hoy** en la Biblia de Senda (grafía verificada con las Biblias modernas de la app): sí o no.
+- **Lo que Claude hace en la prueba 24 salvo indicación en contra:** glosario en el lector con la lista medida; los ≈25 ejercicios y
+  el validador más estricto; la lista de lecturas distintas; las fichas de «Seol», «Hades» e «infierno»; las dos variantes de color de
+  Lany en la Consola.
+- **Regla que queda:** antes de cualquier cambio por lo legal, la tabla de riesgo real contra costo de UX; si la experiencia pierde algo
+  que se nota, se pregunta antes.
+
+## DEC-2026-10-19-6 · Senda: vigésima cuarta tanda (prueba 24), las palabras de hoy, los nombres de hoy y los versículos clave
+
+- **Fecha:** 2026-10-19 (noche) · **Quién:** el fundador pide y fija el criterio; Claude investiga y construye.
+- **Pedido:** examinar despacio las diferencias con un ejemplar autorizado de la RVR1960 (solo para analizar; nada va a la app),
+  mitigar las peligrosas, y responder: si hay un tope para citar la 1960 sin licencia, si se puede poner la mejor traducción entre
+  paréntesis, y si para los versículos clave conviene una de las versiones libres de la app. Criterio del fundador: no hay que usar
+  siempre la 1909; avanzar con todos los pendientes.
+- **Hechos nuevos:** la Sociedad Bíblica Argentina permite citar hasta 500 versículos de la RVR1960 sin permiso escrito (menos del
+  50 % de un libro y del 25 % de la obra, con la leyenda; sba.org.ar, 19-10-2026). La Palabra de Dios para ti es la versión libre
+  de la app que más se parece a la 1960 en los versículos verificados (ESTIMACIÓN con método, capítulo 50 §4).
+- **Decidido / hecho (capítulo 50):** glosario de la Biblia (185 palabras: falsos amigos, palabras viejas, medidas, palabras con
+  carga de sentido) con tres modos en Ajustes: subrayadas y se tocan (de fábrica), la palabra de hoy entre corchetes («caridad
+  [amor]»; solo las seguras), o nada; nombres propios con la grafía de hoy (987 lugares; «Líbano» corregido); 13 versículos clave
+  con el mismo versículo en una versión libre y el aviso de lectura distinta en la hoja de estudio; once ejercicios y dos huecos
+  reescritos; validador con la lista medida. El texto de la 1909 no cambia ninguna palabra.
+- **Espera decisión del fundador:** mandar la consulta a la Sociedad Bíblica (`docs/legal/consulta_sba.md`); confirmar dónde
+  quedó el ejemplar de la 1960 (no apareció en ningún repositorio visible el 19-10 a la noche); subrayado o corchetes de fábrica;
+  cargar los versículos de lectura distinta en `rvr1960_citas.json` desde su ejemplar, dentro del cupo.
+- **Regla que queda:** la 1909 es la Biblia de la Travesía y la trivia, no una obligación de lectura: la persona puede leer en la
+  PDT, la NBV o la BES; y toda ayuda de versión se explica con palabras de Senda, nunca con texto de una versión con derechos.
+
+## DEC-2026-10-19-7 · Senda: vigésima quinta tanda (prueba 25), Lany cae de verdad y la versión que mejor se lee en cada versículo
+
+- **Fecha:** 2026-10-19 (noche) · **Quién:** el fundador pide y fija el criterio; Claude construye.
+- **Pedido:** «cuando Lany se desmaya está muy dura; tiene que ser más fluido; andá a fondo con las animaciones, Rive, 3D, lo que
+  haga falta»; y, por el ejemplo de Gálatas 5:22 («amor» en la NBV, «caridad» en la RV1909), validar versículo por versículo cuál de
+  las versiones libres se lee mejor y usarla en cada trivia, travesía, versículo del día o juego.
+- **Decidido / hecho (capítulo 51):** el desmayo y el patatús rehechos en Rive con los principios de animación (anticipación,
+  tambaleo con las partes que llegan tarde, caída con gravedad, impacto con aplastar y rebote, asentamiento) y un estado nuevo
+  «desmayada» en bucle (respira en el piso hasta que la app la levanta); verificado cuadro a cuadro y en la máquina de estados.
+  Lany sigue 2D con volumen: lo que faltaba era oficio de animación, no otro motor (capítulo 44 §2 sigue en pie). Regla medible
+  para la versión de cada pasaje fuera del lector: si la RV1909 trae un falso amigo, gana entre la PDT y la NBV la que tiene menos
+  palabras difíciles en ese versículo (formas del glosario que las versiones modernas casi no usan; la BES solo si falta el
+  versículo): 1.223 versículos (876 PDT, 342 NBV, 5 BES), chips para cambiar y el motivo a la vista; el lector, los ejercicios y la
+  trivia siguen en la RV1909. Glosario con «longanimidad» y «benignidad».
+- **También hecho:** mano a la cara, mareo y taparse los ojos con el mismo oficio, sin cambiar sus duraciones (capítulo 51 §6).
+- **Espera decisión del fundador:** si la caída y las reacciones convencen; y lo pendiente de DEC-2026-10-19-6 (consulta a la Sociedad Bíblica, ejemplar de la 1960, subrayado o
+  corchetes de fábrica, color de Lany, fila de versión afinada).
+- **Regla que queda:** «se lee mejor» se mide (palabras difíciles por versículo), no se decide por gusto versículo por versículo; y
+  toda mejora de Lany se busca primero en el tiempo de la animación (claves, retrasos, curvas) antes que en cambiar de tecnología.
+
+## DEC-2026-10-20-1 · Senda: vigésima sexta tanda (prueba 26), el tachado automático, Lany con vida y más contenido
+
+- **Fecha:** 2026-10-20 (madrugada) · **Quién:** el fundador pide y fija el criterio; Claude construye.
+- **Pedido:** explicar en fácil lo de Lany 2D o 3D; que en «¿Quién es?» las tarjetas que no corresponden se tachen solas, de a una,
+  con un sonido profesional sin derechos (investigar el Adivina quién del iPad); seguir mejorando la UX de Lany; avanzar con todo lo
+  pendiente (trivia, travesías, juegos nuevos si corresponde, traducciones). Probará la última versión mañana.
+- **Decidido / hecho (capítulo 52):** Lany es y sigue 2D (la explicación en fácil y la tabla de pros y contras quedan en el §2); el
+  tachado automático con trazo de marcador y sonido propio (grabación CC0 + tock sintetizado; alternativas en la Consola; en el modo
+  contra alguien, también cuando la pregunta se reconoce); dos gestos de vida en reposo (ojeada, rascar) con rutina que no repite;
+  banco 6 de trivia (42 preguntas sobre versículos sin usar; 686 en total; `--repetidas` controla las repeticiones); Tito jugable (295
+  lecciones); «¿qué Biblia usan en tu iglesia?» en la bienvenida; Inicio y Jugar en portugués e inglés con el plan del contenido
+  (`docs/TRADUCCIONES.md`). Juegos nuevos: evaluados cinco, no se agrega ninguno hoy (capítulo 52 §7).
+- **Queda para la prueba 27:** mapas y diagramas que faltan y la línea de tiempo unificada; 1 y 2 Timoteo; más interfaz traducida.
+- **Espera decisión del fundador:** el sonido del tachado (si prefiere otro de la Consola) y lo pendiente de las pruebas 24 y 25.
+- **Regla que queda:** toda pregunta nueva de trivia se escribe sobre un versículo que ningún banco use todavía (`--repetidas`), y
+  los juegos nuevos se agregan solo cuando enseñan algo que los siete que hay no enseñan.
+
+## DEC-2026-10-20-2 · Senda: vigésima séptima tanda (prueba 27), la espada en la mano, la armadura entera y 1 y 2 Timoteo
+
+- **Fecha:** 2026-10-20 · **Quién:** el fundador pide y fija el criterio; Claude construye.
+- **Pedido:** que Lany agarre bien la espada (parecía «agarrada de arriba») y que el festejo de cada pieza se vea mejor; que al
+  ganar las seis piezas aparezca Lany con toda la armadura; volver a buscar el ejemplar de la RVR1960 (él cree haberlo subido a
+  LIBROS-REFERENCIA3); sacar de la bienvenida «¿qué Biblia usan en tu iglesia?»; que la bienvenida no salte sola antes de
+  «Siguiente»; avanzar a fondo con todo lo pendiente y entregar una sola APK consolidada.
+- **Decidido / hecho (capítulo 53):** la espada rehecha en Rive (nace dentro del puño, la hoja sigue el antebrazo: al piso en reposo,
+  al cielo en alto; el giro lo decide cada pose); el festejo de pieza con Lany grande en el centro y la pieza que vuela hasta ella;
+  la armadura completa con Lany en guardia poniéndose la última pieza y festejando; la bienvenida sin ese paso y sin avance
+  automático (una sola regla: «Siguiente» avanza); 1 y 2 Timoteo jugables (12 lecciones; 307), banco 7 de trivia (728), diagramas
+  del templo de Salomón y de la estatua de Daniel, la línea de los imperios, 84 visuales más (144 lecciones con visual), la línea de
+  tiempo unificada en «La historia en una línea», y más interfaz en portugués e inglés. El ejemplar de la 1960 no está en ningún
+  repositorio al que la sesión llegue (cinco revisados con clon fresco): hay que adjuntarlo en el chat o dar el repositorio y la
+  carpeta exactos.
+- **Espera decisión del fundador:** dónde está el ejemplar de la 1960; el sonido del tachado (Consola); y lo pendiente de las
+  pruebas 24 y 25 (consulta a la Sociedad Bíblica, subrayado o corchetes, color de Lany, fila de versión).
+- **Regla que queda:** en la bienvenida nada avanza solo (las opciones marcan; «Siguiente» avanza); todo lo que Lany sostiene se
+  dibuja dentro de la mano y sigue el antebrazo; cada APK de prueba trae todo lo anterior consolidado.
+
+## DEC-2026-10-20-3 · Senda: vigésima octava tanda (prueba 28), el desmayo sin rigidez, el festejo en una pantalla y la trivia sin paréntesis
+
+- **Fecha:** 2026-10-20 · **Quién:** el fundador pide y fija el criterio; Claude construye.
+- **Pedido:** que Lany deje de desmayarse «con los brazos extendidos» (la animación seguía rígida), hecho despacio y bien; que el
+  festejo de la pieza ganada entre en una sola pantalla con el botón abajo; que la trivia no muestre la palabra correcta con la forma
+  de la RV1909 entre paréntesis, revisando si una versión libre trae la palabra de hoy; seguir despacio con todos los pendientes; y
+  **cero plagio** (ni versiones con derechos ni los libros de referencia, que son para entender y nunca para replicar).
+- **Decidido / hecho (capítulo 54):** el desmayo y el patatús rehechos de cero como un vahído de dibujo animado (mano a la sien con
+  el codo afuera, mareo con el brazo que oscila por inercia, rodillas que ceden, caída con los brazos que llegan tarde, impacto con
+  latigazo, antebrazo cruzado sobre la panza y el otro brazo flojo; una sola caída compartida por desmayo, desmayada y patatús); el
+  festejo que mide lo fijo y le da a Lany el alto que sobra, con el tablero en una fila (probado en tres tamaños); 28 preguntas sin
+  paréntesis, con el pasaje que se abre en la versión libre que trae la palabra de hoy (19 versículos forzados, con el motivo en la
+  hoja) y cuatro nombres más con la grafía de hoy (Rode, Gayo, Gabaón, Malta; la reina de Sabá); Santiago y 1 Pedro jugables (12
+  lecciones; 319); Ajustes y la lección por dentro en portugués e inglés (175 cadenas); APK 28 consolidada.
+- **Espera decisión del fundador:** lo que revise de la Consola y «más cosas»; dónde está el ejemplar de la 1960; y lo pendiente de
+  las pruebas 24 a 27 (consulta a la Sociedad Bíblica, subrayado o corchetes, color de Lany, fila de versión, sonido del tachado).
+- **Regla que queda:** la trivia nunca cita la RV1909 entre paréntesis: la opción dice la palabra de hoy y el pasaje se abre en la
+  versión libre que la trae (si ninguna la trae, se reescribe la pregunta); cero plagio quiere decir «no replicar ni copiar», no
+  «no usar»: los libros de referencia confiables se usan para entender, ver cómo se arma un estudio y chequear doctrina, nunca se
+  replica su estructura ni se copia su texto, y cuando una lección use una idea de un libro lo dirá con su fuente (aclarado por el
+  fundador el 20-10 a la noche).
+
+## DEC-2026-10-20-4 · Senda: vigésima novena tanda (prueba 29), la regla de los libros bien dicha, Hebreos y 2 Pedro, y los juegos en portugués e inglés
+
+- **Fecha:** 2026-10-20 (noche) · **Quién:** el fundador corrige y pide; Claude construye.
+- **Pedido:** probó el APK 28 («viene bien dentro de todo»); que la regla de cero plagio se cuente como es («no te pedí que *no
+  uses* los libros, sino que no repliques ni copies y pegues; fijate bien todo esto»); que se explique qué es «el ejemplar de la
+  1960» (no entendía la pregunta); corregir el «texto raro» del bloque de los tres desafíos del día en Inicio; y avanzar con todos
+  los pendientes.
+- **Decidido / hecho (capítulo 55):** la regla reescrita en todos los lugares donde estaba (capítulo 54 §7, CLAUDE.md, DEC-2026-10-20-3)
+  y revisado que no quede ningún texto que diga «no usar los libros»; el ejemplar de la 1960 explicado desde el principio (es el
+  archivo de la RVR1960 que dijo que cargaría en la prueba 24 para comparar versículo por versículo, solo análisis; no apareció en
+  cinco repositorios; nada depende de él) y el pendiente de la Consola reescrito con esas palabras; «Misiones de hoy» traduce la
+  clave al mostrarla (mostraba «mision.leerCapitulo»); Hebreos (8 lecciones) y 2 Pedro (4) jugables desde la RV1909, validados, lo
+  interpretativo marcado y sin doctrinas secundarias (331 lecciones); la historia de la Iglesia en una línea (26 momentos con fuente)
+  y 57 lecciones más con visual (188 de 331 en la portada); los siete juegos, «Cómo se juega» y los carteles de Lany en portugués e
+  inglés (250 cadenas; 579 claves); APK 29 consolidada.
+- **Espera decisión del fundador:** el archivo de la 1960 (adjuntarlo o decir que no lo tiene y se cierra); y lo pendiente de las
+  pruebas 24 a 28 (consulta a la Sociedad Bíblica, subrayado o corchetes, color de Lany, fila de versión, sonido del tachado, lo de
+  la Consola y «más cosas»).
+- **Regla que queda:** lo que un informe diga sobre los libros de referencia tiene que decir exactamente esto: se usan para
+  entender, para ver cómo se arma un estudio y para chequear doctrina; nunca se replica su estructura ni se copia su texto; una
+  idea tomada de un libro va con su fuente. Y toda clave de traducción guardada en el estado se traduce al mostrarla; la vista
+  previa se recorre entera, en los tres idiomas, antes de cada APK.
+
+## DEC-2026-10-20-5 · Senda: trigésima tanda (prueba 30), Romanos y 1 Corintios, la interfaz entera traducida, tres misiones y 350 lecciones con visual
+
+- **Fecha:** 2026-10-20 (noche) · **Quién:** el fundador pide seguir; Claude construye.
+- **Pedido:** «Ok. Avanzá con los próximos siguientes! Luego reviso dónde está la versión de la RVR1960».
+- **Decidido / hecho (capítulo 56):** los cuatro «próximos» del capítulo 55 §9: Romanos (11 lecciones) y 1 Corintios (10) jugables
+  desde la RV1909, validados, lo interpretativo marcado (la elección, «todo Israel será salvo», el «yo» de Romanos 7, el velo, los
+  dones, 1 Corintios 14:34-35, el orden de la resurrección) y sin doctrinas secundarias (352 lecciones); el resto de la interfaz en
+  portugués e inglés hasta la última etiqueta de accesibilidad (1.312 claves), con los días, los meses, las fechas, el saludo y la voz
+  que lee siguiendo el idioma; tres misiones más para «Vivir la historia» (Gedeón, Naamán, y Pedro y Cornelio: 19 pasos, 76 opciones,
+  seis láminas nuevas; 10 misiones hasta el 21-12); visuales para 130 lecciones más (350 de 352; quedan 2 a propósito) con seis
+  diagramas nuevos (el fruto del Espíritu, los «Yo soy», el Padre nuestro, un cuerpo, tres idiomas, Adán y Cristo); Éfeso y Estéfanas
+  con la grafía de hoy; APK 30 consolidada.
+- **Espera decisión del fundador:** el archivo de la 1960 (si aparece, se adjunta en el chat; si no, se cierra) y lo pendiente de las
+  pruebas 24 a 29.
+- **Regla que queda:** cuando el fundador dice «avanzá con los próximos», los próximos son los que el último capítulo dejó listados
+  en «Pendientes y decisiones», en ese orden; una respuesta correcta de «Vivir la historia» no puede ser casi siempre la más larga
+  (el validador lo controla); un visual se pone solo cuando dice algo verdadero del pasaje, y si no hay ninguno que no fuerce el texto,
+  la lección queda sin visual.
+
+## DEC-2026-10-21-1 · Senda: trigésima primera tanda (prueba 31), la app que se cerraba al abrir, la guardia y las 21 cartas
+
+- **Fecha:** 2026-10-21 · **Quién:** el fundador reporta y pide; Claude investiga y construye.
+- **Pedido:** «Instalé la app pero cuando la abro se cierra. No funciona. Arreglá eso y avanzá con todo lo próximo!».
+- **Decidido / hecho (capítulo 57):** el cierre no se pudo reproducir (la parte nativa del APK 30 es idéntica a la del 28; el arranque
+  entero corre sin error en Node con el preset de Android y un estado guardado como el del fundador; nada de Hermes nuevo; ningún id
+  del contenido cambió; la compilación fue limpia), así que se endurecieron las causas plausibles (una traducción con clave inexistente
+  o un tipo de evento guardado que ya no existe cerraban la app) y, sobre todo, se cambió lo que pasa cuando algo revienta: la guardia
+  (primer módulo de todos) y la pantalla de fallo sin dependencias atrapan los errores al cargar, al dibujar y en segundo plano, y
+  muestran el detalle para copiar y mandar, «Reintentar» y «Borrar lo guardado»; «Último fallo registrado» en Ajustes. Las 21 cartas
+  jugables: 2 Corintios, Gálatas, Efesios, Filipenses, Colosenses y 1 y 2 Tesalonicenses (25 lecciones; 377 en la Travesía), desde la
+  RV1909 con cada cita verificada, lo interpretativo marcado y sin doctrinas secundarias. Dos APK: 31 (solo el arreglo, publicada
+  primero) y 31b (todo); se prueba la 31b.
+- **No entró:** la primera ruta en portugués (una prueba entera; lo primero de la próxima).
+- **Espera del fundador:** probar el APK 31b y, si se cierra o sale «Algo falló», pegar el detalle en el chat; lo pendiente de las
+  pruebas 24 a 30.
+- **Regla que queda:** ningún fallo de la app puede cerrarla en silencio: todo error se muestra con el detalle para copiar; ninguna
+  función que traduce o que lee un dato guardado puede reventar por una clave o un id que ya no existe (devuelve la clave o cae en el
+  valor por defecto); cuando un cierre no se puede reproducir, se endurecen las causas plausibles y se instrumenta la app para que la
+  próxima vez el fallo se vea, en vez de apostar a una sola causa; si el arreglo urge, puede salir una APK sola con el arreglo y otra
+  con todo al cerrar la prueba (se prueba la última).
+
+## DEC-2026-10-21-2 · Senda: trigésima segunda tanda (prueba 32), «A grande história», la prueba de arranque en el repositorio y tres misiones
+
+- **Fecha:** 2026-10-21 · **Quién:** el fundador pide («Continuemos con los próximos, luego chequeo todo lo que está en backlog»);
+  Claude construye en el orden que dejó el capítulo 57 §8.
+- **Decidido / hecho (capítulo 58):** la primera ruta de contenido en portugués: «El gran relato» entero como «A grande história»
+  (47 lecciones con 286 preguntas, 9 capítulos, 65 niveles y las 6 líneas de tiempo que usan sus lecciones), en portugués de Brasil
+  con «você», los nombres propios como los escribe la Bíblia Livre, «o SENHOR» por Jehová y cada cita textual de la Bíblia Livre;
+  para eso, el motor de contenido traducido (un archivo por ruta e idioma con las claves del español; fusión clave por clave con el
+  español de respaldo; lo estructural nunca se traduce; las citas se escriben solas con los nombres de los libros del idioma; entra en
+  la lección, el jefe, el repaso, el camino, Inicio, el explorador y las líneas de tiempo) y el validador que exige la ruta entera y
+  revisa cada lección contra la Biblia libre del idioma con las reglas de la RV1909. La prueba de arranque en Node queda dentro del
+  repositorio (pruebas/arranque, «npm run prueba:arranque») y corre en GitHub Actions con el validador antes de compilar cada APK.
+  Tres misiones más de «Vivir la historia» (José y sus hermanos, Elías en el Carmelo, el ciego de Juan 9; semanas 10 a 12; cinco
+  láminas nuevas; 13 misiones hasta el 11-01-2027). APK 32 con todo.
+- **No entró / queda en español a propósito:** los diagramas, los nombres de lugares de mapas y láminas, y los nombres de las áreas
+  y rutas no traducidas (se traducen con los visuales y con cada ruta); «profetas mayores o más libros» (sin pedido del fundador) y el
+  comparador de la RVR1960 (sin el archivo).
+- **Espera del fundador:** probar el APK 32 (portugués en Ajustes → Idioma); el backlog que dijo que iba a chequear, ordenado en el
+  capítulo 58 §7 (licencias, consulta SBA, INPI y abogado, autorización del ministerio, Google Play antes del 15-11, sitio, Claude Max,
+  voz, color de Lany, entorno de líderes, el archivo de la 1960).
+- **Regla que queda:** el contenido traducido se verifica contra la Biblia libre de su idioma con las mismas reglas que el español
+  (huecos y frases palabra por palabra, entrecomillados en los pasajes de la lección, errores nombrados como error), y una ruta se
+  publica en un idioma solo entera (lecciones, capítulos, niveles y líneas de tiempo); lo estructural (tipo, correcta, citas,
+  visuales, lecturas) nunca se traduce y las citas se escriben solas en el idioma; un APK no se compila si el contenido tiene errores o
+  si la app no arranca en la prueba automática.
+
+## DEC-2026-10-23-1 · Senda: trigésima tercera tanda (prueba 33), empezar por el principio, la Travesía en tu orden, las copas y el peso
+
+- **Fecha:** 2026-10-23 · **Quién:** el fundador pide (la serie de Personajes empezaba en los patriarcas y su primera pregunta daba
+  por sabido a Abram; «comenzar por el principio, y terminar por el final» en todas las travesías y revisarlo todo «antes de seguir
+  escalando»; el orden de la Travesía; la línea de tiempo en la Consola; la Pascua; el peso; y una lista de pedidos de la app).
+  Claude investiga, construye y revisa.
+- **Decidido / hecho (capítulo 59):** la Travesía en el orden del fundador, sin estantes (13 áreas; «Buenas obras» pasa a «Vivir la
+  fe» y «Mártires» a «Historia de la Iglesia»; «Los últimos tiempos», que aparecía dos veces en su lista, queda una sola vez después de
+  la Historia de la Iglesia). Personajes desde Adán: «De Adán a Noé» (13 lecciones) y «Los patriarcas» rehecha desde Génesis 11:26 (26
+  lecciones); 24 fichas de personaje antes de cualquier pregunta. La regla nueva revisó las 405 lecciones (160 corregidas). La ruleta
+  que se agarra, el tachado de a una en «¿Quién es?» con las preguntas revisadas, la rueda de la hora sin trabas, descansar a los 45
+  minutos, la próxima copa en Inicio con campana y el puntaje por acierto y velocidad, fichas de juego, la entrada con Lany de brazos
+  cruzados y la armadura, el nivel que nunca baja, la Almeida y la King James como referencia de los huecos en portugués e inglés, el
+  peso medido (89,1 MB) y la carga al abrir reducida (72 módulos propios en lugar de 158), la línea de tiempo en la Consola con la
+  Pascua 2027 (recorrido por Tierra Santa) como gran hito, y los sonidos elegidos el 22-10. APK 33 con todo.
+- **No entró / queda a la vista:** Josué y Jueces antes de Rut y Oseas antes de Joel (libros que todavía no se escribieron; lo primero
+  de contenido cuando se vuelva a escalar); R8 (va solo en el APK 34, para medir y comprobar que abre); la captura de Preguntados no
+  llegó (la entrada salió de la descripción).
+- **Espera del fundador:** probar el APK 33; el álbum (DEC-2026-10-23-2); reenviar la captura si quiere compararla; lo pendiente de
+  antes (licencias, consulta SBA, INPI y abogado, autorización del ministerio, Google Play antes del 15-11, sitio, Claude Max, voz).
+- **Reglas que quedan:** «empezar por el principio y terminar por el final» es error del validador en todas las rutas (ningún nombre
+  se pregunta antes de presentarse, ninguna pregunta va para atrás en la historia, cada personaje lleva su ficha antes de las
+  preguntas) y se corrige en el texto, nunca escondiendo un nombre; entre «» va solo la Biblia, textual; el contenido de la app va en
+  «tú»; en portugués e inglés cada hueco se tiene que poder llenar también leyendo la Almeida o la King James; los talentos nunca se
+  venden; el nivel mide el camino en la app, no la fe, y no desbloquea contenido; al abrir, la app carga solo lo que necesita Inicio;
+  cada compilación publica el peso del APK.
+
+## DEC-2026-10-23-2 · Senda: el álbum de personajes (pendiente del fundador)
+
+- **Fecha:** 2026-10-23 · **Quién:** el fundador propone («se puede ir completando un álbum; con monedas puedas comprar un sobre que
+  trae un personaje [...] y que además ayude a conocer sobre ese personaje»); Claude evalúa y propone.
+- **Recomendación (docs/ECONOMIA.md de la app; capítulo 59 §6):** sí, con este diseño: sobres pagados solo con talentos, que nunca se
+  venden (ni con plata, ni con suscripción, ni con anuncios); nunca una figurita repetida (el azar solo decide el orden); la figurita
+  queda dorada si se responde bien la pregunta del personaje, nunca por suerte; ningún personaje vale más que otro; Jesús no es una
+  figurita (el centro del álbum es una página sin retrato con Juan 5:39); 72 personajes por año en 12 páginas; el primer sobre de
+  cada página gratis y los demás a 40 talentos.
+- **Por qué así (HECHO, con fuente):** la Lei 15.211 de Brasil (ECA Digital, art. 20) prohíbe las cajas de recompensa en juegos para
+  niños y adolescentes o de acceso probable por ellos; el Decreto 12.880 exige impedir el acceso de verdad; la Nota Técnica 55/2026
+  del Ministerio de Justicia incluye la moneda del juego comprada con plata. Google Play y Apple exigen mostrar las probabilidades de
+  cualquier ítem al azar que se compre.
+- **Decisión pedida:** sí o no al álbum con ese diseño y, si es sí, para cuándo (antes del lanzamiento o con la temporada de
+  Adviento). Costo: 0; unas dos o tres sesiones de trabajo.
+
+## DEC-2026-10-24-1 · Senda: la prueba 34 (la Biblia sin ruido, los textos, la trivia, la entrada, «Camino a Navidad»)
+
+- **Fecha:** 2026-10-24 · **Quién:** el fundador pide (la Biblia con «un montón de cosas arriba, re incómodo»; textos que se pisan y se
+  salen del cuadro en toda la app; silenciar la música de la trivia, volumen, que cambie cada tanto; la ruleta protagonista; una
+  entrada «mucho mejor diseñada» sin replicar Preguntados y, a mitad de la prueba, no insistir con la pose de Lany y pasarle un prompt
+  para otra IA; «lo del álbum, va»; qué es «Adviento»). Claude construye, audita y revisa.
+- **Decidido / hecho (capítulo 60):** la Biblia abre con «Hoy en tu plan» y un solo botón «Planes y versiones» (todo lo demás vive
+  ahí). Auditoría automática de textos en toda la app (scripts/auditoria/textos.cjs: 810 lecciones, 728 pantallas de trivia, todas las
+  pantallas, letra normal y grande) y medidor de diagramas con la letra real (scripts/arte/medir.py): siete diagramas corregidos, los
+  mapas con nombres que buscan un lugar libre (src/componentes/rotulos.ts), la línea de tiempo con más espacio, once pantallas; de
+  2.139 hallazgos a 0 y el generador de diagramas se niega a escribir uno con problemas. La ruleta ocupa casi todo el ancho; control de
+  música en el juego (interruptor, volumen, qué suena, «Cambiar de tema») y rotación de cuatro temas de Kevin MacLeod cada 150 s (dos
+  nuevos, CC BY 4.0). La entrada rediseñada (puerta de luz, rayos, medallones en arco, barra de carga); la pose «héroe» se sacó por
+  pedido del fundador y mientras llega la ilustración generada con otra IA (prompt en lany_prompt_entrada.md) va Lany con la armadura.
+  «Adviento» pasa a «Camino a Navidad» y la copa a «Copa de Navidad» (los ids no cambian). El álbum queda aprobado y es lo primero
+  de la prueba 35. APK 34 con todo.
+- **Reglas que quedan:** la auditoría de textos se corre antes de cada APK y un diagrama con textos que se pisan no se genera; los
+  nombres de los mapas nunca van a mano: los ubica el algoritmo; en la app nada se llama «Adviento»; las poses de Lany que el
+  fundador rechaza se sacan sin reintentar y la ilustración de la entrada viene de otra IA con la lámina de referencia; el control de
+  música es parte de la UX de cada juego (volumen de 0 a 1, 0,5 = como sonaba antes).
+
+## DEC-2026-10-24-2 · Senda: «Juntos» sale con el lanzamiento (todas las conexiones el 18-12)
+
+- **Fecha:** 2026-10-24 · **Quién:** el fundador pide que al salir la app ya funcionen las cuentas, los duelos contra un rival al azar
+  o un contacto, las copas y eventos que él crea en el calendario de todos, los grupos e iglesias con campeonatos, la encuesta diaria
+  en vivo, Senda Premium y Senda Max (salas en vivo y trivia del sermón desde un PDF) y una guía dinámica de bienvenida, «todo bien
+  mapeado» y en la línea de tiempo. Claude diseña y construye la base.
+- **Decidido / hecho:** lo que el plan tenía como «v1 Juntos» (enero de 2027) se adelanta al lanzamiento del 18-12-2026. Hecho hoy: la
+  migración 20261101000000_juntos.sql (20 tablas con RLS, 14 funciones, dos tareas programadas; validada con el analizador de
+  Postgres; se aplica sola al subirse a main), las funciones de borde «trivia-sermon» (Claude arma las preguntas con su cita; el PDF
+  no se guarda) y «compras» (verifica el recibo con Google Play), el mapa completo (docs/LANZAMIENTO.md) y el camino: prueba 35
+  (álbum, cuenta, amigos, duelos, guía), 36 (grupos, eventos, encuesta, tabla de copa, torneos), 37 (Premium, Max, salas en vivo), 38
+  (trivia del sermón, guardar la cuenta, progreso en la nube); prueba cerrada del 16 al 30-11. La línea de tiempo de la Consola
+  resume lo que sale el 18-12.
+- **Principios:** sin cuenta también se juega (cuenta anónima y automática, se guarda después); lo competitivo lo decide el servidor;
+  cada tabla con su regla de seguridad; nada pago da ventaja en lo oficial; idempotente y barato (docs/ESCALA.md).
+- **Espera del fundador (sin apuro, cada cosa antes de su prueba; docs/LANZAMIENTO.md §7):** activar las cuentas anónimas y las
+  extensiones en Supabase; marcarse administrador; Expo y Firebase; los productos de suscripción y la cuenta de servicio en Play
+  Console; la clave de Anthropic para la trivia del sermón; Supabase Pro solo si la prueba cerrada lo pide.
+
+## DEC-2026-10-24-3 · Senda: la prueba 35 (la música, la ilustración de Lany, el álbum, la cuenta, amigos, duelos y la guía)
+
+- **Fecha:** 2026-10-24 · **Quién:** el fundador manda la ilustración de Lany generada con otra IA («MUY buena imagen, creo que es el
+  camino»), pide que la música de la trivia no se corte nunca (bajar mientras se responde) y más temas del estilo del predeterminado
+  («siempre que se puedan usar sin licencia ni nada»), y «avanzá con esto y todos los próximos». Claude ejecuta y decide lo técnico.
+- **Decidido / hecho:** la causa del corte era el motor de sonido (al llenarse las 36 voces apagaba la más vieja, que era el fondo):
+  el fondo ya no es víctima y baja al 45 % mientras se lee y responde; seis temas más de Kevin MacLeod (CC BY 4.0, con crédito). La
+  ilustración del fundador va en la entrada (recortada, sin fondo) y los medallones pasan al camino. El álbum de personajes como se
+  aprobó el 24-10: 9 páginas, 48 figuritas, primer sobre gratis y 40 Talentos los demás, nunca repetidas, dorada con una pregunta
+  (la correcta nunca se delata por el largo), Jesús como página central y no como figurita. «Juntos» entra a la app: cuenta anónima
+  sin SDK, Amigos, Duelos por turnos jugados en el Espadeo y corregidos por la base (migración generada con las 720 claves), token
+  push y la guía de bienvenida de Lany (15 carteles, tres idiomas). APK 35 con todo. Capítulo 61.
+- **Reglas que quedan:** la música de fondo nunca se corta sola (ni por las voces ni por el juego: solo la apaga la persona); toda
+  hoja inferior entra en la pantalla (lo que no entra se desliza adentro); en el álbum nada se compra con plata, nunca sale una
+  repetida y Jesús no es una figurita; en los duelos el servidor decide y el teléfono reintenta sin duplicar; la guía nunca tapa el
+  lector, una lección ni un juego.
+- **Espera del fundador:** probar el APK 35; decir con qué IA generó a Lany (para docs/LEGAL.md) y, si puede, una versión grande y
+  otra sin armadura; activar las cuentas anónimas en Supabase y crear el proyecto de Expo para probar Amigos, Duelos y las push con
+  la base viva (docs/LANZAMIENTO.md §7).
+
+## DEC-2026-10-24-4 · Senda: la prueba 36 (En la frente, ¿Quién es?, menos texto, Lany vestida, contenido y los planes de suscripción)
+
+- **Fecha:** 2026-10-24 · **Quién:** el fundador pide «En la frente» horizontal, con pistas más directas, letra grande, más
+  personajes y un torneo con tabla y desempate; algo más breve al adivinar; menos texto («la gente hoy no lee mucho»); que los
+  personajes importantes del álbum sean más difíciles; la entrada legible; la página de Jesús como «la página central»; que nada
+  parezca escrito por una IA; más trivia, más Travesía, más personajes en «En la frente» y en «¿Quién es?» con más aleatoriedad;
+  mejorar mucho las preguntas («están re deficientes»); Lany con ropa u objetos según el contexto; el duelo al azar en lugar del duelo
+  contra Lany; evaluar planes, precios, stock de preguntas y tope de PDF; avisa que generó a Lany con Gemini y pide que le explique
+  lo de Supabase; «avanzá con esto y todos los pendientes». Claude ejecuta y decide lo técnico.
+- **Decidido / hecho:** En la frente acostado con 124 personajes y torneo (desempate de 30 segundos); ¿Quién es? con 71 personajes,
+  tablero variado y preguntas reescritas, final con el personaje y su versículo; duelo al azar (se juega primero mientras la base busca
+  rival); álbum con estrellas; Jesús «el centro» (Juan 5:39); lecciones largas con lo esencial primero y 30 frases hechas fuera; Lany
+  con túnica, pañuelo, sombrero y cuatro objetos según la lección; Oseas y «Josué y Jueces» (418 lecciones); trivia: banco 8 (788),
+  136 enunciados «Según…» y 129 preguntas que se delataban por el largo rehechos; el Espadeo recuerda lo visto; topes en la base (8
+  trivias del sermón por mes con Max, 1 de prueba sin Max, salas de 10 sin Max) y la función de la trivia del sermón más segura;
+  Gemini en los créditos; la guía de Supabase corregida (no activar el captcha). APK 36 con todo. Capítulo 62.
+- **Propuesta que decide el fundador:** tres planes: Gratis (todo el contenido; anuncios fuera de la Biblia y las lecciones), Premium
+  (sin anuncios y vidas ilimitadas; USD 2,49/mes o 17,99/año en Latinoamérica) y Max (salas de hasta 500 y 8 trivias del sermón por mes;
+  USD 5,99/mes o 44,99/año); Familia, Líder e Iglesia fuera de 2027; Max gratis dos meses a los primeros 100 líderes; meta de 1.500
+  preguntas al lanzamiento y 3.000 para Pascua. Los cobros, con la figura legal (capítulo 43 §2). Detalle: capítulo 62 §8 y
+  docs/SUSCRIPCIONES.md de la app.
+- **Reglas que quedan:** el contenido nunca se cobra (lo pago es comodidad o herramientas para el que guía); en la trivia, la correcta
+  nunca se delata por el largo y la cita no va en el enunciado; si las opciones son frases de la Biblia, todas son textuales; cada
+  costo de IA lleva tope por plan y se registra lo que gasta.
+- **Espera del fundador:** probar el APK 36; decidir la propuesta de planes y precios; activar las cuentas anónimas (sin captcha) y
+  crear el proyecto de Expo; si puede, la ilustración de Lany grande y sin armadura.
+
+## DEC-2026-10-25-1 · Senda: cómo registrar la marca en el INPI (espera del fundador)
+
+- **Fecha:** 2026-10-25 · **Quién:** el fundador comparte su búsqueda en el INPI («SENDA» y «LANY», clases 9, 41 y 42) y pregunta cómo
+  seguir; avisa que ya creó la cuenta de Expo.
+- **Hechos:** clase 9, SENDA PROHIBIDA (VOD Acquisition, concedida a 2033); clase 41, LA SENDA (concedida a 2033) y una docena de
+  «Senda + algo» concedidas después; clase 42, SENDA (Velásquez, concedida el 29-09-2026, software científico); para Lany, PLANY (9 y
+  42). Detalle y fuentes: `conocimiento/2026-10-25-senda-inpi-marca.md`.
+- **Recomendación (decide el fundador):** no pedir «SENDA» sola; pedir la mixta «SENDA BIBLIA Y JUEGOS» con el logo y la mixta «LANY»
+  con el dibujo, en las clases 9 y 41 (≈ ARS 165.000 las cuatro; tasa a confirmar en el portal); a nombre de la SAS si se arma en
+  noviembre, o a su nombre antes del 18-12 si no; antes de pagar, ver la ficha de LA SENDA y una consulta corta con un agente.
+  Guía lista: `docs/legal/marca_inpi.md` (app).
+- **Expo:** paso a paso en `docs/EXPO_FIREBASE.md` (app): el ID del proyecto y el google-services.json van al chat; la clave de la
+  cuenta de servicio de Firebase va solo a Expo.
+
+## DEC-2026-10-25-2 · Senda: arrancar solo con monotributo, sin SAS por ahora
+
+- **Fecha:** 2026-10-25 · **Quién:** el fundador: «para iniciar, si se pudiera, iniciaríamos solo con monotributo… sin SAS por ahora,
+  quizás sí para más adelante»; pregunta si el monotributo va al publicar la app o recién cuando haya para cobrar.
+- **Decidido:** solo monotributo; la SAS queda para más adelante (reemplaza la recomendación de crearla en enero de 2027, capítulo 43
+  §2). **Cuándo:** no hace falta al publicar; antes del primer cobro (cuando el saldo de AdMob se acerque a los USD 100 del mínimo de
+  pago; ESTIMACIÓN: febrero o marzo de 2027), junto con la caja de ahorro en dólares a su nombre y el punto de venta de factura E.
+  Confirmar con un contador antes del primer cobro.
+- **Lo que cambia:** la marca se presenta a su nombre (ficha pública con nombre, DNI y domicilio) y se transfiere si un día hay
+  sociedad; la cuenta de Google Play es personal (con anuncios y sin compras no muestra la dirección completa; **al prender las
+  suscripciones sí**: decidir antes si se acepta, si se usa un domicilio comercial o si llega la sociedad); la RVR1960 por la DBL
+  sigue esperando una organización.
+
+## DEC-2026-10-25-3 · Senda: la prueba 37 (más preguntas, grupos y eventos, Amós, Miqueas y Samuel, inglés y portugués, Expo y Firebase)
+
+- **Fecha:** 2026-10-24/25 · **Quién:** el fundador: «Subamos el stock de preguntas, siento que se va a quedar corto. Luego decidimos
+  lo de los planes, lo de Supabase y Expo y Firebase también lo veo después. Avancemos con todos los próximos mientras tanto»; a la
+  noche cambia de idea con Expo y Firebase («quiero hacerlo ahora… quiero dejarlo resuelto») y lo hace con su extensión de Claude.
+  Claude ejecuta y decide lo técnico.
+- **Decidido / hecho:** la trivia de 788 a 2.150 preguntas activas (bancos 9 a 35) con la meta contada por nivel (lanzamiento: 2.000,
+  cumplida; Pascua 2027: 4.000; reemplaza la de 1.500 y 3.000 del capítulo 62); entre «» solo la Biblia textual en las opciones;
+  grupos con roles y calendario, eventos de Senda y del grupo para todos, la encuesta del día en vivo, la tabla de la copa y los
+  torneos del grupo (puntaje recalculado en la base); Amós, Miqueas y Samuel (439 lecciones); «The Big Story» (inglés, BSB, huecos
+  que también llena la KJV); primer banco de trivia en portugués (345; una pieza se juega en el idioma con 40 o más, nunca mezclada);
+  33 textos de pantallas y las citas fijas de la semana a los tres idiomas; Expo (senda-app-ok) y Firebase (senda-fafc8) conectados y
+  la clave FCM V1 cargada con un almacén de claves de relleno (la clave real de Play nunca va a Expo); R8 con la prueba de humo en un
+  emulador. APK 37 con todo. Capítulo 63.
+- **Aprendizaje (HECHO):** el fundador ve solo el último mensaje de cada turno; lo que tenga que hacer va en el mensaje final, corto y
+  en pasos, con el archivo adjunto si lo hay.
+- **Sigue esperando al fundador:** los planes y precios (DEC-2026-10-24-4), activar las cuentas anónimas de Supabase (sin captcha), la
+  marca en el INPI (DEC-2026-10-25-1), la cuenta de Google Play antes del 15-11.
+
+## DEC-2026-10-25-4 · Senda: la prueba 38 (todo lo social listo para el lanzamiento, capacidad y costo, curiosidades, Nahúm y Malaquías)
+
+- **Fecha:** 2026-10-25 · **Quién:** el fundador: «Revisar todas las interacciones (mías con las personas… y entre las personas).
+  Dejar bien seteado», y después: «que quede todo preparado para que el día que vamos a publicar, al descargar la app ya se pueda
+  jugar entre personas, armar los grupos, armar el grupo de iglesia, cargar el PDF, etc. Todas las funcionalidades OK»; más
+  curiosidades en la trivia, «una línea» de cuántos usuarios aguanta la app y cuánto costaría crecer, sacar «Para tu vida», textos de la
+  RV1909 que no se entienden, carteles tapados y visuales que no tenían que ver. Claude ejecuta y decide lo técnico.
+- **Decidido / hecho:** prueba de la base con cuentas de verdad contra un Postgres igual al de Supabase (69 pasos, en GitHub antes de
+  tocar la base real); la sala en vivo; la trivia del sermón desde el PDF del líder con revisión y publicación; regalar Max o Premium
+  desde la cuenta del fundador (cubre a las iglesias piloto mientras las compras de Play esperan la cuenta y los precios); despliegue
+  automático de las funciones de borde; limpieza de cada noche (respuestas de más de 30 días, ya resumidas; salas; duelos de 180 días;
+  votos de 60) y la sala en vivo más liviana; el modelo de capacidad y costo (gratis hasta ~5.700 personas por mes; USD 25 a 40 hasta
+  100 mil; cada salto es configuración) en la Consola y en docs/CAPACIDAD.md de la app; 56 curiosidades (banco 36); Nahúm y
+  Malaquías (451 lecciones); «Para tu vida» fuera de todas las lecciones (el validador lo controla); los ejercicios difíciles de la
+  RV1909 se leen en la PDT o la NBV; carteles que miden su texto; 73 visuales que no correspondían, fuera, con lista controlada.
+  APK 38 con todo. Capítulo 64.
+- **Hallazgos de la prueba de la base (HECHO, corregidos):** el turno reintentado de un duelo daba «no es tu turno»; abrir una sala
+  chocaba con la seguridad de la base; la respuesta repetida en una sala devolvía otro puntaje; la limpieza de 90 días nunca se había
+  programado.
+- **Sigue esperando al fundador:** prender lo social (cuentas anónimas sin captcha, la clave de Claude, marcarse administrador, regalar
+  Max a los pilotos), los planes y precios (DEC-2026-10-24-4), la marca en el INPI (DEC-2026-10-25-1), la cuenta de Google Play
+  antes del 15-11.
+
+## DEC-2026-10-30-1 · Senda: la prueba 39 (duelos que llegan, torneos de cualquiera, Lany que festeja y el evangelio primero)
+
+- **Fecha:** 2026-10-30 · **Quién:** el fundador, después de jugar un duelo con otro teléfono: «cuando me proponen un duelo no me
+  llega ni la notificación, ni en el inicio, ni en cualquier lado»; «turno enviado vs Alguien»; la victoria «rara y difícil de
+  entender»; la ruleta que ya no se agarra; alias único, roles libres, invitaciones que se aceptan, torneos para cualquiera (también de
+  nombres por letra validados con todos los nombres bíblicos), el Evangelio como primera travesía, planes de 3 meses sin anual, «by
+  Nueva Generación», evaluar Inicio y los anuncios, reducir tokens del PDF y «avancemos con esto y los próximos». Claude ejecuta y
+  decide lo técnico.
+- **Decidido / hecho:** «Te esperan» en Inicio y globito en Jugar (la base arma las novedades en una llamada); permiso de avisos al
+  entrar a lo social y el canal de Android que faltaba; desafiar arranca el duelo; el alias del rival se conserva; fin de turno con
+  los duelos pendientes; victoria con cuatro bailes nuevos de Lany en Rive; la ruleta con Gesture Handler; salir de una partida (en un
+  duelo, el turno se manda como está); alias único; amistad mutua; invitaciones a grupos que se aceptan; títulos libres; Torneos de
+  trivia (Senda, propias, sermón), Nombres por letra (1.421 nombres sacados del texto bíblico) y en vivo; «La buena noticia, de
+  principio a fin» como primera lección de todos y la ruta del Evangelio como entrada; Zacarías (458 lecciones); banco 37 (17 de
+  imagen, 15 edificantes; 2.246); planes de 3 meses (Premium 5,99 y Max 14,99 cada 3 meses en Latinoamérica, 20 % y 17 % de ahorro);
+  anuncios con medida (ninguno en las dos primeras partidas del día, como mucho uno cada 4 minutos); el texto del PDF en lugar del
+  PDF; se cerró que alguien se marcara admin desde su teléfono (consecuencia: el APK 38 ya no crea perfiles; hay que usar el 39).
+- **Por qué:** los duelos son el corazón de «Juntos» y fallaban justo en lo que hace volver (el aviso y verlo en Inicio); lo demás
+  sale de los pedidos del fundador con la vara de UX de 10 puntos y la regla «todo enseña y edifica».
+- **Revisar:** con el APK 39 en dos teléfonos (aviso, «Te esperan», victoria) y con los primeros datos de AdMob y de renovación del
+  plan de 3 meses.
+
+## DEC-2026-10-30-2 · Senda: los USD 200 de créditos de Anthropic (pendiente del fundador)
+
+- **Fecha:** 2026-10-30 · **Quién:** propuesta de Claude; **decide el fundador** (usar los créditos es gastar).
+- **Hecho:** USD 200 de créditos promocionales (API, Batch API, Agent SDK, Managed Agents), otorgados el 30-10-2026, vencen el
+  22-11-2026 (captura del fundador).
+- **Propuesta:** 1) una segunda revisión de las 2.246 preguntas y 458 lecciones por lotes (Batch API, a mitad de precio), con la lista
+  de hallazgos corregida en la prueba 40; 2) borradores de traducción al portugués de rutas enteras, controlados por el validador;
+  3) la trivia del sermón con 5 a 10 sermones reales; 4) lo que sobre, preguntas hacia la meta de Pascua. Control: tope de gasto en la
+  consola, «Usage» cada lunes, y el tamaño de cada lote en tokens antes de mandarlo (el precio, en la consola, no de memoria).
+- **Estado:** espera el «OK créditos» del fundador antes del 15-11 (pendiente «creditos_anthropic»).
+- **Actualización 30-10-2026 (prueba 40):** **aprobado** por el fundador («lo que sea que sirva para Senda, adelante»; los créditos se
+  aplican a Agent SDK, API, API de lotes, Playground y Agentes administrados). Se armó el flujo «Lotes de Claude» en la app
+  (`scripts/lotes/claude_lotes.py`, `.github/workflows/lotes.yml`): traducción de la trivia al portugués y al inglés y una segunda
+  revisión de cada pregunta contra la RV1909, con Claude Opus 5.5 en la API de lotes. Precio de lista consultado el 30-10-2026:
+  USD 4 / 20 por millón de tokens de entrada / salida, la mitad en lotes. ESTIMACIÓN: unos USD 35 para traducir ~4.200 preguntas
+  (los dos idiomas) y unos USD 20 para revisar las 2.274; el resto, para rutas de la Travesía. Todo vuelve como borrador y pasa por
+  el validador antes de entrar. Falta solo que el fundador cargue la clave en GitHub (pendiente «clave_api_lotes»).
+
+
+## DEC-2026-10-30-3 · Senda: la prueba 40 (Lany nativo de Rive con la herramienta oficial, agarre de verdad, director de Lany)
+
+- **Fecha:** 2026-10-30 · **Quién:** pedido del fundador; ejecutado por Claude.
+- **Decisión:** Lany se construye en **Rive nativo con la herramienta oficial** (Rive CLI 1.8.0, `rive.app/agents`): la fuente es RML
+  (`rive/lany/` en la app) y el `.riv` lo compila el compilador oficial (`rive --verify`, `rive --once`). Se dejó el escritor propio del
+  binario. Rig nativo: huesos (`RootBone`/`Bone`), mallas con skin y pesos que se doblan en codo y rodilla, IK de Rive con controles,
+  restricciones de Rive para lo que se agarra. Las pantallas le hablan a Lany por un **director** con eventos (prioridad, enfriamiento,
+  variedad, canales).
+- **Por qué no cargaba el archivo de la primera versión:** el escritor propio reutilizaba las mismas pinturas en dos formas (un objeto
+  con dos padres) y el motor de Rive rechazaba el archivo entero. El fallo era del generador, no del visor oficial, ni del editor, ni
+  del runtime de SENDA. Con el compilador oficial ese error no puede volver.
+- **Hecho:** compila sin errores ni advertencias; verificado con capturas del renderizador oficial, el runtime web de la app (festejo
+  de pieza) y la prueba de humo en el emulador de Android (APK 40).
+- **Regla de corte:** si en el teléfono un objeto flota o un brazo se dobla mal, se corrige la escena en `scripts/rive/actuaciones.py`
+  y se revisa cuadro a cuadro antes de la próxima APK.
+
 
 ## DEC-2026-10-30-4 · Metodología global: herramientas especializadas primero
 
@@ -821,7 +1531,7 @@
 - **Pendiente del fundador:** autorizar un gancho de inicio de sesión que instale las librerías en cada sesión de la nube (el entorno
   bloquea que Claude cambie su propia configuración); mientras tanto, Claude las instala al empezar.
 
-## DEC-2026-10-31-1 · Andén: corte 1 del simulador cerrado con pendientes; estado de Hub Nocturno al cerrar la sesión
+## DEC-2026-10-31-1H · Andén: corte 1 del simulador cerrado con pendientes; estado de Hub Nocturno al cerrar la sesión
 
 - **Contexto:** sesión del 17 al 31-10-2026, con cortes por el límite de uso de Max 5x y reinicios del contenedor; el fundador pidió el
   31-10 terminar lo que faltaba y cortar por hoy.
@@ -843,3 +1553,224 @@
 - **Pendiente del fundador (nada urgente ni con gasto):** abrir una página de medición en su notebook y su teléfono (cifras de 3D en
   equipos reales); sumar la licencia ODbL de OpenStreetMap a la consulta legal; autorizar el gancho de inicio de sesión que instala
   las librerías; para Hub Nocturno: cuenta de CrazyGames, nombre con búsqueda de marca y la regla de corte nueva.
+
+
+
+## DEC-2026-10-31-1 · Senda: el Lany Master (el personaje en 3D con la metodología de los estudios)
+
+- **Fecha:** 2026-10-31 · **Quién:** pedido del fundador («no quiero comparaciones ni planes: tomá las decisiones y ejecutá»);
+  ejecutado por Claude.
+- **Decisión:** Lany se produce como personaje de animación: modelo, rig, controles faciales y actuación en **Blender 4.5 LTS**, por
+  código (`scripts/lany3d/`), entregado en **glTF** y reproducido en la app por **three.js sobre expo-gl** con sombreado toon y
+  contorno; Rive sigue para las Lany chiquitas (< 60 px) y como respaldo; un ajuste («Lany en 3D») lo apaga. Reemplaza al capítulo
+  52 §2 («Lany es 2D y sigue 2D»): la razón de entonces (el 3D costaba expresiones) la resuelven los controles faciales del rig.
+- **Hecho (31-10):** modelo de 15.644 vértices con la identidad de Lany v4, rig de 53 huesos con IK y cinco sockets, boca con formas,
+  armadura (cinturón, casco, escudo, espada) que calza y se agarra de verdad, 22 clips (las cuatro pruebas pedidas y el repertorio),
+  GLB de 2,2 MB, actor en la app, verificado en Blender, en el motor de la app en Chromium y dentro de Senda (vista previa web).
+- **Regla de corte:** si en gama baja el 3D baja de 30 cuadros por segundo o se nota en la batería, se baja la resolución del lienzo y
+  los vellones; si no alcanza, el 3D queda para los festejos y las pantallas grandes y Rive vuelve a las demás. Se mide con el APK 41.
+- **Qué sigue:** coraza y botas, ropa por área, clips propios para cada gesto, expresiones como capa, caminar por la pantalla.
+
+## DEC-2026-10-31-2 · Senda: la prueba 41 (la hoja que se curva, el Espadeo y Jugar más claros, la trivia del sermón del líder, banco 41)
+
+- **Fecha:** 2026-10-31 · **Quién:** pedido del fundador; ejecutado por Claude.
+- **Decisión:** la vuelta de hoja del lector se hace con **@shopify/react-native-skia 2.6.2** y un shader propio (regla de corte en el
+  capítulo 67 §5: si en gama baja hay más del 10 % de cuadros lentos tras las tres palancas, vuelve el pliegue y Skia se saca antes
+  del APK 42); el Espadeo con tres caminos y el rival con alias y nombre; Jugar en secciones con la trivia del sermón programada por el
+  líder (torneo del grupo con fecha, hora y cantidad de preguntas, aviso a todos, PDF compartido); «Antes o después» con diez niveles;
+  el álbum anual en Inicio; el versículo del día en la NBV; banco 41 de la trivia (1.593 nuevas; 5.371 vivas) y la traducción al
+  portugués enviada por lotes.
+- **Pendiente para la 42:** «¿Quién es?» y «Nombres por letra» contra otras personas, el torneo con llaves, la temática por área y
+  nivel, el inglés de las nuevas preguntas y las 331 dudas de las lecciones.
+
+## DEC-2026-11-01-1 — La RV1909 de Senda usa la numeración de versículos de hoy
+**Contexto (HECHO, 01-11-2026):** un barrido de toda la RV1909 de la app encontró 16 versículos vacíos y uno con nueve pegados: la fuente traía las divisiones de la edición de 1909 (que en ocho lugares sigue a la Vulgata) volcadas en el esqueleto de capítulos de hoy. Todas las citas del contenido, las demás Biblias de la app y la RVR1960 de la gente usan la numeración de hoy.
+**Decisión:** realinear la numeración (texto intacto, dominio público) con `scripts/biblia_arreglos.py` y mover las citas escritas con la numeración vieja. Reversible. Documentado en el CLAUDE.md de la app y en docs/LEGAL.md.
+
+## DEC-2026-11-01-2 — Frenar la revisión de las 331 dudas por consumo del plan
+**Contexto:** el fundador avisó a mitad de sesión que iba por el 90 % del consumo semanal. Seis revisores ya estaban leyendo las dudas.
+**Decisión:** frenarlos antes de que escribieran, guardar las dudas y el plan en `oportunidades/proyectos/senda/revisiones/` y retomarlo en la próxima sesión. Costo: las dudas siguen abiertas (no son errores confirmados).
+
+## DEC-2026-11-01-3 — El MVP de Senda sale con la Lany 2D (Rive); el 3D queda como evolutivo
+**Contexto (HECHO, 01-11-2026):** el fundador probó el APK 42 con la Lany 3D visible: «quedó bastante mal en 3d. Volvamos todo a como estaba antes… dejemos lo de 3d como evolutivo».
+**Decisión:** Lany de Rive en toda la app y la entrada con la ilustración de Gemini, como antes de la prueba 41; el Lany Master queda en el código, apagado (`LANY_3D = false`), para retomarlo después del lanzamiento. APK 42b.
+
+
+## DEC-2026-11-06-1 — Senda: cada pieza de la armadura pregunta lo que representa en Efesios 6
+**Contexto (06-11-2026):** el fundador dudaba de Cinto, Casco y Botas y pidió revisar los estudios cargados. Se leyeron 4 comentarios de
+Efesios (Stott, MacArthur, Mundo Hispano, Beacon) y 77 libros confiables (Gurnall, MacArthur y Mayhue, Ryle, Chafer, entre otros).
+**Decisión:** Botas = **Evangelio** (la vida de Jesús y cómo se anunció; antes «Mapa»); Casco = **Salvación** (la historia de la
+salvación; antes «Historia»); Escudo = **Fe** (personajes; antes «Héroes»); Cinturón = Verdad, Coraza = Vida y Espada = Palabra siguen.
+Los lugares del Antiguo Testamento pasan al Casco y las preguntas de los Evangelios y Hechos del Casco a las Botas. Reversible en un
+paso (`scripts/autor/ajustes_trivia.py`). Capítulo 72 §2. Queda a la vista del fundador en el APK 46.
+
+## DEC-2026-11-06-2 — Senda: la NBV no pasa a ser la Biblia predeterminada
+**Contexto:** regla del fundador: «si mantiene mejor los términos, usemos esa». **Medición:** la NBV conserva el 57 % de 60 términos
+clave de la Reina-Valera (la PDT el 71 %, la BES el 76 %) y el 39 % de las palabras de cada versículo; cambia «gracia» por
+«misericordia» en Efesios 2:8 y une unos 2.000 versículos. **Decisión:** la Biblia sigue abriendo en la Reina-Valera; la NBV queda a un
+toque y en el versículo del día. Bitácora `conocimiento/2026-11-06-senda-nbv-vs-reina-valera.md`.
+
+## DEC-2026-11-06-3 — Senda: trivia pareja y que edifica; anuncio al terminar una lección
+**Decisión (pedido del fundador):** niveles releídos a mano (552 preguntas; 335 suben, 28 repetidas fuera), los datos menores pesan un
+tercio al elegir, la ola apunta a 79 % de acierto y la Prueba de pieza a 72 %, banco 46 con 104 preguntas que edifican; y un anuncio al
+tocar «Seguir» después de terminar una lección, con la misma medida que los juegos (nunca en medio de la lección ni en la Biblia).
+Las ideas 6 y 7 de la auditoría externa se descartan. Capítulo 72.
+
+## DEC-2026-11-06-4 — Senda: licencias de las Sociedades Bíblicas Unidas (espera al fundador)
+**Contexto (HECHO, correo del 04-11-2026):** SBU ofrece RVR95, RVC, DHH y TLA por USD 500 por año (licencia de 3 años, solo lectura en
+línea para personas individuales, uso comercial porque los juegos usan el texto). La RVR1960 también es de SBU («Renovado © Sociedades
+Bíblicas Unidas, 1988») y no estaba en el pedido. **Recomendación:** no aceptar el paquete como está; pedir la RVR1960 en lugar de la
+RVR95 y pagar hasta USD 500 por año solo si entra la RVR1960. Respuesta lista en
+`oportunidades/proyectos/senda/borradores/2026-11-sbu-respuesta.md` (la manda el fundador). Capítulo 73 §8.
+
+## DEC-2026-11-06-5 — Senda: sale la curva de Skia del lector (regla de corte aplicada)
+**Contexto:** el fundador, por segunda vez: «para pasar de hoja está lentísimo. Tiene que andar o bien o nada». La curva sacaba dos fotos
+de la hoja por cada vuelta en el hilo de la pantalla. **Decisión:** se aplica la regla de corte de la prueba 41: vuelve el pliegue, los
+toques pasan al hilo nativo y la dependencia sale de la app. Reversible (historia de git). Capítulo 73 §6.
+
+## DEC-2026-11-06-6 — Senda: perfil público con logros de juego, nunca lo que se lee
+**Decisión (pedido del fundador):** el perfil que ven los demás muestra alias, nivel, país, desde cuándo y los logros de juego (álbum,
+armaduras, duelos ganados, copas); nada de lectura. Se puede ocultar; los bloqueados no se ven. Política de privacidad borrador 0.5.
+Capítulo 73 §7.
+
+## DEC-2026-11-06-7 — Senda: fuera la voz sintetizada de Lany
+**Contexto:** el fundador, al entrar a la Travesía: «un sonido rarísimo […] es un espanto, suena varias veces […] O lo mejoras
+radicalmente o lo eliminamos». Era la voz de sílabas sintetizadas de la prueba 42, que sonaba con cada gesto de Lany. **Decisión:** se
+elimina (`VOZ_LANY = false`): Lany vuelve a no hablar, como fijó la regla del 13-10. En la Travesía queda solo el sonido del nodo. Una
+voz futura, solo profesional, con licencia y con el OK del fundador. De paso, el marco de UX suma que todo texto se prueba sobre su fondo
+real en un tema claro y en uno oscuro (el versículo del día había quedado ilegible). Capítulo 74 §1 y §2.
+
+## DEC-2026-11-06-8 — Senda: los créditos de la API, medidos; no se mandan más lotes
+**HECHO (06-11-2026, tokens devueltos por la API en cada uno de los 31 lotes):** ESTIMACIÓN a precio de lista de Opus 5.5, con 50 % de
+lotes y la caché bien contada: USD ~196 de 200 (antes se estimaban ~190). **Decisión:** no se mandan más lotes, para que nada pase de
+los créditos. Los 294 campos corregidos por idioma (portugués e inglés) se retraducen en una sesión, campo por campo. Capítulo 74 §5.
+
+## DEC-2026-11-07-1 — Senda: los créditos de la API, cerrados en USD 8,97
+**HECHO (captura del fundador, 06-11-2026):** créditos de la organización USD 8,97; gasto del mes USD 24,28 con límite de USD 200; sin
+recarga automática. Lo gastado (~USD 191) confirma la ESTIMACIÓN del capítulo 74 (~196). **Decisión:** no se mandan más lotes; lo que
+queda es para la trivia del sermón en producción. Las retraducciones pendientes y la traducción de «Historias bíblicas» se hacen en
+sesiones de Claude Code (plan Pro). Capítulo 75 §1.
+
+## DEC-2026-11-07-2 — Senda: «Historias bíblicas» en «La Biblia, libro por libro»
+**Pedido del fundador:** una travesía de historias bíblicas atrapantes, con ambientación por zona que cambia al bajar. **Decisión:** ruta
+nueva después de «El gran relato» (la trama manda; Personajes sigue mirando la vida de una persona). Plan de 22 historias en el orden de
+la Biblia; la primera abierta es Moisés y el éxodo (5 zonas, 13 lecciones, validador sin errores ni avisos). Cada zona tiene su escena,
+también las que se preparan. Capítulo 75 §13 y §14.
+
+## DEC-2026-11-07-3 — Senda: los torneos para todos avisan solo a los anotados
+**Decisión:** un torneo de Senda para todos aparece en el calendario comunitario de todos y en Jugar → Torneos, pero no manda un aviso
+al teléfono de todo el mundo (molesta y no escala). A quien se anota le llega un aviso a la hora en que empieza. Capítulo 75 §12.
+
+## DEC-2026-11-07-4 — Senda: recuperar la cuenta con Google (espera al fundador)
+**Contexto:** la cuenta es anónima, sin correo (pedido del fundador: crear usuario sin correo), y hoy no se recupera al cambiar de
+teléfono. **Recomendación:** un botón opcional «Guardar mi cuenta con Google» (Supabase `linkIdentity`); quien no quiera, sigue
+anónimo. Costo 0; pide un cliente de OAuth en Google Cloud. Descartado el código de traspaso propio (sesiones a mano: más riesgo).
+Capítulo 75 §3.
+
+## DEC-2026-11-07-5 — Senda: lanzar primero en Argentina y los países de habla hispana (recomendación)
+**Contexto (chequeo legal del 07-11, `conocimiento/2026-11-07-senda-chequeo-legal.md`):** EE. UU. (COPPA y leyes de tiendas), Brasil
+(ECA Digital, Lei 15.211) y la UE (RGPD con CMP certificado) piden trabajo propio cada uno. **Recomendación:** excluirlos en Play Console
+al lanzar el 18-12 y abrirlos uno por uno; la interfaz en portugués e inglés queda. Lo decide el fundador al armar la ficha de Play.
+Capítulo 75 §6.
+
+**Agregado a DEC-2026-11-07-4 (07-11-2026, pregunta del fundador: «¿qué pasa si reinstalo la app, pierdo todo?»):** HECHO (código
+de la app): sin cuenta, todo el progreso vive en el teléfono; con la cuenta anónima, en la nube quedan el alias, los amigos, los
+grupos, el avatar y un resumen del perfil (nivel y logros), pero la llave de la cuenta también vive en el teléfono, así que al
+reinstalar no se puede volver a entrar. **Recomendación ampliada:** como Duolingo, «Guardá tu progreso» con Google, opcional, más una
+copia del progreso en la nube que vuelve al entrar en otro teléfono (con consentimiento explícito si incluye lo que se lee). Espera
+su OK.
+
+## DEC-2026-11-07-6 — Senda: el lanzamiento es en Latinoamérica (sin Brasil); Brasil, EE. UU. y Europa con fecha fija
+**Pedido del fundador (07-11):** «me gustaría sacar Senda para latam al menos inicialmente… No lo dejaría como "solo Argentina";
+quizás para el lanzamiento latam sin Brasil, y tener SÍ O SÍ seteado en el roadmap para incorporar esos países aunque sea como
+evolutivo». **Decisión:** el 18-12 Senda sale en Argentina y el resto de Latinoamérica de habla hispana (México, Centroamérica, el
+Caribe hispano y Sudamérica sin Brasil). Quedan fuera al principio Brasil, EE. UU. y la Unión Europea (con Reino Unido y Suiza), cada
+uno con su fecha en la hoja de ruta: **Brasil el 01-03-2027** (en portugués, antes de Pascua), **EE. UU. el 01-06-2027** y **Europa
+(España primero) el 01-09-2027**. Las fechas son un plan: cada país entra cuando está hecho lo que pide su ley (`linea_tiempo.yaml`,
+`roadmap.yaml`, capítulo 76 §5). Ajusta la recomendación de DEC-2026-11-07-5 (que ya decía «países de habla hispana», no «solo
+Argentina»).
+
+## DEC-2026-11-07-7 — Senda: «Guardar mi progreso» con Google (aprobado)
+**El fundador respondió a DEC-2026-11-07-4:** «sumar lo de guardar progreso». Se construye en la prueba 51: vincular la cuenta anónima
+con Google (opcional) y una copia del progreso en la nube que vuelve al entrar en otro teléfono o al reinstalar. Lo que le toca al
+fundador (crear el cliente de Google y prenderlo en Supabase) va en la Consola. Capítulo 76 §4.
+
+## DEC-2026-11-07-8 — Senda: grupos de hasta 10.000 personas
+**Pregunta del fundador:** «¿por qué el tope de mil personas por grupo? ver si más». **HECHO (código):** el tope no venía de la base
+sino de los avisos (200 cada 5 minutos: un evento en un grupo de 1.000 tardaba ~25 minutos en llegar a todos) y de la lista de
+miembros (se traía entera). **Decisión:** 10.000 por grupo, con avisos en tandas de 100 teléfonos por pedido (hasta 3.000 por minuto),
+lista por páginas con buscador y el filtro de invitados en la base. Prueba de la base 228 de 228. Siguen 30 grupos por persona y 5
+como líder. Capítulo 76 §2.
+
+## DEC-2026-11-07-9 — Senda: el avatar de frente con Avataaars (Pablo Stanley)
+**Pedido del fundador:** «¿por qué los personajes miran para otro lado? Tendrían que mirar al frente, como una foto de perfil… que
+queden muy buenos». **Decisión:** se reemplaza Open Peeps (CC0, de tres cuartos) por **Avataaars** (`@dicebear/avataaars` 9.4.2):
+el único de los diez estilos comparados que mira de frente con calidad profesional y variedad (hiyab, turbante, afro, rulos, barba,
+lentes). **Licencia (HECHO, 07-11):** «Free for personal and commercial use», diseño de Pablo Stanley (LICENSE del paquete y
+dicebear.com/licenses); no es CC estándar: va a la consulta con el abogado de PI (`docs/LEGAL.md`). **Regla de corte:** si el autor
+cambia los términos o una tienda lo objeta, se pasa a Personas de Draftbit (CC BY 4.0, también de frente). Capítulo 76 §8.
+
+## DEC-2026-11-10-1 — Senda: los planes cuestan USD 1,99 (Premium) y USD 3,99 (Max) por mes
+**Decisión del fundador (10-11-2026):** «los planes son de 1.99 usd y de 3.99 usd». Reemplaza la propuesta de USD 2,49 y USD 5,99
+(DEC-2026-10-24-4). El de 3 meses queda propuesto en USD 4,99 y USD 9,99 (ahorro de 16 % y 17 %); sin anual (DEC de la prueba 39).
+**Qué cambia (ESTIMACIÓN, `scripts/economia/suscripciones.py` de la app, por cada 10.000 personas activas por mes, elasticidad
+cercana a −1):** Premium deja USD 315 netos por mes (antes 340) con 260 personas pagando (antes 220); Max deja USD 87 (antes 114) con 45
+líderes (antes 35). **Consecuencia a vigilar:** con Max a 3,99 quedan USD 2,89 por líder por mes; un líder típico (4 sermones) cuesta
+USD 0,61 en IA, pero el tope de 8 trivias del sermón, si todas fueran PDF enormes, costaría USD 3,07 (USD 0,18 más de lo que deja).
+**Recomendación:** dejar el tope en 8. **Regla de corte:** si en un mes medido el costo de IA por líder con Max supera USD 1,45 (la
+mitad de lo que deja), el tope baja a 6 o la trivia pasa al modelo más barato. `docs/SUSCRIPCIONES.md` §3 de la app; capítulo 77.
+
+## DEC-2026-11-10-2 — Senda: el iPhone sale junto con Android
+**Decisión del fundador (10-11-2026):** «lo de iphone sale junto con android». Reemplaza la recomendación de lanzar en iPhone en 2027.
+**Qué implica (HECHO, requisitos de Apple):** cuenta de Apple Developer a nombre del fundador (USD 99 por año: lo paga él, pendiente
+`apple_cuenta` de la Consola, antes del 20-11); armado en la nube (sin Mac) con la clave de App Store Connect cargada en GitHub;
+«Iniciar sesión con Apple» junto a Google para guardar el progreso (lo exige la regla 4.8 de la App Store cuando hay otro inicio de
+sesión de terceros); avisos por APNs; ficha de privacidad; prueba por TestFlight con al menos un iPhone real (acá no se puede probar
+un iPhone). **Regla de corte:** si el 05-12 no hay una versión en TestFlight recorrida entera en un iPhone, el iPhone sale después y
+Android no se atrasa. Capítulo 77.
+
+## DEC-2026-11-10-3 — Senda: barra de abajo con Jugar en el centro (la ficha) y la Biblia solo con scroll
+**Pedidos del fundador (10-11-2026):** (a) «dejemos lo del menú de abajo en este orden: inicio, travesía, jugar, biblia, comunidad. El
+jugar debería aparecer en el centro como con un círculo… resaltado»; la primera versión la rechazó («está ESPANTOSO») y se rehízo con
+benchmark y cuatro variantes comparadas: queda la ficha ámbar con canto (regla R29 de `docs/MARCO_UX.md` de la app). (b) «lo de pasar
+la hoja de la biblia no se arregla; dejemos solo el del scroll»: el modo de pasar hojas sale entero de la app. Capítulo 77.
+
+## DEC-2026-11-10-4 — Senda: logo nuevo, «Camino en la noche» (opción C)
+**Pedido del fundador (10-11-2026):** un logo nuevo para la app en el que la S sea la senda y haya una cruz al final; lo mejor posible,
+vivo y pensado para app. Se compararon tres opciones con todas las vistas (la puerta del APK 52, la senda de luz y el camino en la noche;
+`oportunidades/proyectos/senda/marcas/logo_2026-11/comparar_logos.html`) y nueve variantes de la C. **Decisión:** la C, con la paleta del
+alba y la forma con borde y cruz que brilla, «quizás lo que me sonaba medio feo es… algunas partes muy puntiagudas»: los rincones y la
+punta se redondearon con geometría exacta (unión de discos y cierre redondo con shapely). La S y la cruz quedan siempre separadas (pedido
+expreso). Archivos en `marcas/logo_2026-11/elegido/`; imagen para el INPI, en un tono y sin reivindicar colores: `marcas/senda_logo_inpi.jpg`.
+**Siguiente:** cambiar la imagen en las solicitudes 4208591 y 4208603 antes de firmar, y el ícono, la entrada y la marca en la app (APK 53).
+
+## DEC-2026-11-10-5 — Senda: revisión legal exhaustiva hecha por Claude en una sesión exclusiva, en lugar de la consulta paga
+**Pedido del fundador (10-11-2026):** «en un momento antes de publicar, te asignás el rol de abogado, y analizás todo EXHAUSTIVAMENTE.
+Una sesión exclusiva para eso. Y validás contra todo lo que existe. Y ahí de última vemos qué modificar o qué no.» **Decisión:** la
+consulta de una hora con un abogado (ARS 80.000 a 150.000) sale de los pendientes del fundador. Antes de que la ficha de Google Play sea
+pública, una sesión dedicada solo a revisar los 21 puntos de `oportunidades/proyectos/senda/revision_legal_prelanzamiento.md` contra las
+fuentes primarias vigentes, con informe y cambios propuestos; los que tocan la UX se consultan antes. La lista se completa con cada tema
+legal nuevo. Límite: es análisis, no asesoramiento profesional matriculado; si aparece un riesgo alto que solo un abogado puede resolver,
+se dice en el informe.
+
+## DEC-2026-11-14-1 — Senda: el torneo con premios del lanzamiento, «La Gran Copa de Verano» (PROPUESTA, a decidir)
+**Pedido del fundador (14-11-2026):** «Determinar fecha clave para torneo con premios, para incrementar participación exponencial al
+principio». **Propuesta:** final el sábado 30-01-2027 a las 20 h de Argentina, con clasificatorias los sábados 9, 16 y 23 de enero (copas
+de 15 preguntas iguales para todos) y una tabla por grupo (la suma de los diez mejores de cada iglesia o grupo de jóvenes, para que cada
+líder sume a su gente). Por qué esa fecha (INFERENCIA): seis semanas después del lanzamiento del 18-12, en pleno verano y en el mes de los
+campamentos de iglesias, antes de la vuelta a clases y de Brasil. El 18-12 se anuncia; la Copa de Navidad (19-12) es el ensayo sin premio.
+Concurso de habilidad, gratis, sin compra y con bases públicas (HIPÓTESIS a validar en la sesión legal, DEC-2026-11-10-5); premios solo
+en Latinoamérica, empezando por Argentina; a un menor, el premio se entrega a su adulto responsable. Presupuesto de premios: USD 150 a 250
+(ESTIMACIÓN, a aprobar). **Falta:** el sí del fundador y el presupuesto; Claude hace la tabla por grupo y las bases. Capítulo 80 §2.10.
+
+## DEC-2026-11-14-2 — Senda: la salida en EE. UU., Brasil y la UE (PROPUESTA, a decidir)
+**Pedido del fundador (14-11-2026):** «para la primer salida también cubramos EEUU, BRASIL, UE… recopilá absolutamente todo lo que haya
+que hacer». Tres informes con fuentes primarias (`conocimiento/2026-11-14-senda-lanzamiento-eeuu.md`, `-brasil.md`, `-ue.md`).
+**Propuesta (INFERENCIA):** el 18-12 salen Latinoamérica y EE. UU. con la opción A (Comunidad solo para mayores de 18, sin premios y sin la
+sala en vivo; casi sin costo); la UE (España, Portugal, Irlanda) el mismo día solo si el fundador aprueba los representantes RGPD y DSA
+(EUR 800 a 1.650 por año, ESTIMACIÓN) antes del 25-11; Brasil, solo con un representante legal en Brasil contratado a fin de noviembre;
+si no, se sostiene el 01-03-2027 (DEC-2026-11-07-6). **Reglas de corte:** EE. UU. y Brasil, 05-12; UE, 08-12 (si falta algo, 15-01-2027).
+**Ya en el código (APK 55):** las reglas por región, las señales de edad de Play y Apple, la edad obligatoria antes de la cuenta y el
+consentimiento aparte por los datos que pueden mostrar la fe. **Falta en el código (2 a 3 sesiones, ESTIMACIÓN):** el país de la tienda,
+los textos legales en inglés y portugués, la versión UE con el DSA y el modo protegido completo de Brasil. Esta propuesta reemplaza, si
+se aprueba, la recomendación de lanzar sin EE. UU., Brasil ni la UE (DEC-2026-11-07-5). Capítulo 80 §2.9.

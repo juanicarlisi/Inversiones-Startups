@@ -131,10 +131,81 @@
 |---|---|---|
 | Claude | **Max 5x desde el 17-10-2026** (antes: Pro hasta fin de 2026) | Claude deja de ser el cuello de botella: se adelanta lo que casi no pide horas suyas (Andén, juegos en portales, automatizaciones); sus horas siguen siendo el límite (doctrina 05 §5b) |
 | Ideas que trajo | Un simulador de vuelo o de aeropuerto al estilo de los tycoon de aerolíneas; alguna app más divertida | Semilla evaluada con su familia: el simulador de vuelo no (3D y servidores), el tycoon de red aérea con hub y carga sí (Hub Nocturno, prototipo hecho); de las apps divertidas, Trámite Imposible al plan y un juego con IA como experimento (bitácora del 17-10-2026) |
-| Pedido | Avanzar con todo lo que se pueda del holding | Se adelantaron Andén (calculadoras v0) y Carpincho Games (Hub Nocturno) (DEC-2026-10-17-2) |
+| Pedido | Avanzar con todo lo que se pueda del holding | Se adelantaron Andén (calculadoras v0) y Carpincho Games (Hub Nocturno) (DEC-2026-10-17-2H) |
 | Hub Nocturno | No lo va a jugar él: Claude evalúa la experiencia e itera hasta el mejor producto del mercado | Pruebas de juego con agentes (novato, diseñador, portal, arte) y un jugador automático; Claude decide y registra |
-| Andén | Quiere el simulador logístico más espectacular, profundo, realista y avanzado que exista, por encima de FlexSim, en 2D y 3D | Andén pasa de «calculadoras + simulador acotado» a simulador de categoría propia (DEC-2026-10-17-3) |
+| Andén | Quiere el simulador logístico más espectacular, profundo, realista y avanzado que exista, por encima de FlexSim, en 2D y 3D | Andén pasa de «calculadoras + simulador acotado» a simulador de categoría propia (DEC-2026-10-17-3H) |
 | Tecnología (30-10-2026) | Usar siempre la mejor herramienta profesional disponible (3D, física, mapas, ruteo, SimPy, dashboards, MCP, CLI), sin limitarse a lo instalado ni al código propio; autonomía total para elegir e integrar; sin listas ni preguntas; no reiniciar lo que funciona; 3D extraordinario; nada simplificado; cuidar los tokens sin bajar calidad | Regla 10 y directriz de Andén y Hub en CLAUDE.md, `doctrina/09-herramientas-especializadas.md` (DEC-2026-10-30-4 y -5) |
+
+### Pautas del 17-10-2026 (Senda, prueba 17)
+
+| Tema | Pauta (resumen, sin citas textuales) | Cómo se aplica |
+|---|---|---|
+| Claridad del contenido | Nada puede prestarse a confusión: quien solo responde, sin leer la nota, tiene que aprender la verdad; vale para textos, preguntas y huecos | Regla de redacción y control en el validador: la respuesta correcta siempre es verdadera y el error se nombra como error (capítulo 42 §2) |
+| Pantalla | Ni textos tapados ni deslizar para seguir mientras se juega | La pregunta se compacta sola y el globo de Lany se corre (capítulo 42 §3) |
+| Música | Tipo publicitaria; libre, buscada en la web si hace falta | «Nonstop» de Kevin MacLeod, con crédito, y alternativas (capítulo 42 §4) |
+| Kit imprimible | No por ahora | En pausa (capítulo 42 §8) |
+| Animador de Rive | No lo puede pagar: que lo haga Claude | Lany pulida con código (capítulo 42 §5) |
+| Ideas para ser n.º 1 | Votó sí a diez y no al sello de confianza | Se hacen las que no necesitan cuentas; el sello sale de los planes (capítulo 42 §6) |
+
+### Pautas del 17-10-2026 (Senda, prueba 18)
+
+| Tema | Pauta (resumen, sin citas textuales) | Cómo se aplica |
+|---|---|---|
+| Ritmo | No llega a probar el APK, pero el proyecto no se tiene que atrasar: ir a fondo con todo lo próximo, con calidad antes que velocidad | Se avanza con contenido, juegos, Lany y UX; el APK 18 junta la 17 y la 18 para probar cuando pueda (capítulo 43) |
+| Claude Max | Plantea tener Max de USD 100 y pregunta qué aprovechar para que Senda sea un éxito | Plan con ritmo semanal, metas a 60 días y regla de corte; recomendación: pasar antes del lanzamiento si lo decide (capítulo 43 §3) |
+| Cobros | Quiere saber a qué cuenta va la plata de suscripciones y anuncios y qué hace falta en lo legal | Guía: cuenta en dólares a su nombre, monotributo con factura E y la SAS antes de las suscripciones (capítulo 43 §2) |
+| Juegos | Recordó el Adivina quién como muy bueno; seguir explorando juegos de mesa y de rol | «¿Quién es?» y «En la frente» en la app, con impronta propia (capítulo 43 §4) |
+
+### Pautas del 18-10-2026 (Senda, prueba 19)
+
+- La vara explícita: la mejor app de la tienda en UX, diseño y sonido; puede usarse cualquier software (Rive y otros); calidad antes
+  que velocidad; estudiar otras apps para sacar ideas de colores y movimientos.
+- Los juegos tienen que tener un objetivo claro; si una mecánica no lo tiene, se rediseña o se saca («Vivir la historia» se rediseñó).
+- Las preguntas fijas no alcanzan en un juego de deducción: tiene que poder formularse la pregunta, y los personajes necesitan cara.
+- Música: nada desagradable, infantil ni triste, tampoco que canse; la referencia es cómo trabaja Apple y las apps n.º 1 de juegos de
+  mesa; música de fondo en los juegos.
+- Quiere Lany siempre en 3D si conviene; aceptó que Claude evalúe lo mejor para la UX (recomendación: 2D con volumen).
+- Pide métodos de difusión concretos y baratos (sorteos, redes) y saber desde ahora qué hacer para cobrar anuncios y suscripciones.
+
+### Pautas del 19-10-2026 (Senda, prueba 20)
+
+- Prueba la app línea por línea y le importa cada palabra: una pregunta sin contexto o una palabra que suena mal («se gritaban»)
+  invalida la pantalla entera. Pide que lo básico esté explicado para el que recién empieza.
+- Prefiere menos opciones y más claras (bienvenida, calendario): una pregunta por pantalla y lo secundario plegado.
+- Quiere juegos que se jueguen con otros, no solo contra la app; si la app no entiende lo escrito, mejor que conteste una persona.
+- Quiere más fiesta cuando se gana y un personaje gracioso del que la gente hable; nunca burla.
+- Mantiene su biblioteca de referencia filtrada (solo autores protestantes confiables) y espera que Senda respete esa misma lista.
+- Quiere probar la app también desde el lugar del líder (cargar material, sumar gente) antes de lanzar.
+
+### Pautas del 19-10-2026 (Senda, prueba 21)
+
+- Quiere que cada juego explique sus reglas antes de empezar, en pocas palabras.
+- Prefiere desafíos con calendario (una historia por semana) a contenido que se agota de una vez; lo que se repite tiene que dar
+  puntos y premiar hacerlo bien, no solo terminarlo.
+- Si algo no le convence (el modo en grupo de «Vivir la historia»), prefiere sacarlo antes que dejarlo a medias.
+- En los formularios, lo mínimo: un dato por pantalla y controles conocidos (el calendario del mes, la rueda de la alarma).
+
+### Pautas del 19-10-2026 (Senda, prueba 22)
+
+- Está dispuesto a pagar licencias de Biblias desde el inicio si hace falta: la Biblia que la gente lee vale más que la regla de corte.
+- Quiere todo lo visual posible (mapas, líneas de tiempo, diagramas, animaciones) en travesías, trivia y juegos: «todo lo que
+  pueda sumar y mejorar esto a fondo».
+- Piensa en las tiendas como próximo paso concreto y pregunta qué falta y cómo seguir: prefiere listas de pasos con quién hace cada uno.
+- Quiere abrir mercados en portugués e inglés cuanto antes, aunque sea por la base (idioma y Biblia) y el contenido después.
+
+### Pautas del 19-10-2026 (Senda, prueba 23)
+- Lo legal nunca a costa de algo clave de la UX: medir el riesgo real contra lo que pierde la experiencia y preguntar si se nota (19-10-2026, noche).
+- Quiere saber de verdad cuánto cambia entre la RV1909 y la RVR1960 y que la app sea fiel sin confundir: se mide con método y sin copiar la 1960 (19-10-2026, noche).
+- No hay que usar siempre la RV1909: si una versión libre traduce mejor un versículo clave, se puede mostrar esa; la mejor traducción entre paréntesis (corchetes) le parece bien; quiere un tope claro para citar la 1960 sin licencia (19-10-2026, noche).
+- Toda animación de Lany tiene que ser fluida, nunca «dura» (nada en bloque; anticipación, partes que llegan tarde, impacto); está dispuesto a Rive, 3D o lo que haga falta (19-10-2026, noche).
+- Quiere que «se lee mejor» se valide versículo por versículo entre las versiones libres (su ejemplo: Gálatas 5:22, «amor» en la NBV) y que esa versión se use en trivia, travesía, versículo del día y juegos; se resolvió con una regla medible (palabras difíciles por versículo) (19-10-2026, noche).
+- En los juegos, lo que la app puede deducir lo hace sola (en «¿Quién es?», tachar las tarjetas que no corresponden), de a uno y con sonido profesional sin derechos; prefiere entender lo técnico en fácil, con pros y contras (Lany 2D o 3D) (20-10-2026).
+- Mira el detalle de la mascota (cómo agarra la espada, que aparezca con la armadura entera al ganar) y la fluidez de los flujos (que nada pase solo antes de tocar «Siguiente»); prefiere una sola APK consolidada por ciclo de trabajo (20-10-2026).
+
+- Prioridad absoluta a no tener problemas legales: pide investigar a fondo la ley y los casos, revisar nombres e imágenes y reforzar.
+- Quiere fidelidad bíblica sin confundir versiones: que la gente sepa qué lee y pueda ver la RVR1960 con un toque, con una UX impecable
+  (sin textos largos ni feos), manteniendo anuncios y suscripciones. Pide pensar con calma, sin apurarse.
+- Prueba solo el último APK: cada uno tiene que traer todo lo anterior.
 
 ## Lo que falta (y por qué importa)
 

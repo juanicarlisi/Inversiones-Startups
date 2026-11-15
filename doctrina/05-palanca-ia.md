@@ -83,7 +83,7 @@ cierra ventas complejas ni reemplaza la confianza**: se usa como primera línea 
 - **Revisión mensual** (`/revision`): costo IA total vs horas ahorradas vs ingresos habilitados. Si el ratio empeora 2 meses
   seguidos, bajar de plan.
 
-### 5b. Desde el 17-10-2026: cómo exprimir Max (DEC-2026-10-17-2)
+### 5b. Desde el 17-10-2026: cómo exprimir Max (DEC-2026-10-17-2H)
 
 Max saca el cuello de botella de Claude, **no el del fundador** (6–10 h por semana). Entonces:
 

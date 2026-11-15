@@ -30,5 +30,5 @@ menos una cátedra la adopta en clase.
 ## Registro de resultados (fechado)
 - 17-10-2026: con Claude Max se adelantó el paso 2: Claude construyó las 5 calculadoras v0 y la de peso volumétrico (`apps/anden/`),
   con fórmulas en un módulo probado y valores de referencia con fuente y fecha. Falta la validación del fundador (paso 2) antes de
-  publicar (DEC-2026-10-17-2).
+  publicar (DEC-2026-10-17-2H).
 ## Aprendizajes y decisión
