@@ -1774,3 +1774,66 @@ si no, se sostiene el 01-03-2027 (DEC-2026-11-07-6). **Reglas de corte:** EE. UU
 consentimiento aparte por los datos que pueden mostrar la fe. **Falta en el código (2 a 3 sesiones, ESTIMACIÓN):** el país de la tienda,
 los textos legales en inglés y portugués, la versión UE con el DSA y el modo protegido completo de Brasil. Esta propuesta reemplaza, si
 se aprueba, la recomendación de lanzar sin EE. UU., Brasil ni la UE (DEC-2026-11-07-5). Capítulo 80 §2.9.
+
+
+## DEC-2026-11-15-1 · Holding: Consola del Holding, entran Nido (P10) y Telar (P11), y la exploración de herramientas externas
+
+- **Contexto:** el fundador pidió el 15-11-2026 (resumen, sin citas textuales): revisar proyectos, pipeline y próximos pasos y crear
+  una consola como la de Senda para todos; sumar su app de finanzas (la llamó Nido) y su app de organización como proyectos del
+  holding con la mejor experiencia de uso; y una exploración sin límites de lo que Claude puede hacer con herramientas externas.
+- **Hecho:**
+  - **Consola del Holding** (artefacto privado; fuente `cartera/consola.yaml`, generador `herramientas/consola_holding.py`): todos
+    los proyectos con etapa, próximos pasos, hito, cómo gana plata y regla de corte; «Te toca a vos» por prioridad; notas del
+    fundador por proyecto. Lo que marca se guarda en la base del artefacto (`marcas/`, `notas/`) y se lee al empezar cada sesión.
+    Se actualiza y se vuelve a publicar al cerrar cada sesión de cualquier proyecto.
+  - **Rama unificada:** se sumaron a esta rama la rama principal (Senda y metodología) y la de Economía Familiar. Las decisiones del
+    holding que chocaban de número con las de Senda llevan sufijo H.
+  - **Nido (P10)** (`oportunidades/proyectos/nido/`): finanzas de la casa, en pareja; sin conexión a bancos (resumen en PDF, ticket con
+    QR de ARCA, cuotas y cierre de tarjeta de fábrica); 20% de chances; si funciona, ~USD 3.000 por mes a fines de 2030; corte en
+    septiembre de 2027. «Nido» choca con Nestlé y con otra app de finanzas: se recomienda **Alero** (falta el INPI).
+  - **Telar (P11)** (`oportunidades/proyectos/telar/`): cronograma y tablero para una persona o pareja con varios proyectos;
+    capacidad en horas y replanificar con un toque; mercado saturado: 20% de chances; cortes en marzo y diciembre de 2027.
+  - **Exploración** (`conocimiento/2026-11-15-claude-con-herramientas-externas.md`): mapa de 14 disciplinas, 18 combinaciones, 12
+    funciones para los proyectos actuales, 12 negocios nuevos y tres pruebas medidas (CAD paramétrico: 10 de 10; voz local: hay
+    español, 0,7 veces el tiempo real; splats: dibujan, sin GPU a 0,2 cuadros por segundo).
+- **Para que decida el fundador:**
+  - con Nido y Telar las horas de 2027 pasan el tope (11,3 por semana de promedio, 12,3 de máximo): recomendación, Nido primero y
+    Telar desde mitad de 2027, o correr una línea programada;
+  - nombre, precio y promesa de privacidad de Nido; si va el módulo opcional de diezmo y ofrendas (dato sensible);
+  - nombre de Telar y si se sigue con 20% de chances;
+  - de la exploración, con cuál de las cinco oportunidades se empieza (packs 3D en Fab, «foto a gemelo», Andén dentro de Claude y
+    ChatGPT, modelos imprimibles).
+- **Pendiente de Claude:** sacar del código público de Economía Familiar los nombres y bancos de la familia que quedaron como valores
+  por defecto (primer paso del plan de Nido).
+
+## DEC-2026-11-15-2 · Hub Nocturno: el producto se achica, la experiencia se rehace y la regla de corte se recalibra
+
+- **Contexto:** el fundador probó la versión del 12-11 y no entendió nada, no supo qué eran las «sacas» ni vio animaciones buenas;
+  pidió definir bien el producto y su rentabilidad y trabajar sobre eso.
+- **Reconocido:** tenía razón. Las reglas del juego estaban probadas, pero la pantalla era un mapa plano con jerga.
+- **Caso de negocio** (`oportunidades/proyectos/hub-nocturno/producto-y-negocio.md`): 65% de chances de casi nada, 25% de USD 45–180
+  por mes en el pico, 10% de USD 600–2.000; valor esperado ~USD 100 por mes (~USD 3.300 en tres años), entre un cuarto y un quinto
+  de lo que suponía P6. En los portales manda lo hipercasual; en celular no se crece sin pagar. JG4 corregido en `P6-juegos.yaml`.
+- **Decidido (con freno de mano):** al portal va solo el capítulo de 1929, corto y espectacular (20 a 30 minutos), con una capa
+  nueva en 3D (`apps/juegos/aviacion/v2/`) sobre el modelo probado y lenguaje sin jerga (cartas y paquetes, no «sacas»); la
+  profundidad va a Steam solo si el portal da buenos números; celular, Discord e itch.io quedan afuera.
+- **Compuertas:** antes de subir, 4 de 5 personas que nunca lo vieron entienden qué hacer; en el lanzamiento básico se sigue con 10%
+  o más que vuelve al día siguiente y 10 minutos o más de juego, se archiva con menos de 7% o menos de 6 minutos; con menos de USD
+  30 por mes queda publicado y sin más horas; Steam solo con USD 300 por mes durante 3 meses.
+- **Del fundador (antes del 10-12):** cuenta de desarrollador en CrazyGames; nombre con búsqueda de marca; o decidir cortar el
+  proyecto y pasar ese esfuerzo a Andén o a Nido.
+
+## DEC-2026-11-15-3 · Andén: «Tu planta», el gemelo de cualquier planta desde fotos, videos, croquis y planos
+
+- **Contexto:** el fundador pidió que lo hecho con la planta piloto (un gemelo 3D armado con fotos, videos, un croquis y un plano)
+  se pueda hacer con cualquier otra planta.
+- **Decidido:** entra como línea 2c del corte 2 (`oportunidades/proyectos/anden/gemelo-de-planta.md` y §10 de `corte-2-plan.md`):
+  protocolo de relevamiento de 30 a 60 minutos con el celular, lectura del plano (DWG a DXF con LibreDWG y ezdxf), cámaras ubicadas
+  solas (COLMAP), estructura y objetos paramétricos (Blender por código y three.js), verificación con medidas de control y enganche
+  al motor de Andén (`anden.planta/1`, sin tocar contratos congelados). Primero como servicio hecho por Claude.
+- **Medido (15-11-2026, sin GPU):** COLMAP ubicó 36 de 39 cuadros de video en 2 min 23 s, a 0,23–0,30 m de las poses hechas a mano;
+  con fotos sueltas, 20 de 53 (por eso el protocolo); el DWG se convirtió en 4,6 s con 99,8% de cotas legibles.
+- **Límites:** precisión de decímetros; las alturas son lo menos confiable.
+- **Confidencialidad:** la planta piloto es del empleador del fundador; en este repositorio (público) solo queda el método.
+- **Del fundador:** sumar el método a la consulta legal pendiente (reuso de lo hecho en la piloto) y conseguir una segunda planta de
+  prueba que no sea de su empleador.

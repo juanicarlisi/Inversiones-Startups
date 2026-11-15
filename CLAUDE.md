@@ -565,6 +565,20 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     gastar sin OK (regla 8); librerías con licencia permisiva y versión fija (`requirements-sim.txt`, `package.json`);
   - economía de tokens sin bajar calidad: modelo liviano para verificar y tareas mecánicas, resúmenes en lugar de informes
     completos entre agentes, un flujo pesado por vez.
+- **Datos del 15-11-2026 (holding; DEC-2026-11-15-1, -2 y -3):**
+  - **Consola del Holding** (https://claude.ai/artifact/SvBRRWKhNKimPvRJdNMdy9; fuente `cartera/consola.yaml`, generador
+    `herramientas/consola_holding.py`): al empezar una sesión de cualquier proyecto que no sea Senda, leer lo que el fundador marcó
+    (ArtifactData, colecciones `marcas` y `notas`); al cerrar, actualizar el yaml, regenerar y volver a publicar;
+  - entran **Nido** (P10, finanzas de la casa; base `apps/economia-familiar/`; nombre recomendado Alero) y **Telar** (P11,
+    organización; base `apps/plan-maestro/`), siempre con la mejor experiencia de uso; con los dos, las horas de 2027 pasan el tope:
+    espera su decisión de cuál va primero;
+  - **Hub Nocturno**: probó la versión del 12-11 y no entendió nada ni vio animaciones buenas; se rehace en 3D
+    (`apps/juegos/aviacion/v2/`), sin jerga (cartas y paquetes, nunca «sacas»), solo el capítulo de 1929 para el portal; el caso de
+    negocio da ~USD 100 por mes esperados: compuertas en DEC-2026-11-15-2;
+  - **Andén «Tu planta»**: el gemelo de cualquier planta desde fotos, videos, croquis y planos
+    (`oportunidades/proyectos/anden/gemelo-de-planta.md`); la planta piloto es de su empleador: sus datos viven solo en el
+    repositorio privado `plaza-gemelo2`, nunca acá (este repositorio es público);
+  - la exploración de Claude con herramientas externas vive en `conocimiento/2026-11-15-claude-con-herramientas-externas.md`.
 
 ## 2. Reglas no negociables
 
