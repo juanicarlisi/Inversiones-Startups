@@ -188,13 +188,75 @@ clases 9, 36 y 42 antes de gastar en diseño.
 
 ---
 
-## 7. Lo que falta averiguar (y cómo)
+## 7. Cliente, trabajo a resolver, alternativa y tamaño
+
+**Cliente y decisor (HIPÓTESIS a validar con entrevistas).** Usa: parejas y familias de 25–50 años, bancarizadas, con 2–4 bancos o
+billeteras y al menos una tarjeta en cuotas. Decide: casi siempre **la persona de la pareja que "lleva las cuentas"** (hoy con una
+planilla o notas); paga de su bolsillo, del presupuesto de la casa (rubro "suscripciones", que compite con Netflix o Spotify). Influye:
+la otra persona, que tiene que aceptar cargar.
+
+**Trabajo a resolver.** "Saber, sin pelearnos y sin perder una noche por mes, cuánto gastamos, cuánto tenemos comprometido en cuotas,
+cuánto nos sobra y cuánto llevamos juntado para lo que queremos." Costo de hoy (HIPÓTESIS): 1–3 horas por mes de planilla, sorpresas
+en el resumen de la tarjeta, discusiones de pareja, ahorro que "no se sabe dónde quedó". Frecuencia: diaria (cargar) y mensual (cerrar).
+
+**Alternativa actual y su precio (el verdadero competidor).**
+1. **La planilla** (Excel o Google Sheets): gratis o USD 4–15 una vez ([Getly](https://www.getly.store/product/presupuesto-mensual-ajustado-por-inflaci-n-argentina-excel-google-sheets), [Gumroad](https://topexceltemplates.gumroad.com/l/xsghx)).
+2. **La app del banco o billetera**: gratis, pero ve un solo banco (Naranja X, Supervielle, Ualá, Mercado Pago).
+3. **Apps globales gratis con publicidad** (Money Manager, Monefy, Wallet): gratis o pago único USD 3–20; no entienden cuotas ni cierre.
+4. **No hacer nada**: la opción más común. Se mira el resumen de la tarjeta cuando llega.
+
+**Tamaño de abajo hacia arriba (ESTIMACIÓN, método explícito).**
+- Unidades: Argentina tiene 16 M+ de hogares (dato de Naranja X, interesada; re-verificar con INDEC). Supuesto: 8–12% son parejas o
+  familias bancarizadas que ya intentan llevar las cuentas (planilla, notas o app) → **1,3–1,9 M de hogares**.
+- Ticket: USD 20–30 por año por hogar (precio latinoamericano, neto de tiendas ~USD 2–2,5 por mes).
+- Disposición a pagar: 2–5% de los que llevan cuentas pagaría por algo claramente mejor que su planilla (HIPÓTESIS; Mobills y Organizze
+  muestran que en Brasil se paga) → **26 mil–95 mil hogares pagos posibles en Argentina** → **USD 0,6–2,4 M por año** de techo local.
+- Lo que el caso de negocio supone capturar en 5 años (escenario normal): ~1.250–1.500 hogares pagos sumando Argentina, Uruguay,
+  Chile, México y España → 1–5% del techo argentino. No se usa ningún TAM de arriba hacia abajo.
+
+**Competencia.** Directos: apps de presupuesto en español (Mobills/Organizze en Brasil; Money Manager, Monefy, Wallet, Spendee globales;
+startups locales sin tracción). Sustitutos: planilla, app del banco, cuenta compartida de Naranja X o Supervielle, Splitwise para
+dividir. "No hacer nada": el más fuerte.
+
+**¿Qué impide que nos copien en 6 meses? (honesto: poco por separado).** Lo técnico se copia. Lo que cuesta copiar junto: (1) el modelo
+contable local ya probado (cuotas, cierre, fondos, cierre de mes) más los lectores de resúmenes banco por banco, que mejoran con cada
+resumen; (2) diseño y tono propios, que los bancos no priorizan; (3) la promesa de privacidad verificable (cifrado de punta a punta),
+que un banco o una app que vive de vender productos financieros no puede hacer; (4) el costo de cambiarse: dos personas y años de
+historia adentro; (5) la biblioteca de plantillas y guías que trae búsquedas; (6) el canal de mayordomía cristiana vía Senda. Riesgo
+mayor: Mercado Pago o un banco grande lanza "las finanzas de tu casa con todas tus cuentas" cuando haya finanzas abiertas (2028+).
+
+---
+
+## 8. Guion de entrevistas (12 hogares, sobre lo que hicieron, no sobre lo que harían)
+
+A quién: 12 hogares (8 parejas, 2 familias con hijos, 2 personas que viven solas), mitad que lleva cuentas hoy y mitad que no.
+Cómo: la lista de espera de la landing y la beta (nunca contactos en frío sin OK del fundador; regla 8). 30 minutos, por audio.
+
+1. "Contame la última vez que se sentaron a ver cómo venían con la plata. ¿Cuándo fue, qué miraron, con qué?"
+2. "¿Dónde anotaste el último gasto que anotaste? Mostrame (sin montos) cómo lo hiciste."
+3. "¿Cuándo fue la última vez que el resumen de la tarjeta te sorprendió? ¿Qué pasó después?"
+4. "¿Qué suscripciones de apps pagás hoy? ¿Cuál fue la última que diste de baja y por qué?" (disposición a pagar real)
+5. "¿Probaste alguna app para gastos? ¿Cuál, cuánto duraste y qué día dejaste de usarla?"
+6. "La última compra en cuotas: ¿cómo decidiste cuotas o contado?"
+7. "¿Cómo se reparten los gastos con tu pareja? Contame la última discusión por plata (si querés)."
+8. "¿Dónde tienen guardados los ahorros hoy? ¿Cómo saben cuánto rindió el mes pasado?"
+9. "¿Qué hiciste la última vez que te llegó una notificación de compra del banco o de Mercado Pago?"
+10. "¿Alguna vez le diste la clave del banco a una app? ¿Por qué sí o por qué no?"
+11. "Si tuviste una planilla, ¿cuánto tiempo la sostuviste? ¿Qué pasó el mes que la dejaste?"
+12. (Solo si aplica, sin forzar) "¿Diezman u ofrendan? ¿Cómo llevan esa cuenta hoy?"
+
+Qué se valida: frecuencia real de carga, momento de abandono, cuánto pagan hoy por apps, si la pareja carga, y si el resumen PDF o
+la notificación son la puerta de entrada correcta.
+
+---
+
+## 9. Lo que falta averiguar (y cómo)
 
 1. Búsqueda de anterioridad en el INPI de Alero, Ombú y Nido en clases 9, 36 y 42 (el fundador o un gestor; ~USD 0–30).
 2. Dominios disponibles (alero.app, usealero.com, etc.).
 3. Política vigente de Google Play para leer notificaciones (permisos sensibles) y si Mercado Pago y los bancos permiten compartir el
    comprobante como archivo.
 4. Precios reales en pesos de Mobills/Organizze/Wallet en la tienda argentina, y cuánto paga un argentino por una suscripción de app
-   (pregunta 4 del guion de entrevistas, `producto.md` §9).
+   (pregunta 4 del guion de entrevistas, §8).
 5. Calidad de la lectura de resúmenes PDF por banco (Galicia, Santander, BBVA, Nación, Provincia, Naranja, MP): 2 resúmenes de
    ejemplo por emisor, tachados, aportados por voluntarios de la beta.
