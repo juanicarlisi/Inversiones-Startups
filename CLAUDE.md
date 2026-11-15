@@ -575,6 +575,12 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
   - **Hub Nocturno**: probó la versión del 12-11 y no entendió nada ni vio animaciones buenas; se rehace en 3D
     (`apps/juegos/aviacion/v2/`), sin jerga (cartas y paquetes, nunca «sacas»), solo el capítulo de 1929 para el portal; el caso de
     negocio da ~USD 100 por mes esperados: compuertas en DEC-2026-11-15-2;
+  - **Hub Nocturno, a la noche (DEC-2026-11-15-4)**: probó la versión 3D y le gustó; sigue, como la carrera de un empresario de
+    logística aérea de 1929 a hoy, con el que se aprende (`oportunidades/proyectos/hub-nocturno/diseno-carrera.md`, cuatro etapas):
+    antes de cada decisión se ve qué cuesta, qué deja por día y en cuántos días se paga; el reloj se frena al decidir y nunca hay
+    dos carteles a la vez; la oficina es el lugar propio (red, cuentas, flota, bandeja, cuaderno); nombre de la empresa; épocas por
+    metas; más cargas que cartas; propuestas de negocio; todo dato histórico con fuente (en 1929 no había faros de ruta en la
+    Argentina: fogatas primero); lo que trae de otros juegos es dirección, nunca copia; cada etapa se cierra con prueba a ciegas;
   - **Andén «Tu planta»**: el gemelo de cualquier planta desde fotos, videos, croquis y planos
     (`oportunidades/proyectos/anden/gemelo-de-planta.md`); la planta piloto es de su empleador: sus datos viven solo en el
     repositorio privado `plaza-gemelo2`, nunca acá (este repositorio es público);
