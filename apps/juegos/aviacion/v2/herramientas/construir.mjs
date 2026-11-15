@@ -15,7 +15,7 @@ const opciones = {
   outdir: dist,
   bundle: true,
   format: 'esm',
-  target: ['es2020', 'safari14'],
+  target: 'es2021',
   minify: !vigilar,
   sourcemap: vigilar ? 'inline' : false,
   legalComments: 'none',
