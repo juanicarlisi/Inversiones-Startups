@@ -6,7 +6,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { mezclar } from './geo.js';
 
 const N = 56; // puntos por ruta
-const COLOR_RUTA = new THREE.Color('#ffc94d').convertSRGBToLinear();
+const COLOR_RUTA = new THREE.Color('#ffc94d');
 
 export class RutaVista {
   constructor(id, a, b, mundo) {
@@ -100,14 +100,14 @@ export function materialFaros(luz, propios) {
         float destello = exp(-max(uEncendido - orden - 0.6, 0.0) * 1.6) * step(orden, uEncendido);      // el fogonazo al encenderse
         float ola = pow(max(0.0, sin(uTiempo * 2.6 - orden * 0.9)), 6.0);                                 // una luz que corre por la ruta
         vBrillo = prendido * (mix(0.22, 1.0, uNoche) * (0.75 + 0.9 * ola) + destello * 2.2);
-        gl_PointSize = uAlto * uEscala * (0.05 + 0.03 * ola + 0.07 * destello) * mix(0.55, 1.0, uNoche) / max(0.6, -mv.z) * prendido;
+        gl_PointSize = max(uAlto * uEscala * (0.085 + 0.05 * ola + 0.1 * destello) * mix(0.5, 1.0, uNoche) / max(0.6, -mv.z), 5.0 + 5.0 * uNoche) * prendido;
       }`,
     fragmentShader: /* glsl */`
       varying float vBrillo;
       void main() {
         float d = length(gl_PointCoord - 0.5) * 2.0;
         float a = smoothstep(1.0, 0.0, d);
-        vec3 c = vec3(1.0, 0.78, 0.36) * (a * a * 1.2 + smoothstep(0.35, 0.0, d) * 2.5) * vBrillo;
+        vec3 c = vec3(1.0, 0.74, 0.32) * (a * a * 0.9 + smoothstep(0.3, 0.0, d) * 3.0) * vBrillo;
         gl_FragColor = vec4(c, 1.0);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>

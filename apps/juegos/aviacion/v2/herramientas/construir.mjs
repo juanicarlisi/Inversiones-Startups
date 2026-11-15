@@ -27,7 +27,6 @@ const opciones = {
 
 async function copiar() {
   await mkdir(join(dist, 'activos'), { recursive: true });
-  for (const a of ['alturas.webp', 'suelo.webp']) await cp(join(raiz, 'activos', a), join(dist, 'activos', a));
   const mundo = JSON.parse(await readFile(join(raiz, 'activos/mundo.json'), 'utf8'));
   delete mundo.fuentes;
   await writeFile(join(dist, 'activos/mundo.json'), JSON.stringify(mundo));

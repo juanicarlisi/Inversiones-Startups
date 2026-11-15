@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
-const col = (hex) => new THREE.Color(hex).convertSRGBToLinear();
+const col = (hex) => new THREE.Color(hex);
 const M4 = () => new THREE.Matrix4();
 const pos = (x, y, z) => M4().makeTranslation(x, y, z);
 const rot = (x, y, z) => M4().makeRotationFromEuler(new THREE.Euler(x, y, z));

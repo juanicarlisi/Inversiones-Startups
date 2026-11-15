@@ -17,7 +17,7 @@ import { elegirCalidad, Medidor, NIVELES } from './calidad.js';
 CameraControls.install({ THREE });
 const A = CameraControls.ACTION;
 const _v = new THREE.Vector3(), _w = new THREE.Vector3(), _obj = new THREE.Vector3(), _pos = new THREE.Vector3();
-const col = (hex, k = 1) => new THREE.Color(hex).convertSRGBToLinear().multiplyScalar(k);
+const col = (hex, k = 1) => new THREE.Color(hex).multiplyScalar(k);
 
 export class Mundo {
   constructor(lienzo) {
@@ -26,7 +26,7 @@ export class Mundo {
     this.r.outputColorSpace = THREE.SRGBColorSpace;
     this.calidad = elegirCalidad(this.r.getContext());
     this.medidor = new Medidor();
-    this.escalaRes = 1;
+    this.escalaRes = this.calidad.escalaInicial ?? 1;
     this.escena = new THREE.Scene();
     this.camara = new THREE.PerspectiveCamera(34, 1, 0.05, 900);
     this.camara.position.set(0, 9, 9);
@@ -41,11 +41,11 @@ export class Mundo {
 
   async iniciar(urls, mundoJson, aeropuertos, base) {
     const [relieve, suelo] = await Promise.all([
-      cargarRelieve(urls.alturas, mundoJson),
+      cargarRelieve(urls.alturas, urls.costa, mundoJson),
       new THREE.TextureLoader().loadAsync(urls.suelo),
     ]);
     this.relieve = relieve;
-    suelo.flipY = false; suelo.colorSpace = THREE.NoColorSpace; suelo.anisotropy = 4;
+    suelo.flipY = false; suelo.colorSpace = THREE.SRGBColorSpace; suelo.anisotropy = 4;
     suelo.minFilter = THREE.LinearMipmapLinearFilter; suelo.generateMipmaps = true; suelo.needsUpdate = true;
     const u = this.cielo.u;
     this.terreno = crearTerreno(relieve, suelo, u, this.calidad);
@@ -83,7 +83,7 @@ export class Mundo {
     comp.addPass(new RenderPass(this.escena, this.camara));
     this.bloom = new BloomEffect({ mipmapBlur: true, luminanceThreshold: 1.05, luminanceSmoothing: 0.3, intensity: 0.85, radius: 0.7 });
     const efectos = [this.bloom];
-    if (q.nombre === 'alto') efectos.push(new TiltShiftEffect({ offset: 0.0, focusArea: 0.62, feather: 0.4, kernelSize: KernelSize.SMALL }));
+    if (q.nombre === 'alto') efectos.push(new TiltShiftEffect({ offset: 0.0, focusArea: 0.78, feather: 0.3, kernelSize: KernelSize.VERY_SMALL }));
     efectos.push(new VignetteEffect({ offset: 0.3, darkness: 0.52 }), new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC }));
     if (!q.msaa) efectos.push(new SMAAEffect());
     comp.addPass(new EffectPass(this.camara, ...efectos));
@@ -111,7 +111,7 @@ export class Mundo {
     if (sentido < 0) {
       if (this.escalaRes > 0.72) this.escalaRes = Math.max(0.7, this.escalaRes - 0.15);
       else if (this.calidad.pos) { this.calidad = { ...this.calidad, ...NIVELES.bajo, mallaTerreno: this.calidad.mallaTerreno, nubes: this.calidad.nubes }; this.escalaRes = 1; this.armarPosproceso(); }
-      else if (this.escalaRes > 0.5) this.escalaRes = Math.max(0.5, this.escalaRes - 0.1);
+      else if (this.escalaRes > 0.4) this.escalaRes = Math.max(0.4, this.escalaRes - 0.1);
     } else if (this.escalaRes < 1) this.escalaRes = Math.min(1, this.escalaRes + 0.15);
     this.medir();
   }
@@ -190,7 +190,7 @@ export class Mundo {
     this.mar.material.uniforms.uViento.value.copy(this.nubes.viento).negate();
     this.mar.position.set(Math.round(_obj.x), 0, Math.round(_obj.z));
     // niebla: más lejos cuando la cámara se aleja
-    u.uNieblaDens.value = 0.085 / Math.max(6, dist) ;
+    u.uNieblaDens.value = 0.05 / Math.max(6, dist);
     // foco de la guía
     const f = this.foco; f.w += (f.meta - f.w) * Math.min(1, dt * 3);
     this.terreno.material.uniforms.uFoco.value.set(f.x, f.z, f.r, f.w);
@@ -198,9 +198,10 @@ export class Mundo {
     // ciudades
     const noche = this.cielo.noche;
     const { matLuces, matResplandor, matHaz } = materialesCiudad();
-    matLuces.color.setScalar(mezclar(0.35, 2.3, noche));
-    matResplandor.opacity = 0.34 * noche; matHaz.opacity = 0.2 * noche;
-    materialLucesAvion().color.setScalar(mezclar(0.85, 2.6, noche));
+    matLuces.color.setScalar(mezclar(0.35, 3.4, noche));
+    const sinPos = this.compositor ? 1 : 1.9; // sin posproceso no hay resplandor de lente: se compensa
+    matResplandor.opacity = Math.min(1, 0.5 * noche * sinPos); matHaz.opacity = 0.42 * noche;
+    materialLucesAvion().color.setScalar(mezclar(0.85, 3.4, noche));
     for (const c of this.ciudades.values()) c.actualizar(this.S, dt, this.tiempo);
     for (const r of this.rutas.values()) { r.seleccionada = this.sel?.tipo === 'ruta' && this.sel.id === r.id; r.actualizar(dt, this.S, this.tiempo, this.alPing); }
     for (const m of this.matsFaros ?? []) { m.uniforms.uAlto.value = this.altoPx; m.uniforms.uEscala.value = this.S; }
@@ -283,6 +284,7 @@ export class Mundo {
     const O = new THREE.CatmullRomCurve3(claves.map((k) => new THREE.Vector3(...k.obj)), false, 'centripetal');
     this.cine = { claves, P, O, t: 0, dur: claves[claves.length - 1].t, alTerminar };
     this.controles.enabled = false;
+    this.controles.maxPolarAngle = Math.PI / 2 - 0.01; this.controles.minDistance = 0.5; // en el cine la cámara puede mirar al horizonte
     this.avanzarCine(0);
   }
   avanzarCine(dt) {
@@ -299,6 +301,10 @@ export class Mundo {
   cortarCine() {
     const c = this.cine; if (!c) return;
     this.cine = null; this.controles.enabled = true; this.horaFija = null;
+    this.controles.maxPolarAngle = 1.2; this.controles.minDistance = 2.4;
+    // si se saltó antes del final, la cámara va suave hasta la última toma
+    const u = c.claves[c.claves.length - 1];
+    if (c.t < c.dur) this.controles.setLookAt(...u.pos, ...u.obj, true);
     c.alTerminar?.();
   }
 
@@ -359,8 +365,8 @@ export class Mundo {
       n.grupo.rotation.set(-0.16, -2.25, 0.12, 'YXZ');
       for (const h of n.helices) h.disco.visible = true;
       escena.add(n.grupo);
-      const d = n.envergadura * 2.5;
-      cam.position.set(0, d * 0.3, d); cam.lookAt(0, -0.02 * n.envergadura, 0);
+      const d = n.envergadura * 1.62;
+      cam.position.set(0, d * 0.32, d); cam.lookAt(0, -0.03 * n.envergadura, 0);
       materialLucesAvion().color.setScalar(1.2);
       r.render(escena, cam);
       salida[tipo] = lienzo.toDataURL('image/png');

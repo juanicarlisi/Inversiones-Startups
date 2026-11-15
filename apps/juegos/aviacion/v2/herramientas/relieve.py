@@ -13,7 +13,8 @@ Entradas (se bajan una sola vez a una carpeta de trabajo; no se versionan):
 
 Salidas (en ../activos):
   - alturas.webp  (sin pérdida) RGB de 8 bits: R,G = altura en 16 bits (ver ALT_MIN/ALT_MAX), B = máscara de ríos y lagos.
-  - suelo.webp    color del suelo (cobertura) + A sin usar.
+  - costa.webp    (sin pérdida) distancia con signo a la orilla: 128 = costa, ±127 = ±0,5 unidades de mundo.
+  - suelo.webp    color del suelo (cobertura); el canal alfa lleva las fronteras.
   - mundo.json    límites y codificación, para que el juego ubique todo.
 
 Uso:  python3 relieve.py <carpeta con las entradas> [ancho]
@@ -27,7 +28,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
 from scipy.io import netcdf_file
-from scipy.ndimage import gaussian_filter, map_coordinates
+from scipy.ndimage import distance_transform_edt, gaussian_filter, label, map_coordinates, zoom
 
 Image.MAX_IMAGE_PIXELS = None
 ENTRADA = Path(sys.argv[1])
@@ -63,6 +64,7 @@ zlat = np.array(f.variables['lat'].data)
 zlon = np.array(f.variables['lon'].data)
 f.close()
 # Antialias: la salida tiene menos resolución que la fuente (1' ≈ 0,0167°)
+z_fuente = z.copy()
 paso = (ESTE - OESTE) / ANCHO / (zlon[1] - zlon[0])
 if paso > 1.0:
     z = gaussian_filter(z, sigma=0.42 * paso)
@@ -71,6 +73,36 @@ col = (lon - zlon[0]) / (zlon[1] - zlon[0])
 F, C = np.meshgrid(fila, col, indexing='ij')
 alt = map_coordinates(z, [F, C], order=1, mode='nearest').astype(np.float32)
 print('alturas', alt.min(), alt.max())
+
+# ── costa: distancia con signo a la orilla (positiva en tierra), para que la costa, la playa y la espuma salgan limpias ──
+# Se calcula al doble de resolución con las alturas de origen y se guarda en 8 bits: ±0,5 unidades de mundo (unos 45 km).
+E2 = 2
+lon2 = OESTE + (np.arange(ANCHO * E2) + 0.5) / (ANCHO * E2) * (ESTE - OESTE)
+lat2 = inv_merc(Y_N - (np.arange(ALTO * E2) + 0.5) / (ALTO * E2) * (Y_N - Y_S))
+F2, C2 = np.meshgrid((lat2 - zlat[0]) / (zlat[1] - zlat[0]), (lon2 - zlon[0]) / (zlon[1] - zlon[0]), indexing='ij')
+alt2 = map_coordinates(z_fuente, [F2, C2], order=1, mode='nearest')
+tierra2 = gaussian_filter(alt2, 1.2) > 0.5
+# el agua que no toca el borde del mapa y es chica (depresiones bajo el nivel del mar) cuenta como tierra
+etiquetas, n_et = label(~tierra2)
+borde = set(np.unique(np.concatenate([etiquetas[0], etiquetas[-1], etiquetas[:, 0], etiquetas[:, -1]])))
+tam = np.bincount(etiquetas.ravel())
+for k in range(1, n_et + 1):
+    if k not in borde and tam[k] < 4000:
+        tierra2[etiquetas == k] = True
+# y las islas de menos de 6 píxeles se quitan (ruido)
+etiquetas, n_et = label(tierra2)
+tam = np.bincount(etiquetas.ravel())
+chicas = np.isin(etiquetas, np.where(tam < 6)[0])
+tierra2[chicas] = False
+px_mundo = (ESTE - OESTE) / (ANCHO * E2)
+d_tierra = distance_transform_edt(tierra2) * px_mundo
+d_mar = distance_transform_edt(~tierra2) * px_mundo
+sdf2 = gaussian_filter(np.where(tierra2, d_tierra - px_mundo / 2, -(d_mar - px_mundo / 2)), 1.0)
+sdf = sdf2.reshape(ALTO, E2, ANCHO, E2).mean(axis=(1, 3))
+costa8 = np.clip(np.round(128 + sdf / 0.5 * 127), 0, 255).astype(np.uint8)
+Image.fromarray(costa8, 'L').save(SALIDA / 'costa.webp', lossless=True, method=6)
+# las alturas acompañan a la costa: tierra por encima de 2 m, mar por debajo de −2 m
+alt = np.where(sdf > 0, np.maximum(alt, 2.0), np.minimum(alt, -2.0)).astype(np.float32)
 
 # El fondo del mar no necesita precisión: se suaviza para que el PNG pese menos (la costa queda intacta)
 mar = alt < -40
@@ -129,7 +161,7 @@ for ft in lagos['features']:
 print('ríos dibujados', n)
 agua = agua.filter(ImageFilter.GaussianBlur(0.9 * ESC)).resize((ANCHO, ALTO), Image.LANCZOS)
 agua_np = np.asarray(agua).copy()
-agua_np[alt < 0] = 0  # en el mar manda la altura
+agua_np[sdf <= 0] = 0  # en el mar manda la costa
 
 front = Image.new('L', (ANCHO * ESC, ALTO * ESC), 0)
 d = ImageDraw.Draw(front)
@@ -155,7 +187,7 @@ F, C = np.meshgrid(fila, col, indexing='ij')
 suelo = np.dstack([map_coordinates(rec[:, :, k], [F, C], order=1, mode='nearest') for k in range(3)])
 # La cobertura de Natural Earth pinta el mar de celeste plano: donde hay mar se extiende el color de la costa (así el filtrado
 # de la textura no mete un borde celeste en la playa).
-tierra = alt > 2
+tierra = sdf > 0.01
 color = suelo.copy()
 peso = tierra.astype(np.float32)
 for _ in range(6):
@@ -179,5 +211,5 @@ json.dump({
         'rios_lagos_fronteras': 'Natural Earth 1:50m, dominio público',
     },
 }, open(SALIDA / 'mundo.json', 'w'), ensure_ascii=False, indent=1)
-for a in ('alturas.webp', 'suelo.webp', 'mundo.json'):
+for a in ('alturas.webp', 'costa.webp', 'suelo.webp', 'mundo.json'):
     print(a, (SALIDA / a).stat().st_size // 1024, 'KB')

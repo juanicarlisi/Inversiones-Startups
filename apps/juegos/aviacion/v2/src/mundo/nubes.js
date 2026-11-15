@@ -19,7 +19,8 @@ export class Nubes {
     }
     const geo = new THREE.IcosahedronGeometry(1, calidad.nubes > 20 ? 2 : 1);
     const mat = new THREE.ShaderMaterial({
-      uniforms: { ...luz, uCerca: { value: 9 } },
+      transparent: true, depthWrite: false,
+      uniforms: { ...luz, uCerca: { value: 9 }, uObjetivo: { value: new THREE.Vector3() } },
       vertexShader: /* glsl */`
         varying vec3 vN; varying vec3 vPos;
         void main() {
@@ -29,27 +30,27 @@ export class Nubes {
         }`,
       fragmentShader: /* glsl */`
         precision highp float;
-        uniform vec3 uSolDir, uSolColor, uAmbCielo, uAmbSuelo, uNiebla; uniform float uNieblaDens, uCerca, uNoche;
+        uniform vec3 uSolDir, uSolColor, uAmbCielo, uAmbSuelo, uNiebla, uObjetivo; uniform float uNieblaDens, uCerca, uNoche;
         varying vec3 vN; varying vec3 vPos;
         void main() {
           float dist = distance(cameraPosition, vPos);
           // se disuelve cerca de la cámara con un tramado (sin ordenar transparencias)
-          float visible = smoothstep(uCerca * 0.55, uCerca, dist);
-          float umbral = fract(dot(gl_FragCoord.xy, vec2(0.7548776662, 0.5698402910)));
-          if (visible < umbral + 0.02) discard;
+          // solo se ven lejos de la cámara y lejos de lo que se mira: la zona de juego queda despejada
+          float visible = smoothstep(uCerca * 0.74, uCerca * 0.9, dist) * smoothstep(uCerca * 0.42, uCerca * 0.6, distance(vPos.xz, uObjetivo.xz));
+          if (visible < 0.01) discard;
           vec3 n = normalize(vN);
           float dif = dot(n, uSolDir) * 0.5 + 0.5;
-          vec3 c = uSolColor * (0.25 + 0.75 * dif * dif) * 0.62 + mix(uAmbSuelo * 0.9, uAmbCielo, n.y * 0.5 + 0.5) * 1.25;
+          vec3 c = uSolColor * (0.3 + 0.7 * dif * dif) * 0.75 + mix(uAmbSuelo * 1.4 + uAmbCielo * 0.5, uAmbCielo * 1.6, n.y * 0.5 + 0.5);
           c *= mix(1.0, 0.55, uNoche);
           float nb = 1.0 - exp(-pow(dist * uNieblaDens, 2.0));
           c = mix(c, uNiebla, nb * 0.85);
-          gl_FragColor = vec4(c, 1.0);
+          gl_FragColor = vec4(c, visible * 0.94);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }`,
     });
     this.malla = new THREE.InstancedMesh(geo, mat, this.copos.length);
-    this.malla.frustumCulled = false;
+    this.malla.frustumCulled = false; this.malla.renderOrder = 8;
     this.m = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.p = new THREE.Vector3(); this.s = new THREE.Vector3();
     this.viento = new THREE.Vector2();
     this.mat = mat;
@@ -69,6 +70,6 @@ export class Nubes {
       m.compose(p, q, s); malla.setMatrixAt(i, m);
     }
     malla.instanceMatrix.needsUpdate = true;
-    this.mat.uniforms.uCerca.value = Math.max(7, distCamara * 0.9);
+    this.mat.uniforms.uCerca.value = Math.max(8, distCamara); this.mat.uniforms.uObjetivo.value.copy(centro);
   }
 }

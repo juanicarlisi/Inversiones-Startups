@@ -7,7 +7,7 @@ import { aMundo, azar, semillaDe } from './geo.js';
 export const RADIO_CIUDAD = 0.5;      // tamaño del conjunto (en unidades de mundo, con escala 1)
 export const PISTA = { z: 0.2, medio: 0.36 }; // la pista corre por el eje X local, corrida hacia la cámara
 
-let matCuerpo, matLuces, matResplandor, texResplandor, matHaz;
+let matCuerpo, matLuces, matResplandor, texResplandor, matHaz, matSombraFicha;
 function materiales() {
   if (matCuerpo) return;
   matCuerpo = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0.0 });
@@ -18,17 +18,27 @@ function materiales() {
   g.fillStyle = gr; g.fillRect(0, 0, 128, 128);
   texResplandor = new THREE.CanvasTexture(c);
   matResplandor = new THREE.MeshBasicMaterial({ map: texResplandor, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
+  const c2 = document.createElement('canvas'); c2.width = c2.height = 128;
+  const g2 = c2.getContext('2d'), gr2 = g2.createRadialGradient(64, 64, 34, 64, 64, 64);
+  gr2.addColorStop(0, 'rgba(0,0,0,0.55)'); gr2.addColorStop(0.55, 'rgba(0,0,0,0.3)'); gr2.addColorStop(1, 'rgba(0,0,0,0)');
+  g2.fillStyle = gr2; g2.fillRect(0, 0, 128, 128);
+  matSombraFicha = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c2), transparent: true, depthWrite: false, opacity: 0.55 });
   matHaz = new THREE.MeshBasicMaterial({ color: col('#ffe6a8'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0, side: THREE.DoubleSide });
 }
-export const materialesCiudad = () => { materiales(); return { matLuces, matResplandor, matHaz }; };
+export const materialesCiudad = () => { materiales(); return { matLuces, matResplandor, matHaz, matSombraFicha }; };
 
 const TECHOS = ['#b5523a', '#c96a43', '#a44634', '#8f5a44', '#b8643a'];
 const PAREDES = ['#f2ead8', '#ece0c2', '#f6f1e6', '#e6d3b3', '#f0dcc8'];
 
+// Sombra pintada en la ficha, hacia el sur (el sol del hemisferio sur anda por el norte): barata y da volumen.
+function sombra(a, x, z, w, d, h) {
+  a.mas(new THREE.BoxGeometry(w * 1.05, 0.0012, d * 0.6 + h * 0.55), '#4f6a36', pos(x + h * 0.12, 0.0128, z + d * 0.3 + h * 0.27));
+}
 function casa(a, r, x, z, alto = 1) {
   const w = 0.05 + r() * 0.03, d = 0.045 + r() * 0.025, h = (0.034 + r() * 0.022) * alto, g = r() < 0.5 ? 0 : Math.PI / 2;
   const m = tr(pos(x, 0.012, z), rot(0, g + (r() - 0.5) * 0.3, 0));
   a.mas(new THREE.BoxGeometry(w, h, d), PAREDES[Math.floor(r() * PAREDES.length)], tr(m.clone(), pos(0, h / 2, 0)));
+  sombra(a, x, z, w, d, h + 0.03);
   const techo = new THREE.ConeGeometry(0.72, 0.035 + r() * 0.015, 4, 1); techo.rotateY(Math.PI / 4); techo.scale(w * 1.12, 1, d * 1.12);
   a.mas(techo, TECHOS[Math.floor(r() * TECHOS.length)], tr(m.clone(), pos(0, h + 0.02, 0)));
   // ventanas hacia la cámara y a un costado
@@ -42,6 +52,7 @@ function casa(a, r, x, z, alto = 1) {
 function edificio(a, r, x, z, alto) {
   const w = 0.06 + r() * 0.03, d = 0.055 + r() * 0.02;
   a.mas(new THREE.BoxGeometry(w, alto, d), ['#e9e1d0', '#d9cdb8', '#efe7da', '#cfc4b0'][Math.floor(r() * 4)], pos(x, 0.012 + alto / 2, z));
+  sombra(a, x, z, w, d, alto);
   a.mas(new THREE.BoxGeometry(w * 1.06, 0.008, d * 1.06), '#8a7f72', pos(x, 0.012 + alto + 0.004, z));
   const pisos = Math.max(2, Math.round(alto / 0.028)), cols = 3;
   for (let i = 0; i < pisos; i++) for (let k = 0; k < cols; k++) {
@@ -73,6 +84,7 @@ function armar(ap, esBase) {
   const hx = -0.2, hz = pz - 0.14;
   const arco = new THREE.CylinderGeometry(0.062, 0.062, 0.13, 16, 1, false, 0, Math.PI); arco.rotateZ(Math.PI / 2); arco.rotateY(Math.PI / 2);
   a.mas(arco, esBase ? '#d2a640' : '#a9483a', pos(hx, 0.03, hz));
+  sombra(a, hx, hz, 0.124, 0.13, 0.08);
   a.mas(new THREE.BoxGeometry(0.124, 0.03, 0.13), '#e8dcc2', pos(hx, 0.027, hz));
   a.mas(new THREE.BoxGeometry(0.08, 0.05, 0.004), '#2c2a2e', pos(hx, 0.037, hz + 0.066));
   a.luz(new THREE.PlaneGeometry(0.07, 0.012), '#ffcf7a', pos(hx, 0.07, hz + 0.0685), false, 1.3);
@@ -111,6 +123,8 @@ function armar(ap, esBase) {
     if (!libre(x, z, 0.078) || z > pz - 0.09) continue;
     puestos.push([x, z]); casa(a, r, x, z, ap.peso >= 28 ? 1.15 : 1); break;
   }
+  // farolitos: de noche el pueblo se ve desde lejos
+  for (let i = 0; i < 6 + Math.round(ap.peso / 10); i++) { const an = r() * Math.PI * 2, d = 0.06 + r() * 0.36; const x = Math.cos(an) * d, z = Math.sin(an) * d * 0.8 - 0.1; if (Math.abs(z - pz) > 0.07) a.luz(esfera(0.0065), r() < 0.7 ? '#ffd9a0' : '#fff2d0', pos(x, 0.03, z), false, 2.4); }
   const arboles = ap.lat < -44 ? 3 : 9;
   for (let i = 0; i < arboles; i++) for (let k = 0; k < 16; k++) {
     const an = r() * Math.PI * 2, d = 0.2 + r() * 0.27, x = Math.cos(an) * d, z = Math.sin(an) * d;
@@ -135,18 +149,18 @@ export class Ciudad {
     this.grupo.position.copy(this.pos); this.grupo.rotation.y = this.angulo;
     this.cuerpo = new THREE.Mesh(g.cuerpo, matCuerpo);
     this.luces = new THREE.Mesh(g.luces, matLuces);
-    this.resplandor = new THREE.Mesh(new THREE.PlaneGeometry(2.3, 2.3), matResplandor);
+    this.resplandor = new THREE.Mesh(new THREE.PlaneGeometry(esBase ? 3.6 : 2.8, esBase ? 3.6 : 2.8), matResplandor);
     this.resplandor.rotation.x = -Math.PI / 2; this.resplandor.position.y = 0.02; this.resplandor.renderOrder = 2;
-    this.grupo.add(this.cuerpo, this.luces, this.resplandor);
+    this.sombra = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.5), matSombraFicha);
+    this.sombra.rotation.x = -Math.PI / 2; this.sombra.position.set(0.05, -0.002, 0.07); this.sombra.renderOrder = 1.5;
+    this.grupo.add(this.cuerpo, this.luces, this.resplandor, this.sombra);
     if (esBase) {
       // el faro de la base: dos haces que giran
       this.haz = new THREE.Group(); this.haz.position.set(...g.torre);
       for (const s of [0, Math.PI]) {
-        const geo = new THREE.PlaneGeometry(0.9, 0.05); geo.translate(0.45, 0, 0);
-        const c = new Float32Array(12); // se desvanece hacia la punta
+        const geo = new THREE.PlaneGeometry(1.5, 0.07); geo.translate(0.75, 0, 0);
         const m = new THREE.Mesh(geo, matHaz); m.rotation.y = s; this.haz.add(m);
         const m2 = m.clone(); m2.rotation.x = Math.PI / 2; m2.rotation.y = s; this.haz.add(m2);
-        void c;
       }
       this.grupo.add(this.haz);
     }

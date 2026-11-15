@@ -1,21 +1,23 @@
 // Ciclo de día y noche: una sola fuente de verdad para la luz de todo el mundo (terreno, mar, cielo, ciudades, aviones).
 import * as THREE from 'three';
 import { limitar, suave } from './geo.js';
+import { texturaRuido } from './ruido.js';
 
-const c = (hex, k = 1) => new THREE.Color(hex).convertSRGBToLinear().multiplyScalar(k);
+const c = (hex, k = 1) => new THREE.Color(hex).multiplyScalar(k);
 // Claves por hora: cenit y horizonte del cielo, luz directa (sol o luna), luz ambiente del cielo y del suelo, niebla.
 const CLAVES = [
-  { h: 0, cenit: c('#050a1c'), horiz: c('#131f47'), sol: c('#8fa8ff', 0.55), amb: c('#27386e', 0.95), suelo: c('#131a33', 0.7), niebla: c('#0d1736'), noche: 1 },
-  { h: 4.6, cenit: c('#060b20'), horiz: c('#1a2552'), sol: c('#8fa8ff', 0.55), amb: c('#27386e', 0.95), suelo: c('#131a33', 0.7), niebla: c('#101a3c'), noche: 1 },
-  { h: 5.9, cenit: c('#27356f'), horiz: c('#ee8a62'), sol: c('#ff8a4f', 0.9), amb: c('#5b5590', 0.9), suelo: c('#3a2d3f', 0.7), niebla: c('#b7778a'), noche: 0.35 },
-  { h: 7.2, cenit: c('#3c78c8'), horiz: c('#ffd2a1'), sol: c('#ffc68a', 2.3), amb: c('#89a9d8', 0.85), suelo: c('#6b5a45', 0.6), niebla: c('#e9c9b0'), noche: 0 },
-  { h: 10, cenit: c('#2f7fd6'), horiz: c('#bfe3f7'), sol: c('#fff1d6', 2.9), amb: c('#a3c7ee', 0.9), suelo: c('#7a7052', 0.6), niebla: c('#cfe5f4'), noche: 0 },
-  { h: 15.5, cenit: c('#2f7fd6'), horiz: c('#c4e4f5'), sol: c('#fff0d2', 2.9), amb: c('#a3c7ee', 0.9), suelo: c('#7a7052', 0.6), niebla: c('#cfe5f4'), noche: 0 },
-  { h: 17.6, cenit: c('#3a66b8'), horiz: c('#ffc187'), sol: c('#ffb46e', 2.5), amb: c('#9a90bd', 0.85), suelo: c('#6f5140', 0.6), niebla: c('#f0be98'), noche: 0 },
-  { h: 19.1, cenit: c('#2a2f73'), horiz: c('#f0764f'), sol: c('#ff6f3d', 1.5), amb: c('#6f5f9c', 0.85), suelo: c('#46303d', 0.6), niebla: c('#c0627a'), noche: 0.3 },
-  { h: 20.3, cenit: c('#0c1338'), horiz: c('#5a3a7a'), sol: c('#8fa8ff', 0.4), amb: c('#33407c', 0.95), suelo: c('#1a1c38', 0.7), niebla: c('#2a2558'), noche: 0.9 },
-  { h: 21.5, cenit: c('#050a1c'), horiz: c('#131f47'), sol: c('#8fa8ff', 0.55), amb: c('#27386e', 0.95), suelo: c('#131a33', 0.7), niebla: c('#0d1736'), noche: 1 },
-  { h: 24, cenit: c('#050a1c'), horiz: c('#131f47'), sol: c('#8fa8ff', 0.55), amb: c('#27386e', 0.95), suelo: c('#131a33', 0.7), niebla: c('#0d1736'), noche: 1 },
+  { h: 0, cenit: c('#050a1c'), horiz: c('#131f47'), sol: c('#9db4ff', 0.46), amb: c('#27386e', 0.72), suelo: c('#131a33', 0.7), niebla: c('#0d1736'), noche: 1 },
+  { h: 4.6, cenit: c('#060b20'), horiz: c('#1a2552'), sol: c('#9db4ff', 0.46), amb: c('#27386e', 0.72), suelo: c('#131a33', 0.7), niebla: c('#101a3c'), noche: 1 },
+  { h: 5.9, cenit: c('#27356f'), horiz: c('#ee8a62'), sol: c('#ff8a4f', 0.8), amb: c('#5b5590', 0.6), suelo: c('#3a2d3f', 0.7), niebla: c('#b7778a'), noche: 0.35 },
+  { h: 7.0, cenit: c('#3c78c8'), horiz: c('#ffd2a1'), sol: c('#ffc68a', 1.5), amb: c('#89a9d8', 0.5), suelo: c('#6b5a45', 0.6), niebla: c('#e9c9b0'), noche: 0 },
+  { h: 8.6, cenit: c('#2f7fd6'), horiz: c('#bfe3f7'), sol: c('#fff1d6', 1.55), amb: c('#a3c7ee', 0.5), suelo: c('#7a7052', 0.6), niebla: c('#cfe5f4'), noche: 0 },
+  { h: 15.5, cenit: c('#2f7fd6'), horiz: c('#c4e4f5'), sol: c('#fff0d2', 1.55), amb: c('#a3c7ee', 0.5), suelo: c('#7a7052', 0.6), niebla: c('#cfe5f4'), noche: 0 },
+  { h: 17.4, cenit: c('#3a6fc4'), horiz: c('#ffd9a0'), sol: c('#ffd39a', 1.6), amb: c('#a6a3cc', 0.52), suelo: c('#7a5f48', 0.6), niebla: c('#f4d2a8'), noche: 0 },
+  { h: 18.8, cenit: c('#3b4f9e'), horiz: c('#ffa868'), sol: c('#ffb070', 1.55), amb: c('#9a86b8', 0.55), suelo: c('#6a4a44', 0.6), niebla: c('#eba987'), noche: 0.08 },
+  { h: 19.6, cenit: c('#252a6e'), horiz: c('#f07e58'), sol: c('#ff8f5e', 1.0), amb: c('#6f62a2', 0.62), suelo: c('#40304a', 0.6), niebla: c('#b9697f'), noche: 0.45 },
+  { h: 20.3, cenit: c('#0c1338'), horiz: c('#5a3a7a'), sol: c('#8fa8ff', 0.4), amb: c('#33407c', 0.8), suelo: c('#1a1c38', 0.7), niebla: c('#2a2558'), noche: 0.9 },
+  { h: 21.5, cenit: c('#050a1c'), horiz: c('#131f47'), sol: c('#9db4ff', 0.46), amb: c('#27386e', 0.72), suelo: c('#131a33', 0.7), niebla: c('#0d1736'), noche: 1 },
+  { h: 24, cenit: c('#050a1c'), horiz: c('#131f47'), sol: c('#9db4ff', 0.46), amb: c('#27386e', 0.72), suelo: c('#131a33', 0.7), niebla: c('#0d1736'), noche: 1 },
 ];
 
 export class Cielo {
@@ -34,6 +36,7 @@ export class Cielo {
       uHoriz: { value: new THREE.Color() },
       uDiscoDir: { value: new THREE.Vector3() }, // dónde se dibuja el sol (aunque ya alumbre la luna)
       uLunaDir: { value: new THREE.Vector3() },
+      uRuido: { value: texturaRuido() },
     };
     this.hora = 9; this.noche = 0;
     this.sol = new THREE.DirectionalLight(0xffffff, 1);
@@ -42,7 +45,7 @@ export class Cielo {
     this.grupo.add(this.sol, this.sol.target, this.hemi);
 
     this.cupula = new THREE.Mesh(new THREE.SphereGeometry(420, 32, 20), new THREE.ShaderMaterial({
-      side: THREE.BackSide, depthWrite: false, fog: false,
+      side: THREE.BackSide, depthWrite: false, depthFunc: THREE.LessEqualDepth, fog: false,
       uniforms: this.u,
       vertexShader: /* glsl */`
         varying vec3 vDir;
@@ -64,16 +67,18 @@ export class Cielo {
           // luna y estrellas
           float l = max(dot(d, uLunaDir), 0.0);
           col += vec3(0.75, 0.82, 1.0) * (smoothstep(0.99955, 0.9998, l) * 3.2 + pow(l, 60.0) * 0.18) * uNoche;
-          vec3 g = floor(d * 190.0);
+          // estrellas redondas: una por celda, con brillo y parpadeo propios
+          vec3 q = d * 150.0, g = floor(q);
           float e = hash(g);
-          float brillo = smoothstep(0.985, 1.0, e) * (0.6 + 0.4 * sin(uTiempo * (1.5 + 3.0 * fract(e * 91.7)) + e * 40.0));
-          col += vec3(0.9, 0.93, 1.0) * brillo * uNoche * smoothstep(0.02, 0.3, d.y) * 1.6;
+          float punto = smoothstep(0.42, 0.08, length(fract(q) - 0.5));
+          float brillo = smoothstep(0.972, 1.0, e) * punto * (0.65 + 0.35 * sin(uTiempo * (1.5 + 3.0 * fract(e * 91.7)) + e * 40.0));
+          col += vec3(0.9, 0.93, 1.0) * brillo * smoothstep(0.25, 1.0, uNoche) * smoothstep(0.02, 0.3, d.y) * 2.2;
           gl_FragColor = vec4(col, 1.0);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }`,
     }));
-    this.cupula.renderOrder = -10; this.cupula.frustumCulled = false;
+    this.cupula.renderOrder = 50; this.cupula.frustumCulled = false; // se dibuja después de lo opaco: solo pinta donde no hay nada
     this.grupo.add(this.cupula);
     this.fijarHora(9);
   }
@@ -103,12 +108,14 @@ export class Cielo {
     if (esLuna >= 1) dir.copy(luna);
     else {
       // de día manda el sol, pero nunca tan rasante que todo quede negro
-      dir.copy(disco); dir.y = Math.max(dir.y, 0.16); dir.normalize();
+      dir.copy(disco); dir.y = Math.max(dir.y, 0.3); dir.normalize();
       if (esLuna > 0) dir.lerp(luna, esLuna).normalize();
     }
-    this.sol.color.copy(u.uSolColor.value); this.sol.intensity = 1;
+    this.sol.color.copy(u.uSolColor.value);
+    // three divide el difuso por π (los materiales propios no); con el sol bajo se compensa, como hace el terreno con su luz envolvente
+    this.sol.intensity = Math.PI * (1 + 0.75 * (1 - dir.y));
     this.sol.position.copy(dir).multiplyScalar(60);
-    this.hemi.color.copy(u.uAmbCielo.value); this.hemi.groundColor.copy(u.uAmbSuelo.value); this.hemi.intensity = 1.25;
+    this.hemi.color.copy(u.uAmbCielo.value); this.hemi.groundColor.copy(u.uAmbSuelo.value); this.hemi.intensity = Math.PI * (1 - 0.35 * this.noche);
   }
 
   // La cúpula y las luces siguen a la cámara.

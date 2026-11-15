@@ -1,0 +1,51 @@
+// Jugador automático de la v2: juega solo siguiendo «Siguiente paso» (lo mismo que haría alguien que no sabe nada) y avisa
+// si aparece un error de JavaScript. Sirve para comprobar que el capítulo 1 se puede jugar de punta a punta con la capa nueva.
+//   node herramientas/jugador.cjs [minutos de juego reales simulados = 12] [carpeta de capturas]
+// Necesita dist/ servido en http://localhost:8812 (npm run servir).
+const { chromium } = require('/opt/node22/lib/node_modules/playwright');
+const path = require('path');
+
+(async () => {
+  const minutos = +(process.argv[2] ?? 12), carpeta = process.argv[3] ?? null;
+  const url = process.env.URL_JUEGO ?? 'http://localhost:8812/index.html';
+  const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome', args: ['--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+  const p = await (await b.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
+  const errores = [];
+  p.on('pageerror', (e) => errores.push(String(e).slice(0, 300)));
+  p.on('console', (m) => { if (m.type() === 'error') errores.push(m.text().slice(0, 300)); });
+  await p.goto(`${url}?calidad=${process.env.CALIDAD ?? 'bajo'}&nuevo=1&saltar=guia&lang=es`);
+  await p.waitForFunction(() => window.__hn?.estado?.escena === 'juego', null, { timeout: 60000 });
+  const foto = async (n) => { if (carpeta) { await p.waitForTimeout(2500); await p.screenshot({ path: path.join(carpeta, n) }); } };
+  const hitos = [];
+  let ultimaMision = null, fotoNoche = false, fotoFaros = false, fotoBase = false;
+  const tramo = 2; // segundos reales simulados por vuelta
+  for (let seg = 0; seg < minutos * 60; seg += tramo) {
+    const e = await p.evaluate((tramo) => {
+      const h = window.__hn, doc = document;
+      // cerrar ventanas y elegir en los momentos
+      const v = doc.querySelector('#ventana:not([hidden]) [data-accion="siguienteCapitulo"], #ventana:not([hidden]) [data-accion="cerrarVentana"].boton');
+      if (v) v.click();
+      const el = doc.querySelector('#momento:not([hidden]) .elige button'); if (el) el.click();
+      // seguir el consejo: tocar «Siguiente paso» y después el botón que late
+      const late = doc.querySelector('#panel .late:not(.no), #mision .late');
+      if (late) late.click();
+      else if (!doc.querySelector('#panel:not([hidden])')) h.tocarPaso();
+      else { const m = doc.querySelector('#panel [data-accion="comprar"]:not(.no), #panel [data-accion="abrirRuta"]:not(.no), #panel [data-accion="faros"]:not(.no)'); if (m) m.click(); else doc.querySelector('#panel [data-accion="cerrarPanel"]')?.click(); }
+      h.avanzar(tramo);
+      const s = h.s;
+      return { ...h.estado, noche: h.M.esNoche(s), balizas: s.rutas.filter((r) => r.balizas).length, t: s.t, cap: s.cap, misiones: s.misiones.length, paso: doc.querySelector('#paso .txt')?.textContent ?? '' };
+    }, tramo);
+    if (e.mision !== ultimaMision) { hitos.push(`${(seg / 60).toFixed(1)} min: misión ${e.mision} · $${Math.round(e.dinero)} · ${e.rutas} rutas · ${e.aviones} aviones`); ultimaMision = e.mision; }
+    if (carpeta && !fotoNoche && e.noche && e.aviones >= 2 && e.balizas === 0) { fotoNoche = true; await foto('j-noche-sin-faros.png'); }
+    if (carpeta && !fotoFaros && e.noche && e.balizas >= 1) { fotoFaros = true; await p.evaluate(() => window.__hn.verRed()); await foto('j-noche-faros.png'); }
+    if (carpeta && !fotoBase && e.rutas >= 3 && !e.noche) { fotoBase = true; await p.evaluate(() => { const h = window.__hn; h.elegir({ tipo: 'ciudad', id: 'BUE' }); h.avanzar(1.5); }); await foto('j-base.png'); await p.evaluate(() => document.querySelector('[data-accion="cerrarPanel"]')?.click()); }
+    if (e.cap > 1) { hitos.push(`${(seg / 60).toFixed(1)} min: capítulo ${e.cap}`); break; }
+  }
+  const fin = await p.evaluate(() => ({ ...window.__hn.estado, misiones: window.__hn.s.misiones, dia: Math.round(window.__hn.s.t / 1440 * 10) / 10 }));
+  if (carpeta) await foto('j-fin.png');
+  console.log(hitos.join('\n'));
+  console.log('final:', JSON.stringify(fin));
+  console.log(errores.length ? `ERRORES (${errores.length}):\n${[...new Set(errores)].join('\n')}` : 'sin errores de JavaScript');
+  await b.close();
+  process.exit(errores.length ? 1 : 0);
+})();

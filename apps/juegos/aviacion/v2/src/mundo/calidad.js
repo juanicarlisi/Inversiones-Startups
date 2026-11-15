@@ -1,6 +1,6 @@
 // Niveles de calidad. Se elige uno al arrancar (o con ?calidad=alto|medio|bajo) y el juego baja solo si no llega a 30 cuadros.
 export const NIVELES = {
-  alto: { nombre: 'alto', dpr: 2, mallaTerreno: 440, olas: 2, pos: true, msaa: 4, nubes: 44, luces: 1 },
+  alto: { nombre: 'alto', dpr: 2, mallaTerreno: 560, olas: 2, pos: true, msaa: 4, nubes: 44, luces: 1 },
   medio: { nombre: 'medio', dpr: 1.5, mallaTerreno: 300, olas: 2, pos: true, msaa: 0, nubes: 28, luces: 1 },
   bajo: { nombre: 'bajo', dpr: 1, mallaTerreno: 180, olas: 1, pos: false, msaa: 0, nubes: 12, luces: 0 },
 };
@@ -16,7 +16,8 @@ export function elegirCalidad(gl) {
   const porSoftware = /swiftshader|llvmpipe|software|basic render/i.test(gpu);
   const nucleos = navigator.hardwareConcurrency ?? 4, memoria = navigator.deviceMemory ?? 4;
   const celular = /android|iphone|ipad|mobile/i.test(navigator.userAgent);
-  if (porSoftware || nucleos <= 2 || memoria <= 2) return { ...NIVELES.bajo };
+  if (porSoftware) return { ...NIVELES.bajo, escalaInicial: 0.5 }; // sin GPU: se empieza a media resolución
+  if (nucleos <= 2 || memoria <= 2) return { ...NIVELES.bajo };
   if (celular || nucleos <= 4 || memoria <= 4) return { ...NIVELES.medio };
   return { ...NIVELES.alto };
 }

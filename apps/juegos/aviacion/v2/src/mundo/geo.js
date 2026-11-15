@@ -31,15 +31,29 @@ export class Relieve {
     return (a[k] * (1 - fu) + a[k + 1] * fu) * (1 - fv) + (a[k + this.ancho] * (1 - fu) + a[k + this.ancho + 1] * fu) * fv;
   }
 
-  // Altura del suelo en unidades de mundo (el mar es 0).
-  y(x, z) { return Math.max(0, this.km_(x, z)) * KM_A_Y; }
+  // Distancia con signo a la orilla (positiva en tierra), en unidades de mundo.
+  costa_(x, z) {
+    const u = (x - this.x0) / this.w * this.ancho - 0.5, v = (z - this.zN) / this.h * this.alto - 0.5;
+    if (u < 0 || v < 0 || u > this.ancho - 1 || v > this.alto - 1) return -0.5;
+    const i = Math.min(this.ancho - 2, Math.floor(u)), j = Math.min(this.alto - 2, Math.floor(v)), fu = u - i, fv = v - j;
+    const a = this.costa, k = j * this.ancho + i;
+    return (((a[k] * (1 - fu) + a[k + 1] * fu) * (1 - fv) + (a[k + this.ancho] * (1 - fu) + a[k + this.ancho + 1] * fu) * fv) / 255 - 0.50196) * 1.00394;
+  }
+
+  // Altura del suelo en unidades de mundo (el mar es 0). Igual que el vértice del terreno.
+  y(x, z) {
+    const d = this.costa_(x, z);
+    if (d <= 0) return 0;
+    const t = Math.min(1, d / 0.02);
+    return Math.max(0.002, this.km_(x, z)) * KM_A_Y * t * t * (3 - 2 * t) + 0.0015;
+  }
 
   // El punto de tierra firme más cercano con lugar para apoyar un conjunto de radio r (para las ciudades de la costa).
   apoyo(x, z, r = 0.16) {
     const tierra = (px, pz) => {
       let n = 0;
-      for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; if (this.km_(px + Math.cos(a) * r, pz + Math.sin(a) * r) > 0.001) n++; }
-      return (this.km_(px, pz) > 0.002 ? 4 : 0) + n;
+      for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; if (this.costa_(px + Math.cos(a) * r, pz + Math.sin(a) * r) > 0.01) n++; }
+      return (this.costa_(px, pz) > 0.02 ? 4 : 0) + n;
     };
     let mejor = [x, z], puntaje = tierra(x, z);
     if (puntaje >= 12) return mejor;
@@ -56,14 +70,20 @@ export class Relieve {
 }
 
 // Carga alturas.webp (R,G = altura en 16 bits, B = ríos y lagos) y la deja lista para la CPU y para la GPU.
-export async function cargarRelieve(urlAlturas, mundo) {
-  const blob = await (await fetch(urlAlturas)).blob();
+async function pixeles(url) {
+  const blob = await (await fetch(url)).blob();
   const bmp = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
   const lienzo = document.createElement('canvas');
   lienzo.width = bmp.width; lienzo.height = bmp.height;
   const ctx = lienzo.getContext('2d', { willReadFrequently: true, colorSpace: 'srgb' });
   ctx.drawImage(bmp, 0, 0);
   const px = ctx.getImageData(0, 0, bmp.width, bmp.height).data;
+  bmp.close?.();
+  return { px, ancho: lienzo.width, alto: lienzo.height };
+}
+export async function cargarRelieve(urlAlturas, urlCosta, mundo) {
+  const [{ px, ancho, alto }, c] = await Promise.all([pixeles(urlAlturas), pixeles(urlCosta)]);
+  const bmp = { width: ancho, height: alto };
   const n = bmp.width * bmp.height;
   const km = new Float32Array(n), agua = new Uint8Array(n);
   const gpu = new Uint16Array(n * 2);
@@ -77,9 +97,12 @@ export async function cargarRelieve(urlAlturas, mundo) {
   textura.minFilter = textura.magFilter = THREE.LinearFilter;
   textura.wrapS = textura.wrapT = THREE.ClampToEdgeWrapping;
   textura.needsUpdate = true;
-  bmp.close?.();
-  const r = new Relieve({ ancho: bmp.width, alto: bmp.height, km, agua }, mundo);
-  r.textura = textura;
+  const costa = new Uint8Array(n);
+  for (let i = 0; i < n; i++) costa[i] = c.px[i * 4];
+  const texCosta = new THREE.DataTexture(costa, ancho, alto, THREE.RedFormat, THREE.UnsignedByteType);
+  texCosta.minFilter = texCosta.magFilter = THREE.LinearFilter; texCosta.needsUpdate = true;
+  const r = new Relieve({ ancho, alto, km, agua, costa }, mundo);
+  r.textura = textura; r.texCosta = texCosta;
   return r;
 }
 

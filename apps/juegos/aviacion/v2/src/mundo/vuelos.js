@@ -11,7 +11,7 @@ const _a = new THREE.Vector3(), _b = new THREE.Vector3(), _c = new THREE.Vector3
 const _p0 = new THREE.Vector3(), _p1 = new THREE.Vector3(), _p4 = new THREE.Vector3(), _p5 = new THREE.Vector3(), _c1 = new THREE.Vector3(), _c2 = new THREE.Vector3();
 const _dT = new THREE.Vector3(), _dL = new THREE.Vector3(), _lat = new THREE.Vector3(), _e = new THREE.Euler(0, 0, 0, 'YXZ');
 
-let matSombra, geoSombra, matEstela;
+let matSombra, geoSombra, matEstela, matBrillo;
 function materiales(luz) {
   if (matSombra) return;
   const c = document.createElement('canvas'); c.width = c.height = 64;
@@ -20,6 +20,11 @@ function materiales(luz) {
   g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
   matSombra = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false, opacity: 0.5 });
   geoSombra = new THREE.PlaneGeometry(1, 1); geoSombra.rotateX(-Math.PI / 2);
+  const c2 = document.createElement('canvas'); c2.width = c2.height = 64;
+  const g2 = c2.getContext('2d'), gr2 = g2.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gr2.addColorStop(0, 'rgba(255,214,150,0.9)'); gr2.addColorStop(0.3, 'rgba(255,190,110,0.35)'); gr2.addColorStop(1, 'rgba(255,170,90,0)');
+  g2.fillStyle = gr2; g2.fillRect(0, 0, 64, 64);
+  matBrillo = new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c2), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 });
   matEstela = new THREE.ShaderMaterial({
     uniforms: { uNoche: luz.uNoche, uSolColor: luz.uSolColor, uAmbCielo: luz.uAmbCielo },
     transparent: true, depthWrite: false, side: THREE.DoubleSide,
@@ -41,6 +46,7 @@ class Nave {
     this.id = av.id; this.tipo = av.tipo;
     Object.assign(this, crearAvion(av.tipo));
     this.sombra = new THREE.Mesh(geoSombra, matSombra); this.sombra.renderOrder = 3;
+    this.brillo = new THREE.Sprite(matBrillo); this.brillo.scale.setScalar(1.5 * this.envergadura); this.brillo.renderOrder = 5; this.grupo.add(this.brillo);
     const geo = new THREE.BufferGeometry();
     this.posE = new Float32Array(N_ESTELA * 2 * 3); this.alfaE = new Float32Array(N_ESTELA * 2);
     geo.setAttribute('position', new THREE.BufferAttribute(this.posE, 3)); geo.setAttribute('alfa', new THREE.BufferAttribute(this.alfaE, 1));
@@ -64,7 +70,7 @@ export class Vuelos {
   }
 
   // Tamaño de un avión en el mundo.
-  escalaDe(nave, S) { return 0.21 * S / Math.sqrt(nave.envergadura); }
+  escalaDe(nave, S) { return 0.3 * S / Math.sqrt(nave.envergadura); }
 
   // Geometría de un tramo: del aeropuerto «de» al aeropuerto «a», para el avión con casillas dadas.
   tramo(de, a, S, casDe, casA, nave) {
@@ -130,22 +136,31 @@ export class Vuelos {
       n.aparicion = Math.min(1, n.aparicion + dt * 2.2);
       const k = this.escalaDe(n, S);
       const cas = (c) => (c.id === r.a ? av._ca : av._cb);
-      let estado, pitch = 0, enAire = false, potencia = 0.25;
+      let estado, pitch = 0, enAire = false, potencia = 0.25, vira = 0;
       if (av.fase === 'vuelo') {
         this.tramo(de, a, S, cas(de), cas(a), n);
         const durSeg = Math.max(2.5, av.dur / minPorSeg);
         const f = limitar(1 - (av.resta - frac) / av.dur);
         const alt = this.crucero(r.id, de, a, S);
         estado = this.enVuelo(f, durSeg, alt, n.pos);
-        const e2 = this.enVuelo(Math.min(1, f + 0.006), durSeg, alt, _d);
+        const D = 0.006;
+        const e2 = this.enVuelo(Math.min(1, f + D), durSeg, alt, _d);
         if (estado.fase === 'aire') {
-          if (e2.fase === 'aire' && _d.distanceToSquared(n.pos) > 1e-10) n.adelante.subVectors(_d, n.pos).normalize();
+          if (e2.fase === 'aire' && _d.distanceToSquared(n.pos) > 1e-10) {
+            n.adelante.subVectors(_d, n.pos).normalize();
+            // cuánto vira: se mide sobre la trayectoria (no entre cuadros), así el alabeo no depende de los cuadros por segundo
+            const e3 = this.enVuelo(Math.min(1, f + 2 * D), durSeg, alt, _c);
+            if (e3.fase === 'aire') {
+              let d = Math.atan2(_c.x - _d.x, _c.z - _d.z) - Math.atan2(n.adelante.x, n.adelante.z);
+              while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI;
+              vira = d / (D * durSeg);
+            }
+          }
           enAire = true; potencia = 1;
         } else if (estado.fase === 'carrera') { n.adelante.copy(_dT); pitch = n.cabeceo * (1 - suave(0.2, 0.8, estado.s)); potencia = 0.6 + 0.4 * estado.s; }
         else { n.adelante.copy(_dL); pitch = n.cabeceo * suave(0.3, 1, estado.s); potencia = 0.5 - 0.25 * estado.s; }
         if (estado.fase === 'aire' && !n.enAire) this.eventos.push({ tipo: 'despegue', nave: n, ciudad: de });
         if (estado.fase === 'frenada' && n.enAire) this.eventos.push({ tipo: 'toque', nave: n, ciudad: a });
-        n.destino = a; n.origen = de;
       } else {
         // en tierra: llegó desde «hacia» (su próximo destino es volver): rueda hasta la cabecera, gira y espera
         this.tramo(de, a, S, cas(de), cas(a), n);
@@ -161,17 +176,14 @@ export class Vuelos {
         pitch = n.cabeceo;
         potencia = av.espera ? 0.0 : 0.22;
         estado = { fase: 'tierra', g };
-        n.destino = a; n.origen = de;
         if (!n.v0 && (av.v ?? 0) > 0) n.v0 = true;
       }
       if (av.fase === 'vuelo') n.v0 = true;
       n.enAire = enAire; n.fase = estado.fase; n.espera = av.espera ?? null;
       // orientación: rumbo, cabeceo y alabeo (según cuánto vira)
       const rumbo = Math.atan2(n.adelante.x, n.adelante.z);
-      let vira = 0;
-      if (n.rumbo != null && enAire && dt > 0) { let d = rumbo - n.rumbo; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; vira = d / dt; }
       n.rumbo = rumbo;
-      const objetivo = enAire ? limitar(-vira * 0.9, -0.85, 0.85) : 0;
+      const objetivo = enAire ? limitar(-vira * 1.1, -0.8, 0.8) : 0;
       n.alabeo += (objetivo - n.alabeo) * Math.min(1, dt * 4);
       const cab = (enAire ? -Math.asin(limitar(n.adelante.y, -0.6, 0.6)) : 0) - pitch;
       n.cabeceoSuave += (cab - n.cabeceoSuave) * Math.min(1, dt * 7);
@@ -194,7 +206,7 @@ export class Vuelos {
       this.estelar(n, dt, k, enAire);
     }
     for (const [id, n] of this.naves) if (!vistos.has(id)) { n.quitar(mundo.escena); this.naves.delete(id); }
-    if (matSombra) matSombra.opacity = 0.5 * (1 - 0.6 * mundo.cielo.noche);
+    if (matSombra) { matSombra.opacity = 0.5 * (1 - 0.6 * mundo.cielo.noche); matBrillo.opacity = 0.8 * mundo.cielo.noche; }
   }
 
   // Estela: una cinta que nace en la cola y se desvanece.
