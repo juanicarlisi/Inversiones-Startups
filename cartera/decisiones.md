@@ -1837,3 +1837,23 @@ se aprueba, la recomendación de lanzar sin EE. UU., Brasil ni la UE (DEC-2026-1
 - **Confidencialidad:** la planta piloto es del empleador del fundador; en este repositorio (público) solo queda el método.
 - **Del fundador:** sumar el método a la consulta legal pendiente (reuso de lo hecho en la piloto) y conseguir una segunda planta de
   prueba que no sea de su empleador.
+
+## DEC-2026-11-15-4 · Hub Nocturno: sigue, y pasa de «un capítulo corto» a la carrera de un empresario de logística aérea
+
+- **Contexto (15-11-2026, a la noche):** el fundador probó la versión 3D y le pareció muy buena. Marcó lo que falta: todo pasa
+  tan rápido que no se entiende; no se ve el costo ni el beneficio de cada decisión (ruta, faros, hangar) y se termina apretando
+  botones; quiere un lugar propio (una oficina) donde ver vuelos, notas, la flota y lo transportado; que el tiempo avance por
+  épocas hasta el presente; más que cartas (paquetes, salud, logística en general); sentirse un empresario con carrera, con
+  propuestas de negocio (socios, inversores, ofertas de compra) y nombre propio para la empresa; mejor zoom; y que la gente
+  aprenda jugando. Pidió benchmark y entender qué busca la gente, sin apuro.
+- **Decidido por el fundador:** Hub Nocturno sigue (queda respondida la pregunta «seguir o cortar» de DEC-2026-11-15-2) y deja de
+  ser solo un capítulo de 20 minutos: es un juego de gestión con el que se aprende logística y empresa.
+- **Cómo se trabaja (Claude):** primero investigación (benchmark de juegos y de lo que dicen los jugadores, plan de lo que se
+  aprende con historia verificada, diagnóstico medido del juego actual), después el diseño y la construcción por etapas, cada una
+  con prueba a ciegas. Lo que el fundador trae de otros juegos es dirección, nunca algo para copiar: nombre, personajes y aspecto
+  propios, mecánicas genéricas.
+- **Lo que no cambia:** las compuertas de publicación de DEC-2026-11-15-2 (4 de 5 personas nuevas lo entienden antes de subir; los
+  umbrales del portal) y la regla 8 (no se publica ni se gasta sin su OK). El caso de negocio (unos USD 100 por mes esperados)
+  se recalcula con el producto nuevo: un juego más profundo cambia el canal (sesiones largas, guardado) y los números.
+- **Riesgo anotado (INFERENCIA de Claude):** el alcance crece mucho; se controla construyendo por etapas jugables y midiendo cada
+  una, sin tocar lo que ya funciona hasta que lo nuevo lo supere.
