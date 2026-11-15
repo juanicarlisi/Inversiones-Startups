@@ -485,3 +485,30 @@ tocó `apps/anden/simulador/` ni `apps/juegos/aviacion/`.
 con el radar corregido; el piso exacto del oráculo (diferencia relativa máxima 1,2e-15) admite el umbral de 1e-9 de C2-2; 6 de 9 del oráculo
 con el motor 1.2.0 se reprodujo; no hay gastos ni publicaciones sin OK (el servidor de VRP, el gancho de sesión y la compra de teléfonos
 quedan como pedidos al fundador en el §6).
+
+## 10. Línea «2c Tu planta»: gemelo de planta desde fotos, video y planos (15-11-2026)
+
+Pedido del fundador del 15-11-2026: que el método usado con la planta piloto (privada; acá no hay datos de ella) sirva para cualquier
+planta. El detalle completo, con las pruebas y las herramientas, está en `gemelo-de-planta.md`. Adelanta parte de lo que el diseño
+maestro dejaba para el corte 6 («DXF/IFC; croquis y PDF → modelo»).
+
+- **Qué agrega:** de un relevamiento de 30–60 minutos con el celular (protocolo con video lento, fotos de anclas y 5 medidas de
+  control) y el plano DWG/DXF/PDF, una `anden.planta/1` medida y una familia nueva del motor, `piso`, para operaciones manuales sobre un
+  layout. El 3D de C2-3 la dibuja; la biblioteca de C2-4 pone los objetos.
+- **Herramientas elegidas (MEDIDO en CPU el 15-11-2026):** COLMAP vía pycolmap 4.2.1 (36 de 39 cuadros de video en 2 min 23 s; a
+  0,23–0,30 m de las poses resueltas a mano), LibreDWG 0.14 + ezdxf 1.4.5 (DWG real a DXF en 4,6 s; grilla de columnas a ≤ 0,4% de la
+  medida por fotos), PyMuPDF para PDF vectorial. VGGT comercial y gaussian splatting (gsplat + Spark) quedan como segunda línea con OK
+  de gasto en GPU.
+- **Paquetes:** G-0 contratos (0,5) · G-1 planos (1–1,5) · G-2 cámaras y anclaje (1,5–2) · G-3 estructura y layout (1,5–2) · G-4
+  biblioteca (+0,5 sobre C2-4) · G-5 familia `piso` con oráculo SimPy (2–3) · G-6 informe de precisión (0,5) · G-7 formulario de carga
+  (0,5–1) · G-I (0,5–1). **Total 8,5–12 sesiones** (ESTIMACIÓN). Criterios medibles en `gemelo-de-planta.md` §9.
+- **Barandas:** las mismas B1–B9. Contratos solo en archivos nuevos (`contratos/planta.ts`, `contratos/modelo-piso.ts`); `hub-lazo`
+  no cambia; SfM y lectura de planos corren en scripts de construcción, fuera de `npm test`; LibreDWG (GPL) y PyMuPDF (AGPL) solo como
+  herramientas de nuestro lado, nunca distribuidas (B9 mira producción).
+- **Orden:** G-0 y G-1 con la ola 2a; G-4 con 2b; G-5 después de C2-2. El comité decide si 2c va antes o después de 2b. Cede el lugar a
+  Senda y a Hub Nocturno como el resto del corte.
+- **Primera entrega:** rehacer la planta piloto con el flujo, **en su repositorio privado**, y medir horas (meta ≤ 2 sesiones) y
+  diferencia contra las poses manuales (meta ≤ 0,5 m de mediana, ≥ 70% menos observaciones a mano). La exactitud contra medidas de
+  control se mide en una segunda planta que no sea del empleador del fundador.
+- **Gates:** consulta legal (ya pendiente) ampliada al método y a los activos de la piloto antes de ofrecer nada; nada se publica ni se
+  paga sin OK (regla 8).
