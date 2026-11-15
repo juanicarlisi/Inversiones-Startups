@@ -22,9 +22,9 @@ que Claude puede construir, a partir del caso del gemelo digital de una planta h
   three.js renderiza *gaussian splats* de forma nativa desde r186 (septiembre 2026); World Labs vende mundos 3D generados a **USD 1,20–2,48**
   por API; Claude in Chrome es de uso general desde el 26-08-2026; MCP Apps (interfaces interactivas dentro del chat) es estándar final;
   hay modelos libres para 3D (TRELLIS.2, MIT), música (ACE-Step 1.5, MIT) y voz (Kokoro, Apache-2.0) que corren sin servidor pago.
-- **Pruebas reales: NO se pudieron hacer.** En esta sesión el explorador no tuvo herramienta de terminal (Bash) ni de ejecución; solo
-  lectura, búsqueda web y escritura. En la §5 quedan las tres pruebas diseñadas, con comandos y criterio de éxito, listas para que el
-  `constructor` las corra. No se inventa ningún resultado.
+- **Pruebas reales (corridas el 15-11-2026, §5):** P1 voz: kokoro-js 1.2.1 **no trae voces en español** (solo inglés), pero el modelo sí
+  las tiene y con Python salieron en español inteligible, aunque a 0,7x tiempo real en 4 CPU; P2 CAD: 10 de 10 variantes válidas en STL
+  y STEP, 0,02–0,31 s cada una; P3 splat: Spark 2.4.0 en Chromium sin GPU **renderiza bien (captura), pero a 0,2–0,3 cuadros por segundo**.
 - **Top 5 para empezar (§6c):** (1) packs de activos 3D logísticos en Fab; (2) Hub Nocturno y juegos hermanos en portales web con reparto
   de ingresos; (3) modelos imprimibles paramétricos en plataformas de impresión 3D; (4) «foto → gemelo» de naves y depósitos en
   autoservicio; (5) Andén como app dentro de Claude/ChatGPT (MCP App) como canal de distribución gratuito.
@@ -39,7 +39,7 @@ que Claude puede construir, a partir del caso del gemelo digital de una planta h
    Esos son los candidatos «nuevos».
 2. 34 búsquedas web y 8 lecturas de páginas oficiales (dos bloqueadas con 403: blender.org/lab y npmjs.com). Muchos resultados son blogs
    secundarios que **se contradicen en números**; donde pasa, se dice.
-3. Sin terminal: no hubo pruebas ejecutadas (ver §5).
+3. El documento se escribió sin terminal; las tres pruebas se corrieron después, el mismo día, con terminal (ver §5).
 
 ---
 
@@ -104,7 +104,7 @@ Columnas: **Qué desbloquea** (lo que Claude solo no puede); **Cómo lo maneja C
 
 | Herramienta | Qué desbloquea | Cómo | Licencia / costo | Mad. | Verif. |
 |---|---|---|---|---|---|
-| **Kokoro 82M / kokoro-js** | Voz sintética de buena calidad **dentro del navegador**, sin servidor | npm (WebGPU o WASM) | Apache-2.0 | B | HECHO-S. **Voces en español: S1, sin confirmar en la ficha oficial** |
+| **Kokoro 82M / kokoro-js** | Voz sintética de buena calidad **dentro del navegador**, sin servidor | npm (WebGPU o WASM) | Apache-2.0 | B | HECHO-S. **Prueba P1 (§5): `kokoro-js` 1.2.1 lista solo 28 voces en inglés (20 en-us, 8 en-gb) y rechaza las españolas; las voces españolas existen en el modelo (`ef_dora`, `em_alex`) y funcionan por Python (`kokoro-onnx`, MIT), no en el navegador/Node con esta librería.** |
 | Whisper (vía transformers.js) | Transcripción local, sin enviar audio a nadie | npm | MIT | A | CONOCIDO |
 | **ACE-Step 1.5** | Canciones completas generadas localmente (< 4 GB de VRAM según autores), salida apta para uso comercial según la ficha | Python | MIT; datos de entrenamiento «licenciados o libres» según los autores (sin auditoría independiente) | B | HECHO-S (arXiv 2602.00744, ene-2026) |
 | ElevenLabs Music API | Música por API con derechos comerciales en planes pagos | API | USD 0,15–0,30 por minuto (fuentes en conflicto) | A | S1 / conflicto |
@@ -211,7 +211,7 @@ Columnas: **Qué desbloquea** (lo que Claude solo no puede); **Cómo lo maneja C
 | C9 | Rapier + Andén | Estiba física de camiones y contenedores (qué entra, qué se cae) |
 | C10 | Docling + DuckDB-WASM + Nido | Resúmenes de tarjeta y extractos leídos y analizados **en el dispositivo**, sin servidor ni datos en la nube |
 | C11 | Whisper local + Apple Foundation Models | Organización personal por voz, privada y con costo de inferencia cero |
-| C12 | Kokoro + lector de Senda | Lectura en voz alta sin conexión (no es Lany: Lany no habla) |
+| C12 | Kokoro (vía Python; kokoro-js no tiene español) + lector de Senda | Lectura en voz alta de textos propios **pregenerada** (en CPU no llega a tiempo real, P1); no es Lany: Lany no habla |
 | C13 | ACE-Step + Remotion + rutinas | Canal musical o de ambientes que se produce y publica solo con calendario |
 | C14 | Planetary Computer + Overture + Typst | Informe de terreno (agua, vegetación, construcción, comercios cerca) en PDF impecable |
 | C15 | Docling + Typst | Conversión de documentos viejos a PDF accesible (obligación europea) |
@@ -221,19 +221,67 @@ Columnas: **Qué desbloquea** (lo que Claude solo no puede); **Cómo lo maneja C
 
 ---
 
-## 5. Pruebas reales: no ejecutadas (y cómo hacerlas)
+## 5. Pruebas reales (ejecutadas el 15-11-2026)
 
-**HECHO:** este agente no tuvo herramienta de terminal en la sesión; no se instaló ni se corrió nada. Ningún número de esta sección es
-medido. Quedan las tres pruebas elegidas (multiplicadores que el repositorio no usa) con su diseño, para el `constructor`, en una carpeta
-temporal fuera del repo.
+**HECHO (medido en esta sesión):** las tres pruebas diseñadas se corrieron en `/tmp/pruebas-exploracion/` (fuera del repo). Máquina:
+4 CPU, 16 GB de RAM, sin GPU, Node 22, Python 3.13. Los tiempos son de una sola corrida o de pocas repeticiones, en un entorno
+virtual: son órdenes de magnitud, no benchmarks.
 
-| Prueba | Pasos | Qué se mide | Criterio de éxito |
-|---|---|---|---|
-| **P1. Voz local con kokoro-js** | `npm i kokoro-js`; cargar `onnx-community/Kokoro-82M-v1.0-ONNX` en Node (dtype `q8`, CPU); `list_voices()`; sintetizar un párrafo de 300 caracteres en español con cada voz `e*` si existe; guardar WAV | Existencia real de voces en español; segundos de audio / segundos de cómputo (factor de tiempo real); tamaño del modelo descargado | Hay al menos una voz en español inteligible y factor de tiempo real ≥ 1 en CPU |
-| **P2. CAD paramétrico con build123d** | `pip install build123d`; script de un organizador con N compartimentos parametrizado (ancho, alto, divisiones); exportar STL y STEP; medir volumen y verificar sólido válido; render PNG con Blender sin interfaz o trimesh | Validez del sólido, volumen, tiempo de generación, tamaño de archivos | 10 variantes generadas sin error y cada una válida (sin caras abiertas) |
-| **P3. Splat en el navegador sin GPU** | `npm i three @sparkjsdev/spark`; página con un splat de ejemplo público; abrir con Chromium de Playwright en `/opt/pw-browsers/chromium-1194/chrome-linux/chrome` (SwiftShader); captura y medición de cuadros por segundo durante 10 s | FPS por software, tiempo de carga, captura | Se ve la escena; si FPS < 5 por software, el resultado no invalida el uso (los usuarios tienen GPU) pero indica que las pruebas automáticas deben ser de captura, no de rendimiento |
+### P1. Voz local con kokoro-js: parcial (hay español, pero no con kokoro-js)
 
----
+- **Versiones y licencias (HECHO-O):** `kokoro-js` 1.2.1 (npm, Apache-2.0); modelo `onnx-community/Kokoro-82M-v1.0-ONNX` (cuantizado q8,
+  92 MB; base `hexgrad/Kokoro-82M`, Apache-2.0 en su ficha de Hugging Face). Alternativa: `kokoro-onnx` 0.6.1 (PyPI; LICENSE del
+  repositorio: MIT), que usa espeak-ng.
+- **¿Hay voces en español? Con kokoro-js, no.** `list_voices()` devuelve 28 voces, todas en inglés (20 `en-us`, 8 `en-gb`). Pedir
+  `ef_dora` falla: `Error: Voice "ef_dora" not found. Should be one of: af_heart, af_alloy, ...`. **Pero el repositorio del modelo sí
+  incluye voces españolas** (`ef_dora`, `em_alex`, `em_santa`), además de francés (`ff_siwis`), italiano (`if_sara`, `im_nicola`) y
+  portugués (`pf_dora`, `pm_alex`, `pm_santa`). Es decir: la afirmación anterior («voces en español: S1») queda **confirmada para el
+  modelo y desmentida para la librería de navegador**.
+- **Alternativa probada una vez:** `kokoro-onnx` en Python, con el mismo modelo q8 y las voces `ef_dora` y `em_alex` convertidas del `.bin`
+  oficial. Texto de 144 caracteres en español. Funcionó sin errores. Para verificar inteligibilidad sin oído humano se transcribió el
+  audio con faster-whisper `tiny`: ambas voces dieron «El gerente del depósito revisa cada paillet antes de que el camión salga del
+  muelle por la noche y confirma que todo este listo para la entrega» (solo falló «pallet», una palabra inglesa, y un tilde). **No se
+  evaluó naturalidad ni acento con oído humano.**
+- **Velocidad en CPU (4 núcleos):** carga del modelo no medida de forma limpia. Síntesis (factor = segundos de audio / segundos de
+  cómputo): kokoro-js, inglés `af_heart`: 7,97 s de audio en 8,9 y 9,3 s, **0,86–0,89x**; `kokoro-onnx`, español: 8,0 s de audio en
+  11,1–11,9 s, **0,67–0,72x** (tres corridas). **No se cumple el criterio «factor ≥ 1»**: en CPU no sintetiza en tiempo real.
+- **Peso:** modelo q8 de 92 MB (89 MB en caché de kokoro-js), más ~0,5 MB por voz.
+- **Qué cambia:** (a) Kokoro **no sirve para «leer en voz alta sin conexión dentro del navegador» en español con la librería actual**; (b)
+  sirve para **audios pregenerados** (se sintetizan una vez en máquina propia, a ~1,4x el tiempo del audio, y se distribuyen como
+  archivos): para textos propios de Senda el costo de servidor sigue siendo cero; (c) sin tiempo real en CPU no hay lectura interactiva
+  en teléfonos modestos (el desempeño con WebGPU **no se probó**: sin GPU). Se ajustaron §0, §2.6, C12, F8 y el disparador de §7.
+
+### P2. CAD paramétrico con build123d: éxito
+
+- **Versión y licencia (HECHO-O, PyPI):** build123d 0.13.0, Apache-2.0 (OCP/OpenCascade `cadquery-ocp-novtk` 8.0.1.1.0 como
+  dependencia). Se instaló con `pip` sin problemas.
+- **Qué se corrió:** función `organizador(ancho, fondo, alto, nx, ny)` (caja con esquinas redondeadas de 3 mm y rejilla de
+  compartimentos, paredes de 2 mm) y 10 variantes de 60x60x60 a 200x120x35 mm con de 1 a 15 compartimentos.
+- **Resultados:** 10 de 10 generadas y exportadas a STL y STEP sin error; todas con `is_valid = True`, un solo sólido, malla STL
+  estanca (`trimesh.is_watertight`) y el volumen del STL coincide con el del sólido (diferencia < 1 mm³ de 34.000 a 145.000). Los 10 STEP
+  se reimportaron como sólidos válidos. Tiempo de generación 0,02–0,31 s por variante (la de 15 compartimentos fue la más lenta);
+  exportación 0,02–0,05 s. Tamaños: STL 26–37 KB, STEP 44–255 KB (1,6 MB las 20 salidas).
+- **Alcance real:** es una pieza simple (cajas y un redondeo). Sirve para probar el circuito (código → sólido → STL/STEP), no mide
+  piezas con roscas, ajustes ni tolerancias de impresión, que dependen de la impresora. No se imprimió ninguna.
+- **Qué cambia:** confirma que build123d es de **madurez A** para generar variantes paramétricas por lote; sostiene C7 y C8. La cifra
+  del autor de build123d-mcp (88 % a 100 %) sigue siendo autodeclarada: no se probó el MCP.
+
+### P3. Gaussian splat con Spark en Chromium sin GPU: éxito en render, rendimiento muy bajo
+
+- **Versiones y licencias (HECHO-O, npm y GitHub):** `@sparkjsdev/spark` 2.4.0 (MIT), `three` 0.187.0 (MIT), `vite` 8.3.8 para servir la
+  página. Renderizador de Chromium: ANGLE sobre Vulkan con **SwiftShader** (software). Splats de ejemplo oficiales de sparkjs.dev
+  (`butterfly.spz`, 4,0 MB, 177.132 splats; `penguin.spz`, 2,5 MB, 128.136 splats), 800x600.
+- **Resultado:** ambos se cargan y se ven correctos. Tiempo de `initialized` (descarga local ya hecha y decodificación): 0,58 s y 0,66 s.
+  Cuadros por segundo: **0,20** (2 cuadros en 10 s, mariposa) y **0,29** (4 cuadros en 13,8 s, pingüino). Una sola corrida cada
+  uno, tras 3 s de calentamiento; con tan pocos cuadros la medición es gruesa.
+- **Captura:** `exploracion/p3-spark-splat-mariposa.png` (98 KB): la mariposa se ve nítida con color y bordes suaves. La del pingüino
+  (223 KB) también salió bien, pero el encuadre quedó recortado (no se guardó).
+- **Interpretación:** 0,2–0,3 cuadros por segundo con ~130–180 mil splats es una medida **de software puro, no de uso real**: no dice
+  nada del rendimiento con GPU. Lo que sí queda probado es que la cadena npm → three.js → Spark → Chromium de Playwright **funciona
+  sin GPU y permite pruebas automáticas por captura**, no de rendimiento (como preveía el criterio de éxito). Una escena de depósito
+  real tendrá millones de splats: el rendimiento con GPU de usuario **no está medido** y debe probarse en un equipo real.
+- **Qué cambia:** sube Spark de HECHO-O de licencia/instalación a **HECHO-O de funcionamiento** (con `three` 0.187; sin probar r186
+  nativo); el flujo C1 sigue sin medirse de punta a punta (falta entrenar un splat con Brush y verlo con GPU).
 
 ## 6. Oportunidades
 
@@ -250,7 +298,7 @@ Esfuerzo en sesiones de Claude (ESTIMACIÓN por analogía con prototipos ya hech
 | F5 | Senda | **Lugares bíblicos en 3D** recorribles (Jerusalén, el templo, el mar de Galilea), con notas y fuentes; lo reconstruido marcado como interpretativo | World API + Spark | 2–4 + USD 1,20–2,48 por lugar | Ver el lugar fija la historia; cumple «todo enseña» si cada recorrido lleva sus versículos y preguntas |
 | F6 | Senda | **Mapas animados** de viajes (Abraham, éxodo, Pablo) generados en serie para lecciones y para difusión | MapLibre + Remotion | 2–3 | Cada lección con su video; la difusión sin cara se produce sola (Remotion gratis hasta 3 personas) |
 | F7 | Senda | **Kit imprimible 3D** de «Vivir la historia» (fichas, figuras, tablero) | build123d → STL | 2–3 | Lleva el juego de mesa a lo físico; prioridad ya declarada |
-| F8 | Senda | **Lectura en voz alta sin conexión** de los textos propios (guías, notas) | Kokoro (si hay voz española buena; ver P1) | 1–2 | Audio sin costo por usuario. La Biblia hablada depende de la licencia del texto (no asumir) |
+| F8 | Senda | **Lectura en voz alta sin conexión** de los textos propios (guías, notas) | Kokoro vía Python, audios **pregenerados** (P1: español inteligible, pero 0,7x tiempo real en CPU y no disponible en kokoro-js) | 1–2 | Audio sin costo por usuario (se genera una vez y se sirve como archivo). La Biblia hablada depende de la licencia del texto (no asumir) |
 | F9 | Hub Nocturno | **Clima real del día** que cierra aeropuertos y desvía vuelos | Open-Meteo + datos de aeropuertos | 2 | Cada partida distinta y conectada con el mundo; material de difusión («hoy nieva en Chicago») |
 | F10 | Nido | **Extractos leídos en el dispositivo** (PDF del banco → gastos categorizados) sin subir nada | Docling (en servidor propio o Pyodide si entra) / transformers.js + DuckDB-WASM | 3–4 | Privacidad como argumento de venta; costo de servidor cero |
 | F11 | Organización personal | **Captura por voz** privada que se convierte en tareas y agenda | Whisper (transformers.js) + Apple Foundation Models en iOS | 3–4 | Inferencia gratis en el teléfono: el costo variable por usuario desaparece |
@@ -329,7 +377,7 @@ N3 retención día 7 < 5 %, N1 < 3 pedidos con precio), se pausa y se reasigna e
 - **ChatGPT o Claude habilitan cobro dentro de las apps** (suscripción o bienes digitales): convierte N5 y N12 de embudo en negocio.
 - **World Labs publica términos comerciales** compatibles con apps: habilita F5 y N11.
 - **three.js o Spark estabilizan splats en WebGPU** (Spark Radix salió experimental el 29-10-2026, S1): mejora F1.
-- **Kokoro o sucesor con voz española de calidad confirmada**: activa F8.
+- **F8 (voz española):** P1 confirmó voces españolas inteligibles en Kokoro vía Python; falta evaluar calidad con oído humano y la licencia de las voces. Disparador restante: calidad aceptada por el fundador.
 - **Godot publica MCP oficial**: re-evaluar Godot para Carpincho Games.
 
 ### Posibles fichas (solo dos, por regla del barrido)
