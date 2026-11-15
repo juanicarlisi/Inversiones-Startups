@@ -47,3 +47,30 @@ test('la entrada cuenta la historia en dos frases y la guía pide una sola acci�
     for (const k of ['g_tocar', 'g_ruta', 'g_avion']) assert.equal((TEXTOS[lengua][k].match(/<b>[^<]*[.!]<\/b>/g) ?? []).length, 1, `${lengua}.${k} marca una sola acción`);
   }
 });
+
+test('lo que no se entendió en la prueba a ciegas no vuelve: ni «cambiar de avión» ni «el correo ordena»', () => {
+  for (const [k, v] of Object.entries(TEXTOS.es)) {
+    assert.ok(!/cambi\w+ de avión/i.test(v), `es.${k}: «${v}» habla de cambiar de avión`);
+    assert.ok(!/correo ordena/i.test(v), `es.${k}: «${v}»`);
+  }
+  for (const [k, v] of Object.entries(TEXTOS.en)) assert.ok(!/change planes|sorts up to/i.test(v), `en.${k}: «${v}»`);
+  for (const lengua of ['es', 'en']) {
+    const ayuda = TEXTOS[lengua].ayuda_m1_transbordo;
+    assert.ok(ayuda && ayuda.length <= 125, `${lengua}: la misión 3 lleva su explicación corta`);
+    assert.ok(/\{n\}.*\{u\}/.test(TEXTOS[lengua].agrandarExplica), `${lengua}: agrandar el correo dice qué se compra (cuántas por hora)`);
+  }
+});
+
+test('cada opción de una decisión dice qué pasa si se la elige y cada encargo dice si se puede cumplir', () => {
+  for (const lengua of ['es', 'en']) {
+    const T = TEXTOS[lengua];
+    for (const v of [0, 30, 60, 90]) {
+      assert.ok(T[`sale${v}`] && T[`salePista${v}`], `${lengua}: falta el efecto de la opción ${v}`);
+      assert.ok(T[`salePista${v}`].length <= 80, `${lengua}.salePista${v} es larga`);
+    }
+    for (const k of ['ord_primero', 'ord_todas', 'ord_tarde']) assert.ok(T[k], `${lengua}: falta ${k}`);
+    assert.ok(T.ord_primero.includes('{ciudad}') && T.ord_tarde.includes('{ciudad}'));
+    for (const k of ['enc_directo', 'enc_base', 'enc_escala', 'enc_faltaRuta', 'enc_faltaAvion', 'enc_faltaUnir']) assert.ok(T[k] && T[k].length <= 60, `${lengua}.${k}`);
+    assert.equal((T.g_noche.match(/<b>[^<]*<\/b>/g) ?? []).length, 1, `${lengua}.g_noche pide una sola acción`);
+  }
+});

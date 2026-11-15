@@ -72,7 +72,8 @@ fs.mkdirSync(carpeta, { recursive: true });
     await p.evaluate(() => { const h = window.__hn, M = h.M, s = h.s; h.accion('cerrarPanel', {}, null);
       for (let i = 0; i < 600 && !(M.hora(s) >= 20.5 && M.hora(s) < 21); i++) h.avanzar(0.25);
       for (const r of s.rutas.slice(0, 3)) M.ponerBalizas(s, r.id);
-      h.limpiar(); h.verRed();
+      s.flags.despNoche1 = true; // sin la tarjeta del primer vuelo nocturno: la captura muestra la red
+      h.limpiar(); h.accion('cerrarPanel', {}, null); h.verRed();
     });
     await foto(p, '06-noche-faros.jpg', 12000);
     await p.close();

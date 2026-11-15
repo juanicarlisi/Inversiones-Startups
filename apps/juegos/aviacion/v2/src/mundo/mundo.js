@@ -260,21 +260,25 @@ export class Mundo {
   }
 
   // ── cámara ──
-  // Encuadra un conjunto de puntos del mundo. margen: aire alrededor; abajo: fracción de pantalla tapada por la interfaz.
-  encuadrar(puntos, { margen = 1.35, suave: s = true, azimut = null, polar = 0.86, abajo = 0, distMin = 4.2, distMax = 60 } = {}) {
+  // Encuadra un conjunto de puntos del mundo. margen: aire alrededor; abajo, derecha e izquierda: fracción de la pantalla tapada
+  // por la interfaz de ese lado (los paneles): lo encuadrado queda en la parte libre, no debajo de un panel.
+  encuadrar(puntos, { margen = 1.35, suave: s = true, azimut = null, polar = 0.86, abajo = 0, derecha = 0, izquierda = 0, distMin = 4.2, distMax = 60 } = {}) {
     if (!puntos.length) return;
     const caja = new THREE.Box3();
     for (const p of puntos) caja.expandByPoint(_v.set(p.x, 0, p.z));
     caja.getCenter(_v);
     const ancho = Math.max(0.8, caja.max.x - caja.min.x), prof = Math.max(0.8, caja.max.z - caja.min.z);
     const vf = THREE.MathUtils.degToRad(this.camara.fov), hf = 2 * Math.atan(Math.tan(vf / 2) * this.camara.aspect);
-    const dAncho = (ancho * margen / 2) / Math.tan(hf / 2);
+    const dAncho = (ancho * margen / 2) / Math.tan(hf / 2) / (1 - derecha - izquierda);
     const dProf = (prof * Math.cos(polar) * margen / 2) / Math.tan(vf / 2) / (1 - abajo);
     const d = limitar(Math.max(dAncho, dProf), distMin, distMax);
+    const az = azimut ?? this.controles.azimuthAngle;
     // la interfaz tapa abajo: se corre el objetivo hacia el sur (lo que se mira sube en pantalla)
     const corr = abajo * d * Math.tan(vf / 2) * 0.9 / Math.cos(polar);
+    // la interfaz tapa a un costado: se corre el objetivo hacia ese lado de la pantalla (lo que se mira va al lado libre)
+    const corrD = (derecha - izquierda) * d * Math.tan(hf / 2), ox = Math.cos(az) * corrD, oz = -Math.sin(az) * corrD;
     this.controles.normalizeRotations();
-    this.controles.setLookAt(_v.x + Math.sin(azimut ?? this.controles.azimuthAngle) * Math.sin(polar) * d, Math.cos(polar) * d, _v.z + corr + Math.cos(azimut ?? this.controles.azimuthAngle) * Math.sin(polar) * d, _v.x, 0, _v.z + corr, s);
+    this.controles.setLookAt(_v.x + ox + Math.sin(az) * Math.sin(polar) * d, Math.cos(polar) * d, _v.z + oz + corr + Math.cos(az) * Math.sin(polar) * d, _v.x + ox, 0, _v.z + oz + corr, s);
   }
   seguir(idAvion) { this.siguiendo = idAvion; }
 

@@ -35,6 +35,9 @@ const path = require('path');
       const s = h.s;
       return { ...h.estado, noche: h.M.esNoche(s), balizas: s.rutas.filter((r) => r.balizas).length, t: s.t, cap: s.cap, misiones: s.misiones.length, paso: doc.querySelector('#paso .txt')?.textContent ?? '' };
     }, tramo);
+    // la interfaz descarta los toques a menos de 120 ms del anterior (filtro de doble toque): sin esta pausa, el jugador automático
+    // perdía la mayoría de sus toques según cómo cayeran los cuadros, y cada corrida daba otra cosa
+    await p.waitForTimeout(130);
     if (e.mision !== ultimaMision) { hitos.push(`${(seg / 60).toFixed(1)} min: misión ${e.mision} · $${Math.round(e.dinero)} · ${e.rutas} rutas · ${e.aviones} aviones`); ultimaMision = e.mision; }
     if (carpeta && !fotoNoche && e.noche && e.aviones >= 2 && e.balizas === 0) { fotoNoche = true; await foto('j-noche-sin-faros.png'); }
     if (carpeta && !fotoFaros && e.noche && e.balizas >= 1) { fotoFaros = true; await p.evaluate(() => window.__hn.verRed()); await foto('j-noche-faros.png'); }

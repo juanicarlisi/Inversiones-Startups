@@ -44,7 +44,9 @@ export class Nubes {
           c *= mix(1.0, 0.55, uNoche);
           float nb = 1.0 - exp(-pow(dist * uNieblaDens, 2.0));
           c = mix(c, uNiebla, nb * 0.85);
-          gl_FragColor = vec4(c, visible * 0.94);
+          // el borde de cada copo se deshace: de lejos se lee como nube y no como un recorte blanco de canto duro
+          float borde = smoothstep(0.06, 0.62, abs(dot(n, normalize(cameraPosition - vPos))));
+          gl_FragColor = vec4(c, visible * 0.94 * borde);
           #include <tonemapping_fragment>
           #include <colorspace_fragment>
         }`,

@@ -18,7 +18,9 @@ artefacto hecho en un minuto. Tenía razón: era un mapa plano con puntos y text
 | **Rutas y faros** (`rutas.js`) | La ruta se dibuja sola al abrirla; los faros se **encienden en cadena** con una nota cada uno y una luz que corre por la ruta toda la noche |
 | **Cámara de cine** (`mundo.js`) | Entrada de 10 s (de la cordillera de noche al amanecer en Buenos Aires), seguir a un avión, acercarse a la base, encuadrar la red. Arrastrar mueve, rueda o pellizco acerca, botón derecho gira |
 | **Respuesta a cada acción** | La plata cuenta sola, monedas que vuelan a la caja, cifras que flotan, sobres que saltan al avión, chispas, papelitos, polvo en la pista, cartel de misión cumplida |
-| **Primer minuto guiado** (`main.js`) | Dos frases de historia y después una acción por vez, con flecha, anillo, dedo y un solo cartel: tocar Montevideo → abrir la ruta → comprar el avión → verlo volar → cobrar. Después, un botón **Siguiente paso** que siempre dice qué conviene |
+| **Primer minuto guiado** (`main.js`) | Dos frases de historia y después una acción por vez, con flecha, anillo, dedo y un solo cartel: tocar Montevideo → abrir la ruta → comprar el avión → verlo volar → cobrar. Después, un botón **Siguiente paso** que siempre dice qué conviene; la primera noche vuelve el mismo patrón (la ruta abierta, una frase y el dedo sobre «Poner faros») |
+| **Carteles en fila** (`main.js`, «carteles en fila») | Nunca dos carteles importantes a la vez: el festejo de una misión, la pregunta de la base (se queda hasta que se responde y nada la tapa), la guía de la noche y las tarjetas de aviso esperan su turno. Una misión cumplida se queda su tiempo entero a cualquier velocidad y deja un aviso de 12 s |
+| **Rótulos sin choques** (`ui/rotulos.js`) | Algoritmo voraz por prioridad (la base, las ciudades de la misión, las que tienen cartas, el resto): cada rótulo prueba 9 lugares alrededor de su ciudad y se queda con el primero que no pisa otro rótulo, un panel fijo ni la ciudad de otro; si no entra, no se muestra. Con memoria para que no titile |
 | **Sonido y música** (`audio/audio.js`) | Todo generado por código: una milonga lenta en re menor (ritmo 3-3-2) con guitarra pulsada, fuelle y campanitas; de noche queda el fuelle y las campanitas. Cada acción tiene su sonido |
 | **Español rioplatense e inglés** (`ui/textos.js`) | Palabras de un chico de 12 años. Nunca «sacas», «transbordo», «hub» ni «balizas» (lo comprueba una prueba) |
 
@@ -29,7 +31,7 @@ artefacto hecho en un minuto. Tenía razón: era un mapa plano con puntos y text
 | sobre y paquete | **Cartas y paquetes** | Lo que llevás. Cada entrega te paga. |
 | línea punteada entre dos puntos | **Ruta** | El camino entre dos ciudades. Por ahí vuelan tus aviones. |
 | avión | **Avión** | Va y vuelve solo por su ruta, llevando cartas. |
-| casa con estrella | **Base** | Buenos Aires. Acá las cartas cambian de avión para seguir viaje. |
+| casa con estrella | **Base** | Buenos Aires. Acá las cartas llegan en un avión y siguen viaje en otro. |
 | torre con luz | **Faros** | Luces en el suelo. Con faros, tus aviones vuelan también de noche. |
 | estrella | **Misión** | Lo que te pide la historia. Al cumplirla ganás un premio. |
 | hoja con sello | **Encargo** | Un pedido especial, con fecha límite y premio extra. |
@@ -42,7 +44,7 @@ cd apps/juegos/aviacion/v2
 npm install                      # una vez (three, postprocessing, camera-controls, animejs, tone, fuentes, esbuild)
 npm run construir                # deja dist/ (index.html + archivos relativos; sin CDN, sin servidor propio)
 npm run servir                   # http://localhost:8812  (cualquier servidor de archivos sirve)
-node --test pruebas/*.test.mjs   # pruebas de los textos (sin navegador)
+node --test pruebas/*.test.mjs   # pruebas de los textos y de la colocación de rótulos (sin navegador)
 node herramientas/jugador.cjs 10 # jugador automático: 10 minutos siguiendo «Siguiente paso»; falla si hay un error de JavaScript
 node herramientas/medir.cjs      # cuadros por segundo por nivel de calidad
 node herramientas/capturas.cjs   # rehace las 8 capturas de capturas/
@@ -81,11 +83,11 @@ desde este entorno, no se pudo verificar el paquete), `WebGPURenderer` (falla ac
 | Archivo | Peso |
 |---|---|
 | `activos/alturas.webp` (relieve y ríos, sin pérdida) | 1.663 KB |
-| `juego.js` (motor, juego y sonido; 448 KB con gzip) | 1.479 KB |
+| `juego.js` (motor, juego y sonido; 442 KB con gzip) | 1.491 KB |
 | `activos/suelo.webp` (color del suelo y fronteras) | 145 KB |
 | `activos/costa.webp` (distancia a la orilla) | 89 KB |
 | dos tipografías | 74 KB |
-| `juego.css`, `index.html`, `mundo.json` | 24 KB |
+| `juego.css`, `index.html`, `mundo.json` | 28 KB |
 
 **Cuadros por segundo.** Este entorno **no tiene GPU**: Chromium dibuja por software (SwiftShader) en 4 núcleos compartidos. Las
 cifras son un **piso**, no lo que da un equipo real (lo mismo que advierte el radar técnico, §0). `node herramientas/medir.cjs`,
@@ -107,9 +109,29 @@ red de 4 rutas y 8 aviones:
 **Pruebas.**
 - Modelo (`cd .. && node --test pruebas/*.test.mjs`): igual que antes de empezar. El modelo no se tocó: fallan las mismas 4 de
   economía y ronda (más la de tiempo de CPU cuando la máquina está cargada).
-- Textos de la v2 (`node --test pruebas/*.test.mjs`): 5 de 5.
-- Jugador automático (`herramientas/jugador.cjs 12`): juega solo tocando «Siguiente paso» y el botón que late. Cumple las 7 misiones
-  del capítulo 1 con 4 rutas y 4 aviones, **sin errores de JavaScript**.
+- Textos y rótulos de la v2 (`node --test pruebas/*.test.mjs`): 12 de 12 (7 de textos y 5 de la colocación de rótulos).
+- Jugador automático (`herramientas/jugador.cjs 10`): juega solo tocando «Siguiente paso» y el botón que late. Cumple las 7 misiones
+  del capítulo 1 en 3 a 4 minutos (la última corrida: 3,0, con 5 rutas y 8 aviones) y entre los 8 y los 9 pasa al capítulo 2,
+  **sin errores de JavaScript**. Desde el
+  15-11-2026 espera 130 ms entre toques: la interfaz descarta los toques a menos de 120 ms del anterior y, sin esa pausa, el
+  jugador perdía la mayoría según cómo cayeran los cuadros (cada corrida daba otra cosa). Con la misma semilla y la misma pausa,
+  la versión anterior terminaba el capítulo 1 a los 8,2 minutos: «Siguiente paso» al día hace que se sigan mejor los consejos.
+
+## Prueba a ciegas del 15-11-2026 y lo que se corrigió
+
+Una persona sin contexto jugó 15 minutos (hasta la misión 5): 8/10 en claridad y 7,5/10 en aspecto. Sus hallazgos y el arreglo:
+
+| Hallazgo | Arreglo |
+|---|---|
+| «Que 25 cartas cambien de avión en tu base», «Tu correo ordena hasta 40 por hora» y «Agrandar el correo» no se entendían | La misión 3 dice «Que 25 cartas pasen por tu base y sigan viaje» y lleva su explicación debajo; la base dice cuántas cartas por hora pasan de un avión a otro y qué se compra al agrandar el correo. La prueba de textos impide que vuelvan «cambiar de avión» y «el correo ordena» |
+| El festejo tapó la pregunta «¿Qué sale primero?» y una misión se cumplió sin verse | Carteles en fila (arriba). Además, otra tarjeta ya no puede reemplazar a la pregunta |
+| Encargos sin contexto | Cada tarjeta dice, antes de aceptar, si ya se puede cumplir y por dónde pasan las cartas, o qué ruta o qué avión falta (lo mismo que mira el modelo: un camino de rutas con avión) |
+| «Esta ruta perdió $ 2» y «−$ 2 hoy» en rojo al comprar el primer avión | Hasta el primer cobro no se muestra pérdida; después, el rojo aparece solo desde $ 100 |
+| Decisiones sin efecto a la vista | «¿Qué sale primero?» dice qué pasa con cada opción (lo calcula el modelo) y «¿Cuándo sale el avión?» muestra las cuatro opciones con su efecto |
+| «Siguiente paso» desactualizado, no parecía un botón y repetía la misión | Se recalcula con cada toque, tiene flecha y canto de botón (o se ve como aviso cuando no hay nada para tocar), no aparece con la pregunta abierta y la misión ya no repite el paso («Paso 1 de 2»). La primera vez la burbuja va arriba del botón, con el dedo encima (antes lo tapaba) |
+| La noche sin faros no decía qué hacer | Guía de la primera noche (arriba) |
+| En la entrada quedaba más de un segundo de pasto sin texto entre las dos frases | La segunda frase entra enseguida y lleva un velo oscuro detrás |
+| Rótulos cortados debajo de los paneles o encimados; monedas y sobres por encima de los paneles | Rótulos sin choques (arriba); las monedas, los sobres y las cifras pasan por detrás de los paneles; la cámara encuadra en la parte libre de la pantalla (no debajo del panel ni de la columna de encargos); las nubes tienen el borde blando (un copo detrás de la barra parecía un recorte blanco) |
 
 ## Reglas que se respetaron
 
@@ -134,14 +156,15 @@ red de 4 rutas y 8 aviones:
 ## Lo que falta
 
 1. **Medir en equipos reales** y ajustar los niveles con esos números (acá solo hay GPU por software).
-2. **La mirada de alguien que nunca lo vio.** En esta sesión no había herramienta para lanzar un agente revisor: falta la prueba de
-   «a los 30 segundos, ¿qué dice que hace el juego?» con una persona o un agente independiente.
+2. **Repetir la prueba a ciegas** con estos arreglos (la del 15-11-2026 dio 8/10 en claridad y 7,5/10 en aspecto; ver arriba): lo
+   corregido se comprobó con capturas en escritorio y en celular, pero no lo volvió a jugar alguien sin contexto.
 3. **Escuchar la música y los sonidos.** Se comprobó que arrancan sin errores y que no saturan (pico medido de −16 dB jugando
    80 segundos), pero nadie los oyó: hay que afinarlos de oído.
 4. **La ronda nocturna** (la mecánica propia de la v1) corre siempre en automático: falta su pantalla en la capa nueva.
 5. **Capítulos 2 y 3:** se juegan con la misma capa (ciudades, aviones, pasajeros y carga con su ícono, fin de capítulo), pero no
    tienen el pulido del capítulo 1: sin momentos propios ni tomas de cámara para la cordillera o los jets.
-6. **Encargos en el celular:** se aceptan desde «Siguiente paso»; falta su lista en pantalla angosta.
+6. **Encargos en el celular:** se aceptan desde «Siguiente paso», que dice cuál es (cuántas cartas, de dónde y adónde); falta su
+   lista en pantalla angosta, con el aviso de si ya se puede cumplir.
 7. **Detalle cerca de la base:** el relieve tiene unos 4 km por píxel; de muy cerca el suelo se ve liso. Con teselas de más detalle
    para la zona del Río de la Plata mejoraría.
 8. **Portales:** la capa de portal de la v1 (CrazyGames, Poki) no está conectada a la v2.

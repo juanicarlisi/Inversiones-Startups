@@ -3,6 +3,7 @@
 import { Vector3 } from 'three';
 import * as M from '../../js/modelo.js';
 import { AEROPUERTOS, AVIONES, CAPITULOS, MISIONES, TRANSBORDO } from '../../js/datos.js';
+import { resolverClasificacion } from '../../js/ronda.js';
 import { Mundo } from './mundo/mundo.js';
 import { RADIO_CIUDAD } from './mundo/ciudades.js';
 import * as U from './ui/ui.js';
@@ -34,7 +35,9 @@ let vistos = {};                      // momentos ya mostrados (cada concepto se
 let premiosPendientes = 0;            // premios ya acreditados en el modelo pero todavía no festejados
 let sug = null, ultimaSug = 0, ultimaUI = 0, ultimoGuardado = 0, guardarPronto = false;
 let eraNoche = false, ocultoDesde = null, errores = 0;
-const cola = [];                      // festejos en fila (uno por vez)
+const cola = [];                      // carteles en fila: uno por vez (ver «carteles en fila»)
+let enPantalla = null;                // el cartel que se ve ahora: { tipo, hasta } (la decisión no tiene «hasta»: espera la respuesta)
+let ayudaNoche = null;                // la guía de la primera noche: { ruta, hasta }
 
 // ───────────── guardado ─────────────
 function guardar() {
@@ -153,7 +156,8 @@ function intro() {
 // Las dos frases van atadas al tiempo de la toma (no al reloj): si el equipo va lento, igual llegan a leerse.
 let leyendaIntro = 0;
 function leyendasIntro() {
-  const tc = mundo.cine?.t ?? 99, cual = tc < 0.4 ? 0 : tc < 4.5 ? 1 : tc < 4.9 ? 0 : tc < 9.6 ? 2 : 0;
+  // la primera frase hasta la mitad y la segunda hasta el final de la toma, sin hueco en el medio
+  const tc = mundo.cine?.t ?? 99, cual = tc < 0.25 ? 0 : tc < 4.7 ? 1 : tc < 10.05 ? 2 : 0;
   if (cual === leyendaIntro) return;
   leyendaIntro = cual;
   U.leyenda(cual ? t(`intro${cual}`) : null);
@@ -216,7 +220,7 @@ function pasoGuia(p) {
       setTimeout(() => guia.paso === 'cobro' && pasoGuia('sigue'), 5200);
       break;
     case 'sigue':
-      mundo.seguir(null);
+      mundo.seguir(null); marcaBoton = '#paso'; // el dedo se apoya en «Siguiente paso»: la primera vez se ve que es un botón
       U.burbuja(t('g_sigue'), 'mision');
       verRed();
       setTimeout(() => guia.paso === 'sigue' && terminarGuia(), 9000);
@@ -232,11 +236,16 @@ function terminarGuia() {
 }
 
 // ───────────── momentos (cada concepto, una vez) ─────────────
-function momento(clave, m, siempre = false) {
+// No se muestran en el acto: esperan su turno en la fila (nunca tapan ni reemplazan una decisión o un festejo).
+// firme: una novedad que no se pierde aunque espere (avión nuevo, ciudades nuevas); las demás caducan si esperan mucho.
+// urgente: es la respuesta a algo que la persona acaba de tocar (pasa antes que los demás avisos). vale(): si deja de ser cierto
+// mientras espera, no se muestra.
+function momento(clave, m, siempre = false, { firme = false, urgente = false, vale = null } = {}) {
   if (!siempre && vistos[clave]) return false;
   if (guiando() && !['sigue'].includes(guia.paso)) return false;
   vistos[clave] = 1;
-  U.momento(m); A.sonar('momento');
+  if (cola.some((f) => f.tipo === 'momento' && f.clave === clave)) return false;
+  cola.push({ tipo: 'momento', clave, m, firme, urgente, vale, t: performance.now() });
   return true;
 }
 
@@ -284,13 +293,13 @@ function atender(eventos) {
       case 'contratosNuevos': momento('encargo', { ico: 'encargo', titulo: t('mo_encargo_t'), texto: t('mo_encargo') }); break;
       case 'pronostico': momento('tormenta', { ico: 'tormenta', titulo: t('mo_tormenta_t'), texto: t('mo_tormenta', { lista: (e.zona ?? []).slice(0, 3).map((z) => M.AP[z].nombre).join(', ') }) }, true); break;
       case 'tormentaFin': U.aviso(t('mo_tormentaFin'), { ico: 'sol', tono: 'bueno' }); break;
-      case 'avisoNoche': momento('tarde', { ico: 'luna', titulo: t('mo_tarde_t'), texto: t('mo_tarde') }); break;
-      case 'primeraNoche': momento('noche', { ico: 'dormido', titulo: t('mo_noche_t'), texto: t('mo_noche'), dura: 8000 }, true); break;
-      case 'primerasBalizas': { momento('faros', { ico: 'faro', titulo: t('mo_faros_t'), texto: t('mo_faros'), dura: 7000 }, true); const r = rutaDe(e.ruta); if (r) verCiudades([r.a, r.b]); break; }
+      case 'avisoNoche': momento('tarde', { ico: 'luna', titulo: t('mo_tarde_t'), texto: t('mo_tarde') }, false, { vale: () => !M.esNoche(s) }); break;
+      case 'primeraNoche': primeraNoche(e); break;
+      case 'primerasBalizas': { momento('faros', { ico: 'faro', titulo: t('mo_faros_t'), texto: t('mo_faros'), dura: 7000 }, true, { firme: true, urgente: true }); const r = rutaDe(e.ruta); if (r) verCiudades([r.a, r.b]); break; }
       case 'primerDespegueNoche': momento('despegueNoche', { ico: 'luna', titulo: t('mo_despegueNoche_t'), texto: t('mo_despegueNoche') }, true); mundo.seguir(e.avion); break;
       case 'ventaForzada': U.aviso(t('mo_venta', { monto: plata(e.monto ?? 0) }), { ico: 'moneda', tono: 'malo', dura: 6000 }); A.sonar('error'); break;
       case 'clasificacion': ofrecerOrden(); break;
-      case 'clasificacionHecha': U.aviso(t('mo_ordenado', { pct: `${numero(e.pct * 100)}%`, monto: plata(e.ingreso) }), { ico: 'base', tono: 'bueno', dura: 6000 }); break;
+      case 'clasificacionHecha': U.aviso(esc(t(e.sola ? 'mo_ordenadoSola' : 'mo_ordenado', { pct: `${numero(e.pct * 100)}%`, monto: plata(e.ingreso) })), { ico: 'base', tono: 'bueno', dura: 7000 }); break;
       case 'rondaDisponible': U.aviso(t('mo_ronda'), { ico: 'luna', tono: 'noche' }); break;
       case 'resultadoNoche': U.aviso(t('mo_rondaFin', { pct: `${numero((e.pctPrimeraHora ?? 0) * 100)}%` }), { ico: 'base', tono: 'noche', dura: 6000 }); break;
       default: break;
@@ -298,52 +307,141 @@ function atender(eventos) {
   }
   if (!vistos.base && (s.stats.transbordos[M.HUB] ?? 0) > 0) momento('base', { ico: 'base', titulo: t('mo_base_t'), texto: t('mo_base'), dura: 8000 });
 }
-function ofrecerOrden() {
-  const c = M.clasificacionActual(s);
-  if (!c || c.estado !== 'oferta') return;
-  U.momento({ ico: 'base', titulo: t('mo_ordenar_t'), texto: t('mo_ordenar'),
-    elige: c.opciones.map((o) => `<button class="boton" data-accion="ordenar" data-id="${o.id}">${esc(o.nombre)}</button>`).join('') });
+// La pregunta de la base. Cada opción dice qué pasa si se la elige (lo calcula el modelo: es lo mismo que va a pasar).
+function ofrecerOrden(yaMismo = false) {
+  if (M.clasificacionActual(s)?.estado !== 'oferta') return;
+  if (enPantalla?.tipo === 'decision') return;
+  if (!cola.some((f) => f.tipo === 'decision')) cola.push({ tipo: 'decision' });
+  // si la pidió el jugador («Siguiente paso»), una tarjeta de aviso no la hace esperar
+  if (yaMismo && enPantalla?.tipo === 'momento') { U.momento(null); enPantalla = null; }
+}
+function mostrarOrden() {
+  const c = M.clasificacionActual(s), e = s.clasif.escena;
+  const opcion = (o) => {
+    const r = resolverClasificacion(e, o.id);
+    const tarde = r.radios.filter((x) => x.aTiempo < x.sacas).map((x) => M.AP[x.id].nombre);
+    return `<button class="opcion" data-accion="ordenar" data-id="${o.id}"><b>${esc(t('ord_primero', { ciudad: o.nombre }))}</b><small>${esc(tarde.length ? t('ord_tarde', { ciudad: tarde.join(` ${t('y')} `) }) : t('ord_todas'))}</small>${icono('flecha', 'fl')}</button>`;
+  };
+  U.momento({ ico: 'base', titulo: t('mo_ordenar_t'), texto: esc(t('mo_ordenar')), elige: c.opciones.map(opcion).join('') });
   A.sonar('momento');
 }
 
-// Festejos en fila: uno por vez, para que cada uno se vea.
-let festejando = false, enFestejo = null;
+// La primera noche con aviones dormidos lleva a la acción con el patrón de la guía: una frase, la ruta abierta y el botón que
+// late con el dedo encima. Si la plata no alcanza para los faros, queda la tarjeta que explica qué pasa.
+function rutaParaFaros(aviones = null) {
+  const dormidas = new Set((aviones ?? s.aviones.map((a) => a.id)).map((id) => s.aviones.find((a) => a.id === id)?.ruta).filter(Boolean));
+  return s.rutas.filter((r) => !r.balizas && dormidas.has(r.id)).sort((a, b) => M.costoBalizas(a, s) - M.costoBalizas(b, s))[0] ?? null;
+}
+function primeraNoche(e) {
+  if (guiando() && guia.paso !== 'sigue') return;
+  vistos.noche = 1;
+  const r = rutaParaFaros(e.aviones);
+  if (!r) return;
+  const costo = M.costoBalizas(r, s);
+  if (s.dinero >= costo) cola.push({ tipo: 'guiaNoche', ruta: r.id });
+  else cola.push({ tipo: 'momento', clave: 'noche', firme: true, t: performance.now(), m: { ico: 'dormido', titulo: t('mo_noche_t'), texto: esc(t('mo_nocheFalta', { monto: plata(costo - s.dinero) })), dura: 8000 } });
+}
+function guiaNocheVale(id) { const r = rutaDe(id); return !!r && !r.balizas && M.esNoche(s) && s.aviones.some((a) => a.ruta === id) && s.dinero >= M.costoBalizas(r, s); }
+function abrirGuiaNoche(f) {
+  if (guia.paso === 'sigue') terminarGuia();
+  elegir({ tipo: 'ruta', id: f.ruta });
+  marcarBoton('[data-accion="faros"]', 40000);
+  U.burbuja(t('g_noche'), 'faro');
+  ayudaNoche = { ruta: f.ruta, hasta: performance.now() + 40000 };
+  A.sonar('momento');
+}
+const guiaNocheSigue = () => !!ayudaNoche && guiaNocheVale(ayudaNoche.ruta) && sel?.tipo === 'ruta' && sel.id === ayudaNoche.ruta && performance.now() < ayudaNoche.hasta;
+function cerrarGuiaNoche() {
+  if (!ayudaNoche) return;
+  ayudaNoche = null; U.burbuja(null);
+  if (marcaBoton === '[data-accion="faros"]') marcaBoton = null;
+}
+
+// ───────────── carteles en fila ─────────────
+// Nunca dos carteles importantes a la vez. Hay cuatro clases y cada una espera a que la anterior termine:
+//   · el festejo de una misión o de un encargo (el cartel grande);
+//   · la decisión de la base (se queda hasta que se responde: nada la tapa ni la reemplaza);
+//   · la guía de la primera noche;
+//   · las tarjetas de «momento» (una imagen y una frase).
+// Pasa primero lo que más importa: una misión cumplida no espera detrás de un aviso, y siempre se queda su tiempo entero en
+// pantalla, a cualquier velocidad del juego (el reloj de los carteles es el de la persona, no el del juego).
+const TURNO = { mision: 0, encargo: 0, capitulo: 1, decision: 2, guiaNoche: 3, avionNuevo: 4, ciudades: 4, momento: 4 };
+const DURA_CARTEL = 3600, CADUCA = 30000;
+const enFestejo = () => (enPantalla?.tipo === 'mision' ? enPantalla.f : null);
 function avanzarCola() {
-  if (festejando || !cola.length || U.ventanaAbierta()) return;
+  const ahora = performance.now();
+  if (enPantalla) {
+    if (enPantalla.tipo === 'decision') {
+      // sigue abierta mientras el modelo espere la respuesta (si pasan 6 horas de juego, la base resuelve sola y la tarjeta se va)
+      if (M.clasificacionActual(s)?.estado === 'oferta') { if (!U.eligiendo()) mostrarOrden(); return; }
+      if (U.eligiendo()) U.momento(null);
+      enPantalla = null; ultimaSug = 0;
+    } else if (enPantalla.tipo === 'guiaNoche') {
+      if (guiaNocheSigue()) return;
+      cerrarGuiaNoche(); enPantalla = null;
+    } else {
+      // un festejo o una decisión que esperan acortan la tarjeta de aviso que está en pantalla (después de 2,5 s)
+      const apuro = enPantalla.tipo === 'momento' && ahora - enPantalla.desde > 2500 && cola.some((f) => TURNO[f.tipo] < TURNO.guiaNoche);
+      if (ahora < enPantalla.hasta && !apuro) return;
+      if (enPantalla.tipo === 'momento') U.momento(null);
+      enPantalla = null;
+    }
+  }
+  if (!cola.length || U.ventanaAbierta()) return;
   if (guia.paso === 'vuela' || enPausaGuia()) return; // la primera misión se festeja cuando llega el primer cobro
-  if (U.momentoAbierto() && ['mision', 'encargo'].includes(cola[0].tipo) && !U.eligiendo()) return; // el cartel espera a que se vaya la tarjeta de arriba
-  const f = cola.shift();
-  festejando = true; enFestejo = f.tipo === 'mision' ? f : null;
-  const listo = (ms) => setTimeout(() => { festejando = false; enFestejo = null; }, ms);
+  const turnoDe = (f) => (f.urgente ? 2.5 : TURNO[f.tipo]);
+  let i = 0;
+  for (let k = 1; k < cola.length; k++) if (turnoDe(cola[k]) < turnoDe(cola[i])) i = k;
+  const f = cola[i];
+  if (f.tipo === 'guiaNoche') {
+    if (!guiaNocheVale(f.ruta)) { cola.splice(i, 1); return; }
+    if (sel) return; // hay un panel abierto: espera a que se cierre (no se le saca de la mano lo que está mirando)
+  }
+  cola.splice(i, 1);
+  const turno = (tipo, ms, extra = {}) => { enPantalla = { tipo, desde: ahora, hasta: ahora + ms, ...extra }; };
   switch (f.tipo) {
     case 'mision': {
-      const m = MISIONES.find((x) => x.id === f.id);
+      const m = MISIONES.find((x) => x.id === f.id), orden = MISIONES.filter((x) => x.cap === m.cap).indexOf(m) + 1;
       A.sonar('mision');
       const ciudad = mundo.ciudades.get(m.b ?? m.ciudad ?? M.HUB) ?? mundo.ciudades.get(M.HUB);
       mundo.papelitos(ciudad.pos, 70);
-      U.cartel(t('misionCumplida'), textoMision(m), f.premio, () => { premiosPendientes = Math.max(0, premiosPendientes - f.premio); A.sonar('cobro'); });
-      if (!f.premio) premiosPendientes = Math.max(0, premiosPendientes);
-      listo(3300);
+      U.cartel(t('misionCumplida'), textoMision(m), f.premio, () => { premiosPendientes = Math.max(0, premiosPendientes - f.premio); A.sonar('cobro'); }, DURA_CARTEL);
+      // y queda escrito un rato largo abajo a la izquierda: aunque se mire para otro lado, la misión cumplida se llega a ver
+      U.aviso(`${esc(t('misionN', { n: orden }))}${f.premio ? ` · <b>+${plata(f.premio)}</b>` : ''}`, { ico: 'mision', tono: 'bueno', dura: 12000 });
+      turno('mision', DURA_CARTEL + 250, { f });
       setTimeout(() => { if (performance.now() - (mundo.ultimoManual ?? 0) > 4000 && guia.hecha && !sel) verRed(); }, 3000);
       break;
     }
-    case 'encargo':
+    case 'encargo': {
+      // si se juntaron varios encargos cumplidos (al volver de una ausencia), se festejan en un solo cartel
+      const otros = cola.filter((x) => x.tipo === 'encargo');
+      for (const x of otros) cola.splice(cola.indexOf(x), 1);
+      const n = 1 + otros.length, premio = f.premio + otros.reduce((a, x) => a + x.premio, 0);
       A.sonar('mision');
-      U.cartel(t('encargoCumplido'), '', f.premio, () => { premiosPendientes = Math.max(0, premiosPendientes - f.premio); A.sonar('cobro'); });
-      listo(3300); break;
+      U.cartel(n > 1 ? t('encargosCumplidos', { n }) : t('encargoCumplido'), '', premio, () => { premiosPendientes = Math.max(0, premiosPendientes - premio); A.sonar('cobro'); }, DURA_CARTEL);
+      turno('encargo', DURA_CARTEL + 250); break;
+    }
+    case 'decision':
+      if (M.clasificacionActual(s)?.estado !== 'oferta') break;
+      mostrarOrden(); enPantalla = { tipo: 'decision', desde: ahora }; ultimaSug = 0; break;
+    case 'guiaNoche': abrirGuiaNoche(f); enPantalla = { tipo: 'guiaNoche', desde: ahora }; break;
+    case 'momento':
+      if ((!f.firme && ahora - f.t > CADUCA) || (f.vale && !f.vale())) break; // esperó tanto que ya no viene a cuento
+      U.momento(f.m); A.sonar('momento');
+      turno('momento', (f.m.dura ?? 6500) + 250); break;
     case 'avionNuevo': {
       const a = M.AV[f.avion];
-      momento(`avion_${a.id}`, { img: retratos[a.id], titulo: t('avionNuevo'), texto: `<b>${esc(a.nombre)}.</b> ${esc(t(`a_${a.id}`))}`, dura: 7000 }, true);
-      listo(2500); break;
+      U.momento({ img: retratos[a.id], titulo: t('avionNuevo'), texto: `<b>${esc(a.nombre)}.</b> ${esc(t(`a_${a.id}`))}`, dura: 7000 }); A.sonar('momento');
+      turno('momento', 7250); break;
     }
     case 'ciudades': {
       const ids = [...new Set(f.ciudades)];
-      momento('ciudades', { ico: 'ruta', titulo: t('mo_ciudades_t'), texto: t('mo_ciudades', { lista: ids.map((c) => M.AP[c].nombre).join(', ') }), dura: 7000 }, true);
-      if (performance.now() - (mundo.ultimoManual ?? 0) > 3000) verCiudades([...M.nodosRed(s), ...ids]);
-      listo(2800); break;
+      U.momento({ ico: 'ruta', titulo: t('mo_ciudades_t'), texto: esc(t('mo_ciudades', { lista: ids.map((c) => M.AP[c].nombre).join(', ') })), dura: 7000 }); A.sonar('momento');
+      if (performance.now() - (mundo.ultimoManual ?? 0) > 3000 && !sel) verCiudades([...M.nodosRed(s), ...ids]);
+      turno('momento', 7250); break;
     }
-    case 'capitulo': finCapitulo(); listo(600); break;
-    default: festejando = false;
+    case 'capitulo': finCapitulo(); turno('capitulo', 600); break;
+    default: break;
   }
 }
 function verCiudades(ids) {
@@ -442,7 +540,9 @@ function orbitar(dt) {
 }
 
 // ───────────── etiquetas del mundo (cada cuadro) ─────────────
-const _et = {};
+// Cada rótulo va con su prioridad: la base primero, después las ciudades de la misión, la elegida, las que tienen cartas esperando,
+// las de la red y el resto según su tamaño. ui/rotulos.js los ubica para que no se pisen ni queden debajo de un panel.
+const _et = {}, _ec = {};
 function etiquetas() {
   if (escena === 'portada' || escena === 'intro') { U.etiquetas([]); return; }
   const lista = [], S = mundo.S;
@@ -453,9 +553,12 @@ function etiquetas() {
     if (lejos && !enRed && !metas.has(c.id) && c.ap.peso < 20) continue;
     const p = mundo.aPantalla(_tmp.copy(c.pos).setY(c.pos.y + RADIO_CIUDAD * S * 0.62), _et);
     if (!p.visible) continue;
-    const n = Math.round(M.enEspera(s, c.id));
-    const clase = `etq${c.esBase ? ' base' : ''}${enRed ? '' : ' lejos'}${metas.has(c.id) && !M.servido(s, c.id) ? ' meta' : ''}`;
-    lista.push({ id: `c-${c.id}`, x: p.x, y: p.y, clase, html: `${n > 0 && enRed ? `<span class="cta">${icono(s.cap === 1 ? 'carta' : 'cartas')}${numero(n)}</span>` : ''}<span>${nom(c.id)}</span>` });
+    const centro = mundo.aPantalla(c.pos, _ec), rx = mundo.pxPorUnidad(c.pos) * RADIO_CIUDAD * S;
+    const n = Math.round(M.enEspera(s, c.id)), meta = metas.has(c.id) && !M.servido(s, c.id);
+    const clase = `etq${c.esBase ? ' base' : ''}${enRed ? '' : ' lejos'}${meta ? ' meta' : ''}`;
+    const prio = c.esBase ? 1000 : meta ? 900 : sel?.tipo === 'ciudad' && sel.id === c.id ? 850 : enRed ? (n > 0 ? 700 + Math.min(99, n) : 600) : c.ap.peso;
+    lista.push({ id: `c-${c.id}`, x: p.x, y: p.y, cx: centro.x, cy: centro.y, rx, ry: rx * 0.55, prio, pref: c.ap.etq, solido: true, clase,
+      html: `${n > 0 && enRed ? `<span class="cta">${icono(s.cap === 1 ? 'carta' : 'cartas')}${numero(n)}</span>` : ''}<span>${nom(c.id)}</span>` });
   }
   for (const n of mundo.vuelos.naves.values()) {
     const elegido = (sel?.tipo === 'avion' && sel.id === n.id) || mundo.siguiendo === n.id;
@@ -465,7 +568,9 @@ function etiquetas() {
     if (!p.visible) continue;
     const av = s.aviones.find((a) => a.id === n.id); if (!av) continue;
     const carga = av.carga.reduce((a, x) => a + x.n, 0);
-    lista.push({ id: `a-${n.id}`, x: p.x, y: p.y, clase: 'etq-avion', html: duerme ? icono(n.espera === 'noche' ? 'dormido' : 'tormenta') : `${icono('carta')}${numero(carga)}` });
+    const centro = mundo.aPantalla(n.pos, _ec), rx = Math.max(10, mundo.pxPorUnidad(n.pos) * 0.12 * S);
+    lista.push({ id: `a-${n.id}`, x: p.x, y: p.y, cx: centro.x, cy: centro.y, rx, ry: rx * 0.6, prio: elegido ? 800 : 500, lugares: [0, 3, 4, 6], clase: 'etq-avion',
+      html: duerme ? icono(n.espera === 'noche' ? 'dormido' : 'tormenta') : `${icono('carta')}${numero(carga)}` });
   }
   U.etiquetas(lista);
   // el dedo de la guía sobre la ciudad que hay que tocar
@@ -477,33 +582,64 @@ function textoMision(m) {
   const meta = m.tipo === 'mejorDia' ? plata(m.meta) : numero(m.meta);
   return t(m.id, { meta, n: numero(m.n ?? 0) });
 }
+// Lo que hace falta de verdad para cumplir un encargo: en el modelo sus cartas salen solo si hay un camino de rutas con avión
+// entre las dos ciudades (M.red(s).sig). Si lo hay, dice por dónde pasan; si no, qué ruta o qué avión falta.
+function caminoEncargo(o, d) {
+  const R = M.red(s), nombre = (id) => M.AP[id].nombre;
+  if (R.sig[o]?.[d]) {
+    const escalas = [];
+    for (let a = R.sig[o][d], i = 0; a && a !== d && i < 8; a = R.sig[a]?.[d], i++) escalas.push(a);
+    if (!escalas.length) return { ok: true, texto: t('enc_directo') };
+    if (escalas.length === 1 && escalas[0] === M.HUB) return { ok: true, texto: t('enc_base') };
+    return { ok: true, texto: t('enc_escala', { ciudad: escalas.map(nombre).join(', ') }) };
+  }
+  // falta una punta: la ciudad a la que todavía no llega ningún avión (primero el destino)
+  for (const c of [d, o]) {
+    if (R.adj[c]) continue;
+    const sinAvion = s.rutas.some((r) => (r.a === c || r.b === c) && !s.aviones.some((a) => a.ruta === r.id));
+    return { ok: false, texto: t(sinAvion ? 'enc_faltaAvion' : 'enc_faltaRuta', { ciudad: nombre(c) }) };
+  }
+  return { ok: false, texto: t('enc_faltaUnir', { a: nombre(o), b: nombre(d) }) };
+}
 function objetivos() {
   const out = [];
   // una misión cumplida que todavía no se festejó se sigue mostrando, completa, hasta su cartel
-  const pend = enFestejo ?? cola.find((f) => f.tipo === 'mision');
+  const pend = enFestejo() ?? cola.find((f) => f.tipo === 'mision');
   const mp = pend && MISIONES.find((x) => x.id === pend.id);
-  if (mp) return [{ tipo: 'mision', orden: MISIONES.filter((x) => x.cap === mp.cap).indexOf(mp) + 1, texto: esc(textoMision(mp)), progreso: 1, avance: '', premio: mp.premio, pista: '' }];
+  // (los encargos siguen en su lugar: la columna no cambia de alto durante el festejo)
+  // (en el primer vuelo de la guía todavía no: se cumple a la vista cuando el avión llega y cobra)
+  const enVuelo = guia.paso === 'vuela' || enPausaGuia();
+  if (mp) out.push({ tipo: 'mision', orden: MISIONES.filter((x) => x.cap === mp.cap).indexOf(mp) + 1, texto: esc(textoMision(mp)), progreso: enVuelo ? 0.8 : 1, avance: enVuelo ? esc(t('pasoDe', { n: 2, m: 2 })) : '', cumplida: !enVuelo, premio: mp.premio, pista: '' });
   for (const o of M.misionesActivas(s)) {
     if (o.tipo === 'historia') {
+      if (mp) continue;
       const m = o.mision, orden = MISIONES.filter((x) => x.cap === m.cap).indexOf(m) + 1;
       let texto = esc(o.espera ? t(`${m.id}_espera`) : textoMision(m)), avance = o.avanceTxt;
-      if (m.tipo === 'ruta') avance = esc(t(o.progreso < 0.5 ? 'paso_ruta' : 'paso_avion'));
+      // la misión dice la meta y cuánto falta; qué tocar ahora lo dice «Siguiente paso» (no se repite acá)
+      if (m.tipo === 'ruta') avance = esc(t('pasoDe', { n: o.progreso < 0.5 ? 1 : 2, m: 2 }));
       if (m.tipo === 'mejorDia') avance = `${plata(o.avance.n)}`;
-      const pista = o.pista ? esc(t(o.pista === 'pista_noche' ? 'pista_noche' : hay(o.pista) ? o.pista : 'pista_generica')) : '';
+      // debajo: la pista si lleva rato sin avanzar; si no, la frase que explica la misión (cuando hace falta)
+      // (la pista genérica «tocá Siguiente paso» no va mientras la guía está diciendo eso mismo)
+      const clavePista = o.pista ? (o.pista === 'pista_noche' || hay(o.pista) ? o.pista : guia.paso === 'sigue' ? null : 'pista_generica') : null;
+      const pista = o.espera ? '' : clavePista ? esc(t(clavePista)) : hay(`ayuda_${m.id}`) ? esc(t(`ayuda_${m.id}`)) : '';
       out.push({ tipo: 'mision', orden, texto, progreso: o.espera ? 0 : o.progreso, avance: o.espera ? '' : avance, premio: m.premio, pista });
     } else {
       const u = unidad(o.carga);
       const horas = Math.max(1, Math.round(o.quedan / 60));
       const quedan = horas >= 48 ? `${Math.round(horas / 24)} d` : `${horas} h`;
+      const camino = caminoEncargo(o.o, o.d);
       out.push({ tipo: 'encargo', texto: esc(t('encargoTxt', { n: numero(o.avance.meta), u, a: M.AP[o.o].nombre, b: M.AP[o.d].nombre })),
-        detalle: `${o.oferta ? '' : `${o.avanceTxt} · `}${esc(t('quedan', { t: quedan }))} · ${plata(o.premio)}`,
-        boton: o.oferta ? `<button class="mini" data-accion="aceptarEncargo" data-id="${o.contrato}">${esc(t('aceptar'))}</button>` : '' });
+        detalle: `${o.oferta ? '' : `${o.avanceTxt} · `}${esc(t('quedan', { t: quedan }))} · ${plata(o.premio)}`, camino: { ok: camino.ok, texto: esc(camino.texto) },
+        boton: o.oferta ? `<button class="mini${camino.ok ? '' : ' suave'}" data-accion="aceptarEncargo" data-id="${o.contrato}">${esc(t(camino.ok ? 'aceptar' : 'aceptarIgual'))}</button>` : '' });
     }
   }
   return out;
 }
+// «Siguiente paso» dice siempre lo que conviene hacer ahora y qué pasa al tocarlo. pasivo: no hay nada para tocar (se ve como un
+// aviso, no como un botón).
 function pasoSugerido() {
-  if (!sug) return { ico: 'check', texto: esc(t('s_esperar')) };
+  const nada = { ico: 'check', texto: esc(t('s_esperar')), pasivo: true };
+  if (!sug) return nada;
   const d = sug, r = d.ruta ? rutaDe(d.ruta) : d.tipo !== 'ruta' && typeof d.id === 'string' ? rutaDe(d.id) : null;
   const ruta = r ? esc(nombreRuta(r)) : '';
   switch (d.tipo) {
@@ -512,16 +648,22 @@ function pasoSugerido() {
     case 'balizas': return { ico: 'faro', texto: t('s_faros', { ruta }), costo: d.costo };
     case 'transbordo': return { ico: 'base', texto: esc(t('s_base', { ap: M.AP[d.id].nombre })), costo: d.costo };
     case 'cargaMin': return { ico: 'cartas', texto: t('s_salida', { ruta }) };
-    case 'contrato': return { ico: 'encargo', texto: esc(t('s_encargo')) };
+    case 'contrato': {
+      // en el celular los encargos no tienen su tarjeta a la vista: el paso dice cuál es (al tocarlo, se acepta)
+      const c = s.contratos.tablero.find((x) => x.id === d.id);
+      if (!c || innerWidth >= 640) return { ico: 'encargo', texto: esc(t('s_encargo')) };
+      return { ico: 'encargo', texto: esc(t('s_encargo2', { n: numero(c.n), u: unidad(c.c, c.n), a: M.AP[c.o].nombre, b: M.AP[c.d].nombre })) };
+    }
     case 'vender': { const av = s.aviones.find((a) => a.id === d.id), rr = av && rutaDe(av.ruta); return { ico: 'moneda', texto: d.seguridad || !rr ? esc(t('s_vender')) : t('s_vender2', { ruta: esc(nombreRuta(rr)) }) }; }
     case 'clasificar': return { ico: 'base', texto: esc(t('s_ordenar')) };
     case 'ahorrar': case 'acelerar': {
-      if (d.falta == null) return { ico: 'rapido', texto: esc(t('s_acelerar')) };
+      if (d.falta == null) return vel >= 3 ? nada : { ico: 'rapido', texto: esc(t('s_acelerar')) };
       const que = d.que === 'avion' ? t('que_avion', { avion: M.AV[d.id]?.nombre ?? '' }) : d.que === 'balizas' ? t('que_faros') : d.que === 'transbordo' ? t('que_base')
         : t('que_ruta', { ciudad: (() => { const [a, b] = String(d.id).split('-'); return M.AP[M.enRed(s, a) ? b : a]?.nombre ?? ''; })() });
-      return { ico: 'rapido', texto: esc(t('s_juntar', { falta: plata(d.falta), que })) };
+      // ya está acelerado: no queda nada por tocar, solo esperar
+      return vel >= 3 ? { ico: 'moneda', texto: esc(t('s_juntando', { falta: plata(d.falta), que })), pasivo: true } : { ico: 'rapido', texto: esc(t('s_juntar', { falta: plata(d.falta), que })) };
     }
-    default: return { ico: 'check', texto: esc(t('s_esperar')) };
+    default: return nada;
   }
 }
 function refrescar(ahora) {
@@ -529,17 +671,20 @@ function refrescar(ahora) {
   const noche = M.esNoche(s);
   if (noche !== eraNoche) { eraNoche = noche; if (s.t > 30) A.sonar(noche ? 'noche' : 'dia'); }
   A.fijarNoche(mundo.cielo.noche);
-  U.barra({ dinero: dineroVisible(), gananciaHoy: M.gananciaDia(s), fecha: M.fecha(s), noche, vel });
+  U.barra({ dinero: dineroVisible(), gananciaHoy: M.gananciaDia(s), fecha: M.fecha(s), noche, vel, sinRojo: !(s.stats.ingresos > 0) });
   U.mision(guia.hecha || guia.paso === 'sigue' || guia.paso === 'cobro' ? objetivos() : objetivos().slice(0, 1));
   // siguiente paso
   if (ahora - ultimaSug > (s.aviones.length > 100 ? 2500 : 900)) { sug = guiando() && guia.paso !== 'sigue' ? null : M.sugerencia(s); ultimaSug = ahora; }
-  const mostrarPaso = (guia.hecha || guia.paso === 'sigue') && !U.panelAbierto();
+  // una pregunta de la base que espera respuesta siempre tiene su tarjeta (también al volver a una partida guardada)
+  if (guia.hecha && s.clasif?.estado === 'oferta') ofrecerOrden();
+  // no se muestra con un panel abierto ni con la pregunta de la base abierta: en ese momento el paso es contestarla
+  const repetido = enPantalla?.tipo === 'decision';
+  const mostrarPaso = (guia.hecha || guia.paso === 'sigue') && !U.panelAbierto() && !repetido;
   U.paso(mostrarPaso ? { ...pasoSugerido(), pulso: guia.paso === 'sigue' } : null);
-  $('#ui').classList.toggle('con-burbuja', !!guiando());
   // panel
   U.panel(armarPanel());
   mundo.elegir(sel && sel.tipo !== 'hangar' ? sel : sel?.tipo === 'hangar' ? { tipo: 'ruta', id: sel.ruta } : null);
-  U.marcar(marcaBoton);
+  U.marcar(marcaBoton, guia.paso === 'tocar'); // en el primer paso el dedo señala una ciudad del mundo: no se esconde desde acá
   if (marcaBoton && guia.hecha && ahora > (marcaBoton_hasta ?? 0)) marcaBoton = null;
 }
 let marcaBoton_hasta = 0;
@@ -576,9 +721,10 @@ function panelCiudad(id) {
   const rutas = s.rutas.filter((r) => r.a === id || r.b === id);
   const conecta = esBase || rutas.filter((r) => s.aviones.some((a) => a.ruta === r.id)).length >= 2;
   if (conecta) {
-    const nivel = s.niveles[id] ?? 0, costo = M.costoTransbordo(s, id), enCola = Math.round(M.enTransbordo(s, id));
-    h += `<p class="nota">${esc(t('baseExplica'))} ${t('baseRitmo', { n: numero(TRANSBORDO[nivel].u) })}${enCola > 0 ? ` ${esc(t('baseCola', { n: numero(enCola) }))}.` : ''}</p>`;
-    h += costo != null ? `<div class="acciones">${botonPrecio('agrandar', `data-id="${id}"`, esc(t('agrandar')), costo, s.dinero >= costo, 'base')}</div>` : `<p class="nota">${esc(t('baseMax'))}</p>`;
+    const nivel = s.niveles[id] ?? 0, costo = M.costoTransbordo(s, id), enCola = Math.round(M.enTransbordo(s, id)), u = esc(t(s.cap === 1 ? 'cartas' : 'u_todo'));
+    h += `<p class="nota">${esc(t('baseExplica'))} ${t('baseRitmo', { n: numero(TRANSBORDO[nivel].u), u })}${enCola > 0 ? ` ${esc(t('baseCola', { n: numero(enCola) }))}.` : ''}</p>`;
+    h += costo != null ? `<div class="acciones">${botonPrecio('agrandar', `data-id="${id}"`, esc(t('agrandar')), costo, s.dinero >= costo, 'base')}</div><p class="nota">${t('agrandarExplica', { n: numero(TRANSBORDO[nivel + 1].u), u })}</p>`
+      : `<p class="nota">${esc(t('baseMax'))}</p>`;
   }
   if (rutas.length) {
     h += `<div class="h3">${esc(t('rutasDeAca'))}</div>`;
@@ -601,15 +747,20 @@ function estadoAvion(av) {
 function panelRuta(id) {
   const r = rutaDe(id), res = M.resumenRuta(s, id), neto = Math.round(res.neto);
   let h = cab('ruta', esc(tituloRuta(r)), esc(t('kmVuelo', { km: numero(r.km) })));
-  if (r.vuelos > 0) h += `<div class="dato ${neto >= 0 ? 'bien' : 'mal'}">${icono('moneda')}<span>${esc(t(neto >= 0 ? 'ganoRuta' : 'perdioRuta'))} <b>${plata(Math.abs(neto))}</b></span></div>`;
+  // el resultado de la ruta: hasta su primer cobro no se habla de pérdida (el primer vuelo sale antes de cobrar) y una diferencia
+  // de monedas no se pinta de rojo; después, el dato va como es
+  if (r.vuelos > 0) {
+    if (!(r.ingresos > 0) && r.vuelos < 4) h += `<div class="dato">${icono('moneda')}<span>${esc(t('rutaSinCobro'))}</span></div>`;
+    else h += `<div class="dato ${neto >= 0 ? 'bien' : neto > -100 ? '' : 'mal'}">${icono('moneda')}<span>${esc(t(neto >= 0 ? 'ganoRuta' : 'perdioRuta'))} <b>${plata(Math.abs(neto))}</b></span></div>`;
+  }
   for (const av of res.aviones) h += `<button class="fila" data-accion="verAvion" data-id="${av.id}"><img src="${retratos[av.tipo]}" alt=""><span>${esc(M.AV[av.tipo].nombre)}<small>${esc(estadoAvion(av))}</small></span>${icono('flecha', 'fl')}</button>`;
   h += `<div class="acciones"><button class="boton ancho${res.aviones.length ? ' suave' : ''}" data-accion="verHangar" data-id="${id}">${icono('mas')}${esc(t('sumarAvion'))}</button>`;
   if (s.cap === 1 && !r.balizas) { const c = M.costoBalizas(r, s); h += botonPrecio('faros', `data-id="${id}"`, esc(t('ponerFaros')), c, s.dinero >= c, 'faro'); }
   h += '</div>';
   if (s.cap === 1) h += r.balizas ? `<div class="dato bien">${icono('faro')}<span>${esc(t('conFaros'))}</span></div>` : `<p class="nota">${esc(t('farosExplica'))} ${esc(t('sinFaros'))}.</p>`;
   if (res.aviones.length) {
-    h += `<div class="h3">${esc(t('cuandoSale'))}</div><div class="segm">${M.CARGA_MINIMA.map((v) => `<button class="${r.minCarga === v ? 'activa' : ''}" data-accion="salida" data-id="${id}" data-v="${v}">${esc(t(`sale${Math.round(v * 100)}`))}</button>`).join('')}</div>
-      <p class="nota">${esc(t(`salePista${Math.round((r.minCarga ?? 0.6) * 100)}`))}</p>`;
+    // cada opción dice qué pasa si se la elige (antes solo se leía la explicación de la que ya estaba elegida)
+    h += `<div class="h3">${esc(t('cuandoSale'))}</div><div class="opciones">${M.CARGA_MINIMA.map((v) => `<button class="opc${(r.minCarga ?? 0.6) === v ? ' activa' : ''}" data-accion="salida" data-id="${id}" data-v="${v}"><i class="punto"></i><span><b>${esc(t(`sale${Math.round(v * 100)}`))}</b><small>${esc(t(`salePista${Math.round(v * 100)}`))}</small></span></button>`).join('')}</div>`;
   }
   h += `<div class="sep"></div><button class="boton ancho peligro" data-accion="cerrarRuta" data-id="${id}">${esc(t('cerrarRuta'))}</button>`;
   return h;
@@ -638,7 +789,8 @@ function panelAvion(id) {
   const av = s.aviones.find((a) => a.id === id), tp = M.AV[av.tipo], f = M.fichaAvion(s, id);
   let h = cab('avion', esc(tp.nombre), esc(nombreRuta(rutaDe(av.ruta))), 'volverRuta');
   h += `<div class="avion"><img src="${retratos[tp.id]}" alt=""><p>${esc(estadoAvion(av))}</p>
-    <div class="dato ${f.neto >= 0 ? 'bien' : 'mal'}">${icono('moneda')}<span>${esc(t('gano'))} <b>${plataSigno(f.neto)}</b> · ${esc(t('viajes', { n: numero(f.viajes) }))}</span></div></div>`;
+    ${!(av.ing > 0) && f.viajes < 4 ? `<div class="dato">${icono('moneda')}<span>${esc(t('avionSinCobro'))}</span></div>`
+    : `<div class="dato ${f.neto >= 0 ? 'bien' : f.neto > -100 ? '' : 'mal'}">${icono('moneda')}<span>${esc(t('gano'))} <b>${plataSigno(f.neto)}</b> · ${esc(t('viajes', { n: numero(f.viajes) }))}</span></div>`}</div>`;
   h += `<div class="acciones"><button class="boton ancho suave" data-accion="seguirAvion" data-id="${id}">${icono('ojo')}${esc(t('seguirCam'))}</button>
     <button class="boton ancho peligro" data-accion="vender" data-id="${id}">${esc(t('vender'))} · +${plata(Math.round(tp.precio * 0.6))}</button></div>`;
   return h;
@@ -650,16 +802,24 @@ function elegir(x, { camara = true } = {}) {
   if (!x) return;
   A.sonar('abrir');
   if (!camara) return;
-  const angosto = innerWidth < 640;
+  const angosto = innerWidth < 640, derecha = ladoPanel(), izquierda = ladoMision();
   if (x.tipo === 'ciudad') {
     const c = mundo.ciudades.get(x.id); if (!c) return;
     const enRed = M.enRed(s, x.id) || x.id === M.HUB;
-    if (enRed) { mundo.seguir(null); mundo.encuadrar([c.pos], { margen: 1, abajo: angosto ? 0.42 : 0, distMin: x.id === M.HUB ? 3.6 : 4.6, distMax: 8 }); }
-    else { const con = conexionPara(x.id, x.desde); const d = con.desde && mundo.ciudades.get(con.desde); mundo.seguir(null); mundo.encuadrar(d ? [c.pos, d.pos] : [c.pos], { margen: 1.7, abajo: angosto ? 0.42 : 0, distMin: 5.4 }); }
+    if (enRed) { mundo.seguir(null); mundo.encuadrar([c.pos], { margen: 1, abajo: angosto ? 0.42 : 0, derecha, izquierda, distMin: x.id === M.HUB ? 3.6 : 4.6, distMax: 8 }); }
+    else { const con = conexionPara(x.id, x.desde); const d = con.desde && mundo.ciudades.get(con.desde); mundo.seguir(null); mundo.encuadrar(d ? [c.pos, d.pos] : [c.pos], { margen: 1.7, abajo: angosto ? 0.42 : 0, derecha, izquierda, distMin: 5.4 }); }
   } else if (x.tipo === 'ruta' || x.tipo === 'hangar') {
     const r = rutaDe(x.id ?? x.ruta); if (!r) return;
-    mundo.seguir(null); mundo.encuadrar([mundo.ciudades.get(r.a).pos, mundo.ciudades.get(r.b).pos], { margen: 1.7, abajo: angosto ? 0.45 : 0, distMin: 5.4 });
+    mundo.seguir(null); mundo.encuadrar([mundo.ciudades.get(r.a).pos, mundo.ciudades.get(r.b).pos], { margen: 1.7, abajo: angosto ? 0.45 : 0, derecha, izquierda, distMin: 5.4 });
   }
+}
+// En escritorio el panel tapa la derecha de la pantalla: lo que se encuadra queda a su izquierda, no debajo.
+const ladoPanel = () => (innerWidth < 640 ? 0 : Math.min(0.42, 364 / innerWidth));
+// Y a la izquierda está la columna de la misión y los encargos: cuenta cuando baja hasta el medio de la pantalla.
+function ladoMision() {
+  if (innerWidth < 640) return 0;
+  const r = $('#mision')?.getBoundingClientRect();
+  return r && r.bottom > innerHeight * 0.4 ? Math.min(0.3, (r.right + 12) / innerWidth) : 0;
 }
 function marcarBoton(selector, ms = 7000) { marcaBoton = selector; marcaBoton_hasta = performance.now() + ms; }
 function negar(el) { A.sonar('error'); if (el?.animate) el.animate([{ transform: 'translateX(0)' }, { transform: 'translateX(-7px)' }, { transform: 'translateX(7px)' }, { transform: 'translateX(0)' }], { duration: 260 }); }
@@ -670,7 +830,7 @@ function accion(nombre, d, el) {
   switch (nombre) {
     case 'nuevaPartida': empezar(true); break;
     case 'seguirPartida': empezar(false); break;
-    case 'idioma': cambiarLengua(); U.textosFijos(); if (escena === 'portada') U.portada({ haySeguir: !!leerGuardado() }); else { abrirMenu(); if (guiando()) pasoGuia(guia.paso); } A.sonar('clic'); break;
+    case 'idioma': cambiarLengua(); U.textosFijos(); if (escena === 'portada') U.portada({ haySeguir: !!leerGuardado() }); else { abrirMenu(); if (guiando()) pasoGuia(guia.paso); if (enPantalla?.tipo === 'decision') mostrarOrden(); if (ayudaNoche) U.burbuja(t('g_noche'), 'faro'); } A.sonar('clic'); break;
     case 'saltarCine': mundo.cortarCine(); break;
     case 'vel': fijarVel(+d.v); break;
     case 'pausar': fijarVel(vel === 0 ? 1 : 0); break;
@@ -701,7 +861,7 @@ function accion(nombre, d, el) {
       atender(M.tomarEventos(s));
       const ru = rutaDe(d.ruta);
       if (guia.paso === 'avion') { sel = null; pasoGuia('vuela'); setTimeout(() => { mundo.seguir(r.avion.id); mundo.controles.dollyTo(innerWidth < 640 ? 5.2 : 3.6, true); mundo.controles.rotatePolarTo(1.02, true); }, 500); }
-      else { sel = { tipo: 'ruta', id: d.ruta }; marcaBoton = null; if (ru) mundo.encuadrar([mundo.ciudades.get(ru.a).pos, mundo.ciudades.get(ru.b).pos], { margen: 1.7, abajo: innerWidth < 640 ? 0.45 : 0, distMin: 5.4 }); }
+      else { sel = { tipo: 'ruta', id: d.ruta }; marcaBoton = null; if (ru) mundo.encuadrar([mundo.ciudades.get(ru.a).pos, mundo.ciudades.get(ru.b).pos], { margen: 1.7, abajo: innerWidth < 640 ? 0.45 : 0, derecha: ladoPanel(), izquierda: ladoMision(), distMin: 5.4 }); }
       guardarPronto = true; ultimaSug = 0;
       break;
     }
@@ -718,7 +878,7 @@ function accion(nombre, d, el) {
     case 'vender': { const r = M.venderAvion(s, +d.id); if (r.ok) { A.sonar('cobro'); atender(M.tomarEventos(s)); sel = null; guardarPronto = true; } break; }
     case 'seguirAvion': mundo.seguir(+d.id); mundo.controles.dollyTo(Math.min(mundo.dist, 6), true); A.sonar('paso'); break;
     case 'aceptarEncargo': { const r = M.aceptarContrato(s, +d.id); if (r?.ok) { A.sonar('abrir'); atender(M.tomarEventos(s)); } else negar(el); break; }
-    case 'ordenar': M.elegirClasificacion(s, d.id); U.momento(null); A.sonar('clic'); break;
+    case 'ordenar': M.elegirClasificacion(s, d.id); atender(M.tomarEventos(s)); A.sonar('clic'); break; // la tarjeta la cierra la fila, al ver que ya hay respuesta
     case 'sonido': A.alternarSonido(); abrirMenu(); A.sonar('clic'); break;
     case 'musica': A.alternarMusica(); abrirMenu(); break;
     case 'calidad': cambiarCalidad(); abrirMenu(); break;
@@ -728,7 +888,8 @@ function accion(nombre, d, el) {
     case 'siguienteCapitulo': siguienteCapitulo(); break;
     default: break;
   }
-  if (escena === 'juego') refrescar(performance.now()); // la respuesta a un toque se ve en el acto, no en el próximo refresco
+  // la respuesta a un toque se ve en el acto, no en el próximo refresco; y «Siguiente paso» se vuelve a calcular con el estado nuevo
+  if (escena === 'juego') { ultimaSug = 0; avanzarCola(); refrescar(performance.now()); }
 }
 // «Siguiente paso»: lleva al lugar y marca el botón que hay que tocar.
 function tocarPaso() {
@@ -744,7 +905,7 @@ function tocarPaso() {
     case 'cargaMin': elegir({ tipo: 'ruta', id: d.id }); marcarBoton(`[data-accion="salida"][data-v="${d.v}"]`); break;
     case 'contrato': marcarBoton(`[data-accion="aceptarEncargo"][data-id="${d.id}"]`); if (innerWidth < 640) { const r = M.aceptarContrato(s, d.id); if (r?.ok) atender(M.tomarEventos(s)); } break;
     case 'vender': { const av = s.aviones.find((a) => a.id === d.id); if (av) { elegir({ tipo: 'avion', id: av.id }); marcarBoton('[data-accion="vender"]'); } break; }
-    case 'clasificar': ofrecerOrden(); break;
+    case 'clasificar': ofrecerOrden(true); break;
     case 'ahorrar': case 'acelerar': fijarVel(3); break;
     default: verRed();
   }
@@ -814,7 +975,8 @@ function depuracion() {
     accion, elegir, tocarPaso, verRed, pasoGuia, terminarGuia, fijarVel, empezar,
     saltarGuia() { terminarGuia(); },
     ver(k) { vistos[k] = 1; },
-    limpiar() { cola.length = 0; festejando = false; enFestejo = null; premiosPendientes = 0; U.momento(null); },
+    limpiar() { M.tomarEventos(s); cola.length = 0; enPantalla = null; if (ayudaNoche) sel = null; cerrarGuiaNoche(); premiosPendientes = 0; U.momento(null); U.limpiarAvisos(); },
+    get fila() { return { enPantalla: enPantalla?.tipo ?? null, cola: cola.map((f) => f.tipo) }; },
   };
 }
 
