@@ -12,7 +12,7 @@ Entradas (se bajan una sola vez a una carpeta de trabajo; no se versionan):
                    Natural Earth 1:50m (dominio público), de github.com/nvkelso/natural-earth-vector
 
 Salidas (en ../activos):
-  - alturas.png   RGB de 8 bits: R,G = altura en 16 bits (ver ALT_MIN/ALT_MAX), B = máscara de ríos y lagos.
+  - alturas.webp  (sin pérdida) RGB de 8 bits: R,G = altura en 16 bits (ver ALT_MIN/ALT_MAX), B = máscara de ríos y lagos.
   - suelo.webp    color del suelo (cobertura) + A sin usar.
   - mundo.json    límites y codificación, para que el juego ubique todo.
 
@@ -78,7 +78,7 @@ suave = gaussian_filter(alt, sigma=2.0)
 alt = np.where(mar, np.round(suave / 16) * 16, alt)
 
 q = np.clip((alt - ALT_MIN) / (ALT_MAX - ALT_MIN), 0, 1)
-q16 = np.round(q * 65535).astype(np.uint16)
+q16 = (np.round(q * 65535 / 16) * 16).clip(0, 65535).astype(np.uint16)  # pasos de 4 m: el WebP sin pérdida pesa la mitad
 
 # ── ríos y lagos (máscara) y fronteras ──
 ESC = 2  # sobre-muestreo para que las líneas salgan suaves
@@ -140,7 +140,7 @@ for ft in json.load(open(ENTRADA / 'ne_50m_admin_0_boundary_lines_land.geojson')
 front = front.filter(ImageFilter.GaussianBlur(0.5 * ESC)).resize((ANCHO, ALTO), Image.LANCZOS)
 
 rgb = np.dstack([(q16 >> 8).astype(np.uint8), (q16 & 255).astype(np.uint8), agua_np])
-Image.fromarray(rgb, 'RGB').save(SALIDA / 'alturas.png', optimize=True)
+Image.fromarray(rgb, 'RGB').save(SALIDA / 'alturas.webp', lossless=True, method=6)
 
 # ── color del suelo ──
 ne = Image.open(ENTRADA / 'ne2' / 'NE2_LR_LC.tif')
@@ -179,5 +179,5 @@ json.dump({
         'rios_lagos_fronteras': 'Natural Earth 1:50m, dominio público',
     },
 }, open(SALIDA / 'mundo.json', 'w'), ensure_ascii=False, indent=1)
-for a in ('alturas.png', 'suelo.webp', 'mundo.json'):
+for a in ('alturas.webp', 'suelo.webp', 'mundo.json'):
     print(a, (SALIDA / a).stat().st_size // 1024, 'KB')
