@@ -1857,3 +1857,34 @@ se aprueba, la recomendación de lanzar sin EE. UU., Brasil ni la UE (DEC-2026-1
   se recalcula con el producto nuevo: un juego más profundo cambia el canal (sesiones largas, guardado) y los números.
 - **Riesgo anotado (INFERENCIA de Claude):** el alcance crece mucho; se controla construyendo por etapas jugables y midiendo cada
   una, sin tocar lo que ya funciona hasta que lo nuevo lo supere.
+
+## DEC-2026-11-15-5 · Hub Nocturno: un juego, dos puertas (la carrera completa va a Steam; el portal es la demo gratis)
+
+- **Contexto:** Claude marcó una tensión: lo que encabeza los portales web son juegos simples de esperar y atender; uno profundo
+  apunta a Steam. El fundador respondió que Claude lidera el proyecto y que su recomendación es la que más pesa.
+- **Regla de trabajo que deja:** en Hub Nocturno, Claude decide producto, diseño y canal, y lo informa ya decidido; al fundador
+  le llega solo lo que es suyo por la regla 8 (plata, cuentas, terceros, publicar).
+- **Decidido (Claude):**
+  1. **El producto es la carrera completa** (oficina, épocas, cargas, propuestas, aprendizaje). Su casa es Steam, con precio único
+     cerca de USD 10 (referencias a USD 9,99: un juego de control aéreo de 2024 con ~28.900 copias y el tycoon de aerolíneas de 1998
+     con ~71.600; ESTIMACIONES de terceros citadas en `producto-y-negocio.md` §1.4).
+  2. **El portal es la demo gratis:** el capítulo de 1929 con la oficina y las tarjetas de decisión. Cumple lo que piden los
+     portales (primeros minutos brillantes, la profundidad en capas) y sirve para medir y para llevar gente a la página de Steam.
+     Lo que deje en publicidad es un extra, no la compuerta.
+  3. **Cambia la compuerta C3 de DEC-2026-11-15-2.** Pedía USD 300 por mes en el portal antes de abrir Steam: medía al público
+     equivocado (el propio caso de negocio dice que el que paga por profundidad está en Steam). Nuevas compuertas:
+     - **Abrir la página de Steam** (USD 100, con OK del fundador): cuando la etapa 2 pase la prueba a ciegas (4 de 5 personas
+       nuevas la entienden y cuentan con sus palabras por qué conviene la base).
+     - **Lanzar en Steam:** con 2.000 deseados o más a los seis meses de abierta la página. ESTIMACIÓN de qué significa: con la
+       conversión mediana del primer mes (~27%) son ~540 copias y, a ~USD 7 netos por copia (USD 9,99 menos la comisión de la
+       tienda, a verificar al abrir la página), ~USD 3.800 el primer mes. Con menos de 700 deseados a los seis meses no se
+       lanza: queda como juego web gratis y sin más horas.
+     - Las compuertas C0 a C2 (entender antes de subir, números del portal) siguen igual para la demo.
+- **Sin vender humo (HECHO, `producto-y-negocio.md` §1.4):** el juego mediano de Steam de 2025 hizo USD 318 en total; el 23,4% pasó
+  USD 5.000; el 40% no recuperó el alta. Lo más probable sigue siendo poco. Lo que cambia es el techo, y que el diferencial
+  (aprender logística de verdad) solo existe en la versión profunda.
+- **Por qué igual conviene (INFERENCIA):** arriesga menos de USD 500 y pocas horas del fundador; el 3D, la oficina y el estimador
+  de decisiones se reusan en Andén («Ver y creer»); el juego puede ser la vidriera de Andén (HIPÓTESIS); y a partir de la etapa 3
+  se abre una tercera puerta, cursos de logística (HIPÓTESIS, no cuenta en los números).
+- **Freno:** si la etapa 2 falla dos veces la prueba a ciegas, se congela. Hub no le saca prioridad al lanzamiento de Senda.
+- **Pendiente de Claude:** recalcular el caso de negocio y `P6-juegos.yaml` con estas compuertas cuando la etapa 1 esté probada.

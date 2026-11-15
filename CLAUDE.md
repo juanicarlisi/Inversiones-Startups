@@ -581,6 +581,10 @@ Cada sesión de Claude que trabaje acá debe leer este archivo y actuar como el 
     dos carteles a la vez; la oficina es el lugar propio (red, cuentas, flota, bandeja, cuaderno); nombre de la empresa; épocas por
     metas; más cargas que cartas; propuestas de negocio; todo dato histórico con fuente (en 1929 no había faros de ruta en la
     Argentina: fogatas primero); lo que trae de otros juegos es dirección, nunca copia; cada etapa se cierra con prueba a ciegas;
+  - **Hub Nocturno, quién decide (DEC-2026-11-15-5)**: Claude lidera el proyecto: decide producto, diseño y canal y lo informa ya
+    decidido (no deja tensiones abiertas); al fundador le llega solo plata, cuentas, terceros y publicar. Decidido: la carrera
+    completa va a Steam (precio único cerca de USD 10) y el portal web es la demo gratis de 1929; la página de Steam se abre cuando
+    la etapa 2 pase la prueba a ciegas y se lanza con 2.000 deseados o más a los seis meses;
   - **Andén «Tu planta»**: el gemelo de cualquier planta desde fotos, videos, croquis y planos
     (`oportunidades/proyectos/anden/gemelo-de-planta.md`); la planta piloto es de su empleador: sus datos viven solo en el
     repositorio privado `plaza-gemelo2`, nunca acá (este repositorio es público);
