@@ -1,0 +1,651 @@
+{
+ "id": "14-11",
+ "titulo": "Kubernetes II: Pods, Deployments, Services e Ingress",
+ "bajada": "Cuatro objetos y un puñado de etiquetas alcanzan para pedirle a un clúster tres copias de tu API, actualizarlas sin cortar el servicio y exponerlas con un nombre de dominio.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar qué es un Pod y por qué casi nunca se crea suelto.",
+  "Leer un manifiesto de Deployment, Service e Ingress e identificar qué campo hace cada cosa.",
+  "Predecir cuántos Pods atienden en cada paso de una actualización gradual según maxSurge y maxUnavailable.",
+  "Distinguir ClusterIP, NodePort y LoadBalancer, y decir qué pieza enruta por dominio y ruta.",
+  "Diagnosticar un Service sin destinos a partir de etiquetas y sondas de disponibilidad."
+ ],
+ "venis_de": "En [@14-10] viste el plano de control, los nodos y el bucle de reconciliación: vos declarás un estado deseado y los controladores empujan la realidad hacia él. En [@14-09] dejaste la API de despachos en una imagen mínima. Hoy falta lo concreto: qué objetos escribís para pedirle a ese clúster que corra tu imagen, la mantenga viva y la muestre al mundo.",
+ "se_apoya_en": [
+  "14-10",
+  "14-09",
+  "14-06",
+  "14-07",
+  "02-24"
+ ],
+ "gancho": [
+  "Imaginá que sos jefe de un depósito y tu turno noche necesita que haya siempre tres autoelevadores operativos. No decís «tomá este, tomá este y tomá este». Dejás una nota en el pizarrón: «tres operativos, de este modelo». Si uno se rompe, alguien lo reemplaza. Si querés cambiar de modelo, la nota dice cuántos podés tener fuera de servicio a la vez mientras se hace el recambio.",
+  "Eso es, casi literalmente, trabajar con Kubernetes. El clúster de [@14-10] ya sabe reconciliar. Lo que te falta es el idioma de la nota: un archivo de texto que describe qué querés. Hoy vas a aprender las cuatro palabras que más vas a escribir en ese idioma: **Pod**, **Deployment**, **Service** e **Ingress**. Y vas a ver, con una simulación que corrés vos y con manifiestos validados por una herramienta real, cómo se reemplazan tres copias de una API sin que nadie se quede sin respuesta."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Lo que escribís: un manifiesto y un estado deseado"
+  },
+  {
+   "t": "p",
+   "x": "Todo en Kubernetes es un **objeto** con la misma forma. Se escribe en YAML (un formato de texto con sangrías, parecido al JSON que ya conocés) y tiene cuatro partes. `apiVersion` y `kind` dicen qué tipo de objeto es. `metadata` le da nombre y etiquetas. `spec` es lo que querés. Y hay una quinta, `status`, que no escribís vos: la completa el clúster con lo que realmente pasa. Esa diferencia entre `spec` (deseado) y `status` (real) es el bucle de reconciliación de [@14-10] hecho dato: los controladores comparan una con otra y actúan sobre la diferencia."
+  },
+  {
+   "t": "p",
+   "x": "Un archivo así se llama **manifiesto**. Se lo entregás al servidor de la API con `kubectl apply -f archivo.yaml`, y el objeto queda guardado en [[etcd]]. Desde ese momento ya no hay un «comando que corrió»: hay un estado deseado que alguien tiene que cumplir hasta que lo cambies o lo borres. Por eso decimos que Kubernetes es **declarativo**: describís el destino, no el camino."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "El pizarrón del depósito sirve hasta cierto punto. En el depósito, alguien tiene que mirar el pizarrón y actuar. En el clúster eso lo hacen programas (los controladores) que miran el estado cada pocos segundos, sin descanso y sin olvidarse. Donde la analogía falla: un jefe de depósito entiende «más o menos tres»; un controlador cumple exactamente lo que el YAML dice, aunque el YAML tenga un error de tipeo.",
+   "titulo": "Analogía: la nota en el pizarrón"
+  },
+  {
+   "t": "h",
+   "x": "Pod: la unidad mínima, y es descartable"
+  },
+  {
+   "t": "p",
+   "x": "Un **Pod** es el objeto más chico que Kubernetes sabe correr. Contiene uno o más contenedores (como el [[contenedor en ejecución|contenedor]] que viste en [@14-07]) que viajan juntos: se programan en el mismo [[nodo]], comparten la misma dirección IP y el mismo espacio de puertos, y pueden hablarse por `localhost`. Según la documentación oficial, dentro de un Pod los contenedores comparten el espacio de nombres de red, que es justo lo que viste en [@02-24] como una de las piezas del aislamiento."
+  },
+  {
+   "t": "p",
+   "x": "Lo normal es un Pod con un solo contenedor: tu API. El caso de varios contenedores existe cuando dos procesos tienen que estar pegados, por ejemplo la API y un pequeño programa auxiliar que le recoge los logs. Lo importante de entender es lo que **no** es un Pod. No es una máquina que arreglás cuando se rompe. Es **efímero**: si el nodo se cae o el proceso falla de una manera que no se recupera, el Pod no «vuelve»; se crea otro distinto, con otro nombre y otra IP. Pensá en un bulto con etiqueta de despacho: si se pierde, no lo reparás, mandás otro con el mismo contenido."
+  },
+  {
+   "t": "codigo",
+   "lang": "yaml",
+   "x": "apiVersion: v1\nkind: Pod\nmetadata:\n  name: despachos-prueba\n  labels:\n    app: despachos\nspec:\n  containers:\n    - name: api\n      image: registry.ejemplo.test/despachos:1.0.0\n      ports:\n        - containerPort: 3000",
+   "cap": "Un Pod suelto. Funciona, pero nadie lo va a reemplazar si se muere. El nombre del registro es inventado: `.test` es un dominio reservado para ejemplos."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Un Pod suelto no tiene a nadie que lo vigile. Si lo creás a mano y el nodo se apaga, desaparece y el clúster no hace nada, porque nadie declaró que tiene que haber uno. Por eso en la práctica casi nunca se crean Pods sueltos: se crean a través de un objeto que declara «quiero N de estos» y los repone. Ese objeto es el Deployment."
+  },
+  {
+   "t": "pensa",
+   "x": "Si el Pod recibe una IP al nacer y esa IP cambia cada vez que se reemplaza, ¿qué problema le genera eso a otra aplicación que quiera llamar a tu API?",
+   "resp": "No puede guardarse la IP: mañana apuntaría a un Pod que ya no existe, o a otro Pod que hace otra cosa. Hace falta una dirección estable que esté por delante de los Pods cambiantes. Esa pieza es el Service, que vemos más abajo."
+  },
+  {
+   "t": "h",
+   "x": "Etiquetas y selectores: el pegamento de todo"
+  },
+  {
+   "t": "p",
+   "x": "Antes de seguir, una idea que se usa en cada objeto de hoy. Cualquier objeto puede llevar **etiquetas** (`labels`): pares clave-valor como `app: despachos` o `version: v1`. Y cualquier objeto que necesite referirse a un conjunto de Pods lo hace con un **selector**: «todos los Pods que tengan `app: despachos`». No hay listas de nombres escritas a mano. Hay una pregunta que se vuelve a hacer cada vez: «¿quién tiene esta etiqueta ahora?»."
+  },
+  {
+   "t": "p",
+   "x": "Es como el sistema de etiquetado de un depósito. No anotás «las cajas 4, 9 y 17 van al camión». Marcás las cajas con «destino: Rosario» y le decís al camión que cargue todo lo que diga Rosario. Si llegan cajas nuevas con esa marca, entran solas. La ventaja es enorme; el costo, que un error de tipeo en una etiqueta no da un error: da **un selector que no encuentra a nadie**. Ya lo vas a ver."
+  },
+  {
+   "t": "h",
+   "x": "Deployment: tres copias, siempre"
+  },
+  {
+   "t": "p",
+   "x": "Un **Deployment** declara «quiero N copias de este Pod y quiero poder cambiar la plantilla sin cortar el servicio». Por debajo crea un objeto intermedio que no escribís vos, el **ReplicaSet**, cuyo único trabajo es mantener exactamente N Pods con una plantilla dada. La cadena es: Deployment → ReplicaSet → Pods. ¿Para qué el escalón del medio? Porque cada versión de tu plantilla tiene su propio ReplicaSet: durante una actualización conviven el ReplicaSet viejo, que va bajando, y el nuevo, que va subiendo. Y los ReplicaSets viejos quedan guardados (la documentación indica que por defecto se conservan 10) para poder volver atrás."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "arbol",
+   "cap": "Quién crea a quién. Vos escribís solo el nivel de arriba.",
+   "raiz": {
+    "t": "Deployment despachos",
+    "s": "replicas: 3 · template v2",
+    "k": "cliente",
+    "h": [
+     {
+      "t": "ReplicaSet (v2)",
+      "s": "sube de 0 a 3",
+      "k": "servidor",
+      "h": [
+       {
+        "t": "Pod",
+        "s": "despachos-v2-a",
+        "k": "datos"
+       },
+       {
+        "t": "Pod",
+        "s": "despachos-v2-b",
+        "k": "datos"
+       }
+      ]
+     },
+     {
+      "t": "ReplicaSet (v1)",
+      "s": "baja de 3 a 0",
+      "k": "neutro",
+      "h": [
+       {
+        "t": "Pod",
+        "s": "despachos-v1-c",
+        "k": "datos"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "t": "p",
+   "x": "Este es el Deployment de la API de despachos que construiste en [@07-28] y empaquetaste en [@14-09]. Lo escribí y lo validé en esta misma sesión (más abajo está la salida). Leelo de arriba abajo; cada bloque responde a algo que ya sabés."
+  },
+  {
+   "t": "codigo",
+   "lang": "yaml",
+   "x": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: despachos\n  labels:\n    app: despachos\nspec:\n  replicas: 3\n  selector:\n    matchLabels:\n      app: despachos\n  strategy:\n    type: RollingUpdate\n    rollingUpdate:\n      maxSurge: 1\n      maxUnavailable: 0\n  template:\n    metadata:\n      labels:\n        app: despachos\n        version: v1\n    spec:\n      containers:\n        - name: api\n          image: registry.ejemplo.test/despachos:1.0.0\n          ports:\n            - containerPort: 3000\n          readinessProbe:\n            httpGet:\n              path: /salud\n              port: 3000\n            periodSeconds: 5\n          resources:\n            requests:\n              cpu: 100m\n              memory: 128Mi\n            limits:\n              memory: 256Mi",
+   "cap": "Deployment completo. Imagen y dominio son de ejemplo. `requests` es lo que el planificador reserva en un nodo; `limits` es el techo que el kernel le impone al contenedor (cgroups, de [@02-24])."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Campo",
+    "Qué hace",
+    "Qué pasa si te equivocás"
+   ],
+   "filas": [
+    [
+     "replicas: 3",
+     "Cuántos Pods tiene que haber",
+     "Cambiarlo no crea una versión nueva: solo agrega o saca Pods"
+    ],
+    [
+     "selector.matchLabels",
+     "Qué Pods son «míos»",
+     "Es inmutable después de crear el Deployment (según la documentación oficial); hay que borrarlo y rehacerlo"
+    ],
+    [
+     "template.metadata.labels",
+     "Etiquetas que llevarán los Pods",
+     "Si no coinciden con el selector, la API rechaza el objeto"
+    ],
+    [
+     "readinessProbe",
+     "Cuándo un Pod está listo para recibir tráfico",
+     "Sin sonda, el clúster supone que está listo apenas arranca el proceso"
+    ],
+    [
+     "resources.requests",
+     "Reserva para decidir en qué nodo cabe",
+     "Pedir de más desperdicia nodos; no pedir nada deja al planificador a ciegas"
+    ]
+   ],
+   "cap": "Los cinco campos que más pesan. La inmutabilidad del selector y el rechazo por etiquetas distintas están en la documentación oficial de Deployments; no los reproduje en un clúster."
+  },
+  {
+   "t": "h",
+   "x": "Actualizar sin cortar: el rolling update"
+  },
+  {
+   "t": "p",
+   "x": "Cambiás la versión de la imagen en el YAML (de `1.0.0` a `1.1.0`) y volvés a hacer `apply`. Como cambió la plantilla de los Pods, el Deployment crea un ReplicaSet nuevo y empieza a mover Pods del viejo al nuevo. La documentación oficial aclara que esto se dispara **si y solo si** cambia `.spec.template`: escalar de 3 a 5 réplicas no genera una versión nueva."
+  },
+  {
+   "t": "p",
+   "x": "El ritmo lo fijan dos parámetros. **`maxSurge`** dice cuántos Pods se pueden tener **de más** respecto de `replicas` durante el recambio. **`maxUnavailable`** dice cuántos se pueden tener **de menos**. Por defecto los dos valen 25 % (documentación oficial de Deployments); cada uno puede ser un número o un porcentaje, y los porcentajes se redondean: `maxSurge` hacia arriba, `maxUnavailable` hacia abajo. Con 10 réplicas y los valores por defecto, eso es hasta 3 Pods de más (2,5 redondea a 3) y hasta 2 de menos."
+  },
+  {
+   "t": "p",
+   "x": "Para que se vea, armé un Deployment de juguete: el mismo algoritmo en pocas líneas de JavaScript. No es el controlador real (el real trabaja con ReplicaSets, con eventos y con muchos casos más), pero respeta las dos reglas. Cada «paso» es un instante; un Pod nuevo tarda dos pasos en pasar su sonda de disponibilidad, y el signo `?` marca un Pod que existe pero todavía no está listo. Corrélo y mirá la columna «atienden»."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Deployment de juguete: reemplaza pods v1 por v2 respetando maxSurge y maxUnavailable.\nfunction rollout({ replicas, maxSurge, maxUnavailable, v2Sana }) {\n  let n = 0;\n  const nuevo = (v) => ({ id: `${v}-${++n}`, v, listo: v === 'v1', edad: 0 });\n  let pods = Array.from({ length: replicas }, () => nuevo('v1'));\n  for (let t = 1; t <= 10; t++) {\n    // 1. la sonda de disponibilidad: la v2 sana pasa a \"lista\" a los 2 pasos\n    for (const p of pods) { p.edad++; if (p.v === 'v2' && v2Sana && p.edad >= 2) p.listo = true; }\n    // 2. crear pods nuevos mientras no se pase del tope (replicas + maxSurge)\n    while (pods.length < replicas + maxSurge && pods.filter((p) => p.v === 'v2').length < replicas) pods.push(nuevo('v2'));\n    // 3. borrar viejos mientras queden al menos (replicas - maxUnavailable) listos\n    while (pods.some((p) => p.v === 'v1') && pods.filter((p) => p.listo).length - 1 >= replicas - maxUnavailable) {\n      pods.splice(pods.findIndex((p) => p.v === 'v1'), 1);\n    }\n    // 4. si faltan pods para llegar a replicas y ya no hay viejos que borrar, completar con nuevos\n    while (pods.length < replicas && pods.filter((p) => p.v === 'v2').length < replicas) pods.push(nuevo('v2'));\n    const sirven = pods.filter((p) => p.listo).map((p) => p.id);\n    console.log(`paso ${String(t).padStart(2)} | pods: ${pods.map((p) => p.id + (p.listo ? '' : '?')).join(' ')} | atienden: ${sirven.length}`);\n    if (pods.length === replicas && pods.every((p) => p.v === 'v2' && p.listo)) { console.log('terminó: todo en v2'); return; }\n  }\n  console.log('sigue a medias después de 10 pasos');\n}\nfor (const [titulo, cfg] of [\n  ['A) surge 1, unavailable 0, v2 sana', { replicas: 3, maxSurge: 1, maxUnavailable: 0, v2Sana: true }],\n  ['B) surge 0, unavailable 1, v2 sana', { replicas: 3, maxSurge: 0, maxUnavailable: 1, v2Sana: true }],\n  ['C) surge 1, unavailable 0, v2 rota', { replicas: 3, maxSurge: 1, maxUnavailable: 0, v2Sana: false }],\n]) { console.log(titulo); rollout(cfg); }\n",
+   "ejecutable": true,
+   "cap": "Simulación de juguete (no es código de Kubernetes). Salida verificada en node 22 en esta VM."
+  },
+  {
+   "t": "p",
+   "x": "Tres lecciones salen de esa corrida. En el caso A (surge 1, unavailable 0) nunca atienden menos de 3: primero se crea uno nuevo, se espera a que esté listo y recién ahí se baja uno viejo. Cuesta un Pod extra por un rato. En el caso B (surge 0, unavailable 1) no hace falta capacidad extra, pero durante el recambio solo atienden 2 de 3: cuesta capacidad en vez de plata. Y el caso C es el más importante: la versión nueva **no pasa su sonda**, así que el recambio queda trabado con los 3 Pods viejos atendiendo. El servicio sigue sano. La actualización fallida no tumba nada porque el clúster nunca dio de baja a los viejos sin tener un reemplazo listo."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Esa red de seguridad existe **solo si definiste una `readinessProbe`** que de verdad refleje si la API puede atender (por ejemplo, que conecte con la base). Sin sonda, Kubernetes da por listo un Pod apenas arranca el proceso, aunque todavía esté cargando. Y un `/salud` que siempre contesta 200 es lo mismo que no tener sonda."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "x": "Una actualización trabada no se queda así para siempre en silencio: el Deployment tiene `progressDeadlineSeconds`, que por defecto es 600 (10 minutos). Pasado ese plazo, marca la condición de que no avanza, pero **no revierte sola**. Volver atrás es una orden tuya: `kubectl rollout undo deployment/despachos`. Los comandos `kubectl rollout status`, `history` y `undo` figuran en la referencia oficial de kubectl."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Tu Deployment tiene `replicas: 8`, `maxSurge: 25%` y `maxUnavailable: 25%`. ¿Cuál es el máximo de Pods existentes a la vez durante el recambio y cuál el mínimo de Pods disponibles?",
+   "pista": "Redondeá maxSurge hacia arriba y maxUnavailable hacia abajo. El máximo es replicas + maxSurge; el mínimo es replicas - maxUnavailable.",
+   "solucion": "25 % de 8 es 2 exacto, así que no hay redondeo: maxSurge = 2 y maxUnavailable = 2. Máximo de Pods existentes: 8 + 2 = 10. Mínimo disponibles: 8 - 2 = 6. Con 10 réplicas el 25 % da 2,5 y ahí sí se nota el redondeo: 3 de más y 2 de menos."
+  },
+  {
+   "t": "h",
+   "x": "Service: una dirección que no cambia"
+  },
+  {
+   "t": "p",
+   "x": "Volvé al problema del Pod efímero con IP cambiante. Un **Service** es la respuesta: un objeto que recibe una dirección **estable** (y un nombre de DNS) y reparte las conexiones entre los Pods que en este momento cumplan su selector **y estén listos**. Quien quiere hablar con la API de despachos usa el nombre del Service, por ejemplo `despachos.default.svc.cluster.local` (el formato `servicio.espacio-de-nombres.svc.cluster.local` aparece en la documentación oficial de DNS), y no le importa cuántos Pods hay ni dónde."
+  },
+  {
+   "t": "p",
+   "x": "El Service no guarda una lista de nombres de Pods. La recalcula todo el tiempo. Los controladores mantienen una lista de destinos (hoy en objetos llamados EndpointSlices; el viejo objeto Endpoints figura como deprecado en la documentación) con las IP de los Pods que coinciden con el selector y pasan su sonda. Cuando un Pod nace, muere o deja de estar listo, la lista cambia sola. Probalo con este modelo mínimo, que incluye un Pod con la etiqueta mal escrita:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Un Service de juguete: no guarda una lista de pods, la recalcula con etiquetas y estado.\nconst pods = [\n  { nombre: 'despachos-a1', ip: '10.1.0.11', etiquetas: { app: 'despachos', version: 'v1' }, listo: true },\n  { nombre: 'despachos-b2', ip: '10.1.0.12', etiquetas: { app: 'despachos', version: 'v1' }, listo: true },\n  { nombre: 'despachos-c3', ip: '10.1.1.7',  etiquetas: { app: 'despachos', version: 'v2' }, listo: false },\n  { nombre: 'reportes-d4',  ip: '10.1.1.8',  etiquetas: { app: 'reportes' },                 listo: true },\n  { nombre: 'despachos-e5', ip: '10.1.0.13', etiquetas: { app: 'despacho' },                 listo: true }, // typo\n];\nconst coincide = (selector, etiquetas) => Object.entries(selector).every(([k, v]) => etiquetas[k] === v);\nconst endpoints = (selector) => pods.filter((p) => p.listo && coincide(selector, p.etiquetas)).map((p) => p.ip + ':3000');\n\nconsole.log('app=despachos            ->', endpoints({ app: 'despachos' }));\nconsole.log('app=despachos,version=v2 ->', endpoints({ app: 'despachos', version: 'v2' }));\nconsole.log('app=despachoss (typo)    ->', endpoints({ app: 'despachoss' }));\npods[2].listo = true;\nconsole.log('la v2 pasa su sonda      ->', endpoints({ app: 'despachos' }));\n",
+   "ejecutable": true,
+   "cap": "Modelo de juguete de la selección de destinos. Las IP son inventadas."
+  },
+  {
+   "t": "p",
+   "x": "Fijate en la tercera línea de salida: un selector con un error de una letra devuelve una lista vacía, y el Service sigue existiendo, con su IP y su nombre, sin destinos. Cualquier cliente que lo llame se cuelga o recibe rechazo de conexión. Para el clúster no hay error: «el selector no coincide con nada» es un estado legítimo. Y el Pod `despachos-e5`, que tiene `app: despacho` (sin la «s»), nunca recibe tráfico de un Service que apunte a `app: despachos`."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Tipo de Service",
+    "Para quién es la dirección",
+    "Cuándo lo usás"
+   ],
+   "filas": [
+    [
+     "ClusterIP (el predeterminado)",
+     "Solo desde adentro del clúster",
+     "Una API que solo llaman otras aplicaciones del propio clúster"
+    ],
+    [
+     "NodePort",
+     "Cada nodo abre el mismo puerto (por defecto en el rango 30000-32767) y lo reenvía al Service",
+     "Pruebas, o cuando vos ponés un balanceador por delante"
+    ],
+    [
+     "LoadBalancer",
+     "Una dirección externa que aprovisiona el proveedor de nube",
+     "Exponer un servicio a internet en un clúster de nube; el proveedor lo cobra aparte"
+    ],
+    [
+     "ExternalName",
+     "Un alias DNS hacia un nombre de afuera del clúster",
+     "Apuntar a una base gestionada con un nombre interno estable"
+    ]
+   ],
+   "cap": "Según la documentación oficial de Services (consultada el 16-11-2026). LoadBalancer necesita un proveedor integrado; en un clúster casero no hay quien lo cree."
+  },
+  {
+   "t": "pensa",
+   "x": "Un Service tipo LoadBalancer por cada API que querés publicar: ¿qué problema práctico y económico tiene hacerlo así con diez servicios?",
+   "resp": "Cada uno provisiona su propio balanceador y su propia IP pública, y cada uno se factura aparte. Con diez servicios tenés diez balanceadores para hacer algo que un solo punto de entrada podría hacer mirando el dominio y la ruta de la URL. Ese punto de entrada compartido es el Ingress."
+  },
+  {
+   "t": "h",
+   "x": "Ingress: la puerta que mira la URL"
+  },
+  {
+   "t": "p",
+   "x": "Un **Ingress** describe reglas de enrutamiento HTTP: «si el pedido es para `api.ejemplo.test` y la ruta empieza con `/`, mandalo al Service `despachos` en el puerto 80». Es lo que hacía [[nginx]] en [@14-06] cuando le configurabas un [[proxy inverso en la práctica|proxy inverso]] con varios `server` y `location`, pero escrito como un objeto del clúster. El objeto, solo, no hace nada: lo cumple un **controlador de Ingress**, un programa que corre en el clúster (muchos usan nginx por dentro), lee los objetos Ingress y se reconfigura. Sin un controlador instalado, un Ingress es un papel sin efecto."
+  },
+  {
+   "t": "codigo",
+   "lang": "yaml",
+   "x": "apiVersion: v1\nkind: Service\nmetadata:\n  name: despachos\nspec:\n  type: ClusterIP\n  selector:\n    app: despachos\n  ports:\n    - port: 80\n      targetPort: 3000\n---\napiVersion: networking.k8s.io/v1\nkind: Ingress\nmetadata:\n  name: despachos\nspec:\n  ingressClassName: nginx\n  rules:\n    - host: api.ejemplo.test\n      http:\n        paths:\n          - path: /\n            pathType: Prefix\n            backend:\n              service:\n                name: despachos\n                port:\n                  number: 80",
+   "cap": "El Service y el Ingress de la API. `targetPort: 3000` es el puerto del contenedor; `port: 80` es el del Service. `ingressClassName` elige qué controlador atiende este Ingress."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "cap": "El recorrido de un pedido, de afuera hacia adentro. Los pasos intermedios cambian según el proveedor y el controlador; esta es la forma típica.",
+   "actores": [
+    {
+     "n": "Cliente",
+     "k": "cliente"
+    },
+    {
+     "n": "Balanceador",
+     "k": "red"
+    },
+    {
+     "n": "Controlador Ingress",
+     "k": "servidor"
+    },
+    {
+     "n": "Service",
+     "k": "datos"
+    },
+    {
+     "n": "Pod",
+     "k": "ok"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "GET https://api.ejemplo.test/envios",
+     "d": "El DNS del dominio apunta a la dirección del balanceador de entrada del clúster."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "reenvía al controlador",
+     "d": "Normalmente un Service tipo LoadBalancer por delante del controlador: uno solo para todos los dominios."
+    },
+    {
+     "de": 2,
+     "a": 2,
+     "t": "termina TLS y mira host y ruta",
+     "d": "Acá se usa la [[terminación TLS]] de [@14-06]: el certificado vive en el controlador y el tráfico interno suele ir sin cifrar o con otro cifrado."
+    },
+    {
+     "de": 2,
+     "a": 3,
+     "t": "envía al Service despachos",
+     "d": "Las reglas del Ingress dicen que ese host y esa ruta van a ese Service."
+    },
+    {
+     "de": 3,
+     "a": 4,
+     "t": "elige un Pod listo",
+     "d": "De la lista de destinos: solo Pods que cumplen el selector y pasaron su sonda."
+    },
+    {
+     "de": 4,
+     "a": 0,
+     "t": "200 OK",
+     "resp": true,
+     "d": "La respuesta vuelve por el mismo camino."
+    }
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "**Dos cosas cambiaron en poco tiempo (consultado el 16-11-2026).** (1) La documentación oficial de Kubernetes dice que el proyecto recomienda usar Gateway API en lugar de Ingress y que la API de Ingress está «congelada»: sigue estable y no se planea quitarla, pero no recibe funciones nuevas. (2) El controlador **Ingress NGINX**, uno de los más usados, fue anunciado como retirado: según el comunicado de Kubernetes del 11-11-2025, en marzo de 2026 se detendría su mantenimiento, sin nuevas versiones ni correcciones de seguridad; las instalaciones existentes seguirían funcionando. No verifiqué en esta sesión que el retiro efectivamente se hubiera concretado en esa fecha. Para aprender, el modelo de Ingress sigue siendo el más claro; para algo nuevo, mirá Gateway API y qué controlador mantiene su proveedor."
+  },
+  {
+   "t": "h",
+   "x": "Lo que corrí en esta VM, y lo que no se pudo"
+  },
+  {
+   "t": "p",
+   "x": "Acá no hay un clúster. El cliente `docker` está instalado pero su servicio no está activo (el socket no existe), y no intenté levantar uno porque esta VM no tiene systemd ni cgroups delegados. Lo que sí hice: bajé `kubectl` v1.37.2 (la versión estable que informa `dl.k8s.io` al 16-11-2026) y `kubeconform` v0.8.0, una herramienta de terceros que valida manifiestos contra los esquemas oficiales de cada versión. Esto valida **forma**, no **efecto**."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "kubeconform -strict -summary -kubernetes-version 1.34.0 app.yaml",
+     "s": "Summary: 3 resources found in 1 file - Valid: 3, Invalid: 0, Errors: 0, Skipped: 0"
+    },
+    {
+     "c": "sed 's/replicas: 3/replicas: tres/' app.yaml > mal2.yaml && kubeconform -strict -summary mal2.yaml",
+     "s": "mal2.yaml - Deployment despachos is invalid: problem validating schema. [...] at '/spec/replicas': got string, want null or integer\nSummary: 3 resources found in 1 file - Valid: 2, Invalid: 1, Errors: 0, Skipped: 0"
+    },
+    {
+     "c": "sed 's/  replicas: 3/  replica: 3/' app.yaml > mal3.yaml && kubeconform -strict -summary mal3.yaml",
+     "s": "mal3.yaml - Deployment despachos is invalid: [...]\nSummary: 3 resources found in 1 file - Valid: 2, Invalid: 1, Errors: 0, Skipped: 0"
+    },
+    {
+     "c": "sed 's/maxSurge: 1/maxSurge: uno/' app.yaml > mal.yaml && kubeconform -strict -summary mal.yaml",
+     "s": "Summary: 3 resources found in 1 file - Valid: 3, Invalid: 0, Errors: 0, Skipped: 0"
+    }
+   ],
+   "cap": "Salida real, con la versión de esquemas indicada (la primera) o la predeterminada del programa. Tres de las cuatro corridas cuentan algo distinto; mirá la última."
+  },
+  {
+   "t": "p",
+   "x": "La última corrida es la que más enseña. `maxSurge: uno` pasa la validación porque el esquema acepta «número o texto» (un porcentaje se escribe como texto, como `\"25%\"`), pero la API real, según la documentación, solo admite un número o un porcentaje, así que ese valor lo rechazaría. Tampoco habría detectado el selector con un error de tipeo: para el esquema es un texto cualquiera. Una validación de esquema atrapa errores de **forma**; los errores de **significado** (etiquetas que no coinciden, sondas que mienten, imágenes que no existen) solo aparecen cuando el clúster actúa."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "kubectl create deployment despachos --image=registry.ejemplo.test/despachos:1.0.0 --replicas=3 --port=3000 --dry-run=client -o yaml",
+     "s": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  labels:\n    app: despachos\n  name: despachos\nspec:\n  replicas: 3\n  selector:\n    matchLabels:\n      app: despachos\n[...]"
+    },
+    {
+     "c": "kubectl apply --dry-run=client --validate=false -f app.yaml",
+     "s": "unable to recognize \"app.yaml\": Get \"http://localhost:8080/api?timeout=32s\": dial tcp 127.0.0.1:8080: connect: connection refused"
+    }
+   ],
+   "cap": "Dos comportamientos distintos de kubectl sin clúster. `create --dry-run=client` genera el YAML sin consultar a nadie; `apply` necesita preguntarle al servidor qué tipos existen, así que falla incluso con `--dry-run=client`."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«`--dry-run=client` valida contra el clúster.» No: el nombre dice client porque no envía nada para guardar, pero `apply` igual necesita descubrir los tipos de objeto consultando al servidor de la API. Para validar sin clúster se usan herramientas como kubeconform; para un chequeo real, `--dry-run=server`, que sí pasa por el servidor."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa Kubernetes, ni contenedores propios",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. En el repositorio de la app **no hay** `Dockerfile`, Compose, manifiestos de Kubernetes ni Terraform (lo comprobé buscando esos nombres de archivo). Lo único de Docker que aparece es una línea en `apk.yml`, `aab.yml` y `humo.yml`: `docker image prune --all --force`, que **borra** imágenes preinstaladas del equipo de GitHub para liberar disco antes de compilar el APK.",
+    "La app móvil se compila en un equipo efímero de GitHub Actions (`ubuntu-latest`) y la parte de servidor es Supabase, gestionado por un tercero. Ahí no hay nada propio para orquestar: no hay réplicas de una API para reponer ni actualizaciones graduales para coordinar. Es un buen ejemplo de la regla que cerrará esta parte: Kubernetes resuelve un problema (muchos servicios propios, mucho tráfico, mucha gente operando) que Senda hoy no tiene."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    ".github/workflows/humo.yml",
+    "eas.json"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué te llevás"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Si querés...",
+    "Usás...",
+    "Y no te olvides de..."
+   ],
+   "filas": [
+    [
+     "Correr tu imagen",
+     "Pod (casi siempre vía un Deployment)",
+     "Es efímero: nada de guardar datos ni IP dentro"
+    ],
+    [
+     "Mantener N copias vivas",
+     "Deployment (con su ReplicaSet por debajo)",
+     "Una sonda de disponibilidad real"
+    ],
+    [
+     "Cambiar de versión sin cortar",
+     "Cambiar la plantilla; ajustar maxSurge y maxUnavailable",
+     "Volver atrás es una orden tuya"
+    ],
+    [
+     "Una dirección estable",
+     "Service con selector",
+     "Un selector mal escrito no da error: da cero destinos"
+    ],
+    [
+     "Publicar por dominio y ruta",
+     "Ingress más un controlador instalado",
+     "Mirar Gateway API para lo nuevo"
+    ]
+   ],
+   "cap": "Resumen de la tabla de decisión de hoy."
+  },
+  {
+   "t": "p",
+   "x": "Mañana, en [@14-12], vas a completar el cuadro: cómo se le pasa configuración y secretos a esos Pods, qué pasa con los datos que no pueden perderse, cómo se agregan réplicas solas cuando sube la carga y, sobre todo, cuándo conviene **no** usar nada de esto."
+  }
+ ],
+ "recap": [
+  "Un manifiesto describe el estado deseado (`spec`); el clúster completa `status` y trabaja para que coincidan.",
+  "Un Pod agrupa contenedores que comparten IP y puertos; es efímero y casi nunca se crea suelto.",
+  "Un Deployment mantiene N Pods mediante ReplicaSets y permite actualizar cambiando la plantilla.",
+  "maxSurge y maxUnavailable fijan cuántos Pods de más y de menos se toleran en el recambio; sin sonda de disponibilidad real, la protección no existe.",
+  "Un Service da dirección y nombre estables y reparte entre Pods que cumplen su selector y están listos; un selector mal escrito deja cero destinos sin error.",
+  "Un Ingress enruta por dominio y ruta, pero necesita un controlador; hoy el proyecto recomienda Gateway API para lo nuevo.",
+  "Validar forma (kubeconform) no valida significado: etiquetas, sondas e imágenes solo se prueban en un clúster."
+ ],
+ "repaso": [
+  {
+   "p": "Creás un Pod suelto con `kubectl apply` y el nodo donde corre se apaga. ¿Qué pasa?",
+   "o": [
+    "Nadie lo recrea, porque ningún objeto declaró que tenga que haber uno",
+    "El planificador lo mueve a otro nodo con el mismo nombre y la misma IP",
+    "Un ReplicaSet invisible lo reemplaza porque todo Pod pertenece a uno",
+    "El kubelet del nodo apagado lo reinicia apenas el nodo vuelva a encender"
+   ],
+   "c": 0,
+   "e": "Un Pod suelto no tiene controlador que lo reponga. Decir que se mueve con el mismo nombre y la misma IP confunde un Pod con una máquina que migra: los Pods nuevos tienen otro nombre y otra IP. Un ReplicaSet invisible falsea la cadena: solo los Pods creados desde un Deployment o ReplicaSet tienen dueño. Que el kubelet lo reinicie supone que el nodo vuelve, que no es el caso planteado."
+  },
+  {
+   "p": "Un Deployment con 3 réplicas, maxSurge 1 y maxUnavailable 0 recibe una versión cuyos Pods nunca pasan la sonda de disponibilidad. ¿Qué ves?",
+   "o": [
+    "Los 3 Pods viejos se borran y el servicio queda sin ninguno atendiendo",
+    "Kubernetes revierte solo a la versión anterior pasados unos segundos",
+    "La actualización queda trabada y los 3 Pods viejos siguen atendiendo",
+    "Los Pods nuevos reciben tráfico igual porque ya arrancó su proceso"
+   ],
+   "c": 2,
+   "e": "Con maxUnavailable 0 no se baja un Pod viejo sin tener un reemplazo listo. Que se borren los 3 viejos es lo que pasaría sin esa regla. La reversión automática es un error común: el Deployment marca que no progresa tras progressDeadlineSeconds, pero no revierte solo. Y los Pods nuevos no reciben tráfico, porque con sonda el tráfico solo va a Pods listos."
+  },
+  {
+   "p": "Un Service existe, tiene IP y nombre, pero toda conexión es rechazada. Los Pods están Running. ¿Cuál es la primera sospecha razonable?",
+   "o": [
+    "El Service necesita ser de tipo LoadBalancer para funcionar siempre",
+    "El selector del Service no coincide con las etiquetas de los Pods",
+    "El Ingress todavía no tiene un certificado TLS instalado",
+    "Los Pods tienen que reiniciarse para que el Service los encuentre"
+   ],
+   "c": 1,
+   "e": "Un selector sin coincidencias deja al Service sin destinos, sin dar error. Exigir tipo LoadBalancer es falso: ClusterIP alcanza dentro del clúster. El certificado TLS no aplica a un Service, que no habla TLS por sí mismo. Y reiniciar los Pods invierte la lógica: los destinos se recalculan solos."
+  },
+  {
+   "p": "Tenés 10 réplicas y maxSurge 25 %, maxUnavailable 25 %. ¿Cuántos Pods pueden existir como máximo durante el recambio y cuántos disponibles como mínimo?",
+   "o": [
+    "12 existentes como máximo y 8 disponibles como mínimo",
+    "13 existentes como máximo y 7 disponibles como mínimo",
+    "12 existentes como máximo y 7 disponibles como mínimo",
+    "13 existentes como máximo y 8 disponibles como mínimo"
+   ],
+   "c": 3,
+   "e": "El 25 % de 10 es 2,5. maxSurge se redondea hacia arriba (3), así que el máximo es 13. maxUnavailable se redondea hacia abajo (2), así que el mínimo disponible es 8. Las otras opciones redondean mal uno de los dos, o los dos."
+  },
+  {
+   "p": "Diez APIs distintas tienen que publicarse bajo el mismo dominio con rutas diferentes. ¿Qué diseño evita pagar diez balanceadores?",
+   "o": [
+    "Diez Services tipo LoadBalancer, uno por cada API publicada",
+    "Diez Services tipo NodePort con diez puertos distintos al exterior",
+    "Un Ingress con reglas por ruta, atendido por un solo controlador",
+    "Un único Pod con las diez APIs adentro, publicado con ClusterIP"
+   ],
+   "c": 2,
+   "e": "El Ingress concentra el enrutamiento por host y ruta en un punto de entrada. Los LoadBalancer provisionan uno por Service y se facturan por separado. Los NodePort obligan a usar puertos raros y no enrutan por ruta. Juntar todo en un Pod pierde el motivo de tener servicios separados."
+  },
+  {
+   "p": "¿Qué detecta kubeconform y qué no?",
+   "o": [
+    "Un selector con etiqueta mal escrita sí; un tipo de dato incorrecto no",
+    "Un tipo de dato incorrecto sí; un selector con etiqueta mal escrita no",
+    "Ambos errores, porque compara el manifiesto con el clúster real",
+    "Ninguno, porque solo comprueba que el archivo sea YAML válido"
+   ],
+   "c": 1,
+   "e": "kubeconform valida contra los esquemas oficiales: detecta `replicas: tres` (texto donde va un entero). Un selector con otro valor sigue siendo un texto válido, y solo el clúster podría revelar que no coincide. No consulta ningún clúster, y comprueba bastante más que la sintaxis YAML."
+  }
+ ],
+ "feynman": "Explicá con tus palabras, como si se lo contaras a alguien de tu depósito, qué le pasa a un pedido que llega a `api.ejemplo.test`: por qué piezas pasa hasta llegar a un Pod y cómo sabe cada una a quién mandarlo. Después contá qué cambia mientras se actualiza la versión.",
+ "para_profundizar": [
+  {
+   "fuente": "k8s14b-deployment-doc",
+   "por_que": "La página de Deployments define el rolling update con todos los parámetros y ejemplos de salida; leé las secciones «Updating», «Rolling Back» y «Deployment status»."
+  },
+  {
+   "fuente": "k8s14b-service-doc",
+   "por_que": "Describe los cuatro tipos de Service, los EndpointSlices y cómo se calculan los destinos."
+  },
+  {
+   "fuente": "k8s14b-ingress-doc",
+   "por_que": "Explica reglas, tipos de ruta y la nota de que Ingress está congelado en favor de Gateway API."
+  },
+  {
+   "fuente": "k8s14b-ingress-nginx-retiro",
+   "por_que": "El comunicado oficial del retiro de Ingress NGINX; sirve para ver cómo un proyecto muy usado puede dejar de mantenerse y qué avisar al equipo."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Kubernetes Pods Deployments Services explicado desde cero",
+   "por_que": "Una segunda explicación visual del mismo trío; compará si el orden de las piezas coincide con el de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "Pod",
+   "d": "La unidad mínima que Kubernetes ejecuta: uno o más contenedores que comparten IP, puertos y nodo. Es efímero: si falla se reemplaza por otro, no se repara."
+  },
+  {
+   "t": "Deployment",
+   "d": "Objeto que declara cuántas copias de un Pod debe haber y cómo reemplazarlas al cambiar la plantilla. Maneja ReplicaSets por debajo."
+  },
+  {
+   "t": "Service",
+   "d": "Objeto que da una dirección y un nombre estables a un conjunto de Pods elegidos por etiquetas y reparte las conexiones entre los que están listos."
+  },
+  {
+   "t": "Ingress",
+   "d": "Objeto con reglas de enrutamiento HTTP por dominio y ruta hacia Services. Necesita un controlador de Ingress que lo cumpla."
+  },
+  {
+   "t": "ReplicaSet",
+   "d": "Objeto que mantiene exactamente N Pods iguales. Lo crea el Deployment: uno por cada versión de la plantilla."
+  },
+  {
+   "t": "manifiesto",
+   "d": "Archivo YAML que describe un objeto de Kubernetes: tipo, nombre, etiquetas y estado deseado."
+  },
+  {
+   "t": "selector de etiquetas",
+   "d": "Condición sobre etiquetas (por ejemplo app: despachos) con la que un objeto elige a qué Pods se aplica, sin listar nombres."
+  },
+  {
+   "t": "sonda de disponibilidad",
+   "d": "Chequeo (readinessProbe) que el clúster hace a un Pod para saber si ya puede recibir tráfico. Si falla, el Service lo saca de sus destinos."
+  },
+  {
+   "t": "maxSurge y maxUnavailable",
+   "d": "Parámetros del rolling update: cuántos Pods de más y cuántos de menos se toleran durante el recambio."
+  }
+ ],
+ "siguiente": "Configuración y secretos para los Pods, datos que no se pueden perder, escalado automático y la pregunta honesta: ¿hace falta todo esto?",
+ "fuentes_nuevas": [
+  {
+   "id": "k8s14b-deployment-doc",
+   "t": "Kubernetes: Deployments",
+   "a": "Kubernetes",
+   "tipo": "doc",
+   "url": "https://kubernetes.io/docs/concepts/workloads/controllers/deployment/"
+  },
+  {
+   "id": "k8s14b-service-doc",
+   "t": "Kubernetes: Service",
+   "a": "Kubernetes",
+   "tipo": "doc",
+   "url": "https://kubernetes.io/docs/concepts/services-networking/service/"
+  },
+  {
+   "id": "k8s14b-ingress-doc",
+   "t": "Kubernetes: Ingress",
+   "a": "Kubernetes",
+   "tipo": "doc",
+   "url": "https://kubernetes.io/docs/concepts/services-networking/ingress/"
+  },
+  {
+   "id": "k8s14b-ingress-nginx-retiro",
+   "t": "Ingress NGINX Retirement: What You Need to Know",
+   "a": "Kubernetes SIG Network y Security Response Committee",
+   "tipo": "articulo",
+   "anio": 2025,
+   "url": "https://kubernetes.io/blog/2025/11/11/ingress-nginx-retirement/"
+  }
+ ]
+}

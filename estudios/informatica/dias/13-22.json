@@ -1,0 +1,552 @@
+{
+ "id": "13-22",
+ "titulo": "Alta disponibilidad y recuperación ante desastres en la nube",
+ "bajada": "Una zona se cae, una región se cae: cuatro estrategias para seguir funcionando, cuánto datos y tiempo podés perder en cada una y por qué la más cara no siempre es la que conviene.",
+ "minutos": 29,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Distinguir alta disponibilidad (seguir andando ante una falla chica) de recuperación ante desastres (volver tras una falla grande).",
+  "Explicar qué protege Multi-AZ, qué protege Multi-región y qué no protege ninguna de las dos.",
+  "Comparar backup y restauración, luz piloto, espera templada y activo-activo por RPO, RTO y costo.",
+  "Calcular con números propios si una estrategia más cara se justifica.",
+  "Leer un postmortem oficial de una caída regional y señalar qué diseño habría contenido el daño."
+ ],
+ "venis_de": "En [@13-03] viste regiones y zonas de disponibilidad, y en [@09-28] RPO y RTO aplicados a una base de datos. Hoy las dos ideas se juntan: dónde ponés las copias de tu sistema y cuánto tardás en volver cuando una de esas ubicaciones desaparece.",
+ "se_apoya_en": [
+  "13-03",
+  "13-12",
+  "13-09",
+  "09-28",
+  "09-29",
+  "13-10"
+ ],
+ "gancho": [
+  "Un martes a la madrugada, una región entera de un proveedor deja de contestar. Tu sistema de seguimiento de envíos, que usan quince transportistas, empieza a devolver errores. Nadie tocó nada de tu lado. Los choferes siguen en ruta y escanean paquetes que no se pueden registrar. ¿Cuánto tarda en volver todo, y cuántos escaneos de la última hora se perdieron para siempre?",
+  "Esas dos preguntas tienen nombre (tiempo de recuperación y punto de recuperación) y se contestan antes de que pase, con un diseño y con un presupuesto. Hoy vas a ver las cuatro formas estándar de armarlo, vas a medir en esta máquina un failover de verdad, vas a simular cuántos datos se pierden según cómo replicás y vas a leer lo que el propio proveedor publicó cuando una región cayó de verdad."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Dos problemas que se parecen y no son lo mismo"
+  },
+  {
+   "t": "p",
+   "x": "La **alta disponibilidad** es la capacidad de seguir atendiendo cuando se rompe una pieza: un servidor, un disco, una zona. Se resuelve con redundancia y conmutación automática, y casi nadie se entera de que pasó. La **recuperación ante desastres** es lo que hacés cuando se pierde algo mayor, como una región entera, una base borrada por error o un ataque que cifra todo. Ahí no alcanza con tener otra pieza al lado: necesitás una copia en otro lugar y un procedimiento para ponerla a trabajar."
+  },
+  {
+   "t": "p",
+   "x": "AWS lo ordena así en su documento oficial sobre recuperación ante desastres: para la pérdida de un centro de datos físico en una carga de trabajo bien diseñada y de alta disponibilidad, a veces alcanza con backup y restauración; si tu definición de desastre llega a una región entera, o una norma te obliga, hay que mirar luz piloto, espera templada o multi-sitio [#nube2122-aws-dr-opciones]. Para hablar de cuánto es «aceptable» se usan las dos medidas de [@09-28]. [[RTO]] es el máximo retraso aceptable entre la interrupción y la vuelta del servicio. [[RPO]] es cuánto tiempo de datos estás dispuesto a perder, medido hacia atrás desde el desastre [#nube2122-aws-dr-opciones]."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La analogía del depósito, y dónde falla",
+   "x": "Un camión se descompone: sacás otro de la flota y la ruta sigue (alta disponibilidad). Se inunda el depósito de Avellaneda: necesitás otro depósito con la mercadería o con la forma de reponerla (recuperación ante desastres). Donde falla: en un depósito físico, la mercadería de reserva se nota en los estantes; en un sistema, la «copia» puede estar desactualizada o rota sin que nadie lo vea hasta el día que la necesitás."
+  },
+  {
+   "t": "h",
+   "x": "Multi-AZ: sobrevivir a la falla de un edificio"
+  },
+  {
+   "t": "p",
+   "x": "Del [@13-03] te quedó que una [[zona de disponibilidad]] es uno o más centros de datos con energía y red propias dentro de una [[región]]. Un despliegue [[multi-AZ]] distribuye las piezas de tu sistema en dos o más zonas de la misma región, de modo que si una zona se apaga, las otras siguen. Las zonas de una región están lo bastante cerca como para hablar entre sí con latencia baja, y por eso se puede replicar entre ellas de forma síncrona sin que el sistema se vuelva lento."
+  },
+  {
+   "t": "p",
+   "x": "El ejemplo más común es la base de datos administrada de [@13-12]. En un despliegue Multi-AZ de Amazon RDS con una instancia en espera, el servicio crea y mantiene una réplica en espera sincrónica en otra zona de disponibilidad; la instancia principal se replica de forma síncrona a ella para dar redundancia de datos, y la guía agrega que la opción protege contra fallas de la instancia y contra la caída de una zona [#nube2122-rds-multiaz]. Dos precisiones de la misma documentación: la réplica en espera de ese tipo de despliegue no sirve lecturas, así que Multi-AZ es para disponibilidad y no para escalar consultas, y existe otra variante con dos instancias en espera que sí las atiende [#nube2122-rds-multiaz]."
+  },
+  {
+   "t": "p",
+   "x": "Los proveedores prometen números. En la condición de servicio de Amazon RDS (SLA), el compromiso para despliegues Multi-AZ es una disponibilidad mensual del 99,95 %; por debajo de eso entregan créditos de servicio: 10 % si baja de 99,95 % pero llega a 99,0 %, 25 % entre 99,0 y 95,0 %, y 100 % debajo de 95,0 %. Para una instancia única el umbral inicial es 99,5 % [#nube2122-rds-sla]. Hagamos la cuenta que casi nadie hace: un mes de 30 días tiene 43.200 minutos. El 99,95 % permite unos 21,6 minutos de caída; el 99,5 %, unos 216. Es una ESTIMACIÓN aritmética sobre el umbral del contrato, no una medición de cuánto cae el servicio en la práctica, y el crédito es un descuento en la factura, no una compensación por tus pérdidas."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Multi-AZ no te protege de un error tuyo. Si alguien borra una tabla, el borrado se replica de forma instantánea a la réplica en espera. Para eso están los backups con restauración a un punto en el tiempo de [@09-28]. Tampoco te protege cuando la falla es de toda la región, porque las zonas comparten la región: es el límite de esta primera defensa."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Región A: zona 1",
+       "s": "primario",
+       "k": "servidor"
+      },
+      {
+       "t": "Región A: zona 2",
+       "s": "réplica síncrona (Multi-AZ)",
+       "k": "servidor",
+       "e": "síncrona"
+      },
+      {
+       "t": "Región B",
+       "s": "copia para desastres",
+       "k": "datos",
+       "e": "asíncrona"
+      }
+     ],
+     "baja": "Cada salto protege de algo distinto y cuesta distinto"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Cae una zona",
+       "s": "Multi-AZ responde",
+       "k": "ok"
+      },
+      {
+       "t": "Cae la región A",
+       "s": "hace falta la región B",
+       "k": "alerta"
+      },
+      {
+       "t": "Error humano",
+       "s": "hace falta un backup con PITR",
+       "k": "alerta"
+      }
+     ]
+    }
+   ],
+   "cap": "Qué defensa cubre qué falla. La flecha síncrona espera confirmación; la asíncrona no, y por eso puede perder los últimos instantes."
+  },
+  {
+   "t": "pensa",
+   "x": "Tu base tiene Multi-AZ y un compañero ejecuta por error un DELETE sin condición sobre la tabla de envíos. ¿Qué defensa te salva y cuál no?",
+   "resp": "No te salva el Multi-AZ, porque la réplica en espera copia el borrado casi al instante. Te salvan los backups con restauración a un punto en el tiempo (PITR): volvés a un instante anterior al error. Es la diferencia entre disponibilidad (seguir andando) y recuperación (volver atrás)."
+  },
+  {
+   "t": "h",
+   "x": "Cómo se ve un failover, con procesos reales"
+  },
+  {
+   "t": "p",
+   "x": "Un **failover** es el cambio automático al componente de reserva cuando el principal falla. Para verlo armé una maqueta con procesos de verdad: un servidor «primario» y otro «standby» en dos puertos de esta máquina, y un router de juguete que consulta al activo cada 200 milisegundos con un [[health check]]. Cuando el chequeo falla tres veces seguidas, el router pasa al standby. Un cliente pide una respuesta cada 50 ms. A los 1.000 ms mato al primario con una señal que no deja que se despida."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Cliente",
+     "k": "cliente"
+    },
+    {
+     "n": "Router",
+     "k": "red"
+    },
+    {
+     "n": "Primario",
+     "k": "servidor"
+    },
+    {
+     "n": "Standby",
+     "k": "servidor"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 2,
+     "a": 2,
+     "t": "El primario muere (SIGKILL)",
+     "d": "A los 1.000 ms de la maqueta: el proceso desaparece sin avisar."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "health check (200 ms)",
+     "d": "Primer intento fallido: todavía no se cambia nada."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "health check x2 más",
+     "d": "Con el tercero fallido seguido, el router decide el cambio."
+    },
+    {
+     "de": 1,
+     "a": 3,
+     "t": "pasa a standby",
+     "d": "El router apunta a la reserva; desde ahí los pedidos vuelven a andar."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "pedido normal",
+     "d": "El cliente vuelve a recibir respuesta; el corte que vio fue de unos 411 ms."
+    }
+   ],
+   "cap": "El failover de la maqueta, paso a paso."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Failover de juguete con procesos reales: primario, standby y un \"router\" con health check.\nconst { spawn } = require('child_process'); const http = require('http');\nconst srv = (nombre, puerto) => spawn(process.execPath, ['-e', `require('http').createServer((q,r)=>r.end('${nombre}')).listen(${puerto},'127.0.0.1')`]);\nconst prim = srv('primario', 25881), stand = srv('standby', 25882);\nlet activo = 25881, fallos = 0; const t0 = () => Date.now();\nconst get = (p, ms) => new Promise(res => { const r = http.get({ host: '127.0.0.1', port: p, path: '/', timeout: ms }, x => { let b = ''; x.on('data', d => b += d); x.on('end', () => res(b)); }); r.on('error', () => res(null)); r.on('timeout', () => { r.destroy(); res(null); }); });\n// health check: cada 200 ms mira al activo; 3 fallos seguidos => cambia\nsetInterval(async () => { if (await get(activo, 150)) fallos = 0; else if (++fallos >= 3 && activo === 25881) { activo = 25882; console.log('router: health check falló 3 veces, paso a standby'); } }, 200);\nconst sleep = ms => new Promise(r => setTimeout(r, ms));\n(async () => {\n  await sleep(800);\n  let caido = null, vuelta = null, ok = 0, mal = 0, tKill;\n  const fin = t0() + 4000;\n  setTimeout(() => { tKill = t0(); prim.kill('SIGKILL'); console.log('primario: muerto (SIGKILL)'); }, 1000);\n  while (t0() < fin) {\n    const r = await get(activo, 100);\n    if (r) { ok++; if (tKill && caido && !vuelta) { vuelta = t0(); } } else { mal++; if (tKill && !caido) caido = t0(); }\n    await sleep(50);\n  }\n  console.log(`pedidos ok=${ok} fallidos=${mal}`);\n  console.log(`tiempo sin servicio visto por el cliente: ${vuelta - caido} ms (RTO medido en esta VM)`);\n  stand.kill('SIGKILL'); process.exit();\n})();",
+   "cap": "Corrido tres veces en esta VM con Node 22 (no es JavaScript de navegador, por eso no se ejecuta acá). Salida de las tres corridas: «tiempo sin servicio visto por el cliente: 411, 414 y 417 ms». Es una maqueta local sin red real, sin balanceador de nube y sin base de datos: sirve para ver el mecanismo."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node fo.js",
+     "s": "primario: muerto (SIGKILL)\nrouter: health check falló 3 veces, paso a standby\npedidos ok=70 fallidos=8\ntiempo sin servicio visto por el cliente: 411 ms (RTO medido en esta VM)"
+    }
+   ],
+   "cap": "Una de las tres corridas. Datos de una sola VM."
+  },
+  {
+   "t": "p",
+   "x": "Ese RTO de unos 411 ms sale de la cuenta de la configuración: 3 chequeos fallidos a 200 ms de intervalo son hasta 600 ms antes de decidir, y el cliente ve el corte desde la primera falla. Un detalle que importa: bajar el intervalo o el umbral acorta el RTO, pero aumenta el riesgo de un falso positivo, o sea de cambiar al standby porque hubo un hipo y no una caída. Los servicios reales de la nube tienen ese mismo dilema de calibración. Y esta maqueta tiene una trampa que la nube también tiene: el standby arrancó vacío y sin estado. Si el primario tenía datos propios, el cambio de servidor no los trae. Eso nos lleva al RPO."
+  },
+  {
+   "t": "h",
+   "x": "RPO: cuánto dato se pierde según cómo replicás"
+  },
+  {
+   "t": "p",
+   "x": "Con [[replicación síncrona]], el primario no confirma una escritura hasta que la [[réplica]] la guardó: si el primario cae, la réplica tiene todo lo confirmado, pero cada escritura paga un viaje de ida y vuelta. Con [[replicación asíncrona]], el primario confirma enseguida y la réplica se pone al día después: rápido, pero lo que estaba en camino se pierde si el primario cae justo ahí. Lo viste en [@09-29]. Lo que no viste es cómo se traduce en RPO, así que lo simulé con tiempo simulado: llega una escritura cada 10 ms y el primario se cae en t = 5.000 ms."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// RPO de juguete con tiempo simulado: llega 1 escritura cada 10 ms y el primario se cae en t = 5000 ms.\nfunction simular(modo, retrasoMs, rttMs) {\n  const caida = 5000; let confirmadas = 0, enReplica = 0, perdidas = 0;\n  for (let t = 0; t < caida; t += 10) {\n    if (modo === \"sincrona\") {\n      // se confirma al cliente recién cuando la réplica ya la tiene (suma un viaje de ida y vuelta)\n      if (t + rttMs <= caida) { confirmadas++; enReplica++; }\n    } else {\n      confirmadas++;                       // se confirma al instante\n      if (t + retrasoMs <= caida) enReplica++; // la réplica la recibe después\n    }\n  }\n  perdidas = confirmadas - enReplica;\n  return { confirmadas, enReplica, perdidas, rpoMs: perdidas * 10 };\n}\nconst casos = [[\"asíncrona, retraso 20 ms\", \"asincrona\", 20, 0], [\"asíncrona, retraso 500 ms\", \"asincrona\", 500, 0], [\"asíncrona, retraso 1 s\", \"asincrona\", 1000, 0], [\"síncrona, viaje 2 ms\", \"sincrona\", 0, 2], [\"síncrona, viaje 70 ms\", \"sincrona\", 0, 70]];\nfor (const [n, m, r, rtt] of casos) { const x = simular(m, r, rtt); console.log(n.padEnd(28), \"confirmadas:\", String(x.confirmadas).padStart(3), \"| perdidas:\", String(x.perdidas).padStart(3), \"| ventana de datos perdidos ≈\", x.rpoMs, \"ms\"); }\nconsole.log(\"Costo de la síncrona: cada escritura espera el viaje de ida y vuelta (2 ms en una zona vecina, 70 ms entre regiones lejanas, valores inventados para el ejemplo).\");",
+   "ejecutable": true,
+   "cap": "Simulación con tiempo simulado (no mide ninguna red real). Los retrasos y viajes de ida y vuelta son valores inventados para el ejemplo: lo que importa es la forma del resultado."
+  },
+  {
+   "t": "p",
+   "x": "Mirá el patrón. En la asíncrona, el dato perdido crece con el retraso de la réplica: con 20 ms se pierde una escritura; con 1 segundo, unas cien. En la síncrona no se pierde nada confirmado, y en el caso de los 70 ms ni siquiera se confirmaron las últimas escrituras, así que el cliente sabe que debe reintentar. El precio es la latencia: cada escritura espera ese viaje. Entre zonas de una misma región ese viaje es corto y se puede pagar; entre regiones lejanas, la distancia (la [[latencia entre regiones]] del [@13-03]) lo hace caro, y por eso la replicación entre regiones suele ser asíncrona y el RPO deja de ser cero."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "x": "Para pasar a operar en la región de recuperación hay que promover una réplica de lectura a primaria, y en las bases que no son Aurora ese proceso toma unos minutos e incluye un reinicio [#nube2122-aws-dr-opciones]. Así lo describe la guía de AWS, y «unos minutos» es la parte del RTO que el diseño no puede esconder."
+  },
+  {
+   "t": "h",
+   "x": "Las cuatro estrategias, de la más barata a la más cara"
+  },
+  {
+   "t": "p",
+   "x": "El documento de AWS ordena las estrategias de recuperación ante desastres entre regiones en cuatro familias, «de la baja complejidad y bajo costo de hacer backups a estrategias más complejas con varias regiones activas» [#nube2122-aws-dr-opciones]. Los nombres que ves abajo son los de AWS; otros proveedores usan variantes. Cada una compra un RPO y un RTO menores a cambio de plata y complejidad."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Estrategia",
+    "Qué hay en la otra región",
+    "Qué se hace al fallar",
+    "RTO / RPO típico"
+   ],
+   "filas": [
+    [
+     "Backup y restauración",
+     "Solo copias de datos, código y configuración",
+     "Reconstruir toda la infraestructura desde plantillas y restaurar",
+     "Horas / depende de la frecuencia del backup"
+    ],
+    [
+     "Luz piloto",
+     "Datos replicados y la infraestructura central; los servidores de aplicación apagados",
+     "Encender y escalar lo apagado",
+     "Decenas de minutos / minutos"
+    ],
+    [
+     "Espera templada",
+     "Una copia completa y funcional, pero reducida",
+     "Escalar la copia al tamaño de producción",
+     "Minutos / segundos a minutos"
+    ],
+    [
+     "Activo-activo",
+     "Producción completa en varias regiones atendiendo tráfico",
+     "Redirigir tráfico (el resto ya está andando)",
+     "Casi cero / casi cero, con salvedades"
+    ]
+   ],
+   "cap": "Estrategias según [#nube2122-aws-dr-opciones]. La columna de tiempos es una escala orientativa de este curso (ESTIMACIÓN: depende de cada implementación); AWS solo afirma que activo-activo puede acercar la recuperación a casi cero con la tecnología y la implementación correctas, y que ante corrupción de datos igual hay que recurrir a backups, con lo cual el punto de recuperación no es cero."
+  },
+  {
+   "t": "p",
+   "x": "Sobre la luz piloto, AWS aclara que mantiene siempre encendidos los recursos que sostienen la replicación y el almacenamiento (bases de datos, objetos), mientras que los servidores de aplicación están cargados pero «apagados» y solo se usan en pruebas o en un failover [#nube2122-aws-dr-opciones]. Sobre la espera templada, que extiende la luz piloto y baja el tiempo de recuperación porque la carga ya está andando en otra región, y que permite probar de forma continua. La diferencia entre ambas, según el propio documento, es que la luz piloto no puede procesar pedidos sin una acción previa y la espera templada sí, aunque sea con poca capacidad [#nube2122-aws-dr-opciones]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "La estrategia que no probaste es una hipótesis. AWS insiste en evaluar y probar la estrategia con regularidad para tener confianza en invocarla cuando haga falta [#nube2122-aws-dr-opciones]. Los fallos más comunes en un ejercicio real son banales: una plantilla de infraestructura desactualizada, un permiso que no está replicado en la otra región, o un backup que nadie restauró nunca. Una regla práctica es agendar un simulacro por trimestre y medir el RTO real con reloj."
+  },
+  {
+   "t": "h",
+   "x": "¿Cuál conviene? Hacé la cuenta con tus números"
+  },
+  {
+   "t": "p",
+   "x": "Más RTO bajo es siempre mejor, pero no es gratis. La decisión es económica: ¿cuánto cuesta cada hora sin servicio, cuán probable es el evento y cuánto cuesta cada estrategia al año? El siguiente cálculo es un juguete con **números inventados** para una API de seguimiento de envíos ficticia. Cambiá los valores: ese es el ejercicio."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Calculadora de juguete. TODOS los números son inventados para una API de seguimiento de envíos ficticia.\nconst costoProdMes = 3000;          // USD/mes de la producción completa (inventado)\nconst perdidaPorHora = 4000;        // USD de ventas y multas por hora sin servicio (inventado)\nconst pRegionPorAnio = 0.05;        // probabilidad anual de un evento que deje caída una región (SUPUESTO tuyo, no un dato)\nconst estrategias = [\n  { n: \"Backup y restauración\", extraPct: 0.02, rtoHoras: 12 },\n  { n: \"Luz piloto\",            extraPct: 0.10, rtoHoras: 2 },\n  { n: \"Espera templada\",       extraPct: 0.30, rtoHoras: 0.25 },\n  { n: \"Activo-activo\",         extraPct: 1.00, rtoHoras: 0.02 },\n];\nconsole.log(\"estrategia\".padEnd(24), \"extra/año\".padStart(10), \"pérdida esperada\".padStart(18), \"total\".padStart(10));\nfor (const e of estrategias) {\n  const extra = costoProdMes * e.extraPct * 12;\n  const esperada = pRegionPorAnio * e.rtoHoras * perdidaPorHora;\n  console.log(e.n.padEnd(24), (\"USD \" + extra).padStart(10), (\"USD \" + Math.round(esperada)).padStart(18), (\"USD \" + Math.round(extra + esperada)).padStart(10));\n}",
+   "ejecutable": true,
+   "cap": "Todos los valores son inventados. La probabilidad de 5 % anual es un supuesto que podés mover, no un dato de ningún proveedor. Los porcentajes de costo extra son escalas ilustrativas, no precios de lista; antes de decidir hay que cotizar en la página de precios de cada proveedor, con la fecha y la región."
+  },
+  {
+   "t": "p",
+   "x": "Con esos supuestos, la opción más barata gana: la pérdida esperada es chica porque el evento es poco probable. Subí la pérdida por hora a USD 40.000 y la ganadora pasa a ser otra. Esa es la lección: **la estrategia correcta la elige tu costo de estar caído, no el prestigio de la arquitectura**. Y hay otro costo que el cálculo no muestra: la complejidad. Un sistema activo-activo necesita datos que se puedan escribir en dos regiones a la vez, y eso se paga en diseño, en pruebas y en horas de ingeniería, algo que viste de otra forma en el [@09-29]."
+  },
+  {
+   "t": "pensa",
+   "x": "Si el costo de una hora caída fuera de USD 40, ¿qué estrategia elegirías para una app de este tipo y por qué?",
+   "resp": "Probablemente la más barata: backup y restauración bien probada. Con una pérdida tan chica por hora, cualquier estrategia con infraestructura permanente en otra región cuesta más que lo que evita. Lo que no se negocia es que el backup exista y que alguien haya probado restaurarlo."
+  },
+  {
+   "t": "h",
+   "x": "Un postmortem oficial de una caída regional"
+  },
+  {
+   "t": "p",
+   "x": "El 19 y 20 de octubre de 2025, AWS sufrió una interrupción en su región de Virginia del Norte (us-east-1). Según su resumen oficial, el evento empezó a las 23:48 (hora del Pacífico) del 19 y terminó a las 14:20 del 20, con tres períodos de impacto: errores de la API de DynamoDB, errores de conexión en Network Load Balancer y fallas al lanzar instancias EC2 nuevas [#nube2122-aws-dynamodb-2025]. La causa raíz que dan es una condición de carrera latente en el sistema de gestión de DNS de DynamoDB, que dejó un registro DNS vacío e incorrecto para el endpoint regional del servicio, y la automatización no logró repararlo; hizo falta intervención manual [#nube2122-aws-dynamodb-2025]."
+  },
+  {
+   "t": "p",
+   "x": "Para esta lección importa lo que el documento cuenta sobre quién no se cayó: los clientes que usaban tablas globales de DynamoDB pudieron conectarse y emitir pedidos contra sus réplicas en otras regiones [#nube2122-aws-dynamodb-2025]. Es decir, el que tenía datos replicados en otra región y una aplicación capaz de usarlos siguió trabajando; el que tenía todo en Multi-AZ de una sola región, no. Multi-AZ es protección contra la caída de un edificio; esta fue una falla de un servicio compartido que las zonas de esa región tenían en común. Si querés otro caso, en 2017 un comando de mantenimiento con un dato mal escrito retiró más servidores de los previstos y dejó a S3 en us-east-1 con fallas durante unas cuatro horas, según el resumen oficial de AWS [#nube2122-aws-s3-2017]."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Vigente al 16-11-2026",
+   "x": "Los resúmenes citados son los publicados por AWS sobre esos eventos y describen causas y mitigaciones de entonces; los servicios cambian. AWS también recomienda, para máxima resiliencia, usar solo operaciones del plano de datos en el failover, porque los planos de datos suelen tener objetivos de disponibilidad más altos que los planos de control [#nube2122-aws-dr-opciones]. En otras palabras: tu plan de recuperación no debería depender de llamadas a la consola o a APIs de creación de recursos que justo pueden estar caídas."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Si estoy en la nube, la alta disponibilidad viene incluida.» No: viene como opción. Un servidor solo en una zona sigue siendo un servidor solo. Los proveedores dan los ladrillos (zonas, réplicas, balanceadores) y su documentación detalla qué cubre cada SLA, pero armar la redundancia, replicar datos y probar la recuperación es trabajo del cliente, la misma lógica de responsabilidad compartida de [@13-21]."
+  },
+  {
+   "t": "h",
+   "x": "Cómo se ve en Senda"
+  },
+  {
+   "t": "p",
+   "x": "Lo que sigue corresponde al commit 25e08fa del 09-11-2026; el código cambia, la forma permanece. El mapa técnico de Senda es claro sobre el punto de partida: un solo proyecto de Supabase, en una sola región, sin réplica de lectura y sin entorno de staging, y el plan gratis se pausa tras unos siete días con poca actividad, razón por la cual hay un script para despertarlo. Que esté así no es un defecto en abstracto: es una decisión coherente con el costo mínimo de una app que todavía no tiene miles de personas, y es exactamente lo que el cálculo de arriba recomienda cuando la pérdida por hora es chica."
+  },
+  {
+   "t": "senda",
+   "titulo": "Dónde está la redundancia de Senda",
+   "x": [
+    "Las preguntas, las lecciones y las Biblias viajan dentro de la app, y el progreso y los ajustes viven en el teléfono; la nube se usa para lo social. Eso ya es una forma de resiliencia: si el servidor está caído, se puede leer la Biblia y seguir con las lecciones. Lo que hay que enviar queda en una cola guardada en el teléfono y se reenvía después.",
+    "Para quien entra con Google existe una copia del progreso en la nube (`src/util/respaldo.ts`): se sube al pasar la app a segundo plano y cada 10 minutos, solo si algo cambió, y deja afuera lo que es solo del teléfono. El flujo de despliegue de la base (`.github/workflows/supabase.yml`) prueba las migraciones en una base descartable antes de aplicarlas al proyecto real."
+   ],
+   "archivos": [
+    "src/util/respaldo.ts",
+    ".github/workflows/supabase.yml",
+    "scripts/supabase_despertar.sh",
+    "docs/ESCALA.md"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Para pensar en recuperación, los datos de Supabase importan: según su documentación vigente al 16-11-2026, los proyectos Pro, Team y Enterprise tienen backups diarios automáticos (7, 14 y 30 días de acceso respectivamente), la restauración a un punto en el tiempo es un complemento pago, y para los proyectos gratis recomienda exportar los datos por cuenta propia [#nube2122-supabase-backups]. Una inferencia a partir de eso: con backups diarios y sin PITR, el RPO máximo es del orden de un día; el RTO depende de cuánto tarde en restaurarse un proyecto. La decisión de pasar a Pro o agregar PITR es una cuestión de cuánto valen las cuentas, los grupos y los duelos de las personas, y la toma el fundador, no este curso."
+  },
+  {
+   "t": "h",
+   "x": "Qué te llevás para decidir"
+  },
+  {
+   "t": "p",
+   "x": "Cuando alguien proponga «hagamos multi-región», hay cuatro preguntas que ordenan la conversación. ¿Contra qué desastre nos queremos proteger: una zona, una región, un error humano, un ataque? ¿Cuánto cuesta una hora sin servicio y cuánto dato podemos perder? ¿Cuándo fue la última vez que restauramos algo y cuánto tardó, medido? ¿Qué parte del failover depende de cosas que se pueden caer justo ese día? Si no hay respuestas con números, todavía no hay una estrategia: hay una intención."
+  }
+ ],
+ "recap": [
+  "Alta disponibilidad es seguir andando ante una falla chica; recuperación ante desastres es volver tras una grande, y se miden con RTO (tiempo) y RPO (datos perdidos).",
+  "Multi-AZ protege de la caída de un edificio con replicación síncrona entre zonas; no protege de un error humano que se replica, ni de la caída de toda la región.",
+  "La replicación síncrona da RPO cero pero cada escritura espera un viaje; la asíncrona es rápida, pero pierde lo que estaba en camino, y entre regiones lejanas suele ser la única opción práctica.",
+  "Las cuatro estrategias (backup y restauración, luz piloto, espera templada, activo-activo) compran menos RTO y RPO con más costo y complejidad.",
+  "Un failover se mide con reloj: en la maqueta local, tres chequeos fallidos a 200 ms dieron unos 411 ms sin servicio. La estrategia que nunca se probó es una hipótesis.",
+  "En el evento de us-east-1 de octubre de 2025, quien tenía réplicas en otra región pudo seguir; la elección correcta de estrategia sale de la pérdida por hora y la probabilidad, no del prestigio de la arquitectura."
+ ],
+ "repaso": [
+  {
+   "p": "Tu base tiene Multi-AZ síncrono y un empleado borra por error toda una tabla. ¿Qué pasa y qué te salva?",
+   "o": [
+    "La réplica en espera conserva los datos, así que alcanza con conmutar a ella",
+    "El borrado se replica a la zona de espera; se recupera con un backup a un punto en el tiempo",
+    "Multi-AZ guarda versiones históricas y se puede deshacer desde la consola",
+    "Nada se pierde porque las zonas de disponibilidad tienen copias independientes"
+   ],
+   "c": 1,
+   "e": "Multi-AZ replica los cambios, incluidos los errores, a la réplica casi al instante. Es redundancia contra fallas de infraestructura, no una máquina del tiempo. La recuperación se hace con backups y restauración a un punto en el tiempo, como en el día 09-28."
+  },
+  {
+   "p": "Una empresa necesita que, si cae una región entera, el servicio vuelva en minutos y se pierdan segundos de datos como mucho, sin pagar producción completa duplicada. ¿Qué estrategia encaja mejor?",
+   "o": [
+    "Backup y restauración, porque es la más barata y siempre alcanza",
+    "Espera templada, con una copia reducida pero funcional en otra región",
+    "Multi-AZ en la región original, que cubre el caso de una región caída",
+    "Activo-activo, porque es el único que permite recuperación en minutos"
+   ],
+   "c": 1,
+   "e": "La espera templada mantiene una copia funcional más chica, lo que baja el RTO sin duplicar el costo de producción. Backup y restauración tarda horas; Multi-AZ no cubre una región caída; activo-activo cumple, pero cuesta producción completa en dos regiones."
+  },
+  {
+   "p": "Con replicación asíncrona y un retraso de réplica de 500 ms, el primario falla. ¿Qué es lo más probable?",
+   "o": [
+    "No se pierde nada porque la réplica guarda todo apenas llega",
+    "Se pierden las escrituras confirmadas en los últimos 500 ms aproximadamente",
+    "Se pierden todas las escrituras del último minuto como mínimo",
+    "Las escrituras no se confirman hasta que llega la réplica, así que se reintenta"
+   ],
+   "c": 1,
+   "e": "En asíncrona se confirma al instante y la réplica se pone al día después: lo que estaba en camino, del orden del retraso, se pierde. La opción que dice que no se confirma hasta que llega la réplica describe la replicación síncrona, no la asíncrona."
+  },
+  {
+   "p": "En la maqueta de failover, el router cambia después de 3 chequeos fallidos a 200 ms. Si pasás el umbral a 1 chequeo fallido, ¿qué compensación aparece?",
+   "o": [
+    "El RTO baja, pero sube el riesgo de cambiar al standby por un simple hipo",
+    "El RTO sube porque hay que esperar más para decidir con certeza",
+    "El RTO no cambia porque depende solo de qué tan rápido arranca el standby",
+    "El RPO baja a cero porque se detecta más rápido la falla"
+   ],
+   "c": 0,
+   "e": "Menos chequeos antes de decidir acortan el tiempo hasta el cambio, pero un solo fallo transitorio puede disparar un failover innecesario. Cambiar el umbral no toca el RPO, que depende de cómo se replican los datos."
+  },
+  {
+   "p": "En el incidente de us-east-1 de octubre de 2025, ¿quién pudo seguir conectándose a DynamoDB, según el resumen oficial?",
+   "o": [
+    "Todos los clientes con Multi-AZ en esa región",
+    "Los clientes con tablas globales, usando sus réplicas en otras regiones",
+    "Los clientes que usaban el endpoint IPv6 de la región",
+    "Nadie: el servicio estuvo caído para todos durante el evento"
+   ],
+   "c": 1,
+   "e": "El documento dice que los clientes con tablas globales pudieron usar sus réplicas en otras regiones. Multi-AZ no ayudó porque la falla fue de un servicio compartido de la región, no de una zona."
+  },
+  {
+   "p": "Un backup nunca fue restaurado en un simulacro. ¿Cómo corresponde tratarlo?",
+   "o": [
+    "Como una garantía, porque el proveedor asegura que los backups funcionan",
+    "Como una hipótesis sin probar, porque no se conoce el RTO real ni si anda",
+    "Como suficiente, porque las copias en otra región no fallan nunca",
+    "Como un riesgo menor, porque el RPO queda cubierto por la frecuencia"
+   ],
+   "c": 1,
+   "e": "Un backup solo vale si se pudo restaurar y se midió cuánto tarda. La frecuencia define el RPO, pero no prueba que la restauración funcione ni su tiempo, que es el RTO."
+  },
+  {
+   "p": "Una app tiene pérdida de USD 40 por hora caída. ¿Qué criterio decide la estrategia?",
+   "o": [
+    "Elegir la más completa, porque es la que ofrece menor riesgo en abstracto",
+    "Comparar el costo anual de cada una con la pérdida esperada y elegir la menor suma",
+    "Copiar la estrategia que usa el competidor más grande del mercado",
+    "Elegir la de menor RTO sin importar cuánto cuesta mantenerla encendida"
+   ],
+   "c": 1,
+   "e": "La decisión es económica: costo extra al año más pérdida esperada (probabilidad por horas caídas por pérdida por hora). Con una pérdida tan baja, las estrategias caras no se pagan solas."
+  }
+ ],
+ "feynman": "Explicale a alguien de tu área de logística la diferencia entre «otro camión en la flota», «otro depósito con la mercadería» y «dos depósitos trabajando a la vez», y relacionalo con Multi-AZ, backup y restauración y activo-activo. Decí qué dato se puede perder en cada caso y dónde falla la analogía.",
+ "para_profundizar": [
+  {
+   "fuente": "nube2122-aws-dr-opciones",
+   "nota": "El documento oficial de AWS sobre opciones de recuperación ante desastres: las cuatro estrategias con sus arquitecturas, y la sección sobre probar el plan. Leelo con la tabla de hoy al lado."
+  },
+  {
+   "fuente": "nube2122-aws-dynamodb-2025",
+   "nota": "El resumen oficial del evento de octubre de 2025: es un ejemplo de cómo se escribe un postmortem, con cronología, causa raíz y lo que cambió; fijate en la sección de DynamoDB."
+  },
+  {
+   "fuente": "nube2122-rds-multiaz",
+   "nota": "La guía de Amazon RDS sobre despliegues Multi-AZ: sirve para ver qué hace cada variante y qué no hace, con la advertencia de que la réplica en espera no sirve lecturas."
+  },
+  {
+   "fuente": "sre-book",
+   "nota": "El libro de SRE de Google, en sus capítulos sobre fallas en cascada y sobrecarga: complementa lo de hoy con por qué un sistema redundante igual se cae junto."
+  }
+ ],
+ "videos": [
+  {
+   "q": "AWS disaster recovery strategies pilot light warm standby explained",
+   "por_que": "Para ver las cuatro estrategias dibujadas, con otra voz y otros ejemplos, y comparar con la tabla de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "multi-AZ",
+   "d": "Diseño que reparte las piezas de un sistema (instancias, réplicas de la base) entre dos o más zonas de disponibilidad de una misma región, de modo que la caída de una zona no apague el servicio."
+  },
+  {
+   "t": "multi-región",
+   "d": "Diseño que mantiene copias o instancias del sistema en dos o más regiones distintas. Protege contra la caída de una región entera, pero suma costo, complejidad de datos y latencia entre regiones."
+  },
+  {
+   "t": "sitio en espera",
+   "d": "Entorno de reserva, en otra zona o región, que no atiende tráfico normal y se activa cuando falla el principal. Según cuánto trabaje hasta entonces, se llama luz piloto, espera templada o hot standby."
+  },
+  {
+   "t": "luz piloto",
+   "d": "Estrategia de recuperación: los datos se replican y la infraestructura central existe, pero los servidores de aplicación están apagados hasta que se invoca el failover."
+  },
+  {
+   "t": "espera templada",
+   "d": "Estrategia de recuperación: una copia funcional pero reducida de producción corre siempre en otra región, y se escala al tamaño completo cuando hace falta."
+  },
+  {
+   "t": "activo-activo",
+   "d": "Estrategia en la que varias regiones atienden tráfico a la vez. Es la más costosa y compleja, y la que puede llevar la recuperación a casi cero."
+  },
+  {
+   "t": "recuperación ante desastres",
+   "d": "Conjunto de medios y procedimientos para volver a operar tras una pérdida grande (una región, una base, un ataque). Se mide con RTO y RPO."
+  }
+ ],
+ "siguiente": "qué pasa cuando no querés depender de un solo proveedor: nubes híbridas, multi-cloud y el costo real de salir de una plataforma.",
+ "fuentes_nuevas": [
+  {
+   "id": "nube2122-aws-dr-opciones",
+   "t": "Disaster recovery options in the cloud (Disaster Recovery of Workloads on AWS: Recovery in the Cloud)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/whitepapers/latest/disaster-recovery-workloads-on-aws/disaster-recovery-options-in-the-cloud.html"
+  },
+  {
+   "id": "nube2122-rds-multiaz",
+   "t": "Multi-AZ DB instance deployments for Amazon RDS",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Concepts.MultiAZSingleStandby.html"
+  },
+  {
+   "id": "nube2122-rds-sla",
+   "t": "Amazon RDS Service Level Agreement",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "url": "https://aws.amazon.com/rds/sla/"
+  },
+  {
+   "id": "nube2122-aws-dynamodb-2025",
+   "t": "Summary of the Amazon DynamoDB Service Disruption in the Northern Virginia (US-EAST-1) Region",
+   "a": "Amazon Web Services",
+   "tipo": "articulo",
+   "anio": "2025",
+   "url": "https://aws.amazon.com/message/101925/"
+  },
+  {
+   "id": "nube2122-aws-s3-2017",
+   "t": "Summary of the Amazon S3 Service Disruption in the Northern Virginia (US-EAST-1) Region",
+   "a": "Amazon Web Services",
+   "tipo": "articulo",
+   "anio": "2017",
+   "url": "https://aws.amazon.com/message/41926/"
+  },
+  {
+   "id": "nube2122-supabase-backups",
+   "t": "Database Backups (Supabase docs)",
+   "a": "Supabase",
+   "tipo": "doc",
+   "url": "https://supabase.com/docs/guides/platform/backups"
+  }
+ ]
+}

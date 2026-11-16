@@ -1,0 +1,593 @@
+{
+ "id": "13-20",
+ "titulo": "Mensajería y eventos en la nube",
+ "bajada": "Cómo las nubes alquilan colas, temas y buses de eventos, qué garantizan de verdad y qué pasa cuando un mensaje se entrega dos veces o nunca se logra procesar.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Distinguir una cola, un tema con suscriptores y un bus de eventos, y decir qué servicio de AWS, Google Cloud y Azure cumple cada papel.",
+  "Seguir un mensaje por una cola con plazo de visibilidad y predecir cuándo reaparece y cuándo va a la cola de mensajes fallidos.",
+  "Explicar por qué una cola de nube puede entregar el mismo mensaje dos veces y cómo se diseña un consumidor que lo tolera.",
+  "Calcular cuántas solicitudes factura una cola con y sin lotes.",
+  "Reconocer en el código de Senda dos colas hechas a mano y decir qué garantías tienen."
+ ],
+ "venis_de": "En [@07-14] viste qué es una cola de mensajes y cómo desacopla a quien produce de quien consume, y en [@12-17] cómo una arquitectura entera se arma con eventos. Hoy se mira lo que cada nube vende ya armado, con sus plazos, sus límites y sus garantías, y se prueba la mecánica con una cola de juguete en el navegador.",
+ "se_apoya_en": [
+  "07-14",
+  "12-17",
+  "13-07",
+  "13-09",
+  "13-19"
+ ],
+ "gancho": [
+  "Pensá en un depósito con picking. Entran remitos todo el día y los operarios los van sacando de una bandeja. Un supervisor pone una regla: quien retira un remito deja un cartel que dice «lo tengo yo, hasta las 15:00». Si a las 15:00 el remito sigue ahí sin despachar (el operario se fue a almorzar, se descompuso el autoelevador), el cartel vence y cualquiera lo puede tomar. Esa regla evita que un pedido quede tapado para siempre, y trae un costo: si el operario solo estaba lento y termina a las 15:05, el pedido ya lo despachó otro.",
+  "Ese cartel es casi exactamente lo que hacen las colas de mensajes de la nube. Hoy vas a ver qué venden AWS, Google Cloud y Azure para comunicar programas entre sí sin operar un servidor de mensajería, qué prometen y qué dejan de prometer. Y vas a correr una cola de juguete que repite el episodio del remito, para ver en números qué se rompe."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Tres formas de pasarse un mensaje"
+  },
+  {
+   "t": "p",
+   "x": "En [@07-14] separaste la llamada directa de la [[cola de mensajes]]: en la cola, el que envía deja el mensaje y se va, y otro programa lo retira cuando puede. Los proveedores de nube alquilan esa pieza ya operada: vos no instalás un [[broker]] ni lo parchás; llamás a una API y pagás por uso. Pero no alquilan una sola cosa. Hay tres formas distintas de comunicar, y conviene no mezclarlas."
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Cola**: cada mensaje lo recibe **un** consumidor. Sirve para repartir trabajo entre varios procesos (por ejemplo, mandar mails de una lista, procesar imágenes).",
+    "**Tema con suscriptores** ([[publicación-suscripción]]): cada mensaje se copia a **todos** los suscriptores. Sirve para difundir un hecho a varios interesados.",
+    "**Bus de eventos**: un router que recibe eventos y, según reglas sobre su contenido, los envía a cero o más destinos. Sirve para conectar muchas fuentes con muchos destinos sin que se conozcan."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Los tres pueden convivir en una misma arquitectura. La tabla muestra qué servicio de cada nube cumple cada papel, según sus documentaciones oficiales al 16-11-2026 [#cloud1320-sqs-que-es][#cloud1320-sns-que-es][#cloud1320-eventbridge][#cloud1320-pubsub][#cloud1320-servicebus][#cloud1320-eventarc][#cloud1320-eventgrid]."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Papel",
+    "AWS",
+    "Google Cloud",
+    "Azure"
+   ],
+   "filas": [
+    [
+     "Cola (un consumidor por mensaje)",
+     "SQS",
+     "Pub/Sub (con una suscripción)",
+     "Service Bus (colas)"
+    ],
+    [
+     "Tema con suscriptores",
+     "SNS",
+     "Pub/Sub (tema con varias suscripciones)",
+     "Service Bus (temas y suscripciones); Event Grid"
+    ],
+    [
+     "Bus de eventos con reglas",
+     "EventBridge",
+     "Eventarc",
+     "Event Grid"
+    ]
+   ],
+   "cap": "La correspondencia no es uno a uno. Pub/Sub cumple dos papeles con un solo servicio, y los límites y garantías de cada uno difieren: no copies un diseño de una nube a otra sin leer las reglas de la nueva."
+  },
+  {
+   "t": "h",
+   "x": "La cola: SQS"
+  },
+  {
+   "t": "p",
+   "x": "[[SQS]] (*Simple Queue Service*) es la cola administrada de AWS. Su documentación la define por lo que garantiza y lo que no: las colas estándar entregan cada mensaje **al menos una vez**, y por la arquitectura distribuida puede llegar más de una copia, y a veces fuera de orden [#cloud1320-sqs-que-es]. Es la garantía [[at-least-once]] que ya conocés de [@07-14], ahora escrita en un contrato. Al enviar, SQS guarda el mensaje de forma redundante en varias zonas de disponibilidad antes de confirmar, de modo que la falla de una zona no lo pierde ([@13-03])."
+  },
+  {
+   "t": "p",
+   "x": "Los números que importan para razonar, según la documentación oficial de AWS al 16-11-2026 [#cloud1320-sqs-cuotas][#back14-sqs-visibilidad][#cloud1320-sqs-polling]:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Parámetro",
+    "Valor por defecto",
+    "Rango o tope"
+   ],
+   "filas": [
+    [
+     "Plazo de visibilidad (cuánto se esconde un mensaje recibido)",
+     "30 segundos",
+     "Hasta 12 horas"
+    ],
+    [
+     "Retención (cuánto vive un mensaje sin procesar)",
+     "4 días",
+     "De 60 segundos a 14 días"
+    ],
+    [
+     "Tamaño máximo de un mensaje",
+     "1 MiB (1.048.576 bytes)",
+     "Más grande: se guarda el cuerpo aparte y se manda una referencia"
+    ],
+    [
+     "Demora al enviar",
+     "0 segundos",
+     "Hasta 15 minutos"
+    ],
+    [
+     "Espera de la consulta larga (*long polling*)",
+     "Sin espera (consulta corta)",
+     "Hasta 20 segundos"
+    ]
+   ],
+   "cap": "Valores del 16-11-2026. Cambian con el tiempo y por tipo de cola: verificalos en la guía oficial antes de diseñar."
+  },
+  {
+   "t": "p",
+   "x": "El plazo de visibilidad es el cartel del remito. Cuando un consumidor recibe un mensaje, SQS no lo borra: lo **esconde** durante ese plazo. Si el consumidor termina bien, le pide a SQS que lo borre. Si no lo borra antes de que venza el plazo, el mensaje vuelve a aparecer y otro consumidor lo recibe. Hay un detalle de diseño en la API: cada recepción entrega un identificador distinto, y hay que usar el de la recepción más reciente para borrar [#cloud1320-sqs-ids]."
+  },
+  {
+   "t": "p",
+   "x": "Si un mensaje falla una y otra vez, no puede reaparecer eternamente. Para eso existe la **cola de mensajes fallidos** (*dead-letter queue*, DLQ). Se configura con una cuenta máxima de recepciones (`maxReceiveCount`): cuando un mensaje se recibió esa cantidad de veces sin borrarse, se mueve a otra cola, donde alguien puede mirarlo con calma [#cloud1320-sqs-dlq]."
+  },
+  {
+   "t": "h",
+   "x": "Una cola de juguete que repite el episodio"
+  },
+  {
+   "t": "p",
+   "x": "Para ver el mecanismo sin cuenta de ningún proveedor, armé una cola de juguete con las mismas reglas (plazo de visibilidad, recibo por intento, cola de fallidos) sobre un reloj simulado, así corre en un instante. No es el código de SQS: es la idea, copiada de lo que dice su documentación. Hay tres mensajes. **A** es normal y tarda 2 segundos. **B** es lento: tarda 40 segundos, más que el plazo de 30. **C** es «venenoso»: siempre falla. Hay dos trabajadores y un máximo de 3 recepciones."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Una cola de juguete con las reglas de una cola de nube, sobre un reloj simulado (en segundos).\n// No es el código de ningún proveedor: copia el mecanismo de plazo de visibilidad y cola de mensajes fallidos.\nclass Cola {\n  constructor(nombre, { visibilidad = 30, maxRecepciones = 3, muertos = null } = {}) {\n    Object.assign(this, { nombre, visibilidad, maxRecepciones, muertos });\n    this.msgs = [];\n  }\n  enviar(cuerpo, t) { this.msgs.push({ cuerpo, visibleDesde: t, recepciones: 0 }); }\n  recibir(t) {\n    for (const m of this.msgs.filter(m => m.visibleDesde <= t)) {\n      if (m.recepciones >= this.maxRecepciones) {      // ya se intentó demasiado: va a la cola de mensajes fallidos\n        this.msgs.splice(this.msgs.indexOf(m), 1);\n        this.muertos.enviar(m.cuerpo, t);\n        console.log(`t=${String(t).padStart(3)}  ${m.cuerpo.id} pasa a ${this.muertos.nombre} tras ${m.recepciones} intentos`);\n        continue;\n      }\n      m.recepciones++;\n      m.visibleDesde = t + this.visibilidad;           // se esconde durante el plazo de visibilidad\n      return { m, recibo: m.recepciones };\n    }\n    return null;\n  }\n  borrar(m, recibo) {                                  // solo vale con el recibo del último intento\n    if (m.recepciones !== recibo || !this.msgs.includes(m)) return false;\n    this.msgs.splice(this.msgs.indexOf(m), 1);\n    return true;\n  }\n}\n\nconst muertos = new Cola(\"cola-de-fallidos\");\nconst cola = new Cola(\"pedidos\", { visibilidad: 30, maxRecepciones: 3, muertos });\ncola.enviar({ id: \"A\", tarea: \"normal\" }, 0);\ncola.enviar({ id: \"B\", tarea: \"lenta\" }, 0);     // tarda 40 s: más que el plazo de 30 s\ncola.enviar({ id: \"C\", tarea: \"venenosa\" }, 0);  // siempre falla\n\nconst efectosSinCuidado = [], efectosIdempotentes = new Set();\nconst trabajadores = [{ libre: 0 }, { libre: 0 }];\nconst pendientes = []; // finales de tarea: { t, m, recibo, ok, id }\n\nfor (let t = 0; t <= 140; t++) {\n  for (const p of pendientes.filter(p => p.t === t)) {\n    if (!p.ok) { console.log(`t=${String(t).padStart(3)}  ${p.m.cuerpo.id} falla: no se borra, volverá a aparecer`); continue; }\n    efectosSinCuidado.push(p.m.cuerpo.id);\n    efectosIdempotentes.add(p.m.cuerpo.id);\n    const borrado = cola.borrar(p.m, p.recibo);\n    console.log(`t=${String(t).padStart(3)}  ${p.m.cuerpo.id} procesado; borrar con recibo ${p.recibo}: ${borrado ? \"sí\" : \"NO (ya lo recibió otro)\"}`);\n  }\n  for (const w of trabajadores) {\n    if (w.libre > t) continue;\n    const r = cola.recibir(t);\n    if (!r) continue;\n    const dur = r.m.cuerpo.tarea === \"lenta\" ? 40 : 2;\n    w.libre = t + dur;\n    console.log(`t=${String(t).padStart(3)}  recibe ${r.m.cuerpo.id} (intento ${r.recibo})`);\n    pendientes.push({ t: t + dur, m: r.m, recibo: r.recibo, ok: r.m.cuerpo.tarea !== \"venenosa\" });\n  }\n}\nconsole.log(\"Efectos sin cuidado:\", efectosSinCuidado.join(\",\"));\nconsole.log(\"Efectos con idempotencia:\", [...efectosIdempotentes].join(\",\"));\nconsole.log(\"En la cola de fallidos:\", muertos.msgs.map(m => m.cuerpo.id).join(\",\"));",
+   "cap": "Cola de juguete con reloj simulado: corre en el navegador. Las reglas imitan las de SQS, pero el código es propio."
+  },
+  {
+   "t": "p",
+   "x": "Seguí la salida con calma, porque tiene tres lecciones. **A** sale perfecto: se recibe en 0, se procesa, se borra. **C** falla las tres veces, porque nunca se borra, y termina en la cola de fallidos: así debería funcionar. Hasta ahí, bien."
+  },
+  {
+   "t": "p",
+   "x": "**B** es la sorpresa. B se procesa con éxito, y aun así termina en la cola de fallidos. En t=30 venció su plazo mientras el primer trabajador seguía trabajando, así que otro trabajador lo recibió. Cuando el primero terminó en t=40 y quiso borrarlo, el borrado no valió, porque ya existía una recepción más nueva. Resultado: B se procesó **tres veces** y la cola lo dio por fallido. Si procesar significaba cobrar un pedido, se cobró tres veces."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El plazo corto es una trampa silenciosa",
+   "x": "Un plazo de visibilidad menor que lo que tarda el trabajo genera duplicados aunque nada falle. No hay error ni alarma: solo trabajo repetido. Dos defensas se usan juntas: poner el plazo por encima del peor tiempo razonable (o extenderlo mientras se trabaja) y hacer el consumidor **idempotente**, es decir, que procesar dos veces el mismo mensaje deje el mismo resultado que procesarlo una vez."
+  },
+  {
+   "t": "p",
+   "x": "La última parte de la salida muestra la defensa. Sin cuidado, los efectos fueron `A,B,B,B`. Con un registro de lo ya procesado (la misma idea de una [[clave de idempotencia]] que viste en [@07-14]), fueron `A,B`. En la práctica, esa clave es un identificador del mensaje que se anota en una tabla antes de actuar: si ya está, se descarta."
+  },
+  {
+   "t": "pensa",
+   "x": "En la corrida, B terminó en la cola de fallidos aunque se procesó bien tres veces. Si subís el plazo de visibilidad de 30 a 60 segundos, ¿qué cambia con B?",
+   "resp": "Con 60 segundos, el primer trabajador termina en t=40, antes de que el plazo venza, y el borrado funciona: B se procesa una sola vez y no llega a la cola de fallidos. El problema no era B sino que el plazo era más corto que su duración."
+  },
+  {
+   "t": "h",
+   "x": "El tema: SNS y Pub/Sub"
+  },
+  {
+   "t": "p",
+   "x": "[[SNS]] (*Simple Notification Service*) es el servicio de temas de AWS. Quien publica manda el mensaje a un **tema**, y SNS lo entrega a todos los suscriptores, que pueden ser colas SQS, funciones Lambda, direcciones HTTP, correo, notificaciones push al celular, SMS y otros destinos [#cloud1320-sns-que-es]. [[Pub/Sub]] es el servicio equivalente de Google Cloud, pero con un diseño distinto: un tema tiene varias **suscripciones**, y cada suscripción funciona como su propia cola con sus mensajes pendientes [#cloud1320-pubsub]."
+  },
+  {
+   "t": "p",
+   "x": "La mejor manera de entender un tema es verlo. Esta versión de juguete publica un pedido en un tema, y tres suscriptores tienen cada uno su cola. Uno de ellos filtra y solo recibe los pedidos de más de 100."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Un tema de juguete: quien publica no sabe quién escucha. Cada suscriptor tiene su propia cola.\nclass Cola {\n  constructor(nombre) { this.nombre = nombre; this.msgs = []; }\n  enviar(m) { this.msgs.push(m); }\n  recibir() { return this.msgs.shift(); }\n}\nclass Tema {\n  constructor(nombre) { this.nombre = nombre; this.subs = []; }\n  suscribir(cola, filtro = () => true) { this.subs.push({ cola, filtro }); }\n  publicar(m) {\n    let copias = 0;\n    for (const s of this.subs) if (s.filtro(m)) { s.cola.enviar({ ...m }); copias++; }\n    console.log(`publicado ${m.tipo}#${m.id} -> ${copias} copia(s)`);\n  }\n}\n\nconst mails = new Cola(\"mails\"), avisos = new Cola(\"avisos-push\"), auditoria = new Cola(\"auditoria\");\nconst pedidos = new Tema(\"pedido-creado\");\npedidos.suscribir(mails);\npedidos.suscribir(avisos, m => m.monto > 100);   // filtro: solo los pedidos grandes\npedidos.suscribir(auditoria);\n\npedidos.publicar({ tipo: \"pedido\", id: 1, monto: 40 });\npedidos.publicar({ tipo: \"pedido\", id: 2, monto: 250 });\n\nfor (const c of [mails, avisos, auditoria]) {\n  console.log(c.nombre.padEnd(12), \"tiene\", c.msgs.length, \"->\", c.msgs.map(m => m.id).join(\",\"));\n}\n// Si agregás otro suscriptor, quien publica no cambia ni una línea.",
+   "cap": "Tema de juguete con colas por suscriptor y un filtro. Código propio, solo para ver la forma."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "La lista de distribución",
+   "x": [
+    "Un tema se parece a una lista de correo de la empresa: quien escribe manda un solo mail y llegan copias a cada suscripto. Si alguien nuevo se suma, el remitente no se entera ni cambia nada.",
+    "Dónde deja de valer: en un mail, cada copia es independiente y si falla la tuya no afecta a las demás. En un tema también, pero la **entrega** a cada suscriptor tiene sus propios reintentos y plazos, y tu cola puede estar atrasada días mientras la de otro va al día."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "La combinación típica en AWS es un tema SNS con una cola SQS por consumidor. Así cada equipo procesa a su ritmo, con sus reintentos y su cola de fallidos, sin afectar a los demás. En Google Cloud eso viene dentro de Pub/Sub: un tema y varias suscripciones."
+  },
+  {
+   "t": "pensa",
+   "x": "Con el tema de juguete, aparece un cuarto equipo que quiere recibir todos los pedidos. ¿Qué tiene que cambiar en el código de quien publica?",
+   "resp": "Nada. Se crea una cola nueva y se suscribe al tema; quien publica sigue mandando un mensaje al tema sin saber cuántos lo reciben. Esa es la ventaja del tema: agregar destinatarios no toca al emisor."
+  },
+  {
+   "t": "h",
+   "x": "Qué promete cada uno y qué no"
+  },
+  {
+   "t": "p",
+   "x": "Todos tienen la misma tensión de fondo que viste en [@07-14]: entregar «exactamente una vez» entre máquinas que pueden fallar es difícil, y casi todos prometen «al menos una vez». Aun así, algunos ofrecen modos más estrictos, con condiciones que hay que leer."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Servicio",
+    "Modo por defecto",
+    "Cómo se confirma el procesamiento",
+    "Qué hacen con lo que falla"
+   ],
+   "filas": [
+    [
+     "SQS estándar",
+     "Al menos una vez, orden de mejor esfuerzo",
+     "Borrar el mensaje antes de que venza el plazo",
+     "Cola de fallidos tras N recepciones"
+    ],
+    [
+     "SQS FIFO",
+     "Orden por grupo y deduplicación en una ventana",
+     "Borrar el mensaje",
+     "Cola de fallidos"
+    ],
+    [
+     "Pub/Sub",
+     "Al menos una vez",
+     "Confirmar (*ack*) antes del plazo de confirmación",
+     "Tema de mensajes fallidos"
+    ],
+    [
+     "Service Bus",
+     "Dos modos: bloqueo con confirmación (*peek-lock*) o borrado al recibir",
+     "Completar el mensaje mientras dura el bloqueo",
+     "Cola de mensajes fallidos si se supera la cantidad máxima de entregas"
+    ]
+   ],
+   "cap": "Resumen de la documentación oficial de cada proveedor al 16-11-2026 [#back14-sqs-fifo-dedup][#cloud1320-pubsub-lease][#cloud1320-servicebus-settle][#cloud1320-servicebus-dlq]."
+  },
+  {
+   "t": "p",
+   "x": "Dos matices que importan. Primero, Pub/Sub tiene una función de **entrega exactamente una vez** que se activa por suscripción, pero la documentación la limita: solo funciona con suscripciones de tipo pull (no con las de push ni las de exportación), y se garantiza dentro de una región de nube [#cloud1320-pubsub-eo]. Y sigue exigiendo que el suscriptor confirme dentro del plazo y lleve su propio registro del avance. Segundo, Service Bus tiene un modo de borrar al recibir: si el traspaso falla, el mensaje se pierde, y la documentación lo recomienda solo cuando los datos tienen poco valor o vencen enseguida [#cloud1320-servicebus-settle]. También ofrece detección de duplicados del lado del que envía: si reenvía el mismo mensaje, la cola descarta la copia [#cloud1320-servicebus]."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Exactamente una vez» no es magia",
+   "x": "Aun cuando un servicio ofrece entrega exactamente una vez, el efecto sobre el mundo (cobrar, mandar un mail, descontar stock) lo decide tu programa. Si tu consumidor falla después de actuar y antes de confirmar, la entrega se repite. Por eso, aunque el proveedor garantice algo, conviene que el consumidor sea idempotente."
+  },
+  {
+   "t": "h",
+   "x": "El bus de eventos"
+  },
+  {
+   "t": "p",
+   "x": "Un [[evento]] (como ya viste en [@12-17]) describe algo que **ya pasó**: «se creó el pedido 123». Un [[bus de eventos]] es un servicio que recibe esos eventos de muchas fuentes y los reparte a destinos según reglas que miran el contenido. EventBridge, el bus de AWS, lo describe como un router que recibe eventos y los entrega a cero o más destinos, con transformación opcional [#cloud1320-eventbridge]. Quien emite no sabe quién escucha, el principio de la [[coreografía]] de [@12-17]."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "EventBridge tiene hoy dos buses",
+   "x": "La documentación de EventBridge consultada el 16-11-2026 describe dos buses: el *Custom Event Bus*, que retiene eventos por un período configurable y admite entrega ordenada y reproducción, y el *Custom Event Bus - Classic*, que enruta con reglas y destinos. Para aplicaciones nuevas, la guía recomienda empezar por el primero [#cloud1320-eventbridge]. Es un servicio que cambió hace poco: no des por sabido lo que leas en tutoriales viejos."
+  },
+  {
+   "t": "p",
+   "x": "La diferencia con el tema de recién es sutil y útil. En un tema, quien publica y quien suscribe comparten un nombre de tema. En un bus, el emisor deja un evento con su forma y las **reglas** que decide el consumidor eligen qué le llega. Se parece a la diferencia entre «avisale a todos los de esta lista» y «mandame todo lo que diga *pedido* y *monto mayor a 100*, venga de donde venga». Google Cloud ofrece Eventarc y Azure ofrece Event Grid para cosas parecidas, con sus propios formatos [#cloud1320-eventarc][#cloud1320-eventgrid]."
+  },
+  {
+   "t": "h",
+   "x": "Cuánto cuesta una cola"
+  },
+  {
+   "t": "p",
+   "x": "Las colas se cobran por **solicitudes**, y cada llamada a la API cuenta: enviar, recibir y borrar son tres solicitudes separadas. La página de precios de SQS (consultada el 16-11-2026) agrega reglas de medición: una solicitud puede llevar de 1 a 10 mensajes, hasta 1 MiB en total, y cada tramo de 64 KB de contenido se factura como una solicitud: un envío de 1 MiB se factura como 16 [#cloud1320-sqs-precios]. El primer millón de solicitudes por mes figura como gratis. El precio por millón no pude leerlo: la página lo arma con un script y no devuelve el número en el texto. Por eso hoy no cito un precio; la mecánica alcanza para razonar."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Una app envía 2,5 millones de mensajes por mes, de 1 KB cada uno. Cada mensaje se envía una vez, se recibe una vez y se borra una vez. ¿Cuántas solicitudes factura SQS si se hace de a un mensaje por llamada, y cuántas si se agrupa de a 10? Después restá el millón gratis de la primera cifra.",
+   "pista": "Tres operaciones por mensaje. Con lotes de 10, cada operación atiende 10 mensajes a la vez. Un mensaje de 1 KB cabe en un solo tramo de 64 KB.",
+   "solucion": "Sin lotes: 2,5 millones × 3 = 7,5 millones de solicitudes; restando el millón gratis, 6,5 millones facturables. Con lotes de 10: 7,5 millones / 10 = 750.000 solicitudes, que entran en el millón gratis. Agrupar redujo diez veces las solicitudes. (La cifra es un cálculo de mecánica: no incluye las consultas vacías que hace un consumidor cuando no hay mensajes; la consulta larga de hasta 20 segundos reduce justamente esas.)"
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Cuotas, plazos y precios: 16-11-2026",
+   "x": "Los valores de plazo, retención, tamaño y tramos de facturación son los publicados el 16-11-2026 en las guías de cada proveedor y cambian: el máximo de 1 MiB por mensaje en SQS, por ejemplo, es una cifra que ha subido con el tiempo. No hay cuentas creadas para este estudio y nada de esto se probó contra un servicio real: lo que corriste hoy es una simulación de la mecánica."
+  },
+  {
+   "t": "h",
+   "x": "Qué se rompe en la práctica"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Mensajes duplicados**: por plazo corto, por reintento o por diseño del servicio. Se resuelve con consumidores idempotentes, no con deseos.",
+    "**Mensajes veneno**: uno que siempre falla y bloquea o hace ruido. Se resuelve con cola de fallidos y con **alguien que la mire**: una cola de fallidos que nadie revisa es un cementerio con alarma apagada.",
+    "**Suponer orden**: las colas estándar no lo garantizan. Si el orden importa, hace falta una cola ordenada y aceptar su límite de velocidad, o diseñar para que el orden no importe.",
+    "**Cola que crece sin parar**: el consumidor es más lento que el productor. Mirá la edad del mensaje más viejo, no solo cuántos hay.",
+    "**Reintentos sin freno**: reintentar al instante contra un servicio caído lo empeora. Se usa [[backoff exponencial]] con azar, como se ve abajo en Senda.",
+    "**Atarse al proveedor**: las APIs de cada nube son distintas y migrar una cola de una a otra es trabajo de código ([@13-23])."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Una regla práctica, para mí y no como dogma: si dos partes de tu sistema pueden trabajar a ritmos distintos o una puede fallar sin que la otra tenga que enterarse, poné una cola en el medio. Si la respuesta tiene que volver en la misma pantalla en menos de un segundo, probablemente alcanza con una llamada directa."
+  },
+  {
+   "t": "h",
+   "x": "Y Senda: dos colas hechas a mano"
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no usa SQS, SNS ni Pub/Sub, pero tiene colas",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. En el código de Senda no hay servicio de mensajería de nube (ni SQS, ni SNS, ni Pub/Sub, ni un bus de eventos). Hay dos colas armadas con piezas más simples, y alcanza con ver cómo para repasar lo de hoy.",
+    "**La cola del teléfono.** `src/util/nube.ts` guarda las respuestas en una bandeja de salida en el almacenamiento del teléfono, con un tope de 500 filas. Cada fila lleva un `cliente_id` y el servidor tiene un índice único sobre él: si un reintento repite una fila, se ignora. Es consumidor idempotente en estado puro. Si el envío falla, espera 5 segundos, luego el doble, hasta un tope de 320 segundos, multiplicado por un azar entre 0,5 y 1,5 (480 segundos como máximo): backoff exponencial con jitter.",
+    "**La cola de avisos.** La tabla `avisos` es una cola de notificaciones push. Una tarea de `pg_cron` ejecuta `enviar_avisos()` cada minuto: toma hasta 3.000 avisos pendientes con `for update skip locked` (varios procesos podrían correr sin pisarse), arma tandas de hasta 100 destinatarios y las manda a Expo con `pg_net`. Un detalle honesto: la función marca como enviado todo lo que tomó, y en lo que se lee en el código no hay un paso que mire la respuesta de Expo y reintente. Es una cola de mejor esfuerzo para avisos: si uno no llega, no se vuelve a mandar. Para un aviso de «te toca jugar» es una decisión razonable; para cobrar un pago no lo sería."
+   ],
+   "archivos": [
+    "src/util/nube.ts",
+    "supabase/migrations/20261130000005_grupos_grandes.sql",
+    "docs/ESCALA.md"
+   ]
+  }
+ ],
+ "recap": [
+  "Hay tres formas de comunicar: **cola** (un consumidor por mensaje), **tema** (copia para todos los suscriptores) y **bus de eventos** (reglas que eligen el destino).",
+  "**SQS, SNS y EventBridge** son las piezas de AWS; **Pub/Sub** y Eventarc son las de Google Cloud; **Service Bus** y Event Grid las de Azure. No se corresponden uno a uno.",
+  "Las colas estándar prometen entrega **al menos una vez**: el mismo mensaje puede llegar dos veces. El consumidor tiene que ser idempotente.",
+  "El **plazo de visibilidad** esconde el mensaje mientras se trabaja. Si es más corto que el trabajo, aparecen duplicados sin ningún error.",
+  "La **cola de fallidos** guarda lo que falló demasiadas veces, y solo sirve si alguien la mira.",
+  "Las colas se cobran por **solicitudes**, y agrupar mensajes en lotes de hasta 10 reduce esa cuenta.",
+  "Senda tiene dos colas hechas a mano (la del teléfono y la tabla de avisos) y ninguna es de un servicio de mensajería de nube."
+ ],
+ "repaso": [
+  {
+   "p": "Un consumidor tarda 45 segundos en procesar cada mensaje y el plazo de visibilidad de la cola es de 30. No hay errores. ¿Qué vas a observar?",
+   "o": [
+    "Mensajes procesados más de una vez aunque nada falle",
+    "Mensajes perdidos porque el consumidor no llega a tiempo",
+    "Mensajes ordenados porque cada uno se procesa completo",
+    "Mensajes que van directo a la cola de fallidos al instante"
+   ],
+   "c": 0,
+   "e": "Al vencer el plazo, el mensaje vuelve a ser visible y otro consumidor lo recibe mientras el primero sigue trabajando: se procesa dos veces o más sin que haya error. No se pierde, no se ordena por eso, y a la cola de fallidos solo va tras superar la cantidad máxima de recepciones."
+  },
+  {
+   "p": "Querés que cada pedido nuevo llegue a tres equipos distintos (facturación, depósito y soporte), cada uno con su ritmo. ¿Qué estructura corresponde?",
+   "o": [
+    "Una llamada directa a los tres equipos dentro del mismo pedido",
+    "Un tema con una cola por equipo, para que cada uno avance solo",
+    "Una sola cola compartida donde los tres equipos retiran mensajes",
+    "Un bus de eventos sin reglas que mande todo a una única cola"
+   ],
+   "c": 1,
+   "e": "Con un tema y una cola por suscriptor, cada mensaje se copia a los tres y cada equipo lo procesa a su ritmo. En una cola compartida cada mensaje lo recibe un solo equipo; el bus sin reglas no separa destinos; la llamada directa los acopla y los hace esperar."
+  },
+  {
+   "p": "Un servicio ofrece «entrega exactamente una vez». Tu consumidor cobra al cliente y se cae justo antes de confirmar el mensaje. ¿Qué puede pasar?",
+   "o": [
+    "El mensaje se pierde porque nunca llegó a confirmarse",
+    "El cobro se revierte solo porque el servicio garantiza una vez",
+    "El mensaje se vuelve a entregar y el cobro se repite si no hay control",
+    "El proveedor detecta el cobro y evita que se entregue de nuevo"
+   ],
+   "c": 2,
+   "e": "La garantía del servicio cubre la entrega, no los efectos que tu programa produjo en el mundo. Como no se confirmó, el mensaje se entrega otra vez y el cobro se repite salvo que el consumidor registre lo ya hecho. Ni se pierde ni se revierte solo."
+  },
+  {
+   "p": "En la cola de juguete, el mensaje C falló tres veces y terminó en la cola de fallidos. ¿Qué es lo más importante para operar eso bien?",
+   "o": [
+    "Que la cola de fallidos se vacíe sola para no ocupar espacio",
+    "Que el mensaje se reintente sin límite hasta que funcione",
+    "Que se suba el plazo de visibilidad hasta el máximo posible",
+    "Que alguien mire esa cola y decida qué hacer con cada mensaje"
+   ],
+   "c": 3,
+   "e": "La cola de fallidos aparta lo que no se pudo procesar, pero no lo arregla: sin alguien que mire y decida, los mensajes se acumulan sin que nadie lo sepa. Reintentar sin límite recrea el problema que la cola evita, y un plazo mayor no repara un mensaje que siempre falla."
+  },
+  {
+   "p": "Un servicio factura 1 solicitud por cada llamada, y cada llamada admite hasta 10 mensajes. Se procesan 1.000.000 de mensajes con envío, recepción y borrado. ¿Cuántas solicitudes aproximadas se facturan agrupando de a 10, ignorando consultas vacías?",
+   "o": [
+    "Unas 300.000 solicitudes en total entre las tres operaciones",
+    "Unas 100.000 solicitudes porque solo se cuenta el envío",
+    "Unas 3.000.000 solicitudes porque el lote no cambia la cuenta",
+    "Unas 30.000 solicitudes porque cada lote junta las tres"
+   ],
+   "c": 0,
+   "e": "Cada operación (enviar, recibir y borrar) cuenta aparte: 1.000.000 / 10 = 100.000 por operación, y 3 operaciones dan 300.000. Sin lotes serían 3.000.000. No se cuenta solo el envío, y un lote no junta las tres operaciones."
+  },
+  {
+   "p": "La función enviar_avisos de Senda marca como enviado todo lo que tomó y no mira la respuesta de Expo. ¿Qué garantía tiene esa cola de avisos?",
+   "o": [
+    "Ninguna: los avisos se pierden siempre que cambia la base",
+    "De mejor esfuerzo: si un aviso no llega, no se reintenta ese aviso",
+    "Al menos una vez: se reintenta hasta que Expo confirma la entrega",
+    "Exactamente una vez: nunca se duplica ni se pierde un aviso"
+   ],
+   "c": 1,
+   "e": "Marcar lo tomado como enviado sin revisar la respuesta significa que una falla de entrega no genera reintento: es mejor esfuerzo. «Al menos una vez» exigiría reintentar hasta confirmar, y «exactamente una vez» no es una promesa que esta función pueda sostener. Tampoco se pierde todo: lo normal llega."
+  }
+ ],
+ "feynman": "Explicale a alguien de tu equipo la diferencia entre una cola, un tema y un bus de eventos con el ejemplo del depósito, y contale por qué un mensaje puede procesarse dos veces aunque nada haya fallado.",
+ "para_profundizar": [
+  {
+   "fuente": "back14-sqs-visibilidad",
+   "para": "La guía oficial del plazo de visibilidad: leé cómo se extiende mientras se trabaja y qué pasa al vencer."
+  },
+  {
+   "fuente": "cloud1320-pubsub-eo",
+   "para": "La página de entrega exactamente una vez de Pub/Sub: se ven las condiciones y límites de la garantía."
+  },
+  {
+   "fuente": "cloud1320-servicebus-settle",
+   "para": "Explica los modos de bloqueo y de borrado al recibir de Service Bus y cuándo conviene cada uno."
+  },
+  {
+   "fuente": "cloud1320-eventbridge",
+   "para": "Presenta los dos buses de EventBridge y Pipes: sirve para ver la diferencia entre ruteo por reglas y punto a punto."
+  }
+ ],
+ "videos": [],
+ "terminos": [
+  {
+   "t": "SQS",
+   "d": "*Simple Queue Service*: cola de mensajes administrada de AWS. Los consumidores reciben mensajes que quedan escondidos durante un plazo de visibilidad y los borran al terminar; las colas estándar entregan al menos una vez."
+  },
+  {
+   "t": "SNS",
+   "d": "*Simple Notification Service*: servicio de temas de AWS. Quien publica manda un mensaje a un tema y el servicio lo entrega a todos los suscriptores, que pueden ser colas, funciones, direcciones HTTP, correo, push o SMS."
+  },
+  {
+   "t": "Pub/Sub",
+   "d": "Servicio de mensajería de Google Cloud con temas y suscripciones. Cada suscripción actúa como una cola propia para quien suscribe, y los mensajes se confirman (*ack*) dentro de un plazo."
+  },
+  {
+   "t": "bus de eventos",
+   "d": "Servicio que recibe eventos de muchas fuentes y los reparte a cero o más destinos según reglas que miran su contenido, sin que emisores y receptores se conozcan. EventBridge, en AWS, es un ejemplo."
+  },
+  {
+   "t": "cola de mensajes fallidos",
+   "d": "Cola aparte (*dead-letter queue*) a la que se mueven los mensajes que fallaron más veces que un máximo configurado. Sirve para revisarlos sin frenar el resto, y solo ayuda si alguien la mira."
+  },
+  {
+   "t": "plazo de visibilidad",
+   "d": "Tiempo durante el cual una cola esconde un mensaje ya entregado a un consumidor. Si no se borra antes de que venza, vuelve a ser visible y otro consumidor puede recibirlo, lo que causa duplicados si el trabajo tarda más que el plazo."
+  }
+ ],
+ "siguiente": "Mañana: la seguridad en la nube y por qué la mayoría de los incidentes salen de una configuración, no de un ataque sofisticado.",
+ "fuentes_nuevas": [
+  {
+   "id": "cloud1320-sqs-que-es",
+   "t": "Amazon SQS standard queues (guía del desarrollador)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/standard-queues.html"
+  },
+  {
+   "id": "cloud1320-sqs-cuotas",
+   "t": "Quotas related to messages (SQS, guía del desarrollador)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/quotas-messages.html"
+  },
+  {
+   "id": "cloud1320-sqs-polling",
+   "t": "Amazon SQS short and long polling (guía del desarrollador)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-short-and-long-polling.html"
+  },
+  {
+   "id": "cloud1320-sqs-ids",
+   "t": "Amazon SQS queue and message identifiers (guía del desarrollador)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-queue-message-identifiers.html"
+  },
+  {
+   "id": "cloud1320-sqs-dlq",
+   "t": "Amazon SQS dead-letter queues (guía del desarrollador)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.aws.amazon.com/AWSSimpleQueueService/latest/SQSDeveloperGuide/sqs-dead-letter-queues.html"
+  },
+  {
+   "id": "cloud1320-sqs-precios",
+   "t": "Amazon SQS pricing (página oficial)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://aws.amazon.com/sqs/pricing/"
+  },
+  {
+   "id": "cloud1320-sns-que-es",
+   "t": "What is Amazon SNS? (guía del desarrollador)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.aws.amazon.com/sns/latest/dg/welcome.html"
+  },
+  {
+   "id": "cloud1320-eventbridge",
+   "t": "What is Amazon EventBridge? (guía del usuario)",
+   "a": "Amazon Web Services",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://docs.aws.amazon.com/eventbridge/latest/userguide/eb-what-is.html"
+  },
+  {
+   "id": "cloud1320-pubsub",
+   "t": "Pub/Sub overview (documentación de Google Cloud)",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://cloud.google.com/pubsub/docs/overview"
+  },
+  {
+   "id": "cloud1320-pubsub-lease",
+   "t": "Lease management (Pub/Sub, documentación de Google Cloud)",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://cloud.google.com/pubsub/docs/lease-management"
+  },
+  {
+   "id": "cloud1320-pubsub-eo",
+   "t": "Exactly-once delivery (Pub/Sub, documentación de Google Cloud)",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://cloud.google.com/pubsub/docs/exactly-once-delivery"
+  },
+  {
+   "id": "cloud1320-eventarc",
+   "t": "Eventarc overview (documentación de Google Cloud)",
+   "a": "Google Cloud",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://cloud.google.com/eventarc/docs/overview"
+  },
+  {
+   "id": "cloud1320-servicebus",
+   "t": "What is Azure Service Bus? (Microsoft Learn)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-messaging-overview"
+  },
+  {
+   "id": "cloud1320-servicebus-settle",
+   "t": "Message transfers, locks, and settlement (Azure Service Bus, Microsoft Learn)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://learn.microsoft.com/en-us/azure/service-bus-messaging/message-transfers-locks-settlement"
+  },
+  {
+   "id": "cloud1320-servicebus-dlq",
+   "t": "Dead-letter queues (Azure Service Bus, Microsoft Learn)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-dead-letter-queues"
+  },
+  {
+   "id": "cloud1320-eventgrid",
+   "t": "What is Azure Event Grid? (Microsoft Learn)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://learn.microsoft.com/en-us/azure/event-grid/overview"
+  }
+ ]
+}
