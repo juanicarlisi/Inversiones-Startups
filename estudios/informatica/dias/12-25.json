@@ -1,0 +1,709 @@
+{
+ "id": "12-25",
+ "titulo": "Transacciones distribuidas: 2PC y sagas",
+ "bajada": "Cómo despachar un pedido cuando reservar, cobrar y asignar camión viven en tres bases distintas, y qué se paga con cada solución.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar por qué un BEGIN/COMMIT no alcanza cuando los datos viven en más de una base o servicio.",
+  "Seguir paso a paso un commit en dos fases y señalar el momento exacto en que un participante queda bloqueado.",
+  "Diseñar una saga con su compensación por cada paso y decidir en qué orden conviene ponerlos.",
+  "Comparar 2PC y sagas por atomicidad, aislamiento, bloqueo y requisitos sobre los participantes.",
+  "Reconocer en el código de Senda dónde se evita el problema y dónde aparece una compensación."
+ ],
+ "venis_de": "Viste qué es una transacción y qué garantiza dentro de una base ([@09-24]), los fallos parciales y las particiones de red ([@12-20]), el consenso ([@12-23]) y los eventos con orquestación o coreografía ([@12-17]). Faltaba qué hacer cuando el «todo o nada» tiene que cruzar varios servicios.",
+ "se_apoya_en": [
+  "09-24",
+  "12-17",
+  "12-20",
+  "12-23"
+ ],
+ "gancho": [
+  "Una distribuidora (inventada) recibe el pedido 77: una caja del producto SKU-9, a pagar con tarjeta, con entrega mañana. Para dejarlo despachado hacen falta tres cosas. El servicio de depósito tiene que **reservar** la unidad, el servicio de pagos tiene que **cobrar** ARS 4.500,00 y el servicio de transporte tiene que **asignar** un camión. Cada servicio tiene su propia base de datos y su propio equipo.",
+  "Pensá en el orden más ingenuo: reservar, cobrar, asignar. Si el tercer paso falla porque no quedan camiones, la clienta ya pagó, la unidad quedó apartada y nadie la va a entregar. En [@09-24] viste que una [[transacción]] resuelve exactamente esto: todo o nada. Pero esa garantía vive adentro de una base. Hoy vemos qué se hace cuando la operación cruza tres.",
+  "Hay dos respuestas clásicas, una descrita ya en 1981 y otra de 1987, y cada una cobra su precio en un lugar distinto. Las vamos a correr las dos."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "El todo o nada termina en el borde de la base"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando escribís `BEGIN`, varias sentencias y `COMMIT` contra una base, esa base lleva la cuenta de lo que hiciste y garantiza la [[atomicidad]]: o queda todo, o no queda nada. Lo logra con su propio registro interno de cambios (el [[write-ahead log]] de [@09-27]) y con sus bloqueos. La garantía es de **una base**, atada a **una conexión**.",
+    "Con tres servicios tenés tres bases y tres `COMMIT` separados. Entre uno y otro hay un instante en el que uno ya ocurrió y el otro todavía no. Y como viste en [@12-20], en una red hay [[fallo parcial]]: pagos puede cobrar y que su respuesta se pierda, o caerse antes de confirmar. Desde afuera las dos cosas se ven igual: silencio."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Paso que falla",
+    "Qué quedó hecho",
+    "Qué se rompió"
+   ],
+   "filas": [
+    [
+     "Cobrar (después de reservar)",
+     "Stock apartado",
+     "Unidad bloqueada sin venta: otro cliente no la puede comprar"
+    ],
+    [
+     "Asignar camión (después de cobrar)",
+     "Stock apartado y tarjeta cobrada",
+     "Clienta pagó y no hay entrega; hay que devolver plata"
+    ],
+    [
+     "Confirmar la reserva (respuesta perdida)",
+     "Todo hecho, pero el servicio que llamó no lo sabe",
+     "Si reintenta sin cuidado, reserva dos veces"
+    ]
+   ],
+   "cap": "El pedido 77 con el orden ingenuo. Datos inventados; la tercera fila es el germen del [@12-26]."
+  },
+  {
+   "t": "pensa",
+   "x": "Alguien propone: «hagamos COMMIT en la base de stock y, si sale bien, COMMIT en la de pagos». ¿Qué falla de este plan?",
+   "resp": "Entre los dos COMMIT hay una ventana. Si el proceso muere justo ahí, el stock quedó confirmado y los pagos no, y ningún mecanismo lo corrige solo. Además, el segundo COMMIT puede fallar por razones propias (restricción violada, disco lleno, timeout) cuando ya no se puede deshacer el primero. Mover el problema de lugar no lo resuelve."
+  },
+  {
+   "t": "p",
+   "x": "Antes de las técnicas, la salida más barata, que casi siempre es la mejor: **que lo que tiene que cambiar junto no esté repartido en varias bases**. Los límites de los servicios ([@12-13], [@12-14]) se dibujan justamente para eso. Lo que sigue es para cuando de verdad no se puede."
+  },
+  {
+   "t": "h",
+   "x": "Commit en dos fases: primero se vota, después se decide"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[commit en dos fases]] (en inglés *two-phase commit*, 2PC) agrega un jefe a la operación: el **coordinador**. Los servicios que participan guardan sus cambios, pero el coordinador decide si se confirman. Dos fases:"
+   ]
+  },
+  {
+   "t": "lista",
+   "ord": true,
+   "items": [
+    "**Fase de preparación.** El coordinador le pide a cada participante: «¿podés confirmar el pedido 77?». Cada uno hace el trabajo, lo deja guardado en disco de forma que sobreviva a una caída y responde SÍ o NO. Un SÍ es una promesa: «si me lo pedís, confirmo seguro».",
+    "**Fase de decisión.** Si todos dijeron SÍ, el coordinador anota COMMIT en su propio registro y se lo manda a todos. Si alguno dijo NO, o no contestó, anota ROLLBACK y se lo manda a todos."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Coordinador",
+     "k": "servidor"
+    },
+    {
+     "n": "Stock",
+     "k": "datos"
+    },
+    {
+     "n": "Pagos",
+     "k": "datos"
+    },
+    {
+     "n": "Transporte",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "¿Preparás reservar SKU-9?",
+     "d": "Empieza la fase 1. El coordinador pregunta, todavía no decide nada."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "SÍ",
+     "resp": true,
+     "d": "Stock dejó el cambio guardado en disco y mantiene sus bloqueos. Desde acá ya no puede abortar por su cuenta."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "¿Preparás cobrar 450000?",
+     "d": "Mismo pedido a Pagos."
+    },
+    {
+     "de": 2,
+     "a": 0,
+     "t": "SÍ",
+     "resp": true,
+     "d": "Pagos también promete confirmar si se lo piden."
+    },
+    {
+     "de": 0,
+     "a": 3,
+     "t": "¿Preparás asignar camión?",
+     "d": "Y a Transporte."
+    },
+    {
+     "de": 3,
+     "a": 0,
+     "t": "SÍ",
+     "resp": true,
+     "d": "Tres votos a favor. Acá el coordinador anota COMMIT en su registro, antes de avisar a nadie."
+    },
+    {
+     "de": 0,
+     "a": 1,
+     "t": "COMMIT",
+     "d": "Fase 2: el coordinador comunica la decisión. Stock confirma y libera sus bloqueos."
+    },
+    {
+     "de": 0,
+     "a": 2,
+     "t": "COMMIT",
+     "d": "Pagos confirma y libera."
+    },
+    {
+     "de": 0,
+     "a": 3,
+     "t": "COMMIT",
+     "d": "Transporte confirma y libera. Muchas versiones agregan un acuse final de cada uno."
+    }
+   ],
+   "cap": "El camino feliz de un commit en dos fases con tres participantes. Avanzá paso a paso."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Jim Gray, en su texto de 1981 sobre el concepto de transacción, describe el protocolo y lo compara con un casamiento: el que oficia pregunta «¿aceptan?» y recién cuando todos dicen que sí declara la unión [#bd0924-gray-1981]. Lo decisivo está en esta frase:"
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "The participant abdicates the right to unilaterally abort once it says “I do” to the prepare request.",
+   "autor": "Jim Gray, The Transaction Concept: Virtues and Limitations (1981)",
+   "fuente": "bd0924-gray-1981"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Traducido: después de votar SÍ, el participante **renuncia a abortar por su cuenta**. No puede, porque quizás el coordinador ya decidió COMMIT y los demás ya confirmaron. Si Stock se arrepintiera por su lado, quedaría una operación a medias. Y mientras espera la decisión, **sigue reteniendo sus bloqueos**: la fila de SKU-9 no la puede tocar nadie más."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Mirarlo en una base de verdad"
+  },
+  {
+   "t": "p",
+   "x": "PostgreSQL trae las piezas del lado del participante. `PREPARE TRANSACTION 'nombre'` hace la fase 1: guarda la transacción en disco y la desengancha de la conexión. `COMMIT PREPARED 'nombre'` o `ROLLBACK PREPARED 'nombre'` hacen la fase 2, y se pueden mandar desde **cualquier** sesión [#arq1225-pg-prepare-transaction]. Levanté un PostgreSQL 16.15 local con dos bases, `stock` y `pagos`, haciendo yo de coordinador a mano:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -d stock -c \"begin; update stock set disponible=disponible-1, reservado=reservado+1 where sku='SKU-9'; prepare transaction 'pedido77-stock';\"",
+     "s": "BEGIN\nUPDATE 1\nPREPARE TRANSACTION"
+    },
+    {
+     "c": "psql -d pagos -c \"begin; insert into cobros values ('pedido-77', 450000, 'cobrado'); update cuentas set saldo_centavos=saldo_centavos-450000 where cliente='cli-1'; prepare transaction 'pedido77-pagos';\"",
+     "s": "BEGIN\nINSERT 0 1\nUPDATE 1\nPREPARE TRANSACTION"
+    },
+    {
+     "c": "# el coordinador «muere» acá: no manda COMMIT ni ROLLBACK\npsql -d stock -c \"select gid from pg_prepared_xacts;\"",
+     "s": "      gid\n----------------\n pedido77-stock\n pedido77-pagos\n(2 rows)"
+    },
+    {
+     "c": "psql -d stock -c \"set lock_timeout='2s'; update stock set disponible=disponible-1 where sku='SKU-9';\"",
+     "s": "SET\nERROR:  canceling statement due to lock timeout\nCONTEXT:  while updating tuple (0,1) in relation \"stock\""
+    },
+    {
+     "c": "psql -d stock -c \"select * from stock;\"",
+     "s": "  sku  | disponible | reservado\n-------+------------+-----------\n SKU-9 |          5 |         0"
+    }
+   ],
+   "cap": "Salida real de esta VM (PostgreSQL 16.15, `max_prepared_transactions=10`, la vista `pg_prepared_xacts` lista las transacciones preparadas). Dos conexiones de psql separadas, nombres y montos inventados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tres cosas para mirar. Las dos transacciones preparadas figuran en `pg_prepared_xacts` aunque ya no hay conexión que las sostenga. Otra sesión que intenta tocar la fila de SKU-9 espera hasta rendirse por el `lock_timeout` de 2 segundos que puse yo (sin él, esperaría indefinidamente). Y quien lee la fila ve 5 disponibles y 0 reservados: el cambio pendiente todavía no se ve.",
+    "Después apagué el servidor con `pg_ctl -m immediate` (corta sin cerrar prolijo, lo más parecido a un corte de luz que se puede hacer sin tocar la VM) y lo volví a arrancar. Las dos transacciones seguían en `pg_prepared_xacts`. Un coordinador nuevo mandó `COMMIT PREPARED` a cada base y recién ahí el stock quedó en 4 disponibles y 1 reservado, y la clienta en 450000 centavos de saldo. Eso es lo que significa la promesa de un SÍ."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Lo que la documentación de PostgreSQL te advierte",
+   "x": [
+    "La propia documentación dice que `PREPARE TRANSACTION` **no está pensada para aplicaciones**: su propósito es que un administrador de transacciones externo coordine operaciones atómicas entre varias bases u otros recursos, y recomienda dejarla desactivada (`max_prepared_transactions` en cero, que es el valor por defecto) si no hay uno [#arq1225-pg-prepare-transaction]. También avisa que una transacción preparada olvidada sigue reteniendo sus bloqueos, estorba al `VACUUM` y, en casos extremos, puede obligar a apagar la base."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Dónde duele: el coordinador que se cae"
+  },
+  {
+   "t": "p",
+   "x": "Ahora simulemos todo en un proceso, con cuatro escenarios. El coordinador anota su decisión en un registro durable **antes** de avisarla; si se cae, al volver lee ese registro. La regla de recuperación es simple: si hay una decisión anotada, la repite; si no hay ninguna, aborta."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "class Participante {\n  constructor(nombre, votaSi = true) { this.nombre = nombre; this.votaSi = votaSi; this.estado = 'libre'; }\n  preparar() {\n    if (!this.votaSi) { this.estado = 'abortado'; return 'NO'; }\n    this.estado = 'preparado';          // desde acá retiene sus bloqueos y ya no puede abortar solo\n    return 'SI';\n  }\n  decidir(d) { this.estado = d === 'COMMIT' ? 'confirmado' : 'abortado'; }\n}\n\nfunction correr(titulo, { vota = [true, true, true], cae = null } = {}) {\n  const ps = ['stock', 'pagos', 'transporte'].map((n, i) => new Participante(n, vota[i]));\n  const log = [];                        // el log durable del coordinador\n  console.log('--- ' + titulo);\n  const votos = ps.map(p => p.preparar());\n  console.log('fase 1, votos:', ps.map((p, i) => p.nombre + '=' + votos[i]).join(' '));\n  const decision = votos.every(v => v === 'SI') ? 'COMMIT' : 'ROLLBACK';\n  if (cae === 'antes') {\n    console.log('el coordinador se cae ANTES de anotar la decisión');\n  } else {\n    log.push(decision);                  // anotar ANTES de avisar\n    if (cae === 'despues') {\n      console.log('el coordinador anota ' + decision + ' y se cae antes de avisar');\n    } else {\n      ps.forEach(p => p.decidir(decision));\n    }\n  }\n  if (cae) {\n    console.log('  mientras está caído, sea 1 minuto o 2 horas:', ps.map(p => p.nombre + ':' + p.estado).join(' '));\n    const d = log[0] ?? 'ROLLBACK';     // regla de recuperación: sin decisión anotada, se aborta\n    console.log('el coordinador vuelve, lee su log (' + (log[0] ?? 'vacío') + ') y manda ' + d);\n    ps.forEach(p => p.decidir(d));\n  }\n  console.log('final:', ps.map(p => p.nombre + ':' + p.estado).join(' '));\n}\n\ncorrer('A. todos votan que sí');\ncorrer('B. transporte vota que no', { vota: [true, true, false] });\ncorrer('C. se cae antes de decidir', { cae: 'antes' });\ncorrer('D. se cae después de anotar', { cae: 'despues' });",
+   "cap": "Simulación de un commit en dos fases con tres participantes. Los estados son los de la fase 1 y 2; el «tiempo» no se mide, solo se muestra el estado mientras el coordinador está caído. Corrido en node 22 antes de incluirlo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "En A y B no pasa nada raro: la unanimidad confirma y un solo NO aborta todo. Importan C y D. En los dos, mientras el coordinador está caído, los tres participantes quedan en `preparado`: votaron SÍ, no pueden abortar solos y no saben si la decisión fue COMMIT o ROLLBACK. Ese intervalo se llama **ventana de duda**. Cada minuto que dura, Stock mantiene apartada la unidad y Pagos mantiene bloqueada la cuenta de la clienta.",
+    "Fijate la diferencia entre C y D. En C el coordinador no llegó a anotar nada, así que al volver aborta. En D llegó a anotar COMMIT, así que al volver lo reenvía. Por eso el orden importa: **anotar primero, avisar después**. Si avisara antes de anotar, una caída en el medio dejaría a algunos participantes con COMMIT y a un coordinador que, al volver, no se acuerda de haberlo decidido."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Es como un jefe de logística que le pide a tres depósitos: «reserven la mercadería y esperen mi llamado para despachar». Si el jefe se enferma antes de llamar, los tres quedan con el camión cargado en la puerta, sin poder irse ni descargar.",
+    "Dónde deja de valer: los depósitos podrían ponerse de acuerdo con una regla («si el jefe no llama en tres horas, descargamos»). En 2PC puro eso no existe, porque descargar por su cuenta podría contradecir un COMMIT ya decidido. Las variantes con consenso ([@12-23]) replican la decisión entre varias máquinas para que el coordinador deje de ser un punto único de falla."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "El precio de 2PC"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Bloqueo**: mientras dura la ventana de duda, los recursos quedan retenidos. Un coordinador caído puede dejar filas bloqueadas por horas.",
+    "**Latencia**: dos rondas de mensajes, con escrituras forzadas a disco, y el participante más lento marca el paso.",
+    "**Requisito sobre todos los participantes**: cada uno tiene que saber «preparar» y cumplir la promesa, es decir, ser un sistema transaccional con ese soporte (el estándar para esto en el mundo de las bases y los middleware se llama X/Open XA [#arq1225-pg-prepare-transaction]). Una API HTTP común de cobros o de cotización de transportistas no ofrece una operación «preparar». En cuanto uno de los tres servicios es de un tercero, 2PC se cae del mapa."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El servicio de cobros del ejemplo es una API de un proveedor externo que solo ofrece «crear cobro» y «reembolsar». ¿Se puede meter en un 2PC? ¿Qué hace falta que ofrezca?",
+   "resp": "No se puede tal cual: le falta la operación «preparar», es decir, dejar el cobro retenido sin confirmarlo, con la promesa de poder confirmarlo o anularlo después sin fallar. Algunos medios de pago tienen algo parecido (una autorización que luego se captura), pero eso ya es otro diseño. Esa ausencia es la razón práctica por la que, entre servicios de distintos dueños, se usan sagas."
+  },
+  {
+   "t": "h",
+   "x": "Sagas: pasos chicos y un deshacer por cada uno"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En 1987, Hector Garcia-Molina y Kenneth Salem, de Princeton, publicaron un artículo llamado *Sagas*. El problema que atacaban era otro: las **transacciones de larga vida**, como generar los resúmenes mensuales de un banco, que duran horas y mantienen bloqueados los datos todo ese tiempo, frenando a las transacciones cortas [#arq1225-garcia-molina-sagas]. Su idea: si la tarea se puede escribir como una secuencia de transacciones chicas T1, T2, …, Tn que admiten intercalarse con otras, cada una puede confirmar y soltar sus bloqueos apenas termina.",
+    "A cambio, el sistema tiene que saber **deshacer** lo ya confirmado. Cada paso Ti lleva su transacción de **compensación** Ci, que revierte desde el punto de vista del negocio lo que hizo Ti. La garantía del artículo: o se ejecuta T1, T2, …, Tn completa, o se ejecuta T1, …, Tj seguida de Cj, …, C1 para algún j [#arq1225-garcia-molina-sagas]. Una [[saga]] es esa secuencia. El artículo trabaja sobre un sistema de base de datos centralizado; que hoy se use para coordinar servicios es una aplicación posterior de la misma idea, que por ejemplo la guía de arquitectura de Azure documenta como patrón de transacciones distribuidas [#arq1217-azure-saga]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Reservar stock",
+       "s": "T1",
+       "k": "datos"
+      },
+      {
+       "t": "Cobrar",
+       "s": "T2",
+       "k": "datos",
+       "e": "ok"
+      },
+      {
+       "t": "Asignar camión",
+       "s": "T3",
+       "k": "datos",
+       "e": "ok"
+      }
+     ],
+     "baja": "si T3 falla, el orquestador ejecuta las compensaciones de lo ya hecho, en orden inverso"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Reembolsar",
+       "s": "C2 (de T2)",
+       "k": "alerta"
+      },
+      {
+       "t": "Liberar stock",
+       "s": "C1 (de T1)",
+       "k": "alerta",
+       "e": "después"
+      }
+     ]
+    }
+   ],
+   "cap": "La saga del pedido 77 y su camino de compensación. El último paso no necesita compensación: si falla, simplemente no ocurrió."
+  },
+  {
+   "t": "p",
+   "x": "Lo corremos. Un orquestador recorre los pasos, anota cada uno y, si uno falla, compensa los anteriores en orden inverso. Dejé el transporte sin camiones libres para provocar el fallo del tercer paso:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Saga orquestada: un orquestador ejecuta pasos y, si uno falla, compensa en orden inverso.\nconst mundo = { stockLibre: 5, reservas: 0, cobrado: 0, saldoCliente: 900000, camionesLibres: 0, log: [] };\nconst anotar = (m) => { mundo.log.push(m); console.log(m); };\n\nconst pasos = [\n  { nombre: 'reservar stock',\n    hacer: () => { mundo.stockLibre--; mundo.reservas++; },\n    compensar: () => { mundo.stockLibre++; mundo.reservas--; } },\n  { nombre: 'cobrar',\n    hacer: () => { mundo.saldoCliente -= 450000; mundo.cobrado += 450000; },\n    compensar: () => { mundo.saldoCliente += 450000; mundo.cobrado -= 450000; } },\n  { nombre: 'asignar transporte',\n    hacer: () => { if (mundo.camionesLibres < 1) throw new Error('sin camiones'); mundo.camionesLibres--; },\n    compensar: () => { mundo.camionesLibres++; } },\n];\n\nfunction estado() { return `stock=${mundo.stockLibre} reservas=${mundo.reservas} cobrado=${mundo.cobrado} saldo=${mundo.saldoCliente}`; }\n\nfunction correrSaga() {\n  const hechos = [];\n  for (const p of pasos) {\n    try {\n      p.hacer(); hechos.push(p);\n      anotar('OK     ' + p.nombre.padEnd(20) + estado());\n    } catch (e) {\n      anotar('FALLÓ  ' + p.nombre.padEnd(20) + '(' + e.message + ')');\n      for (const q of hechos.reverse()) {\n        q.compensar();\n        anotar('COMPENSA ' + q.nombre.padEnd(18) + estado());\n      }\n      return 'abortada';\n    }\n  }\n  return 'completa';\n}\nconsole.log('resultado:', correrSaga());",
+   "cap": "Saga orquestada del pedido 77 con el tercer paso fallando a propósito. Los números son inventados. Corrido en node 22."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá la tercera línea de salida: entre el segundo y el tercer paso el sistema está en un estado que **un tercero puede ver**: `cobrado=450000`, `reservas=1`. Si la clienta abre su app en ese instante, ve el cargo. Después de la compensación vuelve a 900000, pero ya lo vio. El artículo original lo dice sin rodeos: otras transacciones pueden ver los efectos de una saga parcial, y cuando se ejecuta una compensación no se hace ningún esfuerzo por avisar o abortar a quienes los vieron [#arq1225-garcia-molina-sagas]. Esa es la diferencia central con una transacción de verdad: la saga tiene atomicidad aproximada (todo o compensado) pero **no tiene aislamiento** (el aislamiento es la «I» de [@09-25]).",
+    "El mismo artículo aclara otra cosa que se olvida: la compensación **no devuelve la base al estado anterior**, la deshace «desde el punto de vista semántico». Su ejemplo es una reserva de asiento en un vuelo: cancelarla no es volver a escribir el número de reservas que había antes, porque otras transacciones pudieron correr en el medio [#arq1225-garcia-molina-sagas]. En nuestro caso, el reembolso no borra el cobro: agrega un movimiento contrario. En el resumen de la tarjeta de la clienta figuran los dos."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Compensar no es hacer rollback",
+   "x": [
+    "Un rollback borra como si nada hubiera pasado. Una compensación es un hecho nuevo que se suma al historial. Algunas cosas ni se compensan del todo: un mail de «tu pedido está en camino» ya se leyó y un camión que salió ya gastó combustible. Al diseñar una saga hay que preguntarse, para cada paso, **qué haría un humano para enmendarlo**."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "La compensación también puede fallar"
+  },
+  {
+   "t": "p",
+   "x": "Si el reembolso falla porque el servicio de pagos no responde, no queda otra que **reintentarlo** hasta que salga: una saga que dejó un cobro sin devolver está peor que una que nunca empezó. El artículo de 1987 llega a lo mismo: una compensación que no puede completarse deja al sistema trabado, y las salidas que propone son rehacerla con bloques alternativos o una intervención manual de un programador [#arq1225-garcia-molina-sagas]. En la práctica eso se resuelve con reintentos con espera creciente ([@07-17]) y con compensaciones que se puedan ejecutar más de una vez sin duplicar el efecto. Ese requisito tiene nombre, [[idempotencia]] ([@07-12]), y es el tema de mañana. Un adelanto corrido:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Compensación que falla y se reintenta, sobre un libro de movimientos (no se borra nada).\nconst libro = [];\nlet fallosDelReembolso = 2;                       // el servicio de pagos falla las dos primeras veces\nconst saldo = () => libro.reduce((s, m) => s + m.monto, 900000);\n\nfunction cobrar(pedido) { libro.push({ id: 'cobro:' + pedido, monto: -450000 }); }\nfunction reembolsar(pedido) {\n  if (libro.some(m => m.id === 'reembolso:' + pedido)) return 'ya estaba';   // idempotente: una sola vez\n  if (fallosDelReembolso-- > 0) throw new Error('pagos no responde');\n  libro.push({ id: 'reembolso:' + pedido, monto: +450000 });\n  return 'hecho';\n}\n\ncobrar('77');\nconsole.log('el cliente ve su saldo:', saldo());\nfor (let intento = 1; intento <= 5; intento++) {\n  try { console.log('reembolso, intento ' + intento + ':', reembolsar('77')); } catch (e) { console.log('reembolso, intento ' + intento + ': error (' + e.message + ')'); continue; }\n  break;\n}\nconsole.log('un reintento de más:', reembolsar('77'));\nconsole.log('saldo final:', saldo(), '| movimientos:', libro.map(m => m.id + ' ' + m.monto).join(', '));",
+   "cap": "Un reembolso que falla dos veces, se reintenta y no se duplica aunque se pida de más. Libro de movimientos: no se borra nada. Corrido en node 22."
+  },
+  {
+   "t": "p",
+   "x": "El libro termina con dos movimientos, y el segundo lleva una clave (`reembolso:77`) que impide anotarlo dos veces. Un reintento de más, o un mensaje duplicado de la cola ([@07-14]), no devuelve la plata dos veces."
+  },
+  {
+   "t": "h",
+   "x": "Orquestada o coreografiada, y en qué orden poner los pasos"
+  },
+  {
+   "t": "p",
+   "x": "En [@12-17] viste las dos formas de coordinar servicios por eventos. Con las sagas se llaman igual y pesan distinto:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Saga orquestada",
+    "Saga coreografiada"
+   ],
+   "filas": [
+    [
+     "Quién sabe el flujo",
+     "Un orquestador que ejecuta los pasos y las compensaciones",
+     "Nadie: cada servicio reacciona a eventos del anterior"
+    ],
+    [
+     "Para entender qué pasó",
+     "Se mira el registro del orquestador",
+     "Hay que reconstruir la historia juntando eventos de varios servicios"
+    ],
+    [
+     "Acoplamiento",
+     "Los servicios dependen del orquestador",
+     "Los servicios dependen de los eventos de otros"
+    ],
+    [
+     "Riesgo principal",
+     "El orquestador se vuelve un componente central que hay que mantener vivo",
+     "El flujo se pierde de vista cuando crece de tres a diez pasos"
+    ],
+    [
+     "Cuándo conviene",
+     "Pocos pasos con compensación y orden claro, como el pedido 77",
+     "Flujos cortos y estables donde cada servicio ya escucha esos eventos"
+    ]
+   ],
+   "cap": "Comparación según el criterio de la guía de Azure [#arq1217-azure-saga] y la propia práctica. El peso de cada fila depende del equipo y de la cantidad de pasos."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una regla práctica de diseño: poné primero los pasos fáciles de deshacer y al final el que **cuesta deshacer**. La guía de Azure llama *pivot* al paso que marca el punto sin retorno: antes de él los pasos son compensables, después son pasos que se reintentan hasta que salen [#arq1217-azure-saga]. En el pedido 77, cobrar a una tarjeta es difícil de deshacer limpiamente, mientras que reservar stock y apartar un camión se cancelan sin dejar rastros. Por eso conviene reordenar: reservar stock, asignar camión y recién después cobrar. Si el cobro falla, las dos compensaciones son baratas e invisibles para la clienta.",
+    "También hay maneras de achicar la falta de aislamiento. Una es el **bloqueo semántico**: marcar el pedido como «en proceso» para que nadie más lo toque hasta que la saga termine. Otra es mostrar estados intermedios honestos (el pedido figura como «confirmando pago», no como «cobrado»). La guía de Azure lista estas y otras contramedidas contra los errores típicos de las sagas, que son tres: actualizaciones perdidas, lecturas sucias y lecturas no repetibles [#arq1217-azure-saga]."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Diseñá la saga de **cancelar** el pedido 77 después de despacharlo: liberar el camión, devolver el stock al depósito, reembolsar el cobro y avisar a la clienta por mail. Para cada paso escribí si se puede compensar y qué haría la compensación, y marcá cuál es el pivote.",
+   "pista": "Preguntate qué paso no se puede deshacer una vez hecho y cuál tiene sentido dejar para el final.",
+   "solucion": "Un orden posible: 1) liberar el camión (compensable: volver a asignar uno, si queda), 2) devolver el stock (compensable: volver a reservarlo, si no se vendió en el medio), 3) reembolsar (se puede reintentar hasta que salga, pero no «des-reembolsar» con limpieza), 4) avisar por mail (no tiene compensación posible: un mail enviado ya se leyó). El pivote razonable es el reembolso: una vez hecho, se sigue hacia adelante y lo que viene (el mail) se reintenta hasta que salga. El mail va al final justamente porque es lo único que no se enmienda. Notá que los pasos 1 y 2 pueden quedar sin compensación posible si otro pedido tomó el camión o el stock en el medio, por eso conviene un bloqueo semántico previo."
+  },
+  {
+   "t": "h",
+   "x": "Cuál usar, y la pregunta previa"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Commit en dos fases",
+    "Saga"
+   ],
+   "filas": [
+    [
+     "Atomicidad",
+     "Exacta: todos confirman o ninguno",
+     "Aproximada: todo o compensado"
+    ],
+    [
+     "Aislamiento",
+     "Sí, con bloqueos retenidos",
+     "No: otros ven estados intermedios"
+    ],
+    [
+     "Qué pasa si cae el coordinador",
+     "Participantes bloqueados en duda",
+     "La saga se retoma desde su registro; hay que escribirlo"
+    ],
+    [
+     "Qué exige de cada servicio",
+     "Saber preparar y cumplir la promesa",
+     "Tener una compensación idempotente"
+    ],
+    [
+     "Latencia",
+     "Dos rondas con escritura a disco",
+     "Cada paso confirma solo; el total es la suma"
+    ],
+    [
+     "Encaja con",
+     "Pocas bases propias bajo el mismo control",
+     "Servicios de dueños distintos, incluidos terceros"
+    ]
+   ],
+   "cap": "Resumen del día. Criterio propio sobre las fuentes citadas."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La decisión real tiene tres escalones. **Primero**, preguntar si hace falta repartir esos datos: una sola base con una [[transacción]] ordinaria es más simple y más rápida que cualquiera de las dos técnicas. **Segundo**, si hay que cruzar bases propias, de un mismo proveedor y bajo el mismo control, y se tolera la latencia, 2PC puede servir, sabiendo que un coordinador caído duele. **Tercero**, si hay servicios de terceros o equipos distintos, lo habitual es una saga, y entonces cada paso necesita su compensación idempotente y alguien que mire los casos que quedaron a medias.",
+    "Las sagas son un costo que se paga **por haber separado** datos que cambiaban juntos. Si tres servicios se llaman todo el tiempo para completar una sola operación de negocio, puede que el corte esté mal puesto ([@12-15], [@12-16])."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Una saga es una transacción distribuida más liviana»",
+   "x": [
+    "No son equivalentes. Una saga renuncia al aislamiento y a la atomicidad estricta, y a cambio no retiene bloqueos entre servicios. Es una transacción con otras garantías, y las garantías que no tiene (como no mostrar estados intermedios) las tiene que fabricar la aplicación."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Senda: el problema se evita, y aparece una compensación"
+  },
+  {
+   "t": "p",
+   "x": "Senda no usa 2PC ni un framework de sagas, y es una buena noticia: casi todo lo que tiene que cambiar junto vive en una única base de datos (la de Supabase, un PostgreSQL), así que alcanza con una transacción común. Dos casos del código lo muestran; ambos corresponden al commit 25e08fa del 9 de noviembre de 2026 y el código cambia, la forma permanece."
+  },
+  {
+   "t": "senda",
+   "titulo": "Un turno de duelo es una sola transacción en una sola base",
+   "x": [
+    "`jugar_turno` es una función SQL que se ejecuta entera dentro de una transacción. Bloquea la fila de la partida (`for update`), registra las jugadas, actualiza la partida, y deja un registro en la tabla `avisos` para el rival. Si algo falla en el medio, no queda nada a medias. La notificación al teléfono del rival no se manda ahí: sale después, desde `enviar_avisos()`, que corre cada minuto con pg_cron. Es la forma sencilla de unir un cambio de datos con un mensaje: escribir el mensaje **en la misma transacción** y mandarlo en otro paso (a este esquema se lo suele llamar *outbox*)."
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "supabase/migrations/20261130000005_grupos_grandes.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Reservar antes, devolver si Claude falla",
+   "x": [
+    "Cuando un líder sube un sermón, la función de borde `trivia-sermon` llama a Claude, un servicio externo que cobra por uso y que ninguna transacción de la base puede cubrir. Por eso aplica la receta de las sagas sin llamarla así: **primero** reserva el cupo con la función `reclamar_trivia` (que usa un bloqueo para que dos pedidos simultáneos no pasen), **después** llama a Claude, y si Claude falla antes de responder ejecuta `devolverCupo`, que borra la fila de `trivias_cobradas`. Reservar es el paso, devolver es su compensación, y el estado `generando` cumple algo parecido a un bloqueo semántico.",
+    "Un detalle para el criterio de ingeniería: el código espera la compensación pero no revisa si el borrado falló. Si fallara justo ahí, el cupo quedaría gastado sin haber obtenido preguntas. Es un riesgo chico y acotado (le cuesta al líder un cupo del mes), no un error grave, pero es el tipo de hueco que describe el artículo de 1987: la compensación también puede fallar y alguien tiene que verlo."
+   ],
+   "archivos": [
+    "supabase/functions/trivia-sermon/index.ts",
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué cambia con el tiempo",
+   "x": [
+    "Los protocolos (2PC, 1981; sagas, 1987) son principios estables. Lo que depende de la herramienta se leyó el 16-11-2026: la documentación de PostgreSQL 16 sobre `PREPARE TRANSACTION` y la versión de la guía de Azure sobre el patrón saga, actualizada por última vez el 07-11-2026 [#arq1225-pg-prepare-transaction][#arq1217-azure-saga]. Valores por defecto y nombres de productos pueden cambiar; los principios no."
+   ]
+  }
+ ],
+ "recap": [
+  "Una transacción da todo o nada dentro de una base. Cuando una operación cruza varias, entre un COMMIT y el siguiente hay una ventana donde algo quedó hecho y algo no.",
+  "El commit en dos fases tiene una fase de preparación (cada participante promete) y una de decisión (el coordinador manda COMMIT o ROLLBACK). Después de votar SÍ, el participante no puede abortar solo.",
+  "El gran costo de 2PC es la ventana de duda: un coordinador caído deja participantes bloqueados con sus recursos retenidos. Además exige que cada servicio sepa «preparar».",
+  "Una saga reemplaza la transacción única por pasos que confirman solos, cada uno con su compensación. Garantiza todo o compensado, pero no aislamiento: otros pueden ver estados intermedios.",
+  "Compensar no es hacer rollback: es agregar un hecho contrario. Puede fallar, así que tiene que ser reintentable e idempotente, y algunas cosas (un mail enviado) no se enmiendan.",
+  "Primero se evita el problema (datos que cambian juntos, en la misma base). Después, 2PC entre bases propias y sagas entre servicios de dueños distintos.",
+  "Senda mantiene sus cambios atómicos en una sola base con funciones SQL y usa una reserva con devolución cuando llama a un servicio externo."
+ ],
+ "repaso": [
+  {
+   "p": "Un servicio ya votó SÍ en la fase de preparación de un commit en dos fases y pierde contacto con el coordinador. ¿Qué es lo correcto que haga?",
+   "o": [
+    "Confirmar por su cuenta, porque votó SÍ y la mayoría votaría igual",
+    "Abortar por su cuenta, para liberar los bloqueos cuanto antes",
+    "Esperar la decisión, porque confirmar o abortar solo podría contradecirla",
+    "Pedirle a otro participante que decida en su nombre y repetirlo"
+   ],
+   "c": 2,
+   "e": "Al votar SÍ renunció a abortar por su cuenta: quizás el coordinador ya decidió COMMIT y los demás ya confirmaron. Confirmar solo es igual de riesgoso, porque la decisión pudo ser ROLLBACK. Pedirle a otro participante tampoco sirve: ninguno sabe más que él. Esa espera es la ventana de duda."
+  },
+  {
+   "p": "En el escenario D de la simulación, el coordinador anota COMMIT y se cae antes de avisar. Al volver aplica su regla de recuperación. ¿Qué hace y por qué sirve?",
+   "o": [
+    "Aborta, porque no puede saber si todos siguen esperando",
+    "Repite COMMIT, porque lo anotó antes de avisar a nadie",
+    "Vuelve a preguntar los votos, porque los SÍ pueden haber vencido",
+    "Elige al azar entre COMMIT y ROLLBACK para destrabar rápido"
+   ],
+   "c": 1,
+   "e": "La decisión ya está en su registro durable, así que la repite. Por eso se anota antes de avisar. Abortar contradiría un COMMIT que quizás algún participante ya recibió. Volver a preguntar los votos no hace falta y elegir al azar rompería la atomicidad."
+  },
+  {
+   "p": "Una distribuidora cobra con la API HTTP de un proveedor que solo tiene «crear cobro» y «reembolsar». ¿Por qué un commit en dos fases no encaja con ese proveedor?",
+   "o": [
+    "Porque las APIs HTTP no pueden manejar dinero ni transacciones",
+    "Porque 2PC solo funciona con bases de datos del mismo fabricante",
+    "Porque el proveedor cobra comisión por cada mensaje de la primera fase",
+    "Porque no tiene una operación para dejar el cobro retenido y prometer confirmarlo"
+   ],
+   "c": 3,
+   "e": "2PC exige que cada participante pueda «preparar» y cumplir su promesa. Con solo crear y reembolsar, el cobro ya es definitivo al crearse. Las APIs HTTP sí pueden manejar dinero, el fabricante no es el requisito, y la comisión no tiene que ver con el protocolo."
+  },
+  {
+   "p": "Una saga hace T1 (reservar), T2 (cobrar) y T3 (asignar camión). T3 falla. ¿Qué ejecuta el orquestador?",
+   "o": [
+    "C2 y después C1, en orden inverso",
+    "C1 y después C2, en el orden original",
+    "Solo C2, porque el stock se libera solo",
+    "Nada: T3 falló, así que T1 y T2 se anulan automáticamente"
+   ],
+   "c": 0,
+   "e": "Las compensaciones de lo ya confirmado se ejecutan en orden inverso, C2 y luego C1. No se anulan solas: T1 y T2 ya confirmaron en sus bases, y alguien tiene que ejecutar los hechos contrarios. T3 no se compensa porque no llegó a ocurrir."
+  },
+  {
+   "p": "Entre T2 (cobrar) y la compensación C2 (reembolsar), la clienta abre su app y ve el cargo. ¿Qué propiedad de las transacciones de una sola base le falta a la saga y explica esto?",
+   "o": [
+    "Atomicidad, porque el cobro ocurrió sin la reserva",
+    "Durabilidad, porque el cargo se perdió y volvió a aparecer",
+    "Aislamiento, porque otros ven los efectos de un paso aún no terminado",
+    "Consistencia, porque el saldo siempre quedó en un valor inválido"
+   ],
+   "c": 2,
+   "e": "Las sagas confirman cada paso por separado, así que otros pueden ver el estado intermedio: falta aislamiento. La atomicidad se aproxima con las compensaciones. La durabilidad no se pierde: cada paso confirmado persiste. El saldo no queda inválido, solo transitorio."
+  },
+  {
+   "p": "El reembolso de una saga falla porque el servicio de pagos no responde. Se reintenta tres veces. ¿Qué tiene que cumplir la compensación para que esto sea seguro?",
+   "o": [
+    "Ser idempotente, para que repetirla no devuelva la plata varias veces",
+    "Ser rápida, para que no haya tiempo de que algo falle",
+    "Ejecutarse dentro de una transacción distribuida con 2PC",
+    "Borrar el cobro original, para dejar el libro como al principio"
+   ],
+   "c": 0,
+   "e": "Si la respuesta de un intento se pierde, el reintento podría duplicar el efecto; la idempotencia lo evita. La rapidez no impide fallos. Meter la compensación en 2PC vuelve a pedir lo que la saga evita. Borrar el cobro sería un rollback, que no existe en una saga, y destruye el historial."
+  },
+  {
+   "p": "Tres servicios de una distribuidora se llaman siempre entre sí para completar un único pedido, y las sagas duelen mucho. ¿Cuál es la primera pregunta de diseño que conviene hacerse?",
+   "o": [
+    "Si conviene pasar de sagas orquestadas a coreografiadas",
+    "Si el corte entre servicios agrupó mal datos que cambian juntos",
+    "Si hay que cambiar el orquestador por una cola de mensajes",
+    "Si alcanza con subir el tiempo de espera de las compensaciones"
+   ],
+   "c": 1,
+   "e": "Las sagas son el costo de haber separado datos que cambiaban juntos; si tres servicios cooperan siempre, quizá deban estar juntos. Cambiar de orquestada a coreografiada, de orquestador a cola o ajustar esperas son ajustes sobre un problema que quizás se evita con otro corte."
+  }
+ ],
+ "feynman": "Explicale a alguien que trabaja en logística, sin usar jerga, por qué «reservar, cobrar y asignar camión» no se puede hacer con un solo COMMIT cuando son tres sistemas, y cuáles son las dos formas de resolverlo y qué se paga en cada una.",
+ "para_profundizar": [
+  {
+   "fuente": "arq1225-garcia-molina-sagas",
+   "nota": "El artículo original de 1987. Leé la introducción y las secciones 2 y 6: muestran por qué nació la idea y qué pasa cuando falla una compensación."
+  },
+  {
+   "fuente": "arq1225-pg-prepare-transaction",
+   "nota": "La página oficial de PREPARE TRANSACTION: sirve para ver qué ofrece una base real del lado del participante y qué advertencias hace."
+  },
+  {
+   "fuente": "arq1217-azure-saga",
+   "nota": "La descripción moderna del patrón con el pivote, las compensaciones y las contramedidas para las anomalías de datos. Leé «Data anomalies»."
+  },
+  {
+   "fuente": "bd0924-gray-1981",
+   "nota": "Buscá el párrafo sobre el protocolo de dos fases, que es donde Gray lo describe y lo compara con una ceremonia."
+  }
+ ],
+ "videos": [
+  {
+   "q": "two-phase commit protocol explained coordinator participants",
+   "por_que": "Para ver el mismo protocolo dibujado en una pizarra, con la ventana de duda marcada."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "commit en dos fases",
+   "d": "Protocolo en el que un coordinador pide a todos los participantes que preparen un cambio (fase 1, cada uno promete poder confirmarlo) y luego manda a todos la decisión única de confirmar o anular (fase 2). Da atomicidad entre varias bases, pero deja a los participantes bloqueados si el coordinador cae."
+  },
+  {
+   "t": "saga",
+   "d": "Secuencia de transacciones locales, cada una con su propia confirmación, que juntas forman una operación mayor. Si un paso falla, se ejecutan las compensaciones de los ya hechos. Propuesta en 1987 para transacciones largas, hoy usada para coordinar servicios."
+  },
+  {
+   "t": "compensación",
+   "d": "Acción que enmienda el efecto de un paso ya confirmado, por ejemplo un reembolso para un cobro. No borra lo hecho: agrega un hecho contrario, y debe poder ejecutarse más de una vez sin duplicar su efecto."
+  },
+  {
+   "t": "coordinador",
+   "d": "Participante con el rol de jefe en un commit en dos fases: reúne los votos, anota la decisión en un registro durable y la comunica a los demás."
+  },
+  {
+   "t": "ventana de duda",
+   "d": "Intervalo en el que un participante ya votó SÍ y todavía no sabe la decisión. No puede confirmar ni anular por su cuenta y mantiene retenidos sus bloqueos."
+  },
+  {
+   "t": "pivote",
+   "d": "Paso de una saga que marca el punto sin retorno: antes de él los pasos se pueden compensar; después, los pasos se reintentan hasta completarse. Término de la guía de Azure."
+  }
+ ],
+ "siguiente": "Idempotencia, reintentos y el mito del exactamente-una-vez: hoy aparecieron compensaciones que había que reintentar sin duplicar, y mañana vemos cómo se logra de verdad.",
+ "fuentes_nuevas": [
+  {
+   "id": "arq1225-garcia-molina-sagas",
+   "t": "Sagas (SIGMOD 1987)",
+   "a": "Hector Garcia-Molina y Kenneth Salem",
+   "tipo": "paper",
+   "anio": 1987,
+   "url": "https://www.cs.cornell.edu/andru/cs711/2002fa/reading/sagas.pdf"
+  },
+  {
+   "id": "arq1225-pg-prepare-transaction",
+   "t": "PREPARE TRANSACTION (documentación de PostgreSQL 16)",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/sql-prepare-transaction.html"
+  },
+  {
+   "id": "arq1217-azure-saga",
+   "t": "Saga distributed transactions pattern",
+   "a": "Microsoft, Azure Architecture Center",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/saga"
+  }
+ ]
+}

@@ -1,0 +1,652 @@
+{
+ "id": "12-27",
+ "titulo": "Patrones de resiliencia",
+ "bajada": "Simulás un cotizador externo que se cuelga y ves cómo arrastra a todo el servicio; después lo protegés con timeout, mamparo, reintentos con jitter, breaker, plan B y descarte de carga, con números de cada defensa.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Calcular cuántos hilos ocupa una llamada lenta y explicar por qué un proveedor colgado puede tumbar endpoints que no lo usan.",
+  "Elegir un timeout a partir de la latencia normal y de la capacidad del servicio, no a ojo.",
+  "Comparar reintentos sin espera, con backoff exponencial y con jitter midiendo el tráfico que recibe un servidor que se está recuperando.",
+  "Distinguir bulkhead, circuit breaker, degradación y descarte de carga, y decir qué protege cada uno y qué cuesta.",
+  "Leer el código de red de Senda e identificar qué defensas tiene, cuáles no y cuáles son accidentales."
+ ],
+ "venis_de": "En [@07-17] mediste qué le pasa a un servicio que llama a otro que se cuelga y armaste cuatro defensas sueltas; en [@12-20] viste que los sistemas distribuidos fallan de a partes. Hoy falta el cuadro completo: cómo se combinan las defensas y qué paga cada una.",
+ "se_apoya_en": [
+  "07-17",
+  "12-20",
+  "12-26",
+  "08-12"
+ ],
+ "gancho": [
+  "Una plataforma de reparto tiene un servicio de despachos con veinte hilos de trabajo, es decir, veinte pedidos pueden estar en proceso a la vez. Para cotizar un envío consulta a un transportista externo. Un martes ese transportista empieza a tardar quince segundos en contestar, en vez de una décima. Nadie lo avisa y el servicio de despachos no tiene ningún error propio.",
+  "Aun así, en pocos segundos también falla el listado de despachos del día, que ni toca al transportista y se resuelve en veinte milisegundos. Hoy lo vas a medir en una simulación con semilla fija: en el escenario sin defensas, **casi la mitad de los pedidos que no usan al proveedor** se pierden. Después le ponés defensas una por una y mirás cuánto aporta cada una y cuánto cuesta."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "La falla que se contagia"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Pensá en la playa de carga de un depósito con veinte andenes. Cada camión ocupa un andén hasta que termina de cargar. Si uno de los clientes tarda horas en firmar la conformidad y los camiones esperan en el andén, cada tanto se ocupa otro andén, y otro. Cuando los veinte están ocupados esperando una firma, **los camiones que no necesitan ninguna firma tampoco pueden entrar**. Ningún andén se rompió: se agotó un recurso compartido.",
+    "En software pasa lo mismo con los hilos, las conexiones y la memoria. Un pedido que llama a un proveedor lento retiene su hilo todo el tiempo que espera. La cuenta es una multiplicación (la ley de Little, que el artículo de AWS que citás abajo menciona): **pedidos en proceso = pedidos por segundo × segundos que dura cada uno**."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Situación",
+    "Pedidos por segundo al proveedor",
+    "Duración de cada uno",
+    "Hilos ocupados"
+   ],
+   "filas": [
+    [
+     "Proveedor sano",
+     "35",
+     "0,12 s",
+     "4,2 de 20"
+    ],
+    [
+     "Proveedor colgado (15 s)",
+     "35",
+     "15 s",
+     "525 de 20: imposible"
+    ],
+    [
+     "Proveedor colgado con timeout de 0,8 s",
+     "35",
+     "0,8 s",
+     "28 de 20: todavía no alcanza"
+    ]
+   ],
+   "cap": "Los 35 por segundo salen de la simulación de hoy: 50 pedidos por segundo, el 70 % necesita cotización. Son números inventados para el ejercicio."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El servicio nunca tiene 525 hilos: tiene 20. Los pedidos que llegan hacen cola, esperan hasta que el cliente se rinde y reciben un error. Esos errores son los de cualquier endpoint, no solo los de cotización. Esto es lo que en [@12-20] se llamó [[fallo parcial]]: el proveedor falló un poco y el resultado fue un servicio que falla entero."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Con el proveedor sano, 35 cotizaciones por segundo que tardan 0,12 s cada una, ¿cuántos hilos ocupan en promedio? ¿Y si el servicio recibiera el doble de tráfico?",
+   "resp": "35 × 0,12 = 4,2 hilos en promedio; con el doble de tráfico, 8,4. Sobran hilos con holgura. Por eso el sistema parece sano durante meses: la falla del proveedor no aparece como una suba gradual sino como una pared, porque la duración se multiplica por 100 de golpe."
+  },
+  {
+   "t": "h",
+   "x": "El experimento: cuatro versiones del mismo servicio"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Armé una simulación determinista (semilla fija, sin red ni reloj real) del servicio de despachos: 20 hilos, 50 pedidos por segundo durante 90 segundos, 70 % de cotizaciones y 30 % de pedidos locales de 20 ms. Entre el segundo 20 y el 50, el transportista tarda 15 segundos en responder. El cliente se rinde al segundo: una respuesta que llega después es trabajo tirado. Correla y mirá la tabla: las cuatro filas son el mismo código con distintas defensas."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Cascada: un servicio de despachos con 20 hilos; el cotizador externo se cuelga entre los 20 s y los 50 s.\nfunction mulberry(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}\nfunction latProv(t,r){ return (t>=20000&&t<50000)?15000:80+r()*80 } // ms\nfunction sim(cfg){\n  const r=mulberry(7), main=new Array(20).fill(0), prov=new Array(cfg.bulk||0).fill(0);\n  const S={cot:{ok:0,fb:0,err:0},loc:{ok:0,err:0},enProv:0};\n  let fallos=0, abierto=-1, sonda=false;\n  for(let t=0;t<90000;t+=20){               // 50 pedidos por segundo\n    const esCot=r()<0.7, lat=latProv(t,r);\n    const pool=(esCot&&cfg.bulk)?prov:main;\n    let i=0; for(let k=1;k<pool.length;k++) if(pool[k]<pool[i]) i=k;\n    const espera=Math.max(0,pool[i]-t);\n    const tope=(esCot&&cfg.bulk)?0:1000;     // el mamparo falla rápido; el pool común deja esperar 1 s\n    if(espera>tope){ (esCot?S.cot.err++:S.loc.err++); continue; }\n    if(!esCot){ pool[i]=t+espera+20; (espera+20<=1000)?S.loc.ok++:S.loc.err++; continue; }\n    if(cfg.breaker&&abierto>=0){\n      if(t-abierto<5000){ cfg.fb?S.cot.fb++:S.cot.err++; continue; }      // abierto: ni llamamos\n      if(sonda){ cfg.fb?S.cot.fb++:S.cot.err++; continue; } sonda=true;   // semiabierto: una sola sonda\n    }\n    S.enProv++;\n    const dur=cfg.timeout?Math.min(lat,cfg.timeout):lat;\n    pool[i]=t+espera+dur;\n    const falla=cfg.timeout&&lat>cfg.timeout;\n    if(falla){ fallos++; if(cfg.breaker&&(fallos>=5||sonda)){abierto=t;fallos=0;} sonda=false; cfg.fb?S.cot.fb++:S.cot.err++; }\n    else { fallos=0; if(sonda){abierto=-1;sonda=false;} (espera+dur<=1000)?S.cot.ok++:S.cot.err++; }\n  }\n  return S;\n}\nconst casos=[[\"A sin protecciones\",{}],[\"B timeout 800 ms\",{timeout:800}],[\"C B + mamparo de 8 hilos\",{timeout:800,bulk:8}],[\"D B + breaker + plan B\",{timeout:800,breaker:1,fb:1}]];\nconsole.log(\"caso | local ok/err | cotiz ok/plan B/err | pedidos al proveedor\");\nfor(const [n,c] of casos){const s=sim(c);console.log(n,\"|\",s.loc.ok+\"/\"+s.loc.err,\"|\",s.cot.ok+\"/\"+s.cot.fb+\"/\"+s.cot.err,\"|\",s.enProv)}",
+   "cap": "Simulación de la cascada. Probada en node 22 en esta VM; la salida es la misma cada vez porque la semilla es fija."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Versión",
+    "Locales ok / error",
+    "Cotizaciones ok / plan B / error",
+    "Pedidos enviados al proveedor"
+   ],
+   "filas": [
+    [
+     "A: sin defensas",
+     "710 / 622",
+     "1589 / 0 / 1579",
+     "1659"
+    ],
+    [
+     "B: timeout de 800 ms",
+     "1118 / 214",
+     "2083 / 0 / 1085",
+     "2855"
+    ],
+    [
+     "C: B + mamparo de 8 hilos",
+     "1332 / 0",
+     "2086 / 0 / 1082",
+     "2382"
+    ],
+    [
+     "D: B + breaker + plan B",
+     "1332 / 0",
+     "2083 / 1085 / 0",
+     "2093"
+    ]
+   ],
+   "cap": "Salida real de la simulación (una sola VM, números del modelo, no de un sistema real). El total fue de 1332 pedidos locales y 3168 cotizaciones por versión."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo primero que muestra la tabla: en A, el 47 % de los pedidos locales (622 de 1332) falló sin que el proveedor tuviera que ver con ellos. Lo segundo: cada defensa corrige una parte distinta del problema. Vamos una por una, en el orden de la tabla."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Timeout: la defensa mínima y por qué sola no alcanza"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[timeout]] es el plazo máximo que tu código espera una respuesta antes de rendirse. Sin él, el tiempo de espera lo decide el otro (en el caso de hoy, quince segundos, pero podría ser indefinido). En [@07-17] viste cómo se pone; hoy importa **cómo se elige el número**.",
+    "Hay dos cotas. Por abajo, la latencia normal: en la simulación el proveedor sano contesta entre 80 y 160 ms, así que un timeout de 100 ms cortaría pedidos buenos. Una regla práctica (criterio, no ley) es partir de un percentil alto de la latencia sana, el p99, y multiplicarlo por un factor chico: acá 160 ms × 5 = 800 ms. Por arriba manda la capacidad: si cada pedido puede retener su hilo hasta el timeout, y llegan 35 por segundo al proveedor, el servicio aguanta si **35 × timeout ≤ hilos disponibles**."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "En la simulación hay 20 hilos y llegan 35 cotizaciones por segundo (más 15 pedidos locales de 20 ms por segundo, que ocupan 0,3 hilos en promedio). ¿Cuál es el timeout máximo para que un proveedor colgado no sature el servicio? Luego explicá por qué la versión B, con 800 ms, todavía perdió 214 pedidos locales.",
+   "pista": "Despejá el timeout de 35 × T + 0,3 ≤ 20.",
+   "solucion": "T ≤ (20 − 0,3) / 35 ≈ 0,56 s. Con 800 ms hacen falta 35 × 0,8 = 28 hilos para el proveedor solo, más que los 20 que existen, así que el servicio satura aunque cada llamada ya tenga plazo. Probé la simulación con 500 ms (0 pedidos locales perdidos), 560 ms (3) y 600 ms (65): el cálculo predice bien dónde está el borde."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Un timeout corto corta las llamadas lentas pero **no devuelve el trabajo**: si el proveedor ya había empezado a procesar tu pedido, él sigue y vos no te enterás. Por eso un pedido que cambia algo (cobrar, reservar) con timeout necesita clave de idempotencia, como viste en [@12-26]: [[clave de idempotencia]] para poder repetir sin duplicar.",
+   "titulo": "El timeout no cancela lo que el otro ya hizo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El timeout sirve, pero la fila B muestra el límite: el servicio de despachos todavía se ahoga con una falla larga porque **cada pedido a un proveedor muerto sigue pagando 800 ms de espera**. Hace falta algo que separe los recursos y algo que deje de preguntar."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Bulkhead: que un compartimento inundado no hunda el barco"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[bulkhead]] (mamparo) es una partición que reserva recursos por destino. El nombre viene de los compartimentos estancos de los barcos: si el casco se rompe en un sector, solo ese se inunda. La documentación de arquitectura de Microsoft usa esa misma imagen [#res1227-azure-bulkhead]. En software, la reserva puede ser un pool de hilos, un límite de conexiones o un tope de pedidos simultáneos por proveedor.",
+    "En la versión C el cotizador tiene su propio pool de **8 hilos**. Si los 8 están ocupados, el pedido nº 9 falla de inmediato (falla rápido, sin hacer cola). El resultado: 0 errores en los 1332 pedidos locales, aunque las cotizaciones sigan fallando (1082). La cotización sufre, pero **el daño queda contenido en lo que ya dependía del proveedor**."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "El mamparo es como reservar 8 andenes para los camiones de un cliente conflictivo. Si ese cliente se complica, solo se atrasan sus camiones. La analogía falla en un punto: los andenes de un depósito se pueden reasignar con una orden del encargado, mientras que un pool de hilos reservado queda reservado aunque esté vacío."
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Cuánto cuesta.** Con el proveedor sano la cotización usa 4,2 hilos de media, así que 8 reservados están ocupados a la mitad: unos 4 hilos del servicio quedan sin uso útil para lo demás. Y si hay un pico legítimo de cotizaciones (por ejemplo, 80 simultáneas), el mamparo rechaza pedidos buenos mientras el pool general está ocioso. **Cuándo no usarlo:** cuando tenés un solo destino, o muy poco tráfico, o recursos tan escasos que partirlos deja a todos sin margen. Es una decisión de dimensionamiento, no un reflejo."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En la versión C, ¿qué pasa con las cotizaciones de la ventana en que el proveedor está sano si el tráfico de cotizaciones sube de golpe a 100 por segundo y cada una dura 0,12 s?",
+   "resp": "100 × 0,12 = 12 hilos concurrentes, más que los 8 del mamparo. Algunas cotizaciones se rechazan aunque el proveedor esté perfecto. Es el costo de partir recursos: protege de la falla ajena pero limita también el éxito propio, por eso el tamaño del mamparo se mide con tráfico real y no se hereda de un ejemplo."
+  },
+  {
+   "t": "h",
+   "x": "Reintentos: lo que cura una falla chica y agranda una grande"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Reintentar es la respuesta natural a un fallo pasajero, y la mitad de las veces funciona porque la falla era un parpadeo. Pero cada reintento es **tráfico extra enviado al servicio que ya anda mal**. El artículo de AWS sobre el tema lo dice sin vueltas: aun con una sola capa de reintentos, el tráfico sube mucho cuando empiezan los errores, y recomienda reintentar en un solo punto de la pila [#red31-aws-backoff-jitter]. Si cada una de tres capas hace 3 intentos, un pedido original se vuelve 3 × 3 × 3 = 27 al fondo.",
+    "La defensa es el [[backoff exponencial]]: esperar el doble antes de cada intento (por ejemplo 0,5 s, 1 s, 2 s, 4 s…, con un tope). Pero hay un problema más sutil: si mil clientes fallaron a la vez, todos esperan lo mismo y reintentan juntos, golpeando al servidor en bloque justo cuando se está levantando. La solución es el jitter: sumar azar. La variante que el blog de AWS llama *Full Jitter* duerme un valor al azar entre cero y el tope exponencial [#back17-aws-expo-backoff-jitter]. Yo escribí la fórmula como `azar × min(tope, base × 2^(intento−1))`; el blog la muestra en un gráfico que no pude copiar como texto, así que ese detalle es de mi lectura."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "El experimento: 1000 clientes fallaron en el segundo 0 porque el cotizador estaba caído. El cotizador vuelve a los 5 s pero solo atiende 100 pedidos por segundo y rechaza el resto. Se comparan tres políticas de reintento. Los tiempos de arranque tienen una dispersión de 100 ms, como pasaría con clientes que fallaron casi juntos."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// 1000 clientes llaman a un cotizador que está caído hasta los 5 s y después atiende 100 pedidos por segundo.\nfunction mulberry(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}\nfunction correr(nombre, espera){\n  const r=mulberry(42), N=1000, CAP=100, VUELVE=5000;\n  let cola=[]; for(let i=0;i<N;i++) cola.push({t:Math.floor(r()*100),n:0});  // todos arrancan en el mismo instante (±100 ms)\n  const porSeg={}, atendidos={}; const fines=[]; let despues=0, intentos=0, fin=0, hechos=0;\n  while(cola.length&&intentos<100000){\n    cola.sort((a,b)=>a.t-b.t);\n    const c=cola.shift(), seg=Math.floor(c.t/1000); intentos++; if(c.t>=VUELVE){despues++; porSeg[seg]=(porSeg[seg]||0)+1;}\n    const ok=c.t>=VUELVE && (atendidos[seg]=(atendidos[seg]||0))<CAP;\n    if(ok){atendidos[seg]++;hechos++;fin=c.t;fines.push(c.t);} else if(c.n<30){ c.n++; c.t+=espera(c.n,r); cola.push(c);} \n  }\n  const pico=Math.max(...Object.values(porSeg));\n  console.log(nombre.padEnd(34),\"pedidos tras la vuelta:\",String(despues).padStart(6),\"| pico por segundo:\",String(pico).padStart(5),\"| atendidos:\",hechos,\"| p50 / p95:\",(fines.sort((a,b)=>a-b)[499]/1000).toFixed(1)+\" / \"+(fines[949]/1000).toFixed(1),\"s\");\n}\nconst base=500, tope=30000;\ncorrer(\"espera fija de 1 s\",()=>1000);\ncorrer(\"exponencial sin jitter\",(n)=>Math.min(tope,base*2**(n-1)));\ncorrer(\"exponencial con full jitter\",(n,r)=>r()*Math.min(tope,base*2**(n-1)));",
+   "cap": "Tormenta de reintentos. Corrida en node 22 en esta VM, semilla 42; los números son del modelo."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Política",
+    "Pedidos recibidos tras la vuelta",
+    "Pico por segundo",
+    "Tiempo en atender al 50 % / 95 %"
+   ],
+   "filas": [
+    [
+     "Espera fija de 1 s",
+     "5500",
+     "1000",
+     "9,1 s / 14,1 s"
+    ],
+    [
+     "Exponencial sin jitter",
+     "5500",
+     "1000",
+     "91,6 s / 241,6 s"
+    ],
+    [
+     "Exponencial con full jitter",
+     "1391",
+     "291",
+     "9,8 s / 22,9 s"
+    ]
+   ],
+   "cap": "Salida real de la simulación. Atender mil clientes con un cupo de 100 por segundo lleva como mínimo 10 s; ese es el piso."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay tres lecturas, todas honestas. **Primera:** la espera fija terminó rápido (p95 de 14 s) pero lanzó 5500 pedidos contra un servicio que apenas se levantaba: 4 veces más que el jitter. **Segunda:** el exponencial sin jitter es el peor de los tres en tiempo, porque todos los clientes esperan juntos, vuelven juntos, 900 son rechazados y vuelven a esperar el doble: se sincronizan en una ola que casi nunca coincide con la capacidad. **Tercera:** el jitter cuesta algo de tiempo (p50 de 9,8 s contra 9,1 s) pero baja el pico de 1000 a 291. Es el costo típico de las defensas: ceder un poco de rapidez para no depender de la suerte."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "La simulación es un modelo simple: el servidor rechaza todo lo que excede su cupo de ese segundo y no tiene cola ni degradación gradual. Un servidor real puede quedar peor (se satura y se cae del todo) o mejor (encola). Sirve para entender la forma del problema, no para predecir un número real.",
+   "titulo": "Qué no prueba este experimento"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Las tres piezas chicas, con un proveedor falso que falla las dos primeras veces.\nfunction semilla(a){return()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}\nconst azar = semilla(3);\n\nfunction conTimeout(promesa, ms) {\n  let reloj;\n  const corte = new Promise((_, rechazo) => { reloj = setTimeout(() => rechazo(new Error(\"timeout \" + ms + \" ms\")), ms); });\n  return Promise.race([promesa, corte]).finally(() => clearTimeout(reloj));\n}\n\nasync function conReintentos(llamar, { intentos = 4, base = 20, tope = 200 } = {}) {\n  for (let n = 1; ; n++) {\n    try { return await llamar(n); }\n    catch (e) {\n      if (n === intentos) throw e;\n      const espera = azar() * Math.min(tope, base * 2 ** (n - 1));   // full jitter\n      console.log(`intento ${n} falló (${e.message}); espero ${espera.toFixed(0)} ms`);\n      await new Promise((r) => setTimeout(r, espera));\n    }\n  }\n}\n\nconst proveedor = (n) => new Promise((ok, mal) => {\n  if (n === 1) return;                                  // se cuelga: no responde nunca\n  if (n === 2) return setTimeout(() => mal(new Error(\"500\")), 5);\n  setTimeout(() => ok({ tarifa: 4900 }), 5);\n});\n\nconst r = await conReintentos((n) => conTimeout(proveedor(n), 50));\nconsole.log(\"resultado:\", JSON.stringify(r));",
+   "cap": "Las tres piezas en 25 líneas: timeout con Promise.race, reintentos con full jitter y un proveedor falso que se cuelga y después falla con 500. Corrido en node 22."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en el detalle del código que importa: el `clearTimeout` en el `finally`. Si el temporizador queda vivo después de una respuesta exitosa, cada llamada deja un reloj huérfano. Y el reintento solo se justifica si repetir es seguro: sin [[idempotencia]] en lo que se repite, el reintento puede duplicar un cobro o una reserva."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Circuit breaker y plan B: dejar de preguntar y responder igual"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[circuit breaker]] ([@07-17]) tiene tres estados. **Cerrado**: deja pasar y cuenta fallos. **Abierto**: tras cierto umbral de fallos, rechaza todo de inmediato sin llamar al proveedor, durante un tiempo. **Semiabierto**: pasado ese tiempo, deja pasar una sola prueba; si sale bien, se cierra, si falla, vuelve a abrirse. Fowler cuenta que Nygard lo popularizó en *Release It!* para evitar justamente la cascada que viste hoy [#back17-fowler-circuit-breaker].",
+    "En la simulación, el breaker abre después de 5 timeouts seguidos y prueba una vez cada 5 segundos. El efecto de la versión D, comparada con B: **2093 pedidos enviados al proveedor en vez de 2855**, es decir, 762 menos, casi todos en la ventana de la falla; más un servicio que responde rápido. Pero el breaker por sí mismo solo cambia *cómo* se falla (rápido y barato): la cotización sigue sin responder."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ahí entra la [[degradación]] elegante: responder con algo menos bueno en vez de nada. En el ejemplo, un **plan B**: si el transportista no cotiza, el servicio responde con una tarifa estimada de una tabla por zona, marcada como «estimada». La versión D devolvió 1085 de esas respuestas y 0 errores."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Escalón",
+    "Qué responde",
+    "Qué se pierde"
+   ],
+   "filas": [
+    [
+     "1. Normal",
+     "Cotización real del transportista",
+     "Nada"
+    ],
+    [
+     "2. Último valor conocido",
+     "La última tarifa real para esa ruta, con su fecha",
+     "Puede estar desactualizada"
+    ],
+    [
+     "3. Tabla por zona",
+     "Tarifa estimada, marcada como estimada",
+     "Exactitud: puede dar mal el precio"
+    ],
+    [
+     "4. Sin respuesta útil",
+     "Un mensaje claro y un aviso cuando se pueda",
+     "El pedido queda en espera"
+    ]
+   ],
+   "cap": "Una escalera de degradación para una lectura. Los escalones son un ejemplo de diseño, no un estándar."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "La degradación es una **decisión de negocio**, no solo técnica. ¿Se puede cobrar al cliente una tarifa estimada? ¿Hay que avisarle? Una lectura admite plan B con facilidad; una escritura casi nunca. Un cobro que no se pudo confirmar no se resuelve con «una aproximación»: se resuelve con idempotencia y una cola para reintentar después, como en [@12-26].",
+   "titulo": "Una escritura no se degrada igual que una lectura"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Y hay un costo oculto: **el plan B también hay que probarlo**. Un camino que solo se ejecuta cuando todo falla suele estar roto cuando llega el día. La regla práctica es forzarlo en pruebas, simulando al proveedor lento como hiciste hoy."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Descarte de carga: decir que no a tiempo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hasta acá el problema vino de afuera. Hay otro, el de adentro: te llegan más pedidos de los que podés atender, por una promoción, un error de otro cliente o reintentos en tormenta. Si aceptás todo y hacés cola sin límite, cada pedido espera más que el anterior, y llega un punto en que **ninguna respuesta le sirve a nadie**: el cliente ya se rindió, pero el servidor sigue trabajando igual para nada.",
+    "La distinción que usa el artículo de AWS sobre descarte de carga es entre *throughput* (todo lo que llega) y *goodput* (la parte que se resuelve a tiempo para que al cliente le sirva) [#res1227-aws-load-shedding]. El descarte de carga (*load shedding*) sacrifica a propósito una parte del tráfico para mantener el goodput. El capítulo de Google sobre cascadas dice algo parecido sobre las colas: cuando la tasa y la duración son estables, una cola larga solo agrega espera, y conviene que sea corta y rechace lo que no entra [#back17-sre-cascading].",
+    "Un caso: el servicio de 20 hilos y 20 ms por pedido atiende como máximo 1000 pedidos por segundo. Recibe 1500 por segundo durante 10 segundos y el cliente espera como mucho 1 s."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Un servicio con 20 hilos y 20 ms por pedido atiende como máximo 1000 pedidos por segundo.\n// Durante 10 s le llegan 1500 por segundo. El cliente se rinde si no tiene respuesta en 1 s.\nfunction correr(nombre, maxEspera){\n  const hilos=new Array(20).fill(0); let util=0, tarde=0, rechazados=0, total=0;\n  for(let t=0;t<10000;t+=1000/1500){\n    total++;\n    let i=0; for(let k=1;k<20;k++) if(hilos[k]<hilos[i]) i=k;\n    const espera=Math.max(0,hilos[i]-t);\n    if(espera>maxEspera){ rechazados++; continue; }          // se rechaza al instante, casi sin costo\n    hilos[i]=t+espera+20;                                     // el servidor trabaja igual, aunque el cliente ya se haya ido\n    (espera+20<=1000)?util++:tarde++;\n  }\n  console.log(nombre.padEnd(30),\"recibidos:\",total,\"| respuestas útiles:\",String(util).padStart(5),\"| trabajo tirado:\",String(tarde).padStart(5),\"| rechazados:\",rechazados);\n}\ncorrer(\"sin shed (cola sin tope)\",Infinity);\ncorrer(\"shed si la espera pasa 100 ms\",100);",
+   "cap": "Descarte de carga. Una sola VM, modelo simple: el costo de rechazar se toma como cero, cosa que en la realidad no es cierta."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Política",
+    "Recibidos",
+    "Respuestas útiles",
+    "Trabajo tirado",
+    "Rechazados"
+   ],
+   "filas": [
+    [
+     "Cola sin tope",
+     "15001",
+     "2960",
+     "12041",
+     "0"
+    ],
+    [
+     "Rechazar si la espera pasa 100 ms",
+     "15001",
+     "10100",
+     "0",
+     "4901"
+    ]
+   ],
+   "cap": "Salida real. La capacidad teórica de 10 s es de 10000 respuestas: el descarte llega a 10100 porque la cola tolerada de 100 ms deja entrar unos 100 pedidos más (inferencia mía sobre la diferencia)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Parece contraintuitivo: rechazando 4901 pedidos se atienden **3,4 veces más** de forma útil (10100 contra 2960). Sin descarte, durante los primeros 2 segundos todo va bien; después la cola ya supera el segundo de espera, y desde ahí cada pedido que el servidor atiende ya no le sirve a nadie. El servicio trabaja al 100 % y entrega casi nada.",
+    "El descarte necesita decisiones: **qué** se rechaza (lo menos importante primero: un listado antes que un pago, o el tráfico anónimo antes que el de clientes), **cómo** se avisa (un error rápido y claro, a veces con una indicación de cuándo volver a intentar, como el `Retry-After` de [@07-17] o los límites de [@08-12]) y **dónde** se decide (cuanto antes en el camino, más barato rechazar)."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Rechazar pedidos es fallar». En un servicio saturado, rechazar rápido es **la forma de atender al resto**. Fallar es dejar que todos esperen hasta que ninguno reciba respuesta."
+  },
+  {
+   "t": "h",
+   "x": "Todo junto: una tabla para decidir"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Patrón",
+    "Qué protege",
+    "Qué cuesta",
+    "Cuándo no hace falta"
+   ],
+   "filas": [
+    [
+     "Timeout",
+     "Tus hilos de la espera infinita",
+     "Cortar llamadas buenas pero lentas; pedidos con efectos sin saber si se hicieron",
+     "Casi nunca: toda llamada de red lo necesita"
+    ],
+    [
+     "Bulkhead",
+     "El resto del servicio de un solo proveedor lento",
+     "Recursos reservados que pueden quedar ociosos",
+     "Un solo destino o tráfico muy chico"
+    ],
+    [
+     "Backoff con jitter",
+     "Al servidor que se está recuperando",
+     "Más demora para quien reintenta",
+     "Operaciones que no se pueden repetir sin idempotencia"
+    ],
+    [
+     "Circuit breaker",
+     "Tu servicio y el proveedor de más golpes",
+     "Un umbral a calibrar; falsos positivos que cortan a un proveedor sano",
+     "Llamadas muy poco frecuentes"
+    ],
+    [
+     "Degradación",
+     "La experiencia de quien usa el producto",
+     "Código extra, a probar y a mantener; una decisión de negocio",
+     "Escrituras críticas"
+    ],
+    [
+     "Descarte de carga",
+     "El servicio de su propia saturación",
+     "Rechazar pedidos legítimos y definir prioridades",
+     "Tráfico muy por debajo de la capacidad"
+    ]
+   ],
+   "cap": "Ninguna defensa es gratis. El criterio es elegir las que cubren el modo de fallo más probable y más caro de tu sistema."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay un orden razonable para un equipo chico (es criterio mío, no una norma): primero timeout en cada llamada de red, después reintento con espera y jitter solo donde repetir es seguro, después un plan B para las lecturas que duelen, y el breaker y el mamparo cuando la dependencia es crítica y el tráfico lo justifica. Para un equipo de una sola persona, la discusión de [@12-30] sobre el costo de la complejidad pesa tanto como cualquiera de estos patrones."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cómo se ve en Senda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda no es una plataforma de reparto, pero el teléfono hace llamadas a servicios que no controla: la base de Supabase, PostHog para métricas y el buscador de direcciones Nominatim. El código muestra una mezcla honesta de defensas buenas y huecos, que es lo normal en una app joven."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que sí tiene: plazos puntuales, azar en la espera y un interruptor",
+   "x": [
+    "**Timeouts en dos lugares.** `src/util/interruptores.ts` lee los interruptores remotos con un `AbortController` y un corte de 5 segundos, y si no puede leer usa lo último guardado en el teléfono; si nunca pudo leer, la función queda encendida. `src/util/lugares.ts` busca direcciones en Nominatim con corte de 9 segundos, espera al menos 1,1 s entre pedidos y, si falla, prueba el buscador del teléfono: es una escalera de degradación de dos escalones. Antes de ir a Nominatim consulta el interruptor `direcciones`, un breaker manual: lo acciona una persona, no un umbral.",
+    "**Backoff con azar e idempotencia.** `enviarRespuestas()` en `src/util/nube.ts` espera `5000 × 2^(fallos−1)` ms multiplicado por un azar entre 0,5 y 1,5, con tope de 7 fallos, y cada fila lleva un `cliente_id` que el servidor ignora si llega repetido: reintentar no duplica. Es lo más cercano a lo que simulaste hoy: backoff exponencial con jitter más idempotencia. Commit `25e08fa`: el código cambia, la forma permanece."
+   ],
+   "archivos": [
+    "src/util/interruptores.ts",
+    "src/util/lugares.ts",
+    "src/util/nube.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que no tiene, y un mamparo que sale gratis",
+   "x": [
+    "**Sin plazo.** Contando con `grep` los `fetch(` que apuntan a la base, a PostHog o a Nominatim encontré 14 en `src/`; solo 2 pasan una `signal` para cortar. Los de `src/util/cuenta.ts`, `src/util/nube.ts`, `src/util/metricas.ts` y `src/util/sermon.ts` no declaran plazo. No verifiqué qué plazo por defecto aplica el sistema operativo del teléfono, así que no puedo decir que esperen para siempre; lo que sí es seguro es que el código no decide cuánto esperar. Tampoco encontré circuit breaker ni descarte de carga en `src/`.",
+    "**Mamparos de software, sin diseñarlos así.** Cada módulo de red tiene su propia bandeja y su propia bandera `enviando`: la cola de métricas (que si falla conserva hasta 200 eventos del lote) y la de respuestas no comparten estado, así que si PostHog se cuelga, la cola de respuestas no se frena por eso. Es un mamparo de código, no de conexiones: no sé si comparten el mismo pool de conexiones del sistema, y no lo medí."
+   ],
+   "archivos": [
+    "src/util/cuenta.ts",
+    "src/util/metricas.ts",
+    "src/util/sermon.ts",
+    "src/util/nube.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Lo de Senda corresponde al commit `25e08fa` (8 de noviembre de 2026, leído el 16 de noviembre de 2026); las referencias a las fuentes de AWS, Google y Microsoft se leyeron el 16 de noviembre de 2026. Los números de las simulaciones son de una sola VM, con semilla fija, y son de un modelo: si cambiás los números, cambia el resultado, que es justamente el punto.",
+   "titulo": "Qué envejece en este día"
+  },
+  {
+   "t": "h",
+   "x": "Qué te llevás"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un servicio no se cae solo por el proveedor que falla, sino por **lo que hace mientras espera**. Las defensas de hoy son respuestas a tres preguntas distintas: ¿cuánto espero? (timeout), ¿cuánto daño puedo permitir que se extienda? (mamparo, breaker, descarte) y ¿qué entrego cuando no puedo entregar lo ideal? (plan B). Y la mejor manera de saber si funcionan es la que usaste: **romper el sistema a propósito en un entorno controlado** y medir.",
+    "Mañana vas a cambiar de herramienta. Hasta ahora estuvimos diseñando para que el sistema no se rompa; en [@12-28] aprendés a dejar por escrito *por qué* tomaste cada decisión de diseño, con ADR, diagramas C4 y una forma de comparar alternativas por sus costos."
+   ]
+  }
+ ],
+ "recap": [
+  "Un proveedor lento retiene tus hilos: pedidos en proceso = tasa × duración, y esa multiplicación explica por qué un endpoint que no lo usa también falla.",
+  "El timeout tiene dos cotas: por abajo, el p99 de la latencia sana; por arriba, hilos ÷ tasa (en el ejemplo, 0,56 s).",
+  "Un bulkhead contiene el daño a un compartimento y cuesta recursos reservados; hay que dimensionarlo con tráfico real.",
+  "Los reintentos sin jitter se sincronizan: con jitter el pico bajó de 1000 a 291 pedidos por segundo en el modelo.",
+  "El circuit breaker abre y rechaza barato; el plan B responde con algo menos bueno; las escrituras casi nunca se degradan.",
+  "Con sobrecarga, rechazar rápido da más respuestas útiles que hacer cola sin límite (10100 contra 2960 en el modelo).",
+  "En Senda hay timeouts en 2 de 14 llamadas, backoff con jitter en la bandeja de respuestas y un interruptor remoto manual; no hay breaker."
+ ],
+ "repaso": [
+  {
+   "p": "Un servicio tiene 20 hilos y recibe 40 pedidos por segundo a un proveedor que de pronto tarda 10 segundos. ¿Qué pasa con un endpoint local que no usa al proveedor?",
+   "o": [
+    "Falla igual, porque los hilos compartidos se agotan con pedidos que esperan al proveedor",
+    "Sigue funcionando, porque no llama al proveedor y su código es independiente",
+    "Falla solo si el proveedor devuelve un error explícito con un código 500",
+    "Funciona más rápido, porque hay menos pedidos locales compitiendo por la CPU"
+   ],
+   "c": 0,
+   "e": "La falla se propaga por el recurso compartido: 40 × 10 = 400 hilos necesarios contra 20 disponibles. Creer que el código independiente basta confunde independencia de código con independencia de recursos, y exigir un error explícito ignora que un cuelgue silencioso es peor."
+  },
+  {
+   "p": "Querés elegir el timeout para una llamada que sana tarda entre 80 y 160 ms. ¿Cuál es un criterio razonable?",
+   "o": [
+    "Treinta segundos, para dar tiempo a que el proveedor termine siempre su trabajo",
+    "Cero, es decir, sin timeout, para no cortar nunca una respuesta que sí iba a llegar",
+    "El promedio exacto de la latencia, para cortar rápido todo lo que se demore",
+    "Un valor holgado sobre el p99 sano, sin pasar lo que permite tu capacidad de hilos"
+   ],
+   "c": 3,
+   "e": "El timeout se acota por abajo con el p99 sano (si no, cortás llamadas buenas) y por arriba con la capacidad: tasa × timeout ≤ hilos. Cortar en el promedio rechazaría la mitad de las llamadas buenas; treinta segundos y ninguno dejan exactamente la falla que se quiere evitar."
+  },
+  {
+   "p": "Mil clientes fallaron a la vez y usan backoff exponencial sin jitter. ¿Qué es lo más probable que pase cuando el servidor vuelve?",
+   "o": [
+    "Se reparten solos en el tiempo, porque cada uno duplica su espera de manera distinta",
+    "Reintentan menos que con espera fija, y por eso el servidor se recupera enseguida",
+    "Dejan de reintentar, porque el backoff exponencial corta después del primer fallo",
+    "Reintentan todos juntos en cada ronda y golpean al servidor en olas sincronizadas"
+   ],
+   "c": 3,
+   "e": "Todos parten del mismo instante y duplican la misma espera, así que siguen sincronizados: en la simulación el pico fue de 1000 pedidos por segundo y el p50 de 91,6 s. Duplicar no reparte; lo que reparte es el azar del jitter."
+  },
+  {
+   "p": "¿Cuál de estas afirmaciones sobre el bulkhead es correcta?",
+   "o": [
+    "Reemplaza al timeout, porque con un pool propio ya no hace falta cortar la espera",
+    "Contiene el daño a un destino, a cambio de recursos reservados que a veces sobran",
+    "Evita todos los errores de cotización, porque el pool propio nunca llega a saturarse",
+    "Sirve para reintentar automáticamente, porque reparte los pedidos fallidos entre hilos"
+   ],
+   "c": 1,
+   "e": "En la versión C no hubo errores locales, pero las cotizaciones siguieron fallando (1082), y el pool de 8 hilos queda ocioso a medias con el proveedor sano. No reintenta ni reemplaza al timeout: sin plazo, los 8 hilos quedarían retenidos para siempre."
+  },
+  {
+   "p": "Un servicio de cobros no logra confirmar un pago porque el banco tarda. Un compañero propone un plan B: cobrar una estimación. ¿Qué respondés?",
+   "o": [
+    "Está bien, porque la degradación elegante es siempre mejor que mostrar un error al cliente",
+    "Una escritura no se degrada así: conviene idempotencia y reintentar después con la misma clave",
+    "Está bien si se agrega un breaker, porque el breaker corrige el monto estimado después",
+    "Conviene reintentar sin espera cada 100 ms hasta que el banco conteste, sin límite alguno"
+   ],
+   "c": 1,
+   "e": "La degradación sirve para lecturas donde una respuesta aproximada es aceptable. Un cobro es una escritura con efectos: se garantiza con idempotencia ([@12-26]) y una cola, no con una aproximación. El breaker no corrige montos y el reintento sin espera y sin tope agrava la sobrecarga."
+  },
+  {
+   "p": "Con 1500 pedidos por segundo y capacidad de 1000, ¿por qué rechazar pedidos puede dar más respuestas útiles que aceptarlos todos?",
+   "o": [
+    "Porque el cliente prefiere recibir un error que una respuesta, aunque llegue a tiempo",
+    "Porque los pedidos rechazados se reencolan en otro servidor con más capacidad libre",
+    "Porque con cola sin tope se atienden pedidos que el cliente ya abandonó y se pierde capacidad",
+    "Porque rechazar pedidos libera hilos que pasan a trabajar más rápido en los que quedan"
+   ],
+   "c": 2,
+   "e": "Con cola ilimitada la espera crece hasta superar el plazo del cliente y el servidor sigue procesando trabajo que ya no sirve: 2960 respuestas útiles contra 10100 al rechazar. Los hilos no se aceleran por rechazar, y el rechazo no reencola en otro lado."
+  },
+  {
+   "p": "En Senda, `enviarRespuestas()` espera 5000 × 2^(fallos−1) ms por un azar entre 0,5 y 1,5. ¿Qué defensa implementa?",
+   "o": [
+    "Un bulkhead, porque la cola de respuestas está separada de la de métricas",
+    "Backoff exponencial con jitter, hecho seguro por el `cliente_id` que evita duplicados",
+    "Un circuit breaker, porque deja de intentar después de varios fallos seguidos",
+    "Descarte de carga, porque tira las respuestas viejas cuando la cola se llena"
+   ],
+   "c": 1,
+   "e": "Es backoff con jitter, y repetir es seguro por la idempotencia del `cliente_id`. No es un breaker porque nunca deja de intentar (solo espera más, hasta un tope); la separación de colas sí es un mamparo de código, pero no es lo que hace esa fórmula; y el recorte de la cola es otra cosa, un tope de memoria."
+  }
+ ],
+ "feynman": "Explicale a alguien que maneja un depósito por qué un proveedor lento puede frenar a todo un sistema, incluso a lo que no lo usa, y cuáles son tres cosas que se pueden hacer para que no pase. Usá la imagen de los andenes ocupados y decí qué cuesta cada defensa.",
+ "para_profundizar": [
+  {
+   "fuente": "back17-sre-cascading",
+   "nota": "El capítulo de Google sobre fallas en cascada: causas (servidores saturados, reintentos, colas largas) y defensas. Leé las secciones sobre colas y sobre descarte de carga y degradación elegante."
+  },
+  {
+   "fuente": "red31-aws-backoff-jitter",
+   "nota": "Cómo Amazon combina timeouts, reintentos y jitter, y por qué recomienda reintentar en un solo punto de la pila. Es la base de la tabla de reintentos de hoy."
+  },
+  {
+   "fuente": "res1227-aws-load-shedding",
+   "nota": "La explicación de goodput contra throughput y cómo se descarta carga sin tirar a todos los clientes. Corresponde al experimento de la cola sin tope."
+  },
+  {
+   "fuente": "res1227-azure-bulkhead",
+   "nota": "Descripción del patrón bulkhead con sus problemas y cuándo no usarlo; sirve para contrastar con lo que simulaste."
+  }
+ ],
+ "videos": [
+  {
+   "q": "circuit breaker bulkhead retry backoff jitter resilience patterns explained",
+   "por_que": "Para ver animados los patrones que corriste hoy y comparar los estados del breaker con tu simulación."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "timeout",
+   "d": "Plazo máximo que tu código espera una respuesta antes de rendirse. Sin él, la espera la decide el otro y puede retener tus hilos sin límite."
+  },
+  {
+   "t": "bulkhead",
+   "d": "Partición que reserva recursos (hilos, conexiones, pedidos simultáneos) por destino, para que la falla de uno no consuma los de todos. Se llama mamparo, por los compartimentos estancos de un barco."
+  },
+  {
+   "t": "backoff exponencial",
+   "d": "Política de reintento en que cada espera es el doble de la anterior (con un tope), para dar tiempo a que el servicio se recupere. Sin azar, los clientes que fallaron juntos reintentan juntos."
+  },
+  {
+   "t": "degradación",
+   "d": "Responder con algo menos bueno cuando lo ideal no está disponible: el último valor conocido, una estimación o una versión reducida. Es una decisión de negocio además de técnica."
+  }
+ ],
+ "siguiente": "Ya sabés cómo proteger un sistema cuando algo falla. Mañana: cómo dejar por escrito por qué se decidió cada cosa, con registros de decisión (ADR), diagramas C4 y un análisis de trade-offs.",
+ "fuentes_nuevas": [
+  {
+   "id": "res1227-aws-load-shedding",
+   "t": "Using load shedding to avoid overload",
+   "a": "Amazon Builders' Library",
+   "tipo": "articulo",
+   "url": "https://aws.amazon.com/builders-library/using-load-shedding-to-avoid-overload/"
+  },
+  {
+   "id": "res1227-azure-bulkhead",
+   "t": "Bulkhead pattern (Azure Architecture Center)",
+   "a": "Microsoft",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/bulkhead"
+  }
+ ]
+}

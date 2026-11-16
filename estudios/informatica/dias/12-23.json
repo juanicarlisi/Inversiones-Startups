@@ -1,0 +1,678 @@
+{
+ "id": "12-23",
+ "titulo": "Sistemas distribuidos IV: consenso",
+ "bajada": "Cómo cinco máquinas que pueden caer o quedar incomunicadas eligen a un solo jefe y guardan el mismo registro, con una simulación de Raft que podés correr y romper.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar qué es el [[consenso]] y por qué «elegir al de menor número» o «mandar el que tenga el reloj más adelantado» no lo resuelven.",
+  "Calcular cuántos nodos hacen falta para tolerar f fallas y por qué una mayoría nunca puede ser dos mayorías a la vez.",
+  "Describir las dos fases de [[Paxos]] a nivel de idea y por qué la mayoría de la gente prefiere aprender [[Raft]].",
+  "Seguir una elección de [[líder]] y una replicación de registro en Raft, y leer la salida de una simulación corrida.",
+  "Decidir cuándo conviene usar un servicio de consenso ya hecho (etcd, ZooKeeper, KRaft) y cuándo no hace falta."
+ ],
+ "venis_de": "Ayer ([@12-22]) viste el precio de la consistencia: la [[linealizabilidad]] cuesta disponibilidad cuando la red se parte, y el teorema [[CAP]] pone ese límite. Hoy mirás cómo se construye, en la práctica, un sistema que elige consistencia sin quedarse colgado a la primera falla.",
+ "se_apoya_en": [
+  "12-20",
+  "12-21",
+  "12-22",
+  "09-29",
+  "07-17"
+ ],
+ "gancho": [
+  "A las 6:02 se corta el cable entre el depósito norte y el depósito sur de una distribuidora (el caso es inventado). Cada depósito ve que el otro dejó de contestar y piensa lo razonable: «cayó el otro, mando yo». Los dos se declaran encargados de asignar el último camión disponible. Cuando el cable vuelve, hay dos despachos que juran tener a la patente AA111AA. Nadie mintió ni programó mal: los dos cumplieron la regla «si el otro no contesta, decido yo».",
+  "Ese es el problema de hoy. Varias máquinas tienen que **ponerse de acuerdo** en una sola respuesta (quién manda, qué despacho va primero, cuál es el valor actual de una clave) aunque alguna se rompa o quede aislada, y sin poder distinguir una máquina muerta de una lenta, como viste en [@12-20]. Hay una familia de algoritmos que lo resuelve. Hoy vas a ver la idea, vas a leer una simulación de uno de ellos, [[Raft]], y vas a ver cuánto cuesta y dónde lo usás sin saberlo."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué es ponerse de acuerdo (y por qué es difícil)"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[consenso]] es el problema de que varios [[nodo|nodos]] decidan **un solo valor** entre los que se propusieron. El valor puede ser «el líder es el nodo 3», «el despacho 101 va al camión AA111AA» o «la siguiente entrada del registro es esta». Leslie Lamport lo plantea en *Paxos Made Simple* con tres condiciones de seguridad: solo se puede elegir un valor que alguien propuso, solo se elige un único valor, y nadie se entera de que se eligió algo que en realidad no se eligió [#paxos-simple].",
+    "Fijate qué no dice. No dice «rápido», ni «sin fallas». Lamport aclara que no va a precisar la parte de *vivacidad*: la meta es que alguna vez se elija un valor y que quien quiera pueda enterarse. Esa división es la clave de todo el día. **Seguridad** es «nunca pasa algo malo» (dos valores elegidos). **Vivacidad** es «alguna vez pasa algo bueno» (se elige uno). Un sistema de consenso serio garantiza la primera siempre y la segunda mientras la red se porte lo suficiente."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "El modelo de fallas que usa el paper es el de [@12-20]: los procesos van a velocidad arbitraria, pueden parar y reiniciarse, y los mensajes pueden tardar cualquier cantidad de tiempo, duplicarse o perderse, pero no se corrompen. Un detalle fino de ese modelo: como todos pueden caer después de que se eligió un valor y volver, la solución es imposible salvo que cada nodo recuerde algo en disco aunque se reinicie [#paxos-simple]. Eso se va a ver en la simulación: el «term» y el voto de cada nodo son lo que se guarda."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "Una imposibilidad famosa, sin demostración",
+   "x": "Según el resultado de Fischer, Lynch y Paterson (1985), que cito de memoria y no leí hoy, en un sistema totalmente asincrónico no existe ningún algoritmo de consenso que garantice terminar si aunque sea un nodo puede caer. Por eso los algoritmos reales aseguran la seguridad siempre y dejan la vivacidad atada a que haya tiempos razonables: usan [[timeout|timeouts]] y azar. Lo vas a ver con números más abajo."
+  },
+  {
+   "t": "h",
+   "x": "Por qué no alcanza con inventar una regla"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las reglas ingenuas fallan siempre por el mismo motivo: usan información que dos nodos pueden no compartir. «Manda el nodo con el número más bajo que esté vivo» depende de a quién ves vivo, y con una [[partición de red]] los dos lados ven vivos a conjuntos distintos. «Manda el que tenga la hora más adelantada» choca con lo que viste en [@12-21]: los relojes físicos difieren y no se puede confiar en ellos para ordenar. Y «el que diga primero» no sirve si dos dicen a la vez desde lados distintos.",
+    "La salida es contar. Un nodo no puede saber qué piensan los demás, pero sí puede saber si **la mayoría** le respondió. Y acá hay una propiedad que no se rompe: **dos mayorías de un mismo conjunto siempre comparten al menos un nodo**. En un clúster de 5, una mayoría son 3. Dos grupos de 3 salen de 5 nodos, así que se tocan por fuerza en uno como mínimo. Si ese nodo en común se acuerda de lo que prometió, la segunda mayoría no puede decidir algo que contradiga a la primera. Ese argumento aparece tal cual en Paxos [#paxos-simple]. Con un 2-contra-3 pasa lo mismo: solo el lado de 3 tiene mayoría, así que solo ese lado puede decidir. El lado de 2 se queda sin poder, y eso es exactamente lo que queremos."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Nodos",
+    "Mayoría necesaria",
+    "Fallas que tolera",
+    "Comentario"
+   ],
+   "filas": [
+    [
+     "1",
+     "1",
+     "0",
+     "Sin tolerancia: un solo punto de falla"
+    ],
+    [
+     "2",
+     "2",
+     "0",
+     "Peor que 1: si cae cualquiera, se detiene"
+    ],
+    [
+     "3",
+     "2",
+     "1",
+     "El mínimo con tolerancia real"
+    ],
+    [
+     "4",
+     "3",
+     "1",
+     "Cuesta un nodo más que 3 y tolera lo mismo"
+    ],
+    [
+     "5",
+     "3",
+     "2",
+     "El tamaño típico de producción"
+    ],
+    [
+     "7",
+     "4",
+     "3",
+     "Cada escritura espera a más nodos"
+    ]
+   ],
+   "cap": "Mayoría = ⌊n/2⌋ + 1. Es la misma tabla que publica el FAQ de etcd; ahí también se aclara que agregar un nodo a un clúster impar no suma tolerancia [#arq1223-etcd-faq]."
+  },
+  {
+   "t": "pensa",
+   "x": "Un clúster de 4 nodos se parte justo por la mitad, 2 y 2. ¿Qué lado puede seguir decidiendo?",
+   "resp": "Ninguno. La mayoría de 4 es 3 y cada lado tiene 2. El clúster entero queda detenido, por seguridad. Con 5 nodos, una partición siempre deja a un lado con 3 o más y al otro con 2 o menos: alguien sigue. Por eso se usan números impares."
+  },
+  {
+   "t": "h",
+   "x": "Paxos en una página de ideas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[Paxos]] es el primer algoritmo de consenso con demostración que se volvió referencia. Lamport lo escribió como el relato de un parlamento en una isla griega, *The Part-Time Parliament*, y su página oficial cuenta que lo envió por primera vez en 1990 y apareció en *ACM Transactions on Computer Systems* en mayo de 1998 [#arq1223-lamport-pubs]. En 2001 publicó *Paxos Made Simple*, que empieza diciendo que se lo consideró difícil quizá porque la presentación original era «griega» para muchos lectores, y que en realidad es de los algoritmos distribuidos más simples [#paxos-simple].",
+    "La idea, sin los detalles, es una votación de dos fases con números de propuesta crecientes. Un *proponente* elige un número n y manda a los *aceptadores* una petición **prepare(n)**. Cada aceptador responde con una promesa: «no voy a aceptar nada numerado menos que n», y cuenta si ya aceptó algo antes. Si el proponente junta promesas de una mayoría, manda **accept(n, valor)**. Y acá está el truco que hace que no se contradiga con una decisión vieja: si alguna promesa le contó que ya se aceptó un valor, el proponente **tiene que proponer ese valor** (el del número más alto que le informaron) en vez del suyo [#paxos-simple]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El mostrador de reservas",
+   "x": [
+    "Pensalo como reservar la última plaza de un camión con tres ventanillas de un mismo mostrador. Antes de anotar, preguntás en cada ventanilla: «¿hay alguna reserva ya anotada? Y de ahora en más, no anoten nada con un número de turno menor al mío». Si alguna ventanilla te dice «ya está anotada la de Ferretería Norte», ese es el nombre que vas a anotar vos también, aunque querías otro. Así el segundo que llega nunca pisa lo ya decidido.",
+    "Dónde la analogía deja de valer: en el mostrador hay alguien que ordena los turnos. En Paxos los números de propuesta los inventa cada proponente por su cuenta y se pisan entre sí, y a veces nadie gana en esa ronda y hay que reintentar con un número más alto."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Eso decide **un** valor. Un sistema real necesita decidir una secuencia: la entrada 1, la 2, la 3 del registro de una base o de una cola. Esa secuencia se arma repitiendo el algoritmo entrada por entrada y se la conoce como multi-Paxos. Y acá apareció el problema práctico que dio origen a Raft: los autores de Raft sostienen que Paxos es muy difícil de entender y que no es un buen punto de partida para construir sistemas, porque no hay un acuerdo sobre cómo se arma exactamente el multi-Paxos y la descripción de Lamport trata sobre todo del caso de un solo valor [#raft]. En sus palabras, ellos buscaron «un algoritmo de consenso comprensible» como objetivo de diseño, y eso es Raft."
+  },
+  {
+   "t": "h",
+   "x": "Raft: elegir un líder y copiar su registro"
+  },
+  {
+   "t": "p",
+   "x": [
+    "[[Raft]] (Ongaro y Ousterhout, 2014) se parte en dos problemas: elegir un [[líder]] y que el líder haga copiar su registro a los demás. En vez de decidir cada entrada por votación, los nodos votan **una vez por líder** y después ese líder ordena todo: recibe los pedidos de los clientes, los anota en su registro y los manda a los seguidores [#raft]. Es el mismo patrón de [@09-29] (un primario y réplicas), pero con una elección automática del primario y con una regla que garantiza que no hay dos a la vez.",
+    "Cada nodo está en uno de tres estados: **seguidor** (callado, responde a los demás), **candidato** (pide votos) o **líder** (manda). El tiempo se divide en *mandatos* numerados (en el paper, *terms*); cada mandato empieza con una elección, y si gana alguien, ese líder manda hasta que algo falle. El número de mandato cumple el rol de un [[reloj lógico]] ([@12-21]): si un nodo ve un número más alto que el suyo, se actualiza y, si era líder o candidato, vuelve a ser seguidor [#raft]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "grafo",
+   "alto": 300,
+   "nodos": [
+    {
+     "id": "s",
+     "x": 15,
+     "y": 50,
+     "t": "Seguidor",
+     "k": "cliente"
+    },
+    {
+     "id": "c",
+     "x": 50,
+     "y": 15,
+     "t": "Candidato",
+     "k": "red"
+    },
+    {
+     "id": "l",
+     "x": 85,
+     "y": 50,
+     "t": "Líder",
+     "k": "servidor"
+    }
+   ],
+   "aristas": [
+    {
+     "de": "s",
+     "a": "c",
+     "t": "no oye latidos a tiempo",
+     "dir": true
+    },
+    {
+     "de": "c",
+     "a": "l",
+     "t": "gana la mayoría",
+     "dir": true
+    },
+    {
+     "de": "c",
+     "a": "s",
+     "t": "ve un mandato mayor o pierde",
+     "dir": true
+    },
+    {
+     "de": "l",
+     "a": "s",
+     "t": "ve un mandato mayor",
+     "dir": true
+    }
+   ],
+   "cap": "Los tres estados de Raft y qué los hace cambiar. Ningún nodo es líder para siempre: manda mientras sus latidos lleguen a una mayoría."
+  },
+  {
+   "t": "h3",
+   "x": "La elección"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un seguidor espera latidos del líder (mensajes periódicos, a veces vacíos, que dicen «sigo vivo»). Si pasa un **tiempo de espera de elección** sin oír ninguno, supone que no hay líder: sube su mandato en uno, vota por sí mismo y pide votos a los demás. Cada nodo da **un solo voto por mandato**, al primero que se lo pide, y solo si el registro del candidato está al menos tan al día como el suyo. El que junta votos de una mayoría es el líder de ese mandato [#raft].",
+    "De ahí sale la seguridad: como cada nodo vota una vez por mandato y una mayoría son más de la mitad, **en un mismo mandato no pueden ganar dos candidatos**. El paper lo llama *Election Safety*. La regla del «registro al día» evita otra cosa: que gane alguien que no tiene lo que ya se había confirmado."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "¿Y si dos candidatos aparecen a la vez y se reparten los votos, y ninguno llega a la mayoría? Se acaba el mandato sin líder y se hace otra elección con un número mayor. Para que eso no se repita sin fin, Raft usa **tiempos de espera al azar**: el paper da el ejemplo de elegirlos entre 150 y 300 ms, de modo que casi siempre un nodo se despierta antes que los demás, gana la elección y manda latidos antes de que los otros se animen [#raft]. Más abajo vas a ver qué pasa si se saca el azar."
+  },
+  {
+   "t": "h3",
+   "x": "La replicación"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una vez que hay líder, cada pedido de un cliente (por ejemplo «asignar el despacho 101 a AA111AA») se agrega al registro del líder y se manda a los seguidores en un mensaje llamado AppendEntries. Cada mensaje trae el índice y el mandato de la entrada anterior; el seguidor solo acepta si en su registro tiene justo esa entrada anterior, y si no, rechaza y el líder retrocede hasta encontrar el punto donde coinciden [#raft]. Esa verificación hace que, si dos registros tienen una misma entrada en un mismo lugar, todo lo anterior también es igual.",
+    "Una entrada se considera **confirmada** cuando el líder comprobó que está guardada en una mayoría de los nodos (contando a sí mismo). Recién ahí responde al cliente «listo» y la aplica a su [[máquina de estados]]. Lo confirmado no se pierde, porque cualquier mayoría que elija a un líder nuevo comparte un nodo con la mayoría que lo guardó, y la regla del «registro al día» hace que ese nodo pueda ganar y los que no lo tienen, no."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Cliente",
+     "k": "cliente"
+    },
+    {
+     "n": "Líder (N3)",
+     "k": "servidor"
+    },
+    {
+     "n": "Seguidor N1",
+     "k": "datos"
+    },
+    {
+     "n": "Seguidor N2",
+     "k": "datos"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "asignar despacho 105",
+     "d": "El cliente le habla al líder. Si le habla a un seguidor, este lo redirige (etcd lo hace por su cuenta, según su FAQ)."
+    },
+    {
+     "de": 1,
+     "a": 1,
+     "t": "anota en su registro",
+     "d": "El líder agrega la entrada con su mandato actual. Todavía no está confirmada."
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "AppendEntries(105)",
+     "d": "Va con el índice y el mandato de la entrada anterior, para que el seguidor compruebe que su registro coincide."
+    },
+    {
+     "de": 1,
+     "a": 3,
+     "t": "AppendEntries(105)",
+     "d": "Se manda en paralelo a todos los seguidores. Un seguidor lento o caído no frena a los demás."
+    },
+    {
+     "de": 2,
+     "a": 1,
+     "t": "ok",
+     "d": "N1 guardó la entrada. Con el líder ya son dos de tres: una mayoría."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "confirmado",
+     "d": "Con una mayoría guardada, el líder aplica la entrada y responde. N2 puede contestar después; la entrada ya no se pierde.",
+     "resp": true
+    }
+   ],
+   "cap": "Una escritura en un clúster de 3. La respuesta al cliente espera a la mayoría, no a todos."
+  },
+  {
+   "t": "h",
+   "x": "Una simulación de Raft que podés correr"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Armé un Raft mínimo en un solo proceso, en unas 70 líneas de JavaScript. Los nodos son objetos, la red es una cola de mensajes con demora de 1 a 3 «ticks» (cada tick es un milisegundo simulado) y todo el azar sale de una semilla fija, así que **la corrida es repetible**: el mismo código imprime lo mismo siempre. Un nodo caído deja de recibir mensajes, pero conserva su mandato, su voto y su registro, que es lo que Raft exige guardar en disco. La partición se simula tirando los mensajes entre dos grupos.",
+    "El escenario: cinco nodos, el sistema elige líder y confirma el despacho 101. Después se corta la red y el líder queda con un solo seguidor, del lado de la minoría. El cliente le pide al líder viejo el despacho 104, y a la vez el lado de la mayoría elige un líder nuevo y confirma el 105. Se arregla la red y se mira qué pasó con el 104. Corré el bloque, cambiá la semilla y mirá cómo cambian los tiempos pero no las conclusiones."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Mini-Raft en un solo proceso. Nodos = objetos; red = cola con demora; todo con semilla fija.\nfunction rng(s){return()=>{s|=0;s=s+0x6D2B79F5|0;let t=Math.imul(s^s>>>15,1|s);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}\nclass Cluster {\n  constructor(n, seed, log){\n    this.r=rng(seed); this.t=0; this.n=n; this.q=[]; this.cortes=new Set(); this.log=log||(()=>{});\n    this.nodos=[...Array(n)].map((_,i)=>({id:i,vivo:true,estado:'seguidor',term:0,voto:null,reg:[],commit:0,\n      limite:this.timeout(),votos:0,sig:[],coinc:[]}));\n  }\n  timeout(){return this.t+150+Math.floor(this.r()*150)}           // elección: 150-300 ticks\n  enviar(de,a,m){ if(this.cortes.has(de+'>'+a)) return;           // partición: el mensaje se pierde\n    this.q.push({en:this.t+1+Math.floor(this.r()*3),a,m:{...m,de}}) }\n  cortar(A,B){for(const a of A)for(const b of B){this.cortes.add(a+'>'+b);this.cortes.add(b+'>'+a)}}\n  sanar(){this.cortes.clear()}\n  caer(i){const x=this.nodos[i];x.vivo=false;this.log(`nodo ${i} cae`)}\n  volver(i){const x=this.nodos[i];x.vivo=true;x.estado='seguidor';x.limite=this.timeout();this.log(`nodo ${i} vuelve (term ${x.term}, log ${x.reg.length})`)}\n  mayoria(){return Math.floor(this.n/2)+1}\n  lider(){return this.nodos.filter(x=>x.vivo&&x.estado==='lider').sort((a,b)=>b.term-a.term)[0]}\n  pedir(cmd,x){x=x||this.lider(); if(!x||x.estado!=='lider')return false; x.reg.push({term:x.term,cmd});this.log(`lider ${x.id} (term ${x.term}) recibe «${cmd}» en el índice ${x.reg.length}`);this.latir(x);return true}\n  empezarEleccion(x){x.estado='candidato';x.term++;x.voto=x.id;x.votos=1;x.limite=this.timeout();\n    this.log(`nodo ${x.id} no oye al líder: candidato en term ${x.term}`);\n    const ult=x.reg.length?x.reg[x.reg.length-1].term:0;\n    for(const y of this.nodos)if(y.id!==x.id)this.enviar(x.id,y.id,{k:'voto?',term:x.term,li:x.reg.length,lt:ult})}\n  ser(x,term){if(term>x.term){x.term=term;x.voto=null;if(x.estado!=='seguidor')this.log(`nodo ${x.id} ve term ${term}: vuelve a seguidor`);x.estado='seguidor'}}\n  latir(x){for(const y of this.nodos){if(y.id===x.id)continue;const ni=x.sig[y.id]??x.reg.length+1;\n    const pi=ni-1;this.enviar(x.id,y.id,{k:'añadir',term:x.term,pi,pt:pi?x.reg[pi-1].term:0,ents:x.reg.slice(pi),commit:x.commit})}}\n  recibir(x,m){\n    if(m.term!==undefined)this.ser(x,m.term);\n    if(m.k==='voto?'){const ult=x.reg.length?x.reg[x.reg.length-1].term:0;\n      const alDia=m.lt>ult||(m.lt===ult&&m.li>=x.reg.length);\n      const ok=m.term>=x.term&&(x.voto===null||x.voto===m.de)&&alDia;\n      if(ok){x.voto=m.de;x.limite=this.timeout()}\n      this.enviar(x.id,m.de,{k:'voto',term:x.term,ok})}\n    else if(m.k==='voto'&&x.estado==='candidato'&&m.term===x.term&&m.ok){\n      if(++x.votos>=this.mayoria()){x.estado='lider';x.sig=this.nodos.map(()=>x.reg.length+1);x.coinc=this.nodos.map(()=>0);x.coinc[x.id]=x.reg.length;\n        this.log(`nodo ${x.id} gana con ${x.votos} votos: LÍDER del term ${x.term}`);x.prox=this.t;}}\n    else if(m.k==='añadir'){\n      if(m.term<x.term){this.enviar(x.id,m.de,{k:'resp',term:x.term,ok:false,fin:0});return}\n      x.estado='seguidor';x.limite=this.timeout();\n      const ok=m.pi===0||(x.reg.length>=m.pi&&x.reg[m.pi-1].term===m.pt);\n      if(ok){let i=m.pi;for(const e of m.ents){if(x.reg[i]&&x.reg[i].term!==e.term){this.log(`nodo ${x.id} descarta ${x.reg.length-i} entrada(s) sin confirmar: «${x.reg.slice(i).map(z=>z.cmd).join(', ')}»`);x.reg.length=i}\n          if(!x.reg[i])x.reg[i]=e;i++}\n        if(m.commit>x.commit)x.commit=Math.min(m.commit,m.pi+m.ents.length)}\n      this.enviar(x.id,m.de,{k:'resp',term:x.term,ok,fin:m.pi+m.ents.length})}\n    else if(m.k==='resp'&&x.estado==='lider'&&m.term===x.term){\n      if(m.ok){x.coinc[m.de]=Math.max(x.coinc[m.de],m.fin);x.sig[m.de]=x.coinc[m.de]+1;\n        for(let N=x.reg.length;N>x.commit;N--){const c=x.coinc.filter((v,i)=>i!==x.id&&v>=N).length+1;\n          if(c>=this.mayoria()&&x.reg[N-1].term===x.term){x.commit=N;this.log(`lider ${x.id} confirma hasta el índice ${N} («${x.reg[N-1].cmd}»)`);break}}}\n      else x.sig[m.de]=Math.max(1,x.sig[m.de]-1)}\n  }\n  tick(){this.t++;\n    const hoy=this.q.filter(e=>e.en<=this.t);this.q=this.q.filter(e=>e.en>this.t);\n    for(const e of hoy){const x=this.nodos[e.a];if(x.vivo)this.recibir(x,e.m)}\n    for(const x of this.nodos){if(!x.vivo)continue;\n      if(x.estado==='lider'){if(this.t-x.prox>=50){x.prox=this.t;this.latir(x)}}\n      else if(this.t>=x.limite)this.empezarEleccion(x)}}\n  correr(k){for(let i=0;i<k;i++)this.tick()}\n}\n\nconst c=new Cluster(5,11,m=>console.log(String(c.t).padStart(5),m));\nc.correr(400);\nc.pedir('despacho 101 -> AA111AA'); c.correr(30);\nconst L=c.lider().id, M=(L+1)%5, resto=[0,1,2,3,4].filter(i=>i!==L&&i!==M);\nconsole.log('--- partición: {'+L+','+M+'} contra {'+resto+'}');\nc.cortar([L,M],resto);\nc.pedir('despacho 104 -> DD444DD'); c.correr(30);\nc.correr(600);\nc.pedir('despacho 105 -> EE555EE',c.nodos[c.nodos.filter(x=>x.vivo&&x.estado==='lider'&&resto.includes(x.id))[0].id]); c.correr(40);\nconsole.log('--- la red se arregla');\nc.sanar(); c.correr(200);\nfor(const x of c.nodos)console.log(`nodo ${x.id} ${x.estado.padEnd(9)} term ${x.term} confirmado ${x.commit} log: ${x.reg.map(e=>e.term+':'+e.cmd.split(' ')[1]).join(' ')}`);",
+   "cap": "Mini-Raft: elección con tiempos al azar, replicación con confirmación por mayoría y una partición. Sin persistencia real en disco, sin cambios de miembros y sin snapshots: es para ver la lógica, no para usar."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node mini_raft.js   # salida real de este bloque, Node 22, una sola VM",
+     "s": "  226 nodo 0 no oye al líder: candidato en term 1\n  229 nodo 0 gana con 3 votos: LÍDER del term 1\n  400 lider 0 (term 1) recibe «despacho 101 -> AA111AA» en el índice 1\n  404 lider 0 confirma hasta el índice 1 («despacho 101 -> AA111AA»)\n--- partición: {0,1} contra {2,3,4}\n  430 lider 0 (term 1) recibe «despacho 104 -> DD444DD» en el índice 2\n  599 nodo 3 no oye al líder: candidato en term 2\n  603 nodo 3 gana con 3 votos: LÍDER del term 2\n 1060 lider 3 (term 2) recibe «despacho 105 -> EE555EE» en el índice 2\n 1063 lider 3 confirma hasta el índice 2 («despacho 105 -> EE555EE»)\n--- la red se arregla\n 1106 nodo 0 ve term 2: vuelve a seguidor\n 1106 nodo 0 descarta 1 entrada(s) sin confirmar: «despacho 104 -> DD444DD»\n 1106 nodo 1 descarta 1 entrada(s) sin confirmar: «despacho 104 -> DD444DD»\nnodo 0 seguidor  term 2 confirmado 2 log: 1:101 2:105\nnodo 1 seguidor  term 2 confirmado 2 log: 1:101 2:105\nnodo 2 seguidor  term 2 confirmado 2 log: 1:101 2:105\nnodo 3 lider     term 2 confirmado 2 log: 1:101 2:105\nnodo 4 seguidor  term 2 confirmado 2 log: 1:101 2:105"
+    }
+   ],
+   "cap": "La columna de la izquierda es el tick simulado. Con otra semilla cambian los números, no el patrón."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Leé la salida como una película. Al tick 226 el primer nodo cuyo reloj de espera vence se convierte en candidato (nadie le avisó que ya hay líder, porque todavía no hay) y a los 3 ticks tiene tres votos: es líder del mandato 1. Ese tiempo, 226 ticks, es el tiempo de espera de elección que le tocó por azar. El 101 se confirma 4 ticks después de llegar, lo que tarda un viaje de ida y vuelta a la mayoría en esta red simulada.",
+    "Después viene lo interesante. Al partir la red, el líder 0 recibe el 104 y lo anota, **pero nunca lo confirma**: solo llega a un seguidor, y con dos nodos de cinco no hay mayoría. Del otro lado, en el tick 599 el nodo 3 deja de oír latidos, pide votos en el mandato 2 y gana con tres. El nuevo líder confirma el 105 en 3 ticks. Cuando la red vuelve (tick 1106), el líder viejo ve un mandato mayor, vuelve a seguidor y **descarta la entrada 104**. Los cinco registros terminan iguales: `1:101 2:105`."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El 104 desapareció. ¿Es un error de Raft? ¿Qué le tendría que haber pasado al cliente que lo pidió?",
+   "resp": "No es un error, es la garantía. El líder viejo nunca confirmó el 104, así que nunca le respondió «listo» al cliente: el cliente no recibió respuesta o recibió un error de tiempo agotado, y tiene que reintentar contra el líder nuevo. Raft promete que lo **confirmado** no se pierde; lo no confirmado puede descartarse. Por eso las operaciones tienen que poder reintentarse sin duplicar efectos: es el tema de [@12-26]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El líder viejo no sabe que es viejo",
+   "x": "Entre el tick 440 y el 1106 el nodo 0 siguió creyéndose líder del mandato 1: nadie le avisó que perdió el cargo porque la red estaba partida. Si le hubieras preguntado «¿sos líder?» te habría dicho que sí. Un líder solo es líder de verdad si una mayoría lo sigue; por eso los sistemas serios no responden lecturas con lo que el líder tiene en memoria sin antes comprobar con la mayoría que sigue mandando. Ese es el motivo de que existan las lecturas «linealizables» de [@12-22] y de que cuesten más que las rápidas."
+  },
+  {
+   "t": "h",
+   "x": "El azar no es un adorno: medirlo"
+  },
+  {
+   "t": "p",
+   "x": "La afirmación «el azar evita las elecciones empatadas» se puede comprobar. Corrí el mismo clúster de 5 nodos con 200 semillas distintas hasta que apareciera el primer líder, una vez con tiempos de espera al azar entre 150 y 300 ticks y otra con un tiempo fijo de 200 para todos."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const {Cluster}=require('./raft.js');\nclass Fijo extends Cluster{ timeout(){return this.t+200} }   // sin azar: todos esperan lo mismo\nfunction primerLider(Clase){\n  const T=[];\n  for(let semilla=1;semilla<=200;semilla++){\n    const c=new Clase(5,semilla); let t=0;\n    while(!c.lider()&&t<5000){c.tick();t++}\n    T.push(t);\n  }\n  T.sort((a,b)=>a-b);\n  return {mediana:T[100],peor:T[199],sinLiderEn5000:T.filter(x=>x>=5000).length};\n}\nconsole.log('timeout al azar 150-300:',primerLider(Cluster));\nconsole.log('timeout fijo de 200    :',primerLider(Fijo));",
+   "cap": "Usa la clase Cluster del bloque anterior, guardada como raft.js (sin la última línea de escenario) y exportada con module.exports. Corrido en Node 22."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node mide_azar.js",
+     "s": "timeout al azar 150-300: { mediana: 173, peor: 431, sinLiderEn5000: 0 }\ntimeout fijo de 200    : { mediana: 5000, peor: 5000, sinLiderEn5000: 200 }"
+    }
+   ],
+   "cap": "200 semillas por caso, tope de 5.000 ticks. Medición de una sola VM y un simulador propio: sirve para ver el efecto, no para estimar tiempos reales."
+  },
+  {
+   "t": "p",
+   "x": "Con azar, el primer líder aparece en una mediana de 173 ticks y en el peor caso de las 200 corridas, a los 431. Sin azar, **ninguna** de las 200 corridas eligió líder en 5.000 ticks. Es el efecto que describe el paper: si todos esperan lo mismo, todos se vuelven candidatos a la vez, cada uno se vota a sí mismo y nadie junta mayoría, mandato tras mandato. En mi simulación todos arrancan con el mismo reloj, así que es un caso más extremo que el de un clúster real, donde los nodos nunca arrancan exactamente a la vez; pero el mecanismo es el mismo, y por eso las implementaciones reales siempre agregan una dispersión aleatoria."
+  },
+  {
+   "t": "h",
+   "x": "¿Y si algo está mal en mi simulación?"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un simulador de consenso que «parece andar» no demuestra nada: los errores de estos algoritmos aparecen en secuencias raras de eventos. Una forma barata de buscarlos es lo que se llama prueba de propiedades con muchas corridas al azar: en vez de un guion, se tira una secuencia aleatoria de caídas, vueltas, particiones y pedidos, y en cada paso se comprueba que las propiedades de seguridad se mantienen.",
+    "Armé esa prueba: 300 semillas, 6.000 ticks cada una, con caídas de nodos (nunca más de dos a la vez), particiones de un nodo contra el resto, reparaciones y pedidos. Controla dos cosas: que nunca haya dos líderes en el mismo mandato y que, mirando dos nodos cualesquiera, todo lo que ambos tienen por confirmado sea idéntico."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "const {Cluster}=require('./raft.js');\nlet sinLider=0,term2=0,viol=0,dobles=0,cuantas=0,tiempos=[];\nfor(let seed=1;seed<=300;seed++){\n  const c=new Cluster(5,seed); const lid={}; let n=0;\n  const chequear=()=>{for(const x of c.nodos)if(x.estado==='lider'){if(lid[x.term]===undefined)lid[x.term]=x.id;else if(lid[x.term]!==x.id)dobles++}};\n  const r=(()=>{let s=seed*7919;return()=>{s=(s*1103515245+12345)&0x7fffffff;return s/0x7fffffff}})();\n  let primero=null;\n  for(let t=0;t<6000;t++){ c.tick(); chequear();\n    if(primero===null&&c.lider())primero=c.t;\n    if(t%200===150){ const e=r();\n      if(e<.3){const v=Math.floor(r()*5);if(c.nodos[v].vivo)c.caer(v)}\n      else if(e<.55){const v=c.nodos.findIndex(x=>!x.vivo);if(v>=0)c.volver(v)}\n      else if(e<.7){const a=Math.floor(r()*5);c.cortar([a],[0,1,2,3,4].filter(i=>i!==a))}\n      else if(e<.85)c.sanar();\n      if(c.lider())c.pedir('cmd'+(n++)) }\n    if(c.nodos.filter(x=>!x.vivo).length>2){const v=c.nodos.findIndex(x=>!x.vivo);c.volver(v)}\n  }\n  tiempos.push(primero);\n  // seguridad: todo lo confirmado por cualquiera coincide con lo de los demás\n  const A=c.nodos; for(const a of A)for(const b of A){const k=Math.min(a.commit,b.commit);\n    for(let i=0;i<k;i++)if(a.reg[i].term!==b.reg[i].term||a.reg[i].cmd!==b.reg[i].cmd)viol++}\n  if(Math.max(...A.map(x=>x.term))>1)term2++;\n}\ntiempos.sort((a,b)=>a-b);\nconsole.log({corridas:300,dosLideresMismoTerm:dobles,entradasConfirmadasDistintas:viol,primerLiderMediana:tiempos[150],primerLiderMax:tiempos[299]});",
+   "cap": "Prueba de seguridad con eventos aleatorios. Usa la clase Cluster guardada como raft.js."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node mide_seguridad.js",
+     "s": "{\n  corridas: 300,\n  dosLideresMismoTerm: 0,\n  entradasConfirmadasDistintas: 0,\n  primerLiderMediana: 175,\n  primerLiderMax: 432\n}"
+    }
+   ],
+   "cap": "Cero violaciones en 300 corridas. Una simulación sin violaciones no prueba que el algoritmo sea correcto; prueba que esta implementación no rompió esas dos propiedades en esos casos."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Lo que mi simulador no hace",
+   "x": "No guarda nada en disco, no cambia la lista de miembros, no hace snapshots del registro, no tiene pérdida ni duplicación de mensajes más allá de las particiones, y no prueba lecturas. Todo eso existe en las implementaciones reales y es donde viven muchos de los errores. Para producción se usa una implementación madura, no una propia."
+  },
+  {
+   "t": "h",
+   "x": "Lo que cuesta"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Latencia.** Cada escritura espera a una mayoría. En un clúster de 3 con las máquinas en el mismo edificio es poco; si los nodos están en regiones distintas, cada escritura paga al menos el viaje hasta el nodo más cercano de la mayoría. El FAQ de etcd lo dice así: desplegar en varias regiones mejora la tolerancia a fallas pero sube la latencia de cada pedido de consenso, y además hay que ajustar los tiempos de latido y de elección para que no salten elecciones sin motivo [#arq1223-etcd-faq].",
+    "**Un cuello de botella a propósito.** Todas las escrituras pasan por un solo líder. Más nodos no dan más capacidad de escritura: dan más tolerancia a fallas y cuestan más latencia. El mismo FAQ recomienda no pasar de siete nodos y menciona que Chubby, el servicio de Google, sugiere cinco [#arq1223-etcd-faq].",
+    "**El disco cuenta como parte de la vida del líder.** El FAQ de etcd explica que perder el liderazgo por picos de latencia de disco es intencional: un líder que tarda un minuto en escribir en disco es, en la práctica, un líder muerto, aunque responda latidos [#arq1223-etcd-faq].",
+    "**Se detiene cuando no hay mayoría.** Es la «C» de CAP en acción ([@12-22]): con 3 de 5 caídos, el clúster prefiere no responder antes que arriesgar dos verdades."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Paxos",
+    "Raft"
+   ],
+   "filas": [
+    [
+     "Qué decide",
+     "Un valor (multi-Paxos: una secuencia, con detalles a completar)",
+     "Una secuencia de entradas, desde el diseño"
+    ],
+    [
+     "Quién manda",
+     "No hace falta un líder fijo; en la práctica se elige uno",
+     "Un líder por mandato, parte del algoritmo"
+    ],
+    [
+     "Cómo se explica",
+     "Dos fases con números de propuesta",
+     "Tres estados, una elección, una copia de registro"
+    ],
+    [
+     "Dónde se encuentra hoy",
+     "Sistemas internos de grandes empresas; documentación a veces más difusa",
+     "etcd y, según su documentación, KRaft de Kafka"
+    ]
+   ],
+   "cap": "Comparación de criterio propio, apoyada en el paper de Raft [#raft]. No es una evaluación de calidad: los dos garantizan seguridad con la misma condición de mayoría."
+  },
+  {
+   "t": "h",
+   "x": "Dónde se usa sin que te enteres"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**etcd** es un almacén clave-valor consistente que se usa como servicio de coordinación y está diseñado para guardar pocos datos que entren en memoria; su FAQ explica que usa Raft y que cualquier pedido que necesite consenso se reenvía al líder [#arq1223-etcd-faq]. Kubernetes lo usa como almacén de todos los datos de su servidor de API: la documentación de componentes lo describe como un almacén clave-valor consistente y de alta disponibilidad [#arq1223-k8s-componentes].",
+    "**ZooKeeper** es el servicio de coordinación de Apache. Su documentación dice que, mientras haya una mayoría de servidores disponibles, el servicio está disponible [#arq1223-zookeeper-over]: la misma regla de la tabla de arriba.",
+    "**Kafka** usó ZooKeeper para guardar sus metadatos y hoy lo reemplazó por **KRaft**, un grupo de «controladores» que corre su propio Raft. La documentación de la versión 4.4 recomienda elegir 3 o 5 controladores, y explica que se necesita una mayoría viva: con 3 se tolera 1 caída y con 5, 2 [#arq1223-kafka-kraft]."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Versiones y estado, noviembre de 2026",
+   "x": "Los números de versión y los nombres de configuración de estas herramientas cambian. Lo que consulté el 16 de noviembre de 2026: la documentación de Kafka es la de la versión 4.4 y tiene una página «KRaft vs ZooKeeper» con una sección de funciones de ZooKeeper eliminadas; el FAQ de etcd es el de la rama «latest», que se anuncia como v3.8-DRAFT; la documentación de Kubernetes y de ZooKeeper es la vigente en sus sitios oficiales. El principio (mayoría, líder, registro replicado) no cambió; las opciones y los valores por defecto sí cambian."
+  },
+  {
+   "t": "h",
+   "x": "Cómo decidir con esto"
+  },
+  {
+   "t": "p",
+   "x": "Tres reglas prácticas, presentadas como criterio y no como ley. **Primero**, casi nunca vas a escribir un consenso: se usa uno que ya está hecho, dentro de una base de datos o de un servicio de coordinación, y se lo trata como una pieza. **Segundo**, el consenso es para lo chico y crítico (quién es el primario, la configuración del clúster, un candado que no se puede duplicar), no para cada dato de la aplicación: cada escritura espera a una mayoría y pasa por un solo líder. **Tercero**, el costo se paga en latencia y en disponibilidad: si tu negocio prefiere responder siempre y reconciliar después, el camino es otro y es el de mañana, el de [@12-24]."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Más nodos, más rápido»",
+   "x": "Un error común es creer que sumar nodos a un clúster de consenso reparte la carga de escritura, como pasa con los servidores web detrás de un balanceador. No: todas las escrituras pasan por el líder y cada una espera a una mayoría. Más nodos dan más fallas toleradas, no más velocidad; y pasados cinco o siete, más latencia."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda no ejecuta consenso: lo delega, y coordina con un candado de fila",
+   "x": [
+    "Esto corresponde al commit `25e08fa` de Senda; el código cambia, la forma permanece. En el código de Senda no hay ninguna implementación de Raft, de Paxos ni referencias a etcd o ZooKeeper (lo busqué con `grep` en `src/` y `supabase/`). Tampoco hay un servidor propio: todo lo compartido vive en una base Supabase, así que la pregunta «¿quién manda?» la responde el proveedor.",
+    "Lo que sí hay es coordinación entre dos jugadores, y está resuelta de la forma más barata posible: la función SQL `jugar_turno` empieza leyendo la partida con `for update`, que **bloquea esa fila** hasta que termina la transacción. Mientras un jugador resuelve su turno, el otro espera. Eso funciona porque hay **un solo lugar** donde se decide, la base, y no varias copias en desacuerdo. Es la alternativa honesta al consenso: si todo pasa por una sola máquina, no hace falta ponerse de acuerdo con nadie.",
+    "El código usa la palabra `lider` para el rol de quien organiza un grupo (`'lider' | 'ayudante' | 'miembro'` en `src/util/grupos.ts`). Es un homónimo: nada que ver con el líder de Raft. Un líder de grupo es un permiso de aplicación; el líder de Raft es un rol de infraestructura que cambia solo en segundos."
+   ],
+   "archivos": [
+    "supabase/migrations/20261127000000_seguridad.sql",
+    "src/util/grupos.ts",
+    "src/util/nube.ts"
+   ]
+  },
+  {
+   "t": "mito",
+   "k": "mito",
+   "x": ""
+  }
+ ],
+ "recap": [
+  "El consenso es que varios nodos decidan un único valor aunque algunos caigan. La seguridad (nunca dos valores) se garantiza siempre; la vivacidad (se decide alguno) solo mientras la red se porte lo suficiente.",
+  "Dos mayorías del mismo conjunto siempre comparten un nodo. Ese nodo, con memoria de lo que prometió, es lo que impide dos decisiones contradictorias. Por eso se usan 3, 5 o 7 nodos: con 4 se tolera lo mismo que con 3.",
+  "Paxos decide un valor en dos fases con números de propuesta crecientes: una promesa de una mayoría y después la aceptación, adoptando el valor ya aceptado si lo hubiera. Raft se diseñó para ser más fácil de entender y de implementar para un registro entero.",
+  "En Raft hay seguidores, candidatos y un líder por mandato. Un nodo vota una vez por mandato y gana quien junta una mayoría; los tiempos de espera al azar evitan los empates sin fin. En mi simulación, sin azar ninguna de 200 corridas eligió líder en 5.000 ticks.",
+  "Una entrada del registro está confirmada cuando una mayoría la guardó. Lo confirmado no se pierde; lo no confirmado puede descartarse al cambiar de líder, y por eso las operaciones tienen que poder reintentarse.",
+  "El consenso cuesta latencia (cada escritura espera a una mayoría), un cuello de botella en el líder y la parada total sin mayoría. Se usa para lo chico y crítico: etcd, ZooKeeper y KRaft son piezas ya hechas, y no se escribe una a mano."
+ ],
+ "repaso": [
+  {
+   "p": "Un clúster de consenso tiene 6 nodos y se parte en 3 y 3. ¿Qué pasa con las escrituras?",
+   "o": [
+    "Un lado sigue escribiendo porque el líder anterior sigue vivo",
+    "Ambos lados siguen escribiendo y se reconcilian al reunirse",
+    "Ningún lado puede escribir porque ninguno tiene mayoría de 4",
+    "Se elige un líder por lado y se acepta el del lado más grande"
+   ],
+   "c": 2,
+   "e": "La mayoría de 6 es 4, y cada lado tiene 3. Ninguno puede confirmar nada: el clúster se detiene hasta que la red se arregle. Un líder anterior no sirve sin mayoría, y reconciliar después es lo que hace otra familia de sistemas, no el consenso."
+  },
+  {
+   "p": "¿Qué garantiza que dos líderes distintos no ganen en el mismo mandato de Raft?",
+   "o": [
+    "Cada nodo vota una sola vez por mandato y la mayoría supera la mitad",
+    "El candidato con el número de nodo menor siempre gana el desempate",
+    "Los relojes de los nodos están sincronizados y fijan quién va primero",
+    "El líder anterior avisa quién será el siguiente antes de caerse"
+   ],
+   "c": 0,
+   "e": "Dos candidatos distintos necesitarían cada uno más de la mitad de los votos, y cada nodo vota una sola vez en ese mandato: es imposible. Raft no usa números de nodo ni relojes sincronizados, y un líder caído no puede avisar nada."
+  },
+  {
+   "p": "Un líder anota un pedido pero se parte la red antes de que llegue a una mayoría. Después un líder nuevo toma el mando. ¿Qué pasa con ese pedido?",
+   "o": [
+    "Sobrevive siempre, porque el líder viejo ya lo había anotado",
+    "Se descarta si el líder nuevo no lo tiene, y el cliente nunca recibió confirmación",
+    "Se vuelve a aplicar dos veces, una por cada líder, hasta reconciliar",
+    "Se confirma sin votos porque el cliente ya lo había mandado"
+   ],
+   "c": 1,
+   "e": "Un pedido no llegó a una mayoría, por lo tanto nunca estuvo confirmado y el cliente no recibió un «listo». Al cambiar de líder, los registros de los seguidores se alinean con el del nuevo y esa entrada se descarta. Por eso el cliente debe poder reintentar."
+  },
+  {
+   "p": "En una simulación, todos los nodos esperan exactamente 200 ms antes de postularse. ¿Qué resultado es esperable?",
+   "o": [
+    "Elecciones rápidas, porque todos están de acuerdo en cuándo empezar",
+    "Elecciones empatadas una y otra vez, porque todos piden votos a la vez",
+    "Un solo líder elegido siempre, el de número más alto",
+    "Ninguna elección: sin azar, no se puede iniciar una candidatura"
+   ],
+   "c": 1,
+   "e": "Si todos se despiertan juntos, cada uno se vota a sí mismo antes de recibir pedidos ajenos y nadie junta mayoría; se repite el mandato siguiente. En mis 200 corridas, ninguna eligió líder en 5.000 ticks. El azar de 150 a 300 rompe el empate."
+  },
+  {
+   "p": "Un equipo con 5 nodos de etcd quiere escribir el doble de rápido y agrega 5 nodos más, hasta 10. ¿Qué pasa con la capacidad de escritura?",
+   "o": [
+    "Se duplica, porque ahora hay el doble de servidores para atenderla",
+    "Se mantiene igual, porque el líder tiene un tope y la mayoría es 6",
+    "Mejora algo, porque cada nodo nuevo atiende a una parte de los clientes",
+    "Empeora o no mejora: más nodos suman latencia sin sumar capacidad de escritura"
+   ],
+   "c": 3,
+   "e": "Todas las escrituras pasan por el líder y cada una espera a una mayoría, que con 10 nodos son 6. Sumar nodos agrega tolerancia a fallas y más latencia, no más capacidad de escritura. Si hace falta repartir carga hay que dividir los datos en varios grupos, no agrandar uno."
+  },
+  {
+   "p": "En Senda, dos jugadores mandan su turno a la vez y la base lee la partida con un bloqueo de fila antes de decidir. ¿Por qué eso no necesita un algoritmo de consenso?",
+   "o": [
+    "Porque la decisión pasa por una sola base y el bloqueo ordena a los dos",
+    "Porque los móviles de los jugadores se ponen de acuerdo entre ellos antes",
+    "Porque Supabase usa Raft en la capa de la aplicación de Senda",
+    "Porque el bloqueo de fila reemplaza al consenso en cualquier sistema distribuido"
+   ],
+   "c": 0,
+   "e": "Hay un solo lugar que decide: el bloqueo serializa los dos pedidos sobre la misma fila. Es consenso evitado por diseño. El bloqueo no sirve como sustituto general: si hubiera varias copias que deciden, volvería el problema de hoy. Y el código de Senda no implementa Raft."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística, sin usar las palabras «consenso» ni «líder», cómo cinco depósitos que a veces pierden la comunicación entre sí pueden decidir quién asigna los camiones sin que dos asignen el mismo. Decí por qué hace falta que sean cinco y no cuatro, qué pasa con el depósito que queda aislado y en qué punto la comparación con depósitos de verdad deja de valer.",
+ "para_profundizar": [
+  {
+   "fuente": "raft",
+   "nota": "El paper de Raft. Leé las secciones 5.1 a 5.3 (estados, elección y replicación) y la Figura 2, que resume el algoritmo completo en una página: es lo que implementé en pequeño hoy."
+  },
+  {
+   "fuente": "paxos-simple",
+   "nota": "Paxos Made Simple, ocho páginas. La sección 2.2 («Choosing a Value») es la que justifica, paso a paso, por qué hacen falta las dos fases y los números crecientes."
+  },
+  {
+   "fuente": "arq1223-etcd-faq",
+   "nota": "FAQ de etcd: las respuestas sobre cantidad de miembros, tolerancia a fallas y pérdida de líder por latencia de disco bajan el algoritmo a decisiones de operación."
+  },
+  {
+   "fuente": "ddia",
+   "nota": "El libro de Kleppmann: el capítulo sobre consistencia y consenso (el de «Consistency and Consensus») ubica el tema entre transacciones, orden y coordinación. Lo cito por su tema; hoy no lo releí."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Raft consensus algorithm visualization secret lives of data",
+   "por_que": "Una animación de la elección de líder y la replicación; sirve para ver en movimiento lo que hoy leíste como texto."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "consenso",
+   "d": "Problema y familia de algoritmos por los que varios nodos que pueden fallar deciden un único valor o una misma secuencia de valores. Garantizan que nunca se decidan dos cosas distintas y que, si la red se porta, se decida algo."
+  },
+  {
+   "t": "Paxos",
+   "d": "Algoritmo de consenso de Leslie Lamport. Decide un valor en dos fases con números de propuesta crecientes: primero una promesa de una mayoría de aceptadores y después la aceptación. Decide un solo valor; el caso de una secuencia se llama multi-Paxos."
+  },
+  {
+   "t": "Raft",
+   "d": "Algoritmo de consenso diseñado para ser comprensible. Elige un líder por mandato y el líder replica su registro a los seguidores; una entrada se confirma cuando una mayoría la guardó. Lo usan etcd y, por su nombre, KRaft de Kafka."
+  },
+  {
+   "t": "líder",
+   "d": "En un sistema de consenso, el nodo que en un mandato recibe los pedidos, los ordena en su registro y los replica. Solo existe mientras una mayoría lo sigue; si no, otro nodo lo reemplaza."
+  },
+  {
+   "t": "mandato (term)",
+   "d": "En Raft, un número que crece en cada elección y funciona como reloj lógico. Un nodo que ve un mandato mayor que el suyo se actualiza y, si era líder o candidato, vuelve a seguidor."
+  },
+  {
+   "t": "registro replicado",
+   "d": "Lista ordenada de comandos (la entrada 1, la 2, la 3) que cada nodo guarda y que todos acaban teniendo igual. Es la base para que varias copias de una máquina de estados lleguen al mismo resultado."
+  },
+  {
+   "t": "entrada confirmada",
+   "d": "Entrada del registro que el líder comprobó que está guardada en una mayoría de nodos. Solo entonces se aplica y se le responde al cliente; es la que Raft promete que no se pierde."
+  },
+  {
+   "t": "latido",
+   "d": "Mensaje periódico del líder, a veces sin contenido, que dice «sigo vivo». Si un seguidor no recibe ninguno durante el tiempo de espera de elección, se postula como candidato."
+  }
+ ],
+ "siguiente": "Sistemas distribuidos V: replicar y repartir datos. Hoy viste cómo varias máquinas se ponen de acuerdo; mañana, qué hacés cuando no hace falta decidir a la vez y querés repartir los datos entre muchas máquinas con el mínimo de movimiento.",
+ "fuentes_nuevas": [
+  {
+   "id": "arq1223-etcd-faq",
+   "t": "FAQ de etcd (rama latest)",
+   "a": "Proyecto etcd",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://etcd.io/docs/latest/faq/"
+  },
+  {
+   "id": "arq1223-lamport-pubs",
+   "t": "Publicaciones de Leslie Lamport (nota sobre The Part-Time Parliament)",
+   "a": "Leslie Lamport",
+   "tipo": "doc",
+   "url": "https://lamport.azurewebsites.net/pubs/pubs.html"
+  },
+  {
+   "id": "arq1223-raft-sitio",
+   "t": "Raft Consensus Algorithm (sitio oficial)",
+   "a": "Diego Ongaro y colaboradores",
+   "tipo": "doc",
+   "url": "https://raft.github.io/"
+  },
+  {
+   "id": "arq1223-k8s-componentes",
+   "t": "Componentes de Kubernetes",
+   "a": "The Kubernetes Authors",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://kubernetes.io/docs/concepts/overview/components/"
+  },
+  {
+   "id": "arq1223-zookeeper-over",
+   "t": "ZooKeeper: visión general",
+   "a": "Apache ZooKeeper",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://zookeeper.apache.org/doc/current/zookeeperOver.html"
+  },
+  {
+   "id": "arq1223-kafka-kraft",
+   "t": "KRaft (documentación de Apache Kafka 4.4)",
+   "a": "Apache Kafka",
+   "tipo": "doc",
+   "anio": 2026,
+   "url": "https://kafka.apache.org/44/operations/kraft/"
+  }
+ ]
+}
