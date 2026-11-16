@@ -1,0 +1,553 @@
+{
+ "id": "12-18",
+ "titulo": "CQRS y Event Sourcing",
+ "bajada": "Guardás una cuenta corriente como una lista de hechos en vez de un saldo, armás vistas de lectura desde esos hechos y ves qué se gana y qué se paga, incluido el problema de borrar datos personales.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar la diferencia entre guardar el estado y guardar los hechos que lo produjeron.",
+  "Reconstruir el estado de una cuenta aplicando eventos y consultar su valor en una fecha pasada.",
+  "Separar un modelo de escritura de uno o más modelos de lectura y describir cómo se mantiene cada proyección.",
+  "Reconocer lo que complica event sourcing: versionado de eventos, borrado de datos personales y consistencia eventual.",
+  "Distinguir en el código de Senda una proyección mantenida por trigger de un event sourcing completo."
+ ],
+ "venis_de": "En [@12-17] viste eventos como mensajes entre servicios, el atraso de un consumidor y la consistencia eventual. Hoy el registro de eventos deja de ser un canal por el que pasan avisos y se convierte en el lugar donde se guarda la verdad. En [@09-16] viste la desnormalización: guardar un dato derivado para leer rápido. Una proyección es exactamente eso, con un método para mantenerla al día.",
+ "se_apoya_en": [
+  "12-17",
+  "12-14",
+  "09-16",
+  "09-17",
+  "09-18",
+  "09-24"
+ ],
+ "gancho": [
+  "El contador de una distribuidora te pregunta: «¿por qué la Ferretería Sur debe hoy $70.000?». Si el sistema guarda una tabla con una columna `saldo`, la respuesta es «porque ese es el número que quedó». Alguien lo fue pisando con cada factura, cada pago y cada nota de crédito, y lo que pasó en el medio se perdió. Para contestar la pregunta, hay que reconstruir la historia desde otras tablas, si es que existen.",
+  "Hay otra manera, y es la que la contabilidad usa desde mucho antes de las computadoras: nadie escribe el saldo, se escriben los movimientos, y el saldo es una suma. Hoy vas a convertir esa idea en código, a ver qué te regala y a ver qué te cobra. Una advertencia desde el principio, que repite hasta el propio Martin Fowler: es un patrón potente y, para la mayoría de los sistemas, innecesario."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Dos maneras de guardar lo mismo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo habitual es guardar el **estado**: una fila por cuenta con el saldo actual. Cada cambio pisa el valor anterior. Es simple, rápido de leer y suficiente para la mayoría de las aplicaciones.",
+    "[[event sourcing]] hace lo contrario: lo que se guarda es la secuencia de cambios, cada uno como un evento, y el estado actual se calcula aplicando esos eventos en orden. Fowler lo resume así: capturar todos los cambios al estado de la aplicación como una secuencia de eventos, de modo que no solo se pueda consultar dónde estamos, sino cómo llegamos [#arq1218-fowler-eventsourcing]. El ejemplo que él mismo usa, y que vale la pena tener en la cabeza, es un sistema de control de versiones: el registro de *commits* es la secuencia de eventos y la carpeta de trabajo es el estado derivado [#arq1217-fowler-event-driven]."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Guardar el estado",
+    "Guardar los eventos"
+   ],
+   "filas": [
+    [
+     "Qué hay en la base",
+     "`saldo = 70000`",
+     "`CuentaAbierta`, `FacturaEmitida 120000`, `PagoRecibido 50000`…"
+    ],
+    [
+     "¿Por qué vale 70000?",
+     "No se sabe sin mirar otras tablas",
+     "Se suman los hechos y se ve"
+    ],
+    [
+     "Saldo al 15 de octubre",
+     "Imposible si no hay copias",
+     "Se aplican los eventos hasta esa fecha"
+    ],
+    [
+     "Corregir un error",
+     "Se pisa el valor y se pierde el rastro",
+     "Se agrega un evento que corrige, y queda el rastro"
+    ],
+    [
+     "Leer el saldo hoy",
+     "Una lectura",
+     "Se calcula (o se guarda un resumen aparte)"
+    ],
+    [
+     "Complejidad",
+     "Baja",
+     "Alta"
+    ]
+   ],
+   "cap": "La contabilidad hizo siempre lo de la columna derecha: el libro no se borra, se corrige con otro asiento. Fowler lo señala: los asientos contables son la fuente de los saldos [#arq1217-fowler-event-driven]."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": [
+    "Pensalo como el stock de un depósito. Podés tener un cartel en la góndola que dice «quedan 40 cajas», o un libro de remitos con cada entrada y cada salida. Con el cartel sabés cuánto hay. Con el libro sabés cuánto hay, qué pasó con las otras 60 y en qué día se acabaron las del lote de octubre.",
+    "Dónde deja de valer: el libro de remitos lo escribe una persona, que decide qué anotar. En un sistema, si no definís qué eventos existen, no queda registro de nada. El diseño de los eventos es la parte difícil."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Event sourcing con una cuenta corriente"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Armé el mínimo en JavaScript con datos inventados, en pesos. Tiene cuatro piezas. Un **almacén de eventos** que solo permite agregar, nunca modificar. Una función `aplicar` que dice cómo cambia el estado con cada tipo de evento. El estado, que no se guarda: se obtiene con `reduce` sobre los eventos. Y un comando, `registrarPago`, que reconstruye el estado, valida una regla de negocio y, si corresponde, agrega un evento nuevo.",
+    "Fijate en `agregar`: recibe la versión que quien escribe *cree* haber visto. Si otro se adelantó, falla. Es control de concurrencia optimista: en lugar de bloquear la cuenta mientras alguien piensa, se deja escribir a todos y se rechaza al que trabajó con información vieja."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Cuenta corriente de un cliente (datos inventados, en pesos). El saldo NO se guarda: se calcula con los eventos.\nclass Almacen {\n  constructor() { this.flujos = new Map(); }\n  leer(cuenta) { return this.flujos.get(cuenta) ?? []; }\n  // versionEsperada = cuántos eventos creía haber visto quien escribe. Si no coincide, alguien se le adelantó.\n  agregar(cuenta, eventos, versionEsperada) {\n    const f = this.leer(cuenta);\n    if (f.length !== versionEsperada) throw new Error(`conflicto: esperaba v${versionEsperada}, ya hay v${f.length}`);\n    this.flujos.set(cuenta, [...f, ...eventos.map((e, i) => ({ ...e, v: f.length + i + 1 }))]);\n  }\n}\n\n// Cómo cambia el estado con cada evento. Función pura: mismo estado y mismo evento, mismo resultado.\nfunction aplicar(s, e) {\n  switch (e.tipo) {\n    case 'CuentaAbierta':        return { ...s, abierta: true };\n    case 'FacturaEmitida':       return { ...s, saldo: s.saldo + e.monto };\n    case 'PagoRecibido':         return { ...s, saldo: s.saldo - e.monto };\n    case 'NotaDeCreditoEmitida': return { ...s, saldo: s.saldo - e.monto };\n    default:                     return s;\n  }\n}\nconst estado = (eventos) => eventos.reduce(aplicar, { saldo: 0, abierta: false });\n\n// Comando: decide con el estado reconstruido y, si corresponde, agrega UN evento nuevo.\nfunction registrarPago(almacen, cuenta, monto, fecha) {\n  const f = almacen.leer(cuenta); const s = estado(f);\n  if (!s.abierta) throw new Error('la cuenta no existe');\n  if (monto > s.saldo) throw new Error(`el pago ($${monto}) supera el saldo ($${s.saldo})`);\n  almacen.agregar(cuenta, [{ tipo: 'PagoRecibido', monto, fecha }], f.length);\n}\n\nconst a = new Almacen(); const C = 'Ferretería Sur';\na.agregar(C, [\n  { tipo: 'CuentaAbierta', fecha: '2026-10-01' },\n  { tipo: 'FacturaEmitida', monto: 120000, fecha: '2026-10-03' },\n  { tipo: 'PagoRecibido', monto: 50000, fecha: '2026-10-10' },\n  { tipo: 'FacturaEmitida', monto: 80000, fecha: '2026-10-20' },\n  { tipo: 'NotaDeCreditoEmitida', monto: 20000, fecha: '2026-10-25' },\n  { tipo: 'PagoRecibido', monto: 60000, fecha: '2026-11-02' },\n], 0);\n\nconsole.log('saldo hoy:', estado(a.leer(C)).saldo);\nconsole.log('saldo al 15/10:', estado(a.leer(C).filter((e) => e.fecha <= '2026-10-15')).saldo);\n\n// Dos operarios miran la cuenta a la vez (v6) e intentan pagar el saldo completo.\nconst vistaB = a.leer(C).length;\nregistrarPago(a, C, 70000, '2026-11-10');\ntry { a.agregar(C, [{ tipo: 'PagoRecibido', monto: 70000, fecha: '2026-11-10' }], vistaB); }\ncatch (err) { console.log('segundo operario:', err.message); }\ntry { registrarPago(a, C, 1, '2026-11-11'); } catch (err) { console.log('pago de más:', err.message); }\nconsole.log('eventos en el flujo:', a.leer(C).length, '| saldo ahora:', estado(a.leer(C)).saldo);\n",
+   "cap": "Cuenta corriente con eventos, consulta a una fecha pasada y conflicto de versión. Corrido en node 22 en la VM de estudio."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay cuatro cosas para mirar en esa salida.",
+    "**El saldo de hoy (70.000) sale de sumar seis hechos.** No existe en ninguna parte hasta que se calcula. **El saldo al 15 de octubre (70.000) sale de aplicar solo los eventos hasta esa fecha**: la pregunta sobre el pasado no necesita copias de seguridad ni tablas de historia, es una consulta más. Casualmente coincide con el saldo de hoy porque la factura del 20 y la nota de crédito y el pago del 2 de noviembre se compensan; probalo con otra fecha.",
+    "**El segundo operario fue rechazado.** Los dos vieron la versión 6 y quisieron pagar 70.000; uno escribió primero y al otro le avisó el almacén que ya había una versión 7. Sin esa verificación, el saldo habría quedado en -70.000.",
+    "**La regla de negocio vive en el comando**, no en el almacén: el pago de $1 que quedó de más se rechazó porque el estado reconstruido decía saldo $0."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El almacén nunca modifica ni borra un evento. Si la Ferretería Sur te avisa que la factura del 20 de octubre estaba mal por $5.000, ¿cómo la corregís?",
+   "resp": "Agregando un evento nuevo que la corrige, por ejemplo `NotaDeCreditoEmitida` por $5.000 con una referencia a la factura. El evento original queda tal cual (fue un hecho: se emitió así). Es lo mismo que hace la contabilidad con los asientos de ajuste. Azure lo llama evento compensatorio: revierte o corrige el efecto de uno anterior sin reescribir la historia [#arq1218-azure-eventsourcing]."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Los eventos se nombran por intención",
+   "x": "Azure da un criterio útil: un evento que dice «se reservaron dos asientos» vale más que uno que dice «los asientos restantes cambiaron a 42». El primero cuenta qué pasó; el segundo solo el resultado, y no se puede reconstruir el porqué [#arq1218-azure-eventsourcing]. En la demo, `PagoRecibido` y `NotaDeCreditoEmitida` bajan el saldo igual, pero son hechos de negocio distintos y el día que alguien pregunte por pagos contra notas de crédito, la historia lo permite."
+  },
+  {
+   "t": "p",
+   "x": "Queda una pregunta práctica: si la cuenta lleva diez años y cinco mil eventos, calcular el saldo desde cero en cada consulta sería lento. La solución estándar es el **snapshot**: cada tanto (digamos, cada cien eventos) se guarda el estado calculado hasta ese punto, y para reconstruir se parte del último snapshot y se aplican solo los eventos posteriores. Azure aclara que es una optimización y no reemplaza al registro: se puede tirar y volver a calcular [#arq1218-azure-eventsourcing]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Tres cosas distintas que se confunden",
+   "x": [
+    "**Arquitectura orientada a eventos** ([@12-17]): servicios que se avisan con eventos. **Event sourcing**: guardar los hechos como fuente de verdad. **CQRS**: usar modelos separados para leer y escribir (lo vemos ahora). Se pueden combinar, pero ninguna exige a las otras. Fowler cuenta el caso de un proyecto donde el jefe decía que event sourcing había sido un desastre porque cada cambio costaba el doble de trabajo, por tener que actualizar los modelos de lectura y de escritura, y en esa frase ya se mezclan dos patrones; el jefe técnico, por su parte, culpaba a las comunicaciones asíncronas [#arq1217-fowler-event-driven]. Si no sabés cuál es el culpable, no podés arreglarlo.",
+    "Tampoco es lo mismo un almacén de eventos que un broker de mensajes. Azure lo advierte: un broker como Kafka distribuye eventos pero, en general, no ofrece consultar el flujo de una entidad ni concurrencia optimista; funciona bien como capa de distribución sobre un almacén [#arq1218-azure-eventsourcing]."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "CQRS: leer y escribir con modelos distintos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La demo muestra un problema: para saber el saldo de una cuenta hay que recorrer sus eventos. Pero el contador no quiere cuentas individuales sino preguntas como «¿quiénes deben más de $50.000?» o «¿cuánto facturamos por mes?». Esas preguntas no se contestan bien con un registro pensado para validar pagos.",
+    "Ahí entra [[CQRS]] (*Command Query Responsibility Segregation*): usar un modelo para actualizar la información y otro para leerla. Fowler lo atribuye a Greg Young y lo describe como la idea de que se puede usar un modelo distinto para actualizar que para consultar [#arq1218-fowler-cqrs]. El nombre viene de dos palabras que ya conocés: **comando**, que cambia algo, y **consulta** (*query*), que devuelve datos sin cambiar nada."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Lado de escritura (comandos)",
+    "Lado de lectura (consultas)"
+   ],
+   "filas": [
+    [
+     "Pregunta que contesta",
+     "«¿Puedo hacer esto?»",
+     "«¿Qué hay?»"
+    ],
+    [
+     "Qué contiene",
+     "Reglas de negocio y validaciones",
+     "Datos ya armados para mostrar"
+    ],
+    [
+     "Forma",
+     "La que mejor protege la consistencia",
+     "La que más rápido responde cada pantalla"
+    ],
+    [
+     "Cuántos modelos",
+     "Uno por agregado ([@12-14])",
+     "Uno o varios, según las pantallas"
+    ],
+    [
+     "Escala",
+     "Pocas instancias, para evitar conflictos",
+     "Se puede replicar horizontalmente"
+    ],
+    [
+     "Estado respecto del otro",
+     "Es la verdad",
+     "Puede ir atrasado (consistencia eventual)"
+    ]
+   ],
+   "cap": "Basado en la descripción de Azure: el lado de escritura tiene lógica y validación; el de lectura devuelve datos listos y es eventualmente consistente con el otro [#arq1218-azure-cqrs]."
+  },
+  {
+   "t": "p",
+   "x": "Azure agrega una observación sobre cómo se nombran los comandos: deben representar tareas de negocio, no actualizaciones de bajo nivel. «Reservar una habitación» y no «poner el campo EstadoReserva en Reservado» [#arq1218-azure-cqrs]. Es la misma idea de nombrar por intención. Y CQRS por sí solo no exige eventos ni bases separadas: puede ser el mismo dato con dos modelos, como una vista. Pero cuando se combina con event sourcing, los eventos son un puente natural: el lado de escritura los produce y el de lectura los consume."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una [[proyección]] es un modelo de lectura que se construye leyendo el registro de eventos y aplicando una función. Es un resumen derivado, y por eso tiene una propiedad poderosa: **se puede tirar y reconstruir desde cero**. Lo ves en esta demo, donde una proyección tiene un error y otra se arma meses después:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Lado de lectura: proyecciones que se arman leyendo el registro de eventos (datos inventados, en pesos).\nconst registro = [\n  { cuenta: 'Ferretería Sur',  tipo: 'FacturaEmitida',       monto: 120000, fecha: '2026-10-03' },\n  { cuenta: 'Kiosco Norte',    tipo: 'FacturaEmitida',       monto: 45000,  fecha: '2026-10-04' },\n  { cuenta: 'Ferretería Sur',  tipo: 'PagoRecibido',         monto: 50000,  fecha: '2026-10-10' },\n  { cuenta: 'Librería Oeste',  tipo: 'FacturaEmitida',       monto: 90000,  fecha: '2026-10-12' },\n  { cuenta: 'Ferretería Sur',  tipo: 'FacturaEmitida',       monto: 80000,  fecha: '2026-10-20' },\n  { cuenta: 'Ferretería Sur',  tipo: 'NotaDeCreditoEmitida', monto: 20000,  fecha: '2026-10-25' },\n  { cuenta: 'Kiosco Norte',    tipo: 'PagoRecibido',         monto: 45000,  fecha: '2026-10-28' },\n  { cuenta: 'Librería Oeste',  tipo: 'FacturaEmitida',       monto: 30000,  fecha: '2026-11-02' },\n  { cuenta: 'Ferretería Sur',  tipo: 'PagoRecibido',         monto: 60000,  fecha: '2026-11-02' },\n  { cuenta: 'Librería Oeste',  tipo: 'PagoRecibido',         monto: 40000,  fecha: '2026-11-09' },\n];\n\nclass Proyeccion {\n  constructor(nombre, aplicar) { this.nombre = nombre; this.aplicar = aplicar; this.reiniciar(); }\n  reiniciar() { this.pos = 0; this.vista = {}; }\n  avanzar(log, hasta = log.length) { while (this.pos < hasta) this.aplicar(this.vista, log[this.pos++]); }\n  reconstruir(log) { this.reiniciar(); this.avanzar(log); }\n}\n\n// Proyección 1, con un error: se olvida de las notas de crédito.\nconst saldos = new Proyeccion('saldos', (v, e) => {\n  const signo = e.tipo === 'FacturaEmitida' ? 1 : e.tipo === 'PagoRecibido' ? -1 : 0; // error: falta NotaDeCreditoEmitida\n  v[e.cuenta] = (v[e.cuenta] ?? 0) + signo * e.monto;\n});\nsaldos.avanzar(registro);\nconsole.log('saldos con el error:', JSON.stringify(saldos.vista));\n\n// Se corrige el código y se reconstruye desde cero con el mismo registro.\nsaldos.aplicar = (v, e) => {\n  const signo = e.tipo === 'FacturaEmitida' ? 1 : e.tipo === 'NotaDeCreditoEmitida' || e.tipo === 'PagoRecibido' ? -1 : 0;\n  v[e.cuenta] = (v[e.cuenta] ?? 0) + signo * e.monto;\n};\nsaldos.reconstruir(registro);\nconsole.log('saldos corregidos:  ', JSON.stringify(saldos.vista));\n\n// Una pregunta nueva, meses después: ¿cuánto se facturó por mes? Nadie toca el lado de escritura: se arma con el historial.\nconst porMes = new Proyeccion('facturadoPorMes', (v, e) => {\n  if (e.tipo === 'FacturaEmitida') v[e.fecha.slice(0, 7)] = (v[e.fecha.slice(0, 7)] ?? 0) + e.monto;\n});\nporMes.avanzar(registro);\nconsole.log('facturado por mes:  ', JSON.stringify(porMes.vista));\n\n// Atraso: se agrega un evento nuevo al registro y la proyección todavía no lo leyó.\nregistro.push({ cuenta: 'Kiosco Norte', tipo: 'FacturaEmitida', monto: 25000, fecha: '2026-11-12' });\nconsole.log('Kiosco Norte, antes de avanzar:', saldos.vista['Kiosco Norte'], '| atraso:', registro.length - saldos.pos, 'evento');\nsaldos.avanzar(registro);\nconsole.log('Kiosco Norte, después:         ', saldos.vista['Kiosco Norte'], '| atraso:', registro.length - saldos.pos);\n",
+   "cap": "Tres proyecciones sobre el mismo registro. Corrido en node 22 en la VM de estudio; los datos son inventados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cada línea de la salida enseña algo:",
+    "**El error del saldo de la Ferretería Sur (90.000 en lugar de 70.000).** El código de la proyección se olvidó de las notas de crédito. En un sistema que guarda el estado, ese error sería un dato podrido y habría que repararlo a mano. Acá se corrige el código, se reconstruye desde el registro y el resultado es correcto. El registro no se tocó: era la verdad. Esto es lo que más valoran los equipos que usan el patrón.",
+    "**La proyección «facturado por mes» nació tarde.** Nadie había previsto la pregunta cuando se guardaron los eventos. Como el historial está completo, se arma con todo el pasado. En un sistema de estado, esa pregunta solo se podría contestar desde el día en que alguien empiece a guardar los datos.",
+    "**El atraso.** Cuando entra una factura nueva al registro, la proyección todavía no la leyó y muestra 0 para Kiosco Norte. Atraso de un evento, que se cierra cuando la proyección avanza. Es la misma consistencia eventual de [@12-17]: la métrica sigue siendo cuántos eventos le faltan por leer."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En un sistema CRUD con la tabla `cuentas(saldo)` descubrís hoy que durante un mes se ignoraron las notas de crédito. ¿Qué podés hacer? ¿Y en uno con event sourcing y la proyección de saldos?",
+   "resp": "En el CRUD, el saldo guardado ya está mal y para corregirlo hay que reconstruir cada cuenta a mano desde facturas, pagos y notas, si esos datos existen y son confiables. Con event sourcing, el saldo es una proyección: se corrige la función que lo calcula y se reconstruye desde los eventos, que están intactos. Lo que no resuelve es el daño ya causado afuera (por ejemplo, un cliente al que se le reclamó de más)."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "titulo": "La frase de Fowler que conviene tener a mano",
+   "x": "Fowler advierte que, para la mayoría de los sistemas, CQRS agrega una complejidad riesgosa, y dice que los casos que vio con buen resultado son la minoría [#arq1218-fowler-cqrs]. Lo mismo vale para event sourcing. Tomalo como criterio de un autor con mucha experiencia y no como ley: hay sistemas que sí los necesitan."
+  },
+  {
+   "t": "h",
+   "x": "Lo que complica"
+  },
+  {
+   "t": "h3",
+   "x": "1. Los eventos tienen que sobrevivir a tu propio código"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un evento guardado en 2026 se va a leer con el código de 2031. Si el esquema cambia (por ejemplo, `FacturaEmitida` pasa de guardar un monto a guardar neto e IVA por separado), los eventos viejos siguen con la forma vieja. Se puede reescribir el almacén, pero eso rompe la inmutabilidad y Azure lo señala como último recurso porque debilita la pista de auditoría. Las estrategias normales son: lectores tolerantes que ignoran campos desconocidos y usan valores por defecto; un número de versión en cada evento; y el *upcasting*, que traduce los eventos viejos a la forma nueva al leerlos, sin tocar lo guardado [#arq1218-azure-eventsourcing].",
+    ""
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// La versión 1 de «FacturaEmitida» guardaba solo el monto total. La versión 2 separa neto e IVA.\n// Los eventos viejos no se reescriben: se traducen al leerlos (upcasting), de a una versión por vez.\nconst ALICUOTA = 0.21; // alícuota de ejemplo\n\nfunction subirVersion(e) {\n  if (e.tipo === 'FacturaEmitida' && e.version === 1) {\n    const neto = Math.round(e.monto / (1 + ALICUOTA));\n    return { ...e, version: 2, neto, iva: e.monto - neto };\n  }\n  return e;\n}\nconst actualizar = (e) => { let x = e; while (true) { const y = subirVersion(x); if (y === x) return x; x = y; } };\n\nconst guardados = [\n  { tipo: 'FacturaEmitida', version: 1, monto: 121000, fecha: '2026-03-01' },            // escrito hace meses\n  { tipo: 'FacturaEmitida', version: 2, monto: 60500, neto: 50000, iva: 10500, fecha: '2026-11-05' }, // escrito hoy\n];\nfor (const e of guardados) console.log(JSON.stringify(actualizar(e)));\nconsole.log('lo guardado sigue igual:', JSON.stringify(guardados[0]));\n",
+   "cap": "Upcasting: el evento viejo se traduce al leerlo y lo guardado no cambia. La alícuota es solo de ejemplo."
+  },
+  {
+   "t": "p",
+   "x": "Notá el costo: cada cambio de esquema deja una función de traducción que hay que mantener y probar, de por vida. En un sistema CRUD, una migración de base cambia la tabla y listo. En uno con eventos, el pasado nunca se migra: se interpreta."
+  },
+  {
+   "t": "h3",
+   "x": "2. Borrar datos personales de un registro que no se borra"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Este es el choque más serio. El Reglamento General de Protección de Datos de la Unión Europea (artículo 17) da a una persona el derecho a que se supriman sus datos personales sin demora indebida cuando se cumplen ciertas condiciones, por ejemplo, que ya no sean necesarios para los fines para los que se recogieron [#arq1218-gdpr-art17]. El mismo artículo prevé excepciones, entre ellas cuando una ley obliga a conservar el dato o para defender reclamos legales. Si tus eventos contienen el nombre y el domicilio de un cliente, y los eventos son inmutables, tenés un conflicto.",
+    "Azure describe las dos salidas habituales. Una es no poner datos personales en los eventos: se guardan aparte y el evento lleva solo un identificador, de modo que se puede borrar el dato sin tocar el flujo. La otra, cuando no se pueden separar, es el *crypto-shredding*: cifrar los datos personales de cada persona con una clave propia y, para olvidarla, borrar la clave. Los eventos quedan, pero el contenido personal queda ilegible. Cuesta cifrado en cada lectura y escritura y exige guardar bien las claves [#arq1218-azure-eventsourcing].",
+    "Esto es una descripción técnica y no asesoramiento legal: qué hay que borrar y qué hay que conservar depende de cada ley y de cada caso. Lo importante es que se decide **antes** de armar el sistema, porque cambiarlo después implica reescribir el historial."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "3. Más piezas, más cosas que se rompen"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**Consistencia eventual**: la pantalla puede mostrar datos atrasados, y hay que diseñar la experiencia para eso, como viste en [@12-17].",
+    "**Idempotencia**: si la proyección procesa dos veces un evento, el saldo se duplica. Se resuelve guardando hasta qué evento llegó (el `pos` de la demo) y haciendo que reprocesar sea inocuo [#arq1218-azure-eventsourcing].",
+    "**Más para probar**: hay que probar proyecciones, reconstrucciones y migraciones de eventos.",
+    "**Curva de aprendizaje**: el equipo tiene que pensar en hechos y no en filas. Es un cambio de cabeza antes que de tecnología."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Event sourcing es usar Kafka»",
+   "x": "No. Event sourcing es una decisión sobre qué se guarda como verdad (los hechos). Se puede implementar con una tabla de solo agregar en una base común, como hace la demo en memoria. Kafka u otro broker puede servir para distribuir esos eventos a otros, pero es otro problema [#arq1218-azure-eventsourcing]."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Señal",
+    "Pista a favor",
+    "Pista en contra"
+   ],
+   "filas": [
+    [
+     "Auditoría",
+     "La ley o el negocio exige saber qué pasó y cuándo",
+     "Alcanza con un registro de cambios aparte"
+    ],
+    [
+     "Preguntas sobre el pasado",
+     "Se necesitan seguido («¿cuánto debía al 30/9?»)",
+     "Casi nunca se miran datos viejos"
+    ],
+    [
+     "Forma de lectura y escritura",
+     "Muy distintas, con mucha más lectura",
+     "Las pantallas leen lo mismo que se escribe"
+    ],
+    [
+     "Datos personales",
+     "Se pueden separar o cifrar por persona",
+     "Están pegados a cada evento, sin plan de borrado"
+    ],
+    [
+     "Equipo",
+     "Con experiencia en estos patrones",
+     "Chico y sin tiempo para aprender"
+    ]
+   ],
+   "cap": "Una regla práctica (criterio, no norma): usalo en el pedazo del sistema donde el historial es el producto, como libros contables, y no en todo el sistema. Fowler pide lo mismo para CQRS: solo en un contexto delimitado [#arq1218-fowler-cqrs]."
+  },
+  {
+   "t": "h",
+   "x": "Qué hay de esto en Senda"
+  },
+  {
+   "t": "p",
+   "x": "Senda no usa event sourcing: ninguna tabla guarda hechos como fuente de verdad para reconstruir el estado. Pero sí tiene una proyección bien definida, y mirarla con la lente de hoy enseña dónde termina el patrón. Verifiqué el código el 2026-11-16."
+  },
+  {
+   "t": "senda",
+   "titulo": "salud_resumen: del cálculo al leer, al cálculo al escribir",
+   "x": [
+    "Cada respuesta del Espadeo o de la Travesía se inserta en la tabla `respuestas`: pregunta, si acertó, cuántos segundos tardó. La primera versión del esquema (prueba 5) calculaba la «salud» de cada pregunta con una vista que recorría todas las respuestas con `group by`. Es decir, el cálculo se hacía al leer.",
+    "En la migración de escala (06-10-2026) se cambió: se creó la tabla `salud_resumen` (una fila por pregunta, con contadores) y un trigger `AFTER INSERT` sobre `respuestas` que, por cada respuesta nueva, suma al resumen. La vista `salud_preguntas` ahora lee el resumen. El cálculo pasó a hacerse al escribir. Esa es una proyección: un modelo de lectura derivado de un flujo de hechos (las respuestas), mantenido al día por una regla."
+   ],
+   "archivos": [
+    "supabase/migrations/20261026000000_inicio.sql",
+    "supabase/migrations/20261027000000_escala.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Tres diferencias con lo que viste hoy",
+   "x": [
+    "**No hay atraso.** PostgreSQL ejecuta el trigger como parte de la misma transacción que el `insert`: si uno falla, se deshace todo [#arq1218-pg-trigger]. La proyección de Senda es consistente de inmediato, a diferencia de las de la demo, que avanzaban después. Se paga en el tiempo del propio `insert`, y la fila de cada pregunta se actualiza en cada respuesta: el mapa técnico de Senda anota que las preguntas muy jugadas pueden convertirse en una fila caliente por contención de bloqueos.",
+    "**No se puede reconstruir.** La migración de limpieza borra las respuestas con más de 30 días y deja `salud_resumen`, que «nunca se borra». Después de un mes, el resumen es el único registro: si tuviera un error, no habría de dónde recalcularlo. Es lo contrario de lo que enseña event sourcing, y es una decisión razonable para un plan gratuito de base de datos con 500 MB, porque se eligió ahorrar espacio sobre poder rehacer el pasado. Para esto sirve la mirada de hoy: saber qué se compró y qué se vendió.",
+    "**Una sola vez se reconstruyó.** La migración incluye un `insert … select … group by` que arma el resumen con las respuestas que ya existían, un rebuild de un solo uso."
+   ],
+   "archivos": [
+    "supabase/migrations/20261109000000_limpieza.sql",
+    "supabase/migrations/20261027000000_escala.sql"
+   ]
+  },
+  {
+   "t": "p",
+   "x": "El patrón se repite con `pulso_conteo` (el conteo de votos del Pulso se suma por trigger al votar). Esto es lo que está implementado; los documentos de Senda no prometen event sourcing ni CQRS completo, y no hay motivos para agregarlos: con un resumen por pregunta y una limpieza a 30 días, el sistema resuelve lo que necesita."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué verifiqué y cuándo",
+   "x": "Lo de Senda corresponde al código leído el 2026-11-16 (el mapa técnico del estudio es del commit 25e08fa, 2026-11-08; el repositorio sigue en ese commit). El código cambia, la forma permanece. Las páginas de Azure Architecture Center (Event Sourcing, actualizada según su metadato el 2026-03-27; CQRS, 2025-02-20), de Fowler y del reglamento las leí el 2026-11-16; los patrones son estables, pero la redacción de las guías de Azure se actualiza."
+  }
+ ],
+ "recap": [
+  "Event sourcing guarda los hechos como fuente de verdad y calcula el estado aplicándolos en orden. Permite consultar el pasado y corregir con eventos nuevos en vez de pisar datos.",
+  "El almacén solo agrega, y cada escritura declara qué versión vio: así se detectan conflictos sin bloquear (concurrencia optimista).",
+  "CQRS separa el modelo que valida cambios del que responde consultas. No exige eventos, pero se combina bien con ellos.",
+  "Una proyección es un modelo de lectura derivado de los eventos: se puede tirar, corregir y reconstruir, y se puede crear tarde para preguntas que no estaban previstas. Tiene atraso medible.",
+  "Complica: versionado de eventos (upcasting), borrar datos personales de un registro inmutable (separarlos o cifrarlos por persona), idempotencia y más cosas para probar.",
+  "En Senda hay una proyección por trigger (`salud_resumen`), consistente de inmediato y sin posibilidad de reconstruirse tras 30 días: no es event sourcing."
+ ],
+ "repaso": [
+  {
+   "p": "Una tabla guarda `saldo = 70000` y se descubre que durante un mes se ignoraron las notas de crédito. ¿Por qué esto es más difícil de arreglar que en un sistema con event sourcing?",
+   "o": [
+    "Porque el estado guardado ya está mal y no existen los hechos para recalcular",
+    "Porque la base de datos relacional no permite modificar el saldo",
+    "Porque en event sourcing los errores de código no ocurren",
+    "Porque el saldo guardado siempre está cifrado en reposo"
+   ],
+   "c": 0,
+   "e": "Si solo se guarda el estado, el valor erróneo es lo único que hay; para repararlo hay que reconstruir desde otras fuentes. Con eventos, el saldo es una proyección y se recalcula desde el registro intacto. No es que la base impida modificar el saldo, ni que los errores no ocurran: ocurren y se corrigen reconstruyendo."
+  },
+  {
+   "p": "En el almacén de la demo, `agregar` recibe `versionEsperada`. ¿Para qué sirve?",
+   "o": [
+    "Para ordenar los eventos por fecha antes de guardarlos",
+    "Para detectar que otro escribió antes y rechazar al desactualizado",
+    "Para cifrar los eventos antes de guardarlos en el flujo",
+    "Para borrar los eventos más viejos cuando el flujo crece"
+   ],
+   "c": 1,
+   "e": "Quien escribe declara cuántos eventos creía que había. Si el flujo tiene otro número, alguien se adelantó y la escritura se rechaza: es concurrencia optimista, sin bloquear. No ordena por fecha (el flujo ya es una secuencia), no cifra y, en event sourcing, no se borran eventos."
+  },
+  {
+   "p": "Querés saber cuánto se facturó por mes y esa pregunta no existía cuando se guardaron los eventos. ¿Qué hacés con event sourcing?",
+   "o": [
+    "Nada: la pregunta solo se podrá contestar desde ahora",
+    "Agregás un campo `mes` a cada evento y los reescribís",
+    "Creás una proyección nueva y la construís leyendo todo el historial",
+    "Duplicás el almacén de eventos y lo filtrás a mano"
+   ],
+   "c": 2,
+   "e": "Como el historial está completo, una proyección nueva se arma recorriéndolo desde el principio, sin tocar el lado de escritura. Reescribir eventos rompe la inmutabilidad y es innecesario. Decir que solo se contesta hacia adelante es lo que pasa en un sistema que guarda el estado."
+  },
+  {
+   "p": "Un cliente pide que se borren sus datos personales y están dentro de eventos inmutables. ¿Qué salida técnica describe Azure?",
+   "o": [
+    "Borrar los eventos del cliente y renumerar los siguientes",
+    "Guardar los datos aparte y referenciarlos, o cifrarlos por persona y borrar la clave",
+    "Ignorar el pedido porque el registro es inmutable por diseño",
+    "Mover los eventos a una proyección, que sí se puede borrar"
+   ],
+   "c": 1,
+   "e": "Las dos salidas son: no meter datos personales en los eventos (solo un identificador) o cifrarlos con una clave por persona y borrar la clave (crypto-shredding). Borrar eventos rompe la integridad del flujo. Ignorar el pedido puede ser incumplir una norma, y una proyección se reconstruye desde los eventos, así que no sirve."
+  },
+  {
+   "p": "En Senda, `salud_resumen` se mantiene con un trigger sobre `respuestas`, y las respuestas se borran a los 30 días. ¿Cuál afirmación describe bien la situación?",
+   "o": [
+    "Es event sourcing completo, porque reconstruye el estado",
+    "Es una proyección consistente al instante, pero no reconstruible tras 30 días",
+    "Es CQRS con atraso de varios minutos entre escritura y lectura",
+    "No es una proyección, porque se actualiza con SQL y no con eventos"
+   ],
+   "c": 1,
+   "e": "El trigger corre en la misma transacción del insert, así que no hay atraso. Como el crudo se borra a los 30 días, después de eso el resumen es la única fuente y no se puede recalcular: eso lo aleja de event sourcing. Que se actualice con SQL no impide que sea una proyección: lo es por su función."
+  },
+  {
+   "p": "Un equipo chico construye un CRUD de contactos y propone event sourcing y CQRS «por si acaso». ¿Cuál es el mejor consejo?",
+   "o": [
+    "Adoptarlos: nunca está de más tener historial completo",
+    "Evitarlos, porque la complejidad no se justifica sin una necesidad real",
+    "Usar solo CQRS, porque event sourcing es el que complica",
+    "Usar ambos pero con un broker para repartir los eventos"
+   ],
+   "c": 1,
+   "e": "Fowler advierte que en la mayoría de los sistemas estos patrones agregan complejidad riesgosa y que muchos sistemas encajan en un modelo CRUD. Hay que tener una necesidad concreta (auditoría fuerte, lecturas muy distintas, preguntas sobre el pasado). Agregar un broker suma otra pieza sin resolver el problema."
+  }
+ ],
+ "feynman": "Explicale a alguien de administración, sin hablar de bases de datos, por qué un libro de movimientos que nunca se borra responde mejor la pregunta «¿por qué este cliente debe lo que debe?» que un cartel con el saldo. Después contale en qué situaciones ese libro es una carga y no una ayuda, por ejemplo, cuando hay que olvidar a una persona. Usá una analogía propia y decí dónde deja de valer.",
+ "para_profundizar": [
+  {
+   "fuente": "arq1218-fowler-eventsourcing",
+   "nota": "El artículo original de Fowler (2005) sobre event sourcing. Leé «How it Works» y «Application State Storage»: explican reconstrucción, consulta temporal y la idea de que el estado actual se puede guardar como caché."
+  },
+  {
+   "fuente": "arq1218-azure-eventsourcing",
+   "nota": "La guía de Azure. Leé «Problems and considerations»: versionado de eventos, concurrencia, idempotencia y la sección sobre datos personales con crypto-shredding."
+  },
+  {
+   "fuente": "arq1218-azure-cqrs",
+   "nota": "El patrón CQRS según Azure. Alcanza con «Solution» y «Problems and considerations» para ver cuándo conviene y qué se paga."
+  },
+  {
+   "fuente": "arq1218-fowler-cqrs",
+   "nota": "La nota corta de Fowler (2011). Son cinco minutos y trae la advertencia de cuándo no usarlo."
+  }
+ ],
+ "videos": [
+  {
+   "q": "event sourcing CQRS explained projections event store example",
+   "por_que": "Para ver el mismo patrón con otro dominio y comparar cómo se dibujan el almacén y las proyecciones."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "CQRS",
+   "d": "Command Query Responsibility Segregation: usar un modelo para modificar los datos (comandos) y otro, distinto, para consultarlos. No exige eventos ni bases separadas."
+  },
+  {
+   "t": "event sourcing",
+   "d": "Forma de guardar datos en la que la fuente de verdad es la secuencia de eventos (los hechos) y el estado actual se calcula aplicándolos en orden."
+  },
+  {
+   "t": "proyección",
+   "d": "Modelo de lectura derivado de los eventos o de otro flujo de cambios: se puede reconstruir desde cero y puede ir atrasado respecto de lo escrito."
+  },
+  {
+   "t": "almacén de eventos",
+   "d": "Base donde solo se agregan eventos, agrupados por entidad y numerados, con verificación de versión para detectar escrituras en conflicto."
+  },
+  {
+   "t": "concurrencia optimista",
+   "d": "Permitir que varios escriban sin bloquear y rechazar al que trabajó con una versión vieja de los datos."
+  },
+  {
+   "t": "snapshot",
+   "d": "Copia del estado calculado hasta cierto evento; permite reconstruir aplicando solo los eventos posteriores. Es una optimización, no reemplaza al registro."
+  },
+  {
+   "t": "upcasting",
+   "d": "Traducir un evento guardado con un esquema viejo a la forma actual al leerlo, sin modificar lo guardado."
+  },
+  {
+   "t": "crypto-shredding",
+   "d": "Cifrar los datos personales con una clave propia de cada persona y borrar la clave para que queden ilegibles sin tocar los eventos."
+  },
+  {
+   "t": "evento compensatorio",
+   "d": "Evento nuevo que corrige o revierte el efecto de uno anterior, porque los eventos ya guardados no se modifican."
+  }
+ ],
+ "siguiente": "Serverless como arquitectura. Dejás los estilos de guardar y propagar datos para mirar otra decisión: dónde corre el código y quién paga cada vez que se ejecuta una función.",
+ "fuentes_nuevas": [
+  {
+   "id": "arq1218-fowler-eventsourcing",
+   "t": "Event Sourcing",
+   "a": "Martin Fowler",
+   "tipo": "articulo",
+   "anio": 2005,
+   "url": "https://martinfowler.com/eaaDev/EventSourcing.html"
+  },
+  {
+   "id": "arq1218-fowler-cqrs",
+   "t": "CQRS",
+   "a": "Martin Fowler",
+   "tipo": "articulo",
+   "anio": 2011,
+   "url": "https://martinfowler.com/bliki/CQRS.html"
+  },
+  {
+   "id": "arq1218-azure-eventsourcing",
+   "t": "Event Sourcing pattern",
+   "a": "Microsoft, Azure Architecture Center",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing"
+  },
+  {
+   "id": "arq1218-azure-cqrs",
+   "t": "CQRS pattern",
+   "a": "Microsoft, Azure Architecture Center",
+   "tipo": "doc",
+   "url": "https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs"
+  },
+  {
+   "id": "arq1218-gdpr-art17",
+   "t": "Art. 17 GDPR: Right to erasure («right to be forgotten») (reproducción no oficial del Reglamento (UE) 2016/679)",
+   "a": "gdpr-info.eu",
+   "tipo": "articulo",
+   "anio": 2016,
+   "url": "https://gdpr-info.eu/art-17-gdpr/"
+  },
+  {
+   "id": "arq1218-pg-trigger",
+   "t": "PostgreSQL: Overview of Trigger Behavior",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/current/trigger-definition.html"
+  }
+ ]
+}

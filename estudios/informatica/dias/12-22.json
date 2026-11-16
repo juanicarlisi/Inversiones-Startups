@@ -1,0 +1,473 @@
+{
+ "id": "12-22",
+ "titulo": "Sistemas distribuidos III: consistencia y CAP",
+ "bajada": "Corrés un verificador de linealizabilidad y una partición de red con dos réplicas, y entendés qué se pierde con cada elección y por qué CAP no es «elegí dos de tres».",
+ "minutos": 28,
+ "vigencia": "principio",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Definir la linealizabilidad con sus dos reglas prácticas y reconocer si una historia de lecturas y escrituras la cumple.",
+  "Distinguir linealizabilidad, consistencia eventual y los contratos intermedios, y asignar cada uno a un tipo de dato.",
+  "Enunciar el teorema CAP con las definiciones de Gilbert y Lynch y explicar por qué no es «elegir dos de tres».",
+  "Predecir qué pasa durante una partición con un sistema que elige consistencia y con uno que elige disponibilidad, incluyendo el costo de «última escritura gana».",
+  "Explicar PACELC y estimar cuánta latencia agrega esperar a réplicas lejanas."
+ ],
+ "venis_de": "Ayer ([@12-21]) viste que sin reloj común el orden se construye con relojes lógicos. Hoy usás esa base para hablar de lo que ven los lectores de un dato replicado y de lo que obliga a sacrificar una red que se parte.",
+ "se_apoya_en": [
+  "12-21",
+  "12-20",
+  "09-34",
+  "12-17"
+ ],
+ "gancho": [
+  "Hay 10 unidades de un artículo en el sistema de dos depósitos. Un cliente consulta desde Buenos Aires y ve 10. Otro consulta desde Córdoba medio segundo después de que se vendieran 3 desde Buenos Aires, y también ve 10. ¿Está roto el sistema? Depende de qué se había prometido. Si la promesa era «lo que ves es siempre lo último confirmado», sí. Si era «tarde o temprano vas a ver lo mismo», no.",
+  "Esa palabra, *prometido*, es el centro del día. No existe una consistencia mejor en abstracto: existen contratos distintos con costos distintos, y un teorema que dice qué contratos son imposibles cuando la red se corta. Hoy corrés las dos elecciones con tus propios ojos y medís el precio."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Qué le prometés a quien lee"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Tener copias de un dato en varias máquinas ([@12-20]) deja una pregunta incómoda: **si escribo en una copia, ¿qué ve quien lee en otra, y cuándo?** La respuesta se llama [[consistencia]] en jerga, y no es una cosa sino un menú. Cada opción es un contrato: «mientras no pase tal cosa, vas a ver tal cosa». Cuanto más fuerte el contrato, más fácil es programar sobre él y más cuesta mantenerlo.",
+    "Sirve un ejemplo con el stock de un artículo que se guarda en dos depósitos, Buenos Aires y Córdoba. Dos clientes miran la pantalla de disponibilidad casi a la vez, uno conectado a cada depósito. ¿Es aceptable que uno vea 10 y el otro 7? Depende de qué se prometió. Hoy vemos los dos extremos del menú, el teorema que obliga a elegir cuando la red se parte, y la pregunta que importa también con la red sana."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Linealizabilidad: el contrato más fuerte"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La [[linealizabilidad]] fue definida por Maurice Herlihy y Jeannette Wing en 1990 [#herlihy-wing-linearizability]. Dice así: aunque haya muchas copias y muchas operaciones simultáneas, el sistema se comporta **como si hubiera una sola copia** y cada operación ocurriera en un **instante único** entre el momento en que empieza y el momento en que termina."
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "Linearizability provides the illusion that each operation applied by concurrent processes takes effect instantaneously at some point between its invocation and its response.",
+   "autor": "Herlihy y Wing, 1990",
+   "fuente": "herlihy-wing-linearizability"
+  },
+  {
+   "t": "p",
+   "x": [
+    "De esa definición salen dos reglas prácticas. Una: **si la operación A terminó antes de que B empezara, B tiene que verla**. Dos: una vez que alguien leyó el valor nuevo, **nadie puede volver a leer el viejo**. Fijate que la definición habla de «antes» y «después» en tiempo real, justo el tiempo del que ayer ([@12-21]) viste que las máquinas no pueden ponerse de acuerdo. La definición se mide desde afuera, con un observador ideal; el sistema tiene que lograr ese efecto sin tener ese observador.",
+    "Para que se vea, escribí un verificador chico. Recibe una historia (quién hizo qué y entre qué instantes) sobre un registro que empieza en 0, y prueba todos los órdenes posibles buscando uno que cumpla dos condiciones: respeta el orden en tiempo real de las operaciones no solapadas y cada lectura devuelve lo último escrito en ese orden. Si existe, la historia es linealizable. Corrido con cuatro historias:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Verificador de linealizabilidad para un registro (valor inicial 0) por fuerza bruta.\n// Cada operación: quién, tipo, valor, inicio y fin (en ms, relojes ideales de un observador externo).\nfunction probar(nombre, ops) {\n  let hallado = null;\n  const n = ops.length, usados = new Array(n).fill(false), orden = [];\n  (function ir(valor) {\n    if (hallado) return;\n    if (orden.length === n) { hallado = orden.slice(); return; }\n    for (let i = 0; i < n && !hallado; i++) {\n      if (usados[i]) continue;\n      const o = ops[i];\n      if (ops.some((p, j) => !usados[j] && j !== i && p.fin < o.ini)) continue;\n      if (o.tipo === \"R\" && o.v !== valor) continue;\n      usados[i] = true; orden.push(o.q);\n      ir(o.tipo === \"W\" ? o.v : valor);\n      usados[i] = false; orden.pop();\n    }\n  })(0);\n  console.log(nombre.padEnd(34), hallado ? \"LINEALIZABLE, orden posible: \" + hallado.join(\" > \") : \"NO es linealizable\");\n}\nconst W = (q, v, ini, fin) => ({ q, tipo: \"W\", v, ini, fin });\nconst R = (q, v, ini, fin) => ({ q, tipo: \"R\", v, ini, fin });\nprobar(\"1) lectura que se solapa con W(1)\", [W(\"Ana escribe 1\", 1, 0, 10), R(\"Beto lee 0\", 0, 5, 15)]);\nprobar(\"2) lee viejo después de terminar W\", [W(\"Ana escribe 1\", 1, 0, 10), R(\"Beto lee 0\", 0, 20, 30)]);\nprobar(\"3) ve el 1 y después vuelve al 0\", [W(\"Ana escribe 1\", 1, 0, 100), R(\"Beto lee 1\", 1, 10, 20), R(\"Beto lee 0\", 0, 30, 40)]);\nprobar(\"4) ve el 1 y sigue viendo el 1\", [W(\"Ana escribe 1\", 1, 0, 100), R(\"Beto lee 0\", 0, 10, 20), R(\"Beto lee 1\", 1, 30, 40)]);",
+   "cap": "Fuerza bruta, solo sirve para historias de pocas operaciones (probar todos los órdenes crece factorial). Las historias son inventadas para mostrar cada caso."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá cada caso. En el **1**, la lectura se solapa con la escritura, así que el sistema puede ordenarlas como quiera: leer 0 es válido. En el **2**, la escritura ya terminó cuando empieza la lectura y aun así lee 0: es una **lectura vieja** y viola la linealizabilidad. En el **3**, Beto ve el 1 y después el 0: el valor «retrocede». En el **4**, en cambio, Beto lee 0 y después 1 mientras la escritura sigue en curso: perfectamente válido, porque el cambio ocurrió entre las dos lecturas."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "No confundir con «ACID» ni con «serializable»",
+   "x": "Linealizabilidad habla de **una operación sobre un objeto** y del tiempo real; la serializabilidad de las transacciones habla de varias operaciones sobre varios objetos y no exige respetar el tiempo real. Son propiedades distintas, y un sistema puede tener una sin la otra. Cuando alguien dice «consistencia fuerte» sin más, pedile que diga cuál."
+  },
+  {
+   "t": "pensa",
+   "x": "Un cliente guarda un pago y la pantalla confirma. Un segundo después, otro dispositivo suyo, conectado a otra réplica, consulta y no ve el pago. ¿Qué propiedad se violó y qué historia del verificador se parece?",
+   "resp": "La linealizabilidad: la escritura ya había terminado (se confirmó) cuando empezó la lectura, y la lectura devolvió el valor anterior. Es la historia 2."
+  },
+  {
+   "t": "h",
+   "x": "Consistencia eventual: el contrato más flojo que sigue siendo un contrato"
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el otro extremo está la [[consistencia eventual]], que ya conocés de la arquitectura de eventos ([@12-17]). Su promesa es mínima: **si dejan de llegar escrituras, todas las réplicas terminan viendo el mismo valor**. No dice cuándo ni qué valor ve cada una mientras tanto. Es el contrato de un sistema que replica de forma asíncrona: el líder confirma al cliente apenas escribió en su disco y manda la novedad a las copias después.",
+    "¿Cuánto vale esa demora en la práctica? Lo simulé con una cuenta simple: una escritura por segundo, una réplica que se entera 50 ms después y lecturas a esa réplica en instantes al azar (semilla fija). El resultado, abajo, es un dato de **la simulación**, no de ningún producto: cuando la demora es el 5 % del intervalo entre escrituras, el 5 % de las lecturas ve el dato anterior. Con demoras de segundos, la mayoría de las lecturas serían viejas."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Latencia de escritura según cuántas réplicas esperás (datos inventados de ida y vuelta, en ms).\nconst rtt = { \"Córdoba\": 18, \"San Pablo\": 45, \"Virginia\": 140 }; // ESTIMACIÓN inventada, del orden de lo que se mide entre esas zonas\nconst local = 1; // lo que tarda el líder (en Buenos Aires) en escribir en su disco\nconst f = Object.values(rtt).sort((a, b) => a - b);\nconsole.log(\"Latencia de una escritura en el líder de Buenos Aires, según a cuántas réplicas esperás:\");\nconsole.log(\"  solo el líder escribió (asíncrona):        \", local, \"ms\");\nconsole.log(\"  esperás a 1 réplica (la de Córdoba):      \", local + f[0], \"ms\");\nconsole.log(\"  esperás a 2 réplicas (+ San Pablo):       \", local + f[1], \"ms\");\nconsole.log(\"  esperás a las 3 réplicas (+ Virginia):   \", local + f[2], \"ms\");\n// Con replicación asíncrona, ¿qué fracción de lecturas a una réplica ve un dato viejo?\nfunction prng(s) { return () => (s = (s * 1664525 + 1013904223) >>> 0) / 2 ** 32; }\nconst rnd = prng(2026);\nconst lag = 50; // ms de demora de replicación (inventado)\nlet viejas = 0, N = 100000;\nfor (let i = 0; i < N; i++) { const despues = rnd() * 1000; if (despues < lag) viejas++; } // una escritura por segundo; lectura en un instante al azar\nconsole.log(`\\nLectura en la réplica con ${lag} ms de demora, una escritura por segundo:`, (100 * viejas / N).toFixed(1) + \"% de lecturas con el dato anterior\");",
+   "cap": "Los tiempos de ida y vuelta son estimaciones inventadas del orden de lo que se mide entre esas regiones; la fracción de lecturas viejas sí es resultado de la simulación (semilla fija 2026)."
+  },
+  {
+   "t": "p",
+   "x": [
+    "En el medio del menú hay contratos intermedios que conviene nombrar sin entrar en detalle: **leer lo que uno mismo escribió** (después de guardar, ves tu cambio aunque otros todavía no), **lecturas monótonas** (no volvés atrás en el tiempo) y la **consistencia causal**, que garantiza que si un efecto se ve, también se ve su causa. Esta última es la que se implementa con relojes lógicos como los de ayer. Son contratos más baratos que la linealizabilidad y más útiles que el eventual a secas."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Pensalo así: el pizarrón del depósito y el aviso por radio",
+   "x": [
+    "La linealizabilidad es un solo pizarrón en el centro del depósito: cada vez que alguien lo actualiza, todos los demás lo ven cambiado en la siguiente mirada. La consistencia eventual es cada autoelevador con su cuaderno, que se pone al día cuando pasa por el escritorio: tarde o temprano todos coinciden, pero a media mañana los cuadernos dicen cosas distintas.",
+    "El límite de la analogía: un pizarrón único se cae si se corta la luz del centro, mientras que los cuadernos siguen sirviendo. Eso es justamente lo que el teorema de hoy pone en números."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El teorema CAP, con las definiciones que importan"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Ya viste CAP y su vocabulario en [@09-34]. Hoy lo miramos con la lupa de los dos que lo demostraron, Seth Gilbert y Nancy Lynch, porque la versión de la frase «elegí dos de tres» esconde casi todo lo importante [#bd0934-gilbert-lynch]. Cada letra tiene una definición precisa:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**C (consistencia):** en el trabajo de Gilbert y Lynch es la **atomicidad** de un registro compartido, es decir, la linealizabilidad de recién. No es la «C» de ACID.",
+    "**A (disponibilidad):** **cada solicitud que llega a un nodo que no falló recibe una respuesta** (con el tiempo). Una respuesta de error por no poder cumplir no cuenta.",
+    "**P (tolerancia a particiones):** el sistema sigue funcionando aunque los mensajes entre nodos se demoren o se pierdan; es una característica del ambiente más que una elección."
+   ],
+   "ord": false
+  },
+  {
+   "t": "cita",
+   "x": "In a network subject to communication failures, it is impossible for any web service to implement an atomic read/write shared memory that guarantees a response to every request.",
+   "autor": "Gilbert y Lynch, 2012",
+   "fuente": "bd0934-gilbert-lynch"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La demostración cabe en un párrafo. Partí la red en dos islas: el nodo 1 de un lado y los demás del otro. Un cliente escribe en el nodo 1, que responde «ok». Después otro cliente lee en el nodo 2. El nodo 2 **no puede distinguir** entre «hubo una escritura que no me llegó» y «no hubo ninguna»: los mensajes del nodo 1 se pierden. Solo le quedan dos caminos: **responder algo** (y arriesgarse a devolver un valor viejo, rompiendo C) o **no responder** (rompiendo A) [#bd0934-gilbert-lynch].",
+    "De ahí salen tres correcciones a la frase popular. Primera: **no se puede «elegir» no tener particiones**; en una red real los mensajes se pierden, así que P no es opcional. Segunda: **la elección ocurre solo mientras dura la partición**; con la red sana podés tener C y A a la vez. Tercera: C y A, como están definidas, son absolutas, mientras que los sistemas reales viven en grises: Kleppmann argumenta que las etiquetas «CP» y «AP» pegadas a un producto confunden más de lo que ayudan [#bd0934-kleppmann-cap]."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "secuencia",
+   "actores": [
+    {
+     "n": "Cliente 1",
+     "k": "cliente"
+    },
+    {
+     "n": "Nodo 1",
+     "k": "servidor"
+    },
+    {
+     "n": "Nodo 2",
+     "k": "servidor"
+    },
+    {
+     "n": "Cliente 2",
+     "k": "cliente"
+    }
+   ],
+   "mensajes": [
+    {
+     "de": 0,
+     "a": 1,
+     "t": "escribir valor = v2",
+     "d": "El cliente 1 escribe en el nodo 1, que está de un lado de la partición."
+    },
+    {
+     "de": 1,
+     "a": 0,
+     "t": "ok",
+     "d": "El nodo 1 confirma: para el cliente 1, la escritura ya terminó.",
+     "resp": true
+    },
+    {
+     "de": 1,
+     "a": 2,
+     "t": "replicar v2 (se pierde)",
+     "d": "La red está partida: el mensaje de replicación nunca llega al nodo 2."
+    },
+    {
+     "de": 3,
+     "a": 2,
+     "t": "leer valor",
+     "d": "Después, el cliente 2 pregunta en el nodo 2, que no sabe nada de v2."
+    },
+    {
+     "de": 2,
+     "a": 3,
+     "t": "¿v1 o nada?",
+     "d": "Dilema de CAP: contestar v1 (valor viejo, sin consistencia) o no contestar (sin disponibilidad).",
+     "resp": true
+    }
+   ],
+   "cap": "La demostración de Gilbert y Lynch en una imagen: el nodo 2 no puede distinguir si hubo una escritura que no le llegó."
+  },
+  {
+   "t": "pensa",
+   "x": "Un tablero de logística muestra la última posición conocida de cada camión, y la red entre dos centros de datos se corta diez minutos. ¿Conviene que ambos lados sigan mostrando posiciones, aunque algunas queden viejas, o que se frene el tablero?",
+   "resp": "Conviene seguir mostrando: una posición de hace unos minutos sigue siendo útil y un tablero apagado no sirve para nada. Es un dato donde equivocarse un poco cuesta poco, así que se elige disponibilidad. Para la asignación de un camión a un despacho, en cambio, dos asignaciones contradictorias cuestan mucho."
+  },
+  {
+   "t": "h",
+   "x": "Las dos elecciones, corridas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Simulé el ejemplo de los dos depósitos. El stock de un artículo es 10 en las dos réplicas. Entre los instantes 2 y 7 la red entre ellas se corta. Durante el corte, Buenos Aires vende 2 unidades y Córdoba vende 3 (cada uno desde su copia). Se corre dos veces: una vez con un sistema que elige consistencia (si no alcanza a la otra réplica, rechaza) y otra con uno que elige disponibilidad (atiende con lo que tiene y reconcilia después)."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Dos réplicas de un depósito (BA y COR) con el stock de un artículo. Una partición entre t=2 y t=7.\nconst enParticion = (t) => t >= 2 && t < 7;\nfunction simular(modo) {\n  const r = { BA: { v: 10, vec: { BA: 0, COR: 0 }, sib: [] }, COR: { v: 10, vec: { BA: 0, COR: 0 }, sib: [] } };\n  const otro = (x) => (x === \"BA\" ? \"COR\" : \"BA\");\n  let atendidas = 0, rechazadas = 0;\n  const log = (t, s) => console.log(`t=${t}  ${s}`);\n  function escribir(t, nodo, nuevo, hora) {\n    if (modo === \"CP\" && enParticion(t)) { rechazadas++; return log(t, `${nodo}: escribir ${nuevo} RECHAZADO (no alcanza a la otra réplica)`); }\n    const a = r[nodo], b = r[otro(nodo)];\n    a.v = nuevo; a.vec[nodo]++; a.hora = hora; atendidas++;\n    if (!enParticion(t)) { b.v = nuevo; b.vec = { ...a.vec }; b.hora = hora; }\n    log(t, `${nodo}: stock := ${nuevo}   vector ${JSON.stringify(a.vec)}`);\n  }\n  function leer(t, nodo) {\n    if (modo === \"CP\" && enParticion(t)) { rechazadas++; return log(t, `${nodo}: leer RECHAZADO`); }\n    atendidas++; log(t, `${nodo}: lee ${r[nodo].v}`);\n  }\n  escribir(1, \"BA\", 10, 100);\n  escribir(3, \"BA\", 8, 300);   // BA vende 2\n  escribir(4, \"COR\", 7, 400);  // COR vende 3 (parte de 10, no vio la venta de BA)\n  leer(5, \"BA\"); leer(5, \"COR\");\n  // se arregla la red en t=7: reconciliación\n  const A = r.BA, C = r.COR;\n  const concurr = Object.keys(A.vec).some((k) => A.vec[k] > C.vec[k]) && Object.keys(A.vec).some((k) => A.vec[k] < C.vec[k]);\n  if (modo === \"AP\") {\n    log(7, `red repuesta. BA ${JSON.stringify(A.vec)} vs COR ${JSON.stringify(C.vec)} -> ${concurr ? \"CONCURRENTES: hay conflicto\" : \"uno es posterior\"}`);\n    const lww = A.hora > C.hora ? A.v : C.v;\n    log(7, `  si se resuelve por «última escritura gana» (hora de pared): stock = ${lww}`);\n    log(7, `  si se conservan las dos versiones y se suman las ventas (-2, -3): stock = ${10 - 2 - 3}`);\n  } else log(7, `red repuesta. Nada que reconciliar: stock = ${A.v} en las dos`);\n  console.log(`  -> atendidas ${atendidas}, rechazadas ${rechazadas}\\n`);\n}\nconsole.log(\"=== Elige consistencia (CP) ===\"); simular(\"CP\");\nconsole.log(\"=== Elige disponibilidad (AP) ===\"); simular(\"AP\");",
+   "cap": "Dos réplicas, una partición entre t=2 y t=7, y la elección de cada sistema. Los vectores son los de ayer ([@12-21]). Todo es simulación en un proceso."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La elección por **consistencia** deja al sistema sin atender a nadie durante la partición (4 de 5 pedidos rechazados) pero no se contradice nunca: al volver la red hay un solo stock. La elección por **disponibilidad** atiende los 5 pedidos, y cuando la red vuelve descubre que hay **dos historias concurrentes**: Buenos Aires vio 8 y Córdoba vio 7.",
+    "Ahora importa cómo se resuelve. Si el sistema aplica «última escritura gana» con la hora de pared, se queda con 7: **perdió la venta de Buenos Aires y vende de más dos unidades**, justo el error que viste ayer con los relojes. Si en cambio conserva las dos versiones y el negocio sabe combinarlas (restar las dos ventas), llega al stock correcto, 5. La diferencia es de diseño: el segundo modela la **operación** («restar 2», «restar 3») y no el **valor** («ahora hay 8»). Es la idea que viste en [@12-18], cuando registrar eventos en lugar de estados permite reconstruir y combinar historias."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Con dos réplicas, ni siquiera se puede ser «consistente» con tolerancia",
+   "x": "La simulación de consistencia rechazó todo porque con dos nodos y una red cortada ninguno puede saber si el otro cayó o solo no se alcanza. Los sistemas que sí siguen funcionando durante una partición usan **tres o más** nodos y un voto por mayoría, de modo que el lado que tiene la mayoría continúa y el otro se detiene. De eso se trata mañana."
+  },
+  {
+   "t": "h",
+   "x": "PACELC: la pregunta que sigue valiendo con la red sana"
+  },
+  {
+   "t": "p",
+   "x": [
+    "CAP solo habla de lo que pasa durante una partición, que en un sistema bien operado es la excepción. Daniel Abadi observó que hay un costo que se paga **siempre**: replicar con consistencia fuerte obliga a **esperar** a las otras copias, y esa espera es latencia [#bd0934-abadi-pacelc]. Su formulación, [[PACELC]], se lee en dos mitades: si hay partición (**P**), ¿cedés disponibilidad (**A**) o consistencia (**C**)?; y si no (**E**, de *else*), ¿cedés latencia (**L**) o consistencia (**C**)? [#bd0934-abadi-pacelc]. El paper aclara que el compromiso latencia/consistencia solo existe en sistemas que replican datos.",
+    "El segundo programa de arriba lo mide con números inventados pero de orden realista: un líder en Buenos Aires que confirma al instante cuando solo él escribió tarda 1 ms; si espera a la réplica de Córdoba, sube a 19 ms; si espera a una de San Pablo, a 46 ms; si espera una en Virginia, a 141 ms. **Cuanto más lejos queda la copia que esperás, más lenta es cada escritura**, partición o no. Esa es la mitad de PACELC que CAP no mostraba."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Pregunta de diseño",
+    "Si priorizás consistencia",
+    "Si priorizás lo otro"
+   ],
+   "filas": [
+    [
+     "Red partida (P): ¿qué cedés?",
+     "Rechazás pedidos del lado minoritario (cedés disponibilidad)",
+     "Atendés con datos posiblemente viejos y reconciliás después (cedés consistencia)"
+    ],
+    [
+     "Red sana (E): ¿qué cedés?",
+     "Esperás a las copias: cada escritura tarda más (cedés latencia)",
+     "Confirmás ya y replicás después: lecturas viejas por un rato (cedés consistencia)"
+    ],
+    [
+     "Caso de logística típico",
+     "Saldo de una cuenta corriente, asignación única de un camión a un despacho",
+     "Posición de un camión en un mapa, contador de visitas de un tablero"
+    ]
+   ],
+   "cap": "Las filas de abajo son criterio mío, no un resultado: depende de cuánto cuesta equivocarse en cada dato."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Mi base de datos es CP» o «es AP», dicho como si fuera una etiqueta fija. Muchos sistemas permiten elegir por operación (por ejemplo, lecturas que esperan a la mayoría o que leen la copia más cercana), y por eso la pregunta útil es por **cada dato**: ¿qué pasa si dos usuarios ven valores distintos durante un rato? Si la respuesta es «nada grave» (un contador de reproducciones), alcanza con eventual. Si es «se cobra dos veces», hace falta coordinación."
+  },
+  {
+   "t": "h",
+   "x": "Dónde se ve en Senda"
+  },
+  {
+   "t": "senda",
+   "titulo": "Una sola base, y el teléfono como segunda copia",
+   "x": [
+    "**Del lado del servidor no hay réplicas que discrepen.** Según el mapa técnico (commit 25e08fa), Senda usa un proyecto único de Supabase, en una sola región, **sin réplica de lectura** y sin ambiente de pruebas separado: está anotado como límite conocido. Con una sola base, lo que escribe una persona lo ve otra en la siguiente lectura: el problema de CAP entre servidores no existe. La contrapartida es la que viste ayer con la hora: si la base no responde, no hay servicio para quien la necesite.",
+    "**El teléfono es la segunda copia, y ahí Senda elige disponibilidad.** La app guarda el progreso en el teléfono y sigue funcionando sin señal. Lo que tiene que llegar a la nube pasa por una bandeja de salida persistente: cada fila lleva un `cliente_id` y el servidor ignora los repetidos, de modo que reintentar nunca duplica; si falla, espera 5 s, 10 s, 20 s, hasta 10 minutos con un poco de azar. Es la forma ordenada de la consistencia eventual: se acepta localmente y se reconcilia cuando vuelve la red.",
+    "**Y hay un caso donde la reconciliación es «gana el último».** «Guardar mi progreso» con Google copia el estado del teléfono a una fila por persona (`progreso_nube`): subir pisa el documento entero con el de ese teléfono y la hora la pone la base. Al recuperarlo en otro teléfono, la app muestra antes un resumen de la copia y, si la persona la acepta, **reemplaza** lo guardado en ese teléfono (no mezcla). INFERENCIA mía: si alguien jugara en dos teléfonos con la misma cuenta, el último en subir se llevaría el progreso del otro. Es una decisión razonable para una app de uso personal, y es el mismo trato que el del stock con «última escritura gana»: sirve mientras el dato lo toque una sola persona a la vez."
+   ],
+   "archivos": [
+    "src/util/nube.ts",
+    "src/util/respaldo.ts",
+    "supabase/migrations/20261130000006_progreso_nube.sql",
+    "src/estado/usuario.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué te llevás para decidir"
+  },
+  {
+   "t": "lista",
+   "items": [
+    "Antes de elegir una base o una arquitectura, preguntá **por dato**: ¿qué pasa si dos personas ven valores distintos durante unos segundos o minutos?",
+    "Linealizabilidad es «una sola copia» en tiempo real; cuesta coordinación y latencia incluso con la red sana (PACELC).",
+    "CAP no se trata de elegir dos de tres: P llega solo, y la elección es entre atender con riesgo de dato viejo o frenar, **mientras dura la partición**.",
+    "Si elegís disponibilidad, **modelá operaciones y no valores** para poder combinar historias concurrentes sin perder trabajo.",
+    "Con dos nodos no hay tolerancia posible con consistencia: se necesita mayoría, que es el tema de mañana."
+   ],
+   "ord": false
+  }
+ ],
+ "recap": [
+  "Un modelo de consistencia es un contrato sobre lo que ve quien lee; más fuerte es más fácil de programar y más caro de sostener.",
+  "Linealizabilidad: el sistema parece tener una sola copia y cada operación ocurre en un instante entre su inicio y su fin; una lectura posterior a una escritura terminada no puede devolver el valor viejo.",
+  "Consistencia eventual: sin nuevas escrituras, todas las réplicas convergen; mientras tanto puede haber lecturas viejas (5 % en la simulación con 50 ms de demora).",
+  "CAP (Gilbert y Lynch): con mensajes que se pierden, un registro atómico no puede responder siempre; durante la partición hay que elegir entre responder con riesgo (A) o frenar (C).",
+  "Elegir disponibilidad exige reconciliar: «última escritura gana» perdió una venta; modelar operaciones permitió llegar a 5.",
+  "PACELC: aun sin partición, la consistencia fuerte cuesta latencia por esperar a copias (de 1 ms a 141 ms en el ejemplo).",
+  "En Senda no hay réplicas en el servidor; el teléfono es la segunda copia y acepta cambios sin señal con una bandeja idempotente."
+ ],
+ "repaso": [
+  {
+   "p": "Una escritura ya confirmada al cliente termina a las 10:00:00. A las 10:00:05 otro cliente lee en otra réplica y recibe el valor anterior. ¿Qué se puede decir?",
+   "o": [
+    "Es válido para linealizabilidad, porque las réplicas son independientes entre sí",
+    "Viola solo la consistencia eventual, porque el valor tarda en propagarse",
+    "Viola la linealizabilidad, porque la lectura empezó después de terminar la escritura",
+    "Es válido siempre, porque la lectura y la escritura ocurrieron en nodos distintos"
+   ],
+   "c": 2,
+   "e": "La linealizabilidad exige que una operación que empieza después de terminar otra la vea. Un sistema eventual sí podría devolver ese dato viejo: no viola su propio contrato. Que sean nodos distintos no la excusa, justamente se pide parecer una sola copia."
+  },
+  {
+   "p": "Un cliente lee el valor 1 y, unos segundos después, lee 0 del mismo registro mientras una escritura de 1 sigue en curso. ¿Qué pasa?",
+   "o": [
+    "No es linealizable, porque el valor ya visto no puede desaparecer",
+    "Es linealizable, porque la escritura todavía no terminó y todo está permitido",
+    "Es linealizable solo si hubo un reloj sincronizado entre los dos lectores",
+    "Es linealizable, porque leer 0 después de 1 es lo normal con réplicas lentas"
+   ],
+   "c": 0,
+   "e": "Una vez que una lectura devuelve el valor nuevo, las siguientes no pueden volver al viejo (historia 3 del verificador), aunque la escritura siga en curso. Con réplicas lentas puede ocurrir, pero en ese caso el sistema no es linealizable."
+  },
+  {
+   "p": "Dos réplicas pierden contacto. Un sistema decide rechazar toda escritura mientras no vea a la otra. Según CAP, ¿qué eligió durante la partición?",
+   "o": [
+    "Disponibilidad, a costa de consistencia en esos pedidos",
+    "Tolerancia a particiones, a costa de consistencia y disponibilidad",
+    "Latencia, a costa de tolerancia a particiones en esos pedidos",
+    "Consistencia, a costa de disponibilidad en esos pedidos"
+   ],
+   "c": 3,
+   "e": "Rechazar pedidos para no divergir protege la consistencia y sacrifica la disponibilidad (los pedidos rechazados no reciben respuesta útil). P no se elige: la partición ocurre igual. La latencia entra en PACELC y no en esta elección."
+  },
+  {
+   "p": "¿Cuál de estas lecturas de CAP es la más precisa?",
+   "o": [
+    "Un sistema distribuido siempre debe renunciar a una de las tres propiedades, también con la red sana",
+    "Si la red se parte, hay que renunciar a responder siempre o a que lo respondido sea linealizable",
+    "Se puede elegir un sistema sin tolerancia a particiones y evitar el problema por completo",
+    "La consistencia de CAP es la misma que la C de ACID en las bases relacionales"
+   ],
+   "c": 1,
+   "e": "El teorema solo habla del caso con partición, y su C es la atomicidad (linealizabilidad). Con red sana se puede tener C y A. Una red real pierde mensajes, así que «no tolerar particiones» no es una opción gratuita. Y la C de ACID es otra cosa."
+  },
+  {
+   "p": "Dos réplicas aceptaron escrituras durante una partición. Una dice stock 8 y la otra 7, ambas desde un 10 inicial tras vender 2 y 3. Si se resuelve por «última escritura gana», ¿qué riesgo hay?",
+   "o": [
+    "Que ambas ventas se sumen dos veces al reconciliar los datos",
+    "Que el stock quede en 10 porque las dos versiones se anulan",
+    "Que una de las dos ventas se pierda y se venda de más",
+    "Que el sistema rechace las dos versiones y quede sin respuesta"
+   ],
+   "c": 2,
+   "e": "LWW se queda con una sola versión (7 u 8) y descarta la otra venta: el stock real era 5. Sumar dos veces o anularse no es lo que hace la regla, y rechazar ambas versiones tampoco. Modelar «restar 2» y «restar 3» permite combinarlas bien."
+  },
+  {
+   "p": "Un sistema replica con consistencia fuerte y confirma recién cuando la réplica de Virginia (140 ms de ida y vuelta) responde. La red está perfecta. ¿Qué pasa con la latencia?",
+   "o": [
+    "Cada escritura tarda al menos esos 140 ms, aunque no haya partición",
+    "No cambia, porque sin partición la consistencia es gratis",
+    "Aumenta solo cuando la red falla y hay que reintentar",
+    "Disminuye, porque Virginia procesa más rápido que Buenos Aires"
+   ],
+   "c": 0,
+   "e": "Esa es la mitad «ELC» de PACELC: esperar a una copia lejana suma su ida y vuelta a cada escritura, incluso con la red sana. La consistencia fuerte no es gratis aun sin particiones, y distancia no significa más rapidez."
+  },
+  {
+   "p": "En Senda, el teléfono guarda el progreso y manda lo pendiente a la nube cuando hay señal, con un identificador por fila para ignorar repetidos. ¿Qué compromiso refleja?",
+   "o": [
+    "Consistencia fuerte en el teléfono, con baja disponibilidad sin señal",
+    "Linealizabilidad entre el teléfono y la base en cada operación",
+    "Ninguno, porque con una sola base no existe ningún compromiso posible",
+    "Disponibilidad en el teléfono, con consistencia eventual hacia la nube"
+   ],
+   "c": 3,
+   "e": "Aceptar escrituras sin señal y reconciliar después es elegir disponibilidad con convergencia eventual; el identificador hace seguro el reintento. No es linealizable en cada operación, y que haya una sola base no elimina el trato entre teléfono y servidor."
+  }
+ ],
+ "feynman": "Explicale a alguien de depósito, sin vocabulario técnico, por qué un sistema con dos sucursales conectadas por una línea que se corta de vez en cuando tiene que elegir entre seguir vendiendo (con riesgo de contradecirse) o frenar las ventas, y qué cambia cuando la línea anda perfecta.",
+ "para_profundizar": [
+  {
+   "fuente": "bd0934-gilbert-lynch",
+   "nota": "La sección 2 define C, A y P con precisión y trae la demostración corta del teorema que resumimos hoy; las siguientes discuten qué hacer en la práctica."
+  },
+  {
+   "fuente": "herlihy-wing-linearizability",
+   "nota": "El artículo original de la linealizabilidad. Alcanza con la introducción y la sección de motivación para ver por qué se pide respetar el orden en tiempo real."
+  },
+  {
+   "fuente": "bd0934-abadi-pacelc",
+   "nota": "El paper de PACELC. Leé la parte que define el modelo y los ejemplos de sistemas: sirve para ver cómo se razona sobre cada decisión y no para memorizar etiquetas."
+  },
+  {
+   "fuente": "bd0934-kleppmann-cap",
+   "nota": "La crítica de Kleppmann a CAP: explica por qué las etiquetas CP y AP simplifican de más y propone medir la sensibilidad de cada operación al retraso."
+  }
+ ],
+ "videos": [
+  {
+   "q": "CAP theorem explained linearizability partition tolerance",
+   "por_que": "Para ver la misma partición dibujada paso a paso y contrastarla con las dos corridas de hoy."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "linealizabilidad",
+   "d": "Garantía de que un sistema con varias copias se comporta como si tuviera una sola y cada operación ocurriera en un instante entre su inicio y su fin. Una lectura que empieza después de terminar una escritura nunca devuelve el valor anterior."
+  },
+  {
+   "t": "consistencia eventual",
+   "d": "Garantía débil: si dejan de llegar escrituras, todas las réplicas terminan con el mismo valor. No dice cuándo, ni qué ve cada una mientras tanto."
+  },
+  {
+   "t": "CAP",
+   "d": "Teorema (Brewer, demostrado por Gilbert y Lynch): con mensajes que pueden perderse, un servicio no puede ser atómico y responder siempre a cada pedido. Durante una partición hay que elegir entre ambas."
+  },
+  {
+   "t": "PACELC",
+   "d": "Extensión de CAP por Abadi: si hay partición (P) se elige entre disponibilidad (A) y consistencia (C); si no (E, else), entre latencia (L) y consistencia (C)."
+  },
+  {
+   "t": "consistencia",
+   "d": "En este contexto, el contrato que dice qué valores puede ver quien lee un dato replicado y cuándo. Hay un menú, de la linealizabilidad a la eventual."
+  },
+  {
+   "t": "lectura vieja",
+   "d": "Lectura que devuelve un valor anterior a una escritura ya terminada, típica de réplicas que se actualizan con demora."
+  },
+  {
+   "t": "disponibilidad (en CAP)",
+   "d": "Que cada solicitud a un nodo que no falló reciba una respuesta. Responder con un error por no poder cumplir no cuenta."
+  }
+ ],
+ "siguiente": "Ya sabés qué se puede prometer y qué cuesta. Mañana: cómo varios nodos se ponen de acuerdo sobre un valor aunque falle alguno, con consenso, Paxos y Raft.",
+ "fuentes_nuevas": [
+  {
+   "id": "herlihy-wing-linearizability",
+   "t": "Linearizability: A Correctness Condition for Concurrent Objects",
+   "a": "Maurice P. Herlihy y Jeannette M. Wing",
+   "tipo": "paper",
+   "anio": 1990,
+   "url": "https://cs.brown.edu/~mph/HerlihyW90/p463-herlihy.pdf"
+  }
+ ]
+}
