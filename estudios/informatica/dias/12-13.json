@@ -1,0 +1,547 @@
+{
+ "id": "12-13",
+ "titulo": "Domain-Driven Design I: lenguaje ubicuo y contextos",
+ "bajada": "Vas a ver por qué la palabra «pedido» significa tres cosas distintas en una distribuidora, qué pasa cuando el código finge que es una sola y cómo se dibujan las fronteras que lo arreglan.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar qué es un lenguaje ubicuo y por qué el vocabulario del código tiene que ser el de las personas que conocen el negocio.",
+  "Mostrar con un ejemplo corrido cómo un modelo único de «pedido» se rompe cuando Ventas, Depósito y Transporte lo usan con significados distintos.",
+  "Definir un contexto delimitado y separar tres modelos que traducen en la frontera sin compartir sus tipos.",
+  "Leer un mapa de contextos y nombrar el tipo de relación (cliente-proveedor, conformista, capa anticorrupción, caminos separados) entre dos de ellos.",
+  "Decidir cuándo el diseño estratégico de DDD alcanza y cuándo sobra, con el caso de la palabra «partida» en Senda."
+ ],
+ "venis_de": "En [@12-10] viste el monolito modular, con módulos que tienen frontera; en [@12-11] y [@12-12] viste cómo se protege el núcleo del negocio de la infraestructura. Falta una pregunta previa a todas esas: qué es exactamente «el negocio» que hay que proteger, y quién decide qué significa cada palabra.",
+ "se_apoya_en": [
+  "12-10",
+  "12-11",
+  "12-12",
+  "08-15"
+ ],
+ "gancho": [
+  "Lunes por la mañana, reunión de una distribuidora que me inventé: «Distribuidora Ficticia S. A.». Alguien pregunta cuántos pedidos salieron la semana pasada. Ventas contesta 412. El depósito, 530. Transporte, 97. Los tres miran su planilla y los tres tienen razón.",
+  "Ventas cuenta lo que los clientes confirmaron. El depósito cuenta órdenes de armado, y un pedido grande se parte en dos o tres. Transporte cuenta paradas: un camión que entrega cinco pedidos en el mismo local hace una sola. Los números son inventados, pero el mecanismo es el de cualquier empresa con más de un sector: la misma palabra, tres cosas distintas, y nadie miente.",
+  "Hoy vas a ver qué pasa cuando ese malentendido llega al código, y la idea con la que Eric Evans lo encaró en su libro sobre diseño dirigido por el dominio. No es una técnica de programación. Es una forma de decidir qué significa cada palabra antes de escribir una línea."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Una palabra, tres significados"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Martin Fowler cuenta que, al principio de su carrera, trabajó con una empresa eléctrica donde la palabra «medidor» significaba cosas distintas según el sector: la conexión entre la red y un lugar, la conexión entre la red y un cliente, o el aparato físico, que se podía reemplazar si fallaba [#ddd1213-fowler-bounded-context]. En una conversación esas diferencias se disimulan con un gesto. En un programa no, porque un programa necesita que cada palabra apunte a una sola cosa.",
+    "Pasa lo mismo en logística. Mirá cómo se ve la palabra **pedido** en la distribuidora inventada, sector por sector:"
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Sector",
+    "Qué es un «pedido» para ellos",
+    "Qué les importa de él",
+    "Cuándo «termina»"
+   ],
+   "filas": [
+    [
+     "Ventas",
+     "Lo que el cliente confirmó comprar",
+     "Quién es, qué productos, a qué precio, con qué condición de pago",
+     "Cuando se factura"
+    ],
+    [
+     "Depósito",
+     "Una orden de armado: qué sacar de qué estantería",
+     "Ubicación de cada producto, peso, cuántos bultos salen",
+     "Cuando salió el último bulto"
+    ],
+    [
+     "Transporte",
+     "Una parada en una hoja de ruta",
+     "Dirección, ventana horaria, cantidad de bultos a bajar",
+     "Cuando el cliente firmó la entrega"
+    ]
+   ],
+   "cap": "Tres sectores, tres significados. La empresa y sus números son inventados para este ejemplo."
+  },
+  {
+   "t": "p",
+   "x": "Ninguno de los tres está equivocado. Lo que pasa es que cada sector tiene su propia manera de entender el negocio, y esa manera se refleja en el vocabulario que usa todos los días. Ahora imaginá el pedido de un programador al que le dijeron «hacé el sistema de pedidos»."
+  },
+  {
+   "t": "pensa",
+   "x": "Un pedido de 3 bultos sale en dos viajes: primero 1 bulto y al otro día los otros 2. ¿Cuántas veces «termina» ese pedido según la tabla de arriba, y qué sector se entera de cada fin?",
+   "resp": "Termina una vez para Ventas (cuando se factura, que puede ser antes o después de los viajes), una vez para el depósito (al salir el tercer bulto) y dos veces para Transporte (una por cada parada que se firma). Tres finales distintos, en momentos distintos, avisados a sectores distintos. Un único campo «estado» no puede contar eso."
+  },
+  {
+   "t": "h",
+   "x": "El modelo único: qué se rompe"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La tentación natural es hacer una sola clase `Pedido`, con todos los campos que necesita cada sector, y un solo `estado` que recorra toda la vida del pedido. Es lo que hace casi todo el mundo la primera vez, y funciona hasta que los sectores empiezan a usarlo a la vez. Evans lo dijo así en su libro, y Fowler lo cita: la unificación total del modelo de un sistema grande no es factible ni rentable [#ddd1213-fowler-bounded-context].",
+    "Veamos el choque con código. Lo escribí y lo corrí en Node para esta lección. El modelo único tiene un estado con cinco valores, y dos reglas que vienen de sectores distintos: Ventas no quiere que se modifique un pedido facturado, y el depósito pasa el pedido a «en ruta» apenas sale un bulto."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Un solo modelo para todos: un único \"Pedido\" con un único \"estado\".\nconst ESTADOS = ['confirmado', 'armado', 'en_ruta', 'entregado', 'facturado'];\n\nfunction crearPedido(id, lineas) {\n  return { id, estado: 'confirmado', lineas, bultosDespachados: 0 };\n}\n\n// Regla de Ventas: un pedido facturado no se modifica.\nfunction modificarLineas(p, nuevas) {\n  if (p.estado === 'facturado') throw new Error('Pedido facturado: no se modifica');\n  return { ...p, lineas: nuevas };\n}\n\n// Regla de Depósito: se despacha por partes. Cuando salió el primer bulto, el pedido \"está en ruta\".\nfunction despacharBulto(p, totalBultos) {\n  const bultosDespachados = p.bultosDespachados + 1;\n  return { ...p, bultosDespachados, estado: 'en_ruta' };\n}\n\nlet p = crearPedido('P-1', [{ sku: 'AGUA-6L', cant: 3 }]);\np = despacharBulto(p, 3);            // sale 1 de 3 bultos\nconsole.log('Depósito:', p.estado, p.bultosDespachados + '/3');\np.estado = 'facturado';              // Ventas factura apenas sale el primero (así lo hace su proceso)\nconsole.log('Ventas:', p.estado);\ntry { modificarLineas(p, [{ sku: 'AGUA-6L', cant: 2 }]); } catch (e) { console.log('Error:', e.message); }\n// Y ahora, ¿cómo sale el segundo bulto? Despacho lo pasa a 'en_ruta' y pisa la factura:\np = despacharBulto(p, 3);\nconsole.log('Después del 2.º bulto:', p.estado, '<- se perdió que estaba facturado');\n",
+   "cap": "Un solo modelo, un solo estado. Ventas factura cuando sale el primer bulto; el depósito sigue despachando. Salida real corrida en Node 22.",
+   "ejecutable": true
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate en la última línea. Después del segundo bulto el pedido volvió a «en ruta» y **se perdió que estaba facturado**. Nadie escribió un error de programación en sentido estricto: cada función hace lo que su sector le pidió. El problema es que `estado` quiere decir «en qué punto está el pedido», y hay tres respuestas verdaderas a la vez, cada una de un sector distinto.",
+    "Este tipo de choque no se arregla con más `if`. Se podría agregar un campo `facturado: true`, y otro `bultosPendientes`, y otro más. Cada parche funciona, pero el modelo se llena de campos que solo le importan a un sector, y quien trabaja en Ventas tiene que entender lo que significa `bultosDespachados` para no romperlo. Con los años la clase tiene cuarenta campos, y nadie sabe cuáles se pueden tocar sin consultar a otro equipo."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "No es un bug de lógica",
+   "x": "El código de arriba pasa todas las pruebas de cada función por separado. El defecto está en el **vocabulario**: una palabra, `estado`, se usa con tres significados. Por eso DDD empieza por el lenguaje y no por las clases."
+  },
+  {
+   "t": "h",
+   "x": "Lenguaje ubicuo: las mismas palabras en la reunión y en el código"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El [[lenguaje ubicuo|lenguaje ubicuo]] es la práctica de construir un lenguaje común y riguroso entre quienes programan y quienes conocen el negocio. Fowler lo resume así: ese lenguaje se apoya en el modelo del dominio que usa el software, y tiene que ser riguroso porque el software no tolera la ambigüedad [#ddd1213-fowler-ubiquitous-language]. «Ubicuo» quiere decir que está en todas partes: en la reunión, en el pizarrón, en los nombres de las funciones, en los mensajes de error y en las pruebas.",
+    "El truco práctico es que **el experto pueda leer los nombres del código** y reconocerlos. Si el jefe del depósito dice «cerrar la orden cuando sale el último bulto» y en el código la función se llama `proc(o, n)`, hay un traductor en el medio, y cada traducción es una chance de error. Evans agrega que usar el lenguaje en las conversaciones con los expertos es parte de la prueba del modelo: si un término resulta torpe o insuficiente para un experto, es una señal de que el modelo necesita cambios [#ddd1213-fowler-ubiquitous-language]."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Antes: el código habla en un idioma que nadie en el depósito usa.\nfunction proc(o, n) {\n  o.st = n === o.t ? 3 : 2;\n  return o;\n}\n\n// Después: los nombres son los de la gente que lo usa.\nfunction registrarBultoSalido(orden) {\n  const bultosSalidos = orden.bultosSalidos + 1;\n  const estado = bultosSalidos === orden.bultosTotal ? 'completa' : 'parcial';\n  return { ...orden, bultosSalidos, estado };\n}\n\nlet orden = { id: 'OP-P-1', bultosTotal: 3, bultosSalidos: 0, estado: 'pendiente' };\norden = registrarBultoSalido(orden);\nconsole.log(orden.estado, orden.bultosSalidos + '/' + orden.bultosTotal);\norden = registrarBultoSalido(registrarBultoSalido(orden));\nconsole.log(orden.estado, orden.bultosSalidos + '/' + orden.bultosTotal);\n",
+   "cap": "El mismo comportamiento con nombres del depósito. Salida real corrida en Node 22.",
+   "ejecutable": true
+  },
+  {
+   "t": "p",
+   "x": [
+    "Las dos funciones hacen lo mismo. La segunda, además, es una **conversación grabada**: «cuando sale un bulto, la orden pasa a parcial; cuando salen todos, a completa». Un experto la puede leer y decir «eso no es así: una orden parcial no se vuelve completa si falta un bulto reservado a otro cliente», y ahí aprendiste algo del negocio que ningún test iba a encontrar."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Armar el lenguaje lleva trabajo concreto. Un glosario vivo, escrito por los dos lados, con una línea por palabra. El de la distribuidora inventada, en la parte de depósito, podría arrancar así:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Palabra",
+    "Qué significa en este contexto",
+    "Qué NO es"
+   ],
+   "filas": [
+    [
+     "Bulto",
+     "Una unidad física que se carga y se baja: caja, pallet, bolsa. Tiene peso y etiqueta.",
+     "Un producto: tres cajas de fideos pueden ser tres bultos o uno solo si van en un pallet."
+    ],
+    [
+     "Remito",
+     "El papel que acompaña la mercadería que sale y que firma quien la recibe.",
+     "Una factura: el remito dice qué se entregó; la factura dice cuánto se cobra."
+    ],
+    [
+     "Hoja de ruta",
+     "La lista ordenada de paradas que hace un camión en un día.",
+     "Un pedido ni un cliente: una hoja de ruta tiene varias paradas."
+    ],
+    [
+     "Orden de picking",
+     "La lista de qué sacar de qué estantería para armar un envío.",
+     "El pedido de Ventas: una orden de picking sale de un pedido, pero un pedido puede dar varias."
+    ]
+   ],
+   "cap": "Glosario del contexto «Depósito» de una distribuidora inventada. Fijate que cada fila dice también qué no es."
+  },
+  {
+   "t": "cita",
+   "x": "Speak a ubiquitous language within an explicitly bounded context.",
+   "autor": "Eric Evans, DDD Reference (resumen de tres puntos)",
+   "fuente": "ddd1213-evans-reference"
+  },
+  {
+   "t": "p",
+   "x": "Mirá la última palabra de la cita: *bounded*, delimitado. El lenguaje ubicuo no es «un idioma para toda la empresa». Vale **dentro de una frontera explícita**. Esa frontera es el tema que sigue."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "Dialectos",
+   "x": [
+    "Es parecido a «pileta» y «piscina»: la misma cosa, dos palabras según dónde estés, y cada hablante se entiende perfecto con los suyos. Un contexto delimitado es la zona donde una palabra tiene un solo significado.",
+    "La analogía falla en algo importante: los dialectos son un accidente histórico y nadie los eligió. Un contexto se **traza a propósito**, con un equipo, un modelo y un glosario, y se decide dónde termina."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Contexto delimitado: cada modelo en su casa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un [[contexto delimitado|contexto delimitado]] es la zona donde un modelo es coherente y cada palabra del lenguaje ubicuo tiene un único significado. Según Fowler, es un patrón central de DDD, y sirve para dividir los modelos grandes y para ser explícitos sobre cómo se relacionan [#ddd1213-fowler-bounded-context]. La clave es que cada contexto puede tener un modelo distinto de lo que parece ser el mismo concepto.",
+    "Apliquemos eso a la distribuidora. En lugar de una clase `Pedido` con cuarenta campos, hay tres modelos pequeños: uno de Ventas, uno de Depósito y uno de Transporte. Cada uno tiene solo lo que su sector necesita, con sus palabras. Entre ellos hay **traductores**: funciones que reciben algo del idioma de un contexto y devuelven algo del idioma del otro. Corrí este código en Node:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Tres contextos, tres modelos. Cada uno dice \"pedido\" a su manera.\nconst Ventas = {\n  nuevoPedido: (id, cliente, lineas, condicion) => ({ id, cliente, lineas, condicion, estado: 'confirmado' }),\n  total: (p) => p.lineas.reduce((s, l) => s + l.cant * l.precioCents, 0),\n  facturar: (p) => ({ ...p, estado: 'facturado' }),\n};\n\nconst Deposito = {\n  // Para el depósito, lo que existe es una orden de picking, con bultos y pesos.\n  ordenDePicking: (id, ref, lineas) => ({ id, ref, lineas, bultosTotal: 0, bultosSalidos: 0 }),\n  pesoKg: (o, pesoPorSku) => o.lineas.reduce((s, l) => s + l.cant * pesoPorSku[l.sku], 0),\n  salioBulto: (o) => ({ ...o, bultosSalidos: o.bultosSalidos + 1 }),\n  completa: (o) => o.bultosSalidos === o.bultosTotal,\n};\n\nconst Transporte = {\n  // Para el transporte no hay pedidos: hay paradas en una hoja de ruta.\n  parada: (id, direccion, ventana, bultos) => ({ id, direccion, ventana, bultos, estado: 'pendiente' }),\n};\n\n// Traductores en la frontera entre contextos: cada uno conoce los dos idiomas.\nfunction ventasADeposito(pedido, bultos) {\n  return { ...Deposito.ordenDePicking('OP-' + pedido.id, pedido.id, pedido.lineas.map(({ sku, cant }) => ({ sku, cant }))), bultosTotal: bultos };\n}\nfunction depositoATransporte(orden, direccion, ventana) {\n  return Transporte.parada('PA-' + orden.ref, direccion, ventana, orden.bultosTotal);\n}\n\nconst pesoPorSku = { 'AGUA-6L': 6.3, 'FIDEOS-1K': 1.0 };\nlet pv = Ventas.nuevoPedido('P-1', 'Kiosco Norte', [{ sku: 'AGUA-6L', cant: 3, precioCents: 240000 }, { sku: 'FIDEOS-1K', cant: 10, precioCents: 95000 }], '30 días');\nlet op = ventasADeposito(pv, 3);\nconsole.log('Ventas: total en centavos =', Ventas.total(pv));\nconsole.log('Depósito: peso =', Deposito.pesoKg(op, pesoPorSku).toFixed(1), 'kg en', op.bultosTotal, 'bultos');\n\npv = Ventas.facturar(pv);                 // Ventas factura cuando quiere\nop = Deposito.salioBulto(op);              // Depósito despacha cuando puede\nconsole.log('Ventas:', pv.estado, '| Depósito:', op.bultosSalidos + '/' + op.bultosTotal, '| completa:', Deposito.completa(op));\nop = Deposito.salioBulto(Deposito.salioBulto(op));\nconsole.log('Depósito después:', op.bultosSalidos + '/' + op.bultosTotal, '| completa:', Deposito.completa(op));\nconsole.log('Transporte:', JSON.stringify(depositoATransporte(op, 'Av. Corrientes 1234', '9-12')));\nconsole.log('Ventas sigue en:', pv.estado);\n",
+   "cap": "Tres contextos, tres modelos y dos traductores en las fronteras. Los precios están en centavos enteros (ver [@07-06]). Salida real corrida en Node 22.",
+   "ejecutable": true
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay tres cosas para mirar en la salida. La primera: Ventas facturó (`facturado`) mientras el depósito iba por 1 de 3 bultos, y **ninguno pisó al otro**, porque no comparten ningún campo. La segunda: la orden de picking `OP-P-1` solo guarda `ref`, una referencia al pedido de Ventas, y no una copia de todo su contenido; el depósito necesita saber de dónde vino la orden, no qué condición de pago tiene el cliente. La tercera: la parada de Transporte tiene `bultos: 3` y una ventana horaria. No sabe nada de precios, y no lo necesita.",
+    "Lo que esto compra es que cada equipo puede cambiar su modelo sin pedirle permiso a los demás, mientras los traductores sigan funcionando. Si mañana Ventas decide que un pedido tiene «condición de pago» y «moneda», el depósito ni se entera. Y lo que cuesta es el código de los traductores y la duplicación: la palabra «cliente» ahora existe en dos o tres modelos, con campos distintos."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El depósito necesita mostrar el nombre del cliente en la etiqueta de cada bulto, pero la orden de picking solo tiene la referencia al pedido. ¿Qué opciones hay, y qué costo tiene cada una?",
+   "resp": "Una opción es copiar el nombre al crear la orden: el depósito queda independiente, pero si el cliente cambia de razón social la etiqueta puede quedar vieja. Otra es consultar a Ventas cada vez que se imprime: el dato siempre es actual, pero el depósito ahora depende de que Ventas esté disponible. No hay una respuesta correcta en abstracto; depende de cuánto duele una etiqueta vieja contra cuánto duele que el depósito se frene si Ventas se cae."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una pregunta práctica: ¿dónde se traza la frontera? Fowler dice que el factor dominante suele ser la **cultura humana**: como el modelo funciona como lenguaje ubicuo, hace falta otro modelo donde el lenguaje cambia [#ddd1213-fowler-bounded-context]. Hay también fronteras técnicas, como la que separa el modelo en memoria del modelo relacional dentro de una misma aplicación. En la práctica, buscá estas señales: dos grupos que usan la misma palabra con significados distintos, equipos distintos con jefes distintos, reglas de negocio que se contradicen según quién pregunte."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Un contexto delimitado es un microservicio»",
+   "x": "No. Un contexto es una idea sobre el modelo y el lenguaje, no sobre el despliegue. Puede vivir en un módulo con frontera dentro de un monolito ([@12-10]) o en un servicio aparte. Qué conviene depende de otros costos que vas a ver desde [@12-15]. Lo que sí es cierto es que, si ya tenés los contextos bien trazados, partir un monolito después es mucho más barato."
+  },
+  {
+   "t": "h",
+   "x": "El mapa de contextos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Una vez que hay varios contextos, la pregunta es cómo se relacionan. El [[mapa de contextos|mapa de contextos]] es un diagrama, con texto al lado, que muestra los contextos de un sistema y **el tipo de relación** entre cada par. Fowler lo recomienda como compañero de los contextos delimitados [#ddd1213-fowler-bounded-context]. El mapa sirve para ver quién depende de quién y quién manda cuando dos modelos chocan."
+   ]
+  },
+  {
+   "t": "diagrama",
+   "tipo": "grafo",
+   "alto": 360,
+   "nodos": [
+    {
+     "id": "v",
+     "x": 12,
+     "y": 18,
+     "t": "Ventas",
+     "k": "cliente"
+    },
+    {
+     "id": "d",
+     "x": 50,
+     "y": 50,
+     "t": "Depósito",
+     "k": "servidor"
+    },
+    {
+     "id": "t",
+     "x": 88,
+     "y": 18,
+     "t": "Transporte",
+     "k": "red"
+    },
+    {
+     "id": "f",
+     "x": 12,
+     "y": 82,
+     "t": "Facturación",
+     "k": "datos"
+    },
+    {
+     "id": "e",
+     "x": 88,
+     "y": 82,
+     "t": "Envíos Ficticios (externo)",
+     "k": "alerta"
+    }
+   ],
+   "aristas": [
+    {
+     "de": "v",
+     "a": "d",
+     "t": "cliente → proveedor",
+     "dir": true
+    },
+    {
+     "de": "d",
+     "a": "t",
+     "t": "traduce en la frontera",
+     "dir": true
+    },
+    {
+     "de": "v",
+     "a": "f",
+     "t": "comparten un núcleo",
+     "dir": false
+    },
+    {
+     "de": "t",
+     "a": "e",
+     "t": "capa anticorrupción",
+     "dir": true
+    }
+   ],
+   "cap": "Mapa de contextos de la distribuidora inventada. Las flechas apuntan de quien depende hacia quien provee. Envíos Ficticios es el transportista simulado de [@08-15]."
+  },
+  {
+   "t": "p",
+   "x": "Evans cataloga las relaciones posibles en su guía de referencia [#ddd1213-evans-reference]. Estas son las que más aparecen, con un caso de la distribuidora:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Relación",
+    "Qué quiere decir",
+    "Caso en la distribuidora"
+   ],
+   "filas": [
+    [
+     "Cliente-proveedor (customer/supplier)",
+     "Un contexto depende de otro y le puede pedir cosas; el que provee las incluye en su plan.",
+     "Depósito necesita de Ventas el desglose del pedido; Ventas lo incluye en su lista de trabajo."
+    ],
+    [
+     "Núcleo compartido (shared kernel)",
+     "Dos contextos comparten una parte pequeña del modelo, y cualquier cambio se acuerda entre ambos.",
+     "Ventas y Facturación comparten la definición de «ítem» y de «impuesto»."
+    ],
+    [
+     "Conformista (conformist)",
+     "El que depende acepta el modelo del otro tal cual, porque no tiene poder para cambiarlo.",
+     "Transporte adopta el formato de remito que impone la aduana, sin discutirlo."
+    ],
+    [
+     "Capa anticorrupción (anticorruption layer)",
+     "El que depende pone una capa que traduce el modelo ajeno al propio, para que no lo contamine.",
+     "Transporte habla con Envíos Ficticios a través de un adaptador, como en [@08-15]."
+    ],
+    [
+     "Caminos separados (separate ways)",
+     "Dos contextos no se integran: cada uno resuelve lo suyo sin el otro.",
+     "Recursos Humanos y Depósito no comparten nada; no vale la pena el costo de integrar."
+    ]
+   ],
+   "cap": "Nombres en inglés tomados del libro de Evans, resumidos en su DDD Reference. Los casos de la derecha son inventados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La capa anticorrupción es la relación que más te suena si leíste [@08-15] y [@12-11]. Evans la plantea para un caso preciso: cuando un sistema ajeno tiene una interfaz grande y un modelo débil, adaptarte a él termina deformando el tuyo. Entonces creás una capa aislante que ofrece las funciones del sistema ajeno **en términos de tu propio modelo** [#ddd1213-evans-reference]. En lenguaje de [@12-11], es un [[adaptador de infraestructura|adaptador de infraestructura]] que implementa un [[puerto|puerto]] del [[núcleo de dominio|núcleo de dominio]]; la capa anticorrupción es el nombre que DDD le da cuando lo que hay del otro lado es el modelo de otro contexto.",
+    "Elegir entre conformista y capa anticorrupción es una decisión de costo. Conformarte es barato, y es correcto si el modelo ajeno es bueno y estable. Traducir cuesta código y mantenimiento, y se paga cuando el modelo ajeno es malo o cambia sin avisarte."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "El mapa describe la realidad, no la desea",
+   "x": "El mapa de contextos tiene que mostrar las relaciones **como son hoy**, aunque no te gusten. Si Transporte depende en la práctica de Ventas y nadie lo escribió, vas a diseñar mal. Dibujar la realidad incómoda es lo que lo vuelve útil."
+  },
+  {
+   "t": "h",
+   "x": "Cuándo esto es demasiado, y un caso real en Senda"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El diseño estratégico de DDD, lo que viste hoy, es barato: un glosario y un dibujo. Lo caro viene después, con el diseño táctico de [@12-14]. Aun así, hay casos donde ni lo estratégico se justifica. Una app chica, con un equipo de una o dos personas y un solo vocabulario, no tiene sectores que discutan qué significa cada palabra. Tampoco ayuda en un sistema que es casi todo copiar datos de un lado a otro, sin reglas de negocio. Una regla práctica: si nadie discute qué significa una palabra, no hay conflicto que resolver.",
+    "Lo que sí sirve en cualquier tamaño es el **hábito** de preguntarse si una palabra está pasando por dos cosas distintas. Senda, que hoy la hace una sola persona con ayuda de IA, tiene un caso verificable. Esto corresponde al commit 25e08fa; el código cambia, la forma permanece."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "La palabra «partida» en tres lugares",
+   "x": [
+    "En el código de Senda aparece la palabra «partida» con al menos tres sentidos. Uno: en el estado local del teléfono, `partidas` es un **contador** de juegos terminados, que se incrementa con `contarPartida()` cuando termina un juego. Dos: en `src/util/pausaAnuncio.ts`, una variable `partidasHoy` cuenta cuántas partidas se jugaron hoy para decidir si toca un anuncio. Tres: en la base, `partidas` es una **tabla** que representa un duelo entre dos cuentas, con `turno_de`, `ronda`, `piezas_a` y `piezas_b`; el tipo `Partida` de `src/util/juntos.ts` es su reflejo en el teléfono.",
+    "Son tres cosas distintas (un contador, otro contador con otra función, y un duelo entre personas) que comparten una palabra. Funciona porque están en archivos distintos y nadie las mezcla. Es un caso de contextos que ya existen sin haberlos nombrado: el de las estadísticas y los anuncios del teléfono, y el de los duelos en la base.",
+    "Hay otro ejemplo, más chico. El nombre público de cada persona, único en toda la app, se llama «alias» en el producto y `apodo` en la base y en gran parte del código: en los archivos `.ts` y `.tsx` de `src/`, `apodo` aparece en 193 líneas y «alias» en 59 (según una búsqueda del 16 de noviembre de 2026). Mientras las dos palabras convivan en un mismo equipo no es un problema, pero es exactamente el tipo de deriva de lenguaje que un glosario evita: quien lea la base y quien lea la pantalla tienen que saber que hablan de lo mismo."
+   ],
+   "archivos": [
+    "src/estado/usuario.ts",
+    "src/util/pausaAnuncio.ts",
+    "src/util/juntos.ts",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "src/util/cuenta.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué cambia con el tiempo",
+   "x": "Los principios de hoy (lenguaje ubicuo, contexto delimitado, mapa de contextos) vienen del libro de Evans (su propia guía de referencia lo fecha en 2004) y siguen igual en las fuentes oficiales consultadas el 16 de noviembre de 2026. Lo que cambia son los ejemplos de Senda, que se verificaron contra el commit 25e08fa y pueden moverse."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Elegí una palabra de tu propio negocio que dos personas usen con significado distinto (por ejemplo «cliente», «entrega» o «stock» en logística). Escribí en dos columnas qué significa para cada una, qué dato le importa a cada una y cuándo «termina». Después decidí: ¿conviene un solo modelo con un campo más, o dos modelos con un traductor?",
+   "pista": "Preguntate si las reglas de las dos personas pueden contradecirse en algún caso. Si pueden, un solo modelo va a necesitar parches; si nunca se pisan, un campo más alcanza.",
+   "solucion": "Un ejemplo posible con «stock»: para Compras es lo que hay en el depósito más lo que viene en camino; para el depósito es lo que está físicamente en la estantería; para Ventas es lo que se puede prometer hoy. Las reglas se contradicen (algo en camino se puede prometer pero no sacar), así que conviene separar tres modelos con un traductor que calcule «prometible» a partir de los otros dos. Si en tu caso las dos personas siempre coinciden, no hace falta separar nada."
+  }
+ ],
+ "recap": [
+  "La misma palabra puede significar cosas distintas en sectores distintos de una empresa, y ninguno está equivocado. En un programa ese choque aparece como un campo (`estado`) que dice tres verdades a la vez.",
+  "El lenguaje ubicuo es un vocabulario común entre quienes programan y quienes conocen el negocio, que se usa en las reuniones, en los nombres del código y en las pruebas. Si un experto no reconoce los nombres, hay un traductor en el medio y cada traducción puede fallar.",
+  "Un contexto delimitado es la zona donde un modelo es coherente y cada palabra significa una sola cosa. Cada contexto tiene su modelo, aunque el concepto parezca el mismo; entre ellos hay traductores en la frontera.",
+  "Separar contextos compra independencia (cada equipo cambia lo suyo) y cuesta traductores y duplicación. No es lo mismo que un microservicio: un contexto puede vivir en un módulo dentro de un monolito.",
+  "El mapa de contextos dibuja los contextos y el tipo de relación entre cada par (cliente-proveedor, núcleo compartido, conformista, capa anticorrupción, caminos separados) tal como son hoy.",
+  "Con un equipo chico y un solo vocabulario el diseño estratégico alcanza con un glosario. En Senda, «partida» ya tiene tres sentidos en tres archivos distintos, y «alias» y `apodo` son el mismo concepto con dos nombres."
+ ],
+ "repaso": [
+  {
+   "p": "En una empresa de logística, Ventas cuenta 412 pedidos, el depósito 530 órdenes y Transporte 97 paradas en la misma semana. ¿Qué es lo más probable?",
+   "o": [
+    "Los tres cuentan cosas distintas con la misma palabra",
+    "Dos de los tres sectores están cargando datos mal",
+    "Hay pedidos duplicados en la base que hay que borrar",
+    "El sistema perdió registros y hay que reconstruirlos"
+   ],
+   "c": 0,
+   "e": "Cada sector llama «pedido» a una unidad distinta: lo confirmado, la orden de armado, la parada. Que los números difieran es esperable y no indica error de carga. Borrar o reconstruir datos sería tratar como un defecto lo que es una diferencia de vocabulario."
+  },
+  {
+   "p": "Un modelo único tiene `estado` con los valores confirmado, armado, en ruta, entregado y facturado. Un pedido ya facturado vuelve a «en ruta» cuando sale otro bulto. ¿Cuál es la causa de fondo?",
+   "o": [
+    "El depósito debería esperar a que Ventas facture antes",
+    "Hay que agregar un sexto valor de estado a la lista",
+    "El campo mezcla tres procesos que avanzan por separado",
+    "Falta una prueba automática para ese caso particular"
+   ],
+   "c": 2,
+   "e": "Facturar, armar y entregar son procesos independientes que avanzan en momentos distintos; un solo campo no puede representar los tres estados a la vez. Una prueba lo detectaría pero no lo resolvería; hacer esperar al depósito cambia el negocio; un sexto valor repite el problema con más combinaciones."
+  },
+  {
+   "p": "¿Cuál de estas descripciones define mejor al lenguaje ubicuo?",
+   "o": [
+    "Una regla de estilo para que los nombres sean cortos",
+    "Un vocabulario común usado en reuniones, código y pruebas",
+    "Un único idioma técnico para todos los sistemas de la empresa",
+    "El glosario de términos de la base de datos de producción"
+   ],
+   "c": 1,
+   "e": "Lo ubicuo es el vocabulario compartido entre expertos del negocio y programadores, que aparece también en el código. No es un idioma único para toda la empresa (vale dentro de un contexto), ni un glosario de la base ni una regla de estilo."
+  },
+  {
+   "p": "Dos equipos usan «cliente» con campos y reglas distintas. ¿Qué conviene hacer según el enfoque de contextos delimitados?",
+   "o": [
+    "Un modelo único con los campos de ambos equipos juntos",
+    "Prohibir que uno de los dos equipos use esa palabra",
+    "Esperar a que el sistema crezca y decidir después",
+    "Dos modelos de cliente con un traductor entre ellos"
+   ],
+   "c": 3,
+   "e": "Si las reglas pueden contradecirse, cada contexto necesita su modelo, y el traductor en la frontera resuelve el pasaje. Juntar los campos produce la clase gigante; prohibir la palabra no resuelve el significado; postergar hace el cambio más caro cuando haya más código."
+  },
+  {
+   "p": "Una app chica la mantiene una sola persona y todos los términos significan lo mismo para quien la usa. ¿Qué parte de DDD conviene aplicar?",
+   "o": [
+    "Nada, porque DDD es solo para empresas muy grandes",
+    "Un glosario corto y estar atento a palabras que se bifurquen",
+    "Un mapa con cinco contextos y capas anticorrupción",
+    "Servicios separados por contexto con sus propias bases"
+   ],
+   "c": 1,
+   "e": "El diseño estratégico es barato y el hábito de revisar el vocabulario sirve siempre. Cinco contextos y servicios separados serían un costo sin conflicto que resolver; decir que no sirve para nada ignora que una palabra puede empezar a desdoblarse en cualquier proyecto."
+  },
+  {
+   "p": "Tu sistema debe integrarse con el de un transportista cuyo modelo es confuso y cambia sin aviso. ¿Qué relación del mapa de contextos conviene?",
+   "o": [
+    "Núcleo compartido con él para cambiar a la par",
+    "Caminos separados, sin integrar nada con él",
+    "Capa anticorrupción que traduzca a tu propio modelo",
+    "Conformista, adoptando su modelo sin discutirlo"
+   ],
+   "c": 2,
+   "e": "Con un modelo ajeno débil y cambiante, la capa anticorrupción protege el tuyo y concentra el cambio en un solo lugar. Conformarte es barato pero te contagia sus cambios; un núcleo compartido exige acuerdo que el proveedor no ofrece; separarse no sirve si necesitás sus cotizaciones."
+  }
+ ],
+ "feynman": "Explicale a alguien de otro sector de tu empresa por qué la palabra «pedido» puede significar tres cosas, sin usar la expresión «lenguaje ubicuo». Contá un caso donde dos personas se pelearon por un número que en realidad era el mismo número contado de dos maneras, y qué cambiarías para que no vuelva a pasar.",
+ "para_profundizar": [
+  {
+   "fuente": "ddd1213-fowler-bounded-context",
+   "nota": "El artículo corto de Martin Fowler sobre contextos delimitados, con el ejemplo del «medidor». Leelo para ver la idea en una página y con otro caso distinto al de hoy."
+  },
+  {
+   "fuente": "ddd1213-fowler-ubiquitous-language",
+   "nota": "La nota de Fowler sobre el lenguaje ubicuo, con una cita de Evans sobre cómo expertos y programadores se corrigen mutuamente."
+  },
+  {
+   "fuente": "ddd1213-evans-reference",
+   "nota": "El resumen oficial de los patrones de DDD, publicado por Evans con licencia libre. Para hoy, leé las secciones sobre lenguaje ubicuo y sobre mapa de contextos (capítulo IV)."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Eric Evans Domain-Driven Design bounded context conferencia",
+   "por_que": "Para escuchar al autor explicar contextos delimitados con sus propias palabras; quizás veas ejemplos distintos a los de la lección."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "lenguaje ubicuo",
+   "d": "Vocabulario común y riguroso entre quienes programan y quienes conocen el negocio, usado en las conversaciones, en los nombres del código y en las pruebas. Vale dentro de un contexto delimitado."
+  },
+  {
+   "t": "contexto delimitado",
+   "d": "Zona donde un modelo es coherente y cada palabra del lenguaje ubicuo tiene un único significado. Cada contexto puede modelar de forma distinta lo que parece ser el mismo concepto."
+  },
+  {
+   "t": "mapa de contextos",
+   "d": "Diagrama, con texto al lado, de los contextos de un sistema y del tipo de relación entre cada par: quién depende de quién y cómo se traducen sus modelos."
+  },
+  {
+   "t": "capa anticorrupción",
+   "d": "Capa que traduce el modelo de otro sistema al propio para que el modelo ajeno no lo deforme. Es una relación del mapa de contextos."
+  },
+  {
+   "t": "polisemia",
+   "d": "Que una misma palabra tenga varios significados. En software aparece cuando dos sectores usan «pedido» o «cliente» para cosas distintas."
+  }
+ ],
+ "siguiente": "Dentro de un contexto, ¿cómo se modelan las reglas que nunca pueden romperse, como «un camión no puede llevar más de su capacidad»? Mañana: agregados, objetos de valor y eventos de dominio.",
+ "fuentes_nuevas": [
+  {
+   "id": "ddd1213-fowler-bounded-context",
+   "t": "Bounded Context",
+   "a": "Martin Fowler",
+   "tipo": "articulo",
+   "anio": 2014,
+   "url": "https://martinfowler.com/bliki/BoundedContext.html"
+  },
+  {
+   "id": "ddd1213-fowler-ubiquitous-language",
+   "t": "Ubiquitous Language",
+   "a": "Martin Fowler",
+   "tipo": "articulo",
+   "anio": 2006,
+   "url": "https://martinfowler.com/bliki/UbiquitousLanguage.html"
+  },
+  {
+   "id": "ddd1213-evans-reference",
+   "t": "Domain-Driven Design Reference: Definitions and Pattern Summaries",
+   "a": "Eric Evans (Domain Language, Inc.)",
+   "tipo": "libro",
+   "anio": 2015,
+   "url": "https://www.domainlanguage.com/ddd/reference/"
+  }
+ ]
+}

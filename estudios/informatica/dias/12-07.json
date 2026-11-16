@@ -1,0 +1,578 @@
+{
+ "id": "12-07",
+ "titulo": "Patrones de diseño III: de comportamiento",
+ "bajada": "Corrés cuatro soluciones de logística (avisos, tarifas, deshacer y estados de un despacho), medís lo que cuesta cada una y mirás cómo Senda ya usa tres de ellas.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar qué problema resuelve cada uno de los cuatro patrones (observador, estrategia, comando y máquina de estados) y qué cuesta usarlo.",
+  "Escribir un emisor de eventos con baja de suscripción y predecir qué pasa cuando un oyente falla.",
+  "Reemplazar un `if` encadenado por una tabla de estrategias y decir cuándo ese reemplazo no vale la pena.",
+  "Modelar los estados de un despacho como una tabla de transiciones y contar cuántos cambios ilegales evita.",
+  "Reconocer en el código de Senda un observador (el almacén de zustand) y un despachador con prioridades y enfriamiento (el director de Lany)."
+ ],
+ "venis_de": "En [@12-05] viste cómo se crean los objetos (fábrica, builder, singleton) y en [@12-06] cómo se envuelven y se conectan (adaptador, fachada, decorador, proxy). Hoy falta la tercera familia: cómo se reparten el trabajo y se avisan entre sí.",
+ "se_apoya_en": [
+  "12-02",
+  "12-03",
+  "12-05",
+  "12-06"
+ ],
+ "gancho": [
+  "Un despacho pasa a «en ruta». En ese instante cuatro cosas tienen que enterarse: el cliente (un SMS con la ventana de entrega), facturación, el tablero del depósito y la métrica de salidas del día. La primera versión del código suele hacerlo así: la función que marca el despacho llama, una por una, a las cuatro. Funciona. Dos meses después alguien pide un quinto aviso, y la función que hacía una cosa pasa a conocer a cinco sistemas.",
+  "Ese problema, y otros tres parecidos, tienen nombre desde hace décadas: quién se entera de un cambio, cómo se elige un cálculo entre varios, cómo se deshace una acción y qué cambios de situación están permitidos. Hoy los resolvés con código que corrí en esta VM, vas a ver qué se gana en cada caso y qué se paga, y después buscás los mismos patrones adentro de Senda."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "La tercera familia del catálogo"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El libro que popularizó los [[patrones de diseño|patrón de diseño]] es de 1994 y describe 23 patrones que se agrupan en tres familias [#gof-design-patterns]. Los **creacionales** resuelven cómo se construyen los objetos (lo de [@12-05]). Los **estructurales** resuelven cómo se combinan unos con otros (lo de [@12-06]). Los de **comportamiento**, que son 11 de los 23 según el índice que recoge Wikipedia [#arq1207-wikipedia-gof], resuelven cómo se reparten las responsabilidades y cómo se comunican las piezas en tiempo de ejecución.",
+    "Hoy vemos cuatro: el [[observador]], la [[estrategia]], el [[comando]] y la [[máquina de estados]]. Los cuatro aparecen todo el tiempo en software de logística y en cualquier app con pantallas, y los cuatro se pueden escribir en pocas líneas de JavaScript. Eso importa para el criterio: en lenguajes donde las funciones son valores, varios patrones del catálogo se vuelven casi invisibles. Según Wikipedia, Peter Norvig mostró que 16 de los 23 patrones se simplifican o desaparecen con las funciones de primera clase y otras facilidades de Lisp o Dylan [#arq1207-wikipedia-gof]. Quedate con la idea: un patrón es **vocabulario para nombrar una solución**, no una receta que haya que ejecutar. Si la versión corta del lenguaje alcanza, esa es la buena."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Observador: «avisame cuando pase»"
+  },
+  {
+   "t": "p",
+   "x": [
+    "El problema del gancho es de [[acoplamiento]] ([@12-02]): la función que marca el despacho conoce a todos los que quieren enterarse. El observador invierte la relación. Quien produce el hecho (el **publicador**) guarda una lista de interesados y, cuando algo pasa, los recorre y les avisa. Los interesados (los **suscriptores** u oyentes) se anotan y se borran solos. El publicador no sabe cuántos son ni qué hacen."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Abajo está el antes y el después. Corrélo con el botón; el tercer oyente falla a propósito y el cuarto se sumó sin tocar la función de despachar:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// ANTES: despachar() conoce a todos los que quieren enterarse.\nconst salida = [];\nconst notificarCliente = (d) => salida.push(`SMS a cliente de ${d.id}`);\nconst facturar = (d) => salida.push(`factura de ${d.id}`);\nfunction despacharAntes(d) {\n  d.estado = 'en_ruta';\n  notificarCliente(d);\n  facturar(d); // si mañana se suma \"avisar al depósito\", hay que abrir esta función\n}\ndespacharAntes({ id: 'D-101' });\nconsole.log('ANTES   ->', salida.join(' | '));\n\n// DESPUÉS: el despacho publica lo que pasó; cada interesado se suscribe por su cuenta.\nfunction crearEmisor() {\n  const oyentes = new Map();\n  return {\n    suscribir(evento, fn) {\n      const lista = oyentes.get(evento) ?? new Set();\n      lista.add(fn);\n      oyentes.set(evento, lista);\n      return () => lista.delete(fn); // devuelve la forma de darse de baja\n    },\n    publicar(evento, dato) {\n      for (const fn of [...(oyentes.get(evento) ?? [])]) {\n        try { fn(dato); } catch (e) { console.log('  un oyente falló:', e.message); }\n      }\n    },\n    cuantos: (evento) => oyentes.get(evento)?.size ?? 0,\n  };\n}\nconst bus = crearEmisor();\nconst log = [];\nbus.suscribir('despachado', (d) => log.push(`SMS a cliente de ${d.id}`));\nbus.suscribir('despachado', (d) => { throw new Error('el servicio de facturas no responde'); });\nconst bajaTablero = bus.suscribir('despachado', (d) => log.push(`tablero: ${d.id} en ruta`));\nbus.suscribir('despachado', (d) => log.push(`depósito avisado por ${d.id}`)); // oyente nuevo: no se tocó despachar\n\nbus.publicar('despachado', { id: 'D-102' });\nconsole.log('DESPUÉS ->', log.join(' | '));\n\nbajaTablero(); // la pantalla se cierra: si no se diera de baja, seguiría recibiendo avisos\nlog.length = 0;\nbus.publicar('despachado', { id: 'D-103' });\nconsole.log('tras la baja ->', log.join(' | '), '| oyentes:', bus.cuantos('despachado'));",
+   "cap": "Observador mínimo, corrido en esta VM con Node 22. Los despachos y los servicios son inventados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Mirá la última línea de la salida: tras darse de baja, el tablero ya no recibe avisos, y quedan tres oyentes. **Darse de baja es la mitad del patrón.** Una pantalla que se suscribió y se cerró sin bajarse sigue recibiendo avisos, y el emisor la mantiene viva en memoria. Node lo sabe: su documentación avisa que por defecto un `EventEmitter` imprime una advertencia de posible fuga de memoria cuando un mismo evento junta más de 10 oyentes [#arq1207-node-events]. Lo comprobé con 11 oyentes en la VM y la advertencia salió."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "titulo": "El altoparlante del depósito",
+   "x": [
+    "Cuando entra un camión, alguien dice por el altoparlante «camión 12 en el andén 3». Quien lo dice no sabe quién escucha: los autoelevadoristas se mueven, administración anota la hora, seguridad abre el portón. Mañana se suma un oyente nuevo y nadie cambia el mensaje.",
+    "Dónde deja de valer: el altoparlante no devuelve nada. En el código, cada oyente puede fallar, tardar o hacer algo que cambie el estado de los otros, y alguien tiene que decidir qué pasa entonces."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Lo que se paga: cuatro costos del observador"
+  },
+  {
+   "t": "lista",
+   "ord": true,
+   "items": [
+    "**El flujo se vuelve invisible.** Leyendo `publicar('despachado')` no ves quién reacciona. Para saberlo hay que buscar las suscripciones en todo el proyecto. Es el precio de haber desacoplado.",
+    "**El orden existe, aunque no lo declares.** Node llama a los oyentes de forma síncrona y en el orden en que se registraron [#arq1207-node-events]. Si el segundo depende de lo que hizo el primero, tenés una dependencia oculta.",
+    "**Un oyente que falla puede cortar a los demás.** Depende de quién implemente el emisor, y se mide:",
+    "**Un oyente lento frena al emisor.** Como la llamada es síncrona, si un oyente trabaja dos segundos, el publicador espera dos segundos antes de seguir."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { EventEmitter } from 'node:events';\n\nconst emisor = new EventEmitter();\nconst hechos = [];\nemisor.on('despachado', () => hechos.push('SMS'));\nemisor.on('despachado', () => { throw new Error('facturación caída'); });\nemisor.on('despachado', () => hechos.push('tablero'));\n\ntry { emisor.emit('despachado'); } catch (e) { hechos.push('emit lanzó: ' + e.message); }\nconsole.log(hechos.join(' | '));\n\nfor (let i = 0; i < 11; i++) emisor.on('otro', () => {}); // el undécimo oyente del mismo evento",
+   "cap": "Archivo `oyentes.mjs`, corrido en Node 22. No es ejecutable en el navegador porque importa `node:events`."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node oyentes.mjs",
+     "s": "SMS | emit lanzó: facturación caída\n(node:6041) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 otro listeners added to [EventEmitter]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit"
+    }
+   ],
+   "cap": "Salida real. El oyente del tablero nunca corrió, porque `emit` explotó en el segundo."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con el `EventEmitter` de Node, el error del segundo oyente **atraviesa `emit` y el tercero no se ejecuta**. Por eso el emisor del ejemplo de arriba envuelve cada llamada en `try/catch`: un aviso caído no tiene que dejar al cliente sin SMS. El `EventTarget` que Node adopta de los navegadores se comporta distinto: reporta el error aparte y sigue con los demás oyentes, como también comprobé en la VM. El mismo patrón, dos implementaciones, dos comportamientos. Cuando uses un emisor ajeno, leé qué hace con los errores [#arq1207-mdn-addeventlistener]."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un oyente de `despachado` hace una cuenta que tarda dos segundos de trabajo síncrono, y hay otros tres oyentes registrados después. ¿Qué ven el emisor y los tres oyentes?",
+   "resp": "El emisor queda bloqueado esos dos segundos, y los tres oyentes de atrás esperan su turno, porque la llamada es síncrona y en orden de registro. Si el trabajo es lento, el oyente tiene que encolarlo y volver enseguida, o el patrón tiene que usar un canal asíncrono."
+  },
+  {
+   "t": "h3",
+   "x": "Senda: el almacén de zustand es un observador"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Senda guarda su estado en almacenes de zustand ([@06-22] vio el flujo unidireccional que hay detrás). Un almacén es un observador con todas las letras. Leí el código de la versión 5.0.8 de zustand: guarda un `Set` de oyentes, y cuando `setState` produce un valor distinto (lo decide con `Object.is`) llama a cada uno con el estado nuevo y el anterior. `subscribe` devuelve la función para darse de baja [#arq1207-zustand-vanilla]. Es el ejemplo de arriba, con otro nombre.",
+    "En Senda hay dos usos distintos. Uno es `CapaNivel`: se suscribe a `useUsuario`, compara los pasos de antes y de ahora y, si cruzaron un nivel, suena el logro y aparece un aviso. Otro es `App.tsx`: suscribe **cuatro almacenes** (agenda, ajustes, usuario y eventos de la nube) a una misma función `pronto`, que espera 600 milisegundos antes de reprogramar los avisos del teléfono, para que una ráfaga de cambios produzca una sola reprogramación. Cuando el componente se desmonta, llama a las cuatro bajas. Son los dos costos de recién bien resueltos: la baja y la ráfaga."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Observadores reales en Senda",
+   "x": [
+    "`useUsuario.subscribe((ahora, antes) => …)` en `CapaNivel` compara `ahora.pasos` con `antes.pasos`: el oyente recibe las dos fotos y decide si le importa. Esto es lo que está implementado en el commit 25e08fa; el código cambia, la forma permanece.",
+    "`App.tsx` guarda las cuatro bajas en `s1`…`s4` y las ejecuta al limpiar el efecto. Es una instalación y una desinstalación, simétricas."
+   ],
+   "archivos": [
+    "src/componentes/subirNivel.tsx",
+    "src/App.tsx",
+    "src/estado/usuario.ts",
+    "src/estado/agenda.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Estrategia: elegir el cálculo sin un árbol de `if`"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un transportista cobra por kilo, por zona o por volumen, según el contrato. El código ingenuo tiene una función `tarifa(tipo, paquete)` con un `if` por cada tipo. Cada vez que aparece una forma nueva de cobrar, se abre esa función, y las otras formas, que ya andaban, se vuelven a exponer al error. Eso es exactamente lo que el [[principio abierto-cerrado]] ([@12-03]) quiere evitar."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "La estrategia hace que **cada variante sea una pieza intercambiable con la misma forma de llamarla**, y que quien necesita el resultado reciba la pieza que le toca. En JavaScript la pieza es simplemente una función:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Tarifas inventadas, en pesos, solo para el ejemplo.\n// ANTES: un if por cada forma de cobrar. Agregar una obliga a tocar esta función.\nfunction tarifaAntes(tipo, p) {\n  if (tipo === 'por_kilo') return p.kg * 900;\n  if (tipo === 'por_zona') return { caba: 3500, gba: 5200, interior: 8900 }[p.zona];\n  if (tipo === 'por_volumen') return Math.ceil((p.largo * p.ancho * p.alto) / 5000) * 900;\n  throw new Error('tipo de tarifa desconocido: ' + tipo);\n}\n\n// DESPUÉS: cada forma de cobrar es una función con la misma firma; quien cotiza recibe la que le toque.\nconst estrategias = {\n  por_kilo: (p) => p.kg * 900,\n  por_zona: (p) => ({ caba: 3500, gba: 5200, interior: 8900 })[p.zona],\n  por_volumen: (p) => Math.ceil((p.largo * p.ancho * p.alto) / 5000) * 900,\n};\nconst cotizar = (estrategia, paquete) => estrategia(paquete);\n\nconst caja = { kg: 2, zona: 'gba', largo: 50, ancho: 40, alto: 30 }; // 60.000 cm3\nfor (const tipo of ['por_kilo', 'por_zona', 'por_volumen']) {\n  console.log(tipo.padEnd(12), '$', cotizar(estrategias[tipo], caja), '(antes: $' + tarifaAntes(tipo, caja) + ')');\n}\n\n// Una forma nueva (mínimo garantizado) se agrega sin tocar nada de lo anterior:\nestrategias.con_minimo = (p) => Math.max(2500, estrategias.por_kilo(p));\nconsole.log('con_minimo   $', cotizar(estrategias.con_minimo, { kg: 1 }), '(1 kg valdría $900; el piso es $2500)');\n\n// El costo: una zona que no figura en la tabla no da error, da undefined.\nconsole.log('por_zona patagonia ->', estrategias.por_zona({ zona: 'patagonia' }));",
+   "cap": "Las tarifas y las medidas son inventadas. Se imprime el resultado de cada estrategia y, entre paréntesis, el del `if` encadenado."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay tres cosas para mirar. Los tres resultados coinciden, así que el refactor no cambió el comportamiento. La estrategia nueva (`con_minimo`) se agregó **sin tocar una línea de las otras**, y hasta reutiliza a `por_kilo`. Y la última línea muestra un costo: una zona que no está en la tabla no da error sino `undefined`, y eso circula hasta que alguien intenta sumarlo. Una estrategia mal escrita se descubre al usarla, igual que un `if` mal escrito; lo que cambia es dónde mirás."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "",
+    "Árbol de `if`",
+    "Tabla de estrategias"
+   ],
+   "filas": [
+    [
+     "Agregar una variante",
+     "Abrir la función y editarla",
+     "Agregar una entrada; nada existente cambia"
+    ],
+    [
+     "Probar una variante",
+     "Pasar por la función completa",
+     "Llamarla sola con un paquete"
+    ],
+    [
+     "Leer qué variantes hay",
+     "Todo en un lugar, de arriba abajo",
+     "Hay que mirar la tabla"
+    ],
+    [
+     "Dónde conviene",
+     "Dos variantes que casi no cambian",
+     "Variantes que crecen o que elige quien llama"
+    ]
+   ],
+   "cap": "No hay ganador absoluto: depende de cuántas variantes hay y de cuánto cambian."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "Cuándo no usarla",
+   "x": [
+    "Con dos variantes que llevan años sin cambiar, un `if` es más corto, más claro y se lee de arriba abajo. Convertirlo en tabla de funciones es abstracción prematura ([@12-03]).",
+    "Tampoco sirve si las variantes comparten el 90 % del cálculo y difieren en un número: ahí alcanza con un parámetro. La estrategia se justifica cuando lo que cambia es **el algoritmo entero**."
+   ]
+  },
+  {
+   "t": "ejercicio",
+   "x": "Agregá a `estrategias` una forma `por_peso_o_volumen` que cobre $900 por kilo sobre el mayor entre el peso real y el peso volumétrico, que se calcula como largo × ancho × alto en cm³ dividido 5.000 (un divisor inventado: cada transportista fija el suyo). Calculá lo que da para la caja del ejemplo (2 kg, 50 × 40 × 30 cm) sin tocar `cotizar`.",
+   "pista": "Es una función `(p) => …` que usa `Math.max` con el peso real `p.kg` y el volumétrico. La caja ocupa 60.000 cm³.",
+   "solucion": "`estrategias.por_peso_o_volumen = (p) => Math.max(p.kg, (p.largo * p.ancho * p.alto) / 5000) * 900;` El volumétrico es 60.000 / 5.000 = 12 kg, mayor que los 2 kg reales, así que cobra 12 × 900 = $10.800. Mismo resultado que `por_volumen`, pero con una regla que protege al transportista si la caja pesara más que su volumen."
+  },
+  {
+   "t": "h",
+   "x": "Comando: la acción convertida en una cosa"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un despachante arma la hoja de ruta de una camioneta: carga un bulto, carga otro, cambia el orden de entrega. Se equivoca, quiere volver atrás. Si cada acción es una línea que modifica listas directamente, no hay nada que deshacer: el cambio ya pasó. El comando convierte **cada acción en un objeto que sabe hacerse y deshacerse**, y guarda esos objetos en orden. Una acción que antes era un verbo pasa a ser un dato: se puede apilar, mostrar en pantalla, guardar en disco o mandar a otra máquina."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Una hoja de ruta con bultos. Cada cambio es un objeto-comando: sabe hacerse y sabe deshacerse.\nconst ruta = { camioneta: [], pendientes: ['B1', 'B2', 'B3', 'B4'] };\n\nconst cargar = (bulto) => ({\n  descripcion: `cargar ${bulto}`,\n  hacer: () => { ruta.pendientes = ruta.pendientes.filter((b) => b !== bulto); ruta.camioneta.push(bulto); },\n  deshacer: () => { ruta.camioneta = ruta.camioneta.filter((b) => b !== bulto); ruta.pendientes.push(bulto); },\n});\nconst reordenar = (de, a) => ({\n  descripcion: `mover posición ${de} a ${a}`,\n  hacer: () => { const [x] = ruta.camioneta.splice(de, 1); ruta.camioneta.splice(a, 0, x); },\n  deshacer: () => { const [x] = ruta.camioneta.splice(a, 1); ruta.camioneta.splice(de, 0, x); },\n});\n\nconst historial = []; // lo ya ejecutado, en orden\nconst ejecutar = (cmd) => { cmd.hacer(); historial.push(cmd); };\nconst deshacerUltimo = () => { const c = historial.pop(); if (c) { c.deshacer(); console.log('  deshice:', c.descripcion); } };\nconst ver = (t) => console.log(t.padEnd(22), 'camioneta:', ruta.camioneta.join(','), '| pendientes:', ruta.pendientes.join(','));\n\nejecutar(cargar('B1')); ejecutar(cargar('B2')); ejecutar(cargar('B3'));\nver('tras 3 cargas');\nejecutar(reordenar(2, 0));\nver('tras reordenar');\ndeshacerUltimo(); ver('tras deshacer 1');\ndeshacerUltimo(); ver('tras deshacer 2');\n\n// Como cada orden es un dato, también se puede guardar, mostrar o repetir:\nconsole.log('historial:', JSON.stringify(historial.map((c) => c.descripcion)));",
+   "cap": "Hoja de ruta con comandos que se hacen y se deshacen. Bultos inventados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "El deshacer funcionó, pero fijate en la salida: tras deshacer la carga de B3, los pendientes quedaron `B4,B3`. Antes eran `B3,B4`. **Deshacer no devolvió el mundo como estaba**: devolvió el bulto, pero al final de la lista. Si el orden de los pendientes importa, el comando tiene que guardar el estado previo (la posición donde estaba), no solo saber la operación inversa. Es un bug típico: el deshacer parece correcto en la demo y falla cuando el orden de otra lista depende del primero.",
+    "Otros dos costos. El historial crece con cada acción, así que hay que decidir cuántas conservar. Y hay acciones que **no se pueden deshacer de verdad**: un SMS ya enviado no vuelve. Ahí lo que existe es una acción compensatoria (mandar otro SMS que corrija), y eso es un problema de sistemas distribuidos que vas a retomar cuando llegues a las sagas."
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "titulo": "Comando, aunque no se deshaga",
+   "x": "Aunque nunca implementes deshacer, tratar la acción como dato rinde: una cola de tareas, un registro de auditoría («quién pidió qué y cuándo») o un reintento son el mismo movimiento mental. Lo que dura es la idea de que la orden se separa de quien la ejecuta."
+  },
+  {
+   "t": "senda",
+   "titulo": "Órdenes como datos en Senda: la bandeja de salida",
+   "x": [
+    "En `src/util/nube.ts` las respuestas del juego no se mandan en el momento: se anotan en una cola que vive en el teléfono (`senda-cola-nube`), se envían de a lotes de 50 y llevan un `cliente_id` único, de modo que reintentar no duplica (el servidor ignora los repetidos). Cada fila de la cola es una orden guardada para ejecutarse después, con tope de 500 filas.",
+    "No tiene deshacer: lo que se manda, se manda. Pero comparte el corazón del comando: la acción se volvió un dato que se puede guardar, reintentar y repetir sin volver a pedirla. Esto es lo que dice el código en el commit 25e08fa."
+   ],
+   "archivos": [
+    "src/util/nube.ts"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Máquina de estados: qué cambios están permitidos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un despacho pasa por situaciones: creado, armado, en ruta, entregado. La primera forma de modelarlo es con banderas: `armado: true`, `enRuta: true`, `entregado: true`, `cancelado: true`. Con cuatro banderas hay 2⁴ = 16 combinaciones, y solo unas pocas tienen sentido. ¿Un despacho entregado y cancelado a la vez? ¿Armado en ruta pero sin armar? Nada en el código impide escribirlo, y esos estados imposibles son la fuente de los errores que aparecen una vez por trimestre y nadie reproduce.",
+    "La [[máquina de estados]] reemplaza las banderas por **un único estado** y una tabla que dice, desde cada estado, con qué evento se llega a cuál otro. Todo lo que no figura en la tabla está prohibido. Es el patrón más barato de los cuatro para lo que da: la regla de negocio queda escrita en un solo lugar y se puede leer, probar y revisar con un cliente."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Cuatro banderas sueltas vs. un estado único con transiciones permitidas.\nconst banderas = ['armado', 'en_ruta', 'entregado', 'cancelado'];\nconsole.log(`${banderas.length} banderas booleanas dan ${2 ** banderas.length} combinaciones; un despacho real tiene pocas situaciones válidas`);\n\n// La máquina: una tabla de «desde este estado, con este evento, voy a aquel».\nconst TABLA = {\n  creado:    { armar: 'armado', cancelar: 'cancelado' },\n  armado:    { salir: 'en_ruta', cancelar: 'cancelado' },\n  en_ruta:   { entregar: 'entregado', fallar: 'fallido' },\n  fallido:   { reintentar: 'en_ruta', devolver: 'devuelto' },\n  entregado: {}, cancelado: {}, devuelto: {},\n};\nconst estados = Object.keys(TABLA);\nconst validas = estados.reduce((n, e) => n + Object.keys(TABLA[e]).length, 0);\nconsole.log(`${estados.length} estados, ${validas} transiciones permitidas de ${estados.length * estados.length} pares posibles`);\n\nclass ErrorTransicion extends Error {}\nfunction crearDespacho(id) {\n  let estado = 'creado';\n  const historia = [];\n  return {\n    get estado() { return estado; },\n    historia,\n    enviar(evento) {\n      const destino = TABLA[estado][evento];\n      if (!destino) throw new ErrorTransicion(`${id}: no se puede «${evento}» estando ${estado}`);\n      historia.push(`${estado} --${evento}--> ${destino}`);\n      estado = destino;\n    },\n  };\n}\n\nconst d = crearDespacho('D-201');\nfor (const ev of ['armar', 'salir', 'fallar', 'reintentar', 'entregar']) d.enviar(ev);\nconsole.log(d.historia.join('\\n'));\ntry { d.enviar('cancelar'); } catch (e) { console.log('rechazado:', e.message); }\n\n// Estados desde los que NO se puede llegar a uno final: un chequeo que la tabla permite y las banderas no.\nconst finales = estados.filter((e) => Object.keys(TABLA[e]).length === 0);\nconst llegaAFinal = (e, vistos = new Set()) => finales.includes(e) || (!vistos.has(e) && (vistos.add(e), Object.values(TABLA[e]).some((s) => llegaAFinal(s, vistos))));\nconsole.log('finales:', finales.join(', '), '| estados sin salida posible:', estados.filter((e) => !llegaAFinal(e)).length);",
+   "cap": "Los estados de un despacho como tabla de transiciones. Estados y eventos inventados."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Son 7 estados y 8 transiciones permitidas de 49 pares posibles, es decir, **41 cambios ilegales que la tabla rechaza sin que nadie los escriba**. El intento de cancelar un despacho entregado falló con un error que dice qué estado y qué evento. Además, como la tabla es un dato, el programa pudo calcular algo sobre ella: que todos los estados llevan a uno final. Con banderas, esa pregunta no se puede ni formular.",
+    "El costo es de otro tipo: la máquina es rígida a propósito. Si el negocio descubre un caso nuevo (devolver un bulto ya entregado), alguien tiene que cambiar la tabla y decidir en qué estados se permite. Es un trámite, y justo para eso está."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un despacho puede estar «en pausa» por una huelga, y desde ahí volver al estado en el que estaba. ¿Alcanza con agregar un estado `pausado` y una flecha de vuelta?",
+   "resp": "Con una sola flecha de vuelta no: `pausado` tiene que recordar si venía de `armado` o de `en_ruta`. Hay dos salidas: un estado de pausa por cada origen (más estados) o guardar el estado previo en un dato (más contexto). Ese tipo de casos es el que las máquinas jerárquicas de las herramientas especializadas resuelven."
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Herramientas para máquinas de estados (nov. 2026)",
+   "x": "Cuando la tabla crece, existen bibliotecas que la modelan y la dibujan. XState es la más conocida del ecosistema JavaScript: su documentación define máquinas con `createMachine`, las ejecuta con `createActor` y permite suscribirse a los cambios con `subscribe` [#arq1207-xstate-docs]. Lo que cambia con las versiones es la API, no la idea. Para cuatro o cinco estados, la tabla de arriba alcanza."
+  },
+  {
+   "t": "senda",
+   "titulo": "Estados reales: las partidas de Senda",
+   "x": [
+    "La tabla `partidas`, donde viven los duelos, tiene una columna `estado` con una restricción `check` que solo admite cinco valores: `esperando`, `en_juego`, `terminada`, `vencida` y `cancelada`. Eso ya es mejor que las banderas: un duelo no puede estar en un estado inventado.",
+    "Lo que la base no declara es la **tabla de transiciones**. Los pasos viven repartidos en funciones SQL: unirse a una partida la pasa a `en_juego`; completar las seis piezas de la armadura o llegar a la ronda 25 la pasa a `terminada`; un trabajo programado cada 15 minutos pasa a `vencida` las que llevan más de 72 horas sin jugarse y a `cancelada` las que esperan rival hace más de 3 días. Las actualizaciones a `terminada` aparecen en cuatro migraciones distintas. No es un error: es la diferencia entre tener un conjunto de estados y tener una máquina. Una tabla central haría visible de un vistazo qué pasos existen."
+   ],
+   "archivos": [
+    "supabase/migrations/20261101000000_juntos.sql",
+    "supabase/migrations/20261103000000_azar_primero.sql",
+    "supabase/migrations/20261108000000_juntos_listo.sql",
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El director de Lany: tres patrones en 176 líneas"
+  },
+  {
+   "t": "p",
+   "x": "El archivo `src/lany/director.ts` junta ideas de esta clase. Su comentario inicial lo resume: las pantallas no le dicen a Lany cómo moverse, le comunican **eventos con sentido** (`acierto`, `victoria`, `armarse`), y el director decide qué hace con cada uno. Mirado con el vocabulario de hoy:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Patrón",
+    "Dónde está en `director.ts`",
+    "Qué hace"
+   ],
+   "filas": [
+    [
+     "Observador",
+     "`useDirector` es un almacén de zustand; el componente de Lany lee `useOrdenLany(canal)`",
+     "Cuando el director publica una orden nueva en un canal, la Lany que escucha ese canal se redibuja"
+    ],
+    [
+     "Estrategia",
+     "`pasos` de cada reacción puede ser una lista fija o una función",
+     "`victoria` elige tres bailes al azar; `uno([...])` nunca repite el gesto anterior"
+    ],
+    [
+     "Reglas de estado",
+     "`prioridad`, `enfriamiento` y `hasta` de cada canal",
+     "Una orden menos importante no interrumpe a una más importante; el mismo evento no se repite antes de su enfriamiento"
+    ]
+   ],
+   "cap": "Lectura propia del archivo en el commit 25e08fa."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Los números son concretos. El tipo `EventoLany` lista 29 eventos y el `REPERTORIO` tiene 29 entradas, con prioridades de 0 a 5: `armarse` (ponerse el casco, el escudo y la espada) es la 5, `victoria` la 4 y un parpadeo de curiosidad la 0. La función `emitir` descarta un evento por dos motivos, y los dos son una línea: si pasó menos que su `enfriamiento` desde la última vez en ese canal, o si hay una orden en curso de mayor prioridad. Eso evita que Lany festeje diez veces en un segundo y que un gesto chico corte uno importante.",
+    "Es una máquina de estados **implícita**: el canal recuerda una prioridad y un instante hasta el cual está ocupado, no una tabla de transiciones. Para este caso tiene sentido: los estados reales de Lany están en su animación, y esta capa solo ordena el tránsito."
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Lo que el código dice hoy y lo que todavía no usa",
+   "x": [
+    "Implementado en el commit 25e08fa: el director completo, con sus 29 eventos y sus reglas, y la lectura desde `src/arte/Arte.tsx`. Hallazgo de la búsqueda que hice sobre `src/`: fuera del propio `director.ts`, solo hay **dos lugares que llaman a `emitir`**: la bienvenida (`bienvenida`) y el festejo de las piezas (`heroico`). El resto del repertorio está construido y probado en el arranque, pero ninguna pantalla lo pide todavía.",
+    "Para el criterio de ingeniería: es una infraestructura que se adelantó al uso. No es un defecto, es un costo ya pagado que rinde cuando se conecte, y conviene saberlo antes de asumir que un evento como `victoria` se dispara en algún lado."
+   ],
+   "archivos": [
+    "src/lany/director.ts",
+    "src/arte/Arte.tsx",
+    "src/pantallas/Bienvenida.tsx",
+    "src/componentes/festejoPieza.tsx"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Cómo elegir, y cuándo ninguno"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Si tu problema es…",
+    "Pensá en…",
+    "Lo que pagás"
+   ],
+   "filas": [
+    [
+     "Muchos quieren enterarse de un hecho y el que lo produce no debería conocerlos",
+     "Observador",
+     "Flujo invisible, orden implícito, bajas y fallos de oyentes"
+    ],
+    [
+     "Varios algoritmos intercambiables para la misma tarea",
+     "Estrategia",
+     "Una indirección más; errores que aparecen al usarla"
+    ],
+    [
+     "Querés guardar, repetir, encolar o deshacer una acción",
+     "Comando",
+     "Historial que crece; deshacer exacto exige guardar el estado previo"
+    ],
+    [
+     "Un objeto pasa por situaciones y no todo cambio es legal",
+     "Máquina de estados",
+     "Rigidez: cada caso nuevo es un cambio de tabla"
+    ]
+   ],
+   "cap": "Los cuatro patrones de hoy, con su costo."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Usar patrones mejora el código»",
+   "x": "Un patrón mejora el código cuando nombra un problema que tenés. Si lo aplicás para que el diseño «se vea profesional», sumás piezas y flujos invisibles sin resolver nada. La prueba práctica: si no podés decir en una frase qué cambio concreto se vuelve más barato gracias al patrón, todavía no lo necesitás."
+  },
+  {
+   "t": "p",
+   "x": "También pasa lo contrario: no tener nombre para estas ideas hace que cada equipo las reinvente con otros nombres, y las conversaciones se enredan. El valor más grande del catálogo es poder decir «acá hace falta un observador con baja» y que el otro entienda cuatro decisiones de golpe. Mañana, con [@12-08], subís un nivel: de las piezas sueltas a cómo se ordenan las capas enteras de una aplicación."
+  }
+ ],
+ "recap": [
+  "Los patrones de comportamiento resuelven cómo se reparten el trabajo y se comunican las piezas; son vocabulario, no recetas, y varios casi desaparecen en un lenguaje con funciones de primera clase.",
+  "El observador desacopla al que produce un hecho de los que reaccionan; sus costos son el flujo invisible, el orden implícito, la baja de la suscripción y qué pasa cuando un oyente falla (el EventEmitter de Node corta el resto; el EventTarget, no).",
+  "La estrategia convierte cada variante de un cálculo en una pieza intercambiable; no vale la pena con dos variantes estables ni cuando alcanza un parámetro.",
+  "El comando vuelve dato a la acción para guardarla, encolarla o deshacerla; un deshacer exacto exige guardar el estado previo, y no todo se puede deshacer.",
+  "Una máquina de estados reemplaza banderas por un estado único y una tabla de transiciones: con 4 banderas hay 16 combinaciones, con 7 estados solo 8 de 49 pasos son legales.",
+  "En Senda, el almacén de zustand es un observador (con baja y agrupación en `App.tsx`), la bandeja de salida es una cola de órdenes con reintentos, y el director de Lany suma prioridad y enfriamiento; la tabla de transiciones de las partidas no está declarada en un solo lugar."
+ ],
+ "repaso": [
+  {
+   "p": "Una pantalla se suscribe a un emisor de eventos cuando se abre, pero nunca se da de baja al cerrarse. ¿Qué consecuencia es la más probable?",
+   "o": [
+    "El emisor nota que la pantalla se cerró y la quita sin ayuda",
+    "Los demás oyentes dejan de recibir avisos hasta limpiarla",
+    "Sigue recibiendo avisos y el emisor la mantiene en memoria",
+    "El emisor se ralentiza únicamente la primera vez que publica"
+   ],
+   "c": 2,
+   "e": "El emisor guarda una referencia a cada oyente; si no se borra, la pantalla cerrada sigue en la lista y recibe cada aviso. No hay detección automática, y los demás oyentes no se ven afectados. Node avisa con una advertencia de posible fuga cuando un evento supera 10 oyentes."
+  },
+  {
+   "p": "En el ejemplo de Node, el segundo de tres oyentes lanza un error dentro de `emit`. ¿Qué pasa con el tercero en un `EventEmitter`?",
+   "o": [
+    "No corre: el error atraviesa emit y corta la cadena",
+    "Corre igual, porque cada oyente es independiente del resto",
+    "Corre después, porque Node reintenta los que fallaron",
+    "Corre en paralelo, en un hilo aparte que crea Node mismo"
+   ],
+   "c": 0,
+   "e": "El EventEmitter llama a los oyentes de forma síncrona y en orden, y una excepción sale por `emit` sin ejecutar los que faltan. El EventTarget se comporta distinto: reporta el error y sigue. No hay reintentos ni hilos."
+  },
+  {
+   "p": "Un equipo tiene dos formas de calcular un recargo, ambas estables hace años, y pregunta si conviene armar una tabla de estrategias. ¿Cuál es la respuesta más razonable?",
+   "o": [
+    "Armar la tabla igual, porque el patrón es una buena práctica",
+    "Armar la tabla solo si el lenguaje tiene clases e interfaces",
+    "Usar observadores para que cada recargo se calcule por su cuenta",
+    "Mantener un `if`: con dos variantes estables, la tabla suma piezas"
+   ],
+   "c": 3,
+   "e": "La estrategia se justifica cuando las variantes crecen o cambian. Con dos estables, el `if` es más corto y se lee de arriba abajo. Aplicarla igual es abstracción prematura. Las clases no son requisito: en JavaScript alcanza con funciones, y el observador resuelve otro problema."
+  },
+  {
+   "p": "Tras deshacer la carga del bulto B3, los pendientes pasaron de `B3,B4` a `B4,B3`. ¿Qué falló en el comando de deshacer?",
+   "o": [
+    "Ejecutó el deshacer dos veces y dejó la lista invertida",
+    "Hizo la operación inversa sin guardar la posición del bulto",
+    "El historial se borró antes de que corriera el deshacer",
+    "La función de cargar es incorrecta, no la de deshacer"
+   ],
+   "c": 1,
+   "e": "El deshacer quitó el bulto de la camioneta y lo agregó al final de pendientes, sin recordar el lugar de origen. Un deshacer exacto guarda el estado previo (aquí, el índice). El historial y la ejecución estaban bien: la lista no quedó invertida, solo perdió una posición."
+  },
+  {
+   "p": "Un despacho modelado con cuatro banderas booleanas puede quedar «entregado y cancelado» a la vez. ¿Qué cambia con una máquina de estados de un único estado?",
+   "o": [
+    "Se agrega una bandera más para detectar la combinación",
+    "La combinación sigue existiendo pero se anota en un registro",
+    "Esa combinación no existe y las transiciones ilegales se rechazan",
+    "Pasa a ser legal, pero con un aviso al despachante"
+   ],
+   "c": 2,
+   "e": "Con un estado único no hay forma de estar en dos a la vez, y la tabla de transiciones rechaza cualquier cambio no declarado. Las banderas dejan 16 combinaciones posibles aunque solo algunas tengan sentido. Un log o un aviso no impiden el error."
+  },
+  {
+   "p": "En `director.ts`, un evento `curiosidad` (prioridad 0) llega mientras Lany ejecuta una `victoria` (prioridad 4). ¿Qué hace `emitir`?",
+   "o": [
+    "Interrumpe la victoria, porque llegó después que ella",
+    "Lo descarta, porque hay una orden en curso más importante",
+    "Lo encola y lo ejecuta apenas termina la victoria actual",
+    "Lo mezcla con la victoria para que bailen las dos juntas"
+   ],
+   "c": 1,
+   "e": "`emitir` devuelve `false` cuando el canal está ocupado y la prioridad del nuevo evento es menor. No se encola ni se mezcla: se pierde. Interrumpir solo pasa cuando el nuevo evento tiene igual o mayor prioridad."
+  }
+ ],
+ "feynman": "Explicale a alguien que no programa cuál de los cuatro patrones usarías para cada una de estas situaciones en un depósito: avisar a cinco sectores cuando sale un camión, elegir cómo se cobra cada envío, permitir que el despachante deshaga un cambio en la hoja de ruta y evitar que un pedido pase de «entregado» a «armado». Para cada uno, decí qué se gana y qué se paga.",
+ "para_profundizar": [
+  {
+   "fuente": "gof-design-patterns",
+   "nota": "El libro original de 1994 (Gamma, Helm, Johnson y Vlissides). Leé el capítulo 5, de los patrones de comportamiento, para ver observador, estrategia, comando y estado con su sección «Consecuencias», que lista los costos igual que hoy."
+  },
+  {
+   "fuente": "arq1207-node-events",
+   "nota": "La documentación de `node:events` que usé: el orden síncrono de los oyentes, el límite de 10 y el manejo del evento `error`."
+  },
+  {
+   "fuente": "arq1207-zustand-vanilla",
+   "nota": "El código real de la versión 5.0.8 de zustand: 50 líneas donde se ve el `Set` de oyentes, el `Object.is` y el `subscribe` que devuelve la baja."
+  },
+  {
+   "fuente": "arq1207-xstate-docs",
+   "nota": "La documentación de XState: sirve para ver cómo se escribe, se dibuja y se ejecuta una máquina de estados jerárquica cuando la tabla se queda corta."
+  }
+ ],
+ "videos": [
+  {
+   "q": "observer pattern strategy pattern command pattern explained examples",
+   "por_que": "Para ver los mismos patrones explicados con ejemplos en otros dominios y comparar los nombres que usa cada autor."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "observador",
+   "d": "Patrón en el que un publicador mantiene una lista de interesados y les avisa cada vez que algo cambia, sin conocerlos. Los interesados se anotan y se dan de baja por su cuenta. El almacén de zustand es un ejemplo."
+  },
+  {
+   "t": "estrategia",
+   "d": "Patrón que convierte cada variante de un algoritmo en una pieza intercambiable con la misma forma de llamarla, de modo que quien la necesita recibe la que le toca. En JavaScript alcanza con funciones guardadas en una tabla."
+  },
+  {
+   "t": "comando",
+   "d": "Patrón que convierte una acción en un objeto que se puede guardar, encolar, repetir y, si sabe hacerlo, deshacer. Separa la orden de quien la ejecuta."
+  },
+  {
+   "t": "máquina de estados",
+   "d": "Modelo en el que algo está siempre en un único estado y una tabla dice desde qué estado, con qué evento, se llega a cuál otro. Lo que no figura en la tabla está prohibido."
+  },
+  {
+   "t": "publicador",
+   "d": "En el patrón observador, la pieza que produce un hecho y avisa a los interesados. No sabe cuántos son ni qué hacen con el aviso."
+  },
+  {
+   "t": "oyente",
+   "d": "En el patrón observador, la función que se anota para recibir avisos de un hecho. Si no se da de baja, el publicador la sigue manteniendo viva en memoria."
+  },
+  {
+   "t": "transición",
+   "d": "En una máquina de estados, el paso permitido de un estado a otro, disparado por un evento. Las transiciones no declaradas son ilegales."
+  },
+  {
+   "t": "enfriamiento",
+   "d": "Tiempo mínimo que debe pasar antes de que el mismo evento se acepte otra vez. En el director de Lany evita que un festejo se repita varias veces por segundo."
+  }
+ ],
+ "siguiente": "Arquitectura en capas y MVC. Hoy fueron piezas sueltas; mañana ves cómo se ordena una aplicación entera en capas, qué hace cada una y qué se rompe cuando una capa se salta a otra.",
+ "fuentes_nuevas": [
+  {
+   "id": "arq1207-wikipedia-gof",
+   "t": "Design Patterns (libro)",
+   "a": "Wikipedia",
+   "tipo": "articulo",
+   "url": "https://en.wikipedia.org/wiki/Design_Patterns"
+  },
+  {
+   "id": "arq1207-node-events",
+   "t": "Events (Node.js v22 Documentation)",
+   "a": "OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://nodejs.org/docs/latest-v22.x/api/events.html"
+  },
+  {
+   "id": "arq1207-mdn-addeventlistener",
+   "t": "EventTarget: addEventListener() method",
+   "a": "Mozilla",
+   "tipo": "doc",
+   "url": "https://developer.mozilla.org/en-US/docs/Web/API/EventTarget/addEventListener"
+  },
+  {
+   "id": "arq1207-zustand-vanilla",
+   "t": "zustand v5.0.8: src/vanilla.ts",
+   "a": "pmndrs",
+   "tipo": "doc",
+   "url": "https://raw.githubusercontent.com/pmndrs/zustand/v5.0.8/src/vanilla.ts"
+  },
+  {
+   "id": "arq1207-xstate-docs",
+   "t": "XState Docs",
+   "a": "Stately",
+   "tipo": "doc",
+   "url": "https://xstate.js.org/docs/"
+  }
+ ]
+}

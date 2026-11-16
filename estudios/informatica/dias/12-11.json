@@ -1,0 +1,561 @@
+{
+ "id": "12-11",
+ "titulo": "Arquitectura hexagonal",
+ "bajada": "Armás un despacho de logística con tres adaptadores intercambiables, ves cómo un contrato compartido atrapa a un adaptador falso que mentía y medís qué cuesta la estructura.",
+ "minutos": 30,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar el problema de acoplar una regla de negocio a la base, la red o la interfaz y cómo lo resuelven los puertos y adaptadores.",
+  "Distinguir puerto, adaptador de infraestructura y núcleo de dominio, y la dirección de las dependencias entre ellos.",
+  "Escribir un caso de uso que reciba sus puertos por parámetro y correrlo con adaptadores de memoria, SQLite y HTTP.",
+  "Usar una prueba de contrato para comprobar que dos adaptadores se comportan igual.",
+  "Juzgar cuándo la estructura cuesta más de lo que rinde y reconocer un puerto mal cortado."
+ ],
+ "venis_de": "En [@12-04] viste la inversión de dependencias y en [@12-08] y [@12-10] cómo se ordenan capas y módulos. Falta una estructura que ponga el negocio en el centro y deje todo lo demás como piezas intercambiables.",
+ "se_apoya_en": [
+  "12-04",
+  "12-06",
+  "12-08",
+  "12-10",
+  "04-16",
+  "08-15"
+ ],
+ "gancho": [
+  "Un depósito de Villa Martelli recibe pedidos de despacho y quiere asegurarse de que ninguno pase de 1.000 kg. Alguien escribe la función que lo controla y, en la misma función, pide la cotización por HTTP y guarda en SQL. Hasta ahí anda. El problema aparece cuando alguien quiere probar solo la regla de los 1.000 kg, y la prueba falla porque no hay red.",
+  "Hoy vas a armar el mismo programa con otra forma: el negocio en el medio, sin importar nada, y la base, la red y la web como piezas que se enchufan. Lo vas a correr con tres adaptadores distintos, vas a ver cómo uno de ellos mentía y vas a calcular qué se paga por todo eso."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Una regla de negocio que no se puede probar"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un depósito de Villa Martelli recibe pedidos de despacho. La regla es simple: un despacho no puede pesar más de 1.000 kg ni cero, el destino es un código postal de cuatro dígitos y, antes de guardar, hay que cotizar el envío. Un programador escribe la función que hace todo eso en el orden en que se lo pidieron.",
+    "Es la que ves abajo. Pedí la cotización a un servicio por HTTP, validé el peso, guardé en una base SQLite. Es corta, anda, y tiene un defecto que se nota recién cuando querés probarla."
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { DatabaseSync } from 'node:sqlite';\nconst db = new DatabaseSync(':memory:');\ndb.exec('CREATE TABLE despachos (id TEXT, destino TEXT, kg REAL, centavos INTEGER, estado TEXT)');\n\nexport async function crearDespacho({ destino, kg }) {\n  const r = await fetch(`http://127.0.0.1:24812/cotizar?to=${destino}&kg=${kg}`);   // red adentro\n  const { centavos } = await r.json();\n  if (kg > 1000) throw new Error('el peso va de 0 a 1000 kg');                          // regla de negocio en el medio\n  const id = 'd' + Date.now();\n  db.prepare('INSERT INTO despachos VALUES (?,?,?,?,?)').run(id, destino, kg, centavos, 'pendiente'); // SQL adentro\n  return { id, destino, kg, centavos, estado: 'pendiente' };\n}\n\n// Para probar la regla de los 1000 kg:\ntry { await crearDespacho({ destino: '1000', kg: 5000 }); } catch (e) { console.log('error:', e.cause?.code ?? e.message); }",
+   "cap": "`antes.mjs`, tal como lo corrí. La cotización es un servicio local que en esta prueba no está levantado."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node antes.mjs",
+     "s": "error: ECONNREFUSED"
+    }
+   ],
+   "cap": "Querías probar la regla de los 1.000 kg y la prueba falló por la red: la cotización se pide antes de validar."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La regla de negocio está pegada a dos cosas que no tienen nada que ver con ella: un servicio de red y una base de datos. Para probarla hay que levantar las dos, o se prueba mal. Y tiene un segundo costo que sale de la misma raíz: si mañana la cotización pasa a otro proveedor, o los despachos van a otra base, hay que abrir la función donde viven las reglas del negocio, y al tocarla se puede romper lo que andaba.",
+    "En [@12-02] viste que el acoplamiento mide cuánto arrastra un cambio y en [@12-04] viste la inversión de dependencias, la idea de que el código importante no debería depender de los detalles. Hoy esa idea se vuelve una forma de ordenar un programa entero."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "En `antes.mjs`, ¿qué pasaría con el peso de 5.000 kg si el servicio de cotización estuviera levantado? ¿Y qué costo tiene eso aunque el resultado final sea el mismo error?",
+   "resp": "Fallaría con el mensaje de la regla, pero recién después de haber hecho una llamada de red para cotizar un envío que no se iba a poder crear. La regla se cumple, pero tarde y a un costo que no hacía falta. Ese orden es una consecuencia de tener todo mezclado."
+  },
+  {
+   "t": "h",
+   "x": "La idea de Cockburn: puertos y adaptadores"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Alistair Cockburn publicó en septiembre de 2005 un informe técnico con el nombre «hexagonal architecture» [#integ0815-cockburn-hexagonal]. El problema que describe tiene dos caras que, según él, salen del mismo error de diseño: la lógica de negocio se mete en el código de la interfaz de usuario, y se ata a la base de datos o a otro servicio. La consecuencia es que la aplicación es difícil de probar sola, no se puede usar en lotes o desde otro programa, y el desarrollo se frena cuando la dependencia está caída o cambia [#integ0815-cockburn-hexagonal].",
+    "Su propuesta tiene una frase de intención que vale la pena leer entera: permitir que la aplicación sea manejada por igual por usuarios, programas, pruebas automáticas o scripts por lotes, y que se desarrolle y pruebe aislada de sus dispositivos de ejecución y de sus bases de datos [#integ0815-cockburn-hexagonal]. La palabra que importa es «igual»: una persona tocando un botón y una prueba automática llaman a la aplicación del mismo modo."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Para eso define dos piezas. Un [[puerto]] es una conversación con un propósito: la aplicación declara qué necesita preguntar o pedir («guardá este despacho», «cotizame este envío») sin decir con qué tecnología se hace. Un adaptador es la pieza que traduce entre ese puerto y un dispositivo concreto, en los dos sentidos [#integ0815-cockburn-hexagonal]. Para no confundirlo con el adaptador de los patrones de diseño de [@12-06], que traduce una interfaz a otra dentro del código, a este lo vamos a llamar [[adaptador de infraestructura]]: el que conecta la aplicación con algo que vive afuera, como una base, una cola, un servidor web o un proveedor. En la práctica es el mismo gesto del adaptador clásico aplicado a la frontera del sistema, como el de [@08-15] contra el transportista inventado."
+  },
+  {
+   "t": "p",
+   "x": "Lo que queda adentro, el código que expresa el negocio y no sabe de HTTP, de SQL ni de pantallas, es el [[núcleo de dominio]]. Cockburn distingue además dos tipos de actores. Los **primarios** son los que arrancan la conversación y manejan la aplicación: una persona, una prueba, un script. Los **secundarios** son aquellos a los que la aplicación llama para hacer su trabajo: la base, el proveedor de cotizaciones. También los llama adaptadores «de entrada» y «de salida» (en su texto, *driving* y *driven*) [#integ0815-cockburn-hexagonal]."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "grafo",
+   "alto": 380,
+   "nodos": [
+    {
+     "id": "web",
+     "x": 12,
+     "y": 18,
+     "t": "Adaptador HTTP",
+     "k": "cliente"
+    },
+    {
+     "id": "test",
+     "x": 12,
+     "y": 50,
+     "t": "Prueba automática",
+     "k": "cliente"
+    },
+    {
+     "id": "cli",
+     "x": 12,
+     "y": 82,
+     "t": "Script por lotes",
+     "k": "cliente"
+    },
+    {
+     "id": "nuc",
+     "x": 50,
+     "y": 50,
+     "t": "Núcleo: reglas y casos",
+     "k": "servidor"
+    },
+    {
+     "id": "mem",
+     "x": 88,
+     "y": 18,
+     "t": "Repo en memoria",
+     "k": "datos"
+    },
+    {
+     "id": "sql",
+     "x": 88,
+     "y": 50,
+     "t": "Repo SQLite",
+     "k": "datos"
+    },
+    {
+     "id": "cot",
+     "x": 88,
+     "y": 82,
+     "t": "Cotizador",
+     "k": "red"
+    }
+   ],
+   "aristas": [
+    {
+     "de": "web",
+     "a": "nuc",
+     "dir": true
+    },
+    {
+     "de": "test",
+     "a": "nuc",
+     "dir": true
+    },
+    {
+     "de": "cli",
+     "a": "nuc",
+     "dir": true
+    },
+    {
+     "de": "nuc",
+     "a": "mem",
+     "dir": true,
+     "t": "puerto",
+     "dash": true
+    },
+    {
+     "de": "nuc",
+     "a": "sql",
+     "dir": true,
+     "dash": true
+    },
+    {
+     "de": "nuc",
+     "a": "cot",
+     "dir": true,
+     "t": "puerto",
+     "dash": true
+    }
+   ],
+   "cap": "A la izquierda, quienes manejan la aplicación; a la derecha, aquello que la aplicación necesita. Las líneas punteadas son puertos: el núcleo los declara y cada adaptador los cumple."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Un artefacto eléctrico no sabe si la corriente viene de la red, de un generador o de una batería: exige una forma de enchufe y una tensión. El enchufe es el puerto, y el adaptador de viaje es lo que lo acopla a cada pared del mundo. El artefacto es el núcleo: se diseña una vez, sin saber en qué país va a usarse. Dónde deja de valer: los enchufes los fija una norma y los puertos de software los diseñás vos, así que se pueden cortar mal y quedar atados a una tecnología sin que nadie lo note.",
+   "titulo": "El enchufe y el artefacto"
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": "Cockburn aclara que el hexágono no se llama así porque el seis tenga algo de especial: eligió esa figura para tener lugar donde dibujar varios puertos sin caer en una pila de capas de arriba hacia abajo [#integ0815-cockburn-hexagonal]. El dibujo importa menos que la regla: lo que cambia por afuera (la base, el protocolo, el proveedor) no debería obligar a tocar lo que está adentro.",
+   "titulo": "Por qué un hexágono"
+  },
+  {
+   "t": "p",
+   "x": "Hay una forma de verlo que conecta con lo anterior. La [[arquitectura en capas]] de [@12-08] apila presentación, lógica y datos, y cada capa depende de la de abajo: la lógica termina dependiendo de la base. La hexagonal da vuelta esa flecha. El núcleo no depende de nadie, y los adaptadores dependen de él, porque son ellos los que cumplen lo que el núcleo declaró. Es la [[DIP]] de [@12-04] aplicada a toda la frontera del programa, y los puertos son las interfaces que esa inversión pide."
+  },
+  {
+   "t": "h",
+   "x": "El mismo caso de uso con tres adaptadores"
+  },
+  {
+   "t": "p",
+   "x": "Rehice el despacho con esa forma. Son dos archivos de núcleo y cuatro de adaptadores, 104 líneas en total. Primero el núcleo. Lo único que sabe es de despachos:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Núcleo de dominio: reglas del negocio, sin importar nada de afuera.\nexport class ReglaRota extends Error {}\n\nexport const MAX_KG = 1000;\nexport const ESTADOS = ['pendiente', 'en_ruta', 'entregado'];\nconst SIGUIENTE = { pendiente: 'en_ruta', en_ruta: 'entregado' };\n\nexport function nuevoDespacho({ id, destino, kg, centavos, ahora }) {\n  if (!/^\\d{4}$/.test(destino)) throw new ReglaRota('el destino es un código postal de 4 dígitos');\n  if (!(kg > 0 && kg <= MAX_KG)) throw new ReglaRota(`el peso va de 0 a ${MAX_KG} kg`);\n  return { id, destino, kg, centavos, estado: 'pendiente', creado: ahora };\n}\n\nexport function avanzar(d) {\n  const sig = SIGUIENTE[d.estado];\n  if (!sig) throw new ReglaRota(`un despacho ${d.estado} no avanza`);\n  return { ...d, estado: sig };\n}",
+   "cap": "`nucleo/despacho.mjs`. Reglas y estados. No hay un solo `import`."
+  },
+  {
+   "t": "p",
+   "x": "Después el caso de uso. Es el que coordina: cotizar, crear, guardar. No sabe con qué se cotiza ni dónde se guarda, solo qué le tiene que pedir a cada uno. Los puertos son cuatro: `repo` (guardar, buscar, listar), `cotizador` (cotizar), `reloj` (la hora) e `ids` (inventar identificadores). Que el reloj y los ids sean puertos parece exagerado, pero es lo que permite que las pruebas den siempre el mismo resultado."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// Casos de uso: orquestan el dominio y hablan con el exterior solo a través de puertos.\n// Puertos que esperan (los define el núcleo, los implementan los adaptadores):\n//   repo:      { guardar(d), buscar(id), listar() }          (async)\n//   cotizador: { cotizar({ destino, kg }) -> centavos }      (async)\n//   reloj:     { ahora() -> texto ISO }\n//   ids:       { nuevo() -> texto }\nimport { nuevoDespacho, avanzar } from './despacho.mjs';\n\nexport function crearCasosDeUso({ repo, cotizador, reloj, ids }) {\n  return {\n    async crearDespacho({ destino, kg }) {\n      const centavos = await cotizador.cotizar({ destino, kg });\n      const d = nuevoDespacho({ id: ids.nuevo(), destino, kg, centavos, ahora: reloj.ahora() });\n      await repo.guardar(d);\n      return d;\n    },\n    async avanzarDespacho(id) {\n      const d = await repo.buscar(id);\n      if (!d) return null;\n      const nuevo = avanzar(d);\n      await repo.guardar(nuevo);\n      return nuevo;\n    },\n    listarDespachos: () => repo.listar(),\n  };\n}",
+   "cap": "`nucleo/casos-de-uso.mjs`. El puerto no es una clase: en JavaScript es un acuerdo sobre qué funciones tiene el objeto que recibís. En TypeScript sería una `interface` y el compilador lo vigilaría."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Fijate cómo recibe sus dependencias: por parámetro, en `crearCasosDeUso({ repo, cotizador, reloj, ids })`. Es la [[inyección de dependencias]] de [@12-04] sin framework: alguien de afuera arma las piezas y se las pasa. Ese alguien, el que decide que hoy se usa SQLite y mañana otra cosa, se suele llamar la raíz de composición: un único lugar donde se enchufa todo.",
+    "Del lado de afuera hay adaptadores de entrada y de salida. Este es el de SQLite, con el módulo `node:sqlite` que trae Node, y debajo el de memoria:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "import { DatabaseSync } from 'node:sqlite';\n\nexport function repoSqlite(archivo = ':memory:') {\n  const db = new DatabaseSync(archivo);\n  db.exec(`CREATE TABLE IF NOT EXISTS despachos (\n    id TEXT PRIMARY KEY, destino TEXT NOT NULL, kg REAL NOT NULL,\n    centavos INTEGER NOT NULL, estado TEXT NOT NULL, creado TEXT NOT NULL)`);\n  const ins = db.prepare(`INSERT INTO despachos VALUES (?,?,?,?,?,?)\n    ON CONFLICT(id) DO UPDATE SET destino=excluded.destino, kg=excluded.kg,\n    centavos=excluded.centavos, estado=excluded.estado`);\n  const uno = db.prepare('SELECT * FROM despachos WHERE id = ?');\n  const todos = db.prepare('SELECT * FROM despachos ORDER BY creado, id');\n  const fila = (r) => r ? { ...r } : null;\n  return {\n    async guardar(d) { ins.run(d.id, d.destino, d.kg, d.centavos, d.estado, d.creado); },\n    async buscar(id) { return fila(uno.get(id)); },\n    async listar() { return todos.all().map(fila); },\n    cerrar() { db.close(); },\n  };\n}",
+   "cap": "`adaptadores/repo-sqlite.mjs`. El único archivo que sabe que existen tablas y sentencias SQL."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "export function repoMemoria() {\n  const m = new Map();\n  return {\n    async guardar(d) { m.set(d.id, structuredClone(d)); },\n    async buscar(id) { return m.has(id) ? structuredClone(m.get(id)) : null; },\n    async listar() {\n      return [...m.values()].sort((a, b) => a.creado.localeCompare(b.creado) || a.id.localeCompare(b.id)).map(x => structuredClone(x));\n    },\n  };\n}",
+   "cap": "`adaptadores/repo-memoria.mjs`, ya corregido. Lo que le pasó antes de la corrección lo vas a ver en un rato."
+  },
+  {
+   "t": "p",
+   "x": "El tercero es de entrada: un servidor HTTP chico que traduce un pedido web a una llamada al caso de uso y la respuesta a un código de estado. Tiene 26 líneas y ninguna regla de negocio: si la regla dice que 5.000 kg es inválido, el adaptador no lo decide, solo traduce el error `ReglaRota` a un 422."
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node --no-warnings pruebas/todo.mjs",
+     "s": "1) casos de uso con memoria: 1.4 ms\n  contrato del repo OK: memoria\n  contrato del repo OK: sqlite\n2) contrato: memoria 6.4 ms, sqlite 1.0 ms\n3) con sqlite: [{\"id\":\"d1\",\"destino\":\"5000\",\"kg\":10,\"centavos\":270000,\"estado\":\"pendiente\",\"creado\":\"2026-11-16T10:01:00.000Z\"}]\n4) POST válido 201 {\"id\":\"d1\",\"destino\":\"1000\",\"kg\":2,\"centavos\":174000,\"estado\":\"pendiente\",\"creado\":\"2026-11-16T10:01:00.000Z\"}\n   POST kg=5000 422 {\"error\":\"el peso va de 0 a 1000 kg\"}\n   avanzar inexistente 404"
+    }
+   ],
+   "cap": "Corrida en esta VM (Node 22, puerto 24811, base SQLite en memoria). Los milisegundos son de una sola máquina y, en el caso de memoria, incluyen el arranque en frío del módulo."
+  },
+  {
+   "t": "p",
+   "x": "Mirá lo que ocurrió. El mismo caso de uso corrió con un repositorio en memoria, con SQLite real y detrás de un servidor HTTP, sin cambiar una línea de `nucleo/`. Y la regla de los 1.000 kg se probó por dos caminos distintos: directo contra el caso de uso y por HTTP, donde se tradujo en un 422."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Núcleo: reglas del negocio y un caso de uso. No importa nada.\nclass ReglaRota extends Error {}\nfunction nuevoDespacho({ id, destino, kg, centavos }) {\n  if (!/^\\d{4}$/.test(destino)) throw new ReglaRota('el destino es un código postal de 4 dígitos');\n  if (!(kg > 0 && kg <= 1000)) throw new ReglaRota('el peso va de 0 a 1000 kg');\n  return { id, destino, kg, centavos, estado: 'pendiente' };\n}\nfunction crearCasos({ repo, cotizador, ids }) {\n  return {\n    async crearDespacho({ destino, kg }) {\n      const centavos = await cotizador.cotizar({ destino, kg });\n      const d = nuevoDespacho({ id: ids.nuevo(), destino, kg, centavos });\n      await repo.guardar(d);\n      return d;\n    },\n  };\n}\n\n// Adaptadores de prueba: viven afuera del núcleo y cumplen el puerto.\nconst repoMemoria = () => { const m = new Map(); return { async guardar(d) { m.set(d.id, d); }, todos: () => [...m.values()] }; };\nconst cotizadorFijo = (centavos) => ({ async cotizar() { return centavos; } });\nconst repoCaido = { async guardar() { throw new Error('la base no responde'); } };\nlet n = 0; const ids = { nuevo: () => 'd' + (++n) };\n\n// Prueba 1: camino feliz, sin red y sin base.\nconst repo = repoMemoria();\nconst casos = crearCasos({ repo, cotizador: cotizadorFijo(174000), ids });\nconsole.log('creado:', await casos.crearDespacho({ destino: '1000', kg: 2 }));\nconsole.log('guardados:', repo.todos().length);\n\n// Prueba 2: una regla de negocio, sin tocar nada externo.\ntry { await casos.crearDespacho({ destino: '1000', kg: 5000 }); } catch (e) { console.log('regla:', e.constructor.name, '-', e.message); }\nconsole.log('guardados:', repo.todos().length);\n\n// Prueba 3: algo que en la vida real cuesta provocar, la base caída, acá es una línea.\ntry { await crearCasos({ repo: repoCaido, cotizador: cotizadorFijo(1), ids }).crearDespacho({ destino: '1000', kg: 1 }); }\ncatch (e) { console.log('base caída:', e.message); }",
+   "cap": "El núcleo y un caso de uso en un solo bloque, con adaptadores de prueba de tres líneas. Corre sin red ni base. Probá cambiar el peso o el destino y mirá qué regla salta."
+  },
+  {
+   "t": "p",
+   "x": "La tercera prueba de ese bloque es la que más cuesta en el mundo real: simular una base caída. Con el puerto, es un objeto de una línea que lanza un error. En `antes.mjs` habría que apagar un servicio de verdad."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Agregá una regla al núcleo: un despacho a un código postal que empieza con `9` (zona austral, en este ejemplo inventado) no puede pesar más de 300 kg. Escribí la prueba antes en el bloque ejecutable de arriba y comprobá que no tenés que tocar ningún adaptador.",
+   "pista": "La regla va en `nuevoDespacho`, que ya recibe `destino` y `kg`. Probá con `destino: '9400'` y `kg: 500` y esperá una `ReglaRota`.",
+   "solucion": "En `nuevoDespacho`, después de validar el peso general: `if (destino.startsWith('9') && kg > 300) throw new ReglaRota('a la zona austral, hasta 300 kg');`. Con `{ destino: '9400', kg: 500 }` se obtiene la regla rota y con `{ destino: '9400', kg: 200 }` se crea el despacho. Los repositorios, el cotizador y el servidor HTTP no cambiaron: la regla vive en un solo lugar."
+  },
+  {
+   "t": "h",
+   "x": "Qué se gana"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Pruebas rápidas y sin red.** Las reglas se prueban en milisegundos con adaptadores de memoria. Es la [[prueba unitaria]] de [@04-16] llevada a un caso de uso completo, y no necesita [[mock]] por todos lados porque el puerto ya es el punto natural para reemplazar algo.",
+    "**Una prueba de contrato por puerto.** El mismo archivo `contrato-repo.mjs` se corre contra cada adaptador. Es una [[prueba de contrato]] en su forma más chica: si el adaptador de memoria y el de SQLite pasan los mismos chequeos, el núcleo puede confiar en cualquiera de los dos.",
+    "**Decisiones tardías.** Se puede empezar con memoria, escribir y probar todo el negocio, y elegir la base más adelante. En un producto nuevo, donde todavía no sabés qué carga va a tener, comprar esa opción cuesta casi nada."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "La segunda ventaja apareció de verdad en mi corrida. La primera vez que ejecuté el contrato, el repositorio en memoria **falló**:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node --no-warnings pruebas/todo.mjs   # primera versión del repo en memoria",
+     "s": "AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n  [\n+   'd1',\n    'd0',\n-   'd1'\n  ]"
+    }
+   ],
+   "cap": "El listado en memoria salía en el orden de inserción; SQLite lo ordenaba por fecha de creación."
+  },
+  {
+   "t": "p",
+   "x": "Mi adaptador de memoria devolvía los despachos en el orden en que se habían guardado, y el de SQLite los devolvía ordenados por fecha de creación. Eran dos adaptadores que parecían iguales y no lo eran. Con pruebas de dominio solo en memoria habría quedado un listado que se ve bien en las pruebas y sale distinto en producción. El contrato lo mostró en la primera corrida y lo arreglé ordenando en la memoria. Un adaptador falso que miente es el riesgo clásico de este estilo, y el contrato es la defensa."
+  },
+  {
+   "t": "pensa",
+   "x": "Si las pruebas de negocio solo usaran el repositorio en memoria y nunca el de SQLite, ¿qué clase de error se les escaparía?",
+   "resp": "Los que dependen del comportamiento de la base real: el orden de los resultados, cómo se comparan los textos, los límites de tipos, las restricciones de unicidad, las transacciones. El adaptador de memoria es una aproximación. Por eso se prueba el adaptador real contra el mismo contrato y se deja alguna prueba de integración de punta a punta."
+  },
+  {
+   "t": "h",
+   "x": "Qué se paga"
+  },
+  {
+   "t": "p",
+   "x": "Ninguna estructura es gratis, y esta tiene costos que se ven rápido."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Costo",
+    "Qué pasa",
+    "Cómo se nota"
+   ],
+   "filas": [
+    [
+     "Más piezas",
+     "Un caso de uso pequeño necesita puerto, adaptador y composición",
+     "Para un CRUD sin reglas, el 80 % del código es traducción"
+    ],
+    [
+     "Indirección",
+     "Para ver qué hace `guardar` hay que ir al adaptador",
+     "Leer el programa exige saltar entre archivos"
+    ],
+    [
+     "Puertos mal cortados",
+     "El puerto copia la tecnología (`repo.consulta(sql)`)",
+     "El núcleo vuelve a conocer SQL con otro nombre"
+    ],
+    [
+     "Adaptadores falsos",
+     "El de memoria se comporta distinto al real",
+     "Pruebas verdes y producción rota; lo evita el contrato"
+    ],
+    [
+     "Mapeo",
+     "Convertir entre las formas del núcleo y las del adaptador",
+     "Fila de base a objeto y vuelta, en cada operación"
+    ]
+   ],
+   "cap": "Lo que se paga a cambio. La primera fila es la que decide si conviene."
+  },
+  {
+   "t": "p",
+   "x": "El puerto mal cortado merece una mirada propia. Un puerto bien pensado habla el idioma del negocio: `guardar(despacho)`, `buscar(id)`. Un puerto mal pensado es un espejo de la tecnología: `ejecutar(sql, parametros)`. En el segundo caso, el núcleo sigue sabiendo que hay una base relacional, solo que con una capa de más. La pregunta para controlarlo es si podrías cambiar la tecnología sin que el puerto se entere."
+  },
+  {
+   "t": "p",
+   "x": [
+    "También hubo un costo en mi propio ejemplo. El caso de uso cotiza **antes** de validar el despacho, porque el despacho necesita el precio para existir. La prueba lo muestra: dos creaciones, una inválida, y el cotizador igual recibió dos llamadas. Se arregla separando validación y creación, pero la estructura no lo hizo sola. Un diseño ordenado no reemplaza pensar el orden de los pasos.",
+    "Y hay un sistema de reglas que evita que la estructura se pudra. Hice un chequeo de media docena de líneas, `revisar.mjs`, que lee cada archivo de `nucleo/` y falla si importa algo que no sea del núcleo. Para probarlo agregué en `despacho.mjs` la línea `import { DatabaseSync } from 'node:sqlite'` y lo corrí:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "node revisar.mjs",
+     "s": "PROHIBIDO en despacho.mjs -> node:sqlite\n1 violaciones"
+    }
+   ],
+   "cap": "Con la línea de SQLite en el núcleo. Sin ella, el mismo chequeo dice «núcleo limpio: sin imports externos»."
+  },
+  {
+   "t": "p",
+   "x": "Es la versión mínima de lo que en [@12-10] hacían las reglas de dependencia entre módulos. Sin un chequeo así, la estructura depende de la disciplina de cada persona, y la disciplina se agota en la semana de entrega."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Hexagonal no es «poner interfaces en todo». Un puerto vale cuando hay, o es plausible que haya, más de una implementación o una razón fuerte para aislar algo: la base, un proveedor externo, la hora. Una función de redondeo que usás en un solo lugar no necesita puerto. El criterio práctico es el del acoplamiento de [@12-02]: aislá lo que cambia por razones ajenas al negocio y lo que es caro de probar.",
+   "titulo": "Interfaces de más"
+  },
+  {
+   "t": "pensa",
+   "x": "Una app interna de tres pantallas que carga una lista desde una base y la muestra, sin reglas de negocio. ¿Conviene una arquitectura hexagonal?",
+   "resp": "Casi seguro que no. No hay núcleo que proteger: toda la «lógica» es leer y mostrar. Los puertos serían traducción sin valor. Empezar simple y extraer un puerto cuando aparezca una regla real o una segunda implementación es una decisión más barata, y es lo que el [@12-10] llamaba crecer por módulos."
+  },
+  {
+   "t": "h",
+   "x": "Cómo lo resuelve Senda"
+  },
+  {
+   "t": "p",
+   "x": "Senda no está organizada como un hexágono completo, y conviene decirlo para no inventar. No hay una carpeta de dominio puro ni puertos declarados como interfaces. Pero hay piezas que muestran la idea en chico y otras que muestran lo que falta. Todo corresponde al commit 25e08fa; el código cambia, la forma permanece."
+  },
+  {
+   "t": "senda",
+   "titulo": "Un núcleo que ya es puro, y uno que todavía está mezclado",
+   "x": [
+    "En `src/datos/` hay 29 archivos `.ts`. Medí con `grep` cuántos no importan nada: cinco (`dificultad`, `fotos`, `nivel`, `puntaje` y `rareza`). Uno de ellos, `puntaje.ts`, tiene 20 líneas y calcula cuántos puntos vale una respuesta: de 1.000 si se contesta al instante a 500 si se agota el tiempo, y 0 si es un error. Es una función pura, sin teléfono, sin pantalla y sin red: el núcleo de dominio de una regla de negocio.",
+    "El caso mezclado es `src/estado/repaso.ts`. Define las cajas de repetición espaciada (`INTERVALOS = [1, 1, 3, 7, 16, 35]`) y dos funciones puras, `vencidas` y `aprendidas`, pero las deja en el mismo archivo que el almacén de zustand, que importa `almacen` y se guarda en el teléfono. Son dos responsabilidades en un solo archivo: quien quiera probar `vencidas` tiene que cargar zustand y el módulo de guardado. Separarlas sería un movimiento chico y reversible. Además, una búsqueda de `puntosRespuesta` y `vencidas` en `pruebas/arranque` no encuentra nada: las dos reglas puras no tienen prueba propia, y son las más fáciles de probar de todo el código."
+   ],
+   "archivos": [
+    "src/datos/puntaje.ts",
+    "src/estado/repaso.ts"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Un puerto que se usa sin llamarlo así",
+   "x": [
+    "`src/util/almacen.ts` es un adaptador de infraestructura casi de manual. La librería de estado, zustand, define lo que espera de un almacenamiento (el tipo `PersistStorage`: `getItem`, `setItem` y `removeItem`). Senda lo implementa sobre `AsyncStorage`, el almacenamiento del teléfono, y se lo entrega en cada estado con `storage: almacen()`. La librería es el núcleo del lado del puerto, `almacen.ts` traduce, y cambiar el almacenamiento, por ejemplo por uno cifrado, es tocar un archivo.",
+    "`src/util/nube.ts` cumple una función parecida frente a Supabase: concentra las llamadas HTTP, y todo se condiciona con `NUBE_ACTIVA`, que es falso cuando no hay claves. No es un puerto formal, porque las pantallas importan sus funciones directamente, pero es una frontera de hecho. Convertirla en puerto sería, en este tamaño de proyecto, una decisión para cuando haya una razón concreta, como cambiar de proveedor."
+   ],
+   "archivos": [
+    "src/util/almacen.ts",
+    "src/util/nube.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": [
+    "El módulo `node:sqlite` que usé para el adaptador es parte de Node. Según su documentación, dejó de requerir la opción `--experimental-sqlite` en Node 22.13.0 y 23.4.0, pero en ese momento seguía marcado como experimental [#hex1211-node-sqlite]. En la VM con Node 22.23.4 que usé para este día emite una advertencia de funcionalidad experimental al cargarlo (por eso corrí con `--no-warnings`). La documentación de versiones más nuevas lo muestra como candidato a versión final; para un proyecto real, fijate qué dice la de tu versión. La arquitectura de hoy no depende del módulo: el adaptador es justamente lo que se cambia.",
+    "Los datos de Senda son del commit 25e08fa. La conversación de Cockburn es de 2005 y sigue vigente porque describe una forma, no un producto."
+   ],
+   "titulo": "Qué puede cambiar"
+  }
+ ],
+ "recap": [
+  "El problema que resuelve la arquitectura hexagonal es una regla de negocio pegada a la base, a la red o a la interfaz: no se puede probar sola ni cambiar la tecnología sin tocarla.",
+  "Cockburn (2005) propone que el núcleo declare puertos, conversaciones con un propósito, y que un adaptador por cada dispositivo externo las traduzca. Los adaptadores primarios manejan la aplicación; los secundarios son los que ella usa.",
+  "El núcleo no depende de nadie: los adaptadores dependen de él. Es la inversión de dependencias aplicada a toda la frontera del programa, con los puertos como interfaces.",
+  "El mismo caso de uso corrió con memoria, SQLite y HTTP sin cambiar una línea del núcleo, y las reglas se probaron en milisegundos con adaptadores de prueba.",
+  "Un adaptador falso puede mentir: el de memoria devolvía otro orden que el de SQLite. Una prueba de contrato compartida lo detectó en la primera corrida.",
+  "Se paga con más piezas, indirección y mapeos. Un puerto con forma de tecnología o una app sin reglas de negocio no justifican la estructura.",
+  "Un chequeo automático de imports mantiene la regla en pie. En Senda, `puntaje.ts` es un núcleo puro, `repaso.ts` mezcla dominio y almacén, y `almacen.ts` es un adaptador de infraestructura de hecho."
+ ],
+ "repaso": [
+  {
+   "p": "Una función de negocio hace la llamada HTTP, valida un peso y guarda en SQL, todo junta. ¿Cuál es el problema principal que resuelve la arquitectura hexagonal en ese caso?",
+   "o": [
+    "Que una llamada por HTTP resulte más lenta que una local",
+    "Que la regla no se pueda probar sin red ni base de datos",
+    "Que SQL no sea un lenguaje apto para usar en producción",
+    "Que la función tenga demasiadas líneas de código en total"
+   ],
+   "c": 1,
+   "e": "El problema es el acoplamiento: la regla queda pegada a servicios que no son suyos, así que probarla exige levantarlos y cambiarlos exige tocarla. La velocidad de HTTP y el lenguaje SQL no son el eje, y la cantidad de líneas es un síntoma, no la causa."
+  },
+  {
+   "p": "En el vocabulario de Cockburn, ¿qué es un puerto?",
+   "o": [
+    "Un número de red donde escucha un servidor web",
+    "El archivo que guarda la conexión a la base de datos",
+    "La clase que traduce SQL al formato del negocio",
+    "Una conversación con propósito declarada por el núcleo"
+   ],
+   "c": 3,
+   "e": "Un puerto es una conversación con un propósito, como «guardar un despacho», declarada por el núcleo. El número de red es otro uso de la misma palabra. La conexión a la base y la traducción a SQL pertenecen al adaptador, no al puerto."
+  },
+  {
+   "p": "Un equipo tiene un repositorio de despachos en memoria para las pruebas y otro en SQLite para producción. Las pruebas pasan, pero en producción el listado sale en otro orden. ¿Qué habría detectado el problema antes?",
+   "o": [
+    "Escribir más pruebas del núcleo con el repo en memoria",
+    "Una prueba de contrato que corra contra los dos repos",
+    "Reemplazar SQLite por otra base de datos más conocida",
+    "Quitar el puerto y llamar a la base directamente"
+   ],
+   "c": 1,
+   "e": "El contrato verifica que los dos adaptadores se comporten igual donde el núcleo lo necesita, como el orden del listado. Más pruebas solo con memoria repiten el mismo punto ciego. Cambiar de base no garantiza nada y quitar el puerto elimina el aislamiento."
+  },
+  {
+   "p": "¿Qué dirección tienen las dependencias de código en una arquitectura hexagonal bien hecha?",
+   "o": [
+    "Del núcleo hacia los adaptadores, porque los usa",
+    "Entre adaptadores, que se llaman unos a otros",
+    "De los adaptadores hacia el núcleo que declara puertos",
+    "Del núcleo hacia la base, como en las capas clásicas"
+   ],
+   "c": 2,
+   "e": "Los adaptadores importan al núcleo y cumplen los puertos que este declaró. El núcleo no importa nada de afuera. Esa es la diferencia con las capas clásicas, donde la lógica termina dependiendo de la capa de datos."
+  },
+  {
+   "p": "Una app muestra en pantalla una lista que lee de una base y no tiene ninguna regla de negocio. ¿Qué es lo más razonable?",
+   "o": [
+    "Hacerla simple y extraer un puerto al aparecer una regla",
+    "Armar igual puertos y adaptadores para cada pantalla nueva",
+    "Usar siempre varios adaptadores de entrada por si acaso",
+    "Copiar el núcleo a un servicio aparte para poder escalar"
+   ],
+   "c": 0,
+   "e": "Sin reglas no hay núcleo que proteger y los puertos serían traducción sin valor. Empezar simple y extraer cuando haga falta es más barato y reversible. Armar todo por si acaso y separar servicios son costos que todavía no tienen una razón."
+  },
+  {
+   "p": "¿Cuál de estos puertos está mal cortado para un núcleo que no debería saber qué base se usa?",
+   "o": [
+    "`guardar(despacho)`",
+    "`buscar(id)`",
+    "`ejecutar(sql, parametros)`",
+    "`listar()`"
+   ],
+   "c": 2,
+   "e": "`ejecutar(sql, parametros)` obliga al núcleo a hablar SQL: la tecnología volvió a entrar por el puerto. Los otros tres usan el idioma del negocio y se pueden implementar con cualquier tecnología."
+  },
+  {
+   "p": "En Senda, `puntaje.ts` no importa nada y `repaso.ts` importa zustand y el almacén. ¿Qué diferencia de diseño ilustra esto?",
+   "o": [
+    "Uno es puro y el otro mezcla dominio con persistencia",
+    "Uno está escrito en un lenguaje distinto del otro",
+    "Uno es más seguro por tener menos importaciones",
+    "Uno tiene una base de datos propia y el otro no"
+   ],
+   "c": 0,
+   "e": "Una función pura sin importaciones se prueba de inmediato. En `repaso.ts` las funciones puras `vencidas` y `aprendidas` conviven con el almacén de zustand, así que probarlas exige cargar la persistencia. Los dos son TypeScript y ninguno tiene base propia."
+  }
+ ],
+ "feynman": "Explicale a alguien que no programa por qué conviene que las reglas de un negocio no sepan en qué base se guardan los datos. Usá una analogía propia, que no sea la del depósito, y decí dónde deja de valer.",
+ "para_profundizar": [
+  {
+   "fuente": "integ0815-cockburn-hexagonal",
+   "nota": "El informe original de 2005. Leé la sección del problema y la de «puertos y adaptadores»; el resto muestra variantes del dibujo."
+  },
+  {
+   "fuente": "hex1211-node-sqlite",
+   "nota": "La documentación de `node:sqlite`, para ver qué ofrece el adaptador de hoy y qué estado de estabilidad declara en la versión que uses."
+  }
+ ],
+ "videos": [
+  {
+   "q": "hexagonal architecture ports and adapters explained",
+   "por_que": "Para ver el mismo dibujo con otro ejemplo y comparar cómo se nombran los puertos."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "puerto",
+   "d": "Conversación con un propósito que el núcleo de una aplicación declara, como «guardar un despacho» o «cotizar un envío», sin atarla a una tecnología. Los adaptadores la cumplen."
+  },
+  {
+   "t": "adaptador de infraestructura",
+   "d": "Pieza que conecta el núcleo con algo externo, como una base, una cola, un servidor web o un proveedor, y traduce entre el puerto y esa tecnología. Es el adaptador clásico aplicado a la frontera del sistema."
+  },
+  {
+   "t": "núcleo de dominio",
+   "d": "Código que expresa las reglas del negocio y no importa nada de afuera: ni base, ni red, ni pantallas. Es lo que se protege y lo que se prueba con más facilidad."
+  }
+ ],
+ "siguiente": "Clean Architecture. Mañana vas a ver la misma idea dibujada en círculos concéntricos por Robert C. Martin, la regla que ordena sus dependencias y en qué se diferencia, con honestidad, de lo de hoy.",
+ "fuentes_nuevas": [
+  {
+   "id": "hex1211-node-sqlite",
+   "t": "Node.js: módulo node:sqlite",
+   "a": "OpenJS Foundation",
+   "tipo": "doc",
+   "url": "https://nodejs.org/api/sqlite.html"
+  }
+ ]
+}
