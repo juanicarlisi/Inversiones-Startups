@@ -1,0 +1,499 @@
+{
+ "id": "14-12",
+ "titulo": "Kubernetes III: configuración, almacenamiento, escalado y cuándo no usarlo",
+ "bajada": "Cómo entran la configuración, las claves y los datos a un Pod, cómo se suman réplicas solas y por qué, para casi cualquier equipo chico, la respuesta correcta a «¿usamos Kubernetes?» suele ser todavía no.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Separar configuración, secretos y datos de la imagen y explicar dónde vive cada uno en Kubernetes.",
+  "Demostrar que un Secret codificado en base64 no está cifrado y listar qué hace falta además.",
+  "Calcular cuántas réplicas pide un HPA para una carga dada, con tolerancia y ventana de estabilización.",
+  "Comparar el costo operativo de un clúster con el de Compose en un servidor, un PaaS y Cloud Run.",
+  "Aplicar una regla práctica para decidir si un proyecto necesita Kubernetes."
+ ],
+ "venis_de": "En [@14-11] escribiste el Deployment, el Service y el Ingress de la API de despachos y viste cómo se actualiza sin cortar. Quedó una pregunta: esa API necesita una contraseña de base de datos, una configuración distinta en cada entorno y, tal vez, un disco que no se pierda. Y una pregunta más incómoda: ¿de verdad hace falta todo esto?",
+ "se_apoya_en": [
+  "14-11",
+  "14-10",
+  "14-08",
+  "14-09",
+  "03-18"
+ ],
+ "gancho": [
+  "Un depósito mediano funciona bien con un encargado, una planilla y tres personas que se conocen. A los diez años tiene turnos, jefes de sector, sistema de gestión, auditorías y un equipo de mantenimiento. Todo eso hace falta **cuando** el depósito llegó a ese tamaño. Si se instala el día uno, el encargado pasa el día completando formularios y no despacha ninguna caja.",
+  "Con Kubernetes pasa lo mismo, y el paralelo es útil pero no exacto: un depósito demasiado burocrático solo pierde plata; un clúster mal operado, además, puede perder datos y dejar la puerta abierta. Hoy completás el cuadro del [@14-11] con tres piezas (configuración, almacenamiento y escalado automático), las medís con números concretos, y terminás con la pregunta que más ahorra: **cuándo no usarlo**."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Configuración fuera de la imagen: ConfigMap"
+  },
+  {
+   "t": "p",
+   "x": "La imagen de [@14-09] se construye una sola vez y viaja idéntica a desarrollo, pruebas y producción. Lo que cambia entre entornos (el nivel de logs, la dirección de la base, cuántas horas dura una sesión) tiene que quedar **afuera** de la imagen. Es el factor III de los doce factores [#twelve-factor-config]: la configuración se guarda en el entorno, no en el código. Si la imagen cambiara entre producción y pruebas, ya no estarías probando lo que desplegás."
+  },
+  {
+   "t": "p",
+   "x": "Un **ConfigMap** es el objeto de Kubernetes para eso: un conjunto de pares clave-valor sin datos confidenciales. Un Pod puede consumirlo de dos maneras: como **variables de entorno** o como **archivos** montados en una carpeta. Hay un límite documentado: un ConfigMap no puede superar 1 MiB, porque no está pensado para guardar bloques grandes de datos."
+  },
+  {
+   "t": "codigo",
+   "lang": "yaml",
+   "x": "apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: despachos-config\ndata:\n  LOG_NIVEL: info\n  HORAS_SESION: \"8\"",
+   "cap": "Un ConfigMap. Fijate que `\"8\"` va entre comillas: en un ConfigMap todos los valores son texto, y el programa que lo lee es el que lo convierte en número."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "La diferencia entre las dos formas de consumirlo importa en un día de apuro. Según la documentación oficial, un ConfigMap montado como **volumen** se actualiza solo en el Pod (con una demora, porque el kubelet lo revisa cada cierto período); un ConfigMap consumido como **variable de entorno** no se actualiza: hay que reiniciar el Pod. Y si el volumen se monta con `subPath`, tampoco recibe actualizaciones. Quien cambia un valor y no ve efecto casi siempre se topa con esto."
+  },
+  {
+   "t": "pensa",
+   "x": "Cambiaste `LOG_NIVEL` de `info` a `debug` en el ConfigMap y la API sigue logueando como antes. El ConfigMap llega a la API como variable de entorno. ¿Qué hacés y por qué?",
+   "resp": "Reiniciás los Pods, por ejemplo con `kubectl rollout restart deployment/despachos`, que hace un recambio gradual como el de [@14-11]. Las variables de entorno se leen una sola vez cuando arranca el proceso; cambiar el objeto no cambia el entorno de un proceso que ya está corriendo."
+  },
+  {
+   "t": "h",
+   "x": "Secret: base64 no es cifrado"
+  },
+  {
+   "t": "p",
+   "x": "Un **Secret** se parece a un ConfigMap pero está pensado para datos que no deberían ser públicos: una contraseña, un token, un certificado. Se consume igual (variable de entorno o archivo). Y acá aparece uno de los malentendidos más repetidos de todo Kubernetes: **los valores de un Secret están codificados en base64, y base64 no es cifrado**. Es un formato para meter bytes arbitrarios en texto, y cualquiera lo revierte con un comando. Mirá lo que hice en esta VM, con una contraseña obviamente falsa:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "kubectl create secret generic despachos-db --from-literal=DB_PASSWORD=clave-falsa-de-practica --dry-run=client -o yaml",
+     "s": "apiVersion: v1\ndata:\n  DB_PASSWORD: Y2xhdmUtZmFsc2EtZGUtcHJhY3RpY2E=\nkind: Secret\nmetadata:\n  name: despachos-db"
+    },
+    {
+     "c": "echo Y2xhdmUtZmFsc2EtZGUtcHJhY3RpY2E= | base64 -d",
+     "s": "clave-falsa-de-practica"
+    }
+   ],
+   "cap": "Salida real. Sin clúster, `--dry-run=client` solo genera el YAML. El valor «cifrado» se lee con una sola orden."
+  },
+  {
+   "t": "p",
+   "x": "Entonces, ¿para qué existe el objeto? Para tener un lugar **separado** y con reglas propias de acceso. La documentación oficial de Secrets avisa que, por defecto, se guardan **sin cifrar** en el almacén del servidor de la API ([[etcd]]), y que puede leerlos quien tenga acceso a la API o a etcd. También advierte que quien puede crear un Pod en un espacio de nombres puede leer cualquier Secret de ese espacio, incluso de manera indirecta (por ejemplo, creando un Deployment). Los pasos mínimos que recomienda incluyen activar el cifrado en reposo, y restringir quién puede leerlos con permisos de acceso."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Qué protege",
+    "Con qué",
+    "Qué NO protege"
+   ],
+   "filas": [
+    [
+     "Que la clave no viaje dentro de la imagen",
+     "Secret en vez de variable fija en el Dockerfile",
+     "Quien lee el Secret en la API la ve en claro (base64 se revierte)"
+    ],
+    [
+     "Que el disco de etcd no exponga claves",
+     "Cifrado en reposo del servidor de la API",
+     "Quien tenga permiso de lectura sobre el Secret vía API"
+    ],
+    [
+     "Que solo ciertas cuentas lean la clave",
+     "Permisos de acceso (RBAC) por espacio de nombres",
+     "Un administrador del clúster, que puede leer todo"
+    ],
+    [
+     "Que la clave viva fuera del clúster",
+     "Un almacén externo de secretos que el clúster consulta",
+     "Hay que operar ese almacén y confiar en su acceso"
+    ]
+   ],
+   "cap": "Cada capa tapa un hueco distinto. Ninguna sola alcanza. Las dos primeras filas se apoyan en la documentación oficial de Secrets; la tercera y cuarta son prácticas habituales, no algo que probé acá."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "«Está en un Secret, así que está seguro.» Un Secret en un repositorio de Git es una clave publicada con un disfraz: el YAML del ejemplo de arriba lo decodificás en un segundo. La regla vale en todos lados, no solo en Kubernetes: los valores secretos no se guardan en el repositorio, ni siquiera codificados."
+  },
+  {
+   "t": "h",
+   "x": "Datos que sobreviven: volúmenes persistentes"
+  },
+  {
+   "t": "p",
+   "x": "Un Pod es efímero ([@14-11]): lo que escriba en su disco propio desaparece con él. Para que los datos sobrevivan hay tres objetos que conviene distinguir. Un **volumen persistente** (PersistentVolume, PV) es un pedazo de almacenamiento del clúster, por ejemplo un disco de la nube, con un ciclo de vida independiente de cualquier Pod. Un **PersistentVolumeClaim** (PVC) es el **pedido** de un usuario: «necesito 5 GiB, de un solo escritor a la vez». Y una **StorageClass** describe el tipo de almacenamiento que se puede crear a pedido. Con una StorageClass, el clúster crea el PV cuando aparece el PVC; vos solo pedís."
+  },
+  {
+   "t": "codigo",
+   "lang": "yaml",
+   "x": "apiVersion: v1\nkind: PersistentVolumeClaim\nmetadata:\n  name: despachos-datos\nspec:\n  accessModes:\n    - ReadWriteOnce\n  resources:\n    requests:\n      storage: 5Gi",
+   "cap": "El pedido de un disco de 5 GiB. `ReadWriteOnce` significa que un solo nodo puede montarlo en lectura y escritura a la vez (según la documentación de volúmenes persistentes)."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Pensalo como alquilar posiciones de pallet en un depósito. El PVC es el pedido («necesito tres posiciones, para un solo cliente»); el PV es la posición física que te asignan; la StorageClass es el tipo de estantería (refrigerada, común). No elegís el número de estante: lo asigna el sistema. La analogía falla en que acá la «posición» puede ser un disco de nube que se factura aunque esté vacío.",
+   "titulo": "Analogía: posiciones de pallet"
+  },
+  {
+   "t": "pensa",
+   "x": "Un Pod con un PVC de 5 GiB se borra por error, pero el PVC sigue existiendo. ¿Qué pasa con los datos y qué pasa si se borra también el PVC?",
+   "resp": "Mientras el PVC exista, los datos siguen en el volumen y un Pod nuevo puede montarlos. Si se borra el PVC, el destino del volumen lo decide su política de reclamo, que según la documentación puede ser retener o borrar; por eso conviene saber cuál tiene antes de borrar nada y tener respaldos aparte."
+  },
+  {
+   "t": "p",
+   "x": "El Deployment después monta ese pedido por nombre. Mirá cómo se encadenan los objetos de hoy en un mismo manifiesto: el Deployment lee la contraseña de un Secret, el nivel de logs de un ConfigMap y guarda archivos en el volumen del PVC."
+  },
+  {
+   "t": "codigo",
+   "lang": "yaml",
+   "x": "apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: despachos\nspec:\n  replicas: 1\n  selector:\n    matchLabels:\n      app: despachos\n  template:\n    metadata:\n      labels:\n        app: despachos\n    spec:\n      containers:\n        - name: api\n          image: registry.ejemplo.test/despachos:1.0.0\n          envFrom:\n            - configMapRef:\n                name: despachos-config\n          env:\n            - name: DB_PASSWORD\n              valueFrom:\n                secretKeyRef:\n                  name: despachos-db\n                  key: DB_PASSWORD\n          volumeMounts:\n            - name: datos\n              mountPath: /var/lib/despachos\n      volumes:\n        - name: datos\n          persistentVolumeClaim:\n            claimName: despachos-datos",
+   "cap": "Deployment con las tres piezas. En producción tendría `readinessProbe` y `resources` como en [@14-11]."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Un Deployment con **una** réplica y un PVC `ReadWriteOnce` es lo que podés hacer sin dolor. Con varias réplicas que escriben, o con una base de datos, el modelo cambia: cada copia necesita su propio disco con identidad estable, y para eso existe otro objeto (StatefulSet, cuyo nombre y función figuran en la documentación oficial). Y ahí empieza el terreno donde los errores cuestan datos."
+  },
+  {
+   "t": "p",
+   "x": "Para mí, una regla práctica: **la base de datos de producción no va adentro de tu clúster mientras no tengas a alguien cuya tarea sea operarla**. Una base gestionada (como la que Supabase administra) ya resuelve backups, réplicas y actualizaciones, y vos solo guardás la dirección y la clave. Es criterio, no ley: hay equipos que operan sus propias bases en Kubernetes con buenos resultados, pero cuentan con la gente y la práctica de recuperación para hacerlo."
+  },
+  {
+   "t": "h",
+   "x": "HPA: sumar réplicas según la carga"
+  },
+  {
+   "t": "p",
+   "x": "Hasta ahora fijaste `replicas: 3`. Un **HorizontalPodAutoscaler** (HPA) cambia ese número solo, según una métrica, dentro de un mínimo y un máximo que vos ponés. «Horizontal» quiere decir más Pods iguales (lo contrario, vertical, sería darle más CPU o memoria a cada uno). Para métricas básicas de CPU y memoria necesita el **Metrics Server**, que se instala aparte, según la documentación oficial; sin él el HPA no ve nada. Además, la utilización se mide **contra lo que pediste en `requests`**: si el Pod pide 100m de CPU y consume 70m, está al 70 %. Si olvidaste los `requests`, no hay porcentaje que calcular."
+  },
+  {
+   "t": "p",
+   "x": "La cuenta que hace es una regla de tres, tomada de la documentación oficial: `réplicas deseadas = ceil(réplicas actuales × métrica actual ÷ métrica objetivo)`. Si hay 2 Pods al 300 % de uso y el objetivo es 70 %, la cuenta da 2 × 300 ÷ 70 = 8,57, que se redondea hacia arriba: 9. Y para no oscilar, hay dos protecciones: una **tolerancia** (por defecto 10 %: si la métrica está a menos de ese margen del objetivo, no hace nada) y una **ventana de estabilización** al bajar (por defecto 300 segundos: usa la mayor recomendación de los últimos cinco minutos). El controlador evalúa cada 15 segundos por defecto."
+  },
+  {
+   "t": "p",
+   "x": "Armé una simulación de juguete que respeta esa cuenta y esos valores por defecto, pero sin demoras de arranque de los Pods (los reales tardan en arrancar, en pasar la sonda y, si no hay lugar en los nodos, en esperar a que aparezca un nodo nuevo). La carga sube de golpe en el segundo 60 y baja en el 360."
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "x": "// HPA de juguete: misma fórmula y mismos topes por defecto que la documentación, sin demoras de arranque.\nconst objetivo = 70, min = 2, max = 10, tolerancia = 0.1, ventanaBaja = 300, ciclo = 15;\nlet replicas = 2;\nconst recomendaciones = []; // [segundo, replicas recomendadas]\n// carga medida en \"Pods trabajando al 100 %\": 1,2 de base; entre el segundo 60 y el 360 sube a 6,0\nconst carga = (s) => (s >= 60 && s < 360 ? 6.0 : 1.2);\nconsole.log('seg | carga | uso% | recomienda | replicas');\nfor (let s = 0; s <= 780; s += ciclo) {\n  const uso = (carga(s) / replicas) * 100;\n  const razon = uso / objetivo;\n  let reco = Math.abs(razon - 1) <= tolerancia ? replicas : Math.ceil(replicas * razon);\n  reco = Math.min(max, Math.max(min, reco));\n  recomendaciones.push([s, reco]);\n  const antes = replicas;\n  let nuevo = reco;\n  if (reco > replicas) nuevo = Math.min(reco, replicas + Math.max(replicas, 4)); // tope de subida por ciclo\n  if (reco < replicas) { // ventana de estabilización: se usa la mayor recomendación de los últimos 300 s\n    nuevo = Math.max(...recomendaciones.filter(([t]) => s - t <= ventanaBaja).map(([, r]) => r));\n    nuevo = Math.min(nuevo, replicas);\n  }\n  replicas = nuevo;\n  if (replicas !== antes || s % 180 === 0) console.log(`${String(s).padStart(3)} | ${carga(s).toFixed(1).padStart(5)} | ${uso.toFixed(0).padStart(4)} | ${String(reco).padStart(10)} | ${replicas}`);\n}\n",
+   "ejecutable": true,
+   "cap": "Simulación de juguete. Salida verificada en node 22 en esta VM; los porcentajes son del modelo, no de un clúster real."
+  },
+  {
+   "t": "p",
+   "x": "Dos cosas para mirar. Primero, la subida es rápida: en el segundo 60 ya está en 6 réplicas y en el 75 llega a 9, porque la política por defecto para subir permite duplicar o sumar 4 Pods cada 15 segundos, el valor que sea mayor. Segundo, la bajada es lenta a propósito: la carga cae en el segundo 360, pero recién en el 660 el HPA saca réplicas, porque durante cinco minutos la ventana recuerda que hubo una recomendación de 9. Esa lentitud sale barata: evita que una carga que sube y baja haga crear y destruir Pods sin parar."
+  },
+  {
+   "t": "codigo",
+   "lang": "yaml",
+   "x": "apiVersion: autoscaling/v2\nkind: HorizontalPodAutoscaler\nmetadata:\n  name: despachos\nspec:\n  scaleTargetRef:\n    apiVersion: apps/v1\n    kind: Deployment\n    name: despachos\n  minReplicas: 2\n  maxReplicas: 10\n  metrics:\n    - type: Resource\n      resource:\n        name: cpu\n        target:\n          type: Utilization\n          averageUtilization: 70",
+   "cap": "El HPA que simulé: entre 2 y 10 réplicas, apuntando a un 70 % de uso de CPU."
+  },
+  {
+   "t": "nota",
+   "k": "dato",
+   "x": "Un límite que sorprende: el HPA agrega **Pods**, no máquinas. Si el clúster no tiene nodos con lugar, los Pods nuevos quedan pendientes. Sumar nodos es un problema aparte, que resuelve otro componente o el proveedor de nube. Y escalar a cero réplicas, según la documentación oficial, pasó a beta en la versión 1.37, pero solo para métricas externas o de objetos, no para CPU ni memoria, que solo se miden con Pods corriendo."
+  },
+  {
+   "t": "h",
+   "x": "Lo que corrí acá: validación de forma de nuevo"
+  },
+  {
+   "t": "p",
+   "x": "Con el mismo `kubeconform` del [@14-11] validé el archivo completo de hoy (ConfigMap, Secret, PVC, Deployment y HPA) y provoqué dos errores a propósito. Uno es de forma y el otro de significado:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "kubeconform -strict -summary -kubernetes-version 1.34.0 cfg.yaml",
+     "s": "Summary: 5 resources found in 1 file - Valid: 5, Invalid: 0, Errors: 0, Skipped: 0"
+    },
+    {
+     "c": "sed 's/minReplicas: 2/minReplicas: dos/' cfg.yaml > cfgmal.yaml && kubeconform -strict -summary cfgmal.yaml",
+     "s": "cfgmal.yaml - HorizontalPodAutoscaler despachos is invalid: problem validating schema. [...]\nSummary: 5 resources found in 1 file - Valid: 4, Invalid: 1, Errors: 0, Skipped: 0"
+    },
+    {
+     "c": "sed 's/claimName: despachos-datos/claimName: despachos-dato/' cfg.yaml > cfgmal2.yaml && kubeconform -strict -summary cfgmal2.yaml",
+     "s": "Summary: 5 resources found in 1 file - Valid: 5, Invalid: 0, Errors: 0, Skipped: 0"
+    }
+   ],
+   "cap": "Salida real. El texto donde va un entero se detecta; un nombre de PVC que no existe pasa sin quejas: el Pod quedaría esperando un disco que nadie creó."
+  },
+  {
+   "t": "h",
+   "x": "Cuándo NO usar Kubernetes"
+  },
+  {
+   "t": "p",
+   "x": "Kubernetes es una herramienta para un problema concreto: muchas piezas de software de un mismo equipo (o de varios), con mucha carga cambiante, que se despliegan seguido, sobre varias máquinas, y que necesitan que la recuperación sea automática. Si no tenés ese problema, estás pagando el costo sin recibir el beneficio. ¿Cuál es el costo? Hay uno de plata y otro de atención."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Costo",
+    "Qué dice la fuente",
+    "Qué significa"
+   ],
+   "filas": [
+    [
+     "Cuota del plano de control",
+     "Amazon EKS: USD 0,10 por clúster por hora. GKE: USD 0,10 por clúster por hora, con un crédito mensual de USD 74,40 por cuenta de facturación que cubre un clúster zonal o Autopilot",
+     "USD 0,10 × 730 h son unos USD 73 al mes con el clúster prendido y vacío, antes de pagar un solo nodo"
+    ],
+    [
+     "Versiones",
+     "Cada versión menor tiene fecha de fin de soporte: 1.36 hasta el 28-06-2027 y 1.37 hasta el 28-10-2027, según la página oficial de lanzamientos",
+     "Hay que actualizar el clúster al menos una vez al año, con los complementos al día (inferencia propia sobre esas fechas)"
+    ],
+    [
+     "Piezas que operás vos",
+     "Controlador de Ingress, Metrics Server, clase de almacenamiento, cifrado de Secrets, permisos, observabilidad",
+     "Cada una es un componente más para instalar, versionar y vigilar"
+    ],
+    [
+     "Atención del equipo",
+     "Sin cifra pública que valga para cualquier equipo",
+     "Hipótesis a medir en tu caso: horas por mes de quien opera el clúster, a su costo real"
+    ]
+   ],
+   "cap": "Precios y fechas consultados el 16-11-2026 en las páginas oficiales de precios y de lanzamientos. Los precios varían por región y cambian: verificalos antes de decidir. El crédito de GKE se aplica por cuenta de facturación, no por proyecto."
+  },
+  {
+   "t": "p",
+   "x": "Y el contraste: la API de despachos, en una máquina con **Docker Compose**, entra en 14 líneas. El equivalente en Kubernetes que armamos en [@14-11] (Deployment, Service e Ingress) tiene 68, sin contar ConfigMap, Secret, PVC ni HPA. No son la misma cosa: Compose no actualiza gradualmente ni repone nodos que se caen, y el servidor es un único punto de falla. Pero si tu requisito real es «que arranque solo si se reinicia la máquina y que yo vea si anda», Compose lo cumple."
+  },
+  {
+   "t": "codigo",
+   "lang": "yaml",
+   "x": "services:\n  api:\n    image: registry.ejemplo.test/despachos:1.0.0\n    restart: unless-stopped\n    env_file: .env\n    ports:\n      - \"127.0.0.1:3000:3000\"\n    healthcheck:\n      test: [\"CMD\", \"wget\", \"-qO-\", \"http://127.0.0.1:3000/salud\"]\n      interval: 15s\n    volumes:\n      - datos:/var/lib/despachos\nvolumes:\n  datos:",
+   "cap": "Un `compose.yaml` equivalente para un servidor. Lo validé con `docker compose config` (Compose v5.6.1), que no necesita demonio. `restart: unless-stopped` reinicia el contenedor si cae, y el healthcheck permite ver su estado. No lo ejecuté: acá no hay demonio de Docker."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Opción",
+    "Qué te da",
+    "Qué te quita"
+   ],
+   "filas": [
+    [
+     "Un servidor con Compose",
+     "Simplicidad, costo fijo bajo, vos mandás",
+     "Un solo punto de falla; actualizaciones y respaldo a mano"
+    ],
+    [
+     "Plataforma como servicio (PaaS)",
+     "Subís el código o la imagen y la plataforma opera el resto",
+     "Menos control; dependés de sus reglas y precios"
+    ],
+    [
+     "Cloud Run (contenedor sin servidor)",
+     "Le das una imagen; escala sola con las peticiones y sin estado propio",
+     "Ese modelo exige aplicaciones sin estado y atadas a HTTP; es de un proveedor"
+    ],
+    [
+     "Kubernetes gestionado",
+     "Control fino y un estándar portable",
+     "La cuota, las versiones y todo lo que sigue siendo tuyo"
+    ]
+   ],
+   "cap": "Cloud Run, según su documentación oficial, ejecuta contenedores sin estado con autoescalado, y su nivel gratuito mensual (consultado el 16-11-2026, precios de us-central1, facturación por petición) incluye 2 millones de peticiones, 180.000 vCPU-segundos y 360.000 GiB-segundos. Las demás filas son criterio mío."
+  },
+  {
+   "t": "nota",
+   "k": "idea",
+   "x": "**Una regla práctica (criterio, no norma):** Kubernetes se vuelve razonable cuando se juntan **varias** de estas señales: muchos servicios propios que se despliegan por separado, más de un equipo que necesita autonomía, carga muy variable, requisitos de alta disponibilidad que un servidor único no cumple, y **al menos una persona** con tiempo y conocimiento para operarlo. Con una o ninguna de esas señales, la respuesta es casi siempre una opción más simple, y siempre podés migrar después: una imagen que corre en Compose corre en un clúster."
+  },
+  {
+   "t": "ejercicio",
+   "x": "Un equipo de 3 personas tiene 1 API, 1 sitio web y una base de datos. Recibe unas 20 peticiones por segundo con picos al mediodía. ¿Qué elegirías y qué evidencia te haría cambiar de idea hacia Kubernetes?",
+   "pista": "Contá cuántas señales de la regla práctica se cumplen. Pensá cuánto cuesta un error operativo y quién lo arregla.",
+   "solucion": "Una opción simple: un servicio gestionado o Compose en un servidor, con base gestionada. De las señales de la regla práctica, no se cumplen casi ninguna (pocos servicios, un equipo, carga modesta). Cambiaría de idea con evidencia concreta: si aparecen más de diez servicios con despliegues independientes, si el único servidor ya no alcanza ni siquiera con uno más grande, si hay un requisito de disponibilidad que no se cumple, o si se suma una persona con la tarea explícita de operar el clúster."
+  },
+  {
+   "t": "senda",
+   "titulo": "Senda: secretos en GitHub, datos en un servicio gestionado",
+   "x": [
+    "Esto corresponde al commit 25e08fa; el código cambia, la forma permanece. Los workflows de `.github/workflows/` leen alrededor de nueve nombres distintos de **secretos de GitHub** (`secrets.*`): las claves de Supabase, de métricas, de firma de Android y de la API de lotes, entre otras. Acá no hay ConfigMap ni Secret de Kubernetes: la misma idea (configuración fuera del código, secretos fuera del repositorio) resuelta con las herramientas de la plataforma de integración continua. No muestro valores, y no los hay en el repositorio.",
+    "Los datos viven en una base gestionada (Supabase), cuyo esquema está en `supabase/migrations/`; no hay disco propio que persistir ni réplicas que escalar. Y hay un hallazgo útil para esta lección: `eas.json` define perfiles de compilación de Expo, pero **ningún workflow lo llama**. Es configuración preparada para una opción que hoy no se usa, el tipo de pieza que conviene anotar como «planificado, no implementado»."
+   ],
+   "archivos": [
+    ".github/workflows/apk.yml",
+    ".github/workflows/supabase.yml",
+    "supabase/migrations/20261101000000_juntos.sql",
+    "eas.json"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Qué te llevás"
+  },
+  {
+   "t": "p",
+   "x": "Tres reglas que no envejecen: **la configuración vive afuera de la imagen; los secretos necesitan cifrado, permisos y disciplina, no solo un formato; los datos que importan necesitan un dueño que sepa recuperarlos**. Y una que sí depende del momento: Kubernetes responde a un tamaño de problema que se alcanza, no que se anticipa."
+  },
+  {
+   "t": "p",
+   "x": "Con esto termina la parte de Kubernetes. En [@14-13] volvés a ver el recorrido de la aplicación, pero por entornos: desarrollo, pruebas, staging y producción, y cómo se evita que un cambio llegue al mundo real sin haber pasado por uno que se le parezca."
+  }
+ ],
+ "recap": [
+  "La configuración que cambia entre entornos va fuera de la imagen: ConfigMap como variables de entorno (requieren reiniciar) o como archivos (se actualizan solos, con demora).",
+  "Un Secret está en base64, que se revierte con un comando; se protege con cifrado en reposo, permisos mínimos y, a veces, un almacén externo.",
+  "Un PVC pide almacenamiento persistente; un PV lo provee; la StorageClass lo crea a pedido. ReadWriteOnce admite un solo nodo escritor.",
+  "El HPA calcula réplicas = ceil(actuales × métrica ÷ objetivo), con tolerancia (10 %) y ventana de estabilización de 300 s al bajar; agrega Pods, no nodos.",
+  "El costo de Kubernetes es plata (la cuota del plano de control es de unos USD 73 al mes en EKS y GKE) y atención (versiones, componentes, permisos).",
+  "Compose en un servidor, un PaaS o Cloud Run resuelven la mayoría de los casos chicos; Kubernetes se justifica cuando se juntan varias señales de escala y hay quien lo opere."
+ ],
+ "repaso": [
+  {
+   "p": "Cambiaste un valor en un ConfigMap que tu Deployment consume como variable de entorno, y la aplicación no lo ve. ¿Qué pasa?",
+   "o": [
+    "El ConfigMap tarda unos minutos en propagarse y después se actualiza solo",
+    "El valor no cambia porque los ConfigMap no se pueden editar una vez creados",
+    "Las variables se leen al arrancar el proceso; hace falta reiniciar los Pods",
+    "El kubelet reemplaza las variables apenas detecta el cambio en el objeto"
+   ],
+   "c": 2,
+   "e": "Un proceso lee su entorno al arrancar, y según la documentación los ConfigMap consumidos como variables no se actualizan solos. La propagación automática vale para los montados como volumen, no para variables. Los ConfigMap sí se pueden editar, salvo los marcados como inmutables. El kubelet no cambia el entorno de un proceso vivo."
+  },
+  {
+   "p": "Alguien dice que los Secrets son seguros porque están cifrados en base64. ¿Cuál es la corrección precisa?",
+   "o": [
+    "Base64 es una codificación reversible; la protección real viene del cifrado en reposo y de los permisos",
+    "Base64 es un cifrado débil que se rompe con una computadora potente y mucho tiempo de cálculo",
+    "Base64 es seguro dentro del clúster pero deja de serlo cuando el Secret sale del clúster",
+    "Base64 es seguro siempre que el Secret no se monte como archivo dentro de un Pod"
+   ],
+   "c": 0,
+   "e": "Base64 no usa clave: cualquiera lo revierte al instante, como se vio con `base64 -d`. No es un cifrado débil sino algo distinto de un cifrado. Tampoco depende de dónde esté el dato ni de cómo se monte: en ninguna de esas situaciones agrega protección."
+  },
+  {
+   "p": "Un HPA tiene objetivo 70 % de CPU. Hay 4 Pods y miden 140 % de uso medio. ¿Cuántas réplicas recomienda, ignorando topes de subida?",
+   "o": [
+    "6 réplicas, porque suma la mitad del exceso medido",
+    "10 réplicas, porque sube hasta el máximo configurado",
+    "4 réplicas, porque 140 % queda dentro de la tolerancia",
+    "8 réplicas, porque 4 × 140 ÷ 70 da exactamente 8"
+   ],
+   "c": 3,
+   "e": "La fórmula es ceil(4 × 140 ÷ 70) = ceil(8) = 8. Sumar la mitad del exceso no es la regla. El máximo configurado es un tope, no el destino automático. Y 140 % está lejos del 70 % objetivo: la tolerancia por defecto es del 10 % del valor."
+  },
+  {
+   "p": "Tu carga cae de golpe a casi cero pero el HPA sigue con 9 réplicas durante cinco minutos más. ¿Por qué?",
+   "o": [
+    "El Metrics Server tarda cinco minutos en medir y por eso reacciona tarde",
+    "La ventana de estabilización de bajada, de 300 s por defecto, usa la mayor recomendación reciente",
+    "Los Pods no se pueden borrar hasta que terminen todas las peticiones que recibieron",
+    "El HPA solo evalúa la carga una vez cada cinco minutos y no antes"
+   ],
+   "c": 1,
+   "e": "Es un comportamiento diseñado: durante la ventana se usa la mayor recomendación de los últimos 300 segundos para evitar oscilaciones. El controlador evalúa cada 15 segundos, no cada cinco minutos, y el borrado de Pods no es lo que lo frena."
+  },
+  {
+   "p": "Un equipo de dos personas, con una API y una base, elige Kubernetes «para estar preparados». ¿Qué objeción es la más sólida?",
+   "o": [
+    "Kubernetes no puede correr una API, solo bases de datos y sitios estáticos",
+    "Un clúster no puede tener solo una API: exige como mínimo tres servicios",
+    "Paga costo fijo y tiempo de operación hoy por una escala que no tiene",
+    "Kubernetes solo funciona con una base gestionada y no con una propia"
+   ],
+   "c": 2,
+   "e": "El costo es presente (cuota del plano de control, versiones, componentes y horas) y el beneficio es hipotético. No hay restricción técnica sobre cuántos servicios corren ni sobre qué tipo de base se usa; todo lo demás son afirmaciones falsas sobre lo que Kubernetes admite."
+  },
+  {
+   "p": "Un Pod referencia un PVC llamado `despachos-dato`, pero el PVC se creó como `despachos-datos`. ¿Qué detecta una validación de esquema con kubeconform?",
+   "o": [
+    "Nada: el nombre es un texto válido y el error solo aparece en el clúster",
+    "El error, porque compara los nombres entre objetos del mismo archivo",
+    "El error, porque consulta al clúster si existe el PVC mencionado",
+    "Nada, porque solo valida archivos con un único objeto de cada tipo"
+   ],
+   "c": 0,
+   "e": "Se corrió y devolvió cinco objetos válidos. kubeconform valida cada objeto contra el esquema de su tipo, sin cruzar referencias ni consultar un clúster. Aceptar archivos con varios objetos es normal, como en el ejemplo. El Pod quedaría esperando un disco inexistente."
+  }
+ ],
+ "feynman": "Explicale a alguien de tu equipo, sin usar la palabra «cifrado» a la ligera, por qué guardar una clave en un Secret de Kubernetes no la vuelve segura por sí solo. Después contá qué le recomendarías hacer a una empresa con un solo servicio y tres personas.",
+ "para_profundizar": [
+  {
+   "fuente": "k8s14b-secret-doc",
+   "por_que": "La lista de precauciones de la página de Secrets es corta y concreta; leé la advertencia sobre almacenamiento sin cifrar y los pasos mínimos recomendados."
+  },
+  {
+   "fuente": "k8s14b-hpa-doc",
+   "por_que": "Tiene la fórmula, el comportamiento por defecto y la sección sobre tolerancia y ventanas; sirve para ajustar la simulación de hoy a números reales."
+  },
+  {
+   "fuente": "k8s14b-pv-doc",
+   "por_que": "Describe PV, PVC, StorageClass y los modos de acceso; leé la sección de modos de acceso antes de pedir un disco."
+  },
+  {
+   "fuente": "twelve-factor-config",
+   "por_que": "El factor III de los doce factores: la razón por la que la configuración no va en la imagen ni en el código."
+  }
+ ],
+ "videos": [
+  {
+   "q": "Kubernetes ConfigMap Secret explicado paso a paso",
+   "por_que": "Una demostración en vivo de cómo se montan y cómo se ven dentro del Pod; comprobá si el video aclara la diferencia entre variable y volumen."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "ConfigMap",
+   "d": "Objeto de Kubernetes con configuración no confidencial en pares clave-valor. Se consume como variables de entorno o como archivos; su límite documentado es 1 MiB."
+  },
+  {
+   "t": "volumen persistente",
+   "d": "Almacenamiento del clúster (PersistentVolume) con ciclo de vida independiente del Pod. Se pide con un PersistentVolumeClaim y se crea a pedido con una StorageClass."
+  },
+  {
+   "t": "HPA",
+   "d": "HorizontalPodAutoscaler: objeto que cambia la cantidad de réplicas según una métrica, dentro de un mínimo y un máximo, con la cuenta réplicas = ceil(actuales × métrica ÷ objetivo)."
+  },
+  {
+   "t": "costo operativo de K8s",
+   "d": "Lo que cuesta tener un clúster: la cuota del plano de control en servicios gestionados, las actualizaciones periódicas, los componentes propios y las horas de quien lo opera."
+  },
+  {
+   "t": "Secret",
+   "d": "Objeto para datos sensibles. Sus valores van en base64, que no es cifrado; por defecto se guardan sin cifrar en etcd salvo que se active el cifrado en reposo."
+  },
+  {
+   "t": "base64",
+   "d": "Codificación que representa bytes como texto. Se revierte sin clave, así que no protege nada."
+  },
+  {
+   "t": "StorageClass",
+   "d": "Descripción de un tipo de almacenamiento que el clúster puede crear a pedido cuando aparece un PersistentVolumeClaim."
+  }
+ ],
+ "siguiente": "Entornos: desarrollo, pruebas, staging y producción, y cómo se evita que un cambio llegue al mundo real sin haber pasado por algo parecido.",
+ "fuentes_nuevas": [
+  {
+   "id": "k8s14b-secret-doc",
+   "t": "Kubernetes: Secrets",
+   "a": "Kubernetes",
+   "tipo": "doc",
+   "url": "https://kubernetes.io/docs/concepts/configuration/secret/"
+  },
+  {
+   "id": "k8s14b-hpa-doc",
+   "t": "Kubernetes: Horizontal Pod Autoscaling",
+   "a": "Kubernetes",
+   "tipo": "doc",
+   "url": "https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/"
+  },
+  {
+   "id": "k8s14b-pv-doc",
+   "t": "Kubernetes: Persistent Volumes",
+   "a": "Kubernetes",
+   "tipo": "doc",
+   "url": "https://kubernetes.io/docs/concepts/storage/persistent-volumes/"
+  }
+ ]
+}

@@ -1,0 +1,589 @@
+{
+ "id": "14-13",
+ "titulo": "Entornos: desarrollo, pruebas, staging y producción",
+ "bajada": "Cuántos entornos necesitás de verdad, por qué la paridad importa, cómo crear y borrar una base de pruebas en 50 milisegundos y cómo llenarla sin filtrar datos de personas.",
+ "minutos": 27,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Distinguir desarrollo, pruebas automáticas, staging y producción por quién los usa, qué datos tienen y cuánto cuestan.",
+  "Explicar las tres brechas del factor «paridad entre desarrollo y producción» y decidir qué conviene igualar y qué debe ser distinto.",
+  "Armar y borrar un entorno efímero de base de datos con PostgreSQL y medir lo que se ahorra.",
+  "Comparar tres formas de enmascarar datos personales y explicar por qué un hash sin clave no anonimiza.",
+  "Reconocer en Senda su sustituto de staging y una brecha de paridad concreta."
+ ],
+ "venis_de": "Ya sabés qué es CI y CD a nivel de idea ([@04-20], [@04-21]), cómo se empaqueta una aplicación en contenedores ([@14-07] a [@14-09]) y cómo se separa configuración de código ([@07-19]). Hoy respondés una pregunta que esas piezas dejaron abierta: ¿en qué lugares corre tu aplicación antes de llegar a los clientes y cómo se llenan de datos?",
+ "se_apoya_en": [
+  "04-20",
+  "04-21",
+  "07-19",
+  "14-01",
+  "14-07"
+ ],
+ "gancho": [
+  "Martes, 11:20. Ana arregló la pantalla de envíos de una app de despachos. En su compu, con una base de 12 filas, abre al instante. Pasa las pruebas, mezcla el cambio y a las 14 el soporte avisa que la pantalla tarda 9 segundos en cargar: en producción hay 40.000 envíos y la consulta nunca tuvo un índice. (Caso inventado, pero cualquiera que haya trabajado con datos reales lo vivió.)",
+  "Ana probó en el lugar equivocado, con los datos equivocados. Hoy vemos por qué existen varios entornos, qué tiene que parecerse a producción y qué no, cómo se crea un entorno de pruebas en 50 milisegundos y cómo se llena sin filtrar los datos de nadie. Al final, un caso real: cómo resuelve Senda el problema de no tener staging."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Para qué existen varios entornos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un **entorno** es una copia completa y autónoma de tu aplicación: el código corriendo, su configuración, su base de datos y los servicios que usa (colas, correo, almacenamiento). Casi todos los equipos tienen al menos dos: el que usa quien programa y el que usan los clientes. El segundo se llama **producción** y es el único que importa al negocio. Todo lo demás existe para llegar a él con menos sustos.",
+    "Imaginá un caso inventado. Ana arregla la pantalla de envíos de una app de despachos y la prueba en su computadora, con una base que tiene 12 filas. Anda perfecto. En producción hay 40.000 envíos, la consulta no usa ningún índice y la pantalla tarda 9 segundos en abrir. Nadie hizo nada mal: el entorno donde se probó era demasiado distinto de aquel donde se usa. Ese es el problema central de hoy."
+   ]
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Entorno",
+    "Quién lo usa",
+    "Qué datos tiene",
+    "Qué tan parecido es a producción"
+   ],
+   "filas": [
+    [
+     "Desarrollo (en la compu de cada persona)",
+     "Quien programa",
+     "Mínimos y de mentira",
+     "Poco: máquina distinta, una sola persona, sin tráfico"
+    ],
+    [
+     "Pruebas automáticas (en el pipeline)",
+     "Una máquina, en cada cambio",
+     "Los que crea el propio test",
+     "Depende de cuánto se esfuerce el pipeline; nace y muere en minutos"
+    ],
+    [
+     "Staging (o preproducción)",
+     "El equipo, antes de lanzar",
+     "Una copia reducida o sintética",
+     "El más parecido que el equipo pueda pagar"
+    ],
+    [
+     "Producción",
+     "Los clientes",
+     "Los reales",
+     "Es la referencia: lo demás intenta parecerse"
+    ]
+   ],
+   "cap": "Los cuatro entornos típicos. Cada equipo usa los que necesita; no hay una cantidad correcta."
+  },
+  {
+   "t": "nota",
+   "k": "analogia",
+   "x": "Un simulacro de despacho se parece mucho a un depósito de verdad: la misma planilla, el mismo muelle, los mismos pasos. Cuanto más real el ensayo, más errores aparecen antes de que haya un camión esperando. La analogía falla en un punto: en logística un simulacro cuesta horas de gente, mientras que un entorno de software se puede crear y borrar en segundos, y eso cambia las reglas del juego, como vas a ver.",
+   "titulo": "Pensalo como un ensayo general"
+  },
+  {
+   "t": "p",
+   "x": "Que haya entornos no significa que haya que tener muchos. Cada entorno tiene un costo: dinero (servidores, bases), atención (alguien tiene que mantenerlo al día) y confianza falsa (el famoso «en staging andaba»). La regla práctica que usan muchos equipos es tener los entornos mínimos para que el cambio llegue probado a producción, y ni uno más."
+  },
+  {
+   "t": "h",
+   "x": "Paridad: que lo que probás se parezca a lo que usás"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La idea tiene nombre: **paridad de entornos** es mantener desarrollo, pruebas, staging y producción lo más parecidos posible en las cosas que pueden cambiar el comportamiento del programa. Aparece como el factor X de [The Twelve-Factor App](https://12factor.net/dev-prod-parity), un texto de 2011 que sigue siendo la referencia más citada del tema [#dep1413-12factor-parity].",
+    "Ese texto identifica tres brechas históricas entre desarrollo y producción:"
+   ]
+  },
+  {
+   "t": "lista",
+   "items": [
+    "**La brecha de tiempo:** quien programa trabaja en algo que tarda días, semanas o meses en llegar a producción.",
+    "**La brecha de personas:** unos escriben el código y otros lo despliegan.",
+    "**La brecha de herramientas:** se desarrolla con un conjunto de piezas (por ejemplo Nginx, SQLite y macOS) y se produce con otro (Apache, MySQL y Linux)."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "La receta es achicar las tres. En la brecha de tiempo, lo que hoy se logra con [[integración continua]] y los despliegues frecuentes que viste en [@04-20] y [@04-21]. En la de personas, que quien escribe el cambio participe en su despliegue y lo mire funcionando (esa es una de las ideas de fondo de la cultura DevOps que viste en [@14-01]). En la de herramientas, algo que te toca hoy: usar la misma base de datos, la misma versión y el mismo sistema operativo en todos lados."
+  },
+  {
+   "t": "p",
+   "x": "Sobre la tercera brecha, el texto dice algo que conviene leer despacio. Cuenta que es tentador usar un servicio liviano en local (SQLite en vez de PostgreSQL, memoria del proceso en vez de un caché externo), con la esperanza de que una capa de adaptadores esconda las diferencias. Y concluye que, aun así, las diferencias pequeñas aparecen: código que pasó en desarrollo o en pruebas falla en producción [#dep1413-12factor-parity]. Cuando se escribió, instalar una base seria en la laptop era engorroso. Hoy, con paquetes y contenedores ([@14-07]), ya no hay excusa técnica."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Paridad no quiere decir que todos los entornos sean idénticos. Hay cosas que **tienen** que ser distintas. Los secretos: producción usa claves reales y los demás claves de práctica ([@07-19]). Los datos: producción tiene los de los clientes y los demás no deberían. El tamaño: un staging con la mitad de las máquinas es razonable si lo que probás no depende de la escala. Y las integraciones con dinero real (un cobro, un envío de correo masivo) se reemplazan por simuladores. La pregunta útil no es «¿son iguales?» sino «¿qué diferencia entre estos dos entornos podría hacer que algo pase acá y falle allá?».",
+   "titulo": "Paridad no es identidad"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Cosa",
+    "Conviene que sea igual",
+    "Conviene que sea distinta"
+   ],
+   "filas": [
+    [
+     "Motor de base de datos y su versión mayor",
+     "Sí: PostgreSQL 16 en todos lados, no «SQLite en mi compu»",
+     ""
+    ],
+    [
+     "Sistema operativo y runtime (Node, Java…)",
+     "Sí: la misma versión, fijada en un archivo",
+     ""
+    ],
+    [
+     "Estructura de la base (migraciones)",
+     "Sí: las mismas migraciones, en el mismo orden",
+     ""
+    ],
+    [
+     "Variables de configuración",
+     "Los mismos nombres",
+     "Los valores (direcciones, claves, límites)"
+    ],
+    [
+     "Secretos y claves",
+     "",
+     "Siempre distintos por entorno"
+    ],
+    [
+     "Datos",
+     "La forma (tablas, tipos, restricciones)",
+     "El contenido: nunca copias crudas de personas reales"
+    ],
+    [
+     "Servicios con costo o efectos reales (pagos, correo)",
+     "La interfaz que usa el código",
+     "El proveedor: uno de prueba o un simulador"
+    ]
+   ],
+   "cap": "Una lista de verificación para decidir qué igualar. Es criterio de ingeniería, no una norma."
+  },
+  {
+   "t": "pensa",
+   "x": "Tu app usa SQLite en desarrollo y PostgreSQL en producción, y una consulta con un tipo de fecha anda en un lado y falla en el otro. ¿Dónde estaba la brecha y cuál es el arreglo más barato?",
+   "resp": "Estaba en la brecha de herramientas: dos motores de base de datos distintos. El arreglo es usar PostgreSQL también en desarrollo y en las pruebas, que hoy se instala con un comando o un contenedor, en vez de escribir más código que esconda la diferencia."
+  },
+  {
+   "t": "h",
+   "x": "Entornos efímeros: crearlos y borrarlos en segundos"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un **entorno efímero** es un entorno que se crea cuando hace falta, para una tarea concreta, y se destruye cuando termina. El ejemplo clásico es un entorno por cada pull request: alguien abre el cambio, el pipeline levanta una copia de la app con su propia base, el equipo la prueba, y al cerrar el pull request todo se borra. Lo contrario es el entorno de vida larga, como staging, que alguien tiene que mantener limpio y al día.",
+    "¿Por qué sirve? Porque elimina la pelea por el entorno compartido. Si dos personas prueban cambios distintos en el mismo staging, se pisan: un cambio rompe la prueba del otro y nadie sabe de quién fue la culpa. Con un entorno por cambio, cada cual tiene el suyo. Tampoco queda basura acumulada de pruebas anteriores, que es la fuente de esos fallos que «desaparecen» al reiniciar."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Para que esto sea práctico, crear el entorno tiene que ser barato. Con la base de datos hay un truco que PostgreSQL trae de fábrica: `CREATE DATABASE` funciona copiando una base existente. Por defecto copia la base `template1`, pero se puede indicar cualquier otra como molde con `TEMPLATE` [#dep1413-pg-template-dbs]. Es decir: se arma una vez una base «plantilla» con el esquema completo, y cada entorno efímero es una copia de ella."
+  },
+  {
+   "t": "p",
+   "x": "Lo probé en esta máquina con la base de Senda (más abajo vas a ver por qué). Primero armé la plantilla aplicando el archivo mínimo de roles y las 42 migraciones, una por una, que tardó 1.142 ms en total. Después clonar la plantilla para cada «pull request» fue así:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "createdb -T plantilla pr_42   # un entorno para el PR 42",
+     "s": "pr_42 creada en 51 ms"
+    },
+    {
+     "c": "createdb -T plantilla pr_43   # y otro para el PR 43",
+     "s": "pr_43 creada en 56 ms"
+    },
+    {
+     "c": "psql -d pr_42 -c \"insert into auth.users(id) values (gen_random_uuid())\"",
+     "s": "INSERT 0 1"
+    },
+    {
+     "c": "psql -d pr_42 -tAc \"select count(*) from auth.users\"",
+     "s": "1"
+    },
+    {
+     "c": "psql -d pr_43 -tAc \"select count(*) from auth.users\"",
+     "s": "0"
+    },
+    {
+     "c": "dropdb pr_42; dropdb pr_43",
+     "s": "(82 ms y 55 ms; después de borrarlas no queda ninguna base pr_)"
+    }
+   ],
+   "cap": "Medido en una sola VM (PostgreSQL 16.15, base de 11 MB y 45 tablas). Los milisegundos varían de corrida en corrida; el orden de magnitud no."
+  },
+  {
+   "t": "p",
+   "x": "Fijate en tres cosas. Crear cada entorno costó unos 50 milisegundos, contra más de un segundo de reconstruir todo desde las migraciones: veinte veces menos. Lo que el PR 42 escribió no existe en el PR 43: están aislados. Y borrar es tan barato como crear, que es lo que permite no acumular entornos olvidados. Con una base de 11 MB esto es casi gratis; con una de 200 GB la copia deja de ser instantánea, y ahí se usan otras técnicas (copias a nivel de almacenamiento, ramas de base de datos que ofrecen algunos servicios). Es un caso de «el principio permanece, la herramienta cambia»."
+  },
+  {
+   "t": "diagrama",
+   "tipo": "flujo",
+   "filas": [
+    {
+     "nodos": [
+      {
+       "t": "Se abre el pull request",
+       "s": "el evento dispara el pipeline",
+       "k": "cliente"
+      },
+      {
+       "t": "Se crea el entorno",
+       "s": "base clonada + app desplegada",
+       "k": "servidor"
+      },
+      {
+       "t": "Se prueba",
+       "s": "tests automáticos y revisión a mano",
+       "k": "datos"
+      }
+     ],
+     "baja": "mientras el pull request siga abierto, cada cambio nuevo actualiza el entorno"
+    },
+    {
+     "nodos": [
+      {
+       "t": "Se aprueba o se cierra",
+       "s": "el equipo decide",
+       "k": "cliente"
+      },
+      {
+       "t": "Se destruye el entorno",
+       "s": "nada queda corriendo ni costando",
+       "k": "alerta"
+      }
+     ]
+    }
+   ],
+   "cap": "El ciclo de vida de un entorno efímero por pull request. Lo importante es el último paso: sin él, los entornos se acumulan y se pagan."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "x": "Un entorno efímero que nadie borra es el peor de los dos mundos: tiene el costo de uno de vida larga y nadie lo mantiene. Si automatizás la creación, automatizá también la destrucción, y poné un tope de vida (por ejemplo, 3 días) por si el evento de cierre falla. Es el mismo problema de un contenedor refrigerado olvidado en el puerto: sigue consumiendo energía aunque nadie lo use.",
+   "titulo": "Lo que se crea solo hay que borrarlo solo"
+  },
+  {
+   "t": "ejercicio",
+   "x": "Usá el ejemplo de arriba. Si reconstruir la base desde las migraciones tarda 1.142 ms y clonar la plantilla tarda unos 55 ms, ¿cuánto tiempo de preparación se ahorra un equipo que abre 40 pull requests por semana, suponiendo que cada uno recrea la base 5 veces? Y si la plantilla hay que reconstruirla cuando cambia una migración, ¿cuándo conviene hacerlo?",
+   "pista": "Calculá 40 por 5 recreaciones y multiplicá por la diferencia por recreación (1.142 menos 55).",
+   "solucion": "Son 200 recreaciones por semana. Cada una ahorra unos 1.087 ms, en total unos 217.400 ms, algo más de 3,6 minutos por semana. Con esta base chica el ahorro en tiempo es modesto: el valor real es la aislación y la limpieza. Con una base que tarde 5 minutos en reconstruirse, el mismo cálculo da más de 16 horas por semana. La plantilla conviene reconstruirla cuando cambia el esquema, es decir, al mezclar una migración, y no en cada pull request: así el costo de armarla se paga una vez y se reparte entre todos los entornos."
+  },
+  {
+   "t": "h",
+   "x": "Staging: qué es y cuándo cuesta más de lo que da"
+  },
+  {
+   "t": "p",
+   "x": [
+    "**Staging** (o preproducción) es el entorno de vida larga que intenta ser un ensayo general: el mismo software que va a producción, en una infraestructura parecida, donde el equipo hace las últimas verificaciones. Tiene una ventaja real: es el único lugar donde probás la mezcla completa antes de que llegue a los clientes. Y tiene tres problemas conocidos.",
+    "El primero es que **miente por omisión**: casi nunca tiene el volumen de datos, el tráfico ni las integraciones reales de producción, así que los problemas de escala o de terceros pasan desapercibidos. El segundo es que se **desfasa**: alguien tiene que aplicarle las mismas migraciones y la misma configuración que a producción, y en un equipo chico eso se olvida. El tercero es el **cuello de botella**: si hay un solo staging, los cambios hacen cola para probarse, como camiones esperando un solo muelle."
+   ]
+  },
+  {
+   "t": "p",
+   "x": "Para un equipo de una o dos personas, una regla práctica (es criterio, no norma) es que staging no se justifica hasta que el costo de un error en producción sea mayor que el costo de mantenerlo. Mientras tanto se puede cubrir buena parte de su función con otras piezas: una base descartable que se arma en cada pipeline (lo que viste arriba), pruebas de punta a punta contra esa base, y despliegues graduales con la posibilidad de volver atrás, que son tema del [@14-16]. Y para la parte de «prenderlo solo para algunos», las feature flags."
+  },
+  {
+   "t": "h",
+   "x": "Datos de prueba: el entorno es tan real como sus datos"
+  },
+  {
+   "t": "p",
+   "x": "Hasta ahora hablamos del código y la infraestructura. Falta lo que decide si una prueba sirve: los **datos de prueba**, el contenido de la base con el que corre cada entorno. Una base vacía no detecta consultas lentas ni casos raros; una base con cientos de filas inventadas a mano detecta poco. Hay tres fuentes, cada una con su precio:"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Fuente",
+    "Cómo se arma",
+    "Ventaja",
+    "Riesgo"
+   ],
+   "filas": [
+    [
+     "Semillas o fixtures",
+     "Un script con filas fijas que se carga siempre",
+     "Predecible: cada test sabe qué hay",
+     "Poco volumen y pocos casos raros"
+    ],
+    [
+     "Datos sintéticos",
+     "Un generador que fabrica miles de filas con reglas",
+     "Volumen a gusto y sin personas reales",
+     "Hay que enseñarle al generador qué casos raros importan"
+    ],
+    [
+     "Copia anonimizada de producción",
+     "Se copia la base real y se enmascara lo personal",
+     "La forma y las rarezas son las verdaderas",
+     "Si el enmascarado falla, se filtran datos de personas"
+    ]
+   ],
+   "cap": "Tres maneras de llenar un entorno. Las tres se pueden combinar: semillas para los tests, sintéticos para el volumen."
+  },
+  {
+   "t": "p",
+   "x": [
+    "La tercera es la más tentadora y la más peligrosa. Copiar producción tal cual a un entorno de desarrollo significa que los datos personales de los clientes quedan en laptops, en bases de pruebas con menos protección y en pipelines. La definición legal ayuda a pensar qué hay que hacer. El reglamento europeo de protección de datos (GDPR) define la **seudonimización** como tratar los datos personales de modo que ya no puedan atribuirse a una persona concreta sin información adicional, siempre que esa información adicional se guarde aparte y con medidas que impidan la atribución [#bd41-gdpr-art4]. Fijate que habla de datos que *todavía se pueden* atribuir si alguien tiene la clave: no es lo mismo que anonimizar, que es dejar los datos sin vuelta atrás.",
+    "Veamos qué significa en la práctica con una base inventada (los correos terminan en `.invalid`, un dominio que por norma no existe). Tiene clientes y envíos relacionados por `cliente_id`:"
+   ]
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -c \"select id, md5(email) as email_md5 from clientes\"",
+     "s": " id |            email_md5             \n----+----------------------------------\n  1 | d2df619b3d2c6f4ff89121e92a316aee\n  2 | aed8ea1dcc376f1fc9efda636929b0fc\n  3 | 96e80aa2dd831b282296307c9446f460"
+    },
+    {
+     "c": "psql -c \"select c.id, g as adivinado from clientes c, unnest(array['ana.perez@ejemplo.invalid','beto.gomez@ejemplo.invalid','zoe.lopez@ejemplo.invalid']) g where md5(c.email)=md5(g)\"",
+     "s": " id |         adivinado          \n----+----------------------------\n  1 | ana.perez@ejemplo.invalid\n  2 | beto.gomez@ejemplo.invalid"
+    }
+   ],
+   "cap": "Intento 1: reemplazar el correo por su hash. Parece ilegible, pero quien tenga una lista de correos candidatos la recupera. Medido en PostgreSQL 16.15."
+  },
+  {
+   "t": "p",
+   "x": "El hash simple parece una buena idea y no lo es: el hash es determinista, así que quien tenga una lista de correos candidatos (la de un cliente, una filtración vieja, una agenda) calcula sus hashes y los compara. Eso fue lo que hizo la segunda consulta: encontró a Ana y a Beto. Es el mismo ataque de diccionario contra contraseñas que ves en seguridad. Una mejora es el HMAC, un hash con una clave secreta que guarda aparte quien anonimiza:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "psql -c \"select id, left(encode(hmac(email,'clave-de-practica-NO-REAL','sha256'),'hex'),12)||'@anon.invalid' as email from clientes\"",
+     "s": " id |           email           \n----+---------------------------\n  1 | 4cf6440b6a99@anon.invalid\n  2 | fe4f49ff523f@anon.invalid\n  3 | 0f9e99a83078@anon.invalid"
+    }
+   ],
+   "cap": "Intento 2: HMAC-SHA256 con clave (extensión pgcrypto). Sin la clave, el diccionario no sirve; el mismo correo siempre da el mismo valor, así que los cruces entre tablas se conservan."
+  },
+  {
+   "t": "p",
+   "x": "Eso es seudonimización: se pierde la identidad pero se conserva la forma. Para un entorno de pruebas, muchas veces alcanza con algo más simple y más seguro: reemplazar por valores sin relación con el original. Probé una máscara completa dentro de una transacción:"
+  },
+  {
+   "t": "codigo",
+   "lang": "sql",
+   "x": "begin;\nupdate clientes set\n  nombre   = 'Cliente ' || id,\n  email    = 'c' || id || '@anon.invalid',\n  telefono = '+54 11 0000-' || lpad(id::text, 4, '0');\nupdate envios set destino = 'Destino ' || (id % 3);\ncommit;",
+   "cap": "Máscara completa. Los identificadores (id, cliente_id) no se tocan, así que las relaciones entre tablas siguen funcionando."
+  },
+  {
+   "t": "p",
+   "x": "Después de aplicarla, la consulta que agrupa envíos por cliente siguió devolviendo lo mismo que antes (Cliente 1 con 2 envíos y 6 bultos, Cliente 2 con 1 envío y 9 bultos): la estructura sobrevivió y los datos personales no. Queda un último problema, y es el más sutil: el código postal quedó intacto. Un dato que por sí solo no identifica a nadie (código postal, fecha de nacimiento, el combo «cliente que compra 9 bultos») puede identificar a alguien en combinación con otros. Se llaman *cuasi-identificadores*, y en una base chica como esta, un código postal poco común ya señala a una persona. Es uno de los motivos por los que anonimizar de verdad es difícil, y por los que, ante la duda, conviene generar datos sintéticos desde cero."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "x": "Es común oír «anonimizamos la base reemplazando los mails por un hash». Como viste, un hash sin clave es reversible por diccionario, así que eso es, a lo sumo, seudonimización débil. Y aunque cambies nombre, correo y teléfono, los cuasi-identificadores pueden volver a señalar a una persona. Anonimizar no es un reemplazo de columnas: es una evaluación de qué se puede deducir de lo que queda.",
+   "titulo": "Un hash no anonimiza"
+  },
+  {
+   "t": "ejercicio",
+   "x": "Tenés una tabla `envios(id, cliente_id, destino, bultos)` y otra `clientes(id, email)`. Querés una copia para pruebas donde (a) nadie pueda ver correos reales, (b) los envíos de un mismo cliente sigan juntos, y (c) la unión entre las tablas siga andando. ¿Qué columnas enmascarás y cuáles dejás intactas?",
+   "pista": "Preguntate qué columnas son datos de la persona y cuáles son pegamento entre tablas.",
+   "solucion": "Enmascarás `email` (dato personal) y probablemente `destino` (una dirección identifica a una persona o a un domicilio). Dejás intactas `id` y `cliente_id`: son el pegamento de la relación y no significan nada por fuera de la base. `bultos` se puede dejar porque por sí solo no identifica a nadie. Si querés más cuidado, revisá si la combinación de columnas restantes sigue señalando a alguien. Si el volumen real no hace falta, es más seguro generar datos sintéticos."
+  },
+  {
+   "t": "h",
+   "x": "Feature flags: separar «desplegar» de «lanzar»"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Hay una herramienta que reduce la necesidad de entornos de vida larga y que ya conocés de [@07-19]: la [[feature flag]]. Con una flag, el código nuevo viaja a producción apagado, y encenderlo es un cambio de configuración, no un despliegue. Pete Hodgson, en el texto de martinfowler.com que ya citaste, las describe como una técnica que permite entregar un cambio de comportamiento sin cambiar el código [#cd-fowler-feature-toggles].",
+    "La relación con los entornos es directa. Si podés probar una función en producción con unos pocos usuarios, o solo con tu propia cuenta, la pregunta de «¿se parece staging a producción?» pierde peso, porque estás probando en producción misma, con una salida de emergencia a un clic. Eso no reemplaza todo: una flag no te protege de una migración de base de datos que rompe tablas ni de un error en el código que corre aunque la flag esté apagada. Y cada flag es una rama más del código que alguien tiene que acordarse de borrar cuando ya no sirve."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "En Senda: un entorno descartable y ningún staging"
+  },
+  {
+   "t": "p",
+   "x": "Esto corresponde al commit `25e08fa` de Senda (8 de noviembre de 2026); el código cambia, la forma permanece. Lo que sigue lo verifiqué leyendo los archivos y corriendo lo que se podía correr en esta máquina."
+  },
+  {
+   "t": "senda",
+   "titulo": "Una base descartable por cada corrida",
+   "x": [
+    "Senda tiene una sola base de datos viva, en un único proyecto de Supabase, y **no hay un entorno de staging**. El mapa técnico y los workflows coinciden: un `push` a `main` que toque `supabase/migrations/**` o `supabase/functions/**` migra el proyecto real.",
+    "El sustituto es un entorno efímero casero. El script `pruebas/nube/correr.sh` crea una base nueva (`senda_prueba`), le aplica `supabase_minimo.sql` (que fabrica lo mínimo de Supabase: los roles `anon`, `authenticated` y `service_role`, la tabla `auth.users`, la función `auth.uid()` y un simulador de `pg_net`) y después las 42 migraciones en orden. Después corre `recorrido.py`, que ejerce amigos, duelos, grupos, torneos y salas como lo haría la app.",
+    "Lo corrí con un PostgreSQL 16.15 propio, en un puerto local de esta VM. Instalé aparte el paquete de Python que necesita y no toqué el repositorio. Terminó con `261 de 261 pasos bien` en unos 3,2 segundos. (El mapa técnico habla de unas 188 comprobaciones contadas como llamadas a `paso()`; la cifra de la corrida cuenta las ejecuciones, que incluyen bucles.)"
+   ],
+   "archivos": [
+    "pruebas/nube/correr.sh",
+    "pruebas/nube/supabase_minimo.sql",
+    "pruebas/nube/recorrido.py",
+    "supabase/migrations/20261101000000_juntos.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Dónde la paridad se rompe, y dónde se cubre",
+   "x": [
+    "Este entorno descartable corre dos veces: antes de compilar el APK (`apk.yml`) y como trabajo `probar` de `supabase.yml`, del que depende `migrar` mediante `needs`: si las pruebas fallan, no se toca la base real. Es una compuerta razonable para un proyecto de una persona.",
+    "Hay una brecha de herramientas que se puede ver en el propio código. La migración `20261101000000_juntos.sql` programa tareas periódicas con `cron.schedule` dentro de un bloque `do $$ ... exception when others then raise notice ...`. En la base descartable la extensión `pg_cron` no existe (lo comprobé consultando `pg_extension`: solo está `plpgsql`), así que la migración avisa con un `NOTICE` y sigue. El resultado es que la prueba pasa, pero esa parte, el cron de cerrar duelos vencidos y enviar avisos, no se ejerce nunca antes de producción. Es justo el tipo de diferencia que advierte el factor X.",
+    "Del otro lado, Senda tiene una flag operativa real y simple: la tabla `interruptores`, con tres claves (`direcciones`, `anuncios`, `trivia_ia`). La app la lee al abrir, la recuerda en el teléfono y, si no puede leerla, deja todo encendido (`src/util/interruptores.ts`). Es un kill switch: permite apagar algo sin sacar otro APK, y funciona como red de seguridad cuando no hay staging."
+   ],
+   "archivos": [
+    ".github/workflows/supabase.yml",
+    "supabase/migrations/20261130000000_interruptores.sql",
+    "src/util/interruptores.ts"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "x": "Al 16 de noviembre de 2026, la página de PostgreSQL anunciaba la salida de las versiones 18.7, 17.12, 16.16, 15.20 y 14.25 el 12 de noviembre [#dep1413-pg-template-dbs]. La máquina donde corrí los ejemplos tiene la 16.15, una menor atrás de la última de su rama. No cambia nada de lo que viste hoy (el mecanismo de `TEMPLATE` es el mismo), pero en un entorno real las actualizaciones menores de seguridad se aplican. Verificado el 16-11-2026.",
+   "titulo": "Versiones de PostgreSQL"
+  },
+  {
+   "t": "p",
+   "x": "Hasta acá, el cuándo y el dónde: qué entornos tener y cómo llenarlos. Falta el cómo se mueve el cambio de uno a otro. Esa es la parte del [@14-14]: un pipeline que arma el producto una vez y lo promueve."
+  }
+ ],
+ "recap": [
+  "Un entorno es una copia autónoma de la app con su configuración y sus datos. Hay cuatro típicos (desarrollo, pruebas, staging, producción), y cada uno cuesta dinero, atención y confianza falsa.",
+  "La paridad de entornos busca achicar tres brechas: de tiempo, de personas y de herramientas. Lo más importante es no usar motores distintos en desarrollo y producción.",
+  "Paridad no es identidad: los secretos, el contenido de los datos y los proveedores con efectos reales deben ser distintos. La pregunta útil es qué diferencia podría hacer que algo pase acá y falle allá.",
+  "Un entorno efímero se crea para una tarea y se destruye solo. Con PostgreSQL, clonar una plantilla con `CREATE DATABASE ... TEMPLATE` tardó unos 50 ms contra más de 1 s de reconstruir desde las migraciones, y cada clon queda aislado.",
+  "Staging miente por omisión, se desfasa y hace cola. En equipos chicos se puede cubrir con una base descartable por pipeline, despliegues graduales y feature flags.",
+  "Los datos de prueba pueden ser semillas, sintéticos o una copia anonimizada. Un hash sin clave se revierte con un diccionario; un HMAC con clave seudonimiza; y los cuasi-identificadores (código postal, fechas) pueden volver a señalar a una persona.",
+  "Senda no tiene staging: usa una base descartable que corre antes de compilar y antes de migrar, y una tabla de interruptores como salida de emergencia. Su base descartable no tiene `pg_cron`, así que las tareas programadas no se ejercen antes de producción."
+ ],
+ "repaso": [
+  {
+   "q": "Un equipo desarrolla con SQLite en la laptop y despliega con PostgreSQL. ¿Qué brecha del factor «paridad» ilustra y cuál es el riesgo principal?",
+   "o": [
+    "La brecha de tiempo: el desarrollo es más lento que la producción y los cambios tardan en llegar.",
+    "La brecha de herramientas: dos motores distintos pueden comportarse distinto y ocultar fallos hasta producción.",
+    "La brecha de personas: quien programa no es quien despliega y por eso se pierde información.",
+    "Ninguna: usar una base liviana en desarrollo es una buena práctica que acelera el trabajo diario."
+   ],
+   "c": 1,
+   "e": "Es la brecha de herramientas: el código pasa en desarrollo y falla en producción por diferencias pequeñas entre motores. La de tiempo trata de cuánto tarda un cambio en llegar a producción y la de personas de quién despliega. Usar otro motor «por comodidad» era razonable cuando instalar una base seria era engorroso, pero hoy con paquetes y contenedores ya no hay motivo."
+  },
+  {
+   "q": "Cuál de estas cosas debería ser DISTINTA entre staging y producción?",
+   "o": [
+    "La versión mayor del motor de base de datos y el sistema operativo del servidor de la aplicación.",
+    "Las claves de acceso y los datos personales de clientes reales, que no deberían estar copiados sin cuidado.",
+    "El orden y el contenido de las migraciones que arman las tablas, que tienen que coincidir siempre.",
+    "Los nombres de las variables de configuración que lee la aplicación para saber con quién conectarse."
+   ],
+   "c": 1,
+   "e": "Los secretos y los datos de personas reales deben diferir: staging no necesita las claves de producción y no debería tener datos personales crudos. Las otras tres opciones son justo lo que conviene mantener igual: motor, versión, migraciones y nombres de variables. Cambian los valores, no la forma."
+  },
+  {
+   "q": "Un equipo crea un entorno por cada pull request, pero nadie programó cómo se borran. A los dos meses, ¿qué pasa?",
+   "o": [
+    "Nada: los entornos se apagan solos cuando pasa un tiempo sin uso, como los servidores de práctica.",
+    "Se acumulan entornos que cuestan dinero, ocupan recursos y nadie mantiene, el peor de los dos mundos.",
+    "Se mejora la paridad, porque cuantos más entornos haya más probable es que alguno se parezca a producción.",
+    "Se pierde aislamiento, porque los entornos viejos terminan compartiendo la base de datos con los nuevos."
+   ],
+   "c": 1,
+   "e": "Un entorno efímero sin destrucción automática se vuelve uno de vida larga sin mantenimiento: sigue costando y nadie lo cuida. La destrucción hay que automatizarla y ponerle tope de vida. No se apagan solos salvo que alguien lo configure, la cantidad no mejora la paridad y el aislamiento no se pierde por la edad."
+  },
+  {
+   "q": "Reemplazás los correos de una base de pruebas por `md5(email)`. ¿Por qué no alcanza para proteger a las personas?",
+   "o": [
+    "Porque md5 es lento y rompe las consultas que cruzan tablas por ese campo en la base de pruebas.",
+    "Porque quien tenga una lista de correos candidatos calcula sus hashes y los compara, recuperando quién es quién.",
+    "Porque md5 produce valores de largo variable que no entran en la columna original de la tabla.",
+    "Porque md5 se puede deshacer matemáticamente, algo que el HMAC con clave no permite ni siquiera con la clave."
+   ],
+   "c": 1,
+   "e": "El hash es determinista: el mismo correo da siempre el mismo valor, y quien tenga candidatos los compara (ataque de diccionario). No es lento, tiene largo fijo y no se invierte con matemática: se adivina probando. Lo que lo mejora es la clave secreta del HMAC, que el atacante no tiene."
+  },
+  {
+   "q": "Una copia de producción con nombre, correo y teléfono enmascarados conserva el código postal y la fecha de nacimiento. ¿Qué riesgo persiste?",
+   "o": [
+    "Ninguno: sin nombre, correo ni teléfono la base ya es anónima y puede compartirse sin controles adicionales.",
+    "Que la combinación de datos sueltos (código postal, fecha) señale a una persona concreta: son cuasi-identificadores.",
+    "Que las consultas se vuelvan más lentas, porque el código postal sin enmascarar ocupa más espacio en disco.",
+    "Que el enmascarado de las otras columnas deje de funcionar apenas se actualice alguno de esos dos campos."
+   ],
+   "c": 1,
+   "e": "Los cuasi-identificadores, combinados, pueden volver a señalar a alguien, sobre todo en grupos chicos. Por eso anonimizar es evaluar qué se puede deducir de lo que queda y no solo reemplazar columnas. Las otras opciones inventan un efecto de rendimiento o de dependencia que no existe."
+  },
+  {
+   "q": "Un equipo de una persona no tiene staging. ¿Qué combinación cubre mejor su función sin mantener un segundo entorno de vida larga?",
+   "o": [
+    "Probar directo en producción y arreglar rápido si algo falla, porque ahí está el único comportamiento real.",
+    "Una base descartable armada en cada pipeline, despliegues graduales con vuelta atrás y feature flags para encender de a poco.",
+    "Clonar producción a mano una vez por mes y usar esa copia como staging, aunque tenga datos reales sin enmascarar.",
+    "Duplicar la infraestructura entera de producción en otra región para que sea exactamente idéntica a la real."
+   ],
+   "c": 1,
+   "e": "Esa combinación cubre la verificación previa (base descartable), la reversión (despliegue gradual) y el apagado rápido (flags) sin mantener un entorno nuevo. Probar directo sin red de seguridad es riesgo; la copia manual se desfasa y puede filtrar datos; duplicar toda la infraestructura es el costo que se quería evitar."
+  }
+ ],
+ "feynman": "Explicale a alguien que nunca programó por qué una app necesita más de un lugar donde correr antes de llegar a los clientes. Contá el caso de la pantalla que anda con 12 filas y tarda 9 segundos con 40.000, y decí qué cosas tienen que ser iguales entre los lugares y cuáles no.",
+ "para_profundizar": [
+  {
+   "fuente": "dep1413-12factor-parity",
+   "para": "Es el texto original del factor X: las tres brechas y el argumento contra usar motores distintos. Se lee en cinco minutos."
+  },
+  {
+   "fuente": "dep1413-pg-template-dbs",
+   "para": "La documentación oficial de las bases plantilla de PostgreSQL: explica `template1`, `template0` y cómo se copia una base existente al crear otra."
+  },
+  {
+   "fuente": "bd41-gdpr-art4",
+   "para": "La definición legal de seudonimización (artículo 4 del GDPR, punto 5), para distinguirla de anonimizar. Es una reproducción no oficial del reglamento."
+  },
+  {
+   "fuente": "cd-fowler-feature-toggles",
+   "para": "El texto de Pete Hodgson sobre feature flags, para ver los tipos de flag y el costo de dejarlas vivas."
+  }
+ ],
+ "videos": [],
+ "terminos": [
+  {
+   "t": "paridad de entornos",
+   "d": "Mantener desarrollo, pruebas, staging y producción lo más parecidos posible en lo que puede cambiar el comportamiento del programa: motor de base de datos, versiones, sistema operativo y migraciones. No exige que sean idénticos: secretos y datos deben diferir."
+  },
+  {
+   "t": "entorno efímero",
+   "d": "Entorno que se crea cuando hace falta, por ejemplo uno por pull request, y se destruye solo cuando termina la tarea. Evita pisarse en un entorno compartido y no deja basura acumulada, a condición de que la destrucción también esté automatizada."
+  },
+  {
+   "t": "datos de prueba",
+   "d": "El contenido con que se llena un entorno que no es producción. Pueden ser semillas fijas, datos sintéticos generados por reglas o una copia de producción enmascarada. Una copia cruda con datos de personas reales es un riesgo de privacidad."
+  },
+  {
+   "t": "staging",
+   "d": "Entorno de vida larga que intenta ser un ensayo general de producción, con el mismo software y una infraestructura parecida. Tiene tres problemas típicos: no replica el volumen real, se desfasa si nadie lo mantiene y puede ser un cuello de botella."
+  },
+  {
+   "t": "seudonimización",
+   "d": "Tratar datos personales de modo que ya no se puedan atribuir a una persona sin información adicional que se guarda aparte. Es distinta de anonimizar, donde no hay camino de vuelta. Un HMAC con clave es un ejemplo."
+  },
+  {
+   "t": "cuasi-identificador",
+   "d": "Dato que por sí solo no identifica a nadie (código postal, fecha de nacimiento) pero que, combinado con otros, puede señalar a una persona. Es una de las razones por las que anonimizar de verdad es difícil."
+  }
+ ],
+ "siguiente": "Ya sabés dónde corre tu aplicación; mañana vemos cómo viaja el cambio de uno a otro: etapas, caché, matrices de prueba y el principio de construir una sola vez y promover lo construido.",
+ "fuentes_nuevas": [
+  {
+   "id": "dep1413-12factor-parity",
+   "t": "The Twelve-Factor App: X. Dev/prod parity",
+   "a": "Adam Wiggins",
+   "tipo": "articulo",
+   "anio": 2011,
+   "url": "https://12factor.net/dev-prod-parity"
+  },
+  {
+   "id": "dep1413-pg-template-dbs",
+   "t": "PostgreSQL 16: 23.3. Template Databases",
+   "a": "PostgreSQL Global Development Group",
+   "tipo": "doc",
+   "url": "https://www.postgresql.org/docs/16/manage-ag-templatedbs.html"
+  }
+ ]
+}
