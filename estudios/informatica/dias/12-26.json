@@ -1,0 +1,466 @@
+{
+ "id": "12-26",
+ "titulo": "Idempotencia, reintentos y el mito del exactamente-una-vez",
+ "bajada": "Por qué no se puede saber si un mensaje llegó, qué garantías de entrega existen de verdad y cómo se logra que repetir una operación no duplique su efecto.",
+ "minutos": 28,
+ "vigencia": "mixto",
+ "revisado": "2026-11-16",
+ "objetivos": [
+  "Explicar por qué, tras un timeout, el emisor no puede distinguir entre «no llegó» y «llegó y se perdió la respuesta».",
+  "Distinguir entrega como mucho una vez, al menos una vez y «exactamente una vez», y justificar por qué la tercera es un efecto y no una propiedad de la red.",
+  "Aplicar tres caminos para volver idempotente una operación: diseñarla así, usar una clave de idempotencia o usar versiones.",
+  "Decidir en qué orden y en qué transacción se anota la clave de deduplicación para que una caída no duplique ni pierda nada.",
+  "Reconocer en el código de Senda dónde hay entrega al menos una vez con deduplicación y dónde hay entrega como mucho una vez."
+ ],
+ "venis_de": "En [@07-12] viste una clave de idempotencia en un servidor HTTP, en [@07-14] los mensajes duplicados de las colas y en [@07-17] los reintentos con espera. Ayer, en [@12-25], las compensaciones de una saga tenían que poder reintentarse sin duplicar su efecto. Hoy se explica la teoría completa y se mide dónde falla cada diseño.",
+ "se_apoya_en": [
+  "07-12",
+  "07-14",
+  "07-17",
+  "12-20",
+  "12-25"
+ ],
+ "gancho": [
+  "Un repartidor sale de un ascensor con la señal del teléfono hecha pedazos y toca «Entregado» en el pedido 5521. La rueda gira. Pasan diez segundos y la app muestra un error de conexión. Él no sabe si el sistema se enteró. Si no se enteró y no reintenta, el pedido queda «en camino» para siempre y la clienta llama enojada. Si se enteró y reintenta, quizás el sistema registre dos entregas, descuente el stock dos veces o mande dos avisos.",
+  "Lo incómodo es que **no hay manera de saber** cuál de las dos situaciones es la real. No es un problema de la app del repartidor ni de este sistema: es una propiedad de cualquier comunicación por red. Hoy vemos por qué, qué garantías se pueden dar de verdad y la técnica que hace que reintentar siempre sea seguro."
+ ],
+ "bloques": [
+  {
+   "t": "h",
+   "x": "Una pregunta sin respuesta: ¿llegó o no?"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Un emisor manda un pedido y espera. Si pasa el plazo sin respuesta, hay tres historias posibles, y desde el lado del emisor se ven exactamente igual:"
+   ]
+  },
+  {
+   "t": "lista",
+   "ord": true,
+   "items": [
+    "**El pedido se perdió** en el camino. El receptor nunca se enteró y no hizo nada.",
+    "**El pedido llegó y se procesó, pero la respuesta se perdió.** El receptor ya hizo el trabajo y el emisor sigue ignorándolo.",
+    "**El pedido llegó y el receptor se cayó o está lento a mitad del trabajo.** Quizás lo termine, quizás no."
+   ]
+  },
+  {
+   "t": "p",
+   "x": [
+    "Lo que viste de [[fallo parcial]] en [@12-20] es esto mismo: una parte del sistema falla y la otra no puede saberlo. Un [[timeout]] no resuelve la duda. Solo convierte una espera infinita en una decisión, y esa decisión tiene dos opciones, ambas imperfectas: **no reintentar** (si era el caso 1, se pierde) o **reintentar** (si era el caso 2, se duplica).",
+    "Esa elección define las garantías de entrega que existen. Son tres nombres que conviene tener claros."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "El repartidor toca «Entregado», no hay respuesta y reintenta. ¿Qué dato adicional le permitiría saber si debe preocuparse por un duplicado, sin consultar al sistema?",
+   "resp": "Ninguno que dependa solo de él: con lo que tiene, las tres historias son idénticas. Lo que sí puede hacer es cambiar la pregunta: en vez de averiguar si llegó, hacer que repetir sea inocuo. Esa es la idea del día."
+  },
+  {
+   "t": "h",
+   "x": "Tres garantías de entrega"
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Garantía",
+    "Qué hace el emisor",
+    "Qué puede pasar",
+    "Dónde se ve"
+   ],
+   "filas": [
+    [
+     "Como mucho una vez ([[at-most-once]])",
+     "Envía y no reintenta",
+     "Se puede perder; nunca se duplica",
+     "Un aviso de «ya llegué» que si no sale, no importa"
+    ],
+    [
+     "Al menos una vez ([[at-least-once]])",
+     "Reintenta hasta recibir confirmación",
+     "No se pierde (si el sistema no se rinde antes), pero se puede duplicar",
+     "Casi todas las colas y las APIs con reintento"
+    ],
+    [
+     "«Exactamente una vez»",
+     "Reintenta y el receptor evita duplicados",
+     "El efecto ocurre una sola vez",
+     "Pagos, stock, todo lo que no tolera ni pérdida ni duplicado"
+    ]
+   ],
+   "cap": "Las dos primeras son propiedades de cómo se envía. La tercera, como vamos a ver, es un resultado que se construye."
+  },
+  {
+   "t": "p",
+   "x": "Medirlo es más convincente que leerlo. Armé un enlace con pérdidas sembradas con una semilla fija: el 20 % de los pedidos se pierde antes de llegar y el 20 % de las confirmaciones se pierde al volver. Un emisor manda 100 entregas, y el receptor descuenta 1 bulto del stock por cada una que procesa. Tres estrategias sobre el mismo enlace:"
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// Enlace con pérdidas: 20 % de los pedidos y 20 % de las respuestas se pierden. Semilla fija.\nfunction mulberry32(a) { return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }\n\nfunction simular(estrategia, semilla = 2026) {\n  const azar = mulberry32(semilla);\n  let stock = 1000;                         // el receptor descuenta 1 bulto por cada entrega que procesa\n  const vistos = new Set();                 // ids ya procesados (solo si el receptor deduplica)\n  let envios = 0, procesados = 0;\n  const receptor = (id) => {                // devuelve true si la respuesta llega de vuelta\n    if (azar() < 0.2) return false;         // se perdió el pedido: el receptor ni se entera\n    if (estrategia === 'dedup' && vistos.has(id)) { /* ya estaba: no vuelve a descontar */ }\n    else { stock--; procesados++; vistos.add(id); }\n    return azar() >= 0.2;                   // la respuesta puede perderse\n  };\n  for (let id = 1; id <= 100; id++) {\n    let ack = false, intentos = 0;\n    do { intentos++; envios++; ack = receptor(id); }\n    while (!ack && estrategia !== 'una-vez' && intentos < 10);\n  }\n  return { estrategia, entregas: 100, envios, descontados: 1000 - stock };\n}\nfor (const e of ['una-vez', 'al-menos-una', 'dedup']) {\n  const r = simular(e);\n  console.log(r.estrategia.padEnd(13), 'envios=' + String(r.envios).padStart(3), ' bultos descontados=' + String(r.descontados).padStart(3), ' (correcto: 100)');\n}",
+   "cap": "Simulación con semilla 2026, con tope de 10 intentos por entrega. Con otra semilla los números cambian; la forma no. Corrido en node 22."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con **una vez** se mandaron exactamente 100 pedidos y se descontaron 70 bultos: se perdieron 30 entregas, y nadie sabe cuáles. Con **al menos una** el emisor insiste y manda 161 pedidos para completar las 100 entregas, pero el receptor procesa todo lo que le llega, también las repeticiones, y descuenta 124: **24 bultos de más**. Con la tercera, el emisor hace los mismos 161 envíos, y el receptor reconoce los ids que ya procesó y no los vuelve a descontar. El stock queda en 100, justo lo correcto.",
+    "Fijate que el tercer caso **no envió menos mensajes**. Hubo 61 pedidos extra en la red. La red no se volvió más confiable: lo que cambió es que el receptor sabe ignorar lo repetido."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "El mito del exactamente-una-vez"
+  },
+  {
+   "t": "p",
+   "x": [
+    "A veces se escucha que cierto producto «garantiza entrega exactamente una vez». Mirá lo que acabás de ver: esa garantía no es una propiedad de la red, que puede perder o repetir. Es una combinación: **entrega al menos una vez** (para no perder) **más procesamiento idempotente** (para que las repeticiones no cuenten). El efecto ocurre una vez, aunque el mensaje haya viajado varias.",
+    "La [[idempotencia]], que viste en [@07-12], es la propiedad de una operación que, aplicada una o muchas veces, deja el mismo resultado. Un paper clásico de diseño de sistemas, *End-to-End Arguments in System Design* (Saltzer, Reed y Clark, 1984), lo dice sobre el caso de los duplicados: aunque la red los elimine, la aplicación puede generar los suyos al reintentar, y esos le parecen mensajes distintos a la red [#end-to-end-args]."
+   ]
+  },
+  {
+   "t": "cita",
+   "x": "suppression must be accomplished by the application itself with knowledge of how to detect its own duplicates.",
+   "autor": "Saltzer, Reed y Clark, End-to-End Arguments in System Design (1984)",
+   "fuente": "end-to-end-args"
+  },
+  {
+   "t": "p",
+   "x": "Traducido a lo cotidiano: la red no puede saber que dos pedidos «crear entrega 5521» son el mismo hecho. Solo la aplicación, que sabe qué es una entrega, puede decidirlo."
+  },
+  {
+   "t": "nota",
+   "k": "mito",
+   "titulo": "«Mi cola garantiza exactly-once»",
+   "x": [
+    "Mirá qué dice por dentro un producto que usa ese nombre. La guía de Amazon SQS para colas FIFO titula la página «Exactly-once processing», y lo que describe es que, si reintentás el envío dentro de un intervalo de **5 minutos**, la cola no introduce duplicados [#back14-sqs-fifo-dedup]. Es deduplicación con una ventana de tiempo, aplicada al envío. Útil, y una garantía distinta a «el efecto ocurre una sola vez de punta a punta». Cuando alguien te diga «exactly-once», preguntá: **¿entre qué y qué, y con qué ventana?**"
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Tres caminos para volver idempotente una operación"
+  },
+  {
+   "t": "h3",
+   "x": "Camino 1: diseñarla idempotente desde el principio"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La definición del estándar HTTP es esta: un método es idempotente si el efecto buscado en el servidor de varias solicitudes idénticas es el mismo que el de una sola. PUT, DELETE y los métodos seguros lo son [#rfc9110]. La misma sección explica para qué sirve: cuando se corta la conexión antes de leer la respuesta, el cliente puede reintentar sin miedo un método idempotente, y aclara que **un cliente no debería reintentar automáticamente un método no idempotente** salvo que sepa que no hay problema o pueda detectar que el original nunca se aplicó [#rfc9110].",
+    "Muchas operaciones se pueden **reescribir**. «Restar 1 al stock» depende del valor anterior, así que cada repetición cambia el resultado. «Dejar el stock en 41» no depende de nada:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "let stockA = 42, stockB = 42;\nconst restarUno = () => { stockA -= 1; };            // depende del estado anterior\nconst fijarEn = (n) => { stockB = n; };              // no depende de nada\nfor (let i = 0; i < 3; i++) { restarUno(); fijarEn(41); }\nconsole.log('restar uno, aplicado 3 veces:', stockA, '| fijar en 41, aplicado 3 veces:', stockB);",
+   "cap": "Operación que depende del estado anterior contra operación que fija el estado final. Corrido en node 22."
+  },
+  {
+   "t": "p",
+   "x": "Cuando se puede, es la mejor opción: cero maquinaria extra. Pero sirve donde el emisor conoce el estado final deseado. «Descontar un bulto» entre muchos repartidores concurrentes no se puede reescribir como «dejar en 41» sin pisarse entre ellos."
+  },
+  {
+   "t": "h3",
+   "x": "Camino 2: una clave de idempotencia y deduplicación"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Cuando no se puede reescribir, se agrega identidad. El emisor genera, **una vez por intención**, una **clave de idempotencia**: un valor único (un UUID alcanza) que viaja con cada intento de esa misma operación. El receptor la guarda junto con el resultado, y si vuelve a verla no repite el trabajo. Eso es la [[deduplicación]]. En [@07-12] lo viste del lado de un servidor HTTP; con mensajes de una cola es igual, con el id del mensaje como clave.",
+    "Stripe, el procesador de pagos, es un ejemplo público: guarda el código de estado y el cuerpo de la primera solicitud hecha con cada clave y devuelve esa misma respuesta en los reintentos, incluso si fue un error 500; las claves admiten hasta 255 caracteres, y compara los parámetros del reintento con los originales y da error si difieren [#back13-stripe-idempotencia]. Fijate el detalle de la comparación: una misma clave con otro contenido es un error del cliente, no un reintento."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "Camino 3: versiones (compare-and-set)"
+  },
+  {
+   "t": "p",
+   "x": "Se manda junto con el cambio la versión que se leyó: «pasá el pedido 5521 a entregado, **si** está en la versión 7». Si el primer intento ya se aplicó, la versión ahora es 8 y el reintento no encuentra la 7: no hace nada. Es el bloqueo optimista que viste en [@09-26], aplicado al reintento. Sirve cuando hay un único registro que cambia de estado en una secuencia, y no sirve para «agregar una entrega más» a una lista."
+  },
+  {
+   "t": "tabla",
+   "cab": [
+    "Camino",
+    "Cuándo sirve",
+    "Qué cuesta"
+   ],
+   "filas": [
+    [
+     "Operación idempotente por diseño",
+     "El emisor sabe el estado final («dejar en»)",
+     "Casi nada; hay que pensar la operación"
+    ],
+    [
+     "Clave de idempotencia",
+     "Acciones que crean o suman («crear entrega»)",
+     "Guardar claves y decidir cuánto tiempo recordarlas"
+    ],
+    [
+     "Versión (compare-and-set)",
+     "Un registro que pasa por estados en orden",
+     "Leer antes de escribir y manejar el conflicto"
+    ]
+   ],
+   "cap": "Los tres se pueden combinar. Criterio propio."
+  },
+  {
+   "t": "h",
+   "x": "Dónde se anota la clave: el mismo problema de ayer"
+  },
+  {
+   "t": "p",
+   "x": [
+    "La deduplicación esconde una trampa que se parece mucho a la de [@12-25]. Para procesar un mensaje hay que hacer dos cosas: **aplicar el efecto** (descontar stock) y **anotar que ya se procesó** (guardar la clave). Son dos escrituras, y puede caerse el proceso entre una y otra. Probemos los tres órdenes posibles, con una caída entre los dos pasos y el mensaje reentregado después:"
+   ]
+  },
+  {
+   "t": "codigo",
+   "lang": "js",
+   "ejecutable": true,
+   "x": "// ¿Dónde anotar la clave de deduplicación? Tres órdenes, con una caída entre los dos pasos.\nfunction correr(orden) {\n  const db = { stock: 100, claves: new Set() };\n  const mensaje = { id: 'entrega-5521' };\n  const procesar = (caer) => {\n    if (db.claves.has(mensaje.id)) return 'ya procesado, se ignora';\n    if (orden === 'efecto-luego-clave') {\n      db.stock--; if (caer) throw new Error('caída'); db.claves.add(mensaje.id);\n    } else if (orden === 'clave-luego-efecto') {\n      db.claves.add(mensaje.id); if (caer) throw new Error('caída'); db.stock--;\n    } else {                                // una sola transacción: o los dos cambios o ninguno\n      const copia = { stock: db.stock, claves: new Set(db.claves) };\n      try { db.stock--; db.claves.add(mensaje.id); if (caer) throw new Error('caída'); }\n      catch (e) { db.stock = copia.stock; db.claves = copia.claves; throw e; }\n    }\n    return 'procesado';\n  };\n  try { procesar(true); } catch (e) { /* el proceso cayó: el mensaje no se confirmó */ }\n  console.log(orden.padEnd(20), '| tras la caída: stock=' + db.stock, 'clave=' + db.claves.has(mensaje.id));\n  const r = procesar(false);              // el broker reentrega el mensaje\n  console.log(' '.repeat(20), '| tras el reintento:', r, '-> stock=' + db.stock, '(correcto: 99)');\n}\n['efecto-luego-clave', 'clave-luego-efecto', 'misma-transaccion'].forEach(correr);",
+   "cap": "Tres órdenes de aplicar el efecto y anotar la clave, con una caída en el medio. Corrido en node 22."
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con **efecto y luego clave**, la caída deja el stock descontado y sin clave; al reentregar, el efecto se aplica de nuevo: stock 98, un duplicado. Con **clave y luego efecto**, la caída deja la clave anotada sin efecto; al reentregar, el mensaje se ignora por «ya procesado» y el efecto **nunca ocurre**: stock 100, una pérdida silenciosa. Solo la tercera versión, **los dos cambios en una sola transacción**, es correcta: o quedan ambos o ninguno.",
+    "Esto se logra naturalmente cuando el efecto y la tabla de claves están en la **misma base de datos**: la [[atomicidad]] de [@09-24] hace el trabajo. Es la misma lección de ayer en otra forma. Cuando el efecto ocurre en otro sistema (un cobro en una API de terceros), esa transacción única no existe, y ahí se vuelve a necesitar que el otro sistema acepte una clave de idempotencia propia."
+   ]
+  },
+  {
+   "t": "h3",
+   "x": "El árbitro: una restricción única"
+  },
+  {
+   "t": "p",
+   "x": "Falta el caso más feo: dos reintentos de la misma clave llegando **al mismo tiempo**. Si ambos consultan «¿ya la vi?», los dos contestan «no» y los dos aplican el efecto. La solución es dejar que la base decida con una restricción de unicidad: la clave es clave primaria y el INSERT lleva `ON CONFLICT DO NOTHING`. Lo probé con PostgreSQL 16.15 y dos sesiones de psql, la primera con una demora de 2 segundos antes del COMMIT:"
+  },
+  {
+   "t": "terminal",
+   "lineas": [
+    {
+     "c": "# sesión 1: begin; insert ... clave 7f3c…0001 ... on conflict do nothing; select pg_sleep(2); commit;\n# sesión 2, 0,5 s después, mismo insert",
+     "s": "INSERT 0 0\n(la sesión 2 esperó 1,53 s hasta que la 1 confirmó)"
+    },
+    {
+     "c": "psql -d idem -c \"select count(*) from entregas;\"",
+     "s": " count\n-------\n     1"
+    },
+    {
+     "c": "psql -d idem -c \"insert into entregas values ('7f3c1d52-0000-4000-8000-000000000001', 5521, 'entregado');\"",
+     "s": "ERROR:  duplicate key value violates unique constraint \"entregas_pkey\"\nDETAIL:  Key (cliente_id)=(7f3c1d52-0000-4000-8000-000000000001) already exists."
+    }
+   ],
+   "cap": "Salida real de esta VM; la espera de 1,53 s es un dato de una sola máquina. Sin `ON CONFLICT`, el reintento da error en lugar de ignorarse."
+  },
+  {
+   "t": "p",
+   "x": "La segunda sesión no se adelantó: **esperó** a que la primera terminara y recién entonces vio que la clave ya existía. `INSERT 0 0` quiere decir «cero filas insertadas»: se ignoró. Una sola fila, aunque llegaron dos intentos casi a la vez. El índice único es el árbitro que no se equivoca, porque está del lado de los datos y no de la aplicación."
+  },
+  {
+   "t": "nota",
+   "k": "ojo",
+   "titulo": "¿Cuánto tiempo se recuerda una clave?",
+   "x": [
+    "No se pueden guardar claves para siempre. Stripe, en la versión 1 de su API, permite borrar las claves con al menos 24 horas, y si después llega una con una clave podada, genera una solicitud nueva [#back13-stripe-idempotencia]. La cola FIFO de SQS deduplica en 5 minutos [#back14-sqs-fifo-dedup]. Eso es una **ventana de deduplicación**: un reintento que llega fuera de ella se trata como una operación nueva. La ventana tiene que ser más larga que el máximo tiempo que un cliente puede seguir reintentando, y más corta de lo que podés pagar guardando."
+   ]
+  },
+  {
+   "t": "pensa",
+   "x": "Un repartidor sin señal junta 40 entregas y las manda todas cuando vuelve la conexión, 36 horas después. La API que las recibe recuerda las claves 24 horas. ¿Qué riesgo hay?",
+   "resp": "Si alguna de esas entregas ya se había mandado una vez antes (por ejemplo, el primer intento se aplicó pero su respuesta se perdió), su clave ya fue borrada de la memoria de la API y el reintento se trata como una entrega nueva: duplicado. La ventana tiene que cubrir el peor tiempo de reintento del cliente, o el cliente tiene que usar otro mecanismo (una restricción única permanente sobre el id de la entrega)."
+  },
+  {
+   "t": "h",
+   "x": "Reintentar sin empeorar las cosas"
+  },
+  {
+   "t": "p",
+   "x": [
+    "Con operaciones idempotentes, reintentar es seguro **para el dato**, pero sigue pudiendo ser dañino **para el sistema**. De [@07-17] ya conocés el remedio: esperar cada vez más ([[reintento con espera]]), agregar [[jitter]] para que todos los clientes no reintenten a la vez, y limitar el número total de intentos. Si cada capa reintenta tres veces, tres capas generan 27 intentos sobre el servicio que ya estaba caído.",
+    "Hay un criterio práctico para resumir el día: **reintentá solo lo que es idempotente, y si no lo es, volvelo idempotente antes de reintentar**. Las compensaciones de una saga ([@12-25]) siguen esta regla; los webhooks que recibís de un proveedor ([@08-10]), también: el emisor reintenta, así que vos deduplicás por el id del evento."
+   ]
+  },
+  {
+   "t": "h",
+   "x": "Senda: tres decisiones, dos garantías distintas"
+  },
+  {
+   "t": "p",
+   "x": "Senda usa las dos garantías de la tabla, cada una donde corresponde. Lo siguiente corresponde al commit 25e08fa del 9 de noviembre de 2026; el código cambia, la forma permanece."
+  },
+  {
+   "t": "senda",
+   "titulo": "Al menos una vez, con deduplicación: las respuestas del Espadeo",
+   "x": [
+    "Cuando alguien responde una pregunta, el teléfono la mete en una cola guardada en el propio aparato, con un `cliente_id` generado **ahí**, una sola vez. Cada cierto tiempo manda un lote con `POST` a la base, con `on_conflict=cliente_id` y `resolution=ignore-duplicates`. Una fila sale de la cola recién cuando el servidor contestó bien; si no, queda y se reintenta. Entre intentos espera 5 segundos, luego 10, 20, y así hasta un tope de 10 minutos, multiplicado por un factor al azar entre 0,5 y 1,5: esa es la espera creciente con jitter de [@07-17]. El resultado: la fila se manda al menos una vez, el servidor la ignora si ya la tenía, y el efecto ocurre una vez.",
+    "El mismo patrón está en el servidor para los turnos de duelo: `jugar_turno` recibe un `p_cliente_id`, y si ya existe una jugada con ese id devuelve la partida tal como está, sin volver a procesar. Además toma la fila de la partida con `for update`, así dos intentos simultáneos se ordenan en lugar de pisarse."
+   ],
+   "archivos": [
+    "src/util/nube.ts",
+    "supabase/migrations/20261127000000_seguridad.sql"
+   ]
+  },
+  {
+   "t": "senda",
+   "titulo": "Como mucho una vez: los avisos push",
+   "x": [
+    "`enviar_avisos()` corre cada minuto con pg_cron, toma hasta 3.000 avisos pendientes con `for update skip locked` (dos corridas simultáneas no agarran los mismos), manda los pedidos a Expo con `net.http_post` y **marca todos como enviados** sin revisar cómo salió; si el envío da error, solo lo anota en el log y sigue. No lee los recibos de Expo y no reintenta. Es entrega **como mucho una vez**.",
+    "Para un aviso («Te toca jugar») es una elección razonable: un duplicado molesta, una pérdida se tolera porque la partida sigue en la base y el aviso es un empujón, no la fuente de verdad. No sería aceptable para cobrar. Lo sensato del diseño es que cada mecanismo tiene la garantía que su daño justifica."
+   ],
+   "archivos": [
+    "supabase/migrations/20261130000005_grupos_grandes.sql"
+   ]
+  },
+  {
+   "t": "nota",
+   "k": "vigencia",
+   "titulo": "Qué cambia con el tiempo",
+   "x": [
+    "Los principios (la imposibilidad de saber si llegó, las tres garantías, la idempotencia) no cambian. Lo que depende de la herramienta se leyó el 16-11-2026: la documentación de Stripe (claves de hasta 255 caracteres; borrado desde las 24 horas en la API v1, con comportamiento distinto en la v2), el intervalo de 5 minutos de SQS FIFO y la cabecera `Idempotency-Key`, que sigue siendo un borrador del IETF (versión 08, del 22 de octubre de 2026) y no un estándar [#back13-stripe-idempotencia][#back14-sqs-fifo-dedup][#be1112-idempotency-draft]."
+   ]
+  }
+ ],
+ "recap": [
+  "Tras un timeout, el emisor no puede distinguir entre «el pedido se perdió» y «llegó y se perdió la respuesta». Solo puede elegir entre arriesgar una pérdida o arriesgar un duplicado.",
+  "Como mucho una vez no reintenta y puede perder; al menos una vez reintenta y puede duplicar. En la simulación, 100 entregas dieron 70 bultos descontados con la primera y 124 con la segunda.",
+  "«Exactamente una vez» no es una propiedad de la red: es al menos una vez más procesamiento idempotente. La deduplicación tiene que hacerla la aplicación, según el argumento de extremo a extremo.",
+  "Tres caminos para la idempotencia: diseñar la operación como «dejar en», usar una clave de idempotencia con deduplicación, o usar versiones (compare-and-set).",
+  "La clave y el efecto tienen que anotarse en la misma transacción. Si se anota después del efecto hay duplicados, y si se anota antes hay pérdidas silenciosas.",
+  "Una restricción única en la base es el árbitro cuando llegan dos reintentos a la vez, y la clave se recuerda solo durante una ventana que hay que dimensionar.",
+  "Senda usa cliente_id con deduplicación para las respuestas y los turnos de duelo (al menos una vez más deduplicación) y entrega como mucho una vez para los avisos push."
+ ],
+ "repaso": [
+  {
+   "p": "Un cliente manda «crear pedido» y el tiempo de espera se agota sin respuesta. ¿Qué afirmación es verdadera?",
+   "o": [
+    "El pedido no se creó, porque si se hubiera creado habría llegado la respuesta",
+    "El pedido se creó seguro, porque el servidor casi nunca pierde pedidos",
+    "El cliente no puede saber si se creó, y reintentar sin cuidado puede duplicarlo",
+    "El cliente sabe que se creó si el error fue de conexión y no de servidor"
+   ],
+   "c": 2,
+   "e": "Perder el pedido, perder la respuesta o una caída a mitad de trabajo se ven igual desde el emisor. Que no haya respuesta no prueba que no se creó, y un error de conexión tampoco dice en qué momento se cortó. Por eso hace falta una forma de que repetir sea inocuo."
+  },
+  {
+   "p": "En la simulación, la estrategia «al menos una vez» descontó 124 bultos para 100 entregas. ¿Qué explica esos 24 bultos de más?",
+   "o": [
+    "El receptor perdió algunas confirmaciones y no las anotó",
+    "El enlace duplicó paquetes por un error de la red",
+    "El emisor mandó entregas que no existían",
+    "El receptor procesó repeticiones de entregas que ya había procesado"
+   ],
+   "c": 3,
+   "e": "Cuando se pierde la confirmación, el emisor reintenta una entrega que el receptor ya había aplicado y, sin deduplicar, la aplica de nuevo. No hubo errores de la red que duplicaran paquetes ni entregas inventadas: el duplicado lo creó el propio reintento del emisor. Perder confirmaciones es la causa del reintento, no del exceso en el stock."
+  },
+  {
+   "p": "Un proveedor de colas anuncia «exactly-once». Un colega dice que eso es imposible. ¿Quién tiene razón y por qué?",
+   "o": [
+    "El colega: con redes que pierden mensajes, ninguna garantía es posible",
+    "El proveedor: la red moderna ya no pierde ni duplica mensajes",
+    "Los dos: el proveedor garantiza la entrega y el colega, el procesamiento",
+    "Ninguno del todo: la frase describe un efecto construido con deduplicación y alcance acotado"
+   ],
+   "c": 3,
+   "e": "Lo que se logra es entrega al menos una vez más deduplicación, con un alcance y una ventana concretos, como los 5 minutos de SQS FIFO. Decir que no hay ninguna garantía es exagerar. Decir que la red ya no falla es falso. Dividir entre entrega y procesamiento no resuelve que la propiedad sea un resultado construido."
+  },
+  {
+   "p": "Un consumidor procesa un mensaje en dos pasos: anota la clave y después descuenta el stock. El proceso cae entre los dos y la cola reentrega el mensaje. ¿Qué pasa?",
+   "o": [
+    "Se descuenta dos veces, porque el mensaje se procesa de nuevo",
+    "Nunca se descuenta, porque la clave ya figura y el reintento se ignora",
+    "Se descuenta una vez, porque la clave evita el duplicado",
+    "Se produce un error, porque no se puede anotar la misma clave dos veces"
+   ],
+   "c": 1,
+   "e": "Con la clave anotada y el efecto sin aplicar, el reintento se descarta por «ya procesado» y el efecto se pierde en silencio. El duplicado ocurre en el orden contrario (efecto y después clave). Anotar y aplicar en una sola transacción evita las dos fallas. No hay error de clave repetida porque el consumidor la consulta antes."
+  },
+  {
+   "p": "Dos reintentos con la misma clave llegan casi a la vez. Ambos consultan «¿ya vi esta clave?» y ambos contestan que no. ¿Cuál es la defensa más robusta?",
+   "o": [
+    "Una restricción única sobre la clave en la base, con INSERT que ignora el conflicto",
+    "Una pausa aleatoria antes de consultar, para que no coincidan",
+    "Reintentar más lento desde el cliente para que no coincidan",
+    "Consultar dos veces la clave antes de aplicar el efecto"
+   ],
+   "c": 0,
+   "e": "La unicidad la impone la base de forma atómica: una sesión espera a la otra y la segunda se entera de que ya existe. Las pausas y consultas repetidas reducen la probabilidad, pero no eliminan la carrera, porque entre la consulta y la escritura hay un hueco."
+  },
+  {
+   "p": "Una API recuerda las claves de idempotencia durante 24 horas. ¿Cuál de estos escenarios puede generar un duplicado?",
+   "o": [
+    "Un cliente reintenta a los 10 minutos con la misma clave y el mismo contenido",
+    "Un cliente reintenta con la misma clave 3 días después de un primer intento que se había aplicado",
+    "Un cliente reintenta con la misma clave, pero con otro monto",
+    "Dos clientes distintos usan claves distintas para dos pedidos distintos"
+   ],
+   "c": 1,
+   "e": "Pasada la ventana, la clave ya no está y el reintento se trata como una operación nueva, aunque el primer intento sí se había aplicado. El reintento a los 10 minutos se deduplica y el que cambia el monto da un error de uso de la clave. Dos pedidos con claves distintas son legítimos."
+  },
+  {
+   "p": "Senda tiene dos mecanismos: las respuestas del Espadeo con cliente_id y los avisos push. ¿Qué afirmación los describe bien?",
+   "o": [
+    "Los dos reintentan hasta confirmar y deduplican en el servidor",
+    "Los dos mandan una sola vez sin reintentar",
+    "Las respuestas reintentan con deduplicación y los avisos se mandan como mucho una vez",
+    "Las respuestas se mandan como mucho una vez y los avisos con deduplicación"
+   ],
+   "c": 2,
+   "e": "Las respuestas se guardan en el teléfono, se reintentan con espera creciente y el servidor ignora los cliente_id repetidos. Los avisos se marcan como enviados tras el pedido a Expo, sin leer recibos ni reintentar. Cada mecanismo tiene la garantía que el daño de fallar justifica."
+  }
+ ],
+ "feynman": "Explicale a alguien de logística por qué un repartidor que toca «Entregado» sin señal no puede saber si el sistema se enteró, y cómo se diseña el sistema para que reintentar nunca duplique la entrega ni la pierda.",
+ "para_profundizar": [
+  {
+   "fuente": "end-to-end-args",
+   "nota": "El paper de 1984. Leé la sección «Duplicate message suppression»: es la justificación de por qué la deduplicación vive en la aplicación."
+  },
+  {
+   "fuente": "back13-stripe-idempotencia",
+   "nota": "Cómo un proveedor de pagos real implementa claves de idempotencia: qué guarda, cuánto tiempo y qué hace si el contenido cambia."
+  },
+  {
+   "fuente": "rfc9110",
+   "nota": "Sección 9.2.2, «Idempotent Methods»: la definición oficial y la regla sobre reintentar métodos no idempotentes."
+  },
+  {
+   "fuente": "integ0816-eip-idempotent",
+   "nota": "El patrón «Idempotent Receiver»: la misma idea expresada para sistemas de mensajería."
+  }
+ ],
+ "videos": [
+  {
+   "q": "idempotency key explained retries duplicate requests payments",
+   "por_que": "Para ver el problema del duplicado y la solución de la clave dibujados con otro ejemplo."
+  }
+ ],
+ "terminos": [
+  {
+   "t": "clave de idempotencia",
+   "d": "Valor único que el emisor genera una vez por cada intención y manda con todos los reintentos de esa operación, para que el receptor reconozca que se trata de la misma y no repita su efecto."
+  },
+  {
+   "t": "at-least-once",
+   "d": "Garantía de entrega «al menos una vez»: el emisor reintenta hasta recibir confirmación, así que el mensaje no se pierde, pero puede llegar repetido. Exige que el receptor tolere duplicados."
+  },
+  {
+   "t": "deduplicación",
+   "d": "Mecanismo con el que el receptor reconoce un mensaje u operación ya procesados, normalmente por su clave o id, y evita aplicar de nuevo su efecto."
+  },
+  {
+   "t": "at-most-once",
+   "d": "Garantía de entrega «como mucho una vez»: el emisor envía y no reintenta. No hay duplicados, pero un mensaje perdido no se recupera."
+  },
+  {
+   "t": "ventana de deduplicación",
+   "d": "Período durante el cual el sistema recuerda las claves ya vistas. Un reintento que llega fuera de esa ventana se trata como una operación nueva."
+  }
+ ],
+ "siguiente": "Patrones de resiliencia: hoy hicimos seguro reintentar, y mañana vemos cómo se limitan, se espacian y se aíslan los fallos con timeouts, backoff, bulkheads y degradación.",
+ "fuentes_nuevas": []
+}
